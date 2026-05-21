@@ -22,7 +22,7 @@ The system MUST provide a Mock certification action that sets both `verification
 
 ### Requirement: Volunteers see non-sensitive order data before accepting
 
-The system MUST show available volunteers blind runner nickname, start location, appointment time, optional route metadata, and remarks before accepting, while hiding phone and emergency contacts.
+The system MUST show available volunteers blind runner nickname, start location, appointment time, optional destination or route description fields, and remarks before accepting, while hiding phone and emergency contacts.
 
 #### Scenario: Available order list
 - **WHEN** a volunteer views available orders

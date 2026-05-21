@@ -889,6 +889,14 @@ components:
           type: string
           format: date-time
           nullable: true
+        cancelledAt:
+          type: string
+          format: date-time
+          nullable: true
+        emergencyAt:
+          type: string
+          format: date-time
+          nullable: true
         updatedAt:
           type: string
           format: date-time
@@ -911,22 +919,28 @@ components:
 
     CancelOrderRequest:
       type: object
-      required: [cancelledBy, reason]
+      required: [cancelledBy, cancelledReason]
       properties:
         cancelledBy:
           $ref: '#/components/schemas/CancellationActor'
-        reason:
+        cancelledReason:
           $ref: '#/components/schemas/CancellationReason'
         otherReasonText:
           type: string
 
     CancellationDto:
       type: object
-      required: [cancelledBy, reason, createdAt]
+      required: [id, orderId, cancelledBy, cancelledReason, createdAt]
       properties:
+        id:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
         cancelledBy:
           $ref: '#/components/schemas/CancellationActor'
-        reason:
+        cancelledReason:
           $ref: '#/components/schemas/CancellationReason'
         otherReasonText:
           type: string
@@ -943,8 +957,14 @@ components:
 
     EmergencyEventDto:
       type: object
-      required: [triggeredByRole, previousStatus, createdAt]
+      required: [id, orderId, triggeredByRole, previousStatus, createdAt]
       properties:
+        id:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
         triggeredByRole:
           $ref: '#/components/schemas/UserRole'
         previousStatus:
@@ -958,8 +978,11 @@ components:
 
     ServiceSummaryDto:
       type: object
-      required: [orderId, volunteerUserId, createdAt]
+      required: [id, orderId, volunteerUserId, createdAt]
       properties:
+        id:
+          type: string
+          format: uuid
         orderId:
           type: string
           format: uuid
@@ -986,8 +1009,11 @@ components:
 
     RatingDto:
       type: object
-      required: [orderId, blindRunnerUserId, volunteerUserId, stars, createdAt]
+      required: [id, orderId, blindRunnerUserId, volunteerUserId, stars, createdAt]
       properties:
+        id:
+          type: string
+          format: uuid
         orderId:
           type: string
           format: uuid

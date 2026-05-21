@@ -55,7 +55,7 @@ flowchart TD
     VOL_Home -->|"查看全部"| VOL_OrderList
     VOL_OrderList -->|"点击订单"| VOL_OrderDetail
     VOL_OrderDetail -->|"接单"| VOL_InService
-    VOL_OrderDetail -->|"导航(AMap)"| VOL_InService
+    VOL_OrderDetail -->|"查看出发点位置(AMap)"| VOL_InService
     VOL_InService -->|"结束服务"| VOL_Home
     VOL_InService -->|"紧急求助"| BR_Emergency
 
@@ -75,25 +75,24 @@ flowchart TD
 stateDiagram-v2
     [*] --> matching: 盲人提交预约
 
-    matching --> accepted: 志愿者接单成功\n(API: PATCH /orders/{id}/accept)
-    matching --> cancelled: 盲人取消\n(API: PATCH /orders/{id}/cancel)
+    matching --> accepted: 志愿者接单成功\n(API: POST /api/orders/{orderId}/accept)
+    matching --> cancelled: 盲人取消\n(API: POST /api/orders/{orderId}/cancel)
     matching --> cancelled: 超时自动取消\n(距预约时间<30min无人接单)
 
-    accepted --> arrived: 志愿者点击"我已到达"\n(API: PATCH /orders/{id}/arrive)
-    accepted --> cancelled: 任一方取消\n(API: PATCH /orders/{id}/cancel)
-    accepted --> emergency: 任一方触发求助\n(API: PATCH /orders/{id}/emergency)
+    accepted --> arrived: 志愿者点击"我已到达"\n(API: POST /api/orders/{orderId}/arrive)
+    accepted --> cancelled: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
+    accepted --> emergency: 任一方触发求助\n(API: POST /api/orders/{orderId}/emergency)
 
-    arrived --> in_progress: 盲人确认开始服务\n(API: PATCH /orders/{id}/start)
-    arrived --> cancelled: 任一方取消\n(API: PATCH /orders/{id}/cancel)
-    arrived --> emergency: 任一方触发求助\n(API: PATCH /orders/{id}/emergency)
+    arrived --> in_progress: 盲人确认开始服务\n(API: POST /api/orders/{orderId}/confirm-start)
+    arrived --> cancelled: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
+    arrived --> emergency: 任一方触发求助\n(API: POST /api/orders/{orderId}/emergency)
 
-    in_progress --> completed: 志愿者结束服务\n(API: PATCH /orders/{id}/complete)
-    in_progress --> emergency: 任一方触发求助\n(API: PATCH /orders/{id}/emergency)
-
-    emergency --> completed: 志愿者结束服务\n(异常完成, API: PATCH /orders/{id}/complete)
+    in_progress --> completed: 志愿者结束服务\n(API: POST /api/orders/{orderId}/complete)
+    in_progress --> emergency: 任一方触发求助\n(API: POST /api/orders/{orderId}/emergency)
 
     completed --> [*]: 订单结束
     cancelled --> [*]: 订单结束
+    emergency --> [*]: 异常终态
 ```
 
 ### 状态流转规则表
@@ -110,12 +109,11 @@ stateDiagram-v2
 | arrived | emergency | 盲人 / 志愿者 | 一键求助 |
 | in_progress | completed | 志愿者 | 正常结束 |
 | in_progress | emergency | 盲人 / 志愿者 | 一键求助 |
-| emergency | completed | 志愿者 | 异常状态下结束（不支持恢复） |
 
 ### 禁止的流转
 
 - in_progress → cancelled（服务开始后不支持普通取消，只能走 emergency）
-- emergency → 任何其他状态（不支持恢复）
+- emergency → 任何其他状态（MVP 不支持恢复或继续执行生命周期动作）
 - completed → 任何状态（终态）
 - cancelled → 任何状态（终态）
 
@@ -129,7 +127,7 @@ sequenceDiagram
     actor VOL as 志愿者
 
     BR->>App: 打开 App
-    App->>API: POST /auth/login (手机号 + 123456)
+    App->>API: POST /api/auth/phone-login (手机号 + 123456)
     API-->>App: { accessToken, user }
     App->>BR: 显示盲人首页
     Note over App: TTS: "欢迎来到助盲跑"
@@ -140,38 +138,38 @@ sequenceDiagram
 
     BR->>App: 填写出发地点、时间、备注
     BR->>App: 点击"提交预约"
-    App->>API: POST /orders (booking data)
+    App->>API: POST /api/orders (booking data)
     API-->>App: { orderId, status: "matching" }
     Note over App: TTS: "订单提交成功，等待志愿者接单"
 
     loop 每5秒轮询
-        App->>API: GET /orders/{id}
+        App->>API: GET /api/orders/{orderId}
         API-->>App: { status: "matching" }
     end
 
-    VOL-->>API: 接单 (PATCH /orders/{id}/accept)
+    VOL-->>API: 接单 (POST /api/orders/{orderId}/accept)
     Note over API: 状态: matching → accepted
 
-    App->>API: GET /orders/{id}
+    App->>API: GET /api/orders/{orderId}
     API-->>App: { status: "accepted", volunteer: {...} }
     Note over App: TTS: "志愿者已接单"
 
-    VOL-->>API: 到达 (PATCH /orders/{id}/arrive)
+    VOL-->>API: 到达 (POST /api/orders/{orderId}/arrive)
     Note over API: 状态: accepted → arrived
 
-    App->>API: GET /orders/{id}
+    App->>API: GET /api/orders/{orderId}
     API-->>App: { status: "arrived" }
     Note over App: TTS: "志愿者已到达约定地点"
 
     BR->>App: 点击"确认开始服务"
-    App->>API: PATCH /orders/{id}/start
+    App->>API: POST /api/orders/{orderId}/confirm-start
     API-->>App: { status: "in_progress" }
     Note over App: TTS: "服务已开始"
 
-    VOL-->>API: 结束服务 (PATCH /orders/{id}/complete)
+    VOL-->>API: 结束服务 (POST /api/orders/{orderId}/complete)
     Note over API: 状态: in_progress → completed
 
-    App->>API: GET /orders/{id}
+    App->>API: GET /api/orders/{orderId}
     API-->>App: { status: "completed" }
     Note over App: TTS: "服务已完成"
 
@@ -192,7 +190,7 @@ sequenceDiagram
     App->>API: 验证 token
     API-->>App: token 有效
     App->>VOL: 显示志愿者首页
-    App->>API: GET /orders?status=matching
+    App->>API: GET /api/orders/available
     API-->>App: [{ order1, order2, ... }]
     App->>App: 按距离排序
 
@@ -200,20 +198,20 @@ sequenceDiagram
     App->>VOL: 距离最近订单排最前
 
     VOL->>App: 点击订单
-    App->>API: GET /orders/{id}
+    App->>API: GET /api/orders/{orderId}
     API-->>App: 订单详情（隐藏盲人电话）
     App->>VOL: 显示订单详情
 
     VOL->>App: 点击"接单"
-    App->>API: PATCH /orders/{id}/accept
+    App->>API: POST /api/orders/{orderId}/accept
     API-->>App: { status: "accepted" }
-    App->>VOL: 显示盲人联系电话 + "导航"按钮
+    App->>VOL: 显示盲人联系电话 + "查看地图"按钮
 
-    VOL->>App: 点击"导航"
-    App->>AMap: 打开高德地图导航
+    VOL->>App: 点击"查看地图"
+    App->>AMap: 显示出发点位置、当前位置和距离
 
     VOL->>App: 到达后点击"我已到达"
-    App->>API: PATCH /orders/{id}/arrive
+    App->>API: POST /api/orders/{orderId}/arrive
     API-->>App: { status: "arrived" }
 
     Note over API: 等待盲人确认开始
@@ -224,8 +222,8 @@ sequenceDiagram
     VOL->>App: 服务结束点击"结束服务"
     App->>App: 弹出确认弹窗
     VOL->>App: 确认
-    App->>API: PATCH /orders/{id}/complete
-    API-->>App: { status: "completed", pointsEarned: 100 }
+    App->>API: POST /api/orders/{orderId}/complete
+    API-->>App: { status: "completed" }
     App->>VOL: 显示"服务完成，获得 +100 积分"
 ```
 
@@ -243,19 +241,19 @@ sequenceDiagram
     User->>App: 点击"紧急求助"按钮
     App->>User: 弹出确认弹窗\n"是否确认进入求助状态？\n确认后，本次服务将标记为异常"
     User->>App: 确认求助
-    App->>API: PATCH /orders/{id}/emergency
+    App->>API: POST /api/orders/{orderId}/emergency
     Note over API: 状态 → emergency
     API-->>App: { status: "emergency" }
 
     Note over App: TTS: "已进入求助状态"
 
     loop 另一方轮询
-        Other->>API: GET /orders/{id}
+        Other->>API: GET /api/orders/{orderId}
         API-->>Other: { status: "emergency" }
         Note over Other: TTS: "进入求助状态" / UI 更新
     end
 
-    Note over App,Other: 显示紧急联系人信息（盲人端）\n订单不可恢复，只能异常结束
+    Note over App,Other: 显示紧急联系人信息（盲人端）\n订单不可恢复，保持 emergency 终态
 ```
 
 ## 6. 角色切换拦截流程
@@ -283,7 +281,7 @@ sequenceDiagram
     participant TTS as AVSpeechSynthesizer
 
     loop 每5秒（仅订单相关页面）
-        App->>API: GET /orders/{id}
+        App->>API: GET /api/orders/{orderId}
         API-->>App: { status, ... }
 
         alt 状态变化

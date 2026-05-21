@@ -226,20 +226,21 @@
   - arrived：志愿者卡片 + "志愿者已到达约定地点"
 - 订单信息卡片（出发地点、预约时间、可选项）
 - "确认开始服务"按钮（仅 arrived 状态显示，最小 64pt）
-- "取消订单"按钮（仅 matching 状态显示，灰色/危险色）
+- "取消订单"按钮（matching / accepted / arrived 状态显示，灰色/危险色）
 - "一键求助"按钮（accepted / arrived 状态显示，红色醒目）
 - "重复当前状态"按钮
 
 **主要操作**：
-- matching：点击"取消订单"（二次确认）
+- matching / accepted / arrived：点击"取消订单"（二次确认，选择固定取消原因）
 - arrived：点击"确认开始服务"
 - accepted / arrived：点击"一键求助"（二次确认）
 - 点击"重复当前状态"
 
 **状态变化**：
-- 每 5 秒轮询 GET /orders/{id}
+- 每 5 秒轮询 GET /api/orders/{orderId}
 - matching → accepted：更新 UI + TTS "志愿者已接单"
 - matching → cancelled：显示"抱歉，暂无志愿者" + TTS
+- accepted / arrived → cancelled：显示"预约已取消" + TTS
 - accepted → arrived：显示确认按钮 + TTS "志愿者已到达"
 - arrived → in_progress：跳转服务中页面 + TTS "服务已开始"
 
@@ -347,7 +348,7 @@
 - Mock 认证区域：
   - 提示文字："请完成以下认证步骤（Demo 版为模拟认证）"
   - Mock 认证按钮（模拟身份验证流程）
-  - 认证状态显示（not_submitted → pending → approved）
+  - 认证状态显示（not_submitted / pending / approved / rejected，MVP Mock 认证成功后直接 approved）
 - "提交"按钮
 
 **主要操作**：
@@ -356,7 +357,8 @@
 - 点击"提交" → 保存资料 → 进入志愿者首页
 
 **状态变化**：
-- Mock 认证完成：verificationStatus = approved, adminReviewStatus = approved, isAvailable = true
+- Mock 认证完成：verificationStatus = approved, adminReviewStatus = approved
+- 可服务开关由志愿者首页单独控制，Mock 认证不自动开启 isAvailable
 - 提交：loading → 成功跳转
 
 **错误状态**：
@@ -403,7 +405,7 @@
 - 订单列表：进入时加载，下拉刷新
 
 **错误状态**：
-- 定位权限拒绝 → 提示"需要开启定位权限"，不显示距离信息
+- 定位权限拒绝 → 提示"需要开启定位权限"，阻断距离排序相关订单查看与接单流程
 - 订单加载失败 → "加载失败，下拉重试"
 - 网络错误 → 保留上次缓存数据
 
@@ -442,7 +444,7 @@
 
 **错误状态**：
 - 网络错误 → "加载失败，下拉重试"
-- 定位不可用 → 提示"需要定位权限"，不显示距离排序
+- 定位不可用 → 提示"需要定位权限"，阻断距离排序相关订单查看与接单流程
 
 **空状态**：
 - 无 matching 订单 → 空状态插图 + "暂无可用订单" + "下拉刷新"提示
@@ -468,14 +470,14 @@
 **主要内容（接单后）**：
 - 订单信息同上
 - 盲人完整信息（昵称 + 联系电话，可点击拨打）
-- "导航"按钮（打开高德地图导航到出发地点）
+- "查看地图"按钮（显示高德地图出发点位置、当前位置和距离，不做路线导航）
 - "我已到达"按钮
 - "取消订单"按钮
 - "一键求助"按钮
 
 **主要操作**：
 - 接单前：点击"接单" → 确认弹窗 → 接单成功
-- 接单后：点击"导航" → 打开高德地图
+- 接单后：点击"查看地图" → 显示出发点位置、当前位置和距离
 - 接单后：点击"我已到达" → 订单变为 arrived
 - 接单后：点击"一键求助" → 二次确认 → emergency
 - 接单后：点击"取消订单" → 二次确认 → 选择取消原因 → cancelled
@@ -489,14 +491,14 @@
 **错误状态**：
 - 接单失败（已被接） → "该订单已被其他志愿者接单" → 返回列表
 - 接单失败（网络） → "接单失败，请重试"
-- 导航失败 → "无法打开地图应用"
+- 地图显示失败 → "无法显示地图，请重试"
 
 **空状态**：不适用（订单存在才有详情页）。
 
 **无障碍要求**：
 - "接单"按钮：最小高度 64pt，accessibilityLabel = "接单"，accessibilityHint = "确认接单后将显示盲人联系方式"
 - "我已到达"按钮：最小高度 64pt，accessibilityLabel = "我已到达约定地点"
-- "导航"按钮：accessibilityLabel = "导航到出发地点"
+- "查看地图"按钮：accessibilityLabel = "查看出发点位置"
 - "一键求助"按钮：红色醒目，需二次确认
 
 ---
@@ -526,7 +528,7 @@
 - 每 5 秒轮询
 - arrived → in_progress（盲人确认后）：UI 更新
 - in_progress → completed：跳转首页 + 显示"服务完成，获得 +100 积分"
-- 任一状态 → emergency：跳转紧急求助页
+- accepted / arrived / in_progress → emergency：跳转紧急求助页
 
 **错误状态**：
 - 网络错误 → 保留当前 UI，静默重试

@@ -172,7 +172,7 @@ Rules:
 | `pacePreference` | String | No | 配速偏好 |
 | `preferSameGender` | Boolean | No | 是否需要同性志愿者；MVP 不参与匹配算法 |
 | `remark` | String | No | 备注 |
-| `blindRunnerPhoneVisibleToVolunteer` | Boolean | Yes | 接单后为 true |
+| `blindRunnerPhone` | String | No | 盲人联系电话；接单前 API 不返回，接单后对接单志愿者完整返回 |
 | `createdAt` | Instant | Yes | 创建时间 |
 | `acceptedAt` | Instant | No | 接单时间 |
 | `arrivedAt` | Instant | No | 到达时间 |
@@ -196,8 +196,8 @@ Rules:
 | `id` | UUID/String | Yes | 主键 |
 | `orderId` | UUID/String | Yes | 关联 RunOrder |
 | `cancelledBy` | CancellationActor | Yes | 取消方 |
-| `reason` | CancellationReason | Yes | 固定原因 |
-| `otherReasonText` | String | No | reason 为 `other` 时填写 |
+| `cancelledReason` | CancellationReason | Yes | 固定取消原因 |
+| `otherReasonText` | String | No | cancelledReason 为 `other` 时填写 |
 | `createdAt` | Instant | Yes | 取消时间 |
 
 Rules:

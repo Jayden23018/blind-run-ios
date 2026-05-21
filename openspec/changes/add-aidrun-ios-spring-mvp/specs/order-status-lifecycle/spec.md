@@ -24,6 +24,10 @@ The system MUST reject lifecycle operations that do not match the current order 
 - **WHEN** a volunteer attempts to complete an order that is not `in_progress`
 - **THEN** the backend returns `INVALID_ORDER_STATUS`
 
+#### Scenario: Emergency is terminal for MVP lifecycle actions
+- **WHEN** an order is in `emergency`
+- **THEN** arrive, confirm-start, complete, and cancel actions are rejected with `INVALID_ORDER_STATUS`
+
 ### Requirement: Cancellation is allowed only before service starts
 
 The system MUST allow blind runners or volunteers to cancel only `matching`, `accepted`, or `arrived` orders and record fixed cancellation reason data.
