@@ -49,4 +49,8 @@ public class AppUser extends BaseEntity {
     public UserRole getActiveRole() {
         return activeRole;
     }
+
+    public void setActiveRole(UserRole activeRole) {
+        this.activeRole = activeRole;
+    }
 }

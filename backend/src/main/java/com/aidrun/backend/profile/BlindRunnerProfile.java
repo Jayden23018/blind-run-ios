@@ -43,6 +43,10 @@ public class BlindRunnerProfile extends BaseEntity {
         return nickname;
     }
 
+    public String getRunningExperience() {
+        return runningExperience;
+    }
+
     public EmergencyContact getEmergencyContact() {
         return emergencyContact;
     }

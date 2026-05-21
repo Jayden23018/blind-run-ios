@@ -554,6 +554,7 @@ components:
         - VOLUNTEER_NOT_AVAILABLE
         - VOLUNTEER_NOT_APPROVED
         - APPOINTMENT_TOO_SOON
+        - VALIDATION_FAILED
         - UNAUTHORIZED
 
     ErrorResponse:
@@ -739,6 +740,8 @@ components:
         - adminReviewStatus
         - isAvailable
         - pointsBalance
+        - createdAt
+        - updatedAt
       properties:
         id:
           type: string
@@ -759,6 +762,12 @@ components:
         pointsBalance:
           type: integer
           example: 100
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
     AvailabilityRequest:
       type: object

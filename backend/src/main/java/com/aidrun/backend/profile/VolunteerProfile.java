@@ -64,6 +64,14 @@ public class VolunteerProfile extends BaseEntity {
         return user;
     }
 
+    public String getNickname() {
+        return nickname;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
     public boolean isAvailable() {
         return available;
     }

@@ -2,6 +2,17 @@
 
 <cite>
 **本文引用的文件**
+- [APIClient.swift](file://blindRun/blindRun/Core/APIClient.swift)
+- [AppState.swift](file://blindRun/blindRun/Core/AppState.swift)
+- [MockAPIClient.swift](file://blindRun/blindRun/Core/MockAPIClient.swift)
+- [EnvironmentConfig.swift](file://blindRun/blindRun/Core/EnvironmentConfig.swift)
+- [AppColors.swift](file://blindRun/blindRun/Core/DesignSystem/AppColors.swift)
+- [HighContrastText.swift](file://blindRun/blindRun/Core/DesignSystem/HighContrastText.swift)
+- [PrimaryButton.swift](file://blindRun/blindRun/Core/DesignSystem/PrimaryButton.swift)
+- [ErrorModels.swift](file://blindRun/blindRun/Core/Models/ErrorModels.swift)
+- [OrderModels.swift](file://blindRun/blindRun/Core/Models/OrderModels.swift)
+- [ProfileModels.swift](file://blindRun/blindRun/Core/Models/ProfileModels.swift)
+- [UserModels.swift](file://blindRun/blindRun/Core/Models/UserModels.swift)
 - [blindRunApp.swift](file://blindRun/blindRunApp.swift)
 - [ContentView.swift](file://blindRun/ContentView.swift)
 - [08-ios-architecture.md](file://docs/08-ios-architecture.md)
@@ -10,6 +21,14 @@
 - [design.md](file://openspec/changes/add-aidrun-ios-spring-mvp/design.md)
 - [proposal.md](file://openspec/changes/add-aidrun-ios-spring-mvp/proposal.md)
 </cite>
+
+## 更新摘要
+**所做更改**
+- 新增 API 客户端系统实现，包括 URLSessionAPIClient 和 MockAPIClient
+- 完善应用状态管理系统，集成全局状态管理和会话持久化
+- 添加设计系统组件，包括颜色系统、高对比度文本和主按钮组件
+- 扩展共享数据模型，涵盖用户、订单、资料等完整 DTO 结构
+- 更新模块初始化流程和配置最佳实践
 
 ## 目录
 1. [简介](#简介)
@@ -32,10 +51,10 @@
 - 在其他模块中使用 Core 提供的服务与模型
 - 模块初始化流程与配置最佳实践
 
-根据现有仓库信息，Core 模块被明确定义为“应用环境、依赖容器、共享模型、应用状态”的基础设施层；同时，文档还明确了 API 客户端协议、环境切换、令牌持久化等关键能力边界。
+根据现有仓库信息，Core 模块已实现完整的 API 客户端系统、应用状态管理、设计系统组件和 Mock 客户端等核心功能，为 Auth、Role、BlindRunner、Volunteer、Orders、Map、Voice、Safety、Profile 等模块提供基础能力。
 
 ## 项目结构
-当前仓库处于 MVP 设计与规划阶段，尚未包含具体实现代码。但已通过文档明确模块分组与职责划分，Core 位于模块树的中心位置，为 Auth、Role、BlindRunner、Volunteer、Orders、Map、Voice、Safety、Profile 等模块提供基础能力。
+Core 模块现已包含完整的基础设施实现，包括 API 客户端、应用状态管理、设计系统和数据模型等核心组件。
 
 ```mermaid
 graph TB
@@ -48,6 +67,7 @@ Env["应用环境配置<br/>API 环境/令牌/网络"]
 DI["依赖注入容器<br/>服务注册/解析"]
 DTO["共享数据模型<br/>DTO/错误映射"]
 State["应用状态管理<br/>全局状态/监听"]
+DS["设计系统组件<br/>颜色/字体/按钮"]
 end
 subgraph "业务层"
 Auth["认证模块"]
@@ -110,44 +130,58 @@ Map --> State
 Voice --> State
 Safe --> State
 Prof --> State
+Auth --> DS
+Role --> DS
+BR --> DS
+Vol --> DS
+Ord --> DS
+Map --> DS
+Voice --> DS
+Safe --> DS
+Prof --> DS
 ```
 
-图表来源
+**图表来源**
 - [08-ios-architecture.md:18-32](file://docs/08-ios-architecture.md#L18-L32)
 - [tasks.md:28-33](file://openspec/changes/add-aidrun-ios-spring-mvp/tasks.md#L28-L33)
 
-章节来源
+**章节来源**
 - [08-ios-architecture.md:18-32](file://docs/08-ios-architecture.md#L18-L32)
 - [tasks.md:28-33](file://openspec/changes/add-aidrun-ios-spring-mvp/tasks.md#L28-L33)
 
 ## 核心组件
-本节从职责与协作角度，对 Core 的四大支柱进行说明，并给出与业务模块的交互关系。
+本节从职责与协作角度，对 Core 的五大支柱进行说明，并给出与业务模块的交互关系。
 
-- 应用环境配置
-  - 职责：统一管理 API 环境（mock/localBackend/production）、基础 URL、显示名称与调试态环境切换入口。
-  - 与业务模块的关系：所有网络调用均通过统一的环境配置生成请求，避免硬编码与分散配置。
-  - 参考路径：[API 环境切换:50-66](file://docs/08-ios-architecture.md#L50-L66)
+### 应用环境配置
+- **职责**：统一管理 API 环境（mock/localBackend/production）、基础 URL、显示名称与调试态环境切换入口。
+- **实现**：通过 APIEnvironment 枚举管理三种环境模式，支持动态切换和持久化存储。
+- **与业务模块的关系**：所有网络调用均通过统一的环境配置生成请求，避免硬编码与分散配置。
 
-- 依赖注入容器
-  - 职责：集中注册与解析服务实例，屏蔽模块间直接依赖，支持 Mock 与真实实现的无缝切换。
-  - 与业务模块的关系：业务模块仅依赖抽象协议或容器解析结果，降低耦合度。
-  - 参考路径：[APIClient 协议与实现共享调用点:68-76](file://docs/08-ios-architecture.md#L68-L76)
+### 依赖注入容器
+- **职责**：集中注册与解析服务实例，屏蔽模块间直接依赖，支持 Mock 与真实实现的无缝切换。
+- **实现**：通过 AppState 提供的 apiClient 属性实现运行时切换，支持 URLSessionAPIClient 和 MockAPIClient。
+- **与业务模块的关系**：业务模块仅依赖抽象协议或容器解析结果，降低耦合度。
 
-- 共享数据模型（DTO）
-  - 职责：与后端 OpenAPI 合约保持一致的数据结构，承载成功响应与错误封装；提供错误码到用户提示与 TTS 的映射。
-  - 与业务模块的关系：业务层通过 DTO 进行序列化/反序列化与错误处理，确保跨模块一致性。
-  - 参考路径：[APIClient 责任与 DTO 使用:68-76](file://docs/08-ios-architecture.md#L68-L76)
+### 共享数据模型（DTO）
+- **职责**：与后端 OpenAPI 合约保持一致的数据结构，承载成功响应与错误封装；提供错误码到用户提示与 TTS 的映射。
+- **实现**：包含用户、订单、资料等完整 DTO 结构，支持 Codable 编解码和 Sendable 并发安全。
+- **与业务模块的关系**：业务层通过 DTO 进行序列化/反序列化与错误处理，确保跨模块一致性。
 
-- 应用状态管理
-  - 职责：维护全局状态（如登录态、活动角色、当前页面状态），提供状态变更通知与订阅机制。
-  - 与业务模块的关系：各 ViewModel 订阅状态变化并驱动 UI 更新；状态变更由 Core 统一调度。
-  - 参考路径：[认证与角色状态:84-96](file://docs/08-ios-architecture.md#L84-L96)
+### 应用状态管理
+- **职责**：维护全局状态（如登录态、活动角色、当前页面状态），提供状态变更通知与订阅机制。
+- **实现**：通过 AppState 管理访问令牌、用户信息、活动角色和环境配置，支持 UserDefaults 持久化。
+- **与业务模块的关系**：各 ViewModel 订阅状态变化并驱动 UI 更新；状态变更由 Core 统一调度。
 
-章节来源
+### 设计系统组件
+- **职责**：提供统一的视觉设计规范，包括颜色系统、字体规范和交互组件。
+- **实现**：包含 AppColors、HighContrastText、PrimaryButton 等组件，支持高对比度和无障碍访问。
+- **与业务模块的关系**：所有界面组件遵循统一的设计规范，确保视觉一致性。
+
+**章节来源**
 - [08-ios-architecture.md:50-96](file://docs/08-ios-architecture.md#L50-L96)
 
 ## 架构总览
-下图展示了 Core 在整体架构中的定位与与其他模块的交互方式。Core 作为基础设施层，向上提供环境、容器、模型与状态，向下对接平台能力（URLSession、UserDefaults、高德地图等）。
+下图展示了 Core 在整体架构中的定位与与其他模块的交互方式。Core 作为基础设施层，向上提供环境、容器、模型与状态，向下对接平台能力。
 
 ```mermaid
 graph TB
@@ -163,6 +197,7 @@ Env["应用环境配置"]
 DI["依赖注入容器"]
 DTO["共享 DTO/错误映射"]
 State["应用状态管理"]
+DS["设计系统组件"]
 end
 subgraph "业务模块"
 Auth["Auth"]
@@ -211,6 +246,15 @@ Map --> State
 Voice --> State
 Safe --> State
 Prof --> State
+Auth --> DS
+Role --> DS
+BR --> DS
+Vol --> DS
+Ord --> DS
+Map --> DS
+Voice --> DS
+Safe --> DS
+Prof --> DS
 Env --> Net
 Env --> Store
 Map --> AMap
@@ -218,157 +262,139 @@ Voice --> TTS
 Voice --> Speech
 ```
 
-图表来源
+**图表来源**
 - [08-ios-architecture.md:1-17](file://docs/08-ios-architecture.md#L1-L17)
 - [08-ios-architecture.md:50-96](file://docs/08-ios-architecture.md#L50-L96)
 
 ## 详细组件分析
 
-### 组件一：应用环境配置
-- 设计原则
-  - 环境枚举包含 baseURL 与显示名，便于在调试构建中暴露小环境选择器。
-  - 支持 mock（本地假数据）、localBackend（本机/局域网后端）、production（保留）三类环境。
-  - 本地后端应兼容常见局域网地址格式，便于联调。
-- 关键行为
-  - 在 Debug 构建中提供环境切换入口；生产构建保持占位 URL。
-  - 令牌持久化采用 UserDefaults（MVP），后续迁移至 Keychain。
-- 与业务模块的交互
-  - 所有网络请求基于当前环境构造 URL 与请求头。
-  - 认证模块负责读写令牌；其他模块仅消费令牌。
-- 参考路径
-  - [API 环境与实现指引:50-66](file://docs/08-ios-architecture.md#L50-L66)
-  - [令牌持久化与迁移提示:78-82](file://docs/08-ios-architecture.md#L78-L82)
+### 组件一：API 客户端系统
 
-```mermaid
-flowchart TD
-Start(["进入应用"]) --> LoadEnv["加载当前 API 环境"]
-LoadEnv --> CheckBuild{"是否 Debug 构建?"}
-CheckBuild --> |是| ShowSwitch["显示环境选择器"]
-CheckBuild --> |否| UseDefault["使用默认环境"]
-ShowSwitch --> Apply["应用所选环境"]
-UseDefault --> Apply
-Apply --> InitNet["初始化网络客户端"]
-InitNet --> Ready(["环境就绪"])
-```
+#### URLSessionAPIClient 实现
+- **设计原则**：基于 URLSession 的异步网络请求实现，支持完整的 HTTP 方法和错误处理。
+- **关键特性**：
+  - 类型安全的泛型请求方法，自动处理 JSON 编解码
+  - 支持认证令牌自动添加和 401 处理
+  - 完整的状态码处理和错误映射
+  - 异步任务支持，避免阻塞主线程
 
-图表来源
-- [08-ios-architecture.md:50-66](file://docs/08-ios-architecture.md#L50-L66)
+#### MockAPIClient 实现
+- **设计原则**：提供本地 Mock 数据服务，支持快速开发和测试。
+- **关键特性**：
+  - 模拟网络延迟（300ms）提升真实感
+  - 基于路径的路由分发，支持多个端点
+  - 完整的认证和用户信息 Mock 数据
+  - 可扩展的 Mock 数据结构
 
-章节来源
-- [08-ios-architecture.md:50-82](file://docs/08-ios-architecture.md#L50-L82)
+#### APIError 错误处理
+- **设计原则**：统一的错误处理机制，提供用户友好的错误消息。
+- **错误类型**：服务器错误、未授权、网络错误、解码错误、无效 URL、未知错误
+- **本地化支持**：所有错误消息支持中文本地化
 
-### 组件二：依赖注入容器
-- 设计原则
-  - 通过协议抽象服务边界，容器负责注册与解析，业务模块仅依赖协议。
-  - 支持 Mock 与真实实现的切换，保证测试与调试灵活性。
-- 关键行为
-  - 注册阶段：将协议实现绑定到容器，支持单例或多例策略。
-  - 解析阶段：按需获取服务实例，避免模块间直接 import。
-- 与业务模块的交互
-  - ViewModel 通过容器获取 Service 实例；Service 再调用 APIClient 与平台能力。
-- 参考路径
-  - [APIClient 协议与统一调用点:68-76](file://docs/08-ios-architecture.md#L68-L76)
+**章节来源**
+- [APIClient.swift:1-179](file://blindRun/blindRun/Core/APIClient.swift#L1-L179)
+- [MockAPIClient.swift:1-65](file://blindRun/blindRun/Core/MockAPIClient.swift#L1-L65)
 
-```mermaid
-sequenceDiagram
-participant VM as "ViewModel"
-participant DI as "依赖注入容器"
-participant Svc as "具体服务"
-participant API as "APIClient"
-VM->>DI : 请求服务实例
-DI-->>VM : 返回服务实例
-VM->>Svc : 调用业务方法
-Svc->>API : 发起网络请求
-API-->>Svc : 返回 DTO/错误
-Svc-->>VM : 返回处理结果
-VM-->>VM : 更新状态/触发 UI
-```
+### 组件二：应用状态管理系统
 
-图表来源
-- [08-ios-architecture.md:68-76](file://docs/08-ios-architecture.md#L68-L76)
+#### AppState 核心功能
+- **会话管理**：JWT 令牌存储、用户信息管理、活动角色切换
+- **环境管理**：API 环境切换、持久化存储、运行时配置
+- **状态持久化**：UserDefaults 持久化，支持 Keychain 迁移准备
+- **计算属性**：登录状态判断、API 客户端动态选择
 
-章节来源
-- [08-ios-architecture.md:68-76](file://docs/08-ios-architecture.md#L68-L76)
+#### 状态生命周期
+- **初始化**：从 UserDefaults 恢复环境配置
+- **启动**：恢复会话状态（令牌、角色）
+- **运行**：状态变更自动持久化
+- **清理**：退出登录时清除所有状态
 
-### 组件三：共享数据模型（DTO）
-- 设计原则
-  - DTO 严格遵循 OpenAPI 合约，确保前后端契约稳定。
-  - 错误封装统一返回错误码，映射为用户提示与 TTS 文案。
-- 关键行为
-  - 成功响应：按 DTO 结构解析为领域对象。
-  - 失败响应：解析错误码并转换为用户可理解的消息。
-- 与业务模块的交互
-  - ViewModel 接收 DTO 并驱动 UI；Service 层负责网络与解析。
-- 参考路径
-  - [APIClient 责任与 DTO 使用:68-76](file://docs/08-ios-architecture.md#L68-L76)
+#### 状态订阅机制
+- **Combine 框架**：使用 @Published 属性实现响应式状态管理
+- **UI 更新**：状态变更自动触发视图重绘
+- **跨模块同步**：统一的状态源确保多模块状态一致性
 
-```mermaid
-flowchart TD
-Req["发起网络请求"] --> Parse["解析响应"]
-Parse --> IsErr{"是否错误?"}
-IsErr --> |是| MapMsg["错误码映射为用户消息/TTS"]
-IsErr --> |否| MapModel["映射为领域模型"]
-MapMsg --> ReturnErr["返回错误结果"]
-MapModel --> ReturnOK["返回成功结果"]
-```
+**章节来源**
+- [AppState.swift:1-123](file://blindRun/blindRun/Core/AppState.swift#L1-L123)
 
-图表来源
-- [08-ios-architecture.md:68-76](file://docs/08-ios-architecture.md#L68-L76)
+### 组件三：设计系统组件
 
-章节来源
-- [08-ios-architecture.md:68-76](file://docs/08-ios-architecture.md#L68-L76)
+#### AppColors 颜色系统
+- **设计原则**：基于 SwiftUI 的系统颜色适配，支持深色/浅色模式
+- **颜色分类**：主色调、危险操作、背景色、文本色、状态色
+- **可访问性**：确保足够的颜色对比度，支持高对比度模式
 
-### 组件四：应用状态管理
-- 设计原则
-  - 全局状态集中管理，提供订阅/通知机制，确保多模块状态一致性。
-  - 登录态与活动角色独立管理，支持角色切换与阻断逻辑。
-- 关键行为
-  - 登录成功后保存令牌与当前用户；首次登录可能无活动角色，引导角色选择。
-  - 角色切换仅改变 activeRole，若存在进行中订单则阻断切换。
-- 与业务模块的交互
-  - ViewModel 订阅状态变化，驱动导航与 UI 更新；业务逻辑围绕状态机推进。
-- 参考路径
-  - [认证与角色状态:84-96](file://docs/08-ios-architecture.md#L84-L96)
-  - [用户流程与状态机:1-70](file://docs/04-user-flows-and-state-machine.md#L1-L70)
+#### HighContrastText 高对比度文本
+- **设计原则**：确保在各种主题下的可读性
+- **字体支持**：支持 Dynamic Type 自动缩放
+- **无障碍优化**：完整的辅助功能标签和描述
 
-```mermaid
-stateDiagram-v2
-[*] --> 未登录
-未登录 --> 登录中 : "手机号+验证码"
-登录中 --> 已登录 : "成功"
-登录中 --> 登录中 : "失败(重试)"
-已登录 --> 选择角色 : "首次登录/无活动角色"
-已登录 --> 角色A : "已有活动角色A"
-已登录 --> 角色B : "已有活动角色B"
-选择角色 --> 角色A : "选择A"
-选择角色 --> 角色B : "选择B"
-角色A --> 角色A : "正常流转"
-角色B --> 角色B : "正常流转"
-角色A --> 切换阻断 : "存在进行中订单"
-角色B --> 切换阻断 : "存在进行中订单"
-切换阻断 --> 角色A : "订单完成后可切换"
-切换阻断 --> 角色B : "订单完成后可切换"
-```
+#### PrimaryButton 主按钮组件
+- **设计原则**：符合无障碍标准的按钮组件
+- **状态支持**：普通、危险操作、加载状态
+- **尺寸规范**：最小高度 64pt，适合触觉操作
 
-图表来源
-- [08-ios-architecture.md:84-96](file://docs/08-ios-architecture.md#L84-L96)
-- [04-user-flows-and-state-machine.md:1-70](file://docs/04-user-flows-and-state-machine.md#L1-L70)
+**章节来源**
+- [AppColors.swift:1-39](file://blindRun/blindRun/Core/DesignSystem/AppColors.swift#L1-L39)
+- [HighContrastText.swift:1-59](file://blindRun/blindRun/Core/DesignSystem/HighContrastText.swift#L1-L59)
+- [PrimaryButton.swift:1-56](file://blindRun/blindRun/Core/DesignSystem/PrimaryButton.swift#L1-L56)
 
-章节来源
-- [08-ios-architecture.md:84-96](file://docs/08-ios-architecture.md#L84-L96)
-- [04-user-flows-and-state-machine.md:1-70](file://docs/04-user-flows-and-state-machine.md#L1-L70)
+### 组件四：共享数据模型（DTO）
+
+#### 用户模型体系
+- **UserRole 角色枚举**：盲人跑者和志愿者两种角色
+- **UserDto 用户信息**：完整的用户数据结构
+- **认证相关**：登录请求、认证响应、角色切换
+
+#### 订单模型体系
+- **RunOrderStatus 订单状态**：完整的订单生命周期状态
+- **位置信息**：经纬度、地址文本、位置来源
+- **取消原因**：多种取消场景和原因分类
+- **服务详情**：紧急事件、服务总结、评分系统
+
+#### 资料模型体系
+- **紧急联系人**：姓名和电话号码
+- **志愿者状态**：审核状态、可用性、积分余额
+- **商店系统**：积分商品、兑换记录
+
+#### 错误处理模型
+- **ErrorCode 错误码**：完整的业务错误码定义
+- **ErrorResponse 错误响应**：标准化的错误响应结构
+- **本地化支持**：所有错误消息支持中文
+
+**章节来源**
+- [UserModels.swift:1-53](file://blindRun/blindRun/Core/Models/UserModels.swift#L1-L53)
+- [OrderModels.swift:1-194](file://blindRun/blindRun/Core/Models/OrderModels.swift#L1-L194)
+- [ProfileModels.swift:1-91](file://blindRun/blindRun/Core/Models/ProfileModels.swift#L1-L91)
+- [ErrorModels.swift:1-57](file://blindRun/blindRun/Core/Models/ErrorModels.swift#L1-L57)
+
+### 组件五：环境配置系统
+
+#### APIEnvironment 环境管理
+- **环境枚举**：mock、localBackend、production 三种模式
+- **显示名称**：用户友好的环境标识
+- **基础 URL**：不同环境的 API 基础地址
+- **Mock 模式**：不使用网络连接，返回本地数据
+
+#### AppConstants 常量配置
+- **UserDefaultsKeys**：持久化存储键名
+- **Defaults 默认值**：本地后端 IP、演示坐标等
+- **Timing 时间配置**：订单轮询间隔、预约提前时间
+
+**章节来源**
+- [EnvironmentConfig.swift:1-65](file://blindRun/blindRun/Core/EnvironmentConfig.swift#L1-L65)
 
 ## 依赖分析
-- 模块内聚与耦合
-  - Core 与业务模块之间通过协议与容器解耦，降低直接依赖。
-  - 业务模块仅感知抽象接口，不关心具体实现与环境差异。
-- 外部依赖
+- **模块内聚与耦合**
+  - Core 与业务模块之间通过协议与容器解耦，降低直接依赖
+  - 业务模块仅感知抽象接口，不关心具体实现与环境差异
+- **外部依赖**
   - 网络：URLSession
   - 存储：UserDefaults（MVP）
   - 地图：高德地图 SDK
   - 语音：AVSpeechSynthesizer、Speech 识别
-- 循环依赖规避
-  - 通过容器与协议抽象避免循环导入；业务模块不直接 import Core 实现。
+- **循环依赖规避**
+  - 通过容器与协议抽象避免循环导入；业务模块不直接 import Core 实现
 
 ```mermaid
 graph LR
@@ -392,64 +418,151 @@ Voice --> Speech["Speech 识别"]
 Auth --> Store["UserDefaults"]
 ```
 
-图表来源
+**图表来源**
 - [08-ios-architecture.md:1-17](file://docs/08-ios-architecture.md#L1-L17)
 - [08-ios-architecture.md:50-96](file://docs/08-ios-architecture.md#L50-L96)
 
-章节来源
+**章节来源**
 - [08-ios-architecture.md:1-17](file://docs/08-ios-architecture.md#L1-L17)
 - [08-ios-architecture.md:50-96](file://docs/08-ios-architecture.md#L50-L96)
 
 ## 性能考虑
-- 网络层
-  - 简化重试策略，避免复杂离线队列；减少不必要的并发请求。
-  - 对于长耗时操作（如订单轮询）采用 5 秒间隔，避免过度拉取。
-- 存储层
-  - UserDefaults 适合 MVP；生产前迁移至 Keychain，提升安全性与可靠性。
-- 地图与语音
-  - 地图渲染与语音合成按需触发，避免频繁重建与重复播报。
-- 状态更新
-  - 状态变更采用批量更新与去抖策略，减少 UI 重绘频率。
+- **网络层**
+  - 简化重试策略，避免复杂离线队列；减少不必要的并发请求
+  - 对于长耗时操作（如订单轮询）采用 5 秒间隔，避免过度拉取
+  - Mock 客户端模拟网络延迟，提升开发体验
+- **存储层**
+  - UserDefaults 适合 MVP；生产前迁移至 Keychain，提升安全性与可靠性
+  - 状态变更采用惰性持久化，避免频繁磁盘 I/O
+- **地图与语音**
+  - 地图渲染与语音合成按需触发，避免频繁重建与重复播报
+  - 设计系统组件使用系统颜色，减少自定义渲染开销
+- **状态更新**
+  - 状态变更采用批量更新与去抖策略，减少 UI 重绘频率
+  - Combine 框架提供高效的响应式状态管理
 
 ## 故障排查指南
-- 环境配置问题
-  - 症状：网络请求失败或返回假数据。
-  - 排查：确认当前环境是否为 mock/localBackend/production；检查 baseURL 是否正确。
-  - 参考路径：[API 环境与实现指引:50-66](file://docs/08-ios-architecture.md#L50-L66)
-- 令牌相关问题
-  - 症状：登录成功但后续接口报未授权。
-  - 排查：检查 UserDefaults 中是否存在有效 JWT；确认是否在 Debug 构建中正确选择了环境。
-  - 参考路径：[令牌持久化与迁移提示:78-82](file://docs/08-ios-architecture.md#L78-L82)
-- 角色切换阻断
-  - 症状：尝试切换角色时报错或无法切换。
-  - 排查：确认当前是否存在进行中订单；若存在，需等待订单完成后再切换。
-  - 参考路径：[认证与角色状态:84-96](file://docs/08-ios-architecture.md#L84-L96)
-- DTO 映射异常
-  - 症状：解析失败或字段缺失。
-  - 排查：核对后端 OpenAPI 合约；确保 DTO 字段与后端一致；检查错误码映射逻辑。
-  - 参考路径：[APIClient 责任与 DTO 使用:68-76](file://docs/08-ios-architecture.md#L68-L76)
 
-章节来源
+### 环境配置问题
+- **症状**：网络请求失败或返回假数据
+- **排查**：确认当前环境是否为 mock/localBackend/production；检查 baseURL 是否正确
+- **解决方案**：检查 UserDefaults 中的 apiEnvironment 键值；验证本地后端 IP 设置
+
+### 令牌相关问题
+- **症状**：登录成功但后续接口报未授权
+- **排查**：检查 UserDefaults 中是否存在有效 JWT；确认是否在 Debug 构建中正确选择了环境
+- **解决方案**：验证 accessToken 键值；检查 tokenProvider 回调是否正确返回令牌
+
+### 角色切换阻断
+- **症状**：尝试切换角色时报错或无法切换
+- **排查**：确认当前是否存在进行中订单；若存在，需等待订单完成后再切换
+- **解决方案**：检查 AppState.activeRole 状态；验证订单状态机逻辑
+
+### DTO 映射异常
+- **症状**：解析失败或字段缺失
+- **排查**：核对后端 OpenAPI 合约；确保 DTO 字段与后端一致；检查错误码映射逻辑
+- **解决方案**：验证 Codable 协议实现；检查 JSON 字段命名一致性
+
+### 设计系统问题
+- **症状**：颜色显示异常或按钮不可点击
+- **排查**：检查 AppColors 配置；验证 PrimaryButton 参数设置
+- **解决方案**：确认 SwiftUI 颜色适配；检查按钮状态和禁用逻辑
+
+**章节来源**
 - [08-ios-architecture.md:50-96](file://docs/08-ios-architecture.md#L50-L96)
 
 ## 结论
-Core 核心模块在 AidRun MVP 中承担基础设施职责，通过统一的环境配置、依赖注入容器、共享 DTO 与应用状态管理，为各业务模块提供稳定、可扩展且易于测试的基础能力。结合文档中的模块分组与职责边界，Core 与业务模块之间形成清晰的协议与容器解耦，既满足 MVP 快速迭代需求，也为后续演进（如 Keychain 迁移、WebSocket 替代轮询等）预留了空间。
+Core 核心模块在 AidRun MVP 中承担基础设施职责，通过统一的 API 客户端系统、应用状态管理、设计系统组件和共享数据模型，为各业务模块提供稳定、可扩展且易于测试的基础能力。现已实现完整的 URLSessionAPIClient 和 MockAPIClient，支持三种环境模式的无缝切换；AppState 提供完整的会话管理和状态持久化；设计系统确保视觉一致性和无障碍访问；共享 DTO 保证前后端数据契约的一致性。
+
+结合文档中的模块分组与职责边界，Core 与业务模块之间形成清晰的协议与容器解耦，既满足 MVP 快速迭代需求，也为后续演进（如 Keychain 迁移、WebSocket 替代轮询等）预留了空间。
 
 ## 附录
 
 ### 模块初始化流程与配置最佳实践
-- 初始化步骤
-  - 加载应用环境（Debug 暴露环境选择器，Release 使用默认值）。
-  - 注册依赖注入容器（协议实现绑定，支持 Mock/真实切换）。
-  - 初始化状态管理（登录态恢复、活动角色恢复）。
-  - 启动业务模块（ViewModel 订阅状态，触发首屏渲染）。
-- 最佳实践
-  - 将环境配置与令牌持久化集中在 Core，业务模块只读不写。
-  - 使用协议抽象服务，容器统一解析，避免直接 import 实现。
-  - DTO 与后端合约强一致，错误映射集中处理，保障用户体验一致性。
-  - 状态变更最小化，订阅粒度合理，避免过度刷新。
 
-章节来源
+#### 初始化步骤
+- **环境加载**：从 UserDefaults 恢复 API 环境配置
+- **状态恢复**：从 UserDefaults 读取访问令牌和活动角色
+- **客户端初始化**：根据环境选择合适的 API 客户端实现
+- **业务启动**：启动各业务模块，建立状态订阅关系
+
+#### 最佳实践
+- **环境配置**：将环境配置与令牌持久化集中在 Core，业务模块只读不写
+- **协议抽象**：使用 APIClientProtocol 抽象服务边界，容器统一解析
+- **DTO 一致性**：与后端 OpenAPI 合约保持严格一致，错误映射集中处理
+- **状态管理**：使用 AppState 统一管理全局状态，避免状态分散
+- **设计规范**：所有界面组件遵循设计系统规范，确保视觉一致性
+- **错误处理**：统一的 APIError 处理机制，提供用户友好的错误消息
+
+#### 代码示例
+
+**应用启动配置**
+```swift
+// 在 blindRunApp 中配置全局状态
+@StateObject private var appState = AppState()
+@StateObject private var speechService = SpeechService()
+
+var body: some Scene {
+    WindowGroup {
+        ContentView()
+            .environmentObject(appState)
+            .environmentObject(speechService)
+            .onAppear {
+                appState.restoreSession()
+            }
+    }
+}
+```
+
+**API 客户端使用**
+```swift
+// 在业务模块中获取 API 客户端
+let apiClient = appState.apiClient
+
+// 发起认证请求
+do {
+    let response: AuthResponse = try await apiClient.post("/auth/login", body: loginRequest)
+    appState.handleLoginSuccess(response: response)
+} catch APIError.unauthorized {
+    // 处理未授权错误
+} catch {
+    // 处理其他错误
+}
+```
+
+**状态订阅示例**
+```swift
+// 在 ViewModel 中订阅状态变化
+@StateObject private var appState = AppState()
+
+private var cancellables = Set<AnyCancellable>()
+
+override func viewDidLoad() {
+    super.viewDidLoad()
+    
+    appState.$isLoggedIn
+        .sink { [weak self] isLoggedIn in
+            self?.handleLoginStateChange(isLoggedIn)
+        }
+        .store(in: &cancellables)
+}
+```
+
+**设计系统使用**
+```swift
+// 使用高对比度文本
+HighContrastText("标题", style: .title)
+
+// 使用主按钮
+PrimaryButton("提交", isDestructive: false) {
+    // 按钮动作
+}
+
+// 使用系统颜色
+Color(AppColors.primary)
+```
+
+**章节来源**
 - [08-ios-architecture.md:50-96](file://docs/08-ios-architecture.md#L50-L96)
 - [tasks.md:28-33](file://openspec/changes/add-aidrun-ios-spring-mvp/tasks.md#L28-L33)
 - [design.md:18-37](file://openspec/changes/add-aidrun-ios-spring-mvp/design.md#L18-L37)
