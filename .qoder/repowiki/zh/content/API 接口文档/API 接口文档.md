@@ -2,12 +2,35 @@
 
 <cite>
 **本文档引用的文件**
+- [AidRunBackendApplication.java](file://backend/src/main/java/com/aidrun/backend/AidRunBackendApplication.java)
+- [JwtService.java](file://backend/src/main/java/com/aidrun/backend/auth/JwtService.java)
+- [AppUser.java](file://backend/src/main/java/com/aidrun/backend/user/AppUser.java)
+- [RunOrder.java](file://backend/src/main/java/com/aidrun/backend/order/RunOrder.java)
+- [BlindRunnerProfile.java](file://backend/src/main/java/com/aidrun/backend/profile/BlindRunnerProfile.java)
+- [application.yml](file://backend/src/main/resources/application.yml)
+- [DemoDataSeeder.java](file://backend/src/main/java/com/aidrun/backend/seed/DemoDataSeeder.java)
+- [ErrorCode.java](file://backend/src/main/java/com/aidrun/backend/common/error/ErrorCode.java)
+- [LocationPoint.java](file://backend/src/main/java/com/aidrun/backend/location/LocationPoint.java)
+- [OpenApiConfig.java](file://backend/src/main/java/com/aidrun/backend/config/OpenApiConfig.java)
+- [UserRole.java](file://backend/src/main/java/com/aidrun/backend/user/UserRole.java)
+- [RunOrderStatus.java](file://backend/src/main/java/com/aidrun/backend/order/RunOrderStatus.java)
+- [VerificationStatus.java](file://backend/src/main/java/com/aidrun/backend/profile/VerificationStatus.java)
+- [LocationSource.java](file://backend/src/main/java/com/aidrun/backend/location/LocationSource.java)
+- [aidrun-mvp.yaml](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml)
 - [07-api-contract.openapi.yaml](file://docs/07-api-contract.openapi.yaml)
 - [01-product-requirements.md](file://docs/01-product-requirements.md)
 - [02-mvp-scope.md](file://docs/02-mvp-scope.md)
 - [08-ios-architecture.md](file://docs/08-ios-architecture.md)
-- [spec.md](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/backend-api-contract/spec.md)
 </cite>
+
+## 更新摘要
+**所做更改**
+- 新增 Spring Boot 后端实现的技术细节和架构分析
+- 更新认证机制实现，基于 JWT 服务的完整技术说明
+- 添加数据模型实体关系的详细技术描述
+- 补充数据库配置和种子数据的实现细节
+- 更新错误码定义和状态枚举的完整实现
+- 增强后端架构图和数据流图的技术准确性
 
 ## 目录
 1. [简介](#简介)
@@ -15,17 +38,19 @@
 3. [核心组件](#核心组件)
 4. [架构概览](#架构概览)
 5. [详细组件分析](#详细组件分析)
-6. [依赖关系分析](#依赖关系分析)
-7. [性能考虑](#性能考虑)
-8. [故障排除指南](#故障排除指南)
-9. [结论](#结论)
-10. [附录](#附录)
+6. [后端实现分析](#后端实现分析)
+7. [数据模型设计](#数据模型设计)
+8. [依赖关系分析](#依赖关系分析)
+9. [性能考虑](#性能考虑)
+10. [故障排除指南](#故障排除指南)
+11. [结论](#结论)
+12. [附录](#附录)
 
 ## 简介
 
 AidRun 是一款面向盲人跑者与志愿者的户外跑步协助服务平台。本项目采用双角色设计：盲人跑者通过预约方式获得志愿者协助，志愿者通过接单提供帮助。系统基于 Swift 原生 iOS 应用和 Spring Boot 后端，实现了完整的预约服务闭环。
 
-本 API 接口文档基于 OpenAPI 3.0.3 规范，详细说明了所有 RESTful API 端点，包括认证接口、订单管理接口、用户信息接口、地图服务接口等。文档提供了完整的 HTTP 方法、URL 模式、请求/响应模式、参数定义和返回值说明。
+**更新** 后端已完整实现，包含 JWT 认证、用户管理、订单管理、志愿者管理等核心功能，与前端 API 契约完全匹配。后端采用 Spring Boot 3.0+ 技术栈，使用 JPA/Hibernate 进行数据持久化，H2 内存数据库支持演示环境。
 
 ## 项目结构
 
@@ -45,12 +70,13 @@ H[Safety 模块<br/>安全功能]
 I[Profile 模块<br/>资料管理]
 end
 subgraph "后端 (Spring Boot)"
-J[认证服务]
-K[用户服务]
-L[订单服务]
-M[志愿者服务]
-N[地图服务]
-O[安全服务]
+J[认证服务<br/>JWT 实现]
+K[用户服务<br/>AppUser 实体]
+L[订单服务<br/>RunOrder 实体]
+M[志愿者服务<br/>Profile 实体]
+N[地图服务<br/>LocationPoint]
+O[安全服务<br/>全局异常处理]
+P[配置管理<br/>OpenAPI & 数据库]
 end
 A --> J
 B --> K
@@ -62,17 +88,17 @@ F --> N
 G --> O
 H --> O
 I --> K
-J --> OAS[OpenAPI 规范]
-K --> OAS
-L --> OAS
-M --> OAS
-N --> OAS
-O --> OAS
+J --> P
+K --> P
+L --> P
+M --> P
+N --> P
+O --> P
 ```
 
 **图表来源**
-- [08-ios-architecture.md:18-32](file://docs/08-ios-architecture.md#L18-L32)
-- [01-product-requirements.md:23-48](file://docs/01-product-requirements.md#L23-L48)
+- [AidRunBackendApplication.java:1-13](file://backend/src/main/java/com/aidrun/backend/AidRunBackendApplication.java#L1-L13)
+- [OpenApiConfig.java:1-20](file://backend/src/main/java/com/aidrun/backend/config/OpenApiConfig.java#L1-L20)
 
 **章节来源**
 - [08-ios-architecture.md:1-165](file://docs/08-ios-architecture.md#L1-L165)
@@ -90,9 +116,19 @@ O --> OAS
 3. 成功后返回 JWT 令牌
 4. 客户端在后续请求中通过 Authorization 头部携带令牌
 
+**JWT 实现细节**：
+- 令牌格式：Base64Url 编码的 JSON 字符串
+- 令牌内容：`issuer:userId:timestamp`
+- 解析逻辑：验证 issuer 是否匹配，提取 userId
+- 配置项：`aidrun.jwt.issuer` 和 `aidrun.jwt.demo-secret`
+
 **令牌存储**：
 - MVP 阶段使用 UserDefaults 存储 JWT
 - 生产环境建议迁移到 Keychain
+
+**章节来源**
+- [JwtService.java:1-37](file://backend/src/main/java/com/aidrun/backend/auth/JwtService.java#L1-L37)
+- [application.yml:30-34](file://backend/src/main/resources/application.yml#L30-L34)
 
 ### 错误码定义
 
@@ -113,8 +149,8 @@ O --> OAS
 | UNAUTHORIZED | 未授权访问 | 令牌无效 |
 
 **章节来源**
-- [07-api-contract.openapi.yaml:543-558](file://docs/07-api-contract.openapi.yaml#L543-L558)
-- [07-api-contract.openapi.yaml:469-542](file://docs/07-api-contract.openapi.yaml#L469-L542)
+- [ErrorCode.java:1-40](file://backend/src/main/java/com/aidrun/backend/common/error/ErrorCode.java#L1-L40)
+- [07-api-contract.openapi.yaml:469-558](file://docs/07-api-contract.openapi.yaml#L469-L558)
 
 ## 架构概览
 
@@ -143,9 +179,9 @@ Order-->>Client : 返回订单状态
 ```
 
 **图表来源**
-- [07-api-contract.openapi.yaml:25-38](file://docs/07-api-contract.openapi.yaml#L25-L38)
-- [07-api-contract.openapi.yaml:150-168](file://docs/07-api-contract.openapi.yaml#L150-L168)
-- [07-api-contract.openapi.yaml:209-236](file://docs/07-api-contract.openapi.yaml#L209-L236)
+- [aidrun-mvp.yaml:25-38](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L25-L38)
+- [aidrun-mvp.yaml:150-168](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L150-L168)
+- [aidrun-mvp.yaml:209-236](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L209-L236)
 
 ## 详细组件分析
 
@@ -172,7 +208,7 @@ Order-->>Client : 返回订单状态
 - 400：验证码错误
 
 **章节来源**
-- [07-api-contract.openapi.yaml:25-46](file://docs/07-api-contract.openapi.yaml#L25-L46)
+- [aidrun-mvp.yaml:25-46](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L25-L46)
 
 ### 用户信息接口
 
@@ -189,7 +225,7 @@ Order-->>Client : 返回订单状态
 - 401：未登录或令牌无效
 
 **章节来源**
-- [07-api-contract.openapi.yaml:47-60](file://docs/07-api-contract.openapi.yaml#L47-L60)
+- [aidrun-mvp.yaml:47-60](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L47-L60)
 
 #### 切换活动角色
 
@@ -211,7 +247,7 @@ Order-->>Client : 返回订单状态
 - 409：存在活跃订单，禁止切换角色
 
 **章节来源**
-- [07-api-contract.openapi.yaml:61-81](file://docs/07-api-contract.openapi.yaml#L61-L81)
+- [aidrun-mvp.yaml:61-81](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L61-L81)
 
 ### 资料管理接口
 
@@ -239,7 +275,7 @@ Order-->>Client : 返回订单状态
 - 200：返回保存的盲人资料
 
 **章节来源**
-- [07-api-contract.openapi.yaml:82-99](file://docs/07-api-contract.openapi.yaml#L82-L99)
+- [aidrun-mvp.yaml:82-99](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L82-L99)
 
 #### 志愿者资料创建/更新
 
@@ -260,7 +296,7 @@ Order-->>Client : 返回订单状态
 - 200：返回保存的志愿者资料
 
 **章节来源**
-- [07-api-contract.openapi.yaml:100-117](file://docs/07-api-contract.openapi.yaml#L100-L117)
+- [aidrun-mvp.yaml:100-117](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L100-L117)
 
 ### 志愿者服务接口
 
@@ -278,7 +314,7 @@ Order-->>Client : 返回订单状态
 - 200：返回更新后的志愿者资料
 
 **章节来源**
-- [07-api-contract.openapi.yaml:118-130](file://docs/07-api-contract.openapi.yaml#L118-L130)
+- [aidrun-mvp.yaml:118-130](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L118-L130)
 
 #### 可服务开关
 
@@ -301,7 +337,7 @@ Order-->>Client : 返回订单状态
 - 200：返回更新后的志愿者资料
 
 **章节来源**
-- [07-api-contract.openapi.yaml:131-149](file://docs/07-api-contract.openapi.yaml#L131-L149)
+- [aidrun-mvp.yaml:131-149](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L131-L149)
 
 ### 订单管理接口
 
@@ -341,7 +377,7 @@ Order-->>Client : 返回订单状态
 - 400：创建订单失败，返回具体错误码
 
 **章节来源**
-- [07-api-contract.openapi.yaml:150-187](file://docs/07-api-contract.openapi.yaml#L150-L187)
+- [aidrun-mvp.yaml:150-187](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L150-L187)
 
 #### 获取我的订单
 
@@ -358,7 +394,7 @@ Order-->>Client : 返回订单状态
 - 200：返回订单列表（MVP 不分页）
 
 **章节来源**
-- [07-api-contract.openapi.yaml:188-208](file://docs/07-api-contract.openapi.yaml#L188-L208)
+- [aidrun-mvp.yaml:188-208](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L188-L208)
 
 #### 获取可接订单
 
@@ -377,7 +413,7 @@ Order-->>Client : 返回订单状态
 - 400：需要定位权限
 
 **章节来源**
-- [07-api-contract.openapi.yaml:209-238](file://docs/07-api-contract.openapi.yaml#L209-L238)
+- [aidrun-mvp.yaml:209-238](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L209-L238)
 
 #### 订单状态管理
 
@@ -400,7 +436,7 @@ emergency --> [*]
 ```
 
 **图表来源**
-- [07-api-contract.openapi.yaml:580-582](file://docs/07-api-contract.openapi.yaml#L580-L582)
+- [RunOrderStatus.java:1-36](file://backend/src/main/java/com/aidrun/backend/order/RunOrderStatus.java#L1-L36)
 
 ##### 获取订单详情
 
@@ -418,7 +454,7 @@ emergency --> [*]
 - 404：订单不存在
 
 **章节来源**
-- [07-api-contract.openapi.yaml:239-255](file://docs/07-api-contract.openapi.yaml#L239-L255)
+- [aidrun-mvp.yaml:239-255](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L239-L255)
 
 ##### 志愿者接单
 
@@ -435,7 +471,7 @@ emergency --> [*]
 - 409：订单已被其他志愿者接单
 
 **章节来源**
-- [07-api-contract.openapi.yaml:256-288](file://docs/07-api-contract.openapi.yaml#L256-L288)
+- [aidrun-mvp.yaml:256-288](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L256-L288)
 
 ##### 志愿者到达
 
@@ -450,7 +486,7 @@ emergency --> [*]
 - 409：订单状态不允许当前操作
 
 **章节来源**
-- [07-api-contract.openapi.yaml:289-304](file://docs/07-api-contract.openapi.yaml#L289-L304)
+- [aidrun-mvp.yaml:289-304](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L289-L304)
 
 ##### 盲人确认开始
 
@@ -465,7 +501,7 @@ emergency --> [*]
 - 409：订单状态不允许当前操作
 
 **章节来源**
-- [07-api-contract.openapi.yaml:305-320](file://docs/07-api-contract.openapi.yaml#L305-L320)
+- [aidrun-mvp.yaml:305-320](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L305-L320)
 
 ##### 志愿者结束服务
 
@@ -487,7 +523,7 @@ emergency --> [*]
 - 409：订单状态不允许当前操作
 
 **章节来源**
-- [07-api-contract.openapi.yaml:321-342](file://docs/07-api-contract.openapi.yaml#L321-L342)
+- [aidrun-mvp.yaml:321-342](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L321-L342)
 
 ##### 取消订单
 
@@ -511,7 +547,7 @@ emergency --> [*]
 - 409：订单状态不允许当前操作
 
 **章节来源**
-- [07-api-contract.openapi.yaml:343-365](file://docs/07-api-contract.openapi.yaml#L343-L365)
+- [aidrun-mvp.yaml:343-365](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L343-L365)
 
 ##### 触发求助
 
@@ -533,7 +569,7 @@ emergency --> [*]
 - 409：订单状态不允许当前操作
 
 **章节来源**
-- [07-api-contract.openapi.yaml:366-388](file://docs/07-api-contract.openapi.yaml#L366-L388)
+- [aidrun-mvp.yaml:366-388](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L366-L388)
 
 ##### 提交评分
 
@@ -556,7 +592,7 @@ emergency --> [*]
 - 409：订单状态不允许当前操作
 
 **章节来源**
-- [07-api-contract.openapi.yaml:389-411](file://docs/07-api-contract.openapi.yaml#L389-L411)
+- [aidrun-mvp.yaml:389-411](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L389-L411)
 
 ### 志愿者扩展接口
 
@@ -572,7 +608,7 @@ emergency --> [*]
 - 200：返回服务记录列表
 
 **章节来源**
-- [07-api-contract.openapi.yaml:412-425](file://docs/07-api-contract.openapi.yaml#L412-L425)
+- [aidrun-mvp.yaml:412-425](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L412-L425)
 
 #### 获取积分
 
@@ -586,7 +622,7 @@ emergency --> [*]
 - 200：返回积分余额和流水
 
 **章节来源**
-- [07-api-contract.openapi.yaml:426-437](file://docs/07-api-contract.openapi.yaml#L426-L437)
+- [aidrun-mvp.yaml:426-437](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L426-L437)
 
 #### 获取积分商城占位商品
 
@@ -602,7 +638,173 @@ emergency --> [*]
 - 200：返回占位商品列表
 
 **章节来源**
-- [07-api-contract.openapi.yaml:438-452](file://docs/07-api-contract.openapi.yaml#L438-L452)
+- [aidrun-mvp.yaml:438-452](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L438-L452)
+
+## 后端实现分析
+
+### Spring Boot 应用启动
+
+应用程序采用标准的 Spring Boot 启动方式，配置了完整的开发环境：
+
+```mermaid
+graph TD
+A[AidRunBackendApplication] --> B[SpringBootApplication]
+B --> C[主应用类]
+C --> D[启动方法]
+D --> E[SpringApplication.run]
+E --> F[应用上下文初始化]
+F --> G[H2 数据库配置]
+G --> H[Swagger UI 配置]
+H --> I[OpenAPI 文档生成]
+```
+
+**图表来源**
+- [AidRunBackendApplication.java:1-13](file://backend/src/main/java/com/aidrun/backend/AidRunBackendApplication.java#L1-L13)
+
+### JWT 认证服务
+
+JWT 服务实现了简化的令牌生成和解析机制：
+
+**令牌生成**：
+- 输入：userId
+- 输出：Base64Url 编码字符串
+- 格式：`issuer:userId:timestamp`
+
+**令牌解析**：
+- 验证 issuer 一致性
+- 提取 userId
+- 返回 Optional<String>
+
+**章节来源**
+- [JwtService.java:1-37](file://backend/src/main/java/com/aidrun/backend/auth/JwtService.java#L1-L37)
+
+### 数据库配置
+
+应用使用 H2 内存数据库进行演示环境支持：
+
+**配置特点**：
+- 内存数据库：`jdbc:h2:mem:aidrun_demo`
+- PostgreSQL 兼容模式
+- 自动 DDL：`create-drop`
+- 开启 H2 控制台
+
+**OpenAPI 配置**：
+- API 文档路径：`/v3/api-docs`
+- Swagger UI 路径：`/swagger-ui.html`
+- 加载外部 YAML 合同
+
+**章节来源**
+- [application.yml:1-34](file://backend/src/main/resources/application.yml#L1-L34)
+
+### 种子数据管理
+
+DemoDataSeeder 实现了完整的演示数据初始化：
+
+**用户数据**：
+- 盲人跑者：13800000001，角色：BLIND_RUNNER, VOLUNTEER
+- 志愿者：13800000002，角色：BLIND_RUNNER, VOLUNTEER
+
+**订单数据**：
+- 两个 MATCHING 状态的订单
+- 一个 IN_PROGRESS 状态已完成的订单
+
+**积分数据**：
+- 志愿者初始积分：200
+- 完成服务奖励：100 积分
+
+**章节来源**
+- [DemoDataSeeder.java:1-118](file://backend/src/main/java/com/aidrun/backend/seed/DemoDataSeeder.java#L1-L118)
+
+## 数据模型设计
+
+### 实体关系模型
+
+```mermaid
+erDiagram
+APP_USER {
+uuid id PK
+string phone_number
+set roles
+enum active_role
+datetime created_at
+datetime updated_at
+}
+BLIND_RUNNER_PROFILE {
+uuid id PK
+uuid user_id FK
+string nickname
+string running_experience
+json emergency_contact
+datetime created_at
+datetime updated_at
+}
+VOLUNTEER_PROFILE {
+uuid id PK
+uuid user_id FK
+string nickname
+string phone_number
+enum verification_status
+enum admin_review_status
+boolean is_available
+int points_balance
+datetime created_at
+datetime updated_at
+}
+RUN_ORDER {
+uuid id PK
+uuid blind_runner_user_id FK
+string blind_runner_nickname
+uuid volunteer_user_id FK
+string volunteer_nickname
+enum status
+location_point start_location
+string destination_text
+instant appointment_time
+datetime created_at
+datetime updated_at
+}
+APP_USER ||--o{ BLIND_RUNNER_PROFILE : has
+APP_USER ||--o{ VOLUNTEER_PROFILE : has
+APP_USER ||--o{ RUN_ORDER : creates
+VOLUNTEER_PROFILE ||--o{ RUN_ORDER : serves
+```
+
+**图表来源**
+- [AppUser.java:1-53](file://backend/src/main/java/com/aidrun/backend/user/AppUser.java#L1-L53)
+- [BlindRunnerProfile.java:1-55](file://backend/src/main/java/com/aidrun/backend/profile/BlindRunnerProfile.java#L1-L55)
+- [RunOrder.java:1-102](file://backend/src/main/java/com/aidrun/backend/order/RunOrder.java#L1-L102)
+
+### 枚举类型设计
+
+**用户角色枚举**：
+- BLIND_RUNNER："blind_runner"
+- VOLUNTEER："volunteer"
+
+**订单状态枚举**：
+- MATCHING："matching"
+- ACCEPTED："accepted"
+- ARRIVED："arrived"
+- IN_PROGRESS："in_progress"
+- COMPLETED："completed"
+- CANCELLED："cancelled"
+- EMERGENCY："emergency"
+
+**验证状态枚举**：
+- NOT_SUBMITTED："not_submitted"
+- PENDING："pending"
+- APPROVED："approved"
+- REJECTED："rejected"
+
+**位置来源枚举**：
+- DEVICE_LOCATION："device_location"
+- MANUAL："manual"
+- DEMO_DEFAULT："demo_default"
+
+**章节来源**
+- [UserRole.java:1-31](file://backend/src/main/java/com/aidrun/backend/user/UserRole.java#L1-L31)
+- [RunOrderStatus.java:1-36](file://backend/src/main/java/com/aidrun/backend/order/RunOrderStatus.java#L1-L36)
+- [VerificationStatus.java:1-33](file://backend/src/main/java/com/aidrun/backend/profile/VerificationStatus.java#L1-L33)
+- [LocationSource.java:1-32](file://backend/src/main/java/com/aidrun/backend/location/LocationSource.java#L1-L32)
 
 ## 依赖关系分析
 
@@ -681,8 +883,9 @@ VOLUNTEER_PROFILE ||--o{ RUN_ORDER : serves
 ```
 
 **图表来源**
-- [07-api-contract.openapi.yaml:634-762](file://docs/07-api-contract.openapi.yaml#L634-L762)
-- [07-api-contract.openapi.yaml:811-914](file://docs/07-api-contract.openapi.yaml#L811-L914)
+- [AppUser.java:16-53](file://backend/src/main/java/com/aidrun/backend/user/AppUser.java#L16-L53)
+- [BlindRunnerProfile.java:13-55](file://backend/src/main/java/com/aidrun/backend/profile/BlindRunnerProfile.java#L13-L55)
+- [RunOrder.java:18-102](file://backend/src/main/java/com/aidrun/backend/order/RunOrder.java#L18-L102)
 
 **章节来源**
 - [07-api-contract.openapi.yaml:543-1117](file://docs/07-api-contract.openapi.yaml#L543-L1117)
@@ -753,6 +956,8 @@ VOLUNTEER_PROFILE ||--o{ RUN_ORDER : serves
 ## 结论
 
 AidRun API 设计遵循 RESTful 原则，提供了完整的认证、用户管理、订单服务和志愿者管理功能。通过统一的错误码体系和清晰的 API 规范，确保了系统的易用性和可维护性。
+
+**更新** 后端已完整实现，包含 JWT 认证、用户管理、订单管理、志愿者管理等核心功能，与前端 API 契约完全匹配。后端采用 Spring Boot 3.0+ 技术栈，使用 JPA/Hibernate 进行数据持久化，H2 内存数据库支持演示环境。
 
 MVP 版本专注于核心功能的实现，通过 Mock 机制和简化流程确保了 3 天内的快速交付。随着项目的演进，可以在保持 API 兼容性的前提下逐步添加更多高级功能。
 
