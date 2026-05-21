@@ -1,7 +1,7 @@
 ## 1. Backend Foundation and Auth
 
-- [ ] 1.1 Create Spring Boot project with Spring Web, validation, security/JWT, H2, and springdoc OpenAPI.
-- [ ] 1.2 Add H2 demo configuration, Swagger/OpenAPI exposure, and startup seed data.
+- [x] 1.1 Create Spring Boot project with Spring Web, validation, security/JWT, H2, and springdoc OpenAPI.
+- [x] 1.2 Add H2 demo configuration, Swagger/OpenAPI exposure, and startup seed data.
 - [ ] 1.3 Implement phone login / auto-registration with fixed verification code `123456`.
 - [ ] 1.4 Protect all non-auth endpoints with JWT Bearer Auth.
 
