@@ -26,7 +26,7 @@ paths:
     post:
       tags: [Auth]
       summary: 手机号登录 / 自动注册
-      description: Demo 阶段验证码固定为 123456，首次登录自动创建账号。
+      description: Demo 阶段验证码固定为 123456，首次登录自动创建账号；首次角色选择前 activeRole 可为空。
       security: []
       requestBody:
         required: true
@@ -344,7 +344,7 @@ paths:
     post:
       tags: [Orders]
       summary: 取消订单
-      description: 仅 matching / accepted / arrived 可普通取消；取消必须记录取消方和原因。
+      description: 仅 matching / accepted / arrived 可普通取消；用户手动取消必须记录取消方和手动取消原因，系统超时取消使用 no_volunteer_available。
       parameters:
         - $ref: '#/components/parameters/OrderId'
       requestBody:
@@ -585,6 +585,15 @@ components:
       type: string
       enum: [blind_runner, volunteer]
 
+    ManualCancellationReason:
+      type: string
+      enum:
+        - time_conflict
+        - wrong_location
+        - temporary_issue
+        - cannot_contact
+        - other
+
     CancellationReason:
       type: string
       enum:
@@ -624,7 +633,7 @@ components:
 
     UserDto:
       type: object
-      required: [id, phoneNumber, roles, activeRole, createdAt, updatedAt]
+      required: [id, phoneNumber, roles, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -636,7 +645,9 @@ components:
           items:
             $ref: '#/components/schemas/UserRole'
         activeRole:
-          $ref: '#/components/schemas/UserRole'
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/UserRole'
         createdAt:
           type: string
           format: date-time
@@ -924,7 +935,7 @@ components:
         cancelledBy:
           $ref: '#/components/schemas/CancellationActor'
         cancelledReason:
-          $ref: '#/components/schemas/CancellationReason'
+          $ref: '#/components/schemas/ManualCancellationReason'
         otherReasonText:
           type: string
 
@@ -939,7 +950,9 @@ components:
           type: string
           format: uuid
         cancelledBy:
-          $ref: '#/components/schemas/CancellationActor'
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/CancellationActor'
         cancelledReason:
           $ref: '#/components/schemas/CancellationReason'
         otherReasonText:

@@ -359,7 +359,7 @@
 
 **验收标准**：
 
-**Given** 订单状态为 matching
+**Given** 订单状态为 matching / accepted / arrived
 **When** 用户点击"取消订单"并确认
 **Then** 订单状态变为 cancelled，cancelledBy = blind_runner，记录取消原因
 
@@ -414,7 +414,7 @@
 
 **Given** 首次选择志愿者角色的用户在认证页
 **When** 用户填写昵称、手机号，完成 Mock 认证页面并点击"提交"
-**Then** verificationStatus 自动变为 approved，adminReviewStatus 自动变为 approved，isAvailable 自动设为 true
+**Then** verificationStatus 自动变为 approved，adminReviewStatus 自动变为 approved，isAvailable 仍由志愿者首页可服务开关单独控制
 **And** 导航至志愿者首页
 
 ---
@@ -460,7 +460,7 @@
 
 **Given** 志愿者首页可服务开关为开启状态
 **When** 志愿者关闭可服务开关
-**Then** 刷新后不再出现在可接单志愿者列表中，但已有已接订单不受影响
+**Then** 志愿者仍可查看订单列表，但不能接新订单；已有已接订单不受影响
 
 ---
 

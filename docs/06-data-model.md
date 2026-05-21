@@ -56,6 +56,16 @@ MVP 中志愿者完成 Mock 认证后，`verificationStatus` 和 `adminReviewSta
 | `blind_runner` | 盲人跑者取消 |
 | `volunteer` | 志愿者取消 |
 
+### ManualCancellationReason
+
+| Value | Display Text |
+| --- | --- |
+| `time_conflict` | 时间不合适 |
+| `wrong_location` | 地点填写错误 |
+| `temporary_issue` | 临时有事 |
+| `cannot_contact` | 联系不上对方 |
+| `other` | 其他 |
+
 ### CancellationReason
 
 | Value | Display Text |
@@ -76,13 +86,13 @@ MVP 中志愿者完成 Mock 认证后，`verificationStatus` 和 `adminReviewSta
 | `id` | UUID/String | Yes | 主键 |
 | `phoneNumber` | String | Yes | 唯一手机号 |
 | `roles` | Set<UserRole> | Yes | 一个手机号可同时拥有两种身份 |
-| `activeRole` | UserRole | Yes | App 内当前身份 |
+| `activeRole` | UserRole | No | App 内当前身份；首次登录角色选择前可为空 |
 | `createdAt` | Instant | Yes | 创建时间 |
 | `updatedAt` | Instant | Yes | 更新时间 |
 
 Rules:
 
-- 首次手机号登录自动创建 `User`。
+- 首次手机号登录自动创建 `User`，但不强制设置 `activeRole`；App 应进入角色选择页并通过角色切换接口保存当前角色。
 - 默认可拥有盲人和志愿者身份；资料完整性由对应业务入口校验。
 - 若用户存在 `accepted`、`arrived`、`in_progress`、`emergency` 状态订单，禁止切换 `activeRole`。
 
@@ -195,7 +205,7 @@ Rules:
 | --- | --- | --- | --- |
 | `id` | UUID/String | Yes | 主键 |
 | `orderId` | UUID/String | Yes | 关联 RunOrder |
-| `cancelledBy` | CancellationActor | Yes | 取消方 |
+| `cancelledBy` | CancellationActor | No | 用户手动取消时必填；系统超时取消时为空 |
 | `cancelledReason` | CancellationReason | Yes | 固定取消原因 |
 | `otherReasonText` | String | No | cancelledReason 为 `other` 时填写 |
 | `createdAt` | Instant | Yes | 取消时间 |
@@ -203,6 +213,8 @@ Rules:
 Rules:
 
 - 服务开始前可普通取消。
+- 用户手动取消原因只能来自 `ManualCancellationReason`。
+- 系统超时取消使用 `cancelledReason = no_volunteer_available`，不设置 `cancelledBy`。
 - `in_progress` 后不能普通取消，只能进入求助 / 异常状态。
 
 ### EmergencyEvent

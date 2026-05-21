@@ -17,7 +17,7 @@ AidRun MVP v0.3 is a public-service demo product for blind runners and volunteer
 
 ## Decisions
 
-- Use a single `User` account with `roles` and `activeRole`; both roles share one JWT. The backend blocks role switching when the user has an order in `accepted`, `arrived`, `in_progress`, or `emergency`.
+- Use a single `User` account with `roles` and `activeRole`; both roles share one JWT. First login may return no `activeRole` until the app role-selection step saves one. The backend blocks role switching when the user has an order in `accepted`, `arrived`, `in_progress`, or `emergency`.
 - Merge login and registration. The demo verification code is `123456`; invalid codes return `INVALID_VERIFICATION_CODE`.
 - Model one service as one `RunOrder`. Normal lifecycle is `matching -> accepted -> arrived -> in_progress -> completed`.
 - Volunteers actively accept orders. The backend only returns `matching` orders; iOS sorts by distance using current volunteer location and order start coordinates.

@@ -6,7 +6,7 @@ The system MUST support phone-number login that automatically creates a user acc
 
 #### Scenario: First login creates account
 - **WHEN** a new phone number submits verification code `123456`
-- **THEN** the backend creates a `User`, assigns available roles, sets an `activeRole`, and returns a JWT access token
+- **THEN** the backend creates a `User`, assigns available roles, leaves `activeRole` unset until role selection, and returns a JWT access token
 
 #### Scenario: Existing phone logs in
 - **WHEN** an existing phone number submits verification code `123456`

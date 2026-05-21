@@ -30,11 +30,23 @@ The system MUST reject lifecycle operations that do not match the current order 
 
 ### Requirement: Cancellation is allowed only before service starts
 
-The system MUST allow blind runners or volunteers to cancel only `matching`, `accepted`, or `arrived` orders and record fixed cancellation reason data.
+The system MUST allow blind runners or volunteers to cancel only `matching`, `accepted`, or `arrived` orders and record fixed manual cancellation reason data.
 
 #### Scenario: Cancel in progress blocked
 - **WHEN** a user attempts ordinary cancellation for an `in_progress` order
 - **THEN** the backend returns `INVALID_ORDER_STATUS`
+
+#### Scenario: Manual cancellation records actor and fixed reason
+- **WHEN** a blind runner or volunteer cancels a `matching`, `accepted`, or `arrived` order
+- **THEN** the cancellation records `cancelledBy` as `blind_runner` or `volunteer` and uses one of `time_conflict`, `wrong_location`, `temporary_issue`, `cannot_contact`, or `other`
+
+### Requirement: No-volunteer timeout cancellation is system generated
+
+The system MUST automatically cancel a `matching` order with `cancelledReason = no_volunteer_available` if it remains unaccepted 30 minutes before appointment time.
+
+#### Scenario: No volunteer available before appointment
+- **WHEN** a `matching` order reaches 30 minutes before `appointmentTime` without an accepted volunteer
+- **THEN** the order becomes `cancelled` with `cancelledReason = no_volunteer_available` and no manual `cancelledBy` actor
 
 ### Requirement: Blind runner polls active order status
 

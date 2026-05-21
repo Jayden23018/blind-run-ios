@@ -87,7 +87,7 @@ Login:
 
 - Phone login and registration are merged.
 - Demo verification code is always `123456`.
-- On success, backend returns JWT access token and current user.
+- On success, backend returns JWT access token and current user; first login may have no `activeRole`, so the app routes to role selection.
 
 Role switching:
 
