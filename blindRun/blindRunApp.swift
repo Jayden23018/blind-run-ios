@@ -9,9 +9,17 @@ import SwiftUI
 
 @main
 struct blindRunApp: App {
+    @StateObject private var appState = AppState()
+    @StateObject private var speechService = SpeechService()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(appState)
+                .environmentObject(speechService)
+                .onAppear {
+                    appState.restoreSession()
+                }
         }
     }
 }

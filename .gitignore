@@ -61,6 +61,9 @@ fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
 
+# Local configuration (AMap keys, secrets)
+LocalConfig.xcconfig
+
 # Maven / Spring Boot backend
 backend/target/
 backend/.m2/

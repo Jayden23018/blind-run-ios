@@ -8,31 +8,89 @@
 import XCTest
 @testable import blindRun
 
+@MainActor
 final class blindRunTests: XCTestCase {
 
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
+    func testPhoneLoginRequestUsesOpenAPICamelCaseKeys() throws {
+        let request = PhoneLoginRequest(
+            phoneNumber: "13800138000",
+            verificationCode: "123456"
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+
+        XCTAssertEqual(json["phoneNumber"], "13800138000")
+        XCTAssertEqual(json["verificationCode"], "123456")
+        XCTAssertNil(json["phone_number"])
+        XCTAssertNil(json["code"])
     }
 
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
-
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
-        // XCTest Documentation
-        // https://developer.apple.com/documentation/xctest
-    }
-
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
+    func testAuthResponseDecodesOpenAPICamelCaseKeys() throws {
+        let json = """
+        {
+          "accessToken": "token",
+          "tokenType": "Bearer",
+          "user": {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "phoneNumber": "13800138000",
+            "nickname": "测试用户",
+            "roles": ["blind_runner", "volunteer"],
+            "activeRole": null,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "updatedAt": "2024-01-01T00:00:00Z"
+          }
         }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(AuthResponse.self, from: json)
+
+        XCTAssertEqual(response.accessToken, "token")
+        XCTAssertEqual(response.user.id, "00000000-0000-0000-0000-000000000001")
+        XCTAssertEqual(response.user.phoneNumber, "13800138000")
+        XCTAssertEqual(response.user.roles, [.blindRunner, .volunteer])
     }
 
+    func testOrderRequestUsesOpenAPIWireValues() throws {
+        let request = CreateOrderRequest(
+            startLocation: LocationPoint(
+                latitude: 31.2304,
+                longitude: 121.4737,
+                addressText: "人民广场",
+                source: .deviceLocation
+            ),
+            destinationText: "公园慢跑一圈",
+            appointmentTime: "2026-05-22T09:00:00Z",
+            estimatedDurationMinutes: 60,
+            estimatedDistanceKm: 5.0,
+            pacePreference: "慢跑",
+            preferSameGender: true,
+            remark: "请在地铁口见面"
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let location = try XCTUnwrap(json["startLocation"] as? [String: Any])
+
+        XCTAssertEqual(json["destinationText"] as? String, "公园慢跑一圈")
+        XCTAssertEqual(location["addressText"] as? String, "人民广场")
+        XCTAssertEqual(location["source"] as? String, "device_location")
+        XCTAssertNil(json["routeNotes"])
+        XCTAssertNil(location["address"])
+    }
+
+    func testManualCancellationReasonKeepsOpenAPIWireValueAndChineseLabel() throws {
+        let request = CancelOrderRequest(
+            cancelledBy: .blindRunner,
+            cancelledReason: .wrongLocation,
+            otherReasonText: nil
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+
+        XCTAssertEqual(json["cancelledBy"], "blind_runner")
+        XCTAssertEqual(json["cancelledReason"], "wrong_location")
+        XCTAssertEqual(ManualCancellationReason.wrongLocation.displayName, "地点填写错误")
+    }
 }
