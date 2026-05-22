@@ -1,7 +1,7 @@
 # Core 核心模块
 
 <cite>
-**本文引用的文件**
+**本文档引用的文件**
 - [APIClient.swift](file://blindRun/blindRun/Core/APIClient.swift)
 - [AppState.swift](file://blindRun/blindRun/Core/AppState.swift)
 - [MockAPIClient.swift](file://blindRun/blindRun/Core/MockAPIClient.swift)
@@ -24,11 +24,10 @@
 
 ## 更新摘要
 **所做更改**
-- 新增 API 客户端系统实现，包括 URLSessionAPIClient 和 MockAPIClient
-- 完善应用状态管理系统，集成全局状态管理和会话持久化
-- 添加设计系统组件，包括颜色系统、高对比度文本和主按钮组件
-- 扩展共享数据模型，涵盖用户、订单、资料等完整 DTO 结构
-- 更新模块初始化流程和配置最佳实践
+- 基于新的API客户端实现，更新核心模块文档，重点改进APIClient.swift和MockAPIClient.swift
+- 解决Swift并发问题，引入Sendable协议支持和actor isolation兼容性
+- 增强请求体序列化机制，改进Mock客户端的请求体处理
+- 更新API客户端协议设计，支持更灵活的泛型约束和类型安全
 
 ## 目录
 1. [简介](#简介)
@@ -277,6 +276,7 @@ Voice --> Speech
   - 支持认证令牌自动添加和 401 处理
   - 完整的状态码处理和错误映射
   - 异步任务支持，避免阻塞主线程
+  - **新增**：支持 Sendable 协议，解决 Swift 并发问题
 
 #### MockAPIClient 实现
 - **设计原则**：提供本地 Mock 数据服务，支持快速开发和测试。
@@ -284,16 +284,23 @@ Voice --> Speech
   - 模拟网络延迟（300ms）提升真实感
   - 基于路径的路由分发，支持多个端点
   - 完整的认证和用户信息 Mock 数据
+  - **新增**：增强请求体序列化，支持复杂的请求参数处理
   - 可扩展的 Mock 数据结构
 
 #### APIError 错误处理
 - **设计原则**：统一的错误处理机制，提供用户友好的错误消息。
 - **错误类型**：服务器错误、未授权、网络错误、解码错误、无效 URL、未知错误
 - **本地化支持**：所有错误消息支持中文本地化
+- **并发安全**：支持 Sendable 协议，确保多线程环境下的安全性
+
+**更新** 基于新的API客户端实现，主要改进包括：
+- 引入 Sendable 协议支持，解决 Swift 并发问题
+- 增强请求体序列化机制，改进 Mock 客户端的请求参数处理
+- 优化泛型约束，提高类型安全性
 
 **章节来源**
-- [APIClient.swift:1-179](file://blindRun/blindRun/Core/APIClient.swift#L1-L179)
-- [MockAPIClient.swift:1-65](file://blindRun/blindRun/Core/MockAPIClient.swift#L1-L65)
+- [APIClient.swift:1-183](file://blindRun/blindRun/Core/APIClient.swift#L1-L183)
+- [MockAPIClient.swift:1-104](file://blindRun/blindRun/Core/MockAPIClient.swift#L1-L104)
 
 ### 组件二：应用状态管理系统
 
@@ -315,7 +322,7 @@ Voice --> Speech
 - **跨模块同步**：统一的状态源确保多模块状态一致性
 
 **章节来源**
-- [AppState.swift:1-123](file://blindRun/blindRun/Core/AppState.swift#L1-L123)
+- [AppState.swift:1-138](file://blindRun/blindRun/Core/AppState.swift#L1-L138)
 
 ### 组件三：设计系统组件
 
@@ -431,6 +438,7 @@ Auth --> Store["UserDefaults"]
   - 简化重试策略，避免复杂离线队列；减少不必要的并发请求
   - 对于长耗时操作（如订单轮询）采用 5 秒间隔，避免过度拉取
   - Mock 客户端模拟网络延迟，提升开发体验
+  - **新增**：优化请求体序列化性能，减少不必要的编码开销
 - **存储层**
   - UserDefaults 适合 MVP；生产前迁移至 Keychain，提升安全性与可靠性
   - 状态变更采用惰性持久化，避免频繁磁盘 I/O
@@ -440,6 +448,7 @@ Auth --> Store["UserDefaults"]
 - **状态更新**
   - 状态变更采用批量更新与去抖策略，减少 UI 重绘频率
   - Combine 框架提供高效的响应式状态管理
+  - **新增**：并发安全的状态管理，支持多线程环境下的稳定性
 
 ## 故障排查指南
 
@@ -468,11 +477,18 @@ Auth --> Store["UserDefaults"]
 - **排查**：检查 AppColors 配置；验证 PrimaryButton 参数设置
 - **解决方案**：确认 SwiftUI 颜色适配；检查按钮状态和禁用逻辑
 
+### 并发问题
+- **症状**：多线程环境下出现数据竞争或状态不一致
+- **排查**：检查 Sendable 协议实现；验证 actor isolation 设置
+- **解决方案**：确保所有并发安全的数据结构都实现 Sendable 协议
+
 **章节来源**
 - [08-ios-architecture.md:50-96](file://docs/08-ios-architecture.md#L50-L96)
 
 ## 结论
 Core 核心模块在 AidRun MVP 中承担基础设施职责，通过统一的 API 客户端系统、应用状态管理、设计系统组件和共享数据模型，为各业务模块提供稳定、可扩展且易于测试的基础能力。现已实现完整的 URLSessionAPIClient 和 MockAPIClient，支持三种环境模式的无缝切换；AppState 提供完整的会话管理和状态持久化；设计系统确保视觉一致性和无障碍访问；共享 DTO 保证前后端数据契约的一致性。
+
+**重要更新**：基于新的API客户端实现，Core模块在并发安全方面有了显著改进，通过引入Sendable协议支持和优化的请求体序列化机制，解决了Swift并发问题，提高了系统的稳定性和可靠性。这些改进为后续的功能扩展和性能优化奠定了坚实基础。
 
 结合文档中的模块分组与职责边界，Core 与业务模块之间形成清晰的协议与容器解耦，既满足 MVP 快速迭代需求，也为后续演进（如 Keychain 迁移、WebSocket 替代轮询等）预留了空间。
 
@@ -493,6 +509,7 @@ Core 核心模块在 AidRun MVP 中承担基础设施职责，通过统一的 AP
 - **状态管理**：使用 AppState 统一管理全局状态，避免状态分散
 - **设计规范**：所有界面组件遵循设计系统规范，确保视觉一致性
 - **错误处理**：统一的 APIError 处理机制，提供用户友好的错误消息
+- **并发安全**：确保所有数据结构都实现 Sendable 协议，支持多线程环境
 
 #### 代码示例
 
@@ -560,6 +577,22 @@ PrimaryButton("提交", isDestructive: false) {
 
 // 使用系统颜色
 Color(AppColors.primary)
+```
+
+**并发安全示例**
+```swift
+// 确保数据结构的并发安全
+struct SafeUserData: Codable, Sendable {
+    let id: String
+    let name: String
+    let email: String
+}
+
+// 使用 Sendable 协议的 API 客户端
+let apiClient: any APIClientProtocol & Sendable = URLSessionAPIClient(
+    baseURL: baseURL,
+    tokenProvider: { [weak self] in self?.accessToken }
+)
 ```
 
 **章节来源**

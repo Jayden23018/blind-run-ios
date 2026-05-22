@@ -10,9 +10,24 @@
 - [volunteer-points/spec.md](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/volunteer-points/spec.md)
 - [safety-basic-emergency/spec.md](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/safety-basic-emergency/spec.md)
 - [auth-phone-login/spec.md](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/auth-phone-login/spec.md)
+- [RoleSelectionView.swift](file://blindRun/Role/RoleSelectionView.swift)
+- [RoleSelectionViewModel.swift](file://blindRun/Role/RoleSelectionViewModel.swift)
+- [RoleModule.swift](file://blindRun/Role/RoleModule.swift)
+- [UserModels.swift](file://blindRun/Core/Models/UserModels.swift)
+- [AppState.swift](file://blindRun/Core/AppState.swift)
+- [AppColors.swift](file://blindRun/Core/DesignSystem/AppColors.swift)
+- [HighContrastText.swift](file://blindRun/Core/DesignSystem/HighContrastText.swift)
+- [ErrorModels.swift](file://blindRun/Core/Models/ErrorModels.swift)
 - [ContentView.swift](file://blindRun/ContentView.swift)
 - [blindRunApp.swift](file://blindRun/blindRunApp.swift)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增完整的角色选择系统实现，包括双角色选择界面和高对比度设计
+- 实现角色切换拦截机制和状态同步功能
+- 添加无障碍访问支持和语音播报功能
+- 更新路由系统以支持角色选择流程
 
 ## 目录
 1. [简介](#简介)
@@ -27,41 +42,53 @@
 10. [附录](#附录)
 
 ## 简介
-本文件面向 Role 角色模块的技术文档，聚焦于“盲人跑者”和“志愿者”两类角色的定义、权限差异、角色切换机制（含条件检查、活跃订单拦截）、单一 JWT 在多角色间的共享策略（activeRole 字段）、角色状态持久化与同步策略、UI 设计考虑（角色选择与切换确认流程），以及在各业务模块中基于角色的动态权限控制。所有需求均来源于项目内规范文件，确保实现与产品目标一致。
+本文件面向 Role 角色模块的技术文档，聚焦于"盲人跑者"和"志愿者"两类角色的定义、权限差异、角色切换机制（含条件检查、活跃订单拦截）、单一 JWT 在多角色间的共享策略（activeRole 字段）、角色状态持久化与同步策略、UI 设计考虑（角色选择与切换确认流程），以及在各业务模块中基于角色的动态权限控制。**更新**：新增完整的角色选择系统实现，包括双角色选择界面、高对比度设计、角色切换拦截机制和状态同步功能。
 
 ## 项目结构
-iOS 前端采用 SwiftUI 应用骨架，当前内容视图与应用入口位于 ContentView.swift 和 blindRunApp.swift；角色相关的行为与约束主要由后端 API 合约与业务规范定义，并通过 OpenAPI 文档暴露给前端调用。
+iOS 前端采用 SwiftUI 应用骨架，当前内容视图与应用入口位于 ContentView.swift 和 blindRunApp.swift；角色相关的行为与约束主要由后端 API 合约与业务规范定义，并通过 OpenAPI 文档暴露给前端调用。**更新**：新增 Role 模块，包含角色选择视图和 ViewModel。
 
 ```mermaid
 graph TB
 subgraph "iOS 前端"
 A["blindRunApp.swift<br/>应用入口"]
-B["ContentView.swift<br/>根视图占位"]
+B["ContentView.swift<br/>根视图路由"]
+C["Role 模块"]
+D["RoleSelectionView.swift<br/>角色选择界面"]
+E["RoleSelectionViewModel.swift<br/>角色选择逻辑"]
+F["UserModels.swift<br/>用户模型"]
+G["AppState.swift<br/>全局状态管理"]
 end
-subgraph "后端 APIOpenAPI"
-C["用户/角色接口<br/>OpenAPI 定义"]
-D["订单生命周期接口<br/>OpenAPI 定义"]
-E["志愿者流程接口<br/>OpenAPI 定义"]
-F["安全应急接口<br/>OpenAPI 定义"]
+subgraph "后端 API"
+H["用户/角色接口<br/>OpenAPI 定义"]
+I["订单生命周期接口<br/>OpenAPI 定义"]
+J["志愿者流程接口<br/>OpenAPI 定义"]
+K["安全应急接口<br/>OpenAPI 定义"]
 end
 A --> B
 B --> C
-B --> D
-B --> E
-B --> F
+C --> D
+C --> E
+D --> F
+E --> G
+B --> H
+B --> I
+B --> J
+B --> K
 ```
 
 **图表来源**
 - [blindRunApp.swift:10-17](file://blindRun/blindRunApp.swift#L10-L17)
-- [ContentView.swift:10-20](file://blindRun/ContentView.swift#L10-L20)
+- [ContentView.swift:10-34](file://blindRun/ContentView.swift#L10-L34)
+- [RoleSelectionView.swift:5-10](file://blindRun/Role/RoleSelectionView.swift#L5-L10)
+- [RoleSelectionViewModel.swift:7-10](file://blindRun/Role/RoleSelectionViewModel.swift#L7-L10)
 
 **章节来源**
 - [blindRunApp.swift:1-18](file://blindRun/blindRunApp.swift#L1-L18)
-- [ContentView.swift:1-25](file://blindRun/ContentView.swift#L1-L25)
+- [ContentView.swift:1-41](file://blindRun/ContentView.swift#L1-L41)
 
 ## 核心组件
 - 角色模型与切换
-  - 单一账户可同时持有“盲人跑者”和“志愿者”角色，通过 activeRole 切换当前角色，不产生新的 JWT。
+  - 单一账户可同时持有"盲人跑者"和"志愿者"角色，通过 activeRole 切换当前角色，不产生新的 JWT。
   - 切换条件：无处于特定状态的活跃订单时允许切换。
   - 活跃订单拦截：当存在处于 accepted、arrived、in_progress 或 emergency 状态的订单时，禁止切换并返回错误码。
 - JWT 与认证
@@ -74,6 +101,10 @@ B --> F
   - 应急状态仅在 accepted、arrived、in_progress 三态之间触发，且不可恢复。
 - 积分与服务记录
   - 完成服务后志愿者获得积分，支持查看服务记录。
+- **新增** 角色选择系统
+  - 双角色选择界面：提供高对比度设计的大卡片按钮
+  - 无障碍支持：完整的 VoiceOver 和 TTS 支持
+  - 状态同步：实时同步前端状态与后端服务器状态
 
 **章节来源**
 - [role-switching/spec.md:3-25](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/role-switching/spec.md#L3-L25)
@@ -82,37 +113,99 @@ B --> F
 - [volunteer-order-flow/spec.md:3-38](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/volunteer-order-flow/spec.md#L3-L38)
 - [volunteer-points/spec.md:3-26](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/volunteer-points/spec.md#L3-L26)
 - [safety-basic-emergency/spec.md:11-42](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/safety-basic-emergency/spec.md#L11-L42)
+- [RoleSelectionView.swift:5-10](file://blindRun/Role/RoleSelectionView.swift#L5-L10)
+- [RoleSelectionViewModel.swift:7-10](file://blindRun/Role/RoleSelectionViewModel.swift#L7-L10)
 
 ## 架构总览
-角色系统围绕“单一 JWT + activeRole”的设计展开：前端在本地维护当前 activeRole，后续所有 API 调用均携带同一 JWT，后端据此判定当前角色并执行相应权限校验。
+角色系统围绕"单一 JWT + activeRole"的设计展开：前端在本地维护当前 activeRole，后续所有 API 调用均携带同一 JWT，后端据此判定当前角色并执行相应权限校验。**更新**：新增角色选择流程，通过 RoleSelectionView 和 RoleSelectionViewModel 实现完整的角色切换体验。
 
 ```mermaid
 sequenceDiagram
 participant U as "用户"
-participant APP as "iOS 应用"
+participant RS as "RoleSelectionView"
+participant RVM as "RoleSelectionViewModel"
+participant AS as "AppState"
 participant API as "后端 API"
 participant DB as "数据库"
-U->>APP : "请求切换 activeRole"
-APP->>API : "携带 JWT 调用切换接口"
+U->>RS : "点击角色卡片"
+RS->>RVM : "selectRole(role)"
+RVM->>AS : "performRoleSwitch()"
+RVM->>API : "PATCH /api/users/me/active-role"
 API->>DB : "查询用户及订单状态"
 DB-->>API : "返回用户与订单数据"
 API->>API : "校验是否存在处于 accepted/arrived/in_progress/emergency 的订单"
 alt "存在活跃订单"
-API-->>APP : "返回错误码 ACTIVE_ORDER_ROLE_SWITCH_BLOCKED"
-APP-->>U : "提示无法切换"
+API-->>RVM : "返回错误码 ACTIVE_ORDER_ROLE_SWITCH_BLOCKED"
+RVM-->>RS : "showBlockedAlert = true"
+RS-->>U : "弹出拦截提示"
 else "无活跃订单"
 API->>DB : "更新 activeRole 并持久化"
 DB-->>API : "保存成功"
-API-->>APP : "返回更新后的用户信息"
-APP-->>U : "切换成功"
+API-->>RVM : "返回更新后的用户信息"
+RVM->>AS : "updateCurrentUser()"
+AS->>AS : "persistActiveRole()"
+RVM-->>RS : "切换成功"
+RS-->>U : "跳转到对应角色首页"
 end
 ```
 
 **图表来源**
-- [role-switching/spec.md:7-17](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/role-switching/spec.md#L7-L17)
-- [backend-api-contract/spec.md:19-25](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/backend-api-contract/spec.md#L19-L25)
+- [RoleSelectionView.swift:99-101](file://blindRun/Role/RoleSelectionView.swift#L99-L101)
+- [RoleSelectionViewModel.swift:35-42](file://blindRun/Role/RoleSelectionViewModel.swift#L35-L42)
+- [RoleSelectionViewModel.swift:46-69](file://blindRun/Role/RoleSelectionViewModel.swift#L46-L69)
+- [AppState.swift:100-113](file://blindRun/Core/AppState.swift#L100-L113)
 
 ## 详细组件分析
+
+### 角色选择界面与交互
+**更新**：新增完整的角色选择系统，提供直观的双角色选择界面。
+
+- 界面设计
+  - 高对比度设计：使用半透明背景色区分两个角色选项
+  - 大卡片布局：每个角色使用独立的大卡片，便于触摸操作
+  - 图标标识：使用 SF Symbols 图标增强视觉识别
+  - 无障碍支持：完整的 VoiceOver 标签和提示
+- 交互流程
+  - 用户点击任一角色卡片
+  - 显示加载状态，禁用其他交互
+  - 调用后端 API 进行角色切换
+  - 根据结果更新界面状态
+
+```mermaid
+flowchart TD
+Start(["用户打开角色选择界面"]) --> Load["加载界面内容"]
+Load --> ShowCards["显示两个角色卡片"]
+ShowCards --> UserClick{"用户点击卡片？"}
+UserClick --> |盲人跑者| CheckOrder1["检查活跃订单"]
+UserClick --> |志愿者| CheckOrder2["检查活跃订单"]
+CheckOrder1 --> HasActive1{"存在活跃订单？"}
+CheckOrder2 --> HasActive2{"存在活跃订单？"}
+HasActive1 --> |是| ShowAlert1["显示拦截提示"]
+HasActive2 --> |是| ShowAlert2["显示拦截提示"]
+HasActive1 --> |否| Switch1["调用 API 切换角色"]
+HasActive2 --> |否| Switch2["调用 API 切换角色"]
+ShowAlert1 --> Wait1["等待用户确认"]
+ShowAlert2 --> Wait2["等待用户确认"]
+Wait1 --> UserConfirm1{"用户确认？"}
+Wait2 --> UserConfirm2{"用户确认？"}
+UserConfirm1 --> |否| ShowCards
+UserConfirm2 --> |否| ShowCards
+UserConfirm1 --> |是| Switch1
+UserConfirm2 --> |是| Switch2
+Switch1 --> Success1["更新状态并跳转"]
+Switch2 --> Success2["更新状态并跳转"]
+Success1 --> End(["完成"])
+Success2 --> End
+```
+
+**图表来源**
+- [RoleSelectionView.swift:12-88](file://blindRun/Role/RoleSelectionView.swift#L12-L88)
+- [RoleSelectionViewModel.swift:35-42](file://blindRun/Role/RoleSelectionViewModel.swift#L35-L42)
+- [RoleSelectionViewModel.swift:71-91](file://blindRun/Role/RoleSelectionViewModel.swift#L71-L91)
+
+**章节来源**
+- [RoleSelectionView.swift:5-156](file://blindRun/Role/RoleSelectionView.swift#L5-L156)
+- [RoleSelectionViewModel.swift:1-93](file://blindRun/Role/RoleSelectionViewModel.swift#L1-L93)
 
 ### 角色切换机制
 - 切换前提
@@ -123,33 +216,55 @@ end
   - 后端验证订单状态，若满足条件则更新 activeRole 并返回最新用户信息；否则返回错误码并保持原 activeRole。
 - 错误处理
   - 返回统一错误码 ACTIVE_ORDER_ROLE_SWITCH_BLOCKED，前端据此提示用户。
+- **新增** 状态同步
+  - 成功切换后，前端通过 AppState.updateCurrentUser() 同步本地状态
+  - 自动持久化到 UserDefaults，确保应用重启后状态保持
 
 ```mermaid
-flowchart TD
-Start(["开始"]) --> CheckOrder["检查用户是否有活跃订单"]
-CheckOrder --> HasActive{"存在处于 accepted/arrived/in_progress/emergency 的订单？"}
-HasActive --> |是| Block["返回错误码：ACTIVE_ORDER_ROLE_SWITCH_BLOCKED"]
-HasActive --> |否| UpdateRole["更新 activeRole 并持久化"]
-UpdateRole --> ReturnUser["返回更新后的用户信息"]
-Block --> End(["结束"])
-ReturnUser --> End
+sequenceDiagram
+participant RVM as "RoleSelectionViewModel"
+participant AS as "AppState"
+participant API as "后端 API"
+participant DB as "数据库"
+RVM->>API : "PATCH /api/users/me/active-role"
+API->>DB : "查询用户活跃订单"
+DB-->>API : "返回订单状态"
+alt "存在活跃订单"
+API-->>RVM : "ACTIVE_ORDER_ROLE_SWITCH_BLOCKED"
+RVM->>RVM : "handleSwitchError()"
+RVM-->>RVM : "showBlockedAlert = true"
+else "无活跃订单"
+API->>DB : "更新 activeRole"
+DB-->>API : "保存成功"
+API-->>RVM : "返回更新后的用户信息"
+RVM->>AS : "updateCurrentUser()"
+AS->>AS : "persistActiveRole()"
+RVM-->>RVM : "切换成功"
+end
 ```
 
 **图表来源**
-- [role-switching/spec.md:11-17](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/role-switching/spec.md#L11-L17)
-- [backend-api-contract/spec.md:19-25](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/backend-api-contract/spec.md#L19-L25)
+- [RoleSelectionViewModel.swift:46-69](file://blindRun/Role/RoleSelectionViewModel.swift#L46-L69)
+- [RoleSelectionViewModel.swift:71-91](file://blindRun/Role/RoleSelectionViewModel.swift#L71-L91)
+- [AppState.swift:100-113](file://blindRun/Core/AppState.swift#L100-L113)
 
 **章节来源**
 - [role-switching/spec.md:3-25](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/role-switching/spec.md#L3-L25)
+- [RoleSelectionViewModel.swift:46-69](file://blindRun/Role/RoleSelectionViewModel.swift#L46-L69)
 
 ### JWT 共享与 activeRole 字段
 - 单一 JWT：切换角色不生成新令牌，保持会话连续性。
 - activeRole：后端依据该字段决定当前操作的权限范围，前端负责在本地维护该值并在后续请求中透传。
 - 认证要求：所有受保护 API 均需携带 Bearer JWT。
+- **新增** 状态持久化
+  - 使用 UserDefaults 持久化 activeRole 状态
+  - 应用启动时自动恢复之前的角色状态
+  - 支持跨会话的状态保持
 
 **章节来源**
 - [role-switching/spec.md:5](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/role-switching/spec.md#L5)
 - [auth-phone-login/spec.md:23-29](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/auth-phone-login/spec.md#L23-L29)
+- [AppState.swift:126-132](file://blindRun/Core/AppState.swift#L126-L132)
 
 ### 订单生命周期与角色权限
 - 状态机
@@ -205,36 +320,65 @@ emergency --> [*] : "终止不可恢复"
 **章节来源**
 - [blind-runner-booking/spec.md:3-34](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/blind-runner-booking/spec.md#L3-L34)
 
+### 无障碍访问与语音支持
+**新增**：完整的无障碍访问支持，包括 VoiceOver 和 TTS 功能。
+
+- VoiceOver 支持
+  - 每个交互元素都有清晰的 accessibilityLabel 和 accessibilityHint
+  - 角色卡片提供详细的描述性标签
+  - 错误提示和状态变化都有适当的无障碍描述
+- TTS 语音播报
+  - 页面加载时自动播报欢迎信息
+  - 错误发生时自动播报错误信息
+  - 确保视障用户的完整使用体验
+
+**章节来源**
+- [RoleSelectionView.swift:120-127](file://blindRun/Role/RoleSelectionView.swift#L120-L127)
+- [RoleSelectionView.swift:80-81](file://blindRun/Role/RoleSelectionView.swift#L80-L81)
+- [RoleSelectionViewModel.swift:87-90](file://blindRun/Role/RoleSelectionViewModel.swift#L87-L90)
+
 ## 依赖关系分析
 - 前端依赖后端通过 OpenAPI 暴露的用户、订单、志愿者、安全等接口。
 - 认证层依赖 JWT Bearer 认证，所有受保护接口均需携带有效令牌。
 - 角色切换依赖后端对用户活跃订单状态的校验，防止在关键阶段切换角色。
+- **新增** 角色选择系统依赖：
+  - AppState：管理全局状态和持久化
+  - SpeechService：提供语音播报功能
+  - APIClient：处理网络请求
+  - DesignSystem：提供统一的 UI 组件
 
 ```mermaid
 graph LR
-APP["iOS 应用"] --> JWT["JWT 认证"]
-JWT --> API_USER["用户/角色接口"]
-JWT --> API_ORDER["订单接口"]
-JWT --> API_VOL["志愿者接口"]
-JWT --> API_EMERG["安全应急接口"]
-API_USER --> DB["后端数据库"]
-API_ORDER --> DB
-API_VOL --> DB
-API_EMERG --> DB
+RS["RoleSelectionView"] --> RVM["RoleSelectionViewModel"]
+RVM --> AS["AppState"]
+RVM --> API["APIClient"]
+RS --> DS["DesignSystem"]
+AS --> UD["UserDefaults"]
+AS --> AC["APIEnvironment"]
+RVM --> ES["ErrorModels"]
+RS --> HC["HighContrastText"]
+RS --> AC["AppColors"]
 ```
 
 **图表来源**
-- [backend-api-contract/spec.md:3-34](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/backend-api-contract/spec.md#L3-L34)
-- [auth-phone-login/spec.md:23-29](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/auth-phone-login/spec.md#L23-L29)
+- [RoleSelectionView.swift:8-10](file://blindRun/Role/RoleSelectionView.swift#L8-L10)
+- [RoleSelectionViewModel.swift:20-30](file://blindRun/Role/RoleSelectionViewModel.swift#L20-L30)
+- [AppState.swift:15-25](file://blindRun/Core/AppState.swift#L15-L25)
 
 **章节来源**
 - [backend-api-contract/spec.md:19-34](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/backend-api-contract/spec.md#L19-L34)
 - [auth-phone-login/spec.md:3-29](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/auth-phone-login/spec.md#L3-L29)
+- [RoleSelectionView.swift:1-156](file://blindRun/Role/RoleSelectionView.swift#L1-L156)
+- [RoleSelectionViewModel.swift:1-93](file://blindRun/Role/RoleSelectionViewModel.swift#L1-L93)
 
 ## 性能考量
 - 订单轮询：盲人跑者在等待与活动页面每 5 秒轮询一次订单详情，建议在页面不可见或后台时降低轮询频率或暂停轮询，避免不必要的网络开销。
 - JWT 复用：单一 JWT 减少重复登录与令牌刷新成本，前端应避免频繁重建会话。
 - 状态一致性：前端本地 activeRole 与后端状态需保持最终一致，建议在每次关键网络请求后进行状态校验与同步。
+- **新增** 角色选择优化：
+  - 加载状态：切换过程中禁用交互，避免重复请求
+  - 错误缓存：错误信息会在一定时间内缓存，减少重复网络请求
+  - 状态恢复：应用重启后自动恢复之前的活跃角色
 
 ## 故障排查指南
 - 切换失败
@@ -250,23 +394,31 @@ API_EMERG --> DB
 - 应急触发
   - 现象：触发应急后无法继续常规流程。
   - 排查：确认当前状态是否为 accepted、arrived 或 in_progress；emergency 为终止态，不可恢复。
+- **新增** 角色选择问题
+  - 现象：角色卡片无法点击或无响应。
+  - 排查：检查网络连接状态，确认 API 请求正常；查看是否有加载状态阻塞。
+  - 现象：TTS 语音不工作。
+  - 排查：确认设备音量和系统语音设置；检查 SpeechService 初始化状态。
 
 **章节来源**
 - [role-switching/spec.md:11-17](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/role-switching/spec.md#L11-L17)
 - [backend-api-contract/spec.md:19-25](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/backend-api-contract/spec.md#L19-L25)
 - [order-status-lifecycle/spec.md:19-37](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/order-status-lifecycle/spec.md#L19-L37)
 - [safety-basic-emergency/spec.md:27-33](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/safety-basic-emergency/spec.md#L27-L33)
+- [RoleSelectionViewModel.swift:71-91](file://blindRun/Role/RoleSelectionViewModel.swift#L71-L91)
 
 ## 结论
-本角色模块以“单一 JWT + activeRole”为核心，实现了同一账户在“盲人跑者”和“志愿者”之间的无缝切换，同时通过后端对活跃订单的严格拦截，保证了业务流程的正确性与安全性。前端应遵循规范，在 UI 层明确提示切换条件与应急流程，并在关键节点进行状态校验与同步，确保用户体验与系统一致性。
+本角色模块以"单一 JWT + activeRole"为核心，实现了同一账户在"盲人跑者"和"志愿者"之间的无缝切换，同时通过后端对活跃订单的严格拦截，保证了业务流程的正确性与安全性。**更新**：新增的完整角色选择系统提供了优秀的用户体验，包括高对比度设计、无障碍访问支持和语音播报功能。前端应遵循规范，在 UI 层明确提示切换条件与应急流程，并在关键节点进行状态校验与同步，确保用户体验与系统一致性。
 
 ## 附录
 - 使用示例
   - 新用户首次登录：提交固定验证码完成登录，系统创建用户并返回 JWT；随后进入角色选择界面，设置 activeRole。
   - 已有用户登录：直接返回现有用户的新 JWT；若尚未设置 activeRole，则引导进入角色选择。
   - 切换角色：在无活跃订单的前提下，选择目标角色并提交切换请求；成功后后续 API 自动以新角色身份执行。
+  - **新增** 角色选择界面：用户看到两个大卡片，分别代表盲人跑者和志愿者，点击后进行角色切换。
 - 边界情况
   - 存在活跃订单时禁止切换，需等待或完成订单。
   - emergency 状态不可恢复，需按规则处理。
   - 志愿者仅能在 matching 状态接受订单，完成服务需在 in_progress 状态下进行。
   - 盲人跑者预约需满足资料完整与时间间隔要求。
+  - **新增** 角色选择异常：网络错误时显示错误提示；应用重启后自动恢复之前的角色状态。

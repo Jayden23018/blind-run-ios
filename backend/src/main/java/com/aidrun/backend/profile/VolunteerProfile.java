@@ -87,4 +87,20 @@ public class VolunteerProfile extends BaseEntity {
     public int getPointsBalance() {
         return pointsBalance;
     }
+
+    public void setNickname(String nickname) {
+        this.nickname = nickname;
+    }
+
+    public void setVerificationStatus(VerificationStatus verificationStatus) {
+        this.verificationStatus = verificationStatus;
+    }
+
+    public void setAdminReviewStatus(AdminReviewStatus adminReviewStatus) {
+        this.adminReviewStatus = adminReviewStatus;
+    }
+
+    public void setAvailable(boolean available) {
+        this.available = available;
+    }
 }

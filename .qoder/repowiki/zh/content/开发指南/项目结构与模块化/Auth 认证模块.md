@@ -2,6 +2,18 @@
 
 <cite>
 **本文档引用的文件**
+- [LoginView.swift](file://blindRun/Auth/LoginView.swift)
+- [LoginViewModel.swift](file://blindRun/Auth/LoginViewModel.swift)
+- [PhoneLoginRequest.java](file://backend/src/main/java/com/aidrun/backend/auth/dto/PhoneLoginRequest.java)
+- [AuthController.java](file://backend/src/main/java/com/aidrun/backend/auth/AuthController.java)
+- [AuthService.java](file://backend/src/main/java/com/aidrun/backend/auth/AuthService.java)
+- [AuthResponse.java](file://backend/src/main/java/com/aidrun/backend/auth/dto/AuthResponse.java)
+- [UserModels.swift](file://blindRun/Core/Models/UserModels.swift)
+- [ErrorModels.swift](file://blindRun/Core/Models/ErrorModels.swift)
+- [AppState.swift](file://blindRun/Core/AppState.swift)
+- [AppColors.swift](file://blindRun/Core/DesignSystem/AppColors.swift)
+- [PrimaryButton.swift](file://blindRun/Core/DesignSystem/PrimaryButton.swift)
+- [HighContrastText.swift](file://blindRun/Core/DesignSystem/HighContrastText.swift)
 - [spec.md](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/auth-phone-login/spec.md)
 - [08-ios-architecture.md](file://docs/08-ios-architecture.md)
 - [02-mvp-scope.md](file://docs/02-mvp-scope.md)
@@ -11,6 +23,13 @@
 - [03-user-stories.md](file://docs/03-user-stories.md)
 - [spec.md](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/role-switching/spec.md)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增完整的iOS登录系统实现，包括LoginView.swift和LoginViewModel.swift
+- 后端PhoneLoginRequest.java增加严格的手机号格式验证
+- 完善实时输入验证、视觉反馈和无障碍支持
+- 增强验证码验证和错误处理机制
 
 ## 目录
 1. [简介](#简介)
@@ -27,6 +46,8 @@
 ## 简介
 
 Auth 认证模块是 AidRun MVP v0.3 iOS 应用的核心功能模块，负责处理手机号登录、验证码验证、JWT 令牌管理和认证状态持久化。该模块采用 Swift 原生 iOS 开发，基于 SwiftUI + MVVM 架构，实现了完整的认证流程，包括用户注册、登录、角色切换和会话管理。
+
+**更新** 新增了完整的iOS登录系统实现，包括实时输入验证、视觉反馈和无障碍支持等功能。
 
 ## 项目结构
 
@@ -82,6 +103,16 @@ Auth 模块包含以下核心组件：
 3. **UserDefaults**: 本地存储，用于 JWT 令牌的临时存储
 4. **AuthResponse**: 认证响应数据模型
 5. **PhoneLoginRequest**: 手机号登录请求数据模型
+
+### iOS登录系统组件
+
+**新增** 完整的iOS登录系统实现：
+
+1. **LoginView**: 纯渲染的登录视图，实现手机号输入、验证码输入、实时验证和视觉反馈
+2. **LoginViewModel**: 处理登录业务逻辑，包括倒计时、错误处理和无障碍支持
+3. **ShakeEffect**: 输入框抖动动画修饰器，用于验证码错误反馈
+4. **实时输入验证**: 手机号和验证码的实时格式验证
+5. **无障碍支持**: 完整的屏幕阅读器支持和语音播报
 
 ### 数据模型组件
 
@@ -227,6 +258,56 @@ Navigate --> End
 **图表来源**
 - [spec.md:15-21](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/auth-phone-login/spec.md#L15-L21)
 - [03-user-stories.md:71-79](file://docs/03-user-stories.md#L71-L79)
+
+### iOS登录系统实现
+
+**新增** 完整的iOS登录系统实现，包含以下关键特性：
+
+#### LoginView 组件
+
+LoginView 是纯渲染的登录视图，实现了以下功能：
+
+1. **实时输入验证**: 手机号和验证码的实时格式验证
+2. **视觉反馈**: 错误状态的颜色变化和动画效果
+3. **无障碍支持**: 完整的屏幕阅读器支持
+4. **倒计时显示**: 验证码获取按钮的倒计时功能
+5. **演示模式**: Debug模式下的固定验证码支持
+
+#### LoginViewModel 组件
+
+LoginViewModel 处理所有业务逻辑：
+
+1. **输入管理**: 手机号和验证码的实时输入处理
+2. **倒计时管理**: 60秒倒计时逻辑
+3. **错误处理**: 完善的错误消息和视觉反馈
+4. **无障碍支持**: TTS语音播报错误信息
+5. **自动提交**: 验证码输入完成时自动提交
+
+#### 验证码验证流程
+
+```mermaid
+flowchart TD
+UserInput[用户输入手机号] --> ValidateFormat[验证手机号格式]
+ValidateFormat --> FormatValid{格式正确?}
+FormatValid --> |否| ShowPhoneError[显示格式错误]
+FormatValid --> |是| RequestCode[请求验证码]
+RequestCode --> StartCountdown[开始60秒倒计时]
+StartCountdown --> ShowCodeInput[显示验证码输入框]
+ShowCodeInput --> UserEnterCode[用户输入验证码]
+UserEnterCode --> AutoSubmit{验证码6位且有效?}
+AutoSubmit --> |是| SubmitLogin[自动提交登录]
+AutoSubmit --> |否| WaitInput[等待输入]
+SubmitLogin --> ValidateCode[验证验证码]
+ValidateCode --> CodeValid{验证码正确?}
+CodeValid --> |否| ShowCodeError[显示验证码错误并抖动动画]
+CodeValid --> |是| LoginSuccess[登录成功]
+ShowCodeError --> ResetInput[清空验证码]
+ResetInput --> WaitInput
+```
+
+**图表来源**
+- [LoginView.swift:105-142](file://blindRun/Auth/LoginView.swift#L105-L142)
+- [LoginViewModel.swift:143-151](file://blindRun/Auth/LoginViewModel.swift#L143-L151)
 
 ### JWT 令牌管理
 
@@ -384,6 +465,18 @@ Role --> Orders
 - **加载状态**: 提供清晰的加载指示器和进度反馈
 - **错误处理**: 实现优雅的错误处理和用户友好的错误消息
 - **重试机制**: 简单的网络重试逻辑，避免复杂的离线队列
+- **实时验证**: 输入时即时验证，提供即时反馈
+- **无障碍支持**: 完整的屏幕阅读器支持和语音播报
+
+### iOS登录系统性能优化
+
+**新增** iOS登录系统的性能优化措施：
+
+1. **输入限制**: 自动限制手机号最多11位，验证码最多6位
+2. **防抖处理**: 防止重复提交和频繁验证
+3. **内存管理**: 使用弱引用避免循环引用
+4. **动画优化**: 合理使用动画效果，避免过度消耗资源
+5. **倒计时管理**: 正确管理定时器生命周期
 
 ## 故障排除指南
 
@@ -416,11 +509,44 @@ Role --> Orders
 2. 实现适当的加载状态和进度指示
 3. 优化视图渲染性能
 
+### iOS登录系统故障排除
+
+**新增** iOS登录系统的故障排除指南：
+
+#### 输入验证问题
+
+**症状**: 手机号或验证码输入不被接受
+
+**解决方案**:
+1. 检查正则表达式验证规则
+2. 确认输入限制是否正确
+3. 验证实时验证逻辑
+
+#### 倒计时问题
+
+**症状**: 验证码倒计时不正常
+
+**解决方案**:
+1. 检查定时器是否正确启动和停止
+2. 验证倒计时状态管理
+3. 确认定时器生命周期管理
+
+#### 无障碍支持问题
+
+**症状**: 屏幕阅读器无法正确读取信息
+
+**解决方案**:
+1. 检查accessibilityLabel和accessibilityValue设置
+2. 验证TTS语音播报逻辑
+3. 测试不同设备的无障碍功能
+
 ### 调试建议
 
 1. **日志记录**: 实现详细的认证流程日志记录
 2. **错误监控**: 集成错误监控系统，跟踪认证失败原因
 3. **性能分析**: 使用 Instruments 分析认证相关的性能瓶颈
+4. **单元测试**: 为LoginViewModel添加单元测试覆盖
+5. **集成测试**: 测试完整的登录流程端到端功能
 
 **章节来源**
 - [08-ios-architecture.md:70-77](file://docs/08-ios-architecture.md#L70-L77)
@@ -430,12 +556,17 @@ Role --> Orders
 
 Auth 认证模块为 AidRun 应用提供了完整的身份验证解决方案，实现了手机号登录、验证码验证、JWT 令牌管理和会话持久化。模块采用清晰的 MVVM 架构，具有良好的可维护性和扩展性。
 
+**更新** 新增的iOS登录系统实现了完整的用户体验，包括实时输入验证、视觉反馈和无障碍支持。后端的严格手机号格式验证确保了数据完整性。
+
 ### 主要成就
 
 1. **完整的认证流程**: 从手机号输入到角色选择的完整认证体验
 2. **灵活的角色管理**: 支持双角色切换和活跃角色管理
 3. **模块化设计**: 清晰的模块边界和依赖关系
 4. **MVP 优化**: 针对演示阶段的性能和功能优化
+5. **无障碍支持**: 完整的屏幕阅读器支持和语音播报
+6. **实时验证**: 输入时即时验证，提供即时反馈
+7. **视觉反馈**: 动画效果和错误状态的可视化
 
 ### 未来改进方向
 
@@ -443,6 +574,8 @@ Auth 认证模块为 AidRun 应用提供了完整的身份验证解决方案，�
 2. **功能扩展**: 支持多种认证方式（Google、GitHub、邮箱等）
 3. **性能优化**: 实现更高效的令牌管理和网络请求处理
 4. **用户体验**: 提供更丰富的认证反馈和错误处理
+5. **测试覆盖**: 增加单元测试和集成测试覆盖率
+6. **国际化**: 支持多语言错误消息和语音播报
 
 ## 附录
 
@@ -466,3 +599,23 @@ Auth 认证模块为 AidRun 应用提供了完整的身份验证解决方案，�
 3. **性能**: 优化网络请求和本地存储性能
 4. **可维护性**: 保持代码简洁，注释完整
 5. **用户体验**: 提供清晰的反馈和引导
+6. **无障碍**: 确保完整的屏幕阅读器支持
+7. **实时验证**: 在输入时提供即时反馈
+8. **动画效果**: 合理使用动画提升用户体验
+
+### iOS登录系统特性
+
+**新增** iOS登录系统的特性列表：
+
+- 实时手机号格式验证
+- 实时验证码格式验证  
+- 60秒倒计时功能
+- 输入限制和自动截断
+- 错误状态的视觉反馈
+- 验证码错误的抖动动画
+- 完整的无障碍支持
+- TTS语音播报错误信息
+- 演示模式下的固定验证码
+- 自动提交登录功能
+- 内存安全的定时器管理
+- 弱引用避免循环引用

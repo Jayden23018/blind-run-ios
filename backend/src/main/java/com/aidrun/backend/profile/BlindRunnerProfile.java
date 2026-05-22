@@ -51,6 +51,14 @@ public class BlindRunnerProfile extends BaseEntity {
         return emergencyContact;
     }
 
+    public void setNickname(String nickname) {
+        this.nickname = nickname;
+    }
+
+    public void setRunningExperience(String runningExperience) {
+        this.runningExperience = runningExperience;
+    }
+
     public void setEmergencyContact(EmergencyContact emergencyContact) {
         this.emergencyContact = emergencyContact;
         emergencyContact.setBlindRunnerProfile(this);

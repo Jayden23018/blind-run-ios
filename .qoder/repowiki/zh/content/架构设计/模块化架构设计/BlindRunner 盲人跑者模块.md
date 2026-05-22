@@ -4,12 +4,26 @@
 **本文引用的文件**
 - [blindRunApp.swift](file://blindRun/blindRunApp.swift)
 - [ContentView.swift](file://blindRun/ContentView.swift)
+- [BlindRunnerHomeView.swift](file://blindRun/BlindRunner/BlindRunnerHomeView.swift)
+- [BlindRunnerModule.swift](file://blindRun/BlindRunner/BlindRunnerModule.swift)
+- [SpeechService.swift](file://blindRun/Voice/SpeechService.swift)
+- [HighContrastText.swift](file://blindRun/Core/DesignSystem/HighContrastText.swift)
+- [PrimaryButton.swift](file://blindRun/Core/DesignSystem/PrimaryButton.swift)
+- [AppColors.swift](file://blindRun/Core/DesignSystem/AppColors.swift)
+- [AppState.swift](file://blindRun/Core/AppState.swift)
 - [04-user-flows-and-state-machine.md](file://docs/04-user-flows-and-state-machine.md)
 - [08-ios-architecture.md](file://docs/08-ios-architecture.md)
 - [09-accessibility-and-voice-guidelines.md](file://docs/09-accessibility-and-voice-guidelines.md)
 - [07-api-contract.openapi.yaml](file://docs/07-api-contract.openapi.yaml)
 - [03-user-stories.md](file://docs/03-user-stories.md)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增盲人跑者首页占位视图实现，包含完整的无障碍语音服务集成
+- 新增设计系统组件，包括高对比度文本、主按钮和颜色系统
+- 实现集中式语音播报服务，支持状态变化播报和重复播报功能
+- 完善无障碍优化，包括大按钮设计、辅助功能标签和语音播报集成
 
 ## 目录
 1. [简介](#简介)
@@ -30,6 +44,8 @@
 - 订单状态跟踪：5 秒轮询机制、状态变化监听与 UI 更新策略
 - 紧急求助：紧急按钮设计、确认对话框与求助流程
 - 无障碍优化：大按钮设计、辅助功能标签与语音播报集成
+- **新增**：占位视图实现与设计系统样式保持
+- **新增**：集中式语音服务集成与状态播报
 - 完整用户流程示例与错误处理策略
 
 ## 项目结构
@@ -41,6 +57,18 @@ subgraph "应用入口"
 App["blindRunApp<br/>应用入口"]
 Root["ContentView<br/>根视图"]
 end
+subgraph "BlindRunner 模块"
+BR_Home["BlindRunnerHomeView<br/>占位首页"]
+BR_Module["BlindRunnerModule<br/>模块占位"]
+end
+subgraph "语音服务"
+Speech["SpeechService<br/>集中式语音服务"]
+end
+subgraph "设计系统"
+HCT["HighContrastText<br/>高对比度文本"]
+PB["PrimaryButton<br/>主按钮"]
+AC["AppColors<br/>颜色系统"]
+end
 subgraph "文档支撑"
 Flows["用户流程与状态机<br/>04-user-flows-and-state-machine.md"]
 Arch["iOS 架构<br/>08-ios-architecture.md"]
@@ -49,6 +77,11 @@ API["API 合约<br/>07-api-contract.openapi.yaml"]
 Stories["用户故事<br/>03-user-stories.md"]
 end
 App --> Root
+Root --> BR_Home
+BR_Home --> Speech
+BR_Home --> HCT
+BR_Home --> PB
+BR_Home --> AC
 Root --> Flows
 Flows --> Arch
 Arch --> A11y
@@ -56,36 +89,42 @@ Arch --> API
 API --> Stories
 ```
 
-图表来源
-- [blindRunApp.swift:10-17](file://blindRun/blindRunApp.swift#L10-L17)
-- [ContentView.swift:10-20](file://blindRun/ContentView.swift#L10-L20)
-- [04-user-flows-and-state-machine.md:1-70](file://docs/04-user-flows-and-state-machine.md#L1-L70)
-- [08-ios-architecture.md:18-32](file://docs/08-ios-architecture.md#L18-L32)
-- [09-accessibility-and-voice-guidelines.md:1-143](file://docs/09-accessibility-and-voice-guidelines.md#L1-L143)
-- [07-api-contract.openapi.yaml:150-252](file://docs/07-api-contract.openapi.yaml#L150-L252)
-- [03-user-stories.md:161-250](file://docs/03-user-stories.md#L161-L250)
+**图表来源**
+- [BlindRunnerHomeView.swift:1-43](file://blindRun/BlindRunner/BlindRunnerHomeView.swift#L1-L43)
+- [SpeechService.swift:1-105](file://blindRun/Voice/SpeechService.swift#L1-L105)
+- [HighContrastText.swift:1-59](file://blindRun/Core/DesignSystem/HighContrastText.swift#L1-L59)
+- [PrimaryButton.swift:1-56](file://blindRun/Core/DesignSystem/PrimaryButton.swift#L1-L56)
+- [AppColors.swift:1-39](file://blindRun/Core/DesignSystem/AppColors.swift#L1-L39)
 
-章节来源
-- [blindRunApp.swift:10-17](file://blindRun/blindRunApp.swift#L10-L17)
-- [ContentView.swift:10-20](file://blindRun/ContentView.swift#L10-L20)
+**章节来源**
+- [BlindRunnerHomeView.swift:1-43](file://blindRun/BlindRunner/BlindRunnerHomeView.swift#L1-L43)
+- [SpeechService.swift:1-105](file://blindRun/Voice/SpeechService.swift#L1-L105)
+- [HighContrastText.swift:1-59](file://blindRun/Core/DesignSystem/HighContrastText.swift#L1-L59)
+- [PrimaryButton.swift:1-56](file://blindRun/Core/DesignSystem/PrimaryButton.swift#L1-L56)
+- [AppColors.swift:1-39](file://blindRun/Core/DesignSystem/AppColors.swift#L1-L39)
 
 ## 核心组件
 - 应用入口与根视图：负责应用生命周期与根界面渲染
+- **新增**：盲人跑者首页占位视图，包含语音播报和重复播报功能
+- **新增**：集中式语音服务，提供状态播报、错误提示和重复播报能力
+- **新增**：设计系统组件，包括高对比度文本、主按钮和颜色系统
 - 文档驱动的功能蓝图：定义了盲人跑者端的用户流程、状态机、API 行为与无障碍要求
 - 服务契约：OpenAPI 描述了订单生命周期、状态转换与错误码
 
-章节来源
-- [04-user-flows-and-state-machine.md:120-178](file://docs/04-user-flows-and-state-machine.md#L120-L178)
-- [08-ios-architecture.md:25-48](file://docs/08-ios-architecture.md#L25-L48)
-- [07-api-contract.openapi.yaml:150-387](file://docs/07-api-contract.openapi.yaml#L150-L387)
+**章节来源**
+- [BlindRunnerHomeView.swift:3-34](file://blindRun/BlindRunner/BlindRunnerHomeView.swift#L3-L34)
+- [SpeechService.swift:7-105](file://blindRun/Voice/SpeechService.swift#L7-L105)
+- [HighContrastText.swift:5-48](file://blindRun/Core/DesignSystem/HighContrastText.swift#L5-L48)
+- [PrimaryButton.swift:5-45](file://blindRun/Core/DesignSystem/PrimaryButton.swift#L5-L45)
+- [AppColors.swift:5-14](file://blindRun/Core/DesignSystem/AppColors.swift#L5-L14)
 
 ## 架构总览
-BlindRunner 模块遵循 SwiftUI + MVVM 架构，结合真实地图与定位能力，配合语音播报与无障碍设计，确保盲人用户在关键流程中“无需视觉即可完成”。
+BlindRunner 模块遵循 SwiftUI + MVVM 架构，结合真实地图与定位能力，配合语音播报与无障碍设计，确保盲人用户在关键流程中"无需视觉即可完成"。
 
 ```mermaid
 graph TB
 subgraph "UI 层"
-BR_Home["盲人首页"]
+BR_Home["盲人首页占位视图"]
 BR_Create["创建预约页"]
 BR_Status["订单状态等待页"]
 BR_InProgress["服务中页"]
@@ -99,8 +138,9 @@ VM_Safety["SafetyViewModel"]
 end
 subgraph "服务层"
 APIClient["APIClient"]
-Speech["SpeechService"]
+Speech["SpeechService<br/>集中式语音服务"]
 Map["AMap 地图/定位"]
+AppState["AppState<br/>全局状态管理"]
 end
 BR_Home --> VM_BrBooking
 BR_Create --> VM_BrBooking
@@ -114,12 +154,15 @@ VM_Safety --> APIClient
 VM_BrStatus --> Speech
 VM_BrBooking --> Map
 VM_BrStatus --> Map
+AppState --> Speech
 ```
 
-图表来源
+**图表来源**
 - [08-ios-architecture.md:33-48](file://docs/08-ios-architecture.md#L33-L48)
 - [04-user-flows-and-state-machine.md:275-299](file://docs/04-user-flows-and-state-machine.md#L275-L299)
 - [09-accessibility-and-voice-guidelines.md:13-36](file://docs/09-accessibility-and-voice-guidelines.md#L13-L36)
+- [BlindRunnerHomeView.swift:8-9](file://blindRun/BlindRunner/BlindRunnerHomeView.swift#L8-L9)
+- [SpeechService.swift:9-18](file://blindRun/Voice/SpeechService.swift#L9-L18)
 
 ## 详细组件分析
 
@@ -139,11 +182,11 @@ SaveOK --> |否| ShowError
 SaveOK --> |是| Next["跳转盲人首页"]
 ```
 
-图表来源
+**图表来源**
 - [03-user-stories.md:163-188](file://docs/03-user-stories.md#L163-L188)
 - [07-api-contract.openapi.yaml:82-116](file://docs/07-api-contract.openapi.yaml#L82-L116)
 
-章节来源
+**章节来源**
 - [03-user-stories.md:163-188](file://docs/03-user-stories.md#L163-L188)
 - [07-api-contract.openapi.yaml:82-116](file://docs/07-api-contract.openapi.yaml#L82-L116)
 
@@ -154,7 +197,7 @@ SaveOK --> |是| Next["跳转盲人首页"]
   - 出发地点：支持设备定位、手动输入或演示默认值
   - 预约时间：至少在当前时间 30 分钟之后
   - 其他可选项：目的地、预计时长、备注等
-- 提交后进入订单状态等待页，TTS 播报“订单提交成功，等待志愿者接单”
+- 提交后进入订单状态等待页，TTS 播报"订单提交成功，等待志愿者接单"
 
 ```mermaid
 flowchart TD
@@ -170,12 +213,12 @@ Resp --> |成功| ToStatus["跳转订单状态等待页"]
 Resp --> |失败| ShowErr
 ```
 
-图表来源
+**图表来源**
 - [03-user-stories.md:225-251](file://docs/03-user-stories.md#L225-L251)
 - [07-api-contract.openapi.yaml:150-187](file://docs/07-api-contract.openapi.yaml#L150-L187)
 - [08-ios-architecture.md:107-118](file://docs/08-ios-architecture.md#L107-L118)
 
-章节来源
+**章节来源**
 - [03-user-stories.md:225-251](file://docs/03-user-stories.md#L225-L251)
 - [07-api-contract.openapi.yaml:150-187](file://docs/07-api-contract.openapi.yaml#L150-L187)
 - [08-ios-architecture.md:107-118](file://docs/08-ios-architecture.md#L107-L118)
@@ -205,12 +248,12 @@ end
 end
 ```
 
-图表来源
+**图表来源**
 - [04-user-flows-and-state-machine.md:275-299](file://docs/04-user-flows-and-state-machine.md#L275-L299)
 - [08-ios-architecture.md:125-139](file://docs/08-ios-architecture.md#L125-L139)
 - [09-accessibility-and-voice-guidelines.md:13-36](file://docs/09-accessibility-and-voice-guidelines.md#L13-L36)
 
-章节来源
+**章节来源**
 - [04-user-flows-and-state-machine.md:275-299](file://docs/04-user-flows-and-state-machine.md#L275-L299)
 - [08-ios-architecture.md:125-139](file://docs/08-ios-architecture.md#L125-L139)
 - [09-accessibility-and-voice-guidelines.md:13-36](file://docs/09-accessibility-and-voice-guidelines.md#L13-L36)
@@ -218,8 +261,8 @@ end
 ### 紧急求助功能
 - 触发条件：订单处于 accepted、arrived、in_progress 任一状态
 - 紧急按钮设计：醒目样式（如红色），最小高度 ≥ 64pt
-- 确认对话框：明确提示“确认进入求助状态？确认后，本次服务将标记为异常”
-- 流程：提交 /api/orders/{orderId}/emergency，状态进入 emergency，TTS 播报“已进入求助状态”，页面显示紧急联系人信息
+- 确认对话框：明确提示"确认进入求助状态？确认后，本次服务将标记为异常"
+- 流程：提交 /api/orders/{orderId}/emergency，状态进入 emergency，TTS 播报"已进入求助状态"，页面显示紧急联系人信息
 
 ```mermaid
 sequenceDiagram
@@ -227,7 +270,7 @@ participant User as "盲人用户"
 participant UI as "服务中页"
 participant VM as "SafetyViewModel"
 participant API as "APIClient"
-User->>UI : 点击“紧急求助”
+User->>UI : 点击"紧急求助"
 UI->>User : 弹出确认对话框
 User->>UI : 确认求助
 UI->>VM : 触发紧急求助
@@ -236,12 +279,12 @@ API-->>VM : { status : "emergency" }
 VM->>UI : 更新UI并播报
 ```
 
-图表来源
+**图表来源**
 - [03-user-stories.md:323-350](file://docs/03-user-stories.md#L323-L350)
 - [04-user-flows-and-state-machine.md:230-257](file://docs/04-user-flows-and-state-machine.md#L230-L257)
 - [09-accessibility-and-voice-guidelines.md:97-107](file://docs/09-accessibility-and-voice-guidelines.md#L97-L107)
 
-章节来源
+**章节来源**
 - [03-user-stories.md:323-350](file://docs/03-user-stories.md#L323-L350)
 - [04-user-flows-and-state-machine.md:230-257](file://docs/04-user-flows-and-state-machine.md#L230-L257)
 - [09-accessibility-and-voice-guidelines.md:97-107](file://docs/09-accessibility-and-voice-guidelines.md#L97-L107)
@@ -251,45 +294,85 @@ VM->>UI : 更新UI并播报
 - 辅助功能标签：每个关键按钮、输入框、状态文本均需设置 accessibilityLabel 与 accessibilityHint
 - 语音播报：共享 SpeechService，在状态变化、关键提示、错误信息时播报
 - 危险操作二次确认：取消订单、紧急求助、结束服务、退出登录均需二次确认
-- “重复当前状态”按钮：每个关键页面提供重复播报当前状态的能力
+- **新增**："重复当前状态"按钮：每个关键页面提供重复播报当前状态的能力
+- **新增**：占位视图实现：包含完整的无障碍语音服务集成和设计系统样式保持
 
-章节来源
+**章节来源**
 - [09-accessibility-and-voice-guidelines.md:6-12](file://docs/09-accessibility-and-voice-guidelines.md#L6-L12)
 - [09-accessibility-and-voice-guidelines.md:62-70](file://docs/09-accessibility-and-voice-guidelines.md#L62-L70)
 - [09-accessibility-and-voice-guidelines.md:88-107](file://docs/09-accessibility-and-voice-guidelines.md#L88-L107)
 - [09-accessibility-and-voice-guidelines.md:13-36](file://docs/09-accessibility-and-voice-guidelines.md#L13-L36)
+- [BlindRunnerHomeView.swift:21-26](file://blindRun/BlindRunner/BlindRunnerHomeView.swift#L21-L26)
+
+### 设计系统与占位视图实现
+
+#### 盲人跑者首页占位视图
+- **占位功能**：当前版本为占位实现，后续 PR 将替换为完整的首页功能
+- **语音集成**：自动播报欢迎语，支持重复播报当前状态
+- **无障碍设计**：使用高对比度文本组件，确保在深色/浅色模式下可读性
+- **布局结构**：采用 VStack 垂直布局，顶部和底部留白，中间区域居中显示
+
+#### 集中式语音服务
+- **AVSpeechSynthesizer 集成**：使用系统语音合成器提供 TTS 功能
+- **状态防重复播报**：通过记录上次播报状态，避免轮询时重复播报
+- **多场景支持**：支持状态变化播报、错误信息播报和重复播报功能
+- **状态映射**：提供完整的订单状态到语音播报文本的映射
+
+#### 设计系统组件
+- **高对比度文本**：支持多种文本样式（标题、正文、状态、辅助说明）
+- **主按钮组件**：全宽大按钮，最小高度 64pt，支持普通和危险操作样式
+- **颜色系统**：提供主色、危险色、背景色、文本色等设计系统色彩
+
+**章节来源**
+- [BlindRunnerHomeView.swift:3-34](file://blindRun/BlindRunner/BlindRunnerHomeView.swift#L3-L34)
+- [SpeechService.swift:7-105](file://blindRun/Voice/SpeechService.swift#L7-L105)
+- [HighContrastText.swift:5-48](file://blindRun/Core/DesignSystem/HighContrastText.swift#L5-L48)
+- [PrimaryButton.swift:5-45](file://blindRun/Core/DesignSystem/PrimaryButton.swift#L5-L45)
+- [AppColors.swift:5-14](file://blindRun/Core/DesignSystem/AppColors.swift#L5-L14)
 
 ## 依赖关系分析
 - UI 与 ViewModel：薄视图、厚 ViewModel，ViewModel 负责状态、验证、API 调用与轮询
 - ViewModel 与 Service：ViewModel 通过 APIClient 封装网络调用，统一错误映射与 TTS 触发
+- **新增**：占位视图与语音服务：BlindRunnerHomeView 通过环境对象注入 SpeechService
+- **新增**：设计系统集成：占位视图使用 HighContrastText、PrimaryButton 和 AppColors
 - 地图与定位：AMap 提供地图与定位能力，定位权限缺失时阻断预约创建
 - 语音服务：AVSpeechSynthesizer 与 SpeechService 协作，确保状态播报与错误提示
 
 ```mermaid
 graph LR
+BlindRunnerHomeView["BlindRunnerHomeView"] --> SpeechService["SpeechService"]
+BlindRunnerHomeView --> HighContrastText["HighContrastText"]
+BlindRunnerHomeView --> PrimaryButton["PrimaryButton"]
+BlindRunnerHomeView --> AppColors["AppColors"]
+BlindRunnerHomeView --> AppState["AppState"]
 ContentView["ContentView"] --> BlindBookingViewModel["BlindBookingViewModel"]
 ContentView --> BlindOrderStatusViewModel["BlindOrderStatusViewModel"]
 BlindOrderStatusViewModel --> APIClient["APIClient"]
-BlindOrderStatusViewModel --> SpeechService["SpeechService"]
+BlindOrderStatusViewModel --> SpeechService
 BlindBookingViewModel --> AMap["AMap 地图/定位"]
 BlindOrderStatusViewModel --> AMap
 ```
 
-图表来源
-- [08-ios-architecture.md:33-48](file://docs/08-ios-architecture.md#L33-L48)
-- [08-ios-architecture.md:98-124](file://docs/08-ios-architecture.md#L98-L124)
-- [09-accessibility-and-voice-guidelines.md:13-36](file://docs/09-accessibility-and-voice-guidelines.md#L13-L36)
+**图表来源**
+- [BlindRunnerHomeView.swift:8-9](file://blindRun/BlindRunner/BlindRunnerHomeView.swift#L8-L9)
+- [SpeechService.swift:9-18](file://blindRun/Voice/SpeechService.swift#L9-L18)
+- [HighContrastText.swift:41-47](file://blindRun/Core/DesignSystem/HighContrastText.swift#L41-L47)
+- [PrimaryButton.swift:25-44](file://blindRun/Core/DesignSystem/PrimaryButton.swift#L25-L44)
+- [AppColors.swift:6-14](file://blindRun/Core/DesignSystem/AppColors.swift#L6-L14)
 
-章节来源
-- [08-ios-architecture.md:33-48](file://docs/08-ios-architecture.md#L33-L48)
-- [08-ios-architecture.md:98-124](file://docs/08-ios-architecture.md#L98-L124)
-- [09-accessibility-and-voice-guidelines.md:13-36](file://docs/09-accessibility-and-voice-guidelines.md#L13-L36)
+**章节来源**
+- [BlindRunnerHomeView.swift:8-9](file://blindRun/BlindRunner/BlindRunnerHomeView.swift#L8-L9)
+- [SpeechService.swift:9-18](file://blindRun/Voice/SpeechService.swift#L9-L18)
+- [HighContrastText.swift:41-47](file://blindRun/Core/DesignSystem/HighContrastText.swift#L41-L47)
+- [PrimaryButton.swift:25-44](file://blindRun/Core/DesignSystem/PrimaryButton.swift#L25-L44)
+- [AppColors.swift:6-14](file://blindRun/Core/DesignSystem/AppColors.swift#L6-L14)
 
 ## 性能考虑
 - 轮询节流：仅在订单相关页面启用 5 秒轮询，页面离开即停止，避免无谓请求
 - 状态缓存：轮询结果与 UI 状态解耦，仅在状态变化时更新 UI 与播报
 - 网络重试：MVP 阶段保持简单重试策略，避免复杂离线队列
 - 地图与定位：仅在需要时启用，避免后台频繁定位
+- **新增**：语音服务优化：通过状态防重复播报机制，避免轮询时重复播放相同状态
 
 ## 故障排查指南
 - 定位权限被拒
@@ -304,14 +387,18 @@ BlindOrderStatusViewModel --> AMap
 - 紧急求助未生效
   - 现象：点击紧急求助后状态未进入 emergency
   - 处理：确认当前订单状态是否允许进入 emergency，检查网络请求与后端响应
+- **新增**：语音播报问题
+  - 现象：TTS 播报异常或重复播报
+  - 处理：检查 SpeechService 状态，确认 AVSpeechSynthesizer 是否正常工作，验证状态防重复逻辑
 
-章节来源
+**章节来源**
 - [07-api-contract.openapi.yaml:150-187](file://docs/07-api-contract.openapi.yaml#L150-L187)
 - [04-user-flows-and-state-machine.md:275-299](file://docs/04-user-flows-and-state-machine.md#L275-L299)
 - [03-user-stories.md:323-350](file://docs/03-user-stories.md#L323-L350)
+- [SpeechService.swift:32-47](file://blindRun/Voice/SpeechService.swift#L32-L47)
 
 ## 结论
-BlindRunner 盲人跑者模块以文档为驱动，围绕“语音优先、无障碍优先”的原则构建核心流程：从个人资料完善、预约创建、订单状态轮询到紧急求助，形成闭环。实际开发中应严格遵循 MVVM 架构与无障碍规范，确保关键节点具备清晰的语音播报与二次确认机制，保障盲人用户在无视觉情况下也能顺利完成服务闭环。
+BlindRunner 盲人跑者模块以文档为驱动，围绕"语音优先、无障碍优先"的原则构建核心流程：从个人资料完善、预约创建、订单状态轮询到紧急求助，形成闭环。**最新实现**进一步强化了无障碍体验，通过占位视图集成了完整的语音服务和设计系统，为后续功能实现奠定了坚实基础。实际开发中应严格遵循 MVVM 架构与无障碍规范，确保关键节点具备清晰的语音播报与二次确认机制，保障盲人用户在无视觉情况下也能顺利完成服务闭环。
 
 ## 附录
 - 用户流程与状态机（正向路径与紧急求助）
@@ -319,10 +406,17 @@ BlindRunner 盲人跑者模块以文档为驱动，围绕“语音优先、无�
 - 无障碍与语音播报指南
 - API 合约（订单生命周期与错误码）
 - 用户故事（功能验收标准）
+- **新增**：设计系统组件规范
+- **新增**：语音服务 API 参考
 
-章节来源
+**章节来源**
 - [04-user-flows-and-state-machine.md:120-178](file://docs/04-user-flows-and-state-machine.md#L120-L178)
 - [08-ios-architecture.md:18-32](file://docs/08-ios-architecture.md#L18-L32)
 - [09-accessibility-and-voice-guidelines.md:108-121](file://docs/09-accessibility-and-voice-guidelines.md#L108-L121)
 - [07-api-contract.openapi.yaml:580-582](file://docs/07-api-contract.openapi.yaml#L580-L582)
 - [03-user-stories.md:595-652](file://docs/03-user-stories.md#L595-L652)
+- [BlindRunnerHomeView.swift:3-34](file://blindRun/BlindRunner/BlindRunnerHomeView.swift#L3-L34)
+- [SpeechService.swift:7-105](file://blindRun/Voice/SpeechService.swift#L7-L105)
+- [HighContrastText.swift:5-48](file://blindRun/Core/DesignSystem/HighContrastText.swift#L5-L48)
+- [PrimaryButton.swift:5-45](file://blindRun/Core/DesignSystem/PrimaryButton.swift#L5-L45)
+- [AppColors.swift:5-14](file://blindRun/Core/DesignSystem/AppColors.swift#L5-L14)
