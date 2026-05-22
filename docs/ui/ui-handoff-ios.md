@@ -3,6 +3,31 @@
 > 基于旧 Flutter UI 审计报告（`docs/ui-reference-audit.md`）、`docs/01-05` 产品文档、`AGENTS.md` 冻结规则整理。
 > 旧 Flutter 代码位于 `/Users/jerry/A/blind-run/blind-run-frontend/lib/`，仅作为 UI 行为参考，**不作为 source of truth**。
 > 当前所有规则以 `AGENTS.md` > `docs/01-10` > `openspec/` 为准。
+> 旧 Flutter Demo 截图索引见 [`legacy-screenshots/00-index.md`](legacy-screenshots/00-index.md)。
+
+---
+
+## 截图路径速查表
+
+| 页面 | 参考截图路径 |
+|------|-------------|
+| 1. 登录页 | 无对应旧截图 |
+| 2. 角色选择页 | 无对应旧截图 |
+| 3. 盲人资料页 | 无对应旧截图 |
+| 4. 盲人首页 | `legacy-screenshots/blind-runner/01-blind-home.png` |
+| 5. 创建预约页 | `legacy-screenshots/blind-runner/02-create-booking-1.png` ~ `05-create-booking-4.png` |
+| 5a. 地点搜索子流程 | `legacy-screenshots/blind-runner/04-create-booking-3.png` |
+| 6. 盲人订单状态等待页 | `legacy-screenshots/blind-runner/06-order-matching-1.png` ~ `10-volunteer-arrived.png` |
+| 7. 盲人服务中页 | 无对应旧截图（旧版合并在 BlindActiveRunPage） |
+| 8. 盲人完成/评分页 | `legacy-screenshots/blind-runner/11-service-completed-rating.png`、`12-service-completed-result.png` |
+| 9. 志愿者资料认证页 | `legacy-screenshots/volunteer/02-volunteer-profile-verification.png` |
+| 10. 志愿者首页 | `legacy-screenshots/volunteer/01-volunteer-home.png` |
+| 11. 志愿者订单列表页 | `legacy-screenshots/volunteer/03-available-orders.png` |
+| 12. 志愿者订单详情页 | `legacy-screenshots/volunteer/04-order-detail-after-accept.png` |
+| 13. 志愿者服务中页 | `legacy-screenshots/volunteer/05-arrived-confirmation.png` ~ `07-complete-service-summary.png` |
+| 14. 志愿者服务记录页 | `legacy-screenshots/volunteer/08-service-records.png` |
+| 15. 志愿者积分/商城占位页 | `legacy-screenshots/volunteer/09-points-shop-placeholder.png` |
+| 16. 设置页 | `legacy-screenshots/volunteer/10-settings.png` |
 
 ---
 

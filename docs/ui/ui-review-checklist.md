@@ -1,0 +1,181 @@
+# UI Review Checklist
+
+每个包含 UI 变更的 iOS PR 必须逐项检查本清单。本清单基于 `AGENTS.md`、`docs/05-page-specs.md`、`docs/09-accessibility-and-voice-guidelines.md` 和 `docs/ui/ui-handoff-ios.md` 整理。
+
+---
+
+## 1. 截图参考与规格对照
+
+- [ ] 已查阅 `docs/ui/legacy-screenshots/00-index.md` 确认该页面对应的旧截图
+- [ ] 已对照 `docs/ui/ui-handoff-ios.md` 对应章节实现
+- [ ] 已符合 `docs/05-page-specs.md` 对应页面规格
+- [ ] 旧截图中的可保留元素已合理参考
+- [ ] 旧截图中标记为"需重设计"的部分已按新规格重新设计
+
+---
+
+## 2. 无障碍（Accessibility）
+
+### 2.1 基本要求
+
+- [ ] 所有交互控件有 `accessibilityLabel`
+- [ ] 需要额外说明的控件有 `accessibilityHint`
+- [ ] 符合 `docs/09-accessibility-and-voice-guidelines.md` 要求
+
+### 2.2 盲人端特殊要求
+
+- [ ] 关键主按钮高度 ≥ **64pt**
+- [ ] 每个关键盲人端页面有"重复当前状态"按钮
+- [ ] 每屏只有一个主任务（避免嵌套导航和过多选择）
+- [ ] 深色背景 + 高对比度文字 + 大字号（≥20pt body）
+
+### 2.3 颜色与对比度
+
+- [ ] 不存在只靠颜色传达状态的问题（必须有文字或图标辅助）
+- [ ] 支持系统明暗模式切换后仍可读
+- [ ] 按钮在不同状态下（正常/禁用/加载中）有清晰视觉区分
+
+---
+
+## 3. TTS 语音播报
+
+- [ ] 进入盲人首页时播报（有/无订单两种文案）
+- [ ] 订单提交成功时播报
+- [ ] 状态变化时播报：matching → accepted → arrived → in_progress → completed
+- [ ] 进入求助状态时播报
+- [ ] 错误提示时播报
+- [ ] 不重复播报已播报过的状态（ViewModel 跟踪 lastSpokenStatus）
+- [ ] TTS 文案与 `ui-handoff-ios.md` 中定义的文案一致
+
+---
+
+## 4. 语音输入
+
+- [ ] 文本字段（地点描述、路线备注、备注、小结）支持语音输入
+- [ ] 时间选择使用 DatePicker（不使用语音输入时间）
+- [ ] 语音识别失败时显示错误并允许键盘输入
+- [ ] 仅在用户点击麦克风按钮时请求语音权限
+
+---
+
+## 5. 危险操作二次确认
+
+- [ ] **取消订单** → 确认弹窗 + 取消原因选择（5个固定选项：时间不合适、地点填写错误、临时有事、联系不上对方、其他）
+- [ ] **进入求助** → 确认弹窗，使用固定文案："是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
+- [ ] **结束服务**（志愿者）→ 确认弹窗 + 可选服务小结
+- [ ] **退出登录** → 确认弹窗
+
+---
+
+## 6. 订单状态机合规
+
+- [ ] 仅使用 7 个 MVP 状态：`matching` / `accepted` / `arrived` / `in_progress` / `completed` / `cancelled` / `emergency`
+- [ ] 无禁止状态名（`submitted`、`contacted`、`expired`、`pendingMatch`、`pendingAccept`、`driverEnRoute`、`driverArrived`、`rematching`、`noVolunteer`）
+- [ ] 状态中文显示按 `ui-handoff-ios.md` 映射表（不显示英文状态名）
+- [ ] 状态流转符合 `docs/04-user-flows-and-state-machine.md`
+
+---
+
+## 7. 隐私与数据规则
+
+- [ ] 志愿者接单前：完全隐藏盲人联系电话、紧急联系人、敏感健康信息
+- [ ] 志愿者接单后：显示盲人完整电话号码
+- [ ] 紧急联系人仅存储，不发送真实通知
+- [ ] 无真实 SMS 发送逻辑
+
+---
+
+## 8. 非 MVP 功能防护
+
+- [ ] 无 WebSocket / 实时轨迹分享
+- [ ] 无 AI 助手 / AI 语音助手
+- [ ] 无 App 内聊天
+- [ ] 无路线导航
+- [ ] 无真实短信服务
+- [ ] 无真实身份验证
+- [ ] 无自动拨打电话
+- [ ] 无复杂自然语言时间解析
+- [ ] 积分商城仅展示占位（无真实兑换）
+- [ ] 无支付 / 库存系统
+- [ ] 无跌倒检测 / 地理围栏
+- [ ] 无多人活动报名
+
+---
+
+## 9. Flutter 照搬防护
+
+- [ ] 无旧 Flutter 状态名（`pendingMatch`、`pendingAccept`、`driverEnRoute` 等）
+- [ ] 无旧 Flutter API 路径或路由模式
+- [ ] 业务逻辑在 **ViewModel** 中，不在 **View** 中
+- [ ] 积分为 **+100**（非旧版 +50）
+- [ ] 评分为 **1-5 星**（非旧版三档：非常满意/基本满意/需要改进）
+- [ ] 无 Riverpod / go_router / Flutter AMap plugin 模式残留
+- [ ] 无"AI语音助手"按钮
+
+---
+
+## 10. 地图与定位
+
+- [ ] 高德地图 Key 来自本地配置文件（`.xcconfig` 或 plist），非硬编码
+- [ ] 不在代码中提交真实高德 Key
+- [ ] 定位权限被拒后：
+  - 盲人端：阻止创建预约，显示引导
+  - 志愿者端：隐藏距离、阻止接单，可浏览列表
+- [ ] 支持模拟器定位测试
+- [ ] 有默认测试坐标 fallback（标注清楚仅供 demo）
+
+---
+
+## 11. 订单业务规则
+
+- [ ] 预约时间 ≥ 当前时间 + 30 分钟（否则 `APPOINTMENT_TOO_SOON`）
+- [ ] 取消仅在 `matching` / `accepted` / `arrived` 允许
+- [ ] `in_progress` 不可取消，只能 `emergency` 或 `completed`
+- [ ] 记录 `cancelledBy`（`blind_runner` 或 `volunteer`）
+- [ ] 志愿者完成服务 → +100 积分
+- [ ] 5 秒轮询订单状态（非 WebSocket）
+- [ ] 并发接单：只有 `matching` 状态订单可接，后到者返回 `ORDER_ALREADY_ACCEPTED`
+
+---
+
+## 12. 角色与登录规则
+
+- [ ] 一个账号可同时拥有 `blind_runner` 和 `volunteer` 身份
+- [ ] 活跃订单（`accepted`/`arrived`/`in_progress`/`emergency`）时阻止角色切换
+- [ ] 首次登录无 `activeRole` 时路由到角色选择页
+- [ ] 退出登录清除 JWT → 跳转登录页
+
+---
+
+## 13. MVVM 架构合规
+
+- [ ] View 只负责渲染和交互转发
+- [ ] ViewModel 拥有状态、API 调用、轮询逻辑、TTS 触发
+- [ ] API 请求集中在 `APIClient`
+- [ ] Token / currentUser / activeRole 集中在 `AppState`
+- [ ] MVP token 存 UserDefaults 且有注释说明生产需迁移 Keychain
+
+---
+
+## 14. 环境切换
+
+- [ ] 支持 Mock / Local Backend / Production Backend 三种环境
+- [ ] 环境切换入口在设置页或底部角落（不干扰主流程）
+- [ ] Local Backend 支持局域网 IP（如 `http://192.168.x.x:8080`）
+
+---
+
+## 快速自查表（PR 提交前）
+
+| 检查项 | 通过 |
+|--------|------|
+| 对照 ui-handoff-ios.md 对应章节 | [ ] |
+| 盲人端主按钮 ≥ 64pt | [ ] |
+| 有 accessibilityLabel | [ ] |
+| 有"重复当前状态"按钮（盲人端）| [ ] |
+| 危险操作有二次确认 | [ ] |
+| 无非 MVP 功能 | [ ] |
+| 无 Flutter 照搬 | [ ] |
+| 业务逻辑在 ViewModel | [ ] |
+| 高德 Key 非硬编码 | [ ] |
+| 订单状态名正确 | [ ] |
