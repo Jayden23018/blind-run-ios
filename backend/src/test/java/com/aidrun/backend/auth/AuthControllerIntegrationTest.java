@@ -99,4 +99,37 @@ class AuthControllerIntegrationTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
+
+    @Test
+    void phoneLogin_tooLongPhone_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/phone-login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"phoneNumber":"139000099999","verificationCode":"123456"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void phoneLogin_tooShortPhone_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/phone-login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"phoneNumber":"1390000999","verificationCode":"123456"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void phoneLogin_nonNumericPhone_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/phone-login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"phoneNumber":"1390000abcd","verificationCode":"123456"}
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
 }

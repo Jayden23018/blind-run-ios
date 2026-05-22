@@ -97,6 +97,21 @@ final class AppState: ObservableObject {
         activeRole = role
     }
 
+    /// 用后端返回的用户数据同步当前用户和激活角色。
+    func updateCurrentUser(_ user: UserDto, fallbackActiveRole: UserRole? = nil) {
+        let resolvedActiveRole = user.activeRole ?? fallbackActiveRole
+        currentUser = UserDto(
+            id: user.id,
+            phoneNumber: user.phoneNumber,
+            nickname: user.nickname,
+            roles: user.roles,
+            activeRole: resolvedActiveRole,
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt
+        )
+        activeRole = resolvedActiveRole
+    }
+
     // MARK: - Persistence (Private)
 
     private func persistToken() {

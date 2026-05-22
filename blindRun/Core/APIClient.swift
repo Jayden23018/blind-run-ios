@@ -44,7 +44,11 @@ enum APIError: Error, Sendable {
 // MARK: - API Client Protocol
 
 protocol APIClientProtocol: Sendable {
-    func request<T: Decodable & Sendable>(
+    /// 通用请求方法。
+    /// - Note: 泛型约束使用 Decodable（非 Decodable & Sendable），
+    ///   因为项目设置 SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor 会导致
+    ///   自动合成的 Decodable 一致性与 Sendable 产生 actor isolation 冲突。
+    func request<T: Decodable>(
         method: HTTPMethod,
         path: String,
         query: [String: String]?,
@@ -54,7 +58,7 @@ protocol APIClientProtocol: Sendable {
 }
 
 extension APIClientProtocol {
-    func get<T: Decodable & Sendable>(
+    func get<T: Decodable>(
         _ path: String,
         query: [String: String]? = nil,
         requiresAuth: Bool = true
@@ -62,7 +66,7 @@ extension APIClientProtocol {
         try await request(method: .get, path: path, query: query, body: nil, requiresAuth: requiresAuth)
     }
 
-    func post<T: Decodable & Sendable>(
+    func post<T: Decodable>(
         _ path: String,
         body: (any Encodable & Sendable)? = nil,
         requiresAuth: Bool = true
@@ -70,7 +74,7 @@ extension APIClientProtocol {
         try await request(method: .post, path: path, query: nil, body: body, requiresAuth: requiresAuth)
     }
 
-    func put<T: Decodable & Sendable>(
+    func put<T: Decodable>(
         _ path: String,
         body: (any Encodable & Sendable)? = nil,
         requiresAuth: Bool = true
@@ -78,7 +82,7 @@ extension APIClientProtocol {
         try await request(method: .put, path: path, query: nil, body: body, requiresAuth: requiresAuth)
     }
 
-    func patch<T: Decodable & Sendable>(
+    func patch<T: Decodable>(
         _ path: String,
         body: (any Encodable & Sendable)? = nil,
         requiresAuth: Bool = true
@@ -86,7 +90,7 @@ extension APIClientProtocol {
         try await request(method: .patch, path: path, query: nil, body: body, requiresAuth: requiresAuth)
     }
 
-    func delete<T: Decodable & Sendable>(
+    func delete<T: Decodable>(
         _ path: String,
         requiresAuth: Bool = true
     ) async throws -> T {
@@ -117,7 +121,7 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         self.tokenProvider = tokenProvider
     }
 
-    func request<T: Decodable & Sendable>(
+    func request<T: Decodable>(
         method: HTTPMethod,
         path: String,
         query: [String: String]?,
