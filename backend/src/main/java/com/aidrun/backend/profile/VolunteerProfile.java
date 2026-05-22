@@ -103,4 +103,8 @@ public class VolunteerProfile extends BaseEntity {
     public void setAvailable(boolean available) {
         this.available = available;
     }
+
+    public void addPoints(int delta) {
+        this.pointsBalance += delta;
+    }
 }
