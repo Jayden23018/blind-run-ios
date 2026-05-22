@@ -34,13 +34,13 @@
 
 ## 6. iOS Blind Runner PR
 
-- [ ] 6.1 Implement blind runner profile form with nickname and emergency contact.
+- [x] 6.1 Implement blind runner profile form with nickname and emergency contact.
 - [ ] 6.2 Implement blind runner home, booking form, DatePicker appointment selection, optional route fields, and location-required guard.
 - [ ] 6.3 Implement order status screen with 5-second polling, repeat-status button, cancel, emergency, confirm-start, completion display, and optional rating.
 
 ## 7. iOS Volunteer PR
 
-- [ ] 7.1 Implement volunteer profile, Mock certification page, and availability switch.
+- [x] 7.1 Implement volunteer profile, Mock certification page, and availability switch.
 - [ ] 7.2 Implement nearby available orders list with iOS-side distance sorting.
 - [ ] 7.3 Implement volunteer order detail actions: accept, arrived, complete with optional summary, cancel, and emergency.
 - [ ] 7.4 Implement service records, points balance, ledger, and placeholder shop pages.

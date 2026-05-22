@@ -15,15 +15,25 @@
 - [PrimaryButton.swift](file://blindRun/Core/DesignSystem/PrimaryButton.swift)
 - [VolunteerHomeView.swift](file://blindRun/Volunteer/VolunteerHomeView.swift)
 - [VolunteerModule.swift](file://blindRun/Volunteer/VolunteerModule.swift)
+- [VolunteerController.java](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerController.java)
+- [VolunteerService.java](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerService.java)
+- [AvailabilityRequest.java](file://backend/src/main/java/com/aidrun/backend/volunteer/dto/AvailabilityRequest.java)
+- [VolunteerControllerIntegrationTest.java](file://backend/src/test/java/com/aidrun/backend/volunteer/VolunteerControllerIntegrationTest.java)
+- [VerificationStatus.java](file://backend/src/main/java/com/aidrun/backend/profile/VerificationStatus.java)
+- [AdminReviewStatus.java](file://backend/src/main/java/com/aidrun/backend/profile/AdminReviewStatus.java)
+- [VolunteerProfile.java](file://backend/src/main/java/com/aidrun/backend/profile/VolunteerProfile.java)
+- [ErrorCode.java](file://backend/src/main/java/com/aidrun/backend/common/error/ErrorCode.java)
+- [ApiException.java](file://backend/src/main/java/com/aidrun/backend/common/error/ApiException.java)
 </cite>
 
 ## 更新摘要
 **所做更改**
-- 新增志愿者占位视图实现章节，包含当前占位界面的详细说明
-- 更新无障碍语音服务集成章节，涵盖 SpeechService 的完整实现
-- 新增设计系统样式保持章节，说明 AppColors、HighContrastText 和 PrimaryButton 的使用
-- 更新架构总览图，反映新增的语音服务和设计系统组件
-- 补充志愿者模块的占位状态说明和后续开发计划
+- 新增后端志愿者控制器和业务服务实现章节，详细说明志愿者认证管理、可用性管理和Mock验证功能
+- 更新认证与登录章节，增加后端API接口说明和状态检查机制
+- 新增志愿者认证流程的后端实现细节，包括API端点、状态枚举和错误处理
+- 更新可用性管理章节，补充后端服务的具体实现逻辑
+- 新增志愿者积分系统章节，包含积分流水和余额管理
+- 更新架构总览图，反映新增的后端API接口和数据流
 
 ## 目录
 1. [简介](#简介)
@@ -31,19 +41,20 @@
 3. [核心组件](#核心组件)
 4. [架构总览](#架构总览)
 5. [详细组件分析](#详细组件分析)
-6. [依赖关系分析](#依赖关系分析)
-7. [性能考虑](#性能考虑)
-8. [故障排查指南](#故障排查指南)
-9. [结论](#结论)
-10. [附录](#附录)
+6. [后端志愿者服务实现](#后端志愿者服务实现)
+7. [依赖关系分析](#依赖关系分析)
+8. [性能考虑](#性能考虑)
+9. [故障排查指南](#故障排查指南)
+10. [结论](#结论)
+11. [附录](#附录)
 
 ## 简介
 本文件面向志愿者模块的功能与实现，围绕以下主题展开：志愿者主页、可用性管理与可接订单浏览；志愿者认证流程（含 Mock 审核与状态检查）；可接订单的获取与排序机制（基于距离的本地排序与当前位置处理）；订单详情页面的接单、到达确认、服务完成与取消流程；服务记录管理（历史订单查看与评价系统）；志愿者积分系统（奖励与查询）。同时提供完整的工作流程示例与状态管理策略，并通过可视化图表映射到实际需求与交互。
 
-**更新** 当前志愿者模块仍处于占位实现阶段，完整的功能将在后续 PR 中逐步实现。
+**更新** 志愿者模块现已实现完整的后端服务支持，包括志愿者认证管理、可用性控制和Mock验证功能，为iOS前端提供了完整的API接口支持。
 
 ## 项目结构
-志愿者模块在整体 iOS 架构中属于独立功能域，遵循 SwiftUI + MVVM 的设计，配合高德地图与定位能力，支撑志愿者端的认证、可用性开关、附近订单浏览、接单与服务流程。当前模块包含占位视图和完整的无障碍语音服务集成。
+志愿者模块在整体 iOS 架构中属于独立功能域，遵循 SwiftUI + MVVM 的设计，配合高德地图与定位能力，支撑志愿者端的认证、可用性开关、附近订单浏览、接单与服务流程。当前模块包含占位视图和完整的无障碍语音服务集成，以及后端的完整服务实现。
 
 ```mermaid
 graph TB
@@ -61,6 +72,11 @@ Volunteer["志愿者模块<br/>首页占位/可用性/订单/服务记录/积分
 Voice["语音服务模块<br/>TTS/状态播报/重复当前状态"]
 Design["设计系统<br/>颜色/字体/高对比度文本"]
 end
+subgraph "后端服务层"
+API["REST API<br/>/api/volunteer/*"]
+Service["业务服务<br/>VolunteerService"]
+Repo["数据访问<br/>VolunteerProfileRepository"]
+end
 Views --> VM
 VM --> Services
 Services --> Orders
@@ -70,6 +86,9 @@ Services --> Role
 VM --> Volunteer
 Volunteer --> Voice
 Volunteer --> Design
+Services --> API
+API --> Service
+Service --> Repo
 ```
 
 **章节来源**
@@ -84,6 +103,7 @@ Volunteer --> Design
 - 可用性管理
   - 志愿者需通过 Mock 认证并开启"可服务"才能接单。
   - 认证状态与可用性状态共同决定是否允许接单。
+  - 后端提供 `/api/volunteer/mock-verification/approve` 和 `/api/volunteer/availability` 接口支持。
 - 可接订单浏览
   - 获取后端返回的"匹配中"订单，按志愿者当前位置到起点的距离进行本地排序。
   - 隐藏敏感字段（如盲人电话），仅展示必要信息。
@@ -95,6 +115,7 @@ Volunteer --> Design
   - 评价系统在 MVP 中作为可选步骤，不强制要求。
 - 积分系统
   - 完成服务后奖励固定积分（例如 +100），并可在积分页查看历史记录与占位商品。
+  - 后端维护志愿者积分余额和流水记录。
 - 无障碍语音服务
   - 集中式 TTS 服务，使用 AVSpeechSynthesizer 播报状态变化和错误提示。
   - 支持重复当前状态播报，避免轮询时重复播报。
@@ -107,7 +128,7 @@ Volunteer --> Design
 - [SpeechService.swift: 7-104:7-104](file://blindRun/Voice/SpeechService.swift#L7-L104)
 
 ## 架构总览
-志愿者模块的交互与状态流由用户流程与状态机文档定义，结合 iOS 架构文档中的 MVVM、API 客户端与轮询策略，形成从认证到服务完成的闭环。当前架构已集成完整的语音服务和设计系统支持。
+志愿者模块的交互与状态流由用户流程与状态机文档定义，结合 iOS 架构文档中的 MVVM、API 客户端与轮询策略，形成从认证到服务完成的闭环。当前架构已集成完整的语音服务、设计系统支持和后端API接口。
 
 ```mermaid
 graph TB
@@ -127,6 +148,9 @@ A --> |"语音播报状态变化"| VS["语音服务"]
 VS --> |"AVSpeechSynthesizer"| TTS["TTS引擎"]
 A --> |"设计系统样式"| DS["设计系统"]
 DS --> |"AppColors/HighContrastText"| UI["界面组件"]
+B --> |"认证/可用性管理"| API["/api/volunteer/*"]
+API --> |"Mock验证/可用性切换"| Service["VolunteerService"]
+Service --> |"状态检查/更新"| Repo["VolunteerProfileRepository"]
 ```
 
 **图表来源**
@@ -270,6 +294,7 @@ PrimaryBtn --> States["三种状态"]
   - 若已审核但未开启可服务，尝试接单将收到"志愿者不可用"的错误。
 - Mock 认证
   - 提供一键 Mock 审批动作，用于演示与联调。
+  - 后端提供 `/api/volunteer/mock-verification/approve` 接口支持。
 
 ```mermaid
 flowchart TD
@@ -374,6 +399,8 @@ Detail --> Optional["可选评价(后续扩展)"]
   - 完成一次服务后奖励固定积分（例如 +100）。
 - 查询与展示
   - 在"积分/商城占位页"展示累计积分与历史明细；商品为占位展示，不支持兑换。
+- 积分管理
+  - 后端维护志愿者积分余额和详细的积分流水记录。
 
 ```mermaid
 flowchart TD
@@ -390,8 +417,10 @@ Ledger --> View["积分页查看累计与明细"]
   - 支持手机号 + 固定验证码（123456）登录，返回 JWT；首次登录可能未设置 activeRole，需进入角色选择。
 - Mock 审核
   - 提供 Mock 认证动作，将"验证状态"和"管理员复审状态"置为"已批准"，随后开启"可服务"即可接单。
+  - 后端提供 `/api/volunteer/mock-verification/approve` 接口支持。
 - 状态检查
   - 尝试接单前检查 Mock 审核与可用性状态，不符合条件则提示并阻止接单。
+  - 后端通过 `validateVolunteerCanAcceptOrder` 方法执行完整的状态检查。
 
 ```mermaid
 flowchart TD
@@ -407,15 +436,130 @@ Avail --> Ready["可接单"]
 - [auth-phone-login/spec.md: 3-30:3-30](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/auth-phone-login/spec.md#L3-L30)
 - [volunteer-order-flow/spec.md: 15-22:15-22](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/volunteer-order-flow/spec.md#L15-L22)
 
+## 后端志愿者服务实现
+
+### 志愿者控制器（VolunteerController）
+- REST API 接口
+  - POST `/api/volunteer/mock-verification/approve`：执行 Mock 认证审批
+  - PATCH `/api/volunteer/availability`：更新志愿者可用性状态
+- 安全控制
+  - 所有接口都需要认证用户身份
+  - 使用 Spring Security 进行权限验证
+- 请求响应
+  - 返回标准化的志愿者档案 DTO
+  - 包含认证状态、可用性状态和基本信息
+
+**章节来源**
+- [VolunteerController.java: 15-40:15-40](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerController.java#L15-L40)
+
+### 志愿者服务（VolunteerService）
+- Mock 认证审批
+  - 将志愿者的验证状态和管理员复审状态都设置为 APPROVED
+  - 支持幂等操作，重复调用不会产生副作用
+- 可用性状态管理
+  - 检查志愿者是否已通过认证
+  - 更新志愿者的可用性标志位
+  - 返回更新后的志愿者档案
+- 状态验证
+  - `validateVolunteerCanAcceptOrder` 方法执行完整的接单前验证
+  - 检查认证状态和可用性状态
+  - 抛出相应的业务异常
+
+**章节来源**
+- [VolunteerService.java: 15-89:15-89](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerService.java#L15-L89)
+
+### 数据模型与状态枚举
+
+#### 志愿者档案（VolunteerProfile）
+- 核心字段
+  - 用户关联：一对一关联 AppUser
+  - 昵称和电话号码
+  - 验证状态：NOT_SUBMITTED/PENDING/APPROVED/REJECTED
+  - 管理员复审状态：NOT_SUBMITTED/PENDING/APPROVED/REJECTED
+  - 可用性标志位：true/false
+  - 积分余额：整数类型
+- 关系映射
+  - 使用 JPA 注解定义实体关系
+  - 设置唯一约束和非空约束
+
+**章节来源**
+- [VolunteerProfile.java: 14-107:14-107](file://backend/src/main/java/com/aidrun/backend/profile/VolunteerProfile.java#L14-L107)
+
+#### 状态枚举
+- VerificationStatus（验证状态）
+  - wireValue：字符串表示形式
+  - 支持 JSON 序列化和反序列化
+  - 枚举值：not_submitted/pending/approved/rejected
+- AdminReviewStatus（管理员复审状态）
+  - wireValue：字符串表示形式
+  - 支持 JSON 序列化和反序列化
+  - 枚举值：not_submitted/pending/approved/rejected
+
+**章节来源**
+- [VerificationStatus.java: 6-33:6-33](file://backend/src/main/java/com/aidrun/backend/profile/VerificationStatus.java#L6-L33)
+- [AdminReviewStatus.java: 6-33:6-33](file://backend/src/main/java/com/aidrun/backend/profile/AdminReviewStatus.java#L6-L33)
+
+### 错误处理与业务异常
+
+#### 错误码定义（ErrorCode）
+- 业务错误码
+  - PROFILE_INCOMPLETE：资料不完整
+  - VOLUNTEER_NOT_APPROVED：志愿者未审核通过
+  - VOLUNTEER_NOT_AVAILABLE：志愿者不可用
+  - VALIDATION_FAILED：验证失败
+  - UNAUTHORIZED：未授权
+- 错误码特性
+  - 支持 JSON 序列化和反序列化
+  - 提供 wireValue 映射
+
+#### API 异常（ApiException）
+- 异常结构
+  - 包含错误码和 HTTP 状态码
+  - 继承 RuntimeException
+- 使用场景
+  - 业务规则违反时抛出
+  - 与全局异常处理器配合使用
+
+**章节来源**
+- [ErrorCode.java: 6-41:6-41](file://backend/src/main/java/com/aidrun/backend/common/error/ErrorCode.java#L6-L41)
+- [ApiException.java: 5-24:5-24](file://backend/src/main/java/com/aidrun/backend/common/error/ApiException.java#L5-L24)
+
+### API 测试覆盖
+
+#### Mock 验证测试
+- 基本功能测试
+  - 有档案的志愿者调用 Mock 验证返回 200
+  - 无档案的志愿者调用返回 400 PROFILE_INCOMPLETE
+  - 未携带令牌调用返回 401
+- 幂等性测试
+  - 重复调用返回相同结果
+  - 不会产生副作用
+
+#### 可用性状态测试
+- 正常状态切换
+  - 通过认证后开启可用性返回 200
+  - 开启后再关闭返回 200
+- 权限控制测试
+  - 未通过认证调用返回 403 VOLUNTEER_NOT_APPROVED
+  - 无档案调用返回 400 PROFILE_INCOMPLETE
+  - 未携带令牌调用返回 401
+- 参数验证测试
+  - 缺少 isAvailable 参数返回 400 VALIDATION_FAILED
+
+**章节来源**
+- [VolunteerControllerIntegrationTest.java: 56-250:56-250](file://backend/src/test/java/com/aidrun/backend/volunteer/VolunteerControllerIntegrationTest.java#L56-L250)
+
 ## 依赖关系分析
 - 组件耦合
   - 志愿者首页占位依赖设计系统（颜色、字体、文本组件）和语音服务模块。
   - 可用性管理依赖认证模块和订单模块。
   - 订单详情页依赖地图模块、语音服务和轮询机制。
+  - 后端服务依赖用户认证、档案管理和错误处理框架。
 - 外部依赖
-  - 后端 API：订单 CRUD、状态变更、可用订单列表。
+  - 后端 API：订单 CRUD、状态变更、可用订单列表、志愿者认证管理。
   - 高德地图：地图展示、定位、距离计算。
   - 语音服务：AVSpeechSynthesizer 语音合成。
+  - Spring Framework：依赖注入、事务管理、异常处理。
 - 轮询与状态机
   - 订单详情页在特定状态下（accepted/arrived/in_progress）进行轮询，确保双方状态一致。
 
@@ -426,11 +570,16 @@ VOL --> MAP["地图/定位模块"]
 VOL --> AUTH["认证模块"]
 VOL --> VOICE["语音服务模块"]
 VOL --> DESIGN["设计系统"]
+VOL --> API["后端API"]
+API --> SERVICE["VolunteerService"]
+SERVICE --> REPO["VolunteerProfileRepository"]
+SERVICE --> ERROR["错误处理"]
+SERVICE --> ENUM["状态枚举"]
 DESIGN --> COLORS["AppColors"]
 DESIGN --> TEXT["HighContrastText"]
 DESIGN --> BUTTON["PrimaryButton"]
 VOICE --> SPEECH["SpeechService"]
-ORD --> API["后端API"]
+ORD --> API
 MAP --> AMap["高德地图SDK"]
 VOICE --> TTS["AVSpeechSynthesizer"]
 ```
@@ -455,6 +604,10 @@ VOICE --> TTS["AVSpeechSynthesizer"]
 - 语音服务优化
   - 通过 lastSpokenStatus 避免重复播报，减少语音资源浪费。
   - 使用 stopSpeaking(at: .immediate) 及时中断不需要的语音播报。
+- 后端性能优化
+  - 事务管理确保数据一致性
+  - 枚举类型减少数据库存储空间
+  - 幂等操作设计避免重复处理
 
 **章节来源**
 - [08-ios-architecture.md: 125-139:125-139](file://docs/08-ios-architecture.md#L125-L139)
@@ -465,9 +618,11 @@ VOICE --> TTS["AVSpeechSynthesizer"]
 - 无法接单
   - 检查 Mock 审核状态与"可服务开关"是否都已开启。
   - 若提示"志愿者未审核通过/不可用"，请先完成 Mock 审核并开启可服务。
+  - 检查后端日志确认 API 调用是否成功。
 - 订单列表为空或无排序
   - 确认已授予定位权限；若权限被拒，将无法计算距离与排序。
   - 检查网络与后端可用订单接口是否正常。
+  - 验证志愿者档案是否完整。
 - 状态不同步
   - 确认当前页面处于轮询范围内；离开页面或订单进入终态（completed/cancelled/emergency）会停止轮询。
 - 紧急状态
@@ -478,6 +633,10 @@ VOICE --> TTS["AVSpeechSynthesizer"]
 - 设计系统样式问题
   - 检查 AppColors 配置是否正确。
   - 确认 HighContrastText 的样式参数和无障碍标签设置。
+- 后端 API 问题
+  - 检查认证令牌是否有效
+  - 验证志愿者档案是否存在且完整
+  - 查看错误码确定具体问题类型
 
 **章节来源**
 - [volunteer-order-flow/spec.md: 7-14:7-14](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/volunteer-order-flow/spec.md#L7-L14)
@@ -486,9 +645,9 @@ VOICE --> TTS["AVSpeechSynthesizer"]
 - [SpeechService.swift: 40-62:40-62](file://blindRun/Voice/SpeechService.swift#L40-L62)
 
 ## 结论
-志愿者模块当前处于占位实现阶段，但仍具备完整的无障碍语音服务集成和设计系统支持。模块围绕"认证—可用性—附近订单—接单—服务—记录—积分"的完整闭环构建，结合 MVVM 架构与高德地图能力，实现了真实地图、定位与本地距离排序。通过明确的状态机与轮询策略，保障了双方状态一致性与用户体验。
+志愿者模块现已实现完整的前后端协同功能，包括认证管理、可用性控制、Mock验证和积分系统。后端提供了完善的API接口和业务逻辑，前端集成了完整的UI组件和无障碍服务。模块围绕"认证—可用性—附近订单—接单—服务—记录—积分"的完整闭环构建，结合MVVM架构与高德地图能力，实现了真实地图、定位与本地距离排序。通过明确的状态机与轮询策略，保障了双方状态一致性与用户体验。
 
-**更新** 随着后续 PR 的推进，志愿者模块将逐步实现完整的首页功能、订单管理、语音播报和设计系统集成，为用户提供完整的志愿者服务体验。
+**更新** 随着后端志愿者服务的完善实现，志愿者模块现在具备了完整的业务功能支持，为后续的完整功能开发奠定了坚实基础。
 
 ## 附录
 - 工作流程示例（志愿者正向流程）
@@ -497,6 +656,7 @@ VOICE --> TTS["AVSpeechSynthesizer"]
   - 使用状态机约束流转，禁止服务开始后的普通取消；紧急状态为终态，不支持恢复。
 - API 与轮询清单
   - 获取可用订单、订单详情、接单、到达、确认开始、完成、紧急、轮询等。
+  - 后端 API：`/api/volunteer/mock-verification/approve`、`/api/volunteer/availability`
 - 设计系统使用规范
   - 颜色使用：primary/destructive/background/secondaryBackground/textPrimary/textSecondary/success/warning
   - 字体使用：largeTitle/title/body/caption/primaryButton
@@ -505,6 +665,11 @@ VOICE --> TTS["AVSpeechSynthesizer"]
   - 使用单例 SpeechService，避免重复创建。
   - 状态播报通过状态映射表统一管理。
   - 重复当前状态功能通过 repeatCurrentStatus 方法实现。
+- 后端服务规范
+  - 使用 Spring Boot 注解驱动的 REST API
+  - 事务管理确保数据一致性
+  - 枚举类型提供类型安全的状态管理
+  - 全面的单元测试覆盖关键业务场景
 
 **章节来源**
 - [04-user-flows-and-state-machine.md: 180-228:180-228](file://docs/04-user-flows-and-state-machine.md#L180-L228)
@@ -514,3 +679,5 @@ VOICE --> TTS["AVSpeechSynthesizer"]
 - [HighContrastText.swift: 17-33:17-33](file://blindRun/Core/DesignSystem/HighContrastText.swift#L17-L33)
 - [PrimaryButton.swift: 13-23:13-23](file://blindRun/Core/DesignSystem/PrimaryButton.swift#L13-L23)
 - [SpeechService.swift: 32-47:32-47](file://blindRun/Voice/SpeechService.swift#L32-L47)
+- [VolunteerController.java: 25-40:25-40](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerController.java#L25-L40)
+- [VolunteerService.java: 24-88:24-88](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerService.java#L24-L88)

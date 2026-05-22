@@ -93,4 +93,92 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(json["cancelledReason"], "wrong_location")
         XCTAssertEqual(ManualCancellationReason.wrongLocation.displayName, "地点填写错误")
     }
+
+    func testVolunteerAcceptGuardRequiresCompleteProfile() {
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: nil),
+            "请先完善志愿者资料"
+        )
+
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile(nickname: "")),
+            "请先完善志愿者资料"
+        )
+
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile(phoneNumber: "123")),
+            "请先完善志愿者资料"
+        )
+    }
+
+    func testVolunteerAcceptGuardRequiresApprovalAndAvailability() {
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile()),
+            "请先完成志愿者认证"
+        )
+
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile(isAvailable: false)),
+            "请先开启可服务状态"
+        )
+
+        XCTAssertNil(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile(isAvailable: true))
+        )
+    }
+
+    func testAppStateVolunteerComputedPropertiesRequireCompleteApprovedAvailableProfile() {
+        let appState = AppState()
+        appState.volunteerProfile = nil
+        XCTAssertFalse(appState.isVolunteerProfileComplete)
+        XCTAssertFalse(appState.isVolunteerProfileApproved)
+        XCTAssertFalse(appState.canVolunteerAcceptOrders)
+
+        appState.volunteerProfile = makeVolunteerProfile(phoneNumber: "123")
+        XCTAssertFalse(appState.isVolunteerProfileComplete)
+        XCTAssertFalse(appState.isVolunteerProfileApproved)
+        XCTAssertFalse(appState.canVolunteerAcceptOrders)
+
+        appState.volunteerProfile = makeVolunteerProfile()
+        XCTAssertTrue(appState.isVolunteerProfileComplete)
+        XCTAssertFalse(appState.isVolunteerProfileApproved)
+        XCTAssertFalse(appState.canVolunteerAcceptOrders)
+
+        appState.volunteerProfile = makeApprovedVolunteerProfile(isAvailable: false)
+        XCTAssertTrue(appState.isVolunteerProfileComplete)
+        XCTAssertTrue(appState.isVolunteerProfileApproved)
+        XCTAssertFalse(appState.canVolunteerAcceptOrders)
+
+        appState.volunteerProfile = makeApprovedVolunteerProfile(isAvailable: true)
+        XCTAssertTrue(appState.canVolunteerAcceptOrders)
+    }
+
+    private func makeVolunteerProfile(
+        nickname: String = "测试志愿者",
+        phoneNumber: String = "13800138000",
+        verificationStatus: VerificationStatus = .notSubmitted,
+        adminReviewStatus: AdminReviewStatus = .notSubmitted,
+        isAvailable: Bool = false
+    ) -> VolunteerProfileDto {
+        VolunteerProfileDto(
+            id: "20000000-0000-0000-0000-000000000001",
+            userId: "00000000-0000-0000-0000-000000000001",
+            nickname: nickname,
+            phoneNumber: phoneNumber,
+            verificationStatus: verificationStatus,
+            adminReviewStatus: adminReviewStatus,
+            isAvailable: isAvailable,
+            pointsBalance: 0,
+            createdAt: "2024-01-01T00:00:00Z",
+            updatedAt: "2024-01-01T00:00:00Z"
+        )
+    }
+
+    private func makeApprovedVolunteerProfile(isAvailable: Bool) -> VolunteerProfileDto {
+        makeVolunteerProfile(
+            verificationStatus: .approved,
+            adminReviewStatus: .approved,
+            isAvailable: isAvailable
+        )
+    }
 }

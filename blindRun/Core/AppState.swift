@@ -24,6 +24,12 @@ final class AppState: ObservableObject {
         didSet { persistActiveRole() }
     }
 
+    /// 当前用户的盲人跑者资料。为空或资料不完整时不能进入预约创建流程。
+    @Published var blindRunnerProfile: BlindRunnerProfileDto?
+
+    /// 当前用户的志愿者资料。认证未通过或未开启可服务时不能接单。
+    @Published var volunteerProfile: VolunteerProfileDto?
+
     // MARK: - Environment
 
     /// 当前 API 环境
@@ -35,6 +41,36 @@ final class AppState: ObservableObject {
 
     var isLoggedIn: Bool {
         accessToken != nil
+    }
+
+    var isBlindRunnerProfileComplete: Bool {
+        guard let profile = blindRunnerProfile,
+              !profile.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let contact = profile.emergencyContact,
+              !contact.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              AppState.isValidMainlandPhone(contact.phoneNumber) else {
+            return false
+        }
+        return true
+    }
+
+    var isVolunteerProfileComplete: Bool {
+        guard let profile = volunteerProfile,
+              !profile.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              AppState.isValidMainlandPhone(profile.phoneNumber) else {
+            return false
+        }
+        return true
+    }
+
+    var isVolunteerProfileApproved: Bool {
+        isVolunteerProfileComplete &&
+        volunteerProfile?.verificationStatus == .approved &&
+        volunteerProfile?.adminReviewStatus == .approved
+    }
+
+    var canVolunteerAcceptOrders: Bool {
+        isVolunteerProfileApproved && volunteerProfile?.isAvailable == true
     }
 
     /// 根据当前环境返回对应的 API Client
@@ -88,6 +124,8 @@ final class AppState: ObservableObject {
         accessToken = nil
         currentUser = nil
         activeRole = nil
+        blindRunnerProfile = nil
+        volunteerProfile = nil
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
     }
@@ -110,6 +148,47 @@ final class AppState: ObservableObject {
             updatedAt: user.updatedAt
         )
         activeRole = resolvedActiveRole
+    }
+
+    func updateUserMe(_ response: UserMeResponse) {
+        updateCurrentUser(response.user, fallbackActiveRole: activeRole)
+        blindRunnerProfile = response.blindRunnerProfile
+        volunteerProfile = response.volunteerProfile
+    }
+
+    func updateBlindRunnerProfile(_ profile: BlindRunnerProfileDto) {
+        blindRunnerProfile = profile
+        if let currentUser {
+            self.currentUser = UserDto(
+                id: currentUser.id,
+                phoneNumber: currentUser.phoneNumber,
+                nickname: profile.nickname,
+                roles: currentUser.roles,
+                activeRole: currentUser.activeRole,
+                createdAt: currentUser.createdAt,
+                updatedAt: currentUser.updatedAt
+            )
+        }
+    }
+
+    func updateVolunteerProfile(_ profile: VolunteerProfileDto) {
+        volunteerProfile = profile
+        if let currentUser {
+            self.currentUser = UserDto(
+                id: currentUser.id,
+                phoneNumber: currentUser.phoneNumber,
+                nickname: profile.nickname,
+                roles: currentUser.roles,
+                activeRole: currentUser.activeRole,
+                createdAt: currentUser.createdAt,
+                updatedAt: currentUser.updatedAt
+            )
+        }
+    }
+
+    static func isValidMainlandPhone(_ phoneNumber: String) -> Bool {
+        let pattern = #"^1\d{10}$"#
+        return phoneNumber.range(of: pattern, options: .regularExpression) != nil
     }
 
     // MARK: - Persistence (Private)
