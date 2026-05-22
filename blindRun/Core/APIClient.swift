@@ -105,6 +105,13 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
     private let session: URLSession
     private let tokenProvider: @Sendable () -> String?
 
+    private static let defaultSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 20
+        return URLSession(configuration: configuration)
+    }()
+
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         return encoder
@@ -115,7 +122,11 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         return decoder
     }()
 
-    init(baseURL: URL, session: URLSession = .shared, tokenProvider: @escaping @Sendable () -> String?) {
+    init(
+        baseURL: URL,
+        session: URLSession = URLSessionAPIClient.defaultSession,
+        tokenProvider: @escaping @Sendable () -> String?
+    ) {
         self.baseURL = baseURL
         self.session = session
         self.tokenProvider = tokenProvider

@@ -51,6 +51,107 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(response.user.roles, [.blindRunner, .volunteer])
     }
 
+    func testLoginPhoneInputKeepsOnlyFirstElevenDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.sanitizePhoneInput(" 138 0013 8000 999")
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800138000")
+    }
+
+    func testLoginPhoneInputDropsNonDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.sanitizePhoneInput("abc138-0013-8000xyz")
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800138000")
+    }
+
+    func testLoginPhoneDirectAssignmentKeepsOnlyFirstElevenDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.phoneNumber = "13800138000999"
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800138000")
+    }
+
+    func testLoginPhoneSanitizeAlreadyCompleteValueKeepsElevenDigits() {
+        let viewModel = LoginViewModel()
+        viewModel.phoneNumber = "13800138000"
+
+        viewModel.sanitizePhoneInput("138001380009")
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800138000")
+    }
+
+    func testLoginVerificationCodeInputKeepsOnlyFirstSixDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.sanitizeVerificationCodeInput("123456789")
+
+        XCTAssertEqual(viewModel.verificationCode, "123456")
+    }
+
+    func testLoginVerificationCodeInputDropsNonDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.sanitizeVerificationCodeInput("abc 123-456 xyz")
+
+        XCTAssertEqual(viewModel.verificationCode, "123456")
+    }
+
+    func testLoginVerificationCodeDirectAssignmentKeepsOnlyFirstSixDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.verificationCode = "123456789"
+
+        XCTAssertEqual(viewModel.verificationCode, "123456")
+    }
+
+    func testLoginVerificationCodeSanitizeAlreadyCompleteValueKeepsSixDigits() {
+        let viewModel = LoginViewModel()
+        viewModel.verificationCode = "123456"
+
+        viewModel.sanitizeVerificationCodeInput("1234567")
+
+        XCTAssertEqual(viewModel.verificationCode, "123456")
+    }
+
+    func testSubmitLoginWithCompleteInputsDoesNotReenterVerificationCodeSetter() {
+        let viewModel = LoginViewModel()
+        viewModel.phoneNumber = "13800138000"
+        viewModel.verificationCode = "123456"
+
+        viewModel.submitLogin()
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800138000")
+        XCTAssertEqual(viewModel.verificationCode, "123456")
+    }
+
+    func testDebugInitialEnvironmentFallsBackFromProductionToMock() {
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.production), .mock)
+    }
+
+    func testDebugEnvironmentSwitcherCyclesOnlyMockAndLocalBackend() {
+        let previousEnvironment = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
+        defer {
+            if let previousEnvironment {
+                UserDefaults.standard.set(previousEnvironment, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
+            }
+        }
+
+        UserDefaults.standard.set(APIEnvironment.mock.rawValue, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
+        let appState = AppState()
+
+        XCTAssertEqual(appState.currentEnvironment, .mock)
+        appState.switchToNextEnvironmentForTesting()
+        XCTAssertEqual(appState.currentEnvironment, .localBackend)
+        appState.switchToNextEnvironmentForTesting()
+        XCTAssertEqual(appState.currentEnvironment, .mock)
+    }
+
     func testOrderRequestUsesOpenAPIWireValues() throws {
         let request = CreateOrderRequest(
             startLocation: LocationPoint(

@@ -95,7 +95,7 @@ final class AppState: ObservableObject {
         // 从 UserDefaults 恢复环境设置
         if let envRaw = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
            let env = APIEnvironment(rawValue: envRaw) {
-            self.currentEnvironment = env
+            self.currentEnvironment = AppState.resolvedInitialEnvironment(env)
         } else {
             self.currentEnvironment = .mock
         }
@@ -134,6 +134,25 @@ final class AppState: ObservableObject {
     func switchRole(to role: UserRole) {
         activeRole = role
     }
+
+    #if DEBUG
+    func returnToRoleSelectionForTesting() {
+        activeRole = nil
+    }
+
+    func switchToNextEnvironmentForTesting() {
+        let allEnvironments = AppState.debugTestEnvironments
+        let currentEnvironment = AppState.resolvedInitialEnvironment(currentEnvironment)
+        guard let currentIndex = allEnvironments.firstIndex(of: currentEnvironment) else {
+            self.currentEnvironment = allEnvironments[0]
+            clearSession()
+            return
+        }
+        let nextIndex = (currentIndex + 1) % allEnvironments.count
+        self.currentEnvironment = allEnvironments[nextIndex]
+        clearSession()
+    }
+    #endif
 
     /// 用后端返回的用户数据同步当前用户和激活角色。
     func updateCurrentUser(_ user: UserDto, fallbackActiveRole: UserRole? = nil) {
@@ -190,6 +209,18 @@ final class AppState: ObservableObject {
         let pattern = #"^1\d{10}$"#
         return phoneNumber.range(of: pattern, options: .regularExpression) != nil
     }
+
+    static func resolvedInitialEnvironment(_ environment: APIEnvironment) -> APIEnvironment {
+        #if DEBUG
+        environment == .production ? .mock : environment
+        #else
+        environment
+        #endif
+    }
+
+    #if DEBUG
+    static let debugTestEnvironments: [APIEnvironment] = [.mock, .localBackend]
+    #endif
 
     // MARK: - Persistence (Private)
 

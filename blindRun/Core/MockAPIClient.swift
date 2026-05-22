@@ -31,6 +31,16 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 private final class MockAPIStore {
     static let shared = MockAPIStore()
 
+    private struct Snapshot: Codable {
+        let user: UserDto
+        let blindRunnerProfile: BlindRunnerProfileDto?
+        let volunteerProfile: VolunteerProfileDto?
+    }
+
+    private enum Persistence {
+        static let snapshotKey = "com.aidrun.mvp.mockAPIStore.snapshot"
+    }
+
     private var user = UserDto(
         id: "00000000-0000-0000-0000-000000000001",
         phoneNumber: "13800138000",
@@ -43,6 +53,10 @@ private final class MockAPIStore {
 
     private var blindRunnerProfile: BlindRunnerProfileDto?
     private var volunteerProfile: VolunteerProfileDto?
+
+    private init() {
+        restore()
+    }
 
     func response(for path: String, method: HTTPMethod, bodyData: Data?) throws -> Data {
         // 基础 Mock 路由，后续 PR 逐步补充完整数据
@@ -57,6 +71,10 @@ private final class MockAPIStore {
                         message: "验证码错误"
                     ))
                 }
+                if user.phoneNumber != loginReq.phoneNumber {
+                    blindRunnerProfile = nil
+                    volunteerProfile = nil
+                }
                 user = UserDto(
                     id: user.id,
                     phoneNumber: loginReq.phoneNumber,
@@ -66,6 +84,7 @@ private final class MockAPIStore {
                     createdAt: user.createdAt,
                     updatedAt: user.updatedAt
                 )
+                persist()
             }
             return try encode(AuthResponse(
                 accessToken: "mock_jwt_token_for_testing",
@@ -85,6 +104,7 @@ private final class MockAPIStore {
             }
             // 返回更新后的 UserDto（activeRole 设为目标角色）
             user = userWith(nickname: user.nickname, activeRole: targetRole)
+            persist()
             return try encode(user)
         }
 
@@ -114,6 +134,7 @@ private final class MockAPIStore {
             )
             blindRunnerProfile = profile
             user = userWith(nickname: profile.nickname, activeRole: user.activeRole)
+            persist()
             return try encode(profile)
         }
 
@@ -138,6 +159,7 @@ private final class MockAPIStore {
             )
             volunteerProfile = profile
             user = userWith(nickname: profile.nickname, activeRole: user.activeRole)
+            persist()
             return try encode(profile)
         }
 
@@ -162,6 +184,7 @@ private final class MockAPIStore {
                 updatedAt: "2024-01-01T00:00:00Z"
             )
             volunteerProfile = profile
+            persist()
             return try encode(profile)
         }
 
@@ -197,6 +220,7 @@ private final class MockAPIStore {
                 updatedAt: "2024-01-01T00:00:00Z"
             )
             volunteerProfile = profile
+            persist()
             return try encode(profile)
         }
 
@@ -225,6 +249,7 @@ private final class MockAPIStore {
             updatedAt: "2024-01-01T00:00:00Z"
         )
         volunteerProfile = profile
+        persist()
         return profile
     }
 
@@ -238,5 +263,25 @@ private final class MockAPIStore {
             createdAt: user.createdAt,
             updatedAt: "2024-01-01T00:00:00Z"
         )
+    }
+
+    private func restore() {
+        guard let data = UserDefaults.standard.data(forKey: Persistence.snapshotKey),
+              let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else {
+            return
+        }
+        user = snapshot.user
+        blindRunnerProfile = snapshot.blindRunnerProfile
+        volunteerProfile = snapshot.volunteerProfile
+    }
+
+    private func persist() {
+        let snapshot = Snapshot(
+            user: user,
+            blindRunnerProfile: blindRunnerProfile,
+            volunteerProfile: volunteerProfile
+        )
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        UserDefaults.standard.set(data, forKey: Persistence.snapshotKey)
     }
 }

@@ -142,6 +142,11 @@ struct VolunteerHomeView: View {
                 availabilitySection
                 readinessSection
 
+                #if DEBUG
+                DebugTestingPanel()
+                    .environmentObject(appState)
+                #endif
+
                 if viewModel.isLoading {
                     ProgressView("正在加载志愿者资料...")
                         .accessibilityLabel("正在加载志愿者资料，请稍候")

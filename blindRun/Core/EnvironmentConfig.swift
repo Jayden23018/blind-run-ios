@@ -24,8 +24,10 @@ enum APIEnvironment: String, CaseIterable, Sendable {
             // Mock 模式不使用网络，返回 nil
             return nil
         case .localBackend:
-            let ip = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.localBackendIP)
-                ?? AppConstants.Defaults.localBackendIP
+            let savedIP = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.localBackendIP)
+            let ip = savedIP == AppConstants.Defaults.legacyLocalBackendIP
+                ? AppConstants.Defaults.localBackendIP
+                : (savedIP ?? AppConstants.Defaults.localBackendIP)
             return URL(string: "http://\(ip):8080")
         case .production:
             // 占位 URL，部署后替换
@@ -49,7 +51,8 @@ enum AppConstants {
     }
 
     enum Defaults {
-        static let localBackendIP = "192.168.1.100"
+        static let localBackendIP = "127.0.0.1"
+        static let legacyLocalBackendIP = "192.168.1.100"
         // 北京默认测试坐标，供模拟器 Demo 使用
         static let demoLatitude: Double = 39.9042
         static let demoLongitude: Double = 116.4074

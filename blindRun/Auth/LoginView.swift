@@ -53,8 +53,12 @@ struct LoginView: View {
 
                     // 手机号输入区
                     VStack(alignment: .leading, spacing: 8) {
-                        TextField("请输入手机号", text: $viewModel.phoneNumber)
+                        TextField(
+                            "请输入手机号",
+                            text: $viewModel.phoneNumber
+                        )
                             .keyboardType(.numberPad)
+                            .textContentType(.telephoneNumber)
                             .font(.title3)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
@@ -68,6 +72,9 @@ struct LoginView: View {
                                     )
                             )
                             .focused($phoneFocused)
+                            .onChange(of: viewModel.phoneNumber) { newValue in
+                                viewModel.sanitizePhoneInput(newValue)
+                            }
                             .accessibilityLabel("手机号输入框，请输入 11 位手机号")
                             .accessibilityValue(viewModel.phoneNumber.isEmpty ? "未输入" : viewModel.phoneNumber)
 
@@ -104,8 +111,12 @@ struct LoginView: View {
                     // 验证码输入区（条件显示）
                     if viewModel.showCodeInput {
                         VStack(alignment: .leading, spacing: 8) {
-                            TextField("请输入6位验证码", text: $viewModel.verificationCode)
+                            TextField(
+                                "请输入6位验证码",
+                                text: $viewModel.verificationCode
+                            )
                                 .keyboardType(.numberPad)
+                                .textContentType(.oneTimeCode)
                                 .font(.title3)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 14)
@@ -119,6 +130,9 @@ struct LoginView: View {
                                         )
                                 )
                                 .focused($codeFocused)
+                                .onChange(of: viewModel.verificationCode) { newValue in
+                                    viewModel.sanitizeVerificationCodeInput(newValue)
+                                }
                                 .shake(viewModel.shakeCodeField)
                                 .accessibilityLabel("验证码输入框，请输入 6 位验证码")
                                 .accessibilityValue(viewModel.verificationCode.isEmpty ? "未输入" : viewModel.verificationCode)
@@ -191,8 +205,11 @@ struct LoginView: View {
     private var environmentSwitcher: some View {
         Button {
             // 循环切换环境
-            let allEnvs = APIEnvironment.allCases
-            guard let currentIndex = allEnvs.firstIndex(of: appState.currentEnvironment) else { return }
+            let allEnvs = AppState.debugTestEnvironments
+            guard let currentIndex = allEnvs.firstIndex(of: appState.currentEnvironment) else {
+                appState.currentEnvironment = .mock
+                return
+            }
             let nextIndex = (currentIndex + 1) % allEnvs.count
             appState.currentEnvironment = allEnvs[nextIndex]
         } label: {

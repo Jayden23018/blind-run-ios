@@ -12,15 +12,13 @@ final class LoginViewModel: ObservableObject {
 
     // MARK: - Published State
 
-    /// 手机号输入（已去除空白字符）
+    /// 手机号输入（仅保留数字并限制为 11 位）
     @Published var phoneNumber: String = "" {
         didSet {
-            let stripped = phoneNumber.filter { !$0.isWhitespace }
-            if stripped != phoneNumber {
-                phoneNumber = stripped
-            }
-            if phoneNumber.count > 11 {
-                phoneNumber = String(phoneNumber.prefix(11))
+            let normalized = LoginViewModel.normalizedPhoneNumber(phoneNumber)
+            if normalized != phoneNumber {
+                phoneNumber = normalized
+                return
             }
             if !phoneNumber.isEmpty {
                 errorMessage = nil
@@ -30,21 +28,16 @@ final class LoginViewModel: ObservableObject {
         }
     }
 
-    /// 验证码输入（已去除空白字符）
+    /// 验证码输入（仅保留数字并限制为 6 位）
     @Published var verificationCode: String = "" {
         didSet {
-            let stripped = verificationCode.filter { !$0.isWhitespace }
-            if stripped != verificationCode {
-                verificationCode = stripped
-            }
-            if verificationCode.count > 6 {
-                verificationCode = String(verificationCode.prefix(6))
+            let normalized = LoginViewModel.normalizedVerificationCode(verificationCode)
+            if normalized != verificationCode {
+                verificationCode = normalized
+                return
             }
             if !verificationCode.isEmpty {
                 errorMessage = nil
-            }
-            if verificationCode.count == 6, canSubmit {
-                submitLogin()
             }
         }
     }
@@ -125,9 +118,24 @@ final class LoginViewModel: ObservableObject {
         self.speechService = speechService
     }
 
+    func sanitizePhoneInput(_ value: String) {
+        let normalized = LoginViewModel.normalizedPhoneNumber(value)
+        phoneNumber = normalized
+    }
+
+    func sanitizeVerificationCodeInput(_ value: String) {
+        let wasComplete = verificationCode.count == 6
+        let normalized = LoginViewModel.normalizedVerificationCode(value)
+        verificationCode = normalized
+        if !wasComplete, normalized.count == 6, canSubmit {
+            submitLogin()
+        }
+    }
+
     // MARK: - Actions
 
     func requestCode() {
+        sanitizePhoneInput(phoneNumber)
         hasAttemptedSend = true
         guard isPhoneValid else {
             speakPhoneValidationErrorIfNeeded(force: true)
@@ -241,5 +249,13 @@ final class LoginViewModel: ObservableObject {
                     self.timerCancellable = nil
                 }
             }
+    }
+
+    private static func normalizedPhoneNumber(_ value: String) -> String {
+        String(value.filter(\.isNumber).prefix(11))
+    }
+
+    private static func normalizedVerificationCode(_ value: String) -> String {
+        String(value.filter(\.isNumber).prefix(6))
     }
 }
