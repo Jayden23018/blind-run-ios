@@ -351,12 +351,6 @@ private struct VolunteerTextField: View {
     }
 }
 
-private extension String {
-    var trimmed: String {
-        trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
 #if DEBUG
 #Preview {
     VolunteerProfileView()

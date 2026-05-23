@@ -24,11 +24,11 @@ enum APIEnvironment: String, CaseIterable, Sendable {
             // Mock 模式不使用网络，返回 nil
             return nil
         case .localBackend:
-            let savedIP = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.localBackendIP)
-            let ip = savedIP == AppConstants.Defaults.legacyLocalBackendIP
-                ? AppConstants.Defaults.localBackendIP
-                : (savedIP ?? AppConstants.Defaults.localBackendIP)
-            return URL(string: "http://\(ip):8080")
+            return AppConstants.LocalBackend.normalizedBaseURL(
+                from: UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.localBackendBaseURL)
+                    ?? UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.localBackendIP)
+                    ?? AppConstants.Defaults.localBackendIP
+            )
         case .production:
             // 占位 URL，部署后替换
             return URL(string: "https://api.aidrun.example.com")
@@ -48,6 +48,7 @@ enum AppConstants {
         static let activeRole = "com.aidrun.mvp.activeRole"
         static let apiEnvironment = "com.aidrun.mvp.apiEnvironment"
         static let localBackendIP = "com.aidrun.mvp.localBackendIP"
+        static let localBackendBaseURL = "com.aidrun.mvp.localBackendBaseURL"
     }
 
     enum Defaults {
@@ -63,5 +64,40 @@ enum AppConstants {
         static let orderPollingInterval: TimeInterval = 5.0
         // 预约最少提前时间（分钟）
         static let minimumBookingLeadMinutes: Int = 30
+    }
+
+    enum LocalBackend {
+        nonisolated static func normalizedBaseURL(from value: String) -> URL? {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return URL(string: "http://127.0.0.1:8080")
+            }
+
+            if let url = URL(string: trimmed), url.scheme != nil, url.host != nil {
+                return normalizedHTTPURL(from: url)
+            }
+
+            return URL(string: "http://\(trimmed):8080").flatMap(normalizedHTTPURL(from:))
+        }
+
+        nonisolated static func normalizedDisplayString(from value: String) -> String {
+            normalizedBaseURL(from: value)?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                ?? "http://127.0.0.1:8080"
+        }
+
+        nonisolated static func save(_ value: String) {
+            let displayString = normalizedDisplayString(from: value)
+            UserDefaults.standard.set(displayString, forKey: "com.aidrun.mvp.localBackendBaseURL")
+            UserDefaults.standard.set(displayString, forKey: "com.aidrun.mvp.localBackendIP")
+        }
+
+        nonisolated private static func normalizedHTTPURL(from url: URL) -> URL? {
+            guard let host = url.host else { return nil }
+            var components = URLComponents()
+            components.scheme = url.scheme ?? "http"
+            components.host = host
+            components.port = url.port ?? 8080
+            return components.url
+        }
     }
 }

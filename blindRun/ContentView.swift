@@ -13,6 +13,7 @@ struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @State private var restoreErrorMessage: String?
+    @State private var showLogoutConfirmation = false
 
     var body: some View {
         Group {
@@ -76,11 +77,19 @@ struct ContentView: View {
                 .accessibilityLabel(message)
 
             PrimaryButton("重新登录") {
-                appState.clearSession()
+                showLogoutConfirmation = true
             }
             .padding(.horizontal, 32)
             .accessibilityLabel("重新登录")
             .accessibilityHint("清除本地登录状态并返回登录页")
+            .alert("确认退出", isPresented: $showLogoutConfirmation) {
+                Button("确认退出", role: .destructive) {
+                    appState.clearSession()
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("确认后将清除当前登录状态，返回登录页。")
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppColors.background)

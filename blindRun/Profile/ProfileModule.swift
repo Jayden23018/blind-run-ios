@@ -302,12 +302,6 @@ private struct ProfileTextField: View {
     }
 }
 
-private extension String {
-    var trimmed: String {
-        trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
 #if DEBUG
 #Preview {
     BlindRunnerProfileView()

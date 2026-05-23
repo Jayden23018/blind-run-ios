@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		1C059396A3E75AD40C512BE9 /* Pods_blindRun.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 069303316284F792AF3C8631 /* Pods_blindRun.framework */; };
+		D097D1DCC74C3A89C47863B7 /* Pods_blindRunTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,12 +30,15 @@
 
 /* Begin PBXFileReference section */
 		069303316284F792AF3C8631 /* Pods_blindRun.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_blindRun.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		1140F503088D1E5AD50F9394 /* Pods-blindRunTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRunTests.debug.xcconfig"; path = "Target Support Files/Pods-blindRunTests/Pods-blindRunTests.debug.xcconfig"; sourceTree = "<group>"; };
 		32373961A29BE67B5BB79B99 /* Pods-blindRun.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRun.release.xcconfig"; path = "Target Support Files/Pods-blindRun/Pods-blindRun.release.xcconfig"; sourceTree = "<group>"; };
 		C490E0772FBB552800807A54 /* blindRun.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = blindRun.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C490E0842FBB552A00807A54 /* blindRunTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = blindRunTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C490E08E2FBB552A00807A54 /* blindRunUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = blindRunUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C490E24D2FC0924D00807A54 /* LocalConfig.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalConfig.xcconfig; sourceTree = "<group>"; };
 		C490E2512FC0955300807A54 /* BeijingDemo.gpx */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = BeijingDemo.gpx; sourceTree = "<group>"; };
+		CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_blindRunTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		F31690AA2891E27444E91434 /* Pods-blindRunTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRunTests.release.xcconfig"; path = "Target Support Files/Pods-blindRunTests/Pods-blindRunTests.release.xcconfig"; sourceTree = "<group>"; };
 		FCD854F16EA9710ADA4DCE3A /* Pods-blindRun.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRun.debug.xcconfig"; path = "Target Support Files/Pods-blindRun/Pods-blindRun.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -86,6 +90,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D097D1DCC74C3A89C47863B7 /* Pods_blindRunTests.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -104,6 +109,8 @@
 			children = (
 				FCD854F16EA9710ADA4DCE3A /* Pods-blindRun.debug.xcconfig */,
 				32373961A29BE67B5BB79B99 /* Pods-blindRun.release.xcconfig */,
+				1140F503088D1E5AD50F9394 /* Pods-blindRunTests.debug.xcconfig */,
+				F31690AA2891E27444E91434 /* Pods-blindRunTests.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -112,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				069303316284F792AF3C8631 /* Pods_blindRun.framework */,
+				CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -169,6 +177,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = C490E09B2FBB552A00807A54 /* Build configuration list for PBXNativeTarget "blindRunTests" */;
 			buildPhases = (
+				2AA53A743695286704E796B4 /* [CP] Check Pods Manifest.lock */,
 				C490E0802FBB552A00807A54 /* Sources */,
 				C490E0812FBB552A00807A54 /* Frameworks */,
 				C490E0822FBB552A00807A54 /* Resources */,
@@ -276,6 +285,28 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		2AA53A743695286704E796B4 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-blindRunTests-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
 		6A179414A776BC35A117336E /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -550,6 +581,7 @@
 		};
 		C490E09C2FBB552A00807A54 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1140F503088D1E5AD50F9394 /* Pods-blindRunTests.debug.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
@@ -572,6 +604,7 @@
 		};
 		C490E09D2FBB552A00807A54 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = F31690AA2891E27444E91434 /* Pods-blindRunTests.release.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;

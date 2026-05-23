@@ -1,41 +1,300 @@
+import CoreLocation
+import Combine
 import SwiftUI
 
-// MARK: - Blind Runner Home View (Placeholder)
+// MARK: - Blind Runner Route
 
-/// 盲人跑者首页占位。
-/// 后续 PR 将替换为完整的首页实现（地图、订单状态、预约入口等）。
+private enum BlindRunnerRoute: Hashable {
+    case booking
+    case orderStatus(String)
+}
+
+// MARK: - Blind Runner Home ViewModel
+
+@MainActor
+final class BlindRunnerHomeViewModel: ObservableObject {
+    @Published var activeOrder: RunOrderDto?
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+
+    private weak var appState: AppState?
+    private var speechService: SpeechService?
+
+    var currentStatusText: String {
+        guard let activeOrder else {
+            return "当前没有进行中的预约。"
+        }
+        return "当前订单：\(activeOrder.status.displayName)，\(activeOrder.startLocation.displayAddress)"
+    }
+
+    func configure(with appState: AppState, speechService: SpeechService) {
+        self.appState = appState
+        self.speechService = speechService
+    }
+
+    func loadActiveOrder() async {
+        guard let appState else { return }
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let orders: [RunOrderDto] = try await appState.apiClient.get("/api/orders/my")
+            activeOrder = orders
+                .filter { $0.status.isActiveForBlindRunner }
+                .sorted { $0.updatedAtSortKey > $1.updatedAtSortKey }
+                .first
+            isLoading = false
+            speakCurrentStatus()
+        } catch let error as APIError {
+            isLoading = false
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+        } catch {
+            isLoading = false
+            errorMessage = "当前状态加载失败，请重试。"
+            speechService?.speakError("当前状态加载失败，请重试。")
+        }
+    }
+
+    func setCreatedOrder(_ order: RunOrderDto) {
+        activeOrder = order
+        speechService?.resetLastStatus()
+        speechService?.speakStatusChange(order.status)
+    }
+
+    func speakCurrentStatus(locationDescription: String? = nil) {
+        if let activeOrder {
+            speechService?.speakStatusChange(activeOrder.status)
+        } else {
+            let locationText = locationDescription.map { "当前位置：\($0)。" } ?? ""
+            speechService?.speak("欢迎来到助盲跑。\(locationText)可以点击开始约跑。")
+        }
+    }
+
+    func repeatCurrentStatus(locationDescription: String) {
+        if activeOrder != nil {
+            speechService?.repeatCurrentStatus()
+        } else {
+            speechService?.speak("当前没有进行中的预约。当前位置：\(locationDescription)。可以点击开始约跑。")
+        }
+    }
+}
+
+// MARK: - Blind Runner Home View
+
 struct BlindRunnerHomeView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
+    @EnvironmentObject private var locationService: LocationService
+    @StateObject private var viewModel = BlindRunnerHomeViewModel()
+    @State private var path: [BlindRunnerRoute] = []
 
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
+        NavigationStack(path: $path) {
+            ScrollView {
+                VStack(spacing: 24) {
+                    header
+                    mapSection
 
-            HighContrastText("盲人跑者首页", style: .title)
-            HighContrastText("待实现", style: .caption)
-                .padding(.top, 8)
+                    if viewModel.isLoading {
+                        ProgressView("正在加载当前状态...")
+                            .tint(AppColors.primary)
+                            .accessibilityLabel("正在加载当前状态")
+                            .accessibilityHint("加载完成后会显示预约入口或当前订单")
+                    }
 
-            Spacer()
+                    if let errorMessage = viewModel.errorMessage {
+                        Text(errorMessage)
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.destructive)
+                            .accessibilityLabel(errorMessage)
+                    }
 
-            #if DEBUG
-            DebugTestingPanel()
-                .environmentObject(appState)
-                .padding(.horizontal, 32)
-            #endif
+                    if let order = viewModel.activeOrder {
+                        activeOrderSection(order)
+                    } else {
+                        newBookingSection
+                    }
 
-            // 重复当前状态按钮（盲人端必需）
-            PrimaryButton("重复当前状态") {
-                speechService.repeatCurrentStatus()
+                    repeatStatusButton
+
+                    #if DEBUG
+                    DebugTestingPanel()
+                        .environmentObject(appState)
+                    #endif
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 28)
             }
-            .padding(.horizontal, 32)
-            .padding(.bottom, 16)
+            .background(AppColors.background)
+            .navigationTitle("")
+            .navigationBarHidden(true)
+            .navigationDestination(for: BlindRunnerRoute.self) { route in
+                switch route {
+                case .booking:
+                    BlindBookingView { createdOrder in
+                        viewModel.setCreatedOrder(createdOrder)
+                        path = [.orderStatus(createdOrder.id)]
+                    }
+                case .orderStatus(let orderId):
+                    BlindOrderStatusView(orderId: orderId) { updatedOrder in
+                        viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil
+                    }
+                }
+            }
+            .onAppear {
+                viewModel.configure(with: appState, speechService: speechService)
+                if locationService.isNotDetermined {
+                    locationService.requestPermission()
+                }
+                locationService.startUpdating()
+            }
+            .task {
+                await viewModel.loadActiveOrder()
+            }
         }
-        .frame(maxWidth: .infinity)
-        .background(AppColors.background)
-        .onAppear {
-            speechService.speak("欢迎来到助盲跑")
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HighContrastText("盲人跑者首页", style: .title)
+                .accessibilityAddTraits(.isHeader)
+
+            Text(viewModel.currentStatusText)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+                .accessibilityLabel(viewModel.currentStatusText)
+                .accessibilityHint("这里显示当前预约状态摘要")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var mapSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            MapViewWrapper(
+                centerCoordinate: locationService.effectiveLocation,
+                showsUserLocation: locationService.isAuthorized,
+                annotations: mapAnnotations
+            )
+            .frame(height: 220)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityLabel("地图，显示当前位置和订单地点")
+            .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")
+
+            Text(locationDescription)
+                .font(AppFonts.body())
+                .foregroundColor(locationService.isDenied ? AppColors.warning : AppColors.textSecondary)
+                .accessibilityLabel(locationDescription)
+                .accessibilityHint(locationService.isDenied ? "需要开启定位权限后才能创建预约" : "当前位置摘要")
+        }
+    }
+
+    private var mapAnnotations: [MapAnnotationItem] {
+        guard let order = viewModel.activeOrder else { return [] }
+        return [
+            MapAnnotationItem(
+                id: order.id,
+                coordinate: order.startLocation.coordinate,
+                title: "订单出发点",
+                subtitle: order.startLocation.displayAddress
+            )
+        ]
+    }
+
+    private var locationDescription: String {
+        if locationService.isDenied {
+            return "需要开启定位权限后才能创建预约。"
+        }
+        if let address = viewModel.activeOrder?.startLocation.addressText, !address.trimmed.isEmpty {
+            return "订单出发点：\(address)"
+        }
+        if locationService.isUsingDemoFallback {
+            return "当前位置：演示坐标（用于模拟器测试）"
+        }
+        return "当前位置：已获取设备定位"
+    }
+
+    private func activeOrderSection(_ order: RunOrderDto) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            BlindStatusCard(order: order)
+
+            PrimaryButton("查看当前订单") {
+                path.append(.orderStatus(order.id))
+            }
+            .accessibilityLabel("查看当前订单")
+            .accessibilityHint("点击后查看订单状态详情")
+        }
+    }
+
+    private var newBookingSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("准备好后，可以创建一次新的陪跑预约。")
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+                .accessibilityLabel("准备好后，可以创建一次新的陪跑预约")
+
+            PrimaryButton("开始约跑") {
+                path.append(.booking)
+            }
+            .accessibilityLabel("开始约跑")
+            .accessibilityHint("点击后创建跑步预约")
+        }
+    }
+
+    private var repeatStatusButton: some View {
+        PrimaryButton("重复当前状态") {
+            viewModel.repeatCurrentStatus(locationDescription: locationDescription)
+        }
+        .accessibilityLabel("重复当前状态")
+        .accessibilityHint("点击后重新播报当前页面信息")
+    }
+}
+
+// MARK: - Shared Blind Runner Components
+
+struct BlindStatusCard: View {
+    let order: RunOrderDto
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: order.status.statusSymbolName)
+                    .font(.title)
+                    .foregroundColor(order.status.statusColor)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(order.status.displayName)
+                        .font(.title2.bold())
+                        .foregroundColor(AppColors.textPrimary)
+                    Text(order.status.blindRunnerDescription)
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textSecondary)
+                }
+            }
+
+            Divider()
+                .background(AppColors.textSecondary.opacity(0.4))
+
+            Text("预约时间：\(order.appointmentTime.displayDateTime)")
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textPrimary)
+            Text("出发地点：\(order.startLocation.displayAddress)")
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textPrimary)
+            if let volunteerName = order.volunteerNickname, !volunteerName.trimmed.isEmpty {
+                Text("志愿者：\(volunteerName)")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("当前订单：\(order.status.displayName)，预约时间 \(order.appointmentTime.displayDateTime)，出发地点 \(order.startLocation.displayAddress)")
+        .accessibilityHint("订单状态摘要")
     }
 }
 
@@ -98,5 +357,6 @@ struct DebugTestingPanel: View {
     BlindRunnerHomeView()
         .environmentObject(AppState())
         .environmentObject(SpeechService())
+        .environmentObject(LocationService())
 }
 #endif

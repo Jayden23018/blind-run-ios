@@ -4,5 +4,9 @@
 <dict>
 	<key>AMapApiKey</key>
 	<string>$(AMAP_API_KEY)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>
 </dict>
 </plist>

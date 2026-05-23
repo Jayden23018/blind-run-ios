@@ -210,7 +210,11 @@ final class LoginViewModel: ObservableObject {
                 errorMessage = response.message
             }
         case .networkError:
-            errorMessage = "网络错误，请重试"
+            if appState?.currentEnvironment == .localBackend {
+                errorMessage = "网络错误，请重试。真机请填写电脑局域网 IP，不能使用 127.0.0.1。"
+            } else {
+                errorMessage = "网络错误，请重试"
+            }
         case .unauthorized:
             errorMessage = "登录已过期，请重新登录。"
         case .decodingError, .invalidURL, .unknown:

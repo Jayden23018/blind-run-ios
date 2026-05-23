@@ -4,6 +4,7 @@
 **本文档引用的文件**
 - [legacy-flutter-reference-audit.md](file://docs/legacy-flutter-reference-audit.md)
 - [ui-reference-audit.md](file://docs/ui-reference-audit.md)
+- [ui-handoff-ios.md](file://docs/ui/ui-handoff-ios.md)
 - [00-consistency-check-report.md](file://docs/00-consistency-check-report.md)
 - [01-product-requirements.md](file://docs/01-product-requirements.md)
 - [02-mvp-scope.md](file://docs/02-mvp-scope.md)
@@ -16,13 +17,15 @@
 - [09-accessibility-and-voice-guidelines.md](file://docs/09-accessibility-and-voice-guidelines.md)
 - [proposal.md](file://openspec/changes/add-aidrun-ios-spring-mvp/proposal.md)
 - [design.md](file://openspec/changes/add-aidrun-ios-spring-mvp/design.md)
+- [legacy-screenshots-index.md](file://docs/ui/legacy-screenshots/00-index.md)
 - [ContentView.swift](file://blindRun/blindRun/ContentView.swift)
 - [blindRunApp.swift](file://blindRun/blindRun/blindRunApp.swift)
 </cite>
 
 ## 更新摘要
 **变更内容**
-- 新增352行系统性分析，提供从旧Flutter架构到新iOS实现的过渡指导
+- 新增legacy-screenshots目录作为历史视觉参考的重要组成部分
+- 整合352行系统性分析，提供从旧Flutter架构到新iOS实现的过渡指导
 - 增强了技术架构差异分析的深度和广度
 - 补充了详细的迁移建议和最佳实践
 - 完善了风险评估和质量控制措施
@@ -503,31 +506,66 @@ section 第3阶段
    - 内存使用峰值<200MB
    - 网络请求响应时间<2秒
 
-## 总结
+## 历史视觉参考系统整合
 
-通过对历史Flutter项目的全面审计，我们明确了新Swift iOS MVP的开发方向和关键技术决策。虽然历史项目在用户体验和无障碍设计方面提供了宝贵的参考，但在技术架构、API设计和状态管理等方面都需要完全重构。
+### legacy-screenshots目录的重要性
 
-### 核心收获
+**更新** 本次更新新增了对legacy-screenshots目录的系统性整合，将其作为历史视觉参考的重要组成部分，提供更全面的设计演进追踪和冲突解决指导。
 
-1. **用户体验设计原则**：大按钮、简洁界面、语音播报等设计原则值得保留
-2. **无障碍优先理念**：VoiceOver + TTS的无障碍策略需要延续
-3. **业务流程完整性**：完整的订单闭环和服务流程需要完整实现
-4. **技术栈分离**：Swift iOS与Flutter的技术栈差异需要充分考虑
+#### 目录结构与覆盖范围
 
-### 实施建议
+legacy-screenshots目录包含完整的Flutter历史UI截图，分为两个主要类别：
 
-1. **渐进式迁移**：基于历史项目的成功经验，采用渐进式重构方式
-2. **质量优先**：确保新实现的质量不低于或优于历史版本
-3. **用户为中心**：始终以用户体验为核心进行技术决策
-4. **文档驱动**：严格按照MVP v0.3冻结口径进行开发
+- **盲人端截图 (blind-runner/)**
+  - 盲人首页：01-blind-home.png
+  - 创建预约流程：02-create-booking-1.png 至 05-create-booking-4.png
+  - 订单状态页面：06-order-matching-1.png 至 10-volunteer-arrived.png
+  - 服务完成页面：11-service-completed-rating.png 至 12-service-completed-result.png
 
-通过合理的架构设计和技术选型，新Swift iOS版本将能够提供更加稳定、性能优异且符合iOS平台规范的应用体验。
+- **志愿者端截图 (volunteer/)**
+  - 志愿者首页：01-volunteer-home.png
+  - 认证页面：02-volunteer-profile-verification.png
+  - 订单列表：03-available-orders.png
+  - 订单详情：04-order-detail-after-accept.png
+  - 服务中页面：05-arrived-confirmation.png 至 07-complete-service-summary.png
+  - 服务记录：08-service-records.png
+  - 积分商城：09-points-shop-placeholder.png
+  - 设置页面：10-settings.png
 
-**更新** 本次更新基于Applied Changes的历史Flutter实现审计文档，新增352行系统性分析，提供从旧Flutter架构到新iOS实现的过渡指导和设计对比，增强了技术架构差异分析的深度，完善了迁移建议和最佳实践的具体实施方案，更新了风险评估和质量控制措施，细化了实施路线图的具体时间节点和关键成果。
+#### 截图索引系统
+
+legacy-screenshots/00-index.md提供了完整的截图索引系统，包含：
+
+1. **覆盖概览**：详细列出MVP页面与截图的对应关系
+2. **盲人端截图分析**：每个截图的可参考UI元素和重设计需求
+3. **志愿者端截图分析**：每个截图的功能定位和设计要点
+4. **覆盖缺口**：无截图覆盖的MVP页面及其设计来源
+5. **冲突点识别**：截图与当前规格的冲突点清单
+
+#### 设计演进追踪
+
+通过legacy-screenshots系统，可以清晰追踪从Flutter到SwiftUI的设计演进：
+
+- **视觉风格对比**：从Flutter的Material Design到iOS Human Interface Guidelines
+- **交互模式演进**：从手势操作到VoiceOver + Touch的无障碍设计
+- **功能布局变化**：从Web风格到移动端原生布局的适配
+- **状态管理差异**：从响应式状态到声明式UI的转变
+
+#### 冲突解决指导
+
+legacy-screenshots系统提供了明确的冲突解决指导：
+
+1. **优先级规则**：AGENTS.md > docs/01-10 > openspec/ > ui-handoff-ios.md > 本目录截图
+2. **重设计清单**：明确标注需要重设计的截图元素
+3. **保留建议**：指出可保留的UI元素和交互模式
+4. **迁移建议**：提供从Flutter到SwiftUI的具体迁移策略
 
 **章节来源**
 - [legacy-flutter-reference-audit.md:1-266](file://docs/legacy-flutter-reference-audit.md#L1-L266)
 - [ui-reference-audit.md:1-353](file://docs/ui-reference-audit.md#L1-L353)
+- [ui-handoff-ios.md:1-2007](file://docs/ui/ui-handoff-ios.md#L1-L2007)
+- [legacy-screenshots-index.md:1-145](file://docs/ui/legacy-screenshots/00-index.md#L1-L145)
 - [00-consistency-check-report.md:1-87](file://docs/00-consistency-check-report.md#L1-L87)
 - [08-ios-architecture.md:1-165](file://docs/08-ios-architecture.md#L1-L165)
 - [04-user-flows-and-state-machine.md:1-309](file://docs/04-user-flows-and-state-machine.md#L1-L309)
+- [05-page-specs.md:1-651](file://docs/05-page-specs.md#L1-L651)

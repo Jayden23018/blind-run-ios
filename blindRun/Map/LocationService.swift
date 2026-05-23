@@ -48,22 +48,43 @@ final class LocationService: NSObject, ObservableObject {
 
     /// 是否已获得定位授权
     var isAuthorized: Bool {
-        authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways
+        #if DEBUG
+        if isUsingUITestDemoLocation {
+            return true
+        }
+        #endif
+        return authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways
     }
 
     /// 是否被拒绝定位权限
     var isDenied: Bool {
-        authorizationStatus == .denied || authorizationStatus == .restricted
+        #if DEBUG
+        if isUsingUITestDemoLocation {
+            return false
+        }
+        #endif
+        return authorizationStatus == .denied || authorizationStatus == .restricted
     }
 
     /// 是否尚未请求过定位权限
     var isNotDetermined: Bool {
-        authorizationStatus == .notDetermined
+        #if DEBUG
+        if isUsingUITestDemoLocation {
+            return false
+        }
+        #endif
+        return authorizationStatus == .notDetermined
     }
 
     // MARK: - Private
 
     private let locationManager: CLLocationManager
+
+    #if DEBUG
+    private var isUsingUITestDemoLocation: Bool {
+        ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] == "1"
+    }
+    #endif
 
     // MARK: - Init
 
@@ -82,12 +103,21 @@ final class LocationService: NSObject, ObservableObject {
 
     /// 请求定位权限（仅在用户尚未决定时有效）
     func requestPermission() {
+        #if DEBUG
+        guard !isUsingUITestDemoLocation else { return }
+        #endif
         guard isNotDetermined else { return }
         locationManager.requestWhenInUseAuthorization()
     }
 
     /// 开始持续定位更新
     func startUpdating() {
+        #if DEBUG
+        if isUsingUITestDemoLocation {
+            locationError = nil
+            return
+        }
+        #endif
         guard isAuthorized else {
             if isDenied {
                 locationError = .permissionDenied
@@ -105,6 +135,12 @@ final class LocationService: NSObject, ObservableObject {
 
     /// 请求一次定位（获取当前位置后自动停止）
     func requestOneTimeLocation() {
+        #if DEBUG
+        if isUsingUITestDemoLocation {
+            locationError = nil
+            return
+        }
+        #endif
         guard isAuthorized else {
             if isDenied {
                 locationError = .permissionDenied

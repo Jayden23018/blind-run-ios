@@ -7,6 +7,10 @@ target 'blindRun' do
   pod 'AMap3DMap-NO-IDFA'
   pod 'AMapLocation-NO-IDFA'
   pod 'AMapSearch-NO-IDFA'
+
+  target 'blindRunTests' do
+    inherit! :search_paths
+  end
 end
 
 post_install do |installer|
