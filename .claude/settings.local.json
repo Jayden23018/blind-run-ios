@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(ffmpeg -i \"/Users/jerry/B/blind run/demo.mov\" -vf \"fps=1/10\" -frames:v 20 \"/tmp/demo_frame_%03d.png\")",
+      "Bash(python3 -c ':*)"
+    ]
+  }
+}

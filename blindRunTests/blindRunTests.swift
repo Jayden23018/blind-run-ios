@@ -8,31 +8,278 @@
 import XCTest
 @testable import blindRun
 
+@MainActor
 final class blindRunTests: XCTestCase {
 
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
+    func testPhoneLoginRequestUsesOpenAPICamelCaseKeys() throws {
+        let request = PhoneLoginRequest(
+            phoneNumber: "13800138000",
+            verificationCode: "123456"
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+
+        XCTAssertEqual(json["phoneNumber"], "13800138000")
+        XCTAssertEqual(json["verificationCode"], "123456")
+        XCTAssertNil(json["phone_number"])
+        XCTAssertNil(json["code"])
     }
 
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
-
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
-        // XCTest Documentation
-        // https://developer.apple.com/documentation/xctest
-    }
-
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
+    func testAuthResponseDecodesOpenAPICamelCaseKeys() throws {
+        let json = """
+        {
+          "accessToken": "token",
+          "tokenType": "Bearer",
+          "user": {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "phoneNumber": "13800138000",
+            "nickname": "测试用户",
+            "roles": ["blind_runner", "volunteer"],
+            "activeRole": null,
+            "createdAt": "2024-01-01T00:00:00Z",
+            "updatedAt": "2024-01-01T00:00:00Z"
+          }
         }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(AuthResponse.self, from: json)
+
+        XCTAssertEqual(response.accessToken, "token")
+        XCTAssertEqual(response.user.id, "00000000-0000-0000-0000-000000000001")
+        XCTAssertEqual(response.user.phoneNumber, "13800138000")
+        XCTAssertEqual(response.user.roles, [.blindRunner, .volunteer])
     }
 
+    func testLoginPhoneInputKeepsOnlyFirstElevenDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.sanitizePhoneInput(" 138 0013 8000 999")
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800138000")
+    }
+
+    func testLoginPhoneInputDropsNonDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.sanitizePhoneInput("abc138-0013-8000xyz")
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800138000")
+    }
+
+    func testLoginPhoneDirectAssignmentKeepsOnlyFirstElevenDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.phoneNumber = "13800138000999"
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800138000")
+    }
+
+    func testLoginPhoneSanitizeAlreadyCompleteValueKeepsElevenDigits() {
+        let viewModel = LoginViewModel()
+        viewModel.phoneNumber = "13800138000"
+
+        viewModel.sanitizePhoneInput("138001380009")
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800138000")
+    }
+
+    func testLoginVerificationCodeInputKeepsOnlyFirstSixDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.sanitizeVerificationCodeInput("123456789")
+
+        XCTAssertEqual(viewModel.verificationCode, "123456")
+    }
+
+    func testLoginVerificationCodeInputDropsNonDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.sanitizeVerificationCodeInput("abc 123-456 xyz")
+
+        XCTAssertEqual(viewModel.verificationCode, "123456")
+    }
+
+    func testLoginVerificationCodeDirectAssignmentKeepsOnlyFirstSixDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.verificationCode = "123456789"
+
+        XCTAssertEqual(viewModel.verificationCode, "123456")
+    }
+
+    func testLoginVerificationCodeSanitizeAlreadyCompleteValueKeepsSixDigits() {
+        let viewModel = LoginViewModel()
+        viewModel.verificationCode = "123456"
+
+        viewModel.sanitizeVerificationCodeInput("1234567")
+
+        XCTAssertEqual(viewModel.verificationCode, "123456")
+    }
+
+    func testSubmitLoginWithCompleteInputsDoesNotReenterVerificationCodeSetter() {
+        let viewModel = LoginViewModel()
+        viewModel.phoneNumber = "13800138000"
+        viewModel.verificationCode = "123456"
+
+        viewModel.submitLogin()
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800138000")
+        XCTAssertEqual(viewModel.verificationCode, "123456")
+    }
+
+    func testDebugInitialEnvironmentFallsBackFromProductionToMock() {
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.production), .mock)
+    }
+
+    func testDebugEnvironmentSwitcherCyclesOnlyMockAndLocalBackend() {
+        let previousEnvironment = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
+        defer {
+            if let previousEnvironment {
+                UserDefaults.standard.set(previousEnvironment, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
+            }
+        }
+
+        UserDefaults.standard.set(APIEnvironment.mock.rawValue, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
+        let appState = AppState()
+
+        XCTAssertEqual(appState.currentEnvironment, .mock)
+        appState.switchToNextEnvironmentForTesting()
+        XCTAssertEqual(appState.currentEnvironment, .localBackend)
+        appState.switchToNextEnvironmentForTesting()
+        XCTAssertEqual(appState.currentEnvironment, .mock)
+    }
+
+    func testOrderRequestUsesOpenAPIWireValues() throws {
+        let request = CreateOrderRequest(
+            startLocation: LocationPoint(
+                latitude: 31.2304,
+                longitude: 121.4737,
+                addressText: "人民广场",
+                source: .deviceLocation
+            ),
+            destinationText: "公园慢跑一圈",
+            appointmentTime: "2026-05-22T09:00:00Z",
+            estimatedDurationMinutes: 60,
+            estimatedDistanceKm: 5.0,
+            pacePreference: "慢跑",
+            preferSameGender: true,
+            remark: "请在地铁口见面"
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let location = try XCTUnwrap(json["startLocation"] as? [String: Any])
+
+        XCTAssertEqual(json["destinationText"] as? String, "公园慢跑一圈")
+        XCTAssertEqual(location["addressText"] as? String, "人民广场")
+        XCTAssertEqual(location["source"] as? String, "device_location")
+        XCTAssertNil(json["routeNotes"])
+        XCTAssertNil(location["address"])
+    }
+
+    func testManualCancellationReasonKeepsOpenAPIWireValueAndChineseLabel() throws {
+        let request = CancelOrderRequest(
+            cancelledBy: .blindRunner,
+            cancelledReason: .wrongLocation,
+            otherReasonText: nil
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+
+        XCTAssertEqual(json["cancelledBy"], "blind_runner")
+        XCTAssertEqual(json["cancelledReason"], "wrong_location")
+        XCTAssertEqual(ManualCancellationReason.wrongLocation.displayName, "地点填写错误")
+    }
+
+    func testVolunteerAcceptGuardRequiresCompleteProfile() {
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: nil),
+            "请先完善志愿者资料"
+        )
+
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile(nickname: "")),
+            "请先完善志愿者资料"
+        )
+
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile(phoneNumber: "123")),
+            "请先完善志愿者资料"
+        )
+    }
+
+    func testVolunteerAcceptGuardRequiresApprovalAndAvailability() {
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile()),
+            "请先完成志愿者认证"
+        )
+
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile(isAvailable: false)),
+            "请先开启可服务状态"
+        )
+
+        XCTAssertNil(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile(isAvailable: true))
+        )
+    }
+
+    func testAppStateVolunteerComputedPropertiesRequireCompleteApprovedAvailableProfile() {
+        let appState = AppState()
+        appState.volunteerProfile = nil
+        XCTAssertFalse(appState.isVolunteerProfileComplete)
+        XCTAssertFalse(appState.isVolunteerProfileApproved)
+        XCTAssertFalse(appState.canVolunteerAcceptOrders)
+
+        appState.volunteerProfile = makeVolunteerProfile(phoneNumber: "123")
+        XCTAssertFalse(appState.isVolunteerProfileComplete)
+        XCTAssertFalse(appState.isVolunteerProfileApproved)
+        XCTAssertFalse(appState.canVolunteerAcceptOrders)
+
+        appState.volunteerProfile = makeVolunteerProfile()
+        XCTAssertTrue(appState.isVolunteerProfileComplete)
+        XCTAssertFalse(appState.isVolunteerProfileApproved)
+        XCTAssertFalse(appState.canVolunteerAcceptOrders)
+
+        appState.volunteerProfile = makeApprovedVolunteerProfile(isAvailable: false)
+        XCTAssertTrue(appState.isVolunteerProfileComplete)
+        XCTAssertTrue(appState.isVolunteerProfileApproved)
+        XCTAssertFalse(appState.canVolunteerAcceptOrders)
+
+        appState.volunteerProfile = makeApprovedVolunteerProfile(isAvailable: true)
+        XCTAssertTrue(appState.canVolunteerAcceptOrders)
+    }
+
+    private func makeVolunteerProfile(
+        nickname: String = "测试志愿者",
+        phoneNumber: String = "13800138000",
+        verificationStatus: VerificationStatus = .notSubmitted,
+        adminReviewStatus: AdminReviewStatus = .notSubmitted,
+        isAvailable: Bool = false
+    ) -> VolunteerProfileDto {
+        VolunteerProfileDto(
+            id: "20000000-0000-0000-0000-000000000001",
+            userId: "00000000-0000-0000-0000-000000000001",
+            nickname: nickname,
+            phoneNumber: phoneNumber,
+            verificationStatus: verificationStatus,
+            adminReviewStatus: adminReviewStatus,
+            isAvailable: isAvailable,
+            pointsBalance: 0,
+            createdAt: "2024-01-01T00:00:00Z",
+            updatedAt: "2024-01-01T00:00:00Z"
+        )
+    }
+
+    private func makeApprovedVolunteerProfile(isAvailable: Bool) -> VolunteerProfileDto {
+        makeVolunteerProfile(
+            verificationStatus: .approved,
+            adminReviewStatus: .approved,
+            isAvailable: isAvailable
+        )
+    }
 }

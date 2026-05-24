@@ -1,0 +1,234 @@
+import SwiftUI
+
+// MARK: - Shake Modifier
+
+/// 输入框抖动动画修饰器，用于验证码错误反馈。
+private struct ShakeEffect: ViewModifier {
+    let shouldShake: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: shouldShake ? -10 : 0)
+            .animation(
+                shouldShake
+                    ? Animation.interpolatingSpring(stiffness: 2000, damping: 5)
+                        .repeatCount(3, autoreverses: true)
+                    : .default,
+                value: shouldShake
+            )
+    }
+}
+
+private extension View {
+    func shake(_ shouldShake: Bool) -> some View {
+        modifier(ShakeEffect(shouldShake: shouldShake))
+    }
+}
+
+// MARK: - Login View
+
+/// 登录页：手机号 + 验证码登录。
+/// 遵循 MVVM：纯渲染 View，所有业务逻辑在 LoginViewModel 中。
+struct LoginView: View {
+    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var speechService: SpeechService
+    @StateObject private var viewModel = LoginViewModel()
+
+    @FocusState private var phoneFocused: Bool
+    @FocusState private var codeFocused: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 24) {
+                    Spacer()
+                        .frame(height: geometry.safeAreaInsets.top + 60)
+
+                    // App 品牌标识
+                    HighContrastText("助盲跑", style: .title)
+                        .font(.largeTitle.weight(.bold))
+
+                    Spacer()
+                        .frame(height: 40)
+
+                    // 手机号输入区
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField(
+                            "请输入手机号",
+                            text: $viewModel.phoneNumber
+                        )
+                            .keyboardType(.numberPad)
+                            .textContentType(.telephoneNumber)
+                            .font(.title3)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(
+                                        viewModel.phoneValidationError != nil
+                                            ? AppColors.destructive
+                                            : Color(.systemGray4),
+                                        lineWidth: viewModel.phoneValidationError != nil ? 2 : 1
+                                    )
+                            )
+                            .focused($phoneFocused)
+                            .onChange(of: viewModel.phoneNumber) { newValue in
+                                viewModel.sanitizePhoneInput(newValue)
+                            }
+                            .accessibilityLabel("手机号输入框，请输入 11 位手机号")
+                            .accessibilityValue(viewModel.phoneNumber.isEmpty ? "未输入" : viewModel.phoneNumber)
+
+                        // 手机号格式错误提示
+                        if let error = viewModel.phoneValidationError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(AppColors.destructive)
+                                .accessibilityLabel(error)
+                        }
+                    }
+
+                    // "获取验证码" / 倒计时 按钮
+                    Button {
+                        viewModel.requestCode()
+                        phoneFocused = false
+                    } label: {
+                        Text(viewModel.countdownText)
+                            .font(AppFonts.primaryButton())
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                            .background(
+                                (!viewModel.isPhoneValid || viewModel.isCountdownActive)
+                                    ? Color(.systemGray4)
+                                    : AppColors.primary
+                            )
+                            .cornerRadius(12)
+                    }
+                    .disabled(!viewModel.isPhoneValid || viewModel.isCountdownActive)
+                    .accessibilityLabel("获取验证码")
+                    .accessibilityHint("点击后发送验证码到手机")
+
+                    // 验证码输入区（条件显示）
+                    if viewModel.showCodeInput {
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextField(
+                                "请输入6位验证码",
+                                text: $viewModel.verificationCode
+                            )
+                                .keyboardType(.numberPad)
+                                .textContentType(.oneTimeCode)
+                                .font(.title3)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(
+                                            viewModel.errorMessage != nil
+                                                ? AppColors.destructive
+                                                : Color(.systemGray4),
+                                            lineWidth: viewModel.errorMessage != nil ? 2 : 1
+                                        )
+                                )
+                                .focused($codeFocused)
+                                .onChange(of: viewModel.verificationCode) { newValue in
+                                    viewModel.sanitizeVerificationCodeInput(newValue)
+                                }
+                                .shake(viewModel.shakeCodeField)
+                                .accessibilityLabel("验证码输入框，请输入 6 位验证码")
+                                .accessibilityValue(viewModel.verificationCode.isEmpty ? "未输入" : viewModel.verificationCode)
+
+                            // Demo 提示
+                            #if DEBUG
+                            Text("Demo 验证码：123456")
+                                .font(.caption)
+                                .foregroundColor(AppColors.textSecondary)
+                                .accessibilityLabel("演示模式，验证码为 123456")
+                            #endif
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
+                    // 手动登录按钮（验证码区域已展示时显示）
+                    if viewModel.showCodeInput {
+                        PrimaryButton("登录", isLoading: viewModel.isLoading) {
+                            viewModel.submitLogin()
+                        }
+                    }
+
+                    // Loading 状态文字
+                    if viewModel.isLoading && !viewModel.showCodeInput {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("正在登录...")
+                                .font(AppFonts.body())
+                                .foregroundColor(AppColors.textSecondary)
+                        }
+                        .accessibilityLabel("正在登录，请稍候")
+                    }
+
+                    // 错误消息
+                    if let error = viewModel.errorMessage {
+                        Text(error)
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.destructive)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                            .accessibilityLabel(error)
+                    }
+
+                    Spacer()
+
+                    // 环境切换入口（底部角落，灰色小字）
+                    #if DEBUG
+                    environmentSwitcher
+                    #endif
+                }
+                .padding(.horizontal, 32)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollDismissesKeyboard(.immediately)
+        }
+        .background(AppColors.background)
+        .onAppear {
+            viewModel.configure(with: appState, speechService: speechService)
+        }
+        .onDisappear {
+            viewModel.resetCountdown()
+        }
+        .animation(.easeInOut(duration: 0.3), value: viewModel.showCodeInput)
+        .animation(.easeInOut(duration: 0.3), value: viewModel.errorMessage)
+    }
+
+    // MARK: - Environment Switcher
+
+    #if DEBUG
+    private var environmentSwitcher: some View {
+        Button {
+            // 循环切换环境
+            let allEnvs = AppState.debugTestEnvironments
+            guard let currentIndex = allEnvs.firstIndex(of: appState.currentEnvironment) else {
+                appState.currentEnvironment = .mock
+                return
+            }
+            let nextIndex = (currentIndex + 1) % allEnvs.count
+            appState.currentEnvironment = allEnvs[nextIndex]
+        } label: {
+            Text("API 环境: \(appState.currentEnvironment.displayName)")
+                .font(.caption)
+                .foregroundColor(AppColors.textSecondary)
+        }
+        .accessibilityLabel("API 环境切换")
+        .accessibilityHint("当前环境：\(appState.currentEnvironment.displayName)")
+        .accessibilityValue(appState.currentEnvironment.displayName)
+    }
+    #endif
+}
+// MARK: - Preview
+
+#if DEBUG
+#Preview {
+    LoginView()
+        .environmentObject(AppState())
+        .environmentObject(SpeechService())
+}
+#endif

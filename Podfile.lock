@@ -1,0 +1,30 @@
+PODS:
+  - AMap3DMap-NO-IDFA (11.1.200):
+    - AMapFoundation-NO-IDFA (>= 1.8.7)
+  - AMapFoundation-NO-IDFA (1.8.7)
+  - AMapLocation-NO-IDFA (2.11.1):
+    - AMapFoundation-NO-IDFA (>= 1.8.7)
+  - AMapSearch-NO-IDFA (9.7.5):
+    - AMapFoundation-NO-IDFA (>= 1.8.0)
+
+DEPENDENCIES:
+  - AMap3DMap-NO-IDFA
+  - AMapLocation-NO-IDFA
+  - AMapSearch-NO-IDFA
+
+SPEC REPOS:
+  trunk:
+    - AMap3DMap-NO-IDFA
+    - AMapFoundation-NO-IDFA
+    - AMapLocation-NO-IDFA
+    - AMapSearch-NO-IDFA
+
+SPEC CHECKSUMS:
+  AMap3DMap-NO-IDFA: 393a24abb0451fed2daa4316c8d3d356a395f2be
+  AMapFoundation-NO-IDFA: f48acbf6e74913dc6744581053f7d984f2432850
+  AMapLocation-NO-IDFA: 0fa6e7d5e42e10253f4437424d98966f53760862
+  AMapSearch-NO-IDFA: 8e9d104032990a3b0cab66afb535299887c61047
+
+PODFILE CHECKSUM: ced5b13329195f22c4138840d0e6fdaaf36de330
+
+COCOAPODS: 1.16.2

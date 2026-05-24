@@ -1,0 +1,30 @@
+// AidRun iOS - Local Configuration Example
+// ==========================================
+//
+// 使用方法:
+// 1. 复制此文件为 LocalConfig.xcconfig
+// 2. 填入你的高德地图 API Key
+// 3. 在 Xcode Project -> Info -> Configurations 中，为 Debug 和 Release 配置引用此 xcconfig
+//
+// 注意: LocalConfig.xcconfig 已在 .gitignore 中排除，不会被提交到版本库。
+//
+// 获取高德地图 Key:
+// - 前往 https://console.amap.com/
+// - 创建 iOS 应用
+// - 获取 iOS Key（需要填写 Bundle Identifier: com.jerry.blindRun）
+//
+// CocoaPods 集成说明:
+// - 项目使用 CocoaPods 管理高德 SDK 依赖
+// - pod install 后会生成 Pods-blindRun.debug.xcconfig 和 Pods-blindRun.release.xcconfig
+// - 如果 Xcode 提示 xcconfig 冲突，需要在此文件中添加 #include 引用 Pods 的 xcconfig:
+//   #include "Pods/Target Support Files/Pods-blindRun/Pods-blindRun.debug.xcconfig"
+//   (Release 配置使用对应的 release.xcconfig)
+//
+// Info.plist 配置 (通过 Build Settings):
+// - 需要在 Xcode Target -> Info -> Custom iOS Target Properties 中添加:
+//   AMapApiKey = $(AMAP_API_KEY)
+//   NSLocationWhenInUseUsageDescription = 助盲跑需要您的位置信息来创建预约和计算距离
+//
+
+// 高德地图 iOS SDK Key
+AMAP_API_KEY = YOUR_AMAP_IOS_KEY_HERE
