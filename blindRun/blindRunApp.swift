@@ -13,7 +13,12 @@ struct blindRunApp: App {
     @StateObject private var speechService = SpeechService()
     @StateObject private var speechInputService = SpeechInputService()
     @StateObject private var locationService = LocationService()
-    @StateObject private var amapGeocodingService = AMapGeocodingService()
+    @StateObject private var amapGeocodingService: AMapGeocodingService
+
+    init() {
+        AMapManager.configure()
+        _amapGeocodingService = StateObject(wrappedValue: AMapGeocodingService())
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -26,7 +31,6 @@ struct blindRunApp: App {
                 .onAppear {
                     applyUITestLaunchConfigurationIfNeeded()
                     appState.restoreSession()
-                    AMapManager.configure()
                 }
         }
     }

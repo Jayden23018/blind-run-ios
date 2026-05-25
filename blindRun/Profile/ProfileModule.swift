@@ -65,6 +65,20 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         }
     }
 
+    #if DEBUG
+    func applyUITestProfilePrefillIfNeeded() {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] == "1",
+              appState?.blindRunnerProfile == nil else {
+            return
+        }
+
+        nickname = environment["AIDRUN_UI_TEST_PROFILE_NICKNAME"] ?? "UITestBlind"
+        emergencyContactName = environment["AIDRUN_UI_TEST_PROFILE_CONTACT_NAME"] ?? "UITestContact"
+        emergencyContactPhone = environment["AIDRUN_UI_TEST_PROFILE_CONTACT_PHONE"] ?? "13800001111"
+    }
+    #endif
+
     func sanitizePhoneInput(_ value: String) {
         let digits = value.filter(\.isNumber)
         emergencyContactPhone = String(digits.prefix(11))
@@ -150,6 +164,9 @@ struct BlindRunnerProfileView: View {
         }
         .onAppear {
             viewModel.configure(with: appState, speechService: speechService)
+            #if DEBUG
+            viewModel.applyUITestProfilePrefillIfNeeded()
+            #endif
             speechService.speak("请填写个人资料。昵称、紧急联系人姓名、紧急联系人电话为必填项。")
         }
     }

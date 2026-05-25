@@ -369,6 +369,7 @@ struct BlindBookingView: View {
                     placeholder: "例如：科技园地铁站 A 口",
                     text: $viewModel.placeSearchKeyword,
                     speechInputService: speechInputService,
+                    speechService: speechService,
                     fieldId: "startPlaceSearch",
                     accessibilityLabel: "搜索出发地点",
                     accessibilityHint: "可以使用语音或键盘搜索高德地点"
@@ -399,6 +400,7 @@ struct BlindBookingView: View {
                     placeholder: "例如：我在 A 口外侧等候",
                     text: $viewModel.startLocationDescription,
                     speechInputService: speechInputService,
+                    speechService: speechService,
                     fieldId: "startLocation",
                     accessibilityLabel: "出发地点补充描述",
                     accessibilityHint: "可以使用语音或键盘补充出发地点说明，不能替代坐标"
@@ -569,6 +571,7 @@ struct BlindBookingView: View {
                 placeholder: "例如：沿公园慢跑一圈",
                 text: $viewModel.destinationText,
                 speechInputService: speechInputService,
+                speechService: speechService,
                 fieldId: "destination",
                 accessibilityLabel: "目的地或路线，选填",
                 accessibilityHint: "可以使用语音或键盘输入路线说明"
@@ -631,6 +634,7 @@ struct BlindBookingView: View {
                 text: $viewModel.remark,
                 isMultiline: true,
                 speechInputService: speechInputService,
+                speechService: speechService,
                 fieldId: "remark",
                 accessibilityLabel: "备注，选填",
                 accessibilityHint: "可以使用语音或键盘输入备注"
@@ -679,11 +683,14 @@ struct VoiceTextField: View {
     @Binding var text: String
     var isMultiline = false
     @ObservedObject var speechInputService: SpeechInputService
+    @ObservedObject var speechService: SpeechService
     let fieldId: String
     let accessibilityLabel: String
     let accessibilityHint: String
 
     var body: some View {
+        let isListening = speechInputService.isListening(for: fieldId)
+
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.headline)
@@ -706,19 +713,33 @@ struct VoiceTextField: View {
                 .accessibilityHint(accessibilityHint)
 
                 Button {
-                    speechInputService.startRecognition(fieldId: fieldId) { recognizedText in
+                    speechInputService.startRecognition(fieldId: fieldId, onTextChanged: { recognizedText in
                         text = recognizedText
-                    }
+                    }, onAnnouncement: { message in
+                        speechService.speak(message)
+                    })
                 } label: {
-                    Image(systemName: speechInputService.isListening(for: fieldId) ? "mic.fill" : "mic")
+                    Image(systemName: isListening ? "mic.fill" : "mic")
                         .font(.title2)
                         .frame(width: 52, height: 52)
-                        .background(AppColors.primary)
+                        .background(isListening ? AppColors.warning : AppColors.primary)
                         .foregroundColor(.white)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .accessibilityHidden(true)
                 }
-                .accessibilityLabel("语音输入\(title)")
-                .accessibilityHint("点击后说出内容，语音会转换为文字")
+                .accessibilityLabel(isListening ? "停止语音输入\(title)" : "语音输入\(title)")
+                .accessibilityHint(isListening ? "点击后停止录音" : "点击后开始语音输入")
+            }
+
+            if isListening {
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform")
+                        .accessibilityHidden(true)
+                    Text("正在聆听...")
+                    }
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+                .accessibilityLabel("\(title)正在聆听")
             }
 
             if let errorMessage = speechInputService.errorMessage {

@@ -30,23 +30,14 @@ final class blindRunUITests: XCTestCase {
     @MainActor
     func testLocalBackendBlindRunnerBookingSmoke() throws {
         let uniquePhone = "139" + String(Int(Date().timeIntervalSince1970) % 100_000_000).leftPadded(toLength: 8)
-        let accessToken: String
-        if let hostPreparedToken = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_LOCAL_BACKEND_TOKEN"],
-           !hostPreparedToken.isEmpty {
-            accessToken = hostPreparedToken
-        } else {
-            do {
-                accessToken = try prepareLocalBackendBlindRunner(phone: uniquePhone)
-            } catch {
-                throw XCTSkip("Local backend setup from the device runner is unavailable: \(error.localizedDescription)")
-            }
-        }
         let app = launchApp(
             apiEnvironment: "localBackend",
-            localBackendURL: localBackendURL,
-            accessToken: accessToken
+            localBackendURL: localBackendURL
         )
 
+        login(app: app, phone: uniquePhone)
+        chooseBlindRunnerRoleIfNeeded(app)
+        completeBlindRunnerProfileIfNeeded(app)
         createBookingAndAssertMatching(app)
     }
 
@@ -61,6 +52,7 @@ final class blindRunUITests: XCTestCase {
         app.launchEnvironment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_API_ENV"] = apiEnvironment
         app.launchEnvironment["AIDRUN_UI_TEST_ACTIVE_ROLE"] = "blind_runner"
+        app.launchEnvironment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] = "1"
         if let localBackendURL {
             app.launchEnvironment["AIDRUN_UI_TEST_LOCAL_BACKEND_URL"] = localBackendURL
         }
@@ -73,92 +65,6 @@ final class blindRunUITests: XCTestCase {
         app.launch()
         dismissSystemAlertsIfPresent(app: app)
         return app
-    }
-
-    private func prepareLocalBackendBlindRunner(phone: String) throws -> String {
-        let token = try performJSONRequest(
-            path: "/api/auth/phone-login",
-            method: "POST",
-            body: [
-                "phoneNumber": phone,
-                "verificationCode": "123456"
-            ]
-        )["accessToken"] as? String
-
-        guard let token, !token.isEmpty else {
-            XCTFail("Local backend login did not return accessToken")
-            return ""
-        }
-
-        _ = try performJSONRequest(
-            path: "/api/profiles/blind-runner",
-            method: "PUT",
-            body: [
-                "nickname": "UITestBlind",
-                "runningExperience": NSNull(),
-                "emergencyContact": [
-                    "name": "UITestContact",
-                    "phoneNumber": "13800001111"
-                ]
-            ],
-            bearerToken: token
-        )
-
-        _ = try performJSONRequest(
-            path: "/api/users/me/active-role",
-            method: "PATCH",
-            body: ["activeRole": "blind_runner"],
-            bearerToken: token
-        )
-
-        return token
-    }
-
-    private func performJSONRequest(
-        path: String,
-        method: String,
-        body: [String: Any],
-        bearerToken: String? = nil
-    ) throws -> [String: Any] {
-        guard let url = URL(string: localBackendURL + path) else {
-            throw URLError(.badURL)
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let bearerToken {
-            request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var responseData: Data?
-        var response: URLResponse?
-        var responseError: Error?
-
-        URLSession.shared.dataTask(with: request) { data, urlResponse, error in
-            responseData = data
-            response = urlResponse
-            responseError = error
-            semaphore.signal()
-        }.resume()
-
-        semaphore.wait()
-
-        if let responseError {
-            throw responseError
-        }
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200..<300).contains(httpResponse.statusCode),
-              let responseData else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-            let message = responseData.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            XCTFail("Local backend \(method) \(path) failed with status \(status): \(message)")
-            return [:]
-        }
-        let object = try JSONSerialization.jsonObject(with: responseData)
-        return object as? [String: Any] ?? [:]
     }
 
     private func login(app: XCUIApplication, phone: String) {
@@ -177,6 +83,7 @@ final class blindRunUITests: XCTestCase {
 
         app.buttons["登录"].tap()
         dismissSystemAlertsIfPresent(app: app)
+        waitForPostLoginRoute(app)
     }
 
     private func chooseBlindRunnerRoleIfNeeded(_ app: XCUIApplication) {
@@ -192,9 +99,9 @@ final class blindRunUITests: XCTestCase {
         let title = app.staticTexts["完善信息"].firstMatch
         guard title.waitForExistence(timeout: 8) else { return }
 
-        enterText(app: app, fieldLabel: "昵称，必填", text: "UITestBlind")
-        enterText(app: app, fieldLabel: "紧急联系人姓名，必填", text: "UITestContact")
-        enterText(app: app, fieldLabel: "紧急联系人电话，必填，11位手机号", text: "13800001111")
+        enterTextIfNeeded(app: app, fieldLabel: "昵称，必填", placeholder: "请输入昵称", text: "UITestBlind")
+        enterTextIfNeeded(app: app, fieldLabel: "紧急联系人姓名，必填", placeholder: "请输入紧急联系人姓名", text: "UITestContact")
+        enterTextIfNeeded(app: app, fieldLabel: "紧急联系人电话，必填，11位手机号", placeholder: "请输入11位手机号", text: "13800001111")
 
         let saveButton = app.buttons["完成，保存资料"].firstMatch
         XCTAssertTrue(saveButton.waitForExistence(timeout: 5), "Profile save button should appear")
@@ -217,9 +124,15 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(matchingStatus.waitForExistence(timeout: 15), "Created booking should enter matching status")
     }
 
-    private func enterText(app: XCUIApplication, fieldLabel: String, text: String) {
+    private func enterTextIfNeeded(app: XCUIApplication, fieldLabel: String, placeholder: String, text: String) {
         let field = app.textFields[fieldLabel].firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5), "\(fieldLabel) should appear")
+        if let currentValue = field.value as? String,
+           !currentValue.isEmpty,
+           currentValue != placeholder {
+            return
+        }
+
         field.tap()
         field.typeText(text)
     }

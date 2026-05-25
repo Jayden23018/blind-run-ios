@@ -6,6 +6,7 @@
 //
 
 import XCTest
+import AMapSearchKit
 @testable import blindRun
 
 @MainActor
@@ -245,6 +246,61 @@ final class blindRunTests: XCTestCase {
         let viewModel = BlindBookingViewModel()
         viewModel.sanitizeDistanceInput("5公里")
         XCTAssertEqual(viewModel.estimatedDistanceText, "5")
+    }
+
+    func testAMapPOIMapsToResolvedPlaceForBookingSearch() throws {
+        let poi = AMapPOI()
+        poi.uid = "poi-001"
+        poi.name = "科技园地铁站"
+        poi.district = "南山区"
+        poi.address = "A口"
+        poi.location = AMapGeoPoint.location(withLatitude: 22.5401, longitude: 113.9345)
+
+        let place = try XCTUnwrap(AMapGeocodingService.resolvedPlace(from: poi))
+
+        XCTAssertEqual(place.id, "poi-001")
+        XCTAssertEqual(place.title, "科技园地铁站")
+        XCTAssertEqual(place.addressText, "科技园地铁站，南山区 A口")
+        XCTAssertEqual(place.latitude, 22.5401, accuracy: 0.000001)
+        XCTAssertEqual(place.longitude, 113.9345, accuracy: 0.000001)
+        XCTAssertEqual(place.source, .manual)
+    }
+
+    func testSpeechInputStopReasonAnnouncements() {
+        XCTAssertEqual(SpeechInputStopReason.manual.announcement, "语音输入已关闭。")
+        XCTAssertEqual(
+            SpeechInputStopReason.silenceTimeout(hadDetectedSound: false).announcement,
+            "未检测到声音，已停止语音输入。"
+        )
+        XCTAssertEqual(
+            SpeechInputStopReason.silenceTimeout(hadDetectedSound: true).announcement,
+            "语音输入已停止。"
+        )
+        XCTAssertEqual(SpeechInputStopReason.maxDuration.announcement, "语音输入已达到最长时间，已停止。")
+    }
+
+    func testSpeechInputStopRecognitionClearsActiveField() {
+        let service = SpeechInputService()
+
+        service.startRecognitionForTesting(fieldId: "remark")
+        XCTAssertTrue(service.isListening(for: "remark"))
+
+        service.stopRecognition()
+
+        XCTAssertFalse(service.isListening)
+        XCTAssertNil(service.activeFieldId)
+        XCTAssertEqual(service.lastStopReason, .manual)
+    }
+
+    func testSpeechInputSilenceTimeoutClearsActiveField() {
+        let service = SpeechInputService()
+
+        service.startRecognitionForTesting(fieldId: "startLocation")
+        service.triggerSilenceTimeoutForTesting(hadDetectedSound: false)
+
+        XCTAssertFalse(service.isListening)
+        XCTAssertNil(service.activeFieldId)
+        XCTAssertEqual(service.lastStopReason, .silenceTimeout(hadDetectedSound: false))
     }
 
     func testEmergencyButtonStatusGate() {
