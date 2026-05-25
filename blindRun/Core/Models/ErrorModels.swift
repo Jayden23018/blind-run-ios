@@ -13,6 +13,8 @@ enum ErrorCode: String, Codable, Sendable {
     case volunteerNotAvailable = "VOLUNTEER_NOT_AVAILABLE"
     case volunteerNotApproved = "VOLUNTEER_NOT_APPROVED"
     case appointmentTooSoon = "APPOINTMENT_TOO_SOON"
+    case validationFailed = "VALIDATION_FAILED"
+    case unauthorized = "UNAUTHORIZED"
 
     var localizedMessage: String {
         switch self {
@@ -36,6 +38,10 @@ enum ErrorCode: String, Codable, Sendable {
             return "您的志愿者资格尚未通过审核。"
         case .appointmentTooSoon:
             return "预约时间需要至少30分钟之后。"
+        case .validationFailed:
+            return "提交内容不符合要求，请检查后重试。"
+        case .unauthorized:
+            return "登录已过期，请重新登录。"
         }
     }
 
