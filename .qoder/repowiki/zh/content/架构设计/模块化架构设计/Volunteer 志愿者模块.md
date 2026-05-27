@@ -14,6 +14,7 @@
 - [HighContrastText.swift](file://blindRun/Core/DesignSystem/HighContrastText.swift)
 - [PrimaryButton.swift](file://blindRun/Core/DesignSystem/PrimaryButton.swift)
 - [VolunteerHomeView.swift](file://blindRun/Volunteer/VolunteerHomeView.swift)
+- [VolunteerOrderFlowViews.swift](file://blindRun/Volunteer/VolunteerOrderFlowViews.swift)
 - [VolunteerModule.swift](file://blindRun/Volunteer/VolunteerModule.swift)
 - [VolunteerController.java](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerController.java)
 - [VolunteerService.java](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerService.java)
@@ -24,11 +25,15 @@
 - [VolunteerProfile.java](file://backend/src/main/java/com/aidrun/backend/profile/VolunteerProfile.java)
 - [ErrorCode.java](file://backend/src/main/java/com/aidrun/backend/common/error/ErrorCode.java)
 - [ApiException.java](file://backend/src/main/java/com/aidrun/backend/common/error/ApiException.java)
+- [OrderModels.swift](file://blindRun/Core/Models/OrderModels.swift)
+- [OrderDisplayHelpers.swift](file://blindRun/Core/Models/OrderDisplayHelpers.swift)
 </cite>
 
 ## 更新摘要
 **所做更改**
-- 新增后端志愿者控制器和业务服务实现章节，详细说明志愿者认证管理、可用性管理和Mock验证功能
+- 新增1778行VolunteerOrderFlowViews.swift，实现完整的志愿者侧订单管理体验
+- 更新志愿者首页实现，从占位升级为完整的首页功能
+- 新增志愿者订单流程的完整实现，包括订单发现、接受、到达确认、服务进行、完成处理等五个阶段
 - 更新认证与登录章节，增加后端API接口说明和状态检查机制
 - 新增志愿者认证流程的后端实现细节，包括API端点、状态枚举和错误处理
 - 更新可用性管理章节，补充后端服务的具体实现逻辑
@@ -51,15 +56,15 @@
 ## 简介
 本文件面向志愿者模块的功能与实现，围绕以下主题展开：志愿者主页、可用性管理与可接订单浏览；志愿者认证流程（含 Mock 审核与状态检查）；可接订单的获取与排序机制（基于距离的本地排序与当前位置处理）；订单详情页面的接单、到达确认、服务完成与取消流程；服务记录管理（历史订单查看与评价系统）；志愿者积分系统（奖励与查询）。同时提供完整的工作流程示例与状态管理策略，并通过可视化图表映射到实际需求与交互。
 
-**更新** 志愿者模块现已实现完整的后端服务支持，包括志愿者认证管理、可用性控制和Mock验证功能，为iOS前端提供了完整的API接口支持。
+**更新** 志愿者模块现已实现完整的后端服务支持，包括志愿者认证管理、可用性控制和Mock验证功能。新增的1778行VolunteerOrderFlowViews.swift文件实现了完整的志愿者侧订单管理体验，涵盖订单发现、接受、到达确认、服务进行、完成处理等五个阶段的操作界面和状态管理。
 
 ## 项目结构
-志愿者模块在整体 iOS 架构中属于独立功能域，遵循 SwiftUI + MVVM 的设计，配合高德地图与定位能力，支撑志愿者端的认证、可用性开关、附近订单浏览、接单与服务流程。当前模块包含占位视图和完整的无障碍语音服务集成，以及后端的完整服务实现。
+志愿者模块在整体 iOS 架构中属于独立功能域，遵循 SwiftUI + MVVM 的设计，配合高德地图与定位能力，支撑志愿者端的认证、可用性开关、附近订单浏览、接单与服务流程。当前模块包含完整的首页实现、志愿者订单流程视图、服务记录管理、积分系统和设置页面，以及后端的完整服务实现。
 
 ```mermaid
 graph TB
 subgraph "应用层"
-Views["视图(View)<br/>薄层渲染与意图转发"]
+Views["视图(View)<br/>完整的订单管理界面"]
 VM["视图模型(ViewModel)<br/>加载/校验/轮询/TTS"]
 Services["服务(Service)<br/>API/平台能力封装"]
 end
@@ -68,7 +73,7 @@ Auth["认证模块<br/>手机号登录/令牌持久化"]
 Role["角色模块<br/>角色切换/拦截规则"]
 Map["地图与定位模块<br/>AMap桥接/当前坐标/距离计算"]
 Orders["订单模块<br/>DTO/状态机/轮询"]
-Volunteer["志愿者模块<br/>首页占位/可用性/订单/服务记录/积分"]
+Volunteer["志愿者模块<br/>首页/订单流程/服务记录/积分/设置"]
 Voice["语音服务模块<br/>TTS/状态播报/重复当前状态"]
 Design["设计系统<br/>颜色/字体/高对比度文本"]
 end
@@ -97,9 +102,16 @@ Service --> Repo
 - [VolunteerModule.swift: 1-3:1-3](file://blindRun/Volunteer/VolunteerModule.swift#L1-L3)
 
 ## 核心组件
-- 志愿者首页占位（VOL_Home Placeholder）
-  - 当前实现为占位界面，显示"志愿者首页"和"待实现"文本，后续将替换为完整的首页实现。
+- 志愿者首页（VOL_Home）
+  - 完整实现的首页界面，包含地图展示、状态覆盖层、附近订单面板和底部导航入口。
   - 集成高对比度文本组件和设计系统样式。
+  - 支持实时地图标注显示附近可接订单。
+- 志愿者订单流程（VOL_OrderFlow）
+  - **订单发现阶段**：获取可用订单列表，按距离排序，支持地图标注显示。
+  - **接单阶段**：接单前状态检查，显示盲人联系方式，支持定位权限检查。
+  - **到达确认阶段**：志愿者到达后确认到达，等待盲人确认开始服务。
+  - **服务进行阶段**：服务进行中，支持紧急求助，轮询状态更新。
+  - **完成处理阶段**：服务结束，输入服务总结，获得积分奖励。
 - 可用性管理
   - 志愿者需通过 Mock 认证并开启"可服务"才能接单。
   - 认证状态与可用性状态共同决定是否允许接单。
@@ -107,6 +119,7 @@ Service --> Repo
 - 可接订单浏览
   - 获取后端返回的"匹配中"订单，按志愿者当前位置到起点的距离进行本地排序。
   - 隐藏敏感字段（如盲人电话），仅展示必要信息。
+  - 支持地图标注显示订单位置。
 - 订单详情页（VOL_OrderDetail）
   - 展示订单信息与操作入口（接单、查看地图、到达、完成、取消、紧急）。
   - 支持与盲人端的状态同步轮询。
@@ -164,33 +177,74 @@ Service --> |"状态检查/更新"| Repo["VolunteerProfileRepository"]
 
 ## 详细组件分析
 
-### 志愿者首页占位实现（VOL_Home Placeholder）
+### 志愿者首页实现（VOL_Home）
 - 功能要点
-  - 当前为占位界面，显示"志愿者首页"标题和"待实现"说明文本。
+  - 完整实现的首页界面，包含地图背景、状态覆盖层、附近订单面板和底部导航入口。
+  - 支持实时地图标注显示附近可接订单，标注包含盲人昵称和地址信息。
   - 集成高对比度文本组件，支持动态字体大小和无障碍标签。
-  - 使用设计系统中的背景颜色，确保深色/浅色模式下的可读性。
+  - 底部导航包含订单、记录、积分、设置四个入口。
 - 技术实现
-  - 采用 VStack 垂直布局，上下间距 24pt，居中显示内容。
-  - 使用 HighContrastText 组件确保文本在不同模式下的高对比度。
-  - 应用 AppColors.background 作为背景色，符合设计系统规范。
-- 后续开发计划
-  - 替换为完整的志愿者首页实现，包含附近订单列表、可服务开关等核心功能。
-  - 集成地图展示、订单排序、实时状态更新等功能。
+  - 采用 GeometryReader 和 ZStack 布局，实现地图背景和底部面板的层次结构。
+  - 使用 MapViewWrapper 组件集成高德地图，支持用户位置显示和标注。
+  - 通过 VolunteerHomeStatusOverlay 组件显示志愿者状态、积分、订单数量等信息。
+  - 底部导航使用 HStack 和 NavigationLink 实现，支持无障碍访问。
+- 核心功能
+  - 实时加载附近可接订单，最多显示前3个订单。
+  - 支持手动刷新和下拉刷新。
+  - 可服务开关控制，需要认证通过后才能使用。
+  - 定位权限检查，未授权时隐藏距离信息。
 
 ```mermaid
 flowchart TD
-Start(["进入志愿者首页占位"]) --> Layout["VStack垂直布局"]
-Layout --> Title["显示'志愿者首页'标题"]
-Title --> Placeholder["显示'待实现'说明"]
-Placeholder --> Style["应用设计系统样式"]
-Style --> Render["渲染高对比度文本"]
-Render --> Preview["支持预览模式"]
+Start(["进入志愿者首页"]) --> Load["加载用户信息和订单"]
+Load --> Map["显示地图背景"]
+Map --> Overlay["显示状态覆盖层"]
+Overlay --> Panel["显示附近订单面板"]
+Panel --> Nav["显示底部导航"]
+Nav --> Ready["首页就绪"]
 ```
 
 **章节来源**
-- [VolunteerHomeView.swift: 3-31:3-31](file://blindRun/Volunteer/VolunteerHomeView.swift#L3-L31)
-- [HighContrastText.swift: 5-48:5-48](file://blindRun/Core/DesignSystem/HighContrastText.swift#L5-L48)
-- [AppColors.swift: 5-14:5-14](file://blindRun/Core/DesignSystem/AppColors.swift#L5-L14)
+- [VolunteerHomeView.swift: 111-489:111-489](file://blindRun/Volunteer/VolunteerHomeView.swift#L111-L489)
+
+### 志愿者订单流程实现（VOL_OrderFlow）
+- 订单发现阶段
+  - 通过 `/api/orders/available` 接口获取所有可接订单。
+  - 使用 `VolunteerAvailableOrderRow.sortedRows` 方法按距离排序。
+  - 支持地图标注显示订单位置，标注包含盲人昵称和地址。
+  - 未授权定位时显示"距离隐藏"，无法接单。
+- 接单阶段
+  - 接单前执行 `VolunteerOrderActionGuard.acceptBlockMessage` 状态检查。
+  - 检查内容包括：资料完整性、认证状态、可用性状态、定位权限。
+  - 接单成功后显示盲人联系方式，状态变更为 `accepted`。
+- 到达确认阶段
+  - 志愿者点击"我已到达"，调用 `/api/orders/{orderId}/arrive` 接口。
+  - 状态变更为 `arrived`，等待盲人确认开始服务。
+- 服务进行阶段
+  - 支持紧急求助功能，调用 `/api/orders/{orderId}/emergency` 接口。
+  - 实现轮询机制，每5秒检查一次订单状态。
+  - 服务开始时语音播报"服务已开始"。
+- 完成处理阶段
+  - 志愿者点击"结束服务"，弹出服务总结输入框。
+  - 输入完成后调用 `/api/orders/{orderId}/complete` 接口。
+  - 状态变更为 `completed`，获得 +100 积分奖励。
+  - 自动更新用户信息，包含新的积分余额。
+
+```mermaid
+stateDiagram-v2
+[*] --> 订单发现
+订单发现 --> 接单 : 满足接单条件
+接单 --> 到达确认 : 接单成功
+到达确认 --> 服务进行 : 盲人确认开始
+服务进行 --> 完成处理 : 服务结束
+服务进行 --> 紧急 : 触发求助
+紧急 --> [*] : 紧急状态
+完成处理 --> [*] : 订单完成
+```
+
+**章节来源**
+- [VolunteerOrderFlowViews.swift: 156-412:156-412](file://blindRun/Volunteer/VolunteerOrderFlowViews.swift#L156-L412)
+- [VolunteerOrderFlowViews.swift: 578-695:578-695](file://blindRun/Volunteer/VolunteerOrderFlowViews.swift#L578-L695)
 
 ### 无障碍语音服务集成（SpeechService）
 - 服务架构
@@ -551,7 +605,7 @@ Avail --> Ready["可接单"]
 
 ## 依赖关系分析
 - 组件耦合
-  - 志愿者首页占位依赖设计系统（颜色、字体、文本组件）和语音服务模块。
+  - 志愿者首页依赖设计系统（颜色、字体、文本组件）和语音服务模块。
   - 可用性管理依赖认证模块和订单模块。
   - 订单详情页依赖地图模块、语音服务和轮询机制。
   - 后端服务依赖用户认证、档案管理和错误处理框架。
@@ -647,7 +701,7 @@ VOICE --> TTS["AVSpeechSynthesizer"]
 ## 结论
 志愿者模块现已实现完整的前后端协同功能，包括认证管理、可用性控制、Mock验证和积分系统。后端提供了完善的API接口和业务逻辑，前端集成了完整的UI组件和无障碍服务。模块围绕"认证—可用性—附近订单—接单—服务—记录—积分"的完整闭环构建，结合MVVM架构与高德地图能力，实现了真实地图、定位与本地距离排序。通过明确的状态机与轮询策略，保障了双方状态一致性与用户体验。
 
-**更新** 随着后端志愿者服务的完善实现，志愿者模块现在具备了完整的业务功能支持，为后续的完整功能开发奠定了坚实基础。
+**更新** 随着后端志愿者服务的完善实现和新增的1778行VolunteerOrderFlowViews.swift文件，志愿者模块现在具备了完整的业务功能支持，包括完整的订单管理流程、状态检查机制、地图集成和语音服务，为后续的完整功能开发奠定了坚实基础。
 
 ## 附录
 - 工作流程示例（志愿者正向流程）

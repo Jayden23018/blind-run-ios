@@ -13,6 +13,8 @@
 - [OrderModels.swift](file://blindRun/blindRun/Core/Models/OrderModels.swift)
 - [ProfileModels.swift](file://blindRun/blindRun/Core/Models/ProfileModels.swift)
 - [UserModels.swift](file://blindRun/blindRun/Core/Models/UserModels.swift)
+- [DemoDataSeeder.java](file://backend/src/main/java/com/aidrun/backend/seed/DemoDataSeeder.java)
+- [DemoDataSeederTests.java](file://backend/src/test/java/com/aidrun/backend/DemoDataSeederTests.java)
 - [blindRunApp.swift](file://blindRun/blindRunApp.swift)
 - [ContentView.swift](file://blindRun/ContentView.swift)
 - [08-ios-architecture.md](file://docs/08-ios-architecture.md)
@@ -30,6 +32,8 @@
 - 更新API客户端协议设计，支持更灵活的泛型约束和类型安全
 - **新增**：MockAPIClient快照持久化系统，使用UserDefaults保存和恢复用户配置文件
 - **新增**：APIClient.swift中URLSession配置的性能优化
+- **新增**：志愿者演示数据种子功能，包括自动填充志愿者档案、演示订单和现实服务场景
+- **新增**：志愿者特定端点支持，包括认证、可用性管理和积分系统
 
 ## 目录
 1. [简介](#简介)
@@ -289,6 +293,8 @@ Voice --> Speech
   - 完整的认证和用户信息 Mock 数据
   - **新增**：增强请求体序列化，支持复杂的请求参数处理
   - **新增**：快照持久化系统，使用 UserDefaults 保存和恢复用户配置文件
+  - **新增**：志愿者演示数据种子功能，自动填充志愿者档案、演示订单和现实服务场景
+  - **新增**：志愿者特定端点支持，包括认证、可用性管理和积分系统
   - 可扩展的 Mock 数据结构
 
 #### APIError 错误处理
@@ -302,11 +308,13 @@ Voice --> Speech
 - 增强请求体序列化机制，改进 Mock 客户端的请求参数处理
 - 优化泛型约束，提高类型安全性
 - **新增**：MockAPIClient快照持久化系统，使用UserDefaults保存和恢复用户配置文件
+- **新增**：志愿者演示数据种子功能，包括自动填充志愿者档案、演示订单和现实服务场景
+- **新增**：志愿者特定端点支持，包括认证、可用性管理和积分系统
 - **新增**：APIClient.swift中URLSession配置的性能优化
 
 **章节来源**
 - [APIClient.swift:1-183](file://blindRun/blindRun/Core/APIClient.swift#L1-L183)
-- [MockAPIClient.swift:1-104](file://blindRun/blindRun/Core/MockAPIClient.swift#L1-L104)
+- [MockAPIClient.swift:1-890](file://blindRun/blindRun/Core/MockAPIClient.swift#L1-L890)
 
 ### 组件二：应用状态管理系统
 
@@ -421,9 +429,45 @@ Voice --> Speech
 - 完善的错误处理和容错机制
 
 **章节来源**
-- [MockAPIClient.swift:40](file://blindRun/blindRun/Core/MockAPIClient.swift#L40)
+- [MockAPIClient.swift:34](file://blindRun/blindRun/Core/MockAPIClient.swift#L34-L58)
+- [MockAPIClient.swift:74](file://blindRun/blindRun/Core/MockAPIClient.swift#L74-L76)
 - [MockAPIClient.swift:268](file://blindRun/blindRun/Core/MockAPIClient.swift#L268)
 - [MockAPIClient.swift:278](file://blindRun/blindRun/Core/MockAPIClient.swift#L278)
+
+### 组件七：志愿者演示数据种子系统
+
+#### 快速演示功能
+- **设计原则**：为志愿者角色提供完整的演示数据，支持快速开发和测试
+- **关键特性**：
+  - 自动填充志愿者档案，包括认证状态和可用性
+  - 生成多个演示订单，覆盖不同场景和状态
+  - 支持现实服务场景，包括已完成订单和积分奖励
+  - 基于ISO8601日期格式的时间管理
+  - 演示数据的地理位置和时间安排
+
+#### 演示数据结构
+- **志愿者档案**：包含认证状态（approved）、可用性（true）、积分余额（200）
+- **演示订单**：包含3个匹配中的订单和1个已完成的订单
+- **订单状态**：覆盖matching、accepted、arrived、inProgress、completed等状态
+- **地理位置**：基于演示坐标的位置点，支持不同公园场景
+- **时间安排**：包含未来预约和历史完成的订单
+
+#### 志愿者特定端点
+- **认证端点**：POST /api/volunteer/mock-verification/approve
+- **可用性管理**：PATCH /api/volunteer/availability
+- **积分系统**：自动增加100积分的完成订单
+- **状态验证**：完整的志愿者资格检查和状态验证
+
+**新增** 志愿者演示数据种子功能，提供以下能力：
+- 自动化的志愿者演示数据生成
+- 支持志愿者角色的完整工作流测试
+- 包含认证、接单、服务和完成的全流程演示
+- 与后端DemoDataSeeder功能相呼应，提供iOS端的演示支持
+
+**章节来源**
+- [MockAPIClient.swift:662](file://blindRun/blindRun/Core/MockAPIClient.swift#L662-L890)
+- [DemoDataSeeder.java:28](file://backend/src/main/java/com/aidrun/backend/seed/DemoDataSeeder.java#L28-L118)
+- [DemoDataSeederTests.java:15](file://backend/src/test/java/com/aidrun/backend/DemoDataSeederTests.java#L15-L48)
 
 ## 依赖分析
 - **模块内聚与耦合**
@@ -474,10 +518,12 @@ Auth --> Store["UserDefaults"]
   - Mock 客户端模拟网络延迟，提升开发体验
   - **新增**：优化请求体序列化性能，减少不必要的编码开销
   - **新增**：URLSession配置性能优化，提升网络请求效率和资源利用率
+  - **新增**：志愿者演示数据的懒加载机制，仅在需要时生成
 - **存储层**
   - UserDefaults 适合 MVP；生产前迁移至 Keychain，提升安全性与可靠性
   - 状态变更采用惰性持久化，避免频繁磁盘 I/O
   - **新增**：快照持久化系统使用高效JSON编码，减少存储开销
+  - **新增**：志愿者演示数据的内存缓存，避免重复生成
 - **地图与语音**
   - 地图渲染与语音合成按需触发，避免频繁重建与重复播报
   - 设计系统组件使用系统颜色，减少自定义渲染开销
@@ -523,13 +569,23 @@ Auth --> Store["UserDefaults"]
 - **排查**：检查UserDefaults中snapshotKey对应的存储数据；验证JSON编码格式
 - **解决方案**：清理损坏的存储数据；检查Snapshot结构的编码/解码逻辑
 
+### 志愿者演示数据问题
+- **症状**：志愿者演示数据未正确生成或显示异常
+- **排查**：检查orders数组是否为空；验证seedVolunteerDemoDataIfNeeded函数执行
+- **解决方案**：确认演示数据生成逻辑；检查ISO8601日期格式；验证地理位置数据
+
+### 志愿者端点问题
+- **症状**：志愿者特定端点返回错误或状态不正确
+- **排查**：检查志愿者认证状态；验证可用性设置；确认积分系统正常工作
+- **解决方案**：验证志愿者资料完整性；检查端点权限控制；确认状态转换逻辑
+
 **章节来源**
 - [08-ios-architecture.md:50-96](file://docs/08-ios-architecture.md#L50-L96)
 
 ## 结论
 Core 核心模块在 AidRun MVP 中承担基础设施职责，通过统一的 API 客户端系统、应用状态管理、设计系统组件和共享数据模型，为各业务模块提供稳定、可扩展且易于测试的基础能力。现已实现完整的 URLSessionAPIClient 和 MockAPIClient，支持三种环境模式的无缝切换；AppState 提供完整的会话管理和状态持久化；设计系统确保视觉一致性和无障碍访问；共享 DTO 保证前后端数据契约的一致性。
 
-**重要更新**：基于新的API客户端实现，Core模块在并发安全方面有了显著改进，通过引入Sendable协议支持和优化的请求体序列化机制，解决了Swift并发问题，提高了系统的稳定性和可靠性。同时，MockAPIClient新增的快照持久化系统提供了完整的用户配置文件存储和恢复能力，而APIClient.swift中的URLSession配置优化进一步提升了网络请求的性能和效率。这些改进为后续的功能扩展和性能优化奠定了坚实基础。
+**重要更新**：基于新的API客户端实现，Core模块在并发安全方面有了显著改进，通过引入Sendable协议支持和优化的请求体序列化机制，解决了Swift并发问题，提高了系统的稳定性和可靠性。同时，MockAPIClient新增的快照持久化系统提供了完整的用户配置文件存储和恢复能力，志愿者演示数据种子功能为志愿者角色提供了完整的演示支持，而APIClient.swift中的URLSession配置优化进一步提升了网络请求的性能和效率。这些改进为后续的功能扩展和性能优化奠定了坚实基础。
 
 结合文档中的模块分组与职责边界，Core 与业务模块之间形成清晰的协议与容器解耦，既满足 MVP 快速迭代需求，也为后续演进（如 Keychain 迁移、WebSocket 替代轮询等）预留了空间。
 
@@ -542,6 +598,7 @@ Core 核心模块在 AidRun MVP 中承担基础设施职责，通过统一的 AP
 - **状态恢复**：从 UserDefaults 读取访问令牌和活动角色
 - **客户端初始化**：根据环境选择合适的 API 客户端实现
 - **快照恢复**：Mock客户端自动从UserDefaults恢复用户配置
+- **演示数据生成**：志愿者演示数据按需生成和缓存
 - **业务启动**：启动各业务模块，建立状态订阅关系
 
 #### 最佳实践
@@ -553,6 +610,7 @@ Core 核心模块在 AidRun MVP 中承担基础设施职责，通过统一的 AP
 - **错误处理**：统一的 APIError 处理机制，提供用户友好的错误消息
 - **并发安全**：确保所有数据结构都实现 Sendable 协议，支持多线程环境
 - **持久化策略**：UserDefaults适合MVP阶段；生产前迁移至Keychain
+- **演示数据管理**：志愿者演示数据采用懒加载和缓存机制，提升性能
 
 #### 代码示例
 
@@ -649,6 +707,19 @@ mockAPIClient.saveSnapshot()
 
 // 手动触发快照恢复
 mockAPIClient.restoreSnapshot()
+```
+
+**志愿者演示数据使用**
+```swift
+// 志愿者演示数据自动管理
+// 当没有订单时自动生成演示数据
+// 支持多种订单状态和场景
+
+// 获取志愿者可用订单
+let availableOrders = try await apiClient.get("/api/orders/available")
+
+// 接受演示订单
+let order = try await apiClient.post("/api/orders/\(orderId)/accept")
 ```
 
 **章节来源**

@@ -299,6 +299,7 @@ public class RunOrderService {
         EmergencyEvent event = new EmergencyEvent(order, triggeredByRole, previousStatus,
             request != null ? request.note() : null);
         emergencyEventRepository.save(event);
+        order.setEmergencyEvent(event);
 
         RunOrder saved = runOrderRepository.save(order);
         return RunOrderDto.from(saved, shouldShowPhone(saved, user));

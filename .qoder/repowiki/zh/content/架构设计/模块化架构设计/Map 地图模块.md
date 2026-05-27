@@ -9,6 +9,7 @@
 - [AMapManager.swift](file://blindRun/blindRun/Map/AMapManager.swift)
 - [LocationService.swift](file://blindRun/blindRun/Map/LocationService.swift)
 - [AMapContainer.swift](file://blindRun/blindRun/Map/AMapContainer.swift)
+- [AMapGeocodingService.swift](file://blindRun/blindRun/Map/AMapGeocodingService.swift)
 - [MapModule.swift](file://blindRun/blindRun/Map/MapModule.swift)
 - [Podfile](file://blindRun/Podfile)
 - [LocalConfig.xcconfig.example](file://LocalConfig.xcconfig.example)
@@ -24,13 +25,11 @@
 
 ## 更新摘要
 **所做更改**
-- 新增完整的 MVVM 架构实现分析
-- 添加 LocationPermissionGuard.swift 权限引导组件详解
-- 新增 DistanceCalculator.swift 距离计算工具分析
-- 新增 MapPlaceholderView.swift 占位视图组件说明
-- 更新 CocoaPods 集成配置和依赖管理
-- 完善定位服务和地图管理器的架构分析
-- 增强权限处理和降级方案的技术细节
+- 新增隐私合规配置调用分析，确保 MAMapView、AMapSearchAPI 和 AMapLocationManager 的适当用户同意处理
+- 新增 AMapGeocodingService 地理编码服务组件详解
+- 更新地图容器的重新定位令牌机制说明
+- 增强隐私合规和用户同意处理的技术细节
+- 完善地理编码和地址解析功能的架构分析
 
 ## 目录
 1. [简介](#简介)
@@ -39,12 +38,13 @@
 4. [MVVM 架构实现](#mvvm-架构实现)
 5. [详细组件分析](#详细组件分析)
 6. [CocoaPods 依赖集成](#cocoapods-依赖集成)
-7. [权限处理策略](#权限处理策略)
-8. [依赖关系分析](#依赖关系分析)
-9. [性能考虑](#性能考虑)
-10. [故障排除指南](#故障排除指南)
-11. [结论](#结论)
-12. [附录](#附录)
+7. [隐私合规与用户同意处理](#隐私合规与用户同意处理)
+8. [权限处理策略](#权限处理策略)
+9. [依赖关系分析](#依赖关系分析)
+10. [性能考虑](#性能考虑)
+11. [故障排除指南](#故障排除指南)
+12. [结论](#结论)
+13. [附录](#附录)
 
 ## 简介
 
@@ -57,6 +57,8 @@ Map 地图模块是 AidRun iOS 应用的核心功能模块之一，负责集成�
 - 距离计算与排序算法
 - 地图交互功能（缩放控制、拖拽响应、用户位置定位）
 - 完整的权限处理和降级方案
+- **新增**：隐私合规配置与用户同意处理
+- **新增**：地理编码服务与地址解析功能
 
 ## 项目结构
 
@@ -84,6 +86,7 @@ MapViewModel[MapViewModel<br/>地图视图模型]
 DistanceCalculator[DistanceCalculator<br/>距离计算器]
 LocationPermissionGuard[LocationPermissionGuard<br/>权限引导]
 MapPlaceholderView[MapPlaceholderView<br/>占位视图]
+AMapGeocodingService[AMapGeocodingService<br/>地理编码服务]
 end
 Map --> AMapManager
 Map --> LocationService
@@ -92,6 +95,7 @@ Map --> MapViewModel
 Map --> DistanceCalculator
 Map --> LocationPermissionGuard
 Map --> MapPlaceholderView
+Map --> AMapGeocodingService
 ```
 
 **图表来源**
@@ -111,6 +115,7 @@ Map --> MapPlaceholderView
 AMapManager 负责高德地图 SDK 的初始化和配置管理：
 - SDK 初始化与 API Key 验证
 - HTTPS 加密连接启用
+- **新增**：隐私合规配置调用，确保 MAMapView、AMapSearchAPI 和 AMapLocationManager 的适当用户同意处理
 - 优雅降级机制（Key 未配置时不崩溃）
 - 配置状态跟踪和状态查询
 
@@ -131,6 +136,7 @@ AMapManager 负责高德地图 SDK 的初始化和配置管理：
 - 标注同步和更新机制
 - 用户位置显示控制
 - 地图交互事件处理
+- **新增**：重新定位令牌机制支持
 
 ### 地图视图模型 (MapViewModel)
 
@@ -165,14 +171,25 @@ SDK 未配置时的优雅降级：
 - 调试模式下的额外信息
 - 无障碍访问支持
 
+### 地理编码服务 (AMapGeocodingService)
+
+**新增**：高德地图地理编码服务封装：
+- 反向地理编码（坐标转地址）
+- POI 地点搜索和建议
+- 地址解析结果标准化
+- 异步操作支持和错误处理
+- 位置源类型管理
+
 **章节来源**
 - [AMapManager.swift:9-34](file://blindRun/blindRun/Map/AMapManager.swift#L9-L34)
+- [AMapManager.swift:42-50](file://blindRun/blindRun/Map/AMapManager.swift#L42-L50)
 - [LocationService.swift:18-57](file://blindRun/blindRun/Map/LocationService.swift#L18-L57)
 - [AMapContainer.swift:19-54](file://blindRun/blindRun/Map/AMapContainer.swift#L19-L54)
 - [MapViewModel.swift:10-29](file://blindRun/blindRun/Map/MapViewModel.swift#L10-L29)
 - [DistanceCalculator.swift:8-52](file://blindRun/blindRun/Map/DistanceCalculator.swift#L8-L52)
 - [LocationPermissionGuard.swift:7-57](file://blindRun/blindRun/Map/LocationPermissionGuard.swift#L7-L57)
 - [MapPlaceholderView.swift:7-38](file://blindRun/blindRun/Map/MapPlaceholderView.swift#L7-L38)
+- [AMapGeocodingService.swift:23-26](file://blindRun/blindRun/Map/AMapGeocodingService.swift#L23-L26)
 
 ## MVVM 架构实现
 
@@ -184,42 +201,51 @@ subgraph "视图层 (View Layer)"
 MapView[MapView<br/>地图视图]
 PermissionView[PermissionView<br/>权限视图]
 DistanceView[DistanceView<br/>距离视图]
+GeocodingView[GeocodingView<br/>地理编码视图]
 end
 subgraph "视图模型层 (ViewModel Layer)"
 MapViewModel[MapViewModel<br/>地图视图模型]
 LocationViewModel[LocationViewModel<br/>定位视图模型]
 OrderViewModel[OrderViewModel<br/>订单视图模型]
+GeocodingViewModel[GeocodingViewModel<br/>地理编码视图模型]
 end
 subgraph "服务层 (Service Layer)"
 LocationService[LocationService<br/>定位服务]
 DistanceService[DistanceService<br/>距离服务]
 OrderService[OrderService<br/>订单服务]
+GeocodingService[GeocodingService<br/>地理编码服务]
 end
 subgraph "平台集成层 (Platform Layer)"
 AMapSDK[高德地图 SDK]
 CoreLocation[CoreLocation]
+AMapSearch[AMapSearchAPI]
 UserDefaults[UserDefaults]
 end
 MapView --> MapViewModel
 PermissionView --> LocationViewModel
 DistanceView --> OrderViewModel
+GeocodingView --> GeocodingViewModel
 MapViewModel --> LocationService
 LocationViewModel --> LocationService
 OrderViewModel --> DistanceService
+GeocodingViewModel --> GeocodingService
 DistanceService --> DistanceCalculator
 DistanceCalculator --> CoreLocation
 LocationService --> CoreLocation
+GeocodingService --> AMapSearch
 ```
 
 **图表来源**
 - [MapViewModel.swift:45-59](file://blindRun/blindRun/Map/MapViewModel.swift#L45-L59)
 - [LocationService.swift:18-117](file://blindRun/blindRun/Map/LocationService.swift#L18-L117)
 - [DistanceCalculator.swift:8-52](file://blindRun/blindRun/Map/DistanceCalculator.swift#L8-L52)
+- [AMapGeocodingService.swift:23-26](file://blindRun/blindRun/Map/AMapGeocodingService.swift#L23-L26)
 
 ### 依赖注入模式
 
 模块采用显式依赖注入模式，通过 `configure(with:)` 方法注入依赖：
 - LocationService 作为 @EnvironmentObject 注入
+- **新增**：GeocodingService 作为独立服务注入
 - 依赖关系清晰明确
 - 便于单元测试和模拟对象替换
 - 遵循 SOLID 原则
@@ -247,11 +273,14 @@ sequenceDiagram
 participant App as 应用启动
 participant AMapManager as AMapManager
 participant Bundle as Bundle
+participant Privacy as 隐私合规
 participant AMapSDK as 高德地图SDK
 App->>AMapManager : 调用 configure()
 AMapManager->>Bundle : 读取 API Key
 Bundle-->>AMapManager : 返回 Key 值
 AMapManager->>AMapManager : 验证 Key 有效性
+AMapManager->>Privacy : 调用隐私合规配置
+Privacy-->>AMapManager : 隐私配置完成
 AMapManager->>AMapSDK : 设置 API Key
 AMapManager->>AMapSDK : 启用 HTTPS
 AMapManager-->>App : 设置 isConfigured = true
@@ -260,7 +289,18 @@ Note over AMapManager : Key 无效时优雅降级
 
 **图表来源**
 - [AMapManager.swift:16-34](file://blindRun/blindRun/Map/AMapManager.swift#L16-L34)
+- [AMapManager.swift:42-50](file://blindRun/blindRun/Map/AMapManager.swift#L42-L50)
 - [Podfile:6-9](file://blindRun/Podfile#L6-L9)
+
+#### 隐私合规配置机制
+
+**新增**：隐私合规配置确保所有 SDK 组件都正确处理用户同意：
+- MAMapView.updatePrivacyShow(.didShow, privacyInfo: .didContain)
+- MAMapView.updatePrivacyAgree(.didAgree)
+- AMapSearchAPI.updatePrivacyShow(.didShow, privacyInfo: .didContain)
+- AMapSearchAPI.updatePrivacyAgree(.didAgree)
+- AMapLocationManager.updatePrivacyShow(.didShow, privacyInfo: .didContain)
+- AMapLocationManager.updatePrivacyAgree(.didAgree)
 
 #### 地图容器配置参数
 
@@ -270,6 +310,7 @@ AMapContainer 提供灵活的地图配置选项：
 - 标注同步和更新机制
 - 地图代理委托处理
 - 无障碍访问支持
+- **新增**：重新定位令牌机制支持
 
 ### 实时定位功能实现
 
@@ -278,8 +319,8 @@ AMapContainer 提供灵活的地图配置选项：
 ```mermaid
 stateDiagram-v2
 [*] --> 未确定 : 初始状态
-未确定 --> 已授权 : 用户同意
-未确定 --> 已拒绝 : 用户拒绝
+未确定 --> 已授权 : 用户同意隐私政策
+未确定 --> 已拒绝 : 用户拒绝隐私政策
 未确定 --> 受限 : 系统限制
 已授权 --> 定位中 : 开始定位
 定位中 --> 已授权 : 定位成功
@@ -399,10 +440,47 @@ ReturnResult --> End
 - 动画过渡效果
 - 用户体验优化
 
+### 地理编码服务实现
+
+**新增**：地理编码服务提供完整的地址解析功能：
+
+#### 地理编码工作流程
+
+```mermaid
+sequenceDiagram
+participant User as 用户输入
+participant GeocodingService as 地理编码服务
+participant AMapSearch as 高德搜索API
+participant ReverseGeocode as 反向地理编码
+participant POISearch as POI搜索
+User->>GeocodingService : 输入关键词
+GeocodingService->>AMapSearch : 搜索POI
+AMapSearch-->>GeocodingService : 返回POI结果
+GeocodingService->>AMapSearch : 搜索提示词
+AMapSearch-->>GeocodingService : 返回提示结果
+GeocodingService->>ReverseGeocode : 反向地理编码
+ReverseGeocode-->>GeocodingService : 返回地址信息
+GeocodingService-->>User : 返回解析结果
+```
+
+**图表来源**
+- [AMapGeocodingService.swift:65-89](file://blindRun/blindRun/Map/AMapGeocodingService.swift#L65-L89)
+- [AMapGeocodingService.swift:42-63](file://blindRun/blindRun/Map/AMapGeocodingService.swift#L42-L63)
+
+#### 地址解析功能
+
+地理编码服务支持多种地址解析场景：
+- 关键词地点搜索（POI）
+- 地点建议（Input Tips）
+- 坐标反向地理编码
+- 地址标准化和格式化
+- 错误处理和降级方案
+
 **章节来源**
 - [LocationService.swift:34-47](file://blindRun/blindRun/Map/LocationService.swift#L34-L47)
 - [AMapContainer.swift:31-35](file://blindRun/blindRun/Map/AMapContainer.swift#L31-L35)
 - [MapViewModel.swift:64-67](file://blindRun/blindRun/Map/MapViewModel.swift#L64-L67)
+- [AMapGeocodingService.swift:23-26](file://blindRun/blindRun/Map/AMapGeocodingService.swift#L23-L26)
 
 ## CocoaPods 依赖集成
 
@@ -436,6 +514,51 @@ CocoaPods 集成包含以下优化设置：
 **章节来源**
 - [Podfile:1-32](file://blindRun/Podfile#L1-L32)
 - [LocalConfig.xcconfig.example:16-21](file://LocalConfig.xcconfig.example#L16-L21)
+
+## 隐私合规与用户同意处理
+
+### 隐私合规配置实现
+
+**新增**：AMapManager 中的隐私合规配置确保所有高德地图 SDK 组件正确处理用户同意：
+
+#### 隐私配置调用序列
+
+```mermaid
+sequenceDiagram
+participant AMapManager as AMapManager
+participant MAMapView as MAMapView
+participant AMapSearchAPI as AMapSearchAPI
+participant AMapLocationManager as AMapLocationManager
+AMapManager->>MAMapView : updatePrivacyShow(.didShow, privacyInfo : .didContain)
+AMapManager->>MAMapView : updatePrivacyAgree(.didAgree)
+AMapManager->>AMapSearchAPI : updatePrivacyShow(.didShow, privacyInfo : .didContain)
+AMapManager->>AMapSearchAPI : updatePrivacyAgree(.didAgree)
+AMapManager->>AMapLocationManager : updatePrivacyShow(.didShow, privacyInfo : .didContain)
+AMapManager->>AMapLocationManager : updatePrivacyAgree(.didAgree)
+Note over AMapManager : 必须在创建 SDK 客户端/视图之前调用
+```
+
+**图表来源**
+- [AMapManager.swift:42-50](file://blindRun/blindRun/Map/AMapManager.swift#L42-L50)
+
+#### 隐私合规配置要点
+
+- **时机要求**：所有隐私配置调用必须在创建 SDK 客户端或视图之前执行
+- **组件覆盖**：确保 MAMapView、AMapSearchAPI 和 AMapLocationManager 都进行了隐私配置
+- **用户同意**：正确处理用户隐私政策同意状态
+- **合规要求**：满足中国法律法规对位置服务和地图 SDK 使用的隐私要求
+
+### 用户同意处理机制
+
+隐私合规配置确保：
+- 地图显示前正确展示隐私信息
+- 用户同意状态的正确传递
+- 地图搜索功能的隐私保护
+- 定位服务的用户同意处理
+- 数据收集和使用的透明度
+
+**章节来源**
+- [AMapManager.swift:42-50](file://blindRun/blindRun/Map/AMapManager.swift#L42-L50)
 
 ## 权限处理策略
 
@@ -549,6 +672,15 @@ MapModule --> PodsConfig
 - **缓存结果**：缓存已计算的距离结果，避免重复计算
 - **算法优化**：使用 CoreLocation 内置优化算法
 
+### 地理编码性能优化
+
+**新增**：地理编码服务的性能优化：
+- **异步操作**：所有地理编码操作都是异步执行
+- **结果缓存**：缓存常用的地址解析结果
+- **错误恢复**：网络失败时的自动重试机制
+- **超时控制**：合理的请求超时设置
+- **降级处理**：SDK 未配置时的功能降级
+
 ### 内存管理优化
 
 - **弱引用使用**：防止循环引用
@@ -560,6 +692,7 @@ MapModule --> PodsConfig
 - [AMapContainer.swift:44-50](file://blindRun/blindRun/Map/AMapContainer.swift#L44-L50)
 - [LocationService.swift:77-78](file://blindRun/blindRun/Map/LocationService.swift#L77-L78)
 - [DistanceCalculator.swift:42-51](file://blindRun/blindRun/Map/DistanceCalculator.swift#L42-L51)
+- [AMapGeocodingService.swift:23-26](file://blindRun/blindRun/Map/AMapGeocodingService.swift#L23-L26)
 
 ## 故障排除指南
 
@@ -574,6 +707,7 @@ MapModule --> PodsConfig
 - CocoaPods 依赖安装问题
 - 网络连接问题
 - 设备兼容性问题
+- **新增**：隐私合规配置失败
 
 **解决步骤**：
 1. 检查 LocalConfig.xcconfig 文件配置
@@ -581,6 +715,7 @@ MapModule --> PodsConfig
 3. 验证网络连接状态
 4. 确认设备 iOS 版本满足要求
 5. 重新初始化地图实例
+6. **新增**：检查隐私合规配置是否正确调用
 
 #### 定位权限被拒绝
 
@@ -604,6 +739,17 @@ MapModule --> PodsConfig
 4. 验证边界条件处理
 5. 检查 CoreLocation 服务状态
 
+#### 地理编码服务异常
+
+**新增**：地理编码服务问题排查：
+- **症状**：地址搜索无结果或反向地理编码失败
+- **可能原因**：高德地图 SDK 未配置、网络问题、API Key 无效
+- **解决步骤**：
+  1. 检查 AMapSearchAPI 是否正确初始化
+  2. 验证网络连接和 API Key 配置
+  3. 查看 lastErrorMessage 获取具体错误信息
+  4. 确认隐私合规配置已完成
+
 #### CocoaPods 集成问题
 
 **症状**：编译时找不到高德地图 SDK
@@ -623,6 +769,7 @@ MapModule --> PodsConfig
 - **错误日志**：详细记录异常情况和错误堆栈
 - **性能日志**：监控地图渲染和定位性能指标
 - **用户行为日志**：记录用户与地图交互行为
+- **新增**：隐私合规配置日志记录
 
 #### 性能监控
 
@@ -630,19 +777,23 @@ MapModule --> PodsConfig
 - **CPU 使用率监控**：监控定位和地图计算的 CPU 占用
 - **网络请求监控**：跟踪地图相关的网络请求
 - **电池消耗监控**：评估定位功能的电池影响
+- **新增**：地理编码服务性能监控
 
 **章节来源**
 - [AMapManager.swift:21-24](file://blindRun/blindRun/Map/AMapManager.swift#L21-L24)
 - [LocationPermissionGuard.swift:51-56](file://blindRun/blindRun/Map/LocationPermissionGuard.swift#L51-L56)
 - [Podfile:12-31](file://blindRun/Podfile#L12-L31)
+- [AMapGeocodingService.swift:27-28](file://blindRun/blindRun/Map/AMapGeocodingService.swift#L27-L28)
 
 ## 结论
 
 Map 地图模块作为 AidRun iOS 应用的核心功能模块，已成功实现完整的 MVVM 架构设计，提供了高度模块化和可维护的代码结构。模块集成了高德地图 SDK，实现了完整的地图显示、实时定位和位置标记管理功能。
 
-通过引入新的辅助组件（LocationPermissionGuard.swift, DistanceCalculator.swift, MapPlaceholderView.swift），模块在用户体验和功能完整性方面都有显著提升。CocoaPods 的完整集成确保了依赖管理的标准化和自动化。
+**重大更新**：模块现已增强隐私合规处理能力，通过 AMapManager 中的隐私配置调用确保 MAMapView、AMapSearchAPI 和 AMapLocationManager 正确处理用户同意。同时新增了 AMapGeocodingService 地理编码服务，提供完整的地址解析和地点搜索功能。
 
-模块设计充分考虑了权限处理、降级方案和性能优化，展现了良好的工程实践和技术实现能力。MVVM 架构的采用为未来的功能扩展和维护奠定了坚实的基础。
+通过引入新的辅助组件（LocationPermissionGuard.swift, DistanceCalculator.swift, MapPlaceholderView.swift, AMapGeocodingService.swift），模块在用户体验、功能完整性和合规性方面都有显著提升。CocoaPods 的完整集成确保了依赖管理的标准化和自动化。
+
+模块设计充分考虑了权限处理、降级方案、隐私合规和性能优化，展现了良好的工程实践和技术实现能力。MVVM 架构的采用为未来的功能扩展和维护奠定了坚实的基础。
 
 ## 附录
 
@@ -675,6 +826,8 @@ Map 地图模块作为 AidRun iOS 应用的核心功能模块，已成功实现�
 - [x] CocoaPods 依赖管理
 - [x] 辅助组件开发
 - [x] 性能优化与测试
+- [x] **新增**：隐私合规配置实现
+- [x] **新增**：地理编码服务开发
 
 **章节来源**
 - [MapModule.swift:6-31](file://blindRun/blindRun/Map/MapModule.swift#L6-L31)

@@ -436,6 +436,257 @@ class RunOrderControllerIntegrationTest {
             .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
     }
 
+    // --- Test: Emergency - Extended Coverage ---
+
+    @Test
+    void emergency_fromAccepted_success() throws Exception {
+        String brToken = loginAndGetToken("13911110200");
+        setupBlindRunnerProfile(brToken);
+        String orderId = createMatchingOrder(brToken);
+
+        String volToken = loginAndGetToken("13911110201");
+        setupVolunteerProfile(volToken);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/accept")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+
+        // Volunteer triggers emergency from accepted state
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("emergency"))
+            .andExpect(jsonPath("$.emergencyAt").isNotEmpty())
+            .andExpect(jsonPath("$.emergencyEvent.triggeredByRole").value("volunteer"))
+            .andExpect(jsonPath("$.emergencyEvent.previousStatus").value("accepted"));
+    }
+
+    @Test
+    void emergency_fromArrived_success() throws Exception {
+        String brToken = loginAndGetToken("13911110210");
+        setupBlindRunnerProfile(brToken);
+        String orderId = createMatchingOrder(brToken);
+
+        String volToken = loginAndGetToken("13911110211");
+        setupVolunteerProfile(volToken);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/accept")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/orders/" + orderId + "/arrive")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+
+        // Blind runner triggers emergency from arrived state with note
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + brToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"note\": \"遇到紧急情况\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("emergency"))
+            .andExpect(jsonPath("$.emergencyAt").isNotEmpty())
+            .andExpect(jsonPath("$.emergencyEvent.triggeredByRole").value("blind_runner"))
+            .andExpect(jsonPath("$.emergencyEvent.previousStatus").value("arrived"))
+            .andExpect(jsonPath("$.emergencyEvent.note").value("遇到紧急情况"));
+    }
+
+    @Test
+    void emergency_fromInProgress_validatesEventData() throws Exception {
+        String brToken = loginAndGetToken("13911110220");
+        setupBlindRunnerProfile(brToken);
+        String orderId = createMatchingOrder(brToken);
+
+        String volToken = loginAndGetToken("13911110221");
+        setupVolunteerProfile(volToken);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/accept")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/orders/" + orderId + "/arrive")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/orders/" + orderId + "/confirm-start")
+                .header("Authorization", "Bearer " + brToken))
+            .andExpect(status().isOk());
+
+        // Blind runner triggers emergency from in_progress - validate all event fields
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + brToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"note\": \"需要紧急帮助\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("emergency"))
+            .andExpect(jsonPath("$.emergencyAt").isNotEmpty())
+            .andExpect(jsonPath("$.emergencyEvent.id").isNotEmpty())
+            .andExpect(jsonPath("$.emergencyEvent.triggeredByRole").value("blind_runner"))
+            .andExpect(jsonPath("$.emergencyEvent.previousStatus").value("in_progress"))
+            .andExpect(jsonPath("$.emergencyEvent.note").value("需要紧急帮助"))
+            .andExpect(jsonPath("$.emergencyEvent.createdAt").isNotEmpty());
+    }
+
+    @Test
+    void emergency_fromCompleted_returns409() throws Exception {
+        String brToken = loginAndGetToken("13911110230");
+        setupBlindRunnerProfile(brToken);
+        String orderId = createMatchingOrder(brToken);
+
+        String volToken = loginAndGetToken("13911110231");
+        setupVolunteerProfile(volToken);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/accept")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/orders/" + orderId + "/arrive")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/orders/" + orderId + "/confirm-start")
+                .header("Authorization", "Bearer " + brToken))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/orders/" + orderId + "/complete")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+
+        // Completed order cannot trigger emergency
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    void emergency_fromCancelled_returns409() throws Exception {
+        String brToken = loginAndGetToken("13911110240");
+        setupBlindRunnerProfile(brToken);
+        String orderId = createMatchingOrder(brToken);
+
+        // Cancel the order from matching state
+        mockMvc.perform(post("/api/orders/" + orderId + "/cancel")
+                .header("Authorization", "Bearer " + brToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"cancelledReason\": \"temporary_issue\"}"))
+            .andExpect(status().isOk());
+
+        // Cancelled order cannot trigger emergency
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + brToken))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    void emergency_fromMatching_returns409() throws Exception {
+        String brToken = loginAndGetToken("13911110250");
+        setupBlindRunnerProfile(brToken);
+        String orderId = createMatchingOrder(brToken);
+
+        // Matching order cannot trigger emergency
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + brToken))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    void emergency_reTriggered_returns409() throws Exception {
+        String brToken = loginAndGetToken("13911110260");
+        setupBlindRunnerProfile(brToken);
+        String orderId = createMatchingOrder(brToken);
+
+        String volToken = loginAndGetToken("13911110261");
+        setupVolunteerProfile(volToken);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/accept")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+
+        // First emergency succeeds
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("emergency"));
+
+        // Second emergency attempt fails - emergency is terminal
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + brToken))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    void emergency_isTerminal_cannotArrive() throws Exception {
+        String brToken = loginAndGetToken("13911110270");
+        setupBlindRunnerProfile(brToken);
+        String orderId = createMatchingOrder(brToken);
+
+        String volToken = loginAndGetToken("13911110271");
+        setupVolunteerProfile(volToken);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/accept")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+
+        // Trigger emergency from accepted
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+
+        // Cannot arrive after emergency
+        mockMvc.perform(post("/api/orders/" + orderId + "/arrive")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    void emergency_isTerminal_cannotConfirmStart() throws Exception {
+        String brToken = loginAndGetToken("13911110280");
+        setupBlindRunnerProfile(brToken);
+        String orderId = createMatchingOrder(brToken);
+
+        String volToken = loginAndGetToken("13911110281");
+        setupVolunteerProfile(volToken);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/accept")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+        mockMvc.perform(post("/api/orders/" + orderId + "/arrive")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+
+        // Trigger emergency from arrived
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+
+        // Cannot confirm-start after emergency
+        mockMvc.perform(post("/api/orders/" + orderId + "/confirm-start")
+                .header("Authorization", "Bearer " + brToken))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("INVALID_ORDER_STATUS"));
+    }
+
+    @Test
+    void emergency_byNonParticipant_returnsForbidden() throws Exception {
+        String brToken = loginAndGetToken("13911110290");
+        setupBlindRunnerProfile(brToken);
+        String orderId = createMatchingOrder(brToken);
+
+        String volToken = loginAndGetToken("13911110291");
+        setupVolunteerProfile(volToken);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/accept")
+                .header("Authorization", "Bearer " + volToken))
+            .andExpect(status().isOk());
+
+        // A different user (not participant) tries to trigger emergency
+        String outsiderToken = loginAndGetToken("13911110292");
+        setupVolunteerProfile(outsiderToken);
+
+        mockMvc.perform(post("/api/orders/" + orderId + "/emergency")
+                .header("Authorization", "Bearer " + outsiderToken))
+            .andExpect(status().isForbidden());
+    }
+
     // --- Test: Complete + Points ---
 
     @Test

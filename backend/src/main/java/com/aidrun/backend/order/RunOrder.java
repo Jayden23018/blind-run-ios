@@ -257,4 +257,8 @@ public class RunOrder extends BaseEntity {
     public void setStatus(RunOrderStatus status) {
         this.status = status;
     }
+
+    public void setEmergencyEvent(EmergencyEvent emergencyEvent) {
+        this.emergencyEvent = emergencyEvent;
+    }
 }
