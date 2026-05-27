@@ -217,18 +217,13 @@ struct BlindOrderStatusView: View {
         } message: {
             Text("请选择取消原因。取消后本次预约将结束。")
         }
-        .alert("一键求助", isPresented: $showEmergencyConfirmation) {
-            Button("确认求助", role: .destructive) {
-                Task {
-                    await viewModel.enterEmergency()
-                    if let order = viewModel.order {
-                        onOrderUpdated(order)
-                    }
+        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation) {
+            Task {
+                await viewModel.enterEmergency()
+                if let order = viewModel.order {
+                    onOrderUpdated(order)
                 }
             }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。")
         }
         .onAppear {
             viewModel.configure(appState: appState, speechService: speechService)
@@ -351,11 +346,9 @@ struct BlindOrderStatusView: View {
             }
 
             if viewModel.canShowEmergency {
-                PrimaryButton("一键求助", isDestructive: true, isLoading: viewModel.isPerformingAction) {
+                EmergencyActionButton(isLoading: viewModel.isPerformingAction) {
                     showEmergencyConfirmation = true
                 }
-                .accessibilityLabel("一键求助，遇到紧急情况时点击")
-                .accessibilityHint("需要二次确认，确认后订单进入求助状态")
             }
 
             if viewModel.canShowCancel {

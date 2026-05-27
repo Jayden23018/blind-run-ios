@@ -313,6 +313,13 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(RunOrderStatus.emergency.canEnterEmergency)
     }
 
+    func testEmergencyConfirmationCopyIsFixed() {
+        XCTAssertEqual(
+            EmergencySafetyCopy.confirmationMessage,
+            "是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
+        )
+    }
+
     func testArrivedIsOnlyBlindConfirmStartStatus() {
         let viewModel = BlindOrderStatusViewModel()
 

@@ -389,6 +389,9 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         guard let order, let appState else { return }
         await performAction(failureMessage: "求助操作失败，请重试") {
             let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/emergency")
+            if order.status != updated.status {
+                speechService?.speakStatusChange(updated.status)
+            }
             self.order = updated
         }
     }
@@ -480,13 +483,10 @@ struct VolunteerOrderDetailView: View {
         } message: {
             Text("请选择取消原因。")
         }
-        .alert("一键求助", isPresented: $showEmergencyConfirm) {
-            Button("确认求助", role: .destructive) {
-                Task { await viewModel.emergency() }
+        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm) {
+            Task {
+                await viewModel.emergency()
             }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。")
         }
     }
 
@@ -544,11 +544,9 @@ struct VolunteerOrderDetailView: View {
                 }
 
                 if order.status.canEnterEmergency {
-                    PrimaryButton("一键求助", isDestructive: true, isLoading: viewModel.isPerformingAction) {
+                    EmergencyActionButton(isLoading: viewModel.isPerformingAction) {
                         showEmergencyConfirm = true
                     }
-                    .accessibilityLabel("一键求助")
-                    .accessibilityHint("确认后将标记为异常状态")
                 }
             }
         }
@@ -661,7 +659,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         guard let order, let appState else { return }
         await performAction(failureMessage: "求助操作失败，请重试") {
             let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/emergency")
-            apply(updated, speakChanges: false)
+            apply(updated, speakChanges: true)
         }
     }
 
@@ -685,8 +683,12 @@ final class VolunteerInServiceViewModel: ObservableObject {
     private func apply(_ updated: RunOrderDto, speakChanges: Bool) {
         let previousStatus = order?.status
         order = updated
-        if speakChanges, previousStatus != updated.status, updated.status == .inProgress {
-            speechService?.speak("服务已开始")
+        if speakChanges, previousStatus != updated.status {
+            if updated.status == .inProgress {
+                speechService?.speak("服务已开始")
+            } else if updated.status == .emergency {
+                speechService?.speakStatusChange(updated.status)
+            }
         }
         if updated.status.isTerminal {
             stopPolling()
@@ -767,13 +769,10 @@ struct VolunteerInServiceView: View {
         } message: {
             Text("请选择取消原因。")
         }
-        .alert("一键求助", isPresented: $showEmergencyConfirm) {
-            Button("确认求助", role: .destructive) {
-                Task { await viewModel.emergency() }
+        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm) {
+            Task {
+                await viewModel.emergency()
             }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。")
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -1489,7 +1488,7 @@ struct VolunteerServiceActions: View {
             }
 
             if status.canEnterEmergency {
-                secondaryDangerButton("一键求助", hint: "确认后将标记为异常状态", action: onEmergency)
+                EmergencyActionButton(isLoading: isPerformingAction, action: onEmergency)
             }
         }
     }

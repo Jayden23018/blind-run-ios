@@ -18,11 +18,14 @@
 - [VolunteerModule.swift](file://blindRun/Volunteer/VolunteerModule.swift)
 - [VolunteerController.java](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerController.java)
 - [VolunteerService.java](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerService.java)
-- [AvailabilityRequest.java](file://backend/src/main/java/com/aidrun/backend/volunteer/dto/AvailabilityRequest.java)
+- [VolunteerPointsLedger.java](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerPointsLedger.java)
+- [VolunteerPointsLedgerRepository.java](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerPointsLedgerRepository.java)
 - [VolunteerControllerIntegrationTest.java](file://backend/src/test/java/com/aidrun/backend/volunteer/VolunteerControllerIntegrationTest.java)
 - [VerificationStatus.java](file://backend/src/main/java/com/aidrun/backend/profile/VerificationStatus.java)
 - [AdminReviewStatus.java](file://backend/src/main/java/com/aidrun/backend/profile/AdminReviewStatus.java)
 - [VolunteerProfile.java](file://backend/src/main/java/com/aidrun/backend/profile/VolunteerProfile.java)
+- [RunOrder.java](file://backend/src/main/java/com/aidrun/backend/order/RunOrder.java)
+- [RunOrderStatus.java](file://backend/src/main/java/com/aidrun/backend/order/RunOrderStatus.java)
 - [ErrorCode.java](file://backend/src/main/java/com/aidrun/backend/common/error/ErrorCode.java)
 - [ApiException.java](file://backend/src/main/java/com/aidrun/backend/common/error/ApiException.java)
 - [OrderModels.swift](file://blindRun/Core/Models/OrderModels.swift)
@@ -81,6 +84,7 @@ subgraph "后端服务层"
 API["REST API<br/>/api/volunteer/*"]
 Service["业务服务<br/>VolunteerService"]
 Repo["数据访问<br/>VolunteerProfileRepository"]
+PointsRepo["积分流水<br/>VolunteerPointsLedgerRepository"]
 end
 Views --> VM
 VM --> Services
@@ -94,6 +98,7 @@ Volunteer --> Design
 Services --> API
 API --> Service
 Service --> Repo
+Service --> PointsRepo
 ```
 
 **章节来源**
@@ -164,6 +169,7 @@ DS --> |"AppColors/HighContrastText"| UI["界面组件"]
 B --> |"认证/可用性管理"| API["/api/volunteer/*"]
 API --> |"Mock验证/可用性切换"| Service["VolunteerService"]
 Service --> |"状态检查/更新"| Repo["VolunteerProfileRepository"]
+Service --> |"积分流水管理"| PointsRepo["VolunteerPointsLedgerRepository"]
 ```
 
 **图表来源**
@@ -522,6 +528,27 @@ Avail --> Ready["可接单"]
 **章节来源**
 - [VolunteerService.java: 15-89:15-89](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerService.java#L15-L89)
 
+### 积分流水管理（VolunteerPointsLedger）
+
+#### 积分流水实体（VolunteerPointsLedger）
+- 核心字段
+  - 志愿者用户关联：多对一关联 AppUser
+  - 订单关联：可选的一对一关联 RunOrder
+  - 积分变动：整数类型（正数为奖励，负数为扣除）
+  - 变动原因：字符串描述
+- 关系映射
+  - 使用 JPA 注解定义实体关系
+  - 设置非空约束和外键约束
+
+#### 积分流水仓库（VolunteerPointsLedgerRepository）
+- 数据访问接口
+  - 继承 JpaRepository 提供标准 CRUD 操作
+  - 支持按志愿者用户和订单查询积分流水
+
+**章节来源**
+- [VolunteerPointsLedger.java: 14-49:14-49](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerPointsLedger.java#L14-L49)
+- [VolunteerPointsLedgerRepository.java: 5-6:5-6](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerPointsLedgerRepository.java#L5-L6)
+
 ### 数据模型与状态枚举
 
 #### 志愿者档案（VolunteerProfile）
@@ -538,6 +565,22 @@ Avail --> Ready["可接单"]
 
 **章节来源**
 - [VolunteerProfile.java: 14-107:14-107](file://backend/src/main/java/com/aidrun/backend/profile/VolunteerProfile.java#L14-L107)
+
+#### 订单状态枚举（RunOrderStatus）
+- 状态定义
+  - MATCHING：匹配中
+  - ACCEPTED：已接单
+  - ARRIVED：已到达
+  - IN_PROGRESS：服务进行中
+  - COMPLETED：已完成
+  - CANCELLED：已取消
+  - EMERGENCY：紧急状态
+- 序列化支持
+  - 支持 Jackson JSON 序列化和反序列化
+  - wireValue 用于 API 传输格式
+
+**章节来源**
+- [RunOrderStatus.java: 6-35:6-35](file://backend/src/main/java/com/aidrun/backend/order/RunOrderStatus.java#L6-L35)
 
 #### 状态枚举
 - VerificationStatus（验证状态）
@@ -600,6 +643,11 @@ Avail --> Ready["可接单"]
 - 参数验证测试
   - 缺少 isAvailable 参数返回 400 VALIDATION_FAILED
 
+#### 订单接单验证测试
+- 认证状态验证
+  - 未认证志愿者调用验证方法抛出 VOLUNTEER_NOT_APPROVED
+  - 可用性关闭时调用验证方法抛出 VOLUNTEER_NOT_AVAILABLE
+
 **章节来源**
 - [VolunteerControllerIntegrationTest.java: 56-250:56-250](file://backend/src/test/java/com/aidrun/backend/volunteer/VolunteerControllerIntegrationTest.java#L56-L250)
 
@@ -627,6 +675,7 @@ VOL --> DESIGN["设计系统"]
 VOL --> API["后端API"]
 API --> SERVICE["VolunteerService"]
 SERVICE --> REPO["VolunteerProfileRepository"]
+SERVICE --> POINTS_REPO["VolunteerPointsLedgerRepository"]
 SERVICE --> ERROR["错误处理"]
 SERVICE --> ENUM["状态枚举"]
 DESIGN --> COLORS["AppColors"]
