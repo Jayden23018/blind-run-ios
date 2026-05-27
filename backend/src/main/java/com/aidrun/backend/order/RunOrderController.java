@@ -83,7 +83,7 @@ public class RunOrderController {
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/{orderId}/start")
+    @PostMapping("/{orderId}/confirm-start")
     public ResponseEntity<RunOrderDto> confirmStart(
         @PathVariable String orderId,
         Authentication authentication

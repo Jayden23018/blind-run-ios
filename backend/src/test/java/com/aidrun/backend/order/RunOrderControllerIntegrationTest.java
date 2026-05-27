@@ -298,7 +298,7 @@ class RunOrderControllerIntegrationTest {
             .andExpect(jsonPath("$.arrivedAt").isNotEmpty());
 
         // Start (blind runner confirms)
-        mockMvc.perform(post("/api/orders/" + orderId + "/start")
+        mockMvc.perform(post("/api/orders/" + orderId + "/confirm-start")
                 .header("Authorization", "Bearer " + brToken))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("in_progress"))
@@ -351,7 +351,7 @@ class RunOrderControllerIntegrationTest {
         mockMvc.perform(post("/api/orders/" + orderId + "/arrive")
                 .header("Authorization", "Bearer " + volToken))
             .andExpect(status().isOk());
-        mockMvc.perform(post("/api/orders/" + orderId + "/start")
+        mockMvc.perform(post("/api/orders/" + orderId + "/confirm-start")
                 .header("Authorization", "Bearer " + brToken))
             .andExpect(status().isOk());
 
@@ -385,7 +385,7 @@ class RunOrderControllerIntegrationTest {
         mockMvc.perform(post("/api/orders/" + orderId + "/arrive")
                 .header("Authorization", "Bearer " + volToken))
             .andExpect(status().isOk());
-        mockMvc.perform(post("/api/orders/" + orderId + "/start")
+        mockMvc.perform(post("/api/orders/" + orderId + "/confirm-start")
                 .header("Authorization", "Bearer " + brToken))
             .andExpect(status().isOk());
 
@@ -453,7 +453,7 @@ class RunOrderControllerIntegrationTest {
         mockMvc.perform(post("/api/orders/" + orderId + "/arrive")
                 .header("Authorization", "Bearer " + volToken))
             .andExpect(status().isOk());
-        mockMvc.perform(post("/api/orders/" + orderId + "/start")
+        mockMvc.perform(post("/api/orders/" + orderId + "/confirm-start")
                 .header("Authorization", "Bearer " + brToken))
             .andExpect(status().isOk());
 
@@ -488,7 +488,7 @@ class RunOrderControllerIntegrationTest {
         mockMvc.perform(post("/api/orders/" + orderId + "/arrive")
                 .header("Authorization", "Bearer " + volToken))
             .andExpect(status().isOk());
-        mockMvc.perform(post("/api/orders/" + orderId + "/start")
+        mockMvc.perform(post("/api/orders/" + orderId + "/confirm-start")
                 .header("Authorization", "Bearer " + brToken))
             .andExpect(status().isOk());
         mockMvc.perform(post("/api/orders/" + orderId + "/complete")

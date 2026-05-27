@@ -77,6 +77,8 @@ private final class MockAPIStore {
 
     func response(for path: String, method: HTTPMethod, bodyData: Data?) throws -> Data {
         seedBlindRunnerProfileForUITestsIfNeeded()
+        seedVolunteerProfileForUITestsIfNeeded()
+        seedVolunteerDemoDataIfNeeded()
 
         // 基础 Mock 路由，后续 PR 逐步补充完整数据
         if path.contains("/auth/phone-login") {
@@ -114,6 +116,12 @@ private final class MockAPIStore {
 
         // 角色切换 Mock (PATCH /api/users/me/active-role)
         if path.contains("/users/me") && method == .patch {
+            if hasActiveOrderForCurrentUser() {
+                throw APIError.serverError(ErrorResponse(
+                    code: "ACTIVE_ORDER_ROLE_SWITCH_BLOCKED",
+                    message: "存在进行中的订单，无法切换角色"
+                ))
+            }
             // 从请求体中解码目标角色
             var targetRole = UserRole.blindRunner
             if let bodyData = bodyData {
@@ -302,7 +310,15 @@ private final class MockAPIStore {
 
         // GET /api/orders/my
         if path == "/api/orders/my" && method == .get {
-            return try encode(orders)
+            return try encode(orders.filter(isCurrentUserOrder))
+        }
+
+        // GET /api/orders/available
+        if path == "/api/orders/available" && method == .get {
+            let available = orders
+                .filter { $0.status == .matching }
+                .map { availableOrder(from: $0) }
+            return try encode(available)
         }
 
         // GET /api/orders/{orderId}
@@ -313,22 +329,23 @@ private final class MockAPIStore {
                     message: "订单不存在"
                 ))
             }
-            return try encode(order)
+            return try encode(orderForCurrentUser(order))
         }
 
         // Order transition endpoints
         if let orderId = orderId(from: path), method == .post {
             if path.hasSuffix("/accept") {
+                try validateVolunteerCanAccept()
                 return try encode(try updateOrder(orderId: orderId, expected: .matching, target: .accepted))
             }
             if path.hasSuffix("/arrive") {
                 return try encode(try updateOrder(orderId: orderId, expected: .accepted, target: .arrived))
             }
-            if path.hasSuffix("/start") {
+            if path.hasSuffix("/confirm-start") {
                 return try encode(try updateOrder(orderId: orderId, expected: .arrived, target: .inProgress))
             }
             if path.hasSuffix("/complete") {
-                return try encode(try updateOrder(orderId: orderId, expected: .inProgress, target: .completed))
+                return try encode(try completeOrder(orderId: orderId, bodyData: bodyData))
             }
             if path.hasSuffix("/cancel") {
                 guard let bodyData,
@@ -371,6 +388,73 @@ private final class MockAPIStore {
         return profile
     }
 
+    private func validateVolunteerCanAccept() throws {
+        guard let profile = volunteerProfile,
+              !profile.nickname.trimmed.isEmpty,
+              AppState.isValidMainlandPhone(profile.phoneNumber) else {
+            throw APIError.serverError(ErrorResponse(
+                code: "PROFILE_INCOMPLETE",
+                message: "请先完善志愿者资料"
+            ))
+        }
+        guard profile.verificationStatus == .approved,
+              profile.adminReviewStatus == .approved else {
+            throw APIError.serverError(ErrorResponse(
+                code: "VOLUNTEER_NOT_APPROVED",
+                message: "请先完成志愿者认证"
+            ))
+        }
+        guard profile.isAvailable else {
+            throw APIError.serverError(ErrorResponse(
+                code: "VOLUNTEER_NOT_AVAILABLE",
+                message: "请先开启可服务状态"
+            ))
+        }
+    }
+
+    private func availableOrder(from order: RunOrderDto) -> AvailableOrderDto {
+        AvailableOrderDto(
+            id: order.id,
+            blindRunnerNickname: order.blindRunnerNickname,
+            startLocation: order.startLocation,
+            destinationText: order.destinationText,
+            appointmentTime: order.appointmentTime,
+            estimatedDurationMinutes: order.estimatedDurationMinutes,
+            estimatedDistanceKm: order.estimatedDistanceKm,
+            pacePreference: order.pacePreference,
+            preferSameGender: order.preferSameGender,
+            remark: order.remark,
+            blindRunnerPhone: nil
+        )
+    }
+
+    private func orderForCurrentUser(_ order: RunOrderDto) -> RunOrderDto {
+        if shouldShowBlindRunnerPhone(order) {
+            return order
+        }
+        return copyOrder(
+            order,
+            status: order.status,
+            blindRunnerPhone: .some(nil),
+            updatedAt: order.updatedAt ?? order.createdAt ?? ISO8601DateFormatter.aidRunFormatter.string(from: Date())
+        )
+    }
+
+    private func shouldShowBlindRunnerPhone(_ order: RunOrderDto) -> Bool {
+        order.blindRunnerUserId == user.id || order.volunteerUserId == user.id
+    }
+
+    private func isCurrentUserOrder(_ order: RunOrderDto) -> Bool {
+        order.blindRunnerUserId == user.id || order.volunteerUserId == user.id
+    }
+
+    private func hasActiveOrderForCurrentUser() -> Bool {
+        orders.contains { order in
+            isCurrentUserOrder(order) &&
+            [.accepted, .arrived, .inProgress, .emergency].contains(order.status)
+        }
+    }
+
     private func orderId(from path: String) -> String? {
         let prefix = "/api/orders/"
         guard path.hasPrefix(prefix) else { return nil }
@@ -402,6 +486,55 @@ private final class MockAPIStore {
             completedAt: target == .completed ? now : current.completedAt
         )
         orders[index] = updated
+        persist()
+        return updated
+    }
+
+    private func completeOrder(orderId: String, bodyData: Data?) throws -> RunOrderDto {
+        guard let index = orders.firstIndex(where: { $0.id == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        let current = orders[index]
+        guard current.status == .inProgress else {
+            throw APIError.serverError(ErrorResponse(code: "INVALID_ORDER_STATUS", message: "当前订单状态不允许该操作"))
+        }
+        guard current.volunteerUserId == user.id else {
+            throw APIError.serverError(ErrorResponse(code: "INVALID_ORDER_STATUS", message: "只能由接单志愿者结束服务"))
+        }
+
+        let request = bodyData.flatMap { try? JSONDecoder().decode(CompleteOrderRequest.self, from: $0) }
+        let now = ISO8601DateFormatter.aidRunFormatter.string(from: Date())
+        let summary = ServiceSummaryDto(
+            id: UUID().uuidString,
+            orderId: orderId,
+            volunteerUserId: user.id,
+            summaryText: request?.summaryText,
+            createdAt: now
+        )
+        let updated = copyOrder(
+            current,
+            status: .completed,
+            serviceSummary: summary,
+            updatedAt: now,
+            completedAt: now
+        )
+        orders[index] = updated
+
+        if let existing = volunteerProfile {
+            volunteerProfile = VolunteerProfileDto(
+                id: existing.id,
+                userId: existing.userId,
+                nickname: existing.nickname,
+                phoneNumber: existing.phoneNumber,
+                verificationStatus: existing.verificationStatus,
+                adminReviewStatus: existing.adminReviewStatus,
+                isAvailable: existing.isAvailable,
+                pointsBalance: existing.pointsBalance + 100,
+                createdAt: existing.createdAt,
+                updatedAt: now
+            )
+        }
+
         persist()
         return updated
     }
@@ -469,10 +602,12 @@ private final class MockAPIStore {
     private func copyOrder(
         _ order: RunOrderDto,
         status: RunOrderStatus,
+        blindRunnerPhone: String?? = nil,
         volunteerUserId: String? = nil,
         volunteerNickname: String? = nil,
         cancellation: CancellationDto? = nil,
         emergencyEvent: EmergencyEventDto? = nil,
+        serviceSummary: ServiceSummaryDto? = nil,
         updatedAt: String,
         acceptedAt: String? = nil,
         arrivedAt: String? = nil,
@@ -485,7 +620,7 @@ private final class MockAPIStore {
             id: order.id,
             blindRunnerUserId: order.blindRunnerUserId,
             blindRunnerNickname: order.blindRunnerNickname,
-            blindRunnerPhone: order.blindRunnerPhone,
+            blindRunnerPhone: blindRunnerPhone ?? order.blindRunnerPhone,
             volunteerUserId: volunteerUserId ?? order.volunteerUserId,
             volunteerNickname: volunteerNickname ?? order.volunteerNickname,
             status: status,
@@ -499,7 +634,7 @@ private final class MockAPIStore {
             remark: order.remark,
             cancellation: cancellation ?? order.cancellation,
             emergencyEvent: emergencyEvent ?? order.emergencyEvent,
-            serviceSummary: order.serviceSummary,
+            serviceSummary: serviceSummary ?? order.serviceSummary,
             rating: order.rating,
             createdAt: order.createdAt,
             updatedAt: updatedAt,
@@ -524,6 +659,164 @@ private final class MockAPIStore {
         )
     }
 
+    private func seedVolunteerDemoDataIfNeeded() {
+        guard orders.isEmpty else { return }
+
+        let now = Date()
+        let formatter = ISO8601DateFormatter.aidRunFormatter
+        let createdAt = formatter.string(from: now.addingTimeInterval(-3_600))
+        let appointmentOne = formatter.string(from: now.addingTimeInterval(7_200))
+        let appointmentTwo = formatter.string(from: now.addingTimeInterval(10_800))
+        let appointmentThree = formatter.string(from: now.addingTimeInterval(14_400))
+        let completedAt = formatter.string(from: now.addingTimeInterval(-86_400))
+
+        orders = [
+            RunOrderDto(
+                id: "30000000-0000-0000-0000-000000000001",
+                blindRunnerUserId: "10000000-0000-0000-0000-000000000101",
+                blindRunnerNickname: "李明",
+                blindRunnerPhone: "13800001001",
+                volunteerUserId: nil,
+                volunteerNickname: nil,
+                status: .matching,
+                startLocation: LocationPoint(
+                    latitude: AppConstants.Defaults.demoLatitude + 0.004,
+                    longitude: AppConstants.Defaults.demoLongitude + 0.003,
+                    addressText: "奥林匹克森林公园南门",
+                    source: .demoDefault
+                ),
+                destinationText: "公园内环 3 公里",
+                appointmentTime: appointmentOne,
+                estimatedDurationMinutes: 35,
+                estimatedDistanceKm: 3.0,
+                pacePreference: "慢跑",
+                preferSameGender: false,
+                remark: "第一次体验，请提前到达。",
+                cancellation: nil,
+                emergencyEvent: nil,
+                serviceSummary: nil,
+                rating: nil,
+                createdAt: createdAt,
+                updatedAt: createdAt,
+                acceptedAt: nil,
+                arrivedAt: nil,
+                startedAt: nil,
+                completedAt: nil,
+                cancelledAt: nil,
+                emergencyAt: nil
+            ),
+            RunOrderDto(
+                id: "30000000-0000-0000-0000-000000000002",
+                blindRunnerUserId: "10000000-0000-0000-0000-000000000102",
+                blindRunnerNickname: "王芳",
+                blindRunnerPhone: "13800001002",
+                volunteerUserId: nil,
+                volunteerNickname: nil,
+                status: .matching,
+                startLocation: LocationPoint(
+                    latitude: AppConstants.Defaults.demoLatitude + 0.012,
+                    longitude: AppConstants.Defaults.demoLongitude + 0.006,
+                    addressText: "朝阳公园西门",
+                    source: .demoDefault
+                ),
+                destinationText: "湖边慢跑路线",
+                appointmentTime: appointmentTwo,
+                estimatedDurationMinutes: 45,
+                estimatedDistanceKm: 4.0,
+                pacePreference: "配速 8 分钟",
+                preferSameGender: true,
+                remark: nil,
+                cancellation: nil,
+                emergencyEvent: nil,
+                serviceSummary: nil,
+                rating: nil,
+                createdAt: createdAt,
+                updatedAt: createdAt,
+                acceptedAt: nil,
+                arrivedAt: nil,
+                startedAt: nil,
+                completedAt: nil,
+                cancelledAt: nil,
+                emergencyAt: nil
+            ),
+            RunOrderDto(
+                id: "30000000-0000-0000-0000-000000000003",
+                blindRunnerUserId: "10000000-0000-0000-0000-000000000103",
+                blindRunnerNickname: "赵强",
+                blindRunnerPhone: "13800001003",
+                volunteerUserId: nil,
+                volunteerNickname: nil,
+                status: .matching,
+                startLocation: LocationPoint(
+                    latitude: AppConstants.Defaults.demoLatitude - 0.006,
+                    longitude: AppConstants.Defaults.demoLongitude - 0.004,
+                    addressText: "天坛公园东门",
+                    source: .demoDefault
+                ),
+                destinationText: nil,
+                appointmentTime: appointmentThree,
+                estimatedDurationMinutes: nil,
+                estimatedDistanceKm: nil,
+                pacePreference: nil,
+                preferSameGender: false,
+                remark: "需要清楚报出路面变化。",
+                cancellation: nil,
+                emergencyEvent: nil,
+                serviceSummary: nil,
+                rating: nil,
+                createdAt: createdAt,
+                updatedAt: createdAt,
+                acceptedAt: nil,
+                arrivedAt: nil,
+                startedAt: nil,
+                completedAt: nil,
+                cancelledAt: nil,
+                emergencyAt: nil
+            ),
+            RunOrderDto(
+                id: "30000000-0000-0000-0000-000000000004",
+                blindRunnerUserId: "10000000-0000-0000-0000-000000000104",
+                blindRunnerNickname: "陈晨",
+                blindRunnerPhone: "13800001004",
+                volunteerUserId: user.id,
+                volunteerNickname: volunteerProfile?.nickname ?? "测试志愿者",
+                status: .completed,
+                startLocation: LocationPoint(
+                    latitude: AppConstants.Defaults.demoLatitude + 0.002,
+                    longitude: AppConstants.Defaults.demoLongitude - 0.002,
+                    addressText: "什刹海健身步道",
+                    source: .demoDefault
+                ),
+                destinationText: "湖边一圈",
+                appointmentTime: formatter.string(from: now.addingTimeInterval(-90_000)),
+                estimatedDurationMinutes: 30,
+                estimatedDistanceKm: 2.5,
+                pacePreference: "轻松跑",
+                preferSameGender: nil,
+                remark: nil,
+                cancellation: nil,
+                emergencyEvent: nil,
+                serviceSummary: ServiceSummaryDto(
+                    id: "40000000-0000-0000-0000-000000000001",
+                    orderId: "30000000-0000-0000-0000-000000000004",
+                    volunteerUserId: user.id,
+                    summaryText: "顺利完成慢跑陪伴。",
+                    createdAt: completedAt
+                ),
+                rating: nil,
+                createdAt: formatter.string(from: now.addingTimeInterval(-172_800)),
+                updatedAt: completedAt,
+                acceptedAt: formatter.string(from: now.addingTimeInterval(-90_000)),
+                arrivedAt: formatter.string(from: now.addingTimeInterval(-89_000)),
+                startedAt: formatter.string(from: now.addingTimeInterval(-88_000)),
+                completedAt: completedAt,
+                cancelledAt: nil,
+                emergencyAt: nil
+            )
+        ]
+        persist()
+    }
+
     private func seedBlindRunnerProfileForUITestsIfNeeded() {
         #if DEBUG
         guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_PRESEEDED_BLIND_PROFILE"] == "1",
@@ -544,6 +837,30 @@ private final class MockAPIStore {
         )
         blindRunnerProfile = profile
         user = userWith(nickname: profile.nickname, activeRole: .blindRunner)
+        persist()
+        #endif
+    }
+
+    private func seedVolunteerProfileForUITestsIfNeeded() {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_PROFILE"] == "1",
+              volunteerProfile == nil else {
+            return
+        }
+        let profile = VolunteerProfileDto(
+            id: "20000000-0000-0000-0000-000000000099",
+            userId: user.id,
+            nickname: "UITestVolunteer",
+            phoneNumber: user.phoneNumber,
+            verificationStatus: .approved,
+            adminReviewStatus: .approved,
+            isAvailable: false,
+            pointsBalance: 0,
+            createdAt: "2024-01-01T00:00:00Z",
+            updatedAt: "2024-01-01T00:00:00Z"
+        )
+        volunteerProfile = profile
+        user = userWith(nickname: profile.nickname, activeRole: .volunteer)
         persist()
         #endif
     }

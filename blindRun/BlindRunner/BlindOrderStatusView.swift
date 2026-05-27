@@ -71,7 +71,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     func confirmStart() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "操作失败，请重试。") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/start")
+            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/confirm-start")
             apply(updated, speakChanges: true)
         }
     }

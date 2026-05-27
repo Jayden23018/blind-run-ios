@@ -22,6 +22,7 @@ struct AMapContainer: UIViewRepresentable {
     var showsUserLocation: Bool = true
     var annotations: [MapAnnotationItem] = []
     var zoomLevel: CGFloat = 15.0
+    var recenterToken: Int = 0
 
     func makeUIView(context: Context) -> MAMapView {
         let mapView = MAMapView(frame: .zero)
@@ -41,12 +42,15 @@ struct AMapContainer: UIViewRepresentable {
             mapView.showsUserLocation = showsUserLocation
         }
 
-        // 更新地图中心（仅在坐标变化超过阈值时移动，避免频繁跳动）
+        // 更新地图中心（仅在坐标变化超过阈值时移动，避免频繁跳动）。
+        // recenterToken 变化时强制回到传入坐标，用于“回到当前位置”。
         let currentCenter = mapView.centerCoordinate
         let threshold: Double = 0.0001
-        if abs(currentCenter.latitude - centerCoordinate.latitude) > threshold ||
+        if context.coordinator.lastRecenterToken != recenterToken ||
+           abs(currentCenter.latitude - centerCoordinate.latitude) > threshold ||
            abs(currentCenter.longitude - centerCoordinate.longitude) > threshold {
             mapView.setCenter(centerCoordinate, animated: true)
+            context.coordinator.lastRecenterToken = recenterToken
         }
 
         // 同步标注
@@ -79,6 +83,7 @@ struct AMapContainer: UIViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: NSObject, MAMapViewDelegate {
+        var lastRecenterToken = 0
 
         func mapView(_ mapView: MAMapView!, viewFor annotation: MAAnnotation!) -> MAAnnotationView! {
             // 用户位置使用默认蓝点
@@ -107,6 +112,7 @@ struct MapViewWrapper: View {
     var showsUserLocation: Bool = true
     var annotations: [MapAnnotationItem] = []
     var zoomLevel: CGFloat = 15.0
+    var recenterToken: Int = 0
 
     var body: some View {
         if AMapManager.isConfigured {
@@ -114,7 +120,8 @@ struct MapViewWrapper: View {
                 centerCoordinate: centerCoordinate,
                 showsUserLocation: showsUserLocation,
                 annotations: annotations,
-                zoomLevel: zoomLevel
+                zoomLevel: zoomLevel,
+                recenterToken: recenterToken
             )
             .accessibilityLabel("地图，显示当前位置和订单地点")
             .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")

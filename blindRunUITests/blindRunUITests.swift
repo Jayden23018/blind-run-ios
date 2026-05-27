@@ -28,6 +28,128 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
+    func testMockVolunteerOrderFlowSmoke() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true
+        )
+
+        let firstOrder = app.staticTexts["李明"].firstMatch
+        XCTAssertTrue(firstOrder.waitForExistence(timeout: 15), "Volunteer home should show available mock orders")
+        firstOrder.tap()
+
+        XCTAssertFalse(app.staticTexts["13800001001"].exists, "Phone must be hidden before accepting")
+        let disabledAcceptButton = app.buttons["接单"].firstMatch
+        XCTAssertTrue(disabledAcceptButton.waitForExistence(timeout: 5), "Accept button should exist")
+        XCTAssertFalse(disabledAcceptButton.isEnabled, "Accept should be disabled when isAvailable=false")
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        let availabilitySwitch = app.switches.firstMatch
+        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should exist")
+        availabilitySwitch.tap()
+
+        XCTAssertTrue(firstOrder.waitForExistence(timeout: 5), "Order should still be visible after availability toggle")
+        firstOrder.tap()
+
+        let acceptButton = app.buttons["接单"].firstMatch
+        XCTAssertTrue(waitForElementToBeEnabled(acceptButton, timeout: 8), "Accept should become enabled after availability is on")
+        acceptButton.tap()
+        app.buttons["确认接单"].tap()
+
+        let phoneText = app.staticTexts["13800001001"].firstMatch
+        XCTAssertTrue(phoneText.waitForExistence(timeout: 8), "Phone should be shown after accepting")
+
+        let serviceButton = app.buttons["进入服务页面"].firstMatch
+        XCTAssertTrue(serviceButton.waitForExistence(timeout: 5), "Accepted order should allow entering service page")
+        serviceButton.tap()
+
+        let arriveButton = app.buttons["我已到达约定地点"].firstMatch
+        XCTAssertTrue(arriveButton.waitForExistence(timeout: 5), "Accepted order should show arrive button")
+        arriveButton.tap()
+
+        let waitingText = app.staticTexts["已到达，等待盲人确认开始服务"].firstMatch
+        XCTAssertTrue(waitingText.waitForExistence(timeout: 8), "Arrived state should wait for blind runner confirmation")
+
+        let mockConfirmStartButton = app.buttons["模拟盲人确认开始"].firstMatch
+        XCTAssertTrue(mockConfirmStartButton.waitForExistence(timeout: 5), "Mock mode should allow confirming service start")
+        mockConfirmStartButton.tap()
+
+        let completeButton = app.buttons["结束服务"].firstMatch
+        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should show complete button")
+        completeButton.tap()
+
+        let sheetCompleteButton = app.buttons["结束服务"].firstMatch
+        XCTAssertTrue(sheetCompleteButton.waitForExistence(timeout: 5), "Completion sheet should require a second action")
+        sheetCompleteButton.tap()
+
+        let confirmCompleteButton = app.buttons["确认结束"].firstMatch
+        XCTAssertTrue(confirmCompleteButton.waitForExistence(timeout: 5), "Complete service should show confirmation")
+        confirmCompleteButton.tap()
+
+        let completedStatus = app.staticTexts["已完成"].firstMatch
+        XCTAssertTrue(completedStatus.waitForExistence(timeout: 8), "Order should reach completed status")
+    }
+
+    @MainActor
+    func testMockVolunteerServiceInProgressScreenshots() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true
+        )
+
+        openAcceptedVolunteerService(app)
+        attachScreenshot(named: "volunteer-service-accepted", app: app)
+
+        let arriveButton = app.buttons["我已到达约定地点"].firstMatch
+        XCTAssertTrue(arriveButton.waitForExistence(timeout: 5), "Accepted service page should show arrive action")
+        arriveButton.tap()
+
+        let waitingText = app.staticTexts["已到达，等待盲人确认开始服务"].firstMatch
+        XCTAssertTrue(waitingText.waitForExistence(timeout: 8), "Arrived state should wait for blind runner confirmation")
+        attachScreenshot(named: "volunteer-service-arrived", app: app)
+
+        let mockConfirmStartButton = app.buttons["模拟盲人确认开始"].firstMatch
+        XCTAssertTrue(mockConfirmStartButton.waitForExistence(timeout: 5), "Mock mode should allow confirming service start")
+        mockConfirmStartButton.tap()
+
+        let completeButton = app.buttons["结束服务"].firstMatch
+        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should show complete button")
+        attachScreenshot(named: "volunteer-service-in-progress", app: app)
+
+        completeButton.tap()
+        let sheetCompleteButton = app.buttons["结束服务"].firstMatch
+        XCTAssertTrue(sheetCompleteButton.waitForExistence(timeout: 5), "Completion sheet should appear")
+        attachScreenshot(named: "volunteer-service-complete-summary", app: app)
+    }
+
+    @MainActor
+    func testMockVolunteerHomeMapScreenshot() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true
+        )
+
+        let map = app.descendants(matching: .any)["volunteerHomeMap"].firstMatch
+        XCTAssertTrue(map.waitForExistence(timeout: 15), "Volunteer home should expose the map as the primary visual")
+
+        let availabilitySwitch = app.switches.firstMatch
+        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should be visible on the map overlay")
+        XCTAssertTrue(app.buttons["回到当前位置"].firstMatch.waitForExistence(timeout: 5), "Home map should include recenter control")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "附近需求")).firstMatch.waitForExistence(timeout: 5), "Demand panel should show nearby demand count")
+        XCTAssertTrue(app.buttons["查看全部订单"].firstMatch.waitForExistence(timeout: 5), "Demand panel should expose all-orders entry")
+        XCTAssertTrue(app.staticTexts["李明"].firstMatch.waitForExistence(timeout: 5), "Nearby demand list should show mock available orders")
+
+        attachScreenshot(named: "volunteer-home-map-uber-style", app: app)
+    }
+
+    @MainActor
     func testLocalBackendBlindRunnerBookingSmoke() throws {
         let uniquePhone = "139" + String(Int(Date().timeIntervalSince1970) % 100_000_000).leftPadded(toLength: 8)
         let app = launchApp(
@@ -45,13 +167,15 @@ final class blindRunUITests: XCTestCase {
         apiEnvironment: String,
         localBackendURL: String? = nil,
         accessToken: String? = nil,
-        preseedBlindProfile: Bool = false
+        activeRole: String = "blind_runner",
+        preseedBlindProfile: Bool = false,
+        preseedVolunteerProfile: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["AIDRUN_UI_TEST_RESET_STATE"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_API_ENV"] = apiEnvironment
-        app.launchEnvironment["AIDRUN_UI_TEST_ACTIVE_ROLE"] = "blind_runner"
+        app.launchEnvironment["AIDRUN_UI_TEST_ACTIVE_ROLE"] = activeRole
         app.launchEnvironment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] = "1"
         if let localBackendURL {
             app.launchEnvironment["AIDRUN_UI_TEST_LOCAL_BACKEND_URL"] = localBackendURL
@@ -62,9 +186,40 @@ final class blindRunUITests: XCTestCase {
         if preseedBlindProfile {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_BLIND_PROFILE"] = "1"
         }
+        if preseedVolunteerProfile {
+            app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_PROFILE"] = "1"
+        }
         app.launch()
         dismissSystemAlertsIfPresent(app: app)
         return app
+    }
+
+    private func openAcceptedVolunteerService(_ app: XCUIApplication) {
+        let firstOrder = app.staticTexts["李明"].firstMatch
+        XCTAssertTrue(firstOrder.waitForExistence(timeout: 15), "Volunteer home should show available mock orders")
+
+        let availabilitySwitch = app.switches.firstMatch
+        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should exist")
+        availabilitySwitch.tap()
+
+        XCTAssertTrue(firstOrder.waitForExistence(timeout: 5), "Order should still be visible after availability toggle")
+        firstOrder.tap()
+
+        let acceptButton = app.buttons["接单"].firstMatch
+        XCTAssertTrue(waitForElementToBeEnabled(acceptButton, timeout: 8), "Accept should become enabled after availability is on")
+        acceptButton.tap()
+        app.buttons["确认接单"].tap()
+
+        let serviceButton = app.buttons["进入服务页面"].firstMatch
+        XCTAssertTrue(serviceButton.waitForExistence(timeout: 8), "Accepted order should allow entering service page")
+        serviceButton.tap()
+    }
+
+    private func attachScreenshot(named name: String, app: XCUIApplication) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func login(app: XCUIApplication, phone: String) {
