@@ -279,11 +279,85 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(SpeechInputStopReason.maxDuration.announcement, "语音输入已达到最长时间，已停止。")
     }
 
+    func testVoiceServiceExposesRequestedAPIAndCompatibilityAlias() {
+        let service = VoiceService()
+        let legacyService: SpeechService = service
+
+        service.speak(text: " 当前状态 ")
+        XCTAssertEqual(service.lastSpokenText, "当前状态")
+        XCTAssertEqual(service.latestRepeatableText, "当前状态")
+
+        legacyService.repeatCurrentStatus()
+        XCTAssertEqual(service.lastSpokenText, "当前状态")
+
+        service.stop()
+        XCTAssertFalse(service.isSpeaking)
+    }
+
+    func testVoiceServiceStatusAnnouncementsMatchAccessibilityGuidelinesAndDeduplicate() {
+        let service = VoiceService()
+
+        XCTAssertEqual(
+            VoiceService.statusAnnouncement(for: .matching),
+            "预约已提交，正在等待志愿者接单。"
+        )
+        XCTAssertEqual(
+            VoiceService.statusAnnouncement(for: .arrived),
+            "志愿者已到达，请确认开始服务。"
+        )
+        XCTAssertEqual(
+            VoiceService.statusAnnouncement(for: .emergency),
+            "已进入求助状态，系统已记录本次异常。"
+        )
+
+        XCTAssertTrue(service.speakStatusChange(.matching))
+        XCTAssertFalse(service.speakStatusChange(.matching))
+        XCTAssertTrue(service.speakStatusChange(.accepted))
+        XCTAssertEqual(service.lastSpokenStatus, .accepted)
+
+        service.stop()
+    }
+
+    func testSpeechInputFieldsAreTextOnlyAllowlist() {
+        XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.startPlaceSearch.rawValue))
+        XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.startLocationDescription.rawValue))
+        XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.destinationRoute.rawValue))
+        XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.remark.rawValue))
+        XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.ratingFeedback.rawValue))
+        XCTAssertTrue(SpeechInputField.isAllowlisted(SpeechInputField.volunteerServiceSummary.rawValue))
+
+        XCTAssertFalse(SpeechInputField.isAllowlisted("appointmentTime"))
+        XCTAssertFalse(SpeechInputField.isAllowlisted("estimatedDistance"))
+        XCTAssertFalse(SpeechInputField.isAllowlisted("pacePreference"))
+    }
+
+    func testSpeechInputRejectsNonAllowlistedFieldAndKeepsKeyboardFallback() {
+        let service = SpeechInputService()
+
+        service.startRecognitionForTesting(fieldId: "appointmentTime")
+
+        XCTAssertFalse(service.isListening)
+        XCTAssertNil(service.activeFieldId)
+        XCTAssertEqual(service.lastStopReason, .error)
+        XCTAssertEqual(service.errorMessage, SpeechInputService.keyboardFallbackErrorMessage)
+    }
+
+    func testSpeechInputFailureShowsKeyboardFallbackError() {
+        let service = SpeechInputService()
+
+        service.simulateRecognitionFailureForTesting(field: .remark)
+
+        XCTAssertFalse(service.isListening)
+        XCTAssertNil(service.activeFieldId)
+        XCTAssertEqual(service.lastStopReason, .error)
+        XCTAssertEqual(service.errorMessage, SpeechInputService.keyboardFallbackErrorMessage)
+    }
+
     func testSpeechInputStopRecognitionClearsActiveField() {
         let service = SpeechInputService()
 
         service.startRecognitionForTesting(fieldId: "remark")
-        XCTAssertTrue(service.isListening(for: "remark"))
+        XCTAssertTrue(service.isListening(for: .remark))
 
         service.stopRecognition()
 
@@ -295,7 +369,7 @@ final class blindRunTests: XCTestCase {
     func testSpeechInputSilenceTimeoutClearsActiveField() {
         let service = SpeechInputService()
 
-        service.startRecognitionForTesting(fieldId: "startLocation")
+        service.startRecognitionForTesting(field: .startLocationDescription)
         service.triggerSilenceTimeoutForTesting(hadDetectedSound: false)
 
         XCTAssertFalse(service.isListening)

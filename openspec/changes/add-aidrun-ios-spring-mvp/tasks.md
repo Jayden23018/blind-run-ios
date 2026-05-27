@@ -49,7 +49,7 @@
 
 - [ ] 8.1 Integrate 高德地图 with ignored local key config and committed example config.
 - [ ] 8.2 Show map, current location, order marker, and demo fallback coordinates.
-- [ ] 8.3 Implement TTS for all required state nodes and speech input for text fields.
+- [x] 8.3 Implement TTS for all required state nodes and speech input for text fields.
 - [ ] 8.4 Add VoiceOver labels/hints, large blind-runner buttons, high-contrast states, and confirmation dialogs for dangerous actions.
 
 ## 9. Demo Verification PR

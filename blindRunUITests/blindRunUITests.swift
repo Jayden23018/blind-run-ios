@@ -81,7 +81,7 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should show complete button")
         completeButton.tap()
 
-        let sheetCompleteButton = app.buttons["结束服务"].firstMatch
+        let sheetCompleteButton = app.buttons["确认结束服务"].firstMatch
         XCTAssertTrue(sheetCompleteButton.waitForExistence(timeout: 5), "Completion sheet should require a second action")
         sheetCompleteButton.tap()
 

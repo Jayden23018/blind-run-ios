@@ -3,6 +3,23 @@ import Combine
 import Foundation
 import Speech
 
+// MARK: - Speech Input Field
+
+enum SpeechInputField: String, CaseIterable, Identifiable {
+    case startPlaceSearch
+    case startLocationDescription
+    case destinationRoute
+    case remark
+    case ratingFeedback
+    case volunteerServiceSummary
+
+    var id: String { rawValue }
+
+    static func isAllowlisted(_ fieldId: String) -> Bool {
+        Self(rawValue: fieldId) != nil
+    }
+}
+
 // MARK: - Speech Input Stop Reason
 
 enum SpeechInputStopReason: Equatable {
@@ -35,7 +52,7 @@ enum SpeechInputStopReason: Equatable {
 @MainActor
 final class SpeechInputService: ObservableObject {
     @Published private(set) var isListening = false
-    @Published private(set) var activeFieldId: String?
+    @Published private(set) var activeField: SpeechInputField?
     @Published private(set) var lastStopReason: SpeechInputStopReason?
     @Published var errorMessage: String?
 
@@ -55,21 +72,26 @@ final class SpeechInputService: ObservableObject {
     static let trailingSilenceTimeout: TimeInterval = 3
     static let maximumRecognitionDuration: TimeInterval = 60
     static let speechPowerThreshold: Float = 0.012
+    static let keyboardFallbackErrorMessage = "语音识别失败，请使用键盘输入。"
+
+    var activeFieldId: String? {
+        activeField?.rawValue
+    }
 
     /// Returns whether the given field is currently being listened to.
-    func isListening(for fieldId: String) -> Bool {
-        isListening && activeFieldId == fieldId
+    func isListening(for field: SpeechInputField) -> Bool {
+        isListening && activeField == field
     }
 
     func startRecognition(
-        fieldId: String,
+        field: SpeechInputField,
         onTextChanged: @escaping (String) -> Void,
         onAnnouncement: ((String) -> Void)? = nil
     ) {
         announcementHandler = onAnnouncement
 
         // Tapping the same field while listening → stop
-        if isListening && activeFieldId == fieldId {
+        if isListening && activeField == field {
             stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true)
             return
         }
@@ -79,7 +101,7 @@ final class SpeechInputService: ObservableObject {
             stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true)
         }
 
-        activeFieldId = fieldId
+        activeField = field
         errorMessage = nil
         lastStopReason = nil
         Task {
@@ -87,7 +109,7 @@ final class SpeechInputService: ObservableObject {
             guard speechAuthorized else {
                 errorMessage = "语音识别不可用，请使用键盘输入。"
                 announce(errorMessage)
-                activeFieldId = nil
+                activeField = nil
                 lastStopReason = .error
                 return
             }
@@ -96,7 +118,7 @@ final class SpeechInputService: ObservableObject {
             guard microphoneAuthorized else {
                 errorMessage = "麦克风不可用，请使用键盘输入。"
                 announce(errorMessage)
-                activeFieldId = nil
+                activeField = nil
                 lastStopReason = .error
                 return
             }
@@ -136,7 +158,7 @@ final class SpeechInputService: ObservableObject {
         lastSoundAt = nil
         hasDetectedSound = false
         if clearActiveField {
-            activeFieldId = nil
+            activeField = nil
         }
 
         do {
@@ -154,7 +176,7 @@ final class SpeechInputService: ObservableObject {
         guard recognizer?.isAvailable == true else {
             errorMessage = "语音识别暂不可用，请使用键盘输入。"
             announce(errorMessage)
-            activeFieldId = nil
+            activeField = nil
             lastStopReason = .error
             return
         }
@@ -353,10 +375,28 @@ final class SpeechInputService: ObservableObject {
 
     #if DEBUG
     func startRecognitionForTesting(fieldId: String) {
-        activeFieldId = fieldId
+        guard let field = SpeechInputField(rawValue: fieldId) else {
+            errorMessage = Self.keyboardFallbackErrorMessage
+            activeField = nil
+            isListening = false
+            lastStopReason = .error
+            return
+        }
+        startRecognitionForTesting(field: field)
+    }
+
+    func startRecognitionForTesting(field: SpeechInputField) {
+        activeField = field
         isListening = true
         recognitionStartedAt = Date()
         lastStopReason = nil
+    }
+
+    func simulateRecognitionFailureForTesting(field: SpeechInputField) {
+        activeField = field
+        isListening = true
+        errorMessage = Self.keyboardFallbackErrorMessage
+        stopAudioRecognition(reason: .error, clearActiveField: true, announce: false)
     }
 
     func triggerSilenceTimeoutForTesting(hadDetectedSound: Bool) {

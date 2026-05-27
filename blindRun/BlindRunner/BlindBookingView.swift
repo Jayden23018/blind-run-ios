@@ -370,7 +370,7 @@ struct BlindBookingView: View {
                     text: $viewModel.placeSearchKeyword,
                     speechInputService: speechInputService,
                     speechService: speechService,
-                    fieldId: "startPlaceSearch",
+                    speechField: .startPlaceSearch,
                     accessibilityLabel: "搜索出发地点",
                     accessibilityHint: "可以使用语音或键盘搜索高德地点"
                 )
@@ -401,7 +401,7 @@ struct BlindBookingView: View {
                     text: $viewModel.startLocationDescription,
                     speechInputService: speechInputService,
                     speechService: speechService,
-                    fieldId: "startLocation",
+                    speechField: .startLocationDescription,
                     accessibilityLabel: "出发地点补充描述",
                     accessibilityHint: "可以使用语音或键盘补充出发地点说明，不能替代坐标"
                 )
@@ -572,7 +572,7 @@ struct BlindBookingView: View {
                 text: $viewModel.destinationText,
                 speechInputService: speechInputService,
                 speechService: speechService,
-                fieldId: "destination",
+                speechField: .destinationRoute,
                 accessibilityLabel: "目的地或路线，选填",
                 accessibilityHint: "可以使用语音或键盘输入路线说明"
             )
@@ -635,7 +635,7 @@ struct BlindBookingView: View {
                 isMultiline: true,
                 speechInputService: speechInputService,
                 speechService: speechService,
-                fieldId: "remark",
+                speechField: .remark,
                 accessibilityLabel: "备注，选填",
                 accessibilityHint: "可以使用语音或键盘输入备注"
             )
@@ -672,83 +672,6 @@ struct BlindBookingView: View {
             .font(.title3.bold())
             .foregroundColor(AppColors.textPrimary)
             .accessibilityAddTraits(.isHeader)
-    }
-}
-
-// MARK: - Voice Text Field
-
-struct VoiceTextField: View {
-    let title: String
-    let placeholder: String
-    @Binding var text: String
-    var isMultiline = false
-    @ObservedObject var speechInputService: SpeechInputService
-    @ObservedObject var speechService: SpeechService
-    let fieldId: String
-    let accessibilityLabel: String
-    let accessibilityHint: String
-
-    var body: some View {
-        let isListening = speechInputService.isListening(for: fieldId)
-
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-
-            HStack(alignment: .top, spacing: 8) {
-                Group {
-                    if isMultiline {
-                        TextEditor(text: $text)
-                            .frame(minHeight: 96)
-                    } else {
-                        TextField(placeholder, text: $text)
-                    }
-                }
-                .font(AppFonts.body())
-                .padding()
-                .background(AppColors.secondaryBackground)
-                .cornerRadius(8)
-                .accessibilityLabel(accessibilityLabel)
-                .accessibilityHint(accessibilityHint)
-
-                Button {
-                    speechInputService.startRecognition(fieldId: fieldId, onTextChanged: { recognizedText in
-                        text = recognizedText
-                    }, onAnnouncement: { message in
-                        speechService.speak(message)
-                    })
-                } label: {
-                    Image(systemName: isListening ? "mic.fill" : "mic")
-                        .font(.title2)
-                        .frame(width: 52, height: 52)
-                        .background(isListening ? AppColors.warning : AppColors.primary)
-                        .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .accessibilityHidden(true)
-                }
-                .accessibilityLabel(isListening ? "停止语音输入\(title)" : "语音输入\(title)")
-                .accessibilityHint(isListening ? "点击后停止录音" : "点击后开始语音输入")
-            }
-
-            if isListening {
-                HStack(spacing: 6) {
-                    Image(systemName: "waveform")
-                        .accessibilityHidden(true)
-                    Text("正在聆听...")
-                    }
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("\(title)正在聆听")
-            }
-
-            if let errorMessage = speechInputService.errorMessage {
-                Text(errorMessage)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.destructive)
-                    .accessibilityLabel(errorMessage)
-            }
-        }
     }
 }
 

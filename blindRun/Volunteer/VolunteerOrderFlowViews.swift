@@ -1720,6 +1720,8 @@ struct EmptyStateView: View {
 
 struct CompleteServiceSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var speechService: SpeechService
+    @EnvironmentObject private var speechInputService: SpeechInputService
     @State private var summary = ""
     @State private var showConfirm = false
     let isPerformingAction: Bool
@@ -1728,21 +1730,23 @@ struct CompleteServiceSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
-                Text("服务总结（选填）")
-                    .font(.headline)
-                TextEditor(text: $summary)
-                    .frame(minHeight: 140)
-                    .padding(8)
-                    .background(AppColors.secondaryBackground)
-                    .cornerRadius(8)
-                    .accessibilityLabel("服务总结")
-                    .accessibilityHint("可选填写本次服务总结")
+                VoiceTextField(
+                    title: "服务总结（选填）",
+                    placeholder: "例如：顺利完成慢跑陪伴",
+                    text: $summary,
+                    isMultiline: true,
+                    speechInputService: speechInputService,
+                    speechService: speechService,
+                    speechField: .volunteerServiceSummary,
+                    accessibilityLabel: "服务总结，选填",
+                    accessibilityHint: "可以使用语音或键盘输入本次服务总结"
+                )
 
-                PrimaryButton("结束服务", isLoading: isPerformingAction) {
+                PrimaryButton("确认结束服务", isLoading: isPerformingAction) {
                     showConfirm = true
                 }
-                .accessibilityLabel("结束服务")
-                .accessibilityHint("需要二次确认")
+                .accessibilityLabel("确认结束服务")
+                .accessibilityHint("点击后弹出二次确认")
 
                 Spacer()
             }
@@ -1771,6 +1775,7 @@ struct CompleteServiceSheet: View {
         VolunteerOrderListView()
             .environmentObject(AppState())
             .environmentObject(SpeechService())
+            .environmentObject(SpeechInputService())
             .environmentObject(LocationService())
     }
 }
