@@ -70,15 +70,8 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(arriveButton.waitForExistence(timeout: 5), "Accepted order should show arrive button")
         arriveButton.tap()
 
-        let waitingText = app.staticTexts["已到达，等待盲人确认开始服务"].firstMatch
-        XCTAssertTrue(waitingText.waitForExistence(timeout: 8), "Arrived state should wait for blind runner confirmation")
-
-        let mockConfirmStartButton = app.buttons["模拟盲人确认开始"].firstMatch
-        XCTAssertTrue(mockConfirmStartButton.waitForExistence(timeout: 5), "Mock mode should allow confirming service start")
-        mockConfirmStartButton.tap()
-
         let completeButton = app.buttons["结束服务"].firstMatch
-        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should show complete button")
+        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "Arrived order should allow completing service in current cloud contract")
         completeButton.tap()
 
         let sheetCompleteButton = app.buttons["确认结束服务"].firstMatch
@@ -109,16 +102,12 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(arriveButton.waitForExistence(timeout: 5), "Accepted service page should show arrive action")
         arriveButton.tap()
 
-        let waitingText = app.staticTexts["已到达，等待盲人确认开始服务"].firstMatch
-        XCTAssertTrue(waitingText.waitForExistence(timeout: 8), "Arrived state should wait for blind runner confirmation")
+        let arrivedText = app.staticTexts["已到达，可开始服务"].firstMatch
+        XCTAssertTrue(arrivedText.waitForExistence(timeout: 8), "Arrived state should allow service completion in current cloud contract")
         attachScreenshot(named: "volunteer-service-arrived", app: app)
 
-        let mockConfirmStartButton = app.buttons["模拟盲人确认开始"].firstMatch
-        XCTAssertTrue(mockConfirmStartButton.waitForExistence(timeout: 5), "Mock mode should allow confirming service start")
-        mockConfirmStartButton.tap()
-
         let completeButton = app.buttons["结束服务"].firstMatch
-        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should show complete button")
+        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "Arrived order should show complete button")
         attachScreenshot(named: "volunteer-service-in-progress", app: app)
 
         completeButton.tap()

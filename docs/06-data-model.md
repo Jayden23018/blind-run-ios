@@ -35,19 +35,21 @@ MVP 中志愿者完成 Mock 认证后，`verificationStatus` 和 `adminReviewSta
 
 | Value | Description |
 | --- | --- |
-| `matching` | 等待志愿者接单 |
-| `accepted` | 志愿者已接单 |
-| `arrived` | 志愿者已到达 |
-| `in_progress` | 服务进行中 |
-| `completed` | 服务已完成 |
-| `cancelled` | 已取消 |
-| `emergency` | 求助 / 异常状态 |
+| `PENDING_MATCH` | 等待志愿者接单 |
+| `PENDING_ACCEPT` | 志愿者已接单，待出发 |
+| `DRIVER_EN_ROUTE` | 志愿者已出发 |
+| `DRIVER_ARRIVED` | 志愿者已到达 |
+| `IN_PROGRESS` | 服务进行中 |
+| `COMPLETED` | 服务已完成 |
+| `CANCELLED` | 已取消 |
+| `REMATCHING` | 重新匹配中 |
+| `NO_VOLUNTEER` | 无可用志愿者 |
 
-正常流转：`matching -> accepted -> arrived -> in_progress -> completed`。
+正常流转：`PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED`。
 
-取消流转：`matching / accepted / arrived -> cancelled`。
+取消流转：`PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS -> CANCELLED`。
 
-求助流转：`accepted / arrived / in_progress -> emergency`，MVP 不支持恢复原状态。
+求助流转：`DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> emergency event`，通过 `POST /api/emergency/trigger` 记录事件，订单状态不改为 `emergency`。
 
 ### CancellationActor
 
@@ -94,7 +96,7 @@ Rules:
 
 - 首次手机号登录自动创建 `User`，但不强制设置 `activeRole`；App 应进入角色选择页并通过角色切换接口保存当前角色。
 - 默认可拥有盲人和志愿者身份；资料完整性由对应业务入口校验。
-- 若用户存在 `accepted`、`arrived`、`in_progress`、`emergency` 状态订单，禁止切换 `activeRole`。
+- 若用户存在 `PENDING_ACCEPT`、`DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 状态订单，禁止切换 `activeRole`。
 
 ### BlindRunnerProfile
 
@@ -194,8 +196,8 @@ Rules:
 
 Rules:
 
-- 只有 `matching` 订单可被接单；并发接单时第一个成功更新为 `accepted` 的志愿者获得订单。
-- 预约开始前 30 分钟仍无人接单的订单自动进入 `cancelled`，原因 `no_volunteer_available`。
+- 只有 `PENDING_MATCH` 订单可被接单；并发接单时第一个成功更新为 `PENDING_ACCEPT` 的志愿者获得订单。
+- 预约开始前 30 分钟仍无人接单的订单自动进入 `NO_VOLUNTEER`。
 - 后端 MVP 不负责距离排序；iOS 端按志愿者当前位置与订单出发点计算距离并排序。
 - 接单前隐藏联系方式与紧急联系人；接单后显示盲人完整联系电话。
 
@@ -212,10 +214,10 @@ Rules:
 
 Rules:
 
-- 服务开始前可普通取消。
+- `PENDING_MATCH`、`PENDING_ACCEPT`、`IN_PROGRESS` 可普通取消。
 - 用户手动取消原因只能来自 `ManualCancellationReason`。
 - 系统超时取消使用 `cancelledReason = no_volunteer_available`，不设置 `cancelledBy`。
-- `in_progress` 后不能普通取消，只能进入求助 / 异常状态。
+- 终态 `COMPLETED`、`CANCELLED`、`NO_VOLUNTEER` 不可取消。
 
 ### EmergencyEvent
 
@@ -230,8 +232,8 @@ Rules:
 
 Rules:
 
-- `accepted`、`arrived`、`in_progress` 状态显示一键求助入口。
-- 确认求助后订单进入 `emergency`，不恢复。
+- `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 状态显示一键求助入口。
+- 确认求助后记录 emergency event，订单状态不改为 `emergency`。
 
 ### ServiceSummary
 
@@ -303,4 +305,4 @@ Spring Boot 启动时应 seed：
 
 ## 6. Out of Scope
 
-MVP 数据模型不支持：Android、完整管理员后台、真实短信、真实实名认证、真实管理员审核后台、WebSocket、实时轨迹共享、自动打电话、自动发短信、AI 助手、复杂自然语言时间解析、路线导航、完整积分商城、支付、库存、App 内聊天、复杂风控、摔倒检测、电子围栏、即时呼叫、多人活动报名。
+MVP 数据模型不支持：Android、完整管理员后台、真实短信、真实实名认证、真实管理员审核后台、实时轨迹共享、自动打电话、自动发短信、AI 助手、复杂自然语言时间解析、路线导航、完整积分商城、支付、库存、App 内聊天、复杂风控、摔倒检测、电子围栏、即时呼叫、多人活动报名。WebSocket 仅用于实时派单、状态通知和位置上报。

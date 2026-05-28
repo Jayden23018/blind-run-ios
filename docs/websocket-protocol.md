@@ -163,12 +163,15 @@
 
 **订单状态流转**:
 ```
-PENDING_MATCH → PENDING_ACCEPT → IN_PROGRESS → DRIVER_EN_ROUTE → DRIVER_ARRIVED → COMPLETED
-      ↓              ↓                ↓                ↓                 ↓
-  CANCELLED      REMATCHING       CANCELLED       REMATCHING        REMATCHING
+PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
+      ↓              ↓                  ↓                 ↓              ↓
+  CANCELLED      CANCELLED          emergency event    emergency event  CANCELLED/COMPLETED
 
 NO_VOLUNTEER（无可用志愿者）
 ```
+
+Emergency is recorded through `POST /api/emergency/trigger`; the order status itself is not changed to
+`emergency`.
 
 #### EMERGENCY_RESOLVED_BY_VOLUNTEER — 紧急事件志愿者已确认
 

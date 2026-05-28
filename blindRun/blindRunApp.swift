@@ -50,6 +50,8 @@ struct blindRunApp: App {
         case "localBackend":
             appState.currentEnvironment = .localBackend
             AppConstants.LocalBackend.save(environment["AIDRUN_UI_TEST_LOCAL_BACKEND_URL"] ?? "http://127.0.0.1:8080")
+        case "production":
+            appState.currentEnvironment = .production
         case "mock":
             appState.currentEnvironment = .mock
         default:

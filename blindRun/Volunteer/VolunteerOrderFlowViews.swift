@@ -93,7 +93,7 @@ extension RunOrderStatus {
         case .driverEnRoute:
             return "正在前往约定地点"
         case .driverArrived:
-            return "已到达，等待开始服务"
+            return "已到达，可开始服务"
         case .completed:
             return "服务完成，获得 +100 积分"
         case .cancelled:

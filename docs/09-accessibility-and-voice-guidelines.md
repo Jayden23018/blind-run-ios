@@ -100,7 +100,7 @@ Emergency confirmation copy must be:
 
 After emergency confirmation:
 
-- Order status becomes `emergency`.
+- The app records an emergency event through `POST /api/emergency/trigger`; the order status itself is not changed to `emergency`.
 - TTS announces entry into emergency state.
 - MVP does not restore the previous state.
 - MVP does not auto-call, auto-SMS, or notify a real administrator.
@@ -111,13 +111,15 @@ Use short, direct Chinese copy.
 
 Recommended status announcements:
 
-- `matching`: “预约已提交，正在等待志愿者接单。”
-- `accepted`: “志愿者已接单，请等待志愿者到达。”
-- `arrived`: “志愿者已到达，请确认开始服务。”
-- `in_progress`: “服务已开始，请注意安全。”
-- `completed`: “服务已完成，感谢使用助盲跑。”
-- `cancelled`: “本次预约已取消。”
-- `emergency`: “已进入求助状态，系统已记录本次异常。”
+- `PENDING_MATCH`: “预约已提交，正在等待志愿者接单。”
+- `PENDING_ACCEPT`: “志愿者已接单，请等待志愿者出发。”
+- `DRIVER_EN_ROUTE`: “志愿者已出发，正在赶往您的位置。”
+- `DRIVER_ARRIVED`: “志愿者已到达，请准备开始服务。”
+- `IN_PROGRESS`: “服务已开始，请注意安全。”
+- `COMPLETED`: “服务已完成，感谢使用助盲跑。”
+- `CANCELLED`: “本次预约已取消。”
+- `NO_VOLUNTEER`: “暂时没有可用志愿者。”
+- emergency event: “已进入求助状态，系统已记录本次异常。”
 
 ## 8. Volunteer Accessibility
 

@@ -125,9 +125,6 @@ final class WebSocketService: ObservableObject {
         webSocketTask = session.webSocketTask(with: url)
         webSocketTask?.resume()
 
-        connectionState = .connected
-        reconnectAttempt = 0
-
         startReceiving()
 
         // Start heartbeat only for blind users
@@ -152,7 +149,7 @@ final class WebSocketService: ObservableObject {
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            await self?.performConnect()
+            self?.performConnect()
         }
     }
 
@@ -165,6 +162,7 @@ final class WebSocketService: ObservableObject {
                 guard let task = self.webSocketTask else { break }
                 do {
                     let message = try await task.receive()
+                    self.markConnected()
                     switch message {
                     case .string(let text):
                         self.handleTextMessage(text)
@@ -240,22 +238,34 @@ final class WebSocketService: ObservableObject {
         eventSubject.send(event)
     }
 
+    private func markConnected() {
+        if case .connected = connectionState { return }
+        connectionState = .connected
+        reconnectAttempt = 0
+    }
+
     // MARK: - Sending Messages
 
     private func sendMessage<T: Encodable>(_ message: T) {
+        guard let task = webSocketTask else { return }
+        switch connectionState {
+        case .connecting, .connected:
+            break
+        case .disconnected, .reconnecting:
+            return
+        }
+
         // Rate limiting: minimum 500ms between sends
         let now = Date()
         guard now.timeIntervalSince(lastSendTime) >= Self.minSendInterval else { return }
         lastSendTime = now
-
-        guard let task = webSocketTask,
-              case .connected = connectionState else { return }
 
         Task {
             do {
                 let data = try encoder.encode(message)
                 if let text = String(data: data, encoding: .utf8) {
                     try await task.send(.string(text))
+                    markConnected()
                 }
             } catch {
                 // Send failure - connection may be lost

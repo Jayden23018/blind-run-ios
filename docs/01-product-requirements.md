@@ -87,7 +87,7 @@
 | 网络层 | URLSession + async/await |
 | Token 存储 | MVP 用 UserDefaults（正式版替换为 Keychain） |
 | 地图服务 | 高德地图（AMap） |
-| 实时通信 | 不做 WebSocket，盲人端每 5 秒轮询订单详情 |
+| 实时通信 | REST + WebSocket；订单页保留每 5 秒轮询作为 WebSocket 断开时的降级方案 |
 | 短信验证 | MVP 使用固定验证码 `123456`，不接入真实短信服务商 |
 | 志愿者认证 | Mock 认证，非真实实名认证 |
 | 环境切换 | 支持 Mock / Local Backend / Production Backend 三种模式 |
@@ -102,7 +102,7 @@
 - 真实短信服务
 - 真实实名认证
 - 真实管理员审核后台
-- WebSocket / 实时轨迹共享
+- 实时轨迹共享
 - 自动拨打电话 / 发送短信
 - AI 助手 / 复杂自然语言时间解析
 - 路线导航

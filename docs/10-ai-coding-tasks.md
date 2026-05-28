@@ -19,7 +19,7 @@ Acceptance:
 
 ### PR-BE-02 Auth and User
 
-- Implement `POST /api/auth/phone-login`.
+- Implement two-step phone login: `POST /api/auth/send-code` then `POST /api/auth/verify-code`.
 - Accept fixed demo code `123456`.
 - Auto-create user on first phone login.
 - Return JWT access token and current user.
@@ -48,12 +48,12 @@ Acceptance:
 - Implement create booking with appointment at least 30 minutes later.
 - Implement my orders and available orders.
 - Implement accept with status guard and concurrency protection.
-- Implement arrive, confirm start, complete, cancel, emergency, rating.
+- Implement en-route, arrived, finish, cancel, emergency event, and rating.
 - Implement no-volunteer cancellation job or startup-safe scheduled check.
 
 Acceptance:
 
-- Happy path runs: `matching -> accepted -> arrived -> in_progress -> completed`.
+- Happy path runs: `PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED`.
 - Second accept returns `ORDER_ALREADY_ACCEPTED`.
 - Invalid transitions return `INVALID_ORDER_STATUS`.
 
@@ -99,7 +99,7 @@ Acceptance:
 - Implement blind home with repeat status button.
 - Implement create booking form with location default, DatePicker, optional fields.
 - Implement order status polling every 5 seconds.
-- Implement confirm start, cancel, emergency, optional rating.
+- Implement cancel, emergency event, and optional rating.
 
 Acceptance:
 
@@ -111,7 +111,7 @@ Acceptance:
 - Implement volunteer profile and Mock verification page.
 - Implement availability switch.
 - Implement available orders list sorted by iOS-calculated distance.
-- Implement order detail actions: accept, arrived, complete, cancel, emergency.
+- Implement order detail actions: accept, en-route, arrived, finish, cancel, emergency event.
 - Implement service records and points/shop placeholder pages.
 
 Acceptance:
@@ -172,4 +172,4 @@ Acceptance:
 
 ## 4. Explicit Non-Goals
 
-Do not implement Android, full admin backend, real SMS, real identity verification, real admin review, WebSocket, real-time tracks, auto-call, auto-SMS, AI assistant, natural-language time parsing, route navigation, full points shop, payment, inventory, in-app chat, complex risk control, fall detection, geofencing, instant call, or group activity registration.
+Do not implement Android, full admin backend, real SMS, real identity verification, real admin review, real-time tracks, auto-call, auto-SMS, AI assistant, natural-language time parsing, route navigation, full points shop, payment, inventory, in-app chat, complex risk control, fall detection, geofencing, instant call, or group activity registration. WebSocket is required only for the cloud API contract's dispatch, status, and location messages.

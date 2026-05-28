@@ -73,49 +73,48 @@ flowchart TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> matching: 盲人提交预约
+    [*] --> PENDING_MATCH: 盲人提交预约
 
-    matching --> accepted: 志愿者接单成功\n(API: POST /api/orders/{orderId}/accept)
-    matching --> cancelled: 盲人取消\n(API: POST /api/orders/{orderId}/cancel)
-    matching --> cancelled: 超时自动取消\n(距预约时间<30min无人接单)
+    PENDING_MATCH --> PENDING_ACCEPT: 志愿者接单成功\n(API: POST /api/orders/{orderId}/accept)
+    PENDING_MATCH --> CANCELLED: 盲人取消\n(API: POST /api/orders/{orderId}/cancel)
+    PENDING_MATCH --> NO_VOLUNTEER: 无可用志愿者
 
-    accepted --> arrived: 志愿者点击"我已到达"\n(API: POST /api/orders/{orderId}/arrive)
-    accepted --> cancelled: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
-    accepted --> emergency: 任一方触发求助\n(API: POST /api/orders/{orderId}/emergency)
+    PENDING_ACCEPT --> DRIVER_EN_ROUTE: 志愿者点击"我已出发"\n(API: POST /api/orders/{orderId}/en-route)
+    PENDING_ACCEPT --> CANCELLED: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
 
-    arrived --> in_progress: 盲人确认开始服务\n(API: POST /api/orders/{orderId}/confirm-start)
-    arrived --> cancelled: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
-    arrived --> emergency: 任一方触发求助\n(API: POST /api/orders/{orderId}/emergency)
+    DRIVER_EN_ROUTE --> DRIVER_ARRIVED: 志愿者点击"我已到达"\n(API: POST /api/orders/{orderId}/arrived)
+    DRIVER_EN_ROUTE --> emergency_event: 任一方触发求助\n(API: POST /api/emergency/trigger)
 
-    in_progress --> completed: 志愿者结束服务\n(API: POST /api/orders/{orderId}/complete)
-    in_progress --> emergency: 任一方触发求助\n(API: POST /api/orders/{orderId}/emergency)
+    DRIVER_ARRIVED --> IN_PROGRESS: 服务开始\n(云端状态通知)
+    DRIVER_ARRIVED --> emergency_event: 任一方触发求助\n(API: POST /api/emergency/trigger)
 
-    completed --> [*]: 订单结束
-    cancelled --> [*]: 订单结束
-    emergency --> [*]: 异常终态
+    IN_PROGRESS --> COMPLETED: 志愿者结束服务\n(API: POST /api/orders/{orderId}/finish)
+    IN_PROGRESS --> CANCELLED: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
+    IN_PROGRESS --> emergency_event: 任一方触发求助\n(API: POST /api/emergency/trigger)
+
+    COMPLETED --> [*]: 订单结束
+    CANCELLED --> [*]: 订单结束
+    NO_VOLUNTEER --> [*]: 订单结束
 ```
 
 ### 状态流转规则表
 
 | 当前状态 | 允许的目标状态 | 触发者 | 说明 |
 |----------|---------------|--------|------|
-| matching | accepted | 志愿者 | 接单（乐观锁保护） |
-| matching | cancelled | 盲人 / 系统 | 手动取消或超时 |
-| accepted | arrived | 志愿者 | 标记到达 |
-| accepted | cancelled | 盲人 / 志愿者 | 服务开始前可取消 |
-| accepted | emergency | 盲人 / 志愿者 | 一键求助 |
-| arrived | in_progress | 盲人 | 确认开始服务 |
-| arrived | cancelled | 盲人 / 志愿者 | 服务开始前可取消 |
-| arrived | emergency | 盲人 / 志愿者 | 一键求助 |
-| in_progress | completed | 志愿者 | 正常结束 |
-| in_progress | emergency | 盲人 / 志愿者 | 一键求助 |
+| PENDING_MATCH | PENDING_ACCEPT | 志愿者 | 接单（乐观锁保护） |
+| PENDING_MATCH | CANCELLED / NO_VOLUNTEER | 盲人 / 系统 | 手动取消或无可用志愿者 |
+| PENDING_ACCEPT | DRIVER_EN_ROUTE | 志愿者 | 标记出发 |
+| PENDING_ACCEPT | CANCELLED | 盲人 / 志愿者 | 服务开始前可取消 |
+| DRIVER_EN_ROUTE | DRIVER_ARRIVED | 志愿者 | 标记到达 |
+| DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS | emergency event | 盲人 / 志愿者 | 通过 `POST /api/emergency/trigger` 记录求助事件，订单状态不改为 emergency |
+| DRIVER_ARRIVED | IN_PROGRESS | 系统 / 云端通知 | 服务开始；当前云端 REST 契约没有单独 start endpoint |
+| IN_PROGRESS | COMPLETED | 志愿者 | 正常结束 |
+| IN_PROGRESS | CANCELLED | 盲人 / 志愿者 | 服务中可取消 |
 
 ### 禁止的流转
 
-- in_progress → cancelled（服务开始后不支持普通取消，只能走 emergency）
-- emergency → 任何其他状态（MVP 不支持恢复或继续执行生命周期动作）
-- completed → 任何状态（终态）
-- cancelled → 任何状态（终态）
+- COMPLETED / CANCELLED / NO_VOLUNTEER → 任何状态（终态）
+- emergency event → 订单状态（求助是独立事件，不是订单状态流转）
 
 ## 3. 盲人跑者正向流程（Happy Path）
 
@@ -127,8 +126,9 @@ sequenceDiagram
     actor VOL as 志愿者
 
     BR->>App: 打开 App
-    App->>API: POST /api/auth/phone-login (手机号 + 123456)
-    API-->>App: { accessToken, user }
+    App->>API: POST /api/auth/send-code
+    App->>API: POST /api/auth/verify-code (手机号 + 123456)
+    API-->>App: { token, userId, role }
     App->>BR: 显示盲人首页
     Note over App: TTS: "欢迎来到助盲跑"
 
@@ -139,38 +139,40 @@ sequenceDiagram
     BR->>App: 填写出发地点、时间、备注
     BR->>App: 点击"提交预约"
     App->>API: POST /api/orders (booking data)
-    API-->>App: { orderId, status: "matching" }
+    API-->>App: { orderId, status: "PENDING_MATCH" }
     Note over App: TTS: "订单提交成功，等待志愿者接单"
 
     loop 每5秒轮询
         App->>API: GET /api/orders/{orderId}
-        API-->>App: { status: "matching" }
+        API-->>App: { status: "PENDING_MATCH" }
     end
 
     VOL-->>API: 接单 (POST /api/orders/{orderId}/accept)
-    Note over API: 状态: matching → accepted
+    Note over API: 状态: PENDING_MATCH → PENDING_ACCEPT
 
     App->>API: GET /api/orders/{orderId}
-    API-->>App: { status: "accepted", volunteer: {...} }
+    API-->>App: { status: "PENDING_ACCEPT", volunteer: {...} }
     Note over App: TTS: "志愿者已接单"
 
-    VOL-->>API: 到达 (POST /api/orders/{orderId}/arrive)
-    Note over API: 状态: accepted → arrived
+    VOL-->>API: 出发 (POST /api/orders/{orderId}/en-route)
+    Note over API: 状态: PENDING_ACCEPT → DRIVER_EN_ROUTE
+
+    VOL-->>API: 到达 (POST /api/orders/{orderId}/arrived)
+    Note over API: 状态: DRIVER_EN_ROUTE → DRIVER_ARRIVED
 
     App->>API: GET /api/orders/{orderId}
-    API-->>App: { status: "arrived" }
+    API-->>App: { status: "DRIVER_ARRIVED" }
     Note over App: TTS: "志愿者已到达约定地点"
 
-    BR->>App: 点击"确认开始服务"
-    App->>API: POST /api/orders/{orderId}/confirm-start
-    API-->>App: { status: "in_progress" }
+    App->>API: WebSocket / 轮询获取服务开始状态
+    API-->>App: { status: "IN_PROGRESS" }
     Note over App: TTS: "服务已开始"
 
-    VOL-->>API: 结束服务 (POST /api/orders/{orderId}/complete)
-    Note over API: 状态: in_progress → completed
+    VOL-->>API: 结束服务 (POST /api/orders/{orderId}/finish)
+    Note over API: 状态: IN_PROGRESS → COMPLETED
 
     App->>API: GET /api/orders/{orderId}
-    API-->>App: { status: "completed" }
+    API-->>App: { status: "COMPLETED" }
     Note over App: TTS: "服务已完成"
 
     BR->>App: 对志愿者评分（可选）
@@ -204,26 +206,28 @@ sequenceDiagram
 
     VOL->>App: 点击"接单"
     App->>API: POST /api/orders/{orderId}/accept
-    API-->>App: { status: "accepted" }
+    API-->>App: { status: "PENDING_ACCEPT" }
     App->>VOL: 显示盲人联系电话 + "查看地图"按钮
 
     VOL->>App: 点击"查看地图"
     App->>AMap: 显示出发点位置、当前位置和距离
 
+    VOL->>App: 点击"我已出发"
+    App->>API: POST /api/orders/{orderId}/en-route
+    API-->>App: { status: "DRIVER_EN_ROUTE" }
+
     VOL->>App: 到达后点击"我已到达"
-    App->>API: POST /api/orders/{orderId}/arrive
-    API-->>App: { status: "arrived" }
+    App->>API: POST /api/orders/{orderId}/arrived
+    API-->>App: { status: "DRIVER_ARRIVED" }
 
-    Note over API: 等待盲人确认开始
-
-    App->>API: 轮询 → status: "in_progress"
-    API-->>App: { status: "in_progress" }
+    App->>API: WebSocket / 轮询 → status: "IN_PROGRESS"
+    API-->>App: { status: "IN_PROGRESS" }
 
     VOL->>App: 服务结束点击"结束服务"
     App->>App: 弹出确认弹窗
     VOL->>App: 确认
-    App->>API: POST /api/orders/{orderId}/complete
-    API-->>App: { status: "completed" }
+    App->>API: POST /api/orders/{orderId}/finish
+    API-->>App: { status: "COMPLETED" }
     App->>VOL: 显示"服务完成，获得 +100 积分"
 ```
 
@@ -236,24 +240,24 @@ sequenceDiagram
     participant API as 后端 API
     actor Other as 另一方用户
 
-    Note over User,Other: 订单状态为 accepted / arrived / in_progress
+    Note over User,Other: 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
 
     User->>App: 点击"紧急求助"按钮
     App->>User: 弹出确认弹窗\n"是否确认进入求助状态？\n确认后，本次服务将标记为异常"
     User->>App: 确认求助
-    App->>API: POST /api/orders/{orderId}/emergency
-    Note over API: 状态 → emergency
-    API-->>App: { status: "emergency" }
+    App->>API: POST /api/emergency/trigger
+    Note over API: 记录 emergency event，订单状态不改为 emergency
+    API-->>App: { success: true }
 
     Note over App: TTS: "已进入求助状态"
 
     loop 另一方轮询
         Other->>API: GET /api/orders/{orderId}
-        API-->>Other: { status: "emergency" }
+        API-->>Other: { type: "EMERGENCY_VOLUNTEER_ALERT" / "APP_NOTIFICATION" }
         Note over Other: TTS: "进入求助状态" / UI 更新
     end
 
-    Note over App,Other: 显示紧急联系人信息（盲人端）\n订单不可恢复，保持 emergency 终态
+    Note over App,Other: 显示求助提示；后续处理通过 emergency event 跟踪
 ```
 
 ## 6. 角色切换拦截流程
@@ -261,7 +265,7 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     Switch["用户点击切换角色"]
-    CheckActive{"检查活跃订单\n(accepted / arrived /\nin_progress / emergency)"}
+    CheckActive{"检查活跃订单\n(PENDING_ACCEPT / DRIVER_EN_ROUTE /\nDRIVER_ARRIVED / IN_PROGRESS)"}
     Block["弹出警告弹窗\n'您有进行中的订单，无法切换角色'"]
     Stay["保持当前角色页面"]
     Allow["切换到目标角色\n导航至对应首页"]

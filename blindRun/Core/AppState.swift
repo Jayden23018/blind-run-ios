@@ -204,15 +204,11 @@ final class AppState: ObservableObject {
     }
 
     static func resolvedInitialEnvironment(_ environment: APIEnvironment) -> APIEnvironment {
-        #if DEBUG
-        environment == .production ? .mock : environment
-        #else
         environment
-        #endif
     }
 
     #if DEBUG
-    static let debugTestEnvironments: [APIEnvironment] = [.mock, .localBackend]
+    static let debugTestEnvironments: [APIEnvironment] = [.mock, .localBackend, .production]
     #endif
 
     // MARK: - WebSocket (Private)

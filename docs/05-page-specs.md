@@ -1,6 +1,9 @@
 # 05 — 页面规格
 
 > 共 16 个页面。每个页面按 8 个维度描述：页面目标、入口、主要内容、主要操作、状态变化、错误状态、空状态、无障碍要求。
+> Cloud contract note: API calls use `POST /api/auth/send-code`, `POST /api/auth/verify-code`,
+> `POST /api/user/role`, and the canonical order statuses from `AGENTS.md` / `docs/api_spec.yaml`.
+> Lower-case status names in older page examples are historical aliases only.
 
 ---
 
@@ -27,7 +30,7 @@
 **状态变化**：
 - 手机号格式校验中 → 实时提示格式错误
 - "获取验证码"点击 → 页面提示"验证码已发送"，按钮变为倒计时（60 秒）
-- 验证码输入 → 调用 `POST /api/auth/phone-login` 并跳转
+- 验证码输入 → 调用 `POST /api/auth/verify-code` 并跳转
 - 首次登录 → 角色选择页
 - 非首次登录 → 直接进入上次选择的角色首页
 
@@ -275,7 +278,7 @@
 
 **主要操作**：
 - 点击志愿者电话 → 系统拨号
-- 点击"一键求助" → 弹窗确认 → 进入 emergency
+- 点击"一键求助" → 弹窗确认 → 记录 emergency event
 - 点击"重复当前状态" → TTS 播报
 
 **状态变化**：
@@ -547,8 +550,8 @@
 - "取消订单"按钮：需二次确认，accessibilityHint = "服务开始前取消当前订单"
 - "结束服务"按钮：最小高度 64pt，需二次确认
 - "一键求助"按钮：红色醒目，最小高度 64pt，需二次确认
-- TTS：进入 arrived 状态不自动播报（由盲人端播报）
-- TTS：进入 in_progress 状态播报"服务已开始"
+- TTS：进入 DRIVER_ARRIVED 状态不自动播报（由盲人端播报）
+- TTS：进入 IN_PROGRESS 状态播报"服务已开始"
 
 ---
 

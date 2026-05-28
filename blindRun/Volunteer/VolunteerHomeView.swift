@@ -640,7 +640,7 @@ private struct VolunteerDispatchOverlay: View {
                     }
                     .disabled(isResponding)
                     .accessibilityLabel("接受订单")
-                    .accessibilityHint("接受此次派单并开始服务")
+                    .accessibilityHint("接受此次派单并进入服务流程")
                 }
 
                 if isResponding {

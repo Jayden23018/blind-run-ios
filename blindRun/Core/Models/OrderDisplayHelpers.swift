@@ -20,7 +20,7 @@ extension RunOrderStatus {
         case .pendingAccept:
             return "已找到志愿者，等待确认中。"
         case .inProgress:
-            return "志愿者已接单。"
+            return "服务已开始，请注意安全。"
         case .driverEnRoute:
             return "志愿者正在赶来。"
         case .driverArrived:
@@ -43,7 +43,7 @@ extension RunOrderStatus {
         case .pendingAccept:
             return "已找到志愿者，正在等待对方确认。"
         case .inProgress:
-            return "志愿者已接单。"
+            return "服务已开始，请注意安全。"
         case .driverEnRoute:
             return "志愿者正在赶来，请耐心等待。"
         case .driverArrived:

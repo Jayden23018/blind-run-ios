@@ -43,9 +43,9 @@ Recommended examples:
 
 - `AuthViewModel`: phone and code login.
 - `BlindBookingViewModel`: location permission, default start coordinate, booking form validation, create order.
-- `BlindOrderStatusViewModel`: 5-second polling, status TTS, confirm start, cancel, emergency.
-- `VolunteerHomeViewModel`: availability, current location, fetch available orders, distance sort.
-- `VolunteerOrderDetailViewModel`: accept, arrive, complete, cancel, emergency.
+- `BlindOrderStatusViewModel`: WebSocket status events, 5-second polling fallback, status TTS, cancel, emergency.
+- `VolunteerHomeViewModel`: availability, current location, fetch available orders, distance sort, WebSocket dispatch.
+- `VolunteerOrderDetailViewModel`: accept, en-route, arrived, finish, cancel, emergency event.
 
 ## 4. API Environment Switch
 
@@ -126,14 +126,15 @@ AMap keys:
 
 Blind runner order status pages must poll order details every 5 seconds while status is:
 
-- `matching`
-- `accepted`
-- `arrived`
-- `in_progress`
+- `PENDING_MATCH`
+- `PENDING_ACCEPT`
+- `DRIVER_EN_ROUTE`
+- `DRIVER_ARRIVED`
+- `IN_PROGRESS`
 
 Stop polling when:
 
-- Order reaches `completed`, `cancelled`, or `emergency`.
+- Order reaches `COMPLETED`, `CANCELLED`, or `NO_VOLUNTEER`.
 - View disappears.
 - User logs out.
 
@@ -161,4 +162,4 @@ The iOS app must support a two-device demo:
 
 ## 11. Explicit Non-Goals
 
-Do not implement Android, WebSocket, real SMS, real identity verification, full admin backend, real-time track sharing, app chat, AI assistant, route navigation, automatic calls, automatic SMS, complex risk control, fall detection, geofencing, instant call, payment, stock, or full points shop.
+Do not implement Android, real SMS, real identity verification, full admin backend, real-time track sharing, app chat, AI assistant, route navigation, automatic calls, automatic SMS, complex risk control, fall detection, geofencing, instant call, payment, stock, or full points shop. WebSocket is in scope only for cloud contract real-time dispatch, status notifications, and location updates.

@@ -30,6 +30,7 @@ paths:
       tags:
       - volunteer-controller
       operationId: updateProfile
+      description: Supports partial updates including volunteer availability. New volunteers default to unavailable; setting isAvailable=true requires approved volunteer status.
       requestBody:
         content:
           application/json:
@@ -42,7 +43,7 @@ paths:
           content:
             'application/json':
               schema:
-                type: object
+                $ref: '#/components/schemas/VolunteerProfileResponse'
   /api/users/{userId}/emergency-contacts/{contactId}:
     put:
       tags:
@@ -750,6 +751,7 @@ paths:
       tags:
       - order-controller
       operationId: finishOrder
+      description: Marks the service completed. The current cloud contract has no separate start-service endpoint; clients may call finish after DRIVER_ARRIVED or IN_PROGRESS according to backend state validation.
       parameters:
       - name: id
         in: path
@@ -1371,6 +1373,8 @@ components:
           type: string
           maxLength: 50
           minLength: 2
+        isAvailable:
+          type: boolean
         availableTimeSlots:
           type: array
           items:
@@ -1820,6 +1824,8 @@ components:
           type: string
         verificationStatus:
           type: string
+        isAvailable:
+          type: boolean
         availableTimeSlots:
           type: array
           items:

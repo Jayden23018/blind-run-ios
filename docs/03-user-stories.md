@@ -1,5 +1,11 @@
 # 03 — 用户故事
 
+> Cloud contract note: canonical order status values are `PENDING_MATCH`, `PENDING_ACCEPT`,
+> `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`,
+> `REMATCHING`, and `NO_VOLUNTEER`. Older lower-case names in historical examples map to
+> those values only for reading context; new iOS/backend work must use the canonical values.
+> Emergency is recorded through `POST /api/emergency/trigger` and is not an order status.
+
 ## Epic 1：登录认证 (US-AUTH)
 
 ### US-AUTH-001：手机号登录
@@ -338,7 +344,7 @@
 
 **Given** 用户在紧急求助确认弹窗
 **When** 用户确认求助
-**Then** 订单状态变为 emergency，显示紧急提示信息
+**Then** 系统记录 emergency event，显示紧急提示信息
 **And** TTS 播报"已进入求助状态，请保持冷静"
 
 ---

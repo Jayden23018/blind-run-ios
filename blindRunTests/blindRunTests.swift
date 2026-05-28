@@ -120,11 +120,11 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.verificationCode, "123456")
     }
 
-    func testDebugInitialEnvironmentFallsBackFromProductionToMock() {
-        XCTAssertEqual(AppState.resolvedInitialEnvironment(.production), .mock)
+    func testDebugInitialEnvironmentKeepsProductionForCloudContractTesting() {
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.production), .production)
     }
 
-    func testDebugEnvironmentSwitcherCyclesOnlyMockAndLocalBackend() {
+    func testDebugEnvironmentSwitcherCyclesMockLocalBackendAndProduction() {
         let previousEnvironment = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
         defer {
             if let previousEnvironment {
@@ -141,13 +141,15 @@ final class blindRunTests: XCTestCase {
         appState.switchToNextEnvironmentForTesting()
         XCTAssertEqual(appState.currentEnvironment, .localBackend)
         appState.switchToNextEnvironmentForTesting()
+        XCTAssertEqual(appState.currentEnvironment, .production)
+        appState.switchToNextEnvironmentForTesting()
         XCTAssertEqual(appState.currentEnvironment, .mock)
     }
 
     func testLocalBackendAddressNormalizationSupportsDeviceLANIP() {
         XCTAssertEqual(
             AppConstants.LocalBackend.normalizedDisplayString(from: "192.168.1.23"),
-            "http://192.168.1.23:8080"
+            "http://192.168.1.23:8081"
         )
         XCTAssertEqual(
             AppConstants.LocalBackend.normalizedDisplayString(from: "http://192.168.1.23:8081"),
@@ -287,7 +289,7 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .driverArrived),
-            "志愿者已到达，请确认开始服务。"
+            "志愿者已到达，请准备开始服务。"
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .completed),
