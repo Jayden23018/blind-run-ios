@@ -30,20 +30,16 @@ enum DistanceCalculator {
         }
     }
 
-    /// 按距离对可用订单列表排序（从近到远）
-    /// - Parameters:
-    ///   - orders: 待排序的可用订单列表
-    ///   - location: 参考位置（通常为志愿者当前位置）
-    /// - Returns: 排序后的 (订单, 距离) 元组数组
+    /// 按距离对订单列表排序（从近到远）
     static func sortOrdersByDistance(
-        orders: [AvailableOrderDto],
+        orders: [OrderDetailResponse],
         from location: CLLocationCoordinate2D
-    ) -> [(order: AvailableOrderDto, distance: CLLocationDistance)] {
-        let ordersWithDistance = orders.map { order -> (order: AvailableOrderDto, distance: CLLocationDistance) in
-            let orderCoordinate = CLLocationCoordinate2D(
-                latitude: order.startLocation.latitude,
-                longitude: order.startLocation.longitude
-            )
+    ) -> [(order: OrderDetailResponse, distance: CLLocationDistance)] {
+        let ordersWithDistance = orders.compactMap { order -> (order: OrderDetailResponse, distance: CLLocationDistance)? in
+            guard let lat = order.startLatitude, let lng = order.startLongitude else {
+                return nil
+            }
+            let orderCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
             let dist = distance(from: location, to: orderCoordinate)
             return (order: order, distance: dist)
         }

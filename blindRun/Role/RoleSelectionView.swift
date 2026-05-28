@@ -47,15 +47,15 @@ final class RoleSelectionViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let switchRequest = SwitchRoleRequest(activeRole: role)
-            let updatedUser: UserDto = try await appState.apiClient.request(
-                method: .patch,
-                path: "/api/users/me/active-role",
+            let request = SetRoleRequest(role: role)
+            let response: SetRoleResponse = try await appState.apiClient.request(
+                method: .post,
+                path: "/api/user/role",
                 query: nil,
-                body: switchRequest,
+                body: request,
                 requiresAuth: true
             )
-            appState.updateCurrentUser(updatedUser, fallbackActiveRole: role)
+            appState.handleRoleSwitchSuccess(response: response, requestedRole: role)
             isLoading = false
         } catch let error as APIError {
             isLoading = false
@@ -112,7 +112,7 @@ struct RoleSelectionView: View {
 
                     // 盲人跑者卡片
                     roleCard(
-                        role: .blindRunner,
+                        role: .blind,
                         icon: "figure.run",
                         title: "我是盲人跑者",
                         subtitle: "预约志愿者陪我跑步",
@@ -206,10 +206,10 @@ struct RoleSelectionView: View {
             .cornerRadius(16)
         }
         .disabled(viewModel.isLoading)
-        .accessibilityLabel(role == .blindRunner
+        .accessibilityLabel(role == .blind
             ? "我是盲人跑者，预约志愿者陪我跑步"
             : "我是志愿者，陪伴盲人跑者完成跑步")
-        .accessibilityHint(role == .blindRunner
+        .accessibilityHint(role == .blind
             ? "点击后进入盲人跑者模式"
             : "点击后进入志愿者模式")
         .accessibilityAddTraits(.isButton)

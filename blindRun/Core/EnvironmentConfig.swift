@@ -30,8 +30,7 @@ enum APIEnvironment: String, CaseIterable, Sendable {
                     ?? AppConstants.Defaults.localBackendIP
             )
         case .production:
-            // 占位 URL，部署后替换
-            return URL(string: "https://api.aidrun.example.com")
+            return URL(string: "http://47.114.113.171")
         }
     }
 
@@ -70,19 +69,19 @@ enum AppConstants {
         nonisolated static func normalizedBaseURL(from value: String) -> URL? {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
-                return URL(string: "http://127.0.0.1:8080")
+                return URL(string: "http://127.0.0.1:8081")
             }
 
             if let url = URL(string: trimmed), url.scheme != nil, url.host != nil {
                 return normalizedHTTPURL(from: url)
             }
 
-            return URL(string: "http://\(trimmed):8080").flatMap(normalizedHTTPURL(from:))
+            return URL(string: "http://\(trimmed):8081").flatMap(normalizedHTTPURL(from:))
         }
 
         nonisolated static func normalizedDisplayString(from value: String) -> String {
             normalizedBaseURL(from: value)?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                ?? "http://127.0.0.1:8080"
+                ?? "http://127.0.0.1:8081"
         }
 
         nonisolated static func save(_ value: String) {
@@ -96,7 +95,7 @@ enum AppConstants {
             var components = URLComponents()
             components.scheme = url.scheme ?? "http"
             components.host = host
-            components.port = url.port ?? 8080
+            components.port = url.port ?? 8081
             return components.url
         }
     }

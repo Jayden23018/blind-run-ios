@@ -3,50 +3,57 @@ import Foundation
 // MARK: - User Role
 
 enum UserRole: String, Codable, CaseIterable, Sendable {
-    case blindRunner = "blind_runner"
-    case volunteer = "volunteer"
+    case blind = "BLIND"
+    case volunteer = "VOLUNTEER"
+    case unset = "UNSET"
 
     var displayName: String {
         switch self {
-        case .blindRunner:
+        case .blind:
             return "视障跑者"
         case .volunteer:
             return "志愿者"
+        case .unset:
+            return "未设置"
         }
     }
 }
 
-// MARK: - User DTO
+// MARK: - Auth Requests
 
-struct UserDto: Codable, Identifiable, Sendable {
-    let id: String
-    let phoneNumber: String
-    let nickname: String?
-    let roles: [UserRole]
-    let activeRole: UserRole?
-    let createdAt: String?
-    let updatedAt: String?
+struct SendCodeRequest: Codable, Sendable {
+    let phone: String
 }
 
-struct UserMeResponse: Codable, Sendable {
-    let user: UserDto
-    let blindRunnerProfile: BlindRunnerProfileDto?
-    let volunteerProfile: VolunteerProfileDto?
+struct VerifyCodeRequest: Codable, Sendable {
+    let phone: String
+    let code: String
 }
 
-// MARK: - Auth
+// MARK: - Auth Response
 
-struct PhoneLoginRequest: Codable, Sendable {
-    let phoneNumber: String
-    let verificationCode: String
+struct LoginResponse: Codable, Sendable {
+    let token: String
+    let userId: Int64
+    let role: String?
 }
 
-struct AuthResponse: Codable, Sendable {
-    let accessToken: String
-    let tokenType: String
-    let user: UserDto
+// MARK: - Role Switch
+
+struct SetRoleRequest: Codable, Sendable {
+    let role: UserRole
 }
 
-struct SwitchRoleRequest: Codable, Sendable {
-    let activeRole: UserRole
+/// Response from POST /api/user/role - contains new token
+struct SetRoleResponse: Codable, Sendable {
+    let success: Bool?
+    let role: String?
+    let token: String?
+}
+
+// MARK: - Generic API Success Response
+
+struct ApiSuccessResponse: Codable, Sendable {
+    let success: Bool?
+    let message: String?
 }

@@ -73,7 +73,7 @@ final class LoginViewModel: ObservableObject {
     // MARK: - Computed Properties
 
     var isPhoneValid: Bool {
-        let phoneRegex = #"^1\d{10}$"#
+        let phoneRegex = #"^1[3-9]\d{9}$"#
         return phoneNumber.range(of: phoneRegex, options: .regularExpression) != nil
     }
 
@@ -145,7 +145,23 @@ final class LoginViewModel: ObservableObject {
         errorMessage = nil
         showCodeInput = true
         startCountdown()
-        // Demo 阶段验证码固定为 123456，无需向后端发送请求
+
+        // Call send-code API (demo: always succeeds, fixed code 123456)
+        Task {
+            guard let appState = appState else { return }
+            let request = SendCodeRequest(phone: phoneNumber)
+            do {
+                let _: ApiSuccessResponse = try await appState.apiClient.request(
+                    method: .post,
+                    path: "/api/auth/send-code",
+                    query: nil,
+                    body: request,
+                    requiresAuth: false
+                )
+            } catch {
+                // In demo mode, ignore send-code errors silently
+            }
+        }
     }
 
     func submitLogin() {
@@ -176,10 +192,10 @@ final class LoginViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let request = PhoneLoginRequest(phoneNumber: phoneNumber, verificationCode: verificationCode)
-            let response: AuthResponse = try await appState.apiClient.request(
+            let request = VerifyCodeRequest(phone: phoneNumber, code: verificationCode)
+            let response: LoginResponse = try await appState.apiClient.request(
                 method: .post,
-                path: "/api/auth/phone-login",
+                path: "/api/auth/verify-code",
                 query: nil,
                 body: request,
                 requiresAuth: false

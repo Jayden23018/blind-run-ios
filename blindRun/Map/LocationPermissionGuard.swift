@@ -41,10 +41,12 @@ struct LocationPermissionGuard: View {
 
     private var messageForRole: String {
         switch role {
-        case .blindRunner:
+        case .blind:
             return "需要定位权限才能创建预约。请在设置中开启定位权限。"
         case .volunteer:
             return "需要定位权限才能查看距离和接单。请在设置中开启定位权限。"
+        case .unset:
+            return "需要定位权限才能使用位置服务。请在设置中开启定位权限。"
         }
     }
 
@@ -81,7 +83,7 @@ struct DemoLocationBanner: View {
 
 #if DEBUG
 #Preview("Blind Runner") {
-    LocationPermissionGuard(role: .blindRunner)
+    LocationPermissionGuard(role: .blind)
 }
 
 #Preview("Volunteer") {

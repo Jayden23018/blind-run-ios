@@ -1,35 +1,15 @@
 import Combine
 import SwiftUI
 
-// MARK: - Running Experience
-
-enum RunningExperience: String, CaseIterable, Identifiable, Sendable {
-    case none
-    case occasional
-    case frequent
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .none:
-            return "无经验"
-        case .occasional:
-            return "偶尔跑"
-        case .frequent:
-            return "经常跑"
-        }
-    }
-}
-
 // MARK: - Blind Runner Profile ViewModel
 
 @MainActor
 final class BlindRunnerProfileViewModel: ObservableObject {
-    @Published var nickname = ""
+    @Published var name = ""
     @Published var emergencyContactName = ""
     @Published var emergencyContactPhone = ""
-    @Published var runningExperience: RunningExperience = .none
+    @Published var defaultPace: PacePreference = .noPreference
+    @Published var specialNeeds = ""
     @Published var isLoading = false
     @Published var errorMessage: String?
 
@@ -37,7 +17,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     private var speechService: SpeechService?
 
     var isEditing: Bool {
-        appState?.blindRunnerProfile != nil
+        appState?.blindProfile != nil
     }
 
     var isPhoneValid: Bool {
@@ -45,7 +25,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     }
 
     var canSubmit: Bool {
-        !nickname.trimmed.isEmpty &&
+        !name.trimmed.isEmpty &&
         !emergencyContactName.trimmed.isEmpty &&
         isPhoneValid &&
         !isLoading
@@ -55,13 +35,15 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         self.appState = appState
         self.speechService = speechService
 
-        guard let profile = appState.blindRunnerProfile else { return }
-        nickname = profile.nickname
-        emergencyContactName = profile.emergencyContact?.name ?? ""
-        emergencyContactPhone = profile.emergencyContact?.phoneNumber ?? ""
-        if let rawValue = profile.runningExperience,
-           let experience = RunningExperience(rawValue: rawValue) {
-            runningExperience = experience
+        if let profile = appState.blindProfile {
+            name = profile.name ?? ""
+            defaultPace = profile.defaultPace ?? .noPreference
+            specialNeeds = profile.specialNeeds ?? ""
+        }
+
+        if let contact = appState.emergencyContacts.first {
+            emergencyContactName = contact.name ?? ""
+            emergencyContactPhone = contact.phone ?? ""
         }
     }
 
@@ -69,11 +51,11 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     func applyUITestProfilePrefillIfNeeded() {
         let environment = ProcessInfo.processInfo.environment
         guard environment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] == "1",
-              appState?.blindRunnerProfile == nil else {
+              appState?.blindProfile == nil else {
             return
         }
 
-        nickname = environment["AIDRUN_UI_TEST_PROFILE_NICKNAME"] ?? "UITestBlind"
+        name = environment["AIDRUN_UI_TEST_PROFILE_NICKNAME"] ?? "UITestBlind"
         emergencyContactName = environment["AIDRUN_UI_TEST_PROFILE_CONTACT_NAME"] ?? "UITestContact"
         emergencyContactPhone = environment["AIDRUN_UI_TEST_PROFILE_CONTACT_PHONE"] ?? "13800001111"
     }
@@ -101,21 +83,37 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
 
-        let request = BlindRunnerProfileUpsertRequest(
-            nickname: nickname.trimmed,
-            runningExperience: runningExperience.rawValue,
-            emergencyContact: EmergencyContactDto(
-                name: emergencyContactName.trimmed,
-                phoneNumber: emergencyContactPhone
-            )
+        let profileRequest = BlindProfileUpdateRequest(
+            name: name.trimmed,
+            runningPace: nil,
+            specialNeeds: specialNeeds.nilIfBlank,
+            visionLevel: nil,
+            hasGuideDog: nil,
+            tetherPreference: nil,
+            chatPreference: nil,
+            defaultPace: defaultPace == .noPreference ? nil : defaultPace
         )
 
         do {
-            let profile: BlindRunnerProfileDto = try await appState.apiClient.put(
-                "/api/profiles/blind-runner",
-                body: request
+            let profile: BlindProfileResponse = try await appState.apiClient.put(
+                "/api/blind/profile",
+                body: profileRequest
             )
-            appState.updateBlindRunnerProfile(profile)
+            appState.updateBlindProfile(profile)
+
+            // Save emergency contact
+            let contactRequest = EmergencyContactRequest(
+                name: emergencyContactName.trimmed,
+                phone: emergencyContactPhone,
+                relationship: nil,
+                isPrimary: true
+            )
+            let contact: EmergencyContactResponse = try await appState.apiClient.post(
+                "/api/blind/emergency-contacts",
+                body: contactRequest
+            )
+            appState.updateEmergencyContacts([contact])
+
             isLoading = false
         } catch let error as APIError {
             isLoading = false
@@ -188,9 +186,9 @@ struct BlindRunnerProfileView: View {
             ProfileTextField(
                 title: "昵称",
                 placeholder: "请输入昵称",
-                text: $viewModel.nickname,
+                text: $viewModel.name,
                 isRequired: true,
-                errorMessage: viewModel.nickname.trimmed.isEmpty ? "请填写必填信息" : nil,
+                errorMessage: viewModel.name.trimmed.isEmpty ? "请填写必填信息" : nil,
                 accessibilityLabel: "昵称，必填",
                 accessibilityHint: "请输入您的昵称"
             )
@@ -222,19 +220,31 @@ struct BlindRunnerProfileView: View {
     }
 
     private var optionalSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("跑步经验")
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("默认配速偏好")
+                    .font(.headline)
+                    .foregroundColor(AppColors.textPrimary)
 
-            Picker("跑步经验", selection: $viewModel.runningExperience) {
-                ForEach(RunningExperience.allCases) { experience in
-                    Text(experience.displayName).tag(experience)
+                Picker("默认配速偏好", selection: $viewModel.defaultPace) {
+                    ForEach(PacePreference.allCases, id: \.self) { pace in
+                        Text(pace.displayName).tag(pace)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("默认配速偏好，选填")
+                .accessibilityHint("选择跑步配速偏好")
             }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("跑步经验，选填")
-            .accessibilityHint("点击选择跑步经验")
+
+            ProfileTextField(
+                title: "特殊需求",
+                placeholder: "例如：需要语言引导",
+                text: $viewModel.specialNeeds,
+                isRequired: false,
+                errorMessage: nil,
+                accessibilityLabel: "特殊需求，选填",
+                accessibilityHint: "如有特殊需求请填写"
+            )
         }
     }
 

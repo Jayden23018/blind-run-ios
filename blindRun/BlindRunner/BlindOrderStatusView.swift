@@ -5,31 +5,26 @@ import SwiftUI
 
 @MainActor
 final class BlindOrderStatusViewModel: ObservableObject {
-    @Published var order: RunOrderDto?
+    @Published var order: OrderDetailResponse?
     @Published var isLoading = false
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
-    @Published var selectedCancellationReason: ManualCancellationReason = .timeConflict
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private var pollingTask: Task<Void, Never>?
-    private var currentOrderId: String?
+    private var currentOrderId: Int64?
 
     var canShowEmergency: Bool {
-        order?.status.canEnterEmergency == true
-    }
-
-    var canShowConfirmStart: Bool {
-        order?.status == .arrived
+        order?.status.canTriggerEmergency == true
     }
 
     var canShowCancel: Bool {
-        order?.status.canCancelBeforeStart == true
+        order?.status.canCancel == true
     }
 
     var shouldPoll: Bool {
-        order?.status.shouldPollOnBlindRunnerPage ?? true
+        order?.status.shouldPoll ?? true
     }
 
     func configure(appState: AppState, speechService: SpeechService) {
@@ -37,7 +32,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         self.speechService = speechService
     }
 
-    func startPolling(orderId: String) {
+    func startPolling(orderId: Int64) {
         currentOrderId = orderId
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
@@ -68,41 +63,35 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
-    func confirmStart() async {
+    func cancelOrder() async {
         guard let order, let appState else { return }
-        await performAction(failureMessage: "操作失败，请重试。") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/confirm-start")
-            apply(updated, speakChanges: true)
-        }
-    }
-
-    func cancelOrder(reason: ManualCancellationReason) async {
-        guard let order, let appState else { return }
-        let request = CancelOrderRequest(
-            cancelledBy: .blindRunner,
-            cancelledReason: reason,
-            otherReasonText: nil
-        )
         await performAction(failureMessage: "取消失败。") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/cancel", body: request)
-            apply(updated, speakChanges: true)
+            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
+            // Reload order to get updated status
+            await self.loadOrder(orderId: order.orderId, speakChanges: true)
         }
     }
 
     func enterEmergency() async {
         guard let order, let appState else { return }
+        let request = EmergencyTriggerRequest(
+            orderId: order.orderId,
+            gpsLat: nil,
+            gpsLng: nil
+        )
         await performAction(failureMessage: "求助操作失败，请重试。") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/emergency")
-            apply(updated, speakChanges: true)
+            let _: OrderResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
+            // Reload order to get updated status
+            await self.loadOrder(orderId: order.orderId, speakChanges: true)
         }
     }
 
     private var shouldContinuePolling: Bool {
         guard let order else { return true }
-        return order.status.shouldPollOnBlindRunnerPage
+        return order.status.shouldPoll
     }
 
-    private func loadOrder(orderId: String, speakChanges: Bool) async {
+    private func loadOrder(orderId: Int64, speakChanges: Bool) async {
         guard let appState else { return }
         if order == nil {
             isLoading = true
@@ -110,7 +99,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let updated: RunOrderDto = try await appState.apiClient.get("/api/orders/\(orderId)")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(orderId)")
             isLoading = false
             apply(updated, speakChanges: speakChanges)
         } catch let error as APIError {
@@ -145,13 +134,13 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
-    private func apply(_ updated: RunOrderDto, speakChanges: Bool) {
+    private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
         let previousStatus = order?.status
         order = updated
         if speakChanges, previousStatus != updated.status {
             speechService?.speakStatusChange(updated.status)
         }
-        if !updated.status.shouldPollOnBlindRunnerPage {
+        if !updated.status.shouldPoll {
             stopPolling()
         }
     }
@@ -166,8 +155,8 @@ struct BlindOrderStatusView: View {
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @State private var showEmergencyConfirmation = false
     @State private var showCancelConfirmation = false
-    let orderId: String
-    let onOrderUpdated: (RunOrderDto) -> Void
+    let orderId: Int64
+    let onOrderUpdated: (OrderDetailResponse) -> Void
 
     var body: some View {
         ScrollView {
@@ -203,19 +192,17 @@ struct BlindOrderStatusView: View {
             repeatStatusArea
         }
         .confirmationDialog("取消订单", isPresented: $showCancelConfirmation) {
-            ForEach(ManualCancellationReason.allCases, id: \.self) { reason in
-                Button(reason.displayName, role: .destructive) {
-                    Task {
-                        await viewModel.cancelOrder(reason: reason)
-                        if let order = viewModel.order {
-                            onOrderUpdated(order)
-                        }
+            Button("确认取消", role: .destructive) {
+                Task {
+                    await viewModel.cancelOrder()
+                    if let order = viewModel.order {
+                        onOrderUpdated(order)
                     }
                 }
             }
             Button("不取消", role: .cancel) {}
         } message: {
-            Text("请选择取消原因。取消后本次预约将结束。")
+            Text("确认取消本次预约？取消后将结束本次服务。")
         }
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation) {
             Task {
@@ -237,7 +224,7 @@ struct BlindOrderStatusView: View {
         }
     }
 
-    private func statusHeader(_ order: RunOrderDto) -> some View {
+    private func statusHeader(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 16) {
             Image(systemName: order.status.statusSymbolName)
                 .font(.system(size: 56))
@@ -263,18 +250,18 @@ struct BlindOrderStatusView: View {
     }
 
     @ViewBuilder
-    private func volunteerSection(_ order: RunOrderDto) -> some View {
-        if let volunteerName = order.volunteerNickname, !volunteerName.trimmed.isEmpty {
+    private func volunteerSection(_ order: OrderDetailResponse) -> some View {
+        if let volunteerPhone = order.volunteerPhone, !volunteerPhone.trimmed.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text("志愿者信息")
                     .font(.title3.bold())
                     .foregroundColor(AppColors.textPrimary)
                     .accessibilityAddTraits(.isHeader)
 
-                Text("志愿者：\(volunteerName)")
+                Text("志愿者电话：\(volunteerPhone)")
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
-                    .accessibilityLabel("志愿者：\(volunteerName)")
+                    .accessibilityLabel("志愿者电话：\(volunteerPhone)")
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -283,32 +270,34 @@ struct BlindOrderStatusView: View {
         }
     }
 
-    private func orderInfoSection(_ order: RunOrderDto) -> some View {
+    private func orderInfoSection(_ order: OrderDetailResponse) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("预约信息")
                 .font(.title3.bold())
                 .foregroundColor(AppColors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
 
-            infoRow("预约时间", order.appointmentTime.displayDateTime)
-            infoRow("出发地点", order.startLocation.displayAddress)
-            if let destinationText = order.destinationText, !destinationText.trimmed.isEmpty {
-                infoRow("目的地或路线", destinationText)
+            infoRow("预约时间", (order.plannedStart ?? "").displayDateTime)
+            if let address = order.startAddress, !address.trimmed.isEmpty {
+                infoRow("出发地点", address)
             }
-            if let duration = order.estimatedDurationMinutes {
+            if let routeNotes = order.routeNotes, !routeNotes.trimmed.isEmpty {
+                infoRow("路线备注", routeNotes)
+            }
+            if let duration = order.expectedDurationMinutes {
                 infoRow("预计时长", "\(duration) 分钟")
             }
-            if let distance = order.estimatedDistanceKm {
-                infoRow("预计距离", "\(distance.formatted()) 公里")
+            if let pace = order.pacePreference {
+                infoRow("配速偏好", pace.displayName)
             }
-            if let pace = order.pacePreference, !pace.trimmed.isEmpty {
-                infoRow("配速偏好", pace)
+            if let route = order.routePreference {
+                infoRow("路线偏好", route.displayName)
             }
-            if order.preferSameGender == true {
-                infoRow("同性志愿者", "需要")
+            if order.hasGuideDogThisRun == true {
+                infoRow("导盲犬", "本次携带")
             }
-            if let remark = order.remark, !remark.trimmed.isEmpty {
-                infoRow("备注", remark)
+            if let notes = order.specialNotes, !notes.trimmed.isEmpty {
+                infoRow("特殊说明", notes)
             }
         }
         .padding()
@@ -330,21 +319,8 @@ struct BlindOrderStatusView: View {
         .accessibilityLabel("\(title)：\(value)")
     }
 
-    private func actionSection(_ order: RunOrderDto) -> some View {
+    private func actionSection(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 14) {
-            if viewModel.canShowConfirmStart {
-                PrimaryButton("确认开始服务", isLoading: viewModel.isPerformingAction) {
-                    Task {
-                        await viewModel.confirmStart()
-                        if let order = viewModel.order {
-                            onOrderUpdated(order)
-                        }
-                    }
-                }
-                .accessibilityLabel("确认开始服务")
-                .accessibilityHint("点击后正式开始跑步")
-            }
-
             if viewModel.canShowEmergency {
                 EmergencyActionButton(isLoading: viewModel.isPerformingAction) {
                     showEmergencyConfirmation = true
@@ -360,7 +336,7 @@ struct BlindOrderStatusView: View {
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 64)
                 .accessibilityLabel("取消订单")
-                .accessibilityHint("需要选择取消原因并确认")
+                .accessibilityHint("需要确认后取消")
             }
 
             if order.status.isTerminal {
@@ -374,7 +350,7 @@ struct BlindOrderStatusView: View {
     }
 
     @ViewBuilder
-    private func debugMockControls(_ order: RunOrderDto) -> some View {
+    private func debugMockControls(_ order: OrderDetailResponse) -> some View {
         #if DEBUG
         if appState.currentEnvironment == .mock {
             VStack(alignment: .leading, spacing: 10) {
@@ -382,42 +358,33 @@ struct BlindOrderStatusView: View {
                     .font(.headline)
                     .foregroundColor(AppColors.textPrimary)
 
-                if order.status == .matching {
+                if order.status == .pendingMatch {
                     Button("模拟志愿者接单") {
                         Task {
-                            let updated: RunOrderDto? = try? await appState.apiClient.post("/api/orders/\(order.id)/accept")
-                            if let updated {
-                                onOrderUpdated(updated)
-                                viewModel.startPolling(orderId: updated.id)
-                            }
+                            let _: OrderResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/accept")
+                            viewModel.startPolling(orderId: order.orderId)
                         }
                     }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("模拟志愿者接单")
                 }
 
-                if order.status == .accepted {
+                if order.status == .driverEnRoute || order.status == .pendingAccept {
                     Button("模拟志愿者到达") {
                         Task {
-                            let updated: RunOrderDto? = try? await appState.apiClient.post("/api/orders/\(order.id)/arrive")
-                            if let updated {
-                                onOrderUpdated(updated)
-                                viewModel.startPolling(orderId: updated.id)
-                            }
+                            let _: OrderResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
+                            viewModel.startPolling(orderId: order.orderId)
                         }
                     }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("模拟志愿者到达")
                 }
 
-                if order.status == .inProgress {
+                if order.status == .inProgress || order.status == .driverArrived {
                     Button("模拟服务完成") {
                         Task {
-                            let updated: RunOrderDto? = try? await appState.apiClient.post("/api/orders/\(order.id)/complete")
-                            if let updated {
-                                onOrderUpdated(updated)
-                                viewModel.startPolling(orderId: updated.id)
-                            }
+                            let _: OrderResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/finish")
+                            viewModel.startPolling(orderId: order.orderId)
                         }
                     }
                     .buttonStyle(.bordered)
@@ -447,7 +414,7 @@ struct BlindOrderStatusView: View {
 #if DEBUG
 #Preview {
     NavigationStack {
-        BlindOrderStatusView(orderId: "30000000-0000-0000-0000-000000000001") { _ in }
+        BlindOrderStatusView(orderId: 1) { _ in }
             .environmentObject(AppState())
             .environmentObject(SpeechService())
     }

@@ -6,14 +6,14 @@ import SwiftUI
 
 private enum BlindRunnerRoute: Hashable {
     case booking
-    case orderStatus(String)
+    case orderStatus(Int64)
 }
 
 // MARK: - Blind Runner Home ViewModel
 
 @MainActor
 final class BlindRunnerHomeViewModel: ObservableObject {
-    @Published var activeOrder: RunOrderDto?
+    @Published var activeOrder: OrderDetailResponse?
     @Published var isLoading = false
     @Published var errorMessage: String?
 
@@ -24,7 +24,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         guard let activeOrder else {
             return "当前没有进行中的预约。"
         }
-        return "当前订单：\(activeOrder.status.displayName)，\(activeOrder.startLocation.displayAddress)"
+        return "当前订单：\(activeOrder.status.displayName)，\(activeOrder.startAddress ?? "")"
     }
 
     func configure(with appState: AppState, speechService: SpeechService) {
@@ -38,10 +38,10 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let orders: [RunOrderDto] = try await appState.apiClient.get("/api/orders/my")
-            activeOrder = orders
+            let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/mine")
+            activeOrder = paged.content
                 .filter { $0.status.isActiveForBlindRunner }
-                .sorted { $0.updatedAtSortKey > $1.updatedAtSortKey }
+                .sorted { $0.sortKey > $1.sortKey }
                 .first
             isLoading = false
             speakCurrentStatus()
@@ -56,10 +56,9 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         }
     }
 
-    func setCreatedOrder(_ order: RunOrderDto) {
-        activeOrder = order
+    func handleOrderCreated(_ response: OrderResponse) {
         speechService?.resetLastStatus()
-        speechService?.speakStatusChange(order.status)
+        speechService?.speakStatusChange(response.status)
     }
 
     func speakCurrentStatus(locationDescription: String? = nil) {
@@ -132,9 +131,9 @@ struct BlindRunnerHomeView: View {
             .navigationDestination(for: BlindRunnerRoute.self) { route in
                 switch route {
                 case .booking:
-                    BlindBookingView { createdOrder in
-                        viewModel.setCreatedOrder(createdOrder)
-                        path = [.orderStatus(createdOrder.id)]
+                    BlindBookingView { response in
+                        viewModel.handleOrderCreated(response)
+                        path = [.orderStatus(response.id)]
                     }
                 case .orderStatus(let orderId):
                     BlindOrderStatusView(orderId: orderId) { updatedOrder in
@@ -174,11 +173,11 @@ struct BlindRunnerHomeView: View {
             MapViewWrapper(
                 centerCoordinate: locationService.effectiveLocation,
                 showsUserLocation: locationService.isAuthorized,
-                annotations: mapAnnotations
+                annotations: []
             )
             .frame(height: 220)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .accessibilityLabel("地图，显示当前位置和订单地点")
+            .accessibilityLabel("地图，显示当前位置")
             .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")
 
             Text(locationDescription)
@@ -189,23 +188,11 @@ struct BlindRunnerHomeView: View {
         }
     }
 
-    private var mapAnnotations: [MapAnnotationItem] {
-        guard let order = viewModel.activeOrder else { return [] }
-        return [
-            MapAnnotationItem(
-                id: order.id,
-                coordinate: order.startLocation.coordinate,
-                title: "订单出发点",
-                subtitle: order.startLocation.displayAddress
-            )
-        ]
-    }
-
     private var locationDescription: String {
         if locationService.isDenied {
             return "需要开启定位权限后才能创建预约。"
         }
-        if let address = viewModel.activeOrder?.startLocation.addressText, !address.trimmed.isEmpty {
+        if let address = viewModel.activeOrder?.startAddress, !address.trimmed.isEmpty {
             return "订单出发点：\(address)"
         }
         if locationService.isUsingDemoFallback {
@@ -214,12 +201,12 @@ struct BlindRunnerHomeView: View {
         return "当前位置：已获取设备定位"
     }
 
-    private func activeOrderSection(_ order: RunOrderDto) -> some View {
+    private func activeOrderSection(_ order: OrderDetailResponse) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             BlindStatusCard(order: order)
 
             PrimaryButton("查看当前订单") {
-                path.append(.orderStatus(order.id))
+                path.append(.orderStatus(order.orderId))
             }
             .accessibilityLabel("查看当前订单")
             .accessibilityHint("点击后查看订单状态详情")
@@ -253,7 +240,7 @@ struct BlindRunnerHomeView: View {
 // MARK: - Shared Blind Runner Components
 
 struct BlindStatusCard: View {
-    let order: RunOrderDto
+    let order: OrderDetailResponse
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -276,14 +263,14 @@ struct BlindStatusCard: View {
             Divider()
                 .background(AppColors.textSecondary.opacity(0.4))
 
-            Text("预约时间：\(order.appointmentTime.displayDateTime)")
+            Text("预约时间：\((order.plannedStart ?? "").displayDateTime)")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
-            Text("出发地点：\(order.startLocation.displayAddress)")
+            Text("出发地点：\(order.startAddress ?? "")")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
-            if let volunteerName = order.volunteerNickname, !volunteerName.trimmed.isEmpty {
-                Text("志愿者：\(volunteerName)")
+            if let volunteerPhone = order.volunteerPhone, !volunteerPhone.trimmed.isEmpty {
+                Text("志愿者电话：\(volunteerPhone)")
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
             }
@@ -293,7 +280,7 @@ struct BlindStatusCard: View {
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("当前订单：\(order.status.displayName)，预约时间 \(order.appointmentTime.displayDateTime)，出发地点 \(order.startLocation.displayAddress)")
+        .accessibilityLabel("当前订单：\(order.status.displayName)，预约时间 \((order.plannedStart ?? "").displayDateTime)，出发地点 \(order.startAddress ?? "")")
         .accessibilityHint("订单状态摘要")
     }
 }

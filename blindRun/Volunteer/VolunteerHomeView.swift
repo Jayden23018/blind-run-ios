@@ -8,7 +8,6 @@ import SwiftUI
 final class VolunteerHomeViewModel: ObservableObject {
     @Published var isAvailable = false
     @Published var nickname = ""
-    @Published var pointsBalance = 0
     @Published var rows: [VolunteerAvailableOrderRow] = []
     @Published var errorMessage: String?
     @Published var isLoading = false
@@ -41,13 +40,15 @@ final class VolunteerHomeViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let response: UserMeResponse = try await appState.apiClient.get("/api/users/me")
-            appState.updateUserMe(response)
-            apply(profile: response.volunteerProfile)
+            // Load volunteer profile
+            let profile: VolunteerProfileResponse = try await appState.apiClient.get("/api/volunteer/profile")
+            appState.updateVolunteerProfile(profile)
+            apply(profile: profile)
 
-            let orders: [AvailableOrderDto] = try await appState.apiClient.get("/api/orders/available")
+            // Load available orders
+            let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/available")
             rows = VolunteerAvailableOrderRow.sortedRows(
-                orders: orders,
+                orders: paged.content,
                 from: currentLocation,
                 locationAuthorized: locationAuthorized
             )
@@ -78,9 +79,10 @@ final class VolunteerHomeViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let profile: VolunteerProfileDto = try await appState.apiClient.patch(
-                "/api/volunteer/availability",
-                body: AvailabilityRequest(isAvailable: value)
+            let request = VolunteerProfileUpdateRequest(isAvailable: value)
+            let profile: VolunteerProfileResponse = try await appState.apiClient.put(
+                "/api/volunteer/profile",
+                body: request
             )
             appState.updateVolunteerProfile(profile)
             apply(profile: profile)
@@ -98,11 +100,10 @@ final class VolunteerHomeViewModel: ObservableObject {
         }
     }
 
-    private func apply(profile: VolunteerProfileDto?) {
+    private func apply(profile: VolunteerProfileResponse?) {
         guard let profile else { return }
-        nickname = profile.nickname
-        isAvailable = profile.isAvailable
-        pointsBalance = profile.pointsBalance
+        nickname = profile.name ?? ""
+        isAvailable = profile.isAvailable ?? false
     }
 }
 
@@ -176,7 +177,7 @@ struct VolunteerHomeView: View {
         MapViewWrapper(
             centerCoordinate: mapCenter ?? locationService.effectiveLocation,
             showsUserLocation: locationService.isAuthorized,
-            annotations: viewModel.rows.map(\.annotation),
+            annotations: viewModel.rows.compactMap(\.annotation),
             zoomLevel: 13,
             recenterToken: recenterToken
         )
@@ -198,7 +199,6 @@ struct VolunteerHomeView: View {
     private var homeStatusOverlay: some View {
         VolunteerHomeStatusOverlay(
             nickname: viewModel.nickname.isEmpty ? "志愿者" : viewModel.nickname,
-            pointsBalance: viewModel.pointsBalance,
             orderCount: viewModel.rows.count,
             statusText: viewModel.statusText,
             statusColor: viewModel.statusColor,
@@ -248,7 +248,7 @@ struct VolunteerHomeView: View {
                     VStack(spacing: 12) {
                         ForEach(Array(viewModel.rows.prefix(3))) { row in
                             NavigationLink {
-                                VolunteerOrderDetailView(orderId: row.order.id, initialOrder: row.order)
+                                VolunteerOrderDetailView(orderId: row.order.orderId)
                             } label: {
                                 VolunteerAvailableOrderCard(row: row, locationAuthorized: locationService.isAuthorized)
                             }
@@ -374,7 +374,6 @@ struct VolunteerHomeView: View {
 
 private struct VolunteerHomeStatusOverlay: View {
     let nickname: String
-    let pointsBalance: Int
     let orderCount: Int
     let statusText: String
     let statusColor: Color
@@ -394,11 +393,6 @@ private struct VolunteerHomeStatusOverlay: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                         .accessibilityAddTraits(.isHeader)
-
-                    Text("当前积分：\(pointsBalance)分")
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                        .accessibilityLabel("当前积分：\(pointsBalance)分")
                 }
 
                 Spacer()

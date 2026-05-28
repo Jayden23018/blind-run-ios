@@ -1,0 +1,2094 @@
+openapi: 3.1.0
+info:
+  title: 助盲跑 API
+  description: 盲人陪跑志愿者匹配服务
+  version: 1.0.0
+servers:
+- url: http://localhost:8081
+  description: 本地开发环境
+- url: http://47.114.113.171
+  description: 阿里云生产环境（Swagger 已关闭，仅用于请求地址参考）
+security:
+- Bearer: []
+tags:
+- name: 盲人用户
+  description: 盲人用户资料和身份认证接口
+paths:
+  /api/volunteer/profile:
+    get:
+      tags:
+      - volunteer-controller
+      operationId: getProfile
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/VolunteerProfileResponse'
+    put:
+      tags:
+      - volunteer-controller
+      operationId: updateProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VolunteerProfileUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/users/{userId}/emergency-contacts/{contactId}:
+    put:
+      tags:
+      - emergency-contact-controller
+      operationId: updateContact
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - name: contactId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmergencyContactRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/EmergencyContactResponse'
+    delete:
+      tags:
+      - emergency-contact-controller
+      operationId: deleteContact
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - name: contactId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/users/{userId}/emergency-contacts/{contactId}/set-primary:
+    put:
+      tags:
+      - emergency-contact-controller
+      operationId: setPrimary
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - name: contactId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/{id}/keep-waiting:
+    put:
+      tags:
+      - order-controller
+      operationId: keepWaiting
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/emergency/{eventId}/volunteer-response:
+    put:
+      tags:
+      - emergency-controller
+      operationId: volunteerResponse
+      parameters:
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - name: action
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - FALSE_ALARM
+          - NEED_HELP
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/cs/emergency-events/{eventId}/resolve:
+    put:
+      tags:
+      - cs-controller
+      operationId: resolveEvent
+      parameters:
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - name: notes
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/cs/emergency-events/{eventId}/notify-contact:
+    put:
+      tags:
+      - cs-controller
+      operationId: notifyContact
+      parameters:
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/cs/emergency-events/{eventId}/false-alarm:
+    put:
+      tags:
+      - cs-controller
+      operationId: markFalseAlarm
+      parameters:
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/cs/emergency-events/{eventId}/accept:
+    put:
+      tags:
+      - cs-controller
+      operationId: acceptEvent
+      parameters:
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/blind/profile:
+    get:
+      tags:
+      - 盲人用户
+      summary: 获取盲人资料
+      operationId: getProfile_1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/BlindProfileResponse'
+    put:
+      tags:
+      - 盲人用户
+      summary: 更新盲人资料
+      operationId: updateProfile_1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlindProfileUpdateRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/admin/volunteers/training/questions/{id}:
+    put:
+      tags:
+      - admin-volunteer-controller
+      operationId: updateQuestion
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuizQuestionRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+    delete:
+      tags:
+      - admin-volunteer-controller
+      operationId: deleteQuestion
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/admin/volunteers/training/courses/{id}:
+    put:
+      tags:
+      - admin-volunteer-controller
+      operationId: updateCourse
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrainingCourseRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+    delete:
+      tags:
+      - admin-volunteer-controller
+      operationId: deleteCourse
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/admin/notification-templates/{id}:
+    put:
+      tags:
+      - admin-controller
+      operationId: updateTemplate
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotificationTemplateRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/verification:
+    post:
+      tags:
+      - volunteer-controller
+      operationId: submitVerification
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 资质证件文件（图片或PDF）
+              required:
+              - file
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/registration/training/quiz/answer:
+    post:
+      tags:
+      - volunteer-registration-controller
+      operationId: submitQuizAnswer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuizAnswerRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/registration/training/progress:
+    post:
+      tags:
+      - volunteer-registration-controller
+      operationId: submitTrainingProgress
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrainingProgressRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/registration/step3/face-verify:
+    post:
+      tags:
+      - volunteer-registration-controller
+      summary: 人脸验证（Step 3）
+      description: 上传自拍照片进行人脸比对
+      operationId: faceVerify
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                facePhoto:
+                  type: string
+                  format: binary
+                  description: 人脸自拍照片
+              required:
+              - facePhoto
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/registration/step2/id-card:
+    post:
+      tags:
+      - volunteer-registration-controller
+      summary: 上传身份证（Step 2）
+      description: multipart/form-data 格式，上传身份证正反面照片
+      operationId: uploadIdCard
+      parameters:
+      - name: idCardName
+        in: query
+        description: 身份证姓名
+        required: true
+        schema:
+          type: string
+        example: 张三
+      - name: idCardNumber
+        in: query
+        description: 身份证号码
+        required: true
+        schema:
+          type: string
+        example: 440305200001011234
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                frontFile:
+                  type: string
+                  format: binary
+                  description: 身份证正面照片（人像面）
+                backFile:
+                  type: string
+                  format: binary
+                  description: 身份证背面照片（国徽面）
+              required:
+              - backFile
+              - frontFile
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/registration/step1:
+    post:
+      tags:
+      - volunteer-registration-controller
+      operationId: submitBasicInfo
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BasicInfoRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/location:
+    post:
+      tags:
+      - volunteer-controller
+      operationId: updateLocation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VolunteerLocationRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+      deprecated: true
+  /api/users/{userId}/emergency-contacts:
+    get:
+      tags:
+      - emergency-contact-controller
+      operationId: getContacts
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EmergencyContactResponse'
+    post:
+      tags:
+      - emergency-contact-controller
+      operationId: addContact
+      parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmergencyContactRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/EmergencyContactResponse'
+  /api/user/role:
+    post:
+      tags:
+      - role-controller
+      operationId: setRole
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetRoleRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders:
+    post:
+      tags:
+      - order-controller
+      operationId: createOrder
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+  /api/orders/{orderId}/call/initiate:
+    post:
+      tags:
+      - call-controller
+      operationId: initiateCall
+      parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CallInitiateRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/{id}/review:
+    post:
+      tags:
+      - review-controller
+      operationId: createReview
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReviewRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/{id}/respond:
+    post:
+      tags:
+      - order-controller
+      operationId: respondToDispatch
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DispatchRespondRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/{id}/reject:
+    post:
+      tags:
+      - order-controller
+      operationId: rejectOrder
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/{id}/finish:
+    post:
+      tags:
+      - order-controller
+      operationId: finishOrder
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/{id}/en-route:
+    post:
+      tags:
+      - order-status-controller
+      operationId: driverEnRoute
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/{id}/cancel:
+    post:
+      tags:
+      - order-controller
+      operationId: cancelOrder
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/{id}/arrived:
+    post:
+      tags:
+      - order-status-controller
+      operationId: driverArrived
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/{id}/accept:
+    post:
+      tags:
+      - order-controller
+      operationId: acceptOrder
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/emergency/trigger:
+    post:
+      tags:
+      - emergency-controller
+      operationId: triggerEmergency
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmergencyTriggerRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/cs/auth/logout:
+    post:
+      tags:
+      - cs-auth-controller
+      operationId: logout
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/cs/auth/login:
+    post:
+      tags:
+      - cs-auth-controller
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CsLoginRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/blind/verify-identity:
+    post:
+      tags:
+      - 盲人用户
+      summary: 身份认证
+      description: 提交身份证姓名和号码进行二要素核验
+      operationId: verifyIdentity
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlindVerifyRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/blind/location:
+    post:
+      tags:
+      - blind-location-controller
+      operationId: updateLocation_1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlindLocationRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/auth/verify-code:
+    post:
+      tags:
+      - auth-controller
+      operationId: verifyCode
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyCodeRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+  /api/auth/send-code:
+    post:
+      tags:
+      - auth-controller
+      operationId: sendCode
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendCodeRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/auth/logout:
+    post:
+      tags:
+      - auth-controller
+      operationId: logout_1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/admin/volunteers/training/courses:
+    post:
+      tags:
+      - admin-volunteer-controller
+      operationId: createCourse
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrainingCourseRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/admin/volunteers/training/courses/{courseId}/questions:
+    post:
+      tags:
+      - admin-volunteer-controller
+      operationId: createQuestion
+      parameters:
+      - name: courseId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuizQuestionRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/admin/volunteers/review/id:
+    get:
+      tags:
+      - admin-volunteer-controller
+      operationId: getVolunteersForIdReview
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+    post:
+      tags:
+      - admin-volunteer-controller
+      operationId: reviewIdCard
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdReviewRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/verification/status:
+    get:
+      tags:
+      - volunteer-controller
+      operationId: getVerificationStatus
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/registration/training/quiz/{courseId}:
+    get:
+      tags:
+      - volunteer-registration-controller
+      operationId: getQuizQuestions
+      parameters:
+      - name: courseId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/registration/training/courses:
+    get:
+      tags:
+      - volunteer-registration-controller
+      operationId: getTrainingCourses
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/volunteer/registration/status:
+    get:
+      tags:
+      - volunteer-registration-controller
+      operationId: getRegistrationStatus
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/users/{id}:
+    get:
+      tags:
+      - user-controller
+      operationId: getUserById
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+    delete:
+      tags:
+      - user-controller
+      operationId: deleteUser
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/{orderId}/call/records:
+    get:
+      tags:
+      - call-controller
+      operationId: getCallRecords
+      parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CallRecord'
+  /api/orders/{id}:
+    get:
+      tags:
+      - order-controller
+      operationId: getOrder
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/OrderDetailResponse'
+  /api/orders/{id}/status-logs:
+    get:
+      tags:
+      - order-status-controller
+      operationId: getStatusLogs
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderStatusLogResponse'
+  /api/orders/{id}/reviews:
+    get:
+      tags:
+      - review-controller
+      operationId: getReview
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/orders/mine:
+    get:
+      tags:
+      - order-controller
+      operationId: getMyOrders
+      parameters:
+      - name: role
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 0
+          minimum: 0
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 10
+          maximum: 100
+          minimum: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/PageOrderDetailResponse'
+  /api/orders/available:
+    get:
+      tags:
+      - order-controller
+      operationId: getAvailableOrders
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/cs/emergency-events:
+    get:
+      tags:
+      - cs-controller
+      operationId: getPendingEvents
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/blind/volunteer-location:
+    get:
+      tags:
+      - blind-location-controller
+      operationId: getVolunteerLocation
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                $ref: '#/components/schemas/ApiResponseObject'
+  /api/auth/me:
+    get:
+      tags:
+      - auth-controller
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/admin/volunteers/training/stats:
+    get:
+      tags:
+      - admin-volunteer-controller
+      operationId: getTrainingStats
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+  /api/admin/notification-templates:
+    get:
+      tags:
+      - admin-controller
+      operationId: getAllTemplates
+      responses:
+        '200':
+          description: OK
+          content:
+            'application/json':
+              schema:
+                type: object
+components:
+  schemas:
+    VolunteerAvailableTimeSlot:
+      type: object
+      properties:
+        dayOfWeek:
+          type: string
+          minLength: 1
+          pattern: MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY
+        startTime:
+          type: string
+          example: '14:30:00'
+        endTime:
+          type: string
+          example: '14:30:00'
+      required:
+      - endTime
+      - startTime
+    VolunteerProfileUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 50
+          minLength: 2
+        availableTimeSlots:
+          type: array
+          items:
+            $ref: '#/components/schemas/VolunteerAvailableTimeSlot'
+        acceptsGuideDog:
+          type: boolean
+        paceRange:
+          type: string
+          enum:
+          - WALK_RUN
+          - EASY
+          - MODERATE
+          - FAST
+          - NO_PREFERENCE
+    EmergencyContactRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 50
+          minLength: 0
+        phone:
+          type: string
+          maxLength: 20
+          minLength: 0
+        relationship:
+          type: string
+          maxLength: 20
+          minLength: 0
+        isPrimary:
+          type: boolean
+    EmergencyContactResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        phone:
+          type: string
+        relationship:
+          type: string
+        isPrimary:
+          type: boolean
+    BlindProfileUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 50
+          minLength: 2
+        runningPace:
+          type: string
+          maxLength: 20
+          minLength: 0
+        specialNeeds:
+          type: string
+          maxLength: 500
+          minLength: 0
+        visionLevel:
+          type: string
+          enum:
+          - TOTAL_BLIND
+          - LOW_VISION
+        hasGuideDog:
+          type: boolean
+        tetherPreference:
+          type: string
+          enum:
+          - TETHER_ROPE
+          - ARM_HOLD
+          - VERBAL_ONLY
+        chatPreference:
+          type: string
+          enum:
+          - PREFER_CHAT
+          - PREFER_QUIET
+          - NO_PREFERENCE
+        defaultPace:
+          type: string
+          enum:
+          - WALK_RUN
+          - EASY
+          - MODERATE
+          - FAST
+          - NO_PREFERENCE
+    QuizQuestionRequest:
+      type: object
+      properties:
+        courseId:
+          type: integer
+          format: int64
+        questionText:
+          type: string
+          minLength: 1
+        questionType:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        correctAnswer:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        explanation:
+          type: string
+        displayOrder:
+          type: integer
+          format: int32
+      required:
+      - courseId
+      - displayOrder
+      - questionType
+    TrainingCourseRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        durationMinutes:
+          type: integer
+          format: int32
+          minimum: 1
+        videoUrl:
+          type: string
+        content:
+          type: string
+        displayOrder:
+          type: integer
+          format: int32
+          minimum: 0
+        isActive:
+          type: boolean
+      required:
+      - displayOrder
+      - durationMinutes
+    UpdateNotificationTemplateRequest:
+      type: object
+      properties:
+        templateText:
+          type: string
+          minLength: 1
+        ttsText:
+          type: string
+    QuizAnswerRequest:
+      type: object
+      properties:
+        courseId:
+          type: integer
+          format: int64
+        questionId:
+          type: integer
+          format: int64
+        answers:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        timeSpentSeconds:
+          type: integer
+          format: int32
+      required:
+      - courseId
+      - questionId
+      - timeSpentSeconds
+    TrainingProgressRequest:
+      type: object
+      properties:
+        courseId:
+          type: integer
+          format: int64
+        progressPercent:
+          type: integer
+          format: int32
+          maximum: 100
+          minimum: 0
+        lastPositionSeconds:
+          type: integer
+          format: int32
+          minimum: 0
+        timeSpentSeconds:
+          type: integer
+          format: int32
+          minimum: 0
+      required:
+      - courseId
+      - lastPositionSeconds
+      - progressPercent
+      - timeSpentSeconds
+    BasicInfoRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 50
+          minLength: 2
+        phone:
+          type: string
+          minLength: 1
+          pattern: ^1[3-9]\d{9}$
+        runningExperience:
+          type: string
+        hasGuidedBefore:
+          type: boolean
+        emergencyExperience:
+          type: string
+    VolunteerLocationRequest:
+      type: object
+      properties:
+        latitude:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        longitude:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+        isOnline:
+          type: boolean
+      required:
+      - latitude
+      - longitude
+    SetRoleRequest:
+      type: object
+      properties:
+        role:
+          type: string
+          enum:
+          - UNSET
+          - BLIND
+          - VOLUNTEER
+      required:
+      - role
+    CreateOrderRequest:
+      type: object
+      properties:
+        startLatitude:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        startLongitude:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+        startAddress:
+          type: string
+        plannedStartTime:
+          type: string
+          format: date-time
+        plannedEndTime:
+          type: string
+          format: date-time
+        expectedDurationMinutes:
+          type: integer
+          format: int32
+          maximum: 300
+          minimum: 10
+        pacePreference:
+          type: string
+          enum:
+          - WALK_RUN
+          - EASY
+          - MODERATE
+          - FAST
+          - NO_PREFERENCE
+        routePreference:
+          type: string
+          enum:
+          - PARK_TRAIL
+          - STREET
+          - TRACK
+          - NO_PREFERENCE
+        routeNotes:
+          type: string
+          maxLength: 200
+          minLength: 0
+        hasGuideDogThisRun:
+          type: boolean
+        specialNotes:
+          type: string
+          maxLength: 200
+          minLength: 0
+      required:
+      - plannedEndTime
+      - plannedStartTime
+      - startAddress
+      - startLatitude
+      - startLongitude
+    OrderResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum:
+          - PENDING_MATCH
+          - PENDING_ACCEPT
+          - IN_PROGRESS
+          - DRIVER_EN_ROUTE
+          - DRIVER_ARRIVED
+          - COMPLETED
+          - CANCELLED
+          - REMATCHING
+          - NO_VOLUNTEER
+        message:
+          type: string
+    CallInitiateRequest:
+      type: object
+      properties:
+        callerRole:
+          type: string
+          enum:
+          - BLIND_USER
+          - VOLUNTEER
+      required:
+      - callerRole
+    CreateReviewRequest:
+      type: object
+      properties:
+        rating:
+          type: integer
+          format: int32
+          maximum: 5
+          minimum: 1
+        comment:
+          type: string
+      required:
+      - rating
+    DispatchRespondRequest:
+      type: object
+      properties:
+        action:
+          type: string
+          enum:
+          - ACCEPT
+          - DECLINE
+      required:
+      - action
+    EmergencyTriggerRequest:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          format: int64
+        gpsLat:
+          type: number
+          maximum: 90
+          minimum: -90
+        gpsLng:
+          type: number
+          maximum: 180
+          minimum: -180
+      required:
+      - orderId
+    CsLoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+    BlindVerifyRequest:
+      type: object
+      properties:
+        idCardName:
+          type: string
+          maxLength: 50
+          minLength: 2
+        idCardNumber:
+          type: string
+          minLength: 1
+          pattern: ^\d{17}[\dXx]$
+    BlindLocationRequest:
+      type: object
+      properties:
+        latitude:
+          type: number
+          format: double
+          maximum: 90
+          minimum: -90
+        longitude:
+          type: number
+          format: double
+          maximum: 180
+          minimum: -180
+      required:
+      - latitude
+      - longitude
+    VerifyCodeRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+          minLength: 1
+          pattern: ^1[3-9]\d{9}$
+        code:
+          type: string
+          minLength: 1
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        userId:
+          type: integer
+          format: int64
+        role:
+          type: string
+    SendCodeRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+          minLength: 1
+          pattern: ^1[3-9]\d{9}$
+    IdReviewRequest:
+      type: object
+      properties:
+        userId:
+          type: integer
+          format: int64
+        approved:
+          type: boolean
+        rejectionReason:
+          type: string
+      required:
+      - approved
+      - userId
+    VolunteerProfileResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        verificationStatus:
+          type: string
+        availableTimeSlots:
+          type: array
+          items:
+            $ref: '#/components/schemas/VolunteerAvailableTimeSlot'
+        acceptsGuideDog:
+          type: boolean
+        paceRange:
+          type: string
+          enum:
+          - WALK_RUN
+          - EASY
+          - MODERATE
+          - FAST
+          - NO_PREFERENCE
+    CallRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        orderId:
+          type: integer
+          format: int64
+        callerId:
+          type: integer
+          format: int64
+        callerRole:
+          type: string
+          enum:
+          - BLIND_USER
+          - VOLUNTEER
+        calleeId:
+          type: integer
+          format: int64
+        calleeRole:
+          type: string
+          enum:
+          - BLIND_USER
+          - VOLUNTEER
+        virtualNumber:
+          type: string
+        status:
+          type: string
+          enum:
+          - INITIATED
+          - CONNECTED
+          - FAILED
+          - NOT_AVAILABLE
+        initiatedAt:
+          type: string
+          format: date-time
+        connectedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+    OrderDetailResponse:
+      type: object
+      properties:
+        orderId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum:
+          - PENDING_MATCH
+          - PENDING_ACCEPT
+          - IN_PROGRESS
+          - DRIVER_EN_ROUTE
+          - DRIVER_ARRIVED
+          - COMPLETED
+          - CANCELLED
+          - REMATCHING
+          - NO_VOLUNTEER
+        startAddress:
+          type: string
+        plannedStart:
+          type: string
+          format: date-time
+        plannedEnd:
+          type: string
+          format: date-time
+        volunteerPhone:
+          type: string
+        acceptedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        expectedDurationMinutes:
+          type: integer
+          format: int32
+        pacePreference:
+          type: string
+          enum:
+          - WALK_RUN
+          - EASY
+          - MODERATE
+          - FAST
+          - NO_PREFERENCE
+        routePreference:
+          type: string
+          enum:
+          - PARK_TRAIL
+          - STREET
+          - TRACK
+          - NO_PREFERENCE
+        routeNotes:
+          type: string
+        hasGuideDogThisRun:
+          type: boolean
+        specialNotes:
+          type: string
+        visionLevel:
+          type: string
+          enum:
+          - TOTAL_BLIND
+          - LOW_VISION
+        tetherPreference:
+          type: string
+          enum:
+          - TETHER_ROPE
+          - ARM_HOLD
+          - VERBAL_ONLY
+        chatPreference:
+          type: string
+          enum:
+          - PREFER_CHAT
+          - PREFER_QUIET
+          - NO_PREFERENCE
+    OrderStatusLogResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        orderId:
+          type: integer
+          format: int64
+        fromStatus:
+          type: string
+        toStatus:
+          type: string
+        changedBy:
+          type: integer
+          format: int64
+        changedAt:
+          type: string
+          format: date-time
+        remark:
+          type: string
+    PageOrderDetailResponse:
+      type: object
+      properties:
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+          format: int32
+        pageable:
+          $ref: '#/components/schemas/PageableObject'
+        first:
+          type: boolean
+        last:
+          type: boolean
+        numberOfElements:
+          type: integer
+          format: int32
+        size:
+          type: integer
+          format: int32
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderDetailResponse'
+        number:
+          type: integer
+          format: int32
+        sort:
+          $ref: '#/components/schemas/SortObject'
+        empty:
+          type: boolean
+    PageableObject:
+      type: object
+      properties:
+        paged:
+          type: boolean
+        pageNumber:
+          type: integer
+          format: int32
+        pageSize:
+          type: integer
+          format: int32
+        unpaged:
+          type: boolean
+        offset:
+          type: integer
+          format: int64
+        sort:
+          $ref: '#/components/schemas/SortObject'
+    SortObject:
+      type: object
+      properties:
+        sorted:
+          type: boolean
+        unsorted:
+          type: boolean
+        empty:
+          type: boolean
+    ApiResponseObject:
+      type: object
+      properties:
+        success:
+          type: boolean
+        code:
+          type: integer
+          format: int32
+        message:
+          type: string
+        data:
+          type: object
+    BlindProfileResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        runningPace:
+          type: string
+        specialNeeds:
+          type: string
+        verifyStatus:
+          type: string
+          enum:
+          - NOT_VERIFIED
+          - VERIFIED
+          - FAILED
+        visionLevel:
+          type: string
+          enum:
+          - TOTAL_BLIND
+          - LOW_VISION
+        hasGuideDog:
+          type: boolean
+        tetherPreference:
+          type: string
+          enum:
+          - TETHER_ROPE
+          - ARM_HOLD
+          - VERBAL_ONLY
+        chatPreference:
+          type: string
+          enum:
+          - PREFER_CHAT
+          - PREFER_QUIET
+          - NO_PREFERENCE
+        defaultPace:
+          type: string
+          enum:
+          - WALK_RUN
+          - EASY
+          - MODERATE
+          - FAST
+          - NO_PREFERENCE
+  securitySchemes:
+    Bearer:
+      type: http
+      name: Authorization
+      scheme: bearer
+      bearerFormat: JWT

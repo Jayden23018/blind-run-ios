@@ -5,35 +5,33 @@ import SwiftUI
 // MARK: - Volunteer Shared Models
 
 struct VolunteerAvailableOrderRow: Identifiable {
-    let order: AvailableOrderDto
+    let order: OrderDetailResponse
     let distanceMeters: CLLocationDistance?
 
-    var id: String { order.id }
+    var id: Int64 { order.orderId }
 
     var distanceText: String {
         guard let distanceMeters else { return "距离不可用" }
         return DistanceCalculator.formattedDistance(distanceMeters)
     }
 
-    var annotation: MapAnnotationItem {
-        MapAnnotationItem(
-            id: order.id,
-            coordinate: CLLocationCoordinate2D(
-                latitude: order.startLocation.latitude,
-                longitude: order.startLocation.longitude
-            ),
-            title: order.startLocation.displayAddress,
-            subtitle: order.blindRunnerNickname
+    var annotation: MapAnnotationItem? {
+        guard let lat = order.startLatitude, let lng = order.startLongitude else { return nil }
+        return MapAnnotationItem(
+            id: String(order.orderId),
+            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng),
+            title: order.startAddress ?? "",
+            subtitle: order.blindName
         )
     }
 
     func accessibilityLabel(locationAuthorized: Bool) -> String {
         let distance = locationAuthorized ? distanceText : "距离不可用"
-        return "盲人：\(order.blindRunnerNickname)，距离：\(distance)，地点：\(order.startLocation.displayAddress)，时间：\(order.appointmentTime.displayDateTime)"
+        return "盲人：\(order.blindName ?? "")，距离：\(distance)，地点：\(order.startAddress ?? "")，时间：\((order.plannedStart ?? "").displayDateTime)"
     }
 
     static func sortedRows(
-        orders: [AvailableOrderDto],
+        orders: [OrderDetailResponse],
         from location: CLLocationCoordinate2D?,
         locationAuthorized: Bool
     ) -> [VolunteerAvailableOrderRow] {
@@ -48,14 +46,14 @@ struct VolunteerAvailableOrderRow: Identifiable {
 }
 
 struct VolunteerServiceRecord: Identifiable {
-    let order: RunOrderDto
+    let order: OrderDetailResponse
 
-    var id: String { order.id }
+    var id: Int64 { order.orderId }
     var pointsText: String { order.status == .completed ? "+100 积分" : "—" }
-    var sortKey: String { order.completedAt ?? order.cancelledAt ?? order.emergencyAt ?? order.updatedAtSortKey }
+    var sortKey: String { order.createdAt ?? order.plannedStart ?? "" }
 
     var accessibilityLabel: String {
-        "时间：\(sortKey.displayDateTime)，盲人：\(order.blindRunnerNickname)，地点：\(order.startLocation.displayAddress)，状态：\(order.status.displayName)，积分：\(pointsText)"
+        "时间：\(sortKey.displayDateTime)，盲人：\(order.blindName ?? "")，地点：\(order.startAddress ?? "")，状态：\(order.status.displayName)，积分：\(pointsText)"
     }
 }
 
@@ -72,7 +70,7 @@ private enum VolunteerSheet: Identifiable {
 // MARK: - Shared Guards and Helpers
 
 extension VolunteerOrderActionGuard {
-    static func acceptBlockMessage(profile: VolunteerProfileDto?, locationAuthorized: Bool) -> String? {
+    static func acceptBlockMessage(profile: VolunteerProfileResponse?, locationAuthorized: Bool) -> String? {
         if let message = acceptBlockMessage(profile: profile) {
             return message
         }
@@ -86,68 +84,69 @@ extension VolunteerOrderActionGuard {
 extension RunOrderStatus {
     var volunteerDescription: String {
         switch self {
-        case .matching:
+        case .pendingMatch:
             return "可接订单"
-        case .accepted:
-            return "已接单，请前往约定地点"
-        case .arrived:
-            return "已到达，等待盲人确认开始服务"
+        case .pendingAccept:
+            return "已接单，等待确认"
         case .inProgress:
-            return "服务进行中"
+            return "已接单，请前往约定地点"
+        case .driverEnRoute:
+            return "正在前往约定地点"
+        case .driverArrived:
+            return "已到达，服务进行中"
         case .completed:
             return "服务完成，获得 +100 积分"
         case .cancelled:
             return "订单已取消"
-        case .emergency:
-            return "已进入求助状态"
+        case .rematching:
+            return "订单正在重新匹配"
+        case .noVolunteer:
+            return "暂无志愿者"
         }
     }
 
     var serviceStageTitle: String {
         switch self {
-        case .accepted:
+        case .pendingAccept, .inProgress:
             return "前往集合地点"
-        case .arrived:
+        case .driverEnRoute:
+            return "正在前往"
+        case .driverArrived:
             return "已到达集合地点"
-        case .inProgress:
-            return "服务进行中"
         case .completed:
             return "行程结算"
         case .cancelled:
             return "订单已取消"
-        case .emergency:
-            return "求助状态"
-        case .matching:
+        case .rematching, .noVolunteer:
+            return "订单异常"
+        case .pendingMatch:
             return "等待接单"
         }
     }
 
     var serviceStageSubtitle: String {
         switch self {
-        case .accepted:
+        case .pendingAccept, .inProgress:
             return "请尽快到达集合地点"
-        case .arrived:
-            return "等待盲人确认开始服务"
-        case .inProgress:
+        case .driverEnRoute:
+            return "盲人跑者正在等待"
+        case .driverArrived:
             return "完成本次陪跑后可结束服务"
         case .completed:
             return "感谢您的爱心陪伴"
         case .cancelled:
             return "本次服务已取消"
-        case .emergency:
-            return "本次服务已标记为异常"
-        case .matching:
+        case .rematching, .noVolunteer:
+            return "本次服务已结束"
+        case .pendingMatch:
             return "订单尚未进入服务流程"
         }
     }
 }
 
-private func shouldShowVolunteerPhone(for order: RunOrderDto) -> Bool {
-    order.status != .matching && order.blindRunnerPhone?.trimmed.isEmpty == false
-}
-
-private func orderCoordinate(_ point: LocationPoint) -> CLLocationCoordinate2D {
-    CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)
+private func orderCoordinate(_ order: OrderDetailResponse) -> CLLocationCoordinate2D? {
+    guard let lat = order.startLatitude, let lng = order.startLongitude else { return nil }
+    return CLLocationCoordinate2D(latitude: lat, longitude: lng)
 }
 
 // MARK: - Order List
@@ -175,13 +174,13 @@ final class VolunteerOrderListViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let response: UserMeResponse = try await appState.apiClient.get("/api/users/me")
-            appState.updateUserMe(response)
-            isAvailable = response.volunteerProfile?.isAvailable ?? false
+            let profile: VolunteerProfileResponse = try await appState.apiClient.get("/api/volunteer/profile")
+            appState.updateVolunteerProfile(profile)
+            isAvailable = profile.isAvailable ?? false
 
-            let orders: [AvailableOrderDto] = try await appState.apiClient.get("/api/orders/available")
+            let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/available")
             rows = VolunteerAvailableOrderRow.sortedRows(
-                orders: orders,
+                orders: paged.content,
                 from: currentLocation,
                 locationAuthorized: locationAuthorized
             )
@@ -210,12 +209,13 @@ final class VolunteerOrderListViewModel: ObservableObject {
         isUpdatingAvailability = true
         errorMessage = nil
         do {
-            let profile: VolunteerProfileDto = try await appState.apiClient.patch(
-                "/api/volunteer/availability",
-                body: AvailabilityRequest(isAvailable: value)
+            let request = VolunteerProfileUpdateRequest(isAvailable: value)
+            let profile: VolunteerProfileResponse = try await appState.apiClient.put(
+                "/api/volunteer/profile",
+                body: request
             )
             appState.updateVolunteerProfile(profile)
-            isAvailable = profile.isAvailable
+            isAvailable = profile.isAvailable ?? false
             isUpdatingAvailability = false
         } catch let error as APIError {
             isAvailable = previousValue
@@ -269,7 +269,7 @@ struct VolunteerOrderListView: View {
                 } else {
                     ForEach(viewModel.rows) { row in
                         NavigationLink {
-                            VolunteerOrderDetailView(orderId: row.order.id, initialOrder: row.order)
+                            VolunteerOrderDetailView(orderId: row.order.orderId)
                         } label: {
                             VolunteerAvailableOrderCard(row: row, locationAuthorized: locationService.isAuthorized)
                         }
@@ -310,7 +310,7 @@ struct VolunteerOrderListView: View {
 
 @MainActor
 final class VolunteerOrderDetailViewModel: ObservableObject {
-    @Published var order: RunOrderDto?
+    @Published var order: OrderDetailResponse?
     @Published var isLoading = false
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
@@ -319,12 +319,12 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     private var speechService: SpeechService?
 
     var canAccept: Bool {
-        order?.status == .matching
+        order?.status == .pendingMatch
     }
 
     var canShowPhone: Bool {
         guard let order else { return false }
-        return shouldShowVolunteerPhone(for: order)
+        return order.status != .pendingMatch && order.blindPhone?.trimmed.isEmpty == false
     }
 
     func configure(with appState: AppState, speechService: SpeechService) {
@@ -332,13 +332,13 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         self.speechService = speechService
     }
 
-    func load(orderId: String) async {
+    func load(orderId: Int64) async {
         guard let appState else { return }
         isLoading = order == nil
         errorMessage = nil
 
         do {
-            let loaded: RunOrderDto = try await appState.apiClient.get("/api/orders/\(orderId)")
+            let loaded: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(orderId)")
             order = loaded
             isLoading = false
         } catch let error as APIError {
@@ -363,7 +363,17 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             return
         }
         await performAction(failureMessage: "接单失败，请重试") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/accept")
+            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/accept")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
+            self.order = updated
+        }
+    }
+
+    func enRoute() async {
+        guard let order, let appState else { return }
+        await performAction(failureMessage: "操作失败，请重试") {
+            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/en-route")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             self.order = updated
         }
     }
@@ -371,26 +381,29 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     func arrive() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "操作失败，请重试") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/arrive")
+            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             self.order = updated
         }
     }
 
-    func cancel(reason: ManualCancellationReason) async {
+    func cancel() async {
         guard let order, let appState else { return }
-        let request = CancelOrderRequest(cancelledBy: .volunteer, cancelledReason: reason, otherReasonText: nil)
         await performAction(failureMessage: "取消失败，请重试") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/cancel", body: request)
+            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             self.order = updated
         }
     }
 
     func emergency() async {
         guard let order, let appState else { return }
+        let request = EmergencyTriggerRequest(orderId: order.orderId, gpsLat: nil, gpsLng: nil)
         await performAction(failureMessage: "求助操作失败，请重试") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/emergency")
+            let _: OrderResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             if order.status != updated.status {
-                speechService?.speakStatusChange(updated.status)
+                self.speechService?.speakStatusChange(updated.status)
             }
             self.order = updated
         }
@@ -420,15 +433,9 @@ struct VolunteerOrderDetailView: View {
     @EnvironmentObject private var locationService: LocationService
     @StateObject private var viewModel = VolunteerOrderDetailViewModel()
     @State private var showAcceptConfirm = false
-    @State private var showCancelReasons = false
+    @State private var showCancelConfirm = false
     @State private var showEmergencyConfirm = false
-    let orderId: String
-    let initialOrder: AvailableOrderDto?
-
-    init(orderId: String, initialOrder: AvailableOrderDto? = nil) {
-        self.orderId = orderId
-        self.initialOrder = initialOrder
-    }
+    let orderId: Int64
 
     var body: some View {
         ScrollView {
@@ -444,8 +451,6 @@ struct VolunteerOrderDetailView: View {
                     VolunteerBlindRunnerInfoCard(order: order, showPhone: viewModel.canShowPhone)
                     VolunteerOrderInfoSection(order: order, distanceText: distanceText(for: order))
                     actionSection(order)
-                } else if let initialOrder {
-                    VolunteerAvailableOrderInfoSection(order: initialOrder, distanceText: distanceText(for: initialOrder))
                 }
 
                 if let errorMessage = viewModel.errorMessage {
@@ -473,15 +478,13 @@ struct VolunteerOrderDetailView: View {
         } message: {
             Text("确认接单后将显示盲人联系方式。")
         }
-        .confirmationDialog("取消订单", isPresented: $showCancelReasons) {
-            ForEach(ManualCancellationReason.allCases, id: \.self) { reason in
-                Button(reason.displayName, role: .destructive) {
-                    Task { await viewModel.cancel(reason: reason) }
-                }
+        .confirmationDialog("取消订单", isPresented: $showCancelConfirm) {
+            Button("确认取消", role: .destructive) {
+                Task { await viewModel.cancel() }
             }
             Button("不取消", role: .cancel) {}
         } message: {
-            Text("请选择取消原因。")
+            Text("确认取消本次预约？")
         }
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm) {
             Task {
@@ -490,9 +493,9 @@ struct VolunteerOrderDetailView: View {
         }
     }
 
-    private func actionSection(_ order: RunOrderDto) -> some View {
+    private func actionSection(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 12) {
-            if order.status == .matching {
+            if order.status == .pendingMatch {
                 let blockMessage = VolunteerOrderActionGuard.acceptBlockMessage(
                     profile: appState.volunteerProfile,
                     locationAuthorized: locationService.isAuthorized
@@ -511,9 +514,9 @@ struct VolunteerOrderDetailView: View {
                         .foregroundColor(AppColors.warning)
                         .accessibilityLabel(blockMessage)
                 }
-            } else if order.status == .accepted || order.status == .arrived || order.status == .inProgress {
+            } else if order.status == .pendingAccept || order.status == .inProgress || order.status == .driverEnRoute || order.status == .driverArrived {
                 NavigationLink {
-                    VolunteerInServiceView(orderId: order.id, initialOrder: order)
+                    VolunteerInServiceView(orderId: order.orderId, initialOrder: order)
                 } label: {
                     Text("进入服务页面")
                         .font(AppFonts.primaryButton())
@@ -526,24 +529,17 @@ struct VolunteerOrderDetailView: View {
                 .accessibilityLabel("进入服务页面")
                 .accessibilityHint("查看当前订单服务状态")
 
-                if order.status == .accepted {
-                    PrimaryButton("我已到达", isLoading: viewModel.isPerformingAction) {
-                        Task { await viewModel.arrive() }
-                    }
-                    .accessibilityLabel("我已到达约定地点")
-                }
-
-                if order.status == .accepted || order.status == .arrived {
+                if order.status.canCancel {
                     Button("取消订单", role: .destructive) {
-                        showCancelReasons = true
+                        showCancelConfirm = true
                     }
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 52)
                     .accessibilityLabel("取消订单")
-                    .accessibilityHint("需要选择取消原因并确认")
+                    .accessibilityHint("需要确认后取消")
                 }
 
-                if order.status.canEnterEmergency {
+                if order.status.canTriggerEmergency {
                     EmergencyActionButton(isLoading: viewModel.isPerformingAction) {
                         showEmergencyConfirm = true
                     }
@@ -552,20 +548,11 @@ struct VolunteerOrderDetailView: View {
         }
     }
 
-    private func distanceText(for order: RunOrderDto) -> String? {
-        guard locationService.isAuthorized else { return nil }
+    private func distanceText(for order: OrderDetailResponse) -> String? {
+        guard locationService.isAuthorized, let coordinate = orderCoordinate(order) else { return nil }
         let meters = DistanceCalculator.distance(
             from: locationService.effectiveLocation,
-            to: orderCoordinate(order.startLocation)
-        )
-        return DistanceCalculator.formattedDistance(meters)
-    }
-
-    private func distanceText(for order: AvailableOrderDto) -> String? {
-        guard locationService.isAuthorized else { return nil }
-        let meters = DistanceCalculator.distance(
-            from: locationService.effectiveLocation,
-            to: orderCoordinate(order.startLocation)
+            to: coordinate
         )
         return DistanceCalculator.formattedDistance(meters)
     }
@@ -575,7 +562,7 @@ struct VolunteerOrderDetailView: View {
 
 @MainActor
 final class VolunteerInServiceViewModel: ObservableObject {
-    @Published var order: RunOrderDto?
+    @Published var order: OrderDetailResponse?
     @Published var isLoading = false
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
@@ -584,7 +571,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     private var speechService: SpeechService?
     private var pollingTask: Task<Void, Never>?
 
-    func configure(with appState: AppState, speechService: SpeechService, initialOrder: RunOrderDto?) {
+    func configure(with appState: AppState, speechService: SpeechService, initialOrder: OrderDetailResponse?) {
         self.appState = appState
         self.speechService = speechService
         if order == nil {
@@ -592,7 +579,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
     }
 
-    func startPolling(orderId: String) {
+    func startPolling(orderId: Int64) {
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
             await self?.load(orderId: orderId, speakChanges: true)
@@ -612,11 +599,11 @@ final class VolunteerInServiceViewModel: ObservableObject {
         pollingTask = nil
     }
 
-    func load(orderId: String, speakChanges: Bool) async {
+    func load(orderId: Int64, speakChanges: Bool) async {
         guard let appState else { return }
         isLoading = order == nil
         do {
-            let loaded: RunOrderDto = try await appState.apiClient.get("/api/orders/\(orderId)")
+            let loaded: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(orderId)")
             apply(loaded, speakChanges: speakChanges)
             isLoading = false
         } catch {
@@ -627,38 +614,48 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
     }
 
-    func arrive() async {
+    func enRoute() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "操作失败，请重试") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/arrive")
+            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/en-route")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             apply(updated, speakChanges: false)
         }
     }
 
-    func cancel(reason: ManualCancellationReason) async {
+    func arrive() async {
         guard let order, let appState else { return }
-        let request = CancelOrderRequest(cancelledBy: .volunteer, cancelledReason: reason, otherReasonText: nil)
+        await performAction(failureMessage: "操作失败，请重试") {
+            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
+            apply(updated, speakChanges: false)
+        }
+    }
+
+    func cancel() async {
+        guard let order, let appState else { return }
         await performAction(failureMessage: "取消失败，请重试") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/cancel", body: request)
+            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             apply(updated, speakChanges: false)
         }
     }
 
     func complete(summary: String) async {
         guard let order, let appState else { return }
-        let request = CompleteOrderRequest(summaryText: summary.nilIfBlank)
         await performAction(failureMessage: "操作失败，请重试") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/complete", body: request)
+            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/finish")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             apply(updated, speakChanges: false)
-            let userMe: UserMeResponse = try await appState.apiClient.get("/api/users/me")
-            appState.updateUserMe(userMe)
         }
     }
 
     func emergency() async {
         guard let order, let appState else { return }
+        let request = EmergencyTriggerRequest(orderId: order.orderId, gpsLat: nil, gpsLng: nil)
         await performAction(failureMessage: "求助操作失败，请重试") {
-            let updated: RunOrderDto = try await appState.apiClient.post("/api/orders/\(order.id)/emergency")
+            let _: OrderResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             apply(updated, speakChanges: true)
         }
     }
@@ -680,15 +677,11 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
     }
 
-    private func apply(_ updated: RunOrderDto, speakChanges: Bool) {
+    private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
         let previousStatus = order?.status
         order = updated
         if speakChanges, previousStatus != updated.status {
-            if updated.status == .inProgress {
-                speechService?.speak("服务已开始")
-            } else if updated.status == .emergency {
-                speechService?.speakStatusChange(updated.status)
-            }
+            speechService?.speakStatusChange(updated.status)
         }
         if updated.status.isTerminal {
             stopPolling()
@@ -701,13 +694,13 @@ struct VolunteerInServiceView: View {
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
     @StateObject private var viewModel = VolunteerInServiceViewModel()
-    @State private var showCancelReasons = false
+    @State private var showCancelConfirm = false
     @State private var showEmergencyConfirm = false
     @State private var activeSheet: VolunteerSheet?
-    let orderId: String
-    let initialOrder: RunOrderDto?
+    let orderId: Int64
+    let initialOrder: OrderDetailResponse?
 
-    init(orderId: String, initialOrder: RunOrderDto? = nil) {
+    init(orderId: Int64, initialOrder: OrderDetailResponse? = nil) {
         self.orderId = orderId
         self.initialOrder = initialOrder
     }
@@ -737,11 +730,11 @@ struct VolunteerInServiceView: View {
                         errorMessage: viewModel.errorMessage,
                         isPerformingAction: viewModel.isPerformingAction,
                         maxHeight: proxy.size.height * 0.62,
+                        onEnRoute: { Task { await viewModel.enRoute() } },
                         onArrive: { Task { await viewModel.arrive() } },
-                        onCancel: { showCancelReasons = true },
+                        onCancel: { showCancelConfirm = true },
                         onComplete: { activeSheet = .completion },
-                        onEmergency: { showEmergencyConfirm = true },
-                        debugControls: { debugMockControls(order) }
+                        onEmergency: { showEmergencyConfirm = true }
                     )
                     .padding(.horizontal, 10)
                     .padding(.bottom, 8)
@@ -759,15 +752,13 @@ struct VolunteerInServiceView: View {
         .onDisappear {
             viewModel.stopPolling()
         }
-        .confirmationDialog("取消订单", isPresented: $showCancelReasons) {
-            ForEach(ManualCancellationReason.allCases, id: \.self) { reason in
-                Button(reason.displayName, role: .destructive) {
-                    Task { await viewModel.cancel(reason: reason) }
-                }
+        .confirmationDialog("取消订单", isPresented: $showCancelConfirm) {
+            Button("确认取消", role: .destructive) {
+                Task { await viewModel.cancel() }
             }
             Button("不取消", role: .cancel) {}
         } message: {
-            Text("请选择取消原因。")
+            Text("确认取消本次预约？")
         }
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm) {
             Task {
@@ -785,31 +776,13 @@ struct VolunteerInServiceView: View {
         }
     }
 
-    private func distanceText(for order: RunOrderDto) -> String? {
-        guard locationService.isAuthorized else { return nil }
+    private func distanceText(for order: OrderDetailResponse) -> String? {
+        guard locationService.isAuthorized, let coordinate = orderCoordinate(order) else { return nil }
         let meters = DistanceCalculator.distance(
             from: locationService.effectiveLocation,
-            to: orderCoordinate(order.startLocation)
+            to: coordinate
         )
         return DistanceCalculator.formattedDistance(meters)
-    }
-
-    @ViewBuilder
-    private func debugMockControls(_ order: RunOrderDto) -> some View {
-        #if DEBUG
-        if appState.currentEnvironment == .mock, order.status == .arrived {
-            Button("模拟盲人确认开始") {
-                Task {
-                    let updated: RunOrderDto? = try? await appState.apiClient.post("/api/orders/\(order.id)/confirm-start")
-                    if let updated {
-                        viewModel.order = updated
-                    }
-                }
-            }
-            .buttonStyle(.bordered)
-            .accessibilityLabel("模拟盲人确认开始")
-        }
-        #endif
     }
 }
 
@@ -834,9 +807,9 @@ final class VolunteerServiceRecordsViewModel: ObservableObject {
         isLoading = records.isEmpty
         errorMessage = nil
         do {
-            let orders: [RunOrderDto] = try await appState.apiClient.get("/api/orders/my")
-            records = orders
-                .filter { [.completed, .cancelled, .emergency].contains($0.status) && $0.volunteerUserId != nil }
+            let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/mine")
+            records = paged.content
+                .filter { [.completed, .cancelled].contains($0.status) }
                 .map(VolunteerServiceRecord.init(order:))
                 .sorted { $0.sortKey > $1.sortKey }
             isLoading = false
@@ -905,25 +878,12 @@ struct VolunteerServiceRecordsView: View {
 
 @MainActor
 final class VolunteerPointsViewModel: ObservableObject {
-    @Published var pointsBalance: Int?
     @Published var errorMessage: String?
 
     private weak var appState: AppState?
 
     func configure(with appState: AppState) {
         self.appState = appState
-        pointsBalance = appState.volunteerProfile?.pointsBalance
-    }
-
-    func load() async {
-        guard let appState else { return }
-        do {
-            let response: UserMeResponse = try await appState.apiClient.get("/api/users/me")
-            appState.updateUserMe(response)
-            pointsBalance = response.volunteerProfile?.pointsBalance
-        } catch {
-            errorMessage = "积分加载失败"
-        }
     }
 }
 
@@ -942,7 +902,7 @@ struct VolunteerPointsPlaceholderView: View {
         ScrollView {
             VStack(spacing: 24) {
                 VStack(spacing: 8) {
-                    Text(viewModel.pointsBalance.map(String.init) ?? "--")
+                    Text("--")
                         .font(.system(size: 48, weight: .bold))
                         .foregroundColor(AppColors.textPrimary)
                     Text("积分")
@@ -956,7 +916,7 @@ struct VolunteerPointsPlaceholderView: View {
                 .background(AppColors.secondaryBackground)
                 .cornerRadius(8)
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("当前积分：\(viewModel.pointsBalance.map(String.init) ?? "--")分")
+                .accessibilityLabel("积分商城占位")
 
                 VStack(spacing: 8) {
                     Image(systemName: "gift.fill")
@@ -1000,7 +960,6 @@ struct VolunteerPointsPlaceholderView: View {
         .navigationTitle("积分商城")
         .task {
             viewModel.configure(with: appState)
-            await viewModel.load()
         }
     }
 }
@@ -1013,11 +972,9 @@ final class VolunteerSettingsViewModel: ObservableObject {
 
     func switchToBlindRunner(appState: AppState) async {
         do {
-            let user: UserDto = try await appState.apiClient.patch(
-                "/api/users/me/active-role",
-                body: SwitchRoleRequest(activeRole: .blindRunner)
-            )
-            appState.updateCurrentUser(user, fallbackActiveRole: .blindRunner)
+            let request = SetRoleRequest(role: .blind)
+            let response: SetRoleResponse = try await appState.apiClient.post("/api/user/role", body: request)
+            appState.handleRoleSwitchSuccess(response: response, requestedRole: .blind)
         } catch let error as APIError {
             errorMessage = error.localizedMessage
         } catch {
@@ -1035,8 +992,7 @@ struct VolunteerSettingsView: View {
     var body: some View {
         List {
             Section {
-                settingsRow("昵称", value: appState.volunteerProfile?.nickname ?? appState.currentUser?.nickname ?? "未填写")
-                settingsRow("手机号", value: appState.currentUser?.phoneNumber ?? appState.volunteerProfile?.phoneNumber ?? "未获取")
+                settingsRow("昵称", value: appState.volunteerProfile?.name ?? "未填写")
                 settingsRow("当前角色", value: "志愿者")
             }
 
@@ -1133,7 +1089,7 @@ struct VolunteerAvailableOrderCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(row.order.blindRunnerNickname)
+                Text(row.order.blindName ?? "盲人跑者")
                     .font(.headline)
                     .foregroundColor(AppColors.textPrimary)
                 Spacer()
@@ -1141,14 +1097,14 @@ struct VolunteerAvailableOrderCard: View {
                     .font(AppFonts.caption().weight(.semibold))
                     .foregroundColor(locationAuthorized ? AppColors.primary : AppColors.textSecondary)
             }
-            Text(row.order.startLocation.displayAddress)
+            Text(row.order.startAddress ?? "")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
-            Text(row.order.appointmentTime.displayDateTime)
+            Text((row.order.plannedStart ?? "").displayDateTime)
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
-            if let remark = row.order.remark?.nilIfBlank {
-                Text(remark)
+            if let notes = row.order.routeNotes?.nilIfBlank {
+                Text(notes)
                     .font(AppFonts.caption())
                     .foregroundColor(AppColors.textSecondary)
                     .lineLimit(2)
@@ -1190,45 +1146,48 @@ struct VolunteerStatusBanner: View {
 
 struct VolunteerOrderMap: View {
     @EnvironmentObject private var locationService: LocationService
-    let order: RunOrderDto
+    let order: OrderDetailResponse
 
     var body: some View {
-        MapViewWrapper(
-            centerCoordinate: orderCoordinate(order.startLocation),
-            showsUserLocation: locationService.isAuthorized,
-            annotations: [
-                MapAnnotationItem(
-                    id: order.id,
-                    coordinate: orderCoordinate(order.startLocation),
-                    title: order.startLocation.displayAddress,
-                    subtitle: order.blindRunnerNickname
-                )
-            ],
-            zoomLevel: 15
-        )
-        .frame(height: 210)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .accessibilityLabel("地图，显示出发点位置")
-        .accessibilityHint("不提供路线导航")
+        if let coordinate = orderCoordinate(order) {
+            MapViewWrapper(
+                centerCoordinate: coordinate,
+                showsUserLocation: locationService.isAuthorized,
+                annotations: [
+                    MapAnnotationItem(
+                        id: String(order.orderId),
+                        coordinate: coordinate,
+                        title: order.startAddress ?? "",
+                        subtitle: order.blindName
+                    )
+                ],
+                zoomLevel: 15
+            )
+            .frame(height: 210)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityLabel("地图，显示出发点位置")
+            .accessibilityHint("不提供路线导航")
+        }
     }
 }
 
 struct VolunteerServiceMapBackdrop: View {
     @EnvironmentObject private var locationService: LocationService
-    let order: RunOrderDto
+    let order: OrderDetailResponse
 
     var body: some View {
+        let coordinate = orderCoordinate(order) ?? locationService.effectiveLocation
         MapViewWrapper(
-            centerCoordinate: orderCoordinate(order.startLocation),
+            centerCoordinate: coordinate,
             showsUserLocation: locationService.isAuthorized,
-            annotations: [
-                MapAnnotationItem(
-                    id: order.id,
-                    coordinate: orderCoordinate(order.startLocation),
-                    title: order.startLocation.displayAddress,
-                    subtitle: order.blindRunnerNickname
-                )
-            ],
+            annotations: orderCoordinate(order).map { coord in
+                [MapAnnotationItem(
+                    id: String(order.orderId),
+                    coordinate: coord,
+                    title: order.startAddress ?? "",
+                    subtitle: order.blindName
+                )]
+            } ?? [],
             zoomLevel: 15
         )
         .ignoresSafeArea()
@@ -1246,17 +1205,17 @@ struct VolunteerServiceMapBackdrop: View {
     }
 }
 
-struct VolunteerServiceBottomPanel<DebugControls: View>: View {
-    let order: RunOrderDto
+struct VolunteerServiceBottomPanel: View {
+    let order: OrderDetailResponse
     let distanceText: String?
     let errorMessage: String?
     let isPerformingAction: Bool
     let maxHeight: CGFloat
+    let onEnRoute: () -> Void
     let onArrive: () -> Void
     let onCancel: () -> Void
     let onComplete: () -> Void
     let onEmergency: () -> Void
-    @ViewBuilder let debugControls: () -> DebugControls
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -1264,7 +1223,6 @@ struct VolunteerServiceBottomPanel<DebugControls: View>: View {
                 VolunteerServiceStageHeader(status: order.status)
                 VolunteerServiceRunnerCard(order: order)
                 VolunteerServiceOrderEssentials(order: order, distanceText: distanceText)
-                debugControls()
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -1277,6 +1235,7 @@ struct VolunteerServiceBottomPanel<DebugControls: View>: View {
                 VolunteerServiceActions(
                     status: order.status,
                     isPerformingAction: isPerformingAction,
+                    onEnRoute: onEnRoute,
                     onArrive: onArrive,
                     onCancel: onCancel,
                     onComplete: onComplete,
@@ -1335,7 +1294,7 @@ struct VolunteerServiceStageHeader: View {
 
 struct VolunteerServiceRunnerCard: View {
     @Environment(\.openURL) private var openURL
-    let order: RunOrderDto
+    let order: OrderDetailResponse
 
     var body: some View {
         HStack(spacing: 14) {
@@ -1353,7 +1312,7 @@ struct VolunteerServiceRunnerCard: View {
                 Text("盲人跑者")
                     .font(AppFonts.caption())
                     .foregroundColor(AppColors.textSecondary)
-                Text(order.blindRunnerNickname)
+                Text(order.blindName ?? "盲人跑者")
                     .font(.title3.weight(.bold))
                     .foregroundColor(AppColors.textPrimary)
                     .lineLimit(1)
@@ -1362,7 +1321,7 @@ struct VolunteerServiceRunnerCard: View {
 
             Spacer(minLength: 10)
 
-            if let phone = order.blindRunnerPhone?.nilIfBlank {
+            if let phone = order.blindPhone?.nilIfBlank {
                 Button {
                     if let url = URL(string: "tel://\(phone)") {
                         openURL(url)
@@ -1391,24 +1350,24 @@ struct VolunteerServiceRunnerCard: View {
 }
 
 struct VolunteerServiceOrderEssentials: View {
-    let order: RunOrderDto
+    let order: OrderDetailResponse
     let distanceText: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            serviceRow(systemImage: "mappin.and.ellipse", title: "出发地点", value: order.startLocation.displayAddress)
-            serviceRow(systemImage: "clock", title: "预约时间", value: order.appointmentTime.displayDateTime)
+            serviceRow(systemImage: "mappin.and.ellipse", title: "出发地点", value: order.startAddress ?? "")
+            serviceRow(systemImage: "clock", title: "预约时间", value: (order.plannedStart ?? "").displayDateTime)
 
             if let distanceText {
                 serviceRow(systemImage: "location", title: "当前位置距离", value: distanceText)
             }
 
-            if let destination = order.destinationText?.nilIfBlank {
-                serviceRow(systemImage: "point.topleft.down.curvedto.point.bottomright.up", title: "目的地 / 路线", value: destination)
+            if let routeNotes = order.routeNotes?.nilIfBlank {
+                serviceRow(systemImage: "point.topleft.down.curvedto.point.bottomright.up", title: "路线备注", value: routeNotes)
             }
 
-            if let remark = order.remark?.nilIfBlank {
-                serviceRow(systemImage: "text.bubble", title: "备注", value: remark)
+            if let notes = order.specialNotes?.nilIfBlank {
+                serviceRow(systemImage: "text.bubble", title: "特殊说明", value: notes)
             }
         }
         .padding(16)
@@ -1441,6 +1400,7 @@ struct VolunteerServiceOrderEssentials: View {
 struct VolunteerServiceActions: View {
     let status: RunOrderStatus
     let isPerformingAction: Bool
+    let onEnRoute: () -> Void
     let onArrive: () -> Void
     let onCancel: () -> Void
     let onComplete: () -> Void
@@ -1448,22 +1408,16 @@ struct VolunteerServiceActions: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            if status == .accepted {
+            if status == .pendingAccept || status == .inProgress {
+                PrimaryButton("我已出发", isLoading: isPerformingAction, action: onEnRoute)
+                    .accessibilityLabel("我已出发")
+                    .accessibilityHint("点击后通知盲人您正在前往")
+                secondaryDangerButton("取消订单", hint: "取消当前订单", action: onCancel)
+            } else if status == .driverEnRoute {
                 PrimaryButton("我已到达约定地点", isLoading: isPerformingAction, action: onArrive)
                     .accessibilityLabel("我已到达约定地点")
-                secondaryDangerButton("取消订单", hint: "服务开始前取消当前订单，需要选择取消原因并确认", action: onCancel)
-            } else if status == .arrived {
-                Text("等待盲人确认开始服务")
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                    .background(AppColors.secondaryBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .accessibilityLabel("已到达，等待盲人确认开始服务")
-
-                secondaryDangerButton("取消订单", hint: "服务开始前取消当前订单，需要选择取消原因并确认", action: onCancel)
-            } else if status == .inProgress {
+                secondaryDangerButton("取消订单", hint: "取消当前订单", action: onCancel)
+            } else if status == .driverArrived {
                 PrimaryButton("结束服务", isDestructive: true, isLoading: isPerformingAction, action: onComplete)
                     .accessibilityLabel("结束服务")
                     .accessibilityHint("需要使用二次确认")
@@ -1476,10 +1430,10 @@ struct VolunteerServiceActions: View {
                     .background(AppColors.success.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .accessibilityLabel("服务完成，获得一百积分")
-            } else if status == .cancelled || status == .emergency {
+            } else if status == .cancelled || status == .noVolunteer {
                 Text(status.volunteerDescription)
                     .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(status == .emergency ? AppColors.destructive : AppColors.textSecondary)
+                    .foregroundColor(AppColors.textSecondary)
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 64)
                     .background(AppColors.secondaryBackground)
@@ -1487,7 +1441,7 @@ struct VolunteerServiceActions: View {
                     .accessibilityLabel(status.volunteerDescription)
             }
 
-            if status.canEnterEmergency {
+            if status.canTriggerEmergency {
                 EmergencyActionButton(isLoading: isPerformingAction, action: onEmergency)
             }
         }
@@ -1510,7 +1464,7 @@ struct VolunteerServiceActions: View {
 
 struct VolunteerBlindRunnerInfoCard: View {
     @Environment(\.openURL) private var openURL
-    let order: RunOrderDto
+    let order: OrderDetailResponse
     let showPhone: Bool
 
     var body: some View {
@@ -1518,12 +1472,12 @@ struct VolunteerBlindRunnerInfoCard: View {
             Text("盲人跑者")
                 .font(.headline)
                 .foregroundColor(AppColors.textPrimary)
-            Text(order.blindRunnerNickname)
+            Text(order.blindName ?? "盲人跑者")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
-                .accessibilityLabel("盲人：\(order.blindRunnerNickname)")
+                .accessibilityLabel("盲人：\(order.blindName ?? "")")
 
-            if showPhone, let phone = order.blindRunnerPhone {
+            if showPhone, let phone = order.blindPhone {
                 Button {
                     if let url = URL(string: "tel://\(phone)") {
                         openURL(url)
@@ -1548,7 +1502,7 @@ struct VolunteerBlindRunnerInfoCard: View {
 }
 
 struct VolunteerOrderInfoSection: View {
-    let order: RunOrderDto
+    let order: OrderDetailResponse
     let distanceText: String?
 
     var body: some View {
@@ -1556,81 +1510,28 @@ struct VolunteerOrderInfoSection: View {
             Text("订单信息")
                 .font(.headline)
                 .foregroundColor(AppColors.textPrimary)
-            infoRow("出发地点", order.startLocation.displayAddress)
-            infoRow("预约时间", order.appointmentTime.displayDateTime)
+            infoRow("出发地点", order.startAddress ?? "")
+            infoRow("预约时间", (order.plannedStart ?? "").displayDateTime)
             if let distanceText {
                 infoRow("距离", distanceText)
             }
-            if let destination = order.destinationText?.nilIfBlank {
-                infoRow("目的地 / 路线", destination)
+            if let routeNotes = order.routeNotes?.nilIfBlank {
+                infoRow("路线备注", routeNotes)
             }
-            if let minutes = order.estimatedDurationMinutes {
+            if let minutes = order.expectedDurationMinutes {
                 infoRow("预计时长", "\(minutes) 分钟")
             }
-            if let distance = order.estimatedDistanceKm {
-                infoRow("预计距离", String(format: "%.1f 公里", distance))
+            if let pace = order.pacePreference {
+                infoRow("配速偏好", pace.displayName)
             }
-            if let pace = order.pacePreference?.nilIfBlank {
-                infoRow("配速偏好", pace)
+            if let route = order.routePreference {
+                infoRow("路线偏好", route.displayName)
             }
-            if let preferSameGender = order.preferSameGender {
-                infoRow("同性志愿者", preferSameGender ? "需要" : "不需要")
+            if order.hasGuideDogThisRun == true {
+                infoRow("导盲犬", "本次携带")
             }
-            if let remark = order.remark?.nilIfBlank {
-                infoRow("备注", remark)
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
-    }
-
-    private func infoRow(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-            Text(value)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title)：\(value)")
-    }
-}
-
-struct VolunteerAvailableOrderInfoSection: View {
-    let order: AvailableOrderDto
-    let distanceText: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("订单信息")
-                .font(.headline)
-            infoRow("盲人", order.blindRunnerNickname)
-            infoRow("出发地点", order.startLocation.displayAddress)
-            infoRow("预约时间", order.appointmentTime.displayDateTime)
-            if let distanceText {
-                infoRow("距离", distanceText)
-            }
-            if let destination = order.destinationText?.nilIfBlank {
-                infoRow("目的地 / 路线", destination)
-            }
-            if let minutes = order.estimatedDurationMinutes {
-                infoRow("预计时长", "\(minutes) 分钟")
-            }
-            if let distance = order.estimatedDistanceKm {
-                infoRow("预计距离", String(format: "%.1f 公里", distance))
-            }
-            if let pace = order.pacePreference?.nilIfBlank {
-                infoRow("配速偏好", pace)
-            }
-            if let preferSameGender = order.preferSameGender {
-                infoRow("同性志愿者", preferSameGender ? "需要" : "不需要")
-            }
-            if let remark = order.remark?.nilIfBlank {
-                infoRow("备注", remark)
+            if let notes = order.specialNotes?.nilIfBlank {
+                infoRow("特殊说明", notes)
             }
         }
         .padding()
@@ -1666,9 +1567,9 @@ struct VolunteerServiceRecordRow: View {
                     .font(AppFonts.caption().weight(.semibold))
                     .foregroundColor(record.order.status == .completed ? AppColors.success : AppColors.textSecondary)
             }
-            Text("盲人：\(record.order.blindRunnerNickname)")
+            Text("盲人：\(record.order.blindName ?? "")")
                 .font(AppFonts.body())
-            Text(record.order.startLocation.displayAddress)
+            Text(record.order.startAddress ?? "")
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
             Text(record.pointsText)
@@ -1680,13 +1581,13 @@ struct VolunteerServiceRecordRow: View {
 }
 
 struct VolunteerReadOnlyOrderView: View {
-    let order: RunOrderDto
+    let order: OrderDetailResponse
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VolunteerStatusBanner(status: order.status)
-                VolunteerBlindRunnerInfoCard(order: order, showPhone: shouldShowVolunteerPhone(for: order))
+                VolunteerBlindRunnerInfoCard(order: order, showPhone: order.status != .pendingMatch && order.blindPhone?.trimmed.isEmpty == false)
                 VolunteerOrderInfoSection(order: order, distanceText: nil)
             }
             .padding(20)
@@ -1700,82 +1601,76 @@ struct EmptyStateView: View {
     let message: String
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "figure.run")
-                .font(.largeTitle)
-                .foregroundColor(AppColors.textSecondary)
+        VStack(spacing: 12) {
             Text(title)
                 .font(.headline)
                 .foregroundColor(AppColors.textPrimary)
             Text(message)
-                .font(AppFonts.caption())
+                .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding()
+        .padding(.vertical, 32)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title)，\(message)")
     }
 }
 
+// MARK: - Complete Service Sheet
+
 struct CompleteServiceSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var speechService: SpeechService
-    @EnvironmentObject private var speechInputService: SpeechInputService
-    @State private var summary = ""
-    @State private var showConfirm = false
     let isPerformingAction: Bool
-    let onConfirm: (String) async -> Void
+    let onComplete: (String) async -> Void
+    @State private var summaryText = ""
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                VoiceTextField(
-                    title: "服务总结（选填）",
-                    placeholder: "例如：顺利完成慢跑陪伴",
-                    text: $summary,
-                    isMultiline: true,
-                    speechInputService: speechInputService,
-                    speechService: speechService,
-                    speechField: .volunteerServiceSummary,
-                    accessibilityLabel: "服务总结，选填",
-                    accessibilityHint: "可以使用语音或键盘输入本次服务总结"
-                )
+            VStack(alignment: .leading, spacing: 24) {
+                Text("服务已结束")
+                    .font(.largeTitle.bold())
+                    .foregroundColor(AppColors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
 
-                PrimaryButton("确认结束服务", isLoading: isPerformingAction) {
-                    showConfirm = true
+                Text("如果有需要记录的内容，可以在下方添加服务总结。")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+
+                TextEditor(text: $summaryText)
+                    .frame(minHeight: 120)
+                    .padding(8)
+                    .background(AppColors.secondaryBackground)
+                    .cornerRadius(8)
+                    .accessibilityLabel("服务总结，选填")
+                    .accessibilityHint("可以记录本次服务的要点")
+
+                PrimaryButton("确认完成服务", isLoading: isPerformingAction) {
+                    Task { await onComplete(summaryText) }
                 }
-                .accessibilityLabel("确认结束服务")
-                .accessibilityHint("点击后弹出二次确认")
+                .accessibilityLabel("确认完成服务")
+                .accessibilityHint("确认后订单标记为已完成")
 
                 Spacer()
             }
-            .padding(20)
+            .padding(24)
             .navigationTitle("结束服务")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
                 }
-            }
-            .alert("确认结束服务", isPresented: $showConfirm) {
-                Button("确认结束", role: .destructive) {
-                    Task { await onConfirm(summary) }
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("确认结束本次服务？结束后订单将标记为已完成。")
             }
         }
     }
 }
 
 #if DEBUG
-#Preview("Volunteer order list") {
+#Preview("Order List") {
     NavigationStack {
         VolunteerOrderListView()
             .environmentObject(AppState())
             .environmentObject(SpeechService())
-            .environmentObject(SpeechInputService())
             .environmentObject(LocationService())
     }
 }

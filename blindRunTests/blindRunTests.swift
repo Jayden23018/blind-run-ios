@@ -12,44 +12,35 @@ import AMapSearchKit
 @MainActor
 final class blindRunTests: XCTestCase {
 
-    func testPhoneLoginRequestUsesOpenAPICamelCaseKeys() throws {
-        let request = PhoneLoginRequest(
-            phoneNumber: "13800138000",
-            verificationCode: "123456"
-        )
-
+    func testSendCodeRequestUsesOpenAPICamelCaseKeys() throws {
+        let request = SendCodeRequest(phone: "13800138000")
         let data = try JSONEncoder().encode(request)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
-
-        XCTAssertEqual(json["phoneNumber"], "13800138000")
-        XCTAssertEqual(json["verificationCode"], "123456")
-        XCTAssertNil(json["phone_number"])
-        XCTAssertNil(json["code"])
+        XCTAssertEqual(json["phone"], "13800138000")
     }
 
-    func testAuthResponseDecodesOpenAPICamelCaseKeys() throws {
+    func testVerifyCodeRequestUsesOpenAPICamelCaseKeys() throws {
+        let request = VerifyCodeRequest(phone: "13800138000", code: "123456")
+        let data = try JSONEncoder().encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+        XCTAssertEqual(json["phone"], "13800138000")
+        XCTAssertEqual(json["code"], "123456")
+    }
+
+    func testLoginResponseDecodesCorrectly() throws {
         let json = """
         {
-          "accessToken": "token",
-          "tokenType": "Bearer",
-          "user": {
-            "id": "00000000-0000-0000-0000-000000000001",
-            "phoneNumber": "13800138000",
-            "nickname": "测试用户",
-            "roles": ["blind_runner", "volunteer"],
-            "activeRole": null,
-            "createdAt": "2024-01-01T00:00:00Z",
-            "updatedAt": "2024-01-01T00:00:00Z"
-          }
+          "token": "eyJhbGciOiJIUzI1NiJ9.test",
+          "userId": 1,
+          "role": "BLIND"
         }
         """.data(using: .utf8)!
 
-        let response = try JSONDecoder().decode(AuthResponse.self, from: json)
+        let response = try JSONDecoder().decode(LoginResponse.self, from: json)
 
-        XCTAssertEqual(response.accessToken, "token")
-        XCTAssertEqual(response.user.id, "00000000-0000-0000-0000-000000000001")
-        XCTAssertEqual(response.user.phoneNumber, "13800138000")
-        XCTAssertEqual(response.user.roles, [.blindRunner, .volunteer])
+        XCTAssertEqual(response.token, "eyJhbGciOiJIUzI1NiJ9.test")
+        XCTAssertEqual(response.userId, 1)
+        XCTAssertEqual(response.role, "BLIND")
     }
 
     func testLoginPhoneInputKeepsOnlyFirstElevenDigits() {
@@ -164,32 +155,31 @@ final class blindRunTests: XCTestCase {
         )
     }
 
-    func testOrderRequestUsesOpenAPIWireValues() throws {
+    func testCreateOrderRequestUsesOpenAPIWireValues() throws {
         let request = CreateOrderRequest(
-            startLocation: LocationPoint(
-                latitude: 31.2304,
-                longitude: 121.4737,
-                addressText: "人民广场",
-                source: .deviceLocation
-            ),
-            destinationText: "公园慢跑一圈",
-            appointmentTime: "2026-05-22T09:00:00Z",
-            estimatedDurationMinutes: 60,
-            estimatedDistanceKm: 5.0,
-            pacePreference: "慢跑",
-            preferSameGender: true,
-            remark: "请在地铁口见面"
+            startLatitude: 31.2304,
+            startLongitude: 121.4737,
+            startAddress: "人民广场",
+            plannedStartTime: "2026-05-22T09:00:00Z",
+            plannedEndTime: "2026-05-22T10:00:00Z",
+            expectedDurationMinutes: 60,
+            pacePreference: .easy,
+            routePreference: .parkTrail,
+            routeNotes: "公园慢跑一圈",
+            hasGuideDogThisRun: false,
+            specialNotes: "请在地铁口见面"
         )
 
         let data = try JSONEncoder().encode(request)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let location = try XCTUnwrap(json["startLocation"] as? [String: Any])
 
-        XCTAssertEqual(json["destinationText"] as? String, "公园慢跑一圈")
-        XCTAssertEqual(location["addressText"] as? String, "人民广场")
-        XCTAssertEqual(location["source"] as? String, "device_location")
-        XCTAssertNil(json["routeNotes"])
-        XCTAssertNil(location["address"])
+        XCTAssertEqual(json["startLatitude"] as? Double, 31.2304)
+        XCTAssertEqual(json["startLongitude"] as? Double, 121.4737)
+        XCTAssertEqual(json["startAddress"] as? String, "人民广场")
+        XCTAssertEqual(json["routeNotes"] as? String, "公园慢跑一圈")
+        XCTAssertEqual(json["specialNotes"] as? String, "请在地铁口见面")
+        XCTAssertEqual(json["pacePreference"] as? String, "EASY")
+        XCTAssertEqual(json["routePreference"] as? String, "PARK_TRAIL")
     }
 
     func testBlindBookingResolvedStartLocationKeepsCoordinatesAndAppendsManualDescription() {
@@ -210,21 +200,6 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.resolvedStartLocationDescription, "上海市黄浦区人民广场；补充：我在地铁口外侧")
     }
 
-    func testManualCancellationReasonKeepsOpenAPIWireValueAndChineseLabel() throws {
-        let request = CancelOrderRequest(
-            cancelledBy: .blindRunner,
-            cancelledReason: .wrongLocation,
-            otherReasonText: nil
-        )
-
-        let data = try JSONEncoder().encode(request)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
-
-        XCTAssertEqual(json["cancelledBy"], "blind_runner")
-        XCTAssertEqual(json["cancelledReason"], "wrong_location")
-        XCTAssertEqual(ManualCancellationReason.wrongLocation.displayName, "地点填写错误")
-    }
-
     func testBlindBookingRequiresAppointmentAtLeastThirtyMinutesLater() {
         let viewModel = BlindBookingViewModel()
 
@@ -237,15 +212,24 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(viewModel.isAppointmentTimeValid)
     }
 
-    func testBlindBookingDurationPaceAndDistanceAreNotSpeechFields() {
+    func testBlindBookingDurationOptions() {
         XCTAssertEqual(BookingDurationOption.sixty.minutes, 60)
         XCTAssertNil(BookingDurationOption.none.minutes)
-        XCTAssertEqual(PacePreferenceOption.slow.requestValue, "慢跑")
-        XCTAssertNil(PacePreferenceOption.none.requestValue)
+    }
 
-        let viewModel = BlindBookingViewModel()
-        viewModel.sanitizeDistanceInput("5公里")
-        XCTAssertEqual(viewModel.estimatedDistanceText, "5")
+    func testPacePreferenceDisplayNames() {
+        XCTAssertEqual(PacePreference.walkRun.displayName, "走跑结合")
+        XCTAssertEqual(PacePreference.easy.displayName, "轻松")
+        XCTAssertEqual(PacePreference.moderate.displayName, "中等")
+        XCTAssertEqual(PacePreference.fast.displayName, "快速")
+        XCTAssertEqual(PacePreference.noPreference.displayName, "无偏好")
+    }
+
+    func testRoutePreferenceDisplayNames() {
+        XCTAssertEqual(RoutePreference.parkTrail.displayName, "公园步道")
+        XCTAssertEqual(RoutePreference.street.displayName, "街道")
+        XCTAssertEqual(RoutePreference.track.displayName, "跑道")
+        XCTAssertEqual(RoutePreference.noPreference.displayName, "无偏好")
     }
 
     func testAMapPOIMapsToResolvedPlaceForBookingSearch() throws {
@@ -298,22 +282,22 @@ final class blindRunTests: XCTestCase {
         let service = VoiceService()
 
         XCTAssertEqual(
-            VoiceService.statusAnnouncement(for: .matching),
+            VoiceService.statusAnnouncement(for: .pendingMatch),
             "预约已提交，正在等待志愿者接单。"
         )
         XCTAssertEqual(
-            VoiceService.statusAnnouncement(for: .arrived),
+            VoiceService.statusAnnouncement(for: .driverArrived),
             "志愿者已到达，请确认开始服务。"
         )
         XCTAssertEqual(
-            VoiceService.statusAnnouncement(for: .emergency),
-            "已进入求助状态，系统已记录本次异常。"
+            VoiceService.statusAnnouncement(for: .completed),
+            "服务已完成，感谢使用助盲跑。"
         )
 
-        XCTAssertTrue(service.speakStatusChange(.matching))
-        XCTAssertFalse(service.speakStatusChange(.matching))
-        XCTAssertTrue(service.speakStatusChange(.accepted))
-        XCTAssertEqual(service.lastSpokenStatus, .accepted)
+        XCTAssertTrue(service.speakStatusChange(.pendingMatch))
+        XCTAssertFalse(service.speakStatusChange(.pendingMatch))
+        XCTAssertTrue(service.speakStatusChange(.pendingAccept))
+        XCTAssertEqual(service.lastSpokenStatus, .pendingAccept)
 
         service.stop()
     }
@@ -378,13 +362,16 @@ final class blindRunTests: XCTestCase {
     }
 
     func testEmergencyButtonStatusGate() {
-        XCTAssertFalse(RunOrderStatus.matching.canEnterEmergency)
-        XCTAssertTrue(RunOrderStatus.accepted.canEnterEmergency)
-        XCTAssertTrue(RunOrderStatus.arrived.canEnterEmergency)
-        XCTAssertTrue(RunOrderStatus.inProgress.canEnterEmergency)
-        XCTAssertFalse(RunOrderStatus.completed.canEnterEmergency)
-        XCTAssertFalse(RunOrderStatus.cancelled.canEnterEmergency)
-        XCTAssertFalse(RunOrderStatus.emergency.canEnterEmergency)
+        // Emergency trigger allowed only during active service stages
+        XCTAssertFalse(RunOrderStatus.pendingMatch.canTriggerEmergency)
+        XCTAssertFalse(RunOrderStatus.pendingAccept.canTriggerEmergency)
+        XCTAssertTrue(RunOrderStatus.driverEnRoute.canTriggerEmergency)
+        XCTAssertTrue(RunOrderStatus.driverArrived.canTriggerEmergency)
+        XCTAssertTrue(RunOrderStatus.inProgress.canTriggerEmergency)
+        XCTAssertFalse(RunOrderStatus.completed.canTriggerEmergency)
+        XCTAssertFalse(RunOrderStatus.cancelled.canTriggerEmergency)
+        XCTAssertFalse(RunOrderStatus.rematching.canTriggerEmergency)
+        XCTAssertFalse(RunOrderStatus.noVolunteer.canTriggerEmergency)
     }
 
     func testEmergencyConfirmationCopyIsFixed() {
@@ -394,28 +381,33 @@ final class blindRunTests: XCTestCase {
         )
     }
 
-    func testArrivedIsOnlyBlindConfirmStartStatus() {
-        let viewModel = BlindOrderStatusViewModel()
-
-        viewModel.order = makeOrder(status: .accepted)
-        XCTAssertFalse(viewModel.canShowConfirmStart)
-
-        viewModel.order = makeOrder(status: .arrived)
-        XCTAssertTrue(viewModel.canShowConfirmStart)
-
-        viewModel.order = makeOrder(status: .inProgress)
-        XCTAssertFalse(viewModel.canShowConfirmStart)
-    }
-
     func testBlindOrderPollingUsesFiveSecondsAndStopsOnTerminalStates() {
         XCTAssertEqual(AppConstants.Timing.orderPollingInterval, 5.0)
-        XCTAssertTrue(RunOrderStatus.matching.shouldPollOnBlindRunnerPage)
-        XCTAssertTrue(RunOrderStatus.accepted.shouldPollOnBlindRunnerPage)
-        XCTAssertTrue(RunOrderStatus.arrived.shouldPollOnBlindRunnerPage)
-        XCTAssertTrue(RunOrderStatus.inProgress.shouldPollOnBlindRunnerPage)
-        XCTAssertFalse(RunOrderStatus.completed.shouldPollOnBlindRunnerPage)
-        XCTAssertFalse(RunOrderStatus.cancelled.shouldPollOnBlindRunnerPage)
-        XCTAssertFalse(RunOrderStatus.emergency.shouldPollOnBlindRunnerPage)
+        XCTAssertTrue(RunOrderStatus.pendingMatch.shouldPoll)
+        XCTAssertTrue(RunOrderStatus.pendingAccept.shouldPoll)
+        XCTAssertTrue(RunOrderStatus.driverEnRoute.shouldPoll)
+        XCTAssertTrue(RunOrderStatus.driverArrived.shouldPoll)
+        XCTAssertTrue(RunOrderStatus.inProgress.shouldPoll)
+        XCTAssertTrue(RunOrderStatus.rematching.shouldPoll)
+        XCTAssertFalse(RunOrderStatus.completed.shouldPoll)
+        XCTAssertFalse(RunOrderStatus.cancelled.shouldPoll)
+        XCTAssertFalse(RunOrderStatus.noVolunteer.shouldPoll)
+    }
+
+    func testOrderStatusTerminalStates() {
+        XCTAssertTrue(RunOrderStatus.completed.isTerminal)
+        XCTAssertTrue(RunOrderStatus.cancelled.isTerminal)
+        XCTAssertTrue(RunOrderStatus.noVolunteer.isTerminal)
+        XCTAssertFalse(RunOrderStatus.pendingMatch.isTerminal)
+        XCTAssertFalse(RunOrderStatus.inProgress.isTerminal)
+    }
+
+    func testOrderStatusCancelability() {
+        XCTAssertTrue(RunOrderStatus.pendingMatch.canCancel)
+        XCTAssertTrue(RunOrderStatus.pendingAccept.canCancel)
+        XCTAssertTrue(RunOrderStatus.inProgress.canCancel)
+        XCTAssertFalse(RunOrderStatus.completed.canCancel)
+        XCTAssertFalse(RunOrderStatus.cancelled.canCancel)
     }
 
     func testVolunteerAcceptGuardRequiresCompleteProfile() {
@@ -425,121 +417,62 @@ final class blindRunTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile(nickname: "")),
-            "请先完善志愿者资料"
-        )
-
-        XCTAssertEqual(
-            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile(phoneNumber: "123")),
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile(name: "")),
             "请先完善志愿者资料"
         )
     }
 
-    func testVolunteerAcceptGuardRequiresApprovalAndAvailability() {
+    func testVolunteerAcceptGuardRequiresApproval() {
         XCTAssertEqual(
             VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile()),
             "请先完成志愿者认证"
         )
 
-        XCTAssertEqual(
-            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile(isAvailable: false)),
-            "请先开启可服务状态"
-        )
-
         XCTAssertNil(
-            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile(isAvailable: true))
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile())
         )
     }
 
-    func testAppStateVolunteerComputedPropertiesRequireCompleteApprovedAvailableProfile() {
+    func testAppStateVolunteerComputedPropertiesRequireCompleteApprovedProfile() {
         let appState = AppState()
         appState.volunteerProfile = nil
         XCTAssertFalse(appState.isVolunteerProfileComplete)
         XCTAssertFalse(appState.isVolunteerProfileApproved)
-        XCTAssertFalse(appState.canVolunteerAcceptOrders)
 
-        appState.volunteerProfile = makeVolunteerProfile(phoneNumber: "123")
+        appState.volunteerProfile = makeVolunteerProfile(name: "")
         XCTAssertFalse(appState.isVolunteerProfileComplete)
         XCTAssertFalse(appState.isVolunteerProfileApproved)
-        XCTAssertFalse(appState.canVolunteerAcceptOrders)
 
         appState.volunteerProfile = makeVolunteerProfile()
         XCTAssertTrue(appState.isVolunteerProfileComplete)
         XCTAssertFalse(appState.isVolunteerProfileApproved)
-        XCTAssertFalse(appState.canVolunteerAcceptOrders)
 
-        appState.volunteerProfile = makeApprovedVolunteerProfile(isAvailable: false)
+        appState.volunteerProfile = makeApprovedVolunteerProfile()
         XCTAssertTrue(appState.isVolunteerProfileComplete)
         XCTAssertTrue(appState.isVolunteerProfileApproved)
-        XCTAssertFalse(appState.canVolunteerAcceptOrders)
-
-        appState.volunteerProfile = makeApprovedVolunteerProfile(isAvailable: true)
-        XCTAssertTrue(appState.canVolunteerAcceptOrders)
     }
+
+    // MARK: - Helpers
 
     private func makeVolunteerProfile(
-        nickname: String = "测试志愿者",
-        phoneNumber: String = "13800138000",
-        verificationStatus: VerificationStatus = .notSubmitted,
-        adminReviewStatus: AdminReviewStatus = .notSubmitted,
+        name: String = "测试志愿者",
+        verificationStatus: String = "not_submitted",
         isAvailable: Bool = false
-    ) -> VolunteerProfileDto {
-        VolunteerProfileDto(
-            id: "20000000-0000-0000-0000-000000000001",
-            userId: "00000000-0000-0000-0000-000000000001",
-            nickname: nickname,
-            phoneNumber: phoneNumber,
+    ) -> VolunteerProfileResponse {
+        VolunteerProfileResponse(
+            name: name,
             verificationStatus: verificationStatus,
-            adminReviewStatus: adminReviewStatus,
             isAvailable: isAvailable,
-            pointsBalance: 0,
-            createdAt: "2024-01-01T00:00:00Z",
-            updatedAt: "2024-01-01T00:00:00Z"
+            availableTimeSlots: nil,
+            acceptsGuideDog: nil,
+            paceRange: nil
         )
     }
 
-    private func makeApprovedVolunteerProfile(isAvailable: Bool) -> VolunteerProfileDto {
+    private func makeApprovedVolunteerProfile(isAvailable: Bool = true) -> VolunteerProfileResponse {
         makeVolunteerProfile(
-            verificationStatus: .approved,
-            adminReviewStatus: .approved,
+            verificationStatus: "approved",
             isAvailable: isAvailable
-        )
-    }
-
-    private func makeOrder(status: RunOrderStatus) -> RunOrderDto {
-        RunOrderDto(
-            id: "30000000-0000-0000-0000-000000000001",
-            blindRunnerUserId: "00000000-0000-0000-0000-000000000001",
-            blindRunnerNickname: "测试跑者",
-            blindRunnerPhone: "13800138000",
-            volunteerUserId: status == .matching ? nil : "20000000-0000-0000-0000-000000000001",
-            volunteerNickname: status == .matching ? nil : "测试志愿者",
-            status: status,
-            startLocation: LocationPoint(
-                latitude: 39.9042,
-                longitude: 116.4074,
-                addressText: "当前位置",
-                source: .demoDefault
-            ),
-            destinationText: nil,
-            appointmentTime: "2026-05-22T09:00:00Z",
-            estimatedDurationMinutes: nil,
-            estimatedDistanceKm: nil,
-            pacePreference: nil,
-            preferSameGender: nil,
-            remark: nil,
-            cancellation: nil,
-            emergencyEvent: nil,
-            serviceSummary: nil,
-            rating: nil,
-            createdAt: "2026-05-22T08:00:00Z",
-            updatedAt: "2026-05-22T08:00:00Z",
-            acceptedAt: nil,
-            arrivedAt: nil,
-            startedAt: nil,
-            completedAt: nil,
-            cancelledAt: nil,
-            emergencyAt: nil
         )
     }
 }

@@ -81,16 +81,17 @@ final class MapViewModel: ObservableObject {
     }
 
     /// 在地图上显示多个订单位置标注（用于志愿者查看附近订单）
-    func showOrderLocations(_ orders: [AvailableOrderDto]) {
-        annotations = orders.map { order in
-            MapAnnotationItem(
-                id: order.id,
+    func showOrderLocations(_ orders: [OrderDetailResponse]) {
+        annotations = orders.compactMap { order in
+            guard let lat = order.startLatitude, let lng = order.startLongitude else { return nil }
+            return MapAnnotationItem(
+                id: String(order.orderId),
                 coordinate: CLLocationCoordinate2D(
-                    latitude: order.startLocation.latitude,
-                    longitude: order.startLocation.longitude
+                    latitude: lat,
+                    longitude: lng
                 ),
-                title: order.startLocation.addressText ?? "出发地点",
-                subtitle: order.blindRunnerNickname
+                title: order.startAddress ?? "出发地点",
+                subtitle: order.blindName
             )
         }
     }

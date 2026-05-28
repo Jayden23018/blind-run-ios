@@ -6,127 +6,105 @@ import SwiftUI
 extension RunOrderStatus {
     var isActiveForBlindRunner: Bool {
         switch self {
-        case .matching, .accepted, .arrived, .inProgress:
+        case .pendingMatch, .pendingAccept, .inProgress, .driverEnRoute, .driverArrived, .rematching:
             return true
-        case .completed, .cancelled, .emergency:
-            return false
-        }
-    }
-
-    var shouldPollOnBlindRunnerPage: Bool {
-        switch self {
-        case .matching, .accepted, .arrived, .inProgress:
-            return true
-        case .completed, .cancelled, .emergency:
-            return false
-        }
-    }
-
-    var canEnterEmergency: Bool {
-        switch self {
-        case .accepted, .arrived, .inProgress:
-            return true
-        case .matching, .completed, .cancelled, .emergency:
-            return false
-        }
-    }
-
-    var canCancelBeforeStart: Bool {
-        switch self {
-        case .matching, .accepted, .arrived:
-            return true
-        case .inProgress, .completed, .cancelled, .emergency:
+        case .completed, .cancelled, .noVolunteer:
             return false
         }
     }
 
     var blindRunnerDescription: String {
         switch self {
-        case .matching:
+        case .pendingMatch:
             return "匹配中，请稍候。"
-        case .accepted:
-            return "志愿者已接单，正在赶来。"
-        case .arrived:
-            return "志愿者已到达约定地点，请确认开始服务。"
+        case .pendingAccept:
+            return "已找到志愿者，等待确认中。"
         case .inProgress:
-            return "服务进行中，请注意安全。"
+            return "志愿者已接单。"
+        case .driverEnRoute:
+            return "志愿者正在赶来。"
+        case .driverArrived:
+            return "志愿者已到达约定地点。"
         case .completed:
             return "服务已完成，感谢使用助盲跑。"
         case .cancelled:
             return "本次预约已取消。"
-        case .emergency:
-            return "已进入求助状态，系统已记录本次异常。"
+        case .rematching:
+            return "正在重新匹配志愿者。"
+        case .noVolunteer:
+            return "暂时没有可用志愿者，请稍后重试。"
         }
     }
 
     var blindRunnerAnnouncement: String {
         switch self {
-        case .matching:
+        case .pendingMatch:
             return "订单提交成功，正在等待志愿者接单。"
-        case .accepted:
-            return "志愿者已接单，志愿者正在赶来。"
-        case .arrived:
-            return "志愿者已到达约定地点，请确认开始服务。"
+        case .pendingAccept:
+            return "已找到志愿者，正在等待对方确认。"
         case .inProgress:
-            return "服务已开始，请注意安全。"
+            return "志愿者已接单。"
+        case .driverEnRoute:
+            return "志愿者正在赶来，请耐心等待。"
+        case .driverArrived:
+            return "志愿者已到达约定地点。"
         case .completed:
             return "服务已完成，感谢使用助盲跑。"
         case .cancelled:
             return "本次预约已取消。"
-        case .emergency:
-            return "已进入求助状态，系统已记录本次异常。"
+        case .rematching:
+            return "正在重新为您匹配志愿者，请稍候。"
+        case .noVolunteer:
+            return "暂时没有可用志愿者。"
         }
     }
 
     var statusSymbolName: String {
         switch self {
-        case .matching:
+        case .pendingMatch:
             return "clock.arrow.circlepath"
-        case .accepted:
-            return "checkmark.circle.fill"
-        case .arrived:
-            return "bell.circle.fill"
+        case .pendingAccept:
+            return "person.crop.circle.badge.questionmark"
         case .inProgress:
-            return "figure.run.circle.fill"
+            return "checkmark.circle.fill"
+        case .driverEnRoute:
+            return "figure.walk.circle.fill"
+        case .driverArrived:
+            return "bell.circle.fill"
         case .completed:
             return "checkmark.seal.fill"
         case .cancelled:
             return "xmark.circle.fill"
-        case .emergency:
-            return "exclamationmark.triangle.fill"
+        case .rematching:
+            return "arrow.triangle.2.circlepath"
+        case .noVolunteer:
+            return "person.slash.fill"
         }
     }
 
     var statusColor: Color {
         switch self {
-        case .matching:
+        case .pendingMatch, .pendingAccept, .rematching:
             return AppColors.warning
-        case .accepted, .inProgress, .completed:
+        case .inProgress, .driverEnRoute, .completed:
             return AppColors.success
-        case .arrived:
+        case .driverArrived:
             return AppColors.primary
-        case .cancelled:
+        case .cancelled, .noVolunteer:
             return AppColors.textSecondary
-        case .emergency:
-            return AppColors.destructive
         }
     }
 }
 
-extension LocationPoint {
-    var displayAddress: String {
-        guard let addressText, !addressText.trimmed.isEmpty else {
-            return source == .demoDefault ? "当前位置（演示模式）" : "当前位置"
-        }
-        return addressText
+// MARK: - Order Detail Helpers
+
+extension OrderDetailResponse {
+    var sortKey: String {
+        createdAt ?? plannedStart ?? ""
     }
 }
 
-extension RunOrderDto {
-    var updatedAtSortKey: String {
-        updatedAt ?? createdAt ?? appointmentTime
-    }
-}
+// MARK: - String Helpers
 
 extension String {
     var trimmed: String {

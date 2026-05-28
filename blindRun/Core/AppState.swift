@@ -16,19 +16,22 @@ final class AppState: ObservableObject {
         didSet { persistToken() }
     }
 
-    /// 当前登录用户信息
-    @Published var currentUser: UserDto?
+    /// 当前用户 ID
+    @Published var userId: Int64?
 
     /// 当前激活角色（首次登录可能为 nil，需路由到角色选择）
     @Published var activeRole: UserRole? {
         didSet { persistActiveRole() }
     }
 
-    /// 当前用户的盲人跑者资料。为空或资料不完整时不能进入预约创建流程。
-    @Published var blindRunnerProfile: BlindRunnerProfileDto?
+    /// 当前用户的盲人跑者资料
+    @Published var blindProfile: BlindProfileResponse?
 
-    /// 当前用户的志愿者资料。认证未通过或未开启可服务时不能接单。
-    @Published var volunteerProfile: VolunteerProfileDto?
+    /// 当前用户的志愿者资料
+    @Published var volunteerProfile: VolunteerProfileResponse?
+
+    /// 紧急联系人列表
+    @Published var emergencyContacts: [EmergencyContactResponse] = []
 
     // MARK: - Environment
 
@@ -43,34 +46,27 @@ final class AppState: ObservableObject {
         accessToken != nil
     }
 
-    var isBlindRunnerProfileComplete: Bool {
-        guard let profile = blindRunnerProfile,
-              !profile.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let contact = profile.emergencyContact,
-              !contact.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              AppState.isValidMainlandPhone(contact.phoneNumber) else {
+    var isBlindProfileComplete: Bool {
+        guard let profile = blindProfile,
+              let name = profile.name,
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
-        return true
+        return !emergencyContacts.isEmpty
     }
 
     var isVolunteerProfileComplete: Bool {
         guard let profile = volunteerProfile,
-              !profile.nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              AppState.isValidMainlandPhone(profile.phoneNumber) else {
+              let name = profile.name,
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
         return true
     }
 
     var isVolunteerProfileApproved: Bool {
-        isVolunteerProfileComplete &&
-        volunteerProfile?.verificationStatus == .approved &&
-        volunteerProfile?.adminReviewStatus == .approved
-    }
-
-    var canVolunteerAcceptOrders: Bool {
-        isVolunteerProfileApproved && volunteerProfile?.isAvailable == true
+        guard let profile = volunteerProfile else { return false }
+        return profile.verificationStatus == "approved"
     }
 
     /// 根据当前环境返回对应的 API Client
@@ -110,29 +106,60 @@ final class AppState: ObservableObject {
         if let roleRaw = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.activeRole) {
             activeRole = UserRole(rawValue: roleRaw)
         }
+        if let savedUserId = UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.userId) as? Int64 {
+            userId = savedUserId
+        }
     }
 
-    /// 登录成功后保存会话
-    func handleLoginSuccess(response: AuthResponse) {
-        accessToken = response.accessToken
-        currentUser = response.user
-        activeRole = response.user.activeRole
+    /// 登录成功后保存会话（新后端: LoginResponse{token, userId, role}）
+    func handleLoginSuccess(response: LoginResponse) {
+        accessToken = response.token
+        userId = response.userId
+        if let roleStr = response.role, let role = UserRole(rawValue: roleStr) {
+            activeRole = role
+        }
+        persistUserId()
+    }
+
+    /// 角色切换成功后替换 token（新后端: SetRoleResponse 包含新 token）
+    func handleRoleSwitchSuccess(response: SetRoleResponse, requestedRole: UserRole) {
+        if let newToken = response.token {
+            accessToken = newToken
+        }
+        activeRole = requestedRole
     }
 
     /// 清除会话（退出登录）
     func clearSession() {
         accessToken = nil
-        currentUser = nil
+        userId = nil
         activeRole = nil
-        blindRunnerProfile = nil
+        blindProfile = nil
         volunteerProfile = nil
+        emergencyContacts = []
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
+        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
     }
 
     /// 切换角色
     func switchRole(to role: UserRole) {
         activeRole = role
+    }
+
+    /// 更新盲人资料
+    func updateBlindProfile(_ profile: BlindProfileResponse) {
+        blindProfile = profile
+    }
+
+    /// 更新志愿者资料
+    func updateVolunteerProfile(_ profile: VolunteerProfileResponse) {
+        volunteerProfile = profile
+    }
+
+    /// 更新紧急联系人
+    func updateEmergencyContacts(_ contacts: [EmergencyContactResponse]) {
+        emergencyContacts = contacts
     }
 
     #if DEBUG
@@ -154,59 +181,8 @@ final class AppState: ObservableObject {
     }
     #endif
 
-    /// 用后端返回的用户数据同步当前用户和激活角色。
-    func updateCurrentUser(_ user: UserDto, fallbackActiveRole: UserRole? = nil) {
-        let resolvedActiveRole = user.activeRole ?? fallbackActiveRole
-        currentUser = UserDto(
-            id: user.id,
-            phoneNumber: user.phoneNumber,
-            nickname: user.nickname,
-            roles: user.roles,
-            activeRole: resolvedActiveRole,
-            createdAt: user.createdAt,
-            updatedAt: user.updatedAt
-        )
-        activeRole = resolvedActiveRole
-    }
-
-    func updateUserMe(_ response: UserMeResponse) {
-        updateCurrentUser(response.user, fallbackActiveRole: activeRole)
-        blindRunnerProfile = response.blindRunnerProfile
-        volunteerProfile = response.volunteerProfile
-    }
-
-    func updateBlindRunnerProfile(_ profile: BlindRunnerProfileDto) {
-        blindRunnerProfile = profile
-        if let currentUser {
-            self.currentUser = UserDto(
-                id: currentUser.id,
-                phoneNumber: currentUser.phoneNumber,
-                nickname: profile.nickname,
-                roles: currentUser.roles,
-                activeRole: currentUser.activeRole,
-                createdAt: currentUser.createdAt,
-                updatedAt: currentUser.updatedAt
-            )
-        }
-    }
-
-    func updateVolunteerProfile(_ profile: VolunteerProfileDto) {
-        volunteerProfile = profile
-        if let currentUser {
-            self.currentUser = UserDto(
-                id: currentUser.id,
-                phoneNumber: currentUser.phoneNumber,
-                nickname: profile.nickname,
-                roles: currentUser.roles,
-                activeRole: currentUser.activeRole,
-                createdAt: currentUser.createdAt,
-                updatedAt: currentUser.updatedAt
-            )
-        }
-    }
-
     static func isValidMainlandPhone(_ phoneNumber: String) -> Bool {
-        let pattern = #"^1\d{10}$"#
+        let pattern = #"^1[3-9]\d{9}$"#
         return phoneNumber.range(of: pattern, options: .regularExpression) != nil
     }
 
@@ -241,7 +217,19 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func persistUserId() {
+        if let id = userId {
+            UserDefaults.standard.set(id, forKey: AppConstants.UserDefaultsKeys.userId)
+        }
+    }
+
     private func persistEnvironment() {
         UserDefaults.standard.set(currentEnvironment.rawValue, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
     }
+}
+
+// MARK: - UserDefaults Keys Extension
+
+extension AppConstants.UserDefaultsKeys {
+    static let userId = "com.aidrun.mvp.userId"
 }

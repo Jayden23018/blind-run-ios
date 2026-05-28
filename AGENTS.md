@@ -94,78 +94,87 @@ If an agent believes any item above is needed, it must write `需要人工确认
 ## 5. Roles and Login Rules
 
 - The first version has only two in-app roles:
-  - `blind_runner`
-  - `volunteer`
+  - `BLIND`
+  - `VOLUNTEER`
 - Do not build a separate administrator app role.
+- Two-step phone login: POST `/api/auth/send-code` then POST `/api/auth/verify-code`.
 - First login with a phone number automatically creates the account.
 - During the demo phase, every phone number uses fixed verification code `123456`.
-- Successful login returns a JWT `accessToken`.
+- Successful login returns a JWT `token` (LoginResponse: token, userId, role).
 - One account may have both blind runner and volunteer identities.
-- Use `activeRole` to switch the current role.
-- If the user has an order in `accepted`, `arrived`, `in_progress`, or `emergency`, role switching is blocked.
-- First login may return no `activeRole`; the app should route to role selection.
+- Use POST `/api/user/role` to switch the current role (returns a new token).
+- If the user has an order in `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, or `IN_PROGRESS`, role switching is blocked.
+- First login may return no `role`; the app should route to role selection.
 
 ## 6. Order State Machine
 
 Order status may use only:
 
-- `matching`
-- `accepted`
-- `arrived`
-- `in_progress`
-- `completed`
-- `cancelled`
-- `emergency`
+- `PENDING_MATCH`
+- `PENDING_ACCEPT`
+- `IN_PROGRESS`
+- `DRIVER_EN_ROUTE`
+- `DRIVER_ARRIVED`
+- `COMPLETED`
+- `CANCELLED`
+- `REMATCHING`
+- `NO_VOLUNTEER`
 
 Forbidden order statuses:
 
 - `submitted`
 - `contacted`
 - `expired`
+- `matching` (use `PENDING_MATCH`)
+- `accepted` (use `PENDING_ACCEPT`)
+- `arrived` (use `DRIVER_ARRIVED`)
+- `emergency` (emergency is now a separate event via POST `/api/emergency/trigger`)
 
 Normal flow:
 
 ```text
-matching -> accepted -> arrived -> in_progress -> completed
+PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED
 ```
 
 Cancellation flow:
 
 ```text
-matching / accepted / arrived -> cancelled
+PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS -> CANCELLED
 ```
 
 Cancellation rules:
 
-- Cancellation is allowed only in `matching`, `accepted`, or `arrived` before `in_progress`.
-- `cancelledBy` must be recorded as `blind_runner` or `volunteer`.
-- Cancel reason must use one of these fixed options: 时间不合适, 地点填写错误, 临时有事, 联系不上对方, 其他.
+- Cancellation is allowed in `PENDING_MATCH`, `PENDING_ACCEPT`, or `IN_PROGRESS`.
+- Cancel endpoint: POST `/api/orders/{orderId}/cancel` (no request body needed).
 
 Emergency flow:
 
 ```text
-accepted / arrived / in_progress -> emergency
+DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> (emergency event recorded)
 ```
 
-Service start:
+- Emergency is a separate event system via POST `/api/emergency/trigger` with `EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`.
+- The order status itself is not changed to "emergency"; an emergency event is recorded alongside the order.
 
-- Volunteer taps "我已到达".
-- Order enters `arrived`.
-- Blind runner sees "确认开始服务".
-- After blind runner confirmation, order enters `in_progress`.
+Service flow (volunteer actions):
+
+- Volunteer accepts: POST `/api/orders/{id}/accept` -> status becomes `PENDING_ACCEPT`.
+- Volunteer en route: POST `/api/orders/{id}/en-route` -> status becomes `DRIVER_EN_ROUTE`.
+- Volunteer arrives: POST `/api/orders/{id}/arrived` -> status becomes `DRIVER_ARRIVED`.
+- Service starts (no separate blind runner confirm step in MVP).
+- Volunteer finishes: POST `/api/orders/{id}/finish` -> status becomes `COMPLETED`.
 
 Service completion:
 
 - Volunteer taps "结束服务".
 - Volunteer may optionally enter a service summary.
-- Order enters `completed`.
-- Volunteer earns +100 points.
+- Order enters `COMPLETED`.
 - Blind runner may optionally submit a star rating.
 
 Concurrent accept:
 
-- Only orders with `status = matching` can be accepted.
-- The first volunteer who successfully updates the order to `accepted` gets the order.
+- Only orders with `status = PENDING_MATCH` can be accepted.
+- The first volunteer who successfully updates the order to `PENDING_ACCEPT` gets the order.
 - Later accept requests return `ORDER_ALREADY_ACCEPTED`.
 
 Booking time constraint:
@@ -175,9 +184,8 @@ Booking time constraint:
 
 Terminal state rules:
 
-- `completed`, `cancelled`, and `emergency` are terminal for MVP.
-- MVP does not restore an order from `emergency` to a previous state.
-- `in_progress` cannot be ordinarily cancelled; it can only enter `emergency` or `completed`.
+- `COMPLETED`, `CANCELLED`, and `NO_VOLUNTEER` are terminal for MVP.
+- `IN_PROGRESS` can be cancelled or enter `COMPLETED`.
 
 ## 7. Backend Rules
 
@@ -191,8 +199,8 @@ Backend rules:
 - Swagger / OpenAPI is required.
 - Use JWT Bearer Auth.
 - Seed test data is required.
-- Seed data must include at least 1 blind runner with complete profile and emergency contact, 1 approved and available volunteer, several `matching` orders, and completed records for demo history/points.
-- MVP order lists are not paginated.
+- Seed data must include at least 1 blind runner with complete profile and emergency contact, 1 approved and available volunteer, several `PENDING_MATCH` orders, and completed records for demo history/points.
+- MVP order lists use paginated responses (PagedOrderResponse).
 - Blind runner order detail polls every 5 seconds.
 - Use a unified error response structure.
 - Order status transition endpoints use `POST /api/orders/{orderId}/{action}`.

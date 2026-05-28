@@ -76,11 +76,13 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
 
     static func statusAnnouncement(for status: RunOrderStatus) -> String {
         switch status {
-        case .matching:
+        case .pendingMatch:
             return "预约已提交，正在等待志愿者接单。"
-        case .accepted:
-            return "志愿者已接单，请等待志愿者到达。"
-        case .arrived:
+        case .pendingAccept:
+            return "志愿者已接单，等待确认中。"
+        case .driverEnRoute:
+            return "志愿者已出发，正在前往您的位置。"
+        case .driverArrived:
             return "志愿者已到达，请确认开始服务。"
         case .inProgress:
             return "服务已开始，请注意安全。"
@@ -88,8 +90,10 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
             return "服务已完成，感谢使用助盲跑。"
         case .cancelled:
             return "本次预约已取消。"
-        case .emergency:
-            return "已进入求助状态，系统已记录本次异常。"
+        case .rematching:
+            return "正在重新匹配志愿者，请稍候。"
+        case .noVolunteer:
+            return "暂无可用志愿者，请稍后再试。"
         }
     }
 

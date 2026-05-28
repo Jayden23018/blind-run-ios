@@ -33,26 +33,6 @@ enum BookingDurationOption: Int, CaseIterable, Identifiable {
     }
 }
 
-enum PacePreferenceOption: String, CaseIterable, Identifiable {
-    case none
-    case slow = "慢跑"
-    case medium = "中速"
-    case fast = "较快"
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .none: return "不填写"
-        case .slow, .medium, .fast: return rawValue
-        }
-    }
-
-    var requestValue: String? {
-        self == .none ? nil : rawValue
-    }
-}
-
 // MARK: - Blind Booking ViewModel
 
 @MainActor
@@ -63,12 +43,12 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var currentResolvedPlace: ResolvedPlace?
     @Published var startLocationDescription = ""
     @Published var appointmentTime = Date()
-    @Published var destinationText = ""
+    @Published var routeNotes = ""
     @Published var duration: BookingDurationOption = .none
-    @Published var estimatedDistanceText = ""
-    @Published var pacePreference: PacePreferenceOption = .none
-    @Published var preferSameGender = false
-    @Published var remark = ""
+    @Published var pacePreference: PacePreference = .noPreference
+    @Published var routePreference: RoutePreference = .noPreference
+    @Published var hasGuideDogThisRun = false
+    @Published var specialNotes = ""
     @Published var isSubmitting = false
     @Published var isResolvingStartLocation = false
     @Published var isSearchingPlaces = false
@@ -88,17 +68,11 @@ final class BlindBookingViewModel: ObservableObject {
         appointmentTime >= minimumAppointmentTime
     }
 
-    var estimatedDistanceKm: Double? {
-        let normalized = estimatedDistanceText.replacingOccurrences(of: "，", with: ".")
-        return Double(normalized)
-    }
-
     var canSubmit: Bool {
         !isSubmitting &&
         isAppointmentTimeValid &&
         locationService?.isDenied != true &&
-        resolvedStartPlace != nil &&
-        (estimatedDistanceText.trimmed.isEmpty || estimatedDistanceKm != nil)
+        resolvedStartPlace != nil
     }
 
     var resolvedStartLocationDescription: String {
@@ -214,20 +188,9 @@ final class BlindBookingViewModel: ObservableObject {
         speechService?.speak("已选择出发地点，\(place.title)。")
     }
 
-    func sanitizeDistanceInput(_ value: String) {
-        let allowed = value.filter { $0.isNumber || $0 == "." || $0 == "，" }
-        let normalized = allowed.replacingOccurrences(of: "，", with: ".")
-        let parts = normalized.split(separator: ".", omittingEmptySubsequences: false)
-        if parts.count <= 2 {
-            estimatedDistanceText = normalized
-        } else {
-            estimatedDistanceText = String(parts[0]) + "." + parts.dropFirst().joined()
-        }
-    }
-
-    func submit() async -> RunOrderDto? {
+    func submit() async -> OrderResponse? {
         guard let appState, let locationService else { return nil }
-        guard appState.isBlindRunnerProfileComplete else {
+        guard appState.isBlindProfileComplete else {
             return fail("请先完善个人资料。")
         }
         guard locationService.isDenied == false else {
@@ -236,9 +199,6 @@ final class BlindBookingViewModel: ObservableObject {
         guard isAppointmentTimeValid else {
             return fail("预约时间需至少在 30 分钟后。")
         }
-        guard estimatedDistanceText.trimmed.isEmpty || estimatedDistanceKm != nil else {
-            return fail("预计距离请输入数字。")
-        }
 
         isSubmitting = true
         errorMessage = nil
@@ -246,28 +206,38 @@ final class BlindBookingViewModel: ObservableObject {
         guard let startPlace = resolvedStartPlace else {
             return fail("请选择出发地点。")
         }
+
+        let plannedStartTime = ISO8601DateFormatter.aidRunFormatter.string(from: appointmentTime)
+        let plannedEndTime: String
+        if let minutes = duration.minutes {
+            let endDate = appointmentTime.addingTimeInterval(TimeInterval(minutes * 60))
+            plannedEndTime = ISO8601DateFormatter.aidRunFormatter.string(from: endDate)
+        } else {
+            // Default: 1 hour after start
+            let endDate = appointmentTime.addingTimeInterval(3600)
+            plannedEndTime = ISO8601DateFormatter.aidRunFormatter.string(from: endDate)
+        }
+
         let request = CreateOrderRequest(
-            startLocation: LocationPoint(
-                latitude: startPlace.latitude,
-                longitude: startPlace.longitude,
-                addressText: resolvedStartLocationDescription,
-                source: startPlace.source
-            ),
-            destinationText: destinationText.nilIfBlank,
-            appointmentTime: ISO8601DateFormatter.aidRunFormatter.string(from: appointmentTime),
-            estimatedDurationMinutes: duration.minutes,
-            estimatedDistanceKm: estimatedDistanceKm,
-            pacePreference: pacePreference.requestValue,
-            preferSameGender: preferSameGender ? true : nil,
-            remark: remark.nilIfBlank
+            startLatitude: startPlace.latitude,
+            startLongitude: startPlace.longitude,
+            startAddress: resolvedStartLocationDescription,
+            plannedStartTime: plannedStartTime,
+            plannedEndTime: plannedEndTime,
+            expectedDurationMinutes: duration.minutes,
+            pacePreference: pacePreference == .noPreference ? nil : pacePreference,
+            routePreference: routePreference == .noPreference ? nil : routePreference,
+            routeNotes: routeNotes.nilIfBlank,
+            hasGuideDogThisRun: hasGuideDogThisRun ? true : nil,
+            specialNotes: specialNotes.nilIfBlank
         )
 
         do {
-            let order: RunOrderDto = try await appState.apiClient.post("/api/orders", body: request)
+            let response: OrderResponse = try await appState.apiClient.post("/api/orders", body: request)
             isSubmitting = false
             speechService?.resetLastStatus()
             speechService?.speak("订单提交成功，等待志愿者接单。")
-            return order
+            return response
         } catch let error as APIError {
             isSubmitting = false
             errorMessage = error.localizedMessage
@@ -279,7 +249,7 @@ final class BlindBookingViewModel: ObservableObject {
         }
     }
 
-    private func fail(_ message: String) -> RunOrderDto? {
+    private func fail(_ message: String) -> OrderResponse? {
         errorMessage = message
         speechService?.speakError(message)
         return nil
@@ -296,7 +266,7 @@ struct BlindBookingView: View {
     @EnvironmentObject private var amapGeocodingService: AMapGeocodingService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = BlindBookingViewModel()
-    let onOrderCreated: (RunOrderDto) -> Void
+    let onOrderCreated: (OrderResponse) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -567,13 +537,13 @@ struct BlindBookingView: View {
             sectionTitle("更多选项（选填）")
 
             VoiceTextField(
-                title: "目的地或路线",
+                title: "路线备注",
                 placeholder: "例如：沿公园慢跑一圈",
-                text: $viewModel.destinationText,
+                text: $viewModel.routeNotes,
                 speechInputService: speechInputService,
                 speechService: speechService,
                 speechField: .destinationRoute,
-                accessibilityLabel: "目的地或路线，选填",
+                accessibilityLabel: "路线备注，选填",
                 accessibilityHint: "可以使用语音或键盘输入路线说明"
             )
 
@@ -592,52 +562,49 @@ struct BlindBookingView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("预计距离（公里）")
-                    .font(.headline)
-                    .foregroundColor(AppColors.textPrimary)
-                TextField("例如：5", text: $viewModel.estimatedDistanceText)
-                    .keyboardType(.decimalPad)
-                    .font(AppFonts.body())
-                    .padding()
-                    .background(AppColors.secondaryBackground)
-                    .cornerRadius(8)
-                    .accessibilityLabel("预计距离，选填，单位公里")
-                    .accessibilityHint("请输入数字，不支持语音输入")
-                    .onChange(of: viewModel.estimatedDistanceText) { newValue in
-                        viewModel.sanitizeDistanceInput(newValue)
-                    }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
                 Text("配速偏好")
                     .font(.headline)
                     .foregroundColor(AppColors.textPrimary)
                 Picker("配速偏好", selection: $viewModel.pacePreference) {
-                    ForEach(PacePreferenceOption.allCases) { option in
+                    ForEach(PacePreference.allCases, id: \.self) { option in
                         Text(option.displayName).tag(option)
                     }
                 }
                 .pickerStyle(.segmented)
                 .accessibilityLabel("配速偏好，选填")
-                .accessibilityHint("选择慢跑、中速或较快")
+                .accessibilityHint("选择走跑结合、轻松、中等或快速")
             }
 
-            Toggle("需要同性志愿者", isOn: $viewModel.preferSameGender)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("路线偏好")
+                    .font(.headline)
+                    .foregroundColor(AppColors.textPrimary)
+                Picker("路线偏好", selection: $viewModel.routePreference) {
+                    ForEach(RoutePreference.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("路线偏好，选填")
+                .accessibilityHint("选择公园步道、街道或跑道")
+            }
+
+            Toggle("本次携带导盲犬", isOn: $viewModel.hasGuideDogThisRun)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
-                .accessibilityLabel("是否需要同性志愿者，选填")
-                .accessibilityHint("开启后记录偏好，MVP 不做复杂匹配")
+                .accessibilityLabel("是否本次携带导盲犬，选填")
+                .accessibilityHint("开启后记录本次跑步携带导盲犬")
 
             VoiceTextField(
-                title: "备注",
+                title: "特殊说明",
                 placeholder: "例如：我会带导盲杖",
-                text: $viewModel.remark,
+                text: $viewModel.specialNotes,
                 isMultiline: true,
                 speechInputService: speechInputService,
                 speechService: speechService,
                 speechField: .remark,
-                accessibilityLabel: "备注，选填",
-                accessibilityHint: "可以使用语音或键盘输入备注"
+                accessibilityLabel: "特殊说明，选填",
+                accessibilityHint: "可以使用语音或键盘输入特殊说明"
             )
         }
     }
@@ -646,8 +613,8 @@ struct BlindBookingView: View {
         VStack(spacing: 10) {
             PrimaryButton("提交预约", isLoading: viewModel.isSubmitting) {
                 Task {
-                    if let order = await viewModel.submit() {
-                        onOrderCreated(order)
+                    if let response = await viewModel.submit() {
+                        onOrderCreated(response)
                     }
                 }
             }
