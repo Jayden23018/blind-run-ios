@@ -18,11 +18,10 @@
 
 ## 更新摘要
 **所做变更**
-- 新增全面的志愿者订单流程测试套件，涵盖订单接受、到达确认、服务开始和完成的完整流程
-- 添加截图捕获功能，支持志愿者服务流程的可视化验证
-- 增强了志愿者首页地图和Uber风格界面的测试覆盖
-- 完善了Mock API客户端的志愿者测试支持
-- 更新了测试环境配置和启动参数
+- 修正志愿者完成服务按钮标签测试：从'结束服务'更新为'确认结束服务'
+- 修复志愿者订单流程测试中不一致的按钮标签引用
+- 更新志愿者服务流程测试套件以反映新的确认流程
+- 完善志愿者订单流程的UI测试覆盖，确保测试与实际代码保持同步
 
 ## 目录
 1. [简介](#简介)
@@ -40,7 +39,7 @@
 ## 简介
 本文件为 blindRun 应用提供一套完整的 UI 自动化测试实施指南，覆盖 XCTest 与 SwiftUI 界面测试、Launch Tests 的实现与应用启动测试策略、志愿者订单流程的全面测试套件、无障碍功能测试（含 VoiceOver、屏幕阅读器兼容性与语音交互）、测试数据与环境配置、跨设备测试方法，以及最佳实践、维护策略与持续集成中的自动化流程建议。内容基于现有代码与文档，确保测试工程师能够快速落地并稳定运行 UI 自动化测试。
 
-**更新** 应用已新增全面的志愿者订单流程测试套件，涵盖从订单接受到服务完成的完整生命周期，包含截图捕获功能以支持可视化验证。
+**更新** 应用已新增全面的志愿者订单流程测试套件，涵盖从订单接受到服务完成的完整生命周期，包含截图捕获功能以支持可视化验证。最新的代码变更反映了志愿者完成服务流程的确认机制更新。
 
 ## 项目结构
 blindRun 采用 SwiftUI + MVVM 架构，测试目录包含单元测试与 UI 测试两部分：
@@ -87,7 +86,7 @@ T4 --> C
   - 启动测试：提供启动后附加步骤与截图保存模板，支持针对目标应用 UI 配置的逐个运行。
   - **新增** 志愿者订单流程测试：提供完整的订单生命周期测试，包含截图捕获功能。
 
-**更新** 新增了全面的志愿者订单流程测试套件，涵盖从订单接受到服务完成的完整生命周期。
+**更新** 新增了全面的志愿者订单流程测试套件，涵盖从订单接受到服务完成的完整生命周期。最新的测试套件已同步更新以反映志愿者完成服务流程的确认机制。
 
 **章节来源**
 - [blindRunUITests.swift:10-43](file://blindRunUITests/blindRunUITests.swift#L10-L43)
@@ -156,7 +155,7 @@ ENDPOINT --> VOLFLOW
   - 在启动后添加登录或角色切换等前置步骤，确保进入目标页面。
   - 对关键页面添加元素识别与状态验证步骤（见无障碍指南中的标签与提示要求）。
 
-**更新** 测试套件现已支持简化的直接登录流程，通过launchApp方法自动处理登录和角色切换。
+**更新** 测试套件现已支持简化的直接登录流程，通过launchApp方法自动处理登录和角色切换。最新的测试套件已同步更新以反映志愿者完成服务流程的确认机制。
 
 ```mermaid
 sequenceDiagram
@@ -337,6 +336,8 @@ LUT->>LUT : tearDown()
 ### 测试套件概述
 新增的志愿者订单流程测试套件提供了从订单接受到服务完成的完整生命周期测试，包含截图捕获功能以支持可视化验证。该套件覆盖了志愿者在服务流程中的关键交互点，确保每个状态转换都得到正确验证。
 
+**更新** 测试套件已同步更新以反映志愿者完成服务流程的确认机制变更，确保测试与实际代码保持一致。
+
 ### 核心测试功能
 
 #### 1. 志愿者服务流程测试
@@ -381,6 +382,8 @@ VOT->>VOLService : 完成服务
   - 需求面板（附近需求）
   - 订单列表
 
+**更新** 志愿者首页地图测试现在包含完整的Uber风格界面验证，确保地图控件、可服务开关、导航控制和需求面板的正确显示。
+
 **章节来源**
 - [blindRunUITests.swift:100-150](file://blindRunUITests/blindRunUITests.swift#L100-L150)
 - [VolunteerHomeView.swift:175-196](file://blindRun/Volunteer/VolunteerHomeView.swift#L175-L196)
@@ -400,6 +403,8 @@ VOT->>VOLService : 完成服务
 - `AIDRUN_UI_TEST_ACTIVE_ROLE`: 活动角色
 - `AIDRUN_UI_TEST_PREFILL_PROFILE_FORM`: 预填充资料表单
 - `AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_PROFILE`: 预填充志愿者资料
+
+**更新** 测试环境配置已优化，支持简化的直接登录流程和志愿者角色的自动配置。
 
 **章节来源**
 - [blindRunUITests.swift:166-195](file://blindRunUITests/blindRunUITests.swift#L166-L195)
@@ -421,6 +426,8 @@ VOT->>VOLService : 完成服务
 - **VolunteerOrderDetailViewModel**：订单详情视图模型
 - **操作按钮**：接单、到达、取消、求助等
 
+**更新** 服务流程视图已更新以反映志愿者完成服务流程的确认机制，包括新的按钮标签和确认对话框。
+
 **章节来源**
 - [VolunteerOrderFlowViews.swift:86-143](file://blindRun/Volunteer/VolunteerOrderFlowViews.swift#L86-L143)
 - [VolunteerOrderFlowViews.swift:697-787](file://blindRun/Volunteer/VolunteerOrderFlowViews.swift#L697-L787)
@@ -438,9 +445,52 @@ VOT->>VOLService : 完成服务
 - **状态预设**：支持多种订单状态的预设
 - **用户角色**：支持志愿者和盲人的角色切换
 
+**更新** Mock API客户端增强了志愿者订单流程的测试支持，包括完成服务的确认机制和积分系统的验证。
+
 **章节来源**
 - [MockAPIClient.swift:527-549](file://blindRun/Core/MockAPIClient.swift#L527-549)
 - [VolunteerOrderFlowViews.swift:578-695](file://blindRun/Volunteer/VolunteerOrderFlowViews.swift#L578-L695)
+
+### 志愿者完成服务流程测试
+
+#### 1. 确认流程测试
+- **测试目标**：验证志愿者完成服务的双重确认机制
+- **关键步骤**：
+  - 点击"结束服务"按钮
+  - 显示"确认结束服务"sheet
+  - 点击"确认结束"按钮完成服务
+  - 验证订单状态变为"已完成"
+
+**更新** 最新的测试套件已同步更新以反映志愿者完成服务流程的确认机制变更，确保测试与实际代码保持一致。
+
+```mermaid
+sequenceDiagram
+participant TEST as "UI测试"
+participant UI as "志愿者服务界面"
+participant SHEET as "确认结束服务sheet"
+TEST->>UI : 点击"结束服务"按钮
+UI->>SHEET : 显示确认sheet
+TEST->>SHEET : 点击"确认结束服务"按钮
+SHEET->>UI : 显示确认对话框
+TEST->>UI : 点击"确认结束"按钮
+UI->>UI : 完成服务并更新状态
+```
+
+**图表来源**
+- [VolunteerOrderFlowViews.swift:1745-1767](file://blindRun/Volunteer/VolunteerOrderFlowViews.swift#L1745-L1767)
+- [blindRunUITests.swift:80-94](file://blindRunUITests/blindRunUITests.swift#L80-L94)
+
+#### 2. 按钮标签同步
+- **服务进行中按钮**：显示"结束服务"（第1467行）
+- **确认sheet按钮**：显示"确认结束服务"（第1745行）
+- **确认对话框按钮**：显示"确认结束"（第1761行）
+
+**更新** 测试套件已修正按钮标签引用，确保与实际代码保持一致。
+
+**章节来源**
+- [VolunteerOrderFlowViews.swift:1466-1470](file://blindRun/Volunteer/VolunteerOrderFlowViews.swift#L1466-L1470)
+- [VolunteerOrderFlowViews.swift:1744-1768](file://blindRun/Volunteer/VolunteerOrderFlowViews.swift#L1744-L1768)
+- [blindRunUITests.swift:80-94](file://blindRunUITests/blindRunUITests.swift#L80-L94)
 
 ## 依赖关系分析
 - 组件耦合
@@ -454,8 +504,9 @@ VOT->>VOLService : 完成服务
   - 启动后未进行登录或角色切换可能导致页面状态不一致，影响断言结果。
   - 无障碍标签缺失或不准确会导致 VoiceOver 用户无法正确导航。
   - **新增** 志愿者订单流程测试依赖Mock数据的正确配置，否则会影响测试稳定性。
+  - **新增** 按钮标签不一致会导致UI测试失败，需要与代码保持同步更新。
 
-**更新** 新增了志愿者订单流程测试的依赖关系分析，重点关注Mock数据配置的重要性。
+**更新** 新增了志愿者订单流程测试的依赖关系分析，重点关注Mock数据配置和按钮标签同步的重要性。
 
 ```mermaid
 graph LR
@@ -470,6 +521,7 @@ ACC --> VOT
 LOGIN["登录视图<br/>LoginView.swift"] --> UIT
 VM["登录ViewModel<br/>LoginViewModel.swift"] --> UIT
 MOCK["Mock API客户端<br/>MockAPIClient.swift"] --> VOT
+BUTTON["按钮标签同步<br/>确认流程测试"] --> VOT
 ```
 
 **图表来源**
@@ -495,8 +547,9 @@ MOCK["Mock API客户端<br/>MockAPIClient.swift"] --> VOT
   - Mock数据加载速度对测试性能的影响
   - 截图操作对测试执行时间的影响
   - 服务状态轮询的频率控制
+  - **新增** 按钮标签查找的性能影响
 
-**更新** 新增了志愿者订单流程测试的性能考量，重点关注Mock数据和截图操作的影响。
+**更新** 新增了志愿者订单流程测试的性能考量，重点关注按钮标签查找和确认流程的性能影响。
 
 ## 故障排查指南
 - 启动失败
@@ -516,8 +569,10 @@ MOCK["Mock API客户端<br/>MockAPIClient.swift"] --> VOT
   - 检查Mock数据配置是否正确，特别是志愿者资料和订单状态。
   - 验证截图捕获功能是否正常工作。
   - 确认服务状态转换的断言逻辑是否正确。
+  - **新增** 检查按钮标签是否与代码保持同步，避免测试失败。
+  - **新增** 验证确认流程的三个不同界面元素：结束服务按钮、确认结束服务sheet、确认结束对话框。
 
-**更新** 新增了志愿者订单流程测试问题的排查指南，重点关注Mock数据和截图功能。
+**更新** 新增了志愿者订单流程测试问题的排查指南，重点关注按钮标签同步和确认流程验证。
 
 **章节来源**
 - [LoginView.swift:79-178](file://blindRun/Auth/LoginView.swift#L79-178)
@@ -527,7 +582,7 @@ MOCK["Mock API客户端<br/>MockAPIClient.swift"] --> VOT
 ## 结论
 通过在现有测试套件基础上引入简化的直接登录流程、增强的Mock API支持、元素识别与状态验证、启动性能监控与截图附件、以及严格遵循无障碍与语音播报策略，blindRun 的 UI 自动化测试将能够稳定覆盖应用启动、关键页面与交互路径，并为持续集成提供可靠的回归保障。
 
-**更新** 新增的志愿者订单流程测试套件进一步完善了测试覆盖范围，提供了从订单接受到服务完成的完整生命周期验证，包含截图捕获功能以支持可视化验证。简化的测试基础设施显著提高了测试的可靠性和可维护性，减少了由于复杂后端配置导致的测试不稳定因素。建议逐步完善测试矩阵，覆盖多设备、多主题与多环境组合，确保在 MVP 阶段即达到可演示的质量标准。
+**更新** 新增的志愿者订单流程测试套件进一步完善了测试覆盖范围，提供了从订单接受到服务完成的完整生命周期验证，包含截图捕获功能以支持可视化验证。最新的代码变更反映了志愿者完成服务流程的确认机制更新，测试套件已同步更新以确保与实际代码保持一致。简化的测试基础设施显著提高了测试的可靠性和可维护性，减少了由于复杂后端配置导致的测试不稳定因素。建议逐步完善测试矩阵，覆盖多设备、多主题与多环境组合，确保在 MVP 阶段即达到可演示的质量标准。
 
 ## 附录
 - 项目 Scheme 配置
@@ -543,8 +598,10 @@ MOCK["Mock API客户端<br/>MockAPIClient.swift"] --> VOT
   - **新增** 使用语义化命名的截图文件，便于测试结果分析。
   - **新增** 在志愿者订单流程测试中验证每个状态转换的正确性。
   - **新增** 确保Mock数据配置的准确性，特别是志愿者资料和订单状态。
+  - **新增** 保持按钮标签与代码同步，避免测试失败。
+  - **新增** 验证确认流程的三个界面元素：结束服务按钮、确认结束服务sheet、确认结束对话框。
 
-**更新** 新增了志愿者订单流程测试的最佳实践建议，重点关注Mock数据配置和截图命名规范。
+**更新** 新增了志愿者订单流程测试的最佳实践建议，重点关注按钮标签同步和确认流程验证。
 
 **章节来源**
 - [blindRunUITests.swift:14-17](file://blindRunUITests/blindRunUITests.swift#L14-L17)
