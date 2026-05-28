@@ -60,7 +60,7 @@ class RunOrderControllerIntegrationTest {
                 .header("Authorization", "Bearer " + token))
             .andExpect(status().isOk());
 
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/volunteer/availability")
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/volunteer/profile")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"isAvailable\": true}"))

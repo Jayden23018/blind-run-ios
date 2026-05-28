@@ -108,8 +108,11 @@ final class BlindRunnerProfileViewModel: ObservableObject {
                 relationship: nil,
                 isPrimary: true
             )
+            guard let userId = appState.userId else {
+                throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "用户未登录"))
+            }
             let contact: EmergencyContactResponse = try await appState.apiClient.post(
-                "/api/blind/emergency-contacts",
+                "/api/users/\(userId)/emergency-contacts",
                 body: contactRequest
             )
             appState.updateEmergencyContacts([contact])

@@ -87,13 +87,13 @@ extension RunOrderStatus {
         case .pendingMatch:
             return "可接订单"
         case .pendingAccept:
-            return "已接单，等待确认"
-        case .inProgress:
             return "已接单，请前往约定地点"
+        case .inProgress:
+            return "服务进行中"
         case .driverEnRoute:
             return "正在前往约定地点"
         case .driverArrived:
-            return "已到达，服务进行中"
+            return "已到达，等待开始服务"
         case .completed:
             return "服务完成，获得 +100 积分"
         case .cancelled:
@@ -107,12 +107,14 @@ extension RunOrderStatus {
 
     var serviceStageTitle: String {
         switch self {
-        case .pendingAccept, .inProgress:
+        case .pendingAccept:
             return "前往集合地点"
         case .driverEnRoute:
             return "正在前往"
         case .driverArrived:
             return "已到达集合地点"
+        case .inProgress:
+            return "服务进行中"
         case .completed:
             return "行程结算"
         case .cancelled:
@@ -126,11 +128,11 @@ extension RunOrderStatus {
 
     var serviceStageSubtitle: String {
         switch self {
-        case .pendingAccept, .inProgress:
+        case .pendingAccept:
             return "请尽快到达集合地点"
         case .driverEnRoute:
             return "盲人跑者正在等待"
-        case .driverArrived:
+        case .driverArrived, .inProgress:
             return "完成本次陪跑后可结束服务"
         case .completed:
             return "感谢您的爱心陪伴"
@@ -1408,7 +1410,7 @@ struct VolunteerServiceActions: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            if status == .pendingAccept || status == .inProgress {
+            if status == .pendingAccept {
                 PrimaryButton("我已出发", isLoading: isPerformingAction, action: onEnRoute)
                     .accessibilityLabel("我已出发")
                     .accessibilityHint("点击后通知盲人您正在前往")
@@ -1417,7 +1419,7 @@ struct VolunteerServiceActions: View {
                 PrimaryButton("我已到达约定地点", isLoading: isPerformingAction, action: onArrive)
                     .accessibilityLabel("我已到达约定地点")
                 secondaryDangerButton("取消订单", hint: "取消当前订单", action: onCancel)
-            } else if status == .driverArrived {
+            } else if status == .driverArrived || status == .inProgress {
                 PrimaryButton("结束服务", isDestructive: true, isLoading: isPerformingAction, action: onComplete)
                     .accessibilityLabel("结束服务")
                     .accessibilityHint("需要使用二次确认")

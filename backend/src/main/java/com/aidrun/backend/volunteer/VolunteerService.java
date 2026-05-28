@@ -37,8 +37,13 @@ public class VolunteerService {
         return VolunteerProfileDto.from(saved);
     }
 
+    /**
+     * Update volunteer profile via PUT /api/volunteer/profile.
+     * Supports partial updates: nickname and/or isAvailable.
+     * Toggling isAvailable requires approved verification status.
+     */
     @Transactional
-    public VolunteerProfileDto updateAvailability(AppUser user, boolean isAvailable) {
+    public VolunteerProfileDto updateVolunteerProfile(AppUser user, String nickname, Boolean isAvailable) {
         VolunteerProfile profile = volunteerProfileRepository.findByUser(user)
             .orElseThrow(() -> new ApiException(
                 ErrorCode.PROFILE_INCOMPLETE,
@@ -46,16 +51,21 @@ public class VolunteerService {
                 HttpStatus.BAD_REQUEST
             ));
 
-        if (profile.getVerificationStatus() != VerificationStatus.APPROVED
-            || profile.getAdminReviewStatus() != AdminReviewStatus.APPROVED) {
-            throw new ApiException(
-                ErrorCode.VOLUNTEER_NOT_APPROVED,
-                "志愿者认证未通过",
-                HttpStatus.FORBIDDEN
-            );
+        if (nickname != null && !nickname.isBlank()) {
+            profile.setNickname(nickname);
         }
 
-        profile.setAvailable(isAvailable);
+        if (isAvailable != null) {
+            if (profile.getVerificationStatus() != VerificationStatus.APPROVED
+                || profile.getAdminReviewStatus() != AdminReviewStatus.APPROVED) {
+                throw new ApiException(
+                    ErrorCode.VOLUNTEER_NOT_APPROVED,
+                    "志愿者认证未通过",
+                    HttpStatus.FORBIDDEN
+                );
+            }
+            profile.setAvailable(isAvailable);
+        }
 
         VolunteerProfile saved = volunteerProfileRepository.save(profile);
         return VolunteerProfileDto.from(saved);

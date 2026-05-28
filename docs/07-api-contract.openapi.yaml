@@ -128,20 +128,20 @@ paths:
               schema:
                 $ref: '#/components/schemas/VolunteerProfileDto'
 
-  /api/volunteer/availability:
-    patch:
+  /api/volunteer/profile:
+    put:
       tags: [Volunteer]
-      summary: 可服务开关
-      description: 关闭后仍可查看订单，但不能接新单。
+      summary: 更新志愿者资料（含可服务开关）
+      description: 支持部分更新：可只传nickname或只传isAvailable。关闭后仍可查看订单，但不能接新单。
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AvailabilityRequest'
+              $ref: '#/components/schemas/VolunteerProfileUpdateRequest'
       responses:
         '200':
-          description: 已更新可服务状态
+          description: 已更新志愿者资料
           content:
             application/json:
               schema:
@@ -769,10 +769,11 @@ components:
           type: string
           format: date-time
 
-    AvailabilityRequest:
+    VolunteerProfileUpdateRequest:
       type: object
-      required: [isAvailable]
       properties:
+        nickname:
+          type: string
         isAvailable:
           type: boolean
 

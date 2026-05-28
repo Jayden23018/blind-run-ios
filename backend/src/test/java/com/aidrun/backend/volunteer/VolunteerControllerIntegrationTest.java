@@ -1,6 +1,5 @@
 package com.aidrun.backend.volunteer;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -115,7 +114,7 @@ class VolunteerControllerIntegrationTest {
             .andExpect(status().isOk());
 
         // Toggle on
-        mockMvc.perform(patch("/api/volunteer/availability")
+        mockMvc.perform(put("/api/volunteer/profile")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -135,7 +134,7 @@ class VolunteerControllerIntegrationTest {
                 .header("Authorization", "Bearer " + token))
             .andExpect(status().isOk());
 
-        mockMvc.perform(patch("/api/volunteer/availability")
+        mockMvc.perform(put("/api/volunteer/profile")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -144,7 +143,7 @@ class VolunteerControllerIntegrationTest {
             .andExpect(status().isOk());
 
         // Toggle off
-        mockMvc.perform(patch("/api/volunteer/availability")
+        mockMvc.perform(put("/api/volunteer/profile")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -159,7 +158,7 @@ class VolunteerControllerIntegrationTest {
         String token = loginAndGetToken("13900200006");
         createVolunteerProfile(token);
 
-        mockMvc.perform(patch("/api/volunteer/availability")
+        mockMvc.perform(put("/api/volunteer/profile")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -173,7 +172,7 @@ class VolunteerControllerIntegrationTest {
     void availability_withoutProfile_returns400ProfileIncomplete() throws Exception {
         String token = loginAndGetToken("13900200007");
 
-        mockMvc.perform(patch("/api/volunteer/availability")
+        mockMvc.perform(put("/api/volunteer/profile")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -185,7 +184,7 @@ class VolunteerControllerIntegrationTest {
 
     @Test
     void availability_withoutToken_returns401() throws Exception {
-        mockMvc.perform(patch("/api/volunteer/availability")
+        mockMvc.perform(put("/api/volunteer/profile")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"isAvailable": true}
@@ -194,18 +193,18 @@ class VolunteerControllerIntegrationTest {
     }
 
     @Test
-    void availability_missingIsAvailable_returns400() throws Exception {
+    void profile_updateNickname_returns200() throws Exception {
         String token = loginAndGetToken("13900200008");
         createVolunteerProfile(token);
 
-        mockMvc.perform(patch("/api/volunteer/availability")
+        mockMvc.perform(put("/api/volunteer/profile")
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                    {}
+                    {"nickname": "新昵称"}
                     """))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.nickname").value("新昵称"));
     }
 
     // ==================== Volunteer Acceptance Validation Tests ====================

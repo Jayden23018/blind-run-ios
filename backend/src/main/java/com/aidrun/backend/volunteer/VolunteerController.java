@@ -6,8 +6,8 @@ import com.aidrun.backend.volunteer.dto.AvailabilityRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,12 +29,13 @@ public class VolunteerController {
         return ResponseEntity.ok(result);
     }
 
-    @PatchMapping("/availability")
-    public ResponseEntity<VolunteerProfileDto> updateAvailability(
+    @PutMapping("/profile")
+    public ResponseEntity<VolunteerProfileDto> updateVolunteerProfile(
             @Valid @RequestBody AvailabilityRequest request,
             Authentication authentication) {
         AppUser user = (AppUser) authentication.getPrincipal();
-        VolunteerProfileDto result = volunteerService.updateAvailability(user, request.isAvailable());
+        VolunteerProfileDto result = volunteerService.updateVolunteerProfile(
+            user, request.nickname(), request.isAvailable());
         return ResponseEntity.ok(result);
     }
 }

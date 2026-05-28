@@ -383,11 +383,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
-        guard orders[index].status == .pendingMatch || orders[index].status == .pendingAccept else {
+        guard orders[index].status == .pendingMatch else {
             throw APIError.serverError(ErrorResponse(
                 code: "ORDER_ALREADY_ACCEPTED", message: "订单已被其他志愿者接单"))
         }
-        orders[index] = updateOrderStatus(orders[index], to: .inProgress, volunteerPhone: "13800000002")
+        orders[index] = updateOrderStatus(orders[index], to: .pendingAccept, volunteerPhone: "13800000002")
         return orders[index]
     }
 
@@ -395,7 +395,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
-        guard orders[index].status == .inProgress else {
+        guard orders[index].status == .pendingAccept else {
             throw APIError.serverError(ErrorResponse(
                 code: "INVALID_ORDER_STATUS", message: "当前订单状态不允许该操作"))
         }
@@ -419,7 +419,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
-        guard orders[index].status == .driverArrived || orders[index].status == .driverEnRoute else {
+        guard orders[index].status == .driverArrived || orders[index].status == .inProgress else {
             throw APIError.serverError(ErrorResponse(
                 code: "INVALID_ORDER_STATUS", message: "当前订单状态不允许该操作"))
         }
@@ -490,7 +490,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             blindName: order.blindName,
             blindPhone: order.blindPhone,
             volunteerPhone: volunteerPhone ?? order.volunteerPhone,
-            acceptedAt: newStatus == .inProgress ? ISO8601DateFormatter().string(from: Date()) : order.acceptedAt,
+            acceptedAt: newStatus == .pendingAccept ? ISO8601DateFormatter().string(from: Date()) : order.acceptedAt,
             createdAt: order.createdAt,
             expectedDurationMinutes: order.expectedDurationMinutes,
             pacePreference: order.pacePreference,
