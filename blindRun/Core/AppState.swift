@@ -33,6 +33,19 @@ final class AppState: ObservableObject {
     /// 紧急联系人列表
     @Published var emergencyContacts: [EmergencyContactResponse] = []
 
+    // MARK: - WebSocket
+
+    /// WebSocket 服务实例（登录后创建，登出时销毁）
+    @Published var webSocketService: WebSocketService?
+
+    /// WebSocket 连接状态的便捷访问
+    var isWebSocketConnected: Bool {
+        if case .connected = webSocketService?.connectionState {
+            return true
+        }
+        return false
+    }
+
     // MARK: - Environment
 
     /// 当前 API 环境
@@ -109,6 +122,7 @@ final class AppState: ObservableObject {
         if let savedUserId = UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.userId) as? Int64 {
             userId = savedUserId
         }
+        connectWebSocketIfNeeded()
     }
 
     /// 登录成功后保存会话（新后端: LoginResponse{token, userId, role}）
@@ -119,6 +133,7 @@ final class AppState: ObservableObject {
             activeRole = role
         }
         persistUserId()
+        connectWebSocketIfNeeded()
     }
 
     /// 角色切换成功后替换 token（新后端: SetRoleResponse 包含新 token）
@@ -127,10 +142,12 @@ final class AppState: ObservableObject {
             accessToken = newToken
         }
         activeRole = requestedRole
+        connectWebSocketIfNeeded()
     }
 
     /// 清除会话（退出登录）
     func clearSession() {
+        disconnectWebSocket()
         accessToken = nil
         userId = nil
         activeRole = nil
@@ -197,6 +214,33 @@ final class AppState: ObservableObject {
     #if DEBUG
     static let debugTestEnvironments: [APIEnvironment] = [.mock, .localBackend]
     #endif
+
+    // MARK: - WebSocket (Private)
+
+    /// 根据当前 token 和角色连接 WebSocket（mock 环境跳过）
+    private func connectWebSocketIfNeeded() {
+        guard currentEnvironment != .mock,
+              let token = accessToken,
+              let role = activeRole,
+              let baseURL = currentEnvironment.baseURL else {
+            return
+        }
+
+        let wsRole: WSRole = (role == .blind) ? .blind : .volunteer
+
+        // 如果已有连接先断开
+        webSocketService?.disconnect()
+
+        let service = WebSocketService()
+        service.connect(baseURL: baseURL, token: token, role: wsRole)
+        webSocketService = service
+    }
+
+    /// 断开 WebSocket 并清除引用
+    private func disconnectWebSocket() {
+        webSocketService?.disconnect()
+        webSocketService = nil
+    }
 
     // MARK: - Persistence (Private)
 

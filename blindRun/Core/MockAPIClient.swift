@@ -348,7 +348,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         )
         orders.append(order)
 
-        return OrderResponse(id: orderId, status: .pendingMatch, message: "订单已创建")
+        return OrderResponse(id: orderId, status: .pendingMatch, message: "订单已创建", success: true)
     }
 
     private func handleGetMyOrders(query: [String: String]?) -> PagedOrderResponse {

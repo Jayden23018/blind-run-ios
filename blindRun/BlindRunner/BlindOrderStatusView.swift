@@ -14,6 +14,15 @@ final class BlindOrderStatusViewModel: ObservableObject {
     private var speechService: SpeechService?
     private var pollingTask: Task<Void, Never>?
     private var currentOrderId: Int64?
+    private var cancellables = Set<AnyCancellable>()
+
+    /// WebSocket 连接时轮询间隔加倍（降级模式用标准间隔）
+    private var effectivePollingInterval: TimeInterval {
+        if appState?.isWebSocketConnected == true {
+            return AppConstants.Timing.orderPollingInterval * 3
+        }
+        return AppConstants.Timing.orderPollingInterval
+    }
 
     var canShowEmergency: Bool {
         order?.status.canTriggerEmergency == true
@@ -30,6 +39,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     func configure(appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
+        subscribeToWebSocket(appState: appState)
     }
 
     func startPolling(orderId: Int64) {
@@ -43,7 +53,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
                 if !self.shouldContinuePolling {
                     return
                 }
-                try? await Task.sleep(nanoseconds: UInt64(AppConstants.Timing.orderPollingInterval * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(self.effectivePollingInterval * 1_000_000_000))
                 if Task.isCancelled { return }
                 await self.loadOrder(orderId: orderId, speakChanges: true)
             }
@@ -143,6 +153,40 @@ final class BlindOrderStatusViewModel: ObservableObject {
         if !updated.status.shouldPoll {
             stopPolling()
         }
+    }
+
+    // MARK: - WebSocket
+
+    private func subscribeToWebSocket(appState: AppState) {
+        guard let ws = appState.webSocketService else { return }
+        ws.eventPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                guard let self else { return }
+                switch event {
+                case .orderStatusChanged(let statusMsg):
+                    // 如果是当前订单的状态更新，立即刷新
+                    if statusMsg.orderId == self.currentOrderId {
+                        Task { await self.loadOrder(orderId: statusMsg.orderId, speakChanges: true) }
+                    }
+                case .notification(let notification):
+                    self.speechService?.speak(notification.ttsText ?? notification.body)
+                case .volunteerLocation:
+                    break // 位置更新可后续显示在地图上
+                case .emergencyResolved:
+                    if let orderId = self.currentOrderId {
+                        Task { await self.loadOrder(orderId: orderId, speakChanges: true) }
+                    }
+                    self.speechService?.speak("紧急求助已解除")
+                case .emergencyContactNotified(let msg):
+                    self.speechService?.speak(msg.ttsText ?? msg.message ?? "已通知紧急联系人")
+                case .pong:
+                    break
+                default:
+                    break
+                }
+            }
+            .store(in: &cancellables)
     }
 }
 

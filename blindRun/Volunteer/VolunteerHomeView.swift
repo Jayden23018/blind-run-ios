@@ -13,8 +13,15 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var isUpdatingAvailability = false
 
+    // WebSocket dispatch state
+    @Published var incomingOrder: WSNewOrder?
+    @Published var dispatchCountdown: Int = 0
+    @Published var isRespondingToDispatch = false
+
     private weak var appState: AppState?
     private var speechService: SpeechService?
+    private var cancellables = Set<AnyCancellable>()
+    private var countdownTask: Task<Void, Never>?
 
     var statusText: String {
         isAvailable ? "可接单" : "已关闭接单"
@@ -32,6 +39,81 @@ final class VolunteerHomeViewModel: ObservableObject {
         self.appState = appState
         self.speechService = speechService
         apply(profile: appState.volunteerProfile)
+        subscribeToWebSocket(appState: appState)
+    }
+
+    // MARK: - WebSocket Dispatch
+
+    func respondToDispatch(accept: Bool) {
+        guard let appState, let order = incomingOrder else { return }
+        isRespondingToDispatch = true
+        Task {
+            do {
+                let request = DispatchRespondRequest(action: accept ? "ACCEPT" : "DECLINE")
+                let _: OrderResponse = try await appState.apiClient.post(
+                    "/api/orders/\(order.orderId)/respond",
+                    body: request
+                )
+                dismissDispatch()
+                if accept {
+                    speechService?.speak("已接受订单")
+                }
+            } catch let error as APIError {
+                isRespondingToDispatch = false
+                errorMessage = error.localizedMessage
+                speechService?.speakError(error.localizedMessage)
+            } catch {
+                isRespondingToDispatch = false
+                errorMessage = "响应失败，请重试"
+                speechService?.speakError("响应失败，请重试")
+            }
+        }
+    }
+
+    func dismissDispatch() {
+        countdownTask?.cancel()
+        countdownTask = nil
+        incomingOrder = nil
+        dispatchCountdown = 0
+        isRespondingToDispatch = false
+    }
+
+    private func subscribeToWebSocket(appState: AppState) {
+        guard let ws = appState.webSocketService else { return }
+        ws.eventPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] event in
+                guard let self else { return }
+                switch event {
+                case .newOrder(let order):
+                    self.handleNewOrder(order)
+                default:
+                    break
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func handleNewOrder(_ order: WSNewOrder) {
+        // 如果已经有一个正在展示的 dispatch，忽略新的
+        guard incomingOrder == nil else { return }
+
+        incomingOrder = order
+        dispatchCountdown = order.dispatchTimeoutSeconds ?? 30
+        speechService?.speak("新订单到达，请在\(dispatchCountdown)秒内响应")
+
+        countdownTask?.cancel()
+        countdownTask = Task {
+            while dispatchCountdown > 0, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                dispatchCountdown -= 1
+            }
+            if !Task.isCancelled {
+                // 超时自动拒绝
+                respondToDispatch(accept: false)
+            }
+        }
     }
 
     func load(currentLocation: CLLocationCoordinate2D?, locationAuthorized: Bool) async {
@@ -169,6 +251,17 @@ struct VolunteerHomeView: View {
             .onReceive(locationService.$currentLocation) { location in
                 guard mapCenter == nil, let location else { return }
                 mapCenter = location
+            }
+            .overlay {
+                if viewModel.incomingOrder != nil {
+                    VolunteerDispatchOverlay(
+                        order: viewModel.incomingOrder!,
+                        countdown: viewModel.dispatchCountdown,
+                        isResponding: viewModel.isRespondingToDispatch,
+                        onAccept: { viewModel.respondToDispatch(accept: true) },
+                        onDecline: { viewModel.respondToDispatch(accept: false) }
+                    )
+                }
             }
         }
     }
@@ -469,6 +562,100 @@ private struct VolunteerEntryItem: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
         .foregroundColor(AppColors.primary)
+    }
+}
+
+// MARK: - Dispatch Overlay
+
+private struct VolunteerDispatchOverlay: View {
+    let order: WSNewOrder
+    let countdown: Int
+    let isResponding: Bool
+    let onAccept: () -> Void
+    let onDecline: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+
+            VStack(spacing: 20) {
+                Text("新订单派单")
+                    .font(.title2.bold())
+                    .foregroundColor(AppColors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    if let address = order.startAddress {
+                        HStack {
+                            Text("出发地：")
+                                .foregroundColor(AppColors.textSecondary)
+                            Text(address)
+                                .foregroundColor(AppColors.textPrimary)
+                        }
+                        .font(AppFonts.body())
+                    }
+
+                    if let distance = order.distanceKm {
+                        HStack {
+                            Text("距离：")
+                                .foregroundColor(AppColors.textSecondary)
+                            Text(String(format: "%.1fkm", distance))
+                                .foregroundColor(AppColors.textPrimary)
+                        }
+                        .font(AppFonts.body())
+                    }
+                }
+
+                // Countdown
+                Text("\(countdown)s")
+                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                    .foregroundColor(countdown <= 10 ? AppColors.destructive : AppColors.primary)
+                    .accessibilityLabel("剩余\(countdown)秒")
+
+                // Action buttons
+                HStack(spacing: 16) {
+                    Button(action: onDecline) {
+                        Text("拒绝")
+                            .font(AppFonts.body().weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(AppColors.destructive.opacity(0.12))
+                            .foregroundColor(AppColors.destructive)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(isResponding)
+                    .accessibilityLabel("拒绝订单")
+                    .accessibilityHint("拒绝此次派单")
+
+                    Button(action: onAccept) {
+                        Text("接受")
+                            .font(AppFonts.body().weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(AppColors.primary)
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(isResponding)
+                    .accessibilityLabel("接受订单")
+                    .accessibilityHint("接受此次派单并开始服务")
+                }
+
+                if isResponding {
+                    ProgressView("正在响应...")
+                        .accessibilityLabel("正在提交响应")
+                }
+            }
+            .padding(24)
+            .background(AppColors.background)
+            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+            .padding(.horizontal, 24)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("新订单派单通知，剩余\(countdown)秒")
     }
 }
 

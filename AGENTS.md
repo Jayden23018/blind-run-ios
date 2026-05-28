@@ -36,7 +36,7 @@ The current frozen direction is:
 - Backend uses Spring Boot.
 - Demo database uses H2.
 - Later database target is PostgreSQL.
-- REST API only.
+- REST API + WebSocket for real-time notifications.
 - JWT Bearer Auth.
 - Phone login with fixed verification code `123456`.
 - Do not integrate real SMS.
@@ -71,7 +71,6 @@ Do not add these non-MVP features:
 - Real SMS service
 - Real identity verification
 - Real administrator review backend
-- WebSocket
 - Real-time track sharing
 - Automatic phone calls
 - Automatic SMS
@@ -194,16 +193,18 @@ Backend rules:
 - Use Spring Boot.
 - Use H2 for demo.
 - PostgreSQL later.
-- REST only.
-- No WebSocket.
+- REST API + WebSocket for real-time notifications.
 - Swagger / OpenAPI is required.
 - Use JWT Bearer Auth.
 - Seed test data is required.
 - Seed data must include at least 1 blind runner with complete profile and emergency contact, 1 approved and available volunteer, several `PENDING_MATCH` orders, and completed records for demo history/points.
 - MVP order lists use paginated responses (PagedOrderResponse).
-- Blind runner order detail polls every 5 seconds.
+- Blind runner order detail polls every 5 seconds as WebSocket fallback.
 - Use a unified error response structure.
 - Order status transition endpoints use `POST /api/orders/{orderId}/{action}`.
+- WebSocket endpoints: `/ws/blind?token={jwt}` and `/ws/volunteer?token={jwt}`.
+- WebSocket is used for real-time dispatch (NEW_ORDER), status change notifications, and location updates.
+- REST polling remains as fallback when WebSocket is disconnected.
 
 Backend modules:
 
@@ -257,6 +258,7 @@ iOS modules:
 - `Voice`
 - `Safety`
 - `Profile`
+- `WebSocket`
 
 ## 9. AMap and Location Rules
 

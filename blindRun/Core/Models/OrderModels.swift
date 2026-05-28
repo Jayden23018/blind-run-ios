@@ -135,13 +135,63 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
 
 struct PagedOrderResponse: Codable, Sendable {
     let content: [OrderDetailResponse]
-    let totalElements: Int64
-    let totalPages: Int
-    let number: Int
-    let size: Int
-    let first: Bool
-    let last: Bool
-    let empty: Bool
+    let totalElements: Int64?
+    let totalPages: Int?
+    let number: Int?
+    let size: Int?
+    let first: Bool?
+    let last: Bool?
+    let empty: Bool?
+
+    /// Flexible decoder: handles both paged response and direct array from backend
+    init(from decoder: Decoder) throws {
+        // First try decoding as a paged response object
+        if let container = try? decoder.container(keyedBy: CodingKeys.self) {
+            self.content = (try? container.decode([OrderDetailResponse].self, forKey: .content)) ?? []
+            self.totalElements = try? container.decode(Int64.self, forKey: .totalElements)
+            self.totalPages = try? container.decode(Int.self, forKey: .totalPages)
+            self.number = try? container.decode(Int.self, forKey: .number)
+            self.size = try? container.decode(Int.self, forKey: .size)
+            self.first = try? container.decode(Bool.self, forKey: .first)
+            self.last = try? container.decode(Bool.self, forKey: .last)
+            self.empty = try? container.decode(Bool.self, forKey: .empty)
+        } else if let array = try? decoder.singleValueContainer().decode([OrderDetailResponse].self) {
+            // Fallback: backend returns a plain array
+            self.content = array
+            self.totalElements = Int64(array.count)
+            self.totalPages = 1
+            self.number = 0
+            self.size = array.count
+            self.first = true
+            self.last = true
+            self.empty = array.isEmpty
+        } else {
+            // Last resort: empty response
+            self.content = []
+            self.totalElements = 0
+            self.totalPages = 0
+            self.number = 0
+            self.size = 0
+            self.first = true
+            self.last = true
+            self.empty = true
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case content, totalElements, totalPages, number, size, first, last, empty
+    }
+
+    init(content: [OrderDetailResponse], totalElements: Int64?, totalPages: Int?, number: Int?, size: Int?, first: Bool?, last: Bool?, empty: Bool?) {
+        self.content = content
+        self.totalElements = totalElements
+        self.totalPages = totalPages
+        self.number = number
+        self.size = size
+        self.first = first
+        self.last = last
+        self.empty = empty
+    }
 }
 
 // MARK: - Order Create
@@ -161,9 +211,10 @@ struct CreateOrderRequest: Codable, Sendable {
 }
 
 struct OrderResponse: Codable, Sendable {
-    let id: Int64
-    let status: RunOrderStatus
+    let id: Int64?
+    let status: RunOrderStatus?
     let message: String?
+    let success: Bool?
 }
 
 // MARK: - Order Review
@@ -171,6 +222,12 @@ struct OrderResponse: Codable, Sendable {
 struct CreateReviewRequest: Codable, Sendable {
     let rating: Int
     let comment: String?
+}
+
+// MARK: - Dispatch Respond
+
+struct DispatchRespondRequest: Codable, Sendable {
+    let action: String  // "ACCEPT" or "DECLINE"
 }
 
 // MARK: - Emergency

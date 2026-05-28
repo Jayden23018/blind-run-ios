@@ -58,7 +58,9 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
     func handleOrderCreated(_ response: OrderResponse) {
         speechService?.resetLastStatus()
-        speechService?.speakStatusChange(response.status)
+        if let status = response.status {
+            speechService?.speakStatusChange(status)
+        }
     }
 
     func speakCurrentStatus(locationDescription: String? = nil) {
@@ -133,7 +135,9 @@ struct BlindRunnerHomeView: View {
                 case .booking:
                     BlindBookingView { response in
                         viewModel.handleOrderCreated(response)
-                        path = [.orderStatus(response.id)]
+                        if let orderId = response.id {
+                            path = [.orderStatus(orderId)]
+                        }
                     }
                 case .orderStatus(let orderId):
                     BlindOrderStatusView(orderId: orderId) { updatedOrder in

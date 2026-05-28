@@ -43,19 +43,24 @@ final class VolunteerProfileViewModel: ObservableObject {
             return "认证中"
         }
         if verificationStatus == "approved" {
-            return "模拟认证已完成"
+            return "认证已完成"
         }
-        return "开始模拟认证"
+        return "开始认证"
     }
 
     var certificationAccessibilityHint: String {
         if verificationStatus == "approved" {
-            return "模拟认证已完成"
+            return "认证已完成"
         }
         if appState?.isVolunteerProfileComplete != true {
             return "请先填写昵称并提交志愿者资料"
         }
-        return "点击后开始 Demo 模拟认证"
+        return "点击后进入志愿者注册认证流程"
+    }
+
+    /// 是否需要显示真实注册流程（非 mock 环境）
+    var shouldShowRealRegistration: Bool {
+        appState?.currentEnvironment != .mock
     }
 
     func configure(with appState: AppState, speechService: SpeechService) {
@@ -190,11 +195,10 @@ struct VolunteerProfileView: View {
         VStack(alignment: .leading, spacing: 8) {
             HighContrastText("志愿者认证", style: .title)
                 .accessibilityAddTraits(.isHeader)
-            Text("填写昵称并完成 Demo 模拟认证。")
+            Text(viewModel.shouldShowRealRegistration ? "填写昵称并完成志愿者认证。" : "填写昵称并完成 Demo 模拟认证。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("填写昵称并完成 Demo 模拟认证")
-                .accessibilityHint("认证为模拟流程，不会进行真实实名认证")
+                .accessibilityLabel(viewModel.shouldShowRealRegistration ? "填写昵称并完成志愿者认证" : "填写昵称并完成 Demo 模拟认证")
         }
     }
 
@@ -213,31 +217,53 @@ struct VolunteerProfileView: View {
 
     private var certificationSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("请完成以下认证步骤（Demo 版为模拟认证）")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityLabel("请完成以下认证步骤，Demo 版为模拟认证")
-                .accessibilityHint("点击开始模拟认证后会自动通过")
+            if viewModel.shouldShowRealRegistration {
+                Text("请完成以下认证步骤")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .accessibilityLabel("请完成以下认证步骤")
 
-            Button {
-                viewModel.startMockCertification()
-            } label: {
-                HStack(spacing: 8) {
-                    if viewModel.isCertificationRunning {
-                        ProgressView()
+                NavigationLink {
+                    VolunteerRegistrationFlowView()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.badge.shield.checkmark")
+                        Text(viewModel.certificationButtonTitle)
+                            .font(AppFonts.primaryButton())
                     }
-                    Text(viewModel.certificationButtonTitle)
-                        .font(AppFonts.primaryButton())
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isCertificationRunning || viewModel.verificationStatus == "approved")
-            .accessibilityLabel("开始模拟认证")
-            .accessibilityHint(viewModel.certificationAccessibilityHint)
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.verificationStatus == "approved")
+                .accessibilityLabel("开始认证")
+                .accessibilityHint(viewModel.certificationAccessibilityHint)
+            } else {
+                Text("请完成以下认证步骤（Demo 版为模拟认证）")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .accessibilityLabel("请完成以下认证步骤，Demo 版为模拟认证")
 
-            statusRow(title: "verificationStatus", value: viewModel.verificationStatus)
+                Button {
+                    viewModel.startMockCertification()
+                } label: {
+                    HStack(spacing: 8) {
+                        if viewModel.isCertificationRunning {
+                            ProgressView()
+                        }
+                        Text(viewModel.certificationButtonTitle)
+                            .font(AppFonts.primaryButton())
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.isCertificationRunning || viewModel.verificationStatus == "approved")
+                .accessibilityLabel("开始模拟认证")
+                .accessibilityHint(viewModel.certificationAccessibilityHint)
+            }
+
+            statusRow(title: "认证状态", value: viewModel.verificationStatus)
         }
         .padding()
         .background(AppColors.secondaryBackground)
