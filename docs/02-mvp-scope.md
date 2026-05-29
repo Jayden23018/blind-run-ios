@@ -21,7 +21,7 @@
 | JWT Token 管理 | P0 | 登录返回 JWT，存储于 UserDefaults |
 | 角色选择与切换 | P0 | 支持在盲人跑者 / 志愿者之间切换 |
 | 角色切换拦截 | P0 | 存在 accepted / arrived / in_progress / emergency 状态订单时禁止切换 |
-| API 环境切换 | P1 | Mock / Local Backend / Production Backend 三种模式 |
+| API 环境切换 | P1 | Debug 开发包支持 Mock / Local Backend / Demo Cloud；Demo/Production 包隐藏切换入口 |
 | 设置页 | P2 | 基本设置：个人信息、关于、退出登录 |
 
 ### 盲人跑者端
@@ -140,7 +140,8 @@
 |------|------|----------|
 | Mock | 本地假数据，无后端 | UI 和流程调试 |
 | Local Backend | 局域网连接 Spring Boot | Mac 运行后端，iPhone/iPad 局域网访问 |
-| Production Backend | 公网后端 | 后续扩展 |
+| Demo Cloud | `http://47.114.113.171` | 内部演示包固定使用 |
+| Production Backend | HTTPS 公网域名 | 正式上线，域名待人工确认 |
 
 ### 高德地图 Key 管理
 

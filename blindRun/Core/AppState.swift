@@ -85,11 +85,16 @@ final class AppState: ObservableObject {
     /// 根据当前环境返回对应的 API Client
     var apiClient: any APIClientProtocol {
         switch currentEnvironment {
-        case .mock:
+        case .mock where AppBuildChannel.current == .development:
             return MockAPIClient()
-        case .localBackend, .production:
+        case .mock:
+            return DisabledAPIClient()
+        case .localBackend, .demoCloud, .production:
+            guard AppBuildChannel.current.allows(currentEnvironment) else {
+                return DisabledAPIClient()
+            }
             guard let baseURL = currentEnvironment.baseURL else {
-                return MockAPIClient()
+                return DisabledAPIClient()
             }
             return URLSessionAPIClient(
                 baseURL: baseURL,
@@ -103,10 +108,10 @@ final class AppState: ObservableObject {
     init() {
         // 从 UserDefaults 恢复环境设置
         if let envRaw = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
-           let env = APIEnvironment(rawValue: envRaw) {
-            self.currentEnvironment = AppState.resolvedInitialEnvironment(env)
+           let env = AppState.storedEnvironment(from: envRaw, channel: AppBuildChannel.current) {
+            self.currentEnvironment = AppState.resolvedInitialEnvironment(env, channel: AppBuildChannel.current)
         } else {
-            self.currentEnvironment = .mock
+            self.currentEnvironment = AppBuildChannel.current.defaultEnvironment
         }
     }
 
@@ -186,7 +191,7 @@ final class AppState: ObservableObject {
 
     func switchToNextEnvironmentForTesting() {
         let allEnvironments = AppState.debugTestEnvironments
-        let currentEnvironment = AppState.resolvedInitialEnvironment(currentEnvironment)
+        let currentEnvironment = AppState.resolvedInitialEnvironment(currentEnvironment, channel: .development)
         guard let currentIndex = allEnvironments.firstIndex(of: currentEnvironment) else {
             self.currentEnvironment = allEnvironments[0]
             clearSession()
@@ -203,12 +208,22 @@ final class AppState: ObservableObject {
         return phoneNumber.range(of: pattern, options: .regularExpression) != nil
     }
 
-    static func resolvedInitialEnvironment(_ environment: APIEnvironment) -> APIEnvironment {
-        environment
+    static func resolvedInitialEnvironment(
+        _ environment: APIEnvironment,
+        channel: AppBuildChannel = AppBuildChannel.current
+    ) -> APIEnvironment {
+        channel.allows(environment) ? environment : channel.defaultEnvironment
+    }
+
+    static func storedEnvironment(from rawValue: String, channel: AppBuildChannel = AppBuildChannel.current) -> APIEnvironment? {
+        if rawValue == "production", channel != .production {
+            return .demoCloud
+        }
+        return APIEnvironment(rawValue: rawValue)
     }
 
     #if DEBUG
-    static let debugTestEnvironments: [APIEnvironment] = [.mock, .localBackend, .production]
+    static let debugTestEnvironments: [APIEnvironment] = [.mock, .localBackend, .demoCloud]
     #endif
 
     // MARK: - WebSocket (Private)
@@ -216,6 +231,7 @@ final class AppState: ObservableObject {
     /// 根据当前 token 和角色连接 WebSocket（mock 环境跳过）
     private func connectWebSocketIfNeeded() {
         guard currentEnvironment != .mock,
+              AppBuildChannel.current.allows(currentEnvironment),
               let token = accessToken,
               let role = activeRole,
               let baseURL = currentEnvironment.baseURL else {
@@ -272,4 +288,18 @@ final class AppState: ObservableObject {
 
 extension AppConstants.UserDefaultsKeys {
     static let userId = "com.aidrun.mvp.userId"
+}
+
+// MARK: - Disabled API Client
+
+private final class DisabledAPIClient: APIClientProtocol, @unchecked Sendable {
+    func request<T: Decodable>(
+        method: HTTPMethod,
+        path: String,
+        query: [String: String]?,
+        body: (any Encodable & Sendable)?,
+        requiresAuth: Bool
+    ) async throws -> T {
+        throw APIError.invalidURL
+    }
 }

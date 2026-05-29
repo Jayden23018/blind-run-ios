@@ -120,8 +120,10 @@ struct BlindRunnerHomeView: View {
                     repeatStatusButton
 
                     #if DEBUG
-                    DebugTestingPanel()
-                        .environmentObject(appState)
+                    if AppBuildChannel.current.allowsEnvironmentSwitcher {
+                        DebugTestingPanel()
+                            .environmentObject(appState)
+                    }
                     #endif
                 }
                 .padding(.horizontal, 24)
@@ -334,7 +336,7 @@ struct DebugTestingPanel: View {
     }
 
     private var nextEnvironment: APIEnvironment {
-        let allEnvironments = APIEnvironment.allCases
+        let allEnvironments = AppState.debugTestEnvironments
         guard let currentIndex = allEnvironments.firstIndex(of: appState.currentEnvironment) else {
             return .mock
         }

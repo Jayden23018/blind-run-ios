@@ -181,7 +181,9 @@ struct LoginView: View {
 
                     // 环境切换入口（底部角落，灰色小字）
                     #if DEBUG
-                    environmentSwitcher
+                    if AppBuildChannel.current.allowsEnvironmentSwitcher {
+                        environmentSwitcher
+                    }
                     #endif
                 }
                 .padding(.horizontal, 32)
@@ -192,7 +194,9 @@ struct LoginView: View {
         .background(AppColors.background)
         .onAppear {
             viewModel.configure(with: appState, speechService: speechService)
+            #if DEBUG
             syncLocalBackendAddressInput()
+            #endif
         }
         .onDisappear {
             viewModel.resetCountdown()

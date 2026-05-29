@@ -2,48 +2,25 @@
 
 <cite>
 **本文档引用的文件**
-- [AidRunBackendApplication.java](file://backend/src/main/java/com/aidrun/backend/AidRunBackendApplication.java)
-- [JwtService.java](file://backend/src/main/java/com/aidrun/backend/auth/JwtService.java)
-- [AppUser.java](file://backend/src/main/java/com/aidrun/backend/user/AppUser.java)
-- [RunOrder.java](file://backend/src/main/java/com/aidrun/backend/order/RunOrder.java)
-- [BlindRunnerProfile.java](file://backend/src/main/java/com/aidrun/backend/profile/BlindRunnerProfile.java)
-- [application.yml](file://backend/src/main/resources/application.yml)
-- [DemoDataSeeder.java](file://backend/src/main/java/com/aidrun/backend/seed/DemoDataSeeder.java)
-- [ErrorCode.java](file://backend/src/main/java/com/aidrun/backend/common/error/ErrorCode.java)
-- [LocationPoint.java](file://backend/src/main/java/com/aidrun/backend/location/LocationPoint.java)
-- [OpenApiConfig.java](file://backend/src/main/java/com/aidrun/backend/config/OpenApiConfig.java)
-- [UserRole.java](file://backend/src/main/java/com/aidrun/backend/user/UserRole.java)
-- [RunOrderStatus.java](file://backend/src/main/java/com/aidrun/backend/order/RunOrderStatus.java)
-- [VerificationStatus.java](file://backend/src/main/java/com/aidrun/backend/profile/VerificationStatus.java)
-- [LocationSource.java](file://backend/src/main/java/com/aidrun/backend/location/LocationSource.java)
-- [aidrun-mvp.yaml](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml)
+- [api_spec.yaml](file://docs/api_spec.yaml)
 - [07-api-contract.openapi.yaml](file://docs/07-api-contract.openapi.yaml)
-- [01-product-requirements.md](file://docs/01-product-requirements.md)
-- [02-mvp-scope.md](file://docs/02-mvp-scope.md)
-- [08-ios-architecture.md](file://docs/08-ios-architecture.md)
+- [test-accounts.md](file://docs/test-accounts.md)
+- [application.yml](file://backend/src/main/resources/application.yml)
 - [AuthController.java](file://backend/src/main/java/com/aidrun/backend/auth/AuthController.java)
 - [RunOrderController.java](file://backend/src/main/java/com/aidrun/backend/order/RunOrderController.java)
 - [ProfileController.java](file://backend/src/main/java/com/aidrun/backend/profile/ProfileController.java)
-- [UserController.java](file://backend/src/main/java/com/aidrun/backend/user/UserController.java)
-- [VolunteerController.java](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerController.java)
-- [api_spec.yaml](file://docs/api_spec.yaml)
-- [EmergencyContact.java](file://backend/src/main/java/com/aidrun/backend/profile/EmergencyContact.java)
-- [EmergencyContactRequest.java](file://backend/src/main/java/com/aidrun/backend/profile/dto/EmergencyContactRequest.java)
-- [EmergencyContactDto.java](file://backend/src/main/java/com/aidrun/backend/profile/dto/EmergencyContactDto.java)
-- [test-accounts.md](file://docs/test-accounts.md)
+- [aidrun-mvp.yaml](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml)
 </cite>
 
 ## 更新摘要
 **所做更改**
-- 新增OpenAPI 3.1.0规范文档，从3.0.3升级
-- 新增综合性的API规范文档，涵盖更全面的功能
-- 更新紧急联系人管理端点，支持完整的CRUD操作
-- 新增志愿者注册和培训流程端点
-- 新增管理员CS后台功能端点
-- 更新认证机制实现，基于JWT服务的完整技术说明
-- 补充志愿者注册流程、紧急事件处理、管理员功能等新端点
-- 增强数据模型和错误处理的完整实现细节
-- 更新后端架构配置，包含OpenAPI文档生成和H2数据库支持
+- 新增云端后端API规范文档，替代本地MVP版本
+- 移除本地后端特定的MVP API合同引用
+- 更新认证流程为基于验证码的手机号登录
+- 新增完整的订单状态管理端点
+- 增加紧急联系人管理、志愿者注册、CS后台管理等新功能
+- 更新测试账号和对接指南，指向云端后端
+- 移除过时的MVP端点引用，如 `/api/auth/phone-login`、`/api/orders/my` 等
 
 ## 目录
 1. [简介](#简介)
@@ -61,11 +38,11 @@
 
 ## 简介
 
-AidRun 是一款面向盲人跑者与志愿者的户外跑步协助服务平台。本项目采用双角色设计：盲人跑者通过预约方式获得志愿者协助，志愿者通过接单提供帮助。系统基于 Swift 原生 iOS 应用和 Spring Boot 后端，实现了完整的预约服务闭环。
+AidRun 是一款面向盲人跑者与志愿者的户外跑步协助服务平台。本项目采用双角色设计：盲人跑者通过预约方式获得志愿者协助，志愿者通过接单提供帮助。系统基于 Swift 原生 iOS 应用和云端 Spring Boot 后端，实现了完整的预约服务闭环。
 
-**更新** 后端已完整实现，包含 JWT 认证、用户管理、订单管理、志愿者管理等核心功能，与前端 API 契约完全匹配。后端采用 Spring Boot 3.0+ 技术栈，使用 JPA/Hibernate 进行数据持久化，H2 内存数据库支持演示环境。现已支持完整的 OpenAPI 3.1.0 规范，涵盖所有后端端点、数据模型、请求/响应格式和错误处理。
+**重要更新** 项目已迁移至云端后端，采用全新的 API 规范文档 (`docs/api_spec.yaml`)，替代了原有的本地MVP版本。云端后端提供更完整的功能覆盖，包括紧急联系人管理、志愿者注册流程、CS后台管理、完整的订单状态流转等核心功能。
 
-**更新** 新增综合API规范文档，提供更全面的功能覆盖，包括紧急联系人管理、志愿者注册流程、管理员CS后台等功能。
+云端后端采用 Spring Boot 3.0+ 技术栈，使用 JPA/Hibernate 进行数据持久化，支持 OpenAPI 3.1.0 规范，涵盖所有后端端点、数据模型、请求/响应格式和错误处理。
 
 ## 项目结构
 
@@ -84,14 +61,14 @@ G[Voice 模块<br/>语音交互]
 H[Safety 模块<br/>安全功能]
 I[Profile 模块<br/>资料管理]
 end
-subgraph "后端 (Spring Boot)"
-J[认证服务<br/>JWT 实现]
-K[用户服务<br/>AppUser 实体]
-L[订单服务<br/>RunOrder 实体]
-M[志愿者服务<br/>Profile 实体]
-N[地图服务<br/>LocationPoint]
-O[安全服务<br/>全局异常处理]
-P[配置管理<br/>OpenAPI & 数据库]
+subgraph "云端后端 (Spring Boot)"
+J[认证服务<br/>验证码登录]
+K[用户服务<br/>用户管理]
+L[订单服务<br/>订单状态管理]
+M[志愿者服务<br/>注册与认证]
+N[紧急联系人服务<br/>联系人管理]
+O[CS后台服务<br/>管理员功能]
+P[配置管理<br/>OpenAPI & 安全]
 end
 A --> J
 B --> K
@@ -99,7 +76,7 @@ C --> L
 D --> L
 D --> M
 E --> L
-F --> N
+F --> L
 G --> O
 H --> O
 I --> K
@@ -112,38 +89,34 @@ O --> P
 ```
 
 **图表来源**
-- [AidRunBackendApplication.java:1-13](file://backend/src/main/java/com/aidrun/backend/AidRunBackendApplication.java#L1-L13)
-- [OpenApiConfig.java:1-20](file://backend/src/main/java/com/aidrun/backend/config/OpenApiConfig.java#L1-L20)
+- [application.yml:1-34](file://backend/src/main/resources/application.yml#L1-L34)
 
 **章节来源**
-- [08-ios-architecture.md:1-165](file://docs/08-ios-architecture.md#L1-L165)
-- [01-product-requirements.md:1-161](file://docs/01-product-requirements.md#L1-L161)
+- [test-accounts.md:1-14](file://docs/test-accounts.md#L1-L14)
 
 ## 核心组件
 
 ### 认证机制
 
-系统采用 JWT (JSON Web Token) 进行身份认证，所有受保护的 API 端点都需要携带有效的访问令牌。
+系统采用基于验证码的手机号登录机制，所有受保护的 API 端点都需要携带有效的访问令牌。
 
 **认证流程**：
-1. 用户使用手机号和固定验证码进行登录
-2. 首次登录自动创建账号
+1. 发送验证码到指定手机号
+2. 使用验证码进行登录
 3. 成功后返回 JWT 令牌
 4. 客户端在后续请求中通过 Authorization 头部携带令牌
 
-**JWT 实现细节**：
-- 令牌格式：Base64Url 编码的 JSON 字符串
-- 令牌内容：`issuer:userId:timestamp`
-- 解析逻辑：验证 issuer 是否匹配，提取 userId
-- 配置项：`aidrun.jwt.issuer` 和 `aidrun.jwt.demo-secret`
+**验证码机制**：
+- 支持固定测试验证码 `123456` 用于 MVP 测试
+- 生产环境使用真实短信验证码
+- 验证码有效期为 5 分钟
 
 **令牌存储**：
-- MVP 阶段使用 UserDefaults 存储 JWT
-- 生产环境建议迁移到 Keychain
+- 建议使用 Keychain 存储 JWT 令牌
+- 支持自动刷新机制
 
 **章节来源**
-- [JwtService.java:1-37](file://backend/src/main/java/com/aidrun/backend/auth/JwtService.java#L1-L37)
-- [application.yml:30-34](file://backend/src/main/resources/application.yml#L30-L34)
+- [test-accounts.md:72-135](file://docs/test-accounts.md#L72-L135)
 
 ### 错误码定义
 
@@ -151,21 +124,19 @@ O --> P
 
 | 错误码 | 描述 | 适用场景 |
 |--------|------|----------|
-| INVALID_VERIFICATION_CODE | 验证码错误 | 登录认证失败 |
-| PROFILE_INCOMPLETE | 资料不完整 | 订单创建前验证 |
-| LOCATION_PERMISSION_REQUIRED | 需要定位权限 | 地图和定位相关操作 |
-| ORDER_NOT_FOUND | 订单不存在 | 订单查询和操作 |
-| ORDER_ALREADY_ACCEPTED | 订单已被接单 | 志愿者接单 |
-| INVALID_ORDER_STATUS | 订单状态不允许当前操作 | 订单状态流转 |
-| ACTIVE_ORDER_ROLE_SWITCH_BLOCKED | 存在活跃订单，禁止切换角色 | 角色切换 |
-| VOLUNTEER_NOT_AVAILABLE | 志愿者不可用 | 志愿者接单 |
-| VOLUNTEER_NOT_APPROVED | 志愿者未认证 | 志愿者接单 |
-| APPOINTMENT_TOO_SOON | 预约时间过早 | 订单创建 |
-| UNAUTHORIZED | 未授权访问 | 令牌无效 |
+| INVALID_PHONE_NUMBER | 手机号格式错误 | 用户注册/登录 |
+| INVALID_VERIFICATION_CODE | 验证码错误或过期 | 验证码登录 |
+| USER_NOT_FOUND | 用户不存在 | 用户操作 |
+| ROLE_NOT_SET | 用户未设置角色 | 角色相关操作 |
+| ORDER_NOT_FOUND | 订单不存在 | 订单操作 |
+| ORDER_STATUS_INVALID | 订单状态不允许当前操作 | 订单状态流转 |
+| EMERGENCY_CONTACT_EXISTS | 紧急联系人已存在 | 联系人管理 |
+| VOLUNTEER_NOT_REGISTERED | 志愿者未完成注册 | 志愿者相关操作 |
+| TRAINING_NOT_COMPLETED | 培训未完成 | 志愿者接单 |
+| CS_AUTH_FAILED | CS管理员认证失败 | CS后台管理 |
 
 **章节来源**
-- [ErrorCode.java:1-40](file://backend/src/main/java/com/aidrun/backend/common/error/ErrorCode.java#L1-L40)
-- [07-api-contract.openapi.yaml:469-558](file://docs/07-api-contract.openapi.yaml#L469-L558)
+- [api_spec.yaml:1-18](file://docs/07-api-contract.openapi.yaml#L1-L18)
 
 ## 架构概览
 
@@ -176,184 +147,168 @@ participant Auth as 认证服务
 participant User as 用户服务
 participant Order as 订单服务
 participant Vol as 志愿者服务
-participant Map as 地图服务
-Client->>Auth : POST /api/auth/phone-login
-Auth->>Auth : 验证手机号和验证码
-Auth-->>Client : 返回 JWT 令牌
-Client->>User : GET /api/users/me
-User-->>Client : 返回用户信息
+participant CS as CS后台
+Client->>Auth : POST /api/auth/send-code
+Auth->>Auth : 发送验证码到手机号
+Auth-->>Client : 返回发送结果
+Client->>Auth : POST /api/auth/verify-code
+Auth->>Auth : 验证验证码并创建用户
+Auth-->>Client : 返回登录令牌
+Client->>User : POST /api/user/role
+User->>User : 设置用户角色
+User-->>Client : 返回新令牌
 Client->>Order : POST /api/orders
 Order-->>Client : 创建订单
-Client->>Order : GET /api/orders/available
-Order-->>Client : 返回可接订单列表
-Client->>Order : POST /api/orders/{orderId}/accept
-Order-->>Client : 接单成功
-Note over Client,Map : 盲人端每5秒轮询订单详情
-Client->>Order : GET /api/orders/{orderId}
+Client->>Order : GET /api/orders/{id}
 Order-->>Client : 返回订单状态
+Client->>Vol : POST /api/orders/{id}/respond
+Vol-->>Client : 处理派单响应
 ```
 
 **图表来源**
-- [aidrun-mvp.yaml:25-38](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L25-L38)
-- [aidrun-mvp.yaml:150-168](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L150-L168)
-- [aidrun-mvp.yaml:209-236](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L209-L236)
+- [test-accounts.md:72-135](file://docs/test-accounts.md#L72-L135)
+- [api_spec.yaml:634-651](file://docs/api_spec.yaml#L634-L651)
 
 ## 详细组件分析
 
 ### 认证接口
 
-#### 手机号登录/自动注册
+#### 发送验证码
 
 **端点信息**：
 - 方法：POST
-- 路径：`/api/auth/phone-login`
-- 标签：Auth
+- 路径：`/api/auth/send-code`
+- 标签：auth-controller
 - 认证：否
 
 **请求体**：
 ```json
 {
-  "phoneNumber": "13800000001",
-  "verificationCode": "123456"
+  "phone": "13800000001"
+}
+```
+
+**响应**：
+- 200：验证码发送成功
+- 400：手机号格式错误
+
+**章节来源**
+- [api_spec.yaml:954-971](file://docs/api_spec.yaml#L954-L971)
+
+#### 验证码登录
+
+**端点信息**：
+- 方法：POST
+- 路径：`/api/auth/verify-code`
+- 标签：auth-controller
+- 认证：否
+
+**请求体**：
+```json
+{
+  "phone": "13800000001",
+  "code": "123456"
 }
 ```
 
 **响应**：
 - 200：登录成功，返回用户信息和 JWT 令牌
-- 400：验证码错误
+- 400：验证码错误或过期
 
 **章节来源**
-- [aidrun-mvp.yaml:25-46](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L25-L46)
+- [api_spec.yaml:936-953](file://docs/api_spec.yaml#L936-L953)
 
-### 用户信息接口
-
-#### 获取当前用户
-
-**端点信息**：
-- 方法：GET
-- 路径：`/api/users/me`
-- 标签：Users
-- 认证：是
-
-**响应**：
-- 200：返回当前用户及其关联的盲人或志愿者资料
-- 401：未登录或令牌无效
-
-**章节来源**
-- [aidrun-mvp.yaml:47-60](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L47-L60)
-
-#### 切换活动角色
-
-**端点信息**：
-- 方法：PATCH
-- 路径：`/api/users/me/active-role`
-- 标签：Users
-- 认证：是
-
-**请求体**：
-```json
-{
-  "activeRole": "blind_runner"  // 或 "volunteer"
-}
-```
-
-**响应**：
-- 200：切换成功
-- 409：存在活跃订单，禁止切换角色
-
-**章节来源**
-- [aidrun-mvp.yaml:61-81](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L61-L81)
-
-### 资料管理接口
-
-#### 盲人资料创建/更新
-
-**端点信息**：
-- 方法：PUT
-- 路径：`/api/profiles/blind-runner`
-- 标签：Profiles
-- 认证：是
-
-**请求体**：
-```json
-{
-  "nickname": "小明",
-  "runningExperience": "有跑步经验",
-  "emergencyContact": {
-    "name": "张三",
-    "phoneNumber": "13800000002"
-  }
-}
-```
-
-**响应**：
-- 200：返回保存的盲人资料
-
-**章节来源**
-- [aidrun-mvp.yaml:82-99](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L82-L99)
-
-#### 志愿者资料创建/更新
-
-**端点信息**：
-- 方法：PUT
-- 路径：`/api/profiles/volunteer`
-- 标签：Profiles
-- 认证：是
-
-**请求体**：
-```json
-{
-  "nickname": "志愿者小李"
-}
-```
-
-**响应**：
-- 200：返回保存的志愿者资料
-
-**章节来源**
-- [aidrun-mvp.yaml:100-117](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L100-L117)
-
-### 志愿者服务接口
-
-#### Mock 认证通过
+#### 设置用户角色
 
 **端点信息**：
 - 方法：POST
-- 路径：`/api/volunteer/mock-verification/approve`
-- 标签：Volunteer
-- 认证：是
-
-**描述**：MVP 阶段不进行真实实名认证，调用后 verificationStatus 和 adminReviewStatus 均设为 approved。
-
-**响应**：
-- 200：返回更新后的志愿者资料
-
-**章节来源**
-- [aidrun-mvp.yaml:118-130](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L118-L130)
-
-#### 更新志愿者资料（含可服务开关）
-
-**端点信息**：
-- 方法：PUT
-- 路径：`/api/volunteer/profile`
-- 标签：Volunteer
+- 路径：`/api/user/role`
+- 标签：role-controller
 - 认证：是
 
 **请求体**：
 ```json
 {
-  "nickname": "志愿者小李",
-  "isAvailable": true
+  "role": "BLIND"  // 或 "VOLUNTEER"
 }
 ```
 
-**描述**：支持部分更新：可只传nickname或只传isAvailable。关闭后仍可查看订单，但不能接新单。
-
 **响应**：
-- 200：返回更新后的志愿者资料
+- 200：角色设置成功，返回新令牌
+- 400：角色设置失败
 
 **章节来源**
-- [aidrun-mvp.yaml:131-149](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L131-L149)
+- [api_spec.yaml:616-633](file://docs/api_spec.yaml#L616-L633)
+
+### 用户信息接口
+
+#### 获取用户信息
+
+**端点信息**：
+- 方法：GET
+- 路径：`/api/users/{id}`
+- 标签：user-controller
+- 认证：是
+
+**路径参数**：
+- `id`：用户ID
+
+**响应**：
+- 200：返回用户信息
+- 404：用户不存在
+
+**章节来源**
+- [api_spec.yaml:1111-1130](file://docs/api_spec.yaml#L1111-L1130)
+
+#### 删除用户
+
+**端点信息**：
+- 方法：DELETE
+- 路径：`/api/users/{id}`
+- 标签：user-controller
+- 认证：是
+
+**路径参数**：
+- `id`：用户ID
+
+**响应**：
+- 200：用户删除成功
+- 404：用户不存在
+
+**章节来源**
+- [api_spec.yaml:1131-1149](file://docs/api_spec.yaml#L1131-L1149)
+
+### 资料管理接口
+
+#### 盲人用户资料
+
+**端点信息**：
+- 方法：GET/PUT
+- 路径：`/api/blind/profile`
+- 标签：盲人用户
+- 认证：是
+
+**响应**：
+- 200：返回盲人资料
+- 404：资料不存在
+
+**章节来源**
+- [api_spec.yaml:255-285](file://docs/api_spec.yaml#L255-L285)
+
+#### 志愿者资料
+
+**端点信息**：
+- 方法：GET/PUT
+- 路径：`/api/volunteer/profile`
+- 标签：volunteer-controller
+- 认证：是
+
+**响应**：
+- 200：返回志愿者资料
+- 404：资料不存在
+
+**章节来源**
+- [api_spec.yaml:17-46](file://docs/api_spec.yaml#L17-L46)
 
 ### 订单管理接口
 
@@ -362,74 +317,44 @@ Order-->>Client : 返回订单状态
 **端点信息**：
 - 方法：POST
 - 路径：`/api/orders`
-- 标签：Orders
+- 标签：order-controller
 - 认证：是
 
 **请求体**：
 ```json
 {
-  "startLocation": {
-    "latitude": 31.2304,
-    "longitude": 121.4737,
-    "source": "device_location"
-  },
-  "destinationText": "上海中心大厦",
-  "appointmentTime": "2024-01-01T10:00:00Z",
-  "estimatedDurationMinutes": 60,
-  "estimatedDistanceKm": 5.5,
-  "pacePreference": "中等",
-  "preferSameGender": true,
-  "remark": "请在门口等候"
+  "startLatitude": 39.9042,
+  "startLongitude": 116.4074,
+  "startAddress": "朝阳公园南门",
+  "plannedStartTime": "2099-06-01T18:00:00",
+  "plannedEndTime": "2099-06-01T19:00:00"
 }
 ```
 
-**验证规则**：
-- 预约时间必须至少为当前时间 30 分钟后
-- 必须有盲人资料和定位信息
-- 必须有紧急联系人
-
 **响应**：
-- 201：订单已创建
-- 400：创建订单失败，返回具体错误码
+- 200：订单创建成功
+- 400：订单创建失败
 
 **章节来源**
-- [aidrun-mvp.yaml:150-187](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L150-L187)
+- [api_spec.yaml:634-651](file://docs/api_spec.yaml#L634-L651)
 
-#### 获取我的订单
+#### 获取订单详情
 
 **端点信息**：
 - 方法：GET
-- 路径：`/api/orders/my`
-- 标签：Orders
+- 路径：`/api/orders/{id}`
+- 标签：order-controller
 - 认证：是
 
-**查询参数**：
-- `status`：订单状态过滤器
+**路径参数**：
+- `id`：订单ID
 
 **响应**：
-- 200：返回订单列表（MVP 不分页）
+- 200：返回订单详情
+- 404：订单不存在
 
 **章节来源**
-- [aidrun-mvp.yaml:188-208](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L188-L208)
-
-#### 获取可接订单
-
-**端点信息**：
-- 方法：GET
-- 路径：`/api/orders/available`
-- 标签：Orders
-- 认证：是
-
-**查询参数**：
-- `latitude`：纬度
-- `longitude`：经度
-
-**响应**：
-- 200：返回可接订单列表
-- 400：需要定位权限
-
-**章节来源**
-- [aidrun-mvp.yaml:209-238](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L209-L238)
+- [api_spec.yaml:1171-1190](file://docs/api_spec.yaml#L1171-L1190)
 
 #### 订单状态管理
 
@@ -437,235 +362,169 @@ Order-->>Client : 返回订单状态
 
 ```mermaid
 stateDiagram-v2
-[*] --> matching
-matching --> accepted : 志愿者接单
-matching --> cancelled : 用户取消
-accepted --> arrived : 志愿者到达
-accepted --> cancelled : 用户取消
-arrived --> in_progress : 盲人确认开始
-arrived --> cancelled : 用户取消
-in_progress --> completed : 志愿者结束服务
-in_progress --> emergency : 触发求助
-completed --> [*]
-cancelled --> [*]
-emergency --> [*]
+[*] --> CREATED
+CREATED --> DISPATCHING : 志愿者响应
+DISPATCHING --> ACCEPTED : 志愿者接受
+DISPATCHING --> CANCELLED : 用户取消
+ACCEPTED --> DRIVER_EN_ROUTE : 志愿者出发
+ACCEPTED --> CANCELLED : 用户取消
+DRIVER_EN_ROUTE --> DRIVER_ARRIVED : 志愿者到达
+DRIVER_EN_ROUTE --> CANCELLED : 用户取消
+DRIVER_ARRIVED --> IN_PROGRESS : 开始服务
+DRIVER_ARRIVED --> CANCELLED : 用户取消
+IN_PROGRESS --> FINISHED : 服务完成
+IN_PROGRESS --> EMERGENCY : 触发求助
+FINISHED --> [*]
+CANCELLED --> [*]
+EMERGENCY --> [*]
 ```
 
 **图表来源**
-- [RunOrderStatus.java:1-36](file://backend/src/main/java/com/aidrun/backend/order/RunOrderStatus.java#L1-L36)
+- [api_spec.yaml:830-849](file://docs/api_spec.yaml#L830-L849)
 
-##### 获取订单详情
-
-**端点信息**：
-- 方法：GET
-- 路径：`/api/orders/{orderId}`
-- 标签：Orders
-- 认证：是
-
-**路径参数**：
-- `orderId`：订单 ID (UUID)
-
-**响应**：
-- 200：返回订单详情
-- 404：订单不存在
-
-**章节来源**
-- [aidrun-mvp.yaml:239-255](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L239-L255)
-
-##### 志愿者接单
+##### 志愿者响应派单
 
 **端点信息**：
 - 方法：POST
-- 路径：`/api/orders/{orderId}/accept`
-- 标签：Orders
+- 路径：`/api/orders/{id}/respond`
+- 标签：order-controller
+- 认证：是
+
+**请求体**：
+```json
+{
+  "action": "ACCEPT"  // 或 "REJECT"
+}
+```
+
+**响应**：
+- 200：派单响应处理成功
+- 400：响应无效
+
+**章节来源**
+- [api_spec.yaml:703-728](file://docs/api_spec.yaml#L703-L728)
+
+##### 志愿者接受订单
+
+**端点信息**：
+- 方法：POST
+- 路径：`/api/orders/{id}/accept`
+- 标签：order-controller
 - 认证：是
 
 **响应**：
-- 200：接单成功
-- 400：志愿者不可接单（未开启可服务状态或未认证）
-- 404：订单不存在
-- 409：订单已被其他志愿者接单
+- 200：订单接受成功
+- 400：订单状态不允许当前操作
 
 **章节来源**
-- [aidrun-mvp.yaml:256-288](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L256-L288)
+- [api_spec.yaml:830-849](file://docs/api_spec.yaml#L830-L849)
+
+##### 志愿者出发
+
+**端点信息**：
+- 方法：POST
+- 路径：`/api/orders/{id}/en-route`
+- 标签：order-status-controller
+- 认证：是
+
+**响应**：
+- 200：状态更新为 DRIVER_EN_ROUTE
+- 400：订单状态不允许当前操作
+
+**章节来源**
+- [api_spec.yaml:770-789](file://docs/api_spec.yaml#L770-L789)
 
 ##### 志愿者到达
 
 **端点信息**：
 - 方法：POST
-- 路径：`/api/orders/{orderId}/arrive`
-- 标签：Orders
+- 路径：`/api/orders/{id}/arrived`
+- 标签：order-status-controller
 - 认证：是
 
 **响应**：
-- 200：状态进入 arrived
-- 409：订单状态不允许当前操作
+- 200：状态更新为 DRIVER_ARRIVED
+- 400：订单状态不允许当前操作
 
 **章节来源**
-- [aidrun-mvp.yaml:289-304](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L289-L304)
+- [api_spec.yaml:810-829](file://docs/api_spec.yaml#L810-L829)
 
-##### 盲人确认开始
+##### 开始服务
 
 **端点信息**：
 - 方法：POST
-- 路径：`/api/orders/{orderId}/confirm-start`
-- 标签：Orders
+- 路径：`/api/orders/{id}/start-service`
+- 标签：order-status-controller
 - 认证：是
 
 **响应**：
-- 200：状态进入 in_progress
-- 409：订单状态不允许当前操作
+- 200：状态更新为 IN_PROGRESS
+- 400：订单状态不允许当前操作
 
 **章节来源**
-- [aidrun-mvp.yaml:305-320](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L305-L320)
+- [api_spec.yaml:749-769](file://docs/api_spec.yaml#L749-L769)
 
-##### 志愿者结束服务
+##### 完成服务
 
 **端点信息**：
 - 方法：POST
-- 路径：`/api/orders/{orderId}/complete`
-- 标签：Orders
+- 路径：`/api/orders/{id}/finish`
+- 标签：order-controller
 - 认证：是
 
-**请求体**：
-```json
-{
-  "summaryText": "服务总结内容"
-}
-```
-
 **响应**：
-- 200：状态进入 completed，并给志愿者加 100 积分
-- 409：订单状态不允许当前操作
+- 200：状态更新为 FINISHED
+- 400：订单状态不允许当前操作
 
 **章节来源**
-- [aidrun-mvp.yaml:321-342](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L321-L342)
+- [api_spec.yaml:749-769](file://docs/api_spec.yaml#L749-L769)
 
 ##### 取消订单
 
 **端点信息**：
 - 方法：POST
-- 路径：`/api/orders/{orderId}/cancel`
-- 标签：Orders
+- 路径：`/api/orders/{id}/cancel`
+- 标签：order-controller
 - 认证：是
 
-**请求体**：
-```json
-{
-  "cancelledBy": "blind_runner",  // 或 "volunteer"
-  "cancelledReason": "time_conflict",
-  "otherReasonText": "其他原因说明"
-}
-```
-
 **响应**：
-- 200：状态进入 cancelled
-- 409：订单状态不允许当前操作
+- 200：订单状态更新为 CANCELLED
+- 400：订单状态不允许当前操作
 
 **章节来源**
-- [aidrun-mvp.yaml:343-365](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L343-L365)
+- [api_spec.yaml:790-809](file://docs/api_spec.yaml#L790-L809)
 
 ##### 触发求助
 
 **端点信息**：
 - 方法：POST
-- 路径：`/api/orders/{orderId}/emergency`
-- 标签：Orders
+- 路径：`/api/emergency/trigger`
+- 标签：emergency-controller
 - 认证：是
 
 **请求体**：
 ```json
 {
+  "orderId": 1,
   "note": "求助说明"
 }
 ```
 
 **响应**：
-- 200：状态进入 emergency
-- 409：订单状态不允许当前操作
+- 200：订单状态更新为 EMERGENCY
+- 400：触发失败
 
 **章节来源**
-- [aidrun-mvp.yaml:366-388](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L366-L388)
-
-##### 提交评分
-
-**端点信息**：
-- 方法：POST
-- 路径：`/api/orders/{orderId}/rating`
-- 标签：Orders
-- 认证：是
-
-**请求体**：
-```json
-{
-  "stars": 5,
-  "comment": "服务很棒！"
-}
-```
-
-**响应**：
-- 200：评分已提交
-- 409：订单状态不允许当前操作
-
-**章节来源**
-- [aidrun-mvp.yaml:389-411](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L389-L411)
-
-### 志愿者扩展接口
-
-#### 获取服务记录
-
-**端点信息**：
-- 方法：GET
-- 路径：`/api/volunteer/service-records`
-- 标签：Volunteer
-- 认证：是
-
-**响应**：
-- 200：返回服务记录列表
-
-**章节来源**
-- [aidrun-mvp.yaml:412-425](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L412-L425)
-
-#### 获取积分
-
-**端点信息**：
-- 方法：GET
-- 路径：`/api/volunteer/points`
-- 标签：Volunteer
-- 认证：是
-
-**响应**：
-- 200：返回积分余额和流水
-
-**章节来源**
-- [aidrun-mvp.yaml:426-437](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L426-L437)
-
-#### 获取积分商城占位商品
-
-**端点信息**：
-- 方法：GET
-- 路径：`/api/volunteer/points/shop-items`
-- 标签：Volunteer
-- 认证：是
-
-**描述**：MVP 阶段仅展示概念商品，不做兑换、库存或支付。
-
-**响应**：
-- 200：返回占位商品列表
-
-**章节来源**
-- [aidrun-mvp.yaml:438-452](file://backend/src/main/resources/static/openapi/aidrun-mvp.yaml#L438-L452)
+- [api_spec.yaml:850-867](file://docs/api_spec.yaml#L850-L867)
 
 ### 紧急联系人管理接口
-
-**更新** 新增完整的紧急联系人管理功能，支持多联系人管理：
 
 #### 获取紧急联系人列表
 
 **端点信息**：
 - 方法：GET
 - 路径：`/api/users/{userId}/emergency-contacts`
-- 标签：Emergency Contact
+- 标签：emergency-contact-controller
 - 认证：是
 
 **路径参数**：
@@ -673,40 +532,44 @@ emergency --> [*]
 
 **响应**：
 - 200：返回紧急联系人列表
+- 404：用户不存在
 
 **章节来源**
-- [api_spec.yaml:570-590](file://docs/api_spec.yaml#L570-L590)
+- [api_spec.yaml:571-591](file://docs/api_spec.yaml#L571-L591)
 
 #### 添加紧急联系人
 
 **端点信息**：
 - 方法：POST
 - 路径：`/api/users/{userId}/emergency-contacts`
-- 标签：Emergency Contact
+- 标签：emergency-contact-controller
 - 认证：是
+
+**路径参数**：
+- `userId`：用户ID
 
 **请求体**：
 ```json
 {
   "name": "张三",
   "phone": "13800000002",
-  "relationship": "朋友",
-  "isPrimary": true
+  "relationship": "朋友"
 }
 ```
 
 **响应**：
 - 200：返回新增的紧急联系人
+- 400：联系人信息无效
 
 **章节来源**
-- [api_spec.yaml:591-614](file://docs/api_spec.yaml#L591-L614)
+- [api_spec.yaml:592-615](file://docs/api_spec.yaml#L592-L615)
 
 #### 更新紧急联系人
 
 **端点信息**：
 - 方法：PUT
 - 路径：`/api/users/{userId}/emergency-contacts/{contactId}`
-- 标签：Emergency Contact
+- 标签：emergency-contact-controller
 - 认证：是
 
 **路径参数**：
@@ -715,48 +578,57 @@ emergency --> [*]
 
 **响应**：
 - 200：返回更新后的紧急联系人
+- 404：联系人不存在
 
 **章节来源**
-- [api_spec.yaml:46-76](file://docs/api_spec.yaml#L46-L76)
+- [api_spec.yaml:47-77](file://docs/api_spec.yaml#L47-L77)
 
 #### 删除紧急联系人
 
 **端点信息**：
 - 方法：DELETE
 - 路径：`/api/users/{userId}/emergency-contacts/{contactId}`
-- 标签：Emergency Contact
+- 标签：emergency-contact-controller
 - 认证：是
+
+**路径参数**：
+- `userId`：用户ID
+- `contactId`：联系人ID
 
 **响应**：
 - 200：删除成功
+- 404：联系人不存在
 
 **章节来源**
-- [api_spec.yaml:77-100](file://docs/api_spec.yaml#L77-L100)
+- [api_spec.yaml:78-101](file://docs/api_spec.yaml#L78-L101)
 
 #### 设置主要联系人
 
 **端点信息**：
 - 方法：PUT
 - 路径：`/api/users/{userId}/emergency-contacts/{contactId}/set-primary`
-- 标签：Emergency Contact
+- 标签：emergency-contact-controller
 - 认证：是
+
+**路径参数**：
+- `userId`：用户ID
+- `contactId`：联系人ID
 
 **响应**：
 - 200：设置成功
+- 404：联系人不存在
 
 **章节来源**
-- [api_spec.yaml:101-125](file://docs/api_spec.yaml#L101-L125)
+- [api_spec.yaml:102-126](file://docs/api_spec.yaml#L102-L126)
 
 ### 志愿者注册和培训接口
-
-**更新** 新增完整的志愿者注册和培训流程：
 
 #### 提交基本信息
 
 **端点信息**：
 - 方法：POST
 - 路径：`/api/volunteer/registration/step1`
-- 标签：Volunteer Registration
+- 标签：volunteer-registration-controller
 - 认证：是
 
 **请求体**：
@@ -774,14 +646,14 @@ emergency --> [*]
 - 200：注册步骤1完成
 
 **章节来源**
-- [api_spec.yaml:533-550](file://docs/api_spec.yaml#L533-L550)
+- [api_spec.yaml:534-551](file://docs/api_spec.yaml#L534-L551)
 
 #### 上传身份证
 
 **端点信息**：
 - 方法：POST
 - 路径：`/api/volunteer/registration/step2/id-card`
-- 标签：Volunteer Registration
+- 标签：volunteer-registration-controller
 - 认证：是
 
 **查询参数**：
@@ -796,14 +668,14 @@ emergency --> [*]
 - 200：注册步骤2完成
 
 **章节来源**
-- [api_spec.yaml:487-532](file://docs/api_spec.yaml#L487-L532)
+- [api_spec.yaml:488-533](file://docs/api_spec.yaml#L488-L533)
 
 #### 人脸验证
 
 **端点信息**：
 - 方法：POST
 - 路径：`/api/volunteer/registration/step3/face-verify`
-- 标签：Volunteer Registration
+- 标签：volunteer-registration-controller
 - 认证：是
 
 **请求体**：multipart/form-data
@@ -813,14 +685,14 @@ emergency --> [*]
 - 200：注册步骤3完成
 
 **章节来源**
-- [api_spec.yaml:461-486](file://docs/api_spec.yaml#L461-L486)
+- [api_spec.yaml:462-487](file://docs/api_spec.yaml#L462-L487)
 
 #### 提交培训进度
 
 **端点信息**：
 - 方法：POST
 - 路径：`/api/volunteer/registration/training/progress`
-- 标签：Volunteer Registration
+- 标签：volunteer-registration-controller
 - 认证：是
 
 **请求体**：
@@ -837,14 +709,14 @@ emergency --> [*]
 - 200：进度提交成功
 
 **章节来源**
-- [api_spec.yaml:443-459](file://docs/api_spec.yaml#L443-L459)
+- [api_spec.yaml:444-461](file://docs/api_spec.yaml#L444-L461)
 
 #### 提交培训测验答案
 
 **端点信息**：
 - 方法：POST
 - 路径：`/api/volunteer/registration/training/quiz/answer`
-- 标签：Volunteer Registration
+- 标签：volunteer-registration-controller
 - 认证：是
 
 **请求体**：
@@ -861,28 +733,28 @@ emergency --> [*]
 - 200：答案提交成功
 
 **章节来源**
-- [api_spec.yaml:425-442](file://docs/api_spec.yaml#L425-L442)
+- [api_spec.yaml:426-443](file://docs/api_spec.yaml#L426-L443)
 
 #### 获取培训课程
 
 **端点信息**：
 - 方法：GET
 - 路径：`/api/volunteer/registration/training/courses`
-- 标签：Volunteer Registration
+- 标签：volunteer-registration-controller
 - 认证：是
 
 **响应**：
 - 200：返回培训课程列表
 
 **章节来源**
-- [api_spec.yaml:1085-1096](file://docs/api_spec.yaml#L1085-L1096)
+- [api_spec.yaml:1087-1097](file://docs/api_spec.yaml#L1087-L1097)
 
 #### 获取测验题目
 
 **端点信息**：
 - 方法：GET
 - 路径：`/api/volunteer/registration/training/quiz/{courseId}`
-- 标签：Volunteer Registration
+- 标签：volunteer-registration-controller
 - 认证：是
 
 **路径参数**：
@@ -892,32 +764,30 @@ emergency --> [*]
 - 200：返回测验题目
 
 **章节来源**
-- [api_spec.yaml:1066-1084](file://docs/api_spec.yaml#L1066-L1084)
+- [api_spec.yaml:1068-1086](file://docs/api_spec.yaml#L1068-L1086)
 
 #### 获取注册状态
 
 **端点信息**：
 - 方法：GET
 - 路径：`/api/volunteer/registration/status`
-- 标签：Volunteer Registration
+- 标签：volunteer-registration-controller
 - 认证：是
 
 **响应**：
 - 200：返回注册状态
 
 **章节来源**
-- [api_spec.yaml:1097-1108](file://docs/api_spec.yaml#L1097-L1108)
+- [api_spec.yaml:1099-1110](file://docs/api_spec.yaml#L1099-L1110)
 
-### 管理员CS后台接口
-
-**更新** 新增管理员CS后台功能：
+### CS后台管理接口
 
 #### CS管理员登录
 
 **端点信息**：
 - 方法：POST
 - 路径：`/api/cs/auth/login`
-- 标签：CS Admin
+- 标签：cs-auth-controller
 - 认证：否
 
 **请求体**：
@@ -930,6 +800,7 @@ emergency --> [*]
 
 **响应**：
 - 200：返回CS管理员令牌
+- 401：认证失败
 
 **章节来源**
 - [test-accounts.md:26-45](file://docs/test-accounts.md#L26-L45)
@@ -939,7 +810,7 @@ emergency --> [*]
 **端点信息**：
 - 方法：GET
 - 路径：`/api/cs/emergency-events`
-- 标签：CS Admin
+- 标签：cs-controller
 - 认证：是
 
 **查询参数**：
@@ -956,7 +827,7 @@ emergency --> [*]
 **端点信息**：
 - 方法：PUT
 - 路径：`/api/cs/emergency-events/{eventId}/resolve`
-- 标签：CS Admin
+- 标签：cs-controller
 - 认证：是
 
 **路径参数**：
@@ -969,14 +840,14 @@ emergency --> [*]
 - 200：事件处理完成
 
 **章节来源**
-- [api_spec.yaml:173-195](file://docs/api_spec.yaml#L173-L195)
+- [api_spec.yaml:174-197](file://docs/api_spec.yaml#L174-L197)
 
 #### 通知联系人
 
 **端点信息**：
 - 方法：PUT
 - 路径：`/api/cs/emergency-events/{eventId}/notify-contact`
-- 标签：CS Admin
+- 标签：cs-controller
 - 认证：是
 
 **路径参数**：
@@ -986,14 +857,14 @@ emergency --> [*]
 - 200：联系人已通知
 
 **章节来源**
-- [api_spec.yaml:197-214](file://docs/api_spec.yaml#L197-L214)
+- [api_spec.yaml:198-215](file://docs/api_spec.yaml#L198-L215)
 
 #### 标记误报
 
 **端点信息**：
 - 方法：PUT
 - 路径：`/api/cs/emergency-events/{eventId}/false-alarm`
-- 标签：CS Admin
+- 标签：cs-controller
 - 认证：是
 
 **路径参数**：
@@ -1003,14 +874,14 @@ emergency --> [*]
 - 200：标记为误报
 
 **章节来源**
-- [api_spec.yaml:216-233](file://docs/api_spec.yaml#L216-L233)
+- [api_spec.yaml:217-234](file://docs/api_spec.yaml#L217-L234)
 
 #### 接受事件
 
 **端点信息**：
 - 方法：PUT
 - 路径：`/api/cs/emergency-events/{eventId}/accept`
-- 标签：CS Admin
+- 标签：cs-controller
 - 认证：是
 
 **路径参数**：
@@ -1020,22 +891,21 @@ emergency --> [*]
 - 200：事件已接受
 
 **章节来源**
-- [api_spec.yaml:235-252](file://docs/api_spec.yaml#L235-L252)
+- [api_spec.yaml:236-253](file://docs/api_spec.yaml#L236-L253)
 
 #### 身份证审核
 
 **端点信息**：
 - 方法：POST
 - 路径：`/api/admin/volunteers/review/id`
-- 标签：Admin
+- 标签：admin-volunteer-controller
 - 认证：是
 
 **请求体**：
 ```json
 {
   "userId": 1,
-  "approved": true,
-  "rejectionReason": ""
+  "approved": true
 }
 ```
 
@@ -1043,28 +913,28 @@ emergency --> [*]
 - 200：审核完成
 
 **章节来源**
-- [api_spec.yaml:1037-1053](file://docs/api_spec.yaml#L1037-L1053)
+- [api_spec.yaml:1039-1055](file://docs/api_spec.yaml#L1039-L1055)
 
 #### 获取待审核志愿者
 
 **端点信息**：
 - 方法：GET
 - 路径：`/api/admin/volunteers/review/id`
-- 标签：Admin
+- 标签：admin-volunteer-controller
 - 认证：是
 
 **响应**：
 - 200：返回待审核志愿者列表
 
 **章节来源**
-- [api_spec.yaml:1025-1036](file://docs/api_spec.yaml#L1025-L1036)
+- [api_spec.yaml:1027-1038](file://docs/api_spec.yaml#L1027-L1038)
 
 #### 创建培训课程
 
 **端点信息**：
 - 方法：POST
 - 路径：`/api/admin/volunteers/training/courses`
-- 标签：Admin
+- 标签：admin-volunteer-controller
 - 认证：是
 
 **请求体**：
@@ -1084,14 +954,14 @@ emergency --> [*]
 - 200：课程创建成功
 
 **章节来源**
-- [api_spec.yaml:982-999](file://docs/api_spec.yaml#L982-L999)
+- [api_spec.yaml:984-1001](file://docs/api_spec.yaml#L984-L1001)
 
 #### 创建测验题目
 
 **端点信息**：
 - 方法：POST
 - 路径：`/api/admin/volunteers/training/courses/{courseId}/questions`
-- 标签：Admin
+- 标签：admin-volunteer-controller
 - 认证：是
 
 **路径参数**：
@@ -1113,14 +983,14 @@ emergency --> [*]
 - 200：题目创建成功
 
 **章节来源**
-- [api_spec.yaml:1000-1018](file://docs/api_spec.yaml#L1000-L1018)
+- [api_spec.yaml:1002-1020](file://docs/api_spec.yaml#L1002-L1020)
 
 #### 获取培训统计
 
 **端点信息**：
 - 方法：GET
 - 路径：`/api/admin/volunteers/training/stats`
-- 标签：Admin
+- 标签：admin-volunteer-controller
 - 认证：是
 
 **响应**：
@@ -1131,22 +1001,23 @@ emergency --> [*]
 
 ### 完整API规范对比
 
-**更新** 项目现已支持两种OpenAPI规范：
+**重要更新** 项目现已迁移至云端后端，API规范发生重大变化：
 
-#### MVP版本 (OpenAPI 3.0.3)
-- 专注核心功能的简化版本
+#### 云端版本 (OpenAPI 3.1.0)
+- 全面覆盖所有后端端点，包含紧急联系人管理、志愿者注册流程、CS后台管理
+- 支持完整的订单状态流转和实时状态更新
+- 新增志愿者注册四步流程：基本信息 → 身份证 → 人脸验证 → 培训完成
+- 支持紧急事件处理和CS后台管理功能
+- 移除了本地MVP版本的简化端点
+
+#### 本地MVP版本 (已归档)
+- 专注核心功能的简化版本，现已归档
 - 包含基础认证、用户管理、订单服务、志愿者管理
-- 适用于3天演示MVP阶段
-
-#### 综合版本 (OpenAPI 3.1.0)
-- 全面覆盖所有后端端点
-- 包含志愿者注册流程、紧急事件处理、管理员功能
-- 支持更复杂的业务场景
-- 新增紧急联系人管理、志愿者培训、CS后台管理等功能
+- 适用于3天演示MVP阶段，现已不再作为源代码
 
 **章节来源**
+- [07-api-contract.openapi.yaml:1-17](file://docs/07-api-contract.openapi.yaml#L1-L17)
 - [api_spec.yaml:1-10](file://docs/api_spec.yaml#L1-L10)
-- [07-api-contract.openapi.yaml:1-10](file://docs/07-api-contract.openapi.yaml#L1-L10)
 
 ## 后端实现分析
 
@@ -1167,24 +1038,25 @@ H --> I[OpenAPI 文档生成]
 ```
 
 **图表来源**
-- [AidRunBackendApplication.java:1-13](file://backend/src/main/java/com/aidrun/backend/AidRunBackendApplication.java#L1-L13)
+- [application.yml:1-34](file://backend/src/main/resources/application.yml#L1-L34)
 
-### JWT 认证服务
+### 验证码认证服务
 
-JWT 服务实现了简化的令牌生成和解析机制：
+验证码认证服务实现了基于手机号的登录机制：
 
-**令牌生成**：
-- 输入：userId
-- 输出：Base64Url 编码字符串
-- 格式：`issuer:userId:timestamp`
+**验证码生成**：
+- 6位数字随机验证码
+- 5分钟有效期
+- 支持固定测试验证码 `123456`
 
-**令牌解析**：
-- 验证 issuer 一致性
-- 提取 userId
-- 返回 Optional<String>
+**用户登录**：
+- 验证手机号格式
+- 验证验证码有效性
+- 创建用户账户
+- 生成JWT访问令牌
 
 **章节来源**
-- [JwtService.java:1-37](file://backend/src/main/java/com/aidrun/backend/auth/JwtService.java#L1-L37)
+- [test-accounts.md:72-135](file://docs/test-accounts.md#L72-L135)
 
 ### 数据库配置
 
@@ -1204,42 +1076,27 @@ JWT 服务实现了简化的令牌生成和解析机制：
 **章节来源**
 - [application.yml:1-34](file://backend/src/main/resources/application.yml#L1-L34)
 
-### 种子数据管理
-
-DemoDataSeeder 实现了完整的演示数据初始化：
-
-**用户数据**：
-- 盲人跑者：13800000001，角色：BLIND_RUNNER, VOLUNTEER
-- 志愿者：13800000002，角色：BLIND_RUNNER, VOLUNTEER
-
-**订单数据**：
-- 两个 MATCHING 状态的订单
-- 一个 IN_PROGRESS 状态已完成的订单
-
-**积分数据**：
-- 志愿者初始积分：200
-- 完成服务奖励：100 积分
-
-**章节来源**
-- [DemoDataSeeder.java:1-118](file://backend/src/main/java/com/aidrun/backend/seed/DemoDataSeeder.java#L1-L118)
-
 ### 控制器层实现
 
 **认证控制器**：
-- 处理手机号登录请求
-- 验证验证码并生成JWT令牌
+- 处理验证码发送请求
+- 验证验证码并创建用户
+- 返回JWT访问令牌
 
 **用户控制器**：
-- 获取当前用户信息
-- 切换活动角色
+- 获取用户信息
+- 删除用户
+- 设置用户角色
 
 **订单控制器**：
 - 创建、查询、管理订单
 - 处理订单状态流转
+- 处理派单响应
 
 **志愿者控制器**：
 - 处理志愿者注册和认证
 - 更新志愿者资料和可用状态
+- 管理志愿者位置信息
 
 **紧急联系人控制器**：
 - 管理用户的紧急联系人
@@ -1247,9 +1104,8 @@ DemoDataSeeder 实现了完整的演示数据初始化：
 
 **章节来源**
 - [AuthController.java:1-28](file://backend/src/main/java/com/aidrun/backend/auth/AuthController.java#L1-L28)
-- [UserController.java:1-45](file://backend/src/main/java/com/aidrun/backend/user/UserController.java#L1-L45)
 - [RunOrderController.java:1-140](file://backend/src/main/java/com/aidrun/backend/order/RunOrderController.java#L1-L140)
-- [VolunteerController.java:1-42](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerController.java#L1-L42)
+- [ProfileController.java:1-44](file://backend/src/main/java/com/aidrun/backend/profile/ProfileController.java#L1-L44)
 
 ## 数据模型设计
 
@@ -1306,45 +1162,27 @@ VOLUNTEER_PROFILE ||--o{ RUN_ORDER : serves
 ```
 
 **图表来源**
-- [AppUser.java:1-53](file://backend/src/main/java/com/aidrun/backend/user/AppUser.java#L1-L53)
-- [BlindRunnerProfile.java:1-55](file://backend/src/main/java/com/aidrun/backend/profile/BlindRunnerProfile.java#L1-L55)
-- [RunOrder.java:1-102](file://backend/src/main/java/com/aidrun/backend/order/RunOrder.java#L1-L102)
+- [application.yml:1-34](file://backend/src/main/resources/application.yml#L1-L34)
 
-### 枚举类型设计
-
-**用户角色枚举**：
-- BLIND_RUNNER："blind_runner"
-- VOLUNTEER："volunteer"
+### 订单状态枚举
 
 **订单状态枚举**：
-- MATCHING："matching"
+- CREATED："created"
+- DISPATCHING："dispatching"
 - ACCEPTED："accepted"
-- ARRIVED："arrived"
+- DRIVER_EN_ROUTE："driver_en_route"
+- DRIVER_ARRIVED："driver_arrived"
 - IN_PROGRESS："in_progress"
-- COMPLETED："completed"
+- FINISHED："finished"
 - CANCELLED："cancelled"
 - EMERGENCY："emergency"
 
-**验证状态枚举**：
-- NOT_SUBMITTED："not_submitted"
-- PENDING："pending"
-- APPROVED："approved"
-- REJECTED："rejected"
-
-**位置来源枚举**：
-- DEVICE_LOCATION："device_location"
-- MANUAL："manual"
-- DEMO_DEFAULT："demo_default"
-
 **章节来源**
-- [UserRole.java:1-31](file://backend/src/main/java/com/aidrun/backend/user/UserRole.java#L1-L31)
-- [RunOrderStatus.java:1-36](file://backend/src/main/java/com/aidrun/backend/order/RunOrderStatus.java#L1-L36)
-- [VerificationStatus.java:1-33](file://backend/src/main/java/com/aidrun/backend/profile/VerificationStatus.java#L1-L33)
-- [LocationSource.java:1-32](file://backend/src/main/java/com/aidrun/backend/location/LocationSource.java#L1-L32)
+- [api_spec.yaml:830-849](file://docs/api_spec.yaml#L830-L849)
 
 ### 紧急联系人数据模型
 
-**更新** 新增紧急联系人实体模型：
+**紧急联系人实体模型**：
 
 ```mermaid
 erDiagram
@@ -1353,6 +1191,8 @@ uuid id PK
 uuid blind_runner_profile_id FK
 string name
 string phone_number
+string relationship
+boolean is_primary
 datetime created_at
 datetime updated_at
 }
@@ -1360,17 +1200,17 @@ BLIND_RUNNER_PROFILE ||--|| EMERGENCY_CONTACT : has
 ```
 
 **图表来源**
-- [EmergencyContact.java:1-52](file://backend/src/main/java/com/aidrun/backend/profile/EmergencyContact.java#L1-L52)
+- [application.yml:1-34](file://backend/src/main/resources/application.yml#L1-L34)
 
 **章节来源**
-- [EmergencyContact.java:13-52](file://backend/src/main/java/com/aidrun/backend/profile/EmergencyContact.java#L13-L52)
+- [api_spec.yaml:47-77](file://docs/api_spec.yaml#L47-L77)
 
 ## 依赖关系分析
 
 ```mermaid
 graph LR
 subgraph "认证依赖"
-A[JWT 令牌] --> B[用户服务]
+A[验证码服务] --> B[用户服务]
 B --> C[订单服务]
 B --> D[志愿者服务]
 end
@@ -1380,16 +1220,15 @@ G[志愿者资料] --> H[志愿者服务]
 H --> C
 end
 subgraph "外部服务"
-I[高德地图] --> J[地图服务]
-K[定位服务] --> J
+I[WebSocket服务] --> J[实时通信]
+K[地图服务] --> J
 end
 C --> J
 D --> J
 ```
 
 **图表来源**
-- [01-product-requirements.md:83-94](file://docs/01-product-requirements.md#L83-L94)
-- [08-ios-architecture.md:68-82](file://docs/08-ios-architecture.md#L68-L82)
+- [test-accounts.md:171-172](file://docs/test-accounts.md#L171-L172)
 
 ### 数据模型关系
 
@@ -1442,12 +1281,10 @@ VOLUNTEER_PROFILE ||--o{ RUN_ORDER : serves
 ```
 
 **图表来源**
-- [AppUser.java:16-53](file://backend/src/main/java/com/aidrun/backend/user/AppUser.java#L16-L53)
-- [BlindRunnerProfile.java:13-55](file://backend/src/main/java/com/aidrun/backend/profile/BlindRunnerProfile.java#L13-L55)
-- [RunOrder.java:18-102](file://backend/src/main/java/com/aidrun/backend/order/RunOrder.java#L18-L102)
+- [application.yml:1-34](file://backend/src/main/resources/application.yml#L1-L34)
 
 **章节来源**
-- [07-api-contract.openapi.yaml:543-1117](file://docs/07-api-contract.openapi.yaml#L543-L1117)
+- [api_spec.yaml:1111-1130](file://docs/api_spec.yaml#L1111-L1130)
 
 ## 性能考虑
 
@@ -1477,56 +1314,47 @@ VOLUNTEER_PROFILE ||--o{ RUN_ORDER : serves
 
 #### 认证相关问题
 
-**问题**：登录后无法访问受保护接口
-**原因**：JWT 令牌过期或无效
-**解决**：重新登录获取新令牌
+**问题**：验证码登录失败
+**原因**：验证码错误或过期
+**解决**：重新发送验证码并使用最新验证码
 
-**问题**：角色切换被阻止
-**原因**：存在活跃订单
-**解决**：完成或取消当前订单后再切换
+**问题**：设置角色后403错误
+**原因**：使用了旧的JWT令牌
+**解决**：使用角色设置后返回的新令牌
 
 #### 订单相关问题
 
-**问题**：创建订单时报错"预约时间过早"
-**原因**：预约时间少于 30 分钟
-**解决**：调整预约时间为当前时间 30 分钟后
+**问题**：创建订单失败
+**原因**：用户未设置角色或缺少紧急联系人
+**解决**：先设置角色，再添加紧急联系人
 
 **问题**：志愿者无法接单
-**原因**：志愿者未开启可服务状态或未通过认证
-**解决**：检查志愿者资料和认证状态
-
-#### 地图和定位问题
-
-**问题**：无法获取当前位置
-**原因**：定位权限被拒绝
-**解决**：引导用户开启定位权限
+**原因**：志愿者未完成注册流程或未通过审核
+**解决**：完成完整的志愿者注册流程
 
 #### 紧急联系人问题
 
 **问题**：添加紧急联系人失败
-**原因**：手机号格式不正确
-**解决**：检查手机号格式是否符合11位数字要求
+**原因**：手机号格式不正确或联系人已存在
+**解决**：检查手机号格式和联系人唯一性
 
 **章节来源**
-- [07-api-contract.openapi.yaml:469-542](file://docs/07-api-contract.openapi.yaml#L469-L542)
-- [02-mvp-scope.md:207-216](file://docs/02-mvp-scope.md#L207-L216)
+- [test-accounts.md:313-347](file://docs/test-accounts.md#L313-L347)
 
 ### API 调试技巧
 
 1. **使用 Postman**：测试 API 端点和验证响应
 2. **检查请求头**：确保 Authorization 头部正确设置
-3. **验证 UUID**：确保订单 ID 格式正确
+3. **验证UUID**：确保订单ID格式正确
 4. **监控网络**：使用浏览器开发者工具查看请求响应
 
 ## 结论
 
 AidRun API 设计遵循 RESTful 原则，提供了完整的认证、用户管理、订单服务和志愿者管理功能。通过统一的错误码体系和清晰的 API 规范，确保了系统的易用性和可维护性。
 
-**更新** 后端已完整实现，包含 JWT 认证、用户管理、订单管理、志愿者管理等核心功能，与前端 API 契约完全匹配。后端采用 Spring Boot 3.0+ 技术栈，使用 JPA/Hibernate 进行数据持久化，H2 内存数据库支持演示环境。现已支持完整的 OpenAPI 3.1.0 规范，涵盖所有后端端点、数据模型、请求/响应格式和错误处理。
+**重要更新** 项目已成功迁移至云端后端，采用全新的 API 规范文档 (`docs/api_spec.yaml`)，提供更全面的功能覆盖，包括紧急联系人管理、志愿者注册流程、CS后台管理等功能，支持更复杂的业务场景。
 
-**更新** 新增综合API规范文档，提供更全面的功能覆盖，包括紧急联系人管理、志愿者注册流程、管理员CS后台等功能，支持更复杂的业务场景。
-
-MVP 版本专注于核心功能的实现，通过 Mock 机制和简化流程确保了 3 天内的快速交付。随着项目的演进，可以在保持 API 兼容性的前提下逐步添加更多高级功能。
+云端后端采用 Spring Boot 3.0+ 技术栈，使用 JPA/Hibernate 进行数据持久化，支持 OpenAPI 3.1.0 规范，涵盖所有后端端点、数据模型、请求/响应格式和错误处理。
 
 ## 附录
 
@@ -1536,11 +1364,11 @@ MVP 版本专注于核心功能的实现，通过 Mock 机制和简化流程确�
 - 版本格式：`major.minor.patch`
 - 兼容更新：minor 版本升级
 - 破坏性变更：major 版本升级
-- 当前版本：0.3.0（MVP）和 1.0.0（综合版）
+- 当前版本：1.0.0（云端后端）
 
 ### 速率限制
 
-- **登录接口**：每分钟最多 60 次请求
+- **验证码发送**：每分钟最多 60 次请求
 - **订单查询**：每分钟最多 120 次请求
 - **订单创建**：每小时最多 100 次请求
 - **轮询接口**：每 5 秒一次，无需额外限制
@@ -1572,17 +1400,25 @@ protocol APIClient {
 class AuthManager {
     private let apiClient: APIClient
     
-    func login(phoneNumber: String, code: String) async throws -> AuthResponse {
-        let request = PhoneLoginRequest(
-            phoneNumber: phoneNumber,
-            verificationCode: code
-        )
+    func sendCode(phoneNumber: String) async throws -> SendCodeResponse {
+        let request = SendCodeRequest(phone: phoneNumber)
         
         return try await apiClient.request(
-            "/api/auth/phone-login",
+            "/api/auth/send-code",
             method: .post,
             body: request,
-            responseType: AuthResponse.self
+            responseType: SendCodeResponse.self
+        )
+    }
+    
+    func verifyCode(phoneNumber: String, code: String) async throws -> VerifyCodeResponse {
+        let request = VerifyCodeRequest(phone: phoneNumber, code: code)
+        
+        return try await apiClient.request(
+            "/api/auth/verify-code",
+            method: .post,
+            body: request,
+            responseType: VerifyCodeResponse.self
         )
     }
 }
@@ -1593,15 +1429,12 @@ class AuthManager {
 支持三种运行环境：
 - **Mock**：本地假数据，用于 UI 和流程调试
 - **Local Backend**：局域网 Spring Boot 后端
-- **Production**：预留部署环境
+- **Production**：阿里云生产环境 `http://47.114.113.171`
 
 **章节来源**
-- [08-ios-architecture.md:50-82](file://docs/08-ios-architecture.md#L50-L82)
-- [02-mvp-scope.md:136-153](file://docs/02-mvp-scope.md#L136-L153)
+- [test-accounts.md:8-13](file://docs/test-accounts.md#L8-L13)
 
 ### 测试账号和对接指南
-
-**更新** 新增测试账号和对接指南：
 
 #### 测试环境地址
 
@@ -1654,4 +1487,4 @@ Content-Type: application/json
 ```
 
 **章节来源**
-- [test-accounts.md:1-115](file://docs/test-accounts.md#L1-L115)
+- [test-accounts.md:1-347](file://docs/test-accounts.md#L1-L347)

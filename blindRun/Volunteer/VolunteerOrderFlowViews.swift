@@ -1010,12 +1010,16 @@ struct VolunteerSettingsView: View {
                 }
                 .accessibilityLabel("切换角色")
 
-                Picker("API 环境", selection: $appState.currentEnvironment) {
-                    ForEach(APIEnvironment.allCases, id: \.self) { environment in
-                        Text(environment.displayName).tag(environment)
+                #if DEBUG
+                if AppBuildChannel.current.allowsEnvironmentSwitcher {
+                    Picker("API 环境", selection: $appState.currentEnvironment) {
+                        ForEach(AppState.debugTestEnvironments, id: \.self) { environment in
+                            Text(environment.displayName).tag(environment)
+                        }
                     }
+                    .accessibilityLabel("API 环境，\(appState.currentEnvironment.displayName)")
                 }
-                .accessibilityLabel("API 环境，\(appState.currentEnvironment.displayName)")
+                #endif
 
                 NavigationLink("关于") {
                     AboutAidRunView()

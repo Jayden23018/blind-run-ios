@@ -120,11 +120,55 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.verificationCode, "123456")
     }
 
-    func testDebugInitialEnvironmentKeepsProductionForCloudContractTesting() {
-        XCTAssertEqual(AppState.resolvedInitialEnvironment(.production), .production)
+    func testDevelopmentInitialEnvironmentKeepsDebugChoices() {
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.mock, channel: .development), .mock)
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.localBackend, channel: .development), .localBackend)
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.demoCloud, channel: .development), .demoCloud)
     }
 
-    func testDebugEnvironmentSwitcherCyclesMockLocalBackendAndProduction() {
+    func testDemoReleaseLocksInitialEnvironmentToDemoCloud() {
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.mock, channel: .demo), .demoCloud)
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.localBackend, channel: .demo), .demoCloud)
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.demoCloud, channel: .demo), .demoCloud)
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.production, channel: .demo), .demoCloud)
+    }
+
+    func testProductionReleaseLocksInitialEnvironmentToProduction() {
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.mock, channel: .production), .production)
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.localBackend, channel: .production), .production)
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.demoCloud, channel: .production), .production)
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.production, channel: .production), .production)
+    }
+
+    func testStoredLegacyProductionEnvironmentMapsToDemoCloudOutsideProductionBuilds() {
+        XCTAssertEqual(AppState.storedEnvironment(from: "production", channel: .development), .demoCloud)
+        XCTAssertEqual(AppState.storedEnvironment(from: "production", channel: .demo), .demoCloud)
+        XCTAssertEqual(AppState.storedEnvironment(from: "production", channel: .production), .production)
+    }
+
+    func testDemoCloudBaseURLUsesCurrentDemoIPAddress() {
+        XCTAssertEqual(APIEnvironment.demoCloud.baseURL?.absoluteString, "http://47.114.113.171")
+    }
+
+    func testProductionBaseURLRequiresHTTPS() {
+        XCTAssertNil(AppConstants.ProductionBackend.normalizedBaseURL(from: "http://api.example.com"))
+        XCTAssertEqual(
+            AppConstants.ProductionBackend.normalizedBaseURL(from: "https://api.aidrun.example.com")?.scheme,
+            "https"
+        )
+    }
+
+    func testWebSocketUsesWSSForHTTPSProductionBaseURL() throws {
+        let baseURL = try XCTUnwrap(URL(string: "https://api.aidrun.example.com"))
+        let webSocketURL = try XCTUnwrap(WebSocketService.connectionURL(baseURL: baseURL, token: "jwt", role: .blind))
+
+        XCTAssertEqual(webSocketURL.scheme, "wss")
+        XCTAssertEqual(webSocketURL.host, "api.aidrun.example.com")
+        XCTAssertEqual(webSocketURL.path, "/ws/blind")
+        XCTAssertTrue(webSocketURL.absoluteString.contains("token=jwt"))
+    }
+
+    func testDebugEnvironmentSwitcherCyclesMockLocalBackendAndDemoCloud() {
         let previousEnvironment = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
         defer {
             if let previousEnvironment {
@@ -141,7 +185,7 @@ final class blindRunTests: XCTestCase {
         appState.switchToNextEnvironmentForTesting()
         XCTAssertEqual(appState.currentEnvironment, .localBackend)
         appState.switchToNextEnvironmentForTesting()
-        XCTAssertEqual(appState.currentEnvironment, .production)
+        XCTAssertEqual(appState.currentEnvironment, .demoCloud)
         appState.switchToNextEnvironmentForTesting()
         XCTAssertEqual(appState.currentEnvironment, .mock)
     }

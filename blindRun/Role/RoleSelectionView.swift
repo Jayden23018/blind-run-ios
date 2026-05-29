@@ -156,7 +156,9 @@ struct RoleSelectionView: View {
 
                     // 环境切换入口
                     #if DEBUG
-                    environmentSwitcher
+                    if AppBuildChannel.current.allowsEnvironmentSwitcher {
+                        environmentSwitcher
+                    }
                     #endif
                 }
                 .padding(.horizontal, 32)
@@ -220,7 +222,7 @@ struct RoleSelectionView: View {
     #if DEBUG
     private var environmentSwitcher: some View {
         Button {
-            let allEnvs = APIEnvironment.allCases
+            let allEnvs = AppState.debugTestEnvironments
             guard let currentIndex = allEnvs.firstIndex(of: appState.currentEnvironment) else { return }
             let nextIndex = (currentIndex + 1) % allEnvs.count
             appState.currentEnvironment = allEnvs[nextIndex]
