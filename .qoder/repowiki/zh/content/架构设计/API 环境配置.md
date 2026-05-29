@@ -6,7 +6,6 @@
 - [AppState.swift](file://blindRun/Core/AppState.swift)
 - [APIClient.swift](file://blindRun/Core/APIClient.swift)
 - [MockAPIClient.swift](file://blindRun/Core/MockAPIClient.swift)
-- [URLSessionAPIClient.swift](file://blindRun/Core/URLSessionAPIClient.swift)
 - [blindRunApp.swift](file://blindRun/blindRunApp.swift)
 - [ContentView.swift](file://blindRun/ContentView.swift)
 - [ErrorModels.swift](file://blindRun/Core/Models/ErrorModels.swift)
@@ -19,12 +18,11 @@
 
 ## 更新摘要
 **变更内容**
-- 新增构建通道系统：开发、演示、生产三个通道的环境访问限制机制
-- 新增演示云环境（demoCloud）支持，专门用于演示场景
-- 新增 DisabledAPIClient 类，在不允许的环境中禁用 API 调用
-- 更新 AppState 和 APIEnvironment 的逻辑，以支持构建通道的智能环境切换
-- 新增演示云环境的配置和测试用例
-- 增强了环境切换的安全性和访问控制
+- 本地后端环境已从开发构建的环境切换器中移除，仅保留演示和生产环境
+- 完整的构建通道系统已实现，包括 development、demo、production 三个通道
+- 新增 DisabledAPIClient 类用于环境访问控制
+- 更新了 APIEnvironment 枚举，移除了 localBackend 选项
+- 增强了环境切换的安全性和访问控制机制
 
 ## 目录
 1. [简介](#简介)
@@ -41,60 +39,56 @@
 12. [附录](#附录)
 
 ## 简介
-本文件详细介绍了 blindRun 应用的 API 环境配置系统，基于完整的 Swift 实现展示了多环境支持的设计与实现。系统现已升级为支持构建通道的智能环境管理，包括开发、演示、生产三个通道的环境访问限制机制。文档涵盖了 mock、localBackend、demoCloud、production 四种环境的配置与切换机制，深入解释了 APIClient 协议的设计思想，以及如何通过统一接口实现 Mock 与真实环境的无缝切换。同时，文档详细描述了构建通道如何影响环境切换功能的可用性，以及演示云环境的特殊配置和安全考虑。
+本文件详细介绍了 blindRun 应用的 API 环境配置系统，基于完整的 Swift 实现展示了多环境支持的设计与实现。系统现已升级为支持构建通道的智能环境管理，包括 development、demo、production 三个通道的环境访问限制机制。文档涵盖了 mock、demoCloud、production 三种环境的配置与切换机制，深入解释了 APIClient 协议的设计思想，以及如何通过统一接口实现 Mock 与真实环境的无缝切换。同时，文档详细描述了构建通道如何影响环境切换功能的可用性，以及演示云环境的特殊配置和安全考虑。
 
-**更新** 本版本反映了完整的构建通道系统实现，包括 AppBuildChannel 枚举、demoCloud 环境支持、DisabledAPIClient 类和增强的环境访问控制机制。
+**更新** 本版本反映了构建通道系统的完整实现和本地后端环境的移除，系统现在仅支持演示和生产环境的智能切换。
 
 ## 项目结构
-blindRun 为 SwiftUI 应用，API 环境配置系统位于 Core 模块中，通过 EnvironmentConfig.swift 定义环境常量和构建通道，通过 AppState.swift 管理全局状态，通过 APIClient.swift 定义网络协议，通过 MockAPIClient.swift、URLSessionAPIClient.swift 和 DisabledAPIClient.swift 实现不同类型的客户端。
+blindRun 为 SwiftUI 应用，API 环境配置系统位于 Core 模块中，通过 EnvironmentConfig.swift 定义环境常量和构建通道，通过 AppState.swift 管理全局状态，通过 APIClient.swift 定义网络协议，通过 MockAPIClient.swift 实现 Mock 功能，通过 DisabledAPIClient.swift 实现访问控制。
 
 ```mermaid
 graph TB
 subgraph "核心模块"
 A["EnvironmentConfig.swift<br/>APIEnvironment 枚举<br/>AppBuildChannel 构建通道"]
 B["AppState.swift<br/>全局状态管理<br/>环境访问控制"]
-C["APIClient.swift<br/>网络协议定义"]
+C["APIClient.swift<br/>网络协议定义<br/>URLSessionAPIClient 实现"]
 D["MockAPIClient.swift<br/>Mock 实现"]
-E["URLSessionAPIClient.swift<br/>真实网络实现"]
-F["DisabledAPIClient.swift<br/>禁用实现"]
+E["DisabledAPIClient.swift<br/>禁用实现"]
 end
 subgraph "应用入口"
-G["blindRunApp.swift<br/>应用启动"]
-H["ContentView.swift<br/>根视图"]
+F["blindRunApp.swift<br/>应用启动"]
+G["ContentView.swift<br/>根视图"]
 end
 subgraph "模型与配置"
-I["ErrorModels.swift<br/>错误码定义"]
-J["LocalConfig.xcconfig.example<br/>本地配置示例"]
-K["Info-Demo.plist<br/>演示配置"]
-L["Info.plist<br/>通用配置"]
+H["ErrorModels.swift<br/>错误码定义"]
+I["LocalConfig.xcconfig.example<br/>本地配置示例"]
+J["Info-Demo.plist<br/>演示配置"]
+K["Info.plist<br/>通用配置"]
 end
 A --> B
 B --> C
 C --> D
 C --> E
-C --> F
-G --> H
-B --> G
-I --> C
-J --> G
-K --> G
-L --> G
+F --> G
+B --> F
+H --> C
+I --> F
+J --> F
+K --> F
 ```
 
 **图表来源**
 - [EnvironmentConfig.swift:1-174](file://blindRun/Core/EnvironmentConfig.swift#L1-L174)
-- [AppState.swift:1-307](file://blindRun/Core/AppState.swift#L1-L307)
-- [APIClient.swift:1-44](file://blindRun/Core/APIClient.swift#L1-L44)
-- [MockAPIClient.swift:1-65](file://blindRun/Core/MockAPIClient.swift#L1-L65)
-- [URLSessionAPIClient.swift:1-179](file://blindRun/Core/URLSessionAPIClient.swift#L1-L179)
-- [DisabledAPIClient.swift:296-306](file://blindRun/Core/AppState.swift#L296-L306)
+- [AppState.swift:1-313](file://blindRun/Core/AppState.swift#L1-L313)
+- [APIClient.swift:1-269](file://blindRun/Core/APIClient.swift#L1-L269)
+- [MockAPIClient.swift:1-642](file://blindRun/Core/MockAPIClient.swift#L1-L642)
+- [DisabledAPIClient.swift:302-312](file://blindRun/Core/AppState.swift#L302-L312)
 
 **章节来源**
 - [EnvironmentConfig.swift:1-174](file://blindRun/Core/EnvironmentConfig.swift#L1-L174)
-- [AppState.swift:1-307](file://blindRun/Core/AppState.swift#L1-L307)
-- [APIClient.swift:1-44](file://blindRun/Core/APIClient.swift#L1-L44)
-- [MockAPIClient.swift:1-65](file://blindRun/Core/MockAPIClient.swift#L1-L65)
-- [URLSessionAPIClient.swift:1-179](file://blindRun/Core/URLSessionAPIClient.swift#L1-L179)
+- [AppState.swift:1-313](file://blindRun/Core/AppState.swift#L1-L313)
+- [APIClient.swift:1-269](file://blindRun/Core/APIClient.swift#L1-L269)
+- [MockAPIClient.swift:1-642](file://blindRun/Core/MockAPIClient.swift#L1-L642)
 
 ## 核心组件
 - **AppBuildChannel 构建通道**
@@ -103,11 +97,11 @@ L --> G
   - 提供 allowsEnvironmentSwitcher 属性控制环境切换器可见性
   - 支持每个通道的默认环境设置和访问权限控制
 - **APIEnvironment 枚举**
-  - 定义四类环境：mock、localBackend、demoCloud、production
+  - 定义三种环境：mock、demoCloud、production
   - 每个环境包含基础 URL 与显示名称
   - 支持 isMock 属性判断是否为模拟环境
-  - localBackend 支持通过 UserDefaults 配置局域网 IP 地址
   - demoCloud 支持演示专用的云环境配置
+  - **更新** 移除了 localBackend 环境选项
 - **AppState 全局状态管理**
   - 管理用户会话、JWT 令牌和当前环境
   - 提供 apiClient 计算属性，根据环境和构建通道动态返回对应客户端
@@ -132,16 +126,16 @@ L --> G
   - 抛出 invalidURL 错误阻止网络请求
   - 用于演示和生产构建的环境保护
 
-**更新** 新增了构建通道系统、演示云环境和禁用客户端的实现细节。
+**更新** 本地后端环境已从系统中移除，构建通道系统已完全实现并投入使用。
 
 **章节来源**
 - [EnvironmentConfig.swift:5-45](file://blindRun/Core/EnvironmentConfig.swift#L5-L45)
 - [EnvironmentConfig.swift:49-89](file://blindRun/Core/EnvironmentConfig.swift#L49-L89)
 - [AppState.swift:9-105](file://blindRun/Core/AppState.swift#L9-L105)
-- [APIClient.swift:46-95](file://blindRun/Core/APIClient.swift#L46-L95)
-- [MockAPIClient.swift:5-65](file://blindRun/Core/MockAPIClient.swift#L5-L65)
-- [URLSessionAPIClient.swift:99-179](file://blindRun/Core/URLSessionAPIClient.swift#L99-L179)
-- [DisabledAPIClient.swift:296-306](file://blindRun/Core/AppState.swift#L296-L306)
+- [APIClient.swift:46-99](file://blindRun/Core/APIClient.swift#L46-L99)
+- [MockAPIClient.swift:5-642](file://blindRun/Core/MockAPIClient.swift#L5-L642)
+- [APIClient.swift:103-192](file://blindRun/Core/APIClient.swift#L103-L192)
+- [DisabledAPIClient.swift:302-312](file://blindRun/Core/AppState.swift#L302-L312)
 
 ## 架构总览
 下图展示了 API 环境配置系统在应用中的完整架构，包括新增的构建通道系统。AppState 作为全局状态中心，根据当前构建通道和环境动态选择合适的 API 客户端实现，实现了不同构建通道下的智能环境切换和访问控制。
@@ -163,7 +157,6 @@ BA["blindRunApp<br/>@StateObject AppState"]
 CV["ContentView<br/>环境切换 UI"]
 end
 subgraph "后端服务"
-LB["Local Backend<br/>Spring Boot"]
 PRD["Production Backend<br/>真实服务器"]
 MOCK["Mock 服务<br/>本地数据"]
 DEMO["演示云环境<br/>47.114.113.171"]
@@ -177,7 +170,6 @@ BA --> BC
 BA --> AC
 CV --> BC
 MC --> MOCK
-UC --> LB
 UC --> PRD
 UC --> DEMO
 DC --> DEMO
@@ -188,9 +180,9 @@ DC --> PRD
 - [EnvironmentConfig.swift:5-45](file://blindRun/Core/EnvironmentConfig.swift#L5-L45)
 - [EnvironmentConfig.swift:49-89](file://blindRun/Core/EnvironmentConfig.swift#L49-L89)
 - [AppState.swift:87-105](file://blindRun/Core/AppState.swift#L87-L105)
-- [MockAPIClient.swift:5-19](file://blindRun/Core/MockAPIClient.swift#L5-L19)
-- [URLSessionAPIClient.swift:99-118](file://blindRun/Core/URLSessionAPIClient.swift#L99-L118)
-- [DisabledAPIClient.swift:296-306](file://blindRun/Core/AppState.swift#L296-L306)
+- [MockAPIClient.swift:5-642](file://blindRun/Core/MockAPIClient.swift#L5-L642)
+- [APIClient.swift:103-192](file://blindRun/Core/APIClient.swift#L103-L192)
+- [DisabledAPIClient.swift:302-312](file://blindRun/Core/AppState.swift#L302-L312)
 
 ## 详细组件分析
 
@@ -224,7 +216,6 @@ class AppBuildChannel {
 class APIEnvironment {
 <<enumeration>>
 +mock
-+localBackend
 +demoCloud
 +production
 +displayName : String
@@ -242,7 +233,7 @@ AppBuildChannel --> DisabledAPIClient
 **图表来源**
 - [EnvironmentConfig.swift:5-45](file://blindRun/Core/EnvironmentConfig.swift#L5-L45)
 - [EnvironmentConfig.swift:49-89](file://blindRun/Core/EnvironmentConfig.swift#L49-L89)
-- [AppState.swift:296-306](file://blindRun/Core/AppState.swift#L296-L306)
+- [AppState.swift:302-312](file://blindRun/Core/AppState.swift#L302-L312)
 
 **章节来源**
 - [EnvironmentConfig.swift:5-45](file://blindRun/Core/EnvironmentConfig.swift#L5-L45)
@@ -256,20 +247,19 @@ AppBuildChannel --> DisabledAPIClient
   - 通过 baseURL 属性动态生成环境对应的服务器地址
 - **环境定义**
   - **mock**: 返回 nil，表示不使用网络请求
-  - **localBackend**: 支持通过 UserDefaults 配置的局域网 IP 地址，默认 127.0.0.1
   - **demoCloud**: 演示专用云环境，固定使用演示服务器地址 47.114.113.171
   - **production**: 占位符 URL，部署前需要替换为实际域名
+  - **更新** 移除了 localBackend 环境选项
 - **配置管理**
   - 通过 AppConstants.UserDefaultsKeys.apiEnvironment 存储当前环境
-  - 通过 AppConstants.Defaults.localBackendIP 设置默认 IP 地址
   - demoCloud 环境使用固定的演示服务器地址
+  - production 环境支持从 Info.plist 配置
 
 ```mermaid
 classDiagram
 class APIEnvironment {
 <<enumeration>>
 +mock
-+localBackend
 +demoCloud
 +production
 +displayName : String
@@ -281,7 +271,6 @@ class AppConstants {
 +UserDefaultsKeys
 +Defaults
 +Timing
-+LocalBackend
 +DemoCloud
 +ProductionBackend
 }
@@ -290,8 +279,6 @@ class UserDefaultsKeys {
 +accessToken : String
 +activeRole : String
 +apiEnvironment : String
-+localBackendIP : String
-+localBackendBaseURL : String
 }
 class DemoCloud {
 <<enumeration>>
@@ -310,12 +297,12 @@ AppConstants --> ProductionBackend
 
 **图表来源**
 - [EnvironmentConfig.swift:49-89](file://blindRun/Core/EnvironmentConfig.swift#L49-L89)
-- [EnvironmentConfig.swift:93-173](file://blindRun/Core/EnvironmentConfig.swift#L93-L173)
+- [EnvironmentConfig.swift:153-172](file://blindRun/Core/EnvironmentConfig.swift#L153-L172)
 - [EnvironmentConfig.swift:153-155](file://blindRun/Core/EnvironmentConfig.swift#L153-L155)
 
 **章节来源**
 - [EnvironmentConfig.swift:49-89](file://blindRun/Core/EnvironmentConfig.swift#L49-L89)
-- [EnvironmentConfig.swift:93-173](file://blindRun/Core/EnvironmentConfig.swift#L93-L173)
+- [EnvironmentConfig.swift:153-172](file://blindRun/Core/EnvironmentConfig.swift#L153-L172)
 
 ### AppState 全局状态管理与智能环境切换
 - **状态管理**
@@ -371,7 +358,7 @@ end
 - [AppState.swift:87-105](file://blindRun/Core/AppState.swift#L87-L105)
 
 **章节来源**
-- [AppState.swift:9-307](file://blindRun/Core/AppState.swift#L9-L307)
+- [AppState.swift:9-313](file://blindRun/Core/AppState.swift#L9-L313)
 
 ### APIClient 协议设计与实现
 - **协议定义**
@@ -420,12 +407,12 @@ APIClientProtocol --> APIError
 ```
 
 **图表来源**
-- [APIClient.swift:46-95](file://blindRun/Core/APIClient.swift#L46-L95)
+- [APIClient.swift:46-99](file://blindRun/Core/APIClient.swift#L46-L99)
 - [APIClient.swift:15-42](file://blindRun/Core/APIClient.swift#L15-L42)
 - [APIClient.swift:5-11](file://blindRun/Core/APIClient.swift#L5-L11)
 
 **章节来源**
-- [APIClient.swift:46-95](file://blindRun/Core/APIClient.swift#L46-L95)
+- [APIClient.swift:46-99](file://blindRun/Core/APIClient.swift#L46-L99)
 - [APIClient.swift:15-42](file://blindRun/Core/APIClient.swift#L15-L42)
 - [APIClient.swift:5-11](file://blindRun/Core/APIClient.swift#L5-L11)
 
@@ -444,7 +431,7 @@ APIClientProtocol --> APIError
   - 异步实现确保主线程不阻塞
 
 **章节来源**
-- [MockAPIClient.swift:5-65](file://blindRun/Core/MockAPIClient.swift#L5-L65)
+- [MockAPIClient.swift:5-642](file://blindRun/Core/MockAPIClient.swift#L5-L642)
 
 ### URLSessionAPIClient 实现与真实网络集成
 - **网络请求构建**
@@ -461,7 +448,7 @@ APIClientProtocol --> APIError
   - 支持自定义错误响应解码
 
 **章节来源**
-- [URLSessionAPIClient.swift:99-179](file://blindRun/Core/URLSessionAPIClient.swift#L99-L179)
+- [APIClient.swift:135-192](file://blindRun/Core/APIClient.swift#L135-L192)
 
 ### DisabledAPIClient 实现与环境保护
 - **设计目的**
@@ -478,7 +465,7 @@ APIClientProtocol --> APIError
   - 环境 URL 配置无效时的保护措施
 
 **章节来源**
-- [DisabledAPIClient.swift:296-306](file://blindRun/Core/AppState.swift#L296-L306)
+- [DisabledAPIClient.swift:302-312](file://blindRun/Core/AppState.swift#L302-L312)
 
 ### 错误码处理与本地化
 - **错误码定义**
@@ -501,8 +488,8 @@ APIClientProtocol --> APIError
   - 环境设置：UserDefaults.standard.string(forKey: "com.aidrun.mvp.apiEnvironment")
   - JWT 令牌：UserDefaults.standard.string(forKey: "com.aidrun.mvp.accessToken")
   - 用户角色：UserDefaults.standard.string(forKey: "com.aidrun.mvp.activeRole")
-  - 本地后端 IP：UserDefaults.standard.string(forKey: "com.aidrun.mvp.localBackendIP")
-  - 本地后端 URL：UserDefaults.standard.string(forKey: "com.aidrun.mvp.localBackendBaseURL")
+  - 本地后端 IP：已移除
+  - 本地后端 URL：已移除
 - **加载时机**
   - 应用启动时：AppState.init() 中从 UserDefaults 恢复环境设置
   - 会话恢复：restoreSession() 方法恢复用户登录状态
@@ -517,7 +504,7 @@ APIClientProtocol --> APIError
 **章节来源**
 - [EnvironmentConfig.swift:94-100](file://blindRun/Core/EnvironmentConfig.swift#L94-L100)
 - [AppState.swift:109-117](file://blindRun/Core/AppState.swift#L109-L117)
-- [AppState.swift:283-285](file://blindRun/Core/AppState.swift#L283-L285)
+- [AppState.swift:289-291](file://blindRun/Core/AppState.swift#L289-L291)
 
 ### 生产部署前的配置迁移指南
 - **令牌存储迁移**
@@ -552,7 +539,7 @@ APIClientProtocol --> APIError
 ### 构建通道特性
 - **development 通道**
   - 支持完整的环境切换功能
-  - 允许访问所有四种环境：mock、localBackend、demoCloud、production
+  - 允许访问所有三种环境：mock、demoCloud、production
   - 环境切换器在 UI 中可见
   - 默认环境为 mock
 - **demo 通道**
@@ -741,9 +728,7 @@ XCCONFIG["LocalConfig.xcconfig"] --> PROTO
 ## 结论
 blindRun 的 API 环境配置系统经过重大升级，现在支持完整的构建通道系统，通过 AppBuildChannel 枚举实现了开发、演示、生产三个通道的智能环境管理。系统设计充分考虑了不同构建渠道的安全需求和使用场景，通过构建通道的环境访问控制机制，确保了演示和生产环境的稳定性和安全性。
 
-新增的演示云环境（demoCloud）为演示场景提供了专门的支持，而 DisabledAPIClient 类则为不允许的环境访问提供了保护机制。系统设计在保持开发效率的同时，增强了生产环境的安全性，为后续的功能扩展和维护奠定了坚实基础。
-
-**更新** 结论部分强调了构建通道系统的重要性和系统设计的优势。
+**更新** 本地后端环境已从开发构建中移除，系统现在仅支持演示和生产环境的智能切换。新增的演示云环境（demoCloud）为演示场景提供了专门的支持，而 DisabledAPIClient 类则为不允许的环境访问提供了保护机制。系统设计在保持开发效率的同时，增强了生产环境的安全性，为后续的功能扩展和维护奠定了坚实基础。
 
 建议在生产部署前完成令牌存储的安全迁移与环境 URL 的最终配置，并持续以 OpenAPI 文档为依据保障契约一致性。同时，确保 Mock 数据与真实后端的数据结构保持同步，为用户提供一致的体验。构建通道系统应作为生产部署的重要组成部分，确保不同构建的环境访问权限得到正确执行。
 

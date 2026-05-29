@@ -1,5 +1,11 @@
 platform :ios, '16.0'
 
+project 'blindRun', {
+  'Debug' => :debug,
+  'DemoRelease' => :release,
+  'Release' => :release
+}
+
 target 'blindRun' do
   use_frameworks!
 

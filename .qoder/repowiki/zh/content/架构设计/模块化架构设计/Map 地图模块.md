@@ -21,12 +21,14 @@
 - [04-user-flows-and-state-machine.md](file://docs/04-user-flows-and-state-machine.md)
 - [spec.md](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/amap-location/spec.md)
 - [tasks.md](file://openspec/changes/add-aidrun-ios-spring-mvp/tasks.md)
+- [blindRunUITests.swift](file://blindRun/blindRunUITests/blindRunUITests.swift)
 </cite>
 
 ## 更新摘要
 **所做更改**
-- 新增隐私合规配置调用分析，确保 MAMapView、AMapSearchAPI 和 AMapLocationManager 的适当用户同意处理
-- 新增 AMapGeocodingService 地理编码服务组件详解
+- 新增条件渲染能力分析，支持在 UI 测试场景中禁用地图显示
+- 新增 MapViewWrapper 组件详解，实现智能地图显示控制
+- 新增 AIDRUN_UI_TEST_DISABLE_MAP 环境变量处理机制
 - 更新地图容器的重新定位令牌机制说明
 - 增强隐私合规和用户同意处理的技术细节
 - 完善地理编码和地址解析功能的架构分析
@@ -40,11 +42,12 @@
 6. [CocoaPods 依赖集成](#cocoapods-依赖集成)
 7. [隐私合规与用户同意处理](#隐私合规与用户同意处理)
 8. [权限处理策略](#权限处理策略)
-9. [依赖关系分析](#依赖关系分析)
-10. [性能考虑](#性能考虑)
-11. [故障排除指南](#故障排除指南)
-12. [结论](#结论)
-13. [附录](#附录)
+9. [条件渲染与 UI 测试支持](#条件渲染与-ui-测试支持)
+10. [依赖关系分析](#依赖关系分析)
+11. [性能考虑](#性能考虑)
+12. [故障排除指南](#故障排除指南)
+13. [结论](#结论)
+14. [附录](#附录)
 
 ## 简介
 
@@ -59,6 +62,7 @@ Map 地图模块是 AidRun iOS 应用的核心功能模块之一，负责集成�
 - 完整的权限处理和降级方案
 - **新增**：隐私合规配置与用户同意处理
 - **新增**：地理编码服务与地址解析功能
+- **新增**：条件渲染能力，支持 UI 测试场景中禁用地图显示
 
 ## 项目结构
 
@@ -82,6 +86,7 @@ subgraph "Map 模块核心组件"
 AMapManager[AMapManager<br/>SDK 管理器]
 LocationService[LocationService<br/>定位服务]
 AMapContainer[AMapContainer<br/>地图容器]
+MapViewWrapper[MapViewWrapper<br/>智能地图包装器]
 MapViewModel[MapViewModel<br/>地图视图模型]
 DistanceCalculator[DistanceCalculator<br/>距离计算器]
 LocationPermissionGuard[LocationPermissionGuard<br/>权限引导]
@@ -91,6 +96,7 @@ end
 Map --> AMapManager
 Map --> LocationService
 Map --> AMapContainer
+Map --> MapViewWrapper
 Map --> MapViewModel
 Map --> DistanceCalculator
 Map --> LocationPermissionGuard
@@ -137,6 +143,15 @@ AMapManager 负责高德地图 SDK 的初始化和配置管理：
 - 用户位置显示控制
 - 地图交互事件处理
 - **新增**：重新定位令牌机制支持
+
+### 智能地图包装器 (MapViewWrapper)
+
+**新增**：智能地图显示控制组件：
+- 条件渲染机制，支持 UI 测试场景禁用地图
+- 基于环境变量的动态显示控制
+- AMapManager 配置状态检测
+- MapPlaceholderView 优雅降级
+- 支持调试和演示模式的特殊处理
 
 ### 地图视图模型 (MapViewModel)
 
@@ -515,34 +530,7 @@ CocoaPods 集成包含以下优化设置：
 - [Podfile:1-32](file://blindRun/Podfile#L1-L32)
 - [LocalConfig.xcconfig.example:16-21](file://LocalConfig.xcconfig.example#L16-L21)
 
-## 隐私合规与用户同意处理
-
-### 隐私合规配置实现
-
-**新增**：AMapManager 中的隐私合规配置确保所有高德地图 SDK 组件正确处理用户同意：
-
-#### 隐私配置调用序列
-
-```mermaid
-sequenceDiagram
-participant AMapManager as AMapManager
-participant MAMapView as MAMapView
-participant AMapSearchAPI as AMapSearchAPI
-participant AMapLocationManager as AMapLocationManager
-AMapManager->>MAMapView : updatePrivacyShow(.didShow, privacyInfo : .didContain)
-AMapManager->>MAMapView : updatePrivacyAgree(.didAgree)
-AMapManager->>AMapSearchAPI : updatePrivacyShow(.didShow, privacyInfo : .didContain)
-AMapManager->>AMapSearchAPI : updatePrivacyAgree(.didAgree)
-AMapManager->>AMapLocationManager : updatePrivacyShow(.didShow, privacyInfo : .didContain)
-AMapManager->>AMapLocationManager : updatePrivacyAgree(.didAgree)
-Note over AMapManager : 必须在创建 SDK 客户端/视图之前调用
-```
-
-**图表来源**
-- [AMapManager.swift:42-50](file://blindRun/blindRun/Map/AMapManager.swift#L42-L50)
-
-#### 隐私合规配置要点
-
+## 隐.privacy-compliance-config
 - **时机要求**：所有隐私配置调用必须在创建 SDK 客户端或视图之前执行
 - **组件覆盖**：确保 MAMapView、AMapSearchAPI 和 AMapLocationManager 都进行了隐私配置
 - **用户同意**：正确处理用户隐私政策同意状态
@@ -591,6 +579,75 @@ LocationService 提供完整的权限状态管理：
 - [LocationPermissionGuard.swift:42-56](file://blindRun/blindRun/Map/LocationPermissionGuard.swift#L42-L56)
 - [LocationService.swift:34-57](file://blindRun/blindRun/Map/LocationService.swift#L34-L57)
 - [MapModule.swift:23-31](file://blindRun/blindRun/Map/MapModule.swift#L23-L31)
+
+## 条件渲染与 UI 测试支持
+
+### 智能地图包装器 (MapViewWrapper)
+
+**新增**：MapViewWrapper 是地图显示的核心控制组件，实现了智能条件渲染功能：
+
+#### 条件渲染机制
+
+```mermaid
+flowchart TD
+Start([地图渲染请求]) --> CheckEnv{检查环境变量}
+CheckEnv --> |DEBUG/DEMO| CheckDisable{AIDRUN_UI_TEST_DISABLE_MAP == "1"?}
+CheckEnv --> |RELEASE| CheckConfig{AMapManager.isConfigured?}
+CheckDisable --> |是| ShowPlaceholder[显示 MapPlaceholderView]
+CheckDisable --> |否| CheckConfig
+CheckConfig --> |是| ShowAMap[显示 AMapContainer]
+CheckConfig --> |否| ShowPlaceholder
+ShowPlaceholder --> End([渲染完成])
+ShowAMap --> End
+```
+
+**图表来源**
+- [AMapContainer.swift:117-149](file://blindRun/blindRun/Map/AMapContainer.swift#L117-L149)
+
+#### 环境变量处理
+
+MapViewWrapper 支持以下环境变量配置：
+- `AIDRUN_UI_TEST_DISABLE_MAP`: 控制是否禁用地图显示
+- 仅在 DEBUG 或 DEMO 构建中生效
+- RELEASE 构建中忽略此配置，直接检查 SDK 配置状态
+
+#### UI 测试场景支持
+
+在 UI 测试中，可以通过设置环境变量来禁用地图显示：
+- 测试启动时设置 `AIDRUN_UI_TEST_DISABLE_MAP = "1"`
+- 确保测试稳定性，避免地图相关的不确定性
+- 提供一致的测试环境
+- 支持离线测试场景
+
+### MapPlaceholderView 优雅降级
+
+当条件渲染触发时，MapPlaceholderView 提供：
+- 清晰的"地图服务暂不可用"提示
+- API Key 配置引导信息
+- 调试模式下的额外配置说明
+- 无障碍访问支持
+
+### 实际应用场景
+
+#### UI 测试场景
+
+在 `blindRunUITests.swift` 中的应用：
+- 测试启动时自动设置禁用地图环境变量
+- 确保测试不会受到地图功能的影响
+- 提高测试的稳定性和可重复性
+- 支持持续集成环境中的自动化测试
+
+#### 开发调试场景
+
+开发者在调试时可以：
+- 临时禁用地图显示以便专注于其他功能测试
+- 在没有网络或 API Key 的情况下进行功能测试
+- 减少测试环境的复杂性
+
+**章节来源**
+- [AMapContainer.swift:117-149](file://blindRun/blindRun/Map/AMapContainer.swift#L117-L149)
+- [MapPlaceholderView.swift:7-38](file://blindRun/blindRun/Map/MapPlaceholderView.swift#L7-L38)
+- [blindRunUITests.swift:175](file://blindRun/blindRunUITests/blindRunUITests.swift#L175)
 
 ## 依赖关系分析
 
@@ -656,6 +713,7 @@ MapModule --> PodsConfig
 - **缓存策略**：缓存已加载的地图瓦片和标记资源
 - **内存管理**：及时释放不再使用的地图资源和标记对象
 - **坐标阈值更新**：避免频繁的地图中心移动
+- **条件渲染优化**：在 UI 测试中禁用地图渲染，减少不必要的资源消耗
 
 ### 定位性能优化
 
@@ -708,6 +766,7 @@ MapModule --> PodsConfig
 - 网络连接问题
 - 设备兼容性问题
 - **新增**：隐私合规配置失败
+- **新增**：UI 测试环境变量禁用了地图显示
 
 **解决步骤**：
 1. 检查 LocalConfig.xcconfig 文件配置
@@ -716,6 +775,7 @@ MapModule --> PodsConfig
 4. 确认设备 iOS 版本满足要求
 5. 重新初始化地图实例
 6. **新增**：检查隐私合规配置是否正确调用
+7. **新增**：检查 AIDRUN_UI_TEST_DISABLE_MAP 环境变量设置
 
 #### 定位权限被拒绝
 
@@ -761,6 +821,17 @@ MapModule --> PodsConfig
 4. 清理 Derived Data
 5. 重启 Xcode
 
+#### UI 测试地图显示问题
+
+**新增**：UI 测试中地图显示异常：
+- **症状**：测试中地图始终不显示
+- **可能原因**：AIDRUN_UI_TEST_DISABLE_MAP 环境变量设置
+- **解决步骤**：
+  1. 检查测试启动代码中的环境变量设置
+  2. 确认环境变量值为 "1" 或 "0"
+  3. 验证测试运行时的构建配置
+  4. 检查 RELEASE 构建中的条件渲染逻辑
+
 ### 调试最佳实践
 
 #### 日志记录策略
@@ -770,6 +841,7 @@ MapModule --> PodsConfig
 - **性能日志**：监控地图渲染和定位性能指标
 - **用户行为日志**：记录用户与地图交互行为
 - **新增**：隐私合规配置日志记录
+- **新增**：条件渲染决策日志记录
 
 #### 性能监控
 
@@ -778,6 +850,7 @@ MapModule --> PodsConfig
 - **网络请求监控**：跟踪地图相关的网络请求
 - **电池消耗监控**：评估定位功能的电池影响
 - **新增**：地理编码服务性能监控
+- **新增**：条件渲染性能影响监控
 
 **章节来源**
 - [AMapManager.swift:21-24](file://blindRun/blindRun/Map/AMapManager.swift#L21-L24)
@@ -791,9 +864,14 @@ Map 地图模块作为 AidRun iOS 应用的核心功能模块，已成功实现�
 
 **重大更新**：模块现已增强隐私合规处理能力，通过 AMapManager 中的隐私配置调用确保 MAMapView、AMapSearchAPI 和 AMapLocationManager 正确处理用户同意。同时新增了 AMapGeocodingService 地理编码服务，提供完整的地址解析和地点搜索功能。
 
-通过引入新的辅助组件（LocationPermissionGuard.swift, DistanceCalculator.swift, MapPlaceholderView.swift, AMapGeocodingService.swift），模块在用户体验、功能完整性和合规性方面都有显著提升。CocoaPods 的完整集成确保了依赖管理的标准化和自动化。
+**新增重大特性**：模块现已实现条件渲染能力，支持在 UI 测试场景中禁用地图显示。通过 MapViewWrapper 组件和 AIDRUN_UI_TEST_DISABLE_MAP 环境变量，实现了智能的地图显示控制。这一功能特别适用于：
+- UI 自动化测试场景，确保测试稳定性
+- 开发调试场景，减少地图相关的不确定性
+- 离线测试环境，提供一致的测试体验
 
-模块设计充分考虑了权限处理、降级方案、隐私合规和性能优化，展现了良好的工程实践和技术实现能力。MVVM 架构的采用为未来的功能扩展和维护奠定了坚实的基础。
+通过引入新的辅助组件（LocationPermissionGuard.swift, DistanceCalculator.swift, MapPlaceholderView.swift, AMapGeocodingService.swift, MapViewWrapper），模块在用户体验、功能完整性和合规性方面都有显著提升。CocoaPods 的完整集成确保了依赖管理的标准化和自动化。
+
+模块设计充分考虑了权限处理、降级方案、隐私合规、性能优化和测试支持，展现了良好的工程实践和技术实现能力。MVVM 架构的采用为未来的功能扩展和维护奠定了坚实的基础。
 
 ## 附录
 
@@ -828,6 +906,7 @@ Map 地图模块作为 AidRun iOS 应用的核心功能模块，已成功实现�
 - [x] 性能优化与测试
 - [x] **新增**：隐私合规配置实现
 - [x] **新增**：地理编码服务开发
+- [x] **新增**：条件渲染与 UI 测试支持
 
 **章节来源**
 - [MapModule.swift:6-31](file://blindRun/blindRun/Map/MapModule.swift#L6-L31)
