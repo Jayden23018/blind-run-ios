@@ -12,6 +12,18 @@ struct BlindProfileResponse: Codable, Sendable {
     let tetherPreference: String?
     let chatPreference: String?
     let defaultPace: PacePreference?
+
+    private enum CodingKeys: String, CodingKey {
+        case name = "nickname"
+        case runningPace
+        case specialNeeds
+        case verifyStatus
+        case visionLevel
+        case hasGuideDog
+        case tetherPreference
+        case chatPreference
+        case defaultPace
+    }
 }
 
 struct BlindProfileUpdateRequest: Codable, Sendable {
@@ -23,6 +35,17 @@ struct BlindProfileUpdateRequest: Codable, Sendable {
     let tetherPreference: String?
     let chatPreference: String?
     let defaultPace: PacePreference?
+
+    private enum CodingKeys: String, CodingKey {
+        case name = "nickname"
+        case runningPace
+        case specialNeeds
+        case visionLevel
+        case hasGuideDog
+        case tetherPreference
+        case chatPreference
+        case defaultPace
+    }
 }
 
 // MARK: - Identity Verification
@@ -41,6 +64,15 @@ struct VolunteerProfileResponse: Codable, Sendable {
     let availableTimeSlots: [VolunteerAvailableTimeSlot]?
     let acceptsGuideDog: Bool?
     let paceRange: PacePreference?
+
+    private enum CodingKeys: String, CodingKey {
+        case name = "nickname"
+        case verificationStatus
+        case isAvailable
+        case availableTimeSlots
+        case acceptsGuideDog
+        case paceRange
+    }
 }
 
 struct VolunteerAvailableTimeSlot: Codable, Sendable {
@@ -55,6 +87,14 @@ struct VolunteerProfileUpdateRequest: Codable, Sendable {
     let availableTimeSlots: [VolunteerAvailableTimeSlot]?
     let acceptsGuideDog: Bool?
     let paceRange: PacePreference?
+
+    private enum CodingKeys: String, CodingKey {
+        case name = "nickname"
+        case isAvailable
+        case availableTimeSlots
+        case acceptsGuideDog
+        case paceRange
+    }
 
     init(
         name: String? = nil,

@@ -7,6 +7,7 @@ import SwiftUI
 private enum BlindRunnerRoute: Hashable {
     case booking
     case orderStatus(Int64)
+    case settings
 }
 
 // MARK: - Blind Runner Home ViewModel
@@ -145,6 +146,8 @@ struct BlindRunnerHomeView: View {
                     BlindOrderStatusView(orderId: orderId) { updatedOrder in
                         viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil
                     }
+                case .settings:
+                    BlindRunnerSettingsView()
                 }
             }
             .onAppear {
@@ -161,17 +164,31 @@ struct BlindRunnerHomeView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HighContrastText("盲人跑者首页", style: .title)
-                .accessibilityAddTraits(.isHeader)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                HighContrastText("盲人跑者首页", style: .title)
+                    .accessibilityAddTraits(.isHeader)
 
-            Text(viewModel.currentStatusText)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel(viewModel.currentStatusText)
-                .accessibilityHint("这里显示当前预约状态摘要")
+                Text(viewModel.currentStatusText)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityLabel(viewModel.currentStatusText)
+                    .accessibilityHint("这里显示当前预约状态摘要")
+            }
+
+            Spacer()
+
+            Button {
+                path.append(.settings)
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.title2)
+                    .foregroundColor(AppColors.textPrimary)
+            }
+            .frame(minWidth: 64, minHeight: 64)
+            .accessibilityLabel("设置")
+            .accessibilityHint("进入设置页面，可以编辑资料、切换角色或退出登录")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var mapSection: some View {

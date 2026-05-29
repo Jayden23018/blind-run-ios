@@ -169,6 +169,7 @@ struct BlindRunnerProfileView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = BlindRunnerProfileViewModel()
+    @State private var showLogoutConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -203,17 +204,42 @@ struct BlindRunnerProfileView: View {
             #endif
             speechService.speak("请填写个人资料。昵称、紧急联系人姓名、紧急联系人电话为必填项。")
         }
+        .alert("确认退出", isPresented: $showLogoutConfirm) {
+            Button("确认退出", role: .destructive) {
+                appState.clearSession()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("确认后将清除当前登录状态，返回登录页。")
+        }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HighContrastText(viewModel.isEditing ? "编辑资料" : "完善信息", style: .title)
-                .accessibilityAddTraits(.isHeader)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                HighContrastText(viewModel.isEditing ? "编辑资料" : "完善信息", style: .title)
+                    .accessibilityAddTraits(.isHeader)
 
-            Text("昵称、紧急联系人姓名、紧急联系人电话为必填项。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("昵称、紧急联系人姓名、紧急联系人电话为必填项")
+                Text("昵称、紧急联系人姓名、紧急联系人电话为必填项。")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityLabel("昵称、紧急联系人姓名、紧急联系人电话为必填项")
+            }
+
+            Spacer()
+
+            if !viewModel.isEditing {
+                Button {
+                    showLogoutConfirm = true
+                } label: {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.system(size: 18))
+                        .foregroundColor(AppColors.destructive)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("退出登录")
+                .accessibilityHint("退出后需要重新登录，需要二次确认")
+            }
         }
     }
 

@@ -10,7 +10,6 @@
 - [ContentView.swift](file://blindRun/ContentView.swift)
 - [ErrorModels.swift](file://blindRun/Core/Models/ErrorModels.swift)
 - [08-ios-architecture.md](file://docs/08-ios-architecture.md)
-- [07-api-contract.openapi.yaml](file://docs/07-api-contract.openapi.yaml)
 - [LocalConfig.xcconfig.example](file://LocalConfig.xcconfig.example)
 - [Info-Demo.plist](file://blindRun/Info-Demo.plist)
 - [Info.plist](file://blindRun/Info.plist)
@@ -18,10 +17,10 @@
 
 ## 更新摘要
 **变更内容**
-- 本地后端环境已从开发构建的环境切换器中移除，仅保留演示和生产环境
+- 本地后端环境仍保留在代码中，但已在文档中明确标注其为遗留状态
 - 完整的构建通道系统已实现，包括 development、demo、production 三个通道
 - 新增 DisabledAPIClient 类用于环境访问控制
-- 更新了 APIEnvironment 枚举，移除了 localBackend 选项
+- 更新了 APIEnvironment 枚举，保留 localBackend 但标记为遗留
 - 增强了环境切换的安全性和访问控制机制
 
 ## 目录
@@ -32,16 +31,17 @@
 5. [详细组件分析](#详细组件分析)
 6. [构建通道系统](#构建通道系统)
 7. [演示云环境配置](#演示云环境配置)
-8. [依赖关系分析](#依赖关系分析)
-9. [性能考量](#性能考量)
-10. [故障排查指南](#故障排查指南)
-11. [结论](#结论)
-12. [附录](#附录)
+8. [本地后端环境（遗留）](#本地后端环境遗留)
+9. [依赖关系分析](#依赖关系分析)
+10. [性能考量](#性能考量)
+11. [故障排查指南](#故障排查指南)
+12. [结论](#结论)
+13. [附录](#附录)
 
 ## 简介
-本文件详细介绍了 blindRun 应用的 API 环境配置系统，基于完整的 Swift 实现展示了多环境支持的设计与实现。系统现已升级为支持构建通道的智能环境管理，包括 development、demo、production 三个通道的环境访问限制机制。文档涵盖了 mock、demoCloud、production 三种环境的配置与切换机制，深入解释了 APIClient 协议的设计思想，以及如何通过统一接口实现 Mock 与真实环境的无缝切换。同时，文档详细描述了构建通道如何影响环境切换功能的可用性，以及演示云环境的特殊配置和安全考虑。
+本文件详细介绍了 blindRun 应用的 API 环境配置系统，基于完整的 Swift 实现展示了多环境支持的设计与实现。系统现已升级为支持构建通道的智能环境管理，包括 development、demo、production 三个通道的环境访问限制机制。文档涵盖了 mock、localBackend、demoCloud、production 四种环境的配置与切换机制，深入解释了 APIClient 协议的设计思想，以及如何通过统一接口实现 Mock 与真实环境的无缝切换。同时，文档详细描述了构建通道如何影响环境切换功能的可用性，以及演示云环境的特殊配置和安全考虑。
 
-**更新** 本版本反映了构建通道系统的完整实现和本地后端环境的移除，系统现在仅支持演示和生产环境的智能切换。
+**重要说明** 本地后端环境（localBackend）目前仍存在于代码中，但已被标记为遗留状态。根据项目文档，该环境不再推荐使用，应在后续版本中逐步移除。
 
 ## 项目结构
 blindRun 为 SwiftUI 应用，API 环境配置系统位于 Core 模块中，通过 EnvironmentConfig.swift 定义环境常量和构建通道，通过 AppState.swift 管理全局状态，通过 APIClient.swift 定义网络协议，通过 MockAPIClient.swift 实现 Mock 功能，通过 DisabledAPIClient.swift 实现访问控制。
@@ -49,7 +49,7 @@ blindRun 为 SwiftUI 应用，API 环境配置系统位于 Core 模块中，通�
 ```mermaid
 graph TB
 subgraph "核心模块"
-A["EnvironmentConfig.swift<br/>APIEnvironment 枚举<br/>AppBuildChannel 构建通道"]
+A["EnvironmentConfig.swift<br/>APIEnvironment 枚举<br/>AppBuildChannel 构建通道<br/>本地后端遗留"]
 B["AppState.swift<br/>全局状态管理<br/>环境访问控制"]
 C["APIClient.swift<br/>网络协议定义<br/>URLSessionAPIClient 实现"]
 D["MockAPIClient.swift<br/>Mock 实现"]
@@ -97,11 +97,12 @@ K --> F
   - 提供 allowsEnvironmentSwitcher 属性控制环境切换器可见性
   - 支持每个通道的默认环境设置和访问权限控制
 - **APIEnvironment 枚举**
-  - 定义三种环境：mock、demoCloud、production
+  - 定义四种环境：mock、localBackend、demoCloud、production
   - 每个环境包含基础 URL 与显示名称
   - 支持 isMock 属性判断是否为模拟环境
+  - localBackend 标记为遗留环境，不推荐使用
   - demoCloud 支持演示专用的云环境配置
-  - **更新** 移除了 localBackend 环境选项
+  - production 支持 HTTPS 生产环境配置
 - **AppState 全局状态管理**
   - 管理用户会话、JWT 令牌和当前环境
   - 提供 apiClient 计算属性，根据环境和构建通道动态返回对应客户端
@@ -126,7 +127,7 @@ K --> F
   - 抛出 invalidURL 错误阻止网络请求
   - 用于演示和生产构建的环境保护
 
-**更新** 本地后端环境已从系统中移除，构建通道系统已完全实现并投入使用。
+**重要说明** 本地后端环境（localBackend）目前仍存在于代码中，但已被标记为遗留状态。根据项目文档，该环境不再推荐使用，应在后续版本中逐步移除。
 
 **章节来源**
 - [EnvironmentConfig.swift:5-45](file://blindRun/Core/EnvironmentConfig.swift#L5-L45)
@@ -157,9 +158,10 @@ BA["blindRunApp<br/>@StateObject AppState"]
 CV["ContentView<br/>环境切换 UI"]
 end
 subgraph "后端服务"
-PRD["Production Backend<br/>真实服务器"]
+PRD["Production Backend<br/>HTTPS 服务器"]
 MOCK["Mock 服务<br/>本地数据"]
 DEMO["演示云环境<br/>47.114.113.171"]
+LB["本地后端遗留<br/>127.0.0.1:8081"]
 end
 BC --> END
 END --> AC
@@ -172,8 +174,10 @@ CV --> BC
 MC --> MOCK
 UC --> PRD
 UC --> DEMO
+UC --> LB
 DC --> DEMO
 DC --> PRD
+DC --> LB
 ```
 
 **图表来源**
@@ -216,6 +220,7 @@ class AppBuildChannel {
 class APIEnvironment {
 <<enumeration>>
 +mock
++localBackend
 +demoCloud
 +production
 +displayName : String
@@ -247,19 +252,23 @@ AppBuildChannel --> DisabledAPIClient
   - 通过 baseURL 属性动态生成环境对应的服务器地址
 - **环境定义**
   - **mock**: 返回 nil，表示不使用网络请求
+  - **localBackend**: 本地后端环境（遗留），固定使用 127.0.0.1:8081
   - **demoCloud**: 演示专用云环境，固定使用演示服务器地址 47.114.113.171
-  - **production**: 占位符 URL，部署前需要替换为实际域名
-  - **更新** 移除了 localBackend 环境选项
+  - **production**: HTTPS 生产环境，支持从 Info.plist 配置
 - **配置管理**
   - 通过 AppConstants.UserDefaultsKeys.apiEnvironment 存储当前环境
+  - localBackend 环境使用 UserDefaults 存储的 IP 或 URL
   - demoCloud 环境使用固定的演示服务器地址
   - production 环境支持从 Info.plist 配置
+
+**重要说明** localBackend 环境已被标记为遗留状态，不推荐在新项目中使用。
 
 ```mermaid
 classDiagram
 class APIEnvironment {
 <<enumeration>>
 +mock
++localBackend
 +demoCloud
 +production
 +displayName : String
@@ -271,6 +280,7 @@ class AppConstants {
 +UserDefaultsKeys
 +Defaults
 +Timing
++LocalBackend
 +DemoCloud
 +ProductionBackend
 }
@@ -279,6 +289,15 @@ class UserDefaultsKeys {
 +accessToken : String
 +activeRole : String
 +apiEnvironment : String
++localBackendIP : String
++localBackendBaseURL : String
+}
+class LocalBackend {
+<<enumeration>>
++baseURL : URL
++normalizedBaseURL(value) : URL?
++normalizedDisplayString(value) : String
++save(value) : Void
 }
 class DemoCloud {
 <<enumeration>>
@@ -291,18 +310,18 @@ class ProductionBackend {
 }
 APIEnvironment --> AppConstants
 AppConstants --> UserDefaultsKeys
+AppConstants --> LocalBackend
 AppConstants --> DemoCloud
 AppConstants --> ProductionBackend
 ```
 
 **图表来源**
 - [EnvironmentConfig.swift:49-89](file://blindRun/Core/EnvironmentConfig.swift#L49-L89)
-- [EnvironmentConfig.swift:153-172](file://blindRun/Core/EnvironmentConfig.swift#L153-L172)
-- [EnvironmentConfig.swift:153-155](file://blindRun/Core/EnvironmentConfig.swift#L153-L155)
+- [EnvironmentConfig.swift:118-173](file://blindRun/Core/EnvironmentConfig.swift#L118-L173)
 
 **章节来源**
 - [EnvironmentConfig.swift:49-89](file://blindRun/Core/EnvironmentConfig.swift#L49-L89)
-- [EnvironmentConfig.swift:153-172](file://blindRun/Core/EnvironmentConfig.swift#L153-L172)
+- [EnvironmentConfig.swift:118-173](file://blindRun/Core/EnvironmentConfig.swift#L118-L173)
 
 ### AppState 全局状态管理与智能环境切换
 - **状态管理**
@@ -481,15 +500,15 @@ APIClientProtocol --> APIError
   - 支持动态的错误码查找和转换
 
 **章节来源**
-- [ErrorModels.swift:5-57](file://blindRun/Core/Models/ErrorModels.swift#L5-L57)
+- [ErrorModels.swift:5-63](file://blindRun/Core/Models/ErrorModels.swift#L5-L63)
 
 ### 环境配置存储与加载时机
 - **存储位置**
   - 环境设置：UserDefaults.standard.string(forKey: "com.aidrun.mvp.apiEnvironment")
   - JWT 令牌：UserDefaults.standard.string(forKey: "com.aidrun.mvp.accessToken")
   - 用户角色：UserDefaults.standard.string(forKey: "com.aidrun.mvp.activeRole")
-  - 本地后端 IP：已移除
-  - 本地后端 URL：已移除
+  - 本地后端 IP：UserDefaults.standard.string(forKey: "com.aidrun.mvp.localBackendIP")
+  - 本地后端 URL：UserDefaults.standard.string(forKey: "com.aidrun.mvp.localBackendBaseURL")
 - **加载时机**
   - 应用启动时：AppState.init() 中从 UserDefaults 恢复环境设置
   - 会话恢复：restoreSession() 方法恢复用户登录状态
@@ -539,7 +558,7 @@ APIClientProtocol --> APIError
 ### 构建通道特性
 - **development 通道**
   - 支持完整的环境切换功能
-  - 允许访问所有三种环境：mock、demoCloud、production
+  - 允许访问所有四种环境：mock、localBackend、demoCloud、production
   - 环境切换器在 UI 中可见
   - 默认环境为 mock
 - **demo 通道**
@@ -623,6 +642,44 @@ J --> M[环境切换器隐藏]
 **章节来源**
 - [08-ios-architecture.md:73-75](file://docs/08-ios-architecture.md#L73-L75)
 
+## 本地后端环境（遗留）
+
+### 本地后端环境概述
+本地后端环境（localBackend）是项目早期使用的本地开发环境，现已标记为遗留状态。该环境使用本地服务器地址 127.0.0.1:8081，主要用于开发阶段的快速迭代。
+
+### 本地后端环境特性
+- **本地服务器地址**
+  - 使用本地回环地址：127.0.0.1:8081
+  - 支持自定义 IP 地址和端口配置
+  - 支持从 UserDefaults 恢复之前的配置
+- **配置灵活性**
+  - 支持完整的 URL 输入（包含协议、主机、端口）
+  - 自动规范化 URL 格式
+  - 兼容遗留的 IP 地址格式
+- **环境访问控制**
+  - development 构建中可作为调试目标
+  - demo 构建中会被重定向到 demoCloud 环境
+  - production 构建中被禁用
+
+### 本地后端环境的配置
+本地后端环境的配置包含在 AppConstants.LocalBackend 命名空间中，提供了完整的 URL 规范化和存储机制。
+
+**重要说明** 本地后端环境已被标记为遗留状态，不推荐在新项目中使用。建议尽快迁移到演示云环境或生产环境。
+
+**章节来源**
+- [EnvironmentConfig.swift:118-151](file://blindRun/Core/EnvironmentConfig.swift#L118-L151)
+- [EnvironmentConfig.swift:73-78](file://blindRun/Core/EnvironmentConfig.swift#L73-L78)
+
+### 本地后端环境的迁移建议
+由于本地后端环境已被标记为遗留状态，建议采取以下迁移策略：
+- **短期迁移**：将开发工作转移到演示云环境（demoCloud）
+- **长期规划**：制定完整的本地后端环境移除计划
+- **数据备份**：在移除前备份重要的开发数据和配置
+- **团队培训**：确保开发团队了解新的环境配置方式
+
+**章节来源**
+- [08-ios-architecture.md:71-71](file://docs/08-ios-architecture.md#L71-L71)
+
 ## 依赖关系分析
 - **组件耦合**
   - APIClientProtocol 与具体实现解耦，通过协议实现多态
@@ -642,6 +699,7 @@ J --> M[环境切换器隐藏]
   - 令牌未加密存储可能在设备丢失时带来安全风险
   - 错误码映射不一致可能导致用户体验问题
   - Mock 数据与真实后端数据结构不一致
+  - 本地后端环境的遗留状态可能影响开发效率
 
 ```mermaid
 graph LR
@@ -711,6 +769,10 @@ XCCONFIG["LocalConfig.xcconfig"] --> PROTO
   - 确认演示服务器地址 47.114.113.171 是否可达
   - 检查 Info-Demo.plist 的 ATS 配置是否正确
   - 验证演示构建是否正确识别为 demo 通道
+- **本地后端环境问题**
+  - 检查本地服务器是否正在运行
+  - 验证本地后端 URL 配置是否正确
+  - 确认本地后端环境的遗留状态和迁移建议
 - **令牌存储问题**
   - 检查 UserDefaults 中的 accessToken 键值
   - 确认 tokenProvider 闭包是否正确返回令牌
@@ -728,9 +790,9 @@ XCCONFIG["LocalConfig.xcconfig"] --> PROTO
 ## 结论
 blindRun 的 API 环境配置系统经过重大升级，现在支持完整的构建通道系统，通过 AppBuildChannel 枚举实现了开发、演示、生产三个通道的智能环境管理。系统设计充分考虑了不同构建渠道的安全需求和使用场景，通过构建通道的环境访问控制机制，确保了演示和生产环境的稳定性和安全性。
 
-**更新** 本地后端环境已从开发构建中移除，系统现在仅支持演示和生产环境的智能切换。新增的演示云环境（demoCloud）为演示场景提供了专门的支持，而 DisabledAPIClient 类则为不允许的环境访问提供了保护机制。系统设计在保持开发效率的同时，增强了生产环境的安全性，为后续的功能扩展和维护奠定了坚实基础。
+**重要说明** 本地后端环境（localBackend）目前仍存在于代码中，但已被标记为遗留状态。根据项目文档，该环境不再推荐使用，应在后续版本中逐步移除。建议开发团队尽快迁移到演示云环境（demoCloud）或生产环境（production）。
 
-建议在生产部署前完成令牌存储的安全迁移与环境 URL 的最终配置，并持续以 OpenAPI 文档为依据保障契约一致性。同时，确保 Mock 数据与真实后端的数据结构保持同步，为用户提供一致的体验。构建通道系统应作为生产部署的重要组成部分，确保不同构建的环境访问权限得到正确执行。
+系统设计在保持开发效率的同时，增强了生产环境的安全性，为后续的功能扩展和维护奠定了坚实基础。建议在生产部署前完成令牌存储的安全迁移与环境 URL 的最终配置，并持续以 OpenAPI 文档为依据保障契约一致性。
 
 ## 附录
 - **相关文档与配置**
@@ -745,6 +807,7 @@ blindRun 的 API 环境配置系统经过重大升级，现在支持完整的构
   - 生产部署检查清单
   - 构建通道配置指南
   - 演示云环境使用说明
+  - 本地后端环境迁移指南
 - **构建配置参考**
   - Info-Demo.plist 演示配置文件
   - Info.plist 通用配置文件
@@ -752,8 +815,7 @@ blindRun 的 API 环境配置系统经过重大升级，现在支持完整的构
   - 编译条件配置说明
 
 **章节来源**
-- [08-ios-architecture.md:67-176](file://docs/08-ios-architecture.md#L67-L176)
-- [07-api-contract.openapi.yaml:1-200](file://docs/07-api-contract.openapi.yaml#L1-L200)
+- [08-ios-architecture.md:67-175](file://docs/08-ios-architecture.md#L67-L175)
 - [LocalConfig.xcconfig.example:1-36](file://LocalConfig.xcconfig.example#L1-L36)
 - [Info-Demo.plist:1-28](file://blindRun/Info-Demo.plist#L1-L28)
 - [Info.plist:1-15](file://blindRun/Info.plist#L1-L15)

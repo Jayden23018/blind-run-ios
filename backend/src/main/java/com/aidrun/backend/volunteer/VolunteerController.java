@@ -6,6 +6,7 @@ import com.aidrun.backend.volunteer.dto.AvailabilityRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -20,6 +21,13 @@ public class VolunteerController {
 
     public VolunteerController(VolunteerService volunteerService) {
         this.volunteerService = volunteerService;
+    }
+
+    @GetMapping("/profile")
+    public ResponseEntity<VolunteerProfileDto> getVolunteerProfile(Authentication authentication) {
+        AppUser user = (AppUser) authentication.getPrincipal();
+        VolunteerProfileDto result = volunteerService.getVolunteerProfile(user);
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/mock-verification/approve")

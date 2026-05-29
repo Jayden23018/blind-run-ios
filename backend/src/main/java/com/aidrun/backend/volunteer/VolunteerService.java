@@ -21,6 +21,16 @@ public class VolunteerService {
         this.volunteerProfileRepository = volunteerProfileRepository;
     }
 
+    public VolunteerProfileDto getVolunteerProfile(AppUser user) {
+        VolunteerProfile profile = volunteerProfileRepository.findByUser(user)
+            .orElseThrow(() -> new ApiException(
+                ErrorCode.PROFILE_INCOMPLETE,
+                "请先完善志愿者资料",
+                HttpStatus.BAD_REQUEST
+            ));
+        return VolunteerProfileDto.from(profile);
+    }
+
     @Transactional
     public VolunteerProfileDto mockVerificationApprove(AppUser user) {
         VolunteerProfile profile = volunteerProfileRepository.findByUser(user)

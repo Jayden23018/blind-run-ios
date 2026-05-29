@@ -66,15 +66,11 @@
 		};
 		C490E0872FBB552A00807A54 /* blindRunTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = blindRunTests;
 			sourceTree = "<group>";
 		};
 		C490E0912FBB552A00807A54 /* blindRunUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = blindRunUITests;
 			sourceTree = "<group>";
 		};
@@ -342,9 +338,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-blindRun/Pods-blindRun-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-blindRun/Pods-blindRun-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -741,9 +741,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = R6PH2TFB3Q;
 				ENABLE_PREVIEWS = YES;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(inherited)",
-				);
+				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "blindRun/Info-Demo.plist";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑需要您的位置信息来创建预约和计算距离";

@@ -165,6 +165,7 @@ struct VolunteerProfileView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = VolunteerProfileViewModel()
+    @State private var showLogoutConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -193,16 +194,39 @@ struct VolunteerProfileView: View {
         .onAppear {
             viewModel.configure(with: appState, speechService: speechService)
         }
+        .alert("确认退出", isPresented: $showLogoutConfirm) {
+            Button("确认退出", role: .destructive) {
+                appState.clearSession()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("确认后将清除当前登录状态，返回登录页。")
+        }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HighContrastText("志愿者认证", style: .title)
-                .accessibilityAddTraits(.isHeader)
-            Text(viewModel.shouldShowRealRegistration ? "填写昵称并完成志愿者认证。" : "填写昵称并完成 Demo 模拟认证。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel(viewModel.shouldShowRealRegistration ? "填写昵称并完成志愿者认证" : "填写昵称并完成 Demo 模拟认证")
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                HighContrastText("志愿者认证", style: .title)
+                    .accessibilityAddTraits(.isHeader)
+                Text(viewModel.shouldShowRealRegistration ? "填写昵称并完成志愿者认证。" : "填写昵称并完成 Demo 模拟认证。")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityLabel(viewModel.shouldShowRealRegistration ? "填写昵称并完成志愿者认证" : "填写昵称并完成 Demo 模拟认证")
+            }
+
+            Spacer()
+
+            Button {
+                showLogoutConfirm = true
+            } label: {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                    .font(.system(size: 18))
+                    .foregroundColor(AppColors.destructive)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("退出登录")
+            .accessibilityHint("退出后需要重新登录，需要二次确认")
         }
     }
 
