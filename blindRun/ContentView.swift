@@ -17,6 +17,9 @@ struct ContentView: View {
     @EnvironmentObject private var speechService: SpeechService
     @State private var showLogoutConfirmation = false
     private let locationReportTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
+    private var profileRefreshKey: String {
+        "\(appState.accessToken ?? "anonymous")-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)"
+    }
 
     var body: some View {
         Group {
@@ -60,6 +63,9 @@ struct ContentView: View {
             }
             reportWebSocketLocationIfNeeded()
         }
+        .task(id: profileRefreshKey) {
+            await refreshActiveProfileIfNeeded()
+        }
     }
 
     private func reportWebSocketLocationIfNeeded() {
@@ -76,6 +82,33 @@ struct ContentView: View {
             lat: coordinate.latitude,
             lng: coordinate.longitude
         )
+    }
+
+    private func refreshActiveProfileIfNeeded() async {
+        guard appState.isLoggedIn,
+              appState.currentEnvironment != .mock,
+              let role = appState.activeRole else {
+            return
+        }
+
+        do {
+            switch role {
+            case .blind:
+                let profile: BlindProfileResponse = try await appState.apiClient.get("/api/blind/profile")
+                appState.updateBlindProfile(profile)
+                if let userId = appState.userId {
+                    let contacts: [EmergencyContactResponse] = try await appState.apiClient.get("/api/users/\(userId)/emergency-contacts")
+                    appState.updateEmergencyContacts(contacts)
+                }
+            case .volunteer:
+                let profile: VolunteerProfileResponse = try await appState.apiClient.get("/api/volunteer/profile")
+                appState.updateVolunteerProfile(profile)
+            case .unset:
+                break
+            }
+        } catch {
+            // Keep the existing profile setup routes visible when the cloud has no profile yet.
+        }
     }
 }
 

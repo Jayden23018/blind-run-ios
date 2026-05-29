@@ -115,6 +115,23 @@ struct MapViewWrapper: View {
     var recenterToken: Int = 0
 
     var body: some View {
+        #if DEBUG || DEMO
+        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_DISABLE_MAP"] == "1" {
+            MapPlaceholderView()
+        } else if AMapManager.isConfigured {
+            AMapContainer(
+                centerCoordinate: centerCoordinate,
+                showsUserLocation: showsUserLocation,
+                annotations: annotations,
+                zoomLevel: zoomLevel,
+                recenterToken: recenterToken
+            )
+            .accessibilityLabel("地图，显示当前位置和订单地点")
+            .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")
+        } else {
+            MapPlaceholderView()
+        }
+        #else
         if AMapManager.isConfigured {
             AMapContainer(
                 centerCoordinate: centerCoordinate,
@@ -128,5 +145,6 @@ struct MapViewWrapper: View {
         } else {
             MapPlaceholderView()
         }
+        #endif
     }
 }

@@ -729,6 +729,30 @@
 			};
 			name = Release;
 		};
+		C490E2622FC0D000000807A54 /* DemoRelease */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = F31690AA2891E27444E91434 /* Pods-blindRunTests.release.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R6PH2TFB3Q;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.blindRunTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEMO $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/blindRun.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/blindRun";
+			};
+			name = DemoRelease;
+		};
 		C490E09F2FBB552A00807A54 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -769,6 +793,27 @@
 			};
 			name = Release;
 		};
+		C490E2632FC0D000000807A54 /* DemoRelease */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R6PH2TFB3Q;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.blindRunUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEMO $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = blindRun;
+			};
+			name = DemoRelease;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -796,6 +841,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C490E09C2FBB552A00807A54 /* Debug */,
+				C490E2622FC0D000000807A54 /* DemoRelease */,
 				C490E09D2FBB552A00807A54 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
@@ -805,6 +851,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C490E09F2FBB552A00807A54 /* Debug */,
+				C490E2632FC0D000000807A54 /* DemoRelease */,
 				C490E0A02FBB552A00807A54 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;

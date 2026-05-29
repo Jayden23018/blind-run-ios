@@ -15,6 +15,10 @@ enum VolunteerOrderActionGuard {
             return "请先完成志愿者认证"
         }
 
+        guard profile.isAvailable == true else {
+            return "请先开启可服务状态"
+        }
+
         return nil
     }
 }

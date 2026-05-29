@@ -33,7 +33,6 @@ struct LoginView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = LoginViewModel()
-    @State private var localBackendAddressInput = ""
 
     @FocusState private var phoneFocused: Bool
     @FocusState private var codeFocused: Bool
@@ -194,9 +193,6 @@ struct LoginView: View {
         .background(AppColors.background)
         .onAppear {
             viewModel.configure(with: appState, speechService: speechService)
-            #if DEBUG
-            syncLocalBackendAddressInput()
-            #endif
         }
         .onDisappear {
             viewModel.resetCountdown()
@@ -215,12 +211,10 @@ struct LoginView: View {
                 let allEnvs = AppState.debugTestEnvironments
                 guard let currentIndex = allEnvs.firstIndex(of: appState.currentEnvironment) else {
                     appState.currentEnvironment = .mock
-                    syncLocalBackendAddressInput()
                     return
                 }
                 let nextIndex = (currentIndex + 1) % allEnvs.count
                 appState.currentEnvironment = allEnvs[nextIndex]
-                syncLocalBackendAddressInput()
             } label: {
                 Text(environmentLabel)
                     .font(.caption)
@@ -229,59 +223,11 @@ struct LoginView: View {
             .accessibilityLabel("API 环境切换")
             .accessibilityHint("当前环境：\(environmentLabel)")
             .accessibilityValue(appState.currentEnvironment.displayName)
-
-            if appState.currentEnvironment == .localBackend {
-                localBackendEditor
-            }
-        }
-    }
-
-    private var localBackendEditor: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("本地后端地址")
-                .font(.caption)
-                .foregroundColor(AppColors.textSecondary)
-
-            HStack(spacing: 8) {
-                TextField("例如 192.168.1.23 或 http://192.168.1.23:8080", text: $localBackendAddressInput)
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
-                    .keyboardType(.URL)
-                    .font(.caption)
-                    .padding(10)
-                    .background(AppColors.secondaryBackground)
-                    .cornerRadius(8)
-                    .accessibilityLabel("本地后端地址输入框")
-                    .accessibilityHint("真机测试请输入电脑局域网 IP，不能使用 127.0.0.1")
-
-                Button("保存") {
-                    AppConstants.LocalBackend.save(localBackendAddressInput)
-                    syncLocalBackendAddressInput()
-                }
-                .font(.caption.bold())
-                .buttonStyle(.bordered)
-                .accessibilityLabel("保存本地后端地址")
-                .accessibilityHint("保存后登录请求将使用这个地址")
-            }
-
-            Text("真机请填电脑局域网 IP；127.0.0.1 只适合 Mac 本机运行。")
-                .font(.caption2)
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("真机请填写电脑局域网 IP，一二七点零点零点一只适合 Mac 本机运行")
         }
     }
 
     private var environmentLabel: String {
-        if appState.currentEnvironment == .localBackend,
-           let url = appState.currentEnvironment.baseURL {
-            return "API 环境: \(appState.currentEnvironment.displayName) \(url.absoluteString)"
-        }
         return "API 环境: \(appState.currentEnvironment.displayName)"
-    }
-
-    private func syncLocalBackendAddressInput() {
-        localBackendAddressInput = appState.currentEnvironment.baseURL?.absoluteString
-            ?? AppConstants.LocalBackend.normalizedDisplayString(from: AppConstants.Defaults.localBackendIP)
     }
     #endif
 }

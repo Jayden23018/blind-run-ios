@@ -7,6 +7,7 @@ import SwiftUI
 /// 全局应用状态，管理用户会话、Token 和环境配置。
 /// 作为 @EnvironmentObject 注入整个应用的 View 层级。
 final class AppState: ObservableObject {
+    private let mockAPIClient = MockAPIClient()
 
     // MARK: - Session
 
@@ -86,7 +87,7 @@ final class AppState: ObservableObject {
     var apiClient: any APIClientProtocol {
         switch currentEnvironment {
         case .mock where AppBuildChannel.current == .development:
-            return MockAPIClient()
+            return mockAPIClient
         case .mock:
             return DisabledAPIClient()
         case .localBackend, .demoCloud, .production:
@@ -223,13 +224,19 @@ final class AppState: ObservableObject {
     }
 
     #if DEBUG
-    static let debugTestEnvironments: [APIEnvironment] = [.mock, .localBackend, .demoCloud]
+    static let debugTestEnvironments: [APIEnvironment] = [.mock, .demoCloud]
     #endif
 
     // MARK: - WebSocket (Private)
 
     /// 根据当前 token 和角色连接 WebSocket（mock 环境跳过）
     private func connectWebSocketIfNeeded() {
+        #if DEBUG || DEMO
+        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] == "1" {
+            return
+        }
+        #endif
+
         guard currentEnvironment != .mock,
               AppBuildChannel.current.allows(currentEnvironment),
               let token = accessToken,

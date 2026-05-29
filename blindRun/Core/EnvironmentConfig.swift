@@ -35,7 +35,7 @@ enum AppBuildChannel: Sendable {
     func allows(_ environment: APIEnvironment) -> Bool {
         switch self {
         case .development:
-            return [.mock, .localBackend, .demoCloud].contains(environment)
+            return [.mock, .demoCloud].contains(environment)
         case .demo:
             return environment == .demoCloud
         case .production:

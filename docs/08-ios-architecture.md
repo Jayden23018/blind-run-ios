@@ -49,18 +49,17 @@ Recommended examples:
 
 ## 4. API Environment Switch
 
-MVP development must support three environments, but packaged builds must be locked by build channel:
+MVP development keeps a mock environment for UI/XCTest coverage and uses the cloud backend for networked runs. The old LAN/H2 local backend path is no longer used for this project.
 
 | Environment | Purpose |
 | --- | --- |
 | `mock` | Local fake data for UI and flow debugging |
-| `localBackend` | LAN Spring Boot backend on developer Mac |
 | `demoCloud` | Current demo cloud backend at `http://47.114.113.171` |
 | `production` | Future HTTPS production domain |
 
 | Build channel | Scheme / configuration | Allowed environment | Environment UI |
 | --- | --- | --- | --- |
-| Development | `blindRun-Dev` / `Debug` | `mock`, `localBackend`, `demoCloud` | Visible |
+| Development | `blindRun-Dev` / `Debug` | `mock`, `demoCloud` | Visible |
 | Demo | `blindRun-Demo` / `DemoRelease` | `demoCloud` only | Hidden |
 | Production | `blindRun-Prod` / `Release` | `production` only | Hidden |
 
@@ -69,7 +68,7 @@ Implementation guidance:
 - Define `APIEnvironment` with `baseURL` and display name.
 - Use one `APIClient` protocol so Mock and real implementations share call sites.
 - In Debug development builds, expose a small environment selector in settings or launch configuration.
-- `localBackend` should support LAN IP such as `http://192.168.x.x:8080`.
+- `localBackend` is a legacy raw value only; it should not appear in the switcher, UI tests, Demo packages, or Production packages.
 - DemoRelease is for internal demo, TestFlight, or Ad Hoc distribution only. It is not the final App Store production package.
 - DemoRelease uses a dedicated Info plist with ATS HTTP allowance for `47.114.113.171`; Production must not include HTTP or WS test entry points.
 - Production URL may remain a HTTPS placeholder until the real domain is confirmed; when the base URL is HTTPS, WebSocket URLs must use WSS.

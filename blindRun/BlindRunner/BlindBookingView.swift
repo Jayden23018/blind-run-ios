@@ -207,15 +207,15 @@ final class BlindBookingViewModel: ObservableObject {
             return fail("请选择出发地点。")
         }
 
-        let plannedStartTime = ISO8601DateFormatter.aidRunFormatter.string(from: appointmentTime)
+        let plannedStartTime = DateFormatter.aidRunBackendLocalDateTime.string(from: appointmentTime)
         let plannedEndTime: String
         if let minutes = duration.minutes {
             let endDate = appointmentTime.addingTimeInterval(TimeInterval(minutes * 60))
-            plannedEndTime = ISO8601DateFormatter.aidRunFormatter.string(from: endDate)
+            plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
         } else {
             // Default: 1 hour after start
             let endDate = appointmentTime.addingTimeInterval(3600)
-            plannedEndTime = ISO8601DateFormatter.aidRunFormatter.string(from: endDate)
+            plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
         }
 
         let request = CreateOrderRequest(

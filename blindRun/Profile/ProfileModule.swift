@@ -111,9 +111,10 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             guard let userId = appState.userId else {
                 throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "用户未登录"))
             }
-            let contact: EmergencyContactResponse = try await appState.apiClient.post(
-                "/api/users/\(userId)/emergency-contacts",
-                body: contactRequest
+            let contact = try await saveEmergencyContact(
+                request: contactRequest,
+                userId: userId,
+                appState: appState
             )
             appState.updateEmergencyContacts([contact])
 
@@ -126,6 +127,38 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             isLoading = false
             errorMessage = "保存失败，请重试"
             speechService?.speakError("保存失败，请重试")
+        }
+    }
+
+    private func saveEmergencyContact(
+        request: EmergencyContactRequest,
+        userId: Int64,
+        appState: AppState
+    ) async throws -> EmergencyContactResponse {
+        let existingContacts: [EmergencyContactResponse] = (try? await appState.apiClient.get(
+            "/api/users/\(userId)/emergency-contacts"
+        )) ?? []
+
+        if let existingContact = existingContacts.first {
+            return try await appState.apiClient.put(
+                "/api/users/\(userId)/emergency-contacts/\(existingContact.id)",
+                body: request
+            )
+        }
+
+        do {
+            return try await appState.apiClient.post(
+                "/api/users/\(userId)/emergency-contacts",
+                body: request
+            )
+        } catch {
+            let fallbackContacts: [EmergencyContactResponse] = (try? await appState.apiClient.get(
+                "/api/users/\(userId)/emergency-contacts"
+            )) ?? []
+            if let fallbackContact = fallbackContacts.first {
+                return fallbackContact
+            }
+            throw error
         }
     }
 }

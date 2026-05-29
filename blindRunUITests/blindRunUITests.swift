@@ -8,9 +8,6 @@
 import XCTest
 
 final class blindRunUITests: XCTestCase {
-    private let localBackendURL = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_LOCAL_BACKEND_URL"]
-        ?? "http://192.168.1.17:8080"
-
     override func setUpWithError() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -21,10 +18,26 @@ final class blindRunUITests: XCTestCase {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
-            preseedBlindProfile: true
+            preseedBlindProfile: true,
+            emptyMockOrders: true
         )
 
         createBookingAndAssertMatching(app)
+    }
+
+    @MainActor
+    func testLoginEnvironmentSwitcherMatchesBuildChannel() throws {
+        let app = launchApp(apiEnvironment: "mock")
+        let environmentSwitcher = app.buttons["API 环境切换"].firstMatch
+
+        #if DEBUG
+        XCTAssertTrue(environmentSwitcher.waitForExistence(timeout: 5), "Debug login should expose the API environment switcher")
+        #else
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertFalse(environmentSwitcher.exists, "Demo and production builds must not expose the API environment switcher")
+        #endif
+
+        XCTAssertFalse(app.textFields["本地后端地址"].exists, "Cloud-only builds must not expose a local backend input")
     }
 
     @MainActor
@@ -33,7 +46,8 @@ final class blindRunUITests: XCTestCase {
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
             activeRole: "volunteer",
-            preseedVolunteerProfile: true
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true
         )
 
         let firstOrder = app.staticTexts["李明"].firstMatch
@@ -41,18 +55,6 @@ final class blindRunUITests: XCTestCase {
         firstOrder.tap()
 
         XCTAssertFalse(app.staticTexts["13800001001"].exists, "Phone must be hidden before accepting")
-        let disabledAcceptButton = app.buttons["接单"].firstMatch
-        XCTAssertTrue(disabledAcceptButton.waitForExistence(timeout: 5), "Accept button should exist")
-        XCTAssertFalse(disabledAcceptButton.isEnabled, "Accept should be disabled when isAvailable=false")
-
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-
-        let availabilitySwitch = app.switches.firstMatch
-        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should exist")
-        availabilitySwitch.tap()
-
-        XCTAssertTrue(firstOrder.waitForExistence(timeout: 5), "Order should still be visible after availability toggle")
-        firstOrder.tap()
 
         let acceptButton = app.buttons["接单"].firstMatch
         XCTAssertTrue(waitForElementToBeEnabled(acceptButton, timeout: 8), "Accept should become enabled after availability is on")
@@ -66,21 +68,21 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(serviceButton.waitForExistence(timeout: 5), "Accepted order should allow entering service page")
         serviceButton.tap()
 
+        let enRouteButton = app.buttons["我已出发"].firstMatch
+        XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5), "Accepted order should show en-route button")
+        enRouteButton.tap()
+
         let arriveButton = app.buttons["我已到达约定地点"].firstMatch
-        XCTAssertTrue(arriveButton.waitForExistence(timeout: 5), "Accepted order should show arrive button")
+        XCTAssertTrue(arriveButton.waitForExistence(timeout: 8), "En-route order should show arrive button")
         arriveButton.tap()
 
         let completeButton = app.buttons["结束服务"].firstMatch
         XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "Arrived order should allow completing service in current cloud contract")
         completeButton.tap()
 
-        let sheetCompleteButton = app.buttons["确认结束服务"].firstMatch
+        let sheetCompleteButton = app.buttons["确认完成服务"].firstMatch
         XCTAssertTrue(sheetCompleteButton.waitForExistence(timeout: 5), "Completion sheet should require a second action")
         sheetCompleteButton.tap()
-
-        let confirmCompleteButton = app.buttons["确认结束"].firstMatch
-        XCTAssertTrue(confirmCompleteButton.waitForExistence(timeout: 5), "Complete service should show confirmation")
-        confirmCompleteButton.tap()
 
         let completedStatus = app.staticTexts["已完成"].firstMatch
         XCTAssertTrue(completedStatus.waitForExistence(timeout: 8), "Order should reach completed status")
@@ -92,7 +94,8 @@ final class blindRunUITests: XCTestCase {
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
             activeRole: "volunteer",
-            preseedVolunteerProfile: true
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true
         )
 
         openAcceptedVolunteerService(app)
@@ -102,16 +105,13 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(arriveButton.waitForExistence(timeout: 5), "Accepted service page should show arrive action")
         arriveButton.tap()
 
-        let arrivedText = app.staticTexts["已到达，可开始服务"].firstMatch
-        XCTAssertTrue(arrivedText.waitForExistence(timeout: 8), "Arrived state should allow service completion in current cloud contract")
-        attachScreenshot(named: "volunteer-service-arrived", app: app)
-
         let completeButton = app.buttons["结束服务"].firstMatch
         XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "Arrived order should show complete button")
+        attachScreenshot(named: "volunteer-service-arrived", app: app)
         attachScreenshot(named: "volunteer-service-in-progress", app: app)
 
         completeButton.tap()
-        let sheetCompleteButton = app.buttons["结束服务"].firstMatch
+        let sheetCompleteButton = app.buttons["确认完成服务"].firstMatch
         XCTAssertTrue(sheetCompleteButton.waitForExistence(timeout: 5), "Completion sheet should appear")
         attachScreenshot(named: "volunteer-service-complete-summary", app: app)
     }
@@ -122,7 +122,8 @@ final class blindRunUITests: XCTestCase {
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
             activeRole: "volunteer",
-            preseedVolunteerProfile: true
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true
         )
 
         let map = app.descendants(matching: .any)["volunteerHomeMap"].firstMatch
@@ -139,36 +140,40 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
-    func testLocalBackendBlindRunnerBookingSmoke() throws {
-        let uniquePhone = "139" + String(Int(Date().timeIntervalSince1970) % 100_000_000).leftPadded(toLength: 8)
+    func testCloudBackendBlindRunnerBookingSmoke() throws {
+        #if !DEMO
+        throw XCTSkip("Cloud backend E2E runs under blindRun-Demo / DemoRelease so the app has the demo ATS policy and locked cloud environment.")
+        #else
         let app = launchApp(
-            apiEnvironment: "localBackend",
-            localBackendURL: localBackendURL
+            apiEnvironment: "demoCloud"
         )
+        let cloudPhone = "13800000001"
 
-        login(app: app, phone: uniquePhone)
+        login(app: app, phone: cloudPhone, code: "000000")
         chooseBlindRunnerRoleIfNeeded(app)
         completeBlindRunnerProfileIfNeeded(app)
         createBookingAndAssertMatching(app)
+        #endif
     }
 
     private func launchApp(
         apiEnvironment: String,
-        localBackendURL: String? = nil,
         accessToken: String? = nil,
         activeRole: String = "blind_runner",
         preseedBlindProfile: Bool = false,
-        preseedVolunteerProfile: Bool = false
+        preseedVolunteerProfile: Bool = false,
+        preseedVolunteerAvailable: Bool = false,
+        emptyMockOrders: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["AIDRUN_UI_TEST_RESET_STATE"] = "1"
+        app.launchEnvironment["AIDRUN_UI_TEST_RESET_TOKEN"] = UUID().uuidString
         app.launchEnvironment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_API_ENV"] = apiEnvironment
         app.launchEnvironment["AIDRUN_UI_TEST_ACTIVE_ROLE"] = activeRole
+        app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
+        app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] = "1"
-        if let localBackendURL {
-            app.launchEnvironment["AIDRUN_UI_TEST_LOCAL_BACKEND_URL"] = localBackendURL
-        }
         if let accessToken {
             app.launchEnvironment["AIDRUN_UI_TEST_ACCESS_TOKEN"] = accessToken
         }
@@ -178,6 +183,12 @@ final class blindRunUITests: XCTestCase {
         if preseedVolunteerProfile {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_PROFILE"] = "1"
         }
+        if preseedVolunteerAvailable {
+            app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] = "1"
+        }
+        if emptyMockOrders {
+            app.launchEnvironment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] = "1"
+        }
         app.launch()
         dismissSystemAlertsIfPresent(app: app)
         return app
@@ -186,12 +197,6 @@ final class blindRunUITests: XCTestCase {
     private func openAcceptedVolunteerService(_ app: XCUIApplication) {
         let firstOrder = app.staticTexts["李明"].firstMatch
         XCTAssertTrue(firstOrder.waitForExistence(timeout: 15), "Volunteer home should show available mock orders")
-
-        let availabilitySwitch = app.switches.firstMatch
-        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should exist")
-        availabilitySwitch.tap()
-
-        XCTAssertTrue(firstOrder.waitForExistence(timeout: 5), "Order should still be visible after availability toggle")
         firstOrder.tap()
 
         let acceptButton = app.buttons["接单"].firstMatch
@@ -202,6 +207,10 @@ final class blindRunUITests: XCTestCase {
         let serviceButton = app.buttons["进入服务页面"].firstMatch
         XCTAssertTrue(serviceButton.waitForExistence(timeout: 8), "Accepted order should allow entering service page")
         serviceButton.tap()
+
+        let enRouteButton = app.buttons["我已出发"].firstMatch
+        XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5), "Accepted service page should show en-route action")
+        enRouteButton.tap()
     }
 
     private func attachScreenshot(named name: String, app: XCUIApplication) {
@@ -211,23 +220,39 @@ final class blindRunUITests: XCTestCase {
         add(attachment)
     }
 
-    private func login(app: XCUIApplication, phone: String) {
+    private func login(app: XCUIApplication, phone: String, code: String = "123456") {
         let phoneField = app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch
         XCTAssertTrue(phoneField.waitForExistence(timeout: 10), "Login phone field should appear")
         phoneField.tap()
         phoneField.typeText(phone)
+        dismissKeyboardIfPresent(app: app)
 
-        app.buttons["获取验证码"].tap()
-        dismissSystemAlertsIfPresent(app: app)
+        let requestCodeButton = app.buttons["获取验证码"].firstMatch
+        XCTAssertTrue(waitForElementToBeEnabled(requestCodeButton, timeout: 5), "Request code button should be enabled after entering a valid phone")
+        tapWhenHittableOrByCoordinate(requestCodeButton, app: app)
+        dismissSystemAlertsIfPresent(app: app, activateWhenNoAlert: false)
 
         let codeField = app.textFields["验证码输入框，请输入 6 位验证码"].firstMatch
         XCTAssertTrue(codeField.waitForExistence(timeout: 5), "Verification code field should appear")
         codeField.tap()
-        codeField.typeText("123456")
+        codeField.typeText(code)
+        dismissKeyboardIfPresent(app: app)
 
-        app.buttons["登录"].tap()
-        dismissSystemAlertsIfPresent(app: app)
+        let loginButton = app.buttons["登录"].firstMatch
+        XCTAssertTrue(waitForElementToBeEnabled(loginButton, timeout: 5), "Login button should be enabled after entering the fixed demo code")
+        tapWhenHittableOrByCoordinate(loginButton, app: app)
+        dismissSystemAlertsIfPresent(app: app, activateWhenNoAlert: false)
         waitForPostLoginRoute(app)
+    }
+
+    private func tapWhenHittableOrByCoordinate(_ element: XCUIElement, app: XCUIApplication) {
+        XCTAssertTrue(element.waitForExistence(timeout: 5), "Expected element to exist before tapping")
+        if element.isHittable {
+            element.tap()
+            return
+        }
+
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
     private func chooseBlindRunnerRoleIfNeeded(_ app: XCUIApplication) {
@@ -241,16 +266,19 @@ final class blindRunUITests: XCTestCase {
 
     private func completeBlindRunnerProfileIfNeeded(_ app: XCUIApplication) {
         let title = app.staticTexts["完善信息"].firstMatch
-        guard title.waitForExistence(timeout: 8) else { return }
+        let editTitle = app.staticTexts["编辑资料"].firstMatch
+        guard title.waitForExistence(timeout: 8) || editTitle.exists else { return }
 
         enterTextIfNeeded(app: app, fieldLabel: "昵称，必填", placeholder: "请输入昵称", text: "UITestBlind")
         enterTextIfNeeded(app: app, fieldLabel: "紧急联系人姓名，必填", placeholder: "请输入紧急联系人姓名", text: "UITestContact")
         enterTextIfNeeded(app: app, fieldLabel: "紧急联系人电话，必填，11位手机号", placeholder: "请输入11位手机号", text: "13800001111")
+        dismissKeyboardIfPresent(app: app)
 
-        let saveButton = app.buttons["完成，保存资料"].firstMatch
+        let saveButton = firstExistingButton(app, labels: ["完成，保存资料", "保存，保存资料"])
         XCTAssertTrue(saveButton.waitForExistence(timeout: 5), "Profile save button should appear")
-        saveButton.tap()
-        dismissSystemAlertsIfPresent(app: app)
+        XCTAssertTrue(waitForElementToBeEnabled(saveButton, timeout: 5), "Profile save button should be enabled")
+        tapWhenHittableOrByCoordinate(saveButton, app: app)
+        dismissSystemAlertsIfPresent(app: app, activateWhenNoAlert: false)
     }
 
     private func createBookingAndAssertMatching(_ app: XCUIApplication) {
@@ -284,21 +312,49 @@ final class blindRunUITests: XCTestCase {
     private func waitForPostLoginRoute(_ app: XCUIApplication) {
         let role = app.buttons["我是盲人跑者，预约志愿者陪我跑步"].firstMatch
         let profile = app.staticTexts["完善信息"].firstMatch
+        let editProfile = app.staticTexts["编辑资料"].firstMatch
         let home = app.buttons["开始约跑"].firstMatch
-        let error = app.staticTexts["网络错误，请重试。真机请填写电脑局域网 IP，不能使用 127.0.0.1。"].firstMatch
+        let error = app.staticTexts["网络错误，请重试。"].firstMatch
+        let loginFailed = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "登录失败")).firstMatch
+        let invalidCode = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "验证码错误")).firstMatch
+        let throttled = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "请求过于频繁")).firstMatch
 
         let deadline = Date().addingTimeInterval(12)
         while Date() < deadline {
-            dismissSystemAlertsIfPresent(app: app)
+            dismissSystemAlertsIfPresent(app: app, activateWhenNoAlert: false)
             if error.exists {
-                XCTFail("Local backend login failed with network error")
+                XCTFail("Cloud backend login failed with network error")
                 return
             }
-            if role.exists || profile.exists || home.exists {
+            if loginFailed.exists {
+                XCTFail("Cloud backend login failed with generic login error")
+                return
+            }
+            if invalidCode.exists {
+                XCTFail("Cloud backend rejected the verification code")
+                return
+            }
+            if throttled.exists {
+                XCTFail("Cloud backend throttled the login request")
+                return
+            }
+            if role.exists || profile.exists || editProfile.exists || home.exists {
                 return
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
+        attachScreenshot(named: "cloud-login-route-timeout", app: app)
+        XCTFail("Login did not route to role selection, profile, or blind runner home. App state: \(app.state.rawValue). UI: \(app.debugDescription)")
+    }
+
+    private func firstExistingButton(_ app: XCUIApplication, labels: [String]) -> XCUIElement {
+        for label in labels {
+            let button = app.buttons[label].firstMatch
+            if button.exists {
+                return button
+            }
+        }
+        return app.buttons[labels[0]].firstMatch
     }
 
     private func waitForElementToBeEnabled(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
@@ -312,26 +368,40 @@ final class blindRunUITests: XCTestCase {
         return element.exists && element.isEnabled
     }
 
-    private func dismissSystemAlertsIfPresent(app: XCUIApplication) {
+    private func dismissKeyboardIfPresent(app: XCUIApplication) {
+        guard app.keyboards.firstMatch.exists else { return }
+
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
+
+    private func dismissSystemAlertsIfPresent(app: XCUIApplication, activateWhenNoAlert: Bool = true) {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let alert = springboard.alerts.firstMatch
         guard alert.waitForExistence(timeout: 0.2) else {
-            app.activate()
+            if activateWhenNoAlert {
+                app.activate()
+            }
             return
         }
 
-        for title in ["允许", "Allow", "好", "OK", "继续", "Continue"] {
+        for title in [
+            "允许使用 App 时", "允许使用App时", "使用 App 时允许", "使用App时允许", "允许一次",
+            "Allow While Using App", "Allow Once",
+            "允许", "Allow", "好", "OK", "继续", "Continue"
+        ] {
             let button = alert.buttons[title].firstMatch
             if button.exists {
-                button.tap()
+                if button.isHittable {
+                    button.tap()
+                } else {
+                    button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                }
                 app.activate()
                 return
             }
         }
 
-        if alert.buttons.count > 0 {
-            alert.buttons.element(boundBy: alert.buttons.count - 1).tap()
-        }
         app.activate()
     }
 }

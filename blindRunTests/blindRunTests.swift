@@ -120,9 +120,9 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.verificationCode, "123456")
     }
 
-    func testDevelopmentInitialEnvironmentKeepsDebugChoices() {
+    func testDevelopmentInitialEnvironmentKeepsSupportedDebugChoices() {
         XCTAssertEqual(AppState.resolvedInitialEnvironment(.mock, channel: .development), .mock)
-        XCTAssertEqual(AppState.resolvedInitialEnvironment(.localBackend, channel: .development), .localBackend)
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.localBackend, channel: .development), .mock)
         XCTAssertEqual(AppState.resolvedInitialEnvironment(.demoCloud, channel: .development), .demoCloud)
     }
 
@@ -168,7 +168,7 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(webSocketURL.absoluteString.contains("token=jwt"))
     }
 
-    func testDebugEnvironmentSwitcherCyclesMockLocalBackendAndDemoCloud() {
+    func testDebugEnvironmentSwitcherCyclesMockAndDemoCloud() {
         let previousEnvironment = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
         defer {
             if let previousEnvironment {
@@ -183,14 +183,12 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertEqual(appState.currentEnvironment, .mock)
         appState.switchToNextEnvironmentForTesting()
-        XCTAssertEqual(appState.currentEnvironment, .localBackend)
-        appState.switchToNextEnvironmentForTesting()
         XCTAssertEqual(appState.currentEnvironment, .demoCloud)
         appState.switchToNextEnvironmentForTesting()
         XCTAssertEqual(appState.currentEnvironment, .mock)
     }
 
-    func testLocalBackendAddressNormalizationSupportsDeviceLANIP() {
+    func testLegacyLocalBackendAddressNormalizationSupportsStoredRawValues() {
         XCTAssertEqual(
             AppConstants.LocalBackend.normalizedDisplayString(from: "192.168.1.23"),
             "http://192.168.1.23:8081"
@@ -476,6 +474,13 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertNil(
             VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile())
+        )
+    }
+
+    func testVolunteerAcceptGuardRequiresAvailability() {
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile(isAvailable: false)),
+            "请先开启可服务状态"
         )
     }
 

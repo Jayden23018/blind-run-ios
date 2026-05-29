@@ -312,7 +312,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
 
         // Validate appointment time (30 min ahead)
-        if let date = ISO8601DateFormatter().date(from: request.plannedStartTime) {
+        if let date = ISO8601DateFormatter().date(from: request.plannedStartTime)
+            ?? DateFormatter.aidRunBackendLocalDateTime.date(from: request.plannedStartTime) {
             let leadTime = date.timeIntervalSince(Date())
             if leadTime < Double(AppConstants.Timing.minimumBookingLeadMinutes) * 60 {
                 throw APIError.serverError(ErrorResponse(
@@ -368,8 +369,18 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         )
     }
 
-    private func handleGetAvailableOrders() -> [OrderDetailResponse] {
-        return orders.filter { $0.status == .pendingMatch }
+    private func handleGetAvailableOrders() -> PagedOrderResponse {
+        let filtered = orders.filter { $0.status == .pendingMatch }
+        return PagedOrderResponse(
+            content: filtered.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") },
+            totalElements: Int64(filtered.count),
+            totalPages: 1,
+            number: 0,
+            size: 100,
+            first: true,
+            last: true,
+            empty: filtered.isEmpty
+        )
     }
 
     private func handleGetOrder(orderId: Int64) throws -> OrderDetailResponse {
@@ -379,7 +390,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return order
     }
 
-    private func handleAcceptOrder(orderId: Int64) throws -> OrderDetailResponse {
+    private func handleAcceptOrder(orderId: Int64) throws -> OrderResponse {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
@@ -388,10 +399,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 code: "ORDER_ALREADY_ACCEPTED", message: "订单已被其他志愿者接单"))
         }
         orders[index] = updateOrderStatus(orders[index], to: .pendingAccept, volunteerPhone: "13800000002")
-        return orders[index]
+        return actionResponse(for: orders[index], message: "接单成功")
     }
 
-    private func handleEnRoute(orderId: Int64) throws -> OrderDetailResponse {
+    private func handleEnRoute(orderId: Int64) throws -> OrderResponse {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
@@ -400,10 +411,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 code: "INVALID_ORDER_STATUS", message: "当前订单状态不允许该操作"))
         }
         orders[index] = updateOrderStatus(orders[index], to: .driverEnRoute)
-        return orders[index]
+        return actionResponse(for: orders[index], message: "已出发")
     }
 
-    private func handleArrived(orderId: Int64) throws -> OrderDetailResponse {
+    private func handleArrived(orderId: Int64) throws -> OrderResponse {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
@@ -412,10 +423,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 code: "INVALID_ORDER_STATUS", message: "当前订单状态不允许该操作"))
         }
         orders[index] = updateOrderStatus(orders[index], to: .driverArrived)
-        return orders[index]
+        return actionResponse(for: orders[index], message: "已到达")
     }
 
-    private func handleFinish(orderId: Int64) throws -> OrderDetailResponse {
+    private func handleFinish(orderId: Int64) throws -> OrderResponse {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
@@ -424,10 +435,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 code: "INVALID_ORDER_STATUS", message: "当前订单状态不允许该操作"))
         }
         orders[index] = updateOrderStatus(orders[index], to: .completed)
-        return orders[index]
+        return actionResponse(for: orders[index], message: "服务已完成")
     }
 
-    private func handleCancel(orderId: Int64) throws -> OrderDetailResponse {
+    private func handleCancel(orderId: Int64) throws -> OrderResponse {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
@@ -436,7 +447,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 code: "INVALID_ORDER_STATUS", message: "当前订单状态不允许取消"))
         }
         orders[index] = updateOrderStatus(orders[index], to: .cancelled)
-        return orders[index]
+        return actionResponse(for: orders[index], message: "订单已取消")
+    }
+
+    private func actionResponse(for order: OrderDetailResponse, message: String) -> OrderResponse {
+        OrderResponse(id: order.orderId, status: order.status, message: message, success: true)
     }
 
     private func handleReview() -> ApiSuccessResponse {
@@ -526,10 +541,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             defaultPace: .moderate
         )
 
+        let uiTestVolunteerAvailable = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] == "1"
         volunteerProfile = VolunteerProfileResponse(
             name: "测试志愿者",
             verificationStatus: "approved",
-            isAvailable: false,
+            isAvailable: uiTestVolunteerAvailable,
             availableTimeSlots: [
                 VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "09:00:00", endTime: "12:00:00"),
                 VolunteerAvailableTimeSlot(dayOfWeek: "SUNDAY", startTime: "09:00:00", endTime: "12:00:00")
@@ -546,6 +562,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let futureDate = Calendar.current.date(byAdding: .hour, value: 2, to: Date())!
         let futureEnd = Calendar.current.date(byAdding: .hour, value: 3, to: Date())!
         let formatter = ISO8601DateFormatter()
+
+        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] == "1" {
+            orders = []
+            nextOrderId = 10
+            return
+        }
 
         orders = [
             OrderDetailResponse(
