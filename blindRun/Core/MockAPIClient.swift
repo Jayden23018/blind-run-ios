@@ -221,7 +221,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         )
     }
 
-    private func handleUpdateBlindProfile(body: (any Encodable & Sendable)?) throws -> ApiSuccessResponse {
+    private func handleUpdateBlindProfile(body: (any Encodable & Sendable)?) throws -> BlindProfileResponse {
         guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
               let request = try? JSONDecoder().decode(BlindProfileUpdateRequest.self, from: data) else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
@@ -237,7 +237,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             chatPreference: request.chatPreference ?? blindProfile?.chatPreference,
             defaultPace: request.defaultPace ?? blindProfile?.defaultPace
         )
-        return ApiSuccessResponse(success: true, message: nil)
+        return blindProfile!
     }
 
     private func handleVerifyIdentity() -> ApiSuccessResponse {
@@ -262,7 +262,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         )
     }
 
-    private func handleUpdateVolunteerProfile(body: (any Encodable & Sendable)?) throws -> ApiSuccessResponse {
+    private func handleUpdateVolunteerProfile(body: (any Encodable & Sendable)?) throws -> VolunteerProfileResponse {
         guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
               let request = try? JSONDecoder().decode(VolunteerProfileUpdateRequest.self, from: data) else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
@@ -275,7 +275,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             acceptsGuideDog: request.acceptsGuideDog ?? volunteerProfile?.acceptsGuideDog,
             paceRange: request.paceRange ?? volunteerProfile?.paceRange
         )
-        return ApiSuccessResponse(success: true, message: nil)
+        return volunteerProfile!
     }
 
     // MARK: - Emergency Contact Handlers

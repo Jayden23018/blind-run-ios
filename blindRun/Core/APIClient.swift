@@ -176,6 +176,14 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
 
         switch httpResponse.statusCode {
         case 200...299:
+            // Strategy: Try envelope first, then direct decode.
+            // Envelope-first avoids the issue where all-optional models (e.g. BlindProfileResponse)
+            // would "succeed" with all-nil values when decoded from the envelope root object.
+            if let envelope = try? decoder.decode(APIEnvelopeResponse<T>.self, from: data),
+               let payload = envelope.data {
+                return payload
+            }
+            // Fallback: direct decode (for auth endpoints with flat responses)
             do {
                 return try decoder.decode(T.self, from: data)
             } catch {
@@ -184,8 +192,15 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         case 401:
             throw APIError.unauthorized
         default:
+            // Try string-code ErrorResponse (e.g. {"code": "INVALID_VERIFICATION_CODE", "message": "..."})
             if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
                 throw APIError.serverError(errorResponse)
+            }
+            // Try int-code envelope error (cloud backend format: {"success": false, "code": 400, "message": "..."})
+            if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data),
+               let message = envelope.message {
+                let codeStr = envelope.code.map { String($0) } ?? "UNKNOWN"
+                throw APIError.serverError(ErrorResponse(code: codeStr, message: message))
             }
             throw APIError.unknown(statusCode: httpResponse.statusCode)
         }
@@ -251,6 +266,14 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
 
         switch httpResponse.statusCode {
         case 200...299:
+            // Strategy: Try envelope first, then direct decode.
+            // Envelope-first avoids the issue where all-optional models (e.g. BlindProfileResponse)
+            // would "succeed" with all-nil values when decoded from the envelope root object.
+            if let envelope = try? decoder.decode(APIEnvelopeResponse<T>.self, from: data),
+               let payload = envelope.data {
+                return payload
+            }
+            // Fallback: direct decode (for auth endpoints with flat responses)
             do {
                 return try decoder.decode(T.self, from: data)
             } catch {
@@ -259,8 +282,15 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         case 401:
             throw APIError.unauthorized
         default:
+            // Try string-code ErrorResponse (e.g. {"code": "INVALID_VERIFICATION_CODE", "message": "..."})
             if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
                 throw APIError.serverError(errorResponse)
+            }
+            // Try int-code envelope error (cloud backend format: {"success": false, "code": 400, "message": "..."})
+            if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data),
+               let message = envelope.message {
+                let codeStr = envelope.code.map { String($0) } ?? "UNKNOWN"
+                throw APIError.serverError(ErrorResponse(code: codeStr, message: message))
             }
             throw APIError.unknown(statusCode: httpResponse.statusCode)
         }

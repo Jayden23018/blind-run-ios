@@ -60,3 +60,22 @@ struct ErrorResponse: Codable, Sendable {
         ErrorCode(rawValue: code)
     }
 }
+
+// MARK: - Cloud Backend Response Envelope
+
+/// Generic response envelope for cloud backend business endpoints.
+/// Format: {"success": bool, "code": int, "message": string, "data": T}
+struct APIEnvelopeResponse<T: Decodable>: Decodable {
+    let success: Bool?
+    let code: Int?
+    let message: String?
+    let data: T?
+}
+
+/// Error envelope with Int code (cloud backend error format).
+/// Used when non-2xx responses have {"success": false, "code": 400, "message": "..."}.
+struct APIErrorEnvelope: Decodable {
+    let success: Bool?
+    let code: Int?
+    let message: String?
+}
