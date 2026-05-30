@@ -80,7 +80,7 @@ final class AppState: ObservableObject {
 
     var isVolunteerProfileApproved: Bool {
         guard let profile = volunteerProfile else { return false }
-        return profile.verificationStatus == "approved"
+        return profile.verificationStatus?.lowercased() == "approved"
     }
 
     /// 根据当前环境返回对应的 API Client

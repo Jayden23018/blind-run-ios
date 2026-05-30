@@ -14,7 +14,7 @@ struct BlindProfileResponse: Codable, Sendable {
     let defaultPace: PacePreference?
 
     private enum CodingKeys: String, CodingKey {
-        case name
+        case name = "nickname"
         case runningPace
         case specialNeeds
         case verifyStatus
@@ -23,6 +23,28 @@ struct BlindProfileResponse: Codable, Sendable {
         case tetherPreference
         case chatPreference
         case defaultPace
+    }
+
+    init(
+        name: String? = nil,
+        runningPace: String? = nil,
+        specialNeeds: String? = nil,
+        verifyStatus: String? = nil,
+        visionLevel: String? = nil,
+        hasGuideDog: Bool? = nil,
+        tetherPreference: String? = nil,
+        chatPreference: String? = nil,
+        defaultPace: PacePreference? = nil
+    ) {
+        self.name = name
+        self.runningPace = runningPace
+        self.specialNeeds = specialNeeds
+        self.verifyStatus = verifyStatus
+        self.visionLevel = visionLevel
+        self.hasGuideDog = hasGuideDog
+        self.tetherPreference = tetherPreference
+        self.chatPreference = chatPreference
+        self.defaultPace = defaultPace
     }
 }
 
@@ -37,7 +59,7 @@ struct BlindProfileUpdateRequest: Codable, Sendable {
     let defaultPace: PacePreference?
 
     private enum CodingKeys: String, CodingKey {
-        case name
+        case name = "nickname"
         case runningPace
         case specialNeeds
         case visionLevel
@@ -66,12 +88,28 @@ struct VolunteerProfileResponse: Codable, Sendable {
     let paceRange: PacePreference?
 
     private enum CodingKeys: String, CodingKey {
-        case name
+        case name = "nickname"
         case verificationStatus
         case isAvailable
         case availableTimeSlots
         case acceptsGuideDog
         case paceRange
+    }
+
+    init(
+        name: String? = nil,
+        verificationStatus: String? = nil,
+        isAvailable: Bool? = nil,
+        availableTimeSlots: [VolunteerAvailableTimeSlot]? = nil,
+        acceptsGuideDog: Bool? = nil,
+        paceRange: PacePreference? = nil
+    ) {
+        self.name = name
+        self.verificationStatus = verificationStatus
+        self.isAvailable = isAvailable
+        self.availableTimeSlots = availableTimeSlots
+        self.acceptsGuideDog = acceptsGuideDog
+        self.paceRange = paceRange
     }
 }
 
@@ -89,7 +127,7 @@ struct VolunteerProfileUpdateRequest: Codable, Sendable {
     let paceRange: PacePreference?
 
     private enum CodingKeys: String, CodingKey {
-        case name
+        case name = "nickname"
         case isAvailable
         case availableTimeSlots
         case acceptsGuideDog

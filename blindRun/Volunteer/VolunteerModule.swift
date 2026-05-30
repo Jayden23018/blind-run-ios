@@ -11,7 +11,7 @@ enum VolunteerOrderActionGuard {
             return "请先完善志愿者资料"
         }
 
-        guard profile.verificationStatus == "approved" else {
+        guard profile.verificationStatus?.lowercased() == "approved" else {
             return "请先完成志愿者认证"
         }
 
@@ -42,18 +42,22 @@ final class VolunteerProfileViewModel: ObservableObject {
         !isCertificationRunning
     }
 
+    var isApproved: Bool {
+        verificationStatus.lowercased() == "approved"
+    }
+
     var certificationButtonTitle: String {
         if isCertificationRunning {
             return "认证中"
         }
-        if verificationStatus == "approved" {
+        if isApproved {
             return "认证已完成"
         }
         return "开始认证"
     }
 
     var certificationAccessibilityHint: String {
-        if verificationStatus == "approved" {
+        if isApproved {
             return "认证已完成"
         }
         if appState?.isVolunteerProfileComplete != true {
@@ -73,7 +77,7 @@ final class VolunteerProfileViewModel: ObservableObject {
 
         guard let profile = appState.volunteerProfile else { return }
         name = profile.name ?? ""
-        verificationStatus = profile.verificationStatus ?? "not_submitted"
+        verificationStatus = profile.verificationStatus?.lowercased() ?? "not_submitted"
     }
 
     func startMockCertification() {
@@ -114,7 +118,7 @@ final class VolunteerProfileViewModel: ObservableObject {
                 "/api/volunteer/mock-verification/approve"
             )
             appState.updateVolunteerProfile(profile)
-            verificationStatus = profile.verificationStatus ?? "not_submitted"
+            verificationStatus = profile.verificationStatus?.lowercased() ?? "not_submitted"
             isCertificationRunning = false
         } catch let error as APIError {
             isCertificationRunning = false
@@ -155,7 +159,7 @@ final class VolunteerProfileViewModel: ObservableObject {
 
     private func apply(profile: VolunteerProfileResponse) {
         name = profile.name ?? ""
-        verificationStatus = profile.verificationStatus ?? "not_submitted"
+        verificationStatus = profile.verificationStatus?.lowercased() ?? "not_submitted"
     }
 }
 
@@ -263,7 +267,7 @@ struct VolunteerProfileView: View {
                     .frame(minHeight: 64)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.verificationStatus == "approved")
+                .disabled(viewModel.isApproved)
                 .accessibilityLabel("开始认证")
                 .accessibilityHint(viewModel.certificationAccessibilityHint)
             } else {
@@ -286,7 +290,7 @@ struct VolunteerProfileView: View {
                     .frame(minHeight: 64)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isCertificationRunning || viewModel.verificationStatus == "approved")
+                .disabled(viewModel.isCertificationRunning || viewModel.isApproved)
                 .accessibilityLabel("开始模拟认证")
                 .accessibilityHint(viewModel.certificationAccessibilityHint)
             }
@@ -306,7 +310,7 @@ struct VolunteerProfileView: View {
             Spacer()
             Text(value)
                 .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(value == "approved" ? AppColors.success : AppColors.textPrimary)
+                .foregroundColor(value.lowercased() == "approved" ? AppColors.success : AppColors.textPrimary)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title) 状态 \(value)")
