@@ -14,7 +14,7 @@ struct BlindProfileResponse: Codable, Sendable {
     let defaultPace: PacePreference?
 
     private enum CodingKeys: String, CodingKey {
-        case name = "nickname"
+        case name = "name"
         case runningPace
         case specialNeeds
         case verifyStatus
@@ -59,7 +59,7 @@ struct BlindProfileUpdateRequest: Codable, Sendable {
     let defaultPace: PacePreference?
 
     private enum CodingKeys: String, CodingKey {
-        case name = "nickname"
+        case name = "name"
         case runningPace
         case specialNeeds
         case visionLevel
@@ -88,7 +88,7 @@ struct VolunteerProfileResponse: Codable, Sendable {
     let paceRange: PacePreference?
 
     private enum CodingKeys: String, CodingKey {
-        case name = "nickname"
+        case name = "name"
         case verificationStatus
         case isAvailable
         case availableTimeSlots
@@ -127,7 +127,7 @@ struct VolunteerProfileUpdateRequest: Codable, Sendable {
     let paceRange: PacePreference?
 
     private enum CodingKeys: String, CodingKey {
-        case name = "nickname"
+        case name = "name"
         case isAvailable
         case availableTimeSlots
         case acceptsGuideDog

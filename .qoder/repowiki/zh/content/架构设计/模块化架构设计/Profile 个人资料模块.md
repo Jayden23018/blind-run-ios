@@ -12,7 +12,17 @@
 - [tasks.md](file://openspec/changes/add-aidrun-ios-spring-mvp/tasks.md)
 - [ContentView.swift](file://blindRun/ContentView.swift)
 - [blindRunApp.swift](file://blindRun/blindRunApp.swift)
+- [ProfileModule.swift](file://blindRun/Profile/ProfileModule.swift)
+- [AppState.swift](file://blindRun/Core/AppState.swift)
+- [BlindRunnerSettingsView.swift](file://blindRun/BlindRunner/BlindRunnerSettingsView.swift)
+- [VolunteerModule.swift](file://blindRun/Volunteer/VolunteerModule.swift)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增登出确认对话框功能，提升用户体验和安全性
+- 扩展了Profile模块的安全性设计，防止意外登出操作
+- 增强了用户界面的交互安全保障机制
 
 ## 目录
 1. [简介](#简介)
@@ -31,6 +41,8 @@
 Profile 个人资料模块是 AidRun iOS 应用的核心功能模块之一，负责管理用户的基本信息和个人资料。该模块支持两种用户角色：盲人跑者（Blind Runner）和志愿者（Volunteer），为每个角色提供定制化的资料表单和验证规则。
 
 本模块遵循 MVVM 架构模式，采用 SwiftUI 作为用户界面框架，结合 URLSession 进行网络通信。模块设计充分考虑了无障碍访问需求，特别针对视障用户的语音交互进行了优化。
+
+**更新** 新增登出确认对话框功能，通过二次确认机制防止意外登出操作，提升用户操作的安全性和体验质量。
 
 ## 项目结构
 
@@ -79,6 +91,7 @@ class ProfileModule {
 +VolunteerProfileForm
 +ProfileValidation
 +ProfileStorage
++LogoutConfirmationDialog
 }
 class BlindRunnerProfile {
 +String nickname
@@ -99,8 +112,15 @@ class EmergencyContact {
 +String name
 +String phoneNumber
 }
+class LogoutConfirmationDialog {
++Bool showLogoutConfirm
++Button confirmButton
++Button cancelButton
++clearSession()
+}
 ProfileModule --> BlindRunnerProfile
 ProfileModule --> VolunteerProfile
+ProfileModule --> LogoutConfirmationDialog
 VolunteerProfile --> EmergencyContact
 ```
 
@@ -184,13 +204,21 @@ class BlindRunnerProfileForm {
 +TextField runningExperience
 +EmergencyContactForm emergencyContact
 +Button submitButton
++Button logoutButton
 +ValidationResult validate()
 +saveProfile() ProfileResult
++showLogoutConfirm Bool
 }
 class EmergencyContactForm {
 +TextField contactName
 +TextField contactPhone
 +validateContact() Boolean
+}
+class LogoutConfirmationDialog {
++Bool showLogoutConfirm
++Button confirmButton
++Button cancelButton
++clearSession()
 }
 class ValidationRules {
 +requiredFields : [nickname, emergencyContact]
@@ -200,6 +228,7 @@ class ValidationRules {
 }
 BlindRunnerProfileForm --> EmergencyContactForm
 BlindRunnerProfileForm --> ValidationRules
+BlindRunnerProfileForm --> LogoutConfirmationDialog
 ```
 
 **图表来源**
@@ -227,8 +256,10 @@ class VolunteerProfileForm {
 +TextField nickname
 +TextField phoneNumber
 +Button submitButton
++Button logoutButton
 +validateForm() ValidationResult
 +saveProfile() VolunteerProfile
++showLogoutConfirm Bool
 }
 class VolunteerProfile {
 +String id
@@ -240,7 +271,14 @@ class VolunteerProfile {
 +Boolean isAvailable
 +Integer pointsBalance
 }
+class LogoutConfirmationDialog {
++Bool showLogoutConfirm
++Button confirmButton
++Button cancelButton
++clearSession()
+}
 VolunteerProfileForm --> VolunteerProfile
+VolunteerProfileForm --> LogoutConfirmationDialog
 ```
 
 **图表来源**
@@ -255,6 +293,41 @@ VolunteerProfileForm --> VolunteerProfile
 
 **章节来源**
 - [07-api-contract.openapi.yaml:724-761](file://docs/07-api-contract.openapi.yaml#L724-L761)
+
+### 登出确认对话框功能
+
+**新增** Profile 模块现在包含登出确认对话框功能，通过二次确认机制防止意外登出操作：
+
+```mermaid
+flowchart TD
+UserClick[用户点击退出登录] --> ShowDialog[显示确认对话框]
+ShowDialog --> UserConfirm{用户确认?}
+UserConfirm --> |是| ClearSession[清除会话状态]
+UserConfirm --> |否| CloseDialog[关闭对话框]
+ClearSession --> NavigateLogin[导航到登录页]
+CloseDialog --> End[结束操作]
+NavigateLogin --> End
+```
+
+**图表来源**
+- [ProfileModule.swift:207-214](file://blindRun/Profile/ProfileModule.swift#L207-L214)
+- [BlindRunnerSettingsView.swift:85-92](file://blindRun/BlindRunner/BlindRunnerSettingsView.swift#L85-L92)
+
+#### 对话框特性
+
+| 特性 | 描述 | 实现方式 |
+|------|------|----------|
+| 标题 | "确认退出" | 使用 `.alert()` SwiftUI modifier |
+| 确认按钮 | "确认退出"，破坏性样式 | `role: .destructive` |
+| 取消按钮 | "取消"，取消样式 | `role: .cancel` |
+| 提示信息 | "确认后将清除当前登录状态，返回登录页" | 自定义消息文本 |
+| 触发条件 | 用户点击登出按钮 | `showLogoutConfirm = true` |
+| 清除操作 | 调用 `appState.clearSession()` | 清除所有会话数据 |
+
+**章节来源**
+- [ProfileModule.swift:207-214](file://blindRun/Profile/ProfileModule.swift#L207-L214)
+- [BlindRunnerSettingsView.swift:85-92](file://blindRun/BlindRunner/BlindRunnerSettingsView.swift#L85-L92)
+- [VolunteerModule.swift:197-204](file://blindRun/Volunteer/VolunteerModule.swift#L197-L204)
 
 ### 表单验证机制
 
@@ -348,18 +421,22 @@ ProfileForm[ProfileForm]
 Validation[Validation]
 Storage[Storage]
 Sync[Sync]
+LogoutDialog[LogoutConfirmationDialog]
 end
 subgraph "外部依赖"
 Auth[Auth模块]
 Network[Network模块]
 Voice[Voice模块]
+AppState[AppState]
 end
 ProfileForm --> Validation
 ProfileForm --> Storage
+ProfileForm --> LogoutDialog
 Storage --> Sync
 Sync --> Network
 ProfileForm --> Voice
 ProfileForm --> Auth
+LogoutDialog --> AppState
 ```
 
 **图表来源**
@@ -373,6 +450,7 @@ ProfileForm --> Auth
 | Network | 网络请求和API调用 | URLSession |
 | Voice | 无障碍语音服务 | AVSpeechSynthesizer |
 | Map | 地理位置服务 | 高德地图SDK |
+| AppState | 全局状态管理和会话控制 | 全局应用状态 |
 
 **章节来源**
 - [08-ios-architecture.md:5-16](file://docs/08-ios-architecture.md#L5-L16)
@@ -402,6 +480,14 @@ end
 2. **增量同步**：只同步变更的数据，减少网络传输量
 3. **离线优先**：在网络不佳时提供完整的离线功能
 
+### 登出确认对话框性能优化
+
+**新增** 登出确认对话框采用轻量级实现，不会影响主界面性能：
+
+- 使用 SwiftUI 的 `.alert()` modifier，系统自动管理内存
+- 对话框状态仅在用户触发时存在，不占用持续资源
+- 清除会话操作在确认后执行，避免不必要的延迟
+
 ## 故障排除指南
 
 ### 常见问题及解决方案
@@ -412,6 +498,7 @@ end
 | 网络同步失败 | 保存后立即显示错误 | 检查网络连接，重试同步，查看错误日志 |
 | 数据不一致 | 本地和服务器显示不同 | 清除缓存，重新登录，检查同步状态 |
 | 无障碍功能异常 | 语音播报不正常 | 检查系统语音设置，重新授权相关权限 |
+| 登出确认对话框无响应 | 点击按钮无反应 | 检查状态绑定，确认 `showLogoutConfirm` 是否正确更新 |
 
 ### 错误处理流程
 
@@ -422,6 +509,7 @@ IdentifyError --> |网络错误| NetworkRetry[网络重试]
 IdentifyError --> |验证错误| ShowValidationError[显示验证错误]
 IdentifyError --> |服务器错误| ShowServerError[显示服务器错误]
 IdentifyError --> |权限错误| ShowPermissionError[显示权限错误]
+IdentifyError --> |登出确认对话框错误| ShowDialogError[显示对话框错误]
 NetworkRetry --> CheckConnection[检查网络连接]
 CheckConnection --> HasConnection{有网络连接?}
 HasConnection --> |是| RetryAPI[重试API调用]
@@ -432,6 +520,8 @@ Success --> |否| ShowNetworkError
 ShowValidationError --> FixForm[指导用户修正表单]
 ShowServerError --> ContactSupport[联系技术支持]
 ShowPermissionError --> RequestPermission[引导用户授权]
+ShowDialogError --> CheckStateBinding[检查状态绑定]
+CheckStateBinding --> FixState[修复状态绑定问题]
 ```
 
 **章节来源**
@@ -441,10 +531,13 @@ ShowPermissionError --> RequestPermission[引导用户授权]
 
 Profile 个人资料模块通过精心设计的表单架构和严格的验证机制，为 AidRun 应用提供了可靠的用户资料管理功能。模块支持双角色差异化设计，既满足了功能需求，又保持了良好的用户体验。
 
+**更新** 新增的登出确认对话框功能显著提升了应用的安全性和用户体验。通过二次确认机制，有效防止了意外登出操作，同时保持了简洁直观的操作流程。
+
 关键优势包括：
 - **角色适配**：为盲人跑者和志愿者提供定制化的资料表单
 - **数据安全**：采用多层验证和错误处理机制
 - **无障碍优化**：深度集成语音服务和无障碍功能
+- **安全性增强**：新增登出确认对话框，防止意外操作
 - **性能优化**：智能缓存和批量同步策略
 - **扩展性强**：模块化设计便于后续功能扩展
 
@@ -460,13 +553,39 @@ Profile 个人资料模块通过精心设计的表单架构和严格的验证机
 
 ### 开发任务清单
 
-- [ ] 实现盲人跑者资料表单
-- [ ] 实现志愿者资料表单  
-- [ ] 实现表单验证逻辑
-- [ ] 实现本地数据缓存
-- [ ] 实现服务器同步机制
-- [ ] 实现无障碍语音支持
-- [ ] 实现错误处理和用户提示
+- [x] 实现盲人跑者资料表单
+- [x] 实现志愿者资料表单  
+- [x] 实现表单验证逻辑
+- [x] 实现本地数据缓存
+- [x] 实现服务器同步机制
+- [x] 实现无障碍语音支持
+- [x] 实现错误处理和用户提示
+- [x] 实现登出确认对话框功能
 
 **章节来源**
 - [tasks.md:37-46](file://openspec/changes/add-aidrun-ios-spring-mvp/tasks.md#L37-L46)
+
+### 登出确认对话框实现细节
+
+**新增** 登出确认对话框的具体实现：
+
+```swift
+.alert("确认退出", isPresented: $showLogoutConfirm) {
+    Button("确认退出", role: .destructive) {
+        appState.clearSession()
+    }
+    Button("取消", role: .cancel) {}
+} message: {
+    Text("确认后将清除当前登录状态，返回登录页。")
+}
+```
+
+该实现位于多个模块中：
+- **Profile 模块**：在资料编辑页面提供登出选项
+- **志愿者模块**：在志愿者认证页面提供登出选项  
+- **盲人跑者设置**：在设置页面提供登出选项
+
+**章节来源**
+- [ProfileModule.swift:207-214](file://blindRun/Profile/ProfileModule.swift#L207-L214)
+- [VolunteerModule.swift:197-204](file://blindRun/Volunteer/VolunteerModule.swift#L197-L204)
+- [BlindRunnerSettingsView.swift:85-92](file://blindRun/BlindRunner/BlindRunnerSettingsView.swift#L85-L92)

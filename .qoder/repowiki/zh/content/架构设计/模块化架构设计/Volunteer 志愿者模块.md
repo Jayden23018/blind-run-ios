@@ -42,6 +42,7 @@
 - 更新可用性管理章节，补充后端服务的具体实现逻辑
 - 新增志愿者积分系统章节，包含积分流水和余额管理
 - 更新架构总览图，反映新增的后端API接口和数据流
+- **新增登出确认对话框功能**，完善用户账户安全管理和操作确认机制
 
 ## 目录
 1. [简介](#简介)
@@ -59,7 +60,7 @@
 ## 简介
 本文件面向志愿者模块的功能与实现，围绕以下主题展开：志愿者主页、可用性管理与可接订单浏览；志愿者认证流程（含 Mock 审核与状态检查）；可接订单的获取与排序机制（基于距离的本地排序与当前位置处理）；订单详情页面的接单、到达确认、服务完成与取消流程；服务记录管理（历史订单查看与评价系统）；志愿者积分系统（奖励与查询）。同时提供完整的工作流程示例与状态管理策略，并通过可视化图表映射到实际需求与交互。
 
-**更新** 志愿者模块现已实现完整的后端服务支持，包括志愿者认证管理、可用性控制和Mock验证功能。新增的1778行VolunteerOrderFlowViews.swift文件实现了完整的志愿者侧订单管理体验，涵盖订单发现、接受、到达确认、服务进行、完成处理等五个阶段的操作界面和状态管理。
+**更新** 志愿者模块现已实现完整的后端服务支持，包括志愿者认证管理、可用性控制和Mock验证功能。新增的1778行VolunteerOrderFlowViews.swift文件实现了完整的志愿者侧订单管理体验，涵盖订单发现、接受、到达确认、服务进行、完成处理等五个阶段的操作界面和状态管理。**新增登出确认对话框功能**，完善用户账户安全管理和操作确认机制。
 
 ## 项目结构
 志愿者模块在整体 iOS 架构中属于独立功能域，遵循 SwiftUI + MVVM 的设计，配合高德地图与定位能力，支撑志愿者端的认证、可用性开关、附近订单浏览、接单与服务流程。当前模块包含完整的首页实现、志愿者订单流程视图、服务记录管理、积分系统和设置页面，以及后端的完整服务实现。
@@ -137,6 +138,10 @@ Service --> PointsRepo
 - 无障碍语音服务
   - 集中式 TTS 服务，使用 AVSpeechSynthesizer 播报状态变化和错误提示。
   - 支持重复当前状态播报，避免轮询时重复播报。
+- **登出确认对话框**
+  - **新增功能**：提供安全的账户退出机制，防止误操作。
+  - 采用系统标准的确认对话框，包含"确认退出"和"取消"选项。
+  - 二次确认机制确保用户明确理解退出操作的后果。
 
 **章节来源**
 - [04-user-flows-and-state-machine.md: 24-32:24-32](file://docs/04-user-flows-and-state-machine.md#L24-L32)
@@ -475,7 +480,7 @@ Ledger --> View["积分页查看累计与明细"]
 ### 认证与登录（Mock 审核与状态检查）
 - 登录与令牌
   - 支持手机号 + 固定验证码（123456）登录，返回 JWT；首次登录可能未设置 activeRole，需进入角色选择。
-- Mock 审核
+- Mock 认证
   - 提供 Mock 认证动作，将"验证状态"和"管理员复审状态"置为"已批准"，随后开启"可服务"即可接单。
   - 后端提供 `/api/volunteer/mock-verification/approve` 接口支持。
 - 状态检查
@@ -495,6 +500,43 @@ Avail --> Ready["可接单"]
 **章节来源**
 - [auth-phone-login/spec.md: 3-30:3-30](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/auth-phone-login/spec.md#L3-L30)
 - [volunteer-order-flow/spec.md: 15-22:15-22](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/volunteer-order-flow/spec.md#L15-L22)
+
+### 登出确认对话框功能
+
+**新增功能**：志愿者模块现已集成安全的登出确认对话框，完善用户账户安全管理。
+
+- 功能概述
+  - 提供标准的系统确认对话框，防止误操作导致的意外登出。
+  - 采用"确认退出"和"取消"双选项设计，确保用户明确操作意图。
+  - 二次确认机制确保用户充分理解退出操作的后果。
+- 技术实现
+  - 使用 SwiftUI 的 `.alert()` 修饰符实现确认对话框。
+  - 对话框标题为"确认退出"，消息内容说明退出后将清除当前登录状态并返回登录页。
+  - 确认按钮使用危险操作样式（destructive），强调操作的不可逆性。
+- 用户体验
+  - 退出按钮位于设置页面的显眼位置，便于用户快速找到。
+  - 提供清晰的辅助说明，告知用户退出后需要重新登录。
+  - 采用系统标准的对话框样式，保持一致的用户体验。
+- 安全考虑
+  - 防止意外点击导致的账户退出。
+  - 确保用户在执行敏感操作前有充分的思考时间。
+  - 与后端会话管理机制配合，确保登出后清理所有本地状态。
+
+```mermaid
+flowchart TD
+UserClick["用户点击退出登录"] --> ShowAlert["显示确认对话框"]
+ShowAlert --> UserChoice{"用户选择?"}
+UserChoice --> |确认退出| ClearSession["清除会话状态"]
+UserChoice --> |取消| CloseAlert["关闭对话框"]
+ClearSession --> NavigateLogin["导航至登录页"]
+CloseAlert --> ShowAlert
+```
+
+**图表来源**
+- [VolunteerModule.swift: 197-204:197-204](file://blindRun/Volunteer/VolunteerModule.swift#L197-L204)
+
+**章节来源**
+- [VolunteerModule.swift: 197-204:197-204](file://blindRun/Volunteer/VolunteerModule.swift#L197-L204)
 
 ## 后端志愿者服务实现
 
@@ -740,6 +782,10 @@ VOICE --> TTS["AVSpeechSynthesizer"]
   - 检查认证令牌是否有效
   - 验证志愿者档案是否存在且完整
   - 查看错误码确定具体问题类型
+- **登出功能问题**
+  - **新增**：如果登出确认对话框无法显示，检查视图绑定状态 `showLogoutConfirm`。
+  - 确认按钮事件处理程序正确调用 `appState.clearSession()`。
+  - 检查系统 alert 修饰符的语法和参数配置。
 
 **章节来源**
 - [volunteer-order-flow/spec.md: 7-14:7-14](file://openspec/changes/add-aidrun-ios-spring-mvp/specs/volunteer-order-flow/spec.md#L7-L14)
@@ -750,7 +796,7 @@ VOICE --> TTS["AVSpeechSynthesizer"]
 ## 结论
 志愿者模块现已实现完整的前后端协同功能，包括认证管理、可用性控制、Mock验证和积分系统。后端提供了完善的API接口和业务逻辑，前端集成了完整的UI组件和无障碍服务。模块围绕"认证—可用性—附近订单—接单—服务—记录—积分"的完整闭环构建，结合MVVM架构与高德地图能力，实现了真实地图、定位与本地距离排序。通过明确的状态机与轮询策略，保障了双方状态一致性与用户体验。
 
-**更新** 随着后端志愿者服务的完善实现和新增的1778行VolunteerOrderFlowViews.swift文件，志愿者模块现在具备了完整的业务功能支持，包括完整的订单管理流程、状态检查机制、地图集成和语音服务，为后续的完整功能开发奠定了坚实基础。
+**更新** 随着后端志愿者服务的完善实现和新增的1778行VolunteerOrderFlowViews.swift文件，志愿者模块现在具备了完整的业务功能支持，包括完整的订单管理流程、状态检查机制、地图集成和语音服务，为后续的完整功能开发奠定了坚实基础。**新增的登出确认对话框功能进一步完善了用户账户安全管理体系，防止误操作导致的安全风险。**
 
 ## 附录
 - 工作流程示例（志愿者正向流程）
@@ -773,6 +819,10 @@ VOICE --> TTS["AVSpeechSynthesizer"]
   - 事务管理确保数据一致性
   - 枚举类型提供类型安全的状态管理
   - 全面的单元测试覆盖关键业务场景
+- **登出功能规范**
+  - **新增**：采用系统标准确认对话框，防止误操作。
+  - **新增**：二次确认机制确保用户明确理解操作后果。
+  - **新增**：与后端会话管理配合，确保完全清除用户状态。
 
 **章节来源**
 - [04-user-flows-and-state-machine.md: 180-228:180-228](file://docs/04-user-flows-and-state-machine.md#L180-L228)
@@ -784,3 +834,4 @@ VOICE --> TTS["AVSpeechSynthesizer"]
 - [SpeechService.swift: 32-47:32-47](file://blindRun/Voice/SpeechService.swift#L32-L47)
 - [VolunteerController.java: 25-40:25-40](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerController.java#L25-L40)
 - [VolunteerService.java: 24-88:24-88](file://backend/src/main/java/com/aidrun/backend/volunteer/VolunteerService.java#L24-L88)
+- [VolunteerModule.swift: 197-204:197-204](file://blindRun/Volunteer/VolunteerModule.swift#L197-L204)
