@@ -161,7 +161,10 @@ final class VolunteerHomeViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let request = VolunteerProfileUpdateRequest(isAvailable: value)
+            let request = VolunteerProfileUpdateRequest(
+                name: appState.volunteerProfile?.name,
+                isAvailable: value
+            )
             let profile: VolunteerProfileResponse = try await appState.apiClient.put(
                 "/api/volunteer/profile",
                 body: request
