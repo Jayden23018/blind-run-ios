@@ -41,13 +41,13 @@
 **验收标准**：
 
 **Given** 用户在验证码输入页
-**When** 用户输入正确验证码 `123456`
+**When** 用户输入正确验证码 `000000`
 **Then** 后端返回 JWT accessToken，前端存储至 UserDefaults
 
 ---
 
 **Given** 用户在验证码输入页
-**When** 用户输入非 `123456` 的验证码
+**When** 用户输入非 `000000` 的验证码
 **Then** 系统显示错误提示"验证码错误，请重新输入"，不清除已输入内容
 
 ---
@@ -152,15 +152,15 @@
 
 **验收标准**：
 
-**Given** 用户存在状态为 accepted / arrived / in_progress / emergency 的订单
+**Given** 用户存在状态为 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 的订单
 **When** 用户尝试切换角色
 **Then** 弹出警告弹窗"您有进行中的订单，无法切换角色"，角色切换不执行
 
 ---
 
-**Given** 用户存在状态为 matching / completed / cancelled 的订单
+**Given** 用户存在状态为 PENDING_MATCH / COMPLETED / CANCELLED 的订单
 **When** 用户尝试切换角色
-**Then** 角色切换正常执行（matching 中订单不影响切换，但切换后将看不到该订单）
+**Then** 角色切换正常执行（PENDING_MATCH 中订单不影响切换，但切换后将看不到该订单）
 
 ---
 
@@ -221,7 +221,7 @@
 
 **验收标准**：
 
-**Given** 盲人跑者进入首页，且存在活跃订单（matching / accepted / arrived / in_progress）
+**Given** 盲人跑者进入首页，且存在活跃订单（PENDING_MATCH / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS）
 **When** 页面加载完成
 **Then** 不显示"开始约跑"按钮，改为显示订单状态卡片（含订单状态、时间、地点）
 **And** TTS 播报当前订单状态
@@ -240,7 +240,7 @@
 
 **Given** 盲人跑者在创建预约页
 **When** 用户选择出发地点（默认当前定位）、预约时间、可选项（目的地、预计时长、预计距离、配速偏好、是否需要同性志愿者、备注）并点击"提交预约"
-**Then** 订单创建成功，状态为 matching，导航至订单状态等待页
+**Then** 订单创建成功，状态为 PENDING_MATCH，导航至订单状态等待页
 **And** TTS 播报"订单提交成功，等待志愿者接单"
 
 ---
@@ -267,46 +267,29 @@
 
 **验收标准**：
 
-**Given** 盲人跑者在订单状态等待页，订单状态为 matching
+**Given** 盲人跑者在订单状态等待页，订单状态为 PENDING_MATCH
 **When** 页面每 5 秒轮询一次
-**Then** 如果状态仍为 matching，显示"匹配中"动画
+**Then** 如果状态仍为 PENDING_MATCH，显示"匹配中"动画
 
 ---
 
 **Given** 盲人跑者在订单状态等待页
-**When** 轮询发现状态变为 accepted
+**When** 轮询发现状态变为 PENDING_ACCEPT
 **Then** 页面更新为"已接单"，显示志愿者昵称
 **And** TTS 播报"志愿者已接单"
 
 ---
 
 **Given** 盲人跑者在订单状态等待页
-**When** 轮询发现状态变为 arrived
-**Then** 页面更新为"志愿者已到达"，显示"确认开始服务"按钮
-**And** TTS 播报"志愿者已到达约定地点，请确认开始服务"
+**When** WebSocket 或轮询发现状态变为 DRIVER_ARRIVED
+**Then** 页面更新为"志愿者已到达"
+**And** TTS 播报"志愿者已到达约定地点"
 
 ---
 
 **Given** 盲人跑者在订单状态等待页
-**When** 轮询发现状态变为 cancelled（no_volunteer_available）
+**When** 轮询发现状态变为 CANCELLED（NO_VOLUNTEER）
 **Then** 显示"抱歉，暂无志愿者"，TTS 播报对应提示
-
----
-
-### US-BR-006：确认开始服务
-
-**作为**：盲人跑者
-**我想要**：确认志愿者已到达并开始服务
-**以便**：正式进入跑步服务阶段
-
-**优先级**：P0
-
-**验收标准**：
-
-**Given** 订单状态为 arrived，盲人跑者在订单页面
-**When** 用户点击"确认开始服务"（大按钮，最小 64pt）
-**Then** 订单状态变为 in_progress，显示服务中信息
-**And** TTS 播报"服务已开始，祝您跑步愉快"
 
 ---
 
@@ -320,7 +303,7 @@
 
 **验收标准**：
 
-**Given** 订单状态为 in_progress，盲人跑者在服务中页面
+**Given** 订单状态为 IN_PROGRESS，盲人跑者在服务中页面
 **When** 页面加载
 **Then** 显示志愿者昵称和联系电话（接单后可查看）、一键求助按钮（红色醒目）、"重复当前状态"按钮
 
@@ -336,7 +319,7 @@
 
 **验收标准**：
 
-**Given** 订单状态为 accepted / arrived / in_progress
+**Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
 **When** 用户点击"紧急求助"
 **Then** 弹出确认弹窗"是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
 
@@ -344,7 +327,7 @@
 
 **Given** 用户在紧急求助确认弹窗
 **When** 用户确认求助
-**Then** 系统记录 emergency event，显示紧急提示信息
+**Then** 系统记录 emergency event，订单状态保持不变，并显示紧急提示信息
 **And** TTS 播报"已进入求助状态，请保持冷静"
 
 ---
@@ -365,15 +348,15 @@
 
 **验收标准**：
 
-**Given** 订单状态为 matching / accepted / arrived
+**Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS
 **When** 用户点击"取消订单"并确认
-**Then** 订单状态变为 cancelled，cancelledBy = blind_runner，记录取消原因
+**Then** 订单状态变为 CANCELLED，cancelledBy = blind_runner，记录取消原因
 
 ---
 
-**Given** 订单状态为 in_progress
+**Given** 订单状态为 IN_PROGRESS
 **When** 用户尝试取消订单
-**Then** 不显示取消按钮，只能走紧急求助流程
+**Then** 弹出二次确认，确认后订单状态变为 CANCELLED
 
 ---
 
@@ -387,7 +370,7 @@
 
 **验收标准**：
 
-**Given** 订单状态变为 completed
+**Given** 订单状态变为 COMPLETED
 **When** 页面显示完成状态
 **Then** TTS 播报"服务已完成"
 **And** 显示 1-5 星评分 UI 和文字反馈输入框（可选）
@@ -488,7 +471,7 @@
 
 **Given** 志愿者在订单列表页
 **When** 页面加载
-**Then** 显示所有 matching 状态订单，按距离从近到远排序
+**Then** 显示所有 PENDING_MATCH 状态订单，按距离从近到远排序
 **And** 每个订单卡片显示：盲人昵称、出发地点、预约时间、距离、可选项（目的地、预计时长、配速偏好等）
 
 ---
@@ -515,7 +498,7 @@
 
 **验收标准**：
 
-**Given** 志愿者在订单详情页（订单状态为 matching）
+**Given** 志愿者在订单详情页（订单状态为 PENDING_MATCH）
 **When** 页面显示订单完整信息（盲人昵称、出发地点、时间、所有可选项）
 **And** 接单前不显示盲人联系电话
 **And** 显示"接单"按钮
@@ -524,8 +507,8 @@
 
 **Given** 志愿者点击"接单"
 **When** 后端确认接单成功（乐观锁校验通过）
-**Then** 订单状态变为 accepted，页面显示盲人完整联系电话
-**And** 进入订单详情页（已接单状态），显示"我已到达"和"查看地图"按钮
+**Then** 订单状态变为 PENDING_ACCEPT，页面显示盲人完整联系电话
+**And** 进入订单详情页（已接单状态），显示"我已出发"和"查看地图"按钮
 
 ---
 
@@ -535,19 +518,25 @@
 
 ---
 
-### US-VOL-006：到达约定地点
+### US-VOL-006：前往并到达约定地点
 
 **作为**：志愿者
-**我想要**：标记已到达约定地点
+**我想要**：标记已出发和已到达约定地点
 **以便**：通知盲人跑者
 
 **优先级**：P0
 
 **验收标准**：
 
-**Given** 订单状态为 accepted
+**Given** 订单状态为 PENDING_ACCEPT
+**When** 志愿者点击"我已出发"
+**Then** 订单状态变为 DRIVER_EN_ROUTE
+
+---
+
+**Given** 订单状态为 DRIVER_EN_ROUTE
 **When** 志愿者点击"我已到达"
-**Then** 订单状态变为 arrived，盲人端通过轮询收到通知
+**Then** 订单状态变为 DRIVER_ARRIVED，盲人端通过 WebSocket 或轮询收到通知
 
 ---
 
@@ -561,15 +550,15 @@
 
 **验收标准**：
 
-**Given** 订单状态为 arrived，盲人已确认开始服务
+**Given** 订单状态为 DRIVER_ARRIVED，志愿者触发开始服务
 **When** 志愿者查看订单页面
-**Then** 订单状态变为 in_progress，显示盲人信息和一键求助按钮
+**Then** 订单状态变为 IN_PROGRESS，显示盲人信息和一键求助按钮
 
 ---
 
-**Given** 订单状态为 in_progress
+**Given** 订单状态为 IN_PROGRESS
 **When** 志愿者点击"结束服务"
-**Then** 弹出确认弹窗，确认后订单状态变为 completed
+**Then** 弹出确认弹窗，确认后订单状态变为 COMPLETED
 **And** 志愿者获得 +100 积分
 **And** 可选填写服务总结
 
@@ -610,51 +599,57 @@
 
 **验收标准**：
 
-**Given** 订单状态为 matching
+**Given** 订单状态为 PENDING_MATCH
 **When** 志愿者接单成功
-**Then** 状态流转为 accepted
+**Then** 状态流转为 PENDING_ACCEPT
 
 ---
 
-**Given** 订单状态为 matching
+**Given** 订单状态为 PENDING_MATCH
 **When** 盲人在服务开始前取消
-**Then** 状态流转为 cancelled，记录 cancelledBy = blind_runner
+**Then** 状态流转为 CANCELLED，记录 cancelledBy = blind_runner
 
 ---
 
-**Given** 订单状态为 accepted
+**Given** 订单状态为 PENDING_ACCEPT
+**When** 志愿者点击"我已出发"
+**Then** 状态流转为 DRIVER_EN_ROUTE
+
+---
+
+**Given** 订单状态为 DRIVER_EN_ROUTE
 **When** 志愿者点击"我已到达"
-**Then** 状态流转为 arrived
+**Then** 状态流转为 DRIVER_ARRIVED
 
 ---
 
-**Given** 订单状态为 arrived
-**When** 盲人确认开始服务
-**Then** 状态流转为 in_progress
+**Given** 订单状态为 DRIVER_ARRIVED
+**When** 志愿者开始服务
+**Then** 状态流转为 IN_PROGRESS
 
 ---
 
-**Given** 订单状态为 in_progress
+**Given** 订单状态为 IN_PROGRESS
 **When** 志愿者结束服务
-**Then** 状态流转为 completed
+**Then** 状态流转为 COMPLETED
 
 ---
 
-**Given** 订单状态为 matching / accepted / arrived
+**Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS
 **When** 任一方触发取消
-**Then** 状态流转为 cancelled，记录 cancelledBy
+**Then** 状态流转为 CANCELLED，记录 cancelledBy
 
 ---
 
-**Given** 订单状态为 accepted / arrived / in_progress
+**Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
 **When** 任一方触发紧急求助
-**Then** 状态流转为 emergency
+**Then** 记录 emergency event，订单状态保持不变
 
 ---
 
-**Given** 订单状态为 in_progress
+**Given** 订单状态为 IN_PROGRESS
 **When** 任一方尝试取消订单
-**Then** 不允许取消，只能走紧急求助
+**Then** 弹出二次确认，确认后状态流转为 CANCELLED
 
 ---
 
@@ -684,9 +679,9 @@
 
 **验收标准**：
 
-**Given** 订单状态为 matching 且距离预约开始时间不足 30 分钟
+**Given** 订单状态为 PENDING_MATCH 且距离预约开始时间不足 30 分钟
 **When** 仍未有人接单
-**Then** 订单自动变为 cancelled，cancelledReason = no_volunteer_available
+**Then** 订单状态变为 NO_VOLUNTEER
 
 ---
 
@@ -700,8 +695,8 @@
 
 **验收标准**：
 
-**Given** 订单 A 状态为 matching，志愿者甲和志愿者乙几乎同时请求接单
-**When** 甲先成功更新订单状态为 accepted
+**Given** 订单 A 状态为 PENDING_MATCH，志愿者甲和志愿者乙几乎同时请求接单
+**When** 甲先成功更新订单状态为 PENDING_ACCEPT
 **Then** 乙的接单请求返回 ORDER_ALREADY_ACCEPTED 错误
 
 ---
@@ -736,7 +731,7 @@
 **验收标准**：
 
 **Given** 盲人端发生关键状态变化
-**When** 进入盲人首页 / 订单提交成功 / 志愿者接单 / 志愿者到达 / 确认开始 / 服务开始 / 服务完成 / 进入求助 / 错误提示
+**When** 进入盲人首页 / 订单提交成功 / 志愿者接单 / 志愿者到达 / 服务开始 / 服务完成 / 进入求助 / 错误提示
 **Then** AVSpeechSynthesizer 自动播报对应中文提示
 
 ---
@@ -876,6 +871,6 @@
 
 **验收标准**：
 
-**Given** 志愿者完成一次服务（订单状态变为 completed）
+**Given** 志愿者完成一次服务（订单状态变为 COMPLETED）
 **When** 服务完成
 **Then** 积分增加 100，服务记录中显示本次获得积分

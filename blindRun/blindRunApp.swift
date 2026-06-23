@@ -55,10 +55,6 @@ struct blindRunApp: App {
 
         #if DEBUG
         switch environment["AIDRUN_UI_TEST_API_ENV"] {
-        case "localBackend":
-            appState.currentEnvironment = .demoCloud
-        case "production":
-            appState.currentEnvironment = .production
         case "demoCloud":
             appState.currentEnvironment = .demoCloud
         case "mock":

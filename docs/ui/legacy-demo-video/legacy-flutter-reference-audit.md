@@ -2,14 +2,14 @@
 
 ## 审计边界与结论
 
-本文审计旧 Flutter 项目 `/Users/jerry/A/blind-run/blind-run-frontend`，仅用于帮助新的 Swift 原生 iOS + Spring Boot MVP 理解历史行为、交互意图和已暴露的问题。旧项目不是新 MVP 的 source of truth。
+本文审计旧 Flutter 项目 `/Users/jerry/A/blind-run/blind-run-frontend`，仅用于帮助新的 Swift 原生 iOS 前端理解历史行为、交互意图和已暴露的问题。旧项目不是新 MVP 的 source of truth。
 
 结论：
 
 - 旧项目 `lib/` 是当前可参考的 Flutter 主实现；`src/` 下 React/Firebase 代码是更早期 demo，只能作为历史背景，不应纳入迁移依据。
 - 旧 Flutter 可以参考的主要价值在行为层：盲人端大按钮、状态播报、地点/时间输入回退、订单轮询、缺 key/缺定位降级提示、紧急联系人下单前拦截。
 - 旧 Flutter 不应作为架构或接口模板：Riverpod 全局状态、go_router 路由壳、WebSocket 派单、Flutter AMap plugin、MethodChannel 配置、旧订单状态名和旧 API 命名均不应迁移。
-- 若旧代码与 `docs/01-10` 或 `openspec/changes/add-aidrun-ios-spring-mvp` 冲突，必须以当前 docs/OpenSpec 为准。
+- 若旧代码与 `docs/01-10` 或 `openspec/changes/remove-local-backend-use-cloud-only` 冲突，必须以当前 docs/OpenSpec 为准。
 
 ## 旧项目结构
 
@@ -244,7 +244,7 @@
 冲突处理原则：
 
 - 以 `docs/01-product-requirements.md`、`docs/02-mvp-scope.md`、`docs/04-user-flows-and-state-machine.md`、`docs/05-page-specs.md`、`docs/06-data-model.md`、`docs/07-api-contract.openapi.yaml`、`docs/08-ios-architecture.md`、`docs/09-accessibility-and-voice-guidelines.md` 为准。
-- 以 `openspec/changes/add-aidrun-ios-spring-mvp` 下的 active specs 为准。
+- 以 `openspec/changes/remove-local-backend-use-cloud-only` 下的 active specs 为准。
 - 旧 Flutter 只在行为参考层提供补充，不允许覆盖当前状态机、API contract、数据模型、技术栈和 non-goals。
 
 重点冲突：
@@ -252,7 +252,7 @@
 | 主题 | 旧 Flutter | 当前 MVP |
 | --- | --- | --- |
 | 客户端技术 | Flutter 双端 | Swift 原生 iOS |
-| 后端集成 | 已接线上旧接口，接口名有漂移 | Spring Boot REST，OpenAPI v0.3 |
+| 外部 API 集成 | 已接线上旧接口，接口名有漂移 | `http://47.114.113.171`，以 OpenAPI v1.0 为准 |
 | 实时通信 | WebSocket + 轮询并存 | 不做 WebSocket，订单页轮询 |
 | 状态机 | `PENDING_*`、`DRIVER_*` 等旧状态 | `matching/accepted/arrived/in_progress/completed/cancelled/emergency` |
 | 盲人开始服务 | 旧流程缺少完整确认开始服务 | `arrived -> in_progress` 必须由盲人确认 |

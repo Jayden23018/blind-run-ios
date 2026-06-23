@@ -15,10 +15,10 @@ flowchart TD
         BR_Profile["盲人资料页\n(首次注册)"]
         BR_Home{"盲人首页\n(有/无活跃订单)"}
         CreateBooking["创建预约页"]
-        BR_OrderStatus["订单状态等待页\n(匹配中/已接单/已到达)"]
-        BR_InService["盲人服务中页\n(in_progress)"]
-        BR_Emergency["紧急求助页\n(emergency)"]
-        BR_Completed["完成/评分页\n(completed)"]
+        BR_OrderStatus["订单状态等待页\n(PENDING_MATCH/PENDING_ACCEPT/DRIVER_ARRIVED)"]
+        BR_InService["盲人服务中页\n(IN_PROGRESS)"]
+        BR_Emergency["紧急求助提示\n(emergency event)"]
+        BR_Completed["完成/评分页\n(COMPLETED)"]
     end
 
     subgraph Volunteer["志愿者端"]
@@ -46,9 +46,9 @@ flowchart TD
     CreateBooking -->|"提交预约"| BR_OrderStatus
     BR_OrderStatus -->|"志愿者到达"| BR_InService
     BR_OrderStatus -->|"取消订单"| BR_Home
-    BR_OrderStatus -->|"紧急求助"| BR_Emergency
+    BR_OrderStatus -->|"记录紧急事件"| BR_Emergency
     BR_InService -->|"服务完成"| BR_Completed
-    BR_InService -->|"紧急求助"| BR_Emergency
+    BR_InService -->|"记录紧急事件"| BR_Emergency
     BR_Completed -->|"评分/返回"| BR_Home
     BR_Emergency --> BR_Home
 
@@ -57,7 +57,7 @@ flowchart TD
     VOL_OrderDetail -->|"接单"| VOL_InService
     VOL_OrderDetail -->|"查看出发点位置(AMap)"| VOL_InService
     VOL_InService -->|"结束服务"| VOL_Home
-    VOL_InService -->|"紧急求助"| BR_Emergency
+    VOL_InService -->|"记录紧急事件"| BR_Emergency
 
     VOL_Home -->|"服务记录"| VOL_History
     VOL_Home -->|"积分商城"| VOL_Points
@@ -127,7 +127,7 @@ sequenceDiagram
 
     BR->>App: 打开 App
     App->>API: POST /api/auth/send-code
-    App->>API: POST /api/auth/verify-code (手机号 + 123456)
+    App->>API: POST /api/auth/verify-code (手机号 + 000000)
     API-->>App: { token, userId, role }
     App->>BR: 显示盲人首页
     Note over App: TTS: "欢迎来到助盲跑"
@@ -243,7 +243,7 @@ sequenceDiagram
     Note over User,Other: 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
 
     User->>App: 点击"紧急求助"按钮
-    App->>User: 弹出确认弹窗\n"是否确认进入求助状态？\n确认后，本次服务将标记为异常"
+    App->>User: 弹出确认弹窗\n"是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
     User->>App: 确认求助
     App->>API: POST /api/emergency/trigger
     Note over API: 记录 emergency event，订单状态不改为 emergency

@@ -2,7 +2,7 @@
 
 本文审计旧 Flutter 项目 `/Users/jerry/A/blind-run/blind-run-frontend/lib/`，仅作为 AidRun / 助盲跑 Swift 原生 iOS MVP 的 UI 行为参考。
 
-旧 Flutter 不是 source of truth。若旧 UI、旧接口、旧状态机与 `AGENTS.md`、`docs/01-10`、`openspec/changes/add-aidrun-ios-spring-mvp/` 冲突，必须以后者为准。
+旧 Flutter 不是 source of truth。若旧 UI、旧接口、旧状态机与 `AGENTS.md`、`docs/01-10`、`openspec/changes/remove-local-backend-use-cloud-only/` 冲突，必须以后者为准。
 
 本审计不迁移 Flutter 代码，不生成 Swift，不生成 Figma，不把旧 Flutter 架构、状态名、API 路径或组件实现作为新版本依据。
 

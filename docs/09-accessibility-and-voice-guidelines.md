@@ -21,7 +21,6 @@ Use iOS native `AVSpeechSynthesizer` for TTS.
 - 匹配中
 - 志愿者已接单
 - 志愿者已到达
-- 请确认开始服务
 - 服务已开始
 - 服务已完成
 - 进入求助状态
@@ -52,11 +51,10 @@ Required coverage:
 - Submit booking button
 - Cancel order button
 - Emergency button
-- Confirm start button
 - Repeat current status button
 - Volunteer availability switch
 - Available order rows
-- Accept, arrived, complete, cancel, emergency actions
+- Accept, en-route, arrived, complete, cancel, emergency actions
 - Rating controls
 
 ## 4. Blind Runner UI Rules
@@ -100,7 +98,7 @@ Emergency confirmation copy must be:
 
 After emergency confirmation:
 
-- The app records an emergency event through `POST /api/emergency/trigger`; the order status itself is not changed to `emergency`.
+- The app records an emergency event through `POST /api/emergency/trigger`; the order status itself is not changed to emergency.
 - TTS announces entry into emergency state.
 - MVP does not restore the previous state.
 - MVP does not auto-call, auto-SMS, or notify a real administrator.

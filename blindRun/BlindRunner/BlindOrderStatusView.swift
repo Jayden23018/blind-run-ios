@@ -76,7 +76,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     func cancelOrder() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "取消失败。") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
             // Reload order to get updated status
             await self.loadOrder(orderId: order.orderId, speakChanges: true)
         }
@@ -90,7 +90,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             gpsLng: nil
         )
         await performAction(failureMessage: "求助操作失败，请重试。") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
+            let _: EmptyResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
             // Reload order to get updated status
             await self.loadOrder(orderId: order.orderId, speakChanges: true)
         }
@@ -405,7 +405,7 @@ struct BlindOrderStatusView: View {
                 if order.status == .pendingMatch {
                     Button("模拟志愿者接单") {
                         Task {
-                            let _: OrderResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/accept")
+                            let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/accept")
                             viewModel.startPolling(orderId: order.orderId)
                         }
                     }
@@ -416,7 +416,7 @@ struct BlindOrderStatusView: View {
                 if order.status == .driverEnRoute || order.status == .pendingAccept {
                     Button("模拟志愿者到达") {
                         Task {
-                            let _: OrderResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
+                            let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
                             viewModel.startPolling(orderId: order.orderId)
                         }
                     }
@@ -427,7 +427,7 @@ struct BlindOrderStatusView: View {
                 if order.status == .inProgress || order.status == .driverArrived {
                     Button("模拟服务完成") {
                         Task {
-                            let _: OrderResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/finish")
+                            let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/finish")
                             viewModel.startPolling(orderId: order.orderId)
                         }
                     }

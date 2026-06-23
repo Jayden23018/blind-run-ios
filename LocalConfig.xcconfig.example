@@ -11,7 +11,7 @@
 // 获取高德地图 Key:
 // - 前往 https://console.amap.com/
 // - 创建 iOS 应用
-// - 获取 iOS Key（需要填写 Bundle Identifier: com.jerry.blindRun）
+// - 获取 iOS Key（需要填写 Bundle Identifier: com.jerry.aidrun）
 //
 // CocoaPods 集成说明:
 // - 项目使用 CocoaPods 管理高德 SDK 依赖
@@ -28,8 +28,3 @@
 
 // 高德地图 iOS SDK Key
 AMAP_API_KEY = YOUR_AMAP_IOS_KEY_HERE
-
-// 正式上线 HTTPS API 域名。
-// DemoRelease 包不会使用此地址；DemoRelease 固定连接 http://47.114.113.171。
-// Release / blindRun-Prod 包只允许 HTTPS 域名，WebSocket 会自动使用 wss。
-AIDRUN_PRODUCTION_API_BASE_URL = https://api.aidrun.example.com

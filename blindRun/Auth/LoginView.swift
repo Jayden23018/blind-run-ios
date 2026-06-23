@@ -30,12 +30,16 @@ private extension View {
 /// 登录页：手机号 + 验证码登录。
 /// 遵循 MVVM：纯渲染 View，所有业务逻辑在 LoginViewModel 中。
 struct LoginView: View {
+    private enum FocusField: Hashable {
+        case phone
+        case verificationCode
+    }
+
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = LoginViewModel()
 
-    @FocusState private var phoneFocused: Bool
-    @FocusState private var codeFocused: Bool
+    @FocusState private var focusedField: FocusField?
 
     var body: some View {
         GeometryReader { geometry in
@@ -71,7 +75,7 @@ struct LoginView: View {
                                         lineWidth: viewModel.phoneValidationError != nil ? 2 : 1
                                     )
                             )
-                            .focused($phoneFocused)
+                            .focused($focusedField, equals: .phone)
                             .onChange(of: viewModel.phoneNumber) { newValue in
                                 viewModel.sanitizePhoneInput(newValue)
                             }
@@ -90,7 +94,7 @@ struct LoginView: View {
                     // "获取验证码" / 倒计时 按钮
                     Button {
                         viewModel.requestCode()
-                        phoneFocused = false
+                        focusedField = .verificationCode
                     } label: {
                         Text(viewModel.countdownText)
                             .font(AppFonts.primaryButton())
@@ -129,7 +133,7 @@ struct LoginView: View {
                                             lineWidth: viewModel.errorMessage != nil ? 2 : 1
                                         )
                                 )
-                                .focused($codeFocused)
+                                .focused($focusedField, equals: .verificationCode)
                                 .onChange(of: viewModel.verificationCode) { newValue in
                                     viewModel.sanitizeVerificationCodeInput(newValue)
                                 }
@@ -138,21 +142,14 @@ struct LoginView: View {
                                 .accessibilityValue(viewModel.verificationCode.isEmpty ? "未输入" : viewModel.verificationCode)
 
                             // Demo 提示
-                            #if DEBUG
-                            Text("Demo 验证码：123456")
+                            #if DEBUG || DEMO
+                            Text("Demo 验证码：\(AppConstants.Auth.demoVerificationCode)")
                                 .font(.caption)
                                 .foregroundColor(AppColors.textSecondary)
-                                .accessibilityLabel("演示模式，验证码为 123456")
+                                .accessibilityLabel("演示模式，验证码为 \(AppConstants.Auth.demoVerificationCode)")
                             #endif
                         }
                         .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-
-                    // 手动登录按钮（验证码区域已展示时显示）
-                    if viewModel.showCodeInput {
-                        PrimaryButton("登录", isLoading: viewModel.isLoading) {
-                            viewModel.submitLogin()
-                        }
                     }
 
                     // Loading 状态文字
@@ -191,6 +188,26 @@ struct LoginView: View {
             .scrollDismissesKeyboard(.immediately)
         }
         .background(AppColors.background)
+        .safeAreaInset(edge: .bottom) {
+            if viewModel.showCodeInput {
+                PrimaryButton("登录", isLoading: viewModel.isLoading) {
+                    focusedField = nil
+                    viewModel.submitLogin()
+                }
+                .padding(.horizontal, 32)
+                .padding(.vertical, 12)
+                .background(.regularMaterial)
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完成") {
+                    focusedField = nil
+                }
+                .accessibilityLabel("收起键盘")
+            }
+        }
         .onAppear {
             viewModel.configure(with: appState, speechService: speechService)
         }

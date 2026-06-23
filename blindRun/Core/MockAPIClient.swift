@@ -40,6 +40,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
         let result: Any = try routeRequest(method: method, path: path, query: query, body: body)
 
+        if T.self == EmptyResponse.self {
+            return EmptyResponse() as! T
+        }
+
         guard let typed = result as? T else {
             throw APIError.decodingError(
                 NSError(domain: "MockAPIClient", code: -1,
@@ -83,10 +87,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/blind/profile" && method == .put {
             return try handleUpdateBlindProfile(body: body)
         }
-        if path == "/api/blind/verify-identity" && method == .post {
-            return handleVerifyIdentity()
-        }
-
         // Volunteer profile
         if path == "/api/volunteer/profile" && method == .get {
             return handleGetVolunteerProfile()
@@ -175,7 +175,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
               let request = try? JSONDecoder().decode(VerifyCodeRequest.self, from: data) else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
         }
-        guard request.code == "123456" else {
+        guard request.code == AppConstants.Auth.demoVerificationCode else {
             throw APIError.serverError(ErrorResponse(
                 code: "INVALID_VERIFICATION_CODE", message: "验证码错误"))
         }
@@ -238,21 +238,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             defaultPace: request.defaultPace ?? blindProfile?.defaultPace
         )
         return blindProfile!
-    }
-
-    private func handleVerifyIdentity() -> ApiSuccessResponse {
-        blindProfile = BlindProfileResponse(
-            name: blindProfile?.name,
-            runningPace: blindProfile?.runningPace,
-            specialNeeds: blindProfile?.specialNeeds,
-            verifyStatus: "VERIFIED",
-            visionLevel: blindProfile?.visionLevel,
-            hasGuideDog: blindProfile?.hasGuideDog,
-            tetherPreference: blindProfile?.tetherPreference,
-            chatPreference: blindProfile?.chatPreference,
-            defaultPace: blindProfile?.defaultPace
-        )
-        return ApiSuccessResponse(success: true, message: nil)
     }
 
     private func handleGetVolunteerProfile() -> VolunteerProfileResponse {

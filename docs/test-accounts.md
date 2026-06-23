@@ -10,54 +10,13 @@
 | 项目 | 地址 |
 |------|------|
 | API Base URL | `http://47.114.113.171` |
-| Swagger UI | 生产已关闭，本地开发可用 `http://localhost:8081/swagger-ui/index.html` |
+| Swagger UI | 当前已关闭，联调契约以仓库 `docs/` 为准 |
 
 ---
 
-## 二、CS 管理员账号
+## 二、用户测试账号
 
-| 字段 | 值 |
-|------|-----|
-| 用户名 | `admin` |
-| 密码 | `admin123` |
-| 角色 | ADMIN |
-| 部门 | 运营部 |
-
-### 登录
-
-```
-POST /api/cs/auth/login
-Content-Type: application/json
-
-{
-  "username": "admin",
-  "password": "admin123"
-}
-```
-
-响应：
-```json
-{
-  "success": true,
-  "token": "eyJhbGciOi...",
-  "role": "ADMIN"
-}
-```
-
-### 使用范围
-
-- 志愿者身份证审核
-- 培训课程管理
-- 通知模板管理
-- 紧急事件处理
-- 所有 `/api/admin/**` 和 `/api/cs/**` 端点
-
----
-
-## 三、用户测试账号
-
-云端已提供以下预置用户账号，供 iOS 与云端 API / WebSocket 联调使用。MVP 目标验证码仍应为
-`123456`；当前云端预置账号实测临时验证码为 `000000`，与 `AGENTS.md` 不一致，需要后端修正或确认。
+云端已提供以下预置用户账号，供 iOS 与云端 API / WebSocket 联调使用。所有手机号的演示验证码统一为 `000000`。
 
 | 手机号 | 角色 | 状态 | 推荐用途 |
 |------|------|------|------|
@@ -69,7 +28,7 @@ Content-Type: application/json
 普通用户也可通过手机验证码登录创建。测试阶段不要接入真实 SMS；如需新增测试账号，仍按
 `send-code` → `verify-code` → `setRole` 流程创建。
 
-### 3.1 创建测试用户（通用步骤）
+### 2.1 创建测试用户（通用步骤）
 
 **步骤 1**: 发送验证码
 
@@ -90,7 +49,7 @@ Content-Type: application/json
 }
 ```
 
-> MVP 目标验证码固定为 `123456`，不依赖真实短信。当前云端预置账号实测临时验证码为 `000000`。
+> MVP 目标验证码固定为 `000000`，不依赖真实短信。当前云端预置账号实测临时验证码为 `000000`。
 
 **步骤 2**: 验证码登录
 
@@ -100,7 +59,7 @@ Content-Type: application/json
 
 {
   "phone": "13800010001",
-  "code": "123456"
+  "code": "000000"
 }
 ```
 
@@ -134,13 +93,13 @@ Content-Type: application/json
 }
 ```
 
-### 3.2 盲人用户完整流程
+### 2.2 盲人用户完整流程
 
 ```bash
 # 假设已登录并设置角色为 BLIND，拿到 token
 
 # 1. 完善盲人资料
-curl -X PUT http://localhost:8081/api/blind/profile \
+curl -X PUT http://47.114.113.171/api/blind/profile \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -149,17 +108,8 @@ curl -X PUT http://localhost:8081/api/blind/profile \
     "hasGuideDog": false
   }'
 
-# 2. 身份验证（二要素）
-curl -X POST http://localhost:8081/api/blind/verify-identity \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "idCardName": "张三",
-    "idCardNumber": "110101199001011234"
-  }'
-
-# 3. 添加紧急联系人（至少1个才能下单）
-curl -X POST http://localhost:8081/api/users/{userId}/emergency-contacts \
+# 2. 添加紧急联系人（至少1个才能下单）
+curl -X POST http://47.114.113.171/api/users/{userId}/emergency-contacts \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -168,11 +118,11 @@ curl -X POST http://localhost:8081/api/users/{userId}/emergency-contacts \
     "relationship": "家人"
   }'
 
-# 4. 连接 WebSocket
-# ws://localhost:8081/ws/blind?token=<token>
+# 3. 连接 WebSocket
+# ws://47.114.113.171/ws/blind?token=<token>
 
-# 5. 创建订单
-curl -X POST http://localhost:8081/api/orders \
+# 4. 创建订单
+curl -X POST http://47.114.113.171/api/orders \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -184,13 +134,13 @@ curl -X POST http://localhost:8081/api/orders \
   }'
 ```
 
-### 3.3 志愿者用户完整流程
+### 2.3 志愿者用户完整流程
 
 ```bash
 # 假设已登录并设置角色为 VOLUNTEER，拿到 token
 
 # 1. 完善志愿者资料
-curl -X PUT http://localhost:8081/api/volunteer/profile \
+curl -X PUT http://47.114.113.171/api/volunteer/profile \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -203,117 +153,53 @@ curl -X PUT http://localhost:8081/api/volunteer/profile \
     ]
   }'
 
-# 2. 注册 Step 1: 基本信息
-curl -X POST http://localhost:8081/api/volunteer/registration/step1 \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "测试志愿者",
-    "phone": "13800010002",
-    "runningExperience": "有2年跑步经验",
-    "hasGuidedBefore": false,
-    "emergencyExperience": "无"
-  }'
+# 2. Mock 志愿者认证：MVP 自动 approved，不调用真实身份认证或管理员审核接口
 
-# 3. 注册 Step 2: 上传身份证
-curl -X POST http://localhost:8081/api/volunteer/registration/step2/id-card \
-  -H "Authorization: Bearer <token>" \
-  -F "idCardName=张三" \
-  -F "idCardNumber=440305200001011234" \
-  -F "frontFile=@/path/to/id-front.jpg" \
-  -F "backFile=@/path/to/id-back.jpg"
+# 3. 连接 WebSocket
+# ws://47.114.113.171/ws/volunteer?token=<token>
 
-# 4. 注册 Step 3: 人脸验证
-curl -X POST http://localhost:8081/api/volunteer/registration/step3/face-verify \
-  -H "Authorization: Bearer <token>" \
-  -F "facePhoto=@/path/to/face.jpg"
-
-# 5. 管理员审核身份证（用 CS admin token）
-curl -X POST http://localhost:8081/api/admin/volunteers/review/id \
-  -H "Authorization: Bearer <admin-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "userId": 2,
-    "approved": true
-  }'
-
-# 6. 注册 Step 4: 培训课程
-# 获取课程列表
-curl http://localhost:8081/api/volunteer/registration/training/courses \
-  -H "Authorization: Bearer <token>"
-
-# 提交学习进度
-curl -X POST http://localhost:8081/api/volunteer/registration/training/progress \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "courseId": 1,
-    "progressPercent": 100,
-    "lastPositionSeconds": 900,
-    "timeSpentSeconds": 900
-  }'
-
-# 获取测验题
-curl http://localhost:8081/api/volunteer/registration/training/quiz/1 \
-  -H "Authorization: Bearer <token>"
-
-# 提交测验答案（每次提交一道题）
-curl -X POST http://localhost:8081/api/volunteer/registration/training/quiz/answer \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "courseId": 1,
-    "questionId": 1,
-    "answers": ["5分钟内"],
-    "timeSpentSeconds": 10
-  }'
-
-# 7. 连接 WebSocket
-# ws://localhost:8081/ws/volunteer?token=<token>
-
-# 8. 上报位置
+# 4. 上报位置
 # 通过 WebSocket 发送: {"type":"LOCATION_UPDATE","lat":39.92,"lng":116.47}
 
-# 9. 响应派单
-curl -X POST http://localhost:8081/api/orders/{orderId}/respond \
+# 5. 接单
+curl -X POST http://47.114.113.171/api/orders/{orderId}/accept \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"action":"ACCEPT"}'
 ```
 
 ---
 
-## 四、Postman 快速导入
+## 三、Postman 快速导入
 
-### 4.1 导入 API 规范
+### 3.1 导入 API 规范
 
 1. 打开 Postman → Import → 选择 File
-2. 选择 `docs/api_spec.yaml`
+2. 选择 `docs/07-api-contract.openapi.yaml`
 3. Postman 会自动识别 OpenAPI 3.1 格式并生成所有请求
 
-### 4.2 配置认证
+### 3.2 配置认证
 
 1. 在 Postman Collection 中设置 Variables：
-   - `base_url` = 后端告诉你的地址
+   - `base_url` = `http://47.114.113.171`
    - `token` = （登录后获取）
 
 2. 在 Collection Auth 中设置：
    - Type: Bearer Token
    - Token: `{{token}}`
 
-### 4.3 推荐的测试顺序
+### 3.3 推荐的测试顺序
 
 1. **发送验证码** → `POST /api/auth/send-code`
-2. **登录** → `POST /api/auth/verify-code`（MVP 测试验证码固定为 `123456`）
+2. **登录** → `POST /api/auth/verify-code`（MVP 测试验证码固定为 `000000`）
 3. **设置角色** → `POST /api/user/role`（**保存返回的新 token 到变量**）
 4. 根据角色继续后续操作
 
 ---
 
-## 五、常见问题
+## 四、常见问题
 
 ### Q: 验证码是什么？
-MVP 测试阶段目标验证码固定为 `123456`，不接入真实短信。当前云端预置账号实测临时验证码为 `000000`，需要后端对齐。
+MVP 测试阶段验证码固定为 `000000`，不接入真实短信。
 
 ### Q: 设置角色后 403 了？
 设置角色后返回的新 token 包含角色信息。如果你还在用旧 token，会因为缺少角色而被 403 拒绝。**必须替换为新 token**。
@@ -326,8 +212,8 @@ MVP 测试阶段目标验证码固定为 `123456`，不接入真实短信。当�
 
 ### Q: 志愿者收不到派单？
 志愿者必须：
-1. 完成 4 步注册流程（基本信息 + 身份证 + 人脸 + 培训）
-2. 管理员审核身份证通过
+1. 完善志愿者资料并由 MVP Mock 认证自动 approved
+2. 手动开启可服务状态
 3. WebSocket 保持连接
 4. 定时上报位置（至少一次）
 
@@ -341,6 +227,19 @@ MVP 测试阶段目标验证码固定为 `123456`，不接入真实短信。当�
 
 ---
 
-## 六、验证码获取方式
+## 五、验证码获取方式
 
-MVP 测试阶段目标验证码固定为 `123456`。当前云端预置账号实测临时验证码为 `000000`；如果云端返回验证码错误或过期，需要后端确认测试验证码策略是否已开启。
+MVP 测试阶段验证码固定为 `000000`。如果云端返回验证码错误或过期，需要后端确认演示验证码策略是否已开启。
+
+---
+
+## 六、后端待修问题（2026-06-19 联调）
+
+以下问题不能由前端伪造状态或绕过业务校验修复：
+
+1. `GET/PUT /api/volunteer/profile` 必须持久化并返回 `isAvailable`；开启后 `/api/orders/available` 应返回可接订单。
+2. 接单失败不得返回 HTTP 500，应返回 `VOLUNTEER_NOT_AVAILABLE`、`ORDER_ALREADY_ACCEPTED` 等统一业务错误。
+3. 创建距当前时间不足 30 分钟的预约必须拒绝，并返回 `APPOINTMENT_TOO_SOON`。
+4. 验证码错误应返回统一 `INVALID_VERIFICATION_CODE` 错误结构；前端暂时兼容当前 `{ "error": ... }`。
+5. 当前用户读取自己的紧急联系人时应返回完整电话，或明确提供“不修改掩码电话”的更新语义。
+6. 后端需明确在没有盲人确认按钮的流程中，`DRIVER_ARRIVED -> IN_PROGRESS` 的触发方和接口。

@@ -11,11 +11,10 @@
 
 | 角色 | URL | 认证方式 |
 |------|-----|---------|
-| 盲人用户 | `ws://{host}:8081/ws/blind?token={jwt}` | URL query param |
-| 志愿者 | `ws://{host}:8081/ws/volunteer?token={jwt}` | URL query param |
+| 盲人用户 | `ws://47.114.113.171/ws/blind?token={jwt}` | URL query param |
+| 志愿者 | `ws://47.114.113.171/ws/volunteer?token={jwt}` | URL query param |
 
-- **本地开发**: `ws://localhost:8081/ws/blind?token=xxx`
-- **生产环境**: `ws://47.114.113.171/ws/blind?token=xxx`（Nginx 代理，端口 80）
+这是 iOS 前端唯一允许使用的真实 WebSocket 服务地址。
 
 ### 1.2 认证规则
 
@@ -170,8 +169,7 @@ PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_P
 NO_VOLUNTEER（无可用志愿者）
 ```
 
-Emergency is recorded through `POST /api/emergency/trigger`; the order status itself is not changed to
-`emergency`.
+Emergency is recorded through `POST /api/emergency/trigger`; the order status itself is not changed to emergency.
 
 #### EMERGENCY_RESOLVED_BY_VOLUNTEER — 紧急事件志愿者已确认
 
@@ -272,18 +270,11 @@ Emergency is recorded through `POST /api/emergency/trigger`; the order status it
 | hasGuideDog | boolean | 否 | 盲人是否携带导盲犬 |
 | specialNotes | string | 否 | 盲人备注 |
 
-**响应方式**: 收到后必须通过 REST API 响应，不是通过 WebSocket 回复。
+**响应方式**: 收到后如需接单，必须通过 REST API 的 `/accept` 响应，不是通过 WebSocket 回复。MVP 没有拒单接口，拒绝只关闭本地弹窗。
 
 ```
-POST /api/orders/{orderId}/respond
+POST /api/orders/{orderId}/accept
 Authorization: Bearer <token>
-Content-Type: application/json
-
-// 接受
-{ "action": "ACCEPT" }
-
-// 拒绝
-{ "action": "DECLINE" }
 ```
 
 **超时未响应**: 系统自动视为拒绝，派单给下一位志愿者。
@@ -411,7 +402,7 @@ let ws = null;
 let reconnectTimer = null;
 
 function connectBlindWS(token) {
-  ws = new WebSocket(`ws://localhost:8081/ws/blind?token=${token}`);
+  ws = new WebSocket(`ws://47.114.113.171/ws/blind?token=${token}`);
 
   ws.onopen = () => {
     console.log('盲人 WebSocket 已连接');
@@ -478,7 +469,7 @@ function startLocationReport() {
 
 ```javascript
 function connectVolunteerWS(token) {
-  ws = new WebSocket(`ws://localhost:8081/ws/volunteer?token=${token}`);
+  ws = new WebSocket(`ws://47.114.113.171/ws/volunteer?token=${token}`);
 
   ws.onopen = () => {
     console.log('志愿者 WebSocket 已连接');
@@ -490,14 +481,12 @@ function connectVolunteerWS(token) {
     switch (msg.type) {
       case 'NEW_ORDER':
         const accepted = await showOrderPrompt(msg); // UI 弹窗让志愿者选择
-        await fetch(`/api/orders/${msg.orderId}/respond`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ action: accepted ? 'ACCEPT' : 'DECLINE' })
-        });
+        if (accepted) {
+          await fetch(`/api/orders/${msg.orderId}/accept`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+        }
         break;
       case 'EMERGENCY_VOLUNTEER_ALERT':
         showEmergencyAlert(msg); // 紧急弹窗

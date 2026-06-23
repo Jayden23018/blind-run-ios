@@ -159,9 +159,9 @@
 
 ## 14. 环境切换
 
-- [ ] 支持 Mock / Local Backend / Production Backend 三种环境
-- [ ] 环境切换入口在设置页或底部角落（不干扰主流程）
-- [ ] Local Backend 支持局域网 IP（如 `http://192.168.x.x:8080`）
+- [ ] Debug 支持 Mock / Demo Cloud，环境切换入口不干扰主流程
+- [ ] Demo 和 Production 构建隐藏切换入口并固定使用 `http://47.114.113.171`
+- [ ] Mock 不发起网络请求，真实 API 地址不可配置
 
 ---
 

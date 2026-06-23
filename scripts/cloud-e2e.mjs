@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-const baseURL = process.env.AIDRUN_E2E_BASE_URL ?? 'http://47.114.113.171';
-const defaultVerificationCode = process.env.AIDRUN_E2E_CODE ?? '123456';
+const baseURL = 'http://47.114.113.171';
+const defaultVerificationCode = '000000';
 const timeoutMs = Number(process.env.AIDRUN_E2E_TIMEOUT_MS ?? 25000);
 
 const created = {
@@ -325,17 +325,6 @@ async function acceptOrder(volunteer, orderId, volunteerMessages) {
     await http('GET', '/api/orders/available', { token: volunteer.token, allowFailure: true });
   }
 
-  const respond = await http('POST', `/api/orders/${orderId}/respond`, {
-    token: volunteer.token,
-    body: { action: 'ACCEPT' },
-    allowFailure: true
-  });
-  if (respond.ok) {
-    log('order-respond', `id=${orderId} ACCEPT`);
-    return;
-  }
-
-  log('order-respond-fallback', `respond failed ${respond.status}; trying /accept`);
   await http('POST', `/api/orders/${orderId}/accept`, { token: volunteer.token });
   log('order-accept', `id=${orderId}`);
 }
@@ -396,12 +385,12 @@ async function main() {
   const blind = await login(
     blindPhone,
     'BLIND',
-    process.env.AIDRUN_E2E_BLIND_CODE ?? defaultVerificationCode
+    defaultVerificationCode
   );
   const volunteer = await login(
     volunteerPhone,
     'VOLUNTEER',
-    process.env.AIDRUN_E2E_VOLUNTEER_CODE ?? defaultVerificationCode
+    defaultVerificationCode
   );
   created.blindUserId = blind.userId;
   created.volunteerUserId = volunteer.userId;

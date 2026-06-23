@@ -1,13 +1,13 @@
 # AidRun MVP v0.3 Data Model
 
-本文档定义“助盲跑 / AidRun”Swift iOS + Spring Boot MVP 的数据模型。若仓库中存在更早产品文档，以 MVP v0.3 冻结口径为准：第一版只做预约型订单闭环、手机号登录、JWT、高德地图/定位、无障碍与语音体验，不扩展即时呼叫、聊天、路线导航、完整后台或真实审核。
+本文档定义“助盲跑 / AidRun”Swift iOS MVP 消费的领域模型与 API DTO。服务端是仓库外部云端服务；本文不规定其数据库或实现技术。
 
 ## 1. Design Principles
 
-- Demo 数据库使用 H2；后续生产化迁移到 PostgreSQL。
-- 主键建议使用 UUID 字符串，方便 iOS Mock、H2 与 PostgreSQL 保持一致。
+- iOS 模型字段与 `docs/07-api-contract.openapi.yaml` 保持一致。
+- Mock fixtures 使用与云端响应相同的标识符和字段形状。
 - 时间字段统一使用 ISO 8601 / UTC 存储，客户端按本地时区展示。
-- 经纬度使用 `Double`，后续 PostgreSQL 可迁移到 PostGIS，但 MVP 不依赖空间数据库。
+- 经纬度使用 `Double`。
 - MVP token 可由后端签发 JWT；iOS MVP 存储在 UserDefaults，正式版替换为 Keychain。
 - 管理员审核字段保留，但 MVP 不实现真实管理员后台。
 
@@ -49,7 +49,7 @@ MVP 中志愿者完成 Mock 认证后，`verificationStatus` 和 `adminReviewSta
 
 取消流转：`PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS -> CANCELLED`。
 
-求助流转：`DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> emergency event`，通过 `POST /api/emergency/trigger` 记录事件，订单状态不改为 `emergency`。
+求助流转：`DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> emergency event`，通过 `POST /api/emergency/trigger` 记录事件，订单状态不改为 emergency。
 
 ### CancellationActor
 
@@ -233,7 +233,7 @@ Rules:
 Rules:
 
 - `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 状态显示一键求助入口。
-- 确认求助后记录 emergency event，订单状态不改为 `emergency`。
+- 确认求助后记录 emergency event，订单状态不改为 emergency。
 
 ### ServiceSummary
 
@@ -294,13 +294,13 @@ Rules:
 - `RunOrder 1 - 0..1 Rating`
 - `User(volunteer) 1 - N VolunteerPointsLedger`
 
-## 5. Seed Data for Demo
+## 5. Mock Fixture Data for Demo
 
-Spring Boot 启动时应 seed：
+`MockAPIClient` 应提供：
 
 - 至少 1 个盲人用户，资料与紧急联系人完整。
 - 至少 1 个志愿者用户，Mock 认证已通过、可服务开关开启。
-- 若干 `matching` 订单，坐标使用可演示的默认测试点。
+- 若干 `PENDING_MATCH` 订单，坐标使用可演示的默认测试点。
 - 若干已完成订单，用于服务记录与积分页面展示。
 
 ## 6. Out of Scope

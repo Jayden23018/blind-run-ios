@@ -72,10 +72,45 @@ struct APIEnvelopeResponse<T: Decodable>: Decodable {
     let data: T?
 }
 
-/// Error envelope with Int code (cloud backend error format).
-/// Used when non-2xx responses have {"success": false, "code": 400, "message": "..."}.
+/// Empty success payload for endpoints where the client only needs HTTP success.
+struct EmptyResponse: Decodable, Sendable {
+    init() {}
+    init(from decoder: Decoder) throws {}
+}
+
+/// Flexible cloud error payload. The demo backend currently returns multiple
+/// shapes, including `errorCode`, numeric/string `code`, `message`, and `error`.
 struct APIErrorEnvelope: Decodable {
     let success: Bool?
-    let code: Int?
+    let code: String?
+    let errorCode: String?
     let message: String?
+    let error: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case success, code, errorCode, message, error
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        success = try container.decodeIfPresent(Bool.self, forKey: .success)
+        errorCode = try container.decodeIfPresent(String.self, forKey: .errorCode)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+        if let stringCode = try? container.decodeIfPresent(String.self, forKey: .code) {
+            code = stringCode
+        } else if let intCode = try? container.decodeIfPresent(Int.self, forKey: .code) {
+            code = String(intCode)
+        } else {
+            code = nil
+        }
+    }
+
+    func resolvedErrorResponse(statusCode: Int) -> ErrorResponse? {
+        guard let resolvedMessage = message ?? error else { return nil }
+        return ErrorResponse(
+            code: errorCode ?? code ?? "HTTP_\(statusCode)",
+            message: resolvedMessage
+        )
+    }
 }

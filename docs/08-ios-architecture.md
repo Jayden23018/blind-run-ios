@@ -49,30 +49,28 @@ Recommended examples:
 
 ## 4. API Environment Switch
 
-MVP development keeps a mock environment for UI/XCTest coverage and uses the cloud backend for networked runs. The old LAN/H2 local backend path is no longer used for this project.
+MVP development keeps Mock for UI/XCTest coverage. Every networked run uses the single external cloud service.
 
 | Environment | Purpose |
 | --- | --- |
 | `mock` | Local fake data for UI and flow debugging |
 | `demoCloud` | Current demo cloud backend at `http://47.114.113.171` |
-| `production` | Future HTTPS production domain |
 
 | Build channel | Scheme / configuration | Allowed environment | Environment UI |
 | --- | --- | --- | --- |
 | Development | `blindRun-Dev` / `Debug` | `mock`, `demoCloud` | Visible |
 | Demo | `blindRun-Demo` / `DemoRelease` | `demoCloud` only | Hidden |
-| Production | `blindRun-Prod` / `Release` | `production` only | Hidden |
+| Production | `blindRun-Prod` / `Release` | `demoCloud` only | Hidden |
 
 Implementation guidance:
 
 - Define `APIEnvironment` with `baseURL` and display name.
 - Use one `APIClient` protocol so Mock and real implementations share call sites.
 - In Debug development builds, expose a small environment selector in settings or launch configuration.
-- `localBackend` is a legacy raw value only; it should not appear in the switcher, UI tests, Demo packages, or Production packages.
-- DemoRelease is for internal demo, TestFlight, or Ad Hoc distribution only. It is not the final App Store production package.
-- DemoRelease uses a dedicated Info plist with ATS HTTP allowance for `47.114.113.171`; Production must not include HTTP or WS test entry points.
-- Production URL may remain a HTTPS placeholder until the real domain is confirmed; when the base URL is HTTPS, WebSocket URLs must use WSS.
-- Existing OpenSpec design text that says “no WebSocket” conflicts with `AGENTS.md` and `docs/websocket-protocol.md`; follow the higher-priority WebSocket requirement for cloud dispatch, status notifications, and location updates.
+- Unknown persisted environment values are ignored and the build channel default is used.
+- Every build uses the shared Info plist with an ATS exception scoped to `47.114.113.171`.
+- Do not add a configurable alternative real-server URL.
+- Use WebSocket for cloud dispatch, status notifications, and location updates; retain REST polling as the disconnected fallback.
 
 ## 5. APIClient
 
@@ -95,7 +93,7 @@ Token persistence:
 Login:
 
 - Phone login and registration are merged.
-- Demo verification code is always `123456`.
+- Demo verification code is always `000000`.
 - On success, backend returns JWT access token and current user; first login may have no `activeRole`, so the app routes to role selection.
 
 Role switching:
@@ -163,11 +161,11 @@ The iOS app must support a two-device demo:
 2. Blind runner creates booking with current location and appointment at least 30 minutes later.
 3. Volunteer logs in, Mock certification is approved, turns availability on.
 4. Volunteer sees available order sorted by distance and accepts it.
-5. Blind runner polling shows accepted status.
-6. Volunteer marks arrived.
-7. Blind runner confirms service start.
+5. Blind runner polling shows `PENDING_ACCEPT`.
+6. Volunteer marks `DRIVER_EN_ROUTE`, then `DRIVER_ARRIVED`.
+7. Cloud status reaches `IN_PROGRESS`.
 8. Volunteer completes service with optional summary.
-9. Blind runner sees completed status and optional rating UI.
+9. Blind runner sees `COMPLETED` and optional rating UI.
 
 ## 11. Explicit Non-Goals
 

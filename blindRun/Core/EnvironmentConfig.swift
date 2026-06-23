@@ -28,7 +28,7 @@ enum AppBuildChannel: Sendable {
         case .demo:
             return .demoCloud
         case .production:
-            return .production
+            return .demoCloud
         }
     }
 
@@ -36,10 +36,8 @@ enum AppBuildChannel: Sendable {
         switch self {
         case .development:
             return [.mock, .demoCloud].contains(environment)
-        case .demo:
+        case .demo, .production:
             return environment == .demoCloud
-        case .production:
-            return environment == .production
         }
     }
 }
@@ -48,20 +46,14 @@ enum AppBuildChannel: Sendable {
 
 enum APIEnvironment: String, CaseIterable, Sendable {
     case mock
-    case localBackend
     case demoCloud
-    case production
 
     var displayName: String {
         switch self {
         case .mock:
             return "Mock (本地模拟)"
-        case .localBackend:
-            return "本地后端"
         case .demoCloud:
             return "演示云端"
-        case .production:
-            return "生产环境"
         }
     }
 
@@ -70,16 +62,8 @@ enum APIEnvironment: String, CaseIterable, Sendable {
         case .mock:
             // Mock 模式不使用网络，返回 nil
             return nil
-        case .localBackend:
-            return AppConstants.LocalBackend.normalizedBaseURL(
-                from: UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.localBackendBaseURL)
-                    ?? UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.localBackendIP)
-                    ?? AppConstants.Defaults.localBackendIP
-            )
         case .demoCloud:
             return AppConstants.DemoCloud.baseURL
-        case .production:
-            return AppConstants.ProductionBackend.configuredBaseURL()
         }
     }
 
@@ -91,18 +75,17 @@ enum APIEnvironment: String, CaseIterable, Sendable {
 // MARK: - App Constants
 
 enum AppConstants {
+    enum Auth {
+        static let demoVerificationCode = "000000"
+    }
+
     enum UserDefaultsKeys {
         static let accessToken = "com.aidrun.mvp.accessToken"
         static let activeRole = "com.aidrun.mvp.activeRole"
         static let apiEnvironment = "com.aidrun.mvp.apiEnvironment"
-        static let localBackendIP = "com.aidrun.mvp.localBackendIP"
-        static let localBackendBaseURL = "com.aidrun.mvp.localBackendBaseURL"
     }
 
     enum Defaults {
-        static let localBackendIP = "127.0.0.1"
-        static let legacyLocalBackendIP = "192.168.1.100"
-        static let productionBackendBaseURL = "https://api.aidrun.example.com"
         // 北京默认测试坐标，供模拟器 Demo 使用
         static let demoLatitude: Double = 39.9042
         static let demoLongitude: Double = 116.4074
@@ -115,59 +98,7 @@ enum AppConstants {
         static let minimumBookingLeadMinutes: Int = 30
     }
 
-    enum LocalBackend {
-        nonisolated static func normalizedBaseURL(from value: String) -> URL? {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
-                return URL(string: "http://127.0.0.1:8081")
-            }
-
-            if let url = URL(string: trimmed), url.scheme != nil, url.host != nil {
-                return normalizedHTTPURL(from: url)
-            }
-
-            return URL(string: "http://\(trimmed):8081").flatMap(normalizedHTTPURL(from:))
-        }
-
-        nonisolated static func normalizedDisplayString(from value: String) -> String {
-            normalizedBaseURL(from: value)?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                ?? "http://127.0.0.1:8081"
-        }
-
-        nonisolated static func save(_ value: String) {
-            let displayString = normalizedDisplayString(from: value)
-            UserDefaults.standard.set(displayString, forKey: "com.aidrun.mvp.localBackendBaseURL")
-            UserDefaults.standard.set(displayString, forKey: "com.aidrun.mvp.localBackendIP")
-        }
-
-        nonisolated private static func normalizedHTTPURL(from url: URL) -> URL? {
-            guard let host = url.host else { return nil }
-            var components = URLComponents()
-            components.scheme = url.scheme ?? "http"
-            components.host = host
-            components.port = url.port ?? 8081
-            return components.url
-        }
-    }
-
     enum DemoCloud {
         static let baseURL = URL(string: "http://47.114.113.171")!
-    }
-
-    enum ProductionBackend {
-        static func configuredBaseURL(bundle: Bundle = .main) -> URL? {
-            let rawValue = bundle.object(forInfoDictionaryKey: "AidRunProductionAPIBaseURL") as? String
-            return normalizedBaseURL(from: rawValue ?? AppConstants.Defaults.productionBackendBaseURL)
-        }
-
-        static func normalizedBaseURL(from value: String) -> URL? {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let url = URL(string: trimmed),
-                  url.scheme == "https",
-                  url.host != nil else {
-                return nil
-            }
-            return url
-        }
     }
 }

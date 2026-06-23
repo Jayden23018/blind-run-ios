@@ -2,7 +2,7 @@
 
 > 共 16 个页面。每个页面按 8 个维度描述：页面目标、入口、主要内容、主要操作、状态变化、错误状态、空状态、无障碍要求。
 > Cloud contract note: API calls use `POST /api/auth/send-code`, `POST /api/auth/verify-code`,
-> `POST /api/user/role`, and the canonical order statuses from `AGENTS.md` / `docs/api_spec.yaml`.
+> `POST /api/user/role`, and the canonical order statuses from `AGENTS.md` / `docs/07-api-contract.openapi.yaml`.
 > Lower-case status names in older page examples are historical aliases only.
 
 ---
@@ -68,7 +68,7 @@
 
 **状态变化**：
 - 选择后保存 activeRole 到后端和本地
-- 如果有角色对应的活跃订单（accepted / arrived / in_progress / emergency），先弹窗拦截再决定
+- 如果有角色对应的活跃订单（PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS），先弹窗拦截再决定
 
 **错误状态**：
 - 网络错误 → Toast "网络错误，请重试"
@@ -224,28 +224,28 @@
 
 **主要内容**：
 - 大号状态指示器：
-  - matching：动画旋转圆圈 + "匹配中，请稍候"
-  - accepted：志愿者卡片（昵称）+ "已接单，志愿者正在赶来"
-  - arrived：志愿者卡片 + "志愿者已到达约定地点"
+  - PENDING_MATCH：动画旋转圆圈 + "匹配中，请稍候"
+  - PENDING_ACCEPT：志愿者卡片（昵称）+ "已接单，等待志愿者出发"
+  - DRIVER_EN_ROUTE：志愿者卡片（昵称）+ "志愿者正在赶来"
+  - DRIVER_ARRIVED：志愿者卡片 + "志愿者已到达约定地点"
 - 订单信息卡片（出发地点、预约时间、可选项）
-- "确认开始服务"按钮（仅 arrived 状态显示，最小 64pt）
-- "取消订单"按钮（matching / accepted / arrived 状态显示，灰色/危险色）
-- "一键求助"按钮（accepted / arrived 状态显示，红色醒目）
+- "取消订单"按钮（PENDING_MATCH / PENDING_ACCEPT 状态显示，灰色/危险色）
+- "一键求助"按钮（DRIVER_EN_ROUTE / DRIVER_ARRIVED 状态显示，红色醒目）
 - "重复当前状态"按钮
 
 **主要操作**：
-- matching / accepted / arrived：点击"取消订单"（二次确认，选择固定取消原因）
-- arrived：点击"确认开始服务"
-- accepted / arrived：点击"一键求助"（二次确认）
+- PENDING_MATCH / PENDING_ACCEPT：点击"取消订单"（二次确认）
+- DRIVER_EN_ROUTE / DRIVER_ARRIVED：点击"一键求助"（二次确认，记录独立紧急事件）
 - 点击"重复当前状态"
 
 **状态变化**：
 - 每 5 秒轮询 GET /api/orders/{orderId}
-- matching → accepted：更新 UI + TTS "志愿者已接单"
-- matching → cancelled：显示"抱歉，暂无志愿者" + TTS
-- accepted / arrived → cancelled：显示"预约已取消" + TTS
-- accepted → arrived：显示确认按钮 + TTS "志愿者已到达"
-- arrived → in_progress：跳转服务中页面 + TTS "服务已开始"
+- PENDING_MATCH → PENDING_ACCEPT：更新 UI + TTS "志愿者已接单"
+- PENDING_MATCH → CANCELLED：显示"抱歉，暂无志愿者" + TTS
+- PENDING_ACCEPT / IN_PROGRESS → CANCELLED：显示"预约已取消" + TTS
+- PENDING_ACCEPT → DRIVER_EN_ROUTE：更新状态 + TTS "志愿者正在赶来"
+- DRIVER_EN_ROUTE → DRIVER_ARRIVED：更新状态 + TTS "志愿者已到达"
+- DRIVER_ARRIVED → IN_PROGRESS：跳转服务中页面 + TTS "服务已开始"
 
 **错误状态**：
 - 网络错误 → 保留上次查询结果，静默重试
@@ -256,7 +256,6 @@
 **无障碍要求**：
 - 状态文本：大号字体，高对比度
 - TTS：每次状态变化自动播报
-- "确认开始服务"按钮：最小 64pt，accessibilityLabel = "确认开始服务"
 - "取消订单"按钮：二次确认弹窗 + accessibilityHint = "取消当前订单"
 - "一键求助"按钮：红色醒目，accessibilityHint = "遇到紧急情况时点击求助"
 - "重复当前状态"按钮：accessibilityLabel = "重复当前状态"
@@ -267,7 +266,7 @@
 
 **页面目标**：在服务进行中显示相关信息，提供求助入口。
 
-**入口**：订单状态变为 in_progress 后自动跳转 / 盲人首页点击进行中订单。
+**入口**：订单状态变为 IN_PROGRESS 后自动跳转 / 盲人首页点击进行中订单。
 
 **主要内容**：
 - 页面标题："服务进行中"
@@ -278,13 +277,13 @@
 
 **主要操作**：
 - 点击志愿者电话 → 系统拨号
-- 点击"一键求助" → 弹窗确认 → 记录 emergency event
+- 点击"一键求助" → 弹窗确认 → 记录 emergency event，订单状态保持不变
 - 点击"重复当前状态" → TTS 播报
 
 **状态变化**：
 - 每 5 秒轮询
-- in_progress → completed：跳转完成/评分页 + TTS "服务已完成"
-- in_progress → emergency：跳转紧急求助页 + TTS "已进入求助状态"
+- IN_PROGRESS → COMPLETED：跳转完成/评分页 + TTS "服务已完成"
+- IN_PROGRESS：记录 emergency event，订单状态保持不变 + TTS "已进入求助状态"
 
 **错误状态**：
 - 网络错误 → 保留当前 UI，静默重试
@@ -304,7 +303,7 @@
 
 **页面目标**：显示服务完成状态，提供评分入口。
 
-**入口**：订单状态变为 completed 后自动跳转。
+**入口**：订单状态变为 COMPLETED 后自动跳转。
 
 **主要内容**：
 - 完成图标 / 动画
@@ -425,7 +424,7 @@
 
 ## 页面 11：志愿者订单列表页
 
-**页面目标**：展示所有可接订单（matching 状态），按距离排序。
+**页面目标**：展示所有可接订单（PENDING_MATCH 状态），按距离排序。
 
 **入口**：志愿者首页 → "查看全部订单" / 底部标签栏。
 
@@ -450,7 +449,7 @@
 - 定位不可用 → 提示"需要定位权限"，阻断距离排序相关订单查看与接单流程
 
 **空状态**：
-- 无 matching 订单 → 空状态插图 + "暂无可用订单" + "下拉刷新"提示
+- 无 PENDING_MATCH 订单 → 空状态插图 + "暂无可用订单" + "下拉刷新"提示
 
 **无障碍要求**：
 - 每个订单卡片：accessibilityLabel = "盲人：" + 昵称 + "，距离：" + 距离 + "，地点：" + 出发地点 + "，时间：" + 预约时间
@@ -474,6 +473,7 @@
 - 订单信息同上
 - 盲人完整信息（昵称 + 联系电话，可点击拨打）
 - "查看地图"按钮（显示高德地图出发点位置、当前位置和距离，不做路线导航）
+- "我已出发"按钮
 - "我已到达"按钮
 - "取消订单"按钮
 - "一键求助"按钮
@@ -481,15 +481,17 @@
 **主要操作**：
 - 接单前：点击"接单" → 确认弹窗 → 接单成功
 - 接单后：点击"查看地图" → 显示出发点位置、当前位置和距离
-- 接单后：点击"我已到达" → 订单变为 arrived
-- 接单后：点击"一键求助" → 二次确认 → emergency
-- 接单后：点击"取消订单" → 二次确认 → 选择取消原因 → cancelled
+- 接单后：点击"我已出发" → 订单变为 DRIVER_EN_ROUTE
+- 出发后：点击"我已到达" → 订单变为 DRIVER_ARRIVED
+- 接单后：点击"一键求助" → 二次确认 → 记录 emergency event，订单状态保持不变
+- 接单后：点击"取消订单" → 二次确认 → 选择取消原因 → CANCELLED
 
 **状态变化**：
-- 接单：matching → accepted
-- 到达：accepted → arrived
-- 取消：accepted → cancelled
-- 求助：accepted → emergency
+- 接单：PENDING_MATCH → PENDING_ACCEPT
+- 出发：PENDING_ACCEPT → DRIVER_EN_ROUTE
+- 到达：DRIVER_EN_ROUTE → DRIVER_ARRIVED
+- 取消：PENDING_ACCEPT → CANCELLED
+- 求助：DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 记录 emergency event，订单状态保持不变
 
 **错误状态**：
 - 接单失败（已被接） → "该订单已被其他志愿者接单" → 返回列表
@@ -510,34 +512,37 @@
 
 **页面目标**：服务进行中管理页面。
 
-**入口**：订单状态变为 accepted / arrived / in_progress 后进入。
+**入口**：订单状态变为 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 后进入。
 
 **主要内容**：
 - 订单状态指示
 - 盲人信息卡片（昵称 + 联系电话，可拨打）
 - 订单信息（出发地点、预约时间）
 - 操作按钮：
-  - accepted："我已到达"按钮
-  - arrived 且盲人未确认时：等待盲人确认提示
-  - in_progress："结束服务"按钮（最小 64pt）
-  - accepted / arrived："取消订单"按钮
+  - PENDING_ACCEPT："我已出发"按钮
+  - DRIVER_EN_ROUTE："我已到达"按钮
+  - DRIVER_ARRIVED：显示已到达提示
+  - IN_PROGRESS："结束服务"按钮（最小 64pt）
+  - PENDING_ACCEPT："取消订单"按钮
 - "一键求助"按钮（红色醒目）
 - 高德小地图（出发地点标记）
 
 **主要操作**：
-- accepted：点击"我已到达" → 订单变为 arrived
-- accepted / arrived：点击"取消订单" → 二次确认 → 选择取消原因 → cancelled
-- in_progress：点击"结束服务" → 确认弹窗 → 服务完成
-- 点击"一键求助" → 二次确认 → emergency
+- PENDING_ACCEPT：点击"我已出发" → 订单变为 DRIVER_EN_ROUTE
+- DRIVER_EN_ROUTE：点击"我已到达" → 订单变为 DRIVER_ARRIVED
+- PENDING_ACCEPT：点击"取消订单" → 二次确认 → 选择取消原因 → CANCELLED
+- IN_PROGRESS：点击"结束服务" → 确认弹窗 → 服务完成
+- 点击"一键求助" → 二次确认 → emergency event（订单状态保持不变）
 - 点击盲人电话 → 系统拨号
 
 **状态变化**：
 - 每 5 秒轮询
-- accepted → arrived（志愿者点击已到达）：UI 更新
-- accepted / arrived → cancelled：跳转首页并显示取消结果
-- arrived → in_progress（盲人确认后）：UI 更新
-- in_progress → completed：跳转首页 + 显示"服务完成，获得 +100 积分"
-- accepted / arrived / in_progress → emergency：跳转紧急求助页
+- PENDING_ACCEPT → DRIVER_EN_ROUTE（志愿者点击已出发）：UI 更新
+- DRIVER_EN_ROUTE → DRIVER_ARRIVED（志愿者点击已到达）：UI 更新
+- PENDING_ACCEPT → CANCELLED：跳转首页并显示取消结果
+- DRIVER_ARRIVED → IN_PROGRESS：UI 更新
+- IN_PROGRESS → COMPLETED：跳转首页 + 显示"服务完成，获得 +100 积分"
+- DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS：记录 emergency event，订单状态保持不变
 
 **错误状态**：
 - 网络错误 → 保留当前 UI，静默重试

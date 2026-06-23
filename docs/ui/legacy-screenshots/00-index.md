@@ -6,7 +6,7 @@
 
 1. `AGENTS.md`
 2. `docs/01-10`
-3. `openspec/changes/add-aidrun-ios-spring-mvp/`
+3. `openspec/changes/remove-local-backend-use-cloud-only/`
 4. `docs/ui/ui-handoff-ios.md`
 5. 本目录截图（最低优先级）
 

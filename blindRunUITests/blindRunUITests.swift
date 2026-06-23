@@ -36,8 +36,6 @@ final class blindRunUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         XCTAssertFalse(environmentSwitcher.exists, "Demo and production builds must not expose the API environment switcher")
         #endif
-
-        XCTAssertFalse(app.textFields["本地后端地址"].exists, "Cloud-only builds must not expose a local backend input")
     }
 
     @MainActor
@@ -142,7 +140,7 @@ final class blindRunUITests: XCTestCase {
     @MainActor
     func testCloudBackendBlindRunnerBookingSmoke() throws {
         #if !DEMO
-        throw XCTSkip("Cloud backend E2E runs under blindRun-Demo / DemoRelease so the app has the demo ATS policy and locked cloud environment.")
+        throw XCTSkip("Cloud E2E runs under blindRun-Demo / DemoRelease so the app is locked to the external cloud service.")
         #else
         let app = launchApp(
             apiEnvironment: "demoCloud"
@@ -153,6 +151,7 @@ final class blindRunUITests: XCTestCase {
         chooseBlindRunnerRoleIfNeeded(app)
         completeBlindRunnerProfileIfNeeded(app)
         createBookingAndAssertMatching(app)
+        cancelCurrentOrder(app)
         #endif
     }
 
@@ -220,7 +219,7 @@ final class blindRunUITests: XCTestCase {
         add(attachment)
     }
 
-    private func login(app: XCUIApplication, phone: String, code: String = "123456") {
+    private func login(app: XCUIApplication, phone: String, code: String = "000000") {
         let phoneField = app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch
         XCTAssertTrue(phoneField.waitForExistence(timeout: 10), "Login phone field should appear")
         phoneField.tap()
@@ -294,6 +293,21 @@ final class blindRunUITests: XCTestCase {
 
         let matchingStatus = app.staticTexts["匹配中"].firstMatch
         XCTAssertTrue(matchingStatus.waitForExistence(timeout: 15), "Created booking should enter matching status")
+    }
+
+    private func cancelCurrentOrder(_ app: XCUIApplication) {
+        let cancelButton = app.buttons["取消订单"].firstMatch
+        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5), "Cloud smoke test should clean up its pending order")
+        cancelButton.tap()
+
+        let confirmButton = app.buttons["确认取消"].firstMatch
+        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Cancellation should require confirmation")
+        confirmButton.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["已取消"].firstMatch.waitForExistence(timeout: 10),
+            "Cloud smoke test order should be cancelled after verification"
+        )
     }
 
     private func enterTextIfNeeded(app: XCUIApplication, fieldLabel: String, placeholder: String, text: String) {
@@ -370,6 +384,13 @@ final class blindRunUITests: XCTestCase {
 
     private func dismissKeyboardIfPresent(app: XCUIApplication) {
         guard app.keyboards.firstMatch.exists else { return }
+
+        let dismissButton = app.buttons["收起键盘"].firstMatch
+        if dismissButton.waitForExistence(timeout: 1) {
+            dismissButton.tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 2), "Keyboard should dismiss")
+            return
+        }
 
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))

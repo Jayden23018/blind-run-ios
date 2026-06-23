@@ -90,7 +90,7 @@ final class AppState: ObservableObject {
             return mockAPIClient
         case .mock:
             return DisabledAPIClient()
-        case .localBackend, .demoCloud, .production:
+        case .demoCloud:
             guard AppBuildChannel.current.allows(currentEnvironment) else {
                 return DisabledAPIClient()
             }
@@ -109,7 +109,7 @@ final class AppState: ObservableObject {
     init() {
         // 从 UserDefaults 恢复环境设置
         if let envRaw = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
-           let env = AppState.storedEnvironment(from: envRaw, channel: AppBuildChannel.current) {
+           let env = AppState.storedEnvironment(from: envRaw) {
             self.currentEnvironment = AppState.resolvedInitialEnvironment(env, channel: AppBuildChannel.current)
         } else {
             self.currentEnvironment = AppBuildChannel.current.defaultEnvironment
@@ -216,10 +216,7 @@ final class AppState: ObservableObject {
         channel.allows(environment) ? environment : channel.defaultEnvironment
     }
 
-    static func storedEnvironment(from rawValue: String, channel: AppBuildChannel = AppBuildChannel.current) -> APIEnvironment? {
-        if rawValue == "production", channel != .production {
-            return .demoCloud
-        }
+    static func storedEnvironment(from rawValue: String) -> APIEnvironment? {
         return APIEnvironment(rawValue: rawValue)
     }
 

@@ -176,6 +176,9 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
 
         switch httpResponse.statusCode {
         case 200...299:
+            if T.self == EmptyResponse.self, data.isEmpty {
+                return EmptyResponse() as! T
+            }
             // Strategy: Try envelope first, then direct decode.
             // Envelope-first avoids the issue where all-optional models (e.g. BlindProfileResponse)
             // would "succeed" with all-nil values when decoded from the envelope root object.
@@ -196,11 +199,10 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
                 throw APIError.serverError(errorResponse)
             }
-            // Try int-code envelope error (cloud backend format: {"success": false, "code": 400, "message": "..."})
+            // Accept the cloud backend's flexible error payload during contract convergence.
             if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data),
-               let message = envelope.message {
-                let codeStr = envelope.code.map { String($0) } ?? "UNKNOWN"
-                throw APIError.serverError(ErrorResponse(code: codeStr, message: message))
+               let errorResponse = envelope.resolvedErrorResponse(statusCode: httpResponse.statusCode) {
+                throw APIError.serverError(errorResponse)
             }
             throw APIError.unknown(statusCode: httpResponse.statusCode)
         }
@@ -286,11 +288,10 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
                 throw APIError.serverError(errorResponse)
             }
-            // Try int-code envelope error (cloud backend format: {"success": false, "code": 400, "message": "..."})
+            // Accept the cloud backend's flexible error payload during contract convergence.
             if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data),
-               let message = envelope.message {
-                let codeStr = envelope.code.map { String($0) } ?? "UNKNOWN"
-                throw APIError.serverError(ErrorResponse(code: codeStr, message: message))
+               let errorResponse = envelope.resolvedErrorResponse(statusCode: httpResponse.statusCode) {
+                throw APIError.serverError(errorResponse)
             }
             throw APIError.unknown(statusCode: httpResponse.statusCode)
         }

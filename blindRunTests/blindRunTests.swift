@@ -20,11 +20,131 @@ final class blindRunTests: XCTestCase {
     }
 
     func testVerifyCodeRequestUsesOpenAPICamelCaseKeys() throws {
-        let request = VerifyCodeRequest(phone: "13800138000", code: "123456")
+        let request = VerifyCodeRequest(phone: "13800138000", code: AppConstants.Auth.demoVerificationCode)
         let data = try JSONEncoder().encode(request)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
         XCTAssertEqual(json["phone"], "13800138000")
-        XCTAssertEqual(json["code"], "123456")
+        XCTAssertEqual(json["code"], "000000")
+    }
+
+    func testDemoVerificationCodeMatchesCloudContract() {
+        XCTAssertEqual(AppConstants.Auth.demoVerificationCode, "000000")
+    }
+
+    func testFlexibleErrorEnvelopeUsesBusinessErrorCode() throws {
+        let data = #"{"errorCode":"VOLUNTEER_NOT_AVAILABLE","code":403,"success":false,"message":"未开启接单"}"#.data(using: .utf8)!
+        let payload = try JSONDecoder().decode(APIErrorEnvelope.self, from: data)
+        let response = try XCTUnwrap(payload.resolvedErrorResponse(statusCode: 403))
+
+        XCTAssertEqual(response.code, "VOLUNTEER_NOT_AVAILABLE")
+        XCTAssertEqual(response.message, "未开启接单")
+    }
+
+    func testFlexibleErrorEnvelopeUsesLegacyErrorMessage() throws {
+        let data = #"{"error":"验证码错误或已过期"}"#.data(using: .utf8)!
+        let payload = try JSONDecoder().decode(APIErrorEnvelope.self, from: data)
+        let response = try XCTUnwrap(payload.resolvedErrorResponse(statusCode: 400))
+
+        XCTAssertEqual(response.code, "HTTP_400")
+        XCTAssertEqual(response.message, "验证码错误或已过期")
+    }
+
+    func testEmptyResponseDecodesEmptyObjectsAndEnvelopePayloads() throws {
+        XCTAssertNoThrow(try JSONDecoder().decode(EmptyResponse.self, from: #"{}"#.data(using: .utf8)!))
+        XCTAssertNoThrow(try JSONDecoder().decode(EmptyResponse.self, from: #"{"success":true}"#.data(using: .utf8)!))
+
+        let envelope = try JSONDecoder().decode(
+            APIEnvelopeResponse<EmptyResponse>.self,
+            from: #"{"success":true,"data":{}}"#.data(using: .utf8)!
+        )
+        XCTAssertNotNil(envelope.data)
+    }
+
+    func testMockOrderActionsSupportEmptyResponseAndFetchDetailAfterwards() async throws {
+        let client = MockAPIClient()
+        let available: PagedOrderResponse = try await client.get("/api/orders/available")
+        let order = try XCTUnwrap(available.content.first)
+
+        let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/accept")
+        var detail: OrderDetailResponse = try await client.get("/api/orders/\(order.orderId)")
+        XCTAssertEqual(detail.status, .pendingAccept)
+
+        let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/en-route")
+        detail = try await client.get("/api/orders/\(order.orderId)")
+        XCTAssertEqual(detail.status, .driverEnRoute)
+
+        let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/arrived")
+        detail = try await client.get("/api/orders/\(order.orderId)")
+        XCTAssertEqual(detail.status, .driverArrived)
+    }
+
+    func testMaintainedDocsDoNotUseForbiddenLowercaseOrderStatusVocabulary() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let docs = [
+            root.appendingPathComponent("docs/01-product-requirements.md"),
+            root.appendingPathComponent("docs/02-mvp-scope.md"),
+            root.appendingPathComponent("docs/03-user-stories.md"),
+            root.appendingPathComponent("docs/04-user-flows-and-state-machine.md"),
+            root.appendingPathComponent("docs/05-page-specs.md"),
+            root.appendingPathComponent("docs/06-data-model.md"),
+            root.appendingPathComponent("docs/07-api-contract.openapi.yaml"),
+            root.appendingPathComponent("docs/08-ios-architecture.md"),
+            root.appendingPathComponent("docs/09-accessibility-and-voice-guidelines.md"),
+            root.appendingPathComponent("docs/10-ai-coding-tasks.md"),
+            root.appendingPathComponent("docs/test-accounts.md"),
+            root.appendingPathComponent("docs/websocket-protocol.md")
+        ]
+        let forbiddenFragments = [
+            "`matching`",
+            "`accepted`",
+            "`arrived`",
+            "`in_progress`",
+            "`completed`",
+            "`cancelled`",
+            "terminal `emergency`",
+            "status: \"matching\"",
+            "status: \"accepted\"",
+            "status: \"arrived\"",
+            "status: \"in_progress\"",
+            "status: \"completed\"",
+            "status: \"cancelled\"",
+            "状态流转为 emergency",
+            "`/api/orders/{orderId}/respond`",
+            "`/api/orders/{id}/respond`",
+            "`/api/orders/{orderId}/arrive`",
+            "`/api/orders/{id}/arrive`"
+        ]
+
+        for doc in docs {
+            let text = try String(contentsOf: doc)
+            for fragment in forbiddenFragments {
+                XCTAssertFalse(text.contains(fragment), "\(doc.lastPathComponent) contains forbidden fragment: \(fragment)")
+            }
+        }
+    }
+
+    func testMaskedEmergencyContactRemainsValidAndIsNotSubmittedAsPhone() {
+        let appState = AppState()
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户"))
+        appState.updateEmergencyContacts([
+            EmergencyContactResponse(
+                id: 1,
+                name: "联系人",
+                phone: "138****1111",
+                relationship: nil,
+                isPrimary: true
+            )
+        ])
+        let viewModel = BlindRunnerProfileViewModel()
+
+        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.sanitizePhoneInput(viewModel.emergencyContactPhone)
+
+        XCTAssertEqual(viewModel.emergencyContactPhone, "138****1111")
+        XCTAssertTrue(viewModel.isPhoneValid)
+        XCTAssertNil(viewModel.emergencyContactPhoneForRequest)
     }
 
     func testLoginResponseDecodesCorrectly() throws {
@@ -79,91 +199,76 @@ final class blindRunTests: XCTestCase {
     func testLoginVerificationCodeInputKeepsOnlyFirstSixDigits() {
         let viewModel = LoginViewModel()
 
-        viewModel.sanitizeVerificationCodeInput("123456789")
+        viewModel.sanitizeVerificationCodeInput("000000789")
 
-        XCTAssertEqual(viewModel.verificationCode, "123456")
+        XCTAssertEqual(viewModel.verificationCode, "000000")
     }
 
     func testLoginVerificationCodeInputDropsNonDigits() {
         let viewModel = LoginViewModel()
 
-        viewModel.sanitizeVerificationCodeInput("abc 123-456 xyz")
+        viewModel.sanitizeVerificationCodeInput("abc 000-000 xyz")
 
-        XCTAssertEqual(viewModel.verificationCode, "123456")
+        XCTAssertEqual(viewModel.verificationCode, "000000")
     }
 
     func testLoginVerificationCodeDirectAssignmentKeepsOnlyFirstSixDigits() {
         let viewModel = LoginViewModel()
 
-        viewModel.verificationCode = "123456789"
+        viewModel.verificationCode = "000000789"
 
-        XCTAssertEqual(viewModel.verificationCode, "123456")
+        XCTAssertEqual(viewModel.verificationCode, "000000")
     }
 
     func testLoginVerificationCodeSanitizeAlreadyCompleteValueKeepsSixDigits() {
         let viewModel = LoginViewModel()
-        viewModel.verificationCode = "123456"
+        viewModel.verificationCode = AppConstants.Auth.demoVerificationCode
 
-        viewModel.sanitizeVerificationCodeInput("1234567")
+        viewModel.sanitizeVerificationCodeInput("0000007")
 
-        XCTAssertEqual(viewModel.verificationCode, "123456")
+        XCTAssertEqual(viewModel.verificationCode, "000000")
     }
 
     func testSubmitLoginWithCompleteInputsDoesNotReenterVerificationCodeSetter() {
         let viewModel = LoginViewModel()
         viewModel.phoneNumber = "13800138000"
-        viewModel.verificationCode = "123456"
+        viewModel.verificationCode = AppConstants.Auth.demoVerificationCode
 
         viewModel.submitLogin()
 
         XCTAssertEqual(viewModel.phoneNumber, "13800138000")
-        XCTAssertEqual(viewModel.verificationCode, "123456")
+        XCTAssertEqual(viewModel.verificationCode, "000000")
     }
 
     func testDevelopmentInitialEnvironmentKeepsSupportedDebugChoices() {
         XCTAssertEqual(AppState.resolvedInitialEnvironment(.mock, channel: .development), .mock)
-        XCTAssertEqual(AppState.resolvedInitialEnvironment(.localBackend, channel: .development), .mock)
         XCTAssertEqual(AppState.resolvedInitialEnvironment(.demoCloud, channel: .development), .demoCloud)
     }
 
     func testDemoReleaseLocksInitialEnvironmentToDemoCloud() {
         XCTAssertEqual(AppState.resolvedInitialEnvironment(.mock, channel: .demo), .demoCloud)
-        XCTAssertEqual(AppState.resolvedInitialEnvironment(.localBackend, channel: .demo), .demoCloud)
         XCTAssertEqual(AppState.resolvedInitialEnvironment(.demoCloud, channel: .demo), .demoCloud)
-        XCTAssertEqual(AppState.resolvedInitialEnvironment(.production, channel: .demo), .demoCloud)
     }
 
-    func testProductionReleaseLocksInitialEnvironmentToProduction() {
-        XCTAssertEqual(AppState.resolvedInitialEnvironment(.mock, channel: .production), .production)
-        XCTAssertEqual(AppState.resolvedInitialEnvironment(.localBackend, channel: .production), .production)
-        XCTAssertEqual(AppState.resolvedInitialEnvironment(.demoCloud, channel: .production), .production)
-        XCTAssertEqual(AppState.resolvedInitialEnvironment(.production, channel: .production), .production)
+    func testProductionReleaseLocksInitialEnvironmentToDemoCloud() {
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.mock, channel: .production), .demoCloud)
+        XCTAssertEqual(AppState.resolvedInitialEnvironment(.demoCloud, channel: .production), .demoCloud)
     }
 
-    func testStoredLegacyProductionEnvironmentMapsToDemoCloudOutsideProductionBuilds() {
-        XCTAssertEqual(AppState.storedEnvironment(from: "production", channel: .development), .demoCloud)
-        XCTAssertEqual(AppState.storedEnvironment(from: "production", channel: .demo), .demoCloud)
-        XCTAssertEqual(AppState.storedEnvironment(from: "production", channel: .production), .production)
+    func testUnknownStoredEnvironmentIsRejected() {
+        XCTAssertNil(AppState.storedEnvironment(from: "unsupported"))
     }
 
     func testDemoCloudBaseURLUsesCurrentDemoIPAddress() {
         XCTAssertEqual(APIEnvironment.demoCloud.baseURL?.absoluteString, "http://47.114.113.171")
     }
 
-    func testProductionBaseURLRequiresHTTPS() {
-        XCTAssertNil(AppConstants.ProductionBackend.normalizedBaseURL(from: "http://api.example.com"))
-        XCTAssertEqual(
-            AppConstants.ProductionBackend.normalizedBaseURL(from: "https://api.aidrun.example.com")?.scheme,
-            "https"
-        )
-    }
-
-    func testWebSocketUsesWSSForHTTPSProductionBaseURL() throws {
-        let baseURL = try XCTUnwrap(URL(string: "https://api.aidrun.example.com"))
+    func testWebSocketUsesFixedCloudHost() throws {
+        let baseURL = try XCTUnwrap(APIEnvironment.demoCloud.baseURL)
         let webSocketURL = try XCTUnwrap(WebSocketService.connectionURL(baseURL: baseURL, token: "jwt", role: .blind))
 
-        XCTAssertEqual(webSocketURL.scheme, "wss")
-        XCTAssertEqual(webSocketURL.host, "api.aidrun.example.com")
+        XCTAssertEqual(webSocketURL.scheme, "ws")
+        XCTAssertEqual(webSocketURL.host, "47.114.113.171")
         XCTAssertEqual(webSocketURL.path, "/ws/blind")
         XCTAssertTrue(webSocketURL.absoluteString.contains("token=jwt"))
     }
@@ -186,17 +291,6 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(appState.currentEnvironment, .demoCloud)
         appState.switchToNextEnvironmentForTesting()
         XCTAssertEqual(appState.currentEnvironment, .mock)
-    }
-
-    func testLegacyLocalBackendAddressNormalizationSupportsStoredRawValues() {
-        XCTAssertEqual(
-            AppConstants.LocalBackend.normalizedDisplayString(from: "192.168.1.23"),
-            "http://192.168.1.23:8081"
-        )
-        XCTAssertEqual(
-            AppConstants.LocalBackend.normalizedDisplayString(from: "http://192.168.1.23:8081"),
-            "http://192.168.1.23:8081"
-        )
     }
 
     func testCreateOrderRequestUsesOpenAPIWireValues() throws {

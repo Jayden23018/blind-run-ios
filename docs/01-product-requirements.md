@@ -55,7 +55,7 @@
 
 ## 第一版成功标准
 
-1. 能完整演示：**盲人预约 → 志愿者接单 → 志愿者到达 → 盲人确认开始服务 → 志愿者结束服务 → 盲人看到完成状态**。
+1. 能完整演示：**盲人预约 → 志愿者接单 → 志愿者出发 → 志愿者到达并开始服务 → 志愿者结束服务 → 盲人看到完成状态**。
 2. 必须接入真实地图（高德地图）。
 3. 必须接入真实定位。
 4. 必须接入真实用户登录。
@@ -82,15 +82,14 @@
 |--------|------|
 | 客户端 | Swift 原生 iOS，SwiftUI + MVVM |
 | iOS 版本 | iOS 16+ |
-| 后端 | Spring Boot（独立项目） |
-| 数据库 | Demo 用 H2，后续迁移至 PostgreSQL |
+| 外部服务 | 仓库外云端 API，唯一地址 `http://47.114.113.171` |
 | 网络层 | URLSession + async/await |
 | Token 存储 | MVP 用 UserDefaults（正式版替换为 Keychain） |
 | 地图服务 | 高德地图（AMap） |
 | 实时通信 | REST + WebSocket；订单页保留每 5 秒轮询作为 WebSocket 断开时的降级方案 |
-| 短信验证 | MVP 使用固定验证码 `123456`，不接入真实短信服务商 |
+| 短信验证 | MVP 使用固定验证码 `000000`，不接入真实短信服务商 |
 | 志愿者认证 | Mock 认证，非真实实名认证 |
-| 环境切换 | 支持 Mock / Local Backend / Production Backend 三种模式 |
+| 环境切换 | Debug 支持 Mock / Demo Cloud；Demo 和 Production 构建固定 Demo Cloud |
 | 主题 | 支持系统深色 / 浅色模式，优先保证可读性和对比度 |
 
 ## 显式排除项（Non-Goals）
@@ -128,16 +127,16 @@ Swift 原生 iOS
 └── UserDefaults（token 存储）
 ```
 
-### 后端
+### 外部 API
 
 ```
-Spring Boot
-├── H2 数据库（Demo）
-├── PostgreSQL（后续）
-├── REST API
-├── Swagger / OpenAPI 文档
-└── 启动时 seed 测试数据
+仓库外云端服务（http://47.114.113.171）
+├── REST API（docs/07-api-contract.openapi.yaml）
+├── WebSocket（docs/websocket-protocol.md）
+└── JWT Bearer Auth
 ```
+
+本仓库只实现和测试 iOS 前端，不包含服务端源码、数据库配置或部署工具。
 
 ## 术语表
 
@@ -146,13 +145,14 @@ Spring Boot
 | 盲人跑者 | Blind Runner | 核心用户角色 |
 | 志愿者 | Volunteer | 核心用户角色 |
 | 订单 | Order | 一次预约服务 |
-| 匹配中 | matching | 订单已创建，等待志愿者接单 |
-| 已接单 | accepted | 志愿者已接单 |
-| 已到达 | arrived | 志愿者已到达约定地点 |
-| 进行中 | in_progress | 服务正在进行 |
-| 已完成 | completed | 服务正常结束 |
-| 已取消 | cancelled | 订单被取消 |
-| 紧急求助 | emergency | 服务异常，已触发求助 |
+| 匹配中 | PENDING_MATCH | 订单已创建，等待志愿者接单 |
+| 已接单 | PENDING_ACCEPT | 志愿者已接单 |
+| 志愿者出发 | DRIVER_EN_ROUTE | 志愿者正在前往约定地点 |
+| 已到达 | DRIVER_ARRIVED | 志愿者已到达约定地点 |
+| 进行中 | IN_PROGRESS | 服务正在进行 |
+| 已完成 | COMPLETED | 服务正常结束 |
+| 已取消 | CANCELLED | 订单被取消 |
+| 紧急求助 | emergency event | 服务异常事件已记录，订单状态保持不变 |
 | 预约 | Booking | 盲人发起的跑步预约 |
 | 积分 | Points | 志愿者奖励积分 |
 | 接单 | Accept | 志愿者接受订单 |

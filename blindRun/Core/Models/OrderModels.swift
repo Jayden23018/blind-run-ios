@@ -224,12 +224,6 @@ struct CreateReviewRequest: Codable, Sendable {
     let comment: String?
 }
 
-// MARK: - Dispatch Respond
-
-struct DispatchRespondRequest: Codable, Sendable {
-    let action: String  // "ACCEPT" or "DECLINE"
-}
-
 // MARK: - Emergency
 
 struct EmergencyTriggerRequest: Codable, Sendable {

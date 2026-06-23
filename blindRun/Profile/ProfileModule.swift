@@ -15,13 +15,24 @@ final class BlindRunnerProfileViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
+    private var originalEmergencyContactName = ""
+    private var originalEmergencyContactPhone = ""
 
     var isEditing: Bool {
         appState?.blindProfile != nil
     }
 
     var isPhoneValid: Bool {
-        AppState.isValidMainlandPhone(emergencyContactPhone)
+        isUsingUnchangedMaskedPhone || AppState.isValidMainlandPhone(emergencyContactPhone)
+    }
+
+    var emergencyContactPhoneForRequest: String? {
+        isUsingUnchangedMaskedPhone ? nil : emergencyContactPhone
+    }
+
+    private var isUsingUnchangedMaskedPhone: Bool {
+        emergencyContactPhone == originalEmergencyContactPhone &&
+        Self.isMaskedPhone(originalEmergencyContactPhone)
     }
 
     var canSubmit: Bool {
@@ -42,8 +53,10 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         }
 
         if let contact = appState.emergencyContacts.first {
-            emergencyContactName = contact.name ?? ""
-            emergencyContactPhone = contact.phone ?? ""
+            originalEmergencyContactName = contact.name ?? ""
+            originalEmergencyContactPhone = contact.phone ?? ""
+            emergencyContactName = originalEmergencyContactName
+            emergencyContactPhone = originalEmergencyContactPhone
         }
     }
 
@@ -62,8 +75,16 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     #endif
 
     func sanitizePhoneInput(_ value: String) {
+        if value == originalEmergencyContactPhone, Self.isMaskedPhone(value) {
+            emergencyContactPhone = value
+            return
+        }
         let digits = value.filter(\.isNumber)
         emergencyContactPhone = String(digits.prefix(11))
+    }
+
+    nonisolated static func isMaskedPhone(_ value: String) -> Bool {
+        value.range(of: #"^\d{3}\*{4}\d{4}$"#, options: .regularExpression) != nil
     }
 
     func submit() {
@@ -104,7 +125,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             // Save emergency contact
             let contactRequest = EmergencyContactRequest(
                 name: emergencyContactName.trimmed,
-                phone: emergencyContactPhone,
+                phone: emergencyContactPhoneForRequest,
                 relationship: nil,
                 isPrimary: true
             )
@@ -140,6 +161,10 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         )) ?? []
 
         if let existingContact = existingContacts.first {
+            if request.phone == nil,
+               emergencyContactName.trimmed == originalEmergencyContactName.trimmed {
+                return existingContact
+            }
             return try await appState.apiClient.put(
                 "/api/users/\(userId)/emergency-contacts/\(existingContact.id)",
                 body: request

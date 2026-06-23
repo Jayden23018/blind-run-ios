@@ -4,6 +4,8 @@ Project-level rules for all AI coding agents working on AidRun / 助盲跑 MVP.
 
 Do not treat this file as product brainstorming. It is the highest-priority working contract for agents in this repository.
 
+**Repository boundary:** This is the AidRun native iOS frontend code repository only. It does not contain, maintain, build, or deploy backend code. The backend is an external service, and the only real integration endpoint is `http://47.114.113.171`. Agents must not add server source code, database configuration, server build scripts, or a locally runnable backend to this repository.
+
 ## 1. Project Source of Truth
 
 When sources conflict, follow this priority order:
@@ -19,7 +21,7 @@ When sources conflict, follow this priority order:
 9. `docs/08-ios-architecture.md`
 10. `docs/09-accessibility-and-voice-guidelines.md`
 11. `docs/10-ai-coding-tasks.md`
-12. `openspec/changes/add-aidrun-ios-spring-mvp/`
+12. `openspec/changes/remove-local-backend-use-cloud-only/`
 13. Legacy Flutter code can be used only as UI or behavior reference. It is not a source of truth.
 
 If legacy Flutter code, old documents, and the current docs/OpenSpec conflict, follow the current docs/OpenSpec and this file.
@@ -33,12 +35,12 @@ The current frozen direction is:
 - SwiftUI first, with UIKit bridging only when needed.
 - iOS 16+.
 - SwiftUI + MVVM.
-- Backend uses Spring Boot.
-- Demo database uses H2.
-- Later database target is PostgreSQL.
-- REST API + WebSocket for real-time notifications.
+- The backend is an external cloud service outside this repository.
+- Every real HTTP request uses `http://47.114.113.171`.
+- Every real WebSocket connection uses `ws://47.114.113.171`.
+- REST API + WebSocket provide real-time notifications.
 - JWT Bearer Auth.
-- Phone login with fixed verification code `123456`.
+- Phone login with fixed verification code `000000`.
 - Do not integrate real SMS.
 - Use 高德地图 (AMap) and real location.
 - TTS uses `AVSpeechSynthesizer`.
@@ -98,7 +100,7 @@ If an agent believes any item above is needed, it must write `需要人工确认
 - Do not build a separate administrator app role.
 - Two-step phone login: POST `/api/auth/send-code` then POST `/api/auth/verify-code`.
 - First login with a phone number automatically creates the account.
-- During the demo phase, every phone number uses fixed verification code `123456`.
+- During the demo phase, every phone number uses fixed verification code `000000`.
 - Successful login returns a JWT `token` (LoginResponse: token, userId, role).
 - One account may have both blind runner and volunteer identities.
 - Use POST `/api/user/role` to switch the current role (returns a new token).
@@ -186,18 +188,19 @@ Terminal state rules:
 - `COMPLETED`, `CANCELLED`, and `NO_VOLUNTEER` are terminal for MVP.
 - `IN_PROGRESS` can be cancelled or enter `COMPLETED`.
 
-## 7. Backend Rules
+## 7. External API Contract Rules
 
-Backend rules:
+External API rules for the iOS client:
 
-- Use Spring Boot.
-- Use H2 for demo.
-- PostgreSQL later.
+- Do not add or maintain backend implementation code in this repository.
+- `docs/07-api-contract.openapi.yaml` is the canonical HTTP API contract.
+- `docs/websocket-protocol.md` is the canonical WebSocket contract.
+- The only real HTTP base URL is `http://47.114.113.171`.
+- The only real WebSocket origin is `ws://47.114.113.171`.
+- Do not add configurable, local, staging, or placeholder real-server addresses.
 - REST API + WebSocket for real-time notifications.
 - Swagger / OpenAPI is required.
 - Use JWT Bearer Auth.
-- Seed test data is required.
-- Seed data must include at least 1 blind runner with complete profile and emergency contact, 1 approved and available volunteer, several `PENDING_MATCH` orders, and completed records for demo history/points.
 - MVP order lists use paginated responses (PagedOrderResponse).
 - Blind runner order detail polls every 5 seconds as WebSocket fallback.
 - Use a unified error response structure.
@@ -206,7 +209,7 @@ Backend rules:
 - WebSocket is used for real-time dispatch (NEW_ORDER), status change notifications, and location updates.
 - REST polling remains as fallback when WebSocket is disconnected.
 
-Backend modules:
+External API domains consumed by iOS:
 
 - `auth`
 - `user`
@@ -240,7 +243,9 @@ iOS rules:
 - Centralize network requests in `APIClient`.
 - Centralize token, `currentUser`, and `activeRole` in `AppState`.
 - MVP token may be temporarily stored in `UserDefaults`, but code must comment that production must migrate to Keychain.
-- Support Mock / Local Backend / Production Backend environment switching.
+- Development supports Mock / Demo Cloud switching; Demo and Production builds are locked to Demo Cloud.
+- Mock is an in-process frontend test facility and must not perform network requests.
+- All non-Mock clients use `http://47.114.113.171`; the address is not configurable.
 - Views only handle rendering and interaction. Do not pile business logic into Views.
 - ViewModels own state and API calls.
 - 高德地图 keys may only come from local config files. Do not hardcode keys. Do not commit real keys.
@@ -309,7 +314,6 @@ TTS must cover:
 - Matching
 - Volunteer accepted
 - Volunteer arrived
-- Ask blind runner to confirm service start
 - Service started
 - Service completed
 - Enter emergency state
@@ -340,10 +344,10 @@ Safety rules:
 - Do not send SMS.
 - Do not automatically call.
 - Do not push real administrator notifications.
-- Show one-tap emergency for orders in `accepted`, `arrived`, or `in_progress`.
+- Show one-tap emergency for orders in `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, or `IN_PROGRESS`.
 - Emergency action must require second confirmation.
-- After confirmation, the order enters `emergency`.
-- MVP does not support restoring from `emergency` to the previous state.
+- After confirmation, the backend records an emergency event and keeps the order status unchanged.
+- Emergency is not an order status, so there is no order-state restoration operation.
 
 Emergency confirmation copy must be exactly:
 
@@ -382,7 +386,7 @@ After completing each module, check:
 - Does it pile business logic into SwiftUI Views?
 - Does it include accessibility labels/hints?
 - Do dangerous actions require second confirmation?
-- Do backend state transitions have tests?
+- Do client models and ViewModels cover API responses and order-state behavior with tests?
 - Does `openspec validate` pass?
 
 ## 15. Required Validation Commands
@@ -396,31 +400,19 @@ openspec validate <change-id> --strict --no-interactive
 For the current MVP change:
 
 ```bash
-openspec validate add-aidrun-ios-spring-mvp --strict --no-interactive
-```
-
-Backend validation:
-
-```bash
-./gradlew test
-```
-
-Or, if the backend uses Maven:
-
-```bash
-./mvnw test
+openspec validate remove-local-backend-use-cloud-only --strict --no-interactive
 ```
 
 iOS build validation:
 
 ```bash
-xcodebuild -scheme <AppScheme> -destination 'platform=iOS Simulator,name=iPhone 15' build
+xcodebuild -workspace blindRun.xcworkspace -scheme blindRun -destination 'generic/platform=iOS Simulator' build
 ```
 
 If iOS tests exist:
 
 ```bash
-xcodebuild test -scheme <AppScheme> -destination 'platform=iOS Simulator,name=iPhone 15'
+xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS Simulator,name=iPhone 15'
 ```
 
 ## 16. Legacy Flutter Reference Rule

@@ -368,7 +368,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             return
         }
         await performAction(failureMessage: "接单失败，请重试") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/accept")
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/accept")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             self.order = updated
         }
@@ -377,7 +377,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     func enRoute() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "操作失败，请重试") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/en-route")
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/en-route")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             self.order = updated
         }
@@ -386,7 +386,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     func arrive() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "操作失败，请重试") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             self.order = updated
         }
@@ -395,7 +395,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     func cancel() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "取消失败，请重试") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             self.order = updated
         }
@@ -405,7 +405,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         guard let order, let appState else { return }
         let request = EmergencyTriggerRequest(orderId: order.orderId, gpsLat: nil, gpsLng: nil)
         await performAction(failureMessage: "求助操作失败，请重试") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
+            let _: EmptyResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             if order.status != updated.status {
                 self.speechService?.speakStatusChange(updated.status)
@@ -622,7 +622,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     func enRoute() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "操作失败，请重试") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/en-route")
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/en-route")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             apply(updated, speakChanges: false)
         }
@@ -631,7 +631,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     func arrive() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "操作失败，请重试") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             apply(updated, speakChanges: false)
         }
@@ -640,7 +640,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     func cancel() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "取消失败，请重试") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             apply(updated, speakChanges: false)
         }
@@ -649,7 +649,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     func complete(summary: String) async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "操作失败，请重试") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/finish")
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/finish")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             apply(updated, speakChanges: false)
         }
@@ -659,7 +659,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         guard let order, let appState else { return }
         let request = EmergencyTriggerRequest(orderId: order.orderId, gpsLat: nil, gpsLng: nil)
         await performAction(failureMessage: "求助操作失败，请重试") {
-            let _: OrderResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
+            let _: EmptyResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             apply(updated, speakChanges: true)
         }
