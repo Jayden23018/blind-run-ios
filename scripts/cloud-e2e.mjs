@@ -2,6 +2,8 @@
 
 const baseURL = 'http://47.114.113.171';
 const defaultVerificationCode = '000000';
+const defaultBlindPhone = '13800000001';
+const defaultVolunteerPhone = '13800000002';
 const timeoutMs = Number(process.env.AIDRUN_E2E_TIMEOUT_MS ?? 25000);
 
 const created = {
@@ -42,8 +44,11 @@ function selectedPhones() {
   if (blindPhone && volunteerPhone) {
     return [blindPhone, volunteerPhone, true];
   }
-  const [generatedBlindPhone, generatedVolunteerPhone] = uniquePhones();
-  return [blindPhone ?? generatedBlindPhone, volunteerPhone ?? generatedVolunteerPhone, false];
+  if (process.env.AIDRUN_E2E_USE_GENERATED_PHONES === '1') {
+    const [generatedBlindPhone, generatedVolunteerPhone] = uniquePhones();
+    return [blindPhone ?? generatedBlindPhone, volunteerPhone ?? generatedVolunteerPhone, false];
+  }
+  return [blindPhone ?? defaultBlindPhone, volunteerPhone ?? defaultVolunteerPhone, true];
 }
 
 function shouldSkipProfileSetup(usingSeedAccounts) {
