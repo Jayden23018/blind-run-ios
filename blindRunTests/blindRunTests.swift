@@ -7,6 +7,7 @@
 
 import XCTest
 import AMapSearchKit
+import CoreLocation
 @testable import blindRun
 
 @MainActor
@@ -36,6 +37,46 @@ final class blindRunTests: XCTestCase {
         let data = try JSONEncoder().encode(request)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
         XCTAssertEqual(json["action"], "ACCEPT")
+    }
+
+    func testVolunteerLocationReporterSendsAuthorizedCloudLocation() {
+        var sentCoordinates: [(Double, Double)] = []
+        let didReport = VolunteerLocationReporter.reportIfNeeded(
+            currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
+            locationAuthorized: true,
+            shouldReportToCloud: true,
+            send: { sentCoordinates.append(($0, $1)) }
+        )
+
+        XCTAssertTrue(didReport)
+        XCTAssertEqual(sentCoordinates.count, 1)
+        XCTAssertEqual(sentCoordinates[0].0, 39.905, accuracy: 0.000001)
+        XCTAssertEqual(sentCoordinates[0].1, 116.408, accuracy: 0.000001)
+    }
+
+    func testVolunteerLocationReporterSkipsUnauthorizedOrMockLocation() {
+        var sendCount = 0
+        let coordinate = CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408)
+
+        XCTAssertFalse(VolunteerLocationReporter.reportIfNeeded(
+            currentLocation: coordinate,
+            locationAuthorized: false,
+            shouldReportToCloud: true,
+            send: { _, _ in sendCount += 1 }
+        ))
+        XCTAssertFalse(VolunteerLocationReporter.reportIfNeeded(
+            currentLocation: coordinate,
+            locationAuthorized: true,
+            shouldReportToCloud: false,
+            send: { _, _ in sendCount += 1 }
+        ))
+        XCTAssertFalse(VolunteerLocationReporter.reportIfNeeded(
+            currentLocation: nil,
+            locationAuthorized: true,
+            shouldReportToCloud: true,
+            send: { _, _ in sendCount += 1 }
+        ))
+        XCTAssertEqual(sendCount, 0)
     }
 
     func testFlexibleErrorEnvelopeUsesBusinessErrorCode() throws {

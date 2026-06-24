@@ -180,6 +180,12 @@ final class VolunteerOrderListViewModel: ObservableObject {
             appState.updateVolunteerProfile(profile)
             isAvailable = profile.isAvailable ?? false
 
+            VolunteerLocationReporter.reportIfNeeded(
+                appState: appState,
+                currentLocation: currentLocation,
+                locationAuthorized: locationAuthorized
+            )
+
             let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/available")
             rows = VolunteerAvailableOrderRow.sortedRows(
                 orders: paged.content,
@@ -357,7 +363,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         }
     }
 
-    func accept(locationAuthorized: Bool) async {
+    func accept(currentLocation: CLLocationCoordinate2D?, locationAuthorized: Bool) async {
         guard let order, let appState else { return }
         if let message = VolunteerOrderActionGuard.acceptBlockMessage(
             profile: appState.volunteerProfile,
@@ -368,6 +374,11 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             return
         }
         await performAction(failureMessage: "接单失败，请重试") {
+            VolunteerLocationReporter.reportIfNeeded(
+                appState: appState,
+                currentLocation: currentLocation,
+                locationAuthorized: locationAuthorized
+            )
             let request = OrderRespondRequest(action: .accept)
             let _: EmptyResponse = try await appState.apiClient.post(
                 "/api/orders/\(order.orderId)/respond",
@@ -481,7 +492,12 @@ struct VolunteerOrderDetailView: View {
         }
         .alert("确认接单", isPresented: $showAcceptConfirm) {
             Button("确认接单") {
-                Task { await viewModel.accept(locationAuthorized: locationService.isAuthorized) }
+                Task {
+                    await viewModel.accept(
+                        currentLocation: locationService.effectiveLocation,
+                        locationAuthorized: locationService.isAuthorized
+                    )
+                }
             }
             Button("取消", role: .cancel) {}
         } message: {

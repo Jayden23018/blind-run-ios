@@ -232,6 +232,8 @@ Emergency is recorded through `POST /api/emergency/trigger`; the order status it
 
 **注意**:
 - 只有通过 WebSocket 连接的志愿者才能收到派单（NEW_ORDER）
+- 志愿者必须先发送 `LOCATION_UPDATE`；后端只会向距离订单起点 10km 内且 `isAvailable=true` 的在线志愿者派单
+- `/api/orders/available` 与 `/api/orders/{orderId}/respond` 都依赖后端已记录的最近一次 WebSocket 位置
 - 位置同时写入 Redis（30s TTL）和 MySQL
 - 建议每 5~10 秒上报一次
 
@@ -270,7 +272,7 @@ Emergency is recorded through `POST /api/emergency/trigger`; the order status it
 | hasGuideDog | boolean | 否 | 盲人是否携带导盲犬 |
 | specialNotes | string | 否 | 盲人备注 |
 
-**响应方式**: 收到后必须通过 REST API 的 `/respond` 响应，不是通过 WebSocket 回复。接受使用 `action=ACCEPT`，拒绝使用 `action=DECLINE`。
+**响应方式**: 收到后必须通过 REST API 的 `/respond` 响应，不是通过 WebSocket 回复。接受使用 `action=ACCEPT`，拒绝使用 `action=DECLINE`。如果订单尚未派送给当前志愿者，后端会返回业务错误，例如 `ORDER_DISPATCH_MISMATCH`。
 
 ```
 POST /api/orders/{orderId}/respond

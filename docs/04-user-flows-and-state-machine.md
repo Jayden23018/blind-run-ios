@@ -192,6 +192,8 @@ sequenceDiagram
     App->>API: 验证 token
     API-->>App: token 有效
     App->>VOL: 显示志愿者首页
+    App->>API: 连接 /ws/volunteer
+    App->>API: WebSocket LOCATION_UPDATE（当前位置）
     App->>API: GET /api/orders/available
     API-->>App: [{ order1, order2, ... }]
     App->>App: 按距离排序
@@ -205,6 +207,7 @@ sequenceDiagram
     App->>VOL: 显示订单详情
 
     VOL->>App: 点击"接单"
+    App->>API: WebSocket LOCATION_UPDATE（接单前补报当前位置）
     App->>API: POST /api/orders/{orderId}/respond (action=ACCEPT)
     API-->>App: { status: "PENDING_ACCEPT" }
     App->>VOL: 显示盲人联系电话 + "查看地图"按钮

@@ -44,12 +44,23 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     // MARK: - WebSocket Dispatch
 
-    func respondToDispatch(accept: Bool) {
+    func respondToDispatch(
+        accept: Bool,
+        currentLocation: CLLocationCoordinate2D?,
+        locationAuthorized: Bool
+    ) {
         guard let order = incomingOrder else { return }
         guard let appState else { return }
         isRespondingToDispatch = true
         Task {
             do {
+                if accept {
+                    VolunteerLocationReporter.reportIfNeeded(
+                        appState: appState,
+                        currentLocation: currentLocation,
+                        locationAuthorized: locationAuthorized
+                    )
+                }
                 let request = OrderRespondRequest(action: accept ? .accept : .decline)
                 let _: EmptyResponse = try await appState.apiClient.post(
                     "/api/orders/\(order.orderId)/respond",
@@ -110,7 +121,7 @@ final class VolunteerHomeViewModel: ObservableObject {
             }
             if !Task.isCancelled {
                 // 超时自动拒绝
-                respondToDispatch(accept: false)
+                respondToDispatch(accept: false, currentLocation: nil, locationAuthorized: false)
             }
         }
     }
@@ -125,6 +136,12 @@ final class VolunteerHomeViewModel: ObservableObject {
             let profile: VolunteerProfileResponse = try await appState.apiClient.get("/api/volunteer/profile")
             appState.updateVolunteerProfile(profile)
             apply(profile: profile)
+
+            VolunteerLocationReporter.reportIfNeeded(
+                appState: appState,
+                currentLocation: currentLocation,
+                locationAuthorized: locationAuthorized
+            )
 
             // Load available orders
             let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/available")
@@ -260,8 +277,20 @@ struct VolunteerHomeView: View {
                         order: viewModel.incomingOrder!,
                         countdown: viewModel.dispatchCountdown,
                         isResponding: viewModel.isRespondingToDispatch,
-                        onAccept: { viewModel.respondToDispatch(accept: true) },
-                        onDecline: { viewModel.respondToDispatch(accept: false) }
+                        onAccept: {
+                            viewModel.respondToDispatch(
+                                accept: true,
+                                currentLocation: locationService.effectiveLocation,
+                                locationAuthorized: locationService.isAuthorized
+                            )
+                        },
+                        onDecline: {
+                            viewModel.respondToDispatch(
+                                accept: false,
+                                currentLocation: nil,
+                                locationAuthorized: false
+                            )
+                        }
                     )
                 }
             }

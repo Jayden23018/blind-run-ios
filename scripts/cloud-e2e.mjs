@@ -5,6 +5,18 @@ const defaultVerificationCode = '000000';
 const defaultBlindPhone = '13800000001';
 const defaultVolunteerPhone = '13800000002';
 const timeoutMs = Number(process.env.AIDRUN_E2E_TIMEOUT_MS ?? 25000);
+const dispatchWaitMs = Number(process.env.AIDRUN_E2E_DISPATCH_WAIT_MS ?? 30000);
+const orderStartLocation = { lat: 39.9042, lng: 116.4074 };
+const volunteerDispatchLocation = { lat: 39.9050, lng: 116.4080 };
+const allWeekAvailabilitySlots = [
+  'MONDAY',
+  'TUESDAY',
+  'WEDNESDAY',
+  'THURSDAY',
+  'FRIDAY',
+  'SATURDAY',
+  'SUNDAY'
+].map(dayOfWeek => ({ dayOfWeek, startTime: '00:00', endTime: '23:59' }));
 
 const created = {
   baseURL,
@@ -23,7 +35,19 @@ const created = {
     blindMessages: [],
     volunteerMessages: []
   },
+  dispatchReadiness: {
+    readyVia: null,
+    preOrderLocationReports: 0,
+    postOrderLocationReports: 0,
+    lastAvailable: null
+  },
   backendStartEndpointNeeded: false
+};
+
+const runtime = {
+  blindToken: null,
+  blindSocket: null,
+  volunteerSocket: null
 };
 
 function log(step, detail = '') {
@@ -192,6 +216,21 @@ function sendLocation(socket, lat, lng) {
   socket.send(JSON.stringify({ type: 'LOCATION_UPDATE', lat, lng }));
 }
 
+async function reportVolunteerDispatchLocation(socket, count, phase) {
+  for (let index = 0; index < count; index += 1) {
+    sendLocation(socket, volunteerDispatchLocation.lat, volunteerDispatchLocation.lng);
+    if (phase === 'pre-order') {
+      created.dispatchReadiness.preOrderLocationReports += 1;
+    } else {
+      created.dispatchReadiness.postOrderLocationReports += 1;
+    }
+    log('volunteer-location', `${phase} lat=${volunteerDispatchLocation.lat} lng=${volunteerDispatchLocation.lng}`);
+    if (index < count - 1) {
+      await sleep(1000);
+    }
+  }
+}
+
 function formatBackendDateTime(date) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Shanghai',
@@ -236,16 +275,41 @@ async function updateBlindProfile(blind) {
     }
   });
 
-  const contact = await http('POST', `/api/users/${blind.userId}/emergency-contacts`, {
+  const contactsPath = `/api/users/${blind.userId}/emergency-contacts`;
+  const existingContacts = await http('GET', contactsPath, {
+    token: blind.token,
+    allowFailure: true
+  });
+  if (existingContacts.ok && Array.isArray(existingContacts.body) && existingContacts.body.length > 0) {
+    log('emergency-contact', `reuse id=${existingContacts.body[0].id ?? 'unknown'}`);
+    return;
+  }
+
+  const contact = await http('POST', contactsPath, {
     token: blind.token,
     body: {
       name: 'E2E紧急联系人',
       phone: '13800001111',
       relationship: '家人',
       isPrimary: true
-    }
+    },
+    allowFailure: true
   });
-  log('emergency-contact', `id=${contact.body.id ?? 'unknown'}`);
+  if (contact.ok) {
+    log('emergency-contact', `id=${contact.body.id ?? 'unknown'}`);
+    return;
+  }
+
+  const fallbackContacts = await http('GET', contactsPath, {
+    token: blind.token,
+    allowFailure: true
+  });
+  if (fallbackContacts.ok && Array.isArray(fallbackContacts.body) && fallbackContacts.body.length > 0) {
+    log('emergency-contact', `reuse-after-create-failure id=${fallbackContacts.body[0].id ?? 'unknown'}`);
+    return;
+  }
+
+  throw new Error(`Emergency contact setup failed with ${contact.status}: ${JSON.stringify(contact.body)}`);
 }
 
 async function updateVolunteerProfile(volunteer) {
@@ -257,10 +321,7 @@ async function updateVolunteerProfile(volunteer) {
       paceRange: 'MODERATE',
       acceptsGuideDog: true,
       isAvailable: true,
-      availableTimeSlots: [
-        { dayOfWeek: 'SATURDAY', startTime: '09:00', endTime: '12:00' },
-        { dayOfWeek: 'SUNDAY', startTime: '09:00', endTime: '12:00' }
-      ]
+      availableTimeSlots: allWeekAvailabilitySlots
     },
     allowFailure: true
   });
@@ -279,10 +340,7 @@ async function setVolunteerAvailable(volunteer) {
       paceRange: 'MODERATE',
       acceptsGuideDog: true,
       isAvailable: true,
-      availableTimeSlots: [
-        { dayOfWeek: 'SATURDAY', startTime: '09:00', endTime: '12:00' },
-        { dayOfWeek: 'SUNDAY', startTime: '09:00', endTime: '12:00' }
-      ]
+      availableTimeSlots: allWeekAvailabilitySlots
     },
     allowFailure: true
   });
@@ -298,8 +356,8 @@ async function createOrder(blind, suffix = '') {
   const response = await http('POST', '/api/orders', {
     token: blind.token,
     body: {
-      startLatitude: 39.9042,
-      startLongitude: 116.4074,
+      startLatitude: orderStartLocation.lat,
+      startLongitude: orderStartLocation.lng,
       startAddress: `E2E云端联调起点${suffix}`,
       plannedStartTime: formatBackendDateTime(start),
       plannedEndTime: formatBackendDateTime(end),
@@ -320,17 +378,66 @@ async function createOrder(blind, suffix = '') {
   return orderId;
 }
 
-async function acceptOrder(volunteer, orderId, volunteerMessages) {
-  const newOrder = volunteerMessages.find(message => message.type === 'NEW_ORDER' && Number(message.orderId) === Number(orderId));
+function findNewOrder(volunteerMessages, orderId) {
+  return volunteerMessages.find(message => message.type === 'NEW_ORDER' && Number(message.orderId) === Number(orderId));
+}
+
+async function checkAvailableOrder(volunteer, orderId) {
+  const availableResponse = await http('GET', '/api/orders/available', { token: volunteer.token, allowFailure: true });
+  const availableOrders = Array.isArray(availableResponse.body.content) ? availableResponse.body.content : [];
+  const containsOrder = availableOrders.some(order => Number(order.id ?? order.orderId) === Number(orderId));
+  const summary = {
+    status: availableResponse.status,
+    count: availableOrders.length,
+    containsOrder
+  };
+  created.dispatchReadiness.lastAvailable = summary;
+  log('available-orders', `status=${summary.status} count=${summary.count} containsOrder=${summary.containsOrder}`);
+  return summary;
+}
+
+async function waitForDispatchReadiness(volunteer, orderId, volunteerMessages, volunteerSocket) {
+  const started = Date.now();
+  let nextLocationReportAt = 0;
+
+  while (Date.now() - started < dispatchWaitMs) {
+    const newOrder = findNewOrder(volunteerMessages, orderId);
+    if (newOrder) {
+      created.webSocket.volunteerReceivedNewOrder = true;
+      created.dispatchReadiness.readyVia = 'NEW_ORDER';
+      log('dispatch-ready', `NEW_ORDER orderId=${newOrder.orderId}`);
+      return;
+    }
+
+    if (Date.now() >= nextLocationReportAt) {
+      await reportVolunteerDispatchLocation(volunteerSocket, 1, 'post-order');
+      nextLocationReportAt = Date.now() + 2000;
+    }
+
+    const available = await checkAvailableOrder(volunteer, orderId);
+    if (available.containsOrder) {
+      created.dispatchReadiness.readyVia = 'available-orders';
+      log('dispatch-ready', `available orderId=${orderId}`);
+      return;
+    }
+
+    await sleep(1000);
+  }
+
+  throw new Error(
+    `Dispatch readiness timed out after ${dispatchWaitMs}ms: no NEW_ORDER and /api/orders/available did not contain order ${orderId}`
+  );
+}
+
+async function acceptOrder(volunteer, orderId, volunteerMessages, volunteerSocket) {
+  const newOrder = findNewOrder(volunteerMessages, orderId);
   if (newOrder) {
     created.webSocket.volunteerReceivedNewOrder = true;
+    created.dispatchReadiness.readyVia = 'NEW_ORDER';
     log('ws-new-order', `orderId=${newOrder.orderId}`);
   } else {
-    log('ws-new-order', 'not received before fallback; checking available orders');
-    const availableResponse = await http('GET', '/api/orders/available', { token: volunteer.token, allowFailure: true });
-    const availableOrders = Array.isArray(availableResponse.body.content) ? availableResponse.body.content : [];
-    const containsOrder = availableOrders.some(order => Number(order.id ?? order.orderId) === Number(orderId));
-    log('available-orders', `status=${availableResponse.status} count=${availableOrders.length} containsOrder=${containsOrder}`);
+    log('ws-new-order', 'not received yet; waiting for dispatch readiness');
+    await waitForDispatchReadiness(volunteer, orderId, volunteerMessages, volunteerSocket);
   }
 
   await http('POST', `/api/orders/${orderId}/respond`, {
@@ -376,8 +483,7 @@ async function transitionOrder(volunteer, orderId, volunteerSocket) {
 async function triggerEmergency(blind, volunteer, volunteerMessages) {
   const orderId = await createOrder(blind, '-emergency');
   created.emergencyOrderId = orderId;
-  await sleep(3000);
-  await acceptOrder(volunteer, orderId, volunteerMessages);
+  await acceptOrder(volunteer, orderId, volunteerMessages, runtime.volunteerSocket);
   await http('POST', `/api/orders/${orderId}/en-route`, { token: volunteer.token });
 
   const emergency = await http('POST', '/api/emergency/trigger', {
@@ -386,6 +492,18 @@ async function triggerEmergency(blind, volunteer, volunteerMessages) {
   });
   created.emergencyEventId = emergency.body.eventId ?? emergency.body.id ?? emergency.body.emergencyEvent?.id ?? null;
   log('emergency-triggered', `orderId=${orderId} eventId=${created.emergencyEventId ?? 'unknown'}`);
+
+  const arrived = await http('POST', `/api/orders/${orderId}/arrived`, {
+    token: volunteer.token,
+    allowFailure: true
+  });
+  log('emergency-order-arrived', `id=${orderId} status=${arrived.status} ok=${arrived.ok}`);
+
+  const finish = await http('POST', `/api/orders/${orderId}/finish`, {
+    token: volunteer.token,
+    allowFailure: true
+  });
+  log('emergency-order-finish', `id=${orderId} status=${finish.status} ok=${finish.ok}`);
 }
 
 async function main() {
@@ -405,6 +523,7 @@ async function main() {
   );
   created.blindUserId = blind.userId;
   created.volunteerUserId = volunteer.userId;
+  runtime.blindToken = blind.token;
 
   if (shouldSkipProfileSetup(usingSeedAccounts)) {
     log('profile-setup', 'seeded accounts: ensure blind contact and volunteer availability');
@@ -416,19 +535,19 @@ async function main() {
   }
 
   const blindSocket = await openSocket('/ws/blind', blind.token, 'blind', created.webSocket.blindMessages);
+  runtime.blindSocket = blindSocket;
   created.webSocket.blindConnected = true;
   const volunteerSocket = await openSocket('/ws/volunteer', volunteer.token, 'volunteer', created.webSocket.volunteerMessages);
+  runtime.volunteerSocket = volunteerSocket;
   created.webSocket.volunteerConnected = true;
 
-  sendLocation(blindSocket, 39.9042, 116.4074);
-  sendLocation(volunteerSocket, 39.905, 116.408);
-  sendLocation(volunteerSocket, 39.9051, 116.4081);
+  sendLocation(blindSocket, orderStartLocation.lat, orderStartLocation.lng);
+  await reportVolunteerDispatchLocation(volunteerSocket, 3, 'pre-order');
 
   const orderId = await createOrder(blind);
   created.orderId = orderId;
 
-  await sleep(5000);
-  await acceptOrder(volunteer, orderId, created.webSocket.volunteerMessages);
+  await acceptOrder(volunteer, orderId, created.webSocket.volunteerMessages, volunteerSocket);
   await transitionOrder(volunteer, orderId, volunteerSocket);
   await triggerEmergency(blind, volunteer, created.webSocket.volunteerMessages);
 
@@ -447,7 +566,33 @@ async function main() {
   }
 }
 
-main().catch(error => {
+function closeRuntimeSockets() {
+  runtime.blindSocket?.close();
+  runtime.volunteerSocket?.close();
+}
+
+async function cleanupCreatedOrders() {
+  if (!runtime.blindToken) return;
+  const ids = [created.orderId, created.emergencyOrderId].filter(Boolean);
+  for (const orderId of ids) {
+    if (Number(orderId) === Number(created.orderId) && created.finalOrderStatus === 'COMPLETED') {
+      continue;
+    }
+    const response = await http('POST', `/api/orders/${orderId}/cancel`, {
+      token: runtime.blindToken,
+      allowFailure: true
+    });
+    log('cleanup-order', `id=${orderId} status=${response.status} ok=${response.ok}`);
+  }
+}
+
+main().catch(async error => {
+  closeRuntimeSockets();
+  try {
+    await cleanupCreatedOrders();
+  } catch (cleanupError) {
+    log('cleanup-error', cleanupError.message);
+  }
   console.error('\n[cloud-e2e] failed');
   console.error(error.stack || error.message);
   console.error('\n[cloud-e2e] partial summary');

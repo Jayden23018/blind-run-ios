@@ -159,6 +159,9 @@ DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> (emergency event recorded)
 
 Service flow (volunteer actions):
 
+- Volunteer dispatch eligibility requires an active `/ws/volunteer` connection and a recent WebSocket `LOCATION_UPDATE`.
+- The backend only dispatches orders to available volunteers whose latest reported WebSocket location is within 10 km of the order start point.
+- `POST /api/orders/{id}/respond` is valid only after the order has been dispatched to the current volunteer; otherwise the backend may return `ORDER_DISPATCH_MISMATCH`.
 - Volunteer responds with accept: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = ACCEPT)` -> status becomes `PENDING_ACCEPT`.
 - Volunteer responds with decline: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = DECLINE)` -> order remains available according to backend dispatch rules.
 - Volunteer en route: POST `/api/orders/{id}/en-route` -> status becomes `DRIVER_EN_ROUTE`.
@@ -276,6 +279,7 @@ Map and location rules:
 - Display order location marker.
 - iOS calculates the distance from volunteer to order start point.
 - Volunteer order list sorts by distance.
+- Volunteer order dispatch depends on the volunteer's latest WebSocket `LOCATION_UPDATE`; orders outside 10 km are not dispatched to that volunteer.
 - MVP does not do route navigation.
 - MVP does not do real-time track sharing.
 - Blind runner booking defaults to current location as the start point.

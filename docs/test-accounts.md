@@ -159,7 +159,9 @@ curl -X PUT http://47.114.113.171/api/volunteer/profile \
 # ws://47.114.113.171/ws/volunteer?token=<token>
 
 # 4. 上报位置
-# 通过 WebSocket 发送: {"type":"LOCATION_UPDATE","lat":39.92,"lng":116.47}
+# 通过 WebSocket 发送: {"type":"LOCATION_UPDATE","lat":39.9050,"lng":116.4080}
+# 后端只会向距离订单起点 10km 内且 isAvailable=true 的在线志愿者派单。
+# 未收到 NEW_ORDER 或 /api/orders/available 未返回该订单前，不要调用 /respond。
 
 # 5. 接单
 curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
