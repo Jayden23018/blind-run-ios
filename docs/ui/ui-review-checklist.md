@@ -69,8 +69,8 @@
 
 ## 6. 订单状态机合规
 
-- [ ] 仅使用 7 个 MVP 状态：`matching` / `accepted` / `arrived` / `in_progress` / `completed` / `cancelled` / `emergency`
-- [ ] 无禁止状态名（`submitted`、`contacted`、`expired`、`pendingMatch`、`pendingAccept`、`driverEnRoute`、`driverArrived`、`rematching`、`noVolunteer`）
+- [ ] 仅使用当前后端状态：`PENDING_MATCH` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` / `COMPLETED` / `CANCELLED` / `REMATCHING` / `NO_VOLUNTEER`
+- [ ] 无旧状态名（`submitted`、`contacted`、`expired`、`matching`、`accepted`、`arrived`、`in_progress`、`emergency` 作为订单状态）
 - [ ] 状态中文显示按 `ui-handoff-ios.md` 映射表（不显示英文状态名）
 - [ ] 状态流转符合 `docs/04-user-flows-and-state-machine.md`
 
@@ -80,25 +80,24 @@
 
 - [ ] 志愿者接单前：完全隐藏盲人联系电话、紧急联系人、敏感健康信息
 - [ ] 志愿者接单后：显示盲人完整电话号码
-- [ ] 紧急联系人仅存储，不发送真实通知
-- [ ] 无真实 SMS 发送逻辑
+- [ ] 紧急联系人当前仅存储；若接入通知，需有用户授权、后端契约和测试记录
+- [ ] 真实 SMS 接入必须有后端验证码策略、限流、错误码和测试账号机制
 
 ---
 
-## 8. 非 MVP 功能防护
+## 8. 路线图能力接入检查
 
-- [ ] 无 WebSocket / 实时轨迹分享
-- [ ] 无 AI 助手 / AI 语音助手
-- [ ] 无 App 内聊天
-- [ ] 无路线导航
-- [ ] 无真实短信服务
-- [ ] 无真实身份验证
-- [ ] 无自动拨打电话
-- [ ] 无复杂自然语言时间解析
-- [ ] 积分商城仅展示占位（无真实兑换）
-- [ ] 无支付 / 库存系统
-- [ ] 无跌倒检测 / 地理围栏
-- [ ] 无多人活动报名
+- [ ] WebSocket 改动已覆盖真实云端联调和断线降级
+- [ ] 实时轨迹分享有隐私授权、频率策略和验收用例
+- [ ] AI 助手 / 语音助手有误识别兜底和无障碍验收
+- [ ] App 内聊天有消息契约、审核和安全规则
+- [ ] 路线导航有高德能力验证和位置权限兜底
+- [ ] 真实短信服务有后端验证码策略、限流、错误码和测试账号机制
+- [ ] 真实身份验证有隐私合规和审核状态机
+- [ ] 自动拨打电话/短信有用户授权、二次确认和后端记录
+- [ ] 自然语言时间解析有失败回退和 DatePicker 替代路径
+- [ ] 积分商城、支付、库存有完整交易契约
+- [ ] 跌倒检测 / 地理围栏 / 多人活动报名有独立产品规则和测试计划
 
 ---
 
@@ -121,27 +120,27 @@
 - [ ] 定位权限被拒后：
   - 盲人端：阻止创建预约，显示引导
   - 志愿者端：隐藏距离、阻止接单，可浏览列表
-- [ ] 支持模拟器定位测试
-- [ ] 有默认测试坐标 fallback（标注清楚仅供 demo）
+- [ ] 支持真机 `111` 定位测试
+- [ ] 有默认测试坐标 fallback（标注清楚仅供开发测试）
 
 ---
 
 ## 11. 订单业务规则
 
 - [ ] 预约时间 ≥ 当前时间 + 30 分钟（否则 `APPOINTMENT_TOO_SOON`）
-- [ ] 取消仅在 `matching` / `accepted` / `arrived` 允许
-- [ ] `in_progress` 不可取消，只能 `emergency` 或 `completed`
+- [ ] 取消仅在 `PENDING_MATCH` / `PENDING_ACCEPT` / `IN_PROGRESS` 允许
+- [ ] emergency 是独立事件，不作为订单状态
 - [ ] 记录 `cancelledBy`（`blind_runner` 或 `volunteer`）
 - [ ] 志愿者完成服务 → +100 积分
-- [ ] 5 秒轮询订单状态（非 WebSocket）
-- [ ] 并发接单：只有 `matching` 状态订单可接，后到者返回 `ORDER_ALREADY_ACCEPTED`
+- [ ] WebSocket 断开时 5 秒轮询订单状态
+- [ ] 并发接单：只有 `PENDING_MATCH` 状态订单可接，后到者返回 `ORDER_ALREADY_ACCEPTED`
 
 ---
 
 ## 12. 角色与登录规则
 
 - [ ] 一个账号可同时拥有 `blind_runner` 和 `volunteer` 身份
-- [ ] 活跃订单（`accepted`/`arrived`/`in_progress`/`emergency`）时阻止角色切换
+- [ ] 活跃订单（`PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`）时阻止角色切换
 - [ ] 首次登录无 `activeRole` 时路由到角色选择页
 - [ ] 退出登录清除 JWT → 跳转登录页
 
@@ -153,7 +152,7 @@
 - [ ] ViewModel 拥有状态、API 调用、轮询逻辑、TTS 触发
 - [ ] API 请求集中在 `APIClient`
 - [ ] Token / currentUser / activeRole 集中在 `AppState`
-- [ ] MVP token 存 UserDefaults 且有注释说明生产需迁移 Keychain
+- [ ] 当前 token 存 UserDefaults 且有注释说明生产需迁移 Keychain
 
 ---
 
@@ -174,7 +173,7 @@
 | 有 accessibilityLabel | [ ] |
 | 有"重复当前状态"按钮（盲人端）| [ ] |
 | 危险操作有二次确认 | [ ] |
-| 无非 MVP 功能 | [ ] |
+| 路线图能力有需求、契约和测试计划 | [ ] |
 | 无 Flutter 照搬 | [ ] |
 | 业务逻辑在 ViewModel | [ ] |
 | 高德 Key 非硬编码 | [ ] |

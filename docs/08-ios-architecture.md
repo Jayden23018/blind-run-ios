@@ -1,6 +1,6 @@
-# AidRun MVP v0.3 iOS Architecture
+# AidRun iOS Architecture
 
-本文档定义“助盲跑 / AidRun”iOS MVP 的工程架构。若存在旧文档，以 MVP v0.3 冻结口径为准：Swift 原生 iOS、SwiftUI + MVVM、真实地图、真实定位、手机号登录 + JWT、无障碍与语音优先。
+本文档定义“助盲跑 / AidRun”iOS 上线版客户端工程架构。若存在旧文档，以 `AGENTS.md` 和 `plan.md` 为准：Swift 原生 iOS、SwiftUI + MVVM、真实地图、真实定位、手机号登录 + JWT、无障碍与语音优先。
 
 ## 1. Platform
 
@@ -9,7 +9,7 @@
 - Minimum OS: iOS 16+
 - Architecture: SwiftUI + MVVM
 - Networking: `URLSession`
-- Token storage: `UserDefaults` for MVP; production must migrate to Keychain
+- Token storage: currently `UserDefaults`; production hardening should migrate to Keychain
 - Map: 高德地图 iOS SDK
 - Location: CoreLocation + 高德地图定位能力 as needed
 - Voice: `AVSpeechSynthesizer`
@@ -49,7 +49,7 @@ Recommended examples:
 
 ## 4. API Environment Switch
 
-MVP development keeps Mock for UI/XCTest coverage. Every networked run uses the single external cloud service.
+Development keeps Mock for deterministic UI/XCTest coverage. Every networked run uses the single external cloud service. Mock is not release evidence.
 
 | Environment | Purpose |
 | --- | --- |
@@ -69,7 +69,7 @@ Implementation guidance:
 - In Debug development builds, expose a small environment selector in settings or launch configuration.
 - Unknown persisted environment values are ignored and the build channel default is used.
 - Every build uses the shared Info plist with an ATS exception scoped to `47.114.113.171`.
-- Do not add a configurable alternative real-server URL.
+- Do not add a configurable alternative real-server URL without an explicit environment strategy change.
 - Use WebSocket for cloud dispatch, status notifications, and location updates; retain REST polling as the disconnected fallback.
 
 ## 5. APIClient
@@ -80,11 +80,11 @@ Implementation guidance:
 - Attach `Authorization: Bearer <accessToken>` for protected endpoints.
 - Decode success DTOs and error envelopes.
 - Map backend error codes to user-facing messages and TTS error prompts.
-- Keep retry behavior simple; MVP should not add complex offline queues.
+- Keep retry behavior simple; complex offline queues require a separate reliability design.
 
 Token persistence:
 
-- MVP reads/writes access token from `UserDefaults`.
+- Current implementation reads/writes access token from `UserDefaults`.
 - Store only the JWT and minimal active environment setting.
 - Add code comments and docs noting Keychain migration before real user release.
 
@@ -104,7 +104,7 @@ Role switching:
 
 ## 7. Map and Location
 
-MVP requirements:
+Current requirements:
 
 - Show real map.
 - Show current location.
@@ -113,7 +113,7 @@ MVP requirements:
 
 Location permission:
 
-- MVP requires location permission.
+- Booking and accepting orders require location permission.
 - If denied, blind runner cannot create booking.
 - If denied, volunteer cannot view/sort and accept nearby orders by distance.
 - Show permission guidance, and use TTS for blind runner error prompts.
@@ -167,6 +167,6 @@ The iOS app must support a two-device demo:
 8. Volunteer completes service with optional summary.
 9. Blind runner sees `COMPLETED` and optional rating UI.
 
-## 11. Explicit Non-Goals
+## 11. Roadmap Capabilities
 
 Do not implement Android, real SMS, real identity verification, full admin backend, real-time track sharing, app chat, AI assistant, route navigation, automatic calls, automatic SMS, complex risk control, fall detection, geofencing, instant call, payment, stock, or full points shop. WebSocket is in scope only for cloud contract real-time dispatch, status notifications, and location updates.

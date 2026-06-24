@@ -1,6 +1,6 @@
-# AidRun MVP v0.3 Accessibility and Voice Guidelines
+# AidRun Accessibility and Voice Guidelines
 
-本文档定义 AidRun MVP 的无障碍、TTS 和语音输入规则。盲人端体验优先级高于视觉装饰，所有交互必须服务于 3 天内可演示的安全订单闭环。
+本文档定义 AidRun iOS 上线版客户端的无障碍、TTS 和语音输入规则。盲人端体验优先级高于视觉装饰，所有交互必须服务于真实可用的安全订单闭环。
 
 ## 1. Principles
 
@@ -100,8 +100,8 @@ After emergency confirmation:
 
 - The app records an emergency event through `POST /api/emergency/trigger`; the order status itself is not changed to emergency.
 - TTS announces entry into emergency state.
-- MVP does not restore the previous state.
-- MVP does not auto-call, auto-SMS, or notify a real administrator.
+- Current emergency flow does not restore the previous state.
+- Auto-call, auto-SMS, or real administrator notification require explicit user authorization, backend contract, and compliance review.
 
 ## 7. Status Copy
 
@@ -139,4 +139,4 @@ Volunteer UI should still be accessible, but it may be denser than blind runner 
 
 ## 10. Out of Scope
 
-Do not add AI assistant, complex natural-language time parsing, automatic calls, automatic SMS, real administrator notification, route navigation, real-time track sharing, fall detection, or geofencing.
+AI assistant, natural-language time parsing, automatic calls, automatic SMS, real administrator notification, route navigation, real-time track sharing, fall detection, and geofencing are roadmap capabilities. Do not add them without product requirements, safety rules, and acceptance tests.

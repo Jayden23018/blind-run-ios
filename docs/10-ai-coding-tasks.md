@@ -1,4 +1,4 @@
-# AidRun MVP v0.3 AI Coding Tasks
+# AidRun AI Coding Tasks
 
 本文档只拆分原生 iOS 前端任务。服务端位于本仓库之外，AI 不得在本仓库实现、构建或部署服务端。
 
@@ -20,7 +20,7 @@ Acceptance:
 ### PR-IOS-02 Auth and Role
 
 - 实现手机号、固定验证码 `000000` 登录。
-- MVP 将 JWT 存入 UserDefaults，并保留迁移 Keychain 的注释。
+- 当前将 JWT 存入 UserDefaults，并保留迁移 Keychain 的注释；上线硬化优先迁移 Keychain。
 - 实现角色选择、角色切换和退出登录二次确认。
 - 显示外部 API 返回的稳定业务错误。
 
@@ -75,17 +75,18 @@ Acceptance:
 - 仓库内不存在第二个真实服务器地址。
 - URLSession 与 WebSocket 均连接 `47.114.113.171`。
 
-### PR-CLOUD-02 Demo Verification
+### PR-CLOUD-02 Production Verification
 
 - 准备双设备演示账号和脚本。
-- 运行 iOS 单元测试、UI Mock smoke、三种构建配置和 OpenSpec validation。
+- 运行真机 `111` XCTest、真实高德 smoke、真实云端 UI smoke、OpenSpec validation 和文档检查。
 - 外部服务可用时运行 `scripts/cloud-e2e.mjs`。
 
 Acceptance:
 
 - `openspec validate remove-local-backend-use-cloud-only --strict --no-interactive` 通过。
-- 本地构建结果与外部服务可用性分别报告。
+- `AIDRUN_DEVICE_NAME=111 AIDRUN_RUN_REAL_AMAP=1 AIDRUN_RUN_CLOUD_UI=1 AIDRUN_RUN_CLOUD_E2E=1 scripts/production-readiness-check.sh` 结果被记录。
+- 本地真机测试结果与外部服务可用性分别报告。
 
-## 3. Explicit Non-Goals
+## 3. Roadmap Capabilities
 
-不得实现 Android、完整管理员端、真实短信、真实身份审核、实时轨迹共享、自动电话/短信、AI 助手、自然语言时间解析、路线导航、完整积分商城、支付、库存、App 内聊天、复杂风控、摔倒检测、电子围栏、即时呼叫或多人活动报名。
+Android、完整管理员端、真实短信、真实身份审核、实时轨迹共享、自动电话/短信、AI 助手、自然语言时间解析、路线导航、完整积分商城、支付、库存、App 内聊天、复杂风控、摔倒检测、电子围栏、即时呼叫或多人活动报名不再是硬性禁止项。接入前必须补充产品规则、后端/API 契约、隐私/安全说明和验收测试。

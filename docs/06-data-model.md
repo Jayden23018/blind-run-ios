@@ -1,6 +1,6 @@
-# AidRun MVP v0.3 Data Model
+# AidRun Data Model
 
-本文档定义“助盲跑 / AidRun”Swift iOS MVP 消费的领域模型与 API DTO。服务端是仓库外部云端服务；本文不规定其数据库或实现技术。
+本文档定义“助盲跑 / AidRun”Swift iOS 客户端消费的领域模型与 API DTO。服务端是仓库外部云端服务；本文不规定其数据库或实现技术。
 
 ## 1. Design Principles
 
@@ -8,8 +8,8 @@
 - Mock fixtures 使用与云端响应相同的标识符和字段形状。
 - 时间字段统一使用 ISO 8601 / UTC 存储，客户端按本地时区展示。
 - 经纬度使用 `Double`。
-- MVP token 可由后端签发 JWT；iOS MVP 存储在 UserDefaults，正式版替换为 Keychain。
-- 管理员审核字段保留，但 MVP 不实现真实管理员后台。
+- Token 由后端签发 JWT；当前 iOS 存储在 UserDefaults，Keychain 迁移是上线硬化项。
+- 管理员审核字段保留；真实管理员后台和审核流程按后端契约接入。
 
 ## 2. Enumerations
 
@@ -29,7 +29,7 @@
 | `approved` | 已通过 |
 | `rejected` | 已拒绝 |
 
-MVP 中志愿者完成 Mock 认证后，`verificationStatus` 和 `adminReviewStatus` 均可自动设为 `approved`。
+当前 iOS 简化认证完成后，`verificationStatus` 和 `adminReviewStatus` 均可设为 `approved`。真实认证/审核接入需要后端契约与隐私合规确认。
 
 ### RunOrderStatus
 
@@ -113,7 +113,7 @@ Rules:
 Rules:
 
 - 盲人创建预约前必须有完整资料。
-- MVP 不加入年龄、性别、健康注意事项或头像。
+- 年龄、性别、健康注意事项或头像属于后续资料扩展项，接入前需明确隐私规则。
 
 ### EmergencyContact
 
@@ -128,8 +128,8 @@ Rules:
 
 Rules:
 
-- MVP 必须存储紧急联系人。
-- MVP 不自动拨打电话、不发短信、不推送管理员通知。
+- 当前版本必须存储紧急联系人。
+- 自动拨打电话、短信和管理员通知属于生产安全能力，接入前需明确授权、合规文案和后端契约。
 
 ### VolunteerProfile
 
@@ -140,7 +140,7 @@ Rules:
 | `nickname` | String | Yes | 志愿者昵称 |
 | `phoneNumber` | String | Yes | 默认来自 User.phoneNumber |
 | `verificationStatus` | VerificationStatus | Yes | Mock 认证状态 |
-| `adminReviewStatus` | AdminReviewStatus | Yes | 管理员审核字段，MVP 自动通过 |
+| `adminReviewStatus` | AdminReviewStatus | Yes | 管理员审核字段；当前简化流程可自动通过 |
 | `isAvailable` | Boolean | Yes | “我现在可服务”开关 |
 | `pointsBalance` | Integer | Yes | 当前积分余额 |
 | `createdAt` | Instant | Yes | 创建时间 |
@@ -182,7 +182,7 @@ Rules:
 | `estimatedDurationMinutes` | Integer | No | 预计跑步时长 |
 | `estimatedDistanceKm` | Decimal | No | 预计距离 |
 | `pacePreference` | String | No | 配速偏好 |
-| `preferSameGender` | Boolean | No | 是否需要同性志愿者；MVP 不参与匹配算法 |
+| `preferSameGender` | Boolean | No | 是否需要同性志愿者；当前不参与匹配算法 |
 | `remark` | String | No | 备注 |
 | `blindRunnerPhone` | String | No | 盲人联系电话；接单前 API 不返回，接单后对接单志愿者完整返回 |
 | `createdAt` | Instant | Yes | 创建时间 |
@@ -198,7 +198,7 @@ Rules:
 
 - 只有 `PENDING_MATCH` 订单可被接单；并发接单时第一个成功更新为 `PENDING_ACCEPT` 的志愿者获得订单。
 - 预约开始前 30 分钟仍无人接单的订单自动进入 `NO_VOLUNTEER`。
-- 后端 MVP 不负责距离排序；iOS 端按志愿者当前位置与订单出发点计算距离并排序。
+- 当前 iOS 端按志愿者当前位置与订单出发点计算距离并排序。
 - 接单前隐藏联系方式与紧急联系人；接单后显示盲人完整联系电话。
 
 ### Cancellation
@@ -247,7 +247,7 @@ Rules:
 
 Rules:
 
-- MVP 由志愿者点击“结束服务”并可选填服务总结。
+- 当前由志愿者点击“结束服务”并可选填服务总结。
 
 ### Rating
 
@@ -263,7 +263,7 @@ Rules:
 
 Rules:
 
-- 盲人端可展示星级评分 UI，但 MVP 不强制提交。
+- 盲人端可展示星级评分 UI，当前不强制提交。
 
 ### VolunteerPointsLedger
 
@@ -279,7 +279,7 @@ Rules:
 Rules:
 
 - 志愿者完成一次服务获得 100 积分。
-- 积分商城只显示占位商品，不做兑换、库存或支付。
+- 积分商城当前可显示商品入口；真实兑换、库存和支付需要后续契约。
 
 ## 4. Relationship Summary
 
@@ -305,4 +305,4 @@ Rules:
 
 ## 6. Out of Scope
 
-MVP 数据模型不支持：Android、完整管理员后台、真实短信、真实实名认证、真实管理员审核后台、实时轨迹共享、自动打电话、自动发短信、AI 助手、复杂自然语言时间解析、路线导航、完整积分商城、支付、库存、App 内聊天、复杂风控、摔倒检测、电子围栏、即时呼叫、多人活动报名。WebSocket 仅用于实时派单、状态通知和位置上报。
+路线图能力（Android、管理员后台、真实短信、真实实名认证、实时轨迹共享、自动电话/短信、AI 助手、自然语言时间解析、路线导航、完整积分商城、支付、库存、App 内聊天、风控、摔倒检测、电子围栏、即时呼叫、多人活动报名）需要先补充产品规则、API 契约和测试计划。WebSocket 当前用于实时派单、状态通知和位置上报。

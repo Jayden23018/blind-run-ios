@@ -21,18 +21,35 @@ Development builds can switch between:
 
 Demo and Production build channels are locked to Demo Cloud. There is no configurable alternative server and no server runtime in this repository.
 
+Mock is useful for deterministic UI and unit tests, but it is not sufficient for release sign-off. Production-readiness validation must run on the real device named `111` with real AMap and the external backend enabled.
+
 ## Validation
 
 ```bash
+node scripts/validate-docs.mjs
 openspec validate remove-local-backend-use-cloud-only --strict --no-interactive
-xcodebuild -workspace blindRun.xcworkspace -scheme blindRun -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS Simulator,name=iPhone 15'
+xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=111'
 ```
 
-Cloud E2E checks use `scripts/cloud-e2e.mjs` and depend on the external service being available.
+Real integration checks:
+
+```bash
+AIDRUN_UI_TEST_REAL_AMAP=1 xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=111' -only-testing:blindRunUITests/blindRunUITests/testRealAMapEnabledSmoke
+AIDRUN_UI_TEST_RUN_CLOUD_SMOKE=1 xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun-Demo -destination 'platform=iOS,name=111' -only-testing:blindRunUITests/blindRunUITests/testCloudBackendBlindRunnerBookingSmoke
+node scripts/cloud-e2e.mjs
+```
+
+Full production-readiness check:
+
+```bash
+AIDRUN_DEVICE_NAME=111 AIDRUN_RUN_REAL_AMAP=1 AIDRUN_RUN_CLOUD_UI=1 AIDRUN_RUN_CLOUD_E2E=1 scripts/production-readiness-check.sh
+```
+
+Cloud E2E checks depend on the external service being available and may create/cancel test orders.
 
 ## Contracts
 
 - HTTP API: `docs/07-api-contract.openapi.yaml`
 - WebSocket: `docs/websocket-protocol.md`
 - Agent rules: `AGENTS.md`
+- Production plan: `plan.md`

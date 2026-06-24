@@ -166,6 +166,10 @@ final class blindRunTests: XCTestCase {
             "`/api/orders/{id}/arrive`"
         ]
 
+        guard FileManager.default.fileExists(atPath: docs[0].path) else {
+            throw XCTSkip("Repository docs are not available inside the real-device test sandbox. Run scripts/validate-docs.mjs from the repository root.")
+        }
+
         for doc in docs {
             let text = try String(contentsOf: doc)
             for fragment in forbiddenFragments {

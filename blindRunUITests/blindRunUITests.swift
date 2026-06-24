@@ -138,12 +138,41 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
+    func testRealAMapEnabledSmoke() throws {
+        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_REAL_AMAP"] == "1" else {
+            throw XCTSkip("Set AIDRUN_UI_TEST_REAL_AMAP=1 to run the real AMap smoke test on device 111.")
+        }
+
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            disableMap: false
+        )
+
+        let map = app.descendants(matching: .any)["volunteerHomeMap"].firstMatch
+        XCTAssertTrue(map.waitForExistence(timeout: 20), "Real AMap run should expose the volunteer home map container")
+        XCTAssertFalse(app.staticTexts["地图服务暂不可用"].exists, "Real AMap smoke must not fall back to the missing-key placeholder")
+        XCTAssertFalse(app.staticTexts["请配置高德地图 API Key"].exists, "Real AMap smoke requires a configured local AMap key")
+
+        attachScreenshot(named: "real-amap-volunteer-home", app: app)
+    }
+
+    @MainActor
     func testCloudBackendBlindRunnerBookingSmoke() throws {
+        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_RUN_CLOUD_SMOKE"] == "1" else {
+            throw XCTSkip("Set AIDRUN_UI_TEST_RUN_CLOUD_SMOKE=1 to run the real cloud UI smoke test on device 111.")
+        }
+
         #if !DEMO
         throw XCTSkip("Cloud E2E runs under blindRun-Demo / DemoRelease so the app is locked to the external cloud service.")
         #else
         let app = launchApp(
-            apiEnvironment: "demoCloud"
+            apiEnvironment: "demoCloud",
+            disableMap: false,
+            disableWebSocket: false
         )
         let cloudPhone = "13800000001"
 
@@ -162,7 +191,9 @@ final class blindRunUITests: XCTestCase {
         preseedBlindProfile: Bool = false,
         preseedVolunteerProfile: Bool = false,
         preseedVolunteerAvailable: Bool = false,
-        emptyMockOrders: Bool = false
+        emptyMockOrders: Bool = false,
+        disableMap: Bool = true,
+        disableWebSocket: Bool = true
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["AIDRUN_UI_TEST_RESET_STATE"] = "1"
@@ -170,9 +201,13 @@ final class blindRunUITests: XCTestCase {
         app.launchEnvironment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_API_ENV"] = apiEnvironment
         app.launchEnvironment["AIDRUN_UI_TEST_ACTIVE_ROLE"] = activeRole
-        app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
-        app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] = "1"
+        if disableWebSocket {
+            app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
+        }
+        if disableMap {
+            app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
+        }
         if let accessToken {
             app.launchEnvironment["AIDRUN_UI_TEST_ACCESS_TOKEN"] = accessToken
         }
