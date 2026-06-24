@@ -159,7 +159,8 @@ DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> (emergency event recorded)
 
 Service flow (volunteer actions):
 
-- Volunteer accepts: POST `/api/orders/{id}/accept` -> status becomes `PENDING_ACCEPT`.
+- Volunteer responds with accept: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = ACCEPT)` -> status becomes `PENDING_ACCEPT`.
+- Volunteer responds with decline: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = DECLINE)` -> order remains available according to backend dispatch rules.
 - Volunteer en route: POST `/api/orders/{id}/en-route` -> status becomes `DRIVER_EN_ROUTE`.
 - Volunteer arrives: POST `/api/orders/{id}/arrived` -> status becomes `DRIVER_ARRIVED`.
 - Service starts (no separate blind runner confirm step in MVP).
@@ -176,7 +177,7 @@ Concurrent accept:
 
 - Only orders with `status = PENDING_MATCH` can be accepted.
 - The first volunteer who successfully updates the order to `PENDING_ACCEPT` gets the order.
-- Later accept requests return `ORDER_ALREADY_ACCEPTED`.
+- Later `respond` requests with `action = ACCEPT` return `ORDER_ALREADY_ACCEPTED`.
 
 Booking time constraint:
 

@@ -466,11 +466,12 @@ paths:
             'application/json':
               schema:
                 type: object
-  /api/orders/{id}/accept:
+  /api/orders/{id}/respond:
     post:
       tags:
       - order-controller
-      operationId: acceptOrder
+      operationId: respondToOrder
+      description: Volunteer response to an order dispatch. ACCEPT moves a PENDING_MATCH order to PENDING_ACCEPT; DECLINE rejects only the current dispatch opportunity.
       parameters:
       - name: id
         in: path
@@ -479,6 +480,12 @@ paths:
           type: integer
           format: int64
           minimum: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRespondRequest'
+        required: true
       responses:
         '200':
           description: OK
@@ -1156,6 +1163,16 @@ components:
           - NO_VOLUNTEER
         message:
           type: string
+    OrderRespondRequest:
+      type: object
+      properties:
+        action:
+          type: string
+          enum:
+          - ACCEPT
+          - DECLINE
+      required:
+      - action
     CallInitiateRequest:
       type: object
       properties:

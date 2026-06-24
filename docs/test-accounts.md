@@ -162,9 +162,12 @@ curl -X PUT http://47.114.113.171/api/volunteer/profile \
 # 通过 WebSocket 发送: {"type":"LOCATION_UPDATE","lat":39.92,"lng":116.47}
 
 # 5. 接单
-curl -X POST http://47.114.113.171/api/orders/{orderId}/accept \
+curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
+  -d '{
+    "action": "ACCEPT"
+  }'
 ```
 
 ---

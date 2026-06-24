@@ -46,17 +46,17 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     func respondToDispatch(accept: Bool) {
         guard let order = incomingOrder else { return }
-        guard accept else {
-            dismissDispatch()
-            return
-        }
         guard let appState else { return }
         isRespondingToDispatch = true
         Task {
             do {
-                let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/accept")
+                let request = OrderRespondRequest(action: accept ? .accept : .decline)
+                let _: EmptyResponse = try await appState.apiClient.post(
+                    "/api/orders/\(order.orderId)/respond",
+                    body: request
+                )
                 dismissDispatch()
-                speechService?.speak("已接受订单")
+                speechService?.speak(accept ? "已接受订单" : "已拒绝订单")
             } catch let error as APIError {
                 isRespondingToDispatch = false
                 errorMessage = error.localizedMessage

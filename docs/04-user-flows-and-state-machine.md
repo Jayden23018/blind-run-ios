@@ -75,7 +75,7 @@ flowchart TD
 stateDiagram-v2
     [*] --> PENDING_MATCH: 盲人提交预约
 
-    PENDING_MATCH --> PENDING_ACCEPT: 志愿者接单成功\n(API: POST /api/orders/{orderId}/accept)
+    PENDING_MATCH --> PENDING_ACCEPT: 志愿者接单成功\n(API: POST /api/orders/{orderId}/respond, action=ACCEPT)
     PENDING_MATCH --> CANCELLED: 盲人取消\n(API: POST /api/orders/{orderId}/cancel)
     PENDING_MATCH --> NO_VOLUNTEER: 无可用志愿者
 
@@ -147,7 +147,7 @@ sequenceDiagram
         API-->>App: { status: "PENDING_MATCH" }
     end
 
-    VOL-->>API: 接单 (POST /api/orders/{orderId}/accept)
+    VOL-->>API: 接单 (POST /api/orders/{orderId}/respond, action=ACCEPT)
     Note over API: 状态: PENDING_MATCH → PENDING_ACCEPT
 
     App->>API: GET /api/orders/{orderId}
@@ -205,7 +205,7 @@ sequenceDiagram
     App->>VOL: 显示订单详情
 
     VOL->>App: 点击"接单"
-    App->>API: POST /api/orders/{orderId}/accept
+    App->>API: POST /api/orders/{orderId}/respond (action=ACCEPT)
     API-->>App: { status: "PENDING_ACCEPT" }
     App->>VOL: 显示盲人联系电话 + "查看地图"按钮
 

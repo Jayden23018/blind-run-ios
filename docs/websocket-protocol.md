@@ -270,11 +270,16 @@ Emergency is recorded through `POST /api/emergency/trigger`; the order status it
 | hasGuideDog | boolean | 否 | 盲人是否携带导盲犬 |
 | specialNotes | string | 否 | 盲人备注 |
 
-**响应方式**: 收到后如需接单，必须通过 REST API 的 `/accept` 响应，不是通过 WebSocket 回复。MVP 没有拒单接口，拒绝只关闭本地弹窗。
+**响应方式**: 收到后必须通过 REST API 的 `/respond` 响应，不是通过 WebSocket 回复。接受使用 `action=ACCEPT`，拒绝使用 `action=DECLINE`。
 
 ```
-POST /api/orders/{orderId}/accept
+POST /api/orders/{orderId}/respond
 Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "action": "ACCEPT"
+}
 ```
 
 **超时未响应**: 系统自动视为拒绝，派单给下一位志愿者。
@@ -482,9 +487,13 @@ function connectVolunteerWS(token) {
       case 'NEW_ORDER':
         const accepted = await showOrderPrompt(msg); // UI 弹窗让志愿者选择
         if (accepted) {
-          await fetch(`/api/orders/${msg.orderId}/accept`, {
+          await fetch(`/api/orders/${msg.orderId}/respond`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ action: 'ACCEPT' })
           });
         }
         break;

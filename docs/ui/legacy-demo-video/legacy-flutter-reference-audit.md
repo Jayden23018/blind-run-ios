@@ -135,7 +135,7 @@
 - 旧订单列表：`GET /api/orders/mine?role=...`
 - 当前 OpenAPI：`GET /api/orders/my`
 - 旧接单/婉拒：`POST /api/orders/{id}/respond` with `ACCEPT/DECLINE`
-- 当前 OpenAPI：`POST /api/orders/{id}/accept`
+- 当前云端契约已恢复使用：`POST /api/orders/{id}/respond` with `action=ACCEPT/DECLINE`
 - 旧执行动作：`/en-route`、`/arrived`、`/finish`
 - 当前 OpenAPI：`/arrive`、`/confirm-start`、`/complete`
 - 旧评价：`/review`，三档评分

@@ -368,7 +368,11 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             return
         }
         await performAction(failureMessage: "接单失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/accept")
+            let request = OrderRespondRequest(action: .accept)
+            let _: EmptyResponse = try await appState.apiClient.post(
+                "/api/orders/\(order.orderId)/respond",
+                body: request
+            )
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             self.order = updated
         }

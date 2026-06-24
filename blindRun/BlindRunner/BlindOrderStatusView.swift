@@ -405,7 +405,11 @@ struct BlindOrderStatusView: View {
                 if order.status == .pendingMatch {
                     Button("模拟志愿者接单") {
                         Task {
-                            let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/accept")
+                            let request = OrderRespondRequest(action: .accept)
+                            let _: EmptyResponse? = try? await appState.apiClient.post(
+                                "/api/orders/\(order.orderId)/respond",
+                                body: request
+                            )
                             viewModel.startPolling(orderId: order.orderId)
                         }
                     }

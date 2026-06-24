@@ -1407,7 +1407,7 @@ VStack(spacing: 0) {
 ### 主要按钮
 | 按钮 | 可见条件 | 行为 |
 |------|----------|------|
-| "接单" | 接单前 | 确认弹窗 → `POST /api/orders/{id}/accept` → 成功切换接单后 UI |
+| "接单" | 接单前 | 确认弹窗 → `POST /api/orders/{id}/respond` with `action=ACCEPT` → 成功切换接单后 UI |
 | "查看地图" | 接单后 | 显示出发点位置、当前位置和距离信息 |
 | "我已出发" | 接单后（状态为 PENDING_ACCEPT） | `POST /api/orders/{id}/en-route` → 状态变 DRIVER_EN_ROUTE |
 | "我已到达" | 出发后（状态为 DRIVER_EN_ROUTE） | `POST /api/orders/{id}/arrived` → 状态变 DRIVER_ARRIVED |

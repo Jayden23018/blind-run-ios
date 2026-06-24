@@ -45,7 +45,7 @@ Recommended examples:
 - `BlindBookingViewModel`: location permission, default start coordinate, booking form validation, create order.
 - `BlindOrderStatusViewModel`: WebSocket status events, 5-second polling fallback, status TTS, cancel, emergency.
 - `VolunteerHomeViewModel`: availability, current location, fetch available orders, distance sort, WebSocket dispatch.
-- `VolunteerOrderDetailViewModel`: accept, en-route, arrived, finish, cancel, emergency event.
+- `VolunteerOrderDetailViewModel`: respond accept/decline, en-route, arrived, finish, cancel, emergency event.
 
 ## 4. API Environment Switch
 

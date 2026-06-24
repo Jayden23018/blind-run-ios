@@ -327,11 +327,17 @@ async function acceptOrder(volunteer, orderId, volunteerMessages) {
     log('ws-new-order', `orderId=${newOrder.orderId}`);
   } else {
     log('ws-new-order', 'not received before fallback; checking available orders');
-    await http('GET', '/api/orders/available', { token: volunteer.token, allowFailure: true });
+    const availableResponse = await http('GET', '/api/orders/available', { token: volunteer.token, allowFailure: true });
+    const availableOrders = Array.isArray(availableResponse.body.content) ? availableResponse.body.content : [];
+    const containsOrder = availableOrders.some(order => Number(order.id ?? order.orderId) === Number(orderId));
+    log('available-orders', `status=${availableResponse.status} count=${availableOrders.length} containsOrder=${containsOrder}`);
   }
 
-  await http('POST', `/api/orders/${orderId}/accept`, { token: volunteer.token });
-  log('order-accept', `id=${orderId}`);
+  await http('POST', `/api/orders/${orderId}/respond`, {
+    token: volunteer.token,
+    body: { action: 'ACCEPT' }
+  });
+  log('order-respond-accept', `id=${orderId}`);
 }
 
 async function getOrder(token, orderId) {

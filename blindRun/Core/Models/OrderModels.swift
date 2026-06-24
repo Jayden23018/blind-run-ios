@@ -217,6 +217,17 @@ struct OrderResponse: Codable, Sendable {
     let success: Bool?
 }
 
+// MARK: - Order Respond
+
+enum OrderRespondAction: String, Codable, Sendable {
+    case accept = "ACCEPT"
+    case decline = "DECLINE"
+}
+
+struct OrderRespondRequest: Codable, Sendable {
+    let action: OrderRespondAction
+}
+
 // MARK: - Order Review
 
 struct CreateReviewRequest: Codable, Sendable {

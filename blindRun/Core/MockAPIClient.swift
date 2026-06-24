@@ -116,8 +116,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
         // Order actions
         if let orderId = extractOrderId(from: path) {
-            if path.hasSuffix("/accept") && method == .post {
-                return try handleAcceptOrder(orderId: orderId)
+            if path.hasSuffix("/respond") && method == .post {
+                return try handleRespondOrder(orderId: orderId, body: body)
             }
             if path.hasSuffix("/en-route") && method == .post {
                 return try handleEnRoute(orderId: orderId)
@@ -375,6 +375,19 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return order
     }
 
+    private func handleRespondOrder(orderId: Int64, body: (any Encodable & Sendable)?) throws -> OrderResponse {
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(OrderRespondRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
+        }
+        switch request.action {
+        case .accept:
+            return try handleAcceptOrder(orderId: orderId)
+        case .decline:
+            return try handleDeclineOrder(orderId: orderId)
+        }
+    }
+
     private func handleAcceptOrder(orderId: Int64) throws -> OrderResponse {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
@@ -385,6 +398,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         orders[index] = updateOrderStatus(orders[index], to: .pendingAccept, volunteerPhone: "13800000002")
         return actionResponse(for: orders[index], message: "接单成功")
+    }
+
+    private func handleDeclineOrder(orderId: Int64) throws -> OrderResponse {
+        guard let order = orders.first(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        return actionResponse(for: order, message: "已拒绝本次派单")
     }
 
     private func handleEnRoute(orderId: Int64) throws -> OrderResponse {
@@ -506,7 +526,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     private func extractOrderId(from path: String) -> Int64? {
         let components = path.split(separator: "/")
-        // path like /api/orders/123 or /api/orders/123/accept
+        // path like /api/orders/123 or /api/orders/123/respond
         guard components.count >= 3, components[1] == "orders" else { return nil }
         return Int64(components[2])
     }

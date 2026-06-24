@@ -31,6 +31,13 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(AppConstants.Auth.demoVerificationCode, "000000")
     }
 
+    func testOrderRespondRequestEncodesAcceptAction() throws {
+        let request = OrderRespondRequest(action: .accept)
+        let data = try JSONEncoder().encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+        XCTAssertEqual(json["action"], "ACCEPT")
+    }
+
     func testFlexibleErrorEnvelopeUsesBusinessErrorCode() throws {
         let data = #"{"errorCode":"VOLUNTEER_NOT_AVAILABLE","code":403,"success":false,"message":"未开启接单"}"#.data(using: .utf8)!
         let payload = try JSONDecoder().decode(APIErrorEnvelope.self, from: data)
@@ -65,7 +72,10 @@ final class blindRunTests: XCTestCase {
         let available: PagedOrderResponse = try await client.get("/api/orders/available")
         let order = try XCTUnwrap(available.content.first)
 
-        let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/accept")
+        let _: EmptyResponse = try await client.post(
+            "/api/orders/\(order.orderId)/respond",
+            body: OrderRespondRequest(action: .accept)
+        )
         var detail: OrderDetailResponse = try await client.get("/api/orders/\(order.orderId)")
         XCTAssertEqual(detail.status, .pendingAccept)
 
@@ -111,8 +121,6 @@ final class blindRunTests: XCTestCase {
             "status: \"completed\"",
             "status: \"cancelled\"",
             "状态流转为 emergency",
-            "`/api/orders/{orderId}/respond`",
-            "`/api/orders/{id}/respond`",
             "`/api/orders/{orderId}/arrive`",
             "`/api/orders/{id}/arrive`"
         ]
