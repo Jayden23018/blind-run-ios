@@ -159,7 +159,7 @@ The iOS app must support a two-device demo:
 
 1. Blind runner logs in and completes profile.
 2. Blind runner creates booking with current location and appointment at least 30 minutes later.
-3. Volunteer logs in, Mock certification is approved, turns availability on.
+3. Volunteer logs in, completes identity verification and administrator review, then turns availability on.
 4. Volunteer sees available order sorted by distance and accepts it.
 5. Blind runner polling shows `PENDING_ACCEPT`.
 6. Volunteer marks `DRIVER_EN_ROUTE`, then `DRIVER_ARRIVED`.

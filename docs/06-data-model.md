@@ -29,7 +29,7 @@
 | `approved` | 已通过 |
 | `rejected` | 已拒绝 |
 
-当前 iOS 简化认证完成后，`verificationStatus` 和 `adminReviewStatus` 均可设为 `approved`。真实认证/审核接入需要后端契约与隐私合规确认。
+志愿者提交身份证、人脸核验和培训资料后，后端管理员审核决定 `verificationStatus` 和 `adminReviewStatus`。通过后可进入接单流程。
 
 ### RunOrderStatus
 
@@ -139,8 +139,8 @@ Rules:
 | `userId` | UUID/String | Yes | 关联 User，一对一 |
 | `nickname` | String | Yes | 志愿者昵称 |
 | `phoneNumber` | String | Yes | 默认来自 User.phoneNumber |
-| `verificationStatus` | VerificationStatus | Yes | Mock 认证状态 |
-| `adminReviewStatus` | AdminReviewStatus | Yes | 管理员审核字段；当前简化流程可自动通过 |
+| `verificationStatus` | VerificationStatus | Yes | 志愿者认证状态 |
+| `adminReviewStatus` | AdminReviewStatus | Yes | 管理员审核状态 |
 | `isAvailable` | Boolean | Yes | “我现在可服务”开关 |
 | `pointsBalance` | Integer | Yes | 当前积分余额 |
 | `createdAt` | Instant | Yes | 创建时间 |
@@ -294,12 +294,12 @@ Rules:
 - `RunOrder 1 - 0..1 Rating`
 - `User(volunteer) 1 - N VolunteerPointsLedger`
 
-## 5. Mock Fixture Data for Demo
+## 5. Mock Fixture Data for Development
 
 `MockAPIClient` 应提供：
 
 - 至少 1 个盲人用户，资料与紧急联系人完整。
-- 至少 1 个志愿者用户，Mock 认证已通过、可服务开关开启。
+- 至少 1 个志愿者用户，认证已通过、可服务开关开启。
 - 若干 `PENDING_MATCH` 订单，坐标使用可演示的默认测试点。
 - 若干已完成订单，用于服务记录与积分页面展示。
 

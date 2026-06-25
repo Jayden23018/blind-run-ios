@@ -21,7 +21,7 @@ Development builds can switch between:
 
 Demo and Production build channels are locked to Demo Cloud. There is no configurable alternative server and no server runtime in this repository.
 
-Mock is useful for deterministic UI and unit tests, but it is not sufficient for release sign-off. Production-readiness validation must run on the real device named `111` with real AMap and the external backend enabled.
+Mock is useful for deterministic UI and unit tests, but it is not sufficient for release sign-off. Production-readiness validation must run on the real devices named `111` and `iPad Pro (2)` with real AMap and the external backend enabled.
 
 ## Validation
 
@@ -29,6 +29,7 @@ Mock is useful for deterministic UI and unit tests, but it is not sufficient for
 node scripts/validate-docs.mjs
 openspec validate remove-local-backend-use-cloud-only --strict --no-interactive
 xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=111'
+xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=iPad Pro (2)'
 ```
 
 Real integration checks:
@@ -43,9 +44,11 @@ Full production-readiness check:
 
 ```bash
 AIDRUN_DEVICE_NAME=111 AIDRUN_RUN_REAL_AMAP=1 AIDRUN_RUN_CLOUD_UI=1 AIDRUN_RUN_CLOUD_E2E=1 scripts/production-readiness-check.sh
+scripts/dual-device-validation.sh
 ```
 
 Cloud E2E checks depend on the external service being available and may create/cancel test orders.
+Administrator volunteer review for test accounts can be performed with `scripts/admin-review-volunteer.mjs` using `AIDRUN_ADMIN_USERNAME`, `AIDRUN_ADMIN_PASSWORD`, and either `AIDRUN_ADMIN_REVIEW_USER_ID` or `AIDRUN_ADMIN_REVIEW_PHONE`. The long-lived test admin account is `admin` / `admin123`. The administrator review UI is a later standalone web management surface; do not add an administrator role or review page to the iOS user app in this change.
 
 ## Contracts
 

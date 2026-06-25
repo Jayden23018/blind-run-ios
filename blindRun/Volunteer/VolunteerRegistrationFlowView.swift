@@ -1,4 +1,5 @@
 import Combine
+import PhotosUI
 import SwiftUI
 
 // MARK: - Registration Step
@@ -12,8 +13,8 @@ enum RegistrationStep: Int, CaseIterable {
     var title: String {
         switch self {
         case .basicInfo: return "基本信息"
-        case .idCard: return "资料确认"
-        case .faceVerify: return "模拟核验"
+        case .idCard: return "身份核验"
+        case .faceVerify: return "人脸核验"
         case .training: return "培训学习"
         }
     }
@@ -135,27 +136,78 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     // MARK: - Step 2: Upload ID Card
 
     func submitIdCard() async {
-        guard canSubmitIdCard else { return }
+        guard canSubmitIdCard, let appState else { return }
 
         isLoading = true
         errorMessage = nil
 
-        isLoading = false
-        currentStep = .faceVerify
-        speechService?.speak("资料确认完成，请进行模拟人脸核验")
+        guard let frontImageData, let backImageData else {
+            isLoading = false
+            errorMessage = "请上传身份证正反面照片"
+            speechService?.speakError("请上传身份证正反面照片")
+            return
+        }
+
+        do {
+            let _: EmptyResponse = try await appState.apiClient.upload(
+                "/api/volunteer/registration/step2/id-card",
+                query: [
+                    "idCardName": idCardName.trimmed,
+                    "idCardNumber": idCardNumber.trimmed
+                ],
+                files: [
+                    MultipartFile(fieldName: "frontFile", fileName: "id-card-front.jpg", mimeType: "image/jpeg", data: frontImageData),
+                    MultipartFile(fieldName: "backFile", fileName: "id-card-back.jpg", mimeType: "image/jpeg", data: backImageData)
+                ]
+            )
+            isLoading = false
+            currentStep = .faceVerify
+            speechService?.speak("身份证资料提交成功，请进行人脸核验")
+        } catch let error as APIError {
+            isLoading = false
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+        } catch {
+            isLoading = false
+            errorMessage = "身份证资料提交失败，请重试"
+            speechService?.speakError("身份证资料提交失败，请重试")
+        }
     }
 
     // MARK: - Step 3: Face Verify
 
     func submitFaceVerify() async {
-        guard canSubmitFace else { return }
+        guard canSubmitFace, let appState else { return }
 
         isLoading = true
         errorMessage = nil
 
-        isLoading = false
-        currentStep = .training
-        speechService?.speak("模拟核验通过，请完成培训课程")
+        guard let faceImageData else {
+            isLoading = false
+            errorMessage = "请上传自拍照片"
+            speechService?.speakError("请上传自拍照片")
+            return
+        }
+
+        do {
+            let _: EmptyResponse = try await appState.apiClient.upload(
+                "/api/volunteer/registration/step3/face-verify",
+                files: [
+                    MultipartFile(fieldName: "facePhoto", fileName: "face-photo.jpg", mimeType: "image/jpeg", data: faceImageData)
+                ]
+            )
+            isLoading = false
+            currentStep = .training
+            speechService?.speak("人脸核验资料提交成功，请完成培训课程")
+        } catch let error as APIError {
+            isLoading = false
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+        } catch {
+            isLoading = false
+            errorMessage = "人脸核验提交失败，请重试"
+            speechService?.speakError("人脸核验提交失败，请重试")
+        }
     }
 
     // MARK: - Step 4: Training
@@ -222,6 +274,9 @@ struct VolunteerRegistrationFlowView: View {
     @EnvironmentObject private var speechService: SpeechService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = VolunteerRegistrationViewModel()
+    @State private var frontPhotoItem: PhotosPickerItem?
+    @State private var backPhotoItem: PhotosPickerItem?
+    @State private var facePhotoItem: PhotosPickerItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -326,7 +381,7 @@ struct VolunteerRegistrationFlowView: View {
                 .font(.title2.bold())
                 .accessibilityAddTraits(.isHeader)
 
-            Text("MVP 演示阶段仅做本地资料确认，不调用真实身份认证服务")
+            Text("请上传身份证正反面照片，系统将提交至后端进行身份核验。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
 
@@ -334,15 +389,27 @@ struct VolunteerRegistrationFlowView: View {
             formField(title: "身份证号码", placeholder: "请输入18位身份证号码", text: $viewModel.idCardNumber)
                 .keyboardType(.asciiCapable)
 
-            photoPickerPlaceholder(title: "正面照片（人像面）", hasData: viewModel.frontImageData != nil)
-            photoPickerPlaceholder(title: "背面照片（国徽面）", hasData: viewModel.backImageData != nil)
+            photoPicker(
+                title: "正面照片（人像面）",
+                selection: $frontPhotoItem,
+                hasData: viewModel.frontImageData != nil
+            ) { data in
+                viewModel.frontImageData = data
+            }
+            photoPicker(
+                title: "背面照片（国徽面）",
+                selection: $backPhotoItem,
+                hasData: viewModel.backImageData != nil
+            ) { data in
+                viewModel.backImageData = data
+            }
 
-            PrimaryButton("确认资料", isLoading: viewModel.isLoading) {
+            PrimaryButton("提交身份核验", isLoading: viewModel.isLoading) {
                 Task { await viewModel.submitIdCard() }
             }
             .disabled(!viewModel.canSubmitIdCard)
             .opacity(viewModel.canSubmitIdCard ? 1 : 0.45)
-            .accessibilityLabel("确认资料")
+            .accessibilityLabel("提交身份核验")
         }
     }
 
@@ -350,22 +417,28 @@ struct VolunteerRegistrationFlowView: View {
 
     private var faceVerifyStep: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("模拟人脸核验")
+            Text("人脸核验")
                 .font(.title2.bold())
                 .accessibilityAddTraits(.isHeader)
 
-            Text("MVP 演示阶段仅做本地照片确认，不调用真实人脸验证服务")
+            Text("请上传清晰自拍照片，系统将提交至后端进行人脸核验。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
 
-            photoPickerPlaceholder(title: "自拍照片", hasData: viewModel.faceImageData != nil)
+            photoPicker(
+                title: "自拍照片",
+                selection: $facePhotoItem,
+                hasData: viewModel.faceImageData != nil
+            ) { data in
+                viewModel.faceImageData = data
+            }
 
-            PrimaryButton("完成模拟核验", isLoading: viewModel.isLoading) {
+            PrimaryButton("提交人脸核验", isLoading: viewModel.isLoading) {
                 Task { await viewModel.submitFaceVerify() }
             }
             .disabled(!viewModel.canSubmitFace)
             .opacity(viewModel.canSubmitFace ? 1 : 0.45)
-            .accessibilityLabel("完成模拟核验")
+            .accessibilityLabel("提交人脸核验")
         }
     }
 
@@ -427,7 +500,24 @@ struct VolunteerRegistrationFlowView: View {
         }
     }
 
-    private func photoPickerPlaceholder(title: String, hasData: Bool) -> some View {
+    private func photoPicker(
+        title: String,
+        selection: Binding<PhotosPickerItem?>,
+        hasData: Bool,
+        onDataLoaded: @escaping (Data?) -> Void
+    ) -> some View {
+        PhotosPicker(selection: selection, matching: .images) {
+            photoPickerLabel(title: title, hasData: hasData)
+        }
+        .onChange(of: selection.wrappedValue) { newValue in
+            Task { await loadPhotoData(from: newValue, onDataLoaded: onDataLoaded) }
+        }
+        .accessibilityLabel(title)
+        .accessibilityValue(hasData ? "已选择照片" : "未选择照片")
+        .accessibilityHint("点击选择照片")
+    }
+
+    private func photoPickerLabel(title: String, hasData: Bool) -> some View {
         VStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 12)
                 .fill(AppColors.secondaryBackground)
@@ -443,9 +533,24 @@ struct VolunteerRegistrationFlowView: View {
                     }
                 }
         }
-        .accessibilityLabel(title)
-        .accessibilityValue(hasData ? "已选择照片" : "未选择照片")
-        .accessibilityHint("点击选择照片")
+    }
+
+    private func loadPhotoData(
+        from item: PhotosPickerItem?,
+        onDataLoaded: @escaping (Data?) -> Void
+    ) async {
+        guard let item else {
+            onDataLoaded(nil)
+            return
+        }
+
+        do {
+            let data = try await item.loadTransferable(type: Data.self)
+            onDataLoaded(data)
+        } catch {
+            viewModel.errorMessage = "照片读取失败，请重新选择"
+            speechService.speakError("照片读取失败，请重新选择")
+        }
     }
 
     private func trainingCourseCard(_ course: TrainingCourseResponse) -> some View {

@@ -15,7 +15,7 @@
 - 所有真实 WebSocket 连接固定使用 `ws://47.114.113.171`。
 - `docs/07-api-contract.openapi.yaml` 是 HTTP API source of truth；`docs/websocket-protocol.md` 是 WebSocket source of truth。
 - Debug 可切换 Mock / Demo Cloud；Demo 和 Production 构建固定 Demo Cloud。
-- 上线验收必须在真机 `111` 上覆盖真实高德地图、真实后端 UI smoke 和后端 E2E。
+- 上线验收必须在真机 `111` 和 `iPad Pro (2)` 上覆盖真实高德地图、真实后端 UI smoke 和后端 E2E。
 
 ## 一致性要求
 
@@ -30,7 +30,9 @@
 openspec validate remove-local-backend-use-cloud-only --strict --no-interactive
 node scripts/validate-docs.mjs
 xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=111'
+xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=iPad Pro (2)'
 AIDRUN_DEVICE_NAME=111 AIDRUN_RUN_REAL_AMAP=1 AIDRUN_RUN_CLOUD_UI=1 AIDRUN_RUN_CLOUD_E2E=1 scripts/production-readiness-check.sh
+scripts/dual-device-validation.sh
 ```
 
 云端 E2E 依赖外部服务可用性，并会创建/取消测试订单；失败项应与 iOS 编译和 Mock 回归结果分开报告。

@@ -139,8 +139,8 @@ final class blindRunUITests: XCTestCase {
 
     @MainActor
     func testRealAMapEnabledSmoke() throws {
-        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_REAL_AMAP"] == "1" else {
-            throw XCTSkip("Set AIDRUN_UI_TEST_REAL_AMAP=1 to run the real AMap smoke test on device 111.")
+        guard shouldRunRealAMapSmoke else {
+            throw XCTSkip("Run on validation device 111 / iPad Pro (2), or set AIDRUN_UI_TEST_REAL_AMAP=1, to execute real AMap smoke.")
         }
 
         let app = launchApp(
@@ -162,13 +162,12 @@ final class blindRunUITests: XCTestCase {
 
     @MainActor
     func testCloudBackendBlindRunnerBookingSmoke() throws {
-        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_RUN_CLOUD_SMOKE"] == "1" else {
-            throw XCTSkip("Set AIDRUN_UI_TEST_RUN_CLOUD_SMOKE=1 to run the real cloud UI smoke test on device 111.")
-        }
-
         #if !DEMO
-        throw XCTSkip("Cloud E2E runs under blindRun-Demo / DemoRelease so the app is locked to the external cloud service.")
+        throw XCTSkip("Cloud UI smoke runs under blindRun-Demo / DemoRelease so the app is locked to the external cloud service.")
         #else
+        guard shouldRunCloudSmoke else {
+            throw XCTSkip("Run Demo cloud UI smoke on validation device 111 / iPad Pro (2), or set AIDRUN_UI_TEST_RUN_CLOUD_SMOKE=1.")
+        }
         let app = launchApp(
             apiEnvironment: "demoCloud",
             disableMap: false,
@@ -182,6 +181,22 @@ final class blindRunUITests: XCTestCase {
         createBookingAndAssertMatching(app)
         cancelCurrentOrder(app)
         #endif
+    }
+
+    private var isPhysicalDevice: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
+    }
+
+    private var shouldRunRealAMapSmoke: Bool {
+        ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_REAL_AMAP"] == "1" || isPhysicalDevice
+    }
+
+    private var shouldRunCloudSmoke: Bool {
+        ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_RUN_CLOUD_SMOKE"] == "1" || isPhysicalDevice
     }
 
     private func launchApp(
@@ -257,7 +272,7 @@ final class blindRunUITests: XCTestCase {
     private func login(app: XCUIApplication, phone: String, code: String = "000000") {
         let phoneField = app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch
         XCTAssertTrue(phoneField.waitForExistence(timeout: 10), "Login phone field should appear")
-        phoneField.tap()
+        tapWhenHittableOrByCoordinate(phoneField, app: app)
         phoneField.typeText(phone)
         dismissKeyboardIfPresent(app: app)
 
@@ -268,7 +283,7 @@ final class blindRunUITests: XCTestCase {
 
         let codeField = app.textFields["验证码输入框，请输入 6 位验证码"].firstMatch
         XCTAssertTrue(codeField.waitForExistence(timeout: 5), "Verification code field should appear")
-        codeField.tap()
+        tapWhenHittableOrByCoordinate(codeField, app: app)
         codeField.typeText(code)
         dismissKeyboardIfPresent(app: app)
 
@@ -283,6 +298,15 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(element.waitForExistence(timeout: 5), "Expected element to exist before tapping")
         if element.isHittable {
             element.tap()
+            return
+        }
+
+        let elementFrame = element.frame
+        let appFrame = app.frame
+        if !elementFrame.isNull && !elementFrame.isEmpty && !appFrame.isNull && !appFrame.isEmpty {
+            let centerX = elementFrame.midX / appFrame.width
+            let centerY = elementFrame.midY / appFrame.height
+            app.coordinate(withNormalizedOffset: CGVector(dx: centerX, dy: centerY)).tap()
             return
         }
 
@@ -423,12 +447,24 @@ final class blindRunUITests: XCTestCase {
         let dismissButton = app.buttons["收起键盘"].firstMatch
         if dismissButton.waitForExistence(timeout: 1) {
             dismissButton.tap()
-            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 2), "Keyboard should dismiss")
+            if app.keyboards.firstMatch.waitForNonExistence(timeout: 2) {
+                return
+            }
+        }
+
+        for button in [
+            app.keyboards.buttons["Return"].firstMatch,
+            app.keyboards.buttons["Done"].firstMatch,
+            app.keyboards.buttons["完成"].firstMatch
+        ] where button.exists && button.isHittable {
+            button.tap()
+        }
+        if app.keyboards.firstMatch.waitForNonExistence(timeout: 1) {
             return
         }
 
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 1)
     }
 
     private func dismissSystemAlertsIfPresent(app: XCUIApplication, activateWhenNoAlert: Bool = true) {

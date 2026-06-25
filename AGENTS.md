@@ -41,12 +41,12 @@ The current direction is a production-ready iOS client backed by the external cl
 - Every real WebSocket connection currently uses `ws://47.114.113.171`.
 - REST API + WebSocket provide notifications, dispatch, status updates, and location reporting.
 - JWT Bearer Auth.
-- Phone login currently uses fixed verification code `000000`; this is a launch risk until the backend provides a production SMS or equivalent verification flow.
+- Phone login uses `POST /api/auth/send-code` and `POST /api/auth/verify-code`; long-lived test accounts may continue to use fixed verification code `000000` for release validation.
 - Use 高德地图 (AMap) and real device location.
 - TTS uses `AVSpeechSynthesizer`.
 - STT uses iOS `Speech` framework.
 - Mock remains an offline frontend test facility and is never sufficient for release sign-off.
-- Release validation must run on the real device named `111`.
+- Release validation must run on the real devices named `111` and `iPad Pro (2)`.
 
 The old MVP forbidden list has been removed. Features such as production SMS, identity verification, administrator tooling, route navigation, payments, and richer safety capabilities are no longer globally forbidden. They must still be introduced through explicit requirements, API contracts, implementation plans, and acceptance tests before code is added.
 
@@ -214,7 +214,7 @@ Required error codes:
 - Blind runners must provide emergency contact name and phone number.
 - Emergency action must require second confirmation.
 - After confirmation, the backend records an emergency event and keeps the order status unchanged.
-- Real SMS, automatic calls, real administrator notifications, identity verification, and administrator review are production capabilities that require explicit backend contracts before iOS integration.
+- Real SMS, identity verification, and administrator review are backend-owned production capabilities now represented in `docs/07-api-contract.openapi.yaml`; iOS may consume those contracts without adding backend code to this repository.
 
 Emergency confirmation copy must be exactly:
 
@@ -248,7 +248,7 @@ After completing each module, check:
 - Does it include accessibility labels/hints?
 - Do dangerous actions require second confirmation?
 - Do client models and ViewModels cover API responses and order-state behavior with tests?
-- Does real-device validation on `111` cover any changed real integration path?
+- Does real-device validation on `111` and `iPad Pro (2)` cover any changed real integration path?
 - Does `openspec validate` pass?
 
 ## 13. Required Validation Commands
@@ -275,12 +275,14 @@ Real-device iOS baseline validation:
 
 ```bash
 xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=111'
+xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=iPad Pro (2)'
 ```
 
 Production-readiness validation:
 
 ```bash
 AIDRUN_DEVICE_NAME=111 AIDRUN_RUN_REAL_AMAP=1 AIDRUN_RUN_CLOUD_UI=1 AIDRUN_RUN_CLOUD_E2E=1 scripts/production-readiness-check.sh
+scripts/dual-device-validation.sh
 ```
 
 ## 14. Legacy Flutter Reference Rule

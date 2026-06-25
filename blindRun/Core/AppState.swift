@@ -306,4 +306,13 @@ private final class DisabledAPIClient: APIClientProtocol, @unchecked Sendable {
     ) async throws -> T {
         throw APIError.invalidURL
     }
+
+    func upload<T: Decodable>(
+        path: String,
+        query: [String: String]?,
+        files: [MultipartFile],
+        requiresAuth: Bool
+    ) async throws -> T {
+        throw APIError.invalidURL
+    }
 }

@@ -53,6 +53,36 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return typed
     }
 
+    func upload<T: Decodable>(
+        path: String,
+        query: [String: String]?,
+        files: [MultipartFile],
+        requiresAuth: Bool
+    ) async throws -> T {
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        if path == "/api/volunteer/registration/step2/id-card" ||
+           path == "/api/volunteer/registration/step3/face-verify" ||
+           path == "/api/volunteer/verification" {
+            volunteerProfile = VolunteerProfileResponse(
+                name: volunteerProfile?.name ?? "测试志愿者",
+                verificationStatus: "pending",
+                isAvailable: volunteerProfile?.isAvailable ?? false,
+                availableTimeSlots: volunteerProfile?.availableTimeSlots,
+                acceptsGuideDog: volunteerProfile?.acceptsGuideDog,
+                paceRange: volunteerProfile?.paceRange
+            )
+            if T.self == EmptyResponse.self {
+                return EmptyResponse() as! T
+            }
+            if T.self == ApiSuccessResponse.self {
+                return ApiSuccessResponse(success: true, message: "认证资料已提交") as! T
+            }
+        }
+
+        throw APIError.unknown(statusCode: 404)
+    }
+
     // MARK: - Router
 
     private func routeRequest(

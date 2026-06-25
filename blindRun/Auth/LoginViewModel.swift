@@ -146,7 +146,8 @@ final class LoginViewModel: ObservableObject {
         showCodeInput = true
         startCountdown()
 
-        // Call send-code API (demo uses a fixed verification code and no real SMS).
+        // Call the backend verification-code delivery API. Long-lived test accounts
+        // may still use the fixed code 000000 for automated release validation.
         Task {
             guard let appState = appState else { return }
             let request = SendCodeRequest(phone: phoneNumber)

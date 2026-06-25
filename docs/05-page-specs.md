@@ -339,7 +339,7 @@
 
 ## 页面 9：志愿者资料认证页
 
-**页面目标**：志愿者填写资料并完成 Mock 认证。
+**页面目标**：志愿者填写资料，提交身份证和人脸核验资料，并等待管理员审核。
 
 **入口**：角色选择页选择"志愿者"（首次）/ 设置页 → 编辑资料。
 
@@ -347,20 +347,20 @@
 - 标题："志愿者认证"
 - 昵称输入框（必填）
 - 手机号显示（自动填充登录手机号）
-- Mock 认证区域：
+- 认证区域：
   - 提示文字："请完成以下认证步骤（Demo 版为模拟认证）"
-  - Mock 认证按钮（模拟身份验证流程）
-  - 认证状态显示（not_submitted / pending / approved / rejected，当前简化认证成功后直接 approved）
+  - 身份证上传、人脸核验、培训学习入口
+  - 认证状态显示（not_submitted / pending / approved / rejected）
 - "提交"按钮
 
 **主要操作**：
 - 填写昵称
-- 点击 Mock 认证按钮 → 模拟认证 → verificationStatus 变为 approved
+- 点击开始认证 → 进入志愿者注册流程 → 上传身份证正反面和自拍照 → 完成培训 → 管理员审核后 verificationStatus 变为 approved
 - 点击"提交" → 保存资料 → 进入志愿者首页
 
 **状态变化**：
-- Mock 认证完成：verificationStatus = approved, adminReviewStatus = approved
-- 可服务开关由志愿者首页单独控制，Mock 认证不自动开启 isAvailable
+- 管理员审核完成：verificationStatus = approved, adminReviewStatus = approved
+- 可服务开关由志愿者首页单独控制，认证不自动开启 isAvailable / wantsDispatch
 - 提交：loading → 成功跳转
 
 **错误状态**：
@@ -372,7 +372,7 @@
 
 **无障碍要求**：
 - 昵称输入框：accessibilityLabel = "请输入昵称"
-- Mock 认证按钮：accessibilityLabel = "开始模拟认证"
+- 认证按钮：accessibilityLabel = "开始认证"
 - 提交按钮：最小高度 64pt
 
 ---

@@ -26,7 +26,7 @@
 | `13800000002` | 志愿者 | 注册完成、已认证 | 云端 E2E 志愿者主账号 |
 | `13800000004` | 志愿者 | 注册完成、已认证 | 云端 E2E 志愿者备用账号 |
 
-当前 iOS 前端仍使用云端测试验证码策略，不保存真实短信验证码。若需要用非预置手机号跑自动化 E2E，必须由后端提供测试账号或可自动化验证的测试验证码机制。真实短信接入属于上线风险项，需后端契约和测试策略确认后再接入。
+当前 iOS 前端使用云端验证码策略，不保存真实短信验证码。预置测试账号长期使用固定验证码 `000000`；非预置手机号若需自动化 E2E，必须由后端提供可自动化验证的测试验证码机制。
 
 ### 2.1 创建测试用户（通用步骤）
 
@@ -153,7 +153,7 @@ curl -X PUT http://47.114.113.171/api/volunteer/profile \
     ]
   }'
 
-# 2. 当前简化志愿者认证：资料完善后 approved；真实身份认证/管理员审核需后端契约
+# 2. 志愿者认证：身份证、人脸核验与管理员审核按 OpenAPI 契约接入
 
 # 3. 连接 WebSocket
 # ws://47.114.113.171/ws/volunteer?token=<token>
@@ -171,6 +171,42 @@ curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
     "action": "ACCEPT"
   }'
 ```
+
+### 2.4 管理员审核测试志愿者
+
+管理员/客服登录和审核接口来自 `docs/07-api-contract.openapi.yaml`：
+
+- `POST /api/cs/auth/login`
+- `GET/POST /api/admin/volunteers/review/id`
+- `GET/POST /api/admin/volunteers/review/cert`
+
+长期测试管理员账号：
+
+- 用户名：`admin`
+- 密码：`admin123`
+
+管理员审核页后续做成独立 Web 管理端；当前 iOS 用户端不增加管理员角色入口或审核页面。
+
+脚本用法：
+
+```bash
+AIDRUN_ADMIN_USERNAME=admin \
+AIDRUN_ADMIN_PASSWORD=admin123 \
+AIDRUN_ADMIN_REVIEW_PHONE=13800000002 \
+scripts/admin-review-volunteer.mjs
+```
+
+也可以直接指定 userId：
+
+```bash
+AIDRUN_ADMIN_USERNAME=admin \
+AIDRUN_ADMIN_PASSWORD=admin123 \
+AIDRUN_ADMIN_REVIEW_USER_ID=<userId> \
+AIDRUN_ADMIN_REVIEW_KIND=both \
+scripts/admin-review-volunteer.mjs
+```
+
+长期测试账号可能已经审核完成；脚本会把“不待审核 / 不在待审核状态”视为 skipped 并成功结束，便于重复执行双真机验收。
 
 ---
 
@@ -204,7 +240,7 @@ curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
 ## 四、常见问题
 
 ### Q: 验证码是什么？
-当前云端测试验证码固定为 `000000`。真实短信或等价验证机制是上线风险项，需要后端提供契约、限流和自动化测试策略。
+预置测试账号验证码固定为 `000000`，可长期用于自动化测试和上线验收。真实短信发送由后端验证码策略负责，iOS 不保存短信验证码。
 
 ### Q: 设置角色后 403 了？
 设置角色后返回的新 token 包含角色信息。如果你还在用旧 token，会因为缺少角色而被 403 拒绝。**必须替换为新 token**。
@@ -217,7 +253,7 @@ curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
 
 ### Q: 志愿者收不到派单？
 志愿者必须：
-1. 完善志愿者资料并通过当前简化认证流程
+1. 完善志愿者资料并通过身份证、人脸核验和管理员审核
 2. 手动开启可服务状态
 3. WebSocket 保持连接
 4. 定时上报位置（至少一次）
@@ -240,7 +276,7 @@ curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
 
 ## 六、上线前后端验收项（2026-06-24）
 
-后端理论上已具备上线服务。以下项目必须用 `scripts/cloud-e2e.mjs`、Demo Cloud XCUITest 和真机 `111` 重新验收；若仍失败，不能由前端伪造状态或绕过业务校验修复：
+后端理论上已具备上线服务。以下项目必须用 `scripts/cloud-e2e.mjs`、Demo Cloud XCUITest、`111` 和 `iPad Pro (2)` 重新验收；若仍失败，不能由前端伪造状态或绕过业务校验修复：
 
 1. `GET/PUT /api/volunteer/profile` 必须持久化并返回 `isAvailable`；开启后 `/api/orders/available` 应返回可接订单。
 2. 接单失败不得返回 HTTP 500，应返回 `VOLUNTEER_NOT_AVAILABLE`、`ORDER_ALREADY_ACCEPTED` 等统一业务错误。

@@ -55,6 +55,20 @@ protocol APIClientProtocol: Sendable {
         body: (any Encodable & Sendable)?,
         requiresAuth: Bool
     ) async throws -> T
+
+    func upload<T: Decodable>(
+        path: String,
+        query: [String: String]?,
+        files: [MultipartFile],
+        requiresAuth: Bool
+    ) async throws -> T
+}
+
+struct MultipartFile: Sendable {
+    let fieldName: String
+    let fileName: String
+    let mimeType: String
+    let data: Data
 }
 
 extension APIClientProtocol {
@@ -95,6 +109,15 @@ extension APIClientProtocol {
         requiresAuth: Bool = true
     ) async throws -> T {
         try await request(method: .delete, path: path, query: nil, body: nil, requiresAuth: requiresAuth)
+    }
+
+    func upload<T: Decodable>(
+        _ path: String,
+        query: [String: String]? = nil,
+        files: [MultipartFile],
+        requiresAuth: Bool = true
+    ) async throws -> T {
+        try await upload(path: path, query: query, files: files, requiresAuth: requiresAuth)
     }
 }
 
@@ -210,13 +233,6 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
 
     // MARK: - Multipart Upload
 
-    struct MultipartFile: Sendable {
-        let fieldName: String
-        let fileName: String
-        let mimeType: String
-        let data: Data
-    }
-
     func upload<T: Decodable>(
         path: String,
         query: [String: String]? = nil,
@@ -268,6 +284,9 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
 
         switch httpResponse.statusCode {
         case 200...299:
+            if T.self == EmptyResponse.self, data.isEmpty {
+                return EmptyResponse() as! T
+            }
             // Strategy: Try envelope first, then direct decode.
             // Envelope-first avoids the issue where all-optional models (e.g. BlindProfileResponse)
             // would "succeed" with all-nil values when decoded from the envelope root object.

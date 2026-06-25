@@ -46,6 +46,18 @@ final class VolunteerProfileViewModel: ObservableObject {
         verificationStatus.lowercased() == "approved"
     }
 
+    var isPendingReview: Bool {
+        verificationStatus.lowercased() == "pending"
+    }
+
+    var isRegistrationInProgress: Bool {
+        verificationStatus.lowercased() == "in_progress"
+    }
+
+    var isRejected: Bool {
+        verificationStatus.lowercased() == "rejected"
+    }
+
     var certificationButtonTitle: String {
         if isCertificationRunning {
             return "认证中"
@@ -53,12 +65,27 @@ final class VolunteerProfileViewModel: ObservableObject {
         if isApproved {
             return "认证已完成"
         }
+        if isPendingReview {
+            return "审核中"
+        }
+        if isRegistrationInProgress {
+            return "继续认证"
+        }
+        if isRejected {
+            return "重新认证"
+        }
         return "开始认证"
     }
 
     var certificationAccessibilityHint: String {
         if isApproved {
             return "认证已完成"
+        }
+        if isPendingReview {
+            return "认证资料已提交，请等待审核"
+        }
+        if isRegistrationInProgress {
+            return "点击后继续志愿者注册认证流程"
         }
         if appState?.isVolunteerProfileComplete != true {
             return "请先填写昵称并提交志愿者资料"
@@ -267,7 +294,7 @@ struct VolunteerProfileView: View {
                     .frame(minHeight: 64)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isApproved)
+                .disabled(viewModel.isApproved || viewModel.isPendingReview)
                 .accessibilityLabel("开始认证")
                 .accessibilityHint(viewModel.certificationAccessibilityHint)
             } else {
@@ -308,13 +335,24 @@ struct VolunteerProfileView: View {
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
             Spacer()
-            Text(value)
+            Text(statusDisplayName(value))
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(value.lowercased() == "approved" ? AppColors.success : AppColors.textPrimary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title) 状态 \(value)")
+        .accessibilityLabel("\(title) 状态 \(statusDisplayName(value))")
         .accessibilityHint("认证状态展示")
+    }
+
+    private func statusDisplayName(_ value: String) -> String {
+        switch value.lowercased() {
+        case "approved": return "已通过"
+        case "pending": return "审核中"
+        case "in_progress": return "认证中"
+        case "rejected": return "未通过"
+        case "not_submitted", "none": return "未提交"
+        default: return value
+        }
     }
 
     private var submitButton: some View {

@@ -41,6 +41,17 @@ const forbiddenFragments = [
   '`/api/orders/{id}/arrive`'
 ];
 
+const requiredOpenAPIFragments = [
+  '/api/volunteer/registration/step2/id-card',
+  'frontFile',
+  'backFile',
+  '/api/volunteer/registration/step3/face-verify',
+  'facePhoto',
+  '/api/admin/volunteers/review/id',
+  '/api/admin/volunteers/review/cert',
+  '/api/cs/auth/login'
+];
+
 let failed = false;
 
 for (const relativePath of maintainedDocs) {
@@ -57,6 +68,14 @@ for (const relativePath of maintainedDocs) {
       console.error(`[validate-docs] ${relativePath} contains forbidden fragment: ${fragment}`);
       failed = true;
     }
+  }
+}
+
+const openAPIText = fs.readFileSync(path.join(repoRoot, 'docs/07-api-contract.openapi.yaml'), 'utf8');
+for (const fragment of requiredOpenAPIFragments) {
+  if (!openAPIText.includes(fragment)) {
+    console.error(`[validate-docs] docs/07-api-contract.openapi.yaml is missing required backend contract fragment: ${fragment}`);
+    failed = true;
   }
 }
 

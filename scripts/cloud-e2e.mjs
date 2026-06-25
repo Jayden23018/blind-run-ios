@@ -321,6 +321,7 @@ async function updateVolunteerProfile(volunteer) {
       paceRange: 'MODERATE',
       acceptsGuideDog: true,
       isAvailable: true,
+      wantsDispatch: true,
       availableTimeSlots: allWeekAvailabilitySlots
     },
     allowFailure: true
@@ -340,6 +341,7 @@ async function setVolunteerAvailable(volunteer) {
       paceRange: 'MODERATE',
       acceptsGuideDog: true,
       isAvailable: true,
+      wantsDispatch: true,
       availableTimeSlots: allWeekAvailabilitySlots
     },
     allowFailure: true

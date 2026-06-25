@@ -19,7 +19,7 @@ Acceptance:
 
 ### PR-IOS-02 Auth and Role
 
-- 实现手机号、固定验证码 `000000` 登录。
+- 实现手机号验证码登录；预置测试账号固定验证码 `000000`。
 - 当前将 JWT 存入 UserDefaults，并保留迁移 Keychain 的注释；上线硬化优先迁移 Keychain。
 - 实现角色选择、角色切换和退出登录二次确认。
 - 显示外部 API 返回的稳定业务错误。
@@ -42,7 +42,7 @@ Acceptance:
 
 ### PR-IOS-04 Volunteer Flow
 
-- 实现志愿者资料、Mock 认证、可服务开关、订单列表和服务操作。
+- 实现志愿者资料、身份证上传、人脸核验、管理员审核状态、可服务开关、订单列表和服务操作。
 - iOS 使用真实定位计算距离并排序。
 - 接单前隐藏敏感信息，接单后显示完整联系电话。
 
@@ -78,7 +78,7 @@ Acceptance:
 ### PR-CLOUD-02 Production Verification
 
 - 准备双设备演示账号和脚本。
-- 运行真机 `111` XCTest、真实高德 smoke、真实云端 UI smoke、OpenSpec validation 和文档检查。
+- 运行真机 `111` 和 `iPad Pro (2)` XCTest、真实高德 smoke、真实云端 UI smoke、OpenSpec validation 和文档检查。
 - 外部服务可用时运行 `scripts/cloud-e2e.mjs`。
 
 Acceptance:

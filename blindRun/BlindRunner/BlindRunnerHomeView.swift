@@ -243,8 +243,16 @@ struct BlindRunnerHomeView: View {
                 .foregroundColor(AppColors.textSecondary)
                 .accessibilityLabel("准备好后，可以创建一次新的陪跑预约")
 
-            PrimaryButton("开始约跑") {
-                path.append(.booking)
+            NavigationLink(value: BlindRunnerRoute.booking) {
+                HStack {
+                    Text("开始约跑")
+                        .font(AppFonts.primaryButton())
+                        .foregroundColor(.white)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+                .background(AppColors.primary)
+                .cornerRadius(12)
             }
             .accessibilityLabel("开始约跑")
             .accessibilityHint("点击后创建跑步预约")

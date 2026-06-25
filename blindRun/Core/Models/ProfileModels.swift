@@ -83,6 +83,7 @@ struct VolunteerProfileResponse: Codable, Sendable {
     let name: String?
     let verificationStatus: String?
     let isAvailable: Bool?
+    let wantsDispatch: Bool?
     let availableTimeSlots: [VolunteerAvailableTimeSlot]?
     let acceptsGuideDog: Bool?
     let paceRange: PacePreference?
@@ -91,6 +92,7 @@ struct VolunteerProfileResponse: Codable, Sendable {
         case name = "name"
         case verificationStatus
         case isAvailable
+        case wantsDispatch
         case availableTimeSlots
         case acceptsGuideDog
         case paceRange
@@ -100,6 +102,7 @@ struct VolunteerProfileResponse: Codable, Sendable {
         name: String? = nil,
         verificationStatus: String? = nil,
         isAvailable: Bool? = nil,
+        wantsDispatch: Bool? = nil,
         availableTimeSlots: [VolunteerAvailableTimeSlot]? = nil,
         acceptsGuideDog: Bool? = nil,
         paceRange: PacePreference? = nil
@@ -107,9 +110,21 @@ struct VolunteerProfileResponse: Codable, Sendable {
         self.name = name
         self.verificationStatus = verificationStatus
         self.isAvailable = isAvailable
+        self.wantsDispatch = wantsDispatch
         self.availableTimeSlots = availableTimeSlots
         self.acceptsGuideDog = acceptsGuideDog
         self.paceRange = paceRange
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        verificationStatus = try container.decodeIfPresent(String.self, forKey: .verificationStatus)
+        wantsDispatch = try container.decodeIfPresent(Bool.self, forKey: .wantsDispatch)
+        isAvailable = try container.decodeIfPresent(Bool.self, forKey: .isAvailable) ?? wantsDispatch
+        availableTimeSlots = try container.decodeIfPresent([VolunteerAvailableTimeSlot].self, forKey: .availableTimeSlots)
+        acceptsGuideDog = try container.decodeIfPresent(Bool.self, forKey: .acceptsGuideDog)
+        paceRange = try container.decodeIfPresent(PacePreference.self, forKey: .paceRange)
     }
 }
 
@@ -122,6 +137,7 @@ struct VolunteerAvailableTimeSlot: Codable, Sendable {
 struct VolunteerProfileUpdateRequest: Codable, Sendable {
     let name: String?
     let isAvailable: Bool?
+    let wantsDispatch: Bool?
     let availableTimeSlots: [VolunteerAvailableTimeSlot]?
     let acceptsGuideDog: Bool?
     let paceRange: PacePreference?
@@ -129,6 +145,7 @@ struct VolunteerProfileUpdateRequest: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case name = "name"
         case isAvailable
+        case wantsDispatch
         case availableTimeSlots
         case acceptsGuideDog
         case paceRange
@@ -137,12 +154,14 @@ struct VolunteerProfileUpdateRequest: Codable, Sendable {
     init(
         name: String? = nil,
         isAvailable: Bool? = nil,
+        wantsDispatch: Bool? = nil,
         availableTimeSlots: [VolunteerAvailableTimeSlot]? = nil,
         acceptsGuideDog: Bool? = nil,
         paceRange: PacePreference? = nil
     ) {
         self.name = name
         self.isAvailable = isAvailable
+        self.wantsDispatch = wantsDispatch ?? isAvailable
         self.availableTimeSlots = availableTimeSlots
         self.acceptsGuideDog = acceptsGuideDog
         self.paceRange = paceRange

@@ -129,6 +129,30 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(detail.status, .driverArrived)
     }
 
+    func testVolunteerRegistrationUploadPathsUseCloudContract() async throws {
+        let client = MockAPIClient()
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+
+        let _: EmptyResponse = try await client.upload(
+            "/api/volunteer/registration/step2/id-card",
+            query: [
+                "idCardName": "测试志愿者",
+                "idCardNumber": "110101199001011234"
+            ],
+            files: [
+                MultipartFile(fieldName: "frontFile", fileName: "front.jpg", mimeType: "image/jpeg", data: imageData),
+                MultipartFile(fieldName: "backFile", fileName: "back.jpg", mimeType: "image/jpeg", data: imageData)
+            ]
+        )
+
+        let _: EmptyResponse = try await client.upload(
+            "/api/volunteer/registration/step3/face-verify",
+            files: [
+                MultipartFile(fieldName: "facePhoto", fileName: "face.jpg", mimeType: "image/jpeg", data: imageData)
+            ]
+        )
+    }
+
     func testMaintainedDocsDoNotUseForbiddenLowercaseOrderStatusVocabulary() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
