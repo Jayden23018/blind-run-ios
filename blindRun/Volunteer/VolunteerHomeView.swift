@@ -17,6 +17,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var incomingOrder: WSNewOrder?
     @Published var dispatchCountdown: Int = 0
     @Published var isRespondingToDispatch = false
+    @Published var acceptedDispatchOrderId: Int64?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -66,7 +67,9 @@ final class VolunteerHomeViewModel: ObservableObject {
                     "/api/orders/\(order.orderId)/respond",
                     body: request
                 )
+                let acceptedOrderId = accept ? order.orderId : nil
                 dismissDispatch()
+                acceptedDispatchOrderId = acceptedOrderId
                 speechService?.speak(accept ? "已接受订单" : "已拒绝订单")
             } catch let error as APIError {
                 isRespondingToDispatch = false
@@ -255,6 +258,20 @@ struct VolunteerHomeView: View {
                     }
                     .accessibilityLabel("设置")
                     .accessibilityHint("进入设置页面")
+                }
+            }
+            .navigationDestination(
+                isPresented: Binding(
+                    get: { viewModel.acceptedDispatchOrderId != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            viewModel.acceptedDispatchOrderId = nil
+                        }
+                    }
+                )
+            ) {
+                if let orderId = viewModel.acceptedDispatchOrderId {
+                    VolunteerOrderDetailView(orderId: orderId)
                 }
             }
             .safeAreaInset(edge: .bottom) {

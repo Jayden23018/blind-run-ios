@@ -79,6 +79,75 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(sendCount, 0)
     }
 
+    func testAcceptingDispatchPublishesNavigationOrderId() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+        viewModel.incomingOrder = makeDispatchOrder(orderId: 1)
+        viewModel.dispatchCountdown = 30
+
+        viewModel.respondToDispatch(
+            accept: true,
+            currentLocation: nil,
+            locationAuthorized: false
+        )
+
+        let didNavigate = await waitUntil { viewModel.acceptedDispatchOrderId == 1 }
+        XCTAssertTrue(didNavigate)
+        XCTAssertEqual(viewModel.acceptedDispatchOrderId, 1)
+        XCTAssertNil(viewModel.incomingOrder)
+        XCTAssertEqual(viewModel.dispatchCountdown, 0)
+        XCTAssertFalse(viewModel.isRespondingToDispatch)
+        XCTAssertEqual(speechService.lastSpokenText, "已接受订单")
+    }
+
+    func testAcceptingDispatchFailureDoesNotPublishNavigationOrderId() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.incomingOrder = makeDispatchOrder(orderId: 999)
+        viewModel.dispatchCountdown = 30
+
+        viewModel.respondToDispatch(
+            accept: true,
+            currentLocation: nil,
+            locationAuthorized: false
+        )
+
+        let didFail = await waitUntil { viewModel.errorMessage != nil }
+        XCTAssertTrue(didFail)
+        XCTAssertNil(viewModel.acceptedDispatchOrderId)
+        XCTAssertNotNil(viewModel.incomingOrder)
+        XCTAssertEqual(viewModel.dispatchCountdown, 30)
+        XCTAssertFalse(viewModel.isRespondingToDispatch)
+    }
+
+    func testDecliningDispatchDoesNotPublishNavigationOrderId() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+        viewModel.incomingOrder = makeDispatchOrder(orderId: 1)
+        viewModel.dispatchCountdown = 30
+
+        viewModel.respondToDispatch(
+            accept: false,
+            currentLocation: nil,
+            locationAuthorized: false
+        )
+
+        let didDecline = await waitUntil { viewModel.incomingOrder == nil }
+        XCTAssertTrue(didDecline)
+        XCTAssertNil(viewModel.acceptedDispatchOrderId)
+        XCTAssertEqual(viewModel.dispatchCountdown, 0)
+        XCTAssertFalse(viewModel.isRespondingToDispatch)
+        XCTAssertEqual(speechService.lastSpokenText, "已拒绝订单")
+    }
+
     func testFlexibleErrorEnvelopeUsesBusinessErrorCode() throws {
         let data = #"{"errorCode":"VOLUNTEER_NOT_AVAILABLE","code":403,"success":false,"message":"未开启接单"}"#.data(using: .utf8)!
         let payload = try JSONDecoder().decode(APIErrorEnvelope.self, from: data)
@@ -675,6 +744,36 @@ final class blindRunTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    private func makeDispatchOrder(orderId: Int64) -> WSNewOrder {
+        WSNewOrder(
+            type: "NEW_ORDER",
+            orderId: orderId,
+            startAddress: "朝阳公园南门",
+            distanceKm: 0.1,
+            plannedStart: "2026-06-25T20:00:00",
+            plannedEnd: "2026-06-25T21:00:00",
+            dispatchTimeoutSeconds: 30,
+            priority: "HIGH",
+            pacePreference: "MODERATE",
+            hasGuideDog: false,
+            specialNotes: nil
+        )
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 2,
+        condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return condition()
+    }
 
     private func makeVolunteerProfile(
         name: String = "测试志愿者",
