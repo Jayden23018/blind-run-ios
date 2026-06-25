@@ -148,6 +148,52 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(speechService.lastSpokenText, "已拒绝订单")
     }
 
+    func testVolunteerHomeReceivesDispatchWhenWebSocketIsAssignedAfterConfigure() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = VolunteerHomeViewModel()
+
+        viewModel.configure(with: appState, speechService: speechService)
+
+        let webSocketService = WebSocketService()
+        appState.webSocketService = webSocketService
+        webSocketService.simulateIncomingEventForTesting(.newOrder(makeDispatchOrder(orderId: 42)))
+
+        let didReceive = await waitUntil { viewModel.incomingOrder?.orderId == 42 }
+        XCTAssertTrue(didReceive)
+        XCTAssertEqual(viewModel.dispatchCountdown, 30)
+        XCTAssertEqual(speechService.lastSpokenText, "新订单到达，请在30秒内响应")
+    }
+
+    func testVolunteerHomeResubscribesWhenWebSocketServiceIsReplaced() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let viewModel = VolunteerHomeViewModel()
+
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        let firstWebSocketService = WebSocketService()
+        appState.webSocketService = firstWebSocketService
+        firstWebSocketService.simulateIncomingEventForTesting(.newOrder(makeDispatchOrder(orderId: 41)))
+
+        let didReceiveInitialEvent = await waitUntil { viewModel.incomingOrder?.orderId == 41 }
+        XCTAssertTrue(didReceiveInitialEvent)
+        viewModel.dismissDispatch()
+
+        let replacementWebSocketService = WebSocketService()
+        appState.webSocketService = replacementWebSocketService
+        firstWebSocketService.simulateIncomingEventForTesting(.newOrder(makeDispatchOrder(orderId: 40)))
+
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertNil(viewModel.incomingOrder)
+
+        replacementWebSocketService.simulateIncomingEventForTesting(.newOrder(makeDispatchOrder(orderId: 43)))
+
+        let didReceiveReplacementEvent = await waitUntil { viewModel.incomingOrder?.orderId == 43 }
+        XCTAssertTrue(didReceiveReplacementEvent)
+    }
+
     func testFlexibleErrorEnvelopeUsesBusinessErrorCode() throws {
         let data = #"{"errorCode":"VOLUNTEER_NOT_AVAILABLE","code":403,"success":false,"message":"未开启接单"}"#.data(using: .utf8)!
         let payload = try JSONDecoder().decode(APIErrorEnvelope.self, from: data)

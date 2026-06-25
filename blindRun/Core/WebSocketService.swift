@@ -53,6 +53,12 @@ final class WebSocketService: ObservableObject {
         eventSubject.eraseToAnyPublisher()
     }
 
+    #if DEBUG
+    func simulateIncomingEventForTesting(_ event: WSIncomingEvent) {
+        eventSubject.send(event)
+    }
+    #endif
+
     // Reconnect configuration (exponential backoff)
     private static let reconnectDelays: [TimeInterval] = [3, 6, 12, 30]
     private static let heartbeatInterval: TimeInterval = 30

@@ -21,7 +21,9 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
-    private var cancellables = Set<AnyCancellable>()
+    private var appStateWebSocketCancellable: AnyCancellable?
+    private var webSocketEventCancellable: AnyCancellable?
+    private weak var subscribedWebSocketService: WebSocketService?
     private var countdownTask: Task<Void, Never>?
 
     var statusText: String {
@@ -40,7 +42,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         self.appState = appState
         self.speechService = speechService
         apply(profile: appState.volunteerProfile)
-        subscribeToWebSocket(appState: appState)
+        subscribeToAppStateWebSocket(appState)
     }
 
     // MARK: - WebSocket Dispatch
@@ -91,20 +93,42 @@ final class VolunteerHomeViewModel: ObservableObject {
         isRespondingToDispatch = false
     }
 
-    private func subscribeToWebSocket(appState: AppState) {
-        guard let ws = appState.webSocketService else { return }
-        ws.eventPublisher
+    private func subscribeToAppStateWebSocket(_ appState: AppState) {
+        subscribeToWebSocketService(appState.webSocketService)
+
+        guard appStateWebSocketCancellable == nil else { return }
+        appStateWebSocketCancellable = appState.$webSocketService
+            .sink { [weak self] service in
+                self?.subscribeToWebSocketService(service)
+            }
+    }
+
+    private func subscribeToWebSocketService(_ service: WebSocketService?) {
+        guard let service else {
+            webSocketEventCancellable?.cancel()
+            webSocketEventCancellable = nil
+            subscribedWebSocketService = nil
+            return
+        }
+
+        guard subscribedWebSocketService !== service else { return }
+
+        webSocketEventCancellable?.cancel()
+        subscribedWebSocketService = service
+        webSocketEventCancellable = service.eventPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] event in
-                guard let self else { return }
-                switch event {
-                case .newOrder(let order):
-                    self.handleNewOrder(order)
-                default:
-                    break
-                }
+                self?.handleWebSocketEvent(event)
             }
-            .store(in: &cancellables)
+    }
+
+    private func handleWebSocketEvent(_ event: WSIncomingEvent) {
+        switch event {
+        case .newOrder(let order):
+            handleNewOrder(order)
+        default:
+            break
+        }
     }
 
     private func handleNewOrder(_ order: WSNewOrder) {
