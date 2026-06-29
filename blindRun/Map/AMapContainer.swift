@@ -23,6 +23,8 @@ struct AMapContainer: UIViewRepresentable {
     var annotations: [MapAnnotationItem] = []
     var zoomLevel: CGFloat = 15.0
     var recenterToken: Int = 0
+    var showsCompass: Bool = true
+    var screenAnchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
 
     func makeUIView(context: Context) -> MAMapView {
         let mapView = MAMapView(frame: .zero)
@@ -30,8 +32,9 @@ struct AMapContainer: UIViewRepresentable {
         mapView.showsUserLocation = showsUserLocation
         mapView.userTrackingMode = .follow
         mapView.setZoomLevel(zoomLevel, animated: false)
+        mapView.screenAnchor = screenAnchor
         mapView.setCenter(centerCoordinate, animated: false)
-        mapView.showsCompass = true
+        mapView.showsCompass = showsCompass
         mapView.showsScale = true
         return mapView
     }
@@ -42,11 +45,24 @@ struct AMapContainer: UIViewRepresentable {
             mapView.showsUserLocation = showsUserLocation
         }
 
+        if mapView.showsCompass != showsCompass {
+            mapView.showsCompass = showsCompass
+        }
+
+        let screenAnchorDidChange =
+            abs(context.coordinator.lastScreenAnchor.x - screenAnchor.x) > 0.001 ||
+            abs(context.coordinator.lastScreenAnchor.y - screenAnchor.y) > 0.001
+        if screenAnchorDidChange {
+            mapView.screenAnchor = screenAnchor
+            context.coordinator.lastScreenAnchor = screenAnchor
+        }
+
         // 更新地图中心（仅在坐标变化超过阈值时移动，避免频繁跳动）。
         // recenterToken 变化时强制回到传入坐标，用于“回到当前位置”。
         let currentCenter = mapView.centerCoordinate
         let threshold: Double = 0.0001
         if context.coordinator.lastRecenterToken != recenterToken ||
+           screenAnchorDidChange ||
            abs(currentCenter.latitude - centerCoordinate.latitude) > threshold ||
            abs(currentCenter.longitude - centerCoordinate.longitude) > threshold {
             mapView.setCenter(centerCoordinate, animated: true)
@@ -84,6 +100,7 @@ struct AMapContainer: UIViewRepresentable {
 
     final class Coordinator: NSObject, MAMapViewDelegate {
         var lastRecenterToken = 0
+        var lastScreenAnchor = CGPoint(x: 0.5, y: 0.5)
 
         func mapView(_ mapView: MAMapView!, viewFor annotation: MAAnnotation!) -> MAAnnotationView! {
             // 用户位置使用默认蓝点
@@ -113,6 +130,8 @@ struct MapViewWrapper: View {
     var annotations: [MapAnnotationItem] = []
     var zoomLevel: CGFloat = 15.0
     var recenterToken: Int = 0
+    var showsCompass: Bool = true
+    var screenAnchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
 
     var body: some View {
         #if DEBUG || DEMO
@@ -124,7 +143,9 @@ struct MapViewWrapper: View {
                 showsUserLocation: showsUserLocation,
                 annotations: annotations,
                 zoomLevel: zoomLevel,
-                recenterToken: recenterToken
+                recenterToken: recenterToken,
+                showsCompass: showsCompass,
+                screenAnchor: screenAnchor
             )
             .accessibilityLabel("地图，显示当前位置和订单地点")
             .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")
@@ -138,7 +159,9 @@ struct MapViewWrapper: View {
                 showsUserLocation: showsUserLocation,
                 annotations: annotations,
                 zoomLevel: zoomLevel,
-                recenterToken: recenterToken
+                recenterToken: recenterToken,
+                showsCompass: showsCompass,
+                screenAnchor: screenAnchor
             )
             .accessibilityLabel("地图，显示当前位置和订单地点")
             .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")

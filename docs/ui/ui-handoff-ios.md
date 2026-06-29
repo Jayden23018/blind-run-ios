@@ -1167,7 +1167,7 @@ VStack {
 志愿者首页
 
 ### 页面目标
-志愿者功能总览：查看附近订单、管理可服务状态、积分信息。
+志愿者功能总览：查看当前订单、查看附近订单、管理可服务状态。
 
 ### 适用角色
 志愿者
@@ -1176,11 +1176,13 @@ VStack {
 认证完成 / 登录（已有认证资料）/ 服务完成返回 / 切换角色
 
 ### 页面主要内容
-- **顶部用户信息栏**：昵称 + 积分余额（如 "350 积分"）
+- **顶部用户信息栏**：昵称 + 可接单状态 + 附近需求数 + 定位摘要
 - **可服务开关**（Toggle，新志愿者默认关闭，需手动开启）
   - 开启：绿色 "可接单"
   - 关闭：灰色 "已关闭接单"
-- **高德小地图**（上 1/3 区域）：显示当前位置 + 附近订单 marker
+- **当前订单提示框**：有志愿者活跃订单时显示状态、盲人昵称、地点、预约时间，点击进入订单详情或服务页面
+- **高德地图全屏背景**：显示当前位置 + 附近订单 marker；首页隐藏地图指南针
+- **附近需求面板**：支持收起 / 默认 / 展开三段式吸附
 - **附近订单卡片列表**（前 3 个，按距离排序）：
   - 每张卡片：盲人昵称、距离、出发地点、预约时间
 - "查看全部订单" 链接
@@ -1190,8 +1192,10 @@ VStack {
 | 按钮 | 行为 |
 |------|------|
 | 可服务开关 Toggle | 即时调用 API 更新状态 |
+| 当前订单提示框 | 点击 → `PENDING_ACCEPT` 进入订单详情；`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 进入服务页面 |
 | 订单卡片 | 点击 → 进入订单详情页 |
 | "查看全部订单" | 进入订单列表页 |
+| 附近需求面板把手 | 拖动或点击 → 在三段式高度间吸附 |
 | 底部 Tab | 切换页面 |
 
 ### 表单字段
@@ -1200,8 +1204,10 @@ VStack {
 ### 状态展示
 - 可服务开：绿色 Toggle + "附近有 N 个可接订单" + 订单卡片显示距离
 - 可服务关：灰色 Toggle + 订单仍可见（无距离数字）+ 接单按钮被禁用
+- 有当前订单：顶部用户信息栏下方显示当前订单提示框；终态订单不显示
 - 定位不可用：地图灰色占位 + 订单无距离信息 + 接单按钮禁用 + 提示开启定位
 - 定位正常但无订单：地图正常 + "暂无可用订单，请稍后再来"
+- 地图当前位置蓝点：位于顶部信息区底部和附近需求面板顶部之间的可视区域中点
 
 ### 错误状态
 - 定位权限拒绝 → "需要开启定位权限才能查看距离和接单" + "去设置" 按钮
@@ -1218,42 +1224,31 @@ VStack {
 | 元素 | accessibilityLabel | accessibilityHint |
 |------|--------------------|-------------------|
 | 可服务开关 | "可服务开关，" + 当前状态 | "关闭后其他用户看不到你的接单状态，但不影响当前订单" |
+| 当前订单提示框 | "当前订单：" + 状态 + 盲人昵称 + 地点 | "点击进入当前订单" |
 | 订单卡片 | "盲人：" + 昵称 + "，距离：" + 距离 + "，" + 地点 + "，" + 时间 | "点击查看订单详情" |
-| 积分余额 | "当前积分：" + 数字 + "分" | — |
+| 附近需求面板把手 | "拖动附近需求面板" | "上滑展开，下滑收起" |
 | "查看全部订单" | "查看全部订单" | — |
 
 ### SwiftUI 布局建议
 ```
-VStack(spacing: 0) {
-    // 用户信息 + 可服务开关
-    HStack {
-        VStack(alignment: .leading) {
-            Text(nickname).font(.headline)
-            Text("\(points) 积分").font(.subheadline)
+ZStack(alignment: .bottom) {
+    AMapContainer(
+        location: currentLocation,
+        markers: orderMarkers,
+        showsCompass: false,
+        screenAnchor: calculatedVisibleCenterAnchor
+    )
+    .ignoresSafeArea()
+
+    VStack(spacing: 8) {
+        VolunteerHomeStatusOverlay(...)
+        if let activeOrder {
+            VolunteerCurrentOrderCard(order: activeOrder)
         }
         Spacer()
-        Toggle("可服务", isOn: $isAvailable)
-            .labelsHidden()
     }
-    .padding(.horizontal)
-    
-    // 地图
-    AMapContainer(location: currentLocation, markers: orderMarkers)
-        .frame(height: UIScreen.main.bounds.height / 3)
-    
-    // 附近订单
-    ScrollView {
-        VStack(spacing: 12) {
-            ForEach(nearbyOrders.prefix(3)) { order in
-                OrderCardView(order: order, showDistance: locationAuthorized)
-            }
-            NavigationLink("查看全部订单") { OrderListView() }
-        }
-        .padding()
-    }
-    
-    // 底部 TabBar
-    TabBar(selectedTab: $selectedTab)
+
+    VolunteerDemandPanel(detent: $detent, orders: nearbyOrders)
 }
 ```
 
@@ -1263,10 +1258,12 @@ VStack(spacing: 0) {
 - 定位失败状态文案
 
 ### 旧 UI 必须修改的部分
-- 旧版 WebSocket 实时派单概念 → 改为静态加载
+- 旧版首页只有静态列表 → 保留 WebSocket 派单弹层，同时首页通过 REST 刷新附近需求和当前订单
 - 旧版可服务开关文案 "推送" → 改为 "可接单"
 - 旧版接单前可能出现盲人电话 → 确保隐藏
-- 旧版缺积分展示 → 补齐
+- 顶部不显示导航标题和右上角设置按钮；设置保留在底部入口
+- 首页地图隐藏指南针，当前位置蓝点按可视区域居中
+- 当前订单必须在首页可回到订单详情或服务页面
 - **注意**：可服务开关仅影响接新单，不影响当前已接订单
 
 ---

@@ -194,6 +194,113 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(didReceiveReplacementEvent)
     }
 
+    func testVolunteerHomeActiveOrderFiltersVolunteerServiceStatuses() throws {
+        let activeOrder = try XCTUnwrap(VolunteerHomeViewModel.activeVolunteerOrder(from: [
+            makeOrder(orderId: 1, status: .pendingMatch, createdAt: "2026-06-25T10:00:00Z"),
+            makeOrder(orderId: 2, status: .pendingAccept, createdAt: "2026-06-25T11:00:00Z"),
+            makeOrder(orderId: 3, status: .driverEnRoute, createdAt: "2026-06-25T12:00:00Z"),
+            makeOrder(orderId: 4, status: .completed, createdAt: "2026-06-25T13:00:00Z"),
+            makeOrder(orderId: 5, status: .cancelled, createdAt: "2026-06-25T14:00:00Z")
+        ]))
+
+        XCTAssertEqual(activeOrder.orderId, 3)
+    }
+
+    func testVolunteerHomeActiveOrderIgnoresTerminalOrders() {
+        let activeOrder = VolunteerHomeViewModel.activeVolunteerOrder(from: [
+            makeOrder(orderId: 1, status: .pendingMatch),
+            makeOrder(orderId: 2, status: .completed),
+            makeOrder(orderId: 3, status: .cancelled),
+            makeOrder(orderId: 4, status: .noVolunteer)
+        ])
+
+        XCTAssertNil(activeOrder)
+    }
+
+    func testVolunteerHomeLoadShowsAcceptedOrderAsActiveOrder() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        await viewModel.load(currentLocation: nil, locationAuthorized: false)
+        XCTAssertNil(viewModel.activeOrder)
+
+        viewModel.incomingOrder = makeDispatchOrder(orderId: 1)
+        viewModel.respondToDispatch(
+            accept: true,
+            currentLocation: nil,
+            locationAuthorized: false
+        )
+
+        let didAccept = await waitUntil { viewModel.acceptedDispatchOrderId == 1 }
+        XCTAssertTrue(didAccept)
+
+        await viewModel.load(currentLocation: nil, locationAuthorized: false)
+
+        XCTAssertEqual(viewModel.activeOrder?.orderId, 1)
+        XCTAssertEqual(viewModel.activeOrder?.status, .pendingAccept)
+    }
+
+    func testVolunteerDemandPanelDetentHeightsAndNearestSnap() {
+        let viewportHeight: CGFloat = 1_000
+        let topContentBottom: CGFloat = 180
+        let compactHeight = VolunteerDemandPanelDetent.compact.height(
+            viewportHeight: viewportHeight,
+            topContentBottom: topContentBottom
+        )
+        let mediumHeight = VolunteerDemandPanelDetent.medium.height(
+            viewportHeight: viewportHeight,
+            topContentBottom: topContentBottom
+        )
+        let expandedHeight = VolunteerDemandPanelDetent.expanded.height(
+            viewportHeight: viewportHeight,
+            topContentBottom: topContentBottom
+        )
+
+        XCTAssertLessThan(compactHeight, mediumHeight)
+        XCTAssertLessThan(mediumHeight, expandedHeight)
+        XCTAssertEqual(
+            VolunteerDemandPanelDetent.nearest(
+                to: compactHeight + 4,
+                viewportHeight: viewportHeight,
+                topContentBottom: topContentBottom
+            ),
+            .compact
+        )
+        XCTAssertEqual(
+            VolunteerDemandPanelDetent.nearest(
+                to: expandedHeight - 4,
+                viewportHeight: viewportHeight,
+                topContentBottom: topContentBottom
+            ),
+            .expanded
+        )
+    }
+
+    func testVolunteerHomeMapAnchorUsesVisibleAreaAndClampsExtremes() {
+        let normalAnchor = VolunteerHomeMapLayout.screenAnchorY(
+            viewportHeight: 1_000,
+            topContentBottom: 160,
+            demandPanelTop: 580
+        )
+        XCTAssertEqual(normalAnchor, 0.37, accuracy: 0.0001)
+
+        let highAnchor = VolunteerHomeMapLayout.screenAnchorY(
+            viewportHeight: 1_000,
+            topContentBottom: -500,
+            demandPanelTop: -200
+        )
+        XCTAssertEqual(highAnchor, 0.18, accuracy: 0.0001)
+
+        let lowAnchor = VolunteerHomeMapLayout.screenAnchorY(
+            viewportHeight: 1_000,
+            topContentBottom: 1_600,
+            demandPanelTop: 1_700
+        )
+        XCTAssertEqual(lowAnchor, 0.82, accuracy: 0.0001)
+    }
+
     func testFlexibleErrorEnvelopeUsesBusinessErrorCode() throws {
         let data = #"{"errorCode":"VOLUNTEER_NOT_AVAILABLE","code":403,"success":false,"message":"未开启接单"}"#.data(using: .utf8)!
         let payload = try JSONDecoder().decode(APIErrorEnvelope.self, from: data)
@@ -804,6 +911,36 @@ final class blindRunTests: XCTestCase {
             pacePreference: "MODERATE",
             hasGuideDog: false,
             specialNotes: nil
+        )
+    }
+
+    private func makeOrder(
+        orderId: Int64,
+        status: RunOrderStatus,
+        createdAt: String = "2026-06-25T10:00:00Z"
+    ) -> OrderDetailResponse {
+        OrderDetailResponse(
+            orderId: orderId,
+            status: status,
+            startAddress: "朝阳公园南门",
+            startLatitude: 39.9342,
+            startLongitude: 116.4740,
+            plannedStart: "2026-06-25T20:00:00Z",
+            plannedEnd: "2026-06-25T21:00:00Z",
+            blindName: "李明",
+            blindPhone: status == .pendingMatch ? nil : "13800001001",
+            volunteerPhone: status == .pendingMatch ? nil : "13800000002",
+            acceptedAt: status == .pendingMatch ? nil : "2026-06-25T19:50:00Z",
+            createdAt: createdAt,
+            expectedDurationMinutes: 60,
+            pacePreference: .moderate,
+            routePreference: .parkTrail,
+            routeNotes: nil,
+            hasGuideDogThisRun: false,
+            specialNotes: nil,
+            visionLevel: "TOTAL_BLIND",
+            tetherPreference: "TETHER_ROPE",
+            chatPreference: "PREFER_CHAT"
         )
     }
 

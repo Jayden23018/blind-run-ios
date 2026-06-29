@@ -12,6 +12,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isLoading = false
     @Published var isUpdatingAvailability = false
+    @Published var activeOrder: OrderDetailResponse?
 
     // WebSocket dispatch state
     @Published var incomingOrder: WSNewOrder?
@@ -36,6 +37,13 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     var acceptBlockMessage: String? {
         VolunteerOrderActionGuard.acceptBlockMessage(profile: appState?.volunteerProfile)
+    }
+
+    static func activeVolunteerOrder(from orders: [OrderDetailResponse]) -> OrderDetailResponse? {
+        orders
+            .filter { $0.status.isActiveForVolunteer }
+            .sorted { $0.sortKey > $1.sortKey }
+            .first
     }
 
     func configure(with appState: AppState, speechService: SpeechService) {
@@ -177,6 +185,9 @@ final class VolunteerHomeViewModel: ObservableObject {
                 from: currentLocation,
                 locationAuthorized: locationAuthorized
             )
+
+            let myOrders: PagedOrderResponse = try await appState.apiClient.get("/api/orders/mine")
+            activeOrder = Self.activeVolunteerOrder(from: myOrders.content)
             isLoading = false
         } catch let error as APIError {
             isLoading = false
@@ -235,6 +246,89 @@ final class VolunteerHomeViewModel: ObservableObject {
     }
 }
 
+// MARK: - Volunteer Home Layout Helpers
+
+enum VolunteerDemandPanelDetent: CaseIterable, Equatable {
+    case compact
+    case medium
+    case expanded
+
+    static let bottomMargin: CGFloat = 8
+
+    func height(viewportHeight: CGFloat, topContentBottom: CGFloat) -> CGFloat {
+        switch self {
+        case .compact:
+            return Self.compactHeight(viewportHeight: viewportHeight)
+        case .medium:
+            let proposed = viewportHeight * 0.42
+            let maximum = max(Self.compactHeight(viewportHeight: viewportHeight), viewportHeight * 0.56)
+            return min(max(proposed, 300), maximum)
+        case .expanded:
+            let topLimit = max(topContentBottom + 8, 96)
+            let proposed = viewportHeight - topLimit - Self.bottomMargin
+            return max(Self.compactHeight(viewportHeight: viewportHeight), proposed)
+        }
+    }
+
+    func next() -> VolunteerDemandPanelDetent {
+        switch self {
+        case .compact:
+            return .medium
+        case .medium:
+            return .expanded
+        case .expanded:
+            return .compact
+        }
+    }
+
+    static func compactHeight(viewportHeight: CGFloat) -> CGFloat {
+        min(max(viewportHeight * 0.12, 104), 136)
+    }
+
+    static func clampedHeight(
+        _ height: CGFloat,
+        viewportHeight: CGFloat,
+        topContentBottom: CGFloat
+    ) -> CGFloat {
+        let minimum = compact.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom)
+        let maximum = expanded.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom)
+        return min(max(height, minimum), maximum)
+    }
+
+    static func nearest(
+        to height: CGFloat,
+        viewportHeight: CGFloat,
+        topContentBottom: CGFloat
+    ) -> VolunteerDemandPanelDetent {
+        allCases.min { lhs, rhs in
+            abs(lhs.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom) - height) <
+                abs(rhs.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom) - height)
+        } ?? .medium
+    }
+}
+
+struct VolunteerHomeMapLayout {
+    static func screenAnchorY(
+        viewportHeight: CGFloat,
+        topContentBottom: CGFloat,
+        demandPanelTop: CGFloat
+    ) -> CGFloat {
+        guard viewportHeight > 1 else { return 0.5 }
+        let upper = max(topContentBottom, 0)
+        let lower = max(demandPanelTop, upper + 1)
+        let visibleCenterY = (upper + lower) / 2
+        return min(max(visibleCenterY / viewportHeight, 0.18), 0.82)
+    }
+}
+
+private struct VolunteerHomeTopBottomPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 // MARK: - Volunteer Home View
 
 struct VolunteerHomeView: View {
@@ -242,48 +336,72 @@ struct VolunteerHomeView: View {
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
     @StateObject private var viewModel = VolunteerHomeViewModel()
-    @State private var mapCenter: CLLocationCoordinate2D?
     @State private var recenterToken = 0
+    @State private var demandPanelDetent: VolunteerDemandPanelDetent = .medium
+    @State private var demandPanelDragTranslation: CGFloat = 0
+    @State private var topContentBottom: CGFloat = 0
 
     var body: some View {
         NavigationStack {
             GeometryReader { proxy in
+                let resolvedTopBottom = resolvedTopContentBottom(in: proxy)
+                let panelHeight = demandPanelHeight(in: proxy, topContentBottom: resolvedTopBottom)
+                let panelTop = proxy.size.height - panelHeight - VolunteerDemandPanelDetent.bottomMargin
+                let mapAnchorY = VolunteerHomeMapLayout.screenAnchorY(
+                    viewportHeight: proxy.size.height,
+                    topContentBottom: resolvedTopBottom,
+                    demandPanelTop: panelTop
+                )
+
                 ZStack(alignment: .bottom) {
-                    homeMap
+                    homeMap(screenAnchor: CGPoint(x: 0.5, y: mapAnchorY))
+
+                    VStack(spacing: 8) {
+                        homeStatusOverlay
+
+                        if let activeOrder = viewModel.activeOrder {
+                            NavigationLink {
+                                currentOrderDestination(activeOrder)
+                            } label: {
+                                VolunteerCurrentOrderCard(order: activeOrder)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
+                            .accessibilityHint("点击进入当前订单")
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, max(proxy.safeAreaInsets.top + 4, 8))
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .background(
+                        GeometryReader { topProxy in
+                            Color.clear.preference(
+                                key: VolunteerHomeTopBottomPreferenceKey.self,
+                                value: topProxy.frame(in: .named("VolunteerHome")).maxY
+                            )
+                        }
+                    )
+                    .frame(maxHeight: .infinity, alignment: .top)
 
                     VStack(spacing: 0) {
-                        homeStatusOverlay
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
-
                         Spacer()
 
                         recenterButton
                             .padding(.horizontal, 16)
-                            .padding(.bottom, 12)
+                            .padding(.bottom, panelHeight + 16)
                             .frame(maxWidth: .infinity, alignment: .trailing)
-
-                        nearbyDemandPanel(maxHeight: proxy.size.height * 0.45)
-                            .padding(.horizontal, 10)
-                            .padding(.bottom, 8)
                     }
+
+                    nearbyDemandPanel(height: panelHeight, isCompact: demandPanelDetent == .compact, proxy: proxy)
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, VolunteerDemandPanelDetent.bottomMargin)
                 }
                 .background(AppColors.background)
+                .coordinateSpace(name: "VolunteerHome")
+                .onPreferenceChange(VolunteerHomeTopBottomPreferenceKey.self) { topContentBottom = $0 }
             }
-            .navigationTitle("志愿者首页")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        VolunteerSettingsView()
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityLabel("设置")
-                    .accessibilityHint("进入设置页面")
-                }
-            }
+            .navigationTitle("")
+            .navigationBarHidden(true)
             .navigationDestination(
                 isPresented: Binding(
                     get: { viewModel.acceptedDispatchOrderId != nil },
@@ -301,16 +419,11 @@ struct VolunteerHomeView: View {
             .safeAreaInset(edge: .bottom) {
                 bottomEntries
             }
-            .task {
+            .onAppear {
                 viewModel.configure(with: appState, speechService: speechService)
                 locationService.requestPermission()
                 locationService.startUpdating()
-                mapCenter = locationService.effectiveLocation
-                await loadHome()
-            }
-            .onReceive(locationService.$currentLocation) { location in
-                guard mapCenter == nil, let location else { return }
-                mapCenter = location
+                Task { await loadHome() }
             }
             .overlay {
                 if viewModel.incomingOrder != nil {
@@ -338,13 +451,15 @@ struct VolunteerHomeView: View {
         }
     }
 
-    private var homeMap: some View {
+    private func homeMap(screenAnchor: CGPoint) -> some View {
         MapViewWrapper(
-            centerCoordinate: mapCenter ?? locationService.effectiveLocation,
+            centerCoordinate: locationService.effectiveLocation,
             showsUserLocation: locationService.isAuthorized,
             annotations: viewModel.rows.compactMap(\.annotation),
             zoomLevel: 13,
-            recenterToken: recenterToken
+            recenterToken: recenterToken,
+            showsCompass: false,
+            screenAnchor: screenAnchor
         )
         .ignoresSafeArea()
         .overlay(alignment: .bottom) {
@@ -381,7 +496,6 @@ struct VolunteerHomeView: View {
     private var recenterButton: some View {
         Button {
             locationService.requestOneTimeLocation()
-            mapCenter = locationService.effectiveLocation
             recenterToken += 1
         } label: {
             Label("回到当前位置", systemImage: "location.fill")
@@ -396,62 +510,58 @@ struct VolunteerHomeView: View {
         .accessibilityHint("将地图中心移动到当前定位，不提供路线导航")
     }
 
-    private func nearbyDemandPanel(maxHeight: CGFloat) -> some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
-                nearbyOrdersHeader
-
-                if viewModel.isLoading {
-                    ProgressView("正在加载订单...")
-                        .accessibilityLabel("正在加载订单")
-                } else if viewModel.rows.isEmpty {
-                    EmptyStateView(
-                        title: "暂无可用订单",
-                        message: locationService.isAuthorized ? "请稍后刷新。" : "开启定位后可查看距离并接单。"
-                    )
-                } else {
-                    VStack(spacing: 12) {
-                        ForEach(Array(viewModel.rows.prefix(3))) { row in
-                            NavigationLink {
-                                VolunteerOrderDetailView(orderId: row.order.orderId)
-                            } label: {
-                                VolunteerAvailableOrderCard(row: row, locationAuthorized: locationService.isAuthorized)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(row.accessibilityLabel(locationAuthorized: locationService.isAuthorized))
-                            .accessibilityHint("点击查看订单详情")
-                        }
+    private func nearbyDemandPanel(height: CGFloat, isCompact: Bool, proxy: GeometryProxy) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            demandPanelGrabber
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        demandPanelDetent = demandPanelDetent.next()
                     }
                 }
+                .gesture(demandPanelDragGesture(proxy: proxy))
 
-                if let errorMessage = viewModel.errorMessage {
-                    Text(errorMessage)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.destructive)
-                        .accessibilityLabel(errorMessage)
+            nearbyOrdersHeader(showsSubtitle: !isCompact)
+                .padding(.horizontal, 20)
+                .padding(.bottom, isCompact ? 12 : 10)
+                .contentShape(Rectangle())
+                .gesture(demandPanelDragGesture(proxy: proxy))
+
+            if !isCompact {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        nearbyDemandContent
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 18)
                 }
-
-                #if DEBUG
-                DebugTestingPanel()
-                    .environmentObject(appState)
-                #endif
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 24)
-            .padding(.bottom, 18)
         }
         .frame(maxWidth: .infinity)
-        .frame(maxHeight: maxHeight)
+        .frame(height: height)
         .background(AppColors.background)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: -8)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: demandPanelDetent)
+        .accessibilityElement(children: .contain)
     }
 
-    private var nearbyOrdersHeader: some View {
+    private var demandPanelGrabber: some View {
+        RoundedRectangle(cornerRadius: 999)
+            .fill(AppColors.textSecondary.opacity(0.28))
+            .frame(width: 46, height: 5)
+            .padding(.top, 10)
+            .padding(.bottom, 12)
+            .accessibilityLabel("拖动附近需求面板")
+            .accessibilityHint("上滑展开，下滑收起")
+    }
+
+    private func nearbyOrdersHeader(showsSubtitle: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("附近需求 (\(viewModel.rows.count))")
-                    .font(.system(size: 30, weight: .bold))
+                    .font(.system(size: showsSubtitle ? 30 : 24, weight: .bold))
                     .foregroundColor(AppColors.textPrimary)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
@@ -475,11 +585,105 @@ struct VolunteerHomeView: View {
                 .accessibilityHint("重新加载附近可接订单")
             }
 
-            Text(locationService.isAuthorized ? "地图标点代表附近真实可接机会。" : "定位未开启，订单仍可浏览，但距离隐藏且接单会被禁用。")
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if showsSubtitle {
+                Text(locationService.isAuthorized ? "地图标点代表附近真实可接机会。" : "定位未开启，订单仍可浏览，但距离隐藏且接单会被禁用。")
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    @ViewBuilder
+    private var nearbyDemandContent: some View {
+        if viewModel.isLoading {
+            ProgressView("正在加载订单...")
+                .accessibilityLabel("正在加载订单")
+        } else if viewModel.rows.isEmpty {
+            EmptyStateView(
+                title: "暂无可用订单",
+                message: locationService.isAuthorized ? "请稍后刷新。" : "开启定位后可查看距离并接单。"
+            )
+        } else {
+            VStack(spacing: 12) {
+                ForEach(Array(viewModel.rows.prefix(3))) { row in
+                    NavigationLink {
+                        VolunteerOrderDetailView(orderId: row.order.orderId)
+                    } label: {
+                        VolunteerAvailableOrderCard(row: row, locationAuthorized: locationService.isAuthorized)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(row.accessibilityLabel(locationAuthorized: locationService.isAuthorized))
+                    .accessibilityHint("点击查看订单详情")
+                }
+            }
+        }
+
+        if let errorMessage = viewModel.errorMessage {
+            Text(errorMessage)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.destructive)
+                .accessibilityLabel(errorMessage)
+        }
+
+        #if DEBUG
+        DebugTestingPanel()
+            .environmentObject(appState)
+        #endif
+    }
+
+    private func currentOrderDestination(_ order: OrderDetailResponse) -> some View {
+        Group {
+            if order.status == .pendingAccept {
+                VolunteerOrderDetailView(orderId: order.orderId)
+            } else {
+                VolunteerInServiceView(orderId: order.orderId, initialOrder: order)
+            }
+        }
+    }
+
+    private func demandPanelDragGesture(proxy: GeometryProxy) -> some Gesture {
+        DragGesture(minimumDistance: 10)
+            .onChanged { value in
+                demandPanelDragTranslation = value.translation.height
+            }
+            .onEnded { value in
+                let resolvedTopBottom = resolvedTopContentBottom(in: proxy)
+                let baseHeight = demandPanelDetent.height(
+                    viewportHeight: proxy.size.height,
+                    topContentBottom: resolvedTopBottom
+                )
+                let proposedHeight = VolunteerDemandPanelDetent.clampedHeight(
+                    baseHeight - value.translation.height,
+                    viewportHeight: proxy.size.height,
+                    topContentBottom: resolvedTopBottom
+                )
+                let target = VolunteerDemandPanelDetent.nearest(
+                    to: proposedHeight,
+                    viewportHeight: proxy.size.height,
+                    topContentBottom: resolvedTopBottom
+                )
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    demandPanelDetent = target
+                    demandPanelDragTranslation = 0
+                }
+            }
+    }
+
+    private func demandPanelHeight(in proxy: GeometryProxy, topContentBottom: CGFloat) -> CGFloat {
+        let baseHeight = demandPanelDetent.height(
+            viewportHeight: proxy.size.height,
+            topContentBottom: topContentBottom
+        )
+        return VolunteerDemandPanelDetent.clampedHeight(
+            baseHeight - demandPanelDragTranslation,
+            viewportHeight: proxy.size.height,
+            topContentBottom: topContentBottom
+        )
+    }
+
+    private func resolvedTopContentBottom(in proxy: GeometryProxy) -> CGFloat {
+        max(topContentBottom, proxy.safeAreaInsets.top + 96)
     }
 
     private var locationSummaryText: String {
@@ -494,9 +698,6 @@ struct VolunteerHomeView: View {
             currentLocation: locationService.effectiveLocation,
             locationAuthorized: locationService.isAuthorized
         )
-        if mapCenter == nil {
-            mapCenter = locationService.effectiveLocation
-        }
     }
 
     private var bottomEntries: some View {
@@ -549,20 +750,23 @@ private struct VolunteerHomeStatusOverlay: View {
     let acceptBlockMessage: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(nickname)
-                        .font(.title3.bold())
-                        .foregroundColor(AppColors.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .accessibilityAddTraits(.isHeader)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(nickname)
+                    .font(.headline.weight(.bold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                    .accessibilityAddTraits(.isHeader)
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 8) {
+                    if isUpdatingAvailability {
+                        ProgressView()
+                            .accessibilityLabel("正在更新可服务状态")
+                    }
+
                     Toggle(
                         isOn: $isAvailable
                     ) {
@@ -572,11 +776,6 @@ private struct VolunteerHomeStatusOverlay: View {
                     .disabled(!isApproved || isUpdatingAvailability)
                     .accessibilityLabel("可服务开关，\(statusText)")
                     .accessibilityHint("关闭后其他用户看不到你的接单状态，但不影响当前订单")
-
-                    if isUpdatingAvailability {
-                        ProgressView()
-                            .accessibilityLabel("正在更新可服务状态")
-                    }
                 }
             }
 
@@ -601,6 +800,8 @@ private struct VolunteerHomeStatusOverlay: View {
             Text(locationText)
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(locationText)
 
@@ -612,11 +813,69 @@ private struct VolunteerHomeStatusOverlay: View {
                     .accessibilityLabel(acceptBlockMessage)
             }
         }
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: Color.black.opacity(0.16), radius: 16, x: 0, y: 6)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 5)
+    }
+}
+
+private struct VolunteerCurrentOrderCard: View {
+    let order: OrderDetailResponse
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: order.status.statusSymbolName)
+                .font(.title3)
+                .foregroundColor(order.status.statusColor)
+                .frame(width: 32, height: 32)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text("当前订单")
+                        .font(AppFonts.caption().weight(.semibold))
+                        .foregroundColor(AppColors.textSecondary)
+                    Text(order.status.displayName)
+                        .font(AppFonts.caption().weight(.semibold))
+                        .foregroundColor(order.status.statusColor)
+                }
+
+                Text(order.blindName ?? "盲人跑者")
+                    .font(AppFonts.body().weight(.bold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+
+                Text(order.startAddress ?? "")
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text((order.plannedStart ?? "").displayDateTime)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
+
+                Label("进入", systemImage: "chevron.right")
+                    .labelStyle(.titleAndIcon)
+                    .font(AppFonts.caption().weight(.semibold))
+                    .foregroundColor(AppColors.primary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(AppColors.background.opacity(0.94))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: Color.black.opacity(0.12), radius: 14, x: 0, y: 5)
     }
 }
 

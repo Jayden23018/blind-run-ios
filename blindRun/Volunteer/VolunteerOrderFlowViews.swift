@@ -82,6 +82,15 @@ extension VolunteerOrderActionGuard {
 }
 
 extension RunOrderStatus {
+    var isActiveForVolunteer: Bool {
+        switch self {
+        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+            return true
+        case .pendingMatch, .completed, .cancelled, .rematching, .noVolunteer:
+            return false
+        }
+    }
+
     var volunteerDescription: String {
         switch self {
         case .pendingMatch:
