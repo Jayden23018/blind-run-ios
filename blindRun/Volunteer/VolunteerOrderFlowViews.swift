@@ -82,15 +82,6 @@ extension VolunteerOrderActionGuard {
 }
 
 extension RunOrderStatus {
-    var isActiveForVolunteer: Bool {
-        switch self {
-        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
-            return true
-        case .pendingMatch, .completed, .cancelled, .rematching, .noVolunteer:
-            return false
-        }
-    }
-
     var volunteerDescription: String {
         switch self {
         case .pendingMatch:
@@ -870,16 +861,7 @@ struct VolunteerServiceRecordsView: View {
                 ProgressView("正在加载服务记录...")
                     .accessibilityLabel("正在加载服务记录")
             } else if viewModel.records.isEmpty {
-                EmptyStateView(title: "暂无服务记录", message: "完成服务后记录将显示在这里。")
-                NavigationLink {
-                    VolunteerOrderListView()
-                } label: {
-                    Text("去接单")
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 64)
-                }
-                .accessibilityLabel("去接单")
-                .accessibilityHint("点击查看可接订单")
+                EmptyStateView(title: "暂无服务记录", message: "完成服务后记录将显示在这里。开启可服务状态后，系统会自动派单。")
             } else {
                 ForEach(viewModel.records) { record in
                     NavigationLink {

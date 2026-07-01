@@ -124,6 +124,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/volunteer/profile" && method == .put {
             return try handleUpdateVolunteerProfile(body: body)
         }
+        if path == "/api/volunteer/dispatch-status" && method == .put {
+            return try handleUpdateDispatchStatus(body: body)
+        }
+        if path == "/api/volunteer/dispatch-summary" && method == .get {
+            return handleGetVolunteerDispatchSummary()
+        }
 
         // Emergency contacts
         if path.hasPrefix("/api/users/") && path.hasSuffix("/emergency-contacts") && method == .get {
@@ -291,6 +297,99 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             paceRange: request.paceRange ?? volunteerProfile?.paceRange
         )
         return volunteerProfile!
+    }
+
+    private func handleUpdateDispatchStatus(body: (any Encodable & Sendable)?) throws -> EmptyResponse {
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(DispatchStatusRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
+        }
+        let existing = handleGetVolunteerProfile()
+        volunteerProfile = VolunteerProfileResponse(
+            name: existing.name,
+            verificationStatus: existing.verificationStatus,
+            isAvailable: request.wantsDispatch,
+            wantsDispatch: request.wantsDispatch,
+            availableTimeSlots: existing.availableTimeSlots,
+            acceptsGuideDog: existing.acceptsGuideDog,
+            paceRange: existing.paceRange
+        )
+        return EmptyResponse()
+    }
+
+    private func handleGetVolunteerDispatchSummary() -> VolunteerDispatchSummaryResponse {
+        let profile = handleGetVolunteerProfile()
+        let wantsDispatch = profile.isAvailable ?? profile.wantsDispatch ?? false
+        let activeOrders = orders
+            .filter { $0.status.isActiveForVolunteer }
+            .sorted { ($0.acceptedAt ?? $0.createdAt ?? "") > ($1.acceptedAt ?? $1.createdAt ?? "") }
+            .map {
+                VolunteerDispatchSummaryActiveOrder(
+                    orderId: $0.orderId,
+                    status: $0.status,
+                    plannedStartTime: $0.plannedStart,
+                    plannedEndTime: $0.plannedEnd,
+                    startAddress: $0.startAddress,
+                    blindName: $0.blindName,
+                    blindPhoneMasked: $0.blindPhone?.maskedPhone,
+                    acceptedAt: $0.acceptedAt
+                )
+            }
+        let recentOrders = orders
+            .filter { $0.status == .completed || $0.status == .cancelled || $0.status.isActiveForVolunteer }
+            .sorted { ($0.createdAt ?? $0.plannedStart ?? "") > ($1.createdAt ?? $1.plannedStart ?? "") }
+            .prefix(5)
+            .map {
+                VolunteerDispatchSummaryRecentOrder(
+                    orderId: $0.orderId,
+                    status: $0.status,
+                    plannedStartTime: $0.plannedStart,
+                    completedAt: $0.status == .completed ? $0.plannedEnd : nil,
+                    startAddress: $0.startAddress,
+                    blindName: $0.blindName,
+                    rating: $0.status == .completed ? 5 : nil,
+                    pointsDelta: $0.status == .completed ? 100 : nil
+                )
+            }
+        let totalCompleted = orders.filter { $0.status == .completed }.count
+        let totalAccepted = orders.filter { $0.status != .pendingMatch }.count
+        let reasons: [VolunteerDispatchNotAvailableReason] = {
+            var values: [VolunteerDispatchNotAvailableReason] = []
+            if !wantsDispatch {
+                values.append(.dispatchDisabled)
+            }
+            if profile.verificationStatus?.lowercased() != "approved" {
+                values.append(.registrationIncomplete)
+            }
+            if !activeOrders.isEmpty {
+                values.append(.activeOrder)
+            }
+            return values
+        }()
+        return VolunteerDispatchSummaryResponse(
+            canDispatch: reasons.isEmpty,
+            notAvailableReasons: reasons,
+            wantsDispatch: wantsDispatch,
+            isOnline: wantsDispatch,
+            lastLat: 39.9042,
+            lastLng: 116.4074,
+            lastLocationAt: ISO8601DateFormatter().string(from: Date()),
+            coverageRadiusKm: 10,
+            isWithinServiceTime: true,
+            availableTimeSlots: profile.availableTimeSlots,
+            avgRating: totalCompleted > 0 ? 5.0 : nil,
+            totalRatings: totalCompleted,
+            totalDispatched: max(totalAccepted + 2, 2),
+            totalAccepted: totalAccepted,
+            totalDeclined: 1,
+            totalTimeout: 1,
+            totalCompleted: totalCompleted,
+            totalCancelled: orders.filter { $0.status == .cancelled }.count,
+            acceptanceRate: 0.7,
+            pointsBalance: nil,
+            activeOrders: activeOrders,
+            recentOrders: Array(recentOrders)
+        )
     }
 
     // MARK: - Emergency Contact Handlers
@@ -577,6 +676,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         )
 
         let uiTestVolunteerAvailable = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] == "1"
+        let uiTestActiveVolunteerOrder = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] == "1"
         volunteerProfile = VolunteerProfileResponse(
             name: "测试志愿者",
             verificationStatus: "approved",
@@ -597,6 +697,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let futureDate = Calendar.current.date(byAdding: .hour, value: 2, to: Date())!
         let futureEnd = Calendar.current.date(byAdding: .hour, value: 3, to: Date())!
         let formatter = ISO8601DateFormatter()
+        let activeAcceptedAt = formatter.string(from: Date().addingTimeInterval(-600))
 
         if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] == "1" {
             orders = []
@@ -607,7 +708,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         orders = [
             OrderDetailResponse(
                 orderId: 1,
-                status: .pendingMatch,
+                status: uiTestActiveVolunteerOrder ? .pendingAccept : .pendingMatch,
                 startAddress: "朝阳公园南门",
                 startLatitude: 39.9342,
                 startLongitude: 116.4740,
@@ -615,8 +716,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 plannedEnd: formatter.string(from: futureEnd),
                 blindName: "李明",
                 blindPhone: "13800001001",
-                volunteerPhone: nil,
-                acceptedAt: nil,
+                volunteerPhone: uiTestActiveVolunteerOrder ? "13800000002" : nil,
+                acceptedAt: uiTestActiveVolunteerOrder ? activeAcceptedAt : nil,
                 createdAt: formatter.string(from: Date()),
                 expectedDurationMinutes: 60,
                 pacePreference: .moderate,
@@ -672,5 +773,12 @@ private struct AnyEncodable: Encodable {
 
     func encode(to encoder: Encoder) throws {
         try _encode(encoder)
+    }
+}
+
+private extension String {
+    var maskedPhone: String {
+        guard count >= 7 else { return self }
+        return "\(prefix(3))****\(suffix(4))"
     }
 }

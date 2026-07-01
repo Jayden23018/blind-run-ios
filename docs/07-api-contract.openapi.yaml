@@ -101,6 +101,28 @@
         }
       }
     },
+    "/api/volunteer/dispatch-summary": {
+      "get": {
+        "tags": [
+          "volunteer-controller"
+        ],
+        "operationId": "getDispatchSummary",
+        "summary": "获取志愿者系统派单工作台摘要",
+        "description": "用于志愿者首页展示是否可接收系统派单、不可接单原因、覆盖范围、当前订单、近期订单和统计。系统派单排序、扩圈、最后一轮多人派单和全城兜底通知均由后端控制。",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/VolunteerDispatchSummaryEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/users/{userId}/emergency-contacts/{contactId}": {
       "put": {
         "tags": [
@@ -2261,6 +2283,201 @@
         "required": [
           "wantsDispatch"
         ]
+      },
+      "VolunteerDispatchSummaryEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/VolunteerDispatchSummaryResponse"
+          }
+        }
+      },
+      "VolunteerDispatchSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "canDispatch": {
+            "type": "boolean"
+          },
+          "notAvailableReasons": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "DISPATCH_DISABLED",
+                "REGISTRATION_INCOMPLETE",
+                "OFFLINE",
+                "OUTSIDE_SERVICE_TIME",
+                "NO_LOCATION",
+                "ACTIVE_ORDER",
+                "NOT_APPROVED"
+              ]
+            }
+          },
+          "wantsDispatch": {
+            "type": "boolean"
+          },
+          "isOnline": {
+            "type": "boolean"
+          },
+          "lastLat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lastLng": {
+            "type": "number",
+            "format": "double"
+          },
+          "lastLocationAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "coverageRadiusKm": {
+            "type": "number",
+            "format": "double"
+          },
+          "isWithinServiceTime": {
+            "type": "boolean"
+          },
+          "availableTimeSlots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolunteerAvailableTimeSlot"
+            }
+          },
+          "avgRating": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalRatings": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalDispatched": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalAccepted": {
+            "type": "integer",
+            "format": "int32",
+            "description": "接受系统派单次数，不等同于完成次数"
+          },
+          "totalDeclined": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalTimeout": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalCompleted": {
+            "type": "integer",
+            "format": "int32",
+            "description": "完成服务次数；积分系统未接入前 iOS 可用 totalCompleted * 100 显示临时积分"
+          },
+          "totalCancelled": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "acceptanceRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "pointsBalance": {
+            "type": "integer",
+            "format": "int32",
+            "description": "真实积分余额；积分系统未接入时可为空，由 iOS 临时计算"
+          },
+          "activeOrders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolunteerDispatchSummaryActiveOrder"
+            }
+          },
+          "recentOrders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolunteerDispatchSummaryRecentOrder"
+            }
+          }
+        }
+      },
+      "VolunteerDispatchSummaryActiveOrder": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "plannedStartTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plannedEndTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startAddress": {
+            "type": "string"
+          },
+          "blindName": {
+            "type": "string"
+          },
+          "blindPhoneMasked": {
+            "type": "string"
+          },
+          "acceptedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "VolunteerDispatchSummaryRecentOrder": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "plannedStartTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startAddress": {
+            "type": "string"
+          },
+          "blindName": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pointsDelta": {
+            "type": "integer",
+            "format": "int32",
+            "description": "积分系统未接入时可为空，由 iOS 对 COMPLETED 临时显示 +100"
+          }
+        }
       },
       "EmergencyContactRequest": {
         "type": "object",

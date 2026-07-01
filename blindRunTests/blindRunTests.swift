@@ -351,6 +351,34 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(detail.status, .driverArrived)
     }
 
+    func testMockVolunteerDispatchSummaryReflectsDispatchStatusAndActiveOrder() async throws {
+        let client = MockAPIClient()
+
+        let initialSummary: VolunteerDispatchSummaryResponse = try await client.get("/api/volunteer/dispatch-summary")
+        XCTAssertFalse(initialSummary.canDispatch ?? true)
+        XCTAssertEqual(initialSummary.notAvailableReasons, [.dispatchDisabled])
+        XCTAssertEqual(initialSummary.completedCount, 1)
+        XCTAssertEqual(initialSummary.resolvedPointsBalance, 100)
+
+        let _: EmptyResponse = try await client.put(
+            "/api/volunteer/dispatch-status",
+            body: DispatchStatusRequest(wantsDispatch: true)
+        )
+        let enabledSummary: VolunteerDispatchSummaryResponse = try await client.get("/api/volunteer/dispatch-summary")
+        XCTAssertTrue(enabledSummary.canDispatch ?? false)
+        XCTAssertTrue(enabledSummary.activeOrders?.isEmpty ?? false)
+
+        let _: EmptyResponse = try await client.post(
+            "/api/orders/1/respond",
+            body: OrderRespondRequest(action: .accept)
+        )
+        let activeSummary: VolunteerDispatchSummaryResponse = try await client.get("/api/volunteer/dispatch-summary")
+        XCTAssertFalse(activeSummary.canDispatch ?? true)
+        XCTAssertEqual(activeSummary.notAvailableReasons, [.activeOrder])
+        XCTAssertEqual(activeSummary.activeOrders?.first?.orderId, 1)
+        XCTAssertEqual(activeSummary.recentOrders?.first?.startAddress, "朝阳公园南门")
+    }
+
     func testVolunteerRegistrationUploadPathsUseCloudContract() async throws {
         let client = MockAPIClient()
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
@@ -720,7 +748,7 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .pendingMatch),
-            "预约已提交，正在等待志愿者接单。"
+            "订单提交成功，系统正在为你派单。"
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .driverArrived),
@@ -901,8 +929,11 @@ final class blindRunTests: XCTestCase {
     private func makeDispatchOrder(orderId: Int64) -> WSNewOrder {
         WSNewOrder(
             type: "NEW_ORDER",
+            timestamp: "2026-06-25T19:30:00",
             orderId: orderId,
             startAddress: "朝阳公园南门",
+            startLatitude: 39.9342,
+            startLongitude: 116.4740,
             distanceKm: 0.1,
             plannedStart: "2026-06-25T20:00:00",
             plannedEnd: "2026-06-25T21:00:00",

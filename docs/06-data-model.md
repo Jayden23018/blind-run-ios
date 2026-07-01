@@ -35,7 +35,7 @@
 
 | Value | Description |
 | --- | --- |
-| `PENDING_MATCH` | 等待志愿者接单 |
+| `PENDING_MATCH` | 系统正在派单 |
 | `PENDING_ACCEPT` | 志愿者已接单，待出发 |
 | `DRIVER_EN_ROUTE` | 志愿者已出发 |
 | `DRIVER_ARRIVED` | 志愿者已到达 |
@@ -141,15 +141,15 @@ Rules:
 | `phoneNumber` | String | Yes | 默认来自 User.phoneNumber |
 | `verificationStatus` | VerificationStatus | Yes | 志愿者认证状态 |
 | `adminReviewStatus` | AdminReviewStatus | Yes | 管理员审核状态 |
-| `isAvailable` | Boolean | Yes | “我现在可服务”开关 |
+| `isAvailable` / `wantsDispatch` | Boolean | Yes | “我现在可服务 / 上线接单”开关，控制是否接收系统派单 |
 | `pointsBalance` | Integer | Yes | 当前积分余额 |
 | `createdAt` | Instant | Yes | 创建时间 |
 | `updatedAt` | Instant | Yes | 更新时间 |
 
 Rules:
 
-- 志愿者接单前必须满足：昵称存在、手机号存在、`verificationStatus = approved`、`adminReviewStatus = approved`、`isAvailable = true`。
-- 关闭可服务开关后仍可看订单，但不能接新单。
+- 志愿者接收系统派单前必须满足：昵称存在、手机号存在、`verificationStatus = approved`、`adminReviewStatus = approved`、`wantsDispatch/isAvailable = true`、WebSocket 在线、已上报最近位置，且符合后端可服务时间和距离规则。
+- 关闭可服务开关后不再接收新的系统派单。
 - 已接单时关闭开关不影响当前订单。
 
 ### LocationPoint
@@ -196,9 +196,9 @@ Rules:
 
 Rules:
 
-- 只有 `PENDING_MATCH` 订单可被接单；并发接单时第一个成功更新为 `PENDING_ACCEPT` 的志愿者获得订单。
+- 只有 `PENDING_MATCH` 订单可被后端系统派单并由被派单志愿者响应；并发/最后一轮多人派单时第一个成功更新为 `PENDING_ACCEPT` 的志愿者获得订单。
 - 预约开始前 30 分钟仍无人接单的订单自动进入 `NO_VOLUNTEER`。
-- 当前 iOS 端按志愿者当前位置与订单出发点计算距离并排序。
+- 志愿者排序、扩圈、最后一轮多人派单、全城兜底通知由后端控制；iOS 端不实现匹配算法。
 - 接单前隐藏联系方式与紧急联系人；接单后显示盲人完整联系电话。
 
 ### Cancellation

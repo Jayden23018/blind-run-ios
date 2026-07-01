@@ -45,22 +45,11 @@ final class blindRunUITests: XCTestCase {
             accessToken: "mock_jwt_token_for_testing",
             activeRole: "volunteer",
             preseedVolunteerProfile: true,
-            preseedVolunteerAvailable: true
+            preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true
         )
 
-        let firstOrder = app.staticTexts["李明"].firstMatch
-        XCTAssertTrue(firstOrder.waitForExistence(timeout: 15), "Volunteer home should show available mock orders")
-        firstOrder.tap()
-
-        XCTAssertFalse(app.staticTexts["13800001001"].exists, "Phone must be hidden before accepting")
-
-        let acceptButton = app.buttons["接单"].firstMatch
-        XCTAssertTrue(waitForElementToBeEnabled(acceptButton, timeout: 8), "Accept should become enabled after availability is on")
-        acceptButton.tap()
-        app.buttons["确认接单"].tap()
-
-        let phoneText = app.staticTexts["13800001001"].firstMatch
-        XCTAssertTrue(phoneText.waitForExistence(timeout: 8), "Phone should be shown after accepting")
+        openCurrentVolunteerOrder(app)
 
         let serviceButton = app.buttons["进入服务页面"].firstMatch
         XCTAssertTrue(serviceButton.waitForExistence(timeout: 5), "Accepted order should allow entering service page")
@@ -93,7 +82,8 @@ final class blindRunUITests: XCTestCase {
             accessToken: "mock_jwt_token_for_testing",
             activeRole: "volunteer",
             preseedVolunteerProfile: true,
-            preseedVolunteerAvailable: true
+            preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true
         )
 
         openAcceptedVolunteerService(app)
@@ -130,9 +120,10 @@ final class blindRunUITests: XCTestCase {
         let availabilitySwitch = app.switches.firstMatch
         XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should be visible on the map overlay")
         XCTAssertTrue(app.buttons["回到当前位置"].firstMatch.waitForExistence(timeout: 5), "Home map should include recenter control")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "附近需求")).firstMatch.waitForExistence(timeout: 5), "Demand panel should show nearby demand count")
-        XCTAssertTrue(app.buttons["查看全部订单"].firstMatch.waitForExistence(timeout: 5), "Demand panel should expose all-orders entry")
-        XCTAssertTrue(app.staticTexts["李明"].firstMatch.waitForExistence(timeout: 5), "Nearby demand list should show mock available orders")
+        XCTAssertTrue(app.staticTexts["系统派单"].firstMatch.waitForExistence(timeout: 5), "Volunteer home should show the system dispatch workbench")
+        XCTAssertTrue(app.staticTexts["近期服务"].firstMatch.waitForExistence(timeout: 5), "Dispatch workbench should show recent service history")
+        XCTAssertTrue(app.staticTexts["积分"].firstMatch.waitForExistence(timeout: 5), "Dispatch summary should show points")
+        XCTAssertFalse(app.buttons["查看全部订单"].firstMatch.exists, "Primary volunteer home must not expose the public order list")
 
         attachScreenshot(named: "volunteer-home-map-uber-style", app: app)
     }
@@ -206,6 +197,7 @@ final class blindRunUITests: XCTestCase {
         preseedBlindProfile: Bool = false,
         preseedVolunteerProfile: Bool = false,
         preseedVolunteerAvailable: Bool = false,
+        preseedVolunteerActiveOrder: Bool = false,
         emptyMockOrders: Bool = false,
         disableMap: Bool = true,
         disableWebSocket: Bool = true
@@ -235,6 +227,9 @@ final class blindRunUITests: XCTestCase {
         if preseedVolunteerAvailable {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] = "1"
         }
+        if preseedVolunteerActiveOrder {
+            app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"
+        }
         if emptyMockOrders {
             app.launchEnvironment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] = "1"
         }
@@ -244,14 +239,7 @@ final class blindRunUITests: XCTestCase {
     }
 
     private func openAcceptedVolunteerService(_ app: XCUIApplication) {
-        let firstOrder = app.staticTexts["李明"].firstMatch
-        XCTAssertTrue(firstOrder.waitForExistence(timeout: 15), "Volunteer home should show available mock orders")
-        firstOrder.tap()
-
-        let acceptButton = app.buttons["接单"].firstMatch
-        XCTAssertTrue(waitForElementToBeEnabled(acceptButton, timeout: 8), "Accept should become enabled after availability is on")
-        acceptButton.tap()
-        app.buttons["确认接单"].tap()
+        openCurrentVolunteerOrder(app)
 
         let serviceButton = app.buttons["进入服务页面"].firstMatch
         XCTAssertTrue(serviceButton.waitForExistence(timeout: 8), "Accepted order should allow entering service page")
@@ -260,6 +248,18 @@ final class blindRunUITests: XCTestCase {
         let enRouteButton = app.buttons["我已出发"].firstMatch
         XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5), "Accepted service page should show en-route action")
         enRouteButton.tap()
+    }
+
+    private func openCurrentVolunteerOrder(_ app: XCUIApplication) {
+        let currentOrderLabel = app.staticTexts["当前订单"].firstMatch
+        XCTAssertTrue(currentOrderLabel.waitForExistence(timeout: 15), "Volunteer home should show the assigned current order")
+
+        let firstOrder = app.staticTexts["李明"].firstMatch
+        XCTAssertTrue(firstOrder.waitForExistence(timeout: 5), "Current order card should show the assigned blind runner")
+        tapWhenHittableOrByCoordinate(firstOrder, app: app)
+
+        let phoneText = app.staticTexts["13800001001"].firstMatch
+        XCTAssertTrue(phoneText.waitForExistence(timeout: 8), "Phone should be shown for an accepted current order")
     }
 
     private func attachScreenshot(named name: String, app: XCUIApplication) {
@@ -350,8 +350,8 @@ final class blindRunUITests: XCTestCase {
         submitButton.tap()
         dismissSystemAlertsIfPresent(app: app)
 
-        let matchingStatus = app.staticTexts["匹配中"].firstMatch
-        XCTAssertTrue(matchingStatus.waitForExistence(timeout: 15), "Created booking should enter matching status")
+        let matchingStatus = app.staticTexts["系统派单中"].firstMatch
+        XCTAssertTrue(matchingStatus.waitForExistence(timeout: 15), "Created booking should enter system dispatch status")
     }
 
     private func cancelCurrentOrder(_ app: XCUIApplication) {

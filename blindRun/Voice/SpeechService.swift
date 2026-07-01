@@ -77,7 +77,7 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     static func statusAnnouncement(for status: RunOrderStatus) -> String {
         switch status {
         case .pendingMatch:
-            return "预约已提交，正在等待志愿者接单。"
+            return "订单提交成功，系统正在为你派单。"
         case .pendingAccept:
             return "志愿者已接单，等待确认中。"
         case .driverEnRoute:

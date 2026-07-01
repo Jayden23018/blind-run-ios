@@ -155,15 +155,23 @@ curl -X PUT http://47.114.113.171/api/volunteer/profile \
 
 # 2. 志愿者认证：身份证、人脸核验与管理员审核按 OpenAPI 契约接入
 
-# 3. 连接 WebSocket
+# 3. 开启系统派单
+curl -X PUT http://47.114.113.171/api/volunteer/dispatch-status \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "wantsDispatch": true
+  }'
+
+# 4. 连接 WebSocket
 # ws://47.114.113.171/ws/volunteer?token=<token>
 
-# 4. 上报位置
+# 5. 上报位置
 # 通过 WebSocket 发送: {"type":"LOCATION_UPDATE","lat":39.9050,"lng":116.4080}
-# 后端只会向距离订单起点 10km 内且 isAvailable=true 的在线志愿者派单。
-# 未收到 NEW_ORDER 或 /api/orders/available 未返回该订单前，不要调用 /respond。
+# 后端只会向满足派单条件的在线志愿者发送 NEW_ORDER；iOS 端不主动从公开订单池选单。
+# 未收到 NEW_ORDER 前，不要调用 /respond。
 
-# 5. 接单
+# 6. 接单
 curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
@@ -278,7 +286,7 @@ scripts/admin-review-volunteer.mjs
 
 后端理论上已具备上线服务。以下项目必须用 `scripts/cloud-e2e.mjs`、Demo Cloud XCUITest、`111` 和 `iPad Pro (2)` 重新验收；若仍失败，不能由前端伪造状态或绕过业务校验修复：
 
-1. `GET/PUT /api/volunteer/profile` 必须持久化并返回 `isAvailable`；开启后 `/api/orders/available` 应返回可接订单。
+1. `GET /api/volunteer/dispatch-summary` 必须返回 `canDispatch`、不可派单原因、覆盖范围、统计、当前订单和近期订单；`PUT /api/volunteer/dispatch-status` 必须持久化 `wantsDispatch`。
 2. 接单失败不得返回 HTTP 500，应返回 `VOLUNTEER_NOT_AVAILABLE`、`ORDER_ALREADY_ACCEPTED` 等统一业务错误。
 3. 创建距当前时间不足 30 分钟的预约必须拒绝，并返回 `APPOINTMENT_TOO_SOON`。
 4. 验证码错误应返回统一 `INVALID_VERIFICATION_CODE` 错误结构；前端暂时兼容当前 `{ "error": ... }`。

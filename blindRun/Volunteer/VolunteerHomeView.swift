@@ -9,6 +9,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var isAvailable = false
     @Published var nickname = ""
     @Published var rows: [VolunteerAvailableOrderRow] = []
+    @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
     @Published var errorMessage: String?
     @Published var isLoading = false
     @Published var isUpdatingAvailability = false
@@ -28,11 +29,14 @@ final class VolunteerHomeViewModel: ObservableObject {
     private var countdownTask: Task<Void, Never>?
 
     var statusText: String {
-        isAvailable ? "可接单" : "已关闭接单"
+        dispatchSummary?.dispatchStatusText ?? (isAvailable ? "等待系统派单" : "已关闭接单")
     }
 
     var statusColor: Color {
-        isAvailable ? AppColors.success : AppColors.textSecondary
+        if dispatchSummary?.canDispatch == true {
+            return AppColors.success
+        }
+        return isAvailable ? AppColors.warning : AppColors.textSecondary
     }
 
     var acceptBlockMessage: String? {
@@ -163,7 +167,7 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     func load(currentLocation: CLLocationCoordinate2D?, locationAuthorized: Bool) async {
         guard let appState else { return }
-        isLoading = rows.isEmpty
+        isLoading = dispatchSummary == nil
         errorMessage = nil
 
         do {
@@ -178,16 +182,9 @@ final class VolunteerHomeViewModel: ObservableObject {
                 locationAuthorized: locationAuthorized
             )
 
-            // Load available orders
-            let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/available")
-            rows = VolunteerAvailableOrderRow.sortedRows(
-                orders: paged.content,
-                from: currentLocation,
-                locationAuthorized: locationAuthorized
-            )
-
-            let myOrders: PagedOrderResponse = try await appState.apiClient.get("/api/orders/mine")
-            activeOrder = Self.activeVolunteerOrder(from: myOrders.content)
+            let summary: VolunteerDispatchSummaryResponse = try await appState.apiClient.get("/api/volunteer/dispatch-summary")
+            apply(summary: summary)
+            rows = []
             isLoading = false
         } catch let error as APIError {
             isLoading = false
@@ -215,16 +212,26 @@ final class VolunteerHomeViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let request = VolunteerProfileUpdateRequest(
-                name: appState.volunteerProfile?.name,
-                isAvailable: value
-            )
-            let profile: VolunteerProfileResponse = try await appState.apiClient.put(
-                "/api/volunteer/profile",
+            let request = DispatchStatusRequest(wantsDispatch: value)
+            let _: EmptyResponse = try await appState.apiClient.put(
+                "/api/volunteer/dispatch-status",
                 body: request
+            )
+            let existingProfile = appState.volunteerProfile
+            let profile = VolunteerProfileResponse(
+                name: existingProfile?.name,
+                verificationStatus: existingProfile?.verificationStatus,
+                isAvailable: value,
+                wantsDispatch: value,
+                availableTimeSlots: existingProfile?.availableTimeSlots,
+                acceptsGuideDog: existingProfile?.acceptsGuideDog,
+                paceRange: existingProfile?.paceRange
             )
             appState.updateVolunteerProfile(profile)
             apply(profile: profile)
+            if let summary: VolunteerDispatchSummaryResponse = try? await appState.apiClient.get("/api/volunteer/dispatch-summary") {
+                apply(summary: summary)
+            }
             isUpdatingAvailability = false
         } catch let error as APIError {
             isAvailable = previousValue
@@ -243,6 +250,16 @@ final class VolunteerHomeViewModel: ObservableObject {
         guard let profile else { return }
         nickname = profile.name ?? ""
         isAvailable = profile.isAvailable ?? false
+    }
+
+    private func apply(summary: VolunteerDispatchSummaryResponse) {
+        dispatchSummary = summary
+        isAvailable = summary.wantsDispatch ?? isAvailable
+        if let active = summary.activeOrders?.first {
+            activeOrder = active.orderDetail
+        } else {
+            activeOrder = nil
+        }
     }
 }
 
@@ -471,15 +488,15 @@ struct VolunteerHomeView: View {
             .frame(height: 260)
             .allowsHitTesting(false)
         }
-        .accessibilityLabel("地图，显示当前位置和附近可接订单点位")
-        .accessibilityHint("地图只用于查看附近需求，不提供路线导航或实时轨迹")
+        .accessibilityLabel("地图，显示当前位置和系统派单覆盖范围")
+        .accessibilityHint("地图用于查看当前位置覆盖范围，不提供路线导航或实时轨迹")
         .accessibilityIdentifier("volunteerHomeMap")
     }
 
     private var homeStatusOverlay: some View {
         VolunteerHomeStatusOverlay(
             nickname: viewModel.nickname.isEmpty ? "志愿者" : viewModel.nickname,
-            orderCount: viewModel.rows.count,
+            detailText: viewModel.dispatchSummary?.coverageText ?? "派单状态待同步",
             statusText: viewModel.statusText,
             statusColor: viewModel.statusColor,
             isUpdatingAvailability: viewModel.isUpdatingAvailability,
@@ -553,26 +570,18 @@ struct VolunteerHomeView: View {
             .frame(width: 46, height: 5)
             .padding(.top, 10)
             .padding(.bottom, 12)
-            .accessibilityLabel("拖动附近需求面板")
+            .accessibilityLabel("拖动派单状态面板")
             .accessibilityHint("上滑展开，下滑收起")
     }
 
     private func nearbyOrdersHeader(showsSubtitle: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("附近需求 (\(viewModel.rows.count))")
+                Text("系统派单")
                     .font(.system(size: showsSubtitle ? 30 : 24, weight: .bold))
                     .foregroundColor(AppColors.textPrimary)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
-                NavigationLink {
-                    VolunteerOrderListView()
-                } label: {
-                    Text("查看全部")
-                        .font(AppFonts.body().weight(.semibold))
-                }
-                .accessibilityLabel("查看全部订单")
-                .accessibilityHint("查看所有可接订单")
 
                 Button {
                     Task { await loadHome() }
@@ -581,12 +590,12 @@ struct VolunteerHomeView: View {
                         .font(.body.weight(.semibold))
                         .frame(width: 36, height: 36)
                 }
-                .accessibilityLabel("刷新附近订单")
-                .accessibilityHint("重新加载附近可接订单")
+                .accessibilityLabel("刷新派单状态")
+                .accessibilityHint("重新加载系统派单工作台")
             }
 
             if showsSubtitle {
-                Text(locationService.isAuthorized ? "地图标点代表附近真实可接机会。" : "定位未开启，订单仍可浏览，但距离隐藏且接单会被禁用。")
+                Text(viewModel.dispatchSummary?.dispatchStatusText ?? (locationService.isAuthorized ? "正在同步派单状态。" : "定位未开启，系统派单不可用。"))
                     .font(AppFonts.caption())
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -597,26 +606,28 @@ struct VolunteerHomeView: View {
     @ViewBuilder
     private var nearbyDemandContent: some View {
         if viewModel.isLoading {
-            ProgressView("正在加载订单...")
-                .accessibilityLabel("正在加载订单")
-        } else if viewModel.rows.isEmpty {
-            EmptyStateView(
-                title: "暂无可用订单",
-                message: locationService.isAuthorized ? "请稍后刷新。" : "开启定位后可查看距离并接单。"
-            )
-        } else {
-            VStack(spacing: 12) {
-                ForEach(Array(viewModel.rows.prefix(3))) { row in
-                    NavigationLink {
-                        VolunteerOrderDetailView(orderId: row.order.orderId)
-                    } label: {
-                        VolunteerAvailableOrderCard(row: row, locationAuthorized: locationService.isAuthorized)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(row.accessibilityLabel(locationAuthorized: locationService.isAuthorized))
-                    .accessibilityHint("点击查看订单详情")
+            ProgressView("正在加载派单状态...")
+                .accessibilityLabel("正在加载派单状态")
+        } else if let summary = viewModel.dispatchSummary {
+            VolunteerDispatchSummaryCard(summary: summary)
+
+            if let activeOrder = viewModel.activeOrder {
+                NavigationLink {
+                    currentOrderDestination(activeOrder)
+                } label: {
+                    VolunteerCurrentOrderCard(order: activeOrder)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
+                .accessibilityHint("点击进入当前订单")
             }
+
+            VolunteerRecentOrdersSection(orders: summary.recentOrders ?? [])
+        } else {
+            EmptyStateView(
+                title: "派单状态待同步",
+                message: locationService.isAuthorized ? "请稍后刷新。" : "开启定位后才能接收系统派单。"
+            )
         }
 
         if let errorMessage = viewModel.errorMessage {
@@ -688,9 +699,9 @@ struct VolunteerHomeView: View {
 
     private var locationSummaryText: String {
         if locationService.isAuthorized {
-            return viewModel.rows.isEmpty ? "当前位置已同步" : "附近有 \(viewModel.rows.count) 个可接订单"
+            return viewModel.dispatchSummary?.coverageText ?? "当前位置已同步"
         }
-        return "需要开启定位权限才能查看距离和接单"
+        return "需要开启定位权限才能接收系统派单"
     }
 
     private func loadHome() async {
@@ -702,14 +713,6 @@ struct VolunteerHomeView: View {
 
     private var bottomEntries: some View {
         HStack(spacing: 10) {
-            NavigationLink {
-                VolunteerOrderListView()
-            } label: {
-                VolunteerEntryItem(icon: "list.bullet.rectangle", title: "订单")
-            }
-            .accessibilityLabel("附近可接订单")
-            .accessibilityHint("查看所有可接订单")
-
             NavigationLink {
                 VolunteerServiceRecordsView()
             } label: {
@@ -740,7 +743,7 @@ struct VolunteerHomeView: View {
 
 private struct VolunteerHomeStatusOverlay: View {
     let nickname: String
-    let orderCount: Int
+    let detailText: String
     let statusText: String
     let statusColor: Color
     let isUpdatingAvailability: Bool
@@ -775,7 +778,7 @@ private struct VolunteerHomeStatusOverlay: View {
                     .labelsHidden()
                     .disabled(!isApproved || isUpdatingAvailability)
                     .accessibilityLabel("可服务开关，\(statusText)")
-                    .accessibilityHint("关闭后其他用户看不到你的接单状态，但不影响当前订单")
+                    .accessibilityHint("关闭后不会收到新的系统派单，但不影响当前订单")
                 }
             }
 
@@ -790,12 +793,12 @@ private struct VolunteerHomeStatusOverlay: View {
                 Text("·")
                     .foregroundColor(AppColors.textSecondary)
                     .accessibilityHidden(true)
-                Text("附近 \(orderCount) 个需求")
+                Text(detailText)
                     .font(AppFonts.body().weight(.semibold))
                     .foregroundColor(AppColors.textPrimary)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("当前状态：\(statusText)，附近有 \(orderCount) 个需求")
+            .accessibilityLabel("当前状态：\(statusText)，\(detailText)")
 
             Text(locationText)
                 .font(AppFonts.caption())
@@ -879,6 +882,161 @@ private struct VolunteerCurrentOrderCard: View {
     }
 }
 
+private struct VolunteerDispatchSummaryCard: View {
+    let summary: VolunteerDispatchSummaryResponse
+
+    private var metrics: [(String, String)] {
+        [
+            ("积分", "\(summary.resolvedPointsBalance)"),
+            ("完成", "\(summary.completedCount)"),
+            ("评分", summary.ratingText),
+            ("接单率", summary.acceptanceRateText)
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: summary.canDispatch == true ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(summary.canDispatch == true ? AppColors.success : AppColors.warning)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(summary.dispatchStatusText)
+                        .font(AppFonts.body().weight(.bold))
+                        .foregroundColor(AppColors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(summary.coverageText)
+                        .font(AppFonts.caption())
+                        .foregroundColor(AppColors.textSecondary)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                ForEach(metrics, id: \.0) { metric in
+                    VolunteerMetricTile(title: metric.0, value: metric.1)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text("派单 \(summary.totalDispatched ?? 0)")
+                Text("接受 \(summary.totalAccepted ?? 0)")
+                Text("拒绝 \(summary.totalDeclined ?? 0)")
+                Text("超时 \(summary.totalTimeout ?? 0)")
+            }
+            .font(AppFonts.caption())
+            .foregroundColor(AppColors.textSecondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+        }
+        .padding(14)
+        .background(AppColors.secondaryBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("派单状态：\(summary.dispatchStatusText)，\(summary.coverageText)，积分 \(summary.resolvedPointsBalance)，完成 \(summary.completedCount) 次，评分 \(summary.ratingText)")
+    }
+}
+
+private struct VolunteerMetricTile: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.headline.weight(.bold))
+                .foregroundColor(AppColors.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+            Text(title)
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(AppColors.background)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct VolunteerRecentOrdersSection: View {
+    let orders: [VolunteerDispatchSummaryRecentOrder]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("近期服务")
+                .font(AppFonts.body().weight(.bold))
+                .foregroundColor(AppColors.textPrimary)
+
+            if orders.isEmpty {
+                EmptyStateView(title: "暂无服务记录", message: "完成服务后会显示在这里。")
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(orders.prefix(3)) { order in
+                        NavigationLink {
+                            VolunteerOrderDetailView(orderId: order.orderId)
+                        } label: {
+                            VolunteerRecentOrderCard(order: order)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("点击查看订单详情")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct VolunteerRecentOrderCard: View {
+    let order: VolunteerDispatchSummaryRecentOrder
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: order.status.statusSymbolName)
+                .font(.body.weight(.semibold))
+                .foregroundColor(order.status.statusColor)
+                .frame(width: 28, height: 28)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(order.blindName ?? "盲人跑者")
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .lineLimit(1)
+
+                Text(order.startAddress ?? "地点待同步")
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(order.status.displayName)
+                    .font(AppFonts.caption().weight(.semibold))
+                    .foregroundColor(order.status.statusColor)
+
+                Text(order.pointsText)
+                    .font(AppFonts.caption())
+                    .foregroundColor(order.resolvedPointsDelta == nil ? AppColors.textSecondary : AppColors.success)
+            }
+        }
+        .padding(12)
+        .background(AppColors.secondaryBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("盲人：\(order.blindName ?? "")，地点：\(order.startAddress ?? "")，状态：\(order.status.displayName)，积分：\(order.pointsText)")
+    }
+}
+
 private struct VolunteerEntryItem: View {
     let icon: String
     let title: String
@@ -936,6 +1094,49 @@ private struct VolunteerDispatchOverlay: View {
                                 .foregroundColor(AppColors.textPrimary)
                         }
                         .font(AppFonts.body())
+                    }
+
+                    if let plannedStart = order.plannedStart {
+                        HStack {
+                            Text("时间：")
+                                .foregroundColor(AppColors.textSecondary)
+                            Text(plannedStart.displayDateTime)
+                                .foregroundColor(AppColors.textPrimary)
+                        }
+                        .font(AppFonts.body())
+                    }
+
+                    if let priority = order.priority {
+                        HStack {
+                            Text("优先级：")
+                                .foregroundColor(AppColors.textSecondary)
+                            Text(priority)
+                                .foregroundColor(AppColors.textPrimary)
+                        }
+                        .font(AppFonts.body())
+                    }
+
+                    if let pace = order.pacePreference {
+                        HStack {
+                            Text("配速：")
+                                .foregroundColor(AppColors.textSecondary)
+                            Text(PacePreference(rawValue: pace)?.displayName ?? pace)
+                                .foregroundColor(AppColors.textPrimary)
+                        }
+                        .font(AppFonts.body())
+                    }
+
+                    if let lat = order.startLatitude, let lng = order.startLongitude {
+                        Text(String(format: "坐标：%.5f, %.5f", lat, lng))
+                            .font(AppFonts.caption())
+                            .foregroundColor(AppColors.textSecondary)
+                    }
+
+                    if let notes = order.specialNotes, !notes.isEmpty {
+                        Text(notes)
+                            .font(AppFonts.caption())
+                            .foregroundColor(AppColors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 

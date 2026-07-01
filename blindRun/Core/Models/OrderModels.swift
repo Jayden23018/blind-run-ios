@@ -15,7 +15,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 
     var displayName: String {
         switch self {
-        case .pendingMatch: return "匹配中"
+        case .pendingMatch: return "系统派单中"
         case .pendingAccept: return "待确认"
         case .inProgress: return "进行中"
         case .driverEnRoute: return "志愿者出发中"

@@ -23,7 +23,7 @@ Suggested source groups:
 - `Auth`: phone login, JWT persistence, auth session
 - `Role`: active role switch and role guard rules
 - `BlindRunner`: blind runner home, profile, booking, order status
-- `Volunteer`: volunteer home, availability, available orders, service records, points
+- `Volunteer`: volunteer home dispatch workbench, availability, WebSocket dispatch prompts, active orders, service records, points
 - `Orders`: order DTOs, order state machine helpers, polling
 - `Map`: AMap bridge, current location, markers, distance calculation
 - `Voice`: TTS, repeat current status, speech input helpers
@@ -44,7 +44,7 @@ Recommended examples:
 - `AuthViewModel`: phone and code login.
 - `BlindBookingViewModel`: location permission, default start coordinate, booking form validation, create order.
 - `BlindOrderStatusViewModel`: WebSocket status events, 5-second polling fallback, status TTS, cancel, emergency.
-- `VolunteerHomeViewModel`: availability, current location, fetch available orders, distance sort, WebSocket dispatch.
+- `VolunteerHomeViewModel`: availability, current location, dispatch summary, readiness reasons, temporary points, active/recent orders, WebSocket dispatch.
 - `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, finish, cancel, emergency event.
 
 ## 4. API Environment Switch
@@ -113,9 +113,9 @@ Current requirements:
 
 Location permission:
 
-- Booking and accepting orders require location permission.
+- Booking and accepting system dispatches require location permission.
 - If denied, blind runner cannot create booking.
-- If denied, volunteer cannot view/sort and accept nearby orders by distance.
+- If denied, volunteer cannot receive or accept system dispatches that depend on latest location.
 - Show permission guidance, and use TTS for blind runner error prompts.
 
 Demo fallback:

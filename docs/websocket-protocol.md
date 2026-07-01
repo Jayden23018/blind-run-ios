@@ -232,8 +232,9 @@ Emergency is recorded through `POST /api/emergency/trigger`; the order status it
 
 **注意**:
 - 只有通过 WebSocket 连接的志愿者才能收到派单（NEW_ORDER）
-- 志愿者必须先发送 `LOCATION_UPDATE`；后端只会向距离订单起点 10km 内且 `isAvailable=true` 的在线志愿者派单
-- `/api/orders/available` 与 `/api/orders/{orderId}/respond` 都依赖后端已记录的最近一次 WebSocket 位置
+- 志愿者必须先发送 `LOCATION_UPDATE`；后端只会向符合距离、可服务时间、认证状态、`wantsDispatch/isAvailable=true` 的在线志愿者派单
+- 志愿者排序、扩圈、最后一轮多人派单和全城兜底通知由后端控制；iOS 端不实现匹配算法或公开订单池
+- `/api/orders/{orderId}/respond` 依赖后端已记录的最近一次 WebSocket 位置
 - 位置同时写入 Redis（30s TTL）和 MySQL
 - 建议每 5~10 秒上报一次
 
@@ -246,8 +247,11 @@ Emergency is recorded through `POST /api/emergency/trigger`; the order status it
 ```json
 {
   "type": "NEW_ORDER",
+  "timestamp": "2026-06-30T10:15:30.123",
   "orderId": 123,
   "startAddress": "朝阳公园南门",
+  "startLatitude": 39.9342,
+  "startLongitude": 116.4740,
   "distanceKm": 2.5,
   "plannedStart": "2026-05-23T14:00:00",
   "plannedEnd": "2026-05-23T15:00:00",
@@ -263,6 +267,8 @@ Emergency is recorded through `POST /api/emergency/trigger`; the order status it
 |------|------|------|------|
 | orderId | number | 是 | 订单 ID |
 | startAddress | string | 是 | 起点地址 |
+| startLatitude | number | 否 | 起点纬度，后端已提供时用于弹窗地图 marker |
+| startLongitude | number | 否 | 起点经度，后端已提供时用于弹窗地图 marker |
 | distanceKm | number | 是 | 志愿者到起点的距离（公里） |
 | plannedStart | string | 是 | 计划开始时间（ISO 格式） |
 | plannedEnd | string | 是 | 计划结束时间（ISO 格式） |
@@ -271,6 +277,7 @@ Emergency is recorded through `POST /api/emergency/trigger`; the order status it
 | pacePreference | string | 否 | 配速偏好（如 `MODERATE`） |
 | hasGuideDog | boolean | 否 | 盲人是否携带导盲犬 |
 | specialNotes | string | 否 | 盲人备注 |
+| timestamp | string | 否 | 派单消息发送时间 |
 
 **响应方式**: 收到后必须通过 REST API 的 `/respond` 响应，不是通过 WebSocket 回复。接受使用 `action=ACCEPT`，拒绝使用 `action=DECLINE`。如果订单尚未派送给当前志愿者，后端会返回业务错误，例如 `ORDER_DISPATCH_MISMATCH`。
 
@@ -285,6 +292,8 @@ Content-Type: application/json
 ```
 
 **超时未响应**: 系统自动视为拒绝，派单给下一位志愿者。
+
+**派单摘要**: 志愿者首页通过 `GET /api/volunteer/dispatch-summary` 展示派单状态、不可接单原因、覆盖范围、当前订单、近期订单和统计。积分系统未完成时，iOS 可临时按 `totalCompleted * 100` 显示积分占位；`totalAccepted` 只表示接受派单次数，不等同于完成次数。
 
 #### APP_NOTIFICATION — 通用通知
 

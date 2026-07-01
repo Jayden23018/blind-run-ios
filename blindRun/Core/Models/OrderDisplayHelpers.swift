@@ -13,10 +13,19 @@ extension RunOrderStatus {
         }
     }
 
+    var isActiveForVolunteer: Bool {
+        switch self {
+        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+            return true
+        case .pendingMatch, .completed, .cancelled, .rematching, .noVolunteer:
+            return false
+        }
+    }
+
     var blindRunnerDescription: String {
         switch self {
         case .pendingMatch:
-            return "匹配中，请稍候。"
+            return "系统正在派单，请稍候。"
         case .pendingAccept:
             return "已找到志愿者，等待确认中。"
         case .inProgress:
@@ -39,7 +48,7 @@ extension RunOrderStatus {
     var blindRunnerAnnouncement: String {
         switch self {
         case .pendingMatch:
-            return "订单提交成功，正在等待志愿者接单。"
+            return "订单提交成功，系统正在为你派单。"
         case .pendingAccept:
             return "已找到志愿者，正在等待对方确认。"
         case .inProgress:

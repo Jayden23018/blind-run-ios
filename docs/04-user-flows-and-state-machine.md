@@ -23,9 +23,9 @@ flowchart TD
 
     subgraph Volunteer["志愿者端"]
         VOL_Profile["志愿者认证页\n(首次注册)"]
-        VOL_Home["志愿者首页\n(附近订单+可服务开关)"]
-        VOL_OrderList["订单列表页"]
-        VOL_OrderDetail["订单详情页"]
+        VOL_Home["志愿者首页\n(系统派单工作台+可服务开关)"]
+        VOL_DispatchPrompt["30秒派单弹窗"]
+        VOL_OrderDetail["已接订单详情页"]
         VOL_InService["志愿者服务中页"]
         VOL_History["服务记录页"]
         VOL_Points["积分/商城占位页"]
@@ -52,9 +52,9 @@ flowchart TD
     BR_Completed -->|"评分/返回"| BR_Home
     BR_Emergency --> BR_Home
 
-    VOL_Home -->|"查看全部"| VOL_OrderList
-    VOL_OrderList -->|"点击订单"| VOL_OrderDetail
-    VOL_OrderDetail -->|"接单"| VOL_InService
+    VOL_Home -->|"收到 NEW_ORDER"| VOL_DispatchPrompt
+    VOL_DispatchPrompt -->|"接受派单"| VOL_OrderDetail
+    VOL_OrderDetail -->|"服务操作"| VOL_InService
     VOL_OrderDetail -->|"查看出发点位置(AMap)"| VOL_InService
     VOL_InService -->|"结束服务"| VOL_Home
     VOL_InService -->|"记录紧急事件"| BR_Emergency
@@ -140,14 +140,15 @@ sequenceDiagram
     BR->>App: 点击"提交预约"
     App->>API: POST /api/orders (booking data)
     API-->>App: { orderId, status: "PENDING_MATCH" }
-    Note over App: TTS: "订单提交成功，等待志愿者接单"
+    Note over App: TTS: "订单提交成功，系统正在为您派单"
 
     loop 每5秒轮询
         App->>API: GET /api/orders/{orderId}
         API-->>App: { status: "PENDING_MATCH" }
     end
 
-    VOL-->>API: 接单 (POST /api/orders/{orderId}/respond, action=ACCEPT)
+    API-->>VOL: WebSocket NEW_ORDER（30秒响应）
+    VOL-->>API: 接受派单 (POST /api/orders/{orderId}/respond, action=ACCEPT)
     Note over API: 状态: PENDING_MATCH → PENDING_ACCEPT
 
     App->>API: GET /api/orders/{orderId}
@@ -191,22 +192,15 @@ sequenceDiagram
     VOL->>App: 打开 App（已有 token）
     App->>API: 验证 token
     API-->>App: token 有效
-    App->>VOL: 显示志愿者首页
+    App->>VOL: 显示系统派单工作台
+    App->>API: GET /api/volunteer/dispatch-summary
+    API-->>App: 派单状态、覆盖范围、统计、当前订单
     App->>API: 连接 /ws/volunteer
     App->>API: WebSocket LOCATION_UPDATE（当前位置）
-    App->>API: GET /api/orders/available
-    API-->>App: [{ order1, order2, ... }]
-    App->>App: 按距离排序
+    API-->>App: WebSocket NEW_ORDER（30秒倒计时）
+    App->>VOL: 显示接受 / 拒绝派单弹窗
 
-    VOL->>App: 查看订单列表
-    App->>VOL: 距离最近订单排最前
-
-    VOL->>App: 点击订单
-    App->>API: GET /api/orders/{orderId}
-    API-->>App: 订单详情（隐藏盲人电话）
-    App->>VOL: 显示订单详情
-
-    VOL->>App: 点击"接单"
+    VOL->>App: 点击"接受"
     App->>API: WebSocket LOCATION_UPDATE（接单前补报当前位置）
     App->>API: POST /api/orders/{orderId}/respond (action=ACCEPT)
     API-->>App: { status: "PENDING_ACCEPT" }

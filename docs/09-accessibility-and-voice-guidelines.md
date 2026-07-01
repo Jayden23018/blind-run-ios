@@ -18,7 +18,7 @@ Use iOS native `AVSpeechSynthesizer` for TTS.
 
 - 进入盲人首页
 - 订单提交成功
-- 匹配中
+- 系统派单中
 - 志愿者已接单
 - 志愿者已到达
 - 服务已开始
@@ -109,7 +109,7 @@ Use short, direct Chinese copy.
 
 Recommended status announcements:
 
-- `PENDING_MATCH`: “预约已提交，正在等待志愿者接单。”
+- `PENDING_MATCH`: “订单提交成功，系统正在为你派单。”
 - `PENDING_ACCEPT`: “志愿者已接单，请等待志愿者出发。”
 - `DRIVER_EN_ROUTE`: “志愿者已出发，正在赶往您的位置。”
 - `DRIVER_ARRIVED`: “志愿者已到达，请准备开始服务。”

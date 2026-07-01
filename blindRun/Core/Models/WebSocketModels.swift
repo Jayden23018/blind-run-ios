@@ -108,8 +108,11 @@ struct WSPong: Codable, Sendable {
 /// New order dispatch (sent to volunteer)
 struct WSNewOrder: Codable, Sendable {
     let type: String
+    let timestamp: String?
     let orderId: Int64
     let startAddress: String?
+    let startLatitude: Double?
+    let startLongitude: Double?
     let distanceKm: Double?
     let plannedStart: String?
     let plannedEnd: String?

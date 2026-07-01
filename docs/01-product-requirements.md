@@ -37,7 +37,7 @@
 |------|------|
 | 核心需求 | 通过结构化渠道提供帮助，获得积分奖励 |
 | 痛点 | 缺乏与盲人跑者对接的便捷渠道 |
-| 典型场景 | 浏览附近订单，接单后查看出发点位置并前往会合，全程陪伴跑步 |
+| 典型场景 | 开启上线接单后等待系统派单，在 30 秒内接受或拒绝派单；接单后查看出发点位置并前往会合，全程陪伴跑步 |
 | 激励 | 每完成一次服务获得 +100 积分；当前 iOS 先展示积分，兑换能力按路线图接入 |
 
 ### 暂不作为独立角色
@@ -88,7 +88,7 @@
 | 网络层 | URLSession + async/await |
 | Token 存储 | 当前用 UserDefaults；上线前优先迁移 Keychain，未迁移需记录风险 |
 | 地图服务 | 高德地图（AMap） |
-| 实时通信 | REST + WebSocket；订单页保留每 5 秒轮询作为 WebSocket 断开时的降级方案 |
+| 实时通信 | REST + WebSocket；志愿者通过 WebSocket 接收系统派单，订单页保留每 5 秒轮询作为 WebSocket 断开时的降级方案 |
 | 短信验证 | `send-code` / `verify-code` 后端验证码策略；预置测试账号固定 `000000` |
 | 志愿者认证 | 身份证、人脸核验、管理员审核按后端 OpenAPI 契约接入 |
 | 环境切换 | Debug 支持 Mock / Demo Cloud；Demo 和 Production 构建固定 Demo Cloud |
@@ -145,7 +145,7 @@ Swift 原生 iOS
 | 盲人跑者 | Blind Runner | 核心用户角色 |
 | 志愿者 | Volunteer | 核心用户角色 |
 | 订单 | Order | 一次预约服务 |
-| 匹配中 | PENDING_MATCH | 订单已创建，等待志愿者接单 |
+| 系统派单中 | PENDING_MATCH | 订单已创建，系统正在派单 |
 | 已接单 | PENDING_ACCEPT | 志愿者已接单 |
 | 志愿者出发 | DRIVER_EN_ROUTE | 志愿者正在前往约定地点 |
 | 已到达 | DRIVER_ARRIVED | 志愿者已到达约定地点 |

@@ -236,7 +236,7 @@ final class BlindBookingViewModel: ObservableObject {
             let response: OrderResponse = try await appState.apiClient.post("/api/orders", body: request)
             isSubmitting = false
             speechService?.resetLastStatus()
-            speechService?.speak("订单提交成功，等待志愿者接单。")
+            speechService?.speak("订单提交成功，系统正在为你派单。")
             return response
         } catch let error as APIError {
             isSubmitting = false
@@ -621,7 +621,7 @@ struct BlindBookingView: View {
             .disabled(!viewModel.canSubmit)
             .opacity(viewModel.canSubmit ? 1 : 0.45)
             .accessibilityLabel("提交预约")
-            .accessibilityHint(viewModel.canSubmit ? "提交后等待志愿者接单" : "请先完成定位、出发地点和有效预约时间")
+            .accessibilityHint(viewModel.canSubmit ? "提交后系统将为你派单" : "请先完成定位、出发地点和有效预约时间")
 
             PrimaryButton("重复当前状态") {
                 speechService.speak("正在创建预约。出发地点：\(viewModel.resolvedStartLocationDescription)。预约时间：\(viewModel.appointmentTime.formatted(date: .abbreviated, time: .shortened))。")
