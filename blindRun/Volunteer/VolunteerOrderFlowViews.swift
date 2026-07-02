@@ -59,10 +59,14 @@ struct VolunteerServiceRecord: Identifiable {
 
 private enum VolunteerSheet: Identifiable {
     case completion
+    case navigation(ExternalMapNavigationRequest)
 
     var id: String {
         switch self {
-        case .completion: return "completion"
+        case .completion:
+            return "completion"
+        case .navigation(let request):
+            return "navigation-\(request.id.uuidString)"
         }
     }
 }
@@ -93,7 +97,7 @@ extension RunOrderStatus {
         case .driverEnRoute:
             return "正在前往约定地点"
         case .driverArrived:
-            return "已到达，可开始服务"
+            return "已到达，等待服务开始"
         case .completed:
             return "服务完成，获得 +100 积分"
         case .cancelled:
@@ -107,10 +111,8 @@ extension RunOrderStatus {
 
     var serviceStageTitle: String {
         switch self {
-        case .pendingAccept:
-            return "前往集合地点"
-        case .driverEnRoute:
-            return "正在前往"
+        case .pendingAccept, .driverEnRoute:
+            return "前往出发地点"
         case .driverArrived:
             return "已到达集合地点"
         case .inProgress:
@@ -129,10 +131,12 @@ extension RunOrderStatus {
     var serviceStageSubtitle: String {
         switch self {
         case .pendingAccept:
-            return "请尽快到达集合地点"
+            return "请确认当前位置和出发地点，可使用外部地图步行导航"
         case .driverEnRoute:
-            return "盲人跑者正在等待"
-        case .driverArrived, .inProgress:
+            return "请按导航前往出发地点，盲人跑者正在等待"
+        case .driverArrived:
+            return arrivedWaitingCopy
+        case .inProgress:
             return "完成本次陪跑后可结束服务"
         case .completed:
             return "感谢您的爱心陪伴"
@@ -149,6 +153,126 @@ extension RunOrderStatus {
 private func orderCoordinate(_ order: OrderDetailResponse) -> CLLocationCoordinate2D? {
     guard let lat = order.startLatitude, let lng = order.startLongitude else { return nil }
     return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+}
+
+struct VolunteerServiceMapPresentation {
+    let centerCoordinate: CLLocationCoordinate2D
+    let annotations: [MapAnnotationItem]
+    let isCurrentLocationAvailable: Bool
+    let hasCurrentLocationMarker: Bool
+
+    init(
+        order: OrderDetailResponse,
+        currentLocation: CLLocationCoordinate2D?,
+        locationAuthorized: Bool,
+        fallbackCoordinate: CLLocationCoordinate2D,
+        includesCurrentLocationMarker: Bool = false,
+        centersOnCurrentAndStart: Bool = false
+    ) {
+        self.init(
+            id: "order-start-\(order.orderId)",
+            startCoordinate: orderCoordinate(order),
+            startAddress: order.startAddress,
+            currentLocation: currentLocation,
+            locationAuthorized: locationAuthorized,
+            fallbackCoordinate: fallbackCoordinate,
+            includesCurrentLocationMarker: includesCurrentLocationMarker,
+            centersOnCurrentAndStart: centersOnCurrentAndStart
+        )
+    }
+
+    init(
+        dispatchOrder: WSNewOrder,
+        currentLocation: CLLocationCoordinate2D?,
+        locationAuthorized: Bool,
+        fallbackCoordinate: CLLocationCoordinate2D
+    ) {
+        let startCoordinate: CLLocationCoordinate2D?
+        if let lat = dispatchOrder.startLatitude, let lng = dispatchOrder.startLongitude {
+            startCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
+        } else {
+            startCoordinate = nil
+        }
+        self.init(
+            id: "dispatch-start-\(dispatchOrder.orderId)",
+            startCoordinate: startCoordinate,
+            startAddress: dispatchOrder.startAddress,
+            currentLocation: currentLocation,
+            locationAuthorized: locationAuthorized,
+            fallbackCoordinate: fallbackCoordinate,
+            includesCurrentLocationMarker: true,
+            centersOnCurrentAndStart: true
+        )
+    }
+
+    private init(
+        id: String,
+        startCoordinate: CLLocationCoordinate2D?,
+        startAddress: String?,
+        currentLocation: CLLocationCoordinate2D?,
+        locationAuthorized: Bool,
+        fallbackCoordinate: CLLocationCoordinate2D,
+        includesCurrentLocationMarker: Bool,
+        centersOnCurrentAndStart: Bool
+    ) {
+        let displayCurrentLocation = locationAuthorized ? currentLocation : nil
+
+        var items: [MapAnnotationItem] = []
+        if includesCurrentLocationMarker, let displayCurrentLocation {
+            items.append(
+                MapAnnotationItem(
+                    id: "current-location",
+                    coordinate: displayCurrentLocation,
+                    title: "我的位置",
+                    subtitle: nil,
+                    kind: .currentLocation
+                )
+            )
+        }
+
+        if let startCoordinate {
+            items.append(
+                MapAnnotationItem(
+                    id: id,
+                    coordinate: startCoordinate,
+                    title: "出发地点",
+                    subtitle: startAddress,
+                    kind: .orderStart
+                )
+            )
+        }
+
+        annotations = items
+        isCurrentLocationAvailable = displayCurrentLocation != nil
+        hasCurrentLocationMarker = includesCurrentLocationMarker && displayCurrentLocation != nil
+
+        if centersOnCurrentAndStart, let displayCurrentLocation, let startCoordinate {
+            centerCoordinate = CLLocationCoordinate2D(
+                latitude: (displayCurrentLocation.latitude + startCoordinate.latitude) / 2,
+                longitude: (displayCurrentLocation.longitude + startCoordinate.longitude) / 2
+            )
+        } else if let startCoordinate {
+            centerCoordinate = startCoordinate
+        } else if let displayCurrentLocation {
+            centerCoordinate = displayCurrentLocation
+        } else {
+            centerCoordinate = fallbackCoordinate
+        }
+    }
+}
+
+private func externalNavigationRequest(
+    for order: OrderDetailResponse,
+    currentLocation: CLLocationCoordinate2D?,
+    locationAuthorized: Bool
+) -> ExternalMapNavigationRequest? {
+    guard let destination = orderCoordinate(order) else { return nil }
+    return ExternalMapNavigationRequest(
+        originCoordinate: locationAuthorized ? currentLocation : nil,
+        originName: "我的位置",
+        destinationCoordinate: destination,
+        destinationName: (order.startAddress?.nilIfBlank ?? "出发地点")
+    )
 }
 
 // MARK: - Order List
@@ -417,16 +541,8 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     }
 
     func emergency() async {
-        guard let order, let appState else { return }
-        let request = EmergencyTriggerRequest(orderId: order.orderId, gpsLat: nil, gpsLng: nil)
-        await performAction(failureMessage: "求助操作失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            if order.status != updated.status {
-                self.speechService?.speakStatusChange(updated.status)
-            }
-            self.order = updated
-        }
+        errorMessage = EmergencySafetyCopy.deferredActionMessage
+        speechService?.speak(EmergencySafetyCopy.deferredActionMessage)
     }
 
     private func performAction(failureMessage: String, operation: () async throws -> Void) async {
@@ -455,6 +571,7 @@ struct VolunteerOrderDetailView: View {
     @State private var showAcceptConfirm = false
     @State private var showCancelConfirm = false
     @State private var showEmergencyConfirm = false
+    @State private var serviceNavigationOrder: OrderDetailResponse?
     let orderId: Int64
 
     var body: some View {
@@ -497,6 +614,9 @@ struct VolunteerOrderDetailView: View {
                         currentLocation: locationService.effectiveLocation,
                         locationAuthorized: locationService.isAuthorized
                     )
+                    if let order = viewModel.order, order.status.isActiveForVolunteer {
+                        serviceNavigationOrder = order
+                    }
                 }
             }
             Button("取消", role: .cancel) {}
@@ -514,6 +634,20 @@ struct VolunteerOrderDetailView: View {
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm) {
             Task {
                 await viewModel.emergency()
+            }
+        }
+        .navigationDestination(
+            isPresented: Binding(
+                get: { serviceNavigationOrder != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        serviceNavigationOrder = nil
+                    }
+                }
+            )
+        ) {
+            if let order = serviceNavigationOrder {
+                VolunteerInServiceView(orderId: order.orderId, initialOrder: order)
             }
         }
     }
@@ -564,7 +698,8 @@ struct VolunteerOrderDetailView: View {
                     .accessibilityHint("需要确认后取消")
                 }
 
-                if order.status.canTriggerEmergency {
+                if order.status.showsEmergencyPlaceholder {
+                    EmergencyPlaceholderNotice()
                     EmergencyActionButton(isLoading: viewModel.isPerformingAction) {
                         showEmergencyConfirm = true
                     }
@@ -591,6 +726,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
+    @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -668,21 +804,23 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     func complete(summary: String) async {
         guard let order, let appState else { return }
+        guard order.status.canFinishService else {
+            let message = order.status.finishBlockedMessage
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
         await performAction(failureMessage: "操作失败，请重试") {
             let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/finish")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
             apply(updated, speakChanges: false)
+            dispatchSummary = try? await appState.apiClient.get("/api/volunteer/dispatch-summary")
         }
     }
 
     func emergency() async {
-        guard let order, let appState else { return }
-        let request = EmergencyTriggerRequest(orderId: order.orderId, gpsLat: nil, gpsLng: nil)
-        await performAction(failureMessage: "求助操作失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            apply(updated, speakChanges: true)
-        }
+        errorMessage = EmergencySafetyCopy.deferredActionMessage
+        speechService?.speak(EmergencySafetyCopy.deferredActionMessage)
     }
 
     private func performAction(failureMessage: String, operation: () async throws -> Void) async {
@@ -755,6 +893,17 @@ struct VolunteerInServiceView: View {
                         errorMessage: viewModel.errorMessage,
                         isPerformingAction: viewModel.isPerformingAction,
                         maxHeight: proxy.size.height * 0.62,
+                        onNavigate: {
+                            if let request = externalNavigationRequest(
+                                for: order,
+                                currentLocation: locationService.currentLocation,
+                                locationAuthorized: locationService.isAuthorized
+                            ) {
+                                activeSheet = .navigation(request)
+                            } else {
+                                viewModel.errorMessage = "订单缺少出发地点坐标，暂不能导航。"
+                            }
+                        },
                         onEnRoute: { Task { await viewModel.enRoute() } },
                         onArrive: { Task { await viewModel.arrive() } },
                         onCancel: { showCancelConfirm = true },
@@ -797,6 +946,8 @@ struct VolunteerInServiceView: View {
                     await viewModel.complete(summary: summary)
                     activeSheet = nil
                 }
+            case .navigation(let request):
+                ExternalMapNavigationSheet(request: request)
             }
         }
     }
@@ -1196,21 +1347,27 @@ struct VolunteerServiceMapBackdrop: View {
     let order: OrderDetailResponse
 
     var body: some View {
-        let coordinate = orderCoordinate(order) ?? locationService.effectiveLocation
+        let presentation = VolunteerServiceMapPresentation(
+            order: order,
+            currentLocation: locationService.currentLocation,
+            locationAuthorized: locationService.isAuthorized,
+            fallbackCoordinate: locationService.effectiveLocation
+        )
         MapViewWrapper(
-            centerCoordinate: coordinate,
+            centerCoordinate: presentation.centerCoordinate,
             showsUserLocation: locationService.isAuthorized,
-            annotations: orderCoordinate(order).map { coord in
-                [MapAnnotationItem(
-                    id: String(order.orderId),
-                    coordinate: coord,
-                    title: order.startAddress ?? "",
-                    subtitle: order.blindName
-                )]
-            } ?? [],
+            annotations: presentation.annotations,
             zoomLevel: 15
         )
         .ignoresSafeArea()
+        .overlay(alignment: .topLeading) {
+            VolunteerMapLegend(
+                showsCurrentLocation: presentation.hasCurrentLocationMarker,
+                showsMissingLocationNotice: !presentation.isCurrentLocationAvailable
+            )
+            .padding(.top, 56)
+            .padding(.horizontal, 16)
+        }
         .overlay(alignment: .bottom) {
             LinearGradient(
                 colors: [.clear, Color.black.opacity(0.12)],
@@ -1220,8 +1377,94 @@ struct VolunteerServiceMapBackdrop: View {
             .frame(height: 260)
             .allowsHitTesting(false)
         }
-        .accessibilityLabel("地图，显示出发点位置")
-        .accessibilityHint("不提供路线导航或实时轨迹")
+        .accessibilityLabel(
+            presentation.hasCurrentLocationMarker
+                ? "地图，显示我的位置和出发地点"
+                : "地图，红色标记显示出发地点"
+        )
+        .accessibilityHint("可使用下方导航到出发地点按钮打开外部地图步行导航")
+    }
+}
+
+struct VolunteerMapLegend: View {
+    let showsCurrentLocation: Bool
+    let showsMissingLocationNotice: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if showsCurrentLocation {
+                legendRow(color: .green, title: "我的位置")
+            } else if showsMissingLocationNotice {
+                Text("定位不可用，仅显示出发地点")
+                    .font(AppFonts.caption().weight(.semibold))
+                    .foregroundColor(AppColors.warning)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.regularMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityLabel("定位不可用，仅显示出发地点")
+            }
+
+            legendRow(color: .red, title: "出发地点")
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func legendRow(color: Color, title: String) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 10, height: 10)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(AppFonts.caption().weight(.semibold))
+                .foregroundColor(AppColors.textPrimary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel(title)
+    }
+}
+
+struct ExternalMapNavigationSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let request: ExternalMapNavigationRequest
+
+    private var providers: [ExternalMapNavigationProvider] {
+        ExternalMapNavigationAvailability.availableProviders()
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(providers) { provider in
+                        Button {
+                            ExternalMapNavigationLauncher.open(provider: provider, request: request)
+                            dismiss()
+                        } label: {
+                            Label(provider.displayName, systemImage: provider.systemImageName)
+                                .font(AppFonts.body().weight(.semibold))
+                        }
+                        .accessibilityLabel("使用\(provider.displayName)导航到出发地点")
+                        .accessibilityHint("打开外部地图进行步行导航")
+                    }
+                } footer: {
+                    Text("默认使用步行导航。未安装的第三方地图不会显示。")
+                }
+            }
+            .navigationTitle("选择地图导航")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1231,6 +1474,7 @@ struct VolunteerServiceBottomPanel: View {
     let errorMessage: String?
     let isPerformingAction: Bool
     let maxHeight: CGFloat
+    let onNavigate: () -> Void
     let onEnRoute: () -> Void
     let onArrive: () -> Void
     let onCancel: () -> Void
@@ -1255,6 +1499,7 @@ struct VolunteerServiceBottomPanel: View {
                 VolunteerServiceActions(
                     status: order.status,
                     isPerformingAction: isPerformingAction,
+                    onNavigate: onNavigate,
                     onEnRoute: onEnRoute,
                     onArrive: onArrive,
                     onCancel: onCancel,
@@ -1417,9 +1662,42 @@ struct VolunteerServiceOrderEssentials: View {
     }
 }
 
+enum VolunteerServiceActionKind: Hashable {
+    case navigateToStart
+    case markEnRoute
+    case markArrived
+    case cancelOrder
+    case completeService
+    case arrivedWaitingMessage
+    case completedMessage
+    case terminalMessage
+
+    var title: String {
+        switch self {
+        case .navigateToStart:
+            return "导航到出发地点"
+        case .markEnRoute:
+            return "我已出发"
+        case .markArrived:
+            return "我已到达约定地点"
+        case .cancelOrder:
+            return "取消订单"
+        case .completeService:
+            return "结束服务"
+        case .arrivedWaitingMessage:
+            return "已到达，等待服务开始"
+        case .completedMessage:
+            return "服务完成，获得 +100 积分"
+        case .terminalMessage:
+            return "订单已结束"
+        }
+    }
+}
+
 struct VolunteerServiceActions: View {
     let status: RunOrderStatus
     let isPerformingAction: Bool
+    let onNavigate: () -> Void
     let onEnRoute: () -> Void
     let onArrive: () -> Void
     let onCancel: () -> Void
@@ -1428,43 +1706,97 @@ struct VolunteerServiceActions: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            if status == .pendingAccept {
-                PrimaryButton("我已出发", isLoading: isPerformingAction, action: onEnRoute)
-                    .accessibilityLabel("我已出发")
-                    .accessibilityHint("点击后通知盲人您正在前往")
-                secondaryDangerButton("取消订单", hint: "取消当前订单", action: onCancel)
-            } else if status == .driverEnRoute {
-                PrimaryButton("我已到达约定地点", isLoading: isPerformingAction, action: onArrive)
-                    .accessibilityLabel("我已到达约定地点")
-                secondaryDangerButton("取消订单", hint: "取消当前订单", action: onCancel)
-            } else if status == .driverArrived || status == .inProgress {
-                PrimaryButton("结束服务", isDestructive: true, isLoading: isPerformingAction, action: onComplete)
-                    .accessibilityLabel("结束服务")
-                    .accessibilityHint("需要使用二次确认")
-            } else if status == .completed {
-                Text("服务完成，获得 +100 积分")
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.success)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                    .background(AppColors.success.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .accessibilityLabel("服务完成，获得一百积分")
-            } else if status == .cancelled || status == .noVolunteer {
-                Text(status.volunteerDescription)
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                    .background(AppColors.secondaryBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .accessibilityLabel(status.volunteerDescription)
+            ForEach(Self.actionKinds(for: status), id: \.self) { action in
+                actionView(action)
             }
 
-            if status.canTriggerEmergency {
+            if status.showsEmergencyPlaceholder {
+                EmergencyPlaceholderNotice()
                 EmergencyActionButton(isLoading: isPerformingAction, action: onEmergency)
             }
         }
+    }
+
+    static func actionKinds(for status: RunOrderStatus) -> [VolunteerServiceActionKind] {
+        switch status {
+        case .pendingAccept:
+            return [.navigateToStart, .markEnRoute, .cancelOrder]
+        case .driverEnRoute:
+            return [.navigateToStart, .markArrived]
+        case .driverArrived:
+            return [.arrivedWaitingMessage]
+        case .inProgress:
+            return [.completeService]
+        case .completed:
+            return [.completedMessage]
+        case .cancelled, .noVolunteer:
+            return [.terminalMessage]
+        case .pendingMatch, .rematching:
+            return []
+        }
+    }
+
+    @ViewBuilder
+    private func actionView(_ action: VolunteerServiceActionKind) -> some View {
+        switch action {
+        case .navigateToStart:
+            navigationButton(action: onNavigate)
+        case .markEnRoute:
+            PrimaryButton(action.title, isLoading: isPerformingAction, action: onEnRoute)
+                .accessibilityLabel(action.title)
+                .accessibilityHint("点击后通知盲人您正在前往")
+        case .markArrived:
+            PrimaryButton(action.title, isLoading: isPerformingAction, action: onArrive)
+                .accessibilityLabel(action.title)
+        case .cancelOrder:
+            secondaryDangerButton(action.title, hint: "取消当前订单", action: onCancel)
+        case .completeService:
+            PrimaryButton(action.title, isDestructive: true, isLoading: isPerformingAction, action: onComplete)
+                .accessibilityLabel(action.title)
+                .accessibilityHint("需要使用二次确认")
+        case .arrivedWaitingMessage:
+            Text(status.arrivedWaitingCopy)
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.warning)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+                .padding(.horizontal, 14)
+                .background(AppColors.warning.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .accessibilityLabel(status.arrivedWaitingCopy)
+        case .completedMessage:
+            Text(action.title)
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.success)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+                .background(AppColors.success.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .accessibilityLabel("服务完成，获得一百积分")
+        case .terminalMessage:
+            Text(status.volunteerDescription)
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.textSecondary)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+                .background(AppColors.secondaryBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .accessibilityLabel(status.volunteerDescription)
+        }
+    }
+
+    private func navigationButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label("导航到出发地点", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                .font(AppFonts.body().weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 52)
+                .background(AppColors.primary.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .disabled(isPerformingAction)
+        .accessibilityLabel("导航到出发地点")
+        .accessibilityHint("选择高德、百度或苹果地图进行步行导航")
     }
 
     private func secondaryDangerButton(_ title: String, hint: String, action: @escaping () -> Void) -> some View {

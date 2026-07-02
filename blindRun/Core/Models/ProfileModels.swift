@@ -82,6 +82,7 @@ struct BlindVerifyRequest: Codable, Sendable {
 struct VolunteerProfileResponse: Codable, Sendable {
     let name: String?
     let verificationStatus: String?
+    let adminReviewStatus: String?
     let isAvailable: Bool?
     let wantsDispatch: Bool?
     let availableTimeSlots: [VolunteerAvailableTimeSlot]?
@@ -91,6 +92,7 @@ struct VolunteerProfileResponse: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case name = "name"
         case verificationStatus
+        case adminReviewStatus
         case isAvailable
         case wantsDispatch
         case availableTimeSlots
@@ -101,6 +103,7 @@ struct VolunteerProfileResponse: Codable, Sendable {
     init(
         name: String? = nil,
         verificationStatus: String? = nil,
+        adminReviewStatus: String? = nil,
         isAvailable: Bool? = nil,
         wantsDispatch: Bool? = nil,
         availableTimeSlots: [VolunteerAvailableTimeSlot]? = nil,
@@ -109,6 +112,7 @@ struct VolunteerProfileResponse: Codable, Sendable {
     ) {
         self.name = name
         self.verificationStatus = verificationStatus
+        self.adminReviewStatus = adminReviewStatus
         self.isAvailable = isAvailable
         self.wantsDispatch = wantsDispatch
         self.availableTimeSlots = availableTimeSlots
@@ -120,11 +124,36 @@ struct VolunteerProfileResponse: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decodeIfPresent(String.self, forKey: .name)
         verificationStatus = try container.decodeIfPresent(String.self, forKey: .verificationStatus)
+        adminReviewStatus = try container.decodeIfPresent(String.self, forKey: .adminReviewStatus)
         wantsDispatch = try container.decodeIfPresent(Bool.self, forKey: .wantsDispatch)
         isAvailable = try container.decodeIfPresent(Bool.self, forKey: .isAvailable) ?? wantsDispatch
         availableTimeSlots = try container.decodeIfPresent([VolunteerAvailableTimeSlot].self, forKey: .availableTimeSlots)
         acceptsGuideDog = try container.decodeIfPresent(Bool.self, forKey: .acceptsGuideDog)
         paceRange = try container.decodeIfPresent(PacePreference.self, forKey: .paceRange)
+    }
+}
+
+extension VolunteerProfileResponse {
+    var isProfileCompleteForDispatch: Bool {
+        guard let name, !name.trimmed.isEmpty else {
+            return false
+        }
+        return true
+    }
+
+    var isCertificationApproved: Bool {
+        verificationStatus?.lowercased() == "approved"
+    }
+
+    var isAdminReviewApprovedWhenAvailable: Bool {
+        guard let adminReviewStatus = adminReviewStatus?.trimmed, !adminReviewStatus.isEmpty else {
+            return true
+        }
+        return adminReviewStatus.lowercased() == "approved"
+    }
+
+    var hasManualDispatchOptIn: Bool {
+        wantsDispatch ?? isAvailable ?? false
     }
 }
 

@@ -4,7 +4,7 @@
 > `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`,
 > `REMATCHING`, and `NO_VOLUNTEER`. Older lower-case names in historical examples map to
 > those values only for reading context; new iOS/backend work must use the canonical values.
-> Emergency is recorded through `POST /api/emergency/trigger` and is not an order status.
+> Emergency remains a placeholder in the current iOS change; production recording through `POST /api/emergency/trigger` requires a later safety change and is not an order status.
 
 ## Epic 1：登录认证 (US-AUTH)
 
@@ -297,7 +297,7 @@
 
 **作为**：盲人跑者
 **我想要**：在服务中页面查看志愿者信息和求助入口
-**以便**：遇到紧急情况时可以求助
+**以便**：遇到紧急情况时看到明确的求助占位提示
 
 **优先级**：P0
 
@@ -309,11 +309,11 @@
 
 ---
 
-### US-BR-008：触发紧急求助
+### US-BR-008：触发紧急求助占位
 
 **作为**：盲人跑者
-**我想要**：在遇到紧急情况时触发求助
-**以便**：订单被标记为异常状态
+**我想要**：在遇到紧急情况时触发求助入口
+**以便**：知道生产求助流程暂未上线并按人工安全预案处理
 
 **优先级**：P0
 
@@ -327,8 +327,8 @@
 
 **Given** 用户在紧急求助确认弹窗
 **When** 用户确认求助
-**Then** 系统记录 emergency event，订单状态保持不变，并显示紧急提示信息
-**And** TTS 播报"已进入求助状态，请保持冷静"
+**Then** App 显示求助流程暂未上线提示，订单状态保持不变，不调用后台求助接口
+**And** TTS 播报"求助流程暂未上线，请按既定人工安全预案处理。"
 
 ---
 
@@ -535,6 +535,12 @@
 
 ---
 
+**Given** 订单状态为 PENDING_ACCEPT 或 DRIVER_EN_ROUTE
+**When** 志愿者查看服务页面
+**Then** 页面显示"前往出发地点"，地图打点当前位置和出发地点，并可选择外部地图 App 进行步行导航
+
+---
+
 **Given** 订单状态为 DRIVER_EN_ROUTE
 **When** 志愿者点击"我已到达"
 **Then** 订单状态变为 DRIVER_ARRIVED，盲人端通过 WebSocket 或轮询收到通知
@@ -551,9 +557,9 @@
 
 **验收标准**：
 
-**Given** 订单状态为 DRIVER_ARRIVED，志愿者触发开始服务
+**Given** 订单状态为 DRIVER_ARRIVED，云端尚未确认服务开始
 **When** 志愿者查看订单页面
-**Then** 订单状态变为 IN_PROGRESS，显示盲人信息和一键求助按钮
+**Then** 页面显示等待服务开始提示，并通过 WebSocket 或轮询等待云端状态变为 IN_PROGRESS
 
 ---
 
@@ -625,7 +631,7 @@
 ---
 
 **Given** 订单状态为 DRIVER_ARRIVED
-**When** 志愿者开始服务
+**When** 云端通知服务开始
 **Then** 状态流转为 IN_PROGRESS
 
 ---
@@ -644,7 +650,7 @@
 
 **Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
 **When** 任一方触发紧急求助
-**Then** 记录 emergency event，订单状态保持不变
+**Then** App 显示求助占位提示，订单状态保持不变
 
 ---
 
@@ -732,7 +738,7 @@
 **验收标准**：
 
 **Given** 盲人端发生关键状态变化
-**When** 进入盲人首页 / 订单提交成功 / 志愿者接单 / 志愿者到达 / 服务开始 / 服务完成 / 进入求助 / 错误提示
+**When** 进入盲人首页 / 订单提交成功 / 志愿者接单 / 志愿者到达 / 服务开始 / 服务完成 / 求助占位提示 / 错误提示
 **Then** AVSpeechSynthesizer 自动播报对应中文提示
 
 ---

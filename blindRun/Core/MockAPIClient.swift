@@ -67,6 +67,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             volunteerProfile = VolunteerProfileResponse(
                 name: volunteerProfile?.name ?? "测试志愿者",
                 verificationStatus: "pending",
+                adminReviewStatus: volunteerProfile?.adminReviewStatus ?? "pending",
                 isAvailable: volunteerProfile?.isAvailable ?? false,
                 availableTimeSlots: volunteerProfile?.availableTimeSlots,
                 acceptsGuideDog: volunteerProfile?.acceptsGuideDog,
@@ -161,6 +162,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             if path.hasSuffix("/arrived") && method == .post {
                 return try handleArrived(orderId: orderId)
             }
+            #if DEBUG
+            if path.hasSuffix("/mock-start-service") && method == .post {
+                return try handleStartService(orderId: orderId)
+            }
+            #endif
             if path.hasSuffix("/finish") && method == .post {
                 return try handleFinish(orderId: orderId)
             }
@@ -291,6 +297,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         volunteerProfile = VolunteerProfileResponse(
             name: request.name ?? volunteerProfile?.name,
             verificationStatus: "approved",
+            adminReviewStatus: volunteerProfile?.adminReviewStatus ?? "approved",
             isAvailable: request.isAvailable ?? volunteerProfile?.isAvailable,
             availableTimeSlots: request.availableTimeSlots ?? volunteerProfile?.availableTimeSlots,
             acceptsGuideDog: request.acceptsGuideDog ?? volunteerProfile?.acceptsGuideDog,
@@ -308,6 +315,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         volunteerProfile = VolunteerProfileResponse(
             name: existing.name,
             verificationStatus: existing.verificationStatus,
+            adminReviewStatus: existing.adminReviewStatus,
             isAvailable: request.wantsDispatch,
             wantsDispatch: request.wantsDispatch,
             availableTimeSlots: existing.availableTimeSlots,
@@ -358,7 +366,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             if !wantsDispatch {
                 values.append(.dispatchDisabled)
             }
-            if profile.verificationStatus?.lowercased() != "approved" {
+            if !profile.isCertificationApproved || !profile.isAdminReviewApprovedWhenAvailable {
                 values.append(.registrationIncomplete)
             }
             if !activeOrders.isEmpty {
@@ -564,13 +572,27 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
-        guard orders[index].status == .driverArrived || orders[index].status == .inProgress else {
+        guard orders[index].status.canFinishService else {
             throw APIError.serverError(ErrorResponse(
                 code: "INVALID_ORDER_STATUS", message: "当前订单状态不允许该操作"))
         }
         orders[index] = updateOrderStatus(orders[index], to: .completed)
         return actionResponse(for: orders[index], message: "服务已完成")
     }
+
+    #if DEBUG
+    private func handleStartService(orderId: Int64) throws -> OrderResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status == .driverArrived else {
+            throw APIError.serverError(ErrorResponse(
+                code: "INVALID_ORDER_STATUS", message: "当前订单状态不允许该操作"))
+        }
+        orders[index] = updateOrderStatus(orders[index], to: .inProgress)
+        return actionResponse(for: orders[index], message: "服务已开始")
+    }
+    #endif
 
     private func handleCancel(orderId: Int64) throws -> OrderResponse {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
@@ -680,6 +702,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         volunteerProfile = VolunteerProfileResponse(
             name: "测试志愿者",
             verificationStatus: "approved",
+            adminReviewStatus: "approved",
             isAvailable: uiTestVolunteerAvailable,
             availableTimeSlots: [
                 VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "09:00:00", endTime: "12:00:00"),

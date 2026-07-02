@@ -31,13 +31,14 @@ Acceptance:
 
 ### PR-IOS-03 Blind Runner Flow
 
-- 实现盲人资料与紧急联系人、预约、订单状态、取消、紧急事件和评分流程。
+- 实现盲人资料与紧急联系人、预约、订单状态、取消、求助占位和评分流程。
+- 盲人订单状态按 PENDING_MATCH / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED、IN_PROGRESS、COMPLETED、终态分别路由到等待、服务中、完成/评分或结束视图。
 - WebSocket 断开时每 5 秒轮询订单状态。
 - 为关键页面提供 VoiceOver、TTS 和“重复当前状态”。
 
 Acceptance:
 
-- 从预约到服务完成的前端流程可演示。
+- 从预约到服务完成和可选评价的前端流程可演示。
 - 定位拒绝时阻止预约并提示前往设置。
 
 ### PR-IOS-04 Volunteer Flow
@@ -48,13 +49,13 @@ Acceptance:
 
 Acceptance:
 
-- 不可服务、未认证或无定位权限时不能接单。
-- 结束服务必须二次确认。
+- 不可服务、未认证、管理员未通过或无定位权限时不能接单。
+- 结束服务必须二次确认，并且只能在 `IN_PROGRESS` 调用 `/api/orders/{id}/finish`。
 
 ### PR-IOS-05 Map, Voice and Accessibility
 
 - 从本地忽略配置读取 AMap key。
-- 展示地图、当前位置和订单标记，不实现路线导航。
+- 展示地图、当前位置和订单标记；志愿者前往出发地点可跳转外部地图 App 步行导航，不实现 App 内路线规划或实时轨迹。
 - 使用 `AVSpeechSynthesizer`、Speech framework 和 VoiceOver 标注。
 
 Acceptance:
@@ -89,4 +90,4 @@ Acceptance:
 
 ## 3. Roadmap Capabilities
 
-Android、完整管理员端、真实短信、真实身份审核、实时轨迹共享、自动电话/短信、AI 助手、自然语言时间解析、路线导航、完整积分商城、支付、库存、App 内聊天、复杂风控、摔倒检测、电子围栏、即时呼叫或多人活动报名不再是硬性禁止项。接入前必须补充产品规则、后端/API 契约、隐私/安全说明和验收测试。
+Android、完整管理员端、真实短信、真实身份审核、实时轨迹共享、自动电话/短信、AI 助手、自然语言时间解析、App 内路线导航、完整积分商城、支付、库存、App 内聊天、复杂风控、摔倒检测、电子围栏、即时呼叫或多人活动报名不再是硬性禁止项。接入前必须补充产品规则、后端/API 契约、隐私/安全说明和验收测试。志愿者端本期仅允许跳转已安装的外部地图 App 做步行导航。

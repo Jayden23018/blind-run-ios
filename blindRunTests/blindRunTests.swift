@@ -82,6 +82,7 @@ final class blindRunTests: XCTestCase {
     func testAcceptingDispatchPublishesNavigationOrderId() async throws {
         let appState = AppState()
         appState.currentEnvironment = .mock
+        appState.updateVolunteerProfile(makeApprovedVolunteerProfile())
         let speechService = SpeechService()
         let viewModel = VolunteerHomeViewModel()
         viewModel.configure(with: appState, speechService: speechService)
@@ -90,13 +91,17 @@ final class blindRunTests: XCTestCase {
 
         viewModel.respondToDispatch(
             accept: true,
-            currentLocation: nil,
-            locationAuthorized: false
+            currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
+            locationAuthorized: true
         )
 
         let didNavigate = await waitUntil { viewModel.acceptedDispatchOrderId == 1 }
         XCTAssertTrue(didNavigate)
         XCTAssertEqual(viewModel.acceptedDispatchOrderId, 1)
+        XCTAssertEqual(viewModel.acceptedDispatchInitialOrder?.orderId, 1)
+        XCTAssertEqual(viewModel.acceptedDispatchInitialOrder?.status, .pendingAccept)
+        XCTAssertEqual(viewModel.activeOrder?.orderId, 1)
+        XCTAssertEqual(viewModel.activeOrder?.status, .pendingAccept)
         XCTAssertNil(viewModel.incomingOrder)
         XCTAssertEqual(viewModel.dispatchCountdown, 0)
         XCTAssertFalse(viewModel.isRespondingToDispatch)
@@ -106,6 +111,7 @@ final class blindRunTests: XCTestCase {
     func testAcceptingDispatchFailureDoesNotPublishNavigationOrderId() async throws {
         let appState = AppState()
         appState.currentEnvironment = .mock
+        appState.updateVolunteerProfile(makeApprovedVolunteerProfile())
         let viewModel = VolunteerHomeViewModel()
         viewModel.configure(with: appState, speechService: SpeechService())
         viewModel.incomingOrder = makeDispatchOrder(orderId: 999)
@@ -113,8 +119,8 @@ final class blindRunTests: XCTestCase {
 
         viewModel.respondToDispatch(
             accept: true,
-            currentLocation: nil,
-            locationAuthorized: false
+            currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
+            locationAuthorized: true
         )
 
         let didFail = await waitUntil { viewModel.errorMessage != nil }
@@ -123,6 +129,42 @@ final class blindRunTests: XCTestCase {
         XCTAssertNotNil(viewModel.incomingOrder)
         XCTAssertEqual(viewModel.dispatchCountdown, 30)
         XCTAssertFalse(viewModel.isRespondingToDispatch)
+    }
+
+    func testAcceptingDispatchRequiresReadinessAndLocation() async throws {
+        let unavailableState = AppState()
+        unavailableState.currentEnvironment = .mock
+        unavailableState.updateVolunteerProfile(makeApprovedVolunteerProfile(isAvailable: false))
+        let unavailableViewModel = VolunteerHomeViewModel()
+        unavailableViewModel.configure(with: unavailableState, speechService: SpeechService())
+        unavailableViewModel.incomingOrder = makeDispatchOrder(orderId: 1)
+
+        unavailableViewModel.respondToDispatch(
+            accept: true,
+            currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
+            locationAuthorized: true
+        )
+
+        XCTAssertEqual(unavailableViewModel.errorMessage, "请先开启可服务状态")
+        XCTAssertNil(unavailableViewModel.acceptedDispatchOrderId)
+        XCTAssertNotNil(unavailableViewModel.incomingOrder)
+
+        let noLocationState = AppState()
+        noLocationState.currentEnvironment = .mock
+        noLocationState.updateVolunteerProfile(makeApprovedVolunteerProfile())
+        let noLocationViewModel = VolunteerHomeViewModel()
+        noLocationViewModel.configure(with: noLocationState, speechService: SpeechService())
+        noLocationViewModel.incomingOrder = makeDispatchOrder(orderId: 1)
+
+        noLocationViewModel.respondToDispatch(
+            accept: true,
+            currentLocation: nil,
+            locationAuthorized: false
+        )
+
+        XCTAssertEqual(noLocationViewModel.errorMessage, "需要开启定位权限才能接单")
+        XCTAssertNil(noLocationViewModel.acceptedDispatchOrderId)
+        XCTAssertNotNil(noLocationViewModel.incomingOrder)
     }
 
     func testDecliningDispatchDoesNotPublishNavigationOrderId() async throws {
@@ -169,6 +211,7 @@ final class blindRunTests: XCTestCase {
     func testVolunteerHomeResubscribesWhenWebSocketServiceIsReplaced() async throws {
         let appState = AppState()
         appState.currentEnvironment = .mock
+        appState.updateVolunteerProfile(makeApprovedVolunteerProfile())
         let viewModel = VolunteerHomeViewModel()
 
         viewModel.configure(with: appState, speechService: SpeechService())
@@ -226,11 +269,12 @@ final class blindRunTests: XCTestCase {
         await viewModel.load(currentLocation: nil, locationAuthorized: false)
         XCTAssertNil(viewModel.activeOrder)
 
+        appState.updateVolunteerProfile(makeApprovedVolunteerProfile())
         viewModel.incomingOrder = makeDispatchOrder(orderId: 1)
         viewModel.respondToDispatch(
             accept: true,
-            currentLocation: nil,
-            locationAuthorized: false
+            currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
+            locationAuthorized: true
         )
 
         let didAccept = await waitUntil { viewModel.acceptedDispatchOrderId == 1 }
@@ -349,6 +393,24 @@ final class blindRunTests: XCTestCase {
         let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/arrived")
         detail = try await client.get("/api/orders/\(order.orderId)")
         XCTAssertEqual(detail.status, .driverArrived)
+
+        do {
+            let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/finish")
+            XCTFail("Mock should reject finish before IN_PROGRESS")
+        } catch let error as APIError {
+            guard case .serverError(let response) = error else {
+                return XCTFail("Expected serverError, got \(error)")
+            }
+            XCTAssertEqual(response.code, "INVALID_ORDER_STATUS")
+        }
+
+        let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/mock-start-service")
+        detail = try await client.get("/api/orders/\(order.orderId)")
+        XCTAssertEqual(detail.status, .inProgress)
+
+        let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/finish")
+        detail = try await client.get("/api/orders/\(order.orderId)")
+        XCTAssertEqual(detail.status, .completed)
     }
 
     func testMockVolunteerDispatchSummaryReflectsDispatchStatusAndActiveOrder() async throws {
@@ -377,6 +439,56 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(activeSummary.notAvailableReasons, [.activeOrder])
         XCTAssertEqual(activeSummary.activeOrders?.first?.orderId, 1)
         XCTAssertEqual(activeSummary.recentOrders?.first?.startAddress, "朝阳公园南门")
+    }
+
+    func testMockFormalTwoRoleHappyPathThroughReview() async throws {
+        let client = MockAPIClient()
+        let plannedStart = Date().addingTimeInterval(45 * 60)
+        let plannedEnd = plannedStart.addingTimeInterval(60 * 60)
+        let createResponse: OrderResponse = try await client.post(
+            "/api/orders",
+            body: CreateOrderRequest(
+                startLatitude: 39.9342,
+                startLongitude: 116.4740,
+                startAddress: "朝阳公园南门",
+                plannedStartTime: DateFormatter.aidRunBackendLocalDateTime.string(from: plannedStart),
+                plannedEndTime: DateFormatter.aidRunBackendLocalDateTime.string(from: plannedEnd),
+                expectedDurationMinutes: 60,
+                pacePreference: .moderate,
+                routePreference: .parkTrail,
+                routeNotes: nil,
+                hasGuideDogThisRun: false,
+                specialNotes: nil
+            )
+        )
+        let orderId = try XCTUnwrap(createResponse.id)
+        XCTAssertEqual(createResponse.status, .pendingMatch)
+
+        let _: EmptyResponse = try await client.put(
+            "/api/volunteer/dispatch-status",
+            body: DispatchStatusRequest(wantsDispatch: true)
+        )
+        let _: EmptyResponse = try await client.post(
+            "/api/orders/\(orderId)/respond",
+            body: OrderRespondRequest(action: .accept)
+        )
+        var detail: OrderDetailResponse = try await client.get("/api/orders/\(orderId)")
+        XCTAssertEqual(detail.status, .pendingAccept)
+
+        let _: EmptyResponse = try await client.post("/api/orders/\(orderId)/en-route")
+        let _: EmptyResponse = try await client.post("/api/orders/\(orderId)/arrived")
+        detail = try await client.get("/api/orders/\(orderId)")
+        XCTAssertEqual(detail.status, .driverArrived)
+
+        let _: EmptyResponse = try await client.post("/api/orders/\(orderId)/mock-start-service")
+        let _: EmptyResponse = try await client.post("/api/orders/\(orderId)/finish")
+        detail = try await client.get("/api/orders/\(orderId)")
+        XCTAssertEqual(detail.status, .completed)
+
+        let _: EmptyResponse = try await client.post(
+            "/api/orders/\(orderId)/review",
+            body: CreateReviewRequest(rating: 5, comment: "顺利完成")
+        )
     }
 
     func testVolunteerRegistrationUploadPathsUseCloudContract() async throws {
@@ -752,7 +864,7 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .driverArrived),
-            "志愿者已到达，请准备开始服务。"
+            "志愿者已到达，请等待服务开始。"
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .completed),
@@ -827,7 +939,7 @@ final class blindRunTests: XCTestCase {
     }
 
     func testEmergencyButtonStatusGate() {
-        // Emergency trigger allowed only during active service stages
+        // Emergency affordance is visible only as a placeholder during active service stages.
         XCTAssertFalse(RunOrderStatus.pendingMatch.canTriggerEmergency)
         XCTAssertFalse(RunOrderStatus.pendingAccept.canTriggerEmergency)
         XCTAssertTrue(RunOrderStatus.driverEnRoute.canTriggerEmergency)
@@ -837,6 +949,8 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(RunOrderStatus.cancelled.canTriggerEmergency)
         XCTAssertFalse(RunOrderStatus.rematching.canTriggerEmergency)
         XCTAssertFalse(RunOrderStatus.noVolunteer.canTriggerEmergency)
+        XCTAssertTrue(RunOrderStatus.inProgress.showsEmergencyPlaceholder)
+        XCTAssertFalse(RunOrderStatus.completed.showsEmergencyPlaceholder)
     }
 
     func testEmergencyConfirmationCopyIsFixed() {
@@ -859,6 +973,15 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(RunOrderStatus.noVolunteer.shouldPoll)
     }
 
+    func testRematchingCopyKeepsBlindRunnerInStableWaitingState() {
+        XCTAssertEqual(
+            RunOrderStatus.rematching.blindRunnerDescription,
+            "正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"
+        )
+        XCTAssertEqual(RunOrderStatus.rematching.blindRunnerAnnouncement, "正在确认志愿者状态，请稍候。")
+        XCTAssertEqual(VoiceService.statusAnnouncement(for: .rematching), "正在确认志愿者状态，请稍候。")
+    }
+
     func testOrderStatusTerminalStates() {
         XCTAssertTrue(RunOrderStatus.completed.isTerminal)
         XCTAssertTrue(RunOrderStatus.cancelled.isTerminal)
@@ -871,8 +994,36 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(RunOrderStatus.pendingMatch.canCancel)
         XCTAssertTrue(RunOrderStatus.pendingAccept.canCancel)
         XCTAssertTrue(RunOrderStatus.inProgress.canCancel)
+        XCTAssertTrue(RunOrderStatus.rematching.canCancel)
         XCTAssertFalse(RunOrderStatus.completed.canCancel)
         XCTAssertFalse(RunOrderStatus.cancelled.canCancel)
+    }
+
+    func testBlindRunnerRematchingOrderShowsCancelAction() {
+        let statusViewModel = BlindOrderStatusViewModel()
+        statusViewModel.order = makeOrder(orderId: 1, status: .rematching)
+
+        XCTAssertTrue(statusViewModel.canShowCancel)
+
+        let homeViewModel = BlindRunnerHomeViewModel()
+        homeViewModel.activeOrder = makeOrder(orderId: 1, status: .rematching)
+
+        XCTAssertTrue(homeViewModel.canCancelActiveOrder)
+    }
+
+    func testFormalOrderStatusRoutingAndFinishEligibility() {
+        XCTAssertEqual(RunOrderStatus.pendingMatch.blindRunnerRoute, .tracking)
+        XCTAssertEqual(RunOrderStatus.driverArrived.blindRunnerRoute, .tracking)
+        XCTAssertEqual(RunOrderStatus.inProgress.blindRunnerRoute, .inService)
+        XCTAssertEqual(RunOrderStatus.completed.blindRunnerRoute, .completion)
+        XCTAssertEqual(RunOrderStatus.cancelled.blindRunnerRoute, .terminal)
+
+        XCTAssertFalse(RunOrderStatus.driverArrived.canFinishService)
+        XCTAssertTrue(RunOrderStatus.inProgress.canFinishService)
+        XCTAssertEqual(
+            RunOrderStatus.driverArrived.finishBlockedMessage,
+            RunOrderStatus.driverArrived.arrivedWaitingCopy
+        )
     }
 
     func testVolunteerAcceptGuardRequiresCompleteProfile() {
@@ -895,6 +1046,29 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertNil(
             VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile())
+        )
+    }
+
+    func testVolunteerAcceptGuardRequiresAdminReviewWhenProvided() {
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(
+                profile: makeVolunteerProfile(
+                    verificationStatus: "approved",
+                    adminReviewStatus: "pending",
+                    isAvailable: true
+                )
+            ),
+            "请等待管理员审核通过"
+        )
+
+        XCTAssertNil(
+            VolunteerOrderActionGuard.acceptBlockMessage(
+                profile: makeVolunteerProfile(
+                    verificationStatus: "approved",
+                    adminReviewStatus: nil,
+                    isAvailable: true
+                )
+            )
         )
     }
 
@@ -922,6 +1096,244 @@ final class blindRunTests: XCTestCase {
         appState.volunteerProfile = makeApprovedVolunteerProfile()
         XCTAssertTrue(appState.isVolunteerProfileComplete)
         XCTAssertTrue(appState.isVolunteerProfileApproved)
+
+        appState.volunteerProfile = makeVolunteerProfile(
+            verificationStatus: "approved",
+            adminReviewStatus: "pending",
+            isAvailable: true
+        )
+        XCTAssertTrue(appState.isVolunteerProfileComplete)
+        XCTAssertFalse(appState.isVolunteerProfileApproved)
+    }
+
+    func testVolunteerProfileDecodesAdminReviewStatus() throws {
+        let data = #"{"name":"测试志愿者","verificationStatus":"approved","adminReviewStatus":"approved","wantsDispatch":true}"#
+            .data(using: .utf8)!
+        let profile = try JSONDecoder().decode(VolunteerProfileResponse.self, from: data)
+
+        XCTAssertEqual(profile.adminReviewStatus, "approved")
+        XCTAssertTrue(profile.isCertificationApproved)
+        XCTAssertTrue(profile.isAdminReviewApprovedWhenAvailable)
+        XCTAssertTrue(profile.hasManualDispatchOptIn)
+    }
+
+    func testVolunteerInServiceBlocksFinishBeforeInProgress() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(
+            with: appState,
+            speechService: speechService,
+            initialOrder: makeOrder(orderId: 1, status: .driverArrived)
+        )
+
+        await viewModel.complete(summary: "")
+
+        XCTAssertEqual(viewModel.errorMessage, RunOrderStatus.driverArrived.arrivedWaitingCopy)
+        XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.driverArrived.arrivedWaitingCopy)
+    }
+
+    func testVolunteerInServiceAllowsFinishFromInProgressAndRefreshesSummary() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let client = appState.apiClient
+        let _: EmptyResponse = try await client.post(
+            "/api/orders/1/respond",
+            body: OrderRespondRequest(action: .accept)
+        )
+        let _: EmptyResponse = try await client.post("/api/orders/1/en-route")
+        let _: EmptyResponse = try await client.post("/api/orders/1/arrived")
+        let _: EmptyResponse = try await client.post("/api/orders/1/mock-start-service")
+        let detail: OrderDetailResponse = try await client.get("/api/orders/1")
+
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: speechService, initialOrder: detail)
+
+        await viewModel.complete(summary: "已完成")
+
+        XCTAssertEqual(viewModel.order?.status, .completed)
+        XCTAssertEqual(viewModel.dispatchSummary?.completedCount, 2)
+        XCTAssertEqual(viewModel.dispatchSummary?.resolvedPointsBalance, 200)
+    }
+
+    func testVolunteerTravelStageUsesDepartureCopyBeforeArrival() {
+        XCTAssertEqual(RunOrderStatus.pendingAccept.serviceStageTitle, "前往出发地点")
+        XCTAssertEqual(RunOrderStatus.driverEnRoute.serviceStageTitle, "前往出发地点")
+        XCTAssertEqual(RunOrderStatus.driverArrived.serviceStageTitle, "已到达集合地点")
+        XCTAssertEqual(RunOrderStatus.inProgress.serviceStageTitle, "服务进行中")
+        XCTAssertEqual(
+            RunOrderStatus.pendingAccept.serviceStageSubtitle,
+            "请确认当前位置和出发地点，可使用外部地图步行导航"
+        )
+    }
+
+    func testVolunteerServiceActionKindsMatchFormalStateMachine() {
+        XCTAssertEqual(
+            VolunteerServiceActions.actionKinds(for: .pendingAccept).map(\.title),
+            ["导航到出发地点", "我已出发", "取消订单"]
+        )
+        XCTAssertEqual(
+            VolunteerServiceActions.actionKinds(for: .driverEnRoute).map(\.title),
+            ["导航到出发地点", "我已到达约定地点"]
+        )
+        XCTAssertEqual(
+            VolunteerServiceActions.actionKinds(for: .driverArrived).map(\.title),
+            ["已到达，等待服务开始"]
+        )
+        XCTAssertEqual(
+            VolunteerServiceActions.actionKinds(for: .inProgress).map(\.title),
+            ["结束服务"]
+        )
+    }
+
+    func testVolunteerServiceMapPresentationUsesStartMarkerAsPrimaryMarker() {
+        let current = CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074)
+        let order = makeOrder(orderId: 1, status: .pendingAccept)
+
+        let presentation = VolunteerServiceMapPresentation(
+            order: order,
+            currentLocation: current,
+            locationAuthorized: true,
+            fallbackCoordinate: current
+        )
+
+        XCTAssertEqual(presentation.annotations.count, 1)
+        XCTAssertEqual(presentation.annotations[0].title, "出发地点")
+        XCTAssertEqual(presentation.annotations[0].kind, .orderStart)
+        XCTAssertTrue(presentation.isCurrentLocationAvailable)
+        XCTAssertFalse(presentation.hasCurrentLocationMarker)
+        XCTAssertEqual(presentation.centerCoordinate.latitude, 39.9342, accuracy: 0.000001)
+        XCTAssertEqual(presentation.centerCoordinate.longitude, 116.4740, accuracy: 0.000001)
+    }
+
+    func testVolunteerDispatchMapPresentationShowsCurrentAndStartMarkers() {
+        let current = CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074)
+        let order = makeDispatchOrder(orderId: 1)
+
+        let presentation = VolunteerServiceMapPresentation(
+            dispatchOrder: order,
+            currentLocation: current,
+            locationAuthorized: true,
+            fallbackCoordinate: current
+        )
+
+        XCTAssertEqual(presentation.annotations.count, 2)
+        XCTAssertEqual(presentation.annotations[0].title, "我的位置")
+        XCTAssertEqual(presentation.annotations[0].kind, .currentLocation)
+        XCTAssertEqual(presentation.annotations[1].title, "出发地点")
+        XCTAssertEqual(presentation.annotations[1].kind, .orderStart)
+        XCTAssertTrue(presentation.isCurrentLocationAvailable)
+        XCTAssertTrue(presentation.hasCurrentLocationMarker)
+        XCTAssertEqual(presentation.centerCoordinate.latitude, 39.9192, accuracy: 0.000001)
+        XCTAssertEqual(presentation.centerCoordinate.longitude, 116.4407, accuracy: 0.000001)
+    }
+
+    func testVolunteerServiceMapPresentationFallsBackToStartMarkerWithoutLocation() {
+        let fallback = CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074)
+        let order = makeOrder(orderId: 1, status: .driverEnRoute)
+
+        let presentation = VolunteerServiceMapPresentation(
+            order: order,
+            currentLocation: nil,
+            locationAuthorized: false,
+            fallbackCoordinate: fallback
+        )
+
+        XCTAssertEqual(presentation.annotations.count, 1)
+        XCTAssertEqual(presentation.annotations[0].kind, .orderStart)
+        XCTAssertFalse(presentation.isCurrentLocationAvailable)
+        XCTAssertFalse(presentation.hasCurrentLocationMarker)
+        XCTAssertEqual(presentation.centerCoordinate.latitude, 39.9342, accuracy: 0.000001)
+        XCTAssertEqual(presentation.centerCoordinate.longitude, 116.4740, accuracy: 0.000001)
+    }
+
+    func testExternalMapNavigationAvailabilityFiltersThirdPartySchemes() {
+        let providers = ExternalMapNavigationAvailability.availableProviders { url in
+            url.scheme == "iosamap"
+        }
+
+        XCTAssertEqual(providers, [.amap, .appleMaps])
+    }
+
+    func testAMapWalkingURLIncludesOriginDestinationAndWalkingMode() throws {
+        let request = makeNavigationRequest()
+
+        let url = try XCTUnwrap(ExternalMapNavigationURLBuilder.amapWalkingURL(request: request))
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let query = try XCTUnwrap(components.queryItems).reduce(into: [String: String]()) { result, item in
+            result[item.name] = item.value
+        }
+
+        XCTAssertEqual(components.scheme, "iosamap")
+        XCTAssertEqual(components.host, "path")
+        XCTAssertEqual(query["slat"], "39.904200")
+        XCTAssertEqual(query["slon"], "116.407400")
+        XCTAssertEqual(query["sname"], "我的位置")
+        XCTAssertEqual(query["dlat"], "39.934200")
+        XCTAssertEqual(query["dlon"], "116.474000")
+        XCTAssertEqual(query["dname"], "朝阳公园南门")
+        XCTAssertEqual(query["t"], "2")
+        XCTAssertEqual(query["dev"], "0")
+    }
+
+    func testBaiduWalkingURLIncludesGCJ02WalkingDirections() throws {
+        let request = makeNavigationRequest()
+
+        let url = try XCTUnwrap(ExternalMapNavigationURLBuilder.baiduWalkingURL(request: request))
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let query = try XCTUnwrap(components.queryItems).reduce(into: [String: String]()) { result, item in
+            result[item.name] = item.value
+        }
+
+        XCTAssertEqual(components.scheme, "baidumap")
+        XCTAssertEqual(components.host, "map")
+        XCTAssertEqual(components.path, "/direction")
+        XCTAssertEqual(query["mode"], "walking")
+        XCTAssertEqual(query["coord_type"], "gcj02")
+        XCTAssertEqual(query["origin"], "latlng:39.904200,116.407400|name:我的位置")
+        XCTAssertEqual(query["destination"], "latlng:39.934200,116.474000|name:朝阳公园南门")
+    }
+
+    func testBlindRunnerActiveOrderPollingIntervalStaysFiveSeconds() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.order = makeOrder(orderId: 1, status: .inProgress)
+
+        XCTAssertEqual(viewModel.effectivePollingInterval, AppConstants.Timing.orderPollingInterval)
+    }
+
+    func testBlindRunnerCompletedOrderSubmitsReviewRequest() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.order = makeOrder(orderId: 2, status: .completed)
+        viewModel.reviewRating = 5
+        viewModel.reviewComment = "体验很好"
+
+        await viewModel.submitReview()
+
+        XCTAssertTrue(viewModel.didSubmitReview)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(speechService.lastSpokenText, "评价已提交，感谢反馈。")
+    }
+
+    func testBlindRunnerRepeatStatusSpeaksInServiceState() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.order = makeOrder(orderId: 1, status: .inProgress)
+
+        viewModel.repeatStatus()
+
+        XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.inProgress.blindRunnerAnnouncement)
     }
 
     // MARK: - Helpers
@@ -975,6 +1387,15 @@ final class blindRunTests: XCTestCase {
         )
     }
 
+    private func makeNavigationRequest() -> ExternalMapNavigationRequest {
+        ExternalMapNavigationRequest(
+            originCoordinate: CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074),
+            originName: "我的位置",
+            destinationCoordinate: CLLocationCoordinate2D(latitude: 39.9342, longitude: 116.4740),
+            destinationName: "朝阳公园南门"
+        )
+    }
+
     private func waitUntil(
         timeout: TimeInterval = 2,
         condition: @escaping @MainActor () -> Bool
@@ -992,11 +1413,13 @@ final class blindRunTests: XCTestCase {
     private func makeVolunteerProfile(
         name: String = "测试志愿者",
         verificationStatus: String = "not_submitted",
+        adminReviewStatus: String? = nil,
         isAvailable: Bool = false
     ) -> VolunteerProfileResponse {
         VolunteerProfileResponse(
             name: name,
             verificationStatus: verificationStatus,
+            adminReviewStatus: adminReviewStatus,
             isAvailable: isAvailable,
             availableTimeSlots: nil,
             acceptsGuideDog: nil,

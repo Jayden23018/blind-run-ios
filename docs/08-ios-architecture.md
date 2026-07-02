@@ -25,7 +25,7 @@ Suggested source groups:
 - `BlindRunner`: blind runner home, profile, booking, order status
 - `Volunteer`: volunteer home dispatch workbench, availability, WebSocket dispatch prompts, active orders, service records, points
 - `Orders`: order DTOs, order state machine helpers, polling
-- `Map`: AMap bridge, current location, markers, distance calculation
+- `Map`: AMap bridge, current location, markers, distance calculation, external map app navigation launchers
 - `Voice`: TTS, repeat current status, speech input helpers
 - `Safety`: emergency confirmation and cancellation confirmation flows
 - `Profile`: blind runner and volunteer profile forms
@@ -43,9 +43,10 @@ Recommended examples:
 
 - `AuthViewModel`: phone and code login.
 - `BlindBookingViewModel`: location permission, default start coordinate, booking form validation, create order.
-- `BlindOrderStatusViewModel`: WebSocket status events, 5-second polling fallback, status TTS, cancel, emergency.
+- `BlindOrderStatusViewModel`: WebSocket status events, 5-second polling fallback, status TTS, cancel, completed/rating UI, emergency placeholder.
 - `VolunteerHomeViewModel`: availability, current location, dispatch summary, readiness reasons, temporary points, active/recent orders, WebSocket dispatch.
-- `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, finish, cancel, emergency event.
+- `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, strict IN_PROGRESS finish gate, cancel, emergency placeholder.
+- `VolunteerInServiceViewModel`: active order polling, en-route/arrived/finish actions, strict IN_PROGRESS finish gate, service-completion refresh.
 
 ## 4. API Environment Switch
 
@@ -152,6 +153,7 @@ Stop polling when:
 - Main flow nodes call TTS through a shared `SpeechService`.
 - Every key blind runner page has a “重复当前状态” button.
 - Dangerous actions require confirmation: cancel order, emergency, complete service, logout.
+- Emergency controls are placeholder-only for this change; production emergency recording must be re-enabled by a dedicated safety change.
 
 ## 10. Demo Acceptance Flow
 
@@ -164,9 +166,9 @@ The iOS app must support a two-device demo:
 5. Blind runner polling shows `PENDING_ACCEPT`.
 6. Volunteer marks `DRIVER_EN_ROUTE`, then `DRIVER_ARRIVED`.
 7. Cloud status reaches `IN_PROGRESS`.
-8. Volunteer completes service with optional summary.
+8. Volunteer completes service with optional summary; iOS must not call `/api/orders/{id}/finish` before `IN_PROGRESS`.
 9. Blind runner sees `COMPLETED` and optional rating UI.
 
 ## 11. Roadmap Capabilities
 
-Do not implement Android, real SMS, real identity verification, full admin backend, real-time track sharing, app chat, AI assistant, route navigation, automatic calls, automatic SMS, complex risk control, fall detection, geofencing, instant call, payment, stock, or full points shop. WebSocket is in scope only for cloud contract real-time dispatch, status notifications, and location updates.
+Do not implement Android, real SMS, real identity verification, full admin backend, real-time track sharing, app chat, AI assistant, App 内路线规划, automatic calls, automatic SMS, complex risk control, fall detection, geofencing, instant call, payment, stock, or full points shop. WebSocket is in scope only for cloud contract real-time dispatch, status notifications, and location updates. 志愿者前往出发地点阶段允许通过 URL Scheme / MapKit 跳转外部地图 App 做步行导航，不涉及新增后端 API。

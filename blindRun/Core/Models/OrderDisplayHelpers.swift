@@ -33,13 +33,13 @@ extension RunOrderStatus {
         case .driverEnRoute:
             return "志愿者正在赶来。"
         case .driverArrived:
-            return "志愿者已到达约定地点。"
+            return arrivedWaitingCopy
         case .completed:
             return "服务已完成，感谢使用助盲跑。"
         case .cancelled:
             return "本次预约已取消。"
         case .rematching:
-            return "正在重新匹配志愿者。"
+            return "正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"
         case .noVolunteer:
             return "暂时没有可用志愿者，请稍后重试。"
         }
@@ -56,13 +56,13 @@ extension RunOrderStatus {
         case .driverEnRoute:
             return "志愿者正在赶来，请耐心等待。"
         case .driverArrived:
-            return "志愿者已到达约定地点。"
+            return "志愿者已到达约定地点，等待服务开始。"
         case .completed:
             return "服务已完成，感谢使用助盲跑。"
         case .cancelled:
             return "本次预约已取消。"
         case .rematching:
-            return "正在重新为您匹配志愿者，请稍候。"
+            return "正在确认志愿者状态，请稍候。"
         case .noVolunteer:
             return "暂时没有可用志愿者。"
         }

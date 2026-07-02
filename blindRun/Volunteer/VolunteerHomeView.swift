@@ -20,6 +20,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var dispatchCountdown: Int = 0
     @Published var isRespondingToDispatch = false
     @Published var acceptedDispatchOrderId: Int64?
+    @Published var acceptedDispatchInitialOrder: OrderDetailResponse?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -66,6 +67,15 @@ final class VolunteerHomeViewModel: ObservableObject {
     ) {
         guard let order = incomingOrder else { return }
         guard let appState else { return }
+        if accept,
+           let message = VolunteerOrderActionGuard.acceptBlockMessage(
+               profile: appState.volunteerProfile,
+               locationAuthorized: locationAuthorized
+           ) {
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
         isRespondingToDispatch = true
         Task {
             do {
@@ -82,7 +92,12 @@ final class VolunteerHomeViewModel: ObservableObject {
                     body: request
                 )
                 let acceptedOrderId = accept ? order.orderId : nil
+                let acceptedOrder = await refreshAfterDispatchResponse(
+                    acceptedOrderId: acceptedOrderId,
+                    appState: appState
+                )
                 dismissDispatch()
+                acceptedDispatchInitialOrder = acceptedOrder
                 acceptedDispatchOrderId = acceptedOrderId
                 speechService?.speak(accept ? "已接受订单" : "已拒绝订单")
             } catch let error as APIError {
@@ -103,6 +118,28 @@ final class VolunteerHomeViewModel: ObservableObject {
         incomingOrder = nil
         dispatchCountdown = 0
         isRespondingToDispatch = false
+    }
+
+    private func refreshAfterDispatchResponse(
+        acceptedOrderId: Int64?,
+        appState: AppState
+    ) async -> OrderDetailResponse? {
+        var acceptedOrder: OrderDetailResponse?
+
+        if let acceptedOrderId {
+            acceptedOrder = try? await appState.apiClient.get("/api/orders/\(acceptedOrderId)")
+            activeOrder = acceptedOrder
+        }
+
+        if let summary: VolunteerDispatchSummaryResponse = try? await appState.apiClient.get("/api/volunteer/dispatch-summary") {
+            apply(summary: summary)
+        }
+
+        if let acceptedOrder {
+            activeOrder = acceptedOrder
+        }
+
+        return acceptedOrder
     }
 
     private func subscribeToAppStateWebSocket(_ appState: AppState) {
@@ -221,6 +258,7 @@ final class VolunteerHomeViewModel: ObservableObject {
             let profile = VolunteerProfileResponse(
                 name: existingProfile?.name,
                 verificationStatus: existingProfile?.verificationStatus,
+                adminReviewStatus: existingProfile?.adminReviewStatus,
                 isAvailable: value,
                 wantsDispatch: value,
                 availableTimeSlots: existingProfile?.availableTimeSlots,
@@ -425,12 +463,16 @@ struct VolunteerHomeView: View {
                     set: { isPresented in
                         if !isPresented {
                             viewModel.acceptedDispatchOrderId = nil
+                            viewModel.acceptedDispatchInitialOrder = nil
                         }
                     }
                 )
             ) {
                 if let orderId = viewModel.acceptedDispatchOrderId {
-                    VolunteerOrderDetailView(orderId: orderId)
+                    VolunteerInServiceView(
+                        orderId: orderId,
+                        initialOrder: viewModel.acceptedDispatchInitialOrder
+                    )
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -448,6 +490,9 @@ struct VolunteerHomeView: View {
                         order: viewModel.incomingOrder!,
                         countdown: viewModel.dispatchCountdown,
                         isResponding: viewModel.isRespondingToDispatch,
+                        currentLocation: locationService.currentLocation,
+                        locationAuthorized: locationService.isAuthorized,
+                        fallbackCoordinate: locationService.effectiveLocation,
                         onAccept: {
                             viewModel.respondToDispatch(
                                 accept: true,
@@ -644,13 +689,7 @@ struct VolunteerHomeView: View {
     }
 
     private func currentOrderDestination(_ order: OrderDetailResponse) -> some View {
-        Group {
-            if order.status == .pendingAccept {
-                VolunteerOrderDetailView(orderId: order.orderId)
-            } else {
-                VolunteerInServiceView(orderId: order.orderId, initialOrder: order)
-            }
-        }
+        VolunteerInServiceView(orderId: order.orderId, initialOrder: order)
     }
 
     private func demandPanelDragGesture(proxy: GeometryProxy) -> some Gesture {
@@ -1060,6 +1099,9 @@ private struct VolunteerDispatchOverlay: View {
     let order: WSNewOrder
     let countdown: Int
     let isResponding: Bool
+    let currentLocation: CLLocationCoordinate2D?
+    let locationAuthorized: Bool
+    let fallbackCoordinate: CLLocationCoordinate2D
     let onAccept: () -> Void
     let onDecline: () -> Void
 
@@ -1074,6 +1116,8 @@ private struct VolunteerDispatchOverlay: View {
                     .font(.title2.bold())
                     .foregroundColor(AppColors.textPrimary)
                     .accessibilityAddTraits(.isHeader)
+
+                dispatchMap
 
                 VStack(alignment: .leading, spacing: 10) {
                     if let address = order.startAddress {
@@ -1121,6 +1165,16 @@ private struct VolunteerDispatchOverlay: View {
                             Text("配速：")
                                 .foregroundColor(AppColors.textSecondary)
                             Text(PacePreference(rawValue: pace)?.displayName ?? pace)
+                                .foregroundColor(AppColors.textPrimary)
+                        }
+                        .font(AppFonts.body())
+                    }
+
+                    if order.hasGuideDog == true {
+                        HStack {
+                            Text("导盲犬：")
+                                .foregroundColor(AppColors.textSecondary)
+                            Text("本次携带")
                                 .foregroundColor(AppColors.textPrimary)
                         }
                         .font(AppFonts.body())
@@ -1188,6 +1242,37 @@ private struct VolunteerDispatchOverlay: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("新订单派单通知，剩余\(countdown)秒")
+    }
+
+    private var dispatchMap: some View {
+        let presentation = VolunteerServiceMapPresentation(
+            dispatchOrder: order,
+            currentLocation: currentLocation,
+            locationAuthorized: locationAuthorized,
+            fallbackCoordinate: fallbackCoordinate
+        )
+        return MapViewWrapper(
+            centerCoordinate: presentation.centerCoordinate,
+            showsUserLocation: locationAuthorized,
+            annotations: presentation.annotations,
+            zoomLevel: 15,
+            showsCompass: false
+        )
+        .frame(height: 160)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(alignment: .topLeading) {
+            VolunteerMapLegend(
+                showsCurrentLocation: presentation.hasCurrentLocationMarker,
+                showsMissingLocationNotice: !presentation.isCurrentLocationAvailable
+            )
+            .padding(8)
+        }
+        .accessibilityLabel(
+            presentation.hasCurrentLocationMarker
+                ? "派单地图，显示我的位置和出发地点"
+                : "派单地图，红色标记显示出发地点"
+        )
+        .accessibilityHint("地图用于确认接单距离和出发地点")
     }
 }
 

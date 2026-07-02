@@ -16,6 +16,7 @@ private enum BlindRunnerRoute: Hashable {
 final class BlindRunnerHomeViewModel: ObservableObject {
     @Published var activeOrder: OrderDetailResponse?
     @Published var isLoading = false
+    @Published var isPerformingAction = false
     @Published var errorMessage: String?
 
     private weak var appState: AppState?
@@ -26,6 +27,10 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             return "当前没有进行中的预约。"
         }
         return "当前订单：\(activeOrder.status.displayName)，\(activeOrder.startAddress ?? "")"
+    }
+
+    var canCancelActiveOrder: Bool {
+        activeOrder?.status.canCancel == true
     }
 
     func configure(with appState: AppState, speechService: SpeechService) {
@@ -80,6 +85,37 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             speechService?.speak("当前没有进行中的预约。当前位置：\(locationDescription)。可以点击开始约跑。")
         }
     }
+
+    func cancelActiveOrder() async {
+        guard let activeOrder, let appState else { return }
+        await performAction(failureMessage: "取消失败。") {
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(activeOrder.orderId)/cancel")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(activeOrder.orderId)")
+            self.activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
+            self.speechService?.speakStatusChange(updated.status)
+        }
+    }
+
+    private func performAction(
+        failureMessage: String,
+        operation: () async throws -> Void
+    ) async {
+        isPerformingAction = true
+        errorMessage = nil
+
+        do {
+            try await operation()
+            isPerformingAction = false
+        } catch let error as APIError {
+            isPerformingAction = false
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+        } catch {
+            isPerformingAction = false
+            errorMessage = failureMessage
+            speechService?.speakError(failureMessage)
+        }
+    }
 }
 
 // MARK: - Blind Runner Home View
@@ -90,6 +126,7 @@ struct BlindRunnerHomeView: View {
     @EnvironmentObject private var locationService: LocationService
     @StateObject private var viewModel = BlindRunnerHomeViewModel()
     @State private var path: [BlindRunnerRoute] = []
+    @State private var showCancelConfirmation = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -159,6 +196,16 @@ struct BlindRunnerHomeView: View {
             }
             .task {
                 await viewModel.loadActiveOrder()
+            }
+            .confirmationDialog("取消订单", isPresented: $showCancelConfirmation) {
+                Button("确认取消", role: .destructive) {
+                    Task {
+                        await viewModel.cancelActiveOrder()
+                    }
+                }
+                Button("不取消", role: .cancel) {}
+            } message: {
+                Text("确认取消本次预约？取消后将结束本次服务。")
             }
         }
     }
@@ -233,6 +280,19 @@ struct BlindRunnerHomeView: View {
             }
             .accessibilityLabel("查看当前订单")
             .accessibilityHint("点击后查看订单状态详情")
+
+            if viewModel.canCancelActiveOrder {
+                Button("取消订单") {
+                    showCancelConfirmation = true
+                }
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.destructive)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+                .disabled(viewModel.isPerformingAction)
+                .accessibilityLabel("取消订单")
+                .accessibilityHint("需要确认后取消当前订单")
+            }
         }
     }
 

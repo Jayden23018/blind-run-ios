@@ -23,7 +23,7 @@ Use iOS native `AVSpeechSynthesizer` for TTS.
 - 志愿者已到达
 - 服务已开始
 - 服务已完成
-- 进入求助状态
+- 求助占位提示
 - 错误提示
 
 Implementation guidance:
@@ -96,12 +96,11 @@ Emergency confirmation copy must be:
 
 > 是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。
 
-After emergency confirmation:
+For this formal dispatch change, emergency confirmation is placeholder-only:
 
-- The app records an emergency event through `POST /api/emergency/trigger`; the order status itself is not changed to emergency.
-- TTS announces entry into emergency state.
-- Current emergency flow does not restore the previous state.
-- Auto-call, auto-SMS, or real administrator notification require explicit user authorization, backend contract, and compliance review.
+- The app shows and speaks that the production emergency workflow is not yet online.
+- The app does not call `POST /api/emergency/trigger`, does not submit GPS, and does not notify the other party in this change.
+- Production emergency recording, auto-call, auto-SMS, or real administrator notification require explicit user authorization, backend contract, and compliance review.
 
 ## 7. Status Copy
 
@@ -112,12 +111,12 @@ Recommended status announcements:
 - `PENDING_MATCH`: “订单提交成功，系统正在为你派单。”
 - `PENDING_ACCEPT`: “志愿者已接单，请等待志愿者出发。”
 - `DRIVER_EN_ROUTE`: “志愿者已出发，正在赶往您的位置。”
-- `DRIVER_ARRIVED`: “志愿者已到达，请准备开始服务。”
+- `DRIVER_ARRIVED`: “志愿者已到达，请等待服务开始。”
 - `IN_PROGRESS`: “服务已开始，请注意安全。”
 - `COMPLETED`: “服务已完成，感谢使用助盲跑。”
 - `CANCELLED`: “本次预约已取消。”
 - `NO_VOLUNTEER`: “暂时没有可用志愿者。”
-- emergency event: “已进入求助状态，系统已记录本次异常。”
+- 求助占位提示：“求助流程暂未上线，请按既定人工安全预案处理。”
 
 ## 8. Volunteer Accessibility
 

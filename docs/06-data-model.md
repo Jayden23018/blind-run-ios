@@ -49,7 +49,7 @@
 
 取消流转：`PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS -> CANCELLED`。
 
-求助流转：`DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> emergency event`，通过 `POST /api/emergency/trigger` 记录事件，订单状态不改为 emergency。
+求助入口：`DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS` 可显示占位提示。本变更不调用 `POST /api/emergency/trigger`，生产 emergency event 记录需后续安全专项恢复。
 
 ### CancellationActor
 
@@ -218,6 +218,7 @@ Rules:
 - 用户手动取消原因只能来自 `ManualCancellationReason`。
 - 系统超时取消使用 `cancelledReason = no_volunteer_available`，不设置 `cancelledBy`。
 - 终态 `COMPLETED`、`CANCELLED`、`NO_VOLUNTEER` 不可取消。
+- 志愿者只能在 `IN_PROGRESS` 调用 `/api/orders/{id}/finish`；`DRIVER_ARRIVED` 必须等待云端推进到 `IN_PROGRESS`。
 
 ### EmergencyEvent
 
@@ -232,8 +233,9 @@ Rules:
 
 Rules:
 
-- `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 状态显示一键求助入口。
-- 确认求助后记录 emergency event，订单状态不改为 emergency。
+- `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 状态显示一键求助占位入口。
+- 本变更确认求助后仅显示占位提示，不提交后台 emergency event，不改变订单状态。
+- 生产 emergency event 记录、GPS 提交、通知和升级处理需后续安全专项重新启用。
 
 ### ServiceSummary
 
@@ -248,6 +250,7 @@ Rules:
 Rules:
 
 - 当前由志愿者点击“结束服务”并可选填服务总结。
+- 服务总结只能在订单状态为 `IN_PROGRESS` 时提交；`DRIVER_ARRIVED` 不是可结束状态。
 
 ### Rating
 
@@ -262,6 +265,8 @@ Rules:
 | `createdAt` | Instant | Yes | 创建时间 |
 
 Rules:
+
+- 盲人端在 `COMPLETED` 后可通过 `POST /api/orders/{id}/review` 提交 `CreateReviewRequest(rating, comment)`，也可跳过并返回首页。
 
 - 盲人端可展示星级评分 UI，当前不强制提交。
 

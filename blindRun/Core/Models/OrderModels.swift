@@ -2,6 +2,13 @@ import Foundation
 
 // MARK: - Order Status
 
+enum BlindRunnerOrderRoute: String, Sendable {
+    case tracking
+    case inService
+    case completion
+    case terminal
+}
+
 enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     case pendingMatch = "PENDING_MATCH"
     case pendingAccept = "PENDING_ACCEPT"
@@ -49,7 +56,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     /// Whether the order can be cancelled by user
     var canCancel: Bool {
         switch self {
-        case .pendingMatch, .pendingAccept, .inProgress:
+        case .pendingMatch, .pendingAccept, .inProgress, .rematching:
             return true
         default:
             return false
@@ -58,6 +65,48 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 
     /// Whether the emergency trigger is available
     var canTriggerEmergency: Bool {
+        showsEmergencyPlaceholder
+    }
+
+    var blindRunnerRoute: BlindRunnerOrderRoute {
+        switch self {
+        case .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .rematching:
+            return .tracking
+        case .inProgress:
+            return .inService
+        case .completed:
+            return .completion
+        case .cancelled, .noVolunteer:
+            return .terminal
+        }
+    }
+
+    var canFinishService: Bool {
+        self == .inProgress
+    }
+
+    var isArrivedWaitingForServiceStart: Bool {
+        self == .driverArrived
+    }
+
+    var arrivedWaitingCopy: String {
+        "志愿者已到达约定地点，正在等待系统确认服务开始。服务开始前不能结束订单。"
+    }
+
+    var finishBlockedMessage: String {
+        switch self {
+        case .driverArrived:
+            return arrivedWaitingCopy
+        case .completed:
+            return "服务已完成，不能重复结束。"
+        case .cancelled, .noVolunteer:
+            return "订单已结束，不能结束服务。"
+        default:
+            return "当前订单状态尚未进入服务中，不能结束服务。"
+        }
+    }
+
+    var showsEmergencyPlaceholder: Bool {
         switch self {
         case .inProgress, .driverEnRoute, .driverArrived:
             return true

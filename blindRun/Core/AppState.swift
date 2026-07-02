@@ -70,17 +70,15 @@ final class AppState: ObservableObject {
     }
 
     var isVolunteerProfileComplete: Bool {
-        guard let profile = volunteerProfile,
-              let name = profile.name,
-              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let profile = volunteerProfile else {
             return false
         }
-        return true
+        return profile.isProfileCompleteForDispatch
     }
 
     var isVolunteerProfileApproved: Bool {
         guard let profile = volunteerProfile else { return false }
-        return profile.verificationStatus?.lowercased() == "approved"
+        return profile.isCertificationApproved && profile.isAdminReviewApprovedWhenAvailable
     }
 
     /// 根据当前环境返回对应的 API Client

@@ -5,11 +5,18 @@ import SwiftUI
 // MARK: - Map Annotation Item
 
 /// 地图标注数据模型
+enum MapAnnotationKind: Equatable, Sendable {
+    case orderStart
+    case currentLocation
+    case generic
+}
+
 struct MapAnnotationItem: Identifiable {
     let id: String
     let coordinate: CLLocationCoordinate2D
     let title: String?
     let subtitle: String?
+    var kind: MapAnnotationKind = .orderStart
 }
 
 // MARK: - AMap Container
@@ -88,11 +95,20 @@ struct AMapContainer: UIViewRepresentable {
 
         // 添加新标注
         for item in annotations {
-            let annotation = MAPointAnnotation()
+            let annotation = StyledMapPointAnnotation(item: item)
             annotation.coordinate = item.coordinate
             annotation.title = item.title
             annotation.subtitle = item.subtitle
             mapView.addAnnotation(annotation)
+        }
+    }
+
+    private final class StyledMapPointAnnotation: MAPointAnnotation {
+        let kind: MapAnnotationKind
+
+        init(item: MapAnnotationItem) {
+            self.kind = item.kind
+            super.init()
         }
     }
 
@@ -108,15 +124,29 @@ struct AMapContainer: UIViewRepresentable {
                 return nil
             }
 
-            let reuseID = "OrderPin"
+            let kind = (annotation as? StyledMapPointAnnotation)?.kind ?? .generic
+            let reuseID = "OrderPin-\(kind)"
             var annotationView = mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MAPinAnnotationView
             if annotationView == nil {
                 annotationView = MAPinAnnotationView(annotation: annotation, reuseIdentifier: reuseID)
             }
             annotationView?.canShowCallout = true
             annotationView?.animatesDrop = true
-            annotationView?.pinColor = .red
+            annotationView?.pinColor = kind.pinColor
             return annotationView
+        }
+    }
+}
+
+private extension MapAnnotationKind {
+    var pinColor: MAPinAnnotationColor {
+        switch self {
+        case .orderStart:
+            return .red
+        case .currentLocation:
+            return .green
+        case .generic:
+            return .purple
         }
     }
 }

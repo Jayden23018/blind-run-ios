@@ -17,7 +17,7 @@ flowchart TD
         CreateBooking["创建预约页"]
         BR_OrderStatus["订单状态等待页\n(PENDING_MATCH/PENDING_ACCEPT/DRIVER_ARRIVED)"]
         BR_InService["盲人服务中页\n(IN_PROGRESS)"]
-        BR_Emergency["紧急求助提示\n(emergency event)"]
+        BR_Emergency["紧急求助占位提示"]
         BR_Completed["完成/评分页\n(COMPLETED)"]
     end
 
@@ -44,20 +44,19 @@ flowchart TD
     BR_Home -->|"开始约跑"| CreateBooking
     BR_Home -->|"查看当前订单"| BR_OrderStatus
     CreateBooking -->|"提交预约"| BR_OrderStatus
-    BR_OrderStatus -->|"志愿者到达"| BR_InService
+    BR_OrderStatus -->|"服务开始"| BR_InService
     BR_OrderStatus -->|"取消订单"| BR_Home
-    BR_OrderStatus -->|"记录紧急事件"| BR_Emergency
+    BR_OrderStatus -->|"求助占位提示"| BR_Emergency
     BR_InService -->|"服务完成"| BR_Completed
-    BR_InService -->|"记录紧急事件"| BR_Emergency
+    BR_InService -->|"求助占位提示"| BR_Emergency
     BR_Completed -->|"评分/返回"| BR_Home
     BR_Emergency --> BR_Home
 
     VOL_Home -->|"收到 NEW_ORDER"| VOL_DispatchPrompt
-    VOL_DispatchPrompt -->|"接受派单"| VOL_OrderDetail
-    VOL_OrderDetail -->|"服务操作"| VOL_InService
-    VOL_OrderDetail -->|"查看出发点位置(AMap)"| VOL_InService
+    VOL_DispatchPrompt -->|"接受派单"| VOL_InService
+    VOL_OrderDetail -->|"调试/兼容接单成功"| VOL_InService
     VOL_InService -->|"结束服务"| VOL_Home
-    VOL_InService -->|"记录紧急事件"| BR_Emergency
+    VOL_InService -->|"求助占位提示"| BR_Emergency
 
     VOL_Home -->|"服务记录"| VOL_History
     VOL_Home -->|"积分商城"| VOL_Points
@@ -83,14 +82,15 @@ stateDiagram-v2
     PENDING_ACCEPT --> CANCELLED: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
 
     DRIVER_EN_ROUTE --> DRIVER_ARRIVED: 志愿者点击"我已到达"\n(API: POST /api/orders/{orderId}/arrived)
-    DRIVER_EN_ROUTE --> emergency_event: 任一方触发求助\n(API: POST /api/emergency/trigger)
+    DRIVER_EN_ROUTE --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
 
     DRIVER_ARRIVED --> IN_PROGRESS: 服务开始\n(云端状态通知)
-    DRIVER_ARRIVED --> emergency_event: 任一方触发求助\n(API: POST /api/emergency/trigger)
+    DRIVER_ARRIVED --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
 
     IN_PROGRESS --> COMPLETED: 志愿者结束服务\n(API: POST /api/orders/{orderId}/finish)
     IN_PROGRESS --> CANCELLED: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
-    IN_PROGRESS --> emergency_event: 任一方触发求助\n(API: POST /api/emergency/trigger)
+    IN_PROGRESS --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
+    REMATCHING --> CANCELLED: 盲人取消\n(API: POST /api/orders/{orderId}/cancel；需后端确认)
 
     COMPLETED --> [*]: 订单结束
     CANCELLED --> [*]: 订单结束
@@ -106,15 +106,16 @@ stateDiagram-v2
 | PENDING_ACCEPT | DRIVER_EN_ROUTE | 志愿者 | 标记出发 |
 | PENDING_ACCEPT | CANCELLED | 盲人 / 志愿者 | 服务开始前可取消 |
 | DRIVER_EN_ROUTE | DRIVER_ARRIVED | 志愿者 | 标记到达 |
-| DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS | emergency event | 盲人 / 志愿者 | 通过 `POST /api/emergency/trigger` 记录求助事件，订单状态不改为 emergency |
-| DRIVER_ARRIVED | IN_PROGRESS | 系统 / 云端通知 | 服务开始；当前云端 REST 契约没有单独 start endpoint |
+| DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS | 求助占位提示 | 盲人 / 志愿者 | 本变更仅保留占位入口，不调用生产求助记录接口 |
+| DRIVER_ARRIVED | IN_PROGRESS | 系统 / 云端通知 | 服务开始；当前云端 REST 契约没有单独 start endpoint，iOS 不允许从 DRIVER_ARRIVED 直接结束 |
 | IN_PROGRESS | COMPLETED | 志愿者 | 正常结束 |
 | IN_PROGRESS | CANCELLED | 盲人 / 志愿者 | 服务中可取消 |
+| REMATCHING | CANCELLED | 盲人 | 重新匹配卡住时允许用户退出本次订单；需要后端确认 `/cancel` 接受该状态 |
 
 ### 禁止的流转
 
 - COMPLETED / CANCELLED / NO_VOLUNTEER → 任何状态（终态）
-- emergency event → 订单状态（求助是独立事件，不是订单状态流转）
+- 求助占位提示 → 订单状态（求助入口在本变更不改变订单状态）
 
 ## 3. 盲人跑者正向流程（Happy Path）
 
@@ -204,10 +205,9 @@ sequenceDiagram
     App->>API: WebSocket LOCATION_UPDATE（接单前补报当前位置）
     App->>API: POST /api/orders/{orderId}/respond (action=ACCEPT)
     API-->>App: { status: "PENDING_ACCEPT" }
-    App->>VOL: 显示盲人联系电话 + "查看地图"按钮
-
-    VOL->>App: 点击"查看地图"
-    App->>AMap: 显示出发点位置、当前位置和距离
+    App->>API: GET /api/orders/{orderId} + GET /api/volunteer/dispatch-summary
+    App->>VOL: 进入志愿者服务流，显示"前往出发地点"
+    App->>AMap: 服务流地图以红色出发地点为主标记，当前位置使用系统蓝点和距离文案辅助
 
     VOL->>App: 点击"我已出发"
     App->>API: POST /api/orders/{orderId}/en-route
@@ -228,13 +228,12 @@ sequenceDiagram
     App->>VOL: 显示"服务完成，获得 +100 积分"
 ```
 
-## 5. 紧急求助流程
+## 5. 紧急求助占位流程
 
 ```mermaid
 sequenceDiagram
     actor User as 任一方用户
     participant App as iOS App
-    participant API as 后端 API
     actor Other as 另一方用户
 
     Note over User,Other: 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
@@ -242,19 +241,10 @@ sequenceDiagram
     User->>App: 点击"紧急求助"按钮
     App->>User: 弹出确认弹窗\n"是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
     User->>App: 确认求助
-    App->>API: POST /api/emergency/trigger
-    Note over API: 记录 emergency event，订单状态不改为 emergency
-    API-->>App: { success: true }
+    App->>User: 显示"求助流程暂未上线，请按既定人工安全预案处理。"
+    Note over App: 本变更不调用 POST /api/emergency/trigger，不提交 GPS，不通知另一方
 
-    Note over App: TTS: "已进入求助状态"
-
-    loop 另一方轮询
-        Other->>API: GET /api/orders/{orderId}
-        API-->>Other: { type: "EMERGENCY_VOLUNTEER_ALERT" / "APP_NOTIFICATION" }
-        Note over Other: TTS: "进入求助状态" / UI 更新
-    end
-
-    Note over App,Other: 显示求助提示；后续处理通过 emergency event 跟踪
+    Note over App,Other: 生产求助记录、通知和升级流程需后续安全专项变更恢复
 ```
 
 ## 6. 角色切换拦截流程

@@ -5,17 +5,19 @@ import SwiftUI
 
 enum VolunteerOrderActionGuard {
     static func acceptBlockMessage(profile: VolunteerProfileResponse?) -> String? {
-        guard let profile,
-              let name = profile.name,
-              !name.trimmed.isEmpty else {
+        guard let profile, profile.isProfileCompleteForDispatch else {
             return "请先完善志愿者资料"
         }
 
-        guard profile.verificationStatus?.lowercased() == "approved" else {
+        guard profile.isCertificationApproved else {
             return "请先完成志愿者认证"
         }
 
-        guard profile.isAvailable == true else {
+        guard profile.isAdminReviewApprovedWhenAvailable else {
+            return "请等待管理员审核通过"
+        }
+
+        guard profile.hasManualDispatchOptIn else {
             return "请先开启可服务状态"
         }
 
@@ -29,6 +31,7 @@ enum VolunteerOrderActionGuard {
 final class VolunteerProfileViewModel: ObservableObject {
     @Published var name = ""
     @Published var verificationStatus = "not_submitted"
+    @Published var adminReviewStatus: String?
     @Published var isLoading = false
     @Published var isCertificationRunning = false
     @Published var errorMessage: String?
@@ -43,7 +46,8 @@ final class VolunteerProfileViewModel: ObservableObject {
     }
 
     var isApproved: Bool {
-        verificationStatus.lowercased() == "approved"
+        verificationStatus.lowercased() == "approved" &&
+            ((adminReviewStatus?.lowercased() ?? "approved") == "approved")
     }
 
     var isPendingReview: Bool {
@@ -105,6 +109,7 @@ final class VolunteerProfileViewModel: ObservableObject {
         guard let profile = appState.volunteerProfile else { return }
         name = profile.name ?? ""
         verificationStatus = profile.verificationStatus?.lowercased() ?? "not_submitted"
+        adminReviewStatus = profile.adminReviewStatus?.lowercased()
     }
 
     func startMockCertification() {
@@ -146,6 +151,7 @@ final class VolunteerProfileViewModel: ObservableObject {
             )
             appState.updateVolunteerProfile(profile)
             verificationStatus = profile.verificationStatus?.lowercased() ?? "not_submitted"
+            adminReviewStatus = profile.adminReviewStatus?.lowercased()
             isCertificationRunning = false
         } catch let error as APIError {
             isCertificationRunning = false
@@ -187,6 +193,7 @@ final class VolunteerProfileViewModel: ObservableObject {
     private func apply(profile: VolunteerProfileResponse) {
         name = profile.name ?? ""
         verificationStatus = profile.verificationStatus?.lowercased() ?? "not_submitted"
+        adminReviewStatus = profile.adminReviewStatus?.lowercased()
     }
 }
 
@@ -323,6 +330,9 @@ struct VolunteerProfileView: View {
             }
 
             statusRow(title: "认证状态", value: viewModel.verificationStatus)
+            if let adminReviewStatus = viewModel.adminReviewStatus {
+                statusRow(title: "管理员审核", value: adminReviewStatus)
+            }
         }
         .padding()
         .background(AppColors.secondaryBackground)

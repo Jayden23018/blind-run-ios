@@ -8,6 +8,10 @@ final class BlindOrderStatusViewModel: ObservableObject {
     @Published var order: OrderDetailResponse?
     @Published var isLoading = false
     @Published var isPerformingAction = false
+    @Published var isSubmittingReview = false
+    @Published var reviewRating = 5
+    @Published var reviewComment = ""
+    @Published var didSubmitReview = false
     @Published var errorMessage: String?
 
     private weak var appState: AppState?
@@ -16,16 +20,13 @@ final class BlindOrderStatusViewModel: ObservableObject {
     private var currentOrderId: Int64?
     private var cancellables = Set<AnyCancellable>()
 
-    /// WebSocket 连接时轮询间隔加倍（降级模式用标准间隔）
-    private var effectivePollingInterval: TimeInterval {
-        if appState?.isWebSocketConnected == true {
-            return AppConstants.Timing.orderPollingInterval * 3
-        }
+    /// Active blind-runner orders keep the 5-second REST fallback even when WebSocket is connected.
+    var effectivePollingInterval: TimeInterval {
         return AppConstants.Timing.orderPollingInterval
     }
 
     var canShowEmergency: Bool {
-        order?.status.canTriggerEmergency == true
+        order?.status.showsEmergencyPlaceholder == true
     }
 
     var canShowCancel: Bool {
@@ -83,17 +84,46 @@ final class BlindOrderStatusViewModel: ObservableObject {
     }
 
     func enterEmergency() async {
-        guard let order, let appState else { return }
-        let request = EmergencyTriggerRequest(
-            orderId: order.orderId,
-            gpsLat: nil,
-            gpsLng: nil
-        )
-        await performAction(failureMessage: "求助操作失败，请重试。") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/emergency/trigger", body: request)
-            // Reload order to get updated status
-            await self.loadOrder(orderId: order.orderId, speakChanges: true)
+        errorMessage = EmergencySafetyCopy.deferredActionMessage
+        speechService?.speak(EmergencySafetyCopy.deferredActionMessage)
+    }
+
+    func submitReview() async {
+        guard let order, let appState, order.status == .completed else { return }
+        guard (1...5).contains(reviewRating) else {
+            errorMessage = "请选择 1 到 5 星评分。"
+            speechService?.speakError("请选择 1 到 5 星评分。")
+            return
         }
+
+        isSubmittingReview = true
+        errorMessage = nil
+        do {
+            let request = CreateReviewRequest(
+                rating: reviewRating,
+                comment: reviewComment.nilIfBlank
+            )
+            let _: EmptyResponse = try await appState.apiClient.post(
+                "/api/orders/\(order.orderId)/review",
+                body: request
+            )
+            isSubmittingReview = false
+            didSubmitReview = true
+            speechService?.speak("评价已提交，感谢反馈。")
+        } catch let error as APIError {
+            isSubmittingReview = false
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+        } catch {
+            isSubmittingReview = false
+            errorMessage = "评价提交失败，请稍后重试。"
+            speechService?.speakError("评价提交失败，请稍后重试。")
+        }
+    }
+
+    func skipReview() {
+        didSubmitReview = true
+        speechService?.speak("已跳过评价，返回首页。")
     }
 
     private var shouldContinuePolling: Bool {
@@ -213,6 +243,7 @@ struct BlindOrderStatusView: View {
 
                 if let order = viewModel.order {
                     statusHeader(order)
+                    lifecycleSection(order)
                     volunteerSection(order)
                     orderInfoSection(order)
                     actionSection(order)
@@ -294,6 +325,137 @@ struct BlindOrderStatusView: View {
     }
 
     @ViewBuilder
+    private func lifecycleSection(_ order: OrderDetailResponse) -> some View {
+        switch order.status.blindRunnerRoute {
+        case .tracking:
+            if order.status.isArrivedWaitingForServiceStart {
+                waitingForServiceStartSection(order)
+            }
+        case .inService:
+            inServiceSection(order)
+        case .completion:
+            completionRatingSection(order)
+        case .terminal:
+            terminalSection(order)
+        }
+    }
+
+    private func waitingForServiceStartSection(_ order: OrderDetailResponse) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("等待服务开始")
+                .font(.title3.bold())
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+            Text(order.status.arrivedWaitingCopy)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("等待服务开始，\(order.status.arrivedWaitingCopy)")
+    }
+
+    private func inServiceSection(_ order: OrderDetailResponse) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("服务进行中")
+                .font(.title3.bold())
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+            Text("请与志愿者保持沟通，注意安全。系统会持续同步订单状态，服务完成后进入评价页面。")
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.success.opacity(0.12))
+        .cornerRadius(8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("服务进行中，请与志愿者保持沟通，注意安全")
+    }
+
+    private func completionRatingSection(_ order: OrderDetailResponse) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("服务已完成")
+                .font(.title3.bold())
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+
+            if viewModel.didSubmitReview {
+                Text("感谢反馈，可以返回首页。")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityLabel("感谢反馈，可以返回首页")
+            } else {
+                Picker("评分", selection: $viewModel.reviewRating) {
+                    ForEach(1...5, id: \.self) { value in
+                        Text("\(value) 星").tag(value)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("服务评分")
+                .accessibilityHint("选择一到五星评分")
+
+                TextEditor(text: $viewModel.reviewComment)
+                    .frame(minHeight: 96)
+                    .padding(8)
+                    .background(AppColors.background)
+                    .cornerRadius(8)
+                    .accessibilityLabel("评价内容，选填")
+
+                PrimaryButton("提交评价", isLoading: viewModel.isSubmittingReview) {
+                    Task { await viewModel.submitReview() }
+                }
+                .accessibilityLabel("提交评价")
+                .accessibilityHint("提交本次服务评分和评价")
+
+                Button("跳过评价并返回首页") {
+                    viewModel.skipReview()
+                    dismiss()
+                }
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.textSecondary)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 52)
+                .accessibilityLabel("跳过评价并返回首页")
+            }
+
+            if viewModel.didSubmitReview {
+                PrimaryButton("返回首页") {
+                    dismiss()
+                }
+                .accessibilityLabel("返回首页")
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(8)
+    }
+
+    private func terminalSection(_ order: OrderDetailResponse) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(order.status.displayName)
+                .font(.title3.bold())
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+            Text(order.status.blindRunnerDescription)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(order.status.displayName)，\(order.status.blindRunnerDescription)")
+    }
+
+    @ViewBuilder
     private func volunteerSection(_ order: OrderDetailResponse) -> some View {
         if let volunteerPhone = order.volunteerPhone, !volunteerPhone.trimmed.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
@@ -366,6 +528,7 @@ struct BlindOrderStatusView: View {
     private func actionSection(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 14) {
             if viewModel.canShowEmergency {
+                EmergencyPlaceholderNotice()
                 EmergencyActionButton(isLoading: viewModel.isPerformingAction) {
                     showEmergencyConfirmation = true
                 }
@@ -383,7 +546,7 @@ struct BlindOrderStatusView: View {
                 .accessibilityHint("需要确认后取消")
             }
 
-            if order.status.isTerminal {
+            if order.status.isTerminal && order.status != .completed {
                 PrimaryButton("返回首页") {
                     dismiss()
                 }
@@ -428,7 +591,18 @@ struct BlindOrderStatusView: View {
                     .accessibilityLabel("模拟志愿者到达")
                 }
 
-                if order.status == .inProgress || order.status == .driverArrived {
+                if order.status == .driverArrived {
+                    Button("模拟服务开始") {
+                        Task {
+                            let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/mock-start-service")
+                            viewModel.startPolling(orderId: order.orderId)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("模拟服务开始")
+                }
+
+                if order.status == .inProgress {
                     Button("模拟服务完成") {
                         Task {
                             let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/finish")

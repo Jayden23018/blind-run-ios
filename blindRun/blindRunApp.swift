@@ -98,6 +98,7 @@ struct blindRunApp: App {
                 VolunteerProfileResponse(
                     name: "UITestVolunteer",
                     verificationStatus: "approved",
+                    adminReviewStatus: "approved",
                     isAvailable: isAvailable,
                     availableTimeSlots: [
                         VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "09:00:00", endTime: "12:00:00"),
