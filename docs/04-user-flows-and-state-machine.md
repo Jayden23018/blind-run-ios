@@ -90,7 +90,7 @@ stateDiagram-v2
     IN_PROGRESS --> COMPLETED: 志愿者结束服务\n(API: POST /api/orders/{orderId}/finish)
     IN_PROGRESS --> CANCELLED: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
     IN_PROGRESS --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
-    REMATCHING --> CANCELLED: 盲人取消\n(API: POST /api/orders/{orderId}/cancel；需后端确认)
+    REMATCHING --> CANCELLED: 盲人取消\n(API: POST /api/orders/{orderId}/cancel；盲人 token)
 
     COMPLETED --> [*]: 订单结束
     CANCELLED --> [*]: 订单结束
@@ -110,7 +110,7 @@ stateDiagram-v2
 | DRIVER_ARRIVED | IN_PROGRESS | 系统 / 云端通知 | 服务开始；当前云端 REST 契约没有单独 start endpoint，iOS 不允许从 DRIVER_ARRIVED 直接结束 |
 | IN_PROGRESS | COMPLETED | 志愿者 | 正常结束 |
 | IN_PROGRESS | CANCELLED | 盲人 / 志愿者 | 服务中可取消 |
-| REMATCHING | CANCELLED | 盲人 | 重新匹配卡住时允许用户退出本次订单；需要后端确认 `/cancel` 接受该状态 |
+| REMATCHING | CANCELLED | 盲人 | 志愿者主动取消已接单订单后进入重新匹配；盲人可用自己的 token 调用 `/cancel` 退出本次订单，志愿者 token 不适用 |
 
 ### 禁止的流转
 

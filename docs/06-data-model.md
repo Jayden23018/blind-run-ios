@@ -47,7 +47,7 @@
 
 正常流转：`PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED`。
 
-取消流转：`PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS -> CANCELLED`。
+取消流转：`PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS -> CANCELLED`；志愿者取消已接单订单后，盲人端可执行 `REMATCHING -> CANCELLED`。
 
 求助入口：`DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS` 可显示占位提示。本变更不调用 `POST /api/emergency/trigger`，生产 emergency event 记录需后续安全专项恢复。
 
@@ -215,6 +215,7 @@ Rules:
 Rules:
 
 - `PENDING_MATCH`、`PENDING_ACCEPT`、`IN_PROGRESS` 可普通取消。
+- 志愿者接单后主动取消会使盲人端订单进入 `REMATCHING`；盲人可用自己的 token 调用 `/api/orders/{id}/cancel` 取消该重新匹配订单，志愿者 token 不适用。
 - 用户手动取消原因只能来自 `ManualCancellationReason`。
 - 系统超时取消使用 `cancelledReason = no_volunteer_available`，不设置 `cancelledBy`。
 - 终态 `COMPLETED`、`CANCELLED`、`NO_VOLUNTEER` 不可取消。

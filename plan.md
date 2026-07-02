@@ -66,9 +66,9 @@ node scripts/cloud-e2e.mjs
 
 - 是否已有高德生产 key、Bundle ID 白名单和隐私合规材料。
 - 管理员审核页后续做成独立 Web 管理端；当前 iOS 用户端仅保留脚本级审核联调，不增加管理员入口。
-- 云端需确认志愿者接受派单后保持正式流转：`PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS`，不得在接单成功后直接返回 `IN_PROGRESS`。
-- 云端需确认已接单但尚未开始服务的订单不会仅因志愿者未立即开始服务而自动进入 `REMATCHING`；iOS 会保留真实后端状态并用稳定等待文案提示用户。
-- 云端需确认 `POST /api/orders/{id}/cancel` 接受 `REMATCHING` 状态；iOS 会在盲人端显示取消逃生按钮并调用现有取消接口。
-- 云端需确认志愿者到达后会可靠将订单从 `DRIVER_ARRIVED` 推进到 `IN_PROGRESS`；iOS 不提供 start-service endpoint，也不会从 `DRIVER_ARRIVED` 直接调用完成服务。
+- 云端已确认志愿者接受派单后按正式流转推进：`PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS`，iOS 真机验收需确认接单后不会直接进入 `IN_PROGRESS`。
+- 云端已确认不会因已接单订单尚未立即开始服务而自动进入 `REMATCHING`；若盲人端看到 `REMATCHING`，优先排查是否志愿者接单后主动取消。
+- 云端已确认 `POST /api/orders/{id}/cancel` 接受 `REMATCHING` 状态；iOS 必须使用盲人 token 调用该接口，志愿者 token 不应成功。
+- 云端负责将订单从 `DRIVER_ARRIVED` 推进到 `IN_PROGRESS`；iOS 不提供 start-service endpoint，也不会从 `DRIVER_ARRIVED` 直接调用完成服务。若真机验证卡在 `DRIVER_ARRIVED`，需要后端按订单 ID 排查状态推进日志。
 - 百度地图 `baidumap://map/direction` 跳转已按 GCJ-02 步行参数接入，发布前需在安装百度地图的真机上 smoke 验证。
 - 本变更将求助入口作为占位处理；若发布前恢复真实 emergency event，需要单独安全变更确认接口、GPS、通知、合规文案和验收测试。

@@ -46,8 +46,8 @@
 - [x] 5.3 Update `docs/06-data-model.md` for volunteer `adminReviewStatus`, strict finish eligibility, review submission, and deferred production emergency behavior.
 - [x] 5.4 Update `docs/08-ios-architecture.md`, `docs/09-accessibility-and-voice-guidelines.md`, and `docs/10-ai-coding-tasks.md` for the formal lifecycle, strict finish gate, and placeholder emergency scope.
 - [x] 5.5 Record any backend contract dependency that needs human confirmation, especially automatic transition from `DRIVER_ARRIVED` to `IN_PROGRESS`.
-- [x] 5.6 Record that accepting dispatch must not skip directly to `IN_PROGRESS`, and accepted-but-not-started orders must not move to `REMATCHING` solely because service was not immediately started.
-- [x] 5.7 Record that `/api/orders/{id}/cancel` support for `REMATCHING` needs backend confirmation.
+- [x] 5.6 Record that accepting dispatch must not skip directly to `IN_PROGRESS`, and that `REMATCHING` should first be investigated as a volunteer-cancel-after-acceptance path.
+- [x] 5.7 Record the backend-confirmed `/api/orders/{id}/cancel` support for `REMATCHING`, including the requirement to use the blind-runner token rather than the former volunteer token.
 
 ## 6. Validation
 

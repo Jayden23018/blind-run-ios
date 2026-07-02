@@ -166,6 +166,7 @@ PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_P
       ↓              ↓                  ↓                 ↓              ↓
   CANCELLED      CANCELLED          求助占位提示       求助占位提示     CANCELLED/COMPLETED
 
+REMATCHING → CANCELLED（盲人 token 调用 POST /api/orders/{orderId}/cancel）
 NO_VOLUNTEER（无可用志愿者）
 ```
 

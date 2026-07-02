@@ -221,7 +221,7 @@
 
 **验收标准**：
 
-**Given** 盲人跑者进入首页，且存在活跃订单（PENDING_MATCH / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS）
+**Given** 盲人跑者进入首页，且存在活跃订单（PENDING_MATCH / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS / REMATCHING）
 **When** 页面加载完成
 **Then** 不显示"开始约跑"按钮，改为显示订单状态卡片（含订单状态、时间、地点）
 **And** TTS 播报当前订单状态
@@ -348,7 +348,7 @@
 
 **验收标准**：
 
-**Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS
+**Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS，或订单因志愿者主动取消进入 REMATCHING
 **When** 用户点击"取消订单"并确认
 **Then** 订单状态变为 CANCELLED，cancelledBy = blind_runner，记录取消原因
 
@@ -357,6 +357,12 @@
 **Given** 订单状态为 IN_PROGRESS
 **When** 用户尝试取消订单
 **Then** 弹出二次确认，确认后订单状态变为 CANCELLED
+
+---
+
+**Given** 订单状态为 REMATCHING
+**When** 盲人跑者使用自己的账号点击"取消订单"并确认
+**Then** App 调用 `POST /api/orders/{id}/cancel`，订单状态变为 CANCELLED；志愿者 token 不用于该取消请求
 
 ---
 
@@ -645,6 +651,12 @@
 **Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS
 **When** 任一方触发取消
 **Then** 状态流转为 CANCELLED，记录 cancelledBy
+
+---
+
+**Given** 志愿者接单后主动取消，订单状态为 REMATCHING
+**When** 盲人跑者触发取消
+**Then** 状态流转为 CANCELLED，取消请求使用盲人 token；志愿者不再作为该订单参与者取消
 
 ---
 

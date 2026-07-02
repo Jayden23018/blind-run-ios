@@ -246,7 +246,7 @@
 - PENDING_MATCH → PENDING_ACCEPT：更新 UI + TTS "志愿者已接单"
 - PENDING_MATCH → CANCELLED / NO_VOLUNTEER：显示"暂时没有可用志愿者" + TTS
 - PENDING_ACCEPT / IN_PROGRESS / REMATCHING → CANCELLED：显示"预约已取消" + TTS
-- REMATCHING → CANCELLED 需后端确认 `/api/orders/{id}/cancel` 接受该状态；iOS 仅调用现有取消接口，不新增后端契约
+- REMATCHING → CANCELLED：后端已确认 `/api/orders/{id}/cancel` 接受该状态；iOS 仅调用现有取消接口，请求必须使用盲人 token，志愿者 token 不适用
 - PENDING_ACCEPT → DRIVER_EN_ROUTE：更新状态 + TTS "志愿者正在赶来"
 - DRIVER_EN_ROUTE → DRIVER_ARRIVED：更新状态 + TTS "志愿者已到达"
 - DRIVER_ARRIVED → IN_PROGRESS：跳转服务中页面 + TTS "服务已开始"
@@ -505,7 +505,7 @@
 - 到达：DRIVER_EN_ROUTE → DRIVER_ARRIVED
 - 取消：PENDING_ACCEPT → CANCELLED
 - 求助：DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 显示占位提示，订单状态保持不变
-- 若云端接单后直接返回 `IN_PROGRESS` 或把未开始服务订单改为 `REMATCHING`，iOS 保留真实状态并记录为后端状态机合同待确认问题
+- 若云端接单后直接返回 `IN_PROGRESS`，iOS 保留真实状态并记录为真机联调问题；若看到 `REMATCHING`，优先排查是否志愿者接单后主动取消
 
 **错误状态**：
 - 接受派单失败（已被接 / 派单不匹配） → "该订单已无法接受" → 返回首页
@@ -559,7 +559,7 @@
 - DRIVER_ARRIVED → IN_PROGRESS：UI 更新；只有进入 IN_PROGRESS 后才显示"结束服务"
 - IN_PROGRESS → COMPLETED：跳转首页 + 显示"服务完成，获得 +100 积分"
 - DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS：显示求助占位提示，订单状态保持不变
-- `REMATCHING` 作为真实后端状态保留，盲人端提示"正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"，并显示"取消订单"逃生按钮
+- `REMATCHING` 作为真实后端状态保留，表示志愿者接单后主动取消；盲人端提示"正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"，并显示"取消订单"逃生按钮，取消请求使用盲人 token
 
 **错误状态**：
 - 网络错误 → 保留当前 UI，静默重试

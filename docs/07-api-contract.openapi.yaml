@@ -1291,6 +1291,7 @@
         "tags": [
           "order-controller"
         ],
+        "description": "Cancels an order. REMATCHING orders may be cancelled by the blind runner with the blind-runner token after the accepted volunteer has cancelled; a volunteer token is not valid for that rematching cancellation.",
         "operationId": "cancelOrder",
         "parameters": [
           {

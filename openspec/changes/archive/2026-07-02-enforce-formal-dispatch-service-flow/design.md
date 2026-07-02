@@ -26,7 +26,7 @@ The current app already has phone login, role selection, blind-runner booking, v
 ## Decisions
 
 1. **Use status-driven role routers instead of adding parallel order pages.**
-   - Blind-runner navigation will route active orders by status: waiting/status tracking for `PENDING_MATCH`, `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, and `DRIVER_ARRIVED`; in-service for `IN_PROGRESS`; completion/rating for `COMPLETED`; terminal messaging for `CANCELLED` and `NO_VOLUNTEER`.
+   - Blind-runner navigation will route active orders by status: waiting/status tracking for `PENDING_MATCH`, `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, and `DRIVER_ARRIVED`; rematching escape/cancel handling for `REMATCHING`; in-service for `IN_PROGRESS`; completion/rating for `COMPLETED`; terminal messaging for `CANCELLED` and `NO_VOLUNTEER`.
    - Volunteer navigation will route accepted active orders to detail/service views by status, but completion actions will be gated by status helpers.
    - Alternative considered: keep one generic status page for every blind-runner status. That keeps implementation smaller, but hides the expected service and completion workflows and makes rating hard to place.
 
@@ -62,8 +62,9 @@ The current app already has phone login, role selection, blind-runner booking, v
 ## Risks / Trade-offs
 
 - [Risk] The backend may not reliably advance `DRIVER_ARRIVED` to `IN_PROGRESS`. -> Mitigation: surface a waiting state, keep polling/WebSocket refresh active, and record this as a release validation dependency.
-- [Risk] The backend may skip accepted travel states by returning `IN_PROGRESS` immediately after accept, or may move an accepted-but-not-started order to `REMATCHING`. -> Mitigation: keep the client rendering real backend status without synthesizing states, soften blind-runner `REMATCHING` copy, and record the behavior as a backend contract confirmation item.
-- [Risk] Backend may reject `POST /api/orders/{id}/cancel` while an order is `REMATCHING`. -> Mitigation: keep the client using the existing cancel endpoint with normal error surfacing and record `REMATCHING` cancellation support as a backend confirmation item.
+- [Risk] The backend may skip accepted travel states by returning `IN_PROGRESS` immediately after accept. -> Mitigation: keep the client rendering real backend status without synthesizing states and capture the order ID during real-device validation.
+- [Risk] A `REMATCHING` order may be misdiagnosed as an automatic backend transition. -> Mitigation: treat `REMATCHING` as the backend-confirmed result of a volunteer cancelling after acceptance, keep the blind-runner copy stable, and verify the volunteer action in real-device or backend logs.
+- [Risk] `POST /api/orders/{id}/cancel` from `REMATCHING` can fail if the client uses the wrong role token. -> Mitigation: route the action only from the blind-runner surfaces, use the blind-runner token from `AppState`, and record the token role if validation returns `INVALID_ORDER_STATUS` or an authorization error.
 - [Risk] Existing tests or Mock fixtures may assume direct `DRIVER_ARRIVED -> COMPLETED`. -> Mitigation: update Mock transitions and tests to require `IN_PROGRESS` before finish.
 - [Risk] Backend profile payloads may not include `adminReviewStatus` in every environment. -> Mitigation: decode the field as optional and define conservative gating rules in code and tests.
 - [Risk] Emergency placeholder behavior conflicts with current docs that describe real emergency event recording. -> Mitigation: update docs in this change to mark production emergency behavior as deferred and require a future dedicated safety change before real launch.

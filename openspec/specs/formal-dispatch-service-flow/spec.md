@@ -1,4 +1,9 @@
-## ADDED Requirements
+# formal-dispatch-service-flow Specification
+
+## Purpose
+Define the iOS formal dispatch and service lifecycle for blind-runner booking, volunteer readiness and dispatch response, canonical order-status routing, strict service completion gates, placeholder emergency behavior, and Mock/test coverage.
+
+## Requirements
 
 ### Requirement: Blind runner profile and booking gate
 The iOS app SHALL require a logged-in blind-runner user to select the blind role, complete the blind-runner profile, store at least one emergency contact, grant location access, and choose an appointment time at least 30 minutes in the future before submitting a booking.
@@ -27,7 +32,8 @@ The iOS blind-runner experience SHALL expose the formal order lifecycle from sys
 - **THEN** the app SHALL keep rendering the real backend `REMATCHING` status
 - **AND** the blind-runner home and order status views SHALL show a "取消订单" action with second confirmation
 - **AND** confirmation SHALL call the existing `POST /api/orders/{id}/cancel` endpoint
-- **AND** release validation SHALL record a backend contract confirmation item that `/cancel` accepts `REMATCHING`
+- **AND** the request SHALL use the blind-runner token because the volunteer that cancelled is no longer an order participant
+- **AND** release validation SHALL verify the backend-confirmed `REMATCHING -> CANCELLED` path
 
 #### Scenario: Blind runner enters in-service state
 - **WHEN** the active blind-runner order becomes `IN_PROGRESS`
@@ -82,7 +88,8 @@ The iOS volunteer client SHALL handle backend `NEW_ORDER` WebSocket messages as 
 #### Scenario: Client preserves backend status after dispatch acceptance
 - **WHEN** the accepted order detail returns `IN_PROGRESS`, `REMATCHING`, or any other formal order status after `POST /api/orders/{id}/respond`
 - **THEN** the app SHALL render the status returned by the backend and SHALL NOT synthesize a fake `PENDING_ACCEPT` state on the client
-- **AND** release validation SHALL record a backend contract issue if accepting a dispatch skips directly to `IN_PROGRESS` or if an accepted-but-not-started order moves to `REMATCHING` solely because service did not immediately start
+- **AND** release validation SHALL record a backend contract issue if accepting a dispatch skips directly to `IN_PROGRESS`
+- **AND** release validation SHALL first check whether `REMATCHING` was caused by the volunteer explicitly cancelling after acceptance
 
 #### Scenario: Volunteer declines or times out
 - **WHEN** the volunteer taps decline or the prompt reaches zero
