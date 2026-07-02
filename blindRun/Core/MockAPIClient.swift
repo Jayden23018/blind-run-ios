@@ -139,6 +139,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path.hasPrefix("/api/users/") && path.hasSuffix("/emergency-contacts") && method == .post {
             return try handleAddEmergencyContact(body: body)
         }
+        if let contactId = extractEmergencyContactId(from: path), method == .put {
+            return try handleUpdateEmergencyContact(contactId: contactId, body: body)
+        }
 
         // Orders
         if path == "/api/orders" && method == .post {
@@ -419,6 +422,45 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return contact
     }
 
+    private func handleUpdateEmergencyContact(
+        contactId: Int64,
+        body: (any Encodable & Sendable)?
+    ) throws -> EmergencyContactResponse {
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(EmergencyContactRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
+        }
+        guard let index = emergencyContacts.firstIndex(where: { $0.id == contactId }) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "紧急联系人不存在"))
+        }
+
+        let existingContact = emergencyContacts[index]
+        let updatedContact = EmergencyContactResponse(
+            id: existingContact.id,
+            name: request.name ?? existingContact.name,
+            phone: request.phone ?? existingContact.phone,
+            relationship: request.relationship ?? existingContact.relationship,
+            isPrimary: request.isPrimary ?? existingContact.isPrimary
+        )
+
+        if updatedContact.isPrimary == true {
+            emergencyContacts = emergencyContacts.map { contact in
+                guard contact.id != updatedContact.id else { return updatedContact }
+                return EmergencyContactResponse(
+                    id: contact.id,
+                    name: contact.name,
+                    phone: contact.phone,
+                    relationship: contact.relationship,
+                    isPrimary: false
+                )
+            }
+        } else {
+            emergencyContacts[index] = updatedContact
+        }
+
+        return updatedContact
+    }
+
     // MARK: - Order Handlers
 
     private func handleCreateOrder(body: (any Encodable & Sendable)?) throws -> OrderResponse {
@@ -680,6 +722,18 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         // path like /api/orders/123 or /api/orders/123/respond
         guard components.count >= 3, components[1] == "orders" else { return nil }
         return Int64(components[2])
+    }
+
+    private func extractEmergencyContactId(from path: String) -> Int64? {
+        let components = path.split(separator: "/")
+        // path like /api/users/1/emergency-contacts/100
+        guard components.count == 5,
+              components[0] == "api",
+              components[1] == "users",
+              components[3] == "emergency-contacts" else {
+            return nil
+        }
+        return Int64(components[4])
     }
 
     // MARK: - Seed Data

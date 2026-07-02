@@ -128,6 +128,15 @@ extension RunOrderStatus {
         }
     }
 
+    var volunteerServiceDisplayName: String {
+        switch self {
+        case .pendingAccept:
+            return "待出发"
+        default:
+            return displayName
+        }
+    }
+
     var serviceStageSubtitle: String {
         switch self {
         case .pendingAccept:
@@ -258,6 +267,20 @@ struct VolunteerServiceMapPresentation {
         } else {
             centerCoordinate = fallbackCoordinate
         }
+    }
+}
+
+struct VolunteerServiceMapLayout {
+    static func screenAnchorY(
+        viewportHeight: CGFloat,
+        topSafeAreaInset: CGFloat,
+        bottomPanelMaxHeight: CGFloat
+    ) -> CGFloat {
+        guard viewportHeight > 1 else { return 0.5 }
+        let upper = max(topSafeAreaInset, 0)
+        let lower = max(viewportHeight - bottomPanelMaxHeight, upper + 1)
+        let visibleCenterY = (upper + lower) / 2
+        return min(max(visibleCenterY / viewportHeight, 0.18), 0.45)
     }
 }
 
@@ -870,9 +893,18 @@ struct VolunteerInServiceView: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let bottomPanelMaxHeight = proxy.size.height * 0.62
+            let mapAnchor = CGPoint(
+                x: 0.5,
+                y: VolunteerServiceMapLayout.screenAnchorY(
+                    viewportHeight: proxy.size.height,
+                    topSafeAreaInset: proxy.safeAreaInsets.top,
+                    bottomPanelMaxHeight: bottomPanelMaxHeight
+                )
+            )
             ZStack(alignment: .bottom) {
                 if let order = viewModel.order {
-                    VolunteerServiceMapBackdrop(order: order)
+                    VolunteerServiceMapBackdrop(order: order, screenAnchor: mapAnchor)
                 } else {
                     AppColors.secondaryBackground
                         .ignoresSafeArea()
@@ -892,7 +924,7 @@ struct VolunteerInServiceView: View {
                         distanceText: distanceText(for: order),
                         errorMessage: viewModel.errorMessage,
                         isPerformingAction: viewModel.isPerformingAction,
-                        maxHeight: proxy.size.height * 0.62,
+                        maxHeight: bottomPanelMaxHeight,
                         onNavigate: {
                             if let request = externalNavigationRequest(
                                 for: order,
@@ -901,7 +933,9 @@ struct VolunteerInServiceView: View {
                             ) {
                                 activeSheet = .navigation(request)
                             } else {
-                                viewModel.errorMessage = "订单缺少出发地点坐标，暂不能导航。"
+                                let message = "不支持导航，等待后端补齐坐标"
+                                viewModel.errorMessage = message
+                                speechService.speakError(message)
                             }
                         },
                         onEnRoute: { Task { await viewModel.enRoute() } },
@@ -1345,19 +1379,23 @@ struct VolunteerOrderMap: View {
 struct VolunteerServiceMapBackdrop: View {
     @EnvironmentObject private var locationService: LocationService
     let order: OrderDetailResponse
+    let screenAnchor: CGPoint
 
     var body: some View {
         let presentation = VolunteerServiceMapPresentation(
             order: order,
             currentLocation: locationService.currentLocation,
             locationAuthorized: locationService.isAuthorized,
-            fallbackCoordinate: locationService.effectiveLocation
+            fallbackCoordinate: locationService.effectiveLocation,
+            includesCurrentLocationMarker: true,
+            centersOnCurrentAndStart: true
         )
         MapViewWrapper(
             centerCoordinate: presentation.centerCoordinate,
             showsUserLocation: locationService.isAuthorized,
             annotations: presentation.annotations,
-            zoomLevel: 15
+            zoomLevel: 15,
+            screenAnchor: screenAnchor
         )
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
@@ -1529,7 +1567,7 @@ struct VolunteerServiceStageHeader: View {
                 Image(systemName: status.statusSymbolName)
                     .foregroundColor(status.statusColor)
                     .accessibilityHidden(true)
-                Text(status.displayName)
+                Text(status.volunteerServiceDisplayName)
                     .font(AppFonts.caption().weight(.semibold))
                     .foregroundColor(status.statusColor)
             }
@@ -1553,7 +1591,7 @@ struct VolunteerServiceStageHeader: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(status.displayName)，\(status.serviceStageTitle)，\(status.serviceStageSubtitle)")
+        .accessibilityLabel("\(status.volunteerServiceDisplayName)，\(status.serviceStageTitle)，\(status.serviceStageSubtitle)")
     }
 }
 

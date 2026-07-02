@@ -413,6 +413,32 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(detail.status, .completed)
     }
 
+    func testMockEmergencyContactUpdateSupportsBlindProfileEditSave() async throws {
+        let client = MockAPIClient()
+        let contacts: [EmergencyContactResponse] = try await client.get("/api/users/1/emergency-contacts")
+        let contact = try XCTUnwrap(contacts.first)
+
+        let updated: EmergencyContactResponse = try await client.put(
+            "/api/users/1/emergency-contacts/\(contact.id)",
+            body: EmergencyContactRequest(
+                name: "一个人",
+                phone: "13888888888",
+                relationship: nil,
+                isPrimary: true
+            )
+        )
+
+        XCTAssertEqual(updated.id, contact.id)
+        XCTAssertEqual(updated.name, "一个人")
+        XCTAssertEqual(updated.phone, "13888888888")
+        XCTAssertEqual(updated.isPrimary, true)
+
+        let refreshedContacts: [EmergencyContactResponse] = try await client.get("/api/users/1/emergency-contacts")
+        let refreshedContact = try XCTUnwrap(refreshedContacts.first(where: { $0.id == contact.id }))
+        XCTAssertEqual(refreshedContact.name, "一个人")
+        XCTAssertEqual(refreshedContact.phone, "13888888888")
+    }
+
     func testMockVolunteerDispatchSummaryReflectsDispatchStatusAndActiveOrder() async throws {
         let client = MockAPIClient()
 
@@ -1188,6 +1214,39 @@ final class blindRunTests: XCTestCase {
         )
     }
 
+    func testVolunteerServicePendingAcceptUsesDepartureCopy() {
+        XCTAssertEqual(RunOrderStatus.pendingAccept.volunteerServiceDisplayName, "待出发")
+        XCTAssertEqual(RunOrderStatus.driverEnRoute.volunteerServiceDisplayName, "志愿者出发中")
+    }
+
+    func testAMapWrappersHideCompassByDefault() {
+        let coordinate = CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074)
+
+        XCTAssertFalse(AMapContainer(centerCoordinate: coordinate).showsCompass)
+        XCTAssertFalse(MapViewWrapper(centerCoordinate: coordinate).showsCompass)
+    }
+
+    func testVolunteerServiceMapAnchorUsesTopVisibleAreaAbovePanel() {
+        let anchor = VolunteerServiceMapLayout.screenAnchorY(
+            viewportHeight: 852,
+            topSafeAreaInset: 47,
+            bottomPanelMaxHeight: 852 * 0.62
+        )
+
+        XCTAssertLessThan(anchor, 0.3)
+        XCTAssertGreaterThan(anchor, 0.18)
+        XCTAssertEqual(anchor, 0.2170, accuracy: 0.001)
+        XCTAssertEqual(
+            VolunteerServiceMapLayout.screenAnchorY(
+                viewportHeight: 100,
+                topSafeAreaInset: 0,
+                bottomPanelMaxHeight: 90
+            ),
+            0.18,
+            accuracy: 0.0001
+        )
+    }
+
     func testVolunteerServiceMapPresentationUsesStartMarkerAsPrimaryMarker() {
         let current = CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074)
         let order = makeOrder(orderId: 1, status: .pendingAccept)
@@ -1206,6 +1265,52 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(presentation.hasCurrentLocationMarker)
         XCTAssertEqual(presentation.centerCoordinate.latitude, 39.9342, accuracy: 0.000001)
         XCTAssertEqual(presentation.centerCoordinate.longitude, 116.4740, accuracy: 0.000001)
+    }
+
+    func testVolunteerServiceMapPresentationCanShowCurrentAndStartMarkers() {
+        let current = CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074)
+        let order = makeOrder(orderId: 1, status: .pendingAccept)
+
+        let presentation = VolunteerServiceMapPresentation(
+            order: order,
+            currentLocation: current,
+            locationAuthorized: true,
+            fallbackCoordinate: current,
+            includesCurrentLocationMarker: true,
+            centersOnCurrentAndStart: true
+        )
+
+        XCTAssertEqual(presentation.annotations.count, 2)
+        XCTAssertEqual(presentation.annotations[0].kind, .currentLocation)
+        XCTAssertEqual(presentation.annotations[1].kind, .orderStart)
+        XCTAssertTrue(presentation.hasCurrentLocationMarker)
+        XCTAssertEqual(presentation.centerCoordinate.latitude, 39.9192, accuracy: 0.000001)
+        XCTAssertEqual(presentation.centerCoordinate.longitude, 116.4407, accuracy: 0.000001)
+    }
+
+    func testVolunteerServiceMapPresentationShowsOnlyCurrentLocationWhenOrderCoordinatesMissing() {
+        let current = CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074)
+        let order = makeOrder(
+            orderId: 1,
+            status: .pendingAccept,
+            startLatitude: nil,
+            startLongitude: nil
+        )
+
+        let presentation = VolunteerServiceMapPresentation(
+            order: order,
+            currentLocation: current,
+            locationAuthorized: true,
+            fallbackCoordinate: current,
+            includesCurrentLocationMarker: true,
+            centersOnCurrentAndStart: true
+        )
+
+        XCTAssertEqual(presentation.annotations.count, 1)
+        XCTAssertEqual(presentation.annotations[0].kind, .currentLocation)
+        XCTAssertFalse(presentation.annotations.contains { $0.kind == .orderStart })
+        XCTAssertEqual(presentation.centerCoordinate.latitude, current.latitude, accuracy: 0.000001)
+        XCTAssertEqual(presentation.centerCoordinate.longitude, current.longitude, accuracy: 0.000001)
     }
 
     func testVolunteerDispatchMapPresentationShowsCurrentAndStartMarkers() {
@@ -1360,14 +1465,16 @@ final class blindRunTests: XCTestCase {
     private func makeOrder(
         orderId: Int64,
         status: RunOrderStatus,
-        createdAt: String = "2026-06-25T10:00:00Z"
+        createdAt: String = "2026-06-25T10:00:00Z",
+        startLatitude: Double? = 39.9342,
+        startLongitude: Double? = 116.4740
     ) -> OrderDetailResponse {
         OrderDetailResponse(
             orderId: orderId,
             status: status,
             startAddress: "朝阳公园南门",
-            startLatitude: 39.9342,
-            startLongitude: 116.4740,
+            startLatitude: startLatitude,
+            startLongitude: startLongitude,
             plannedStart: "2026-06-25T20:00:00Z",
             plannedEnd: "2026-06-25T21:00:00Z",
             blindName: "李明",

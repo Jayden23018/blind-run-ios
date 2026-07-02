@@ -30,7 +30,7 @@ struct AMapContainer: UIViewRepresentable {
     var annotations: [MapAnnotationItem] = []
     var zoomLevel: CGFloat = 15.0
     var recenterToken: Int = 0
-    var showsCompass: Bool = true
+    var showsCompass: Bool = false
     var screenAnchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
 
     func makeUIView(context: Context) -> MAMapView {
@@ -160,7 +160,7 @@ struct MapViewWrapper: View {
     var annotations: [MapAnnotationItem] = []
     var zoomLevel: CGFloat = 15.0
     var recenterToken: Int = 0
-    var showsCompass: Bool = true
+    var showsCompass: Bool = false
     var screenAnchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
 
     var body: some View {
