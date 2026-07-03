@@ -342,7 +342,7 @@ struct BlindOrderStatusView: View {
 
     private func waitingForServiceStartSection(_ order: OrderDetailResponse) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("等待服务开始")
+            Text("等待志愿者开始服务")
                 .font(.title3.bold())
                 .foregroundColor(AppColors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
@@ -356,7 +356,7 @@ struct BlindOrderStatusView: View {
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("等待服务开始，\(order.status.arrivedWaitingCopy)")
+        .accessibilityLabel("等待志愿者开始服务，\(order.status.arrivedWaitingCopy)")
     }
 
     private func inServiceSection(_ order: OrderDetailResponse) -> some View {
@@ -594,7 +594,7 @@ struct BlindOrderStatusView: View {
                 if order.status == .driverArrived {
                     Button("模拟服务开始") {
                         Task {
-                            let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/mock-start-service")
+                            let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/start-service")
                             viewModel.startPolling(orderId: order.orderId)
                         }
                     }

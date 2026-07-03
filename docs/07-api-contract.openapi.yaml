@@ -1222,6 +1222,38 @@
         }
       }
     },
+    "/api/orders/{id}/start-service": {
+      "post": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "startService",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/orders/{id}/finish": {
       "post": {
         "tags": [

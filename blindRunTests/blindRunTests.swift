@@ -404,7 +404,7 @@ final class blindRunTests: XCTestCase {
             XCTAssertEqual(response.code, "INVALID_ORDER_STATUS")
         }
 
-        let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/mock-start-service")
+        let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/start-service")
         detail = try await client.get("/api/orders/\(order.orderId)")
         XCTAssertEqual(detail.status, .inProgress)
 
@@ -536,7 +536,7 @@ final class blindRunTests: XCTestCase {
         detail = try await client.get("/api/orders/\(orderId)")
         XCTAssertEqual(detail.status, .driverArrived)
 
-        let _: EmptyResponse = try await client.post("/api/orders/\(orderId)/mock-start-service")
+        let _: EmptyResponse = try await client.post("/api/orders/\(orderId)/start-service")
         let _: EmptyResponse = try await client.post("/api/orders/\(orderId)/finish")
         detail = try await client.get("/api/orders/\(orderId)")
         XCTAssertEqual(detail.status, .completed)
@@ -920,7 +920,7 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .driverArrived),
-            "志愿者已到达，请等待服务开始。"
+            "志愿者已到达，请等待志愿者开始服务。"
         )
         XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .completed),
@@ -1190,6 +1190,46 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.driverArrived.arrivedWaitingCopy)
     }
 
+    func testVolunteerInServiceStartsServiceFromDriverArrived() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let client = appState.apiClient
+        let _: EmptyResponse = try await client.post(
+            "/api/orders/1/respond",
+            body: OrderRespondRequest(action: .accept)
+        )
+        let _: EmptyResponse = try await client.post("/api/orders/1/en-route")
+        let _: EmptyResponse = try await client.post("/api/orders/1/arrived")
+        let detail: OrderDetailResponse = try await client.get("/api/orders/1")
+
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: speechService, initialOrder: detail)
+
+        await viewModel.startService()
+
+        XCTAssertEqual(viewModel.order?.status, .inProgress)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testVolunteerInServiceBlocksStartServiceOutsideDriverArrived() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(
+            with: appState,
+            speechService: speechService,
+            initialOrder: makeOrder(orderId: 1, status: .inProgress)
+        )
+
+        await viewModel.startService()
+
+        XCTAssertEqual(viewModel.order?.status, .inProgress)
+        XCTAssertEqual(viewModel.errorMessage, RunOrderStatus.inProgress.startServiceBlockedMessage)
+        XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.inProgress.startServiceBlockedMessage)
+    }
+
     func testVolunteerInServiceAllowsFinishFromInProgressAndRefreshesSummary() async throws {
         let appState = AppState()
         appState.currentEnvironment = .mock
@@ -1201,7 +1241,7 @@ final class blindRunTests: XCTestCase {
         )
         let _: EmptyResponse = try await client.post("/api/orders/1/en-route")
         let _: EmptyResponse = try await client.post("/api/orders/1/arrived")
-        let _: EmptyResponse = try await client.post("/api/orders/1/mock-start-service")
+        let _: EmptyResponse = try await client.post("/api/orders/1/start-service")
         let detail: OrderDetailResponse = try await client.get("/api/orders/1")
 
         let viewModel = VolunteerInServiceViewModel()
@@ -1236,7 +1276,7 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VolunteerServiceActions.actionKinds(for: .driverArrived).map(\.title),
-            ["已到达，等待服务开始"]
+            ["开始服务"]
         )
         XCTAssertEqual(
             VolunteerServiceActions.actionKinds(for: .inProgress).map(\.title),

@@ -54,7 +54,7 @@ Required coverage:
 - Repeat current status button
 - Volunteer availability switch
 - Available order rows
-- Accept, en-route, arrived, complete, cancel, emergency actions
+- Accept, en-route, arrived, start-service, complete, cancel, emergency actions
 - Rating controls
 
 ## 4. Blind Runner UI Rules
@@ -111,7 +111,7 @@ Recommended status announcements:
 - `PENDING_MATCH`: “订单提交成功，系统正在为你派单。”
 - `PENDING_ACCEPT`: “志愿者已接单，请等待志愿者出发。”
 - `DRIVER_EN_ROUTE`: “志愿者已出发，正在赶往您的位置。”
-- `DRIVER_ARRIVED`: “志愿者已到达，请等待服务开始。”
+- `DRIVER_ARRIVED`: “志愿者已到达，请等待志愿者开始服务。”
 - `IN_PROGRESS`: “服务已开始，请注意安全。”
 - `COMPLETED`: “服务已完成，感谢使用助盲跑。”
 - `CANCELLED`: “本次预约已取消。”

@@ -45,8 +45,8 @@ Recommended examples:
 - `BlindBookingViewModel`: location permission, default start coordinate, booking form validation, create order.
 - `BlindOrderStatusViewModel`: WebSocket status events, 5-second polling fallback, status TTS, cancel, completed/rating UI, emergency placeholder.
 - `VolunteerHomeViewModel`: availability, current location, dispatch summary, readiness reasons, temporary points, active/recent orders, WebSocket dispatch.
-- `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, strict IN_PROGRESS finish gate, cancel, emergency placeholder.
-- `VolunteerInServiceViewModel`: active order polling, en-route/arrived/finish actions, strict IN_PROGRESS finish gate, service-completion refresh.
+- `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, start-service, strict IN_PROGRESS finish gate, cancel, emergency placeholder.
+- `VolunteerInServiceViewModel`: active order polling, en-route/arrived/start-service/finish actions, strict IN_PROGRESS finish gate, service-completion refresh.
 
 ## 4. API Environment Switch
 
@@ -165,7 +165,7 @@ The iOS app must support a two-device demo:
 4. Volunteer sees available order sorted by distance and accepts it.
 5. Blind runner polling shows `PENDING_ACCEPT`.
 6. Volunteer marks `DRIVER_EN_ROUTE`, then `DRIVER_ARRIVED`.
-7. Cloud status reaches `IN_PROGRESS`.
+7. Volunteer starts service with `POST /api/orders/{id}/start-service`, and the order reaches `IN_PROGRESS`.
 8. Volunteer completes service with optional summary; iOS must not call `/api/orders/{id}/finish` before `IN_PROGRESS`.
 9. Blind runner sees `COMPLETED` and optional rating UI.
 

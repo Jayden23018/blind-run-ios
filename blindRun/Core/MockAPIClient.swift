@@ -165,11 +165,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             if path.hasSuffix("/arrived") && method == .post {
                 return try handleArrived(orderId: orderId)
             }
-            #if DEBUG
-            if path.hasSuffix("/mock-start-service") && method == .post {
+            if path.hasSuffix("/start-service") && method == .post {
                 return try handleStartService(orderId: orderId)
             }
-            #endif
             if path.hasSuffix("/finish") && method == .post {
                 return try handleFinish(orderId: orderId)
             }
@@ -624,7 +622,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return actionResponse(for: orders[index], message: "服务已完成")
     }
 
-    #if DEBUG
     private func handleStartService(orderId: Int64) throws -> OrderResponse {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
@@ -636,7 +633,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         orders[index] = updateOrderStatus(orders[index], to: .inProgress)
         return actionResponse(for: orders[index], message: "服务已开始")
     }
-    #endif
 
     private func handleCancel(orderId: Int64) throws -> OrderResponse {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {

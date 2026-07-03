@@ -140,6 +140,7 @@ DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> (emergency event recorded)
 - Volunteer responds with decline: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = DECLINE)`.
 - Volunteer en route: POST `/api/orders/{id}/en-route`.
 - Volunteer arrives: POST `/api/orders/{id}/arrived`.
+- Volunteer starts service: POST `/api/orders/{id}/start-service`.
 - Volunteer finishes: POST `/api/orders/{id}/finish`.
 - Creating a booking with a start time less than 30 minutes away must return `APPOINTMENT_TOO_SOON`.
 

@@ -85,12 +85,29 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         self == .inProgress
     }
 
+    var canStartService: Bool {
+        self == .driverArrived
+    }
+
     var isArrivedWaitingForServiceStart: Bool {
         self == .driverArrived
     }
 
     var arrivedWaitingCopy: String {
-        "志愿者已到达约定地点，正在等待系统确认服务开始。服务开始前不能结束订单。"
+        "志愿者已到达约定地点，请等待志愿者开始服务。服务开始前不能结束订单。"
+    }
+
+    var startServiceBlockedMessage: String {
+        switch self {
+        case .inProgress:
+            return "服务已开始，不能重复开始。"
+        case .completed:
+            return "服务已完成，不能开始服务。"
+        case .cancelled, .noVolunteer:
+            return "订单已结束，不能开始服务。"
+        default:
+            return "当前订单状态尚未到达约定地点，不能开始服务。"
+        }
     }
 
     var finishBlockedMessage: String {

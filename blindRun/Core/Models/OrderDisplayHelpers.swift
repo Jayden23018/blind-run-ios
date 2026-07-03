@@ -56,7 +56,7 @@ extension RunOrderStatus {
         case .driverEnRoute:
             return "志愿者正在赶来，请耐心等待。"
         case .driverArrived:
-            return "志愿者已到达约定地点，等待服务开始。"
+            return "志愿者已到达约定地点，等待志愿者开始服务。"
         case .completed:
             return "服务已完成，感谢使用助盲跑。"
         case .cancelled:

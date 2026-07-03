@@ -563,9 +563,10 @@
 
 **验收标准**：
 
-**Given** 订单状态为 DRIVER_ARRIVED，云端尚未确认服务开始
+**Given** 订单状态为 DRIVER_ARRIVED，志愿者尚未开始服务
 **When** 志愿者查看订单页面
-**Then** 页面显示等待服务开始提示，并通过 WebSocket 或轮询等待云端状态变为 IN_PROGRESS
+**Then** 页面显示"开始服务"按钮
+**And** 点击后调用 `POST /api/orders/{id}/start-service`，成功后状态变为 IN_PROGRESS
 
 ---
 
@@ -637,7 +638,7 @@
 ---
 
 **Given** 订单状态为 DRIVER_ARRIVED
-**When** 云端通知服务开始
+**When** 志愿者点击"开始服务"
 **Then** 状态流转为 IN_PROGRESS
 
 ---

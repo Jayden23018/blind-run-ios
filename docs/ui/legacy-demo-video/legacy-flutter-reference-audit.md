@@ -57,7 +57,7 @@
 
 旧流程和当前 MVP 冲突或缺失处：
 
-- 旧 Flutter 没有完整实现当前 MVP 的 `arrived -> in_progress` 盲人“确认开始服务”动作；旧状态里志愿者点击“我已出发”后才进入类似 en-route/arrived 链路。
+- 旧 Flutter 没有完整实现当前正式链路的 `DRIVER_ARRIVED -> start-service -> IN_PROGRESS` 志愿者端动作；旧状态里志愿者点击"我已出发"后才进入类似 en-route/arrived 链路。
 - 旧盲人端没有按当前规格完整实现 accepted/arrived/in_progress 的一键求助终态 `emergency`。
 - 旧取消逻辑没有当前 MVP 要求的固定取消原因和二次确认规则。
 - 旧评分是三档 `RunRating`，当前 MVP 数据模型是可选星级评分。不要直接迁移三档评分模型。
@@ -110,7 +110,7 @@
 | --- | --- | --- |
 | `PENDING_MATCH` | 正在匹配志愿者 | 大致对应 `matching` |
 | `PENDING_ACCEPT` | 等待志愿者确认/待接单 | 不作为新状态；当前志愿者接单后应进入 `accepted` |
-| `IN_PROGRESS` | 旧代码中常表示志愿者已接单/可出发 | 当前 `in_progress` 只表示盲人确认开始后的服务中 |
+| `IN_PROGRESS` | 旧代码中常表示志愿者已接单/可出发 | 当前 `in_progress` 只表示志愿者已开始正式服务后的服务中 |
 | `DRIVER_EN_ROUTE` | 志愿者正在赶来 | 当前可由 `accepted` 的 UI 表达，或按文档进入 `arrived` 前过程，但不新增状态 |
 | `DRIVER_ARRIVED` | 志愿者已到达 | 对应当前 `arrived` |
 | `COMPLETED` | 已完成 | 对应 `completed` |
@@ -255,7 +255,7 @@
 | 外部 API 集成 | 已接线上旧接口，接口名有漂移 | `http://47.114.113.171`，以 OpenAPI v1.0 为准 |
 | 实时通信 | WebSocket + 轮询并存 | 不做 WebSocket，订单页轮询 |
 | 状态机 | `PENDING_*`、`DRIVER_*` 等旧状态 | `matching/accepted/arrived/in_progress/completed/cancelled/emergency` |
-| 盲人开始服务 | 旧流程缺少完整确认开始服务 | `arrived -> in_progress` 必须由盲人确认 |
+| 服务开始 | 旧流程缺少正式开始服务动作 | `DRIVER_ARRIVED -> IN_PROGRESS` 由志愿者端 `start-service` 推动 |
 | 紧急求助 | 旧 Flutter 未完整覆盖 | accepted/arrived/in_progress 可进入 terminal `emergency` |
 | 角色模型 | 单 role session 风格 | 一个手机号可拥有双角色，activeRole 可切换并受活跃订单拦截 |
 | AMap | Flutter plugin + MethodChannel + Web key 直连 | iOS 原生 SDK + ignored local config |

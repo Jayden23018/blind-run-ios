@@ -49,11 +49,7 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerActiveOrder: true
         )
 
-        openCurrentVolunteerOrder(app)
-
-        let serviceButton = app.buttons["进入服务页面"].firstMatch
-        XCTAssertTrue(serviceButton.waitForExistence(timeout: 5), "Accepted order should allow entering service page")
-        serviceButton.tap()
+        openCurrentVolunteerService(app)
 
         let enRouteButton = app.buttons["我已出发"].firstMatch
         XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5), "Accepted order should show en-route button")
@@ -63,10 +59,12 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(arriveButton.waitForExistence(timeout: 8), "En-route order should show arrive button")
         arriveButton.tap()
 
-        let arrivedWaitingText = app.staticTexts["志愿者已到达约定地点，正在等待系统确认服务开始。服务开始前不能结束订单。"].firstMatch
-        XCTAssertTrue(arrivedWaitingText.waitForExistence(timeout: 8), "Arrived order should wait for backend service-start transition")
+        let startButton = app.buttons["开始服务"].firstMatch
+        XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should allow the volunteer to start service")
         let completeButton = app.buttons["结束服务"].firstMatch
         XCTAssertFalse(completeButton.waitForExistence(timeout: 1), "Arrived order must not allow completing service before IN_PROGRESS")
+        startButton.tap()
+        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should allow completing service")
     }
 
     @MainActor
@@ -87,11 +85,14 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(arriveButton.waitForExistence(timeout: 5), "Accepted service page should show arrive action")
         arriveButton.tap()
 
-        let arrivedWaitingText = app.staticTexts["志愿者已到达约定地点，正在等待系统确认服务开始。服务开始前不能结束订单。"].firstMatch
-        XCTAssertTrue(arrivedWaitingText.waitForExistence(timeout: 8), "Arrived order should show waiting-for-service-start copy")
+        let startButton = app.buttons["开始服务"].firstMatch
+        XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should show start-service action")
         let completeButton = app.buttons["结束服务"].firstMatch
         XCTAssertFalse(completeButton.waitForExistence(timeout: 1), "Arrived order should hide complete button")
         attachScreenshot(named: "volunteer-service-arrived", app: app)
+        startButton.tap()
+        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "Started service should show complete action")
+        attachScreenshot(named: "volunteer-service-in-progress", app: app)
     }
 
     @MainActor
@@ -229,18 +230,14 @@ final class blindRunUITests: XCTestCase {
     }
 
     private func openAcceptedVolunteerService(_ app: XCUIApplication) {
-        openCurrentVolunteerOrder(app)
-
-        let serviceButton = app.buttons["进入服务页面"].firstMatch
-        XCTAssertTrue(serviceButton.waitForExistence(timeout: 8), "Accepted order should allow entering service page")
-        serviceButton.tap()
+        openCurrentVolunteerService(app)
 
         let enRouteButton = app.buttons["我已出发"].firstMatch
         XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5), "Accepted service page should show en-route action")
         enRouteButton.tap()
     }
 
-    private func openCurrentVolunteerOrder(_ app: XCUIApplication) {
+    private func openCurrentVolunteerService(_ app: XCUIApplication) {
         let currentOrderLabel = app.staticTexts["当前订单"].firstMatch
         XCTAssertTrue(currentOrderLabel.waitForExistence(timeout: 15), "Volunteer home should show the assigned current order")
 
@@ -249,7 +246,7 @@ final class blindRunUITests: XCTestCase {
         tapWhenHittableOrByCoordinate(firstOrder, app: app)
 
         let phoneText = app.staticTexts["13800001001"].firstMatch
-        XCTAssertTrue(phoneText.waitForExistence(timeout: 8), "Phone should be shown for an accepted current order")
+        XCTAssertTrue(phoneText.waitForExistence(timeout: 8), "Phone should be shown for an accepted current service")
     }
 
     private func attachScreenshot(named name: String, app: XCUIApplication) {

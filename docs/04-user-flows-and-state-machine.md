@@ -84,7 +84,7 @@ stateDiagram-v2
     DRIVER_EN_ROUTE --> DRIVER_ARRIVED: 志愿者点击"我已到达"\n(API: POST /api/orders/{orderId}/arrived)
     DRIVER_EN_ROUTE --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
 
-    DRIVER_ARRIVED --> IN_PROGRESS: 服务开始\n(云端状态通知)
+    DRIVER_ARRIVED --> IN_PROGRESS: 志愿者点击"开始服务"\n(API: POST /api/orders/{orderId}/start-service)
     DRIVER_ARRIVED --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
 
     IN_PROGRESS --> COMPLETED: 志愿者结束服务\n(API: POST /api/orders/{orderId}/finish)
@@ -107,7 +107,7 @@ stateDiagram-v2
 | PENDING_ACCEPT | CANCELLED | 盲人 / 志愿者 | 服务开始前可取消 |
 | DRIVER_EN_ROUTE | DRIVER_ARRIVED | 志愿者 | 标记到达 |
 | DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS | 求助占位提示 | 盲人 / 志愿者 | 本变更仅保留占位入口，不调用生产求助记录接口 |
-| DRIVER_ARRIVED | IN_PROGRESS | 系统 / 云端通知 | 服务开始；当前云端 REST 契约没有单独 start endpoint，iOS 不允许从 DRIVER_ARRIVED 直接结束 |
+| DRIVER_ARRIVED | IN_PROGRESS | 志愿者 | 开始服务；调用 `POST /api/orders/{orderId}/start-service`，iOS 不允许从 DRIVER_ARRIVED 直接结束 |
 | IN_PROGRESS | COMPLETED | 志愿者 | 正常结束 |
 | IN_PROGRESS | CANCELLED | 盲人 / 志愿者 | 服务中可取消 |
 | REMATCHING | CANCELLED | 盲人 | 志愿者主动取消已接单订单后进入重新匹配；盲人可用自己的 token 调用 `/cancel` 退出本次订单，志愿者 token 不适用 |
@@ -166,6 +166,8 @@ sequenceDiagram
     API-->>App: { status: "DRIVER_ARRIVED" }
     Note over App: TTS: "志愿者已到达约定地点"
 
+    VOL-->>API: 开始服务 (POST /api/orders/{orderId}/start-service)
+    Note over API: 状态: DRIVER_ARRIVED → IN_PROGRESS
     App->>API: WebSocket / 轮询获取服务开始状态
     API-->>App: { status: "IN_PROGRESS" }
     Note over App: TTS: "服务已开始"
@@ -217,7 +219,8 @@ sequenceDiagram
     App->>API: POST /api/orders/{orderId}/arrived
     API-->>App: { status: "DRIVER_ARRIVED" }
 
-    App->>API: WebSocket / 轮询 → status: "IN_PROGRESS"
+    VOL->>App: 点击"开始服务"
+    App->>API: POST /api/orders/{orderId}/start-service
     API-->>App: { status: "IN_PROGRESS" }
 
     VOL->>App: 服务结束点击"结束服务"

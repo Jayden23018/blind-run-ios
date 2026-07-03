@@ -1191,7 +1191,7 @@ VStack {
 | 按钮 | 行为 |
 |------|------|
 | 可服务开关 Toggle | 即时调用 API 更新状态 |
-| 当前订单提示框 | 点击 → `PENDING_ACCEPT` 进入订单详情；`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 进入服务页面 |
+| 当前订单提示框 | 点击 → `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 进入服务页面 |
 | 近期订单卡片 | 点击 → 当前订单进入订单详情或服务页面；历史订单作为记录展示 |
 | 底部 Tab | 切换页面 |
 

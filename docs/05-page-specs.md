@@ -230,7 +230,7 @@
   - PENDING_MATCH：动画旋转圆圈 + "系统正在为你派单，请稍候"
   - PENDING_ACCEPT：志愿者卡片（昵称）+ "已接单，等待志愿者出发"
   - DRIVER_EN_ROUTE：志愿者卡片（昵称）+ "志愿者正在赶来"
-  - DRIVER_ARRIVED：志愿者卡片 + "志愿者已到达约定地点，等待系统确认服务开始"
+  - DRIVER_ARRIVED：志愿者卡片 + "志愿者已到达约定地点，等待志愿者开始服务"
 - 订单信息卡片（出发地点、预约时间、可选项）
 - "取消订单"按钮（PENDING_MATCH / PENDING_ACCEPT / REMATCHING 状态显示，灰色/危险色）
 - "一键求助"占位按钮（DRIVER_EN_ROUTE / DRIVER_ARRIVED 状态显示，红色醒目，说明本变更不提交后台求助）
@@ -524,7 +524,7 @@
 
 ## 页面 13：志愿者服务中页
 
-**页面目标**：志愿者从接单后前往出发地点、标记出发/到达、等待服务开始并完成服务的管理页面。
+**页面目标**：志愿者从接单后前往出发地点、标记出发/到达、开始服务并完成服务的管理页面。
 
 **入口**：订单状态变为 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 后进入。
 
@@ -535,7 +535,7 @@
 - 操作按钮：
   - PENDING_ACCEPT：显示"前往出发地点"，提供"导航到出发地点"和"我已出发"按钮
   - DRIVER_EN_ROUTE：显示"前往出发地点"，提供"导航到出发地点"和"我已到达"按钮
-  - DRIVER_ARRIVED：显示已到达且等待服务开始提示，不显示"结束服务"按钮
+  - DRIVER_ARRIVED：显示已到达状态和"开始服务"按钮，不显示"结束服务"按钮
   - IN_PROGRESS："结束服务"按钮（最小 64pt）
   - PENDING_ACCEPT："取消订单"按钮
 - "一键求助"占位按钮（红色醒目）
@@ -546,6 +546,7 @@
 - PENDING_ACCEPT / DRIVER_EN_ROUTE：点击"导航到出发地点" → 选择外部地图 App 并打开步行导航
 - PENDING_ACCEPT：点击"我已出发" → 订单变为 DRIVER_EN_ROUTE
 - DRIVER_EN_ROUTE：点击"我已到达" → 订单变为 DRIVER_ARRIVED
+- DRIVER_ARRIVED：点击"开始服务" → 调用 `POST /api/orders/{id}/start-service` → 订单变为 IN_PROGRESS
 - PENDING_ACCEPT：点击"取消订单" → 二次确认 → 选择取消原因 → CANCELLED
 - IN_PROGRESS：点击"结束服务" → 确认弹窗 → 服务完成
 - 点击"一键求助" → 二次确认 → 显示占位提示（订单状态保持不变）
@@ -556,19 +557,20 @@
 - PENDING_ACCEPT → DRIVER_EN_ROUTE（志愿者点击已出发）：UI 更新
 - DRIVER_EN_ROUTE → DRIVER_ARRIVED（志愿者点击已到达）：UI 更新
 - PENDING_ACCEPT → CANCELLED：跳转首页并显示取消结果
-- DRIVER_ARRIVED → IN_PROGRESS：UI 更新；只有进入 IN_PROGRESS 后才显示"结束服务"
+- DRIVER_ARRIVED → IN_PROGRESS（志愿者点击开始服务）：UI 更新；只有进入 IN_PROGRESS 后才显示"结束服务"
 - IN_PROGRESS → COMPLETED：跳转首页 + 显示"服务完成，获得 +100 积分"
 - DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS：显示求助占位提示，订单状态保持不变
 - `REMATCHING` 作为真实后端状态保留，表示志愿者接单后主动取消；盲人端提示"正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"，并显示"取消订单"逃生按钮，取消请求使用盲人 token
 
 **错误状态**：
 - 网络错误 → 保留当前 UI，静默重试
-- 结束服务失败 → "操作失败，请重试"；若仍处于 DRIVER_ARRIVED，显示等待服务开始提示并阻止调用 `/api/orders/{id}/finish`
+- 结束服务失败 → "操作失败，请重试"；若仍处于 DRIVER_ARRIVED，显示"开始服务"按钮并阻止调用 `/api/orders/{id}/finish`
 
 **空状态**：不适用。
 
 **无障碍要求**：
 - "我已到达"按钮：最小高度 64pt，accessibilityLabel = "我已到达约定地点"
+- "开始服务"按钮：最小高度 64pt，accessibilityLabel = "开始服务"，accessibilityHint = "点击后通知盲人服务已开始"
 - "取消订单"按钮：需二次确认，accessibilityHint = "服务开始前取消当前订单"
 - "结束服务"按钮：最小高度 64pt，需二次确认
 - "一键求助"按钮：红色醒目，最小高度 64pt，需二次确认，本版本仅显示占位提示

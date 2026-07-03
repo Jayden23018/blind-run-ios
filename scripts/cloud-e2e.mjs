@@ -40,8 +40,7 @@ const created = {
     preOrderLocationReports: 0,
     postOrderLocationReports: 0,
     lastAvailable: null
-  },
-  backendStartEndpointNeeded: false
+  }
 };
 
 const runtime = {
@@ -465,17 +464,11 @@ async function transitionOrder(volunteer, orderId, volunteerSocket) {
   sendLocation(volunteerSocket, 39.9053, 116.4083);
   await sleep(1000);
 
-  const finish = await http('POST', `/api/orders/${orderId}/finish`, {
-    token: volunteer.token,
-    allowFailure: true
-  });
-  if (!finish.ok) {
-    const payload = JSON.stringify(finish.body);
-    if (payload.includes('INVALID_ORDER_STATUS') || payload.includes('IN_PROGRESS')) {
-      created.backendStartEndpointNeeded = true;
-    }
-    throw new Error(`finish from DRIVER_ARRIVED failed with ${finish.status}: ${payload}`);
-  }
+  await http('POST', `/api/orders/${orderId}/start-service`, { token: volunteer.token });
+  log('order-start-service', `id=${orderId}`);
+  await sleep(1000);
+
+  const finish = await http('POST', `/api/orders/${orderId}/finish`, { token: volunteer.token });
 
   const detail = await getOrder(volunteer.token, orderId);
   created.finalOrderStatus = detail.status ?? finish.body.status ?? null;
@@ -500,6 +493,12 @@ async function triggerEmergency(blind, volunteer, volunteerMessages) {
     allowFailure: true
   });
   log('emergency-order-arrived', `id=${orderId} status=${arrived.status} ok=${arrived.ok}`);
+
+  const startService = await http('POST', `/api/orders/${orderId}/start-service`, {
+    token: volunteer.token,
+    allowFailure: true
+  });
+  log('emergency-order-start-service', `id=${orderId} status=${startService.status} ok=${startService.ok}`);
 
   const finish = await http('POST', `/api/orders/${orderId}/finish`, {
     token: volunteer.token,

@@ -45,7 +45,7 @@
 | `REMATCHING` | 重新匹配中 |
 | `NO_VOLUNTEER` | 无可用志愿者 |
 
-正常流转：`PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED`。
+正常流转：`PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED`；其中 `DRIVER_ARRIVED -> IN_PROGRESS` 由志愿者调用 `POST /api/orders/{id}/start-service` 触发。
 
 取消流转：`PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS -> CANCELLED`；志愿者取消已接单订单后，盲人端可执行 `REMATCHING -> CANCELLED`。
 
@@ -219,7 +219,7 @@ Rules:
 - 用户手动取消原因只能来自 `ManualCancellationReason`。
 - 系统超时取消使用 `cancelledReason = no_volunteer_available`，不设置 `cancelledBy`。
 - 终态 `COMPLETED`、`CANCELLED`、`NO_VOLUNTEER` 不可取消。
-- 志愿者只能在 `IN_PROGRESS` 调用 `/api/orders/{id}/finish`；`DRIVER_ARRIVED` 必须等待云端推进到 `IN_PROGRESS`。
+- 志愿者只能在 `DRIVER_ARRIVED` 调用 `/api/orders/{id}/start-service` 开始服务；只能在 `IN_PROGRESS` 调用 `/api/orders/{id}/finish`；`DRIVER_ARRIVED` 不可直接结束。
 
 ### EmergencyEvent
 
@@ -250,7 +250,7 @@ Rules:
 
 Rules:
 
-- 当前由志愿者点击“结束服务”并可选填服务总结。
+- 当前由志愿者点击“开始服务”进入 `IN_PROGRESS` 后，再点击“结束服务”并可选填服务总结。
 - 服务总结只能在订单状态为 `IN_PROGRESS` 时提交；`DRIVER_ARRIVED` 不是可结束状态。
 
 ### Rating

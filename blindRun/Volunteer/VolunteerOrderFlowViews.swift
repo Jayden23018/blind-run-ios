@@ -97,7 +97,7 @@ extension RunOrderStatus {
         case .driverEnRoute:
             return "正在前往约定地点"
         case .driverArrived:
-            return "已到达，等待服务开始"
+            return "已到达，可开始服务"
         case .completed:
             return "服务完成，获得 +100 积分"
         case .cancelled:
@@ -144,7 +144,7 @@ extension RunOrderStatus {
         case .driverEnRoute:
             return "请按导航前往出发地点，盲人跑者正在等待"
         case .driverArrived:
-            return arrivedWaitingCopy
+            return "已到达集合地点，请点击开始服务，服务开始前不能结束订单"
         case .inProgress:
             return "完成本次陪跑后可结束服务"
         case .completed:
@@ -554,6 +554,21 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         }
     }
 
+    func startService() async {
+        guard let order, let appState else { return }
+        guard order.status.canStartService else {
+            let message = order.status.startServiceBlockedMessage
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
+        await performAction(failureMessage: "操作失败，请重试") {
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/start-service")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
+            self.order = updated
+        }
+    }
+
     func cancel() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "取消失败，请重试") {
@@ -816,6 +831,21 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
     }
 
+    func startService() async {
+        guard let order, let appState else { return }
+        guard order.status.canStartService else {
+            let message = order.status.startServiceBlockedMessage
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
+        await performAction(failureMessage: "操作失败，请重试") {
+            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/start-service")
+            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
+            apply(updated, speakChanges: false)
+        }
+    }
+
     func cancel() async {
         guard let order, let appState else { return }
         await performAction(failureMessage: "取消失败，请重试") {
@@ -940,6 +970,7 @@ struct VolunteerInServiceView: View {
                         },
                         onEnRoute: { Task { await viewModel.enRoute() } },
                         onArrive: { Task { await viewModel.arrive() } },
+                        onStartService: { Task { await viewModel.startService() } },
                         onCancel: { showCancelConfirm = true },
                         onComplete: { activeSheet = .completion },
                         onEmergency: { showEmergencyConfirm = true }
@@ -1515,6 +1546,7 @@ struct VolunteerServiceBottomPanel: View {
     let onNavigate: () -> Void
     let onEnRoute: () -> Void
     let onArrive: () -> Void
+    let onStartService: () -> Void
     let onCancel: () -> Void
     let onComplete: () -> Void
     let onEmergency: () -> Void
@@ -1540,6 +1572,7 @@ struct VolunteerServiceBottomPanel: View {
                     onNavigate: onNavigate,
                     onEnRoute: onEnRoute,
                     onArrive: onArrive,
+                    onStartService: onStartService,
                     onCancel: onCancel,
                     onComplete: onComplete,
                     onEmergency: onEmergency
@@ -1704,9 +1737,9 @@ enum VolunteerServiceActionKind: Hashable {
     case navigateToStart
     case markEnRoute
     case markArrived
+    case startService
     case cancelOrder
     case completeService
-    case arrivedWaitingMessage
     case completedMessage
     case terminalMessage
 
@@ -1718,12 +1751,12 @@ enum VolunteerServiceActionKind: Hashable {
             return "我已出发"
         case .markArrived:
             return "我已到达约定地点"
+        case .startService:
+            return "开始服务"
         case .cancelOrder:
             return "取消订单"
         case .completeService:
             return "结束服务"
-        case .arrivedWaitingMessage:
-            return "已到达，等待服务开始"
         case .completedMessage:
             return "服务完成，获得 +100 积分"
         case .terminalMessage:
@@ -1738,6 +1771,7 @@ struct VolunteerServiceActions: View {
     let onNavigate: () -> Void
     let onEnRoute: () -> Void
     let onArrive: () -> Void
+    let onStartService: () -> Void
     let onCancel: () -> Void
     let onComplete: () -> Void
     let onEmergency: () -> Void
@@ -1762,7 +1796,7 @@ struct VolunteerServiceActions: View {
         case .driverEnRoute:
             return [.navigateToStart, .markArrived]
         case .driverArrived:
-            return [.arrivedWaitingMessage]
+            return [.startService]
         case .inProgress:
             return [.completeService]
         case .completed:
@@ -1786,22 +1820,17 @@ struct VolunteerServiceActions: View {
         case .markArrived:
             PrimaryButton(action.title, isLoading: isPerformingAction, action: onArrive)
                 .accessibilityLabel(action.title)
+                .accessibilityHint("点击后通知盲人您已到达")
+        case .startService:
+            PrimaryButton(action.title, isLoading: isPerformingAction, action: onStartService)
+                .accessibilityLabel(action.title)
+                .accessibilityHint("点击后通知盲人服务已开始")
         case .cancelOrder:
             secondaryDangerButton(action.title, hint: "取消当前订单", action: onCancel)
         case .completeService:
             PrimaryButton(action.title, isDestructive: true, isLoading: isPerformingAction, action: onComplete)
                 .accessibilityLabel(action.title)
                 .accessibilityHint("需要使用二次确认")
-        case .arrivedWaitingMessage:
-            Text(status.arrivedWaitingCopy)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.warning)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-                .padding(.horizontal, 14)
-                .background(AppColors.warning.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .accessibilityLabel(status.arrivedWaitingCopy)
         case .completedMessage:
             Text(action.title)
                 .font(AppFonts.body().weight(.semibold))

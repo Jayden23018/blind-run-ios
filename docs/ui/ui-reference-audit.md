@@ -142,7 +142,7 @@
 | 按钮和输入 | "返回主页"、"取消行程"、三档评价"好评/一般/差评"。无星级评分输入。 |
 | 跳转关系 | 返回主页到 `/blind`；取消后回 `/blind`；评价后回 `/blind`。 |
 | 适合保留 | 5 秒轮询、状态变化 TTS、状态大字卡片、联系方式与订单信息分区。 |
-| 不适合新版本 | 旧状态 `pendingMatch/pendingAccept/inProgress/driverEnRoute/driverArrived/rematching/noVolunteer` 不可继承；缺少 `arrived` 时盲人"确认开始服务"；缺少 accepted/arrived/in_progress 的一键求助；取消没有二次确认和固定原因；完成评价是三档而非 1-5 星；缺少 terminal `emergency` 页面。 |
+| 不适合新版本 | 旧状态 `pendingMatch/pendingAccept/inProgress/driverEnRoute/driverArrived/rematching/noVolunteer` 不可继承；`arrived` 时盲人端不应提供开始服务按钮，只应被动等待志愿者开始服务；缺少 accepted/arrived/in_progress 的一键求助；取消没有二次确认和固定原因；完成评价是三档而非 1-5 星；缺少 terminal `emergency` 页面。 |
 | 无障碍重设计 | 拆成订单等待页、服务中页、完成/评分页；每页必须有"重复当前状态"；危险操作二次确认；状态文案使用当前 MVP 状态中文。 |
 
 ### VolunteerDashboardPage: 地图 Tab
@@ -207,8 +207,8 @@
 | 按钮和输入 | 返回、旧动作"我已出发 / 我已到达集合点 / 结束行程"、完成后"返回大厅"。无服务总结输入。 |
 | 跳转关系 | 返回到 `/volunteer`；完成后返回 `/volunteer`。 |
 | 适合保留 | 地图作为主背景、底部操作面板、接单后才展示电话、完成结算反馈。 |
-| 不适合新版本 | 旧动作链是 `inProgress -> driverEnRoute -> driverArrived -> completed`，与当前 `accepted -> arrived -> in_progress -> completed` 冲突；缺少等待盲人确认开始的状态；结束服务缺少二次确认和可选服务总结；缺少取消和一键求助；结算积分是 `+50`。 |
-| 无障碍重设计 | 按当前状态显示"我已到达""等待盲人确认""结束服务"；危险操作二次确认；完成后显示 `+100` 积分。 |
+| 不适合新版本 | 旧动作链是 `inProgress -> driverEnRoute -> driverArrived -> completed`，与当前 `accepted -> arrived -> start-service -> in_progress -> completed` 冲突；缺少正式开始服务动作；结束服务缺少二次确认和可选服务总结；缺少取消和一键求助；结算积分是 `+50`。 |
+| 无障碍重设计 | 按当前状态显示"我已到达""开始服务""结束服务"；危险操作二次确认；完成后显示 `+100` 积分。 |
 
 ### SettingsPage
 
@@ -318,12 +318,12 @@
 | 盲人首页 | 旧版缺小地图、当前位置描述和重复状态按钮 | 地图摘要、重复当前状态、退出确认 |
 | 创建预约页 | 旧版时间输入与当前规则冲突，字段不足 | DatePicker、30 分钟校验、定位权限阻断、完整可选字段 |
 | 地点搜索页 | 可保留结构，但要避免 fallback 被误认为真实地点 | 空状态、权限说明、候选行 VoiceOver |
-| 盲人订单状态页 | 旧状态机冲突，缺确认开始和求助 | matching/accepted/arrived UI、确认开始、取消原因、求助确认 |
+| 盲人订单状态页 | 旧状态机冲突，缺服务开始通知和求助 | matching/accepted/arrived UI、服务开始通知、取消原因、求助确认 |
 | 盲人服务中页 | 旧版未独立拆出 in_progress | 志愿者电话、一键求助、重复状态、轮询 completed/emergency |
 | 盲人完成/评分页 | 旧版三档评分 | 1-5 星、可跳过、反馈文本语音输入 |
 | 志愿者首页/列表 | 旧版接单前可能暴露电话，实时派单概念过重 | 接单前隐藏敏感信息、定位拒绝隐藏距离并禁接单 |
 | 志愿者订单详情页 | 旧版列表卡片内直接接单，详情页不足 | 接单前/后信息分级、接单确认、地图位置 |
-| 志愿者服务中页 | 旧动作和当前状态机冲突 | 到达、等待盲人确认、完成、取消、求助 |
+| 志愿者服务中页 | 旧动作和当前状态机冲突 | 到达、开始服务、完成、取消、求助 |
 | 设置页 | 旧版退出无确认，环境切换缺失 | API 环境、切换角色拦截、退出二次确认 |
 
 ## 8. 与当前 docs/OpenSpec 的冲突
@@ -334,7 +334,7 @@
 | 平台 | Flutter 保留 Android/iOS 壳 | iOS only |
 | 实时通信 | WebSocket 派单和重连状态 | REST only，无 WebSocket |
 | 状态机 | `PENDING_*`、`DRIVER_*`、`REMATCHING`、`NO_VOLUNTEER` | `matching/accepted/arrived/in_progress/completed/cancelled/emergency` |
-| 服务开始 | 志愿者"我已出发/我已到达"后旧流程推进 | 志愿者"我已到达"进入 `arrived`，盲人确认后进入 `in_progress` |
+| 服务开始 | 志愿者"我已出发/我已到达"后旧流程推进 | 志愿者"我已到达"进入 `DRIVER_ARRIVED`，再由志愿者"开始服务"进入 `IN_PROGRESS` |
 | 取消 | 可直接取消，缺固定原因 | 二次确认，固定原因，记录 `cancelledBy` |
 | 求助 | 未完整覆盖 emergency | accepted/arrived/in_progress 可进入 terminal `emergency` |
 | AI | 固定 AI 语音助手按钮 | AI assistant out of scope |

@@ -291,4 +291,4 @@ scripts/admin-review-volunteer.mjs
 3. 创建距当前时间不足 30 分钟的预约必须拒绝，并返回 `APPOINTMENT_TOO_SOON`。
 4. 验证码错误应返回统一 `INVALID_VERIFICATION_CODE` 错误结构；前端暂时兼容当前 `{ "error": ... }`。
 5. 当前用户读取自己的紧急联系人时应返回完整电话，或明确提供“不修改掩码电话”的更新语义。
-6. 后端需明确在没有盲人确认按钮的流程中，`DRIVER_ARRIVED -> IN_PROGRESS` 的触发方和接口。
+6. 已确认没有盲人确认按钮；`DRIVER_ARRIVED -> IN_PROGRESS` 由志愿者端调用 `POST /api/orders/{id}/start-service` 触发，需在真机和 `scripts/cloud-e2e.mjs` 中验收。

@@ -97,12 +97,14 @@ The iOS volunteer client SHALL handle backend `NEW_ORDER` WebSocket messages as 
 - **AND** the app SHALL dismiss the prompt without exposing a "later" or public-pool selection action
 
 ### Requirement: Service completion is allowed only from IN_PROGRESS
-The iOS app SHALL enforce the canonical service completion path `DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED` and SHALL NOT allow `DRIVER_ARRIVED -> COMPLETED` from the client.
+The iOS app SHALL enforce the canonical volunteer-driven service path `DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED`, where the volunteer explicitly starts service before completion, and SHALL NOT allow `DRIVER_ARRIVED -> COMPLETED` from the client.
 
-#### Scenario: Volunteer arrives and waits for service start
+#### Scenario: Volunteer starts service after arrival
 - **WHEN** a volunteer order is `DRIVER_ARRIVED`
-- **THEN** the volunteer service UI SHALL show that the volunteer has arrived and is waiting for service to start
-- **AND** the app SHALL continue listening or polling for `IN_PROGRESS`
+- **THEN** the volunteer service UI SHALL show a "开始服务" action
+- **AND** tapping the action SHALL call `POST /api/orders/{id}/start-service`
+- **AND** a successful response SHALL move the order to `IN_PROGRESS`
+- **AND** the blind-runner UI SHALL receive `IN_PROGRESS` through WebSocket or polling without showing a blind-runner confirmation action
 - **AND** the app SHALL NOT show or execute a finish service action
 
 #### Scenario: Volunteer completes service from IN_PROGRESS
@@ -144,6 +146,11 @@ The iOS app SHALL NOT launch a production emergency backend workflow as part of 
 
 ### Requirement: Mock and tests mirror the formal lifecycle
 Mock API behavior and automated tests SHALL mirror the formal dispatch lifecycle used by cloud validation.
+
+#### Scenario: Mock starts service from DRIVER_ARRIVED
+- **WHEN** Mock receives `POST /api/orders/{id}/start-service` for an order in `DRIVER_ARRIVED`
+- **THEN** Mock SHALL move the order to `IN_PROGRESS`
+- **AND** Mock SHALL reject the same endpoint for other order statuses with `INVALID_ORDER_STATUS`
 
 #### Scenario: Mock rejects direct completion from DRIVER_ARRIVED
 - **WHEN** Mock receives `POST /api/orders/{id}/finish` for an order in `DRIVER_ARRIVED`

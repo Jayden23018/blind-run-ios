@@ -83,7 +83,7 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         case .driverEnRoute:
             return "志愿者已出发，正在前往您的位置。"
         case .driverArrived:
-            return "志愿者已到达，请等待服务开始。"
+            return "志愿者已到达，请等待志愿者开始服务。"
         case .inProgress:
             return "服务已开始，请注意安全。"
         case .completed:
