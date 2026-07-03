@@ -101,6 +101,8 @@ struct VolunteerDispatchSummaryActiveOrder: Codable, Identifiable, Sendable {
     let plannedStartTime: String?
     let plannedEndTime: String?
     let startAddress: String?
+    let startLatitude: Double?
+    let startLongitude: Double?
     let blindName: String?
     let blindPhoneMasked: String?
     let acceptedAt: String?
@@ -112,8 +114,8 @@ struct VolunteerDispatchSummaryActiveOrder: Codable, Identifiable, Sendable {
             orderId: orderId,
             status: status,
             startAddress: startAddress,
-            startLatitude: nil,
-            startLongitude: nil,
+            startLatitude: startLatitude,
+            startLongitude: startLongitude,
             plannedStart: plannedStartTime,
             plannedEnd: plannedEndTime,
             blindName: blindName,

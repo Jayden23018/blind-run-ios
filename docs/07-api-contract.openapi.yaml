@@ -2433,6 +2433,18 @@
           "startAddress": {
             "type": "string"
           },
+          "startLatitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90
+          },
+          "startLongitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180
+          },
           "blindName": {
             "type": "string"
           },
@@ -3335,6 +3347,18 @@
           },
           "startAddress": {
             "type": "string"
+          },
+          "startLatitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90
+          },
+          "startLongitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180
           },
           "plannedStart": {
             "type": "string",

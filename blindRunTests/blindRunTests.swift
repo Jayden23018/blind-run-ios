@@ -463,8 +463,38 @@ final class blindRunTests: XCTestCase {
         let activeSummary: VolunteerDispatchSummaryResponse = try await client.get("/api/volunteer/dispatch-summary")
         XCTAssertFalse(activeSummary.canDispatch ?? true)
         XCTAssertEqual(activeSummary.notAvailableReasons, [.activeOrder])
-        XCTAssertEqual(activeSummary.activeOrders?.first?.orderId, 1)
+        let activeOrder = try XCTUnwrap(activeSummary.activeOrders?.first)
+        XCTAssertEqual(activeOrder.orderId, 1)
+        XCTAssertEqual(try XCTUnwrap(activeOrder.startLatitude), 39.9342, accuracy: 0.000001)
+        XCTAssertEqual(try XCTUnwrap(activeOrder.startLongitude), 116.4740, accuracy: 0.000001)
+        XCTAssertEqual(try XCTUnwrap(activeOrder.orderDetail.startLatitude), 39.9342, accuracy: 0.000001)
+        XCTAssertEqual(try XCTUnwrap(activeOrder.orderDetail.startLongitude), 116.4740, accuracy: 0.000001)
         XCTAssertEqual(activeSummary.recentOrders?.first?.startAddress, "朝阳公园南门")
+    }
+
+    func testVolunteerDispatchSummaryActiveOrderDecodesAndPreservesCoordinatesInOrderDetail() throws {
+        let json = """
+        {
+          "orderId": 42,
+          "status": "PENDING_ACCEPT",
+          "plannedStartTime": "2026-07-02T21:10:00",
+          "plannedEndTime": "2026-07-02T22:10:00",
+          "startAddress": "云南省昆明市西山区福海街道庾园路五家堆湿地公园",
+          "startLatitude": 25.02712,
+          "startLongitude": 102.68742,
+          "blindName": "盲人跑者",
+          "blindPhoneMasked": "138****0002",
+          "acceptedAt": "2026-07-02T20:32:00"
+        }
+        """.data(using: .utf8)!
+
+        let activeOrder = try JSONDecoder().decode(VolunteerDispatchSummaryActiveOrder.self, from: json)
+
+        XCTAssertEqual(try XCTUnwrap(activeOrder.startLatitude), 25.02712, accuracy: 0.000001)
+        XCTAssertEqual(try XCTUnwrap(activeOrder.startLongitude), 102.68742, accuracy: 0.000001)
+        XCTAssertEqual(activeOrder.orderDetail.startAddress, "云南省昆明市西山区福海街道庾园路五家堆湿地公园")
+        XCTAssertEqual(try XCTUnwrap(activeOrder.orderDetail.startLatitude), 25.02712, accuracy: 0.000001)
+        XCTAssertEqual(try XCTUnwrap(activeOrder.orderDetail.startLongitude), 102.68742, accuracy: 0.000001)
     }
 
     func testMockFormalTwoRoleHappyPathThroughReview() async throws {

@@ -341,6 +341,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                     plannedStartTime: $0.plannedStart,
                     plannedEndTime: $0.plannedEnd,
                     startAddress: $0.startAddress,
+                    startLatitude: $0.startLatitude,
+                    startLongitude: $0.startLongitude,
                     blindName: $0.blindName,
                     blindPhoneMasked: $0.blindPhone?.maskedPhone,
                     acceptedAt: $0.acceptedAt
