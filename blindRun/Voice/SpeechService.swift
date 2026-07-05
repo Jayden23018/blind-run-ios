@@ -50,6 +50,14 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         return true
     }
 
+    @discardableResult
+    func speakStatusChange(_ status: RunOrderStatus, text: String) -> Bool {
+        guard status != lastSpokenStatus else { return false }
+        lastSpokenStatus = status
+        speak(text: text)
+        return true
+    }
+
     /// 重复播报当前状态（"重复当前状态"按钮调用）
     func repeatCurrentStatus() {
         speak(text: latestRepeatableText ?? "当前没有进行中的订单。")
@@ -79,9 +87,9 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         case .pendingMatch:
             return "订单提交成功，系统正在为你派单。"
         case .pendingAccept:
-            return "志愿者已接单，等待确认中。"
+            return "志愿者已接单，请前往或等待在预约出发地点。"
         case .driverEnRoute:
-            return "志愿者已出发，正在前往您的位置。"
+            return "志愿者已出发，正在前往出发地点。"
         case .driverArrived:
             return "志愿者已到达，请等待志愿者开始服务。"
         case .inProgress:

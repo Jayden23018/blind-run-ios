@@ -30,7 +30,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     }
 
     var canCancelActiveOrder: Bool {
-        activeOrder?.status.canCancel == true
+        activeOrder?.status.canBlindRunnerCancel == true
     }
 
     func configure(with appState: AppState, speechService: SpeechService) {
@@ -71,7 +71,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
     func speakCurrentStatus(locationDescription: String? = nil) {
         if let activeOrder {
-            speechService?.speakStatusChange(activeOrder.status)
+            speechService?.speakStatusChange(activeOrder.status, text: activeOrder.blindRunnerAnnouncement())
         } else {
             let locationText = locationDescription.map { "当前位置：\($0)。" } ?? ""
             speechService?.speak("欢迎来到助盲跑。\(locationText)可以点击开始约跑。")
@@ -92,7 +92,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(activeOrder.orderId)/cancel")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(activeOrder.orderId)")
             self.activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
-            self.speechService?.speakStatusChange(updated.status)
+            self.speechService?.speakStatusChange(updated.status, text: updated.blindRunnerAnnouncement())
         }
     }
 

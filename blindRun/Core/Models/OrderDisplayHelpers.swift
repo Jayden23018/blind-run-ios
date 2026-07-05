@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 import SwiftUI
 
 // MARK: - Order Display Helpers
@@ -27,11 +28,11 @@ extension RunOrderStatus {
         case .pendingMatch:
             return "系统正在派单，请稍候。"
         case .pendingAccept:
-            return "已找到志愿者，等待确认中。"
+            return "志愿者已接单，请按预约时间前往或等待在出发地点。"
         case .inProgress:
             return "服务已开始，请注意安全。"
         case .driverEnRoute:
-            return "志愿者正在赶来。"
+            return "志愿者已出发，正在前往出发地点。"
         case .driverArrived:
             return arrivedWaitingCopy
         case .completed:
@@ -50,11 +51,11 @@ extension RunOrderStatus {
         case .pendingMatch:
             return "订单提交成功，系统正在为你派单。"
         case .pendingAccept:
-            return "已找到志愿者，正在等待对方确认。"
+            return "志愿者已接单，请前往或等待在预约出发地点。"
         case .inProgress:
             return "服务已开始，请注意安全。"
         case .driverEnRoute:
-            return "志愿者正在赶来，请耐心等待。"
+            return "志愿者已出发，正在前往出发地点。"
         case .driverArrived:
             return "志愿者已到达约定地点，等待志愿者开始服务。"
         case .completed:
@@ -110,6 +111,45 @@ extension RunOrderStatus {
 extension OrderDetailResponse {
     var sortKey: String {
         createdAt ?? plannedStart ?? ""
+    }
+
+    var startCoordinate: CLLocationCoordinate2D? {
+        guard let startLatitude, let startLongitude else { return nil }
+        return CLLocationCoordinate2D(latitude: startLatitude, longitude: startLongitude)
+    }
+
+    var startAddressForAnnouncement: String {
+        startAddress?.nilIfBlank ?? "预约出发地点"
+    }
+
+    var plannedStartForAnnouncement: String? {
+        plannedStart?.nilIfBlank?.displayDateTime
+    }
+
+    func volunteerDistanceToStartText(from volunteerCoordinate: CLLocationCoordinate2D?) -> String? {
+        guard let volunteerCoordinate, let startCoordinate else { return nil }
+        let meters = DistanceCalculator.distance(from: volunteerCoordinate, to: startCoordinate)
+        return "距出发地点约 \(DistanceCalculator.formattedDistance(meters))"
+    }
+
+    func blindRunnerAnnouncement(distanceText: String? = nil) -> String {
+        let distanceSentence = distanceText.map { "志愿者\($0)。" } ?? ""
+        switch status {
+        case .pendingAccept:
+            if let plannedStartForAnnouncement {
+                return "志愿者已接单。请在\(plannedStartForAnnouncement)前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)志愿者出发后会继续通知你。"
+            }
+            return "志愿者已接单。请前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)志愿者出发后会继续通知你。"
+        case .driverEnRoute:
+            if let distanceText {
+                return "志愿者已出发，正在前往出发地点，\(distanceText)。"
+            }
+            return "志愿者已出发，正在前往出发地点。"
+        case .driverArrived:
+            return "\(status.blindRunnerAnnouncement)\(distanceSentence)"
+        default:
+            return status.blindRunnerAnnouncement
+        }
     }
 }
 

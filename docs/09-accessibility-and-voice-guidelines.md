@@ -109,14 +109,16 @@ Use short, direct Chinese copy.
 Recommended status announcements:
 
 - `PENDING_MATCH`: “订单提交成功，系统正在为你派单。”
-- `PENDING_ACCEPT`: “志愿者已接单，请等待志愿者出发。”
-- `DRIVER_EN_ROUTE`: “志愿者已出发，正在赶往您的位置。”
+- `PENDING_ACCEPT`: “志愿者已接单。请在{预约时间}前往或等待在出发地点：{出发地点}。志愿者出发后会继续通知你。”
+- `DRIVER_EN_ROUTE`: “志愿者已出发，正在前往出发地点。”
 - `DRIVER_ARRIVED`: “志愿者已到达，请等待志愿者开始服务。”
 - `IN_PROGRESS`: “服务已开始，请注意安全。”
 - `COMPLETED`: “服务已完成，感谢使用助盲跑。”
 - `CANCELLED`: “本次预约已取消。”
 - `NO_VOLUNTEER`: “暂时没有可用志愿者。”
 - 求助占位提示：“求助流程暂未上线，请按既定人工安全预案处理。”
+
+Lifecycle `APP_NOTIFICATION` text from backend templates should not be spoken directly while an active order is present. Order lifecycle TTS should use local order-detail copy so test names or template placeholders are not announced. Volunteer distance copy should use "距出发地点约 X" and be calculated from the latest volunteer location to the order start coordinate.
 
 ## 8. Volunteer Accessibility
 

@@ -117,7 +117,7 @@
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | body | string | 通知文本（显示用） |
-| ttsText | string | TTS 朗读文本（盲人用语音播报） |
+| ttsText | string | TTS 朗读文本建议；订单生命周期播报以 iOS 本地订单详情文案为准，不直接朗读生命周期模板 |
 | priority | string | `"HIGH"` 或 `"NORMAL"` |
 | timestamp | string | ISO 格式时间 |
 
@@ -125,13 +125,13 @@
 
 | 事件 | body 示例 | priority |
 |------|----------|----------|
-| 订单被接单 | 已为您匹配志愿者{volunteerName}，他正在确认行程，请稍候 | NORMAL |
-| 志愿者出发 | 志愿者{volunteerName}已出发，正在赶往您的位置 | NORMAL |
-| 志愿者到达 | 志愿者{volunteerName}已到达附近 | HIGH |
+| 订单被接单 | 志愿者已接单，请按预约时间前往或等待在出发地点 | NORMAL |
+| 志愿者出发 | 志愿者{volunteerName}已出发，正在前往出发地点 | NORMAL |
+| 志愿者到达 | 志愿者{volunteerName}已到达出发地点 | HIGH |
 | 订单完成 | 订单已完成 | NORMAL |
 | 重新匹配 | 志愿者已取消，正在重新匹配 | NORMAL |
 | 暂无志愿者 | 暂时没有可用志愿者，仍在等待 | NORMAL |
-| 邻近感知 | 志愿者距您约100米 | NORMAL |
+| 邻近感知 | 志愿者距出发地点约100米 | NORMAL |
 | 紧急事件触发 | 已收到求助，正在通知志愿者 | HIGH |
 | 联系人已通知 | 已通过短信通知您的联系人{contactName}，请保持冷静 | HIGH |
 
@@ -144,7 +144,7 @@
   "fromStatus": "IN_PROGRESS",
   "toStatus": "DRIVER_EN_ROUTE",
   "message": "志愿者已出发",
-  "ttsText": "志愿者张三已出发，正在赶往您的位置",
+  "ttsText": "志愿者已出发，正在前往出发地点",
   "priority": "NORMAL",
   "timestamp": "2026-05-23T14:10:00"
 }

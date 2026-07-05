@@ -735,6 +735,47 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.verificationCode, "000000")
     }
 
+    func testRequestCodeShowsInputOnlyAfterSendCodeSucceeds() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let viewModel = LoginViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.phoneNumber = "13800138000"
+
+        viewModel.requestCode()
+
+        XCTAssertTrue(viewModel.isSendingCode)
+        XCTAssertFalse(viewModel.showCodeInput)
+        XCTAssertNil(viewModel.countdown)
+
+        let didSend = await waitUntil {
+            viewModel.showCodeInput &&
+            viewModel.countdown != nil &&
+            !viewModel.isSendingCode
+        }
+
+        XCTAssertTrue(didSend)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testRequestCodeFailureDoesNotStartCountdownOrShowInput() async {
+        let viewModel = LoginViewModel(apiClient: FailingAPIClient(error: APIError.networkError(
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
+        )))
+        viewModel.phoneNumber = "13800138000"
+
+        viewModel.requestCode()
+
+        let didFail = await waitUntil {
+            viewModel.errorMessage != nil && !viewModel.isSendingCode
+        }
+
+        XCTAssertTrue(didFail)
+        XCTAssertEqual(viewModel.errorMessage, "网络错误，请重试")
+        XCTAssertFalse(viewModel.showCodeInput)
+        XCTAssertNil(viewModel.countdown)
+    }
+
     func testDevelopmentInitialEnvironmentKeepsSupportedDebugChoices() {
         XCTAssertEqual(AppState.resolvedInitialEnvironment(.mock, channel: .development), .mock)
         XCTAssertEqual(AppState.resolvedInitialEnvironment(.demoCloud, channel: .development), .demoCloud)
@@ -923,6 +964,14 @@ final class blindRunTests: XCTestCase {
             "志愿者已到达，请等待志愿者开始服务。"
         )
         XCTAssertEqual(
+            VoiceService.statusAnnouncement(for: .pendingAccept),
+            "志愿者已接单，请前往或等待在预约出发地点。"
+        )
+        XCTAssertEqual(
+            VoiceService.statusAnnouncement(for: .driverEnRoute),
+            "志愿者已出发，正在前往出发地点。"
+        )
+        XCTAssertEqual(
             VoiceService.statusAnnouncement(for: .completed),
             "服务已完成，感谢使用助盲跑。"
         )
@@ -1047,12 +1096,110 @@ final class blindRunTests: XCTestCase {
     }
 
     func testOrderStatusCancelability() {
+        XCTAssertEqual(RunOrderStatus.pendingAccept.displayName, "待出发")
+
         XCTAssertTrue(RunOrderStatus.pendingMatch.canCancel)
         XCTAssertTrue(RunOrderStatus.pendingAccept.canCancel)
         XCTAssertTrue(RunOrderStatus.inProgress.canCancel)
         XCTAssertTrue(RunOrderStatus.rematching.canCancel)
         XCTAssertFalse(RunOrderStatus.completed.canCancel)
         XCTAssertFalse(RunOrderStatus.cancelled.canCancel)
+
+        XCTAssertTrue(RunOrderStatus.pendingMatch.canBlindRunnerCancel)
+        XCTAssertTrue(RunOrderStatus.pendingAccept.canBlindRunnerCancel)
+        XCTAssertTrue(RunOrderStatus.inProgress.canBlindRunnerCancel)
+        XCTAssertTrue(RunOrderStatus.rematching.canBlindRunnerCancel)
+        XCTAssertFalse(RunOrderStatus.driverEnRoute.canBlindRunnerCancel)
+        XCTAssertFalse(RunOrderStatus.driverArrived.canBlindRunnerCancel)
+
+        XCTAssertTrue(RunOrderStatus.pendingAccept.canVolunteerCancel)
+        XCTAssertTrue(RunOrderStatus.inProgress.canVolunteerCancel)
+        XCTAssertFalse(RunOrderStatus.pendingMatch.canVolunteerCancel)
+        XCTAssertFalse(RunOrderStatus.driverEnRoute.canVolunteerCancel)
+        XCTAssertFalse(RunOrderStatus.driverArrived.canVolunteerCancel)
+        XCTAssertFalse(RunOrderStatus.rematching.canVolunteerCancel)
+
+        XCTAssertTrue(RunOrderStatus.pendingAccept.canCancel(as: .blind))
+        XCTAssertTrue(RunOrderStatus.pendingAccept.canCancel(as: .volunteer))
+        XCTAssertTrue(RunOrderStatus.rematching.canCancel(as: .blind))
+        XCTAssertFalse(RunOrderStatus.rematching.canCancel(as: .volunteer))
+        XCTAssertFalse(RunOrderStatus.pendingAccept.canCancel(as: .unset))
+    }
+
+    func testPendingAcceptBlindCopyUsesDepartureLanguageAndOrderDetails() {
+        let order = makeOrder(orderId: 1, status: .pendingAccept)
+        let announcement = order.blindRunnerAnnouncement()
+
+        XCTAssertEqual(RunOrderStatus.pendingAccept.blindRunnerDescription, "志愿者已接单，请按预约时间前往或等待在出发地点。")
+        XCTAssertTrue(announcement.contains("志愿者已接单"))
+        XCTAssertTrue(announcement.contains("朝阳公园南门"))
+        XCTAssertTrue(announcement.contains("志愿者出发后会继续通知你"))
+        XCTAssertFalse(announcement.contains("待确认"))
+    }
+
+    func testBlindVolunteerDistanceUsesVolunteerLocationToStartPoint() {
+        let order = makeOrder(orderId: 1, status: .driverEnRoute)
+        let volunteerAtStart = CLLocationCoordinate2D(latitude: 39.9342, longitude: 116.4740)
+
+        XCTAssertEqual(order.volunteerDistanceToStartText(from: volunteerAtStart), "距出发地点约 10 米")
+        XCTAssertNil(order.volunteerDistanceToStartText(from: nil))
+
+        let noCoordinateOrder = makeOrder(
+            orderId: 1,
+            status: .driverEnRoute,
+            startLatitude: nil,
+            startLongitude: nil
+        )
+        XCTAssertNil(noCoordinateOrder.volunteerDistanceToStartText(from: volunteerAtStart))
+    }
+
+    func testBlindRunnerAnnouncementIncludesDistanceForTrackingStates() {
+        let distanceText = "距出发地点约 10 米"
+        for status in [RunOrderStatus.pendingAccept, .driverEnRoute, .driverArrived] {
+            let announcement = makeOrder(orderId: 1, status: status)
+                .blindRunnerAnnouncement(distanceText: distanceText)
+
+            XCTAssertTrue(
+                announcement.contains(distanceText),
+                "\(status.rawValue) announcement should include volunteer distance to the start point"
+            )
+            XCTAssertFalse(announcement.contains("距您"))
+        }
+    }
+
+    func testBlindOrderStatusViewModelTracksVolunteerDistanceToStart() {
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.order = makeOrder(orderId: 1, status: .driverEnRoute)
+
+        viewModel.handleVolunteerLocationUpdate(WSVolunteerLocationUpdate(
+            type: WSMessageType.volunteerLocationUpdate.rawValue,
+            orderId: 1,
+            lat: 39.9342,
+            lng: 116.4740,
+            timestamp: 1
+        ))
+
+        XCTAssertEqual(viewModel.volunteerDistanceToStartText, "距出发地点约 10 米")
+
+        viewModel.handleVolunteerLocationUpdate(WSVolunteerLocationUpdate(
+            type: WSMessageType.volunteerLocationUpdate.rawValue,
+            orderId: 2,
+            lat: 39.9042,
+            lng: 116.4074,
+            timestamp: 2
+        ))
+
+        XCTAssertEqual(viewModel.volunteerDistanceToStartText, "距出发地点约 10 米")
+    }
+
+    func testBlindOrderStatusSuppressesLifecycleAppNotificationSpeech() {
+        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("测试志愿者已到达，距您100米"))
+        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("志愿者已出发，距您100米"))
+        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("服务已开始"))
+        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("订单已完成"))
+        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("暂时没有可用志愿者，仍在等待"))
+        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("已为您匹配志愿者张三，他正在确认行程，请稍候"))
+        XCTAssertFalse(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("紧急联系人已通知"))
     }
 
     func testBlindRunnerRematchingOrderShowsCancelAction() {
@@ -1280,7 +1427,7 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VolunteerServiceActions.actionKinds(for: .inProgress).map(\.title),
-            ["结束服务"]
+            ["结束服务", "取消订单"]
         )
     }
 
@@ -1356,6 +1503,27 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(presentation.hasCurrentLocationMarker)
         XCTAssertEqual(presentation.centerCoordinate.latitude, 39.9192, accuracy: 0.000001)
         XCTAssertEqual(presentation.centerCoordinate.longitude, 116.4407, accuracy: 0.000001)
+    }
+
+    func testVolunteerServiceMapPresentationCanPinCenterOnStartWithCurrentMarker() {
+        let current = CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074)
+        let order = makeOrder(orderId: 1, status: .pendingAccept)
+
+        let presentation = VolunteerServiceMapPresentation(
+            order: order,
+            currentLocation: current,
+            locationAuthorized: true,
+            fallbackCoordinate: current,
+            includesCurrentLocationMarker: true,
+            centersOnCurrentAndStart: false
+        )
+
+        XCTAssertEqual(presentation.annotations.count, 2)
+        XCTAssertEqual(presentation.annotations[0].kind, .currentLocation)
+        XCTAssertEqual(presentation.annotations[1].kind, .orderStart)
+        XCTAssertTrue(presentation.hasCurrentLocationMarker)
+        XCTAssertEqual(presentation.centerCoordinate.latitude, 39.9342, accuracy: 0.000001)
+        XCTAssertEqual(presentation.centerCoordinate.longitude, 116.4740, accuracy: 0.000001)
     }
 
     func testVolunteerServiceMapPresentationShowsOnlyCurrentLocationWhenOrderCoordinatesMissing() {
@@ -1585,6 +1753,33 @@ final class blindRunTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
         return condition()
+    }
+
+    private final class FailingAPIClient: APIClientProtocol, @unchecked Sendable {
+        private let error: Error
+
+        init(error: Error) {
+            self.error = error
+        }
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw error
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw error
+        }
     }
 
     private func makeVolunteerProfile(

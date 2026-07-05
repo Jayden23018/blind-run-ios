@@ -726,7 +726,7 @@ struct VolunteerOrderDetailView: View {
                 .accessibilityLabel("进入服务页面")
                 .accessibilityHint("查看当前订单服务状态")
 
-                if order.status.canCancel {
+                if order.status.canVolunteerCancel {
                     Button("取消订单", role: .destructive) {
                         showCancelConfirm = true
                     }
@@ -1419,14 +1419,15 @@ struct VolunteerServiceMapBackdrop: View {
             locationAuthorized: locationService.isAuthorized,
             fallbackCoordinate: locationService.effectiveLocation,
             includesCurrentLocationMarker: true,
-            centersOnCurrentAndStart: true
+            centersOnCurrentAndStart: false
         )
         MapViewWrapper(
             centerCoordinate: presentation.centerCoordinate,
             showsUserLocation: locationService.isAuthorized,
             annotations: presentation.annotations,
             zoomLevel: 15,
-            screenAnchor: screenAnchor
+            screenAnchor: screenAnchor,
+            tracksUserLocation: false
         )
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
@@ -1798,7 +1799,7 @@ struct VolunteerServiceActions: View {
         case .driverArrived:
             return [.startService]
         case .inProgress:
-            return [.completeService]
+            return [.completeService, .cancelOrder]
         case .completed:
             return [.completedMessage]
         case .cancelled, .noVolunteer:

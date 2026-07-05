@@ -79,7 +79,7 @@ stateDiagram-v2
     PENDING_MATCH --> NO_VOLUNTEER: 无可用志愿者
 
     PENDING_ACCEPT --> DRIVER_EN_ROUTE: 志愿者点击"我已出发"\n(API: POST /api/orders/{orderId}/en-route)
-    PENDING_ACCEPT --> CANCELLED: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
+    PENDING_ACCEPT --> CANCELLED: 盲人或志愿者取消\n(API: POST /api/orders/{orderId}/cancel)
 
     DRIVER_EN_ROUTE --> DRIVER_ARRIVED: 志愿者点击"我已到达"\n(API: POST /api/orders/{orderId}/arrived)
     DRIVER_EN_ROUTE --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
@@ -88,7 +88,7 @@ stateDiagram-v2
     DRIVER_ARRIVED --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
 
     IN_PROGRESS --> COMPLETED: 志愿者结束服务\n(API: POST /api/orders/{orderId}/finish)
-    IN_PROGRESS --> CANCELLED: 任一方取消\n(API: POST /api/orders/{orderId}/cancel)
+    IN_PROGRESS --> CANCELLED: 盲人或志愿者取消\n(API: POST /api/orders/{orderId}/cancel)
     IN_PROGRESS --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
     REMATCHING --> CANCELLED: 盲人取消\n(API: POST /api/orders/{orderId}/cancel；盲人 token)
 
@@ -111,6 +111,12 @@ stateDiagram-v2
 | IN_PROGRESS | COMPLETED | 志愿者 | 正常结束 |
 | IN_PROGRESS | CANCELLED | 盲人 / 志愿者 | 服务中可取消 |
 | REMATCHING | CANCELLED | 盲人 | 志愿者主动取消已接单订单后进入重新匹配；盲人可用自己的 token 调用 `/cancel` 退出本次订单，志愿者 token 不适用 |
+
+取消按钮显示规则：
+
+- 盲人跑者端仅在 `PENDING_MATCH`、`PENDING_ACCEPT`、`IN_PROGRESS`、`REMATCHING` 显示"取消订单"，均需二次确认。
+- 志愿者端仅在 `PENDING_ACCEPT`、`IN_PROGRESS` 显示"取消订单"，均需二次确认。
+- `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED` 双方均不显示取消按钮；如有安全问题走求助入口或占位流程。
 
 ### 禁止的流转
 
@@ -154,10 +160,11 @@ sequenceDiagram
 
     App->>API: GET /api/orders/{orderId}
     API-->>App: { status: "PENDING_ACCEPT", volunteer: {...} }
-    Note over App: TTS: "志愿者已接单"
+    Note over App: TTS: "志愿者已接单"，朗读预约时间和出发地点，提示前往或等待在出发地点
 
     VOL-->>API: 出发 (POST /api/orders/{orderId}/en-route)
     Note over API: 状态: PENDING_ACCEPT → DRIVER_EN_ROUTE
+    Note over App: 后续提示: "志愿者已出发，正在前往出发地点"
 
     VOL-->>API: 到达 (POST /api/orders/{orderId}/arrived)
     Note over API: 状态: DRIVER_EN_ROUTE → DRIVER_ARRIVED
@@ -209,7 +216,7 @@ sequenceDiagram
     API-->>App: { status: "PENDING_ACCEPT" }
     App->>API: GET /api/orders/{orderId} + GET /api/volunteer/dispatch-summary
     App->>VOL: 进入志愿者服务流，显示"前往出发地点"
-    App->>AMap: 服务流地图以红色出发地点为主标记，当前位置使用系统蓝点和距离文案辅助
+    App->>AMap: 服务流地图中心固定出发地点，红色出发地点 marker 按 id 更新并保持稳定；当前位置仅作辅助显示
 
     VOL->>App: 点击"我已出发"
     App->>API: POST /api/orders/{orderId}/en-route

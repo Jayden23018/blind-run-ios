@@ -48,6 +48,9 @@ final class LoginViewModel: ObservableObject {
     /// API 请求 loading 状态
     @Published var isLoading: Bool = false
 
+    /// 验证码发送 loading 状态
+    @Published var isSendingCode: Bool = false
+
     /// 用户可见的错误消息
     @Published var errorMessage: String? = nil
 
@@ -64,6 +67,8 @@ final class LoginViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
+    private let apiClientOverride: (any APIClientProtocol)?
+    private let loginSuccessHandler: ((LoginResponse) -> Void)?
 
     // MARK: - Timer
 
@@ -94,6 +99,9 @@ final class LoginViewModel: ObservableObject {
     }
 
     var countdownText: String {
+        if isSendingCode {
+            return "发送中..."
+        }
         if let countdown = countdown, countdown > 0 {
             return "重新发送(\(countdown)s)"
         }
@@ -108,9 +116,19 @@ final class LoginViewModel: ObservableObject {
         return countdown > 0
     }
 
+    var canRequestCode: Bool {
+        isPhoneValid && !isCountdownActive && !isSendingCode
+    }
+
     // MARK: - Init
 
-    init() {}
+    init(
+        apiClient: (any APIClientProtocol)? = nil,
+        loginSuccessHandler: ((LoginResponse) -> Void)? = nil
+    ) {
+        self.apiClientOverride = apiClient
+        self.loginSuccessHandler = loginSuccessHandler
+    }
 
     /// 注入依赖，在 View.onAppear 中调用
     func configure(with appState: AppState, speechService: SpeechService) {
@@ -141,26 +159,38 @@ final class LoginViewModel: ObservableObject {
             speakPhoneValidationErrorIfNeeded(force: true)
             return
         }
+        guard !isSendingCode, !isCountdownActive else { return }
 
         errorMessage = nil
-        showCodeInput = true
-        startCountdown()
+        isSendingCode = true
 
-        // Call the backend verification-code delivery API. Long-lived test accounts
-        // may still use the fixed code 000000 for automated release validation.
+        // Long-lived test accounts may still use the fixed code 000000, but the
+        // send-code API must return before we show the input and countdown.
         Task {
-            guard let appState = appState else { return }
+            guard let apiClient = activeAPIClient else {
+                isSendingCode = false
+                errorMessage = "应用未初始化，请重启"
+                return
+            }
             let request = SendCodeRequest(phone: phoneNumber)
             do {
-                let _: ApiSuccessResponse = try await appState.apiClient.request(
+                let _: ApiSuccessResponse = try await apiClient.request(
                     method: .post,
                     path: "/api/auth/send-code",
                     query: nil,
                     body: request,
                     requiresAuth: false
                 )
+                isSendingCode = false
+                showCodeInput = true
+                startCountdown()
+            } catch let error as APIError {
+                isSendingCode = false
+                handleSendCodeError(error)
             } catch {
-                // In demo mode, ignore send-code errors silently
+                isSendingCode = false
+                errorMessage = "网络错误，请重试"
+                speechService?.speakError("网络错误，请重试")
             }
         }
     }
@@ -184,7 +214,7 @@ final class LoginViewModel: ObservableObject {
     // MARK: - Private
 
     private func performLogin() async {
-        guard let appState = appState else {
+        guard let apiClient = activeAPIClient else {
             errorMessage = "应用未初始化，请重启"
             return
         }
@@ -194,14 +224,18 @@ final class LoginViewModel: ObservableObject {
 
         do {
             let request = VerifyCodeRequest(phone: phoneNumber, code: verificationCode)
-            let response: LoginResponse = try await appState.apiClient.request(
+            let response: LoginResponse = try await apiClient.request(
                 method: .post,
                 path: "/api/auth/verify-code",
                 query: nil,
                 body: request,
                 requiresAuth: false
             )
-            appState.handleLoginSuccess(response: response)
+            if let appState {
+                appState.handleLoginSuccess(response: response)
+            } else {
+                loginSuccessHandler?(response)
+            }
             isLoading = false
         } catch let error as APIError {
             isLoading = false
@@ -234,6 +268,26 @@ final class LoginViewModel: ObservableObject {
             errorMessage = "登录失败，请稍后重试。"
         }
         // TTS 播报错误信息，确保盲人用户能听到错误提示
+        if let message = errorMessage {
+            speechService?.speakError(message)
+        }
+    }
+
+    private var activeAPIClient: (any APIClientProtocol)? {
+        apiClientOverride ?? appState?.apiClient
+    }
+
+    private func handleSendCodeError(_ error: APIError) {
+        switch error {
+        case .serverError(let response):
+            errorMessage = response.message
+        case .networkError:
+            errorMessage = "网络错误，请重试"
+        case .unauthorized:
+            errorMessage = "登录已过期，请重新登录。"
+        case .decodingError, .invalidURL, .unknown:
+            errorMessage = "验证码发送失败，请稍后重试。"
+        }
         if let message = errorMessage {
             speechService?.speakError(message)
         }

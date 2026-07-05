@@ -275,8 +275,15 @@
 
 **Given** 盲人跑者在订单状态等待页
 **When** 轮询发现状态变为 PENDING_ACCEPT
-**Then** 页面更新为"已接单"，显示志愿者昵称
-**And** TTS 播报"志愿者已接单"
+**Then** 页面更新为"待出发"，显示志愿者信息
+**And** TTS 播报"志愿者已接单"，并朗读预约时间和出发地点，提示盲人跑者可以前往或等待在预约出发地点
+
+---
+
+**Given** 盲人跑者在订单状态等待页，订单状态为 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED
+**When** App 收到当前订单的 VOLUNTEER_LOCATION_UPDATE
+**Then** 使用志愿者最新坐标到订单出发点坐标计算距离，并显示"志愿者距出发地点约 X"
+**And** 不使用"距您"描述该距离；缺少任一坐标时不显示距离
 
 ---
 
@@ -341,7 +348,7 @@
 ### US-BR-009：取消订单
 
 **作为**：盲人跑者
-**我想要**：在服务开始前取消订单
+**我想要**：在允许取消的状态取消订单
 **以便**：处理计划变更
 
 **优先级**：P0
@@ -543,7 +550,7 @@
 
 **Given** 订单状态为 PENDING_ACCEPT 或 DRIVER_EN_ROUTE
 **When** 志愿者查看服务页面
-**Then** 页面显示"前往出发地点"，地图打点当前位置和出发地点，并可选择外部地图 App 进行步行导航
+**Then** 页面显示"前往出发地点"，地图固定红色出发地点标记，当前位置仅作为辅助标记/定位显示，不随位置更新重算地图中心，并可选择外部地图 App 进行步行导航
 
 ---
 
@@ -575,6 +582,12 @@
 **Then** 弹出确认弹窗，确认后订单状态变为 COMPLETED
 **And** 志愿者获得 +100 积分
 **And** 可选填写服务总结
+
+---
+
+**Given** 订单状态为 IN_PROGRESS
+**When** 志愿者点击"取消订单"并确认
+**Then** App 调用 `POST /api/orders/{id}/cancel`，订单状态变为 CANCELLED
 
 ---
 
@@ -620,7 +633,7 @@
 ---
 
 **Given** 订单状态为 PENDING_MATCH
-**When** 盲人在服务开始前取消
+**When** 盲人跑者取消订单并二次确认
 **Then** 状态流转为 CANCELLED，记录 cancelledBy = blind_runner
 
 ---
@@ -649,8 +662,14 @@
 
 ---
 
-**Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS
-**When** 任一方触发取消
+**Given** 盲人跑者端订单状态为 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS
+**When** 盲人跑者触发取消并二次确认
+**Then** 状态流转为 CANCELLED，记录 cancelledBy
+
+---
+
+**Given** 志愿者端订单状态为 PENDING_ACCEPT / IN_PROGRESS
+**When** 志愿者触发取消并二次确认
 **Then** 状态流转为 CANCELLED，记录 cancelledBy
 
 ---
@@ -670,6 +689,12 @@
 **Given** 订单状态为 IN_PROGRESS
 **When** 任一方尝试取消订单
 **Then** 弹出二次确认，确认后状态流转为 CANCELLED
+
+---
+
+**Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED
+**When** 任一方查看订单页面
+**Then** 不显示"取消订单"按钮；如有安全问题使用求助入口
 
 ---
 

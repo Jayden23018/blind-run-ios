@@ -32,12 +32,13 @@ struct AMapContainer: UIViewRepresentable {
     var recenterToken: Int = 0
     var showsCompass: Bool = false
     var screenAnchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
+    var tracksUserLocation: Bool = true
 
     func makeUIView(context: Context) -> MAMapView {
         let mapView = MAMapView(frame: .zero)
         mapView.delegate = context.coordinator
         mapView.showsUserLocation = showsUserLocation
-        mapView.userTrackingMode = .follow
+        mapView.userTrackingMode = desiredUserTrackingMode
         mapView.setZoomLevel(zoomLevel, animated: false)
         mapView.screenAnchor = screenAnchor
         mapView.setCenter(centerCoordinate, animated: false)
@@ -50,6 +51,9 @@ struct AMapContainer: UIViewRepresentable {
         // 更新用户位置显示
         if mapView.showsUserLocation != showsUserLocation {
             mapView.showsUserLocation = showsUserLocation
+        }
+        if mapView.userTrackingMode != desiredUserTrackingMode {
+            mapView.userTrackingMode = desiredUserTrackingMode
         }
 
         if mapView.showsCompass != showsCompass {
@@ -77,7 +81,7 @@ struct AMapContainer: UIViewRepresentable {
         }
 
         // 同步标注
-        syncAnnotations(on: mapView)
+        syncAnnotations(on: mapView, coordinator: context.coordinator)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -86,29 +90,46 @@ struct AMapContainer: UIViewRepresentable {
 
     // MARK: - Private
 
-    private func syncAnnotations(on mapView: MAMapView) {
-        // 移除旧的非用户位置标注
-        let existingAnnotations = (mapView.annotations ?? []).compactMap { $0 as? MAPointAnnotation }
-        if !existingAnnotations.isEmpty {
-            mapView.removeAnnotations(existingAnnotations)
+    private var desiredUserTrackingMode: MAUserTrackingMode {
+        showsUserLocation && tracksUserLocation ? .follow : .none
+    }
+
+    private func syncAnnotations(on mapView: MAMapView, coordinator: Coordinator) {
+        let incomingIDs = Set(annotations.map(\.id))
+        let removedIDs = coordinator.styledAnnotationsByID.keys.filter { !incomingIDs.contains($0) }
+        for id in removedIDs {
+            if let annotation = coordinator.styledAnnotationsByID.removeValue(forKey: id) {
+                mapView.removeAnnotation(annotation)
+            }
         }
 
-        // 添加新标注
         for item in annotations {
-            let annotation = StyledMapPointAnnotation(item: item)
-            annotation.coordinate = item.coordinate
-            annotation.title = item.title
-            annotation.subtitle = item.subtitle
-            mapView.addAnnotation(annotation)
+            if let existing = coordinator.styledAnnotationsByID[item.id] {
+                existing.update(with: item)
+            } else {
+                let annotation = StyledMapPointAnnotation(item: item)
+                coordinator.styledAnnotationsByID[item.id] = annotation
+                mapView.addAnnotation(annotation)
+            }
         }
     }
 
-    private final class StyledMapPointAnnotation: MAPointAnnotation {
-        let kind: MapAnnotationKind
+    final class StyledMapPointAnnotation: MAPointAnnotation {
+        let id: String
+        var kind: MapAnnotationKind
 
         init(item: MapAnnotationItem) {
+            self.id = item.id
             self.kind = item.kind
             super.init()
+            update(with: item)
+        }
+
+        func update(with item: MapAnnotationItem) {
+            kind = item.kind
+            coordinate = item.coordinate
+            title = item.title
+            subtitle = item.subtitle
         }
     }
 
@@ -117,6 +138,7 @@ struct AMapContainer: UIViewRepresentable {
     final class Coordinator: NSObject, MAMapViewDelegate {
         var lastRecenterToken = 0
         var lastScreenAnchor = CGPoint(x: 0.5, y: 0.5)
+        var styledAnnotationsByID: [String: StyledMapPointAnnotation] = [:]
 
         func mapView(_ mapView: MAMapView!, viewFor annotation: MAAnnotation!) -> MAAnnotationView! {
             // 用户位置使用默认蓝点
@@ -129,9 +151,11 @@ struct AMapContainer: UIViewRepresentable {
             var annotationView = mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MAPinAnnotationView
             if annotationView == nil {
                 annotationView = MAPinAnnotationView(annotation: annotation, reuseIdentifier: reuseID)
+            } else {
+                annotationView?.annotation = annotation
             }
             annotationView?.canShowCallout = true
-            annotationView?.animatesDrop = true
+            annotationView?.animatesDrop = false
             annotationView?.pinColor = kind.pinColor
             return annotationView
         }
@@ -162,6 +186,7 @@ struct MapViewWrapper: View {
     var recenterToken: Int = 0
     var showsCompass: Bool = false
     var screenAnchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
+    var tracksUserLocation: Bool = true
 
     var body: some View {
         #if DEBUG || DEMO
@@ -175,7 +200,8 @@ struct MapViewWrapper: View {
                 zoomLevel: zoomLevel,
                 recenterToken: recenterToken,
                 showsCompass: showsCompass,
-                screenAnchor: screenAnchor
+                screenAnchor: screenAnchor,
+                tracksUserLocation: tracksUserLocation
             )
             .accessibilityLabel("地图，显示当前位置和订单地点")
             .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")
@@ -191,7 +217,8 @@ struct MapViewWrapper: View {
                 zoomLevel: zoomLevel,
                 recenterToken: recenterToken,
                 showsCompass: showsCompass,
-                screenAnchor: screenAnchor
+                screenAnchor: screenAnchor,
+                tracksUserLocation: tracksUserLocation
             )
             .accessibilityLabel("地图，显示当前位置和订单地点")
             .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")

@@ -23,7 +23,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .pendingMatch: return "系统派单中"
-        case .pendingAccept: return "待确认"
+        case .pendingAccept: return "待出发"
         case .inProgress: return "进行中"
         case .driverEnRoute: return "志愿者出发中"
         case .driverArrived: return "志愿者已到达"
@@ -53,12 +53,36 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    /// Whether the order can be cancelled by user
+    /// Blind-runner cancellation states. Volunteer cancellation is role-scoped below.
     var canCancel: Bool {
+        canBlindRunnerCancel
+    }
+
+    var canBlindRunnerCancel: Bool {
         switch self {
         case .pendingMatch, .pendingAccept, .inProgress, .rematching:
             return true
         default:
+            return false
+        }
+    }
+
+    var canVolunteerCancel: Bool {
+        switch self {
+        case .pendingAccept, .inProgress:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func canCancel(as role: UserRole) -> Bool {
+        switch role {
+        case .blind:
+            return canBlindRunnerCancel
+        case .volunteer:
+            return canVolunteerCancel
+        case .unset:
             return false
         }
     }

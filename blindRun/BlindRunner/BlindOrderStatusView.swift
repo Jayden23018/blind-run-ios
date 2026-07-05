@@ -1,4 +1,5 @@
 import Combine
+import CoreLocation
 import SwiftUI
 
 // MARK: - Blind Order Status ViewModel
@@ -12,12 +13,14 @@ final class BlindOrderStatusViewModel: ObservableObject {
     @Published var reviewRating = 5
     @Published var reviewComment = ""
     @Published var didSubmitReview = false
+    @Published var volunteerDistanceToStartText: String?
     @Published var errorMessage: String?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private var pollingTask: Task<Void, Never>?
     private var currentOrderId: Int64?
+    private var latestVolunteerCoordinate: CLLocationCoordinate2D?
     private var cancellables = Set<AnyCancellable>()
 
     /// Active blind-runner orders keep the 5-second REST fallback even when WebSocket is connected.
@@ -30,7 +33,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     }
 
     var canShowCancel: Bool {
-        order?.status.canCancel == true
+        order?.status.canBlindRunnerCancel == true
     }
 
     var shouldPoll: Bool {
@@ -68,7 +71,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     func repeatStatus() {
         if let order {
-            speechService?.speak(order.status.blindRunnerAnnouncement)
+            speechService?.speak(order.blindRunnerAnnouncement(distanceText: volunteerDistanceToStartText))
         } else {
             speechService?.speak("正在获取订单状态。")
         }
@@ -177,12 +180,73 @@ final class BlindOrderStatusViewModel: ObservableObject {
     private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
         let previousStatus = order?.status
         order = updated
+        refreshVolunteerDistance()
         if speakChanges, previousStatus != updated.status {
-            speechService?.speakStatusChange(updated.status)
+            speechService?.speakStatusChange(
+                updated.status,
+                text: updated.blindRunnerAnnouncement(distanceText: volunteerDistanceToStartText)
+            )
         }
         if !updated.status.shouldPoll {
             stopPolling()
         }
+    }
+
+    func handleVolunteerLocationUpdate(_ message: WSVolunteerLocationUpdate) {
+        guard message.orderId == activeOrderId else { return }
+        latestVolunteerCoordinate = CLLocationCoordinate2D(latitude: message.lat, longitude: message.lng)
+        refreshVolunteerDistance()
+    }
+
+    static func shouldSuppressDirectNotificationSpeech(_ text: String) -> Bool {
+        let normalizedText = text.trimmed
+        guard !normalizedText.isEmpty else { return true }
+        let lifecycleFragments = [
+            "志愿者已接单",
+            "已接单",
+            "待确认",
+            "待出发",
+            "志愿者已出发",
+            "已出发",
+            "正在前往",
+            "正在赶来",
+            "距您",
+            "距出发地点",
+            "志愿者已到达",
+            "已到达",
+            "服务已开始",
+            "服务已完成",
+            "订单已完成",
+            "订单已取消",
+            "预约已取消",
+            "本次预约已取消",
+            "已为您匹配",
+            "正在确认行程",
+            "请按预约时间前往或等待在出发地点",
+            "志愿者已取消",
+            "重新匹配",
+            "正在重新匹配",
+            "暂无志愿者",
+            "暂无可用志愿者",
+            "暂时没有可用志愿者",
+            "仍在等待",
+            "测试志愿者",
+            "志愿者测试"
+        ]
+        return lifecycleFragments.contains { normalizedText.contains($0) }
+    }
+
+    private var activeOrderId: Int64? {
+        order?.orderId ?? currentOrderId
+    }
+
+    private func refreshVolunteerDistance() {
+        guard let order,
+              [.pendingAccept, .driverEnRoute, .driverArrived].contains(order.status) else {
+            volunteerDistanceToStartText = nil
+            return
+        }
+        volunteerDistanceToStartText = order.volunteerDistanceToStartText(from: latestVolunteerCoordinate)
     }
 
     // MARK: - WebSocket
@@ -200,9 +264,13 @@ final class BlindOrderStatusViewModel: ObservableObject {
                         Task { await self.loadOrder(orderId: statusMsg.orderId, speakChanges: true) }
                     }
                 case .notification(let notification):
-                    self.speechService?.speak(notification.ttsText ?? notification.body)
-                case .volunteerLocation:
-                    break // 位置更新可后续显示在地图上
+                    let speechText = notification.ttsText?.nilIfBlank ?? notification.body
+                    if self.activeOrderId == nil ||
+                        !Self.shouldSuppressDirectNotificationSpeech(speechText) {
+                        self.speechService?.speak(speechText)
+                    }
+                case .volunteerLocation(let location):
+                    self.handleVolunteerLocationUpdate(location)
                 case .emergencyResolved:
                     if let orderId = self.currentOrderId {
                         Task { await self.loadOrder(orderId: orderId, speakChanges: true) }
@@ -457,17 +525,28 @@ struct BlindOrderStatusView: View {
 
     @ViewBuilder
     private func volunteerSection(_ order: OrderDetailResponse) -> some View {
-        if let volunteerPhone = order.volunteerPhone, !volunteerPhone.trimmed.isEmpty {
+        let volunteerPhone = order.volunteerPhone?.nilIfBlank
+        let distanceText = viewModel.volunteerDistanceToStartText
+        if volunteerPhone != nil || distanceText != nil {
             VStack(alignment: .leading, spacing: 12) {
                 Text("志愿者信息")
                     .font(.title3.bold())
                     .foregroundColor(AppColors.textPrimary)
                     .accessibilityAddTraits(.isHeader)
 
-                Text("志愿者电话：\(volunteerPhone)")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .accessibilityLabel("志愿者电话：\(volunteerPhone)")
+                if let volunteerPhone {
+                    Text("志愿者电话：\(volunteerPhone)")
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textPrimary)
+                        .accessibilityLabel("志愿者电话：\(volunteerPhone)")
+                }
+
+                if let distanceText {
+                    Text("志愿者\(distanceText)")
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textPrimary)
+                        .accessibilityLabel("志愿者\(distanceText)")
+                }
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)

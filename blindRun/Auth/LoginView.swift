@@ -102,13 +102,13 @@ struct LoginView: View {
                             .frame(maxWidth: .infinity)
                             .frame(height: 52)
                             .background(
-                                (!viewModel.isPhoneValid || viewModel.isCountdownActive)
+                                (!viewModel.canRequestCode)
                                     ? Color(.systemGray4)
                                     : AppColors.primary
                             )
                             .cornerRadius(12)
                     }
-                    .disabled(!viewModel.isPhoneValid || viewModel.isCountdownActive)
+                    .disabled(!viewModel.canRequestCode)
                     .accessibilityLabel("获取验证码")
                     .accessibilityHint("点击后发送验证码到手机")
 

@@ -767,7 +767,7 @@ VStack(spacing: 0) {
 
 ### TTS 播报文案
 - PENDING_MATCH → "订单提交成功，系统正在为你派单"
-- PENDING_MATCH → PENDING_ACCEPT（状态变化时）："志愿者已接单，志愿者正在赶来"
+- PENDING_MATCH → PENDING_ACCEPT（状态变化时）："志愿者已接单"，并朗读预约时间和出发地点，提示前往或等待在出发地点
 - DRIVER_EN_ROUTE → DRIVER_ARRIVED（状态变化时）："志愿者已到达约定地点"
 - PENDING_MATCH → CANCELLED："抱歉，暂无志愿者可用。本次预约已取消。"
 - PENDING_ACCEPT / DRIVER_ARRIVED → CANCELLED："预约已取消"
@@ -1955,8 +1955,8 @@ List {
 | 状态 | 盲人端文案 | 志愿者端文案 | 图标/颜色 |
 |------|------------|-------------|-----------|
 | `PENDING_MATCH` | 系统正在派单，请稍候 | 等待系统派单 | 橙色旋转 |
-| `PENDING_ACCEPT` | 志愿者已接单 | 已接单 | 绿色勾 |
-| `DRIVER_EN_ROUTE` | 志愿者正在赶来 | 正在前往约定地点 | 蓝色箭头 |
+| `PENDING_ACCEPT` | 待出发 | 待出发 | 橙色提示 |
+| `DRIVER_EN_ROUTE` | 志愿者已出发，正在前往出发地点 | 正在前往约定地点 | 蓝色箭头 |
 | `DRIVER_ARRIVED` | 志愿者已到达 | 已到达，准备开始服务 | 蓝色铃铛 |
 | `IN_PROGRESS` | 服务已开始，请注意安全 | 服务进行中 | 绿色播放 |
 | `COMPLETED` | 服务已完成，感谢使用助盲跑 | 服务完成，+100 积分 | 绿色对勾 |

@@ -135,7 +135,7 @@
 
 **主要内容（有活跃订单时）**：
 - 订单状态卡片（覆盖"开始约跑"按钮区域）：
-  - 订单状态文字（系统派单中 / 已接单 / 已到达 / 进行中）
+  - 订单状态文字（系统派单中 / 待出发 / 志愿者已到达 / 进行中）
   - 预约时间、出发地点
   - 志愿者信息（接单后显示昵称）
 - 点击卡片进入对应订单详情页
@@ -228,10 +228,11 @@
 **主要内容**：
 - 大号状态指示器：
   - PENDING_MATCH：动画旋转圆圈 + "系统正在为你派单，请稍候"
-  - PENDING_ACCEPT：志愿者卡片（昵称）+ "已接单，等待志愿者出发"
-  - DRIVER_EN_ROUTE：志愿者卡片（昵称）+ "志愿者正在赶来"
+  - PENDING_ACCEPT：志愿者卡片 + "待出发"，提示按预约时间前往或等待在出发地点
+  - DRIVER_EN_ROUTE：志愿者卡片 + "志愿者已出发，正在前往出发地点"
   - DRIVER_ARRIVED：志愿者卡片 + "志愿者已到达约定地点，等待志愿者开始服务"
 - 订单信息卡片（出发地点、预约时间、可选项）
+- 志愿者距离（收到位置且订单有出发坐标时）：显示"志愿者距出发地点约 X"，来源为志愿者最新 WebSocket 位置到订单出发坐标
 - "取消订单"按钮（PENDING_MATCH / PENDING_ACCEPT / REMATCHING 状态显示，灰色/危险色）
 - "一键求助"占位按钮（DRIVER_EN_ROUTE / DRIVER_ARRIVED 状态显示，红色醒目，说明本变更不提交后台求助）
 - "重复当前状态"按钮
@@ -243,11 +244,11 @@
 
 **状态变化**：
 - 每 5 秒轮询 GET /api/orders/{orderId}
-- PENDING_MATCH → PENDING_ACCEPT：更新 UI + TTS "志愿者已接单"
+- PENDING_MATCH → PENDING_ACCEPT：更新 UI 为"待出发" + TTS "志愿者已接单"，并朗读预约时间和出发地点，提示前往或等待在出发地点
 - PENDING_MATCH → CANCELLED / NO_VOLUNTEER：显示"暂时没有可用志愿者" + TTS
 - PENDING_ACCEPT / IN_PROGRESS / REMATCHING → CANCELLED：显示"预约已取消" + TTS
 - REMATCHING → CANCELLED：后端已确认 `/api/orders/{id}/cancel` 接受该状态；iOS 仅调用现有取消接口，请求必须使用盲人 token，志愿者 token 不适用
-- PENDING_ACCEPT → DRIVER_EN_ROUTE：更新状态 + TTS "志愿者正在赶来"
+- PENDING_ACCEPT → DRIVER_EN_ROUTE：更新状态 + TTS "志愿者已出发，正在前往出发地点"
 - DRIVER_EN_ROUTE → DRIVER_ARRIVED：更新状态 + TTS "志愿者已到达"
 - DRIVER_ARRIVED → IN_PROGRESS：跳转服务中页面 + TTS "服务已开始"
 
@@ -277,16 +278,19 @@
 - 志愿者信息卡片（昵称、联系电话 — 可点击拨打）
 - 服务开始时间 / 已进行时长
 - "一键求助"大按钮（红色醒目，最小高度 64pt，旁边说明生产求助流程暂未上线）
+- "取消订单"按钮（IN_PROGRESS 状态显示，需二次确认）
 - "重复当前状态"按钮
 
 **主要操作**：
 - 点击志愿者电话 → 系统拨号
 - 点击"一键求助" → 弹窗确认 → 显示占位提示，订单状态保持不变，不调用后台求助接口
+- 点击"取消订单" → 二次确认 → `POST /api/orders/{id}/cancel`
 - 点击"重复当前状态" → TTS 播报
 
 **状态变化**：
 - 每 5 秒轮询
 - IN_PROGRESS → COMPLETED：跳转完成/评分页 + TTS "服务已完成"
+- IN_PROGRESS → CANCELLED：显示"预约已取消" + TTS
 - IN_PROGRESS：显示求助占位提示，订单状态保持不变 + TTS "求助流程暂未上线，请按既定人工安全预案处理。"
 
 **错误状态**：
@@ -298,6 +302,7 @@
 **无障碍要求**：
 - 志愿者电话：accessibilityLabel = "拨打志愿者电话 " + 电话号码
 - "一键求助"按钮：红色醒目，最小 64pt，accessibilityHint 说明需要二次确认且本版本仅显示占位提示
+- "取消订单"按钮：最小高度 64pt，需二次确认，accessibilityHint = "需要确认后取消当前订单"
 - TTS：进入页面播报"服务已开始，祝您跑步愉快"
 - "重复当前状态"按钮：accessibilityLabel = "重复当前状态"
 
@@ -497,13 +502,13 @@
 - 服务中页：点击"我已出发" → 订单变为 DRIVER_EN_ROUTE
 - 服务中页：点击"我已到达" → 订单变为 DRIVER_ARRIVED
 - 服务中页：点击"一键求助" → 二次确认 → 显示占位提示，订单状态保持不变，不调用后台求助接口
-- 服务中页：点击"取消订单" → 二次确认 → 选择取消原因 → CANCELLED
+- 服务中页：仅 PENDING_ACCEPT / IN_PROGRESS 显示"取消订单"；点击后二次确认 → CANCELLED
 
 **状态变化**：
 - 接受系统派单：PENDING_MATCH → PENDING_ACCEPT
 - 出发：PENDING_ACCEPT → DRIVER_EN_ROUTE
 - 到达：DRIVER_EN_ROUTE → DRIVER_ARRIVED
-- 取消：PENDING_ACCEPT → CANCELLED
+- 取消：PENDING_ACCEPT / IN_PROGRESS → CANCELLED；DRIVER_EN_ROUTE / DRIVER_ARRIVED 不显示取消按钮
 - 求助：DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 显示占位提示，订单状态保持不变
 - 若云端接单后直接返回 `IN_PROGRESS`，iOS 保留真实状态并记录为真机联调问题；若看到 `REMATCHING`，优先排查是否志愿者接单后主动取消
 
@@ -536,10 +541,10 @@
   - PENDING_ACCEPT：显示"前往出发地点"，提供"导航到出发地点"和"我已出发"按钮
   - DRIVER_EN_ROUTE：显示"前往出发地点"，提供"导航到出发地点"和"我已到达"按钮
   - DRIVER_ARRIVED：显示已到达状态和"开始服务"按钮，不显示"结束服务"按钮
-  - IN_PROGRESS："结束服务"按钮（最小 64pt）
+  - IN_PROGRESS："结束服务"按钮（最小 64pt）和"取消订单"按钮
   - PENDING_ACCEPT："取消订单"按钮
 - "一键求助"占位按钮（红色醒目）
-- 高德地图背景：服务流以红色出发地点为主标记；当前位置使用高德系统蓝点和距离文案辅助，不再额外添加绿色"我的位置" pin
+- 高德地图背景：服务流以红色出发地点为主标记，地图中心固定在出发地点；当前位置/我的位置仅辅助显示，不触发地图中心随位置上报重算；相同 id 的 marker 更新坐标和标题时不移除重加，不重复 drop 动画
 - 外部地图导航选择器：高德地图、百度地图、苹果地图，默认步行导航；未安装的第三方地图不显示
 
 **主要操作**：
@@ -548,6 +553,7 @@
 - DRIVER_EN_ROUTE：点击"我已到达" → 订单变为 DRIVER_ARRIVED
 - DRIVER_ARRIVED：点击"开始服务" → 调用 `POST /api/orders/{id}/start-service` → 订单变为 IN_PROGRESS
 - PENDING_ACCEPT：点击"取消订单" → 二次确认 → 选择取消原因 → CANCELLED
+- IN_PROGRESS：点击"取消订单" → 二次确认 → CANCELLED
 - IN_PROGRESS：点击"结束服务" → 确认弹窗 → 服务完成
 - 点击"一键求助" → 二次确认 → 显示占位提示（订单状态保持不变）
 - 点击盲人电话 → 系统拨号
@@ -557,6 +563,7 @@
 - PENDING_ACCEPT → DRIVER_EN_ROUTE（志愿者点击已出发）：UI 更新
 - DRIVER_EN_ROUTE → DRIVER_ARRIVED（志愿者点击已到达）：UI 更新
 - PENDING_ACCEPT → CANCELLED：跳转首页并显示取消结果
+- IN_PROGRESS → CANCELLED：跳转首页并显示取消结果
 - DRIVER_ARRIVED → IN_PROGRESS（志愿者点击开始服务）：UI 更新；只有进入 IN_PROGRESS 后才显示"结束服务"
 - IN_PROGRESS → COMPLETED：跳转首页 + 显示"服务完成，获得 +100 积分"
 - DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS：显示求助占位提示，订单状态保持不变
@@ -571,7 +578,7 @@
 **无障碍要求**：
 - "我已到达"按钮：最小高度 64pt，accessibilityLabel = "我已到达约定地点"
 - "开始服务"按钮：最小高度 64pt，accessibilityLabel = "开始服务"，accessibilityHint = "点击后通知盲人服务已开始"
-- "取消订单"按钮：需二次确认，accessibilityHint = "服务开始前取消当前订单"
+- "取消订单"按钮：仅 PENDING_ACCEPT / IN_PROGRESS 显示，需二次确认，accessibilityHint = "需要确认后取消当前订单"
 - "结束服务"按钮：最小高度 64pt，需二次确认
 - "一键求助"按钮：红色醒目，最小高度 64pt，需二次确认，本版本仅显示占位提示
 - TTS：进入 DRIVER_ARRIVED 状态不自动播报（由盲人端播报）
