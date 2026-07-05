@@ -54,10 +54,11 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var isSearchingPlaces = false
     @Published var errorMessage: String?
     @Published var placeMessage: String?
+    @Published var searchResultFocusID: String?
 
     private weak var appState: AppState?
     private weak var locationService: LocationService?
-    private weak var amapGeocodingService: AMapGeocodingService?
+    private weak var placeSearchProvider: (any PlaceSearchProviding)?
     private var speechService: SpeechService?
 
     var minimumAppointmentTime: Date {
@@ -107,11 +108,6 @@ final class BlindBookingViewModel: ObservableObject {
         )
     }
 
-    var coordinateSummary: String {
-        guard let place = resolvedStartPlace else { return "未获取坐标" }
-        return String(format: "纬度 %.6f，经度 %.6f", place.latitude, place.longitude)
-    }
-
     func configure(
         appState: AppState,
         locationService: LocationService,
@@ -121,12 +117,22 @@ final class BlindBookingViewModel: ObservableObject {
         self.appState = appState
         self.locationService = locationService
         self.speechService = speechService
-        self.amapGeocodingService = amapGeocodingService
+        self.placeSearchProvider = amapGeocodingService
 
         if appointmentTime < minimumAppointmentTime {
             appointmentTime = minimumAppointmentTime.addingTimeInterval(60)
         }
     }
+
+    #if DEBUG
+    func configureForTesting(
+        placeSearchProvider: any PlaceSearchProviding,
+        speechService: SpeechService
+    ) {
+        self.placeSearchProvider = placeSearchProvider
+        self.speechService = speechService
+    }
+    #endif
 
     func refreshCurrentLocation() async {
         guard let locationService else { return }
@@ -145,45 +151,62 @@ final class BlindBookingViewModel: ObservableObject {
             source: locationService.isUsingDemoFallback ? .demoDefault : .deviceLocation
         )
 
-        guard let amapGeocodingService, !locationService.isUsingDemoFallback else {
+        guard let placeSearchProvider, !locationService.isUsingDemoFallback else {
             currentResolvedPlace = fallbackPlace
             placeMessage = locationService.isUsingDemoFallback ? "定位暂不可用，正在使用演示坐标。" : nil
             return
         }
 
         isResolvingStartLocation = true
-        let resolvedPlace = await amapGeocodingService.reverseGeocode(coordinate: coordinate)
+        let resolvedPlace = await placeSearchProvider.reverseGeocode(coordinate: coordinate)
         currentResolvedPlace = resolvedPlace ?? fallbackPlace
         isResolvingStartLocation = false
-        placeMessage = resolvedPlace == nil ? amapGeocodingService.lastErrorMessage : nil
+        placeMessage = resolvedPlace == nil ? placeSearchProvider.lastErrorMessage : nil
     }
 
-    func searchPlaces() async {
-        guard let amapGeocodingService else { return }
+    func searchPlaces(triggeredBySpeech: Bool = false) async {
+        guard let placeSearchProvider else { return }
         let keyword = placeSearchKeyword.trimmed
         guard !keyword.isEmpty else {
             placeSearchResults = []
             placeMessage = "请输入要搜索的地点。"
+            speechService?.announce(placeMessage ?? "")
             return
         }
 
         isSearchingPlaces = true
         placeMessage = nil
-        let results = await amapGeocodingService.searchPlaces(
+        let results = await placeSearchProvider.searchPlaces(
             keyword: keyword,
             near: resolvedStartPlace?.coordinate
         )
         placeSearchResults = results
         isSearchingPlaces = false
         if results.isEmpty {
-            placeMessage = amapGeocodingService.lastErrorMessage ?? "未搜索到相关地点。"
+            placeMessage = placeSearchProvider.lastErrorMessage ?? "未搜索到相关地点。"
+            searchResultFocusID = nil
+            speechService?.announce(placeMessage ?? "")
+        } else {
+            let firstPlace = results[0]
+            searchResultFocusID = firstPlace.id
+            speechService?.announce("已找到 \(results.count) 个地点，第一个是 \(firstPlace.title)。")
         }
+    }
+
+    func handlePlaceSearchSpeechCompletion(_ completion: SpeechInputCompletion) async {
+        guard completion.field == .startPlaceSearch,
+              completion.reason.shouldTriggerSearchWithRecognizedText else { return }
+        let recognizedText = completion.recognizedText.trimmed
+        guard !recognizedText.isEmpty else { return }
+        placeSearchKeyword = recognizedText
+        await searchPlaces(triggeredBySpeech: true)
     }
 
     func selectPlace(_ place: ResolvedPlace) {
         selectedStartPlace = place
         placeSearchKeyword = place.title
         placeSearchResults = []
+        searchResultFocusID = nil
         placeMessage = "已选择出发地点：\(place.title)。"
         speechService?.speak("已选择出发地点，\(place.title)。")
     }
@@ -266,6 +289,7 @@ struct BlindBookingView: View {
     @EnvironmentObject private var amapGeocodingService: AMapGeocodingService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = BlindBookingViewModel()
+    @AccessibilityFocusState private var focusedSearchResultID: String?
     let onOrderCreated: (OrderResponse) -> Void
 
     var body: some View {
@@ -312,6 +336,9 @@ struct BlindBookingView: View {
         .onChange(of: locationService.currentLocation) { _ in
             Task { await viewModel.refreshCurrentLocation() }
         }
+        .onChange(of: viewModel.searchResultFocusID) { focusID in
+            focusedSearchResultID = focusID
+        }
     }
 
     private var header: some View {
@@ -342,7 +369,12 @@ struct BlindBookingView: View {
                     speechService: speechService,
                     speechField: .startPlaceSearch,
                     accessibilityLabel: "搜索出发地点",
-                    accessibilityHint: "可以使用语音或键盘搜索高德地点"
+                    accessibilityHint: "可以使用语音或键盘搜索高德地点",
+                    onRecognitionCompleted: { completion in
+                        Task {
+                            await viewModel.handlePlaceSearchSpeechCompletion(completion)
+                        }
+                    }
                 )
 
                 Button {
@@ -352,16 +384,16 @@ struct BlindBookingView: View {
                         if viewModel.isSearchingPlaces {
                             ProgressView()
                         }
-                        Text(viewModel.isSearchingPlaces ? "正在搜索" : "搜索地点")
+                        Text(searchButtonTitle)
                     }
                     .font(AppFonts.body().weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 52)
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(viewModel.isSearchingPlaces || viewModel.placeSearchKeyword.trimmed.isEmpty)
-                .accessibilityLabel("搜索地点")
-                .accessibilityHint("搜索高德地点并显示可选择的出发地点列表")
+                .disabled(isRecognizingStartPlace || viewModel.isSearchingPlaces || viewModel.placeSearchKeyword.trimmed.isEmpty)
+                .accessibilityLabel(searchButtonTitle)
+                .accessibilityHint(isRecognizingStartPlace ? "请说出地点名称，识别结束后会自动搜索" : "搜索高德地点并显示可选择的出发地点列表")
 
                 placeSearchResultsView
 
@@ -406,7 +438,7 @@ struct BlindBookingView: View {
             .frame(height: 180)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityLabel("高德地图，显示当前出发地点")
-            .accessibilityHint("地图用于确认位置，下面会显示可读地址和坐标")
+            .accessibilityHint("地图用于确认位置，下面会显示可读地址")
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(viewModel.selectedStartPlace == nil ? "默认出发点" : "已选择出发点")
@@ -417,12 +449,7 @@ struct BlindBookingView: View {
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
                     .accessibilityLabel("出发地点，\(viewModel.resolvedStartLocationDescription)")
-                    .accessibilityHint("提交预约时会把这个地点的经纬度传给服务器")
-
-                Text(viewModel.coordinateSummary)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityLabel("出发地点坐标，\(viewModel.coordinateSummary)")
+                    .accessibilityHint("提交预约时会使用这个地点")
 
                 if viewModel.isResolvingStartLocation {
                     HStack(spacing: 8) {
@@ -466,9 +493,6 @@ struct BlindBookingView: View {
                                 .font(AppFonts.caption())
                                 .foregroundColor(AppColors.textSecondary)
                                 .lineLimit(2)
-                            Text(String(format: "纬度 %.6f，经度 %.6f", place.latitude, place.longitude))
-                                .font(AppFonts.caption())
-                                .foregroundColor(AppColors.textSecondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
@@ -476,11 +500,26 @@ struct BlindBookingView: View {
                         .cornerRadius(8)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("选择出发地点，\(place.title)，\(place.addressText)")
+                    .accessibilityFocused($focusedSearchResultID, equals: place.id)
+                    .accessibilityLabel(place.bookingSearchAccessibilityLabel)
                     .accessibilityHint("点击后使用该地点坐标创建预约")
                 }
             }
         }
+    }
+
+    private var isRecognizingStartPlace: Bool {
+        speechInputService.isListening(for: .startPlaceSearch)
+    }
+
+    private var searchButtonTitle: String {
+        if isRecognizingStartPlace {
+            return "语音识别中"
+        }
+        if viewModel.isSearchingPlaces {
+            return "正在搜索"
+        }
+        return "搜索地点"
     }
 
     private var permissionDeniedView: some View {

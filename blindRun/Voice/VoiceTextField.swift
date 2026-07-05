@@ -14,6 +14,7 @@ struct VoiceTextField: View {
     let speechField: SpeechInputField
     let accessibilityLabel: String
     let accessibilityHint: String
+    var onRecognitionCompleted: ((SpeechInputCompletion) -> Void)? = nil
 
     var body: some View {
         let isListening = speechInputService.isListening(for: speechField)
@@ -44,6 +45,8 @@ struct VoiceTextField: View {
                         text = recognizedText
                     }, onAnnouncement: { message in
                         speechService.speak(text: message)
+                    }, onCompletion: { completion in
+                        onRecognitionCompleted?(completion)
                     })
                 } label: {
                     Image(systemName: isListening ? "mic.fill" : "mic")

@@ -1323,7 +1323,7 @@
         "tags": [
           "order-controller"
         ],
-        "description": "Cancels an order. REMATCHING orders may be cancelled by the blind runner with the blind-runner token after the accepted volunteer has cancelled; a volunteer token is not valid for that rematching cancellation.",
+        "description": "Cancels an order. Blind runners may cancel PENDING_MATCH, PENDING_ACCEPT, and REMATCHING. Volunteers may cancel PENDING_ACCEPT, DRIVER_EN_ROUTE, DRIVER_ARRIVED, and IN_PROGRESS; successful volunteer cancellation moves the order to REMATCHING. REMATCHING orders may be cancelled only by the blind runner with the blind-runner token after the accepted volunteer has cancelled; a volunteer token is not valid for that rematching cancellation.",
         "operationId": "cancelOrder",
         "parameters": [
           {

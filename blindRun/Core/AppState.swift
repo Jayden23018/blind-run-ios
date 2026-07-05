@@ -22,7 +22,10 @@ final class AppState: ObservableObject {
 
     /// 当前激活角色（首次登录可能为 nil，需路由到角色选择）
     @Published var activeRole: UserRole? {
-        didSet { persistActiveRole() }
+        didSet {
+            persistActiveRole()
+            mockAPIClient.syncRoleFromAppState(activeRole)
+        }
     }
 
     /// 当前用户的盲人跑者资料

@@ -60,7 +60,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 
     var canBlindRunnerCancel: Bool {
         switch self {
-        case .pendingMatch, .pendingAccept, .inProgress, .rematching:
+        case .pendingMatch, .pendingAccept, .rematching:
             return true
         default:
             return false
@@ -69,7 +69,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 
     var canVolunteerCancel: Bool {
         switch self {
-        case .pendingAccept, .inProgress:
+        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return true
         default:
             return false

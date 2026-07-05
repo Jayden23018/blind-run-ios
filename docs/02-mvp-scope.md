@@ -35,7 +35,7 @@
 | 订单状态等待页 | P0 | WebSocket 接收状态变化，断开时每 5 秒轮询订单详情 |
 | 盲人服务中页面 | P0 | 显示志愿者信息，一键求助按钮，服务进行状态 |
 | 盲人完成/评分页 | P0 | 显示完成状态，星级评分 UI（不强制提交） |
-| 取消订单 | P0 | PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS 可取消；志愿者取消后进入 REMATCHING 时，盲人端也可用盲人 token 取消，均需二次确认 |
+| 取消订单 | P0 | 盲人可在 PENDING_MATCH / PENDING_ACCEPT / REMATCHING 取消；志愿者取消后订单进入 REMATCHING，盲人端可用盲人 token 取消，均需二次确认 |
 | 重复当前状态播报按钮 | P0 | 每个关键页面提供，与 VoiceOver 并存不冲突 |
 
 ### 志愿者端
@@ -46,11 +46,11 @@
 | 志愿者首页 | P0 | 系统派单工作台、可服务开关、覆盖范围、当前订单、积分/统计信息 |
 | 订单列表页 | P2 | 非主流程旧入口；系统派单上线后不作为志愿者主动选单体验 |
 | 订单详情页 | P0 | 接受系统派单后的订单完整信息与服务操作 |
-| 志愿者服务中页面 | P0 | 前往出发地点地图固定红色出发点标记、外部地图步行导航、「我已出发」「我已到达」「开始服务」按钮、进入 IN_PROGRESS 后显示「结束服务」和可取消入口 |
+| 志愿者服务中页面 | P0 | 前往出发地点地图固定红色出发点标记、外部地图步行导航、「我已出发」「我已到达」「开始服务」按钮、志愿者在 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 可取消，进入 IN_PROGRESS 后显示「结束服务」 |
 | 服务记录页 | P1 | 已完成的订单列表，显示时间、盲人昵称、积分 |
 | 积分/商城页 | P2 | 当前展示积分余额和商品入口；真实兑换、库存和支付按后续契约接入 |
 | 一键求助 | P0 | DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 状态显示占位入口，需二次确认；本变更不提交生产求助记录 |
-| 取消订单 | P0 | 盲人可在 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS / REMATCHING 取消；志愿者可在 PENDING_ACCEPT / IN_PROGRESS 取消；均需二次确认 |
+| 取消订单 | P0 | 盲人可在 PENDING_MATCH / PENDING_ACCEPT / REMATCHING 取消；志愿者可在 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 取消，志愿者取消后进入 REMATCHING；均需二次确认 |
 
 ### 地图与定位
 

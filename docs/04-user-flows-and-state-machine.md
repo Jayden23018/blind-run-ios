@@ -79,16 +79,19 @@ stateDiagram-v2
     PENDING_MATCH --> NO_VOLUNTEER: 无可用志愿者
 
     PENDING_ACCEPT --> DRIVER_EN_ROUTE: 志愿者点击"我已出发"\n(API: POST /api/orders/{orderId}/en-route)
-    PENDING_ACCEPT --> CANCELLED: 盲人或志愿者取消\n(API: POST /api/orders/{orderId}/cancel)
+    PENDING_ACCEPT --> CANCELLED: 盲人取消\n(API: POST /api/orders/{orderId}/cancel)
+    PENDING_ACCEPT --> REMATCHING: 志愿者取消\n(API: POST /api/orders/{orderId}/cancel)
 
     DRIVER_EN_ROUTE --> DRIVER_ARRIVED: 志愿者点击"我已到达"\n(API: POST /api/orders/{orderId}/arrived)
+    DRIVER_EN_ROUTE --> REMATCHING: 志愿者取消\n(API: POST /api/orders/{orderId}/cancel)
     DRIVER_EN_ROUTE --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
 
     DRIVER_ARRIVED --> IN_PROGRESS: 志愿者点击"开始服务"\n(API: POST /api/orders/{orderId}/start-service)
+    DRIVER_ARRIVED --> REMATCHING: 志愿者取消\n(API: POST /api/orders/{orderId}/cancel)
     DRIVER_ARRIVED --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
 
     IN_PROGRESS --> COMPLETED: 志愿者结束服务\n(API: POST /api/orders/{orderId}/finish)
-    IN_PROGRESS --> CANCELLED: 盲人或志愿者取消\n(API: POST /api/orders/{orderId}/cancel)
+    IN_PROGRESS --> REMATCHING: 志愿者取消\n(API: POST /api/orders/{orderId}/cancel)
     IN_PROGRESS --> emergency_placeholder: 任一方点击求助\n(本变更仅显示占位提示)
     REMATCHING --> CANCELLED: 盲人取消\n(API: POST /api/orders/{orderId}/cancel；盲人 token)
 
@@ -104,19 +107,19 @@ stateDiagram-v2
 | PENDING_MATCH | PENDING_ACCEPT | 志愿者 | 接单（乐观锁保护） |
 | PENDING_MATCH | CANCELLED / NO_VOLUNTEER | 盲人 / 系统 | 手动取消或无可用志愿者 |
 | PENDING_ACCEPT | DRIVER_EN_ROUTE | 志愿者 | 标记出发 |
-| PENDING_ACCEPT | CANCELLED | 盲人 / 志愿者 | 服务开始前可取消 |
+| PENDING_ACCEPT | CANCELLED | 盲人 | 服务开始前盲人可取消 |
+| PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS | REMATCHING | 志愿者 | 志愿者取消后进入重新匹配，志愿者端退出当前服务流程 |
 | DRIVER_EN_ROUTE | DRIVER_ARRIVED | 志愿者 | 标记到达 |
 | DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS | 求助占位提示 | 盲人 / 志愿者 | 本变更仅保留占位入口，不调用生产求助记录接口 |
 | DRIVER_ARRIVED | IN_PROGRESS | 志愿者 | 开始服务；调用 `POST /api/orders/{orderId}/start-service`，iOS 不允许从 DRIVER_ARRIVED 直接结束 |
 | IN_PROGRESS | COMPLETED | 志愿者 | 正常结束 |
-| IN_PROGRESS | CANCELLED | 盲人 / 志愿者 | 服务中可取消 |
 | REMATCHING | CANCELLED | 盲人 | 志愿者主动取消已接单订单后进入重新匹配；盲人可用自己的 token 调用 `/cancel` 退出本次订单，志愿者 token 不适用 |
 
 取消按钮显示规则：
 
-- 盲人跑者端仅在 `PENDING_MATCH`、`PENDING_ACCEPT`、`IN_PROGRESS`、`REMATCHING` 显示"取消订单"，均需二次确认。
-- 志愿者端仅在 `PENDING_ACCEPT`、`IN_PROGRESS` 显示"取消订单"，均需二次确认。
-- `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED` 双方均不显示取消按钮；如有安全问题走求助入口或占位流程。
+- 盲人跑者端仅在 `PENDING_MATCH`、`PENDING_ACCEPT`、`REMATCHING` 显示"取消订单"，均需二次确认。
+- 志愿者端仅在 `PENDING_ACCEPT`、`DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 显示"取消订单"，均需二次确认；取消成功后不再用志愿者 token 拉取该订单详情。
+- 盲人跑者端在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 不显示取消按钮；如有安全问题走求助入口或占位流程。
 
 ### 禁止的流转
 

@@ -10,6 +10,11 @@ The backend already exposes the required order statuses and transition endpoints
 - Use latest `VOLUNTEER_LOCATION_UPDATE` coordinates and `order.startLatitude/startLongitude` for blind-side distance copy. Do not show distance when either side is missing.
 - Keep the volunteer service map anchored on the order start coordinate. The volunteer current location may be shown as an auxiliary marker, but it must not move the map center.
 - Make cancellation visibility role-aware in the iOS client, while continuing to use `POST /api/orders/{id}/cancel`.
+- Treat start-place speech input as a field-level dictation helper: when recognition ends with non-empty text, trigger the same AMap POI search as the search button; do not parse appointment time from speech.
+- Mirror important TTS prompts to VoiceOver announcements so VoiceOver users hear repeat-status, search-state, and result-summary feedback even when AVSpeech is not the active accessibility channel.
+- Use the system AMap user-location layer for volunteer current location on service maps; keep custom annotations limited to the order start marker to avoid marker jump/drop during location updates.
+- Do not perform a volunteer-side detail fetch after successful cancellation because the backend may remove the volunteer from the order. Clear the local volunteer active-order state instead; blind-runner polling remains the source of truth for `REMATCHING` or `CANCELLED`.
+- Align cancel affordances with the backend contract: blind runners may cancel only `PENDING_MATCH`, `PENDING_ACCEPT`, and `REMATCHING`; volunteers may cancel active non-terminal accepted service states `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, and `IN_PROGRESS`, and successful volunteer cancellation moves the order to `REMATCHING`.
 
 ## Non-goals
 
@@ -17,4 +22,4 @@ The backend already exposes the required order statuses and transition endpoints
 - No route planning or in-app navigation engine.
 - No production emergency event integration beyond existing placeholder behavior.
 - No change to the canonical order status values.
-
+- No visible raw coordinate readout in normal user-facing booking or dispatch views.

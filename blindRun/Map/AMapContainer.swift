@@ -33,6 +33,7 @@ struct AMapContainer: UIViewRepresentable {
     var showsCompass: Bool = false
     var screenAnchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
     var tracksUserLocation: Bool = true
+    var animatesCenterChanges: Bool = true
 
     func makeUIView(context: Context) -> MAMapView {
         let mapView = MAMapView(frame: .zero)
@@ -76,7 +77,7 @@ struct AMapContainer: UIViewRepresentable {
            screenAnchorDidChange ||
            abs(currentCenter.latitude - centerCoordinate.latitude) > threshold ||
            abs(currentCenter.longitude - centerCoordinate.longitude) > threshold {
-            mapView.setCenter(centerCoordinate, animated: true)
+            mapView.setCenter(centerCoordinate, animated: animatesCenterChanges)
             context.coordinator.lastRecenterToken = recenterToken
         }
 
@@ -187,6 +188,7 @@ struct MapViewWrapper: View {
     var showsCompass: Bool = false
     var screenAnchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
     var tracksUserLocation: Bool = true
+    var animatesCenterChanges: Bool = true
 
     var body: some View {
         #if DEBUG || DEMO
@@ -201,7 +203,8 @@ struct MapViewWrapper: View {
                 recenterToken: recenterToken,
                 showsCompass: showsCompass,
                 screenAnchor: screenAnchor,
-                tracksUserLocation: tracksUserLocation
+                tracksUserLocation: tracksUserLocation,
+                animatesCenterChanges: animatesCenterChanges
             )
             .accessibilityLabel("地图，显示当前位置和订单地点")
             .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")
@@ -218,7 +221,8 @@ struct MapViewWrapper: View {
                 recenterToken: recenterToken,
                 showsCompass: showsCompass,
                 screenAnchor: screenAnchor,
-                tracksUserLocation: tracksUserLocation
+                tracksUserLocation: tracksUserLocation,
+                animatesCenterChanges: animatesCenterChanges
             )
             .accessibilityLabel("地图，显示当前位置和订单地点")
             .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")

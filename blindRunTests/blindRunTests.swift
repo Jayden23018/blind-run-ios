@@ -874,6 +874,79 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.resolvedStartLocationDescription, "上海市黄浦区人民广场；补充：我在地铁口外侧")
     }
 
+    func testBlindBookingSpeechCompletionAutoSearchesStartPlaceAndAllowsRepeatedKeywordRetry() async {
+        let place = ResolvedPlace(
+            id: "poi-1",
+            title: "大观楼",
+            addressText: "大观楼，西山区 大观路284号",
+            latitude: 25.024196,
+            longitude: 102.673887,
+            source: .manual
+        )
+        let provider = FakePlaceSearchProvider(results: [
+            place
+        ])
+        let speechService = SpeechService()
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(placeSearchProvider: provider, speechService: speechService)
+
+        await viewModel.handlePlaceSearchSpeechCompletion(SpeechInputCompletion(
+            field: .startPlaceSearch,
+            recognizedText: "大观",
+            reason: .silenceTimeout(hadDetectedSound: true)
+        ))
+        viewModel.selectPlace(place)
+        await viewModel.handlePlaceSearchSpeechCompletion(SpeechInputCompletion(
+            field: .startPlaceSearch,
+            recognizedText: " 大观 ",
+            reason: .finalResult
+        ))
+
+        XCTAssertEqual(provider.searchKeywords, ["大观", "大观"])
+        XCTAssertEqual(viewModel.placeSearchKeyword, "大观")
+        XCTAssertEqual(viewModel.placeSearchResults.map(\.title), ["大观楼"])
+        XCTAssertEqual(viewModel.searchResultFocusID, "poi-1")
+        XCTAssertEqual(speechService.lastVoiceOverAnnouncement, "已找到 1 个地点，第一个是 大观楼。")
+    }
+
+    func testBlindBookingSpeechCompletionSkipsErrorAndNoSpeechTimeout() async {
+        let provider = FakePlaceSearchProvider(results: [])
+        let speechService = SpeechService()
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(placeSearchProvider: provider, speechService: speechService)
+
+        await viewModel.handlePlaceSearchSpeechCompletion(SpeechInputCompletion(
+            field: .startPlaceSearch,
+            recognizedText: "大观",
+            reason: .silenceTimeout(hadDetectedSound: false)
+        ))
+        await viewModel.handlePlaceSearchSpeechCompletion(SpeechInputCompletion(
+            field: .startPlaceSearch,
+            recognizedText: "大观",
+            reason: .error
+        ))
+
+        XCTAssertTrue(provider.searchKeywords.isEmpty)
+        XCTAssertTrue(viewModel.placeSearchResults.isEmpty)
+    }
+
+    func testResolvedPlaceBookingSearchAccessibilityLabelDoesNotExposeCoordinates() {
+        let place = ResolvedPlace(
+            id: "poi-1",
+            title: "大观楼",
+            addressText: "大观楼，西山区 大观路284号",
+            latitude: 25.024196,
+            longitude: 102.673887,
+            source: .manual
+        )
+
+        XCTAssertEqual(place.bookingSearchAccessibilityLabel, "选择出发地点，大观楼，大观楼，西山区 大观路284号")
+        XCTAssertFalse(place.bookingSearchAccessibilityLabel.contains("纬度"))
+        XCTAssertFalse(place.bookingSearchAccessibilityLabel.contains("经度"))
+        XCTAssertFalse(place.bookingSearchAccessibilityLabel.contains("25.024196"))
+        XCTAssertFalse(place.bookingSearchAccessibilityLabel.contains("102.673887"))
+    }
+
     func testBlindBookingRequiresAppointmentAtLeastThirtyMinutesLater() {
         let viewModel = BlindBookingViewModel()
 
@@ -944,12 +1017,22 @@ final class blindRunTests: XCTestCase {
         service.speak(text: " 当前状态 ")
         XCTAssertEqual(service.lastSpokenText, "当前状态")
         XCTAssertEqual(service.latestRepeatableText, "当前状态")
+        XCTAssertEqual(service.lastVoiceOverAnnouncement, "当前状态")
 
         legacyService.repeatCurrentStatus()
         XCTAssertEqual(service.lastSpokenText, "当前状态")
 
         service.stop()
         XCTAssertFalse(service.isSpeaking)
+    }
+
+    func testVoiceServiceCanPostVoiceOverOnlyAnnouncement() {
+        let service = VoiceService()
+
+        service.announce(" 已找到 2 个地点 ")
+
+        XCTAssertNil(service.lastSpokenText)
+        XCTAssertEqual(service.lastVoiceOverAnnouncement, "已找到 2 个地点")
     }
 
     func testVoiceServiceStatusAnnouncementsMatchAccessibilityGuidelinesAndDeduplicate() {
@@ -1032,6 +1115,52 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(service.lastStopReason, .manual)
     }
 
+    func testSpeechInputCompletionIncludesFieldTextAndStopReason() {
+        let service = SpeechInputService()
+        var completion: SpeechInputCompletion?
+
+        service.startRecognitionForTesting(field: .startPlaceSearch) {
+            completion = $0
+        }
+        service.finishRecognitionForTesting(
+            text: "大观",
+            reason: .silenceTimeout(hadDetectedSound: true)
+        )
+
+        XCTAssertFalse(service.isListening)
+        XCTAssertNil(service.activeFieldId)
+        XCTAssertEqual(completion?.field, .startPlaceSearch)
+        XCTAssertEqual(completion?.recognizedText, "大观")
+        XCTAssertEqual(completion?.reason, .silenceTimeout(hadDetectedSound: true))
+        XCTAssertTrue(completion?.reason.shouldTriggerSearchWithRecognizedText == true)
+    }
+
+    func testSpeechInputSwitchingFieldsCompletesPreviousFieldBeforeReplacingHandler() {
+        let service = SpeechInputService()
+        var startPlaceCompletion: SpeechInputCompletion?
+        var notesCompletion: SpeechInputCompletion?
+
+        service.startRecognitionForTesting(field: .startPlaceSearch) {
+            startPlaceCompletion = $0
+        }
+        service.finishRecognitionForTesting(
+            text: "大观",
+            reason: .silenceTimeout(hadDetectedSound: true)
+        )
+        service.startRecognitionForTesting(field: .startPlaceSearch) {
+            startPlaceCompletion = $0
+        }
+        service.startRecognitionForTesting(field: .startLocationDescription) {
+            notesCompletion = $0
+        }
+
+        XCTAssertEqual(startPlaceCompletion?.field, .startPlaceSearch)
+        XCTAssertEqual(startPlaceCompletion?.recognizedText, "")
+        XCTAssertEqual(startPlaceCompletion?.reason, .manual)
+        XCTAssertNil(notesCompletion)
+        XCTAssertTrue(service.isListening(for: .startLocationDescription))
+    }
+
     func testSpeechInputSilenceTimeoutClearsActiveField() {
         let service = SpeechInputService()
 
@@ -1100,30 +1229,132 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertTrue(RunOrderStatus.pendingMatch.canCancel)
         XCTAssertTrue(RunOrderStatus.pendingAccept.canCancel)
-        XCTAssertTrue(RunOrderStatus.inProgress.canCancel)
         XCTAssertTrue(RunOrderStatus.rematching.canCancel)
+        XCTAssertFalse(RunOrderStatus.inProgress.canCancel)
         XCTAssertFalse(RunOrderStatus.completed.canCancel)
         XCTAssertFalse(RunOrderStatus.cancelled.canCancel)
 
         XCTAssertTrue(RunOrderStatus.pendingMatch.canBlindRunnerCancel)
         XCTAssertTrue(RunOrderStatus.pendingAccept.canBlindRunnerCancel)
-        XCTAssertTrue(RunOrderStatus.inProgress.canBlindRunnerCancel)
         XCTAssertTrue(RunOrderStatus.rematching.canBlindRunnerCancel)
         XCTAssertFalse(RunOrderStatus.driverEnRoute.canBlindRunnerCancel)
         XCTAssertFalse(RunOrderStatus.driverArrived.canBlindRunnerCancel)
+        XCTAssertFalse(RunOrderStatus.inProgress.canBlindRunnerCancel)
 
         XCTAssertTrue(RunOrderStatus.pendingAccept.canVolunteerCancel)
+        XCTAssertTrue(RunOrderStatus.driverEnRoute.canVolunteerCancel)
+        XCTAssertTrue(RunOrderStatus.driverArrived.canVolunteerCancel)
         XCTAssertTrue(RunOrderStatus.inProgress.canVolunteerCancel)
         XCTAssertFalse(RunOrderStatus.pendingMatch.canVolunteerCancel)
-        XCTAssertFalse(RunOrderStatus.driverEnRoute.canVolunteerCancel)
-        XCTAssertFalse(RunOrderStatus.driverArrived.canVolunteerCancel)
         XCTAssertFalse(RunOrderStatus.rematching.canVolunteerCancel)
+        XCTAssertFalse(RunOrderStatus.completed.canVolunteerCancel)
+        XCTAssertFalse(RunOrderStatus.cancelled.canVolunteerCancel)
+        XCTAssertFalse(RunOrderStatus.noVolunteer.canVolunteerCancel)
 
         XCTAssertTrue(RunOrderStatus.pendingAccept.canCancel(as: .blind))
         XCTAssertTrue(RunOrderStatus.pendingAccept.canCancel(as: .volunteer))
         XCTAssertTrue(RunOrderStatus.rematching.canCancel(as: .blind))
         XCTAssertFalse(RunOrderStatus.rematching.canCancel(as: .volunteer))
+        XCTAssertFalse(RunOrderStatus.inProgress.canCancel(as: .blind))
+        XCTAssertTrue(RunOrderStatus.inProgress.canCancel(as: .volunteer))
         XCTAssertFalse(RunOrderStatus.pendingAccept.canCancel(as: .unset))
+    }
+
+    func testMockCancelUsesRoleSpecificBackendContract() async throws {
+        do {
+            let appState = AppState()
+            appState.currentEnvironment = .mock
+            let client = appState.apiClient
+            let _: EmptyResponse = try await client.post(
+                "/api/orders/1/respond",
+                body: OrderRespondRequest(action: .accept)
+            )
+            try await setMockRole(.blind, appState: appState)
+
+            let _: EmptyResponse = try await client.post("/api/orders/1/cancel")
+            let detail: OrderDetailResponse = try await client.get("/api/orders/1")
+
+            XCTAssertEqual(detail.status, .cancelled)
+        }
+
+        do {
+            let appState = AppState()
+            appState.currentEnvironment = .mock
+            let client = appState.apiClient
+            let _: EmptyResponse = try await client.post(
+                "/api/orders/1/respond",
+                body: OrderRespondRequest(action: .accept)
+            )
+            try await setMockRole(.volunteer, appState: appState)
+
+            let _: EmptyResponse = try await client.post("/api/orders/1/cancel")
+            let rematchingDetail: OrderDetailResponse = try await client.get("/api/orders/1")
+            XCTAssertEqual(rematchingDetail.status, .rematching)
+
+            try await setMockRole(.blind, appState: appState)
+            let _: EmptyResponse = try await client.post("/api/orders/1/cancel")
+            let cancelledDetail: OrderDetailResponse = try await client.get("/api/orders/1")
+            XCTAssertEqual(cancelledDetail.status, .cancelled)
+        }
+    }
+
+    func testMockCancelUsesAppStateRoleWithoutRoleEndpoint() async throws {
+        do {
+            let appState = AppState()
+            appState.currentEnvironment = .mock
+            appState.activeRole = .blind
+            let client = appState.apiClient
+
+            let _: EmptyResponse = try await client.post("/api/orders/1/cancel")
+            let detail: OrderDetailResponse = try await client.get("/api/orders/1")
+
+            XCTAssertEqual(detail.status, .cancelled)
+        }
+
+        do {
+            let appState = AppState()
+            appState.currentEnvironment = .mock
+            appState.activeRole = .volunteer
+            let client = appState.apiClient
+            let _: EmptyResponse = try await client.post(
+                "/api/orders/1/respond",
+                body: OrderRespondRequest(action: .accept)
+            )
+
+            let _: EmptyResponse = try await client.post("/api/orders/1/cancel")
+            let detail: OrderDetailResponse = try await client.get("/api/orders/1")
+
+            XCTAssertEqual(detail.status, .rematching)
+        }
+    }
+
+    func testMockVolunteerCancelMovesActiveServiceStatesToRematching() async throws {
+        for status in [RunOrderStatus.driverEnRoute, .driverArrived, .inProgress] {
+            let appState = AppState()
+            appState.currentEnvironment = .mock
+            let client = appState.apiClient
+            try await setMockRole(.volunteer, appState: appState)
+            let _: EmptyResponse = try await client.post(
+                "/api/orders/1/respond",
+                body: OrderRespondRequest(action: .accept)
+            )
+            if [.driverEnRoute, .driverArrived, .inProgress].contains(status) {
+                let _: EmptyResponse = try await client.post("/api/orders/1/en-route")
+            }
+            if [.driverArrived, .inProgress].contains(status) {
+                let _: EmptyResponse = try await client.post("/api/orders/1/arrived")
+            }
+            if status == .inProgress {
+                let _: EmptyResponse = try await client.post("/api/orders/1/start-service")
+            }
+
+            let beforeCancel: OrderDetailResponse = try await client.get("/api/orders/1")
+            XCTAssertEqual(beforeCancel.status, status)
+
+            let _: EmptyResponse = try await client.post("/api/orders/1/cancel")
+            let afterCancel: OrderDetailResponse = try await client.get("/api/orders/1")
+            XCTAssertEqual(afterCancel.status, .rematching)
+        }
     }
 
     func testPendingAcceptBlindCopyUsesDepartureLanguageAndOrderDetails() {
@@ -1135,6 +1366,10 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(announcement.contains("朝阳公园南门"))
         XCTAssertTrue(announcement.contains("志愿者出发后会继续通知你"))
         XCTAssertFalse(announcement.contains("待确认"))
+    }
+
+    func testDisplayDateTimeFormatsBackendLocalDateTimeForSpeech() {
+        XCTAssertEqual("2026-07-05T15:18:10".displayDateTime, "2026年7月5日 15:18")
     }
 
     func testBlindVolunteerDistanceUsesVolunteerLocationToStartPoint() {
@@ -1212,6 +1447,18 @@ final class blindRunTests: XCTestCase {
         homeViewModel.activeOrder = makeOrder(orderId: 1, status: .rematching)
 
         XCTAssertTrue(homeViewModel.canCancelActiveOrder)
+    }
+
+    func testBlindRunnerInProgressOrderDoesNotShowCancelAction() {
+        let statusViewModel = BlindOrderStatusViewModel()
+        statusViewModel.order = makeOrder(orderId: 1, status: .inProgress)
+
+        XCTAssertFalse(statusViewModel.canShowCancel)
+
+        let homeViewModel = BlindRunnerHomeViewModel()
+        homeViewModel.activeOrder = makeOrder(orderId: 1, status: .inProgress)
+
+        XCTAssertFalse(homeViewModel.canCancelActiveOrder)
     }
 
     func testFormalOrderStatusRoutingAndFinishEligibility() {
@@ -1342,6 +1589,7 @@ final class blindRunTests: XCTestCase {
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let client = appState.apiClient
+        try await setMockRole(.volunteer, appState: appState)
         let _: EmptyResponse = try await client.post(
             "/api/orders/1/respond",
             body: OrderRespondRequest(action: .accept)
@@ -1382,6 +1630,7 @@ final class blindRunTests: XCTestCase {
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let client = appState.apiClient
+        try await setMockRole(.volunteer, appState: appState)
         let _: EmptyResponse = try await client.post(
             "/api/orders/1/respond",
             body: OrderRespondRequest(action: .accept)
@@ -1399,6 +1648,32 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.order?.status, .completed)
         XCTAssertEqual(viewModel.dispatchSummary?.completedCount, 2)
         XCTAssertEqual(viewModel.dispatchSummary?.resolvedPointsBalance, 200)
+    }
+
+    func testVolunteerInServiceCancelClearsLocalOrderWithoutDetailFetch() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let client = appState.apiClient
+        try await setMockRole(.volunteer, appState: appState)
+        let _: EmptyResponse = try await client.post(
+            "/api/orders/1/respond",
+            body: OrderRespondRequest(action: .accept)
+        )
+        let _: EmptyResponse = try await client.post("/api/orders/1/en-route")
+        let _: EmptyResponse = try await client.post("/api/orders/1/arrived")
+        let _: EmptyResponse = try await client.post("/api/orders/1/start-service")
+        let detail: OrderDetailResponse = try await client.get("/api/orders/1")
+
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(with: appState, speechService: speechService, initialOrder: detail)
+
+        await viewModel.cancel()
+
+        XCTAssertTrue(viewModel.didCancelOrder)
+        XCTAssertNil(viewModel.order)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(speechService.lastSpokenText, "订单已取消，系统将为盲人重新匹配。")
     }
 
     func testVolunteerTravelStageUsesDepartureCopyBeforeArrival() {
@@ -1419,11 +1694,11 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VolunteerServiceActions.actionKinds(for: .driverEnRoute).map(\.title),
-            ["导航到出发地点", "我已到达约定地点"]
+            ["导航到出发地点", "我已到达约定地点", "取消订单"]
         )
         XCTAssertEqual(
             VolunteerServiceActions.actionKinds(for: .driverArrived).map(\.title),
-            ["开始服务"]
+            ["开始服务", "取消订单"]
         )
         XCTAssertEqual(
             VolunteerServiceActions.actionKinds(for: .inProgress).map(\.title),
@@ -1551,7 +1826,7 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(presentation.centerCoordinate.longitude, current.longitude, accuracy: 0.000001)
     }
 
-    func testVolunteerDispatchMapPresentationShowsCurrentAndStartMarkers() {
+    func testVolunteerDispatchMapPresentationUsesSystemCurrentLocationLayerAndStartMarker() {
         let current = CLLocationCoordinate2D(latitude: 39.9042, longitude: 116.4074)
         let order = makeDispatchOrder(orderId: 1)
 
@@ -1562,15 +1837,13 @@ final class blindRunTests: XCTestCase {
             fallbackCoordinate: current
         )
 
-        XCTAssertEqual(presentation.annotations.count, 2)
-        XCTAssertEqual(presentation.annotations[0].title, "我的位置")
-        XCTAssertEqual(presentation.annotations[0].kind, .currentLocation)
-        XCTAssertEqual(presentation.annotations[1].title, "出发地点")
-        XCTAssertEqual(presentation.annotations[1].kind, .orderStart)
+        XCTAssertEqual(presentation.annotations.count, 1)
+        XCTAssertEqual(presentation.annotations[0].title, "出发地点")
+        XCTAssertEqual(presentation.annotations[0].kind, .orderStart)
         XCTAssertTrue(presentation.isCurrentLocationAvailable)
-        XCTAssertTrue(presentation.hasCurrentLocationMarker)
-        XCTAssertEqual(presentation.centerCoordinate.latitude, 39.9192, accuracy: 0.000001)
-        XCTAssertEqual(presentation.centerCoordinate.longitude, 116.4407, accuracy: 0.000001)
+        XCTAssertFalse(presentation.hasCurrentLocationMarker)
+        XCTAssertEqual(presentation.centerCoordinate.latitude, 39.9342, accuracy: 0.000001)
+        XCTAssertEqual(presentation.centerCoordinate.longitude, 116.4740, accuracy: 0.000001)
     }
 
     func testVolunteerServiceMapPresentationFallsBackToStartMarkerWithoutLocation() {
@@ -1755,6 +2028,14 @@ final class blindRunTests: XCTestCase {
         return condition()
     }
 
+    private func setMockRole(_ role: UserRole, appState: AppState) async throws {
+        appState.switchRole(to: role)
+        let _: SetRoleResponse = try await appState.apiClient.post(
+            "/api/user/role",
+            body: SetRoleRequest(role: role)
+        )
+    }
+
     private final class FailingAPIClient: APIClientProtocol, @unchecked Sendable {
         private let error: Error
 
@@ -1779,6 +2060,27 @@ final class blindRunTests: XCTestCase {
             requiresAuth: Bool
         ) async throws -> T {
             throw error
+        }
+    }
+
+    @MainActor
+    private final class FakePlaceSearchProvider: PlaceSearchProviding {
+        var lastErrorMessage: String?
+        var searchKeywords: [String] = []
+        private let results: [ResolvedPlace]
+
+        init(results: [ResolvedPlace], lastErrorMessage: String? = nil) {
+            self.results = results
+            self.lastErrorMessage = lastErrorMessage
+        }
+
+        func reverseGeocode(coordinate: CLLocationCoordinate2D) async -> ResolvedPlace? {
+            nil
+        }
+
+        func searchPlaces(keyword: String, near coordinate: CLLocationCoordinate2D?) async -> [ResolvedPlace] {
+            searchKeywords.append(keyword)
+            return results
         }
     }
 

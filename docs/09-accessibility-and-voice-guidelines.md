@@ -82,6 +82,9 @@ Rules:
 - Appointment time remains `DatePicker`.
 - If speech input fails, show an error and allow keyboard input.
 - Request microphone and speech recognition permission only when the user starts voice input.
+- Start-place search speech input automatically runs POI search after recognition finishes with non-empty text.
+- While start-place recognition is active, expose the search action as "语音识别中" to VoiceOver and keep manual search disabled.
+- Search result feedback must announce the result count and first place name; result rows read place name and address, not raw latitude/longitude.
 
 ## 6. Dangerous Actions
 
@@ -120,6 +123,8 @@ Recommended status announcements:
 
 Lifecycle `APP_NOTIFICATION` text from backend templates should not be spoken directly while an active order is present. Order lifecycle TTS should use local order-detail copy so test names or template placeholders are not announced. Volunteer distance copy should use "距出发地点约 X" and be calculated from the latest volunteer location to the order start coordinate.
 
+Important blind-runner TTS should also post a VoiceOver announcement for users who rely on VoiceOver feedback. This includes search state, search results, errors, selected place, and "重复当前状态".
+
 ## 8. Volunteer Accessibility
 
 Volunteer UI should still be accessible, but it may be denser than blind runner UI:
@@ -128,6 +133,7 @@ Volunteer UI should still be accessible, but it may be denser than blind runner 
 - Available order cells must read nickname, start location, appointment time, and distance.
 - Contact phone appears only after accepting an order.
 - Action buttons must reflect disabled states when volunteer is unavailable or not approved.
+- Volunteer dispatch and service maps should not expose raw coordinate readouts as normal text.
 
 ## 9. Acceptance Checklist
 

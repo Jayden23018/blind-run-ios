@@ -1180,12 +1180,6 @@ private struct VolunteerDispatchOverlay: View {
                         .font(AppFonts.body())
                     }
 
-                    if let lat = order.startLatitude, let lng = order.startLongitude {
-                        Text(String(format: "坐标：%.5f, %.5f", lat, lng))
-                            .font(AppFonts.caption())
-                            .foregroundColor(AppColors.textSecondary)
-                    }
-
                     if let notes = order.specialNotes, !notes.isEmpty {
                         Text(notes)
                             .font(AppFonts.caption())
@@ -1256,19 +1250,21 @@ private struct VolunteerDispatchOverlay: View {
             showsUserLocation: locationAuthorized,
             annotations: presentation.annotations,
             zoomLevel: 15,
-            showsCompass: false
+            showsCompass: false,
+            tracksUserLocation: false,
+            animatesCenterChanges: false
         )
         .frame(height: 160)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(alignment: .topLeading) {
             VolunteerMapLegend(
-                showsCurrentLocation: presentation.hasCurrentLocationMarker,
+                showsCurrentLocation: presentation.isCurrentLocationAvailable,
                 showsMissingLocationNotice: !presentation.isCurrentLocationAvailable
             )
             .padding(8)
         }
         .accessibilityLabel(
-            presentation.hasCurrentLocationMarker
+            presentation.isCurrentLocationAvailable
                 ? "派单地图，显示我的位置和出发地点"
                 : "派单地图，红色标记显示出发地点"
         )

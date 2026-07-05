@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import SwiftUI
+import UIKit
 
 // MARK: - Voice Service
 
@@ -12,6 +13,7 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     @Published private(set) var isSpeaking = false
     @Published private(set) var lastSpokenText: String?
     @Published private(set) var latestRepeatableText: String?
+    @Published private(set) var lastVoiceOverAnnouncement: String?
     private(set) var lastSpokenStatus: RunOrderStatus?
 
     override init() {
@@ -27,6 +29,7 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         guard !normalizedText.isEmpty else { return }
         lastSpokenText = normalizedText
         latestRepeatableText = normalizedText
+        postVoiceOverAnnouncement(normalizedText)
         synthesizer.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: normalizedText)
         utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
@@ -38,6 +41,11 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     /// 兼容既有调用点的短方法名。
     func speak(_ text: String) {
         speak(text: text)
+    }
+
+    /// VoiceOver-only announcement for transient UI state such as search results.
+    func announce(_ text: String) {
+        postVoiceOverAnnouncement(text)
     }
 
     /// 播报订单状态变化（防重复）
@@ -78,6 +86,20 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     func resetLastStatus() {
         lastSpokenStatus = nil
         latestRepeatableText = nil
+    }
+
+    private func postVoiceOverAnnouncement(_ text: String) {
+        let normalizedText = text.trimmed
+        guard !normalizedText.isEmpty else { return }
+        lastVoiceOverAnnouncement = normalizedText
+        let post = {
+            UIAccessibility.post(notification: .announcement, argument: normalizedText)
+        }
+        if Thread.isMainThread {
+            post()
+        } else {
+            DispatchQueue.main.async(execute: post)
+        }
     }
 
     // MARK: - Status Copy Mapping (docs/09 section 7)

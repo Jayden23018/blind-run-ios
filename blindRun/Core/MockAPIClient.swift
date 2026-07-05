@@ -26,6 +26,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         seedDemoData()
     }
 
+    func syncRoleFromAppState(_ role: UserRole?) {
+        mockRole = role
+    }
+
     // MARK: - APIClientProtocol
 
     func request<T: Decodable>(
@@ -638,12 +642,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
         }
-        guard orders[index].status.canCancel else {
+        guard let role = mockRole, orders[index].status.canCancel(as: role) else {
             throw APIError.serverError(ErrorResponse(
                 code: "INVALID_ORDER_STATUS", message: "当前订单状态不允许取消"))
         }
-        orders[index] = updateOrderStatus(orders[index], to: .cancelled)
-        return actionResponse(for: orders[index], message: "订单已取消")
+        let nextStatus: RunOrderStatus = role == .volunteer ? .rematching : .cancelled
+        orders[index] = updateOrderStatus(orders[index], to: nextStatus)
+        let message = role == .volunteer ? "志愿者已取消，订单重新匹配中" : "订单已取消"
+        return actionResponse(for: orders[index], message: message)
     }
 
     private func actionResponse(for order: OrderDetailResponse, message: String) -> OrderResponse {

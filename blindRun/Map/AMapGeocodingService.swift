@@ -16,14 +16,29 @@ struct ResolvedPlace: Identifiable, Equatable, Sendable {
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
+
+    var bookingSearchAccessibilityLabel: String {
+        let address = addressText.trimmed
+        if address.isEmpty {
+            return "选择出发地点，\(title)"
+        }
+        return "选择出发地点，\(title)，\(address)"
+    }
 }
 
 // MARK: - AMap Geocoding Service
 
+@MainActor
+protocol PlaceSearchProviding: AnyObject {
+    var lastErrorMessage: String? { get }
+    func reverseGeocode(coordinate: CLLocationCoordinate2D) async -> ResolvedPlace?
+    func searchPlaces(keyword: String, near coordinate: CLLocationCoordinate2D?) async -> [ResolvedPlace]
+}
+
 /// AMap Search wrapper for reverse geocoding and place suggestions.
 /// It only resolves selectable order start locations; it does not provide route navigation.
 @MainActor
-final class AMapGeocodingService: NSObject, ObservableObject {
+final class AMapGeocodingService: NSObject, ObservableObject, PlaceSearchProviding {
     @Published private(set) var lastErrorMessage: String?
 
     private var search: AMapSearchAPI?

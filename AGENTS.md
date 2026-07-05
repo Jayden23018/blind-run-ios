@@ -122,7 +122,8 @@ PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGR
 Cancellation flow:
 
 ```text
-PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS -> CANCELLED
+PENDING_MATCH / PENDING_ACCEPT -> CANCELLED (blind runner token)
+PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> REMATCHING (volunteer token)
 REMATCHING -> CANCELLED (blind runner token only)
 ```
 
@@ -133,7 +134,9 @@ DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> (emergency event recorded)
 ```
 
 - Cancellation endpoint: POST `/api/orders/{orderId}/cancel` (no request body needed).
-- `REMATCHING` is entered only after an accepted volunteer cancels; the blind runner may then cancel the rematching order with their own token. A volunteer token must not be used for this cancellation because that volunteer is no longer a participant in the order.
+- Blind runners may cancel only `PENDING_MATCH`, `PENDING_ACCEPT`, and `REMATCHING`; they must not be shown a cancel action in `IN_PROGRESS`.
+- Volunteers may cancel active non-terminal accepted service states `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, and `IN_PROGRESS`; `PENDING_MATCH`, `REMATCHING`, and terminal states are not volunteer-cancellable.
+- `REMATCHING` is entered after an accepted volunteer cancels; the blind runner may then cancel the rematching order with their own token. A volunteer token must not be used for this cancellation because that volunteer is no longer a participant in the order.
 - Emergency endpoint: POST `/api/emergency/trigger` with `EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`.
 - Emergency is not an order status; the order lifecycle status remains unchanged.
 - Volunteer responds with accept: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = ACCEPT)`.

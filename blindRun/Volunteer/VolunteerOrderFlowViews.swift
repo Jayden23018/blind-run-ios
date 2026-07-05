@@ -209,8 +209,8 @@ struct VolunteerServiceMapPresentation {
             currentLocation: currentLocation,
             locationAuthorized: locationAuthorized,
             fallbackCoordinate: fallbackCoordinate,
-            includesCurrentLocationMarker: true,
-            centersOnCurrentAndStart: true
+            includesCurrentLocationMarker: false,
+            centersOnCurrentAndStart: false
         )
     }
 
@@ -472,6 +472,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
+    @Published var didCancelOrder = false
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -573,8 +574,9 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         guard let order, let appState else { return }
         await performAction(failureMessage: "取消失败，请重试") {
             let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            self.order = updated
+            self.order = nil
+            self.didCancelOrder = true
+            self.speechService?.speak("订单已取消，系统将为盲人重新匹配。")
         }
     }
 
@@ -605,6 +607,7 @@ struct VolunteerOrderDetailView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = VolunteerOrderDetailViewModel()
     @State private var showAcceptConfirm = false
     @State private var showCancelConfirm = false
@@ -663,7 +666,12 @@ struct VolunteerOrderDetailView: View {
         }
         .confirmationDialog("取消订单", isPresented: $showCancelConfirm) {
             Button("确认取消", role: .destructive) {
-                Task { await viewModel.cancel() }
+                Task {
+                    await viewModel.cancel()
+                    if viewModel.didCancelOrder {
+                        dismiss()
+                    }
+                }
             }
             Button("不取消", role: .cancel) {}
         } message: {
@@ -765,6 +773,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
     @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
+    @Published var didCancelOrder = false
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -850,8 +859,10 @@ final class VolunteerInServiceViewModel: ObservableObject {
         guard let order, let appState else { return }
         await performAction(failureMessage: "取消失败，请重试") {
             let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            apply(updated, speakChanges: false)
+            stopPolling()
+            self.order = nil
+            self.didCancelOrder = true
+            self.speechService?.speak("订单已取消，系统将为盲人重新匹配。")
         }
     }
 
@@ -909,6 +920,7 @@ struct VolunteerInServiceView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = VolunteerInServiceViewModel()
     @State private var showCancelConfirm = false
     @State private var showEmergencyConfirm = false
@@ -993,7 +1005,12 @@ struct VolunteerInServiceView: View {
         }
         .confirmationDialog("取消订单", isPresented: $showCancelConfirm) {
             Button("确认取消", role: .destructive) {
-                Task { await viewModel.cancel() }
+                Task {
+                    await viewModel.cancel()
+                    if viewModel.didCancelOrder {
+                        dismiss()
+                    }
+                }
             }
             Button("不取消", role: .cancel) {}
         } message: {
@@ -1418,7 +1435,7 @@ struct VolunteerServiceMapBackdrop: View {
             currentLocation: locationService.currentLocation,
             locationAuthorized: locationService.isAuthorized,
             fallbackCoordinate: locationService.effectiveLocation,
-            includesCurrentLocationMarker: true,
+            includesCurrentLocationMarker: false,
             centersOnCurrentAndStart: false
         )
         MapViewWrapper(
@@ -1427,12 +1444,13 @@ struct VolunteerServiceMapBackdrop: View {
             annotations: presentation.annotations,
             zoomLevel: 15,
             screenAnchor: screenAnchor,
-            tracksUserLocation: false
+            tracksUserLocation: false,
+            animatesCenterChanges: false
         )
         .ignoresSafeArea()
         .overlay(alignment: .topLeading) {
             VolunteerMapLegend(
-                showsCurrentLocation: presentation.hasCurrentLocationMarker,
+                showsCurrentLocation: presentation.isCurrentLocationAvailable,
                 showsMissingLocationNotice: !presentation.isCurrentLocationAvailable
             )
             .padding(.top, 56)
@@ -1448,7 +1466,7 @@ struct VolunteerServiceMapBackdrop: View {
             .allowsHitTesting(false)
         }
         .accessibilityLabel(
-            presentation.hasCurrentLocationMarker
+            presentation.isCurrentLocationAvailable
                 ? "地图，显示我的位置和出发地点"
                 : "地图，红色标记显示出发地点"
         )
@@ -1463,7 +1481,7 @@ struct VolunteerMapLegend: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if showsCurrentLocation {
-                legendRow(color: .green, title: "我的位置")
+                legendRow(color: .blue, title: "我的位置")
             } else if showsMissingLocationNotice {
                 Text("定位不可用，仅显示出发地点")
                     .font(AppFonts.caption().weight(.semibold))
@@ -1795,9 +1813,9 @@ struct VolunteerServiceActions: View {
         case .pendingAccept:
             return [.navigateToStart, .markEnRoute, .cancelOrder]
         case .driverEnRoute:
-            return [.navigateToStart, .markArrived]
+            return [.navigateToStart, .markArrived, .cancelOrder]
         case .driverArrived:
-            return [.startService]
+            return [.startService, .cancelOrder]
         case .inProgress:
             return [.completeService, .cancelOrder]
         case .completed:

@@ -79,10 +79,30 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     func cancelOrder() async {
         guard let order, let appState else { return }
-        await performAction(failureMessage: "取消失败。") {
+        guard order.status.canBlindRunnerCancel else {
+            let message = "当前订单状态不能由盲人取消。"
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
+        isPerformingAction = true
+        errorMessage = nil
+        do {
             let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
-            // Reload order to get updated status
+            isPerformingAction = false
             await self.loadOrder(orderId: order.orderId, speakChanges: true)
+        } catch let error as APIError {
+            isPerformingAction = false
+            let message = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+            await self.loadOrder(orderId: order.orderId, speakChanges: true)
+            errorMessage = message
+        } catch {
+            isPerformingAction = false
+            let message = "取消失败。"
+            speechService?.speakError(message)
+            await self.loadOrder(orderId: order.orderId, speakChanges: true)
+            errorMessage = message
         }
     }
 

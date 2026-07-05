@@ -25,7 +25,7 @@ The iOS blind-runner experience SHALL expose the formal order lifecycle from sys
 - **THEN** the app SHALL show a blind-runner in-service experience
 - **AND** the app SHALL keep polling or listening for completion
 - **AND** the app SHALL speak that service has started
-- **AND** the blind runner SHALL still be allowed to cancel with second confirmation when cancellation is required before completion
+- **AND** the blind runner SHALL NOT be shown a cancel action in `IN_PROGRESS`
 
 #### Scenario: Blind runner reaches completion and rating
 - **WHEN** the active blind-runner order becomes `COMPLETED`
@@ -54,6 +54,24 @@ The iOS blind-runner order screens SHALL update from WebSocket notifications and
 - **AND** the app SHALL NOT use "距您" for this distance
 - **AND** the app SHALL hide distance when the order start coordinate or volunteer location is unavailable
 
+### Requirement: Blind runner booking search is accessible
+The iOS blind-runner booking flow SHALL support text and speech search for a start place without exposing raw coordinates in the normal user interface.
+
+#### Scenario: Speech input searches start places
+- **WHEN** the blind runner uses speech input in the start-place search field
+- **AND** recognition finishes with non-empty recognized text
+- **THEN** the app SHALL fill the search field with the recognized text
+- **AND** the app SHALL automatically run the same AMap POI search as the search button
+- **AND** the search button SHALL expose "语音识别中" while recognition is active
+- **AND** the app SHALL NOT auto-search after recognition errors or no-speech silence timeouts
+
+#### Scenario: Search results are announced without raw coordinates
+- **WHEN** a start-place search returns one or more results
+- **THEN** the app SHALL announce the result count and first place name to VoiceOver
+- **AND** each selectable result SHALL expose the place name and address in its accessibility label
+- **AND** raw latitude/longitude SHALL NOT be shown as normal text on the booking screen
+- **AND** coordinates SHALL remain available for order creation and map annotations
+
 ### Requirement: Volunteer responds to timed system dispatch prompts
 The iOS volunteer client SHALL handle backend `NEW_ORDER` WebSocket messages as timed dispatch prompts with accept and decline actions only.
 
@@ -68,6 +86,7 @@ The iOS volunteer client SHALL handle backend `NEW_ORDER` WebSocket messages as 
 - **WHEN** a volunteer order is `PENDING_ACCEPT` or `DRIVER_EN_ROUTE`
 - **THEN** the app SHALL emphasize the order start location as the primary red marker on the service-flow map
 - **AND** the service-flow map center SHALL remain anchored to the order start coordinate instead of recalculating a midpoint as the volunteer location changes
+- **AND** the volunteer current location SHALL use the system user-location layer instead of a custom marker in the service-flow map
 - **AND** map annotations SHALL be synced by stable annotation id so existing markers are updated in place rather than removed and re-added on every refresh
 - **AND** pin drop animation SHALL NOT repeat during location reporting or polling updates
 - **AND** the app SHALL offer walking navigation through installed external map apps, including AMap and Baidu when installed, and Apple Maps as the system fallback
@@ -89,18 +108,19 @@ The iOS app SHALL show order cancellation actions according to both the active r
 
 #### Scenario: Blind-runner cancellation states
 - **WHEN** the active role is `BLIND`
-- **THEN** the app SHALL show "取消订单" only for `PENDING_MATCH`, `PENDING_ACCEPT`, `IN_PROGRESS`, and `REMATCHING`
+- **THEN** the app SHALL show "取消订单" only for `PENDING_MATCH`, `PENDING_ACCEPT`, and `REMATCHING`
 - **AND** the action SHALL require second confirmation
 - **AND** confirmation SHALL call `POST /api/orders/{id}/cancel`
 
 #### Scenario: Volunteer cancellation states
 - **WHEN** the active role is `VOLUNTEER`
-- **THEN** the app SHALL show "取消订单" only for `PENDING_ACCEPT` and `IN_PROGRESS`
+- **THEN** the app SHALL show "取消订单" only for `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, and `IN_PROGRESS`
 - **AND** the action SHALL require second confirmation
 - **AND** confirmation SHALL call `POST /api/orders/{id}/cancel`
+- **AND** successful volunteer cancellation SHALL move the backend order to `REMATCHING`
+- **AND** after a successful cancellation response the volunteer UI SHALL clear the local active service screen instead of fetching the order with a token that may no longer be a participant
 
-#### Scenario: Travel and arrival states do not show cancellation
-- **WHEN** an order is `DRIVER_EN_ROUTE` or `DRIVER_ARRIVED`
-- **THEN** neither blind-runner nor volunteer order screens SHALL show a cancel action
+#### Scenario: Blind runner cannot cancel travel, arrival, or in-service states
+- **WHEN** a blind-runner order is `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, or `IN_PROGRESS`
+- **THEN** the blind-runner screens SHALL NOT show a cancel action
 - **AND** safety concerns SHALL use the existing求助入口 or placeholder flow instead of cancellation
-

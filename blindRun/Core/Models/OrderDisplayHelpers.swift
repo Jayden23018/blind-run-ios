@@ -166,11 +166,14 @@ extension String {
     }
 
     var displayDateTime: String {
+        if let date = DateFormatter.aidRunBackendLocalDateTime.date(from: self) {
+            return DateFormatter.aidRunDisplayDateTime.string(from: date)
+        }
         if let date = ISO8601DateFormatter.aidRunFormatter.date(from: self) {
-            return date.formatted(date: .abbreviated, time: .shortened)
+            return DateFormatter.aidRunDisplayDateTime.string(from: date)
         }
         if let date = ISO8601DateFormatter().date(from: self) {
-            return date.formatted(date: .abbreviated, time: .shortened)
+            return DateFormatter.aidRunDisplayDateTime.string(from: date)
         }
         return self
     }
@@ -189,6 +192,13 @@ extension DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter
+    }()
+
+    static let aidRunDisplayDateTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日 HH:mm"
         return formatter
     }()
 }

@@ -355,15 +355,15 @@
 
 **验收标准**：
 
-**Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS，或订单因志愿者主动取消进入 REMATCHING
+**Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT，或订单因志愿者主动取消进入 REMATCHING
 **When** 用户点击"取消订单"并确认
 **Then** 订单状态变为 CANCELLED，cancelledBy = blind_runner，记录取消原因
 
 ---
 
 **Given** 订单状态为 IN_PROGRESS
-**When** 用户尝试取消订单
-**Then** 弹出二次确认，确认后订单状态变为 CANCELLED
+**When** 盲人跑者查看订单
+**Then** App 不显示"取消订单"入口
 
 ---
 
@@ -662,15 +662,15 @@
 
 ---
 
-**Given** 盲人跑者端订单状态为 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS
+**Given** 盲人跑者端订单状态为 PENDING_MATCH / PENDING_ACCEPT / REMATCHING
 **When** 盲人跑者触发取消并二次确认
 **Then** 状态流转为 CANCELLED，记录 cancelledBy
 
 ---
 
-**Given** 志愿者端订单状态为 PENDING_ACCEPT / IN_PROGRESS
+**Given** 志愿者端订单状态为 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
 **When** 志愿者触发取消并二次确认
-**Then** 状态流转为 CANCELLED，记录 cancelledBy
+**Then** 状态流转为 REMATCHING，记录 cancelledBy；志愿者端退出当前服务流程
 
 ---
 

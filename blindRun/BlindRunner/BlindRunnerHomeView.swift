@@ -88,11 +88,34 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
     func cancelActiveOrder() async {
         guard let activeOrder, let appState else { return }
-        await performAction(failureMessage: "取消失败。") {
+        guard activeOrder.status.canBlindRunnerCancel else {
+            let message = "当前订单状态不能由盲人取消。"
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
+        isPerformingAction = true
+        errorMessage = nil
+        do {
             let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(activeOrder.orderId)/cancel")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(activeOrder.orderId)")
             self.activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
             self.speechService?.speakStatusChange(updated.status, text: updated.blindRunnerAnnouncement())
+            isPerformingAction = false
+        } catch let error as APIError {
+            isPerformingAction = false
+            errorMessage = error.localizedMessage
+            speechService?.speakError(errorMessage ?? error.localizedMessage)
+            if let updated: OrderDetailResponse = try? await appState.apiClient.get("/api/orders/\(activeOrder.orderId)") {
+                self.activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
+            }
+        } catch {
+            isPerformingAction = false
+            errorMessage = "取消失败。"
+            speechService?.speakError(errorMessage ?? "取消失败。")
+            if let updated: OrderDetailResponse = try? await appState.apiClient.get("/api/orders/\(activeOrder.orderId)") {
+                self.activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
+            }
         }
     }
 
@@ -116,6 +139,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             speechService?.speakError(failureMessage)
         }
     }
+
 }
 
 // MARK: - Blind Runner Home View

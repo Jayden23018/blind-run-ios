@@ -43,6 +43,21 @@ enum SpeechInputStopReason: Equatable {
             return "语音识别失败，请使用键盘输入。"
         }
     }
+
+    var shouldTriggerSearchWithRecognizedText: Bool {
+        switch self {
+        case .manual, .finalResult, .silenceTimeout(hadDetectedSound: true), .maxDuration:
+            return true
+        case .silenceTimeout(hadDetectedSound: false), .error:
+            return false
+        }
+    }
+}
+
+struct SpeechInputCompletion: Equatable {
+    let field: SpeechInputField
+    let recognizedText: String
+    let reason: SpeechInputStopReason
 }
 
 // MARK: - Speech Input Service
@@ -63,10 +78,12 @@ final class SpeechInputService: ObservableObject {
     private var silenceMonitorTask: Task<Void, Never>?
     private var maxDurationTask: Task<Void, Never>?
     private var announcementHandler: ((String) -> Void)?
+    private var completionHandler: ((SpeechInputCompletion) -> Void)?
     private var didInstallTap = false
     private var recognitionStartedAt: Date?
     private var lastSoundAt: Date?
     private var hasDetectedSound = false
+    private var currentRecognizedText = ""
 
     static let initialSilenceTimeout: TimeInterval = 8
     static let trailingSilenceTimeout: TimeInterval = 3
@@ -86,24 +103,20 @@ final class SpeechInputService: ObservableObject {
     func startRecognition(
         field: SpeechInputField,
         onTextChanged: @escaping (String) -> Void,
-        onAnnouncement: ((String) -> Void)? = nil
+        onAnnouncement: ((String) -> Void)? = nil,
+        onCompletion: ((SpeechInputCompletion) -> Void)? = nil
     ) {
-        announcementHandler = onAnnouncement
-
-        // Tapping the same field while listening → stop
-        if isListening && activeField == field {
-            stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true)
+        if stopActiveRecognitionIfNeeded(beforeStarting: field) {
             return
         }
 
-        // Tapping a different field while listening → stop previous, then start new
-        if isListening {
-            stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true)
-        }
+        announcementHandler = onAnnouncement
+        completionHandler = onCompletion
 
         activeField = field
         errorMessage = nil
         lastStopReason = nil
+        currentRecognizedText = ""
         Task {
             let speechAuthorized = await requestSpeechAuthorization()
             guard speechAuthorized else {
@@ -131,12 +144,29 @@ final class SpeechInputService: ObservableObject {
         stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true)
     }
 
+    @discardableResult
+    private func stopActiveRecognitionIfNeeded(beforeStarting field: SpeechInputField) -> Bool {
+        if isListening && activeField == field {
+            stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true)
+            return true
+        }
+
+        if isListening {
+            stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true)
+        }
+
+        return false
+    }
+
     private func stopAudioRecognition(
         reason: SpeechInputStopReason,
         clearActiveField: Bool,
         announce: Bool
     ) {
         let wasListening = isListening
+        let completedField = activeField
+        let completedText = currentRecognizedText
+        let completedHandler = completionHandler
         cancelStopTimers()
 
         if audioEngine.isRunning {
@@ -157,6 +187,7 @@ final class SpeechInputService: ObservableObject {
         recognitionStartedAt = nil
         lastSoundAt = nil
         hasDetectedSound = false
+        currentRecognizedText = ""
         if clearActiveField {
             activeField = nil
         }
@@ -169,6 +200,14 @@ final class SpeechInputService: ObservableObject {
 
         if announce && wasListening {
             self.announce(reason.announcement)
+        }
+
+        if (wasListening || reason == .error), let completedField {
+            completedHandler?(SpeechInputCompletion(
+                field: completedField,
+                recognizedText: completedText,
+                reason: reason
+            ))
         }
     }
 
@@ -240,14 +279,17 @@ final class SpeechInputService: ObservableObject {
         recognitionStartedAt = Date()
         lastSoundAt = nil
         hasDetectedSound = false
+        currentRecognizedText = ""
         startStopTimers()
         announce("语音输入已开启，请说话。")
         recognitionTask = recognizer?.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
                 guard let self else { return }
                 if let result {
-                    onTextChanged(result.bestTranscription.formattedString)
-                    if !result.bestTranscription.formattedString.trimmed.isEmpty {
+                    let recognizedText = result.bestTranscription.formattedString
+                    self.currentRecognizedText = recognizedText
+                    onTextChanged(recognizedText)
+                    if !recognizedText.trimmed.isEmpty {
                         self.markSoundDetected()
                     }
                     if result.isFinal {
@@ -385,11 +427,28 @@ final class SpeechInputService: ObservableObject {
         startRecognitionForTesting(field: field)
     }
 
-    func startRecognitionForTesting(field: SpeechInputField) {
+    func startRecognitionForTesting(
+        field: SpeechInputField,
+        onCompletion: ((SpeechInputCompletion) -> Void)? = nil
+    ) {
+        if stopActiveRecognitionIfNeeded(beforeStarting: field) {
+            return
+        }
+
         activeField = field
         isListening = true
         recognitionStartedAt = Date()
         lastStopReason = nil
+        currentRecognizedText = ""
+        completionHandler = onCompletion
+    }
+
+    func finishRecognitionForTesting(
+        text: String,
+        reason: SpeechInputStopReason = .finalResult
+    ) {
+        currentRecognizedText = text
+        stopAudioRecognition(reason: reason, clearActiveField: true, announce: false)
     }
 
     func simulateRecognitionFailureForTesting(field: SpeechInputField) {
