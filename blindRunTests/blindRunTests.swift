@@ -20,6 +20,41 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(json["phone"], "13800138000")
     }
 
+    func testSendCodeResponseIgnoresNumericBusinessCodeZero() throws {
+        let data = #"{"success":true,"message":"验证码已发送","code":0}"#.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(SendCodeResponse.self, from: data)
+
+        XCTAssertTrue(response.success == true)
+        XCTAssertEqual(response.message, "验证码已发送")
+        XCTAssertNil(response.resolvedVerificationCode)
+    }
+
+    func testSendCodeResponseIgnoresStringBusinessCode() throws {
+        let data = #"{"success":true,"message":"验证码已发送","code":"654321"}"#.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(SendCodeResponse.self, from: data)
+
+        XCTAssertEqual(response.code, "654321")
+        XCTAssertNil(response.resolvedVerificationCode)
+    }
+
+    func testSendCodeResponseUsesExplicitSixDigitVerificationFields() throws {
+        let data = #"{"success":true,"message":"验证码已发送","verificationCode":" 123456 ","smsCode":"789012"}"#.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(SendCodeResponse.self, from: data)
+
+        XCTAssertEqual(response.resolvedVerificationCode, "123456")
+    }
+
+    func testSendCodeResponseIgnoresMalformedExplicitVerificationFields() throws {
+        let data = #"{"success":true,"message":"验证码已发送","verificationCode":"SUCCESS","smsCode":"12345"}"#.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(SendCodeResponse.self, from: data)
+
+        XCTAssertNil(response.resolvedVerificationCode)
+    }
+
     func testVerifyCodeRequestUsesOpenAPICamelCaseKeys() throws {
         let request = VerifyCodeRequest(phone: "13800138000", code: AppConstants.Auth.demoVerificationCode)
         let data = try JSONEncoder().encode(request)
@@ -682,6 +717,14 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.phoneNumber, "13800138000")
     }
 
+    func testLoginPhoneInputKeepsScreenshotLongValueToElevenDigits() {
+        let viewModel = LoginViewModel()
+
+        viewModel.sanitizePhoneInput("13800000001000000")
+
+        XCTAssertEqual(viewModel.phoneNumber, "13800000001")
+    }
+
     func testLoginPhoneSanitizeAlreadyCompleteValueKeepsElevenDigits() {
         let viewModel = LoginViewModel()
         viewModel.phoneNumber = "13800138000"
@@ -774,6 +817,107 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.errorMessage, "网络错误，请重试")
         XCTAssertFalse(viewModel.showCodeInput)
         XCTAssertNil(viewModel.countdown)
+    }
+
+    func testTestAccountDoesNotUseSendCodeResponseBusinessCodeWhenEnteringFixedDemoCode() async {
+        let client = LoginCodeCaptureAPIClient(sendCodeResponse: SendCodeResponse(
+            success: true,
+            message: "验证码已发送",
+            code: "654321",
+            verificationCode: nil,
+            smsCode: nil
+        ))
+        let viewModel = LoginViewModel(apiClient: client)
+        viewModel.phoneNumber = "13800000001"
+
+        viewModel.requestCode()
+        let didShowInput = await waitUntil { viewModel.showCodeInput }
+        XCTAssertTrue(didShowInput)
+        viewModel.sanitizeVerificationCodeInput(AppConstants.Auth.demoVerificationCode)
+
+        let didCaptureFixedCode = await waitUntil { client.capturedVerifyCodeRequest?.code == AppConstants.Auth.demoVerificationCode }
+        XCTAssertTrue(didCaptureFixedCode)
+        XCTAssertEqual(client.capturedVerifyCodeRequest?.phone, "13800000001")
+    }
+
+    func testTestAccountUsesVerificationCodeFieldWhenEnteringFixedDemoCode() async {
+        let client = LoginCodeCaptureAPIClient(sendCodeResponse: SendCodeResponse(
+            success: true,
+            message: "验证码已发送",
+            code: nil,
+            verificationCode: "123456",
+            smsCode: nil
+        ))
+        let viewModel = LoginViewModel(apiClient: client)
+        viewModel.phoneNumber = "13800000002"
+
+        viewModel.requestCode()
+        let didShowInput = await waitUntil { viewModel.showCodeInput }
+        XCTAssertTrue(didShowInput)
+        viewModel.sanitizeVerificationCodeInput(AppConstants.Auth.demoVerificationCode)
+
+        let didCaptureHiddenCode = await waitUntil { client.capturedVerifyCodeRequest?.code == "123456" }
+        XCTAssertTrue(didCaptureHiddenCode)
+    }
+
+    func testTestAccountUsesSMSCodeFieldWhenEnteringFixedDemoCode() async {
+        let client = LoginCodeCaptureAPIClient(sendCodeResponse: SendCodeResponse(
+            success: true,
+            message: "验证码已发送",
+            code: nil,
+            verificationCode: nil,
+            smsCode: "789012"
+        ))
+        let viewModel = LoginViewModel(apiClient: client)
+        viewModel.phoneNumber = "13800000003"
+
+        viewModel.requestCode()
+        let didShowInput = await waitUntil { viewModel.showCodeInput }
+        XCTAssertTrue(didShowInput)
+        viewModel.sanitizeVerificationCodeInput(AppConstants.Auth.demoVerificationCode)
+
+        let didCaptureHiddenCode = await waitUntil { client.capturedVerifyCodeRequest?.code == "789012" }
+        XCTAssertTrue(didCaptureHiddenCode)
+    }
+
+    func testNonTestAccountDoesNotUseHiddenSendCodeWhenEnteringFixedDemoCode() async {
+        let client = LoginCodeCaptureAPIClient(sendCodeResponse: SendCodeResponse(
+            success: true,
+            message: "验证码已发送",
+            code: "654321",
+            verificationCode: nil,
+            smsCode: nil
+        ))
+        let viewModel = LoginViewModel(apiClient: client)
+        viewModel.phoneNumber = "13800138000"
+
+        viewModel.requestCode()
+        let didShowInput = await waitUntil { viewModel.showCodeInput }
+        XCTAssertTrue(didShowInput)
+        viewModel.sanitizeVerificationCodeInput(AppConstants.Auth.demoVerificationCode)
+
+        let didCaptureFixedCode = await waitUntil { client.capturedVerifyCodeRequest?.code == AppConstants.Auth.demoVerificationCode }
+        XCTAssertTrue(didCaptureFixedCode)
+    }
+
+    func testTestAccountFallsBackToFixedDemoCodeWhenSendCodeReturnsNoHiddenCode() async {
+        let client = LoginCodeCaptureAPIClient(sendCodeResponse: SendCodeResponse(
+            success: true,
+            message: "验证码已发送",
+            code: nil,
+            verificationCode: nil,
+            smsCode: nil
+        ))
+        let viewModel = LoginViewModel(apiClient: client)
+        viewModel.phoneNumber = "13800000004"
+
+        viewModel.requestCode()
+        let didShowInput = await waitUntil { viewModel.showCodeInput }
+        XCTAssertTrue(didShowInput)
+        viewModel.sanitizeVerificationCodeInput(AppConstants.Auth.demoVerificationCode)
+
+        let didCaptureFixedCode = await waitUntil { client.capturedVerifyCodeRequest?.code == AppConstants.Auth.demoVerificationCode }
+        XCTAssertTrue(didCaptureFixedCode)
     }
 
     func testDevelopmentInitialEnvironmentKeepsSupportedDebugChoices() {
@@ -2062,6 +2206,56 @@ final class blindRunTests: XCTestCase {
             requiresAuth: Bool
         ) async throws -> T {
             throw error
+        }
+    }
+
+    private final class LoginCodeCaptureAPIClient: APIClientProtocol, @unchecked Sendable {
+        private let sendCodeResponse: SendCodeResponse
+        private(set) var capturedVerifyCodeRequest: VerifyCodeRequest?
+
+        init(sendCodeResponse: SendCodeResponse) {
+            self.sendCodeResponse = sendCodeResponse
+        }
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            if method == .post, path == "/api/auth/send-code" {
+                guard let response = sendCodeResponse as? T else {
+                    throw APIError.decodingError(NSError(domain: "LoginCodeCaptureAPIClient", code: 1))
+                }
+                return response
+            }
+
+            if method == .post, path == "/api/auth/verify-code" {
+                guard let request = decodeBody(VerifyCodeRequest.self, from: body) else {
+                    throw APIError.decodingError(NSError(domain: "LoginCodeCaptureAPIClient", code: 2))
+                }
+                capturedVerifyCodeRequest = request
+                guard let response = LoginResponse(token: "test-token", userId: 1, role: nil) as? T else {
+                    throw APIError.decodingError(NSError(domain: "LoginCodeCaptureAPIClient", code: 3))
+                }
+                return response
+            }
+
+            throw APIError.invalidURL
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
+        }
+
+        private func decodeBody<T: Decodable>(_ type: T.Type, from body: (any Encodable & Sendable)?) -> T? {
+            body as? T
         }
     }
 

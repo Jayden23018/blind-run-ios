@@ -206,7 +206,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     // MARK: - Auth Handlers
 
-    private func handleSendCode(body: (any Encodable & Sendable)?) throws -> ApiSuccessResponse {
+    private func handleSendCode(body: (any Encodable & Sendable)?) throws -> SendCodeResponse {
         guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
               let request = try? JSONDecoder().decode(SendCodeRequest.self, from: data) else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
@@ -214,7 +214,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         guard AppState.isValidMainlandPhone(request.phone) else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "手机号格式不正确"))
         }
-        return ApiSuccessResponse(success: true, message: "验证码已发送")
+        return SendCodeResponse(
+            success: true,
+            message: "验证码已发送",
+            code: nil,
+            verificationCode: nil,
+            smsCode: nil
+        )
     }
 
     private func handleVerifyCode(body: (any Encodable & Sendable)?) throws -> LoginResponse {

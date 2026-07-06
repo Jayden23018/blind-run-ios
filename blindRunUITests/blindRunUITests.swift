@@ -45,16 +45,33 @@ final class blindRunUITests: XCTestCase {
         let phoneField = app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch
         XCTAssertTrue(phoneField.waitForExistence(timeout: 10), "Login phone field should appear")
         tapWhenHittableOrByCoordinate(phoneField, app: app)
-        phoneField.typeText("13800138000999")
+        phoneField.typeText("13800000001000000")
 
         XCTAssertTrue(
-            waitForTextFieldValue(phoneField, equals: "13800138000", timeout: 5),
+            waitForTextFieldValue(phoneField, equals: "13800000001", timeout: 5),
             "Phone field should immediately keep only the first eleven digits"
         )
+        let requestCodeButton = app.buttons["获取验证码"].firstMatch
+        XCTAssertTrue(waitForElementToBeEnabled(requestCodeButton, timeout: 5), "Request code button should be enabled with the normalized phone number")
+        requestCodeButton.tap()
+
+        let codeField = app.textFields["验证码输入框，请输入 6 位验证码"].firstMatch
+        XCTAssertTrue(codeField.waitForExistence(timeout: 5), "Verification code field should appear after requesting a code")
         XCTAssertTrue(
-            waitForElementToBeEnabled(app.buttons["获取验证码"].firstMatch, timeout: 5),
-            "Request code button should be enabled with the normalized phone number"
+            waitForElementToBeHittable(codeField, timeout: 5),
+            "Verification code field should be visible and ready for typing after requesting a code"
         )
+        XCTAssertFalse(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Demo 验证码")).firstMatch.exists,
+            "Login view should not reveal the fixed demo verification code"
+        )
+        XCTAssertFalse(
+            app.staticTexts["Demo 验证码：000000"].firstMatch.exists,
+            "Login view should not reveal the fixed demo verification code"
+        )
+
+        codeField.typeText("000000")
+        waitForPostLoginRoute(app)
     }
 
     @MainActor
@@ -346,6 +363,10 @@ final class blindRunUITests: XCTestCase {
 
         let codeField = app.textFields["验证码输入框，请输入 6 位验证码"].firstMatch
         XCTAssertTrue(codeField.waitForExistence(timeout: 5), "Verification code field should appear")
+        XCTAssertTrue(
+            waitForElementToBeHittable(codeField, timeout: 5),
+            "Verification code field should be visible and ready for typing after requesting a code"
+        )
         tapWhenHittableOrByCoordinate(codeField, app: app)
         codeField.typeText(code)
         dismissKeyboardIfPresent(app: app)
@@ -502,6 +523,17 @@ final class blindRunUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
         return element.exists && element.isEnabled
+    }
+
+    private func waitForElementToBeHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && element.isHittable {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return element.exists && element.isHittable
     }
 
     private func waitForTextFieldValue(_ element: XCUIElement, equals expectedValue: String, timeout: TimeInterval) -> Bool {

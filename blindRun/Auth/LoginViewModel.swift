@@ -20,6 +20,10 @@ final class LoginViewModel: ObservableObject {
                 phoneNumber = normalized
                 return
             }
+            if phoneNumber != oldValue {
+                hiddenVerificationCode = nil
+                hiddenVerificationCodePhone = nil
+            }
             if !phoneNumber.isEmpty {
                 errorMessage = nil
             }
@@ -74,6 +78,8 @@ final class LoginViewModel: ObservableObject {
 
     private var timerCancellable: AnyCancellable?
     private var lastSpokenInvalidPhoneNumber: String?
+    private var hiddenVerificationCode: String?
+    private var hiddenVerificationCodePhone: String?
 
     // MARK: - Computed Properties
 
@@ -163,6 +169,9 @@ final class LoginViewModel: ObservableObject {
 
         errorMessage = nil
         isSendingCode = true
+        hiddenVerificationCode = nil
+        hiddenVerificationCodePhone = nil
+        let requestPhone = phoneNumber
 
         // Long-lived test accounts may still use the fixed code 000000, but the
         // send-code API must return before we show the input and countdown.
@@ -172,9 +181,9 @@ final class LoginViewModel: ObservableObject {
                 errorMessage = "应用未初始化，请重启"
                 return
             }
-            let request = SendCodeRequest(phone: phoneNumber)
+            let request = SendCodeRequest(phone: requestPhone)
             do {
-                let _: ApiSuccessResponse = try await apiClient.request(
+                let response: SendCodeResponse = try await apiClient.request(
                     method: .post,
                     path: "/api/auth/send-code",
                     query: nil,
@@ -182,6 +191,11 @@ final class LoginViewModel: ObservableObject {
                     requiresAuth: false
                 )
                 isSendingCode = false
+                if self.phoneNumber == requestPhone,
+                   let resolvedCode = response.resolvedVerificationCode {
+                    hiddenVerificationCode = resolvedCode
+                    hiddenVerificationCodePhone = requestPhone
+                }
                 showCodeInput = true
                 startCountdown()
             } catch let error as APIError {
@@ -223,7 +237,7 @@ final class LoginViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let request = VerifyCodeRequest(phone: phoneNumber, code: verificationCode)
+            let request = VerifyCodeRequest(phone: phoneNumber, code: resolvedVerificationCodeForSubmission)
             let response: LoginResponse = try await apiClient.request(
                 method: .post,
                 path: "/api/auth/verify-code",
@@ -275,6 +289,17 @@ final class LoginViewModel: ObservableObject {
 
     private var activeAPIClient: (any APIClientProtocol)? {
         apiClientOverride ?? appState?.apiClient
+    }
+
+    private var resolvedVerificationCodeForSubmission: String {
+        guard LoginViewModel.preseededTestPhones.contains(phoneNumber),
+              verificationCode == AppConstants.Auth.demoVerificationCode,
+              hiddenVerificationCodePhone == phoneNumber,
+              let hiddenVerificationCode,
+              !hiddenVerificationCode.isEmpty else {
+            return verificationCode
+        }
+        return hiddenVerificationCode
     }
 
     private func handleSendCodeError(_ error: APIError) {
@@ -329,4 +354,11 @@ final class LoginViewModel: ObservableObject {
     static func normalizedVerificationCode(_ value: String) -> String {
         String(value.filter(\.isNumber).prefix(6))
     }
+
+    private static let preseededTestPhones: Set<String> = [
+        "13800000001",
+        "13800000002",
+        "13800000003",
+        "13800000004"
+    ]
 }

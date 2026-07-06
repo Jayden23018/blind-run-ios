@@ -25,6 +25,65 @@ struct SendCodeRequest: Codable, Sendable {
     let phone: String
 }
 
+struct SendCodeResponse: Codable, Sendable {
+    let success: Bool?
+    let message: String?
+    let code: String?
+    let verificationCode: String?
+    let smsCode: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case success, message, code, verificationCode, smsCode
+    }
+
+    init(
+        success: Bool?,
+        message: String?,
+        code: String?,
+        verificationCode: String?,
+        smsCode: String?
+    ) {
+        self.success = success
+        self.message = message
+        self.code = code
+        self.verificationCode = verificationCode
+        self.smsCode = smsCode
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        success = try container.decodeIfPresent(Bool.self, forKey: .success)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
+        code = Self.decodeVerificationCodeString(from: container, forKey: .code)
+        verificationCode = Self.decodeVerificationCodeString(from: container, forKey: .verificationCode)
+        smsCode = Self.decodeVerificationCodeString(from: container, forKey: .smsCode)
+    }
+
+    var resolvedVerificationCode: String? {
+        [verificationCode, smsCode]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { Self.isSixDigitVerificationCode($0) }
+    }
+
+    private static func decodeVerificationCodeString(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> String? {
+        if let value = try? container.decodeIfPresent(String.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key),
+           value > 0 {
+            return String(value)
+        }
+        return nil
+    }
+
+    private static func isSixDigitVerificationCode(_ value: String) -> Bool {
+        value.range(of: #"^\d{6}$"#, options: .regularExpression) != nil
+    }
+}
+
 struct VerifyCodeRequest: Codable, Sendable {
     let phone: String
     let code: String
