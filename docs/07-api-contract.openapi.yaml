@@ -1388,6 +1388,7 @@
         "tags": [
           "emergency-controller"
         ],
+        "description": "Backend emergency contract. The current iOS release does not expose an in-app emergency entry; scripts may probe this endpoint, and UI enablement requires a later safety change.",
         "operationId": "triggerEmergency",
         "requestBody": {
           "content": {

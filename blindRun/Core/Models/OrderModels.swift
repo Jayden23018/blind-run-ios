@@ -148,12 +148,8 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     }
 
     var showsEmergencyPlaceholder: Bool {
-        switch self {
-        case .inProgress, .driverEnRoute, .driverArrived:
-            return true
-        default:
-            return false
-        }
+        // Current release hides the emergency affordance until the safety flow is explicitly approved.
+        return false
     }
 }
 

@@ -1,7 +1,7 @@
 # formal-dispatch-service-flow Specification
 
 ## Purpose
-Define the iOS formal dispatch and service lifecycle for blind-runner booking, volunteer readiness and dispatch response, canonical order-status routing, strict service completion gates, placeholder emergency behavior, and Mock/test coverage.
+Define the iOS formal dispatch and service lifecycle for blind-runner booking, volunteer readiness and dispatch response, canonical order-status routing, strict service completion gates, hidden emergency UI behavior for the current release, and Mock/test coverage.
 
 ## Requirements
 
@@ -131,17 +131,18 @@ The iOS app SHALL rely on `POST /api/user/role` for role switching and SHALL sur
 - **THEN** the app SHALL call `POST /api/user/role`
 - **AND** the app SHALL store the returned token and route to the selected role flow
 
-### Requirement: Emergency action remains placeholder for this change
-The iOS app SHALL NOT launch a production emergency backend workflow as part of this change. Any emergency affordance kept in the UI SHALL be clearly treated as placeholder or deferred behavior until a dedicated safety change re-enables real emergency handling.
+### Requirement: Emergency action is hidden for this release
+The iOS app SHALL NOT launch a production emergency backend workflow as part of this release. Emergency backend contracts may be probed by scripts, but blind-runner and volunteer UI SHALL hide emergency affordances until a dedicated safety change re-enables real emergency handling.
 
-#### Scenario: Emergency placeholder is shown
+#### Scenario: Emergency affordance is hidden
 - **WHEN** an order is in a state where a future emergency action is expected
-- **THEN** the app MAY show a disabled or clearly placeholder emergency affordance
+- **THEN** the app SHALL NOT show "紧急求助" or "一键求助"
+- **AND** the app SHALL NOT show deferred emergency copy
 - **AND** the app SHALL NOT imply that a real emergency response has been triggered
 
-#### Scenario: Real emergency backend flow is deferred
-- **WHEN** the user interacts with the placeholder emergency affordance in this change
-- **THEN** the app SHALL NOT silently call `POST /api/emergency/trigger` as a completed production safety workflow
+#### Scenario: Real emergency backend flow remains contract-only
+- **WHEN** a script probes `POST /api/emergency/trigger`
+- **THEN** the result SHALL be treated as backend contract validation, not as iOS UI emergency enablement
 - **AND** the app SHALL require a separate approved safety change before launching real emergency recording, GPS submission, volunteer response, notification, or escalation behavior
 
 ### Requirement: Mock and tests mirror the formal lifecycle
@@ -159,4 +160,4 @@ Mock API behavior and automated tests SHALL mirror the formal dispatch lifecycle
 
 #### Scenario: Tests cover complete formal lifecycle
 - **WHEN** automated tests run for this change
-- **THEN** they SHALL cover blind-runner booking through completion/rating, volunteer dispatch prompt response, strict `IN_PROGRESS` finish gating, admin review gating, role-switch blocking behavior, and emergency placeholder behavior
+- **THEN** they SHALL cover blind-runner booking through completion/rating, volunteer dispatch prompt response, strict `IN_PROGRESS` finish gating, admin review gating, role-switch blocking behavior, and hidden emergency UI behavior

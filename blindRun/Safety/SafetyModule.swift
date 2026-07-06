@@ -7,10 +7,10 @@ enum EmergencySafetyCopy {
     static let confirmButtonTitle = "确认求助"
     static let cancelButtonTitle = "取消"
     static let confirmationMessage = "是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
-    static let placeholderMessage = "求助流程暂未上线，本次变更仅保留安全入口占位，不会提交后台求助。"
-    static let deferredActionMessage = "求助流程暂未上线，请按既定人工安全预案处理。"
+    static let placeholderMessage = "当前版本未开放紧急求助入口，请按既定人工安全预案处理。"
+    static let deferredActionMessage = "当前版本未开放紧急求助入口，请按既定人工安全预案处理。"
     static let accessibilityLabel = "一键求助，遇到紧急情况时点击"
-    static let accessibilityHint = "需要二次确认，本版本仅显示求助占位提示"
+    static let accessibilityHint = "需要二次确认，当前版本未开放紧急求助入口"
 }
 
 struct EmergencyActionButton: View {

@@ -39,6 +39,25 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
+    func testLoginPhoneFieldLimitsInputToElevenDigits() throws {
+        let app = launchApp(apiEnvironment: "mock")
+
+        let phoneField = app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch
+        XCTAssertTrue(phoneField.waitForExistence(timeout: 10), "Login phone field should appear")
+        tapWhenHittableOrByCoordinate(phoneField, app: app)
+        phoneField.typeText("13800138000999")
+
+        XCTAssertTrue(
+            waitForTextFieldValue(phoneField, equals: "13800138000", timeout: 5),
+            "Phone field should immediately keep only the first eleven digits"
+        )
+        XCTAssertTrue(
+            waitForElementToBeEnabled(app.buttons["获取验证码"].firstMatch, timeout: 5),
+            "Request code button should be enabled with the normalized phone number"
+        )
+    }
+
+    @MainActor
     func testMockVolunteerOrderFlowSmoke() throws {
         let app = launchApp(
             apiEnvironment: "mock",
@@ -50,14 +69,17 @@ final class blindRunUITests: XCTestCase {
         )
 
         openCurrentVolunteerService(app)
+        assertNoEmergencyAction(app)
 
         let enRouteButton = app.buttons["我已出发"].firstMatch
         XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5), "Accepted order should show en-route button")
         enRouteButton.tap()
+        assertNoEmergencyAction(app)
 
         let arriveButton = app.buttons["我已到达约定地点"].firstMatch
         XCTAssertTrue(arriveButton.waitForExistence(timeout: 8), "En-route order should show arrive button")
         arriveButton.tap()
+        assertNoEmergencyAction(app)
 
         let startButton = app.buttons["开始服务"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should allow the volunteer to start service")
@@ -65,6 +87,13 @@ final class blindRunUITests: XCTestCase {
         XCTAssertFalse(completeButton.waitForExistence(timeout: 1), "Arrived order must not allow completing service before IN_PROGRESS")
         startButton.tap()
         XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should allow completing service")
+        assertNoEmergencyAction(app)
+
+        completeButton.tap()
+        XCTAssertTrue(
+            app.buttons["确认完成服务"].firstMatch.waitForExistence(timeout: 5),
+            "Completing service should require an explicit confirmation action"
+        )
     }
 
     @MainActor
@@ -117,6 +146,53 @@ final class blindRunUITests: XCTestCase {
         XCTAssertFalse(app.buttons["查看全部订单"].firstMatch.exists, "Primary volunteer home must not expose the public order list")
 
         attachScreenshot(named: "volunteer-home-map-uber-style", app: app)
+    }
+
+    @MainActor
+    func testMockBlindOrderHidesEmergencyActionInAcceptedStates() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "blind_runner",
+            preseedBlindProfile: true
+        )
+
+        let currentOrderButton = app.buttons["查看当前订单"].firstMatch
+        XCTAssertTrue(currentOrderButton.waitForExistence(timeout: 12), "Blind runner home should expose current order")
+        currentOrderButton.tap()
+
+        let acceptButton = app.buttons["模拟志愿者接单"].firstMatch
+        XCTAssertTrue(acceptButton.waitForExistence(timeout: 8), "Mock controls should allow accepting the order")
+        acceptButton.tap()
+        assertNoEmergencyAction(app)
+
+        let arriveButton = app.buttons["模拟志愿者到达"].firstMatch
+        XCTAssertTrue(arriveButton.waitForExistence(timeout: 8), "Mock controls should allow moving to arrived state")
+        arriveButton.tap()
+        assertNoEmergencyAction(app)
+    }
+
+    @MainActor
+    func testMockBlindLogoutRequiresConfirmation() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "blind_runner",
+            preseedBlindProfile: true,
+            emptyMockOrders: true
+        )
+
+        let settingsButton = app.buttons["设置"].firstMatch
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10), "Blind runner home should expose settings")
+        settingsButton.tap()
+
+        let logoutButton = app.buttons["退出登录"].firstMatch
+        XCTAssertTrue(logoutButton.waitForExistence(timeout: 5), "Settings should expose logout")
+        logoutButton.tap()
+
+        XCTAssertTrue(app.alerts["确认退出"].firstMatch.waitForExistence(timeout: 5), "Logout should require confirmation")
+        XCTAssertTrue(app.buttons["确认退出"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["取消"].firstMatch.exists)
     }
 
     @MainActor
@@ -426,6 +502,27 @@ final class blindRunUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
         return element.exists && element.isEnabled
+    }
+
+    private func waitForTextFieldValue(_ element: XCUIElement, equals expectedValue: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if (element.value as? String) == expectedValue {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return (element.value as? String) == expectedValue
+    }
+
+    private func assertNoEmergencyAction(_ app: XCUIApplication) {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertFalse(app.buttons["一键求助，遇到紧急情况时点击"].firstMatch.exists, "Current release should hide the emergency action")
+        XCTAssertFalse(app.buttons["一键求助"].firstMatch.exists, "Current release should hide the emergency action")
+        XCTAssertFalse(
+            app.staticTexts["当前版本未开放紧急求助入口，请按既定人工安全预案处理。"].firstMatch.exists,
+            "Current release should hide deferred emergency copy"
+        )
     }
 
     private func dismissKeyboardIfPresent(app: XCUIApplication) {

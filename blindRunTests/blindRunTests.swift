@@ -1173,17 +1173,19 @@ final class blindRunTests: XCTestCase {
     }
 
     func testEmergencyButtonStatusGate() {
-        // Emergency affordance is visible only as a placeholder during active service stages.
+        // Current release hides the emergency affordance until the real safety flow is approved.
         XCTAssertFalse(RunOrderStatus.pendingMatch.canTriggerEmergency)
         XCTAssertFalse(RunOrderStatus.pendingAccept.canTriggerEmergency)
-        XCTAssertTrue(RunOrderStatus.driverEnRoute.canTriggerEmergency)
-        XCTAssertTrue(RunOrderStatus.driverArrived.canTriggerEmergency)
-        XCTAssertTrue(RunOrderStatus.inProgress.canTriggerEmergency)
+        XCTAssertFalse(RunOrderStatus.driverEnRoute.canTriggerEmergency)
+        XCTAssertFalse(RunOrderStatus.driverArrived.canTriggerEmergency)
+        XCTAssertFalse(RunOrderStatus.inProgress.canTriggerEmergency)
         XCTAssertFalse(RunOrderStatus.completed.canTriggerEmergency)
         XCTAssertFalse(RunOrderStatus.cancelled.canTriggerEmergency)
         XCTAssertFalse(RunOrderStatus.rematching.canTriggerEmergency)
         XCTAssertFalse(RunOrderStatus.noVolunteer.canTriggerEmergency)
-        XCTAssertTrue(RunOrderStatus.inProgress.showsEmergencyPlaceholder)
+        XCTAssertFalse(RunOrderStatus.inProgress.showsEmergencyPlaceholder)
+        XCTAssertFalse(RunOrderStatus.driverEnRoute.showsEmergencyPlaceholder)
+        XCTAssertFalse(RunOrderStatus.driverArrived.showsEmergencyPlaceholder)
         XCTAssertFalse(RunOrderStatus.completed.showsEmergencyPlaceholder)
     }
 

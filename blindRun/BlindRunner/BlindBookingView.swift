@@ -437,8 +437,8 @@ struct BlindBookingView: View {
             )
             .frame(height: 180)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .accessibilityLabel("高德地图，显示当前出发地点")
-            .accessibilityHint("地图用于确认位置，下面会显示可读地址")
+            .accessibilityLabel("高德地图，当前出发地点：\(viewModel.resolvedStartLocationDescription.isEmpty ? "正在获取当前位置" : viewModel.resolvedStartLocationDescription)")
+            .accessibilityHint("地图用于视觉确认位置；下方文字会读出当前出发地点")
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(viewModel.selectedStartPlace == nil ? "默认出发点" : "已选择出发点")

@@ -4,7 +4,7 @@
 > `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`,
 > `REMATCHING`, and `NO_VOLUNTEER`. Older lower-case names in historical examples map to
 > those values only for reading context; new iOS/backend work must use the canonical values.
-> Emergency remains a placeholder in the current iOS change; production recording through `POST /api/emergency/trigger` requires a later safety change and is not an order status.
+> The current iOS release hides the emergency entry. `POST /api/emergency/trigger` remains a backend contract that may be verified by scripts, but UI enablement requires a later safety change and emergency is not an order status.
 
 ## Epic 1：登录认证 (US-AUTH)
 
@@ -303,8 +303,8 @@
 ### US-BR-007：服务中页面
 
 **作为**：盲人跑者
-**我想要**：在服务中页面查看志愿者信息和求助入口
-**以便**：遇到紧急情况时看到明确的求助占位提示
+**我想要**：在服务中页面查看志愿者信息和服务状态
+**以便**：不用看地图也能理解当前陪跑状态
 
 **优先级**：P0
 
@@ -312,36 +312,31 @@
 
 **Given** 订单状态为 IN_PROGRESS，盲人跑者在服务中页面
 **When** 页面加载
-**Then** 显示志愿者昵称和联系电话（接单后可查看）、一键求助按钮（红色醒目）、"重复当前状态"按钮
+**Then** 显示志愿者昵称和联系电话（接单后可查看）、服务进行提示、"重复当前状态"按钮
+**And** 当前 release 不显示"紧急求助"或"一键求助"入口
 
 ---
 
-### US-BR-008：触发紧急求助占位
+### US-BR-008：紧急求助入口隐藏
 
 **作为**：盲人跑者
-**我想要**：在遇到紧急情况时触发求助入口
-**以便**：知道生产求助流程暂未上线并按人工安全预案处理
+**我想要**：当前 release 不显示尚未完成验收的求助入口
+**以便**：避免误以为真实救援流程已经触发
 
 **优先级**：P0
 
 **验收标准**：
 
 **Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
-**When** 用户点击"紧急求助"
-**Then** 弹出确认弹窗"是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
+**When** 用户查看盲人端订单状态页、服务中页或志愿者端服务页
+**Then** 不显示"紧急求助"或"一键求助"入口
+**And** 不显示任何求助未开放提示文案
 
 ---
 
-**Given** 用户在紧急求助确认弹窗
-**When** 用户确认求助
-**Then** App 显示求助流程暂未上线提示，订单状态保持不变，不调用后台求助接口
-**And** TTS 播报"求助流程暂未上线，请按既定人工安全预案处理。"
-
----
-
-**Given** 用户在紧急求助确认弹窗
-**When** 用户取消求助
-**Then** 返回原页面，订单状态不变
+**Given** 后端合同探针调用 `POST /api/emergency/trigger`
+**When** 云端返回 emergency event
+**Then** 该结果仅证明后端合同可用，不代表 iOS UI 已上线真实求助能力
 
 ---
 
@@ -681,8 +676,8 @@
 ---
 
 **Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
-**When** 任一方触发紧急求助
-**Then** App 显示求助占位提示，订单状态保持不变
+**When** 任一方查看订单或服务页面
+**Then** 当前 release 不显示求助入口，订单状态保持不变
 
 ---
 
@@ -694,7 +689,7 @@
 
 **Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED
 **When** 任一方查看订单页面
-**Then** 不显示"取消订单"按钮；如有安全问题使用求助入口
+**Then** 盲人端不显示"取消订单"按钮；当前 release 也不显示求助入口
 
 ---
 
@@ -776,7 +771,7 @@
 **验收标准**：
 
 **Given** 盲人端发生关键状态变化
-**When** 进入盲人首页 / 订单提交成功 / 志愿者接单 / 志愿者到达 / 服务开始 / 服务完成 / 求助占位提示 / 错误提示
+**When** 进入盲人首页 / 订单提交成功 / 志愿者接单 / 志愿者到达 / 服务开始 / 服务完成 / 错误提示
 **Then** AVSpeechSynthesizer 自动播报对应中文提示
 
 ---
@@ -830,7 +825,7 @@
 
 **验收标准**：
 
-**Given** 用户触发危险操作（取消订单、紧急求助、结束服务、退出登录）
+**Given** 用户触发危险操作（取消订单、结束服务、退出登录；未来恢复紧急求助时也包括紧急求助）
 **When** 点击操作按钮
 **Then** 先弹出确认弹窗 / ActionSheet，用户再次确认后才执行
 

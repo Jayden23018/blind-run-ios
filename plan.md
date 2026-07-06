@@ -71,4 +71,4 @@ node scripts/cloud-e2e.mjs
 - 云端已确认 `POST /api/orders/{id}/cancel` 接受 `REMATCHING` 状态；iOS 必须使用盲人 token 调用该接口，志愿者 token 不应成功。
 - 志愿者端负责在 `DRIVER_ARRIVED` 后调用 `POST /api/orders/{id}/start-service` 将订单推进到 `IN_PROGRESS`；iOS 不会从 `DRIVER_ARRIVED` 直接调用完成服务。若真机验证卡在 `DRIVER_ARRIVED`，优先检查志愿者端 start-service 请求和后端状态推进日志。
 - 百度地图 `baidumap://map/direction` 跳转已按 GCJ-02 步行参数接入，发布前需在安装百度地图的真机上 smoke 验证。
-- 本变更将求助入口作为占位处理；若发布前恢复真实 emergency event，需要单独安全变更确认接口、GPS、通知、合规文案和验收测试。
+- 当前 release 隐藏求助入口，不宣称真实求助能力；`POST /api/emergency/trigger` 仅作为后端合同探针保留。若发布前恢复真实 emergency event UI，需要单独安全变更确认接口、GPS、通知、失败提示、合规文案和验收测试。

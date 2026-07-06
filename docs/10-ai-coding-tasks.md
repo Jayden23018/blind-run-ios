@@ -31,7 +31,7 @@ Acceptance:
 
 ### PR-IOS-03 Blind Runner Flow
 
-- 实现盲人资料与紧急联系人、预约、订单状态、取消、求助占位和评分流程。
+- 实现盲人资料与紧急联系人、预约、订单状态、取消和评分流程；当前 release 隐藏求助入口，后续安全专项再启用。
 - 盲人订单状态按 PENDING_MATCH / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED、IN_PROGRESS、COMPLETED、终态分别路由到等待、服务中、完成/评分或结束视图。
 - WebSocket 断开时每 5 秒轮询订单状态。
 - 为关键页面提供 VoiceOver、TTS 和“重复当前状态”。

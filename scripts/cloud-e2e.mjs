@@ -25,8 +25,8 @@ const created = {
   blindUserId: null,
   volunteerUserId: null,
   orderId: null,
-  emergencyOrderId: null,
-  emergencyEventId: null,
+  emergencyContractOrderId: null,
+  emergencyContractEventId: null,
   finalOrderStatus: null,
   webSocket: {
     blindConnected: false,
@@ -475,9 +475,9 @@ async function transitionOrder(volunteer, orderId, volunteerSocket) {
   log('order-finished', `id=${orderId} status=${created.finalOrderStatus}`);
 }
 
-async function triggerEmergency(blind, volunteer, volunteerMessages) {
-  const orderId = await createOrder(blind, '-emergency');
-  created.emergencyOrderId = orderId;
+async function probeEmergencyContract(blind, volunteer, volunteerMessages) {
+  const orderId = await createOrder(blind, '-emergency-contract');
+  created.emergencyContractOrderId = orderId;
   await acceptOrder(volunteer, orderId, volunteerMessages, runtime.volunteerSocket);
   await http('POST', `/api/orders/${orderId}/en-route`, { token: volunteer.token });
 
@@ -485,26 +485,26 @@ async function triggerEmergency(blind, volunteer, volunteerMessages) {
     token: blind.token,
     body: { orderId, gpsLat: 39.9042, gpsLng: 116.4074 }
   });
-  created.emergencyEventId = emergency.body.eventId ?? emergency.body.id ?? emergency.body.emergencyEvent?.id ?? null;
-  log('emergency-triggered', `orderId=${orderId} eventId=${created.emergencyEventId ?? 'unknown'}`);
+  created.emergencyContractEventId = emergency.body.eventId ?? emergency.body.id ?? emergency.body.emergencyEvent?.id ?? null;
+  log('emergency-contract-probed', `orderId=${orderId} eventId=${created.emergencyContractEventId ?? 'unknown'}`);
 
   const arrived = await http('POST', `/api/orders/${orderId}/arrived`, {
     token: volunteer.token,
     allowFailure: true
   });
-  log('emergency-order-arrived', `id=${orderId} status=${arrived.status} ok=${arrived.ok}`);
+  log('emergency-contract-order-arrived', `id=${orderId} status=${arrived.status} ok=${arrived.ok}`);
 
   const startService = await http('POST', `/api/orders/${orderId}/start-service`, {
     token: volunteer.token,
     allowFailure: true
   });
-  log('emergency-order-start-service', `id=${orderId} status=${startService.status} ok=${startService.ok}`);
+  log('emergency-contract-order-start-service', `id=${orderId} status=${startService.status} ok=${startService.ok}`);
 
   const finish = await http('POST', `/api/orders/${orderId}/finish`, {
     token: volunteer.token,
     allowFailure: true
   });
-  log('emergency-order-finish', `id=${orderId} status=${finish.status} ok=${finish.ok}`);
+  log('emergency-contract-order-finish', `id=${orderId} status=${finish.status} ok=${finish.ok}`);
 }
 
 async function main() {
@@ -550,7 +550,7 @@ async function main() {
 
   await acceptOrder(volunteer, orderId, created.webSocket.volunteerMessages, volunteerSocket);
   await transitionOrder(volunteer, orderId, volunteerSocket);
-  await triggerEmergency(blind, volunteer, created.webSocket.volunteerMessages);
+  await probeEmergencyContract(blind, volunteer, created.webSocket.volunteerMessages);
 
   await new Promise(resolve => setTimeout(resolve, 1500));
   blindSocket.close();
@@ -574,7 +574,7 @@ function closeRuntimeSockets() {
 
 async function cleanupCreatedOrders() {
   if (!runtime.blindToken) return;
-  const ids = [created.orderId, created.emergencyOrderId].filter(Boolean);
+  const ids = [created.orderId, created.emergencyContractOrderId].filter(Boolean);
   for (const orderId of ids) {
     if (Number(orderId) === Number(created.orderId) && created.finalOrderStatus === 'COMPLETED') {
       continue;

@@ -61,7 +61,7 @@ Priority order for the current iOS release:
 5. TTS voice announcements
 6. Voice input
 7. Volunteer availability, dispatch, and WebSocket behavior
-8. Safety/emergency event flow
+8. Safety/emergency backend contract; the current release hides the in-app emergency entry until a dedicated safety change enables it
 9. Star rating and points display
 10. Production hardening items in `plan.md`
 
@@ -130,15 +130,17 @@ REMATCHING -> CANCELLED (blind runner token only)
 Emergency flow:
 
 ```text
-DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> (emergency event recorded)
+DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> (no in-app emergency entry in the current release)
 ```
 
 - Cancellation endpoint: POST `/api/orders/{orderId}/cancel` (no request body needed).
 - Blind runners may cancel only `PENDING_MATCH`, `PENDING_ACCEPT`, and `REMATCHING`; they must not be shown a cancel action in `IN_PROGRESS`.
 - Volunteers may cancel active non-terminal accepted service states `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, and `IN_PROGRESS`; `PENDING_MATCH`, `REMATCHING`, and terminal states are not volunteer-cancellable.
 - `REMATCHING` is entered after an accepted volunteer cancels; the blind runner may then cancel the rematching order with their own token. A volunteer token must not be used for this cancellation because that volunteer is no longer a participant in the order.
-- Emergency endpoint: POST `/api/emergency/trigger` with `EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`.
-- Emergency is not an order status; the order lifecycle status remains unchanged.
+- Emergency endpoint contract: POST `/api/emergency/trigger` with `EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`.
+- The current iOS release must not show the emergency entry or imply a rescue workflow has been triggered.
+- Backend contract probes may call `/api/emergency/trigger`, but iOS UI enablement requires a later safety change covering GPS submission, notification, failure copy, compliance language, and acceptance tests.
+- Emergency is not an order status; if the endpoint is used in a later safety change, the order lifecycle status remains unchanged.
 - Volunteer responds with accept: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = ACCEPT)`.
 - Volunteer responds with decline: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = DECLINE)`.
 - Volunteer en route: POST `/api/orders/{id}/en-route`.
@@ -207,8 +209,8 @@ Required error codes:
 - Key buttons, inputs, and status text must have `accessibilityLabel` / `accessibilityHint`.
 - Key blind runner primary buttons must be at least 64pt high.
 - Every key blind runner page must include a "重复当前状态" button.
-- Dangerous actions must require second confirmation: cancel order, enter emergency state, complete service, logout.
-- TTS must cover entering blind runner home, order submission, matching, volunteer accepted, volunteer arrived, service started, service completed, emergency, and error prompts.
+- Dangerous actions must require second confirmation: cancel order, complete service, logout, and any future re-enabled emergency action.
+- TTS must cover entering blind runner home, order submission, matching, volunteer accepted, volunteer arrived, service started, service completed, and error prompts. Future re-enabled emergency action must also have TTS coverage.
 
 ## 10. Volunteer and Safety Rules
 
@@ -218,11 +220,12 @@ Required error codes:
 - Before accept, hide blind runner contact information, emergency contact, and sensitive health information.
 - After accept, show the blind runner's full phone number.
 - Blind runners must provide emergency contact name and phone number.
-- Emergency action must require second confirmation.
-- After confirmation, the backend records an emergency event and keeps the order status unchanged.
+- The current release hides the emergency action in both blind-runner and volunteer UI.
+- If emergency action is re-enabled in a later safety change, it must require second confirmation.
+- If the backend emergency endpoint is used in a later safety change, it records an emergency event and keeps the order status unchanged.
 - Real SMS, identity verification, and administrator review are backend-owned production capabilities now represented in `docs/07-api-contract.openapi.yaml`; iOS may consume those contracts without adding backend code to this repository.
 
-Emergency confirmation copy must be exactly:
+Future emergency confirmation copy, if the action is re-enabled, must be exactly:
 
 ```text
 是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。

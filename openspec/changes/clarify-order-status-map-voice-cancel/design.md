@@ -20,6 +20,6 @@ The backend already exposes the required order statuses and transition endpoints
 
 - No backend source code, local backend, database changes, or new API endpoints.
 - No route planning or in-app navigation engine.
-- No production emergency event integration beyond existing placeholder behavior.
+- No production emergency event UI integration; the current release hides emergency affordances, while backend contract probes may still validate `/api/emergency/trigger`.
 - No change to the canonical order status values.
 - No visible raw coordinate readout in normal user-facing booking or dispatch views.

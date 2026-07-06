@@ -322,11 +322,11 @@ final class LoginViewModel: ObservableObject {
             }
     }
 
-    private static func normalizedPhoneNumber(_ value: String) -> String {
+    static func normalizedPhoneNumber(_ value: String) -> String {
         String(value.filter(\.isNumber).prefix(11))
     }
 
-    private static func normalizedVerificationCode(_ value: String) -> String {
+    static func normalizedVerificationCode(_ value: String) -> String {
         String(value.filter(\.isNumber).prefix(6))
     }
 }

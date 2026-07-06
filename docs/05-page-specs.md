@@ -236,12 +236,11 @@
 - 订单信息卡片（出发地点、预约时间、可选项）
 - 志愿者距离（收到位置且订单有出发坐标时）：显示"志愿者距出发地点约 X"，来源为志愿者最新 WebSocket 位置到订单出发坐标
 - "取消订单"按钮（PENDING_MATCH / PENDING_ACCEPT / REMATCHING 状态显示，灰色/危险色）
-- "一键求助"占位按钮（DRIVER_EN_ROUTE / DRIVER_ARRIVED 状态显示，红色醒目，说明本变更不提交后台求助）
+- 当前 release 不显示"一键求助"或"紧急求助"入口
 - "重复当前状态"按钮
 
 **主要操作**：
 - PENDING_MATCH / PENDING_ACCEPT / REMATCHING：点击"取消订单"（二次确认）
-- DRIVER_EN_ROUTE / DRIVER_ARRIVED：点击"一键求助"（二次确认后显示占位提示，不调用后台求助接口）
 - 点击"重复当前状态"
 
 **状态变化**：
@@ -264,14 +263,14 @@
 - 状态文本：大号字体，高对比度
 - TTS：每次状态变化自动播报；PENDING_MATCH 播报"预约已提交，系统正在为你派单"
 - "取消订单"按钮：二次确认弹窗 + accessibilityHint = "取消当前订单"
-- "一键求助"按钮：红色醒目，accessibilityHint 说明本版本仅显示求助占位提示
+- 当前 release 不显示"一键求助"或"紧急求助"按钮；后续安全专项恢复时必须补二次确认和 TTS
 - "重复当前状态"按钮：accessibilityLabel = "重复当前状态"
 
 ---
 
 ## 页面 7：盲人服务中页
 
-**页面目标**：在服务进行中显示相关信息，提供求助占位入口。
+**页面目标**：在服务进行中显示相关信息；当前 release 隐藏求助入口。
 
 **入口**：订单状态变为 IN_PROGRESS 后自动跳转 / 盲人首页点击进行中订单。
 
@@ -279,18 +278,17 @@
 - 页面标题："服务进行中"
 - 志愿者信息卡片（昵称、联系电话 — 可点击拨打）
 - 服务开始时间 / 已进行时长
-- "一键求助"大按钮（红色醒目，最小高度 64pt，旁边说明生产求助流程暂未上线）
+- 当前 release 不显示"一键求助"或"紧急求助"入口
 - "重复当前状态"按钮
 
 **主要操作**：
 - 点击志愿者电话 → 系统拨号
-- 点击"一键求助" → 弹窗确认 → 显示占位提示，订单状态保持不变，不调用后台求助接口
 - 点击"重复当前状态" → TTS 播报
 
 **状态变化**：
 - 每 5 秒轮询
 - IN_PROGRESS → COMPLETED：跳转完成/评分页 + TTS "服务已完成"
-- IN_PROGRESS：显示求助占位提示，订单状态保持不变 + TTS "求助流程暂未上线，请按既定人工安全预案处理。"
+- IN_PROGRESS：订单状态保持不变，等待志愿者结束服务或取消
 
 **错误状态**：
 - 网络错误 → 保留当前 UI，静默重试
@@ -300,7 +298,7 @@
 
 **无障碍要求**：
 - 志愿者电话：accessibilityLabel = "拨打志愿者电话 " + 电话号码
-- "一键求助"按钮：红色醒目，最小 64pt，accessibilityHint 说明需要二次确认且本版本仅显示占位提示
+- 当前 release 不显示求助入口；未来恢复时求助按钮需最小 64pt、二次确认、清晰 accessibilityHint 和 TTS
 - TTS：进入页面播报"服务已开始，祝您跑步愉快"
 - "重复当前状态"按钮：accessibilityLabel = "重复当前状态"
 
@@ -499,7 +497,6 @@
 - 接单成功：刷新订单详情和派单摘要，直接进入志愿者服务中页
 - 服务中页：点击"我已出发" → 订单变为 DRIVER_EN_ROUTE
 - 服务中页：点击"我已到达" → 订单变为 DRIVER_ARRIVED
-- 服务中页：点击"一键求助" → 二次确认 → 显示占位提示，订单状态保持不变，不调用后台求助接口
 - 服务中页：PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 显示"取消订单"；点击后二次确认 → REMATCHING，并退出志愿者服务流程
 
 **状态变化**：
@@ -507,7 +504,7 @@
 - 出发：PENDING_ACCEPT → DRIVER_EN_ROUTE
 - 到达：DRIVER_EN_ROUTE → DRIVER_ARRIVED
 - 取消：PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING；志愿者端清空本地当前订单并退出服务流程
-- 求助：DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 显示占位提示，订单状态保持不变
+- 当前 release 不显示求助入口；后端 emergency 合同仅由脚本探针验证
 - 若云端接单后直接返回 `IN_PROGRESS`，iOS 保留真实状态并记录为真机联调问题；若看到 `REMATCHING`，优先排查是否志愿者接单后主动取消
 
 **错误状态**：
@@ -521,7 +518,7 @@
 - 派单弹窗按钮：最小高度 64pt，accessibilityLabel = "接受派单" / "拒绝派单"
 - "我已到达"按钮：最小高度 64pt，accessibilityLabel = "我已到达约定地点"
 - "查看地图"按钮：accessibilityLabel = "查看出发点位置"
-- "一键求助"按钮：红色醒目，需二次确认，本版本仅显示占位提示
+- 当前 release 不显示求助入口；未来恢复时需二次确认和专项验收
 
 ---
 
@@ -541,7 +538,7 @@
   - DRIVER_ARRIVED：显示已到达状态、"开始服务"按钮和"取消订单"按钮，不显示"结束服务"按钮
   - IN_PROGRESS："结束服务"按钮（最小 64pt）和"取消订单"按钮
   - PENDING_ACCEPT："取消订单"按钮
-- "一键求助"占位按钮（红色醒目）
+- 当前 release 不显示"一键求助"或"紧急求助"入口
 - 高德地图背景：服务流以红色出发地点为唯一自定义主标记，地图中心固定在出发地点；当前位置使用高德系统蓝点辅助显示，不作为自定义 marker，不触发地图中心随位置上报重算；相同 id 的 marker 更新坐标和标题时不移除重加，不重复 drop 动画
 - 外部地图导航选择器：高德地图、百度地图、苹果地图，默认步行导航；未安装的第三方地图不显示
 
@@ -552,7 +549,6 @@
 - DRIVER_ARRIVED：点击"开始服务" → 调用 `POST /api/orders/{id}/start-service` → 订单变为 IN_PROGRESS
 - PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS：点击"取消订单" → 二次确认 → REMATCHING，志愿者端退出当前服务流程
 - IN_PROGRESS：点击"结束服务" → 确认弹窗 → 服务完成
-- 点击"一键求助" → 二次确认 → 显示占位提示（订单状态保持不变）
 - 点击盲人电话 → 系统拨号
 
 **状态变化**：
@@ -563,7 +559,7 @@
 - 志愿者取消成功后不再用志愿者 token 拉取已解除参与关系的订单详情，直接退出服务流并清空本地当前订单
 - DRIVER_ARRIVED → IN_PROGRESS（志愿者点击开始服务）：UI 更新；只有进入 IN_PROGRESS 后才显示"结束服务"
 - IN_PROGRESS → COMPLETED：跳转首页 + 显示"服务完成，获得 +100 积分"
-- DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS：显示求助占位提示，订单状态保持不变
+- DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS：当前 release 不显示求助入口，订单状态保持不变
 - `REMATCHING` 作为真实后端状态保留，表示志愿者接单后主动取消；盲人端提示"正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"，并显示"取消订单"逃生按钮，取消请求使用盲人 token
 
 **错误状态**：
@@ -577,7 +573,7 @@
 - "开始服务"按钮：最小高度 64pt，accessibilityLabel = "开始服务"，accessibilityHint = "点击后通知盲人服务已开始"
 - "取消订单"按钮：PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 显示，需二次确认，accessibilityHint = "需要确认后取消当前订单"
 - "结束服务"按钮：最小高度 64pt，需二次确认
-- "一键求助"按钮：红色醒目，最小高度 64pt，需二次确认，本版本仅显示占位提示
+- 当前 release 不显示求助入口；未来恢复时需最小高度 64pt、二次确认、TTS 和专项验收
 - TTS：进入 DRIVER_ARRIVED 状态不自动播报（由盲人端播报）
 - TTS：进入 IN_PROGRESS 状态播报"服务已开始"
 

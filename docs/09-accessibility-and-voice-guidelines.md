@@ -23,7 +23,7 @@ Use iOS native `AVSpeechSynthesizer` for TTS.
 - 志愿者已到达
 - 服务已开始
 - 服务已完成
-- 求助占位提示
+- 当前 release 不显示求助入口；后续安全专项恢复时必须补求助播报
 - 错误提示
 
 Implementation guidance:
@@ -54,7 +54,7 @@ Required coverage:
 - Repeat current status button
 - Volunteer availability switch
 - Available order rows
-- Accept, en-route, arrived, start-service, complete, cancel, emergency actions
+- Accept, en-route, arrived, start-service, complete, cancel, and any future re-enabled emergency actions
 - Rating controls
 
 ## 4. Blind Runner UI Rules
@@ -91,7 +91,7 @@ Rules:
 These actions require a second confirmation:
 
 - Cancel order
-- Enter emergency state
+- Future re-enabled emergency action
 - Volunteer complete service
 - Logout
 
@@ -99,11 +99,11 @@ Emergency confirmation copy must be:
 
 > 是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。
 
-For this formal dispatch change, emergency confirmation is placeholder-only:
+For this release, emergency UI is hidden:
 
-- The app shows and speaks that the production emergency workflow is not yet online.
-- The app does not call `POST /api/emergency/trigger`, does not submit GPS, and does not notify the other party in this change.
-- Production emergency recording, auto-call, auto-SMS, or real administrator notification require explicit user authorization, backend contract, and compliance review.
+- The app does not show "紧急求助" or "一键求助" in blind-runner or volunteer service UI.
+- The app does not call `POST /api/emergency/trigger`, does not submit GPS, and does not notify the other party from UI in this release.
+- Scripts may probe the backend contract. Production emergency recording, auto-call, auto-SMS, or real administrator notification require explicit user authorization, backend contract, and compliance review.
 
 ## 7. Status Copy
 
@@ -119,7 +119,7 @@ Recommended status announcements:
 - `COMPLETED`: “服务已完成，感谢使用助盲跑。”
 - `CANCELLED`: “本次预约已取消。”
 - `NO_VOLUNTEER`: “暂时没有可用志愿者。”
-- 求助占位提示：“求助流程暂未上线，请按既定人工安全预案处理。”
+- Future emergency copy must be added when the UI is re-enabled by a safety change.
 
 Lifecycle `APP_NOTIFICATION` text from backend templates should not be spoken directly while an active order is present. Order lifecycle TTS should use local order-detail copy so test names or template placeholders are not announced. Volunteer distance copy should use "距出发地点约 X" and be calculated from the latest volunteer location to the order start coordinate.
 

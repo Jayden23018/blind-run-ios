@@ -59,7 +59,7 @@ struct LoginView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         TextField(
                             "请输入手机号",
-                            text: $viewModel.phoneNumber
+                            text: phoneNumberBinding
                         )
                             .keyboardType(.numberPad)
                             .textContentType(.telephoneNumber)
@@ -76,9 +76,6 @@ struct LoginView: View {
                                     )
                             )
                             .focused($focusedField, equals: .phone)
-                            .onChange(of: viewModel.phoneNumber) { newValue in
-                                viewModel.sanitizePhoneInput(newValue)
-                            }
                             .accessibilityLabel("手机号输入框，请输入 11 位手机号")
                             .accessibilityValue(viewModel.phoneNumber.isEmpty ? "未输入" : viewModel.phoneNumber)
 
@@ -117,7 +114,7 @@ struct LoginView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             TextField(
                                 "请输入6位验证码",
-                                text: $viewModel.verificationCode
+                                text: verificationCodeBinding
                             )
                                 .keyboardType(.numberPad)
                                 .textContentType(.oneTimeCode)
@@ -134,9 +131,6 @@ struct LoginView: View {
                                         )
                                 )
                                 .focused($focusedField, equals: .verificationCode)
-                                .onChange(of: viewModel.verificationCode) { newValue in
-                                    viewModel.sanitizeVerificationCodeInput(newValue)
-                                }
                                 .shake(viewModel.shakeCodeField)
                                 .accessibilityLabel("验证码输入框，请输入 6 位验证码")
                                 .accessibilityValue(viewModel.verificationCode.isEmpty ? "未输入" : viewModel.verificationCode)
@@ -216,6 +210,25 @@ struct LoginView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.showCodeInput)
         .animation(.easeInOut(duration: 0.3), value: viewModel.errorMessage)
+    }
+
+    private var phoneNumberBinding: Binding<String> {
+        Binding(
+            get: { viewModel.phoneNumber },
+            set: { viewModel.sanitizePhoneInput($0) }
+        )
+    }
+
+    private var verificationCodeBinding: Binding<String> {
+        Binding(
+            get: { viewModel.verificationCode },
+            set: { newValue in
+                viewModel.sanitizeVerificationCodeInput(newValue)
+                if viewModel.verificationCode.count == 6, viewModel.canSubmit {
+                    focusedField = nil
+                }
+            }
+        )
     }
 
     // MARK: - Environment Switcher

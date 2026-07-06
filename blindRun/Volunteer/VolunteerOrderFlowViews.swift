@@ -1418,8 +1418,8 @@ struct VolunteerOrderMap: View {
             )
             .frame(height: 210)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .accessibilityLabel("地图，显示出发点位置")
-            .accessibilityHint("不提供路线导航")
+            .accessibilityLabel("地图，出发地点：\(order.startAddress ?? "地址待同步")")
+            .accessibilityHint("地图用于视觉确认出发点；订单信息区域会读出地址和距离")
         }
     }
 }
@@ -1467,10 +1467,10 @@ struct VolunteerServiceMapBackdrop: View {
         }
         .accessibilityLabel(
             presentation.isCurrentLocationAvailable
-                ? "地图，显示我的位置和出发地点"
-                : "地图，红色标记显示出发地点"
+                ? "地图，显示我的位置和出发地点：\(order.startAddress ?? "地址待同步")"
+                : "地图，出发地点：\(order.startAddress ?? "地址待同步")"
         )
-        .accessibilityHint("可使用下方导航到出发地点按钮打开外部地图步行导航")
+        .accessibilityHint("服务信息面板会读出出发地点和距离；可使用下方导航到出发地点按钮打开外部地图步行导航")
     }
 }
 

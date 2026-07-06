@@ -533,8 +533,8 @@ struct VolunteerHomeView: View {
             .frame(height: 260)
             .allowsHitTesting(false)
         }
-        .accessibilityLabel("地图，显示当前位置和系统派单覆盖范围")
-        .accessibilityHint("地图用于查看当前位置覆盖范围，不提供路线导航或实时轨迹")
+        .accessibilityLabel("地图，\(locationService.readableCurrentLocationSummary)，\(viewModel.dispatchSummary?.coverageText ?? "派单覆盖范围待同步")")
+        .accessibilityHint("地图用于视觉查看当前位置覆盖范围；派单状态面板会读出当前位置和覆盖摘要")
         .accessibilityIdentifier("volunteerHomeMap")
     }
 
@@ -738,7 +738,7 @@ struct VolunteerHomeView: View {
 
     private var locationSummaryText: String {
         if locationService.isAuthorized {
-            return viewModel.dispatchSummary?.coverageText ?? "当前位置已同步"
+            return "\(locationService.readableCurrentLocationSummary)\(viewModel.dispatchSummary?.coverageText ?? "派单覆盖范围待同步")"
         }
         return "需要开启定位权限才能接收系统派单"
     }
@@ -842,7 +842,7 @@ private struct VolunteerHomeStatusOverlay: View {
             Text(locationText)
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
-                .lineLimit(1)
+                .lineLimit(2)
                 .minimumScaleFactor(0.82)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(locationText)

@@ -287,12 +287,9 @@ struct BlindRunnerHomeView: View {
             return "需要开启定位权限后才能创建预约。"
         }
         if let address = viewModel.activeOrder?.startAddress, !address.trimmed.isEmpty {
-            return "订单出发点：\(address)"
+            return "订单出发点：\(address)。\(locationService.readableCurrentLocationSummary)"
         }
-        if locationService.isUsingDemoFallback {
-            return "当前位置：演示坐标（用于模拟器测试）"
-        }
-        return "当前位置：已获取设备定位"
+        return locationService.readableCurrentLocationSummary
     }
 
     private func activeOrderSection(_ order: OrderDetailResponse) -> some View {

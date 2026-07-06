@@ -164,13 +164,13 @@
 ```
 PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
       ↓              ↓                  ↓                 ↓              ↓
-  CANCELLED      CANCELLED          求助占位提示       求助占位提示     CANCELLED/COMPLETED
+  CANCELLED      CANCELLED          REMATCHING         REMATCHING       REMATCHING/COMPLETED
 
 REMATCHING → CANCELLED（盲人 token 调用 POST /api/orders/{orderId}/cancel）
 NO_VOLUNTEER（无可用志愿者）
 ```
 
-Emergency WebSocket messages remain contract-reserved. In the current iOS change, emergency UI is placeholder-only and does not call `POST /api/emergency/trigger`; the order status itself is not changed to emergency.
+Emergency WebSocket messages remain contract-reserved. In the current iOS release, emergency UI is hidden and does not call `POST /api/emergency/trigger`; backend contract probes may still verify the endpoint. The order status itself is not changed to emergency.
 
 #### EMERGENCY_RESOLVED_BY_VOLUNTEER — 紧急事件志愿者已确认
 
@@ -324,7 +324,7 @@ Content-Type: application/json
 
 #### EMERGENCY_VOLUNTEER_ALERT — 紧急求助告警
 
-生产紧急求助流程恢复后，盲人触发紧急求助时关联的志愿者会收到此消息；当前 iOS 变更不触发该消息。
+生产紧急求助流程恢复后，盲人触发紧急求助时关联的志愿者会收到此消息；当前 iOS release 隐藏求助入口，不触发该消息。
 
 ```json
 {

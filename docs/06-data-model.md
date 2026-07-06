@@ -49,7 +49,7 @@
 
 取消流转：盲人端 `PENDING_MATCH / PENDING_ACCEPT -> CANCELLED`，志愿者端 `PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> REMATCHING`；志愿者取消已接单订单后，盲人端可执行 `REMATCHING -> CANCELLED`。
 
-求助入口：`DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS` 可显示占位提示。本变更不调用 `POST /api/emergency/trigger`，生产 emergency event 记录需后续安全专项恢复。
+求助入口：当前 iOS release 在 `DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS` 不显示求助入口。`POST /api/emergency/trigger` 保留为后端合同，可由脚本探针验证；真实 UI 启用需后续安全专项补 GPS、通知、失败提示、合规文案和验收。
 
 ### CancellationActor
 
@@ -235,9 +235,9 @@ Rules:
 
 Rules:
 
-- `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 状态显示一键求助占位入口。
-- 本变更确认求助后仅显示占位提示，不提交后台 emergency event，不改变订单状态。
-- 生产 emergency event 记录、GPS 提交、通知和升级处理需后续安全专项重新启用。
+- 当前 iOS release 在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 状态不显示一键求助入口。
+- `EmergencyEvent` 保留为后端合同数据；脚本可探测 `POST /api/emergency/trigger`，但 iOS UI 不触发该接口。
+- 生产 emergency event UI、GPS 提交、通知和升级处理需后续安全专项重新启用。
 
 ### ServiceSummary
 

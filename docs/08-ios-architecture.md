@@ -27,7 +27,7 @@ Suggested source groups:
 - `Orders`: order DTOs, order state machine helpers, polling
 - `Map`: AMap bridge, current location, markers, distance calculation, external map app navigation launchers
 - `Voice`: TTS, repeat current status, speech input helpers
-- `Safety`: emergency confirmation and cancellation confirmation flows
+- `Safety`: shared dangerous-action copy/components retained for future emergency enablement; current release uses cancellation, completion, and logout confirmations
 - `Profile`: blind runner and volunteer profile forms
 
 ## 3. MVVM Pattern
@@ -43,9 +43,9 @@ Recommended examples:
 
 - `AuthViewModel`: phone and code login.
 - `BlindBookingViewModel`: location permission, default start coordinate, booking form validation, create order.
-- `BlindOrderStatusViewModel`: WebSocket status events, 5-second polling fallback, status TTS, cancel, completed/rating UI, emergency placeholder.
+- `BlindOrderStatusViewModel`: WebSocket status events, 5-second polling fallback, status TTS, cancel, completed/rating UI. Current release hides emergency UI.
 - `VolunteerHomeViewModel`: availability, current location, dispatch summary, readiness reasons, temporary points, active/recent orders, WebSocket dispatch.
-- `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, start-service, strict IN_PROGRESS finish gate, cancel, emergency placeholder.
+- `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, start-service, strict IN_PROGRESS finish gate, cancel. Current release hides emergency UI.
 - `VolunteerInServiceViewModel`: active order polling, en-route/arrived/start-service/finish actions, strict IN_PROGRESS finish gate, service-completion refresh.
 
 ## 4. API Environment Switch
@@ -152,8 +152,8 @@ Stop polling when:
 - Every key button, input, and status text needs `accessibilityLabel` and `accessibilityHint`.
 - Main flow nodes call TTS through a shared `SpeechService`.
 - Every key blind runner page has a “重复当前状态” button.
-- Dangerous actions require confirmation: cancel order, emergency, complete service, logout.
-- Emergency controls are placeholder-only for this change; production emergency recording must be re-enabled by a dedicated safety change.
+- Dangerous actions require confirmation: cancel order, complete service, logout, and any future re-enabled emergency action.
+- Emergency controls are hidden in the current release; production emergency recording UI must be re-enabled by a dedicated safety change.
 
 ## 10. Demo Acceptance Flow
 
