@@ -629,7 +629,7 @@ final class blindRunTests: XCTestCase {
 
         let _: EmptyResponse = try await client.upload(
             "/api/volunteer/registration/step2/id-card",
-            query: [
+            fields: [
                 "idCardName": "测试志愿者",
                 "idCardNumber": "110101199001011234"
             ],
@@ -683,6 +683,42 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(speechService.lastSpokenText, "请输入 11 位中国大陆手机号")
     }
 
+    func testVolunteerRegistrationPhoneDirectAssignmentKeepsOnlyFirstElevenDigits() {
+        let viewModel = VolunteerRegistrationViewModel()
+
+        viewModel.phone = "13800138000999"
+
+        XCTAssertEqual(viewModel.phone, "13800138000")
+    }
+
+    func testVolunteerRegistrationPhoneInputDropsNonDigits() {
+        let viewModel = VolunteerRegistrationViewModel()
+
+        viewModel.phone = "abc 138-0013-8000 xyz"
+
+        XCTAssertEqual(viewModel.phone, "13800138000")
+    }
+
+    func testVolunteerRegistrationIdCardDirectAssignmentKeepsOnlyFirstEighteenCharacters() {
+        let viewModel = VolunteerRegistrationViewModel()
+
+        viewModel.idCardNumber = "1101011990010112345678"
+
+        XCTAssertEqual(viewModel.idCardNumber, "110101199001011234")
+    }
+
+    func testVolunteerRegistrationIdCardAllowsLowercaseXCheckDigit() {
+        let viewModel = VolunteerRegistrationViewModel()
+
+        viewModel.idCardName = "赵冉杰"
+        viewModel.idCardNumber = "11010119900101123x"
+        viewModel.frontImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        viewModel.backImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+
+        XCTAssertNil(viewModel.idCardValidationMessage)
+        XCTAssertTrue(viewModel.canSubmitIdCard)
+    }
+
     func testVolunteerRegistrationLoadStatusUnauthorizedExpiresSession() async {
         let appState = AppState()
         appState.currentEnvironment = .mock
@@ -723,22 +759,152 @@ final class blindRunTests: XCTestCase {
         viewModel.applyRegistrationStatus(status)
         viewModel.faceImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
 
-        XCTAssertEqual(viewModel.currentStep, .faceVerify)
+        XCTAssertEqual(viewModel.currentStep, .idCard)
         XCTAssertFalse(viewModel.canSubmitFace)
-        XCTAssertEqual(viewModel.faceSubmitBlockingMessage, "请先完成身份审核，审核通过后再提交人脸核验")
+        XCTAssertNil(viewModel.faceSubmitBlockingMessage)
     }
 
-    func testVolunteerFaceVerifySubmitShowsIdentityReviewReasonBeforeUpload() async throws {
+    func testVolunteerRegistrationStatusDecodesNestedStepDetails() throws {
+        let data = """
+        {
+          "currentStep": "STEP_2_ID_UPLOAD",
+          "canAcceptOrders": false,
+          "stepDetails": {
+            "idVerifyStatus": "REJECTED",
+            "faceVerifyStatus": "NONE",
+            "totalTrainingMinutes": 0,
+            "completedCoursesCount": 0,
+            "currentCourseId": null,
+            "idVerifyRejectionReason": "照片不清晰"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(VolunteerRegistrationStatus.self, from: data)
+        let viewModel = VolunteerRegistrationViewModel()
+        viewModel.applyRegistrationStatus(status)
+
+        XCTAssertEqual(status.currentStepCode, "STEP_2_ID_UPLOAD")
+        XCTAssertEqual(status.idVerifyStatus, "REJECTED")
+        XCTAssertEqual(status.stepDetails?.idVerifyRejectionReason, "照片不清晰")
+        XCTAssertFalse(status.isRegistrationComplete)
+        XCTAssertEqual(viewModel.currentStep, .idCard)
+        XCTAssertTrue(viewModel.isIdReviewRejected)
+    }
+
+    func testVolunteerRegistrationPendingIdReviewBlocksRepeatSubmit() async {
         let appState = AppState()
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let viewModel = VolunteerRegistrationViewModel()
         viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(
+            currentStepCode: "STEP_2_ID_UPLOAD",
+            stepDetails: VolunteerRegistrationStepDetails(idVerifyStatus: "PENDING"),
+            step1Completed: true,
+            idVerifyStatus: "PENDING"
+        ))
+        viewModel.idCardName = "赵冉杰"
+        viewModel.idCardNumber = "110101199001011234"
+        viewModel.frontImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        viewModel.backImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+
+        XCTAssertEqual(viewModel.currentStep, .idCard)
+        XCTAssertEqual(viewModel.idCardSubmitButtonTitle, "身份审核中")
+        XCTAssertFalse(viewModel.canSubmitIdCard)
+
+        await viewModel.submitIdCard()
+
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(speechService.lastSpokenText, "资料已提交，正在等待人工审核")
+    }
+
+    func testVolunteerRegistrationRejectedIdReviewAllowsResubmit() {
+        let viewModel = VolunteerRegistrationViewModel()
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(
+            currentStepCode: "STEP_2_ID_UPLOAD",
+            stepDetails: VolunteerRegistrationStepDetails(
+                idVerifyStatus: "REJECTED",
+                idVerifyRejectionReason: "照片不清晰"
+            ),
+            step1Completed: true,
+            idVerifyStatus: "REJECTED"
+        ))
+        viewModel.idCardName = "赵冉杰"
+        viewModel.idCardNumber = "110101199001011234"
+        viewModel.frontImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        viewModel.backImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+
+        XCTAssertEqual(viewModel.currentStep, .idCard)
+        XCTAssertEqual(viewModel.idCardSubmitButtonTitle, "重新提交身份核验")
+        XCTAssertTrue(viewModel.canSubmitIdCard)
+        XCTAssertEqual(viewModel.idVerifyRejectionReason, "照片不清晰")
+    }
+
+    func testVolunteerRegistrationIdCardBasicInfoErrorRefreshesToPendingStatus() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let status = VolunteerRegistrationStatus(
+            currentStepCode: "STEP_2_ID_UPLOAD",
+            stepDetails: VolunteerRegistrationStepDetails(idVerifyStatus: "PENDING"),
+            step1Completed: true,
+            idVerifyStatus: "PENDING"
+        )
+        let client = IdCardSubmissionStatusReconcilingAPIClient(status: status)
+        let viewModel = VolunteerRegistrationViewModel(apiClient: client)
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.currentStep = .idCard
+        viewModel.idCardName = "赵冉杰"
+        viewModel.idCardNumber = "110101199001011234"
+        viewModel.frontImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        viewModel.backImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+
+        await viewModel.submitIdCard()
+
+        XCTAssertEqual(client.uploadCount, 1)
+        XCTAssertEqual(client.statusRefreshCount, 1)
+        XCTAssertEqual(viewModel.currentStep, .idCard)
+        XCTAssertTrue(viewModel.isIdReviewPending)
+        XCTAssertFalse(viewModel.canSubmitIdCard)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(speechService.lastSpokenText, "资料已提交，正在等待人工审核")
+    }
+
+    func testVolunteerRegistrationIdCardBasicInfoErrorRefreshesBackToBasicInfo() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let status = VolunteerRegistrationStatus(currentStepCode: "STEP_1_BASIC_INFO")
+        let client = IdCardSubmissionStatusReconcilingAPIClient(status: status)
+        let viewModel = VolunteerRegistrationViewModel(apiClient: client)
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.currentStep = .idCard
+        viewModel.idCardName = "赵冉杰"
+        viewModel.idCardNumber = "110101199001011234"
+        viewModel.frontImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        viewModel.backImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+
+        await viewModel.submitIdCard()
+
+        XCTAssertEqual(client.uploadCount, 1)
+        XCTAssertEqual(client.statusRefreshCount, 1)
+        XCTAssertEqual(viewModel.currentStep, .basicInfo)
+        XCTAssertEqual(viewModel.errorMessage, "请先完成基本信息填写")
+        XCTAssertEqual(speechService.lastSpokenText, "请先完成基本信息填写")
+    }
+
+    func testVolunteerFaceVerifyRejectedResponseStaysOnFaceStep() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = VolunteerRegistrationViewModel(apiClient: FaceRejectingAPIClient())
+        viewModel.configure(appState: appState, speechService: speechService)
         let status = VolunteerRegistrationStatus(
             registrationStep: "STEP_3_FACE_VERIFY",
             step1Completed: true,
             step2Completed: true,
-            idVerifyStatus: "PENDING"
+            idVerifyStatus: "APPROVED"
         )
         viewModel.applyRegistrationStatus(status)
         viewModel.faceImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
@@ -746,8 +912,8 @@ final class blindRunTests: XCTestCase {
         await viewModel.submitFaceVerify()
 
         XCTAssertEqual(viewModel.currentStep, .faceVerify)
-        XCTAssertEqual(viewModel.errorMessage, "请先完成身份审核，审核通过后再提交人脸核验")
-        XCTAssertEqual(speechService.lastSpokenText, "请先完成身份审核，审核通过后再提交人脸核验")
+        XCTAssertEqual(viewModel.errorMessage, "请重新拍照")
+        XCTAssertEqual(speechService.lastSpokenText, "请重新拍照")
     }
 
     func testVolunteerRegistrationRefreshesStatusWhenBasicInfoAlreadyCompleted() async throws {
@@ -757,7 +923,7 @@ final class blindRunTests: XCTestCase {
         let imageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
         let _: EmptyResponse = try await appState.apiClient.upload(
             "/api/volunteer/registration/step2/id-card",
-            query: [
+            fields: [
                 "idCardName": "赵冉杰",
                 "idCardNumber": "110101199001011234"
             ],
@@ -773,9 +939,9 @@ final class blindRunTests: XCTestCase {
 
         await viewModel.submitBasicInfo()
 
-        XCTAssertEqual(viewModel.currentStep, .faceVerify)
-        XCTAssertEqual(viewModel.errorMessage, "已同步注册进度，请继续完成人脸核验")
-        XCTAssertEqual(speechService.lastSpokenText, "已同步注册进度，请继续完成人脸核验")
+        XCTAssertEqual(viewModel.currentStep, .idCard)
+        XCTAssertEqual(viewModel.errorMessage, "已同步注册进度，请继续完成身份核验")
+        XCTAssertEqual(speechService.lastSpokenText, "已同步注册进度，请继续完成身份核验")
     }
 
     func testVolunteerFaceCameraPermissionUsageDescriptionIsConfigured() throws {
@@ -868,6 +1034,22 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.emergencyContactPhone, "138****1111")
         XCTAssertTrue(viewModel.isPhoneValid)
         XCTAssertNil(viewModel.emergencyContactPhoneForRequest)
+    }
+
+    func testEmergencyContactPhoneDirectAssignmentKeepsOnlyFirstElevenDigits() {
+        let viewModel = BlindRunnerProfileViewModel()
+
+        viewModel.emergencyContactPhone = "13800138000999"
+
+        XCTAssertEqual(viewModel.emergencyContactPhone, "13800138000")
+    }
+
+    func testEmergencyContactPhoneSanitizeDropsNonDigitsAndKeepsElevenDigits() {
+        let viewModel = BlindRunnerProfileViewModel()
+
+        viewModel.sanitizePhoneInput("abc 138-0013-8000 xyz")
+
+        XCTAssertEqual(viewModel.emergencyContactPhone, "13800138000")
     }
 
     func testLoginResponseDecodesCorrectly() throws {
@@ -2228,7 +2410,7 @@ final class blindRunTests: XCTestCase {
     func testVolunteerAcceptGuardRequiresApproval() {
         XCTAssertEqual(
             VolunteerOrderActionGuard.acceptBlockMessage(profile: makeVolunteerProfile()),
-            "请先完成志愿者认证"
+            "请先完成志愿者注册流程"
         )
 
         XCTAssertNil(
@@ -2236,7 +2418,25 @@ final class blindRunTests: XCTestCase {
         )
     }
 
-    func testVolunteerAcceptGuardRequiresAdminReviewWhenProvided() {
+    func testVolunteerAcceptGuardUsesMainRegistrationStatusBeforeOptionalCertificate() {
+        let completedStatus = VolunteerRegistrationStatus(
+            currentStepCode: "STEP_4_COMPLETED",
+            canAcceptOrders: true
+        )
+
+        XCTAssertNil(
+            VolunteerOrderActionGuard.acceptBlockMessage(
+                profile: makeVolunteerProfile(
+                    verificationStatus: "rejected",
+                    adminReviewStatus: "pending",
+                    isAvailable: true
+                ),
+                registrationStatus: completedStatus
+            )
+        )
+    }
+
+    func testVolunteerAcceptGuardRequiresLegacyAdminReviewOnlyWithoutRegistrationStatus() {
         XCTAssertEqual(
             VolunteerOrderActionGuard.acceptBlockMessage(
                 profile: makeVolunteerProfile(
@@ -2261,7 +2461,10 @@ final class blindRunTests: XCTestCase {
 
     func testVolunteerAcceptGuardRequiresAvailability() {
         XCTAssertEqual(
-            VolunteerOrderActionGuard.acceptBlockMessage(profile: makeApprovedVolunteerProfile(isAvailable: false)),
+            VolunteerOrderActionGuard.acceptBlockMessage(
+                profile: makeApprovedVolunteerProfile(isAvailable: false),
+                registrationStatus: VolunteerRegistrationStatus(currentStepCode: "STEP_4_COMPLETED", canAcceptOrders: true)
+            ),
             "请先开启可服务状态"
         )
     }
@@ -2793,6 +2996,7 @@ final class blindRunTests: XCTestCase {
         func upload<T: Decodable>(
             path: String,
             query: [String: String]?,
+            fields: [String: String]?,
             files: [MultipartFile],
             requiresAuth: Bool
         ) async throws -> T {
@@ -2839,6 +3043,7 @@ final class blindRunTests: XCTestCase {
         func upload<T: Decodable>(
             path: String,
             query: [String: String]?,
+            fields: [String: String]?,
             files: [MultipartFile],
             requiresAuth: Bool
         ) async throws -> T {
@@ -2847,6 +3052,72 @@ final class blindRunTests: XCTestCase {
 
         private func decodeBody<T: Decodable>(_ type: T.Type, from body: (any Encodable & Sendable)?) -> T? {
             body as? T
+        }
+    }
+
+    private final class FaceRejectingAPIClient: APIClientProtocol, @unchecked Sendable {
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            guard path == "/api/volunteer/registration/step3/face-verify",
+                  let response = FaceVerifyResponse(passed: false, status: "REJECTED", message: "请重新拍照") as? T else {
+                throw APIError.invalidURL
+            }
+            return response
+        }
+    }
+
+    private final class IdCardSubmissionStatusReconcilingAPIClient: APIClientProtocol, @unchecked Sendable {
+        private let status: VolunteerRegistrationStatus
+        private(set) var uploadCount = 0
+        private(set) var statusRefreshCount = 0
+
+        init(status: VolunteerRegistrationStatus) {
+            self.status = status
+        }
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            guard method == .get,
+                  path == "/api/volunteer/registration/status",
+                  let response = status as? T else {
+                throw APIError.invalidURL
+            }
+            statusRefreshCount += 1
+            return response
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            guard path == "/api/volunteer/registration/step2/id-card" else {
+                throw APIError.invalidURL
+            }
+            uploadCount += 1
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请先完成基本信息填写"))
         }
     }
 

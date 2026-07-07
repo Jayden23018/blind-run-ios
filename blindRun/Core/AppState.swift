@@ -34,6 +34,9 @@ final class AppState: ObservableObject {
     /// 当前用户的志愿者资料
     @Published var volunteerProfile: VolunteerProfileResponse?
 
+    /// 当前用户的志愿者主注册流程状态
+    @Published var volunteerRegistrationStatus: VolunteerRegistrationStatus?
+
     /// 紧急联系人列表
     @Published var emergencyContacts: [EmergencyContactResponse] = []
 
@@ -84,7 +87,10 @@ final class AppState: ObservableObject {
 
     var isVolunteerProfileApproved: Bool {
         guard let profile = volunteerProfile else { return false }
-        return profile.isCertificationApproved && profile.isAdminReviewApprovedWhenAvailable
+        if let volunteerRegistrationStatus {
+            return volunteerRegistrationStatus.isRegistrationComplete
+        }
+        return profile.isMainRegistrationCompleteWhenStatusUnavailable && profile.isAdminReviewApprovedWhenAvailable
     }
 
     /// 根据当前环境返回对应的 API Client
@@ -161,6 +167,7 @@ final class AppState: ObservableObject {
         activeRole = nil
         blindProfile = nil
         volunteerProfile = nil
+        volunteerRegistrationStatus = nil
         emergencyContacts = []
         sessionExpirationMessage = nil
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
@@ -200,6 +207,11 @@ final class AppState: ObservableObject {
     /// 更新志愿者资料
     func updateVolunteerProfile(_ profile: VolunteerProfileResponse) {
         volunteerProfile = profile
+    }
+
+    /// 更新志愿者主注册流程状态
+    func updateVolunteerRegistrationStatus(_ status: VolunteerRegistrationStatus) {
+        volunteerRegistrationStatus = status
     }
 
     /// 更新紧急联系人
@@ -342,6 +354,7 @@ private final class DisabledAPIClient: APIClientProtocol, @unchecked Sendable {
     func upload<T: Decodable>(
         path: String,
         query: [String: String]?,
+        fields: [String: String]?,
         files: [MultipartFile],
         requiresAuth: Bool
     ) async throws -> T {

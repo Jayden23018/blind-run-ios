@@ -41,7 +41,10 @@ final class VolunteerHomeViewModel: ObservableObject {
     }
 
     var acceptBlockMessage: String? {
-        VolunteerOrderActionGuard.acceptBlockMessage(profile: appState?.volunteerProfile)
+        VolunteerOrderActionGuard.acceptBlockMessage(
+            profile: appState?.volunteerProfile,
+            registrationStatus: appState?.volunteerRegistrationStatus
+        )
     }
 
     static func activeVolunteerOrder(from orders: [OrderDetailResponse]) -> OrderDetailResponse? {
@@ -68,10 +71,11 @@ final class VolunteerHomeViewModel: ObservableObject {
         guard let order = incomingOrder else { return }
         guard let appState else { return }
         if accept,
-           let message = VolunteerOrderActionGuard.acceptBlockMessage(
-               profile: appState.volunteerProfile,
-               locationAuthorized: locationAuthorized
-           ) {
+             let message = VolunteerOrderActionGuard.acceptBlockMessage(
+                 profile: appState.volunteerProfile,
+                 registrationStatus: appState.volunteerRegistrationStatus,
+                 locationAuthorized: locationAuthorized
+             ) {
             errorMessage = message
             speechService?.speakError(message)
             return
@@ -216,6 +220,10 @@ final class VolunteerHomeViewModel: ObservableObject {
             appState.updateVolunteerProfile(profile)
             apply(profile: profile)
 
+            if let status: VolunteerRegistrationStatus = try? await appState.apiClient.get("/api/volunteer/registration/status") {
+                appState.updateVolunteerRegistrationStatus(status)
+            }
+
             VolunteerLocationReporter.reportIfNeeded(
                 appState: appState,
                 currentLocation: currentLocation,
@@ -261,13 +269,15 @@ final class VolunteerHomeViewModel: ObservableObject {
                 body: request
             )
             let existingProfile = appState.volunteerProfile
-            let profile = VolunteerProfileResponse(
-                name: existingProfile?.name,
-                verificationStatus: existingProfile?.verificationStatus,
-                adminReviewStatus: existingProfile?.adminReviewStatus,
-                isAvailable: value,
-                wantsDispatch: value,
-                availableTimeSlots: existingProfile?.availableTimeSlots,
+                let profile = VolunteerProfileResponse(
+                    name: existingProfile?.name,
+                    verificationStatus: existingProfile?.verificationStatus,
+                    adminReviewStatus: existingProfile?.adminReviewStatus,
+                    registrationStep: existingProfile?.registrationStep,
+                    canAcceptOrders: existingProfile?.canAcceptOrders,
+                    isAvailable: value,
+                    wantsDispatch: value,
+                    availableTimeSlots: existingProfile?.availableTimeSlots,
                 acceptsGuideDog: existingProfile?.acceptsGuideDog,
                 paceRange: existingProfile?.paceRange
             )

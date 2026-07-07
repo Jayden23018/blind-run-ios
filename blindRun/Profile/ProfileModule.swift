@@ -7,7 +7,18 @@ import SwiftUI
 final class BlindRunnerProfileViewModel: ObservableObject {
     @Published var name = ""
     @Published var emergencyContactName = ""
-    @Published var emergencyContactPhone = ""
+    @Published var emergencyContactPhone = "" {
+        didSet {
+            if emergencyContactPhone == originalEmergencyContactPhone,
+               Self.isMaskedPhone(originalEmergencyContactPhone) {
+                return
+            }
+            let normalized = Self.normalizedPhoneInput(emergencyContactPhone)
+            if normalized != emergencyContactPhone {
+                emergencyContactPhone = normalized
+            }
+        }
+    }
     @Published var defaultPace: PacePreference = .noPreference
     @Published var specialNeeds = ""
     @Published var isLoading = false
@@ -79,12 +90,15 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             emergencyContactPhone = value
             return
         }
-        let digits = value.filter(\.isNumber)
-        emergencyContactPhone = String(digits.prefix(11))
+        emergencyContactPhone = Self.normalizedPhoneInput(value)
     }
 
     nonisolated static func isMaskedPhone(_ value: String) -> Bool {
         value.range(of: #"^\d{3}\*{4}\d{4}$"#, options: .regularExpression) != nil
+    }
+
+    nonisolated static func normalizedPhoneInput(_ value: String) -> String {
+        String(value.filter(\.isNumber).prefix(11))
     }
 
     func submit() {

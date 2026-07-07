@@ -7,7 +7,7 @@ const explicitUserId = process.env.AIDRUN_ADMIN_REVIEW_USER_ID;
 const reviewPhone = process.env.AIDRUN_ADMIN_REVIEW_PHONE;
 const approved = process.env.AIDRUN_ADMIN_APPROVED !== '0';
 const rejectionReason = process.env.AIDRUN_ADMIN_REJECTION_REASON ?? '';
-const reviewKind = process.env.AIDRUN_ADMIN_REVIEW_KIND ?? 'both';
+const reviewKind = process.env.AIDRUN_ADMIN_REVIEW_KIND ?? 'id';
 
 function usage() {
   console.error([
@@ -18,7 +18,7 @@ function usage() {
     '  AIDRUN_ADMIN_USERNAME=<username>      Default: admin.',
     '  AIDRUN_ADMIN_PASSWORD=<password>      Default: admin123.',
     '  AIDRUN_ADMIN_REVIEW_PHONE=<phone>       Find userId from pending review lists.',
-    '  AIDRUN_ADMIN_REVIEW_KIND=id|cert|both  Default: both.',
+      '  AIDRUN_ADMIN_REVIEW_KIND=id|cert|both  Default: id.',
     '  AIDRUN_ADMIN_APPROVED=0                Reject instead of approve.',
     '  AIDRUN_ADMIN_REJECTION_REASON=<text>   Rejection reason.'
   ].join('\n'));

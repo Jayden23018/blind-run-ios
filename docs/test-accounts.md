@@ -187,6 +187,7 @@ curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
 - `POST /api/cs/auth/login`
 - `GET/POST /api/admin/volunteers/review/id`
 - `GET/POST /api/admin/volunteers/review/cert`
+- 主注册流程只需要审核身份证；资质证书审核是可选加分项，不影响接单资格。
 
 长期测试管理员账号：
 
@@ -201,6 +202,7 @@ curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
 AIDRUN_ADMIN_USERNAME=admin \
 AIDRUN_ADMIN_PASSWORD=admin123 \
 AIDRUN_ADMIN_REVIEW_PHONE=13800000002 \
+AIDRUN_ADMIN_REVIEW_KIND=id \
 scripts/admin-review-volunteer.mjs
 ```
 
@@ -210,7 +212,7 @@ scripts/admin-review-volunteer.mjs
 AIDRUN_ADMIN_USERNAME=admin \
 AIDRUN_ADMIN_PASSWORD=admin123 \
 AIDRUN_ADMIN_REVIEW_USER_ID=<userId> \
-AIDRUN_ADMIN_REVIEW_KIND=both \
+AIDRUN_ADMIN_REVIEW_KIND=id \
 scripts/admin-review-volunteer.mjs
 ```
 

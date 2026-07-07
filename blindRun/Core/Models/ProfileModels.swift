@@ -83,6 +83,8 @@ struct VolunteerProfileResponse: Codable, Sendable {
     let name: String?
     let verificationStatus: String?
     let adminReviewStatus: String?
+    let registrationStep: String?
+    let canAcceptOrders: Bool?
     let isAvailable: Bool?
     let wantsDispatch: Bool?
     let availableTimeSlots: [VolunteerAvailableTimeSlot]?
@@ -93,6 +95,8 @@ struct VolunteerProfileResponse: Codable, Sendable {
         case name = "name"
         case verificationStatus
         case adminReviewStatus
+        case registrationStep
+        case canAcceptOrders
         case isAvailable
         case wantsDispatch
         case availableTimeSlots
@@ -104,6 +108,8 @@ struct VolunteerProfileResponse: Codable, Sendable {
         name: String? = nil,
         verificationStatus: String? = nil,
         adminReviewStatus: String? = nil,
+        registrationStep: String? = nil,
+        canAcceptOrders: Bool? = nil,
         isAvailable: Bool? = nil,
         wantsDispatch: Bool? = nil,
         availableTimeSlots: [VolunteerAvailableTimeSlot]? = nil,
@@ -113,6 +119,8 @@ struct VolunteerProfileResponse: Codable, Sendable {
         self.name = name
         self.verificationStatus = verificationStatus
         self.adminReviewStatus = adminReviewStatus
+        self.registrationStep = registrationStep
+        self.canAcceptOrders = canAcceptOrders
         self.isAvailable = isAvailable
         self.wantsDispatch = wantsDispatch
         self.availableTimeSlots = availableTimeSlots
@@ -125,6 +133,8 @@ struct VolunteerProfileResponse: Codable, Sendable {
         name = try container.decodeIfPresent(String.self, forKey: .name)
         verificationStatus = try container.decodeIfPresent(String.self, forKey: .verificationStatus)
         adminReviewStatus = try container.decodeIfPresent(String.self, forKey: .adminReviewStatus)
+        registrationStep = try container.decodeIfPresent(String.self, forKey: .registrationStep)
+        canAcceptOrders = try container.decodeIfPresent(Bool.self, forKey: .canAcceptOrders)
         wantsDispatch = try container.decodeIfPresent(Bool.self, forKey: .wantsDispatch)
         isAvailable = try container.decodeIfPresent(Bool.self, forKey: .isAvailable) ?? wantsDispatch
         availableTimeSlots = try container.decodeIfPresent([VolunteerAvailableTimeSlot].self, forKey: .availableTimeSlots)
@@ -143,6 +153,12 @@ extension VolunteerProfileResponse {
 
     var isCertificationApproved: Bool {
         verificationStatus?.lowercased() == "approved"
+    }
+
+    var isMainRegistrationCompleteWhenStatusUnavailable: Bool {
+        canAcceptOrders == true ||
+            registrationStep?.uppercased() == "STEP_4_COMPLETED" ||
+            verificationStatus?.lowercased() == "approved"
     }
 
     var isAdminReviewApprovedWhenAvailable: Bool {

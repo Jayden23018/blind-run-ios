@@ -59,6 +59,7 @@ protocol APIClientProtocol: Sendable {
     func upload<T: Decodable>(
         path: String,
         query: [String: String]?,
+        fields: [String: String]?,
         files: [MultipartFile],
         requiresAuth: Bool
     ) async throws -> T
@@ -114,10 +115,11 @@ extension APIClientProtocol {
     func upload<T: Decodable>(
         _ path: String,
         query: [String: String]? = nil,
+        fields: [String: String]? = nil,
         files: [MultipartFile],
         requiresAuth: Bool = true
     ) async throws -> T {
-        try await upload(path: path, query: query, files: files, requiresAuth: requiresAuth)
+        try await upload(path: path, query: query, fields: fields, files: files, requiresAuth: requiresAuth)
     }
 }
 
@@ -236,6 +238,7 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
     func upload<T: Decodable>(
         path: String,
         query: [String: String]? = nil,
+        fields: [String: String]? = nil,
         files: [MultipartFile],
         requiresAuth: Bool = true
     ) async throws -> T {
@@ -260,6 +263,12 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         }
 
         var body = Data()
+        for (name, value) in (fields ?? [:]).sorted(by: { $0.key < $1.key }) {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append(value.data(using: .utf8) ?? Data())
+            body.append("\r\n".data(using: .utf8)!)
+        }
         for file in files {
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"\(file.fieldName)\"; filename=\"\(file.fileName)\"\r\n".data(using: .utf8)!)

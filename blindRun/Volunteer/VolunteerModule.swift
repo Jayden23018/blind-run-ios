@@ -4,16 +4,25 @@ import SwiftUI
 // MARK: - Volunteer Action Guard
 
 enum VolunteerOrderActionGuard {
-    static func acceptBlockMessage(profile: VolunteerProfileResponse?) -> String? {
+    static func acceptBlockMessage(
+        profile: VolunteerProfileResponse?,
+        registrationStatus: VolunteerRegistrationStatus? = nil
+    ) -> String? {
         guard let profile, profile.isProfileCompleteForDispatch else {
             return "请先完善志愿者资料"
         }
 
-        guard profile.isCertificationApproved else {
-            return "请先完成志愿者认证"
+        if let registrationStatus {
+            guard registrationStatus.isRegistrationComplete else {
+                return "请先完成志愿者注册流程"
+            }
+        } else {
+            guard profile.isMainRegistrationCompleteWhenStatusUnavailable else {
+                return "请先完成志愿者注册流程"
+            }
         }
 
-        guard profile.isAdminReviewApprovedWhenAvailable else {
+        guard registrationStatus != nil || profile.isAdminReviewApprovedWhenAvailable else {
             return "请等待管理员审核通过"
         }
 
@@ -32,6 +41,7 @@ final class VolunteerProfileViewModel: ObservableObject {
     @Published var name = ""
     @Published var verificationStatus = "not_submitted"
     @Published var adminReviewStatus: String?
+    @Published var registrationStatus: VolunteerRegistrationStatus?
     @Published var isLoading = false
     @Published var isCertificationRunning = false
     @Published var errorMessage: String?
@@ -46,20 +56,32 @@ final class VolunteerProfileViewModel: ObservableObject {
     }
 
     var isApproved: Bool {
-        verificationStatus.lowercased() == "approved" &&
+        if let registrationStatus {
+            return registrationStatus.isRegistrationComplete
+        }
+        return verificationStatus.lowercased() == "approved" &&
             ((adminReviewStatus?.lowercased() ?? "approved") == "approved")
     }
 
     var isPendingReview: Bool {
-        verificationStatus.lowercased() == "pending"
+        if let idStatus = registrationStatus?.idVerifyStatus?.uppercased() {
+            return idStatus == "PENDING"
+        }
+        return verificationStatus.lowercased() == "pending"
     }
 
     var isRegistrationInProgress: Bool {
-        verificationStatus.lowercased() == "in_progress"
+        if let registrationStatus {
+            return !registrationStatus.isRegistrationComplete
+        }
+        return verificationStatus.lowercased() == "in_progress"
     }
 
     var isRejected: Bool {
-        verificationStatus.lowercased() == "rejected"
+        if let idStatus = registrationStatus?.idVerifyStatus?.uppercased() {
+            return idStatus == "REJECTED"
+        }
+        return verificationStatus.lowercased() == "rejected"
     }
 
     var certificationButtonTitle: String {
@@ -102,6 +124,7 @@ final class VolunteerProfileViewModel: ObservableObject {
     func configure(with appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
+        registrationStatus = appState.volunteerRegistrationStatus
 
         guard let profile = appState.volunteerProfile else { return }
         name = profile.name ?? ""

@@ -29,7 +29,7 @@
 | `approved` | 已通过 |
 | `rejected` | 已拒绝 |
 
-志愿者提交身份证、人脸核验和培训资料后，后端管理员审核决定 `verificationStatus` 和 `adminReviewStatus`。通过后可进入接单流程。
+志愿者主注册流程由 `VolunteerRegistrationStatus.currentStep` 和 `canAcceptOrders` 决定。身份证上传后进入人工审核，审核通过后才能进行人脸核验；人脸核验为实时返回；所有必修培训课程完成且测验及格后，后端自动置为 `STEP_4_COMPLETED` 且 `canAcceptOrders = true`。`verificationStatus` 可用于额外资质证书等兼容状态展示，但不得作为主注册接单门槛。
 
 ### RunOrderStatus
 
@@ -141,6 +141,8 @@ Rules:
 | `phoneNumber` | String | Yes | 默认来自 User.phoneNumber |
 | `verificationStatus` | VerificationStatus | Yes | 志愿者认证状态 |
 | `adminReviewStatus` | AdminReviewStatus | Yes | 管理员审核状态 |
+| `registrationStep` | VolunteerRegistrationStep | Yes | 主注册流程当前步骤 |
+| `canAcceptOrders` | Boolean | Yes | 主注册流程是否已允许接单 |
 | `isAvailable` / `wantsDispatch` | Boolean | Yes | “我现在可服务 / 上线接单”开关，控制是否接收系统派单 |
 | `pointsBalance` | Integer | Yes | 当前积分余额 |
 | `createdAt` | Instant | Yes | 创建时间 |
@@ -148,7 +150,8 @@ Rules:
 
 Rules:
 
-- 志愿者接收系统派单前必须满足：昵称存在、手机号存在、`verificationStatus = approved`、`adminReviewStatus = approved`、`wantsDispatch/isAvailable = true`、WebSocket 在线、已上报最近位置，且符合后端可服务时间和距离规则。
+- 志愿者接收系统派单前必须满足：昵称存在、手机号存在、主注册流程 `canAcceptOrders = true` 或 `registrationStep = STEP_4_COMPLETED`、`wantsDispatch/isAvailable = true`、WebSocket 在线、已上报最近位置，且符合后端可服务时间和距离规则。
+- 可选资质证书上传状态 `verificationStatus` 不影响主流程接单资格；可在个人中心作为加分项展示。
 - 关闭可服务开关后不再接收新的系统派单。
 - 已接单时关闭开关不影响当前订单。
 

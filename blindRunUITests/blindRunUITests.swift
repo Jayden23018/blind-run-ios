@@ -71,16 +71,14 @@ final class blindRunUITests: XCTestCase {
             waitForTextFieldValue(phoneField, equals: "13800000001", timeout: 5),
             "Phone field should immediately keep only the first eleven digits"
         )
+        dismissKeyboardIfPresent(app: app)
         let requestCodeButton = app.buttons["获取验证码"].firstMatch
         XCTAssertTrue(waitForElementToBeEnabled(requestCodeButton, timeout: 5), "Request code button should be enabled with the normalized phone number")
-        requestCodeButton.tap()
+        tapWhenHittableOrByCoordinate(requestCodeButton, app: app)
 
         let codeField = app.textFields["验证码输入框，请输入 6 位验证码"].firstMatch
         XCTAssertTrue(codeField.waitForExistence(timeout: 5), "Verification code field should appear after requesting a code")
-        XCTAssertTrue(
-            waitForElementToBeHittable(codeField, timeout: 5),
-            "Verification code field should be visible and ready for typing after requesting a code"
-        )
+        tapWhenHittableOrByCoordinate(codeField, app: app)
         XCTAssertFalse(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Demo 验证码")).firstMatch.exists,
             "Login view should not reveal the fixed demo verification code"

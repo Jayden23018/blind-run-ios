@@ -15,6 +15,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private var blindProfile: BlindProfileResponse?
     private var volunteerProfile: VolunteerProfileResponse?
     private var volunteerRegistrationStepCode: String?
+    private var trainingProgressByCourseId: [Int64: Int] = [:]
     private var emergencyContacts: [EmergencyContactResponse] = []
 
     private var orders: [OrderDetailResponse] = []
@@ -61,6 +62,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     func upload<T: Decodable>(
         path: String,
         query: [String: String]?,
+        fields: [String: String]?,
         files: [MultipartFile],
         requiresAuth: Bool
     ) async throws -> T {
@@ -70,9 +72,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
            path == "/api/volunteer/registration/step3/face-verify" ||
            path == "/api/volunteer/verification" {
             volunteerProfile = VolunteerProfileResponse(
-                name: volunteerProfile?.name ?? "测试志愿者",
+                name: fields?["idCardName"] ?? volunteerProfile?.name ?? "测试志愿者",
                 verificationStatus: "pending",
                 adminReviewStatus: volunteerProfile?.adminReviewStatus ?? "pending",
+                registrationStep: path == "/api/volunteer/registration/step3/face-verify" ? "STEP_4_TRAINING" : "STEP_2_ID_UPLOAD",
+                canAcceptOrders: false,
                 isAvailable: volunteerProfile?.isAvailable ?? false,
                 availableTimeSlots: volunteerProfile?.availableTimeSlots,
                 acceptsGuideDog: volunteerProfile?.acceptsGuideDog,
@@ -80,9 +84,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             )
             volunteerRegistrationStepCode = path == "/api/volunteer/registration/step3/face-verify"
                 ? "STEP_4_TRAINING"
-                : "STEP_3_FACE_VERIFY"
+                : "STEP_2_ID_UPLOAD"
             if T.self == EmptyResponse.self {
                 return EmptyResponse() as! T
+            }
+            if path == "/api/volunteer/registration/step3/face-verify",
+               T.self == FaceVerifyResponse.self {
+                return FaceVerifyResponse(passed: true, status: "PASSED", message: "人脸验证通过") as! T
             }
             if T.self == ApiSuccessResponse.self {
                 return ApiSuccessResponse(success: true, message: "认证资料已提交") as! T
@@ -144,6 +152,18 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         if path == "/api/volunteer/registration/step1" && method == .post {
             return try handleSubmitVolunteerRegistrationBasicInfo(body: body)
+        }
+        if path == "/api/volunteer/registration/training/courses" && method == .get {
+            return handleGetTrainingCourses()
+        }
+        if path == "/api/volunteer/registration/training/progress" && method == .post {
+            return try handleSubmitTrainingProgress(body: body)
+        }
+        if path.hasPrefix("/api/volunteer/registration/training/quiz/") && method == .get {
+            return handleGetTrainingQuiz()
+        }
+        if path == "/api/volunteer/registration/training/quiz/answer" && method == .post {
+            return try handleSubmitTrainingQuizAnswer(body: body)
         }
 
         // Emergency contacts
@@ -259,20 +279,40 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 return "STEP_4_COMPLETED"
             }
             if submittedVerification {
-                return "STEP_3_FACE_VERIFY"
+                return "STEP_2_ID_UPLOAD"
             }
             return step1Completed ? "STEP_2_ID_UPLOAD" : "STEP_1_BASIC_INFO"
         }()
+        let idStatus: String
+        if status == "approved" || registrationStep == "STEP_3_FACE_VERIFY" || registrationStep.hasPrefix("STEP_4") {
+            idStatus = "APPROVED"
+        } else if submittedVerification {
+            idStatus = "PENDING"
+        } else {
+            idStatus = "NONE"
+        }
+        let faceStatus = registrationStep.hasPrefix("STEP_4") ? "APPROVED" : "NONE"
+        let canAcceptOrders = registrationStep == "STEP_4_COMPLETED"
         return VolunteerRegistrationStatus(
             currentStep: nil,
             registrationStep: registrationStep,
+            canAcceptOrders: canAcceptOrders,
+            stepDetails: VolunteerRegistrationStepDetails(
+                idVerifyStatus: idStatus,
+                faceVerifyStatus: faceStatus,
+                totalTrainingMinutes: canAcceptOrders ? 10 : 0,
+                completedCoursesCount: canAcceptOrders ? 1 : 0,
+                currentCourseId: nil,
+                idVerifyRejectionReason: nil,
+                faceVerifyRejectionReason: nil
+            ),
             step1Completed: step1Completed,
-            step2Completed: submittedVerification,
+            step2Completed: idStatus == "APPROVED",
             step3Completed: registrationStep == "STEP_4_TRAINING" || registrationStep == "STEP_4_COMPLETED",
-            trainingCompleted: status == "approved",
+            trainingCompleted: canAcceptOrders,
             overallStatus: status?.uppercased() ?? "NOT_SUBMITTED",
-            idVerifyStatus: submittedVerification ? "APPROVED" : "NOT_STARTED",
-            faceVerifyStatus: registrationStep == "STEP_4_TRAINING" || registrationStep == "STEP_4_COMPLETED" ? "APPROVED" : "NOT_STARTED"
+            idVerifyStatus: idStatus,
+            faceVerifyStatus: faceStatus
         )
     }
 
@@ -304,6 +344,80 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         )
         volunteerRegistrationStepCode = "STEP_2_ID_UPLOAD"
         return EmptyResponse()
+    }
+
+    private func handleGetTrainingCourses() -> [TrainingCourseResponse] {
+        [
+            TrainingCourseResponse(
+                id: 1,
+                title: "助盲跑基础培训",
+                description: "学习陪跑沟通、安全提示和服务流程",
+                durationMinutes: 10,
+                videoUrl: nil,
+                contentUrl: nil,
+                orderIndex: 1,
+                progressPercent: trainingProgressByCourseId[1] ?? 0,
+                status: (trainingProgressByCourseId[1] ?? 0) >= 100 ? "COMPLETED" : "IN_PROGRESS",
+                quizPassed: volunteerRegistrationStepCode == "STEP_4_COMPLETED"
+            )
+        ]
+    }
+
+    private func handleSubmitTrainingProgress(body: (any Encodable & Sendable)?) throws -> EmptyResponse {
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(TrainingProgressRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
+        }
+        trainingProgressByCourseId[request.courseId] = max(trainingProgressByCourseId[request.courseId] ?? 0, request.progressPercent)
+        return EmptyResponse()
+    }
+
+    private func handleGetTrainingQuiz() -> [QuizQuestionResponse] {
+        [
+            QuizQuestionResponse(
+                id: 10,
+                courseId: 1,
+                questionText: "陪跑开始前应先确认集合地点和跑者状态吗？",
+                questionType: "SINGLE_CHOICE",
+                options: ["A. 应确认", "B. 不需要"],
+                orderIndex: 1
+            )
+        ]
+    }
+
+    private func handleSubmitTrainingQuizAnswer(body: (any Encodable & Sendable)?) throws -> QuizAnswerResponse {
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(QuizAnswerRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
+        }
+        let passed = request.answers.contains("A")
+        if passed {
+            trainingProgressByCourseId[request.courseId] = 100
+            volunteerRegistrationStepCode = "STEP_4_COMPLETED"
+            volunteerProfile = VolunteerProfileResponse(
+                name: volunteerProfile?.name ?? "测试志愿者",
+                verificationStatus: "approved",
+                adminReviewStatus: volunteerProfile?.adminReviewStatus,
+                registrationStep: "STEP_4_COMPLETED",
+                canAcceptOrders: true,
+                isAvailable: volunteerProfile?.isAvailable ?? false,
+                wantsDispatch: volunteerProfile?.wantsDispatch,
+                availableTimeSlots: volunteerProfile?.availableTimeSlots,
+                acceptsGuideDog: volunteerProfile?.acceptsGuideDog,
+                paceRange: volunteerProfile?.paceRange
+            )
+        }
+        return QuizAnswerResponse(
+            correct: passed,
+            correctAnswers: ["A"],
+            explanation: passed ? "回答正确" : "请先确认跑者状态",
+            passed: passed,
+            correctCount: passed ? 1 : 0,
+            totalQuestions: 1,
+            scorePercent: passed ? 100 : 0,
+            remainingAttempts: -1,
+            questionResults: nil
+        )
     }
 
     private func handleGetMe() -> ApiSuccessResponse {
@@ -361,8 +475,15 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     private func handleGetVolunteerProfile() -> VolunteerProfileResponse {
         return volunteerProfile ?? VolunteerProfileResponse(
-            name: nil, verificationStatus: nil, isAvailable: nil,
-            availableTimeSlots: nil, acceptsGuideDog: nil, paceRange: nil
+            name: nil,
+            verificationStatus: nil,
+            adminReviewStatus: nil,
+            registrationStep: volunteerRegistrationStepCode,
+            canAcceptOrders: volunteerRegistrationStepCode == "STEP_4_COMPLETED",
+            isAvailable: nil,
+            availableTimeSlots: nil,
+            acceptsGuideDog: nil,
+            paceRange: nil
         )
     }
 
@@ -375,7 +496,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             name: request.name ?? volunteerProfile?.name,
             verificationStatus: "approved",
             adminReviewStatus: volunteerProfile?.adminReviewStatus ?? "approved",
+            registrationStep: volunteerRegistrationStepCode ?? "STEP_4_COMPLETED",
+            canAcceptOrders: volunteerRegistrationStepCode == nil || volunteerRegistrationStepCode == "STEP_4_COMPLETED",
             isAvailable: request.isAvailable ?? volunteerProfile?.isAvailable,
+            wantsDispatch: request.wantsDispatch ?? volunteerProfile?.wantsDispatch,
             availableTimeSlots: request.availableTimeSlots ?? volunteerProfile?.availableTimeSlots,
             acceptsGuideDog: request.acceptsGuideDog ?? volunteerProfile?.acceptsGuideDog,
             paceRange: request.paceRange ?? volunteerProfile?.paceRange
@@ -393,6 +517,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             name: existing.name,
             verificationStatus: existing.verificationStatus,
             adminReviewStatus: existing.adminReviewStatus,
+            registrationStep: existing.registrationStep,
+            canAcceptOrders: existing.canAcceptOrders,
             isAvailable: request.wantsDispatch,
             wantsDispatch: request.wantsDispatch,
             availableTimeSlots: existing.availableTimeSlots,
@@ -445,7 +571,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             if !wantsDispatch {
                 values.append(.dispatchDisabled)
             }
-            if !profile.isCertificationApproved || !profile.isAdminReviewApprovedWhenAvailable {
+            if !handleGetVolunteerRegistrationStatus().isRegistrationComplete {
                 values.append(.registrationIncomplete)
             }
             if !activeOrders.isEmpty {

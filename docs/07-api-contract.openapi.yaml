@@ -63,7 +63,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/VolunteerProfileResponse"
                 }
               }
             }
@@ -826,7 +826,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/FaceVerifyResponse"
                 }
               }
             }
@@ -842,34 +842,21 @@
         "summary": "上传身份证（Step 2）",
         "description": "multipart/form-data 格式，上传身份证正反面照片",
         "operationId": "uploadIdCard",
-        "parameters": [
-          {
-            "name": "idCardName",
-            "in": "query",
-            "description": "身份证姓名",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "example": "张三"
-          },
-          {
-            "name": "idCardNumber",
-            "in": "query",
-            "description": "身份证号码",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "example": 440305200001011260
-          }
-        ],
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
                 "type": "object",
                 "properties": {
+                  "idCardName": {
+                    "type": "string",
+                    "description": "身份证姓名"
+                  },
+                  "idCardNumber": {
+                    "type": "string",
+                    "pattern": "^\\d{17}[\\dXx]$",
+                    "description": "身份证号码"
+                  },
                   "frontFile": {
                     "type": "string",
                     "format": "binary",
@@ -883,7 +870,9 @@
                 },
                 "required": [
                   "backFile",
-                  "frontFile"
+                  "frontFile",
+                  "idCardName",
+                  "idCardNumber"
                 ]
               }
             }
@@ -895,7 +884,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/VolunteerRegistrationStatusResponse"
                 }
               }
             }
@@ -3274,6 +3263,22 @@
           "verificationStatus": {
             "type": "string"
           },
+          "adminReviewStatus": {
+            "type": "string"
+          },
+          "registrationStep": {
+            "type": "string",
+            "enum": [
+              "STEP_1_BASIC_INFO",
+              "STEP_2_ID_UPLOAD",
+              "STEP_3_FACE_VERIFY",
+              "STEP_4_TRAINING",
+              "STEP_4_COMPLETED"
+            ]
+          },
+          "canAcceptOrders": {
+            "type": "boolean"
+          },
           "availableTimeSlots": {
             "type": "array",
             "items": {
@@ -3697,6 +3702,86 @@
           "completionRate": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "FaceVerifyResponse": {
+        "type": "object",
+        "properties": {
+          "passed": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PASSED",
+              "REJECTED"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "VolunteerRegistrationStatusResponse": {
+        "type": "object",
+        "properties": {
+          "currentStep": {
+            "type": "string",
+            "enum": [
+              "STEP_1_BASIC_INFO",
+              "STEP_2_ID_UPLOAD",
+              "STEP_3_FACE_VERIFY",
+              "STEP_4_TRAINING",
+              "STEP_4_COMPLETED"
+            ]
+          },
+          "canAcceptOrders": {
+            "type": "boolean"
+          },
+          "stepDetails": {
+            "$ref": "#/components/schemas/VolunteerRegistrationStepDetails"
+          }
+        }
+      },
+      "VolunteerRegistrationStepDetails": {
+        "type": "object",
+        "properties": {
+          "idVerifyStatus": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "faceVerifyStatus": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "totalTrainingMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "completedCoursesCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currentCourseId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "idVerifyRejectionReason": {
+            "type": "string"
+          },
+          "faceVerifyRejectionReason": {
+            "type": "string"
           }
         }
       },

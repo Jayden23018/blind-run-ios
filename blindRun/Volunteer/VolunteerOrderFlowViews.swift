@@ -74,8 +74,12 @@ private enum VolunteerSheet: Identifiable {
 // MARK: - Shared Guards and Helpers
 
 extension VolunteerOrderActionGuard {
-    static func acceptBlockMessage(profile: VolunteerProfileResponse?, locationAuthorized: Bool) -> String? {
-        if let message = acceptBlockMessage(profile: profile) {
+    static func acceptBlockMessage(
+        profile: VolunteerProfileResponse?,
+        registrationStatus: VolunteerRegistrationStatus? = nil,
+        locationAuthorized: Bool
+    ) -> String? {
+        if let message = acceptBlockMessage(profile: profile, registrationStatus: registrationStatus) {
             return message
         }
         guard locationAuthorized else {
@@ -524,6 +528,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         guard let order, let appState else { return }
         if let message = VolunteerOrderActionGuard.acceptBlockMessage(
             profile: appState.volunteerProfile,
+            registrationStatus: appState.volunteerRegistrationStatus,
             locationAuthorized: locationAuthorized
         ) {
             errorMessage = message
@@ -715,6 +720,7 @@ struct VolunteerOrderDetailView: View {
             if order.status == .pendingMatch {
                 let blockMessage = VolunteerOrderActionGuard.acceptBlockMessage(
                     profile: appState.volunteerProfile,
+                    registrationStatus: appState.volunteerRegistrationStatus,
                     locationAuthorized: locationService.isAuthorized
                 )
                 PrimaryButton("接单", isLoading: viewModel.isPerformingAction) {

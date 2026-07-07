@@ -356,7 +356,7 @@
 
 ## 页面 9：志愿者资料认证页
 
-**页面目标**：志愿者填写资料，提交身份证和人脸核验资料，并等待管理员审核。
+**页面目标**：志愿者完成主注册流程：基本信息、身份证人工审核、人脸实时核验、培训学习与测验。
 
 **入口**：角色选择页选择"志愿者"（首次）/ 设置页 → 编辑资料。
 
@@ -367,22 +367,28 @@
 - 认证区域：
   - 提示文字："请完成以下认证步骤（Demo 版为模拟认证）"
   - 身份证上传、人脸核验、培训学习入口
-  - 认证状态显示（not_submitted / pending / approved / rejected）
+  - 主注册状态显示（STEP_1_BASIC_INFO / STEP_2_ID_UPLOAD / STEP_3_FACE_VERIFY / STEP_4_TRAINING / STEP_4_COMPLETED）
 - "提交"按钮
 
 **主要操作**：
 - 填写昵称
-- 点击开始认证 → 进入志愿者注册流程 → 上传身份证正反面和自拍照 → 完成培训 → 管理员审核后 verificationStatus 变为 approved
+- 点击开始认证 → 进入志愿者注册流程 → 填写基本信息 → 上传身份证正反面并等待人工审核 → 使用系统相机拍摄自拍完成实时人脸核验 → 完成培训课程和测验
 - 点击"提交" → 保存资料 → 进入志愿者首页
 
 **状态变化**：
-- 管理员审核完成：verificationStatus = approved, adminReviewStatus = approved
+- 身份证提交后：idVerifyStatus = PENDING，页面显示审核中并可刷新/轮询注册状态
+- 身份证审核通过：currentStep = STEP_3_FACE_VERIFY，进入人脸核验
+- 人脸核验通过：currentStep = STEP_4_TRAINING，进入培训学习
+- 必修课完成且测验及格：currentStep = STEP_4_COMPLETED，canAcceptOrders = true
+- 可选资质证书上传使用 `/api/volunteer/verification`，不属于主注册引导链路，不影响接单资格
 - 可服务开关由志愿者首页单独控制，认证不自动开启 isAvailable / wantsDispatch
 - 提交：loading → 成功跳转
 
 **错误状态**：
 - 昵称为空 → "请填写昵称"
-- 未完成认证 → "请先完成认证"
+- 未完成主注册流程 → "请先完成志愿者注册流程"
+- 身份证审核拒绝 → 显示 idVerifyRejectionReason 并允许重新提交
+- 人脸核验拒绝 → 显示后端 message 并要求重新使用系统相机拍摄
 - 网络错误 → "保存失败"
 
 **空状态**：无（首次使用时为空字段）。
