@@ -140,6 +140,10 @@ final class LoginViewModel: ObservableObject {
     func configure(with appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
+        if errorMessage == nil,
+           let sessionExpirationMessage = appState.consumeSessionExpirationMessage() {
+            errorMessage = sessionExpirationMessage
+        }
     }
 
     func sanitizePhoneInput(_ value: String) {

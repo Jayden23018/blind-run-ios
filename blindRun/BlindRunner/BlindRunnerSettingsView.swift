@@ -14,6 +14,9 @@ final class BlindRunnerSettingsViewModel: ObservableObject {
             let response: SetRoleResponse = try await appState.apiClient.post("/api/user/role", body: request)
             appState.handleRoleSwitchSuccess(response: response, requestedRole: .volunteer)
         } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
         } catch {
             errorMessage = "切换角色失败，请重试"

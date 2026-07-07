@@ -102,6 +102,9 @@ final class VolunteerHomeViewModel: ObservableObject {
                 speechService?.speak(accept ? "已接受订单" : "已拒绝订单")
             } catch let error as APIError {
                 isRespondingToDispatch = false
+                if appState.handleAuthenticatedAPIError(error) {
+                    return
+                }
                 errorMessage = error.localizedMessage
                 speechService?.speakError(error.localizedMessage)
             } catch {
@@ -225,6 +228,9 @@ final class VolunteerHomeViewModel: ObservableObject {
             isLoading = false
         } catch let error as APIError {
             isLoading = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -274,6 +280,9 @@ final class VolunteerHomeViewModel: ObservableObject {
         } catch let error as APIError {
             isAvailable = previousValue
             isUpdatingAvailability = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -311,6 +320,8 @@ enum VolunteerDemandPanelDetent: CaseIterable, Equatable {
     static let bottomMargin: CGFloat = 8
 
     func height(viewportHeight: CGFloat, topContentBottom: CGFloat) -> CGFloat {
+        let viewportHeight = Self.safeViewportHeight(viewportHeight)
+        let topContentBottom = Self.safeTopContentBottom(topContentBottom)
         switch self {
         case .compact:
             return Self.compactHeight(viewportHeight: viewportHeight)
@@ -337,7 +348,8 @@ enum VolunteerDemandPanelDetent: CaseIterable, Equatable {
     }
 
     static func compactHeight(viewportHeight: CGFloat) -> CGFloat {
-        min(max(viewportHeight * 0.12, 104), 136)
+        let viewportHeight = safeViewportHeight(viewportHeight)
+        return min(max(viewportHeight * 0.12, 104), 136)
     }
 
     static func clampedHeight(
@@ -345,9 +357,12 @@ enum VolunteerDemandPanelDetent: CaseIterable, Equatable {
         viewportHeight: CGFloat,
         topContentBottom: CGFloat
     ) -> CGFloat {
+        let viewportHeight = safeViewportHeight(viewportHeight)
+        let topContentBottom = safeTopContentBottom(topContentBottom)
         let minimum = compact.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom)
-        let maximum = expanded.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom)
-        return min(max(height, minimum), maximum)
+        let maximum = max(minimum, expanded.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom))
+        let safeHeight = height.isFinite ? height : minimum
+        return min(max(safeHeight, minimum), maximum)
     }
 
     static func nearest(
@@ -355,10 +370,21 @@ enum VolunteerDemandPanelDetent: CaseIterable, Equatable {
         viewportHeight: CGFloat,
         topContentBottom: CGFloat
     ) -> VolunteerDemandPanelDetent {
-        allCases.min { lhs, rhs in
-            abs(lhs.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom) - height) <
-                abs(rhs.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom) - height)
+        let safeHeight = height.isFinite ? height : compactHeight(viewportHeight: viewportHeight)
+        return allCases.min { lhs, rhs in
+            abs(lhs.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom) - safeHeight) <
+                abs(rhs.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom) - safeHeight)
         } ?? .medium
+    }
+
+    private static func safeViewportHeight(_ value: CGFloat) -> CGFloat {
+        guard value.isFinite, value > 0 else { return 0 }
+        return value
+    }
+
+    private static func safeTopContentBottom(_ value: CGFloat) -> CGFloat {
+        guard value.isFinite, value > 0 else { return 0 }
+        return value
     }
 }
 
@@ -368,9 +394,11 @@ struct VolunteerHomeMapLayout {
         topContentBottom: CGFloat,
         demandPanelTop: CGFloat
     ) -> CGFloat {
-        guard viewportHeight > 1 else { return 0.5 }
-        let upper = max(topContentBottom, 0)
-        let lower = max(demandPanelTop, upper + 1)
+        guard viewportHeight.isFinite, viewportHeight > 1 else { return 0.5 }
+        let safeTopContentBottom = topContentBottom.isFinite ? topContentBottom : 0
+        let safeDemandPanelTop = demandPanelTop.isFinite ? demandPanelTop : safeTopContentBottom + 1
+        let upper = max(safeTopContentBottom, 0)
+        let lower = max(safeDemandPanelTop, upper + 1)
         let visibleCenterY = (upper + lower) / 2
         return min(max(visibleCenterY / viewportHeight, 0.18), 0.82)
     }
@@ -733,7 +761,9 @@ struct VolunteerHomeView: View {
     }
 
     private func resolvedTopContentBottom(in proxy: GeometryProxy) -> CGFloat {
-        max(topContentBottom, proxy.safeAreaInsets.top + 96)
+        let measuredTopBottom = topContentBottom.isFinite ? topContentBottom : 0
+        let safeAreaTop = proxy.safeAreaInsets.top.isFinite ? proxy.safeAreaInsets.top : 0
+        return max(measuredTopBottom, safeAreaTop + 96)
     }
 
     private var locationSummaryText: String {

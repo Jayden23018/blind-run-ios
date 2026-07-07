@@ -142,6 +142,9 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             isLoading = false
         } catch let error as APIError {
             isLoading = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {

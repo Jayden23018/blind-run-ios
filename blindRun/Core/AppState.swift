@@ -37,6 +37,9 @@ final class AppState: ObservableObject {
     /// 紧急联系人列表
     @Published var emergencyContacts: [EmergencyContactResponse] = []
 
+    /// 会话过期后带到登录页展示的一次性提示。
+    @Published private(set) var sessionExpirationMessage: String?
+
     // MARK: - WebSocket
 
     /// WebSocket 服务实例（登录后创建，登出时销毁）
@@ -136,9 +139,7 @@ final class AppState: ObservableObject {
     func handleLoginSuccess(response: LoginResponse) {
         accessToken = response.token
         userId = response.userId
-        if let roleStr = response.role, let role = UserRole(rawValue: roleStr) {
-            activeRole = role
-        }
+        activeRole = Self.resolvedLoginRole(from: response.role)
         persistUserId()
         connectWebSocketIfNeeded()
     }
@@ -161,9 +162,29 @@ final class AppState: ObservableObject {
         blindProfile = nil
         volunteerProfile = nil
         emergencyContacts = []
+        sessionExpirationMessage = nil
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
+    }
+
+    /// 会话过期：清除本地登录态并让登录页展示一次性提示。
+    func expireSession(message: String = "登录已过期，请重新登录。") {
+        clearSession()
+        sessionExpirationMessage = message
+    }
+
+    func consumeSessionExpirationMessage() -> String? {
+        let message = sessionExpirationMessage
+        sessionExpirationMessage = nil
+        return message
+    }
+
+    @discardableResult
+    func handleAuthenticatedAPIError(_ error: APIError) -> Bool {
+        guard case .unauthorized = error else { return false }
+        expireSession()
+        return true
     }
 
     /// 切换角色
@@ -221,6 +242,15 @@ final class AppState: ObservableObject {
         return APIEnvironment(rawValue: rawValue)
     }
 
+    static func resolvedLoginRole(from rawValue: String?) -> UserRole? {
+        guard let rawValue,
+              let role = UserRole(rawValue: rawValue),
+              role != .unset else {
+            return nil
+        }
+        return role
+    }
+
     #if DEBUG
     static let debugTestEnvironments: [APIEnvironment] = [.mock, .demoCloud]
     #endif
@@ -239,6 +269,7 @@ final class AppState: ObservableObject {
               AppBuildChannel.current.allows(currentEnvironment),
               let token = accessToken,
               let role = activeRole,
+              role != .unset,
               let baseURL = currentEnvironment.baseURL else {
             return
         }

@@ -93,6 +93,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
             await self.loadOrder(orderId: order.orderId, speakChanges: true)
         } catch let error as APIError {
             isPerformingAction = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             let message = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
             await self.loadOrder(orderId: order.orderId, speakChanges: true)
@@ -135,6 +138,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
             speechService?.speak("评价已提交，感谢反馈。")
         } catch let error as APIError {
             isSubmittingReview = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -167,6 +173,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
             apply(updated, speakChanges: speakChanges)
         } catch let error as APIError {
             isLoading = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -188,6 +197,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
             isPerformingAction = false
         } catch let error as APIError {
             isPerformingAction = false
+            if appState?.handleAuthenticatedAPIError(error) == true {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {

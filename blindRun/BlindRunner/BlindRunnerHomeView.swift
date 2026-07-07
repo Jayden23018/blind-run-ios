@@ -55,6 +55,9 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             speakCurrentStatus()
         } catch let error as APIError {
             isLoading = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -115,6 +118,9 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             isPerformingAction = false
         } catch let error as APIError {
             isPerformingAction = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(errorMessage ?? error.localizedMessage)
             if let updated: OrderDetailResponse = try? await appState.apiClient.get("/api/orders/\(activeOrder.orderId)") {
@@ -142,6 +148,9 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             isPerformingAction = false
         } catch let error as APIError {
             isPerformingAction = false
+            if appState?.handleAuthenticatedAPIError(error) == true {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {

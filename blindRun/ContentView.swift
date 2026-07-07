@@ -26,7 +26,7 @@ struct ContentView: View {
             if !appState.isLoggedIn {
                 LoginView()
                     .transition(.opacity)
-            } else if appState.activeRole == nil {
+            } else if appState.activeRole == nil || appState.activeRole == .unset {
                 RoleSelectionView()
                     .transition(.opacity)
             } else if appState.activeRole == .blind {
@@ -108,6 +108,11 @@ struct ContentView: View {
             case .unset:
                 break
             }
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
+            // Keep the existing profile setup routes visible when the cloud has no profile yet.
         } catch {
             // Keep the existing profile setup routes visible when the cloud has no profile yet.
         }

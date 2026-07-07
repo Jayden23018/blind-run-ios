@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 @main
 struct blindRunApp: App {
@@ -29,6 +30,8 @@ struct blindRunApp: App {
                 .environmentObject(speechInputService)
                 .environmentObject(locationService)
                 .environmentObject(amapGeocodingService)
+                .scrollDismissesKeyboard(.interactively)
+                .background(KeyboardDismissTapInstaller().allowsHitTesting(false))
                 .onAppear {
                     #if DEBUG || DEMO
                     applyUITestLaunchConfigurationIfNeeded()
@@ -128,4 +131,87 @@ struct blindRunApp: App {
         }
     }
     #endif
+}
+
+// MARK: - Keyboard Dismissal
+
+private struct KeyboardDismissTapInstaller: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        DispatchQueue.main.async {
+            context.coordinator.installIfNeeded(from: view)
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async {
+            context.coordinator.installIfNeeded(from: uiView)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        private weak var installedWindow: UIWindow?
+        private weak var tapGesture: UITapGestureRecognizer?
+
+        deinit {
+            if let tapGesture {
+                installedWindow?.removeGestureRecognizer(tapGesture)
+            }
+        }
+
+        func installIfNeeded(from view: UIView) {
+            guard let window = view.window else { return }
+            guard !(installedWindow === window && tapGesture != nil) else { return }
+
+            if let tapGesture {
+                installedWindow?.removeGestureRecognizer(tapGesture)
+            }
+
+            let gesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+            gesture.cancelsTouchesInView = false
+            gesture.delaysTouchesBegan = false
+            gesture.delaysTouchesEnded = false
+            gesture.delegate = self
+            window.addGestureRecognizer(gesture)
+            installedWindow = window
+            tapGesture = gesture
+        }
+
+        @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let window = installedWindow else { return }
+            let location = gesture.location(in: window)
+            guard let touchedView = window.hitTest(location, with: nil) else {
+                window.endEditing(true)
+                return
+            }
+            guard !touchedView.isTextInputOrDescendant else { return }
+            window.endEditing(true)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+}
+
+private extension UIView {
+    var isTextInputOrDescendant: Bool {
+        var current: UIView? = self
+        while let view = current {
+            if view is UITextField || view is UITextView || view is UISearchBar {
+                return true
+            }
+            current = view.superview
+        }
+        return false
+    }
 }

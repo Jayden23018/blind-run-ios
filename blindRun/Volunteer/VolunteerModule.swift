@@ -153,6 +153,9 @@ final class VolunteerProfileViewModel: ObservableObject {
         } catch let error as APIError {
             isCertificationRunning = false
             verificationStatus = "not_submitted"
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -178,6 +181,9 @@ final class VolunteerProfileViewModel: ObservableObject {
             isLoading = false
         } catch let error as APIError {
             isLoading = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {

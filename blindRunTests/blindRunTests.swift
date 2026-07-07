@@ -380,6 +380,47 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(lowAnchor, 0.82, accuracy: 0.0001)
     }
 
+    func testVolunteerHomeLayoutHelpersNeverReturnInvalidFrameDimensions() {
+        let invalidValues: [CGFloat] = [
+            0,
+            -40,
+            .nan,
+            .infinity,
+            -.infinity
+        ]
+
+        for viewportHeight in invalidValues {
+            for topContentBottom in invalidValues {
+                for detent in VolunteerDemandPanelDetent.allCases {
+                    let height = detent.height(
+                        viewportHeight: viewportHeight,
+                        topContentBottom: topContentBottom
+                    )
+
+                    XCTAssertTrue(height.isFinite)
+                    XCTAssertGreaterThan(height, 0)
+                }
+
+                let clampedHeight = VolunteerDemandPanelDetent.clampedHeight(
+                    .nan,
+                    viewportHeight: viewportHeight,
+                    topContentBottom: topContentBottom
+                )
+                XCTAssertTrue(clampedHeight.isFinite)
+                XCTAssertGreaterThan(clampedHeight, 0)
+
+                let anchor = VolunteerHomeMapLayout.screenAnchorY(
+                    viewportHeight: viewportHeight,
+                    topContentBottom: topContentBottom,
+                    demandPanelTop: .nan
+                )
+                XCTAssertTrue(anchor.isFinite)
+                XCTAssertGreaterThanOrEqual(anchor, 0.18)
+                XCTAssertLessThanOrEqual(anchor, 0.82)
+            }
+        }
+    }
+
     func testFlexibleErrorEnvelopeUsesBusinessErrorCode() throws {
         let data = #"{"errorCode":"VOLUNTEER_NOT_AVAILABLE","code":403,"success":false,"message":"未开启接单"}"#.data(using: .utf8)!
         let payload = try JSONDecoder().decode(APIErrorEnvelope.self, from: data)
@@ -623,6 +664,128 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(speechService.lastSpokenText, "基本信息提交成功，请上传身份证")
     }
 
+    func testVolunteerRegistrationBasicInfoShowsBlockedReasonForInvalidPhone() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = VolunteerRegistrationViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.name = "赵冉杰"
+        viewModel.phone = "1831455097"
+
+        XCTAssertFalse(viewModel.canSubmitBasicInfo)
+        XCTAssertEqual(viewModel.basicInfoValidationMessage, "请输入 11 位中国大陆手机号")
+
+        await viewModel.submitBasicInfo()
+
+        XCTAssertEqual(viewModel.currentStep, .basicInfo)
+        XCTAssertEqual(viewModel.errorMessage, "请输入 11 位中国大陆手机号")
+        XCTAssertEqual(speechService.lastSpokenText, "请输入 11 位中国大陆手机号")
+    }
+
+    func testVolunteerRegistrationLoadStatusUnauthorizedExpiresSession() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        appState.accessToken = "expired-token"
+        appState.userId = 12
+        appState.activeRole = .volunteer
+        let speechService = SpeechService()
+        let viewModel = VolunteerRegistrationViewModel(apiClient: FailingAPIClient(error: APIError.unauthorized))
+        viewModel.currentStep = .faceVerify
+        viewModel.configure(appState: appState, speechService: speechService)
+
+        await viewModel.loadStatus()
+
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertNil(appState.accessToken)
+        XCTAssertNil(appState.userId)
+        XCTAssertNil(appState.activeRole)
+        XCTAssertEqual(appState.consumeSessionExpirationMessage(), "登录已过期，请重新登录。")
+    }
+
+    func testVolunteerRegistrationStatusRoutesStringStepToFaceVerify() throws {
+        let data = #"{"registrationStep":"STEP_3_FACE_VERIFY","step1Completed":true,"step2Completed":true}"#
+            .data(using: .utf8)!
+        let status = try JSONDecoder().decode(VolunteerRegistrationStatus.self, from: data)
+        let viewModel = VolunteerRegistrationViewModel()
+
+        viewModel.applyRegistrationStatus(status)
+
+        XCTAssertEqual(viewModel.currentStep, .faceVerify)
+    }
+
+    func testVolunteerFaceVerifyRequiresApprovedIdentityStatus() throws {
+        let data = #"{"registrationStep":"STEP_3_FACE_VERIFY","step1Completed":true,"step2Completed":true,"idVerifyStatus":"PENDING"}"#
+            .data(using: .utf8)!
+        let status = try JSONDecoder().decode(VolunteerRegistrationStatus.self, from: data)
+        let viewModel = VolunteerRegistrationViewModel()
+
+        viewModel.applyRegistrationStatus(status)
+        viewModel.faceImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+
+        XCTAssertEqual(viewModel.currentStep, .faceVerify)
+        XCTAssertFalse(viewModel.canSubmitFace)
+        XCTAssertEqual(viewModel.faceSubmitBlockingMessage, "请先完成身份审核，审核通过后再提交人脸核验")
+    }
+
+    func testVolunteerFaceVerifySubmitShowsIdentityReviewReasonBeforeUpload() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = VolunteerRegistrationViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        let status = VolunteerRegistrationStatus(
+            registrationStep: "STEP_3_FACE_VERIFY",
+            step1Completed: true,
+            step2Completed: true,
+            idVerifyStatus: "PENDING"
+        )
+        viewModel.applyRegistrationStatus(status)
+        viewModel.faceImageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+
+        await viewModel.submitFaceVerify()
+
+        XCTAssertEqual(viewModel.currentStep, .faceVerify)
+        XCTAssertEqual(viewModel.errorMessage, "请先完成身份审核，审核通过后再提交人脸核验")
+        XCTAssertEqual(speechService.lastSpokenText, "请先完成身份审核，审核通过后再提交人脸核验")
+    }
+
+    func testVolunteerRegistrationRefreshesStatusWhenBasicInfoAlreadyCompleted() async throws {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        let _: EmptyResponse = try await appState.apiClient.upload(
+            "/api/volunteer/registration/step2/id-card",
+            query: [
+                "idCardName": "赵冉杰",
+                "idCardNumber": "110101199001011234"
+            ],
+            files: [
+                MultipartFile(fieldName: "frontFile", fileName: "front.jpg", mimeType: "image/jpeg", data: imageData),
+                MultipartFile(fieldName: "backFile", fileName: "back.jpg", mimeType: "image/jpeg", data: imageData)
+            ]
+        )
+        let viewModel = VolunteerRegistrationViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.name = "赵冉杰"
+        viewModel.phone = "18314555097"
+
+        await viewModel.submitBasicInfo()
+
+        XCTAssertEqual(viewModel.currentStep, .faceVerify)
+        XCTAssertEqual(viewModel.errorMessage, "已同步注册进度，请继续完成人脸核验")
+        XCTAssertEqual(speechService.lastSpokenText, "已同步注册进度，请继续完成人脸核验")
+    }
+
+    func testVolunteerFaceCameraPermissionUsageDescriptionIsConfigured() throws {
+        let cameraUsageDescription = try XCTUnwrap(
+            Bundle.main.object(forInfoDictionaryKey: "NSCameraUsageDescription") as? String
+        )
+
+        XCTAssertFalse(cameraUsageDescription.trimmed.isEmpty)
+    }
+
     func testVolunteerCertificationEntryDoesNotRequireSeparateNicknameSubmit() {
         let appState = AppState()
         appState.currentEnvironment = .demoCloud
@@ -721,6 +884,138 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(response.token, "eyJhbGciOiJIUzI1NiJ9.test")
         XCTAssertEqual(response.userId, 1)
         XCTAssertEqual(response.role, "BLIND")
+    }
+
+    func testLoginRoleResolverTreatsUnsetAndMissingRoleAsRoleSelection() {
+        XCTAssertNil(AppState.resolvedLoginRole(from: nil))
+        XCTAssertNil(AppState.resolvedLoginRole(from: "UNSET"))
+        XCTAssertNil(AppState.resolvedLoginRole(from: "UNKNOWN"))
+        XCTAssertEqual(AppState.resolvedLoginRole(from: "BLIND"), .blind)
+        XCTAssertEqual(AppState.resolvedLoginRole(from: "VOLUNTEER"), .volunteer)
+    }
+
+    func testLoginSuccessClearsStaleRoleWhenBackendReturnsNoRole() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        appState.activeRole = .volunteer
+
+        appState.handleLoginSuccess(
+            response: LoginResponse(
+                token: "token",
+                userId: 12,
+                role: nil
+            )
+        )
+
+        XCTAssertEqual(appState.accessToken, "token")
+        XCTAssertEqual(appState.userId, 12)
+        XCTAssertNil(appState.activeRole)
+    }
+
+    func testLoginSuccessClearsUnsetRoleToAvoidBlankRootRoute() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+
+        appState.handleLoginSuccess(
+            response: LoginResponse(
+                token: "token",
+                userId: 12,
+                role: "UNSET"
+            )
+        )
+
+        XCTAssertNil(appState.activeRole)
+    }
+
+    func testExpireSessionClearsStateAndProvidesOneTimeLoginMessage() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        appState.accessToken = "expired-token"
+        appState.userId = 12
+        appState.activeRole = .volunteer
+        appState.updateVolunteerProfile(makeApprovedVolunteerProfile())
+
+        appState.expireSession()
+
+        XCTAssertNil(appState.accessToken)
+        XCTAssertNil(appState.userId)
+        XCTAssertNil(appState.activeRole)
+        XCTAssertNil(appState.volunteerProfile)
+        XCTAssertEqual(appState.consumeSessionExpirationMessage(), "登录已过期，请重新登录。")
+        XCTAssertNil(appState.consumeSessionExpirationMessage())
+    }
+
+    func testAuthenticatedUnauthorizedErrorExpiresSession() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        appState.accessToken = "expired-token"
+        appState.userId = 12
+        appState.activeRole = .blind
+
+        let didExpire = appState.handleAuthenticatedAPIError(.unauthorized)
+
+        XCTAssertTrue(didExpire)
+        XCTAssertNil(appState.accessToken)
+        XCTAssertNil(appState.userId)
+        XCTAssertNil(appState.activeRole)
+        XCTAssertEqual(appState.consumeSessionExpirationMessage(), "登录已过期，请重新登录。")
+    }
+
+    func testAuthenticatedNonUnauthorizedErrorDoesNotExpireSession() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        appState.accessToken = "valid-token"
+        appState.userId = 12
+        appState.activeRole = .blind
+
+        let didExpire = appState.handleAuthenticatedAPIError(.networkError(
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
+        ))
+
+        XCTAssertFalse(didExpire)
+        XCTAssertEqual(appState.accessToken, "valid-token")
+        XCTAssertEqual(appState.userId, 12)
+        XCTAssertEqual(appState.activeRole, .blind)
+        XCTAssertNil(appState.consumeSessionExpirationMessage())
+    }
+
+    func testRoleSelectionUnauthorizedExpiresSessionAndReturnsToLogin() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        appState.accessToken = "expired-token"
+        appState.userId = 12
+        let viewModel = RoleSelectionViewModel(apiClient: FailingAPIClient(error: APIError.unauthorized))
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        viewModel.selectRole(.volunteer)
+
+        let didExpire = await waitUntil {
+            appState.accessToken == nil &&
+            appState.activeRole == nil &&
+            appState.userId == nil &&
+            !viewModel.isLoading
+        }
+
+        XCTAssertTrue(didExpire)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertFalse(viewModel.showBlockedAlert)
+        XCTAssertEqual(appState.consumeSessionExpirationMessage(), "登录已过期，请重新登录。")
+    }
+
+    func testLoginViewModelShowsAndConsumesSessionExpirationMessage() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        appState.expireSession()
+        let viewModel = LoginViewModel()
+
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        XCTAssertEqual(viewModel.errorMessage, "登录已过期，请重新登录。")
+        XCTAssertNil(appState.consumeSessionExpirationMessage())
+
+        viewModel.sanitizePhoneInput("138")
+
+        XCTAssertNil(viewModel.errorMessage)
     }
 
     func testLoginPhoneInputKeepsOnlyFirstElevenDigits() {

@@ -342,6 +342,9 @@ final class VolunteerOrderListViewModel: ObservableObject {
             isLoading = false
         } catch let error as APIError {
             isLoading = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -378,6 +381,9 @@ final class VolunteerOrderListViewModel: ObservableObject {
         } catch let error as APIError {
             isAvailable = previousValue
             isUpdatingAvailability = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -502,6 +508,9 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             isLoading = false
         } catch let error as APIError {
             isLoading = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -593,6 +602,9 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             isPerformingAction = false
         } catch let error as APIError {
             isPerformingAction = false
+            if appState?.handleAuthenticatedAPIError(error) == true {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -895,6 +907,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
             isPerformingAction = false
         } catch let error as APIError {
             isPerformingAction = false
+            if appState?.handleAuthenticatedAPIError(error) == true {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -1073,6 +1088,9 @@ final class VolunteerServiceRecordsViewModel: ObservableObject {
             isLoading = false
         } catch let error as APIError {
             isLoading = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -1225,6 +1243,9 @@ final class VolunteerSettingsViewModel: ObservableObject {
             let response: SetRoleResponse = try await appState.apiClient.post("/api/user/role", body: request)
             appState.handleRoleSwitchSuccess(response: response, requestedRole: .blind)
         } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
         } catch {
             errorMessage = "切换角色失败，请重试"

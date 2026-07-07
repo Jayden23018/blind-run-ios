@@ -14,6 +14,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     private var blindProfile: BlindProfileResponse?
     private var volunteerProfile: VolunteerProfileResponse?
+    private var volunteerRegistrationStepCode: String?
     private var emergencyContacts: [EmergencyContactResponse] = []
 
     private var orders: [OrderDetailResponse] = []
@@ -77,6 +78,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 acceptsGuideDog: volunteerProfile?.acceptsGuideDog,
                 paceRange: volunteerProfile?.paceRange
             )
+            volunteerRegistrationStepCode = path == "/api/volunteer/registration/step3/face-verify"
+                ? "STEP_4_TRAINING"
+                : "STEP_3_FACE_VERIFY"
             if T.self == EmptyResponse.self {
                 return EmptyResponse() as! T
             }
@@ -250,13 +254,25 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let status = volunteerProfile?.verificationStatus?.lowercased()
         let step1Completed = volunteerProfile?.name?.trimmed.isEmpty == false
         let submittedVerification = status == "pending" || status == "approved"
+        let registrationStep = volunteerRegistrationStepCode ?? {
+            if status == "approved" {
+                return "STEP_4_COMPLETED"
+            }
+            if submittedVerification {
+                return "STEP_3_FACE_VERIFY"
+            }
+            return step1Completed ? "STEP_2_ID_UPLOAD" : "STEP_1_BASIC_INFO"
+        }()
         return VolunteerRegistrationStatus(
-            currentStep: submittedVerification ? 3 : (step1Completed ? 2 : 1),
+            currentStep: nil,
+            registrationStep: registrationStep,
             step1Completed: step1Completed,
             step2Completed: submittedVerification,
-            step3Completed: submittedVerification,
+            step3Completed: registrationStep == "STEP_4_TRAINING" || registrationStep == "STEP_4_COMPLETED",
             trainingCompleted: status == "approved",
-            overallStatus: status?.uppercased() ?? "NOT_SUBMITTED"
+            overallStatus: status?.uppercased() ?? "NOT_SUBMITTED",
+            idVerifyStatus: submittedVerification ? "APPROVED" : "NOT_STARTED",
+            faceVerifyStatus: registrationStep == "STEP_4_TRAINING" || registrationStep == "STEP_4_COMPLETED" ? "APPROVED" : "NOT_STARTED"
         )
     }
 
@@ -268,6 +284,15 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         guard !request.name.trimmed.isEmpty, AppState.isValidMainlandPhone(request.phone) else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请填写姓名和手机号"))
         }
+        if let volunteerRegistrationStepCode,
+           volunteerRegistrationStepCode != "STEP_1_BASIC_INFO" {
+            throw APIError.serverError(
+                ErrorResponse(
+                    code: "INVALID_REGISTRATION_STEP",
+                    message: "当前步骤不允许提交基本信息，当前步骤：\(volunteerRegistrationStepCode)"
+                )
+            )
+        }
         volunteerProfile = VolunteerProfileResponse(
             name: request.name.trimmed,
             verificationStatus: volunteerProfile?.verificationStatus ?? "in_progress",
@@ -277,6 +302,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             acceptsGuideDog: volunteerProfile?.acceptsGuideDog,
             paceRange: volunteerProfile?.paceRange
         )
+        volunteerRegistrationStepCode = "STEP_2_ID_UPLOAD"
         return EmptyResponse()
     }
 

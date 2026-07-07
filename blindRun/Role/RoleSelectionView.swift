@@ -18,10 +18,13 @@ final class RoleSelectionViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
+    private let apiClientOverride: (any APIClientProtocol)?
 
     // MARK: - Init
 
-    init() {}
+    init(apiClient: (any APIClientProtocol)? = nil) {
+        self.apiClientOverride = apiClient
+    }
 
     func configure(with appState: AppState, speechService: SpeechService) {
         self.appState = appState
@@ -48,7 +51,7 @@ final class RoleSelectionViewModel: ObservableObject {
 
         do {
             let request = SetRoleRequest(role: role)
-            let response: SetRoleResponse = try await appState.apiClient.request(
+            let response: SetRoleResponse = try await activeAPIClient(appState: appState).request(
                 method: .post,
                 path: "/api/user/role",
                 query: nil,
@@ -79,13 +82,18 @@ final class RoleSelectionViewModel: ObservableObject {
         case .networkError:
             errorMessage = "网络错误，请重试"
         case .unauthorized:
-            errorMessage = "登录已过期，请重新登录。"
+            appState?.expireSession()
+            errorMessage = nil
         case .decodingError, .invalidURL, .unknown:
             errorMessage = "角色设置失败，请重试。"
         }
         if let message = errorMessage {
             speechService?.speakError(message)
         }
+    }
+
+    private func activeAPIClient(appState: AppState) -> any APIClientProtocol {
+        apiClientOverride ?? appState.apiClient
     }
 }
 

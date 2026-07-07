@@ -545,6 +545,9 @@ final class BlindBookingViewModel: ObservableObject {
             return response
         } catch let error as APIError {
             isSubmitting = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return nil
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
             return nil
