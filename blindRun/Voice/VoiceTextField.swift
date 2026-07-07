@@ -79,5 +79,10 @@ struct VoiceTextField: View {
                     .accessibilityLabel(errorMessage)
             }
         }
+        .onDisappear {
+            if speechInputService.hasRecognitionSession(for: speechField) {
+                speechInputService.cancelRecognitionForLifecycle()
+            }
+        }
     }
 }

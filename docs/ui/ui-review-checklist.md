@@ -28,6 +28,8 @@
 - [ ] 每个关键盲人端页面有"重复当前状态"按钮
 - [ ] 每屏只有一个主任务（避免嵌套导航和过多选择）
 - [ ] 深色背景 + 高对比度文字 + 大字号（≥20pt body）
+- [ ] 盲人端状态、下一步主操作和"重复当前状态"先于辅助地图出现在视觉和 VoiceOver 顺序中
+- [ ] 盲人端地图有等价文字/TTS 摘要，不把原始经纬度作为普通用户文本读出
 
 ### 2.3 颜色与对比度
 
@@ -41,8 +43,8 @@
 
 - [ ] 进入盲人首页时播报（有/无订单两种文案）
 - [ ] 订单提交成功时播报
-- [ ] 状态变化时播报：matching → accepted → arrived → in_progress → completed
-- [ ] 进入求助状态时播报
+- [ ] 状态变化时播报：PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
+- [ ] 当前 release 不显示求助入口；未来恢复求助入口时必须补求助状态播报
 - [ ] 错误提示时播报
 - [ ] 不重复播报已播报过的状态（ViewModel 跟踪 lastSpokenStatus）
 - [ ] TTS 文案与 `ui-handoff-ios.md` 中定义的文案一致
@@ -60,8 +62,8 @@
 
 ## 5. 危险操作二次确认
 
-- [ ] **取消订单** → 确认弹窗 + 取消原因选择（5个固定选项：时间不合适、地点填写错误、临时有事、联系不上对方、其他）
-- [ ] **进入求助** → 确认弹窗，使用固定文案："是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
+- [ ] **取消订单** → 确认弹窗；当前取消接口不需要请求体
+- [ ] **未来恢复求助入口** → 确认弹窗，使用固定文案："是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
 - [ ] **结束服务**（志愿者）→ 确认弹窗 + 可选服务小结
 - [ ] **退出登录** → 确认弹窗
 
@@ -128,7 +130,8 @@
 ## 11. 订单业务规则
 
 - [ ] 预约时间 ≥ 当前时间 + 30 分钟（否则 `APPOINTMENT_TOO_SOON`）
-- [ ] 取消仅在 `PENDING_MATCH` / `PENDING_ACCEPT` / `IN_PROGRESS` 允许
+- [ ] 盲人取消仅在 `PENDING_MATCH` / `PENDING_ACCEPT` / `REMATCHING` 允许
+- [ ] 志愿者取消仅在 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 允许，成功后进入 `REMATCHING`
 - [ ] emergency 是独立事件，不作为订单状态
 - [ ] 记录 `cancelledBy`（`blind_runner` 或 `volunteer`）
 - [ ] 志愿者完成服务 → +100 积分

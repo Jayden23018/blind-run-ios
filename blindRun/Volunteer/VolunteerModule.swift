@@ -91,9 +91,6 @@ final class VolunteerProfileViewModel: ObservableObject {
         if isRegistrationInProgress {
             return "点击后继续志愿者注册认证流程"
         }
-        if appState?.isVolunteerProfileComplete != true {
-            return "请先填写昵称并提交志愿者资料"
-        }
         return "点击后进入志愿者注册认证流程"
     }
 
@@ -304,6 +301,7 @@ struct VolunteerProfileView: View {
                 .disabled(viewModel.isApproved || viewModel.isPendingReview)
                 .accessibilityLabel("开始认证")
                 .accessibilityHint(viewModel.certificationAccessibilityHint)
+                .accessibilityIdentifier("volunteerRealRegistrationEntry")
             } else {
                 Text("请完成以下认证步骤（Demo 版为模拟认证）")
                     .font(AppFonts.body())

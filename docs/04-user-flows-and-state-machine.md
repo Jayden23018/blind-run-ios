@@ -15,7 +15,7 @@ flowchart TD
         BR_Profile["盲人资料页\n(首次注册)"]
         BR_Home{"盲人首页\n(有/无活跃订单)"}
         CreateBooking["创建预约页"]
-        BR_OrderStatus["订单状态等待页\n(PENDING_MATCH/PENDING_ACCEPT/DRIVER_ARRIVED)"]
+        BR_OrderStatus["订单状态等待页\n(PENDING_MATCH/PENDING_ACCEPT/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING)"]
         BR_InService["盲人服务中页\n(IN_PROGRESS)"]
         BR_Completed["完成/评分页\n(COMPLETED)"]
     end
@@ -135,10 +135,12 @@ sequenceDiagram
 
     BR->>App: 点击"开始约跑"
     App->>App: 检查定位权限
-    App->>BR: 显示创建预约页
+    App->>BR: 显示语音优先引导式创建预约页
 
-    BR->>App: 填写出发地点、时间、备注
-    BR->>App: 点击"提交预约"
+    BR->>App: 确认出发地点（当前位置或高德 POI）
+    BR->>App: 使用 DatePicker 选择至少 30 分钟后的预约时间
+    BR->>App: 可选填写路线备注、时长、配速、路线偏好、导盲犬和特殊说明
+    BR->>App: 在确认页点击"提交预约"
     App->>API: POST /api/orders (booking data)
     API-->>App: { orderId, status: "PENDING_MATCH" }
     Note over App: TTS: "订单提交成功，系统正在为您派单"

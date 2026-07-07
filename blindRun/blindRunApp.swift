@@ -9,6 +9,7 @@ import SwiftUI
 
 @main
 struct blindRunApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var appState = AppState()
     @StateObject private var speechService = SpeechService()
     @StateObject private var speechInputService = SpeechInputService()
@@ -33,6 +34,11 @@ struct blindRunApp: App {
                     applyUITestLaunchConfigurationIfNeeded()
                     #endif
                     appState.restoreSession()
+                }
+                .onChange(of: scenePhase) { phase in
+                    if phase != .active {
+                        speechInputService.cancelRecognitionForLifecycle()
+                    }
                 }
         }
     }

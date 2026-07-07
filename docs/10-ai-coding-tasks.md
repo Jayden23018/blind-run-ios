@@ -32,6 +32,7 @@ Acceptance:
 ### PR-IOS-03 Blind Runner Flow
 
 - 实现盲人资料与紧急联系人、预约、订单状态、取消和评分流程；当前 release 隐藏求助入口，后续安全专项再启用。
+- 盲人首页和创建预约为语音优先流程：状态/主操作/重复当前状态先于辅助地图；创建预约按出发地点、预约时间、选填需求、确认提交分步引导。
 - 盲人订单状态按 PENDING_MATCH / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED、IN_PROGRESS、COMPLETED、终态分别路由到等待、服务中、完成/评分或结束视图。
 - WebSocket 断开时每 5 秒轮询订单状态。
 - 为关键页面提供 VoiceOver、TTS 和“重复当前状态”。
@@ -40,6 +41,7 @@ Acceptance:
 
 - 从预约到服务完成和可选评价的前端流程可演示。
 - 定位拒绝时阻止预约并提示前往设置。
+- 真机验收需覆盖 VoiceOver 顺序、重复当前状态文案、真实高德地图辅助区域仍可渲染，以及 `111` / `iPad Pro (2)` 双设备流程。
 
 ### PR-IOS-04 Volunteer Flow
 

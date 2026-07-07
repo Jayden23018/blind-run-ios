@@ -24,9 +24,11 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
     var currentStatusText: String {
         guard let activeOrder else {
-            return "当前没有进行中的预约。"
+            return "当前没有进行中的预约，可以开始一次新的陪跑预约。"
         }
-        return "当前订单：\(activeOrder.status.displayName)，\(activeOrder.startAddress ?? "")"
+        let startText = activeOrder.startAddress?.nilIfBlank ?? "出发地点待确认"
+        let timeText = activeOrder.plannedStartForAnnouncement ?? "预约时间待确认"
+        return "当前订单：\(activeOrder.status.displayName)。预约时间：\(timeText)。出发地点：\(startText)。"
     }
 
     var canCancelActiveOrder: Bool {
@@ -71,7 +73,10 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
     func speakCurrentStatus(locationDescription: String? = nil) {
         if let activeOrder {
-            speechService?.speakStatusChange(activeOrder.status, text: activeOrder.blindRunnerAnnouncement())
+            speechService?.speakStatusChange(
+                activeOrder.status,
+                text: homeAnnouncement(for: activeOrder, locationDescription: locationDescription)
+            )
         } else {
             let locationText = locationDescription.map { "当前位置：\($0)。" } ?? ""
             speechService?.speak("欢迎来到助盲跑。\(locationText)可以点击开始约跑。")
@@ -79,11 +84,17 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     }
 
     func repeatCurrentStatus(locationDescription: String) {
-        if activeOrder != nil {
-            speechService?.repeatCurrentStatus()
+        if let activeOrder {
+            speechService?.speak(homeAnnouncement(for: activeOrder, locationDescription: locationDescription))
         } else {
-            speechService?.speak("当前没有进行中的预约。当前位置：\(locationDescription)。可以点击开始约跑。")
+            speechService?.speak("当前没有进行中的预约。\(locationDescription)可以点击开始约跑。")
         }
+    }
+
+    private func homeAnnouncement(for order: OrderDetailResponse, locationDescription: String?) -> String {
+        let timeText = order.plannedStartForAnnouncement.map { "预约时间：\($0)。" } ?? ""
+        let locationText = locationDescription.map { "位置摘要：\($0)。" } ?? ""
+        return "\(order.blindRunnerAnnouncement())\(timeText)出发地点：\(order.startAddressForAnnouncement)。\(locationText)"
     }
 
     func cancelActiveOrder() async {
@@ -157,7 +168,6 @@ struct BlindRunnerHomeView: View {
             ScrollView {
                 VStack(spacing: 24) {
                     header
-                    mapSection
 
                     if viewModel.isLoading {
                         ProgressView("正在加载当前状态...")
@@ -180,6 +190,8 @@ struct BlindRunnerHomeView: View {
                     }
 
                     repeatStatusButton
+                    locationSummarySection
+                    auxiliaryMapSection
 
                     #if DEBUG
                     if AppBuildChannel.current.allowsEnvironmentSwitcher {
@@ -262,17 +274,12 @@ struct BlindRunnerHomeView: View {
         }
     }
 
-    private var mapSection: some View {
+    private var locationSummarySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            MapViewWrapper(
-                centerCoordinate: locationService.effectiveLocation,
-                showsUserLocation: locationService.isAuthorized,
-                annotations: []
-            )
-            .frame(height: 220)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .accessibilityLabel("地图，显示当前位置")
-            .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")
+            Text("位置摘要")
+                .font(.headline)
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
 
             Text(locationDescription)
                 .font(AppFonts.body())
@@ -280,6 +287,43 @@ struct BlindRunnerHomeView: View {
                 .accessibilityLabel(locationDescription)
                 .accessibilityHint(locationService.isDenied ? "需要开启定位权限后才能创建预约" : "当前位置摘要")
         }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(8)
+    }
+
+    private var auxiliaryMapSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("辅助地图")
+                .font(.headline)
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+
+            MapViewWrapper(
+                centerCoordinate: viewModel.activeOrder?.startCoordinate ?? locationService.effectiveLocation,
+                showsUserLocation: locationService.isAuthorized,
+                annotations: activeOrderMapAnnotations
+            )
+            .frame(height: 180)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("辅助地图，显示当前位置或订单出发点")
+            .accessibilityHint("地图仅用于视觉确认，当前状态和主要操作在上方")
+            .accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")
+        }
+    }
+
+    private var activeOrderMapAnnotations: [MapAnnotationItem] {
+        guard let order = viewModel.activeOrder, let coordinate = order.startCoordinate else { return [] }
+        return [
+            MapAnnotationItem(
+                id: "active-order-start",
+                coordinate: coordinate,
+                title: "订单出发点",
+                subtitle: order.startAddressForAnnouncement
+            )
+        ]
     }
 
     private var locationDescription: String {
@@ -337,6 +381,7 @@ struct BlindRunnerHomeView: View {
             }
             .accessibilityLabel("开始约跑")
             .accessibilityHint("点击后创建跑步预约")
+            .accessibilityIdentifier("blindRunnerHomeStartBookingButton")
         }
     }
 

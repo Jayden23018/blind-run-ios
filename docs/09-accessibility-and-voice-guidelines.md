@@ -31,6 +31,7 @@ Implementation guidance:
 - Use one shared `SpeechService`.
 - ViewModels decide what to speak when state changes.
 - Avoid repeated speech spam during polling by remembering the last spoken order status.
+- Guided booking may speak on explicit step changes, submission, blocking errors, and "重复当前状态"; it must not speak long summaries after every text edit or every `DatePicker` adjustment.
 - Provide a “重复当前状态” button on each key blind runner page.
 
 ## 3. VoiceOver Requirements
@@ -50,7 +51,7 @@ Required coverage:
 - Location permission prompt
 - Submit booking button
 - Cancel order button
-- Emergency button
+- Future re-enabled emergency button
 - Repeat current status button
 - Volunteer availability switch
 - Available order rows
@@ -65,6 +66,19 @@ Required coverage:
 - Use confirmation dialogs for dangerous actions.
 - Status pages must state current order state in plain language.
 - Error messages must be shown visually and spoken with TTS.
+- Blind-runner maps are auxiliary: current state, next action, and "重复当前状态" must appear before map content in visual and VoiceOver traversal order.
+- Map-equivalent text must be available outside the map. If a demo fallback coordinate is used or the address cannot be resolved, the UI and speech must say so plainly.
+- Raw latitude and longitude must not be normal user-facing text or normal VoiceOver output on blind-runner home, booking, or order status screens.
+
+## 4a. Guided Booking Repeat Status
+
+The blind-runner booking flow uses these repeat-status rules:
+
+- Start point step: speak location source, selected address or unresolved/fallback state, and whether the user can keep the current location or search a 高德地点.
+- Appointment step: speak the selected `DatePicker` time and whether it is at least 30 minutes in the future.
+- Optional needs step: speak only filled optional fields; omit empty route notes, duration, pace, route preference, guide-dog flag, and special notes.
+- Review step: speak start point, appointment time, filled optional needs, and any blocking reason before submission.
+- Search result feedback announces result count and first place name, and result rows read place name/address only.
 
 ## 5. Speech Input
 

@@ -135,6 +135,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/volunteer/dispatch-summary" && method == .get {
             return handleGetVolunteerDispatchSummary()
         }
+        if path == "/api/volunteer/registration/status" && method == .get {
+            return handleGetVolunteerRegistrationStatus()
+        }
+        if path == "/api/volunteer/registration/step1" && method == .post {
+            return try handleSubmitVolunteerRegistrationBasicInfo(body: body)
+        }
 
         // Emergency contacts
         if path.hasPrefix("/api/users/") && path.hasSuffix("/emergency-contacts") && method == .get {
@@ -238,6 +244,40 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             userId: mockUserId,
             role: mockRole?.rawValue
         )
+    }
+
+    private func handleGetVolunteerRegistrationStatus() -> VolunteerRegistrationStatus {
+        let status = volunteerProfile?.verificationStatus?.lowercased()
+        let step1Completed = volunteerProfile?.name?.trimmed.isEmpty == false
+        let submittedVerification = status == "pending" || status == "approved"
+        return VolunteerRegistrationStatus(
+            currentStep: submittedVerification ? 3 : (step1Completed ? 2 : 1),
+            step1Completed: step1Completed,
+            step2Completed: submittedVerification,
+            step3Completed: submittedVerification,
+            trainingCompleted: status == "approved",
+            overallStatus: status?.uppercased() ?? "NOT_SUBMITTED"
+        )
+    }
+
+    private func handleSubmitVolunteerRegistrationBasicInfo(body: (any Encodable & Sendable)?) throws -> EmptyResponse {
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(BasicInfoRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
+        }
+        guard !request.name.trimmed.isEmpty, AppState.isValidMainlandPhone(request.phone) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请填写姓名和手机号"))
+        }
+        volunteerProfile = VolunteerProfileResponse(
+            name: request.name.trimmed,
+            verificationStatus: volunteerProfile?.verificationStatus ?? "in_progress",
+            adminReviewStatus: volunteerProfile?.adminReviewStatus,
+            isAvailable: volunteerProfile?.isAvailable ?? false,
+            availableTimeSlots: volunteerProfile?.availableTimeSlots,
+            acceptsGuideDog: volunteerProfile?.acceptsGuideDog,
+            paceRange: volunteerProfile?.paceRange
+        )
+        return EmptyResponse()
     }
 
     private func handleGetMe() -> ApiSuccessResponse {

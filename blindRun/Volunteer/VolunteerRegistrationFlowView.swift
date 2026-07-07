@@ -118,7 +118,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         )
 
         do {
-            let _: OrderResponse = try await appState.apiClient.post("/api/volunteer/registration/step1", body: request)
+            let _: EmptyResponse = try await appState.apiClient.post("/api/volunteer/registration/step1", body: request)
             isLoading = false
             currentStep = .idCard
             speechService?.speak("基本信息提交成功，请上传身份证")

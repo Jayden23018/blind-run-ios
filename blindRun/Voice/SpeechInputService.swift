@@ -75,6 +75,8 @@ final class SpeechInputService: ObservableObject {
     private let audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private var recognitionStartTask: Task<Void, Never>?
+    private var recognitionSessionID = UUID()
     private var silenceMonitorTask: Task<Void, Never>?
     private var maxDurationTask: Task<Void, Never>?
     private var announcementHandler: ((String) -> Void)?
@@ -100,6 +102,12 @@ final class SpeechInputService: ObservableObject {
         isListening && activeField == field
     }
 
+    /// Returns whether the given field owns the current recognition session,
+    /// including the pending authorization window before recording starts.
+    func hasRecognitionSession(for field: SpeechInputField) -> Bool {
+        activeField == field
+    }
+
     func startRecognition(
         field: SpeechInputField,
         onTextChanged: @escaping (String) -> Void,
@@ -113,46 +121,60 @@ final class SpeechInputService: ObservableObject {
         announcementHandler = onAnnouncement
         completionHandler = onCompletion
 
+        recognitionStartTask?.cancel()
+        let sessionID = UUID()
+        recognitionSessionID = sessionID
         activeField = field
         errorMessage = nil
         lastStopReason = nil
         currentRecognizedText = ""
-        Task {
+        recognitionStartTask = Task { [weak self] in
+            guard let self else { return }
             let speechAuthorized = await requestSpeechAuthorization()
+            guard isCurrentRecognitionSession(sessionID, field: field) else { return }
             guard speechAuthorized else {
                 errorMessage = "语音识别不可用，请使用键盘输入。"
                 announce(errorMessage)
-                activeField = nil
+                clearRecognitionStartState(marking: .error)
                 lastStopReason = .error
                 return
             }
 
             let microphoneAuthorized = await requestMicrophoneAuthorization()
+            guard isCurrentRecognitionSession(sessionID, field: field) else { return }
             guard microphoneAuthorized else {
                 errorMessage = "麦克风不可用，请使用键盘输入。"
                 announce(errorMessage)
-                activeField = nil
+                clearRecognitionStartState(marking: .error)
                 lastStopReason = .error
                 return
             }
 
+            guard isCurrentRecognitionSession(sessionID, field: field) else { return }
             beginRecognition(onTextChanged: onTextChanged)
+            if recognitionStartTask != nil, recognitionSessionID == sessionID {
+                recognitionStartTask = nil
+            }
         }
     }
 
     func stopRecognition() {
-        stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true)
+        stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true, notifyCompletion: true, clearHandlers: true, invalidateSession: true)
+    }
+
+    func cancelRecognitionForLifecycle() {
+        stopAudioRecognition(reason: .manual, clearActiveField: true, announce: false, notifyCompletion: false, clearHandlers: true, invalidateSession: true)
     }
 
     @discardableResult
     private func stopActiveRecognitionIfNeeded(beforeStarting field: SpeechInputField) -> Bool {
         if isListening && activeField == field {
-            stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true)
+            stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true, notifyCompletion: true, clearHandlers: true)
             return true
         }
 
         if isListening {
-            stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true)
+            stopAudioRecognition(reason: .manual, clearActiveField: true, announce: true, notifyCompletion: true, clearHandlers: true)
         }
 
         return false
@@ -161,13 +183,21 @@ final class SpeechInputService: ObservableObject {
     private func stopAudioRecognition(
         reason: SpeechInputStopReason,
         clearActiveField: Bool,
-        announce: Bool
+        announce: Bool,
+        notifyCompletion: Bool,
+        clearHandlers: Bool,
+        invalidateSession: Bool = true
     ) {
         let wasListening = isListening
         let completedField = activeField
         let completedText = currentRecognizedText
         let completedHandler = completionHandler
         cancelStopTimers()
+        if invalidateSession {
+            recognitionSessionID = UUID()
+            recognitionStartTask?.cancel()
+            recognitionStartTask = nil
+        }
 
         if audioEngine.isRunning {
             audioEngine.stop()
@@ -181,7 +211,7 @@ final class SpeechInputService: ObservableObject {
         recognitionRequest = nil
         recognitionTask = nil
         isListening = false
-        if wasListening || reason == .error {
+        if wasListening || reason == .error || (invalidateSession && completedField != nil) {
             lastStopReason = reason
         }
         recognitionStartedAt = nil
@@ -202,25 +232,42 @@ final class SpeechInputService: ObservableObject {
             self.announce(reason.announcement)
         }
 
-        if (wasListening || reason == .error), let completedField {
+        if notifyCompletion, (wasListening || reason == .error), let completedField {
             completedHandler?(SpeechInputCompletion(
                 field: completedField,
                 recognizedText: completedText,
                 reason: reason
             ))
         }
+
+        if clearHandlers {
+            announcementHandler = nil
+            completionHandler = nil
+        }
+    }
+
+    private func isCurrentRecognitionSession(_ sessionID: UUID, field: SpeechInputField) -> Bool {
+        recognitionSessionID == sessionID && activeField == field && !Task.isCancelled
+    }
+
+    private func clearRecognitionStartState(marking reason: SpeechInputStopReason) {
+        recognitionSessionID = UUID()
+        recognitionStartTask = nil
+        activeField = nil
+        lastStopReason = reason
+        announcementHandler = nil
+        completionHandler = nil
     }
 
     private func beginRecognition(onTextChanged: @escaping (String) -> Void) {
         guard recognizer?.isAvailable == true else {
             errorMessage = "语音识别暂不可用，请使用键盘输入。"
             announce(errorMessage)
-            activeField = nil
-            lastStopReason = .error
+            clearRecognitionStartState(marking: .error)
             return
         }
 
-        stopAudioRecognition(reason: .manual, clearActiveField: false, announce: false)
+        stopAudioRecognition(reason: .manual, clearActiveField: false, announce: false, notifyCompletion: false, clearHandlers: false, invalidateSession: false)
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -233,7 +280,7 @@ final class SpeechInputService: ObservableObject {
         } catch {
             errorMessage = "语音输入启动失败，请使用键盘输入。"
             announce(errorMessage)
-            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false)
+            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false, notifyCompletion: true, clearHandlers: true)
             return
         }
 
@@ -242,7 +289,7 @@ final class SpeechInputService: ObservableObject {
               audioSession.sampleRate > 0 else {
             errorMessage = "当前运行环境没有可用的麦克风输入，请使用键盘输入。"
             announce(errorMessage)
-            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false)
+            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false, notifyCompletion: true, clearHandlers: true)
             return
         }
 
@@ -250,7 +297,7 @@ final class SpeechInputService: ObservableObject {
         guard let recordingFormat = validRecordingFormat(from: inputNode) else {
             errorMessage = "当前运行环境没有可用的麦克风输入，请使用键盘输入。"
             announce(errorMessage)
-            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false)
+            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false, notifyCompletion: true, clearHandlers: true)
             return
         }
 
@@ -270,7 +317,7 @@ final class SpeechInputService: ObservableObject {
         } catch {
             errorMessage = "语音输入启动失败，请使用键盘输入。"
             announce(errorMessage)
-            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false)
+            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false, notifyCompletion: true, clearHandlers: true)
             return
         }
 
@@ -293,12 +340,12 @@ final class SpeechInputService: ObservableObject {
                         self.markSoundDetected()
                     }
                     if result.isFinal {
-                        self.stopAudioRecognition(reason: .finalResult, clearActiveField: true, announce: true)
+                        self.stopAudioRecognition(reason: .finalResult, clearActiveField: true, announce: true, notifyCompletion: true, clearHandlers: true)
                     }
                 }
                 if error != nil, self.isListening {
                     self.errorMessage = SpeechInputStopReason.error.announcement
-                    self.stopAudioRecognition(reason: .error, clearActiveField: true, announce: true)
+                    self.stopAudioRecognition(reason: .error, clearActiveField: true, announce: true, notifyCompletion: true, clearHandlers: true)
                 }
             }
         }
@@ -335,7 +382,7 @@ final class SpeechInputService: ObservableObject {
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self, self.isListening else { return }
-                self.stopAudioRecognition(reason: .maxDuration, clearActiveField: true, announce: true)
+                self.stopAudioRecognition(reason: .maxDuration, clearActiveField: true, announce: true, notifyCompletion: true, clearHandlers: true)
             }
         }
     }
@@ -354,7 +401,9 @@ final class SpeechInputService: ObservableObject {
             stopAudioRecognition(
                 reason: .silenceTimeout(hadDetectedSound: false),
                 clearActiveField: true,
-                announce: true
+                announce: true,
+                notifyCompletion: true,
+                clearHandlers: true
             )
             return
         }
@@ -364,7 +413,9 @@ final class SpeechInputService: ObservableObject {
             stopAudioRecognition(
                 reason: .silenceTimeout(hadDetectedSound: true),
                 clearActiveField: true,
-                announce: true
+                announce: true,
+                notifyCompletion: true,
+                clearHandlers: true
             )
         }
     }
@@ -435,6 +486,7 @@ final class SpeechInputService: ObservableObject {
             return
         }
 
+        recognitionSessionID = UUID()
         activeField = field
         isListening = true
         recognitionStartedAt = Date()
@@ -443,19 +495,47 @@ final class SpeechInputService: ObservableObject {
         completionHandler = onCompletion
     }
 
+    @discardableResult
+    func startPendingAuthorizationForTesting(
+        field: SpeechInputField,
+        onCompletion: ((SpeechInputCompletion) -> Void)? = nil
+    ) -> UUID {
+        if stopActiveRecognitionIfNeeded(beforeStarting: field) {
+            recognitionSessionID = UUID()
+        }
+        let sessionID = UUID()
+        recognitionSessionID = sessionID
+        activeField = field
+        isListening = false
+        recognitionStartedAt = nil
+        lastStopReason = nil
+        currentRecognizedText = ""
+        completionHandler = onCompletion
+        return sessionID
+    }
+
+    func simulateAuthorizationCompletionForTesting(
+        sessionID: UUID,
+        field: SpeechInputField
+    ) {
+        guard isCurrentRecognitionSession(sessionID, field: field) else { return }
+        isListening = true
+        recognitionStartedAt = Date()
+    }
+
     func finishRecognitionForTesting(
         text: String,
         reason: SpeechInputStopReason = .finalResult
     ) {
         currentRecognizedText = text
-        stopAudioRecognition(reason: reason, clearActiveField: true, announce: false)
+        stopAudioRecognition(reason: reason, clearActiveField: true, announce: false, notifyCompletion: true, clearHandlers: true)
     }
 
     func simulateRecognitionFailureForTesting(field: SpeechInputField) {
         activeField = field
         isListening = true
         errorMessage = Self.keyboardFallbackErrorMessage
-        stopAudioRecognition(reason: .error, clearActiveField: true, announce: false)
+        stopAudioRecognition(reason: .error, clearActiveField: true, announce: false, notifyCompletion: true, clearHandlers: true)
     }
 
     func triggerSilenceTimeoutForTesting(hadDetectedSound: Bool) {
@@ -463,7 +543,9 @@ final class SpeechInputService: ObservableObject {
         stopAudioRecognition(
             reason: .silenceTimeout(hadDetectedSound: hadDetectedSound),
             clearActiveField: true,
-            announce: false
+            announce: false,
+            notifyCompletion: true,
+            clearHandlers: true
         )
     }
     #endif

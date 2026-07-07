@@ -26,6 +26,26 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
+    func testMockBlindRunnerHomePlacesPrimaryActionBeforeAuxiliaryMap() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            preseedBlindProfile: true,
+            emptyMockOrders: true
+        )
+
+        let startButton = app.buttons["开始约跑"].firstMatch
+        XCTAssertTrue(startButton.waitForExistence(timeout: 12), "Blind runner home should show start booking")
+        let auxiliaryMap = app.descendants(matching: .any)["blindRunnerHomeAuxiliaryMap"].firstMatch
+        XCTAssertTrue(auxiliaryMap.waitForExistence(timeout: 12), "Blind runner home should keep the auxiliary map available")
+        XCTAssertLessThan(
+            startButton.frame.minY,
+            auxiliaryMap.frame.minY,
+            "Voice-first home should place primary action before auxiliary map visually"
+        )
+    }
+
+    @MainActor
     func testLoginEnvironmentSwitcherMatchesBuildChannel() throws {
         let app = launchApp(apiEnvironment: "mock")
         let environmentSwitcher = app.buttons["API 环境切换"].firstMatch
@@ -428,8 +448,23 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(startButton.waitForExistence(timeout: 12), "Blind runner home should show start booking")
         startButton.tap()
 
+        let appointmentStepButton = app.buttons["下一步：预约时间"].firstMatch
+        XCTAssertTrue(appointmentStepButton.waitForExistence(timeout: 15), "Guided booking should start at the start-point step")
+        XCTAssertTrue(waitForElementToBeEnabled(appointmentStepButton, timeout: 10), "Start-point step should be valid with demo location")
+        appointmentStepButton.tap()
+
+        let needsStepButton = app.buttons["下一步：跑步需求"].firstMatch
+        XCTAssertTrue(needsStepButton.waitForExistence(timeout: 10), "Guided booking should proceed to appointment time")
+        XCTAssertTrue(waitForElementToBeEnabled(needsStepButton, timeout: 10), "Default appointment time should satisfy the 30-minute gate")
+        needsStepButton.tap()
+
+        let reviewStepButton = app.buttons["下一步：确认预约"].firstMatch
+        XCTAssertTrue(reviewStepButton.waitForExistence(timeout: 10), "Guided booking should proceed to optional needs")
+        XCTAssertTrue(waitForElementToBeEnabled(reviewStepButton, timeout: 5), "Optional needs step should be skippable")
+        reviewStepButton.tap()
+
         let submitButton = app.buttons["提交预约"].firstMatch
-        XCTAssertTrue(submitButton.waitForExistence(timeout: 15), "Booking form should open and show submit button")
+        XCTAssertTrue(submitButton.waitForExistence(timeout: 10), "Review step should show submit button")
         XCTAssertTrue(waitForElementToBeEnabled(submitButton, timeout: 10), "Submit booking button should be enabled with demo location")
         submitButton.tap()
         dismissSystemAlertsIfPresent(app: app)

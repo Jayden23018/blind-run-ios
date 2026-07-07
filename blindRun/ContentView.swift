@@ -42,8 +42,10 @@ struct ContentView: View {
                     VolunteerHomeView()
                         .transition(.opacity)
                 } else {
-                    VolunteerProfileView()
-                        .transition(.opacity)
+                    NavigationStack {
+                        VolunteerProfileView()
+                    }
+                    .transition(.opacity)
                 }
             }
         }

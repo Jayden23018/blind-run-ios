@@ -33,10 +33,78 @@ enum BookingDurationOption: Int, CaseIterable, Identifiable {
     }
 }
 
+enum BlindBookingGuidedStep: Int, CaseIterable, Identifiable {
+    case startPoint
+    case appointmentTime
+    case runningNeeds
+    case review
+
+    var id: Int { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .startPoint:
+            return "确认出发地点"
+        case .appointmentTime:
+            return "确认预约时间"
+        case .runningNeeds:
+            return "跑步需求"
+        case .review:
+            return "确认并提交"
+        }
+    }
+
+    var shortName: String {
+        switch self {
+        case .startPoint:
+            return "地点"
+        case .appointmentTime:
+            return "时间"
+        case .runningNeeds:
+            return "需求"
+        case .review:
+            return "确认"
+        }
+    }
+
+    var nextActionTitle: String {
+        switch self {
+        case .startPoint:
+            return "下一步：预约时间"
+        case .appointmentTime:
+            return "下一步：跑步需求"
+        case .runningNeeds:
+            return "下一步：确认预约"
+        case .review:
+            return "提交预约"
+        }
+    }
+
+    var nextSpeechAction: String {
+        switch self {
+        case .startPoint:
+            return "确认地点后进入预约时间。"
+        case .appointmentTime:
+            return "确认时间后进入跑步需求。"
+        case .runningNeeds:
+            return "可跳过选填需求，进入确认预约。"
+        case .review:
+            return "确认无误后提交预约。"
+        }
+    }
+}
+
+struct BookingReviewItem: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let value: String
+}
+
 // MARK: - Blind Booking ViewModel
 
 @MainActor
 final class BlindBookingViewModel: ObservableObject {
+    @Published var currentStep: BlindBookingGuidedStep = .startPoint
     @Published var placeSearchKeyword = ""
     @Published var placeSearchResults: [ResolvedPlace] = []
     @Published var selectedStartPlace: ResolvedPlace?
@@ -55,11 +123,14 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var placeMessage: String?
     @Published var searchResultFocusID: String?
+    @Published private(set) var auxiliaryMapCenter: CLLocationCoordinate2D?
+    @Published private(set) var auxiliaryMapPlace: ResolvedPlace?
 
     private weak var appState: AppState?
     private weak var locationService: LocationService?
     private weak var placeSearchProvider: (any PlaceSearchProviding)?
     private var speechService: SpeechService?
+    private static let auxiliaryMapMarkerRefreshDistanceMeters: CLLocationDistance = 30
 
     var minimumAppointmentTime: Date {
         Date().addingTimeInterval(TimeInterval(AppConstants.Timing.minimumBookingLeadMinutes * 60))
@@ -74,6 +145,133 @@ final class BlindBookingViewModel: ObservableObject {
         isAppointmentTimeValid &&
         locationService?.isDenied != true &&
         resolvedStartPlace != nil
+    }
+
+    var isFirstStep: Bool {
+        currentStep == BlindBookingGuidedStep.allCases.first
+    }
+
+    var isReviewStep: Bool {
+        currentStep == .review
+    }
+
+    var canAdvanceFromCurrentStep: Bool {
+        blockingReasonForCurrentStep == nil
+    }
+
+    var blockingReasonForCurrentStep: String? {
+        switch currentStep {
+        case .startPoint:
+            if locationService?.isDenied == true {
+                return "定位权限未开启。请前往系统设置开启定位，以便创建跑步预约。"
+            }
+            if resolvedStartPlace == nil {
+                return "请选择出发地点。"
+            }
+            return nil
+        case .appointmentTime:
+            return isAppointmentTimeValid ? nil : "预约时间需至少在 30 分钟后。"
+        case .runningNeeds:
+            return nil
+        case .review:
+            if locationService?.isDenied == true {
+                return "定位权限未开启。请前往系统设置开启定位，以便创建跑步预约。"
+            }
+            if resolvedStartPlace == nil {
+                return "请选择出发地点。"
+            }
+            if !isAppointmentTimeValid {
+                return "预约时间需至少在 30 分钟后。"
+            }
+            return nil
+        }
+    }
+
+    var stepProgressText: String {
+        let total = BlindBookingGuidedStep.allCases.count
+        return "第 \(currentStep.rawValue + 1) 步，共 \(total) 步"
+    }
+
+    var appointmentSummary: String {
+        let timeText = DateFormatter.aidRunDisplayDateTime.string(from: appointmentTime)
+        if isAppointmentTimeValid {
+            return "预约时间：\(timeText)。"
+        }
+        return "预约时间：\(timeText)。预约时间需至少在 30 分钟后。"
+    }
+
+    var startPointSourceText: String {
+        guard let place = resolvedStartPlace else {
+            return "出发地点尚未解析。"
+        }
+        switch place.source {
+        case .deviceLocation:
+            return selectedStartPlace == nil ? "使用设备当前位置。" : "已选择高德地点。"
+        case .manual:
+            return "已选择高德地点。"
+        case .demoDefault:
+            return "正在使用演示坐标，不代表真实会合点。"
+        }
+    }
+
+    var startPointSummary: String {
+        let placeText = resolvedStartLocationDescription.nilIfBlank ?? "正在获取当前位置"
+        return "\(startPointSourceText)出发地点：\(placeText)。"
+    }
+
+    var optionalReviewItems: [BookingReviewItem] {
+        var items: [BookingReviewItem] = []
+        if let routeNotes = routeNotes.nilIfBlank {
+            items.append(BookingReviewItem(id: "routeNotes", title: "路线备注", value: routeNotes))
+        }
+        if duration != .none {
+            items.append(BookingReviewItem(id: "duration", title: "预计时长", value: duration.displayName))
+        }
+        if pacePreference != .noPreference {
+            items.append(BookingReviewItem(id: "pace", title: "配速偏好", value: pacePreference.displayName))
+        }
+        if routePreference != .noPreference {
+            items.append(BookingReviewItem(id: "route", title: "路线偏好", value: routePreference.displayName))
+        }
+        if hasGuideDogThisRun {
+            items.append(BookingReviewItem(id: "guideDog", title: "导盲犬", value: "本次携带"))
+        }
+        if let specialNotes = specialNotes.nilIfBlank {
+            items.append(BookingReviewItem(id: "specialNotes", title: "特殊说明", value: specialNotes))
+        }
+        return items
+    }
+
+    var optionalNeedsSpeechSummary: String {
+        let items = optionalReviewItems
+        guard !items.isEmpty else {
+            return "没有填写选填跑步需求。"
+        }
+        return items.map { "\($0.title)：\($0.value)" }.joined(separator: "。") + "。"
+    }
+
+    var reviewSummarySpeech: String {
+        let blockingText = blockingReasonForCurrentStep.map { "当前还不能提交，\($0)" } ?? ""
+        return "请确认预约。\(startPointSummary)\(appointmentSummary)\(optionalNeedsSpeechSummary)\(blockingText)"
+    }
+
+    var currentStepSpeechSummary: String {
+        let blockingText = blockingReasonForCurrentStep.map { "当前阻塞：\($0)" } ?? ""
+        switch currentStep {
+        case .startPoint:
+            return "当前步骤：确认出发地点。\(startPointSummary)\(currentStep.nextSpeechAction)\(blockingText)"
+        case .appointmentTime:
+            return "当前步骤：确认预约时间。\(appointmentSummary)\(currentStep.nextSpeechAction)\(blockingText)"
+        case .runningNeeds:
+            return "当前步骤：跑步需求，全部选填。\(optionalNeedsSpeechSummary)\(currentStep.nextSpeechAction)"
+        case .review:
+            return reviewSummarySpeech
+        }
+    }
+
+    var auxiliaryMapAccessibilityLabel: String {
+        let placeText = resolvedStartLocationDescription.nilIfBlank ?? "出发地点待确认"
+        return "辅助地图，\(startPointSourceText)当前出发地点：\(placeText)"
     }
 
     var resolvedStartLocationDescription: String {
@@ -127,14 +325,16 @@ final class BlindBookingViewModel: ObservableObject {
     #if DEBUG
     func configureForTesting(
         placeSearchProvider: any PlaceSearchProviding,
-        speechService: SpeechService
+        speechService: SpeechService,
+        locationService: LocationService? = nil
     ) {
         self.placeSearchProvider = placeSearchProvider
         self.speechService = speechService
+        self.locationService = locationService
     }
     #endif
 
-    func refreshCurrentLocation() async {
+    func refreshCurrentLocation(lockMapCenterIfNeeded: Bool = true) async {
         guard let locationService else { return }
         guard !locationService.isDenied else {
             placeMessage = "需要开启定位权限才能创建预约。"
@@ -153,15 +353,30 @@ final class BlindBookingViewModel: ObservableObject {
 
         guard let placeSearchProvider, !locationService.isUsingDemoFallback else {
             currentResolvedPlace = fallbackPlace
+            updateAuxiliaryMapPlaceIfNeeded(to: fallbackPlace, lockMapCenterIfNeeded: lockMapCenterIfNeeded)
+            if lockMapCenterIfNeeded {
+                lockInitialAuxiliaryMapCenter(to: fallbackPlace.coordinate)
+            }
             placeMessage = locationService.isUsingDemoFallback ? "定位暂不可用，正在使用演示坐标。" : nil
             return
         }
 
         isResolvingStartLocation = true
         let resolvedPlace = await placeSearchProvider.reverseGeocode(coordinate: coordinate)
-        currentResolvedPlace = resolvedPlace ?? fallbackPlace
+        let finalPlace = resolvedPlace ?? fallbackPlace
+        currentResolvedPlace = finalPlace
+        updateAuxiliaryMapPlaceIfNeeded(to: finalPlace, lockMapCenterIfNeeded: lockMapCenterIfNeeded)
+        if lockMapCenterIfNeeded {
+            lockInitialAuxiliaryMapCenter(to: finalPlace.coordinate)
+        }
         isResolvingStartLocation = false
         placeMessage = resolvedPlace == nil ? placeSearchProvider.lastErrorMessage : nil
+    }
+
+    func refreshCurrentLocationIfNeeded() async {
+        guard selectedStartPlace == nil,
+              !isResolvingStartLocation else { return }
+        await refreshCurrentLocation(lockMapCenterIfNeeded: false)
     }
 
     func searchPlaces(triggeredBySpeech: Bool = false) async {
@@ -204,11 +419,102 @@ final class BlindBookingViewModel: ObservableObject {
 
     func selectPlace(_ place: ResolvedPlace) {
         selectedStartPlace = place
+        auxiliaryMapPlace = place
+        auxiliaryMapCenter = place.coordinate
         placeSearchKeyword = place.title
         placeSearchResults = []
         searchResultFocusID = nil
         placeMessage = "已选择出发地点：\(place.title)。"
         speechService?.speak("已选择出发地点，\(place.title)。")
+    }
+
+    private func updateAuxiliaryMapPlaceIfNeeded(
+        to place: ResolvedPlace,
+        lockMapCenterIfNeeded: Bool
+    ) {
+        guard selectedStartPlace == nil else { return }
+        guard let currentMapPlace = auxiliaryMapPlace else {
+            auxiliaryMapPlace = place
+            if lockMapCenterIfNeeded {
+                lockInitialAuxiliaryMapCenter(to: place.coordinate)
+            }
+            return
+        }
+
+        if currentMapPlace.source == .demoDefault && place.source != .demoDefault {
+            auxiliaryMapPlace = place
+            auxiliaryMapCenter = place.coordinate
+            return
+        }
+
+        let distance = CLLocation(latitude: currentMapPlace.latitude, longitude: currentMapPlace.longitude)
+            .distance(from: CLLocation(latitude: place.latitude, longitude: place.longitude))
+        if distance >= Self.auxiliaryMapMarkerRefreshDistanceMeters {
+            auxiliaryMapPlace = place
+        }
+    }
+
+    private func lockInitialAuxiliaryMapCenter(to coordinate: CLLocationCoordinate2D) {
+        guard auxiliaryMapCenter == nil else { return }
+        auxiliaryMapCenter = coordinate
+    }
+
+    func moveToNextStep() {
+        guard canAdvanceFromCurrentStep else {
+            let message = blockingReasonForCurrentStep ?? "请先完成当前步骤。"
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
+
+        guard let currentIndex = BlindBookingGuidedStep.allCases.firstIndex(of: currentStep),
+              currentIndex < BlindBookingGuidedStep.allCases.count - 1 else {
+            return
+        }
+        errorMessage = nil
+        currentStep = BlindBookingGuidedStep.allCases[currentIndex + 1]
+        speechService?.speak(currentStepSpeechSummary)
+    }
+
+    func moveToPreviousStep() {
+        guard let currentIndex = BlindBookingGuidedStep.allCases.firstIndex(of: currentStep),
+              currentIndex > 0 else {
+            return
+        }
+        errorMessage = nil
+        currentStep = BlindBookingGuidedStep.allCases[currentIndex - 1]
+        speechService?.speak(currentStepSpeechSummary)
+    }
+
+    func repeatCurrentStepStatus() {
+        speechService?.speak(currentStepSpeechSummary)
+    }
+
+    func makeCreateOrderRequest() -> CreateOrderRequest? {
+        guard let startPlace = resolvedStartPlace else { return nil }
+        let plannedStartTime = DateFormatter.aidRunBackendLocalDateTime.string(from: appointmentTime)
+        let plannedEndTime: String
+        if let minutes = duration.minutes {
+            let endDate = appointmentTime.addingTimeInterval(TimeInterval(minutes * 60))
+            plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
+        } else {
+            let endDate = appointmentTime.addingTimeInterval(3600)
+            plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
+        }
+
+        return CreateOrderRequest(
+            startLatitude: startPlace.latitude,
+            startLongitude: startPlace.longitude,
+            startAddress: resolvedStartLocationDescription,
+            plannedStartTime: plannedStartTime,
+            plannedEndTime: plannedEndTime,
+            expectedDurationMinutes: duration.minutes,
+            pacePreference: pacePreference == .noPreference ? nil : pacePreference,
+            routePreference: routePreference == .noPreference ? nil : routePreference,
+            routeNotes: routeNotes.nilIfBlank,
+            hasGuideDogThisRun: hasGuideDogThisRun ? true : nil,
+            specialNotes: specialNotes.nilIfBlank
+        )
     }
 
     func submit() async -> OrderResponse? {
@@ -226,34 +532,10 @@ final class BlindBookingViewModel: ObservableObject {
         isSubmitting = true
         errorMessage = nil
 
-        guard let startPlace = resolvedStartPlace else {
+        guard let request = makeCreateOrderRequest() else {
+            isSubmitting = false
             return fail("请选择出发地点。")
         }
-
-        let plannedStartTime = DateFormatter.aidRunBackendLocalDateTime.string(from: appointmentTime)
-        let plannedEndTime: String
-        if let minutes = duration.minutes {
-            let endDate = appointmentTime.addingTimeInterval(TimeInterval(minutes * 60))
-            plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
-        } else {
-            // Default: 1 hour after start
-            let endDate = appointmentTime.addingTimeInterval(3600)
-            plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
-        }
-
-        let request = CreateOrderRequest(
-            startLatitude: startPlace.latitude,
-            startLongitude: startPlace.longitude,
-            startAddress: resolvedStartLocationDescription,
-            plannedStartTime: plannedStartTime,
-            plannedEndTime: plannedEndTime,
-            expectedDurationMinutes: duration.minutes,
-            pacePreference: pacePreference == .noPreference ? nil : pacePreference,
-            routePreference: routePreference == .noPreference ? nil : routePreference,
-            routeNotes: routeNotes.nilIfBlank,
-            hasGuideDogThisRun: hasGuideDogThisRun ? true : nil,
-            specialNotes: specialNotes.nilIfBlank
-        )
 
         do {
             let response: OrderResponse = try await appState.apiClient.post("/api/orders", body: request)
@@ -297,9 +579,8 @@ struct BlindBookingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     header
-                    locationSection
-                    appointmentSection
-                    optionalSection
+                    guidedStepHeader
+                    currentStepContent
 
                     if let errorMessage = viewModel.errorMessage {
                         Text(errorMessage)
@@ -334,7 +615,7 @@ struct BlindBookingView: View {
             Task { await viewModel.refreshCurrentLocation() }
         }
         .onChange(of: locationService.currentLocation) { _ in
-            Task { await viewModel.refreshCurrentLocation() }
+            Task { await viewModel.refreshCurrentLocationIfNeeded() }
         }
         .onChange(of: viewModel.searchResultFocusID) { focusID in
             focusedSearchResultID = focusID
@@ -345,10 +626,65 @@ struct BlindBookingView: View {
         VStack(alignment: .leading, spacing: 8) {
             HighContrastText("创建预约", style: .title)
                 .accessibilityAddTraits(.isHeader)
-            Text("默认使用当前位置作为出发点，预约时间必须至少在 30 分钟后。")
+            Text("按步骤确认出发地点、预约时间和选填需求，最后再提交。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("默认使用当前位置作为出发点，预约时间必须至少在三十分钟后")
+                .accessibilityLabel("按步骤确认出发地点、预约时间和选填需求，最后再提交")
+        }
+    }
+
+    private var guidedStepHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(viewModel.stepProgressText)
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+                .accessibilityLabel(viewModel.stepProgressText)
+
+            HStack(spacing: 8) {
+                ForEach(BlindBookingGuidedStep.allCases) { step in
+                    VStack(spacing: 6) {
+                        Circle()
+                            .fill(step.rawValue <= viewModel.currentStep.rawValue ? AppColors.primary : AppColors.textSecondary.opacity(0.25))
+                            .frame(width: 12, height: 12)
+                            .accessibilityHidden(true)
+                        Text(step.shortName)
+                            .font(AppFonts.caption())
+                            .foregroundColor(step == viewModel.currentStep ? AppColors.textPrimary : AppColors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(viewModel.stepProgressText)，当前步骤：\(viewModel.currentStep.displayName)")
+
+            Text(viewModel.currentStep.displayName)
+                .font(.title2.bold())
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+
+            Text(viewModel.currentStepSpeechSummary)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(viewModel.currentStepSpeechSummary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(8)
+    }
+
+    @ViewBuilder
+    private var currentStepContent: some View {
+        switch viewModel.currentStep {
+        case .startPoint:
+            locationSection
+        case .appointmentTime:
+            appointmentSection
+        case .runningNeeds:
+            optionalSection
+        case .review:
+            reviewSection
         }
     }
 
@@ -414,32 +750,14 @@ struct BlindBookingView: View {
                         .foregroundColor(AppColors.textSecondary)
                         .accessibilityLabel(placeMessage)
                 }
+
+                auxiliaryStartMap
             }
         }
     }
 
     private var currentLocationCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            MapViewWrapper(
-                centerCoordinate: viewModel.resolvedStartPlace?.coordinate ?? locationService.effectiveLocation,
-                showsUserLocation: true,
-                annotations: viewModel.resolvedStartPlace.map {
-                    [
-                        MapAnnotationItem(
-                            id: "start-location",
-                            coordinate: $0.coordinate,
-                            title: $0.title,
-                            subtitle: $0.addressText
-                        )
-                    ]
-                } ?? [],
-                zoomLevel: 16
-            )
-            .frame(height: 180)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .accessibilityLabel("高德地图，当前出发地点：\(viewModel.resolvedStartLocationDescription.isEmpty ? "正在获取当前位置" : viewModel.resolvedStartLocationDescription)")
-            .accessibilityHint("地图用于视觉确认位置；下方文字会读出当前出发地点")
-
             VStack(alignment: .leading, spacing: 6) {
                 Text(viewModel.selectedStartPlace == nil ? "默认出发点" : "已选择出发点")
                     .font(.headline)
@@ -470,6 +788,39 @@ struct BlindBookingView: View {
         .padding()
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
+    }
+
+    private var auxiliaryStartMap: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("辅助地图")
+                .font(.headline)
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+
+            MapViewWrapper(
+                centerCoordinate: viewModel.auxiliaryMapCenter ?? viewModel.auxiliaryMapPlace?.coordinate ?? viewModel.resolvedStartPlace?.coordinate ?? locationService.effectiveLocation,
+                showsUserLocation: true,
+                annotations: (viewModel.auxiliaryMapPlace ?? viewModel.resolvedStartPlace).map {
+                    [
+                        MapAnnotationItem(
+                            id: "start-location",
+                            coordinate: $0.coordinate,
+                            title: $0.title,
+                            subtitle: $0.addressText
+                        )
+                    ]
+                } ?? [],
+                zoomLevel: 16,
+                tracksUserLocation: false,
+                animatesCenterChanges: false
+            )
+            .frame(height: 160)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(viewModel.auxiliaryMapAccessibilityLabel)
+            .accessibilityHint("地图仅用于视觉确认，出发地点文字和语音摘要在上方")
+            .accessibilityIdentifier("blindBookingAuxiliaryMap")
+        }
     }
 
     @ViewBuilder
@@ -648,29 +999,112 @@ struct BlindBookingView: View {
         }
     }
 
-    private var submitArea: some View {
-        VStack(spacing: 10) {
-            PrimaryButton("提交预约", isLoading: viewModel.isSubmitting) {
-                Task {
-                    if let response = await viewModel.submit() {
-                        onOrderCreated(response)
-                    }
+    private var reviewSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionTitle("确认预约")
+
+            reviewRow(title: "出发地点", value: viewModel.resolvedStartLocationDescription.nilIfBlank ?? "出发地点待确认")
+            reviewRow(title: "预约时间", value: DateFormatter.aidRunDisplayDateTime.string(from: viewModel.appointmentTime))
+
+            if viewModel.optionalReviewItems.isEmpty {
+                Text("未填写选填跑步需求。")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityLabel("未填写选填跑步需求")
+            } else {
+                ForEach(viewModel.optionalReviewItems) { item in
+                    reviewRow(title: item.title, value: item.value)
                 }
             }
-            .disabled(!viewModel.canSubmit)
-            .opacity(viewModel.canSubmit ? 1 : 0.45)
-            .accessibilityLabel("提交预约")
-            .accessibilityHint(viewModel.canSubmit ? "提交后系统将为你派单" : "请先完成定位、出发地点和有效预约时间")
+
+            if let blockingReason = viewModel.blockingReasonForCurrentStep {
+                Text(blockingReason)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.destructive)
+                    .accessibilityLabel(blockingReason)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(8)
+    }
+
+    private func reviewRow(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+            Text(value)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textPrimary)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title)：\(value)")
+    }
+
+    private var submitArea: some View {
+        VStack(spacing: 10) {
+            if let blockingReason = viewModel.blockingReasonForCurrentStep {
+                Text(blockingReason)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.destructive)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(blockingReason)
+            }
+
+            HStack(spacing: 12) {
+                if !viewModel.isFirstStep {
+                    Button("上一步") {
+                        viewModel.moveToPreviousStep()
+                    }
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .frame(minWidth: 96)
+                    .frame(minHeight: 64)
+                    .background(AppColors.secondaryBackground)
+                    .cornerRadius(12)
+                    .accessibilityLabel("上一步")
+                    .accessibilityHint("返回上一个预约步骤")
+                }
+
+                PrimaryButton(viewModel.currentStep.nextActionTitle, isLoading: viewModel.isSubmitting) {
+                    if viewModel.isReviewStep {
+                        Task {
+                            if let response = await viewModel.submit() {
+                                onOrderCreated(response)
+                            }
+                        }
+                    } else {
+                        viewModel.moveToNextStep()
+                    }
+                }
+                .disabled(primaryActionDisabled)
+                .opacity(primaryActionDisabled ? 0.45 : 1)
+                .accessibilityLabel(viewModel.currentStep.nextActionTitle)
+                .accessibilityHint(primaryActionHint)
+            }
 
             PrimaryButton("重复当前状态") {
-                speechService.speak("正在创建预约。出发地点：\(viewModel.resolvedStartLocationDescription)。预约时间：\(viewModel.appointmentTime.formatted(date: .abbreviated, time: .shortened))。")
+                viewModel.repeatCurrentStepStatus()
             }
             .accessibilityLabel("重复当前状态")
-            .accessibilityHint("点击后重新播报当前预约表单状态")
+            .accessibilityHint("点击后重新播报当前预约步骤状态")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
         .background(.regularMaterial)
+    }
+
+    private var primaryActionDisabled: Bool {
+        viewModel.isReviewStep ? !viewModel.canSubmit : !viewModel.canAdvanceFromCurrentStep
+    }
+
+    private var primaryActionHint: String {
+        if let blockingReason = viewModel.blockingReasonForCurrentStep {
+            return blockingReason
+        }
+        return viewModel.isReviewStep ? "提交后系统将为你派单" : "进入下一步"
     }
 
     private func sectionTitle(_ title: String) -> some View {
