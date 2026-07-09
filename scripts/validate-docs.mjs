@@ -42,11 +42,13 @@ const forbiddenFragments = [
 ];
 
 const requiredOpenAPIFragments = [
-  '/api/volunteer/registration/step2/id-card',
-  'frontFile',
-  'backFile',
-  '/api/volunteer/registration/step3/face-verify',
-  'facePhoto',
+  '/api/volunteer/registration/step3/face-verify/init',
+  '/api/volunteer/registration/step3/face-verify/result',
+  'FaceVerifyInitRequest',
+  'FaceVerifyResultRequest',
+  'metaInfo',
+  'certifyId',
+  'certifyUrl',
   '/api/admin/volunteers/review/id',
   '/api/admin/volunteers/review/cert',
   '/api/cs/auth/login'

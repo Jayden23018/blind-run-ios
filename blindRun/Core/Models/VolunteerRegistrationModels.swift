@@ -117,12 +117,37 @@ struct VolunteerRegistrationStepDetails: Codable, Sendable {
 struct BasicInfoRequest: Codable, Sendable {
     let name: String
     let phone: String
+    let idCardName: String
+    let idCardNumber: String
     let runningExperience: String?
     let hasGuidedBefore: Bool?
     let emergencyExperience: String?
 }
 
 // MARK: - Step 3: Face Verify
+
+struct FaceVerifyInitRequest: Codable, Sendable {
+    let metaInfo: String
+}
+
+struct FaceVerifyInitResponse: Codable, Sendable {
+    let certifyId: String?
+    let certifyUrl: String?
+    let status: String?
+    let message: String?
+
+    var isPending: Bool {
+        status?.uppercased() == "PENDING"
+    }
+
+    var isError: Bool {
+        status?.uppercased() == "ERROR"
+    }
+}
+
+struct FaceVerifyResultRequest: Codable, Sendable {
+    let certifyId: String
+}
 
 struct FaceVerifyResponse: Codable, Sendable {
     let passed: Bool?
@@ -133,7 +158,20 @@ struct FaceVerifyResponse: Codable, Sendable {
         if passed == true {
             return true
         }
-        return status?.uppercased() == "PASSED"
+        let normalizedStatus = status?.uppercased()
+        return normalizedStatus == "APPROVED" || normalizedStatus == "PASSED"
+    }
+
+    var isPending: Bool {
+        status?.uppercased() == "PENDING"
+    }
+
+    var isRejected: Bool {
+        status?.uppercased() == "REJECTED"
+    }
+
+    var isError: Bool {
+        status?.uppercased() == "ERROR"
     }
 }
 

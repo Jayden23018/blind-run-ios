@@ -356,7 +356,7 @@
 
 ## 页面 9：志愿者资料认证页
 
-**页面目标**：志愿者完成主注册流程：基本信息、身份证人工审核、人脸实时核验、培训学习与测验。
+**页面目标**：志愿者完成主注册流程：基本信息与身份证二要素核验、动作活体认证、培训学习与测验。
 
 **入口**：角色选择页选择"志愿者"（首次）/ 设置页 → 编辑资料。
 
@@ -364,21 +364,22 @@
 - 标题："志愿者认证"
 - 昵称输入框（必填）
 - 手机号显示（自动填充登录手机号）
-- 认证区域：
+  - 认证区域：
   - 提示文字："请完成以下认证步骤（Demo 版为模拟认证）"
-  - 身份证上传、人脸核验、培训学习入口
-  - 主注册状态显示（STEP_1_BASIC_INFO / STEP_2_ID_UPLOAD / STEP_3_FACE_VERIFY / STEP_4_TRAINING / STEP_4_COMPLETED）
+  - 基本信息与身份证二要素、动作活体认证、培训学习入口
+  - 主注册状态显示（STEP_1_BASIC_INFO / STEP_3_FACE_VERIFY / STEP_4_TRAINING / STEP_4_COMPLETED）
 - "提交"按钮
 
 **主要操作**：
 - 填写昵称
-- 点击开始认证 → 进入志愿者注册流程 → 填写基本信息 → 上传身份证正反面并等待人工审核 → 使用系统相机拍摄自拍完成实时人脸核验 → 完成培训课程和测验
+- 点击开始认证 → 进入志愿者注册流程 → 填写基本信息、与身份证一致的姓名和身份证号码 → 后端完成身份证二要素核验 → 发起阿里云动作活体认证并打开 certifyUrl → 返回 App 轮询认证结果 → 完成培训课程和测验
 - 点击"提交" → 保存资料 → 进入志愿者首页
 
 **状态变化**：
-- 身份证提交后：idVerifyStatus = PENDING，页面显示审核中并可刷新/轮询注册状态
-- 身份证审核通过：currentStep = STEP_3_FACE_VERIFY，进入人脸核验
-- 人脸核验通过：currentStep = STEP_4_TRAINING，进入培训学习
+- 身份证二要素核验不通过：停留 STEP_1_BASIC_INFO，显示后端错误并允许更新身份证信息
+- 身份证二要素核验通过：currentStep = STEP_3_FACE_VERIFY，进入动作活体认证
+- 动作活体认证 init 返回 PENDING：打开 certifyUrl，用户完成眨眼/点头后前端轮询 result
+- 活体认证通过：currentStep = STEP_4_TRAINING，进入培训学习
 - 必修课完成且测验及格：currentStep = STEP_4_COMPLETED，canAcceptOrders = true
 - 可选资质证书上传使用 `/api/volunteer/verification`，不属于主注册引导链路，不影响接单资格
 - 可服务开关由志愿者首页单独控制，认证不自动开启 isAvailable / wantsDispatch
@@ -387,8 +388,9 @@
 **错误状态**：
 - 昵称为空 → "请填写昵称"
 - 未完成主注册流程 → "请先完成志愿者注册流程"
-- 身份证审核拒绝 → 显示 idVerifyRejectionReason 并允许重新提交
-- 人脸核验拒绝 → 显示后端 message 并要求重新使用系统相机拍摄
+- 身份证二要素失败 → 显示后端失败原因并允许重新提交 Step1
+- 活体认证发起时返回身份信息错误 → 允许返回 Step1 修改姓名和身份证号码后重新提交
+- 活体认证拒绝 → 显示 faceVerifyRejectionReason 或 result.message，并允许重新发起
 - 网络错误 → "保存失败"
 
 **空状态**：无（首次使用时为空字段）。

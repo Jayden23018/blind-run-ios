@@ -29,7 +29,7 @@
 | `approved` | 已通过 |
 | `rejected` | 已拒绝 |
 
-志愿者主注册流程由 `VolunteerRegistrationStatus.currentStep` 和 `canAcceptOrders` 决定。身份证上传后进入人工审核，审核通过后才能进行人脸核验；人脸核验为实时返回；所有必修培训课程完成且测验及格后，后端自动置为 `STEP_4_COMPLETED` 且 `canAcceptOrders = true`。`verificationStatus` 可用于额外资质证书等兼容状态展示，但不得作为主注册接单门槛。
+志愿者主注册流程由 `VolunteerRegistrationStatus.currentStep` 和 `canAcceptOrders` 决定。Step1 提交基本信息、`idCardName`、`idCardNumber` 后由后端进行身份证二要素核验；iOS 表单只展示一个“姓名”字段，提交时同时作为 `name` 和 `idCardName`。通过后进入 `STEP_3_FACE_VERIFY` 动作活体认证，前端发起 CloudAuth init、打开 `certifyUrl` 并轮询 result；所有必修培训课程完成且测验及格后，后端自动置为 `STEP_4_COMPLETED` 且 `canAcceptOrders = true`。`verificationStatus` 可用于额外资质证书等兼容状态展示，但不得作为主注册接单门槛。
 
 ### RunOrderStatus
 

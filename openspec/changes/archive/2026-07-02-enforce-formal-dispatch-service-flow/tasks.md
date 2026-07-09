@@ -54,6 +54,8 @@
 - [x] 6.1 Run `openspec validate enforce-formal-dispatch-service-flow --strict --no-interactive`.
 - [x] 6.2 Run `node scripts/validate-docs.mjs`.
 - [x] 6.3 Run focused unit tests for state machine, profile gating, dispatch prompt response, Mock transitions, and review submission.
-- [ ] 6.4 Run `xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=111'` when device `111` is available.
-- [ ] 6.5 Run `xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=iPad Pro (2)'` when device `iPad Pro (2)` is available.
-- [ ] 6.6 Run production-readiness validation with real AMap/cloud flags before release sign-off.
+- [x] 6.4 Run `xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=111'` when device `111` is available.
+- [x] 6.5 Run `xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=iPad Pro (2)'` when device `iPad Pro (2)` is available.
+- [x] 6.6 Run production-readiness validation with real AMap/cloud flags before release sign-off.
+
+Validation note: `docs/release-test-report-2026-07-06.md` records passing results for baseline XCTest on `111` and `iPad Pro (2)`, `production-readiness-check.sh` with real AMap, Demo Cloud UI, and cloud E2E flags, and `dual-device-validation.sh` with both validation devices.

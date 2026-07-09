@@ -793,32 +793,55 @@
         }
       }
     },
-    "/api/volunteer/registration/step3/face-verify": {
+    "/api/volunteer/registration/step3/face-verify/init": {
       "post": {
         "tags": [
           "volunteer-registration-controller"
         ],
-        "summary": "人脸验证（Step 3）",
-        "description": "上传自拍照片进行人脸比对",
-        "operationId": "faceVerify",
+        "summary": "发起动作活体认证（Step 3）",
+        "description": "提交阿里云实人认证 SDK 采集的 metaInfo，后端返回 certifyUrl 供前端打开完成眨眼/点头动作。",
+        "operationId": "initFaceVerify",
         "requestBody": {
           "content": {
-            "multipart/form-data": {
+            "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "facePhoto": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "人脸自拍照片"
-                  }
-                },
-                "required": [
-                  "facePhoto"
-                ]
+                "$ref": "#/components/schemas/FaceVerifyInitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaceVerifyInitResponse"
+                }
               }
             }
           }
+        }
+      }
+    },
+    "/api/volunteer/registration/step3/face-verify/result": {
+      "post": {
+        "tags": [
+          "volunteer-registration-controller"
+        ],
+        "summary": "查询动作活体认证结果（Step 3）",
+        "description": "提交 certifyId 查询阿里云实人认证结果；PENDING 时前端继续轮询。",
+        "operationId": "getFaceVerifyResult",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FaceVerifyResultRequest"
+              }
+            }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -827,64 +850,6 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/FaceVerifyResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/volunteer/registration/step2/id-card": {
-      "post": {
-        "tags": [
-          "volunteer-registration-controller"
-        ],
-        "summary": "上传身份证（Step 2）",
-        "description": "multipart/form-data 格式，上传身份证正反面照片",
-        "operationId": "uploadIdCard",
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "idCardName": {
-                    "type": "string",
-                    "description": "身份证姓名"
-                  },
-                  "idCardNumber": {
-                    "type": "string",
-                    "pattern": "^\\d{17}[\\dXx]$",
-                    "description": "身份证号码"
-                  },
-                  "frontFile": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "身份证正面照片（人像面）"
-                  },
-                  "backFile": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "身份证背面照片（国徽面）"
-                  }
-                },
-                "required": [
-                  "backFile",
-                  "frontFile",
-                  "idCardName",
-                  "idCardNumber"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/VolunteerRegistrationStatusResponse"
                 }
               }
             }
@@ -2894,6 +2859,18 @@
             "minLength": 1,
             "pattern": "^1[3-9]\\d{9}$"
           },
+          "idCardName": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "description": "身份证姓名，用于后端身份证二要素核验"
+          },
+          "idCardNumber": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\d{17}[\\dXx]$",
+            "description": "身份证号码，用于后端身份证二要素核验"
+          },
           "runningExperience": {
             "type": "string"
           },
@@ -2903,7 +2880,13 @@
           "emergencyExperience": {
             "type": "string"
           }
-        }
+        },
+        "required": [
+          "idCardName",
+          "idCardNumber",
+          "name",
+          "phone"
+        ]
       },
       "VolunteerLocationRequest": {
         "type": "object",
@@ -3270,7 +3253,6 @@
             "type": "string",
             "enum": [
               "STEP_1_BASIC_INFO",
-              "STEP_2_ID_UPLOAD",
               "STEP_3_FACE_VERIFY",
               "STEP_4_TRAINING",
               "STEP_4_COMPLETED"
@@ -3705,6 +3687,50 @@
           }
         }
       },
+      "FaceVerifyInitRequest": {
+        "type": "object",
+        "properties": {
+          "metaInfo": {
+            "type": "string",
+            "description": "前端通过阿里云实人认证 SDK 采集的设备指纹 JSON 字符串"
+          }
+        },
+        "required": [
+          "metaInfo"
+        ]
+      },
+      "FaceVerifyInitResponse": {
+        "type": "object",
+        "properties": {
+          "certifyId": {
+            "type": "string"
+          },
+          "certifyUrl": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ERROR"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "FaceVerifyResultRequest": {
+        "type": "object",
+        "properties": {
+          "certifyId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "certifyId"
+        ]
+      },
       "FaceVerifyResponse": {
         "type": "object",
         "properties": {
@@ -3714,8 +3740,10 @@
           "status": {
             "type": "string",
             "enum": [
-              "PASSED",
-              "REJECTED"
+              "APPROVED",
+              "PENDING",
+              "REJECTED",
+              "ERROR"
             ]
           },
           "message": {
@@ -3730,7 +3758,6 @@
             "type": "string",
             "enum": [
               "STEP_1_BASIC_INFO",
-              "STEP_2_ID_UPLOAD",
               "STEP_3_FACE_VERIFY",
               "STEP_4_TRAINING",
               "STEP_4_COMPLETED"
@@ -3838,7 +3865,6 @@
             "type": "string",
             "enum": [
               "STEP_1_BASIC_INFO",
-              "STEP_2_ID_UPLOAD",
               "STEP_3_FACE_VERIFY",
               "STEP_4_TRAINING",
               "STEP_4_COMPLETED"
@@ -3918,7 +3944,6 @@
             "type": "string",
             "enum": [
               "STEP_1_BASIC_INFO",
-              "STEP_2_ID_UPLOAD",
               "STEP_3_FACE_VERIFY",
               "STEP_4_TRAINING",
               "STEP_4_COMPLETED"

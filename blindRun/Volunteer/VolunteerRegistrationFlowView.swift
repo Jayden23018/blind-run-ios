@@ -1,24 +1,132 @@
 import Combine
-import PhotosUI
+import Foundation
+import SafariServices
 import SwiftUI
-import UIKit
+#if canImport(AliyunFaceAuthFacade)
+import AliyunFaceAuthFacade
+#endif
 
 // MARK: - Registration Step
 
 enum RegistrationStep: Int, CaseIterable {
     case basicInfo = 1
-    case idCard = 2
     case faceVerify = 3
     case training = 4
 
     var title: String {
         switch self {
-        case .basicInfo: return "基本信息"
-        case .idCard: return "身份核验"
-        case .faceVerify: return "人脸核验"
+        case .basicInfo: return "基本信息与身份核验"
+        case .faceVerify: return "活体认证"
         case .training: return "培训学习"
         }
     }
+
+    var displayIndex: Int {
+        switch self {
+        case .basicInfo: return 1
+        case .faceVerify: return 2
+        case .training: return 3
+        }
+    }
+}
+
+// MARK: - CloudAuth MetaInfo
+
+protocol CloudAuthMetaInfoProviding: Sendable {
+    func collectMetaInfo(environment: APIEnvironment) async throws -> String
+}
+
+enum CloudAuthMetaInfoError: LocalizedError, Sendable {
+    case sdkNotConfigured
+    case sdkMetaInfoUnavailable
+    case sdkMetaInfoSerializationFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .sdkNotConfigured:
+            return "活体认证 SDK 未配置，请更新客户端后重试"
+        case .sdkMetaInfoUnavailable, .sdkMetaInfoSerializationFailed:
+            return "活体认证 SDK 初始化失败，请重试"
+        }
+    }
+}
+
+struct DefaultCloudAuthMetaInfoProvider: CloudAuthMetaInfoProviding {
+    func collectMetaInfo(environment: APIEnvironment) async throws -> String {
+        if environment.isMock {
+            return #"{"platform":"ios","mock":true,"sdk":"cloud-auth-placeholder"}"#
+        }
+        #if canImport(AliyunFaceAuthFacade)
+        AliyunFaceAuthFacade.initSDK()
+        let metaInfo = AliyunFaceAuthFacade.getMetaInfo()
+        return try Self.serializedMetaInfo(from: metaInfo)
+        #else
+        throw CloudAuthMetaInfoError.sdkNotConfigured
+        #endif
+    }
+
+    nonisolated static func serializedMetaInfo(from dictionary: [AnyHashable: Any]) throws -> String {
+        guard !dictionary.isEmpty else {
+            throw CloudAuthMetaInfoError.sdkMetaInfoUnavailable
+        }
+        let jsonObject = normalizedJSONObject(from: dictionary)
+        guard JSONSerialization.isValidJSONObject(jsonObject) else {
+            throw CloudAuthMetaInfoError.sdkMetaInfoSerializationFailed
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.sortedKeys])
+            guard let jsonString = String(data: data, encoding: .utf8), !jsonString.isEmpty else {
+                throw CloudAuthMetaInfoError.sdkMetaInfoSerializationFailed
+            }
+            return jsonString
+        } catch let error as CloudAuthMetaInfoError {
+            throw error
+        } catch {
+            throw CloudAuthMetaInfoError.sdkMetaInfoSerializationFailed
+        }
+    }
+
+    nonisolated private static func normalizedJSONObject(from dictionary: [AnyHashable: Any]) -> [String: Any] {
+        var object: [String: Any] = [:]
+        for (key, value) in dictionary {
+            object[String(describing: key.base)] = normalizedJSONValue(value)
+        }
+        return object
+    }
+
+    nonisolated private static func normalizedJSONValue(_ value: Any) -> Any {
+        if let dictionary = value as? [AnyHashable: Any] {
+            return normalizedJSONObject(from: dictionary)
+        }
+        if let dictionary = value as? NSDictionary {
+            var normalized: [String: Any] = [:]
+            for (key, value) in dictionary {
+                normalized[String(describing: key)] = normalizedJSONValue(value)
+            }
+            return normalized
+        }
+        if let array = value as? [Any] {
+            return array.map(normalizedJSONValue)
+        }
+        if let array = value as? NSArray {
+            return array.map(normalizedJSONValue)
+        }
+        return value
+    }
+}
+
+struct FixedCloudAuthMetaInfoProvider: CloudAuthMetaInfoProviding {
+    let metaInfo: String
+
+    func collectMetaInfo(environment: APIEnvironment) async throws -> String {
+        metaInfo
+    }
+}
+
+struct CloudAuthSession: Identifiable, Sendable {
+    let id = UUID()
+    let certifyId: String
+    let url: URL
 }
 
 // MARK: - Registration ViewModel
@@ -29,7 +137,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    // Step 1: Basic Info
+    // Step 1
     @Published var name = ""
     @Published var phone = "" {
         didSet {
@@ -39,11 +147,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             }
         }
     }
-    @Published var runningExperience = ""
-    @Published var hasGuidedBefore = false
-    @Published var emergencyExperience = ""
-
-    // Step 2: ID Card
     @Published var idCardName = ""
     @Published var idCardNumber = "" {
         didSet {
@@ -53,13 +156,18 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             }
         }
     }
-    @Published var frontImageData: Data?
-    @Published var backImageData: Data?
+    @Published var runningExperience = ""
+    @Published var hasGuidedBefore = false
+    @Published var emergencyExperience = ""
 
-    // Step 3: Face
-    @Published var faceImageData: Data?
+    // Step 3
+    @Published var cloudAuthSession: CloudAuthSession?
+    @Published var activeCertifyId: String?
+    @Published var faceVerifyMessage: String?
+    @Published var isPollingFaceResult = false
+    @Published var canReturnToBasicInfoForIdentityEdit = false
 
-    // Step 4: Training
+    // Step 4
     @Published var courses: [TrainingCourseResponse] = []
     @Published var currentCourseQuestions: [QuizQuestionResponse] = []
     @Published var selectedCourseId: Int64?
@@ -67,16 +175,17 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     @Published var quizResultMessage: String?
     @Published var trainingCompleted = false
 
-    // Status
     @Published var registrationStatus: VolunteerRegistrationStatus?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private let apiClientOverride: (any APIClientProtocol)?
+    private let metaInfoProvider: any CloudAuthMetaInfoProviding
     private var courseProgressById: [Int64: Int] = [:]
 
-    static let maxUploadImageBytes = 5 * 1024 * 1024
     static let idCardNumberRegex = #"^\d{17}[\dXx]$"#
+    static let faceResultPollingIntervalNanoseconds: UInt64 = 3_000_000_000
+    nonisolated static let maxFaceResultPollingAttempts = 240
 
     static func normalizedPhoneNumber(_ value: String) -> String {
         String(value.filter(\.isNumber).prefix(11))
@@ -86,12 +195,16 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         String(value.filter { $0.isNumber || $0 == "X" || $0 == "x" }.prefix(18))
     }
 
-    init(apiClient: (any APIClientProtocol)? = nil) {
+    init(
+        apiClient: (any APIClientProtocol)? = nil,
+        metaInfoProvider: (any CloudAuthMetaInfoProviding)? = nil
+    ) {
         self.apiClientOverride = apiClient
+        self.metaInfoProvider = metaInfoProvider ?? DefaultCloudAuthMetaInfoProvider()
     }
 
     var canSubmitBasicInfo: Bool {
-        basicInfoValidationMessage == nil
+        basicInfoValidationMessage == nil && !isLoading
     }
 
     var basicInfoValidationMessage: String? {
@@ -101,76 +214,26 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         if !AppState.isValidMainlandPhone(phone.trimmed) {
             return "请输入 11 位中国大陆手机号"
         }
-        return nil
+        return identityInfoValidationMessage
     }
 
-    var idCardValidationMessage: String? {
-        if idCardName.trimmed.isEmpty {
-            return "请填写身份证姓名"
-        }
+    var identityInfoValidationMessage: String? {
         if idCardNumber.trimmed.range(of: Self.idCardNumberRegex, options: .regularExpression) == nil {
             return "请输入18位有效身份证号码"
         }
-        if frontImageData == nil || backImageData == nil {
-            return "请上传身份证正反面照片"
-        }
-        if let frontImageData, let message = imageValidationMessage(frontImageData) {
-            return "身份证正面照片\(message)"
-        }
-        if let backImageData, let message = imageValidationMessage(backImageData) {
-            return "身份证背面照片\(message)"
-        }
         return nil
     }
 
-    var canSubmitIdCard: Bool {
-        !isIdReviewPending && idCardValidationMessage == nil && !isLoading
+    var canStartFaceVerify: Bool {
+        currentStep == .faceVerify && !isLoading && !isPollingFaceResult
     }
 
-    var idCardSubmitButtonTitle: String {
-        if isIdReviewPending {
-            return "身份审核中"
-        }
-        return isIdReviewRejected ? "重新提交身份核验" : "提交身份核验"
-    }
-
-    var canSubmitFace: Bool {
-        currentStep == .faceVerify && faceImageData != nil && faceSubmitBlockingMessage == nil && !isLoading
-    }
-
-    var idVerifyStatusText: String {
-        statusDisplayName(idVerifyStatus)
-    }
-
-    var faceVerifyStatusText: String {
-        statusDisplayName(faceVerifyStatus)
-    }
-
-    var idVerifyRejectionReason: String? {
-        registrationStatus?.stepDetails?.idVerifyRejectionReason
-    }
-
-    var faceVerifyRejectionReason: String? {
-        registrationStatus?.stepDetails?.faceVerifyRejectionReason
-    }
-
-    var isIdReviewPending: Bool {
-        idVerifyStatus == "PENDING"
-    }
-
-    var isIdReviewRejected: Bool {
-        idVerifyStatus == "REJECTED"
+    var faceVerifyButtonTitle: String {
+        activeCertifyId == nil ? "开始活体认证" : "重新开始活体认证"
     }
 
     var shouldPollRegistrationStatus: Bool {
-        isIdReviewPending || (currentStep == .training && !trainingCompleted)
-    }
-
-    var faceSubmitBlockingMessage: String? {
-        guard currentStep == .faceVerify, idVerifyStatus != "APPROVED" else {
-            return nil
-        }
-        return identityReviewMessage(for: idVerifyStatus)
+        currentStep == .training && !trainingCompleted
     }
 
     var selectedCourse: TrainingCourseResponse? {
@@ -223,6 +286,9 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         registrationStatus = status
         appState?.updateVolunteerRegistrationStatus(status)
         currentStep = resolvedRegistrationStep(from: status)
+        if currentStep != .faceVerify {
+            canReturnToBasicInfoForIdentityEdit = false
+        }
         trainingCompleted = status.isRegistrationComplete || (status.trainingCompleted ?? trainingCompleted)
         if trainingCompleted {
             quizResultMessage = "注册流程已完成，现在可以接单"
@@ -231,16 +297,9 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
     private func resolvedRegistrationStep(from status: VolunteerRegistrationStatus) -> RegistrationStep {
         let stepCode = (status.registrationStep ?? status.currentStepCode)?.uppercased()
-        if stepCode == "STEP_1_BASIC_INFO" {
-            return .basicInfo
-        }
-
-        let idStatus = (status.idVerifyStatus ?? status.stepDetails?.idVerifyStatus ?? "").uppercased()
-        if idStatus == "PENDING" || idStatus == "REJECTED" || stepCode == "STEP_2_ID_UPLOAD" {
-            return .idCard
-        }
-
         switch stepCode {
+        case "STEP_1_BASIC_INFO", "STEP_2_ID_UPLOAD":
+            return .basicInfo
         case "STEP_3_FACE_VERIFY":
             return .faceVerify
         case "STEP_4_TRAINING", "STEP_4_COMPLETED":
@@ -251,10 +310,8 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
         if let currentStep = status.currentStep {
             switch currentStep {
-            case 1:
+            case 1, 2:
                 return .basicInfo
-            case 2:
-                return .idCard
             case 3:
                 return .faceVerify
             case 4:
@@ -264,14 +321,13 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             }
         }
 
-        if status.step3Completed == true {
+        let faceStatus = (status.faceVerifyStatus ?? status.stepDetails?.faceVerifyStatus ?? "").uppercased()
+        let idStatus = (status.idVerifyStatus ?? status.stepDetails?.idVerifyStatus ?? "").uppercased()
+        if status.step3Completed == true || faceStatus == "APPROVED" || faceStatus == "PASSED" {
             return .training
         }
-        if status.step2Completed == true || idStatus == "APPROVED" {
+        if status.step1Completed == true || idStatus == "APPROVED" {
             return .faceVerify
-        }
-        if status.step1Completed == true {
-            return .idCard
         }
         return .basicInfo
     }
@@ -291,6 +347,8 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         let request = BasicInfoRequest(
             name: name.trimmed,
             phone: phone.trimmed,
+            idCardName: name.trimmed,
+            idCardNumber: idCardNumber.trimmed,
             runningExperience: runningExperience.trimmed.isEmpty ? nil : runningExperience.trimmed,
             hasGuidedBefore: hasGuidedBefore,
             emergencyExperience: emergencyExperience.trimmed.isEmpty ? nil : emergencyExperience.trimmed
@@ -298,9 +356,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
         do {
             let _: EmptyResponse = try await activeAPIClient(appState: appState).post("/api/volunteer/registration/step1", body: request)
-            isLoading = false
-            currentStep = .idCard
-            speechService?.speak("基本信息提交成功，请上传身份证")
+            await syncStatusAfterBasicInfoSuccess(appState: appState)
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) {
                 isLoading = false
@@ -311,6 +367,25 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             isLoading = false
             errorMessage = "提交失败，请重试"
             speechService?.speakError("提交失败，请重试")
+        }
+    }
+
+    private func syncStatusAfterBasicInfoSuccess(appState: AppState) async {
+        do {
+            let status: VolunteerRegistrationStatus = try await activeAPIClient(appState: appState).get("/api/volunteer/registration/status")
+            applyRegistrationStatus(status)
+        } catch {
+            currentStep = .faceVerify
+        }
+        isLoading = false
+        switch currentStep {
+        case .basicInfo:
+            speechService?.speak("身份信息已提交，请等待状态同步")
+        case .faceVerify:
+            faceVerifyMessage = "身份核验通过，请开始活体认证"
+            speechService?.speak("身份核验通过，请开始活体认证")
+        case .training:
+            speechService?.speak("身份与活体认证已完成，请继续培训学习")
         }
     }
 
@@ -348,196 +423,216 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             normalizedMessage.contains("STEP_")
     }
 
-    // MARK: - Step 2
-
-    func submitIdCard() async {
-        if isIdReviewPending {
-            errorMessage = nil
-            speechService?.speak("资料已提交，正在等待人工审核")
-            return
-        }
-        if let message = idCardValidationMessage {
-            errorMessage = message
-            speechService?.speakError(message)
-            return
-        }
-        guard let appState, let frontImageData, let backImageData else { return }
-
-        isLoading = true
-        errorMessage = nil
-
-        do {
-            let _: EmptyResponse = try await activeAPIClient(appState: appState).upload(
-                "/api/volunteer/registration/step2/id-card",
-                fields: [
-                    "idCardName": idCardName.trimmed,
-                    "idCardNumber": idCardNumber.trimmed
-                ],
-                files: [
-                    MultipartFile(fieldName: "frontFile", fileName: "id-card-front.jpg", mimeType: "image/jpeg", data: frontImageData),
-                    MultipartFile(fieldName: "backFile", fileName: "id-card-back.jpg", mimeType: "image/jpeg", data: backImageData)
-                ]
-            )
-            isLoading = false
-            currentStep = .idCard
-            let pendingStatus = VolunteerRegistrationStatus(
-                currentStepCode: "STEP_2_ID_UPLOAD",
-                stepDetails: VolunteerRegistrationStepDetails(idVerifyStatus: "PENDING"),
-                step1Completed: true,
-                idVerifyStatus: "PENDING"
-            )
-            applyRegistrationStatus(pendingStatus)
-            errorMessage = nil
-            speechService?.speak("身份证资料提交成功，请等待身份审核通过")
-        } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
-                isLoading = false
-                return
-            }
-            if await reconcileStatusAfterIdCardSubmissionError(error) {
-                return
-            }
-            isLoading = false
-            errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
-        } catch {
-            isLoading = false
-            errorMessage = "身份证资料提交失败，请重试"
-            speechService?.speakError("身份证资料提交失败，请重试")
-        }
-    }
-
-    private func reconcileStatusAfterIdCardSubmissionError(_ error: APIError) async -> Bool {
-        guard shouldRefreshRegistrationStatus(afterIdCardError: error), let appState else {
-            return false
-        }
-        do {
-            let status: VolunteerRegistrationStatus = try await activeAPIClient(appState: appState).get("/api/volunteer/registration/status")
-            applyRegistrationStatus(status)
-            isLoading = false
-            if isIdReviewPending {
-                errorMessage = nil
-                speechService?.speak("资料已提交，正在等待人工审核")
-                return true
-            }
-            if currentStep == .basicInfo {
-                let message = "请先完成基本信息填写"
-                errorMessage = message
-                speechService?.speakError(message)
-                return true
-            }
-            return false
-        } catch {
-            return false
-        }
-    }
-
-    private func shouldRefreshRegistrationStatus(afterIdCardError error: APIError) -> Bool {
-        guard case .serverError(let response) = error else {
-            return false
-        }
-        let normalized = "\(response.code) \(response.message)".uppercased()
-        return normalized.contains("基本信息") ||
-            normalized.contains("BASIC") ||
-            normalized.contains("CURRENT STEP") ||
-            normalized.contains("当前步骤") ||
-            normalized.contains("STEP_")
-    }
-
     func refreshStatus() {
         Task { await loadStatus(showLoading: false) }
     }
 
     // MARK: - Step 3
 
-    func setFaceImageData(_ data: Data?) {
-        guard let data else {
-            faceImageData = nil
-            return
-        }
-        if let message = imageValidationMessage(data) {
-            faceImageData = nil
-            errorMessage = "自拍照片\(message)"
-            speechService?.speakError("自拍照片\(message)")
-            return
-        }
-        faceImageData = data
-        errorMessage = nil
-    }
-
-    func submitFaceVerify() async {
-        if let message = faceSubmitBlockingMessage {
-            errorMessage = message
-            speechService?.speakError(message)
-            return
-        }
-        guard canSubmitFace, let appState, let faceImageData else { return }
-
-        if let message = imageValidationMessage(faceImageData) {
-            errorMessage = "自拍照片\(message)"
-            speechService?.speakError("自拍照片\(message)")
-            return
-        }
-
+    func startFaceVerify() async {
+        guard canStartFaceVerify, let appState else { return }
         isLoading = true
         errorMessage = nil
+        faceVerifyMessage = nil
+        canReturnToBasicInfoForIdentityEdit = false
 
         do {
-            let response: FaceVerifyResponse = try await activeAPIClient(appState: appState).upload(
-                "/api/volunteer/registration/step3/face-verify",
-                files: [
-                    MultipartFile(fieldName: "facePhoto", fileName: "face-photo.jpg", mimeType: "image/jpeg", data: faceImageData)
-                ]
+            let metaInfo = try await metaInfoProvider.collectMetaInfo(environment: appState.currentEnvironment)
+            let request = FaceVerifyInitRequest(metaInfo: metaInfo)
+            let response: FaceVerifyInitResponse = try await activeAPIClient(appState: appState).post(
+                "/api/volunteer/registration/step3/face-verify/init",
+                body: request
             )
             isLoading = false
-            if response.isPassed {
-                currentStep = .training
-                speechService?.speak(response.message ?? "人脸核验通过，请完成培训课程")
-                await loadCourses()
-                await loadStatus(showLoading: false)
-            } else {
-                let message = response.message ?? faceVerifyRejectionReason ?? "人脸核验未通过，请重新拍照"
-                errorMessage = message
-                speechService?.speakError(message)
-            }
+            await handleFaceVerifyInitResponse(response)
+        } catch let error as CloudAuthMetaInfoError {
+            isLoading = false
+            let message = error.localizedDescription
+            errorMessage = message
+            speechService?.speakError(message)
         } catch let error as APIError {
             isLoading = false
             if appState.handleAuthenticatedAPIError(error) {
                 return
             }
-            if isIdentityReviewRequiredError(error) {
-                let message = "请先完成身份审核"
-                errorMessage = message
-                speechService?.speakError(message)
-            } else {
-                errorMessage = error.localizedMessage
-                speechService?.speakError(error.localizedMessage)
+            if isIdentityInfoError(error) {
+                await handleFaceVerifyIdentityInfoError(error.localizedMessage)
+                return
             }
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
         } catch {
             isLoading = false
-            errorMessage = "人脸核验提交失败，请重试"
-            speechService?.speakError("人脸核验提交失败，请重试")
+            errorMessage = "活体认证发起失败，请重试"
+            speechService?.speakError("活体认证发起失败，请重试")
         }
     }
 
-    private func isIdentityReviewRequiredError(_ error: APIError) -> Bool {
+    private func handleFaceVerifyInitResponse(_ response: FaceVerifyInitResponse) async {
+        if response.isError {
+            let message = response.message ?? "活体认证发起失败，请重试"
+            if isIdentityInfoMessage(message) {
+                await handleFaceVerifyIdentityInfoError(message)
+                return
+            }
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
+        guard let certifyId = response.certifyId,
+              !certifyId.trimmed.isEmpty,
+              let urlString = response.certifyUrl,
+              let url = URL(string: urlString) else {
+            let message = response.message ?? "活体认证地址无效，请重试"
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
+        activeCertifyId = certifyId
+        cloudAuthSession = CloudAuthSession(certifyId: certifyId, url: url)
+        canReturnToBasicInfoForIdentityEdit = false
+        faceVerifyMessage = response.message ?? "活体认证已发起，请在打开的页面完成眨眼或点头动作"
+        speechService?.speak(faceVerifyMessage ?? "活体认证已发起")
+    }
+
+    private func handleFaceVerifyIdentityInfoError(_ message: String) async {
+        activeCertifyId = nil
+        cloudAuthSession = nil
+        faceVerifyMessage = nil
+
+        if let appState {
+            do {
+                let status: VolunteerRegistrationStatus = try await activeAPIClient(appState: appState).get("/api/volunteer/registration/status")
+                applyRegistrationStatus(status)
+            } catch {
+                // Keep the user on the current screen and expose the manual edit path.
+            }
+        }
+
+        if currentStep == .faceVerify {
+            canReturnToBasicInfoForIdentityEdit = true
+            errorMessage = message
+            speechService?.speakError(message)
+        } else {
+            canReturnToBasicInfoForIdentityEdit = false
+            errorMessage = "请修改身份信息后重新提交"
+            speechService?.speakError("请修改身份信息后重新提交")
+        }
+    }
+
+    private func isIdentityInfoError(_ error: APIError) -> Bool {
         guard case .serverError(let response) = error else {
             return false
         }
-        return response.message.contains("身份") ||
-            response.message.contains("身份证") ||
-            response.message.uppercased().contains("ID")
+        return isIdentityInfoMessage("\(response.code) \(response.message)")
     }
 
-    private func identityReviewMessage(for status: String) -> String {
-        switch status {
-        case "PENDING":
-            return "请等待身份审核通过后再提交人脸核验"
-        case "REJECTED":
-            return "身份证资料未通过，请重新提交"
-        default:
-            return "请先完成身份审核"
+    private func isIdentityInfoMessage(_ message: String) -> Bool {
+        let normalizedMessage = message.uppercased()
+        return normalizedMessage.contains("身份信息") ||
+            normalizedMessage.contains("身份证") ||
+            normalizedMessage.contains("IDCARD") ||
+            normalizedMessage.contains("ID_CARD") ||
+            normalizedMessage.contains("ID_INFO") ||
+            normalizedMessage.contains("IDENTITY")
+    }
+
+    func returnToBasicInfoForIdentityEdit() {
+        currentStep = .basicInfo
+        activeCertifyId = nil
+        cloudAuthSession = nil
+        faceVerifyMessage = nil
+        errorMessage = nil
+        canReturnToBasicInfoForIdentityEdit = false
+        speechService?.speak("请修改姓名和身份证号码后重新提交")
+    }
+
+    func pollFaceVerifyResultAfterReturn() {
+        guard activeCertifyId != nil else { return }
+        Task { await pollFaceVerifyResultUntilFinished() }
+    }
+
+    func pollFaceVerifyResultUntilFinished(maxAttempts: Int = maxFaceResultPollingAttempts) async {
+        guard activeCertifyId != nil, !isPollingFaceResult else { return }
+        isPollingFaceResult = true
+        defer { isPollingFaceResult = false }
+
+        for attempt in 0..<maxAttempts {
+            guard !Task.isCancelled else { return }
+            let finished = await pollFaceVerifyResultOnce()
+            if finished {
+                return
+            }
+            if attempt < maxAttempts - 1 {
+                try? await Task.sleep(nanoseconds: Self.faceResultPollingIntervalNanoseconds)
+            }
         }
+        activeCertifyId = nil
+        errorMessage = "活体认证结果查询超时，请重新发起认证"
+        speechService?.speakError("活体认证结果查询超时，请重新发起认证")
+    }
+
+    @discardableResult
+    func pollFaceVerifyResultOnce() async -> Bool {
+        guard let appState, let certifyId = activeCertifyId else { return true }
+        do {
+            let request = FaceVerifyResultRequest(certifyId: certifyId)
+            let response: FaceVerifyResponse = try await activeAPIClient(appState: appState).post(
+                "/api/volunteer/registration/step3/face-verify/result",
+                body: request
+            )
+            return await handleFaceVerifyResult(response)
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) {
+                return true
+            }
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+            return true
+        } catch {
+            errorMessage = "活体认证结果查询失败，请重试"
+            speechService?.speakError("活体认证结果查询失败，请重试")
+            return true
+        }
+    }
+
+    private func handleFaceVerifyResult(_ response: FaceVerifyResponse) async -> Bool {
+        if response.isPassed {
+            activeCertifyId = nil
+            cloudAuthSession = nil
+            faceVerifyMessage = response.message ?? "活体认证通过，请完成培训课程"
+            currentStep = .training
+            speechService?.speak(faceVerifyMessage ?? "活体认证通过")
+            await loadCourses()
+            await loadStatus(showLoading: false)
+            return true
+        }
+        if response.isPending {
+            faceVerifyMessage = response.message ?? "活体认证结果处理中，请稍候"
+            return false
+        }
+        if response.isRejected {
+            activeCertifyId = nil
+            faceVerifyMessage = nil
+            let message = response.message ?? "活体认证未通过，请重新发起认证"
+            errorMessage = message
+            speechService?.speakError(message)
+            return true
+        }
+        if response.isError {
+            activeCertifyId = nil
+            faceVerifyMessage = nil
+            let message = response.message ?? "活体认证结果异常，请重新发起认证"
+            errorMessage = message
+            speechService?.speakError(message)
+            return true
+        }
+
+        activeCertifyId = nil
+        let message = response.message ?? "活体认证未通过，请重新发起认证"
+        errorMessage = message
+        speechService?.speakError(message)
+        return true
     }
 
     // MARK: - Step 4
@@ -710,61 +805,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         return trimmed
     }
 
-    private var idVerifyStatus: String {
-        (registrationStatus?.idVerifyStatus ?? registrationStatus?.stepDetails?.idVerifyStatus ?? "NONE").uppercased()
-    }
-
-    private var faceVerifyStatus: String {
-        (registrationStatus?.faceVerifyStatus ?? registrationStatus?.stepDetails?.faceVerifyStatus ?? "NONE").uppercased()
-    }
-
-    private func statusDisplayName(_ value: String) -> String {
-        switch value.uppercased() {
-        case "NONE", "NOT_STARTED":
-            return "未提交"
-        case "PENDING":
-            return "审核中"
-        case "APPROVED", "PASSED":
-            return "已通过"
-        case "REJECTED":
-            return "未通过"
-        default:
-            return value
-        }
-    }
-
-    private func imageValidationMessage(_ data: Data) -> String? {
-        if data.count > Self.maxUploadImageBytes {
-            return "不能超过5MB"
-        }
-        guard Self.looksLikeImage(data) else {
-            return "必须是图片文件"
-        }
-        return nil
-    }
-
-    private static func looksLikeImage(_ data: Data) -> Bool {
-        guard data.count >= 4 else { return false }
-        let bytes = [UInt8](data.prefix(12))
-        if bytes.starts(with: [0xFF, 0xD8]) {
-            return true
-        }
-        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) {
-            return true
-        }
-        if bytes.starts(with: [0x47, 0x49, 0x46]) {
-            return true
-        }
-        if bytes.count >= 12,
-           bytes[4] == 0x66,
-           bytes[5] == 0x74,
-           bytes[6] == 0x79,
-           bytes[7] == 0x70 {
-            return true
-        }
-        return false
-    }
-
     private func activeAPIClient(appState: AppState) -> any APIClientProtocol {
         apiClientOverride ?? appState.apiClient
     }
@@ -776,10 +816,8 @@ struct VolunteerRegistrationFlowView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel = VolunteerRegistrationViewModel()
-    @State private var frontPhotoItem: PhotosPickerItem?
-    @State private var backPhotoItem: PhotosPickerItem?
-    @State private var isShowingFaceCamera = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -790,8 +828,6 @@ struct VolunteerRegistrationFlowView: View {
                     switch viewModel.currentStep {
                     case .basicInfo:
                         basicInfoStep
-                    case .idCard:
-                        idCardStep
                     case .faceVerify:
                         faceVerifyStep
                     case .training:
@@ -812,12 +848,11 @@ struct VolunteerRegistrationFlowView: View {
         .background(AppColors.background)
         .navigationTitle("志愿者注册")
         .navigationBarTitleDisplayMode(.inline)
-        .fullScreenCover(isPresented: $isShowingFaceCamera) {
-            CameraCaptureView { image in
-                viewModel.setFaceImageData(image.normalizedJPEGData())
-                speechService.speak("已拍摄自拍照片")
-            }
-            .ignoresSafeArea()
+        .sheet(item: $viewModel.cloudAuthSession, onDismiss: {
+            viewModel.pollFaceVerifyResultAfterReturn()
+        }) { session in
+            SafariView(url: session.url)
+                .ignoresSafeArea()
         }
         .task {
             viewModel.configure(appState: appState, speechService: speechService)
@@ -826,6 +861,10 @@ struct VolunteerRegistrationFlowView: View {
         .task(id: viewModel.shouldPollRegistrationStatus) {
             guard viewModel.shouldPollRegistrationStatus else { return }
             await viewModel.pollStatusWhileNeeded()
+        }
+        .onChange(of: scenePhase) { newPhase in
+            guard newPhase == .active else { return }
+            viewModel.pollFaceVerifyResultAfterReturn()
         }
     }
 
@@ -836,21 +875,22 @@ struct VolunteerRegistrationFlowView: View {
             ForEach(RegistrationStep.allCases, id: \.rawValue) { step in
                 VStack(spacing: 4) {
                     Circle()
-                        .fill(step.rawValue <= viewModel.currentStep.rawValue ? AppColors.primary : AppColors.textSecondary.opacity(0.3))
+                        .fill(step.displayIndex <= viewModel.currentStep.displayIndex ? AppColors.primary : AppColors.textSecondary.opacity(0.3))
                         .frame(width: 28, height: 28)
                         .overlay {
-                            Text("\(step.rawValue)")
+                            Text("\(step.displayIndex)")
                                 .font(.caption.bold())
                                 .foregroundColor(.white)
                         }
                     Text(step.title)
                         .font(.caption2)
                         .foregroundColor(step == viewModel.currentStep ? AppColors.primary : AppColors.textSecondary)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("步骤\(step.rawValue) \(step.title)")
-                .accessibilityValue(step == viewModel.currentStep ? "当前步骤" : step.rawValue < viewModel.currentStep.rawValue ? "已完成" : "未完成")
+                .accessibilityLabel("步骤\(step.displayIndex) \(step.title)")
+                .accessibilityValue(step == viewModel.currentStep ? "当前步骤" : step.displayIndex < viewModel.currentStep.displayIndex ? "已完成" : "未完成")
             }
         }
         .padding(.horizontal, 16)
@@ -862,13 +902,19 @@ struct VolunteerRegistrationFlowView: View {
 
     private var basicInfoStep: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("基本信息")
+            Text("基本信息与身份核验")
                 .font(.title2.bold())
                 .accessibilityAddTraits(.isHeader)
+
+            Text("请填写基本信息和身份证信息，姓名需与身份证一致。提交后系统会进行身份证二要素核验，通过后进入活体认证。")
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
 
             formField(title: "姓名", placeholder: "请输入真实姓名", text: $viewModel.name)
             formField(title: "手机号", placeholder: "请输入手机号", text: $viewModel.phone)
                 .keyboardType(.phonePad)
+            formField(title: "身份证号码", placeholder: "请输入18位身份证号码", text: $viewModel.idCardNumber)
+                .keyboardType(.asciiCapable)
             formField(title: "跑步经验", placeholder: "描述您的跑步经验（选填）", text: $viewModel.runningExperience)
 
             Toggle("是否有陪跑经验", isOn: $viewModel.hasGuidedBefore)
@@ -881,176 +927,74 @@ struct VolunteerRegistrationFlowView: View {
                 Text(validationMessage)
                     .font(AppFonts.caption())
                     .foregroundColor(AppColors.destructive)
-                    .accessibilityLabel("无法提交基本信息：\(validationMessage)")
+                    .accessibilityLabel("无法提交身份信息：\(validationMessage)")
             }
 
-            PrimaryButton("提交基本信息", isLoading: viewModel.isLoading) {
+            PrimaryButton("提交身份信息", isLoading: viewModel.isLoading) {
                 Task { await viewModel.submitBasicInfo() }
             }
-            .disabled(viewModel.isLoading || !viewModel.canSubmitBasicInfo)
-            .opacity(viewModel.isLoading || !viewModel.canSubmitBasicInfo ? 0.45 : 1)
-            .accessibilityLabel("提交基本信息")
-            .accessibilityHint(viewModel.basicInfoValidationMessage ?? "点击提交")
+            .disabled(!viewModel.canSubmitBasicInfo)
+            .opacity(viewModel.canSubmitBasicInfo ? 1 : 0.45)
+            .accessibilityLabel("提交身份信息")
+            .accessibilityHint(viewModel.basicInfoValidationMessage ?? "提交基本信息和身份证二要素核验")
         }
-    }
-
-    // MARK: - Step 2
-
-    private var idCardStep: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("身份证上传")
-                .font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
-
-            Text("请上传身份证正反面照片，系统将提交至后端进行身份核验。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-
-            identityReviewStatusPanel
-
-            formField(title: "身份证姓名", placeholder: "请输入身份证上的姓名", text: $viewModel.idCardName)
-            formField(title: "身份证号码", placeholder: "请输入18位身份证号码", text: $viewModel.idCardNumber)
-                .keyboardType(.asciiCapable)
-
-            photoPicker(
-                title: "正面照片（人像面）",
-                selection: $frontPhotoItem,
-                hasData: viewModel.frontImageData != nil
-            ) { data in
-                viewModel.frontImageData = data
-            }
-            photoPicker(
-                title: "背面照片（国徽面）",
-                selection: $backPhotoItem,
-                hasData: viewModel.backImageData != nil
-            ) { data in
-                viewModel.backImageData = data
-            }
-
-            if let validationMessage = viewModel.idCardValidationMessage {
-                Text(validationMessage)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.destructive)
-                    .accessibilityLabel("无法提交身份核验：\(validationMessage)")
-            }
-
-            PrimaryButton(viewModel.idCardSubmitButtonTitle, isLoading: viewModel.isLoading) {
-                Task { await viewModel.submitIdCard() }
-            }
-            .disabled(!viewModel.canSubmitIdCard)
-            .opacity(viewModel.canSubmitIdCard ? 1 : 0.45)
-            .accessibilityLabel(viewModel.idCardSubmitButtonTitle)
-            .accessibilityHint(viewModel.isIdReviewPending ? "身份审核中，请等待或刷新状态" : viewModel.idCardValidationMessage ?? "提交身份证姓名、号码和正反面照片")
-        }
-    }
-
-    private var identityReviewStatusPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: viewModel.isIdReviewRejected ? "xmark.circle.fill" : viewModel.isIdReviewPending ? "clock.fill" : "info.circle.fill")
-                    .foregroundColor(viewModel.isIdReviewRejected ? AppColors.destructive : viewModel.isIdReviewPending ? AppColors.warning : AppColors.textSecondary)
-                    .accessibilityHidden(true)
-                Text("身份审核：\(viewModel.idVerifyStatusText)")
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textPrimary)
-            }
-
-            if viewModel.isIdReviewPending {
-                Text("资料已提交，正在等待人工审核。测试时可由 CS admin 通过身份证审核。")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                Button("刷新审核状态") {
-                    viewModel.refreshStatus()
-                }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.primary)
-                .accessibilityLabel("刷新审核状态")
-            } else if viewModel.isIdReviewRejected {
-                Text(viewModel.idVerifyRejectionReason ?? "身份证资料未通过，请重新提交。")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.destructive)
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("身份审核状态 \(viewModel.idVerifyStatusText)")
     }
 
     // MARK: - Step 3
 
     private var faceVerifyStep: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("人脸核验")
+            Text("活体认证")
                 .font(.title2.bold())
                 .accessibilityAddTraits(.isHeader)
 
-            Text("请使用本机前置相机拍摄清晰自拍照片，系统将实时提交人脸核验。")
+            Text("请在阿里云实人认证页面中按提示完成眨眼或点头动作。完成后返回 App，系统会自动查询认证结果。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
 
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.seal.fill")
-                    .foregroundColor(AppColors.success)
-                    .accessibilityHidden(true)
-                Text("身份审核：\(viewModel.idVerifyStatusText)")
+            if let faceVerifyMessage = viewModel.faceVerifyMessage {
+                Text(faceVerifyMessage)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("身份审核状态 \(viewModel.idVerifyStatusText)")
-
-            if let blockingMessage = viewModel.faceSubmitBlockingMessage {
-                Text(blockingMessage)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.destructive)
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(AppColors.secondaryBackground)
                     .cornerRadius(8)
-                    .accessibilityLabel(blockingMessage)
+                    .accessibilityLabel(faceVerifyMessage)
             }
 
-            Button {
-                if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    isShowingFaceCamera = true
-                } else {
-                    let message = "需要使用真机相机完成自拍人脸核验"
-                    viewModel.errorMessage = message
-                    speechService.speakError(message)
+            PrimaryButton(viewModel.faceVerifyButtonTitle, isLoading: viewModel.isLoading) {
+                Task { await viewModel.startFaceVerify() }
+            }
+            .disabled(!viewModel.canStartFaceVerify)
+            .opacity(viewModel.canStartFaceVerify ? 1 : 0.45)
+            .accessibilityLabel(viewModel.faceVerifyButtonTitle)
+            .accessibilityHint("发起阿里云动作活体认证")
+
+            if viewModel.canReturnToBasicInfoForIdentityEdit {
+                Button("返回修改身份信息") {
+                    viewModel.returnToBasicInfoForIdentityEdit()
                 }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "camera.fill")
-                        .accessibilityHidden(true)
-                    Text(viewModel.faceImageData == nil ? "拍摄自拍照片" : "重新拍摄自拍照片")
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.primary)
+                .accessibilityLabel("返回修改身份信息")
+                .accessibilityHint("返回基本信息页面修改姓名和身份证号码")
+            }
+
+            if viewModel.activeCertifyId != nil {
+                Button("查询活体认证结果") {
+                    Task { await viewModel.pollFaceVerifyResultUntilFinished() }
                 }
-                .font(AppFonts.primaryButton())
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-                .background(AppColors.primary)
-                .cornerRadius(12)
-            }
-            .accessibilityLabel(viewModel.faceImageData == nil ? "拍摄自拍照片" : "重新拍摄自拍照片")
-            .accessibilityHint("打开系统相机拍摄用于人脸核验的自拍照片")
-
-            if viewModel.faceImageData != nil {
-                Label("已拍摄自拍照片", systemImage: "checkmark.circle.fill")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.success)
-                    .accessibilityLabel("已拍摄自拍照片")
+                .disabled(viewModel.isPollingFaceResult)
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(viewModel.isPollingFaceResult ? AppColors.textSecondary : AppColors.primary)
+                .accessibilityLabel("查询活体认证结果")
             }
 
-            PrimaryButton("提交人脸核验", isLoading: viewModel.isLoading) {
-                Task { await viewModel.submitFaceVerify() }
+            if viewModel.isPollingFaceResult {
+                ProgressView("正在查询活体认证结果...")
+                    .accessibilityLabel("正在查询活体认证结果")
             }
-            .disabled(!viewModel.canSubmitFace)
-            .opacity(viewModel.canSubmitFace ? 1 : 0.45)
-            .accessibilityLabel("提交人脸核验")
-            .accessibilityHint(viewModel.faceSubmitBlockingMessage ?? "提交自拍照片进行人脸核验")
         }
     }
 
@@ -1231,133 +1175,16 @@ struct VolunteerRegistrationFlowView: View {
                 .accessibilityHint(placeholder)
         }
     }
-
-    private func photoPicker(
-        title: String,
-        selection: Binding<PhotosPickerItem?>,
-        hasData: Bool,
-        onDataLoaded: @escaping (Data?) -> Void
-    ) -> some View {
-        PhotosPicker(selection: selection, matching: .images) {
-            photoPickerLabel(title: title, hasData: hasData)
-        }
-        .onChange(of: selection.wrappedValue) { newValue in
-            Task { await loadPhotoData(from: newValue, onDataLoaded: onDataLoaded) }
-        }
-        .accessibilityLabel(title)
-        .accessibilityValue(hasData ? "已选择照片" : "未选择照片")
-        .accessibilityHint("点击选择照片")
-    }
-
-    private func photoPickerLabel(title: String, hasData: Bool) -> some View {
-        VStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(AppColors.secondaryBackground)
-                .frame(height: 120)
-                .overlay {
-                    VStack(spacing: 8) {
-                        Image(systemName: hasData ? "checkmark.circle.fill" : "camera.fill")
-                            .font(.title)
-                            .foregroundColor(hasData ? AppColors.success : AppColors.textSecondary)
-                        Text(hasData ? "已选择" : title)
-                            .font(AppFonts.caption())
-                            .foregroundColor(AppColors.textSecondary)
-                    }
-                }
-        }
-    }
-
-    private func loadPhotoData(
-        from item: PhotosPickerItem?,
-        onDataLoaded: @escaping (Data?) -> Void
-    ) async {
-        guard let item else {
-            onDataLoaded(nil)
-            return
-        }
-
-        do {
-            guard let data = try await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data),
-                  let normalized = image.normalizedJPEGData() else {
-                viewModel.errorMessage = "照片读取失败，请重新选择图片"
-                speechService.speakError("照片读取失败，请重新选择图片")
-                onDataLoaded(nil)
-                return
-            }
-            if normalized.count > VolunteerRegistrationViewModel.maxUploadImageBytes {
-                viewModel.errorMessage = "照片不能超过5MB"
-                speechService.speakError("照片不能超过5MB")
-                onDataLoaded(nil)
-                return
-            }
-            viewModel.errorMessage = nil
-            onDataLoaded(normalized)
-        } catch {
-            viewModel.errorMessage = "照片读取失败，请重新选择"
-            speechService.speakError("照片读取失败，请重新选择")
-        }
-    }
 }
 
-// MARK: - Camera Capture
+private struct SafariView: UIViewControllerRepresentable {
+    let url: URL
 
-private struct CameraCaptureView: UIViewControllerRepresentable {
-    let onCapture: (UIImage) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.cameraDevice = .front
-        picker.cameraCaptureMode = .photo
-        picker.allowsEditing = false
-        picker.delegate = context.coordinator
-        return picker
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        SFSafariViewController(url: url)
     }
 
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onCapture: onCapture, dismiss: dismiss)
-    }
-
-    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
-        private let onCapture: (UIImage) -> Void
-        private let dismiss: DismissAction
-
-        init(onCapture: @escaping (UIImage) -> Void, dismiss: DismissAction) {
-            self.onCapture = onCapture
-            self.dismiss = dismiss
-        }
-
-        func imagePickerController(
-            _ picker: UIImagePickerController,
-            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-        ) {
-            if let image = info[.originalImage] as? UIImage {
-                onCapture(image)
-            }
-            dismiss()
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            dismiss()
-        }
-    }
-}
-
-private extension UIImage {
-    func normalizedJPEGData(maxDimension: CGFloat = 1600, compressionQuality: CGFloat = 0.82) -> Data? {
-        let longestSide = max(size.width, size.height)
-        let scale = longestSide > maxDimension ? maxDimension / longestSide : 1
-        let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
-        let normalizedImage = renderer.image { _ in
-            draw(in: CGRect(origin: .zero, size: targetSize))
-        }
-        return normalizedImage.jpegData(compressionQuality: compressionQuality)
-    }
+    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
 
 #if DEBUG
