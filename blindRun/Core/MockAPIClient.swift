@@ -356,7 +356,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         activeCloudAuthCertifyId = "mock-certify-id"
         return FaceVerifyInitResponse(
             certifyId: "mock-certify-id",
-            certifyUrl: "https://example.com/mock-cloud-auth",
             status: "PENDING",
             message: "活体认证已发起"
         )

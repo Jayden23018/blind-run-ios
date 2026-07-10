@@ -918,14 +918,14 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(speechService.lastSpokenText, "身份核验通过，请开始活体认证")
     }
 
-    func testVolunteerFaceVerifyInitPostsMetaInfo() async {
+    func testVolunteerFaceVerifyInitPostsMetaInfoAndStartsNativeSDK() async {
         let appState = AppState()
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
+        let verifier = CloudAuthVerifierSpy(outcome: .cancelled)
         let client = FaceVerifyFlowAPIClient(
             initResponse: FaceVerifyInitResponse(
                 certifyId: "cert-1",
-                certifyUrl: "https://example.com/cert",
                 status: "PENDING",
                 message: "请完成活体认证"
             ),
@@ -933,7 +933,8 @@ final class blindRunTests: XCTestCase {
         )
         let viewModel = VolunteerRegistrationViewModel(
             apiClient: client,
-            metaInfoProvider: FixedCloudAuthMetaInfoProvider(metaInfo: #"{"device":"test"}"#)
+            metaInfoProvider: FixedCloudAuthMetaInfoProvider(metaInfo: #"{"device":"test"}"#),
+            cloudAuthVerifier: verifier
         )
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(currentStepCode: "STEP_3_FACE_VERIFY", step1Completed: true))
@@ -942,15 +943,18 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertEqual(client.initCount, 1)
         XCTAssertEqual(client.capturedMetaInfo, #"{"device":"test"}"#)
-        XCTAssertEqual(viewModel.activeCertifyId, "cert-1")
-        XCTAssertEqual(viewModel.cloudAuthSession?.url.absoluteString, "https://example.com/cert")
-        XCTAssertEqual(speechService.lastSpokenText, "请完成活体认证")
+        XCTAssertEqual(verifier.receivedCertifyIds, ["cert-1"])
+        XCTAssertEqual(verifier.receivedEnvironments, [.mock])
+        XCTAssertNil(viewModel.activeCertifyId)
+        XCTAssertEqual(viewModel.errorMessage, "已取消活体认证，可重新开始")
+        XCTAssertTrue(viewModel.canStartFaceVerify)
+        XCTAssertEqual(client.resultCount, 0)
     }
 
     func testCloudAuthMetaInfoSerializerEncodesAliyunDictionary() throws {
         let metaInfo: [AnyHashable: Any] = [
             "apdidToken": "token-123",
-            "sdkVersion": "2.3.48",
+            "sdkVersion": "2.3.50",
             "device": [
                 "platform": "ios",
                 "features": ["camera", "liveness"]
@@ -963,9 +967,49 @@ final class blindRunTests: XCTestCase {
         let features = try XCTUnwrap(device["features"] as? [String])
 
         XCTAssertEqual(object["apdidToken"] as? String, "token-123")
-        XCTAssertEqual(object["sdkVersion"] as? String, "2.3.48")
+        XCTAssertEqual(object["sdkVersion"] as? String, "2.3.50")
         XCTAssertEqual(device["platform"] as? String, "ios")
         XCTAssertEqual(features, ["camera", "liveness"])
+    }
+
+    func testCloudAuthRequiredResourcesAreBundled() throws {
+        let requiredBundles = [
+            "APBToygerFacade",
+            "APBToygerFacadeSuitable",
+            "BioAuthEngine",
+            "ToygerService"
+        ]
+
+        for bundleName in requiredBundles {
+            XCTAssertNotNil(
+                Bundle.main.url(forResource: bundleName, withExtension: "bundle"),
+                "Missing required CloudAuth resource bundle: \(bundleName).bundle"
+            )
+        }
+
+        let toygerBundleURL = try XCTUnwrap(
+            Bundle.main.url(forResource: "ToygerService", withExtension: "bundle")
+        )
+        let modelURL = toygerBundleURL.appendingPathComponent("toyger.face.dat")
+        let attributes = try FileManager.default.attributesOfItem(atPath: modelURL.path)
+        let modelSize = try XCTUnwrap(attributes[.size] as? NSNumber)
+
+        XCTAssertGreaterThan(modelSize.intValue, 0, "CloudAuth face model must not be empty")
+    }
+
+    func testCloudAuthUnusedOptionalModulesAreExcluded() {
+#if canImport(OCRDetectSDKForTech)
+        XCTFail("OCR CloudAuth module must remain excluded from the ID_PRO-only target")
+#endif
+#if canImport(DTFNFCIdentityManager)
+        XCTFail("NFC CloudAuth module must remain excluded from the ID_PRO-only target")
+#endif
+#if canImport(MultiFactorFacade)
+        XCTFail("MultiFactor CloudAuth module must remain excluded from the ID_PRO-only target")
+#endif
+#if canImport(DTFBeauty)
+        XCTFail("Beauty CloudAuth module must remain excluded from the ID_PRO-only target")
+#endif
     }
 
     func testCloudAuthMetaInfoSerializerRejectsEmptyDictionary() {
@@ -977,12 +1021,151 @@ final class blindRunTests: XCTestCase {
         }
     }
 
+    func testDefaultCloudAuthVerifierMapsSDKCompletionCodes() {
+        XCTAssertEqual(DefaultCloudAuthVerifier.outcome(forSDKCode: 1000), .submitted)
+        XCTAssertEqual(DefaultCloudAuthVerifier.outcome(forSDKCode: 2006), .submitted)
+        XCTAssertEqual(DefaultCloudAuthVerifier.outcome(forSDKCode: 1003), .cancelled)
+        XCTAssertEqual(failureKind(for: DefaultCloudAuthVerifier.outcome(forSDKCode: 1001)), .internalError)
+        XCTAssertEqual(failureKind(for: DefaultCloudAuthVerifier.outcome(forSDKCode: 2002)), .networkError)
+        XCTAssertEqual(failureKind(for: DefaultCloudAuthVerifier.outcome(forSDKCode: 2003)), .deviceTimeError)
+        XCTAssertEqual(failureKind(for: DefaultCloudAuthVerifier.outcome(forSDKCode: 9999)), .unknown(code: 9999))
+    }
+
+    func testCloudAuthDiagnosticsKeepOnlyBoundedTechnicalFields() {
+        let diagnostics = CloudAuthSDKDiagnostics(
+            code: 1001,
+            retCode: 1001,
+            retCodeSub: " z1014 ",
+            retMessageSub: "raw-message-must-not-be-logged",
+            sdkVersion: "2.3.50"
+        )
+
+        XCTAssertEqual(diagnostics.retCodeSub, "Z1014")
+        XCTAssertTrue(diagnostics.retMessageSubPresent)
+        XCTAssertEqual(diagnostics.retMessageSubLength, 30)
+        XCTAssertEqual(diagnostics.sdkVersion, "2.3.50")
+        XCTAssertTrue(diagnostics.debugSummary.contains("retCodeSub=Z1014"))
+        XCTAssertTrue(diagnostics.debugSummary.contains("retMessageSubLength=30"))
+        XCTAssertFalse(diagnostics.debugSummary.contains("raw-message"))
+    }
+
+    func testCloudAuthDiagnosticsRejectUnsafeSubcodeAndVersion() {
+        let diagnostics = CloudAuthSDKDiagnostics(
+            code: 1001,
+            retCode: 1001,
+            retCodeSub: "Z1014 certify-secret",
+            retMessageSub: nil,
+            sdkVersion: "2.3.50 secret"
+        )
+
+        XCTAssertNil(diagnostics.retCodeSub)
+        XCTAssertNil(diagnostics.sdkVersion)
+        XCTAssertFalse(diagnostics.retMessageSubPresent)
+        XCTAssertEqual(diagnostics.retMessageSubLength, 0)
+        XCTAssertFalse(diagnostics.debugSummary.contains("secret"))
+    }
+
+    func testDefaultCloudAuthVerifierMapsDetailedSubcodes() {
+        let mappings: [(String, CloudAuthVerificationFailure.Kind)] = [
+            ("Z1014", .internalError),
+            ("Z1023", .internalError),
+            ("I4001", .moduleIntegration),
+            ("Z1010", .businessParameter),
+            ("Z1037", .businessParameter),
+            ("Z1001", .cameraUnavailable),
+            ("Z1002", .cameraUnavailable),
+            ("Z1020", .cameraUnavailable),
+            ("Z1024", .duplicateFlow)
+        ]
+
+        for (subcode, expectedKind) in mappings {
+            let diagnostics = CloudAuthSDKDiagnostics(
+                code: 1001,
+                retCode: 1001,
+                retCodeSub: subcode,
+                retMessageSub: "not retained",
+                sdkVersion: "2.3.50"
+            )
+            let outcome = DefaultCloudAuthVerifier.outcome(for: diagnostics)
+            XCTAssertEqual(failureKind(for: outcome), expectedKind, "Unexpected mapping for \(subcode)")
+        }
+    }
+
+    func testDefaultCloudAuthVerifierTopLevelCodesTakePrecedenceOverDiagnosticSubcodes() {
+        func outcome(code: Int) -> CloudAuthVerificationOutcome {
+            DefaultCloudAuthVerifier.outcome(for: CloudAuthSDKDiagnostics(
+                code: code,
+                retCode: code,
+                retCodeSub: "Z1014",
+                retMessageSub: "not retained",
+                sdkVersion: "2.3.50"
+            ))
+        }
+
+        XCTAssertEqual(outcome(code: 1000), .submitted)
+        XCTAssertEqual(outcome(code: 2006), .submitted)
+        XCTAssertEqual(outcome(code: 1003), .cancelled)
+        XCTAssertEqual(failureKind(for: outcome(code: 2002)), .networkError)
+        XCTAssertEqual(failureKind(for: outcome(code: 2003)), .deviceTimeError)
+    }
+
+    func testCloudAuthSDKRuntimeInitializesOnlyOnce() {
+        var initializeCalls = 0
+        var versionCalls = 0
+        let runtime = CloudAuthSDKRuntime(
+            initializeSDK: { initializeCalls += 1 },
+            versionProvider: {
+                versionCalls += 1
+                return "2.3.50"
+            }
+        )
+
+        XCTAssertNil(runtime.sdkVersion)
+        runtime.initializeIfNeeded()
+        runtime.initializeIfNeeded()
+
+        XCTAssertEqual(initializeCalls, 1)
+        XCTAssertEqual(runtime.initializationCount, 1)
+        XCTAssertEqual(runtime.sdkVersion, "2.3.50")
+        XCTAssertEqual(versionCalls, 1)
+    }
+
+    func testCloudAuthOneShotGateAcceptsOnlyFirstCallback() {
+        let gate = CloudAuthOneShotGate()
+
+        XCTAssertTrue(gate.claim())
+        XCTAssertFalse(gate.claim())
+    }
+
+    func testVolunteerFaceVerifyMissingCertifyIdDoesNotStartNativeSDK() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let verifier = CloudAuthVerifierSpy(outcome: .submitted)
+        let client = FaceVerifyFlowAPIClient(
+            initResponse: FaceVerifyInitResponse(certifyId: nil, status: "PENDING", message: nil),
+            resultResponses: []
+        )
+        let viewModel = VolunteerRegistrationViewModel(
+            apiClient: client,
+            metaInfoProvider: FixedCloudAuthMetaInfoProvider(metaInfo: #"{"device":"test"}"#),
+            cloudAuthVerifier: verifier
+        )
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(currentStepCode: "STEP_3_FACE_VERIFY", step1Completed: true))
+
+        await viewModel.startFaceVerify()
+
+        XCTAssertTrue(verifier.receivedCertifyIds.isEmpty)
+        XCTAssertEqual(client.resultCount, 0)
+        XCTAssertEqual(viewModel.errorMessage, "活体认证服务返回不完整，请稍后重试")
+    }
+
     func testVolunteerFaceVerifyInitErrorDoesNotPollOrEnterTraining() async {
         let appState = AppState()
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let client = FaceVerifyFlowAPIClient(
-            initResponse: FaceVerifyInitResponse(certifyId: nil, certifyUrl: nil, status: "ERROR", message: "发起失败"),
+            initResponse: FaceVerifyInitResponse(certifyId: nil, status: "ERROR", message: "发起失败"),
             resultResponses: []
         )
         let viewModel = VolunteerRegistrationViewModel(
@@ -1005,7 +1188,7 @@ final class blindRunTests: XCTestCase {
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let client = FaceVerifyFlowAPIClient(
-            initResponse: FaceVerifyInitResponse(certifyId: nil, certifyUrl: nil, status: "ERROR", message: nil),
+            initResponse: FaceVerifyInitResponse(certifyId: nil, status: "ERROR", message: nil),
             initError: APIError.serverError(ErrorResponse(code: "ID_INFO_INVALID", message: "身份信息格式不正确")),
             resultResponses: [],
             status: VolunteerRegistrationStatus(currentStepCode: "STEP_3_FACE_VERIFY", step1Completed: true)
@@ -1037,7 +1220,7 @@ final class blindRunTests: XCTestCase {
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let client = FaceVerifyFlowAPIClient(
-            initResponse: FaceVerifyInitResponse(certifyId: "cert-1", certifyUrl: "https://example.com/cert", status: "PENDING", message: nil),
+            initResponse: FaceVerifyInitResponse(certifyId: "cert-1", status: "PENDING", message: nil),
             resultResponses: [FaceVerifyResponse(passed: false, status: "PENDING", message: "结果处理中")]
         )
         let viewModel = VolunteerRegistrationViewModel(
@@ -1047,7 +1230,7 @@ final class blindRunTests: XCTestCase {
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(currentStepCode: "STEP_3_FACE_VERIFY", step1Completed: true))
 
-        await viewModel.startFaceVerify()
+        viewModel.activeCertifyId = "cert-1"
         let finished = await viewModel.pollFaceVerifyResultOnce()
 
         XCTAssertFalse(finished)
@@ -1061,7 +1244,7 @@ final class blindRunTests: XCTestCase {
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let client = FaceVerifyFlowAPIClient(
-            initResponse: FaceVerifyInitResponse(certifyId: "cert-1", certifyUrl: "https://example.com/cert", status: "PENDING", message: nil),
+            initResponse: FaceVerifyInitResponse(certifyId: "cert-1", status: "PENDING", message: nil),
             resultResponses: [FaceVerifyResponse(passed: false, status: "REJECTED", message: "认证未通过")]
         )
         let viewModel = VolunteerRegistrationViewModel(
@@ -1071,7 +1254,7 @@ final class blindRunTests: XCTestCase {
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(currentStepCode: "STEP_3_FACE_VERIFY", step1Completed: true))
 
-        await viewModel.startFaceVerify()
+        viewModel.activeCertifyId = "cert-1"
         let finished = await viewModel.pollFaceVerifyResultOnce()
 
         XCTAssertTrue(finished)
@@ -1081,31 +1264,88 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.errorMessage, "认证未通过")
     }
 
-    func testVolunteerFaceVerifyApprovedResultEntersTraining() async {
+    func testVolunteerFaceVerifySubmittedSDKPollsApprovedResultAndEntersTraining() async {
         let appState = AppState()
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
+        let verifier = CloudAuthVerifierSpy(outcome: .submitted)
         let client = FaceVerifyFlowAPIClient(
-            initResponse: FaceVerifyInitResponse(certifyId: "cert-1", certifyUrl: "https://example.com/cert", status: "PENDING", message: nil),
+            initResponse: FaceVerifyInitResponse(certifyId: "cert-1", status: "PENDING", message: nil),
             resultResponses: [FaceVerifyResponse(passed: true, status: "APPROVED", message: "认证通过")],
             status: VolunteerRegistrationStatus(currentStepCode: "STEP_4_TRAINING", step1Completed: true, step3Completed: true)
         )
         let viewModel = VolunteerRegistrationViewModel(
             apiClient: client,
-            metaInfoProvider: FixedCloudAuthMetaInfoProvider(metaInfo: #"{"device":"test"}"#)
+            metaInfoProvider: FixedCloudAuthMetaInfoProvider(metaInfo: #"{"device":"test"}"#),
+            cloudAuthVerifier: verifier
         )
         viewModel.configure(appState: appState, speechService: speechService)
         viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(currentStepCode: "STEP_3_FACE_VERIFY", step1Completed: true))
 
         await viewModel.startFaceVerify()
-        let finished = await viewModel.pollFaceVerifyResultOnce()
 
-        XCTAssertTrue(finished)
+        XCTAssertEqual(verifier.receivedCertifyIds, ["cert-1"])
+        XCTAssertEqual(client.resultCount, 1)
         XCTAssertEqual(viewModel.currentStep, .training)
         XCTAssertNil(viewModel.activeCertifyId)
         XCTAssertEqual(client.trainingCoursesCount, 1)
         XCTAssertEqual(client.statusRefreshCount, 1)
         XCTAssertEqual(speechService.lastSpokenText, "认证通过")
+    }
+
+    func testVolunteerFaceVerifySDKFailureClearsCertifyIdAndAllowsRetry() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let client = FaceVerifyFlowAPIClient(
+            initResponse: FaceVerifyInitResponse(certifyId: "cert-1", status: "PENDING", message: nil),
+            resultResponses: []
+        )
+        let viewModel = VolunteerRegistrationViewModel(
+            apiClient: client,
+            metaInfoProvider: FixedCloudAuthMetaInfoProvider(metaInfo: #"{"device":"test"}"#),
+            cloudAuthVerifier: CloudAuthVerifierSpy(outcome: .failed(.networkError))
+        )
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(currentStepCode: "STEP_3_FACE_VERIFY", step1Completed: true))
+
+        await viewModel.startFaceVerify()
+
+        XCTAssertNil(viewModel.activeCertifyId)
+        XCTAssertTrue(viewModel.canStartFaceVerify)
+        XCTAssertEqual(client.resultCount, 0)
+        XCTAssertEqual(viewModel.errorMessage, "活体认证网络连接失败，请检查网络后重试")
+    }
+
+    func testVolunteerFaceVerifyBusinessParameterSubcodeIsSafeAndRetryable() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let diagnostics = CloudAuthSDKDiagnostics(
+            code: 1001,
+            retCode: 1001,
+            retCodeSub: "Z1010",
+            retMessageSub: "certifyId must never be shown",
+            sdkVersion: "2.3.50"
+        )
+        let failure = CloudAuthVerificationFailure(kind: .businessParameter, diagnostics: diagnostics)
+        let client = FaceVerifyFlowAPIClient(
+            initResponse: FaceVerifyInitResponse(certifyId: "cert-1", status: "PENDING", message: nil),
+            resultResponses: []
+        )
+        let viewModel = VolunteerRegistrationViewModel(
+            apiClient: client,
+            metaInfoProvider: FixedCloudAuthMetaInfoProvider(metaInfo: #"{"device":"test"}"#),
+            cloudAuthVerifier: CloudAuthVerifierSpy(outcome: .failed(failure))
+        )
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(currentStepCode: "STEP_3_FACE_VERIFY", step1Completed: true))
+
+        await viewModel.startFaceVerify()
+
+        XCTAssertNil(viewModel.activeCertifyId)
+        XCTAssertTrue(viewModel.canStartFaceVerify)
+        XCTAssertEqual(client.resultCount, 0)
+        XCTAssertEqual(viewModel.errorMessage, "活体认证参数或流程配置异常，请重新发起认证（错误码 Z1010）")
+        XCTAssertFalse(viewModel.errorMessage?.contains("certifyId") == true)
     }
 
     func testVolunteerRegistrationRefreshesStatusWhenBasicInfoAlreadyCompleted() async throws {
@@ -3326,6 +3566,27 @@ final class blindRunTests: XCTestCase {
             requiresAuth: Bool
         ) async throws -> T {
             throw APIError.invalidURL
+        }
+    }
+
+    private func failureKind(for outcome: CloudAuthVerificationOutcome) -> CloudAuthVerificationFailure.Kind? {
+        guard case .failed(let failure) = outcome else { return nil }
+        return failure.kind
+    }
+
+    private final class CloudAuthVerifierSpy: CloudAuthVerifying, @unchecked Sendable {
+        private let outcome: CloudAuthVerificationOutcome
+        private(set) var receivedCertifyIds: [String] = []
+        private(set) var receivedEnvironments: [APIEnvironment] = []
+
+        init(outcome: CloudAuthVerificationOutcome) {
+            self.outcome = outcome
+        }
+
+        func verify(certifyId: String, environment: APIEnvironment) async -> CloudAuthVerificationOutcome {
+            receivedCertifyIds.append(certifyId)
+            receivedEnvironments.append(environment)
+            return outcome
         }
     }
 

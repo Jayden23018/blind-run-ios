@@ -799,7 +799,7 @@
           "volunteer-registration-controller"
         ],
         "summary": "发起动作活体认证（Step 3）",
-        "description": "提交阿里云实人认证 SDK 采集的 metaInfo，后端返回 certifyUrl 供前端打开完成眨眼/点头动作。",
+        "description": "提交阿里云实人认证 SDK 采集的 metaInfo。后端从 JWT 获取用户并使用 Step1 已通过的身份数据、ID_PRO、IDENTITY_CARD、MULTI_ACTION、唯一 OuterOrderNo 和配置的 SceneId 创建全新且不可复用的 App SDK 尝试；返回 certifyId 后，iOS 使用 AliyunFaceAuthFacade 原生 SDK 按页面提示完成动作。",
         "operationId": "initFaceVerify",
         "requestBody": {
           "content": {
@@ -3692,6 +3692,7 @@
         "properties": {
           "metaInfo": {
             "type": "string",
+            "minLength": 1,
             "description": "前端通过阿里云实人认证 SDK 采集的设备指纹 JSON 字符串"
           }
         },
@@ -3700,24 +3701,51 @@
         ]
       },
       "FaceVerifyInitResponse": {
-        "type": "object",
-        "properties": {
-          "certifyId": {
-            "type": "string"
-          },
-          "certifyUrl": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "PENDING",
-              "ERROR"
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "certifyId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "阿里云原生 App SDK 认证流水号"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "PENDING"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "certifyId",
+              "status"
             ]
           },
-          "message": {
-            "type": "string"
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ERROR"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "message"
+            ]
           }
+        ],
+        "discriminator": {
+          "propertyName": "status"
         }
       },
       "FaceVerifyResultRequest": {

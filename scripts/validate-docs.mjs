@@ -48,7 +48,6 @@ const requiredOpenAPIFragments = [
   'FaceVerifyResultRequest',
   'metaInfo',
   'certifyId',
-  'certifyUrl',
   '/api/admin/volunteers/review/id',
   '/api/admin/volunteers/review/cert',
   '/api/cs/auth/login'
@@ -79,6 +78,39 @@ for (const fragment of requiredOpenAPIFragments) {
     console.error(`[validate-docs] docs/07-api-contract.openapi.yaml is missing required backend contract fragment: ${fragment}`);
     failed = true;
   }
+}
+
+if (openAPIText.includes('certifyUrl')) {
+  console.error('[validate-docs] docs/07-api-contract.openapi.yaml still contains legacy Step3 certifyUrl');
+  failed = true;
+}
+
+try {
+  const openAPIDocument = JSON.parse(openAPIText);
+  const faceVerifyInitResponse = openAPIDocument.components?.schemas?.FaceVerifyInitResponse;
+  const pendingBranch = faceVerifyInitResponse?.oneOf?.find((branch) =>
+    branch.properties?.status?.enum?.includes('PENDING')
+  );
+  const errorBranch = faceVerifyInitResponse?.oneOf?.find((branch) =>
+    branch.properties?.status?.enum?.includes('ERROR')
+  );
+  const pendingRequired = new Set(pendingBranch?.required ?? []);
+  const errorRequired = new Set(errorBranch?.required ?? []);
+
+  if (
+    faceVerifyInitResponse?.discriminator?.propertyName !== 'status' ||
+    pendingBranch?.properties?.certifyId?.minLength !== 1 ||
+    !pendingRequired.has('status') ||
+    !pendingRequired.has('certifyId') ||
+    !errorRequired.has('status') ||
+    !errorRequired.has('message')
+  ) {
+    console.error('[validate-docs] FaceVerifyInitResponse must require non-empty certifyId for PENDING and message for ERROR');
+    failed = true;
+  }
+} catch (error) {
+  console.error(`[validate-docs] docs/07-api-contract.openapi.yaml is not valid JSON: ${error.message}`);
+  failed = true;
 }
 
 if (failed) {

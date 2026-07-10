@@ -132,7 +132,6 @@ struct FaceVerifyInitRequest: Codable, Sendable {
 
 struct FaceVerifyInitResponse: Codable, Sendable {
     let certifyId: String?
-    let certifyUrl: String?
     let status: String?
     let message: String?
 

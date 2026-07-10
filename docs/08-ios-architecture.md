@@ -172,3 +172,12 @@ The iOS app must support a two-device demo:
 ## 11. Roadmap Capabilities
 
 Do not implement Android, full admin backend, real-time track sharing, app chat, AI assistant, App 内路线规划, automatic calls, automatic SMS, complex risk control, fall detection, geofencing, instant call, payment, stock, or full points shop without explicit product rules, API contracts, and acceptance tests. Real SMS and identity verification are backend-owned capabilities now represented in `docs/07-api-contract.openapi.yaml`; the iOS client may consume those contracts without adding backend code to this repository. WebSocket is in scope only for cloud contract real-time dispatch, status notifications, and location updates. 志愿者前往出发地点阶段允许通过 URL Scheme / MapKit 跳转外部地图 App 做步行导航，不涉及新增后端 API。
+
+## 12. Alibaba CloudAuth SDK Packaging
+
+- 志愿者 Step3 使用阿里云原生 App SDK。客户端提交 `metaInfo` 获取 `certifyId`，再调用原生 SDK；不使用 Safari、自拍 multipart 或身份证照片上传。
+- 当前供应包是阿里云官方 iOS SDK 聚合版本 `2.3.50`，官方 ZIP MD5 为 `ef124c58ac90e33ea3d652363cc424fb`。升级时必须替换整个选定模块集合，禁止混用不同聚合版本的二进制。
+- ID_PRO 必选模块为 `AliyunFaceAuthFacade`、`ToygerService`、`DTFIdentityManager`、`ToygerNative`、`BioAuthEngine`、`DTFUtility`、`VerifyNativeAbility`、`APBToygerFacade`、`faceguard` 和 `APPSecuritySDK`。
+- CocoaPods 必须把 `ToygerService.bundle`、`APBToygerFacade.bundle`、`APBToygerFacadeSuitable.bundle` 和 `BioAuthEngine.bundle` 复制到 App 顶层资源；其中 `ToygerService.bundle/toyger.face.dat` 不得缺失或为空。
+- 当前流程不使用 OCR、NFC、多因子意愿认证或美颜，因此对应 framework 与 bundle 不进入构建产物，也不为这些能力增加权限。
+- SDK 日志只允许记录数值 code、retCode、格式校验后的 subcode、消息存在性/长度及 SDK 版本；禁止输出完整 JWT、身份证号、MetaInfo、certifyId、reason、extInfo 或 bizData。

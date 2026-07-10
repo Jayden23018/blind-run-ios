@@ -13,7 +13,7 @@ target 'blindRun' do
   pod 'AMap3DMap-NO-IDFA'
   pod 'AMapLocation-NO-IDFA'
   pod 'AMapSearch-NO-IDFA'
-  pod 'AliyunCloudAuth', :path => 'Vendor/AliyunCloudAuth/2.3.48'
+  pod 'AliyunCloudAuth', :path => 'Vendor/AliyunCloudAuth/2.3.50'
 
   target 'blindRunTests' do
     inherit! :search_paths

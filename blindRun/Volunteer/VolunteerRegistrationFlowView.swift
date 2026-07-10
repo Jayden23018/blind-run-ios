@@ -1,7 +1,8 @@
 import Combine
 import Foundation
-import SafariServices
+import OSLog
 import SwiftUI
+import UIKit
 #if canImport(AliyunFaceAuthFacade)
 import AliyunFaceAuthFacade
 #endif
@@ -32,6 +33,7 @@ enum RegistrationStep: Int, CaseIterable {
 
 // MARK: - CloudAuth MetaInfo
 
+@MainActor
 protocol CloudAuthMetaInfoProviding: Sendable {
     func collectMetaInfo(environment: APIEnvironment) async throws -> String
 }
@@ -51,13 +53,60 @@ enum CloudAuthMetaInfoError: LocalizedError, Sendable {
     }
 }
 
+@MainActor
+final class CloudAuthSDKRuntime: @unchecked Sendable {
+    static let shared = CloudAuthSDKRuntime(
+        initializeSDK: {
+            #if canImport(AliyunFaceAuthFacade)
+            AliyunFaceAuthFacade.initSDK()
+            #endif
+        },
+        versionProvider: {
+            #if canImport(AliyunFaceAuthFacade)
+            return AliyunFaceAuthFacade.getVersion()
+            #else
+            return nil
+            #endif
+        }
+    )
+
+    private let initializeSDK: @MainActor () -> Void
+    private let versionProvider: @MainActor () -> String?
+    private(set) var initializationCount = 0
+
+    init(
+        initializeSDK: @escaping @MainActor () -> Void,
+        versionProvider: @escaping @MainActor () -> String?
+    ) {
+        self.initializeSDK = initializeSDK
+        self.versionProvider = versionProvider
+    }
+
+    func initializeIfNeeded() {
+        guard initializationCount == 0 else { return }
+        initializeSDK()
+        initializationCount = 1
+    }
+
+    var sdkVersion: String? {
+        guard initializationCount > 0 else { return nil }
+        return versionProvider()
+    }
+}
+
 struct DefaultCloudAuthMetaInfoProvider: CloudAuthMetaInfoProviding {
+    private let sdkRuntime: CloudAuthSDKRuntime
+
+    init(sdkRuntime: CloudAuthSDKRuntime = .shared) {
+        self.sdkRuntime = sdkRuntime
+    }
+
     func collectMetaInfo(environment: APIEnvironment) async throws -> String {
         if environment.isMock {
             return #"{"platform":"ios","mock":true,"sdk":"cloud-auth-placeholder"}"#
         }
         #if canImport(AliyunFaceAuthFacade)
-        AliyunFaceAuthFacade.initSDK()
+        sdkRuntime.initializeIfNeeded()
         let metaInfo = AliyunFaceAuthFacade.getMetaInfo()
         return try Self.serializedMetaInfo(from: metaInfo)
         #else
@@ -123,10 +172,261 @@ struct FixedCloudAuthMetaInfoProvider: CloudAuthMetaInfoProviding {
     }
 }
 
-struct CloudAuthSession: Identifiable, Sendable {
-    let id = UUID()
-    let certifyId: String
-    let url: URL
+// MARK: - Native CloudAuth Verification
+
+struct CloudAuthSDKDiagnostics: Equatable, Sendable {
+    let code: Int
+    let retCode: Int
+    let retCodeSub: String?
+    let retMessageSubPresent: Bool
+    let retMessageSubLength: Int
+    let sdkVersion: String?
+
+    init(
+        code: Int,
+        retCode: Int,
+        retCodeSub: String?,
+        retMessageSub: String?,
+        sdkVersion: String?
+    ) {
+        self.code = code
+        self.retCode = retCode
+        self.retCodeSub = Self.sanitizedSubcode(retCodeSub)
+        self.retMessageSubPresent = retMessageSub != nil
+        self.retMessageSubLength = retMessageSub?.count ?? 0
+        self.sdkVersion = Self.sanitizedVersion(sdkVersion)
+    }
+
+    var debugSummary: String {
+        let subcode = retCodeSub ?? "none"
+        let version = sdkVersion ?? "unknown"
+        return "sdkCode=\(code) retCode=\(retCode) retCodeSub=\(subcode) retMessageSubPresent=\(retMessageSubPresent) retMessageSubLength=\(retMessageSubLength) sdkVersion=\(version)"
+    }
+
+    var userFacingSubcodeSuffix: String {
+        guard let retCodeSub else { return "" }
+        return "（错误码 \(retCodeSub)）"
+    }
+
+    nonisolated private static func sanitizedSubcode(_ value: String?) -> String? {
+        guard let normalized = value?.trimmed.uppercased(),
+              !normalized.isEmpty,
+              normalized.range(of: #"^(?:[A-Z][0-9]{4}|[0-9]{4})$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return normalized
+    }
+
+    nonisolated private static func sanitizedVersion(_ value: String?) -> String? {
+        guard let normalized = value?.trimmed,
+              normalized.range(of: #"^[0-9]+(?:\.[0-9]+){1,3}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return normalized
+    }
+}
+
+struct CloudAuthVerificationFailure: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case sdkUnavailable
+        case presenterUnavailable
+        case internalError
+        case moduleIntegration
+        case businessParameter
+        case cameraUnavailable
+        case duplicateFlow
+        case networkError
+        case deviceTimeError
+        case unknown(code: Int)
+    }
+
+    let kind: Kind
+    let diagnostics: CloudAuthSDKDiagnostics?
+
+    static let sdkUnavailable = Self(kind: .sdkUnavailable, diagnostics: nil)
+    static let presenterUnavailable = Self(kind: .presenterUnavailable, diagnostics: nil)
+    static let internalError = Self(kind: .internalError, diagnostics: nil)
+    static let networkError = Self(kind: .networkError, diagnostics: nil)
+    static let deviceTimeError = Self(kind: .deviceTimeError, diagnostics: nil)
+
+    static func unknown(code: Int) -> Self {
+        Self(kind: .unknown(code: code), diagnostics: nil)
+    }
+
+    var message: String {
+        let suffix = diagnostics?.userFacingSubcodeSuffix ?? ""
+        switch kind {
+        case .sdkUnavailable:
+            return "活体认证 SDK 未配置，请更新客户端后重试"
+        case .presenterUnavailable:
+            return "无法打开活体认证页面，请稍后重试"
+        case .internalError:
+            return "活体认证 SDK 初始化或内部处理失败，请重新发起认证\(suffix)"
+        case .moduleIntegration:
+            return "活体认证刷脸模块接入异常，请更新客户端后重试\(suffix)"
+        case .businessParameter:
+            return "活体认证参数或流程配置异常，请重新发起认证\(suffix)"
+        case .cameraUnavailable:
+            return "无法使用相机完成活体认证，请检查相机权限后重试\(suffix)"
+        case .duplicateFlow:
+            return "活体认证流程重复发起，请稍后重新开始\(suffix)"
+        case .networkError:
+            return "活体认证网络连接失败，请检查网络后重试\(suffix)"
+        case .deviceTimeError:
+            return "设备时间不准确，请校准系统时间后重试\(suffix)"
+        case .unknown(let code):
+            return "活体认证 SDK 返回未知状态（\(code)），请重新发起认证\(suffix)"
+        }
+    }
+}
+
+enum CloudAuthVerificationOutcome: Equatable, Sendable {
+    case submitted
+    case cancelled
+    case failed(CloudAuthVerificationFailure)
+}
+
+@MainActor
+protocol CloudAuthVerifying: Sendable {
+    func verify(certifyId: String, environment: APIEnvironment) async -> CloudAuthVerificationOutcome
+}
+
+struct DefaultCloudAuthVerifier: CloudAuthVerifying {
+    private let sdkRuntime: CloudAuthSDKRuntime
+
+    init(sdkRuntime: CloudAuthSDKRuntime = .shared) {
+        self.sdkRuntime = sdkRuntime
+    }
+
+    func verify(certifyId: String, environment: APIEnvironment) async -> CloudAuthVerificationOutcome {
+        if environment.isMock {
+            return .submitted
+        }
+
+        #if canImport(AliyunFaceAuthFacade)
+        guard let presenter = Self.activeViewController() else {
+            return .failed(.presenterUnavailable)
+        }
+
+        sdkRuntime.initializeIfNeeded()
+        let sdkVersion = sdkRuntime.sdkVersion
+        return await withCheckedContinuation { continuation in
+            let completionGate = CloudAuthOneShotGate()
+            AliyunFaceAuthFacade.verify(
+                with: certifyId,
+                extParams: ["currentCtr": presenter]
+            ) { response in
+                guard completionGate.claim() else { return }
+                let diagnostics = CloudAuthSDKDiagnostics(
+                    code: Int(response.code.rawValue),
+                    retCode: Int(response.retCode.rawValue),
+                    retCodeSub: response.retCodeSub,
+                    retMessageSub: response.retMessageSub,
+                    sdkVersion: sdkVersion
+                )
+                Self.logDiagnostics(diagnostics)
+                continuation.resume(returning: Self.outcome(for: diagnostics))
+            }
+        }
+        #else
+        return .failed(.sdkUnavailable)
+        #endif
+    }
+
+    nonisolated static func outcome(forSDKCode code: Int) -> CloudAuthVerificationOutcome {
+        outcome(for: CloudAuthSDKDiagnostics(
+            code: code,
+            retCode: code,
+            retCodeSub: nil,
+            retMessageSub: nil,
+            sdkVersion: nil
+        ))
+    }
+
+    nonisolated static func outcome(for diagnostics: CloudAuthSDKDiagnostics) -> CloudAuthVerificationOutcome {
+        let subcodeFailureKind: CloudAuthVerificationFailure.Kind?
+        switch diagnostics.retCodeSub {
+        case "Z1014", "Z1023":
+            subcodeFailureKind = .internalError
+        case "I4001":
+            subcodeFailureKind = .moduleIntegration
+        case "Z1010", "Z1037":
+            subcodeFailureKind = .businessParameter
+        case "Z1001", "Z1002", "Z1020":
+            subcodeFailureKind = .cameraUnavailable
+        case "Z1024":
+            subcodeFailureKind = .duplicateFlow
+        default:
+            subcodeFailureKind = nil
+        }
+
+        switch diagnostics.code {
+        case 1000, 2006:
+            return .submitted
+        case 1003:
+            return .cancelled
+        case 1001:
+            return .failed(CloudAuthVerificationFailure(
+                kind: subcodeFailureKind ?? .internalError,
+                diagnostics: diagnostics
+            ))
+        case 2002:
+            return .failed(CloudAuthVerificationFailure(kind: .networkError, diagnostics: diagnostics))
+        case 2003:
+            return .failed(CloudAuthVerificationFailure(kind: .deviceTimeError, diagnostics: diagnostics))
+        default:
+            if let subcodeFailureKind {
+                return .failed(CloudAuthVerificationFailure(kind: subcodeFailureKind, diagnostics: diagnostics))
+            }
+            return .failed(CloudAuthVerificationFailure(kind: .unknown(code: diagnostics.code), diagnostics: diagnostics))
+        }
+    }
+
+    nonisolated private static func logDiagnostics(_ diagnostics: CloudAuthSDKDiagnostics) {
+        #if DEBUG
+        let logger = Logger(subsystem: "com.aidrun.ios", category: "CloudAuth")
+        logger.debug("\(diagnostics.debugSummary, privacy: .public)")
+        #endif
+    }
+
+    private static func activeViewController() -> UIViewController? {
+        let windowScenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+        let window = windowScenes
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow) ?? windowScenes.flatMap(\.windows).first
+        guard let rootViewController = window?.rootViewController else { return nil }
+        return topViewController(from: rootViewController)
+    }
+
+    private static func topViewController(from viewController: UIViewController) -> UIViewController {
+        if let presented = viewController.presentedViewController {
+            return topViewController(from: presented)
+        }
+        if let navigationController = viewController as? UINavigationController,
+           let visible = navigationController.visibleViewController {
+            return topViewController(from: visible)
+        }
+        if let tabBarController = viewController as? UITabBarController,
+           let selected = tabBarController.selectedViewController {
+            return topViewController(from: selected)
+        }
+        return viewController
+    }
+}
+
+final class CloudAuthOneShotGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !claimed else { return false }
+        claimed = true
+        return true
+    }
 }
 
 // MARK: - Registration ViewModel
@@ -161,9 +461,9 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     @Published var emergencyExperience = ""
 
     // Step 3
-    @Published var cloudAuthSession: CloudAuthSession?
     @Published var activeCertifyId: String?
     @Published var faceVerifyMessage: String?
+    @Published var isPerformingFaceVerify = false
     @Published var isPollingFaceResult = false
     @Published var canReturnToBasicInfoForIdentityEdit = false
 
@@ -181,6 +481,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     private var speechService: SpeechService?
     private let apiClientOverride: (any APIClientProtocol)?
     private let metaInfoProvider: any CloudAuthMetaInfoProviding
+    private let cloudAuthVerifier: any CloudAuthVerifying
     private var courseProgressById: [Int64: Int] = [:]
 
     static let idCardNumberRegex = #"^\d{17}[\dXx]$"#
@@ -197,10 +498,12 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
     init(
         apiClient: (any APIClientProtocol)? = nil,
-        metaInfoProvider: (any CloudAuthMetaInfoProviding)? = nil
+        metaInfoProvider: (any CloudAuthMetaInfoProviding)? = nil,
+        cloudAuthVerifier: (any CloudAuthVerifying)? = nil
     ) {
         self.apiClientOverride = apiClient
         self.metaInfoProvider = metaInfoProvider ?? DefaultCloudAuthMetaInfoProvider()
+        self.cloudAuthVerifier = cloudAuthVerifier ?? DefaultCloudAuthVerifier()
     }
 
     var canSubmitBasicInfo: Bool {
@@ -225,7 +528,11 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     var canStartFaceVerify: Bool {
-        currentStep == .faceVerify && !isLoading && !isPollingFaceResult
+        currentStep == .faceVerify && !isFaceVerifyBusy
+    }
+
+    var isFaceVerifyBusy: Bool {
+        isLoading || isPerformingFaceVerify || isPollingFaceResult
     }
 
     var faceVerifyButtonTitle: String {
@@ -444,7 +751,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
                 body: request
             )
             isLoading = false
-            await handleFaceVerifyInitResponse(response)
+            await handleFaceVerifyInitResponse(response, environment: appState.currentEnvironment)
         } catch let error as CloudAuthMetaInfoError {
             isLoading = false
             let message = error.localizedDescription
@@ -468,7 +775,10 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         }
     }
 
-    private func handleFaceVerifyInitResponse(_ response: FaceVerifyInitResponse) async {
+    private func handleFaceVerifyInitResponse(
+        _ response: FaceVerifyInitResponse,
+        environment: APIEnvironment
+    ) async {
         if response.isError {
             let message = response.message ?? "活体认证发起失败，请重试"
             if isIdentityInfoMessage(message) {
@@ -479,25 +789,47 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             speechService?.speakError(message)
             return
         }
-        guard let certifyId = response.certifyId,
-              !certifyId.trimmed.isEmpty,
-              let urlString = response.certifyUrl,
-              let url = URL(string: urlString) else {
-            let message = response.message ?? "活体认证地址无效，请重试"
+        guard response.isPending,
+              let certifyId = response.certifyId?.trimmed,
+              !certifyId.isEmpty else {
+            let message = response.message ?? "活体认证服务返回不完整，请稍后重试"
             errorMessage = message
             speechService?.speakError(message)
             return
         }
+
         activeCertifyId = certifyId
-        cloudAuthSession = CloudAuthSession(certifyId: certifyId, url: url)
         canReturnToBasicInfoForIdentityEdit = false
-        faceVerifyMessage = response.message ?? "活体认证已发起，请在打开的页面完成眨眼或点头动作"
+        faceVerifyMessage = response.message ?? "活体认证已发起，正在打开客户端认证页面"
         speechService?.speak(faceVerifyMessage ?? "活体认证已发起")
+
+        isPerformingFaceVerify = true
+        let outcome = await cloudAuthVerifier.verify(certifyId: certifyId, environment: environment)
+        isPerformingFaceVerify = false
+        await handleCloudAuthVerificationOutcome(outcome)
+    }
+
+    private func handleCloudAuthVerificationOutcome(_ outcome: CloudAuthVerificationOutcome) async {
+        switch outcome {
+        case .submitted:
+            faceVerifyMessage = "动作活体已提交，正在查询认证结果"
+            errorMessage = nil
+            await pollFaceVerifyResultUntilFinished()
+        case .cancelled:
+            activeCertifyId = nil
+            faceVerifyMessage = nil
+            errorMessage = "已取消活体认证，可重新开始"
+            speechService?.speak("已取消活体认证，可重新开始")
+        case .failed(let failure):
+            activeCertifyId = nil
+            faceVerifyMessage = nil
+            errorMessage = failure.message
+            speechService?.speakError(failure.message)
+        }
     }
 
     private func handleFaceVerifyIdentityInfoError(_ message: String) async {
         activeCertifyId = nil
-        cloudAuthSession = nil
         faceVerifyMessage = nil
 
         if let appState {
@@ -540,16 +872,10 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     func returnToBasicInfoForIdentityEdit() {
         currentStep = .basicInfo
         activeCertifyId = nil
-        cloudAuthSession = nil
         faceVerifyMessage = nil
         errorMessage = nil
         canReturnToBasicInfoForIdentityEdit = false
         speechService?.speak("请修改姓名和身份证号码后重新提交")
-    }
-
-    func pollFaceVerifyResultAfterReturn() {
-        guard activeCertifyId != nil else { return }
-        Task { await pollFaceVerifyResultUntilFinished() }
     }
 
     func pollFaceVerifyResultUntilFinished(maxAttempts: Int = maxFaceResultPollingAttempts) async {
@@ -599,7 +925,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     private func handleFaceVerifyResult(_ response: FaceVerifyResponse) async -> Bool {
         if response.isPassed {
             activeCertifyId = nil
-            cloudAuthSession = nil
             faceVerifyMessage = response.message ?? "活体认证通过，请完成培训课程"
             currentStep = .training
             speechService?.speak(faceVerifyMessage ?? "活体认证通过")
@@ -816,7 +1141,6 @@ struct VolunteerRegistrationFlowView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel = VolunteerRegistrationViewModel()
 
     var body: some View {
@@ -848,12 +1172,6 @@ struct VolunteerRegistrationFlowView: View {
         .background(AppColors.background)
         .navigationTitle("志愿者注册")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $viewModel.cloudAuthSession, onDismiss: {
-            viewModel.pollFaceVerifyResultAfterReturn()
-        }) { session in
-            SafariView(url: session.url)
-                .ignoresSafeArea()
-        }
         .task {
             viewModel.configure(appState: appState, speechService: speechService)
             await viewModel.loadStatus()
@@ -861,10 +1179,6 @@ struct VolunteerRegistrationFlowView: View {
         .task(id: viewModel.shouldPollRegistrationStatus) {
             guard viewModel.shouldPollRegistrationStatus else { return }
             await viewModel.pollStatusWhileNeeded()
-        }
-        .onChange(of: scenePhase) { newPhase in
-            guard newPhase == .active else { return }
-            viewModel.pollFaceVerifyResultAfterReturn()
         }
     }
 
@@ -948,7 +1262,7 @@ struct VolunteerRegistrationFlowView: View {
                 .font(.title2.bold())
                 .accessibilityAddTraits(.isHeader)
 
-            Text("请在阿里云实人认证页面中按提示完成眨眼或点头动作。完成后返回 App，系统会自动查询认证结果。")
+            Text("点击开始后将打开阿里云原生活体认证页面。请按页面提示完成动作，完成后系统会自动查询认证结果。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
 
@@ -963,13 +1277,13 @@ struct VolunteerRegistrationFlowView: View {
                     .accessibilityLabel(faceVerifyMessage)
             }
 
-            PrimaryButton(viewModel.faceVerifyButtonTitle, isLoading: viewModel.isLoading) {
+            PrimaryButton(viewModel.faceVerifyButtonTitle, isLoading: viewModel.isLoading || viewModel.isPerformingFaceVerify) {
                 Task { await viewModel.startFaceVerify() }
             }
             .disabled(!viewModel.canStartFaceVerify)
             .opacity(viewModel.canStartFaceVerify ? 1 : 0.45)
             .accessibilityLabel(viewModel.faceVerifyButtonTitle)
-            .accessibilityHint("发起阿里云动作活体认证")
+            .accessibilityHint("发起认证并打开阿里云原生活体认证页面")
 
             if viewModel.canReturnToBasicInfoForIdentityEdit {
                 Button("返回修改身份信息") {
@@ -1175,16 +1489,6 @@ struct VolunteerRegistrationFlowView: View {
                 .accessibilityHint(placeholder)
         }
     }
-}
-
-private struct SafariView: UIViewControllerRepresentable {
-    let url: URL
-
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        SFSafariViewController(url: url)
-    }
-
-    func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 }
 
 #if DEBUG

@@ -372,13 +372,13 @@
 
 **主要操作**：
 - 填写昵称
-- 点击开始认证 → 进入志愿者注册流程 → 填写基本信息、与身份证一致的姓名和身份证号码 → 后端完成身份证二要素核验 → 发起阿里云动作活体认证并打开 certifyUrl → 返回 App 轮询认证结果 → 完成培训课程和测验
+- 点击开始认证 → 进入志愿者注册流程 → 填写基本信息、与身份证一致的姓名和身份证号码 → 后端完成身份证二要素核验 → init 获取 certifyId → iOS 通过 AliyunFaceAuthFacade 原生 SDK 完成动作活体 → SDK 回调后轮询 result → 完成培训课程和测验
 - 点击"提交" → 保存资料 → 进入志愿者首页
 
 **状态变化**：
 - 身份证二要素核验不通过：停留 STEP_1_BASIC_INFO，显示后端错误并允许更新身份证信息
 - 身份证二要素核验通过：currentStep = STEP_3_FACE_VERIFY，进入动作活体认证
-- 动作活体认证 init 返回 PENDING：打开 certifyUrl，用户完成眨眼/点头后前端轮询 result
+- 动作活体认证 init 返回 PENDING 和非空 certifyId：iOS 向原生 SDK 传入 certifyId 和当前 ViewController，用户按 SDK 页面提示完成动作后前端轮询 result；原生流程不要求 certifyUrl
 - 活体认证通过：currentStep = STEP_4_TRAINING，进入培训学习
 - 必修课完成且测验及格：currentStep = STEP_4_COMPLETED，canAcceptOrders = true
 - 可选资质证书上传使用 `/api/volunteer/verification`，不属于主注册引导链路，不影响接单资格
@@ -390,6 +390,10 @@
 - 未完成主注册流程 → "请先完成志愿者注册流程"
 - 身份证二要素失败 → 显示后端失败原因并允许重新提交 Step1
 - 活体认证发起时返回身份信息错误 → 允许返回 Step1 修改姓名和身份证号码后重新提交
+- 原生 SDK 用户取消 → 留在活体认证步骤，清除本次 certifyId 并允许重新发起
+- 原生 SDK 系统、网络或设备时间错误 → 显示对应原因，清除本次 certifyId 并允许重新发起
+- 原生 SDK 返回 1001 → 仅展示根据白名单 subcode 映射的提示和安全错误码；不得展示原始 SDK message、certifyId、metaInfo 或身份字段
+- Z1014/Z1023 → SDK 初始化或内部处理失败；I4001 → 刷脸模块接入异常；Z1010/Z1037 → 认证参数或流程配置异常；Z1001/Z1002/Z1020 → 相机不可用；Z1024 → 流程重复发起
 - 活体认证拒绝 → 显示 faceVerifyRejectionReason 或 result.message，并允许重新发起
 - 网络错误 → "保存失败"
 

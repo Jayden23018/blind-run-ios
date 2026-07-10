@@ -1,5 +1,5 @@
 PODS:
-  - AliyunCloudAuth (2.3.48)
+  - AliyunCloudAuth (2.3.50)
   - AMap3DMap-NO-IDFA (11.1.200):
     - AMapFoundation-NO-IDFA (>= 1.8.7)
   - AMapFoundation-NO-IDFA (1.8.7)
@@ -9,7 +9,7 @@ PODS:
     - AMapFoundation-NO-IDFA (>= 1.8.0)
 
 DEPENDENCIES:
-  - AliyunCloudAuth (from `Vendor/AliyunCloudAuth/2.3.48`)
+  - AliyunCloudAuth (from `Vendor/AliyunCloudAuth/2.3.50`)
   - AMap3DMap-NO-IDFA
   - AMapLocation-NO-IDFA
   - AMapSearch-NO-IDFA
@@ -23,15 +23,15 @@ SPEC REPOS:
 
 EXTERNAL SOURCES:
   AliyunCloudAuth:
-    :path: Vendor/AliyunCloudAuth/2.3.48
+    :path: Vendor/AliyunCloudAuth/2.3.50
 
 SPEC CHECKSUMS:
-  AliyunCloudAuth: 0d40db91deab38398c82d90a22e3739422db266b
+  AliyunCloudAuth: d85a0f39b66923cce9bf4ff6d262ecfd47d7977e
   AMap3DMap-NO-IDFA: 393a24abb0451fed2daa4316c8d3d356a395f2be
   AMapFoundation-NO-IDFA: f48acbf6e74913dc6744581053f7d984f2432850
   AMapLocation-NO-IDFA: 0fa6e7d5e42e10253f4437424d98966f53760862
   AMapSearch-NO-IDFA: 8e9d104032990a3b0cab66afb535299887c61047
 
-PODFILE CHECKSUM: 8866ef09aa3f7c8caf30bed7d5778e6fffe081ac
+PODFILE CHECKSUM: aa5e36951c3ae74651fb590fa37da03bb1f296bd
 
 COCOAPODS: 1.16.2
