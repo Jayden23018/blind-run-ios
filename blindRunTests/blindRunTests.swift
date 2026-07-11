@@ -11,6 +11,53 @@ import CoreLocation
 @testable import blindRun
 
 @MainActor
+private final class MockSpeechAudioSession: SpeechAudioSessionManaging {
+    enum FailurePoint {
+        case none
+        case deactivate
+        case playbackCategory
+        case playbackActivation
+    }
+
+    var isInputAvailable = true
+    var inputNumberOfChannels = 1
+    var sampleRate = 44_100.0
+    var operations: [String] = []
+    var failurePoint: FailurePoint = .none
+
+    func requestRecordPermission(_ response: @escaping (Bool) -> Void) {
+        response(true)
+    }
+
+    func configureRecordingCategory() throws {
+        operations.append("configureRecording")
+    }
+
+    func activateRecording() throws {
+        operations.append("activateRecording")
+    }
+
+    func deactivateRecording() throws {
+        operations.append("deactivateRecording")
+        if failurePoint == .deactivate { throw MockAudioSessionError.expected }
+    }
+
+    func configurePlaybackCategory() throws {
+        operations.append("configurePlayback")
+        if failurePoint == .playbackCategory { throw MockAudioSessionError.expected }
+    }
+
+    func activatePlayback() throws {
+        operations.append("activatePlayback")
+        if failurePoint == .playbackActivation { throw MockAudioSessionError.expected }
+    }
+}
+
+private enum MockAudioSessionError: Error {
+    case expected
+}
+
+@MainActor
 final class blindRunTests: XCTestCase {
 
     func testSendCodeRequestUsesOpenAPICamelCaseKeys() throws {
@@ -2387,6 +2434,102 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(service.isListening)
         XCTAssertNil(service.activeFieldId)
         XCTAssertEqual(service.lastStopReason, .manual)
+    }
+
+    func testSpeechInputRestoresPlaybackBeforeCompletionForEveryStopReason() {
+        let reasons: [SpeechInputStopReason] = [
+            .manual,
+            .finalResult,
+            .silenceTimeout(hadDetectedSound: false),
+            .silenceTimeout(hadDetectedSound: true),
+            .maxDuration,
+            .error
+        ]
+
+        for reason in reasons {
+            let audioSession = MockSpeechAudioSession()
+            let service = SpeechInputService(audioSession: audioSession)
+            var completionOperations: [String] = []
+            service.startRecognitionForTesting(field: .startPlaceSearch) { _ in
+                completionOperations = audioSession.operations + ["completion"]
+            }
+
+            service.finishRecognitionForTesting(text: "大观楼", reason: reason)
+
+            XCTAssertEqual(
+                completionOperations,
+                ["deactivateRecording", "configurePlayback", "activatePlayback", "completion"],
+                "Unexpected audio restoration order for \(reason)"
+            )
+        }
+    }
+
+    func testSpeechInputLifecycleStopRestoresPlaybackWithoutCompleting() {
+        let audioSession = MockSpeechAudioSession()
+        let service = SpeechInputService(audioSession: audioSession)
+        var didComplete = false
+        service.startRecognitionForTesting(field: .remark) { _ in didComplete = true }
+
+        service.cancelRecognitionForLifecycle()
+
+        XCTAssertEqual(audioSession.operations, ["deactivateRecording", "configurePlayback", "activatePlayback"])
+        XCTAssertFalse(didComplete)
+    }
+
+    func testSpeechInputRepeatedStopDoesNotRepeatAudioSessionCleanup() {
+        let audioSession = MockSpeechAudioSession()
+        let service = SpeechInputService(audioSession: audioSession)
+        service.startRecognitionForTesting(field: .remark)
+
+        service.stopRecognition()
+        service.stopRecognition()
+
+        XCTAssertEqual(audioSession.operations, ["deactivateRecording", "configurePlayback", "activatePlayback"])
+    }
+
+    func testSpeechInputPlaybackRecoveryFailureKeepsCompletionAndDiagnostics() {
+        let failurePoints: [MockSpeechAudioSession.FailurePoint] = [
+            .deactivate,
+            .playbackCategory,
+            .playbackActivation
+        ]
+
+        for failurePoint in failurePoints {
+            let audioSession = MockSpeechAudioSession()
+            audioSession.failurePoint = failurePoint
+            let service = SpeechInputService(audioSession: audioSession)
+            var completion: SpeechInputCompletion?
+            service.startRecognitionForTesting(field: .startPlaceSearch) { completion = $0 }
+
+            service.finishRecognitionForTesting(text: "大观楼")
+
+            XCTAssertEqual(completion?.recognizedText, "大观楼")
+            XCTAssertEqual(audioSession.operations, ["deactivateRecording", "configurePlayback", "activatePlayback"])
+            XCTAssertNotNil(service.audioSessionDiagnosticMessage)
+            XCTAssertNil(service.errorMessage)
+        }
+    }
+
+    func testSpeechInputStartupFailureRestoresPlaybackBeforeErrorAnnouncement() {
+        let audioSession = MockSpeechAudioSession()
+        let service = SpeechInputService(audioSession: audioSession)
+        var observedOperations: [String] = []
+        service.startRecognitionForTesting(field: .remark, onAnnouncement: { message in
+            observedOperations = audioSession.operations + ["announce:\(message)"]
+        })
+
+        service.failRecognitionStartupForTesting("语音输入启动失败，请使用键盘输入。")
+
+        XCTAssertEqual(
+            observedOperations,
+            [
+                "deactivateRecording",
+                "configurePlayback",
+                "activatePlayback",
+                "announce:语音输入启动失败，请使用键盘输入。"
+            ]
+        )
+        XCTAssertEqual(service.lastStopReason, .error)
     }
 
     func testSpeechInputLifecycleCancelClearsStateWithoutCompletion() {

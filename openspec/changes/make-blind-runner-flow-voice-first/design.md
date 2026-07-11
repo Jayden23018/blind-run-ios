@@ -60,6 +60,14 @@ Order creation still calls `POST /api/orders` with the same DTO. Status screens 
 
 Alternative considered: alter backend contracts to support guided drafts. This is unnecessary for the current frontend-only improvement and would violate repository boundaries.
 
+### 7. Restore a playback audio session after field-level dictation
+
+`SpeechInputService` temporarily owns the shared `AVAudioSession` while recording with the existing `.record` and `.measurement` configuration. Every path that ends an active recording must stop the audio engine and remove its tap, deactivate the recording session, restore `.playback` with `.spokenAudio`, and reactivate playback before completion or stop announcements run. Playback follows the current system route; the app does not force the built-in speaker or resume Control Center media.
+
+Audio-session operations are wrapped behind a small injectable interface so tests can verify ordering and recovery failures. A playback recovery failure must not discard recognized text, block POI search, or remove keyboard fallback; the app still posts VoiceOver feedback and records a diagnostic message.
+
+Alternative considered: configure `VoiceService` for playback on every utterance. That could replace the recording category while recognition is active, so restoration remains owned by the component that acquired the recording session.
+
 ## Risks / Trade-offs
 
 - [Risk] Moving maps lower could be interpreted as violating existing "display map" wording. → Mitigation: update docs/OpenSpec to define blind-runner maps as auxiliary but still available, while volunteer maps remain operational surfaces.
@@ -67,6 +75,7 @@ Alternative considered: alter backend contracts to support guided drafts. This i
 - [Risk] Additional TTS may become noisy. → Mitigation: ViewModels should speak on step changes, submission, errors, and explicit repeat actions, not on every field edit.
 - [Risk] Collapsible/secondary map UI could hide AMap smoke failures. → Mitigation: tests should still assert that AMap-backed map content or fallback diagnostics render when the auxiliary map is opened or visible in the secondary region.
 - [Risk] Docs contain older UI handoff/checklist contradictions around emergency and map-first layouts. → Mitigation: include doc cleanup tasks and OpenSpec validation before implementation is considered complete.
+- [Risk] A completed recognition session can leave the shared audio session in record-only mode and silence later TTS. → Mitigation: restore and reactivate playback before stop/completion callbacks, cover every stop reason with ordering tests, and verify speaker/Bluetooth routes on both release devices.
 
 ## Migration Plan
 

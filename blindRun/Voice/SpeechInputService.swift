@@ -1,7 +1,61 @@
 import AVFoundation
 import Combine
 import Foundation
+import OSLog
 import Speech
+
+// MARK: - Speech Audio Session
+
+@MainActor
+protocol SpeechAudioSessionManaging: AnyObject {
+    var isInputAvailable: Bool { get }
+    var inputNumberOfChannels: Int { get }
+    var sampleRate: Double { get }
+
+    func requestRecordPermission(_ response: @escaping (Bool) -> Void)
+    func configureRecordingCategory() throws
+    func activateRecording() throws
+    func deactivateRecording() throws
+    func configurePlaybackCategory() throws
+    func activatePlayback() throws
+}
+
+@MainActor
+final class SystemSpeechAudioSession: SpeechAudioSessionManaging {
+    private let session: AVAudioSession
+
+    init(session: AVAudioSession = .sharedInstance()) {
+        self.session = session
+    }
+
+    var isInputAvailable: Bool { session.isInputAvailable }
+    var inputNumberOfChannels: Int { session.inputNumberOfChannels }
+    var sampleRate: Double { session.sampleRate }
+
+    func requestRecordPermission(_ response: @escaping (Bool) -> Void) {
+        session.requestRecordPermission(response)
+    }
+
+    func configureRecordingCategory() throws {
+        try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+    }
+
+    func activateRecording() throws {
+        try session.setActive(true, options: .notifyOthersOnDeactivation)
+    }
+
+    func deactivateRecording() throws {
+        try session.setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    func configurePlaybackCategory() throws {
+        try session.setCategory(.playback, mode: .spokenAudio, options: [])
+    }
+
+    func activatePlayback() throws {
+        try session.setActive(true)
+    }
+}
 
 // MARK: - Speech Input Field
 
@@ -70,9 +124,12 @@ final class SpeechInputService: ObservableObject {
     @Published private(set) var activeField: SpeechInputField?
     @Published private(set) var lastStopReason: SpeechInputStopReason?
     @Published var errorMessage: String?
+    @Published private(set) var audioSessionDiagnosticMessage: String?
 
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
     private let audioEngine = AVAudioEngine()
+    private let audioSession: any SpeechAudioSessionManaging
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "AidRun", category: "SpeechInput")
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var recognitionStartTask: Task<Void, Never>?
@@ -92,6 +149,10 @@ final class SpeechInputService: ObservableObject {
     static let maximumRecognitionDuration: TimeInterval = 60
     static let speechPowerThreshold: Float = 0.012
     static let keyboardFallbackErrorMessage = "语音识别失败，请使用键盘输入。"
+
+    init(audioSession: (any SpeechAudioSessionManaging)? = nil) {
+        self.audioSession = audioSession ?? SystemSpeechAudioSession()
+    }
 
     var activeFieldId: String? {
         activeField?.rawValue
@@ -186,9 +247,15 @@ final class SpeechInputService: ObservableObject {
         announce: Bool,
         notifyCompletion: Bool,
         clearHandlers: Bool,
-        invalidateSession: Bool = true
+        invalidateSession: Bool = true,
+        announcementAfterRestoration: String? = nil
     ) {
         let wasListening = isListening
+        let hadAudioRecognitionSession = wasListening
+            || audioEngine.isRunning
+            || didInstallTap
+            || recognitionRequest != nil
+            || recognitionTask != nil
         let completedField = activeField
         let completedText = currentRecognizedText
         let completedHandler = completionHandler
@@ -222,11 +289,11 @@ final class SpeechInputService: ObservableObject {
             activeField = nil
         }
 
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        } catch {
-            // Deactivation is best-effort; keep keyboard fallback available.
+        if hadAudioRecognitionSession {
+            restorePlaybackAudioSession()
         }
+
+        self.announce(announcementAfterRestoration)
 
         if announce && wasListening {
             self.announce(reason.announcement)
@@ -273,31 +340,25 @@ final class SpeechInputService: ObservableObject {
         request.shouldReportPartialResults = true
         recognitionRequest = request
 
-        let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            audioSessionDiagnosticMessage = nil
+            try audioSession.configureRecordingCategory()
+            try audioSession.activateRecording()
         } catch {
-            errorMessage = "语音输入启动失败，请使用键盘输入。"
-            announce(errorMessage)
-            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false, notifyCompletion: true, clearHandlers: true)
+            handleRecognitionStartupFailure("语音输入启动失败，请使用键盘输入。")
             return
         }
 
         guard audioSession.isInputAvailable,
               audioSession.inputNumberOfChannels > 0,
               audioSession.sampleRate > 0 else {
-            errorMessage = "当前运行环境没有可用的麦克风输入，请使用键盘输入。"
-            announce(errorMessage)
-            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false, notifyCompletion: true, clearHandlers: true)
+            handleRecognitionStartupFailure("当前运行环境没有可用的麦克风输入，请使用键盘输入。")
             return
         }
 
         let inputNode = audioEngine.inputNode
         guard let recordingFormat = validRecordingFormat(from: inputNode) else {
-            errorMessage = "当前运行环境没有可用的麦克风输入，请使用键盘输入。"
-            announce(errorMessage)
-            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false, notifyCompletion: true, clearHandlers: true)
+            handleRecognitionStartupFailure("当前运行环境没有可用的麦克风输入，请使用键盘输入。")
             return
         }
 
@@ -315,9 +376,7 @@ final class SpeechInputService: ObservableObject {
         do {
             try audioEngine.start()
         } catch {
-            errorMessage = "语音输入启动失败，请使用键盘输入。"
-            announce(errorMessage)
-            stopAudioRecognition(reason: .error, clearActiveField: true, announce: false, notifyCompletion: true, clearHandlers: true)
+            handleRecognitionStartupFailure("语音输入启动失败，请使用键盘输入。")
             return
         }
 
@@ -349,6 +408,18 @@ final class SpeechInputService: ObservableObject {
                 }
             }
         }
+    }
+
+    private func handleRecognitionStartupFailure(_ message: String) {
+        errorMessage = message
+        stopAudioRecognition(
+            reason: .error,
+            clearActiveField: true,
+            announce: false,
+            notifyCompletion: true,
+            clearHandlers: true,
+            announcementAfterRestoration: message
+        )
     }
 
     private func validRecordingFormat(from inputNode: AVAudioInputNode) -> AVAudioFormat? {
@@ -460,10 +531,41 @@ final class SpeechInputService: ObservableObject {
 
     private func requestMicrophoneAuthorization() async -> Bool {
         await withCheckedContinuation { continuation in
-            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+            audioSession.requestRecordPermission { granted in
                 continuation.resume(returning: granted)
             }
         }
+    }
+
+    private func restorePlaybackAudioSession() {
+        var recoveryFailures: [String] = []
+
+        do {
+            try audioSession.deactivateRecording()
+        } catch {
+            recoveryFailures.append("deactivate: \(error.localizedDescription)")
+        }
+
+        do {
+            try audioSession.configurePlaybackCategory()
+        } catch {
+            recoveryFailures.append("category: \(error.localizedDescription)")
+        }
+
+        do {
+            try audioSession.activatePlayback()
+        } catch {
+            recoveryFailures.append("activate: \(error.localizedDescription)")
+        }
+
+        guard !recoveryFailures.isEmpty else {
+            audioSessionDiagnosticMessage = nil
+            return
+        }
+
+        let message = "语音输入结束后恢复播放音频会话失败：\(recoveryFailures.joined(separator: "; "))"
+        audioSessionDiagnosticMessage = message
+        logger.error("\(message, privacy: .public)")
     }
 
     #if DEBUG
@@ -480,6 +582,7 @@ final class SpeechInputService: ObservableObject {
 
     func startRecognitionForTesting(
         field: SpeechInputField,
+        onAnnouncement: ((String) -> Void)? = nil,
         onCompletion: ((SpeechInputCompletion) -> Void)? = nil
     ) {
         if stopActiveRecognitionIfNeeded(beforeStarting: field) {
@@ -492,7 +595,13 @@ final class SpeechInputService: ObservableObject {
         recognitionStartedAt = Date()
         lastStopReason = nil
         currentRecognizedText = ""
+        announcementHandler = onAnnouncement
         completionHandler = onCompletion
+    }
+
+    func failRecognitionStartupForTesting(_ message: String) {
+        recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
+        handleRecognitionStartupFailure(message)
     }
 
     @discardableResult

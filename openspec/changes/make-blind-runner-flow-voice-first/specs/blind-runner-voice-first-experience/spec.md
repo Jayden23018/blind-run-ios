@@ -86,6 +86,17 @@ The iOS blind-runner flow SHALL provide coherent TTS and VoiceOver feedback for 
 - **AND** each selectable result SHALL expose place name and address in its accessibility label
 - **AND** the app SHALL NOT announce raw coordinates as part of normal result feedback
 
+#### Scenario: Speech input restores audible feedback
+- **WHEN** field-level speech input ends manually, with a final result, after silence or maximum duration, because of an error, or because the field leaves the screen
+- **THEN** the app SHALL stop recording and restore a playback-capable audio session before any completion, search-result, stop, or error TTS
+- **AND** playback SHALL follow the current system output route without forcing the built-in speaker
+- **AND** repeated stop callbacks SHALL NOT repeat cleanup or announcements
+
+#### Scenario: Playback restoration fails
+- **WHEN** iOS rejects an audio-session deactivation, category, or activation operation after speech input
+- **THEN** recognized text, POI search completion, and keyboard fallback SHALL remain available
+- **AND** the app SHALL preserve visible and VoiceOver feedback and record diagnostic information
+
 ### Requirement: Blind-runner presentation is high-contrast and low-density
 The iOS blind-runner screens affected by this change SHALL use a high-contrast, low-density presentation suitable for repeated VoiceOver and touch use.
 

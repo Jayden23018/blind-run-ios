@@ -38,11 +38,13 @@
 - [x] 5.3 Add or update tests for speech search completion, search result VoiceOver feedback, and no raw coordinate display in blind-runner UI.
 - [x] 5.4 Add or update UI tests or accessibility assertions proving primary action/status precedes auxiliary map content in blind-runner VoiceOver traversal.
 - [x] 5.5 Add or update tests that canonical order lifecycle, polling/WebSocket handling, hidden emergency UI, and cancellation permissions remain unchanged.
+- [x] 5.6 Restore playback audio-session state after every speech-input stop path, preserve system routing and fallbacks, and add ordering/recovery tests.
 
 ## 6. Validation
 
 - [x] 6.1 Run `openspec validate make-blind-runner-flow-voice-first --strict --no-interactive`.
 - [x] 6.2 Run `node scripts/validate-docs.mjs`.
-- [ ] 6.3 Run focused unit/UI tests covering changed blind-runner home, booking, voice, and order-status behavior.
-- [ ] 6.4 Run baseline real-device tests required by `AGENTS.md` when implementation changes release-facing flows.
-- [ ] 6.5 Run real AMap and Demo Cloud smoke validation on device `111` and dual-device validation with `iPad Pro (2)` before release sign-off.
+- [x] 6.3 Run focused unit/UI tests covering changed blind-runner home, booking, voice, and order-status behavior.
+- [x] 6.4 Run baseline real-device tests required by `AGENTS.md` when implementation changes release-facing flows.
+- [x] 6.5 Run real AMap and Demo Cloud smoke validation on device `111` and dual-device validation with `iPad Pro (2)` before release sign-off.
+- [x] 6.6 Run focused speech-input audio-session and post-recognition TTS tests, then validate speaker/Bluetooth behavior on both required devices.

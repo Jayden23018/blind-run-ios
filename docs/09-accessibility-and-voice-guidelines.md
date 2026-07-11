@@ -99,6 +99,9 @@ Rules:
 - Start-place search speech input automatically runs POI search after recognition finishes with non-empty text.
 - While start-place recognition is active, expose the search action as "语音识别中" to VoiceOver and keep manual search disabled.
 - Search result feedback must announce the result count and first place name; result rows read place name and address, not raw latitude/longitude.
+- Every speech-input stop path must stop recording, deactivate the record session, restore `.playback` + `.spokenAudio`, and reactivate playback before stop/completion/search-result TTS. Playback follows the current system route and must not force the built-in speaker.
+- If playback restoration fails, keep recognized text, POI search, visible errors, VoiceOver announcements, and keyboard fallback available; record diagnostics and do not retry in a speech loop.
+- Real-device acceptance must cover manual stop, final recognition, silence timeout, recognition error, five consecutive sessions, and speaker/Bluetooth route changes.
 
 ## 6. Dangerous Actions
 
