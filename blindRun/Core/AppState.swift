@@ -2,12 +2,59 @@ import Combine
 import Foundation
 import SwiftUI
 
+enum SessionRestorationState: Equatable {
+    case restoring
+    case validationFailed(message: String)
+    case unauthenticated
+    case choosingRole
+    case authenticated
+}
+
+enum SessionOperationState: Equatable {
+    case idle
+    case inProgress
+    case revocationFailed(message: String)
+}
+
+@MainActor
+final class AccountDeletionViewModel: ObservableObject {
+    @Published var showFinalConfirmation = false
+    @Published var preflightMessage: String?
+
+    private static let blockingStatuses: Set<RunOrderStatus> = [
+        .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching
+    ]
+
+    func preflight(appState: AppState, speechService: SpeechService) async {
+        preflightMessage = nil
+        do {
+            let orders: PagedOrderResponse = try await appState.apiClient.get(
+                "/api/orders/mine",
+                query: ["page": "0", "size": "100"]
+            )
+            if orders.content.contains(where: { Self.blockingStatuses.contains($0.status) }) {
+                let message = "当前存在进行中的服务，请处理完成后再删除账户。"
+                preflightMessage = message
+                speechService.speakError(message)
+                return
+            }
+        } catch APIError.unauthorized {
+            appState.expireSession()
+            return
+        } catch {
+            // 预检只提供及时提示；最终权限与订单状态始终由删除接口裁决。
+        }
+        showFinalConfirmation = true
+    }
+}
+
 // MARK: - AppState
 
 /// 全局应用状态，管理用户会话、Token 和环境配置。
 /// 作为 @EnvironmentObject 注入整个应用的 View 层级。
 final class AppState: ObservableObject {
     private let mockAPIClient = MockAPIClient()
+    private let apiClientOverride: (any APIClientProtocol)?
 
     // MARK: - Session
 
@@ -19,6 +66,13 @@ final class AppState: ObservableObject {
 
     /// 当前用户 ID
     @Published var userId: Int64?
+
+    /// 仅保存在内存中的当前用户，不额外持久化手机号等身份信息。
+    @Published private(set) var currentUser: CurrentUserResponse?
+
+    @Published private(set) var sessionRestorationState: SessionRestorationState = .restoring
+    @Published private(set) var logoutState: SessionOperationState = .idle
+    @Published private(set) var accountDeletionState: SessionOperationState = .idle
 
     /// 当前激活角色（首次登录可能为 nil，需路由到角色选择）
     @Published var activeRole: UserRole? {
@@ -95,6 +149,7 @@ final class AppState: ObservableObject {
 
     /// 根据当前环境返回对应的 API Client
     var apiClient: any APIClientProtocol {
+        if let apiClientOverride { return apiClientOverride }
         switch currentEnvironment {
         case .mock where AppBuildChannel.current == .development:
             return mockAPIClient
@@ -116,7 +171,8 @@ final class AppState: ObservableObject {
 
     // MARK: - Init
 
-    init() {
+    init(apiClient: (any APIClientProtocol)? = nil) {
+        self.apiClientOverride = apiClient
         // 从 UserDefaults 恢复环境设置
         if let envRaw = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
            let env = AppState.storedEnvironment(from: envRaw) {
@@ -129,7 +185,8 @@ final class AppState: ObservableObject {
     // MARK: - Session Management
 
     /// 启动时恢复会话（从 UserDefaults 读取 Token）
-    func restoreSession() {
+    func restoreSession() async {
+        sessionRestorationState = .restoring
         // TODO: 正式版必须从 Keychain 读取 Token
         accessToken = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.accessToken)
         if let roleRaw = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.activeRole) {
@@ -138,7 +195,43 @@ final class AppState: ObservableObject {
         if let savedUserId = UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.userId) as? Int64 {
             userId = savedUserId
         }
-        connectWebSocketIfNeeded()
+        guard accessToken != nil else {
+            sessionRestorationState = .unauthenticated
+            return
+        }
+        mockAPIClient.syncSessionFromAppState(token: accessToken, role: activeRole)
+        do {
+            let user: CurrentUserResponse = try await apiClient.get("/api/auth/me")
+            guard user.roleResolution != .invalid else {
+                performLocalSessionCleanup()
+                sessionExpirationMessage = "登录角色信息异常，请重新登录。"
+                return
+            }
+            currentUser = user
+            userId = user.userId
+            persistUserId()
+            activeRole = user.resolvedRole
+            if activeRole == nil {
+                disconnectWebSocket()
+                sessionRestorationState = .choosingRole
+            } else {
+                sessionRestorationState = .authenticated
+                connectWebSocketIfNeeded()
+            }
+        } catch let error as APIError {
+            switch error {
+            case .unauthorized:
+                performLocalSessionCleanup()
+                sessionExpirationMessage = "登录状态已失效，请重新登录。"
+            default:
+                // 无法权威确认时不进入已认证页面，也不丢弃可能仍有效的凭据。
+                disconnectWebSocket()
+                sessionRestorationState = .validationFailed(message: error.localizedMessage)
+            }
+        } catch {
+            disconnectWebSocket()
+            sessionRestorationState = .validationFailed(message: "暂时无法验证登录状态，请检查网络后重试。")
+        }
     }
 
     /// 登录成功后保存会话（新后端: LoginResponse{token, userId, role}）
@@ -146,7 +239,9 @@ final class AppState: ObservableObject {
         accessToken = response.token
         userId = response.userId
         activeRole = Self.resolvedLoginRole(from: response.role)
+        currentUser = CurrentUserResponse(userId: response.userId, phone: nil, role: response.role)
         persistUserId()
+        sessionRestorationState = activeRole == nil ? .choosingRole : .authenticated
         connectWebSocketIfNeeded()
     }
 
@@ -156,23 +251,85 @@ final class AppState: ObservableObject {
             accessToken = newToken
         }
         activeRole = requestedRole
+        if let currentUser {
+            self.currentUser = CurrentUserResponse(userId: currentUser.userId, phone: currentUser.phone, role: requestedRole.rawValue)
+        }
+        sessionRestorationState = .authenticated
         connectWebSocketIfNeeded()
     }
 
     /// 清除会话（退出登录）
     func clearSession() {
+        performLocalSessionCleanup()
+    }
+
+    /// 所有用户退出入口使用该服务端撤销操作。
+    func logout() async {
+        guard logoutState != .inProgress else { return }
+        logoutState = .inProgress
+        do {
+            let _: LogoutResponse = try await apiClient.post("/api/auth/logout")
+            performLocalSessionCleanup()
+        } catch APIError.unauthorized {
+            performLocalSessionCleanup()
+        } catch let error as APIError {
+            logoutState = .revocationFailed(message: error.localizedMessage)
+        } catch {
+            logoutState = .revocationFailed(message: "未能确认服务端退出，请重试。")
+        }
+    }
+
+    /// 仅在服务端撤销失败且用户再次明确确认后调用。
+    func confirmLocalOnlySignOut() {
+        guard case .revocationFailed = logoutState else { return }
+        performLocalSessionCleanup()
+    }
+
+    func dismissLogoutFailure() {
+        if case .revocationFailed = logoutState { logoutState = .idle }
+    }
+
+    func dismissAccountDeletionFailure() {
+        if case .revocationFailed = accountDeletionState { accountDeletionState = .idle }
+    }
+
+    func deleteCurrentAccount() async {
+        guard accountDeletionState != .inProgress, let userId = currentUser?.userId ?? self.userId else { return }
+        accountDeletionState = .inProgress
+        do {
+            let response: DeleteAccountResponse = try await apiClient.delete("/api/users/\(userId)")
+            guard response.success else {
+                accountDeletionState = .revocationFailed(message: response.message ?? "账户删除未完成。")
+                return
+            }
+            performLocalSessionCleanup()
+        } catch APIError.unauthorized {
+            expireSession()
+        } catch let error as APIError {
+            accountDeletionState = .revocationFailed(message: error.localizedMessage)
+        } catch {
+            accountDeletionState = .revocationFailed(message: "账户删除未完成，请重试。")
+        }
+    }
+
+    private func performLocalSessionCleanup() {
         disconnectWebSocket()
         accessToken = nil
         userId = nil
+        currentUser = nil
         activeRole = nil
         blindProfile = nil
         volunteerProfile = nil
         volunteerRegistrationStatus = nil
         emergencyContacts = []
         sessionExpirationMessage = nil
+        logoutState = .idle
+        accountDeletionState = .idle
+        sessionRestorationState = .unauthenticated
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
+        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
     }
 
     /// 会话过期：清除本地登录态并让登录页展示一次性提示。
@@ -336,6 +493,7 @@ final class AppState: ObservableObject {
 
 extension AppConstants.UserDefaultsKeys {
     static let userId = "com.aidrun.mvp.userId"
+    static let emergencyRecoveryMetadata = "com.aidrun.safety.emergencyRecoveryMetadata"
 }
 
 // MARK: - Disabled API Client

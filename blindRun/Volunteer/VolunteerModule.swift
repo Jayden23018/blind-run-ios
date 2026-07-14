@@ -260,7 +260,7 @@ struct VolunteerProfileView: View {
         }
         .alert("确认退出", isPresented: $showLogoutConfirm) {
             Button("确认退出", role: .destructive) {
-                appState.clearSession()
+                Task { await appState.logout() }
             }
             Button("取消", role: .cancel) {}
         } message: {

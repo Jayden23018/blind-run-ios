@@ -97,6 +97,42 @@ struct LoginResponse: Codable, Sendable {
     let role: String?
 }
 
+/// `GET /api/auth/me` 的当前会话用户。首次选角色前 role 可缺省、为 null 或 UNSET。
+struct CurrentUserResponse: Codable, Sendable, Equatable {
+    let userId: Int64
+    let phone: String?
+    let role: String?
+
+    enum RoleResolution: Equatable {
+        case unset
+        case selected(UserRole)
+        case invalid
+    }
+
+    var roleResolution: RoleResolution {
+        guard let role else { return .unset }
+        guard let value = UserRole(rawValue: role) else { return .invalid }
+        return value == .unset ? .unset : .selected(value)
+    }
+
+    var resolvedRole: UserRole? {
+        guard case .selected(let role) = roleResolution else { return nil }
+        return role
+    }
+}
+
+struct LogoutResponse: Codable, Sendable, Equatable {
+    let success: Bool
+    let message: String?
+}
+
+struct DeleteAccountResponse: Codable, Sendable, Equatable {
+    let success: Bool
+    let message: String?
+    let phoneReusable: Bool
+    let allTokensInvalidated: Bool
+}
+
 // MARK: - Role Switch
 
 struct SetRoleRequest: Codable, Sendable {

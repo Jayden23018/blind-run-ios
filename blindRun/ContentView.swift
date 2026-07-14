@@ -14,6 +14,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var locationService: LocationService
+    @State private var showRestorationLocalSignOutConfirmation = false
     @EnvironmentObject private var speechService: SpeechService
     @State private var showLogoutConfirmation = false
     private let locationReportTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
@@ -23,7 +24,35 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if !appState.isLoggedIn {
+            if appState.sessionRestorationState == .restoring {
+                VStack(spacing: 16) {
+                    ProgressView()
+                    Text("正在验证登录状态")
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("正在验证登录状态，请稍候")
+            } else if case .validationFailed(let message) = appState.sessionRestorationState {
+                VStack(spacing: 20) {
+                    Image(systemName: "wifi.exclamationmark")
+                        .font(.system(size: 40))
+                        .accessibilityHidden(true)
+                    Text("暂时无法验证登录状态")
+                        .font(.headline)
+                    Text(message)
+                        .multilineTextAlignment(.center)
+                    Button("重试验证") {
+                        Task { await appState.restoreSession() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityHint("重新连接服务端验证当前登录状态")
+                    Button("仅退出本机", role: .destructive) {
+                        showRestorationLocalSignOutConfirmation = true
+                    }
+                    .accessibilityHint("服务端令牌可能仍然有效，需要再次确认")
+                }
+                .padding(24)
+                .accessibilityElement(children: .contain)
+            } else if !appState.isLoggedIn {
                 LoginView()
                     .transition(.opacity)
             } else if appState.activeRole == nil || appState.activeRole == .unset {
@@ -67,6 +96,13 @@ struct ContentView: View {
         }
         .task(id: profileRefreshKey) {
             await refreshActiveProfileIfNeeded()
+        }
+        .modifier(SessionLifecycleStatusModifier())
+        .alert("确认仅退出本机", isPresented: $showRestorationLocalSignOutConfirmation) {
+            Button("仅退出本机", role: .destructive) { appState.clearSession() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("当前无法确认服务端 Token 已撤销。仅退出本机会清除本机登录信息，但远端 Token 可能继续有效。")
         }
     }
 
@@ -116,6 +152,58 @@ struct ContentView: View {
         } catch {
             // Keep the existing profile setup routes visible when the cloud has no profile yet.
         }
+    }
+}
+
+private struct SessionLifecycleStatusModifier: ViewModifier {
+    @EnvironmentObject private var appState: AppState
+
+    private var logoutFailure: Binding<Bool> {
+        Binding(
+            get: { if case .revocationFailed = appState.logoutState { return true }; return false },
+            set: { if !$0 { appState.dismissLogoutFailure() } }
+        )
+    }
+
+    private var deletionFailure: Binding<Bool> {
+        Binding(
+            get: { if case .revocationFailed = appState.accountDeletionState { return true }; return false },
+            set: { if !$0 { appState.dismissAccountDeletionFailure() } }
+        )
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if appState.logoutState == .inProgress || appState.accountDeletionState == .inProgress {
+                    ZStack {
+                        Color.black.opacity(0.25).ignoresSafeArea()
+                        ProgressView("正在处理，请稍候")
+                            .padding(24)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                            .accessibilityLabel("请求正在处理中，请稍候")
+                    }
+                }
+            }
+            .alert("服务端退出失败", isPresented: logoutFailure) {
+                Button("重试") { Task { await appState.logout() } }
+                Button("仅退出本机", role: .destructive) { appState.confirmLocalOnlySignOut() }
+                Button("取消", role: .cancel) { appState.dismissLogoutFailure() }
+            } message: {
+                let message: String = {
+                    if case .revocationFailed(let value) = appState.logoutState { return value }
+                    return "未能确认服务端 Token 已撤销。"
+                }()
+                Text("\(message) 仅退出本机可能使远端 Token 继续有效。")
+            }
+            .alert("删除账户失败", isPresented: deletionFailure) {
+                Button("重试") { Task { await appState.deleteCurrentAccount() } }
+                Button("取消", role: .cancel) { appState.dismissAccountDeletionFailure() }
+            } message: {
+                if case .revocationFailed(let message) = appState.accountDeletionState {
+                    Text(message)
+                }
+            }
     }
 }
 

@@ -181,3 +181,8 @@ Do not implement Android, full admin backend, real-time track sharing, app chat,
 - CocoaPods 必须把 `ToygerService.bundle`、`APBToygerFacade.bundle`、`APBToygerFacadeSuitable.bundle` 和 `BioAuthEngine.bundle` 复制到 App 顶层资源；其中 `ToygerService.bundle/toyger.face.dat` 不得缺失或为空。
 - 当前流程不使用 OCR、NFC、多因子意愿认证或美颜，因此对应 framework 与 bundle 不进入构建产物，也不为这些能力增加权限。
 - SDK 日志只允许记录数值 code、retCode、格式校验后的 subcode、消息存在性/长度及 SDK 版本；禁止输出完整 JWT、身份证号、MetaInfo、certifyId、reason、extInfo 或 bizData。
+## 会话生命周期架构
+
+`AppState` 负责显式恢复状态、`/api/auth/me` 校验、按有效角色连接 WebSocket、统一异步注销以及幂等本地清理。视图不得直接清理会话。账户删除使用共享 ViewModel 状态；客户端活动订单预检只用于提示，服务端始终是最终权威。
+
+本地清理覆盖 Token、用户 ID、当前用户、角色、两类资料、注册状态、紧急联系人、通知缓存及按用户隔离的应急恢复元数据。

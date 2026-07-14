@@ -232,8 +232,8 @@ struct LoginView: View {
                                 .cornerRadius(12)
                         }
                         .disabled(!viewModel.canRequestCode)
-                        .accessibilityLabel("获取验证码")
-                        .accessibilityHint("点击后发送验证码到手机")
+                        .accessibilityLabel(viewModel.countdownText)
+                        .accessibilityHint(viewModel.isCountdownActive ? "服务端限制发送频率，倒计时结束后可重试" : "点击后发送验证码到手机")
 
                         // 验证码输入区（条件显示）
                         if viewModel.showCodeInput {

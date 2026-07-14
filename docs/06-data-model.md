@@ -316,3 +316,10 @@ Rules:
 ## 6. Out of Scope
 
 路线图能力（Android、管理员后台、真实短信、真实实名认证、实时轨迹共享、自动电话/短信、AI 助手、自然语言时间解析、路线导航、完整积分商城、支付、库存、App 内聊天、风控、摔倒检测、电子围栏、即时呼叫、多人活动报名）需要先补充产品规则、API 契约和测试计划。WebSocket 当前用于实时派单、状态通知和位置上报。
+## 账户生命周期模型
+
+- `CurrentUserResponse(userId, phone?, role?)`：`role` 可缺省、为 `null` 或 `UNSET`。
+- `LogoutResponse(success, message?)`。
+- `DeleteAccountResponse(success, message?, phoneReusable, allTokensInvalidated)`。
+- `RateLimitInfo(code = RATE_LIMITED, message, rateLimitBucket?, retryAfterSeconds?)`；桶为 `AUTH`、`REGISTRATION`、`GENERAL`，HTTP `Retry-After` 整数秒优先。
+- 上述响应不得导致额外敏感信息持久化。

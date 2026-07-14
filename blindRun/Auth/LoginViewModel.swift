@@ -280,6 +280,9 @@ final class LoginViewModel: ObservableObject {
             }
         case .networkError:
             errorMessage = "网络错误，请重试"
+        case .rateLimited(let info):
+            errorMessage = rateLimitMessage(info)
+            if let seconds = info.retryAfterSeconds { startCountdown(seconds: seconds) }
         case .unauthorized:
             errorMessage = "登录已过期，请重新登录。"
         case .decodingError, .invalidURL, .unknown:
@@ -312,6 +315,9 @@ final class LoginViewModel: ObservableObject {
             errorMessage = response.message
         case .networkError:
             errorMessage = "网络错误，请重试"
+        case .rateLimited(let info):
+            errorMessage = rateLimitMessage(info)
+            if let seconds = info.retryAfterSeconds { startCountdown(seconds: seconds) }
         case .unauthorized:
             errorMessage = "登录已过期，请重新登录。"
         case .decodingError, .invalidURL, .unknown:
@@ -335,9 +341,9 @@ final class LoginViewModel: ObservableObject {
         speechService?.speakError(message)
     }
 
-    private func startCountdown() {
+    private func startCountdown(seconds: Int = 60) {
         timerCancellable?.cancel()
-        countdown = 60
+        countdown = max(0, seconds)
         timerCancellable = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
@@ -349,6 +355,13 @@ final class LoginViewModel: ObservableObject {
                     self.timerCancellable = nil
                 }
             }
+    }
+
+    private func rateLimitMessage(_ info: RateLimitInfo) -> String {
+        if let seconds = info.retryAfterSeconds {
+            return "\(info.message) 请在\(seconds)秒后重试。"
+        }
+        return info.message
     }
 
     static func normalizedPhoneNumber(_ value: String) -> String {

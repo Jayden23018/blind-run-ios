@@ -45,7 +45,7 @@ Alternative considered: expose a generic user-ID delete method. This increases m
 
 `URLSessionAPIClient` will map HTTP 429 into a rate-limited error containing the backend message, bucket when provided, and retry interval. It will prefer the `Retry-After` header and fall back to a unified response field. Login/send-code controls will disable only for the authoritative interval; general actions will show retry guidance without globally freezing unrelated features.
 
-`需要人工确认`: the backend team must confirm stable error codes, whether `Retry-After` is seconds or an HTTP date, and whether bucket identity is returned. The proposed contract uses `RATE_LIMITED`, optional `rateLimitBucket`, and optional `retryAfterSeconds` until confirmed.
+2026-07-11 人工确认：HTTP 429 使用稳定错误码 `RATE_LIMITED`；`Retry-After` 使用整数秒；统一响应体可包含可选的 `rateLimitBucket` 与 `retryAfterSeconds`。桶标识为 `AUTH`、`REGISTRATION`、`GENERAL`。
 
 ### 5. Keep local cleanup complete and idempotent
 
@@ -70,8 +70,8 @@ One cleanup routine will disconnect WebSocket and clear token, user ID, current 
 
 Rollback can hide account deletion and return routing to stored-session behavior, but server-backed logout should remain once validated because it closes a security gap.
 
-## Open Questions
+## Confirmed Contract Decisions
 
-- `需要人工确认`: Which stable backend error blocks deletion while an order is active, and which statuses count as blocking?
-- `需要人工确认`: Does successful soft deletion invalidate every token for the account or only the presented token?
-- `需要人工确认`: What exact 429 body/header fields identify auth, registration, and general buckets?
+- 2026-07-11 人工确认：账户删除的阻断状态为 `PENDING_MATCH`、`PENDING_ACCEPT`、`DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS`、`REMATCHING`，稳定错误码为 `ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED`。
+- 2026-07-11 人工确认：软删除成功后，该账户的所有有效 Token 均失效，而非仅当前请求携带的 Token。
+- 2026-07-11 人工确认：HTTP 429 使用 `RATE_LIMITED`；`Retry-After` 为整数秒；响应体可包含 `retryAfterSeconds` 与 `rateLimitBucket`；桶标识为 `AUTH`、`REGISTRATION`、`GENERAL`。

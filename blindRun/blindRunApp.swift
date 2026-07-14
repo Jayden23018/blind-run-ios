@@ -36,7 +36,7 @@ struct blindRunApp: App {
                     #if DEBUG || DEMO
                     applyUITestLaunchConfigurationIfNeeded()
                     #endif
-                    appState.restoreSession()
+                    Task { await appState.restoreSession() }
                 }
                 .onChange(of: scenePhase) { phase in
                     if phase != .active {

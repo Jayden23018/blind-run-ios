@@ -28,9 +28,12 @@ final class BlindRunnerSettingsViewModel: ObservableObject {
 
 struct BlindRunnerSettingsView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = BlindRunnerSettingsViewModel()
+    @StateObject private var deletionViewModel = AccountDeletionViewModel()
     @State private var showLogoutConfirm = false
     @State private var showRoleSwitchConfirm = false
+    @State private var showDeletionInitialConfirmation = false
 
     var body: some View {
         List {
@@ -74,6 +77,17 @@ struct BlindRunnerSettingsView: View {
                 }
                 .accessibilityLabel("退出登录")
                 .accessibilityHint("退出后需要重新登录，需要二次确认")
+
+                Button("删除账户", role: .destructive) {
+                    showDeletionInitialConfirmation = true
+                }
+                .disabled(appState.accountDeletionState == .inProgress)
+                .accessibilityLabel("删除账户")
+                .accessibilityHint("永久停用当前账户，需要再次确认")
+            }
+
+            if let message = deletionViewModel.preflightMessage {
+                Section { Text(message).foregroundColor(AppColors.destructive).accessibilityLabel(message) }
             }
 
             if let errorMessage = viewModel.errorMessage {
@@ -87,7 +101,7 @@ struct BlindRunnerSettingsView: View {
         .navigationTitle("设置")
         .alert("确认退出", isPresented: $showLogoutConfirm) {
             Button("确认退出", role: .destructive) {
-                appState.clearSession()
+                Task { await appState.logout() }
             }
             Button("取消", role: .cancel) {}
         } message: {
@@ -100,6 +114,27 @@ struct BlindRunnerSettingsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("如果有进行中的订单，系统会阻止切换角色。")
+        }
+        .alert("确认删除账户", isPresented: $showDeletionInitialConfirmation) {
+            Button("继续删除账户", role: .destructive) {
+                Task {
+                    await deletionViewModel.preflight(
+                        appState: appState,
+                        speechService: speechService
+                    )
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("系统将先检查是否存在进行中的服务。检查通过后仍需再次确认，才会提交账户删除请求。")
+        }
+        .alert("最终确认删除账户", isPresented: $deletionViewModel.showFinalConfirmation) {
+            Button("永久删除账户", role: .destructive) {
+                Task { await appState.deleteCurrentAccount() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("账户将被软删除，所有登录令牌会失效。删除成功后手机号可以重新注册。此操作不可撤销。")
         }
     }
 
@@ -120,6 +155,7 @@ struct BlindRunnerSettingsView: View {
     NavigationStack {
         BlindRunnerSettingsView()
             .environmentObject(AppState())
+            .environmentObject(SpeechService())
     }
 }
 #endif

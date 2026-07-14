@@ -15,6 +15,8 @@ enum ErrorCode: String, Codable, Sendable {
     case appointmentTooSoon = "APPOINTMENT_TOO_SOON"
     case validationFailed = "VALIDATION_FAILED"
     case unauthorized = "UNAUTHORIZED"
+    case rateLimited = "RATE_LIMITED"
+    case activeOrderAccountDeletionBlocked = "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED"
 
     var localizedMessage: String {
         switch self {
@@ -42,6 +44,10 @@ enum ErrorCode: String, Codable, Sendable {
             return "提交内容不符合要求，请检查后重试。"
         case .unauthorized:
             return "登录已过期，请重新登录。"
+        case .rateLimited:
+            return "操作过于频繁，请稍后重试。"
+        case .activeOrderAccountDeletionBlocked:
+            return "当前存在进行中的服务，请处理完成后再删除账户。"
         }
     }
 
@@ -55,10 +61,36 @@ enum ErrorCode: String, Codable, Sendable {
 struct ErrorResponse: Codable, Sendable {
     let code: String
     let message: String
+    let rateLimitBucket: RateLimitBucket?
+    let retryAfterSeconds: Int?
+
+    init(
+        code: String,
+        message: String,
+        rateLimitBucket: RateLimitBucket? = nil,
+        retryAfterSeconds: Int? = nil
+    ) {
+        self.code = code
+        self.message = message
+        self.rateLimitBucket = rateLimitBucket
+        self.retryAfterSeconds = retryAfterSeconds
+    }
 
     var errorCode: ErrorCode? {
         ErrorCode(rawValue: code)
     }
+}
+
+enum RateLimitBucket: String, Codable, Sendable {
+    case auth = "AUTH"
+    case registration = "REGISTRATION"
+    case general = "GENERAL"
+}
+
+struct RateLimitInfo: Codable, Sendable, Equatable {
+    let message: String
+    let bucket: RateLimitBucket?
+    let retryAfterSeconds: Int?
 }
 
 // MARK: - Cloud Backend Response Envelope
@@ -86,9 +118,11 @@ struct APIErrorEnvelope: Decodable {
     let errorCode: String?
     let message: String?
     let error: String?
+    let rateLimitBucket: RateLimitBucket?
+    let retryAfterSeconds: Int?
 
     private enum CodingKeys: String, CodingKey {
-        case success, code, errorCode, message, error
+        case success, code, errorCode, message, error, rateLimitBucket, retryAfterSeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -97,6 +131,8 @@ struct APIErrorEnvelope: Decodable {
         errorCode = try container.decodeIfPresent(String.self, forKey: .errorCode)
         message = try container.decodeIfPresent(String.self, forKey: .message)
         error = try container.decodeIfPresent(String.self, forKey: .error)
+        rateLimitBucket = try container.decodeIfPresent(RateLimitBucket.self, forKey: .rateLimitBucket)
+        retryAfterSeconds = try container.decodeIfPresent(Int.self, forKey: .retryAfterSeconds)
         if let stringCode = try? container.decodeIfPresent(String.self, forKey: .code) {
             code = stringCode
         } else if let intCode = try? container.decodeIfPresent(Int.self, forKey: .code) {
@@ -110,7 +146,9 @@ struct APIErrorEnvelope: Decodable {
         guard let resolvedMessage = message ?? error else { return nil }
         return ErrorResponse(
             code: errorCode ?? code ?? "HTTP_\(statusCode)",
-            message: resolvedMessage
+            message: resolvedMessage,
+            rateLimitBucket: rateLimitBucket,
+            retryAfterSeconds: retryAfterSeconds
         )
     }
 }

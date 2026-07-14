@@ -1516,6 +1516,7 @@
           "auth-controller"
         ],
         "operationId": "sendCode",
+        "security": [],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1536,6 +1537,9 @@
                 }
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -1545,17 +1549,24 @@
         "tags": [
           "auth-controller"
         ],
-        "operationId": "logout_1",
+        "operationId": "logoutCurrentSession",
+        "description": "将当前 Bearer JWT 加入服务端黑名单。成功后该 Token 的 HTTP 与 WebSocket 使用均被拒绝。",
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "*/*": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/LogoutResponse"
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -1853,7 +1864,8 @@
         "tags": [
           "user-controller"
         ],
-        "operationId": "deleteUser",
+        "operationId": "deleteCurrentUser",
+        "description": "仅允许当前 JWT 用户删除自身账户。成功后软删除账户、使该账户全部有效 Token 失效；原手机号可重新注册。",
         "parameters": [
           {
             "name": "id",
@@ -1872,10 +1884,32 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DeleteAccountResponse"
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "路径用户 ID 不属于当前认证用户",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "409": {
+            "description": "存在阻断账户删除的活动订单。状态：PENDING_MATCH、PENDING_ACCEPT、DRIVER_EN_ROUTE、DRIVER_ARRIVED、IN_PROGRESS、REMATCHING；错误码 ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED。",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -2150,16 +2184,23 @@
           "auth-controller"
         ],
         "operationId": "getCurrentUser",
+        "description": "校验当前 JWT 并返回未删除的当前用户。首次选择角色前 role 可缺省、为 null 或 UNSET。过期、已拉黑或已删除账户的 Token 返回统一 401。",
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "*/*": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CurrentUserResponse"
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }
@@ -3171,6 +3212,52 @@
           }
         }
       },
+      "CurrentUserResponse": {
+        "type": "object",
+        "required": ["userId"],
+        "properties": {
+          "userId": { "type": "integer", "format": "int64" },
+          "phone": { "type": "string", "pattern": "^1[3-9]\\d{9}$" },
+          "role": {
+            "oneOf": [
+              { "type": "string", "enum": ["BLIND", "VOLUNTEER", "UNSET"] },
+              { "type": "null" }
+            ],
+            "description": "首次选择角色前可缺省、为 null 或 UNSET。"
+          }
+        }
+      },
+      "LogoutResponse": {
+        "type": "object",
+        "required": ["success"],
+        "properties": {
+          "success": { "type": "boolean", "const": true },
+          "message": { "type": "string" }
+        }
+      },
+      "DeleteAccountResponse": {
+        "type": "object",
+        "required": ["success", "phoneReusable", "allTokensInvalidated"],
+        "properties": {
+          "success": { "type": "boolean", "const": true },
+          "message": { "type": "string" },
+          "phoneReusable": { "type": "boolean", "const": true },
+          "allTokensInvalidated": { "type": "boolean", "const": true }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "rateLimitBucket": {
+            "type": "string",
+            "enum": ["AUTH", "REGISTRATION", "GENERAL"]
+          },
+          "retryAfterSeconds": { "type": "integer", "minimum": 0 }
+        }
+      },
       "SendCodeRequest": {
         "type": "object",
         "properties": {
@@ -3980,6 +4067,31 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Token 缺失、过期、已拉黑，或所属账户已删除",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "请求超过限流桶配额。错误码固定为 RATE_LIMITED；Retry-After 为整数秒，响应体可同时提供 retryAfterSeconds 与 rateLimitBucket。",
+        "headers": {
+          "Retry-After": {
+            "required": true,
+            "schema": { "type": "integer", "minimum": 0 },
+            "description": "可重试前等待的整数秒数。"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
           }
         }
       }

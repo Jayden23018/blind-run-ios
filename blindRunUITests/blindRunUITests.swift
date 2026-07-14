@@ -231,6 +231,127 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
+    func testAuthLifecycleRolelessRestoreRoutesToRoleSelection() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "roleless-token",
+            activeRole: nil,
+            emptyMockOrders: true
+        )
+
+        XCTAssertTrue(
+            app.buttons["我是盲人跑者，预约志愿者陪我跑步"].firstMatch.waitForExistence(timeout: 10),
+            "Valid role-less session should route to role selection"
+        )
+        XCTAssertFalse(app.staticTexts["正在验证登录状态"].exists)
+    }
+
+    @MainActor
+    func testAuthLifecycleLogoutFailureOffersWarnedLocalOnlyFallback() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "logout-failure-token",
+            activeRole: "blind_runner",
+            preseedBlindProfile: true,
+            emptyMockOrders: true,
+            mockLogoutFailure: true
+        )
+        openSettings(app)
+        app.buttons["退出登录"].tap()
+        app.buttons["确认退出"].tap()
+
+        let alert = app.alerts["服务端退出失败"].firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 8))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "远端 Token 继续有效")).firstMatch.exists)
+        XCTAssertTrue(app.buttons["重试"].exists)
+        XCTAssertTrue(app.buttons["仅退出本机"].exists)
+        app.buttons["仅退出本机"].tap()
+        XCTAssertTrue(app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch.waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    func testAuthLifecycleEveryLogoutSurfaceRequiresConfirmation() throws {
+        let blindProfile = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "blind-profile-token",
+            activeRole: "blind_runner",
+            emptyMockOrders: true
+        )
+        assertLogoutRequiresConfirmation(blindProfile)
+
+        let volunteerProfile = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "volunteer-profile-token",
+            activeRole: "volunteer",
+            emptyMockOrders: true
+        )
+        assertLogoutRequiresConfirmation(volunteerProfile)
+
+        let volunteerSettings = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "volunteer-settings-token",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            emptyMockOrders: true
+        )
+        openSettings(volunteerSettings)
+        assertLogoutRequiresConfirmation(volunteerSettings)
+    }
+
+    @MainActor
+    func testAuthLifecycleBlindAccountDeletionIsTwoStageAndCompletesOnce() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "blind-delete-token",
+            activeRole: "blind_runner",
+            preseedBlindProfile: true,
+            emptyMockOrders: true
+        )
+        openSettings(app)
+        let deleteButton = app.buttons["删除账户"].firstMatch
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(deleteButton.isEnabled)
+        deleteButton.tap()
+
+        let initialAlert = app.alerts["确认删除账户"].firstMatch
+        XCTAssertTrue(initialAlert.waitForExistence(timeout: 5))
+        XCTAssertTrue(initialAlert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "仍需再次确认")).firstMatch.exists)
+        app.buttons["继续删除账户"].tap()
+
+        let finalAlert = app.alerts["最终确认删除账户"].firstMatch
+        XCTAssertTrue(finalAlert.waitForExistence(timeout: 8))
+        XCTAssertTrue(finalAlert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "所有登录令牌会失效")).firstMatch.exists)
+        let finalButton = app.buttons["永久删除账户"].firstMatch
+        XCTAssertTrue(finalButton.exists)
+        finalButton.tap()
+        XCTAssertTrue(
+            finalButton.waitForNonExistence(timeout: 2),
+            "Final destructive action must disappear promptly to prevent duplicate submission"
+        )
+        XCTAssertTrue(app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch.waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    func testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "volunteer-delete-token",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerActiveOrder: true
+        )
+        openSettings(app)
+        app.buttons["删除账户"].tap()
+        XCTAssertTrue(app.alerts["确认删除账户"].firstMatch.waitForExistence(timeout: 5))
+        app.buttons["继续删除账户"].tap()
+
+        let blocked = app.staticTexts["当前存在进行中的服务，请处理完成后再删除账户。"].firstMatch
+        XCTAssertTrue(blocked.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.alerts["最终确认删除账户"].exists)
+        XCTAssertTrue(app.buttons["退出登录"].exists, "Blocked deletion must preserve the signed-in settings state")
+    }
+
+    @MainActor
     func testRealAMapEnabledSmoke() throws {
         guard shouldRunRealAMapSmoke else {
             throw XCTSkip("Run on validation device 111 / iPad Pro (2), or set AIDRUN_UI_TEST_REAL_AMAP=1, to execute real AMap smoke.")
@@ -295,21 +416,24 @@ final class blindRunUITests: XCTestCase {
     private func launchApp(
         apiEnvironment: String,
         accessToken: String? = nil,
-        activeRole: String = "blind_runner",
+        activeRole: String? = "blind_runner",
         preseedBlindProfile: Bool = false,
         preseedVolunteerProfile: Bool = false,
         preseedVolunteerAvailable: Bool = false,
         preseedVolunteerActiveOrder: Bool = false,
         emptyMockOrders: Bool = false,
         disableMap: Bool = true,
-        disableWebSocket: Bool = true
+        disableWebSocket: Bool = true,
+        mockLogoutFailure: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["AIDRUN_UI_TEST_RESET_STATE"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_RESET_TOKEN"] = UUID().uuidString
         app.launchEnvironment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_API_ENV"] = apiEnvironment
-        app.launchEnvironment["AIDRUN_UI_TEST_ACTIVE_ROLE"] = activeRole
+        if let activeRole {
+            app.launchEnvironment["AIDRUN_UI_TEST_ACTIVE_ROLE"] = activeRole
+        }
         app.launchEnvironment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] = "1"
         if disableWebSocket {
             app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
@@ -335,9 +459,27 @@ final class blindRunUITests: XCTestCase {
         if emptyMockOrders {
             app.launchEnvironment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] = "1"
         }
+        if mockLogoutFailure {
+            app.launchEnvironment["AIDRUN_MOCK_LOGOUT_FAILURE"] = "1"
+        }
         app.launch()
         dismissSystemAlertsIfPresent(app: app)
         return app
+    }
+
+    private func openSettings(_ app: XCUIApplication) {
+        let settingsButton = app.buttons["设置"].firstMatch
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 12))
+        settingsButton.tap()
+    }
+
+    private func assertLogoutRequiresConfirmation(_ app: XCUIApplication) {
+        let logoutButton = app.buttons["退出登录"].firstMatch
+        XCTAssertTrue(logoutButton.waitForExistence(timeout: 10))
+        logoutButton.tap()
+        XCTAssertTrue(app.alerts["确认退出"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["确认退出"].exists)
+        XCTAssertTrue(app.buttons["取消"].exists)
     }
 
     private func openAcceptedVolunteerService(_ app: XCUIApplication) {

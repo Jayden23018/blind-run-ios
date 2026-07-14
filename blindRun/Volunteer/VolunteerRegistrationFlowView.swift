@@ -436,6 +436,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     @Published var currentStep: RegistrationStep = .basicInfo
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published private(set) var registrationRetryAfterSeconds: Int?
 
     // Step 1
     @Published var name = ""
@@ -483,6 +484,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     private let metaInfoProvider: any CloudAuthMetaInfoProviding
     private let cloudAuthVerifier: any CloudAuthVerifying
     private var courseProgressById: [Int64: Int] = [:]
+    private var registrationRateLimitTimer: AnyCancellable?
 
     static let idCardNumberRegex = #"^\d{17}[\dXx]$"#
     static let faceResultPollingIntervalNanoseconds: UInt64 = 3_000_000_000
@@ -507,7 +509,16 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     var canSubmitBasicInfo: Bool {
-        basicInfoValidationMessage == nil && !isLoading
+        basicInfoValidationMessage == nil && !isLoading && !isRegistrationRateLimited
+    }
+
+    var isRegistrationRateLimited: Bool {
+        (registrationRetryAfterSeconds ?? 0) > 0
+    }
+
+    var registrationRateLimitMessage: String? {
+        guard let seconds = registrationRetryAfterSeconds, seconds > 0 else { return nil }
+        return "注册操作过于频繁，请在\(seconds)秒后重试。"
     }
 
     var basicInfoValidationMessage: String? {
@@ -528,7 +539,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     var canStartFaceVerify: Bool {
-        currentStep == .faceVerify && !isFaceVerifyBusy
+        currentStep == .faceVerify && !isFaceVerifyBusy && !isRegistrationRateLimited
     }
 
     var isFaceVerifyBusy: Bool {
@@ -697,6 +708,10 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     private func handleBasicInfoSubmissionError(_ error: APIError) async {
+        if handleRegistrationRateLimit(error) {
+            isLoading = false
+            return
+        }
         let previousStep = currentStep
         let localizedMessage = error.localizedMessage
         if shouldRefreshRegistrationStatus(after: error), let appState {
@@ -760,6 +775,9 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         } catch let error as APIError {
             isLoading = false
             if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
+            if handleRegistrationRateLimit(error) {
                 return
             }
             if isIdentityInfoError(error) {
@@ -991,6 +1009,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     func reportNextTrainingProgress(for course: TrainingCourseResponse) async {
+        guard !isRegistrationRateLimited else { return }
         guard let courseId = course.id, let appState else { return }
         let current = progressPercent(for: course)
         let next = min(current + 10, 100)
@@ -1019,8 +1038,10 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             if appState.handleAuthenticatedAPIError(error) {
                 return
             }
-            errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
+            if !handleRegistrationRateLimit(error) {
+                errorMessage = error.localizedMessage
+                speechService?.speakError(error.localizedMessage)
+            }
         } catch {
             errorMessage = "学习进度上报失败，请稍后重试"
             speechService?.speakError("学习进度上报失败，请稍后重试")
@@ -1069,6 +1090,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     func submitCurrentQuiz() async {
+        guard !isRegistrationRateLimited else { return }
         guard let appState, let courseId = selectedCourseId else { return }
         guard !currentCourseQuestions.isEmpty else {
             errorMessage = "请先加载测验题目"
@@ -1113,8 +1135,10 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             if appState.handleAuthenticatedAPIError(error) {
                 return
             }
-            errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
+            if !handleRegistrationRateLimit(error) {
+                errorMessage = error.localizedMessage
+                speechService?.speakError(error.localizedMessage)
+            }
         } catch {
             isLoading = false
             errorMessage = "测验提交失败，请重试"
@@ -1128,6 +1152,38 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             return String(first).uppercased()
         }
         return trimmed
+    }
+
+    @discardableResult
+    private func handleRegistrationRateLimit(_ error: APIError) -> Bool {
+        guard case .rateLimited(let info) = error,
+              info.bucket == nil || info.bucket == .registration else {
+            return false
+        }
+        let message = error.localizedMessage
+        errorMessage = message
+        speechService?.speakError(message)
+        guard let seconds = info.retryAfterSeconds, seconds > 0 else { return true }
+        startRegistrationRateLimitCountdown(seconds: seconds)
+        return true
+    }
+
+    private func startRegistrationRateLimitCountdown(seconds: Int) {
+        registrationRateLimitTimer?.cancel()
+        registrationRetryAfterSeconds = seconds
+        registrationRateLimitTimer = Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                guard let current = self.registrationRetryAfterSeconds, current > 1 else {
+                    self.registrationRetryAfterSeconds = nil
+                    self.registrationRateLimitTimer?.cancel()
+                    self.registrationRateLimitTimer = nil
+                    self.speechService?.speak("现在可以重新提交注册操作")
+                    return
+                }
+                self.registrationRetryAfterSeconds = current - 1
+            }
     }
 
     private func activeAPIClient(appState: AppState) -> any APIClientProtocol {
@@ -1163,6 +1219,13 @@ struct VolunteerRegistrationFlowView: View {
                             .font(AppFonts.body())
                             .foregroundColor(AppColors.destructive)
                             .accessibilityLabel(errorMessage)
+                    }
+                    if let message = viewModel.registrationRateLimitMessage {
+                        Text(message)
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.destructive)
+                            .accessibilityLabel(message)
+                            .accessibilityAddTraits(.updatesFrequently)
                     }
                 }
                 .padding(.horizontal, 24)
@@ -1402,7 +1465,7 @@ struct VolunteerRegistrationFlowView: View {
                 } label: {
                     Label(progress >= 100 ? "进度已完成" : "上报学习进度", systemImage: "play.circle")
                 }
-                .disabled(progress >= 100)
+                .disabled(progress >= 100 || viewModel.isRegistrationRateLimited)
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(progress >= 100 ? AppColors.textSecondary : AppColors.primary)
                 .accessibilityLabel(progress >= 100 ? "课程进度已完成" : "上报学习进度")
@@ -1468,7 +1531,7 @@ struct VolunteerRegistrationFlowView: View {
             PrimaryButton("提交测验", isLoading: viewModel.isLoading) {
                 Task { await viewModel.submitCurrentQuiz() }
             }
-            .disabled(viewModel.isLoading)
+            .disabled(viewModel.isLoading || viewModel.isRegistrationRateLimited)
             .accessibilityLabel("提交测验")
         }
     }

@@ -72,3 +72,9 @@ node scripts/cloud-e2e.mjs
 - 志愿者端负责在 `DRIVER_ARRIVED` 后调用 `POST /api/orders/{id}/start-service` 将订单推进到 `IN_PROGRESS`；iOS 不会从 `DRIVER_ARRIVED` 直接调用完成服务。若真机验证卡在 `DRIVER_ARRIVED`，优先检查志愿者端 start-service 请求和后端状态推进日志。
 - 百度地图 `baidumap://map/direction` 跳转已按 GCJ-02 步行参数接入，发布前需在安装百度地图的真机上 smoke 验证。
 - 当前 release 隐藏求助入口，不宣称真实求助能力；`POST /api/emergency/trigger` 仅作为后端合同探针保留。若发布前恢复真实 emergency event UI，需要单独安全变更确认接口、GPS、通知、失败提示、合规文案和验收测试。
+## 账户生命周期加固（harden-auth-account-lifecycle）
+
+- 启动会话以 `/api/auth/me` 校验结果为准，角色有效后才连接 WebSocket。
+- 所有退出入口改用服务端撤销；失败保留会话并提供带风险说明的本机退出。
+- 两角色设置页增加两阶段自助删除，活动订单由客户端预检、服务端裁决。
+- 统一处理 429 权威倒计时并完成 Mock、单元/UI、云端探针和双真机验证。

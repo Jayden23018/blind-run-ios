@@ -14,6 +14,7 @@ enum HTTPMethod: String, Sendable {
 
 enum APIError: Error, Sendable {
     case serverError(ErrorResponse)
+    case rateLimited(RateLimitInfo)
     case unauthorized
     case networkError(Error)
     case decodingError(Error)
@@ -27,6 +28,11 @@ enum APIError: Error, Sendable {
                 return code.localizedMessage
             }
             return response.message
+        case .rateLimited(let info):
+            if let seconds = info.retryAfterSeconds {
+                return "\(info.message) 请在\(seconds)秒后重试。"
+            }
+            return info.message
         case .unauthorized:
             return "登录已过期，请重新登录。"
         case .networkError:
@@ -219,6 +225,8 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             }
         case 401:
             throw APIError.unauthorized
+        case 429:
+            throw Self.rateLimitError(data: data, response: httpResponse, decoder: decoder)
         default:
             // Try string-code ErrorResponse (e.g. {"code": "INVALID_VERIFICATION_CODE", "message": "..."})
             if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
@@ -311,6 +319,8 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             }
         case 401:
             throw APIError.unauthorized
+        case 429:
+            throw Self.rateLimitError(data: data, response: httpResponse, decoder: decoder)
         default:
             // Try string-code ErrorResponse (e.g. {"code": "INVALID_VERIFICATION_CODE", "message": "..."})
             if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
@@ -323,5 +333,33 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             }
             throw APIError.unknown(statusCode: httpResponse.statusCode)
         }
+    }
+
+    private static func rateLimitError(
+        data: Data,
+        response: HTTPURLResponse,
+        decoder: JSONDecoder
+    ) -> APIError {
+        let headerSeconds = response.value(forHTTPHeaderField: "Retry-After")
+            .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        if let payload = try? decoder.decode(ErrorResponse.self, from: data) {
+            return .rateLimited(RateLimitInfo(
+                message: payload.message,
+                bucket: payload.rateLimitBucket,
+                retryAfterSeconds: headerSeconds ?? payload.retryAfterSeconds
+            ))
+        }
+        if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data) {
+            return .rateLimited(RateLimitInfo(
+                message: envelope.message ?? envelope.error ?? "操作过于频繁。",
+                bucket: envelope.rateLimitBucket,
+                retryAfterSeconds: headerSeconds ?? envelope.retryAfterSeconds
+            ))
+        }
+        return .rateLimited(RateLimitInfo(
+            message: "操作过于频繁。",
+            bucket: nil,
+            retryAfterSeconds: headerSeconds
+        ))
     }
 }

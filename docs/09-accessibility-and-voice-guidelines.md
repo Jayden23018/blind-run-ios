@@ -164,3 +164,9 @@ Volunteer UI should still be accessible, but it may be denser than blind runner 
 ## 10. Out of Scope
 
 AI assistant, natural-language time parsing, automatic calls, automatic SMS, real administrator notification, route navigation, real-time track sharing, fall detection, and geofencing are roadmap capabilities. Do not add them without product requirements, safety rules, and acceptance tests.
+## 会话与账户操作无障碍要求
+
+- 会话恢复必须提供可读的进度状态。
+- 注销和删除的确认按钮需提供 VoiceOver 标签、提示、进行中状态及错误公告，并在请求中禁止重复提交。
+- 429 提示必须朗读服务端消息和可重试时间；验证码按钮的可用状态应随权威倒计时更新。
+- “仅退出本机”必须朗读远端 Token 撤销未确认的风险；账户删除成功或失败不得产生歧义。

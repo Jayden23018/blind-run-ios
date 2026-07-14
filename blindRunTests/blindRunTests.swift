@@ -1608,6 +1608,187 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(appState.consumeSessionExpirationMessage())
     }
 
+    func testSessionRestoreHydratesSelectedRole() async {
+        prepareStoredSession(token: "selected-token", role: .blind, userId: 99)
+        let client = AuthLifecycleAPIClient(meResult: .success(CurrentUserResponse(userId: 99, phone: nil, role: "BLIND")))
+        let appState = AppState(apiClient: client)
+
+        await appState.restoreSession()
+
+        XCTAssertEqual(appState.sessionRestorationState, .authenticated)
+        XCTAssertEqual(appState.currentUser?.userId, 99)
+        XCTAssertEqual(appState.activeRole, .blind)
+        cleanupStoredSession()
+    }
+
+    func testSessionRestoreKeepsRolelessSessionWithoutWebSocket() async {
+        prepareStoredSession(token: "roleless-token", role: nil, userId: 100)
+        let client = AuthLifecycleAPIClient(meResult: .success(CurrentUserResponse(userId: 100, phone: nil, role: "UNSET")))
+        let appState = AppState(apiClient: client)
+
+        await appState.restoreSession()
+
+        XCTAssertEqual(appState.sessionRestorationState, .choosingRole)
+        XCTAssertEqual(appState.userId, 100)
+        XCTAssertNil(appState.activeRole)
+        XCTAssertNil(appState.webSocketService)
+        cleanupStoredSession()
+    }
+
+    func testSessionRestoreRejectsMalformedRole() async {
+        prepareStoredSession(token: "malformed-role-token", role: .blind, userId: 102)
+        let client = AuthLifecycleAPIClient(
+            meResult: .success(CurrentUserResponse(userId: 102, phone: nil, role: "ADMIN"))
+        )
+        let appState = AppState(apiClient: client)
+
+        await appState.restoreSession()
+
+        XCTAssertEqual(appState.sessionRestorationState, .unauthenticated)
+        XCTAssertNil(appState.accessToken)
+        XCTAssertNil(appState.currentUser)
+        XCTAssertEqual(appState.consumeSessionExpirationMessage(), "登录角色信息异常，请重新登录。")
+        cleanupStoredSession()
+    }
+
+    func testRevokedSessionRestoreClearsCredentialsAndMetadata() async {
+        prepareStoredSession(token: "revoked-token", role: .volunteer, userId: 101)
+        UserDefaults.standard.set("event-101", forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
+        let client = AuthLifecycleAPIClient(meResult: .failure(.unauthorized))
+        let appState = AppState(apiClient: client)
+
+        await appState.restoreSession()
+
+        XCTAssertEqual(appState.sessionRestorationState, .unauthenticated)
+        XCTAssertNil(appState.accessToken)
+        XCTAssertNil(UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata))
+        cleanupStoredSession()
+    }
+
+    func testLogoutSuccessAndUnauthorizedBothCleanSession() async {
+        for result in [
+            Result<LogoutResponse, APIError>.success(LogoutResponse(success: true, message: nil)),
+            .failure(.unauthorized)
+        ] {
+            let client = AuthLifecycleAPIClient(logoutResult: result)
+            let appState = AppState(apiClient: client)
+            appState.handleLoginSuccess(response: LoginResponse(token: "token", userId: 7, role: "BLIND"))
+            await appState.logout()
+            XCTAssertFalse(appState.isLoggedIn)
+            XCTAssertEqual(appState.sessionRestorationState, .unauthenticated)
+        }
+        cleanupStoredSession()
+    }
+
+    func testLogoutFailurePreservesSessionUntilConfirmedLocalOnlySignOut() async {
+        let client = AuthLifecycleAPIClient(logoutResult: .failure(.networkError(URLError(.notConnectedToInternet))))
+        let appState = AppState(apiClient: client)
+        appState.handleLoginSuccess(response: LoginResponse(token: "token", userId: 8, role: "VOLUNTEER"))
+
+        await appState.logout()
+
+        XCTAssertTrue(appState.isLoggedIn)
+        guard case .revocationFailed = appState.logoutState else {
+            return XCTFail("Expected retryable revocation failure")
+        }
+        appState.confirmLocalOnlySignOut()
+        XCTAssertFalse(appState.isLoggedIn)
+        cleanupStoredSession()
+    }
+
+    func testLocalCleanupIsIdempotentAndClearsUserScopedMetadata() {
+        let appState = AppState()
+        appState.handleLoginSuccess(response: LoginResponse(token: "token", userId: 9, role: "BLIND"))
+        UserDefaults.standard.set("event-9", forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
+
+        appState.clearSession()
+        appState.clearSession()
+
+        XCTAssertNil(appState.accessToken)
+        XCTAssertNil(appState.currentUser)
+        XCTAssertNil(UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata))
+        cleanupStoredSession()
+    }
+
+    func testAccountDeletionPreflightSpeaksActiveOrderBlock() async throws {
+        let data = #"{"content":[{"orderId":77,"status":"IN_PROGRESS"}]}"#.data(using: .utf8)!
+        let orders = try JSONDecoder().decode(PagedOrderResponse.self, from: data)
+        let client = AuthLifecycleAPIClient(mineOrders: orders)
+        let appState = AppState(apiClient: client)
+        let speechService = SpeechService()
+        let viewModel = AccountDeletionViewModel()
+
+        await viewModel.preflight(appState: appState, speechService: speechService)
+
+        let expected = "当前存在进行中的服务，请处理完成后再删除账户。"
+        XCTAssertEqual(viewModel.preflightMessage, expected)
+        XCTAssertEqual(speechService.lastSpokenText, expected)
+        XCTAssertEqual(speechService.lastVoiceOverAnnouncement, expected)
+        XCTAssertFalse(viewModel.showFinalConfirmation)
+    }
+
+    func testURLSessionRateLimitPrefersRetryAfterHeader() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AuthLifecycleURLProtocol.self]
+        AuthLifecycleURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 429,
+                httpVersion: nil,
+                headerFields: ["Retry-After": "7"]
+            )!
+            let data = #"{"code":"RATE_LIMITED","message":"注册过于频繁","rateLimitBucket":"REGISTRATION","retryAfterSeconds":99}"#.data(using: .utf8)!
+            return (response, data)
+        }
+        let client = URLSessionAPIClient(baseURL: URL(string: "http://example.test")!, session: URLSession(configuration: configuration), tokenProvider: { nil })
+
+        do {
+            let _: EmptyResponse = try await client.post("/registration", requiresAuth: false)
+            XCTFail("Expected rate limit")
+        } catch APIError.rateLimited(let info) {
+            XCTAssertEqual(info.bucket, .registration)
+            XCTAssertEqual(info.retryAfterSeconds, 7)
+            XCTAssertEqual(info.message, "注册过于频繁")
+        }
+        AuthLifecycleURLProtocol.handler = nil
+    }
+
+    func testRegistrationRateLimitDisablesSubmitForAuthoritativeCountdown() async {
+        let client = AuthLifecycleAPIClient(registrationRateLimitSeconds: 2)
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerRegistrationViewModel(apiClient: client)
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.name = "测试志愿者"
+        viewModel.phone = "13800138000"
+        viewModel.idCardNumber = "110101199001011234"
+
+        await viewModel.submitBasicInfo()
+
+        XCTAssertEqual(viewModel.registrationRetryAfterSeconds, 2)
+        XCTAssertFalse(viewModel.canSubmitBasicInfo)
+        let expired = expectation(description: "authoritative registration cooldown expires")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { expired.fulfill() }
+        await fulfillment(of: [expired], timeout: 3)
+        XCTAssertNil(viewModel.registrationRetryAfterSeconds)
+        XCTAssertTrue(viewModel.canSubmitBasicInfo)
+    }
+
+    private func prepareStoredSession(token: String, role: UserRole?, userId: Int64) {
+        let defaults = UserDefaults.standard
+        defaults.set(token, forKey: AppConstants.UserDefaultsKeys.accessToken)
+        defaults.set(userId, forKey: AppConstants.UserDefaultsKeys.userId)
+        if let role { defaults.set(role.rawValue, forKey: AppConstants.UserDefaultsKeys.activeRole) }
+        else { defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole) }
+    }
+
+    private func cleanupStoredSession() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
+        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
+        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
+        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
+    }
+
     func testAuthenticatedUnauthorizedErrorExpiresSession() {
         let appState = AppState()
         appState.currentEnvironment = .mock
@@ -3838,6 +4019,69 @@ final class blindRunTests: XCTestCase {
         }
     }
 
+    private final class AuthLifecycleAPIClient: APIClientProtocol, @unchecked Sendable {
+        let meResult: Result<CurrentUserResponse, APIError>?
+        let logoutResult: Result<LogoutResponse, APIError>
+        let registrationRateLimitSeconds: Int?
+        let mineOrders: PagedOrderResponse?
+
+        init(
+            meResult: Result<CurrentUserResponse, APIError>? = nil,
+            logoutResult: Result<LogoutResponse, APIError> = .success(LogoutResponse(success: true, message: nil)),
+            registrationRateLimitSeconds: Int? = nil,
+            mineOrders: PagedOrderResponse? = nil
+        ) {
+            self.meResult = meResult
+            self.logoutResult = logoutResult
+            self.registrationRateLimitSeconds = registrationRateLimitSeconds
+            self.mineOrders = mineOrders
+        }
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            if method == .get, path == "/api/auth/me", let meResult {
+                let response = try meResult.get()
+                guard let typed = response as? T else { throw APIError.decodingError(TestError.typeMismatch) }
+                return typed
+            }
+            if method == .post, path == "/api/auth/logout" {
+                let response = try logoutResult.get()
+                guard let typed = response as? T else { throw APIError.decodingError(TestError.typeMismatch) }
+                return typed
+            }
+            if method == .post, path == "/api/volunteer/registration/step1",
+               let registrationRateLimitSeconds {
+                throw APIError.rateLimited(RateLimitInfo(
+                    message: "注册过于频繁",
+                    bucket: .registration,
+                    retryAfterSeconds: registrationRateLimitSeconds
+                ))
+            }
+            if method == .get, path == "/api/orders/mine", let mineOrders {
+                guard let typed = mineOrders as? T else { throw APIError.decodingError(TestError.typeMismatch) }
+                return typed
+            }
+            throw APIError.invalidURL
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
+        }
+
+        private enum TestError: Error { case typeMismatch }
+    }
+
     private func makeVolunteerProfile(
         name: String = "测试志愿者",
         verificationStatus: String = "not_submitted",
@@ -3861,4 +4105,25 @@ final class blindRunTests: XCTestCase {
             isAvailable: isAvailable
         )
     }
+}
+
+private final class AuthLifecycleURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override nonisolated class func canInit(with request: URLRequest) -> Bool { true }
+    override nonisolated class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override nonisolated func startLoading() {
+        do {
+            guard let handler = Self.handler else { throw URLError(.badServerResponse) }
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override nonisolated func stopLoading() {}
 }

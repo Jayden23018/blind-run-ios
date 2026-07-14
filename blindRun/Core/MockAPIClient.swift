@@ -11,6 +11,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private var mockToken: String? = nil
     private var mockUserId: Int64 = 1
     private var mockRole: UserRole? = nil
+    private var isAccountDeleted = false
 
     private var blindProfile: BlindProfileResponse?
     private var volunteerProfile: VolunteerProfileResponse?
@@ -30,6 +31,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     }
 
     func syncRoleFromAppState(_ role: UserRole?) {
+        mockRole = role
+    }
+
+    func syncSessionFromAppState(token: String?, role: UserRole?) {
+        mockToken = token
         mockRole = role
     }
 
@@ -100,18 +106,39 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         query: [String: String]?,
         body: (any Encodable & Sendable)?
     ) throws -> Any {
+        if ProcessInfo.processInfo.environment["AIDRUN_MOCK_GENERAL_RATE_LIMIT"] == "1",
+           path != "/api/auth/send-code" {
+            throw APIError.rateLimited(RateLimitInfo(
+                message: "操作过于频繁。",
+                bucket: .general,
+                retryAfterSeconds: 30
+            ))
+        }
         // Auth endpoints
         if path == "/api/auth/send-code" && method == .post {
+            if ProcessInfo.processInfo.environment["AIDRUN_MOCK_AUTH_RATE_LIMIT"] == "1" {
+                throw APIError.rateLimited(RateLimitInfo(
+                    message: "验证码发送过于频繁。",
+                    bucket: .auth,
+                    retryAfterSeconds: 60
+                ))
+            }
             return try handleSendCode(body: body)
         }
         if path == "/api/auth/verify-code" && method == .post {
             return try handleVerifyCode(body: body)
         }
         if path == "/api/auth/me" && method == .get {
-            return handleGetMe()
+            return try handleGetMe()
         }
         if path == "/api/auth/logout" && method == .post {
-            return handleLogout()
+            return try handleLogout()
+        }
+        if path == "/api/users/\(mockUserId)" && method == .delete {
+            return try handleDeleteAccount()
+        }
+        if path.hasPrefix("/api/users/") && method == .delete {
+            throw APIError.serverError(ErrorResponse(code: "FORBIDDEN", message: "只能删除当前账户。"))
         }
 
         // Role
@@ -261,6 +288,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 code: "INVALID_VERIFICATION_CODE", message: "验证码错误"))
         }
         mockToken = "mock_jwt_token_\(UUID().uuidString)"
+        isAccountDeleted = false // 软删除后的手机号可重新注册
         return LoginResponse(
             token: mockToken!,
             userId: mockUserId,
@@ -458,14 +486,42 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         )
     }
 
-    private func handleGetMe() -> ApiSuccessResponse {
-        return ApiSuccessResponse(success: true, message: nil)
+    private func handleGetMe() throws -> CurrentUserResponse {
+        guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
+        return CurrentUserResponse(userId: mockUserId, phone: nil, role: mockRole?.rawValue)
     }
 
-    private func handleLogout() -> ApiSuccessResponse {
+    private func handleLogout() throws -> LogoutResponse {
+        if ProcessInfo.processInfo.environment["AIDRUN_MOCK_LOGOUT_FAILURE"] == "1" {
+            throw APIError.networkError(URLError(.notConnectedToInternet))
+        }
         mockToken = nil
         mockRole = nil
-        return ApiSuccessResponse(success: true, message: "已退出登录")
+        return LogoutResponse(success: true, message: "已退出登录")
+    }
+
+    private func handleDeleteAccount() throws -> DeleteAccountResponse {
+        let blocking: Set<RunOrderStatus> = [
+            .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching
+        ]
+        guard !orders.contains(where: { blocking.contains($0.status) }) else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED",
+                message: "当前存在进行中的服务，请处理完成后再删除账户。"
+            ))
+        }
+        isAccountDeleted = true
+        mockToken = nil
+        mockRole = nil
+        blindProfile = nil
+        volunteerProfile = nil
+        emergencyContacts = []
+        return DeleteAccountResponse(
+            success: true,
+            message: "账户已删除",
+            phoneReusable: true,
+            allTokensInvalidated: true
+        )
     }
 
     // MARK: - Role Handler

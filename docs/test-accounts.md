@@ -294,3 +294,9 @@ scripts/admin-review-volunteer.mjs
 4. 验证码错误应返回统一 `INVALID_VERIFICATION_CODE` 错误结构；前端暂时兼容当前 `{ "error": ... }`。
 5. 当前用户读取自己的紧急联系人时应返回完整电话，或明确提供“不修改掩码电话”的更新语义。
 6. 已确认没有盲人确认按钮；`DRIVER_ARRIVED -> IN_PROGRESS` 由志愿者端调用 `POST /api/orders/{id}/start-service` 触发，需在真机和 `scripts/cloud-e2e.mjs` 中验收。
+## 账户生命周期测试注意事项
+
+- 测试账号恢复时必须以 `GET /api/auth/me` 为准，不得仅信任本地角色。
+- 调用 `POST /api/auth/logout` 后，原 Token 的 HTTP 与 WebSocket 请求均应返回未授权。
+- 自助删除仅允许当前用户 ID；活动订单返回 `ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED`。删除成功后该账户全部 Token 失效，原手机号可重新执行发送验证码和注册流程。
+- 频繁操作可能返回 `RATE_LIMITED`；测试应记录 `Retry-After` 整数秒及可选桶标识，不应绕过服务端限流。
