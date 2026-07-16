@@ -17,7 +17,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private var volunteerProfile: VolunteerProfileResponse?
     private var volunteerRegistrationStepCode: String?
     private var activeCloudAuthCertifyId: String?
-    private var trainingProgressByCourseId: [Int64: Int] = [:]
     private var emergencyContacts: [EmergencyContactResponse] = []
 
     private var orders: [OrderDetailResponse] = []
@@ -178,19 +177,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/volunteer/registration/step3/face-verify/result" && method == .post {
             return try handleFaceVerifyResult(body: body)
         }
-        if path == "/api/volunteer/registration/training/courses" && method == .get {
-            return handleGetTrainingCourses()
-        }
-        if path == "/api/volunteer/registration/training/progress" && method == .post {
-            return try handleSubmitTrainingProgress(body: body)
-        }
-        if path.hasPrefix("/api/volunteer/registration/training/quiz/") && method == .get {
-            return handleGetTrainingQuiz()
-        }
-        if path == "/api/volunteer/registration/training/quiz/answer" && method == .post {
-            return try handleSubmitTrainingQuizAnswer(body: body)
-        }
-
         // Emergency contacts
         if path.hasPrefix("/api/users/") && path.hasSuffix("/emergency-contacts") && method == .get {
             return emergencyContacts
@@ -320,16 +306,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             stepDetails: VolunteerRegistrationStepDetails(
                 idVerifyStatus: idStatus,
                 faceVerifyStatus: faceStatus,
-                totalTrainingMinutes: canAcceptOrders ? 10 : 0,
-                completedCoursesCount: canAcceptOrders ? 1 : 0,
-                currentCourseId: nil,
                 idVerifyRejectionReason: nil,
                 faceVerifyRejectionReason: nil
             ),
             step1Completed: step1Completed,
             step2Completed: idStatus == "APPROVED",
-            step3Completed: registrationStep == "STEP_4_TRAINING" || registrationStep == "STEP_4_COMPLETED",
-            trainingCompleted: canAcceptOrders,
+            step3Completed: registrationStep.hasPrefix("STEP_4"),
             overallStatus: status?.uppercased() ?? "NOT_SUBMITTED",
             idVerifyStatus: idStatus,
             faceVerifyStatus: faceStatus
@@ -396,13 +378,15 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "活体认证流水无效"))
         }
         activeCloudAuthCertifyId = nil
-        volunteerRegistrationStepCode = "STEP_4_TRAINING"
+        let usesLegacyTrainingStatus = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_LEGACY_TRAINING_STATUS"] == "1"
+        let completedStepCode = usesLegacyTrainingStatus ? "STEP_4_TRAINING" : "STEP_4_COMPLETED"
+        volunteerRegistrationStepCode = completedStepCode
         volunteerProfile = VolunteerProfileResponse(
             name: volunteerProfile?.name ?? "测试志愿者",
             verificationStatus: "approved",
             adminReviewStatus: volunteerProfile?.adminReviewStatus,
-            registrationStep: "STEP_4_TRAINING",
-            canAcceptOrders: false,
+            registrationStep: completedStepCode,
+            canAcceptOrders: !usesLegacyTrainingStatus,
             isAvailable: volunteerProfile?.isAvailable ?? false,
             wantsDispatch: volunteerProfile?.wantsDispatch,
             availableTimeSlots: volunteerProfile?.availableTimeSlots,
@@ -410,80 +394,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             paceRange: volunteerProfile?.paceRange
         )
         return FaceVerifyResponse(passed: true, status: "APPROVED", message: "活体认证通过")
-    }
-
-    private func handleGetTrainingCourses() -> [TrainingCourseResponse] {
-        [
-            TrainingCourseResponse(
-                id: 1,
-                title: "助盲跑基础培训",
-                description: "学习陪跑沟通、安全提示和服务流程",
-                durationMinutes: 10,
-                videoUrl: nil,
-                contentUrl: nil,
-                orderIndex: 1,
-                progressPercent: trainingProgressByCourseId[1] ?? 0,
-                status: (trainingProgressByCourseId[1] ?? 0) >= 100 ? "COMPLETED" : "IN_PROGRESS",
-                quizPassed: volunteerRegistrationStepCode == "STEP_4_COMPLETED"
-            )
-        ]
-    }
-
-    private func handleSubmitTrainingProgress(body: (any Encodable & Sendable)?) throws -> EmptyResponse {
-        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
-              let request = try? JSONDecoder().decode(TrainingProgressRequest.self, from: data) else {
-            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
-        }
-        trainingProgressByCourseId[request.courseId] = max(trainingProgressByCourseId[request.courseId] ?? 0, request.progressPercent)
-        return EmptyResponse()
-    }
-
-    private func handleGetTrainingQuiz() -> [QuizQuestionResponse] {
-        [
-            QuizQuestionResponse(
-                id: 10,
-                courseId: 1,
-                questionText: "陪跑开始前应先确认集合地点和跑者状态吗？",
-                questionType: "SINGLE_CHOICE",
-                options: ["A. 应确认", "B. 不需要"],
-                orderIndex: 1
-            )
-        ]
-    }
-
-    private func handleSubmitTrainingQuizAnswer(body: (any Encodable & Sendable)?) throws -> QuizAnswerResponse {
-        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
-              let request = try? JSONDecoder().decode(QuizAnswerRequest.self, from: data) else {
-            throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "请求格式错误"))
-        }
-        let passed = request.answers.contains("A")
-        if passed {
-            trainingProgressByCourseId[request.courseId] = 100
-            volunteerRegistrationStepCode = "STEP_4_COMPLETED"
-            volunteerProfile = VolunteerProfileResponse(
-                name: volunteerProfile?.name ?? "测试志愿者",
-                verificationStatus: "approved",
-                adminReviewStatus: volunteerProfile?.adminReviewStatus,
-                registrationStep: "STEP_4_COMPLETED",
-                canAcceptOrders: true,
-                isAvailable: volunteerProfile?.isAvailable ?? false,
-                wantsDispatch: volunteerProfile?.wantsDispatch,
-                availableTimeSlots: volunteerProfile?.availableTimeSlots,
-                acceptsGuideDog: volunteerProfile?.acceptsGuideDog,
-                paceRange: volunteerProfile?.paceRange
-            )
-        }
-        return QuizAnswerResponse(
-            correct: passed,
-            correctAnswers: ["A"],
-            explanation: passed ? "回答正确" : "请先确认跑者状态",
-            passed: passed,
-            correctCount: passed ? 1 : 0,
-            totalQuestions: 1,
-            scorePercent: passed ? 100 : 0,
-            remainingAttempts: -1,
-            questionResults: nil
-        )
     }
 
     private func handleGetMe() throws -> CurrentUserResponse {
@@ -1049,18 +959,23 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
         let uiTestVolunteerAvailable = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] == "1"
         let uiTestActiveVolunteerOrder = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] == "1"
-        volunteerProfile = VolunteerProfileResponse(
-            name: "测试志愿者",
-            verificationStatus: "approved",
-            adminReviewStatus: "approved",
-            isAvailable: uiTestVolunteerAvailable,
-            availableTimeSlots: [
-                VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "09:00:00", endTime: "12:00:00"),
-                VolunteerAvailableTimeSlot(dayOfWeek: "SUNDAY", startTime: "09:00:00", endTime: "12:00:00")
-            ],
-            acceptsGuideDog: true,
-            paceRange: .moderate
-        )
+        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_UNREGISTERED_VOLUNTEER"] == "1" {
+            volunteerProfile = nil
+            volunteerRegistrationStepCode = nil
+        } else {
+            volunteerProfile = VolunteerProfileResponse(
+                name: "测试志愿者",
+                verificationStatus: "approved",
+                adminReviewStatus: "approved",
+                isAvailable: uiTestVolunteerAvailable,
+                availableTimeSlots: [
+                    VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "09:00:00", endTime: "12:00:00"),
+                    VolunteerAvailableTimeSlot(dayOfWeek: "SUNDAY", startTime: "09:00:00", endTime: "12:00:00")
+                ],
+                acceptsGuideDog: true,
+                paceRange: .moderate
+            )
+        }
 
         emergencyContacts = [
             EmergencyContactResponse(id: 1, name: "张三", phone: "13900139001", relationship: "家人", isPrimary: true)

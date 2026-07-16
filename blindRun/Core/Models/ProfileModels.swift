@@ -156,8 +156,10 @@ extension VolunteerProfileResponse {
     }
 
     var isMainRegistrationCompleteWhenStatusUnavailable: Bool {
-        canAcceptOrders == true ||
-            registrationStep?.uppercased() == "STEP_4_COMPLETED" ||
+        let stepCode = registrationStep?.uppercased()
+        return canAcceptOrders == true ||
+            stepCode == "STEP_4_COMPLETED" ||
+            stepCode == "STEP_4_TRAINING" ||
             verificationStatus?.lowercased() == "approved"
     }
 

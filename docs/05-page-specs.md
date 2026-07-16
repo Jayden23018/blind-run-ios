@@ -356,7 +356,7 @@
 
 ## 页面 9：志愿者资料认证页
 
-**页面目标**：志愿者完成主注册流程：基本信息与身份证二要素核验、动作活体认证、培训学习与测验。
+**页面目标**：志愿者通过基本信息与身份证二要素核验、动作活体认证直接完成主注册流程。
 
 **入口**：角色选择页选择"志愿者"（首次）/ 设置页 → 编辑资料。
 
@@ -366,21 +366,24 @@
 - 手机号显示（自动填充登录手机号）
   - 认证区域：
   - 提示文字："请完成以下认证步骤（Demo 版为模拟认证）"
-  - 基本信息与身份证二要素、动作活体认证、培训学习入口
-  - 主注册状态显示（STEP_1_BASIC_INFO / STEP_3_FACE_VERIFY / STEP_4_TRAINING / STEP_4_COMPLETED）
+  - 基本信息与身份证二要素、动作活体认证入口
+  - 两步进度显示：基本信息与身份核验、活体认证
+  - 主注册状态显示（STEP_1_BASIC_INFO / STEP_3_FACE_VERIFY / STEP_4_COMPLETED；STEP_4_TRAINING 仅为遗留兼容状态）
 - "提交"按钮
 
 **主要操作**：
 - 填写昵称
-- 点击开始认证 → 进入志愿者注册流程 → 填写基本信息、与身份证一致的姓名和身份证号码 → 后端完成身份证二要素核验 → init 获取 certifyId → iOS 通过 AliyunFaceAuthFacade 原生 SDK 完成动作活体 → SDK 回调后轮询 result → 完成培训课程和测验
+- 点击开始认证 → 进入志愿者注册流程 → 填写基本信息、与身份证一致的姓名和身份证号码 → 后端完成身份证二要素核验 → init 获取 certifyId → iOS 通过 AliyunFaceAuthFacade 原生 SDK 完成动作活体 → SDK 回调后轮询 result → 后端直接完成注册
 - 点击"提交" → 保存资料 → 进入志愿者首页
 
 **状态变化**：
 - 身份证二要素核验不通过：停留 STEP_1_BASIC_INFO，显示后端错误并允许更新身份证信息
 - 身份证二要素核验通过：currentStep = STEP_3_FACE_VERIFY，进入动作活体认证
 - 动作活体认证 init 返回 PENDING 和非空 certifyId：iOS 向原生 SDK 传入 certifyId 和当前 ViewController，用户按 SDK 页面提示完成动作后前端轮询 result；原生流程不要求 certifyUrl
-- 活体认证通过：currentStep = STEP_4_TRAINING，进入培训学习
-- 必修课完成且测验及格：currentStep = STEP_4_COMPLETED，canAcceptOrders = true
+- 活体认证通过：后端原子设置 currentStep = STEP_4_COMPLETED、canAcceptOrders = true；新注册不得进入 STEP_4_TRAINING
+- 活体 result 已通过但 status 尚未完成：显示“活体已通过，注册状态同步中，无需课程或答题”，每 5 秒轮询并提供手动刷新，不允许重复发起活体认证
+- status 返回 STEP_4_COMPLETED、遗留 STEP_4_TRAINING 或 canAcceptOrders = true：显示并播报“注册完成，请返回首页开启可服务状态”
+- STEP_4_TRAINING 仅用于旧账号或尚未升级后端的兼容；iOS 将其按主注册完成处理并停止轮询，但不会自动开启可服务状态
 - 可选资质证书上传使用 `/api/volunteer/verification`，不属于主注册引导链路，不影响接单资格
 - 可服务开关由志愿者首页单独控制，认证不自动开启 isAvailable / wantsDispatch
 - 提交：loading → 成功跳转
@@ -395,6 +398,7 @@
 - 原生 SDK 返回 1001 → 仅展示根据白名单 subcode 映射的提示和安全错误码；不得展示原始 SDK message、certifyId、metaInfo 或身份字段
 - Z1014/Z1023 → SDK 初始化或内部处理失败；I4001 → 刷脸模块接入异常；Z1010/Z1037 → 认证参数或流程配置异常；Z1001/Z1002/Z1020 → 相机不可用；Z1024 → 流程重复发起
 - 活体认证拒绝 → 显示 faceVerifyRejectionReason 或 result.message，并允许重新发起
+- 活体认证通过但 status 仍未进入 STEP_4_TRAINING / STEP_4_COMPLETED 且 canAcceptOrders 不为 true → 保持同步等待，禁止课程/答题入口和重复活体认证
 - 网络错误 → "保存失败"
 
 **空状态**：无（首次使用时为空字段）。
@@ -402,6 +406,7 @@
 **无障碍要求**：
 - 昵称输入框：accessibilityLabel = "请输入昵称"
 - 认证按钮：accessibilityLabel = "开始认证"
+- 注册完成结果：accessibilityLabel = "注册完成，请返回首页开启可服务状态"
 - 提交按钮：最小高度 64pt
 
 ---

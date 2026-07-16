@@ -132,6 +132,62 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
+    func testMockVolunteerLegacyTrainingCompletesWithoutTrainingAndReturnsHomeUnavailable() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            forceRealVolunteerRegistration: true,
+            unregisteredVolunteer: true,
+            legacyTrainingStatusAfterFaceVerify: true
+        )
+
+        let entry = app.descendants(matching: .any)["volunteerRealRegistrationEntry"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 12), "Volunteer profile should expose the registration entry")
+        entry.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["volunteerRegistrationStep.1"].firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any)["volunteerRegistrationStep.2"].firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["培训学习"].exists)
+        XCTAssertFalse(app.buttons["加载测验"].exists)
+        XCTAssertFalse(app.buttons["提交测验"].exists)
+
+        let nameField = app.textFields.element(boundBy: 0)
+        let phoneField = app.textFields.element(boundBy: 1)
+        let idCardField = app.textFields.element(boundBy: 2)
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        nameField.tap()
+        nameField.typeText("测试志愿者")
+        phoneField.tap()
+        phoneField.typeText("13800000002")
+        dismissKeyboardIfPresent(app: app)
+        idCardField.tap()
+        idCardField.typeText("110101199001011234")
+        dismissKeyboardIfPresent(app: app)
+
+        let submit = app.buttons["提交身份信息"].firstMatch
+        XCTAssertTrue(waitForElementToBeEnabled(submit, timeout: 5))
+        submit.tap()
+
+        let faceVerify = app.buttons["开始活体认证"].firstMatch
+        XCTAssertTrue(faceVerify.waitForExistence(timeout: 8))
+        faceVerify.tap()
+
+        let completion = app.descendants(matching: .any)["volunteerRegistrationCompleted"].firstMatch
+        XCTAssertTrue(completion.waitForExistence(timeout: 12))
+        XCTAssertEqual(completion.label, "注册完成，请返回首页开启可服务状态")
+        let returnHome = app.buttons["返回志愿者首页"].firstMatch
+        XCTAssertTrue(returnHome.exists)
+        XCTAssertFalse(app.staticTexts["培训学习"].exists)
+        XCTAssertFalse(app.buttons["提交测验"].exists)
+
+        returnHome.tap()
+        let availabilitySwitch = app.switches.firstMatch
+        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 8))
+        XCTAssertEqual(availabilitySwitch.value as? String, "0", "Legacy completion must not automatically enable availability")
+    }
+
+    @MainActor
     func testMockVolunteerServiceArrivedWaitingScreenshots() throws {
         let app = launchApp(
             apiEnvironment: "mock",
@@ -421,6 +477,9 @@ final class blindRunUITests: XCTestCase {
         preseedVolunteerProfile: Bool = false,
         preseedVolunteerAvailable: Bool = false,
         preseedVolunteerActiveOrder: Bool = false,
+        forceRealVolunteerRegistration: Bool = false,
+        unregisteredVolunteer: Bool = false,
+        legacyTrainingStatusAfterFaceVerify: Bool = false,
         emptyMockOrders: Bool = false,
         disableMap: Bool = true,
         disableWebSocket: Bool = true,
@@ -455,6 +514,15 @@ final class blindRunUITests: XCTestCase {
         }
         if preseedVolunteerActiveOrder {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"
+        }
+        if forceRealVolunteerRegistration {
+            app.launchEnvironment["AIDRUN_UI_TEST_FORCE_REAL_REGISTRATION"] = "1"
+        }
+        if unregisteredVolunteer {
+            app.launchEnvironment["AIDRUN_UI_TEST_UNREGISTERED_VOLUNTEER"] = "1"
+        }
+        if legacyTrainingStatusAfterFaceVerify {
+            app.launchEnvironment["AIDRUN_UI_TEST_LEGACY_TRAINING_STATUS"] = "1"
         }
         if emptyMockOrders {
             app.launchEnvironment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] = "1"

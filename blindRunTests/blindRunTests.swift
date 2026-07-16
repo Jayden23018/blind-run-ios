@@ -715,6 +715,22 @@ final class blindRunTests: XCTestCase {
             body: FaceVerifyResultRequest(certifyId: "mock-certify-id")
         )
         XCTAssertTrue(result.isPassed)
+
+        let status: VolunteerRegistrationStatus = try await client.get("/api/volunteer/registration/status")
+        let profile: VolunteerProfileResponse = try await client.get("/api/volunteer/profile")
+        XCTAssertEqual(status.registrationStep, "STEP_4_COMPLETED")
+        XCTAssertTrue(status.canAcceptOrders == true)
+        XCTAssertTrue(status.isRegistrationComplete)
+        XCTAssertEqual(profile.registrationStep, "STEP_4_COMPLETED")
+        XCTAssertTrue(profile.canAcceptOrders == true)
+        XCTAssertFalse(profile.isAvailable ?? true, "Registration completion must not automatically enable availability")
+
+        do {
+            let _: EmptyResponse = try await client.get("/api/volunteer/registration/training/courses")
+            XCTFail("iOS Mock must not expose removed training routes")
+        } catch {
+            // Expected: training remains an external deprecated contract, not an iOS Mock route.
+        }
     }
 
     func testVolunteerRegistrationBasicInfoRequestEncodesIdCardFields() throws {
@@ -881,6 +897,74 @@ final class blindRunTests: XCTestCase {
         viewModel.applyRegistrationStatus(status)
 
         XCTAssertEqual(viewModel.currentStep, .faceVerify)
+    }
+
+    func testVolunteerRegistrationExposesOnlyTwoUserFacingSteps() {
+        XCTAssertEqual(RegistrationStep.allCases.map(\.title), ["基本信息与身份核验", "活体认证"])
+        XCTAssertEqual(RegistrationStep.allCases.map(\.displayIndex), [1, 2])
+    }
+
+    func testVolunteerRegistrationLegacyTrainingStatusCompletesWithoutPolling() {
+        let viewModel = VolunteerRegistrationViewModel()
+
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(
+            currentStepCode: "STEP_4_TRAINING",
+            canAcceptOrders: false,
+            step3Completed: true,
+            faceVerifyStatus: "APPROVED"
+        ))
+
+        XCTAssertEqual(viewModel.currentStep, .faceVerify)
+        XCTAssertFalse(viewModel.isAwaitingRegistrationCompletion)
+        XCTAssertTrue(viewModel.isRegistrationCompleted)
+        XCTAssertFalse(viewModel.shouldPollRegistrationStatus)
+        XCTAssertFalse(viewModel.canStartFaceVerify)
+    }
+
+    func testVolunteerRegistrationCompletedStatusShowsBackendAuthoritativeCompletion() {
+        let viewModel = VolunteerRegistrationViewModel()
+
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(
+            currentStepCode: "STEP_4_COMPLETED",
+            canAcceptOrders: true,
+            step3Completed: true
+        ))
+
+        XCTAssertTrue(viewModel.isRegistrationCompleted)
+        XCTAssertFalse(viewModel.isAwaitingRegistrationCompletion)
+        XCTAssertFalse(viewModel.shouldPollRegistrationStatus)
+        XCTAssertFalse(viewModel.canStartFaceVerify)
+    }
+
+    func testVolunteerRegistrationStaleStatusKeepsFaceVerificationSyncingScreen() {
+        let viewModel = VolunteerRegistrationViewModel()
+
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(
+            currentStepCode: "STEP_3_FACE_VERIFY",
+            canAcceptOrders: false,
+            step3Completed: true,
+            faceVerifyStatus: "APPROVED"
+        ))
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(
+            currentStepCode: "STEP_1_BASIC_INFO",
+            canAcceptOrders: false,
+            step1Completed: true
+        ))
+
+        XCTAssertEqual(viewModel.currentStep, .faceVerify)
+        XCTAssertTrue(viewModel.isAwaitingRegistrationCompletion)
+        XCTAssertTrue(viewModel.shouldPollRegistrationStatus)
+        XCTAssertFalse(viewModel.canStartFaceVerify)
+
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(
+            currentStepCode: "STEP_4_COMPLETED",
+            canAcceptOrders: true,
+            step3Completed: true
+        ))
+
+        XCTAssertTrue(viewModel.isRegistrationCompleted)
+        XCTAssertFalse(viewModel.isAwaitingRegistrationCompletion)
+        XCTAssertFalse(viewModel.shouldPollRegistrationStatus)
     }
 
     func testVolunteerRegistrationLegacyStep2StatusRoutesBackToBasicInfo() throws {
@@ -1311,7 +1395,7 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.errorMessage, "认证未通过")
     }
 
-    func testVolunteerFaceVerifySubmittedSDKPollsApprovedResultAndEntersTraining() async {
+    func testVolunteerFaceVerifySubmittedSDKPollsApprovedResultAndCompletesRegistration() async {
         let appState = AppState()
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
@@ -1319,7 +1403,12 @@ final class blindRunTests: XCTestCase {
         let client = FaceVerifyFlowAPIClient(
             initResponse: FaceVerifyInitResponse(certifyId: "cert-1", status: "PENDING", message: nil),
             resultResponses: [FaceVerifyResponse(passed: true, status: "APPROVED", message: "认证通过")],
-            status: VolunteerRegistrationStatus(currentStepCode: "STEP_4_TRAINING", step1Completed: true, step3Completed: true)
+            status: VolunteerRegistrationStatus(
+                currentStepCode: "STEP_4_COMPLETED",
+                canAcceptOrders: true,
+                step1Completed: true,
+                step3Completed: true
+            )
         )
         let viewModel = VolunteerRegistrationViewModel(
             apiClient: client,
@@ -1333,11 +1422,40 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertEqual(verifier.receivedCertifyIds, ["cert-1"])
         XCTAssertEqual(client.resultCount, 1)
-        XCTAssertEqual(viewModel.currentStep, .training)
+        XCTAssertEqual(viewModel.currentStep, .faceVerify)
         XCTAssertNil(viewModel.activeCertifyId)
-        XCTAssertEqual(client.trainingCoursesCount, 1)
+        XCTAssertTrue(viewModel.isRegistrationCompleted)
+        XCTAssertFalse(viewModel.isAwaitingRegistrationCompletion)
         XCTAssertEqual(client.statusRefreshCount, 1)
-        XCTAssertEqual(speechService.lastSpokenText, "认证通过")
+        XCTAssertFalse(client.requestedPaths.contains { $0.contains("/training/") })
+        XCTAssertEqual(speechService.lastSpokenText, "注册完成，请返回首页开启可服务状态")
+    }
+
+    func testVolunteerFaceVerifyApprovedResultAcceptsLegacyTrainingCompletion() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let client = FaceVerifyFlowAPIClient(
+            initResponse: FaceVerifyInitResponse(certifyId: "cert-1", status: "PENDING", message: nil),
+            resultResponses: [FaceVerifyResponse(passed: true, status: "APPROVED", message: "认证通过")],
+            status: VolunteerRegistrationStatus(currentStepCode: "STEP_4_TRAINING", canAcceptOrders: false, step3Completed: true)
+        )
+        let viewModel = VolunteerRegistrationViewModel(
+            apiClient: client,
+            metaInfoProvider: FixedCloudAuthMetaInfoProvider(metaInfo: #"{"device":"test"}"#),
+            cloudAuthVerifier: CloudAuthVerifierSpy(outcome: .submitted)
+        )
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(currentStepCode: "STEP_3_FACE_VERIFY", step1Completed: true))
+
+        await viewModel.startFaceVerify()
+
+        XCTAssertFalse(viewModel.isAwaitingRegistrationCompletion)
+        XCTAssertTrue(viewModel.isRegistrationCompleted)
+        XCTAssertFalse(viewModel.shouldPollRegistrationStatus)
+        XCTAssertFalse(viewModel.canStartFaceVerify)
+        XCTAssertNil(viewModel.faceVerifyMessage)
+        XCTAssertTrue(appState.volunteerRegistrationStatus?.isRegistrationComplete == true)
+        XCTAssertFalse(client.requestedPaths.contains { $0.contains("/training/") })
     }
 
     func testVolunteerFaceVerifySDKFailureClearsCertifyIdAndAllowsRetry() async {
@@ -3227,6 +3345,54 @@ final class blindRunTests: XCTestCase {
         )
     }
 
+    func testVolunteerAcceptGuardTreatsLegacyTrainingAsCompleteButStillRequiresAvailability() {
+        let legacyStatus = VolunteerRegistrationStatus(
+            currentStepCode: "STEP_4_TRAINING",
+            canAcceptOrders: false,
+            step3Completed: true,
+            faceVerifyStatus: "APPROVED"
+        )
+
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(
+                profile: makeVolunteerProfile(isAvailable: false),
+                registrationStatus: legacyStatus
+            ),
+            "请先开启可服务状态"
+        )
+        XCTAssertTrue(legacyStatus.isRegistrationComplete)
+    }
+
+    func testVolunteerProfileFallbackTreatsLegacyTrainingAsComplete() {
+        let profile = makeVolunteerProfile(
+            registrationStep: "STEP_4_TRAINING",
+            canAcceptOrders: false
+        )
+
+        XCTAssertTrue(profile.isMainRegistrationCompleteWhenStatusUnavailable)
+    }
+
+    func testVolunteerRegistrationReturnHomeCreatesUnavailableProfileSnapshotWhenMissing() {
+        let appState = AppState()
+        let viewModel = VolunteerRegistrationViewModel()
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.name = "测试志愿者"
+        viewModel.applyRegistrationStatus(VolunteerRegistrationStatus(
+            currentStepCode: "STEP_4_TRAINING",
+            canAcceptOrders: false,
+            step3Completed: true,
+            faceVerifyStatus: "APPROVED"
+        ))
+
+        viewModel.prepareReturnToVolunteerHome()
+
+        XCTAssertEqual(appState.volunteerProfile?.name, "测试志愿者")
+        XCTAssertEqual(appState.volunteerProfile?.registrationStep, "STEP_4_TRAINING")
+        XCTAssertFalse(appState.volunteerProfile?.isAvailable ?? true)
+        XCTAssertFalse(appState.volunteerProfile?.wantsDispatch ?? true)
+        XCTAssertTrue(appState.isVolunteerProfileApproved)
+    }
+
     func testAppStateVolunteerComputedPropertiesRequireCompleteApprovedProfile() {
         let appState = AppState()
         appState.volunteerProfile = nil
@@ -3923,7 +4089,7 @@ final class blindRunTests: XCTestCase {
         private(set) var initCount = 0
         private(set) var resultCount = 0
         private(set) var statusRefreshCount = 0
-        private(set) var trainingCoursesCount = 0
+        private(set) var requestedPaths: [String] = []
 
         init(
             initResponse: FaceVerifyInitResponse,
@@ -3944,6 +4110,7 @@ final class blindRunTests: XCTestCase {
             body: (any Encodable & Sendable)?,
             requiresAuth: Bool
         ) async throws -> T {
+            requestedPaths.append(path)
             if method == .post, path == "/api/volunteer/registration/step3/face-verify/init" {
                 initCount += 1
                 if let initError {
@@ -3959,13 +4126,6 @@ final class blindRunTests: XCTestCase {
             if method == .post, path == "/api/volunteer/registration/step3/face-verify/result" {
                 resultCount += 1
                 guard let response = (resultResponses.isEmpty ? FaceVerifyResponse(passed: false, status: "PENDING", message: nil) : resultResponses.removeFirst()) as? T else {
-                    throw APIError.invalidURL
-                }
-                return response
-            }
-            if method == .get, path == "/api/volunteer/registration/training/courses" {
-                trainingCoursesCount += 1
-                guard let response = [TrainingCourseResponse]() as? T else {
                     throw APIError.invalidURL
                 }
                 return response
@@ -4086,12 +4246,16 @@ final class blindRunTests: XCTestCase {
         name: String = "测试志愿者",
         verificationStatus: String = "not_submitted",
         adminReviewStatus: String? = nil,
-        isAvailable: Bool = false
+        isAvailable: Bool = false,
+        registrationStep: String? = nil,
+        canAcceptOrders: Bool? = nil
     ) -> VolunteerProfileResponse {
         VolunteerProfileResponse(
             name: name,
             verificationStatus: verificationStatus,
             adminReviewStatus: adminReviewStatus,
+            registrationStep: registrationStep,
+            canAcceptOrders: canAcceptOrders,
             isAvailable: isAvailable,
             availableTimeSlots: nil,
             acceptsGuideDog: nil,

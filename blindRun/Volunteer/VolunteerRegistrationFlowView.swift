@@ -12,13 +12,11 @@ import AliyunFaceAuthFacade
 enum RegistrationStep: Int, CaseIterable {
     case basicInfo = 1
     case faceVerify = 3
-    case training = 4
 
     var title: String {
         switch self {
         case .basicInfo: return "基本信息与身份核验"
         case .faceVerify: return "活体认证"
-        case .training: return "培训学习"
         }
     }
 
@@ -26,7 +24,6 @@ enum RegistrationStep: Int, CaseIterable {
         switch self {
         case .basicInfo: return 1
         case .faceVerify: return 2
-        case .training: return 3
         }
     }
 }
@@ -468,13 +465,8 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     @Published var isPollingFaceResult = false
     @Published var canReturnToBasicInfoForIdentityEdit = false
 
-    // Step 4
-    @Published var courses: [TrainingCourseResponse] = []
-    @Published var currentCourseQuestions: [QuizQuestionResponse] = []
-    @Published var selectedCourseId: Int64?
-    @Published var quizSelections: [Int64: Set<String>] = [:]
-    @Published var quizResultMessage: String?
-    @Published var trainingCompleted = false
+    @Published private(set) var isAwaitingRegistrationCompletion = false
+    @Published private(set) var isRegistrationCompleted = false
 
     @Published var registrationStatus: VolunteerRegistrationStatus?
 
@@ -483,7 +475,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     private let apiClientOverride: (any APIClientProtocol)?
     private let metaInfoProvider: any CloudAuthMetaInfoProviding
     private let cloudAuthVerifier: any CloudAuthVerifying
-    private var courseProgressById: [Int64: Int] = [:]
     private var registrationRateLimitTimer: AnyCancellable?
 
     static let idCardNumberRegex = #"^\d{17}[\dXx]$"#
@@ -539,7 +530,11 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     var canStartFaceVerify: Bool {
-        currentStep == .faceVerify && !isFaceVerifyBusy && !isRegistrationRateLimited
+        currentStep == .faceVerify &&
+            !isFaceVerifyBusy &&
+            !isRegistrationRateLimited &&
+            !isAwaitingRegistrationCompletion &&
+            !isRegistrationCompleted
     }
 
     var isFaceVerifyBusy: Bool {
@@ -551,12 +546,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     var shouldPollRegistrationStatus: Bool {
-        currentStep == .training && !trainingCompleted
-    }
-
-    var selectedCourse: TrainingCourseResponse? {
-        guard let selectedCourseId else { return nil }
-        return courses.first { $0.id == selectedCourseId }
+        isAwaitingRegistrationCompletion && !isRegistrationCompleted
     }
 
     func configure(appState: AppState, speechService: SpeechService) {
@@ -601,16 +591,41 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     func applyRegistrationStatus(_ status: VolunteerRegistrationStatus) {
+        let wasCompleted = isRegistrationCompleted
+        let wasAwaitingCompletion = isAwaitingRegistrationCompletion
         registrationStatus = status
         appState?.updateVolunteerRegistrationStatus(status)
-        currentStep = resolvedRegistrationStep(from: status)
+        isRegistrationCompleted = status.isRegistrationComplete
+        isAwaitingRegistrationCompletion = !isRegistrationCompleted &&
+            (wasAwaitingCompletion || statusIndicatesCompletedFaceVerification(status))
+        currentStep = isAwaitingRegistrationCompletion ? .faceVerify : resolvedRegistrationStep(from: status)
         if currentStep != .faceVerify {
             canReturnToBasicInfoForIdentityEdit = false
         }
-        trainingCompleted = status.isRegistrationComplete || (status.trainingCompleted ?? trainingCompleted)
-        if trainingCompleted {
-            quizResultMessage = "注册流程已完成，现在可以接单"
+        if isRegistrationCompleted {
+            faceVerifyMessage = nil
+            if !wasCompleted {
+                speechService?.speak("注册完成，请返回首页开启可服务状态")
+            }
         }
+    }
+
+    func prepareReturnToVolunteerHome() {
+        guard isRegistrationCompleted, let appState else { return }
+        guard appState.volunteerProfile == nil else { return }
+
+        appState.updateVolunteerProfile(VolunteerProfileResponse(
+            name: name.trimmed.isEmpty ? nil : name.trimmed,
+            verificationStatus: nil,
+            adminReviewStatus: nil,
+            registrationStep: registrationStatus?.registrationStep ?? registrationStatus?.currentStepCode,
+            canAcceptOrders: registrationStatus?.canAcceptOrders,
+            isAvailable: false,
+            wantsDispatch: false,
+            availableTimeSlots: nil,
+            acceptsGuideDog: nil,
+            paceRange: nil
+        ))
     }
 
     private func resolvedRegistrationStep(from status: VolunteerRegistrationStatus) -> RegistrationStep {
@@ -621,7 +636,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         case "STEP_3_FACE_VERIFY":
             return .faceVerify
         case "STEP_4_TRAINING", "STEP_4_COMPLETED":
-            return .training
+            return .faceVerify
         default:
             break
         }
@@ -633,7 +648,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             case 3:
                 return .faceVerify
             case 4:
-                return .training
+                return .faceVerify
             default:
                 break
             }
@@ -642,12 +657,23 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         let faceStatus = (status.faceVerifyStatus ?? status.stepDetails?.faceVerifyStatus ?? "").uppercased()
         let idStatus = (status.idVerifyStatus ?? status.stepDetails?.idVerifyStatus ?? "").uppercased()
         if status.step3Completed == true || faceStatus == "APPROVED" || faceStatus == "PASSED" {
-            return .training
+            return .faceVerify
         }
         if status.step1Completed == true || idStatus == "APPROVED" {
             return .faceVerify
         }
         return .basicInfo
+    }
+
+    private func statusIndicatesCompletedFaceVerification(_ status: VolunteerRegistrationStatus) -> Bool {
+        let stepCode = (status.registrationStep ?? status.currentStepCode)?.uppercased()
+        let faceStatus = (status.faceVerifyStatus ?? status.stepDetails?.faceVerifyStatus ?? "").uppercased()
+        return stepCode == "STEP_4_TRAINING" ||
+            stepCode == "STEP_4_COMPLETED" ||
+            status.currentStep == 4 ||
+            status.step3Completed == true ||
+            faceStatus == "APPROVED" ||
+            faceStatus == "PASSED"
     }
 
     // MARK: - Step 1
@@ -702,8 +728,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         case .faceVerify:
             faceVerifyMessage = "身份核验通过，请开始活体认证"
             speechService?.speak("身份核验通过，请开始活体认证")
-        case .training:
-            speechService?.speak("身份与活体认证已完成，请继续培训学习")
         }
     }
 
@@ -892,6 +916,8 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         activeCertifyId = nil
         faceVerifyMessage = nil
         errorMessage = nil
+        isAwaitingRegistrationCompletion = false
+        isRegistrationCompleted = false
         canReturnToBasicInfoForIdentityEdit = false
         speechService?.speak("请修改姓名和身份证号码后重新提交")
     }
@@ -943,10 +969,10 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     private func handleFaceVerifyResult(_ response: FaceVerifyResponse) async -> Bool {
         if response.isPassed {
             activeCertifyId = nil
-            faceVerifyMessage = response.message ?? "活体认证通过，请完成培训课程"
-            currentStep = .training
+            isAwaitingRegistrationCompletion = true
+            faceVerifyMessage = "活体已通过，注册状态同步中，无需课程或答题"
+            currentStep = .faceVerify
             speechService?.speak(faceVerifyMessage ?? "活体认证通过")
-            await loadCourses()
             await loadStatus(showLoading: false)
             return true
         }
@@ -976,182 +1002,6 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         errorMessage = message
         speechService?.speakError(message)
         return true
-    }
-
-    // MARK: - Step 4
-
-    func loadCourses() async {
-        guard let appState else { return }
-        do {
-            let courseList: [TrainingCourseResponse] = try await activeAPIClient(appState: appState).get("/api/volunteer/registration/training/courses")
-            courses = courseList.sorted { ($0.orderIndex ?? 0) < ($1.orderIndex ?? 0) }
-        } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
-                return
-            }
-            courses = []
-            errorMessage = error.localizedMessage
-        } catch {
-            courses = []
-            errorMessage = "培训课程加载失败，请重试"
-        }
-    }
-
-    func progressPercent(for course: TrainingCourseResponse) -> Int {
-        guard let id = course.id else {
-            return course.progressPercent ?? 0
-        }
-        return courseProgressById[id] ?? course.progressPercent ?? (course.status?.uppercased() == "COMPLETED" ? 100 : 0)
-    }
-
-    func canLoadQuiz(for course: TrainingCourseResponse) -> Bool {
-        progressPercent(for: course) >= 95
-    }
-
-    func reportNextTrainingProgress(for course: TrainingCourseResponse) async {
-        guard !isRegistrationRateLimited else { return }
-        guard let courseId = course.id, let appState else { return }
-        let current = progressPercent(for: course)
-        let next = min(current + 10, 100)
-        guard next > current else {
-            speechService?.speak("课程学习进度已完成")
-            return
-        }
-
-        let increased = next - current
-        let timeSpentSeconds = max(60, increased * 6)
-        let durationSeconds = max((course.durationMinutes ?? 1) * 60, 60)
-        let lastPositionSeconds = max(0, min(durationSeconds, durationSeconds * next / 100))
-        let request = TrainingProgressRequest(
-            courseId: courseId,
-            progressPercent: next,
-            lastPositionSeconds: lastPositionSeconds,
-            timeSpentSeconds: timeSpentSeconds
-        )
-
-        do {
-            let _: EmptyResponse = try await activeAPIClient(appState: appState).post("/api/volunteer/registration/training/progress", body: request)
-            courseProgressById[courseId] = next
-            speechService?.speak(next >= 95 ? "课程测验已解锁" : "学习进度已更新到\(next)%")
-            await loadStatus(showLoading: false)
-        } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
-                return
-            }
-            if !handleRegistrationRateLimit(error) {
-                errorMessage = error.localizedMessage
-                speechService?.speakError(error.localizedMessage)
-            }
-        } catch {
-            errorMessage = "学习进度上报失败，请稍后重试"
-            speechService?.speakError("学习进度上报失败，请稍后重试")
-        }
-    }
-
-    func loadQuiz(courseId: Int64) async {
-        guard let appState else { return }
-        quizResultMessage = nil
-        do {
-            let questions: [QuizQuestionResponse] = try await activeAPIClient(appState: appState).get("/api/volunteer/registration/training/quiz/\(courseId)")
-            selectedCourseId = courseId
-            currentCourseQuestions = questions.sorted { ($0.orderIndex ?? 0) < ($1.orderIndex ?? 0) }
-            quizSelections = [:]
-        } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
-                return
-            }
-            currentCourseQuestions = []
-            errorMessage = error.localizedMessage
-        } catch {
-            currentCourseQuestions = []
-            errorMessage = "测验题目加载失败，请重试"
-        }
-    }
-
-    func toggleQuizAnswer(question: QuizQuestionResponse, option: String) {
-        guard let questionId = question.id else { return }
-        let answer = answerValue(from: option)
-        if question.questionType?.uppercased().contains("MULTIPLE") == true {
-            var values = quizSelections[questionId] ?? []
-            if values.contains(answer) {
-                values.remove(answer)
-            } else {
-                values.insert(answer)
-            }
-            quizSelections[questionId] = values
-        } else {
-            quizSelections[questionId] = [answer]
-        }
-    }
-
-    func isOptionSelected(question: QuizQuestionResponse, option: String) -> Bool {
-        guard let questionId = question.id else { return false }
-        return quizSelections[questionId]?.contains(answerValue(from: option)) == true
-    }
-
-    func submitCurrentQuiz() async {
-        guard !isRegistrationRateLimited else { return }
-        guard let appState, let courseId = selectedCourseId else { return }
-        guard !currentCourseQuestions.isEmpty else {
-            errorMessage = "请先加载测验题目"
-            return
-        }
-
-        let unanswered = currentCourseQuestions.contains { question in
-            guard let questionId = question.id else { return true }
-            return quizSelections[questionId]?.isEmpty != false
-        }
-        guard !unanswered else {
-            errorMessage = "请完成所有题目后再提交"
-            speechService?.speakError("请完成所有题目后再提交")
-            return
-        }
-
-        isLoading = true
-        errorMessage = nil
-        var latestResult: QuizAnswerResponse?
-
-        do {
-            for question in currentCourseQuestions {
-                guard let questionId = question.id else { continue }
-                let answers = Array(quizSelections[questionId] ?? []).sorted()
-                let request = QuizAnswerRequest(courseId: courseId, questionId: questionId, answers: answers, timeSpentSeconds: 8)
-                latestResult = try await activeAPIClient(appState: appState).post("/api/volunteer/registration/training/quiz/answer", body: request)
-            }
-            isLoading = false
-            if latestResult?.passed == true {
-                quizResultMessage = "测验通过，正在同步注册状态"
-                speechService?.speak("测验通过，正在同步注册状态")
-            } else if let score = latestResult?.scorePercent {
-                quizResultMessage = "测验得分 \(score)%，未通过可继续重考"
-                speechService?.speakError("测验未通过，可继续重考")
-            } else {
-                quizResultMessage = "测验已提交，请查看结果"
-            }
-            await loadCourses()
-            await loadStatus(showLoading: false)
-        } catch let error as APIError {
-            isLoading = false
-            if appState.handleAuthenticatedAPIError(error) {
-                return
-            }
-            if !handleRegistrationRateLimit(error) {
-                errorMessage = error.localizedMessage
-                speechService?.speakError(error.localizedMessage)
-            }
-        } catch {
-            isLoading = false
-            errorMessage = "测验提交失败，请重试"
-            speechService?.speakError("测验提交失败，请重试")
-        }
-    }
-
-    private func answerValue(from option: String) -> String {
-        let trimmed = option.trimmed
-        if let first = trimmed.first, first.isLetter {
-            return String(first).uppercased()
-        }
-        return trimmed
     }
 
     @discardableResult
@@ -1205,13 +1055,15 @@ struct VolunteerRegistrationFlowView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    switch viewModel.currentStep {
-                    case .basicInfo:
-                        basicInfoStep
-                    case .faceVerify:
-                        faceVerifyStep
-                    case .training:
-                        trainingStep
+                    if viewModel.isRegistrationCompleted {
+                        completionStep
+                    } else {
+                        switch viewModel.currentStep {
+                        case .basicInfo:
+                            basicInfoStep
+                        case .faceVerify:
+                            faceVerifyStep
+                        }
                     }
 
                     if let errorMessage = viewModel.errorMessage {
@@ -1263,6 +1115,7 @@ struct VolunteerRegistrationFlowView: View {
                         .font(.caption2)
                         .foregroundColor(step == viewModel.currentStep ? AppColors.primary : AppColors.textSecondary)
                         .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("volunteerRegistrationStep.\(step.displayIndex)")
                 }
                 .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .combine)
@@ -1329,7 +1182,8 @@ struct VolunteerRegistrationFlowView: View {
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
 
-            if let faceVerifyMessage = viewModel.faceVerifyMessage {
+            if let faceVerifyMessage = viewModel.faceVerifyMessage,
+               !viewModel.isAwaitingRegistrationCompletion {
                 Text(faceVerifyMessage)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
@@ -1340,200 +1194,93 @@ struct VolunteerRegistrationFlowView: View {
                     .accessibilityLabel(faceVerifyMessage)
             }
 
-            PrimaryButton(viewModel.faceVerifyButtonTitle, isLoading: viewModel.isLoading || viewModel.isPerformingFaceVerify) {
-                Task { await viewModel.startFaceVerify() }
-            }
-            .disabled(!viewModel.canStartFaceVerify)
-            .opacity(viewModel.canStartFaceVerify ? 1 : 0.45)
-            .accessibilityLabel(viewModel.faceVerifyButtonTitle)
-            .accessibilityHint("发起认证并打开阿里云原生活体认证页面")
+            if viewModel.isAwaitingRegistrationCompletion {
+                Text("活体已通过，注册状态同步中，无需课程或答题")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppColors.secondaryBackground)
+                    .cornerRadius(8)
+                    .accessibilityLabel("活体已通过，注册状态同步中，无需课程或答题")
+                    .accessibilityAddTraits(.updatesFrequently)
 
-            if viewModel.canReturnToBasicInfoForIdentityEdit {
-                Button("返回修改身份信息") {
-                    viewModel.returnToBasicInfoForIdentityEdit()
+                ProgressView("正在同步注册状态...")
+                    .accessibilityLabel("正在同步注册状态")
+
+                Button("刷新注册状态") {
+                    viewModel.refreshStatus()
                 }
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(AppColors.primary)
-                .accessibilityLabel("返回修改身份信息")
-                .accessibilityHint("返回基本信息页面修改姓名和身份证号码")
-            }
-
-            if viewModel.activeCertifyId != nil {
-                Button("查询活体认证结果") {
-                    Task { await viewModel.pollFaceVerifyResultUntilFinished() }
+                .accessibilityLabel("刷新注册状态")
+                .accessibilityHint("重新查询志愿者注册是否已完成")
+            } else {
+                PrimaryButton(viewModel.faceVerifyButtonTitle, isLoading: viewModel.isLoading || viewModel.isPerformingFaceVerify) {
+                    Task { await viewModel.startFaceVerify() }
                 }
-                .disabled(viewModel.isPollingFaceResult)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(viewModel.isPollingFaceResult ? AppColors.textSecondary : AppColors.primary)
-                .accessibilityLabel("查询活体认证结果")
-            }
+                .disabled(!viewModel.canStartFaceVerify)
+                .opacity(viewModel.canStartFaceVerify ? 1 : 0.45)
+                .accessibilityLabel(viewModel.faceVerifyButtonTitle)
+                .accessibilityHint("发起认证并打开阿里云原生活体认证页面")
 
-            if viewModel.isPollingFaceResult {
-                ProgressView("正在查询活体认证结果...")
-                    .accessibilityLabel("正在查询活体认证结果")
+                if viewModel.canReturnToBasicInfoForIdentityEdit {
+                    Button("返回修改身份信息") {
+                        viewModel.returnToBasicInfoForIdentityEdit()
+                    }
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.primary)
+                    .accessibilityLabel("返回修改身份信息")
+                    .accessibilityHint("返回基本信息页面修改姓名和身份证号码")
+                }
+
+                if viewModel.activeCertifyId != nil {
+                    Button("查询活体认证结果") {
+                        Task { await viewModel.pollFaceVerifyResultUntilFinished() }
+                    }
+                    .disabled(viewModel.isPollingFaceResult)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(viewModel.isPollingFaceResult ? AppColors.textSecondary : AppColors.primary)
+                    .accessibilityLabel("查询活体认证结果")
+                }
+
+                if viewModel.isPollingFaceResult {
+                    ProgressView("正在查询活体认证结果...")
+                        .accessibilityLabel("正在查询活体认证结果")
+                }
             }
         }
     }
 
-    // MARK: - Step 4
+    private var completionStep: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 56))
+                .foregroundColor(AppColors.success)
+                .accessibilityHidden(true)
 
-    private var trainingStep: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("培训学习")
-                .font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
+            Text("注册完成，请返回首页开启可服务状态")
+                .font(.title3.bold())
+                .foregroundColor(AppColors.textPrimary)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("volunteerRegistrationCompleted")
 
-            Text("请完成必修课程学习进度和测验。测验会在课程进度达到95%后解锁。")
+            Text("注册完成不会自动开启接单，请在志愿者首页手动开启可服务状态。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
+                .multilineTextAlignment(.center)
 
-            Button("刷新注册状态") {
-                viewModel.refreshStatus()
+            PrimaryButton("返回志愿者首页") {
+                viewModel.prepareReturnToVolunteerHome()
+                dismiss()
             }
-            .font(AppFonts.body().weight(.semibold))
-            .foregroundColor(AppColors.primary)
-            .accessibilityLabel("刷新注册状态")
-
-            if viewModel.courses.isEmpty {
-                ProgressView("加载课程中...")
-                    .task { await viewModel.loadCourses() }
-            } else {
-                ForEach(viewModel.courses) { course in
-                    trainingCourseCard(course)
-                }
-            }
-
-            if !viewModel.currentCourseQuestions.isEmpty {
-                quizSection
-            }
-
-            if let quizResultMessage = viewModel.quizResultMessage {
-                Text(quizResultMessage)
-                    .font(AppFonts.body())
-                    .foregroundColor(viewModel.trainingCompleted ? AppColors.success : AppColors.textPrimary)
-                    .accessibilityLabel(quizResultMessage)
-            }
-
-            if viewModel.trainingCompleted {
-                VStack(spacing: 12) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 48))
-                        .foregroundColor(AppColors.success)
-                    Text("注册完成，现在可以接单")
-                        .font(.title3.bold())
-                        .foregroundColor(AppColors.textPrimary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .accessibilityLabel("注册完成，现在可以接单")
-
-                PrimaryButton("返回") {
-                    dismiss()
-                }
-            }
+            .accessibilityLabel("返回志愿者首页")
+            .accessibilityHint("返回后可手动开启可服务状态")
         }
-    }
-
-    private func trainingCourseCard(_ course: TrainingCourseResponse) -> some View {
-        let progress = viewModel.progressPercent(for: course)
-        return VStack(alignment: .leading, spacing: 12) {
-            Text(course.title ?? "课程")
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-            if let desc = course.description {
-                Text(desc)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .lineLimit(2)
-            }
-            if let duration = course.durationMinutes {
-                Text("预计 \(duration) 分钟")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-            }
-
-            ProgressView(value: Double(progress), total: 100)
-                .accessibilityLabel("课程进度")
-                .accessibilityValue("\(progress)%")
-            Text("当前进度 \(progress)%")
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-
-            HStack(spacing: 12) {
-                Button {
-                    Task { await viewModel.reportNextTrainingProgress(for: course) }
-                } label: {
-                    Label(progress >= 100 ? "进度已完成" : "上报学习进度", systemImage: "play.circle")
-                }
-                .disabled(progress >= 100 || viewModel.isRegistrationRateLimited)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(progress >= 100 ? AppColors.textSecondary : AppColors.primary)
-                .accessibilityLabel(progress >= 100 ? "课程进度已完成" : "上报学习进度")
-
-                if let courseId = course.id {
-                    Button {
-                        Task { await viewModel.loadQuiz(courseId: courseId) }
-                    } label: {
-                        Label("加载测验", systemImage: "questionmark.circle")
-                    }
-                    .disabled(!viewModel.canLoadQuiz(for: course))
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(viewModel.canLoadQuiz(for: course) ? AppColors.primary : AppColors.textSecondary)
-                    .accessibilityLabel("加载测验")
-                    .accessibilityHint(viewModel.canLoadQuiz(for: course) ? "加载本课程测验题目" : "课程进度达到95%后解锁")
-                }
-            }
-        }
+        .frame(maxWidth: .infinity)
         .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
         .accessibilityElement(children: .contain)
-    }
-
-    private var quizSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("课程测验")
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-
-            ForEach(viewModel.currentCourseQuestions) { question in
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(question.questionText ?? "题目")
-                        .font(AppFonts.body().weight(.semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                    ForEach(question.options ?? [], id: \.self) { option in
-                        Button {
-                            viewModel.toggleQuizAnswer(question: question, option: option)
-                        } label: {
-                            HStack {
-                                Image(systemName: viewModel.isOptionSelected(question: question, option: option) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundColor(viewModel.isOptionSelected(question: question, option: option) ? AppColors.primary : AppColors.textSecondary)
-                                    .accessibilityHidden(true)
-                                Text(option)
-                                    .font(AppFonts.body())
-                                    .foregroundColor(AppColors.textPrimary)
-                                Spacer()
-                            }
-                            .padding(.vertical, 8)
-                        }
-                        .accessibilityLabel(option)
-                        .accessibilityValue(viewModel.isOptionSelected(question: question, option: option) ? "已选择" : "未选择")
-                    }
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AppColors.secondaryBackground)
-                .cornerRadius(8)
-            }
-
-            PrimaryButton("提交测验", isLoading: viewModel.isLoading) {
-                Task { await viewModel.submitCurrentQuiz() }
-            }
-            .disabled(viewModel.isLoading || viewModel.isRegistrationRateLimited)
-            .accessibilityLabel("提交测验")
-        }
+        .accessibilityLabel("注册完成，请返回首页开启可服务状态")
     }
 
     // MARK: - Helpers
@@ -1550,6 +1297,7 @@ struct VolunteerRegistrationFlowView: View {
                 .cornerRadius(8)
                 .accessibilityLabel(title)
                 .accessibilityHint(placeholder)
+                .accessibilityIdentifier("volunteerRegistrationField.\(title)")
         }
     }
 }

@@ -29,7 +29,7 @@
 | `approved` | 已通过 |
 | `rejected` | 已拒绝 |
 
-志愿者主注册流程由 `VolunteerRegistrationStatus.currentStep` 和 `canAcceptOrders` 决定。Step1 提交基本信息、`idCardName`、`idCardNumber` 后由后端进行身份证二要素核验；iOS 表单只展示一个“姓名”字段，提交时同时作为 `name` 和 `idCardName`。通过后进入 `STEP_3_FACE_VERIFY` 动作活体认证，前端提交 SDK metaInfo 获取 `certifyId`，再调用 `AliyunFaceAuthFacade.verify` 原生 SDK，SDK 回调后通过 result 接口查询最终结果；该 App SDK 流程不使用 `certifyUrl`。发布合同要求外部后端每次 init 使用 JWT 用户、Step1 已通过的姓名和证件号创建全新的 `ID_PRO` App SDK 尝试（`IDENTITY_CARD`、`MULTI_ACTION`），不得缓存或复用单次 `certifyId`。iOS SDK 诊断仅保留 code、retCode、格式校验后的 retCodeSub、retMessageSub 存在性/长度和 SDK 版本。所有必修培训课程完成且测验及格后，后端自动置为 `STEP_4_COMPLETED` 且 `canAcceptOrders = true`。`verificationStatus` 可用于额外资质证书等兼容状态展示，但不得作为主注册接单门槛。
+志愿者主注册流程由 `VolunteerRegistrationStatus.currentStep` 和 `canAcceptOrders` 决定。Step1 提交基本信息、`idCardName`、`idCardNumber` 后由后端进行身份证二要素核验；iOS 表单只展示一个“姓名”字段，提交时同时作为 `name` 和 `idCardName`。通过后进入 `STEP_3_FACE_VERIFY` 动作活体认证，前端提交 SDK metaInfo 获取 `certifyId`，再调用 `AliyunFaceAuthFacade.verify` 原生 SDK，SDK 回调后通过 result 接口查询最终结果；该 App SDK 流程不使用 `certifyUrl`。发布合同要求外部后端每次 init 使用 JWT 用户、Step1 已通过的姓名和证件号创建全新的 `ID_PRO` App SDK 尝试（`IDENTITY_CARD`、`MULTI_ACTION`），不得缓存或复用单次 `certifyId`。iOS SDK 诊断仅保留 code、retCode、格式校验后的 retCodeSub、retMessageSub 存在性/长度和 SDK 版本。活体认证结果通过时，外部后端必须原子设置 `STEP_4_COMPLETED` 且 `canAcceptOrders = true`，不再要求课程、学习进度或测验。`STEP_4_TRAINING` 和培训统计字段仅用于遗留合同兼容，新注册不得产生该状态；为兼容旧账号和尚未升级的后端，iOS 将 `STEP_4_TRAINING` 归一化为主注册完成，但仍保持 `isAvailable/wantsDispatch = false`，真实派单资格继续由外部接口响应决定。`verificationStatus` 可用于额外资质证书等兼容状态展示，但不得作为主注册接单门槛。
 
 ### RunOrderStatus
 
@@ -150,7 +150,7 @@ Rules:
 
 Rules:
 
-- 志愿者接收系统派单前必须满足：昵称存在、手机号存在、主注册流程 `canAcceptOrders = true` 或 `registrationStep = STEP_4_COMPLETED`、`wantsDispatch/isAvailable = true`、WebSocket 在线、已上报最近位置，且符合后端可服务时间和距离规则。
+- 志愿者接收系统派单前必须满足：昵称存在、手机号存在、基本信息/身份证二要素与动作活体认证已完成、主注册流程 `canAcceptOrders = true` 或 `registrationStep = STEP_4_COMPLETED`、`wantsDispatch/isAvailable = true`、WebSocket 在线、已上报最近位置，且符合后端可服务时间和距离规则；课程、测验和可选资质证书不属于主注册接单门槛。
 - 可选资质证书上传状态 `verificationStatus` 不影响主流程接单资格；可在个人中心作为加分项展示。
 - 关闭可服务开关后不再接收新的系统派单。
 - 已接单时关闭开关不影响当前订单。

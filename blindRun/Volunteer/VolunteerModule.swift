@@ -118,7 +118,8 @@ final class VolunteerProfileViewModel: ObservableObject {
 
     /// 是否需要显示真实注册流程（非 mock 环境）
     var shouldShowRealRegistration: Bool {
-        appState?.currentEnvironment != .mock
+        appState?.currentEnvironment != .mock ||
+            ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_FORCE_REAL_REGISTRATION"] == "1"
     }
 
     func configure(with appState: AppState, speechService: SpeechService) {
