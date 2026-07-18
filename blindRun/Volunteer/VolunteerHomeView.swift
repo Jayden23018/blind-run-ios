@@ -449,33 +449,6 @@ struct VolunteerHomeView: View {
                 ZStack(alignment: .bottom) {
                     homeMap(screenAnchor: CGPoint(x: 0.5, y: mapAnchorY))
 
-                    VStack(spacing: 8) {
-                        homeStatusOverlay
-
-                        if let activeOrder = viewModel.activeOrder {
-                            NavigationLink {
-                                currentOrderDestination(activeOrder)
-                            } label: {
-                                VolunteerCurrentOrderCard(order: activeOrder)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
-                            .accessibilityHint("点击进入当前订单")
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.top, max(proxy.safeAreaInsets.top + 4, 8))
-                    .frame(maxWidth: .infinity, alignment: .top)
-                    .background(
-                        GeometryReader { topProxy in
-                            Color.clear.preference(
-                                key: VolunteerHomeTopBottomPreferenceKey.self,
-                                value: topProxy.frame(in: .named("VolunteerHome")).maxY
-                            )
-                        }
-                    )
-                    .frame(maxHeight: .infinity, alignment: .top)
-
                     VStack(spacing: 0) {
                         Spacer()
 
@@ -488,6 +461,34 @@ struct VolunteerHomeView: View {
                     nearbyDemandPanel(height: panelHeight, isCompact: demandPanelDetent == .compact, proxy: proxy)
                         .padding(.horizontal, 10)
                         .padding(.bottom, VolunteerDemandPanelDetent.bottomMargin)
+                }
+                .overlay(alignment: .top) {
+                    VStack(spacing: 8) {
+                        homeStatusOverlay
+
+                        if let activeOrder = viewModel.activeOrder {
+                            NavigationLink {
+                                currentOrderDestination(activeOrder)
+                            } label: {
+                                VolunteerCurrentOrderCard(order: activeOrder)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
+                            .accessibilityHint("点击进入当前订单")
+                            .accessibilityIdentifier("volunteerHomeCurrentOrderCard")
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .background(
+                        GeometryReader { topProxy in
+                            Color.clear.preference(
+                                key: VolunteerHomeTopBottomPreferenceKey.self,
+                                value: topProxy.frame(in: .named("VolunteerHome")).maxY
+                            )
+                        }
+                    )
                 }
                 .background(AppColors.background)
                 .coordinateSpace(name: "VolunteerHome")
@@ -901,6 +902,7 @@ private struct VolunteerHomeStatusOverlay: View {
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 5)
+        .accessibilityIdentifier("volunteerHomeTopStatusBlock")
     }
 }
 

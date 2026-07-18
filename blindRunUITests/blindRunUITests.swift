@@ -103,6 +103,14 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerActiveOrder: true
         )
 
+        let topStatusBlock = app.descendants(matching: .any)["volunteerHomeTopStatusBlock"].firstMatch
+        XCTAssertTrue(topStatusBlock.waitForExistence(timeout: 12), "Volunteer status block should be visible below the system status area")
+        assertVolunteerTopStatusBlockPosition(topStatusBlock, app: app)
+
+        let currentOrderCard = app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch
+        XCTAssertTrue(currentOrderCard.waitForExistence(timeout: 5), "Preseeded active order should appear below the status block")
+        XCTAssertGreaterThanOrEqual(currentOrderCard.frame.minY, topStatusBlock.frame.maxY, "Current order should remain directly below the top status block")
+
         openCurrentVolunteerService(app)
         assertNoEmergencyAction(app)
 
@@ -230,6 +238,10 @@ final class blindRunUITests: XCTestCase {
 
         let availabilitySwitch = app.switches.firstMatch
         XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should be visible on the map overlay")
+        let topStatusBlock = app.descendants(matching: .any)["volunteerHomeTopStatusBlock"].firstMatch
+        XCTAssertTrue(topStatusBlock.waitForExistence(timeout: 5), "Volunteer status block should be visible below the system status area")
+        assertVolunteerTopStatusBlockPosition(topStatusBlock, app: app)
+        XCTAssertFalse(app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch.exists, "Home without an active order should only show the top status block")
         XCTAssertTrue(app.buttons["回到当前位置"].firstMatch.waitForExistence(timeout: 5), "Home map should include recenter control")
         XCTAssertTrue(app.staticTexts["系统派单"].firstMatch.waitForExistence(timeout: 5), "Volunteer home should show the system dispatch workbench")
         XCTAssertTrue(app.staticTexts["近期服务"].firstMatch.waitForExistence(timeout: 5), "Dispatch workbench should show recent service history")
@@ -788,6 +800,30 @@ final class blindRunUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
         return (element.value as? String) == expectedValue
+    }
+
+    private func assertVolunteerTopStatusBlockPosition(
+        _ topStatusBlock: XCUIElement,
+        app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let statusBar = app.statusBars.firstMatch
+        XCTAssertTrue(statusBar.exists, "System status bar should be available for safe-area verification", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(
+            topStatusBlock.frame.minY,
+            statusBar.frame.maxY - 1,
+            "Volunteer status block should remain below the system status area",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThan(
+            topStatusBlock.frame.minY,
+            100,
+            "Volunteer status block should remain at the top instead of double-counting the safe area",
+            file: file,
+            line: line
+        )
     }
 
     private func assertNoEmergencyAction(_ app: XCUIApplication) {
