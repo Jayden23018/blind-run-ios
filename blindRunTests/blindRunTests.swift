@@ -161,6 +161,72 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(sendCount, 0)
     }
 
+    func testDispatchSummaryExplainsMissingBackendReasons() throws {
+        let data = #"{"canDispatch":false,"notAvailableReasons":[],"wantsDispatch":true}"#.data(using: .utf8)!
+        let summary = try JSONDecoder().decode(VolunteerDispatchSummaryResponse.self, from: data)
+
+        XCTAssertEqual(summary.reasonText, "服务端未返回不可接单原因")
+        XCTAssertEqual(summary.dispatchStatusText, "服务端未返回不可接单原因")
+        XCTAssertFalse(summary.canDispatch ?? true)
+    }
+
+    func testDispatchSummaryMapsEveryBackendReadinessReason() throws {
+        let data = #"{"canDispatch":false,"notAvailableReasons":["DISPATCH_DISABLED","REGISTRATION_INCOMPLETE","OFFLINE","OUTSIDE_SERVICE_TIME","NO_LOCATION","ACTIVE_ORDER","NOT_APPROVED"]}"#.data(using: .utf8)!
+        let summary = try JSONDecoder().decode(VolunteerDispatchSummaryResponse.self, from: data)
+
+        XCTAssertEqual(
+            summary.reasonText,
+            "已关闭接单、注册资料未完成、当前未在线、不在可服务时间、缺少最近定位、已有当前订单、志愿者资格未通过"
+        )
+    }
+
+    func testVolunteerHomeRefreshesBackendAuthoritativeDispatchSummary() async {
+        let client = DispatchSummarySequenceAPIClient()
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        await viewModel.refreshDispatchSummary()
+        XCTAssertFalse(viewModel.dispatchSummary?.canDispatch ?? true)
+        XCTAssertEqual(viewModel.statusText, "服务端未返回不可接单原因")
+
+        await viewModel.refreshDispatchSummary()
+        XCTAssertTrue(viewModel.dispatchSummary?.canDispatch ?? false)
+        XCTAssertEqual(viewModel.statusText, "已上线，等待系统派单")
+        XCTAssertEqual(client.dispatchSummaryRequestCount, 2)
+    }
+
+    func testVolunteerHomeSummaryRefreshPreservesActionError() async {
+        let client = DispatchSummarySequenceAPIClient()
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.errorMessage = "可服务状态更新失败，请重试"
+
+        await viewModel.refreshDispatchSummary()
+
+        XCTAssertEqual(viewModel.errorMessage, "可服务状态更新失败，请重试")
+        XCTAssertNil(viewModel.dispatchSummaryErrorMessage)
+        XCTAssertEqual(viewModel.displayedErrorMessage, "可服务状态更新失败，请重试")
+    }
+
+    func testVolunteerHomeSummaryRefreshErrorRecoversIndependently() async {
+        let client = RecoveringDispatchSummaryAPIClient()
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        await viewModel.refreshDispatchSummary()
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(viewModel.dispatchSummaryErrorMessage, "派单摘要暂时不可用")
+        XCTAssertEqual(viewModel.displayedErrorMessage, "派单摘要暂时不可用")
+
+        await viewModel.refreshDispatchSummary()
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertNil(viewModel.dispatchSummaryErrorMessage)
+        XCTAssertTrue(viewModel.dispatchSummary?.canDispatch ?? false)
+    }
+
     func testAcceptingDispatchPublishesNavigationOrderId() async throws {
         let appState = AppState()
         appState.currentEnvironment = .mock
@@ -3925,6 +3991,71 @@ final class blindRunTests: XCTestCase {
             requiresAuth: Bool
         ) async throws -> T {
             throw error
+        }
+    }
+
+    private final class DispatchSummarySequenceAPIClient: APIClientProtocol, @unchecked Sendable {
+        private(set) var dispatchSummaryRequestCount = 0
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            guard method == .get, path == "/api/volunteer/dispatch-summary" else {
+                throw APIError.invalidURL
+            }
+            dispatchSummaryRequestCount += 1
+            let json = dispatchSummaryRequestCount == 1
+                ? #"{"canDispatch":false,"notAvailableReasons":[],"wantsDispatch":true}"#
+                : #"{"canDispatch":true,"notAvailableReasons":[],"wantsDispatch":true,"coverageRadiusKm":10}"#
+            return try JSONDecoder().decode(T.self, from: Data(json.utf8))
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
+        }
+    }
+
+    private final class RecoveringDispatchSummaryAPIClient: APIClientProtocol, @unchecked Sendable {
+        private var requestCount = 0
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            guard method == .get, path == "/api/volunteer/dispatch-summary" else {
+                throw APIError.invalidURL
+            }
+            requestCount += 1
+            if requestCount == 1 {
+                throw APIError.serverError(
+                    ErrorResponse(code: "DISPATCH_SUMMARY_UNAVAILABLE", message: "派单摘要暂时不可用")
+                )
+            }
+            let json = #"{"canDispatch":true,"notAvailableReasons":[],"wantsDispatch":true,"coverageRadiusKm":10}"#
+            return try JSONDecoder().decode(T.self, from: Data(json.utf8))
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
         }
     }
 

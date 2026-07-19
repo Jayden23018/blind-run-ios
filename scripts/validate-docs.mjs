@@ -108,6 +108,21 @@ try {
     console.error('[validate-docs] FaceVerifyInitResponse must require non-empty certifyId for PENDING and message for ERROR');
     failed = true;
   }
+
+  const dispatchSummary = openAPIDocument.components?.schemas?.VolunteerDispatchSummaryResponse;
+  const dispatchRequired = new Set(dispatchSummary?.required ?? []);
+  const unavailableBranch = dispatchSummary?.allOf?.find((branch) =>
+    branch.if?.properties?.canDispatch?.const === false
+  );
+  const unavailableRequired = new Set(unavailableBranch?.then?.required ?? []);
+  if (
+    !dispatchRequired.has('canDispatch') ||
+    !unavailableRequired.has('notAvailableReasons') ||
+    unavailableBranch?.then?.properties?.notAvailableReasons?.minItems !== 1
+  ) {
+    console.error('[validate-docs] VolunteerDispatchSummaryResponse must require non-empty notAvailableReasons when canDispatch is false');
+    failed = true;
+  }
 } catch (error) {
   console.error(`[validate-docs] docs/07-api-contract.openapi.yaml is not valid JSON: ${error.message}`);
   failed = true;

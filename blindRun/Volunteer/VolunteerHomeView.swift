@@ -11,6 +11,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var rows: [VolunteerAvailableOrderRow] = []
     @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
     @Published var errorMessage: String?
+    @Published var dispatchSummaryErrorMessage: String?
     @Published var isLoading = false
     @Published var isUpdatingAvailability = false
     @Published var activeOrder: OrderDetailResponse?
@@ -26,11 +27,18 @@ final class VolunteerHomeViewModel: ObservableObject {
     private var speechService: SpeechService?
     private var appStateWebSocketCancellable: AnyCancellable?
     private var webSocketEventCancellable: AnyCancellable?
+    private var webSocketStateCancellable: AnyCancellable?
     private weak var subscribedWebSocketService: WebSocketService?
     private var countdownTask: Task<Void, Never>?
+    private var delayedSummaryRefreshTask: Task<Void, Never>?
+    private var isSceneActive = false
 
     var statusText: String {
         dispatchSummary?.dispatchStatusText ?? (isAvailable ? "等待系统派单" : "已关闭接单")
+    }
+
+    var displayedErrorMessage: String? {
+        errorMessage ?? dispatchSummaryErrorMessage
     }
 
     var statusColor: Color {
@@ -59,6 +67,14 @@ final class VolunteerHomeViewModel: ObservableObject {
         self.speechService = speechService
         apply(profile: appState.volunteerProfile)
         subscribeToAppStateWebSocket(appState)
+    }
+
+    func setSceneActive(_ isActive: Bool) {
+        isSceneActive = isActive
+        if !isActive {
+            delayedSummaryRefreshTask?.cancel()
+            delayedSummaryRefreshTask = nil
+        }
     }
 
     // MARK: - WebSocket Dispatch
@@ -163,6 +179,8 @@ final class VolunteerHomeViewModel: ObservableObject {
         guard let service else {
             webSocketEventCancellable?.cancel()
             webSocketEventCancellable = nil
+            webSocketStateCancellable?.cancel()
+            webSocketStateCancellable = nil
             subscribedWebSocketService = nil
             return
         }
@@ -170,11 +188,18 @@ final class VolunteerHomeViewModel: ObservableObject {
         guard subscribedWebSocketService !== service else { return }
 
         webSocketEventCancellable?.cancel()
+        webSocketStateCancellable?.cancel()
         subscribedWebSocketService = service
         webSocketEventCancellable = service.eventPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] event in
                 self?.handleWebSocketEvent(event)
+            }
+        webSocketStateCancellable = service.$connectionState
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard case .connected = state else { return }
+                self?.scheduleDispatchSummaryRefresh()
             }
     }
 
@@ -213,6 +238,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         guard let appState else { return }
         isLoading = dispatchSummary == nil
         errorMessage = nil
+        dispatchSummaryErrorMessage = nil
 
         do {
             // Load volunteer profile
@@ -224,11 +250,16 @@ final class VolunteerHomeViewModel: ObservableObject {
                 appState.updateVolunteerRegistrationStatus(status)
             }
 
-            VolunteerLocationReporter.reportIfNeeded(
+            let didReportLocation = VolunteerLocationReporter.reportIfNeeded(
                 appState: appState,
                 currentLocation: currentLocation,
                 locationAuthorized: locationAuthorized
             )
+
+            if didReportLocation {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+            }
 
             let summary: VolunteerDispatchSummaryResponse = try await appState.apiClient.get("/api/volunteer/dispatch-summary")
             apply(summary: summary)
@@ -283,6 +314,11 @@ final class VolunteerHomeViewModel: ObservableObject {
             )
             appState.updateVolunteerProfile(profile)
             apply(profile: profile)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else {
+                isUpdatingAvailability = false
+                return
+            }
             if let summary: VolunteerDispatchSummaryResponse = try? await appState.apiClient.get("/api/volunteer/dispatch-summary") {
                 apply(summary: summary)
             }
@@ -316,6 +352,52 @@ final class VolunteerHomeViewModel: ObservableObject {
             activeOrder = active.orderDetail
         } else {
             activeOrder = nil
+        }
+    }
+
+    func refreshDispatchSummary() async {
+        guard let appState else { return }
+        do {
+            let summary: VolunteerDispatchSummaryResponse = try await appState.apiClient.get("/api/volunteer/dispatch-summary")
+            guard !Task.isCancelled else { return }
+            apply(summary: summary)
+            dispatchSummaryErrorMessage = nil
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
+            dispatchSummaryErrorMessage = error.localizedMessage
+        } catch is CancellationError {
+            return
+        } catch {
+            dispatchSummaryErrorMessage = "派单状态刷新失败，请重试"
+        }
+    }
+
+    func reportLocationThenRefreshSummary(
+        currentLocation: CLLocationCoordinate2D?,
+        locationAuthorized: Bool
+    ) async {
+        guard let appState else { return }
+        let didReportLocation = VolunteerLocationReporter.reportIfNeeded(
+            appState: appState,
+            currentLocation: currentLocation,
+            locationAuthorized: locationAuthorized
+        )
+        if didReportLocation {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+        }
+        await refreshDispatchSummary()
+    }
+
+    private func scheduleDispatchSummaryRefresh() {
+        guard isSceneActive else { return }
+        delayedSummaryRefreshTask?.cancel()
+        delayedSummaryRefreshTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.refreshDispatchSummary()
         }
     }
 }
@@ -425,6 +507,7 @@ private struct VolunteerHomeTopBottomPreferenceKey: PreferenceKey {
 // MARK: - Volunteer Home View
 
 struct VolunteerHomeView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
@@ -518,10 +601,18 @@ struct VolunteerHomeView: View {
                 bottomEntries
             }
             .onAppear {
-                viewModel.configure(with: appState, speechService: speechService)
                 locationService.requestPermission()
                 locationService.startUpdating()
-                Task { await loadHome() }
+            }
+            .onDisappear {
+                viewModel.setSceneActive(false)
+            }
+            .task(id: scenePhase) {
+                viewModel.configure(with: appState, speechService: speechService)
+                let isActive = scenePhase == .active
+                viewModel.setSceneActive(isActive)
+                guard isActive else { return }
+                await runHomeRefreshLoop()
             }
             .overlay {
                 if viewModel.incomingOrder != nil {
@@ -714,7 +805,7 @@ struct VolunteerHomeView: View {
             )
         }
 
-        if let errorMessage = viewModel.errorMessage {
+        if let errorMessage = viewModel.displayedErrorMessage {
             Text(errorMessage)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.destructive)
@@ -789,6 +880,18 @@ struct VolunteerHomeView: View {
             currentLocation: locationService.effectiveLocation,
             locationAuthorized: locationService.isAuthorized
         )
+    }
+
+    private func runHomeRefreshLoop() async {
+        await loadHome()
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled else { return }
+            await viewModel.reportLocationThenRefreshSummary(
+                currentLocation: locationService.effectiveLocation,
+                locationAuthorized: locationService.isAuthorized
+            )
+        }
     }
 
     private var bottomEntries: some View {

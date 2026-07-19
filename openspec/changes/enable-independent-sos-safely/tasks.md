@@ -1,56 +1,45 @@
 ## 1. Safety Preconditions And Contract Confirmation
 
-- [ ] 1.1 Complete and validate `complete-realtime-fallback-and-notifications` so emergency events have one app-lifetime, event-ID-aware routing owner.
-- [ ] 1.2 Obtain human/product/compliance confirmation for no-order confirmation wording, success/no-location/offline/cooldown/escalation/resolution copy, and any approved external emergency guidance.
-- [ ] 1.3 Obtain backend confirmation for eligible order association, structured trigger/status enums, cooldown and repeated-trigger semantics, event recovery after relaunch, volunteer response authorization/idempotency/timeout, and typed WebSocket follow-up messages.
-- [ ] 1.4 Keep release-facing SOS entry disabled until tasks 1.2 and 1.3 are resolved; record every missing API/behavior as `需要人工确认` rather than inventing client behavior.
+- [ ] 1.1 Complete and validate `complete-realtime-fallback-and-notifications` and `enable-live-escort-location-and-track-summary` before implementing SOS UI.
+- [ ] 1.2 Obtain product/safety approval for strict current-GPS gating versus backend location degradation and for pending/failure/retry/resolved copy.
+- [ ] 1.3 Confirm structured trigger response/errors/cooldown, both-role authorization, contact-notified semantics/delivery to both participants, resolved states, and reconnect/relaunch recovery; mark every gap `需要人工确认`.
+- [ ] 1.4 Keep both release-facing entries disabled until tasks 1.2 and 1.3 are resolved.
 
 ## 2. Canonical Documentation And Contracts
 
-- [ ] 2.1 Update `AGENTS.md` to replace the current hidden-emergency release rule only after the dedicated safety decisions are approved, preserving exact required confirmation copy or adding an explicitly approved no-order variant.
-- [ ] 2.2 Update `plan.md`, the canonical `formal-dispatch-service-flow` purpose and cancellation wording, and product/scope/story/flow/page/data/architecture/accessibility/task docs with independent SOS, event states, responsibility boundaries, privacy, offline behavior, and release risks.
-- [ ] 2.3 Update `docs/07-api-contract.openapi.yaml` with optional trigger fields, `EmergencyTriggerResponse`, cooldown/errors, event recovery, volunteer response, ownership, idempotency, and no-order-status-mutation semantics.
-- [ ] 2.4 Update `docs/websocket-protocol.md` with typed event-ID-keyed pending/contact-notified/escalated/resolved/false-alarm messages and volunteer alert/response timing.
+- [ ] 2.1 Update `AGENTS.md` to replace the hidden-emergency rule with the approved dual-role `IN_PROGRESS`-only flow while preserving the exact confirmation copy.
+- [ ] 2.2 Update `plan.md` and product/scope/story/flow/page/data/architecture/accessibility/task docs with eligibility, GPS, event/SMS states, failure behavior, responsibility boundaries, and release risk.
+- [ ] 2.3 Update `docs/07-api-contract.openapi.yaml` with required iOS order/GPS usage, structured trigger result/errors, both-role authorization, event recovery, and unchanged order status.
+- [ ] 2.4 Update `docs/websocket-protocol.md` with event-ID/order-ID-keyed submitted/contact-notified/resolved messages for both participants and exact SMS semantics.
 
 ## 3. Models And Mock Safety State
 
-- [ ] 3.1 Make the SOS request fields optional and add typed trigger response, event status, cooldown, recovery, volunteer action/result, and WebSocket follow-up models.
-- [ ] 3.2 Add stable emergency error mappings and authoritative retry parsing without reusing an unrelated local countdown.
-- [ ] 3.3 Implement Mock independent/order-associated triggers, no-location success, duplicate/cooldown, failure, contact notification, escalation, resolution, volunteer responses/timeouts, and event recovery without changing `RunOrderStatus`.
+- [ ] 3.1 Add typed dual-role request, structured trigger response, emergency event status, error/cooldown, contact-notified/resolved, and recovery models.
+- [ ] 3.2 Reuse the live escort GCJ-02 value type and forbid demo/fallback coordinates for cloud SOS requests.
+- [ ] 3.3 Implement Mock `IN_PROGRESS` blind/volunteer triggers, GPS/order validation, pending, failure, contact notification, resolution, cooldown, recovery, and no order-state mutation.
 
 ## 4. Emergency Coordination
 
-- [ ] 4.1 Implement an `EmergencyCoordinator` integrated with the global realtime coordinator and keyed by backend event ID, with duplicate-submit protection and no order-state ownership.
-- [ ] 4.2 Select `orderId` only for owned `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, or `IN_PROGRESS` orders and omit it in every other state.
-- [ ] 4.3 Include current device GPS only when authorized/available, omit both GPS fields otherwise, and prohibit SOS-blocking reverse-geocode work.
-- [ ] 4.4 Persist only approved non-secret event recovery metadata keyed by authenticated user ID, clear it on logout/account deletion/session expiration/user change, and recover authoritative state after navigation, reconnect, and relaunch before presenting it as current.
-- [ ] 4.5 Implement authoritative cooldown/retry and explicit unsent/error states that never imply backend receipt after failure.
+- [ ] 4.1 Implement an event-ID-keyed `EmergencyCoordinator` integrated with `AppRealtimeCoordinator`, with no ownership of `RunOrderStatus`.
+- [ ] 4.2 Revalidate authenticated participant role and canonical `IN_PROGRESS` order immediately before sending.
+- [ ] 4.3 Obtain a fresh real GCJ-02 location from the active escort session or bounded one-shot request; implement the approved no-location behavior and never use demo coordinates.
+- [ ] 4.4 Gate submitted state on structured success, protect against duplicate taps, and keep network/decoding/backend rejection visibly and audibly unsent.
+- [ ] 4.5 Route contact-notified/resolved updates only when event ID, order ID, authenticated participant, and documented role delivery match.
+- [ ] 4.6 Persist only approved non-secret recovery metadata scoped to authenticated user/order and clear it on logout, deletion, expiration, user change, terminal event, or disassociation.
 
-## 5. Blind-Runner SOS Experience
+## 5. Dual-Role IN_PROGRESS Experience
 
-- [ ] 5.1 Add a consistent 64pt+ SOS entry to every authenticated blind-role root flow, including incomplete profile/identity/contact onboarding and no-order home.
-- [ ] 5.2 Require the approved exact second-confirmation copy, disable duplicate confirmation while submitting, and make cancellation issue no request.
-- [ ] 5.3 Build visible/TTS/VoiceOver presentation for submitting, pending, location-included/no-location, cooldown, unsent, contact-notified, escalated, resolved, and recovery states.
-- [ ] 5.4 Integrate emergency state into repeat-current-status without replacing or mutating canonical order-status announcements.
+- [ ] 5.1 Show a 64pt+ SOS action on blind and volunteer service screens only while canonical status is `IN_PROGRESS`; hide it in every other state.
+- [ ] 5.2 Use the exact required second-confirmation copy, send no request on cancel, and disable duplicate confirmation while submitting.
+- [ ] 5.3 Present equivalent visible, VoiceOver, and TTS states for locating, submitting, processing, unsent/failure, cooldown, contact-notified, and resolved outcomes.
+- [ ] 5.4 Show/speak “联系人已收到短信” only after the approved matching backend notification; never derive it from HTTP trigger success.
+- [ ] 5.5 Include authoritative SOS state in blind repeat-current-status without replacing canonical order status or changing finish/cancel permissions.
 
-## 6. Volunteer Emergency Response
+## 6. Tests And Validation
 
-- [ ] 6.1 Present `EMERGENCY_VOLUNTEER_ALERT` as a high-priority event-ID-keyed alert only to the associated volunteer and retain it across navigation.
-- [ ] 6.2 Add separate second confirmations for `NEED_HELP` and `FALSE_ALARM`, call the query-parameter response endpoint, and present only backend-confirmed outcomes.
-- [ ] 6.3 Display the backend-owned response deadline and escalation copy without running a client scheduler or claiming local escalation.
-- [ ] 6.4 Keep blind-user GPS private: do not render raw coordinates, a live marker, direction, route, or track; use only approved backend safety/location text.
-
-## 7. Safety, Accessibility, And Privacy Tests
-
-- [ ] 7.1 Add unit tests for optional request encoding, eligible order association, structured success gating, cooldown, duplicate suppression, event-ID routing/recovery, cross-account metadata isolation and cleanup, and unchanged order status.
-- [ ] 7.2 Add Mock/UI tests for SOS reachability across blind flows, exact confirmation copy, cancel/no-request, no-location success, offline unsent state, cooldown, resolution, and repeat status.
-- [ ] 7.3 Add volunteer tests for authorization, response confirmations, timeout presentation, false-alarm handling, and distinct safety event IDs.
-- [ ] 7.4 Add privacy/accessibility assertions that raw emergency coordinates are absent from visible text, logs, screenshots, maps, and accessibility output and that all safety states have equivalent VoiceOver/TTS feedback.
-
-## 8. Release Validation And Enablement
-
-- [ ] 8.1 Extend cloud probes for independent and eligible-order SOS, optional GPS, cooldown, recovery, volunteer response, contact escalation, and no order-status mutation without adding backend code.
-- [ ] 8.2 Run `node scripts/validate-docs.mjs` and `openspec validate enable-independent-sos-safely --strict --no-interactive`.
-- [ ] 8.3 Run focused unit/UI tests, baseline tests on `111` and `iPad Pro (2)`, and supervised dual-device real-backend safety acceptance including offline/location-denied cases.
-- [ ] 8.4 Record product/compliance approval, backend contract evidence, privacy review, failure screenshots/logs, and real-device results before enabling SOS in Demo and Production builds.
-- [ ] 8.5 Verify rollback hides entry without deleting already recorded backend emergency events and document the rollback decision path.
+- [ ] 6.1 Add unit tests for role/order eligibility, exact confirmation, cancel/no-request, current-GPS encoding, structured success gating, duplicate/cooldown, event matching, recovery isolation, and unchanged order status.
+- [ ] 6.2 Add tests for no/stale location, permission revocation, background/lock triggering, network/decoding failures, and prohibition of demo coordinates.
+- [ ] 6.3 Add blind/volunteer UI/accessibility tests for state visibility, 64pt targets, exact copy, TTS/VoiceOver equivalence, and SMS copy appearing only after matching notification.
+- [ ] 6.4 Extend cloud probes for both-role `IN_PROGRESS` trigger, GCJ-02/order payload, notification semantics, recovery, and no order-status mutation.
+- [ ] 6.5 Run `node scripts/validate-docs.mjs` and `openspec validate enable-independent-sos-safely --strict --no-interactive`.
+- [ ] 6.6 Run focused tests and supervised locked/background dual-device safety acceptance on `111` and `iPad Pro (2)` before release enablement.

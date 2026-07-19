@@ -26,3 +26,10 @@
 - [x] 5.1 Treat legacy `STEP_4_TRAINING` as completed registration across status models, AppState, volunteer home, and action guards without enabling availability.
 - [x] 5.2 Update unit and UI coverage so legacy training status reaches the completion page, stops polling, returns home, and still requires manual availability.
 - [x] 5.3 Update OpenSpec and maintained contract documentation, then rerun strict docs/OpenSpec validation and relevant tests on `111` and `iPad Pro (2)`.
+
+## 6. Dispatch Readiness Diagnostics
+
+- [x] 6.1 Refresh the volunteer dispatch summary every 10 seconds while the home screen is active and after WebSocket/location or availability readiness changes.
+- [x] 6.2 Show an explicit backend-contract diagnostic when `canDispatch = false` has no `notAvailableReasons`, without synthesizing eligibility.
+- [x] 6.3 Add a redacted, account-scoped cloud readiness probe that does not switch roles or mutate volunteer profile/availability.
+- [x] 6.4 Add focused unit tests and document the real-account result plus any backend-owned remediation still requiring human confirmation.

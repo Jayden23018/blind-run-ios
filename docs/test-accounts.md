@@ -294,6 +294,14 @@ scripts/admin-review-volunteer.mjs
 4. 验证码错误应返回统一 `INVALID_VERIFICATION_CODE` 错误结构；前端暂时兼容当前 `{ "error": ... }`。
 5. 当前用户读取自己的紧急联系人时应返回完整电话，或明确提供“不修改掩码电话”的更新语义。
 6. 已确认没有盲人确认按钮；`DRIVER_ARRIVED -> IN_PROGRESS` 由志愿者端调用 `POST /api/orders/{id}/start-service` 触发，需在真机和 `scripts/cloud-e2e.mjs` 中验收。
+
+### 6.1 志愿者派单资格账号探针（2026-07-18）
+
+- 使用 `scripts/volunteer-dispatch-readiness-probe.mjs` 对指定志愿者账号执行脱敏诊断；脚本不会切换角色、修改资料或修改可服务开关，只创建登录会话、读取派单相关接口、连接志愿者 WebSocket 并上报一次测试位置。
+- `13360846885` 在先调用 `send-code` 后继续使用 `000000`，实测仍返回 `INVALID_VERIFICATION_CODE`，因此尚未取得该账号 profile、registration status 和 dispatch summary 的权威快照。
+- 标准志愿者账号 `13800000002` 回归通过：初始摘要因 `OFFLINE` 且无最近位置返回 `canDispatch = false`，WebSocket 建连并上报一次位置后 2 秒内变为 `canDispatch = true`、`isOnline = true`、覆盖半径 10 公里且原因数组为空。这证明位置上报后的摘要传播链路可用，也验证 iOS 必须在传播后重查而不能停留在旧快照。
+- 派单摘要刷新改动已在真机 `111` 和 `iPad Pro (2)` 分别完成全量 `blindRunTests` 回归：两台设备均为 208 通过、1 个文档路径相关测试按预期跳过、0 失败；iPad 首轮曾发生单个测试进程被系统 kill，失败用例独立通过且第二次全量回归完全通过。
+- `需要人工确认`：后端应将该号码加入长期固定测试码策略，或由账号持有人提供本次短信验证码后重跑探针。不得通过 iOS 绕过验证码或伪造派单资格。
 ## 账户生命周期测试注意事项
 
 - 测试账号恢复时必须以 `GET /api/auth/me` 为准，不得仅信任本地角色。

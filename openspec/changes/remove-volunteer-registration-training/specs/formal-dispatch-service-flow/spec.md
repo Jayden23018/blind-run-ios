@@ -20,6 +20,16 @@ The iOS volunteer experience SHALL treat a volunteer as dispatch-ready only when
 - **THEN** the app SHALL present the not-ready reason
 - **AND** the app SHALL block accepting dispatches from the UI and ViewModel action layer
 
+#### Scenario: Dispatch readiness changes after connection or location reporting
+- **WHEN** the volunteer home remains active after WebSocket connection, location reporting, or availability changes
+- **THEN** the client SHALL refresh `GET /api/volunteer/dispatch-summary` after a short propagation delay
+- **AND** the client SHALL continue refreshing the summary every 10 seconds while the home screen is active
+
+#### Scenario: Backend omits the unavailable reason
+- **WHEN** dispatch summary returns `canDispatch = false` with an absent or empty `notAvailableReasons`
+- **THEN** the client SHALL state that the backend did not return an unavailable reason
+- **AND** the client SHALL NOT synthesize `canDispatch = true` or bypass dispatch acceptance guards
+
 #### Scenario: Optional certificate is not a main registration gate
 - **WHEN** registration status reports `canAcceptOrders = true`, `STEP_4_COMPLETED`, or legacy `STEP_4_TRAINING`
 - **AND** an optional `verificationStatus` or `adminReviewStatus` compatibility field is absent, pending, or rejected

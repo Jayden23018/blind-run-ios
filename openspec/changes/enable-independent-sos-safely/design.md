@@ -1,107 +1,97 @@
 ## Context
 
-The current safety module contains the required confirmation copy and placeholder UI, but every order status returns `showsEmergencyPlaceholder = false`; action methods only announce that emergency is unavailable. The backend now accepts a blind JWT at `POST /api/emergency/trigger`, permits all request fields to be omitted, returns an event ID with `PENDING` status, applies location degradation and cooldown, alerts an associated volunteer, and escalates to emergency contacts through backend schedulers.
+The app already contains shared emergency button/confirmation components and placeholder actions, but `showsEmergencyPlaceholder` is always false and both role actions only announce that the feature is unavailable. The live backend accepts `orderId`, `gpsLat`, and `gpsLng`, but its current Swagger response is still generic. Existing WebSocket models include some blind contact/resolution messages and a volunteer alert, yet they do not establish that both initiating roles receive event-ID-matching SMS confirmation.
 
-This change formally enables SOS under the exception already anticipated by `AGENTS.md`: a dedicated safety change must define GPS behavior, notification, failure copy, compliance language, and acceptance tests first. It depends on the app-lifetime realtime coordinator proposed by `complete-realtime-fallback-and-notifications`.
+This revision removes the previous independent blind SOS design. Eligibility is deliberately limited to the two participants of a canonical `IN_PROGRESS` order, where the live escort session already maintains real location.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Make SOS reachable for every authenticated blind-role user, including users without an order or without completed booking prerequisites.
-- Support optional order association and optional current GPS without blocking no-location SOS.
-- Present a durable event-based safety state using backend event ID/status and real-time follow-up.
-- Give an associated volunteer a bounded, confirmable response flow.
-- Preserve order status, location privacy, accessibility, and honest responsibility language.
+- Give both associated roles the same accessible in-run SOS action.
+- Require exact second confirmation and submit the owned order plus current real GCJ-02 location.
+- Separate emergency event state from order state.
+- Distinguish trigger acknowledgement from backend-confirmed emergency-contact SMS notification.
+- Preserve event delivery across navigation, lock/background operation, reconnect, and relaunch where the backend recovery contract permits.
 
 **Non-Goals:**
 
-- Implementing CS/admin rescue workflows, SMS, Redis, AMap reverse geocoding, escalation schedulers, emergency-service dispatch, automatic phone calls, background APNs, live-track sharing, or virtual numbers.
-- Representing emergency as an order status or promising that police, ambulance, or a rescuer has been dispatched.
+- Independent/no-order SOS, pre-service SOS, automatic SOS, fall detection, client-side SMS, CS/admin UI, emergency-service dispatch, automatic calls, or backend implementation.
+- Volunteer `NEED_HELP`/`FALSE_ALARM` response UI unless separately approved; both roles in this change are initiators/observers of the order-associated event.
+- Claiming that police, ambulance, a rescuer, or SMS handset delivery is guaranteed beyond the exact backend-confirmed semantics.
 
 ## Decisions
 
-### 1. SOS is independent of profile, identity, contact, order, and location gates
+### 1. Eligibility is exactly owned IN_PROGRESS participation
 
-A signed-in user with active role `BLIND` can reach the SOS action from every blind-role root flow, including profile/identity/contact onboarding and home/order screens. Missing identity approval, missing emergency contact, no active order, or denied location must not disable the action. Authentication remains required because the backend requires a blind JWT.
+The SOS action is visible only when canonical order detail is `IN_PROGRESS` and the active authenticated role is the associated `BLIND` or `VOLUNTEER` participant. It is hidden in `PENDING_MATCH`, `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, `REMATCHING`, and terminal states.
 
-Alternative considered: show SOS only during `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, and `IN_PROGRESS`. That excludes the newly implemented independent SOS use case.
+Eligibility is checked again in the coordinator immediately before sending. WebSocket or local stale state never expands eligibility. Role switching remains blocked by the existing active-order rule.
 
-### 2. Keep confirmation exact until compliance approves a separate independent copy
+### 2. Use the exact required confirmation text for both roles
 
-Every trigger requires a second confirmation and, under the current highest-priority rule, uses exactly:
+Every trigger uses exactly:
 
 `是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。`
 
-`需要人工确认`: this wording references a service/order and is semantically inaccurate for independent SOS. Before public release, the product/compliance owner must either approve it for both contexts or approve a separate no-order copy and update `AGENTS.md`; implementation must not silently change it.
+Cancel sends no request. Confirm disables duplicate submission until a structured result or failure is received. The same copy is used for both roles because the approved scope always has an active service order.
 
-Alternative considered: invent a clearer no-order sentence now. That would violate the exact-copy rule.
+### 3. Require order ID and a fresh real GCJ-02 location snapshot
 
-### 3. Build an event-based EmergencyCoordinator
+The request includes the owned `IN_PROGRESS` order ID and a current real coordinate normalized by the live escort change's single GCJ-02 boundary. On confirmation, the coordinator asks the active location session for its latest valid sample and may request a fresh one-shot update if needed.
 
-An `EmergencyCoordinator`, integrated with the app-lifetime realtime coordinator, will own trigger loading/cooldown and the current user-visible event state keyed by `eventId`. It will not own or mutate `RunOrderStatus`. A successful trigger enters `pending`; subsequent typed backend/WS events may mark contact-notified, escalated, resolved, false-alarm, or other documented states.
+If no valid real sample can be obtained, the request is not sent and the app states visibly and audibly that SOS was not submitted because current location is unavailable, with Settings/retry guidance. Demo fallback coordinates are forbidden. `需要人工确认`: product/safety must approve this strict GPS gate because the backend technically supports location degradation when GPS is omitted.
 
-The latest event ID/status may be persisted as non-secret recovery metadata, but it must be scoped to the authenticated user ID and cleared on logout, account deletion, session expiration, or user change. A role switch may retain it only for the same authenticated account and must not present it outside the blind-role flow. Public enablement requires a documented backend status-recovery mechanism after relaunch or reconnect. `需要人工确认`: the supplied contract does not identify a blind-user `GET` endpoint for event recovery.
+### 4. Model SOS as a separate event coordinator
 
-Alternative considered: show “sent” once and forget the event. This is unsafe because users cannot distinguish pending, escalated, or resolved state after navigation.
+An `EmergencyCoordinator`, integrated with `AppRealtimeCoordinator`, owns one active order-associated emergency event keyed by `eventId`, initiating role/user, order ID, submitted location state, and backend status. It never owns or mutates `RunOrderStatus`; normal order polling and finish/cancel permissions continue from canonical detail.
 
-### 4. Associate only eligible service orders and never mutate them
+Only a structured successful response containing `success`, `eventId`, and `status` enters submitted/processing state. Network failure, timeout, decoding failure, and backend rejection remain explicit unsent/failed states.
 
-At confirmation time, the coordinator may attach `orderId` only when the blind user has an order in `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, or `IN_PROGRESS`. Independent SOS omits `orderId`. `PENDING_MATCH`, `PENDING_ACCEPT`, `REMATCHING`, and terminal orders are not attached unless the backend contract is explicitly expanded.
+### 5. Gate SMS success copy on a matching backend notification
 
-Trigger success records an emergency event; it does not synthesize an `emergency` status, alter local order status, or stop normal order polling.
+Trigger success may say only that the request was recorded and is being processed. “联系人已收到短信” is shown and spoken only after a typed contact-notified event matches the active `eventId` and `orderId` and is delivered to the initiating/associated role according to the frozen contract.
 
-### 5. Submit the best available current location without gating
+`需要人工确认`: the backend must define whether `EMERGENCY_CONTACT_NOTIFIED` means SMS accepted by the provider, delivered to the handset, or merely queued. If it does not prove receipt, product/compliance must approve truthful alternative copy; iOS must not overstate delivery.
 
-If location is authorized and a current device coordinate is available, the request includes `gpsLat/gpsLng`. Otherwise both are omitted and the request proceeds. The confirmation/result UI reports whether precise device location was included and explains that the server will use available fallback information, without claiming a precise address or exposing raw coordinates.
+Both the blind runner and volunteer need a documented event update. If the backend currently emits contact notification only to the blind socket, volunteer-triggered SMS confirmation remains blocked.
 
-Reverse geocoding, fallback selection, SMS content, and escalation remain backend-owned. iOS does not call AMap geocoding as a prerequisite for SOS.
+### 6. Preserve state safely across lifecycle changes
 
-Alternative considered: block until GPS resolves. Delay or permission denial must not prevent an emergency event.
+Foreground presentation and TTS are routed at app lifetime. The latest non-secret event ID/order/status metadata may be retained per authenticated user and cleared on logout, deletion, session expiration, user change, terminal event, or order disassociation. After reconnect/relaunch, retained state is not presented as authoritative until recovered from a documented backend endpoint or event replay.
 
-### 6. Cooldown and failures remain backend authoritative
+### 7. Safety presentation is accessible and status neutral
 
-Duplicate taps are disabled while a request is in flight. A backend cooldown response retains the existing event state and disables retrigger for the documented retry interval. Offline/network failure remains an unsent state with prominent visible and spoken copy; the app never says the request was received without a successful structured response.
+Both role buttons use at least a 64-point target, clear accessibility label/hint, exact confirmation, visible progress/result, VoiceOver announcement, and TTS. Blind-runner “重复当前状态” includes the latest authoritative SOS state after the canonical order status without replacing it.
 
-`需要人工确认`: stable cooldown error code, retry field/header, whether repeated triggers return the existing event ID, and the allowed retry policy.
-
-### 7. Volunteer responses require their own confirmations
-
-An associated volunteer receives a high-priority `EMERGENCY_VOLUNTEER_ALERT` routed by event ID. The UI presents approved message/location text but no blind-user raw coordinate, live marker, direction, route, or track. `NEED_HELP` and `FALSE_ALARM` each require explicit confirmation before `PUT /api/emergency/{eventId}/volunteer-response?action=...`; timeout is displayed but escalation remains backend-owned.
-
-The volunteer cannot resolve an independent event with no associated order/volunteer alert.
-
-### 8. Safety copy never overpromises rescue
-
-Success copy says the event was recorded and is being processed. Contact-notified copy is shown only after the corresponding backend event. Escalation/resolution language is driven by typed backend state. Offline or failed requests clearly state that SOS was not sent and provide the product-approved offline safety guidance.
-
-`需要人工确认`: compliance owner must approve success, no-location, offline, cooldown, contact-notified, escalated, false-alarm, and resolved copy plus whether any external emergency number may be referenced.
+Failure and pending copy never promises rescue or SMS. Contact-notified copy appears only under the rule above. Emergency event transitions never enable/disable finish or cancellation except for temporary duplicate-submit protection on the SOS action itself.
 
 ## Risks / Trade-offs
 
-- [Risk] Independent SOS confirmation copy incorrectly mentions an order. → Require compliance decision and `AGENTS.md` update before public enablement.
-- [Risk] App relaunch loses event state or restores another account's event. → Block release until a documented recovery contract exists, key persisted metadata by user ID, and clear it during session cleanup.
-- [Risk] Network failure is mistaken for successful rescue. → Gate success strictly on structured `success/eventId/status` and use explicit unsent copy.
-- [Risk] Volunteer false-alarm response suppresses escalation incorrectly. → Require second confirmation and backend authorization/status validation.
-- [Risk] Emergency coordinates leak to UI or logs. → Keep raw coordinates request-only and test rendered/accessibility/log output.
-- [Risk] SOS entry disrupts voice-first primary tasks. → Use a consistent, always-reachable safety region after primary state/actions with a 64pt target and deterministic VoiceOver order.
+- [Risk] Strict GPS gating delays SOS when location is unavailable. → Require safety approval, use the already-running background session plus a bounded fresh request, and provide immediate unsent/retry/Settings feedback.
+- [Risk] Backend acknowledgement is mistaken for SMS success. → Maintain separate submitted and contact-notified states keyed by event ID.
+- [Risk] “已收到短信” overstates provider semantics. → Block that exact copy until backend/compliance confirms what the notification proves.
+- [Risk] Volunteer-triggered events do not receive follow-up. → Require both-role WebSocket/recovery contract before enabling volunteer UI.
+- [Risk] Emergency state changes order lifecycle locally. → Keep a separate coordinator and test every order status/permission remains backend-driven.
+- [Risk] Stale event metadata crosses accounts. → Scope by authenticated user/order and clear on every session boundary.
+- [Risk] Location leaks to UI/logs. → Keep coordinates request-only, reuse typed GCJ-02 value objects, and assert absence from logs/accessibility text.
 
 ## Migration Plan
 
-1. Complete the global realtime coordinator change and confirm all missing emergency contracts/copy.
-2. Update `AGENTS.md`, plan/product/scope/flow/page/data/architecture/accessibility docs, OpenAPI, and WebSocket protocol together.
-3. Add event/request/response/cooldown/recovery models, user-scoped recovery cleanup, and Mock safety behavior while UI remains disabled.
-4. Implement EmergencyCoordinator, independent blind entry, active-order association, location degradation, and volunteer response.
-5. Add exact-copy, failure, privacy, accessibility, and no-order-status-mutation tests.
-6. Run strict docs/OpenSpec validation, cloud contract probes, and supervised dual-device safety acceptance.
-7. Enable the release-facing SOS entry only after contract, compliance, and acceptance evidence is recorded.
+1. Complete and validate global realtime plus live escort/background/GCJ-02 dependencies.
+2. Freeze structured trigger response/errors, both-role authorization and follow-up, SMS semantics, and recovery contract.
+3. Update `AGENTS.md`, maintained docs, OpenAPI, WebSocket protocol, compliance copy, and release risks.
+4. Add request/response/event models and Mock event state while UI remains hidden.
+5. Implement the shared coordinator, strict eligibility/GPS snapshot, exact confirmation, and role-specific presentation.
+6. Add backend-confirmed SMS state, recovery, cleanup, accessibility, and failure tests.
+7. Run supervised dual-device real-backend safety acceptance before enabling Demo/Production UI.
 
-Rollback disables entry presentation while preserving event parsing and backend contract probes. It must not delete or alter already recorded backend emergency events.
+Rollback hides both entries while retaining safe parsing and preserving already-recorded backend emergency events.
 
 ## Open Questions
 
-- `需要人工确认`: What no-order confirmation copy is approved, or is the current exact order-oriented copy approved unchanged?
-- `需要人工确认`: What blind-user event-status recovery endpoint or equivalent mechanism is available after relaunch/reconnect?
-- `需要人工确认`: What are the exact cooldown code, retry semantics, repeat-trigger response, and state enum?
-- `需要人工确认`: Which typed WebSocket messages represent pending, contact-notified, escalated, resolved, and false-alarm outcomes?
-- `需要人工确认`: What safety/compliance and offline guidance copy is approved for release?
+- `需要人工确认`: approve or reject strict no-GPS blocking versus backend location-degradation submission.
+- `需要人工确认`: structured trigger success/error/cooldown schemas and authoritative event status enum.
+- `需要人工确认`: does contact notification prove provider acceptance or handset delivery, and is “联系人已收到短信” legally/product accurate?
+- `需要人工确认`: which contact-notified/resolved messages are sent to a volunteer who initiates or participates in the event?
+- `需要人工确认`: what participant event-recovery endpoint or replay exists after reconnect/relaunch?

@@ -1,34 +1,34 @@
 ## Why
 
-The backend now supports an independent SOS event with or without an active order, location degradation, contact escalation, cooldown, and real-time follow-up. The current iOS release intentionally hides emergency entry points, so enabling SOS requires a dedicated safety change rather than a simple button activation.
+The backend accepts emergency triggers from blind-runner and volunteer tokens and owns emergency-contact SMS escalation, but the current iOS release intentionally hides both emergency entries. The approved scope is now narrower and safer than the earlier independent-SOS proposal: only the two participants of an `IN_PROGRESS` run may initiate an order-associated SOS, and the app must not claim SMS success until a backend event confirms it.
+
+The existing change ID is retained for continuity, but its former independent blind-runner capability is replaced by a dual-role in-run safety flow.
 
 ## What Changes
 
-- **BREAKING** Replace the current hidden/deferred emergency UI requirement with an approved blind-runner SOS flow available both with and without an active order.
-- Add an always-reachable, accessible blind-runner SOS entry that requires the exact second-confirmation copy mandated by `AGENTS.md` before calling `POST /api/emergency/trigger`.
-- Make `orderId`, `gpsLat`, and `gpsLng` optional in the client request; include `orderId` only for an eligible active order and use current authorized GPS when available.
-- Decode and retain `success`, `eventId`, and `status`, scope any persisted recovery metadata to the authenticated user, clear it with session cleanup, and present explicit submitted, pending, escalated, resolved, cooldown, failure, and offline states without changing the order lifecycle status.
-- Handle no-coordinate requests and explain that the backend will apply its address/coordinate/text fallback rather than claiming precise rescue location.
-- Consume emergency WebSocket follow-up events and support the volunteer response contract when an associated volunteer is alerted.
-- Keep administrator/CS rescue operations, SMS delivery, reverse geocoding, timeout escalation, and scheduler behavior backend-owned.
-- Continue using real post-accept phone numbers; do not introduce virtual-number scope in this safety change.
-- Preserve the decision not to display another person's real-time coordinate, marker, route, or track; emergency participants receive only approved safety text and state.
+- **BREAKING** Remove the proposed always-reachable/no-order blind SOS and enable an SOS entry only for the associated blind runner and volunteer while canonical order status is `IN_PROGRESS`.
+- Require the exact project-mandated second-confirmation text before every trigger.
+- Submit the owned `orderId` and a fresh real GCJ-02 GPS coordinate from the live escort session to `POST /api/emergency/trigger`.
+- Treat trigger success as a separate emergency event keyed by backend `eventId`; never synthesize or mutate `RunOrderStatus`.
+- Present “联系人已收到短信” only after an event-ID-matching backend contact-notification message whose contract confirms successful SMS notification; trigger acknowledgement alone shows only submitted/processing state.
+- Route the same pending, failed, contact-notified, and resolved safety state across both role experiences through the app-lifetime realtime coordinator.
+- Keep SMS delivery, reverse geocoding, emergency-contact selection, CS escalation, schedulers, and rescue operations backend-owned.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `independent-sos-safety`: Defines blind-runner independent and order-associated SOS initiation, confirmation, state presentation, cooldown, location degradation, volunteer follow-up, accessibility, and safety language.
+- `in-run-dual-role-sos`: Defines dual-role `IN_PROGRESS` eligibility, exact confirmation, required order/current-GPS association, event state, backend-confirmed SMS copy, accessibility, and unchanged order lifecycle.
 
 ### Modified Capabilities
 
-- `formal-dispatch-service-flow`: Replaces the current release-wide hidden emergency requirement with the approved SOS entry while keeping emergency separate from order status.
-- `backend-api-contract`: Clarifies the optional SOS request fields, structured trigger response, cooldown/error contract, and volunteer response endpoints/messages consumed by iOS.
+- `formal-dispatch-service-flow`: Replaces the current hidden emergency requirement with the approved `IN_PROGRESS`-only dual-role entry.
+- `backend-api-contract`: Defines both-role trigger authorization, structured trigger result, GCJ-02 fields, event recovery, and typed contact-notified/resolved WebSocket messages for both participants.
+- `global-realtime-notification-handling`: Routes emergency events by event/order/role independently of screen lifetime.
 
 ## Impact
 
-- iOS safety/UI/state: `SafetyModule`, blind-runner home and active-order flows, volunteer service flow, AppState/global event coordination, location permission handling, TTS, and VoiceOver.
-- API/WebSocket contracts: `/api/emergency/trigger`, `/api/emergency/{eventId}/volunteer-response`, emergency notification messages, structured response/error schemas, and cooldown semantics.
-- Documentation/compliance: `AGENTS.md`, product/scope/page/flow/accessibility docs, OpenAPI, WebSocket protocol, responsibility language, and release risk must be updated together before UI enablement.
-- Tests and validation: Mock state machine, failure/cooldown/no-location cases, exact confirmation copy, no order-status mutation, notification escalation, cloud contract probes, and real-device safety acceptance on `111` and `iPad Pro (2)`.
-- Sequencing: implement `complete-realtime-fallback-and-notifications` first so SOS event IDs, priority, and navigation-independent delivery have one app-lifetime owner.
+- iOS safety/UI/state: blind and volunteer in-run screens, shared emergency coordinator, location snapshot handling, AppState/realtime coordination, TTS, VoiceOver, Mock state, and session cleanup.
+- Contracts: `/api/emergency/trigger`, structured trigger response/errors, both-role notification delivery, SMS-notification semantics, recovery after reconnect/relaunch, and no order-status mutation.
+- Dependencies: requires `complete-realtime-fallback-and-notifications` and `enable-live-escort-location-and-track-summary`; the latter supplies fresh GCJ-02 service location and background continuity.
+- Documentation/release: `AGENTS.md`, maintained docs, OpenAPI, WebSocket protocol, safety copy, failure behavior, privacy, and supervised real-device acceptance must be updated before UI enablement.

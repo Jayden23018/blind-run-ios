@@ -1,32 +1,30 @@
 ## MODIFIED Requirements
 
 ### Requirement: Blind runner state updates remain status driven
-The iOS blind-runner order screens SHALL update from WebSocket notifications and REST polling without exposing backend dispatch rounds or another person's real-time position.
+The iOS blind-runner order screens SHALL update from app-lifetime WebSocket routing and REST polling without exposing backend dispatch rounds.
 
 #### Scenario: Volunteer accepts dispatch
-- **WHEN** the blind runner receives `ORDER_STATUS_CHANGED` or polling returns `PENDING_ACCEPT`
-- **THEN** the app SHALL update the UI to show "待出发"
-- **AND** TTS SHALL use local order-detail copy that says the volunteer has accepted, includes appointment time and start address when available, and tells the blind runner to go to or wait at the appointment start address
-- **AND** the app SHALL NOT speak backend lifecycle `APP_NOTIFICATION` template text directly while an active order is present
+- **WHEN** the coordinator routes `ORDER_STATUS_CHANGED` or polling returns `PENDING_ACCEPT`
+- **THEN** the app SHALL refresh and show the canonical "待出发" state
+- **AND** TTS SHALL use local order-detail copy rather than duplicate lifecycle template speech
 
 #### Scenario: No volunteer is available
 - **WHEN** WebSocket or polling returns `NO_VOLUNTEER`
-- **THEN** the app SHALL show a no-volunteer terminal state
-- **AND** TTS SHALL announce that no volunteer is currently available
+- **THEN** the app SHALL show and announce a no-volunteer terminal state
 
-#### Scenario: WebSocket volunteer distance is available
-- **WHEN** the order is `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, or `DRIVER_ARRIVED` and `/ws/blind` receives a fresh `VOLUNTEER_LOCATION_UPDATE`
-- **THEN** the app SHALL calculate distance from the volunteer's transient latest coordinates to `order.startLatitude/startLongitude`
-- **AND** the blind-runner UI and repeated status speech SHALL use "距出发地点约 X"
-- **AND** the app SHALL NOT expose the volunteer's coordinate, marker, movement direction, route, track, or "距您" wording
+#### Scenario: Pre-service volunteer location is available
+- **WHEN** the order is `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, or `DRIVER_ARRIVED` and the coordinator routes a fresh `VOLUNTEER_LOCATION_UPDATE`
+- **THEN** existing pre-service distance-to-start behavior SHALL continue
+- **AND** service-session peer presentation SHALL remain owned by `enable-live-escort-location-and-track-summary`
 
-#### Scenario: REST volunteer distance fallback is used
-- **WHEN** the order is `DRIVER_EN_ROUTE` or `DRIVER_ARRIVED` and WebSocket volunteer location is disconnected or stale
-- **THEN** the app SHALL request `GET /api/blind/volunteer-location`
-- **AND** it SHALL use a fresh response only to calculate "距出发地点约 X"
-- **AND** it SHALL apply the same privacy restrictions as WebSocket location
+#### Scenario: REST fallback is used before service
+- **WHEN** an eligible pre-service order has disconnected or stale WebSocket volunteer location
+- **THEN** the app SHALL use the typed `GET /api/blind/volunteer-location` fallback according to its freshness/no-data contract
 
-#### Scenario: Volunteer distance cannot be calculated
-- **WHEN** the order start coordinate, volunteer location, or freshness requirement is unavailable
-- **THEN** the app SHALL hide distance and raw coordinates
-- **AND** repeated status speech SHALL say that volunteer position is temporarily unavailable only when that context is useful
+### Requirement: Realtime feature events survive navigation
+Order, dispatch, peer-location, separation-alert, and safety events SHALL be routed independently of individual screen lifetimes.
+
+#### Scenario: Relevant feature screen is not mounted
+- **WHEN** a typed event for the active user/order arrives during navigation
+- **THEN** the app-lifetime coordinator SHALL retain or route the actionable signal
+- **AND** the destination feature SHALL reconcile with authoritative backend state when presented

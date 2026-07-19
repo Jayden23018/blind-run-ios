@@ -70,7 +70,7 @@ struct VolunteerDispatchSummaryResponse: Codable, Sendable {
     var reasonText: String {
         let reasons = notAvailableReasons ?? []
         guard !reasons.isEmpty else {
-            return canDispatch == true ? "已上线，等待系统派单" : "暂不可接收系统派单"
+            return canDispatch == true ? "已上线，等待系统派单" : "服务端未返回不可接单原因"
         }
         return reasons.map(\.displayText).joined(separator: "、")
     }

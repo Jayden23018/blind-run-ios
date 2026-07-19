@@ -108,7 +108,7 @@
         ],
         "operationId": "getDispatchSummary",
         "summary": "获取志愿者系统派单工作台摘要",
-        "description": "用于志愿者首页展示是否可接收系统派单、不可接单原因、覆盖范围、当前订单、近期订单和统计。系统派单排序、扩圈、最后一轮多人派单和全城兜底通知均由后端控制。",
+        "description": "用于志愿者首页展示是否可接收系统派单、不可接单原因、覆盖范围、当前订单、近期订单和统计。系统派单排序、扩圈、最后一轮多人派单和全城兜底通知均由后端控制。canDispatch = false 时 notAvailableReasons 不得缺失或为空；位置上报和在线状态变化后必须返回最新权威快照。",
         "responses": {
           "200": {
             "description": "OK",
@@ -2356,12 +2356,41 @@
       },
       "VolunteerDispatchSummaryResponse": {
         "type": "object",
+        "required": [
+          "canDispatch"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "canDispatch": {
+                  "const": false
+                }
+              },
+              "required": [
+                "canDispatch"
+              ]
+            },
+            "then": {
+              "properties": {
+                "notAvailableReasons": {
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "notAvailableReasons"
+              ]
+            }
+          }
+        ],
         "properties": {
           "canDispatch": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "后端权威派单资格；客户端不得自行改写为 true。"
           },
           "notAvailableReasons": {
             "type": "array",
+            "description": "不可派单原因；canDispatch = false 时至少返回一项。",
             "items": {
               "type": "string",
               "enum": [
@@ -2395,7 +2424,8 @@
           },
           "coverageRadiusKm": {
             "type": "number",
-            "format": "double"
+            "format": "double",
+            "description": "当前派单覆盖半径；工作台摘要不得以缺失字段代替尚未计算或不可派单原因。"
           },
           "isWithinServiceTime": {
             "type": "boolean"

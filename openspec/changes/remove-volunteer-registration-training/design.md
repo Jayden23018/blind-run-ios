@@ -30,6 +30,10 @@
 
 6. **培训 HTTP 合同仅弃用。** OpenAPI 的志愿者培训和管理员课程/题库/统计 operation 全部保留并标记 `deprecated: true`；`STEP_4_TRAINING` 与培训统计字段保留为遗留兼容，描述明确新注册不得产生这些值。
 
+7. **志愿者首页持续刷新后端派单摘要。** 首页处于前台时每 10 秒刷新 `/api/volunteer/dispatch-summary`，并在 WebSocket 建连、位置上报或可服务状态更新后延迟 1 秒重查。`canDispatch` 仍由后端决定；若为 false 且原因数组为空，客户端显示合同诊断文案而不是推断资格。
+
+8. **账号探针不修改业务状态。** `scripts/volunteer-dispatch-readiness-probe.mjs` 只登录、读取资料/注册/摘要、连接已有志愿者角色的 WebSocket 并上报一次临时位置，不切换角色、不更新资料或 availability，输出中隐藏手机号和 Token。
+
 ## Risks / Trade-offs
 
 - **[Risk] 外部后端仍返回 `STEP_4_TRAINING` 且 `canAcceptOrders = false`** → iOS 允许完成注册并返回主页，但真实派单接口仍可能拒绝开启服务；客户端展示服务端错误，不伪造派单资格。
@@ -47,3 +51,6 @@
 ## Open Questions
 
 - `需要人工确认`：外部后端完成状态原子写入的部署时间，以及遗留账号能否通过真实派单接口开启服务。
+- 2026-07-18 实测：`13360846885` 先调用 `send-code` 后使用 `000000` 仍返回 `INVALID_VERIFICATION_CODE`；在后端恢复固定测试码策略或提供当次短信码前，无法读取该账号的权威派单字段，不能关闭上述确认项。
+- 同日使用标准账号 `13800000002` 验证探针：初始摘要为 `OFFLINE/canDispatch=false`，WebSocket 建连并上报位置后 2 秒内稳定为 `canDispatch=true`、`isOnline=true`、`coverageRadiusKm=10`。因此云端正常账号的派单就绪传播链路可用，首页延迟重查是必要修复。
+- 双真机验证：`111` 与 `iPad Pro (2)` 的完整 `blindRunTests` 均为 208 passed、1 skipped、0 failed；新增的空原因、原因映射和权威摘要刷新测试在两台设备均通过。

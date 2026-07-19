@@ -1,79 +1,75 @@
 ## Context
 
-`WebSocketService` already owns connection/reconnect mechanics and decodes the documented incoming message types, but screen ViewModels subscribe directly. The blind order screen consumes status, notification, and volunteer-location events only while mounted; the volunteer home consumes only `NEW_ORDER`. This can drop proximity messages, stale active-order state after navigation, and safety follow-ups. The existing OpenSpec also requires a REST volunteer-location fallback, while the higher-priority product scope says the app does not display another person's real-time position.
+The current app has a role-scoped `WebSocketService`, but feature screens subscribe directly to its publisher. The blind order screen handles status, notification, volunteer location, and some emergency messages only while mounted; volunteer home and service screens handle different subsets. Upcoming continuous bidirectional location, track summaries, separation alerts, and dual-role SOS would multiply those subscriptions and increase loss and duplication risk.
 
-This design resolves the conflict as distance-only processing: the app may transiently consume the volunteer coordinate to calculate approximate distance to the fixed order start point, but it never displays the coordinate or the volunteer's live map position.
+This change provides the app-lifetime routing layer only. Feature policy—when a peer marker is visible, when five-second location capture runs, how completed tracks are summarized, and when SOS is available—belongs to the dependent changes.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Establish one app-lifetime owner for WebSocket event routing and foreground notification state.
-- Preserve feature-specific ViewModels while preventing screen-lifecycle event loss and duplicate speech.
-- Add privacy-preserving REST fallback for blind-runner distance-to-start copy.
-- Make priority, freshness, reconnect, and deduplication behavior testable.
+- Establish one app-lifetime owner for decoded WebSocket event routing.
+- Keep feature truth in REST-backed ViewModels while coalescing refresh signals.
+- Deliver dispatch, peer-location, alert, notification, and safety signals across navigation.
+- Make priority, reconnect, deduplication, and subscription replacement testable.
 
 **Non-Goals:**
 
-- Notification history/inbox, APNs/background delivery, remote-notification permissions, real-time track sharing, another-party marker/direction, in-app route planning, or virtual-number calling.
-- Backend proximity calculations, Redis storage, notification-template management, or scheduler implementation.
+- Implementing five-second GPS capture, background location, peer map markers, track replay, run statistics, separation policy, or SOS UI.
+- Adding APNs/background push, a persistent notification inbox, in-app route planning, backend schedulers, or backend source code.
 
 ## Decisions
 
-### 1. Add one app-lifetime realtime event coordinator
+### 1. Add one app-lifetime realtime coordinator
 
-An `AppRealtimeCoordinator` owned by `AppState` will attach to the current `WebSocketService`, detach when the service changes, and translate incoming events into narrow published state/signals: foreground notification queue, order-refresh requests, latest private distance input, dispatch prompt delivery, and safety-event delivery. Feature ViewModels may observe these typed outputs instead of independently subscribing to the raw event publisher.
+`AppRealtimeCoordinator`, owned by `AppState`, attaches to the current `WebSocketService`, detaches when token/role/service changes, and publishes narrow typed outputs: order refresh requests, dispatch delivery, foreground notifications, peer-location samples keyed by order/role, separation alerts, safety events, and connection transitions.
 
-Alternative considered: add more cases to every screen subscription. Events would still be lost when the screen is absent and duplicate subscriptions would remain difficult to reason about.
+Feature ViewModels subscribe to coordinator outputs rather than the raw socket publisher. The coordinator does not become the owner of full orders, maps, run summaries, or SOS business state.
 
-### 2. Keep feature truth in REST-backed ViewModels
+### 2. Preserve REST as authoritative order truth
 
-`ORDER_STATUS_CHANGED` does not directly mutate an order from the WebSocket payload. The coordinator emits a deduplicated refresh request keyed by order ID; the active feature ViewModel fetches `GET /api/orders/{id}`. This preserves the backend order detail as source of truth and avoids partial payload drift.
+`ORDER_STATUS_CHANGED` emits a coalesced refresh request keyed by order ID. Feature ViewModels fetch `GET /api/orders/{id}` and generate local lifecycle copy from the canonical response. `NEW_ORDER` remains a timed backend dispatch prompt but is retained across navigation until handled or expired.
 
-`NEW_ORDER` remains a volunteer dispatch prompt with its existing timeout behavior, but is delivered through the coordinator so navigation does not drop it.
+### 3. Route peer location without deciding feature presentation
 
-Alternative considered: store every active order in the coordinator. This duplicates existing ViewModel ownership and broadens AppState into a business-data cache.
+The coordinator decodes and routes both `VOLUNTEER_LOCATION_UPDATE` and `BLIND_LOCATION_UPDATE` as typed, order-scoped samples. It rejects invalid coordinates, ignores samples for another active order, never logs raw coordinates, and exposes no raw payload strings.
 
-### 3. Apply priority-aware foreground presentation without a persistent inbox
+Before `enable-live-escort-location-and-track-summary` is applied, existing pre-service blind-runner distance behavior remains unchanged. The dependent change defines service-session peer markers, five-second reporting, background capture, and completed track behavior.
 
-The coordinator maintains a small in-memory foreground queue. `HIGH` notifications preempt normal banners and produce an immediate VoiceOver/TTS announcement unless they duplicate a local lifecycle announcement. `NORMAL` notifications are queued and presented without interrupting an active higher-priority message. Identical event keys or normalized message/type combinations within a short deduplication window are suppressed.
+### 4. Apply priority-aware foreground presentation
 
-Lifecycle `APP_NOTIFICATION` text is not spoken when an `ORDER_STATUS_CHANGED` refresh will produce authoritative local lifecycle copy. Proximity and non-lifecycle template messages remain eligible.
+`HIGH` notifications preempt `NORMAL` messages. Equivalent lifecycle templates are suppressed when an order refresh will produce authoritative local copy. Non-safety duplicates are bounded by stable event ID when present or normalized type/text/time fallback; distinct safety event IDs are never collapsed.
 
-Alternative considered: speak every `ttsText`. This reproduces current duplicate/noisy behavior and can announce stale template wording.
+### 5. Preserve transport responsibilities
 
-### 4. Use a privacy-preserving volunteer-distance source state machine
+`WebSocketService` remains responsible for connection URL construction, serialized sends, the 500 ms minimum interval, reconnect backoff, receive loop, and unknown-message tolerance. The coordinator observes connection state and requests feature refresh/resume work after reconnect. Cadence policy such as 30-second `PING` and five-second service location belongs to the live-escort change because the backend is still finalizing its GCJ-02 contract.
 
-For `PENDING_ACCEPT`, fresh `VOLUNTEER_LOCATION_UPDATE` may be used to compute distance to `order.startLatitude/startLongitude`. For `DRIVER_EN_ROUTE` and `DRIVER_ARRIVED`, the client uses WebSocket data while it is fresh; when the socket is disconnected or no update has been received within the documented freshness window, it requests `GET /api/blind/volunteer-location` as a fallback.
+### 6. Keep the existing REST fallback narrow
 
-The raw coordinate remains private transient ViewModel/coordinator state. The UI receives only an approximate formatted distance and freshness state. It never renders the volunteer marker, coordinate, direction, route, track, or “距您” wording. If either coordinate is missing or the fallback is stale/unavailable, distance is hidden and the user hears that the volunteer position is temporarily unavailable.
-
-The initial freshness threshold will align with the backend location TTL documented as 30 seconds. `updatedAt` from REST is authoritative. `需要人工确认`: confirm whether the fallback endpoint returns no data or a stable error outside eligible states and confirm the timestamp format/timezone.
-
-### 5. Preserve transport limits and reconnect responsibilities
-
-`WebSocketService` retains 500ms minimum send spacing, heartbeat, exponential backoff, and message decoding. The coordinator observes connection replacement and connection state so it can request feature refresh/fallback after reconnect. The server remains responsible for the 64KB hard message limit; the client sends only small typed location and ping messages.
+`GET /api/blind/volunteer-location` remains a pre-service fallback for eligible blind-runner states when WebSocket location is missing or stale. Its typed timestamp/no-data contract must be confirmed before parsing is finalized. It is not a replacement for the bidirectional `IN_PROGRESS` stream or completed track endpoint.
 
 ## Risks / Trade-offs
 
-- [Risk] A global coordinator can become a new god object. → Publish narrow typed signals and keep API calls/business state in feature ViewModels.
-- [Risk] Deduplication suppresses a meaningful repeated safety notification. → Use event IDs for safety events and apply text-window deduplication only to non-safety templates.
-- [Risk] REST fallback increases traffic during disconnection. → Restrict it to eligible active states and the existing five-second order polling cadence.
-- [Risk] Raw coordinates leak through debug output. → Make coordinate state private, prohibit logging, and test the rendered/accessibility tree for absence of coordinates and markers.
-- [Risk] Two changes modify realtime safety routing. → Implement this coordinator before `enable-independent-sos-safely`, then let the safety change add domain-specific SOS handling.
+- [Risk] The coordinator becomes a god object. → Publish narrow outputs and keep feature API calls/state in feature coordinators or ViewModels.
+- [Risk] Multiple subscribers still process the same event. → Migrate each raw subscription and assert exactly-one attachment in tests.
+- [Risk] Notification deduplication suppresses safety information. → Key safety messages by event ID and never text-deduplicate distinct safety events.
+- [Risk] Peer coordinates leak into diagnostics. → Validate ranges, keep typed samples in memory, prohibit coordinate logging, and test logs/accessibility output.
+- [Risk] Dependent changes assume transport behavior not yet confirmed by the backend. → Keep cadence and GCJ-02 normalization out of this foundation and gate them in the live-escort contract.
 
 ## Migration Plan
 
-1. Update docs and the typed OpenAPI/WebSocket fallback and notification contracts.
-2. Add coordinator and notification/freshness models behind existing `WebSocketService`.
-3. Move blind and volunteer subscribers one feature at a time, removing raw subscriptions after parity tests.
-4. Add REST distance fallback and privacy-preserving presentation.
-5. Add priority banner/TTS handling and deduplication.
-6. Run focused reconnect/navigation/privacy tests followed by dual-device cloud validation.
+1. Update canonical WebSocket/OpenAPI documentation for typed coordinator inputs.
+2. Add coordinator output models and exactly-one attachment lifecycle.
+3. Move order refresh and dispatch delivery from screen subscriptions.
+4. Move foreground notification and safety-event routing.
+5. Route both peer-location message types without changing current UI behavior.
+6. Run focused lifecycle/reconnect tests and dual-device cloud validation.
+7. Apply `enable-live-escort-location-and-track-summary`, then the revised in-run SOS change.
 
-Rollback can return subscribers to feature ViewModels and disable REST fallback without data migration. The docs must not revert to promising another-party real-time position.
+Rollback restores feature subscriptions one feature at a time. It does not change backend state or stored data.
 
 ## Open Questions
 
-- `需要人工确认`: What exact REST `updatedAt` format/timezone and no-data response are returned outside `DRIVER_EN_ROUTE` and `DRIVER_ARRIVED`?
-- `需要人工确认`: Are priority values limited to `HIGH` and `NORMAL`, and is there a stable notification/event identifier suitable for deduplication?
+- `需要人工确认`: exact `GET /api/blind/volunteer-location` timestamp timezone and no-data response.
+- `需要人工确认`: canonical notification envelope (`APP_NOTIFICATION` flat fields versus `NOTIFICATION` with nested `data`), stable event identifier, and priority enum.
+- `需要人工确认`: canonical `BLIND_LOCATION_UPDATE` and separation-alert envelope used by the production WebSocket service.
