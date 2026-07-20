@@ -205,6 +205,12 @@
 5. 云端服务由外部团队维护；可用性和数据生命周期不由本仓库控制。
 6. 定位依赖设备 GPS / 模拟器模拟定位，室内可能信号不佳。
 7. 仅支持 iOS 16+，不支持 Android。
+
+## 实时协调范围
+
+- 本期包含 app-lifetime WebSocket 事件协调、订单刷新信号、导航期间派单保留、前台通知优先级/无障碍/去重、双向 peer-location 类型化路由和重连恢复信号。
+- 本期不包含另一方实时位置展示、轨迹记录/回放、后台定位、分离阈值判定或 SOS UI；这些能力仍需各自 OpenSpec、隐私/安全规则与双真机验收。
+- `/api/blind/volunteer-location` 只用于 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 的短期位置回退，不替代 `IN_PROGRESS` 双向流。
 8. HTTP 明文 IP 当前允许上线；UserDefaults token 后续迁移 Keychain。
 ## 当前发布范围：账户生命周期
 

@@ -52,16 +52,23 @@ final class AccountDeletionViewModel: ObservableObject {
 
 /// 全局应用状态，管理用户会话、Token 和环境配置。
 /// 作为 @EnvironmentObject 注入整个应用的 View 层级。
+@MainActor
 final class AppState: ObservableObject {
     private let mockAPIClient = MockAPIClient()
     private let apiClientOverride: (any APIClientProtocol)?
+    let realtimeCoordinator = AppRealtimeCoordinator()
 
     // MARK: - Session
 
     /// JWT 访问令牌
     /// - Note: MVP 暂存 UserDefaults。正式版必须迁移至 Keychain 存储。
     @Published var accessToken: String? {
-        didSet { persistToken() }
+        didSet {
+            persistToken()
+            if oldValue != accessToken {
+                realtimeCoordinator.detach(clearSessionState: true)
+            }
+        }
     }
 
     /// 当前用户 ID
@@ -79,6 +86,9 @@ final class AppState: ObservableObject {
         didSet {
             persistActiveRole()
             mockAPIClient.syncRoleFromAppState(activeRole)
+            if oldValue != activeRole {
+                realtimeCoordinator.detach(clearSessionState: true)
+            }
         }
     }
 
@@ -100,7 +110,17 @@ final class AppState: ObservableObject {
     // MARK: - WebSocket
 
     /// WebSocket 服务实例（登录后创建，登出时销毁）
-    @Published var webSocketService: WebSocketService?
+    @Published var webSocketService: WebSocketService? {
+        didSet {
+            let role: WSRole?
+            switch activeRole {
+            case .blind: role = .blind
+            case .volunteer: role = .volunteer
+            case .unset, .none: role = nil
+            }
+            realtimeCoordinator.attach(to: webSocketService, role: role)
+        }
+    }
 
     /// WebSocket 连接状态的便捷访问
     var isWebSocketConnected: Bool {
@@ -449,8 +469,8 @@ final class AppState: ObservableObject {
         webSocketService?.disconnect()
 
         let service = WebSocketService()
-        service.connect(baseURL: baseURL, token: token, role: wsRole)
         webSocketService = service
+        service.connect(baseURL: baseURL, token: token, role: wsRole)
     }
 
     /// 断开 WebSocket 并清除引用

@@ -47,10 +47,17 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
         do {
             let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/mine")
+            let previousOrderID = activeOrder?.orderId
             activeOrder = paged.content
                 .filter { $0.status.isActiveForBlindRunner }
                 .sorted { $0.sortKey > $1.sortKey }
                 .first
+            if let previousOrderID, previousOrderID != activeOrder?.orderId {
+                appState.realtimeCoordinator.unregisterActiveOrder(previousOrderID)
+            }
+            if let orderID = activeOrder?.orderId {
+                appState.realtimeCoordinator.registerActiveOrder(orderID)
+            }
             isLoading = false
             speakCurrentStatus()
         } catch let error as APIError {
@@ -114,6 +121,9 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(activeOrder.orderId)/cancel")
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(activeOrder.orderId)")
             self.activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
+            if self.activeOrder == nil {
+                appState.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
+            }
             self.speechService?.speakStatusChange(updated.status, text: updated.blindRunnerAnnouncement())
             isPerformingAction = false
         } catch let error as APIError {

@@ -374,7 +374,14 @@ struct VolunteerLocationResponse: Codable, Sendable {
 }
 
 struct VolunteerLocationData: Codable, Sendable {
+    let orderId: Int64?
+    let status: RunOrderStatus?
     let lat: Double?
     let lng: Double?
     let updatedAt: String?
+
+    var coordinateIsValid: Bool {
+        guard let lat, let lng else { return false }
+        return (-90...90).contains(lat) && (-180...180).contains(lng)
+    }
 }

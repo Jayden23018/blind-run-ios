@@ -46,6 +46,25 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
+    func testForegroundRealtimeHighPriorityIsAccessibleAndNavigationIndependent() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            preseedBlindProfile: true,
+            emptyMockOrders: true,
+            realtimePriorityTest: true
+        )
+
+        let banner = app.descendants(matching: .any)["realtimeForegroundNotification"].firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 12), "Foreground notification should be owned above feature navigation")
+        XCTAssertTrue(
+            app.staticTexts["高优先级前台通知"].waitForExistence(timeout: 3),
+            "HIGH notification should preempt the currently visible NORMAL notification"
+        )
+        XCTAssertTrue(banner.label.contains("高优先级前台通知"), "Visible and VoiceOver notification copy should be equivalent")
+    }
+
+    @MainActor
     func testLoginEnvironmentSwitcherMatchesBuildChannel() throws {
         let app = launchApp(apiEnvironment: "mock")
         let environmentSwitcher = app.buttons["API 环境切换"].firstMatch
@@ -495,7 +514,8 @@ final class blindRunUITests: XCTestCase {
         emptyMockOrders: Bool = false,
         disableMap: Bool = true,
         disableWebSocket: Bool = true,
-        mockLogoutFailure: Bool = false
+        mockLogoutFailure: Bool = false,
+        realtimePriorityTest: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["AIDRUN_UI_TEST_RESET_STATE"] = "1"
@@ -511,6 +531,9 @@ final class blindRunUITests: XCTestCase {
         }
         if disableMap {
             app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
+        }
+        if realtimePriorityTest {
+            app.launchEnvironment["AIDRUN_UI_TEST_REALTIME_PRIORITY"] = "1"
         }
         if let accessToken {
             app.launchEnvironment["AIDRUN_UI_TEST_ACCESS_TOKEN"] = accessToken
@@ -808,15 +831,26 @@ final class blindRunUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let statusBar = app.statusBars.firstMatch
-        XCTAssertTrue(statusBar.exists, "System status bar should be available for safe-area verification", file: file, line: line)
-        XCTAssertGreaterThanOrEqual(
-            topStatusBlock.frame.minY,
-            statusBar.frame.maxY - 1,
-            "Volunteer status block should remain below the system status area",
-            file: file,
-            line: line
-        )
+        let appStatusBar = app.statusBars.firstMatch
+        let springboardStatusBar = XCUIApplication(bundleIdentifier: "com.apple.springboard").statusBars.firstMatch
+        if appStatusBar.exists || springboardStatusBar.exists {
+            let statusBar = appStatusBar.exists ? appStatusBar : springboardStatusBar
+            XCTAssertGreaterThanOrEqual(
+                topStatusBlock.frame.minY,
+                statusBar.frame.maxY - 1,
+                "Volunteer status block should remain below the system status area",
+                file: file,
+                line: line
+            )
+        } else {
+            XCTAssertGreaterThanOrEqual(
+                topStatusBlock.frame.minY,
+                20,
+                "Volunteer status block should preserve a conservative top safe area when iPadOS does not expose a status-bar accessibility element",
+                file: file,
+                line: line
+            )
+        }
         XCTAssertLessThan(
             topStatusBlock.frame.minY,
             100,

@@ -142,6 +142,13 @@ Lifecycle `APP_NOTIFICATION` text from backend templates should not be spoken di
 
 Important blind-runner TTS should also post a VoiceOver announcement for users who rely on VoiceOver feedback. This includes search state, search results, errors, selected place, and "重复当前状态".
 
+### 前台实时通知
+
+- 共享前台 banner 的可见正文、合并 VoiceOver label 与 TTS 必须语义等价；不得把原始 payload、经纬度、内部去重 key 或模板占位符读给用户。
+- `HIGH` 到达时立即停止/替换 `NORMAL` 的当前呈现；被抢占的普通通知可稍后继续。两个不同安全 `eventId` 即使文案相同也各播报一次。
+- 活动订单的生命周期 `APP_NOTIFICATION` 必须抑制直接 TTS，等待 REST 订单详情刷新后使用本地状态文案播报一次。
+- 跨页面通知由根视图呈现；页面导航、sheet 或订单页未挂载不能成为丢失通知的原因。
+
 ## 8. Volunteer Accessibility
 
 Volunteer UI should still be accessible, but it may be denser than blind runner UI:
@@ -160,6 +167,7 @@ Volunteer UI should still be accessible, but it may be denser than blind runner 
 - Location denial blocks booking and volunteer distance-based accepting.
 - Dangerous actions show confirmation before backend mutation.
 - Text and controls remain readable in light and dark mode.
+- Foreground HIGH/NORMAL priority, lifecycle exactly-once speech, and navigation-independent delivery pass UI/accessibility tests.
 
 ## 10. Out of Scope
 

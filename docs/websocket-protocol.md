@@ -1,6 +1,6 @@
 # WebSocket 协议文档
 
-> **版本**: v1.2.0 | **更新**: 2026-05-23
+> **版本**: v1.3.0 | **更新**: 2026-07-19
 > **导入 Postman**: Postman 支持 WebSocket 请求，可直接使用本文档中的 URL 和消息格式
 
 ---
@@ -107,6 +107,8 @@
 ```json
 {
   "type": "APP_NOTIFICATION",
+  "eventId": 789,
+  "title": "订单提醒",
   "body": "已为您匹配志愿者张三，他正在确认行程，请稍候",
   "ttsText": "已为您匹配志愿者张三，他正在确认行程，请稍候",
   "priority": "NORMAL",
@@ -116,10 +118,14 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
+| eventId | number | 可选稳定事件 ID；存在时用于前台通知去重 |
+| title | string | 可选安全展示标题 |
 | body | string | 通知文本（显示用） |
 | ttsText | string | TTS 朗读文本建议；订单生命周期播报以 iOS 本地订单详情文案为准，不直接朗读生命周期模板 |
 | priority | string | `"HIGH"` 或 `"NORMAL"` |
 | timestamp | string | ISO 格式时间 |
+
+当前 iOS 协调器仅接受上述平铺 `APP_NOTIFICATION`。`priority` 仅允许 `HIGH` / `NORMAL`，缺省按 `NORMAL`；`timestamp` 使用带时区的 RFC 3339。`需要人工确认`：生产服务是否仍可能发送 `NOTIFICATION` + 嵌套 `data`、是否始终提供 `eventId`，以及未知优先级的服务端约束。
 
 **盲人端常见通知事件**:
 
@@ -240,6 +246,22 @@ Emergency WebSocket messages remain contract-reserved. In the current iOS releas
 - 建议每 5~10 秒上报一次
 
 ### 3.2 服务器 → 客户端
+
+#### BLIND_LOCATION_UPDATE — 盲人位置转发（契约预留）
+
+后端将关联订单中盲人上报的位置转发给志愿者；本变更只负责类型化路由，不展示对方 marker、不启动五秒服务轨迹采集。
+
+```json
+{
+  "type": "BLIND_LOCATION_UPDATE",
+  "orderId": 123,
+  "lat": 39.9042,
+  "lng": 116.4074,
+  "timestamp": 1784433600000
+}
+```
+
+`orderId` 为关联订单，`lat` / `lng` 必须位于合法范围，`timestamp` 为 Unix 毫秒。`需要人工确认`：生产 WebSocket 是否已启用该平铺 envelope、适用订单状态及坐标系归一化责任；确认前 iOS 仅内存路由，不增加 peer UI。
 
 #### NEW_ORDER — 新订单派单通知（核心消息）
 
@@ -383,7 +405,35 @@ Authorization: Bearer <token>
 
 ---
 
-## 四、消息类型速查表
+## 四、跨角色高优先级事件
+
+### SEPARATION_ALERT — 分离提醒（契约预留）
+
+```json
+{
+  "type": "SEPARATION_ALERT",
+  "eventId": 991,
+  "orderId": 123,
+  "distanceMeters": 120,
+  "message": "请注意与同行者的距离",
+  "ttsText": "请注意与同行者的距离",
+  "priority": "HIGH",
+  "timestamp": "2026-07-19T12:00:00+08:00"
+}
+```
+
+`eventId`、`orderId`、`message` 为必填；`priority` 固定 `HIGH`。两个不同 `eventId` 即使文案相同也必须分别路由和播报。`需要人工确认`：生产服务的最终 type 名称、距离字段、阈值责任和双角色投递范围；本变更不实现分离判定或功能动作。
+
+### App 生命周期协调规则
+
+- `AppState` 只持有一个 `AppRealtimeCoordinator`，对当前角色 socket 恰好订阅一次；退出、角色/token 或服务替换时清理旧用户内存事件。
+- `ORDER_STATUS_CHANGED` 只触发按 `orderId` 合并的 REST 详情刷新，不能用局部 WebSocket payload 构造权威订单。
+- `NEW_ORDER` 保留至接受、拒绝、超时、后端状态使其失效或角色改变，页面切换不能丢失。
+- 两个方向的位置消息按订单和接收角色校验；错误订单或非法坐标静默丢弃，日志、可见 UI 和无障碍文本不得输出原始坐标。
+- `HIGH` 前台通知抢占 `NORMAL`。非安全事件按 `eventId` 或类型/规范化文案/时间去重；不同安全 `eventId` 不合并。
+- 重连后协调器请求活动订单与角色摘要刷新，并通知依赖功能恢复各自节奏。传输层继续保持 500 ms 最小发送间隔、3/6/12/30 秒退避、未知消息容忍和 30 秒心跳。
+
+## 五、消息类型速查表
 
 ### 盲人端（`/ws/blind`）
 
@@ -393,6 +443,7 @@ Authorization: Bearer <token>
 | 发送 | `PING` | 心跳（30s） | — |
 | 接收 | `PONG` | 心跳响应 | — |
 | 接收 | `VOLUNTEER_LOCATION_UPDATE` | 志愿者位置实时转发 | — |
+| 接收 | `SEPARATION_ALERT` | 分离提醒契约预留 | HIGH |
 | 接收 | `APP_NOTIFICATION` | 模板通知 | HIGH/NORMAL |
 | 接收 | `ORDER_STATUS_CHANGED` | 订单状态变更 | HIGH/NORMAL |
 | 接收 | `EMERGENCY_RESOLVED_BY_VOLUNTEER` | 志愿者确认紧急事件 | HIGH |
@@ -404,13 +455,15 @@ Authorization: Bearer <token>
 |------|------|---------|----------|
 | 发送 | `LOCATION_UPDATE` | 定时上报位置（5~10s） | — |
 | 接收 | `NEW_ORDER` | 串行派单推送 | HIGH |
+| 接收 | `BLIND_LOCATION_UPDATE` | 盲人位置转发契约预留 | — |
+| 接收 | `SEPARATION_ALERT` | 分离提醒契约预留 | HIGH |
 | 接收 | `APP_NOTIFICATION` | 模板通知 | HIGH/NORMAL |
 | 接收 | `ORDER_STATUS_CHANGED` | 订单状态变更 | HIGH/NORMAL |
 | 接收 | `EMERGENCY_VOLUNTEER_ALERT` | 紧急求助告警 | HIGH |
 
 ---
 
-## 五、前端对接 JavaScript 示例
+## 六、前端对接 JavaScript 示例
 
 ### 5.1 盲人端连接
 
@@ -525,7 +578,7 @@ function connectVolunteerWS(token) {
 
 ---
 
-## 六、REST 回退接口
+## 七、REST 回退接口
 
 当 WebSocket 不可用时，前端可使用以下 REST 接口作为降级方案：
 
@@ -541,11 +594,13 @@ Authorization: Bearer <token>
 {
   "success": true,
   "data": {
+    "orderId": 123,
+    "status": "DRIVER_EN_ROUTE",
     "lat": 39.9050,
     "lng": 116.4080,
-    "updatedAt": "2026-05-23T14:05:00"
+    "updatedAt": "2026-07-19T12:00:00+08:00"
   }
 }
 ```
 
-仅在订单处于 `DRIVER_EN_ROUTE` 或 `DRIVER_ARRIVED` 状态时返回数据。
+仅在订单处于 `PENDING_ACCEPT`、`DRIVER_EN_ROUTE` 或 `DRIVER_ARRIVED` 且位置不超过 30 秒时返回数据；无符合数据时返回 HTTP 200、`success: true`、`data: null`，不得返回旧坐标。`updatedAt` 是带时区 RFC 3339。`需要人工确认`：生产服务的精确时区/小数秒格式以及当前 no-data 是否已经统一为 `data: null`；iOS 在确认前对缺字段、过期、错订单、错状态或非法坐标均静默忽略。

@@ -323,3 +323,17 @@ Rules:
 - `DeleteAccountResponse(success, message?, phoneReusable, allTokensInvalidated)`。
 - `RateLimitInfo(code = RATE_LIMITED, message, rateLimitBucket?, retryAfterSeconds?)`；桶为 `AUTH`、`REGISTRATION`、`GENERAL`，HTTP `Retry-After` 整数秒优先。
 - 上述响应不得导致额外敏感信息持久化。
+
+## 实时协调器内存模型
+
+| Model | Required fields | Ownership / lifetime |
+| --- | --- | --- |
+| `RealtimeOrderRefreshRequest` | `orderId`, `reason` | 协调器按订单合并，Feature ViewModel 完成 REST 刷新后确认 |
+| `RealtimeDispatchPrompt` | typed `NEW_ORDER`, `receivedAt`, `expiresAt` | 志愿者会话内保留；响应、过期、失效或角色变化清除 |
+| `RealtimeForegroundNotification` | display/speech text, priority, optional stable ID/timestamp, safety flag | 有界队列；HIGH 优先，普通事件去重 |
+| `RealtimePeerLocationSample` | `orderId`, owner role, lat/lng, Unix-ms timestamp | 仅内存、按订单/角色；非法/错订单丢弃，不持久化/记录原始坐标 |
+| `RealtimeSeparationAlert` | event ID, order ID, safe display/TTS text | 仅路由；策略与动作由后续变更负责 |
+| `RealtimeSafetyEvent` | stable event ID, kind, safe display/TTS text | 仅路由；不同稳定 ID 不合并，本期不触发 SOS 动作 |
+| `VolunteerLocationFallbackData` | order ID/status/lat/lng/RFC3339 `updatedAt` | pre-service REST 回退；超过 30 秒、错订单/状态或 no-data 不应用 |
+
+这些模型均不成为完整订单、地图/轨迹或 SOS 业务真相；订单真相仍是 `GET /api/orders/{id}`。

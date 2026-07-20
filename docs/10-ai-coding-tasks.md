@@ -96,3 +96,7 @@ Android、完整管理员端、真实短信、真实身份审核、实时轨迹�
 ## 账户生命周期执行约束
 
 实施 `harden-auth-account-lifecycle` 时按 OpenSpec 任务顺序完成：先锁定云端契约，再实现模型/网络、会话恢复、统一注销、账户删除、限流体验和测试。不得加入后端代码；云端黑名单、所有 Token 失效、软删除和手机号复用仅通过 iOS/脚本验证。
+
+## 实时协调执行约束
+
+实施 `complete-realtime-fallback-and-notifications` 时，raw WebSocket 订阅只能存在于 `AppRealtimeCoordinator`；订单详情继续由 ViewModel 通过 REST/五秒轮询维护。不得在该变更内加入 peer marker、轨迹、分离判定或 SOS 动作。验证必须覆盖 service 替换、刷新合并、导航期间派单、通知优先级/去重/无障碍、双向位置校验、重连恢复和双真机。

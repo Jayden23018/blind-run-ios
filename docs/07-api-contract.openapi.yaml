@@ -2187,11 +2187,11 @@
         "operationId": "getVolunteerLocation",
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Eligible pre-service volunteer location. When no fresh location exists, data is null and stale coordinates must not be returned. 需要人工确认: production timestamp timezone and exact no-data behavior.",
             "content": {
-              "*/*": {
+              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponseObject"
+                  "$ref": "#/components/schemas/VolunteerLocationFallbackResponse"
                 }
               }
             }
@@ -3991,6 +3991,39 @@
           },
           "faceVerifyRejectionReason": {
             "type": "string"
+          }
+        }
+      },
+      "VolunteerLocationFallbackResponse": {
+        "type": "object",
+        "required": ["success", "data"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "code": { "type": "integer", "format": "int32" },
+          "message": { "type": "string" },
+          "data": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/VolunteerLocationFallbackData" },
+              { "type": "null" }
+            ]
+          }
+        }
+      },
+      "VolunteerLocationFallbackData": {
+        "type": "object",
+        "required": ["orderId", "status", "lat", "lng", "updatedAt"],
+        "properties": {
+          "orderId": { "type": "integer", "format": "int64" },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING_ACCEPT", "DRIVER_EN_ROUTE", "DRIVER_ARRIVED"]
+          },
+          "lat": { "type": "number", "format": "double", "minimum": -90, "maximum": 90 },
+          "lng": { "type": "number", "format": "double", "minimum": -180, "maximum": 180 },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339 timestamp with timezone. iOS accepts only samples no more than 30 seconds old; 需要人工确认 production timezone/precision."
           }
         }
       },

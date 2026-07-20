@@ -303,6 +303,33 @@ sequenceDiagram
 | 盲人服务中页 | 盲人 | 页面离开 / 订单进入终态 |
 | 志愿者服务中页 | 志愿者 | 页面离开 / 订单进入终态 |
 | 志愿者订单详情页（已接单） | 志愿者 | 页面离开 |
+
+## 8. App-lifetime 实时协调流程
+
+```mermaid
+sequenceDiagram
+    participant WS as Role WebSocket
+    participant ARC as AppRealtimeCoordinator
+    participant VM as Feature ViewModel
+    participant REST as REST API
+    participant UI as Shared Foreground UI
+
+    WS-->>ARC: ORDER_STATUS_CHANGED(orderId)
+    ARC-->>ARC: 按 orderId 合并未完成刷新
+    ARC-->>VM: pending refresh ID
+    VM->>REST: GET /api/orders/{orderId}
+    REST-->>VM: 权威 OrderDetail
+    VM-->>UI: 更新状态并本地播报一次
+
+    WS-->>ARC: APP_NOTIFICATION(priority/eventId)
+    ARC-->>ARC: 生命周期抑制、普通去重、HIGH 抢占
+    ARC-->>UI: 可见 + VoiceOver + TTS 等价呈现
+```
+
+- `NEW_ORDER` 由协调器保留至响应、超时、失效或角色变化；志愿者首页重新出现时按原始截止时间恢复倒计时。
+- 退出、角色/token 变化或 WebSocket 服务替换时先取消旧订阅，再清空前一用户的派单、通知、位置和安全事件内存状态。
+- 重连后活动订单重新请求详情，志愿者摘要等依赖功能收到恢复信号并恢复自己的 cadence。
+- `VOLUNTEER_LOCATION_UPDATE` / `BLIND_LOCATION_UPDATE` 只在角色、订单和坐标合法时路由；本流程不决定地图展示。
 ## 会话与账户生命周期流程
 
 ```text

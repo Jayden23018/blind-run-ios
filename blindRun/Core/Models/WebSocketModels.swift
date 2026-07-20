@@ -9,6 +9,8 @@ enum WSMessageType: String, Codable, Sendable {
 
     // Server -> Client (Blind)
     case volunteerLocationUpdate = "VOLUNTEER_LOCATION_UPDATE"
+    case blindLocationUpdate = "BLIND_LOCATION_UPDATE"
+    case separationAlert = "SEPARATION_ALERT"
     case appNotification = "APP_NOTIFICATION"
     case orderStatusChanged = "ORDER_STATUS_CHANGED"
     case emergencyResolvedByVolunteer = "EMERGENCY_RESOLVED_BY_VOLUNTEER"
@@ -58,10 +60,33 @@ struct WSVolunteerLocationUpdate: Codable, Sendable {
     let timestamp: Int64
 }
 
+/// Blind-runner real-time location (sent to the associated volunteer).
+struct WSBlindLocationUpdate: Codable, Sendable {
+    let type: String
+    let orderId: Int64
+    let lat: Double
+    let lng: Double
+    let timestamp: Int64
+}
+
 /// Generic notification from backend templates
 struct WSAppNotification: Codable, Sendable {
     let type: String
+    let eventId: Int64?
+    let title: String?
     let body: String
+    let ttsText: String?
+    let priority: String?
+    let timestamp: String?
+}
+
+/// Feature-neutral separation signal. Feature policy is owned by a later change.
+struct WSSeparationAlert: Codable, Sendable {
+    let type: String
+    let eventId: Int64
+    let orderId: Int64
+    let distanceMeters: Double?
+    let message: String
     let ttsText: String?
     let priority: String?
     let timestamp: String?
@@ -142,6 +167,8 @@ struct WSEmergencyVolunteerAlert: Codable, Sendable {
 /// High-level event enum for consumers to switch on
 enum WSIncomingEvent: Sendable {
     case volunteerLocation(WSVolunteerLocationUpdate)
+    case blindLocation(WSBlindLocationUpdate)
+    case separationAlert(WSSeparationAlert)
     case notification(WSAppNotification)
     case orderStatusChanged(WSOrderStatusChanged)
     case emergencyResolved(WSEmergencyResolved)

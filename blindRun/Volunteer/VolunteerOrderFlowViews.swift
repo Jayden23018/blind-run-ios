@@ -486,6 +486,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
+    private var realtimeRefreshCancellable: AnyCancellable?
 
     var canAccept: Bool {
         order?.status == .pendingMatch
@@ -499,15 +500,33 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     func configure(with appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
+        if realtimeRefreshCancellable == nil {
+            realtimeRefreshCancellable = appState.realtimeCoordinator.$pendingOrderRefreshIDs
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] orderIDs in
+                    guard let self, let orderID = self.order?.orderId, orderIDs.contains(orderID) else { return }
+                    Task { await self.load(orderId: orderID) }
+                }
+        }
     }
 
     func load(orderId: Int64) async {
         guard let appState else { return }
+        appState.realtimeCoordinator.registerActiveOrder(orderId)
+        var refreshedAuthoritativeOrder = false
+        defer {
+            if refreshedAuthoritativeOrder {
+                appState.realtimeCoordinator.completeOrderRefresh(orderId)
+            } else {
+                appState.realtimeCoordinator.failOrderRefresh(orderId)
+            }
+        }
         isLoading = order == nil
         errorMessage = nil
 
         do {
             let loaded: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(orderId)")
+            refreshedAuthoritativeOrder = true
             order = loaded
             isLoading = false
         } catch let error as APIError {
@@ -588,6 +607,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         guard let order, let appState else { return }
         await performAction(failureMessage: "取消失败，请重试") {
             let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
+            appState.realtimeCoordinator.unregisterActiveOrder(order.orderId)
             self.order = nil
             self.didCancelOrder = true
             self.speechService?.speak("订单已取消，系统将为盲人重新匹配。")
@@ -796,6 +816,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private var pollingTask: Task<Void, Never>?
+    private var realtimeRefreshCancellable: AnyCancellable?
 
     func configure(with appState: AppState, speechService: SpeechService, initialOrder: OrderDetailResponse?) {
         self.appState = appState
@@ -803,9 +824,18 @@ final class VolunteerInServiceViewModel: ObservableObject {
         if order == nil {
             order = initialOrder
         }
+        if realtimeRefreshCancellable == nil {
+            realtimeRefreshCancellable = appState.realtimeCoordinator.$pendingOrderRefreshIDs
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] orderIDs in
+                    guard let self, let orderID = self.order?.orderId, orderIDs.contains(orderID) else { return }
+                    Task { await self.load(orderId: orderID, speakChanges: true) }
+                }
+        }
     }
 
     func startPolling(orderId: Int64) {
+        appState?.realtimeCoordinator.registerActiveOrder(orderId)
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
             await self?.load(orderId: orderId, speakChanges: true)
@@ -827,9 +857,18 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     func load(orderId: Int64, speakChanges: Bool) async {
         guard let appState else { return }
+        var refreshedAuthoritativeOrder = false
+        defer {
+            if refreshedAuthoritativeOrder {
+                appState.realtimeCoordinator.completeOrderRefresh(orderId)
+            } else {
+                appState.realtimeCoordinator.failOrderRefresh(orderId)
+            }
+        }
         isLoading = order == nil
         do {
             let loaded: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(orderId)")
+            refreshedAuthoritativeOrder = true
             apply(loaded, speakChanges: speakChanges)
             isLoading = false
         } catch {
@@ -878,6 +917,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         await performAction(failureMessage: "取消失败，请重试") {
             let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
             stopPolling()
+            appState.realtimeCoordinator.unregisterActiveOrder(order.orderId)
             self.order = nil
             self.didCancelOrder = true
             self.speechService?.speak("订单已取消，系统将为盲人重新匹配。")
@@ -932,6 +972,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             speechService?.speakStatusChange(updated.status)
         }
         if updated.status.isTerminal {
+            appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
             stopPolling()
         }
     }

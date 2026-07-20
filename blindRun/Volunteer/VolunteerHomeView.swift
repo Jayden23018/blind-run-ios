@@ -25,10 +25,8 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
-    private var appStateWebSocketCancellable: AnyCancellable?
-    private var webSocketEventCancellable: AnyCancellable?
-    private var webSocketStateCancellable: AnyCancellable?
-    private weak var subscribedWebSocketService: WebSocketService?
+    private var realtimeDispatchCancellable: AnyCancellable?
+    private var realtimeRecoveryCancellable: AnyCancellable?
     private var countdownTask: Task<Void, Never>?
     private var delayedSummaryRefreshTask: Task<Void, Never>?
     private var isSceneActive = false
@@ -66,7 +64,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         self.appState = appState
         self.speechService = speechService
         apply(profile: appState.volunteerProfile)
-        subscribeToAppStateWebSocket(appState)
+        subscribeToRealtimeCoordinator(appState)
     }
 
     func setSceneActive(_ isActive: Bool) {
@@ -117,6 +115,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     appState: appState
                 )
                 dismissDispatch()
+                appState.realtimeCoordinator.clearDispatch(orderID: order.orderId)
                 acceptedDispatchInitialOrder = acceptedOrder
                 acceptedDispatchOrderId = acceptedOrderId
                 speechService?.speak(accept ? "已接受订单" : "已拒绝订单")
@@ -165,59 +164,33 @@ final class VolunteerHomeViewModel: ObservableObject {
         return acceptedOrder
     }
 
-    private func subscribeToAppStateWebSocket(_ appState: AppState) {
-        subscribeToWebSocketService(appState.webSocketService)
-
-        guard appStateWebSocketCancellable == nil else { return }
-        appStateWebSocketCancellable = appState.$webSocketService
-            .sink { [weak self] service in
-                self?.subscribeToWebSocketService(service)
-            }
-    }
-
-    private func subscribeToWebSocketService(_ service: WebSocketService?) {
-        guard let service else {
-            webSocketEventCancellable?.cancel()
-            webSocketEventCancellable = nil
-            webSocketStateCancellable?.cancel()
-            webSocketStateCancellable = nil
-            subscribedWebSocketService = nil
-            return
-        }
-
-        guard subscribedWebSocketService !== service else { return }
-
-        webSocketEventCancellable?.cancel()
-        webSocketStateCancellable?.cancel()
-        subscribedWebSocketService = service
-        webSocketEventCancellable = service.eventPublisher
+    private func subscribeToRealtimeCoordinator(_ appState: AppState) {
+        guard realtimeDispatchCancellable == nil else { return }
+        realtimeDispatchCancellable = appState.realtimeCoordinator.$pendingDispatch
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] event in
-                self?.handleWebSocketEvent(event)
+            .compactMap { $0 }
+            .sink { [weak self] prompt in
+                self?.handleNewOrder(prompt)
             }
-        webSocketStateCancellable = service.$connectionState
+        realtimeRecoveryCancellable = appState.realtimeCoordinator.recoveryPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] state in
-                guard case .connected = state else { return }
+            .sink { [weak self] signal in
+                guard signal.role == .volunteer else { return }
                 self?.scheduleDispatchSummaryRefresh()
             }
     }
 
-    private func handleWebSocketEvent(_ event: WSIncomingEvent) {
-        switch event {
-        case .newOrder(let order):
-            handleNewOrder(order)
-        default:
-            break
-        }
-    }
-
-    private func handleNewOrder(_ order: WSNewOrder) {
+    private func handleNewOrder(_ prompt: RealtimeDispatchPrompt) {
+        let order = prompt.order
         // 如果已经有一个正在展示的 dispatch，忽略新的
         guard incomingOrder == nil else { return }
 
         incomingOrder = order
-        dispatchCountdown = order.dispatchTimeoutSeconds ?? 30
+        dispatchCountdown = prompt.remainingSeconds()
+        guard dispatchCountdown > 0 else {
+            dismissDispatch()
+            return
+        }
         speechService?.speak("新订单到达，请在\(dispatchCountdown)秒内响应")
 
         countdownTask?.cancel()
@@ -346,12 +319,19 @@ final class VolunteerHomeViewModel: ObservableObject {
     }
 
     private func apply(summary: VolunteerDispatchSummaryResponse) {
+        let previousOrderID = activeOrder?.orderId
         dispatchSummary = summary
         isAvailable = summary.wantsDispatch ?? isAvailable
         if let active = summary.activeOrders?.first {
             activeOrder = active.orderDetail
         } else {
             activeOrder = nil
+        }
+        if let previousOrderID, previousOrderID != activeOrder?.orderId {
+            appState?.realtimeCoordinator.unregisterActiveOrder(previousOrderID)
+        }
+        if let orderID = activeOrder?.orderId {
+            appState?.realtimeCoordinator.registerActiveOrder(orderID)
         }
     }
 

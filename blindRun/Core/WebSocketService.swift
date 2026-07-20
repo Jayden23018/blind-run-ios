@@ -3,7 +3,7 @@ import Combine
 
 // MARK: - WebSocket Connection State
 
-enum WSConnectionState: Sendable {
+enum WSConnectionState: Sendable, Equatable {
     case disconnected
     case connecting
     case connected
@@ -56,6 +56,10 @@ final class WebSocketService: ObservableObject {
     #if DEBUG
     func simulateIncomingEventForTesting(_ event: WSIncomingEvent) {
         eventSubject.send(event)
+    }
+
+    func simulateConnectionStateForTesting(_ state: WSConnectionState) {
+        connectionState = state
     }
     #endif
 
@@ -202,6 +206,16 @@ final class WebSocketService: ObservableObject {
         case WSMessageType.volunteerLocationUpdate.rawValue:
             if let msg = try? decoder.decode(WSVolunteerLocationUpdate.self, from: data) {
                 event = .volunteerLocation(msg)
+            } else { return }
+
+        case WSMessageType.blindLocationUpdate.rawValue:
+            if let msg = try? decoder.decode(WSBlindLocationUpdate.self, from: data) {
+                event = .blindLocation(msg)
+            } else { return }
+
+        case WSMessageType.separationAlert.rawValue:
+            if let msg = try? decoder.decode(WSSeparationAlert.self, from: data) {
+                event = .separationAlert(msg)
             } else { return }
 
         case WSMessageType.appNotification.rawValue:

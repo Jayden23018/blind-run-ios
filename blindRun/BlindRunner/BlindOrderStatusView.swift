@@ -21,6 +21,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     private var pollingTask: Task<Void, Never>?
     private var currentOrderId: Int64?
     private var latestVolunteerCoordinate: CLLocationCoordinate2D?
+    private var latestVolunteerWebSocketDate: Date?
     private var cancellables = Set<AnyCancellable>()
 
     /// Active blind-runner orders keep the 5-second REST fallback even when WebSocket is connected.
@@ -43,11 +44,12 @@ final class BlindOrderStatusViewModel: ObservableObject {
     func configure(appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
-        subscribeToWebSocket(appState: appState)
+        subscribeToRealtimeCoordinator(appState: appState)
     }
 
     func startPolling(orderId: Int64) {
         currentOrderId = orderId
+        appState?.realtimeCoordinator.registerActiveOrder(orderId)
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
             await self?.loadOrder(orderId: orderId, speakChanges: true)
@@ -162,6 +164,14 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     private func loadOrder(orderId: Int64, speakChanges: Bool) async {
         guard let appState else { return }
+        var refreshedAuthoritativeOrder = false
+        defer {
+            if refreshedAuthoritativeOrder {
+                appState.realtimeCoordinator.completeOrderRefresh(orderId)
+            } else {
+                appState.realtimeCoordinator.failOrderRefresh(orderId)
+            }
+        }
         if order == nil {
             isLoading = true
         }
@@ -169,8 +179,10 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
         do {
             let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(orderId)")
+            refreshedAuthoritativeOrder = true
             isLoading = false
             apply(updated, speakChanges: speakChanges)
+            await refreshVolunteerLocationFallbackIfNeeded(for: updated, appState: appState)
         } catch let error as APIError {
             isLoading = false
             if appState.handleAuthenticatedAPIError(error) {
@@ -220,14 +232,28 @@ final class BlindOrderStatusViewModel: ObservableObject {
             )
         }
         if !updated.status.shouldPoll {
+            appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
             stopPolling()
         }
     }
 
-    func handleVolunteerLocationUpdate(_ message: WSVolunteerLocationUpdate) {
-        guard message.orderId == activeOrderId else { return }
-        latestVolunteerCoordinate = CLLocationCoordinate2D(latitude: message.lat, longitude: message.lng)
+    func handleVolunteerLocationUpdate(_ sample: RealtimePeerLocationSample) {
+        guard sample.ownerRole == .volunteer, sample.orderId == activeOrderId else { return }
+        latestVolunteerWebSocketDate = Date(timeIntervalSince1970: TimeInterval(sample.timestampMilliseconds) / 1_000)
+        latestVolunteerCoordinate = CLLocationCoordinate2D(latitude: sample.latitude, longitude: sample.longitude)
         refreshVolunteerDistance()
+    }
+
+    func handleVolunteerLocationUpdate(_ message: WSVolunteerLocationUpdate) {
+        handleVolunteerLocationUpdate(
+            RealtimePeerLocationSample(
+                orderId: message.orderId,
+                ownerRole: .volunteer,
+                latitude: message.lat,
+                longitude: message.lng,
+                timestampMilliseconds: message.timestamp
+            )
+        )
     }
 
     static func shouldSuppressDirectNotificationSpeech(_ text: String) -> Bool {
@@ -281,42 +307,54 @@ final class BlindOrderStatusViewModel: ObservableObject {
         volunteerDistanceToStartText = order.volunteerDistanceToStartText(from: latestVolunteerCoordinate)
     }
 
-    // MARK: - WebSocket
+    private func refreshVolunteerLocationFallbackIfNeeded(for order: OrderDetailResponse, appState: AppState) async {
+        guard [.pendingAccept, .driverEnRoute, .driverArrived].contains(order.status) else { return }
+        let websocketSampleIsFresh = latestVolunteerWebSocketDate.map { Date().timeIntervalSince($0) <= 15 } ?? false
+        guard !appState.isWebSocketConnected || !websocketSampleIsFresh else { return }
 
-    private func subscribeToWebSocket(appState: AppState) {
-        guard let ws = appState.webSocketService else { return }
-        ws.eventPublisher
+        do {
+            let response: VolunteerLocationResponse = try await appState.apiClient.get("/api/blind/volunteer-location")
+            guard let data = response.data,
+                  data.coordinateIsValid,
+                  data.orderId == nil || data.orderId == order.orderId,
+                  data.status == nil || data.status == order.status,
+                  let updatedAt = data.updatedAt.flatMap(Self.parseISO8601),
+                  abs(Date().timeIntervalSince(updatedAt)) <= 30,
+                  let lat = data.lat,
+                  let lng = data.lng else { return }
+            latestVolunteerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
+            refreshVolunteerDistance()
+        } catch {
+            // Order polling remains authoritative; an unavailable location fallback is non-fatal.
+        }
+    }
+
+    private static func parseISO8601(_ value: String) -> Date? {
+        ISO8601DateFormatter().date(from: value)
+    }
+
+    // MARK: - App-lifetime realtime routing
+
+    private func subscribeToRealtimeCoordinator(appState: AppState) {
+        cancellables.removeAll()
+        let coordinator = appState.realtimeCoordinator
+        coordinator.$pendingOrderRefreshIDs
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] event in
-                guard let self else { return }
-                switch event {
-                case .orderStatusChanged(let statusMsg):
-                    // 如果是当前订单的状态更新，立即刷新
-                    if statusMsg.orderId == self.currentOrderId {
-                        Task { await self.loadOrder(orderId: statusMsg.orderId, speakChanges: true) }
-                    }
-                case .notification(let notification):
-                    let speechText = notification.ttsText?.nilIfBlank ?? notification.body
-                    if self.activeOrderId == nil ||
-                        !Self.shouldSuppressDirectNotificationSpeech(speechText) {
-                        self.speechService?.speak(speechText)
-                    }
-                case .volunteerLocation(let location):
-                    self.handleVolunteerLocationUpdate(location)
-                case .emergencyResolved:
-                    if let orderId = self.currentOrderId {
-                        Task { await self.loadOrder(orderId: orderId, speakChanges: true) }
-                    }
-                    self.speechService?.speak("紧急求助已解除")
-                case .emergencyContactNotified(let msg):
-                    self.speechService?.speak(msg.ttsText ?? msg.message ?? "已通知紧急联系人")
-                case .pong:
-                    break
-                default:
-                    break
-                }
+            .sink { [weak self] orderIDs in
+                guard let self, let orderID = self.activeOrderId, orderIDs.contains(orderID) else { return }
+                Task { await self.loadOrder(orderId: orderID, speakChanges: true) }
             }
             .store(in: &cancellables)
+
+        coordinator.peerLocationPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] sample in self?.handleVolunteerLocationUpdate(sample) }
+            .store(in: &cancellables)
+
+        if let orderID = activeOrderId,
+           let sample = coordinator.latestPeerLocation(orderID: orderID, ownerRole: .volunteer) {
+            handleVolunteerLocationUpdate(sample)
+        }
     }
 }
 

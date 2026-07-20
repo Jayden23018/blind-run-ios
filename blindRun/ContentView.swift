@@ -98,6 +98,21 @@ struct ContentView: View {
             await refreshActiveProfileIfNeeded()
         }
         .modifier(SessionLifecycleStatusModifier())
+        .overlay(alignment: .top) {
+            if let notification = appState.realtimeCoordinator.currentNotification {
+                RealtimeForegroundNotificationBanner(
+                    notification: notification,
+                    onDismiss: { appState.realtimeCoordinator.dismissCurrentNotification() }
+                )
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(100)
+            }
+        }
+        .onReceive(appState.realtimeCoordinator.$currentNotification.compactMap { $0 }) { notification in
+            speechService.speak(notification.speechText)
+        }
         .alert("确认仅退出本机", isPresented: $showRestorationLocalSignOutConfirmation) {
             Button("仅退出本机", role: .destructive) { appState.clearSession() }
             Button("取消", role: .cancel) {}

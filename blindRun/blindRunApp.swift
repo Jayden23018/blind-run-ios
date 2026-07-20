@@ -35,6 +35,7 @@ struct blindRunApp: App {
                 .onAppear {
                     #if DEBUG || DEMO
                     applyUITestLaunchConfigurationIfNeeded()
+                    injectUITestRealtimeNotificationsIfNeeded()
                     #endif
                     Task { await appState.restoreSession() }
                 }
@@ -129,6 +130,37 @@ struct blindRunApp: App {
         default:
             return nil
         }
+    }
+
+    private func injectUITestRealtimeNotificationsIfNeeded() {
+        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_REALTIME_PRIORITY"] == "1" else { return }
+        #if DEBUG
+        appState.realtimeCoordinator.simulateIncomingEventForTesting(
+            .notification(WSAppNotification(
+                type: WSMessageType.appNotification.rawValue,
+                eventId: 9001,
+                title: "普通通知",
+                body: "普通前台通知",
+                ttsText: "普通前台通知",
+                priority: "NORMAL",
+                timestamp: "2026-07-19T12:00:00Z"
+            ))
+        )
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            appState.realtimeCoordinator.simulateIncomingEventForTesting(
+                .notification(WSAppNotification(
+                    type: WSMessageType.appNotification.rawValue,
+                    eventId: 9002,
+                    title: "重要通知",
+                    body: "高优先级前台通知",
+                    ttsText: "高优先级前台通知",
+                    priority: "HIGH",
+                    timestamp: "2026-07-19T12:00:01Z"
+                ))
+            )
+        }
+        #endif
     }
     #endif
 }

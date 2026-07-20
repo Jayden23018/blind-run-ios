@@ -29,6 +29,7 @@ Suggested source groups:
 - `Voice`: TTS, repeat current status, speech input helpers
 - `Safety`: shared dangerous-action copy/components retained for future emergency enablement; current release uses cancellation, completion, and logout confirmations
 - `Profile`: blind runner and volunteer profile forms
+- `AppRealtimeCoordinator`: `AppState` 持有的 app-lifetime 解码事件路由、优先队列、去重和重连恢复信号；不持有完整订单或 feature policy
 
 ## 3. MVVM Pattern
 
@@ -43,8 +44,8 @@ Recommended examples:
 
 - `AuthViewModel`: phone and code login.
 - `BlindBookingViewModel`: location permission, default start coordinate, booking form validation, create order.
-- `BlindOrderStatusViewModel`: WebSocket status events, 5-second polling fallback, status TTS, cancel, completed/rating UI. Current release hides emergency UI.
-- `VolunteerHomeViewModel`: availability, current location, dispatch summary, readiness reasons, temporary points, active/recent orders, WebSocket dispatch.
+- `BlindOrderStatusViewModel`: coordinator refresh/peer-location outputs, 5-second REST polling, typed volunteer-location fallback, status TTS, cancel, completed/rating UI. Current release hides emergency UI.
+- `VolunteerHomeViewModel`: availability, current location, dispatch summary, readiness reasons, temporary points, active/recent orders, retained coordinator dispatch prompts.
 - `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, start-service, strict IN_PROGRESS finish gate, cancel. Current release hides emergency UI.
 - `VolunteerInServiceViewModel`: active order polling, en-route/arrived/start-service/finish actions, strict IN_PROGRESS finish gate, service-completion refresh.
 
@@ -131,6 +132,10 @@ AMap keys:
 - Commit an example config file that lists required key names but contains no secrets.
 
 ## 8. Polling
+
+`WebSocketService` 只负责 URL、收发、500 ms 串行发送限制、30 秒心跳、3/6/12/30 秒重连退避、解码和未知消息容忍。`AppRealtimeCoordinator` 对当前 service 恰好订阅一次，service/token/role 替换时清理旧订阅与用户内存状态。页面/ViewModel 不得再订阅 raw `eventPublisher`。
+
+`ORDER_STATUS_CHANGED` 写入 retained、按 order ID 合并的 refresh set；Feature ViewModel 拉取 REST 完整详情，只有成功取得权威订单后才确认完成。瞬时失败按 1/2/4 秒退避重试，三次重试耗尽后释放请求并保留页面错误/既有轮询降级。协调器还发布 retained dispatch、validated peer sample、foreground notification、separation/safety 和 reconnect recovery 等窄输出。依赖变更自行决定五秒位置上报、peer marker、轨迹和 SOS 状态。
 
 Blind runner order status pages must poll order details every 5 seconds while status is:
 
