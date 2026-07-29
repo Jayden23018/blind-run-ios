@@ -56,7 +56,9 @@ final class AccountDeletionViewModel: ObservableObject {
 final class AppState: ObservableObject {
     private let mockAPIClient = MockAPIClient()
     private let apiClientOverride: (any APIClientProtocol)?
-    let realtimeCoordinator = AppRealtimeCoordinator()
+    let persistence: AppStatePersistence
+    let realtimeCoordinator: AppRealtimeCoordinator
+    let liveEscortCoordinator: LiveEscortSessionCoordinator
 
     // MARK: - Session
 
@@ -67,12 +69,22 @@ final class AppState: ObservableObject {
             persistToken()
             if oldValue != accessToken {
                 realtimeCoordinator.detach(clearSessionState: true)
+                liveEscortCoordinator.reset(clearIdentity: false)
             }
         }
     }
 
     /// 当前用户 ID
-    @Published var userId: Int64?
+    @Published var userId: Int64? {
+        didSet {
+            // Token changes already clear initial login/logout. A non-nil account switch
+            // needs its own boundary even if an integration reuses the same token value.
+            if oldValue != nil, oldValue != userId {
+                realtimeCoordinator.detach(clearSessionState: true)
+                liveEscortCoordinator.reset(clearIdentity: false)
+            }
+        }
+    }
 
     /// 仅保存在内存中的当前用户，不额外持久化手机号等身份信息。
     @Published private(set) var currentUser: CurrentUserResponse?
@@ -88,6 +100,7 @@ final class AppState: ObservableObject {
             mockAPIClient.syncRoleFromAppState(activeRole)
             if oldValue != activeRole {
                 realtimeCoordinator.detach(clearSessionState: true)
+                liveEscortCoordinator.reset(clearIdentity: false)
             }
         }
     }
@@ -119,6 +132,11 @@ final class AppState: ObservableObject {
             case .unset, .none: role = nil
             }
             realtimeCoordinator.attach(to: webSocketService, role: role)
+            liveEscortCoordinator.configure(
+                identityKey: sessionIdentityKey,
+                role: activeRole,
+                webSocketService: webSocketService
+            )
         }
     }
 
@@ -191,10 +209,17 @@ final class AppState: ObservableObject {
 
     // MARK: - Init
 
-    init(apiClient: (any APIClientProtocol)? = nil) {
+    init(
+        apiClient: (any APIClientProtocol)? = nil,
+        persistence: AppStatePersistence? = nil
+    ) {
+        let persistence = persistence ?? AppStatePersistenceFactory.makeDefault()
+        let realtimeCoordinator = AppRealtimeCoordinator()
+        self.realtimeCoordinator = realtimeCoordinator
+        self.liveEscortCoordinator = LiveEscortSessionCoordinator(realtimeCoordinator: realtimeCoordinator)
         self.apiClientOverride = apiClient
-        // 从 UserDefaults 恢复环境设置
-        if let envRaw = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
+        self.persistence = persistence
+        if let envRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
            let env = AppState.storedEnvironment(from: envRaw) {
             self.currentEnvironment = AppState.resolvedInitialEnvironment(env, channel: AppBuildChannel.current)
         } else {
@@ -202,18 +227,23 @@ final class AppState: ObservableObject {
         }
     }
 
+    private var sessionIdentityKey: String? {
+        guard let accessToken, let userId else { return nil }
+        return "\(userId):\(activeRole?.rawValue ?? "none"):\(accessToken)"
+    }
+
     // MARK: - Session Management
 
     /// 启动时恢复会话（从 UserDefaults 读取 Token）
     func restoreSession() async {
         sessionRestorationState = .restoring
-        // TODO: 正式版必须从 Keychain 读取 Token
-        accessToken = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.accessToken)
-        if let roleRaw = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.activeRole) {
+        // TODO: 正式版必须从 Keychain 读取 Token，并使用 AppCredentialNamespace 隔离测试服务。
+        accessToken = persistence.string(forKey: AppConstants.UserDefaultsKeys.accessToken)
+        if let roleRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.activeRole) {
             activeRole = UserRole(rawValue: roleRaw)
         }
-        if let savedUserId = UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.userId) as? Int64 {
-            userId = savedUserId
+        if let savedUserId = persistence.object(forKey: AppConstants.UserDefaultsKeys.userId) as? NSNumber {
+            userId = savedUserId.int64Value
         }
         guard accessToken != nil else {
             sessionRestorationState = .unauthenticated
@@ -346,10 +376,10 @@ final class AppState: ObservableObject {
         logoutState = .idle
         accountDeletionState = .idle
         sessionRestorationState = .unauthenticated
-        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
-        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
-        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
-        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
+        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
+        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
+        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
+        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
     }
 
     /// 会话过期：清除本地登录态并让登录页展示一次性提示。
@@ -412,6 +442,13 @@ final class AppState: ObservableObject {
         let nextIndex = (currentIndex + 1) % allEnvironments.count
         self.currentEnvironment = allEnvironments[nextIndex]
         clearSession()
+    }
+    #endif
+
+    #if DEBUG || DEMO
+    func resetUITestPersistence() {
+        persistence.reset()
+        performLocalSessionCleanup()
     }
     #endif
 
@@ -484,28 +521,28 @@ final class AppState: ObservableObject {
     private func persistToken() {
         // TODO: 正式版必须迁移至 Keychain 存储
         if let token = accessToken {
-            UserDefaults.standard.set(token, forKey: AppConstants.UserDefaultsKeys.accessToken)
+            persistence.set(token, forKey: AppConstants.UserDefaultsKeys.accessToken)
         } else {
-            UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
+            persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
         }
     }
 
     private func persistActiveRole() {
         if let role = activeRole {
-            UserDefaults.standard.set(role.rawValue, forKey: AppConstants.UserDefaultsKeys.activeRole)
+            persistence.set(role.rawValue, forKey: AppConstants.UserDefaultsKeys.activeRole)
         } else {
-            UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
+            persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
         }
     }
 
     private func persistUserId() {
         if let id = userId {
-            UserDefaults.standard.set(id, forKey: AppConstants.UserDefaultsKeys.userId)
+            persistence.set(id, forKey: AppConstants.UserDefaultsKeys.userId)
         }
     }
 
     private func persistEnvironment() {
-        UserDefaults.standard.set(currentEnvironment.rawValue, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
+        persistence.set(currentEnvironment.rawValue, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
     }
 }
 

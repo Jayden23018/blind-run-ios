@@ -215,6 +215,32 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     let chatPreference: String?
 
     var id: Int64 { orderId }
+
+    func replacingStatus(with status: RunOrderStatus) -> OrderDetailResponse {
+        OrderDetailResponse(
+            orderId: orderId,
+            status: status,
+            startAddress: startAddress,
+            startLatitude: startLatitude,
+            startLongitude: startLongitude,
+            plannedStart: plannedStart,
+            plannedEnd: plannedEnd,
+            blindName: blindName,
+            blindPhone: blindPhone,
+            volunteerPhone: volunteerPhone,
+            acceptedAt: acceptedAt,
+            createdAt: createdAt,
+            expectedDurationMinutes: expectedDurationMinutes,
+            pacePreference: pacePreference,
+            routePreference: routePreference,
+            routeNotes: routeNotes,
+            hasGuideDogThisRun: hasGuideDogThisRun,
+            specialNotes: specialNotes,
+            visionLevel: visionLevel,
+            tetherPreference: tetherPreference,
+            chatPreference: chatPreference
+        )
+    }
 }
 
 // MARK: - Paginated Order Response

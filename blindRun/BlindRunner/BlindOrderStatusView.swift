@@ -14,6 +14,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     @Published var reviewComment = ""
     @Published var didSubmitReview = false
     @Published var volunteerDistanceToStartText: String?
+    @Published private(set) var latestVolunteerSample: LocatedCoordinate?
     @Published var errorMessage: String?
 
     private weak var appState: AppState?
@@ -22,7 +23,14 @@ final class BlindOrderStatusViewModel: ObservableObject {
     private var currentOrderId: Int64?
     private var latestVolunteerCoordinate: CLLocationCoordinate2D?
     private var latestVolunteerWebSocketDate: Date?
+    private var peerExpiryTask: Task<Void, Never>?
+    private var acceptsPeerLocations = true
     private var cancellables = Set<AnyCancellable>()
+    private let peerFreshness: TimeInterval
+
+    init(peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness) {
+        self.peerFreshness = max(0.01, peerFreshness)
+    }
 
     /// Active blind-runner orders keep the 5-second REST fallback even when WebSocket is connected.
     var effectivePollingInterval: TimeInterval {
@@ -44,11 +52,16 @@ final class BlindOrderStatusViewModel: ObservableObject {
     func configure(appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
+        acceptsPeerLocations = true
         subscribeToRealtimeCoordinator(appState: appState)
     }
 
     func startPolling(orderId: Int64) {
+        if currentOrderId != orderId {
+            clearPeerLocation()
+        }
         currentOrderId = orderId
+        acceptsPeerLocations = true
         appState?.realtimeCoordinator.registerActiveOrder(orderId)
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
@@ -69,6 +82,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
     func stopPolling() {
         pollingTask?.cancel()
         pollingTask = nil
+        acceptsPeerLocations = false
+        clearPeerLocation()
     }
 
     func repeatStatus() {
@@ -178,7 +193,21 @@ final class BlindOrderStatusViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(orderId)")
+            let requestToken = appState.realtimeCoordinator.beginOrderStatusRequest(orderID: orderId)
+            let apiClient = appState.apiClient
+            let candidate: OrderDetailResponse = try await HomeLoadCoordinator.run(
+                timeout: HomeLoadPolicy.defaultTimeout,
+                operationName: "blind-order-poll"
+            ) {
+                try await apiClient.get("/api/orders/\(orderId)")
+            }
+            guard let updated = appState.realtimeCoordinator.reconcileOrderDetail(
+                candidate,
+                requestToken: requestToken
+            ) else {
+                isLoading = false
+                return
+            }
             refreshedAuthoritativeOrder = true
             isLoading = false
             apply(updated, speakChanges: speakChanges)
@@ -224,6 +253,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
         let previousStatus = order?.status
         order = updated
+        appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         refreshVolunteerDistance()
         if speakChanges, previousStatus != updated.status {
             speechService?.speakStatusChange(
@@ -233,15 +263,31 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
         if !updated.status.shouldPoll {
             appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
+            if updated.status != .completed {
+                appState?.liveEscortCoordinator.clearOwnedOrder()
+            }
             stopPolling()
         }
     }
 
     func handleVolunteerLocationUpdate(_ sample: RealtimePeerLocationSample) {
-        guard sample.ownerRole == .volunteer, sample.orderId == activeOrderId else { return }
-        latestVolunteerWebSocketDate = Date(timeIntervalSince1970: TimeInterval(sample.timestampMilliseconds) / 1_000)
-        latestVolunteerCoordinate = CLLocationCoordinate2D(latitude: sample.latitude, longitude: sample.longitude)
+        guard acceptsPeerLocations,
+              sample.ownerRole == .volunteer,
+              sample.orderId == activeOrderId else { return }
+        let capturedAt = Date(timeIntervalSince1970: TimeInterval(sample.timestampMilliseconds) / 1_000)
+        let age = max(0, Date().timeIntervalSince(capturedAt))
+        guard age <= peerFreshness,
+              let located = BackendCoordinateNormalizer.backend(
+            latitude: sample.latitude,
+            longitude: sample.longitude,
+            capturedAt: capturedAt
+        ) else { return }
+
+        latestVolunteerWebSocketDate = capturedAt
+        latestVolunteerSample = located
+        latestVolunteerCoordinate = located.coordinate
         refreshVolunteerDistance()
+        schedulePeerExpiry(for: located, orderID: sample.orderId, remaining: peerFreshness - age)
     }
 
     func handleVolunteerLocationUpdate(_ message: WSVolunteerLocationUpdate) {
@@ -298,6 +344,37 @@ final class BlindOrderStatusViewModel: ObservableObject {
         order?.orderId ?? currentOrderId
     }
 
+    private func schedulePeerExpiry(
+        for sample: LocatedCoordinate,
+        orderID: Int64,
+        remaining: TimeInterval
+    ) {
+        peerExpiryTask?.cancel()
+        peerExpiryTask = Task { [weak self] in
+            do {
+                try await Task.sleep(
+                    nanoseconds: UInt64(max(0.01, remaining) * 1_000_000_000)
+                )
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  self.activeOrderId == orderID,
+                  self.latestVolunteerSample == sample else { return }
+            self.clearPeerLocation()
+        }
+    }
+
+    private func clearPeerLocation() {
+        peerExpiryTask?.cancel()
+        peerExpiryTask = nil
+        latestVolunteerSample = nil
+        latestVolunteerCoordinate = nil
+        latestVolunteerWebSocketDate = nil
+        refreshVolunteerDistance()
+    }
+
     private func refreshVolunteerDistance() {
         guard let order,
               [.pendingAccept, .driverEnRoute, .driverArrived].contains(order.status) else {
@@ -346,6 +423,21 @@ final class BlindOrderStatusViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        coordinator.statusUpdatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] update in
+                guard let self,
+                      let current = self.order,
+                      current.orderId == update.orderId else { return }
+                self.apply(
+                    current.replacingStatus(with: update.toStatus),
+                    speakChanges: true
+                )
+                self.isLoading = false
+                self.errorMessage = nil
+            }
+            .store(in: &cancellables)
+
         coordinator.peerLocationPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] sample in self?.handleVolunteerLocationUpdate(sample) }
@@ -365,6 +457,7 @@ struct BlindOrderStatusView: View {
     @EnvironmentObject private var speechService: SpeechService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = BlindOrderStatusViewModel()
+    @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @State private var showEmergencyConfirmation = false
     @State private var showCancelConfirmation = false
     let orderId: Int64
@@ -381,6 +474,7 @@ struct BlindOrderStatusView: View {
 
                 if let order = viewModel.order {
                     statusHeader(order)
+                    peerMapSection(order)
                     lifecycleSection(order)
                     volunteerSection(order)
                     orderInfoSection(order)
@@ -434,6 +528,11 @@ struct BlindOrderStatusView: View {
             if let order = viewModel.order {
                 onOrderUpdated(order)
             }
+        }
+        .task(id: viewModel.order?.status) {
+            guard viewModel.order?.status == .completed else { return }
+            await trackViewModel.load(orderID: orderId, appState: appState)
+            if let summary = trackViewModel.track?.spokenSummary { speechService.speak(summary) }
         }
     }
 
@@ -523,6 +622,16 @@ struct BlindOrderStatusView: View {
                 .foregroundColor(AppColors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
 
+            if let track = trackViewModel.track {
+                CompletedTrackSummaryView(track: track) {
+                    speechService.speak(track.spokenSummary)
+                }
+            } else if trackViewModel.isLoading {
+                ProgressView("正在加载本次路线")
+            } else if let error = trackViewModel.errorMessage {
+                Text(error).foregroundColor(AppColors.textSecondary)
+            }
+
             if viewModel.didSubmitReview {
                 Text("感谢反馈，可以返回首页。")
                     .font(AppFonts.body())
@@ -573,6 +682,39 @@ struct BlindOrderStatusView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
+    }
+
+    @ViewBuilder
+    private func peerMapSection(_ order: OrderDetailResponse) -> some View {
+        if [.driverEnRoute, .driverArrived, .inProgress].contains(order.status) {
+            let peer = viewModel.latestVolunteerSample?.coordinate
+            VStack(alignment: .leading, spacing: 8) {
+                Text("同行位置").font(.headline).accessibilityAddTraits(.isHeader)
+                if let peer {
+                    MapViewWrapper(
+                        centerCoordinate: peer,
+                        showsUserLocation: false,
+                        annotations: [MapAnnotationItem(
+                            id: "associated-volunteer",
+                            coordinate: peer,
+                            title: "同行志愿者",
+                            subtitle: "位置刚刚更新",
+                            kind: .peer
+                        )],
+                        tracksUserLocation: false
+                    )
+                    .frame(height: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .allowsHitTesting(false)
+                    .accessibilityLabel("辅助地图，同行志愿者位置可用")
+                } else {
+                    Text("同行位置暂时不可用")
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.warning)
+                        .accessibilityLabel("同行位置暂时不可用")
+                }
+            }
+        }
     }
 
     private func terminalSection(_ order: OrderDetailResponse) -> some View {

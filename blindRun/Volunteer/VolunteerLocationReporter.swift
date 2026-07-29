@@ -28,7 +28,10 @@ enum VolunteerLocationReporter {
         guard locationAuthorized, shouldReportToCloud, let currentLocation else {
             return false
         }
-        send(currentLocation.latitude, currentLocation.longitude)
+        guard let normalized = BackendCoordinateNormalizer.normalize(
+            LocatedCoordinate(coordinate: currentLocation, system: .wgs84Device)
+        ) else { return false }
+        send(normalized.coordinate.latitude, normalized.coordinate.longitude)
         return true
     }
 }

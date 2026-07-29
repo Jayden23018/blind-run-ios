@@ -47,6 +47,20 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         body: (any Encodable & Sendable)?,
         requiresAuth: Bool
     ) async throws -> T {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_HANG_HOME_REQUESTS"] == "1",
+           path == "/api/orders/mine" || path == "/api/volunteer/dispatch-summary" {
+            await Self.suspendForeverIgnoringCancellation()
+            throw CancellationError()
+        }
+        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_HANG_TRANSITION_CONFIRMATION"] == "1",
+           method == .get,
+           path.matches(of: try! Regex("/api/orders/\\d+$")).count > 0 {
+            await Self.suspendForeverIgnoringCancellation()
+            throw CancellationError()
+        }
+        #endif
+
         // Simulate network delay
         try await Task.sleep(nanoseconds: 300_000_000)
 
@@ -64,6 +78,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         return typed
     }
+
+    #if DEBUG
+    /// Deterministic UI-test fault injection for clients that never complete
+    /// and do not cooperate with task cancellation.
+    nonisolated private static func suspendForeverIgnoringCancellation() async {
+        await withUnsafeContinuation { (_: UnsafeContinuation<Void, Never>) in }
+    }
+    #endif
 
     func upload<T: Decodable>(
         path: String,
@@ -201,6 +223,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
         // Order actions
         if let orderId = extractOrderId(from: path) {
+            if path.hasSuffix("/track") && method == .get {
+                return try handleGetOrderTrack(orderId: orderId)
+            }
             if path.hasSuffix("/respond") && method == .post {
                 return try handleRespondOrder(orderId: orderId, body: body)
             }
@@ -243,6 +268,35 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
 
         throw APIError.invalidURL
+    }
+
+    private func handleGetOrderTrack(orderId: Int64) throws -> OrderTrackResponse {
+        guard let order = orders.first(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard order.status == .completed,
+              let startLatitude = order.startLatitude,
+              let startLongitude = order.startLongitude else {
+            return OrderTrackResponse(
+                status: order.status,
+                volunteerTrack: [],
+                volunteerStats: TrackStats(distanceMeters: 0, durationSeconds: 0, avgPaceSecPerKm: nil),
+                blindTrack: [],
+                blindStats: TrackStats(distanceMeters: 0, durationSeconds: 0, avgPaceSecPerKm: nil)
+            )
+        }
+        let points = [
+            TrackPoint(lat: startLatitude, lng: startLongitude, recordedAt: "2026-07-21T08:00:00Z"),
+            TrackPoint(lat: startLatitude + 0.003, lng: startLongitude + 0.002, recordedAt: "2026-07-21T08:12:00Z"),
+            TrackPoint(lat: startLatitude + 0.006, lng: startLongitude + 0.004, recordedAt: "2026-07-21T08:24:00Z")
+        ]
+        return OrderTrackResponse(
+            status: order.status,
+            volunteerTrack: points,
+            volunteerStats: TrackStats(distanceMeters: 820, durationSeconds: 1_440, avgPaceSecPerKm: 1_756),
+            blindTrack: points,
+            blindStats: TrackStats(distanceMeters: 820, durationSeconds: 1_440, avgPaceSecPerKm: 1_756)
+        )
     }
 
     // MARK: - Auth Handlers

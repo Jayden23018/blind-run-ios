@@ -36,13 +36,67 @@ final class blindRunUITests: XCTestCase {
 
         let startButton = app.buttons["开始约跑"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 12), "Blind runner home should show start booking")
-        let auxiliaryMap = app.descendants(matching: .any)["blindRunnerHomeAuxiliaryMap"].firstMatch
-        XCTAssertTrue(auxiliaryMap.waitForExistence(timeout: 12), "Blind runner home should keep the auxiliary map available")
+        let auxiliaryMaps = app.descendants(matching: .any).matching(identifier: "blindRunnerHomeAuxiliaryMap")
+        let auxiliaryMap = auxiliaryMaps.firstMatch
+        XCTAssertTrue(auxiliaryMap.waitForExistence(timeout: 12), "Blind runner home should mount its auxiliary map container")
+        XCTAssertEqual(auxiliaryMaps.count, 1, "Committed blind home should mount exactly one auxiliary map")
+        XCTAssertFalse(app.descendants(matching: .any)["homeMapPlaceholder"].firstMatch.exists)
         XCTAssertLessThan(
             startButton.frame.minY,
             auxiliaryMap.frame.minY,
             "Voice-first home should place primary action before auxiliary map visually"
         )
+    }
+
+    @MainActor
+    func testRootHydrationMountsOnlyBlindHomeWithoutLoginOrProfileGhosts() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            preseedBlindProfile: true,
+            emptyMockOrders: true
+        )
+
+        let home = app.descendants(matching: .any)["rootRoute.blindHome"].firstMatch
+        XCTAssertTrue(home.waitForExistence(timeout: 12), "Hydration should commit the blind home route")
+        XCTAssertFalse(app.descendants(matching: .any)["rootRoute.unauthenticated"].firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["rootRoute.blindProfile"].firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["rootRoute.restoringAccount"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["开始约跑"].firstMatch.isHittable, "Committed home must remain interactive")
+    }
+
+    @MainActor
+    func testBlindHomeRemainsInteractiveWhileInitialRequestNeverReturns() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            preseedBlindProfile: true,
+            emptyMockOrders: true,
+            hangHomeRequests: true,
+            homeLoadTimeout: 3
+        )
+
+        XCTAssertTrue(app.staticTexts["正在后台同步当前状态，页面仍可使用"].waitForExistence(timeout: 12))
+
+        let repeatButton = app.buttons["重复当前状态"].firstMatch
+        XCTAssertTrue(repeatButton.isHittable, "Local TTS action must not wait for the backend")
+        repeatButton.tap()
+
+        let scrollView = app.scrollViews["blindRunnerHomeScrollView"].firstMatch
+        XCTAssertTrue(scrollView.exists, "Blind home must expose a scrollable surface during loading")
+        scrollView.swipeUp()
+        XCTAssertTrue(app.descendants(matching: .any)["blindRunnerHomeAuxiliaryMap"].firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["homeMapPlaceholder"].firstMatch.exists)
+        scrollView.swipeDown()
+
+        let retryButton = app.buttons["重试加载"].firstMatch
+        XCTAssertTrue(retryButton.waitForExistence(timeout: 5), "A non-cooperative request must release loading at the deadline")
+        XCTAssertTrue(retryButton.isHittable)
+
+        let settingsButton = app.buttons["设置"].firstMatch
+        XCTAssertTrue(settingsButton.isHittable, "Settings must remain independent from home loading")
+        settingsButton.tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -125,6 +179,10 @@ final class blindRunUITests: XCTestCase {
         let topStatusBlock = app.descendants(matching: .any)["volunteerHomeTopStatusBlock"].firstMatch
         XCTAssertTrue(topStatusBlock.waitForExistence(timeout: 12), "Volunteer status block should be visible below the system status area")
         assertVolunteerTopStatusBlockPosition(topStatusBlock, app: app)
+        let homeMaps = app.descendants(matching: .any).matching(identifier: "volunteerHomeMap")
+        XCTAssertTrue(homeMaps.firstMatch.waitForExistence(timeout: 5), "Volunteer home should mount its map container")
+        XCTAssertEqual(homeMaps.count, 1, "Committed volunteer home should mount exactly one home map")
+        XCTAssertFalse(app.descendants(matching: .any)["volunteerHomeMapPlaceholderBackground"].firstMatch.exists)
 
         let currentOrderCard = app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch
         XCTAssertTrue(currentOrderCard.waitForExistence(timeout: 5), "Preseeded active order should appear below the status block")
@@ -152,10 +210,140 @@ final class blindRunUITests: XCTestCase {
         assertNoEmergencyAction(app)
 
         completeButton.tap()
+        let confirmComplete = app.buttons["确认完成服务"].firstMatch
         XCTAssertTrue(
-            app.buttons["确认完成服务"].firstMatch.waitForExistence(timeout: 5),
+            confirmComplete.waitForExistence(timeout: 5),
             "Completing service should require an explicit confirmation action"
         )
+        confirmComplete.tap()
+
+        let summary = app.descendants(matching: .any)["completedTrackSummary"].firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 10), "Completed service should show the reusable track summary")
+        XCTAssertTrue(app.staticTexts["本次路线"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["里程"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["时长"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["平均配速"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["重复当前状态"].firstMatch.exists, "Track summary must remain usable without inspecting the map")
+        let routeMap = app.descendants(matching: .any)["completedTrackAuxiliaryMap"].firstMatch
+        XCTAssertTrue(routeMap.exists, "The blind track should be available as an auxiliary map")
+        XCTAssertLessThan(
+            app.staticTexts["本次路线"].firstMatch.frame.minY,
+            routeMap.frame.minY,
+            "Textual status must precede the auxiliary map"
+        )
+    }
+
+    @MainActor
+    func testVolunteerServiceRemainsInteractiveWhenTransitionConfirmationNeverReturns() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true,
+            hangTransitionConfirmation: true,
+            homeLoadTimeout: 3
+        )
+
+        openCurrentVolunteerService(app, requirePhone: false)
+        let enRouteButton = app.buttons["我已出发"].firstMatch
+        XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5))
+        enRouteButton.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["操作已提交，状态待确认。页面其他功能仍可使用。"].waitForExistence(timeout: 3),
+            "POST completion must release the action spinner before confirmation GET completes"
+        )
+        XCTAssertFalse(enRouteButton.isEnabled, "The same transition must not be submitted twice")
+
+        let cancelButton = app.buttons["取消订单"].firstMatch
+        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(cancelButton.isHittable, "Cancellation entry must remain locally interactive")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.exists,
+            "The service map layer must remain mounted while confirmation is pending"
+        )
+        XCTAssertTrue(app.buttons["导航到出发地点"].firstMatch.isHittable)
+        XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable, "Back navigation must remain usable")
+
+        XCTAssertTrue(
+            app.staticTexts["状态确认延迟，请稍后点击“重新确认状态”。请勿重复提交同一操作。"]
+                .waitForExistence(timeout: 5),
+            "A permanently suspended confirmation must become a delayed, nonmodal state"
+        )
+        XCTAssertTrue(app.buttons["重新确认状态"].firstMatch.isHittable)
+    }
+
+    @MainActor
+    func testRealtimeEnRouteWithHungDetailAndLocationSendRemainsScrollable() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true,
+            disableMap: false,
+            hangTransitionConfirmation: true,
+            confirmTransitionViaRealtime: true,
+            hangEscortLocationSend: true,
+            homeLoadTimeout: 3
+        )
+
+        openCurrentVolunteerService(app, requirePhone: false)
+        let enRouteButton = app.buttons["我已出发"].firstMatch
+        XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5))
+        enRouteButton.tap()
+
+        let arriveButton = app.buttons["我已到达约定地点"].firstMatch
+        XCTAssertTrue(
+            arriveButton.waitForExistence(timeout: 5),
+            "The ordered realtime event must advance UI before location sending completes"
+        )
+        let panel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
+        XCTAssertTrue(panel.exists)
+        panel.swipeUp()
+        panel.swipeDown()
+        XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable)
+        XCTAssertTrue(app.buttons["取消订单"].firstMatch.isHittable)
+        XCTAssertTrue(app.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.exists)
+    }
+
+    @MainActor
+    func testRealtimeArrivedWithRealMapDoesNotEnterSwiftUIRefreshLoop() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true,
+            disableMap: false,
+            hangTransitionConfirmation: true,
+            confirmTransitionViaRealtime: true,
+            hangEscortLocationSend: true,
+            homeLoadTimeout: 3
+        )
+
+        openCurrentVolunteerService(app, requirePhone: false)
+        let enRouteButton = app.buttons["我已出发"].firstMatch
+        XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5))
+        enRouteButton.tap()
+        let arriveButton = app.buttons["我已到达约定地点"].firstMatch
+        XCTAssertTrue(arriveButton.waitForExistence(timeout: 5))
+        arriveButton.tap()
+
+        XCTAssertTrue(app.buttons["开始服务"].firstMatch.waitForExistence(timeout: 5))
+        let panel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
+        XCTAssertTrue(panel.exists)
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            panel.swipeUp()
+            panel.swipeDown()
+            XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable)
+            XCTAssertTrue(app.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.exists)
+        }
     }
 
     @MainActor
@@ -243,7 +431,7 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
-    func testMockVolunteerHomeMapScreenshot() throws {
+    func testMockVolunteerHomeMapAndControlsScreenshot() throws {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
@@ -252,22 +440,73 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerAvailable: true
         )
 
-        let map = app.descendants(matching: .any)["volunteerHomeMap"].firstMatch
-        XCTAssertTrue(map.waitForExistence(timeout: 15), "Volunteer home should expose the map as the primary visual")
+        let homeMaps = app.descendants(matching: .any).matching(identifier: "volunteerHomeMap")
+        let homeMap = homeMaps.firstMatch
+        XCTAssertTrue(
+            homeMap.waitForExistence(timeout: 15),
+            "Volunteer home should expose its map container"
+        )
+        XCTAssertEqual(homeMaps.count, 1, "Volunteer home must not duplicate its map during refresh")
+        XCTAssertFalse(app.descendants(matching: .any)["volunteerHomeMapPlaceholderBackground"].firstMatch.exists)
 
         let availabilitySwitch = app.switches.firstMatch
-        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should be visible on the map overlay")
+        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should remain visible above the map")
         let topStatusBlock = app.descendants(matching: .any)["volunteerHomeTopStatusBlock"].firstMatch
         XCTAssertTrue(topStatusBlock.waitForExistence(timeout: 5), "Volunteer status block should be visible below the system status area")
         assertVolunteerTopStatusBlockPosition(topStatusBlock, app: app)
         XCTAssertFalse(app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch.exists, "Home without an active order should only show the top status block")
-        XCTAssertTrue(app.buttons["回到当前位置"].firstMatch.waitForExistence(timeout: 5), "Home map should include recenter control")
+        XCTAssertTrue(app.buttons["回到当前位置"].firstMatch.waitForExistence(timeout: 5), "Home should keep the local recenter control")
         XCTAssertTrue(app.staticTexts["系统派单"].firstMatch.waitForExistence(timeout: 5), "Volunteer home should show the system dispatch workbench")
         XCTAssertTrue(app.staticTexts["近期服务"].firstMatch.waitForExistence(timeout: 5), "Dispatch workbench should show recent service history")
         XCTAssertTrue(app.staticTexts["积分"].firstMatch.waitForExistence(timeout: 5), "Dispatch summary should show points")
         XCTAssertFalse(app.buttons["查看全部订单"].firstMatch.exists, "Primary volunteer home must not expose the public order list")
 
-        attachScreenshot(named: "volunteer-home-map-uber-style", app: app)
+        attachScreenshot(named: "volunteer-home-map-and-controls", app: app)
+    }
+
+    @MainActor
+    func testVolunteerHomeRemainsInteractiveWhileDispatchRequestNeverReturns() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            hangHomeRequests: true,
+            homeLoadTimeout: 8
+        )
+
+        let panel = app.descendants(matching: .any)["volunteerHomeDemandPanel"].firstMatch
+        let grabber = app.descendants(matching: .any)["volunteerHomeDemandPanelGrabber"].firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 12))
+        XCTAssertTrue(grabber.waitForExistence(timeout: 3))
+        let initialPanelTop = panel.frame.minY
+        grabber.swipeUp()
+        XCTAssertLessThan(panel.frame.minY, initialPanelTop, "Dispatch panel must remain draggable while loading")
+
+        let refreshButton = app.buttons["刷新派单状态"].firstMatch
+        XCTAssertTrue(refreshButton.isHittable)
+        refreshButton.tap()
+
+        let recordsButton = app.buttons["我的服务记录"].firstMatch
+        let pointsButton = app.buttons["积分商城"].firstMatch
+        let settingsButton = app.buttons["设置"].firstMatch
+        XCTAssertTrue(recordsButton.isHittable)
+        XCTAssertTrue(pointsButton.isHittable)
+        XCTAssertTrue(settingsButton.isHittable)
+
+        recordsButton.tap()
+        XCTAssertTrue(app.navigationBars["服务记录"].waitForExistence(timeout: 5))
+        app.navigationBars["服务记录"].buttons.firstMatch.tap()
+
+        XCTAssertTrue(pointsButton.waitForExistence(timeout: 5))
+        pointsButton.tap()
+        XCTAssertTrue(app.navigationBars["积分商城"].waitForExistence(timeout: 5))
+        app.navigationBars["积分商城"].buttons.firstMatch.tap()
+
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
+        settingsButton.tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -444,21 +683,51 @@ final class blindRunUITests: XCTestCase {
             throw XCTSkip("Run on validation device 111 / iPad Pro (2), or set AIDRUN_UI_TEST_REAL_AMAP=1, to execute real AMap smoke.")
         }
 
-        let app = launchApp(
+        let blindApp = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "blind_runner",
+            preseedBlindProfile: true,
+            emptyMockOrders: true,
+            disableMap: false
+        )
+
+        XCTAssertTrue(
+            blindApp.descendants(matching: .any)["blindRunnerHomeAuxiliaryMap"].firstMatch.waitForExistence(timeout: 20),
+            "Real AMap run should expose the blind-runner home map container"
+        )
+        XCTAssertFalse(blindApp.staticTexts["地图服务暂不可用"].exists, "Blind home must not fall back to the missing-key view")
+        XCTAssertFalse(blindApp.staticTexts["请配置高德地图 API Key"].exists, "Blind home real AMap smoke requires a configured local key")
+        attachScreenshot(named: "real-amap-blind-home", app: blindApp)
+        blindApp.terminate()
+
+        let volunteerApp = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
             activeRole: "volunteer",
             preseedVolunteerProfile: true,
             preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true,
             disableMap: false
         )
 
-        let map = app.descendants(matching: .any)["volunteerHomeMap"].firstMatch
-        XCTAssertTrue(map.waitForExistence(timeout: 20), "Real AMap run should expose the volunteer home map container")
-        XCTAssertFalse(app.staticTexts["地图服务暂不可用"].exists, "Real AMap smoke must not fall back to the missing-key placeholder")
-        XCTAssertFalse(app.staticTexts["请配置高德地图 API Key"].exists, "Real AMap smoke requires a configured local AMap key")
+        XCTAssertTrue(
+            volunteerApp.descendants(matching: .any)["volunteerHomeMap"].firstMatch.waitForExistence(timeout: 20),
+            "Real AMap run should expose the volunteer home map container"
+        )
+        XCTAssertFalse(volunteerApp.descendants(matching: .any)["volunteerHomeMapPlaceholderBackground"].firstMatch.exists)
+        XCTAssertFalse(volunteerApp.staticTexts["地图服务暂不可用"].exists, "Volunteer home must not fall back to the missing-key view")
+        attachScreenshot(named: "real-amap-volunteer-home", app: volunteerApp)
 
-        attachScreenshot(named: "real-amap-volunteer-home", app: app)
+        openCurrentVolunteerService(volunteerApp)
+        XCTAssertTrue(
+            volunteerApp.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.waitForExistence(timeout: 20),
+            "Real AMap run should expose the volunteer service map container"
+        )
+        XCTAssertFalse(volunteerApp.staticTexts["地图服务暂不可用"].exists, "Real AMap smoke must not fall back to the missing-key placeholder")
+        XCTAssertFalse(volunteerApp.staticTexts["请配置高德地图 API Key"].exists, "Real AMap smoke requires a configured local AMap key")
+
+        attachScreenshot(named: "real-amap-volunteer-service", app: volunteerApp)
     }
 
     @MainActor
@@ -515,9 +784,17 @@ final class blindRunUITests: XCTestCase {
         disableMap: Bool = true,
         disableWebSocket: Bool = true,
         mockLogoutFailure: Bool = false,
-        realtimePriorityTest: Bool = false
+        realtimePriorityTest: Bool = false,
+        hangHomeRequests: Bool = false,
+        hangTransitionConfirmation: Bool = false,
+        confirmTransitionViaRealtime: Bool = false,
+        hangEscortLocationSend: Bool = false,
+        homeLoadTimeout: TimeInterval? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication()
+        addTeardownBlock {
+            await MainActor.run { app.terminate() }
+        }
         app.launchEnvironment["AIDRUN_UI_TEST_RESET_STATE"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_RESET_TOKEN"] = UUID().uuidString
         app.launchEnvironment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] = "1"
@@ -534,6 +811,21 @@ final class blindRunUITests: XCTestCase {
         }
         if realtimePriorityTest {
             app.launchEnvironment["AIDRUN_UI_TEST_REALTIME_PRIORITY"] = "1"
+        }
+        if hangHomeRequests {
+            app.launchEnvironment["AIDRUN_UI_TEST_HANG_HOME_REQUESTS"] = "1"
+        }
+        if hangTransitionConfirmation {
+            app.launchEnvironment["AIDRUN_UI_TEST_HANG_TRANSITION_CONFIRMATION"] = "1"
+        }
+        if confirmTransitionViaRealtime {
+            app.launchEnvironment["AIDRUN_UI_TEST_CONFIRM_TRANSITION_VIA_REALTIME"] = "1"
+        }
+        if hangEscortLocationSend {
+            app.launchEnvironment["AIDRUN_UI_TEST_HANG_ESCORT_SEND"] = "1"
+        }
+        if let homeLoadTimeout {
+            app.launchEnvironment["AIDRUN_UI_TEST_HOME_LOAD_TIMEOUT"] = String(homeLoadTimeout)
         }
         if let accessToken {
             app.launchEnvironment["AIDRUN_UI_TEST_ACCESS_TOKEN"] = accessToken
@@ -593,7 +885,10 @@ final class blindRunUITests: XCTestCase {
         enRouteButton.tap()
     }
 
-    private func openCurrentVolunteerService(_ app: XCUIApplication) {
+    private func openCurrentVolunteerService(
+        _ app: XCUIApplication,
+        requirePhone: Bool = true
+    ) {
         let currentOrderLabel = app.staticTexts["当前订单"].firstMatch
         XCTAssertTrue(currentOrderLabel.waitForExistence(timeout: 15), "Volunteer home should show the assigned current order")
 
@@ -601,8 +896,12 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(firstOrder.waitForExistence(timeout: 5), "Current order card should show the assigned blind runner")
         tapWhenHittableOrByCoordinate(firstOrder, app: app)
 
-        let phoneText = app.staticTexts["13800001001"].firstMatch
-        XCTAssertTrue(phoneText.waitForExistence(timeout: 8), "Phone should be shown for an accepted current service")
+        if requirePhone {
+            let phoneText = app.staticTexts["13800001001"].firstMatch
+            XCTAssertTrue(phoneText.waitForExistence(timeout: 8), "Phone should be shown for an accepted current service")
+        } else {
+            XCTAssertTrue(app.navigationBars["服务中"].waitForExistence(timeout: 8))
+        }
     }
 
     private func attachScreenshot(named name: String, app: XCUIApplication) {
@@ -749,6 +1048,7 @@ final class blindRunUITests: XCTestCase {
         let profile = app.staticTexts["完善信息"].firstMatch
         let editProfile = app.staticTexts["编辑资料"].firstMatch
         let home = app.buttons["开始约跑"].firstMatch
+        let homeRoute = app.descendants(matching: .any)["rootRoute.blindHome"].firstMatch
         let error = app.staticTexts["网络错误，请重试。"].firstMatch
         let loginFailed = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "登录失败")).firstMatch
         let invalidCode = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "验证码错误")).firstMatch
@@ -773,7 +1073,7 @@ final class blindRunUITests: XCTestCase {
                 XCTFail("Cloud backend throttled the login request")
                 return
             }
-            if role.exists || profile.exists || editProfile.exists || home.exists {
+            if role.exists || profile.exists || editProfile.exists || home.exists || homeRoute.exists {
                 return
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))

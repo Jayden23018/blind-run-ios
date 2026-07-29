@@ -6,6 +6,8 @@ const defaultBlindPhone = '13800000001';
 const defaultVolunteerPhone = '13800000002';
 const timeoutMs = Number(process.env.AIDRUN_E2E_TIMEOUT_MS ?? 25000);
 const dispatchWaitMs = Number(process.env.AIDRUN_E2E_DISPATCH_WAIT_MS ?? 30000);
+const attributionWaitMs = Number(process.env.AIDRUN_E2E_ATTRIBUTION_WAIT_MS ?? 20000);
+const redactDiagnostics = process.env.AIDRUN_REDACT_DIAGNOSTICS === '1';
 const orderStartLocation = { lat: 39.9042, lng: 116.4074 };
 const volunteerDispatchLocation = { lat: 39.9050, lng: 116.4080 };
 const allWeekAvailabilitySlots = [
@@ -28,10 +30,28 @@ const created = {
   emergencyContractOrderId: null,
   emergencyContractEventId: null,
   finalOrderStatus: null,
+  enRouteAttribution: {
+    postStatus: null,
+    postLatencyMs: null,
+    detailStatus: null,
+    detailLatencyMs: null,
+    blindStatusEvent: false,
+    volunteerStatusEvent: false,
+    blindMessageId: null,
+    volunteerMessageId: null,
+    blindMessageTypes: [],
+    volunteerMessageTypes: [],
+    outcome: null
+  },
   webSocket: {
     blindConnected: false,
     volunteerConnected: false,
+    blindPong: false,
+    volunteerPong: false,
+    blindReceivedVolunteerLocation: false,
+    volunteerReceivedBlindLocation: false,
     volunteerReceivedNewOrder: false,
+    statusEvents: {},
     blindMessages: [],
     volunteerMessages: []
   },
@@ -40,18 +60,58 @@ const created = {
     preOrderLocationReports: 0,
     postOrderLocationReports: 0,
     lastAvailable: null
-  }
+  },
+  track: null
 };
 
 const runtime = {
   blindToken: null,
+  volunteerToken: null,
   blindSocket: null,
   volunteerSocket: null
 };
 
 function log(step, detail = '') {
-  const suffix = detail ? ` ${detail}` : '';
+  const suffix = detail && !redactDiagnostics ? ` ${detail}` : '';
   console.log(`[cloud-e2e] ${step}${suffix}`);
+}
+
+function logAttribution() {
+  const result = created.enRouteAttribution;
+  console.log(
+    `[cloud-e2e] en-route-attribution`
+    + ` outcome=${result.outcome ?? 'unknown'}`
+    + ` postStatus=${result.postStatus ?? 'unknown'}`
+    + ` postLatencyMs=${result.postLatencyMs ?? 'unknown'}`
+    + ` detailStatus=${result.detailStatus ?? 'unknown'}`
+    + ` detailLatencyMs=${result.detailLatencyMs ?? 'unknown'}`
+    + ` blindEvent=${result.blindStatusEvent}`
+    + ` volunteerEvent=${result.volunteerStatusEvent}`
+  );
+}
+
+function printableSummary() {
+  if (!redactDiagnostics) return created;
+  return {
+    finalOrderStatus: created.finalOrderStatus,
+    enRouteAttribution: created.enRouteAttribution,
+    webSocket: {
+      blindConnected: created.webSocket.blindConnected,
+      volunteerConnected: created.webSocket.volunteerConnected,
+      blindPong: created.webSocket.blindPong,
+      volunteerPong: created.webSocket.volunteerPong,
+      blindReceivedVolunteerLocation: created.webSocket.blindReceivedVolunteerLocation,
+      volunteerReceivedBlindLocation: created.webSocket.volunteerReceivedBlindLocation,
+      volunteerReceivedNewOrder: created.webSocket.volunteerReceivedNewOrder,
+      statusEvents: created.webSocket.statusEvents
+    },
+    dispatchReadiness: {
+      readyVia: created.dispatchReadiness.readyVia,
+      preOrderLocationReports: created.dispatchReadiness.preOrderLocationReports,
+      postOrderLocationReports: created.dispatchReadiness.postOrderLocationReports
+    },
+    track: created.track
+  };
 }
 
 function uniquePhones() {
@@ -213,6 +273,50 @@ async function openSocket(path, token, label, messages) {
 
 function sendLocation(socket, lat, lng) {
   socket.send(JSON.stringify({ type: 'LOCATION_UPDATE', lat, lng }));
+}
+
+async function probeHeartbeats(blindSocket, volunteerSocket) {
+  blindSocket.send(JSON.stringify({ type: 'PING' }));
+  await sleep(600);
+  volunteerSocket.send(JSON.stringify({ type: 'PING' }));
+
+  await waitFor(
+    () => created.webSocket.blindMessages.some(message => message.type === 'PONG'),
+    'blind PONG'
+  );
+  created.webSocket.blindPong = true;
+  await waitFor(
+    () => created.webSocket.volunteerMessages.some(message => message.type === 'PONG'),
+    'volunteer PONG'
+  );
+  created.webSocket.volunteerPong = true;
+  log('ws-heartbeat', 'both roles received PONG');
+}
+
+async function probePeerLocations(orderId, blindSocket, volunteerSocket) {
+  const blindBefore = created.webSocket.blindMessages.length;
+  const volunteerBefore = created.webSocket.volunteerMessages.length;
+  sendLocation(blindSocket, 39.9043, 116.4075);
+  await sleep(600);
+  sendLocation(volunteerSocket, 39.9044, 116.4076);
+
+  await waitFor(
+    () => created.webSocket.blindMessages.slice(blindBefore).some(message =>
+      message.type === 'VOLUNTEER_LOCATION_UPDATE'
+      && Number(message.orderId) === Number(orderId)
+    ),
+    'blind receiving volunteer location'
+  );
+  created.webSocket.blindReceivedVolunteerLocation = true;
+  await waitFor(
+    () => created.webSocket.volunteerMessages.slice(volunteerBefore).some(message =>
+      message.type === 'BLIND_LOCATION_UPDATE'
+      && Number(message.orderId) === Number(orderId)
+    ),
+    'volunteer receiving blind location'
+  );
+  created.webSocket.volunteerReceivedBlindLocation = true;
+  log('ws-peer-location', `both directions orderId=${orderId}`);
 }
 
 async function reportVolunteerDispatchLocation(socket, count, phase) {
@@ -446,6 +550,20 @@ async function acceptOrder(volunteer, orderId, volunteerMessages, volunteerSocke
     body: { action: 'ACCEPT' }
   });
   log('order-respond-accept', `id=${orderId}`);
+
+  const ownershipDeadline = Date.now() + 5000;
+  while (Date.now() < ownershipDeadline) {
+    const detail = await http('GET', `/api/orders/${orderId}`, {
+      token: volunteer.token,
+      allowFailure: true
+    });
+    if (detail.ok) {
+      log('order-ownership-confirmed', `id=${orderId} status=${detail.body.status ?? 'unknown'}`);
+      return;
+    }
+    await sleep(500);
+  }
+  throw new Error(`Volunteer ownership was not readable after accepting order ${orderId}`);
 }
 
 async function getOrder(token, orderId) {
@@ -453,26 +571,227 @@ async function getOrder(token, orderId) {
   return response.body;
 }
 
-async function transitionOrder(volunteer, orderId, volunteerSocket) {
-  await http('POST', `/api/orders/${orderId}/en-route`, { token: volunteer.token });
-  log('order-en-route', `id=${orderId}`);
+function findOrderStatusEvent(messages, startIndex, orderId, toStatus) {
+  return messages.slice(startIndex).find(message =>
+    message.type === 'ORDER_STATUS_CHANGED'
+    && Number(message.orderId) === Number(orderId)
+    && message.toStatus === toStatus
+  );
+}
+
+function isUUID(value) {
+  return typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function recordDualStatusEvents(fromStatus, toStatus, blindEvent, volunteerEvent) {
+  for (const [role, event] of [['blind', blindEvent], ['volunteer', volunteerEvent]]) {
+    if (event.fromStatus !== fromStatus) {
+      throw new Error(
+        `${toStatus} status event contract: ${role} fromStatus=${event.fromStatus ?? 'missing'}, expected ${fromStatus}`
+      );
+    }
+    if (!isUUID(event.messageId)) {
+      throw new Error(
+        `${toStatus} status event contract: ${role} messageId is missing or not a UUID`
+      );
+    }
+  }
+  created.webSocket.statusEvents[toStatus] = {
+    blindMessageId: blindEvent.messageId,
+    volunteerMessageId: volunteerEvent.messageId
+  };
+}
+
+async function waitForDualStatusEvents(orderId, fromStatus, toStatus, blindStartIndex, volunteerStartIndex) {
+  let blindEvent;
+  let volunteerEvent;
+  await waitFor(() => {
+    blindEvent = findOrderStatusEvent(
+      created.webSocket.blindMessages,
+      blindStartIndex,
+      orderId,
+      toStatus
+    );
+    volunteerEvent = findOrderStatusEvent(
+      created.webSocket.volunteerMessages,
+      volunteerStartIndex,
+      orderId,
+      toStatus
+    );
+    return blindEvent && volunteerEvent;
+  }, `both roles receiving ${toStatus}`, attributionWaitMs);
+
+  recordDualStatusEvents(fromStatus, toStatus, blindEvent, volunteerEvent);
+  log('ws-order-status', `${fromStatus}->${toStatus} both roles received UUID events`);
+  return { blindEvent, volunteerEvent };
+}
+
+async function probeEnRouteAttribution(volunteer, orderId) {
+  const blindMessageIndex = created.webSocket.blindMessages.length;
+  const volunteerMessageIndex = created.webSocket.volunteerMessages.length;
+  const postStartedAt = Date.now();
+  const post = await http('POST', `/api/orders/${orderId}/en-route`, {
+    token: volunteer.token,
+    allowFailure: true
+  });
+  created.enRouteAttribution.postStatus = post.status;
+  created.enRouteAttribution.postLatencyMs = Date.now() - postStartedAt;
+  if (!post.ok) {
+    created.enRouteAttribution.outcome = 'backend_http_contract_or_permission';
+    logAttribution();
+    throw new Error(`en-route attribution probe: POST failed with ${post.status}`);
+  }
+
+  const detailStartedAt = Date.now();
+  const detailDeadline = detailStartedAt + attributionWaitMs;
+  while (Date.now() < detailDeadline) {
+    const detail = await http('GET', `/api/orders/${orderId}`, {
+      token: volunteer.token,
+      allowFailure: true
+    });
+    if (detail.ok && detail.body.status === 'DRIVER_EN_ROUTE') {
+      created.enRouteAttribution.detailStatus = detail.body.status;
+      created.enRouteAttribution.detailLatencyMs = Date.now() - detailStartedAt;
+      break;
+    }
+    await sleep(500);
+  }
+  if (created.enRouteAttribution.detailStatus !== 'DRIVER_EN_ROUTE') {
+    created.enRouteAttribution.outcome = 'backend_state_transition';
+    logAttribution();
+    throw new Error('en-route attribution probe: GET did not confirm DRIVER_EN_ROUTE');
+  }
+
+  const eventDeadline = Date.now() + attributionWaitMs;
+  while (Date.now() < eventDeadline) {
+    const blindEvent = findOrderStatusEvent(
+      created.webSocket.blindMessages,
+      blindMessageIndex,
+      orderId,
+      'DRIVER_EN_ROUTE'
+    );
+    const volunteerEvent = findOrderStatusEvent(
+      created.webSocket.volunteerMessages,
+      volunteerMessageIndex,
+      orderId,
+      'DRIVER_EN_ROUTE'
+    );
+    created.enRouteAttribution.blindStatusEvent = Boolean(blindEvent);
+    created.enRouteAttribution.volunteerStatusEvent = Boolean(volunteerEvent);
+    if (
+      created.enRouteAttribution.blindStatusEvent
+      && created.enRouteAttribution.volunteerStatusEvent
+    ) {
+      try {
+        recordDualStatusEvents(
+          'PENDING_ACCEPT',
+          'DRIVER_EN_ROUTE',
+          blindEvent,
+          volunteerEvent
+        );
+      } catch (error) {
+        created.enRouteAttribution.outcome = 'backend_websocket_contract';
+        logAttribution();
+        throw error;
+      }
+      created.enRouteAttribution.blindMessageId = blindEvent.messageId;
+      created.enRouteAttribution.volunteerMessageId = volunteerEvent.messageId;
+      created.enRouteAttribution.outcome = 'backend_path_confirmed';
+      logAttribution();
+      return;
+    }
+    await sleep(250);
+  }
+
+  created.enRouteAttribution.blindMessageTypes = [
+    ...new Set(
+      created.webSocket.blindMessages
+        .slice(blindMessageIndex)
+        .map(message => message.type)
+        .filter(Boolean)
+    )
+  ];
+  created.enRouteAttribution.volunteerMessageTypes = [
+    ...new Set(
+      created.webSocket.volunteerMessages
+        .slice(volunteerMessageIndex)
+        .map(message => message.type)
+        .filter(Boolean)
+    )
+  ];
+  created.enRouteAttribution.outcome = 'backend_websocket_distribution';
+  logAttribution();
+  throw new Error('en-route attribution probe: one or both roles missed ORDER_STATUS_CHANGED');
+}
+
+async function transitionOrder(blind, volunteer, orderId, blindSocket, volunteerSocket) {
+  await probeEnRouteAttribution(volunteer, orderId);
+  log('order-en-route');
   sendLocation(volunteerSocket, 39.9052, 116.4082);
   await sleep(1000);
 
+  let blindMessageIndex = created.webSocket.blindMessages.length;
+  let volunteerMessageIndex = created.webSocket.volunteerMessages.length;
   await http('POST', `/api/orders/${orderId}/arrived`, { token: volunteer.token });
+  await waitForDualStatusEvents(
+    orderId,
+    'DRIVER_EN_ROUTE',
+    'DRIVER_ARRIVED',
+    blindMessageIndex,
+    volunteerMessageIndex
+  );
   log('order-arrived', `id=${orderId}`);
   sendLocation(volunteerSocket, 39.9053, 116.4083);
   await sleep(1000);
 
+  blindMessageIndex = created.webSocket.blindMessages.length;
+  volunteerMessageIndex = created.webSocket.volunteerMessages.length;
   await http('POST', `/api/orders/${orderId}/start-service`, { token: volunteer.token });
+  await waitForDualStatusEvents(
+    orderId,
+    'DRIVER_ARRIVED',
+    'IN_PROGRESS',
+    blindMessageIndex,
+    volunteerMessageIndex
+  );
   log('order-start-service', `id=${orderId}`);
-  await sleep(1000);
+  await probePeerLocations(orderId, blindSocket, volunteerSocket);
 
+  blindMessageIndex = created.webSocket.blindMessages.length;
+  volunteerMessageIndex = created.webSocket.volunteerMessages.length;
   const finish = await http('POST', `/api/orders/${orderId}/finish`, { token: volunteer.token });
+  await waitForDualStatusEvents(
+    orderId,
+    'IN_PROGRESS',
+    'COMPLETED',
+    blindMessageIndex,
+    volunteerMessageIndex
+  );
 
   const detail = await getOrder(volunteer.token, orderId);
   created.finalOrderStatus = detail.status ?? finish.body.status ?? null;
   log('order-finished', `id=${orderId} status=${created.finalOrderStatus}`);
+
+  const track = await http('GET', `/api/orders/${orderId}/track`, { token: blind.token });
+  created.track = {
+    status: track.body.status ?? null,
+    blindPointCount: Array.isArray(track.body.blindTrack) ? track.body.blindTrack.length : null,
+    volunteerPointCount: Array.isArray(track.body.volunteerTrack) ? track.body.volunteerTrack.length : null,
+    blindStats: track.body.blindStats ?? null,
+    volunteerStats: track.body.volunteerStats ?? null
+  };
+  if (!created.track.status || created.track.blindPointCount == null || created.track.volunteerPointCount == null) {
+    throw new Error(`track returned an unexpected response: ${JSON.stringify(track.body)}`);
+  }
+  for (const role of ['blind', 'volunteer']) {
+    const pointCount = created.track[`${role}PointCount`];
+    const stats = created.track[`${role}Stats`];
+    if (pointCount < 2 && (!stats || stats.distanceMeters !== 0 || stats.durationSeconds !== 0 || stats.avgPaceSecPerKm != null)) {
+      throw new Error(`Track contract violation: ${role} stats must be 0/0/null below two points: ${JSON.stringify(track.body)}`);
+    }
+  }
+  log('order-track', `status=${created.track.status} blind=${created.track.blindPointCount} volunteer=${created.track.volunteerPointCount}`);
 }
 
 async function probeEmergencyContract(blind, volunteer, volunteerMessages) {
@@ -525,6 +844,7 @@ async function main() {
   created.blindUserId = blind.userId;
   created.volunteerUserId = volunteer.userId;
   runtime.blindToken = blind.token;
+  runtime.volunteerToken = volunteer.token;
 
   if (shouldSkipProfileSetup(usingSeedAccounts)) {
     log('profile-setup', 'seeded accounts: ensure blind contact and volunteer availability');
@@ -542,6 +862,8 @@ async function main() {
   runtime.volunteerSocket = volunteerSocket;
   created.webSocket.volunteerConnected = true;
 
+  await probeHeartbeats(blindSocket, volunteerSocket);
+
   sendLocation(blindSocket, orderStartLocation.lat, orderStartLocation.lng);
   await reportVolunteerDispatchLocation(volunteerSocket, 3, 'pre-order');
 
@@ -549,21 +871,32 @@ async function main() {
   created.orderId = orderId;
 
   await acceptOrder(volunteer, orderId, created.webSocket.volunteerMessages, volunteerSocket);
-  await transitionOrder(volunteer, orderId, volunteerSocket);
-  await probeEmergencyContract(blind, volunteer, created.webSocket.volunteerMessages);
+  await transitionOrder(blind, volunteer, orderId, blindSocket, volunteerSocket);
+  if (process.env.AIDRUN_E2E_SKIP_EMERGENCY_PROBE !== '1') {
+    await probeEmergencyContract(blind, volunteer, created.webSocket.volunteerMessages);
+  }
 
   await new Promise(resolve => setTimeout(resolve, 1500));
   blindSocket.close();
   volunteerSocket.close();
 
   console.log('\n[cloud-e2e] summary');
-  console.log(JSON.stringify(created, null, 2));
+  console.log(JSON.stringify(printableSummary(), null, 2));
 
   if (created.finalOrderStatus !== 'COMPLETED') {
     throw new Error(`Expected final order status COMPLETED, got ${created.finalOrderStatus}`);
   }
   if (!created.webSocket.blindConnected || !created.webSocket.volunteerConnected) {
     throw new Error('Expected both WebSocket connections to open');
+  }
+  if (!created.webSocket.blindPong || !created.webSocket.volunteerPong) {
+    throw new Error('Expected both WebSocket roles to receive PONG');
+  }
+  if (!created.webSocket.blindReceivedVolunteerLocation || !created.webSocket.volunteerReceivedBlindLocation) {
+    throw new Error('Expected both WebSocket roles to receive peer location');
+  }
+  if (!created.track?.status) {
+    throw new Error('Expected typed order track response');
   }
 }
 
@@ -579,11 +912,31 @@ async function cleanupCreatedOrders() {
     if (Number(orderId) === Number(created.orderId) && created.finalOrderStatus === 'COMPLETED') {
       continue;
     }
+    const detail = await http('GET', `/api/orders/${orderId}`, {
+      token: runtime.blindToken,
+      allowFailure: true
+    });
+    const activeVolunteerStates = new Set([
+      'PENDING_ACCEPT',
+      'DRIVER_EN_ROUTE',
+      'DRIVER_ARRIVED',
+      'IN_PROGRESS'
+    ]);
+    if (
+      detail.ok
+      && activeVolunteerStates.has(detail.body.status)
+      && runtime.volunteerToken
+    ) {
+      await http('POST', `/api/orders/${orderId}/cancel`, {
+        token: runtime.volunteerToken,
+        allowFailure: true
+      });
+    }
     const response = await http('POST', `/api/orders/${orderId}/cancel`, {
       token: runtime.blindToken,
       allowFailure: true
     });
-    log('cleanup-order', `id=${orderId} status=${response.status} ok=${response.ok}`);
+    log('cleanup-order', `status=${response.status} ok=${response.ok}`);
   }
 }
 
@@ -597,6 +950,6 @@ main().catch(async error => {
   console.error('\n[cloud-e2e] failed');
   console.error(error.stack || error.message);
   console.error('\n[cloud-e2e] partial summary');
-  console.error(JSON.stringify(created, null, 2));
+  console.error(JSON.stringify(printableSummary(), null, 2));
   process.exitCode = 1;
 });

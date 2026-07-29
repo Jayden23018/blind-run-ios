@@ -1,5 +1,195 @@
 import Combine
 import Foundation
+
+struct RealtimeOrderStatusUpdate: Equatable, Sendable {
+    let messageId: String?
+    let orderId: Int64
+    let fromStatus: RunOrderStatus
+    let toStatus: RunOrderStatus
+    let receivedAt: Date
+
+    init(
+        messageId: String? = nil,
+        orderId: Int64,
+        fromStatus: RunOrderStatus,
+        toStatus: RunOrderStatus,
+        receivedAt: Date
+    ) {
+        self.messageId = messageId
+        self.orderId = orderId
+        self.fromStatus = fromStatus
+        self.toStatus = toStatus
+        self.receivedAt = receivedAt
+    }
+}
+
+struct OrderStatusRequestToken: Equatable, Sendable {
+    let orderID: Int64
+    fileprivate let generation: UInt64
+}
+
+enum OrderStatusReconciliationResult: Equatable, Sendable {
+    case applied(RunOrderStatus)
+    case duplicate(RunOrderStatus)
+    case rejectedStale(current: RunOrderStatus, candidate: RunOrderStatus)
+    case rejectedInvalid(current: RunOrderStatus?, candidate: RunOrderStatus)
+
+    var resolvedStatus: RunOrderStatus? {
+        switch self {
+        case .applied(let status), .duplicate(let status):
+            return status
+        case .rejectedStale(let current, _):
+            return current
+        case .rejectedInvalid(let current, _):
+            return current
+        }
+    }
+}
+
+/// Serial, in-memory authority for status candidates from REST and WebSocket.
+/// It prevents a request that started before a realtime transition from
+/// overwriting the newer state when its response arrives late.
+struct OrderStatusReconciler {
+    private struct Entry {
+        var status: RunOrderStatus
+        var generation: UInt64
+    }
+
+    private var entries: [Int64: Entry] = [:]
+
+    mutating func register(orderID: Int64, status: RunOrderStatus) {
+        guard let current = entries[orderID] else {
+            entries[orderID] = Entry(status: status, generation: 0)
+            return
+        }
+        if current.status == status { return }
+        if current.status.canReach(status) {
+            entries[orderID] = Entry(status: status, generation: current.generation &+ 1)
+        }
+    }
+
+    mutating func unregister(orderID: Int64) {
+        entries.removeValue(forKey: orderID)
+    }
+
+    mutating func removeAll() {
+        entries.removeAll(keepingCapacity: false)
+    }
+
+    func requestToken(orderID: Int64) -> OrderStatusRequestToken {
+        OrderStatusRequestToken(
+            orderID: orderID,
+            generation: entries[orderID]?.generation ?? 0
+        )
+    }
+
+    func currentStatus(orderID: Int64) -> RunOrderStatus? {
+        entries[orderID]?.status
+    }
+
+    func isCurrent(_ token: OrderStatusRequestToken) -> Bool {
+        (entries[token.orderID]?.generation ?? 0) == token.generation
+    }
+
+    mutating func reconcileRealtime(
+        orderID: Int64,
+        fromStatus: RunOrderStatus,
+        toStatus: RunOrderStatus
+    ) -> OrderStatusReconciliationResult {
+        let current = entries[orderID]?.status
+        guard current == nil || current == fromStatus else {
+            if current == toStatus { return .duplicate(toStatus) }
+            return current.map {
+                $0.canReach(fromStatus)
+                    ? .rejectedInvalid(current: $0, candidate: toStatus)
+                    : .rejectedStale(current: $0, candidate: toStatus)
+            } ?? .rejectedInvalid(current: nil, candidate: toStatus)
+        }
+        guard fromStatus.isDirectlyFollowed(by: toStatus) else {
+            return .rejectedInvalid(current: current, candidate: toStatus)
+        }
+
+        let nextGeneration = (entries[orderID]?.generation ?? 0) &+ 1
+        entries[orderID] = Entry(status: toStatus, generation: nextGeneration)
+        return .applied(toStatus)
+    }
+
+    mutating func reconcileREST(
+        orderID: Int64,
+        candidate: RunOrderStatus,
+        token: OrderStatusRequestToken
+    ) -> OrderStatusReconciliationResult {
+        guard token.orderID == orderID else {
+            return .rejectedInvalid(current: entries[orderID]?.status, candidate: candidate)
+        }
+        guard let current = entries[orderID] else {
+            entries[orderID] = Entry(status: candidate, generation: 0)
+            return .applied(candidate)
+        }
+        if candidate == current.status { return .duplicate(candidate) }
+        if current.status.lifecycleRank > candidate.lifecycleRank,
+           !candidate.isTerminal,
+           candidate != .rematching {
+            return .rejectedStale(current: current.status, candidate: candidate)
+        }
+
+        if current.status.canReach(candidate) {
+            entries[orderID] = Entry(status: candidate, generation: current.generation &+ 1)
+            return .applied(candidate)
+        }
+        if candidate.canReach(current.status) || token.generation < current.generation {
+            return .rejectedStale(current: current.status, candidate: candidate)
+        }
+        return .rejectedInvalid(current: current.status, candidate: candidate)
+    }
+}
+
+private extension RunOrderStatus {
+    var lifecycleRank: Int {
+        switch self {
+        case .pendingMatch: return 0
+        case .pendingAccept, .rematching: return 1
+        case .driverEnRoute: return 2
+        case .driverArrived: return 3
+        case .inProgress: return 4
+        case .completed, .cancelled, .noVolunteer: return 5
+        }
+    }
+
+    func isDirectlyFollowed(by candidate: RunOrderStatus) -> Bool {
+        switch self {
+        case .pendingMatch:
+            return [.pendingAccept, .cancelled, .noVolunteer].contains(candidate)
+        case .pendingAccept:
+            return [.driverEnRoute, .cancelled, .rematching].contains(candidate)
+        case .driverEnRoute:
+            return [.driverArrived, .rematching].contains(candidate)
+        case .driverArrived:
+            return [.inProgress, .rematching].contains(candidate)
+        case .inProgress:
+            return [.completed, .rematching].contains(candidate)
+        case .rematching:
+            return [.pendingAccept, .cancelled, .noVolunteer].contains(candidate)
+        case .completed, .cancelled, .noVolunteer:
+            return false
+        }
+    }
+
+    func canReach(_ candidate: RunOrderStatus) -> Bool {
+        if self == candidate { return true }
+        var visited: Set<RunOrderStatus> = [self]
+        var pending = [self]
+        while let status = pending.popLast() {
+            for next in RunOrderStatus.allCases where status.isDirectlyFollowed(by: next) {
+                if next == candidate { return true }
+                if visited.insert(next).inserted {
+                    pending.append(next)
+                }
+            }
+        }
+        return false
+    }
+}
 import SwiftUI
 
 enum RealtimePriority: Int, Codable, Comparable, Sendable {
@@ -62,6 +252,7 @@ struct RealtimeForegroundNotification: Identifiable, Sendable {
 struct RealtimeSeparationAlert: Sendable {
     let eventID: String
     let orderID: Int64
+    let eventType: String
     let distanceMeters: Double?
     let displayText: String
     let speechText: String
@@ -91,23 +282,46 @@ struct RealtimeRecoverySignal: Sendable {
 /// App-lifetime owner for decoded realtime routing. Feature ViewModels retain authoritative REST state.
 @MainActor
 final class AppRealtimeCoordinator: ObservableObject {
+    private struct OrderStatusEventFingerprint: Equatable {
+        let orderID: Int64
+        let fromStatus: String?
+        let toStatus: String
+    }
+
+    private enum RetainedOrderStatusIdentity: Equatable {
+        case fingerprint(OrderStatusEventFingerprint)
+        case collision
+    }
+
+    private enum OrderStatusIdentityDecision {
+        case process(messageID: String?)
+        case duplicate
+        case collision
+    }
+
     @Published private(set) var connectionState: WSConnectionState = .disconnected
     @Published private(set) var pendingOrderRefreshIDs: Set<Int64> = []
     @Published private(set) var pendingOrderRefreshRequests: [Int64: RealtimeOrderRefreshRequest] = [:]
     @Published private(set) var pendingDispatch: RealtimeDispatchPrompt?
+    @Published private(set) var dispatchDiagnostic: WSDispatchDiagnostic?
     @Published private(set) var currentNotification: RealtimeForegroundNotification?
     @Published private(set) var latestSeparationAlert: RealtimeSeparationAlert?
     @Published private(set) var latestSafetyEvent: RealtimeSafetyEvent?
 
     private let peerLocationSubject = PassthroughSubject<RealtimePeerLocationSample, Never>()
     private let recoverySubject = PassthroughSubject<RealtimeRecoverySignal, Never>()
+    private let statusUpdateSubject = PassthroughSubject<RealtimeOrderStatusUpdate, Never>()
     var peerLocationPublisher: AnyPublisher<RealtimePeerLocationSample, Never> { peerLocationSubject.eraseToAnyPublisher() }
     var recoveryPublisher: AnyPublisher<RealtimeRecoverySignal, Never> { recoverySubject.eraseToAnyPublisher() }
+    var statusUpdatePublisher: AnyPublisher<RealtimeOrderStatusUpdate, Never> {
+        statusUpdateSubject.eraseToAnyPublisher()
+    }
 
     private weak var attachedService: WebSocketService?
     private var attachedRole: WSRole?
     private var eventCancellable: AnyCancellable?
     private var connectionCancellable: AnyCancellable?
+    private var dispatchDiagnosticCancellable: AnyCancellable?
     private var notificationTask: Task<Void, Never>?
     private var dispatchExpiryTask: Task<Void, Never>?
     private var orderRefreshRetryTasks: [Int64: Task<Void, Never>] = [:]
@@ -115,7 +329,13 @@ final class AppRealtimeCoordinator: ObservableObject {
     private var queuedNotifications: [RealtimeForegroundNotification] = []
     private var deduplicationDates: [String: Date] = [:]
     private var activeOrderIDs: Set<Int64> = []
+    private var activeOrderStatuses: [Int64: RunOrderStatus] = [:]
+    private var orderStatusReconciler = OrderStatusReconciler()
+    private var retainedOrderStatusIdentities: [String: RetainedOrderStatusIdentity] = [:]
+    private var retainedOrderStatusIdentityOrder: [String] = []
+    private var recentLifecycleStatusDates: [RunOrderStatus: Date] = [:]
     private var latestPeerSamples: [String: RealtimePeerLocationSample] = [:]
+    private var peerPublishTasks: [String: Task<Void, Never>] = [:]
     private var hasConnectedOnce = false
     private let now: () -> Date
     private let notificationDuration: TimeInterval
@@ -123,6 +343,8 @@ final class AppRealtimeCoordinator: ObservableObject {
     private let orderRefreshRetryDelays: [TimeInterval]
     private let maximumQueuedNotifications: Int
     private let maximumDeduplicationEntries = 128
+    private let maximumOrderStatusIdentities = 256
+    private let lifecycleNotificationSuppressionWindow: TimeInterval = 30
 
     #if DEBUG
     private(set) var attachmentCount = 0
@@ -162,13 +384,19 @@ final class AppRealtimeCoordinator: ObservableObject {
         connectionCancellable = service.$connectionState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in self?.handleConnectionState(state) }
+        dispatchDiagnosticCancellable = service.$dispatchDiagnostic
+            .receive(on: DispatchQueue.main)
+            .compactMap { $0 }
+            .sink { [weak self] diagnostic in self?.dispatchDiagnostic = diagnostic }
     }
 
     func detach(clearSessionState: Bool) {
         eventCancellable?.cancel()
         connectionCancellable?.cancel()
+        dispatchDiagnosticCancellable?.cancel()
         eventCancellable = nil
         connectionCancellable = nil
+        dispatchDiagnosticCancellable = nil
         attachedService = nil
         attachedRole = nil
         hasConnectedOnce = false
@@ -180,8 +408,65 @@ final class AppRealtimeCoordinator: ObservableObject {
         activeOrderIDs.insert(orderID)
     }
 
+    func registerActiveOrder(_ orderID: Int64, status: RunOrderStatus) {
+        activeOrderIDs.insert(orderID)
+        orderStatusReconciler.register(orderID: orderID, status: status)
+        activeOrderStatuses[orderID] = orderStatusReconciler.currentStatus(orderID: orderID) ?? status
+    }
+
     func unregisterActiveOrder(_ orderID: Int64) {
         activeOrderIDs.remove(orderID)
+        orderStatusReconciler.unregister(orderID: orderID)
+        activeOrderStatuses.removeValue(forKey: orderID)
+        for role in [RealtimePeerRole.blind, .volunteer] {
+            let key = peerKey(orderID: orderID, ownerRole: role)
+            peerPublishTasks.removeValue(forKey: key)?.cancel()
+            latestPeerSamples.removeValue(forKey: key)
+        }
+    }
+
+    func beginOrderStatusRequest(orderID: Int64) -> OrderStatusRequestToken {
+        orderStatusReconciler.requestToken(orderID: orderID)
+    }
+
+    func isOrderStatusRequestCurrent(_ token: OrderStatusRequestToken) -> Bool {
+        orderStatusReconciler.isCurrent(token)
+    }
+
+    /// Returns nil only when the response is associated with the wrong request.
+    /// Stale status values are replaced with the already accepted newer status,
+    /// while every other decoded detail field remains available to the caller.
+    func reconcileOrderDetail(
+        _ candidate: OrderDetailResponse,
+        requestToken: OrderStatusRequestToken
+    ) -> OrderDetailResponse? {
+        guard candidate.orderId == requestToken.orderID else {
+            ClientFlowDiagnostics.record(event: "wrong_order_rejected", operation: "order-status-rest")
+            return nil
+        }
+        let result = orderStatusReconciler.reconcileREST(
+            orderID: candidate.orderId,
+            candidate: candidate.status,
+            token: requestToken
+        )
+        guard let resolved = result.resolvedStatus else {
+            ClientFlowDiagnostics.record(event: "invalid_rejected", operation: "order-status-rest")
+            return nil
+        }
+        activeOrderStatuses[candidate.orderId] = resolved
+        switch result {
+        case .rejectedStale:
+            ClientFlowDiagnostics.record(event: "late_response_discarded", operation: "order-status-rest")
+        case .rejectedInvalid:
+            ClientFlowDiagnostics.record(event: "invalid_rejected", operation: "order-status-rest")
+        case .applied:
+            ClientFlowDiagnostics.record(event: "applied", operation: "order-status-rest")
+        case .duplicate:
+            break
+        }
+        return candidate.status == resolved
+            ? candidate
+            : candidate.replacingStatus(with: resolved)
     }
 
     func completeOrderRefresh(_ orderID: Int64) {
@@ -221,6 +506,13 @@ final class AppRealtimeCoordinator: ObservableObject {
         pendingDispatch = nil
     }
 
+    func markDispatchPresented(orderID: Int64) {
+        guard let diagnostic = dispatchDiagnostic,
+              diagnostic.orderID == orderID,
+              diagnostic.stage == .retained || diagnostic.stage == .received else { return }
+        dispatchDiagnostic = diagnostic.advancing(to: .presented, recordedAt: now())
+    }
+
     func latestPeerLocation(orderID: Int64, ownerRole: RealtimePeerRole) -> RealtimePeerLocationSample? {
         latestPeerSamples[peerKey(orderID: orderID, ownerRole: ownerRole)]
     }
@@ -235,7 +527,44 @@ final class AppRealtimeCoordinator: ObservableObject {
     private func route(_ event: WSIncomingEvent) {
         switch event {
         case .orderStatusChanged(let message):
-            requestOrderRefresh(message.orderId, reason: .statusChanged)
+            switch retainOrderStatusIdentity(for: message) {
+            case .duplicate:
+                ClientFlowDiagnostics.record(event: "duplicate_dropped", operation: "order-status-event")
+                return
+            case .collision:
+                ClientFlowDiagnostics.record(event: "identity_collision", operation: "order-status-event")
+                requestOrderRefresh(message.orderId, reason: .statusChanged)
+                return
+            case .process(let messageID):
+                if activeOrderIDs.contains(message.orderId),
+                   let rawFromStatus = message.fromStatus,
+                   let fromStatus = RunOrderStatus(rawValue: rawFromStatus),
+                   let toStatus = RunOrderStatus(rawValue: message.toStatus),
+                   fromStatus != toStatus {
+                    let result = orderStatusReconciler.reconcileRealtime(
+                        orderID: message.orderId,
+                        fromStatus: fromStatus,
+                        toStatus: toStatus
+                    )
+                    guard case .applied = result else {
+                        ClientFlowDiagnostics.record(event: "rejected", operation: "order-status-event")
+                        requestOrderRefresh(message.orderId, reason: .statusChanged)
+                        return
+                    }
+                    let update = RealtimeOrderStatusUpdate(
+                        messageId: messageID,
+                        orderId: message.orderId,
+                        fromStatus: fromStatus,
+                        toStatus: toStatus,
+                        receivedAt: now()
+                    )
+                    activeOrderStatuses[message.orderId] = toStatus
+                    recentLifecycleStatusDates[toStatus] = update.receivedAt
+                    ClientFlowDiagnostics.record(event: "applied", operation: "order-status-event")
+                    statusUpdateSubject.send(update)
+                }
+                requestOrderRefresh(message.orderId, reason: .statusChanged)
+            }
         case .newOrder(let message):
             retainDispatch(message)
         case .volunteerLocation(let message):
@@ -305,13 +634,18 @@ final class AppRealtimeCoordinator: ObservableObject {
 
     private func retainDispatch(_ message: WSNewOrder) {
         guard attachedRole == nil || attachedRole == .volunteer else { return }
-        if let existing = pendingDispatch, existing.order.orderId != message.orderId { return }
+        guard pendingDispatch == nil else { return }
         let receivedAt = now()
         let timeout = max(0, message.dispatchTimeoutSeconds ?? 30)
         let sentAt = Self.parseISO8601(message.timestamp) ?? receivedAt
         let expiresAt = sentAt.addingTimeInterval(TimeInterval(timeout))
         guard expiresAt > receivedAt else { return }
         pendingDispatch = RealtimeDispatchPrompt(order: message, receivedAt: receivedAt, expiresAt: expiresAt)
+        if let diagnostic = dispatchDiagnostic,
+           diagnostic.orderID == message.orderId,
+           diagnostic.stage == .received {
+            dispatchDiagnostic = diagnostic.advancing(to: .retained, recordedAt: receivedAt)
+        }
         dispatchExpiryTask?.cancel()
         dispatchExpiryTask = Task { [weak self] in
             let nanos = UInt64(max(0, expiresAt.timeIntervalSince(receivedAt)) * 1_000_000_000)
@@ -323,17 +657,36 @@ final class AppRealtimeCoordinator: ObservableObject {
 
     private func routePeerLocation(_ sample: RealtimePeerLocationSample, expectedReceiver: WSRole) {
         guard (attachedRole == nil || attachedRole == expectedReceiver), sample.isValid else { return }
-        guard activeOrderIDs.isEmpty || activeOrderIDs.contains(sample.orderId) else { return }
-        latestPeerSamples[peerKey(orderID: sample.orderId, ownerRole: sample.ownerRole)] = sample
-        peerLocationSubject.send(sample)
+        guard activeOrderIDs.contains(sample.orderId) else { return }
+        let key = peerKey(orderID: sample.orderId, ownerRole: sample.ownerRole)
+        if let previous = latestPeerSamples[key],
+           previous.timestampMilliseconds >= sample.timestampMilliseconds {
+            return
+        }
+        latestPeerSamples[key] = sample
+        guard peerPublishTasks[key] == nil else {
+            ClientFlowDiagnostics.record(event: "coalesced", operation: "peer-location-event")
+            return
+        }
+        peerPublishTasks[key] = Task { [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self, let latest = self.latestPeerSamples[key] else { return }
+            self.peerLocationSubject.send(latest)
+            self.peerPublishTasks.removeValue(forKey: key)
+        }
     }
 
     private func routeNotification(_ message: WSAppNotification) {
+        let eventType = message.eventType.uppercased()
+        if eventType == "ESCORT_DISTANCE_ALERT" || eventType == "ESCORT_SIGNAL_LOST" {
+            routeEscortAlert(message, eventType: eventType)
+            return
+        }
         let speechText = message.ttsText?.nilIfBlank ?? message.body
         guard !message.body.trimmed.isEmpty else { return }
-        if !activeOrderIDs.isEmpty && Self.isLifecycleTemplate(speechText) { return }
+        if shouldSuppressLifecycleNotification(body: message.body, speechText: speechText) { return }
         let notification = RealtimeForegroundNotification(
-            stableEventID: message.eventId.map(String.init),
+            stableEventID: message.messageId ?? message.eventId.map(String.init),
             title: message.title,
             displayText: message.body,
             speechText: speechText,
@@ -344,11 +697,63 @@ final class AppRealtimeCoordinator: ObservableObject {
         enqueue(notification, type: message.type)
     }
 
+    private func retainOrderStatusIdentity(
+        for message: WSOrderStatusChanged
+    ) -> OrderStatusIdentityDecision {
+        guard let rawMessageID = message.messageId?.nilIfBlank else {
+            ClientFlowDiagnostics.record(event: "missing_id", operation: "order-status-contract")
+            return .process(messageID: nil)
+        }
+        guard let uuid = UUID(uuidString: rawMessageID) else {
+            ClientFlowDiagnostics.record(event: "invalid_id", operation: "order-status-contract")
+            return .process(messageID: nil)
+        }
+
+        let key = uuid.uuidString
+        let fingerprint = OrderStatusEventFingerprint(
+            orderID: message.orderId,
+            fromStatus: message.fromStatus,
+            toStatus: message.toStatus
+        )
+        if let retained = retainedOrderStatusIdentities[key] {
+            switch retained {
+            case .fingerprint(let previous) where previous == fingerprint:
+                return .duplicate
+            case .fingerprint:
+                retainedOrderStatusIdentities[key] = .collision
+                return .collision
+            case .collision:
+                return .duplicate
+            }
+        }
+
+        retainedOrderStatusIdentities[key] = .fingerprint(fingerprint)
+        retainedOrderStatusIdentityOrder.append(key)
+        while retainedOrderStatusIdentityOrder.count > maximumOrderStatusIdentities {
+            let expired = retainedOrderStatusIdentityOrder.removeFirst()
+            retainedOrderStatusIdentities.removeValue(forKey: expired)
+        }
+        return .process(messageID: rawMessageID)
+    }
+
+    private func shouldSuppressLifecycleNotification(body: String, speechText: String) -> Bool {
+        let combinedText = "\(body) \(speechText)"
+        guard Self.isLifecycleTemplate(combinedText) else { return false }
+        if !activeOrderIDs.isEmpty { return true }
+
+        let cutoff = now().addingTimeInterval(-lifecycleNotificationSuppressionWindow)
+        recentLifecycleStatusDates = recentLifecycleStatusDates.filter { $0.value >= cutoff }
+        return Self.lifecycleStatuses(matching: combinedText).contains {
+            recentLifecycleStatusDates[$0] != nil
+        }
+    }
+
     private func routeSeparation(_ message: WSSeparationAlert) {
         guard activeOrderIDs.isEmpty || activeOrderIDs.contains(message.orderId) else { return }
         let event = RealtimeSeparationAlert(
             eventID: String(message.eventId),
             orderID: message.orderId,
+            eventType: "ESCORT_DISTANCE_ALERT",
             distanceMeters: message.distanceMeters,
             displayText: message.message,
             speechText: message.ttsText ?? message.message,
@@ -366,6 +771,39 @@ final class AppRealtimeCoordinator: ObservableObject {
                 isSafetyEvent: true
             ),
             type: message.type
+        )
+    }
+
+    private func routeEscortAlert(_ message: WSAppNotification, eventType: String) {
+        guard message.priority?.uppercased() == "HIGH",
+              let messageID = message.messageId?.nilIfBlank,
+              UUID(uuidString: messageID) != nil else { return }
+        let inProgress = activeOrderStatuses.compactMap { key, value in
+            value == .inProgress ? key : nil
+        }
+        guard inProgress.count == 1, let orderID = inProgress.first else { return }
+
+        let event = RealtimeSeparationAlert(
+            eventID: messageID,
+            orderID: orderID,
+            eventType: eventType,
+            distanceMeters: nil,
+            displayText: message.body,
+            speechText: message.ttsText ?? message.body,
+            timestamp: message.timestamp
+        )
+        latestSeparationAlert = event
+        enqueue(
+            RealtimeForegroundNotification(
+                stableEventID: "escort:\(messageID)",
+                title: message.title?.nilIfBlank ?? "安全提醒",
+                displayText: event.displayText,
+                speechText: event.speechText,
+                priority: .high,
+                timestamp: event.timestamp,
+                isSafetyEvent: true
+            ),
+            type: eventType
         )
     }
 
@@ -480,6 +918,7 @@ final class AppRealtimeCoordinator: ObservableObject {
         notificationTask?.cancel()
         dispatchExpiryTask?.cancel()
         for task in orderRefreshRetryTasks.values { task.cancel() }
+        for task in peerPublishTasks.values { task.cancel() }
         notificationTask = nil
         dispatchExpiryTask = nil
         orderRefreshRetryTasks = [:]
@@ -487,13 +926,20 @@ final class AppRealtimeCoordinator: ObservableObject {
         pendingOrderRefreshIDs = []
         pendingOrderRefreshRequests = [:]
         pendingDispatch = nil
+        dispatchDiagnostic = nil
         currentNotification = nil
         latestSeparationAlert = nil
         latestSafetyEvent = nil
         queuedNotifications = []
         deduplicationDates = [:]
         activeOrderIDs = []
+        activeOrderStatuses = [:]
+        orderStatusReconciler.removeAll()
+        retainedOrderStatusIdentities = [:]
+        retainedOrderStatusIdentityOrder = []
+        recentLifecycleStatusDates = [:]
         latestPeerSamples = [:]
+        peerPublishTasks = [:]
     }
 
     private func peerKey(orderID: Int64, ownerRole: RealtimePeerRole) -> String {
@@ -507,6 +953,25 @@ final class AppRealtimeCoordinator: ObservableObject {
             "正在确认行程", "志愿者已取消", "重新匹配", "暂无志愿者", "暂无可用志愿者", "暂时没有可用志愿者"
         ]
         return fragments.contains { text.contains($0) }
+    }
+
+    private static func lifecycleStatuses(matching text: String) -> Set<RunOrderStatus> {
+        var statuses: Set<RunOrderStatus> = []
+        let fragments: [(RunOrderStatus, [String])] = [
+            (.pendingAccept, ["已接单", "待出发", "已为您匹配"]),
+            (.driverEnRoute, ["已出发", "正在前往"]),
+            (.driverArrived, ["已到达"]),
+            (.inProgress, ["服务已开始"]),
+            (.completed, ["服务已完成", "订单已完成"]),
+            (.cancelled, ["订单已取消", "预约已取消"]),
+            (.rematching, ["正在确认行程", "志愿者已取消", "重新匹配"]),
+            (.noVolunteer, ["暂无志愿者", "暂无可用志愿者", "暂时没有可用志愿者"])
+        ]
+        for (status, candidates) in fragments
+        where candidates.contains(where: text.contains) {
+            statuses.insert(status)
+        }
+        return statuses
     }
 
     private static func fallbackDeduplicationKey(type: String, text: String, timestamp: String?) -> String {

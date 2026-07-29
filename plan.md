@@ -18,11 +18,13 @@ AidRun 当前仓库是原生 iOS 客户端，采用 SwiftUI + MVVM，后端为�
 以下事项必须在对真实用户发布前处理或由项目负责人书面接受风险：
 
 - Token 当前存储在 `UserDefaults`，需要迁移到 Keychain。
+- `AppStatePersistence` 已隔离正常 App、单元测试和 UI 测试的 UserDefaults 域；Keychain 迁移必须继续使用独立测试 service/access group。真机自动化需执行会话哈希保护、终止测试宿主并恢复 DemoRelease。
 - 真实服务地址当前允许使用 HTTP 明文 IP；发布说明需如实记录。
 - 固定验证码 `000000` 当前允许用于长期测试账号和上线验收。
 - 志愿者身份证、人脸核验和管理员审核已按后端 OpenAPI 契约接入，仍需双真机走查。
 - 真实高德地图、真实定位、真实后端、WebSocket 派单必须在真机 `111` 和 `iPad Pro (2)` 上完成验收。
 - App Store 隐私说明、定位/语音权限说明、无障碍验收和紧急事件责任边界需要确认。
+- 实时同行位置与完成轨迹必须完成 GCJ-02 单次转换、后台定位披露、电量测量、告警去重和锁屏双真机验收；后端已确认现有历史坐标均来自高德/腾讯定位链路，可按 GCJ-02 使用。
 
 ## 真实联调测试
 
@@ -60,7 +62,7 @@ node scripts/cloud-e2e.mjs
 3. Token Keychain 迁移。
 4. HTTPS 域名与 ATS 策略收敛。
 5. 志愿者认证、管理员审核、真实短信能力持续联调与异常处理完善；管理员审核页后续作为独立 Web 管理端实现。
-6. 积分商城、支付、聊天、App 内路线规划、实时轨迹、风险控制等扩展能力；志愿者前往出发地点阶段已允许跳转外部地图 App 做步行导航。
+6. 积分商城、支付、聊天、App 内路线规划、公共实时轨迹分享、复杂风险控制等扩展能力；已批准的订单双方实时同行位置和完成后盲人轨迹总结按 `enable-live-escort-location-and-track-summary` 实施。
 
 ## 人工确认项
 
@@ -72,6 +74,19 @@ node scripts/cloud-e2e.mjs
 - 志愿者端负责在 `DRIVER_ARRIVED` 后调用 `POST /api/orders/{id}/start-service` 将订单推进到 `IN_PROGRESS`；iOS 不会从 `DRIVER_ARRIVED` 直接调用完成服务。若真机验证卡在 `DRIVER_ARRIVED`，优先检查志愿者端 start-service 请求和后端状态推进日志。
 - 百度地图 `baidumap://map/direction` 跳转已按 GCJ-02 步行参数接入，发布前需在安装百度地图的真机上 smoke 验证。
 - 当前 release 隐藏求助入口，不宣称真实求助能力；`POST /api/emergency/trigger` 仅作为后端合同探针保留。若发布前恢复真实 emergency event UI，需要单独安全变更确认接口、GPS、通知、失败提示、合规文案和验收测试。
+- 后端所有当前坐标约定为 GCJ-02。数据库虽无来源字段或迁移机制，但后端确认现有写入路径仅来自高德/腾讯定位链路，历史数据按干净 GCJ-02 处理；未来新增 WGS-84 来源须在写入边界转换。
+- 后端 100 米/连续 2 次仅为运行时告警工程参数，未获产品批准为完成轨迹异常结论；iOS 只展示服务端即时告警，不比较双方轨迹得出异常。
+- 轨迹接口保留 0/1/多个原始点；iOS 少于 2 点不绘制，角色统计固定为 `0 / 0 / null`。非 403/404 响应保证包含 `status`。
+
+## 实时同行位置与完成轨迹发布门槛
+
+- 两角色 WebSocket 每 30 秒 PING；服务端 90 秒无消息以 `SESSION_NOT_RELIABLE` 关闭，客户端沿用 3/6/12/30 秒重连。
+- WebSocket 以递增 generation 隔离旧连接回调且一代只调度一次重连；志愿者重连立即补报真实位置并刷新派单摘要。派单链路只保留不含 token/坐标/联系人/地址/正文的内存诊断，且不以 `/api/orders/available` 代替定向 `NEW_ORDER`。
+- 订单双方在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 每 5 秒上报真实 GCJ-02 位置；仅 `IN_PROGRESS` 开启锁屏/后台定位。
+- 同行 marker 超过 15 秒未刷新即隐藏；同行会话在定位权限有效且 Core Location 未报告失败时按五秒 cadence 复用最近一次真实设备样本，静止不视为定位失效。权限撤销或明确定位失败时停止上传并显示/TTS 降级。
+- `ESCORT_DISTANCE_ALERT` 与 `ESCORT_SIGNAL_LOST` 使用 `messageId` 去重，不改变订单或 SOS 状态。
+- 所有模板 `APP_NOTIFICATION` 均在最外层下发模板 `eventType`；iOS 通过 `ESCORT_DISTANCE_ALERT` / `ESCORT_SIGNAL_LOST` 分流，`body`/`ttsText` 不参与识别。当前仍无 `orderId`，所以告警要求唯一关联 `IN_PROGRESS` 订单。
+- `COMPLETED` 后双方可查看以盲人轨迹为主的“本次路线”与里程/时长/配速；空数据必须结合响应 `status` 如实说明。
 ## 账户生命周期加固（harden-auth-account-lifecycle）
 
 - 启动会话以 `/api/auth/me` 校验结果为准，角色有效后才连接 WebSocket。

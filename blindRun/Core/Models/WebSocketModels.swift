@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - WebSocket Message Type
 
-enum WSMessageType: String, Codable, Sendable {
+nonisolated enum WSMessageType: String, Codable, Sendable {
     // Client -> Server
     case locationUpdate = "LOCATION_UPDATE"
     case ping = "PING"
@@ -10,7 +10,7 @@ enum WSMessageType: String, Codable, Sendable {
     // Server -> Client (Blind)
     case volunteerLocationUpdate = "VOLUNTEER_LOCATION_UPDATE"
     case blindLocationUpdate = "BLIND_LOCATION_UPDATE"
-    case separationAlert = "SEPARATION_ALERT"
+    case separationAlert = "SEPARATION_ALERT" // legacy flat compatibility only
     case appNotification = "APP_NOTIFICATION"
     case orderStatusChanged = "ORDER_STATUS_CHANGED"
     case emergencyResolvedByVolunteer = "EMERGENCY_RESOLVED_BY_VOLUNTEER"
@@ -24,7 +24,7 @@ enum WSMessageType: String, Codable, Sendable {
 
 // MARK: - Outgoing Messages (Client -> Server)
 
-struct WSLocationUpdateMessage: Codable, Sendable {
+nonisolated struct WSLocationUpdateMessage: Codable, Sendable {
     let type: String
     let lat: Double
     let lng: Double
@@ -36,7 +36,7 @@ struct WSLocationUpdateMessage: Codable, Sendable {
     }
 }
 
-struct WSPingMessage: Codable, Sendable {
+nonisolated struct WSPingMessage: Codable, Sendable {
     let type: String
 
     init() {
@@ -47,12 +47,12 @@ struct WSPingMessage: Codable, Sendable {
 // MARK: - Incoming Messages (Server -> Client)
 
 /// Generic envelope to peek at message type before full decode
-struct WSMessageEnvelope: Codable, Sendable {
+nonisolated struct WSMessageEnvelope: Codable, Sendable {
     let type: String
 }
 
 /// Volunteer real-time location (sent to blind user)
-struct WSVolunteerLocationUpdate: Codable, Sendable {
+nonisolated struct WSVolunteerLocationUpdate: Codable, Sendable {
     let type: String
     let orderId: Int64
     let lat: Double
@@ -61,7 +61,7 @@ struct WSVolunteerLocationUpdate: Codable, Sendable {
 }
 
 /// Blind-runner real-time location (sent to the associated volunteer).
-struct WSBlindLocationUpdate: Codable, Sendable {
+nonisolated struct WSBlindLocationUpdate: Codable, Sendable {
     let type: String
     let orderId: Int64
     let lat: Double
@@ -70,18 +70,59 @@ struct WSBlindLocationUpdate: Codable, Sendable {
 }
 
 /// Generic notification from backend templates
-struct WSAppNotification: Codable, Sendable {
+nonisolated struct WSAppNotification: Decodable, Sendable {
     let type: String
     let eventId: Int64?
+    let messageId: String?
+    let eventType: String
     let title: String?
     let body: String
     let ttsText: String?
     let priority: String?
     let timestamp: String?
+
+    init(
+        type: String,
+        eventId: Int64?,
+        messageId: String? = nil,
+        eventType: String,
+        title: String?,
+        body: String,
+        ttsText: String?,
+        priority: String?,
+        timestamp: String?
+    ) {
+        self.type = type
+        self.eventId = eventId
+        self.messageId = messageId
+        self.eventType = eventType
+        self.title = title
+        self.body = body
+        self.ttsText = ttsText
+        self.priority = priority
+        self.timestamp = timestamp
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, eventId, messageId, eventType, title, body, ttsText, priority, timestamp
+    }
+
+    init(from decoder: Decoder) throws {
+        let envelope = try decoder.container(keyedBy: CodingKeys.self)
+        type = try envelope.decode(String.self, forKey: .type)
+        eventId = try envelope.decodeIfPresent(Int64.self, forKey: .eventId)
+        messageId = try envelope.decodeIfPresent(String.self, forKey: .messageId)
+        eventType = try envelope.decode(String.self, forKey: .eventType)
+        title = try envelope.decodeIfPresent(String.self, forKey: .title)
+        body = try envelope.decode(String.self, forKey: .body)
+        ttsText = try envelope.decodeIfPresent(String.self, forKey: .ttsText)
+        priority = try envelope.decodeIfPresent(String.self, forKey: .priority)
+        timestamp = try envelope.decodeIfPresent(String.self, forKey: .timestamp)
+    }
 }
 
 /// Feature-neutral separation signal. Feature policy is owned by a later change.
-struct WSSeparationAlert: Codable, Sendable {
+nonisolated struct WSSeparationAlert: Codable, Sendable {
     let type: String
     let eventId: Int64
     let orderId: Int64
@@ -93,8 +134,9 @@ struct WSSeparationAlert: Codable, Sendable {
 }
 
 /// Order status change notification
-struct WSOrderStatusChanged: Codable, Sendable {
+nonisolated struct WSOrderStatusChanged: Codable, Sendable {
     let type: String
+    let messageId: String?
     let orderId: Int64
     let fromStatus: String?
     let toStatus: String
@@ -102,10 +144,32 @@ struct WSOrderStatusChanged: Codable, Sendable {
     let ttsText: String?
     let priority: String?
     let timestamp: String?
+
+    init(
+        type: String,
+        messageId: String? = nil,
+        orderId: Int64,
+        fromStatus: String?,
+        toStatus: String,
+        message: String?,
+        ttsText: String?,
+        priority: String?,
+        timestamp: String?
+    ) {
+        self.type = type
+        self.messageId = messageId
+        self.orderId = orderId
+        self.fromStatus = fromStatus
+        self.toStatus = toStatus
+        self.message = message
+        self.ttsText = ttsText
+        self.priority = priority
+        self.timestamp = timestamp
+    }
 }
 
 /// Emergency resolved by volunteer (sent to blind user)
-struct WSEmergencyResolved: Codable, Sendable {
+nonisolated struct WSEmergencyResolved: Codable, Sendable {
     let type: String
     let eventId: Int64
     let message: String?
@@ -115,7 +179,7 @@ struct WSEmergencyResolved: Codable, Sendable {
 }
 
 /// Emergency contact notified (sent to blind user)
-struct WSEmergencyContactNotified: Codable, Sendable {
+nonisolated struct WSEmergencyContactNotified: Codable, Sendable {
     let type: String
     let eventId: Int64
     let message: String?
@@ -125,13 +189,13 @@ struct WSEmergencyContactNotified: Codable, Sendable {
 }
 
 /// Heartbeat response
-struct WSPong: Codable, Sendable {
+nonisolated struct WSPong: Codable, Sendable {
     let type: String
     let timestamp: Int64?
 }
 
 /// New order dispatch (sent to volunteer)
-struct WSNewOrder: Codable, Sendable {
+nonisolated struct WSNewOrder: Codable, Sendable {
     let type: String
     let timestamp: String?
     let orderId: Int64
@@ -149,7 +213,7 @@ struct WSNewOrder: Codable, Sendable {
 }
 
 /// Emergency alert for volunteer
-struct WSEmergencyVolunteerAlert: Codable, Sendable {
+nonisolated struct WSEmergencyVolunteerAlert: Codable, Sendable {
     let type: String
     let eventId: Int64
     let orderId: Int64
@@ -165,7 +229,7 @@ struct WSEmergencyVolunteerAlert: Codable, Sendable {
 // MARK: - Parsed WebSocket Event
 
 /// High-level event enum for consumers to switch on
-enum WSIncomingEvent: Sendable {
+nonisolated enum WSIncomingEvent: Sendable {
     case volunteerLocation(WSVolunteerLocationUpdate)
     case blindLocation(WSBlindLocationUpdate)
     case separationAlert(WSSeparationAlert)

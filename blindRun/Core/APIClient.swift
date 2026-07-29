@@ -1,4 +1,62 @@
 import Foundation
+import OSLog
+
+// MARK: - Shared Async State
+
+/// A single-request UI state. The request identifier prevents a late response
+/// from replacing a newer refresh.
+enum AsyncLoadState<Value> {
+    case idle
+    case loading(requestID: UUID)
+    case loaded(Value)
+    case failed(message: String)
+
+    var isLoading: Bool {
+        if case .loading = self { return true }
+        return false
+    }
+}
+
+// MARK: - Privacy-safe Network Diagnostics
+
+enum NetworkDiagnosticStage: String, Sendable {
+    case response
+    case transportFailure
+    case decodingFailure
+    case cancelled
+}
+
+struct NetworkDiagnosticEvent: Sendable, Equatable {
+    let requestID: String
+    let endpointCategory: String
+    let statusCode: Int?
+    let durationMilliseconds: Int
+    let stage: NetworkDiagnosticStage
+}
+
+actor NetworkDiagnosticRecorder {
+    static let shared = NetworkDiagnosticRecorder()
+
+    private let logger = Logger(subsystem: "com.jerry.aidrun", category: "network")
+    private var events: [NetworkDiagnosticEvent] = []
+    private let capacity = 50
+
+    func record(_ event: NetworkDiagnosticEvent) {
+        events.append(event)
+        if events.count > capacity {
+            events.removeFirst(events.count - capacity)
+        }
+        logger.info(
+            "request=\(event.requestID, privacy: .public) endpoint=\(event.endpointCategory, privacy: .public) stage=\(event.stage.rawValue, privacy: .public) status=\(event.statusCode ?? -1, privacy: .public) durationMs=\(event.durationMilliseconds, privacy: .public)"
+        )
+    }
+
+    func snapshot() -> [NetworkDiagnosticEvent] { events }
+
+    #if DEBUG
+    func resetForTesting() { events.removeAll(keepingCapacity: false) }
+    #endif
+}
 
 // MARK: - HTTP Method
 
@@ -170,6 +228,9 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         body: (any Encodable & Sendable)?,
         requiresAuth: Bool
     ) async throws -> T {
+        let diagnosticID = String(UUID().uuidString.prefix(8))
+        let diagnosticStart = Date()
+        let endpointCategory = Self.endpointCategory(for: path)
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: true)
 
         if let query, !query.isEmpty {
@@ -198,12 +259,27 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            await recordDiagnostic(
+                id: diagnosticID,
+                endpointCategory: endpointCategory,
+                statusCode: nil,
+                startedAt: diagnosticStart,
+                stage: error is CancellationError ? .cancelled : .transportFailure
+            )
             throw APIError.networkError(error)
         }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.unknown(statusCode: -1)
         }
+
+        await recordDiagnostic(
+            id: diagnosticID,
+            endpointCategory: endpointCategory,
+            statusCode: httpResponse.statusCode,
+            startedAt: diagnosticStart,
+            stage: .response
+        )
 
         switch httpResponse.statusCode {
         case 200...299:
@@ -221,6 +297,13 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             do {
                 return try decoder.decode(T.self, from: data)
             } catch {
+                await recordDiagnostic(
+                    id: diagnosticID,
+                    endpointCategory: endpointCategory,
+                    statusCode: httpResponse.statusCode,
+                    startedAt: diagnosticStart,
+                    stage: .decodingFailure
+                )
                 throw APIError.decodingError(error)
             }
         case 401:
@@ -361,5 +444,28 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             bucket: nil,
             retryAfterSeconds: headerSeconds
         ))
+    }
+
+    private func recordDiagnostic(
+        id: String,
+        endpointCategory: String,
+        statusCode: Int?,
+        startedAt: Date,
+        stage: NetworkDiagnosticStage
+    ) async {
+        await NetworkDiagnosticRecorder.shared.record(NetworkDiagnosticEvent(
+            requestID: id,
+            endpointCategory: endpointCategory,
+            statusCode: statusCode,
+            durationMilliseconds: max(0, Int(Date().timeIntervalSince(startedAt) * 1_000)),
+            stage: stage
+        ))
+    }
+
+    private static func endpointCategory(for path: String) -> String {
+        let segments = path.split(separator: "/").map { segment -> String in
+            segment.allSatisfy(\.isNumber) ? "{id}" : String(segment)
+        }
+        return "/" + segments.joined(separator: "/")
     }
 }

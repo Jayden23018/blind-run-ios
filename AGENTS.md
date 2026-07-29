@@ -202,8 +202,12 @@ Required error codes:
 - iOS calculates distance from volunteer to order start point.
 - Volunteer order list sorts by distance.
 - Volunteer dispatch depends on the volunteer's latest WebSocket `LOCATION_UPDATE`.
-- Route navigation and real-time track sharing are production roadmap items; do not add them without an approved requirement and test plan.
+- Public track sharing and in-app route navigation remain roadmap items. The approved `enable-live-escort-location-and-track-summary` change permits order-participant-only live peer markers, five-second service location reporting, `IN_PROGRESS` background capture, and a completed blind-track summary.
 - Blind runner booking defaults to current location as the start point.
+- `CLLocationManager` device samples are WGS-84 and must be converted exactly once to GCJ-02 at the centralized backend boundary. All documented inbound order, REST fallback, WebSocket peer, and track coordinates are treated as GCJ-02.
+- During an owned `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, or `IN_PROGRESS` session, both roles report the latest valid real location every 5 seconds; Mock/demo coordinates must never be uploaded to the cloud.
+- Enhanced background location is allowed only during `IN_PROGRESS`, must be disclosed, and must stop immediately when the order/session becomes ineligible.
+- Completed summaries use the blind-runner track as “本次路线”. Volunteer track data must not produce an abnormality conclusion until a versioned assessment policy is approved.
 - If location permission is denied, block booking and block volunteer accept while showing Settings guidance.
 - Blind runner flows must support VoiceOver.
 - Key buttons, inputs, and status text must have `accessibilityLabel` / `accessibilityHint`.
@@ -221,6 +225,7 @@ Required error codes:
 - After accept, show the blind runner's full phone number.
 - Blind runners must provide emergency contact name and phone number.
 - The current release hides the emergency action in both blind-runner and volunteer UI.
+- Backend `ESCORT_DISTANCE_ALERT` and `ESCORT_SIGNAL_LOST` notifications are high-priority informational safety warnings only. They do not mutate order status, enable emergency UI, or prove that rescue was dispatched.
 - If emergency action is re-enabled in a later safety change, it must require second confirmation.
 - If the backend emergency endpoint is used in a later safety change, it records an emergency event and keeps the order status unchanged.
 - Real SMS, identity verification, and administrator review are backend-owned production capabilities now represented in `docs/07-api-contract.openapi.yaml`; iOS may consume those contracts without adding backend code to this repository.

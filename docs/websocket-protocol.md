@@ -1,6 +1,6 @@
 # WebSocket 协议文档
 
-> **版本**: v1.3.0 | **更新**: 2026-07-19
+> **版本**: v1.4.0 | **更新**: 2026-07-21
 > **导入 Postman**: Postman 支持 WebSocket 请求，可直接使用本文档中的 URL 和消息格式
 
 ---
@@ -32,7 +32,8 @@
 |--------|-----|
 | 消息最大大小 | 64 KB |
 | 发送频率限制 | 500ms 最小间隔 |
-| 心跳超时 | 建议每 30s 发送 PING（仅盲人端支持） |
+| 心跳 | 两角色每 30s 发送 PING；服务端立即 PONG |
+| 服务端空闲关闭 | 90 秒无任何客户端消息时以 `SESSION_NOT_RELIABLE` 关闭 |
 
 ### 1.4 断线重连
 
@@ -40,6 +41,14 @@
 - 重连间隔：3 秒（建议）
 - 指数退避：3s → 6s → 12s → 最大 30s
 - 重连后重新发送位置上报
+- 客户端不按漏 PONG 次数主动断开；收到服务端关闭或 TCP/WS 错误后统一进入上述重连。
+
+### 1.5 坐标与发送规则
+
+- 所有 `lat` / `lng` / `gpsLat` / `gpsLng` 线上字段均约定为 GCJ-02。
+- iOS `CLLocationManager` 的 WGS-84 样本必须在唯一网络边界转换一次；服务端不转换，客户端对入站坐标不再转换。
+- 服务阶段位置每 5 秒发送，PING 与位置碰撞时按 500 ms 最小间隔串行排队，不得静默丢弃。
+- 数据库无 `coord_system` 标记或历史迁移，但后端确认现有写入均来自高德/腾讯定位链路，历史数据按干净 GCJ-02 使用。未来新增原生 GPS/海外 WGS-84 来源必须在服务端写入边界转换。
 
 ---
 
@@ -49,7 +58,7 @@
 
 #### LOCATION_UPDATE — 位置上报
 
-前端定时（建议 5~10 秒）上报盲人用户 GPS 位置。
+订单处于 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED` 或 `IN_PROGRESS` 时，前端每 5 秒上报盲人真实 GCJ-02 位置。
 
 ```json
 {
@@ -79,7 +88,7 @@
 
 #### VOLUNTEER_LOCATION_UPDATE — 志愿者实时位置
 
-当订单处于 `DRIVER_EN_ROUTE` 或 `DRIVER_ARRIVED` 状态时，志愿者每次上报位置都会转发给盲人。
+当订单处于 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED` 或 `IN_PROGRESS` 状态时，志愿者每次上报位置都会转发给盲人。
 
 ```json
 {
@@ -107,8 +116,8 @@
 ```json
 {
   "type": "APP_NOTIFICATION",
-  "eventId": 789,
-  "title": "订单提醒",
+  "messageId": "1b857a85-3ad2-407b-af7b-f8fb6e364285",
+  "eventType": "ORDER_MATCHED",
   "body": "已为您匹配志愿者张三，他正在确认行程，请稍候",
   "ttsText": "已为您匹配志愿者张三，他正在确认行程，请稍候",
   "priority": "NORMAL",
@@ -118,14 +127,14 @@
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| eventId | number | 可选稳定事件 ID；存在时用于前台通知去重 |
-| title | string | 可选安全展示标题 |
+| messageId | string(UUID) | 必有，位于最外层，用于前台通知去重 |
+| eventType | string | 必有，位于最外层；值为后端模板的 `event_type`，用于机器分流 |
 | body | string | 通知文本（显示用） |
 | ttsText | string | TTS 朗读文本建议；订单生命周期播报以 iOS 本地订单详情文案为准，不直接朗读生命周期模板 |
 | priority | string | `"HIGH"` 或 `"NORMAL"` |
 | timestamp | string | ISO 格式时间 |
 
-当前 iOS 协调器仅接受上述平铺 `APP_NOTIFICATION`。`priority` 仅允许 `HIGH` / `NORMAL`，缺省按 `NORMAL`；`timestamp` 使用带时区的 RFC 3339。`需要人工确认`：生产服务是否仍可能发送 `NOTIFICATION` + 嵌套 `data`、是否始终提供 `eventId`，以及未知优先级的服务端约束。
+生产通知固定为平铺 `APP_NOTIFICATION`；`messageId`、`eventType` 与 `timestamp` 位于最外层，不存在嵌套 `data`。`eventType` 对所有模板通知必有，值为模板的 `event_type`。`priority` 为 `HIGH` 或 `NORMAL`，`timestamp` 使用带时区的 RFC 3339。iOS 以 UUID `messageId` 去重。
 
 **盲人端常见通知事件**:
 
@@ -146,18 +155,20 @@
 ```json
 {
   "type": "ORDER_STATUS_CHANGED",
+  "messageId": "c4a2d3b1-2345-4bcd-8ef0-123456789abc",
   "orderId": 123,
-  "fromStatus": "IN_PROGRESS",
+  "fromStatus": "PENDING_ACCEPT",
   "toStatus": "DRIVER_EN_ROUTE",
   "message": "志愿者已出发",
-  "ttsText": "志愿者已出发，正在前往出发地点",
+  "ttsText": "志愿者已出发，正在赶往您的位置",
   "priority": "NORMAL",
-  "timestamp": "2026-05-23T14:10:00"
+  "timestamp": "2026-07-23T15:02:35"
 }
 ```
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
+| messageId | string(UUID) | 必有；同一次状态变更在断线重发时保持相同，用于会话内去重和后端排查 |
 | orderId | number | 订单 ID |
 | fromStatus | string | 变更前状态 |
 | toStatus | string | 变更后状态 |
@@ -247,9 +258,9 @@ Emergency WebSocket messages remain contract-reserved. In the current iOS releas
 
 ### 3.2 服务器 → 客户端
 
-#### BLIND_LOCATION_UPDATE — 盲人位置转发（契约预留）
+#### BLIND_LOCATION_UPDATE — 盲人位置转发
 
-后端将关联订单中盲人上报的位置转发给志愿者；本变更只负责类型化路由，不展示对方 marker、不启动五秒服务轨迹采集。
+后端在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED` 和 `IN_PROGRESS` 将关联订单中盲人每五秒上报的位置转发给志愿者，iOS 仅展示当前订单且不超过 15 秒的新鲜样本。
 
 ```json
 {
@@ -261,7 +272,15 @@ Emergency WebSocket messages remain contract-reserved. In the current iOS releas
 }
 ```
 
-`orderId` 为关联订单，`lat` / `lng` 必须位于合法范围，`timestamp` 为 Unix 毫秒。`需要人工确认`：生产 WebSocket 是否已启用该平铺 envelope、适用订单状态及坐标系归一化责任；确认前 iOS 仅内存路由，不增加 peer UI。
+`orderId` 为关联订单，`lat` / `lng` 为 GCJ-02 且必须位于合法范围，`timestamp` 为 Unix 毫秒。
+
+#### PING — 心跳
+
+```json
+{ "type": "PING" }
+```
+
+服务器立即返回 `{"type":"PONG","timestamp":...}`。志愿者与盲人均每 30 秒发送。
 
 #### NEW_ORDER — 新订单派单通知（核心消息）
 
@@ -323,6 +342,8 @@ Content-Type: application/json
 ```json
 {
   "type": "APP_NOTIFICATION",
+  "messageId": "a8d2ebf3-4a21-44e6-a89f-c32e647dddb0",
+  "eventType": "IDENTITY_VERIFICATION_APPROVED",
   "body": "您的身份证认证已通过",
   "ttsText": "您的身份证认证已通过，请继续下一步人脸验证",
   "priority": "NORMAL",
@@ -342,7 +363,7 @@ Content-Type: application/json
 
 #### ORDER_STATUS_CHANGED — 订单状态变更
 
-与盲人端格式相同。志愿者端会收到订单生命周期中的状态变更通知。
+与盲人端格式相同。每次订单状态推进时，盲人和志愿者双方均会收到带 UUID `messageId` 的状态变更通知；同一角色连接中的同一次重发保持相同 `messageId`。
 
 #### EMERGENCY_VOLUNTEER_ALERT — 紧急求助告警
 
@@ -407,30 +428,54 @@ Authorization: Bearer <token>
 
 ## 四、跨角色高优先级事件
 
-### SEPARATION_ALERT — 分离提醒（契约预留）
+### ESCORT_DISTANCE_ALERT / ESCORT_SIGNAL_LOST — 同行安全提醒
+
+两类告警都使用同一个平铺结构，以下四组 `body` / `ttsText` 是当前冻结契约：
+
+| 后端模板 | 接收角色 | body | ttsText |
+| --- | --- | --- | --- |
+| `ESCORT_DISTANCE_ALERT` | `BLIND_USER` | 与志愿者的距离似乎有点远 | 你和志愿者的距离似乎有点远，请留在原地，志愿者正在确认位置 |
+| `ESCORT_DISTANCE_ALERT` | `VOLUNTEER` | 与盲人用户的距离似乎有点远 | 你和盲人用户的距离似乎有点远，请尽快确认对方位置 |
+| `ESCORT_SIGNAL_LOST` | `BLIND_USER` | 暂时无法获取对方位置，正在为你确认安全 | 暂时无法获取志愿者位置，请留在原地，我们正在为你确认安全 |
+| `ESCORT_SIGNAL_LOST` | `VOLUNTEER` | 暂时无法获取对方位置，正在为你确认安全 | 暂时无法获取盲人用户位置，请尽快确认对方安全 |
+
+示例：
 
 ```json
 {
-  "type": "SEPARATION_ALERT",
-  "eventId": 991,
-  "orderId": 123,
-  "distanceMeters": 120,
-  "message": "请注意与同行者的距离",
-  "ttsText": "请注意与同行者的距离",
-  "priority": "HIGH",
-  "timestamp": "2026-07-19T12:00:00+08:00"
+  "type": "APP_NOTIFICATION",
+  "messageId": "d66f9169-bb98-4b62-94b0-d42873899d0b",
+  "eventType": "ESCORT_DISTANCE_ALERT",
+  "timestamp": "2026-07-21T12:00:00+08:00",
+  "body": "与志愿者的距离似乎有点远",
+  "ttsText": "你和志愿者的距离似乎有点远，请留在原地，志愿者正在确认位置",
+  "priority": "HIGH"
 }
 ```
 
-`eventId`、`orderId`、`message` 为必填；`priority` 固定 `HIGH`。两个不同 `eventId` 即使文案相同也必须分别路由和播报。`需要人工确认`：生产服务的最终 type 名称、距离字段、阈值责任和双角色投递范围；本变更不实现分离判定或功能动作。
+- `type` 固定为 `APP_NOTIFICATION`；`messageId`、`eventType`、`timestamp` 位于最外层，当前仍不下发 `orderId`。
+- `eventType` 分别固定为 `ESCORT_DISTANCE_ALERT` / `ESCORT_SIGNAL_LOST`；四组消息均为 `priority: HIGH`。iOS 仅按 `eventType` 机器分流，`body`/`ttsText` 只用于展示和朗读，不再参与识别。
+- 因无 `orderId`，iOS 仅在当前账号恰好有一个关联 `IN_PROGRESS` 订单时展示同行安全告警。
+- 若未来新增 `orderId`，后端保证它对应告警触发时的当前订单，iOS 届时必须严格匹配。
+- iOS 使用服务端 `body` / `ttsText` 高优先级呈现，不改变 `RunOrderStatus`、不触发 SOS、不宣称救援已派出。
+- 100 米且连续 2 次是后端当前运行时工程参数，不是已批准的完成轨迹异常评估规则。
 
 ### App 生命周期协调规则
 
 - `AppState` 只持有一个 `AppRealtimeCoordinator`，对当前角色 socket 恰好订阅一次；退出、角色/token 或服务替换时清理旧用户内存事件。
-- `ORDER_STATUS_CHANGED` 只触发按 `orderId` 合并的 REST 详情刷新，不能用局部 WebSocket payload 构造权威订单。
+- `ORDER_STATUS_CHANGED` 不构造完整订单，但当 `orderId`、`fromStatus` 与 `toStatus` 均通过当前订单关联和枚举/前进校验时，iOS 先提交其状态字段并立即播报，再独立刷新完整 REST 详情。较早 REST 响应不得回退已接受的状态；非法、错误订单、重复或迟到事件只触发安全刷新。
+- iOS 在当前登录会话内最多保留 256 条 `ORDER_STATUS_CHANGED` UUID 及订单/状态指纹。相同 UUID、相同指纹的重发直接丢弃，不更新 UI、不重复播报且不触发 REST 刷新；相同 UUID 携带不同订单或状态时不采用内容，只触发一次有界安全刷新。退出登录或切换身份时清空缓存。
+- `messageId` 缺失或不是合法 UUID 属于匿名合同异常。为兼容旧服务端消息，iOS 仍执行订单关联与状态协调，不因该字段异常丢弃合法状态。
+- 结构化状态事件使用客户端固定无障碍文案完成一次生命周期播报，不直接朗读服务端 `ttsText`。并行到达的生命周期 `APP_NOTIFICATION` 在活动订单期间抑制；终态卸载订单后的 30 秒内继续按目标状态语义抑制，安全告警及非生命周期通知不受影响。
+- REST 详情刷新与盲人端五秒轮询继续作为完整字段补充、断线和漏事件降级路径；WebSocket 推送上线不移除该兜底。
+- JSON 解码在后台执行器完成；订单状态和通知保持接收顺序。高频同行位置按订单与角色合并后再交给主线程，发送侧连接队列也只保留最新待发位置，可靠状态/通知消息不受位置合并影响。
 - `NEW_ORDER` 保留至接受、拒绝、超时、后端状态使其失效或角色改变，页面切换不能丢失。
+- 每个物理 WebSocket 使用单调递增的 connection generation；旧 generation 的迟到收发错误、心跳或关闭回调不得改变新连接，一代连接至多存在一个待执行重连。
+- iOS 仅在内存中记录脱敏派单阶段：连接、收到 `NEW_ORDER`、解码失败字段、协调器保留、UI 展示。记录可包含角色、状态、generation、消息类型、`orderId` 和时间，但禁止 token、坐标、电话、地址及消息正文。
+- 志愿者等待派单时重连成功，应立即补发最新有效真实位置，再刷新 `/api/volunteer/dispatch-summary`；无真实位置时显示并朗读“定位暂不可用，可能无法收到派单”。
+- `/api/orders/available` 当前不是丢失定向推送的客户端兜底；后端未冻结“仅返回分配给当前志愿者且仍在响应期内的 offer”前，iOS 不得据此自行抢单。
 - 两个方向的位置消息按订单和接收角色校验；错误订单或非法坐标静默丢弃，日志、可见 UI 和无障碍文本不得输出原始坐标。
-- `HIGH` 前台通知抢占 `NORMAL`。非安全事件按 `eventId` 或类型/规范化文案/时间去重；不同安全 `eventId` 不合并。
+- `HIGH` 前台通知抢占 `NORMAL`。非安全事件按稳定 ID 或类型/规范化文案/时间去重；不同安全 `messageId` 不合并。
 - 重连后协调器请求活动订单与角色摘要刷新，并通知依赖功能恢复各自节奏。传输层继续保持 500 ms 最小发送间隔、3/6/12/30 秒退避、未知消息容忍和 30 秒心跳。
 
 ## 五、消息类型速查表
@@ -439,12 +484,11 @@ Authorization: Bearer <token>
 
 | 方向 | type | 触发场景 | priority |
 |------|------|---------|----------|
-| 发送 | `LOCATION_UPDATE` | 定时上报位置（5~10s） | — |
+| 发送 | `LOCATION_UPDATE` | eligible 服务状态每 5s | — |
 | 发送 | `PING` | 心跳（30s） | — |
 | 接收 | `PONG` | 心跳响应 | — |
 | 接收 | `VOLUNTEER_LOCATION_UPDATE` | 志愿者位置实时转发 | — |
-| 接收 | `SEPARATION_ALERT` | 分离提醒契约预留 | HIGH |
-| 接收 | `APP_NOTIFICATION` | 模板通知 | HIGH/NORMAL |
+| 接收 | `APP_NOTIFICATION` | 平铺模板通知（含距离/信号丢失提醒） | HIGH/NORMAL |
 | 接收 | `ORDER_STATUS_CHANGED` | 订单状态变更 | HIGH/NORMAL |
 | 接收 | `EMERGENCY_RESOLVED_BY_VOLUNTEER` | 志愿者确认紧急事件 | HIGH |
 | 接收 | `EMERGENCY_CONTACT_NOTIFIED` | 紧急联系人已通知 | HIGH |
@@ -453,11 +497,12 @@ Authorization: Bearer <token>
 
 | 方向 | type | 触发场景 | priority |
 |------|------|---------|----------|
-| 发送 | `LOCATION_UPDATE` | 定时上报位置（5~10s） | — |
+| 发送 | `LOCATION_UPDATE` | 派单位置或 eligible 服务状态每 5s | — |
+| 发送 | `PING` | 心跳（30s） | — |
+| 接收 | `PONG` | 心跳响应 | — |
 | 接收 | `NEW_ORDER` | 串行派单推送 | HIGH |
-| 接收 | `BLIND_LOCATION_UPDATE` | 盲人位置转发契约预留 | — |
-| 接收 | `SEPARATION_ALERT` | 分离提醒契约预留 | HIGH |
-| 接收 | `APP_NOTIFICATION` | 模板通知 | HIGH/NORMAL |
+| 接收 | `BLIND_LOCATION_UPDATE` | 盲人位置实时转发 | — |
+| 接收 | `APP_NOTIFICATION` | 平铺模板通知（含距离/信号丢失提醒） | HIGH/NORMAL |
 | 接收 | `ORDER_STATUS_CHANGED` | 订单状态变更 | HIGH/NORMAL |
 | 接收 | `EMERGENCY_VOLUNTEER_ALERT` | 紧急求助告警 | HIGH |
 
@@ -493,10 +538,11 @@ function connectBlindWS(token) {
       case 'ORDER_STATUS_CHANGED':
         handleOrderStatusChange(msg);
         break;
-      case 'APP_NOTIFICATION':
+      case 'APP_NOTIFICATION': {
         showNotification(msg.body, msg.ttsText);
         if (msg.ttsText) speakTTS(msg.ttsText); // 语音播报
         break;
+      }
       case 'EMERGENCY_RESOLVED_BY_VOLUNTEER':
       case 'EMERGENCY_CONTACT_NOTIFIED':
         showNotification(msg.message, msg.ttsText);
@@ -604,3 +650,15 @@ Authorization: Bearer <token>
 ```
 
 仅在订单处于 `PENDING_ACCEPT`、`DRIVER_EN_ROUTE` 或 `DRIVER_ARRIVED` 且位置不超过 30 秒时返回数据；无符合数据时返回 HTTP 200、`success: true`、`data: null`，不得返回旧坐标。`updatedAt` 是带时区 RFC 3339。`需要人工确认`：生产服务的精确时区/小数秒格式以及当前 no-data 是否已经统一为 `data: null`；iOS 在确认前对缺字段、过期、错订单、错状态或非法坐标均静默忽略。
+
+返回的 `lat` / `lng` 为 GCJ-02。此接口只保留 pre-service 回退；`IN_PROGRESS` 使用双向 WebSocket 位置流。
+
+## 八、完成轨迹 REST 契约摘要
+
+`GET /api/orders/{id}/track` 仅允许订单参与者读取，完整 schema 见 `docs/07-api-contract.openapi.yaml`。响应包含：
+
+- `status`：当前订单状态；
+- `blindTrack` / `volunteerTrack`：按时间升序的 GCJ-02 `TrackPoint(lat,lng,recordedAt)`；
+- `blindStats` / `volunteerStats`：`distanceMeters`、`durationSeconds`、可空 `avgPaceSecPerKm`。
+
+轨迹数组是原始点日志，0、1 或多个点均原样返回，不做点数过滤。某角色少于两个点时，仅该角色统计为 `0 / 0 / null`；iOS 保留单点但不绘制 polyline。接口非 403/404 时 `status` 必有，iOS 据此区分尚未开始、正在采集和历史订单无轨迹；默认只显示至少两个有效盲人点组成的“本次路线”。志愿者轨迹不得用于未获批的异常结论。

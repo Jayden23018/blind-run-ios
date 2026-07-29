@@ -315,7 +315,7 @@ Rules:
 
 ## 6. Out of Scope
 
-路线图能力（Android、管理员后台、真实短信、真实实名认证、实时轨迹共享、自动电话/短信、AI 助手、自然语言时间解析、路线导航、完整积分商城、支付、库存、App 内聊天、风控、摔倒检测、电子围栏、即时呼叫、多人活动报名）需要先补充产品规则、API 契约和测试计划。WebSocket 当前用于实时派单、状态通知和位置上报。
+路线图能力（Android、管理员后台、真实短信、真实实名认证、公共实时轨迹分享、自动电话/短信、AI 助手、自然语言时间解析、路线导航、完整积分商城、支付、库存、App 内聊天、复杂风控、摔倒检测、电子围栏、即时呼叫、多人活动报名）需要先补充产品规则、API 契约和测试计划。订单参与者实时同行位置和完成轨迹总结已由专项 OpenSpec 批准。
 ## 账户生命周期模型
 
 - `CurrentUserResponse(userId, phone?, role?)`：`role` 可缺省、为 `null` 或 `UNSET`。
@@ -337,3 +337,16 @@ Rules:
 | `VolunteerLocationFallbackData` | order ID/status/lat/lng/RFC3339 `updatedAt` | pre-service REST 回退；超过 30 秒、错订单/状态或 no-data 不应用 |
 
 这些模型均不成为完整订单、地图/轨迹或 SOS 业务真相；订单真相仍是 `GET /api/orders/{id}`。
+
+## 实时同行与轨迹模型
+
+| Model | Required fields | Rules |
+| --- | --- | --- |
+| `LocatedCoordinate` | lat, lng, provenance | `wgs84Device` 仅在网络边界转 GCJ-02；`gcj02Backend` 不重复转换 |
+| `LiveEscortSession` | order ID, role, canonical status | 仅 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 有效，身份或终态变化即清理 |
+| `TrackPoint` | lat, lng, recordedAt | 后端 GCJ-02，按时间升序，不持久化额外副本 |
+| `TrackStats` | optional distance/duration/pace | 少于两点时允许 0 / 0 / null，缺字段不推算 |
+| `OrderTrackResponse` | status, blind/volunteer track and stats | blind 为主路线；volunteer 只供未来批准的比较策略 |
+| `RealtimeEscortAlert` | eventType, messageId, safe display/TTS, active order context | 按外层 eventType 识别两类告警；当前无 orderId，要求唯一 IN_PROGRESS，不改变订单/SOS |
+
+所有当前后端坐标按 GCJ-02 契约解释。数据库无来源字段与历史迁移，但后端确认历史写入均来自高德/腾讯定位链路，现有数据按干净 GCJ-02 使用；未来新增 WGS-84 来源必须在服务端写入边界转换。

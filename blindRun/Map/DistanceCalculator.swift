@@ -17,6 +17,16 @@ enum DistanceCalculator {
         return originLocation.distance(from: destinationLocation)
     }
 
+    static func distanceFromDeviceToBackend(
+        deviceCoordinate: CLLocationCoordinate2D,
+        backendCoordinate: CLLocationCoordinate2D
+    ) -> CLLocationDistance {
+        let normalized = BackendCoordinateNormalizer.normalize(
+            LocatedCoordinate(coordinate: deviceCoordinate, system: .wgs84Device)
+        )?.coordinate ?? deviceCoordinate
+        return distance(from: normalized, to: backendCoordinate)
+    }
+
     /// 格式化距离为人类可读字符串
     /// - < 1000m: "XXX 米"（取整到十位）
     /// - >= 1000m: "X.X 公里"（保留一位小数）
@@ -40,7 +50,7 @@ enum DistanceCalculator {
                 return nil
             }
             let orderCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
-            let dist = distance(from: location, to: orderCoordinate)
+            let dist = distanceFromDeviceToBackend(deviceCoordinate: location, backendCoordinate: orderCoordinate)
             return (order: order, distance: dist)
         }
         return ordersWithDistance.sorted { $0.distance < $1.distance }

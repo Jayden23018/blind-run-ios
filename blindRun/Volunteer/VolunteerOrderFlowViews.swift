@@ -228,7 +228,11 @@ struct VolunteerServiceMapPresentation {
         includesCurrentLocationMarker: Bool,
         centersOnCurrentAndStart: Bool
     ) {
-        let displayCurrentLocation = locationAuthorized ? currentLocation : nil
+        let displayCurrentLocation = locationAuthorized ? currentLocation.flatMap {
+            BackendCoordinateNormalizer.normalize(
+                LocatedCoordinate(coordinate: $0, system: .wgs84Device)
+            )?.coordinate
+        } : nil
 
         var items: [MapAnnotationItem] = []
         if includesCurrentLocationMarker, let displayCurrentLocation {
@@ -461,13 +465,13 @@ struct VolunteerOrderListView: View {
             locationService.requestPermission()
             locationService.startUpdating()
             await viewModel.load(
-                currentLocation: locationService.effectiveLocation,
+                currentLocation: locationService.currentLocation,
                 locationAuthorized: locationService.isAuthorized
             )
         }
         .refreshable {
             await viewModel.load(
-                currentLocation: locationService.effectiveLocation,
+                currentLocation: locationService.currentLocation,
                 locationAuthorized: locationService.isAuthorized
             )
         }
@@ -476,6 +480,86 @@ struct VolunteerOrderListView: View {
 
 // MARK: - Order Detail
 
+private enum VolunteerOrderActionError: Error {
+    case timedOut
+}
+
+enum VolunteerOrderTransitionState: Equatable {
+    case idle
+    case submitting(target: RunOrderStatus)
+    case awaitingConfirmation(target: RunOrderStatus)
+    case confirmationDelayed(target: RunOrderStatus)
+    case failed(message: String)
+
+    var targetStatus: RunOrderStatus? {
+        switch self {
+        case .submitting(let target),
+             .awaitingConfirmation(let target),
+             .confirmationDelayed(let target):
+            return target
+        case .idle, .failed:
+            return nil
+        }
+    }
+
+    var blocksDuplicateSubmission: Bool {
+        switch self {
+        case .submitting, .awaitingConfirmation, .confirmationDelayed:
+            return true
+        case .idle, .failed:
+            return false
+        }
+    }
+
+    var message: String? {
+        switch self {
+        case .idle, .submitting, .failed:
+            return nil
+        case .awaitingConfirmation:
+            return "操作已提交，状态待确认。页面其他功能仍可使用。"
+        case .confirmationDelayed:
+            return "状态确认延迟，请稍后点击“重新确认状态”。请勿重复提交同一操作。"
+        }
+    }
+}
+
+private extension RunOrderStatus {
+    func satisfiesVolunteerTransition(target: RunOrderStatus) -> Bool {
+        if self == target { return true }
+        switch target {
+        case .pendingAccept:
+            return [.driverEnRoute, .driverArrived, .inProgress, .completed].contains(self)
+        case .driverEnRoute:
+            return [.driverArrived, .inProgress, .completed].contains(self)
+        case .driverArrived:
+            return [.inProgress, .completed].contains(self)
+        case .inProgress:
+            return self == .completed
+        case .rematching:
+            return [.cancelled, .noVolunteer].contains(self)
+        case .completed:
+            return false
+        case .pendingMatch, .cancelled, .noVolunteer:
+            return false
+        }
+    }
+}
+
+private func withVolunteerOrderActionDeadline<T: Sendable>(
+    nanoseconds: UInt64,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    do {
+        return try await HomeLoadCoordinator.run(
+            timeout: TimeInterval(nanoseconds) / 1_000_000_000,
+            operationName: "volunteer-order-transition",
+            operation: operation
+        )
+    } catch HomeLoadCoordinatorError.timedOut {
+        throw VolunteerOrderActionError.timedOut
+    }
+}
+
 @MainActor
 final class VolunteerOrderDetailViewModel: ObservableObject {
     @Published var order: OrderDetailResponse?
@@ -483,10 +567,33 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
     @Published var didCancelOrder = false
+    @Published private(set) var transitionState: VolunteerOrderTransitionState = .idle
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private var realtimeRefreshCancellable: AnyCancellable?
+    private var realtimeStatusCancellable: AnyCancellable?
+    private var confirmationTask: Task<Void, Never>?
+    private let actionDeadlineNanoseconds: UInt64
+    private let confirmationTimeout: TimeInterval
+    private let orderLoadTimeout: TimeInterval
+
+    init(
+        actionDeadlineNanoseconds: UInt64 = 12_000_000_000,
+        confirmationTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout,
+        orderLoadTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout
+    ) {
+        self.actionDeadlineNanoseconds = actionDeadlineNanoseconds
+        self.confirmationTimeout = max(0.05, confirmationTimeout)
+        self.orderLoadTimeout = max(0.05, orderLoadTimeout)
+    }
+
+    var isTransitionPending: Bool { transitionState.blocksDuplicateSubmission }
+    var transitionMessage: String? { transitionState.message }
+    var canRetryTransitionConfirmation: Bool {
+        if case .confirmationDelayed = transitionState { return true }
+        return false
+    }
 
     var canAccept: Bool {
         order?.status == .pendingMatch
@@ -508,6 +615,21 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
                     Task { await self.load(orderId: orderID) }
                 }
         }
+        if realtimeStatusCancellable == nil {
+            realtimeStatusCancellable = appState.realtimeCoordinator.statusUpdatePublisher
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] update in
+                    guard let self,
+                          let current = self.order,
+                          current.orderId == update.orderId else { return }
+                    self.apply(
+                        current.replacingStatus(with: update.toStatus),
+                        speakChanges: true
+                    )
+                    self.isLoading = false
+                    self.errorMessage = nil
+                }
+        }
     }
 
     func load(orderId: Int64) async {
@@ -525,9 +647,23 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let loaded: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(orderId)")
+            let apiClient = appState.apiClient
+            let requestToken = appState.realtimeCoordinator.beginOrderStatusRequest(orderID: orderId)
+            let candidate: OrderDetailResponse = try await HomeLoadCoordinator.run(
+                timeout: orderLoadTimeout,
+                operationName: "volunteer-order-detail"
+            ) {
+                try await apiClient.get("/api/orders/\(orderId)")
+            }
+            guard let loaded = appState.realtimeCoordinator.reconcileOrderDetail(
+                candidate,
+                requestToken: requestToken
+            ) else {
+                isLoading = false
+                return
+            }
             refreshedAuthoritativeOrder = true
-            order = loaded
+            apply(loaded, speakChanges: false)
             isLoading = false
         } catch let error as APIError {
             isLoading = false
@@ -554,37 +690,37 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             speechService?.speakError(message)
             return
         }
-        await performAction(failureMessage: "接单失败，请重试") {
-            VolunteerLocationReporter.reportIfNeeded(
-                appState: appState,
-                currentLocation: currentLocation,
-                locationAuthorized: locationAuthorized
-            )
+        VolunteerLocationReporter.reportIfNeeded(
+            appState: appState,
+            currentLocation: currentLocation,
+            locationAuthorized: locationAuthorized
+        )
+        let apiClient = appState.apiClient
+        let orderID = order.orderId
+        await submitTransition(target: .pendingAccept, orderID: orderID, appState: appState) {
             let request = OrderRespondRequest(action: .accept)
-            let _: EmptyResponse = try await appState.apiClient.post(
-                "/api/orders/\(order.orderId)/respond",
+            return try await apiClient.post(
+                "/api/orders/\(orderID)/respond",
                 body: request
-            )
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            self.order = updated
+            ) as EmptyResponse
         }
     }
 
     func enRoute() async {
         guard let order, let appState else { return }
-        await performAction(failureMessage: "操作失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/en-route")
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            self.order = updated
+        let apiClient = appState.apiClient
+        let orderID = order.orderId
+        await submitTransition(target: .driverEnRoute, orderID: orderID, appState: appState) {
+            try await apiClient.post("/api/orders/\(orderID)/en-route") as EmptyResponse
         }
     }
 
     func arrive() async {
         guard let order, let appState else { return }
-        await performAction(failureMessage: "操作失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            self.order = updated
+        let apiClient = appState.apiClient
+        let orderID = order.orderId
+        await submitTransition(target: .driverArrived, orderID: orderID, appState: appState) {
+            try await apiClient.post("/api/orders/\(orderID)/arrived") as EmptyResponse
         }
     }
 
@@ -596,21 +732,19 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             speechService?.speakError(message)
             return
         }
-        await performAction(failureMessage: "操作失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/start-service")
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            self.order = updated
+        let apiClient = appState.apiClient
+        let orderID = order.orderId
+        await submitTransition(target: .inProgress, orderID: orderID, appState: appState) {
+            try await apiClient.post("/api/orders/\(orderID)/start-service") as EmptyResponse
         }
     }
 
     func cancel() async {
         guard let order, let appState else { return }
-        await performAction(failureMessage: "取消失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
-            appState.realtimeCoordinator.unregisterActiveOrder(order.orderId)
-            self.order = nil
-            self.didCancelOrder = true
-            self.speechService?.speak("订单已取消，系统将为盲人重新匹配。")
+        let apiClient = appState.apiClient
+        let orderID = order.orderId
+        await submitTransition(target: .rematching, orderID: orderID, appState: appState) {
+            try await apiClient.post("/api/orders/\(orderID)/cancel") as EmptyResponse
         }
     }
 
@@ -619,23 +753,135 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         speechService?.speak(EmergencySafetyCopy.deferredActionMessage)
     }
 
-    private func performAction(failureMessage: String, operation: () async throws -> Void) async {
+    func retryTransitionConfirmation() {
+        guard let order, let appState, let target = transitionState.targetStatus else { return }
+        transitionState = .awaitingConfirmation(target: target)
+        errorMessage = nil
+        startTransitionConfirmation(orderID: order.orderId, target: target, appState: appState)
+    }
+
+    private func submitTransition(
+        target: RunOrderStatus,
+        orderID: Int64,
+        appState: AppState,
+        operation: @escaping @Sendable () async throws -> EmptyResponse
+    ) async {
+        guard !isPerformingAction else { return }
+        if transitionState.blocksDuplicateSubmission {
+            guard transitionState.targetStatus != target else { return }
+            let message = "上一项操作的状态尚未确认，请先重新确认状态。"
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
+        confirmationTask?.cancel()
+        confirmationTask = nil
+        transitionState = .submitting(target: target)
+        ClientFlowDiagnostics.record(event: "submitted", operation: "volunteer-detail-transition")
         isPerformingAction = true
         errorMessage = nil
+        defer { isPerformingAction = false }
         do {
-            try await operation()
-            isPerformingAction = false
+            _ = try await withVolunteerOrderActionDeadline(
+                nanoseconds: actionDeadlineNanoseconds,
+                operation: operation
+            )
+            transitionState = .awaitingConfirmation(target: target)
+            ClientFlowDiagnostics.record(event: "awaiting_confirmation", operation: "volunteer-detail-transition")
+            startTransitionConfirmation(orderID: orderID, target: target, appState: appState)
+        } catch VolunteerOrderActionError.timedOut {
+            markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
         } catch let error as APIError {
-            isPerformingAction = false
-            if appState?.handleAuthenticatedAPIError(error) == true {
+            if appState.handleAuthenticatedAPIError(error) {
+                transitionState = .failed(message: error.localizedMessage)
                 return
             }
-            errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
+            switch error {
+            case .networkError, .decodingError:
+                markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
+            case .serverError, .rateLimited, .unknown, .invalidURL:
+                transitionState = .failed(message: error.localizedMessage)
+                errorMessage = error.localizedMessage
+                speechService?.speakError(error.localizedMessage)
+            case .unauthorized:
+                transitionState = .failed(message: error.localizedMessage)
+            }
         } catch {
-            isPerformingAction = false
-            errorMessage = failureMessage
-            speechService?.speakError(failureMessage)
+            markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
+        }
+    }
+
+    private func markTransitionOutcomeUnknown(
+        target: RunOrderStatus,
+        orderID: Int64,
+        appState: AppState
+    ) {
+        transitionState = .awaitingConfirmation(target: target)
+        speechService?.speakError("操作结果尚未确认，正在后台同步状态。请勿重复提交同一操作。")
+        startTransitionConfirmation(orderID: orderID, target: target, appState: appState)
+    }
+
+    private func startTransitionConfirmation(
+        orderID: Int64,
+        target: RunOrderStatus,
+        appState: AppState
+    ) {
+        confirmationTask?.cancel()
+        let apiClient = appState.apiClient
+        let requestToken = appState.realtimeCoordinator.beginOrderStatusRequest(orderID: orderID)
+        confirmationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let candidate: OrderDetailResponse = try await HomeLoadCoordinator.run(
+                    timeout: self.confirmationTimeout,
+                    operationName: "volunteer-detail-transition-confirmation"
+                ) {
+                    try await apiClient.get("/api/orders/\(orderID)")
+                }
+                guard !Task.isCancelled,
+                      self.order?.orderId == orderID,
+                      self.transitionState.targetStatus == target else { return }
+                guard let updated = appState.realtimeCoordinator.reconcileOrderDetail(
+                    candidate,
+                    requestToken: requestToken
+                ) else { return }
+                self.apply(updated, speakChanges: true)
+                if !updated.status.satisfiesVolunteerTransition(target: target) {
+                    self.transitionState = .confirmationDelayed(target: target)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled,
+                      self.order?.orderId == orderID,
+                      self.transitionState.targetStatus == target else { return }
+                self.transitionState = .confirmationDelayed(target: target)
+                ClientFlowDiagnostics.record(event: "confirmation_delayed", operation: "volunteer-detail-transition")
+            }
+            self.confirmationTask = nil
+        }
+    }
+
+    private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
+        let previousStatus = order?.status
+        order = updated
+        appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
+        if speakChanges, previousStatus != updated.status {
+            speechService?.speakStatusChange(updated.status)
+        }
+        if let target = transitionState.targetStatus,
+           updated.status.satisfiesVolunteerTransition(target: target) {
+            transitionState = .idle
+            ClientFlowDiagnostics.record(event: "confirmed", operation: "volunteer-detail-transition")
+            confirmationTask?.cancel()
+            confirmationTask = nil
+            errorMessage = nil
+        }
+        if updated.status == .rematching || updated.status == .cancelled {
+            appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
+            appState?.liveEscortCoordinator.clearOwnedOrder()
+            didCancelOrder = true
+            speechService?.speak("订单已取消，系统将为盲人重新匹配。")
         }
     }
 }
@@ -668,6 +914,22 @@ struct VolunteerOrderDetailView: View {
                     actionSection(order)
                 }
 
+                if let transitionMessage = viewModel.transitionMessage {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(transitionMessage, systemImage: "clock.arrow.circlepath")
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.warning)
+                            .accessibilityLabel(transitionMessage)
+                        if viewModel.canRetryTransitionConfirmation {
+                            Button("重新确认状态") {
+                                viewModel.retryTransitionConfirmation()
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityHint("只重新查询订单状态，不会重复提交当前操作")
+                        }
+                    }
+                }
+
                 if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
                         .font(AppFonts.body())
@@ -685,11 +947,16 @@ struct VolunteerOrderDetailView: View {
             locationService.startUpdating()
             await viewModel.load(orderId: orderId)
         }
+        .onChange(of: viewModel.order?.status) { status in
+            guard status?.isActiveForVolunteer == true,
+                  let order = viewModel.order else { return }
+            serviceNavigationOrder = order
+        }
         .alert("确认接单", isPresented: $showAcceptConfirm) {
             Button("确认接单") {
                 Task {
                     await viewModel.accept(
-                        currentLocation: locationService.effectiveLocation,
+                        currentLocation: locationService.currentLocation,
                         locationAuthorized: locationService.isAuthorized
                     )
                     if let order = viewModel.order, order.status.isActiveForVolunteer {
@@ -746,7 +1013,11 @@ struct VolunteerOrderDetailView: View {
                 PrimaryButton("接单", isLoading: viewModel.isPerformingAction) {
                     showAcceptConfirm = true
                 }
-                .disabled(blockMessage != nil || viewModel.isPerformingAction)
+                .disabled(
+                    blockMessage != nil
+                        || viewModel.isPerformingAction
+                        || viewModel.isTransitionPending
+                )
                 .opacity(blockMessage == nil ? 1 : 0.45)
                 .accessibilityLabel("接单")
                 .accessibilityHint(blockMessage ?? "确认接单后将显示盲人联系方式")
@@ -793,10 +1064,12 @@ struct VolunteerOrderDetailView: View {
     }
 
     private func distanceText(for order: OrderDetailResponse) -> String? {
-        guard locationService.isAuthorized, let coordinate = orderCoordinate(order) else { return nil }
-        let meters = DistanceCalculator.distance(
-            from: locationService.effectiveLocation,
-            to: coordinate
+        guard locationService.isAuthorized,
+              let deviceCoordinate = locationService.currentLocation,
+              let coordinate = orderCoordinate(order) else { return nil }
+        let meters = DistanceCalculator.distanceFromDeviceToBackend(
+            deviceCoordinate: deviceCoordinate,
+            backendCoordinate: coordinate
         )
         return DistanceCalculator.formattedDistance(meters)
     }
@@ -812,17 +1085,52 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
     @Published var didCancelOrder = false
+    @Published private(set) var latestBlindSample: LocatedCoordinate?
+    @Published private(set) var transitionState: VolunteerOrderTransitionState = .idle
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private var pollingTask: Task<Void, Never>?
     private var realtimeRefreshCancellable: AnyCancellable?
+    private var realtimeStatusCancellable: AnyCancellable?
+    private var peerLocationCancellable: AnyCancellable?
+    private var confirmationTask: Task<Void, Never>?
+    private var dispatchSummaryTask: Task<Void, Never>?
+    private var peerExpiryTask: Task<Void, Never>?
+    private var acceptsPeerLocations = true
+    private let actionDeadlineNanoseconds: UInt64
+    private let confirmationTimeout: TimeInterval
+    private let orderLoadTimeout: TimeInterval
+    private let peerFreshness: TimeInterval
+
+    init(
+        actionDeadlineNanoseconds: UInt64 = 12_000_000_000,
+        confirmationTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout,
+        orderLoadTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout,
+        peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness
+    ) {
+        self.actionDeadlineNanoseconds = actionDeadlineNanoseconds
+        self.confirmationTimeout = max(0.05, confirmationTimeout)
+        self.orderLoadTimeout = max(0.05, orderLoadTimeout)
+        self.peerFreshness = max(0.01, peerFreshness)
+    }
+
+    var isTransitionPending: Bool { transitionState.blocksDuplicateSubmission }
+    var transitionMessage: String? { transitionState.message }
+    var canRetryTransitionConfirmation: Bool {
+        if case .confirmationDelayed = transitionState { return true }
+        return false
+    }
 
     func configure(with appState: AppState, speechService: SpeechService, initialOrder: OrderDetailResponse?) {
         self.appState = appState
         self.speechService = speechService
+        acceptsPeerLocations = true
         if order == nil {
             order = initialOrder
+        }
+        if let order {
+            appState.liveEscortCoordinator.updateOwnedOrder(orderID: order.orderId, status: order.status)
         }
         if realtimeRefreshCancellable == nil {
             realtimeRefreshCancellable = appState.realtimeCoordinator.$pendingOrderRefreshIDs
@@ -832,9 +1140,34 @@ final class VolunteerInServiceViewModel: ObservableObject {
                     Task { await self.load(orderId: orderID, speakChanges: true) }
                 }
         }
+        if realtimeStatusCancellable == nil {
+            realtimeStatusCancellable = appState.realtimeCoordinator.statusUpdatePublisher
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] update in
+                    guard let self,
+                          let current = self.order,
+                          current.orderId == update.orderId else { return }
+                    self.apply(
+                        current.replacingStatus(with: update.toStatus),
+                        speakChanges: true
+                    )
+                    self.isLoading = false
+                }
+        }
+        if peerLocationCancellable == nil {
+            peerLocationCancellable = appState.realtimeCoordinator.peerLocationPublisher
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] sample in
+                    self?.handleBlindLocationUpdate(sample)
+                }
+        }
     }
 
     func startPolling(orderId: Int64) {
+        if order?.orderId != orderId {
+            clearPeerLocation()
+        }
+        acceptsPeerLocations = true
         appState?.realtimeCoordinator.registerActiveOrder(orderId)
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
@@ -853,6 +1186,10 @@ final class VolunteerInServiceViewModel: ObservableObject {
     func stopPolling() {
         pollingTask?.cancel()
         pollingTask = nil
+        confirmationTask?.cancel()
+        confirmationTask = nil
+        acceptsPeerLocations = false
+        clearPeerLocation()
     }
 
     func load(orderId: Int64, speakChanges: Bool) async {
@@ -867,7 +1204,21 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
         isLoading = order == nil
         do {
-            let loaded: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(orderId)")
+            let apiClient = appState.apiClient
+            let requestToken = appState.realtimeCoordinator.beginOrderStatusRequest(orderID: orderId)
+            let candidate: OrderDetailResponse = try await HomeLoadCoordinator.run(
+                timeout: orderLoadTimeout,
+                operationName: "volunteer-order-poll"
+            ) {
+                try await apiClient.get("/api/orders/\(orderId)")
+            }
+            guard let loaded = appState.realtimeCoordinator.reconcileOrderDetail(
+                candidate,
+                requestToken: requestToken
+            ) else {
+                isLoading = false
+                return
+            }
             refreshedAuthoritativeOrder = true
             apply(loaded, speakChanges: speakChanges)
             isLoading = false
@@ -881,20 +1232,37 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     func enRoute() async {
         guard let order, let appState else { return }
-        await performAction(failureMessage: "操作失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/en-route")
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            apply(updated, speakChanges: false)
+        let apiClient = appState.apiClient
+        let orderID = order.orderId
+        await submitTransition(target: .driverEnRoute, orderID: orderID, appState: appState) {
+            try await apiClient.post("/api/orders/\(orderID)/en-route") as EmptyResponse
         }
     }
 
     func arrive() async {
         guard let order, let appState else { return }
-        await performAction(failureMessage: "操作失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            apply(updated, speakChanges: false)
+        let apiClient = appState.apiClient
+        let orderID = order.orderId
+        await submitTransition(target: .driverArrived, orderID: orderID, appState: appState) {
+            try await apiClient.post("/api/orders/\(orderID)/arrived") as EmptyResponse
         }
+    }
+
+    func handleBlindLocationUpdate(_ sample: RealtimePeerLocationSample) {
+        guard acceptsPeerLocations,
+              sample.ownerRole == .blind,
+              sample.orderId == order?.orderId else { return }
+        let capturedAt = Date(timeIntervalSince1970: TimeInterval(sample.timestampMilliseconds) / 1_000)
+        let age = max(0, Date().timeIntervalSince(capturedAt))
+        guard age <= peerFreshness,
+              let located = BackendCoordinateNormalizer.backend(
+                latitude: sample.latitude,
+                longitude: sample.longitude,
+                capturedAt: capturedAt
+              ) else { return }
+
+        latestBlindSample = located
+        schedulePeerExpiry(for: located, orderID: sample.orderId, remaining: peerFreshness - age)
     }
 
     func startService() async {
@@ -905,22 +1273,19 @@ final class VolunteerInServiceViewModel: ObservableObject {
             speechService?.speakError(message)
             return
         }
-        await performAction(failureMessage: "操作失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/start-service")
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            apply(updated, speakChanges: false)
+        let apiClient = appState.apiClient
+        let orderID = order.orderId
+        await submitTransition(target: .inProgress, orderID: orderID, appState: appState) {
+            try await apiClient.post("/api/orders/\(orderID)/start-service") as EmptyResponse
         }
     }
 
     func cancel() async {
         guard let order, let appState else { return }
-        await performAction(failureMessage: "取消失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
-            stopPolling()
-            appState.realtimeCoordinator.unregisterActiveOrder(order.orderId)
-            self.order = nil
-            self.didCancelOrder = true
-            self.speechService?.speak("订单已取消，系统将为盲人重新匹配。")
+        let apiClient = appState.apiClient
+        let orderID = order.orderId
+        await submitTransition(target: .rematching, orderID: orderID, appState: appState) {
+            try await apiClient.post("/api/orders/\(orderID)/cancel") as EmptyResponse
         }
     }
 
@@ -932,11 +1297,10 @@ final class VolunteerInServiceViewModel: ObservableObject {
             speechService?.speakError(message)
             return
         }
-        await performAction(failureMessage: "操作失败，请重试") {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/finish")
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(order.orderId)")
-            apply(updated, speakChanges: false)
-            dispatchSummary = try? await appState.apiClient.get("/api/volunteer/dispatch-summary")
+        let apiClient = appState.apiClient
+        let orderID = order.orderId
+        await submitTransition(target: .completed, orderID: orderID, appState: appState) {
+            try await apiClient.post("/api/orders/\(orderID)/finish") as EmptyResponse
         }
     }
 
@@ -945,35 +1309,245 @@ final class VolunteerInServiceViewModel: ObservableObject {
         speechService?.speak(EmergencySafetyCopy.deferredActionMessage)
     }
 
-    private func performAction(failureMessage: String, operation: () async throws -> Void) async {
+    func retryTransitionConfirmation() {
+        guard let order, let appState, let target = transitionState.targetStatus else { return }
+        transitionState = .awaitingConfirmation(target: target)
+        errorMessage = nil
+        startTransitionConfirmation(
+            orderID: order.orderId,
+            target: target,
+            appState: appState
+        )
+    }
+
+    private func submitTransition(
+        target: RunOrderStatus,
+        orderID: Int64,
+        appState: AppState,
+        operation: @escaping @Sendable () async throws -> EmptyResponse
+    ) async {
+        guard !isPerformingAction else { return }
+        if transitionState.blocksDuplicateSubmission {
+            guard transitionState.targetStatus != target else { return }
+            let message = "上一项操作的状态尚未确认，请先重新确认状态。"
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
+        confirmationTask?.cancel()
+        confirmationTask = nil
+        transitionState = .submitting(target: target)
+        ClientFlowDiagnostics.record(event: "submitted", operation: "volunteer-service-transition")
         isPerformingAction = true
         errorMessage = nil
+        defer { isPerformingAction = false }
         do {
-            try await operation()
-            isPerformingAction = false
+            _ = try await withVolunteerOrderActionDeadline(
+                nanoseconds: actionDeadlineNanoseconds,
+                operation: operation
+            )
+            transitionState = .awaitingConfirmation(target: target)
+            ClientFlowDiagnostics.record(event: "awaiting_confirmation", operation: "volunteer-service-transition")
+            startTransitionConfirmation(orderID: orderID, target: target, appState: appState)
+            simulateRealtimeConfirmationIfRequested(
+                orderID: orderID,
+                fromStatus: order?.status,
+                target: target,
+                appState: appState
+            )
+        } catch VolunteerOrderActionError.timedOut {
+            markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
         } catch let error as APIError {
-            isPerformingAction = false
-            if appState?.handleAuthenticatedAPIError(error) == true {
+            if appState.handleAuthenticatedAPIError(error) {
+                transitionState = .failed(message: error.localizedMessage)
                 return
             }
-            errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
+            switch error {
+            case .networkError, .decodingError:
+                markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
+            case .serverError, .rateLimited, .unknown, .invalidURL:
+                transitionState = .failed(message: error.localizedMessage)
+                errorMessage = error.localizedMessage
+                speechService?.speakError(error.localizedMessage)
+            case .unauthorized:
+                transitionState = .failed(message: error.localizedMessage)
+            }
         } catch {
-            isPerformingAction = false
-            errorMessage = failureMessage
-            speechService?.speakError(failureMessage)
+            markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
+        }
+    }
+
+    private func simulateRealtimeConfirmationIfRequested(
+        orderID: Int64,
+        fromStatus: RunOrderStatus?,
+        target: RunOrderStatus,
+        appState: AppState
+    ) {
+        #if DEBUG
+        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_CONFIRM_TRANSITION_VIA_REALTIME"] == "1",
+              let fromStatus else { return }
+        Task { @MainActor in
+            await Task.yield()
+            appState.realtimeCoordinator.simulateIncomingEventForTesting(
+                .orderStatusChanged(
+                    WSOrderStatusChanged(
+                        type: WSMessageType.orderStatusChanged.rawValue,
+                        orderId: orderID,
+                        fromStatus: fromStatus.rawValue,
+                        toStatus: target.rawValue,
+                        message: nil,
+                        ttsText: nil,
+                        priority: "NORMAL",
+                        timestamp: nil
+                    )
+                )
+            )
+        }
+        #endif
+    }
+
+    private func markTransitionOutcomeUnknown(
+        target: RunOrderStatus,
+        orderID: Int64,
+        appState: AppState
+    ) {
+        transitionState = .awaitingConfirmation(target: target)
+        let message = "操作结果尚未确认，正在后台同步状态。请勿重复提交同一操作。"
+        errorMessage = nil
+        speechService?.speakError(message)
+        startTransitionConfirmation(orderID: orderID, target: target, appState: appState)
+    }
+
+    private func startTransitionConfirmation(
+        orderID: Int64,
+        target: RunOrderStatus,
+        appState: AppState
+    ) {
+        confirmationTask?.cancel()
+        let apiClient = appState.apiClient
+        let requestToken = appState.realtimeCoordinator.beginOrderStatusRequest(orderID: orderID)
+        confirmationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let candidate: OrderDetailResponse = try await HomeLoadCoordinator.run(
+                    timeout: self.confirmationTimeout,
+                    operationName: "volunteer-transition-confirmation"
+                ) {
+                    try await apiClient.get("/api/orders/\(orderID)")
+                }
+                guard !Task.isCancelled,
+                      self.order?.orderId == orderID,
+                      self.transitionState.targetStatus == target else { return }
+                guard let updated = appState.realtimeCoordinator.reconcileOrderDetail(
+                    candidate,
+                    requestToken: requestToken
+                ) else { return }
+                self.apply(updated, speakChanges: true)
+                if !updated.status.satisfiesVolunteerTransition(target: target) {
+                    self.transitionState = .confirmationDelayed(target: target)
+                    self.errorMessage = nil
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled,
+                      self.order?.orderId == orderID,
+                      self.transitionState.targetStatus == target else { return }
+                self.transitionState = .confirmationDelayed(target: target)
+                ClientFlowDiagnostics.record(event: "confirmation_delayed", operation: "volunteer-service-transition")
+                self.errorMessage = nil
+            }
+            self.confirmationTask = nil
         }
     }
 
     private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
         let previousStatus = order?.status
         order = updated
+        appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         if speakChanges, previousStatus != updated.status {
             speechService?.speakStatusChange(updated.status)
+        }
+        if let target = transitionState.targetStatus,
+           updated.status.satisfiesVolunteerTransition(target: target) {
+            transitionState = .idle
+            ClientFlowDiagnostics.record(event: "confirmed", operation: "volunteer-service-transition")
+            confirmationTask?.cancel()
+            confirmationTask = nil
+            errorMessage = nil
+        }
+        if updated.status == .rematching {
+            appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
+            appState?.liveEscortCoordinator.clearOwnedOrder()
+            stopPolling()
+            didCancelOrder = true
+            order = nil
+            speechService?.speak("订单已取消，系统将为盲人重新匹配。")
+            return
         }
         if updated.status.isTerminal {
             appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
             stopPolling()
+            if updated.status == .completed, let appState {
+                refreshDispatchSummary(using: appState)
+            }
+            if updated.status == .cancelled {
+                didCancelOrder = true
+                order = nil
+                speechService?.speak("订单已取消，系统将为盲人重新匹配。")
+            }
+        }
+    }
+
+    private func schedulePeerExpiry(
+        for sample: LocatedCoordinate,
+        orderID: Int64,
+        remaining: TimeInterval
+    ) {
+        peerExpiryTask?.cancel()
+        peerExpiryTask = Task { [weak self] in
+            do {
+                try await Task.sleep(
+                    nanoseconds: UInt64(max(0.01, remaining) * 1_000_000_000)
+                )
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  self.order?.orderId == orderID,
+                  self.latestBlindSample == sample else { return }
+            self.clearPeerLocation()
+        }
+    }
+
+    private func clearPeerLocation() {
+        peerExpiryTask?.cancel()
+        peerExpiryTask = nil
+        latestBlindSample = nil
+    }
+
+    private func refreshDispatchSummary(using appState: AppState) {
+        guard dispatchSummaryTask == nil else { return }
+        let apiClient = appState.apiClient
+        dispatchSummaryTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.dispatchSummaryTask = nil }
+            do {
+                let summary: VolunteerDispatchSummaryResponse = try await HomeLoadCoordinator.run(
+                    timeout: self.orderLoadTimeout,
+                    operationName: "volunteer-service-summary-refresh"
+                ) {
+                    try await apiClient.get("/api/volunteer/dispatch-summary")
+                }
+                guard !Task.isCancelled else { return }
+                self.dispatchSummary = summary
+                ClientFlowDiagnostics.record(event: "confirmed", operation: "volunteer-service-summary-refresh")
+            } catch is CancellationError {
+                return
+            } catch {
+                ClientFlowDiagnostics.record(event: "failed", operation: "volunteer-service-summary-refresh")
+            }
         }
     }
 }
@@ -984,6 +1558,7 @@ struct VolunteerInServiceView: View {
     @EnvironmentObject private var locationService: LocationService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = VolunteerInServiceViewModel()
+    @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @State private var showCancelConfirm = false
     @State private var showEmergencyConfirm = false
     @State private var activeSheet: VolunteerSheet?
@@ -1008,7 +1583,11 @@ struct VolunteerInServiceView: View {
             )
             ZStack(alignment: .bottom) {
                 if let order = viewModel.order {
-                    VolunteerServiceMapBackdrop(order: order, screenAnchor: mapAnchor)
+                    VolunteerServiceMapBackdrop(
+                        order: order,
+                        screenAnchor: mapAnchor,
+                        peerSample: viewModel.latestBlindSample
+                    )
                 } else {
                     AppColors.secondaryBackground
                         .ignoresSafeArea()
@@ -1023,34 +1602,44 @@ struct VolunteerInServiceView: View {
                 }
 
                 if let order = viewModel.order {
-                    VolunteerServiceBottomPanel(
-                        order: order,
-                        distanceText: distanceText(for: order),
-                        errorMessage: viewModel.errorMessage,
-                        isPerformingAction: viewModel.isPerformingAction,
-                        maxHeight: bottomPanelMaxHeight,
-                        onNavigate: {
-                            if let request = externalNavigationRequest(
-                                for: order,
-                                currentLocation: locationService.currentLocation,
-                                locationAuthorized: locationService.isAuthorized
-                            ) {
-                                activeSheet = .navigation(request)
-                            } else {
-                                let message = "不支持导航，等待后端补齐坐标"
-                                viewModel.errorMessage = message
-                                speechService.speakError(message)
-                            }
-                        },
-                        onEnRoute: { Task { await viewModel.enRoute() } },
-                        onArrive: { Task { await viewModel.arrive() } },
-                        onStartService: { Task { await viewModel.startService() } },
-                        onCancel: { showCancelConfirm = true },
-                        onComplete: { activeSheet = .completion },
-                        onEmergency: { showEmergencyConfirm = true }
-                    )
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 8)
+                    if order.status == .completed {
+                        completedTrackContent
+                    } else {
+                        VolunteerServiceBottomPanel(
+                            order: order,
+                            distanceText: distanceText(for: order),
+                            errorMessage: viewModel.errorMessage,
+                            transitionMessage: viewModel.transitionMessage,
+                            isPerformingAction: viewModel.isPerformingAction,
+                            transitionsDisabled: viewModel.isTransitionPending,
+                            canRetryTransitionConfirmation: viewModel.canRetryTransitionConfirmation,
+                            maxHeight: bottomPanelMaxHeight,
+                            onNavigate: {
+                                if let request = externalNavigationRequest(
+                                    for: order,
+                                    currentLocation: locationService.currentLocation,
+                                    locationAuthorized: locationService.isAuthorized
+                                ) {
+                                    activeSheet = .navigation(request)
+                                } else {
+                                    let message = "不支持导航，等待后端补齐坐标"
+                                    viewModel.errorMessage = message
+                                    speechService.speakError(message)
+                                }
+                            },
+                            onEnRoute: { Task { await viewModel.enRoute() } },
+                            onArrive: { Task { await viewModel.arrive() } },
+                            onStartService: { Task { await viewModel.startService() } },
+                            onCancel: { showCancelConfirm = true },
+                            onComplete: { activeSheet = .completion },
+                            onRetryTransitionConfirmation: {
+                                viewModel.retryTransitionConfirmation()
+                            },
+                            onEmergency: { showEmergencyConfirm = true }
+                        )
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 8)
+                    }
                 }
             }
         }
@@ -1064,6 +1653,11 @@ struct VolunteerInServiceView: View {
         }
         .onDisappear {
             viewModel.stopPolling()
+        }
+        .task(id: viewModel.order?.status) {
+            guard viewModel.order?.status == .completed else { return }
+            await trackViewModel.load(orderID: orderId, appState: appState)
+            if let summary = trackViewModel.track?.spokenSummary { speechService.speak(summary) }
         }
         .confirmationDialog("取消订单", isPresented: $showCancelConfirm) {
             Button("确认取消", role: .destructive) {
@@ -1097,12 +1691,66 @@ struct VolunteerInServiceView: View {
     }
 
     private func distanceText(for order: OrderDetailResponse) -> String? {
-        guard locationService.isAuthorized, let coordinate = orderCoordinate(order) else { return nil }
-        let meters = DistanceCalculator.distance(
-            from: locationService.effectiveLocation,
-            to: coordinate
+        guard locationService.isAuthorized,
+              let deviceCoordinate = locationService.currentLocation,
+              let coordinate = orderCoordinate(order) else { return nil }
+        let meters = DistanceCalculator.distanceFromDeviceToBackend(
+            deviceCoordinate: deviceCoordinate,
+            backendCoordinate: coordinate
         )
         return DistanceCalculator.formattedDistance(meters)
+    }
+
+    @ViewBuilder
+    private var completedTrackContent: some View {
+        ScrollView {
+            if let track = trackViewModel.track {
+                CompletedTrackSummaryView(track: track) {
+                    speechService.speak(track.spokenSummary)
+                }
+                .padding(20)
+            } else if trackViewModel.isLoading {
+                ProgressView("正在加载本次路线")
+                    .padding(24)
+                    .accessibilityLabel("正在加载本次路线")
+                    .accessibilityIdentifier("volunteerCompletedTrackLoading")
+            } else {
+                let message = trackViewModel.errorMessage ?? "本次路线暂时无法加载。"
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("服务已完成")
+                        .font(AppFonts.title())
+                        .accessibilityAddTraits(.isHeader)
+                    Text(message)
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textSecondary)
+                        .accessibilityLabel(message)
+
+                    PrimaryButton("重试加载本次路线") {
+                        Task {
+                            await trackViewModel.load(orderID: orderId, appState: appState)
+                            if let summary = trackViewModel.track?.spokenSummary {
+                                speechService.speak(summary)
+                            }
+                        }
+                    }
+                    .accessibilityLabel("重试加载本次路线")
+                    .accessibilityHint("重新获取已完成服务的路线和统计")
+                    .accessibilityIdentifier("volunteerCompletedTrackRetry")
+
+                    Button("重复当前状态") {
+                        speechService.speak("服务已完成。\(message)")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(minHeight: 64)
+                    .accessibilityHint("朗读服务完成和本次路线暂时不可用状态")
+                    .accessibilityIdentifier("volunteerCompletedTrackRepeatStatus")
+                }
+                .padding(20)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("volunteerCompletedTrackUnavailable")
+            }
+        }
+        .background(AppColors.background)
     }
 }
 
@@ -1531,20 +2179,30 @@ struct VolunteerServiceMapBackdrop: View {
     @EnvironmentObject private var locationService: LocationService
     let order: OrderDetailResponse
     let screenAnchor: CGPoint
+    let peerSample: LocatedCoordinate?
 
     var body: some View {
         let presentation = VolunteerServiceMapPresentation(
             order: order,
             currentLocation: locationService.currentLocation,
             locationAuthorized: locationService.isAuthorized,
-            fallbackCoordinate: locationService.effectiveLocation,
+            fallbackCoordinate: locationService.effectiveBackendLocation,
             includesCurrentLocationMarker: false,
             centersOnCurrentAndStart: false
         )
+        let peerAnnotations = peerSample.map { sample in
+            [MapAnnotationItem(
+                id: "associated-blind-runner",
+                coordinate: sample.coordinate,
+                title: "同行盲人跑者",
+                subtitle: "位置刚刚更新",
+                kind: .peer
+            )]
+        } ?? []
         MapViewWrapper(
             centerCoordinate: presentation.centerCoordinate,
             showsUserLocation: locationService.isAuthorized,
-            annotations: presentation.annotations,
+            annotations: presentation.annotations + peerAnnotations,
             zoomLevel: 15,
             screenAnchor: screenAnchor,
             tracksUserLocation: false,
@@ -1568,12 +2226,14 @@ struct VolunteerServiceMapBackdrop: View {
             .frame(height: 260)
             .allowsHitTesting(false)
         }
+        .allowsHitTesting(false)
         .accessibilityLabel(
             presentation.isCurrentLocationAvailable
                 ? "地图，显示我的位置和出发地点：\(order.startAddress ?? "地址待同步")"
                 : "地图，出发地点：\(order.startAddress ?? "地址待同步")"
         )
-        .accessibilityHint("服务信息面板会读出出发地点和距离；可使用下方导航到出发地点按钮打开外部地图步行导航")
+        .accessibilityIdentifier("volunteerServiceMapBackdrop")
+        .accessibilityHint("服务信息面板会读出出发地点和距离；同行位置过期后会自动隐藏")
     }
 }
 
@@ -1663,7 +2323,10 @@ struct VolunteerServiceBottomPanel: View {
     let order: OrderDetailResponse
     let distanceText: String?
     let errorMessage: String?
+    let transitionMessage: String?
     let isPerformingAction: Bool
+    let transitionsDisabled: Bool
+    let canRetryTransitionConfirmation: Bool
     let maxHeight: CGFloat
     let onNavigate: () -> Void
     let onEnRoute: () -> Void
@@ -1671,6 +2334,7 @@ struct VolunteerServiceBottomPanel: View {
     let onStartService: () -> Void
     let onCancel: () -> Void
     let onComplete: () -> Void
+    let onRetryTransitionConfirmation: () -> Void
     let onEmergency: () -> Void
 
     var body: some View {
@@ -1688,9 +2352,25 @@ struct VolunteerServiceBottomPanel: View {
                         .accessibilityLabel(errorMessage)
                 }
 
+                if let transitionMessage {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(transitionMessage, systemImage: "clock.arrow.circlepath")
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.warning)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityLabel(transitionMessage)
+                        if canRetryTransitionConfirmation {
+                            Button("重新确认状态", action: onRetryTransitionConfirmation)
+                                .buttonStyle(.bordered)
+                                .accessibilityHint("只重新查询订单状态，不会重复提交当前操作")
+                        }
+                    }
+                }
+
                 VolunteerServiceActions(
                     status: order.status,
                     isPerformingAction: isPerformingAction,
+                    transitionsDisabled: transitionsDisabled,
                     onNavigate: onNavigate,
                     onEnRoute: onEnRoute,
                     onArrive: onArrive,
@@ -1710,6 +2390,7 @@ struct VolunteerServiceBottomPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(color: Color.black.opacity(0.16), radius: 22, x: 0, y: -8)
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("volunteerServicePanel")
     }
 }
 
@@ -1890,6 +2571,7 @@ enum VolunteerServiceActionKind: Hashable {
 struct VolunteerServiceActions: View {
     let status: RunOrderStatus
     let isPerformingAction: Bool
+    let transitionsDisabled: Bool
     let onNavigate: () -> Void
     let onEnRoute: () -> Void
     let onArrive: () -> Void
@@ -1937,20 +2619,24 @@ struct VolunteerServiceActions: View {
             navigationButton(action: onNavigate)
         case .markEnRoute:
             PrimaryButton(action.title, isLoading: isPerformingAction, action: onEnRoute)
+                .disabled(transitionsDisabled)
                 .accessibilityLabel(action.title)
                 .accessibilityHint("点击后通知盲人您正在前往")
         case .markArrived:
             PrimaryButton(action.title, isLoading: isPerformingAction, action: onArrive)
+                .disabled(transitionsDisabled)
                 .accessibilityLabel(action.title)
                 .accessibilityHint("点击后通知盲人您已到达")
         case .startService:
             PrimaryButton(action.title, isLoading: isPerformingAction, action: onStartService)
+                .disabled(transitionsDisabled)
                 .accessibilityLabel(action.title)
                 .accessibilityHint("点击后通知盲人服务已开始")
         case .cancelOrder:
             secondaryDangerButton(action.title, hint: "取消当前订单", action: onCancel)
         case .completeService:
             PrimaryButton(action.title, isDestructive: true, isLoading: isPerformingAction, action: onComplete)
+                .disabled(transitionsDisabled)
                 .accessibilityLabel(action.title)
                 .accessibilityHint("需要使用二次确认")
         case .completedMessage:
@@ -1983,7 +2669,6 @@ struct VolunteerServiceActions: View {
                 .background(AppColors.primary.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
-        .disabled(isPerformingAction)
         .accessibilityLabel("导航到出发地点")
         .accessibilityHint("选择高德、百度或苹果地图进行步行导航")
     }
@@ -2122,6 +2807,9 @@ struct VolunteerServiceRecordRow: View {
 }
 
 struct VolunteerReadOnlyOrderView: View {
+    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var speechService: SpeechService
+    @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     let order: OrderDetailResponse
 
     var body: some View {
@@ -2130,10 +2818,23 @@ struct VolunteerReadOnlyOrderView: View {
                 VolunteerStatusBanner(status: order.status)
                 VolunteerBlindRunnerInfoCard(order: order, showPhone: order.status != .pendingMatch && order.blindPhone?.trimmed.isEmpty == false)
                 VolunteerOrderInfoSection(order: order, distanceText: nil)
+                if order.status == .completed, let track = trackViewModel.track {
+                    CompletedTrackSummaryView(track: track) {
+                        speechService.speak(track.spokenSummary)
+                    }
+                } else if trackViewModel.isLoading {
+                    ProgressView("正在加载本次路线")
+                } else if let error = trackViewModel.errorMessage {
+                    Text(error).foregroundColor(AppColors.textSecondary)
+                }
             }
             .padding(20)
         }
         .navigationTitle("订单详情")
+        .task {
+            guard order.status == .completed else { return }
+            await trackViewModel.load(orderID: order.orderId, appState: appState)
+        }
     }
 }
 

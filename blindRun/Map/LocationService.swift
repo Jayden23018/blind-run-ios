@@ -29,7 +29,18 @@ final class LocationService: NSObject, ObservableObject {
     @Published var locationError: LocationError?
 
     /// 最近一次真实定位更新时间，供非视觉摘要和验收记录使用。
-    @Published var lastLocationUpdatedAt: Date?
+    ///
+    /// 时间戳本身不驱动 UI。Core Location 可能在坐标未变化时连续交付新时间戳；
+    /// 若把每个时间戳都发布给整棵 SwiftUI 环境树，会造成无意义的全页重算。
+    private(set) var lastLocationUpdatedAt: Date?
+
+    /// CLLocationManager 的原始 WGS-84 样本；只有网络边界可将其转换为 GCJ-02。
+    private(set) var latestDeviceSample: LocatedCoordinate?
+    private let latestDeviceSampleSubject = CurrentValueSubject<LocatedCoordinate?, Never>(nil)
+
+    var latestDeviceSamplePublisher: AnyPublisher<LocatedCoordinate?, Never> {
+        latestDeviceSampleSubject.eraseToAnyPublisher()
+    }
 
     // MARK: - Computed Properties
 
@@ -44,6 +55,14 @@ final class LocationService: NSObject, ObservableObject {
         )
     }
 
+    /// 供高德地图自定义中心/标记使用；真实设备坐标在此转换，Demo 默认点已是 GCJ-02。
+    var effectiveBackendLocation: CLLocationCoordinate2D {
+        guard let currentLocation else { return effectiveLocation }
+        return BackendCoordinateNormalizer.normalize(
+            LocatedCoordinate(coordinate: currentLocation, system: .wgs84Device)
+        )?.coordinate ?? currentLocation
+    }
+
     /// 当前是否正在使用 Demo 默认坐标
     var isUsingDemoFallback: Bool {
         currentLocation == nil
@@ -52,6 +71,7 @@ final class LocationService: NSObject, ObservableObject {
     /// 是否已获得定位授权
     var isAuthorized: Bool {
         #if DEBUG
+        if let authorizationOverrideForTesting { return authorizationOverrideForTesting }
         if isUsingUITestDemoLocation {
             return true
         }
@@ -109,6 +129,33 @@ final class LocationService: NSObject, ObservableObject {
     // MARK: - Private
 
     private let locationManager: CLLocationManager
+    private(set) var isEscortBackgroundModeEnabled = false
+    private var isUpdatingLocation = false
+
+    #if DEBUG
+    private var authorizationOverrideForTesting: Bool?
+    private var suppressHardwareUpdatesForTesting = false
+
+    func simulateDeviceLocationForTesting(
+        _ coordinate: CLLocationCoordinate2D,
+        capturedAt: Date,
+        authorized: Bool = true
+    ) {
+        suppressHardwareUpdatesForTesting = true
+        authorizationOverrideForTesting = authorized
+        if authorized {
+            applyDeviceLocation(coordinate, capturedAt: capturedAt)
+            setLocationError(nil)
+        } else {
+            clearDeviceLocation()
+            setLocationError(.permissionDenied)
+        }
+    }
+
+    func simulateLocationFailureForTesting() {
+        setLocationError(.locationUnavailable)
+    }
+    #endif
 
     #if DEBUG
     private var isUsingUITestDemoLocation: Bool {
@@ -143,42 +190,117 @@ final class LocationService: NSObject, ObservableObject {
     /// 开始持续定位更新
     func startUpdating() {
         #if DEBUG
+        if suppressHardwareUpdatesForTesting { return }
         if isUsingUITestDemoLocation {
-            locationError = nil
+            setLocationError(nil)
             return
         }
         #endif
         guard isAuthorized else {
             if isDenied {
-                locationError = .permissionDenied
+                setLocationError(.permissionDenied)
             }
             return
         }
-        locationError = nil
+        guard !isUpdatingLocation else { return }
+        setLocationError(nil)
+        isUpdatingLocation = true
         locationManager.startUpdatingLocation()
     }
 
     /// 停止定位更新
     func stopUpdating() {
+        guard isUpdatingLocation else { return }
+        isUpdatingLocation = false
         locationManager.stopUpdatingLocation()
+    }
+
+    /// 进行中服务使用适合跑步的高精度持续定位；离开后恢复普通前台策略。
+    func setEscortBackgroundMode(enabled: Bool) {
+        guard isEscortBackgroundModeEnabled != enabled else { return }
+        isEscortBackgroundModeEnabled = enabled
+        locationManager.activityType = enabled ? .fitness : .other
+        locationManager.desiredAccuracy = enabled ? kCLLocationAccuracyBestForNavigation : kCLLocationAccuracyBest
+        locationManager.distanceFilter = enabled ? 5 : 10
+        locationManager.pausesLocationUpdatesAutomatically = !enabled
+        locationManager.showsBackgroundLocationIndicator = enabled
+        locationManager.allowsBackgroundLocationUpdates = enabled
+        if enabled {
+            startUpdating()
+        }
+    }
+
+    func latestBackendSample(now: Date = Date(), freshness: TimeInterval = 15) -> LocatedCoordinate? {
+        guard let sample = latestDeviceSample,
+              now.timeIntervalSince(sample.capturedAt) <= freshness else { return nil }
+        return BackendCoordinateNormalizer.normalize(sample)
+    }
+
+    /// 同行会话按固定 cadence 复用最近一次真实设备样本；静止不等于定位失效。
+    /// 只有权限撤销或 Core Location 明确报告失败时才暂停发送。
+    func latestEscortBackendSample() -> LocatedCoordinate? {
+        guard isAuthorized,
+              locationError == nil,
+              let sample = latestDeviceSample else { return nil }
+        return BackendCoordinateNormalizer.normalize(sample)
     }
 
     /// 请求一次定位（获取当前位置后自动停止）
     func requestOneTimeLocation() {
         #if DEBUG
         if isUsingUITestDemoLocation {
-            locationError = nil
+            setLocationError(nil)
             return
         }
         #endif
         guard isAuthorized else {
             if isDenied {
-                locationError = .permissionDenied
+                setLocationError(.permissionDenied)
             }
             return
         }
-        locationError = nil
+        setLocationError(nil)
         locationManager.requestLocation()
+    }
+
+    private func applyDeviceLocation(
+        _ coordinate: CLLocationCoordinate2D,
+        capturedAt: Date
+    ) {
+        let sample = LocatedCoordinate(
+            coordinate: coordinate,
+            system: .wgs84Device,
+            capturedAt: capturedAt
+        )
+        latestDeviceSample = sample
+        lastLocationUpdatedAt = capturedAt
+        latestDeviceSampleSubject.send(sample)
+
+        guard !Self.coordinatesNearlyEqual(currentLocation, coordinate) else { return }
+        currentLocation = coordinate
+    }
+
+    private func clearDeviceLocation() {
+        latestDeviceSample = nil
+        lastLocationUpdatedAt = nil
+        latestDeviceSampleSubject.send(nil)
+        if currentLocation != nil {
+            currentLocation = nil
+        }
+    }
+
+    private func setLocationError(_ error: LocationError?) {
+        guard locationError != error else { return }
+        locationError = error
+    }
+
+    private static func coordinatesNearlyEqual(
+        _ lhs: CLLocationCoordinate2D?,
+        _ rhs: CLLocationCoordinate2D
+    ) -> Bool {
+        guard let lhs else { return false }
+        return abs(lhs.latitude - rhs.latitude) <= 0.000001 &&
+            abs(lhs.longitude - rhs.longitude) <= 0.000001
     }
 }
 
@@ -189,9 +311,8 @@ extension LocationService: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         Task { @MainActor in
-            self.currentLocation = location.coordinate
-            self.lastLocationUpdatedAt = Date()
-            self.locationError = nil
+            self.applyDeviceLocation(location.coordinate, capturedAt: location.timestamp)
+            self.setLocationError(nil)
         }
     }
 
@@ -200,22 +321,24 @@ extension LocationService: CLLocationManagerDelegate {
             #if DEBUG
             print("[LocationService] 定位失败: \(error.localizedDescription)")
             #endif
-            if self.currentLocation == nil {
-                self.locationError = .locationUnavailable
-            }
+            self.setLocationError(.locationUnavailable)
         }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
-            self.authorizationStatus = manager.authorizationStatus
+            if self.authorizationStatus != manager.authorizationStatus {
+                self.authorizationStatus = manager.authorizationStatus
+            }
 
             switch manager.authorizationStatus {
             case .authorizedWhenInUse, .authorizedAlways:
-                self.locationError = nil
+                self.setLocationError(nil)
                 self.startUpdating()
             case .denied, .restricted:
-                self.locationError = .permissionDenied
+                self.setLocationError(.permissionDenied)
+                self.clearDeviceLocation()
+                self.setEscortBackgroundMode(enabled: false)
                 self.stopUpdating()
             case .notDetermined:
                 break

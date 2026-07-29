@@ -132,8 +132,11 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertTrue(didReport)
         XCTAssertEqual(sentCoordinates.count, 1)
-        XCTAssertEqual(sentCoordinates[0].0, 39.905, accuracy: 0.000001)
-        XCTAssertEqual(sentCoordinates[0].1, 116.408, accuracy: 0.000001)
+        let expected = BackendCoordinateNormalizer.wgs84ToGCJ02(
+            CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408)
+        )
+        XCTAssertEqual(sentCoordinates[0].0, expected.latitude, accuracy: 0.000001)
+        XCTAssertEqual(sentCoordinates[0].1, expected.longitude, accuracy: 0.000001)
     }
 
     func testVolunteerLocationReporterSkipsUnauthorizedOrMockLocation() {
@@ -225,6 +228,282 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(viewModel.errorMessage)
         XCTAssertNil(viewModel.dispatchSummaryErrorMessage)
         XCTAssertTrue(viewModel.dispatchSummary?.canDispatch ?? false)
+    }
+
+    func testVolunteerReconnectImmediatelyReportsLatestLocationAndRefreshesSummary() async {
+        let client = DispatchSummarySequenceAPIClient()
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .demoCloud
+        appState.activeRole = .volunteer
+        let service = WebSocketService()
+        appState.webSocketService = service
+        var reportCount = 0
+        let expectedLocation = CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408)
+        let viewModel = VolunteerHomeViewModel(
+            dispatchPropagationDelay: 0,
+            reportVolunteerLocation: { _, location, authorized in
+                XCTAssertTrue(authorized)
+                XCTAssertEqual(location?.latitude, expectedLocation.latitude)
+                XCTAssertEqual(location?.longitude, expectedLocation.longitude)
+                reportCount += 1
+                return true
+            }
+        )
+        viewModel.configure(
+            with: appState,
+            speechService: SpeechService(),
+            currentLocationProvider: { expectedLocation },
+            locationAuthorizedProvider: { true }
+        )
+        viewModel.setSceneActive(true)
+
+        service.simulateConnectionStateForTesting(.connected)
+        service.simulateConnectionStateForTesting(.reconnecting(attempt: 1))
+        service.simulateConnectionStateForTesting(.connected)
+
+        let didRecover = await waitUntil {
+            reportCount == 1 && client.dispatchSummaryRequestCount == 1
+        }
+        XCTAssertTrue(didRecover)
+        XCTAssertNil(viewModel.locationDispatchWarning)
+    }
+
+    func testVolunteerMissingLocationShowsAndSpeaksDispatchWarning() async {
+        let client = DispatchSummarySequenceAPIClient()
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .demoCloud
+        let speechService = SpeechService()
+        let viewModel = VolunteerHomeViewModel(
+            dispatchPropagationDelay: 0,
+            reportVolunteerLocation: { _, _, _ in false }
+        )
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.reportLocationThenRefreshSummary(
+            currentLocation: nil,
+            locationAuthorized: false
+        )
+
+        XCTAssertEqual(viewModel.locationDispatchWarning, "定位暂不可用，可能无法收到派单")
+        XCTAssertEqual(speechService.lastSpokenText, "定位暂不可用，可能无法收到派单")
+    }
+
+    func testVolunteerHomeCancellationClearsInitialLoadingState() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let viewModel = VolunteerHomeViewModel(
+            dispatchPropagationDelay: 60,
+            reportVolunteerLocation: { _, _, _ in true }
+        )
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        let loadTask = Task {
+            await viewModel.load(
+                currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
+                locationAuthorized: true
+            )
+        }
+        let didBeginLoading = await waitUntil { viewModel.isLoading }
+        XCTAssertTrue(didBeginLoading)
+
+        loadTask.cancel()
+        await loadTask.value
+
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testBlindRunnerHomeCancellationClearsLoadingState() async {
+        let appState = AppState(apiClient: CancellationSuspendingAPIClient())
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        let loadTask = Task { await viewModel.loadActiveOrder() }
+        let didBeginLoading = await waitUntil { viewModel.isLoading }
+        XCTAssertTrue(didBeginLoading)
+
+        loadTask.cancel()
+        await loadTask.value
+
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testBlindRunnerHomeTimeoutReleasesLoadingAndOffersRetryState() async {
+        let client = CancellationSuspendingAPIClient()
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel(loadTimeout: 0.05)
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        let loadTask = Task { await viewModel.loadActiveOrder() }
+        let didTimeout = await waitUntil { !viewModel.isLoading && viewModel.errorMessage != nil }
+        await loadTask.value
+
+        XCTAssertTrue(didTimeout)
+        XCTAssertEqual(viewModel.errorMessage, "加载超过 20 秒，请重试。")
+        XCTAssertGreaterThanOrEqual(client.cancellationCount, 1)
+    }
+
+    func testHomeLoadCoordinatorCancelsSuspendedRequestAtDeadline() async {
+        let client = CancellationSuspendingAPIClient()
+
+        do {
+            let _: PagedOrderResponse = try await HomeLoadCoordinator.run(timeout: 0.05) {
+                try await client.get("/api/orders/mine")
+            }
+            XCTFail("Expected the home request to time out")
+        } catch HomeLoadCoordinatorError.timedOut {
+            XCTAssertGreaterThanOrEqual(client.cancellationCount, 1)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testHomeLoadCoordinatorReturnsAtDeadlineWhenRequestIgnoresCancellation() async {
+        let client = ControlledNonCooperativeAPIClient()
+        let startedAt = Date()
+
+        do {
+            let _: PagedOrderResponse = try await HomeLoadCoordinator.run(
+                timeout: 0.05,
+                operationName: "non-cooperative-test"
+            ) {
+                try await client.get("/api/orders/mine")
+            }
+            XCTFail("Expected the home request to time out")
+        } catch HomeLoadCoordinatorError.timedOut {
+            XCTAssertLessThan(Date().timeIntervalSince(startedAt), 0.5)
+            XCTAssertTrue(client.hasStarted)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        client.release()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertTrue(client.didReturnLateResponse)
+    }
+
+    func testBlindRunnerHomeDiscardsResponseArrivingAfterDeadline() async {
+        let client = ControlledNonCooperativeAPIClient()
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel(loadTimeout: 0.05)
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        await viewModel.loadActiveOrder()
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertEqual(viewModel.errorMessage, "加载超过 20 秒，请重试。")
+
+        client.release()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertNil(viewModel.activeOrder)
+        XCTAssertEqual(viewModel.errorMessage, "加载超过 20 秒，请重试。")
+    }
+
+    func testBlindRunnerCannotStartBookingBeforeActiveOrderIsConfirmed() {
+        let appState = AppState(apiClient: CancellationSuspendingAPIClient())
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        XCTAssertFalse(viewModel.canStartNewBooking)
+        viewModel.explainBookingUnavailable()
+        XCTAssertEqual(viewModel.errorMessage, "订单状态尚未确认，请先重试加载，避免创建重复预约。")
+    }
+
+    func testVolunteerHomeTimeoutReleasesLoadingAndOffersRetryState() async {
+        let client = CancellationSuspendingAPIClient()
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerHomeViewModel(dispatchPropagationDelay: 0, loadTimeout: 0.05)
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        let loadTask = Task { await viewModel.load(currentLocation: nil, locationAuthorized: false) }
+        let didTimeout = await waitUntil { !viewModel.isLoading && viewModel.dispatchSummaryErrorMessage != nil }
+        await loadTask.value
+
+        XCTAssertTrue(didTimeout)
+        XCTAssertEqual(viewModel.dispatchSummaryErrorMessage, "加载超过 20 秒，请重试。")
+        XCTAssertGreaterThanOrEqual(client.cancellationCount, 1)
+    }
+
+    func testBlindRunnerHomeCoalescesConcurrentRefreshTriggersWithoutExtendingDeadline() async {
+        let client = CancellationSuspendingAPIClient()
+        let appState = AppState(apiClient: client)
+        let existingOrder = makeOrder(orderId: 701, status: .driverEnRoute)
+        let viewModel = BlindRunnerHomeViewModel(loadTimeout: 0.08)
+        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.activeOrder = existingOrder
+        let startedAt = Date()
+
+        let lifecycleLoad = Task { await viewModel.loadActiveOrder() }
+        let didStart = await waitUntil {
+            client.requestCount(for: "/api/orders/mine") == 1
+        }
+        let reconnectLoad = Task { await viewModel.loadActiveOrder() }
+        let manualLoad = Task { await viewModel.loadActiveOrder() }
+        await lifecycleLoad.value
+        await reconnectLoad.value
+        await manualLoad.value
+
+        XCTAssertTrue(didStart)
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 0.5)
+        XCTAssertEqual(client.requestCount(for: "/api/orders/mine"), 1)
+        XCTAssertEqual(viewModel.activeOrder?.orderId, existingOrder.orderId)
+        XCTAssertEqual(viewModel.activeOrder?.status, .driverEnRoute)
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertEqual(viewModel.errorMessage, "加载超过 20 秒，请重试。")
+    }
+
+    func testVolunteerHomeCoalescesLifecycleReconnectAndManualRefreshWhileKeepingContent() async throws {
+        let client = CancellationSuspendingAPIClient()
+        let appState = AppState(apiClient: client)
+        let existingSummary = try JSONDecoder().decode(
+            VolunteerDispatchSummaryResponse.self,
+            from: Data(#"{"canDispatch":true,"notAvailableReasons":[],"wantsDispatch":true}"#.utf8)
+        )
+        let existingOrder = makeOrder(orderId: 702, status: .driverEnRoute)
+        let viewModel = VolunteerHomeViewModel(dispatchPropagationDelay: 0, loadTimeout: 0.08)
+        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.dispatchSummary = existingSummary
+        viewModel.activeOrder = existingOrder
+        let startedAt = Date()
+
+        let lifecycleLoad = Task {
+            await viewModel.load(currentLocation: nil, locationAuthorized: false)
+        }
+        let didStart = await waitUntil {
+            client.requestCount(for: "/api/volunteer/dispatch-summary") == 1
+        }
+        let reconnectLoad = Task {
+            await viewModel.load(currentLocation: nil, locationAuthorized: false)
+        }
+        let manualRefresh = Task { await viewModel.refreshDispatchSummary() }
+        await lifecycleLoad.value
+        await reconnectLoad.value
+        await manualRefresh.value
+
+        XCTAssertTrue(didStart)
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 0.5)
+        XCTAssertEqual(client.requestCount(for: "/api/volunteer/dispatch-summary"), 1)
+        XCTAssertEqual(viewModel.dispatchSummary?.canDispatch, true)
+        XCTAssertEqual(viewModel.activeOrder?.orderId, existingOrder.orderId)
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertEqual(viewModel.dispatchSummaryErrorMessage, "加载超过 20 秒，请重试。")
+    }
+
+    func testVolunteerDispatchSummaryDoesNotWaitForSlowProfileHydration() async {
+        let client = SummaryFirstAPIClient()
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerHomeViewModel(dispatchPropagationDelay: 0, loadTimeout: 2)
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        let loadTask = Task { await viewModel.load(currentLocation: nil, locationAuthorized: false) }
+        let didLoadSummary = await waitUntil(timeout: 0.5) {
+            viewModel.dispatchSummary?.canDispatch == true && !viewModel.isLoading
+        }
+
+        XCTAssertTrue(didLoadSummary)
+        XCTAssertEqual(client.summaryRequestCount, 1)
+        loadTask.cancel()
+        await loadTask.value
     }
 
     func testAcceptingDispatchPublishesNavigationOrderId() async throws {
@@ -468,6 +747,45 @@ final class blindRunTests: XCTestCase {
             ),
             .expanded
         )
+    }
+
+    func testVolunteerHomeTopLayoutIsDeterministicAndDoesNotDependOnChildMeasurement() {
+        let withoutOrder = VolunteerHomeTopLayout.reservedBottom(
+            safeAreaTop: 24,
+            hasActiveOrder: false
+        )
+        let withOrder = VolunteerHomeTopLayout.reservedBottom(
+            safeAreaTop: 24,
+            hasActiveOrder: true
+        )
+
+        XCTAssertEqual(withoutOrder, 204)
+        XCTAssertEqual(withOrder, 324)
+        XCTAssertGreaterThan(withOrder, withoutOrder)
+        XCTAssertEqual(
+            VolunteerHomeTopLayout.reservedBottom(
+                safeAreaTop: .nan,
+                hasActiveOrder: true
+            ),
+            300
+        )
+    }
+
+    func testCurrentValueReplayGateRejectsPublisherReplayAcrossViewRecalculation() {
+        var healthGate = CurrentValueReplayGate<LiveEscortHealthState>()
+
+        XCTAssertTrue(healthGate.accepts(.active(background: false)))
+        XCTAssertFalse(healthGate.accepts(.active(background: false)))
+        XCTAssertTrue(healthGate.accepts(.active(background: true)))
+        XCTAssertFalse(healthGate.accepts(.active(background: true)))
+        XCTAssertTrue(healthGate.accepts(.idle))
+        XCTAssertTrue(healthGate.accepts(.active(background: false)))
+
+        let notificationID = UUID()
+        var notificationGate = CurrentValueReplayGate<UUID>()
+        XCTAssertTrue(notificationGate.accepts(notificationID))
+        XCTAssertFalse(notificationGate.accepts(notificationID))
+        XCTAssertTrue(notificationGate.accepts(UUID()))
     }
 
     func testVolunteerHomeMapAnchorUsesVisibleAreaAndClampsExtremes() {
@@ -1774,6 +2092,45 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(appState.activeRole)
     }
 
+    func testContentRootRouterCommitsOneBlindDestinationAfterAtomicHydration() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let client = RootHydrationAPIClient()
+        let appState = AppState(apiClient: client, persistence: persistence)
+        appState.currentEnvironment = .mock
+        appState.handleLoginSuccess(response: LoginResponse(token: "token-1", userId: 1, role: "BLIND"))
+        let router = ContentRootRouter()
+
+        router.synchronize(with: appState)
+
+        XCTAssertEqual(router.route, .restoringAccount)
+        let didRoute = await waitUntil { router.route == .blindHome }
+        XCTAssertTrue(didRoute)
+        XCTAssertEqual(appState.blindProfile?.name, "账号1")
+        XCTAssertEqual(appState.emergencyContacts.count, 1)
+    }
+
+    func testContentRootRouterCancelsOldAccountHydrationBeforeCommit() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let client = RootHydrationAPIClient(firstRequestDelay: 1)
+        let appState = AppState(apiClient: client, persistence: persistence)
+        appState.currentEnvironment = .mock
+        let router = ContentRootRouter()
+
+        appState.handleLoginSuccess(response: LoginResponse(token: "old-token", userId: 1, role: "BLIND"))
+        router.synchronize(with: appState)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        appState.handleLoginSuccess(response: LoginResponse(token: "new-token", userId: 2, role: "BLIND"))
+        router.synchronize(with: appState)
+
+        let didRoute = await waitUntil { router.route == .blindHome }
+        XCTAssertTrue(didRoute)
+        XCTAssertEqual(appState.userId, 2)
+        XCTAssertEqual(appState.blindProfile?.name, "账号2")
+        XCTAssertGreaterThanOrEqual(client.cancellationCount, 1)
+    }
+
     func testExpireSessionClearsStateAndProvidesOneTimeLoginMessage() {
         let appState = AppState()
         appState.currentEnvironment = .mock
@@ -1793,22 +2150,22 @@ final class blindRunTests: XCTestCase {
     }
 
     func testSessionRestoreHydratesSelectedRole() async {
-        prepareStoredSession(token: "selected-token", role: .blind, userId: 99)
+        let persistence = prepareStoredSession(token: "selected-token", role: .blind, userId: 99)
         let client = AuthLifecycleAPIClient(meResult: .success(CurrentUserResponse(userId: 99, phone: nil, role: "BLIND")))
-        let appState = AppState(apiClient: client)
+        let appState = AppState(apiClient: client, persistence: persistence)
 
         await appState.restoreSession()
 
         XCTAssertEqual(appState.sessionRestorationState, .authenticated)
         XCTAssertEqual(appState.currentUser?.userId, 99)
         XCTAssertEqual(appState.activeRole, .blind)
-        cleanupStoredSession()
+        persistence.reset()
     }
 
     func testSessionRestoreKeepsRolelessSessionWithoutWebSocket() async {
-        prepareStoredSession(token: "roleless-token", role: nil, userId: 100)
+        let persistence = prepareStoredSession(token: "roleless-token", role: nil, userId: 100)
         let client = AuthLifecycleAPIClient(meResult: .success(CurrentUserResponse(userId: 100, phone: nil, role: "UNSET")))
-        let appState = AppState(apiClient: client)
+        let appState = AppState(apiClient: client, persistence: persistence)
 
         await appState.restoreSession()
 
@@ -1816,15 +2173,15 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(appState.userId, 100)
         XCTAssertNil(appState.activeRole)
         XCTAssertNil(appState.webSocketService)
-        cleanupStoredSession()
+        persistence.reset()
     }
 
     func testSessionRestoreRejectsMalformedRole() async {
-        prepareStoredSession(token: "malformed-role-token", role: .blind, userId: 102)
+        let persistence = prepareStoredSession(token: "malformed-role-token", role: .blind, userId: 102)
         let client = AuthLifecycleAPIClient(
             meResult: .success(CurrentUserResponse(userId: 102, phone: nil, role: "ADMIN"))
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(apiClient: client, persistence: persistence)
 
         await appState.restoreSession()
 
@@ -1832,21 +2189,21 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(appState.accessToken)
         XCTAssertNil(appState.currentUser)
         XCTAssertEqual(appState.consumeSessionExpirationMessage(), "登录角色信息异常，请重新登录。")
-        cleanupStoredSession()
+        persistence.reset()
     }
 
     func testRevokedSessionRestoreClearsCredentialsAndMetadata() async {
-        prepareStoredSession(token: "revoked-token", role: .volunteer, userId: 101)
-        UserDefaults.standard.set("event-101", forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
+        let persistence = prepareStoredSession(token: "revoked-token", role: .volunteer, userId: 101)
+        persistence.set("event-101", forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
         let client = AuthLifecycleAPIClient(meResult: .failure(.unauthorized))
-        let appState = AppState(apiClient: client)
+        let appState = AppState(apiClient: client, persistence: persistence)
 
         await appState.restoreSession()
 
         XCTAssertEqual(appState.sessionRestorationState, .unauthenticated)
         XCTAssertNil(appState.accessToken)
-        XCTAssertNil(UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata))
-        cleanupStoredSession()
+        XCTAssertNil(persistence.object(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata))
+        persistence.reset()
     }
 
     func testLogoutSuccessAndUnauthorizedBothCleanSession() async {
@@ -1854,19 +2211,22 @@ final class blindRunTests: XCTestCase {
             Result<LogoutResponse, APIError>.success(LogoutResponse(success: true, message: nil)),
             .failure(.unauthorized)
         ] {
+            let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+            defer { persistence.reset() }
             let client = AuthLifecycleAPIClient(logoutResult: result)
-            let appState = AppState(apiClient: client)
+            let appState = AppState(apiClient: client, persistence: persistence)
             appState.handleLoginSuccess(response: LoginResponse(token: "token", userId: 7, role: "BLIND"))
             await appState.logout()
             XCTAssertFalse(appState.isLoggedIn)
             XCTAssertEqual(appState.sessionRestorationState, .unauthenticated)
         }
-        cleanupStoredSession()
     }
 
     func testLogoutFailurePreservesSessionUntilConfirmedLocalOnlySignOut() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
         let client = AuthLifecycleAPIClient(logoutResult: .failure(.networkError(URLError(.notConnectedToInternet))))
-        let appState = AppState(apiClient: client)
+        let appState = AppState(apiClient: client, persistence: persistence)
         appState.handleLoginSuccess(response: LoginResponse(token: "token", userId: 8, role: "VOLUNTEER"))
 
         await appState.logout()
@@ -1877,21 +2237,21 @@ final class blindRunTests: XCTestCase {
         }
         appState.confirmLocalOnlySignOut()
         XCTAssertFalse(appState.isLoggedIn)
-        cleanupStoredSession()
     }
 
     func testLocalCleanupIsIdempotentAndClearsUserScopedMetadata() {
-        let appState = AppState()
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let appState = AppState(persistence: persistence)
         appState.handleLoginSuccess(response: LoginResponse(token: "token", userId: 9, role: "BLIND"))
-        UserDefaults.standard.set("event-9", forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
+        persistence.set("event-9", forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
 
         appState.clearSession()
         appState.clearSession()
 
         XCTAssertNil(appState.accessToken)
         XCTAssertNil(appState.currentUser)
-        XCTAssertNil(UserDefaults.standard.object(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata))
-        cleanupStoredSession()
+        XCTAssertNil(persistence.object(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata))
     }
 
     func testAccountDeletionPreflightSpeaksActiveOrderBlock() async throws {
@@ -1937,6 +2297,37 @@ final class blindRunTests: XCTestCase {
         AuthLifecycleURLProtocol.handler = nil
     }
 
+    func testNetworkDiagnosticsSanitizeIdentifiersAndSecrets() async throws {
+        await NetworkDiagnosticRecorder.shared.resetForTesting()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AuthLifecycleURLProtocol.self]
+        AuthLifecycleURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data("{}".utf8))
+        }
+        let secret = "secret-jwt-13800138000"
+        let client = URLSessionAPIClient(
+            baseURL: URL(string: "http://example.test")!,
+            session: URLSession(configuration: configuration),
+            tokenProvider: { secret }
+        )
+
+        let _: EmptyResponse = try await client.get("/api/orders/123/track")
+        let events = await NetworkDiagnosticRecorder.shared.snapshot()
+        let event = try XCTUnwrap(events.last)
+
+        XCTAssertEqual(event.endpointCategory, "/api/orders/{id}/track")
+        XCTAssertEqual(event.statusCode, 200)
+        XCTAssertFalse(String(describing: event).contains(secret))
+        XCTAssertFalse(String(describing: event).contains("13800138000"))
+        AuthLifecycleURLProtocol.handler = nil
+    }
+
     func testRegistrationRateLimitDisablesSubmitForAuthoritativeCountdown() async {
         let client = AuthLifecycleAPIClient(registrationRateLimitSeconds: 2)
         let appState = AppState(apiClient: client)
@@ -1957,20 +2348,13 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(viewModel.canSubmitBasicInfo)
     }
 
-    private func prepareStoredSession(token: String, role: UserRole?, userId: Int64) {
-        let defaults = UserDefaults.standard
-        defaults.set(token, forKey: AppConstants.UserDefaultsKeys.accessToken)
-        defaults.set(userId, forKey: AppConstants.UserDefaultsKeys.userId)
-        if let role { defaults.set(role.rawValue, forKey: AppConstants.UserDefaultsKeys.activeRole) }
-        else { defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole) }
-    }
-
-    private func cleanupStoredSession() {
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
-        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
-        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
-        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
+    private func prepareStoredSession(token: String, role: UserRole?, userId: Int64) -> UserDefaultsAppStatePersistence {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        persistence.set(token, forKey: AppConstants.UserDefaultsKeys.accessToken)
+        persistence.set(userId, forKey: AppConstants.UserDefaultsKeys.userId)
+        if let role { persistence.set(role.rawValue, forKey: AppConstants.UserDefaultsKeys.activeRole) }
+        else { persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole) }
+        return persistence
     }
 
     func testAuthenticatedUnauthorizedErrorExpiresSession() {
@@ -2307,23 +2691,57 @@ final class blindRunTests: XCTestCase {
     }
 
     func testDebugEnvironmentSwitcherCyclesMockAndDemoCloud() {
-        let previousEnvironment = UserDefaults.standard.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
-        defer {
-            if let previousEnvironment {
-                UserDefaults.standard.set(previousEnvironment, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
-            } else {
-                UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
-            }
-        }
-
-        UserDefaults.standard.set(APIEnvironment.mock.rawValue, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
-        let appState = AppState()
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        persistence.set(APIEnvironment.mock.rawValue, forKey: AppConstants.UserDefaultsKeys.apiEnvironment)
+        let appState = AppState(persistence: persistence)
 
         XCTAssertEqual(appState.currentEnvironment, .mock)
         appState.switchToNextEnvironmentForTesting()
         XCTAssertEqual(appState.currentEnvironment, .demoCloud)
         appState.switchToNextEnvironmentForTesting()
         XCTAssertEqual(appState.currentEnvironment, .mock)
+    }
+
+    func testInjectedTestPersistenceNeverChangesStandardAppDomain() {
+        let keys = AppStatePersistenceKeys.all
+        let before = Dictionary(uniqueKeysWithValues: keys.map { ($0, UserDefaults.standard.object(forKey: $0).map(String.init(describing:))) })
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let appState = AppState(persistence: persistence)
+
+        appState.currentEnvironment = .mock
+        appState.accessToken = "unit-test-token"
+        appState.userId = 4242
+        appState.activeRole = .volunteer
+        appState.clearSession()
+
+        let after = Dictionary(uniqueKeysWithValues: keys.map { ($0, UserDefaults.standard.object(forKey: $0).map(String.init(describing:))) })
+        XCTAssertEqual(before, after)
+    }
+
+    func testDefaultHostedXCTestPersistenceNeverChangesStandardAppDomain() {
+        let keys = AppStatePersistenceKeys.all
+        let before = Dictionary(uniqueKeysWithValues: keys.map { ($0, UserDefaults.standard.object(forKey: $0).map(String.init(describing:))) })
+        let appState = AppState()
+
+        appState.currentEnvironment = .mock
+        appState.accessToken = "hosted-test-token"
+        appState.userId = 4343
+        appState.activeRole = .blind
+        appState.clearSession()
+
+        let after = Dictionary(uniqueKeysWithValues: keys.map { ($0, UserDefaults.standard.object(forKey: $0).map(String.init(describing:))) })
+        XCTAssertEqual(before, after)
+    }
+
+    func testUITestPersistenceUsesDedicatedResettableDomain() {
+        let persistence = UserDefaultsAppStatePersistence(suiteName: AppStatePersistenceFactory.uiTestSuiteName)
+        defer { persistence.reset() }
+        persistence.set("ui-token", forKey: AppConstants.UserDefaultsKeys.accessToken)
+        XCTAssertEqual(persistence.string(forKey: AppConstants.UserDefaultsKeys.accessToken), "ui-token")
+        persistence.reset()
+        XCTAssertNil(persistence.string(forKey: AppConstants.UserDefaultsKeys.accessToken))
     }
 
     func testCreateOrderRequestUsesOpenAPIWireValues() throws {
@@ -3252,13 +3670,14 @@ final class blindRunTests: XCTestCase {
     func testBlindOrderStatusViewModelTracksVolunteerDistanceToStart() {
         let viewModel = BlindOrderStatusViewModel()
         viewModel.order = makeOrder(orderId: 1, status: .driverEnRoute)
+        let nowMilliseconds = Int64(Date().timeIntervalSince1970 * 1_000)
 
         viewModel.handleVolunteerLocationUpdate(WSVolunteerLocationUpdate(
             type: WSMessageType.volunteerLocationUpdate.rawValue,
             orderId: 1,
             lat: 39.9342,
             lng: 116.4740,
-            timestamp: 1
+            timestamp: nowMilliseconds
         ))
 
         XCTAssertEqual(viewModel.volunteerDistanceToStartText, "距出发地点约 10 米")
@@ -3268,10 +3687,76 @@ final class blindRunTests: XCTestCase {
             orderId: 2,
             lat: 39.9042,
             lng: 116.4074,
-            timestamp: 2
+            timestamp: nowMilliseconds
         ))
 
         XCTAssertEqual(viewModel.volunteerDistanceToStartText, "距出发地点约 10 米")
+    }
+
+    func testBlindPeerSampleExpiryUsesLatestSampleAndIgnoresWrongOrder() async throws {
+        let viewModel = BlindOrderStatusViewModel(peerFreshness: 0.12)
+        viewModel.order = makeOrder(orderId: 31, status: .driverEnRoute)
+        let first = RealtimePeerLocationSample(
+            orderId: 31,
+            ownerRole: .volunteer,
+            latitude: 39.9342,
+            longitude: 116.4740,
+            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
+        )
+        viewModel.handleVolunteerLocationUpdate(first)
+        XCTAssertNotNil(viewModel.latestVolunteerSample)
+
+        try await Task.sleep(nanoseconds: 70_000_000)
+        let second = RealtimePeerLocationSample(
+            orderId: 31,
+            ownerRole: .volunteer,
+            latitude: 39.9343,
+            longitude: 116.4741,
+            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
+        )
+        viewModel.handleVolunteerLocationUpdate(second)
+        viewModel.handleVolunteerLocationUpdate(RealtimePeerLocationSample(
+            orderId: 99,
+            ownerRole: .volunteer,
+            latitude: 31.2,
+            longitude: 121.5,
+            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
+        ))
+
+        try await Task.sleep(nanoseconds: 70_000_000)
+        XCTAssertEqual(
+            try XCTUnwrap(viewModel.latestVolunteerSample).coordinate.latitude,
+            second.latitude,
+            accuracy: 0.000_001
+        )
+
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertNil(viewModel.latestVolunteerSample)
+        XCTAssertNil(viewModel.volunteerDistanceToStartText)
+    }
+
+    func testBlindPeerSampleStopCancelsExpiry() async throws {
+        let viewModel = BlindOrderStatusViewModel(peerFreshness: 0.04)
+        viewModel.order = makeOrder(orderId: 32, status: .driverArrived)
+        viewModel.handleVolunteerLocationUpdate(RealtimePeerLocationSample(
+            orderId: 32,
+            ownerRole: .volunteer,
+            latitude: 39.9342,
+            longitude: 116.4740,
+            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
+        ))
+        viewModel.stopPolling()
+        viewModel.handleVolunteerLocationUpdate(RealtimePeerLocationSample(
+            orderId: 32,
+            ownerRole: .volunteer,
+            latitude: 31.2,
+            longitude: 121.5,
+            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
+        ))
+
+        XCTAssertNil(viewModel.latestVolunteerSample)
+        try await Task.sleep(nanoseconds: 60_000_000)
+        XCTAssertNil(viewModel.latestVolunteerSample)
     }
 
     func testBlindOrderStatusSuppressesLifecycleAppNotificationSpeech() {
@@ -3533,8 +4018,363 @@ final class blindRunTests: XCTestCase {
 
         await viewModel.startService()
 
-        XCTAssertEqual(viewModel.order?.status, .inProgress)
+        let didConfirmStart = await waitUntil {
+            viewModel.order?.status == .inProgress
+        }
+        XCTAssertTrue(didConfirmStart)
         XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testVolunteerEnRouteUnknownPostResultReleasesSpinnerAndAwaitsConfirmation() async {
+        let client = CancellationSuspendingAPIClient()
+        let appState = AppState(apiClient: client)
+        let speechService = SpeechService()
+        let viewModel = VolunteerInServiceViewModel(
+            actionDeadlineNanoseconds: 20_000_000,
+            confirmationTimeout: 0.2
+        )
+        viewModel.configure(
+            with: appState,
+            speechService: speechService,
+            initialOrder: makeOrder(orderId: 94, status: .pendingAccept)
+        )
+
+        await viewModel.enRoute()
+
+        XCTAssertFalse(viewModel.isPerformingAction)
+        XCTAssertGreaterThanOrEqual(client.cancellationCount, 1)
+        XCTAssertEqual(viewModel.transitionState, .awaitingConfirmation(target: .driverEnRoute))
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            "操作结果尚未确认，正在后台同步状态。请勿重复提交同一操作。"
+        )
+        XCTAssertEqual(viewModel.order?.status, .pendingAccept)
+    }
+
+    func testVolunteerEnRouteSuccessDoesNotWaitForSuspendedConfirmationAndBlocksDuplicatePost() async {
+        let initialOrder = makeOrder(orderId: 95, status: .pendingAccept)
+        let client = TransitionConfirmationAPIClient(
+            confirmation: .suspended,
+            order: initialOrder
+        )
+        let appState = AppState(apiClient: client)
+        let speechService = SpeechService()
+        let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
+        viewModel.configure(
+            with: appState,
+            speechService: speechService,
+            initialOrder: initialOrder
+        )
+        let startedAt = Date()
+
+        await viewModel.enRoute()
+
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 0.5)
+        XCTAssertFalse(viewModel.isPerformingAction)
+        XCTAssertEqual(viewModel.transitionState, .awaitingConfirmation(target: .driverEnRoute))
+        XCTAssertEqual(client.postRequestCount, 1)
+        XCTAssertEqual(viewModel.order?.status, .pendingAccept)
+
+        await viewModel.enRoute()
+        XCTAssertEqual(client.postRequestCount, 1, "Pending conversion must not submit a duplicate POST")
+        let didStartConfirmation = await waitUntil { client.getRequestCount == 1 }
+        XCTAssertTrue(didStartConfirmation)
+        client.releaseSuspendedRequests()
+    }
+
+    func testVolunteerEnRouteWebSocketConfirmationWinsOverSuspendedDetailQuery() async {
+        let initialOrder = makeOrder(orderId: 96, status: .pendingAccept)
+        let client = TransitionConfirmationAPIClient(
+            confirmation: .suspended,
+            order: initialOrder
+        )
+        let appState = AppState(apiClient: client)
+        let speechService = SpeechService()
+        let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
+        viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
+
+        await viewModel.enRoute()
+        appState.realtimeCoordinator.simulateIncomingEventForTesting(
+            .orderStatusChanged(WSOrderStatusChanged(
+                type: WSMessageType.orderStatusChanged.rawValue,
+                orderId: 96,
+                fromStatus: RunOrderStatus.pendingAccept.rawValue,
+                toStatus: RunOrderStatus.driverEnRoute.rawValue,
+                message: nil,
+                ttsText: nil,
+                priority: "NORMAL",
+                timestamp: "2026-07-23T12:00:00Z"
+            ))
+        )
+        let didConfirm = await waitUntil {
+            viewModel.order?.status == .driverEnRoute && viewModel.transitionState == .idle
+        }
+
+        XCTAssertTrue(didConfirm)
+        XCTAssertFalse(viewModel.isPerformingAction)
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            SpeechService.statusAnnouncement(for: .driverEnRoute)
+        )
+        client.releaseSuspendedRequests()
+    }
+
+    func testVolunteerEnRoutePollingConfirmationAppliesAuthoritativeStatus() async {
+        let initialOrder = makeOrder(orderId: 97, status: .pendingAccept)
+        let confirmedOrder = makeOrder(orderId: 97, status: .driverEnRoute)
+        let client = TransitionConfirmationAPIClient(
+            confirmation: .response,
+            order: confirmedOrder
+        )
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: initialOrder)
+
+        await viewModel.enRoute()
+        let didConfirm = await waitUntil {
+            viewModel.order?.status == .driverEnRoute && viewModel.transitionState == .idle
+        }
+
+        XCTAssertTrue(didConfirm)
+        XCTAssertEqual(client.postRequestCount, 1)
+        XCTAssertEqual(client.getRequestCount, 1)
+    }
+
+    func testVolunteerEnRouteConfirmationDelayOffersReadOnlyRetryWithoutReposting() async {
+        let initialOrder = makeOrder(orderId: 98, status: .pendingAccept)
+        let client = TransitionConfirmationAPIClient(
+            confirmation: .suspended,
+            order: initialOrder
+        )
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.05)
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: initialOrder)
+
+        await viewModel.enRoute()
+        let didDelay = await waitUntil {
+            viewModel.transitionState == .confirmationDelayed(target: .driverEnRoute)
+        }
+
+        XCTAssertTrue(didDelay)
+        XCTAssertTrue(viewModel.canRetryTransitionConfirmation)
+        XCTAssertFalse(viewModel.isPerformingAction)
+        XCTAssertEqual(client.postRequestCount, 1)
+
+        viewModel.retryTransitionConfirmation()
+        XCTAssertEqual(viewModel.transitionState, .awaitingConfirmation(target: .driverEnRoute))
+        let didRetryConfirmation = await waitUntil { client.getRequestCount == 2 }
+        XCTAssertTrue(didRetryConfirmation)
+        XCTAssertEqual(client.postRequestCount, 1, "Read-only retry must never repeat the state-changing POST")
+        client.releaseSuspendedRequests()
+    }
+
+    func testVolunteerEnRouteExplicitServerErrorRestoresRetryableAction() async {
+        let client = TransitionConfirmationAPIClient(
+            postError: .serverError(ErrorResponse(
+                code: "INVALID_ORDER_STATUS",
+                message: "订单状态不允许该操作"
+            )),
+            confirmation: .response,
+            order: makeOrder(orderId: 99, status: .pendingAccept)
+        )
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(
+            with: appState,
+            speechService: SpeechService(),
+            initialOrder: makeOrder(orderId: 99, status: .pendingAccept)
+        )
+
+        await viewModel.enRoute()
+
+        XCTAssertFalse(viewModel.isPerformingAction)
+        XCTAssertFalse(viewModel.isTransitionPending)
+        if case .failed = viewModel.transitionState {
+            // Expected: an explicit backend rejection permits a deliberate retry.
+        } else {
+            XCTFail("Expected an explicit server error to enter failed state")
+        }
+        XCTAssertEqual(viewModel.errorMessage, "当前订单状态不允许此操作。")
+        XCTAssertEqual(client.postRequestCount, 1)
+
+        await viewModel.enRoute()
+        XCTAssertEqual(client.postRequestCount, 2)
+    }
+
+    func testVolunteerEnRouteUnauthorizedUsesSessionExpirationFlow() async {
+        let client = TransitionConfirmationAPIClient(
+            postError: .unauthorized,
+            confirmation: .response,
+            order: makeOrder(orderId: 100, status: .pendingAccept)
+        )
+        let appState = AppState(apiClient: client)
+        appState.accessToken = "expired-token"
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(
+            with: appState,
+            speechService: SpeechService(),
+            initialOrder: makeOrder(orderId: 100, status: .pendingAccept)
+        )
+
+        await viewModel.enRoute()
+
+        XCTAssertNil(appState.accessToken)
+        XCTAssertEqual(appState.sessionExpirationMessage, "登录已过期，请重新登录。")
+        XCTAssertFalse(viewModel.isPerformingAction)
+        XCTAssertFalse(viewModel.isTransitionPending)
+    }
+
+    func testVolunteerArrivedUnknownPostResultReleasesSpinnerAndAwaitsConfirmation() async {
+        let client = CancellationSuspendingAPIClient()
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerInServiceViewModel(
+            actionDeadlineNanoseconds: 20_000_000,
+            confirmationTimeout: 0.2
+        )
+        viewModel.configure(
+            with: appState,
+            speechService: SpeechService(),
+            initialOrder: makeOrder(orderId: 104, status: .driverEnRoute)
+        )
+
+        await viewModel.arrive()
+
+        XCTAssertFalse(viewModel.isPerformingAction)
+        XCTAssertEqual(viewModel.transitionState, .awaitingConfirmation(target: .driverArrived))
+        XCTAssertEqual(client.requestCount(for: "/api/orders/104/arrived"), 1)
+        XCTAssertEqual(viewModel.order?.status, .driverEnRoute)
+    }
+
+    func testVolunteerArrivedSuccessDoesNotWaitForSuspendedConfirmationOrRepost() async {
+        let initialOrder = makeOrder(orderId: 105, status: .driverEnRoute)
+        let client = TransitionConfirmationAPIClient(
+            confirmation: .suspended,
+            order: initialOrder
+        )
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: initialOrder)
+
+        await viewModel.arrive()
+
+        XCTAssertFalse(viewModel.isPerformingAction)
+        XCTAssertEqual(viewModel.transitionState, .awaitingConfirmation(target: .driverArrived))
+        XCTAssertEqual(client.postRequestCount, 1)
+        await viewModel.arrive()
+        XCTAssertEqual(client.postRequestCount, 1)
+        client.releaseSuspendedRequests()
+    }
+
+    func testVolunteerArrivedWebSocketConfirmationWinsOverLateOldREST() async {
+        let initialOrder = makeOrder(orderId: 106, status: .driverEnRoute)
+        let client = TransitionConfirmationAPIClient(
+            confirmation: .suspended,
+            order: initialOrder
+        )
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.3)
+        viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: initialOrder)
+
+        await viewModel.arrive()
+        appState.realtimeCoordinator.simulateIncomingEventForTesting(
+            .orderStatusChanged(WSOrderStatusChanged(
+                type: WSMessageType.orderStatusChanged.rawValue,
+                orderId: 106,
+                fromStatus: RunOrderStatus.driverEnRoute.rawValue,
+                toStatus: RunOrderStatus.driverArrived.rawValue,
+                message: nil,
+                ttsText: nil,
+                priority: "NORMAL",
+                timestamp: "2026-07-28T11:00:00Z"
+            ))
+        )
+        let didConfirmRealtimeArrival = await waitUntil {
+            viewModel.order?.status == .driverArrived && viewModel.transitionState == .idle
+        }
+        XCTAssertTrue(didConfirmRealtimeArrival)
+
+        client.releaseSuspendedRequests()
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertEqual(viewModel.order?.status, .driverArrived)
+        XCTAssertFalse(viewModel.isPerformingAction)
+    }
+
+    func testVolunteerArrivedRESTConfirmationAppliesAuthoritativeStatus() async {
+        let client = TransitionConfirmationAPIClient(
+            confirmation: .response,
+            order: makeOrder(orderId: 107, status: .driverArrived)
+        )
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
+        viewModel.configure(
+            with: appState,
+            speechService: SpeechService(),
+            initialOrder: makeOrder(orderId: 107, status: .driverEnRoute)
+        )
+
+        await viewModel.arrive()
+
+        let didConfirmRESTArrival = await waitUntil {
+            viewModel.order?.status == .driverArrived && viewModel.transitionState == .idle
+        }
+        XCTAssertTrue(didConfirmRESTArrival)
+        XCTAssertEqual(client.postRequestCount, 1)
+        XCTAssertEqual(client.getRequestCount, 1)
+    }
+
+    func testVolunteerArrivedExplicitServerErrorRestoresRetryableAction() async {
+        let client = TransitionConfirmationAPIClient(
+            postError: .serverError(ErrorResponse(
+                code: "INVALID_ORDER_STATUS",
+                message: "订单状态不允许该操作"
+            )),
+            confirmation: .response,
+            order: makeOrder(orderId: 108, status: .driverEnRoute)
+        )
+        let appState = AppState(apiClient: client)
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.configure(
+            with: appState,
+            speechService: SpeechService(),
+            initialOrder: makeOrder(orderId: 108, status: .driverEnRoute)
+        )
+
+        await viewModel.arrive()
+
+        XCTAssertFalse(viewModel.isPerformingAction)
+        XCTAssertFalse(viewModel.isTransitionPending)
+        XCTAssertEqual(viewModel.errorMessage, "当前订单状态不允许此操作。")
+        await viewModel.arrive()
+        XCTAssertEqual(client.postRequestCount, 2)
+    }
+
+    func testVolunteerBlindPeerSampleExpiresAndWrongOrderCannotClearIt() async throws {
+        let viewModel = VolunteerInServiceViewModel(peerFreshness: 0.06)
+        viewModel.order = makeOrder(orderId: 109, status: .driverEnRoute)
+        let sample = RealtimePeerLocationSample(
+            orderId: 109,
+            ownerRole: .blind,
+            latitude: 39.9342,
+            longitude: 116.4740,
+            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
+        )
+        viewModel.handleBlindLocationUpdate(sample)
+        viewModel.handleBlindLocationUpdate(RealtimePeerLocationSample(
+            orderId: 999,
+            ownerRole: .blind,
+            latitude: 31.2,
+            longitude: 121.5,
+            timestampMilliseconds: Int64(Date().timeIntervalSince1970 * 1_000)
+        ))
+
+        XCTAssertEqual(
+            try XCTUnwrap(viewModel.latestBlindSample).coordinate.latitude,
+            sample.latitude,
+            accuracy: 0.000_001
+        )
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertNil(viewModel.latestBlindSample)
     }
 
     func testVolunteerInServiceBlocksStartServiceOutsideDriverArrived() async {
@@ -3575,9 +4415,12 @@ final class blindRunTests: XCTestCase {
 
         await viewModel.complete(summary: "已完成")
 
-        XCTAssertEqual(viewModel.order?.status, .completed)
-        XCTAssertEqual(viewModel.dispatchSummary?.completedCount, 2)
-        XCTAssertEqual(viewModel.dispatchSummary?.resolvedPointsBalance, 200)
+        let didConfirmCompletion = await waitUntil {
+            viewModel.order?.status == .completed
+                && viewModel.dispatchSummary?.completedCount == 2
+                && viewModel.dispatchSummary?.resolvedPointsBalance == 200
+        }
+        XCTAssertTrue(didConfirmCompletion)
     }
 
     func testVolunteerInServiceCancelClearsLocalOrderWithoutDetailFetch() async throws {
@@ -3600,7 +4443,10 @@ final class blindRunTests: XCTestCase {
 
         await viewModel.cancel()
 
-        XCTAssertTrue(viewModel.didCancelOrder)
+        let didConfirmCancellation = await waitUntil {
+            viewModel.didCancelOrder && viewModel.order == nil
+        }
+        XCTAssertTrue(didConfirmCancellation)
         XCTAssertNil(viewModel.order)
         XCTAssertNil(viewModel.errorMessage)
         XCTAssertEqual(speechService.lastSpokenText, "订单已取消，系统将为盲人重新匹配。")
@@ -3706,8 +4552,17 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(presentation.annotations[0].kind, .currentLocation)
         XCTAssertEqual(presentation.annotations[1].kind, .orderStart)
         XCTAssertTrue(presentation.hasCurrentLocationMarker)
-        XCTAssertEqual(presentation.centerCoordinate.latitude, 39.9192, accuracy: 0.000001)
-        XCTAssertEqual(presentation.centerCoordinate.longitude, 116.4407, accuracy: 0.000001)
+        let normalizedCurrent = BackendCoordinateNormalizer.wgs84ToGCJ02(current)
+        XCTAssertEqual(
+            presentation.centerCoordinate.latitude,
+            (normalizedCurrent.latitude + 39.9342) / 2,
+            accuracy: 0.000001
+        )
+        XCTAssertEqual(
+            presentation.centerCoordinate.longitude,
+            (normalizedCurrent.longitude + 116.4740) / 2,
+            accuracy: 0.000001
+        )
     }
 
     func testVolunteerServiceMapPresentationCanPinCenterOnStartWithCurrentMarker() {
@@ -3752,8 +4607,9 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(presentation.annotations.count, 1)
         XCTAssertEqual(presentation.annotations[0].kind, .currentLocation)
         XCTAssertFalse(presentation.annotations.contains { $0.kind == .orderStart })
-        XCTAssertEqual(presentation.centerCoordinate.latitude, current.latitude, accuracy: 0.000001)
-        XCTAssertEqual(presentation.centerCoordinate.longitude, current.longitude, accuracy: 0.000001)
+        let normalizedCurrent = BackendCoordinateNormalizer.wgs84ToGCJ02(current)
+        XCTAssertEqual(presentation.centerCoordinate.latitude, normalizedCurrent.latitude, accuracy: 0.000001)
+        XCTAssertEqual(presentation.centerCoordinate.longitude, normalizedCurrent.longitude, accuracy: 0.000001)
     }
 
     func testVolunteerDispatchMapPresentationUsesSystemCurrentLocationLayerAndStartMarker() {
@@ -3882,6 +4738,94 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.inProgress.blindRunnerAnnouncement)
     }
 
+    func testBlindRunnerHomeAppliesRealtimeStatusWhileBackgroundRefreshIsSuspended() async {
+        let client = CancellationSuspendingAPIClient()
+        let appState = AppState(apiClient: client)
+        let speechService = SpeechService()
+        let initialOrder = makeOrder(orderId: 703, status: .pendingAccept)
+        let viewModel = BlindRunnerHomeViewModel(loadTimeout: 0.2)
+        viewModel.configure(with: appState, speechService: speechService)
+        viewModel.activeOrder = initialOrder
+        appState.liveEscortCoordinator.updateOwnedOrder(
+            orderID: initialOrder.orderId,
+            status: initialOrder.status
+        )
+        let refresh = Task { await viewModel.loadActiveOrder() }
+        _ = await waitUntil { client.requestCount(for: "/api/orders/mine") == 1 }
+
+        appState.realtimeCoordinator.simulateIncomingEventForTesting(
+            .orderStatusChanged(WSOrderStatusChanged(
+                type: WSMessageType.orderStatusChanged.rawValue,
+                orderId: initialOrder.orderId,
+                fromStatus: RunOrderStatus.pendingAccept.rawValue,
+                toStatus: RunOrderStatus.driverEnRoute.rawValue,
+                message: nil,
+                ttsText: nil,
+                priority: "HIGH",
+                timestamp: "2026-07-23T12:00:00Z"
+            ))
+        )
+        let didApply = await waitUntil {
+            viewModel.activeOrder?.status == .driverEnRoute
+        }
+
+        XCTAssertTrue(didApply)
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            viewModel.activeOrder?.blindRunnerAnnouncement()
+        )
+        XCTAssertEqual(viewModel.currentStatusText.contains("志愿者出发中"), true)
+
+        refresh.cancel()
+        await refresh.value
+        XCTAssertEqual(viewModel.activeOrder?.status, .driverEnRoute)
+    }
+
+    func testBlindOrderStatusAppliesRealtimeEnRouteWhileDetailQueryIsSuspended() async {
+        let initialOrder = makeOrder(orderId: 704, status: .pendingAccept)
+        let client = TransitionConfirmationAPIClient(
+            confirmation: .suspended,
+            order: initialOrder
+        )
+        let appState = AppState(apiClient: client)
+        let speechService = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.order = initialOrder
+        viewModel.startPolling(orderId: initialOrder.orderId)
+        let didStartPolling = await waitUntil { client.getRequestCount == 1 }
+        XCTAssertTrue(didStartPolling)
+
+        appState.realtimeCoordinator.simulateIncomingEventForTesting(
+            .orderStatusChanged(WSOrderStatusChanged(
+                type: WSMessageType.orderStatusChanged.rawValue,
+                orderId: initialOrder.orderId,
+                fromStatus: RunOrderStatus.pendingAccept.rawValue,
+                toStatus: RunOrderStatus.driverEnRoute.rawValue,
+                message: nil,
+                ttsText: nil,
+                priority: "HIGH",
+                timestamp: "2026-07-23T12:00:00Z"
+            ))
+        )
+        let didApply = await waitUntil {
+            viewModel.order?.status == .driverEnRoute && !viewModel.isLoading
+        }
+
+        XCTAssertTrue(didApply)
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            SpeechService.statusAnnouncement(for: .driverEnRoute)
+        )
+
+        client.releaseSuspendedRequests()
+        let didDiscardLateRegression = await waitUntil {
+            viewModel.order?.status == .driverEnRoute
+        }
+        XCTAssertTrue(didDiscardLateRegression)
+        viewModel.stopPolling()
+    }
+
     // MARK: - Helpers
 
     private func makeDispatchOrder(orderId: Int64) -> WSNewOrder {
@@ -3966,6 +4910,67 @@ final class blindRunTests: XCTestCase {
         )
     }
 
+    private final class RootHydrationAPIClient: APIClientProtocol, @unchecked Sendable {
+        private let firstRequestDelay: TimeInterval
+        private var profileRequestCount = 0
+        private(set) var cancellationCount = 0
+
+        init(firstRequestDelay: TimeInterval = 0) {
+            self.firstRequestDelay = firstRequestDelay
+        }
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            guard method == .get else { throw APIError.invalidURL }
+
+            if path == "/api/blind/profile" {
+                profileRequestCount += 1
+                let account = profileRequestCount
+                if account == 1, firstRequestDelay > 0 {
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(firstRequestDelay * 1_000_000_000))
+                    } catch {
+                        cancellationCount += 1
+                        throw error
+                    }
+                }
+                let data = Data("{\"name\":\"账号\(account)\"}".utf8)
+                return try JSONDecoder().decode(T.self, from: data)
+            }
+
+            if path.contains("/emergency-contacts") {
+                let account = path.contains("/users/2/") ? 2 : 1
+                if account == 1, firstRequestDelay > 0 {
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(firstRequestDelay * 1_000_000_000))
+                    } catch {
+                        cancellationCount += 1
+                        throw error
+                    }
+                }
+                let data = Data("[{\"id\":\(account),\"name\":\"联系人\",\"phone\":\"13800138000\",\"isPrimary\":true}]".utf8)
+                return try JSONDecoder().decode(T.self, from: data)
+            }
+
+            throw APIError.invalidURL
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
+        }
+    }
+
     private final class FailingAPIClient: APIClientProtocol, @unchecked Sendable {
         private let error: Error
 
@@ -3991,6 +4996,229 @@ final class blindRunTests: XCTestCase {
             requiresAuth: Bool
         ) async throws -> T {
             throw error
+        }
+    }
+
+    private final class CancellationSuspendingAPIClient: APIClientProtocol, @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancellations = 0
+        private var requestCounts: [String: Int] = [:]
+
+        var cancellationCount: Int {
+            lock.withLock { cancellations }
+        }
+
+        func requestCount(for path: String) -> Int {
+            lock.withLock { requestCounts[path, default: 0] }
+        }
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            lock.withLock { requestCounts[path, default: 0] += 1 }
+            do {
+                try await Task.sleep(nanoseconds: 60_000_000_000)
+            } catch {
+                lock.withLock { cancellations += 1 }
+                throw error
+            }
+            throw APIError.invalidURL
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
+        }
+    }
+
+    private final class ControlledNonCooperativeAPIClient: APIClientProtocol, @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: UnsafeContinuation<Void, Never>?
+        private var started = false
+        private var returnedLateResponse = false
+
+        var hasStarted: Bool {
+            lock.withLock { started }
+        }
+
+        var didReturnLateResponse: Bool {
+            lock.withLock { returnedLateResponse }
+        }
+
+        func release() {
+            let continuation = lock.withLock { () -> UnsafeContinuation<Void, Never>? in
+                defer { self.continuation = nil }
+                return self.continuation
+            }
+            continuation?.resume()
+        }
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            lock.withLock { started = true }
+            await withUnsafeContinuation { continuation in
+                lock.withLock { self.continuation = continuation }
+            }
+            lock.withLock { returnedLateResponse = true }
+            return try JSONDecoder().decode(T.self, from: Data(#"{"content":[]}"#.utf8))
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
+        }
+    }
+
+    private final class TransitionConfirmationAPIClient: APIClientProtocol, @unchecked Sendable {
+        enum Confirmation {
+            case response
+            case suspended
+            case failure(APIError)
+        }
+
+        private let lock = NSLock()
+        private let postError: APIError?
+        private let confirmation: Confirmation
+        private let order: OrderDetailResponse
+        private var postCount = 0
+        private var getCount = 0
+        private var releaseRequested = false
+        private var continuations: [UnsafeContinuation<Void, Never>] = []
+
+        init(
+            postError: APIError? = nil,
+            confirmation: Confirmation,
+            order: OrderDetailResponse
+        ) {
+            self.postError = postError
+            self.confirmation = confirmation
+            self.order = order
+        }
+
+        var postRequestCount: Int {
+            lock.withLock { postCount }
+        }
+
+        var getRequestCount: Int {
+            lock.withLock { getCount }
+        }
+
+        func releaseSuspendedRequests() {
+            let pending = lock.withLock { () -> [UnsafeContinuation<Void, Never>] in
+                releaseRequested = true
+                defer { continuations.removeAll() }
+                return continuations
+            }
+            pending.forEach { $0.resume() }
+        }
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            if method == .post,
+               path.hasSuffix("/en-route") || path.hasSuffix("/arrived") {
+                lock.withLock { postCount += 1 }
+                if let postError { throw postError }
+                guard let response = EmptyResponse() as? T else {
+                    throw APIError.decodingError(TransitionTestError.typeMismatch)
+                }
+                return response
+            }
+
+            if method == .get, path.hasPrefix("/api/orders/") {
+                lock.withLock { getCount += 1 }
+                switch confirmation {
+                case .response:
+                    break
+                case .failure(let error):
+                    throw error
+                case .suspended:
+                    await withUnsafeContinuation { continuation in
+                        let shouldResume = lock.withLock { () -> Bool in
+                            if releaseRequested { return true }
+                            continuations.append(continuation)
+                            return false
+                        }
+                        if shouldResume { continuation.resume() }
+                    }
+                }
+                guard let response = order as? T else {
+                    throw APIError.decodingError(TransitionTestError.typeMismatch)
+                }
+                return response
+            }
+
+            throw APIError.invalidURL
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
+        }
+
+        private enum TransitionTestError: Error {
+            case typeMismatch
+        }
+    }
+
+    private final class SummaryFirstAPIClient: APIClientProtocol, @unchecked Sendable {
+        private(set) var summaryRequestCount = 0
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            if method == .get, path == "/api/volunteer/dispatch-summary" {
+                summaryRequestCount += 1
+                let json = #"{"canDispatch":true,"notAvailableReasons":[],"wantsDispatch":true}"#
+                return try JSONDecoder().decode(T.self, from: Data(json.utf8))
+            }
+            if method == .get,
+               path == "/api/volunteer/profile" || path == "/api/volunteer/registration/status" {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+            throw APIError.invalidURL
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
         }
     }
 

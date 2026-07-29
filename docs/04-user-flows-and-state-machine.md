@@ -314,22 +314,48 @@ sequenceDiagram
     participant REST as REST API
     participant UI as Shared Foreground UI
 
-    WS-->>ARC: ORDER_STATUS_CHANGED(orderId)
-    ARC-->>ARC: 按 orderId 合并未完成刷新
+    WS-->>ARC: ORDER_STATUS_CHANGED(messageId/orderId/fromStatus/toStatus)
+    ARC-->>ARC: UUID/指纹去重并协调状态前进
+    ARC-->>VM: 立即发布已校验目标状态
+    VM-->>UI: 更新状态并用本地文案播报一次
+    ARC-->>ARC: 按 orderId 合并后台详情刷新
     ARC-->>VM: pending refresh ID
     VM->>REST: GET /api/orders/{orderId}
-    REST-->>VM: 权威 OrderDetail
-    VM-->>UI: 更新状态并本地播报一次
+    REST-->>VM: 完整 OrderDetail / 断线降级
+    VM-->>UI: 补齐字段且不得回退已接受状态
 
-    WS-->>ARC: APP_NOTIFICATION(priority/eventId)
-    ARC-->>ARC: 生命周期抑制、普通去重、HIGH 抢占
+    WS-->>ARC: APP_NOTIFICATION(messageId/eventType/priority)
+    ARC-->>ARC: 生命周期语义抑制、普通去重、HIGH 抢占
     ARC-->>UI: 可见 + VoiceOver + TTS 等价呈现
 ```
 
+- `ORDER_STATUS_CHANGED` 的相同 UUID/指纹重发不再次更新、播报或刷新；UUID 身份碰撞不采用内容，只触发一次有界安全刷新。缺失或非法 UUID 记录匿名合同异常后仍按旧消息兼容路径协调状态。
+- REST 详情刷新与盲人端五秒轮询继续补齐完整字段并兜底断线或漏事件；WebSocket 即时状态不得被迟到 REST 旧值回退。
+- 生命周期 `APP_NOTIFICATION` 与结构化状态事件并行到达时只播报客户端固定状态文案一次；终态移除活动订单后的 30 秒内继续按目标状态语义抑制模板通知，安全告警不受影响。
 - `NEW_ORDER` 由协调器保留至响应、超时、失效或角色变化；志愿者首页重新出现时按原始截止时间恢复倒计时。
 - 退出、角色/token 变化或 WebSocket 服务替换时先取消旧订阅，再清空前一用户的派单、通知、位置和安全事件内存状态。
 - 重连后活动订单重新请求详情，志愿者摘要等依赖功能收到恢复信号并恢复自己的 cadence。
 - `VOLUNTEER_LOCATION_UPDATE` / `BLIND_LOCATION_UPDATE` 只在角色、订单和坐标合法时路由；本流程不决定地图展示。
+
+## 9. 实时同行会话与完成轨迹
+
+```text
+权威订单进入 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
+  -> 立即发送最新真实位置 -> 每 5 秒发送
+  -> 同行样本匹配订单且 <=15 秒 -> 更新辅助 marker
+  -> 设备/同行样本 >15 秒 -> 停止复用旧值 / 隐藏 marker / 可见与 TTS 降级
+
+IN_PROGRESS -> 开启 fitness 后台定位
+离开 IN_PROGRESS 或会话/身份失效 -> 关闭后台定位并清空同行内存
+
+COMPLETED -> GET /api/orders/{id}/track
+  -> blindTrack 作为“本次路线”
+  -> 空/部分数据结合 response.status 说明
+  -> volunteerTrack 仅保留，不输出异常判断
+```
+
+- PING/PONG 两角色均为 30 秒；服务端 90 秒无消息关闭后走现有重连。
+- `ESCORT_DISTANCE_ALERT` 和 `ESCORT_SIGNAL_LOST` 只产生高优先级提醒，不改变订单状态或触发 iOS SOS。
 ## 会话与账户生命周期流程
 
 ```text

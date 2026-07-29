@@ -819,8 +819,9 @@
 **Given** 角色 WebSocket 已连接且用户切换到另一页面
 **When** 后端发送 `ORDER_STATUS_CHANGED`、`NEW_ORDER` 或 `APP_NOTIFICATION`
 **Then** app-lifetime 协调器保留或路由事件
-**And** 订单状态通过 REST 详情刷新，派单保持后端期限，HIGH 通知抢占 NORMAL
-**And** 可见、VoiceOver 与 TTS 文案等价，生命周期状态只按权威详情播报一次
+**And** 关联且合法的结构化状态立即推进本地 UI，相同 UUID 重发不重复更新、播报或刷新，迟到 REST 不得回退状态
+**And** REST 详情与五秒轮询继续作为完整字段补充及断线/漏事件降级，派单保持后端期限，HIGH 通知抢占 NORMAL
+**And** 可见、VoiceOver 与 TTS 文案等价，结构化状态与并行生命周期模板合计只播报客户端固定文案一次
 
 ---
 
@@ -939,3 +940,29 @@
 **Given** 志愿者完成一次服务（订单状态变为 COMPLETED）
 **When** 服务完成
 **Then** 积分增加 100，服务记录中显示本次获得积分
+
+---
+
+## Epic 9：实时同行与轨迹总结 (US-TRACK)
+
+### US-TRACK-001：订单双方查看实时同行位置
+
+**Given** 当前用户是订单参与者且订单为 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED` 或 `IN_PROGRESS`
+**When** 收到匹配订单、方向正确且不超过 15 秒的同行位置
+**Then** 辅助地图显示同行角色 marker，并提供不含原始经纬度的可读新鲜度摘要
+**And** 错订单、非法或过期位置不得展示
+
+### US-TRACK-002：锁屏期间继续记录陪跑
+
+**Given** 订单为 `IN_PROGRESS` 且定位权限有效
+**When** App 锁屏或进入后台
+**Then** 系统继续真实定位与五秒上报，并显示后台定位指示
+**And** 静止且无新设备回调时复用最近一次真实位置；权限撤销、Core Location 明确失败或网络中断时显示并播报降级状态，不上传 Demo 坐标
+
+### US-TRACK-003：查看完成路线
+
+**Given** 订单为 `COMPLETED`
+**When** 任一订单参与者打开完成详情
+**Then** 页面以盲人轨迹显示“本次路线”和可用的里程、时长、平均配速
+**And** 空或部分数据必须如实说明，重复状态与 TTS 不依赖地图
+**And** 志愿者轨迹不得作为默认路线或生成未获批的异常结论

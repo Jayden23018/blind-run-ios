@@ -65,15 +65,11 @@
 		};
 		C490E0872FBB552A00807A54 /* blindRunTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = blindRunTests;
 			sourceTree = "<group>";
 		};
 		C490E0912FBB552A00807A54 /* blindRunUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = blindRunUITests;
 			sourceTree = "<group>";
 		};
@@ -341,9 +337,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-blindRun/Pods-blindRun-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-blindRun/Pods-blindRun-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -525,7 +525,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = blindRun/Info.plist;
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑需要您的位置信息来创建预约和计算距离";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -561,7 +561,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = blindRun/Info.plist;
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑需要您的位置信息来创建预约和计算距离";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -743,7 +743,7 @@
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = blindRun/Info.plist;
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑需要您的位置信息来创建预约和计算距离";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

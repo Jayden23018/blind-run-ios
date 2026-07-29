@@ -9,6 +9,219 @@ import Combine
 import CoreLocation
 import SwiftUI
 
+enum RootRoute: Equatable {
+    case restoringAccount
+    case unauthenticated
+    case roleSelection
+    case blindProfile
+    case blindHome
+    case volunteerProfile
+    case volunteerHome
+    case recoveryFailed(message: String)
+}
+
+private extension RootRoute {
+    var diagnosticCategory: String {
+        switch self {
+        case .restoringAccount: return "account-restoration"
+        case .unauthenticated: return "login"
+        case .roleSelection: return "role-selection"
+        case .blindProfile, .volunteerProfile: return "profile"
+        case .blindHome, .volunteerHome: return "home"
+        case .recoveryFailed: return "recovery-failed"
+        }
+    }
+}
+
+/// Owns the only mounted root destination. Profile hydration is committed
+/// atomically so login/profile/home and AMap cannot overlap during routing.
+@MainActor
+final class ContentRootRouter: ObservableObject {
+    @Published private(set) var route: RootRoute = .restoringAccount
+
+    private var hydrationTask: Task<Void, Never>?
+    private var generation: UInt64 = 0
+
+    func synchronize(with appState: AppState) {
+        generation &+= 1
+        let currentGeneration = generation
+        hydrationTask?.cancel()
+        hydrationTask = nil
+
+        switch appState.sessionRestorationState {
+        case .restoring:
+            route = .restoringAccount
+        case .validationFailed(let message):
+            route = .recoveryFailed(message: message)
+        case .unauthenticated:
+            route = .unauthenticated
+        case .choosingRole:
+            route = .roleSelection
+        case .authenticated:
+            guard appState.isLoggedIn else {
+                route = .unauthenticated
+                return
+            }
+            guard let role = appState.activeRole, role != .unset else {
+                route = .roleSelection
+                return
+            }
+            route = .restoringAccount
+            hydrationTask = Task { [weak self, weak appState] in
+                guard let self, let appState else { return }
+                await self.hydrate(
+                    role: role,
+                    appState: appState,
+                    generation: currentGeneration
+                )
+            }
+        }
+    }
+
+    func cancel() {
+        generation &+= 1
+        hydrationTask?.cancel()
+        hydrationTask = nil
+    }
+
+    private func hydrate(role: UserRole, appState: AppState, generation: UInt64) async {
+        let token = appState.accessToken
+        let userID = appState.userId
+
+        switch role {
+        case .blind:
+            let profileTask: Task<BlindProfileResponse, Error> = Task {
+                try await appState.apiClient.get("/api/blind/profile")
+            }
+            let contactsTask: Task<[EmergencyContactResponse], Error>? = userID.map { id in
+                Task { try await appState.apiClient.get("/api/users/\(id)/emergency-contacts") }
+            }
+            defer {
+                profileTask.cancel()
+                contactsTask?.cancel()
+            }
+
+            do {
+                let profile = try await withTaskCancellationHandler {
+                    try await profileTask.value
+                } onCancel: {
+                    profileTask.cancel()
+                    contactsTask?.cancel()
+                }
+                let contacts = try await contactsTask?.value ?? []
+                guard isCurrent(
+                    appState: appState,
+                    token: token,
+                    userID: userID,
+                    role: role,
+                    generation: generation
+                ) else { return }
+                appState.updateBlindProfile(profile)
+                appState.updateEmergencyContacts(contacts)
+                route = appState.isBlindProfileComplete ? .blindHome : .blindProfile
+            } catch {
+                handleHydrationFailure(
+                    error,
+                    role: role,
+                    appState: appState,
+                    token: token,
+                    userID: userID,
+                    generation: generation
+                )
+            }
+
+        case .volunteer:
+            let profileTask: Task<VolunteerProfileResponse, Error> = Task {
+                try await appState.apiClient.get("/api/volunteer/profile")
+            }
+            let registrationTask: Task<VolunteerRegistrationStatus?, Never> = Task {
+                try? await appState.apiClient.get("/api/volunteer/registration/status")
+            }
+            defer {
+                profileTask.cancel()
+                registrationTask.cancel()
+            }
+
+            do {
+                let profile = try await withTaskCancellationHandler {
+                    try await profileTask.value
+                } onCancel: {
+                    profileTask.cancel()
+                    registrationTask.cancel()
+                }
+                let registration = await registrationTask.value
+                guard isCurrent(
+                    appState: appState,
+                    token: token,
+                    userID: userID,
+                    role: role,
+                    generation: generation
+                ) else { return }
+                appState.updateVolunteerProfile(profile)
+                if let registration { appState.updateVolunteerRegistrationStatus(registration) }
+                route = appState.isVolunteerProfileApproved ? .volunteerHome : .volunteerProfile
+            } catch {
+                handleHydrationFailure(
+                    error,
+                    role: role,
+                    appState: appState,
+                    token: token,
+                    userID: userID,
+                    generation: generation
+                )
+            }
+
+        case .unset:
+            route = .roleSelection
+        }
+    }
+
+    private func isCurrent(
+        appState: AppState,
+        token: String?,
+        userID: Int64?,
+        role: UserRole,
+        generation: UInt64
+    ) -> Bool {
+        !Task.isCancelled &&
+        self.generation == generation &&
+        appState.accessToken == token &&
+        appState.userId == userID &&
+        appState.activeRole == role
+    }
+
+    private func handleHydrationFailure(
+        _ error: Error,
+        role: UserRole,
+        appState: AppState,
+        token: String?,
+        userID: Int64?,
+        generation: UInt64
+    ) {
+        guard isCurrent(
+            appState: appState,
+            token: token,
+            userID: userID,
+            role: role,
+            generation: generation
+        ) else { return }
+
+        if let apiError = error as? APIError {
+            if appState.handleAuthenticatedAPIError(apiError) {
+                route = .unauthenticated
+                return
+            }
+            if case .unknown(statusCode: 404) = apiError {
+                route = role == .blind ? .blindProfile : .volunteerProfile
+                return
+            }
+            route = .recoveryFailed(message: apiError.localizedMessage)
+        } else {
+            route = .recoveryFailed(message: "账号资料恢复失败，请检查网络后重试。")
+        }
+    }
+}
+
 /// 根路由视图，根据 AppState 的登录状态和活跃角色决定显示内容。
 /// 路由由 @Published 属性驱动，登录或角色切换后自动更新。
 struct ContentView: View {
@@ -17,71 +230,93 @@ struct ContentView: View {
     @State private var showRestorationLocalSignOutConfirmation = false
     @EnvironmentObject private var speechService: SpeechService
     @State private var showLogoutConfirmation = false
+    @StateObject private var rootRouter = ContentRootRouter()
+    @State private var notificationAnnouncementGate = CurrentValueReplayGate<UUID>()
+    @State private var healthAnnouncementGate = CurrentValueReplayGate<LiveEscortHealthState>()
     private let locationReportTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
-    private var profileRefreshKey: String {
-        "\(appState.accessToken ?? "anonymous")-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)"
+    private var rootRoutingKey: String {
+        let restoration: String
+        switch appState.sessionRestorationState {
+        case .restoring: restoration = "restoring"
+        case .validationFailed: restoration = "failed"
+        case .unauthenticated: restoration = "unauthenticated"
+        case .choosingRole: restoration = "choosing-role"
+        case .authenticated: restoration = "authenticated"
+        }
+        return "\(restoration)-\(appState.accessToken?.hashValue ?? 0)-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)-\(appState.isBlindProfileComplete)-\(appState.isVolunteerProfileApproved)"
     }
 
     var body: some View {
         Group {
-            if appState.sessionRestorationState == .restoring {
+            switch rootRouter.route {
+            case .restoringAccount:
                 VStack(spacing: 16) {
                     ProgressView()
-                    Text("正在验证登录状态")
+                    Text("正在恢复账号资料")
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("正在验证登录状态，请稍候")
-            } else if case .validationFailed(let message) = appState.sessionRestorationState {
+                .accessibilityLabel("正在恢复账号资料，请稍候")
+                .accessibilityIdentifier("rootRoute.restoringAccount")
+            case .recoveryFailed(let message):
                 VStack(spacing: 20) {
                     Image(systemName: "wifi.exclamationmark")
                         .font(.system(size: 40))
                         .accessibilityHidden(true)
-                    Text("暂时无法验证登录状态")
+                    Text("暂时无法恢复账号资料")
                         .font(.headline)
                     Text(message)
                         .multilineTextAlignment(.center)
-                    Button("重试验证") {
-                        Task { await appState.restoreSession() }
+                    Button("重试恢复") {
+                        rootRouter.synchronize(with: appState)
                     }
                     .buttonStyle(.borderedProminent)
-                    .accessibilityHint("重新连接服务端验证当前登录状态")
-                    Button("仅退出本机", role: .destructive) {
-                        showRestorationLocalSignOutConfirmation = true
+                    .accessibilityHint("重新加载当前账号资料")
+                    Button("退出登录", role: .destructive) {
+                        Task { await appState.logout() }
                     }
-                    .accessibilityHint("服务端令牌可能仍然有效，需要再次确认")
+                    .accessibilityHint("退出当前账号并返回登录页")
                 }
                 .padding(24)
                 .accessibilityElement(children: .contain)
-            } else if !appState.isLoggedIn {
+                .accessibilityIdentifier("rootRoute.recoveryFailed")
+            case .unauthenticated:
                 LoginView()
-                    .transition(.opacity)
-            } else if appState.activeRole == nil || appState.activeRole == .unset {
+                    .accessibilityIdentifier("rootRoute.unauthenticated")
+            case .roleSelection:
                 RoleSelectionView()
-                    .transition(.opacity)
-            } else if appState.activeRole == .blind {
-                if appState.isBlindProfileComplete {
-                    BlindRunnerHomeView()
-                        .transition(.opacity)
-                } else {
-                    BlindRunnerProfileView()
-                        .transition(.opacity)
+                    .accessibilityIdentifier("rootRoute.roleSelection")
+            case .blindProfile:
+                BlindRunnerProfileView()
+                    .accessibilityIdentifier("rootRoute.blindProfile")
+            case .blindHome:
+                BlindRunnerHomeView()
+                    .accessibilityIdentifier("rootRoute.blindHome")
+            case .volunteerProfile:
+                NavigationStack {
+                    VolunteerProfileView()
                 }
-            } else if appState.activeRole == .volunteer {
-                if appState.isVolunteerProfileApproved {
-                    VolunteerHomeView()
-                        .transition(.opacity)
-                } else {
-                    NavigationStack {
-                        VolunteerProfileView()
-                    }
-                    .transition(.opacity)
-                }
+                .accessibilityIdentifier("rootRoute.volunteerProfile")
+            case .volunteerHome:
+                VolunteerHomeView()
+                    .accessibilityIdentifier("rootRoute.volunteerHome")
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: appState.isLoggedIn)
-        .animation(.easeInOut(duration: 0.3), value: appState.activeRole)
-        .animation(.easeInOut(duration: 0.3), value: appState.isBlindProfileComplete)
-        .animation(.easeInOut(duration: 0.3), value: appState.isVolunteerProfileApproved)
+        #if DEBUG
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if appState.currentEnvironment == .mock {
+                Label("Mock 本地模拟，不连接云端", systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.yellow)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("警告：Mock 本地模拟，不连接云端")
+                    .accessibilityIdentifier("mockEnvironmentBanner")
+            }
+        }
+        #endif
         .onReceive(locationService.$currentLocation) { _ in
             reportWebSocketLocationIfNeeded()
         }
@@ -94,8 +329,12 @@ struct ContentView: View {
             }
             reportWebSocketLocationIfNeeded()
         }
-        .task(id: profileRefreshKey) {
-            await refreshActiveProfileIfNeeded()
+        .task(id: rootRoutingKey) {
+            appState.liveEscortCoordinator.attachLocationService(locationService)
+            rootRouter.synchronize(with: appState)
+        }
+        .onChange(of: rootRouter.route) { route in
+            MainRunLoopWatchdog.shared.setPageCategory(route.diagnosticCategory)
         }
         .modifier(SessionLifecycleStatusModifier())
         .overlay(alignment: .top) {
@@ -111,7 +350,37 @@ struct ContentView: View {
             }
         }
         .onReceive(appState.realtimeCoordinator.$currentNotification.compactMap { $0 }) { notification in
+            // @Published is a current-value publisher. Speaking mutates VoiceService,
+            // which invalidates this view and recreates the subscription. Without an
+            // identity gate, the recreated subscription immediately replays the same
+            // notification and forms a main-thread render/TTS feedback loop.
+            guard notificationAnnouncementGate.accepts(notification.id) else { return }
             speechService.speak(notification.speechText)
+        }
+        .onReceive(appState.liveEscortCoordinator.$healthState.removeDuplicates()) { state in
+            // removeDuplicates only applies within one subscription. SwiftUI may
+            // recreate the subscription after any environment-object publication,
+            // so retain the last handled value in view state across subscriptions.
+            guard healthAnnouncementGate.accepts(state) else { return }
+            if let message = state.userMessage { speechService.speak(message) }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let message = appState.liveEscortCoordinator.healthState.userMessage {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "location.fill.viewfinder")
+                        .foregroundColor(AppColors.warning)
+                        .accessibilityHidden(true)
+                    Text(message)
+                        .font(AppFonts.caption())
+                        .foregroundColor(AppColors.textPrimary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.regularMaterial)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(message)
+                .accessibilityIdentifier("liveEscortHealthBanner")
+            }
         }
         .alert("确认仅退出本机", isPresented: $showRestorationLocalSignOutConfirmation) {
             Button("仅退出本机", role: .destructive) { appState.clearSession() }
@@ -123,50 +392,36 @@ struct ContentView: View {
 
     private func reportWebSocketLocationIfNeeded() {
         guard appState.isLoggedIn,
-              appState.activeRole != nil,
+              appState.activeRole == .volunteer,
               appState.currentEnvironment != .mock,
-              locationService.isAuthorized else {
+              locationService.isAuthorized,
+              !appState.liveEscortCoordinator.isSessionEligible,
+              let sample = locationService.latestBackendSample() else {
             return
         }
 
         locationService.startUpdating()
-        let coordinate = locationService.effectiveLocation
         appState.webSocketService?.sendLocationUpdate(
-            lat: coordinate.latitude,
-            lng: coordinate.longitude
+            lat: sample.coordinate.latitude,
+            lng: sample.coordinate.longitude
         )
     }
 
-    private func refreshActiveProfileIfNeeded() async {
-        guard appState.isLoggedIn,
-              appState.currentEnvironment != .mock,
-              let role = appState.activeRole else {
-            return
-        }
+}
 
-        do {
-            switch role {
-            case .blind:
-                let profile: BlindProfileResponse = try await appState.apiClient.get("/api/blind/profile")
-                appState.updateBlindProfile(profile)
-                if let userId = appState.userId {
-                    let contacts: [EmergencyContactResponse] = try await appState.apiClient.get("/api/users/\(userId)/emergency-contacts")
-                    appState.updateEmergencyContacts(contacts)
-                }
-            case .volunteer:
-                let profile: VolunteerProfileResponse = try await appState.apiClient.get("/api/volunteer/profile")
-                appState.updateVolunteerProfile(profile)
-            case .unset:
-                break
-            }
-        } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
-                return
-            }
-            // Keep the existing profile setup routes visible when the cloud has no profile yet.
-        } catch {
-            // Keep the existing profile setup routes visible when the cloud has no profile yet.
-        }
+/// Retains the identity last handled by a SwiftUI `onReceive` closure.
+///
+/// Combine's `@Published` publisher immediately emits its current value to every
+/// new subscriber. SwiftUI is allowed to rebuild a subscription when another
+/// observed object changes, so `removeDuplicates()` alone cannot suppress the
+/// replay across subscription lifetimes.
+struct CurrentValueReplayGate<Value: Equatable> {
+    private(set) var lastAcceptedValue: Value?
+
+    mutating func accepts(_ value: Value) -> Bool {
+        guard lastAcceptedValue != value else { return false }
+        lastAcceptedValue = value
+        return true
     }
 }
 

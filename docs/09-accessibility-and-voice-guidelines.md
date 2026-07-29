@@ -19,6 +19,7 @@ Use iOS native `AVSpeechSynthesizer` for TTS.
 - 进入盲人首页
 - 订单提交成功
 - 系统派单中
+- 志愿者派单定位暂不可用时，可见文本与 TTS 均使用“定位暂不可用，可能无法收到派单”，并提供检查定位权限、等待设备获取位置的辅助提示。
 - 志愿者已接单
 - 志愿者已到达
 - 服务已开始
@@ -138,15 +139,16 @@ Recommended status announcements:
 - `NO_VOLUNTEER`: “暂时没有可用志愿者。”
 - Future emergency copy must be added when the UI is re-enabled by a safety change.
 
-Lifecycle `APP_NOTIFICATION` text from backend templates should not be spoken directly while an active order is present. Order lifecycle TTS should use local order-detail copy so test names or template placeholders are not announced. Volunteer distance copy should use "距出发地点约 X" and be calculated from the latest volunteer location to the order start coordinate.
+Lifecycle `APP_NOTIFICATION` text from backend templates should not be spoken directly while an active order is present. A validated structured status event should immediately use local order-status copy; REST detail/polling remains the fallback when an event is missed. Recently applied terminal-state semantics remain suppressed for 30 seconds after the active order is removed so a parallel template cannot announce the same completion twice. Volunteer distance copy should use "距出发地点约 X" and be calculated from the latest volunteer location to the order start coordinate.
 
 Important blind-runner TTS should also post a VoiceOver announcement for users who rely on VoiceOver feedback. This includes search state, search results, errors, selected place, and "重复当前状态".
 
 ### 前台实时通知
 
 - 共享前台 banner 的可见正文、合并 VoiceOver label 与 TTS 必须语义等价；不得把原始 payload、经纬度、内部去重 key 或模板占位符读给用户。
-- `HIGH` 到达时立即停止/替换 `NORMAL` 的当前呈现；被抢占的普通通知可稍后继续。两个不同安全 `eventId` 即使文案相同也各播报一次。
-- 活动订单的生命周期 `APP_NOTIFICATION` 必须抑制直接 TTS，等待 REST 订单详情刷新后使用本地状态文案播报一次。
+- `HIGH` 到达时立即停止/替换 `NORMAL` 的当前呈现；被抢占的普通通知可稍后继续。两个不同安全 `messageId` 即使文案相同也各播报一次。
+- 关联且合法的 `ORDER_STATUS_CHANGED` 必须立即用客户端本地固定文案播报一次，不直接采用服务端 `ttsText`；相同 UUID 重发不得再次播报。
+- 活动订单的生命周期 `APP_NOTIFICATION` 必须抑制直接 TTS；状态事件先到时，终态清除活动订单后的 30 秒内仍按目标状态语义抑制并行模板通知。REST 详情与五秒轮询只作为漏事件/断线降级播报来源。
 - 跨页面通知由根视图呈现；页面导航、sheet 或订单页未挂载不能成为丢失通知的原因。
 
 ## 8. Volunteer Accessibility
@@ -171,10 +173,17 @@ Volunteer UI should still be accessible, but it may be denser than blind runner 
 
 ## 10. Out of Scope
 
-AI assistant, natural-language time parsing, automatic calls, automatic SMS, real administrator notification, route navigation, real-time track sharing, fall detection, and geofencing are roadmap capabilities. Do not add them without product requirements, safety rules, and acceptance tests.
+AI assistant, natural-language time parsing, automatic calls, automatic SMS, real administrator notification, route navigation, public real-time track sharing, fall detection, and geofencing are roadmap capabilities. Order-participant live peer markers and completed blind-track summaries are approved only under `enable-live-escort-location-and-track-summary`.
 ## 会话与账户操作无障碍要求
 
 - 会话恢复必须提供可读的进度状态。
 - 注销和删除的确认按钮需提供 VoiceOver 标签、提示、进行中状态及错误公告，并在请求中禁止重复提交。
 - 429 提示必须朗读服务端消息和可重试时间；验证码按钮的可用状态应随权威倒计时更新。
 - “仅退出本机”必须朗读远端 Token 撤销未确认的风险；账户删除成功或失败不得产生歧义。
+
+## 实时同行与轨迹无障碍
+
+- 同行 marker 只读“志愿者位置已更新”或“盲人跑者位置已更新”，不得朗读经纬度；超过 15 秒读“同行位置暂时不可用”。
+- 后台定位开始、权限失效、设备位置过期和网络间断必须有可见文字与一次性 TTS，恢复时不得重复刷屏。
+- `ESCORT_DISTANCE_ALERT` 与 `ESCORT_SIGNAL_LOST` 使用服务端安全文案，按 `messageId` 去重并作为 HIGH 抢占；不得说“已报警”或“救援已派出”。
+- 完成总结先读“本次路线”及可用里程、时长、平均配速，再到辅助地图；“重复当前状态”必须复述相同摘要。

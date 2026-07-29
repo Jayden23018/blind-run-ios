@@ -15,12 +15,23 @@ private enum BlindRunnerRoute: Hashable {
 @MainActor
 final class BlindRunnerHomeViewModel: ObservableObject {
     @Published var activeOrder: OrderDetailResponse?
-    @Published var isLoading = false
+    @Published private(set) var orderLoadState: AsyncLoadState<OrderDetailResponse?> = .idle
+    @Published private(set) var refreshPhase: HomeRefreshPhase = .idle
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
+    private var activeLoadTask: Task<Void, Never>?
+    private var activeRequestID: UUID?
+    private var realtimeStatusCancellable: AnyCancellable?
+    private let loadTimeout: TimeInterval
+
+    init(loadTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout) {
+        self.loadTimeout = max(0.05, loadTimeout)
+    }
+
+    var isLoading: Bool { refreshPhase.isRefreshing }
 
     var currentStatusText: String {
         guard let activeOrder else {
@@ -35,43 +46,190 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         activeOrder?.status.canBlindRunnerCancel == true
     }
 
+    var canStartNewBooking: Bool {
+        guard activeOrder == nil else { return false }
+        if case .loaded = orderLoadState { return true }
+        return false
+    }
+
+    func explainBookingUnavailable() {
+        let message = "订单状态尚未确认，请先重试加载，避免创建重复预约。"
+        errorMessage = message
+        speechService?.speakError(message)
+    }
+
     func configure(with appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
+        if realtimeStatusCancellable == nil {
+            realtimeStatusCancellable = appState.realtimeCoordinator.statusUpdatePublisher
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] update in
+                    self?.applyRealtimeStatus(update)
+                }
+        }
+    }
+
+    private func applyRealtimeStatus(_ update: RealtimeOrderStatusUpdate) {
+        guard let current = activeOrder, current.orderId == update.orderId else { return }
+        let updated = current.replacingStatus(with: update.toStatus)
+        speechService?.speakStatusChange(
+            updated.status,
+            text: updated.blindRunnerAnnouncement()
+        )
+        if updated.status.isActiveForBlindRunner {
+            activeOrder = updated
+            appState?.liveEscortCoordinator.updateOwnedOrder(
+                orderID: updated.orderId,
+                status: updated.status
+            )
+        } else {
+            activeOrder = nil
+            appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
+            appState?.liveEscortCoordinator.clearOwnedOrder()
+        }
+        orderLoadState = .loaded(activeOrder)
+        errorMessage = nil
     }
 
     func loadActiveOrder() async {
         guard let appState else { return }
-        isLoading = true
+        if let activeLoadTask {
+            ClientFlowDiagnostics.record(event: "coalesced", operation: "blind-home-refresh")
+            await activeLoadTask.value
+            return
+        }
+        ClientFlowDiagnostics.record(event: "started", operation: "blind-home-refresh")
+        let requestID = UUID()
+        activeRequestID = requestID
+        refreshPhase = .refreshing(requestID: requestID)
+        if case .idle = orderLoadState {
+            orderLoadState = .loading(requestID: requestID)
+        }
         errorMessage = nil
 
+        let workTask = Task { [weak self, weak appState] in
+            guard let self, let appState else { return }
+            await self.performActiveOrderLoad(appState: appState, requestID: requestID)
+        }
+        activeLoadTask = workTask
+
+        await withTaskCancellationHandler {
+            await workTask.value
+        } onCancel: {
+            workTask.cancel()
+            Task { @MainActor [weak self] in
+                self?.cancelRequestIfCurrent(requestID)
+            }
+        }
+
+        guard activeRequestID == requestID else { return }
+        activeLoadTask = nil
+        activeRequestID = nil
+        refreshPhase = .idle
+        ClientFlowDiagnostics.record(event: "finished", operation: "blind-home-refresh")
+        if case .loading = orderLoadState {
+            orderLoadState = .loaded(activeOrder)
+        }
+    }
+
+    func cancelLoading() {
+        activeLoadTask?.cancel()
+        activeLoadTask = nil
+        activeRequestID = nil
+        refreshPhase = .idle
+        if orderLoadState.isLoading { orderLoadState = .idle }
+    }
+
+    private func performActiveOrderLoad(appState: AppState, requestID: UUID) async {
         do {
-            let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/mine")
+            let apiClient = appState.apiClient
+            let statusRequestToken = activeOrder.map {
+                appState.realtimeCoordinator.beginOrderStatusRequest(orderID: $0.orderId)
+            }
+            let paged: PagedOrderResponse = try await HomeLoadCoordinator.run(
+                timeout: loadTimeout,
+                operationName: "blind-active-order"
+            ) {
+                try await apiClient.get("/api/orders/mine")
+            }
+            guard activeRequestID == requestID, !Task.isCancelled else { return }
             let previousOrderID = activeOrder?.orderId
-            activeOrder = paged.content
+            let candidate = paged.content
                 .filter { $0.status.isActiveForBlindRunner }
                 .sorted { $0.sortKey > $1.sortKey }
                 .first
+            if candidate == nil,
+               let statusRequestToken,
+               !appState.realtimeCoordinator.isOrderStatusRequestCurrent(statusRequestToken) {
+                ClientFlowDiagnostics.record(
+                    event: "late_empty_discarded",
+                    operation: "blind-active-order"
+                )
+            } else if let candidate,
+               let statusRequestToken,
+               statusRequestToken.orderID == candidate.orderId {
+                activeOrder = appState.realtimeCoordinator.reconcileOrderDetail(
+                    candidate,
+                    requestToken: statusRequestToken
+                )
+            } else {
+                activeOrder = candidate
+                if let candidate {
+                    appState.realtimeCoordinator.registerActiveOrder(
+                        candidate.orderId,
+                        status: candidate.status
+                    )
+                }
+            }
             if let previousOrderID, previousOrderID != activeOrder?.orderId {
                 appState.realtimeCoordinator.unregisterActiveOrder(previousOrderID)
             }
-            if let orderID = activeOrder?.orderId {
-                appState.realtimeCoordinator.registerActiveOrder(orderID)
+            if let activeOrder {
+                appState.liveEscortCoordinator.updateOwnedOrder(
+                    orderID: activeOrder.orderId,
+                    status: activeOrder.status
+                )
+            } else {
+                appState.liveEscortCoordinator.clearOwnedOrder()
             }
-            isLoading = false
+            orderLoadState = .loaded(activeOrder)
+            refreshPhase = .idle
             speakCurrentStatus()
+        } catch HomeLoadCoordinatorError.timedOut {
+            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            let message = "加载超过 20 秒，请重试。"
+            errorMessage = message
+            if activeOrder == nil {
+                orderLoadState = .failed(message: message)
+            }
+            refreshPhase = .idle
+            speechService?.speakError(message)
         } catch let error as APIError {
-            isLoading = false
+            guard activeRequestID == requestID, !Task.isCancelled else { return }
             if appState.handleAuthenticatedAPIError(error) {
                 return
             }
             errorMessage = error.localizedMessage
+            if activeOrder == nil {
+                orderLoadState = .failed(message: error.localizedMessage)
+            }
+            refreshPhase = .idle
             speechService?.speakError(error.localizedMessage)
         } catch {
-            isLoading = false
+            guard activeRequestID == requestID, !Task.isCancelled else { return }
             errorMessage = "当前状态加载失败，请重试。"
+            if activeOrder == nil {
+                orderLoadState = .failed(message: "当前状态加载失败，请重试。")
+            }
+            refreshPhase = .idle
             speechService?.speakError("当前状态加载失败，请重试。")
         }
+    }
+
+    private func cancelRequestIfCurrent(_ requestID: UUID) {
+        guard activeRequestID == requestID else { return }
+        cancelLoading()
     }
 
     func handleOrderCreated(_ response: OrderResponse) {
@@ -123,6 +281,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             self.activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
             if self.activeOrder == nil {
                 appState.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
+                appState.liveEscortCoordinator.clearOwnedOrder()
             }
             self.speechService?.speakStatusChange(updated.status, text: updated.blindRunnerAnnouncement())
             isPerformingAction = false
@@ -189,17 +348,27 @@ struct BlindRunnerHomeView: View {
                     header
 
                     if viewModel.isLoading {
-                        ProgressView("正在加载当前状态...")
-                            .tint(AppColors.primary)
-                            .accessibilityLabel("正在加载当前状态")
-                            .accessibilityHint("加载完成后会显示预约入口或当前订单")
+                        Label(
+                            "正在后台同步当前状态，页面仍可使用",
+                            systemImage: "arrow.triangle.2.circlepath"
+                        )
+                        .font(AppFonts.caption())
+                        .foregroundColor(AppColors.textSecondary)
+                        .accessibilityLabel("正在后台同步当前状态，页面仍可使用")
                     }
 
                     if let errorMessage = viewModel.errorMessage {
-                        Text(errorMessage)
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.destructive)
-                            .accessibilityLabel(errorMessage)
+                        VStack(spacing: 10) {
+                            Text(errorMessage)
+                                .font(AppFonts.body())
+                                .foregroundColor(AppColors.destructive)
+                                .accessibilityLabel(errorMessage)
+                            Button("重试加载") {
+                                Task { await viewModel.loadActiveOrder() }
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityHint("重新加载当前订单状态")
+                        }
                     }
 
                     if let order = viewModel.activeOrder {
@@ -222,6 +391,7 @@ struct BlindRunnerHomeView: View {
                 .padding(.horizontal, 24)
                 .padding(.vertical, 28)
             }
+            .accessibilityIdentifier("blindRunnerHomeScrollView")
             .background(AppColors.background)
             .navigationTitle("")
             .navigationBarHidden(true)
@@ -248,6 +418,9 @@ struct BlindRunnerHomeView: View {
                     locationService.requestPermission()
                 }
                 locationService.startUpdating()
+            }
+            .onDisappear {
+                viewModel.cancelLoading()
             }
             .task {
                 await viewModel.loadActiveOrder()
@@ -320,11 +493,12 @@ struct BlindRunnerHomeView: View {
                 .accessibilityAddTraits(.isHeader)
 
             MapViewWrapper(
-                centerCoordinate: viewModel.activeOrder?.startCoordinate ?? locationService.effectiveLocation,
+                centerCoordinate: viewModel.activeOrder?.startCoordinate ?? locationService.effectiveBackendLocation,
                 showsUserLocation: locationService.isAuthorized,
                 annotations: activeOrderMapAnnotations
             )
             .frame(height: 180)
+            .allowsHitTesting(false)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityElement(children: .combine)
             .accessibilityLabel("辅助地图，显示当前位置或订单出发点")
@@ -387,20 +561,37 @@ struct BlindRunnerHomeView: View {
                 .foregroundColor(AppColors.textSecondary)
                 .accessibilityLabel("准备好后，可以创建一次新的陪跑预约")
 
-            NavigationLink(value: BlindRunnerRoute.booking) {
-                HStack {
+            if viewModel.canStartNewBooking {
+                NavigationLink(value: BlindRunnerRoute.booking) {
+                    HStack {
+                        Text("开始约跑")
+                            .font(AppFonts.primaryButton())
+                            .foregroundColor(.white)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
+                    .background(AppColors.primary)
+                    .cornerRadius(12)
+                }
+                .accessibilityLabel("开始约跑")
+                .accessibilityHint("点击后创建跑步预约")
+                .accessibilityIdentifier("blindRunnerHomeStartBookingButton")
+            } else {
+                Button {
+                    viewModel.explainBookingUnavailable()
+                } label: {
                     Text("开始约跑")
                         .font(AppFonts.primaryButton())
                         .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
                 .frame(minHeight: 64)
                 .background(AppColors.primary)
                 .cornerRadius(12)
+                .accessibilityLabel("开始约跑，订单状态尚未确认")
+                .accessibilityHint("点击后说明如何先确认当前订单状态")
+                .accessibilityIdentifier("blindRunnerHomeStartBookingGuardButton")
             }
-            .accessibilityLabel("开始约跑")
-            .accessibilityHint("点击后创建跑步预约")
-            .accessibilityIdentifier("blindRunnerHomeStartBookingButton")
         }
     }
 

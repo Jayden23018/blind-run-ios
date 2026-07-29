@@ -13,6 +13,12 @@ The iOS app SHALL send `PING` every 30 seconds on both authenticated role WebSoc
 - **THEN** both messages SHALL be serialized with at least 500 ms between sends
 - **AND** neither message SHALL be silently dropped
 
+#### Scenario: Location changes while a prior location send is pending
+- **WHEN** one location send is in flight and additional valid samples arrive
+- **THEN** the transport SHALL retain only the latest pending location sample
+- **AND** it SHALL NOT create an unbounded location queue
+- **AND** reliable heartbeat, status, or notification messages SHALL remain queued
+
 #### Scenario: WebSocket reconnects during an eligible session
 - **WHEN** the role WebSocket reconnects
 - **THEN** heartbeat health SHALL restart
@@ -21,6 +27,12 @@ The iOS app SHALL send `PING` every 30 seconds on both authenticated role WebSoc
 #### Scenario: Escort session becomes ineligible
 - **WHEN** the order completes, cancels, rematches, becomes no-volunteer, loses participant association, or the authenticated session ends
 - **THEN** the five-second session cadence SHALL stop and peer-session state SHALL be cleared
+
+#### Scenario: Duplicate owned-order updates arrive
+- **WHEN** home, detail, polling, and realtime paths repeat the same eligible order and status
+- **THEN** the live escort coordinator SHALL coalesce them into one asynchronous reconcile
+- **AND** normal location capture SHALL NOT be restarted
+- **AND** background location mode SHALL change only when entering or leaving `IN_PROGRESS`
 
 ### Requirement: Active runs continue location capture while locked or backgrounded
 The iOS app SHALL continue real device location capture and reporting while an owned order is `IN_PROGRESS` and the app is locked or backgrounded, subject to disclosed iOS permission/runtime limitations.
@@ -68,14 +80,26 @@ The iOS app SHALL present fresh peer positions only to the blind runner and volu
 - **THEN** it SHALL NOT update the visible marker
 - **AND** raw coordinates SHALL NOT be shown or logged
 
+#### Scenario: A visible peer sample reaches its freshness deadline
+- **WHEN** a matching peer sample is accepted or replaced
+- **THEN** the role ViewModel SHALL retain at most one cancellable 15-second expiry task
+- **AND** an obsolete task, wrong-order sample, or late sample SHALL NOT clear a newer marker
+- **AND** page exit, order termination, or order replacement SHALL cancel the task and clear the marker
+- **AND** the app SHALL NOT use a dynamic periodic SwiftUI timeline to poll peer freshness or refresh the full map tree
+
 ### Requirement: Separation alerts are immediate and status neutral
-The app SHALL present a backend `ESCORT_DISTANCE_ALERT` as a high-priority visible, VoiceOver, and TTS warning without changing canonical order or emergency state.
+The app SHALL present backend `ESCORT_DISTANCE_ALERT` and `ESCORT_SIGNAL_LOST` notifications as high-priority visible, VoiceOver, and TTS warnings without changing canonical order or emergency state.
 
 #### Scenario: Separation alert arrives
-- **WHEN** the backend emits a typed separation alert for the active order
-- **THEN** both affected role experiences SHALL present the documented safe text immediately
+- **WHEN** the backend emits a flat `APP_NOTIFICATION` with a recognized safety `eventType` while exactly one owned order is `IN_PROGRESS`
+- **THEN** the receiving role SHALL present its exact documented body and TTS text immediately
 - **AND** repeated delivery of the same event identity SHALL be deduplicated
 - **AND** `RunOrderStatus` SHALL remain unchanged
+
+#### Scenario: Signal-loss alert arrives
+- **WHEN** the backend emits `ESCORT_SIGNAL_LOST` while exactly one owned order is `IN_PROGRESS`
+- **THEN** the app SHALL present the server-provided warning through the same accessible safety channel
+- **AND** it SHALL NOT synthesize an SOS action
 
 ### Requirement: Completed summary uses the blind track as the run route
 After an associated order is `COMPLETED`, the app SHALL fetch the typed track response and present the blind-runner track and statistics as the primary run summary.

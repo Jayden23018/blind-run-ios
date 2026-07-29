@@ -12,9 +12,11 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
     @Published var errorMessage: String?
     @Published var dispatchSummaryErrorMessage: String?
-    @Published var isLoading = false
+    @Published private(set) var dispatchLoadState: AsyncLoadState<VolunteerDispatchSummaryResponse> = .idle
+    @Published private(set) var refreshPhase: HomeRefreshPhase = .idle
     @Published var isUpdatingAvailability = false
     @Published var activeOrder: OrderDetailResponse?
+    @Published private(set) var locationDispatchWarning: String?
 
     // WebSocket dispatch state
     @Published var incomingOrder: WSNewOrder?
@@ -27,9 +29,40 @@ final class VolunteerHomeViewModel: ObservableObject {
     private var speechService: SpeechService?
     private var realtimeDispatchCancellable: AnyCancellable?
     private var realtimeRecoveryCancellable: AnyCancellable?
+    private var realtimeStatusCancellable: AnyCancellable?
     private var countdownTask: Task<Void, Never>?
     private var delayedSummaryRefreshTask: Task<Void, Never>?
     private var isSceneActive = false
+    private var currentLocationProvider: () -> CLLocationCoordinate2D? = { nil }
+    private var locationAuthorizedProvider: () -> Bool = { false }
+    private let reportVolunteerLocation: @MainActor (AppState, CLLocationCoordinate2D?, Bool) -> Bool
+    private let dispatchPropagationDelay: TimeInterval
+    private let loadTimeout: TimeInterval
+    private var activeLoadTask: Task<Void, Never>?
+    private var activeRequestID: UUID?
+    private var auxiliaryLoadTask: Task<Void, Never>?
+    private var auxiliaryRequestID: UUID?
+    private var summaryRefreshTask: Task<Void, Never>?
+    private var summaryRefreshID: UUID?
+    private var refreshLoopTask: Task<Void, Never>?
+
+    init(
+        dispatchPropagationDelay: TimeInterval = 1,
+        loadTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout,
+        reportVolunteerLocation: @escaping @MainActor (AppState, CLLocationCoordinate2D?, Bool) -> Bool = {
+            VolunteerLocationReporter.reportIfNeeded(
+                appState: $0,
+                currentLocation: $1,
+                locationAuthorized: $2
+            )
+        }
+    ) {
+        self.dispatchPropagationDelay = max(0, dispatchPropagationDelay)
+        self.loadTimeout = max(0.05, loadTimeout)
+        self.reportVolunteerLocation = reportVolunteerLocation
+    }
+
+    var isLoading: Bool { refreshPhase.isRefreshing }
 
     var statusText: String {
         dispatchSummary?.dispatchStatusText ?? (isAvailable ? "等待系统派单" : "已关闭接单")
@@ -60,9 +93,16 @@ final class VolunteerHomeViewModel: ObservableObject {
             .first
     }
 
-    func configure(with appState: AppState, speechService: SpeechService) {
+    func configure(
+        with appState: AppState,
+        speechService: SpeechService,
+        currentLocationProvider: @escaping () -> CLLocationCoordinate2D? = { nil },
+        locationAuthorizedProvider: @escaping () -> Bool = { false }
+    ) {
         self.appState = appState
         self.speechService = speechService
+        self.currentLocationProvider = currentLocationProvider
+        self.locationAuthorizedProvider = locationAuthorizedProvider
         apply(profile: appState.volunteerProfile)
         subscribeToRealtimeCoordinator(appState)
     }
@@ -70,8 +110,14 @@ final class VolunteerHomeViewModel: ObservableObject {
     func setSceneActive(_ isActive: Bool) {
         isSceneActive = isActive
         if !isActive {
+            cancelLoading()
+            summaryRefreshTask?.cancel()
+            summaryRefreshTask = nil
+            summaryRefreshID = nil
             delayedSummaryRefreshTask?.cancel()
             delayedSummaryRefreshTask = nil
+            refreshLoopTask?.cancel()
+            refreshLoopTask = nil
         }
     }
 
@@ -176,7 +222,31 @@ final class VolunteerHomeViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] signal in
                 guard signal.role == .volunteer else { return }
-                self?.scheduleDispatchSummaryRefresh()
+                self?.recoverDispatchReadinessAfterReconnect()
+            }
+        realtimeStatusCancellable = appState.realtimeCoordinator.statusUpdatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] update in
+                guard let self,
+                      let current = self.activeOrder,
+                      current.orderId == update.orderId else { return }
+                let updated = current.replacingStatus(with: update.toStatus)
+                if updated.status.isActiveForVolunteer {
+                    self.activeOrder = updated
+                    self.appState?.liveEscortCoordinator.updateOwnedOrder(
+                        orderID: updated.orderId,
+                        status: updated.status
+                    )
+                } else {
+                    self.activeOrder = nil
+                    self.appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
+                    self.appState?.liveEscortCoordinator.clearOwnedOrder()
+                }
+                self.speechService?.speakStatusChange(updated.status)
+                self.dispatchSummaryErrorMessage = nil
+                if let summary = self.dispatchSummary {
+                    self.dispatchLoadState = .loaded(summary)
+                }
             }
     }
 
@@ -186,6 +256,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         guard incomingOrder == nil else { return }
 
         incomingOrder = order
+        appState?.realtimeCoordinator.markDispatchPresented(orderID: order.orderId)
         dispatchCountdown = prompt.remainingSeconds()
         guard dispatchCountdown > 0 else {
             dismissDispatch()
@@ -209,47 +280,168 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     func load(currentLocation: CLLocationCoordinate2D?, locationAuthorized: Bool) async {
         guard let appState else { return }
-        isLoading = dispatchSummary == nil
+        if let activeLoadTask {
+            ClientFlowDiagnostics.record(event: "coalesced", operation: "volunteer-home-refresh")
+            await activeLoadTask.value
+            return
+        }
+        ClientFlowDiagnostics.record(event: "started", operation: "volunteer-home-refresh")
+        let requestID = UUID()
+        activeRequestID = requestID
+        refreshPhase = .refreshing(requestID: requestID)
+        if dispatchSummary == nil {
+            dispatchLoadState = .loading(requestID: requestID)
+        }
         errorMessage = nil
         dispatchSummaryErrorMessage = nil
 
-        do {
-            // Load volunteer profile
-            let profile: VolunteerProfileResponse = try await appState.apiClient.get("/api/volunteer/profile")
-            appState.updateVolunteerProfile(profile)
-            apply(profile: profile)
-
-            if let status: VolunteerRegistrationStatus = try? await appState.apiClient.get("/api/volunteer/registration/status") {
-                appState.updateVolunteerRegistrationStatus(status)
-            }
-
-            let didReportLocation = VolunteerLocationReporter.reportIfNeeded(
+        let workTask = Task { [weak self, weak appState] in
+            guard let self, let appState else { return }
+            await self.performInitialLoad(
                 appState: appState,
+                requestID: requestID,
                 currentLocation: currentLocation,
                 locationAuthorized: locationAuthorized
             )
+        }
+        activeLoadTask = workTask
 
-            if didReportLocation {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled else { return }
+        await withTaskCancellationHandler {
+            await workTask.value
+        } onCancel: {
+            workTask.cancel()
+            Task { @MainActor [weak self] in
+                self?.cancelRequestIfCurrent(requestID)
             }
+        }
 
-            let summary: VolunteerDispatchSummaryResponse = try await appState.apiClient.get("/api/volunteer/dispatch-summary")
+        guard activeRequestID == requestID else { return }
+        activeLoadTask = nil
+        activeRequestID = nil
+        refreshPhase = .idle
+        ClientFlowDiagnostics.record(event: "finished", operation: "volunteer-home-refresh")
+        if dispatchLoadState.isLoading {
+            if let dispatchSummary {
+                dispatchLoadState = .loaded(dispatchSummary)
+            } else {
+                dispatchLoadState = .failed(message: "派单状态加载失败，请重试。")
+            }
+        }
+    }
+
+    func cancelLoading() {
+        activeLoadTask?.cancel()
+        auxiliaryLoadTask?.cancel()
+        activeLoadTask = nil
+        auxiliaryLoadTask = nil
+        auxiliaryRequestID = nil
+        activeRequestID = nil
+        refreshPhase = .idle
+        if dispatchLoadState.isLoading {
+            if let dispatchSummary {
+                dispatchLoadState = .loaded(dispatchSummary)
+            } else {
+                dispatchLoadState = .idle
+            }
+        }
+    }
+
+    private func performInitialLoad(
+        appState: AppState,
+        requestID: UUID,
+        currentLocation: CLLocationCoordinate2D?,
+        locationAuthorized: Bool
+    ) async {
+        let didReportLocation = reportVolunteerLocation(appState, currentLocation, locationAuthorized)
+        updateLocationDispatchWarning(didReportLocation: didReportLocation, appState: appState)
+
+        do {
+            let apiClient = appState.apiClient
+            let summary: VolunteerDispatchSummaryResponse = try await HomeLoadCoordinator.run(
+                timeout: loadTimeout,
+                operationName: "volunteer-dispatch-initial"
+            ) {
+                try await apiClient.get("/api/volunteer/dispatch-summary")
+            }
+            guard activeRequestID == requestID, !Task.isCancelled else { return }
             apply(summary: summary)
             rows = []
-            isLoading = false
-        } catch let error as APIError {
-            isLoading = false
-            if appState.handleAuthenticatedAPIError(error) {
-                return
-            }
-            errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
+            dispatchLoadState = .loaded(summary)
+            dispatchSummaryErrorMessage = nil
+        } catch HomeLoadCoordinatorError.timedOut {
+            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            let message = "加载超过 20 秒，请重试。"
+            dispatchSummaryErrorMessage = message
+            dispatchLoadState = dispatchSummary.map(AsyncLoadState.loaded) ?? .failed(message: message)
+            speechService?.speakError(message)
+        } catch let apiError as APIError {
+            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            if appState.handleAuthenticatedAPIError(apiError) { return }
+            dispatchSummaryErrorMessage = apiError.localizedMessage
+            dispatchLoadState = dispatchSummary.map(AsyncLoadState.loaded) ?? .failed(message: apiError.localizedMessage)
+            speechService?.speakError(apiError.localizedMessage)
+        } catch is CancellationError {
+            return
         } catch {
-            isLoading = false
-            errorMessage = "订单加载失败，请重试"
-            speechService?.speakError("订单加载失败，请重试")
+            guard activeRequestID == requestID, !Task.isCancelled else { return }
+            let message = "派单状态加载失败，请重试。"
+            dispatchSummaryErrorMessage = message
+            dispatchLoadState = dispatchSummary.map(AsyncLoadState.loaded) ?? .failed(message: message)
+            speechService?.speakError(message)
         }
+
+        guard activeRequestID == requestID, !Task.isCancelled else { return }
+        startAuxiliaryLoad(appState: appState)
+    }
+
+    private func startAuxiliaryLoad(appState: AppState) {
+        auxiliaryLoadTask?.cancel()
+        let requestID = UUID()
+        auxiliaryRequestID = requestID
+        let apiClient = appState.apiClient
+        auxiliaryLoadTask = Task { [weak self, weak appState] in
+            guard let self, let appState else { return }
+            async let profileResult: Result<VolunteerProfileResponse, Error> = Self.fetchResult {
+                try await HomeLoadCoordinator.run(
+                    timeout: self.loadTimeout,
+                    operationName: "volunteer-profile"
+                ) {
+                    try await apiClient.get("/api/volunteer/profile")
+                }
+            }
+            async let registrationResult: Result<VolunteerRegistrationStatus, Error> = Self.fetchResult {
+                try await HomeLoadCoordinator.run(
+                    timeout: self.loadTimeout,
+                    operationName: "volunteer-registration"
+                ) {
+                    try await apiClient.get("/api/volunteer/registration/status")
+                }
+            }
+
+            let (profile, registration) = await (profileResult, registrationResult)
+            guard !Task.isCancelled, self.auxiliaryRequestID == requestID else { return }
+            if case .success(let value) = profile {
+                appState.updateVolunteerProfile(value)
+                self.apply(profile: value)
+            }
+            if case .success(let value) = registration {
+                appState.updateVolunteerRegistrationStatus(value)
+            }
+            self.auxiliaryLoadTask = nil
+            self.auxiliaryRequestID = nil
+        }
+    }
+
+    nonisolated private static func fetchResult<Value: Sendable>(
+        operation: @escaping @Sendable () async throws -> Value
+    ) async -> Result<Value, Error> {
+        do { return .success(try await operation()) }
+        catch { return .failure(error) }
+    }
+
+    private func cancelRequestIfCurrent(_ requestID: UUID) {
+        guard activeRequestID == requestID else { return }
+        cancelLoading()
     }
 
     func setAvailability(_ value: Bool) {
@@ -318,31 +510,106 @@ final class VolunteerHomeViewModel: ObservableObject {
         isAvailable = profile.isAvailable ?? false
     }
 
-    private func apply(summary: VolunteerDispatchSummaryResponse) {
+    private func apply(
+        summary: VolunteerDispatchSummaryResponse,
+        statusRequestToken: OrderStatusRequestToken? = nil
+    ) {
         let previousOrderID = activeOrder?.orderId
         dispatchSummary = summary
         isAvailable = summary.wantsDispatch ?? isAvailable
         if let active = summary.activeOrders?.first {
-            activeOrder = active.orderDetail
+            let candidate = active.orderDetail
+            if let statusRequestToken,
+               statusRequestToken.orderID == candidate.orderId {
+                activeOrder = appState?.realtimeCoordinator.reconcileOrderDetail(
+                    candidate,
+                    requestToken: statusRequestToken
+                )
+            } else {
+                activeOrder = candidate
+                appState?.realtimeCoordinator.registerActiveOrder(
+                    candidate.orderId,
+                    status: candidate.status
+                )
+            }
+        } else if let statusRequestToken,
+                  appState?.realtimeCoordinator.isOrderStatusRequestCurrent(statusRequestToken) == false {
+            ClientFlowDiagnostics.record(
+                event: "late_empty_discarded",
+                operation: "volunteer-summary-refresh"
+            )
         } else {
             activeOrder = nil
         }
         if let previousOrderID, previousOrderID != activeOrder?.orderId {
             appState?.realtimeCoordinator.unregisterActiveOrder(previousOrderID)
         }
-        if let orderID = activeOrder?.orderId {
-            appState?.realtimeCoordinator.registerActiveOrder(orderID)
+        if let activeOrder {
+            appState?.liveEscortCoordinator.updateOwnedOrder(
+                orderID: activeOrder.orderId,
+                status: activeOrder.status
+            )
+        } else {
+            appState?.liveEscortCoordinator.clearOwnedOrder()
         }
     }
 
     func refreshDispatchSummary() async {
         guard let appState else { return }
+        if let activeLoadTask {
+            ClientFlowDiagnostics.record(event: "coalesced", operation: "volunteer-summary-refresh")
+            await activeLoadTask.value
+            return
+        }
+        if let summaryRefreshTask {
+            ClientFlowDiagnostics.record(event: "coalesced", operation: "volunteer-summary-refresh")
+            await summaryRefreshTask.value
+            return
+        }
+
+        let refreshID = UUID()
+        summaryRefreshID = refreshID
+        ClientFlowDiagnostics.record(event: "started", operation: "volunteer-summary-refresh")
+        refreshPhase = .refreshing(requestID: refreshID)
+        let task = Task { [weak self, weak appState] in
+            guard let self, let appState else { return }
+            await self.performDispatchSummaryRefresh(appState: appState, refreshID: refreshID)
+        }
+        summaryRefreshTask = task
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        if summaryRefreshID == refreshID {
+            summaryRefreshTask = nil
+            summaryRefreshID = nil
+            refreshPhase = .idle
+            ClientFlowDiagnostics.record(event: "finished", operation: "volunteer-summary-refresh")
+        }
+    }
+
+    private func performDispatchSummaryRefresh(appState: AppState, refreshID: UUID) async {
         do {
-            let summary: VolunteerDispatchSummaryResponse = try await appState.apiClient.get("/api/volunteer/dispatch-summary")
-            guard !Task.isCancelled else { return }
-            apply(summary: summary)
+            let apiClient = appState.apiClient
+            let statusRequestToken = activeOrder.map {
+                appState.realtimeCoordinator.beginOrderStatusRequest(orderID: $0.orderId)
+            }
+            let summary: VolunteerDispatchSummaryResponse = try await HomeLoadCoordinator.run(
+                timeout: loadTimeout,
+                operationName: "volunteer-dispatch-refresh"
+            ) {
+                try await apiClient.get("/api/volunteer/dispatch-summary")
+            }
+            guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
+            apply(summary: summary, statusRequestToken: statusRequestToken)
+            dispatchLoadState = .loaded(summary)
             dispatchSummaryErrorMessage = nil
+        } catch HomeLoadCoordinatorError.timedOut {
+            guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
+            dispatchSummaryErrorMessage = "派单状态刷新超过 20 秒，请重试"
         } catch let error as APIError {
+            guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
             if appState.handleAuthenticatedAPIError(error) {
                 return
             }
@@ -350,7 +617,27 @@ final class VolunteerHomeViewModel: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
+            guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
             dispatchSummaryErrorMessage = "派单状态刷新失败，请重试"
+        }
+    }
+
+    func startRefreshLoop() {
+        guard isSceneActive, refreshLoopTask == nil else { return }
+        refreshLoopTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, self.isSceneActive {
+                do {
+                    try await Task.sleep(nanoseconds: 10_000_000_000)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, self.isSceneActive else { return }
+                await self.reportLocationThenRefreshSummary(
+                    currentLocation: self.currentLocationProvider(),
+                    locationAuthorized: self.locationAuthorizedProvider()
+                )
+            }
         }
     }
 
@@ -359,25 +646,51 @@ final class VolunteerHomeViewModel: ObservableObject {
         locationAuthorized: Bool
     ) async {
         guard let appState else { return }
-        let didReportLocation = VolunteerLocationReporter.reportIfNeeded(
-            appState: appState,
-            currentLocation: currentLocation,
-            locationAuthorized: locationAuthorized
+        let didReportLocation = reportVolunteerLocation(
+            appState,
+            currentLocation,
+            locationAuthorized
+        )
+        updateLocationDispatchWarning(
+            didReportLocation: didReportLocation,
+            appState: appState
         )
         if didReportLocation {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(dispatchPropagationDelay * 1_000_000_000))
             guard !Task.isCancelled else { return }
         }
         await refreshDispatchSummary()
     }
 
-    private func scheduleDispatchSummaryRefresh() {
+    private func recoverDispatchReadinessAfterReconnect() {
         guard isSceneActive else { return }
         delayedSummaryRefreshTask?.cancel()
         delayedSummaryRefreshTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            guard !Task.isCancelled else { return }
-            await self?.refreshDispatchSummary()
+            guard let self else { return }
+            await self.reportLocationThenRefreshSummary(
+                currentLocation: self.currentLocationProvider(),
+                locationAuthorized: self.locationAuthorizedProvider()
+            )
+        }
+    }
+
+    private func updateLocationDispatchWarning(
+        didReportLocation: Bool,
+        appState: AppState
+    ) {
+        guard appState.currentEnvironment != .mock else {
+            locationDispatchWarning = nil
+            return
+        }
+        if didReportLocation {
+            locationDispatchWarning = nil
+            return
+        }
+        let message = "定位暂不可用，可能无法收到派单"
+        let shouldSpeak = locationDispatchWarning != message
+        locationDispatchWarning = message
+        if shouldSpeak {
+            speechService?.speakError(message)
         }
     }
 }
@@ -476,11 +789,12 @@ struct VolunteerHomeMapLayout {
     }
 }
 
-private struct VolunteerHomeTopBottomPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
+enum VolunteerHomeTopLayout {
+    static func reservedBottom(safeAreaTop: CGFloat, hasActiveOrder: Bool) -> CGFloat {
+        let safeTop = safeAreaTop.isFinite ? max(safeAreaTop, 0) : 0
+        // Keep the panel below the material status block without feeding a measured
+        // child frame back into the same layout graph.
+        return safeTop + (hasActiveOrder ? 300 : 180)
     }
 }
 
@@ -495,7 +809,6 @@ struct VolunteerHomeView: View {
     @State private var recenterToken = 0
     @State private var demandPanelDetent: VolunteerDemandPanelDetent = .medium
     @State private var demandPanelDragTranslation: CGFloat = 0
-    @State private var topContentBottom: CGFloat = 0
 
     var body: some View {
         NavigationStack {
@@ -544,18 +857,8 @@ struct VolunteerHomeView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 4)
                     .frame(maxWidth: .infinity, alignment: .top)
-                    .background(
-                        GeometryReader { topProxy in
-                            Color.clear.preference(
-                                key: VolunteerHomeTopBottomPreferenceKey.self,
-                                value: topProxy.frame(in: .named("VolunteerHome")).maxY
-                            )
-                        }
-                    )
                 }
                 .background(AppColors.background)
-                .coordinateSpace(name: "VolunteerHome")
-                .onPreferenceChange(VolunteerHomeTopBottomPreferenceKey.self) { topContentBottom = $0 }
             }
             .navigationTitle("")
             .navigationBarHidden(true)
@@ -588,11 +891,17 @@ struct VolunteerHomeView: View {
                 viewModel.setSceneActive(false)
             }
             .task(id: scenePhase) {
-                viewModel.configure(with: appState, speechService: speechService)
+                viewModel.configure(
+                    with: appState,
+                    speechService: speechService,
+                    currentLocationProvider: { locationService.currentLocation },
+                    locationAuthorizedProvider: { locationService.isAuthorized }
+                )
                 let isActive = scenePhase == .active
                 viewModel.setSceneActive(isActive)
                 guard isActive else { return }
-                await runHomeRefreshLoop()
+                await loadHome()
+                viewModel.startRefreshLoop()
             }
             .overlay {
                 if viewModel.incomingOrder != nil {
@@ -602,11 +911,11 @@ struct VolunteerHomeView: View {
                         isResponding: viewModel.isRespondingToDispatch,
                         currentLocation: locationService.currentLocation,
                         locationAuthorized: locationService.isAuthorized,
-                        fallbackCoordinate: locationService.effectiveLocation,
+                        fallbackCoordinate: locationService.effectiveBackendLocation,
                         onAccept: {
                             viewModel.respondToDispatch(
                                 accept: true,
-                                currentLocation: locationService.effectiveLocation,
+                                currentLocation: locationService.currentLocation,
                                 locationAuthorized: locationService.isAuthorized
                             )
                         },
@@ -625,7 +934,7 @@ struct VolunteerHomeView: View {
 
     private func homeMap(screenAnchor: CGPoint) -> some View {
         MapViewWrapper(
-            centerCoordinate: locationService.effectiveLocation,
+            centerCoordinate: locationService.effectiveBackendLocation,
             showsUserLocation: locationService.isAuthorized,
             annotations: viewModel.rows.compactMap(\.annotation),
             zoomLevel: 13,
@@ -643,7 +952,10 @@ struct VolunteerHomeView: View {
             .frame(height: 260)
             .allowsHitTesting(false)
         }
-        .accessibilityLabel("地图，\(locationService.readableCurrentLocationSummary)，\(viewModel.dispatchSummary?.coverageText ?? "派单覆盖范围待同步")")
+        // 位置和派单摘要已由顶部状态块完整朗读；地图使用稳定语义，
+        // 避免 MAMapView 帧更新反复求值动态时间/覆盖文案。
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("志愿者首页辅助地图")
         .accessibilityHint("地图用于视觉查看当前位置覆盖范围；派单状态面板会读出当前位置和覆盖摘要")
         .accessibilityIdentifier("volunteerHomeMap")
     }
@@ -708,6 +1020,7 @@ struct VolunteerHomeView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 18)
                 }
+                .accessibilityIdentifier("volunteerHomeDemandScrollView")
             }
         }
         .frame(maxWidth: .infinity)
@@ -717,6 +1030,7 @@ struct VolunteerHomeView: View {
         .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: -8)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: demandPanelDetent)
         .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("volunteerHomeDemandPanel")
     }
 
     private var demandPanelGrabber: some View {
@@ -727,6 +1041,7 @@ struct VolunteerHomeView: View {
             .padding(.bottom, 12)
             .accessibilityLabel("拖动派单状态面板")
             .accessibilityHint("上滑展开，下滑收起")
+            .accessibilityIdentifier("volunteerHomeDemandPanelGrabber")
     }
 
     private func nearbyOrdersHeader(showsSubtitle: Bool) -> some View {
@@ -747,6 +1062,7 @@ struct VolunteerHomeView: View {
                 }
                 .accessibilityLabel("刷新派单状态")
                 .accessibilityHint("重新加载系统派单工作台")
+                .accessibilityIdentifier("volunteerHomeRefreshButton")
             }
 
             if showsSubtitle {
@@ -760,10 +1076,16 @@ struct VolunteerHomeView: View {
 
     @ViewBuilder
     private var nearbyDemandContent: some View {
-        if viewModel.isLoading {
-            ProgressView("正在加载派单状态...")
-                .accessibilityLabel("正在加载派单状态")
-        } else if let summary = viewModel.dispatchSummary {
+        if let summary = viewModel.dispatchSummary {
+            if viewModel.isLoading {
+                Label(
+                    "正在后台刷新派单状态，当前内容仍可使用",
+                    systemImage: "arrow.triangle.2.circlepath"
+                )
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+                .accessibilityLabel("正在后台刷新派单状态，当前内容仍可使用")
+            }
             VolunteerDispatchSummaryCard(summary: summary)
 
             if let activeOrder = viewModel.activeOrder {
@@ -778,6 +1100,17 @@ struct VolunteerHomeView: View {
             }
 
             VolunteerRecentOrdersSection(orders: summary.recentOrders ?? [])
+        } else if viewModel.isLoading {
+            VStack(alignment: .leading, spacing: 10) {
+                EmptyStateView(
+                    title: "派单状态待同步",
+                    message: "正在后台同步；记录、积分、设置和面板操作仍可使用。"
+                )
+                Label("正在后台同步派单状态", systemImage: "arrow.triangle.2.circlepath")
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityLabel("正在后台同步派单状态，页面仍可使用")
+            }
         } else {
             EmptyStateView(
                 title: "派单状态待同步",
@@ -786,13 +1119,38 @@ struct VolunteerHomeView: View {
         }
 
         if let errorMessage = viewModel.displayedErrorMessage {
-            Text(errorMessage)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(errorMessage)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.destructive)
+                    .accessibilityLabel(errorMessage)
+                Button("重试加载") {
+                    Task { await loadHome() }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("重新加载派单和当前订单状态")
+            }
+        }
+
+        if let warning = viewModel.locationDispatchWarning {
+            Label(warning, systemImage: "location.slash.fill")
                 .font(AppFonts.body())
-                .foregroundColor(AppColors.destructive)
-                .accessibilityLabel(errorMessage)
+                .foregroundColor(AppColors.warning)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(warning)
+                .accessibilityHint("请检查定位权限，并等待设备获取当前位置")
+                .accessibilityIdentifier("volunteerDispatchLocationWarning")
         }
 
         #if DEBUG
+        if let diagnostic = appState.realtimeCoordinator.dispatchDiagnostic {
+            Text("派单诊断：\(diagnostic.debugSummary)")
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+                .textSelection(.enabled)
+                .accessibilityLabel("派单诊断，\(diagnostic.debugSummary)")
+                .accessibilityIdentifier("volunteerDispatchDiagnostic")
+        }
         DebugTestingPanel()
             .environmentObject(appState)
         #endif
@@ -843,9 +1201,10 @@ struct VolunteerHomeView: View {
     }
 
     private func resolvedTopContentBottom(in proxy: GeometryProxy) -> CGFloat {
-        let measuredTopBottom = topContentBottom.isFinite ? topContentBottom : 0
-        let safeAreaTop = proxy.safeAreaInsets.top.isFinite ? proxy.safeAreaInsets.top : 0
-        return max(measuredTopBottom, safeAreaTop + 96)
+        VolunteerHomeTopLayout.reservedBottom(
+            safeAreaTop: proxy.safeAreaInsets.top,
+            hasActiveOrder: viewModel.activeOrder != nil
+        )
     }
 
     private var locationSummaryText: String {
@@ -857,21 +1216,9 @@ struct VolunteerHomeView: View {
 
     private func loadHome() async {
         await viewModel.load(
-            currentLocation: locationService.effectiveLocation,
+            currentLocation: locationService.currentLocation,
             locationAuthorized: locationService.isAuthorized
         )
-    }
-
-    private func runHomeRefreshLoop() async {
-        await loadHome()
-        while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            guard !Task.isCancelled else { return }
-            await viewModel.reportLocationThenRefreshSummary(
-                currentLocation: locationService.effectiveLocation,
-                locationAuthorized: locationService.isAuthorized
-            )
-        }
     }
 
     private var bottomEntries: some View {

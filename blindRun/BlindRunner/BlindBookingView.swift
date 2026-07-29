@@ -295,7 +295,7 @@ final class BlindBookingViewModel: ObservableObject {
             return currentResolvedPlace
         }
         guard let locationService else { return nil }
-        let coordinate = locationService.effectiveLocation
+        let coordinate = bookingCoordinate(from: locationService)
         return ResolvedPlace(
             id: locationService.isUsingDemoFallback ? "demo-current" : "device-current",
             title: locationService.isUsingDemoFallback ? "当前位置（演示坐标）" : "当前位置",
@@ -322,6 +322,15 @@ final class BlindBookingViewModel: ObservableObject {
         }
     }
 
+    private func bookingCoordinate(from locationService: LocationService) -> CLLocationCoordinate2D {
+        guard let currentLocation = locationService.currentLocation else {
+            return locationService.effectiveLocation // 仅 Mock/demo 可走兜底；云端提交仍受权限门控。
+        }
+        return BackendCoordinateNormalizer.normalize(
+            LocatedCoordinate(coordinate: currentLocation, system: .wgs84Device)
+        )?.coordinate ?? currentLocation
+    }
+
     #if DEBUG
     func configureForTesting(
         placeSearchProvider: any PlaceSearchProviding,
@@ -341,7 +350,7 @@ final class BlindBookingViewModel: ObservableObject {
             return
         }
 
-        let coordinate = locationService.effectiveLocation
+        let coordinate = bookingCoordinate(from: locationService)
         let fallbackPlace = ResolvedPlace(
             id: locationService.isUsingDemoFallback ? "demo-current" : "device-current",
             title: locationService.isUsingDemoFallback ? "当前位置（演示坐标）" : "当前位置",
@@ -801,7 +810,7 @@ struct BlindBookingView: View {
                 .accessibilityAddTraits(.isHeader)
 
             MapViewWrapper(
-                centerCoordinate: viewModel.auxiliaryMapCenter ?? viewModel.auxiliaryMapPlace?.coordinate ?? viewModel.resolvedStartPlace?.coordinate ?? locationService.effectiveLocation,
+                centerCoordinate: viewModel.auxiliaryMapCenter ?? viewModel.auxiliaryMapPlace?.coordinate ?? viewModel.resolvedStartPlace?.coordinate ?? locationService.effectiveBackendLocation,
                 showsUserLocation: true,
                 annotations: (viewModel.auxiliaryMapPlace ?? viewModel.resolvedStartPlace).map {
                     [

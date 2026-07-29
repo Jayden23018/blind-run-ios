@@ -7,6 +7,8 @@
 
 import SwiftUI
 import UIKit
+import MetricKit
+import OSLog
 
 @main
 struct blindRunApp: App {
@@ -19,6 +21,8 @@ struct blindRunApp: App {
 
     init() {
         AMapManager.configure()
+        RuntimeDiagnosticMonitor.shared.start()
+        MainRunLoopWatchdog.shared.start()
         _amapGeocodingService = StateObject(wrappedValue: AMapGeocodingService())
     }
 
@@ -52,16 +56,11 @@ struct blindRunApp: App {
         let environment = ProcessInfo.processInfo.environment
         guard environment["AIDRUN_UI_TEST_RESET_STATE"] == "1" else { return }
 
-        let defaults = UserDefaults.standard
         let resetToken = environment["AIDRUN_UI_TEST_RESET_TOKEN"] ?? "legacy-reset-token"
-        let resetTokenKey = "com.aidrun.mvp.uiTestLastResetToken"
-        guard defaults.string(forKey: resetTokenKey) != resetToken else { return }
+        guard appState.persistence.string(forKey: AppStatePersistenceKeys.uiTestLastResetToken) != resetToken else { return }
 
-        defaults.set(resetToken, forKey: resetTokenKey)
-        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
-        defaults.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
-        defaults.removeObject(forKey: "com.aidrun.mvp.mockAPIStore.snapshot")
-        appState.clearSession()
+        appState.resetUITestPersistence()
+        appState.persistence.set(resetToken, forKey: AppStatePersistenceKeys.uiTestLastResetToken)
 
         #if DEBUG
         switch environment["AIDRUN_UI_TEST_API_ENV"] {
@@ -77,11 +76,9 @@ struct blindRunApp: App {
         #endif
 
         if let accessToken = environment["AIDRUN_UI_TEST_ACCESS_TOKEN"], !accessToken.isEmpty {
-            defaults.set(accessToken, forKey: AppConstants.UserDefaultsKeys.accessToken)
             appState.accessToken = accessToken
         }
         if let activeRole = resolvedUITestRoleRaw(from: environment["AIDRUN_UI_TEST_ACTIVE_ROLE"]) {
-            defaults.set(activeRole, forKey: AppConstants.UserDefaultsKeys.activeRole)
             appState.activeRole = UserRole(rawValue: activeRole)
         }
         if environment["AIDRUN_UI_TEST_PRESEEDED_BLIND_PROFILE"] == "1" {
@@ -139,6 +136,7 @@ struct blindRunApp: App {
             .notification(WSAppNotification(
                 type: WSMessageType.appNotification.rawValue,
                 eventId: 9001,
+                eventType: "UI_TEST_NORMAL",
                 title: "普通通知",
                 body: "普通前台通知",
                 ttsText: "普通前台通知",
@@ -152,6 +150,7 @@ struct blindRunApp: App {
                 .notification(WSAppNotification(
                     type: WSMessageType.appNotification.rawValue,
                     eventId: 9002,
+                    eventType: "UI_TEST_HIGH",
                     title: "重要通知",
                     body: "高优先级前台通知",
                     ttsText: "高优先级前台通知",
@@ -163,6 +162,107 @@ struct blindRunApp: App {
         #endif
     }
     #endif
+}
+
+// MARK: - Runtime Diagnostics
+
+/// MetricKit delivers prior-run crash and hang summaries on a later launch.
+/// Only aggregate counts are logged; payloads and user data are never persisted.
+@MainActor
+final class RuntimeDiagnosticMonitor: NSObject, MXMetricManagerSubscriber {
+    static let shared = RuntimeDiagnosticMonitor()
+
+    private let logger = Logger(subsystem: "com.jerry.aidrun", category: "runtime")
+    private var isStarted = false
+
+    func start() {
+        guard !isStarted else { return }
+        isStarted = true
+        MXMetricManager.shared.add(self)
+    }
+
+    nonisolated func didReceive(_ payloads: [MXMetricPayload]) {
+        Task { @MainActor in
+            RuntimeDiagnosticMonitor.shared.logger.info(
+                "metricPayloadCount=\(payloads.count, privacy: .public)"
+            )
+        }
+    }
+
+    nonisolated func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        let crashCount = payloads.reduce(0) { $0 + ($1.crashDiagnostics?.count ?? 0) }
+        let hangCount = payloads.reduce(0) { $0 + ($1.hangDiagnostics?.count ?? 0) }
+        Task { @MainActor in
+            RuntimeDiagnosticMonitor.shared.logger.error(
+                "diagnosticPayloadCount=\(payloads.count, privacy: .public) crashCount=\(crashCount, privacy: .public) hangCount=\(hangCount, privacy: .public)"
+            )
+        }
+    }
+}
+
+/// Detects sustained main-run-loop stalls without retaining user, order, or location data.
+/// The watchdog logs only an anonymous screen category and duration.
+final class MainRunLoopWatchdog: @unchecked Sendable {
+    nonisolated(unsafe) static let shared = MainRunLoopWatchdog()
+
+    nonisolated(unsafe) private let logger = Logger(subsystem: "com.jerry.aidrun", category: "run-loop")
+    nonisolated(unsafe) private let stateLock = NSLock()
+    nonisolated(unsafe) private let queue = DispatchQueue(label: "com.jerry.aidrun.run-loop-watchdog", qos: .utility)
+    nonisolated(unsafe) private var timer: DispatchSourceTimer?
+    nonisolated(unsafe) private var lastAcknowledgedAt = ProcessInfo.processInfo.systemUptime
+    nonisolated(unsafe) private var stallWasReported = false
+    nonisolated(unsafe) private var pageCategory = "root"
+
+    nonisolated func start() {
+        stateLock.lock()
+        guard timer == nil else {
+            stateLock.unlock()
+            return
+        }
+        let source = DispatchSource.makeTimerSource(queue: queue)
+        timer = source
+        stateLock.unlock()
+
+        source.schedule(deadline: .now() + 1, repeating: 1)
+        source.setEventHandler { [weak self] in
+            self?.sample()
+        }
+        source.resume()
+    }
+
+    nonisolated func setPageCategory(_ category: String) {
+        stateLock.withLock {
+            pageCategory = category
+        }
+    }
+
+    nonisolated private func sample() {
+        DispatchQueue.main.async { [weak self] in
+            self?.acknowledgeMainRunLoop()
+        }
+
+        let snapshot = stateLock.withLock {
+            (
+                duration: ProcessInfo.processInfo.systemUptime - lastAcknowledgedAt,
+                alreadyReported: stallWasReported,
+                page: pageCategory,
+                phase: ClientFlowDiagnostics.currentPhase
+            )
+        }
+        guard snapshot.duration >= 2 else { return }
+        guard !snapshot.alreadyReported else { return }
+        stateLock.withLock { stallWasReported = true }
+        logger.error(
+            "main_run_loop_stall page=\(snapshot.page, privacy: .public) phase=\(snapshot.phase, privacy: .public) duration_ms=\(Int(snapshot.duration * 1_000), privacy: .public)"
+        )
+    }
+
+    nonisolated private func acknowledgeMainRunLoop() {
+        stateLock.withLock {
+            lastAcknowledgedAt = ProcessInfo.processInfo.systemUptime
+            stallWasReported = false
+        }
+    }
 }
 
 // MARK: - Keyboard Dismissal
