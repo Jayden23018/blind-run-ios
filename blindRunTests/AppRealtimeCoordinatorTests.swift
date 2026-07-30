@@ -158,6 +158,13 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         coordinator.completeOrderRefresh(42)
         service.simulateConnectionStateForTesting(.disconnected)
         service.simulateConnectionStateForTesting(.connected)
+        // `attach` subscribes to `$connectionState` through `receive(on: DispatchQueue.main)`,
+        // so the reconnect resync refresh is delivered asynchronously. It must be drained and
+        // completed here, otherwise it is still pending below and would be mistaken for a
+        // refresh triggered by the replayed event this test is actually guarding against.
+        await Task.yield()
+        XCTAssertEqual(coordinator.pendingOrderRefreshIDs, [42])
+        XCTAssertEqual(coordinator.pendingOrderRefreshRequests[42]?.reason, .reconnected)
         coordinator.completeOrderRefresh(42)
 
         service.simulateIncomingEventForTesting(.orderStatusChanged(event))
