@@ -290,7 +290,11 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(viewModel.locationDispatchWarning)
     }
 
-    func testVolunteerMissingLocationShowsAndSpeaksDispatchWarning() async {
+    /// 生产代码里的连续失败阈值（VolunteerHomeViewModel.locationReportFailureThreshold）。
+    private static let locationReportFailureThreshold = 3
+
+    /// 单次采样为 nil 是常见瞬态，必须完全静默：横幅不能闪，也不能播报。
+    func testVolunteerSingleLocationReportFailureStaysSilent() async {
         let client = DispatchSummarySequenceAPIClient()
         let appState = AppState(apiClient: client)
         appState.currentEnvironment = .demoCloud
@@ -306,8 +310,83 @@ final class blindRunTests: XCTestCase {
             locationAuthorized: false
         )
 
+        XCTAssertNil(viewModel.locationDispatchWarning)
+        XCTAssertNil(speechService.lastSpokenText)
+    }
+
+    /// 连续失败达到阈值才报警，且重复失败不重复播报。
+    func testVolunteerMissingLocationShowsAndSpeaksDispatchWarningAfterThreshold() async {
+        let client = DispatchSummarySequenceAPIClient()
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .demoCloud
+        let speechService = SpeechService()
+        let viewModel = VolunteerHomeViewModel(
+            dispatchPropagationDelay: 0,
+            reportVolunteerLocation: { _, _, _ in false }
+        )
+        viewModel.configure(with: appState, speechService: speechService)
+
+        for attempt in 1..<Self.locationReportFailureThreshold {
+            await viewModel.reportLocationThenRefreshSummary(
+                currentLocation: nil,
+                locationAuthorized: false
+            )
+            XCTAssertNil(viewModel.locationDispatchWarning, "第 \(attempt) 次失败仍应静默")
+        }
+
+        await viewModel.reportLocationThenRefreshSummary(
+            currentLocation: nil,
+            locationAuthorized: false
+        )
         XCTAssertEqual(viewModel.locationDispatchWarning, "定位暂不可用，可能无法收到派单")
         XCTAssertEqual(speechService.lastSpokenText, "定位暂不可用，可能无法收到派单")
+
+        // 已在报警状态时再失败，不得重复播报。
+        speechService.speak("哨兵播报")
+        await viewModel.reportLocationThenRefreshSummary(
+            currentLocation: nil,
+            locationAuthorized: false
+        )
+        XCTAssertEqual(viewModel.locationDispatchWarning, "定位暂不可用，可能无法收到派单")
+        XCTAssertEqual(speechService.lastSpokenText, "哨兵播报")
+    }
+
+    /// 中途上报成功要清空横幅并复位计数，之后再来一次瞬态失败仍然不报警。
+    func testVolunteerSuccessfulLocationReportResetsWarningSuppression() async {
+        let client = DispatchSummarySequenceAPIClient()
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .demoCloud
+        let speechService = SpeechService()
+        var shouldSucceed = false
+        let viewModel = VolunteerHomeViewModel(
+            dispatchPropagationDelay: 0,
+            reportVolunteerLocation: { _, _, _ in shouldSucceed }
+        )
+        viewModel.configure(with: appState, speechService: speechService)
+
+        for _ in 0..<Self.locationReportFailureThreshold {
+            await viewModel.reportLocationThenRefreshSummary(
+                currentLocation: nil,
+                locationAuthorized: false
+            )
+        }
+        XCTAssertEqual(viewModel.locationDispatchWarning, "定位暂不可用，可能无法收到派单")
+
+        shouldSucceed = true
+        await viewModel.reportLocationThenRefreshSummary(
+            currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
+            locationAuthorized: true
+        )
+        XCTAssertNil(viewModel.locationDispatchWarning)
+
+        speechService.speak("哨兵播报")
+        shouldSucceed = false
+        await viewModel.reportLocationThenRefreshSummary(
+            currentLocation: nil,
+            locationAuthorized: false
+        )
+        XCTAssertNil(viewModel.locationDispatchWarning, "复位后单次失败必须重新回到静默")
+        XCTAssertEqual(speechService.lastSpokenText, "哨兵播报")
     }
 
     func testVolunteerHomeCancellationClearsInitialLoadingState() async {

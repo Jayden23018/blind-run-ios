@@ -35,6 +35,11 @@ final class VolunteerHomeViewModel: ObservableObject {
     private var countdownTask: Task<Void, Never>?
     private var delayedSummaryRefreshTask: Task<Void, Never>?
     private var isSceneActive = false
+    /// 定位单次采样为 nil 是真机上的常见瞬态，报警必须等「连续失败」才算数。
+    /// 取 3：刷新循环每 10 秒上报一次，连续 3 次约等于持续 20 秒都拿不到定位，
+    /// 足以滤掉单次采样抖动，又不至于让真的定位失效拖到半分钟后才提示志愿者。
+    private static let locationReportFailureThreshold = 3
+    private var consecutiveLocationReportFailures = 0
     private var currentLocationProvider: () -> CLLocationCoordinate2D? = { nil }
     private var locationAuthorizedProvider: () -> Bool = { false }
     private let reportVolunteerLocation: @MainActor (AppState, CLLocationCoordinate2D?, Bool) -> Bool
@@ -683,13 +688,18 @@ final class VolunteerHomeViewModel: ObservableObject {
         appState: AppState
     ) {
         guard appState.currentEnvironment != .mock else {
+            consecutiveLocationReportFailures = 0
             locationDispatchWarning = nil
             return
         }
         if didReportLocation {
+            consecutiveLocationReportFailures = 0
             locationDispatchWarning = nil
             return
         }
+        consecutiveLocationReportFailures += 1
+        // 未达阈值的瞬态失败完全静默：横幅不出现（也就不会闪），更不播报。
+        guard consecutiveLocationReportFailures >= Self.locationReportFailureThreshold else { return }
         let message = "定位暂不可用，可能无法收到派单"
         let shouldSpeak = locationDispatchWarning != message
         locationDispatchWarning = message
