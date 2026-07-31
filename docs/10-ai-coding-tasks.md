@@ -21,8 +21,8 @@ Acceptance:
 ### PR-IOS-02 Auth and Role
 
 - 实现手机号验证码登录；预置测试账号固定验证码 `000000`。
-- 当前将 JWT 存入 UserDefaults，并保留迁移 Keychain 的注释；上线硬化优先迁移 Keychain。
-- 所有 AppState 测试必须注入隔离持久化域；UI 测试每次启动清空 UI-test 域，不得读写正常 App 的 token、userId、角色或环境。真机测试脚本前后只比较这些字段的脱敏哈希，并在结束后终止测试宿主、恢复 DemoRelease。
+- JWT 存入 Keychain（`KeychainTokenStore`，走可注入的 `TokenStoring` 门面）；不要再往 `UserDefaults` 写 token，旧 token 只保留一次性迁移读取。
+- 其余 AppState 字段仍走可注入的 `AppStatePersistence`：所有 AppState 测试必须注入隔离持久化域；UI 测试每次启动清空 UI-test 域与 UI-test Keychain service，不得读写正常 App 的 token、userId、角色或环境。真机测试脚本前后只比较这些字段的脱敏哈希，并在结束后终止测试宿主、恢复 DemoRelease。
 - 实现角色选择、角色切换和退出登录二次确认。
 - 显示外部 API 返回的稳定业务错误。
 
@@ -33,7 +33,9 @@ Acceptance:
 
 ### PR-IOS-03 Blind Runner Flow
 
-- 实现盲人资料与紧急联系人、预约、订单状态、取消和评分流程；当前 release 隐藏求助入口，后续安全专项再启用。
+- 实现盲人资料、紧急联系人管理（1～5 个，恰好 1 个主联系人）、预约、订单状态、取消和评分流程；当前 release 隐藏求助入口，后续安全专项再启用。
+- 下单硬前置条件为「至少 1 个紧急联系人且恰好 1 个主联系人」，与后端 `OrderCreationService` 的校验一致；缺失时阻断 `POST /api/orders` 并播报第一个可执行的缺失项。
+- 实名认证（`verifyStatus`：`NOT_VERIFIED` / `VERIFIED` / `FAILED`，无审核中态）本轮只做引导性展示与提示，**不得阻断下单**；升级为硬门槛需先拿到 `demo/docs/handoff.md` Q1（2026-07-29）的答复与错误码。
 - 盲人首页和创建预约为语音优先流程：状态/主操作/重复当前状态先于辅助地图；创建预约按出发地点、预约时间、选填需求、确认提交分步引导。
 - DemoRelease/Release 的盲人首页默认使用不可交互位置占位，不创建 `MAMapView`；权威活跃订单尚未确认时禁止进入新建预约，但保留设置、记录、状态播报和重试。
 - 盲人订单状态按 PENDING_MATCH / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED、IN_PROGRESS、COMPLETED、终态分别路由到等待、服务中、完成/评分或结束视图。
@@ -43,6 +45,9 @@ Acceptance:
 Acceptance:
 
 - 从预约到服务完成和可选评价的前端流程可演示。
+- 无紧急联系人或主联系人不唯一时阻止预约，并提供跳转紧急联系人管理页的引导。
+- 紧急联系人管理覆盖 1～5 上限、最后 1 个不可删除、设为主联系人后主联系人唯一。
+- 实名认证三态可展示且任一状态都不阻断预约。
 - 定位拒绝时阻止预约并提示前往设置。
 - 真机验收需覆盖 VoiceOver 顺序、重复当前状态文案、首页位置占位不拦截触摸、订单详情/服务页高德地图仍可渲染，以及 `111` / `iPad Pro (2)` 双设备流程。
 
@@ -75,8 +80,8 @@ Acceptance:
 
 ### PR-CLOUD-01 Contract Integration
 
-- 以 `docs/07-api-contract.openapi.yaml` 实现请求和 DTO。
-- 以 `docs/websocket-protocol.md` 实现实时消息。
+- 以后端仓库的 `docs/api_spec.yaml` 实现请求和 DTO。
+- 以后端仓库的 `docs/websocket-protocol.md` 实现实时消息。
 - 对 WebSocket 断线保留 REST 轮询降级。
 
 Acceptance:

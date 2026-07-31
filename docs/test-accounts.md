@@ -182,7 +182,7 @@ curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
 
 ### 2.4 管理员审核测试志愿者
 
-管理员/客服登录和审核接口来自 `docs/07-api-contract.openapi.yaml`：
+管理员/客服登录和审核接口来自后端仓库的 `docs/api_spec.yaml`：
 
 - `POST /api/cs/auth/login`
 - `GET/POST /api/admin/volunteers/review/id`
@@ -225,7 +225,7 @@ scripts/admin-review-volunteer.mjs
 ### 3.1 导入 API 规范
 
 1. 打开 Postman → Import → 选择 File
-2. 选择 `docs/07-api-contract.openapi.yaml`
+2. 选择后端仓库的 `docs/api_spec.yaml`（`/Users/mac/Downloads/demo/docs/api_spec.yaml`）
 3. Postman 会自动识别 OpenAPI 3.1 格式并生成所有请求
 
 ### 3.2 配置认证

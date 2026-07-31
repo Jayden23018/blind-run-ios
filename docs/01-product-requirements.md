@@ -30,6 +30,7 @@
 | 痛点 | 导航障碍、障碍物规避、安全隐患 |
 | 典型场景 | 提前预约志愿者，在约定时间地点会合，共同完成跑步 |
 | 技术依赖 | 高度依赖语音交互（VoiceOver + TTS），触控操作为辅助 |
+| 下单前置条件 | 完成基础资料，并保存 1～5 个紧急联系人且其中恰好 1 个为主联系人 |
 
 ### 角色 B：志愿者
 
@@ -56,12 +57,14 @@
 ## 第一版发布标准
 
 1. 能完整演示：**盲人预约 → 志愿者接单 → 志愿者出发 → 志愿者到达并开始服务 → 志愿者结束服务 → 盲人看到完成状态**。
+   - 演示前盲人账号必须已保存 1～5 个紧急联系人且恰好 1 个为主联系人；这是外部后端 `OrderCreationService` 的下单前置校验，缺失时创建订单会被服务端拒绝。
+   - 盲人实名认证在本版本是**引导性提示，不阻断下单**。状态取自 `BlindProfileResponse.verifyStatus`，仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED` 三态，没有「审核中」。是否升级为硬门槛待后端答复 `demo/docs/handoff.md` Q1（2026-07-29）。
 2. 必须接入真实地图（高德地图）。
 3. 必须接入真实定位。
 4. 必须接入真实用户登录。
 5. 必须体现无障碍体验，包括 VoiceOver、TTS、极简大按钮。
 6. 必须在真机 `111` 和 `iPad Pro (2)` 上通过真实高德 smoke、真实云端 UI smoke 和后端 E2E。
-7. 固定验证码和 HTTP 明文 IP 已确认可用于当前上线版本；UserDefaults token 仍需在 `plan.md` 中记录为后续硬化项。
+7. 固定验证码和 HTTP 明文 IP 已确认可用于当前上线版本；token 已于 2026-07-29 迁移到 Keychain，剩余硬化项（HTTPS/WSS、真实短信策略）仍需在 `plan.md` 中记录。
 
 ## 第一版优先级
 
@@ -86,7 +89,7 @@
 | iOS 版本 | iOS 16+ |
 | 外部服务 | 仓库外云端 API，唯一地址 `http://47.114.113.171` |
 | 网络层 | URLSession + async/await |
-| Token 存储 | 当前用 UserDefaults；上线前优先迁移 Keychain，未迁移需记录风险 |
+| Token 存储 | Keychain（`kSecAttrAccessibleAfterFirstUnlock`，后台/锁屏可读）；已于 2026-07-29 完成迁移 |
 | 地图服务 | 高德地图（AMap） |
 | 实时通信 | REST + WebSocket；志愿者通过 WebSocket 接收系统派单，订单页保留每 5 秒轮询作为 WebSocket 断开时的降级方案 |
 | 短信验证 | `send-code` / `verify-code` 后端验证码策略；预置测试账号固定 `000000` |
@@ -124,15 +127,16 @@ Swift 原生 iOS
 ├── 高德地图 SDK（AMap3DMap / AMapSearch / AMapLocation）
 ├── AVSpeechSynthesizer（TTS）
 ├── Speech Framework（语音输入）
-└── UserDefaults（token 存储）
+├── Keychain（token 存储，`KeychainTokenStore`）
+└── UserDefaults（角色、环境、userId、通知水位等非凭据状态）
 ```
 
 ### 外部 API
 
 ```
 仓库外云端服务（http://47.114.113.171）
-├── REST API（docs/07-api-contract.openapi.yaml）
-├── WebSocket（docs/websocket-protocol.md）
+├── REST API（后端仓库 docs/api_spec.yaml）
+├── WebSocket（后端仓库 docs/websocket-protocol.md）
 └── JWT Bearer Auth
 ```
 

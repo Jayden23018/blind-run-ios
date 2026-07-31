@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "助盲跑 API",
-    "description": "盲人陪跑志愿者匹配服务。所有当前 lat/lng/gpsLat/gpsLng 输入输出约定为 GCJ-02；历史写入均来自高德/腾讯定位链路。未来新增 WGS-84 来源必须在服务端写入边界转换。",
-    "version": "1.1.0"
+    "description": "盲人陪跑志愿者匹配服务",
+    "version": "1.0.0"
   },
   "servers": [
     {
@@ -2029,59 +2029,6 @@
                   "items": {
                     "$ref": "#/components/schemas/OrderStatusLogResponse"
                   }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/orders/{id}/track": {
-      "get": {
-        "tags": [
-          "order-controller"
-        ],
-        "operationId": "getOrderTrack",
-        "description": "仅订单参与者可读取。坐标为 GCJ-02。接口不做订单状态门控；status 在非 403/404 响应中必有。双方数组原样返回 0/1/多个日志点；某角色少于两个点时仅该角色统计为 0/0/null，客户端不绘制单点路线。",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64",
-              "minimum": 1
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Typed order track response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OrderTrackResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Authenticated user is not an order participant",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Order not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -4160,103 +4107,6 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
-          }
-        }
-      },
-      "TrackPoint": {
-        "type": "object",
-        "required": [
-          "lat",
-          "lng",
-          "recordedAt"
-        ],
-        "properties": {
-          "lat": {
-            "type": "number",
-            "format": "double",
-            "minimum": -90,
-            "maximum": 90,
-            "description": "GCJ-02 latitude"
-          },
-          "lng": {
-            "type": "number",
-            "format": "double",
-            "minimum": -180,
-            "maximum": 180,
-            "description": "GCJ-02 longitude"
-          },
-          "recordedAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "TrackStats": {
-        "type": "object",
-        "properties": {
-          "distanceMeters": {
-            "type": "number",
-            "format": "double",
-            "minimum": 0
-          },
-          "durationSeconds": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "avgPaceSecPerKm": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double",
-            "minimum": 0
-          }
-        }
-      },
-      "OrderTrackResponse": {
-        "type": "object",
-        "required": [
-          "status",
-          "volunteerTrack",
-          "volunteerStats",
-          "blindTrack",
-          "blindStats"
-        ],
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "PENDING_MATCH",
-              "PENDING_ACCEPT",
-              "IN_PROGRESS",
-              "DRIVER_EN_ROUTE",
-              "DRIVER_ARRIVED",
-              "COMPLETED",
-              "CANCELLED",
-              "REMATCHING",
-              "NO_VOLUNTEER"
-            ]
-          },
-          "volunteerTrack": {
-            "type": "array",
-            "description": "Raw ordered point log (0, 1, or multiple points). Decoded for a future approved comparison only; not the default user route.",
-            "items": {
-              "$ref": "#/components/schemas/TrackPoint"
-            }
-          },
-          "volunteerStats": {
-            "$ref": "#/components/schemas/TrackStats"
-          },
-          "blindTrack": {
-            "type": "array",
-            "description": "Raw ordered point log (0, 1, or multiple points). Primary completed route titled 本次路线 only when at least two valid points exist.",
-            "items": {
-              "$ref": "#/components/schemas/TrackPoint"
-            }
-          },
-          "blindStats": {
-            "$ref": "#/components/schemas/TrackStats"
           }
         }
       },

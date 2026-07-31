@@ -18,13 +18,13 @@ When sources conflict, follow this priority order:
 6. `docs/04-user-flows-and-state-machine.md`
 7. `docs/05-page-specs.md`
 8. `docs/06-data-model.md`
-9. `docs/07-api-contract.openapi.yaml`
-10. `docs/08-ios-architecture.md`
-11. `docs/09-accessibility-and-voice-guidelines.md`
-12. `docs/10-ai-coding-tasks.md`
-13. `docs/websocket-protocol.md`
-14. OpenSpec changes under `openspec/changes/`
-15. Legacy Flutter code can be used only as UI or behavior reference. It is not a source of truth.
+9. `docs/08-ios-architecture.md`
+10. `docs/09-accessibility-and-voice-guidelines.md`
+11. `docs/10-ai-coding-tasks.md`
+12. OpenSpec changes under `openspec/changes/`
+13. Legacy Flutter code can be used only as UI or behavior reference. It is not a source of truth.
+
+The API contract is no longer maintained in this repository. Since 2026-07-28 the single source is the backend repository (`/Users/mac/Downloads/demo`): `docs/api_spec.yaml` for REST and `docs/websocket-protocol.md` for WebSocket. See section 7 and `docs/07-api-contract-MOVED.md`. The former local files are archived as `docs/_archive-*.bak` and contain known errors; do not read or copy them.
 
 If legacy Flutter code, old documents, and the current docs/OpenSpec conflict, follow the current docs/OpenSpec and this file.
 
@@ -152,8 +152,10 @@ DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> (no in-app emergency entry in 
 ## 7. External API Contract Rules
 
 - Do not add or maintain backend implementation code in this repository.
-- `docs/07-api-contract.openapi.yaml` is the canonical HTTP API contract.
-- `docs/websocket-protocol.md` is the canonical WebSocket contract.
+- The canonical HTTP API contract is `docs/api_spec.yaml` in the backend repository (`/Users/mac/Downloads/demo`), not a file in this repository.
+- The canonical WebSocket contract is `docs/websocket-protocol.md` in the same backend repository.
+- Mount it with `claude --add-dir /Users/mac/Downloads/demo` when contract work is needed. When the contract document itself is wrong, fix it in the backend repository; never keep a second copy here. Questions that need a backend decision go in `demo/docs/handoff.md` under 「待后端确认」.
+- The archived local copies `docs/_archive-*.bak` have known errors and must not be read or copied.
 - The current real HTTP base URL is `http://47.114.113.171`.
 - The current real WebSocket origin is `ws://47.114.113.171`.
 - Do not add local or placeholder real-server addresses.
@@ -187,7 +189,7 @@ Required error codes:
 - Use `URLSession`.
 - Centralize network requests in `APIClient`.
 - Centralize token, `currentUser`, and `activeRole` in `AppState`.
-- Token currently uses `UserDefaults`; production Keychain migration is a launch hardening item in `plan.md`.
+- Token is stored in the Keychain (`blindRun/Core/KeychainTokenStore.swift`, `kSecAttrAccessibleAfterFirstUnlock` so background escort can read it while locked). Do not write the access token to `UserDefaults`; the only remaining `UserDefaults` access is the one-time migration of a legacy value in `restoreSession()`.
 - Development supports Mock / Demo Cloud switching; Demo and Production builds are locked to Demo Cloud.
 - Mock is an in-process frontend test facility and must not perform network requests.
 - All non-Mock clients use `http://47.114.113.171`; the address is not configurable in the app.
@@ -223,12 +225,15 @@ Required error codes:
 - Turning off availability does not affect the current order.
 - Before accept, hide blind runner contact information, emergency contact, and sensitive health information.
 - After accept, show the blind runner's full phone number.
-- Blind runners must provide emergency contact name and phone number.
+- Blind runners must store between one and five emergency contacts, with exactly one contact marked primary. This is a hard booking prerequisite: `POST /api/orders` must be blocked until it is satisfied, because the backend's own `OrderCreationService` precondition is "the blind user has at least one emergency contact".
+- Each contact carries name and phone number; relationship is optional. The backend returns the phone in plain text for the owning user (`EmergencyContactResponse.phone`, v1.5.0); masking for display is the iOS client's responsibility.
+- Deleting the last remaining emergency contact is rejected by the backend and must also be blocked in the UI.
+- Blind-runner real-name verification (`POST /api/blind/verify-identity`, `BlindProfileResponse.verifyStatus` with `NOT_VERIFIED` / `VERIFIED` / `FAILED`) is **guidance only in the current release**. It must be surfaced and spoken, but it must not block booking: `OrderCreationService` never reads `verifyStatus`, so a client-only block would be a false gate that any non-iOS caller bypasses. There is no pending/under-review state. If `demo/docs/handoff.md` Q1 (2026-07-29) is answered with a server-side `verifyStatus == VERIFIED` check, this becomes a hard gate and the returned error code is mapped then.
 - The current release hides the emergency action in both blind-runner and volunteer UI.
 - Backend `ESCORT_DISTANCE_ALERT` and `ESCORT_SIGNAL_LOST` notifications are high-priority informational safety warnings only. They do not mutate order status, enable emergency UI, or prove that rescue was dispatched.
 - If emergency action is re-enabled in a later safety change, it must require second confirmation.
 - If the backend emergency endpoint is used in a later safety change, it records an emergency event and keeps the order status unchanged.
-- Real SMS, identity verification, and administrator review are backend-owned production capabilities now represented in `docs/07-api-contract.openapi.yaml`; iOS may consume those contracts without adding backend code to this repository.
+- Real SMS, identity verification, and administrator review are backend-owned production capabilities now represented in the backend repository's `docs/api_spec.yaml`; iOS may consume those contracts without adding backend code to this repository.
 
 Future emergency confirmation copy, if the action is re-enabled, must be exactly:
 

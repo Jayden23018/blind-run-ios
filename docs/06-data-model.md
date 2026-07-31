@@ -4,11 +4,11 @@
 
 ## 1. Design Principles
 
-- iOS 模型字段与 `docs/07-api-contract.openapi.yaml` 保持一致。
+- iOS 模型字段与后端仓库的 `docs/api_spec.yaml` 保持一致（本仓库不再维护契约，见 `docs/07-api-contract-MOVED.md`）。
 - Mock fixtures 使用与云端响应相同的标识符和字段形状。
 - 时间字段统一使用 ISO 8601 / UTC 存储，客户端按本地时区展示。
 - 经纬度使用 `Double`。
-- Token 由后端签发 JWT；当前 iOS 存储在 UserDefaults，Keychain 迁移是上线硬化项。
+- Token 由后端签发 JWT；iOS 存储在 Keychain（`KeychainTokenStore`，`kSecAttrAccessibleAfterFirstUnlock`）。
 - 管理员审核字段保留；真实管理员后台和审核流程按后端契约接入。
 
 ## 2. Enumerations
@@ -106,29 +106,42 @@ Rules:
 | `userId` | UUID/String | Yes | 关联 User，一对一 |
 | `nickname` | String | Yes | 盲人昵称 |
 | `runningExperience` | String | No | 跑步经验 |
-| `emergencyContactId` | UUID/String | Yes | 关联 EmergencyContact |
+| `verifyStatus` | BlindVerifyStatus | Yes | 实名认证状态，仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED` 三态，**没有 PENDING/审核中** |
 | `createdAt` | Instant | Yes | 创建时间 |
 | `updatedAt` | Instant | Yes | 更新时间 |
 
 Rules:
 
 - 盲人创建预约前必须有完整资料。
+- 紧急联系人是 1..N 关系（1～5 个），不再是资料上的单个 `emergencyContactId` 外键；见下方 EmergencyContact。
+- `verifyStatus` 由 `POST /api/blind/verify-identity` 的身份证二要素同步核验产生，客户端读取 `GET /api/blind/profile` 上的该字段为准。**本版本它只是引导性提示，不作为下单门槛**（外部后端 `OrderCreationService` 从不读该字段）；升级为硬门槛需先拿到 `demo/docs/handoff.md` Q1（2026-07-29）的答复和对应错误码。
+- 身份证号只在提交时短暂存在于认证 ViewModel 内存中，不进入资料模型、持久化、日志、TTS 或提交后的 accessibility 值。
 - 年龄、性别、健康注意事项或头像属于后续资料扩展项，接入前需明确隐私规则。
 
 ### EmergencyContact
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `id` | UUID/String | Yes | 主键 |
-| `blindRunnerProfileId` | UUID/String | Yes | 关联盲人资料 |
-| `name` | String | Yes | 紧急联系人姓名 |
-| `phoneNumber` | String | Yes | 紧急联系人电话 |
+| `id` | Int64 | Yes | 主键 |
+| `userId` | Int64 | Yes | 关联盲人用户 |
+| `name` | String | Yes | 紧急联系人姓名（新增时必填） |
+| `phone` | String | Yes | 紧急联系人电话（新增时必填）。本人读取时后端返回**明文**（`EmergencyContactResponse.phone`，v1.5.0 起），脱敏由 iOS 展示层负责 |
+| `relationship` | String | No | 与盲人的关系 |
+| `isPrimary` | Bool | Yes | 是否主联系人 |
 | `createdAt` | Instant | Yes | 创建时间 |
 | `updatedAt` | Instant | Yes | 更新时间 |
 
 Rules:
 
-- 当前版本必须存储紧急联系人。
+- 每个盲人用户 1～5 个紧急联系人，且**有且仅有 1 个 `isPrimary = true`**。
+- **「至少 1 个紧急联系人且恰好 1 个主联系人」是盲人下单的硬前置条件。** 外部后端 `OrderCreationService` 自身的前置校验是「盲人用户至少有 1 个紧急联系人」，客户端阻断与之一致并额外保证主联系人唯一。
+- 第一个新增的联系人由后端自动设为主联系人。
+- 已有 5 个时新增被后端拒绝；只剩 1 个时删除被后端拒绝。两种情况 iOS 都必须先在 UI 阻断并说明原因。
+- 设为主联系人是原子操作：后端先清除原主联系人标记再置新的，客户端每次变更后重新拉取完整列表，不做本地推断。
+- 归属校验由后端负责：JWT 用户必须与路径 `userId` 一致，且角色为 `BLIND`，否则 403。iOS 不得使用他人 `userId` 拉取联系人。
+- 编辑接口是 PATCH 语义：未传的字段保留原值。iOS 在电话未被用户修改时**不提交** `phone` 字段，从而不会把脱敏串写回服务端。
+- 展示、TTS 播报和 accessibility 值只使用脱敏电话，不读出完整号码。
+- 端点：`GET`/`POST /api/users/{userId}/emergency-contacts`、`PUT`/`DELETE /api/users/{userId}/emergency-contacts/{contactId}`、`PUT /api/users/{userId}/emergency-contacts/{contactId}/set-primary`。
 - 自动拨打电话、短信和管理员通知属于生产安全能力，接入前需明确授权、合规文案和后端契约。
 
 ### VolunteerProfile
@@ -308,7 +321,9 @@ Rules:
 
 `MockAPIClient` 应提供：
 
-- 至少 1 个盲人用户，资料与紧急联系人完整。
+- 至少 1 个盲人用户，资料完整并已有 1～5 个紧急联系人（恰好 1 个 `isPrimary`），可直接下单。
+- 至少 1 个盲人用户没有任何紧急联系人，用于验证下单被阻断的引导路径。
+- 覆盖 `verifyStatus` 的 `NOT_VERIFIED` / `VERIFIED` / `FAILED` 三态，用于验证实名引导文案；三态都不影响下单。
 - 至少 1 个志愿者用户，认证已通过、可服务开关开启。
 - 若干 `PENDING_MATCH` 订单，坐标使用可演示的默认测试点。
 - 若干已完成订单，用于服务记录与积分页面展示。

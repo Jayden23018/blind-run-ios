@@ -14,12 +14,10 @@ const maintainedDocs = [
   'docs/04-user-flows-and-state-machine.md',
   'docs/05-page-specs.md',
   'docs/06-data-model.md',
-  'docs/07-api-contract.openapi.yaml',
   'docs/08-ios-architecture.md',
   'docs/09-accessibility-and-voice-guidelines.md',
   'docs/10-ai-coding-tasks.md',
-  'docs/test-accounts.md',
-  'docs/websocket-protocol.md'
+  'docs/test-accounts.md'
 ];
 
 const forbiddenFragments = [
@@ -41,17 +39,10 @@ const forbiddenFragments = [
   '`/api/orders/{id}/arrive`'
 ];
 
-const requiredOpenAPIFragments = [
-  '/api/volunteer/registration/step3/face-verify/init',
-  '/api/volunteer/registration/step3/face-verify/result',
-  'FaceVerifyInitRequest',
-  'FaceVerifyResultRequest',
-  'metaInfo',
-  'certifyId',
-  '/api/admin/volunteers/review/id',
-  '/api/admin/volunteers/review/cert',
-  '/api/cs/auth/login'
-];
+// The HTTP/WebSocket API contract is no longer maintained in this repository.
+// It was archived on 2026-07-28 (see docs/07-api-contract-MOVED.md); the single
+// source of truth now lives in the backend repository. This script therefore only
+// validates the markdown docs this repository still owns.
 
 let failed = false;
 
@@ -70,62 +61,6 @@ for (const relativePath of maintainedDocs) {
       failed = true;
     }
   }
-}
-
-const openAPIText = fs.readFileSync(path.join(repoRoot, 'docs/07-api-contract.openapi.yaml'), 'utf8');
-for (const fragment of requiredOpenAPIFragments) {
-  if (!openAPIText.includes(fragment)) {
-    console.error(`[validate-docs] docs/07-api-contract.openapi.yaml is missing required backend contract fragment: ${fragment}`);
-    failed = true;
-  }
-}
-
-if (openAPIText.includes('certifyUrl')) {
-  console.error('[validate-docs] docs/07-api-contract.openapi.yaml still contains legacy Step3 certifyUrl');
-  failed = true;
-}
-
-try {
-  const openAPIDocument = JSON.parse(openAPIText);
-  const faceVerifyInitResponse = openAPIDocument.components?.schemas?.FaceVerifyInitResponse;
-  const pendingBranch = faceVerifyInitResponse?.oneOf?.find((branch) =>
-    branch.properties?.status?.enum?.includes('PENDING')
-  );
-  const errorBranch = faceVerifyInitResponse?.oneOf?.find((branch) =>
-    branch.properties?.status?.enum?.includes('ERROR')
-  );
-  const pendingRequired = new Set(pendingBranch?.required ?? []);
-  const errorRequired = new Set(errorBranch?.required ?? []);
-
-  if (
-    faceVerifyInitResponse?.discriminator?.propertyName !== 'status' ||
-    pendingBranch?.properties?.certifyId?.minLength !== 1 ||
-    !pendingRequired.has('status') ||
-    !pendingRequired.has('certifyId') ||
-    !errorRequired.has('status') ||
-    !errorRequired.has('message')
-  ) {
-    console.error('[validate-docs] FaceVerifyInitResponse must require non-empty certifyId for PENDING and message for ERROR');
-    failed = true;
-  }
-
-  const dispatchSummary = openAPIDocument.components?.schemas?.VolunteerDispatchSummaryResponse;
-  const dispatchRequired = new Set(dispatchSummary?.required ?? []);
-  const unavailableBranch = dispatchSummary?.allOf?.find((branch) =>
-    branch.if?.properties?.canDispatch?.const === false
-  );
-  const unavailableRequired = new Set(unavailableBranch?.then?.required ?? []);
-  if (
-    !dispatchRequired.has('canDispatch') ||
-    !unavailableRequired.has('notAvailableReasons') ||
-    unavailableBranch?.then?.properties?.notAvailableReasons?.minItems !== 1
-  ) {
-    console.error('[validate-docs] VolunteerDispatchSummaryResponse must require non-empty notAvailableReasons when canDispatch is false');
-    failed = true;
-  }
-} catch (error) {
-  console.error(`[validate-docs] docs/07-api-contract.openapi.yaml is not valid JSON: ${error.message}`);
-  failed = true;
 }
 
 if (failed) {

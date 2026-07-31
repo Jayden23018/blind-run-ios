@@ -8,7 +8,7 @@
 2. **Mock 只用于开发测试**：Mock 可用于离线 UI 和单元测试，但不能作为上线验收依据。
 3. **无障碍不可妥协**：VoiceOver、TTS、极简大按钮必须在每一个盲人端页面上正常工作。
 4. **一个手机号可拥有双角色**：用户可以在 App 内切换 activeRole，但有活跃订单时禁止切换。
-5. **上线风险显式记录**：固定验证码和 HTTP 已允许用于当前版本；UserDefaults token、隐私合规和双真机验收状态必须进入 `plan.md`。
+5. **上线风险显式记录**：固定验证码和 HTTP 已允许用于当前版本；token 已迁移 Keychain，剩余的 HTTPS/WSS、隐私合规和双真机验收状态必须进入 `plan.md`。
 
 ---
 
@@ -19,17 +19,21 @@
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
 | 手机号 + 验证码登录 | P0 | 验证码固定 `000000`，首次登录自动创建账号 |
-| JWT Token 管理 | P0 | 登录返回 JWT，存储于 UserDefaults |
+| JWT Token 管理 | P0 | 登录返回 JWT，存储于 Keychain |
 | 角色选择与切换 | P0 | 支持在盲人跑者 / 志愿者之间切换 |
 | 角色切换拦截 | P0 | 存在 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 状态订单时禁止切换 |
 | API 环境切换 | P1 | Debug 开发包支持 Mock / Demo Cloud；Demo/Production 包隐藏切换入口 |
 | 设置页 | P2 | 基本设置：个人信息、关于、退出登录 |
+| APNs 远程推送 | P1 | 登录后申请通知授权并把 deviceToken 提交 `POST /api/devices/apns`（32~128 位 hex）；后端仅对 `HIGH` 优先级通知补发 APNs。**推送 capability 需要付费开发者团队签名，个人免费团队签出的构建收不到推送**，真机验证必须用付费团队 profile |
+| 断线通知补读 | P1 | WebSocket 重连后按持久化水位调用 `GET /api/notifications/since`，把断线期间遗漏的通知按时间正序补回前台队列，与 WS 实时通知共用 `messageId` 去重 |
 
 ### 盲人跑者端
 
 | 功能 | 优先级 | 说明 |
 |------|--------|------|
-| 盲人资料填写 | P0 | 必填：昵称、紧急联系人姓名、紧急联系人电话；选填：跑步经验 |
+| 盲人资料填写 | P0 | 必填：昵称；选填：跑步经验。紧急联系人不再内嵌于本表单，改由独立的紧急联系人管理页维护 |
+| 盲人紧急联系人管理 | P0 | 1～5 个联系人的列表、新增、编辑、删除、设为主联系人；必须恰好 1 个主联系人；最后 1 个联系人不可删除。**「至少 1 个联系人且恰好 1 个 primary」是下单硬前置条件**，与后端 `OrderCreationService` 的校验一致 |
+| 盲人实名认证 | P1 | 提交身份证姓名和号码做二要素核验，展示 `NOT_VERIFIED` / `VERIFIED` / `FAILED` 三态（无「审核中」态）。**本版本为引导性提示，不阻断下单**；是否升级为硬门槛待 `demo/docs/handoff.md` Q1（2026-07-29）答复 |
 | 盲人首页 | P0 | 语音优先呈现当前状态和下一步主操作；地图定位保留为辅助确认内容 |
 | 创建预约 | P0 | 引导式流程：确认出发地点、选择预约时间、填写选填跑步需求、确认后提交；选填项包括路线备注、预计时长、配速偏好、路线偏好、导盲犬和特殊说明 |
 | 订单状态等待页 | P0 | WebSocket 接收状态变化，断开时每 5 秒轮询订单详情 |
@@ -82,9 +86,9 @@
 | profile（资料管理） | P0 | 盲人/志愿者资料 CRUD |
 | order（订单管理） | P0 | 订单 CRUD、状态流转、WebSocket 通知与轮询降级查询 |
 | location（位置） | P1 | 位置信息存储 |
-| safety（安全） | P0 | 紧急联系人存储；紧急求助触发仅保留后端合同探针，当前 iOS release 隐藏入口 |
+| safety（安全） | P0 | 紧急联系人存储与管理（`/api/users/{userId}/emergency-contacts` 增删改查 + `set-primary`，1～5 个，恰好 1 个 primary，且是下单前置校验）；紧急求助触发仅保留后端合同探针，当前 iOS release 隐藏入口 |
 | volunteer（志愿者） | P0 | 认证状态管理、可服务开关 |
-| OpenAPI 契约 | P0 | 以 `docs/07-api-contract.openapi.yaml` 驱动前端对接 |
+| OpenAPI 契约 | P0 | 以后端仓库的 `docs/api_spec.yaml` 驱动前端对接；本仓库不再维护契约副本（见 `docs/07-api-contract-MOVED.md`） |
 | 并发接单错误处理 | P0 | 前端正确处理 `ORDER_ALREADY_ACCEPTED` |
 
 以上均为 iOS 消费的外部服务能力。本仓库不实现或部署这些服务端模块。
@@ -102,7 +106,7 @@
 | 真实短信服务 | 后端提供验证码策略、限流、错误码和测试账号机制 |
 | 真实实名认证 | 身份服务、隐私合规和审核规则明确 |
 | 实时轨迹共享 / 路线导航 | 地图能力、位置频率、隐私授权和安全策略明确 |
-| 自动拨打电话 / 发送短信 / APNs | 用户授权、合规文本和后端通知契约明确 |
+| 自动拨打电话 / 发送短信 | 用户授权、合规文本和后端通知契约明确 |
 | AI 助手 / 自然语言时间解析 | 误识别兜底、安全边界和无障碍交互明确 |
 | 完整积分商城 / 支付 / 库存 | 商品、订单、支付、退款和风控契约明确 |
 | App 内聊天 / 虚拟号码 | 消息、电话保护、审核与安全规则明确 |
@@ -119,7 +123,7 @@
 | 架构 | MVVM | 简单性与可测试性平衡 |
 | 地图 | 高德地图 iOS SDK | 需求指定，非 Apple MapKit |
 | 网络层 | URLSession + async/await | 原生，无额外依赖 |
-| Token 存储 | UserDefaults | 当前实现；上线硬化优先迁移 Keychain |
+| Token 存储 | Keychain | `KeychainTokenStore`，`kSecAttrAccessibleAfterFirstUnlock`；旧 UserDefaults 值一次性迁移后清除 |
 | 实时更新 | WebSocket + 5 秒轮询降级 | 云端契约要求 WebSocket，轮询用于断线兜底 |
 | 外部 API | `http://47.114.113.171` | 唯一真实联调服务，不由本仓库维护 |
 | 认证 | JWT | 无状态，移动端友好 |
@@ -211,10 +215,10 @@
 - 本期包含 app-lifetime WebSocket 事件协调、订单刷新信号、导航期间派单保留、前台通知优先级/无障碍/去重、双向 peer-location 类型化路由和重连恢复信号。
 - 本期包含 `enable-live-escort-location-and-track-summary` 批准的订单双方实时位置、`IN_PROGRESS` 后台定位、服务端安全告警展示和完成后盲人轨迹总结；不包含客户端分离阈值判定、公共轨迹分享、App 内导航或 SOS UI。
 - `/api/blind/volunteer-location` 只用于 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 的短期位置回退，不替代 `IN_PROGRESS` 双向流。
-8. HTTP 明文 IP 当前允许上线；UserDefaults token 后续迁移 Keychain。
+8. HTTP 明文 IP 当前允许上线；token 已迁移 Keychain（`KeychainTokenStore`）。
 ## 当前发布范围：账户生命周期
 
-本次发布包含云端会话校验、Token 撤销式退出、自助账户软删除和 429 重试提示。Keychain、刷新 Token、多设备会话管理、客服登录和管理员账户管理不在本次范围内。
+本次发布包含云端会话校验、Token 撤销式退出、自助账户软删除、429 重试提示和 Keychain token 存储。刷新 Token、多设备会话管理、客服登录和管理员账户管理不在本次范围内。
 
 ## 当前发布范围：实时同行与完成总结
 

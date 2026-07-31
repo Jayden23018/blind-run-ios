@@ -17,6 +17,10 @@ Use iOS native `AVSpeechSynthesizer` for TTS.
 必须播报：
 
 - 进入盲人首页
+- 下单前置条件缺失时的第一个可执行阻断原因（尤其是「请先添加紧急联系人并设置主联系人」）
+- 紧急联系人新增 / 编辑 / 删除 / 设为主联系人成功后的结果与当前联系人数量或主联系人
+- 紧急联系人数量达到 5 个上限、以及只剩 1 个不可删除的限制说明
+- 实名认证状态变化与下一步动作（引导性播报，不得暗示已阻断下单）
 - 订单提交成功
 - 系统派单中
 - 志愿者派单定位暂不可用时，可见文本与 TTS 均使用“定位暂不可用，可能无法收到派单”，并提供检查定位权限、等待设备获取位置的辅助提示。
@@ -109,9 +113,16 @@ Rules:
 These actions require a second confirmation:
 
 - Cancel order
+- Delete an emergency contact
 - Future re-enabled emergency action
 - Volunteer complete service
 - Logout
+
+Emergency-contact and identity screens additionally require:
+
+- Contact rows announce name, relationship when present, masked phone, primary state, and available actions. Never read the full phone number aloud or expose it through accessibility values.
+- Delete is blocked, with a spoken explanation, when only one contact remains; deleting the current primary requires promoting another contact first.
+- The identity-card number must never appear in TTS output, accessibility values after submission, logs, or test screenshots.
 
 Emergency confirmation copy must be:
 

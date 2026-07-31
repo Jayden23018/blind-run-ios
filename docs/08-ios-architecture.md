@@ -9,7 +9,7 @@
 - Minimum OS: iOS 16+
 - Architecture: SwiftUI + MVVM
 - Networking: `URLSession`
-- Token storage: currently an injectable `AppStatePersistence` backed by `UserDefaults`; normal, unit-test, and UI-test domains are isolated. Production hardening should migrate to Keychain with separate production/test service namespaces.
+- Token storage: Keychain (`KeychainTokenStore`, `kSecAttrAccessibleAfterFirstUnlock`) behind the injectable `TokenStoring` facade; `AppCredentialNamespace` keeps production, UI-test, and unit-test services separate. Non-token app state (active role, environment, userId, notification watermark) still goes through the injectable `AppStatePersistence` (`UserDefaults`) with isolated normal / unit-test / UI-test domains.
 - Map: 高德地图 iOS SDK
 - Location: CoreLocation + 高德地图定位能力 as needed
 - Voice: `AVSpeechSynthesizer`
@@ -43,7 +43,9 @@ Views should remain thin:
 Recommended examples:
 
 - `AuthViewModel`: phone and code login.
-- `BlindBookingViewModel`: location permission, default start coordinate, booking form validation, create order.
+- `BlindBookingViewModel`: location permission, default start coordinate, booking form validation, create order. It must refuse to call `POST /api/orders` unless every booking gate passes, and surface the first actionable missing gate.
+- `EmergencyContactsViewModel`: owns the complete server-returned contact list and the create/update/delete/set-primary calls. After every mutation it reloads the full list rather than patching local state, so the exactly-one-primary invariant always comes from the server.
+- `BlindIdentityVerificationViewModel`: holds the identity-card number only in memory for the duration of one submission, clears it on submit, disappear, and backgrounding, and never publishes it to `AppState`.
 - `BlindOrderStatusViewModel`: coordinator refresh/peer-location outputs, 5-second REST polling, typed volunteer-location fallback, status TTS, cancel, completed/rating UI. Current release hides emergency UI.
 - `VolunteerHomeViewModel`: availability, current location, dispatch summary, readiness reasons, temporary points, active/recent orders, retained coordinator dispatch prompts.
 - `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, start-service, strict IN_PROGRESS finish gate, cancel. Current release hides emergency UI.
@@ -86,9 +88,9 @@ Implementation guidance:
 
 Token persistence:
 
-- Current implementation reads/writes access token through `AppStatePersistence`. Normal App launches use the standard domain; hosted unit tests use a process-isolated suite; UI tests use a dedicated suite that is cleared on every configured launch. Tests must never access the normal App token/environment domain.
+- The access token is read/written through the `TokenStoring` facade. Production and UI tests resolve to `KeychainTokenStore` on distinct `AppCredentialNamespace` services; hosted unit tests resolve to `InMemoryTokenStore` because Keychain is not isolated per test process. A one-time migration lifts any legacy `UserDefaults` token into the store and is the only remaining read of that key.
+- Non-token state stays in `AppStatePersistence`: normal App launches use the standard domain, hosted unit tests use a process-isolated suite, UI tests use a dedicated suite cleared on every configured launch. Tests must never access the normal App token/environment domain.
 - Store only the JWT and minimal active environment setting.
-- Add code comments and docs noting Keychain migration before real user release.
 
 ## 6. Auth and Role State
 
@@ -119,6 +121,13 @@ Current requirements:
 - Show current location.
 - Show order start marker.
 - Calculate volunteer-to-start distance on iOS.
+
+Blind-runner booking gates:
+
+- `AppState` exposes blind readiness as separate computed gates — basic profile complete, emergency-contact count in 1...5, exactly one primary contact, plus the location/start-point/appointment-time gates owned by `BlindBookingViewModel`.
+- The hard booking prerequisite is **at least one emergency contact with exactly one primary contact**, matching the external backend's own `OrderCreationService` precondition.
+- Identity verification status (`NOT_VERIFIED` / `VERIFIED` / `FAILED`; there is no pending state) is a separate advisory signal. It is displayed and spoken but must not participate in the booking gate, because the backend never checks it and a client-only block would be a false gate. Pending `demo/docs/handoff.md` Q1 (2026-07-29).
+- When several gates fail, present and speak only the first actionable one, and include it in "重复当前状态".
 
 Location permission:
 
@@ -197,7 +206,7 @@ Stop polling when:
 
 The iOS app must support a two-device demo:
 
-1. Blind runner logs in and completes profile.
+1. Blind runner logs in, completes profile, and saves one to five emergency contacts with exactly one primary contact. Booking stays blocked until this contact gate passes; identity verification status is shown as guidance only and never blocks.
 2. Blind runner creates booking with current location and appointment at least 30 minutes later.
 3. Volunteer logs in, completes identity verification and administrator review, then turns availability on.
 4. Volunteer sees available order sorted by distance and accepts it.
@@ -209,7 +218,7 @@ The iOS app must support a two-device demo:
 
 ## 11. Roadmap Capabilities
 
-Do not implement Android, full admin backend, public real-time track sharing, app chat, AI assistant, App 内路线规划, automatic calls, automatic SMS, complex risk control, fall detection, geofencing, instant call, payment, stock, or full points shop without explicit product rules, API contracts, and acceptance tests. The approved live-escort change is limited to the two order participants and the completed blind-track summary. Real SMS and identity verification are backend-owned capabilities now represented in `docs/07-api-contract.openapi.yaml`; the iOS client may consume those contracts without adding backend code to this repository. 志愿者前往出发地点阶段允许通过 URL Scheme / MapKit 跳转外部地图 App 做步行导航，不涉及新增后端 API。
+Do not implement Android, full admin backend, public real-time track sharing, app chat, AI assistant, App 内路线规划, automatic calls, automatic SMS, complex risk control, fall detection, geofencing, instant call, payment, stock, or full points shop without explicit product rules, API contracts, and acceptance tests. The approved live-escort change is limited to the two order participants and the completed blind-track summary. Real SMS and identity verification are backend-owned capabilities represented in the backend repository's `docs/api_spec.yaml`; the iOS client may consume those contracts without adding backend code to this repository. 志愿者前往出发地点阶段允许通过 URL Scheme / MapKit 跳转外部地图 App 做步行导航，不涉及新增后端 API。
 
 ## 12. Alibaba CloudAuth SDK Packaging
 

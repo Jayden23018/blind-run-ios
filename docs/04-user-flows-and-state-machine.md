@@ -13,6 +13,7 @@ flowchart TD
 
     subgraph BlindRunner["盲人跑者端"]
         BR_Profile["盲人资料页\n(首次注册)"]
+        BR_Contacts["紧急联系人管理页\n(1~5 个，恰好 1 个主联系人)"]
         BR_Home{"盲人首页\n(有/无活跃订单)"}
         CreateBooking["创建预约页"]
         BR_OrderStatus["订单状态等待页\n(PENDING_MATCH/PENDING_ACCEPT/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING)"]
@@ -37,10 +38,12 @@ flowchart TD
     RoleSelect -->|"选择盲人跑者"| BR_Profile
     RoleSelect -->|"选择志愿者"| VOL_Profile
 
-    BR_Profile -->|"资料完成"| BR_Home
+    BR_Profile -->|"资料完成"| BR_Contacts
+    BR_Contacts -->|"至少 1 个联系人且恰好 1 个主联系人"| BR_Home
     VOL_Profile -->|"认证完成"| VOL_Home
 
     BR_Home -->|"开始约跑"| CreateBooking
+    BR_Home -->|"缺少紧急联系人 / 主联系人"| BR_Contacts
     BR_Home -->|"查看当前订单"| BR_OrderStatus
     CreateBooking -->|"提交预约"| BR_OrderStatus
     BR_OrderStatus -->|"服务开始"| BR_InService
@@ -118,6 +121,21 @@ stateDiagram-v2
 - 后端 emergency event 不得作为订单状态；当前 release iOS UI 不触发该事件。
 
 ## 3. 盲人跑者正向流程（Happy Path）
+
+### 下单前置条件
+
+创建预约（`POST /api/orders`）在以下条件全部满足前必须被阻断：
+
+1. 当前角色为 `BLIND`。
+2. 盲人基础资料完整。
+3. **已保存 1～5 个紧急联系人，且其中恰好 1 个为主联系人。** 这是外部后端 `OrderCreationService` 自身的前置校验（只检查联系人是否存在），客户端的阻断与之保持一致并额外要求主联系人唯一。
+4. 定位权限已授予。
+5. 已确认出发地点。
+6. 预约时间至少在当前时间 30 分钟之后。
+
+实名认证状态（`BlindProfileResponse.verifyStatus`，仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED`）**不是**前置条件，只作引导性提示。若 `demo/docs/handoff.md` Q1（2026-07-29）答复为服务端增加 `verifyStatus == VERIFIED` 校验，再把它升级为第 7 条并映射对应错误码。
+
+任一条件不满足时，App 展示并播报**第一个可执行的**缺失项，"重复当前状态"必须包含该阻断原因。
 
 ```mermaid
 sequenceDiagram
