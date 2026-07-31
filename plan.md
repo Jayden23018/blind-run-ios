@@ -6,24 +6,29 @@ AidRun 当前仓库是原生 iOS 客户端，采用 SwiftUI + MVVM，后端为�
 
 已经具备的上线基础：
 
-- 手机号验证码登录、JWT 会话、角色选择与切换。
-- 盲人预约、志愿者接单、出发、到达、完成、取消、紧急事件等核心订单流程。
+- 手机号验证码登录、JWT 会话（Token 存 Keychain）、`/api/auth/me` 启动校验、服务端撤销登出、两阶段自助删除账户、角色选择与切换。
+- 盲人预约、志愿者接单、出发、到达、开始服务、完成、取消等核心订单流程。**求助（SOS）不在本版范围内**：`OrderModels.swift:150` `showsEmergencyPlaceholder` 恒为 `false`，`/api/emergency/trigger` 只存在于 Mock，见 `openspec/changes/enable-independent-sos-safely/`（0/28，本版不交付）。
+- 盲人实名认证与 1–5 位紧急联系人管理，二者均为 `POST /api/orders` 的硬门槛（服务端 403 `IDENTITY_NOT_VERIFIED` / `EMERGENCY_CONTACT_REQUIRED`）。
+- 志愿者两步注册（身份证 + 阿里云 CloudAuth 原生活体），培训/答题环节已彻底移除。
 - 高德地图桥接、定位、POI 搜索、逆地理编码、地图 marker。
-- WebSocket 服务、志愿者位置上报、订单状态轮询降级。
+- WebSocket 服务、志愿者位置上报、订单状态轮询降级；`AppRealtimeCoordinator` 统一承接 App 生命周期内的实时事件与前台通知优先级队列。
 - VoiceOver 标注、TTS 播报、语音输入入口。
-- 云端后端 E2E 脚本 `scripts/cloud-e2e.mjs`。
+- 云端后端 E2E 脚本 `scripts/cloud-e2e.mjs`、账户生命周期探针 `scripts/auth-account-lifecycle-probe.mjs`、派单就绪探针 `scripts/volunteer-dispatch-readiness-probe.mjs`。
 
 ## 上线阻塞项
 
 以下事项必须在对真实用户发布前处理或由项目负责人书面接受风险：
 
-- Token 当前存储在 `UserDefaults`，需要迁移到 Keychain。
-- `AppStatePersistence` 已隔离正常 App、单元测试和 UI 测试的 UserDefaults 域；Keychain 迁移必须继续使用独立测试 service/access group。真机自动化需执行会话哈希保护、终止测试宿主并恢复 DemoRelease。
+- ~~Token 当前存储在 `UserDefaults`，需要迁移到 Keychain。~~ **已完成**：Token 现存于 Keychain（`blindRun/Core/KeychainTokenStore.swift`，`kSecClassGenericPassword` + `kSecAttrAccessibleAfterFirstUnlock`，写入前先删再写）。`blindRun/Core/AppState.swift:674-685` 的 `restoredToken()` 只在命中旧版本遗留值时做一次性迁移并清除 `UserDefaults` 旧键。覆盖见 `blindRunTests/KeychainTokenStoreTests.swift`。
+- `AppStatePersistence` 已隔离正常 App、单元测试和 UI 测试的 UserDefaults 域；Keychain 已使用独立测试 service/access group。真机自动化需执行会话哈希保护、终止测试宿主并恢复 DemoRelease。
+- **APNs 在当前签名配置下不可能工作**：全仓无任何 `.entitlements` 文件，`blindRun.xcodeproj/project.pbxproj` 里 `CODE_SIGN_ENTITLEMENTS` 出现 0 次，但 `blindRun/Info.plist:33-37` 已声明 `UIBackgroundModes = remote-notification`。`blindRun/Core/PushNotificationsManager.swift:76-78` 的注册失败分支只记一条诊断日志、静默吞掉，所以线上不会有任何可见报错。根因是免费个人开发者团队没有 Push Notifications capability，**需要付费开发者账号**才能配 entitlement 与 APNs 证书。在此之前推送兜底通道等于不存在，离线通知只能靠 WebSocket 重连补拉。
+- **隐私政策 / 用户协议没有任何 UI 入口**：`blindRun/Core/Models/LegalLinksModels.swift`（模型 + 回退文案）、`blindRun/Core/MockAPIClient.swift:351`（mock）、`blindRunTests/LegalLinksTests.swift`（测试）三处齐备，但全仓 grep 只命中这 3 个文件——**没有任何 View / ViewModel 消费它**，真实 `blindRun/Core/APIClient.swift` 里 `legal` 零命中。App Store 审核指南 5.1.1 要求隐私政策在 App 内可访问，上架前必须补一个入口。
 - 真实服务地址当前允许使用 HTTP 明文 IP；发布说明需如实记录。
 - 固定验证码 `000000` 当前允许用于长期测试账号和上线验收。
 - 志愿者身份证、人脸核验和管理员审核已按后端 OpenAPI 契约接入，仍需双真机走查。
 - 真实高德地图、真实定位、真实后端、WebSocket 派单必须在真机 `111` 和 `iPad Pro (2)` 上完成验收。
-- App Store 隐私说明、定位/语音权限说明、无障碍验收和紧急事件责任边界需要确认。
+- App Store 隐私说明、定位/语音权限说明、无障碍验收需要确认。紧急事件责任边界本版不涉及（求助入口全程隐藏），但发布说明不得暗示 App 具备求助能力。
+- 盲人实名 / 紧急联系人链路仍缺两项验收：云端探针 `scripts/blind-identity-and-contacts-probe.mjs` 尚未入库，以及引导落点 / 实名三态 / 联系人全动作的 UI 无障碍测试（`blindRunUITests` 目前零处引用 `blindOnboarding.*` 标识）。见 `openspec/changes/complete-blind-profile-and-contacts/tasks.md` 6.2 / 6.3。
 - 实时同行位置与完成轨迹必须完成 GCJ-02 单次转换、后台定位披露、电量测量、告警去重和锁屏双真机验收；后端已确认现有历史坐标均来自高德/腾讯定位链路，可按 GCJ-02 使用。
 
 ## 真实联调测试
@@ -45,7 +50,12 @@ scripts/dual-device-validation.sh
 
 ```bash
 node scripts/validate-docs.mjs
-openspec validate remove-local-backend-use-cloud-only --strict --no-interactive
+# 全量校验（当前 13 项：3 个活跃 change + 10 个已归档 specs），推荐日常用这条
+openspec validate --all --strict --no-interactive
+# 单个活跃 change（2026-07-31 起活跃的只有这三个）
+openspec validate complete-blind-profile-and-contacts --strict --no-interactive
+openspec validate enable-live-escort-location-and-track-summary --strict --no-interactive
+openspec validate enable-independent-sos-safely --strict --no-interactive
 xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=111'
 xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=iPad Pro (2)'
 AIDRUN_UI_TEST_REAL_AMAP=1 xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=111' -only-testing:blindRunUITests/blindRunUITests/testRealAMapEnabledSmoke
@@ -59,14 +69,20 @@ node scripts/cloud-e2e.mjs
 
 1. 真实后端联调失败项修复：接口字段、错误码、WebSocket 消息、订单状态流转。
 2. 高德地图真机渲染与定位权限异常处理。
-3. Token Keychain 迁移。
-4. HTTPS 域名与 ATS 策略收敛。
-5. 志愿者认证、管理员审核、真实短信能力持续联调与异常处理完善；管理员审核页后续作为独立 Web 管理端实现。
-6. 积分商城、支付、聊天、App 内路线规划、公共实时轨迹分享、复杂风险控制等扩展能力；已批准的订单双方实时同行位置和完成后盲人轨迹总结按 `enable-live-escort-location-and-track-summary` 实施。
+3. ~~Token Keychain 迁移。~~ **已完成**，见「上线阻塞项」首条。
+4. 补隐私政策 / 用户协议的 App 内入口（App Store 5.1.1 硬要求），消费已有的 `LegalLinksModels`。
+5. 付费开发者账号 + `.entitlements` + APNs 证书，让推送兜底通道真正可用。
+6. HTTPS 域名与 ATS 策略收敛。
+7. 志愿者认证、管理员审核、真实短信能力持续联调与异常处理完善；管理员审核页后续作为独立 Web 管理端实现。
+8. 积分商城、支付、聊天、App 内路线规划、公共实时轨迹分享、复杂风险控制等扩展能力；已批准的订单双方实时同行位置和完成后盲人轨迹总结按 `enable-live-escort-location-and-track-summary` 实施。
+9. 求助（SOS）能力：`enable-independent-sos-safely` 已明确本版不交付，重启前置条件写在该提案顶部。
 
 ## 人工确认项
 
 - 是否已有高德生产 key、Bundle ID 白名单和隐私合规材料。
+- **待后端确认（自 `remove-volunteer-registration-training/design.md:53` 转记，该 change 已于 2026-07-31 归档为 `openspec/changes/archive/2026-07-31-remove-volunteer-registration-training/`）**：外部后端把「活体通过 → `STEP_4_COMPLETED` + `canAcceptOrders = true`」原子写入的**部署时间**，以及遗留账号（`STEP_4_TRAINING`）能否通过真实派单接口开启服务。iOS 侧已按兼容归一化实现（`ProfileModels.swift:277`、`VolunteerRegistrationModels.swift:80`、`VolunteerRegistrationFlowView.swift:657,690` 把 `STEP_4_TRAINING` 视为注册完成且保持 availability 关闭——这是提案明文要求保留的兼容逻辑，**不是残留待清理代码**），但该确认项未闭合前无法签署真实派单结论。原因记录：2026-07-18 实测账号 `13360846885` 走 `send-code` 后用 `000000` 仍返回 `INVALID_VERIFICATION_CODE`，读不到该账号的权威派单字段。
+- **待后端确认（`complete-blind-profile-and-contacts/tasks.md` 1.2 未闭合项）**：主联系人切换的原子性，以及新增联系人触发短信后是否需要在 iOS 展示投递状态。
+- **待后端确认（`enable-independent-sos-safely/design.md` 全部 7 处 `需要人工确认`）**：其中 `EMERGENCY_CONTACT_NOTIFIED` 到底代表短信被服务商受理、已投递到手机还是仅入队，是重启 SOS 的硬前置。
 - 管理员审核页后续做成独立 Web 管理端；当前 iOS 用户端仅保留脚本级审核联调，不增加管理员入口。
 - 云端已确认志愿者接受派单后按正式流转推进：`PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS`，其中 `DRIVER_ARRIVED -> IN_PROGRESS` 由志愿者端调用 `POST /api/orders/{id}/start-service` 触发；iOS 真机验收需确认接单后不会直接进入 `IN_PROGRESS`。
 - 云端已确认不会因已接单订单尚未立即开始服务而自动进入 `REMATCHING`；若盲人端看到 `REMATCHING`，优先排查是否志愿者接单后主动取消。

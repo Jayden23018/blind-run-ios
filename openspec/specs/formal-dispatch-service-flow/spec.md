@@ -57,25 +57,28 @@ The iOS blind-runner experience SHALL expose the formal order lifecycle from sys
 - **AND** completion and rating controls SHALL remain reachable through large, clearly labeled VoiceOver-accessible actions
 
 ### Requirement: Blind runner state updates remain status driven
-The iOS blind-runner order screens SHALL update from WebSocket notifications and REST polling without exposing backend dispatch rounds.
+The iOS blind-runner order screens SHALL update from app-lifetime WebSocket routing and REST polling without exposing backend dispatch rounds.
 
 #### Scenario: Volunteer accepts dispatch
-- **WHEN** the blind runner receives `ORDER_STATUS_CHANGED` or polling returns `PENDING_ACCEPT`
-- **THEN** the app SHALL update the UI to show "待出发"
-- **AND** TTS SHALL use local order-detail copy that says the volunteer has accepted, includes appointment time and start address when available, and tells the blind runner to go to or wait at the appointment start address
-- **AND** the app SHALL NOT speak backend lifecycle `APP_NOTIFICATION` template text directly while an active order is present
+- **WHEN** the coordinator routes `ORDER_STATUS_CHANGED` or polling returns `PENDING_ACCEPT`
+- **THEN** the app SHALL refresh and show the canonical "待出发" state
+- **AND** TTS SHALL use local order-detail copy rather than duplicate lifecycle template speech
 
 #### Scenario: No volunteer is available
 - **WHEN** WebSocket or polling returns `NO_VOLUNTEER`
-- **THEN** the app SHALL show a no-volunteer terminal state
-- **AND** TTS SHALL announce that no volunteer is currently available
+- **THEN** the app SHALL show and announce a no-volunteer terminal state
 
 #### Scenario: Volunteer location is available
-- **WHEN** the order is `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, or `DRIVER_ARRIVED` and `/ws/blind` receives `VOLUNTEER_LOCATION_UPDATE`
+- **WHEN** the order is `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, or `DRIVER_ARRIVED` and the coordinator routes a fresh `VOLUNTEER_LOCATION_UPDATE` from `/ws/blind`
 - **THEN** the app SHALL calculate distance from the volunteer's latest coordinates to `order.startLatitude/startLongitude`
 - **AND** the blind-runner UI and repeated status speech SHALL use "距出发地点约 X"
 - **AND** the app SHALL NOT use "距您" for this distance
 - **AND** the app SHALL hide distance when the order start coordinate or volunteer location is unavailable
+- **AND** service-session peer presentation SHALL remain owned by `enable-live-escort-location-and-track-summary`
+
+#### Scenario: REST fallback is used before service
+- **WHEN** an eligible pre-service order has disconnected or stale WebSocket volunteer location
+- **THEN** the app SHALL use the typed `GET /api/blind/volunteer-location` fallback according to its freshness/no-data contract
 
 ### Requirement: Blind runner booking search is accessible
 The iOS blind-runner booking flow SHALL support text and speech search for a start place without exposing raw coordinates in the normal user interface.
@@ -94,19 +97,6 @@ The iOS blind-runner booking flow SHALL support text and speech search for a sta
 - **AND** each selectable result SHALL expose the place name and address in its accessibility label
 - **AND** raw latitude/longitude SHALL NOT be shown as normal text on the booking screen
 - **AND** coordinates SHALL remain available for order creation and map annotations
-
-### Requirement: Volunteer readiness requires certification, administrator approval, availability, WebSocket, and location
-The iOS volunteer experience SHALL treat a volunteer as dispatch-ready only when profile requirements, certification/admin review requirements, manual availability opt-in, WebSocket connection, and recent location reporting are satisfied.
-
-#### Scenario: Volunteer dispatch workbench is available after readiness gates
-- **WHEN** a logged-in user has active role `VOLUNTEER`, a complete volunteer profile, `verificationStatus = approved`, `adminReviewStatus = approved` when provided by the backend, `wantsDispatch/isAvailable = true`, WebSocket online state, and recent location reporting
-- **THEN** the app SHALL present the volunteer dispatch workbench as ready to receive backend dispatches
-- **AND** the app SHALL load readiness, active orders, recent orders, points, and statistics from `GET /api/volunteer/dispatch-summary`
-
-#### Scenario: Volunteer dispatch is blocked before readiness gates
-- **WHEN** the volunteer is missing profile data, certification approval, administrator approval, manual availability opt-in, WebSocket connection, or location permission
-- **THEN** the app SHALL present the not-ready reason
-- **AND** the app SHALL block accepting dispatches from the UI and ViewModel action layer
 
 ### Requirement: Volunteer responds to timed system dispatch prompts
 The iOS volunteer client SHALL handle backend `NEW_ORDER` WebSocket messages as timed dispatch prompts with accept and decline actions only.
@@ -232,3 +222,41 @@ Mock API behavior and automated tests SHALL mirror the formal dispatch lifecycle
 - **WHEN** Mock receives `POST /api/orders/{id}/finish` for an order in `DRIVER_ARRIVED`
 - **THEN** Mock SHALL return an invalid-status error
 - **AND** Mock SHALL only allow finish when the order is `IN_PROGRESS`
+
+### Requirement: Realtime feature events survive navigation
+Order, dispatch, peer-location, separation-alert, and safety events SHALL be routed independently of individual screen lifetimes.
+
+#### Scenario: Relevant feature screen is not mounted
+- **WHEN** a typed event for the active user/order arrives during navigation
+- **THEN** the app-lifetime coordinator SHALL retain or route the actionable signal
+- **AND** the destination feature SHALL reconcile with authoritative backend state when presented
+
+### Requirement: Volunteer readiness requires completed main registration, availability, WebSocket, and location
+The iOS volunteer experience SHALL treat a volunteer as dispatch-ready only when profile requirements, backend-authoritative main registration completion, manual availability opt-in, WebSocket connection, and recent location reporting are satisfied. Optional certificate and administrator-review compatibility fields SHALL NOT replace or add to the main registration gate when registration status is available.
+
+#### Scenario: Volunteer dispatch workbench is available after readiness gates
+- **WHEN** a logged-in user has active role `VOLUNTEER`, a complete volunteer profile, `canAcceptOrders = true`, `registrationStep = STEP_4_COMPLETED`, or legacy `registrationStep = STEP_4_TRAINING`, plus `wantsDispatch/isAvailable = true`, WebSocket online state, and recent location reporting
+- **THEN** the app SHALL present the volunteer dispatch workbench as ready to receive backend dispatches
+- **AND** the app SHALL load readiness, active orders, recent orders, points, and statistics from `GET /api/volunteer/dispatch-summary`
+
+#### Scenario: Volunteer dispatch is blocked before readiness gates
+- **WHEN** the volunteer is missing profile data, main registration completion, manual availability opt-in, WebSocket connection, or location permission
+- **THEN** the app SHALL present the not-ready reason
+- **AND** the app SHALL block accepting dispatches from the UI and ViewModel action layer
+
+#### Scenario: Dispatch readiness changes after connection or location reporting
+- **WHEN** the volunteer home remains active after WebSocket connection, location reporting, or availability changes
+- **THEN** the client SHALL refresh `GET /api/volunteer/dispatch-summary` after a short propagation delay
+- **AND** the client SHALL continue refreshing the summary every 10 seconds while the home screen is active
+
+#### Scenario: Backend omits the unavailable reason
+- **WHEN** dispatch summary returns `canDispatch = false` with an absent or empty `notAvailableReasons`
+- **THEN** the client SHALL state that the backend did not return an unavailable reason
+- **AND** the client SHALL NOT synthesize `canDispatch = true` or bypass dispatch acceptance guards
+
+#### Scenario: Optional certificate is not a main registration gate
+- **WHEN** registration status reports `canAcceptOrders = true`, `STEP_4_COMPLETED`, or legacy `STEP_4_TRAINING`
+- **AND** an optional `verificationStatus` or `adminReviewStatus` compatibility field is absent, pending, or rejected
+- **THEN** the client SHALL treat the main registration gate as complete
+- **AND** all remaining availability, WebSocket, location, and order-state guards SHALL still apply
+

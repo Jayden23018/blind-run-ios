@@ -12,14 +12,19 @@ The iOS blind-runner order screens SHALL update from app-lifetime WebSocket rout
 - **WHEN** WebSocket or polling returns `NO_VOLUNTEER`
 - **THEN** the app SHALL show and announce a no-volunteer terminal state
 
-#### Scenario: Pre-service volunteer location is available
-- **WHEN** the order is `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, or `DRIVER_ARRIVED` and the coordinator routes a fresh `VOLUNTEER_LOCATION_UPDATE`
-- **THEN** existing pre-service distance-to-start behavior SHALL continue
+#### Scenario: Volunteer location is available
+- **WHEN** the order is `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, or `DRIVER_ARRIVED` and the coordinator routes a fresh `VOLUNTEER_LOCATION_UPDATE` from `/ws/blind`
+- **THEN** the app SHALL calculate distance from the volunteer's latest coordinates to `order.startLatitude/startLongitude`
+- **AND** the blind-runner UI and repeated status speech SHALL use "距出发地点约 X"
+- **AND** the app SHALL NOT use "距您" for this distance
+- **AND** the app SHALL hide distance when the order start coordinate or volunteer location is unavailable
 - **AND** service-session peer presentation SHALL remain owned by `enable-live-escort-location-and-track-summary`
 
 #### Scenario: REST fallback is used before service
 - **WHEN** an eligible pre-service order has disconnected or stale WebSocket volunteer location
 - **THEN** the app SHALL use the typed `GET /api/blind/volunteer-location` fallback according to its freshness/no-data contract
+
+## ADDED Requirements
 
 ### Requirement: Realtime feature events survive navigation
 Order, dispatch, peer-location, separation-alert, and safety events SHALL be routed independently of individual screen lifetimes.

@@ -1,3 +1,11 @@
+> **归档前必读（2026-07-31 记）**：`openspec 1.7.0` 的 `archive` 有个 guard —— `## MODIFIED Requirements`
+> 下的每条 requirement 必须**完整重写**，缺任何一个主 spec 里已有的 scenario 就直接中止。本 change 的
+> `specs/formal-dispatch-service-flow/spec.md` 对 `Blind runner state updates remain status driven`
+> 只写了 2 个 scenario，而主 spec `openspec/specs/formal-dispatch-service-flow/spec.md` 现在有 4 个
+> （2026-07-31 归档 `complete-realtime-fallback-and-notifications` 时又补进去一些）。
+> **归档前先把 delta 补全到与主 spec 一致，否则要么归档失败，要么把主 spec 的细则冲掉。**
+> 同一个坑在归档 realtime 那个 change 时已经踩过三次。
+
 ## 1. Contract And Documentation
 
 - [x] 1.1 Freeze the GCJ-02 contract for device upload, order coordinates, REST fallback, both WebSocket directions, track points, and backend-confirmed clean legacy stored data.
