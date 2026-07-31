@@ -294,11 +294,13 @@ final class LiveEscortTrackTests: XCTestCase {
         XCTAssertFalse(location.isEscortBackgroundModeEnabled)
 
         coordinator.updateOwnedOrder(orderID: 8, status: .inProgress)
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        XCTAssertTrue(location.isEscortBackgroundModeEnabled)
-        XCTAssertTrue(
+        // 正向条件：轮询等待后台定位真正开启，避免固定 sleep 在负载抖动时提前断言
+        let didEnableBackground = await waitUntil { location.isEscortBackgroundModeEnabled }
+        XCTAssertTrue(didEnableBackground, "进入 IN_PROGRESS 后应开启护航后台定位")
+        let didSettleHealthState = await waitUntil {
             coordinator.healthState == .permissionRequired || coordinator.healthState == .networkDisconnected
-        )
+        }
+        XCTAssertTrue(didSettleHealthState, "健康状态应落在 permissionRequired 或 networkDisconnected")
 
         coordinator.updateOwnedOrder(orderID: 8, status: .completed)
         await Task.yield()
@@ -337,6 +339,10 @@ final class LiveEscortTrackTests: XCTestCase {
 
         coordinator.updateOwnedOrder(orderID: 88, status: .driverEnRoute)
         coordinator.updateOwnedOrder(orderID: 88, status: .driverEnRoute)
+        // 正向条件：先等第一次对账真的排到
+        let didReconcile = await waitUntil { coordinator.reconciliationCountForTesting >= 1 }
+        XCTAssertTrue(didReconcile, "重复状态应至少触发一次护航对账")
+        // 反向条件：再留一个真实时间窗，确认重复状态没有排出第二次对账
         try? await Task.sleep(nanoseconds: 10_000_000)
 
         XCTAssertEqual(coordinator.activeStatus, .driverEnRoute)
@@ -369,12 +375,15 @@ final class LiveEscortTrackTests: XCTestCase {
             locationService: location
         )
         coordinator.updateOwnedOrder(orderID: 90, status: .driverEnRoute)
-        try? await Task.sleep(nanoseconds: 20_000_000)
+        // 正向条件：等第一次健康状态真的发布出来
+        let didPublishFirstState = await waitUntil { !publishedStates.isEmpty }
+        XCTAssertTrue(didPublishFirstState, "配置后应发布一次健康状态变化")
         XCTAssertEqual(publishedStates, [.permissionRequired])
 
         for _ in 0..<50 {
             service.simulateConnectionStateForTesting(.connected)
         }
+        // 反向条件：重复的同值刷新在一个真实时间窗内不得产生任何新发布，保留固定 sleep
         try? await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(publishedStates, [.permissionRequired])
         withExtendedLifetime(cancellable) {}
@@ -437,7 +446,9 @@ final class LiveEscortTrackTests: XCTestCase {
             locationService: location
         )
         coordinator.updateOwnedOrder(orderID: 89, status: .driverEnRoute)
-        try? await Task.sleep(nanoseconds: 10_000_000)
+        // 正向条件：等首次上报真的发出（此时它会被 continuation 卡住）
+        let didStartFirstSend = await waitUntil { sent.count >= 1 }
+        XCTAssertTrue(didStartFirstSend, "进入活跃订单后应发起首次位置上报")
         XCTAssertEqual(sent.count, 1)
 
         location.simulateDeviceLocationForTesting(
@@ -448,10 +459,15 @@ final class LiveEscortTrackTests: XCTestCase {
             CLLocationCoordinate2D(latitude: 39.92, longitude: 116.42),
             capturedAt: Date()
         )
+        // 反向条件：首个上报仍在飞行中时，一个真实时间窗内不得再发出新的上报，保留固定 sleep
         try? await Task.sleep(nanoseconds: 10_000_000)
         XCTAssertEqual(sent.count, 1)
 
         firstSendContinuation?.resume()
+        // 正向条件：等补发的第二次上报真的发出
+        let didSendCoalescedSample = await waitUntil { sent.count >= 2 }
+        XCTAssertTrue(didSendCoalescedSample, "首个上报完成后应补发一次最新样本")
+        // 反向条件：两个待发样本必须被合并成一次，留固定时间窗确认没有第三次上报
         try? await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(sent.count, 2)
         XCTAssertNotEqual(sent.first?.coordinate.latitude, sent.last?.coordinate.latitude)
@@ -496,16 +512,22 @@ final class LiveEscortTrackTests: XCTestCase {
         coordinator.configure(identityKey: "account:blind:token", role: .blind, webSocketService: service)
         coordinator.attachLocationService(location)
         coordinator.updateOwnedOrder(orderID: 78, status: .inProgress)
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        XCTAssertGreaterThanOrEqual(sent.count, 1)
+        // 正向条件：等首次上报真的发出
+        let didSendFirstReport = await waitUntil { sent.count >= 1 }
+        XCTAssertTrue(didSendFirstReport, "进入 IN_PROGRESS 后应上报一次位置")
 
-        try? await Task.sleep(nanoseconds: 80_000_000)
-        XCTAssertGreaterThanOrEqual(sent.count, 2)
+        // 正向条件：位置静止也要继续按周期上报，等第二次上报到达
+        let didKeepReportingWhileStationary = await waitUntil { sent.count >= 2 }
+        XCTAssertTrue(didKeepReportingWhileStationary, "位置静止时应继续周期上报第二次")
 
         service.simulateConnectionStateForTesting(.connected)
         await Task.yield()
         let beforeFailure = sent.count
         location.simulateLocationFailureForTesting()
+        // 正向条件：等健康状态切到 waitingForLocation
+        let didEnterWaitingForLocation = await waitUntil { coordinator.healthState == .waitingForLocation }
+        XCTAssertTrue(didEnterWaitingForLocation, "显式定位失败后应进入 waitingForLocation")
+        // 反向条件：定位失败期间必须在一个真实时间窗内确实没有新增上报，保留固定 sleep
         try? await Task.sleep(nanoseconds: 80_000_000)
         XCTAssertEqual(sent.count, beforeFailure)
         XCTAssertEqual(coordinator.healthState, .waitingForLocation)
@@ -514,9 +536,11 @@ final class LiveEscortTrackTests: XCTestCase {
             CLLocationCoordinate2D(latitude: 39.9001, longitude: 116.4001),
             capturedAt: Date()
         )
-        try? await Task.sleep(nanoseconds: 80_000_000)
-        XCTAssertGreaterThan(sent.count, beforeFailure)
-        XCTAssertEqual(coordinator.healthState, .active(background: true))
+        // 正向条件：等定位恢复后重新出现新的上报
+        let didResumeReporting = await waitUntil { sent.count > beforeFailure }
+        XCTAssertTrue(didResumeReporting, "定位恢复后应重新上报位置")
+        let didReturnToActive = await waitUntil { coordinator.healthState == .active(background: true) }
+        XCTAssertTrue(didReturnToActive, "定位恢复后健康状态应回到 active(background: true)")
 
         location.simulateDeviceLocationForTesting(
             CLLocationCoordinate2D(latitude: 39.9, longitude: 116.4),
@@ -525,8 +549,9 @@ final class LiveEscortTrackTests: XCTestCase {
         )
         service.simulateConnectionStateForTesting(.disconnected)
         service.simulateConnectionStateForTesting(.connected)
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        XCTAssertEqual(coordinator.healthState, .permissionRequired)
+        // 正向条件：等权限被撤销后的健康状态落到 permissionRequired
+        let didRequirePermission = await waitUntil { coordinator.healthState == .permissionRequired }
+        XCTAssertTrue(didRequirePermission, "定位权限被撤销后应进入 permissionRequired")
         XCTAssertNil(location.latestEscortBackendSample())
     }
 
@@ -549,21 +574,25 @@ final class LiveEscortTrackTests: XCTestCase {
         coordinator.configure(identityKey: "account:blind:token", role: .blind, webSocketService: service)
         coordinator.attachLocationService(location)
         coordinator.updateOwnedOrder(orderID: 88, status: .driverEnRoute)
+        // 这里的 10ms 窗口断言的是"立刻上报"：上报周期是 50ms，改成轮询等待会让即时性失去意义，故保留固定 sleep
         try? await Task.sleep(nanoseconds: 10_000_000)
         XCTAssertGreaterThanOrEqual(sent.count, 1)
         XCTAssertEqual(sent.last?.system, .gcj02Backend)
         XCTAssertEqual(LiveEscortSessionCoordinator.reportInterval, 5)
 
-        try? await Task.sleep(nanoseconds: 80_000_000)
-        XCTAssertGreaterThanOrEqual(sent.count, 2)
+        // 正向条件：等周期上报产生第二个样本
+        let didSendPeriodicReport = await waitUntil { sent.count >= 2 }
+        XCTAssertTrue(didSendPeriodicReport, "应按周期上报出第二次位置")
         let beforeReconnect = sent.count
         service.simulateConnectionStateForTesting(.reconnecting(attempt: 1))
         service.simulateConnectionStateForTesting(.connecting)
+        // 同上：重连后的"立刻补发"必须快于 50ms 的上报周期，保留固定 sleep
         try? await Task.sleep(nanoseconds: 10_000_000)
         XCTAssertGreaterThan(sent.count, beforeReconnect)
 
         coordinator.updateOwnedOrder(orderID: 88, status: .cancelled)
         let stoppedCount = sent.count
+        // 反向条件：终态订单之后在一个真实时间窗内不得再有上报，保留固定 sleep
         try? await Task.sleep(nanoseconds: 80_000_000)
         XCTAssertEqual(sent.count, stoppedCount)
     }
@@ -583,6 +612,23 @@ final class LiveEscortTrackTests: XCTestCase {
         XCTAssertNil(viewModel.errorMessage)
         XCTAssertEqual(client.requestedPaths, ["/api/orders/94/track", "/api/orders/94/track"])
         XCTAssertEqual(client.requestedMethods, [.get, .get])
+    }
+
+    /// 轮询等待某个正向条件成立，替代"固定 sleep 之后直接断言"的写法。
+    /// 与 blindRunTests.swift 中的同名私有助手保持一致；本类不是 @MainActor，故显式标注。
+    @MainActor
+    private func waitUntil(
+        timeout: TimeInterval = 2,
+        condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return condition()
     }
 }
 
