@@ -171,7 +171,7 @@ enum BlindIdentityVerificationFailure {
                 return "身份信息核验未通过，请核对姓名和身份证号后重试。"
             case .validationFailed, .badRequest:
                 return "身份信息格式不正确，请检查后重试。"
-            case .rateLimited, .tooManyRequests:
+            case .tooManyRequests:
                 return "提交过于频繁，请稍后重试。"
             case .userNotFound:
                 return "账户信息异常，请重新登录后重试。"

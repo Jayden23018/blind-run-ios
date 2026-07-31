@@ -73,7 +73,7 @@ final class RoleSelectionViewModel: ObservableObject {
     private func handleSwitchError(_ error: APIError) {
         switch error {
         case .serverError(let response):
-            if response.errorCode == .activeOrderRoleSwitchBlocked {
+            if response.errorCode == .roleAlreadySet {
                 errorMessage = response.message
                 showBlockedAlert = true
             } else {
@@ -158,7 +158,7 @@ struct RoleSelectionView: View {
                     Spacer()
 
                     // 底部说明
-                    Text("一个手机号可同时拥有两个身份，后续可在设置中切换")
+                    Text("身份一经选定不可更改，请谨慎选择")
                         .font(.caption)
                         .foregroundColor(AppColors.textSecondary)
                         .multilineTextAlignment(.center)
@@ -179,12 +179,13 @@ struct RoleSelectionView: View {
         .onAppear {
             viewModel.configure(with: appState, speechService: speechService)
             // TTS 播报警示语
-            speechService.speak("请选择您的角色。我是盲人跑者，预约志愿者陪我跑步。我是志愿者，陪伴盲人跑者完成跑步。")
+            // 身份不可逆，盲人用户只靠语音，这句警示必须进播报。
+            speechService.speak("请选择您的角色。我是盲人跑者，预约志愿者陪我跑步。我是志愿者，陪伴盲人跑者完成跑步。身份一经选定不可更改，请谨慎选择。")
         }
-        .alert("无法切换角色", isPresented: $viewModel.showBlockedAlert) {
+        .alert("身份已设定", isPresented: $viewModel.showBlockedAlert) {
             Button("确定", role: .cancel) {}
         } message: {
-            Text(viewModel.errorMessage ?? "存在进行中的订单，无法切换角色。")
+            Text(viewModel.errorMessage ?? "身份已设定，不可修改。")
         }
     }
 

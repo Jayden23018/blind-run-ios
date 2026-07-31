@@ -462,7 +462,7 @@ struct BlindRunnerHomeView: View {
             }
             .frame(minWidth: 64, minHeight: 64)
             .accessibilityLabel("设置")
-            .accessibilityHint("进入设置页面，可以编辑资料、切换角色或退出登录")
+            .accessibilityHint("进入设置页面，可以编辑资料、实名认证或退出登录")
         }
     }
 

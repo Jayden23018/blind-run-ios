@@ -1962,8 +1962,19 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(viewModel.shouldPollRegistrationStatus)
         XCTAssertFalse(viewModel.canStartFaceVerify)
         XCTAssertNil(viewModel.faceVerifyMessage)
-        XCTAssertTrue(appState.volunteerRegistrationStatus?.isRegistrationComplete == true)
         XCTAssertFalse(client.requestedPaths.contains { $0.contains("/training/") })
+
+        // 完成态刻意不在此刻发布：一旦 AppState 认定注册完成，ContentView 的根路由会重跑并切到
+        // 志愿者首页，把注册流连同「注册完成」页一起拆掉，用户只听到 TTS 却看不到确认页。
+        // 未完成的中间态照常发布，AppState 这时停在进流程前的 STEP_3_FACE_VERIFY。
+        XCTAssertFalse(
+            appState.volunteerRegistrationStatus?.isRegistrationComplete == true,
+            "注册完成态不能在用户还停留在注册流时就推给 AppState"
+        )
+
+        // 用户点「返回志愿者首页」时才发布，根路由这时切走才是对的。
+        viewModel.prepareReturnToVolunteerHome()
+        XCTAssertTrue(appState.volunteerRegistrationStatus?.isRegistrationComplete == true)
     }
 
     func testVolunteerFaceVerifySDKFailureClearsCertifyIdAndAllowsRetry() async {
@@ -5923,6 +5934,19 @@ final class blindRunTests: XCTestCase {
         let resolved = try XCTUnwrap(envelope.resolvedErrorResponse(statusCode: 403))
 
         XCTAssertEqual(resolved.errorCode, .volunteerNotApproved)
+    }
+
+    // MARK: - ROLE_ALREADY_SET 语义
+
+    /// 该码曾被命名成 `activeOrderRoleSwitchBlocked` 并映射成「存在进行中的订单，无法切换角色」，
+    /// 导致没有任何订单的用户看到假的订单拦截提示。后端 `RoleController` 的真实语义只是
+    /// 「角色一次性设定，不可修改」，与订单无关，文案里不得再出现「订单」。
+    func testRoleAlreadySetMessageDoesNotBlameOrders() {
+        let response = ErrorResponse(code: "ROLE_ALREADY_SET", message: "身份已设定，不可修改")
+        XCTAssertEqual(response.errorCode, .roleAlreadySet)
+
+        let message = APIError.serverError(response).localizedMessage
+        XCTAssertFalse(message.contains("订单"), "ROLE_ALREADY_SET 文案不得提及订单：\(message)")
     }
 
     // MARK: - Mock 与后端实现逐条对齐

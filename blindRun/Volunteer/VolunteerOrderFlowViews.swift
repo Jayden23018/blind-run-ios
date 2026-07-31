@@ -1941,33 +1941,11 @@ struct VolunteerPointsPlaceholderView: View {
 
 // MARK: - Settings
 
-@MainActor
-final class VolunteerSettingsViewModel: ObservableObject {
-    @Published var errorMessage: String?
-
-    func switchToBlindRunner(appState: AppState) async {
-        do {
-            let request = SetRoleRequest(role: .blind)
-            let response: SetRoleResponse = try await appState.apiClient.post("/api/user/role", body: request)
-            appState.handleRoleSwitchSuccess(response: response, requestedRole: .blind)
-        } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) {
-                return
-            }
-            errorMessage = error.localizedMessage
-        } catch {
-            errorMessage = "切换角色失败，请重试"
-        }
-    }
-}
-
 struct VolunteerSettingsView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
-    @StateObject private var viewModel = VolunteerSettingsViewModel()
     @StateObject private var deletionViewModel = AccountDeletionViewModel()
     @State private var showLogoutConfirm = false
-    @State private var showRoleSwitchConfirm = false
     @State private var showDeletionInitialConfirmation = false
 
     var body: some View {
@@ -1991,11 +1969,6 @@ struct VolunteerSettingsView: View {
                 .accessibilityLabel("资质证书，\(certificateState.displayName)")
                 .accessibilityHint(certificateState.guidanceMessage)
                 .accessibilityIdentifier("volunteerCertificateSettingsEntry")
-
-                Button("切换角色") {
-                    showRoleSwitchConfirm = true
-                }
-                .accessibilityLabel("切换角色")
 
                 #if DEBUG
                 if AppBuildChannel.current.allowsEnvironmentSwitcher {
@@ -2031,14 +2004,6 @@ struct VolunteerSettingsView: View {
             if let message = deletionViewModel.preflightMessage {
                 Section { Text(message).foregroundColor(AppColors.destructive).accessibilityLabel(message) }
             }
-
-            if let errorMessage = viewModel.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .foregroundColor(AppColors.destructive)
-                        .accessibilityLabel(errorMessage)
-                }
-            }
         }
         .navigationTitle("设置")
         .alert("确认退出", isPresented: $showLogoutConfirm) {
@@ -2048,14 +2013,6 @@ struct VolunteerSettingsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("确认后将清除当前登录状态，返回登录页。")
-        }
-        .alert("切换角色", isPresented: $showRoleSwitchConfirm) {
-            Button("切换到盲人跑者") {
-                Task { await viewModel.switchToBlindRunner(appState: appState) }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("如果有进行中的订单，系统会阻止切换角色。")
         }
         .alert("确认删除账户", isPresented: $showDeletionInitialConfirmation) {
             Button("继续删除账户", role: .destructive) {

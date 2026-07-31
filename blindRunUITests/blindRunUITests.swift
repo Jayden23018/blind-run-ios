@@ -306,7 +306,11 @@ final class blindRunUITests: XCTestCase {
         panel.swipeUp()
         panel.swipeDown()
         XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable)
-        XCTAssertTrue(app.buttons["取消订单"].firstMatch.isHittable)
+        // 面板内容高于可视区：回到顶部后「取消订单」落在折叠区以下，本来就点不到。
+        // 这条测试要证明的是「卡住的详情/上报没有冻住面板，控件滚一下仍然可达」，
+        // 不是「任意滚动位置都能看见底部按钮」，所以先滚到底再断言可点。
+        panel.swipeUp()
+        XCTAssertTrue(waitForElementToBeHittable(app.buttons["取消订单"].firstMatch, timeout: 3))
         XCTAssertTrue(app.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.exists)
     }
 
@@ -603,12 +607,19 @@ final class blindRunUITests: XCTestCase {
             activeRole: "blind_runner",
             emptyMockOrders: true
         )
+        // 盲人侧没有「直接暴露退出登录」的界面：首页和引导流都只放设置入口，
+        // 退出登录统一收在 BlindRunnerSettingsView（见 BlindRunnerOnboardingView 的容器注释）。
+        openSettings(blindProfile)
         assertLogoutRequiresConfirmation(blindProfile)
 
+        // 志愿者资料页（`VolunteerModule` 的 header）是除设置页外唯一直接摆出退出登录的界面，
+        // 只有未注册的志愿者才会停在这一页——不加 `unregisteredVolunteer` 的话 Mock 会喂一份
+        // 已完成注册的资料，根路由直接进首页，这一档就退化成和下面设置页那档重复。
         let volunteerProfile = launchApp(
             apiEnvironment: "mock",
             accessToken: "volunteer-profile-token",
             activeRole: "volunteer",
+            unregisteredVolunteer: true,
             emptyMockOrders: true
         )
         assertLogoutRequiresConfirmation(volunteerProfile)

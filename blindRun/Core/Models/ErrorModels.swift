@@ -4,18 +4,18 @@ import Foundation
 
 enum ErrorCode: String, Codable, Sendable {
     case invalidVerificationCode = "INVALID_VERIFICATION_CODE"
-    case profileIncomplete = "PROFILE_INCOMPLETE"
-    case locationPermissionRequired = "LOCATION_PERMISSION_REQUIRED"
     case orderNotFound = "ORDER_NOT_FOUND"
     case orderAlreadyAccepted = "ORDER_ALREADY_ACCEPTED"
     case invalidOrderStatus = "ORDER_STATUS_NOT_ALLOWED"
-    case activeOrderRoleSwitchBlocked = "ROLE_ALREADY_SET"
+    // 后端 `RoleController.setRole` 是**一次性设角色**：角色非 UNSET 直接 409。
+    // 后端没有任何角色切换端点，所以这个码只会出现在首次选角色的并发场景，
+    // 不要再把它当成「有进行中订单挡住了切换」——那是本仓库历史误映射，已删除对应入口。
+    case roleAlreadySet = "ROLE_ALREADY_SET"
     case volunteerNotAvailable = "VOLUNTEER_NOT_AVAILABLE"
     case volunteerNotApproved = "VOLUNTEER_NOT_VERIFIED"
     case appointmentTooSoon = "APPOINTMENT_TOO_SOON"
     case validationFailed = "VALIDATION_ERROR"
     case unauthorized = "UNAUTHORIZED"
-    case rateLimited = "RATE_LIMITED"
     case activeOrderAccountDeletionBlocked = "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED"
     case keepWaitingLimitReached = "KEEP_WAITING_LIMIT_REACHED"
     case orderDispatchMismatch = "ORDER_DISPATCH_MISMATCH"
@@ -52,18 +52,14 @@ enum ErrorCode: String, Codable, Sendable {
         switch self {
         case .invalidVerificationCode:
             return "验证码错误，请重新输入。"
-        case .profileIncomplete:
-            return "请先完善个人资料。"
-        case .locationPermissionRequired:
-            return "需要定位权限才能继续操作。"
         case .orderNotFound:
             return "订单不存在。"
         case .orderAlreadyAccepted:
             return "该订单已被其他志愿者接单。"
         case .invalidOrderStatus:
             return "当前订单状态不允许此操作。"
-        case .activeOrderRoleSwitchBlocked:
-            return "存在进行中的订单，无法切换角色。"
+        case .roleAlreadySet:
+            return "身份已设定，不可修改。"
         case .volunteerNotAvailable:
             return "您当前未开启接单状态。"
         case .volunteerNotApproved:
@@ -76,8 +72,6 @@ enum ErrorCode: String, Codable, Sendable {
             return "提交内容不符合要求，请检查后重试。"
         case .unauthorized:
             return "登录已过期，请重新登录。"
-        case .rateLimited:
-            return "操作过于频繁，请稍后重试。"
         case .activeOrderAccountDeletionBlocked:
             return "当前存在进行中的服务，请处理完成后再删除账户。"
         case .keepWaitingLimitReached:
@@ -101,7 +95,8 @@ enum ErrorCode: String, Codable, Sendable {
         case .resourceNotFound:
             return "请求的资源不存在。"
         case .duplicateOrder:
-            return "存在重复订单。"
+            // 后端 `OrderCreationService` 的语义是「已有进行中订单时拒绝下单」，不是「提交重复了」。
+            return "您已有进行中的订单，完成后才能再次预约。"
         case .registrationStepInvalid:
             return "注册步骤不正确，请重新开始。"
         case .internalError:
@@ -111,7 +106,8 @@ enum ErrorCode: String, Codable, Sendable {
         case .volunteerNotRegistered:
             return "志愿者注册流程尚未完成。"
         case .orderInProgress:
-            return "订单进行中，当前操作受限。"
+            // 后端只在「取消受阻」这一处抛该码（`OrderService`），文案跟着这个唯一场景走。
+            return "志愿者已出发或服务进行中，如需取消请联系志愿者。"
         case .orderPermissionDenied:
             return "没有权限操作此订单。"
         case .smsSendLimitExceeded:

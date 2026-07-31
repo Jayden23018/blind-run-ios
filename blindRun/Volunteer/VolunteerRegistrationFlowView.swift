@@ -470,6 +470,9 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
     @Published var registrationStatus: VolunteerRegistrationStatus?
 
+    /// 已完成但尚未发布给 AppState 的注册状态，见 `applyRegistrationStatus`。
+    private var pendingCompletedStatus: VolunteerRegistrationStatus?
+
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private let apiClientOverride: (any APIClientProtocol)?
@@ -594,7 +597,15 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         let wasCompleted = isRegistrationCompleted
         let wasAwaitingCompletion = isAwaitingRegistrationCompletion
         registrationStatus = status
-        appState?.updateVolunteerRegistrationStatus(status)
+        // 完成态**不能**立刻发布给 AppState：`isVolunteerProfileApproved` 一翻真，
+        // ContentView 的 `rootRoutingKey` 就变，根路由会重跑 hydrate 并切到 .volunteerHome，
+        // 把整个注册流连同「注册完成」页一起拆掉——用户只听到 TTS 报了完成，却看不到确认页，
+        // 也点不到「返回志愿者首页」。改为攒着，等用户主动离开时再发布。
+        if status.isRegistrationComplete {
+            pendingCompletedStatus = status
+        } else {
+            appState?.updateVolunteerRegistrationStatus(status)
+        }
         isRegistrationCompleted = status.isRegistrationComplete
         isAwaitingRegistrationCompletion = !isRegistrationCompleted &&
             (wasAwaitingCompletion || statusIndicatesCompletedFaceVerification(status))
@@ -612,6 +623,14 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
     func prepareReturnToVolunteerHome() {
         guard isRegistrationCompleted, let appState else { return }
+
+        // 这里才把完成态交给 AppState，根路由随后切到志愿者首页。
+        // 必须在下面那道 `volunteerProfile == nil` 早退之前做，否则已有资料的用户永远发布不出去。
+        if let pendingCompletedStatus {
+            appState.updateVolunteerRegistrationStatus(pendingCompletedStatus)
+            self.pendingCompletedStatus = nil
+        }
+
         guard appState.volunteerProfile == nil else { return }
 
         appState.updateVolunteerProfile(VolunteerProfileResponse(
@@ -918,6 +937,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         errorMessage = nil
         isAwaitingRegistrationCompletion = false
         isRegistrationCompleted = false
+        pendingCompletedStatus = nil
         canReturnToBasicInfoForIdentityEdit = false
         speechService?.speak("请修改姓名和身份证号码后重新提交")
     }

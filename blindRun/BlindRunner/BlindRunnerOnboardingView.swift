@@ -54,7 +54,7 @@ struct BlindRunnerOnboardingView: View {
                                 .font(.title3)
                         }
                         .accessibilityLabel("设置")
-                        .accessibilityHint("进入设置页面，可以查看资料、切换角色或退出登录")
+                        .accessibilityHint("进入设置页面，可以查看资料、实名认证或退出登录")
                     }
                 }
         }
