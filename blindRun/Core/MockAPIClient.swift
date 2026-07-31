@@ -29,6 +29,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private var nextOrderId: Int64 = 100
     private var nextContactId: Int64 = 100
 
+    /// 已上报的 APNs device token（幂等 upsert 的本地等价物）。
+    private(set) var registeredApnsTokens: Set<String> = []
+    /// `/api/notifications/since` 的补读语料。Mock 不主动产生离线通知，默认为空。
+    var missedNotifications: [MissedNotificationResponse] = []
+
     // MARK: - Init
 
     init() {
@@ -339,7 +344,52 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             )
         }
 
+        // APNs device token 上报（幂等 upsert）。后端校验 32~128 位 hex。
+        if path == "/api/devices/apns" && method == .post {
+            return try handleRegisterApnsToken(body: body)
+        }
+
+        // 重连补读。后端要求 `after` 是 ISO-8601 字符串，传 epoch 会 400 INVALID_TIMESTAMP。
+        if path == "/api/notifications/since" && method == .get {
+            return try handleGetMissedNotifications(after: query?["after"])
+        }
+
         throw APIError.invalidURL
+    }
+
+    /// `ApnsTokenRequest` 是只出不进的 Encodable，Mock 侧需要一个可解码的镜像来做校验。
+    private struct ApnsTokenRequestProbe: Decodable {
+        let deviceToken: String
+        let platform: String?
+    }
+
+    private func handleRegisterApnsToken(body: (any Encodable & Sendable)?) throws -> EmptyResponse {
+        guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(ApnsTokenRequestProbe.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
+        }
+        let isHex = request.deviceToken.count >= 32
+            && request.deviceToken.count <= 128
+            && request.deviceToken.allSatisfy(\.isHexDigit)
+        guard isHex else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "deviceToken 格式不正确"))
+        }
+        registeredApnsTokens.insert(request.deviceToken)
+        return EmptyResponse()
+    }
+
+    private func handleGetMissedNotifications(after: String?) throws -> [MissedNotificationResponse] {
+        guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
+        guard let after, !after.isEmpty, !after.allSatisfy(\.isNumber) else {
+            throw APIError.serverError(ErrorResponse(code: "INVALID_TIMESTAMP", message: "after 格式错误"))
+        }
+        // 后端窗口：sent_at > after，24h 内，最多 50 条，按时间正序。
+        return missedNotifications
+            .filter { ($0.sentAt ?? "") > after }
+            .sorted { ($0.sentAt ?? "") < ($1.sentAt ?? "") }
+            .prefix(50)
+            .map { $0 }
     }
 
     private func handleGetOrderTrack(orderId: Int64) throws -> OrderTrackResponse {

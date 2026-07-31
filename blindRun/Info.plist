@@ -24,6 +24,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>用于通过活体认证 SDK 完成志愿者实人认证。</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
@@ -31,6 +33,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>remote-notification</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict>

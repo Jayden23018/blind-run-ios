@@ -308,6 +308,10 @@ final class AppRealtimeCoordinator: ObservableObject {
     @Published private(set) var latestSeparationAlert: RealtimeSeparationAlert?
     @Published private(set) var latestSafetyEvent: RealtimeSafetyEvent?
 
+    /// 最近一次（实时推送或重连补读）看到的通知 ISO-8601 timestamp。
+    /// 作为 `GET /api/notifications/since?after=` 的游标，由 `AppState` 持久化。
+    private(set) var lastObservedNotificationTimestamp: String?
+
     private let peerLocationSubject = PassthroughSubject<RealtimePeerLocationSample, Never>()
     private let recoverySubject = PassthroughSubject<RealtimeRecoverySignal, Never>()
     private let statusUpdateSubject = PassthroughSubject<RealtimeOrderStatusUpdate, Never>()
@@ -591,8 +595,6 @@ final class AppRealtimeCoordinator: ObservableObject {
             )
         case .notification(let message):
             routeNotification(message)
-        case .separationAlert(let message):
-            routeSeparation(message)
         case .emergencyResolved(let message):
             routeSafety(
                 eventID: String(message.eventId),
@@ -677,6 +679,10 @@ final class AppRealtimeCoordinator: ObservableObject {
     }
 
     private func routeNotification(_ message: WSAppNotification) {
+        // 记录最近一次通知的 ISO-8601 timestamp，供重连补读作为 `after` 参数
+        // （与后端 `notification_logs.sent_at` 同格式）。escort 分支同样要推进，
+        // 否则重连后会把已经播报过的告警再补读一遍。
+        recordObservedNotificationTimestamp(message.timestamp)
         let eventType = message.eventType.uppercased()
         if eventType == "ESCORT_DISTANCE_ALERT" || eventType == "ESCORT_SIGNAL_LOST" {
             routeEscortAlert(message, eventType: eventType)
@@ -748,32 +754,6 @@ final class AppRealtimeCoordinator: ObservableObject {
         }
     }
 
-    private func routeSeparation(_ message: WSSeparationAlert) {
-        guard activeOrderIDs.isEmpty || activeOrderIDs.contains(message.orderId) else { return }
-        let event = RealtimeSeparationAlert(
-            eventID: String(message.eventId),
-            orderID: message.orderId,
-            eventType: "ESCORT_DISTANCE_ALERT",
-            distanceMeters: message.distanceMeters,
-            displayText: message.message,
-            speechText: message.ttsText ?? message.message,
-            timestamp: message.timestamp
-        )
-        latestSeparationAlert = event
-        enqueue(
-            RealtimeForegroundNotification(
-                stableEventID: "separation:\(event.eventID)",
-                title: "安全提醒",
-                displayText: event.displayText,
-                speechText: event.speechText,
-                priority: .high,
-                timestamp: event.timestamp,
-                isSafetyEvent: true
-            ),
-            type: message.type
-        )
-    }
-
     private func routeEscortAlert(_ message: WSAppNotification, eventType: String) {
         guard message.priority?.uppercased() == "HIGH",
               let messageID = message.messageId?.nilIfBlank,
@@ -805,6 +785,41 @@ final class AppRealtimeCoordinator: ObservableObject {
             ),
             type: eventType
         )
+    }
+
+    /// 游标只前进不后退：补读结果乱序或后端补发旧记录时，不能把 `after` 推回过去。
+    private func recordObservedNotificationTimestamp(_ timestamp: String?) {
+        guard let timestamp = timestamp?.nilIfBlank else { return }
+        guard let current = lastObservedNotificationTimestamp else {
+            lastObservedNotificationTimestamp = timestamp
+            return
+        }
+        if timestamp > current { lastObservedNotificationTimestamp = timestamp }
+    }
+
+    /// 重连补读：把 `/api/notifications/since` 返回的遗漏通知按时间正序喂回前台队列，
+    /// 复用既有的优先级排队与去重逻辑（去重键用数据库主键，和实时推送的 messageId 不会互撞）。
+    ///
+    /// 注意：后端只保证 24h/50 条窗口，重复投递同一条时 id 相同，因此 `missed:<id>` 足够防重。
+    func ingestCatchUp(_ notifications: [MissedNotificationResponse]) {
+        let sorted = notifications.sorted { ($0.sentAt ?? "") < ($1.sentAt ?? "") }
+        for missed in sorted {
+            recordObservedNotificationTimestamp(missed.sentAt)
+            guard !missed.body.trimmed.isEmpty else { continue }
+            let speechText = missed.ttsText?.nilIfBlank ?? missed.body
+            enqueue(
+                RealtimeForegroundNotification(
+                    stableEventID: "missed:\(missed.id)",
+                    title: nil,
+                    displayText: missed.body,
+                    speechText: speechText,
+                    priority: RealtimePriority(rawValue: missed.priority),
+                    timestamp: missed.sentAt,
+                    isSafetyEvent: false
+                ),
+                type: WSMessageType.appNotification.rawValue
+            )
+        }
     }
 
     private func routeSafety(
@@ -930,6 +945,8 @@ final class AppRealtimeCoordinator: ObservableObject {
         currentNotification = nil
         latestSeparationAlert = nil
         latestSafetyEvent = nil
+        // 换账号/登出后不能把上一个用户的补读游标带过去。
+        lastObservedNotificationTimestamp = nil
         queuedNotifications = []
         deduplicationDates = [:]
         activeOrderIDs = []

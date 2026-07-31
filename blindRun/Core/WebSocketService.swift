@@ -356,11 +356,6 @@ final class WebSocketService: ObservableObject {
                 event = .blindLocation(msg)
             } else { return nil }
 
-        case WSMessageType.separationAlert.rawValue:
-            if let msg = try? decoder.decode(WSSeparationAlert.self, from: data) {
-                event = .separationAlert(msg)
-            } else { return nil }
-
         case WSMessageType.appNotification.rawValue:
             if let msg = try? decoder.decode(WSAppNotification.self, from: data) {
                 event = .notification(msg)

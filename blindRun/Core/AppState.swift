@@ -60,6 +60,7 @@ final class AppState: ObservableObject {
     private let tokenStore: any TokenStoring
     let realtimeCoordinator: AppRealtimeCoordinator
     let liveEscortCoordinator: LiveEscortSessionCoordinator
+    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Session
 
@@ -277,11 +278,47 @@ final class AppState: ObservableObject {
         }
         self.didDismissBlindIdentityPrompt =
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed) as? Bool ?? false
+
+        // WS 重连成功后补读断线期间遗漏的通知，喂回 coordinator 复用去重/优先级排队。
+        realtimeCoordinator.recoveryPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { await self?.catchUpMissedNotifications() }
+            }
+            .store(in: &cancellables)
     }
 
     private var sessionIdentityKey: String? {
         guard let accessToken, let userId else { return nil }
         return "\(userId):\(activeRole?.rawValue ?? "none"):\(accessToken)"
+    }
+
+    // MARK: - 重连补读
+
+    /// WS 重连后补读断线期间遗漏的通知（`GET /api/notifications/since`）。
+    ///
+    /// `after` 优先用本次会话实时见到的最新 timestamp，其次读持久化游标；
+    /// 两者都是 ISO-8601（无时区），与后端 `notification_logs.sent_at` 同格式 ——
+    /// 传 epoch 毫秒会被后端判 400 `INVALID_TIMESTAMP`。
+    /// 首次安装且从未收到过通知时游标为空，此时不补读（后端窗口只有 24h/50 条，全量拉没有意义）。
+    func catchUpMissedNotifications() async {
+        guard isLoggedIn else { return }
+        let after = realtimeCoordinator.lastObservedNotificationTimestamp
+            ?? persistence.string(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
+        guard let after, !after.isEmpty else { return }
+        do {
+            let missed: [MissedNotificationResponse] = try await apiClient.get(
+                "/api/notifications/since",
+                query: ["after": after]
+            )
+            realtimeCoordinator.ingestCatchUp(missed)
+            if let latest = realtimeCoordinator.lastObservedNotificationTimestamp {
+                persistence.set(latest, forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
+            }
+        } catch {
+            // 补读是 best-effort：失败不阻断实时链路，下次重连自然重试。
+            ClientFlowDiagnostics.record(event: "failed", operation: "notification-catch-up")
+        }
     }
 
     // MARK: - Session Management
@@ -436,6 +473,8 @@ final class AppState: ObservableObject {
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
         // 实名软引导的「稍后再说」是按账号记的：换账号后应重新提示一次。
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
+        // 补读游标同样是按账号的：留着会让新账号补读到上一个账号的时间窗。
+        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
     }
 
     /// 会话过期：清除本地登录态并让登录页展示一次性提示。
@@ -643,6 +682,8 @@ final class AppState: ObservableObject {
 extension AppConstants.UserDefaultsKeys {
     static let userId = "com.aidrun.mvp.userId"
     static let emergencyRecoveryMetadata = "com.aidrun.safety.emergencyRecoveryMetadata"
+    /// 重连补读游标：上次见到通知的 ISO-8601 时刻（后端 `sent_at` 同格式）。
+    static let lastSeenNotificationTimestamp = "com.aidrun.mvp.lastSeenNotificationTimestamp"
 }
 
 // MARK: - Disabled API Client

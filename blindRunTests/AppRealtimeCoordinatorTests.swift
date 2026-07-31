@@ -382,15 +382,15 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         coordinator.attach(to: service, role: .blind)
 
         service.simulateIncomingEventForTesting(.notification(makeNotification(eventID: 1, body: "当前通知", priority: "HIGH")))
-        service.simulateIncomingEventForTesting(.separationAlert(makeSeparation(eventID: 11)))
-        service.simulateIncomingEventForTesting(.separationAlert(makeSeparation(eventID: 12)))
+        service.simulateIncomingEventForTesting(.emergencyContactNotified(makeContactNotified(eventID: 11)))
+        service.simulateIncomingEventForTesting(.emergencyResolved(makeEmergencyResolved(eventID: 12)))
         service.simulateIncomingEventForTesting(.notification(makeNotification(eventID: 2, body: "可丢弃普通通知", priority: "NORMAL")))
         await Task.yield()
 
         coordinator.dismissCurrentNotification()
-        XCTAssertEqual(coordinator.currentNotification?.stableEventID, "separation:11")
+        XCTAssertEqual(coordinator.currentNotification?.stableEventID, "emergencyContactNotified:11")
         coordinator.dismissCurrentNotification()
-        XCTAssertEqual(coordinator.currentNotification?.stableEventID, "separation:12")
+        XCTAssertEqual(coordinator.currentNotification?.stableEventID, "emergencyResolved:12")
         coordinator.dismissCurrentNotification()
         XCTAssertNil(coordinator.currentNotification)
     }
@@ -572,20 +572,20 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         )
     }
 
-    func testDistinctSeparationEventIDsWithSameCopyArePreserved() async {
+    func testDistinctSafetyEventIDsWithSameCopyArePreserved() async {
         let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
         let service = WebSocketService()
         coordinator.attach(to: service, role: .blind)
         coordinator.registerActiveOrder(7)
 
-        service.simulateIncomingEventForTesting(.separationAlert(makeSeparation(eventID: 11)))
-        service.simulateIncomingEventForTesting(.separationAlert(makeSeparation(eventID: 12)))
+        service.simulateIncomingEventForTesting(.emergencyResolved(makeEmergencyResolved(eventID: 11)))
+        service.simulateIncomingEventForTesting(.emergencyResolved(makeEmergencyResolved(eventID: 12)))
         await Task.yield()
-        XCTAssertEqual(coordinator.currentNotification?.stableEventID, "separation:11")
-        XCTAssertEqual(coordinator.latestSeparationAlert?.eventID, "12")
+        XCTAssertEqual(coordinator.currentNotification?.stableEventID, "emergencyResolved:11")
+        XCTAssertEqual(coordinator.latestSafetyEvent?.eventID, "12")
 
         coordinator.dismissCurrentNotification()
-        XCTAssertEqual(coordinator.currentNotification?.stableEventID, "separation:12")
+        XCTAssertEqual(coordinator.currentNotification?.stableEventID, "emergencyResolved:12")
     }
 
     func testReconnectRequestsRefreshAndEmitsRecoverySignal() async {
@@ -717,14 +717,24 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         )
     }
 
-    private func makeSeparation(eventID: Int64) -> WSSeparationAlert {
-        WSSeparationAlert(
-            type: WSMessageType.separationAlert.rawValue,
+    /// 文案刻意与 `makeContactNotified` 保持一致：验证去重键取的是事件 ID 而不是正文。
+    private func makeEmergencyResolved(eventID: Int64) -> WSEmergencyResolved {
+        WSEmergencyResolved(
+            type: WSMessageType.emergencyResolvedByVolunteer.rawValue,
             eventId: eventID,
-            orderId: 7,
-            distanceMeters: 120,
-            message: "请注意与同行者的距离",
-            ttsText: "请注意与同行者的距离",
+            message: "安全事件已处理",
+            ttsText: "安全事件已处理",
+            priority: "HIGH",
+            timestamp: "2026-07-19T12:00:00Z"
+        )
+    }
+
+    private func makeContactNotified(eventID: Int64) -> WSEmergencyContactNotified {
+        WSEmergencyContactNotified(
+            type: WSMessageType.emergencyContactNotified.rawValue,
+            eventId: eventID,
+            message: "安全事件已处理",
+            ttsText: "安全事件已处理",
             priority: "HIGH",
             timestamp: "2026-07-19T12:00:00Z"
         )

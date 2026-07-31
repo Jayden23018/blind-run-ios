@@ -12,8 +12,10 @@ import OSLog
 
 @main
 struct blindRunApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var appState = AppState()
+    @StateObject private var pushNotificationsManager = PushNotificationsManager()
     @StateObject private var speechService = SpeechService()
     @StateObject private var speechInputService = SpeechInputService()
     @StateObject private var locationService = LocationService()
@@ -41,14 +43,25 @@ struct blindRunApp: App {
                     applyUITestLaunchConfigurationIfNeeded()
                     injectUITestRealtimeNotificationsIfNeeded()
                     #endif
+                    configurePushNotifications()
                     Task { await appState.restoreSession() }
                 }
                 .onChange(of: scenePhase) { phase in
                     if phase != .active {
                         speechInputService.cancelRecognitionForLifecycle()
+                    } else {
+                        // device token 会被 Apple 轮换：每次回前台重新注册并上报最新值。
+                        pushNotificationsManager.refreshRegistrationIfReady()
                     }
                 }
         }
+    }
+
+    /// APNs 只是 WS 离线时的 HIGH 优先级兜底通道，注册失败不影响任何主流程。
+    private func configurePushNotifications() {
+        pushNotificationsManager.configure(appState: appState, speechService: speechService)
+        appDelegate.pushNotificationsManager = pushNotificationsManager
+        pushNotificationsManager.requestAuthorizationAndRegister()
     }
 
     #if DEBUG || DEMO

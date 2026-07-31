@@ -10,7 +10,6 @@ nonisolated enum WSMessageType: String, Codable, Sendable {
     // Server -> Client (Blind)
     case volunteerLocationUpdate = "VOLUNTEER_LOCATION_UPDATE"
     case blindLocationUpdate = "BLIND_LOCATION_UPDATE"
-    case separationAlert = "SEPARATION_ALERT" // legacy flat compatibility only
     case appNotification = "APP_NOTIFICATION"
     case orderStatusChanged = "ORDER_STATUS_CHANGED"
     case emergencyResolvedByVolunteer = "EMERGENCY_RESOLVED_BY_VOLUNTEER"
@@ -121,16 +120,17 @@ nonisolated struct WSAppNotification: Decodable, Sendable {
     }
 }
 
-/// Feature-neutral separation signal. Feature policy is owned by a later change.
-nonisolated struct WSSeparationAlert: Codable, Sendable {
-    let type: String
-    let eventId: Int64
-    let orderId: Int64
-    let distanceMeters: Double?
-    let message: String
+/// `/api/notifications/since` 重连补读返回的遗漏通知。
+/// 后端 `sentAt` 是 `LocalDateTime`（ISO-8601 无时区，按 Asia/Shanghai 解释），
+/// 与前端回传的 `after` 参数格式一致。
+nonisolated struct MissedNotificationResponse: Codable, Sendable {
+    let id: Int64
+    let eventType: String?
+    let body: String
     let ttsText: String?
     let priority: String?
-    let timestamp: String?
+    let sentAt: String?
+    let orderId: Int64?
 }
 
 /// Order status change notification
@@ -232,7 +232,6 @@ nonisolated struct WSEmergencyVolunteerAlert: Codable, Sendable {
 nonisolated enum WSIncomingEvent: Sendable {
     case volunteerLocation(WSVolunteerLocationUpdate)
     case blindLocation(WSBlindLocationUpdate)
-    case separationAlert(WSSeparationAlert)
     case notification(WSAppNotification)
     case orderStatusChanged(WSOrderStatusChanged)
     case emergencyResolved(WSEmergencyResolved)
