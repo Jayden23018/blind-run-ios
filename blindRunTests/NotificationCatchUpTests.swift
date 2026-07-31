@@ -269,6 +269,31 @@ final class NotificationCatchUpTests: XCTestCase {
         XCTAssertTrue(mock.registeredApnsTokens.contains(token))
     }
 
+    /// APNs 上报的去重键必须带上后端与账号：只比 token 会让切环境 / 换账号后
+    /// 同一个 device token 被永久短路，新后端收不到注册，推送静默失效。
+    func testApnsReportScopeIsKeyedByEnvironmentAndAccount() {
+        let token = String(repeating: "0a", count: 32)
+        let reported = PushNotificationsManager.ReportedTokenScope(
+            token: token, environment: .mock, userId: 1
+        )
+
+        XCTAssertEqual(
+            reported,
+            PushNotificationsManager.ReportedTokenScope(token: token, environment: .mock, userId: 1),
+            "同后端同账号的同一 token 不应重复上报"
+        )
+        XCTAssertNotEqual(
+            reported,
+            PushNotificationsManager.ReportedTokenScope(token: token, environment: .demoCloud, userId: 1),
+            "切换环境后必须重新上报"
+        )
+        XCTAssertNotEqual(
+            reported,
+            PushNotificationsManager.ReportedTokenScope(token: token, environment: .mock, userId: 2),
+            "换账号后必须重新上报"
+        )
+    }
+
     func testMockRejectsEpochMillisecondAfterParameter() async {
         let mock = MockAPIClient()
         mock.syncSessionFromAppState(token: "mock-token", role: .blind)

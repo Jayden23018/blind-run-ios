@@ -26,8 +26,20 @@ nonisolated struct ApnsTokenRequest: Encodable, Sendable {
 /// **deviceToken 是凭据**：只在内存里比对与上报，不写日志、不进无障碍字符串。
 final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
 
-    /// 最近一次成功上报的 token，避免同一 token 反复上报（Apple 每次注册都会回调）。
-    private var lastReportedToken: String?
+    /// 一次上报的归属：token 本身，加上收下它的那个后端与账号。
+    ///
+    /// 只比 token 是不够的：`/api/devices/apns` 的记录存在服务端，切环境换了后端、
+    /// 或换账号后，新的一侧根本没有这条记录，而 Apple 回调的 token 通常一模一样，
+    /// 于是短路掉重报——推送从此静默失效，且没有任何报错。
+    struct ReportedTokenScope: Equatable {
+        let token: String
+        let environment: APIEnvironment
+        let userId: Int64?
+    }
+
+    /// 最近一次成功上报的归属，避免同一 token 对同一后端同一账号反复上报
+    /// （Apple 每次注册都会回调）。
+    private var lastReportedScope: ReportedTokenScope?
 
     /// 未登录时拿到的 token 缓存，登录后补报。
     private var pendingToken: String?
@@ -80,7 +92,12 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
             pendingToken = token
             return
         }
-        guard token != lastReportedToken else {
+        let scope = ReportedTokenScope(
+            token: token,
+            environment: appState.currentEnvironment,
+            userId: appState.userId
+        )
+        guard scope != lastReportedScope else {
             pendingToken = nil
             return
         }
@@ -88,10 +105,10 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
         Task { @MainActor in
             do {
                 let _: EmptyResponse = try await appState.apiClient.post("/api/devices/apns", body: request)
-                self.lastReportedToken = token
+                self.lastReportedScope = scope
                 self.pendingToken = nil
             } catch {
-                // 不清 lastReportedToken：下次进前台或重新登录时自然重试。
+                // 不清 lastReportedScope：下次进前台或重新登录时自然重试。
                 self.pendingToken = token
                 ClientFlowDiagnostics.record(event: "failed", operation: "apns-token-report")
             }

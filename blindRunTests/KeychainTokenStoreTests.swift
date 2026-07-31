@@ -126,6 +126,71 @@ final class KeychainTokenStoreTests: XCTestCase {
         XCTAssertNil(appState.accessToken)
     }
 
+    // MARK: - 切换环境等于换后端，必须做同级清理
+
+    /// 真机复现：mock 下产生的订单 ID 残留到真实后端，查询报「订单不存在」，
+    /// 而实时侧又按残留状态把新派单显示成「已接单」。换环境必须回到干净状态。
+    func testSwitchingEnvironmentClearsSessionAndActiveOrderState() {
+        let store = InMemoryTokenStore()
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let appState = AppState(apiClient: UnreachableAPIClient(), persistence: persistence, tokenStore: store)
+        XCTAssertEqual(appState.currentEnvironment, .mock, "开发构建默认落在 mock，本用例覆盖 mock -> 真实后端")
+
+        appState.handleLoginSuccess(response: LoginResponse(token: "mock-session-token", userId: 7, role: "BLIND"))
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试跑者"))
+        appState.updateEmergencyContacts([
+            EmergencyContactResponse(id: 1, name: "联系人", phone: "13800000000", relationship: "朋友", isPrimary: true)
+        ])
+        appState.dismissBlindIdentityPrompt()
+        appState.liveEscortCoordinator.updateOwnedOrder(orderID: 8_801, status: .driverEnRoute)
+        XCTAssertEqual(appState.liveEscortCoordinator.activeOrderID, 8_801)
+        XCTAssertEqual(appState.sessionRestorationState, .authenticated)
+
+        appState.currentEnvironment = .demoCloud
+
+        XCTAssertEqual(appState.currentEnvironment, .demoCloud, "新环境本身必须保留")
+        XCTAssertEqual(
+            persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
+            APIEnvironment.demoCloud.rawValue,
+            "清理不得把刚切换的环境一起抹掉"
+        )
+        XCTAssertNil(appState.accessToken, "上一个环境的 Token 对新后端毫无意义")
+        XCTAssertNil(store.read(), "Keychain 里的 Token 也必须一并删除")
+        XCTAssertNil(appState.userId)
+        XCTAssertNil(appState.activeRole)
+        XCTAssertNil(appState.currentUser)
+        XCTAssertNil(appState.blindProfile)
+        XCTAssertTrue(appState.emergencyContacts.isEmpty)
+        XCTAssertFalse(appState.didDismissBlindIdentityPrompt)
+        XCTAssertNil(appState.liveEscortCoordinator.activeOrderID, "订单 ID 不得跨后端残留")
+        XCTAssertNil(appState.liveEscortCoordinator.activeStatus)
+        XCTAssertFalse(appState.realtimeCoordinator.pendingOrderRefreshIDs.contains(8_801))
+        XCTAssertNil(appState.webSocketService, "旧环境的 WebSocket 必须断开")
+        XCTAssertEqual(appState.sessionRestorationState, .unauthenticated, "路由回登录页才能销毁持有订单的 ViewModel")
+        XCTAssertNil(persistence.string(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp))
+    }
+
+    /// didSet 在赋同值时也会触发：不能把用户正在用的会话误清掉。
+    func testAssigningTheSameEnvironmentKeepsTheCurrentSession() {
+        let store = InMemoryTokenStore()
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        defer { persistence.reset() }
+        let appState = AppState(apiClient: UnreachableAPIClient(), persistence: persistence, tokenStore: store)
+        appState.handleLoginSuccess(response: LoginResponse(token: "same-env-token", userId: 9, role: "BLIND"))
+        appState.liveEscortCoordinator.updateOwnedOrder(orderID: 9_902, status: .driverEnRoute)
+
+        let unchangedEnvironment = appState.currentEnvironment
+        appState.currentEnvironment = unchangedEnvironment
+
+        XCTAssertEqual(appState.accessToken, "same-env-token")
+        XCTAssertEqual(store.read(), "same-env-token")
+        XCTAssertEqual(appState.userId, 9)
+        XCTAssertEqual(appState.activeRole, .blind)
+        XCTAssertEqual(appState.sessionRestorationState, .authenticated)
+        XCTAssertEqual(appState.liveEscortCoordinator.activeOrderID, 9_902)
+    }
+
     // MARK: - UI 测试重置必须同时清 Keychain
 
     func testResetUITestPersistenceAlsoClearsTokenStore() async {

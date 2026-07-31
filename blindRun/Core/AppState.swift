@@ -157,8 +157,25 @@ final class AppState: ObservableObject {
     // MARK: - Environment
 
     /// 当前 API 环境
+    ///
+    /// 换环境等于换后端：mock 里拿到的 token / userId / 角色 / 资料 / 订单 ID 在真实后端一律不存在。
+    /// 只持久化环境而不清会话，会让客户端拿着上一个环境的订单 ID 去查新后端（「订单不存在」），
+    /// 而实时通道又按残留的订单状态把新派单显示成「已接单」，状态自相矛盾。
+    /// 因此环境一变就做与 `clearSession()` 同级的本地清理，回到「刚装好」的状态。
+    ///
+    /// 清理会把 `sessionRestorationState` 置为 `.unauthenticated`，`ContentView` 随之路由回登录页，
+    /// 持有订单的 `BlindRunnerHomeViewModel` / `BlindOrderStatusViewModel` / `VolunteerHomeViewModel`
+    /// 等 `@StateObject` 随视图一起销毁，所以订单不会以 ViewModel 的形式残留。
     @Published var currentEnvironment: APIEnvironment {
-        didSet { persistEnvironment() }
+        didSet {
+            persistEnvironment()
+            // didSet 在赋同值时也会触发，不能把用户正在用的会话误清掉。
+            guard oldValue != currentEnvironment else { return }
+            // 此时 currentEnvironment 已是新值：清理里的 disconnectWebSocket 只断不连，
+            // connectWebSocketIfNeeded 仅由登录 / 角色切换 / 恢复会话触发，
+            // 不存在用旧 baseURL 重连的顺序问题。
+            performLocalSessionCleanup()
+        }
     }
 
     // MARK: - Computed
@@ -565,8 +582,8 @@ final class AppState: ObservableObject {
             return
         }
         let nextIndex = (currentIndex + 1) % allEnvironments.count
+        // 会话清理由 `currentEnvironment` 的 didSet 统一负责，这里不再重复调用。
         self.currentEnvironment = allEnvironments[nextIndex]
-        clearSession()
     }
     #endif
 
