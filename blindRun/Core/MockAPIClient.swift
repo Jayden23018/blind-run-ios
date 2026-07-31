@@ -195,7 +195,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
            path != "/api/auth/send-code" {
             throw APIError.rateLimited(RateLimitInfo(
                 message: "操作过于频繁。",
-                bucket: .general,
                 retryAfterSeconds: 30
             ))
         }
@@ -204,7 +203,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             if ProcessInfo.processInfo.environment["AIDRUN_MOCK_AUTH_RATE_LIMIT"] == "1" {
                 throw APIError.rateLimited(RateLimitInfo(
                     message: "验证码发送过于频繁。",
-                    bucket: .auth,
                     retryAfterSeconds: 60
                 ))
             }
@@ -270,6 +268,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         if path == "/api/volunteer/registration/step3/face-verify/result" && method == .post {
             return try handleFaceVerifyResult(body: body)
+        }
+        if path == "/api/volunteer/mock-verification/approve" && method == .post {
+            return handleMockVerificationApprove()
         }
         // Emergency contacts
         if path.hasPrefix("/api/users/") && path.hasSuffix("/emergency-contacts") && method == .get {
@@ -448,9 +449,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return SendCodeResponse(
             success: true,
             message: "验证码已发送",
-            code: nil,
-            verificationCode: nil,
-            smsCode: nil
+            code: nil
         )
     }
 
@@ -741,6 +740,28 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             availableTimeSlots: request.availableTimeSlots ?? volunteerProfile?.availableTimeSlots,
             acceptsGuideDog: request.acceptsGuideDog ?? volunteerProfile?.acceptsGuideDog,
             paceRange: request.paceRange ?? volunteerProfile?.paceRange
+        )
+        return volunteerProfile!
+    }
+
+    /// 「Demo 模拟认证」按钮专用，真实后端没有这个端点（入口只在 `.mock` 环境显示，
+    /// 见 `VolunteerModule.shouldShowRealRegistration`）。行为对齐管理员审核通过后的志愿者：
+    /// 资质 APPROVED、注册流程走完、可接单。
+    private func handleMockVerificationApprove() -> VolunteerProfileResponse {
+        volunteerVerificationStatus = .approved
+        volunteerRegistrationStepCode = "STEP_4_COMPLETED"
+        let existing = volunteerProfile
+        volunteerProfile = VolunteerProfileResponse(
+            name: existing?.name ?? "测试志愿者",
+            verificationStatus: volunteerVerificationStatus.rawValue,
+            adminReviewStatus: "approved",
+            registrationStep: volunteerRegistrationStepCode,
+            canAcceptOrders: true,
+            isAvailable: existing?.isAvailable ?? false,
+            wantsDispatch: existing?.wantsDispatch,
+            availableTimeSlots: existing?.availableTimeSlots,
+            acceptsGuideDog: existing?.acceptsGuideDog,
+            paceRange: existing?.paceRange
         )
         return volunteerProfile!
     }

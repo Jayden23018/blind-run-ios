@@ -1026,8 +1026,9 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
     @discardableResult
     private func handleRegistrationRateLimit(_ error: APIError) -> Bool {
-        guard case .rateLimited(let info) = error,
-              info.bucket == nil || info.bucket == .registration else {
+        // 后端 429 只发 message + retryAfterSeconds（`GlobalExceptionHandler.handleRateLimitException`），
+        // 不区分限流桶，所以注册流里的 429 一律按注册限流处理。
+        guard case .rateLimited(let info) = error else {
             return false
         }
         let message = error.localizedMessage

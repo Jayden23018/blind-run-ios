@@ -67,39 +67,17 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(json["phone"], "13800138000")
     }
 
-    func testSendCodeResponseIgnoresNumericBusinessCodeZero() throws {
-        let data = #"{"success":true,"message":"验证码已发送","code":0}"#.data(using: .utf8)!
+    /// 后端信封的 `code` 是数字，历史上也出现过字符串形态，两种都要能解出来。
+    func testSendCodeResponseDecodesBothNumericAndStringBusinessCode() throws {
+        let numeric = #"{"success":true,"message":"验证码已发送","code":0}"#.data(using: .utf8)!
+        let numericResponse = try JSONDecoder().decode(SendCodeResponse.self, from: numeric)
+        XCTAssertTrue(numericResponse.success == true)
+        XCTAssertEqual(numericResponse.message, "验证码已发送")
+        XCTAssertEqual(numericResponse.code, "0")
 
-        let response = try JSONDecoder().decode(SendCodeResponse.self, from: data)
-
-        XCTAssertTrue(response.success == true)
-        XCTAssertEqual(response.message, "验证码已发送")
-        XCTAssertNil(response.resolvedVerificationCode)
-    }
-
-    func testSendCodeResponseIgnoresStringBusinessCode() throws {
-        let data = #"{"success":true,"message":"验证码已发送","code":"654321"}"#.data(using: .utf8)!
-
-        let response = try JSONDecoder().decode(SendCodeResponse.self, from: data)
-
-        XCTAssertEqual(response.code, "654321")
-        XCTAssertNil(response.resolvedVerificationCode)
-    }
-
-    func testSendCodeResponseUsesExplicitSixDigitVerificationFields() throws {
-        let data = #"{"success":true,"message":"验证码已发送","verificationCode":" 123456 ","smsCode":"789012"}"#.data(using: .utf8)!
-
-        let response = try JSONDecoder().decode(SendCodeResponse.self, from: data)
-
-        XCTAssertEqual(response.resolvedVerificationCode, "123456")
-    }
-
-    func testSendCodeResponseIgnoresMalformedExplicitVerificationFields() throws {
-        let data = #"{"success":true,"message":"验证码已发送","verificationCode":"SUCCESS","smsCode":"12345"}"#.data(using: .utf8)!
-
-        let response = try JSONDecoder().decode(SendCodeResponse.self, from: data)
-
-        XCTAssertNil(response.resolvedVerificationCode)
+        let string = #"{"success":true,"message":"验证码已发送","code":"654321"}"#.data(using: .utf8)!
+        let stringResponse = try JSONDecoder().decode(SendCodeResponse.self, from: string)
+        XCTAssertEqual(stringResponse.code, "654321")
     }
 
     func testVerifyCodeRequestUsesOpenAPICamelCaseKeys() throws {
@@ -2083,57 +2061,11 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(viewModel.canSubmit)
     }
 
-    func testMaintainedDocsDoNotUseForbiddenLowercaseOrderStatusVocabulary() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let docs = [
-            root.appendingPathComponent("docs/01-product-requirements.md"),
-            root.appendingPathComponent("docs/02-mvp-scope.md"),
-            root.appendingPathComponent("docs/03-user-stories.md"),
-            root.appendingPathComponent("docs/04-user-flows-and-state-machine.md"),
-            root.appendingPathComponent("docs/05-page-specs.md"),
-            root.appendingPathComponent("docs/06-data-model.md"),
-            root.appendingPathComponent("docs/07-api-contract.openapi.yaml"),
-            root.appendingPathComponent("docs/08-ios-architecture.md"),
-            root.appendingPathComponent("docs/09-accessibility-and-voice-guidelines.md"),
-            root.appendingPathComponent("docs/10-ai-coding-tasks.md"),
-            root.appendingPathComponent("docs/test-accounts.md"),
-            root.appendingPathComponent("docs/websocket-protocol.md")
-        ]
-        let forbiddenFragments = [
-            "`matching`",
-            "`accepted`",
-            "`arrived`",
-            "`in_progress`",
-            "`completed`",
-            "`cancelled`",
-            "terminal `emergency`",
-            "status: \"matching\"",
-            "status: \"accepted\"",
-            "status: \"arrived\"",
-            "status: \"in_progress\"",
-            "status: \"completed\"",
-            "status: \"cancelled\"",
-            "状态流转为 emergency",
-            "`/api/orders/{orderId}/arrive`",
-            "`/api/orders/{id}/arrive`"
-        ]
-
-        guard FileManager.default.fileExists(atPath: docs[0].path) else {
-            throw XCTSkip("Repository docs are not available inside the real-device test sandbox. Run scripts/validate-docs.mjs from the repository root.")
-        }
-
-        for doc in docs {
-            let text = try String(contentsOf: doc)
-            for fragment in forbiddenFragments {
-                XCTAssertFalse(text.contains(fragment), "\(doc.lastPathComponent) contains forbidden fragment: \(fragment)")
-            }
-        }
-    }
-
-
-
+    // `testMaintainedDocsDoNotUseForbiddenLowercaseOrderStatusVocabulary` 已删除：
+    // 它读仓库里的 .md 文件，真机测试包沙盒读不到必然 XCTSkip，而真机是本仓唯一可用的
+    // XCTest 通道，所以它一次都没跑过；同一份 forbiddenFragments 清单在
+    // `scripts/validate-docs.mjs` 里有可运行的等价实现（AGENTS.md §13 的必跑命令），
+    // 且那份的文档清单更新（不含 2026-07-28 已归档的 07-api-contract / websocket-protocol）。
 
     func testLoginResponseDecodesCorrectly() throws {
         let json = """
@@ -2381,7 +2313,7 @@ final class blindRunTests: XCTestCase {
                 httpVersion: nil,
                 headerFields: ["Retry-After": "7"]
             )!
-            let data = #"{"code":"RATE_LIMITED","message":"注册过于频繁","rateLimitBucket":"REGISTRATION","retryAfterSeconds":99}"#.data(using: .utf8)!
+            let data = #"{"code":"RATE_LIMITED","message":"注册过于频繁","retryAfterSeconds":99}"#.data(using: .utf8)!
             return (response, data)
         }
         let client = URLSessionAPIClient(baseURL: URL(string: "http://example.test")!, session: URLSession(configuration: configuration), tokenProvider: { nil })
@@ -2390,7 +2322,6 @@ final class blindRunTests: XCTestCase {
             let _: EmptyResponse = try await client.post("/registration", requiresAuth: false)
             XCTFail("Expected rate limit")
         } catch APIError.rateLimited(let info) {
-            XCTAssertEqual(info.bucket, .registration)
             XCTAssertEqual(info.retryAfterSeconds, 7)
             XCTAssertEqual(info.message, "注册过于频繁")
         }
@@ -2656,13 +2587,13 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(viewModel.countdown)
     }
 
-    func testTestAccountDoesNotUseSendCodeResponseBusinessCodeWhenEnteringFixedDemoCode() async {
+    /// send-code 响应里没有任何验证码字段（后端 `AuthService.sendCode` 返回 void），
+    /// 提交的必须永远是用户自己输入的那 6 位，不做任何替换。
+    func testVerifyCodeSubmitsExactlyWhatUserTyped() async {
         let client = LoginCodeCaptureAPIClient(sendCodeResponse: SendCodeResponse(
             success: true,
             message: "验证码已发送",
-            code: "654321",
-            verificationCode: nil,
-            smsCode: nil
+            code: "654321"
         ))
         let viewModel = LoginViewModel(apiClient: client)
         viewModel.phoneNumber = "13800000001"
@@ -2672,89 +2603,9 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(didShowInput)
         viewModel.sanitizeVerificationCodeInput(AppConstants.Auth.demoVerificationCode)
 
-        let didCaptureFixedCode = await waitUntil { client.capturedVerifyCodeRequest?.code == AppConstants.Auth.demoVerificationCode }
-        XCTAssertTrue(didCaptureFixedCode)
+        let didCaptureTypedCode = await waitUntil { client.capturedVerifyCodeRequest?.code == AppConstants.Auth.demoVerificationCode }
+        XCTAssertTrue(didCaptureTypedCode)
         XCTAssertEqual(client.capturedVerifyCodeRequest?.phone, "13800000001")
-    }
-
-    func testTestAccountUsesVerificationCodeFieldWhenEnteringFixedDemoCode() async {
-        let client = LoginCodeCaptureAPIClient(sendCodeResponse: SendCodeResponse(
-            success: true,
-            message: "验证码已发送",
-            code: nil,
-            verificationCode: "123456",
-            smsCode: nil
-        ))
-        let viewModel = LoginViewModel(apiClient: client)
-        viewModel.phoneNumber = "13800000002"
-
-        viewModel.requestCode()
-        let didShowInput = await waitUntil { viewModel.showCodeInput }
-        XCTAssertTrue(didShowInput)
-        viewModel.sanitizeVerificationCodeInput(AppConstants.Auth.demoVerificationCode)
-
-        let didCaptureHiddenCode = await waitUntil { client.capturedVerifyCodeRequest?.code == "123456" }
-        XCTAssertTrue(didCaptureHiddenCode)
-    }
-
-    func testTestAccountUsesSMSCodeFieldWhenEnteringFixedDemoCode() async {
-        let client = LoginCodeCaptureAPIClient(sendCodeResponse: SendCodeResponse(
-            success: true,
-            message: "验证码已发送",
-            code: nil,
-            verificationCode: nil,
-            smsCode: "789012"
-        ))
-        let viewModel = LoginViewModel(apiClient: client)
-        viewModel.phoneNumber = "13800000003"
-
-        viewModel.requestCode()
-        let didShowInput = await waitUntil { viewModel.showCodeInput }
-        XCTAssertTrue(didShowInput)
-        viewModel.sanitizeVerificationCodeInput(AppConstants.Auth.demoVerificationCode)
-
-        let didCaptureHiddenCode = await waitUntil { client.capturedVerifyCodeRequest?.code == "789012" }
-        XCTAssertTrue(didCaptureHiddenCode)
-    }
-
-    func testNonTestAccountDoesNotUseHiddenSendCodeWhenEnteringFixedDemoCode() async {
-        let client = LoginCodeCaptureAPIClient(sendCodeResponse: SendCodeResponse(
-            success: true,
-            message: "验证码已发送",
-            code: "654321",
-            verificationCode: nil,
-            smsCode: nil
-        ))
-        let viewModel = LoginViewModel(apiClient: client)
-        viewModel.phoneNumber = "13800138000"
-
-        viewModel.requestCode()
-        let didShowInput = await waitUntil { viewModel.showCodeInput }
-        XCTAssertTrue(didShowInput)
-        viewModel.sanitizeVerificationCodeInput(AppConstants.Auth.demoVerificationCode)
-
-        let didCaptureFixedCode = await waitUntil { client.capturedVerifyCodeRequest?.code == AppConstants.Auth.demoVerificationCode }
-        XCTAssertTrue(didCaptureFixedCode)
-    }
-
-    func testTestAccountFallsBackToFixedDemoCodeWhenSendCodeReturnsNoHiddenCode() async {
-        let client = LoginCodeCaptureAPIClient(sendCodeResponse: SendCodeResponse(
-            success: true,
-            message: "验证码已发送",
-            code: nil,
-            verificationCode: nil,
-            smsCode: nil
-        ))
-        let viewModel = LoginViewModel(apiClient: client)
-        viewModel.phoneNumber = "13800000004"
-
-        viewModel.requestCode()
-        let didShowInput = await waitUntil { viewModel.showCodeInput }
-        XCTAssertTrue(didShowInput)
-        viewModel.sanitizeVerificationCodeInput(AppConstants.Auth.demoVerificationCode)
-
-        let didCaptureFixedCode = await waitUntil { client.capturedVerifyCodeRequest?.code == AppConstants.Auth.demoVerificationCode }
-        XCTAssertTrue(didCaptureFixedCode)
     }
 
     func testDevelopmentInitialEnvironmentKeepsSupportedDebugChoices() {
@@ -4826,6 +4677,32 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(speechService.lastSpokenText, "评价已提交，感谢反馈。")
     }
 
+    /// 后端 `DUPLICATE_ORDER` 有两个语义不同的抛出点：`OrderCreationService`（已有进行中订单，
+    /// 不能再下单）和 `ReviewService`（已评价过此订单）。重复评价时如果用本地固定文案覆盖后端
+    /// message，就会把「您已有进行中的订单」这句完全不相干的话念给盲人听。
+    func testDuplicateReviewSpeaksBackendMessageNotInProgressOrderCopy() async {
+        let client = FailingAPIClient(error: APIError.serverError(
+            ErrorResponse(code: "DUPLICATE_ORDER", message: "已评价过此订单")
+        ))
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.order = makeOrder(orderId: 3, status: .completed)
+        viewModel.reviewRating = 5
+
+        await viewModel.submitReview()
+
+        XCTAssertFalse(viewModel.didSubmitReview)
+        XCTAssertEqual(viewModel.errorMessage, "已评价过此订单")
+        XCTAssertEqual(speechService.lastSpokenText, "已评价过此订单")
+        XCTAssertFalse(
+            (speechService.lastSpokenText ?? "").contains("进行中的订单"),
+            "重复评价被念成了下单受阻的文案"
+        )
+    }
+
     func testBlindRunnerRepeatStatusSpeaksInServiceState() {
         let appState = AppState()
         appState.currentEnvironment = .mock
@@ -5710,7 +5587,6 @@ final class blindRunTests: XCTestCase {
                let registrationRateLimitSeconds {
                 throw APIError.rateLimited(RateLimitInfo(
                     message: "注册过于频繁",
-                    bucket: .registration,
                     retryAfterSeconds: registrationRateLimitSeconds
                 ))
             }

@@ -95,8 +95,8 @@ enum ErrorCode: String, Codable, Sendable {
         case .resourceNotFound:
             return "请求的资源不存在。"
         case .duplicateOrder:
-            // 后端 `OrderCreationService` 的语义是「已有进行中订单时拒绝下单」，不是「提交重复了」。
-            return "您已有进行中的订单，完成后才能再次预约。"
+            // 一码多义（见 `prefersServerMessage`），这里只是后端 message 缺失时的场景中立兜底。
+            return "该操作重复了，请刷新后重试。"
         case .registrationStepInvalid:
             return "注册步骤不正确，请重新开始。"
         case .internalError:
@@ -106,7 +106,7 @@ enum ErrorCode: String, Codable, Sendable {
         case .volunteerNotRegistered:
             return "志愿者注册流程尚未完成。"
         case .orderInProgress:
-            // 后端只在「取消受阻」这一处抛该码（`OrderService`），文案跟着这个唯一场景走。
+            // 后端只在「取消受阻」这一处抛该码（`OrderLifecycleService`），文案跟着这个唯一场景走。
             return "志愿者已出发或服务进行中，如需取消请联系志愿者。"
         case .orderPermissionDenied:
             return "没有权限操作此订单。"
@@ -129,6 +129,13 @@ enum ErrorCode: String, Codable, Sendable {
         }
     }
 
+    /// 后端同一个码有多个语义不同的抛出点时，任何一句本地文案都会在其中一个场景说错话，
+    /// 只能以后端 message 为准。目前只有 `DUPLICATE_ORDER`：
+    /// `OrderCreationService`（已有进行中订单，不能再下单）与 `ReviewService`（已评价过此订单）共用它。
+    var prefersServerMessage: Bool {
+        self == .duplicateOrder
+    }
+
     var ttsMessage: String {
         localizedMessage
     }
@@ -139,18 +146,15 @@ enum ErrorCode: String, Codable, Sendable {
 struct ErrorResponse: Codable, Sendable {
     let code: String
     let message: String
-    let rateLimitBucket: RateLimitBucket?
     let retryAfterSeconds: Int?
 
     init(
         code: String,
         message: String,
-        rateLimitBucket: RateLimitBucket? = nil,
         retryAfterSeconds: Int? = nil
     ) {
         self.code = code
         self.message = message
-        self.rateLimitBucket = rateLimitBucket
         self.retryAfterSeconds = retryAfterSeconds
     }
 
@@ -159,15 +163,8 @@ struct ErrorResponse: Codable, Sendable {
     }
 }
 
-enum RateLimitBucket: String, Codable, Sendable {
-    case auth = "AUTH"
-    case registration = "REGISTRATION"
-    case general = "GENERAL"
-}
-
 struct RateLimitInfo: Codable, Sendable, Equatable {
     let message: String
-    let bucket: RateLimitBucket?
     let retryAfterSeconds: Int?
 }
 
@@ -196,11 +193,10 @@ struct APIErrorEnvelope: Decodable {
     let errorCode: String?
     let message: String?
     let error: String?
-    let rateLimitBucket: RateLimitBucket?
     let retryAfterSeconds: Int?
 
     private enum CodingKeys: String, CodingKey {
-        case success, code, errorCode, message, error, rateLimitBucket, retryAfterSeconds
+        case success, code, errorCode, message, error, retryAfterSeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -209,7 +205,6 @@ struct APIErrorEnvelope: Decodable {
         errorCode = try container.decodeIfPresent(String.self, forKey: .errorCode)
         message = try container.decodeIfPresent(String.self, forKey: .message)
         error = try container.decodeIfPresent(String.self, forKey: .error)
-        rateLimitBucket = try container.decodeIfPresent(RateLimitBucket.self, forKey: .rateLimitBucket)
         retryAfterSeconds = try container.decodeIfPresent(Int.self, forKey: .retryAfterSeconds)
         if let stringCode = try? container.decodeIfPresent(String.self, forKey: .code) {
             code = stringCode
@@ -225,7 +220,6 @@ struct APIErrorEnvelope: Decodable {
         return ErrorResponse(
             code: errorCode ?? code ?? "HTTP_\(statusCode)",
             message: resolvedMessage,
-            rateLimitBucket: rateLimitBucket,
             retryAfterSeconds: retryAfterSeconds
         )
     }
