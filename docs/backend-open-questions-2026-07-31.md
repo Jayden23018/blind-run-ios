@@ -1,5 +1,16 @@
 # 待后端确认清单 · 2026-07-31
 
+> **状态：已于 2026-07-31 投递到共享通道 `demo/docs/handoff.md`（「待后端确认」小节）。**
+>
+> 此前 Q1~Q8 只留在本仓库、**从未送到后端**，所谓「后端不回复」的真相是问题根本没送到。
+> 投递时做了两处调整，以共享通道的版本为准：
+> - **Q3 范围写窄了**：不止 `/api/user/role` 一处不走 `ApiResponse` 信封，实际至少 6 处
+>   （`AuthController` 的 4 个端点、`RoleController.java:79`、429 handler 的裸 `LinkedHashMap`），已重述。
+> - **Q1（双身份）/ Q6（`DUPLICATE_ORDER` 语义边界）已升格为独立条目** —— Q6 描述的风险
+>   已经变成线上故障（重复评价被 TTS 念成「您已有进行中的订单」）。
+>
+> **后续一律以 `demo/docs/handoff.md` 为准，本文件仅作存档，不再更新。**
+
 起因：志愿者在设置页点「切换角色」，无任何订单却提示「存在进行中的订单，无法切换角色」。排查发现后端 `POST /api/user/role` 是一次性设角色接口（`RoleController.java:54`，角色非 UNSET 直接 409 `ROLE_ALREADY_SET`），后端根本没有角色切换端点；客户端把该码误命名为 `activeOrderRoleSwitchBlocked` 并映射成订单拦截文案。前端已删掉这个必然失败的入口并修正错码语义。
 
 下面按「必须回答」和「确认即可」两档列，每条都标了证据出处。后端仓库指 `/Users/mac/Downloads/demo`。
