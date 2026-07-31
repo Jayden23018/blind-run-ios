@@ -8,10 +8,14 @@
 //
 // 副作用与回滚：探针只新增自己创建的联系人，结束时删除它们并把主联系人恢复原状。
 // 账号原有的联系人绝不删除；因此「删除最后一位」这一项只有在账号原本没有联系人时才会真正验证。
+//
+// 短信红线：后端会给每一位新建的联系人发通知短信。探针最多要建 6 个联系人，所以
+// AIDRUN_BLIND_PROBE_CONTACT_PHONES 必须是**你本人控制的**号码列表，逐个列全。
+// 早先的版本只收一个号码再把末两位换成序号，那样发出去的短信会打到陌生人手机上。
 
 const baseURL = 'http://47.114.113.171';
 const phone = process.env.AIDRUN_BLIND_PROBE_PHONE;
-const contactPhonePrefix = process.env.AIDRUN_BLIND_PROBE_CONTACT_PHONE;
+const contactPhonesRaw = process.env.AIDRUN_BLIND_PROBE_CONTACT_PHONES;
 const fallbackCode = process.env.AIDRUN_BLIND_PROBE_CODE ?? '000000';
 const shouldSendCode = process.env.AIDRUN_BLIND_PROBE_SKIP_SEND_CODE !== '1';
 const shouldSubmitIdentity = process.env.AIDRUN_BLIND_PROBE_SKIP_IDENTITY !== '1';
@@ -24,14 +28,36 @@ const SYNTHETIC_ID_CARD_NAME = '探针测试';
 const MAX_CONTACTS = 5;
 const VALID_VERIFY_STATUSES = ['NOT_VERIFIED', 'VERIFIED', 'FAILED'];
 
+// 槽位分配：0=新建、1=改号（必须与 0 不同才能验证改号生效）、2..5=补到上限的填充位。
+// 超限那次预期被拒，复用槽位 0，不额外占号。
+const CONTACT_PHONE_SLOTS = 6;
+
 if (!phone || !/^1[3-9]\d{9}$/.test(phone)) {
   throw new Error('Set AIDRUN_BLIND_PROBE_PHONE to a blind-role test phone number.');
 }
-if (!contactPhonePrefix || !/^1[3-9]\d{9}$/.test(contactPhonePrefix)) {
+
+const contactPhones = (contactPhonesRaw ?? '')
+  .split(',')
+  .map(value => value.trim())
+  .filter(value => value.length > 0);
+
+if (contactPhones.length < CONTACT_PHONE_SLOTS) {
   throw new Error(
-    'Set AIDRUN_BLIND_PROBE_CONTACT_PHONE to a phone number you control. '
-    + 'The backend sends a notification SMS to every contact this probe creates.'
+    `Set AIDRUN_BLIND_PROBE_CONTACT_PHONES to ${CONTACT_PHONE_SLOTS} comma-separated phone numbers `
+    + 'you personally control. The backend sends a notification SMS to every contact this probe '
+    + 'creates, so numbers you do not control must never appear here.'
   );
+}
+for (const candidate of contactPhones) {
+  if (!/^1[3-9]\d{9}$/.test(candidate)) {
+    throw new Error(`AIDRUN_BLIND_PROBE_CONTACT_PHONES contains an invalid number: ${maskPhone(candidate)}`);
+  }
+}
+if (new Set(contactPhones).size !== contactPhones.length) {
+  throw new Error('AIDRUN_BLIND_PROBE_CONTACT_PHONES must not repeat a number; slot 0 and 1 have to differ.');
+}
+if (contactPhones.includes(phone)) {
+  throw new Error('AIDRUN_BLIND_PROBE_CONTACT_PHONES must not contain the account phone itself.');
 }
 if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
   throw new Error('AIDRUN_BLIND_PROBE_TIMEOUT_MS must be a positive number.');
@@ -51,9 +77,14 @@ function nameShape(value) {
   return { present: text.length > 0, length: text.length };
 }
 
-/// 探针自己创建的联系人手机号：末两位换成序号，避免和账号原有联系人撞号。
-function probeContactPhone(index) {
-  return `${contactPhonePrefix.slice(0, 9)}${String(index % 100).padStart(2, '0')}`;
+/// 取第 slot 个「操作者本人控制」的联系人号码。绝不凭空构造号码——构造出来的号码属于陌生人，
+/// 而后端会给每个新建联系人发短信。越界直接抛，宁可探针跑不完也不发错短信。
+function probeContactPhone(slot) {
+  const value = contactPhones[slot];
+  if (!value) {
+    throw new Error(`No operator-controlled phone for contact slot ${slot}; supply more numbers.`);
+  }
+  return value;
 }
 
 class BackendUnreachableError extends Error {}
@@ -247,7 +278,7 @@ async function main() {
       token,
       body: {
         name: '探针联系人一',
-        phone: probeContactPhone(91),
+        phone: probeContactPhone(0),
         relationship: '朋友',
         isPrimary: false
       }
@@ -269,7 +300,7 @@ async function main() {
       token,
       body: {
         name: '探针联系人一',
-        phone: probeContactPhone(92),
+        phone: probeContactPhone(1),
         relationship: '同事',
         isPrimary: createdSnapshot.isPrimary === true
       }
@@ -278,7 +309,7 @@ async function main() {
     const updated = afterCreate.find(contact => contact.id === createdId) ?? {};
     checks.contacts.update = {
       relationshipApplied: updated.relationshipPresent === true,
-      phoneApplied: updated.phone === maskPhone(probeContactPhone(92)),
+      phoneApplied: updated.phone === maskPhone(probeContactPhone(1)),
       primaryPreserved: (updated.isPrimary === true) === (createdSnapshot.isPrimary === true)
     };
     if (!checks.contacts.update.phoneApplied) issues.push('UPDATE_DID_NOT_APPLY_PHONE');
@@ -303,16 +334,19 @@ async function main() {
 
     // 数量上限：补到 5 位再试第 6 位。
     let currentCount = afterSetPrimary.length;
+    // 填充位从槽位 2 开始顺次取，不复用 0/1（那两个已经绑在上面的新建与改号联系人上）。
+    let fillerSlot = 2;
     for (let index = currentCount; index < MAX_CONTACTS; index += 1) {
       const filler = await http('POST', `/api/users/${userId}/emergency-contacts`, {
         token,
         body: {
           name: `探针联系人${index}`,
-          phone: probeContactPhone(index),
+          phone: probeContactPhone(fillerSlot),
           relationship: '朋友',
           isPrimary: false
         }
       });
+      fillerSlot += 1;
       if (filler.body?.id) createdIds.push(filler.body.id);
       currentCount += 1;
     }
@@ -320,7 +354,8 @@ async function main() {
       token,
       body: {
         name: '探针超限联系人',
-        phone: probeContactPhone(99),
+        // 这次预期被后端以 CONTACT_LIMIT_EXCEEDED 拒掉，不会真的建号发短信，所以复用槽位 0。
+        phone: probeContactPhone(0),
         relationship: '朋友',
         isPrimary: false
       },
