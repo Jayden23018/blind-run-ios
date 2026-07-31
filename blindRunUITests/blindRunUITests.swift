@@ -560,6 +560,130 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.buttons["取消"].firstMatch.exists)
     }
 
+    // MARK: - 紧急联系人无障碍
+
+    /// 列表行只播报掩码手机号，且朗读顺序为「概览 → 联系人 → 新增」。
+    @MainActor
+    func testContactRowAnnouncesMaskedPhoneInReadingOrder() throws {
+        let app = launchBlindContactsApp()
+        openContacts(app)
+
+        let summary = app.staticTexts[Self.seededContactSummary].firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 12))
+
+        let row = app.staticTexts["张三，关系家人，电话139****9001，主联系人"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "行内容应合并成一条含掩码手机号的播报")
+        XCTAssertFalse(
+            app.staticTexts["13900139001"].firstMatch.exists,
+            "列表不得展示或朗读完整手机号"
+        )
+
+        let addButton = app.buttons["新增紧急联系人"].firstMatch
+        XCTAssertTrue(addButton.exists)
+        XCTAssertLessThan(summary.frame.minY, row.frame.minY)
+        XCTAssertLessThan(row.frame.minY, addButton.frame.minY)
+    }
+
+    /// 新增 → 编辑 → 删除的完整往返。
+    @MainActor
+    func testContactAddEditAndDeleteRoundTrip() throws {
+        let app = launchBlindContactsApp()
+        openContacts(app)
+        waitForContactSummary(app, Self.seededContactSummary)
+
+        addContact(app, name: "李四", phone: "13700137000", relationship: "朋友")
+        waitForContactSummary(app, "共 2 位紧急联系人，最多 5 位。主联系人是张三。")
+        XCTAssertTrue(
+            app.staticTexts["李四，关系朋友，电话137****7000，非主联系人"].firstMatch.waitForExistence(timeout: 8),
+            "新增后应回写重新拉取的整份列表"
+        )
+
+        let editButton = app.buttons["编辑李四"].firstMatch
+        XCTAssertTrue(editButton.waitForExistence(timeout: 8))
+        scrollElementIntoView(editButton, app: app)
+        tapWhenHittableOrByCoordinate(editButton, app: app)
+        XCTAssertTrue(app.navigationBars["编辑紧急联系人"].waitForExistence(timeout: 8))
+
+        let phoneField = app.textFields["联系人手机号，必填，11 位"].firstMatch
+        XCTAssertTrue(phoneField.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            waitForTextFieldValue(phoneField, equals: "13700137000", timeout: 5),
+            "后端返回明文，编辑时应明文回填"
+        )
+        replaceText(in: phoneField, with: "13611116666", app: app)
+        tapWhenHittableOrByCoordinate(app.buttons["保存"].firstMatch, app: app)
+        XCTAssertTrue(
+            waitForElementToDisappear(app.navigationBars["编辑紧急联系人"], timeout: 15),
+            "保存成功后编辑表单应自动关闭"
+        )
+
+        XCTAssertTrue(
+            app.staticTexts["李四，关系朋友，电话136****6666，非主联系人"].firstMatch.waitForExistence(timeout: 10)
+        )
+
+        deleteContact(app, named: "李四")
+        waitForContactSummary(app, Self.seededContactSummary)
+    }
+
+    /// 设主联系人是原子的（旧主自动降级），且最后一位联系人不可删除。
+    @MainActor
+    func testSetPrimaryIsAtomicAndLastContactCannotBeDeleted() throws {
+        let app = launchBlindContactsApp()
+        openContacts(app)
+        waitForContactSummary(app, Self.seededContactSummary)
+
+        // 只剩一位时删除被本地守卫拦下，不发请求、不弹确认框。
+        let deleteOnlyContact = app.buttons["删除张三"].firstMatch
+        XCTAssertTrue(deleteOnlyContact.waitForExistence(timeout: 8))
+        scrollElementIntoView(deleteOnlyContact, app: app)
+        tapWhenHittableOrByCoordinate(deleteOnlyContact, app: app)
+        XCTAssertTrue(
+            app.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].firstMatch.waitForExistence(timeout: 8)
+        )
+        XCTAssertFalse(app.alerts["确认删除联系人"].exists, "被拦下的删除不应弹出确认框")
+
+        addContact(app, name: "李四", phone: "13700137000", relationship: "朋友")
+        XCTAssertTrue(
+            app.staticTexts["李四，关系朋友，电话137****7000，非主联系人"].firstMatch.waitForExistence(timeout: 15)
+        )
+
+        let setPrimary = app.buttons["把李四设为主联系人"].firstMatch
+        XCTAssertTrue(setPrimary.waitForExistence(timeout: 8))
+        scrollElementIntoView(setPrimary, app: app)
+        tapWhenHittableOrByCoordinate(setPrimary, app: app)
+        let primaryAlert = app.alerts["确认设为主联系人"]
+        XCTAssertTrue(primaryAlert.waitForExistence(timeout: 8), "切换主联系人需要二次确认")
+        primaryAlert.buttons["设为主联系人"].tap()
+        XCTAssertTrue(waitForElementToDisappear(primaryAlert, timeout: 8), "确认后弹窗应关闭")
+
+        waitForContactSummary(app, "共 2 位紧急联系人，最多 5 位。主联系人是李四。")
+        XCTAssertTrue(
+            app.staticTexts["张三，关系家人，电话139****9001，非主联系人"].firstMatch.waitForExistence(timeout: 8),
+            "原主联系人必须同步降级，保持恰好一位主联系人"
+        )
+    }
+
+    /// 达到 5 位上限后新增被禁用并说明原因。
+    @MainActor
+    func testContactUpperLimitBlocksTheSixthContact() throws {
+        let app = launchBlindContactsApp()
+        openContacts(app)
+        waitForContactSummary(app, Self.seededContactSummary)
+
+        for index in 2...5 {
+            addContact(app, name: "联系人\(index)", phone: "1370013700\(index)", relationship: "朋友")
+            waitForContactSummary(app, "共 \(index) 位紧急联系人，最多 5 位。主联系人是张三。")
+        }
+
+        let addButton = app.buttons["新增紧急联系人"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 8))
+        scrollElementIntoView(addButton, app: app)
+        XCTAssertTrue(
+            app.staticTexts["已保存 5 位紧急联系人，达到上限。如需新增，请先删除一位。"].firstMatch.waitForExistence(timeout: 8)
+        )
+        XCTAssertFalse(addButton.isEnabled, "到达上限后新增按钮必须禁用")
+    }
+
     @MainActor
     func testAuthLifecycleRolelessRestoreRoutesToRoleSelection() throws {
         let app = launchApp(
@@ -877,6 +1001,136 @@ final class blindRunUITests: XCTestCase {
         let settingsButton = app.buttons["设置"].firstMatch
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 12))
         settingsButton.tap()
+    }
+
+    // MARK: - 紧急联系人 helpers
+
+    /// Mock 种子联系人（`MockAPIClient.seedDemoData`）：张三 / 13900139001 / 家人 / 主联系人。
+    private static let seededContactSummary = "共 1 位紧急联系人，最多 5 位。主联系人是张三。"
+
+    private func launchBlindContactsApp() -> XCUIApplication {
+        launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "blind_runner",
+            preseedBlindProfile: true,
+            emptyMockOrders: true
+        )
+    }
+
+    /// 首页 → 设置 → 个人资料 → 管理紧急联系人。
+    ///
+    /// 设置页没有「紧急联系人」直达行，管理页挂在个人资料页下面，所以是三跳。
+    private func openContacts(_ app: XCUIApplication) {
+        openSettings(app)
+        tapNavigationRow(app, labelBeginsWith: "个人资料")
+        tapNavigationRow(app, labelBeginsWith: "管理紧急联系人")
+        XCTAssertTrue(
+            app.navigationBars["紧急联系人"].waitForExistence(timeout: 12),
+            "应已进入紧急联系人管理页"
+        )
+    }
+
+    private func addContact(_ app: XCUIApplication, name: String, phone: String, relationship: String) {
+        let addButton = app.buttons["新增紧急联系人"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10))
+        scrollElementIntoView(addButton, app: app)
+        tapWhenHittableOrByCoordinate(addButton, app: app)
+        XCTAssertTrue(app.navigationBars["新增紧急联系人"].waitForExistence(timeout: 8))
+
+        let nameField = app.textFields["联系人姓名，必填"].firstMatch
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        tapWhenHittableOrByCoordinate(nameField, app: app)
+        nameField.typeText(name)
+
+        let phoneField = app.textFields["联系人手机号，必填，11 位"].firstMatch
+        tapWhenHittableOrByCoordinate(phoneField, app: app)
+        phoneField.typeText(phone)
+
+        let relationshipField = app.textFields["与联系人的关系，选填"].firstMatch
+        tapWhenHittableOrByCoordinate(relationshipField, app: app)
+        relationshipField.typeText(relationship)
+
+        // 「保存」在导航栏，不会被键盘挡住，所以不需要先收键盘。
+        tapWhenHittableOrByCoordinate(app.buttons["保存"].firstMatch, app: app)
+        XCTAssertTrue(
+            waitForElementToDisappear(app.navigationBars["新增紧急联系人"], timeout: 15),
+            "保存成功后新增表单应自动关闭"
+        )
+    }
+
+    private func deleteContact(_ app: XCUIApplication, named name: String) {
+        let deleteButton = app.buttons["删除\(name)"].firstMatch
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 8))
+        scrollElementIntoView(deleteButton, app: app)
+        tapWhenHittableOrByCoordinate(deleteButton, app: app)
+
+        let alert = app.alerts["确认删除联系人"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 8), "删除是危险操作，必须二次确认")
+        alert.buttons["确认删除"].tap()
+        XCTAssertTrue(waitForElementToDisappear(alert, timeout: 8), "确认后弹窗应关闭")
+    }
+
+    /// 概览行在列表顶部，联系人多起来后会被滚出可见区、单元格被回收而查不到。
+    /// 先直接等，等不到再往回滚一屏确认一次。
+    private func waitForContactSummary(_ app: XCUIApplication, _ expected: String) {
+        let summary = app.staticTexts[expected].firstMatch
+        if summary.waitForExistence(timeout: 12) { return }
+        scrollableSurface(app).swipeDown()
+        scrollableSurface(app).swipeDown()
+        XCTAssertTrue(summary.waitForExistence(timeout: 5), "紧急联系人概览应更新为「\(expected)」")
+    }
+
+    private func replaceText(in field: XCUIElement, with newValue: String, app: XCUIApplication) {
+        tapWhenHittableOrByCoordinate(field, app: app)
+        let current = (field.value as? String) ?? ""
+        if !current.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        }
+        field.typeText(newValue)
+    }
+
+    /// List 里的 `NavigationLink` 可能暴露成 button 也可能暴露成 cell，两种都试。
+    private func tapNavigationRow(_ app: XCUIApplication, labelBeginsWith prefix: String) {
+        let predicate = NSPredicate(format: "label BEGINSWITH %@", prefix)
+        let button = app.buttons.matching(predicate).firstMatch
+        if button.waitForExistence(timeout: 10) {
+            scrollElementIntoView(button, app: app)
+            tapWhenHittableOrByCoordinate(button, app: app)
+            return
+        }
+        let cell = app.cells.matching(predicate).firstMatch
+        XCTAssertTrue(cell.waitForExistence(timeout: 5), "未找到以「\(prefix)」开头的入口")
+        scrollElementIntoView(cell, app: app)
+        tapWhenHittableOrByCoordinate(cell, app: app)
+    }
+
+    /// 把控件滚进可见区。判据是"中心点落在可见区内"而不是 `isHittable`：
+    /// 禁用态的按钮永远不 hittable，用 `isHittable` 会让上限用例白白滑满 maxSwipes 次。
+    private func scrollElementIntoView(_ element: XCUIElement, app: XCUIApplication, maxSwipes: Int = 5) {
+        let appFrame = app.frame
+        guard !appFrame.isNull, !appFrame.isEmpty else { return }
+        let visibleArea = appFrame.insetBy(dx: 0, dy: 44)
+        for _ in 0..<maxSwipes {
+            guard element.exists else { return }
+            let frame = element.frame
+            if !frame.isNull, !frame.isEmpty,
+               visibleArea.contains(CGPoint(x: frame.midX, y: frame.midY)) {
+                return
+            }
+            scrollableSurface(app).swipeUp()
+        }
+    }
+
+    private func scrollableSurface(_ app: XCUIApplication) -> XCUIElement {
+        for candidate in [
+            app.collectionViews.firstMatch,
+            app.tables.firstMatch,
+            app.scrollViews.firstMatch
+        ] where candidate.exists {
+            return candidate
+        }
+        return app
     }
 
     private func assertLogoutRequiresConfirmation(_ app: XCUIApplication) {
