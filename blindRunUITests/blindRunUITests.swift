@@ -501,14 +501,14 @@ final class blindRunUITests: XCTestCase {
 
         recordsButton.tap()
         XCTAssertTrue(app.navigationBars["服务记录"].waitForExistence(timeout: 5))
-        app.navigationBars["服务记录"].buttons.firstMatch.tap()
+        popNavigationBar(app, title: "服务记录")
 
-        XCTAssertTrue(pointsButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForElementToBeHittable(pointsButton, timeout: 5))
         pointsButton.tap()
         XCTAssertTrue(app.navigationBars["积分商城"].waitForExistence(timeout: 5))
-        app.navigationBars["积分商城"].buttons.firstMatch.tap()
+        popNavigationBar(app, title: "积分商城")
 
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForElementToBeHittable(settingsButton, timeout: 5))
         settingsButton.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
     }
@@ -1123,6 +1123,36 @@ final class blindRunUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
         return element.exists && element.isHittable
+    }
+
+    private func waitForElementToDisappear(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !element.exists {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return !element.exists
+    }
+
+    /// 退栈并确认真的退回去了。
+    ///
+    /// 直接 `tap()` 完就断言上一页的元素会 flaky：调用方那条用例故意让首页请求永不返回，
+    /// 加载超时后首页会重绘，撞上退栈动画时返回键的这一下有概率被吞掉，
+    /// 于是「等积分商城按钮出现」白等 5 秒。这里改成先等返回键可点、点完再确认导航栏消失，
+    /// 被吞掉就补一次，把时序竞争关在helper 里。
+    private func popNavigationBar(_ app: XCUIApplication, title: String) {
+        let navigationBar = app.navigationBars[title]
+        let backButton = navigationBar.buttons.firstMatch
+        XCTAssertTrue(waitForElementToBeHittable(backButton, timeout: 5), "\(title) 的返回键应当可点")
+        backButton.tap()
+
+        if waitForElementToDisappear(navigationBar, timeout: 3) { return }
+        if backButton.exists && backButton.isHittable {
+            backButton.tap()
+        }
+        XCTAssertTrue(waitForElementToDisappear(navigationBar, timeout: 5), "应当已退出「\(title)」")
     }
 
     private func waitForTextFieldValue(_ element: XCUIElement, equals expectedValue: String, timeout: TimeInterval) -> Bool {
