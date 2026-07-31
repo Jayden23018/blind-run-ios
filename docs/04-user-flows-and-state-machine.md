@@ -128,12 +128,13 @@ stateDiagram-v2
 
 1. 当前角色为 `BLIND`。
 2. 盲人基础资料完整。
-3. **已保存 1～5 个紧急联系人，且其中恰好 1 个为主联系人。** 这是外部后端 `OrderCreationService` 自身的前置校验（只检查联系人是否存在），客户端的阻断与之保持一致并额外要求主联系人唯一。
-4. 定位权限已授予。
-5. 已确认出发地点。
-6. 预约时间至少在当前时间 30 分钟之后。
+3. **实名认证已通过（`verifyStatus == VERIFIED`）。** 外部后端 `OrderCreationService` 自 2026-07-30 起硬校验此项，未通过返回 403 `IDENTITY_NOT_VERIFIED`。
+4. **已保存 1～5 个紧急联系人，且其中恰好 1 个为主联系人。** 后端只检查联系人是否存在（缺失时 403 `EMERGENCY_CONTACT_REQUIRED`），客户端的阻断与之保持一致并额外要求主联系人唯一。
+5. 定位权限已授予。
+6. 已确认出发地点。
+7. 预约时间至少在当前时间 30 分钟之后。
 
-实名认证状态（`BlindProfileResponse.verifyStatus`，仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED`）**不是**前置条件，只作引导性提示。若 `demo/docs/handoff.md` Q1（2026-07-29）答复为服务端增加 `verifyStatus == VERIFIED` 校验，再把它升级为第 7 条并映射对应错误码。
+第 3 条必须排在第 4 条**之前**：后端的判定顺序就是先实名后联系人，客户端顺序若相反，用户补完联系人仍会被 403 挡回来。实名状态（`BlindProfileResponse.verifyStatus`）仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED` 三态，字段缺失一律按未通过处理。
 
 任一条件不满足时，App 展示并播报**第一个可执行的**缺失项，"重复当前状态"必须包含该阻断原因。
 

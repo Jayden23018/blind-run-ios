@@ -49,6 +49,14 @@ struct BlindRunnerSettingsView: View {
                 .accessibilityLabel("个人资料")
                 .accessibilityHint("编辑盲人跑者资料和紧急联系人")
 
+                // 实名是下单硬门槛（后端 403 IDENTITY_NOT_VERIFIED），引导流里「稍后再说」跳过后
+                // 必须还有一条随时能走回实名页的路，否则未实名用户会被永久挡在预约之外。
+                NavigationLink("实名认证") {
+                    BlindIdentityVerificationView()
+                }
+                .accessibilityLabel("实名认证，当前状态\(appState.blindIdentityStatus.displayName)")
+                .accessibilityHint("提交姓名和身份证号完成实名认证，完成后才能预约跑步")
+
                 Button("切换角色") {
                     showRoleSwitchConfirm = true
                 }

@@ -82,8 +82,40 @@ final class BlindIdentityVerificationViewModelTests: XCTestCase {
 
     // MARK: - Submit
 
-    func testSubmitReadsAuthoritativeStatusFromProfileAndClearsFields() async {
-        let client = IdentityVerifyAPIClient(verifyStatus: BlindVerifyStatus.verified.rawValue)
+    /// 新契约：`data.verifyStatus` 直接带回权威状态，省掉 `GET /api/blind/profile` 那次往返。
+    func testSubmitUsesVerifyStatusFromResponseAndSkipsProfileRefetch() async {
+        let client = IdentityVerifyAPIClient(
+            verifyStatus: BlindVerifyStatus.notVerified.rawValue, // 回退路径若被误走，状态会对不上
+            submitVerifyStatus: BlindVerifyStatus.verified.rawValue
+        )
+        let appState = AppState(apiClient: client, tokenStore: InMemoryTokenStoreStub())
+        appState.updateBlindProfile(BlindProfileResponse(name: "张三", verifyStatus: "NOT_VERIFIED"))
+        let viewModel = BlindIdentityVerificationViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.idCardName = "张三"
+        viewModel.idCardNumber = "11010119900307123X"
+
+        viewModel.submit()
+        await waitUntilSubmitFinished(viewModel)
+
+        XCTAssertEqual(client.verifyCount, 1)
+        XCTAssertEqual(client.profileFetchCount, 0, "响应体已带状态，不应再回读资料")
+        XCTAssertEqual(viewModel.status, .verified)
+        XCTAssertEqual(appState.blindIdentityStatus, .verified)
+        // 只写状态位，其余已知资料字段不得被抹成 nil
+        XCTAssertEqual(appState.blindProfile?.name, "张三")
+        XCTAssertTrue(viewModel.idCardName.isEmpty)
+        XCTAssertTrue(viewModel.idCardNumber.isEmpty)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    /// 容错路径：生产 `47.114.113.171` 尚未部署带 `verifyStatus` 的版本，
+    /// 字段缺失时必须回退到 `GET /api/blind/profile`，不能把状态当成未知就卡住。
+    func testSubmitFallsBackToProfileFetchWhenResponseOmitsVerifyStatus() async {
+        let client = IdentityVerifyAPIClient(
+            verifyStatus: BlindVerifyStatus.verified.rawValue,
+            submitVerifyStatus: nil
+        )
         let appState = AppState(apiClient: client, tokenStore: InMemoryTokenStoreStub())
         let viewModel = BlindIdentityVerificationViewModel()
         viewModel.configure(with: appState, speechService: SpeechService())
@@ -94,10 +126,9 @@ final class BlindIdentityVerificationViewModelTests: XCTestCase {
         await waitUntilSubmitFinished(viewModel)
 
         XCTAssertEqual(client.verifyCount, 1)
-        XCTAssertEqual(client.profileFetchCount, 1)
+        XCTAssertEqual(client.profileFetchCount, 1, "字段缺失必须回退到 GET")
         XCTAssertEqual(viewModel.status, .verified)
         XCTAssertEqual(appState.blindIdentityStatus, .verified)
-        // 身份证号不得在提交后继续留在内存里
         XCTAssertTrue(viewModel.idCardName.isEmpty)
         XCTAssertTrue(viewModel.idCardNumber.isEmpty)
         XCTAssertNil(viewModel.errorMessage)
@@ -180,14 +211,23 @@ final class BlindIdentityVerificationViewModelTests: XCTestCase {
 // MARK: - Test Doubles
 
 private final class IdentityVerifyAPIClient: APIClientProtocol, @unchecked Sendable {
+    /// `GET /api/blind/profile` 回读到的状态（回退路径用）。
     private let verifyStatus: String?
+    /// `POST /api/blind/verify-identity` 的 `data.verifyStatus`；
+    /// nil 模拟生产上尚未部署新版本的老后端（只回 `message`）。
+    private let submitVerifyStatus: String?
     private let verifyError: APIError?
     private(set) var verifyCount = 0
     private(set) var profileFetchCount = 0
     private(set) var capturedRequest: BlindVerifyRequest?
 
-    init(verifyStatus: String? = nil, verifyError: APIError? = nil) {
+    init(
+        verifyStatus: String? = nil,
+        submitVerifyStatus: String? = nil,
+        verifyError: APIError? = nil
+    ) {
         self.verifyStatus = verifyStatus
+        self.submitVerifyStatus = submitVerifyStatus
         self.verifyError = verifyError
     }
 
@@ -204,7 +244,12 @@ private final class IdentityVerifyAPIClient: APIClientProtocol, @unchecked Senda
             if let verifyError {
                 throw verifyError
             }
-            guard let response = EmptyResponse() as? T else { throw APIError.invalidURL }
+            // 后端成功分支只返回 message + verifyStatus 两个字段。
+            let payload = BlindVerifySubmitResponse(
+                message: "身份认证通过",
+                verifyStatus: submitVerifyStatus
+            )
+            guard let response = payload as? T else { throw APIError.invalidURL }
             return response
         }
         if method == .get, path == "/api/blind/profile" {

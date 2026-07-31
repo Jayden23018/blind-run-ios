@@ -12,11 +12,14 @@ private let idCardNumberPattern = #"^\d{17}[\dXx]$"#
 ///
 /// 契约要点（唯一源：后端仓库 `docs/api_spec.yaml`）：
 /// - 请求体 `idCardName`(2–50) + `idCardNumber`(`^\d{17}[\dXx]$`)。
-/// - 响应是无类型 object 且**不含状态**，所以提交成功后必须再 `GET /api/blind/profile`
-///   读 `verifyStatus` 才能拿到权威状态。这里刻意用 `EmptyResponse` 丢弃响应体，
-///   避免后端把提交内容原样回显后被展示或朗读。
+/// - 成功响应 `data = {"message": "身份认证通过", "verifyStatus": "VERIFIED"}`（2026-07-30 起）。
+///   优先读响应体里的 `verifyStatus`，省掉一次 `GET /api/blind/profile` 往返；
+///   **字段缺失时必须回退到 GET**——生产 `47.114.113.171` 还没部署该版本。
+///   只解 `message` / `verifyStatus` 两个白名单字段，其余内容一律丢弃，
+///   避免后端把提交的身份证号原样回显后被展示或朗读。
 /// - `verifyStatus` 只有 `NOT_VERIFIED` / `VERIFIED` / `FAILED`，**没有"审核中"**。
-/// - 实名是软引导：`OrderCreationService` 从不读 `verifyStatus`，本页文案不得暗示"未实名无法下单"。
+/// - 实名是下单硬门槛：`OrderCreationService` 校验 `verifyStatus == VERIFIED`，
+///   否则 403 `IDENTITY_NOT_VERIFIED`。本页文案不得暗示"未实名也能下单"。
 ///
 /// 隐私约束（OpenSpec `blind-identity-and-contact-management`）：
 /// 身份证号只在本 ViewModel 内存中短暂存在，不写入 `AppState`、`UserDefaults`、Keychain 或任何日志；
@@ -98,7 +101,7 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
     var statusAnnouncement: String {
         var parts = [status.guidanceMessage]
         if status.shouldPromptVerification {
-            parts.append("实名认证不影响预约，未实名也可以直接下单。")
+            parts.append("实名认证是预约跑步的必要条件，请填写姓名和身份证号后提交。")
         }
         if let successMessage { parts.append(successMessage) }
         if let errorMessage { parts.append(errorMessage) }
@@ -110,6 +113,26 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
     }
 
     // MARK: - Status Refresh
+
+    /// 提交响应里带回的状态直接采信，并同步进 `AppState`（下单门槛读的就是它）。
+    /// 只写状态位，不碰 name 等其他资料字段——响应体没有它们，写 nil 会把已有资料抹掉。
+    private func applyVerifyStatusFromSubmitResponse(_ newStatus: BlindVerifyStatus, appState: AppState) {
+        let existing = appState.blindProfile
+        appState.updateBlindProfile(
+            BlindProfileResponse(
+                name: existing?.name,
+                runningPace: existing?.runningPace,
+                specialNeeds: existing?.specialNeeds,
+                verifyStatus: newStatus.rawValue,
+                visionLevel: existing?.visionLevel,
+                hasGuideDog: existing?.hasGuideDog,
+                tetherPreference: existing?.tetherPreference,
+                chatPreference: existing?.chatPreference,
+                defaultPace: existing?.defaultPace
+            )
+        )
+        status = newStatus
+    }
 
     /// 权威状态只能从 `GET /api/blind/profile` 得到。失败时保持 AppState 里的已知值，不猜测。
     func refreshStatus() async {
@@ -153,13 +176,19 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
         )
 
         do {
-            // 响应体是无类型 object，可能回显提交内容；这里用 EmptyResponse 直接丢弃。
-            let _: EmptyResponse = try await appState.apiClient.post(
+            // 只解 message / verifyStatus 两个白名单字段，其余回显内容（可能含身份证号）自然丢弃。
+            let submitResponse: BlindVerifySubmitResponse = try await appState.apiClient.post(
                 "/api/blind/verify-identity",
                 body: request
             )
             clearSensitiveFields()
-            await refreshStatus()
+            if let resolved = submitResponse.resolvedStatus {
+                // 新契约：响应体直接带权威状态，省一次 GET /api/blind/profile。
+                applyVerifyStatusFromSubmitResponse(resolved, appState: appState)
+            } else {
+                // 老后端（生产尚未部署）不返回该字段，回退到原来的重查流程。
+                await refreshStatus()
+            }
             isSubmitting = false
             applySubmittedStatusCopy()
         } catch let error as APIError {
@@ -251,10 +280,10 @@ struct BlindIdentityVerificationView: View {
             HighContrastText("实名认证", style: .title)
                 .accessibilityAddTraits(.isHeader)
 
-            Text("完善实名信息更安全，也能提升接单成功率。未实名也可以正常预约。")
+            Text("完成实名认证后才能预约跑步。身份证号只用于本次核验，不会保存在本机。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("完善实名信息更安全，也能提升接单成功率。未实名也可以正常预约")
+                .accessibilityLabel("完成实名认证后才能预约跑步。身份证号只用于本次核验，不会保存在本机")
         }
     }
 

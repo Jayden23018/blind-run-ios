@@ -104,10 +104,14 @@ struct BookingReviewItem: Identifiable, Equatable {
 
 /// `POST /api/orders` 的硬门槛，枚举顺序即「第一个可操作的缺失项」的播报顺序。
 ///
-/// 实名状态**不在**门槛内：后端 `OrderCreationService` 只校验紧急联系人存在，
-/// 客户端再拦一道就是任何非 iOS 调用方都能绕过的假门槛。
+/// 服务端门槛的唯一真源是 `OrderCreationService.createOrder`：
+/// `verifyStatus != VERIFIED` → 403 `IDENTITY_NOT_VERIFIED`，
+/// 随后才是无紧急联系人 → 403 `EMERGENCY_CONTACT_REQUIRED`（2026-07-30 起，见 `handoff.md`）。
+/// **实名必须排在紧急联系人之前**，否则本地播报的「下一步」会和服务端实际拒绝的原因对不上。
+/// `basicProfile` 是客户端自有的前置项（后端不校验 `BlindProfile.name`），保持在最前不影响上述同序。
 enum BlindBookingGate: Equatable {
     case basicProfile
+    case identityVerification
     case emergencyContacts
     case locationPermission
     case startPoint
@@ -115,12 +119,14 @@ enum BlindBookingGate: Equatable {
 
     static func firstMissing(
         isBasicProfileComplete: Bool,
+        isIdentityVerified: Bool,
         hasValidEmergencyContacts: Bool,
         isLocationDenied: Bool,
         hasStartPoint: Bool,
         isAppointmentTimeValid: Bool
     ) -> BlindBookingGate? {
         if !isBasicProfileComplete { return .basicProfile }
+        if !isIdentityVerified { return .identityVerification }
         if !hasValidEmergencyContacts { return .emergencyContacts }
         if isLocationDenied { return .locationPermission }
         if !hasStartPoint { return .startPoint }
@@ -133,6 +139,8 @@ enum BlindBookingGate: Equatable {
         switch self {
         case .basicProfile:
             return "请先完善个人资料，至少填写昵称。"
+        case .identityVerification:
+            return "请先完成实名认证才能下单。返回上一页，打开右上角设置，选择实名认证，填写姓名和身份证号后提交。"
         case .emergencyContacts:
             return "请先设置紧急联系人：至少 1 位，并指定其中 1 位为主联系人。"
         case .locationPermission:
@@ -189,6 +197,7 @@ final class BlindBookingViewModel: ObservableObject {
     var firstMissingGate: BlindBookingGate? {
         BlindBookingGate.firstMissing(
             isBasicProfileComplete: appState?.isBlindBasicProfileComplete ?? true,
+            isIdentityVerified: appState?.isBlindIdentityVerified ?? true,
             hasValidEmergencyContacts: appState?.hasValidEmergencyContacts ?? true,
             isLocationDenied: locationService?.isDenied == true,
             hasStartPoint: resolvedStartPlace != nil,

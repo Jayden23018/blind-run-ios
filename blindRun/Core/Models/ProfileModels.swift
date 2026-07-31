@@ -79,15 +79,28 @@ struct BlindVerifyRequest: Codable, Sendable {
     let idCardNumber: String
 }
 
-/// `POST /api/blind/verify-identity` 的响应。后端 schema 是无类型 object，
-/// 所以这里只解可选字段，**权威状态一律重新 `GET /api/blind/profile` 读 `verifyStatus`**。
+/// `POST /api/blind/verify-identity` 的响应 `data`。
+///
+/// 2026-07-30 起后端在成功分支直接返回 `{"message": "身份认证通过", "verifyStatus": "VERIFIED"}`
+/// （`BlindController.verifyIdentity`），省掉一次 `GET /api/blind/profile` 往返。
+/// 字段全部可选是刻意的：老后端（生产尚未部署该版本）只回 `message`，
+/// 此时 `verifyStatus` 为 nil，调用方必须回退到 `GET /api/blind/profile` 读权威状态。
 struct BlindVerifySubmitResponse: Codable, Sendable {
     let success: Bool?
     let message: String?
+    let verifyStatus: String?
 
-    init(success: Bool? = nil, message: String? = nil) {
+    init(success: Bool? = nil, message: String? = nil, verifyStatus: String? = nil) {
         self.success = success
         self.message = message
+        self.verifyStatus = verifyStatus
+    }
+
+    /// 响应体里带回的权威状态；缺失或不认识的值一律返回 nil，交给调用方回退重查。
+    var resolvedStatus: BlindVerifyStatus? {
+        guard let verifyStatus else { return nil }
+        let parsed = BlindVerifyStatus.parse(verifyStatus)
+        return parsed == .unknown ? nil : parsed
     }
 }
 
@@ -114,7 +127,7 @@ enum BlindVerifyStatus: String, Codable, Sendable {
 
     var isVerified: Bool { self == .verified }
 
-    /// 实名只是软引导：未通过时提示，但不阻塞下单。
+    /// 未通过实名就下不了单（后端 403 `IDENTITY_NOT_VERIFIED`），所以非 `VERIFIED` 一律提示。
     var shouldPromptVerification: Bool { !isVerified }
 
     var displayName: String {
@@ -129,16 +142,16 @@ enum BlindVerifyStatus: String, Codable, Sendable {
     /// 展示与 TTS 共用的下一步引导文案。
     var guidanceMessage: String {
         switch self {
-        case .notVerified: return "尚未实名认证。完成实名认证可以提升接单成功率，也可以先直接预约。"
-        case .verified: return "已完成实名认证。"
-        case .failed: return "实名认证未通过，请核对姓名和身份证号后重新提交。"
-        case .unknown: return "暂时无法获取实名状态，可稍后在设置中重试。"
+        case .notVerified: return "尚未实名认证。完成实名认证后才能预约跑步，请填写姓名和身份证号提交。"
+        case .verified: return "已完成实名认证，可以正常预约跑步。"
+        case .failed: return "实名认证未通过，暂时不能预约跑步。请核对姓名和身份证号后重新提交。"
+        case .unknown: return "暂时无法获取实名状态。实名通过后才能预约跑步，请稍后在设置里的实名认证页面重试。"
         }
     }
 }
 
 extension BlindProfileResponse {
-    /// 类型化的实名状态。**仅用于展示与引导，不参与下单门槛。**
+    /// 类型化的实名状态。既用于展示与引导，也是下单硬门槛（后端 403 `IDENTITY_NOT_VERIFIED`）。
     var identityStatus: BlindVerifyStatus {
         BlindVerifyStatus.parse(verifyStatus)
     }

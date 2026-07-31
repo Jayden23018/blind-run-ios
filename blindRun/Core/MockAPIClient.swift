@@ -40,6 +40,20 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         seedDemoData()
     }
 
+    #if DEBUG
+    /// 单测钩子。Mock 的初始实名状态与联系人只能由环境变量决定，而 `ProcessInfo.environment`
+    /// 在进程启动后就固定了，单测无法逐条覆盖；播种的那 1 个联系人又受删除接口
+    /// `CONTACT_MINIMUM_REQUIRED` 下限保护删不掉。下单前置的两条 403
+    /// （`IDENTITY_NOT_VERIFIED` / `EMERGENCY_CONTACT_REQUIRED`）只能从这里到达。
+    func overrideBookingPrerequisitesForTesting(
+        verifyStatus: BlindVerifyStatus,
+        emergencyContacts: [EmergencyContactResponse]
+    ) {
+        blindVerifyStatus = verifyStatus.rawValue
+        self.emergencyContacts = emergencyContacts
+    }
+    #endif
+
     func syncRoleFromAppState(_ role: UserRole?) {
         mockRole = role
     }
@@ -640,9 +654,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         )
     }
 
-    /// `POST /api/blind/verify-identity`：后端响应是无类型 object，这里同样返回空对象。
+    /// `POST /api/blind/verify-identity`：后端成功分支返回
+    /// `data = {"message": "身份认证通过", "verifyStatus": "VERIFIED"}`（`BlindController.verifyIdentity`），
+    /// Mock 只造这两个后端真会返回的字段。核验不通过时后端走 400 分支，这里对应抛 `ID_INFO_INVALID`。
     /// Mock **不保存身份证号**，只落一个状态位。
-    private func handleVerifyIdentity(body: (any Encodable & Sendable)?) throws -> EmptyResponse {
+    private func handleVerifyIdentity(body: (any Encodable & Sendable)?) throws -> BlindVerifySubmitResponse {
         guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
               let request = try? JSONDecoder().decode(BlindVerifyRequest.self, from: data) else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
@@ -658,7 +674,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             key: "AIDRUN_MOCK_BLIND_VERIFY_RESULT",
             default: BlindVerifyStatus.verified.rawValue
         )
-        return EmptyResponse()
+        // 后端 200 分支的 message 是固定的「身份认证通过」；FAILED/NOT_VERIFIED 只出现在
+        // UI 测试通过环境变量强制的场景里，此时不带那句成功文案。
+        return BlindVerifySubmitResponse(
+            message: blindVerifyStatus == BlindVerifyStatus.verified.rawValue ? "身份认证通过" : nil,
+            verifyStatus: blindVerifyStatus
+        )
     }
 
     /// 只接受三个合法状态，避免 UI 测试写错环境变量后拿到无声失败。
@@ -987,11 +1008,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
         }
 
-        // Validate profile completeness
-        guard blindProfile?.name != nil, !emergencyContacts.isEmpty else {
-            throw APIError.serverError(ErrorResponse(
-                code: "PROFILE_INCOMPLETE", message: "请先完善盲人资料和紧急联系人"))
-        }
+        // 校验顺序与后端 `OrderCreationService.createOrder` 严格一致：
+        // 提前量（422 APPOINTMENT_TOO_SOON）→ 实名（403 IDENTITY_NOT_VERIFIED）
+        // → 紧急联系人（403 EMERGENCY_CONTACT_REQUIRED）。
+        // 顺序错了会让 Mock 引导用户先补一个后端根本不会先拒的项。
+        // 注意：后端**不校验** `BlindProfile.name`，Mock 也不能比后端严；
+        // 之前那条 `PROFILE_INCOMPLETE` 是真实后端永不返回的死码，已删除。
 
         // Validate appointment time (30 min ahead)
         if let date = ISO8601DateFormatter().date(from: request.plannedStartTime)
@@ -1001,6 +1023,16 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 throw APIError.serverError(ErrorResponse(
                     code: "APPOINTMENT_TOO_SOON", message: "预约时间至少需要在 30 分钟后"))
             }
+        }
+
+        guard BlindVerifyStatus.parse(blindVerifyStatus) == .verified else {
+            throw APIError.serverError(ErrorResponse(
+                code: "IDENTITY_NOT_VERIFIED", message: "请先完成实名认证再下单"))
+        }
+
+        guard !emergencyContacts.isEmpty else {
+            throw APIError.serverError(ErrorResponse(
+                code: "EMERGENCY_CONTACT_REQUIRED", message: "请先设置紧急联系人再下单"))
         }
 
         let orderId = nextOrderId

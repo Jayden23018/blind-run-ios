@@ -185,15 +185,64 @@ final class MockEmergencyContactContractTests: XCTestCase {
 
 final class MockBlindIdentityVerificationTests: XCTestCase {
 
-    func testVerifyIdentitySubmissionUpdatesStatusReadBackFromProfile() async throws {
+    func testVerifyIdentitySubmissionReturnsStatusAndMatchesProfile() async throws {
         let client = MockAPIClient()
-        let _: EmptyResponse = try await client.post(
+        let submitted: BlindVerifySubmitResponse = try await client.post(
             "/api/blind/verify-identity",
             body: BlindVerifyRequest(idCardName: "张三", idCardNumber: "11010119900307231X")
         )
-        // 响应是无类型 object，权威状态靠重新读资料。
+        // 后端 200 分支的 data 直接带 verifyStatus（+ 固定 message），Mock 必须造一样的形状。
+        XCTAssertEqual(submitted.resolvedStatus, .verified)
+        XCTAssertEqual(submitted.message, "身份认证通过")
+
+        // 回退路径读到的权威状态必须与响应体一致，两条路不能给出不同答案。
         let profile: BlindProfileResponse = try await client.get("/api/blind/profile")
         XCTAssertEqual(profile.identityStatus, .verified)
+    }
+
+    /// Mock 的下单前置校验必须与后端 `OrderCreationService` 同码同序：
+    /// 先 403 `IDENTITY_NOT_VERIFIED`，再 403 `EMERGENCY_CONTACT_REQUIRED`。
+    func testMockOrderCreationRejectsMissingContactsWithDedicatedCode() async throws {
+        // 已实名但没有紧急联系人：只剩联系人这一档会拒。
+        let client = MockAPIClient()
+        client.overrideBookingPrerequisitesForTesting(verifyStatus: .verified, emergencyContacts: [])
+        do {
+            let _: OrderResponse = try await client.post("/api/orders", body: Self.makeOrderRequest())
+            XCTFail("缺紧急联系人必须被拒")
+        } catch let error as APIError {
+            XCTAssertEqual(error.errorCode, .emergencyContactRequired)
+            XCTAssertNotEqual(error.errorCode, .orderPermissionDenied, "不得再复用兜底通用码")
+        }
+    }
+
+    /// 两档都缺时必须先报实名——顺序错了会让盲人先去补一个后端根本不会先拒的项。
+    func testMockOrderCreationChecksIdentityBeforeEmergencyContacts() async throws {
+        let client = MockAPIClient()
+        client.overrideBookingPrerequisitesForTesting(verifyStatus: .notVerified, emergencyContacts: [])
+        do {
+            let _: OrderResponse = try await client.post("/api/orders", body: Self.makeOrderRequest())
+            XCTFail("未实名必须被拒")
+        } catch let error as APIError {
+            XCTAssertEqual(error.errorCode, .identityNotVerified)
+        }
+    }
+
+    private static func makeOrderRequest() -> CreateOrderRequest {
+        let start = Date().addingTimeInterval(60 * 60)
+        let formatter = DateFormatter.aidRunBackendLocalDateTime
+        return CreateOrderRequest(
+            startLatitude: 31.2304,
+            startLongitude: 121.4737,
+            startAddress: "测试出发点",
+            plannedStartTime: formatter.string(from: start),
+            plannedEndTime: formatter.string(from: start.addingTimeInterval(60 * 60)),
+            expectedDurationMinutes: 60,
+            pacePreference: nil,
+            routePreference: nil,
+            routeNotes: nil,
+            hasGuideDogThisRun: nil,
+            specialNotes: nil
+        )
     }
 
     func testVerifyIdentityRejectsMalformedIdCardNumber() async throws {

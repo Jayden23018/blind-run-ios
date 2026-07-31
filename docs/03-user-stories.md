@@ -234,27 +234,33 @@
 
 ---
 
-### US-BR-001c：实名认证（引导，不阻断下单）
+### US-BR-001c：实名认证（下单硬门槛）
 
 **作为**：盲人跑者
 **我想要**：提交身份证姓名和号码完成实名认证
-**以便**：提升账号可信度
+**以便**：能够预约跑步
 
 **优先级**：P1
 
-**说明**：外部后端 `OrderCreationService` 的下单前置校验只检查紧急联系人是否存在，从不读 `verifyStatus`。因此本版本实名认证只做引导，不作为下单门槛；是否升级为硬门槛待 `demo/docs/handoff.md` Q1（2026-07-29）答复。
+**说明**：2026-07-30 后端按 `demo/docs/handoff.md` Q1 的方案 ① 落地，`OrderCreationService.createOrder` 校验 `BlindProfile.verifyStatus == VERIFIED`，否则 403 `IDENTITY_NOT_VERIFIED`。该校验排在紧急联系人（403 `EMERGENCY_CONTACT_REQUIRED`）**之前**，客户端门槛顺序必须与之一致。
 
 **验收标准**：
 
-**Given** 盲人用户的 `verifyStatus` 为 `NOT_VERIFIED` 或 `FAILED`
-**When** 用户进入盲人首页或创建预约流程
-**Then** 系统展示并播报当前认证状态和下一步操作，但**不**阻止创建预约
+**Given** 盲人用户的 `verifyStatus` 为 `NOT_VERIFIED` / `FAILED`，或后端未返回该字段
+**When** 用户进入创建预约流程并尝试提交
+**Then** 系统阻止提交，并播报实名认证这一档缺失（实名与紧急联系人同时缺失时**只**播报实名），文案指向「设置 → 实名认证」这条能走通的路径
+
+---
+
+**Given** 用户在引导流的实名提示页选择「稍后再说」
+**When** 用户进入首页
+**Then** 可以查看历史订单和设置，但创建预约仍被实名门槛拦截；可随时从「设置 → 实名认证」回到实名页
 
 ---
 
 **Given** 用户在实名认证页提交了姓名和身份证号
 **When** 后端核验通过
-**Then** 状态更新为 `VERIFIED` 并播报结果，客户端清除内存中的身份证号
+**Then** 优先采用响应体 `data.verifyStatus` 更新状态（字段缺失时回退到 `GET /api/blind/profile`），状态变为 `VERIFIED` 并播报结果，客户端清除内存中的身份证号
 
 ---
 

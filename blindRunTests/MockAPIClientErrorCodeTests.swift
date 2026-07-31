@@ -44,4 +44,39 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
             "MockAPIClient 抛出的这些 code 在 ErrorCode 枚举里不存在，客户端会落到未知兜底：\(unknown.sorted())"
         )
     }
+
+    // MARK: - 盲人下单前置门槛（后端 ErrorCode.java「盲人下单前置条件类（403）」）
+
+    /// rawValue 必须逐字对上后端枚举的 `code`，错一个字母就落到未知兜底。
+    func testBookingPrerequisiteErrorCodesDecodeFromBackendWireValues() {
+        XCTAssertEqual(ErrorCode(rawValue: "IDENTITY_NOT_VERIFIED"), .identityNotVerified)
+        XCTAssertEqual(ErrorCode(rawValue: "EMERGENCY_CONTACT_REQUIRED"), .emergencyContactRequired)
+
+        XCTAssertEqual(
+            ErrorResponse(code: "IDENTITY_NOT_VERIFIED", message: "请先完成实名认证再下单").errorCode,
+            .identityNotVerified
+        )
+        XCTAssertEqual(
+            ErrorResponse(code: "EMERGENCY_CONTACT_REQUIRED", message: "请先设置紧急联系人再下单").errorCode,
+            .emergencyContactRequired
+        )
+    }
+
+    /// 客户端固定文案：不回显后端 message，并且要指出下一步动作（盲人靠 TTS 听）。
+    func testBookingPrerequisiteMessagesAreClientOwnedAndActionable() {
+        let identity = ErrorCode.identityNotVerified.localizedMessage
+        XCTAssertTrue(identity.contains("实名认证"))
+        XCTAssertTrue(identity.contains("设置"), "要告诉用户去哪儿做，不能只说不行")
+        XCTAssertEqual(ErrorCode.identityNotVerified.ttsMessage, identity)
+
+        let contacts = ErrorCode.emergencyContactRequired.localizedMessage
+        XCTAssertTrue(contacts.contains("紧急联系人"))
+        XCTAssertTrue(contacts.contains("主联系人"))
+        XCTAssertEqual(ErrorCode.emergencyContactRequired.ttsMessage, contacts)
+
+        // 专用码存在的意义就是不再和兜底权限拒绝共用同一句话。
+        XCTAssertNotEqual(contacts, ErrorCode.orderPermissionDenied.localizedMessage)
+        XCTAssertNotEqual(identity, ErrorCode.orderPermissionDenied.localizedMessage)
+        XCTAssertNotEqual(identity, contacts)
+    }
 }

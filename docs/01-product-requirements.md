@@ -58,7 +58,7 @@
 
 1. 能完整演示：**盲人预约 → 志愿者接单 → 志愿者出发 → 志愿者到达并开始服务 → 志愿者结束服务 → 盲人看到完成状态**。
    - 演示前盲人账号必须已保存 1～5 个紧急联系人且恰好 1 个为主联系人；这是外部后端 `OrderCreationService` 的下单前置校验，缺失时创建订单会被服务端拒绝。
-   - 盲人实名认证在本版本是**引导性提示，不阻断下单**。状态取自 `BlindProfileResponse.verifyStatus`，仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED` 三态，没有「审核中」。是否升级为硬门槛待后端答复 `demo/docs/handoff.md` Q1（2026-07-29）。
+   - 演示前盲人账号还必须已完成实名认证（`verifyStatus == VERIFIED`）。状态取自 `BlindProfileResponse.verifyStatus`，仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED` 三态，没有「审核中」。**2026-07-30 起这是服务端硬门槛**：`OrderCreationService` 在紧急联系人校验**之前**先查实名，未通过返回 403 `IDENTITY_NOT_VERIFIED`（`demo/docs/handoff.md` Q1 答复按方案 ①）。缺紧急联系人则返回 403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`）。
 2. 必须接入真实地图（高德地图）。
 3. 必须接入真实定位。
 4. 必须接入真实用户登录。

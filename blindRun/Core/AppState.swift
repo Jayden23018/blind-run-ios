@@ -118,7 +118,8 @@ final class AppState: ObservableObject {
     /// 紧急联系人列表
     @Published var emergencyContacts: [EmergencyContactResponse] = []
 
-    /// 实名软引导的「稍后再说」标记。按账号记：`performLocalSessionCleanup` 会清掉它。
+    /// 实名引导页「稍后再说」的标记。按账号记：`performLocalSessionCleanup` 会清掉它。
+    /// 只影响引导流是否还停在实名提示页，**不影响下单门槛**（`isBlindBookingReady` 仍看实名状态）。
     /// 走 `persistence` 而不是 `@AppStorage`，否则单元/UI 测试会写进 App 的标准域。
     @Published private(set) var didDismissBlindIdentityPrompt = false
 
@@ -174,10 +175,17 @@ final class AppState: ObservableObject {
         return !name.trimmed.isEmpty
     }
 
-    /// 实名状态。**仅用于展示与语音引导，不参与下单门槛**——
-    /// 后端 `OrderCreationService` 只校验紧急联系人存在，客户端再拦一道就是假门槛。
+    /// 实名状态。2026-07-30 起后端 `OrderCreationService` 在服务端硬校验
+    /// `verifyStatus == VERIFIED`（否则 403 `IDENTITY_NOT_VERIFIED`），
+    /// 所以这里既用于展示与语音引导，也参与下单门槛。
     var blindIdentityStatus: BlindVerifyStatus {
         blindProfile?.identityStatus ?? .unknown
+    }
+
+    /// 实名侧的下单硬门槛。状态未知（后端没返回 / 返回了不认识的值）时按未通过处理：
+    /// 服务端会拒，客户端提前引导比让用户白填一遍订单再被 403 更可用。
+    var isBlindIdentityVerified: Bool {
+        blindIdentityStatus.isVerified
     }
 
     var emergencyContactCount: Int {
@@ -198,9 +206,11 @@ final class AppState: ObservableObject {
         emergencyContactCount >= EmergencyContactRules.minCount && hasExactlyOnePrimaryEmergencyContact
     }
 
-    /// 下单硬门槛：基础资料 + 至少 1 个紧急联系人 + 恰好 1 个主联系人。实名状态不参与。
+    /// 下单硬门槛：基础资料 + 实名认证通过 + 至少 1 个紧急联系人 + 恰好 1 个主联系人。
+    /// 实名这一档与后端 `OrderCreationService` 的 403 `IDENTITY_NOT_VERIFIED` 对齐，
+    /// 且与服务端同序（实名在紧急联系人之前）。
     var isBlindBookingReady: Bool {
-        isBlindBasicProfileComplete && hasValidEmergencyContacts
+        isBlindBasicProfileComplete && isBlindIdentityVerified && hasValidEmergencyContacts
     }
 
     /// 盲人引导流当前该停在哪一步；nil 表示可以直接进首页。
@@ -213,7 +223,8 @@ final class AppState: ObservableObject {
         )
     }
 
-    /// 「稍后再说」：跳过实名软引导，直接进首页。
+    /// 「稍后再说」：跳过实名引导页进首页看历史订单和设置。**不等于可以下单**——
+    /// 未实名仍会被 `BlindBookingGate.identityVerification` 拦住（后端 403 `IDENTITY_NOT_VERIFIED`）。
     func dismissBlindIdentityPrompt() {
         didDismissBlindIdentityPrompt = true
         persistence.set(true, forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
@@ -471,7 +482,7 @@ final class AppState: ObservableObject {
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
-        // 实名软引导的「稍后再说」是按账号记的：换账号后应重新提示一次。
+        // 实名引导页的「稍后再说」是按账号记的：换账号后应重新提示一次。
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
         // 补读游标同样是按账号的：留着会让新账号补读到上一个账号的时间窗。
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)

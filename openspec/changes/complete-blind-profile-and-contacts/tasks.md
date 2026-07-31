@@ -1,9 +1,13 @@
 ## 1. Contract And Product Documentation
 
 - [ ] 1.1 Complete, validate, and archive `make-blind-runner-flow-voice-first`, preserving its guided booking and map-as-auxiliary requirements before applying this change.
-- [ ] 1.2 Obtain human confirmation for identity response/status/error semantics, primary-contact atomicity, contact-limit errors, and contact-added SMS delivery presentation before starting affected client behavior.
-- [ ] 1.3 Update `AGENTS.md`, `plan.md`, and product/scope/story/flow/page/data/architecture/accessibility/task docs to make approved blind identity and one valid primary contact explicit booking prerequisites.
-- [ ] 1.4 Update `docs/07-api-contract.openapi.yaml` with typed blind verification responses/status, unverified-booking error, contact limits, ownership, masking, and primary invariants.
+- [~] 1.2 Obtain human confirmation for identity response/status/error semantics, primary-contact atomicity, contact-limit errors, and contact-added SMS delivery presentation before starting affected client behavior.
+  - Identity response/status/error semantics: **answered 2026-07-30** (`demo/docs/handoff.md:117`, option ①). `POST /api/orders` now rejects `verifyStatus != VERIFIED` with 403 `IDENTITY_NOT_VERIFIED`, checked **before** the emergency-contact gate; the contact gate moved from the generic `ORDER_PERMISSION_DENIED` to 403 `EMERGENCY_CONTACT_REQUIRED`. `POST /api/blind/verify-identity` now returns `data.verifyStatus` directly.
+  - Contact-limit errors: already answered (`CONTACT_LIMIT_EXCEEDED` / `CONTACT_MINIMUM_REQUIRED` / `CONTACT_FIELD_REQUIRED`, all 400).
+  - Still open: primary-contact atomicity and contact-added SMS delivery presentation. This item stays unchecked until those two are answered.
+- [x] 1.3 Update `AGENTS.md`, `plan.md`, and product/scope/story/flow/page/data/architecture/accessibility/task docs to make approved blind identity and one valid primary contact explicit booking prerequisites.
+  - Done 2026-07-30 alongside the client-side identity gate: `AGENTS.md` (error-code list), `docs/01`, `docs/02`, `docs/03`, `docs/04`, `docs/05`, `docs/06`, `docs/09`, `docs/10`. `plan.md` needed no change — it only covers the realtime-location/track-summary gate.
+- [ ] 1.4 ~~Update `docs/07-api-contract.openapi.yaml`~~ — superseded: the API contract no longer lives in this repo (see `docs/07-api-contract-MOVED.md`). The single source is the backend repo's `docs/api_spec.yaml`, which the backend already updated on 2026-07-30 for the two new 403s and the `verify-identity` response body. Nothing to do here; do **not** edit `docs/_archive-07-api-contract.openapi.yaml.bak` (known stale/incorrect).
 
 ## 2. Models And Mock Contract
 

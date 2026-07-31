@@ -321,9 +321,9 @@ Rules:
 
 `MockAPIClient` 应提供：
 
-- 至少 1 个盲人用户，资料完整并已有 1～5 个紧急联系人（恰好 1 个 `isPrimary`），可直接下单。
+- 至少 1 个盲人用户，资料完整、`verifyStatus == VERIFIED` 且已有 1～5 个紧急联系人（恰好 1 个 `isPrimary`），可直接下单。
 - 至少 1 个盲人用户没有任何紧急联系人，用于验证下单被阻断的引导路径。
-- 覆盖 `verifyStatus` 的 `NOT_VERIFIED` / `VERIFIED` / `FAILED` 三态，用于验证实名引导文案；三态都不影响下单。
+- 覆盖 `verifyStatus` 的 `NOT_VERIFIED` / `VERIFIED` / `FAILED` 三态。**只有 `VERIFIED` 能下单**，其余两态在 `POST /api/orders` 上必须返回 403 `IDENTITY_NOT_VERIFIED`，且这一档要排在 403 `EMERGENCY_CONTACT_REQUIRED` 之前，与后端 `OrderCreationService` 同序。
 - 至少 1 个志愿者用户，认证已通过、可服务开关开启。
 - 若干 `PENDING_MATCH` 订单，坐标使用可演示的默认测试点。
 - 若干已完成订单，用于服务记录与积分页面展示。
