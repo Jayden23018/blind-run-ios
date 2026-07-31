@@ -173,14 +173,36 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(summary.canDispatch ?? true)
     }
 
+    /// 后端 `DispatchBlockReason.java` 只有三个取值，且 `VolunteerService.getDispatchSummary`
+    /// 只评估这三个独立条件。客户端刻意不再定义后端不会下发的取值。
     func testDispatchSummaryMapsEveryBackendReadinessReason() throws {
-        let data = #"{"canDispatch":false,"notAvailableReasons":["DISPATCH_DISABLED","REGISTRATION_INCOMPLETE","OFFLINE","OUTSIDE_SERVICE_TIME","NO_LOCATION","ACTIVE_ORDER","NOT_APPROVED"]}"#.data(using: .utf8)!
+        let data = #"{"canDispatch":false,"notAvailableReasons":["DISPATCH_DISABLED","NOT_VERIFIED","OFFLINE"]}"#.data(using: .utf8)!
         let summary = try JSONDecoder().decode(VolunteerDispatchSummaryResponse.self, from: data)
 
         XCTAssertEqual(
-            summary.reasonText,
-            "已关闭接单、注册资料未完成、当前未在线、不在可服务时间、缺少最近定位、已有当前订单、志愿者资格未通过"
+            summary.notAvailableReasons,
+            [.dispatchDisabled, .notVerified, .offline]
         )
+        XCTAssertEqual(summary.reasonText, "已关闭接单、尚未通过资质认证、当前未在线")
+    }
+
+    /// 后端新增原因值时整份响应不能因为严格解码而丢失（曾导致志愿者首页被静默吞成全 nil）。
+    func testDispatchSummaryDecodesUnknownReasonInsteadOfFailing() throws {
+        let data = #"{"canDispatch":false,"notAvailableReasons":["DISPATCH_DISABLED","SOMETHING_NEW"],"totalCompleted":7}"#.data(using: .utf8)!
+        let summary = try JSONDecoder().decode(VolunteerDispatchSummaryResponse.self, from: data)
+
+        XCTAssertEqual(summary.completedCount, 7, "未知原因值不得连累同一份响应里的其他字段")
+        XCTAssertEqual(summary.notAvailableReasons, [.dispatchDisabled, .unknown])
+        XCTAssertEqual(summary.reasonText, "已关闭接单", "未识别的取值不参与文案拼接")
+    }
+
+    /// 全是未识别取值时不能拼出空串。
+    func testDispatchSummaryFallsBackWhenEveryReasonIsUnknown() throws {
+        let data = #"{"canDispatch":false,"notAvailableReasons":["SOMETHING_NEW"]}"#.data(using: .utf8)!
+        let summary = try JSONDecoder().decode(VolunteerDispatchSummaryResponse.self, from: data)
+
+        XCTAssertEqual(summary.reasonText, VolunteerDispatchNotAvailableReason.unknown.displayText)
+        XCTAssertFalse(summary.reasonText.isEmpty)
     }
 
     func testVolunteerHomeRefreshesBackendAuthoritativeDispatchSummary() async {
@@ -908,7 +930,7 @@ final class blindRunTests: XCTestCase {
             guard case .serverError(let response) = error else {
                 return XCTFail("Expected serverError, got \(error)")
             }
-            XCTAssertEqual(response.code, "INVALID_ORDER_STATUS")
+            XCTAssertEqual(response.code, "ORDER_STATUS_NOT_ALLOWED")
         }
 
         let _: EmptyResponse = try await client.post("/api/orders/\(order.orderId)/start-service")
@@ -951,7 +973,9 @@ final class blindRunTests: XCTestCase {
 
         let initialSummary: VolunteerDispatchSummaryResponse = try await client.get("/api/volunteer/dispatch-summary")
         XCTAssertFalse(initialSummary.canDispatch ?? true)
-        XCTAssertEqual(initialSummary.notAvailableReasons, [.dispatchDisabled])
+        // Mock 只在开启接单时上报位置，所以关掉接单时 DISPATCH_DISABLED 与 OFFLINE 同时命中
+        // （与后端 getDispatchSummary 的三条件独立评估一致）。
+        XCTAssertEqual(initialSummary.notAvailableReasons, [.dispatchDisabled, .offline])
         XCTAssertEqual(initialSummary.completedCount, 1)
         XCTAssertEqual(initialSummary.resolvedPointsBalance, 100)
 
@@ -968,8 +992,11 @@ final class blindRunTests: XCTestCase {
             body: OrderRespondRequest(action: .accept)
         )
         let activeSummary: VolunteerDispatchSummaryResponse = try await client.get("/api/volunteer/dispatch-summary")
-        XCTAssertFalse(activeSummary.canDispatch ?? true)
-        XCTAssertEqual(activeSummary.notAvailableReasons, [.activeOrder])
+        // 后端 `VolunteerService.getDispatchSummary` 只评估三个独立条件
+        // （DISPATCH_DISABLED / NOT_VERIFIED / OFFLINE，见 `DispatchBlockReason.java`）。
+        // 在途订单**不**产生 notAvailableReason，也不影响 canDispatch —— 派单入口另行过滤。
+        XCTAssertTrue(activeSummary.canDispatch ?? false)
+        XCTAssertEqual(activeSummary.notAvailableReasons, [])
         let activeOrder = try XCTUnwrap(activeSummary.activeOrders?.first)
         XCTAssertEqual(activeOrder.orderId, 1)
         XCTAssertEqual(try XCTUnwrap(activeOrder.startLatitude), 39.9342, accuracy: 0.000001)
@@ -1721,7 +1748,9 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.currentStep, .faceVerify)
         XCTAssertNil(viewModel.activeCertifyId)
         XCTAssertTrue(viewModel.canReturnToBasicInfoForIdentityEdit)
-        XCTAssertEqual(viewModel.errorMessage, "身份信息格式不正确")
+        // `ID_INFO_INVALID` 现在能解析成 `ErrorCode`，因此展示的是本地稳定文案而不是回显后端
+        // message —— 实名接口的 message 可能把提交的身份证信息带回来，绝不能展示或朗读。
+        XCTAssertEqual(viewModel.errorMessage, ErrorCode.idInfoInvalid.localizedMessage)
 
         viewModel.returnToBasicInfoForIdentityEdit()
 
@@ -4172,7 +4201,7 @@ final class blindRunTests: XCTestCase {
     func testVolunteerEnRouteExplicitServerErrorRestoresRetryableAction() async {
         let client = TransitionConfirmationAPIClient(
             postError: .serverError(ErrorResponse(
-                code: "INVALID_ORDER_STATUS",
+                code: "ORDER_STATUS_NOT_ALLOWED",
                 message: "订单状态不允许该操作"
             )),
             confirmation: .response,
@@ -4326,7 +4355,7 @@ final class blindRunTests: XCTestCase {
     func testVolunteerArrivedExplicitServerErrorRestoresRetryableAction() async {
         let client = TransitionConfirmationAPIClient(
             postError: .serverError(ErrorResponse(
-                code: "INVALID_ORDER_STATUS",
+                code: "ORDER_STATUS_NOT_ALLOWED",
                 message: "订单状态不允许该操作"
             )),
             confirmation: .response,

@@ -8,15 +8,39 @@ enum ErrorCode: String, Codable, Sendable {
     case locationPermissionRequired = "LOCATION_PERMISSION_REQUIRED"
     case orderNotFound = "ORDER_NOT_FOUND"
     case orderAlreadyAccepted = "ORDER_ALREADY_ACCEPTED"
-    case invalidOrderStatus = "INVALID_ORDER_STATUS"
-    case activeOrderRoleSwitchBlocked = "ACTIVE_ORDER_ROLE_SWITCH_BLOCKED"
+    case invalidOrderStatus = "ORDER_STATUS_NOT_ALLOWED"
+    case activeOrderRoleSwitchBlocked = "ROLE_ALREADY_SET"
     case volunteerNotAvailable = "VOLUNTEER_NOT_AVAILABLE"
-    case volunteerNotApproved = "VOLUNTEER_NOT_APPROVED"
+    case volunteerNotApproved = "VOLUNTEER_NOT_VERIFIED"
     case appointmentTooSoon = "APPOINTMENT_TOO_SOON"
-    case validationFailed = "VALIDATION_FAILED"
+    case validationFailed = "VALIDATION_ERROR"
     case unauthorized = "UNAUTHORIZED"
     case rateLimited = "RATE_LIMITED"
     case activeOrderAccountDeletionBlocked = "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED"
+    case keepWaitingLimitReached = "KEEP_WAITING_LIMIT_REACHED"
+    case orderDispatchMismatch = "ORDER_DISPATCH_MISMATCH"
+    case orderConcurrentConflict = "ORDER_CONCURRENT_CONFLICT"
+    case tooManyRequests = "TOO_MANY_REQUESTS"
+    case notOrderParticipant = "NOT_ORDER_PARTICIPANT"
+    case invalidTimestamp = "INVALID_TIMESTAMP"
+    case phoneFormatInvalid = "PHONE_FORMAT_INVALID"
+    case userNotFound = "USER_NOT_FOUND"
+    case notFound = "NOT_FOUND"
+    case badRequest = "BAD_REQUEST"
+    case securityForbidden = "SECURITY_FORBIDDEN"
+    case resourceNotFound = "RESOURCE_NOT_FOUND"
+    case duplicateOrder = "DUPLICATE_ORDER"
+    case registrationStepInvalid = "REGISTRATION_STEP_INVALID"
+    case internalError = "INTERNAL_ERROR"
+    case idInfoInvalid = "ID_INFO_INVALID"
+    case volunteerNotRegistered = "VOLUNTEER_NOT_REGISTERED"
+    case orderInProgress = "ORDER_IN_PROGRESS"
+    case orderPermissionDenied = "ORDER_PERMISSION_DENIED"
+    case smsSendLimitExceeded = "SMS_SEND_LIMIT_EXCEEDED"
+    // 紧急联系人专用码，后端 `ErrorCode.java` 「紧急联系人类（400）」小节的三个值。
+    case contactLimitExceeded = "CONTACT_LIMIT_EXCEEDED"
+    case contactMinimumRequired = "CONTACT_MINIMUM_REQUIRED"
+    case contactFieldRequired = "CONTACT_FIELD_REQUIRED"
 
     var localizedMessage: String {
         switch self {
@@ -37,7 +61,9 @@ enum ErrorCode: String, Codable, Sendable {
         case .volunteerNotAvailable:
             return "您当前未开启接单状态。"
         case .volunteerNotApproved:
-            return "您的志愿者资格尚未通过审核。"
+            // 后端 `DispatchService` 的接单守卫（403 VOLUNTEER_NOT_VERIFIED）唯一解法是上传资质证书等审核。
+            // case 名与 rawValue 不一致是历史命名，不要改 rawValue。
+            return "尚未通过资质认证，请先上传资质证书。"
         case .appointmentTooSoon:
             return "预约时间需要至少30分钟之后。"
         case .validationFailed:
@@ -48,6 +74,52 @@ enum ErrorCode: String, Codable, Sendable {
             return "操作过于频繁，请稍后重试。"
         case .activeOrderAccountDeletionBlocked:
             return "当前存在进行中的服务，请处理完成后再删除账户。"
+        case .keepWaitingLimitReached:
+            return "延长次数已达上限，无法继续等待。"
+        case .orderDispatchMismatch:
+            return "该订单未派送给您。"
+        case .orderConcurrentConflict:
+            return "操作冲突，请重试一次。"
+        case .tooManyRequests:
+            return "请求过于频繁，请稍后再试。"
+        case .phoneFormatInvalid:
+            return "手机号格式不正确。"
+        case .userNotFound:
+            return "用户不存在。"
+        case .notFound:
+            return "请求的资源不存在。"
+        case .badRequest:
+            return "请求参数有误。"
+        case .securityForbidden:
+            return "没有权限执行此操作。"
+        case .resourceNotFound:
+            return "请求的资源不存在。"
+        case .duplicateOrder:
+            return "存在重复订单。"
+        case .registrationStepInvalid:
+            return "注册步骤不正确，请重新开始。"
+        case .internalError:
+            return "服务器内部错误，请稍后重试。"
+        case .idInfoInvalid:
+            return "身份信息核验未通过，请检查后重试。"
+        case .volunteerNotRegistered:
+            return "志愿者注册流程尚未完成。"
+        case .orderInProgress:
+            return "订单进行中，当前操作受限。"
+        case .orderPermissionDenied:
+            return "没有权限操作此订单。"
+        case .smsSendLimitExceeded:
+            return "短信发送已达上限，请稍后重试。"
+        case .notOrderParticipant:
+            return "您不是该订单的参与方。"
+        case .invalidTimestamp:
+            return "时间参数格式错误。"
+        case .contactLimitExceeded:
+            return "最多添加 5 个紧急联系人，请先删除一个再添加。"
+        case .contactMinimumRequired:
+            return "至少保留 1 个紧急联系人，请先添加新的再删除。"
+        case .contactFieldRequired:
+            return "请填写联系人姓名和手机号。"
         }
     }
 

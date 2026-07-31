@@ -6,31 +6,51 @@ struct DispatchStatusRequest: Codable, Sendable {
     let wantsDispatch: Bool
 }
 
+/// `GET /api/volunteer/dispatch-summary` 的 `notAvailableReasons` 取值。
+///
+/// 后端权威定义见 `demo/src/main/java/com/example/demo/entity/DispatchBlockReason.java`，
+/// **后端只有三个值**：`DISPATCH_DISABLED` / `NOT_VERIFIED` / `OFFLINE`
+/// （引导优先级：先认证 → 再开接单开关 → 最后上线定位）。
+///
+/// 客户端刻意不再多定义后端不会下发的取值：Mock 曾造 `REGISTRATION_INCOMPLETE` /
+/// `ACTIVE_ORDER`，导致 Mock 永远不会走 `NOT_VERIFIED` 分支，「整份首页数据被静默吞成
+/// 全 nil」的解码 bug 因此活到了真机联调才暴露。新增取值必须先在后端枚举里存在。
+///
+/// 未知取值一律落到 `.unknown` 而不是解码抛错 —— 严格解码会让整份
+/// `VolunteerDispatchSummaryResponse` 连同积分、覆盖范围、订单列表一起丢失。
 enum VolunteerDispatchNotAvailableReason: String, Codable, CaseIterable, Sendable {
+    // MARK: 后端权威取值（DispatchBlockReason）
     case dispatchDisabled = "DISPATCH_DISABLED"
-    case registrationIncomplete = "REGISTRATION_INCOMPLETE"
+    case notVerified = "NOT_VERIFIED"
     case offline = "OFFLINE"
-    case outsideServiceTime = "OUTSIDE_SERVICE_TIME"
-    case noLocation = "NO_LOCATION"
-    case activeOrder = "ACTIVE_ORDER"
-    case notApproved = "NOT_APPROVED"
+
+    /// 后端新增原因时的兜底，避免整份响应解码失败。
+    case unknown = "UNKNOWN"
+
+    /// 刻意排除 `.unknown`：它不是一个真实原因，不应出现在任何遍历产生的选项里。
+    static var allCases: [VolunteerDispatchNotAvailableReason] {
+        [
+            .dispatchDisabled,
+            .notVerified,
+            .offline
+        ]
+    }
+
+    init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = VolunteerDispatchNotAvailableReason(rawValue: rawValue) ?? .unknown
+    }
 
     var displayText: String {
         switch self {
         case .dispatchDisabled:
             return "已关闭接单"
-        case .registrationIncomplete:
-            return "注册资料未完成"
+        case .notVerified:
+            return "尚未通过资质认证"
         case .offline:
             return "当前未在线"
-        case .outsideServiceTime:
-            return "不在可服务时间"
-        case .noLocation:
-            return "缺少最近定位"
-        case .activeOrder:
-            return "已有当前订单"
-        case .notApproved:
-            return "志愿者资格未通过"
+        case .unknown:
+            return "暂时无法接单，请稍后重试或更新 App"
         }
     }
 }
@@ -72,7 +92,12 @@ struct VolunteerDispatchSummaryResponse: Codable, Sendable {
         guard !reasons.isEmpty else {
             return canDispatch == true ? "已上线，等待系统派单" : "服务端未返回不可接单原因"
         }
-        return reasons.map(\.displayText).joined(separator: "、")
+        // 全是未识别取值时不能拼出空串；混合时只展示能解释清楚的那些。
+        let recognized = reasons.filter { $0 != .unknown }
+        guard !recognized.isEmpty else {
+            return VolunteerDispatchNotAvailableReason.unknown.displayText
+        }
+        return recognized.map(\.displayText).joined(separator: "、")
     }
 
     var dispatchStatusText: String {

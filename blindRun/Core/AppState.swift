@@ -57,13 +57,13 @@ final class AppState: ObservableObject {
     private let mockAPIClient = MockAPIClient()
     private let apiClientOverride: (any APIClientProtocol)?
     let persistence: AppStatePersistence
+    private let tokenStore: any TokenStoring
     let realtimeCoordinator: AppRealtimeCoordinator
     let liveEscortCoordinator: LiveEscortSessionCoordinator
 
     // MARK: - Session
 
-    /// JWT 访问令牌
-    /// - Note: MVP 暂存 UserDefaults。正式版必须迁移至 Keychain 存储。
+    /// JWT 访问令牌（持久化在 Keychain，见 `KeychainTokenStore`）
     @Published var accessToken: String? {
         didSet {
             persistToken()
@@ -211,7 +211,8 @@ final class AppState: ObservableObject {
 
     init(
         apiClient: (any APIClientProtocol)? = nil,
-        persistence: AppStatePersistence? = nil
+        persistence: AppStatePersistence? = nil,
+        tokenStore: (any TokenStoring)? = nil
     ) {
         let persistence = persistence ?? AppStatePersistenceFactory.makeDefault()
         let realtimeCoordinator = AppRealtimeCoordinator()
@@ -219,6 +220,7 @@ final class AppState: ObservableObject {
         self.liveEscortCoordinator = LiveEscortSessionCoordinator(realtimeCoordinator: realtimeCoordinator)
         self.apiClientOverride = apiClient
         self.persistence = persistence
+        self.tokenStore = tokenStore ?? TokenStoreFactory.makeDefault()
         if let envRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
            let env = AppState.storedEnvironment(from: envRaw) {
             self.currentEnvironment = AppState.resolvedInitialEnvironment(env, channel: AppBuildChannel.current)
@@ -234,11 +236,10 @@ final class AppState: ObservableObject {
 
     // MARK: - Session Management
 
-    /// 启动时恢复会话（从 UserDefaults 读取 Token）
+    /// 启动时恢复会话（Token 从 Keychain 读取，兼容旧版本 UserDefaults 存量）
     func restoreSession() async {
         sessionRestorationState = .restoring
-        // TODO: 正式版必须从 Keychain 读取 Token，并使用 AppCredentialNamespace 隔离测试服务。
-        accessToken = persistence.string(forKey: AppConstants.UserDefaultsKeys.accessToken)
+        accessToken = restoredToken()
         if let roleRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.activeRole) {
             activeRole = UserRole(rawValue: roleRaw)
         }
@@ -376,6 +377,8 @@ final class AppState: ObservableObject {
         logoutState = .idle
         accountDeletionState = .idle
         sessionRestorationState = .unauthenticated
+        // Keychain 里的 Token 由上面 `accessToken = nil` 经 didSet -> persistToken 删除；
+        // 这里只清理旧版本可能遗留在 UserDefaults 的 Token，避免退出后又被迁移回来。
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
@@ -449,6 +452,9 @@ final class AppState: ObservableObject {
     func resetUITestPersistence() {
         persistence.reset()
         performLocalSessionCleanup()
+        // Keychain 不随 App 沙盒一起清除：只清 UserDefaults 的话，重置后 Token 仍会残留，
+        // 「本该未登录」的 UI 用例会拿着上一轮的 Token 继续跑。必须显式删除。
+        tokenStore.delete()
     }
     #endif
 
@@ -519,12 +525,26 @@ final class AppState: ObservableObject {
     // MARK: - Persistence (Private)
 
     private func persistToken() {
-        // TODO: 正式版必须迁移至 Keychain 存储
         if let token = accessToken {
-            persistence.set(token, forKey: AppConstants.UserDefaultsKeys.accessToken)
+            tokenStore.save(token)
         } else {
-            persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
+            tokenStore.delete()
         }
+    }
+
+    /// Keychain 优先读取；只有命中旧版本遗留在 UserDefaults 的 Token 时才做一次性迁移
+    /// （写入 Keychain 并清除旧值），保证老用户升级后不掉登录态。
+    private func restoredToken() -> String? {
+        if let token = tokenStore.read() {
+            return token
+        }
+        guard let legacyToken = persistence.string(forKey: AppConstants.UserDefaultsKeys.accessToken),
+              !legacyToken.isEmpty else {
+            return nil
+        }
+        tokenStore.save(legacyToken)
+        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)
+        return legacyToken
     }
 
     private func persistActiveRole() {

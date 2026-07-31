@@ -144,7 +144,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
                 isPrimary: true
             )
             guard let userId = appState.userId else {
-                throw APIError.serverError(ErrorResponse(code: "VALIDATION_FAILED", message: "用户未登录"))
+                throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "用户未登录"))
             }
             let contact = try await saveEmergencyContact(
                 request: contactRequest,

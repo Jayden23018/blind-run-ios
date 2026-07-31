@@ -103,6 +103,15 @@ enum APIError: Error, Sendable {
             return "未知错误 (\(statusCode))，请稍后重试。"
         }
     }
+
+    /// 从 .serverError 关联值解出后端 errorCode；其他 case 返回 nil。
+    /// ponytail: 只有 serverError 携带后端 errorCode，统一暴露一个计算属性避免各调用点重复 switch。
+    var errorCode: ErrorCode? {
+        if case .serverError(let response) = self {
+            return response.errorCode
+        }
+        return nil
+    }
 }
 
 // MARK: - API Client Protocol
