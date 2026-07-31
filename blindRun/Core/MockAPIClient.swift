@@ -18,6 +18,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// `AIDRUN_MOCK_BLIND_VERIFY_RESULT` 控制提交实名后的结果（均只接受 NOT_VERIFIED/VERIFIED/FAILED）。
     private var blindVerifyStatus: String = BlindVerifyStatus.verified.rawValue
     private var volunteerProfile: VolunteerProfileResponse?
+    /// 资质证书审核状态，取值与后端 `VerificationStatus` 完全一致（NONE/PENDING/APPROVED/REJECTED）。
+    /// `AIDRUN_MOCK_VOLUNTEER_VERIFICATION_STATUS` 可覆盖初始值，用于驱动四态 UI。
+    private var volunteerVerificationStatus: VolunteerCertificateStatus = .approved
     private var volunteerRegistrationStepCode: String?
     private var activeCloudAuthCertifyId: String?
     private var emergencyContacts: [EmergencyContactResponse] = []
@@ -100,30 +103,65 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         try await Task.sleep(nanoseconds: 300_000_000)
 
         if path == "/api/volunteer/verification" {
-            // TODO(集成批次2): 上传的完整契约复刻（空文件/Content-Type/5MB/APPROVED 重传四个 400 分支）
-            // 随 VolunteerCertificateUploadView 一起摘取——`VolunteerCertificateStatus` 与
-            // `VolunteerVerificationStatusResponse` 目前定义在那个视图文件里。
-            // 这里只把状态串对齐后端 `VerificationStatus.name()`（大写 PENDING）。
-            volunteerProfile = VolunteerProfileResponse(
-                name: volunteerProfile?.name ?? "测试志愿者",
-                verificationStatus: "PENDING",
-                adminReviewStatus: volunteerProfile?.adminReviewStatus ?? "pending",
-                registrationStep: volunteerRegistrationStepCode,
-                canAcceptOrders: false,
-                isAvailable: volunteerProfile?.isAvailable ?? false,
-                availableTimeSlots: volunteerProfile?.availableTimeSlots,
-                acceptsGuideDog: volunteerProfile?.acceptsGuideDog,
-                paceRange: volunteerProfile?.paceRange
-            )
+            let result = try handleSubmitVerification(files: files)
             if T.self == EmptyResponse.self {
                 return EmptyResponse() as! T
             }
-            if T.self == ApiSuccessResponse.self {
-                return ApiSuccessResponse(success: true, message: "认证资料已提交") as! T
+            guard let typed = result as? T else {
+                throw APIError.decodingError(
+                    NSError(domain: "MockAPIClient", code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Type mismatch: expected \(T.self)"])
+                )
             }
+            return typed
         }
 
         throw APIError.unknown(statusCode: 404)
+    }
+
+    /// 逐条对齐后端 `VolunteerController.submitVerification` + `VolunteerService.submitVerification`：
+    /// - 前三条校验在 Controller 内联返回 `{success:false,code:400,message}`，**没有 errorCode**
+    ///   （`VolunteerController.java:68/73/77`）。
+    /// - APPROVED 重传抛 `IllegalArgumentException`（`VolunteerService.java:314`），
+    ///   经 `GlobalExceptionHandler:136` 变成 `ApiResponse.error(400, ErrorCode.BAD_REQUEST, message)`，
+    ///   所以这一条**带 errorCode `BAD_REQUEST`**，与前三条形状不同。
+    /// - 成功后状态一律置 `PENDING`，`verified` 重置为 false。
+    private func handleSubmitVerification(files: [MultipartFile]) throws -> VolunteerVerificationStatusResponse {
+        guard let file = files.first(where: { $0.fieldName == "file" }), !file.data.isEmpty else {
+            throw APIError.serverError(ErrorResponse(code: "400", message: "资质证件文件不能为空"))
+        }
+        guard file.mimeType.hasPrefix("image/") || file.mimeType == "application/pdf" else {
+            throw APIError.serverError(ErrorResponse(code: "400", message: "文件格式仅支持图片或PDF"))
+        }
+        guard file.data.count <= 5 * 1024 * 1024 else {
+            throw APIError.serverError(ErrorResponse(code: "400", message: "文件大小不能超过5MB"))
+        }
+        guard volunteerVerificationStatus != .approved else {
+            throw APIError.serverError(ErrorResponse(code: "BAD_REQUEST", message: "资质证书已审核通过，无需重新上传"))
+        }
+
+        volunteerVerificationStatus = .pending
+        applyVolunteerVerificationStatusToProfile()
+        return VolunteerVerificationStatusResponse(success: true, status: volunteerVerificationStatus.rawValue)
+    }
+
+    /// 后端 `GET /api/volunteer/profile` 的 `verificationStatus` 与
+    /// `GET /api/volunteer/verification/status` 同源（都读 `profile.getVerificationStatus().name()`），
+    /// Mock 必须保持两者一致。
+    private func applyVolunteerVerificationStatusToProfile() {
+        let existing = volunteerProfile
+        volunteerProfile = VolunteerProfileResponse(
+            name: existing?.name ?? "测试志愿者",
+            verificationStatus: volunteerVerificationStatus.rawValue,
+            adminReviewStatus: existing?.adminReviewStatus,
+            registrationStep: volunteerRegistrationStepCode,
+            canAcceptOrders: volunteerVerificationStatus == .approved,
+            isAvailable: existing?.isAvailable ?? false,
+            wantsDispatch: existing?.wantsDispatch,
+            availableTimeSlots: existing?.availableTimeSlots,
+            acceptsGuideDog: existing?.acceptsGuideDog,
+            paceRange: existing?.paceRange
+        )
     }
 
     // MARK: - Router
@@ -198,8 +236,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/volunteer/dispatch-summary" && method == .get {
             return handleGetVolunteerDispatchSummary()
         }
-        // TODO(集成批次2): GET /api/volunteer/verification/status 随
-        // VolunteerCertificateUploadView 一起摘取（响应类型定义在那个视图文件里）。
+        if path == "/api/volunteer/verification/status" && method == .get {
+            // 后端只返回 {"status": "..."}，不带信封。
+            return VolunteerVerificationStatusResponse(status: volunteerVerificationStatus.rawValue)
+        }
         if path == "/api/volunteer/registration/status" && method == .get {
             return handleGetVolunteerRegistrationStatus()
         }
@@ -1218,8 +1258,15 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             )
         }
 
-        // TODO(集成批次2): AIDRUN_MOCK_VOLUNTEER_VERIFICATION_STATUS 覆盖点随
-        // VolunteerCertificateUploadView 一起摘取（`VolunteerCertificateStatus` 定义在那个视图文件里）。
+        // Mock 只允许后端真实存在的四个取值，未知覆盖值一律忽略。
+        if let override = ProcessInfo.processInfo.environment["AIDRUN_MOCK_VOLUNTEER_VERIFICATION_STATUS"],
+           case let parsed = VolunteerCertificateStatus.parse(override),
+           parsed != .unknown {
+            volunteerVerificationStatus = parsed
+        }
+        if volunteerProfile != nil {
+            applyVolunteerVerificationStatusToProfile()
+        }
 
         emergencyContacts = [
             EmergencyContactResponse(id: 1, name: "张三", phone: "13900139001", relationship: "家人", isPrimary: true)

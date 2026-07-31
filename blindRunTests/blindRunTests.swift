@@ -1083,11 +1083,26 @@ final class blindRunTests: XCTestCase {
     }
 
     func testVolunteerRegistrationCloudAuthPathsUseCloudContract() async throws {
+        // 前置状态必须自己安排，不要改回裸 `MockAPIClient()`：
+        // Mock 的种子志愿者 `verificationStatus` 默认是 APPROVED（大量用例依赖「种子志愿者可接单」
+        // 这一人设，改默认值会连锁打红一片），而后端 `VolunteerService.submitVerification`
+        // （VolunteerService.java:314）在 APPROVED 时直接 400 拒绝重传，Mock 已逐条对齐。
+        // 这条用例走的是「首次提交资质证书」路径，所以先把状态压回后端枚举的 NONE，
+        // 否则测到的根本不是首次上传。
+        // APPROVED 重传被拒的另一面由 `testMockRejectsReuploadAfterApprovalLikeBackend` 钉死。
+        setenv("AIDRUN_MOCK_VOLUNTEER_VERIFICATION_STATUS", "NONE", 1)
+        defer { unsetenv("AIDRUN_MOCK_VOLUNTEER_VERIFICATION_STATUS") }
+
         let client = MockAPIClient()
 
-        let _: EmptyResponse = try await client.upload(
+        let submittedVerification: VolunteerVerificationStatusResponse = try await client.upload(
             "/api/volunteer/verification",
             files: [MultipartFile(fieldName: "file", fileName: "cert.jpg", mimeType: "image/jpeg", data: Data([0xFF, 0xD8]))]
+        )
+        XCTAssertEqual(
+            VolunteerCertificateStatus.parse(submittedVerification.status),
+            .pending,
+            "NONE 状态下首次上传资质证书必须成功并置 PENDING"
         )
 
         do {
@@ -2027,43 +2042,8 @@ final class blindRunTests: XCTestCase {
         }
     }
 
-    func testMaskedEmergencyContactRemainsValidAndIsNotSubmittedAsPhone() {
-        let appState = AppState()
-        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户"))
-        appState.updateEmergencyContacts([
-            EmergencyContactResponse(
-                id: 1,
-                name: "联系人",
-                phone: "138****1111",
-                relationship: nil,
-                isPrimary: true
-            )
-        ])
-        let viewModel = BlindRunnerProfileViewModel()
 
-        viewModel.configure(with: appState, speechService: SpeechService())
-        viewModel.sanitizePhoneInput(viewModel.emergencyContactPhone)
 
-        XCTAssertEqual(viewModel.emergencyContactPhone, "138****1111")
-        XCTAssertTrue(viewModel.isPhoneValid)
-        XCTAssertNil(viewModel.emergencyContactPhoneForRequest)
-    }
-
-    func testEmergencyContactPhoneDirectAssignmentKeepsOnlyFirstElevenDigits() {
-        let viewModel = BlindRunnerProfileViewModel()
-
-        viewModel.emergencyContactPhone = "13800138000999"
-
-        XCTAssertEqual(viewModel.emergencyContactPhone, "13800138000")
-    }
-
-    func testEmergencyContactPhoneSanitizeDropsNonDigitsAndKeepsElevenDigits() {
-        let viewModel = BlindRunnerProfileViewModel()
-
-        viewModel.sanitizePhoneInput("abc 138-0013-8000 xyz")
-
-        XCTAssertEqual(viewModel.emergencyContactPhone, "13800138000")
-    }
 
     func testLoginResponseDecodesCorrectly() throws {
         let json = """
@@ -5690,6 +5670,324 @@ final class blindRunTests: XCTestCase {
             verificationStatus: "approved",
             isAvailable: isAvailable
         )
+    }
+
+    // MARK: - 志愿者资质证书上传（POST /api/volunteer/verification）
+
+    /// 上限来自后端 `VolunteerController.java:77`：`file.getSize() > 5 * 1024 * 1024` 才拒。
+    /// 正好 5 MB 必须放行，5 MB + 1 字节必须本地拦截。
+    func testCertificateFileSizeBoundaryMatchesBackend() {
+        XCTAssertEqual(VolunteerCertificateFileRules.maxByteCount, 5 * 1024 * 1024)
+        XCTAssertNil(
+            VolunteerCertificateFileRules.validate(fileExtension: "pdf", byteCount: 5 * 1024 * 1024)
+        )
+        XCTAssertEqual(
+            VolunteerCertificateFileRules.validate(fileExtension: "pdf", byteCount: 5 * 1024 * 1024 + 1),
+            .tooLarge(byteCount: 5 * 1024 * 1024 + 1)
+        )
+        XCTAssertEqual(
+            VolunteerCertificateFileRules.validate(fileExtension: "pdf", byteCount: 0),
+            .emptyFile
+        )
+    }
+
+    /// 扩展名白名单来自 `LocalFileStorageService.java:26`。
+    func testCertificateExtensionWhitelistMatchesBackend() {
+        XCTAssertEqual(
+            Set(VolunteerCertificateFileRules.allowedExtensions),
+            ["jpg", "jpeg", "png", "gif", "webp", "bmp", "pdf"]
+        )
+        for allowed in VolunteerCertificateFileRules.allowedExtensions {
+            XCTAssertNil(VolunteerCertificateFileRules.validate(fileExtension: allowed, byteCount: 1024))
+            let mime = VolunteerCertificateFileRules.mimeType(forExtension: allowed)
+            // 后端只接受 image/* 或 application/pdf。
+            XCTAssertTrue(mime?.hasPrefix("image/") == true || mime == "application/pdf")
+        }
+        XCTAssertEqual(
+            VolunteerCertificateFileRules.validate(fileExtension: "heic", byteCount: 1024),
+            .unsupportedType
+        )
+        XCTAssertNil(VolunteerCertificateFileRules.mimeType(forExtension: "heic"))
+    }
+
+    /// 魔数嗅探与后端 `LocalFileStorageService.validateMagicBytes` 对齐，
+    /// 客户端据此决定扩展名，避免「改扩展名伪装」被后端 400。
+    func testCertificateMagicByteDetection() {
+        XCTAssertEqual(VolunteerCertificateFileRules.detectExtension(from: Data("%PDF-1.7".utf8)), "pdf")
+        XCTAssertEqual(VolunteerCertificateFileRules.detectExtension(from: Data([0xFF, 0xD8, 0xFF, 0xE0])), "jpg")
+        XCTAssertEqual(VolunteerCertificateFileRules.detectExtension(from: Data([0x89, 0x50, 0x4E, 0x47])), "png")
+        XCTAssertNil(VolunteerCertificateFileRules.detectExtension(from: Data([0x00, 0x01, 0x02, 0x03])))
+    }
+
+    /// 构造出来的文件名不得包含来源文件名（证书属敏感材料）。
+    func testCertificateFileBuildsNeutralFileName() throws {
+        var pdf = Data("%PDF-1.7\n".utf8)
+        pdf.append(Data(repeating: 0x20, count: 1024))
+
+        let result = VolunteerCertificateFile.make(from: pdf)
+        guard case .success(let file) = result else {
+            return XCTFail("合法 PDF 应当构造成功")
+        }
+        XCTAssertEqual(file.fileExtension, "pdf")
+        XCTAssertEqual(file.mimeType, "application/pdf")
+        XCTAssertEqual(file.fileName, "certificate.pdf")
+        XCTAssertTrue(file.summaryText.contains("PDF"))
+    }
+
+    func testCertificateFileRejectsOversizedPdfWithoutUpload() {
+        var pdf = Data("%PDF-1.7\n".utf8)
+        pdf.append(Data(repeating: 0x20, count: VolunteerCertificateFileRules.maxByteCount))
+
+        guard case .failure(let failure) = VolunteerCertificateFile.make(from: pdf) else {
+            return XCTFail("超过 5 MB 的 PDF 必须在本地被拒")
+        }
+        guard case .tooLarge = failure else {
+            return XCTFail("应当命中大小上限，实际：\(failure)")
+        }
+        XCTAssertTrue(failure.message.contains("5 MB"))
+    }
+
+    func testCertificateFileRejectsUnknownBinaryWithoutUpload() {
+        let junk = Data(repeating: 0x7A, count: 2048)
+
+        guard case .failure(let failure) = VolunteerCertificateFile.make(from: junk) else {
+            return XCTFail("无法识别的二进制必须在本地被拒")
+        }
+        XCTAssertEqual(failure, .unsupportedType)
+    }
+
+    // MARK: - 资质审核五态
+
+    func testCertificateStatusParsingCoversBackendValues() {
+        XCTAssertEqual(VolunteerCertificateStatus.parse("NONE"), VolunteerCertificateStatus.none)
+        XCTAssertEqual(VolunteerCertificateStatus.parse("PENDING"), .pending)
+        XCTAssertEqual(VolunteerCertificateStatus.parse("APPROVED"), .approved)
+        XCTAssertEqual(VolunteerCertificateStatus.parse("REJECTED"), .rejected)
+        // 历史上客户端把状态存成小写，解析必须兼容。
+        XCTAssertEqual(VolunteerCertificateStatus.parse("approved"), .approved)
+        XCTAssertEqual(VolunteerCertificateStatus.parse(nil), .unknown)
+        XCTAssertEqual(VolunteerCertificateStatus.parse("SOMETHING_NEW"), .unknown)
+    }
+
+    /// 只有 APPROVED 能接单；PENDING 必须明说「审核中，暂时无法接单」且不引导重复上传。
+    func testCertificateDisplayStatesGuideAcceptEligibility() {
+        let states: [(VolunteerCertificateStatus, Bool, VolunteerCertificateDisplayState)] = [
+            (VolunteerCertificateStatus.none, false, .notSubmitted),
+            (.pending, false, .pending),
+            (.approved, false, .approved),
+            (.rejected, false, .rejected),
+            (.unknown, false, .statusUnavailable),
+            (.approved, true, .statusUnavailable)
+        ]
+        for (status, loadFailed, expected) in states {
+            let state = VolunteerCertificateDisplayState.from(status: status, statusLoadFailed: loadFailed)
+            XCTAssertEqual(state, expected)
+            XCTAssertFalse(state.displayName.isEmpty)
+            XCTAssertFalse(state.guidanceMessage.isEmpty)
+        }
+
+        XCTAssertTrue(VolunteerCertificateDisplayState.approved.canAcceptOrders)
+        for state: VolunteerCertificateDisplayState in [.notSubmitted, .pending, .rejected, .statusUnavailable] {
+            XCTAssertFalse(state.canAcceptOrders, "\(state) 不应被判定为可接单")
+        }
+
+        // 未提交 / 被拒可以上传；审核中、已通过、状态未知都不允许发起上传。
+        XCTAssertTrue(VolunteerCertificateDisplayState.notSubmitted.allowsUpload)
+        XCTAssertTrue(VolunteerCertificateDisplayState.rejected.allowsUpload)
+        XCTAssertFalse(VolunteerCertificateDisplayState.pending.allowsUpload)
+        XCTAssertFalse(VolunteerCertificateDisplayState.approved.allowsUpload)
+        XCTAssertFalse(VolunteerCertificateDisplayState.statusUnavailable.allowsUpload)
+
+        XCTAssertTrue(VolunteerCertificateDisplayState.pending.guidanceMessage.contains("暂时无法接单"))
+        XCTAssertTrue(VolunteerCertificateDisplayState.approved.guidanceMessage.contains("可以接单"))
+        XCTAssertTrue(VolunteerCertificateDisplayState.statusUnavailable.guidanceMessage.contains("重新获取状态"))
+    }
+
+    /// 后端两个接口的响应体都能解出 status。
+    func testVerificationStatusResponseDecodesBothShapes() throws {
+        let statusOnly = try JSONDecoder().decode(
+            VolunteerVerificationStatusResponse.self,
+            from: Data(#"{"status":"PENDING"}"#.utf8)
+        )
+        XCTAssertEqual(VolunteerCertificateStatus.parse(statusOnly.status), .pending)
+
+        let submitResponse = try JSONDecoder().decode(
+            VolunteerVerificationStatusResponse.self,
+            from: Data(#"{"success":true,"status":"PENDING"}"#.utf8)
+        )
+        XCTAssertEqual(submitResponse.success, true)
+        XCTAssertEqual(VolunteerCertificateStatus.parse(submitResponse.status), .pending)
+    }
+
+    // MARK: - 接单被 403 VOLUNTEER_NOT_VERIFIED 拒绝
+
+    /// case 名是历史命名，rawValue 必须保持 `VOLUNTEER_NOT_VERIFIED`。
+    func testVolunteerNotVerifiedErrorCodeMapsToCertificateGuidance() {
+        XCTAssertEqual(ErrorCode.volunteerNotApproved.rawValue, "VOLUNTEER_NOT_VERIFIED")
+
+        let response = ErrorResponse(code: "VOLUNTEER_NOT_VERIFIED", message: "志愿者资质未通过审核")
+        XCTAssertEqual(response.errorCode, .volunteerNotApproved)
+
+        let error = APIError.serverError(response)
+        XCTAssertEqual(error.errorCode, .volunteerNotApproved)
+        XCTAssertEqual(error.localizedMessage, "尚未通过资质认证，请先上传资质证书。")
+    }
+
+    /// 后端 403 的真实响应体（`{success,code,message,errorCode}`）必须能解出 errorCode，
+    /// 否则界面拿不到「去上传资质证书」的触发条件。
+    func testVolunteerNotVerifiedDecodesFromBackendErrorEnvelope() throws {
+        let data = Data(#"""
+        {"success":false,"code":403,"errorCode":"VOLUNTEER_NOT_VERIFIED","message":"资质证书未通过审核，暂时无法接单"}
+        """#.utf8)
+
+        let envelope = try JSONDecoder().decode(APIErrorEnvelope.self, from: data)
+        let resolved = try XCTUnwrap(envelope.resolvedErrorResponse(statusCode: 403))
+
+        XCTAssertEqual(resolved.errorCode, .volunteerNotApproved)
+    }
+
+    // MARK: - Mock 与后端实现逐条对齐
+
+    func testMockVerificationStatusOnlyReturnsBackendEnumValues() async throws {
+        let client = MockAPIClient()
+        let response: VolunteerVerificationStatusResponse = try await client.get(
+            "/api/volunteer/verification/status"
+        )
+        let raw = try XCTUnwrap(response.status)
+
+        XCTAssertTrue(["NONE", "PENDING", "APPROVED", "REJECTED"].contains(raw), "Mock 返回了后端不存在的取值：\(raw)")
+        XCTAssertNotEqual(VolunteerCertificateStatus.parse(raw), .unknown)
+    }
+
+    /// `VolunteerController.java:77` 的大小拒绝，文案逐字一致且不带 errorCode。
+    func testMockRejectsOversizedCertificateLikeBackend() async {
+        let client = MockAPIClient()
+        let file = MultipartFile(
+            fieldName: "file",
+            fileName: "certificate.jpg",
+            mimeType: "image/jpeg",
+            data: Data(repeating: 0xFF, count: 5 * 1024 * 1024 + 1)
+        )
+
+        do {
+            let _: VolunteerVerificationStatusResponse = try await client.upload(
+                "/api/volunteer/verification",
+                files: [file]
+            )
+            XCTFail("超过 5 MB 必须被拒")
+        } catch let error as APIError {
+            XCTAssertNil(error.errorCode, "后端该 400 没有 errorCode")
+            XCTAssertEqual(error.localizedMessage, "文件大小不能超过5MB")
+        } catch {
+            XCTFail("应当抛出 APIError，实际：\(error)")
+        }
+    }
+
+    /// `VolunteerController.java:73` 的类型拒绝。
+    func testMockRejectsUnsupportedCertificateContentTypeLikeBackend() async {
+        let client = MockAPIClient()
+        let file = MultipartFile(
+            fieldName: "file",
+            fileName: "certificate.txt",
+            mimeType: "text/plain",
+            data: Data("hello".utf8)
+        )
+
+        do {
+            let _: VolunteerVerificationStatusResponse = try await client.upload(
+                "/api/volunteer/verification",
+                files: [file]
+            )
+            XCTFail("非图片非 PDF 必须被拒")
+        } catch let error as APIError {
+            XCTAssertEqual(error.localizedMessage, "文件格式仅支持图片或PDF")
+        } catch {
+            XCTFail("应当抛出 APIError，实际：\(error)")
+        }
+    }
+
+    /// `VolunteerService.java:314`：APPROVED 状态重传抛 `IllegalArgumentException`，
+    /// 经 `GlobalExceptionHandler:136` 变成 `ApiResponse.error(400, BAD_REQUEST, message)`。
+    /// 与前三条 Controller 内联 400 不同，这一条**带 errorCode**，
+    /// 因此 `localizedMessage` 走的是 `ErrorCode.badRequest` 的通用文案，
+    /// 后端那句具体说明只留在 `ErrorResponse.message` 里。
+    func testMockRejectsReuploadAfterApprovalLikeBackend() async {
+        let client = MockAPIClient()
+        let file = MultipartFile(
+            fieldName: "file",
+            fileName: "certificate.pdf",
+            mimeType: "application/pdf",
+            data: Data("%PDF-1.7".utf8)
+        )
+
+        do {
+            let _: VolunteerVerificationStatusResponse = try await client.upload(
+                "/api/volunteer/verification",
+                files: [file]
+            )
+            XCTFail("已通过审核不允许重传")
+        } catch let error as APIError {
+            XCTAssertEqual(error.errorCode, .badRequest, "后端该 400 由全局异常处理器带上 BAD_REQUEST")
+            guard case .serverError(let response) = error else {
+                return XCTFail("应当是 serverError，实际：\(error)")
+            }
+            XCTAssertEqual(response.message, "资质证书已审核通过，无需重新上传")
+            XCTAssertEqual(error.localizedMessage, "请求参数有误。")
+        } catch {
+            XCTFail("应当抛出 APIError，实际：\(error)")
+        }
+    }
+
+    /// 上传成功后状态置 PENDING，且 `/api/volunteer/profile` 与状态接口保持同源。
+    func testMockUploadMovesStatusToPendingAndStaysConsistent() async throws {
+        setenv("AIDRUN_MOCK_VOLUNTEER_VERIFICATION_STATUS", "NONE", 1)
+        defer { unsetenv("AIDRUN_MOCK_VOLUNTEER_VERIFICATION_STATUS") }
+
+        let client = MockAPIClient()
+        let before: VolunteerVerificationStatusResponse = try await client.get(
+            "/api/volunteer/verification/status"
+        )
+        XCTAssertEqual(VolunteerCertificateStatus.parse(before.status), VolunteerCertificateStatus.none)
+
+        let submitted: VolunteerVerificationStatusResponse = try await client.upload(
+            "/api/volunteer/verification",
+            files: [MultipartFile(
+                fieldName: "file",
+                fileName: "certificate.pdf",
+                mimeType: "application/pdf",
+                data: Data("%PDF-1.7".utf8)
+            )]
+        )
+        XCTAssertEqual(submitted.success, true)
+        XCTAssertEqual(VolunteerCertificateStatus.parse(submitted.status), .pending)
+
+        let after: VolunteerVerificationStatusResponse = try await client.get(
+            "/api/volunteer/verification/status"
+        )
+        XCTAssertEqual(VolunteerCertificateStatus.parse(after.status), .pending)
+
+        let profile: VolunteerProfileResponse = try await client.get("/api/volunteer/profile")
+        XCTAssertEqual(VolunteerCertificateStatus.parse(profile.verificationStatus), .pending)
+    }
+
+    /// `GET /api/volunteer/verification/status` 只返回 status，写回时不得抹掉其它资料字段。
+    func testAppStateVerificationStatusUpdateKeepsOtherProfileFields() {
+        let appState = AppState()
+        appState.updateVolunteerProfile(VolunteerProfileResponse(
+            name: "测试志愿者",
+            verificationStatus: "NONE",
+            isAvailable: true,
+            acceptsGuideDog: true,
+            paceRange: .moderate
+        ))
+
+        appState.updateVolunteerVerificationStatus("PENDING")
+
+        XCTAssertEqual(appState.volunteerProfile?.verificationStatus, "PENDING")
+        XCTAssertEqual(appState.volunteerProfile?.name, "测试志愿者")
+        XCTAssertEqual(appState.volunteerProfile?.isAvailable, true)
+        XCTAssertEqual(appState.volunteerProfile?.acceptsGuideDog, true)
+        XCTAssertEqual(appState.volunteerProfile?.paceRange, .moderate)
     }
 }
 

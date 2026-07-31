@@ -22,6 +22,8 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var incomingOrder: WSNewOrder?
     @Published var dispatchCountdown: Int = 0
     @Published var isRespondingToDispatch = false
+    /// 接单被后端 403 `VOLUNTEER_NOT_VERIFIED` 拒绝后，错误区要长出「去上传资质证书」入口。
+    @Published var needsCertificateUpload = false
     @Published var acceptedDispatchOrderId: Int64?
     @Published var acceptedDispatchInitialOrder: OrderDetailResponse?
 
@@ -170,6 +172,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 if appState.handleAuthenticatedAPIError(error) {
                     return
                 }
+                needsCertificateUpload = error.errorCode == .volunteerNotApproved
                 errorMessage = error.localizedMessage
                 speechService?.speakError(error.localizedMessage)
             } catch {
@@ -294,6 +297,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         }
         errorMessage = nil
         dispatchSummaryErrorMessage = nil
+        needsCertificateUpload = false
 
         let workTask = Task { [weak self, weak appState] in
             guard let self, let appState else { return }
@@ -1088,6 +1092,14 @@ struct VolunteerHomeView: View {
             }
             VolunteerDispatchSummaryCard(summary: summary)
 
+            // 「尚未通过资质认证」必须能一键到达上传页，否则志愿者看到提示也无处可去。
+            if summary.notAvailableReasons?.contains(.notVerified) == true {
+                VolunteerCertificateUploadEntryLink(
+                    title: "上传资质证书",
+                    subtitle: "资质审核通过后才能接单"
+                )
+            }
+
             if let activeOrder = viewModel.activeOrder {
                 NavigationLink {
                     currentOrderDestination(activeOrder)
@@ -1130,6 +1142,14 @@ struct VolunteerHomeView: View {
                 .buttonStyle(.bordered)
                 .accessibilityHint("重新加载派单和当前订单状态")
             }
+        }
+
+        // 接单被后端 403 VOLUNTEER_NOT_VERIFIED 拒绝时，直接给出上传入口。
+        if viewModel.needsCertificateUpload {
+            VolunteerCertificateUploadEntryLink(
+                title: "去上传资质证书",
+                subtitle: "资质审核通过后才能接单"
+            )
         }
 
         if let warning = viewModel.locationDispatchWarning {

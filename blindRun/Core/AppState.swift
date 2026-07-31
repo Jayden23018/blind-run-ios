@@ -472,6 +472,25 @@ final class AppState: ObservableObject {
         volunteerProfile = profile
     }
 
+    /// 只更新志愿者资料里的资质审核状态。
+    /// `GET /api/volunteer/verification/status` 只返回 `{status}`，不返回整份资料，
+    /// 因此这里保留其余字段，避免把已知资料覆盖成 nil。
+    func updateVolunteerVerificationStatus(_ status: String) {
+        let current = volunteerProfile
+        volunteerProfile = VolunteerProfileResponse(
+            name: current?.name,
+            verificationStatus: status,
+            adminReviewStatus: current?.adminReviewStatus,
+            registrationStep: current?.registrationStep,
+            canAcceptOrders: current?.canAcceptOrders,
+            isAvailable: current?.isAvailable,
+            wantsDispatch: current?.wantsDispatch,
+            availableTimeSlots: current?.availableTimeSlots,
+            acceptsGuideDog: current?.acceptsGuideDog,
+            paceRange: current?.paceRange
+        )
+    }
+
     /// 更新志愿者主注册流程状态
     func updateVolunteerRegistrationStatus(_ status: VolunteerRegistrationStatus) {
         volunteerRegistrationStatus = status

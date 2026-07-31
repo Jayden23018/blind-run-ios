@@ -66,10 +66,7 @@ struct BlindRunnerOnboardingView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .accessibilityIdentifier("blindOnboarding.basicProfile")
         case .emergencyContacts:
-            // TODO(集成批次4)：换成独立的 `EmergencyContactsView`（多联系人 CRUD + 主联系人切换）。
-            // 现阶段复用合并式资料表单：它以 `isPrimary: true` 写入唯一联系人，
-            // 足以满足 `hasValidEmergencyContacts`，不会让用户卡在这一步。
-            BlindRunnerProfileView()
+            EmergencyContactsView()
                 .navigationTitle("紧急联系人")
                 .navigationBarTitleDisplayMode(.inline)
                 .accessibilityIdentifier("blindOnboarding.emergencyContacts")
@@ -97,7 +94,7 @@ struct BlindRunnerOnboardingView: View {
                     .accessibilityLabel(identityPromptSpeech)
 
                 NavigationLink {
-                    BlindIdentityVerificationEntryPlaceholder()
+                    BlindIdentityVerificationView()
                 } label: {
                     Text("去实名认证")
                         .font(AppFonts.primaryButton())
@@ -137,47 +134,6 @@ struct BlindRunnerOnboardingView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             speechService.speak(identityPromptSpeech)
-        }
-    }
-}
-
-// MARK: - Placeholder
-
-/// TODO(集成批次4)：换成 `BlindIdentityVerificationView`（姓名 + 身份证号提交表单）。
-/// 那个视图连同它的 ViewModel、测试属于批次 4，这里只保留一个诚实的占位页，
-/// 避免把未集成的表单提前拖进来，也避免用户点进一个空白页。
-private struct BlindIdentityVerificationEntryPlaceholder: View {
-    @EnvironmentObject private var speechService: SpeechService
-
-    private let message = "实名认证入口正在接入中，暂时无法在这里提交。可以先返回选择稍后再说，直接开始预约。"
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                HighContrastText("实名认证", style: .title)
-                    .accessibilityAddTraits(.isHeader)
-
-                Text(message)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(message)
-
-                PrimaryButton("重复朗读") {
-                    speechService.speak(message)
-                }
-                .accessibilityLabel("重复朗读")
-                .accessibilityHint("再次朗读当前页面说明")
-            }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 28)
-        }
-        .background(AppColors.background)
-        .navigationTitle("实名认证")
-        .navigationBarTitleDisplayMode(.inline)
-        .accessibilityIdentifier("blindOnboarding.identityVerificationPlaceholder")
-        .onAppear {
-            speechService.speak(message)
         }
     }
 }

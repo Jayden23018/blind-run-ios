@@ -323,10 +323,11 @@ struct VolunteerProfileUpdateRequest: Codable, Sendable {
 /// `@NotBlank`，`PUT` 是 PATCH 语义（传 null 保留旧值），所以这里保持可选。
 /// 必填校验发生在 `POST` 的 Service 层（缺失时 400 `CONTACT_FIELD_REQUIRED`）。
 ///
-/// TODO(集成批次2)：本地分支已把 `phone` 收紧为非可选（配合"后端 v1.5.0 起返回明文手机号、
-/// 不再用掩码回填推断未修改"的改动），但那依赖紧急联系人视图与 `ProfileModule` 的重写，
-/// 属于后续批次。收紧要和视图一起做，否则 `ProfileModule.emergencyContactPhoneForRequest`
-/// 的掩码回填逻辑会被静默破坏。
+/// `phone` 保持可选是刻意的，不要收紧：后端 DTO 注释写明「PUT 未传的字段保留原值，
+/// 因此 name/phone 不加 @NotBlank」（`EmergencyContactRequest.java`）。
+/// 掩码回填推断「未修改」那套技巧已随 `ProfileModule` 的重写删除——
+/// v1.5.0 起后端返回明文手机号，脱敏只发生在展示层，
+/// `EmergencyContactsViewModel` 的新增与更新都无条件回传完整手机号。
 struct EmergencyContactRequest: Codable, Sendable {
     let name: String?
     let phone: String?

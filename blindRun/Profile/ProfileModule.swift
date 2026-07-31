@@ -6,19 +6,6 @@ import SwiftUI
 @MainActor
 final class BlindRunnerProfileViewModel: ObservableObject {
     @Published var name = ""
-    @Published var emergencyContactName = ""
-    @Published var emergencyContactPhone = "" {
-        didSet {
-            if emergencyContactPhone == originalEmergencyContactPhone,
-               Self.isMaskedPhone(originalEmergencyContactPhone) {
-                return
-            }
-            let normalized = Self.normalizedPhoneInput(emergencyContactPhone)
-            if normalized != emergencyContactPhone {
-                emergencyContactPhone = normalized
-            }
-        }
-    }
     @Published var defaultPace: PacePreference = .noPreference
     @Published var specialNeeds = ""
     @Published var isLoading = false
@@ -26,31 +13,13 @@ final class BlindRunnerProfileViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
-    private var originalEmergencyContactName = ""
-    private var originalEmergencyContactPhone = ""
 
     var isEditing: Bool {
         appState?.blindProfile != nil
     }
 
-    var isPhoneValid: Bool {
-        isUsingUnchangedMaskedPhone || AppState.isValidMainlandPhone(emergencyContactPhone)
-    }
-
-    var emergencyContactPhoneForRequest: String? {
-        isUsingUnchangedMaskedPhone ? nil : emergencyContactPhone
-    }
-
-    private var isUsingUnchangedMaskedPhone: Bool {
-        emergencyContactPhone == originalEmergencyContactPhone &&
-        Self.isMaskedPhone(originalEmergencyContactPhone)
-    }
-
     var canSubmit: Bool {
-        !name.trimmed.isEmpty &&
-        !emergencyContactName.trimmed.isEmpty &&
-        isPhoneValid &&
-        !isLoading
+        !name.trimmed.isEmpty && !isLoading
     }
 
     func configure(with appState: AppState, speechService: SpeechService) {
@@ -61,13 +30,6 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             name = profile.name ?? ""
             defaultPace = profile.defaultPace ?? .noPreference
             specialNeeds = profile.specialNeeds ?? ""
-        }
-
-        if let contact = appState.emergencyContacts.first {
-            originalEmergencyContactName = contact.name ?? ""
-            originalEmergencyContactPhone = contact.phone ?? ""
-            emergencyContactName = originalEmergencyContactName
-            emergencyContactPhone = originalEmergencyContactPhone
         }
     }
 
@@ -80,30 +42,12 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         }
 
         name = environment["AIDRUN_UI_TEST_PROFILE_NICKNAME"] ?? "UITestBlind"
-        emergencyContactName = environment["AIDRUN_UI_TEST_PROFILE_CONTACT_NAME"] ?? "UITestContact"
-        emergencyContactPhone = environment["AIDRUN_UI_TEST_PROFILE_CONTACT_PHONE"] ?? "13800001111"
     }
     #endif
 
-    func sanitizePhoneInput(_ value: String) {
-        if value == originalEmergencyContactPhone, Self.isMaskedPhone(value) {
-            emergencyContactPhone = value
-            return
-        }
-        emergencyContactPhone = Self.normalizedPhoneInput(value)
-    }
-
-    nonisolated static func isMaskedPhone(_ value: String) -> Bool {
-        value.range(of: #"^\d{3}\*{4}\d{4}$"#, options: .regularExpression) != nil
-    }
-
-    nonisolated static func normalizedPhoneInput(_ value: String) -> String {
-        String(value.filter(\.isNumber).prefix(11))
-    }
-
     func submit() {
         guard canSubmit, let appState else {
-            let message = emergencyContactPhone.isEmpty || isPhoneValid ? "请填写必填信息" : "请输入正确的手机号"
+            let message = "请填写必填信息"
             errorMessage = message
             speechService?.speakError(message)
             return
@@ -135,24 +79,6 @@ final class BlindRunnerProfileViewModel: ObservableObject {
                 body: profileRequest
             )
             appState.updateBlindProfile(profile)
-
-            // Save emergency contact
-            let contactRequest = EmergencyContactRequest(
-                name: emergencyContactName.trimmed,
-                phone: emergencyContactPhoneForRequest,
-                relationship: nil,
-                isPrimary: true
-            )
-            guard let userId = appState.userId else {
-                throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "用户未登录"))
-            }
-            let contact = try await saveEmergencyContact(
-                request: contactRequest,
-                userId: userId,
-                appState: appState
-            )
-            appState.updateEmergencyContacts([contact])
-
             isLoading = false
         } catch let error as APIError {
             isLoading = false
@@ -165,42 +91,6 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             isLoading = false
             errorMessage = "保存失败，请重试"
             speechService?.speakError("保存失败，请重试")
-        }
-    }
-
-    private func saveEmergencyContact(
-        request: EmergencyContactRequest,
-        userId: Int64,
-        appState: AppState
-    ) async throws -> EmergencyContactResponse {
-        let existingContacts: [EmergencyContactResponse] = (try? await appState.apiClient.get(
-            "/api/users/\(userId)/emergency-contacts"
-        )) ?? []
-
-        if let existingContact = existingContacts.first {
-            if request.phone == nil,
-               emergencyContactName.trimmed == originalEmergencyContactName.trimmed {
-                return existingContact
-            }
-            return try await appState.apiClient.put(
-                "/api/users/\(userId)/emergency-contacts/\(existingContact.id)",
-                body: request
-            )
-        }
-
-        do {
-            return try await appState.apiClient.post(
-                "/api/users/\(userId)/emergency-contacts",
-                body: request
-            )
-        } catch {
-            let fallbackContacts: [EmergencyContactResponse] = (try? await appState.apiClient.get(
-                "/api/users/\(userId)/emergency-contacts"
-            )) ?? []
-            if let fallbackContact = fallbackContacts.first {
-                return fallbackContact
-            }
-            throw error
         }
     }
 }
@@ -220,6 +110,8 @@ struct BlindRunnerProfileView: View {
                     header
 
                     requiredSection
+
+                    emergencyContactSection
 
                     optionalSection
 
@@ -244,7 +136,7 @@ struct BlindRunnerProfileView: View {
             #if DEBUG
             viewModel.applyUITestProfilePrefillIfNeeded()
             #endif
-            speechService.speak("请填写个人资料。昵称、紧急联系人姓名、紧急联系人电话为必填项。")
+            speechService.speak("请填写个人资料。昵称为必填项。紧急联系人在下方单独管理，至少需要 1 位。")
         }
         .alert("确认退出", isPresented: $showLogoutConfirm) {
             Button("确认退出", role: .destructive) {
@@ -262,10 +154,10 @@ struct BlindRunnerProfileView: View {
                 HighContrastText(viewModel.isEditing ? "编辑资料" : "完善信息", style: .title)
                     .accessibilityAddTraits(.isHeader)
 
-                Text("昵称、紧急联系人姓名、紧急联系人电话为必填项。")
+                Text("昵称为必填项。紧急联系人在下方单独管理。")
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textSecondary)
-                    .accessibilityLabel("昵称、紧急联系人姓名、紧急联系人电话为必填项")
+                    .accessibilityLabel("昵称为必填项。紧急联系人在下方单独管理")
             }
 
             Spacer()
@@ -296,31 +188,50 @@ struct BlindRunnerProfileView: View {
                 accessibilityLabel: "昵称，必填",
                 accessibilityHint: "请输入您的昵称"
             )
-
-            ProfileTextField(
-                title: "紧急联系人姓名",
-                placeholder: "请输入紧急联系人姓名",
-                text: $viewModel.emergencyContactName,
-                isRequired: true,
-                errorMessage: viewModel.emergencyContactName.trimmed.isEmpty ? "请填写必填信息" : nil,
-                accessibilityLabel: "紧急联系人姓名，必填",
-                accessibilityHint: "请输入紧急联系人姓名"
-            )
-
-            ProfileTextField(
-                title: "紧急联系人电话",
-                placeholder: "请输入11位手机号",
-                text: $viewModel.emergencyContactPhone,
-                isRequired: true,
-                keyboardType: .numberPad,
-                errorMessage: phoneErrorMessage,
-                accessibilityLabel: "紧急联系人电话，必填，11位手机号",
-                accessibilityHint: "请输入紧急联系人手机号，只能输入数字"
-            )
-            .onChange(of: viewModel.emergencyContactPhone) { newValue in
-                viewModel.sanitizePhoneInput(newValue)
-            }
         }
+    }
+
+    /// 资料页只展示主联系人摘要 + 管理入口；增删改和主联系人切换都在 `EmergencyContactsView`。
+    private var emergencyContactSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("紧急联系人")
+                .font(.headline)
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+
+            Text(emergencyContactSummary)
+                .font(AppFonts.body())
+                .foregroundColor(
+                    appState.hasExactlyOnePrimaryEmergencyContact
+                        ? AppColors.textSecondary
+                        : AppColors.destructive
+                )
+                .accessibilityLabel(emergencyContactSummary)
+
+            NavigationLink {
+                EmergencyContactsView()
+            } label: {
+                Text("管理紧急联系人")
+                    .font(AppFonts.primaryButton())
+                    .foregroundColor(AppColors.textPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .background(AppColors.secondaryBackground)
+                    .cornerRadius(12)
+            }
+            .accessibilityLabel("管理紧急联系人")
+            .accessibilityHint("添加、编辑、删除紧急联系人，或切换主联系人")
+        }
+    }
+
+    private var emergencyContactSummary: String {
+        guard appState.emergencyContactCount > 0 else {
+            return "还没有紧急联系人。下单前至少需要 1 位，最多 \(EmergencyContactRules.maxCount) 位。"
+        }
+        guard let primary = appState.primaryEmergencyContact else {
+            return "共 \(appState.emergencyContactCount) 位紧急联系人，但还没有唯一的主联系人，请进入管理页设置。"
+        }
+        let relationshipText = primary.relationship?.nilIfBlank.map { "，关系\($0)" } ?? ""
+        return "共 \(appState.emergencyContactCount) 位紧急联系人。主联系人：\(primary.name?.nilIfBlank ?? "未命名")，\(primary.maskedPhone ?? "未填写手机号")\(relationshipText)。"
     }
 
     private var optionalSection: some View {
@@ -369,16 +280,6 @@ struct BlindRunnerProfileView: View {
         .padding(.top, 12)
         .padding(.bottom, 12)
         .background(.regularMaterial)
-    }
-
-    private var phoneErrorMessage: String? {
-        if viewModel.emergencyContactPhone.isEmpty {
-            return "请填写必填信息"
-        }
-        if !viewModel.isPhoneValid {
-            return "请输入正确的手机号"
-        }
-        return nil
     }
 }
 
@@ -435,8 +336,10 @@ private struct ProfileTextField: View {
 
 #if DEBUG
 #Preview {
-    BlindRunnerProfileView()
-        .environmentObject(AppState())
-        .environmentObject(SpeechService())
+    NavigationStack {
+        BlindRunnerProfileView()
+            .environmentObject(AppState())
+            .environmentObject(SpeechService())
+    }
 }
 #endif

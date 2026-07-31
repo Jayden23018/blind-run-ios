@@ -567,6 +567,8 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
     @Published var didCancelOrder = false
+    /// 接单被后端 403 `VOLUNTEER_NOT_VERIFIED` 拒绝后，错误区要长出「去上传资质证书」入口。
+    @Published var needsCertificateUpload = false
     @Published private(set) var transitionState: VolunteerOrderTransitionState = .idle
 
     private weak var appState: AppState?
@@ -780,6 +782,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         ClientFlowDiagnostics.record(event: "submitted", operation: "volunteer-detail-transition")
         isPerformingAction = true
         errorMessage = nil
+        needsCertificateUpload = false
         defer { isPerformingAction = false }
         do {
             _ = try await withVolunteerOrderActionDeadline(
@@ -801,6 +804,8 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
                 markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
             case .serverError, .rateLimited, .unknown, .invalidURL:
                 transitionState = .failed(message: error.localizedMessage)
+                // 403 VOLUNTEER_NOT_VERIFIED 的唯一解法是上传资质证书，错误区必须给出入口。
+                needsCertificateUpload = error.errorCode == .volunteerNotApproved
                 errorMessage = error.localizedMessage
                 speechService?.speakError(error.localizedMessage)
             case .unauthorized:
@@ -935,6 +940,14 @@ struct VolunteerOrderDetailView: View {
                         .font(AppFonts.body())
                         .foregroundColor(AppColors.destructive)
                         .accessibilityLabel(errorMessage)
+                }
+
+                // 接单被后端 403 VOLUNTEER_NOT_VERIFIED 拒绝时，直接给出上传入口。
+                if viewModel.needsCertificateUpload {
+                    VolunteerCertificateUploadEntryLink(
+                        title: "去上传资质证书",
+                        subtitle: "资质审核通过后才能接单"
+                    )
                 }
             }
             .padding(20)
@@ -1962,6 +1975,7 @@ struct VolunteerSettingsView: View {
             Section {
                 settingsRow("昵称", value: appState.volunteerProfile?.name ?? "未填写")
                 settingsRow("当前角色", value: "志愿者")
+                settingsRow("资质审核", value: certificateState.displayName)
             }
 
             Section {
@@ -1970,6 +1984,13 @@ struct VolunteerSettingsView: View {
                 }
                 .accessibilityLabel("个人资料")
                 .accessibilityHint("编辑志愿者资料")
+
+                NavigationLink("资质证书") {
+                    VolunteerCertificateUploadView()
+                }
+                .accessibilityLabel("资质证书，\(certificateState.displayName)")
+                .accessibilityHint(certificateState.guidanceMessage)
+                .accessibilityIdentifier("volunteerCertificateSettingsEntry")
 
                 Button("切换角色") {
                     showRoleSwitchConfirm = true
@@ -2057,6 +2078,15 @@ struct VolunteerSettingsView: View {
         } message: {
             Text("账户将被软删除，所有登录令牌会失效。删除成功后手机号可以重新注册。此操作不可撤销。")
         }
+    }
+
+    /// 资料里的 `verificationStatus` 是后端 `VerificationStatus` 的四个取值之一；
+    /// 尚未拉取到时按「状态未知」展示，不假装已提交或已通过。
+    private var certificateState: VolunteerCertificateDisplayState {
+        VolunteerCertificateDisplayState.from(
+            status: VolunteerCertificateStatus.parse(appState.volunteerProfile?.verificationStatus),
+            statusLoadFailed: false
+        )
     }
 
     private func settingsRow(_ title: String, value: String) -> some View {
