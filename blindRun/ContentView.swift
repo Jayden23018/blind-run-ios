@@ -118,7 +118,9 @@ final class ContentRootRouter: ObservableObject {
                 ) else { return }
                 appState.updateBlindProfile(profile)
                 appState.updateEmergencyContacts(contacts)
-                route = appState.isBlindProfileComplete ? .blindHome : .blindProfile
+                // 引导流：硬门槛（昵称 + 恰好 1 位主紧急联系人）未过，或实名软提示还没被跳过，
+                // 都停在 .blindProfile（由 BlindRunnerOnboardingView 决定展示哪一步）。
+                route = appState.blindOnboardingStep == nil ? .blindHome : .blindProfile
             } catch {
                 handleHydrationFailure(
                     error,
@@ -243,7 +245,7 @@ struct ContentView: View {
         case .choosingRole: restoration = "choosing-role"
         case .authenticated: restoration = "authenticated"
         }
-        return "\(restoration)-\(appState.accessToken?.hashValue ?? 0)-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)-\(appState.isBlindProfileComplete)-\(appState.isVolunteerProfileApproved)"
+        return "\(restoration)-\(appState.accessToken?.hashValue ?? 0)-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)-\(appState.isBlindBookingReady)-\(appState.didDismissBlindIdentityPrompt)-\(appState.isVolunteerProfileApproved)"
     }
 
     var body: some View {
@@ -286,8 +288,13 @@ struct ContentView: View {
                 RoleSelectionView()
                     .accessibilityIdentifier("rootRoute.roleSelection")
             case .blindProfile:
-                BlindRunnerProfileView()
-                    .accessibilityIdentifier("rootRoute.blindProfile")
+                // 兜底取 .identityPrompt：这条路由只在 step != nil 时进入，
+                // step 变 nil 的那一瞬间 rootRoutingKey 已经变了，下一帧就会重新路由到 .blindHome。
+                BlindRunnerOnboardingView(
+                    step: appState.blindOnboardingStep ?? .identityPrompt,
+                    onSkipIdentityPrompt: { appState.dismissBlindIdentityPrompt() }
+                )
+                .accessibilityIdentifier("rootRoute.blindProfile")
             case .blindHome:
                 BlindRunnerHomeView()
                     .accessibilityIdentifier("rootRoute.blindHome")

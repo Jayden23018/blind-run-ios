@@ -83,6 +83,7 @@ enum AppConstants {
         static let accessToken = "com.aidrun.mvp.accessToken"
         static let activeRole = "com.aidrun.mvp.activeRole"
         static let apiEnvironment = "com.aidrun.mvp.apiEnvironment"
+        static let blindIdentityPromptDismissed = "com.aidrun.mvp.blindIdentityPromptDismissed"
     }
 
     enum Defaults {

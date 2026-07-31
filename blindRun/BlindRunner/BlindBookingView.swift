@@ -100,6 +100,51 @@ struct BookingReviewItem: Identifiable, Equatable {
     let value: String
 }
 
+// MARK: - Booking Gate
+
+/// `POST /api/orders` 的硬门槛，枚举顺序即「第一个可操作的缺失项」的播报顺序。
+///
+/// 实名状态**不在**门槛内：后端 `OrderCreationService` 只校验紧急联系人存在，
+/// 客户端再拦一道就是任何非 iOS 调用方都能绕过的假门槛。
+enum BlindBookingGate: Equatable {
+    case basicProfile
+    case emergencyContacts
+    case locationPermission
+    case startPoint
+    case appointmentTime
+
+    static func firstMissing(
+        isBasicProfileComplete: Bool,
+        hasValidEmergencyContacts: Bool,
+        isLocationDenied: Bool,
+        hasStartPoint: Bool,
+        isAppointmentTimeValid: Bool
+    ) -> BlindBookingGate? {
+        if !isBasicProfileComplete { return .basicProfile }
+        if !hasValidEmergencyContacts { return .emergencyContacts }
+        if isLocationDenied { return .locationPermission }
+        if !hasStartPoint { return .startPoint }
+        if !isAppointmentTimeValid { return .appointmentTime }
+        return nil
+    }
+
+    /// 展示与朗读共用的缺失说明。
+    var message: String {
+        switch self {
+        case .basicProfile:
+            return "请先完善个人资料，至少填写昵称。"
+        case .emergencyContacts:
+            return "请先设置紧急联系人：至少 1 位，并指定其中 1 位为主联系人。"
+        case .locationPermission:
+            return "定位权限未开启。请前往系统设置开启定位，以便创建跑步预约。"
+        case .startPoint:
+            return "请选择出发地点。"
+        case .appointmentTime:
+            return "预约时间需至少在 30 分钟后。"
+        }
+    }
+}
+
 // MARK: - Blind Booking ViewModel
 
 @MainActor
@@ -140,11 +185,19 @@ final class BlindBookingViewModel: ObservableObject {
         appointmentTime >= minimumAppointmentTime
     }
 
+    /// 下单前第一个未通过的门槛；nil 表示全部通过。
+    var firstMissingGate: BlindBookingGate? {
+        BlindBookingGate.firstMissing(
+            isBasicProfileComplete: appState?.isBlindBasicProfileComplete ?? true,
+            hasValidEmergencyContacts: appState?.hasValidEmergencyContacts ?? true,
+            isLocationDenied: locationService?.isDenied == true,
+            hasStartPoint: resolvedStartPlace != nil,
+            isAppointmentTimeValid: isAppointmentTimeValid
+        )
+    }
+
     var canSubmit: Bool {
-        !isSubmitting &&
-        isAppointmentTimeValid &&
-        locationService?.isDenied != true &&
-        resolvedStartPlace != nil
+        !isSubmitting && firstMissingGate == nil
     }
 
     var isFirstStep: Bool {
@@ -527,15 +580,10 @@ final class BlindBookingViewModel: ObservableObject {
     }
 
     func submit() async -> OrderResponse? {
-        guard let appState, let locationService else { return nil }
-        guard appState.isBlindProfileComplete else {
-            return fail("请先完善个人资料。")
-        }
-        guard locationService.isDenied == false else {
-            return fail("定位权限未开启。请前往系统设置开启定位，以便创建跑步预约。")
-        }
-        guard isAppointmentTimeValid else {
-            return fail("预约时间需至少在 30 分钟后。")
+        guard let appState, locationService != nil else { return nil }
+        // 出发地点缺失要在 makeCreateOrderRequest 之后单独报，所以这里跳过 .startPoint。
+        if let gate = firstMissingGate, gate != .startPoint {
+            return fail(gate.message)
         }
 
         isSubmitting = true

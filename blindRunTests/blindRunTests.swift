@@ -375,6 +375,7 @@ final class blindRunTests: XCTestCase {
             }
             XCTFail("Expected the home request to time out")
         } catch HomeLoadCoordinatorError.timedOut {
+            await client.awaitCancellation()
             XCTAssertGreaterThanOrEqual(client.cancellationCount, 1)
         } catch {
             XCTFail("Unexpected error: \(error)")
@@ -4071,6 +4072,7 @@ final class blindRunTests: XCTestCase {
         await viewModel.enRoute()
 
         XCTAssertFalse(viewModel.isPerformingAction)
+        await client.awaitCancellation()
         XCTAssertGreaterThanOrEqual(client.cancellationCount, 1)
         XCTAssertEqual(viewModel.transitionState, .awaitingConfirmation(target: .driverEnRoute))
         XCTAssertNil(viewModel.errorMessage)
@@ -4968,7 +4970,9 @@ final class blindRunTests: XCTestCase {
                         throw error
                     }
                 }
-                let data = Data("{\"name\":\"账号\(account)\"}".utf8)
+                // 已实名：这两个用例断言的是「水合完成后只提交一个终点 .blindHome」，
+                // 所以 fixture 必须是引导流全部走完的账号，否则会停在实名软提示那一步。
+                let data = Data("{\"name\":\"账号\(account)\",\"verifyStatus\":\"VERIFIED\"}".utf8)
                 return try JSONDecoder().decode(T.self, from: data)
             }
 
@@ -5032,6 +5036,7 @@ final class blindRunTests: XCTestCase {
         private let lock = NSLock()
         private var cancellations = 0
         private var requestCounts: [String: Int] = [:]
+        private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
 
         var cancellationCount: Int {
             lock.withLock { cancellations }
@@ -5039,6 +5044,28 @@ final class blindRunTests: XCTestCase {
 
         func requestCount(for path: String) -> Int {
             lock.withLock { requestCounts[path, default: 0] }
+        }
+
+        /// Suspends until an in-flight request has actually observed cancellation.
+        ///
+        /// `HomeLoadCoordinator` intentionally resumes its caller the moment the
+        /// deadline fires and never awaits the losing operation, so the cancelled
+        /// request records itself on a different task. Asserting on
+        /// `cancellationCount` straight after the deadline therefore races the
+        /// scheduler. Awaiting this signal makes the assertion causal instead of
+        /// wall-clock dependent; it resumes immediately when a cancellation has
+        /// already been recorded.
+        func awaitCancellation() async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                lock.lock()
+                if cancellations > 0 {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                cancellationWaiters.append(continuation)
+                lock.unlock()
+            }
         }
 
         func request<T: Decodable>(
@@ -5052,7 +5079,14 @@ final class blindRunTests: XCTestCase {
             do {
                 try await Task.sleep(nanoseconds: 60_000_000_000)
             } catch {
-                lock.withLock { cancellations += 1 }
+                lock.lock()
+                cancellations += 1
+                let waiters = cancellationWaiters
+                cancellationWaiters.removeAll()
+                lock.unlock()
+                for waiter in waiters {
+                    waiter.resume()
+                }
                 throw error
             }
             throw APIError.invalidURL

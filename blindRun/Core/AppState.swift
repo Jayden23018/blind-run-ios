@@ -117,6 +117,10 @@ final class AppState: ObservableObject {
     /// 紧急联系人列表
     @Published var emergencyContacts: [EmergencyContactResponse] = []
 
+    /// 实名软引导的「稍后再说」标记。按账号记：`performLocalSessionCleanup` 会清掉它。
+    /// 走 `persistence` 而不是 `@AppStorage`，否则单元/UI 测试会写进 App 的标准域。
+    @Published private(set) var didDismissBlindIdentityPrompt = false
+
     /// 会话过期后带到登录页展示的一次性提示。
     @Published private(set) var sessionExpirationMessage: String?
 
@@ -161,13 +165,57 @@ final class AppState: ObservableObject {
         accessToken != nil
     }
 
-    var isBlindProfileComplete: Bool {
-        guard let profile = blindProfile,
-              let name = profile.name,
-              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return false
-        }
-        return !emergencyContacts.isEmpty
+    // MARK: 盲人完成度（拆成互相独立、可单独测试的判断）
+
+    /// 基础资料：目前只要求昵称非空。与紧急联系人、实名状态无关。
+    var isBlindBasicProfileComplete: Bool {
+        guard let name = blindProfile?.name else { return false }
+        return !name.trimmed.isEmpty
+    }
+
+    /// 实名状态。**仅用于展示与语音引导，不参与下单门槛**——
+    /// 后端 `OrderCreationService` 只校验紧急联系人存在，客户端再拦一道就是假门槛。
+    var blindIdentityStatus: BlindVerifyStatus {
+        blindProfile?.identityStatus ?? .unknown
+    }
+
+    var emergencyContactCount: Int {
+        emergencyContacts.count
+    }
+
+    /// 恰好一个主联系人时返回它；0 个或多个都返回 nil。
+    var primaryEmergencyContact: EmergencyContactResponse? {
+        EmergencyContactResponse.singlePrimary(in: emergencyContacts)
+    }
+
+    var hasExactlyOnePrimaryEmergencyContact: Bool {
+        primaryEmergencyContact != nil
+    }
+
+    /// 紧急联系人侧的硬门槛：至少 1 位，且恰好 1 位主联系人。
+    var hasValidEmergencyContacts: Bool {
+        emergencyContactCount >= EmergencyContactRules.minCount && hasExactlyOnePrimaryEmergencyContact
+    }
+
+    /// 下单硬门槛：基础资料 + 至少 1 个紧急联系人 + 恰好 1 个主联系人。实名状态不参与。
+    var isBlindBookingReady: Bool {
+        isBlindBasicProfileComplete && hasValidEmergencyContacts
+    }
+
+    /// 盲人引导流当前该停在哪一步；nil 表示可以直接进首页。
+    var blindOnboardingStep: BlindOnboardingStep? {
+        BlindOnboardingStep.first(
+            isBasicProfileComplete: isBlindBasicProfileComplete,
+            hasValidEmergencyContacts: hasValidEmergencyContacts,
+            shouldPromptIdentity: blindIdentityStatus.shouldPromptVerification,
+            didDismissIdentityPrompt: didDismissBlindIdentityPrompt
+        )
+    }
+
+    /// 「稍后再说」：跳过实名软引导，直接进首页。
+    func dismissBlindIdentityPrompt() {
+        didDismissBlindIdentityPrompt = true
+        persistence.set(true, forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
     }
 
     var isVolunteerProfileComplete: Bool {
@@ -227,6 +275,8 @@ final class AppState: ObservableObject {
         } else {
             self.currentEnvironment = AppBuildChannel.current.defaultEnvironment
         }
+        self.didDismissBlindIdentityPrompt =
+            persistence.object(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed) as? Bool ?? false
     }
 
     private var sessionIdentityKey: String? {
@@ -373,6 +423,7 @@ final class AppState: ObservableObject {
         volunteerProfile = nil
         volunteerRegistrationStatus = nil
         emergencyContacts = []
+        didDismissBlindIdentityPrompt = false
         sessionExpirationMessage = nil
         logoutState = .idle
         accountDeletionState = .idle
@@ -383,6 +434,8 @@ final class AppState: ObservableObject {
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.activeRole)
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.userId)
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata)
+        // 实名软引导的「稍后再说」是按账号记的：换账号后应重新提示一次。
+        persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
     }
 
     /// 会话过期：清除本地登录态并让登录页展示一次性提示。

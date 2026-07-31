@@ -79,6 +79,7 @@ enum AppStatePersistenceKeys {
         AppConstants.UserDefaultsKeys.apiEnvironment,
         AppConstants.UserDefaultsKeys.userId,
         AppConstants.UserDefaultsKeys.emergencyRecoveryMetadata,
+        AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed,
         uiTestLastResetToken,
         mockSnapshot
     ]
