@@ -949,6 +949,13 @@ struct BlindOrderStatusView: View {
                 if order.status == .driverEnRoute || order.status == .pendingAccept {
                     Button("模拟志愿者到达") {
                         Task {
+                            // 真实状态机是 PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED，不能跳级。
+                            // 从 PENDING_ACCEPT 直接打 /arrived 会被拒（Mock 与后端同口径），
+                            // 而下面的 try? 把拒绝静默吞掉，现象是「点了没反应」，
+                            // 后续依赖 DRIVER_ARRIVED 的「模拟服务开始」永不出现。
+                            if order.status == .pendingAccept {
+                                let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/en-route")
+                            }
                             let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
                             viewModel.startPolling(orderId: order.orderId)
                         }

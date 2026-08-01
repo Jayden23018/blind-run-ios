@@ -556,11 +556,14 @@ final class blindRunUITests: XCTestCase {
         confirmation.buttons["取消"].firstMatch.tap()
         XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-        XCTAssertFalse(
-            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "求助")).firstMatch.label
-                .contains("已记录"),
-            "Cancelling the confirmation must not submit anything"
+        // 不能写成 `...containing("求助").firstMatch.label.contains("已记录")`：
+        // 取消后若一条含「求助」的文本都不存在，对空查询的 firstMatch 取 .label 会抛
+        // "Failed to get matching snapshot" 而不是返回空串 —— 行为越正确断言越会炸。
+        // 直接断言「不存在同时含『求助』和『已记录』的文本」，空集自然为真。
+        let recorded = app.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "求助", "已记录")
         )
+        XCTAssertEqual(recorded.count, 0, "Cancelling the confirmation must not submit anything")
     }
 
     /// The app must never tell a blind runner that a contact received the SMS: the backend pushes
