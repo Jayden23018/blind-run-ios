@@ -941,13 +941,21 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(response.message, "未开启接单")
     }
 
-    func testFlexibleErrorEnvelopeUsesLegacyErrorMessage() throws {
+    /// 裸 `{"error": ...}` 信封**刻意不再解析** —— 这不是漏了，是 2026-07-31 与后端确认后删的。
+    ///
+    /// 后端全仓只剩两处产出 `error` 键，客户端都够不到：
+    /// - `AuthController:62` 的 401 `{"error":"未登录"}` —— `APIClient` 在 `case 401`
+    ///   直接 `throw .unauthorized`，body 根本不解码
+    /// - `GlobalExceptionHandler:224` 的 429 —— 那里 `error` 放的是错误码字符串不是文案，
+    ///   且同一个 body 恒带 `message`，兜底分支走不到
+    ///
+    /// 而本用例原来喂的 `{"error":"验证码错误或已过期"}` 是**已下线的旧验证码响应形状**，
+    /// 现在统一走 `{success,code,errorCode,message}`。
+    func testFlexibleErrorEnvelopeIgnoresLegacyBareErrorKey() throws {
         let data = #"{"error":"验证码错误或已过期"}"#.data(using: .utf8)!
         let payload = try JSONDecoder().decode(APIErrorEnvelope.self, from: data)
-        let response = try XCTUnwrap(payload.resolvedErrorResponse(statusCode: 400))
 
-        XCTAssertEqual(response.code, "HTTP_400")
-        XCTAssertEqual(response.message, "验证码错误或已过期")
+        XCTAssertNil(payload.resolvedErrorResponse(statusCode: 400))
     }
 
     func testEmptyResponseDecodesEmptyObjectsAndEnvelopePayloads() throws {
