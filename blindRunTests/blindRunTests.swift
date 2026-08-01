@@ -3386,21 +3386,31 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(service.lastStopReason, .silenceTimeout(hadDetectedSound: false))
     }
 
-    func testEmergencyButtonStatusGate() {
-        // Current release hides the emergency affordance until the real safety flow is approved.
-        XCTAssertFalse(RunOrderStatus.pendingMatch.canTriggerEmergency)
-        XCTAssertFalse(RunOrderStatus.pendingAccept.canTriggerEmergency)
-        XCTAssertFalse(RunOrderStatus.driverEnRoute.canTriggerEmergency)
-        XCTAssertFalse(RunOrderStatus.driverArrived.canTriggerEmergency)
-        XCTAssertFalse(RunOrderStatus.inProgress.canTriggerEmergency)
-        XCTAssertFalse(RunOrderStatus.completed.canTriggerEmergency)
-        XCTAssertFalse(RunOrderStatus.cancelled.canTriggerEmergency)
-        XCTAssertFalse(RunOrderStatus.rematching.canTriggerEmergency)
-        XCTAssertFalse(RunOrderStatus.noVolunteer.canTriggerEmergency)
-        XCTAssertFalse(RunOrderStatus.inProgress.showsEmergencyPlaceholder)
-        XCTAssertFalse(RunOrderStatus.driverEnRoute.showsEmergencyPlaceholder)
-        XCTAssertFalse(RunOrderStatus.driverArrived.showsEmergencyPlaceholder)
-        XCTAssertFalse(RunOrderStatus.completed.showsEmergencyPlaceholder)
+    func testBlindRunnerEmergencyIsAvailableOnlyInProgress() {
+        for status in RunOrderStatus.allCases {
+            XCTAssertEqual(
+                status.canTriggerEmergency(as: .blind),
+                status == .inProgress,
+                "blind SOS eligibility is wrong for \(status.rawValue)"
+            )
+        }
+    }
+
+    func testVolunteerEmergencyStaysHiddenInEveryStatus() {
+        // Not a missing screen: `EmergencyService.triggerEmergency` keys the event on the triggering
+        // user, so a volunteer-initiated SOS alerts the volunteer about themselves and escalates to
+        // the volunteer's own emergency contacts instead of the blind runner's. Enabling the entry
+        // before the backend routes by order participant would silently strand the person at risk.
+        for status in RunOrderStatus.allCases {
+            XCTAssertFalse(
+                status.canTriggerEmergency(as: .volunteer),
+                "volunteer SOS must stay hidden in \(status.rawValue)"
+            )
+        }
+    }
+
+    func testUnsetRoleCannotTriggerEmergency() {
+        XCTAssertFalse(RunOrderStatus.inProgress.canTriggerEmergency(as: .unset))
     }
 
     func testEmergencyConfirmationCopyIsFixed() {
@@ -4677,12 +4687,13 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(speechService.lastSpokenText, "评价已提交，感谢反馈。")
     }
 
-    /// 后端 `DUPLICATE_ORDER` 有两个语义不同的抛出点：`OrderCreationService`（已有进行中订单，
-    /// 不能再下单）和 `ReviewService`（已评价过此订单）。重复评价时如果用本地固定文案覆盖后端
-    /// message，就会把「您已有进行中的订单」这句完全不相干的话念给盲人听。
-    func testDuplicateReviewSpeaksBackendMessageNotInProgressOrderCopy() async {
+    /// 后端 2026-07-31 起把「已评价过此订单」从 `DUPLICATE_ORDER` 拆成专用码
+    /// `REVIEW_ALREADY_SUBMITTED`。此前两个语义共用一个码，重复评价会被念成
+    /// 「您已有进行中的订单」这句完全不相干的话（对只靠语音的用户是纯误导）。
+    /// 这条用例是防退回门：重复评价必须念「已评价」，且**绝不能**出现「进行中的订单」。
+    func testDuplicateReviewIsTreatedAsAlreadyReviewedNotInProgressOrderCopy() async {
         let client = FailingAPIClient(error: APIError.serverError(
-            ErrorResponse(code: "DUPLICATE_ORDER", message: "已评价过此订单")
+            ErrorResponse(code: "REVIEW_ALREADY_SUBMITTED", message: "已评价过此订单")
         ))
         let appState = AppState(apiClient: client)
         appState.currentEnvironment = .mock
@@ -4694,13 +4705,34 @@ final class blindRunTests: XCTestCase {
 
         await viewModel.submitReview()
 
-        XCTAssertFalse(viewModel.didSubmitReview)
-        XCTAssertEqual(viewModel.errorMessage, "已评价过此订单")
-        XCTAssertEqual(speechService.lastSpokenText, "已评价过此订单")
+        // 已评价不是失败：页面切到已评价态，不显示错误。
+        XCTAssertTrue(viewModel.didSubmitReview)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertEqual(speechService.lastSpokenText, "您已评价过此订单。")
         XCTAssertFalse(
             (speechService.lastSpokenText ?? "").contains("进行中的订单"),
             "重复评价被念成了下单受阻的文案"
         )
+    }
+
+    /// 拆码后两个码各说各话：`DUPLICATE_ORDER` 只剩下单场景，文案必须重新提到「进行中的订单」；
+    /// 且不得再有「以后端 message 为准」的止血补丁——本地文案就是权威。
+    func testDuplicateOrderAndReviewAlreadySubmittedCarryDistinctCopy() {
+        XCTAssertTrue(
+            ErrorCode.duplicateOrder.localizedMessage.contains("进行中的订单"),
+            "DUPLICATE_ORDER 已是单义码（仅下单场景），文案不应再是场景中立的兜底"
+        )
+        XCTAssertTrue(ErrorCode.reviewAlreadySubmitted.localizedMessage.contains("评价"))
+        XCTAssertNotEqual(
+            ErrorCode.duplicateOrder.localizedMessage,
+            ErrorCode.reviewAlreadySubmitted.localizedMessage
+        )
+
+        // 止血补丁撤除后，本地文案不再被后端 message 顶掉。
+        let error = APIError.serverError(
+            ErrorResponse(code: "DUPLICATE_ORDER", message: "您有进行中的订单，请完成后再下单")
+        )
+        XCTAssertEqual(error.localizedMessage, ErrorCode.duplicateOrder.localizedMessage)
     }
 
     func testBlindRunnerRepeatStatusSpeaksInServiceState() {

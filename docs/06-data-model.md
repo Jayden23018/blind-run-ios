@@ -49,7 +49,7 @@
 
 取消流转：盲人端 `PENDING_MATCH / PENDING_ACCEPT -> CANCELLED`，志愿者端 `PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> REMATCHING`；志愿者取消已接单订单后，盲人端可执行 `REMATCHING -> CANCELLED`。
 
-求助入口：当前 iOS release 在 `DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS` 不显示求助入口。`POST /api/emergency/trigger` 保留为后端合同，可由脚本探针验证；真实 UI 启用需后续安全专项补 GPS、通知、失败提示、合规文案和验收。
+求助入口：盲人端仅在 `IN_PROGRESS` 显示求助入口（`RunOrderStatus.canBlindRunnerTriggerEmergency`），志愿者端全状态隐藏（`canVolunteerTriggerEmergency` 恒为 `false`）。求助调用 `POST /api/emergency/trigger`，emergency 不是订单状态，触发后 `RunOrderStatus` 不变。
 
 ### CancellationActor
 
@@ -249,11 +249,39 @@ Rules:
 | `note` | String | No | 可选说明 |
 | `createdAt` | Instant | Yes | 触发时间 |
 
+iOS 实际消费的触发合同：
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `orderId` | Int64 | Yes | `EmergencyTriggerRequest`，请求字段 |
+| `gpsLat` | Double | Yes | 请求字段。后端声明可空，但 iOS 一律上送真实 GCJ-02 纬度 |
+| `gpsLng` | Double | Yes | 请求字段。后端声明可空，但 iOS 一律上送真实 GCJ-02 经度 |
+| `success` | Bool | Yes | `EmergencyTriggerResponse`，响应字段；为 `false` 时按失败处理 |
+| `eventId` | Int64 | Yes | 响应字段 |
+| `status` | String | Yes | 响应字段，取值为 `EmergencyStatus` 名 |
+
+### EmergencyStatus
+
+| Value | Description |
+| --- | --- |
+| `PENDING` | 已记录，系统正在处理 |
+| `VOLUNTEER_NOTIFIED` | 正在通知同行志愿者确认情况 |
+| `VOLUNTEER_CONFIRMED` | 志愿者已确认 |
+| `CS_HANDLING` | 已转客服处理 |
+| `CONTACT_NOTIFIED` | 后端已发出联系紧急联系人的流程（**不代表短信已送达**） |
+| `RESOLVED` | 已结束 |
+| `FALSE_ALARM` | 误报结束 |
+
+iOS 对无法识别的取值归一化为 `unknown`，并按"系统正在处理"呈现，绝不呈现为救援保证。
+
 Rules:
 
-- 当前 iOS release 在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 状态不显示一键求助入口。
-- `EmergencyEvent` 保留为后端合同数据；脚本可探测 `POST /api/emergency/trigger`，但 iOS UI 不触发该接口。
-- 生产 emergency event UI、GPS 提交、通知和升级处理需后续安全专项重新启用。
+- 盲人端仅在 `IN_PROGRESS` 显示一键求助入口；志愿者端全状态隐藏。
+- 求助事件不是订单状态，触发后 `RunOrderStatus` 保持不变。
+- 严格 GPS 门槛：拿不到新鲜的真实 GCJ-02 样本就**不发送**请求，界面与 TTS 如实说明"求助未发出"并指向设置/重试和 110；Mock/Demo 坐标永不上送。无 GPS 降级提交由 `EmergencyCoordinator.allowsSubmissionWithoutLocation`（当前 `false`）单点控制。
+- 冷却拒绝为 HTTP 429 `TOO_MANY_REQUESTS`（带 `retryAfterSeconds` 与 `Retry-After` 头）；非订单参与方为 403 `NOT_ORDER_PARTICIPANT`；订单不存在为 400 `BAD_REQUEST`。
+- App **永不**声称紧急短信已送达或紧急联系人已被联系上。后端在触发事务内同步推送 `EMERGENCY_CONTACT_NOTIFIED`（`service/EmergencyService.java:370-373`），短信在 `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` 之后才发（`service/EmergencyContactNotifier.java:60-62`），失败只广播给客服（`:126-135`），因此 iOS 用自己的进行时文案替换后端完成时文案。
+- 求助状态由 app 生命周期的 `EmergencyCoordinator`（`blindRun/Safety/EmergencyCoordinator.swift`）持有，**不落盘**：后端没有事件恢复接口或重放，留存的元数据只能以未经核实的状态呈现。退出登录、注销账户、会话过期、切换用户和切换角色时一律清空。
 
 ### ServiceSummary
 

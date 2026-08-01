@@ -19,6 +19,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
+    private weak var locationService: LocationService?
     private var pollingTask: Task<Void, Never>?
     private var currentOrderId: Int64?
     private var latestVolunteerCoordinate: CLLocationCoordinate2D?
@@ -38,7 +39,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
     }
 
     var canShowEmergency: Bool {
-        order?.status.showsEmergencyPlaceholder == true
+        order?.status.canBlindRunnerTriggerEmergency == true
+    }
+
+    var emergencyState: EmergencySOSState {
+        appState?.emergencyCoordinator.state ?? .idle
     }
 
     var canShowCancel: Bool {
@@ -49,9 +54,14 @@ final class BlindOrderStatusViewModel: ObservableObject {
         order?.status.shouldPoll ?? true
     }
 
-    func configure(appState: AppState, speechService: SpeechService) {
+    func configure(
+        appState: AppState,
+        speechService: SpeechService,
+        locationService: LocationService? = nil
+    ) {
         self.appState = appState
         self.speechService = speechService
+        self.locationService = locationService
         acceptsPeerLocations = true
         subscribeToRealtimeCoordinator(appState: appState)
     }
@@ -88,7 +98,12 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     func repeatStatus() {
         if let order {
-            speechService?.speak(order.blindRunnerAnnouncement(distanceText: volunteerDistanceToStartText))
+            var announcement = order.blindRunnerAnnouncement(distanceText: volunteerDistanceToStartText)
+            // Canonical order status first, emergency state appended after it — never instead of it.
+            if let sos = appState?.emergencyCoordinator.repeatStatusSuffix {
+                announcement += " " + sos
+            }
+            speechService?.speak(announcement)
         } else {
             speechService?.speak("正在获取订单状态。")
         }
@@ -126,9 +141,52 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
+    /// Sends one SOS for the current `IN_PROGRESS` order.
+    ///
+    /// Every outcome — including "not sent" — is both shown and spoken. A blind runner decides
+    /// whether to look for help another way based on this announcement, so silence on failure
+    /// would be the worst possible bug here.
     func enterEmergency() async {
-        errorMessage = EmergencySafetyCopy.deferredActionMessage
-        speechService?.speak(EmergencySafetyCopy.deferredActionMessage)
+        guard let order, let appState else { return }
+        let coordinator = appState.emergencyCoordinator
+        let outcome = await coordinator.trigger(
+            order: order,
+            role: appState.activeRole,
+            userID: appState.userId,
+            apiClient: appState.apiClient,
+            locate: { await self.freshEmergencyCoordinate() }
+        )
+        // The visible surface is `EmergencyStatusNotice`, driven by the coordinator's state.
+        // Deliberately not also setting `errorMessage`: that would render the same sentence twice
+        // and make VoiceOver read the failure twice over.
+        if outcome.isFailure {
+            speechService?.speakError(outcome.message)
+        } else {
+            speechService?.speak(outcome.message)
+        }
+    }
+
+    /// Freshest real GCJ-02 sample, with one bounded retry.
+    ///
+    /// `latestBackendSample()` only ever returns a genuine `CLLocation` normalized at the single
+    /// backend boundary — the Demo/UI-test location path never produces a device sample, so a demo
+    /// coordinate cannot leak into a cloud SOS through this function. During `IN_PROGRESS` the live
+    /// escort session is already sampling every five seconds, so the retry matters only when the
+    /// run has just started or updates were briefly paused.
+    private func freshEmergencyCoordinate() async -> LocatedCoordinate? {
+        guard let locationService else { return nil }
+        if let sample = locationService.latestBackendSample() {
+            return sample
+        }
+        locationService.requestOneTimeLocation()
+        let deadline = Date().addingTimeInterval(EmergencyCoordinator.locationWaitTimeout)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if let sample = locationService.latestBackendSample() {
+                return sample
+            }
+        }
+        return nil
     }
 
     func submitReview() async {
@@ -156,6 +214,13 @@ final class BlindOrderStatusViewModel: ObservableObject {
         } catch let error as APIError {
             isSubmittingReview = false
             if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
+            // 已评价过不是失败：用户就站在这一单的评价页上，能做的正确动作只有把页面切到已评价态。
+            // 后端 2026-07-31 起用专用码 REVIEW_ALREADY_SUBMITTED，不再与 DUPLICATE_ORDER 混用。
+            if error.errorCode == .reviewAlreadySubmitted {
+                didSubmitReview = true
+                speechService?.speak(ErrorCode.reviewAlreadySubmitted.localizedMessage)
                 return
             }
             errorMessage = error.localizedMessage
@@ -455,6 +520,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
 struct BlindOrderStatusView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
+    @EnvironmentObject private var locationService: LocationService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
@@ -520,7 +586,11 @@ struct BlindOrderStatusView: View {
             }
         }
         .onAppear {
-            viewModel.configure(appState: appState, speechService: speechService)
+            viewModel.configure(
+                appState: appState,
+                speechService: speechService,
+                locationService: locationService
+            )
             viewModel.startPolling(orderId: orderId)
         }
         .onDisappear {
@@ -819,9 +889,14 @@ struct BlindOrderStatusView: View {
     private func actionSection(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 14) {
             if viewModel.canShowEmergency {
-                EmergencyPlaceholderNotice()
-                EmergencyActionButton(isLoading: viewModel.isPerformingAction) {
+                EmergencyActionButton(isLoading: appState.emergencyCoordinator.state.isBusy) {
                     showEmergencyConfirmation = true
+                }
+                if let message = appState.emergencyCoordinator.state.message {
+                    EmergencyStatusNotice(
+                        message: message,
+                        isFailure: appState.emergencyCoordinator.state.isFailure
+                    )
                 }
             }
 

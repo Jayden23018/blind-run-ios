@@ -28,7 +28,7 @@ Use iOS native `AVSpeechSynthesizer` for TTS.
 - 志愿者已到达
 - 服务已开始
 - 服务已完成
-- 当前 release 不显示求助入口；后续安全专项恢复时必须补求助播报
+- 求助已发出 / 求助未发出（盲人端 `IN_PROGRESS`；每次求助状态变化都要播报，见第 6 节）
 - 错误提示
 
 Implementation guidance:
@@ -56,11 +56,11 @@ Required coverage:
 - Location permission prompt
 - Submit booking button
 - Cancel order button
-- Future re-enabled emergency button
+- Blind-runner one-tap SOS button (`IN_PROGRESS` only): minimum 64pt, `accessibilityLabel` "一键求助，遇到紧急情况时点击", and a hint stating that a second confirmation is required and the current location will be reported
 - Repeat current status button
 - Volunteer availability switch
 - Available order rows
-- Accept, en-route, arrived, start-service, complete, cancel, and any future re-enabled emergency actions
+- Accept, en-route, arrived, start-service, complete, and cancel (the volunteer has no SOS action in any status)
 - Rating controls
 
 ## 4. Blind Runner UI Rules
@@ -114,7 +114,7 @@ These actions require a second confirmation:
 
 - Cancel order
 - Delete an emergency contact
-- Future re-enabled emergency action
+- Blind-runner one-tap SOS
 - Volunteer complete service
 - Logout
 
@@ -124,15 +124,19 @@ Emergency-contact and identity screens additionally require:
 - Delete is blocked, with a spoken explanation, when only one contact remains; deleting the current primary requires promoting another contact first.
 - The identity-card number must never appear in TTS output, accessibility values after submission, logs, or test screenshots.
 
-Emergency confirmation copy must be:
+Emergency confirmation copy must be, verbatim:
 
 > 是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。
 
-For this release, emergency UI is hidden:
+Cancelling that confirmation sends nothing at all.
 
-- The app does not show "紧急求助" or "一键求助" in blind-runner or volunteer service UI.
-- The app does not call `POST /api/emergency/trigger`, does not submit GPS, and does not notify the other party from UI in this release.
-- Scripts may probe the backend contract. Production emergency recording, auto-call, auto-SMS, or real administrator notification require explicit user authorization, backend contract, and compliance review.
+Emergency UI rules:
+
+- The SOS entry appears only on blind-runner UI while the canonical order status is `IN_PROGRESS`. It never appears on volunteer UI in any status.
+- Without a fresh real GCJ-02 sample the request is not sent. The app must say so both visibly and audibly — "求助未发出：当前无法获取你的位置。请在设置中允许定位后重试，或直接拨打110。" — and never upload a mock or demo coordinate.
+- Every non-submitted outcome (no location, network failure, 429 cooldown, 403 `NOT_ORDER_PARTICIPANT`, 400 `BAD_REQUEST`) leads with 未发出 and points at 110.
+- **The app must never claim an emergency SMS was delivered or that a contact has been reached.** The backend pushes `EMERGENCY_CONTACT_NOTIFIED` synchronously inside the trigger transaction (`service/EmergencyService.java:370-373`) while the SMS is sent afterwards via `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` (`service/EmergencyContactNotifier.java:60-62`), and a send failure is broadcast only to CS (`:126-135`), never corrected back to the blind runner. iOS therefore substitutes its own progressive-tense copy: "系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打110。" The string 联系人已收到短信 must not appear anywhere as shipped copy.
+- Auto-call, auto-SMS from the app, or real administrator notification would each require explicit user authorization, a backend contract, and compliance review.
 
 ## 7. Status Copy
 
@@ -148,7 +152,15 @@ Recommended status announcements:
 - `COMPLETED`: “服务已完成，感谢使用助盲跑。”
 - `CANCELLED`: “本次预约已取消。”
 - `NO_VOLUNTEER`: “暂时没有可用志愿者。”
-- Future emergency copy must be added when the UI is re-enabled by a safety change.
+
+SOS copy is separate from order-status copy and is owned by `EmergencySafetyCopy` (`blindRun/Safety/SafetyModule.swift`). Every line is progressive-tense and ends with “若情况危急请立即拨打110。”:
+
+- Accepted, `PENDING` / unknown: “求助已记录，系统正在处理。”
+- `VOLUNTEER_NOTIFIED`: “求助已记录，正在通知同行志愿者确认情况。”
+- `CONTACT_NOTIFIED`: “系统正在联系你的紧急联系人，尚未确认对方是否收到。”
+- Not sent, no location: “求助未发出：当前无法获取你的位置。请在设置中允许定位后重试，或直接拨打110。”
+
+“重复当前状态” speaks the canonical order status first and then appends the latest SOS line — it never replaces the order status with the SOS line.
 
 Lifecycle `APP_NOTIFICATION` text from backend templates should not be spoken directly while an active order is present. A validated structured status event should immediately use local order-status copy; REST detail/polling remains the fallback when an event is missed. Recently applied terminal-state semantics remain suppressed for 30 seconds after the active order is removed so a parallel template cannot announce the same completion twice. Volunteer distance copy should use "距出发地点约 X" and be calculated from the latest volunteer location to the order start coordinate.
 

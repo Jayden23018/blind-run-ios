@@ -534,7 +534,64 @@ final class blindRunUITests: XCTestCase {
         let arriveButton = app.buttons["模拟志愿者到达"].firstMatch
         XCTAssertTrue(arriveButton.waitForExistence(timeout: 8), "Mock controls should allow moving to arrived state")
         arriveButton.tap()
-        assertNoEmergencyAction(app)
+        assertNoEmergencyAction(app, "DRIVER_ARRIVED is not yet an active run")
+
+        let startButton = app.buttons["模拟服务开始"].firstMatch
+        XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Mock controls should allow starting the service")
+        startButton.tap()
+
+        let sos = emergencyAction(app)
+        XCTAssertTrue(sos.waitForExistence(timeout: 8), "IN_PROGRESS should expose the blind SOS action")
+        XCTAssertGreaterThanOrEqual(sos.frame.height, 64, "Blind primary actions must be at least 64pt high")
+
+        // Exact second-confirmation copy, and cancel must send nothing.
+        sos.tap()
+        let confirmation = app.alerts["一键求助"].firstMatch
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5), "SOS must require a second confirmation")
+        XCTAssertTrue(
+            confirmation.staticTexts["是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"]
+                .firstMatch.exists,
+            "Second-confirmation copy is mandated verbatim by AGENTS.md section 10"
+        )
+        confirmation.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertFalse(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "求助")).firstMatch.label
+                .contains("已记录"),
+            "Cancelling the confirmation must not submit anything"
+        )
+    }
+
+    /// The app must never tell a blind runner that a contact received the SMS: the backend pushes
+    /// `EMERGENCY_CONTACT_NOTIFIED` before the SMS is attempted, and never corrects a failure.
+    @MainActor
+    func testBlindEmergencyCopyNeverClaimsSmsDelivery() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "blind_runner",
+            preseedBlindProfile: true
+        )
+
+        let currentOrderButton = app.buttons["查看当前订单"].firstMatch
+        XCTAssertTrue(currentOrderButton.waitForExistence(timeout: 12))
+        currentOrderButton.tap()
+
+        for label in ["模拟志愿者接单", "模拟志愿者到达", "模拟服务开始"] {
+            let button = app.buttons[label].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 8), "Mock control \(label) should exist")
+            button.tap()
+        }
+
+        XCTAssertTrue(emergencyAction(app).waitForExistence(timeout: 8))
+        for claim in ["联系人已收到短信", "已收到短信", "已通知家属", "已通知你的联系人"] {
+            XCTAssertFalse(
+                app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", claim))
+                    .firstMatch.exists,
+                "SOS screen must never claim SMS delivery (“\(claim)”)"
+            )
+        }
     }
 
     @MainActor
@@ -1455,14 +1512,22 @@ final class blindRunUITests: XCTestCase {
         )
     }
 
-    private func assertNoEmergencyAction(_ app: XCUIApplication) {
+    private func assertNoEmergencyAction(
+        _ app: XCUIApplication,
+        _ why: String = "SOS is blind-runner IN_PROGRESS only",
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-        XCTAssertFalse(app.buttons["一键求助，遇到紧急情况时点击"].firstMatch.exists, "Current release should hide the emergency action")
-        XCTAssertFalse(app.buttons["一键求助"].firstMatch.exists, "Current release should hide the emergency action")
         XCTAssertFalse(
-            app.staticTexts["当前版本未开放紧急求助入口，请按既定人工安全预案处理。"].firstMatch.exists,
-            "Current release should hide deferred emergency copy"
+            app.buttons["一键求助，遇到紧急情况时点击"].firstMatch.exists, why, file: file, line: line
         )
+        XCTAssertFalse(app.buttons["一键求助"].firstMatch.exists, why, file: file, line: line)
+    }
+
+    /// The SOS button, located by its accessibility label so the assertion also covers VoiceOver.
+    private func emergencyAction(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons["一键求助，遇到紧急情况时点击"].firstMatch
     }
 
     private func dismissKeyboardIfPresent(app: XCUIApplication) {

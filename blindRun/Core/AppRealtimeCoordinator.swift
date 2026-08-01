@@ -264,6 +264,11 @@ struct RealtimeSafetyEvent: Sendable {
         case emergencyVolunteerAlert
         case emergencyResolved
         case emergencyContactNotified
+        // The three below reach iOS as `APP_NOTIFICATION` envelopes carrying an `eventType`, not as
+        // top-level WebSocket types (`NotificationService.sendNotification`, :93-99).
+        case emergencyTriggered
+        case emergencyNoContact
+        case emergencyVolunteerTimeout
     }
 
     let eventID: String
@@ -605,12 +610,16 @@ final class AppRealtimeCoordinator: ObservableObject {
                 timestamp: message.timestamp
             )
         case .emergencyContactNotified(let message):
+            // Documented as a top-level type (`websocket-protocol.md:222-234`) but never emitted as
+            // one today — the implementation sends it inside `APP_NOTIFICATION`. Handled anyway, and
+            // with the same local copy substitution, so a backend fix cannot silently reintroduce
+            // the "已通知你的联系人" claim.
             routeSafety(
                 eventID: String(message.eventId),
                 orderID: nil,
                 kind: .emergencyContactNotified,
-                displayText: message.message ?? "已通知紧急联系人",
-                speechText: message.ttsText ?? message.message ?? "已通知紧急联系人",
+                displayText: EmergencySafetyCopy.contactNotified,
+                speechText: EmergencySafetyCopy.contactNotified,
                 timestamp: message.timestamp
             )
         case .emergencyAlert(let message):
@@ -688,6 +697,10 @@ final class AppRealtimeCoordinator: ObservableObject {
             routeEscortAlert(message, eventType: eventType)
             return
         }
+        if let kind = Self.emergencyKind(forEventType: eventType) {
+            routeEmergencyNotification(message, kind: kind)
+            return
+        }
         let speechText = message.ttsText?.nilIfBlank ?? message.body
         guard !message.body.trimmed.isEmpty else { return }
         if shouldSuppressLifecycleNotification(body: message.body, speechText: speechText) { return }
@@ -752,6 +765,53 @@ final class AppRealtimeCoordinator: ObservableObject {
         return Self.lifecycleStatuses(matching: combinedText).contains {
             recentLifecycleStatusDates[$0] != nil
         }
+    }
+
+    static func emergencyKind(forEventType eventType: String) -> RealtimeSafetyEvent.Kind? {
+        switch eventType {
+        case "EMERGENCY_TRIGGERED": return .emergencyTriggered
+        case "EMERGENCY_CONTACT_NOTIFIED": return .emergencyContactNotified
+        case "EMERGENCY_NO_CONTACT": return .emergencyNoContact
+        case "EMERGENCY_VOLUNTEER_TIMEOUT": return .emergencyVolunteerTimeout
+        default: return nil
+        }
+    }
+
+    /// Emergency copy is always the client's own, never the backend's notification body.
+    ///
+    /// The backend template for `EMERGENCY_CONTACT_NOTIFIED` reads "已通知紧急联系人{contactName}"
+    /// / "已通知你的联系人{contactName}，请保持冷静" (`demo/src/main/resources/data.sql:72`). It is
+    /// pushed synchronously inside the trigger transaction, strictly before the SMS is handed to
+    /// the provider (`EmergencyService.java:370-373` vs `EmergencyContactNotifier.java:60-62`), and
+    /// an SMS failure is never corrected back to the blind runner (`:126-135`). Rendering that text
+    /// verbatim would tell a blind user their family already knows, which is the one thing the app
+    /// must not do. Local progressive-tense copy is substituted for every emergency event type.
+    static func emergencyCopy(for kind: RealtimeSafetyEvent.Kind) -> String? {
+        switch kind {
+        case .emergencyTriggered: return EmergencySafetyCopy.triggeredAcknowledged
+        case .emergencyContactNotified: return EmergencySafetyCopy.contactNotified
+        case .emergencyNoContact: return EmergencySafetyCopy.noContact
+        case .emergencyVolunteerTimeout: return EmergencySafetyCopy.volunteerTimeout
+        case .emergencyResolved, .emergencyVolunteerAlert: return nil
+        }
+    }
+
+    private func routeEmergencyNotification(_ message: WSAppNotification, kind: RealtimeSafetyEvent.Kind) {
+        // `APP_NOTIFICATION` carries no `eventId`; `messageId` is the only stable identity the
+        // backend provides here (`buildEnvelope`), and it is what escort alerts already dedupe on.
+        let eventID = message.messageId?.nilIfBlank
+            ?? message.eventId.map(String.init)
+            ?? message.timestamp
+            ?? kind.rawValue
+        let copy = Self.emergencyCopy(for: kind) ?? message.body
+        routeSafety(
+            eventID: eventID,
+            orderID: nil,
+            kind: kind,
+            displayText: copy,
+            speechText: copy,
+            timestamp: message.timestamp
+        )
     }
 
     private func routeEscortAlert(_ message: WSAppNotification, eventType: String) {

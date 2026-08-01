@@ -26,6 +26,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private var emergencyContacts: [EmergencyContactResponse] = []
 
     private var orders: [OrderDetailResponse] = []
+    private var emergencyEventSequence: Int64 = 9000
     private var nextOrderId: Int64 = 100
     private var nextContactId: Int64 = 100
 
@@ -992,32 +993,42 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return contact
     }
 
-    /// 字段长度按后端 `EmergencyContactRequest` 约束校验；创建时姓名和手机号必填。
+    /// 校验顺序与后端 `EmergencyContactRequest` 严格一致：Bean Validation（`@Size` + `@Pattern`，
+    /// 统一 400 `VALIDATION_ERROR`）先跑，`EmergencyContactService.addContact` 里手写的
+    /// `CONTACT_FIELD_REQUIRED` 后跑。顺序反了会让 Mock 在「phone 传空串」时报错码与线上不一致。
     private func validateContactFields(_ request: EmergencyContactRequest, requireAllFields: Bool) throws {
         let name = request.name?.trimmed
-        let phone = request.phone?.trimmed ?? ""
-        // 后端 addContact 对空姓名/空手机号分别抛 CONTACT_FIELD_REQUIRED（400），姓名先判。
-        if requireAllFields {
-            if name?.isEmpty != false {
-                throw APIError.serverError(
-                    ErrorResponse(code: "CONTACT_FIELD_REQUIRED", message: "联系人姓名不能为空"))
-            }
-            if phone.isEmpty {
-                throw APIError.serverError(
-                    ErrorResponse(code: "CONTACT_FIELD_REQUIRED", message: "联系人电话不能为空"))
-            }
-        }
+        let phone = request.phone?.trimmed
+
+        // —— Bean Validation 层 ——
         if let name, name.count > EmergencyContactRules.maxNameLength {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "联系人姓名过长"))
         }
-        // 后端对联系人 phone 只有 @Size(max=20)，没有格式校验（见 demo/.../EmergencyContactRequest.java）。
-        // Mock 不再做格式拦截，否则会掩盖"乱填的号码能存进去"这个真实缺口；格式校验的责任在客户端表单。
-        if phone.count > EmergencyContactRules.maxPhoneLength {
-            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "联系人手机号过长"))
+        if let phone {
+            if phone.count > EmergencyContactRules.maxPhoneLength {
+                throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "联系人手机号过长"))
+            }
+            // 后端 2026-07-31 给 phone 加了 `@Pattern(^1[3-9]\d{9}$)`（与登录链路同款），
+            // Mock 不能再比线上松 —— 松了就把「乱填的号码能存进去」这个安全缺口在开发期遮住。
+            // `@Pattern` 对 null 放行、对空串不放行，所以这里只在 phone 非 nil 时判。
+            if !AppState.isValidMainlandPhone(phone) {
+                throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "手机号格式不正确"))
+            }
         }
         if let relationship = request.relationship?.trimmed,
            relationship.count > EmergencyContactRules.maxRelationshipLength {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "联系人关系过长"))
+        }
+
+        // —— 服务端手写校验层：后端对空姓名/缺手机号分别抛 CONTACT_FIELD_REQUIRED（400），姓名先判 ——
+        guard requireAllFields else { return }
+        if name?.isEmpty != false {
+            throw APIError.serverError(
+                ErrorResponse(code: "CONTACT_FIELD_REQUIRED", message: "联系人姓名不能为空"))
+        }
+        if phone?.isEmpty != false {
+            throw APIError.serverError(
+                ErrorResponse(code: "CONTACT_FIELD_REQUIRED", message: "联系人电话不能为空"))
         }
     }
 
@@ -1229,16 +1240,31 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     // MARK: - Emergency Handler
 
-    private func handleEmergencyTrigger(body: (any Encodable & Sendable)?) throws -> ApiSuccessResponse {
+    /// Mirrors `EmergencyController.triggerEmergency` + `EmergencyService.handleEmergencyTriggered`:
+    /// an order with a volunteer parks at `VOLUNTEER_NOTIFIED`, one without escalates straight to
+    /// `CONTACT_NOTIFIED`. The order status itself is deliberately left untouched — an emergency is
+    /// a separate event, never an order state (`AGENTS.md` section 6).
+    private func handleEmergencyTrigger(body: (any Encodable & Sendable)?) throws -> EmergencyTriggerResponse {
         guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
               let request = try? JSONDecoder().decode(EmergencyTriggerRequest.self, from: data) else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
         }
-        // In mock, we just acknowledge the emergency
-        guard orders.first(where: { $0.orderId == request.orderId }) != nil else {
-            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        guard let order = orders.first(where: { $0.orderId == request.orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "BAD_REQUEST", message: "订单不存在"))
         }
-        return ApiSuccessResponse(success: true, message: "求助已发送")
+        guard order.status == .inProgress else {
+            throw APIError.serverError(
+                ErrorResponse(code: "NOT_ORDER_PARTICIPANT", message: "您无权操作此订单")
+            )
+        }
+        emergencyEventSequence += 1
+        return EmergencyTriggerResponse(
+            success: true,
+            eventId: emergencyEventSequence,
+            status: order.volunteerPhone == nil
+                ? EmergencyEventStatus.contactNotified.rawValue
+                : EmergencyEventStatus.volunteerNotified.rawValue
+        )
     }
 
     // MARK: - Location Handler

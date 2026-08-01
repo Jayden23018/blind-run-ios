@@ -750,11 +750,6 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         }
     }
 
-    func emergency() async {
-        errorMessage = EmergencySafetyCopy.deferredActionMessage
-        speechService?.speak(EmergencySafetyCopy.deferredActionMessage)
-    }
-
     func retryTransitionConfirmation() {
         guard let order, let appState, let target = transitionState.targetStatus else { return }
         transitionState = .awaitingConfirmation(target: target)
@@ -899,7 +894,6 @@ struct VolunteerOrderDetailView: View {
     @StateObject private var viewModel = VolunteerOrderDetailViewModel()
     @State private var showAcceptConfirm = false
     @State private var showCancelConfirm = false
-    @State private var showEmergencyConfirm = false
     @State private var serviceNavigationOrder: OrderDetailResponse?
     let orderId: Int64
 
@@ -994,11 +988,6 @@ struct VolunteerOrderDetailView: View {
         } message: {
             Text("确认取消本次预约？")
         }
-        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm) {
-            Task {
-                await viewModel.emergency()
-            }
-        }
         .navigationDestination(
             isPresented: Binding(
                 get: { serviceNavigationOrder != nil },
@@ -1064,13 +1053,6 @@ struct VolunteerOrderDetailView: View {
                     .frame(minHeight: 52)
                     .accessibilityLabel("取消订单")
                     .accessibilityHint("需要确认后取消")
-                }
-
-                if order.status.showsEmergencyPlaceholder {
-                    EmergencyPlaceholderNotice()
-                    EmergencyActionButton(isLoading: viewModel.isPerformingAction) {
-                        showEmergencyConfirm = true
-                    }
                 }
             }
         }
@@ -1315,11 +1297,6 @@ final class VolunteerInServiceViewModel: ObservableObject {
         await submitTransition(target: .completed, orderID: orderID, appState: appState) {
             try await apiClient.post("/api/orders/\(orderID)/finish") as EmptyResponse
         }
-    }
-
-    func emergency() async {
-        errorMessage = EmergencySafetyCopy.deferredActionMessage
-        speechService?.speak(EmergencySafetyCopy.deferredActionMessage)
     }
 
     func retryTransitionConfirmation() {
@@ -1573,7 +1550,6 @@ struct VolunteerInServiceView: View {
     @StateObject private var viewModel = VolunteerInServiceViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @State private var showCancelConfirm = false
-    @State private var showEmergencyConfirm = false
     @State private var activeSheet: VolunteerSheet?
     let orderId: Int64
     let initialOrder: OrderDetailResponse?
@@ -1648,7 +1624,6 @@ struct VolunteerInServiceView: View {
                             onRetryTransitionConfirmation: {
                                 viewModel.retryTransitionConfirmation()
                             },
-                            onEmergency: { showEmergencyConfirm = true }
                         )
                         .padding(.horizontal, 10)
                         .padding(.bottom, 8)
@@ -1684,11 +1659,6 @@ struct VolunteerInServiceView: View {
             Button("不取消", role: .cancel) {}
         } message: {
             Text("确认取消本次预约？")
-        }
-        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm) {
-            Task {
-                await viewModel.emergency()
-            }
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -2322,7 +2292,6 @@ struct VolunteerServiceBottomPanel: View {
     let onCancel: () -> Void
     let onComplete: () -> Void
     let onRetryTransitionConfirmation: () -> Void
-    let onEmergency: () -> Void
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -2364,7 +2333,6 @@ struct VolunteerServiceBottomPanel: View {
                     onStartService: onStartService,
                     onCancel: onCancel,
                     onComplete: onComplete,
-                    onEmergency: onEmergency
                 )
             }
             .padding(.horizontal, 22)
@@ -2565,17 +2533,11 @@ struct VolunteerServiceActions: View {
     let onStartService: () -> Void
     let onCancel: () -> Void
     let onComplete: () -> Void
-    let onEmergency: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
             ForEach(Self.actionKinds(for: status), id: \.self) { action in
                 actionView(action)
-            }
-
-            if status.showsEmergencyPlaceholder {
-                EmergencyPlaceholderNotice()
-                EmergencyActionButton(isLoading: isPerformingAction, action: onEmergency)
             }
         }
     }

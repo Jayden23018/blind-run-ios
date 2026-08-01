@@ -68,6 +68,8 @@
 
 请确认这个码**不会**用于其它「重复」场景（例如同一请求重复提交、幂等键冲突）。若将来要复用，请新开一个码——这正是 `ROLE_ALREADY_SET` 这次出事的模式。
 
+**已答复并落地（2026-07-31，`demo/docs/handoff.md`）**：担心的事当时已经发生了——`ReviewService` 也在抛这个码。后端已拆出 409 `REVIEW_ALREADY_SUBMITTED` 并上线（`7bce0b3`），`DUPLICATE_ORDER` 此后**只剩「已有进行中的订单」一种语义**。前端已撤掉 `ErrorCode.prefersServerMessage` 止血补丁、恢复下单专用文案、新增 `reviewAlreadySubmitted` 分支。**本问题关闭。**
+
 ### Q7. `ORDER_IN_PROGRESS` 目前只有一个抛出点？
 
 后端仅在取消受阻处抛（`OrderService`，message「志愿者已出发或服务进行中，如需取消请联系志愿者」）。前端文案已按这个唯一场景写死。
@@ -79,6 +81,9 @@
 它是 `OrderPermissionException` 的**默认兜底构造**（`OrderPermissionException.java:22`），目前单参调用点只有一处：`OrderQueryService.java:39`「您无权查看此订单」。前端文案是「没有权限操作此订单。」（查看 vs 操作，略有出入）。
 
 问：这个码今后还会兜住哪些场景？如果只有「无权查看订单」这一种，前端把文案改成「您无权查看此订单」更准确。
+
+**已答复并落地（2026-07-31，`demo/docs/handoff.md`）**：后端确认单参兜底构造全仓只有 `OrderQueryService.java:39` 一处，即「只读查询越权」一种场景；`NOT_ORDER_PARTICIPANT` 才是那个真正的通用兜底码（13 个抛出点），两者不合并。前端文案已改为「您无权查看此订单。」。
+另：后端问 `GET /api/orders/{id}/status-logs` 的 403 前端是按码分支还是统一降级——**前端根本没调这个端点**（全仓 `status-logs` 0 命中），已回复他直接改齐即可。**本问题关闭。**
 
 ---
 

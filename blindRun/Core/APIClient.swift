@@ -83,14 +83,6 @@ enum APIError: Error, Sendable {
         switch self {
         case .serverError(let response):
             if let code = response.errorCode {
-                // 一码多义的码（见 ErrorCode.prefersServerMessage）本地文案必然在某个场景说错话，
-                // 只能以后端 message 为准；本地文案退化为 message 为空时的兜底。
-                if code.prefersServerMessage {
-                    let serverMessage = response.message.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !serverMessage.isEmpty {
-                        return serverMessage
-                    }
-                }
                 return code.localizedMessage
             }
             return response.message
@@ -450,7 +442,7 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data) {
             return .rateLimited(RateLimitInfo(
-                message: envelope.message ?? envelope.error ?? "操作过于频繁。",
+                message: envelope.message ?? "操作过于频繁。",
                 retryAfterSeconds: headerSeconds ?? envelope.retryAfterSeconds
             ))
         }

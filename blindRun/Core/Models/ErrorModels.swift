@@ -30,10 +30,12 @@ enum ErrorCode: String, Codable, Sendable {
     case securityForbidden = "SECURITY_FORBIDDEN"
     case resourceNotFound = "RESOURCE_NOT_FOUND"
     case duplicateOrder = "DUPLICATE_ORDER"
+    // 后端 2026-07-31（`7bce0b3`）把「已评价过此订单」从 `DUPLICATE_ORDER` 拆出来独立成码，
+    // 此后 `DUPLICATE_ORDER` 只剩「已有进行中的订单」一种语义，两个码各自有确定文案。
+    case reviewAlreadySubmitted = "REVIEW_ALREADY_SUBMITTED"
     case registrationStepInvalid = "REGISTRATION_STEP_INVALID"
     case internalError = "INTERNAL_ERROR"
     case idInfoInvalid = "ID_INFO_INVALID"
-    case volunteerNotRegistered = "VOLUNTEER_NOT_REGISTERED"
     case orderInProgress = "ORDER_IN_PROGRESS"
     case orderPermissionDenied = "ORDER_PERMISSION_DENIED"
     case smsSendLimitExceeded = "SMS_SEND_LIMIT_EXCEEDED"
@@ -95,21 +97,22 @@ enum ErrorCode: String, Codable, Sendable {
         case .resourceNotFound:
             return "请求的资源不存在。"
         case .duplicateOrder:
-            // 一码多义（见 `prefersServerMessage`），这里只是后端 message 缺失时的场景中立兜底。
-            return "该操作重复了，请刷新后重试。"
+            // 后端拆码后只剩 `OrderCreationService` 一个抛出点，文案跟着这个唯一场景走。
+            return "您有进行中的订单，请完成后再下单。"
+        case .reviewAlreadySubmitted:
+            return "您已评价过此订单。"
         case .registrationStepInvalid:
             return "注册步骤不正确，请重新开始。"
         case .internalError:
             return "服务器内部错误，请稍后重试。"
         case .idInfoInvalid:
             return "身份信息核验未通过，请检查后重试。"
-        case .volunteerNotRegistered:
-            return "志愿者注册流程尚未完成。"
         case .orderInProgress:
             // 后端只在「取消受阻」这一处抛该码（`OrderLifecycleService`），文案跟着这个唯一场景走。
             return "志愿者已出发或服务进行中，如需取消请联系志愿者。"
         case .orderPermissionDenied:
-            return "没有权限操作此订单。"
+            // 后端确认该码只剩 `OrderQueryService` 一个抛出点，场景是只读查询越权（handoff Q8）。
+            return "您无权查看此订单。"
         case .smsSendLimitExceeded:
             return "短信发送已达上限，请稍后重试。"
         case .identityNotVerified:
@@ -127,13 +130,6 @@ enum ErrorCode: String, Codable, Sendable {
         case .contactFieldRequired:
             return "请填写联系人姓名和手机号。"
         }
-    }
-
-    /// 后端同一个码有多个语义不同的抛出点时，任何一句本地文案都会在其中一个场景说错话，
-    /// 只能以后端 message 为准。目前只有 `DUPLICATE_ORDER`：
-    /// `OrderCreationService`（已有进行中订单，不能再下单）与 `ReviewService`（已评价过此订单）共用它。
-    var prefersServerMessage: Bool {
-        self == .duplicateOrder
     }
 
     var ttsMessage: String {
@@ -186,17 +182,20 @@ struct EmptyResponse: Decodable, Sendable {
 }
 
 /// Flexible cloud error payload. The demo backend currently returns multiple
-/// shapes, including `errorCode`, numeric/string `code`, `message`, and `error`.
+/// shapes, including `errorCode`, numeric/string `code`, and `message`.
+///
+/// 不再解 `error` 键：后端唯一带裸 `error` 的两处分别是 429（同时恒带 `message`，
+/// 且后端已确认要删这个冗余键）和 `AuthController` 的 401 —— 而 401 在 `APIClient`
+/// 里解 body 之前就 `throw .unauthorized`，这条兜底永远走不到。
 struct APIErrorEnvelope: Decodable {
     let success: Bool?
     let code: String?
     let errorCode: String?
     let message: String?
-    let error: String?
     let retryAfterSeconds: Int?
 
     private enum CodingKeys: String, CodingKey {
-        case success, code, errorCode, message, error, retryAfterSeconds
+        case success, code, errorCode, message, retryAfterSeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -204,7 +203,6 @@ struct APIErrorEnvelope: Decodable {
         success = try container.decodeIfPresent(Bool.self, forKey: .success)
         errorCode = try container.decodeIfPresent(String.self, forKey: .errorCode)
         message = try container.decodeIfPresent(String.self, forKey: .message)
-        error = try container.decodeIfPresent(String.self, forKey: .error)
         retryAfterSeconds = try container.decodeIfPresent(Int.self, forKey: .retryAfterSeconds)
         if let stringCode = try? container.decodeIfPresent(String.self, forKey: .code) {
             code = stringCode
@@ -216,7 +214,7 @@ struct APIErrorEnvelope: Decodable {
     }
 
     func resolvedErrorResponse(statusCode: Int) -> ErrorResponse? {
-        guard let resolvedMessage = message ?? error else { return nil }
+        guard let resolvedMessage = message else { return nil }
         return ErrorResponse(
             code: errorCode ?? code ?? "HTTP_\(statusCode)",
             message: resolvedMessage,

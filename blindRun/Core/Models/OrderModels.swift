@@ -87,9 +87,34 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    /// Whether the emergency trigger is available
-    var canTriggerEmergency: Bool {
-        showsEmergencyPlaceholder
+    /// Whether the blind runner may trigger the in-run SOS. Enabled in `IN_PROGRESS` only:
+    /// that is the one state where the live escort session is guaranteed to be holding a fresh
+    /// real coordinate, and the one the backend's participant check accepts for this role.
+    var canBlindRunnerTriggerEmergency: Bool {
+        self == .inProgress
+    }
+
+    /// The volunteer SOS entry is deliberately never shown, regardless of status.
+    ///
+    /// This is a backend routing defect, not a missing screen: `EmergencyService.triggerEmergency`
+    /// keys the event on the *triggering* user, so a volunteer-initiated SOS pushes
+    /// `EMERGENCY_VOLUNTEER_ALERT` back to the volunteer who pressed it
+    /// (`demo/.../service/EmergencyService.java:323`), never notifies the blind runner, and
+    /// escalates to the *volunteer's* emergency contacts rather than the blind runner's (`:347-383`).
+    /// Flip this to `self == .inProgress` once the backend escalates by order participant.
+    var canVolunteerTriggerEmergency: Bool {
+        false
+    }
+
+    func canTriggerEmergency(as role: UserRole) -> Bool {
+        switch role {
+        case .blind:
+            return canBlindRunnerTriggerEmergency
+        case .volunteer:
+            return canVolunteerTriggerEmergency
+        case .unset:
+            return false
+        }
     }
 
     var blindRunnerRoute: BlindRunnerOrderRoute {
@@ -147,10 +172,6 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    var showsEmergencyPlaceholder: Bool {
-        // Current release hides the emergency affordance until the safety flow is explicitly approved.
-        return false
-    }
 }
 
 // MARK: - Pace & Route Preferences
@@ -353,6 +374,37 @@ struct EmergencyTriggerRequest: Codable, Sendable {
     let orderId: Int64
     let gpsLat: Double?
     let gpsLng: Double?
+}
+
+/// Structured success body of `POST /api/emergency/trigger`.
+/// Shape taken from `demo/.../controller/EmergencyController.java:34-38`, which returns a bare
+/// `Map` rather than the usual `ApiResponse` envelope — `URLSessionAPIClient` decodes it directly.
+/// `api_spec.yaml:1024-1030` only declares `type: object`, so the controller is the contract.
+struct EmergencyTriggerResponse: Codable, Sendable, Equatable {
+    let success: Bool
+    let eventId: Int64
+    let status: String
+
+    var eventStatus: EmergencyEventStatus {
+        EmergencyEventStatus(rawValue: status) ?? .unknown
+    }
+}
+
+/// Mirrors backend `entity/EmergencyStatus.java`. `unknown` absorbs values added server-side later:
+/// a status this client cannot name must never be presented as a rescue guarantee.
+enum EmergencyEventStatus: String, Codable, Sendable, CaseIterable {
+    case pending = "PENDING"
+    case volunteerNotified = "VOLUNTEER_NOTIFIED"
+    case volunteerConfirmed = "VOLUNTEER_CONFIRMED"
+    case csHandling = "CS_HANDLING"
+    case contactNotified = "CONTACT_NOTIFIED"
+    case resolved = "RESOLVED"
+    case falseAlarm = "FALSE_ALARM"
+    case unknown = "UNKNOWN"
+
+    var isTerminal: Bool {
+        self == .resolved || self == .falseAlarm
+    }
 }
 
 // MARK: - Location Source

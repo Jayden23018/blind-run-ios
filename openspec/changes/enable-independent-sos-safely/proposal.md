@@ -1,28 +1,49 @@
-> # ⛔ 状态：本版不交付（DEFERRED — NOT SHIPPING IN THIS RELEASE）
+> # ▶ 状态：已重启（RESTARTED — 2026-07-31，盲人侧交付）
 >
-> **决策日期**：2026-07-31 ｜ **决策人**：项目负责人 ｜ **代码进度**：0/28，iOS 侧完全未启动
+> **重启日期**：2026-07-31 ｜ 取代同日更早的「本版不交付」决策（提交 `443e741`），该决策**已作废**。
 >
-> **不交付的原因**
+> **重启的依据：不再空等后端答复，改为直接读后端实现定契约。**
+> `design.md` 的 5 个 `需要人工确认` 至今无书面答复，但其中 3 个已由前端读后端源码得到事实性答案，
+> 另外 2 个已用「守卫默认严格 + 一个常量可翻转」的方式绕开。逐条见下。
 >
-> 1. **依赖的后端语义未澄清**。本提案的核心承诺——「只有在后端确认短信真的送达后才展示『联系人已收到短信』」——目前无法兑现：`design.md` 里 7 处 `需要人工确认` 全部未答复，其中最关键的是 `EMERGENCY_CONTACT_NOTIFIED` 到底代表短信被服务商受理、已投递到手机，还是仅仅入队。在这条语义定死之前，任何 SOS UI 都可能对用户过度承诺救援已经发生。
-> 2. **本 release 不宣称求助能力**。与 `plan.md:76` 的人工确认项一致：当前 release 隐藏求助入口，不宣称真实求助能力；`POST /api/emergency/trigger` 仅作为后端合同探针保留。`AGENTS.md` 第 6/10 节同样规定本版必须隐藏紧急入口。
+> **交付范围被收窄为「仅盲人侧」**（与本文 What Changes 的双角色描述有差异，以本块为准）：
 >
-> **当前代码事实（与本提案一致，无需改动）**
+> - ✅ **盲人侧 `IN_PROGRESS` SOS 交付**——后端链路核实正确。
+> - ⛔ **志愿者侧入口继续隐藏**——**不是前端没做，是后端会送错人**。
+>   `demo/.../service/EmergencyService.java:310-333` 把事件挂在**触发者** `event.userId` 上：
+>   志愿者触发时 `sendEmergencyVolunteerAlert(event, order.getVolunteer().getId())`（`:323`）
+>   把「您陪伴的盲人用户触发了紧急求助」推给**触发者自己**，盲人一条都收不到；
+>   30 秒后 `escalateToEmergencyContacts`（`:347`）查的是**志愿者本人**的紧急联系人
+>   （志愿者没有强制录入）→ 走 `EMERGENCY_NO_CONTACT` 分支。
+>   即：志愿者拉响警报时，盲人的家属**恰恰不会**被联系。等后端按订单参与方路由后再开。
 >
-> - `blindRun/Core/Models/OrderModels.swift:150` `showsEmergencyPlaceholder` 硬编码 `return false`，两个角色都不展示紧急入口。
-> - `/api/emergency/trigger` 只存在于 `blindRun/Core/MockAPIClient.swift:337`，真实 `APIClient` 无调用。
-> - WebSocket 的 emergency 事件只收不发（由 `AppRealtimeCoordinator` 按稳定事件标识路由，但不实现任何功能动作）。
+> **三条已由代码核实的事实（据此定文案，不再等答复）**
 >
-> **本提案不归档、tasks 不删除**：28 项任务全部保留，作为重启时的现成清单。
+> 1. **`EMERGENCY_CONTACT_NOTIFIED` 发出时，短信一次都还没尝试发。**
+>    `EmergencyService.java:370-373` 的 WS 推送是**事务内同步**的，注释自陈「保证盲人即时收到"已通知家属"反馈」；
+>    真正发短信的 `EmergencyContactNotifier.onNotifyContacts` 是
+>    `@TransactionalEventListener(AFTER_COMMIT)` + `@Async`（`:60-62`），**严格在其之后**。
+>    → App **永久禁用**「联系人已收到短信」「已通知家属」这类完成时文案，只用进行时。
+> 2. **短信失败时盲人收不到任何更正。** `EmergencyContactNotifier.java:126-135` 只把
+>    `EMERGENCY_SMS_FAILED` 广播给客服。→ 文案按最坏情况写，全程不承诺送达。
+> 3. **`EMERGENCY_CONTACT_NOTIFIED` 不是顶层 WS 类型，也不带 `eventId`。**
+>    `docs/websocket-protocol.md:222-234` 写的是 `{"type":"EMERGENCY_CONTACT_NOTIFIED","eventId":456,...}`，
+>    但实现走 `NotificationService.sendNotification` → `buildEnvelope("APP_NOTIFICATION")`（`:93-99`），
+>    实际是 `{"type":"APP_NOTIFICATION","eventType":"EMERGENCY_CONTACT_NOTIFIED","body":...}`，**无 eventId / orderId**。
+>    → `design.md` 决策 5「按 eventId 匹配后才展示短信文案」在当前后端**不可能成立**；
+>    该规则退化为其守卫含义：**该文案永不展示**。契约文档与实现不一致一事已投递后端。
 >
-> **重启的前置条件**（全部满足才可重新排期）
+> **两条产品决策用可翻转常量绕开，不阻塞交付**
 >
-> 1. 后端书面答复 `design.md` 中全部 `需要人工确认`，其中 `EMERGENCY_CONTACT_NOTIFIED` 的投递语义为**硬前置**。
-> 2. 产品 / 合规批准严格无 GPS 阻断策略（`design.md:43`），以及最终的求助文案与责任边界。
-> 3. `enable-live-escort-location-and-track-summary` 已交付并通过双真机验收——本提案的新鲜真实 GCJ-02 坐标依赖同行会话的定位链路。
-> 4. 二次确认文案必须与 `AGENTS.md` 第 10 节的强制原文逐字一致。
+> 4. **严格 GPS 门槛**（`design.md:43`）：默认**严格阻断**，
+>    `EmergencyCoordinator.allowsSubmissionWithoutLocation = false`。后端 `EmergencyTriggerRequest`
+>    的 `gpsLat/gpsLng` 本就可空（降级路径存在），产品/安全批准后改这一个常量即可。
+> 5. **断线重启后的事件恢复**（`design.md:97`）：后端**没有**任何查询端点或重放机制。
+>    → 前端**不持久化**任何事件元数据，进程重启即清空。
+>    这样「不得把未经后端确认的状态当权威呈现」自动成立，零代码。
 >
-> 在以上条件满足前，**不要**依据本提案实现任何 SOS UI、不要打开 `showsEmergencyPlaceholder`、也不要在真实 `APIClient` 中新增 `/api/emergency/trigger` 调用。
+> **仍然不变的红线**：二次确认文案必须与 `AGENTS.md` 第 10 节原文逐字一致；
+> 禁止任何 Mock/兜底坐标进入云端请求；SOS 不改变 `RunOrderStatus`。
 
 ## Why
 

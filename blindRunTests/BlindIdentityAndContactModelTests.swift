@@ -181,6 +181,61 @@ final class MockEmergencyContactContractTests: XCTestCase {
             XCTAssertEqual(response.code, ErrorCode.securityForbidden.rawValue)
         }
     }
+
+    // MARK: - 联系人手机号格式校验（后端 2026-07-31 给 phone 加了 @Pattern）
+
+    /// 紧急联系人号码是走散时的唯一求助通道，填错等于安全网静默失效。
+    /// 后端已加 `@Pattern(^1[3-9]\d{9}$)`，Mock 不能再比线上松 ——
+    /// 松了就把「乱填的号码能存进去」这个缺口在开发期遮住。
+    func testMockRejectsMalformedContactPhoneLikeBackendPattern() async throws {
+        let client = MockAPIClient()
+
+        for malformed in ["12345678901", "1380013800", "138001380000", "abcdefghijk"] {
+            do {
+                let _: EmergencyContactResponse = try await client.post(
+                    "/api/users/1/emergency-contacts",
+                    body: request(name: "家人", phone: malformed)
+                )
+                XCTFail("非法手机号 \(malformed) 不应被 Mock 接受")
+            } catch let error as APIError {
+                // Bean Validation 统一走 VALIDATION_ERROR，不是三个 CONTACT_* 专用码。
+                XCTAssertEqual(error.errorCode, .validationFailed, "malformed=\(malformed)")
+            }
+        }
+
+        let accepted: EmergencyContactResponse = try await client.post(
+            "/api/users/1/emergency-contacts",
+            body: request(name: "家人", phone: "13900139009")
+        )
+        XCTAssertEqual(accepted.phone, "13900139009")
+    }
+
+    /// 后端 `EmergencyContactRequest` 没有 `@NotBlank`，`@Pattern` 对 null 放行：
+    /// 所以「phone 缺省」才会走到服务端手写的 CONTACT_FIELD_REQUIRED，
+    /// 「phone 传空串」则被 `@Pattern` 先拦成 VALIDATION_ERROR。顺序错了 Mock 就与线上报不同的码。
+    func testMissingPhoneYieldsFieldRequiredWhileBlankPhoneYieldsValidationError() async throws {
+        let client = MockAPIClient()
+
+        do {
+            let _: EmergencyContactResponse = try await client.post(
+                "/api/users/1/emergency-contacts",
+                body: EmergencyContactRequest(name: "家人", phone: nil, relationship: "家人", isPrimary: nil)
+            )
+            XCTFail("新增联系人缺手机号应当被拒绝")
+        } catch let error as APIError {
+            XCTAssertEqual(error.errorCode, .contactFieldRequired)
+        }
+
+        do {
+            let _: EmergencyContactResponse = try await client.post(
+                "/api/users/1/emergency-contacts",
+                body: request(name: "家人", phone: "")
+            )
+            XCTFail("空手机号应当被拒绝")
+        } catch let error as APIError {
+            XCTAssertEqual(error.errorCode, .validationFailed)
+        }
+    }
 }
 
 final class MockBlindIdentityVerificationTests: XCTestCase {

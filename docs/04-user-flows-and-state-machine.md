@@ -62,9 +62,11 @@ flowchart TD
     BR_Home -->|"设置"| Settings
     Settings -->|"编辑资料"| ProfileEdit
 
-    BR_Home -.->|"切换角色"| VOL_Home
-    VOL_Home -.->|"切换角色"| BR_Home
+    BR_Home -.->|"切换角色（未决/未实现）"| VOL_Home
+    VOL_Home -.->|"切换角色（未决/未实现）"| BR_Home
 ```
+
+**【未决 / 未实现】** 上图两条虚线（切换角色）当前**不存在**：后端没有角色切换端点，App 内入口已删除。详见第 6 节。
 
 ## 2. 订单状态机
 
@@ -113,12 +115,17 @@ stateDiagram-v2
 
 - 盲人跑者端仅在 `PENDING_MATCH`、`PENDING_ACCEPT`、`REMATCHING` 显示"取消订单"，均需二次确认。
 - 志愿者端仅在 `PENDING_ACCEPT`、`DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 显示"取消订单"，均需二次确认；取消成功后不再用志愿者 token 拉取该订单详情。
-- 盲人跑者端在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 不显示取消按钮；当前 release 也不显示求助入口，真实安全求助需后续专项恢复。
+- 盲人跑者端在 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED`、`IN_PROGRESS` 不显示取消按钮。
+
+求助入口显示规则：
+
+- 盲人跑者端仅在 `IN_PROGRESS` 显示"一键求助"，需二次确认（`RunOrderStatus.canBlindRunnerTriggerEmergency` / `canTriggerEmergency(as:)`，`blindRun/Core/Models/OrderModels.swift`）。
+- 志愿者端全状态不显示求助入口（`canVolunteerTriggerEmergency` 恒为 `false`）。原因：后端按**触发人**建事件，志愿者发起的求助只会提醒志愿者自己、不通知盲人，并升级到志愿者自己的紧急联系人（后端 `service/EmergencyService.java:310-333, 347-383`）；待后端改为按订单参与方路由后再开。
 
 ### 禁止的流转
 
 - COMPLETED / CANCELLED / NO_VOLUNTEER → 任何状态（终态）
-- 后端 emergency event 不得作为订单状态；当前 release iOS UI 不触发该事件。
+- 后端 emergency event 不得作为订单状态；盲人端触发求助后订单仍保持 `IN_PROGRESS`，`RunOrderStatus` 不因求助改变。
 
 ## 3. 盲人跑者正向流程（Happy Path）
 
@@ -253,26 +260,53 @@ sequenceDiagram
     App->>VOL: 显示"服务完成，获得 +100 积分"
 ```
 
-## 5. 紧急求助当前 release 处理
+## 5. 盲人一键求助流程
 
 ```mermaid
 sequenceDiagram
-    actor User as 任一方用户
+    actor BR as 盲人跑者
     participant App as iOS App
-    participant Probe as 合同探针脚本
+    participant Loc as LocationService
     participant API as 云端 API
 
-    Note over User,App: 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
+    Note over BR,App: 仅订单状态为 IN_PROGRESS 且角色为盲人时显示入口；志愿者端全状态隐藏
 
-    User->>App: 查看订单/服务页面
-    App->>User: 不显示"紧急求助"或"一键求助"入口
+    BR->>App: 点击"一键求助"
+    App->>BR: 二次确认"是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
 
-    Probe->>API: POST /api/emergency/trigger
-    API-->>Probe: emergency event
-    Note over Probe,API: 仅验证后端合同，不代表 iOS UI 已上线求助能力
+    alt 用户取消
+        BR->>App: 取消
+        App->>BR: 不发送任何请求，订单状态不变
+    else 用户确认
+        BR->>App: 确认求助
+        App->>Loc: 取最新真实 GCJ-02 样本
+        alt 无新鲜真实坐标
+            Loc-->>App: nil
+            App->>BR: "求助未发出：当前无法获取你的位置。请在设置中允许定位后重试，或直接拨打110。"
+        else 有新鲜真实坐标
+            Loc-->>App: GCJ-02 坐标
+            App->>API: POST /api/emergency/trigger { orderId, gpsLat, gpsLng }
+            alt 受理
+                API-->>App: { success, eventId, status }
+                App->>BR: 按 status 播报进行时文案；订单仍为 IN_PROGRESS
+            else 冷却
+                API-->>App: 429 TOO_MANY_REQUESTS + retryAfterSeconds
+                App->>BR: 按权威秒数提示稍后再试 + 拨打110
+            else 非参与方 / 订单不存在
+                API-->>App: 403 NOT_ORDER_PARTICIPANT / 400 BAD_REQUEST
+                App->>BR: "求助未发出：…" + 拨打110
+            end
+        end
+    end
+
+    API-->>App: EMERGENCY_CONTACT_NOTIFIED（实时通知）
+    App->>BR: "系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打110。"
+    Note over App,BR: 永不声称短信已送达或联系人已被联系上
 ```
 
 ## 6. 角色切换拦截流程
+
+**【未决 / 未实现】** 「一号一身份 vs 双身份」尚未有产品结论（见 `demo/docs/handoff.md` 2026-07-31「一号一身份是不是最终产品形态」）。后端当前**没有任何角色切换端点**，App 内切换角色入口已删除，下面这张图不描述任何已实现的流程。
 
 ```mermaid
 flowchart TD

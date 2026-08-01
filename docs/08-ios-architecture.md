@@ -27,7 +27,7 @@ Suggested source groups:
 - `Orders`: order DTOs, order state machine helpers, polling
 - `Map`: AMap bridge, current location, markers, distance calculation, external map app navigation launchers
 - `Voice`: TTS, repeat current status, speech input helpers
-- `Safety`: shared dangerous-action copy/components retained for future emergency enablement; current release uses cancellation, completion, and logout confirmations
+- `Safety`: shared dangerous-action copy/components, plus the one-tap SOS. `EmergencySafetyCopy` is the single place every user-facing SOS string lives, and `EmergencyCoordinator` is the app-lifetime owner of SOS state (`blindRun/Safety/EmergencyCoordinator.swift`)
 - `Profile`: blind runner and volunteer profile forms
 - `AppRealtimeCoordinator`: `AppState` 持有的 app-lifetime 解码事件路由、优先队列、去重和重连恢复信号；不持有完整订单或 feature policy
 
@@ -46,9 +46,10 @@ Recommended examples:
 - `BlindBookingViewModel`: location permission, default start coordinate, booking form validation, create order. It must refuse to call `POST /api/orders` unless every booking gate passes, and surface the first actionable missing gate.
 - `EmergencyContactsViewModel`: owns the complete server-returned contact list and the create/update/delete/set-primary calls. After every mutation it reloads the full list rather than patching local state, so the exactly-one-primary invariant always comes from the server.
 - `BlindIdentityVerificationViewModel`: holds the identity-card number only in memory for the duration of one submission, clears it on submit, disappear, and backgrounding, and never publishes it to `AppState`.
-- `BlindOrderStatusViewModel`: coordinator refresh/peer-location outputs, 5-second REST polling, typed volunteer-location fallback, status TTS, cancel, completed/rating UI. Current release hides emergency UI.
+- `BlindOrderStatusViewModel`: coordinator refresh/peer-location outputs, 5-second REST polling, typed volunteer-location fallback, status TTS, cancel, completed/rating UI. It shows the SOS entry in `IN_PROGRESS` only, sources a fresh real GCJ-02 sample before triggering, and delegates the request and all state to `AppState.emergencyCoordinator`.
+- `EmergencyCoordinator`: app-lifetime owner of the SOS. Re-checks `canTriggerEmergency(as:)` against the canonical order status at send time, posts `POST /api/emergency/trigger` with `EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`, maps 429/403/400 to non-submitted copy, applies realtime follow-ups, and is reset on logout, account deletion, session expiration, user change, and role switch. Nothing is persisted to disk.
 - `VolunteerHomeViewModel`: availability, current location, dispatch summary, readiness reasons, temporary points, active/recent orders, retained coordinator dispatch prompts.
-- `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, start-service, strict IN_PROGRESS finish gate, cancel. Current release hides emergency UI.
+- `VolunteerOrderDetailViewModel`: WebSocket location pre-report before accept, respond accept/decline, en-route, arrived, start-service, strict IN_PROGRESS finish gate, cancel. The volunteer never shows an SOS entry in any status.
 - `VolunteerInServiceViewModel`: active order polling, en-route/arrived/start-service/finish actions, strict IN_PROGRESS finish gate, service-completion refresh.
 
 ## 4. API Environment Switch
@@ -199,8 +200,10 @@ Stop polling when:
 - Every key button, input, and status text needs `accessibilityLabel` and `accessibilityHint`.
 - Main flow nodes call TTS through a shared `SpeechService`.
 - Every key blind runner page has a “重复当前状态” button.
-- Dangerous actions require confirmation: cancel order, complete service, logout, and any future re-enabled emergency action.
-- Emergency controls are hidden in the current release; production emergency recording UI must be re-enabled by a dedicated safety change.
+- Dangerous actions require confirmation: cancel order, complete service, logout, and the one-tap SOS.
+- The SOS entry is shown to the blind runner in `IN_PROGRESS` only and never to the volunteer. Its confirmation copy is fixed; cancelling the confirmation sends nothing.
+- “重复当前状态” speaks the canonical order status first and appends the latest SOS state after it — never instead of it.
+- SOS copy must never claim an emergency SMS was delivered or that a contact has been reached. The backend pushes `EMERGENCY_CONTACT_NOTIFIED` inside the trigger transaction while the SMS is sent afterwards and failures reach CS only, so iOS substitutes progressive-tense copy owned by `EmergencySafetyCopy`.
 
 ## 10. Demo Acceptance Flow
 

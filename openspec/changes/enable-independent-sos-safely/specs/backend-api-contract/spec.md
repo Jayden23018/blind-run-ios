@@ -1,15 +1,16 @@
 ## ADDED Requirements
 
-### Requirement: API contract defines dual-role order-associated SOS
-The canonical API contract MUST authorize both associated `BLIND` and `VOLUNTEER` tokens to call `POST /api/emergency/trigger` for their `IN_PROGRESS` order and MUST define GCJ-02 request fields.
+### Requirement: API contract defines order-associated SOS authorization
+The canonical API contract MUST define who may call `POST /api/emergency/trigger` for an `IN_PROGRESS` order and MUST define GCJ-02 request fields. Volunteer-token triggers MUST NOT be documented as usable until the backend escalates by order participant instead of by triggering user.
 
 #### Scenario: Blind participant triggers
 - **WHEN** the blind participant submits the owned `IN_PROGRESS` order ID and valid current GCJ-02 GPS
 - **THEN** the backend accepts or rejects it using the documented structured contract
 
 #### Scenario: Volunteer participant triggers
-- **WHEN** the accepted volunteer submits the same order association and valid current GCJ-02 GPS
-- **THEN** the backend applies equivalent authorization/event semantics
+- **WHEN** the accepted volunteer submits the same order association
+- **THEN** the contract MUST state that the resulting event is keyed to the volunteer, alerts that same volunteer, does not notify the blind runner, and escalates to the volunteer's own emergency contacts
+- **AND** iOS MUST NOT enable a volunteer trigger until that behavior changes
 
 #### Scenario: User is not an eligible participant
 - **WHEN** the token is not a participant or the order is not `IN_PROGRESS`
@@ -38,14 +39,20 @@ The canonical WebSocket/recovery contract MUST define event-ID/order-ID-keyed su
 - **THEN** both relevant clients can receive or recover the authoritative result
 
 ### Requirement: SMS notification semantics are explicit
-The contract MUST state whether contact-notified means queued, provider-accepted, delivered to handset, or another precisely defined state so iOS copy does not overpromise.
+The contract MUST state that its contact-notified event is emitted before the SMS is attempted and therefore proves nothing about delivery, and MUST document the message's real envelope, which today is an `APP_NOTIFICATION` carrying an `eventType` and no event or order ID.
 
 #### Scenario: iOS receives contact-notified event
 - **WHEN** the backend emits the event
-- **THEN** the documented semantics are sufficient to decide whether “联系人已收到短信” is truthful and approved
+- **THEN** the documented semantics MUST make clear that receipt is unproven
+- **AND** iOS MUST present progressive-tense copy rather than any delivery claim
+
+#### Scenario: SMS delivery fails
+- **WHEN** the emergency SMS fails to send
+- **THEN** the contract MUST state whether the triggering user is informed
+- **AND** while no correction reaches that user, iOS MUST assume the worst case in its copy
 
 ### Requirement: Emergency event recovery is participant authorized
-The external contract MUST provide an authenticated mechanism for either associated participant to recover the authoritative state of an owned event after reconnect or relaunch.
+The external contract MUST provide an authenticated mechanism for an associated participant to recover the authoritative state of an owned event after reconnect or relaunch. While no such mechanism exists, iOS MUST NOT persist emergency state across launches.
 
 #### Scenario: Participant recovers owned event
 - **WHEN** iOS requests state for an event associated with the authenticated participant/order

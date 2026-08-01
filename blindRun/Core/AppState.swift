@@ -60,6 +60,7 @@ final class AppState: ObservableObject {
     private let tokenStore: any TokenStoring
     let realtimeCoordinator: AppRealtimeCoordinator
     let liveEscortCoordinator: LiveEscortSessionCoordinator
+    let emergencyCoordinator: EmergencyCoordinator
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Session
@@ -71,6 +72,7 @@ final class AppState: ObservableObject {
             if oldValue != accessToken {
                 realtimeCoordinator.detach(clearSessionState: true)
                 liveEscortCoordinator.reset(clearIdentity: false)
+                emergencyCoordinator.reset()
             }
         }
     }
@@ -83,6 +85,7 @@ final class AppState: ObservableObject {
             if oldValue != nil, oldValue != userId {
                 realtimeCoordinator.detach(clearSessionState: true)
                 liveEscortCoordinator.reset(clearIdentity: false)
+                emergencyCoordinator.reset()
             }
         }
     }
@@ -102,6 +105,7 @@ final class AppState: ObservableObject {
             if oldValue != activeRole {
                 realtimeCoordinator.detach(clearSessionState: true)
                 liveEscortCoordinator.reset(clearIdentity: false)
+                emergencyCoordinator.reset()
             }
         }
     }
@@ -295,6 +299,8 @@ final class AppState: ObservableObject {
         let realtimeCoordinator = AppRealtimeCoordinator()
         self.realtimeCoordinator = realtimeCoordinator
         self.liveEscortCoordinator = LiveEscortSessionCoordinator(realtimeCoordinator: realtimeCoordinator)
+        let emergencyCoordinator = EmergencyCoordinator()
+        self.emergencyCoordinator = emergencyCoordinator
         self.apiClientOverride = apiClient
         self.persistence = persistence
         self.tokenStore = tokenStore ?? TokenStoreFactory.makeDefault()
@@ -306,6 +312,9 @@ final class AppState: ObservableObject {
         }
         self.didDismissBlindIdentityPrompt =
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed) as? Bool ?? false
+
+        // 紧急事件的后续推送在触发它的界面消失后才到，订阅点必须在 App 生命周期层。
+        emergencyCoordinator.observe(realtimeCoordinator)
 
         // WS 重连成功后补读断线期间遗漏的通知，喂回 coordinator 复用去重/优先级排队。
         realtimeCoordinator.recoveryPublisher
@@ -597,7 +606,9 @@ final class AppState: ObservableObject {
     }
     #endif
 
-    static func isValidMainlandPhone(_ phoneNumber: String) -> Bool {
+    /// 纯函数、无状态；`MockAPIClient` 等非 MainActor 上下文也要用它做与后端
+    /// `@Pattern(^1[3-9]\d{9}$)` 同源的校验，所以显式 nonisolated。
+    nonisolated static func isValidMainlandPhone(_ phoneNumber: String) -> Bool {
         let pattern = #"^1[3-9]\d{9}$"#
         return phoneNumber.range(of: pattern, options: .regularExpression) != nil
     }

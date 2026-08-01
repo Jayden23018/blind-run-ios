@@ -7,7 +7,8 @@
 1. **真实闭环优先**：预约、接单、状态流转、取消、紧急事件必须接入真实后端并在真机验收。
 2. **Mock 只用于开发测试**：Mock 可用于离线 UI 和单元测试，但不能作为上线验收依据。
 3. **无障碍不可妥协**：VoiceOver、TTS、极简大按钮必须在每一个盲人端页面上正常工作。
-4. **一个手机号可拥有双角色**：用户可以在 App 内切换 activeRole，但有活跃订单时禁止切换。
+4. ~~**一个手机号可拥有双角色**：用户可以在 App 内切换 activeRole，但有活跃订单时禁止切换。~~
+   **【未决 / 未实现】** 「一号一身份 vs 双身份」尚未有产品结论（见 `demo/docs/handoff.md` 2026-07-31「一号一身份是不是最终产品形态」，后端已转给拍板人）。后端当前**没有任何角色切换端点**（`RoleController` 只有 `POST /api/user/role`，角色非 `UNSET` 即 409 `ROLE_ALREADY_SET`），App 内切换角色入口已删除。本条在结论出来前不代表现状，也不代表已排期。
 5. **上线风险显式记录**：固定验证码和 HTTP 已允许用于当前版本；token 已迁移 Keychain，剩余的 HTTPS/WSS、隐私合规和双真机验收状态必须进入 `plan.md`。
 
 ---
@@ -20,8 +21,9 @@
 |------|--------|------|
 | 手机号 + 验证码登录 | P0 | 验证码固定 `000000`，首次登录自动创建账号 |
 | JWT Token 管理 | P0 | 登录返回 JWT，存储于 Keychain |
-| 角色选择与切换 | P0 | 支持在盲人跑者 / 志愿者之间切换 |
-| 角色切换拦截 | P0 | 存在 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 状态订单时禁止切换 |
+| 角色选择 | P0 | 首次登录选择盲人跑者 / 志愿者，一次性设定 |
+| 角色切换 | **未决** | 【未决 / 未实现】后端无切换端点，App 内入口已删除。见本文件顶部假设 4 的说明 |
+| 角色切换拦截 | **未决** | 【未决 / 未实现】依赖上一行；原设计为存在 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 状态订单时禁止切换 |
 | API 环境切换 | P1 | Debug 开发包支持 Mock / Demo Cloud；Demo/Production 包隐藏切换入口 |
 | 设置页 | P2 | 基本设置：个人信息、关于、退出登录 |
 | APNs 远程推送 | P1 | 登录后申请通知授权并把 deviceToken 提交 `POST /api/devices/apns`（32~128 位 hex）；后端仅对 `HIGH` 优先级通知补发 APNs。**推送 capability 需要付费开发者团队签名，个人免费团队签出的构建收不到推送**，真机验证必须用付费团队 profile |
@@ -37,7 +39,8 @@
 | 盲人首页 | P0 | 语音优先呈现当前状态和下一步主操作；地图定位保留为辅助确认内容 |
 | 创建预约 | P0 | 引导式流程：确认出发地点、选择预约时间、填写选填跑步需求、确认后提交；选填项包括路线备注、预计时长、配速偏好、路线偏好、导盲犬和特殊说明 |
 | 订单状态等待页 | P0 | WebSocket 接收状态变化，断开时每 5 秒轮询订单详情 |
-| 盲人服务中页面 | P0 | 显示志愿者信息和服务进行状态；当前 release 隐藏一键求助入口 |
+| 盲人服务中页面 | P0 | 显示志愿者信息和服务进行状态；`IN_PROGRESS` 显示一键求助入口 |
+| 盲人一键求助 | P0 | 仅 `IN_PROGRESS` 且角色为盲人时显示（`RunOrderStatus.canBlindRunnerTriggerEmergency`）。二次确认后 `POST /api/emergency/trigger` 上送 `orderId` + 真实 GCJ-02 坐标；拿不到新鲜真实坐标就不发请求并如实播报「求助未发出」。求助事件不是订单状态，不改变 `RunOrderStatus`；文案不得声称短信已送达 |
 | 盲人完成/评分页 | P0 | 显示完成状态，星级评分 UI（不强制提交） |
 | 取消订单 | P0 | 盲人可在 PENDING_MATCH / PENDING_ACCEPT / REMATCHING 取消；志愿者取消后订单进入 REMATCHING，盲人端可用盲人 token 取消，均需二次确认 |
 | 重复当前状态播报按钮 | P0 | 每个关键页面提供，与 VoiceOver 并存不冲突 |
@@ -53,7 +56,7 @@
 | 志愿者服务中页面 | P0 | 前往出发地点地图固定红色出发点标记、外部地图步行导航、「我已出发」「我已到达」「开始服务」按钮、志愿者在 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 可取消，进入 IN_PROGRESS 后显示「结束服务」 |
 | 服务记录页 | P1 | 已完成的订单列表，显示时间、盲人昵称、积分 |
 | 积分/商城页 | P2 | 当前展示积分余额和商品入口；真实兑换、库存和支付按后续契约接入 |
-| 一键求助 | P0 | 后端合同保留，当前 release 不显示入口；后续安全专项启用时必须补 GPS、通知、失败提示、合规文案和验收 |
+| 一键求助 | P0 | 志愿者端全状态不显示入口（`RunOrderStatus.canVolunteerTriggerEmergency` 恒为 `false`）。原因：后端按**触发人**建事件，志愿者发起的求助只会提醒志愿者自己、不会通知盲人，且升级到志愿者自己的紧急联系人而非盲人的（后端 `service/EmergencyService.java:310-333, 347-383`）。待后端改为按订单参与方路由后再开 |
 | 取消订单 | P0 | 盲人可在 PENDING_MATCH / PENDING_ACCEPT / REMATCHING 取消；志愿者可在 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 取消，志愿者取消后进入 REMATCHING；均需二次确认 |
 
 ### 地图与定位
@@ -75,7 +78,7 @@
 | TTS 语音播报 | P0 | AVSpeechSynthesizer，所有关键流程节点播报 |
 | 语音输入 | P1 | Speech Framework，用于地点描述、备注等文本输入 |
 | 极简大按钮 | P0 | 盲人端关键主按钮最小高度 64pt |
-| 危险操作二次确认 | P0 | 取消订单、结束服务、退出登录；未来恢复一键求助时也必须二次确认 |
+| 危险操作二次确认 | P0 | 取消订单、结束服务、退出登录、一键求助。求助确认文案固定为「是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。」，取消则什么都不发送 |
 
 ### 外部云端 API 对接
 
@@ -86,7 +89,7 @@
 | profile（资料管理） | P0 | 盲人/志愿者资料 CRUD |
 | order（订单管理） | P0 | 订单 CRUD、状态流转、WebSocket 通知与轮询降级查询 |
 | location（位置） | P1 | 位置信息存储 |
-| safety（安全） | P0 | 紧急联系人存储与管理（`/api/users/{userId}/emergency-contacts` 增删改查 + `set-primary`，1～5 个，恰好 1 个 primary，且是下单前置校验）；紧急求助触发仅保留后端合同探针，当前 iOS release 隐藏入口 |
+| safety（安全） | P0 | 紧急联系人存储与管理（`/api/users/{userId}/emergency-contacts` 增删改查 + `set-primary`，1～5 个，恰好 1 个 primary，且是下单前置校验）；紧急求助触发 `POST /api/emergency/trigger`，盲人端 `IN_PROGRESS` 真实调用，志愿者端不调用 |
 | volunteer（志愿者） | P0 | 认证状态管理、可服务开关 |
 | OpenAPI 契约 | P0 | 以后端仓库的 `docs/api_spec.yaml` 驱动前端对接；本仓库不再维护契约副本（见 `docs/07-api-contract-MOVED.md`） |
 | 并发接单错误处理 | P0 | 前端正确处理 `ORDER_ALREADY_ACCEPTED` |
@@ -171,15 +174,24 @@
 | 16 | 盲人端轮询到状态变更 | 手机 A | 显示完成页面 + 评分 UI，TTS 播报"服务已完成" |
 | 17 | 盲人评分（可选） | 手机 A | 完成评分，返回首页 |
 
-### 场景 2：紧急求助当前 release 处理
+### 场景 2：盲人一键求助
 
 | 步骤 | 操作 | 设备 | 预期结果 |
 |------|------|------|----------|
-| 1 | 订单处于 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 状态 | 双设备 | iOS UI 不显示"紧急求助"或"一键求助"入口 |
-| 2 | 后端合同探针调用 `POST /api/emergency/trigger` | 脚本 | 可验证云端 emergency event 合同，不代表 iOS UI 已上线求助 |
-| 3 | 后续安全专项恢复求助 | 双设备 | 必须新增 GPS、通知、失败提示、合规文案和真实盲人验收 |
+| 1 | 订单处于 PENDING_MATCH / PENDING_ACCEPT / REMATCHING / DRIVER_EN_ROUTE / DRIVER_ARRIVED / COMPLETED / CANCELLED | 手机 A | 盲人端不显示"一键求助"入口 |
+| 2 | 订单进入 IN_PROGRESS | 手机 A | 盲人端显示"一键求助"按钮，最小高度 64pt，带 accessibilityLabel / Hint |
+| 3 | 志愿者端任意状态 | 手机 B | 全程不显示"紧急求助"或"一键求助"入口 |
+| 4 | 盲人点击"一键求助" | 手机 A | 弹出二次确认："是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。" |
+| 5 | 盲人在确认弹窗选择"取消" | 手机 A | 不发送任何请求，订单状态不变 |
+| 6 | 盲人选择"确认求助"且有新鲜真实 GCJ-02 坐标 | 手机 A | `POST /api/emergency/trigger` 上送 `orderId` + `gpsLat` + `gpsLng`，返回 `{success, eventId, status}`；界面与 TTS 播报"求助已记录…"，订单状态保持 IN_PROGRESS |
+| 7 | 盲人选择"确认求助"但无新鲜真实坐标 | 手机 A | **不发送请求**，界面与 TTS 播报"求助未发出：当前无法获取你的位置。请在设置中允许定位后重试，或直接拨打110。" |
+| 8 | 冷却期内再次求助 | 手机 A | 后端返回 429 `TOO_MANY_REQUESTS` + `retryAfterSeconds`，界面与 TTS 按权威秒数提示稍后再试 |
+| 9 | 后端推送 `EMERGENCY_CONTACT_NOTIFIED` | 手机 A | 播报"系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打110。"，**不得**出现"联系人已收到短信"一类完成时文案 |
+| 10 | 求助后离开服务页再返回，或点击"重复当前状态" | 手机 A | 求助状态仍在（`EmergencyCoordinator` 为 app 生命周期），"重复当前状态"先播报订单状态，再追加最新求助状态 |
 
 ### 场景 3：角色切换拦截
+
+**【未决 / 未实现】本场景当前不可执行**：App 内没有切换角色入口，后端也没有切换端点。产品结论出来前，此表只保留为设计意图，不进验收清单。
 
 | 步骤 | 操作 | 设备 | 预期结果 |
 |------|------|------|----------|
@@ -213,7 +225,7 @@
 ## 实时协调范围
 
 - 本期包含 app-lifetime WebSocket 事件协调、订单刷新信号、导航期间派单保留、前台通知优先级/无障碍/去重、双向 peer-location 类型化路由和重连恢复信号。
-- 本期包含 `enable-live-escort-location-and-track-summary` 批准的订单双方实时位置、`IN_PROGRESS` 后台定位、服务端安全告警展示和完成后盲人轨迹总结；不包含客户端分离阈值判定、公共轨迹分享、App 内导航或 SOS UI。
+- 本期包含 `enable-live-escort-location-and-track-summary` 批准的订单双方实时位置、`IN_PROGRESS` 后台定位、服务端安全告警展示和完成后盲人轨迹总结；不包含客户端分离阈值判定、公共轨迹分享或 App 内导航；盲人 SOS UI 由 `enable-independent-sos-safely` 单独交付，不属于本条范围。
 - `/api/blind/volunteer-location` 只用于 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 的短期位置回退，不替代 `IN_PROGRESS` 双向流。
 8. HTTP 明文 IP 当前允许上线；token 已迁移 Keychain（`KeychainTokenStore`）。
 ## 当前发布范围：账户生命周期

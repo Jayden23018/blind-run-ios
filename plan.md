@@ -7,7 +7,7 @@ AidRun 当前仓库是原生 iOS 客户端，采用 SwiftUI + MVVM，后端为�
 已经具备的上线基础：
 
 - 手机号验证码登录、JWT 会话（Token 存 Keychain）、`/api/auth/me` 启动校验、服务端撤销登出、两阶段自助删除账户、角色选择与切换。
-- 盲人预约、志愿者接单、出发、到达、开始服务、完成、取消等核心订单流程。**求助（SOS）不在本版范围内**：`OrderModels.swift:150` `showsEmergencyPlaceholder` 恒为 `false`，`/api/emergency/trigger` 只存在于 Mock，见 `openspec/changes/enable-independent-sos-safely/`（0/28，本版不交付）。
+- 盲人预约、志愿者接单、出发、到达、开始服务、完成、取消等核心订单流程。**盲人一键求助（SOS）本版交付，且仅限 `IN_PROGRESS`**：门槛为 `OrderModels.swift:93` `canBlindRunnerTriggerEmergency` / `:109` `canTriggerEmergency(as:)`，触发走真实 `POST /api/emergency/trigger`，状态由 `blindRun/Safety/EmergencyCoordinator.swift` 承接。志愿者侧求助入口全状态隐藏（`OrderModels.swift:105` `canVolunteerTriggerEmergency` 恒为 `false`）。求助事件不是订单状态，不改变 `RunOrderStatus`。见 `openspec/changes/enable-independent-sos-safely/`（2026-07-31 已重启，盲人侧交付）。
 - 盲人实名认证与 1–5 位紧急联系人管理，二者均为 `POST /api/orders` 的硬门槛（服务端 403 `IDENTITY_NOT_VERIFIED` / `EMERGENCY_CONTACT_REQUIRED`）。
 - 志愿者两步注册（身份证 + 阿里云 CloudAuth 原生活体），培训/答题环节已彻底移除。
 - 高德地图桥接、定位、POI 搜索、逆地理编码、地图 marker。
@@ -27,7 +27,7 @@ AidRun 当前仓库是原生 iOS 客户端，采用 SwiftUI + MVVM，后端为�
 - 固定验证码 `000000` 当前允许用于长期测试账号和上线验收。
 - 志愿者身份证、人脸核验和管理员审核已按后端 OpenAPI 契约接入，仍需双真机走查。
 - 真实高德地图、真实定位、真实后端、WebSocket 派单必须在真机 `111` 和 `iPad Pro (2)` 上完成验收。
-- App Store 隐私说明、定位/语音权限说明、无障碍验收需要确认。紧急事件责任边界本版不涉及（求助入口全程隐藏），但发布说明不得暗示 App 具备求助能力。
+- App Store 隐私说明、定位/语音权限说明、无障碍验收需要确认。紧急事件责任边界本版涉及盲人端 `IN_PROGRESS` 求助：发布说明可以说明 App 会记录求助并联系紧急联系人，但**不得声称短信已送达或联系人已被联系上**，也不得把 App 描述为救援服务；所有对外文案须与 `EmergencySafetyCopy`（`blindRun/Safety/SafetyModule.swift`）一致并保留「若情况危急请立即拨打110」。
 - 盲人实名 / 紧急联系人链路仍缺两项验收：云端探针 `scripts/blind-identity-and-contacts-probe.mjs` 尚未入库，以及引导落点 / 实名三态 / 联系人全动作的 UI 无障碍测试（`blindRunUITests` 目前零处引用 `blindOnboarding.*` 标识）。见 `openspec/changes/complete-blind-profile-and-contacts/tasks.md` 6.2 / 6.3。
 - 实时同行位置与完成轨迹必须完成 GCJ-02 单次转换、后台定位披露、电量测量、告警去重和锁屏双真机验收；后端已确认现有历史坐标均来自高德/腾讯定位链路，可按 GCJ-02 使用。
 
@@ -75,21 +75,21 @@ node scripts/cloud-e2e.mjs
 6. HTTPS 域名与 ATS 策略收敛。
 7. 志愿者认证、管理员审核、真实短信能力持续联调与异常处理完善；管理员审核页后续作为独立 Web 管理端实现。
 8. 积分商城、支付、聊天、App 内路线规划、公共实时轨迹分享、复杂风险控制等扩展能力；已批准的订单双方实时同行位置和完成后盲人轨迹总结按 `enable-live-escort-location-and-track-summary` 实施。
-9. 求助（SOS）能力：`enable-independent-sos-safely` 已明确本版不交付，重启前置条件写在该提案顶部。
+9. 求助（SOS）能力：`enable-independent-sos-safely` 已于 2026-07-31 重启并交付盲人端 `IN_PROGRESS` 入口；剩余工作是志愿者端（等后端按订单参与方而非触发人路由升级）和无 GPS 降级提交（等产品/安全批准后翻 `EmergencyCoordinator.allowsSubmissionWithoutLocation`）。
 
 ## 人工确认项
 
 - 是否已有高德生产 key、Bundle ID 白名单和隐私合规材料。
 - **待后端确认（自 `remove-volunteer-registration-training/design.md:53` 转记，该 change 已于 2026-07-31 归档为 `openspec/changes/archive/2026-07-31-remove-volunteer-registration-training/`）**：外部后端把「活体通过 → `STEP_4_COMPLETED` + `canAcceptOrders = true`」原子写入的**部署时间**，以及遗留账号（`STEP_4_TRAINING`）能否通过真实派单接口开启服务。iOS 侧已按兼容归一化实现（`ProfileModels.swift:277`、`VolunteerRegistrationModels.swift:80`、`VolunteerRegistrationFlowView.swift:657,690` 把 `STEP_4_TRAINING` 视为注册完成且保持 availability 关闭——这是提案明文要求保留的兼容逻辑，**不是残留待清理代码**），但该确认项未闭合前无法签署真实派单结论。原因记录：2026-07-18 实测账号 `13360846885` 走 `send-code` 后用 `000000` 仍返回 `INVALID_VERIFICATION_CODE`，读不到该账号的权威派单字段。
 - **待后端确认（`complete-blind-profile-and-contacts/tasks.md` 1.2 未闭合项）**：主联系人切换的原子性，以及新增联系人触发短信后是否需要在 iOS 展示投递状态。
-- **待后端确认（`enable-independent-sos-safely/design.md` 全部 7 处 `需要人工确认`）**：其中 `EMERGENCY_CONTACT_NOTIFIED` 到底代表短信被服务商受理、已投递到手机还是仅入队，是重启 SOS 的硬前置。
+- **待后端确认（`enable-independent-sos-safely/design.md` 的 `需要人工确认` 项）**：`EMERGENCY_CONTACT_NOTIFIED` 到底代表短信被服务商受理、已投递到手机还是仅入队，仍未答复。这一项不再阻塞发版：后端在触发事务内同步推送该通知（`service/EmergencyService.java:370-373`），短信在 `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` 之后才发（`service/EmergencyContactNotifier.java:60-62`），失败只广播给客服（`:126-135`）且不会回纠给盲人，因此 iOS 一律用自己的进行时文案替换后端完成时文案，永不宣称短信已送达。后端答复后可评估是否新增更强的确认态。
 - 管理员审核页后续做成独立 Web 管理端；当前 iOS 用户端仅保留脚本级审核联调，不增加管理员入口。
 - 云端已确认志愿者接受派单后按正式流转推进：`PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS`，其中 `DRIVER_ARRIVED -> IN_PROGRESS` 由志愿者端调用 `POST /api/orders/{id}/start-service` 触发；iOS 真机验收需确认接单后不会直接进入 `IN_PROGRESS`。
 - 云端已确认不会因已接单订单尚未立即开始服务而自动进入 `REMATCHING`；若盲人端看到 `REMATCHING`，优先排查是否志愿者接单后主动取消。
 - 云端已确认 `POST /api/orders/{id}/cancel` 接受 `REMATCHING` 状态；iOS 必须使用盲人 token 调用该接口，志愿者 token 不应成功。
 - 志愿者端负责在 `DRIVER_ARRIVED` 后调用 `POST /api/orders/{id}/start-service` 将订单推进到 `IN_PROGRESS`；iOS 不会从 `DRIVER_ARRIVED` 直接调用完成服务。若真机验证卡在 `DRIVER_ARRIVED`，优先检查志愿者端 start-service 请求和后端状态推进日志。
 - 百度地图 `baidumap://map/direction` 跳转已按 GCJ-02 步行参数接入，发布前需在安装百度地图的真机上 smoke 验证。
-- 当前 release 隐藏求助入口，不宣称真实求助能力；`POST /api/emergency/trigger` 仅作为后端合同探针保留。若发布前恢复真实 emergency event UI，需要单独安全变更确认接口、GPS、通知、失败提示、合规文案和验收测试。
+- 当前 release 盲人端在 `IN_PROGRESS` 显示一键求助，二次确认后调用 `POST /api/emergency/trigger`（`EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`，三个字段一律上送）。严格 GPS 门槛：拿不到新鲜的真实 GCJ-02 样本就**不发请求**，界面与 TTS 明确说"求助未发出"并指向设置/重试和 110；Mock/Demo 坐标永不上送。无 GPS 降级提交由常量 `EmergencyCoordinator.allowsSubmissionWithoutLocation`（当前 `false`）单点控制，翻开需产品/安全书面批准。志愿者端求助入口全状态隐藏，等后端按订单参与方路由后再开。
 - 后端所有当前坐标约定为 GCJ-02。数据库虽无来源字段或迁移机制，但后端确认现有写入路径仅来自高德/腾讯定位链路，历史数据按干净 GCJ-02 处理；未来新增 WGS-84 来源须在写入边界转换。
 - 后端 100 米/连续 2 次仅为运行时告警工程参数，未获产品批准为完成轨迹异常结论；iOS 只展示服务端即时告警，不比较双方轨迹得出异常。
 - 轨迹接口保留 0/1/多个原始点；iOS 少于 2 点不绘制，角色统计固定为 `0 / 0 / null`。非 403/404 响应保证包含 `status`。

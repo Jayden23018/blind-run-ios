@@ -33,7 +33,8 @@ Acceptance:
 
 ### PR-IOS-03 Blind Runner Flow
 
-- 实现盲人资料、紧急联系人管理（1～5 个，恰好 1 个主联系人）、预约、订单状态、取消和评分流程；当前 release 隐藏求助入口，后续安全专项再启用。
+- 实现盲人资料、紧急联系人管理（1～5 个，恰好 1 个主联系人）、预约、订单状态、取消和评分流程；一键求助只在 `IN_PROGRESS` 对盲人开放，志愿者端全状态隐藏。
+- 一键求助：二次确认文案逐字固定，取消不发送任何请求；无新鲜真实 GCJ-02 样本不发请求并如实播报「求助未发出」；提交 `POST /api/emergency/trigger`（`orderId` + `gpsLat` + `gpsLng` 三个字段一律上送）；求助不改变 `RunOrderStatus`；文案不得声称短信已送达或联系人已被联系上。
 - 下单硬前置条件为「实名认证已通过」+「至少 1 个紧急联系人且恰好 1 个主联系人」，与后端 `OrderCreationService` 的校验一致（403 `IDENTITY_NOT_VERIFIED` / 403 `EMERGENCY_CONTACT_REQUIRED`）；缺失时阻断 `POST /api/orders` 并播报第一个可执行的缺失项。
 - 实名认证（`verifyStatus`：`NOT_VERIFIED` / `VERIFIED` / `FAILED`，无审核中态）自 2026-07-30 起是**下单硬门槛**（`demo/docs/handoff.md` Q1 按方案 ① 答复），客户端门槛必须与后端同序：实名在紧急联系人**之前**。
 - 盲人首页和创建预约为语音优先流程：状态/主操作/重复当前状态先于辅助地图；创建预约按出发地点、预约时间、选填需求、确认提交分步引导。
@@ -112,8 +113,8 @@ Android、完整管理员端、真实短信、真实身份审核、公共实时�
 
 ## 实时协调执行约束
 
-实施 `complete-realtime-fallback-and-notifications` 时，raw WebSocket 订阅只能存在于 `AppRealtimeCoordinator`；订单详情继续由 ViewModel 通过 REST/五秒轮询维护。不得在该变更内加入 peer marker、轨迹、分离判定或 SOS 动作。验证必须覆盖 service 替换、刷新合并、导航期间派单、通知优先级/去重/无障碍、双向位置校验、重连恢复和双真机。
+实施 `complete-realtime-fallback-and-notifications` 时，raw WebSocket 订阅只能存在于 `AppRealtimeCoordinator`；订单详情继续由 ViewModel 通过 REST/五秒轮询维护。不得在该变更内加入 peer marker、轨迹、分离判定或 SOS 动作（SOS 由 `enable-independent-sos-safely` 交付）。验证必须覆盖 service 替换、刷新合并、导航期间派单、通知优先级/去重/无障碍、双向位置校验、重连恢复和双真机。
 
 ## 实时同行与完成轨迹执行约束
 
-实施 `enable-live-escort-location-and-track-summary` 时先更新契约，再依次完成坐标来源/单次转换、串行发送与双角色心跳、app-lifetime 会话、后台定位、双向 marker、安全告警、轨迹模型/AMap polyline/完成摘要和测试。不得上传 Demo 坐标、持久化/打印同行原始坐标、显示志愿者默认路线、计算未获批异常结论或启用 SOS UI。
+实施 `enable-live-escort-location-and-track-summary` 时先更新契约，再依次完成坐标来源/单次转换、串行发送与双角色心跳、app-lifetime 会话、后台定位、双向 marker、安全告警、轨迹模型/AMap polyline/完成摘要和测试。不得上传 Demo 坐标、持久化/打印同行原始坐标、显示志愿者默认路线或计算未获批异常结论；SOS UI 不属于本变更范围，由 `enable-independent-sos-safely` 交付。

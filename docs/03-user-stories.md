@@ -4,7 +4,7 @@
 > `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`,
 > `REMATCHING`, and `NO_VOLUNTEER`. Older lower-case names in historical examples map to
 > those values only for reading context; new iOS/backend work must use the canonical values.
-> The current iOS release hides the emergency entry. `POST /api/emergency/trigger` remains a backend contract that may be verified by scripts, but UI enablement requires a later safety change and emergency is not an order status.
+> The current iOS release shows the one-tap SOS entry to the blind runner in `IN_PROGRESS` only, and never to the volunteer. It calls the real `POST /api/emergency/trigger`. Emergency is not an order status and never mutates `RunOrderStatus`.
 
 ## Epic 1：登录认证 (US-AUTH)
 
@@ -128,11 +128,13 @@
 
 ### US-ROLE-002：角色切换成功
 
+**【未决 / 未实现】** 「一号一身份 vs 双身份」尚未有产品结论（见 `demo/docs/handoff.md` 2026-07-31「一号一身份是不是最终产品形态」）。后端当前**没有任何角色切换端点**，App 内切换角色入口已删除。本故事在结论出来前不代表现状，也不代表已排期。
+
 **作为**：已有角色的用户
 **我想要**：在盲人跑者和志愿者之间切换 activeRole
 **以便**：使用另一角色的功能
 
-**优先级**：P0
+**优先级**：未决（原 P0）
 
 **验收标准**：
 
@@ -144,11 +146,13 @@
 
 ### US-ROLE-003：活跃订单拦截角色切换
 
+**【未决 / 未实现】** 依赖 US-ROLE-002，同样等产品结论。注意下面那句弹窗文案「您有进行中的订单，无法切换角色」曾被误接到 `ROLE_ALREADY_SET` 上、造成过线上误报，重做时必须要求后端给**专用**错误码。
+
 **作为**：有活跃订单的用户
 **我想要**：在切换角色时收到提示
 **以便**：了解无法切换的原因
 
-**优先级**：P0
+**优先级**：未决（原 P0）
 
 **验收标准**：
 
@@ -282,7 +286,7 @@
 
 **Given** 盲人跑者进入首页，且无活跃订单
 **When** 页面加载完成
-**Then** 首个主要内容说明当前没有进行中的预约，并显示"开始约跑"按钮（最小高度 64pt）、"重复当前状态"和角色切换入口
+**Then** 首个主要内容说明当前没有进行中的预约，并显示"开始约跑"按钮（最小高度 64pt）和"重复当前状态"（~~角色切换入口~~ **【未决 / 未实现】入口已删除**，见 US-ROLE-002）
 **And** 当前位置文字和高德地图作为辅助位置确认展示在主操作之后，VoiceOver 遍历顺序不得先于"开始约跑"
 **And** TTS/VoiceOver 公告播报"欢迎来到助盲跑"并包含当前位置或定位兜底说明
 
@@ -406,30 +410,104 @@
 **Given** 订单状态为 IN_PROGRESS，盲人跑者在服务中页面
 **When** 页面加载
 **Then** 显示志愿者昵称和联系电话（接单后可查看）、服务进行提示、"重复当前状态"按钮
-**And** 当前 release 不显示"紧急求助"或"一键求助"入口
+**And** 显示"一键求助"入口（见 US-BR-008）
 
 ---
 
-### US-BR-008：紧急求助入口隐藏
+### US-BR-008：一键求助
 
 **作为**：盲人跑者
-**我想要**：当前 release 不显示尚未完成验收的求助入口
-**以便**：避免误以为真实救援流程已经触发
+**我想要**：在陪跑进行中一键发出求助
+**以便**：遇到危险时让系统记录并联系我的紧急联系人
 
 **优先级**：P0
 
 **验收标准**：
 
-**Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
-**When** 用户查看盲人端订单状态页、服务中页或志愿者端服务页
-**Then** 不显示"紧急求助"或"一键求助"入口
-**And** 不显示任何求助未开放提示文案
+**入口资格**
+
+**Given** 订单状态为 IN_PROGRESS 且当前角色为盲人跑者
+**When** 用户查看盲人端服务中页面
+**Then** 显示"一键求助"按钮，最小高度 64pt，带 accessibilityLabel"一键求助，遇到紧急情况时点击"和说明需要二次确认的 accessibilityHint
 
 ---
 
-**Given** 后端合同探针调用 `POST /api/emergency/trigger`
-**When** 云端返回 emergency event
-**Then** 该结果仅证明后端合同可用，不代表 iOS UI 已上线真实求助能力
+**Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT / REMATCHING / NO_VOLUNTEER / DRIVER_EN_ROUTE / DRIVER_ARRIVED / COMPLETED / CANCELLED
+**When** 用户查看盲人端任意订单页面
+**Then** 不显示"紧急求助"或"一键求助"入口，也不显示任何求助未开放提示文案
+
+---
+
+**Given** 当前角色为志愿者，订单处于任意状态
+**When** 用户查看志愿者端订单详情页或服务中页面
+**Then** 不显示"紧急求助"或"一键求助"入口
+**And** 原因是后端按**触发人**建事件：志愿者发起的求助只会把提醒推回志愿者自己、不会通知盲人，且升级到志愿者自己的紧急联系人而非盲人的（后端 `service/EmergencyService.java:310-333, 347-383`）。待后端改为按订单参与方路由后再启用
+
+---
+
+**二次确认**
+
+**Given** 盲人跑者在 IN_PROGRESS 点击"一键求助"
+**When** 弹出确认
+**Then** 确认文案为"是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"，操作为"确认求助"和"取消"
+
+---
+
+**Given** 求助确认弹窗已弹出
+**When** 用户选择"取消"或以其他方式关闭弹窗
+**Then** 不发送任何请求，不产生 emergency event，订单状态保持 IN_PROGRESS
+
+---
+
+**成功提交**
+
+**Given** 用户选择"确认求助"，且已取得新鲜的真实 GCJ-02 坐标
+**When** App 提交求助
+**Then** 调用 `POST /api/emergency/trigger`，请求体为 `EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`，三个字段一律上送
+**And** 成功响应为 `{success, eventId, status}`，其中 `status` 是 `EmergencyStatus` 名（PENDING / VOLUNTEER_NOTIFIED / VOLUNTEER_CONFIRMED / CS_HANDLING / CONTACT_NOTIFIED / RESOLVED / FALSE_ALARM）
+**And** 界面与 TTS 按该状态播报进行时文案，订单状态保持 IN_PROGRESS，`RunOrderStatus` 不因求助改变
+
+---
+
+**定位不可用**
+
+**Given** 用户选择"确认求助"，但拿不到新鲜的真实 GCJ-02 样本
+**When** App 处理该次求助
+**Then** **不发送任何请求**，界面与 TTS 播报"求助未发出：当前无法获取你的位置。请在设置中允许定位后重试，或直接拨打110。"
+**And** Mock / Demo 坐标永不上送云端；后端可接受的无 GPS 降级路径由常量 `EmergencyCoordinator.allowsSubmissionWithoutLocation`（当前 `false`）单点控制，翻开需产品/安全批准
+
+---
+
+**失败与冷却**
+
+**Given** 后端在冷却期内拒绝求助
+**When** 返回 HTTP 429 `TOO_MANY_REQUESTS`（带 `retryAfterSeconds` 与 `Retry-After` 头）
+**Then** 界面与 TTS 按权威秒数提示稍后再试，并保留"若情况危急请立即拨打110"
+
+---
+
+**Given** 当前用户不是该订单参与方，或订单不存在
+**When** 后端分别返回 403 `NOT_ORDER_PARTICIPANT` 或 400 `BAD_REQUEST`
+**Then** 界面与 TTS 以"求助未发出"开头如实说明并指向 110，不呈现为求助已受理
+
+---
+
+**短信真实性（合规硬约束）**
+
+**Given** 求助已被后端受理，后端推送 `EMERGENCY_CONTACT_NOTIFIED`
+**When** App 呈现该进展
+**Then** 播报"系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打110。"
+**And** App **永不**声称短信已送达或紧急联系人/家属已被联系上；字符串"联系人已收到短信"不得作为交付文案出现在任何位置
+**And** 依据：后端在触发事务内同步推送该通知（`service/EmergencyService.java:370-373`），短信在 `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` 之后才发（`service/EmergencyContactNotifier.java:60-62`），发送失败只广播给客服（`:126-135`）且不会回纠给盲人
+
+---
+
+**状态留存**
+
+**Given** 求助已发出
+**When** 用户离开服务中页面再返回，或 App 后台后恢复
+**Then** 求助状态仍可见——状态由 `AppState` 持有的 app 生命周期 `EmergencyCoordinator`（`blindRun/Safety/EmergencyCoordinator.swift`）维护
+**And** 求助信息不落盘：后端没有事件恢复接口或重放，留存的元数据只能以未经核实的状态呈现；退出登录、注销账户、会话过期、切换用户和切换角色时一律清空
 
 ---
 
@@ -770,7 +848,7 @@
 
 **Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
 **When** 任一方查看订单或服务页面
-**Then** 当前 release 不显示求助入口，订单状态保持不变
+**Then** 只有盲人端且状态为 IN_PROGRESS 时显示求助入口（见 US-BR-008），志愿者端全状态不显示；求助不改变订单状态
 
 ---
 
@@ -782,7 +860,7 @@
 
 **Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED
 **When** 任一方查看订单页面
-**Then** 盲人端不显示"取消订单"按钮；当前 release 也不显示求助入口
+**Then** 盲人端不显示"取消订单"按钮；这两个状态下双方也都不显示求助入口
 
 ---
 
@@ -935,7 +1013,7 @@
 
 **验收标准**：
 
-**Given** 用户触发危险操作（取消订单、结束服务、退出登录；未来恢复紧急求助时也包括紧急求助）
+**Given** 用户触发危险操作（取消订单、结束服务、退出登录、一键求助）
 **When** 点击操作按钮
 **Then** 先弹出确认弹窗 / ActionSheet，用户再次确认后才执行
 

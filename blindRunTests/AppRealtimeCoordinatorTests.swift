@@ -698,6 +698,63 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         )
     }
 
+    // MARK: - Emergency copy substitution
+
+    /// End-to-end proof that the backend's completed-tense emergency body never reaches the user.
+    ///
+    /// `EMERGENCY_CONTACT_NOTIFIED` arrives as an `APP_NOTIFICATION` envelope
+    /// (`NotificationService.sendNotification` → `buildEnvelope("APP_NOTIFICATION")`, :93-99) whose
+    /// template body is "已通知紧急联系人张三" (`data.sql:72`) — pushed inside the trigger
+    /// transaction, before the SMS is even attempted. Rendering it verbatim would tell a blind
+    /// runner their family already knows.
+    func testEmergencyNotificationBodyIsReplacedWithProgressiveTenseCopy() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+
+        service.simulateIncomingEventForTesting(.notification(WSAppNotification(
+            type: WSMessageType.appNotification.rawValue,
+            eventId: nil,
+            messageId: "3F2504E0-4F89-11D3-9A0C-0305E82C3301",
+            eventType: "EMERGENCY_CONTACT_NOTIFIED",
+            title: nil,
+            body: "已通知紧急联系人张三",
+            ttsText: "已通知你的联系人张三，请保持冷静",
+            priority: "HIGH",
+            timestamp: "2026-07-31T12:00:00"
+        )))
+        await Task.yield()
+
+        let notification = coordinator.currentNotification
+        XCTAssertEqual(notification?.displayText, EmergencySafetyCopy.contactNotified)
+        XCTAssertEqual(notification?.speechText, EmergencySafetyCopy.contactNotified)
+        XCTAssertFalse(notification?.displayText.contains("已通知你的联系人") ?? true)
+        XCTAssertFalse(notification?.speechText.contains("已通知你的联系人") ?? true)
+        XCTAssertEqual(notification?.priority, .high)
+        XCTAssertEqual(coordinator.latestSafetyEvent?.kind, .emergencyContactNotified)
+    }
+
+    /// Same substitution on the documented-but-never-emitted top-level type, so a backend fix
+    /// cannot silently reintroduce the delivery claim.
+    func testTopLevelContactNotifiedTypeAlsoUsesLocalCopy() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+
+        service.simulateIncomingEventForTesting(.emergencyContactNotified(WSEmergencyContactNotified(
+            type: WSMessageType.emergencyContactNotified.rawValue,
+            eventId: 77,
+            message: "已通过短信通知您的联系人张三",
+            ttsText: "已通知你的联系人张三，请保持冷静",
+            priority: "HIGH",
+            timestamp: nil
+        )))
+        await Task.yield()
+
+        XCTAssertEqual(coordinator.currentNotification?.displayText, EmergencySafetyCopy.contactNotified)
+        XCTAssertEqual(coordinator.currentNotification?.stableEventID, "emergencyContactNotified:77")
+    }
+
     private func makeDispatch(orderID: Int64) -> WSNewOrder {
         WSNewOrder(
             type: WSMessageType.newOrder.rawValue,

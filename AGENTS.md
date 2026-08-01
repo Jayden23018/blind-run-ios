@@ -61,7 +61,7 @@ Priority order for the current iOS release:
 5. TTS voice announcements
 6. Voice input
 7. Volunteer availability, dispatch, and WebSocket behavior
-8. Safety/emergency backend contract; the current release hides the in-app emergency entry until a dedicated safety change enables it
+8. Safety/emergency: the blind-runner in-run SOS entry is enabled in `IN_PROGRESS` only (`enable-independent-sos-safely`); the volunteer entry stays hidden until the backend routes emergency events by order participant
 9. Star rating and points display
 10. Production hardening items in `plan.md`
 
@@ -130,17 +130,17 @@ REMATCHING -> CANCELLED (blind runner token only)
 Emergency flow:
 
 ```text
-DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> (no in-app emergency entry in the current release)
+IN_PROGRESS -> blind runner may trigger POST /api/emergency/trigger (order status unchanged)
+DRIVER_EN_ROUTE / DRIVER_ARRIVED / any other status -> no emergency entry for either role
 ```
 
 - Cancellation endpoint: POST `/api/orders/{orderId}/cancel` (no request body needed).
 - Blind runners may cancel only `PENDING_MATCH`, `PENDING_ACCEPT`, and `REMATCHING`; they must not be shown a cancel action in `IN_PROGRESS`.
 - Volunteers may cancel active non-terminal accepted service states `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, and `IN_PROGRESS`; `PENDING_MATCH`, `REMATCHING`, and terminal states are not volunteer-cancellable.
 - `REMATCHING` is entered after an accepted volunteer cancels; the blind runner may then cancel the rematching order with their own token. A volunteer token must not be used for this cancellation because that volunteer is no longer a participant in the order.
-- Emergency endpoint contract: POST `/api/emergency/trigger` with `EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`.
-- The current iOS release must not show the emergency entry or imply a rescue workflow has been triggered.
-- Backend contract probes may call `/api/emergency/trigger`, but iOS UI enablement requires a later safety change covering GPS submission, notification, failure copy, compliance language, and acceptance tests.
-- Emergency is not an order status; if the endpoint is used in a later safety change, the order lifecycle status remains unchanged.
+- Emergency endpoint contract: POST `/api/emergency/trigger` with `EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`. All three fields are optional server-side; iOS always sends all three. Success returns `{success, eventId, status}` (`EmergencyController.java:34-38`), where `status` is an `EmergencyStatus` name. Cooldown rejection is HTTP 429 `TOO_MANY_REQUESTS` with `retryAfterSeconds` and a `Retry-After` header; non-participant is 403 `NOT_ORDER_PARTICIPANT`; unknown order is 400 `BAD_REQUEST`.
+- The blind-runner emergency entry is shown only while canonical order status is `IN_PROGRESS`. The volunteer entry stays hidden (see section 10).
+- Emergency is not an order status; the order lifecycle status remains unchanged when the endpoint is used.
 - Volunteer responds with accept: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = ACCEPT)`.
 - Volunteer responds with decline: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = DECLINE)`.
 - Volunteer en route: POST `/api/orders/{id}/en-route`.
@@ -178,7 +178,10 @@ Required error codes:
 - `ORDER_NOT_FOUND`
 - `ORDER_ALREADY_ACCEPTED`
 - `INVALID_ORDER_STATUS`
-- `ACTIVE_ORDER_ROLE_SWITCH_BLOCKED`
+- `DUPLICATE_ORDER`（409，`POST /api/orders`；自 2026-07-31 起**只**表示「已有进行中的订单」）
+- `REVIEW_ALREADY_SUBMITTED`（409，`POST /api/orders/{id}/review`；2026-07-31 从 `DUPLICATE_ORDER` 拆出，此前一码两义导致重复评价被 TTS 念成下单受阻文案）
+- `ORDER_PERMISSION_DENIED`（403；后端确认只剩「只读查询越权」一种场景，文案「您无权查看此订单。」）
+- ~~`ACTIVE_ORDER_ROLE_SWITCH_BLOCKED`~~（【未决 / 未实现】后端无角色切换端点，App 内入口已删除；见 `docs/04-user-flows-and-state-machine.md` 第 6 节）
 - `VOLUNTEER_NOT_AVAILABLE`
 - `VOLUNTEER_NOT_APPROVED`
 - `APPOINTMENT_TOO_SOON`
@@ -231,13 +234,15 @@ Required error codes:
 - Each contact carries name and phone number; relationship is optional. The backend returns the phone in plain text for the owning user (`EmergencyContactResponse.phone`, v1.5.0); masking for display is the iOS client's responsibility.
 - Deleting the last remaining emergency contact is rejected by the backend and must also be blocked in the UI.
 - Blind-runner real-name verification (`POST /api/blind/verify-identity`, `BlindProfileResponse.verifyStatus` with `NOT_VERIFIED` / `VERIFIED` / `FAILED`) is **guidance only in the current release**. It must be surfaced and spoken, but it must not block booking: `OrderCreationService` never reads `verifyStatus`, so a client-only block would be a false gate that any non-iOS caller bypasses. There is no pending/under-review state. If `demo/docs/handoff.md` Q1 (2026-07-29) is answered with a server-side `verifyStatus == VERIFIED` check, this becomes a hard gate and the returned error code is mapped then.
-- The current release hides the emergency action in both blind-runner and volunteer UI.
+- The blind-runner emergency action is enabled in `IN_PROGRESS` only. The volunteer emergency action stays hidden: the backend keys the emergency event on the *triggering* user (`EmergencyService.java:310-333, 347-383`), so a volunteer-initiated trigger alerts the volunteer about their own SOS, never reaches the blind runner, and escalates to the volunteer's own emergency contacts instead of the blind runner's. Enable it only after the backend routes by order participant.
+- **The app must never claim an emergency SMS was delivered, or that a contact/family member has been reached.** `EMERGENCY_CONTACT_NOTIFIED` is pushed synchronously inside the trigger transaction (`EmergencyService.java:370-373`) while the SMS is sent afterwards via `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` (`EmergencyContactNotifier.java:60-62`); an SMS failure is broadcast only to CS (`:126-135`) and never corrected to the blind runner. iOS therefore substitutes its own progressive-tense copy for the backend's completed-tense notification body, and the string `联系人已收到短信` must not appear in shipped copy.
 - Backend `ESCORT_DISTANCE_ALERT` and `ESCORT_SIGNAL_LOST` notifications are high-priority informational safety warnings only. They do not mutate order status, enable emergency UI, or prove that rescue was dispatched.
-- If emergency action is re-enabled in a later safety change, it must require second confirmation.
-- If the backend emergency endpoint is used in a later safety change, it records an emergency event and keeps the order status unchanged.
+- The emergency action requires second confirmation with the exact copy below.
+- The backend emergency endpoint records an emergency event and keeps the order status unchanged.
+- A cloud SOS request must carry a fresh real GCJ-02 coordinate. If none can be obtained the request is not sent and the app says so visibly and audibly; Mock/demo coordinates must never be uploaded. The degraded no-GPS submission the backend technically accepts is gated behind `EmergencyCoordinator.allowsSubmissionWithoutLocation` and stays `false` until product/safety approve it.
 - Real SMS, identity verification, and administrator review are backend-owned production capabilities now represented in the backend repository's `docs/api_spec.yaml`; iOS may consume those contracts without adding backend code to this repository.
 
-Future emergency confirmation copy, if the action is re-enabled, must be exactly:
+Emergency confirmation copy must be exactly:
 
 ```text
 是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。
