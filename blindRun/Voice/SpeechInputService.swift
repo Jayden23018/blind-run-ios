@@ -66,6 +66,11 @@ enum SpeechInputField: String, CaseIterable, Identifiable {
     case remark
     case ratingFeedback
     case volunteerServiceSummary
+    // 语音下单向导的三个槽位。与上面的字段听写共用同一套授权/静音超时/最长时长，
+    // 区别只在识别结果不回填输入框，而是交给后端解析端点。
+    case voiceOrderStartPlace
+    case voiceOrderStartTime
+    case voiceOrderDuration
 
     var id: String { rawValue }
 

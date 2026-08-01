@@ -295,16 +295,9 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             if T.self == EmptyResponse.self, data.isEmpty {
                 return EmptyResponse() as! T
             }
-            // Strategy: Try envelope first, then direct decode.
-            // Envelope-first avoids the issue where all-optional models (e.g. BlindProfileResponse)
-            // would "succeed" with all-nil values when decoded from the envelope root object.
-            if let envelope = try? decoder.decode(APIEnvelopeResponse<T>.self, from: data),
-               let payload = envelope.data {
-                return payload
-            }
-            // Fallback: direct decode (for auth endpoints with flat responses)
+            // 信封优先、裸解兜底。策略本体在 `APIPayloadDecoder`，两个调用点共用同一份并由用例锁住。
             do {
-                return try decoder.decode(T.self, from: data)
+                return try APIPayloadDecoder.decodePayload(T.self, from: data, decoder: decoder)
             } catch {
                 await recordDiagnostic(
                     id: diagnosticID,
@@ -396,16 +389,9 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
             if T.self == EmptyResponse.self, data.isEmpty {
                 return EmptyResponse() as! T
             }
-            // Strategy: Try envelope first, then direct decode.
-            // Envelope-first avoids the issue where all-optional models (e.g. BlindProfileResponse)
-            // would "succeed" with all-nil values when decoded from the envelope root object.
-            if let envelope = try? decoder.decode(APIEnvelopeResponse<T>.self, from: data),
-               let payload = envelope.data {
-                return payload
-            }
-            // Fallback: direct decode (for auth endpoints with flat responses)
+            // 与 `request` 共用同一份策略，见 `APIPayloadDecoder`。
             do {
-                return try decoder.decode(T.self, from: data)
+                return try APIPayloadDecoder.decodePayload(T.self, from: data, decoder: decoder)
             } catch {
                 throw APIError.decodingError(error)
             }

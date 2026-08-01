@@ -488,7 +488,9 @@ final class BlindBookingViewModel: ObservableObject {
         await searchPlaces(triggeredBySpeech: true)
     }
 
-    func selectPlace(_ place: ResolvedPlace) {
+    /// - Parameter announce: 语音向导会自己播报后端返回的确认文案，这时把这里的播报关掉，
+    ///   否则同一件事被念两遍 —— 对语速调到 14 字/秒的读屏用户，重复播报是最伤的干扰。
+    func selectPlace(_ place: ResolvedPlace, announce: Bool = true) {
         selectedStartPlace = place
         auxiliaryMapPlace = place
         auxiliaryMapCenter = place.coordinate
@@ -496,7 +498,26 @@ final class BlindBookingViewModel: ObservableObject {
         placeSearchResults = []
         searchResultFocusID = nil
         placeMessage = "已选择出发地点：\(place.title)。"
-        speechService?.speak("已选择出发地点，\(place.title)。")
+        if announce {
+            speechService?.speak("已选择出发地点，\(place.title)。")
+        }
+    }
+
+    /// 语音向导解析出的起点。坐标来自 `POST /api/orders/voice/resolve-address`，**已是 GCJ-02**，
+    /// 与表单路径（高德 POI）同一坐标系，直接落进同一个 `selectedStartPlace`，下游一视同仁。
+    ///
+    /// 与表单路径的差别值得记一笔：POI 搜索给候选列表让用户挑，语音只给一个点。重名地点的消歧
+    /// 责任因此完全落在后端，前端能做的只有把地址读回去让用户确认 —— 向导正是这么做的。
+    func applyVoiceResolvedStartPlace(address: String, latitude: Double, longitude: Double) {
+        let place = ResolvedPlace(
+            id: "voice-resolved",
+            title: address,
+            addressText: address,
+            latitude: latitude,
+            longitude: longitude,
+            source: .manual
+        )
+        selectPlace(place, announce: false)
     }
 
     private func updateAuxiliaryMapPlaceIfNeeded(
@@ -640,14 +661,24 @@ struct BlindBookingView: View {
     @EnvironmentObject private var amapGeocodingService: AMapGeocodingService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = BlindBookingViewModel()
+    @StateObject private var voiceWizard = VoiceOrderWizard()
     @AccessibilityFocusState private var focusedSearchResultID: String?
+    /// 从首页「语音下单」进来时为 `true`，页面出现即启动向导。表单入口进来则为 `false`，
+    /// 语音仍可随时手动启动 —— 语音是加速器，不是另一条平行流程。
+    let startsWithVoice: Bool
     let onOrderCreated: (OrderResponse) -> Void
+
+    init(startsWithVoice: Bool = false, onOrderCreated: @escaping (OrderResponse) -> Void) {
+        self.startsWithVoice = startsWithVoice
+        self.onOrderCreated = onOrderCreated
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     header
+                    voiceOrderSection
                     guidedStepHeader
                     currentStepContent
 
@@ -682,12 +713,90 @@ struct BlindBookingView: View {
                 amapGeocodingService: amapGeocodingService
             )
             Task { await viewModel.refreshCurrentLocation() }
+            voiceWizard.configure(
+                bookingViewModel: viewModel,
+                speechService: speechService,
+                speechInputService: speechInputService,
+                apiClient: appState.apiClient,
+                currentCoordinate: { locationService.latestBackendSample() }
+            )
+            if startsWithVoice, !voiceWizard.isRunning {
+                voiceWizard.start()
+            }
+        }
+        .onDisappear {
+            // 页面离开就停录音：麦克风不该在用户看不见的地方继续开着。
+            voiceWizard.stop()
         }
         .onChange(of: locationService.currentLocation) { _ in
             Task { await viewModel.refreshCurrentLocationIfNeeded() }
         }
         .onChange(of: viewModel.searchResultFocusID) { focusID in
             focusedSearchResultID = focusID
+        }
+        .onChange(of: voiceWizard.step) { step in
+            // 表单跟着向导走：语音填到哪一项，屏幕上就停在哪一项，读屏用户切回手动时不用重新找位置。
+            switch step {
+            case .startPlace: viewModel.currentStep = .startPoint
+            case .startTime: viewModel.currentStep = .appointmentTime
+            case .duration: viewModel.currentStep = .runningNeeds
+            case .review: viewModel.currentStep = .review
+            }
+        }
+    }
+
+    /// 语音下单入口。**语音只填表单，不代替提交** —— 三个槽位齐了以后仍然落到确认步骤，
+    /// 由用户在这一页显式提交（国标：不可逆操作要么可逆，要么提交前可复核）。
+    private var voiceOrderSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button(voiceWizard.isRunning ? "停止语音下单" : "语音下单") {
+                if voiceWizard.isRunning {
+                    voiceWizard.stop()
+                    speechService.speak("已停止语音下单，你可以继续用表单填写。")
+                } else {
+                    voiceWizard.start()
+                }
+            }
+            .font(AppFonts.primaryButton())
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 64)
+            .background(voiceWizard.isRunning ? AppColors.destructive : AppColors.primary)
+            .cornerRadius(12)
+            .accessibilityLabel(voiceWizard.isRunning ? "停止语音下单" : "语音下单")
+            .accessibilityHint(
+                voiceWizard.isRunning
+                    ? "停止后可以继续用表单填写"
+                    : "依次用说话填写出发地点、时间和时长，最后仍需要你确认提交"
+            )
+            .accessibilityIdentifier("blindBookingVoiceOrderButton")
+
+            if voiceWizard.isRunning {
+                Button("重复刚才的问题") {
+                    voiceWizard.repeatCurrentPrompt()
+                }
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.primary)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+                .accessibilityLabel("重复刚才的问题")
+            }
+
+            if let prompt = voiceWizard.lastSpokenPrompt, voiceWizard.isRunning {
+                Text(voiceWizard.isParsing ? "正在识别：\(prompt)" : prompt)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(prompt)
+            }
+
+            if let fallbackMessage = voiceWizard.fallbackMessage {
+                Text(fallbackMessage)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(fallbackMessage)
+            }
         }
     }
 

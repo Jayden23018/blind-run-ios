@@ -166,6 +166,23 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
+    /// Withdraws one's own false alarm. The only user-side exit that exists: the escorting volunteer
+    /// is refused this action server-side on purpose.
+    func cancelEmergency() async {
+        guard let appState else { return }
+        let outcome = await appState.emergencyCoordinator.cancelByOwner(apiClient: appState.apiClient)
+        if outcome.isFailure {
+            speechService?.speakError(outcome.message)
+        } else {
+            speechService?.speak(outcome.message)
+        }
+    }
+
+    /// 只有本人发出、且还没结束的求助才谈得上撤销。
+    var canCancelEmergency: Bool {
+        appState?.emergencyCoordinator.activeEvent != nil
+    }
+
     /// Freshest real GCJ-02 sample, with one bounded retry.
     ///
     /// `latestBackendSample()` only ever returns a genuine `CLLocation` normalized at the single
@@ -525,6 +542,7 @@ struct BlindOrderStatusView: View {
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @State private var showEmergencyConfirmation = false
+    @State private var showEmergencyCancelConfirmation = false
     @State private var showCancelConfirmation = false
     let orderId: Int64
     let onOrderUpdated: (OrderDetailResponse) -> Void
@@ -576,6 +594,17 @@ struct BlindOrderStatusView: View {
             Button("不取消", role: .cancel) {}
         } message: {
             Text("确认取消本次预约？取消后将结束本次服务。")
+        }
+        .confirmationDialog(
+            EmergencySafetyCopy.cancelButtonTitleForOwner,
+            isPresented: $showEmergencyCancelConfirmation
+        ) {
+            Button(EmergencySafetyCopy.cancelButtonTitleForOwner, role: .destructive) {
+                Task { await viewModel.cancelEmergency() }
+            }
+            Button("保持求助", role: .cancel) {}
+        } message: {
+            Text(EmergencySafetyCopy.cancelOwnerConfirmation)
         }
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation) {
             Task {
@@ -897,6 +926,17 @@ struct BlindOrderStatusView: View {
                         message: message,
                         isFailure: appState.emergencyCoordinator.state.isFailure
                     )
+                }
+                if viewModel.canCancelEmergency {
+                    Button(EmergencySafetyCopy.cancelButtonTitleForOwner) {
+                        showEmergencyCancelConfirmation = true
+                    }
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
+                    .accessibilityLabel(EmergencySafetyCopy.cancelButtonTitleForOwner)
+                    .accessibilityHint("误触时撤销本次求助，需要确认")
                 }
             }
 

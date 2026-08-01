@@ -3447,18 +3447,10 @@ final class blindRunTests: XCTestCase {
         }
     }
 
-    func testVolunteerEmergencyStaysHiddenInEveryStatus() {
-        // Not a missing screen: `EmergencyService.triggerEmergency` keys the event on the triggering
-        // user, so a volunteer-initiated SOS alerts the volunteer about themselves and escalates to
-        // the volunteer's own emergency contacts instead of the blind runner's. Enabling the entry
-        // before the backend routes by order participant would silently strand the person at risk.
-        for status in RunOrderStatus.allCases {
-            XCTAssertFalse(
-                status.canTriggerEmergency(as: .volunteer),
-                "volunteer SOS must stay hidden in \(status.rawValue)"
-            )
-        }
-    }
+    // 已删除 `testVolunteerEmergencyStaysHiddenInEveryStatus`：它断言志愿者 SOS 入口在**所有**状态下都关闭，
+    // 而 2026-07-31 后端改为按订单参与方归属事件后该入口已在 `IN_PROGRESS` 打开（commit ecea28b），
+    // 这条断言从那时起就是红的。现行门槛由
+    // `EmergencySOSTests.testVolunteerEmergencyEntryIsEnabledOnlyDuringService` 覆盖。
 
     func testUnsetRoleCannotTriggerEmergency() {
         XCTAssertFalse(RunOrderStatus.inProgress.canTriggerEmergency(as: .unset))

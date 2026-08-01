@@ -18,6 +18,7 @@ struct LegalLinksResponse: Codable, Sendable, Equatable {
 // MARK: - Legal Document Kind
 
 /// 两类法律文档入口。
+/// 不做未知值兜底：这是客户端自己的入口枚举，后端只返回两个 URL 字符串，没有对应字段被解码成它。
 enum LegalDocumentKind: String, Codable, Sendable, CaseIterable, Identifiable {
     case privacyPolicy
     case userAgreement

@@ -314,7 +314,11 @@ final class AppState: ObservableObject {
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed) as? Bool ?? false
 
         // 紧急事件的后续推送在触发它的界面消失后才到，订阅点必须在 App 生命周期层。
-        emergencyCoordinator.observe(realtimeCoordinator)
+        // provider 而不是直接传 client：环境可以在运行时切换（Mock / 生产），求助恢复必须打当下那一个。
+        emergencyCoordinator.observe(realtimeCoordinator) { [weak self] in
+            guard let self, self.activeRole == .blind else { return nil }
+            return self.apiClient
+        }
 
         // WS 重连成功后补读断线期间遗漏的通知，喂回 coordinator 复用去重/优先级排队。
         realtimeCoordinator.recoveryPublisher
@@ -340,6 +344,12 @@ final class AppState: ObservableObject {
     /// 首次安装且从未收到过通知时游标为空，此时不补读（后端窗口只有 24h/50 条，全量拉没有意义）。
     func catchUpMissedNotifications() async {
         guard isLoggedIn else { return }
+        // 断线期间可能整条求助都发生完了（志愿者代触发、家属短信回执、客服解除），而通知信封不带
+        // eventId，补读文本无法还原事件状态。恢复只能问 `GET /api/emergency/active`，且必须先于补读，
+        // 免得补读把已解除的旧文案念成当前状态。仅盲人有该端点权限。
+        if activeRole == .blind {
+            await emergencyCoordinator.refreshActiveEvent(userID: userId)
+        }
         let after = realtimeCoordinator.lastObservedNotificationTimestamp
             ?? persistence.string(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
         guard let after, !after.isEmpty else { return }

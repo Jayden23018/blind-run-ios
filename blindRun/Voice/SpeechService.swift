@@ -29,6 +29,12 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         guard !normalizedText.isEmpty else { return }
         lastSpokenText = normalizedText
         latestRepeatableText = normalizedText
+        // ⚠️ VoiceOver 开着时这一句会同时走无障碍通告和合成器，听感上可能是念两遍。
+        // 2026-08-01 曾改成「VoiceOver 运行时只留合成器」，当天回退：
+        // 两条通道各有不可替代的性质 —— 通告走 VoiceOver 自己的语速与队列（读屏用户常把语速调到
+        // 14~16 字/秒，合成器这边是写死的默认语速），而合成器不会像通告那样在 VoiceOver 忙时被丢弃，
+        // 这一点对 SOS 是硬要求。砍掉任何一条都有真实代价，而**双重播报本身还没在真机上确认过**。
+        // 结论：不靠读代码拍板。真机听过之后再定，届时可能的方案是通告 + 按 VoiceOver 语速合成。
         postVoiceOverAnnouncement(normalizedText)
         synthesizer.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: normalizedText)
@@ -124,6 +130,10 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
             return "正在确认志愿者状态，请稍候。"
         case .noVolunteer:
             return "暂无可用志愿者，请稍后再试。"
+        // 后端新增了本客户端不认识的状态。宁可播一句「请刷新」，也不能因为编不出文案就静默 ——
+        // 盲人用户没有别的渠道知道订单变了。
+        case .unknown:
+            return "订单状态有更新，请刷新页面或稍后重试。"
         }
     }
 

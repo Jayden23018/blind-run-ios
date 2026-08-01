@@ -14,9 +14,13 @@ final class EmergencySOSTests: XCTestCase {
     /// (`EmergencyService.java:370-373`) while the SMS is only sent afterwards by
     /// `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` (`EmergencyContactNotifier.java:60-62`),
     /// and a send failure is broadcast to CS alone (`:126-135`) — never corrected to the blind
-    /// runner. There is therefore no point in the flow at which the app knows a contact received an
-    /// SMS. A blind user decides whether to seek help another way based on this copy, so claiming
+    /// runner. There is therefore no point in *this* branch at which the app knows a contact received
+    /// an SMS. A blind user decides whether to seek help another way based on this copy, so claiming
     /// delivery is not a wording preference; it is telling someone in danger that help is coming.
+    ///
+    /// Since 2026-07-31 exactly one branch is allowed to claim delivery —
+    /// `EMERGENCY_CONTACT_SMS_DELIVERED`, which is backed by a carrier receipt. It is asserted
+    /// separately below and deliberately excluded here; every other state stays progressive.
     func testNoEmergencyCopyClaimsAnSMSWasDelivered() {
         let forbidden = ["联系人已收到短信", "已收到短信", "已通知家属", "已通知你的联系人", "短信已送达"]
         var allCopy = [
@@ -31,7 +35,14 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.cooldown(retryAfterSeconds: 42),
             EmergencySafetyCopy.cooldown(retryAfterSeconds: nil),
             EmergencySafetyCopy.accessibilityLabel,
-            EmergencySafetyCopy.accessibilityHint
+            EmergencySafetyCopy.accessibilityHint,
+            // 2026-07-31 新增的一批，同样受这条红线约束（送达回执那一条除外，见下一个用例）。
+            EmergencySafetyCopy.triggeredByVolunteer,
+            EmergencySafetyCopy.contactNotifyFailed,
+            EmergencySafetyCopy.volunteerAcknowledged,
+            EmergencySafetyCopy.cancelOwnerSucceeded,
+            EmergencySafetyCopy.cancelOwnerFailed(nil),
+            EmergencySafetyCopy.volunteerAlertNotice
         ]
         allCopy.append(contentsOf: EmergencyEventStatus.allCases.map(EmergencySafetyCopy.submitted))
 
@@ -50,6 +61,58 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertTrue(EmergencySafetyCopy.contactNotified.contains("正在联系"))
         XCTAssertTrue(EmergencySafetyCopy.contactNotified.contains("尚未确认对方是否收到"))
         XCTAssertTrue(EmergencySafetyCopy.contactNotified.contains("110"))
+    }
+
+    /// 送达回执是唯一允许说完成时的一段，而且必须仍然与「已发起」那一段可区分 ——
+    /// 两段听起来一样的话，这条回执链路等于没接。
+    func testOnlyTheCarrierReceiptBranchMayClaimDelivery() {
+        XCTAssertTrue(EmergencySafetyCopy.contactSmsDelivered.contains("已收到"))
+        XCTAssertNotEqual(EmergencySafetyCopy.contactSmsDelivered, EmergencySafetyCopy.contactNotified)
+        XCTAssertFalse(
+            EmergencySafetyCopy.contactSmsDelivered.contains("尚未确认"),
+            "运营商已确认送达之后不该再说尚未确认"
+        )
+        // 投递失败必须说得比「未确认」更重，并直接给出替代求助方式。
+        XCTAssertTrue(EmergencySafetyCopy.contactNotifyFailed.contains("没有收到"))
+        XCTAssertTrue(EmergencySafetyCopy.contactNotifyFailed.contains("110"))
+        XCTAssertTrue(EmergencySOSState.contactNotifyFailed.isFailure)
+        XCTAssertFalse(EmergencySOSState.contactSmsDelivered.isFailure)
+    }
+
+    /// 后端 2026-07-31 起按订单参与方归属事件，志愿者代触发不再把告警回推给他自己，
+    /// 于是志愿者入口可以开 —— 但仍然只在服务进行中，和盲人侧同一个门槛。
+    func testVolunteerEmergencyEntryIsEnabledOnlyDuringService() {
+        XCTAssertTrue(RunOrderStatus.inProgress.canVolunteerTriggerEmergency)
+        XCTAssertTrue(RunOrderStatus.inProgress.canTriggerEmergency(as: .volunteer))
+        for status in RunOrderStatus.allCases where status != .inProgress {
+            XCTAssertFalse(
+                status.canVolunteerTriggerEmergency,
+                "\(status) 不该出现志愿者求助入口"
+            )
+        }
+        XCTAssertFalse(RunOrderStatus.inProgress.canTriggerEmergency(as: .unset))
+    }
+
+    /// 志愿者只有「确认需要帮助」一个动作。`FALSE_ALARM` 在后端是硬 403，客户端连表达它的类型都不该有。
+    func testVolunteerAcknowledgementCopyOffersNoDismissAction() {
+        XCTAssertEqual(EmergencySafetyCopy.volunteerNeedHelpButtonTitle, "确认需要帮助")
+        XCTAssertFalse(EmergencySafetyCopy.volunteerNeedHelpButtonTitle.contains("误触"))
+        XCTAssertEqual(
+            ErrorCode.emergencyVolunteerCannotDismiss.localizedMessage,
+            "志愿者无权撤销求助，请确认对方是否需要帮助。"
+        )
+        // 撤销权只在受助者本人手里，且入口文案要说清代价（会给家属补一条解除短信）。
+        XCTAssertTrue(EmergencySafetyCopy.cancelOwnerConfirmation.contains("解除短信"))
+    }
+
+    /// `POST /api/emergency/trigger` 的回执 status 自 2026-07-31 收敛为两个值；
+    /// `VOLUNTEER_NOTIFIED` 不再出现。枚举值保留只为兼容历史数据与未知值兜底。
+    func testTriggerReceiptStatusesStillDecodeIncludingRetiredValues() {
+        XCTAssertEqual(EmergencyEventStatus(rawValue: "CONTACT_NOTIFIED"), .contactNotified)
+        XCTAssertEqual(EmergencyEventStatus(rawValue: "PENDING"), .pending)
+        XCTAssertEqual(EmergencyEventStatus(rawValue: "VOLUNTEER_NOTIFIED"), .volunteerNotified)
+        XCTAssertNil(EmergencyEventStatus(rawValue: "SOMETHING_NEW"))
+        XCTAssertTrue(EmergencyEventStatus.falseAlarm.isTerminal)
     }
 
     /// Every state that means "help is not on the way yet" must point at 110.

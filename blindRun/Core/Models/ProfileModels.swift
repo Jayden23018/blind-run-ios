@@ -388,6 +388,10 @@ extension EmergencyContactResponse {
 
 // MARK: - Vision Level
 
+/// 以下三个偏好枚举不做未知值兜底：它们在响应模型里一律接成 `String?`
+/// （`BlindProfileResponse.visionLevel` / `.tetherPreference` / `.chatPreference`、
+/// `OrderDetailResponse` 同名字段），从不作为枚举参与解码，只在展示层按 `rawValue` 转换。
+/// 与 `PacePreference` / `RoutePreference` 的区别就在这里 —— 那两个是真的被解码成枚举的。
 enum VisionLevel: String, Codable, CaseIterable, Sendable {
     case totalBlind = "TOTAL_BLIND"
     case lowVision = "LOW_VISION"

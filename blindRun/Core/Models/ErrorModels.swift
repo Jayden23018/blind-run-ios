@@ -45,6 +45,12 @@ enum ErrorCode: String, Codable, Sendable {
     // 取代此前复用的通用 `ORDER_PERMISSION_DENIED`：后者与「非订单参与者」等场景共用一个码，
     // 客户端无法程序化区分，只能猜 message。
     case emergencyContactRequired = "EMERGENCY_CONTACT_REQUIRED"
+    // 紧急求助撤销权（后端 `ErrorCode.java:111-115`，2026-07-31 随「受助者 ≠ 触发者」修复一起上线）。
+    // 陪同者不得关闭被陪同者的警报 —— 一对一陪跑里志愿者本身可能就是威胁来源，
+    // 所以志愿者传 `action=FALSE_ALARM` 恒 403，志愿者端也就不提供「误触」按钮。
+    case emergencyVolunteerCannotDismiss = "EMERGENCY_VOLUNTEER_CANNOT_DISMISS"
+    case emergencyNotOwner = "EMERGENCY_NOT_OWNER"
+    case emergencyAlreadyClosed = "EMERGENCY_ALREADY_CLOSED"
     // 紧急联系人专用码，后端 `ErrorCode.java` 「紧急联系人类（400）」小节的三个值。
     case contactLimitExceeded = "CONTACT_LIMIT_EXCEEDED"
     case contactMinimumRequired = "CONTACT_MINIMUM_REQUIRED"
@@ -123,6 +129,13 @@ enum ErrorCode: String, Codable, Sendable {
             return "您不是该订单的参与方。"
         case .invalidTimestamp:
             return "时间参数格式错误。"
+        case .emergencyVolunteerCannotDismiss:
+            // 文案面向志愿者：他不该有撤销权，能做的只有确认对方是否需要帮助。
+            return "志愿者无权撤销求助，请确认对方是否需要帮助。"
+        case .emergencyNotOwner:
+            return "只能撤销自己发出的紧急求助。"
+        case .emergencyAlreadyClosed:
+            return "该求助已经结束，无需再操作。"
         case .contactLimitExceeded:
             return "最多添加 5 个紧急联系人，请先删除一个再添加。"
         case .contactMinimumRequired:
@@ -168,6 +181,27 @@ struct RateLimitInfo: Codable, Sendable, Equatable {
 
 /// Generic response envelope for cloud backend business endpoints.
 /// Format: {"success": bool, "code": int, "message": string, "data": T}
+/// `URLSessionAPIClient` 的成功体解码策略，抽出来只为一件事：**能被测试直接驱动**。
+///
+/// 两个调用点（`request` / `upload`）此前各抄了一份同样的六行。真正需要锁住的是它的顺序语义 ——
+/// 先试信封、拿不到 `data` 再裸解 —— 因为有些类型（如 `EmergencyActiveEnvelope`）正是靠
+/// 「内层解不出」才落到裸解这一步的，靠读代码推断这条路走不走得通并不可靠。
+enum APIPayloadDecoder {
+    /// - Note: 信封优先是有意的：字段全可选的模型（如 `BlindProfileResponse`）从信封根对象裸解
+    ///   会「成功」但全是 nil。
+    static func decodePayload<T: Decodable>(
+        _ type: T.Type,
+        from data: Data,
+        decoder: JSONDecoder
+    ) throws -> T {
+        if let envelope = try? decoder.decode(APIEnvelopeResponse<T>.self, from: data),
+           let payload = envelope.data {
+            return payload
+        }
+        return try decoder.decode(T.self, from: data)
+    }
+}
+
 struct APIEnvelopeResponse<T: Decodable>: Decodable {
     let success: Bool?
     let code: Int?

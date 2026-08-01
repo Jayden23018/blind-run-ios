@@ -2,6 +2,9 @@ import Foundation
 
 // MARK: - User Role
 
+/// 不做未知值兜底：所有**入站**的角色字段（`LoginResponse.role` / `SetRoleResponse.role`）
+/// 本来就接成 `String`，由 `roleResolution` 做 `rawValue` 映射并把不认识的值归到 `.invalid`；
+/// 枚举本身只在 `SetRoleRequest` 这条只出不进的路径上被编码。
 enum UserRole: String, Codable, CaseIterable, Sendable {
     case blind = "BLIND"
     case volunteer = "VOLUNTEER"

@@ -62,6 +62,9 @@ struct OrderTrackResponse: Codable, Sendable, Equatable {
             return blindTrack.isEmpty
                 ? "该历史订单暂无轨迹。"
                 : "本次轨迹点不足，暂时无法绘制路线。"
+        // 认不出状态时不猜「尚未开始」还是「已结束」，只陈述看得见的事实。
+        case .unknown:
+            return "暂时没有足够的轨迹点。"
         }
     }
 

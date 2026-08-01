@@ -15,6 +15,18 @@ struct ActiveEmergencyEvent: Equatable, Sendable {
     var status: EmergencyEventStatus
 }
 
+/// An `EMERGENCY_VOLUNTEER_ALERT` addressed to the escorting volunteer as observer.
+///
+/// The volunteer's only possible answer is "确认需要帮助". There is deliberately no dismiss action:
+/// `action=FALSE_ALARM` is a hard 403 server-side, because in a one-to-one escort the companion is
+/// the person a victim may need protection from.
+struct VolunteerEmergencyAlert: Equatable, Sendable {
+    let eventID: Int64
+    let orderID: Int64?
+    let message: String
+    var isAcknowledged = false
+}
+
 enum EmergencySOSState: Equatable {
     case idle
     case locating
@@ -23,6 +35,14 @@ enum EmergencySOSState: Equatable {
     case unsentNoLocation
     case failed(String)
     case cooldown(retryAfterSeconds: Int?)
+    /// Carrier receipt confirmed the SMS reached the contact's handset
+    /// (`EMERGENCY_CONTACT_SMS_DELIVERED`). The only state allowed to speak in the completed tense.
+    case contactSmsDelivered
+    /// Provider rejected the SMS or the carrier failed to deliver it (`EMERGENCY_CONTACT_NOTIFY_FAILED`).
+    /// Distinct from a failed *trigger*: the request was accepted, the notification was not.
+    case contactNotifyFailed
+    /// The owner cancelled their own false alarm (`PUT /api/emergency/{eventId}/cancel`).
+    case cancelledByOwner
 
     /// Text shown next to the button and spoken. `nil` only for `.idle`.
     var message: String? {
@@ -41,6 +61,12 @@ enum EmergencySOSState: Equatable {
             return EmergencySafetyCopy.failure(reason)
         case .cooldown(let seconds):
             return EmergencySafetyCopy.cooldown(retryAfterSeconds: seconds)
+        case .contactSmsDelivered:
+            return EmergencySafetyCopy.contactSmsDelivered
+        case .contactNotifyFailed:
+            return EmergencySafetyCopy.contactNotifyFailed
+        case .cancelledByOwner:
+            return EmergencySafetyCopy.cancelOwnerSucceeded
         }
     }
 
@@ -48,9 +74,11 @@ enum EmergencySOSState: Equatable {
     /// leads with 未发出.
     var isFailure: Bool {
         switch self {
-        case .unsentNoLocation, .failed, .cooldown:
+        // `contactNotifyFailed` counts as a failure on purpose: nobody was reached, and that is the
+        // one fact a blind user must hear in the error register so they call 110 themselves.
+        case .unsentNoLocation, .failed, .cooldown, .contactNotifyFailed:
             return true
-        case .idle, .locating, .submitting, .acknowledged:
+        case .idle, .locating, .submitting, .acknowledged, .contactSmsDelivered, .cancelledByOwner:
             return false
         }
     }
@@ -82,15 +110,25 @@ final class EmergencyCoordinator: ObservableObject {
 
     @Published private(set) var state: EmergencySOSState = .idle
     @Published private(set) var activeEvent: ActiveEmergencyEvent?
+    /// Set only on the escorting volunteer's device, from `EMERGENCY_VOLUNTEER_ALERT`.
+    @Published private(set) var volunteerAlert: VolunteerEmergencyAlert?
 
     private var cancellables = Set<AnyCancellable>()
+    /// Supplied by `AppState` so the coordinator can recover an event it never saw the trigger for
+    /// (volunteer-initiated SOS, cold start, reconnect). Returns `nil` when recovery does not apply —
+    /// `GET /api/emergency/active` is `BLIND`-only, so a volunteer session must not call it at all.
+    private var recoveryAPIClientProvider: (() -> (any APIClientProtocol)?)?
 
     // MARK: Wiring
 
     /// Emergency follow-ups arrive on the realtime channel long after the screen that triggered
     /// them may have gone. Subscribing here — not in a ViewModel — is what makes the state survive
     /// navigation, backgrounding, and lock.
-    func observe(_ realtimeCoordinator: AppRealtimeCoordinator) {
+    func observe(
+        _ realtimeCoordinator: AppRealtimeCoordinator,
+        recoveryAPIClientProvider: (() -> (any APIClientProtocol)?)? = nil
+    ) {
+        self.recoveryAPIClientProvider = recoveryAPIClientProvider
         realtimeCoordinator.$latestSafetyEvent
             .compactMap { $0 }
             .sink { [weak self] event in
@@ -100,13 +138,110 @@ final class EmergencyCoordinator: ObservableObject {
     }
 
     /// Cleared on logout, account deletion, session expiration, user change, and role switch.
-    /// Nothing about an emergency event is persisted to disk: the backend exposes no recovery
-    /// endpoint or event replay (handoff Q⑤, unanswered), so retained metadata could only ever be
-    /// presented as unverified state — and unverified rescue state is exactly what must not be
-    /// shown to someone who cannot see the screen.
+    /// Nothing about an emergency event is persisted to disk — retained metadata could only ever be
+    /// presented as unverified state, and unverified rescue state is exactly what must not be shown
+    /// to someone who cannot see the screen. Recovery goes through `refreshActiveEvent()` instead,
+    /// which re-reads the authoritative state from the backend.
     func reset() {
         state = .idle
         activeEvent = nil
+        volunteerAlert = nil
+    }
+
+    // MARK: Recovery
+
+    /// Re-reads the authoritative event from `GET /api/emergency/active`.
+    ///
+    /// Needed because two paths produce an emergency this client never saw a trigger receipt for:
+    /// a volunteer raising the SOS on the blind runner's behalf, and a cold start / reconnect after
+    /// the triggering screen is long gone. WS emergency notifications carry no `eventId`
+    /// (`api_spec.yaml:1174-1176`), so this endpoint is the only place the id and the live status
+    /// can come from. Silent on failure: a recovery attempt that did not land must not manufacture
+    /// rescue state, and there is nothing actionable to announce.
+    func refreshActiveEvent(userID: Int64? = nil) async {
+        guard let apiClient = recoveryAPIClientProvider?() else { return }
+        do {
+            let envelope: EmergencyActiveEnvelope = try await apiClient.get("/api/emergency/active")
+            guard let event = envelope.data, !event.eventStatus.isTerminal else {
+                // Backend says nothing is open. Any local echo of a finished event goes with it.
+                if activeEvent != nil {
+                    activeEvent = nil
+                    state = .idle
+                }
+                return
+            }
+            activeEvent = ActiveEmergencyEvent(
+                eventID: event.id,
+                orderID: event.orderId ?? activeEvent?.orderID ?? 0,
+                userID: event.userId ?? userID,
+                status: event.eventStatus
+            )
+            state = .acknowledged(event.eventStatus)
+        } catch {
+            return
+        }
+    }
+
+    // MARK: Cancel (owner only)
+
+    /// The one user-side exit from a false alarm. Volunteers deliberately have no equivalent:
+    /// `action=FALSE_ALARM` on the volunteer endpoint is a hard 403
+    /// (`EMERGENCY_VOLUNTEER_CANNOT_DISMISS`), because in a one-to-one escort the companion is the
+    /// person a victim may need protection from.
+    @discardableResult
+    func cancelByOwner(apiClient: any APIClientProtocol) async -> TriggerOutcome {
+        guard let active = activeEvent else {
+            return finish(.failed("当前没有进行中的求助"))
+        }
+        do {
+            let response: EmergencyCancelResponse = try await apiClient.put(
+                "/api/emergency/\(active.eventID)/cancel"
+            )
+            guard response.success else {
+                return finish(.failed(EmergencySafetyCopy.cancelOwnerFailed(nil)))
+            }
+            activeEvent = nil
+            return finish(.cancelledByOwner)
+        } catch let error as APIError {
+            // 已经结束的事件不是错误，是状态过期：把本地状态对齐后按已结束处理。
+            if error.errorCode == .emergencyAlreadyClosed {
+                activeEvent = nil
+                return finish(.idle)
+            }
+            return finish(.failed(EmergencySafetyCopy.cancelOwnerFailed(error.localizedMessage)))
+        } catch {
+            return finish(.failed(EmergencySafetyCopy.cancelOwnerFailed(nil)))
+        }
+    }
+
+    /// Volunteer answering `EMERGENCY_VOLUNTEER_ALERT`. `NEED_HELP` is the only action that exists
+    /// here on purpose — see `VolunteerEmergencyAcknowledgement`.
+    @discardableResult
+    func acknowledgeAsVolunteer(
+        eventID: Int64,
+        apiClient: any APIClientProtocol
+    ) async -> Bool {
+        do {
+            let response: VolunteerEmergencyAcknowledgement = try await apiClient.request(
+                method: .put,
+                path: "/api/emergency/\(eventID)/volunteer-response",
+                query: ["action": "NEED_HELP"],
+                body: nil,
+                requiresAuth: true
+            )
+            if response.success, volunteerAlert?.eventID == eventID {
+                volunteerAlert?.isAcknowledged = true
+            }
+            return response.success
+        } catch let error as APIError {
+            // 事件已由客服/本人关掉：对志愿者来说等同于「不用再确认了」，收起入口而不是报错。
+            if error.errorCode == .emergencyAlreadyClosed, volunteerAlert?.eventID == eventID {
+                volunteerAlert = nil
+            }
+            return false
+        } catch {
+            return false
+        }
     }
 
     // MARK: Trigger
@@ -223,18 +358,60 @@ final class EmergencyCoordinator: ObservableObject {
     /// tolerable only because the copy these events produce never claims a delivered SMS — see
     /// `EmergencySafetyCopy`. Events arriving with no active emergency are ignored outright.
     func apply(_ event: RealtimeSafetyEvent) {
-        guard var active = activeEvent else { return }
+        if event.kind == .emergencyVolunteerAlert {
+            // Observer-side alert: it never advances the initiator's own state, it opens the one
+            // action the volunteer has. `eventID` is the numeric backend id stringified at decode.
+            if let eventID = Int64(event.eventID) {
+                volunteerAlert = VolunteerEmergencyAlert(
+                    eventID: eventID,
+                    orderID: event.orderID,
+                    message: event.displayText
+                )
+            }
+            return
+        }
+        guard var active = activeEvent else {
+            // No local event, yet the backend is talking about one — the blind runner never saw a
+            // trigger receipt because the volunteer pressed the button, or the app was restarted.
+            // The envelope carries no `eventId`, so the id and status can only come from the
+            // recovery endpoint.
+            if event.kind.impliesLiveEmergency {
+                Task { await refreshActiveEvent() }
+            }
+            return
+        }
         if let orderID = event.orderID, orderID != active.orderID { return }
 
         switch event.kind {
         case .emergencyContactNotified:
             active.status = .contactNotified
-        case .emergencyResolved:
+        case .emergencyResolved, .emergencyClosedResolved:
             active.status = .resolved
+        case .emergencyClosedFalseAlarm:
+            active.status = .falseAlarm
         case .emergencyNoContact, .emergencyVolunteerTimeout:
             active.status = .csHandling
-        case .emergencyTriggered:
-            // Nothing new: the HTTP response already told us, and with more detail.
+        case .emergencyVolunteerAck:
+            // 志愿者点完「确认需要帮助」后**发给志愿者本人**的回执，不改升级进度。
+            // 后端 2026-07-31 把升级线与志愿者线拆成正交的两组字段
+            // （`status` vs `volunteerNotifiedAt`/`volunteerConfirmedAt`/`volunteerAction`），
+            // `VOLUNTEER_CONFIRMED` 同日标记废弃、不再产生。往 `status` 上写它等于自造一个后端已经
+            // 不存在的状态，还会把 `CONTACT_NOTIFIED` 覆盖掉、让文案退回更早的阶段。
+            // 志愿者自己的回执由 `acknowledgeAsVolunteer` 的调用点播报，不经过这里。
+            return
+        case .emergencyContactSmsDelivered:
+            // Delivery is orthogonal to the escalation status: the event stays CONTACT_NOTIFIED,
+            // but the copy may finally move to the completed tense.
+            activeEvent = active
+            state = .contactSmsDelivered
+            return
+        case .emergencyContactNotifyFailed:
+            activeEvent = active
+            state = .contactNotifyFailed
+            return
+        case .emergencyTriggered, .emergencyTriggeredByVolunteer:
+            // Nothing new: the HTTP response (or the recovery fetch above) already told us, with
+            // more detail than the notification carries.
             return
         case .emergencyVolunteerAlert:
             // Addressed to the volunteer as observer; it does not advance the initiator's state.

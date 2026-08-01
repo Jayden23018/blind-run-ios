@@ -27,6 +27,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     private var orders: [OrderDetailResponse] = []
     private var emergencyEventSequence: Int64 = 9000
+    /// 当前未终态的紧急事件，`GET /api/emergency/active` 的回放源。撤销后置 nil。
+    private var activeEmergencyEvent: EmergencyEventResponse?
     private var nextOrderId: Int64 = 100
     private var nextContactId: Int64 = 100
 
@@ -334,9 +336,31 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             }
         }
 
+        // 语音下单解析。真机上这两条接的是后端「正则优先、大模型兜底」，Mock 只认几条固定语料，
+        // 其余一律 `needReask` —— 目的是让向导的重问/降级分支在开发期真的被走到。
+        if path == VoiceOrderEndpoint.resolveAddress && method == .post {
+            return try handleVoiceResolveAddress(body: body)
+        }
+        if path == VoiceOrderEndpoint.parseSlot && method == .post {
+            return try handleVoiceParseSlot(body: body)
+        }
+
         // Emergency trigger
         if path == "/api/emergency/trigger" && method == .post {
             return try handleEmergencyTrigger(body: body)
+        }
+        if path == "/api/emergency/active" && method == .get {
+            return handleActiveEmergency()
+        }
+        if method == .put, path.hasSuffix("/cancel"), path.hasPrefix("/api/emergency/"),
+           let eventId = Int64(path.dropFirst("/api/emergency/".count).dropLast("/cancel".count)) {
+            return try handleCancelEmergency(eventId: eventId)
+        }
+        if method == .put, path.hasSuffix("/volunteer-response"), path.hasPrefix("/api/emergency/"),
+           let eventId = Int64(
+               path.dropFirst("/api/emergency/".count).dropLast("/volunteer-response".count)
+           ) {
+            return try handleVolunteerEmergencyResponse(eventId: eventId, action: query?["action"])
         }
 
         // Location
@@ -1243,12 +1267,145 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return ApiSuccessResponse(success: true, message: nil)
     }
 
+    // MARK: - Voice Order Handlers
+
+    /// `POST /api/orders/voice/resolve-address`。`needReask` 是 **200 的正常业务状态**，
+    /// 所以这里返回的是成功响应体而不是 `APIError` —— Mock 把这一点做错，向导就会在开发期被
+    /// 当成错误分支调通、上真机才发现走不通。
+    private func handleVoiceResolveAddress(body: (any Encodable & Sendable)?) throws -> ResolveAddressResponse {
+        guard mockToken != nil else { throw APIError.unauthorized }
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(ResolveAddressRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
+        }
+        let transcript = request.transcript.trimmed
+        // 线上带坐标时走周边搜索、按距离取最近；Mock 语料太小分不出远近，这里只把「有没有带坐标」
+        // 记进日志层面的行为差异：带了就优先匹配同城关键词。真正的消歧在后端。
+        let candidates = request.latitude != nil && request.longitude != nil
+            ? Self.mockVoicePlaces.sorted { lhs, rhs in
+                Self.squaredDistance(lhs, request) < Self.squaredDistance(rhs, request)
+            }
+            : Self.mockVoicePlaces
+        guard let match = candidates.first(where: { transcript.contains($0.keyword) }) else {
+            return ResolveAddressResponse(
+                address: nil,
+                latitude: nil,
+                longitude: nil,
+                needReask: true,
+                ttsText: "没听清地点，请再说一次出发地"
+            )
+        }
+        return ResolveAddressResponse(
+            address: match.address,
+            latitude: match.latitude,
+            longitude: match.longitude,
+            needReask: false,
+            ttsText: "您是说在\(match.address)出发吗？"
+        )
+    }
+
+    /// `POST /api/orders/voice/parse-slot`。时长范围（10~300）与提前量（≥30 分钟）不满足时后端也走
+    /// `needReask` 而不是错误码，Mock 同样如此。
+    private func handleVoiceParseSlot(body: (any Encodable & Sendable)?) throws -> ParseSlotResponse {
+        guard mockToken != nil else { throw APIError.unauthorized }
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(ParseSlotRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
+        }
+        let transcript = request.transcript.trimmed
+        switch request.field {
+        case .startTime:
+            guard let hour = Self.mockVoiceHour(in: transcript) else {
+                return ParseSlotResponse(
+                    plannedStartTime: nil,
+                    durationMinutes: nil,
+                    needReask: true,
+                    ttsText: "没听清开始时间，请再说一次，比如“明天早上八点”"
+                )
+            }
+            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+            var components = Calendar.current.dateComponents([.year, .month, .day], from: tomorrow)
+            components.hour = hour.hour
+            components.minute = hour.minute
+            let date = Calendar.current.date(from: components) ?? tomorrow
+            return ParseSlotResponse(
+                plannedStartTime: DateFormatter.aidRunBackendLocalDateTime.string(from: date),
+                durationMinutes: nil,
+                needReask: false,
+                ttsText: "好的，明天\(hour.hour)点\(hour.minute)分"
+            )
+        case .duration:
+            guard let minutes = Self.mockVoiceMinutes(in: transcript), (10...300).contains(minutes) else {
+                return ParseSlotResponse(
+                    plannedStartTime: nil,
+                    durationMinutes: nil,
+                    needReask: true,
+                    ttsText: "没听清时长，请再说一次，比如“一个小时”"
+                )
+            }
+            return ParseSlotResponse(
+                plannedStartTime: nil,
+                durationMinutes: minutes,
+                needReask: false,
+                ttsText: "好的，大约\(minutes)分钟"
+            )
+        }
+    }
+
+    private struct MockVoicePlace {
+        let keyword: String
+        let address: String
+        let latitude: Double
+        let longitude: Double
+    }
+
+    /// 只用于排序，不需要真实距离，所以不做球面换算。
+    private static func squaredDistance(_ place: MockVoicePlace, _ request: ResolveAddressRequest) -> Double {
+        guard let latitude = request.latitude, let longitude = request.longitude else { return 0 }
+        let dLat = place.latitude - latitude
+        let dLng = place.longitude - longitude
+        return dLat * dLat + dLng * dLng
+    }
+
+    /// GCJ-02，与真实接口同坐标系。
+    private static let mockVoicePlaces: [MockVoicePlace] = [
+        MockVoicePlace(keyword: "人民广场", address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737),
+        MockVoicePlace(keyword: "天安门", address: "北京市东城区天安门广场", latitude: 39.9087, longitude: 116.3975),
+        MockVoicePlace(keyword: "奥林匹克", address: "北京市朝阳区奥林匹克森林公园", latitude: 40.0026, longitude: 116.3915)
+    ]
+
+    private static func mockVoiceHour(in transcript: String) -> (hour: Int, minute: Int)? {
+        if transcript.contains("八点半") { return (8, 30) }
+        if transcript.contains("八点") { return (8, 0) }
+        if transcript.contains("七点半") { return (7, 30) }
+        if transcript.contains("七点") { return (7, 0) }
+        if transcript.contains("六点") { return (6, 0) }
+        return nil
+    }
+
+    /// 取值与 `demo/docs/voice-golden-corpus.json` 里 `source: "regex"` 的 DURATION 用例一致。
+    /// Mock 与真实解析器漂移会让开发期调通的向导在真机上走不通，`VoiceOrderWizardTests` 锁了这份对齐。
+    /// 顺序有意义：「一个半小时」必须排在「半小时」「一小时」之前，否则会被前缀吃掉。
+    static func mockVoiceMinutes(in transcript: String) -> Int? {
+        if transcript.contains("一个半小时") { return 90 }
+        if transcript.contains("一小时二十分钟") { return 80 }
+        if transcript.contains("两小时") || transcript.contains("两个小时") { return 120 }
+        if transcript.contains("半小时") { return 30 }
+        if transcript.contains("一小时") || transcript.contains("一个小时") { return 60 }
+        if transcript.contains("四十分钟") { return 40 }
+        if transcript.contains("二十分钟") { return 20 }
+        return nil
+    }
+
     // MARK: - Emergency Handler
 
-    /// Mirrors `EmergencyController.triggerEmergency` + `EmergencyService.handleEmergencyTriggered`:
-    /// an order with a volunteer parks at `VOLUNTEER_NOTIFIED`, one without escalates straight to
-    /// `CONTACT_NOTIFIED`. The order status itself is deliberately left untouched — an emergency is
-    /// a separate event, never an order state (`AGENTS.md` section 6).
+    /// Mirrors `EmergencyController.triggerEmergency` after the 2026-07-31 rewrite: escalation to the
+    /// emergency contacts happens at trigger time (no 30s serial wait on the volunteer), so the
+    /// receipt `status` collapses to **two** values — `CONTACT_NOTIFIED` when a primary contact
+    /// exists, `PENDING` when none does. `VOLUNTEER_NOTIFIED` is no longer produced: notifying the
+    /// volunteer is a parallel bypass that does not move `status`. The order status itself is
+    /// deliberately left untouched — an emergency is a separate event, never an order state
+    /// (`AGENTS.md` section 6).
     private func handleEmergencyTrigger(body: (any Encodable & Sendable)?) throws -> EmergencyTriggerResponse {
         guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
               let request = try? JSONDecoder().decode(EmergencyTriggerRequest.self, from: data) else {
@@ -1263,13 +1420,63 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             )
         }
         emergencyEventSequence += 1
+        let hasPrimaryContact = emergencyContacts.contains { $0.isPrimary == true }
+        let status: EmergencyEventStatus = hasPrimaryContact ? .contactNotified : .pending
+        activeEmergencyEvent = EmergencyEventResponse(
+            id: emergencyEventSequence,
+            orderId: order.orderId,
+            userId: nil,
+            status: status.rawValue,
+            triggerType: "BUTTON",
+            hasGpsLocation: request.gpsLat != nil && request.gpsLng != nil
+        )
         return EmergencyTriggerResponse(
             success: true,
             eventId: emergencyEventSequence,
-            status: order.volunteerPhone == nil
-                ? EmergencyEventStatus.contactNotified.rawValue
-                : EmergencyEventStatus.volunteerNotified.rawValue
+            status: status.rawValue
         )
+    }
+
+    /// `GET /api/emergency/active` —— 冷启动/重连恢复。没有未终态事件时 `data` 为 null。
+    private func handleActiveEmergency() -> EmergencyActiveEnvelope {
+        EmergencyActiveEnvelope(success: true, data: activeEmergencyEvent)
+    }
+
+    /// `PUT /api/emergency/{eventId}/cancel` —— 受助者本人撤销误触。
+    private func handleCancelEmergency(eventId: Int64) throws -> EmergencyCancelResponse {
+        guard let event = activeEmergencyEvent else {
+            throw APIError.serverError(
+                ErrorResponse(code: "EMERGENCY_ALREADY_CLOSED", message: "该求助已经结束")
+            )
+        }
+        guard event.id == eventId else {
+            throw APIError.serverError(
+                ErrorResponse(code: "EMERGENCY_NOT_OWNER", message: "只能撤销自己的紧急求助")
+            )
+        }
+        activeEmergencyEvent = nil
+        return EmergencyCancelResponse(
+            success: true,
+            eventId: eventId,
+            status: EmergencyEventStatus.falseAlarm.rawValue
+        )
+    }
+
+    /// `PUT /api/emergency/{eventId}/volunteer-response` —— **只接受 `NEED_HELP`**。
+    /// `FALSE_ALARM` 在线上是 403，Mock 必须同样拒绝，否则开发期会长出一个线上根本不存在的「误触」按钮。
+    private func handleVolunteerEmergencyResponse(
+        eventId: Int64,
+        action: String?
+    ) throws -> VolunteerEmergencyAcknowledgement {
+        guard action == "NEED_HELP" else {
+            throw APIError.serverError(
+                ErrorResponse(
+                    code: "EMERGENCY_VOLUNTEER_CANNOT_DISMISS",
+                    message: "志愿者无权撤销求助，请确认对方是否需要帮助"
+                )
+            )
+        }
+        return VolunteerEmergencyAcknowledgement(success: true, eventId: eventId, action: action)
     }
 
     // MARK: - Location Handler

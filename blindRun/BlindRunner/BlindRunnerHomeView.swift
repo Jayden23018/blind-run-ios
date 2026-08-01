@@ -6,6 +6,9 @@ import SwiftUI
 
 private enum BlindRunnerRoute: Hashable {
     case booking
+    /// 同一个预约页，进去就自动开语音向导。单独一个 case 而不是给 `.booking` 加参数，
+    /// 是为了不动既有导航调用点。
+    case voiceBooking
     case orderStatus(Int64)
     case settings
 }
@@ -404,6 +407,13 @@ struct BlindRunnerHomeView: View {
                             path = [.orderStatus(orderId)]
                         }
                     }
+                case .voiceBooking:
+                    BlindBookingView(startsWithVoice: true) { response in
+                        viewModel.handleOrderCreated(response)
+                        if let orderId = response.id {
+                            path = [.orderStatus(orderId)]
+                        }
+                    }
                 case .orderStatus(let orderId):
                     BlindOrderStatusView(orderId: orderId) { updatedOrder in
                         viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil
@@ -576,6 +586,21 @@ struct BlindRunnerHomeView: View {
                 .accessibilityLabel("开始约跑")
                 .accessibilityHint("点击后创建跑步预约")
                 .accessibilityIdentifier("blindRunnerHomeStartBookingButton")
+
+                // 语音是快捷入口，不是另一条流程：它进的是同一个预约页，只是进去就开始问。
+                // 表单那条路径一直在，随时可以切回去（读屏用户对多步骤任务更信可核对的表单）。
+                NavigationLink(value: BlindRunnerRoute.voiceBooking) {
+                    Text("语音下单")
+                        .font(AppFonts.primaryButton())
+                        .foregroundColor(AppColors.primary)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 64)
+                        .background(AppColors.secondaryBackground)
+                        .cornerRadius(12)
+                }
+                .accessibilityLabel("语音下单")
+                .accessibilityHint("进入预约页后会依次问你出发地点、时间和时长，最后仍需要你确认提交")
+                .accessibilityIdentifier("blindRunnerHomeVoiceBookingButton")
             } else {
                 Button {
                     viewModel.explainBookingUnavailable()

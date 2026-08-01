@@ -4,6 +4,9 @@ import SwiftUI
 
 // MARK: - Order Display Helpers
 
+/// 以下每个 `case .unknown` 都对应「后端新增了本客户端不认识的订单状态」。
+/// 一律走中性、只读、不下结论的分支：让订单继续留在列表里可被刷新，
+/// 好过把它当成已结束而从界面上抹掉。
 extension RunOrderStatus {
     var isActiveForBlindRunner: Bool {
         switch self {
@@ -11,6 +14,8 @@ extension RunOrderStatus {
             return true
         case .completed, .cancelled, .noVolunteer:
             return false
+        case .unknown:
+            return true
         }
     }
 
@@ -20,6 +25,8 @@ extension RunOrderStatus {
             return true
         case .pendingMatch, .completed, .cancelled, .rematching, .noVolunteer:
             return false
+        case .unknown:
+            return true
         }
     }
 
@@ -43,6 +50,8 @@ extension RunOrderStatus {
             return "正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"
         case .noVolunteer:
             return "暂时没有可用志愿者，请稍后重试。"
+        case .unknown:
+            return "订单状态有更新，请刷新页面或稍后重试。"
         }
     }
 
@@ -66,6 +75,8 @@ extension RunOrderStatus {
             return "正在确认志愿者状态，请稍候。"
         case .noVolunteer:
             return "暂时没有可用志愿者。"
+        case .unknown:
+            return "订单状态有更新，请刷新页面或稍后重试。"
         }
     }
 
@@ -89,6 +100,8 @@ extension RunOrderStatus {
             return "arrow.triangle.2.circlepath"
         case .noVolunteer:
             return "person.slash.fill"
+        case .unknown:
+            return "questionmark.circle"
         }
     }
 
@@ -101,6 +114,8 @@ extension RunOrderStatus {
         case .driverArrived:
             return AppColors.primary
         case .cancelled, .noVolunteer:
+            return AppColors.textSecondary
+        case .unknown:
             return AppColors.textSecondary
         }
     }

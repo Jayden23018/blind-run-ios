@@ -28,7 +28,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
 
         if let profile = appState.blindProfile {
             name = profile.name ?? ""
-            defaultPace = profile.defaultPace ?? .noPreference
+            defaultPace = profile.defaultPace?.selectable ?? .noPreference
             specialNeeds = profile.specialNeeds ?? ""
         }
     }

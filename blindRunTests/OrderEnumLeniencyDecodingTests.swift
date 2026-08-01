@@ -1,0 +1,180 @@
+import XCTest
+@testable import blindRun
+
+/// 「后端新增一个枚举值」不得让整条响应解不出。
+///
+/// 这条崩法不直观，值得写死：Swift 合成的 `decodeIfPresent` 只对**字段缺失 / 值为 null**宽容，
+/// 对「值存在但本客户端不认识」会抛 `DecodingError.dataCorrupted`，
+/// 而 `KeyedDecodingContainer` 的错误会一路冒泡，把**同一个对象里其它所有字段**一起带走。
+/// 也就是说后端往订单状态机里加一个 `PAUSED`，iOS 这边不是「状态显示不出来」，
+/// 而是**整张订单详情页空白**。
+///
+/// 修法是在枚举层给 `RunOrderStatus` / `PacePreference` / `RoutePreference` 加 `.unknown`
+/// 兜底 + 自定义 `init(from:)`，而不是逐个字段改成 `String` + 映射 ——
+/// 这三个枚举一共有 8 处解码点，改枚举一次全覆盖。
+///
+/// 用例走 `APIPayloadDecoder.decodePayload`，与线上同一条解码策略。
+final class OrderEnumLeniencyDecodingTests: XCTestCase {
+
+    private let decoder = JSONDecoder()
+
+    private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
+        try APIPayloadDecoder.decodePayload(type, from: Data(json.utf8), decoder: decoder)
+    }
+
+    // MARK: - RunOrderStatus（订单主干，非可选字段）
+
+    /// `OrderDetailResponse.status` 是**非可选**的 `RunOrderStatus`，
+    /// 不认识的状态过去会让整页数据（地址、坐标、电话、计划时间）一起丢掉。
+    func testOrderDetailSurvivesAnUnknownBackendStatus() throws {
+        let detail = try decode(OrderDetailResponse.self, """
+        {
+          "orderId": 4201,
+          "status": "PAUSED_BY_BACKEND",
+          "startAddress": "北京市海淀区中关村大街1号",
+          "startLatitude": 39.98,
+          "startLongitude": 116.31,
+          "plannedStart": "2026-08-01T09:00:00",
+          "blindPhone": "13800000000",
+          "pacePreference": "MODERATE"
+        }
+        """)
+
+        XCTAssertEqual(detail.status, .unknown)
+        // 真正要守的是这几行：兄弟字段必须完好，否则页面整块空白。
+        XCTAssertEqual(detail.orderId, 4201)
+        XCTAssertEqual(detail.startAddress, "北京市海淀区中关村大街1号")
+        XCTAssertEqual(detail.startLatitude, 39.98)
+        XCTAssertEqual(detail.blindPhone, "13800000000")
+        XCTAssertEqual(detail.pacePreference, .moderate)
+    }
+
+    /// 未知状态**不得**被当成已结束，也不得触发任何破坏性操作入口。
+    func testUnknownStatusIsNotTerminalAndUnlocksNothing() {
+        let status = RunOrderStatus.unknown
+
+        XCTAssertFalse(status.isTerminal, "认不出的状态不等于订单结束")
+        XCTAssertTrue(status.shouldPoll, "继续轮询才能在状态推进到认识的值时自愈")
+        XCTAssertEqual(status.blindRunnerRoute, .tracking, "落到只读跟踪页，不给破坏性操作")
+        XCTAssertFalse(status.canBlindRunnerCancel)
+        XCTAssertFalse(status.canVolunteerCancel)
+        XCTAssertFalse(status.canStartService)
+        XCTAssertFalse(status.canFinishService)
+        XCTAssertFalse(status.canBlindRunnerTriggerEmergency)
+        XCTAssertFalse(status.canVolunteerTriggerEmergency)
+    }
+
+    /// `.unknown` 不是真实状态，不得混进状态机遍历或任何选项列表。
+    func testUnknownIsExcludedFromAllCases() {
+        XCTAssertFalse(RunOrderStatus.allCases.contains(.unknown))
+        XCTAssertFalse(PacePreference.allCases.contains(.unknown))
+        XCTAssertFalse(RoutePreference.allCases.contains(.unknown))
+        XCTAssertEqual(RunOrderStatus.allCases.count, 9)
+    }
+
+    /// `OrderResponse.status` 是**可选**的 —— 可选并不带来宽容，这正是这一整类问题的由来。
+    func testOrderCreateResponseSurvivesAnUnknownStatus() throws {
+        let response = try decode(OrderResponse.self, #"{"id":77,"status":"QUEUED_V2","success":true}"#)
+
+        XCTAssertEqual(response.id, 77, "下单返回的 orderId 丢了等于这一单彻底跟丢")
+        XCTAssertEqual(response.status, .unknown)
+        XCTAssertEqual(response.success, true)
+    }
+
+    /// 缺失 / null 的行为不能被改动带偏：仍然是 nil，不是 `.unknown`。
+    func testAbsentAndNullStatusStayNil() throws {
+        XCTAssertNil(try decode(OrderResponse.self, #"{"id":78,"success":true}"#).status)
+        XCTAssertNil(try decode(OrderResponse.self, #"{"id":79,"status":null}"#).status)
+    }
+
+    /// 志愿者实时位置：状态解不出会让盲人侧地图上的志愿者整个消失。
+    func testVolunteerLocationSurvivesAnUnknownStatus() throws {
+        let payload = try decode(VolunteerLocationResponse.self, """
+        {"success":true,"data":{"orderId":42,"status":"EN_ROUTE_V2","lat":39.9,"lng":116.4}}
+        """)
+
+        let data = try XCTUnwrap(payload.data)
+        XCTAssertEqual(data.status, .unknown)
+        XCTAssertTrue(data.coordinateIsValid, "坐标必须还在，否则地图上志愿者直接不见")
+    }
+
+    /// 派单概览是志愿者首页的主干列表，一条订单的新状态不得让整个列表解不出。
+    func testDispatchSummaryActiveOrderSurvivesAnUnknownStatus() throws {
+        let order = try decode(VolunteerDispatchSummaryActiveOrder.self, """
+        {"orderId":301,"status":"HANDOVER","startAddress":"朝阳公园南门","blindName":"李四"}
+        """)
+
+        XCTAssertEqual(order.status, .unknown)
+        XCTAssertEqual(order.orderId, 301)
+        XCTAssertEqual(order.blindName, "李四")
+    }
+
+    // MARK: - Pace / Route（跨端共享词表，进出双向）
+
+    /// 偏好词表是安卓/后台共用的：别的端下单时用了 iOS 不认识的取值，
+    /// iOS 志愿者读订单详情就会整页解不出。
+    func testOrderDetailSurvivesUnknownPreferenceValues() throws {
+        let detail = try decode(OrderDetailResponse.self, """
+        {
+          "orderId": 4202,
+          "status": "IN_PROGRESS",
+          "pacePreference": "SPRINT",
+          "routePreference": "BEACH",
+          "routeNotes": "沿河道跑"
+        }
+        """)
+
+        XCTAssertEqual(detail.status, .inProgress)
+        XCTAssertEqual(detail.pacePreference, .unknown)
+        XCTAssertEqual(detail.routePreference, .unknown)
+        XCTAssertEqual(detail.routeNotes, "沿河道跑")
+    }
+
+    func testBlindProfileSurvivesAnUnknownDefaultPace() throws {
+        let profile = try decode(BlindProfileResponse.self, """
+        {"name":"王五","defaultPace":"ULTRA","verifyStatus":"VERIFIED"}
+        """)
+
+        XCTAssertEqual(profile.name, "王五")
+        XCTAssertEqual(profile.defaultPace, .unknown)
+        XCTAssertEqual(profile.identityStatus, .verified, "实名门槛不能被一个配速取值带崩")
+    }
+
+    /// `.unknown` **绝不能被原样发回后端** —— 这三个枚举是双向的，
+    /// 读到的未知值会经由资料更新/下单请求再发出去。编码成 null 等价于「没填」。
+    func testUnknownPreferenceEncodesAsNullNotAsABogusString() throws {
+        let request = CreateOrderRequest(
+            startLatitude: 39.9,
+            startLongitude: 116.4,
+            startAddress: "测试地址",
+            plannedStartTime: "2026-08-01T09:00:00",
+            plannedEndTime: "2026-08-01T10:00:00",
+            expectedDurationMinutes: 60,
+            pacePreference: .unknown,
+            routePreference: .unknown,
+            routeNotes: nil,
+            hasGuideDogThisRun: nil,
+            specialNotes: nil
+        )
+
+        let encoded = String(data: try JSONEncoder().encode(request), encoding: .utf8) ?? ""
+
+        XCTAssertFalse(encoded.contains("UNKNOWN"), "把认不出的取值发回后端只会换来一个 400")
+        XCTAssertTrue(encoded.contains("\"pacePreference\":null"))
+        XCTAssertTrue(encoded.contains("\"routePreference\":null"))
+    }
+
+    /// 已知取值的编码不能被兜底逻辑改坏。
+    func testKnownPreferenceStillEncodesItsRawValue() throws {
+        let encoded = String(data: try JSONEncoder().encode([PacePreference.moderate]), encoding: .utf8)
+        XCTAssertEqual(encoded, #"["MODERATE"]"#)
+    }
+
+    /// 绑定选择器时未知取值回落到「无偏好」：否则 SwiftUI 找不到匹配 tag 会渲染空白项，
+    /// VoiceOver 什么都读不出来 —— 在一个盲人应用里这比显示错误更糟。
+    func testUnknownPreferenceFallsBackToNoPreferenceForPickers() {
+        XCTAssertEqual(PacePreference.unknown.selectable, .noPreference)
+        XCTAssertEqual(RoutePreference.unknown.selectable, .noPreference)
+        XCTAssertEqual(PacePreference.fast.selectable, .fast)
+    }
+}

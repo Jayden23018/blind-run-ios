@@ -110,6 +110,8 @@ extension RunOrderStatus {
             return "订单正在重新匹配"
         case .noVolunteer:
             return "暂无志愿者"
+        case .unknown:
+            return "订单状态有更新，请刷新页面"
         }
     }
 
@@ -129,6 +131,8 @@ extension RunOrderStatus {
             return "订单异常"
         case .pendingMatch:
             return "等待接单"
+        case .unknown:
+            return "订单状态未知"
         }
     }
 
@@ -159,6 +163,8 @@ extension RunOrderStatus {
             return "本次服务已结束"
         case .pendingMatch:
             return "订单尚未进入服务流程"
+        case .unknown:
+            return "当前状态无法识别，请刷新后再操作"
         }
     }
 }
@@ -540,6 +546,9 @@ private extension RunOrderStatus {
         case .completed:
             return false
         case .pendingMatch, .cancelled, .noVolunteer:
+            return false
+        // `.unknown` 只可能来自解码兜底，永远不会是志愿者操作的目标状态。
+        case .unknown:
             return false
         }
     }
@@ -1082,6 +1091,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published var didCancelOrder = false
     @Published private(set) var latestBlindSample: LocatedCoordinate?
     @Published private(set) var transitionState: VolunteerOrderTransitionState = .idle
+    @Published private(set) var isAcknowledgingEmergency = false
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -1308,6 +1318,44 @@ final class VolunteerInServiceViewModel: ObservableObject {
             target: target,
             appState: appState
         )
+    }
+
+    // MARK: - 紧急求助（志愿者侧）
+
+    /// 代被陪同的盲人发起求助。与盲人侧同一条路径、同一个 GPS 严格门槛（拿不到真实定位就不发），
+    /// 区别只在后端把事件挂在订单的盲人身上、并用 `VOLUNTEER_BUTTON` 标注来源。
+    func enterEmergency(locate: @escaping () async -> LocatedCoordinate?) async {
+        guard let order, let appState else { return }
+        let outcome = await appState.emergencyCoordinator.trigger(
+            order: order,
+            role: appState.activeRole,
+            userID: appState.userId,
+            apiClient: appState.apiClient,
+            locate: locate
+        )
+        if outcome.isFailure {
+            speechService?.speakError(outcome.message)
+        } else {
+            speechService?.speak(outcome.message)
+        }
+    }
+
+    /// 对被陪同者的求助回一句「确认需要帮助」。这是志愿者唯一能做的响应。
+    func acknowledgeEmergency(eventID: Int64) async {
+        guard let appState, !isAcknowledgingEmergency else { return }
+        isAcknowledgingEmergency = true
+        let succeeded = await appState.emergencyCoordinator.acknowledgeAsVolunteer(
+            eventID: eventID,
+            apiClient: appState.apiClient
+        )
+        isAcknowledgingEmergency = false
+        if succeeded {
+            speechService?.speak(EmergencySafetyCopy.volunteerAcknowledged)
+        } else {
+            let message = "确认失败，请重试。若情况危急请立即拨打110。"
+            errorMessage = message
+            speechService?.speakError(message)
+        }
     }
 
     private func submitTransition(
@@ -1550,6 +1598,7 @@ struct VolunteerInServiceView: View {
     @StateObject private var viewModel = VolunteerInServiceViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @State private var showCancelConfirm = false
+    @State private var showEmergencyConfirm = false
     @State private var activeSheet: VolunteerSheet?
     let orderId: Int64
     let initialOrder: OrderDetailResponse?
@@ -1594,7 +1643,9 @@ struct VolunteerInServiceView: View {
                     if order.status == .completed {
                         completedTrackContent
                     } else {
-                        VolunteerServiceBottomPanel(
+                        VStack(spacing: 10) {
+                            emergencySection(for: order)
+                            VolunteerServiceBottomPanel(
                             order: order,
                             distanceText: distanceText(for: order),
                             errorMessage: viewModel.errorMessage,
@@ -1624,7 +1675,8 @@ struct VolunteerInServiceView: View {
                             onRetryTransitionConfirmation: {
                                 viewModel.retryTransitionConfirmation()
                             },
-                        )
+                            )
+                        }
                         .padding(.horizontal, 10)
                         .padding(.bottom, 8)
                     }
@@ -1660,6 +1712,11 @@ struct VolunteerInServiceView: View {
         } message: {
             Text("确认取消本次预约？")
         }
+        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm) {
+            Task {
+                await viewModel.enterEmergency(locate: { locationService.latestBackendSample() })
+            }
+        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .completion:
@@ -1669,6 +1726,40 @@ struct VolunteerInServiceView: View {
                 }
             case .navigation(let request):
                 ExternalMapNavigationSheet(request: request)
+            }
+        }
+    }
+
+    /// 志愿者侧的两个紧急动作，都在服务进行中才有意义。
+    ///
+    /// 上半：被陪同者发出求助时的**唯一**响应「确认需要帮助」。**没有「误触」按钮** —— 后端对
+    /// `action=FALSE_ALARM` 恒 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`：一对一陪跑里陪同者本身
+    /// 可能就是威胁来源，撤销权只在受助者本人和客服手里。
+    /// 下半：代盲人发起求助（后端 2026-07-31 起按订单参与方归属事件，不再回推给按按钮的人）。
+    @ViewBuilder
+    private func emergencySection(for order: OrderDetailResponse) -> some View {
+        let coordinator = appState.emergencyCoordinator
+        VStack(spacing: 10) {
+            if let alert = coordinator.volunteerAlert, !alert.isAcknowledged {
+                EmergencyStatusNotice(message: alert.message, isFailure: true)
+                PrimaryButton(
+                    EmergencySafetyCopy.volunteerNeedHelpButtonTitle,
+                    isDestructive: true,
+                    isLoading: viewModel.isAcknowledgingEmergency
+                ) {
+                    Task { await viewModel.acknowledgeEmergency(eventID: alert.eventID) }
+                }
+                .accessibilityLabel(EmergencySafetyCopy.volunteerNeedHelpButtonTitle)
+                .accessibilityHint("确认被陪同者确实需要帮助，客服会介入")
+            }
+
+            if order.status.canVolunteerTriggerEmergency {
+                EmergencyActionButton(isLoading: coordinator.state.isBusy) {
+                    showEmergencyConfirm = true
+                }
+                if let message = coordinator.state.message {
+                    EmergencyStatusNotice(message: message, isFailure: coordinator.state.isFailure)
+                }
             }
         }
     }
@@ -2557,6 +2648,9 @@ struct VolunteerServiceActions: View {
         case .cancelled, .noVolunteer:
             return [.terminalMessage]
         case .pendingMatch, .rematching:
+            return []
+        // 认不出状态就一个按钮都不给：宁可让志愿者刷新，也不能在未知状态上放出取消/结束这类不可逆操作。
+        case .unknown:
             return []
         }
     }

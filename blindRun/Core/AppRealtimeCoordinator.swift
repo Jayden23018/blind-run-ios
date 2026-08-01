@@ -153,6 +153,8 @@ private extension RunOrderStatus {
         case .driverArrived: return 3
         case .inProgress: return 4
         case .completed, .cancelled, .noVolunteer: return 5
+        // 排在所有真实状态之前，这样「当前是未知态」永远不会把一个真实状态判成陈旧。
+        case .unknown: return -1
         }
     }
 
@@ -172,6 +174,11 @@ private extension RunOrderStatus {
             return [.pendingAccept, .cancelled, .noVolunteer].contains(candidate)
         case .completed, .cancelled, .noVolunteer:
             return false
+        // 未知态没有任何可信的后继约束，一律放行，让下一个认识的状态把界面救回来。
+        // 反方向不通：`.unknown` 不在 `allCases` 里，`canReach` 的遍历永远到不了它，
+        // 所以一个未知的候选状态也顶不掉已经确定的状态。
+        case .unknown:
+            return true
         }
     }
 
@@ -264,11 +271,34 @@ struct RealtimeSafetyEvent: Sendable {
         case emergencyVolunteerAlert
         case emergencyResolved
         case emergencyContactNotified
-        // The three below reach iOS as `APP_NOTIFICATION` envelopes carrying an `eventType`, not as
+        // The ones below reach iOS as `APP_NOTIFICATION` envelopes carrying an `eventType`, not as
         // top-level WebSocket types (`NotificationService.sendNotification`, :93-99).
         case emergencyTriggered
         case emergencyNoContact
         case emergencyVolunteerTimeout
+        // 2026-07-31 batch (handoff.md): volunteer-initiated SOS, SMS delivery receipts, and the
+        // close-out events that previously left the blind runner with zero notification.
+        case emergencyTriggeredByVolunteer
+        case emergencyContactSmsDelivered
+        case emergencyContactNotifyFailed
+        case emergencyVolunteerAck
+        case emergencyClosedResolved
+        case emergencyClosedFalseAlarm
+
+        /// Kinds that mean "an emergency involving this user is open right now". Used to decide
+        /// whether an event arriving with no local state is worth a recovery fetch — close-out and
+        /// observer events are not, so a resolved event never resurrects itself.
+        var impliesLiveEmergency: Bool {
+            switch self {
+            case .emergencyTriggered, .emergencyTriggeredByVolunteer, .emergencyContactNotified,
+                 .emergencyContactSmsDelivered, .emergencyContactNotifyFailed, .emergencyNoContact,
+                 .emergencyVolunteerTimeout, .emergencyVolunteerAck:
+                return true
+            case .emergencyResolved, .emergencyClosedResolved, .emergencyClosedFalseAlarm,
+                 .emergencyVolunteerAlert:
+                return false
+            }
+        }
     }
 
     let eventID: String
@@ -773,6 +803,12 @@ final class AppRealtimeCoordinator: ObservableObject {
         case "EMERGENCY_CONTACT_NOTIFIED": return .emergencyContactNotified
         case "EMERGENCY_NO_CONTACT": return .emergencyNoContact
         case "EMERGENCY_VOLUNTEER_TIMEOUT": return .emergencyVolunteerTimeout
+        case "EMERGENCY_TRIGGERED_BY_VOLUNTEER": return .emergencyTriggeredByVolunteer
+        case "EMERGENCY_CONTACT_SMS_DELIVERED": return .emergencyContactSmsDelivered
+        case "EMERGENCY_CONTACT_NOTIFY_FAILED": return .emergencyContactNotifyFailed
+        case "EMERGENCY_VOLUNTEER_ACK": return .emergencyVolunteerAck
+        case "EMERGENCY_CLOSED_RESOLVED": return .emergencyClosedResolved
+        case "EMERGENCY_CLOSED_FALSE_ALARM": return .emergencyClosedFalseAlarm
         default: return nil
         }
     }
@@ -792,6 +828,13 @@ final class AppRealtimeCoordinator: ObservableObject {
         case .emergencyContactNotified: return EmergencySafetyCopy.contactNotified
         case .emergencyNoContact: return EmergencySafetyCopy.noContact
         case .emergencyVolunteerTimeout: return EmergencySafetyCopy.volunteerTimeout
+        case .emergencyTriggeredByVolunteer: return EmergencySafetyCopy.triggeredByVolunteer
+        // 唯一允许完成时的一句，依据是运营商回执，不是「已发起」。
+        case .emergencyContactSmsDelivered: return EmergencySafetyCopy.contactSmsDelivered
+        case .emergencyContactNotifyFailed: return EmergencySafetyCopy.contactNotifyFailed
+        case .emergencyVolunteerAck: return EmergencySafetyCopy.volunteerAcknowledged
+        case .emergencyClosedResolved: return EmergencySafetyCopy.closedResolved
+        case .emergencyClosedFalseAlarm: return EmergencySafetyCopy.closedFalseAlarm
         case .emergencyResolved, .emergencyVolunteerAlert: return nil
         }
     }
