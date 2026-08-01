@@ -1388,6 +1388,49 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(RegistrationStep.allCases.map(\.displayIndex), [1, 2])
     }
 
+    /// 回归门：走完注册但没过资质审核的志愿者，必须能离开注册流程去传证书。
+    /// 后端 2026-07-31 起 `canAcceptOrders` = 资质审核结果（不再是注册完成度），
+    /// 若这里退回用 `canAcceptOrders` 判完成，新注册志愿者会被锁死在注册流程里，
+    /// 而证书上传入口在流程之外 —— `verified` 永远翻不了真，账号报废。
+    func testRegistrationCompleteWhenRegistrationDoneButNotYetVerified() {
+        let status = VolunteerRegistrationStatus(
+            registrationStep: "STEP_3_FACE_VERIFY",
+            registrationCompleted: true,
+            canAcceptOrders: false,
+            faceVerifyStatus: "APPROVED"
+        )
+
+        XCTAssertTrue(status.isRegistrationComplete)
+    }
+
+    /// 回归门：`STEP_3_FACE_VERIFY` 这个步骤位在「正在做活体」时也是它
+    /// （后端 step1 二要素一过就置这个值），光看步骤位会把没做活体的人判成已完成。
+    /// 他随后会被资质审核以「活体认证未通过」永久拒绝。
+    func testRegistrationIncompleteWhenParkedAtFaceVerifyButLivenessNotDone() {
+        let notStarted = VolunteerRegistrationStatus(
+            registrationStep: "STEP_3_FACE_VERIFY",
+            registrationCompleted: false,
+            canAcceptOrders: false,
+            faceVerifyStatus: "NOT_STARTED"
+        )
+        XCTAssertFalse(notStarted.isRegistrationComplete)
+
+        // 旧服务端不返回 registrationCompleted，客户端必须自己按 faceVerifyStatus 推
+        let legacyServer = VolunteerRegistrationStatus(
+            registrationStep: "STEP_3_FACE_VERIFY",
+            canAcceptOrders: true,          // 旧服务端这里恒为 true，正是不能信它的原因
+            faceVerifyStatus: "NOT_STARTED"
+        )
+        XCTAssertFalse(legacyServer.isRegistrationComplete)
+
+        let legacyServerPassed = VolunteerRegistrationStatus(
+            registrationStep: "STEP_3_FACE_VERIFY",
+            canAcceptOrders: true,
+            faceVerifyStatus: "APPROVED"
+        )
+        XCTAssertTrue(legacyServerPassed.isRegistrationComplete)
+    }
+
     func testVolunteerRegistrationLegacyTrainingStatusCompletesWithoutPolling() {
         let viewModel = VolunteerRegistrationViewModel()
 

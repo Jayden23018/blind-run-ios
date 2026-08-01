@@ -6,6 +6,11 @@ struct VolunteerRegistrationStatus: Decodable, Sendable {
     let currentStep: Int?
     let currentStepCode: String?
     let registrationStep: String?
+    /// 注册流程走完没有。后端 2026-07-31 从 `canAcceptOrders` 里拆出来的新字段，
+    /// 客户端据此决定「还要不要留在注册引导流程里」。旧服务端不返回，故可空。
+    let registrationCompleted: Bool?
+    /// 现在能不能接单（后端 = `VolunteerProfile.verified`，即管理员资质审核结果）。
+    /// ⚠️ 不是「注册完成度」——走完注册但没过审的账号这里是 false。
     let canAcceptOrders: Bool?
     let stepDetails: VolunteerRegistrationStepDetails?
     let step1Completed: Bool?
@@ -19,6 +24,7 @@ struct VolunteerRegistrationStatus: Decodable, Sendable {
         currentStep: Int? = nil,
         currentStepCode: String? = nil,
         registrationStep: String? = nil,
+        registrationCompleted: Bool? = nil,
         canAcceptOrders: Bool? = nil,
         stepDetails: VolunteerRegistrationStepDetails? = nil,
         step1Completed: Bool? = nil,
@@ -31,6 +37,7 @@ struct VolunteerRegistrationStatus: Decodable, Sendable {
         self.currentStep = currentStep
         self.currentStepCode = currentStepCode
         self.registrationStep = registrationStep
+        self.registrationCompleted = registrationCompleted
         self.canAcceptOrders = canAcceptOrders
         self.stepDetails = stepDetails
         self.step1Completed = step1Completed
@@ -44,6 +51,7 @@ struct VolunteerRegistrationStatus: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case currentStep
         case registrationStep
+        case registrationCompleted
         case canAcceptOrders
         case stepDetails
         case step1Completed
@@ -64,6 +72,7 @@ struct VolunteerRegistrationStatus: Decodable, Sendable {
             currentStepCode = try container.decodeIfPresent(String.self, forKey: .currentStep)
         }
         registrationStep = try container.decodeIfPresent(String.self, forKey: .registrationStep)
+        registrationCompleted = try container.decodeIfPresent(Bool.self, forKey: .registrationCompleted)
         canAcceptOrders = try container.decodeIfPresent(Bool.self, forKey: .canAcceptOrders)
         stepDetails = try container.decodeIfPresent(VolunteerRegistrationStepDetails.self, forKey: .stepDetails)
         step1Completed = try container.decodeIfPresent(Bool.self, forKey: .step1Completed)
@@ -74,10 +83,33 @@ struct VolunteerRegistrationStatus: Decodable, Sendable {
         faceVerifyStatus = try container.decodeIfPresent(String.self, forKey: .faceVerifyStatus) ?? stepDetails?.faceVerifyStatus
     }
 
+    /// 注册流程是否真的走完（决定要不要放用户离开注册引导流程）。
+    ///
+    /// ⚠️ 不能用 `canAcceptOrders` 判断：后端 2026-07-31 起它等于「资质审核通过」，
+    /// 走完注册但没过审的账号是 false。拿它当完成度会把人锁死在注册流程里，
+    /// 而证书上传入口在注册流程之外 —— 他永远够不到那一步，`verified` 永远翻不了真。
+    ///
+    /// ⚠️ 也不能只看 `registrationStep`：`STEP_3_FACE_VERIFY` 既表示「正在做活体」
+    /// 也表示「活体已通过」（后端 step1 二要素一过就置这个值，活体通过后仍是它），
+    /// 只看步骤位会把没做活体的人判成已完成，而资质审核硬性要求活体 APPROVED，他永远审不过。
     var isRegistrationComplete: Bool {
-        guard canAcceptOrders != true else { return true }
+        // 新服务端权威：后端已经把「步骤位 + 活体结果」合并算好了
+        if let registrationCompleted { return registrationCompleted }
+
+        // 旧服务端没有该字段，客户端自己按同一口径推
         let stepCode = (registrationStep ?? currentStepCode)?.uppercased()
-        return stepCode == "STEP_4_COMPLETED" || stepCode == "STEP_4_TRAINING"
+        switch stepCode {
+        case "STEP_4_COMPLETED", "STEP_4_TRAINING":
+            return true                                   // 老培训流程存量：走到这一步必然已过活体
+        case "STEP_3_FACE_VERIFY":
+            return resolvedFaceVerifyStatus == "APPROVED"
+        default:
+            return false
+        }
+    }
+
+    private var resolvedFaceVerifyStatus: String? {
+        (faceVerifyStatus ?? stepDetails?.faceVerifyStatus)?.uppercased()
     }
 }
 

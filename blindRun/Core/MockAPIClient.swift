@@ -489,9 +489,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         let faceStatus = registrationStep.hasPrefix("STEP_4") ? "APPROVED" : activeCloudAuthCertifyId == nil ? "NONE" : "PENDING"
         let canAcceptOrders = registrationStep == "STEP_4_COMPLETED"
+        // 与后端 VolunteerRegistrationService.isRegistrationCompleted 同口径：
+        // STEP_3_FACE_VERIFY 只有在活体 APPROVED 时才算走完（该步骤位在「正在做活体」时也是它）。
+        let registrationCompleted = registrationStep.hasPrefix("STEP_4")
+            || (registrationStep == "STEP_3_FACE_VERIFY" && faceStatus == "APPROVED")
         return VolunteerRegistrationStatus(
             currentStep: nil,
             registrationStep: registrationStep,
+            registrationCompleted: registrationCompleted,
             canAcceptOrders: canAcceptOrders,
             stepDetails: VolunteerRegistrationStepDetails(
                 idVerifyStatus: idStatus,

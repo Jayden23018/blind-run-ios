@@ -607,8 +607,12 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             appState?.updateVolunteerRegistrationStatus(status)
         }
         isRegistrationCompleted = status.isRegistrationComplete
+        // `wasCompleted` 必须参与这个 sticky 判断：一条过期/乱序的状态响应不能把已经完成注册的人
+        // 拖回基本信息页。此前 STEP_3_FACE_VERIFY 永远到不了「已完成」（要等 STEP_4_* 或 canAcceptOrders），
+        // 完成态必然经过 `isAwaitingRegistrationCompletion` 这个中间态，所以缺这一项没暴露出来；
+        // 现在活体一过就直接完成，中间态可能被整个跳过，缺了它就会退回 .basicInfo。
         isAwaitingRegistrationCompletion = !isRegistrationCompleted &&
-            (wasAwaitingCompletion || statusIndicatesCompletedFaceVerification(status))
+            (wasCompleted || wasAwaitingCompletion || statusIndicatesCompletedFaceVerification(status))
         currentStep = isAwaitingRegistrationCompletion ? .faceVerify : resolvedRegistrationStep(from: status)
         if currentStep != .faceVerify {
             canReturnToBasicInfoForIdentityEdit = false
