@@ -736,11 +736,14 @@ final class blindRunUITests: XCTestCase {
         }
 
         let addButton = app.buttons["新增紧急联系人"].firstMatch
+        scrollUntilExists(addButton, app: app)
         XCTAssertTrue(addButton.waitForExistence(timeout: 8))
         scrollElementIntoView(addButton, app: app)
-        XCTAssertTrue(
-            app.staticTexts["已保存 5 位紧急联系人，达到上限。如需新增，请先删除一位。"].firstMatch.waitForExistence(timeout: 8)
-        )
+
+        // 上限文案排在按钮下方，同样可能还没渲染
+        let limitNotice = app.staticTexts["已保存 5 位紧急联系人，达到上限。如需新增，请先删除一位。"].firstMatch
+        scrollUntilExists(limitNotice, app: app)
+        XCTAssertTrue(limitNotice.waitForExistence(timeout: 8))
         XCTAssertFalse(addButton.isEnabled, "到达上限后新增按钮必须禁用")
     }
 
@@ -1093,6 +1096,9 @@ final class blindRunUITests: XCTestCase {
 
     private func addContact(_ app: XCUIApplication, name: String, phone: String, relationship: String) {
         let addButton = app.buttons["新增紧急联系人"].firstMatch
+        // 必须先滚：联系人到 4 个时列表已经把「新增」入口顶出屏幕，SwiftUI List 不渲染屏幕外的行，
+        // 元素根本不在无障碍树里 —— 先断言存在会直接失败，而 scrollElementIntoView 又要求元素已存在。
+        scrollUntilExists(addButton, app: app)
         XCTAssertTrue(addButton.waitForExistence(timeout: 10))
         scrollElementIntoView(addButton, app: app)
         tapWhenHittableOrByCoordinate(addButton, app: app)
@@ -1167,6 +1173,22 @@ final class blindRunUITests: XCTestCase {
 
     /// 把控件滚进可见区。判据是"中心点落在可见区内"而不是 `isHittable`：
     /// 禁用态的按钮永远不 hittable，用 `isHittable` 会让上限用例白白滑满 maxSwipes 次。
+    /// 在惰性渲染的列表里把元素**滚到渲染出来**。
+    ///
+    /// 与 `scrollElementIntoView` 的分工：那个第一行就是 `guard element.exists else { return }`，
+    /// 只能处理「已在无障碍树里、但不在可视区」；而 SwiftUI 的 List 对屏幕外的行根本不渲染，
+    /// 元素压根不在树里，`exists` 为 false，那个 helper 会直接放弃、`waitForExistence` 也永远等不到。
+    /// 联系人列表随数量增长会把下方的「新增」入口顶出屏幕，必须先滚动才谈得上断言存在。
+    @discardableResult
+    private func scrollUntilExists(_ element: XCUIElement, app: XCUIApplication, maxSwipes: Int = 8) -> Bool {
+        if element.exists { return true }
+        for _ in 0..<maxSwipes {
+            scrollableSurface(app).swipeUp()
+            if element.exists { return true }
+        }
+        return element.exists
+    }
+
     private func scrollElementIntoView(_ element: XCUIElement, app: XCUIApplication, maxSwipes: Int = 5) {
         let appFrame = app.frame
         guard !appFrame.isNull, !appFrame.isEmpty else { return }
