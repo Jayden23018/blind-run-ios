@@ -207,7 +207,9 @@ final class blindRunUITests: XCTestCase {
         XCTAssertFalse(completeButton.waitForExistence(timeout: 1), "Arrived order must not allow completing service before IN_PROGRESS")
         startButton.tap()
         XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should allow completing service")
-        assertNoEmergencyAction(app)
+        // 2026-08-01 起志愿者可以代盲人发起求助（后端已按订单参与方归属事件，不再回推给按按钮的人）。
+        // 这里原本断言「志愿者永远看不到求助入口」，那是后端送错人时期的止血，现在反过来验它必须可用。
+        assertEmergencyActionIsUsable(app)
 
         completeButton.tap()
         let confirmComplete = app.buttons["确认完成服务"].firstMatch
@@ -1539,7 +1541,7 @@ final class blindRunUITests: XCTestCase {
 
     private func assertNoEmergencyAction(
         _ app: XCUIApplication,
-        _ why: String = "SOS is blind-runner IN_PROGRESS only",
+        _ why: String = "SOS 只在服务进行中出现，任何一方都一样",
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
@@ -1548,6 +1550,21 @@ final class blindRunUITests: XCTestCase {
             app.buttons["一键求助，遇到紧急情况时点击"].firstMatch.exists, why, file: file, line: line
         )
         XCTAssertFalse(app.buttons["一键求助"].firstMatch.exists, why, file: file, line: line)
+    }
+
+    /// 求助按钮必须**点得到**，不只是存在于无障碍树里。
+    ///
+    /// `exists` 只说明控件被渲染进了树，一个被面板挤出屏幕、或被其它视图盖住的按钮同样 `exists`。
+    /// 志愿者「服务中」页是 ZStack + 有高度预算的底部面板，求助入口是后加进去的 —— 这一条断言就是
+    /// 那次布局改动唯一的把关：安全按钮点不到等于没有。
+    private func assertEmergencyActionIsUsable(
+        _ app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let button = app.buttons["一键求助，遇到紧急情况时点击"].firstMatch
+        XCTAssertTrue(button.waitForExistence(timeout: 8), "服务进行中必须提供求助入口", file: file, line: line)
+        XCTAssertTrue(button.isHittable, "求助按钮存在但点不到 —— 多半是被底部面板挤出了可视区", file: file, line: line)
     }
 
     /// The SOS button, located by its accessibility label so the assertion also covers VoiceOver.

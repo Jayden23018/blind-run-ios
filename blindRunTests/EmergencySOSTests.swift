@@ -162,18 +162,38 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertNil(coordinator.activeEvent)
     }
 
-    func testTriggerIsRejectedForVolunteerRole() async {
+    /// 2026-08-01 起志愿者可以代盲人发起求助。
+    ///
+    /// 这条用例原先断言的是「志愿者角色一律拒绝」—— 那是后端把事件挂在**触发者**身上时的止血：
+    /// 志愿者按下去，告警回推给他自己、盲人收不到、升级的是志愿者的紧急联系人。后端已改成按订单
+    /// 参与方归属事件（handoff 2026-07-31），门槛随之放开，断言跟着改成「服务进行中放行、其余拒绝」。
+    /// 留这段说明是因为下一个读到它的人会问「为什么曾经写死拒绝」。
+    func testVolunteerMayTriggerDuringServiceButNotOutsideIt() async {
         let coordinator = EmergencyCoordinator()
         let client = EmergencyAPIClientStub()
-        let outcome = await coordinator.trigger(
+        client.response = EmergencyTriggerResponse(success: true, eventId: 77, status: "CONTACT_NOTIFIED")
+
+        let allowed = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .volunteer,
             userID: 7,
             apiClient: client,
             locate: { Self.coordinate() }
         )
-        XCTAssertTrue(outcome.isFailure)
-        XCTAssertTrue(client.requests.isEmpty)
+        XCTAssertFalse(allowed.isFailure)
+        XCTAssertEqual(client.requests.count, 1, "服务进行中，志愿者代触发必须真的发出去")
+        XCTAssertEqual(coordinator.activeEvent?.eventID, 77)
+
+        // 服务之外仍然不放行：与盲人侧同一个 IN_PROGRESS 门槛，不因为角色不同而放宽。
+        let blocked = await EmergencyCoordinator().trigger(
+            order: Self.makeOrder(status: .driverArrived),
+            role: .volunteer,
+            userID: 7,
+            apiClient: client,
+            locate: { Self.coordinate() }
+        )
+        XCTAssertTrue(blocked.isFailure)
+        XCTAssertEqual(client.requests.count, 1, "非服务中状态不得再发一次请求")
     }
 
     // MARK: - Trigger: GPS gate
