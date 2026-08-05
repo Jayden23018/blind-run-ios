@@ -515,9 +515,24 @@ struct EmergencyContactFormView: View {
     @State private var makePrimary = false
     @State private var localErrorMessage: String?
 
-    private static let smsNotice = "保存后，系统会向该号码发送一条告知短信，请确认对方知情。"
+    /// 新增联系人有**外部副作用**：后端 `EmergencyContactService.addContact` 保存后会给这个第三方号码
+    /// 发一条告知短信。盲人在按下「保存」之前有权知道这件事。
+    ///
+    /// 两处措辞是有依据的，不要随手改：
+    /// - **不引述短信正文** —— 模板 `SMS_505950033` 的正文存在阿里云短信控制台、不在任何仓库里，
+    ///   后端也没有控制台权限（handoff 2026-07-31）。写死一段猜的正文比不写更糟。
+    /// - **不承诺送达** —— 短信失败不影响接口成功（后端已加 try-catch，`EmergencyContactService.java:91-93`），
+    ///   所以「保存成功」不等于「对方收到了」。与 SOS 那条红线同源。
+    static let addSmsNotice = "新增后，系统会向该号码发送一条来自「助盲跑」的短信，告知对方被设为你的紧急联系人。"
+        + "短信可能发送失败，保存成功不代表对方已经收到。"
+
+    /// 编辑走的是 `updateContact`，全仓库 `sendContactAddedSms` 只有 `addContact` 一个调用点
+    /// （后端 2026-07-31 确认是有意为之）。**换号也不发**，所以编辑态说「会发短信」是一句念给盲人的假承诺。
+    static let editSmsNotice = "修改手机号不会给新号码发送告知短信。如果需要对方收到告知，请删除后重新添加。"
 
     private var isEditing: Bool { contact != nil }
+
+    private var smsNotice: String { isEditing ? Self.editSmsNotice : Self.addSmsNotice }
 
     private var validationMessage: String? {
         EmergencyContactsViewModel.validationMessage(
@@ -547,8 +562,8 @@ struct EmergencyContactFormView: View {
                     .accessibilityLabel("与联系人的关系，选填")
                     .accessibilityHint("例如家人、朋友、同事")
             } footer: {
-                Text(Self.smsNotice)
-                    .accessibilityLabel(Self.smsNotice)
+                Text(smsNotice)
+                    .accessibilityLabel(smsNotice)
             }
 
             if !isEditing {
@@ -596,7 +611,7 @@ struct EmergencyContactFormView: View {
                 makePrimary = viewModel.contacts.isEmpty
             }
             speechService.speak(
-                "\(isEditing ? "编辑紧急联系人" : "新增紧急联系人")。姓名和手机号必填，关系选填。\(Self.smsNotice)"
+                "\(isEditing ? "编辑紧急联系人" : "新增紧急联系人")。姓名和手机号必填，关系选填。\(smsNotice)"
             )
         }
     }

@@ -263,6 +263,29 @@ final class EmergencyContactsViewModelTests: XCTestCase {
             "13800138000"
         )
     }
+
+    // MARK: - 短信告知文案
+
+    /// 编辑联系人走 `updateContact`，后端**不发**告知短信（`sendContactAddedSms` 全仓只有 `addContact`
+    /// 一个调用点，2026-07-31 确认是有意为之）。编辑态说「会发送短信」是一句念给盲人的假承诺。
+    func testEditCopyDoesNotPromiseAnSmsThatIsNeverSent() {
+        let copy = EmergencyContactFormView.editSmsNotice
+
+        XCTAssertFalse(copy.contains("会向该号码发送"), "编辑态不得承诺发短信：\(copy)")
+        XCTAssertTrue(copy.contains("不会"), "编辑态必须说清楚换号不发短信：\(copy)")
+    }
+
+    /// 新增确实会发短信，但**发送失败不影响 201**（后端已加 try-catch），所以文案不得把
+    /// 「保存成功」表述成「对方已收到」。与 SOS 的送达红线同源。
+    func testAddCopyDisclosesTheSmsWithoutClaimingDelivery() {
+        let copy = EmergencyContactFormView.addSmsNotice
+
+        XCTAssertTrue(copy.contains("短信"), "必须在保存前告知对方会收到短信：\(copy)")
+        XCTAssertTrue(copy.contains("不代表对方已经收到"), "不得把保存成功表述成已送达：\(copy)")
+        for claim in ["已通知", "已送达", "已收到你的"] {
+            XCTAssertFalse(copy.contains(claim), "不得出现完成时的送达断言「\(claim)」：\(copy)")
+        }
+    }
 }
 
 // MARK: - Test Doubles

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: API contract defines order-associated SOS authorization
-The canonical API contract MUST define who may call `POST /api/emergency/trigger` for an `IN_PROGRESS` order and MUST define GCJ-02 request fields. Volunteer-token triggers MUST NOT be documented as usable until the backend escalates by order participant instead of by triggering user.
+The canonical API contract MUST define who may call `POST /api/emergency/trigger` for an `IN_PROGRESS` order and MUST define GCJ-02 request fields. It MUST document that the recorded event is keyed to the order's blind party regardless of which participant triggered it, and that the trigger source is distinguished by trigger type.
 
 #### Scenario: Blind participant triggers
 - **WHEN** the blind participant submits the owned `IN_PROGRESS` order ID and valid current GCJ-02 GPS
@@ -9,8 +9,8 @@ The canonical API contract MUST define who may call `POST /api/emergency/trigger
 
 #### Scenario: Volunteer participant triggers
 - **WHEN** the accepted volunteer submits the same order association
-- **THEN** the contract MUST state that the resulting event is keyed to the volunteer, alerts that same volunteer, does not notify the blind runner, and escalates to the volunteer's own emergency contacts
-- **AND** iOS MUST NOT enable a volunteer trigger until that behavior changes
+- **THEN** the contract MUST state that the resulting event is keyed to the order's blind party and escalates to the blind runner's emergency contacts
+- **AND** the contract MUST state that the trigger source is recorded as a volunteer-initiated trigger so downstream copy can name who pressed it
 
 #### Scenario: User is not an eligible participant
 - **WHEN** the token is not a participant or the order is not `IN_PROGRESS`

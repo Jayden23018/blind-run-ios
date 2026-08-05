@@ -1,0 +1,47 @@
+{
+  "capturedAt": "2026-08-05T01:11:38.995Z",
+  "baseURL": "http://47.114.113.171",
+  "note": "原始字节，未 pretty-print。手机号/token/身份证已脱敏但保持格式合法。",
+  "files": {
+    "LoginResponse__blind.json": {
+      "model": "LoginResponse",
+      "label": "blind",
+      "bytes": 68
+    },
+    "CurrentUserResponse__blind.json": {
+      "model": "CurrentUserResponse",
+      "label": "blind",
+      "bytes": 91
+    },
+    "BlindProfileResponse__self.json": {
+      "model": "BlindProfileResponse",
+      "label": "self",
+      "bytes": 230
+    },
+    "EmergencyContactResponse__list.json": {
+      "model": "EmergencyContactResponse",
+      "label": "list",
+      "bytes": 85
+    },
+    "PagedOrderResponse__blind-history.json": {
+      "model": "PagedOrderResponse",
+      "label": "blind-history",
+      "bytes": 1394
+    },
+    "LegalLinksResponse__public.json": {
+      "model": "LegalLinksResponse",
+      "label": "public",
+      "bytes": 121
+    },
+    "VolunteerProfileResponse__self.json": {
+      "model": "VolunteerProfileResponse",
+      "label": "self",
+      "bytes": 139
+    },
+    "PagedOrderResponse__volunteer-history.json": {
+      "model": "PagedOrderResponse",
+      "label": "volunteer-history",
+      "bytes": 2501
+    }
+  }
+}

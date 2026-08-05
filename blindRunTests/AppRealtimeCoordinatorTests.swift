@@ -382,7 +382,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         coordinator.attach(to: service, role: .blind)
 
         service.simulateIncomingEventForTesting(.notification(makeNotification(eventID: 1, body: "当前通知", priority: "HIGH")))
-        service.simulateIncomingEventForTesting(.emergencyContactNotified(makeContactNotified(eventID: 11)))
+        service.simulateIncomingEventForTesting(.notification(makeContactNotified(eventID: 11)))
         service.simulateIncomingEventForTesting(.emergencyResolved(makeEmergencyResolved(eventID: 12)))
         service.simulateIncomingEventForTesting(.notification(makeNotification(eventID: 2, body: "可丢弃普通通知", priority: "NORMAL")))
         await Task.yield()
@@ -734,17 +734,20 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.latestSafetyEvent?.kind, .emergencyContactNotified)
     }
 
-    /// Same substitution on the documented-but-never-emitted top-level type, so a backend fix
-    /// cannot silently reintroduce the delivery claim.
-    func testTopLevelContactNotifiedTypeAlsoUsesLocalCopy() async {
+    /// 身份回退：`APP_NOTIFICATION` 没有 `messageId` 时，去重键取 `eventId`。
+    /// （原先这里还有一条针对「顶层 `EMERGENCY_CONTACT_NOTIFIED` 类型」的用例，
+    /// 那个类型后端从未实现、前端通道已删除，用例随之下线。）
+    func testContactNotifiedFallsBackToEventIDWhenMessageIDIsAbsent() async {
         let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
         let service = WebSocketService()
         coordinator.attach(to: service, role: .blind)
 
-        service.simulateIncomingEventForTesting(.emergencyContactNotified(WSEmergencyContactNotified(
-            type: WSMessageType.emergencyContactNotified.rawValue,
+        service.simulateIncomingEventForTesting(.notification(WSAppNotification(
+            type: WSMessageType.appNotification.rawValue,
             eventId: 77,
-            message: "已通过短信通知您的联系人张三",
+            eventType: "EMERGENCY_CONTACT_NOTIFIED",
+            title: nil,
+            body: "已通过短信通知您的联系人张三",
             ttsText: "已通知你的联系人张三，请保持冷静",
             priority: "HIGH",
             timestamp: nil
@@ -786,11 +789,16 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         )
     }
 
-    private func makeContactNotified(eventID: Int64) -> WSEmergencyContactNotified {
-        WSEmergencyContactNotified(
-            type: WSMessageType.emergencyContactNotified.rawValue,
+    /// `EMERGENCY_CONTACT_NOTIFIED` 只以 `APP_NOTIFICATION` 的 `eventType` 出现，没有顶层类型。
+    /// `messageId` 留空是刻意的：这样 `routeEmergencyNotification` 的身份回退到 `eventId`，
+    /// `stableEventID` 才是 `emergencyContactNotified:<eventID>`。
+    private func makeContactNotified(eventID: Int64) -> WSAppNotification {
+        WSAppNotification(
+            type: WSMessageType.appNotification.rawValue,
             eventId: eventID,
-            message: "安全事件已处理",
+            eventType: "EMERGENCY_CONTACT_NOTIFIED",
+            title: nil,
+            body: "安全事件已处理",
             ttsText: "安全事件已处理",
             priority: "HIGH",
             timestamp: "2026-07-19T12:00:00Z"

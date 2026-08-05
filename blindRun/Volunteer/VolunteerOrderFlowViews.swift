@@ -783,7 +783,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         confirmationTask?.cancel()
         confirmationTask = nil
         transitionState = .submitting(target: target)
-        ClientFlowDiagnostics.record(event: "submitted", operation: "volunteer-detail-transition")
+        ClientFlowDiagnostics.record(event: "submitted", operation: "volunteer-detail-transition") // guard:allow legacy-status 诊断事件名，非订单状态
         isPerformingAction = true
         errorMessage = nil
         needsCertificateUpload = false
@@ -1375,7 +1375,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         confirmationTask?.cancel()
         confirmationTask = nil
         transitionState = .submitting(target: target)
-        ClientFlowDiagnostics.record(event: "submitted", operation: "volunteer-service-transition")
+        ClientFlowDiagnostics.record(event: "submitted", operation: "volunteer-service-transition") // guard:allow legacy-status 诊断事件名，非订单状态
         isPerformingAction = true
         errorMessage = nil
         defer { isPerformingAction = false }
@@ -2119,7 +2119,10 @@ struct VolunteerSettingsView: View {
     }
 }
 
+/// 盲人端与志愿者端共用。法律条款入口放在这里，两个角色的设置页各挂一次「关于」即可覆盖。
 struct AboutAidRunView: View {
+    @EnvironmentObject private var appState: AppState
+
     var body: some View {
         List {
             Section {
@@ -2127,8 +2130,12 @@ struct AboutAidRunView: View {
                 Text("iOS SwiftUI Demo")
                     .foregroundColor(AppColors.textSecondary)
             }
+
+            LegalDocumentsSection(links: appState.legalLinks)
         }
         .navigationTitle("关于")
+        // 进页面才拉，不在启动时打这个请求：它只影响这一页，而且失败了也有回退文案。
+        .task { await appState.loadLegalLinksIfNeeded() }
     }
 }
 

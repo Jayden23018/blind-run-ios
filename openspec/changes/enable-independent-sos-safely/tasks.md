@@ -48,3 +48,18 @@
 - [ ] 6.4 云端探针 —— **未做**。触发真实 SOS 会给紧急联系人发真短信并惊动客服，不能拿测试账号随便打；需要与后端约定演练时间窗后再补。
 - [x] 6.5 `openspec validate enable-independent-sos-safely --strict --no-interactive` 通过；`node scripts/validate-docs.mjs` 通过。
 - [ ] 6.6 真机批跑 —— **未执行**。设备 `111`（`00008140-000161D62112801C`）本轮全程离线，`iPad Pro (2)` 未连接；模拟器因高德无 arm64-sim slice 永久不可用。已完成的是 `xcodebuild build-for-testing -destination 'generic/platform=IOS'`，输出 `** TEST BUILD SUCCEEDED **`（app + 单测 + UI 测试三个 target 全部编译通过）。**编译通过不等于测试通过**，真机可用后必须补跑，且需含锁屏/后台监督验收。
+
+## 7. 2026-08-04 规格订正（归档前置）
+
+- [x] 7.1 **本变更的 spec 落后于实现一周，已修正。** `specs/in-run-dual-role-sos/spec.md` 与
+  `specs/backend-api-contract/spec.md` 原文都写「志愿者入口恒隐藏」，理由是后端把紧急事件挂在
+  **触发者**身上。后端 commit `a5ba523`（2026-07-31，SOS-1）已把 `event.userId` 改为取订单的
+  盲人方、用 `TriggerType.VOLUNTEER_BUTTON` 区分来源，该理由自那天起就不成立；
+  代码（`RunOrderStatus.canVolunteerTriggerEmergency == (self == .inProgress)`）也早已开放。
+  规格、`AGENTS.md` 第 6 节、项目记忆三处同时陈旧 —— 已一并订正。
+- [x] 7.2 补入「志愿者不得拥有『误触』按钮」（后端 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`，
+  一对一陪跑里志愿者可能就是威胁来源）。原 spec 完全没有这条。
+- [x] 7.3 `openspec validate enable-independent-sos-safely --strict --no-interactive` 重跑通过。
+
+**归档仍被 6.6 阻塞**：真机批跑没跑过就归档，等于把「编译通过」当成「测试通过」入库。
+6.4（云端探针）需与后端约定演练时间窗；6.2a 依赖 6.6。

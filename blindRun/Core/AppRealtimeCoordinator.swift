@@ -639,19 +639,6 @@ final class AppRealtimeCoordinator: ObservableObject {
                 speechText: message.ttsText ?? message.message ?? "紧急事件已由志愿者确认",
                 timestamp: message.timestamp
             )
-        case .emergencyContactNotified(let message):
-            // Documented as a top-level type (`websocket-protocol.md:222-234`) but never emitted as
-            // one today — the implementation sends it inside `APP_NOTIFICATION`. Handled anyway, and
-            // with the same local copy substitution, so a backend fix cannot silently reintroduce
-            // the "已通知你的联系人" claim.
-            routeSafety(
-                eventID: String(message.eventId),
-                orderID: nil,
-                kind: .emergencyContactNotified,
-                displayText: EmergencySafetyCopy.contactNotified,
-                speechText: EmergencySafetyCopy.contactNotified,
-                timestamp: message.timestamp
-            )
         case .emergencyAlert(let message):
             routeSafety(
                 eventID: String(message.eventId),

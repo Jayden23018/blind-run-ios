@@ -13,7 +13,9 @@ nonisolated enum WSMessageType: String, Codable, Sendable {
     case appNotification = "APP_NOTIFICATION"
     case orderStatusChanged = "ORDER_STATUS_CHANGED"
     case emergencyResolvedByVolunteer = "EMERGENCY_RESOLVED_BY_VOLUNTEER"
-    case emergencyContactNotified = "EMERGENCY_CONTACT_NOTIFIED"
+    // `EMERGENCY_CONTACT_NOTIFIED` 刻意不在这里：它不是顶层类型，而是 `APP_NOTIFICATION` 的一个
+    // `eventType`（`websocket-protocol.md:182,248` 明确「v1 那个带 eventId 的顶层类型是设计稿、
+    // 从未实现」）。处理入口是 `AppRealtimeCoordinator.emergencyKind(forEventType:)`。
     case pong = "PONG"
 
     // Server -> Client (Volunteer)
@@ -178,16 +180,6 @@ nonisolated struct WSEmergencyResolved: Codable, Sendable {
     let timestamp: String?
 }
 
-/// Emergency contact notified (sent to blind user)
-nonisolated struct WSEmergencyContactNotified: Codable, Sendable {
-    let type: String
-    let eventId: Int64
-    let message: String?
-    let ttsText: String?
-    let priority: String?
-    let timestamp: String?
-}
-
 /// Heartbeat response
 nonisolated struct WSPong: Codable, Sendable {
     let type: String
@@ -235,7 +227,6 @@ nonisolated enum WSIncomingEvent: Sendable {
     case notification(WSAppNotification)
     case orderStatusChanged(WSOrderStatusChanged)
     case emergencyResolved(WSEmergencyResolved)
-    case emergencyContactNotified(WSEmergencyContactNotified)
     case pong(WSPong)
     case newOrder(WSNewOrder)
     case emergencyAlert(WSEmergencyVolunteerAlert)

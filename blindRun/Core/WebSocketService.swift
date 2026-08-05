@@ -371,11 +371,6 @@ final class WebSocketService: ObservableObject {
                 event = .emergencyResolved(msg)
             } else { return nil }
 
-        case WSMessageType.emergencyContactNotified.rawValue:
-            if let msg = try? decoder.decode(WSEmergencyContactNotified.self, from: data) {
-                event = .emergencyContactNotified(msg)
-            } else { return nil }
-
         case WSMessageType.pong.rawValue:
             if let msg = try? decoder.decode(WSPong.self, from: data) {
                 event = .pong(msg)

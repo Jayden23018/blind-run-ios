@@ -84,6 +84,7 @@ enum EmergencySafetyCopy {
     /// 一律用本地文案，是因为后端模板行可改可缺、且历史上就出现过完成时的不实文案。要带姓名的话，
     /// 得先让 `EMERGENCY_CONTACT_SMS_DELIVERED` 走结构化字段而不是模板正文。
     static let contactSmsDelivered =
+        // guard:allow sos-copy 运营商回执支撑的唯一完成时分支，见上方注释与 testOnlyTheCarrierReceiptBranchMayClaimDelivery
         "你的紧急联系人已收到求助短信。\(emergencyCallReminder)"
 
     /// `EMERGENCY_CONTACT_NOTIFY_FAILED`：服务商拒绝或运营商投递失败 —— 确定没送到，必须说得最重。
@@ -101,8 +102,14 @@ enum EmergencySafetyCopy {
     static let volunteerAcknowledged = "已确认需要帮助，客服正在跟进。\(emergencyCallReminder)"
 
     /// `EMERGENCY_CLOSED_RESOLVED` / `EMERGENCY_CLOSED_FALSE_ALARM`：客服解除 / 标记误触后的收尾。
+    ///
+    /// 解除短信走的是与求助短信同一条 `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` 异步路径，
+    /// **没有**对应的运营商回执事件（回执只有 `EMERGENCY_CONTACT_SMS_DELIVERED` 一个，且只覆盖触发时那条）。
+    /// 所以这里和 `cancelOwnerSucceeded` 一样只能用进行时 —— 2026-08-04 由 `scripts/hooks/guard.mjs`
+    /// 抓出：原文写的是「紧急联系人已收到解除通知」，是本仓库红线的同类违规，只是它比触发路径晚加、
+    /// 从没被 `testNoEmergencyCopyClaimsAnSMSWasDelivered` 的清单收进去。
     static let closedResolved = "本次求助已由客服确认处理完毕。"
-    static let closedFalseAlarm = "本次求助已按误触撤销，紧急联系人已收到解除通知。"
+    static let closedFalseAlarm = "本次求助已按误触撤销，系统正在给你的紧急联系人发送解除通知。"
 
     /// 受助者本人撤销误触（`PUT /api/emergency/{eventId}/cancel`）。
     static let cancelButtonTitleForOwner = "撤销求助"

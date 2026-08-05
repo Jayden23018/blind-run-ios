@@ -42,7 +42,12 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.volunteerAcknowledged,
             EmergencySafetyCopy.cancelOwnerSucceeded,
             EmergencySafetyCopy.cancelOwnerFailed(nil),
-            EmergencySafetyCopy.volunteerAlertNotice
+            EmergencySafetyCopy.volunteerAlertNotice,
+            // 2026-08-04 补：这两条是客服解除/误触收尾，晚于本用例加入，一直没被收进清单。
+            // 结果 `closedFalseAlarm` 长期写着「紧急联系人已收到解除通知」—— 解除短信走的是和求助短信
+            // 同一条异步路径，没有运营商回执，这就是本红线的同类违规。由 scripts/hooks/guard.mjs 抓出。
+            EmergencySafetyCopy.closedResolved,
+            EmergencySafetyCopy.closedFalseAlarm
         ]
         allCopy.append(contentsOf: EmergencyEventStatus.allCases.map(EmergencySafetyCopy.submitted))
 

@@ -1,7 +1,9 @@
 ## ADDED Requirements
 
-### Requirement: SOS is available to the blind runner only during IN_PROGRESS
-The iOS app SHALL expose the order-associated SOS action to the authenticated blind runner only while their canonical associated order is `IN_PROGRESS`, and SHALL keep the volunteer entry hidden in every status until the backend escalates emergency events by order participant rather than by triggering user.
+### Requirement: SOS is available to both participants only during IN_PROGRESS
+The iOS app SHALL expose the order-associated SOS action to an authenticated order participant only while the canonical associated order is `IN_PROGRESS`, for both the blind and volunteer roles.
+
+The volunteer entry was withheld until 2026-07-31 because the backend keyed the emergency event on the *triggering* user, so a volunteer press alerted that volunteer about their own SOS and escalated to the volunteer's own emergency contacts. Backend commit `a5ba523` (SOS-1) changed `event.userId` to the order's blind party and distinguishes the source with `TriggerType.VOLUNTEER_BUTTON`, so that rationale no longer holds.
 
 #### Scenario: Blind runner is in active run
 - **WHEN** the authenticated blind role owns an `IN_PROGRESS` order
@@ -9,8 +11,13 @@ The iOS app SHALL expose the order-associated SOS action to the authenticated bl
 
 #### Scenario: Volunteer is in active run
 - **WHEN** the authenticated volunteer role is the accepted participant of an `IN_PROGRESS` order
-- **THEN** the volunteer service screen SHALL NOT expose an SOS action
-- **AND** the app SHALL NOT call `POST /api/emergency/trigger` with a volunteer token, because the backend keys the event on the triggering user and would alert the volunteer about their own SOS, leave the blind runner unnotified, and escalate to the volunteer's own emergency contacts
+- **THEN** the volunteer service screen SHALL expose the SOS action
+- **AND** the resulting event SHALL escalate to the blind runner's emergency contacts, not the volunteer's
+
+#### Scenario: Volunteer attempts to dismiss the blind runner's emergency
+- **WHEN** the authenticated volunteer tries to close or false-alarm an emergency raised for the blind runner
+- **THEN** the app SHALL NOT offer that action, because in a one-to-one escort the volunteer may themselves be the threat
+- **AND** the backend rejects it with 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`
 
 #### Scenario: Order is not IN_PROGRESS
 - **WHEN** canonical order status is any other value
