@@ -96,6 +96,98 @@ final class BlindBookingGateTests: XCTestCase {
         XCTAssertTrue(message.contains("设置"))
     }
 
+    // MARK: - 门槛在 ViewModel 上的真实接线
+    //
+    // 上面几条测的是纯函数 `firstMissing`。下面三条测的是「它有没有真的被接上」——
+    // 2026-08-05 之前它在两个地方被绕过去了：兜底坐标让 `.startPoint` 恒真，
+    // 审阅步的提示语手抄了一份只有后三道的门槛。纯函数全绿，用户照样撞墙。
+
+    private func contact(_ id: Int64, primary: Bool) -> EmergencyContactResponse {
+        EmergencyContactResponse(
+            id: id, name: "联系人\(id)", phone: "1390013900\(id)",
+            relationship: "家人", isPrimary: primary
+        )
+    }
+
+    /// 这几条用例只驱动门槛，不搜地点，所以 `placeSearchProvider` 留空。
+    @MainActor
+    private func makeBookingViewModel(
+        locationService: LocationService? = nil,
+        appState: AppState? = nil
+    ) -> BlindBookingViewModel {
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(
+            speechService: SpeechService(),
+            locationService: locationService,
+            appState: appState
+        )
+        return viewModel
+    }
+
+    /// 没有真实定位时，兜底的北京演示坐标**不得**充当出发地点。
+    ///
+    /// 它一旦充当，`resolvedStartPlace` 就永不为 nil，`.startPoint` 这道门槛在生产里
+    /// 变成死代码，一个在上海的用户会被约到北京。
+    @MainActor
+    func testDemoFallbackCoordinateIsNotAcceptedAsStartPoint() {
+        let location = LocationService()
+        XCTAssertTrue(location.isUsingDemoFallback, "前提：没有真实定位")
+        XCTAssertFalse(location.isDenied, "前提：权限未拒绝，所以 locationPermission 门槛不会先拦下来")
+
+        let viewModel = makeBookingViewModel(locationService: location)
+
+        XCTAssertNil(viewModel.resolvedStartPlace, "演示坐标不是出发地点")
+        XCTAssertEqual(viewModel.firstMissingGate, .startPoint, "门槛必须真的拦住，而不是恒真")
+        XCTAssertFalse(viewModel.canSubmit)
+        XCTAssertNil(viewModel.makeCreateOrderRequest(), "演示坐标不得进入下单请求体")
+    }
+
+    /// 审阅步的提示语必须覆盖全部六道门槛。
+    ///
+    /// 按钮禁用状态走的是 `canSubmit`（六道全查）。提示语若只查后三道，
+    /// 缺实名或紧急联系人时用户听到的是「提交后系统将为你派单」配一个按不动的按钮 ——
+    /// 看不见屏幕的人只会当成「点了没反应」。
+    @MainActor
+    func testReviewStepBlockingReasonCoversGatesFixedOnOtherPages() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
+        // 紧急联系人故意留空 —— 这道门槛只能去别的页面补。
+
+        let viewModel = makeBookingViewModel(appState: appState)
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1", title: "人民广场", addressText: "上海市黄浦区人民广场",
+            latitude: 31.2304, longitude: 121.4737, source: .manual
+        )
+        viewModel.appointmentTime = viewModel.minimumAppointmentTime.addingTimeInterval(600)
+        viewModel.currentStep = .review
+
+        XCTAssertFalse(viewModel.canSubmit, "前提：按钮此时是禁用的")
+        XCTAssertEqual(
+            viewModel.blockingReasonForCurrentStep,
+            BlindBookingGate.emergencyContacts.message,
+            "禁用了就必须说得出原因"
+        )
+    }
+
+    /// 进页面就播报「本页填不了」的门槛，别等用户走到审阅步。
+    /// 起点和时间是本页的槽位，缺了不播 —— 分步流程自己会管。
+    @MainActor
+    func testEntryAnnouncementCoversOnlyGatesFixedElsewhere() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        // 昵称未填 ⇒ basicProfile 缺失。
+        let viewModel = makeBookingViewModel(appState: appState)
+        viewModel.announceEntryGateIfNeeded()
+        XCTAssertEqual(viewModel.errorMessage, BlindBookingGate.basicProfile.message)
+
+        // 前四道都过、只差本页的起点时，进页面不该播报。
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
+        appState.updateEmergencyContacts([contact(1, primary: true)])
+        let onPageOnly = makeBookingViewModel(locationService: LocationService(), appState: appState)
+        XCTAssertEqual(onPageOnly.firstMissingGate, .startPoint, "前提：只差本页槽位")
+        onPageOnly.announceEntryGateIfNeeded()
+        XCTAssertNil(onPageOnly.errorMessage)
+    }
+
     // MARK: - 引导流步骤
 
     func testOnboardingStepOrder() {

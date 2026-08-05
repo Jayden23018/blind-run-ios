@@ -338,6 +338,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
         // 语音下单解析。真机上这两条接的是后端「正则优先、大模型兜底」，Mock 只认几条固定语料，
         // 其余一律 `needReask` —— 目的是让向导的重问/降级分支在开发期真的被走到。
+        if path == VoiceOrderEndpoint.parseOrder && method == .post {
+            return try handleVoiceParseOrder(body: body)
+        }
+
         if path == VoiceOrderEndpoint.resolveAddress && method == .post {
             return try handleVoiceResolveAddress(body: body)
         }
@@ -1078,7 +1082,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
         // Validate appointment time (30 min ahead)
         if let date = ISO8601DateFormatter().date(from: request.plannedStartTime)
-            ?? DateFormatter.aidRunBackendLocalDateTime.date(from: request.plannedStartTime) {
+            ?? request.plannedStartTime.backendLocalDate {
             let leadTime = date.timeIntervalSince(Date())
             if leadTime < Double(AppConstants.Timing.minimumBookingLeadMinutes) * 60 {
                 throw APIError.serverError(ErrorResponse(
@@ -1269,6 +1273,43 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     // MARK: - Voice Order Handlers
 
+    /// `POST /api/orders/voice/parse`。整句一次抽三槽，抽不出的进 `missing`。
+    ///
+    /// **抽不出不是错误**：和另外两个语音端点一样走 200 + `needReask`，Mock 把这一点做错，
+    /// 向导就会在开发期被当成错误分支调通、上真机才发现走不通。
+    /// 地点匹配沿用 `handleVoiceResolveAddress` 的同一份关键词表与带坐标排序 —— Mock 不许比线上松。
+    private func handleVoiceParseOrder(body: (any Encodable & Sendable)?) throws -> ParseVoiceOrderResponse {
+        guard mockToken != nil else { throw APIError.unauthorized }
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(ResolveAddressRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
+        }
+        let transcript = request.transcript.trimmed
+
+        let place = Self.matchedVoicePlace(in: transcript, near: request)
+        let hour = Self.mockVoiceHour(in: transcript)
+        let minutes = Self.mockVoiceMinutes(in: transcript).flatMap { (10...300).contains($0) ? $0 : nil }
+
+        var missing: [VoiceOrderMissingSlot] = []
+        if place == nil { missing.append(.address) }
+        if hour == nil { missing.append(.startTime) }
+        if minutes == nil { missing.append(.duration) }
+
+        return ParseVoiceOrderResponse(
+            plannedStartTime: hour.map { Self.mockPlannedStartTime(hour: $0) },
+            durationMinutes: minutes,
+            address: place?.address,
+            latitude: place?.latitude,
+            longitude: place?.longitude,
+            missing: missing,
+            needReask: !missing.isEmpty,
+            // `missing` 非空时后端给的是追问文案，非空即追问 —— 向导刻意不播它，这里照形状给出即可。
+            ttsText: missing.isEmpty
+                ? "好的，我记下了"
+                : "还差\(missing.count)项没听清，可以再说一次"
+        )
+    }
+
     /// `POST /api/orders/voice/resolve-address`。`needReask` 是 **200 的正常业务状态**，
     /// 所以这里返回的是成功响应体而不是 `APIError` —— Mock 把这一点做错，向导就会在开发期被
     /// 当成错误分支调通、上真机才发现走不通。
@@ -1279,14 +1320,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
         }
         let transcript = request.transcript.trimmed
-        // 线上带坐标时走周边搜索、按距离取最近；Mock 语料太小分不出远近，这里只把「有没有带坐标」
-        // 记进日志层面的行为差异：带了就优先匹配同城关键词。真正的消歧在后端。
-        let candidates = request.latitude != nil && request.longitude != nil
-            ? Self.mockVoicePlaces.sorted { lhs, rhs in
-                Self.squaredDistance(lhs, request) < Self.squaredDistance(rhs, request)
-            }
-            : Self.mockVoicePlaces
-        guard let match = candidates.first(where: { transcript.contains($0.keyword) }) else {
+        guard let match = Self.matchedVoicePlace(in: transcript, near: request) else {
             return ResolveAddressResponse(
                 address: nil,
                 latitude: nil,
@@ -1323,13 +1357,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                     ttsText: "没听清开始时间，请再说一次，比如“明天早上八点”"
                 )
             }
-            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
-            var components = Calendar.current.dateComponents([.year, .month, .day], from: tomorrow)
-            components.hour = hour.hour
-            components.minute = hour.minute
-            let date = Calendar.current.date(from: components) ?? tomorrow
             return ParseSlotResponse(
-                plannedStartTime: DateFormatter.aidRunBackendLocalDateTime.string(from: date),
+                plannedStartTime: Self.mockPlannedStartTime(hour: hour),
                 durationMinutes: nil,
                 needReask: false,
                 ttsText: "好的，明天\(hour.hour)点\(hour.minute)分"
@@ -1357,6 +1386,30 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let address: String
         let latitude: Double
         let longitude: Double
+    }
+
+    /// 整句解析与单点解析共用同一份地点匹配 —— 两份会漂移，漂移了就等于 Mock 里两条语音路径行为不一致。
+    ///
+    /// 线上带坐标时走周边搜索、按距离取最近；Mock 语料太小分不出远近，这里只保留「有没有带坐标」
+    /// 这一层行为差异：带了就按距离排序再匹配。真正的消歧在后端。
+    private static func matchedVoicePlace(
+        in transcript: String,
+        near request: ResolveAddressRequest
+    ) -> MockVoicePlace? {
+        let candidates = request.latitude != nil && request.longitude != nil
+            ? mockVoicePlaces.sorted { squaredDistance($0, request) < squaredDistance($1, request) }
+            : mockVoicePlaces
+        return candidates.first { transcript.contains($0.keyword) }
+    }
+
+    /// 明天的某个时刻，格式与后端 `LocalDateTime` 一致（无时区）。
+    private static func mockPlannedStartTime(hour: (hour: Int, minute: Int)) -> String {
+        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+        var components = Calendar.current.dateComponents([.year, .month, .day], from: tomorrow)
+        components.hour = hour.hour
+        components.minute = hour.minute
+        let date = Calendar.current.date(from: components) ?? tomorrow
+        return DateFormatter.aidRunBackendLocalDateTime.string(from: date)
     }
 
     /// 只用于排序，不需要真实距离，所以不做球面换算。

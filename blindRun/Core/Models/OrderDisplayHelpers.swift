@@ -180,8 +180,25 @@ extension String {
         return value.isEmpty ? nil : value
     }
 
+    /// 后端 `LocalDateTime` 的无时区时间串（`2026-08-04T11:40:42`），**可能带小数秒**
+    /// （`2026-08-04T11:40:42.644571`）。凡是取自 `now()` 且没经过 DB round-trip 的字段都会带 ——
+    /// 下单回执的 `createdAt` 一定带，`acceptedAt` / `recordedAt` / `triggeredAt` 同理
+    /// （handoff 2026-08-04 后端实测）。
+    ///
+    /// 小数位数不固定（尾零被丢弃），所以不另配一个 `.SSSSSS` 格式器，直接截掉小数部分 ——
+    /// 秒以下精度对展示和预约时间都没有意义。**但带时区偏移的串不能这么截**
+    /// （`...42.644+08:00` 截完会差好几个小时），所以要求小数点后必须全是数字，
+    /// 带偏移的交给调用方的 ISO8601 分支。
+    var backendLocalDate: Date? {
+        let formatter = DateFormatter.aidRunBackendLocalDateTime
+        if let date = formatter.date(from: self) { return date }
+        let parts = split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, !parts[1].isEmpty, parts[1].allSatisfy(\.isNumber) else { return nil }
+        return formatter.date(from: String(parts[0]))
+    }
+
     var displayDateTime: String {
-        if let date = DateFormatter.aidRunBackendLocalDateTime.date(from: self) {
+        if let date = backendLocalDate {
             return DateFormatter.aidRunDisplayDateTime.string(from: date)
         }
         if let date = ISO8601DateFormatter.aidRunFormatter.date(from: self) {

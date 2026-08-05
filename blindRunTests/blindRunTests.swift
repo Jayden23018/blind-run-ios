@@ -3317,6 +3317,39 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(service.lastStopReason, .error)
     }
 
+    /// 授权被拒是**启动阶段**失败，走的是 `clearRecognitionStartState` 而不是 `stopAudioRecognition`。
+    /// 调用方（语音下单向导）只能靠这一次完成回调发现语音这条路断了：看不见屏幕的人没有别的方式
+    /// 察觉向导已经停住，漏掉这次回调等于让向导无限静默等待。
+    func testAuthorizationDenialDeliversATerminalCompletion() {
+        let service = SpeechInputService()
+        var completions: [SpeechInputCompletion] = []
+
+        service.startPendingAuthorizationForTesting(field: .voiceOrderStartPlace) {
+            completions.append($0)
+        }
+        service.denyAuthorizationForTesting()
+
+        XCTAssertEqual(completions.count, 1, "启动阶段失败必须送出一次终局完成，否则调用方永远等不到结果")
+        XCTAssertEqual(completions.first?.field, .voiceOrderStartPlace)
+        XCTAssertEqual(completions.first?.reason, .error)
+        XCTAssertEqual(completions.first?.recognizedText, "")
+        XCTAssertEqual(service.lastStopReason, .error)
+        XCTAssertNil(service.activeFieldId)
+    }
+
+    func testAuthorizationDenialCompletionIsDeliveredOnlyOnce() {
+        let service = SpeechInputService()
+        var completions: [SpeechInputCompletion] = []
+
+        service.startPendingAuthorizationForTesting(field: .voiceOrderStartPlace) {
+            completions.append($0)
+        }
+        service.denyAuthorizationForTesting()
+        service.denyAuthorizationForTesting()
+
+        XCTAssertEqual(completions.count, 1, "重复清理不得再送一次完成或再播报一次")
+    }
+
     func testSpeechInputLifecycleCancelClearsStateWithoutCompletion() {
         let service = SpeechInputService()
         var completion: SpeechInputCompletion?
@@ -3639,6 +3672,27 @@ final class blindRunTests: XCTestCase {
 
     func testDisplayDateTimeFormatsBackendLocalDateTimeForSpeech() {
         XCTAssertEqual("2026-07-05T15:18:10".displayDateTime, "2026年7月5日 15:18")
+    }
+
+    /// 后端 `LocalDateTime` 取自 `now()` 时带小数秒（handoff 2026-08-04 实测
+    /// `2026-08-04T11:40:42.644571`），下单回执的 `createdAt` 必带。解不出时 `displayDateTime`
+    /// 会原样返回，等于把一串 ISO 时间念给盲人听。
+    func testDisplayDateTimeAcceptsFractionalSecondsFromBackendNow() {
+        XCTAssertEqual("2026-08-04T11:40:42.644571".displayDateTime, "2026年8月4日 11:40")
+        XCTAssertEqual("2026-08-04T11:40:42.6".displayDateTime, "2026年8月4日 11:40")
+        XCTAssertEqual("2026-08-04T11:40:42".backendLocalDate, "2026-08-04T11:40:42.644571".backendLocalDate)
+    }
+
+    /// 截小数秒只对无时区串成立。带偏移的串必须落到 ISO8601 分支，否则会被当成本地时间、差好几个小时。
+    func testFractionalSecondTruncationDoesNotSwallowTimeZoneOffsets() throws {
+        XCTAssertNil("2026-08-04T11:40:42.644+08:00".backendLocalDate)
+        XCTAssertNil("2026-08-04T11:40:42.644Z".backendLocalDate)
+
+        let utc = try XCTUnwrap(ISO8601DateFormatter.aidRunFormatter.date(from: "2026-08-04T11:40:42.644Z"))
+        XCTAssertEqual(
+            "2026-08-04T11:40:42.644Z".displayDateTime,
+            DateFormatter.aidRunDisplayDateTime.string(from: utc)
+        )
     }
 
     func testBlindVolunteerDistanceUsesVolunteerLocationToStartPoint() {

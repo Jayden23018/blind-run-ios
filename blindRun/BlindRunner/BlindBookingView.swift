@@ -236,16 +236,14 @@ final class BlindBookingViewModel: ObservableObject {
         case .runningNeeds:
             return nil
         case .review:
-            if locationService?.isDenied == true {
-                return "定位权限未开启。请前往系统设置开启定位，以便创建跑步预约。"
-            }
-            if resolvedStartPlace == nil {
-                return "请选择出发地点。"
-            }
-            if !isAppointmentTimeValid {
-                return "预约时间需至少在 30 分钟后。"
-            }
-            return nil
+            // 审阅步的按钮禁用状态走 `canSubmit`，它查的是全部六道门槛。这里必须用同一个源，
+            // 否则缺资料 / 实名 / 紧急联系人时按钮是灰的、`primaryActionHint` 却回落到
+            // 「提交后系统将为你派单」—— 一个按不动的按钮配一句承诺，对看不见屏幕的人
+            // 就是「点了没反应」，而真正的原因一个字都没播。
+            //
+            // 曾经这里手抄了后三道门槛（定位 / 起点 / 时间），顺序与 `firstMissingGate` 一致，
+            // 少的正是要去别的页面才能补的前三道。
+            return firstMissingGate?.message
         }
     }
 
@@ -357,6 +355,7 @@ final class BlindBookingViewModel: ObservableObject {
             return currentResolvedPlace
         }
         guard let locationService else { return nil }
+        guard locationService.currentLocation != nil || allowsDemoFallbackAsStartPoint else { return nil }
         let coordinate = bookingCoordinate(from: locationService)
         return ResolvedPlace(
             id: locationService.isUsingDemoFallback ? "demo-current" : "device-current",
@@ -384,9 +383,23 @@ final class BlindBookingViewModel: ObservableObject {
         }
     }
 
+    /// 演示坐标能否当作下单起点。
+    ///
+    /// 兜底坐标是北京一个固定点。它落到云端就是把一个可能在上海的盲人约到另一个城市；
+    /// 更隐蔽的是 `resolvedStartPlace` 因为总有兜底值而**永不为 nil**，
+    /// `.startPoint` 这道门槛于是恒真 —— 一道写好的门槛在生产里是死代码。
+    ///
+    /// 放行的只有两处，它们都不会产生真实订单：不发网络请求的 Mock 通道，
+    /// 以及显式打开了演示定位的 UI 测试。正式通道一律走「请选择出发地点」。
+    private var allowsDemoFallbackAsStartPoint: Bool {
+        if appState?.currentEnvironment.isMock == true { return true }
+        return locationService?.isDemoLocationForcedForTesting == true
+    }
+
     private func bookingCoordinate(from locationService: LocationService) -> CLLocationCoordinate2D {
         guard let currentLocation = locationService.currentLocation else {
-            return locationService.effectiveLocation // 仅 Mock/demo 可走兜底；云端提交仍受权限门控。
+            // 调用方已用 `allowsDemoFallbackAsStartPoint` 过滤过，走到这里只可能是 Mock 或 UI 测试。
+            return locationService.effectiveLocation
         }
         return BackendCoordinateNormalizer.normalize(
             LocatedCoordinate(coordinate: currentLocation, system: .wgs84Device)
@@ -395,13 +408,15 @@ final class BlindBookingViewModel: ObservableObject {
 
     #if DEBUG
     func configureForTesting(
-        placeSearchProvider: any PlaceSearchProviding,
+        placeSearchProvider: (any PlaceSearchProviding)? = nil,
         speechService: SpeechService,
-        locationService: LocationService? = nil
+        locationService: LocationService? = nil,
+        appState: AppState? = nil
     ) {
         self.placeSearchProvider = placeSearchProvider
         self.speechService = speechService
         self.locationService = locationService
+        self.appState = appState
     }
     #endif
 
@@ -582,6 +597,20 @@ final class BlindBookingViewModel: ObservableObject {
         speechService?.speak(currentStepSpeechSummary)
     }
 
+    /// 进页面就把第一个「本页填不了」的门槛播出来。
+    ///
+    /// 起点和时间是这一页自己的槽位，缺了不算进不来，向导和分步提示各自会管。
+    /// 剩下四道要么得去别的页面补（资料 / 实名 / 紧急联系人），要么得去系统设置开（定位），
+    /// 越早说越好：审阅步的按钮禁用状态走的是全部六道门槛，用户填完四步撞上一个灰按钮时，
+    /// 看不见屏幕的人只会当成「点了没反应」。
+    ///
+    /// 语音路径不走这里 —— `VoiceOrderWizard.start()` 在启动前用同一套门槛自己播过一次了。
+    func announceEntryGateIfNeeded() {
+        guard let gate = firstMissingGate, gate != .startPoint, gate != .appointmentTime else { return }
+        errorMessage = gate.message
+        speechService?.speak(gate.message)
+    }
+
     func makeCreateOrderRequest() -> CreateOrderRequest? {
         guard let startPlace = resolvedStartPlace else { return nil }
         let plannedStartTime = DateFormatter.aidRunBackendLocalDateTime.string(from: appointmentTime)
@@ -663,6 +692,8 @@ struct BlindBookingView: View {
     @StateObject private var viewModel = BlindBookingViewModel()
     @StateObject private var voiceWizard = VoiceOrderWizard()
     @AccessibilityFocusState private var focusedSearchResultID: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isPulsing = false
     /// 从首页「语音下单」进来时为 `true`，页面出现即启动向导。表单入口进来则为 `false`，
     /// 语音仍可随时手动启动 —— 语音是加速器，不是另一条平行流程。
     let startsWithVoice: Bool
@@ -696,6 +727,44 @@ struct BlindBookingView: View {
             }
         }
         .background(AppColors.background)
+        // 向导运行期间整块内容区就是那一下：**在录音是「我说完了」，在播报是「别念了，我要说」。**
+        //
+        // 依据：AppleVis 上对 iMessage 语音消息的原话抱怨是「很难干净地停下来，只能到处滑动去找一个
+        // 很小很难定位的停止按钮」。盲人定位屏幕元素靠顺序滑动或空间记忆，让他在说完话之后再去
+        // 找一个按钮，等于把最该零成本的动作做成了最贵的。整屏可点就没有「找」这一步。
+        //
+        // 覆盖范围从「录音中」放宽到「向导运行中」，是为了让长读回也能被打断 —— 读回整单在写死的
+        // 默认语速下要 15~25 秒，而读屏用户日常语速是它的两三倍。
+        //
+        // **逃生口不在这一层之下**：「改用表单」在 `safeAreaInset` 的底栏里，那一块永远不被这层盖住。
+        .overlay {
+            // 解析途中这一层要撤掉：那会儿既没在录音也没在播报，`finishSpeakingOrSkipPrompt` 是空操作，
+            // 而它挂着的标签会告诉 VoiceOver「双击可以跳过播报」—— 宣告一个按不动的动作，
+            // 比没有这个动作更糟。
+            if voiceWizard.isRunning, !voiceWizard.isParsing {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { voiceWizard.finishSpeakingOrSkipPrompt() }
+                    .accessibilityElement()
+                    .accessibilityLabel(isRecording ? "正在录音，说完后双击屏幕任意位置结束" : "双击屏幕任意位置跳过播报，直接开始说话")
+                    .accessibilityHint(isRecording ? "也可以停顿几秒自动结束" : "也可以听完播报，麦克风会自动打开")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("blindBookingFinishSpeakingSurface")
+            }
+        }
+        // 两指双击是 iOS 上「开始/停止录音」的标准手势（Apple 把 recording 列为 Magic Tap 的典型用途）。
+        // 上面那块整屏区对**触摸**用户是零成本的，但对 VoiceOver 用户不是：读屏下必须先把焦点滑到那个
+        // 元素才能双击激活，「不用找」这个目标恰恰对真正的目标用户没实现。Magic Tap 补的是这一半。
+        //
+        // 顺带堵住一个副作用：不实现时，两指双击会沿响应链穿透到系统去播放/暂停音乐 ——
+        // 用户在录音中做这个手势会莫名开始放歌。
+        .accessibilityAction(.magicTap) {
+            if voiceWizard.isRunning {
+                voiceWizard.finishSpeakingOrSkipPrompt()
+            } else {
+                voiceWizard.start()
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             submitArea
         }
@@ -722,6 +791,8 @@ struct BlindBookingView: View {
             )
             if startsWithVoice, !voiceWizard.isRunning {
                 voiceWizard.start()
+            } else {
+                viewModel.announceEntryGateIfNeeded()
             }
         }
         .onDisappear {
@@ -737,57 +808,68 @@ struct BlindBookingView: View {
         .onChange(of: voiceWizard.step) { step in
             // 表单跟着向导走：语音填到哪一项，屏幕上就停在哪一项，读屏用户切回手动时不用重新找位置。
             switch step {
+            // 整句和读回这两轮，屏幕停在确认页：向导念的就是这一页的内容，
+            // 用户中途切回手动时看到的和刚听到的是同一件事。
+            case .freeform, .confirm: viewModel.currentStep = .review
             case .startPlace: viewModel.currentStep = .startPoint
             case .startTime: viewModel.currentStep = .appointmentTime
             case .duration: viewModel.currentStep = .runningNeeds
-            case .review: viewModel.currentStep = .review
             }
+        }
+        // 语音提交与按钮提交共用同一个出口，跳转逻辑只有一份。
+        .onReceive(voiceWizard.$createdOrder.compactMap { $0 }) { response in
+            onOrderCreated(response)
         }
     }
 
-    /// 语音下单入口。**语音只填表单，不代替提交** —— 三个槽位齐了以后仍然落到确认步骤，
-    /// 由用户在这一页显式提交（国标：不可逆操作要么可逆，要么提交前可复核）。
+    /// 语音下单区。**语音只填表单，不代替提交** —— 读回整单之后仍然要用户说一声「确认」，
+    /// 由这一页显式提交（国标：不可逆操作要么可逆，要么提交前可复核）。
+    ///
+    /// 这里没有「语音下单」按钮：进这一页就是来说话的，按钮只剩「说完了」和「停止」。
+    /// 多一个入口就多一次「我该点哪个」的判断，而这正是盲人用户成本最高的部分。
     private var voiceOrderSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Button(voiceWizard.isRunning ? "停止语音下单" : "语音下单") {
-                if voiceWizard.isRunning {
-                    voiceWizard.stop()
-                    speechService.speak("已停止语音下单，你可以继续用表单填写。")
-                } else {
-                    voiceWizard.start()
-                }
-            }
-            .font(AppFonts.primaryButton())
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 64)
-            .background(voiceWizard.isRunning ? AppColors.destructive : AppColors.primary)
-            .cornerRadius(12)
-            .accessibilityLabel(voiceWizard.isRunning ? "停止语音下单" : "语音下单")
-            .accessibilityHint(
-                voiceWizard.isRunning
-                    ? "停止后可以继续用表单填写"
-                    : "依次用说话填写出发地点、时间和时长，最后仍需要你确认提交"
-            )
-            .accessibilityIdentifier("blindBookingVoiceOrderButton")
-
-            if voiceWizard.isRunning {
-                Button("重复刚才的问题") {
-                    voiceWizard.repeatCurrentPrompt()
-                }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.primary)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-                .accessibilityLabel("重复刚才的问题")
+            if isRecording {
+                recordingIndicator
+            } else if voiceWizard.isRunning {
+                Text(voiceWizard.isParsing ? "正在识别，请稍候…" : "请听提示后说话")
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityHidden(true)
             }
 
             if let prompt = voiceWizard.lastSpokenPrompt, voiceWizard.isRunning {
-                Text(voiceWizard.isParsing ? "正在识别：\(prompt)" : prompt)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
+                Text(prompt)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(prompt)
+            }
+
+            if !voiceWizard.partialTranscript.isEmpty {
+                // 只写屏、不播报：一边说一边念会盖住用户自己的声音，识别也会跟着跑偏（调研 2026-08-03）。
+                Text("听到：\(voiceWizard.partialTranscript)")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
+            }
+
+            // 运行中的两个控件在底栏（`voiceControls`），不在这里 —— 它们必须待在整屏点击区盖不到的地方。
+            if !voiceWizard.isRunning {
+                Button("用语音重新说一次") {
+                    voiceWizard.start()
+                }
+                .font(AppFonts.primaryButton())
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+                .background(AppColors.primary)
+                .cornerRadius(12)
+                .accessibilityLabel("用语音重新说一次")
+                .accessibilityHint("重新开始语音下单")
+                .accessibilityIdentifier("blindBookingVoiceOrderButton")
             }
 
             if let fallbackMessage = voiceWizard.fallbackMessage {
@@ -798,6 +880,39 @@ struct BlindBookingView: View {
                     .accessibilityLabel(fallbackMessage)
             }
         }
+    }
+
+    private var isRecording: Bool {
+        voiceWizard.isRunning && speechInputService.isListening
+    }
+
+    /// 录音中的可见状态。动画只服务低视力用户与陪同的明眼人 —— 全盲用户靠的是起止提示音和震动
+    /// （`RecordingCue`），所以这里的信息**不能**只存在于动画里，静态文字必须自带完整语义。
+    ///
+    /// 脉冲周期 1.2 秒（约 0.83 次/秒），远低于 WCAG 2.3.1 的每秒 3 次红线；
+    /// 系统开启「减弱动态效果」时退化为静态圆点。
+    private var recordingIndicator: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(AppColors.destructive)
+                .frame(width: 20, height: 20)
+                .opacity(reduceMotion ? 1 : (isPulsing ? 1 : 0.35))
+                .animation(
+                    reduceMotion ? nil : .easeInOut(duration: 1.2).repeatForever(autoreverses: true),
+                    value: isPulsing
+                )
+                .accessibilityHidden(true)
+
+            Text("正在录音")
+                .font(AppFonts.primaryButton())
+                .foregroundColor(AppColors.destructive)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { isPulsing = true }
+        .onDisappear { isPulsing = false }
+        .accessibilityHidden(true)
     }
 
     private var header: some View {
@@ -813,27 +928,34 @@ struct BlindBookingView: View {
 
     private var guidedStepHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(viewModel.stepProgressText)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel(viewModel.stepProgressText)
+            // 语音路径不走这四步，进度条对它是假的。
+            //
+            // 向导实际是「整句 → 读回」两轮，而 `.freeform` 和 `.confirm` 都映射到 `.review`，
+            // 所以用户刚说第一句话，进度条就已经显示「第 4 步 / 共 4 步」。这句还进了下面那个
+            // `accessibilityLabel`，VoiceOver 会把这个错的数字念出来。语音在跑就不画它。
+            if !voiceWizard.isRunning {
+                Text(viewModel.stepProgressText)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityLabel(viewModel.stepProgressText)
 
-            HStack(spacing: 8) {
-                ForEach(BlindBookingGuidedStep.allCases) { step in
-                    VStack(spacing: 6) {
-                        Circle()
-                            .fill(step.rawValue <= viewModel.currentStep.rawValue ? AppColors.primary : AppColors.textSecondary.opacity(0.25))
-                            .frame(width: 12, height: 12)
-                            .accessibilityHidden(true)
-                        Text(step.shortName)
-                            .font(AppFonts.caption())
-                            .foregroundColor(step == viewModel.currentStep ? AppColors.textPrimary : AppColors.textSecondary)
+                HStack(spacing: 8) {
+                    ForEach(BlindBookingGuidedStep.allCases) { step in
+                        VStack(spacing: 6) {
+                            Circle()
+                                .fill(step.rawValue <= viewModel.currentStep.rawValue ? AppColors.primary : AppColors.textSecondary.opacity(0.25))
+                                .frame(width: 12, height: 12)
+                                .accessibilityHidden(true)
+                            Text(step.shortName)
+                                .font(AppFonts.caption())
+                                .foregroundColor(step == viewModel.currentStep ? AppColors.textPrimary : AppColors.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(viewModel.stepProgressText)，当前步骤：\(viewModel.currentStep.displayName)")
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(viewModel.stepProgressText)，当前步骤：\(viewModel.currentStep.displayName)")
 
             Text(viewModel.currentStep.displayName)
                 .font(.title2.bold())
@@ -1222,6 +1344,48 @@ struct BlindBookingView: View {
     }
 
     private var submitArea: some View {
+        // 语音在跑的时候，「上一步 / 下一步」是不连贯的：表单的步骤正被向导驱动，用户按它等于和语音抢方向盘。
+        // 换成语音自己的两个控件，同时解决另一件事 —— 底栏在 `safeAreaInset` 里，整屏点击区盖不到它，
+        // 所以「改用表单」这个逃生口在录音和播报期间都点得到。位置固定不随内容滚动，也更利于空间记忆。
+        Group {
+            if voiceWizard.isRunning {
+                voiceControls
+            } else {
+                formControls
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .background(.regularMaterial)
+    }
+
+    private var voiceControls: some View {
+        HStack(spacing: 12) {
+            Button("重复一遍") {
+                voiceWizard.repeatCurrentPrompt()
+            }
+            .font(AppFonts.body().weight(.semibold))
+            .foregroundColor(AppColors.primary)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 64)
+            .accessibilityLabel("重复一遍")
+            .accessibilityHint("再念一次刚才的提示")
+
+            Button("改用表单") {
+                voiceWizard.stop()
+                speechService.speak("已停止语音下单，你可以继续用表单填写。")
+            }
+            .font(AppFonts.body().weight(.semibold))
+            .foregroundColor(AppColors.destructive)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 64)
+            .accessibilityLabel("改用表单")
+            .accessibilityHint("停止语音，用屏幕上的输入框继续填写")
+            .accessibilityIdentifier("blindBookingStopVoiceButton")
+        }
+    }
+
+    private var formControls: some View {
         VStack(spacing: 10) {
             if let blockingReason = viewModel.blockingReasonForCurrentStep {
                 Text(blockingReason)
@@ -1269,9 +1433,6 @@ struct BlindBookingView: View {
             .accessibilityLabel("重复当前状态")
             .accessibilityHint("点击后重新播报当前预约步骤状态")
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
     }
 
     private var primaryActionDisabled: Bool {

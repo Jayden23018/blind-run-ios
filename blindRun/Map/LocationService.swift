@@ -68,6 +68,18 @@ final class LocationService: NSObject, ObservableObject {
         currentLocation == nil
     }
 
+    /// UI 测试是否强制启用了演示定位。正式构建恒为 `false`。
+    ///
+    /// 存在的理由只有一个：下单侧要能把「演示坐标」和「真实定位」分开对待，
+    /// 而做这个判断的地方（`BlindBookingViewModel`）不该知道 UI 测试的环境变量名。
+    var isDemoLocationForcedForTesting: Bool {
+        #if DEBUG
+        return isUsingUITestDemoLocation
+        #else
+        return false
+        #endif
+    }
+
     /// 是否已获得定位授权
     var isAuthorized: Bool {
         #if DEBUG
