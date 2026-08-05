@@ -5,9 +5,9 @@ import SwiftUI
 // MARK: - Blind Runner Route
 
 private enum BlindRunnerRoute: Hashable {
-    case booking
-    /// 同一个预约页，进去就自动开语音向导。单独一个 case 而不是给 `.booking` 加参数，
-    /// 是为了不动既有导航调用点。
+    /// 预约页，进去就自动开语音向导。首页只有这一个下单入口 —— 原来的纯表单入口 `.booking`
+    /// 已删除：它进的是同一个页面，留着只是让人在首页多做一次「点哪个」的判断。
+    /// 表单没有消失，在预约页里按「改用表单」即可。
     case voiceBooking
     case orderStatus(Int64)
     case settings
@@ -400,13 +400,6 @@ struct BlindRunnerHomeView: View {
             .navigationBarHidden(true)
             .navigationDestination(for: BlindRunnerRoute.self) { route in
                 switch route {
-                case .booking:
-                    BlindBookingView { response in
-                        viewModel.handleOrderCreated(response)
-                        if let orderId = response.id {
-                            path = [.orderStatus(orderId)]
-                        }
-                    }
                 case .voiceBooking:
                     BlindBookingView(startsWithVoice: true) { response in
                         viewModel.handleOrderCreated(response)
@@ -572,7 +565,10 @@ struct BlindRunnerHomeView: View {
                 .accessibilityLabel("准备好后，可以创建一次新的陪跑预约")
 
             if viewModel.canStartNewBooking {
-                NavigationLink(value: BlindRunnerRoute.booking) {
+                // 只留一个入口。原来「开始约跑」和「语音下单」并列，等于每次下单前都要先做一次
+                // 「我该点哪个」的判断，而两者进的本来就是同一个页面。现在统一进语音：进去就录音，
+                // 说完读回整单再确认；不想说话就按「改用表单」，那张表一直都在。
+                NavigationLink(value: BlindRunnerRoute.voiceBooking) {
                     HStack {
                         Text("开始约跑")
                             .font(AppFonts.primaryButton())
@@ -584,23 +580,8 @@ struct BlindRunnerHomeView: View {
                     .cornerRadius(12)
                 }
                 .accessibilityLabel("开始约跑")
-                .accessibilityHint("点击后创建跑步预约")
+                .accessibilityHint("点击后进入语音下单：说一句想什么时候跑、跑多久，听完复述再确认。也可以改用表单填写")
                 .accessibilityIdentifier("blindRunnerHomeStartBookingButton")
-
-                // 语音是快捷入口，不是另一条流程：它进的是同一个预约页，只是进去就开始问。
-                // 表单那条路径一直在，随时可以切回去（读屏用户对多步骤任务更信可核对的表单）。
-                NavigationLink(value: BlindRunnerRoute.voiceBooking) {
-                    Text("语音下单")
-                        .font(AppFonts.primaryButton())
-                        .foregroundColor(AppColors.primary)
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 64)
-                        .background(AppColors.secondaryBackground)
-                        .cornerRadius(12)
-                }
-                .accessibilityLabel("语音下单")
-                .accessibilityHint("进入预约页后会依次问你出发地点、时间和时长，最后仍需要你确认提交")
-                .accessibilityIdentifier("blindRunnerHomeVoiceBookingButton")
             } else {
                 Button {
                     viewModel.explainBookingUnavailable()
