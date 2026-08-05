@@ -120,7 +120,7 @@ stateDiagram-v2
 求助入口显示规则：
 
 - 盲人跑者端仅在 `IN_PROGRESS` 显示"一键求助"，需二次确认（`RunOrderStatus.canBlindRunnerTriggerEmergency` / `canTriggerEmergency(as:)`，`blindRun/Core/Models/OrderModels.swift`）。
-- 志愿者端全状态不显示求助入口（`canVolunteerTriggerEmergency` 恒为 `false`）。原因：后端按**触发人**建事件，志愿者发起的求助只会提醒志愿者自己、不通知盲人，并升级到志愿者自己的紧急联系人（后端 `service/EmergencyService.java:310-333, 347-383`）；待后端改为按订单参与方路由后再开。
+- 志愿者端同样仅在 `IN_PROGRESS` 显示求助入口（`canVolunteerTriggerEmergency == (self == .inProgress)`），**自 2026-07-31 起已开放**。~~此前全状态隐藏，因为后端按触发人建事件~~ —— 后端 commit `a5ba523`（SOS-1）把 `event.userId` 改为取订单的盲人方、用 `TriggerType.VOLUNTEER_BUTTON` 区分来源后，该理由不再成立。志愿者**没有撤销权**（后端 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`）：一对一陪跑里志愿者可能就是威胁来源，撤销权只在受助者本人和客服手里。
 
 ### 禁止的流转
 

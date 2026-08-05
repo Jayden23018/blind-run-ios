@@ -56,7 +56,7 @@
 | 志愿者服务中页面 | P0 | 前往出发地点地图固定红色出发点标记、外部地图步行导航、「我已出发」「我已到达」「开始服务」按钮、志愿者在 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 可取消，进入 IN_PROGRESS 后显示「结束服务」 |
 | 服务记录页 | P1 | 已完成的订单列表，显示时间、盲人昵称、积分 |
 | 积分/商城页 | P2 | 当前展示积分余额和商品入口；真实兑换、库存和支付按后续契约接入 |
-| 一键求助 | P0 | 志愿者端全状态不显示入口（`RunOrderStatus.canVolunteerTriggerEmergency` 恒为 `false`）。原因：后端按**触发人**建事件，志愿者发起的求助只会提醒志愿者自己、不会通知盲人，且升级到志愿者自己的紧急联系人而非盲人的（后端 `service/EmergencyService.java:310-333, 347-383`）。待后端改为按订单参与方路由后再开 |
+| 一键求助 | P0 | **两端入口都只在 `IN_PROGRESS` 开放**（`RunOrderStatus.canVolunteerTriggerEmergency == (self == .inProgress)`）。~~志愿者端全状态不显示入口，因为后端按触发人建事件~~ —— 该理由自后端 commit `a5ba523`（SOS-1）起不再成立：`event.userId` 已改为取订单的盲人方，用 `TriggerType.VOLUNTEER_BUTTON` 区分来源，志愿者端入口**已于 2026-07-31 开放**。志愿者无撤销权（后端一律回 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`），因为一对一陪跑里志愿者可能就是威胁来源。详见 `AGENTS.md` 第 6 节 |
 | 取消订单 | P0 | 盲人可在 PENDING_MATCH / PENDING_ACCEPT / REMATCHING 取消；志愿者可在 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 取消，志愿者取消后进入 REMATCHING；均需二次确认 |
 
 ### 地图与定位
