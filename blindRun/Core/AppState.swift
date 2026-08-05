@@ -130,6 +130,16 @@ final class AppState: ObservableObject {
     /// 会话过期后带到登录页展示的一次性提示。
     @Published private(set) var sessionExpirationMessage: String?
 
+    // MARK: - Legal Links
+
+    /// `GET /api/misc/legal-links` 的结果。`nil` = 尚未加载 / 加载失败 / 后端未配置 URL，
+    /// 三种情况入口一律回退到内置文案页（`LegalDocumentKind.destination(in:)` 已如此处理）。
+    @Published private(set) var legalLinks: LegalLinksResponse?
+
+    /// 只请求一次就够：这两个 URL 来自后端配置，不会在一次会话里变。
+    /// 失败也不重试 —— 回退文案页本来就是完整可读的，为它反复打请求不值得。
+    private var didAttemptLegalLinksLoad = false
+
     // MARK: - WebSocket
 
     /// WebSocket 服务实例（登录后创建，登出时销毁）
@@ -365,6 +375,25 @@ final class AppState: ObservableObject {
         } catch {
             // 补读是 best-effort：失败不阻断实时链路，下次重连自然重试。
             ClientFlowDiagnostics.record(event: "failed", operation: "notification-catch-up")
+        }
+    }
+
+    // MARK: - Legal Links
+
+    /// 拉一次隐私政策 / 用户协议的外链地址。
+    ///
+    /// **必须 `requiresAuth: false`** —— 后端对该端点 permitAll，App Store 审核员是未登录状态，
+    /// 而 5.1.1/5.1.2 要求他们能在应用内找到隐私政策。带鉴权会让未登录时 401 直接失败。
+    ///
+    /// 失败静默：入口在任何时刻都得是可点且有内容的，回退文案页承担这件事。
+    /// 这里冒出一个错误弹窗，反而会把审核员挡在隐私政策之外。
+    func loadLegalLinksIfNeeded() async {
+        guard !didAttemptLegalLinksLoad else { return }
+        didAttemptLegalLinksLoad = true
+        do {
+            legalLinks = try await apiClient.get("/api/misc/legal-links", requiresAuth: false)
+        } catch {
+            ClientFlowDiagnostics.record(event: "failed", operation: "legal-links")
         }
     }
 
