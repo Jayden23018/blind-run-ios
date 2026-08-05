@@ -1,328 +1,174 @@
 # AGENTS.md
 
-Project-level rules for all AI coding agents working on AidRun / 助盲跑.
+AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴，是硬约束。**
 
-Do not treat this file as product brainstorming. It is the highest-priority working contract for agents in this repository.
+**仓库边界**：这是 AidRun 原生 iOS 前端仓库。它不包含、不维护、不构建、不部署后端代码。后端是外部服务，当前真实集成端点是 `http://47.114.113.171`。除非项目负责人在单独的变更里显式改变边界，否则不得加入服务端源码、数据库配置、服务端构建脚本或可本地运行的后端。
 
-**Repository boundary:** This is the AidRun native iOS frontend code repository. It does not contain, maintain, build, or deploy backend code. The backend is an external service, and the current real integration endpoint is `http://47.114.113.171`. Agents must not add server source code, database configuration, server build scripts, or a locally runnable backend to this repository unless the repository boundary is explicitly changed by the project owner in a separate change.
+## 0. 按需加载的规则（不在本文件，用到再读）
 
-## 1. Project Source of Truth
+| Skill | 什么时候读 |
+|---|---|
+| `aidrun-auth` | 登录、验证码、JWT、角色、下单前置条件 |
+| `aidrun-a11y-voice` | 盲人端 UI、VoiceOver、语音输入/播报、高德地图、定位与坐标系 |
+| `aidrun-error-codes` | 处理 API 错误、写 TTS 错误播报、新增错误分支 |
+| `aidrun-ship-check` | 实现完成、准备提交、准备宣称「做完了 / 测试通过」 |
 
-When sources conflict, follow this priority order:
+## 1. 事故复盘规则（最重要的一条）
+
+任何一个**已经犯过第二次**的错误，必须落到下面三者之一，**不许只写进文档**：
+
+1. 能被静态检查抓到 → `scripts/hooks/guard.sh` 加一条守卫
+2. 能被运行时检查抓到 → 加一条测试（优先 `blindRunTests/Fixtures/` 的真实响应回归）
+3. 两者都不能（纯语义认知）→ 写进项目记忆，并在本文件留一行索引
+
+只写文档不算完成。文档挡不住重复犯错，这条规则的存在就是因为它已经被证明挡不住。
+
+## 2. 源真相优先级
+
+冲突时按此顺序：
 
 1. `AGENTS.md`
 2. `plan.md`
-3. `docs/01-product-requirements.md`
-4. `docs/02-mvp-scope.md`
-5. `docs/03-user-stories.md`
-6. `docs/04-user-flows-and-state-machine.md`
-7. `docs/05-page-specs.md`
-8. `docs/06-data-model.md`
-9. `docs/08-ios-architecture.md`
-10. `docs/09-accessibility-and-voice-guidelines.md`
-11. `docs/10-ai-coding-tasks.md`
-12. OpenSpec changes under `openspec/changes/`
-13. Legacy Flutter code can be used only as UI or behavior reference. It is not a source of truth.
+3. `docs/01-product-requirements.md` → `02-mvp-scope` → `03-user-stories` → `04-user-flows-and-state-machine` → `05-page-specs` → `06-data-model` → `08-ios-architecture` → `09-accessibility-and-voice-guidelines` → `10-ai-coding-tasks`
+4. `openspec/changes/` 下的 OpenSpec 变更
+5. 遗留 Flutter 代码只能当 UI / 行为参考，**不是**源真相
 
-The API contract is no longer maintained in this repository. Since 2026-07-28 the single source is the backend repository (`/Users/mac/Downloads/demo`): `docs/api_spec.yaml` for REST and `docs/websocket-protocol.md` for WebSocket. See section 7 and `docs/07-api-contract-MOVED.md`. The former local files are archived as `docs/_archive-*.bak` and contain known errors; do not read or copy them.
+`docs/_archive-*.bak` 是已知有错的旧契约副本，**不得读取或复制**。
 
-If legacy Flutter code, old documents, and the current docs/OpenSpec conflict, follow the current docs/OpenSpec and this file.
+## 3. 生产方向
 
-## 2. Production Direction
+- 本仓库只有 iOS 原生 App；后端是仓库外的云服务。
+- Swift + SwiftUI 优先，必要时才桥接 UIKit；iOS 16+；MVVM。
+- 所有真实 HTTP 走 `http://47.114.113.171`，所有真实 WebSocket 走 `ws://47.114.113.171`。**地址在 App 内不可配置，不得加入本地或占位的真实服务端地址。**
+- REST + WebSocket 提供通知、派单、状态更新与位置上报；JWT Bearer Auth。
+- 用高德地图与真机定位；TTS 用 `AVSpeechSynthesizer`，STT 用 iOS `Speech`。
+- Mock 是**进程内**的前端测试设施，不发网络请求，且**永远不足以作为发布签核依据**。
+- 发布验证必须在真机 `111` 与 `iPad Pro (2)` 上跑。
 
-The current direction is a production-ready iOS client backed by the external cloud service:
+生产短信、实名认证、管理员工具、路线导航、支付等能力不再被全局禁止，但仍必须先有需求、API 契约、实现计划与验收测试才能写代码。
 
-- iOS native app only in this repository.
-- Swift, SwiftUI first, UIKit bridging only when needed.
-- iOS 16+.
-- SwiftUI + MVVM.
-- The backend is an external cloud service outside this repository.
-- Every real HTTP request currently uses `http://47.114.113.171`.
-- Every real WebSocket connection currently uses `ws://47.114.113.171`.
-- REST API + WebSocket provide notifications, dispatch, status updates, and location reporting.
-- JWT Bearer Auth.
-- Phone login uses `POST /api/auth/send-code` and `POST /api/auth/verify-code`; long-lived test accounts may continue to use fixed verification code `000000` for release validation.
-- Use 高德地图 (AMap) and real device location.
-- TTS uses `AVSpeechSynthesizer`.
-- STT uses iOS `Speech` framework.
-- Mock remains an offline frontend test facility and is never sufficient for release sign-off.
-- Release validation must run on the real devices named `111` and `iPad Pro (2)`.
+## 4. 范围规则
 
-The old MVP forbidden list has been removed. Features such as production SMS, identity verification, administrator tooling, route navigation, payments, and richer safety capabilities are no longer globally forbidden. They must still be introduced through explicit requirements, API contracts, implementation plans, and acceptance tests before code is added.
+一次只实现一个内聚模块；不得静默扩大范围；不得一次重写整个项目。新的生产能力必须记录文档、API 契约影响、测试计划与发布风险。若某能力需要后端改动，写下 `需要人工确认` 并把缺失的 API/行为说清楚，iOS 侧实现留在明确的契约后面。
 
-## 3. Release Priority
+## 5. 订单状态机
 
-Priority order for the current iOS release:
+**只允许**这些状态：
 
-1. Blind runner booking -> volunteer accept -> complete order against the real backend
-2. Phone login + JWT
-3. 高德地图 + real location on device
-4. VoiceOver accessibility optimization
-5. TTS voice announcements
-6. Voice input
-7. Volunteer availability, dispatch, and WebSocket behavior
-8. Safety/emergency: the blind-runner in-run SOS entry is enabled in `IN_PROGRESS` only (`enable-independent-sos-safely`); the volunteer entry stays hidden until the backend routes emergency events by order participant
-9. Star rating and points display
-10. Production hardening items in `plan.md`
-
-## 4. Scope Change Rules
-
-- Implement one coherent module at a time.
-- Do not silently expand scope.
-- Do not rewrite the whole project at once.
-- New production capabilities must have docs, API contract impact, test plan, and release risk recorded.
-- Backend-owned capabilities are validated from iOS and scripts in this repository; backend implementation belongs outside this repository.
-- If a requested capability requires backend changes, write `需要人工确认` with the missing API/behavior and keep the iOS implementation behind a clear contract.
-
-## 5. Roles and Login Rules
-
-- Current in-app roles:
-  - `BLIND`
-  - `VOLUNTEER`
-- Do not build a separate administrator app role inside the iOS app unless a new product requirement adds it.
-- Two-step phone login: POST `/api/auth/send-code` then POST `/api/auth/verify-code`.
-- First login with a phone number automatically creates the account.
-- Current test login uses fixed verification code `000000`.
-- Successful login returns a JWT `token` (LoginResponse: token, userId, role).
-- One account may have both blind runner and volunteer identities.
-- Use POST `/api/user/role` to switch the current role (returns a new token).
-- If the user has an order in `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, or `IN_PROGRESS`, role switching is blocked.
-- First login may return no `role`; the app should route to role selection.
-
-## 6. Order State Machine
-
-Order status may use only:
-
-- `PENDING_MATCH`
-- `PENDING_ACCEPT`
-- `IN_PROGRESS`
-- `DRIVER_EN_ROUTE`
-- `DRIVER_ARRIVED`
-- `COMPLETED`
-- `CANCELLED`
-- `REMATCHING`
-- `NO_VOLUNTEER`
-
-Forbidden legacy order vocabulary:
-
-- `submitted`
-- `contacted`
-- `expired`
-- `matching` (use `PENDING_MATCH`)
-- `accepted` (use `PENDING_ACCEPT`)
-- `arrived` (use `DRIVER_ARRIVED`)
-- `emergency` (emergency is a separate event via POST `/api/emergency/trigger`)
-
-Normal flow:
-
-```text
-PENDING_MATCH -> PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED
+```
+PENDING_MATCH  PENDING_ACCEPT  IN_PROGRESS  DRIVER_EN_ROUTE  DRIVER_ARRIVED
+COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 ```
 
-Cancellation flow:
+**禁用的遗留词汇**（`scripts/hooks/guard.sh` 会拦）：
 
-```text
-PENDING_MATCH / PENDING_ACCEPT -> CANCELLED (blind runner token)
-PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> REMATCHING (volunteer token)
-REMATCHING -> CANCELLED (blind runner token only)
+`submitted` · `contacted` · `expired` · `matching`（用 `PENDING_MATCH`） · `accepted`（用 `PENDING_ACCEPT`） · `arrived`（用 `DRIVER_ARRIVED`） · `emergency`（求助是独立事件，不是订单状态）
+
+正常流转：
+
+```
+PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
 ```
 
-Emergency flow:
+取消流转：
 
-```text
-IN_PROGRESS -> blind runner may trigger POST /api/emergency/trigger (order status unchanged)
-DRIVER_EN_ROUTE / DRIVER_ARRIVED / any other status -> no emergency entry for either role
+```
+PENDING_MATCH / PENDING_ACCEPT → CANCELLED（盲人 token）
+PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING（志愿者 token）
+REMATCHING → CANCELLED（只能盲人 token）
 ```
 
-- Cancellation endpoint: POST `/api/orders/{orderId}/cancel` (no request body needed).
-- Blind runners may cancel only `PENDING_MATCH`, `PENDING_ACCEPT`, and `REMATCHING`; they must not be shown a cancel action in `IN_PROGRESS`.
-- Volunteers may cancel active non-terminal accepted service states `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, and `IN_PROGRESS`; `PENDING_MATCH`, `REMATCHING`, and terminal states are not volunteer-cancellable.
-- `REMATCHING` is entered after an accepted volunteer cancels; the blind runner may then cancel the rematching order with their own token. A volunteer token must not be used for this cancellation because that volunteer is no longer a participant in the order.
-- Emergency endpoint contract: POST `/api/emergency/trigger` with `EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`. All three fields are optional server-side; iOS always sends all three. Success returns `{success, eventId, status}` (`EmergencyController.java:34-38`), where `status` is an `EmergencyStatus` name. Cooldown rejection is HTTP 429 `TOO_MANY_REQUESTS` with `retryAfterSeconds` and a `Retry-After` header; non-participant is 403 `NOT_ORDER_PARTICIPANT`; unknown order is 400 `BAD_REQUEST`.
-- The blind-runner emergency entry is shown only while canonical order status is `IN_PROGRESS`. The volunteer entry stays hidden (see section 10).
-- Emergency is not an order status; the order lifecycle status remains unchanged when the endpoint is used.
-- Volunteer responds with accept: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = ACCEPT)`.
-- Volunteer responds with decline: POST `/api/orders/{id}/respond` with `OrderRespondRequest(action = DECLINE)`.
-- Volunteer en route: POST `/api/orders/{id}/en-route`.
-- Volunteer arrives: POST `/api/orders/{id}/arrived`.
-- Volunteer starts service: POST `/api/orders/{id}/start-service`.
-- Volunteer finishes: POST `/api/orders/{id}/finish`.
-- Creating a booking with a start time less than 30 minutes away must return `APPOINTMENT_TOO_SOON`.
+- 取消端点 `POST /api/orders/{orderId}/cancel`，无需请求体。
+- 盲人只能取消 `PENDING_MATCH` / `PENDING_ACCEPT` / `REMATCHING`；`IN_PROGRESS` 期间**不得**展示取消入口。
+- 志愿者只能取消 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。
+- `REMATCHING` 是已接单志愿者取消后进入的状态，此后只能盲人用自己的 token 取消 —— 那个志愿者已不是订单参与者。
+- 状态流转端点统一 `POST /api/orders/{orderId}/{action}`：`respond`（体带 `action = ACCEPT|DECLINE`）、`en-route`、`arrived`、`start-service`、`finish`。
+- 下单起始时间距今不足 30 分钟必须返回 `APPOINTMENT_TOO_SOON`（`EnvironmentConfig.minimumBookingLeadMinutes = 30`）。**没有「现在就跑」。**
+- 订单列表用分页响应 `PagedOrderResponse`；盲人订单详情每 5 秒轮询作为 WebSocket 兜底。
+- WebSocket 端点：`/ws/blind?token={jwt}` 与 `/ws/volunteer?token={jwt}`。
 
-## 7. External API Contract Rules
+## 6. 求助 / SOS 红线
 
-- Do not add or maintain backend implementation code in this repository.
-- The canonical HTTP API contract is `docs/api_spec.yaml` in the backend repository (`/Users/mac/Downloads/demo`), not a file in this repository.
-- The canonical WebSocket contract is `docs/websocket-protocol.md` in the same backend repository.
-- Mount it with `claude --add-dir /Users/mac/Downloads/demo` when contract work is needed. When the contract document itself is wrong, fix it in the backend repository; never keep a second copy here. Questions that need a backend decision go in `demo/docs/handoff.md` under 「待后端确认」.
-- The archived local copies `docs/_archive-*.bak` have known errors and must not be read or copied.
-- The current real HTTP base URL is `http://47.114.113.171`.
-- The current real WebSocket origin is `ws://47.114.113.171`.
-- Do not add local or placeholder real-server addresses.
-- REST API + WebSocket for real-time notifications.
-- Use JWT Bearer Auth.
-- Order lists use paginated responses (PagedOrderResponse).
-- Blind runner order detail polls every 5 seconds as WebSocket fallback.
-- Use a unified error response structure.
-- Order status transition endpoints use `POST /api/orders/{orderId}/{action}`.
-- WebSocket endpoints: `/ws/blind?token={jwt}` and `/ws/volunteer?token={jwt}`.
-- REST polling remains as fallback when WebSocket is disconnected.
-
-Required error codes:
-
-- `INVALID_VERIFICATION_CODE`
-- `PROFILE_INCOMPLETE`（历史条目；后端 `ErrorCode.java` 里没有这个码，真实后端永不返回。下单缺前置项现由下面两个专用 403 承担）
-- `IDENTITY_NOT_VERIFIED`（403，`POST /api/orders`；排在 `EMERGENCY_CONTACT_REQUIRED` 之前）
-- `EMERGENCY_CONTACT_REQUIRED`（403，`POST /api/orders`；取代此前复用的通用 `ORDER_PERMISSION_DENIED`）
-- `LOCATION_PERMISSION_REQUIRED`
-- `ORDER_NOT_FOUND`
-- `ORDER_ALREADY_ACCEPTED`
-- `INVALID_ORDER_STATUS`
-- `DUPLICATE_ORDER`（409，`POST /api/orders`；自 2026-07-31 起**只**表示「已有进行中的订单」）
-- `REVIEW_ALREADY_SUBMITTED`（409，`POST /api/orders/{id}/review`；2026-07-31 从 `DUPLICATE_ORDER` 拆出，此前一码两义导致重复评价被 TTS 念成下单受阻文案）
-- `ORDER_PERMISSION_DENIED`（403；后端确认只剩「只读查询越权」一种场景，文案「您无权查看此订单。」）
-- ~~`ACTIVE_ORDER_ROLE_SWITCH_BLOCKED`~~（【未决 / 未实现】后端无角色切换端点，App 内入口已删除；见 `docs/04-user-flows-and-state-machine.md` 第 6 节）
-- `VOLUNTEER_NOT_AVAILABLE`
-- `VOLUNTEER_NOT_APPROVED`
-- `APPOINTMENT_TOO_SOON`
-
-## 8. iOS Rules
-
-- Native Swift.
-- SwiftUI + MVVM.
-- iOS 16+.
-- Use `URLSession`.
-- Centralize network requests in `APIClient`.
-- Centralize token, `currentUser`, and `activeRole` in `AppState`.
-- Token is stored in the Keychain (`blindRun/Core/KeychainTokenStore.swift`, `kSecAttrAccessibleAfterFirstUnlock` so background escort can read it while locked). Do not write the access token to `UserDefaults`; the only remaining `UserDefaults` access is the one-time migration of a legacy value in `restoreSession()`.
-- Development supports Mock / Demo Cloud switching; Demo and Production builds are locked to Demo Cloud.
-- Mock is an in-process frontend test facility and must not perform network requests.
-- All non-Mock clients use `http://47.114.113.171`; the address is not configurable in the app.
-- Views only handle rendering and interaction. ViewModels own state and API calls.
-- 高德地图 keys may only come from local config files. Do not hardcode keys. Do not commit real keys.
-- Provide an example config file that documents required keys.
-
-## 9. AMap, Location, Accessibility, and Voice
-
-- Use 高德地图.
-- Display the map, current location, and order markers.
-- iOS calculates distance from volunteer to order start point.
-- Volunteer order list sorts by distance.
-- Volunteer dispatch depends on the volunteer's latest WebSocket `LOCATION_UPDATE`.
-- Public track sharing and in-app route navigation remain roadmap items. The approved `enable-live-escort-location-and-track-summary` change permits order-participant-only live peer markers, five-second service location reporting, `IN_PROGRESS` background capture, and a completed blind-track summary.
-- Blind runner booking defaults to current location as the start point.
-- `CLLocationManager` device samples are WGS-84 and must be converted exactly once to GCJ-02 at the centralized backend boundary. All documented inbound order, REST fallback, WebSocket peer, and track coordinates are treated as GCJ-02.
-- During an owned `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, or `IN_PROGRESS` session, both roles report the latest valid real location every 5 seconds; Mock/demo coordinates must never be uploaded to the cloud.
-- Enhanced background location is allowed only during `IN_PROGRESS`, must be disclosed, and must stop immediately when the order/session becomes ineligible.
-- Completed summaries use the blind-runner track as “本次路线”. Volunteer track data must not produce an abnormality conclusion until a versioned assessment policy is approved.
-- If location permission is denied, block booking and block volunteer accept while showing Settings guidance.
-- Blind runner flows must support VoiceOver.
-- Key buttons, inputs, and status text must have `accessibilityLabel` / `accessibilityHint`.
-- Key blind runner primary buttons must be at least 64pt high.
-- Every key blind runner page must include a "重复当前状态" button.
-- Dangerous actions must require second confirmation: cancel order, complete service, logout, and any future re-enabled emergency action.
-- TTS must cover entering blind runner home, order submission, matching, volunteer accepted, volunteer arrived, service started, service completed, and error prompts. Future re-enabled emergency action must also have TTS coverage.
-
-## 10. Volunteer and Safety Rules
-
-- New volunteers default to `isAvailable = false`.
-- The user must manually toggle availability on the volunteer home page to start accepting orders.
-- Turning off availability does not affect the current order.
-- Before accept, hide blind runner contact information, emergency contact, and sensitive health information.
-- After accept, show the blind runner's full phone number.
-- Blind runners must store between one and five emergency contacts, with exactly one contact marked primary. This is a hard booking prerequisite: `POST /api/orders` must be blocked until it is satisfied, because the backend's own `OrderCreationService` precondition is "the blind user has at least one emergency contact".
-- Each contact carries name and phone number; relationship is optional. The backend returns the phone in plain text for the owning user (`EmergencyContactResponse.phone`, v1.5.0); masking for display is the iOS client's responsibility.
-- Deleting the last remaining emergency contact is rejected by the backend and must also be blocked in the UI.
-- Blind-runner real-name verification (`POST /api/blind/verify-identity`, `BlindProfileResponse.verifyStatus` with `NOT_VERIFIED` / `VERIFIED` / `FAILED`) is **guidance only in the current release**. It must be surfaced and spoken, but it must not block booking: `OrderCreationService` never reads `verifyStatus`, so a client-only block would be a false gate that any non-iOS caller bypasses. There is no pending/under-review state. If `demo/docs/handoff.md` Q1 (2026-07-29) is answered with a server-side `verifyStatus == VERIFIED` check, this becomes a hard gate and the returned error code is mapped then.
-- The blind-runner emergency action is enabled in `IN_PROGRESS` only. The volunteer emergency action stays hidden: the backend keys the emergency event on the *triggering* user (`EmergencyService.java:310-333, 347-383`), so a volunteer-initiated trigger alerts the volunteer about their own SOS, never reaches the blind runner, and escalates to the volunteer's own emergency contacts instead of the blind runner's. Enable it only after the backend routes by order participant.
-- **The app must never claim an emergency SMS was delivered, or that a contact/family member has been reached.** `EMERGENCY_CONTACT_NOTIFIED` is pushed synchronously inside the trigger transaction (`EmergencyService.java:370-373`) while the SMS is sent afterwards via `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` (`EmergencyContactNotifier.java:60-62`); an SMS failure is broadcast only to CS (`:126-135`) and never corrected to the blind runner. iOS therefore substitutes its own progressive-tense copy for the backend's completed-tense notification body, and the string `联系人已收到短信` must not appear in shipped copy.
-- Backend `ESCORT_DISTANCE_ALERT` and `ESCORT_SIGNAL_LOST` notifications are high-priority informational safety warnings only. They do not mutate order status, enable emergency UI, or prove that rescue was dispatched.
-- The emergency action requires second confirmation with the exact copy below.
-- The backend emergency endpoint records an emergency event and keeps the order status unchanged.
-- A cloud SOS request must carry a fresh real GCJ-02 coordinate. If none can be obtained the request is not sent and the app says so visibly and audibly; Mock/demo coordinates must never be uploaded. The degraded no-GPS submission the backend technically accepts is gated behind `EmergencyCoordinator.allowsSubmissionWithoutLocation` and stays `false` until product/safety approve it.
-- Real SMS, identity verification, and administrator review are backend-owned production capabilities now represented in the backend repository's `docs/api_spec.yaml`; iOS may consume those contracts without adding backend code to this repository.
-
-Emergency confirmation copy must be exactly:
+- 求助**不是**订单状态。`POST /api/emergency/trigger` 只记录事件，订单状态不变。
+- **两端入口都只在 `IN_PROGRESS` 开放**（`EmergencyTriggerRequest` 必须带 `orderId`）。
+- 志愿者端入口自 2026-07-31 起**已开放**。此前长期关闭的理由是「后端把事件挂在触发者身上，志愿者按下只会惊动自己、升级到自己的联系人」；后端 commit `a5ba523`（SOS-1）已把 `event.userId` 改为取订单的盲人方，用 `TriggerType.VOLUNTEER_BUTTON` 区分来源，该理由不再成立。
+- **志愿者不得拥有「误触」按钮**：一对一陪跑里志愿者可能就是威胁来源，后端一律回 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`。撤销权只在受助者本人（`PUT /api/emergency/{id}/cancel`）和客服手里。
+- **App 永远不得宣称短信已发出、已送达，或家属/联系人已被通知。** `EMERGENCY_CONTACT_NOTIFIED` 是在触发事务内同步推送的（`EmergencyService.java:370-373`），而短信是事务提交后异步发的（`EmergencyContactNotifier.java:60-62`）；短信失败只播给客服（`:126-135`），**从不回告盲人**。iOS 必须用自己的进行时文案覆盖后端的完成时态 body。字符串 `联系人已收到短信` 不得出现在发布产物中。
+- 云端 SOS 请求必须带**新鲜的真实 GCJ-02 坐标**。拿不到就不发，并且**可见且可听**地告知用户。Mock / demo 坐标绝不上传。后端技术上接受的无 GPS 降级提交被 `EmergencyCoordinator.allowsSubmissionWithoutLocation` 关着，在产品/安全批准前保持 `false`。
+- 后端的 `ESCORT_DISTANCE_ALERT` / `ESCORT_SIGNAL_LOST` 只是高优先级的**信息性**安全提示，不改订单状态、不启用求助 UI、不证明救援已派出。
+- 求助必须二次确认，文案**逐字锁定**：
 
 ```text
 是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。
 ```
 
-## 11. Coding Workflow
+## 7. 外部 API 契约
 
-All agents must follow this workflow:
+- **契约唯一源在后端仓库** `/Users/mac/Downloads/demo`：REST 看 `docs/api_spec.yaml`，WebSocket 看 `docs/websocket-protocol.md`。本仓库**不留副本**。
+- 契约工作用 `claude --add-dir /Users/mac/Downloads/demo` 挂载。契约文档本身错了就去后端仓库改，不要在这里存第二份。
+- 需要后端拍板的问题写进 `demo/docs/handoff.md` 的「待后端确认」。
+- 错误码语义见 skill `aidrun-error-codes`；机器可读版本是 `docs/error-codes.json`。
 
-1. Read `AGENTS.md` first.
-2. Then read related docs and OpenSpec.
-3. Implement only one coherent module at a time.
-4. Confirm the corresponding spec before implementation when behavior changes.
-5. Update necessary documentation after implementation.
-6. Run tests after implementation.
-7. After implementation, output the changed file list, test results, docs/OpenSpec conflicts, and unfinished items.
+## 8. iOS 硬规则
 
-## 12. Review Checklist
+- 原生 Swift + SwiftUI + MVVM，iOS 16+，网络用 `URLSession`。
+- 网络请求集中在 `APIClient`；token / `currentUser` / `activeRole` 集中在 `AppState`。
+- Token 存 Keychain（`blindRun/Core/KeychainTokenStore.swift`，`kSecAttrAccessibleAfterFirstUnlock`）。**不要把 access token 写进 `UserDefaults`。**
+- View 只负责渲染与交互；ViewModel 持有状态并发起 API 调用。
+- 开发期支持 Mock / Demo Cloud 切换；Demo 与 Production 构建锁定 Demo Cloud。
+- **高德 key 只能来自本地配置文件，不得硬编码，不得提交真实 key**，并提供示例配置文件。
+- 志愿者默认 `isAvailable = false`，必须手动打开才开始接单；关闭不影响当前订单。
+- 接单前隐藏盲人联系方式、紧急联系人与敏感健康信息；接单后展示完整手机号。
 
-After completing each module, check:
+## 9. 冻结文件
 
-- Does it comply with `AGENTS.md`, `plan.md`, and `docs/01-10`?
-- Does it comply with OpenSpec?
-- Does it use the correct order statuses?
-- Does it introduce backend code into the iOS repository?
-- Does it introduce Flutter as current implementation?
-- Does it hardcode a 高德地图 key?
-- Does it pile business logic into SwiftUI Views?
-- Does it include accessibility labels/hints?
-- Do dangerous actions require second confirmation?
-- Do client models and ViewModels cover API responses and order-state behavior with tests?
-- Does real-device validation on `111` and `iPad Pro (2)` cover any changed real integration path?
-- Does `openspec validate` pass?
+**整文件冻结**：`Podfile` —— 架构排除设置与 pod 列表都在里面，没有安全的局部改法。
 
-## 13. Required Validation Commands
+**行级冻结**：`blindRun.xcodeproj/project.pbxproj` —— 文件可以改（例如加 SPM 依赖），但改动内容**不得触及 `DEVELOPMENT_TEAM`**。写死的 `R6PH2TFB3Q` 是原开发者的团队号，命令行传 `DEVELOPMENT_TEAM=ZW39BS8NXT` 覆盖。
 
-Recommended OpenSpec validation:
+**任何构建相关文件都不得写入 `EXCLUDED_ARCHS`** —— 真机是唯一 XCTest 通道，模拟器因高德无 arm64-sim slice **永久不可用**，那条设置是这个事实的载体。确需在代码或注释里提及，行尾加 `guard:allow excluded-archs`。
 
-```bash
-openspec validate <change-id> --strict --no-interactive
-```
+> 2026-08-06 从整文件冻结改为行级。核对后发现原先给的两条理由只有一条落在 pbxproj 上（`DEVELOPMENT_TEAM`，12 处）；`EXCLUDED_ARCHS` 在 pbxproj 里出现 **0 次**，它只存在于 `Podfile:36`。整文件冻结的代价是连加一个 SPM 依赖都做不到，而「临时解锁、改完加回来」依赖人记得加回来 —— 第 1 节说的就是这种挡不住重复犯错的做法。
+>
+> 守卫在 `scripts/hooks/guard.mjs`，自测在 `scripts/validate-guard.mjs`（8 条用例，CI 与 pre-push 都跑）。
 
-For the current cloud-only change:
+## 10. 工作流
 
-```bash
-openspec validate remove-local-backend-use-cloud-only --strict --no-interactive
-```
+1. 先读 `AGENTS.md`
+2. 再读相关 docs 与 OpenSpec
+3. 一次只实现一个内聚模块
+4. 行为有变时，实现前先确认对应 spec
+5. 实现后更新必要文档
+6. 实现后跑测试
+7. 按 skill `aidrun-ship-check` 的格式输出
 
-Maintained docs validation:
+## 11. 验证命令
 
 ```bash
+# 无真机时的编译上限
+xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \
+  -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing
+
+# 真机（唯一 XCTest 通道；脚本会先探活并按小写 `Test case` 统计）
+scripts/device-test.sh
+
+openspec validate --all --strict --no-interactive
 node scripts/validate-docs.mjs
-```
-
-Real-device iOS baseline validation:
-
-```bash
-xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=111'
-xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,name=iPad Pro (2)'
-```
-
-Production-readiness validation:
-
-```bash
-AIDRUN_DEVICE_NAME=111 AIDRUN_RUN_REAL_AMAP=1 AIDRUN_RUN_CLOUD_UI=1 AIDRUN_RUN_CLOUD_E2E=1 scripts/production-readiness-check.sh
+node scripts/validate-spec-coverage.mjs    # 路径级：前端调的每条路径都在契约里
+node scripts/validate-golden-corpus.mjs    # 语音黄金语料 vs 前端镜像清单
+node scripts/validate-error-codes.mjs      # 前端 ErrorCode 枚举 vs 后端 ErrorCode.java
+scripts/production-readiness-check.sh      # 需 AIDRUN_* 环境变量，见 aidrun-ship-check
 scripts/dual-device-validation.sh
 ```
 
-## 14. Legacy Flutter Reference Rule
+后三条要读后端仓库。装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
+CI（`.github/workflows/verify.yml`）跑编译门禁 + 全部规格校验，但**跑不了真机 XCTest**。
 
-Legacy Flutter may be used only for UI behavior reference, page flow reference, field reference, AMap configuration lessons, and bug lessons.
+契约 fixture（真实响应回归，见 `blindRunTests/ContractFixtureTests.swift`）：
 
-Legacy Flutter must not be used for direct code migration, continuing Flutter architecture, overriding the native Swift direction, overriding OpenSpec, or overriding `docs/01-10`.
+```bash
+node scripts/capture-fixtures.mjs            # dry-run，只列要打的只读端点
+node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
+```
 
-## 15. Output Requirements
-
-After each agent task, output:
-
-1. Created/modified file list.
-2. Summary of the main `AGENTS.md` sections if this file changed.
-3. Whether any docs/OpenSpec conflict with `AGENTS.md` was found.
-4. Issues needing human confirmation.
-5. Confirmation that no business code was started when the task is documentation-only.
+**编译通过不等于测试通过。永远不许把没执行过的测试写成通过。**
