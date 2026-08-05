@@ -548,7 +548,18 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         coordinator.attach(to: service, role: .blind)
         coordinator.registerActiveOrder(7)
         var samples: [RealtimePeerLocationSample] = []
-        let cancellable = coordinator.peerLocationPublisher.sink { samples.append($0) }
+        // 等「第一次发布真的到了」，不是等一个猜出来的时长。
+        //
+        // 原来这里是 `Task.yield() ×2 + sleep(10ms)`：合并发布调度在后续的 main-actor turn 上，
+        // 单独跑够用，全量跑（489 条）时不够 —— 2026-08-06 实测隔离 3/3 通过、全量失败，
+        // 且失败的只有 `samples.count`，`latestPeerLocation` 那条是过的，即数据已入库、只是还没推出来。
+        // 固定睡眠等的是墙钟，负载一高就翻车；expectation 等的是事件本身。
+        let firstPublish = expectation(description: "peer location published")
+        firstPublish.assertForOverFulfill = false
+        let cancellable = coordinator.peerLocationPublisher.sink {
+            samples.append($0)
+            firstPublish.fulfill()
+        }
         defer { cancellable.cancel() }
 
         for timestamp in 1...250 {
@@ -560,7 +571,10 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
                 timestamp: Int64(timestamp)
             )))
         }
-        await Task.yield()
+        await fulfillment(of: [firstPublish], timeout: 5)
+        // 收到第一条之后再放一轮，确认剩下 249 条真的被合并掉了 —— 这一段仍是「等一小会儿看有没有
+        // 第二条」，但此时已经不影响是否漏判：真有第二条会让下面的 count 断言失败，而不是像原来那样
+        // 因为第一条都还没到就整条假失败。
         await Task.yield()
         try? await Task.sleep(nanoseconds: 10_000_000)
 

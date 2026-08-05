@@ -234,7 +234,12 @@ final class VoiceOrderWizardTests: XCTestCase {
     func testFreeformAnnouncesThatParsingFailedBeforeReadingBackDefaults() async {
         let stub = VoiceOrderAPIClientStub()
         stub.error = .unknown(statusCode: 404)
-        let wizard = makeWizard(stub: stub, startingAt: .freeform)
+        // viewModel 必须由用例**持一个强引用**：向导里是 `private weak var`，内联构造
+        // （或让 makeWizard 兜底新建）的实例当场就被释放，`askCurrentStep` 于是退到
+        // `step.prompt` 兜底文案，连 `confirmPrompt` 都不进 —— 读回和提示一起消失，
+        // 断言会因为一个和本用例无关的理由失败。
+        let viewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
 
         await wizard.submitTranscript("明天早上八点从人民广场出发跑一个小时")
 
@@ -270,11 +275,13 @@ final class VoiceOrderWizardTests: XCTestCase {
                 ttsText: nil
             )
         ]
-        let wizard = makeWizard(stub: stub, startingAt: .freeform)
+        let viewModel = BlindBookingViewModel()  // 强引用，理由同上一条用例
+        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
 
         await wizard.submitTranscript("呃那个我想想")
 
         let spoken = wizard.lastSpokenPrompt ?? ""
+        XCTAssertTrue(spoken.contains("这次的预约是："), "先确认真的走了读回，否则下一条断言无意义：\(spoken)")
         XCTAssertFalse(
             spoken.contains(VoiceOrderWizard.parseFailureNotice),
             "后端 200 返回「三项都没抽到」是正常业务状态，不是解析失败：\(spoken)"
