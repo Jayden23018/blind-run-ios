@@ -1,0 +1,52 @@
+{
+  "$comment": "团队共享层。个人机器的设置放 .claude/settings.local.json（已 gitignore）。",
+  "permissions": {
+    "allow": [
+      "Bash(xcodebuild:*)",
+      "Bash(xcrun devicectl:*)",
+      "Bash(xcrun xctrace:*)",
+      "Bash(openspec:*)",
+      "Bash(node scripts/*)",
+      "Bash(scripts/device-test.sh:*)"
+    ],
+    "deny": [
+      "Read(./docs/_archive-*.bak)",
+      "Edit(./Podfile)",
+      "Edit(./LocalConfig.xcconfig)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/guard.mjs\" pre"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/guard.mjs\" post"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/session-context.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}
