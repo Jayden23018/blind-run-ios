@@ -187,3 +187,53 @@ openspec 变更：`openspec/changes/enable-one-utterance-booking/`（`validate -
   `AIDRUN_FIXTURE_BLIND_TOKEN=<jwt> AIDRUN_FIXTURE_VOLUNTEER_TOKEN=<jwt> node scripts/capture-fixtures.mjs --write`
   —— 复用 token 直接跳过 send-code，不烧配额。
   在 fixture 到位前 `ContractFixtureTests` 会 XCTSkip 并打印指引，**不会假绿**。
+
+---
+
+## UI 测试通道故障（2026-08-06，未解决，别重新诊断）
+
+**现象**：真机单测 489 条全过，**UI test runner 起不来**，零执行，稳定复现：
+`blindRunUITests-Runner encountered an error (Early unexpected exit ... exited with code 74 before establishing connection)`
+
+**失败点已定位到握手，不是编译/签名/链接/测试代码**：runner 正常安装、正常启动、打印
+`Running tests...`，恰好 30.8 秒后它申请的控制通道被对端拒绝：
+
+```
+[DTXConnection] Connection peer refused channel request for
+"dtxproxy:XCTestDriverInterface:XCTestManager_IDEInterface"; channel canceled
+[Default] Exiting due to IDE disconnection.
+```
+IDE 侧日志显示已在 listen、会话 id 匹配，**从头到尾没收到 test bundle 的 proxy 连接请求**。
+
+**已用证据排除的（别再查）**：
+- `e83cf61`（接入 Swift OpenAPI Generator）—— pbxproj 的 22 行改动全部落在 `blindRun` app target，
+  `blindRunUITests` 一个字没动；UI bundle 的 `otool -L` 里没有任何 AidRunAPI/OpenAPIRuntime；
+  `PackageFrameworks/` 为空（静态链接，无动态库要 embed）；失败时 `blindRun.app` 进程根本没起
+- 签名/entitlements/provisioning —— `TeamIdentifier=ZW39BS8NXT`、`get-task-allow=true`、
+  日志明确 `Successfully installed` + `Successfully launched`
+- 缺动态库 / dyld / crash —— 框架齐全，无 crash log
+- Developer Mode / DDI —— `developerModeStatus: enabled`、`ddiServicesAvailable: true`
+- 新增的 `AccessibilityAuditTests.swift` —— 符号确实在 bundle 里，但失败发生在任何用例被枚举之前；
+  且 08-04 那次「33 条 UI 全过」= 29 + 4，说明它当时已经在里面且是过的
+
+**两个未证实的嫌疑（缺对照实验，因为设备中途锁屏）**：
+1. **设备上有一个陈旧的 `DTServiceHub`（pid 22262）**，pid 小于所有失败的 runner，且在 Mac 上
+   零 Xcode/xcodebuild 进程的情况下存活半小时以上。一个悬挂的会话占着 testmanagerd 的自动化槽位，
+   正好能解释「新 runner 申请 IDE 通道被拒」。尝试 `devicectl device process terminate` 失败
+   （设备锁屏 + 链路抖动）。
+2. **真机只走 Wi-Fi，没插 USB**（`transportType: localNetwork`，`ioreg -p IOUSB` 查不到 iPhone）。
+   UI 测试要双向 DTX 握手，单测只需单向下发 —— 这正好解释「489 单测全过、UI runner 起不来」的分裂。
+   同一条链路半小时内还抖出另两种故障：`Lost pending connection to the test runner before launch`、
+   `Device is busy (Connecting to mac's iPhone)`。
+
+**下次要做的（按顺序，每步看实际输出）**：
+1. **重启 iPhone**（一次同时清掉残留 DTServiceHub 和锁屏状态），解锁 + 自动锁定设「永不」
+2. **插 USB 线**，确认 `xcrun devicectl device info details` 的 `transportType` 不再是 `localNetwork`
+3. `scripts/device-test.sh -only-testing:blindRunUITests/blindRunUITestsLaunchTests` 先跑 1 条
+4. 仍是 code 74 → 上面两个嫌疑都不对，需要：① hello-world 工程在同一设备跑一条 UI 测试做对照
+   （唯一能分开「本仓库问题」与「这台 Mac+设备问题」的实验）；② 失败那 30 秒窗口内的
+   `xcrun devicectl device sysdiagnose`（本次 `devicectl diagnose` 全程失败，拿不到设备侧日志，
+   这是最大的信息缺口）
+
+**`scripts/device-test.sh` 对这两种故障的处理是正确的**：锁屏被 `grep 'Unlock .* to Continue'` 抓到
+立即失败；code 74 走 `TOTAL -eq 0` 分支报「一条用例都没执行」。没有假装通过的漏洞。
