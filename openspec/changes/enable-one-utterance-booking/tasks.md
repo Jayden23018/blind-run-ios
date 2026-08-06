@@ -33,6 +33,55 @@
 - [x] 1.6 单测 `testAuthorizationDenialCompletionIsDeliveredOnlyOnce`。**2026-08-04 真机跑通。**
 - [x] 1.7 回归 —— **2026-08-04 真机全量跑通（483 单测 + 33 UI，0 失败），没有波及地点搜索、备注、评价等其他 `SpeechInputField` 使用方。** 注意这只覆盖到自动化用例能触达的部分；真人对着麦克风的重复播报要等 5.5 手测。
 
+## 1B. 缺陷修复：2026-08-06 真机手测暴露的三条音频时序缺陷
+
+首次真人对着麦克风走完流程（5.5 的部分执行）报回三件事：读回念到一半被切掉就开始录音；
+「改地点」之后没有任何提示音、震动或可听信号说明麦克风重开了；重问一轮后同样无声。
+三条根因都在**音频会话与 TTS 的时序**上，全部是自动化用例结构性够不到的地方。
+
+- [x] 1B.1 **读回被截断**。`VoiceOrderWizard.speechSettleTimeout` 写死 8 秒，而读回整单在默认语速下
+      要 15~25 秒（该数字就写在同文件 `finishSpeakingOrSkipPrompt` 的注释里）。上限一到就开麦，
+      开麦切换音频分类会把正在播的 `AVSpeechSynthesizer` 当场掐断 —— **每一次读回都必被截断**。
+      改为按字数推导的 `settleTimeout(forCharacterCount:)`（0.35 秒/字 + 6 秒余量，下限 8、上限 45）。
+      上限保留是因为合成器代理丢事件时不能无限等；用户随时可点整屏跳过播报，逃生口不变。
+- [x] 1B.2 **同源竞态**：`isSpeaking` 只在 `didStart` 代理里经 `DispatchQueue.main.async` 置 true，
+      而 `listen` 紧接着 `speak` 就开始轮询 —— 第一次检查读到的还是 false，等待循环当场放行。
+      改为在 `speak(text:)` 入队时同步置位（`markSpeaking(_:)` 统一写入口，与 `stop()` 对称）。
+- [x] 1B.3 **起音提示放不出来**。`RecordingCue.begin()` 在 `markRecognitionStarted()` 里发出，
+      那时音频分类已经切成 `.record` —— **该分类根本不开输出通道**，那一声用户一次都没听见。
+      而对全盲用户它是判断「麦克风开没开」的唯一非视觉信号。分类改为
+      `.playAndRecord` + `[.duckOthers, .defaultToSpeaker]`（`defaultToSpeaker` 不能省：
+      `.playAndRecord` 默认路由到听筒，提示音会小到等于没有）。
+      触觉补 `prepare()` —— 不 prepare 首次触发常被丢，而首次正是最要紧的那次。
+      > **这是同一个坑的第二次。** 收音那一端 2026-08-06 早些时候已因完全相同的原因修过
+      > （`RecordingCue.end()` 推到会话切回播放之后）并留了断言；起音这一端当时漏了，
+      > 因为它没有顺序可调 —— 录音正要开始，没有「之后」。按 `AGENTS.md` 第 1 条落成断言
+      > `testRecordingCategoryAllowsPlaybackSoTheStartCueIsAudible`。
+- [x] 1B.4 **随 1B.3 引入的回归已堵**：`.record` 不开输出通道时，`VoiceTextField` 那条
+      `onAnnouncement → speechService.speak(text:)`（合成器）被系统悄悄吞掉；改成 `.playAndRecord`
+      之后它会真的响，而这些通告是在**麦克风已经打开之后**发出的 —— 声音会被自己的麦克风录进去、
+      被识别成用户说的话。改为 `speechService.announce(...)`，与 `VoiceOrderWizard` 一致；
+      「麦克风开了」由 `RecordingCue` 承担，那本来就是它的职责。
+- [x] 1B.4b **第二条随 1B.3 引入的回归**：起音提示现在真的从扬声器出去，而 `.measurement` 模式
+      没有回声消除 —— 它会被自己的麦克风录回来，`containsAudibleSpeech` 把它当成「用户开口了」，
+      静音判定立刻从首次静音（8 秒）切到尾静音（整句轮 2 秒）。后果是**一个刚听完提示、
+      正在组织句子的人还没开口就被掐掉一轮，然后听到一整单默认值的读回** —— 比原缺陷更糟。
+      加 0.4 秒 `inputWarmUpWindow`，只挡音量那一路；识别结果那一路不动（提示音转不出字）。
+      判定抽成纯函数 `acceptsInputLevelSound(startedAt:now:)` 以便不睡 0.4 秒就能断言。
+- [x] 1B.4c **迟到回调**：`speak` 是「先 `stopSpeaking(.immediate)` 再播新的」，旧那条随后回一次
+      `didCancel`。不对身份就清 `isSpeaking` 的话，这次迟到的回调会把新那条抹成「没在播」，
+      向导当场开麦 —— 同一个截断现象，但变成偶发。加 `currentUtterance` 身份校验。
+- [x] 1B.5 单测：`testRecordingCategoryAllowsPlaybackSoTheStartCueIsAudible`（断言分类常量而非替身的
+      调用序列 —— `configureRecordingCategory()` 不带参数，只记录「调过了」的替身对这条缺陷全盲，
+      这正是它当初没被测出来的原因）、`testSettleTimeoutOutlastsAFullReadback` /
+      `KeepsTheOldFloorForShortPrompts` / `IsCappedSoALostDelegateCannotHangTheMicrophone`、
+      `testInputLevelSoundIsIgnoredDuringTheStartCueWarmUp`、
+      `testSpeakMarksSpeakingSynchronouslySoTheWizardDoesNotOpenTheMicTooEarly`、
+      `testStaleUtteranceCallbackDoesNotClearTheSpeakingFlag`。
+- [x] 1B.6 真机批跑回归：见 5.7。
+- [ ] 1B.7 **真机复测这三条**（只能人耳验，见 5.5 的补充案例 J/K/L）：读回念完整不被切；
+      起音提示在外放与戴耳机下都听得见；重问一轮后能再次听到起音提示。
+
 ## 2. 语音向导：整句说完 → 读回整单 → 确认或定点修改
 
 > **2026-08-04 订正**：本节此前整节描述的是 `.confirmDefaults`（先念默认值让用户确认、不确认再逐项追问），
@@ -125,5 +174,8 @@
   ```
   全量约 10 分钟，会超 Bash 600s 上限，需自行重定向到日志文件。
 - [ ] 5.5 真机手测（开 VoiceOver）：说肯定词完成一次真实下单；说「修改」落入逐项流程；**拒绝麦克风权限后进入语音下单，确认只播报一次原因就落到表单、不再连问三轮**。
-  **执行脚本见 `docs/voice-booking-manual-test-20260805.md`**（9 个案例 + 结果表）。其中 C（2 秒尾静音会不会切断中文长句）与 D（8 个确认词够不够用）是 2026-08-05 那两处改动的**唯一验证通道**——单测证明不了它们。E（旁人说话不能下单）是唯一阻断发布的案例。
+  **2026-08-06 首次部分执行，报回三条缺陷（读回被截断 / 起音提示放不出来 / 重问后无信号），已修，见第 1B 节。**
+  修完新增手测案例 **J（读回念完整）、K（重问后仍可感知）、L（外放与耳机都听得见）**，
+  与 A 一起构成「音频只能人耳验」的那一组 —— 全部待复测，本条继续挂着。
+  **执行脚本见 `docs/voice-booking-manual-test-20260805.md`**（12 个案例 + 结果表）。其中 C（2 秒尾静音会不会切断中文长句）与 D（8 个确认词够不够用）是 2026-08-05 那两处改动的**唯一验证通道**——单测证明不了它们。E（旁人说话不能下单）是唯一阻断发布的案例。
   ⚠️ 开跑前先用脚本第 1 节的判别法排除「后端 `AMAP_WEB_KEY` 未配」：key 为空时 `AmapGeocodingService` 静默返回 empty，表现成「地点识别不出来」，会被误诊成识别问题。**该 key 的线上状态至今未验证**（curl 预检因限流与白名单不符未打通，详见脚本）。

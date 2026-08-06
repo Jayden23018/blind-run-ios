@@ -38,8 +38,28 @@ final class SystemSpeechAudioSession: SpeechAudioSessionManaging {
         session.requestRecordPermission(response)
     }
 
+    /// 录音期间的音频分类。**必须是允许播放的那一种。**
+    ///
+    /// 曾经是 `.record`。那个分类根本不开输出通道，于是 `RecordingCue.begin()`
+    /// （在 `markRecognitionStarted()` 里，跑在 `activateRecording()` 之后）放出去的起音提示
+    /// 用户一声都听不见 —— 而对全盲用户，那一声是判断「麦克风开没开」的唯一非视觉信号。
+    /// 2026-08-06 真机手测报的「没有任何弹出语音的声音提示」就是这条。
+    ///
+    /// 收音那一端 2026-08-06 已经因为同一个原因修过（`stopAudioRecognition` 把 `RecordingCue.end()`
+    /// 推到会话切回播放之后，并留了断言）。起音这一端当时漏了：它不能靠「推到之后」解决 ——
+    /// 录音正要开始，没有「之后」可推。所以改的是分类本身。
+    ///
+    /// `.defaultToSpeaker` 不能省：`.playAndRecord` 默认把输出路由到听筒，
+    /// 提示音会小到等于没有。
+    static let recordingCategory: AVAudioSession.Category = .playAndRecord
+    static let recordingCategoryOptions: AVAudioSession.CategoryOptions = [.duckOthers, .defaultToSpeaker]
+
     func configureRecordingCategory() throws {
-        try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+        try session.setCategory(
+            Self.recordingCategory,
+            mode: .measurement,
+            options: Self.recordingCategoryOptions
+        )
     }
 
     func activateRecording() throws {
@@ -102,7 +122,11 @@ enum RecordingCue {
         switch kind {
         case .begin:
             AudioServicesPlaySystemSound(beginSoundID)
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            // 不 `prepare()` 的话首次触发常被系统丢掉 —— 而首次正是最要紧的那次：
+            // 用户刚进语音下单，还不知道麦克风开没开。
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.prepare()
+            generator.impactOccurred()
         case .end:
             AudioServicesPlaySystemSound(endSoundID)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -216,6 +240,10 @@ final class SpeechInputService: ObservableObject {
     static let trailingSilenceTimeout: TimeInterval = 3
     static let maximumRecognitionDuration: TimeInterval = 60
     static let speechPowerThreshold: Float = 0.012
+    /// 开麦后忽略音量检测的一小段。挡的是自己放出来的起音提示，见 `markSoundDetectedFromInputLevel()`。
+    /// 系统音 1113 约 0.2~0.3 秒，取 0.4 秒留一点余量；这段时间里用户真开口了也不会漏 ——
+    /// 首次静音上限是 8 秒，识别结果那一路照常生效。
+    static let inputWarmUpWindow: TimeInterval = 0.4
     static let keyboardFallbackErrorMessage = "语音识别失败，请使用键盘输入。"
 
     init(audioSession: (any SpeechAudioSessionManaging)? = nil) {
@@ -478,7 +506,7 @@ final class SpeechInputService: ObservableObject {
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self, weak request] buffer, _ in
             if SpeechInputService.containsAudibleSpeech(in: buffer) {
                 Task { @MainActor in
-                    self?.markSoundDetected()
+                    self?.markSoundDetectedFromInputLevel()
                 }
             }
             request?.append(buffer)
@@ -625,6 +653,27 @@ final class SpeechInputService: ObservableObject {
     private func markSoundDetected() {
         hasDetectedSound = true
         lastSoundAt = Date()
+    }
+
+    /// 音量那一路的入口。**开头一小段要丢掉。**
+    ///
+    /// 录音分类改成 `.playAndRecord` 之后，起音提示是真的从扬声器放出来的，而 `.measurement` 模式
+    /// 没有回声消除 —— 那一声会被自己的麦克风录进来。若把它当成「用户开口了」，静音判定会立刻从
+    /// 首次静音（8 秒）切到尾静音（整句轮 2 秒）：一个刚听到提示、正在组织句子的人，会在还没开口时
+    /// 就被掐掉一轮，然后听到一整单默认值的读回。**那比原来的缺陷更糟。**
+    ///
+    /// 只挡音量这一路。识别结果那一路（`!recognizedText.trimmed.isEmpty`）不受影响 ——
+    /// 那是真的转出了字，提示音转不出字。
+    private func markSoundDetectedFromInputLevel() {
+        guard Self.acceptsInputLevelSound(startedAt: recognitionStartedAt, now: Date()) else { return }
+        markSoundDetected()
+    }
+
+    /// 抽成纯函数是为了能不睡 0.4 秒就断言这条规则。
+    /// `startedAt == nil` 表示还没正式起听（`markRecognitionStarted` 未跑），一律不收。
+    static func acceptsInputLevelSound(startedAt: Date?, now: Date) -> Bool {
+        guard let startedAt else { return false }
+        return now.timeIntervalSince(startedAt) >= inputWarmUpWindow
     }
 
     private func announce(_ message: String?) {

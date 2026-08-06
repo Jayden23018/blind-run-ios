@@ -7,6 +7,7 @@
 
 import XCTest
 import AMapSearchKit
+import AVFAudio
 import CoreLocation
 @testable import blindRun
 
@@ -3130,6 +3131,40 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(service.isSpeaking)
     }
 
+    /// `speak` 必须**同步**置上 `isSpeaking`，不能等 `didStart` 代理。
+    ///
+    /// `VoiceOrderWizard.listen` 紧接着 `speak` 就开始轮询这个标志来决定什么时候开麦。代理是
+    /// `DispatchQueue.main.async` 派发的，等它的话第一次检查读到的还是 false，等待循环当场放行 ——
+    /// 麦克风在一个字都没念出来时就打开，而开麦切换音频分类会把这句话掐断。
+    func testSpeakMarksSpeakingSynchronouslySoTheWizardDoesNotOpenTheMicTooEarly() {
+        let service = VoiceService()
+
+        service.speak(text: "这次的预约是：从当前位置出发。")
+
+        XCTAssertTrue(
+            service.isSpeaking,
+            "speak 返回时就必须是「在播」——等代理置位，向导会在第一次轮询时判定「没在播」并立刻开麦"
+        )
+    }
+
+    /// 迟到的 `didCancel` **不得**把新一条播报的状态抹掉。
+    ///
+    /// `speak` 是「先 `stopSpeaking(.immediate)` 再播新的」，旧那条随后会回一次 `didCancel`。
+    /// 不对身份就清标志的话，这次回调会让向导以为读回已经播完而提前开麦 —— 就是 2026-08-06
+    /// 报障的那个截断现象，只不过变成偶发，比稳定复现更难查。
+    func testStaleUtteranceCallbackDoesNotClearTheSpeakingFlag() {
+        let service = VoiceService()
+        service.speak(text: "这次的预约是：从当前位置出发，明天早上八点，跑一个小时。")
+
+        // 不是当前那一条的回调（旧 utterance 迟到，或系统回了别的实例）
+        service.speechSynthesizer(AVSpeechSynthesizer(), didCancel: AVSpeechUtterance(string: "上一句"))
+
+        XCTAssertTrue(
+            service.isSpeaking,
+            "别人的结束回调把当前播报标成「播完了」，向导会当场开麦，读回被截断"
+        )
+    }
+
     func testVoiceServiceCanPostVoiceOverOnlyAnnouncement() {
         let service = VoiceService()
 
@@ -3385,6 +3420,63 @@ final class blindRunTests: XCTestCase {
         service.stopRecognition()
 
         XCTAssertEqual(cues(), [], "授权被拒的这一路从头到尾没开过麦克风，不该有任何提示音")
+    }
+
+    /// 开麦头一小段的音量检测要丢掉 —— 那是自己放出来的起音提示。
+    ///
+    /// 录音分类改成 `.playAndRecord` 后，起音提示是真的从扬声器出去的，而 `.measurement` 模式没有
+    /// 回声消除，那一声会被自己的麦克风录回来。当成「用户开口了」的话，静音判定立刻从首次静音
+    /// （8 秒）切到尾静音（整句轮 2 秒）：刚听完提示、正在组织句子的人还没开口就被掐掉一轮，
+    /// 然后听到一整单默认值的读回 —— **比原来的截断缺陷更糟**。
+    func testInputLevelSoundIsIgnoredDuringTheStartCueWarmUp() {
+        let startedAt = Date()
+
+        XCTAssertFalse(
+            SpeechInputService.acceptsInputLevelSound(startedAt: startedAt, now: startedAt),
+            "开麦瞬间的响动是起音提示自己，不是用户说话"
+        )
+        XCTAssertFalse(
+            SpeechInputService.acceptsInputLevelSound(
+                startedAt: startedAt,
+                now: startedAt.addingTimeInterval(SpeechInputService.inputWarmUpWindow - 0.05)
+            ),
+            "提示音还没放完就开始收，等于把它当成用户开口"
+        )
+        // 刻意不在恰好等于窗口的那一点上断言：`Date` 内部是相对参考日的 Double，
+        // `addingTimeInterval(0.4)` 再取差回来会是 0.39999…，这里比的是浮点不是规则。
+        XCTAssertTrue(
+            SpeechInputService.acceptsInputLevelSound(
+                startedAt: startedAt,
+                now: startedAt.addingTimeInterval(SpeechInputService.inputWarmUpWindow + 0.05)
+            ),
+            "过了这一小段就必须正常收音，否则真的说话也检测不到"
+        )
+        XCTAssertFalse(
+            SpeechInputService.acceptsInputLevelSound(startedAt: nil, now: startedAt),
+            "还没正式起听就不该有「检测到声音」这回事"
+        )
+    }
+
+    /// 录音分类**必须允许播放**，否则起音提示等于不存在。
+    ///
+    /// 这条和上面 `testRecordingCueEndComesAfterThePlaybackSessionIsRestored` 是同一个坑的两半：
+    /// 「录音会话下放系统音听不见」。收音那一端 2026-08-06 靠调顺序修掉并留了断言，起音这一端
+    /// 当时漏了 —— 它没有顺序可调（录音正要开始），只能改分类本身。2026-08-06 真机手测报的
+    /// 「没有任何弹出语音的声音提示」就是漏掉的那一半。
+    ///
+    /// 断言分类常量而不是 `MockSpeechAudioSession` 的调用序列，是因为
+    /// `SpeechAudioSessionManaging.configureRecordingCategory()` 不带参数，替身看不到分类是什么
+    /// —— 只记录「调过了」的替身对这条缺陷是全盲的，这也正是它当初没被测出来的原因。
+    func testRecordingCategoryAllowsPlaybackSoTheStartCueIsAudible() {
+        XCTAssertEqual(
+            SystemSpeechAudioSession.recordingCategory,
+            .playAndRecord,
+            "录音分类不允许播放时，起音提示对全盲用户等于不存在 —— 那是他判断麦克风开没开的唯一非视觉信号"
+        )
+        XCTAssertTrue(
+            SystemSpeechAudioSession.recordingCategoryOptions.contains(.defaultToSpeaker),
+            "playAndRecord 默认路由到听筒，不加 defaultToSpeaker 提示音会小到等于没有"
+        )
     }
 
     /// 授权被拒是**启动阶段**失败，走的是 `clearRecognitionStartState` 而不是 `stopAudioRecognition`。

@@ -749,6 +749,37 @@ final class VoiceOrderWizardTests: XCTestCase {
         )
     }
 
+    // MARK: - 等 TTS 播完再开麦的上限
+    //
+    // 2026-08-06 真机手测：读回念到一半被切掉，麦克风当场打开。根因是这个上限写死 8 秒，
+    // 而读回整单要 15~25 秒 —— 上限一到就开麦，开麦切换音频分类会把正在播的合成器掐断。
+    // 上限必须跟着要念的字数走，这一组把这件事钉住。
+
+    /// 读回整单的实际长度量级（原话 + 三个槽位 + 两条出路，约 120 字）必须等得住。
+    /// 这条直接对应报障：120 字在旧的 8 秒上限下必被截断。
+    func testSettleTimeoutOutlastsAFullReadback() {
+        let readback = String(repeating: "字", count: 120)
+
+        let timeout = VoiceOrderWizard.settleTimeout(forCharacterCount: readback.count)
+
+        XCTAssertGreaterThan(
+            timeout,
+            20,
+            "约 120 字的读回念不完就开麦，音频分类切换会把合成器掐断 —— 盲人听到的是一句被切一半的预约"
+        )
+    }
+
+    /// 短提示的行为不变：下限仍是 8 秒，不因为这次改动被拖长。
+    func testSettleTimeoutKeepsTheOldFloorForShortPrompts() {
+        XCTAssertEqual(VoiceOrderWizard.settleTimeout(forCharacterCount: 0), 8)
+        XCTAssertEqual(VoiceOrderWizard.settleTimeout(forCharacterCount: 5), 8)
+    }
+
+    /// 上限存在的理由是合成器代理丢事件时不能无限等 —— 异常长的文本也必须夹住。
+    func testSettleTimeoutIsCappedSoALostDelegateCannotHangTheMicrophone() {
+        XCTAssertEqual(VoiceOrderWizard.settleTimeout(forCharacterCount: 100_000), 45)
+    }
+
     // MARK: - start() 的门槛接线
     //
     // 上面 28 条用例全部走 `startForTesting(at:)`，**绕过了 `start()`**，所以门槛那三道分支

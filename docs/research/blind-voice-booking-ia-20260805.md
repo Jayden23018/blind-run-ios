@@ -587,10 +587,10 @@ Uber Eats 把它做成首页顶部横幅 `[A]`。
 | 项 | 建议 | 现状 | 依据 |
 |---|---|---|---|
 | 触发 | 按「开始约跑」，或 App Shortcut | `.voiceBooking` 路由 → `BlindBookingView(startsWithVoice: true)`（`:401-409`） | — |
-| 听觉 | **两个音色可区分的 earcon**：起音（Start of Request）与收音结束（End of Request）。Alexa 的 "attention system" 明文要求音频与视觉线索同步 | ~~未实现~~ **已实现**（2026-08-06 复核）：`RecordingCue`（`SpeechInputService.swift:75-88`）起 1113 / 止 1114，调用点 `:458` / `:343` | `[A]` [Invoking Alexa](https://developer.amazon.com/en-GB/docs/alexa/alexa-auto/invoking-alexa.html) |
+| 听觉 | **两个音色可区分的 earcon**：起音（Start of Request）与收音结束（End of Request）。Alexa 的 "attention system" 明文要求音频与视觉线索同步 | ~~未实现~~ ~~已实现（2026-08-06 复核）~~ —— **两条断言都错**。`RecordingCue` 代码是齐的，但**起音那一声真机上放不出来**：它在 `markRecognitionStarted()` 里发出，而那时音频分类已经切成不开输出通道的 `.record`。同日真机手测报「没有任何声音提示」后改掉分类（`.playAndRecord` + `.defaultToSpeaker`），并补断言 `testRecordingCategoryAllowsPlaybackSoTheStartCueIsAudible`。**教训：「读码确认已实现」对音频这类只在真机成立的东西不成立** | `[A]` [Invoking Alexa](https://developer.amazon.com/en-GB/docs/alexa/alexa-auto/invoking-alexa.html) |
 | 触觉 | `UIImpactFeedbackGenerator`，起止各一次 | ~~未实现~~ **已实现**：起用 `.light` impact、止用 `.success` notification（语义分工见 `:64-74` 注释） | `[A]` 同上 |
 | 视觉 | 录音指示动画，闪烁 ≤3 次/秒，`accessibilityReduceMotion` 时降级为静态 | spec.md:100-104 已写入 | `[A]` WCAG 2.3.1 |
-| 延迟容忍 | **≤100 ms 播 earcon 并开麦；>1 s 未就绪必须播「正在准备」占位语音，不许静默等待** | `speechSettleTimeout = 8s`（等 TTS 播完再开麦，`VoiceOrderWizard.swift:75`）—— **8 秒静默窗口是缺陷** | **未找到任何平台的官方毫秒规定。** 唯一可引的是 Nielsen 三档 0.1 / 1.0 / 10 s `[C]` [NN/g](https://www.nngroup.com/articles/response-times-3-important-limits/) |
+| 延迟容忍 | **≤100 ms 播 earcon 并开麦；>1 s 未就绪必须播「正在准备」占位语音，不许静默等待** | ~~`speechSettleTimeout = 8s`~~ **已改**（2026-08-06 真机手测后）：上限改为按字数推导 `settleTimeout(forCharacterCount:)`，下限 8 秒、上限 45 秒。原来那个写死的 8 秒不只是「静默窗口」问题 —— 它比读回整单的 15~25 秒短一半以上，**上限一到就开麦，而开麦切换音频分类会把正在播的合成器当场掐断**，于是每一次读回都被截断 | **未找到任何平台的官方毫秒规定。** 唯一可引的是 Nielsen 三档 0.1 / 1.0 / 10 s `[C]` [NN/g](https://www.nngroup.com/articles/response-times-3-important-limits/) |
 | 降级 | 麦克风/识别授权被拒 → 立即一次性播报原因 + 进表单，**不进重问循环** | **已实现**：`isSpeechPathUnavailable`（`SpeechInputService`）+ `clearRecognitionStartState` 送出 `.error` 终局完成 | 提案任务 1.1-1.7，已真机跑通 |
 
 **国内唯一逐字实例**（申程出行智慧屏刷脸叫车）`[A]`：

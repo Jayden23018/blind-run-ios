@@ -72,7 +72,20 @@ final class VoiceOrderWizard: ObservableObject {
     /// 同一轮连续听不清多少次就放弃语音。三次之后继续追问只会让人重复喊同一句话。
     static let maximumReasksPerSlot = 3
     /// 等 TTS 播完再开录音的上限：不等的话麦克风会把自己的播报当成用户说话。
-    static let speechSettleTimeout: TimeInterval = 8
+    ///
+    /// **这是上限，不是等待时长** —— 播完就立刻放行。它存在只是为了在合成器代理丢事件时不至于
+    /// 无限等下去。
+    ///
+    /// 曾经写死 8 秒，而读回整单在默认语速下要 15~25 秒（见 `finishSpeakingOrSkipPrompt` 的说明），
+    /// 于是**每一次读回都必被截断**：上限一到就开麦，而开麦会把音频会话切成允许录音的分类，
+    /// 正在播的 `AVSpeechSynthesizer` 当场断掉。2026-08-06 真机手测报的「读到一半自动截断然后开始
+    /// 录音」就是这条。修法不是把 8 调大一个拍脑袋的数，而是让上限跟着要念的字数走。
+    ///
+    /// 系数 0.35 秒/字：中文合成在 `AVSpeechUtteranceDefaultSpeechRate` 下约 3~5 字/秒，取慢的那端
+    /// 再加 6 秒起步余量。下限 8 秒保持不变（短提示的行为不变），上限 45 秒防止异常长文本把人吊死。
+    static func settleTimeout(forCharacterCount count: Int) -> TimeInterval {
+        min(45, max(8, Double(count) * 0.35 + 6))
+    }
     /// 单次解析的等待上限。**这是防网络卡死的，不是防解析慢的。**
     ///
     /// 后端建议 3.5 秒（handoff 2026-08-01 ⑤），但那个数说的是服务端解析耗时上限：大模型兜底内部
@@ -108,6 +121,8 @@ final class VoiceOrderWizard: ObservableObject {
     private var parseTask: Task<Void, Never>?
     /// 下一次读回前要先说的一句话（目前只有时长取整）。拼进读回而不是单独播一次，见 `moveToConfirm`。
     private var pendingNotice: String?
+    /// 当前这一句最晚等到什么时候就强行开麦。由 `speak(_:)` 按字数定，见 `settleTimeout(forCharacterCount:)`。
+    private var speechSettleDeadline: Date?
 
     private enum WizardError: Error { case parseTimedOut, notConfigured }
 
@@ -258,7 +273,8 @@ final class VoiceOrderWizard: ObservableObject {
     /// TTS 还在播时开录音，麦克风会先录到系统自己的声音，识别必然跑偏。
     private func waitForSpeechToSettle() async {
         guard let speechService else { return }
-        let deadline = Date().addingTimeInterval(Self.speechSettleTimeout)
+        let deadline = speechSettleDeadline
+            ?? Date().addingTimeInterval(Self.settleTimeout(forCharacterCount: 0))
         while speechService.isSpeaking && Date() < deadline {
             try? await Task.sleep(nanoseconds: 150_000_000)
         }
@@ -575,6 +591,9 @@ final class VoiceOrderWizard: ObservableObject {
 
     private func speak(_ text: String) {
         lastSpokenPrompt = text
+        // 上限在开口的那一刻按字数定下来。放在这里而不是 `waitForSpeechToSettle` 里，是因为那边
+        // 只看得到「还在不在念」，看不到念的是什么。
+        speechSettleDeadline = Date().addingTimeInterval(Self.settleTimeout(forCharacterCount: text.count))
         speechService?.speak(text)
     }
 
