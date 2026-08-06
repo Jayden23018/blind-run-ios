@@ -15,16 +15,31 @@ import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '../..');
 
-function git(...args) {
+function gitRaw(...args) {
   try {
     return execFileSync('git', args, {
       cwd: root,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    });
   } catch {
     return null; // null = 命令失败（如无 upstream），'' = 成功但空输出
   }
+}
+
+// 标量用（分支名、计数、时间戳）：可以放心 trim。
+function git(...args) {
+  const out = gitRaw(...args);
+  return out === null ? null : out.trim();
+}
+
+// `git status --porcelain` 每行是 `XY<空格>路径`，前两位可能含前导空格（` M path`）。
+// 不能对整段输出 trim —— 那会吃掉**第一行**的前导空格，让 slice(3) 多切一个字符，
+// 提醒里就会出现 `lindRun/...` 这种不存在的路径。逐行取，按前 3 位切。
+function dirtyPaths() {
+  const out = gitRaw('status', '--porcelain');
+  if (!out) return [];
+  return out.split('\n').filter(Boolean).map((l) => l.slice(3));
 }
 
 const input = await new Promise((resolve) => {
@@ -47,9 +62,9 @@ if (payload.stop_hook_active) process.exit(0);
 
 const todo = [];
 
-const dirty = (git('status', '--porcelain') || '').split('\n').filter(Boolean);
+const dirty = dirtyPaths();
 if (dirty.length) {
-  todo.push(`**未提交**：${dirty.length} 个文件（${dirty.slice(0, 4).map((l) => l.slice(3)).join('、')}${dirty.length > 4 ? ' …' : ''}）`);
+  todo.push(`**未提交**：${dirty.length} 个文件（${dirty.slice(0, 4).join('、')}${dirty.length > 4 ? ' …' : ''}）`);
 }
 
 const upstream = git('rev-parse', '--abbrev-ref', '@{u}');
@@ -65,6 +80,27 @@ if (upstream === null) {
 // 纯客户端改动（UI 时序、测试 helper、本仓库自己的工具链）本来就不该投递 handoff，
 // 拿「提交晚于 handoff」当触发条件会让每次工具类提交都误报，而天天误报的钩子等于没有钩子。
 if (!todo.length) process.exit(0);
+
+// 同一份欠账只叫一次。长期存在的脏文件（别人没写完的活）会让钩子每轮都响，
+// 而每轮都响的提醒会被无视 —— 那等于把这个钩子废掉。欠账内容变了才重新叫。
+// 签名落在 .git/ 里：天然不入库、天然每个 clone 独立。
+// 上限：只比对「路径集合 + 领先数」，同一批文件内容再改也不会重新提醒。
+const seenFile =
+  process.env.AIDRUN_STOP_CHECKLIST_SEEN ||
+  path.join(root, '.git', 'aidrun-stop-checklist-seen');
+const signature = JSON.stringify(todo);
+if (process.env.AIDRUN_STOP_CHECKLIST_NO_SNOOZE !== '1') {
+  try {
+    if (fs.readFileSync(seenFile, 'utf8') === signature) process.exit(0);
+  } catch {
+    // 没读到就当没提醒过
+  }
+  try {
+    fs.writeFileSync(seenFile, signature);
+  } catch {
+    // 写不进去只影响去重，不该让钩子失效
+  }
+}
 
 // handoff 是后端仓库的文件，前端 session 未必挂载了 —— 挂了才看。
 const handoff =
