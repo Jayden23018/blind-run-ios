@@ -30,6 +30,15 @@ The app SHALL preserve serialized sends, 30-second heartbeat health for both rol
 - **AND** they SHALL NOT cancel, restart, or extend its original 20-second deadline
 - **AND** retained content and local navigation SHALL remain usable
 
+#### Scenario: WebSocket reconnects
+- **WHEN** a role WebSocket reconnects
+- **THEN** the coordinator SHALL request relevant active-order/summary refreshes
+- **AND** it SHALL signal dependent feature coordinators to resume their documented cadence
+
+#### Scenario: Incoming message type is unknown
+- **WHEN** the backend sends an unrecognized message type
+- **THEN** the app SHALL ignore it safely without disconnecting or presenting raw payload data
+
 ### Requirement: Validated order-status events update matching local flows before detail recovery
 The app-lifetime realtime coordinator SHALL publish a `RealtimeOrderStatusUpdate` only for the associated active order when `fromStatus` and `toStatus` are known enum values and the original status matches the current in-memory state when available.
 
@@ -99,6 +108,15 @@ The app-lifetime realtime coordinator SHALL route fresh `VOLUNTEER_LOCATION_UPDA
 #### Scenario: Session identity changes
 - **WHEN** logout, account change, terminal order state, or participant loss occurs
 - **THEN** retained peer samples SHALL be cleared before any new session is routed
+
+#### Scenario: Associated peer location arrives
+- **WHEN** `VOLUNTEER_LOCATION_UPDATE` or `BLIND_LOCATION_UPDATE` matches the active user's associated order
+- **THEN** the coordinator SHALL publish the typed sample to the relevant feature
+- **AND** it SHALL NOT log raw coordinates
+
+#### Scenario: Wrong-order or invalid coordinate arrives
+- **WHEN** a peer sample references another order or contains coordinates outside valid ranges
+- **THEN** the coordinator SHALL ignore it without changing visible feature state
 
 ### Requirement: Separation alerts use high-priority safety-aware routing
 The coordinator SHALL route `ESCORT_DISTANCE_ALERT` and `ESCORT_SIGNAL_LOST` with high priority and deduplicate only repeated delivery of the same UUID `messageId` identity.

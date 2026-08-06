@@ -36,6 +36,11 @@ The iOS app SHALL show order cancellation actions according to active role and c
 - **WHEN** the blind participant has submitted an emergency event
 - **THEN** local emergency state SHALL NOT synthesize cancellation, completion, rematching, or another order transition
 
+#### Scenario: Blind runner cannot cancel travel, arrival, or in-service states
+- **WHEN** a blind-runner order is `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, or `IN_PROGRESS`
+- **THEN** the blind-runner screens SHALL NOT show a cancel action
+- **AND** the approved `IN_PROGRESS` SOS entry SHALL NOT be presented as, or substituted for, a cancellation action
+
 ## REMOVED Requirements
 
 ### Requirement: Emergency action is hidden for this release

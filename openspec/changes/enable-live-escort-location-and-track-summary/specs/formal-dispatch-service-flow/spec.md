@@ -12,6 +12,27 @@ The blind-runner order experience SHALL remain driven by canonical order status 
 - **WHEN** canonical order detail becomes `COMPLETED`
 - **THEN** the blind-runner completion flow SHALL offer the track summary with blind route, distance, duration, and pace
 
+#### Scenario: Volunteer accepts dispatch
+- **WHEN** the coordinator routes `ORDER_STATUS_CHANGED` or polling returns `PENDING_ACCEPT`
+- **THEN** the app SHALL refresh and show the canonical "待出发" state
+- **AND** TTS SHALL use local order-detail copy rather than duplicate lifecycle template speech
+
+#### Scenario: No volunteer is available
+- **WHEN** WebSocket or polling returns `NO_VOLUNTEER`
+- **THEN** the app SHALL show and announce a no-volunteer terminal state
+
+#### Scenario: Volunteer location is available
+- **WHEN** the order is `PENDING_ACCEPT`, `DRIVER_EN_ROUTE`, or `DRIVER_ARRIVED` and the coordinator routes a fresh `VOLUNTEER_LOCATION_UPDATE` from `/ws/blind`
+- **THEN** the app SHALL calculate distance from the volunteer's latest coordinates to `order.startLatitude/startLongitude`
+- **AND** the blind-runner UI and repeated status speech SHALL use "距出发地点约 X"
+- **AND** the app SHALL NOT use "距您" for this distance
+- **AND** the app SHALL hide distance when the order start coordinate or volunteer location is unavailable
+- **AND** service-session peer presentation SHALL remain owned by `enable-live-escort-location-and-track-summary`
+
+#### Scenario: REST fallback is used before service
+- **WHEN** an eligible pre-service order has disconnected or stale WebSocket volunteer location
+- **THEN** the app SHALL use the typed `GET /api/blind/volunteer-location` fallback according to its freshness/no-data contract
+
 ### Requirement: Volunteer service flow presents associated blind-runner location
 The volunteer service flow SHALL present the associated blind runner's fresh location during `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, and `IN_PROGRESS` without changing lifecycle actions.
 

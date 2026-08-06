@@ -15,6 +15,14 @@ The app-lifetime coordinator SHALL route emergency follow-up by the strongest id
 - **WHEN** the coordinator presents any emergency event
 - **THEN** it SHALL use client-owned copy rather than the backend-supplied display or TTS body
 
+#### Scenario: Duplicate general notification arrives
+- **WHEN** the same documented identity or normalized fallback key repeats inside the deduplication window
+- **THEN** it SHALL be presented and spoken only once
+
+#### Scenario: Distinct safety events share copy
+- **WHEN** two events have different stable IDs but identical text
+- **THEN** both SHALL be routed independently
+
 ### Requirement: Role service replacement clears emergency routing state
 The realtime coordinator SHALL detach and clear non-authoritative emergency routing state when authenticated user/token/role service changes, while same-user recovery follows the documented backend contract.
 
