@@ -68,7 +68,8 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
         )
     }
 
-    /// 盲人自由文本备注只在接单后对志愿者可见（`AGENTS.md §8`）。
+    /// 盲人填的自由文本（`specialNotes` 特殊说明 / `routeNotes` 路线备注）
+    /// 只在接单后对志愿者可见（`AGENTS.md §8`；`routeNotes` 于 2026-08-07 一并收进同一条闸）。
     ///
     /// 逐个状态钉死而不是只测两三个，是因为这条闸的漏法就是「新加一个状态忘了归类」。
     /// `PENDING_MATCH` 是派单弹窗与「可接订单」列表那一刻的状态 —— 全 App 最该关的一处；

@@ -2162,12 +2162,10 @@ struct VolunteerAvailableOrderCard: View {
             Text((row.order.plannedStart ?? "").displayDateTime)
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
-            if let notes = row.order.routeNotes?.nilIfBlank {
-                Text(notes)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .lineLimit(2)
-            }
+            // 这张卡片只出现在「可接订单」列表里，也就是订单还是 `PENDING_MATCH`、任何志愿者
+            // 都能浏览的时候，所以**不展示任何盲人自由文本**（路线备注 / 特殊说明）。
+            // 判据见 `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`；这里没写成条件分支，
+            // 是因为这张卡片按定义只在闸关着的那一侧出现，写 `if` 反而像是留了可开的口子。
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2541,6 +2539,9 @@ struct VolunteerServiceRunnerCard: View {
     }
 }
 
+/// 服务中面板的订单要点。**只被 `VolunteerServiceBottomPanel` 用**，那是接单之后的界面，
+/// 所以这里的自由文本（路线备注 / 特殊说明）不加闸。
+/// 要在接单前的界面复用它，先接 `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`。
 struct VolunteerServiceOrderEssentials: View {
     let order: OrderDetailResponse
     let distanceText: String?
@@ -2781,7 +2782,7 @@ struct VolunteerOrderInfoSection: View {
     let order: OrderDetailResponse
     let distanceText: String?
 
-    /// 自由文本备注只在**接单后**展示。判据集中在
+    /// 盲人填的自由文本（路线备注 / 特殊说明）只在**接单后**展示。判据集中在
     /// `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`（穷举 switch，含 `.unknown` 默认关），
     /// 不在这里就地写 `!= .pendingMatch` —— 这个视图的两个调用点里，
     /// `VolunteerOrderDetailView:921` 是从「可接订单」列表点进来的，那里的订单任何志愿者都能浏览。
@@ -2799,7 +2800,7 @@ struct VolunteerOrderInfoSection: View {
             if let distanceText {
                 infoRow("距离", distanceText)
             }
-            if let routeNotes = order.routeNotes?.nilIfBlank {
+            if showsSensitiveNotes, let routeNotes = order.routeNotes?.nilIfBlank {
                 infoRow("路线备注", routeNotes)
             }
             if let minutes = order.expectedDurationMinutes {

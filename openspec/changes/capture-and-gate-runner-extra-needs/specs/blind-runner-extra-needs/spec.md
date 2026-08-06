@@ -37,16 +37,30 @@ The app SHALL read back every extra need it extracted, so that an extraction err
 - **AND** it SHALL NOT treat "not mentioned" as "not bringing the dog", because that value feeds dispatch hard-filtering
 
 ### Requirement: Sensitive free-text extra needs are hidden until an order is accepted
-Free-text extra needs SHALL NOT be shown to a volunteer who has not accepted the order. Dispatch is serial, so a single order reaches several candidate volunteers; free text captured by voice is the runner's own words and will contain health information.
+No free text a blind runner wrote or spoke SHALL be shown to a volunteer who has not accepted the order. This covers every free-text field on the order, not only the one that carries voice-captured needs — the risk follows the field's type, not its intended use, and the app cannot tell before display which kind of sentence a user wrote in a given box. Dispatch is serial and the open-order list is browsable, so an order reaches several volunteers who never serve it.
 
 #### Scenario: Dispatch prompt before accepting
 - **WHEN** a volunteer is shown a dispatch prompt for an order they have not accepted
 - **THEN** the app SHALL NOT render free-text extra needs anywhere in that prompt
 - **AND** this SHALL hold regardless of whether the transport still carries the field
 
+#### Scenario: Browsing an order that is still awaiting a match
+- **WHEN** any volunteer opens an order from the list of orders still awaiting a match
+- **THEN** the app SHALL NOT render any blind-runner free text on that screen or in its accessibility labels
+- **AND** this SHALL hold for every free-text field on the order, including ones whose intended use looks harmless
+
 #### Scenario: Order is accepted
 - **WHEN** a volunteer has accepted the order and is therefore a participant in it
 - **THEN** the app SHALL show the free-text extra needs verbatim in the order detail
+
+#### Scenario: The accepting volunteer withdraws
+- **WHEN** the volunteer who accepted an order cancels it and the order returns to matching
+- **THEN** that volunteer SHALL no longer be shown the blind runner's free text, because they are no longer a participant
+
+#### Scenario: An unrecognised order status arrives
+- **WHEN** the order carries a status this client does not recognise
+- **THEN** the app SHALL withhold the free text
+- **AND** this SHALL be the opposite default from other unknown-status handling, which keeps the order visible and pollable
 
 #### Scenario: Free text is captured by voice before the disclosure boundary exists
 - **WHEN** the backend has not yet provided a channel that withholds free-text extra needs until acceptance
