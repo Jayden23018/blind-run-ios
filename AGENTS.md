@@ -205,6 +205,7 @@ xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \
   -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing
 
 # 真机（唯一 XCTest 通道；脚本会先探活并按小写 `Test case` 统计）
+# ⚠️ 默认**不要**这样裸跑全量，先看下面「跑多大范围」
 scripts/device-test.sh
 
 openspec validate --all --strict --no-interactive
@@ -218,6 +219,42 @@ scripts/dual-device-validation.sh
 
 后三条要读后端仓库。装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
 CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑不了真机 XCTest**。
+
+### 跑多大范围：默认只跑覆盖本次改动的 suite，不是全量
+
+全量约 10 分钟、会超 Bash 600s 上限、还会撞上脚本的 preflight watchdog 反复被掐。
+**默认做法**：先查哪些用例真的碰了你改的东西，只跑那几个 suite。
+
+```bash
+# ① 先定范围（把改动涉及的类型/方法名列进去）
+python3 - <<'EOF'
+import os, re
+PATTERN = r'(BookingDurationOption|expectedDurationMinutes|makeCreateOrderRequest)'  # 换成你改的符号
+for root, _, fs in os.walk('blindRunTests'):
+    for f in (x for x in fs if x.endswith('.swift')):
+        p = os.path.join(root, f)
+        n = sum(1 for l in open(p).read().split('\n') if re.search(PATTERN, l))
+        if n: print(f'{f}: {n} 处')
+EOF
+
+# ② 只跑命中的 suite
+scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
+                       -only-testing:blindRunTests/blindRunTests
+```
+
+**什么时候才必须全量**——只有一条判据：**改的东西是全 App 唯一的出口 / 共享单例 / 全局配置**，
+所有调用方都从它身上过。例如 `SystemSpeechAudioSession`（每个用麦克风的地方都走它）、
+`APIClient`、`AppState`。这类改动的影响面按符号搜不出来，必须全量。
+
+反过来，「改了一个 view model 的一个字段」「加了一条解析规则」不属于这类，按符号搜到的 suite
+就是完整覆盖面。**命中数只有 1 且是无关字面量的文件要看一眼再决定跳过**，别只看数字。
+
+> 2026-08-06 立此条：同一天里全量被反复跑了 5 次，其中 4 次的结论在第 1 次就已经拿到，
+> 后面纯粹是在跟脚本的 watchdog 较劲。用户两次指出这件事，走 §1.4。
+>
+> **零执行不是通过。** `passed=0 failed=0` 一律当失败查——设备锁屏、`-only-testing` 名字打错、
+> 测试目标没编出来都会长这样：命令回来了、看起来一切正常，但一条断言都没跑。
+> 脚本对这种情况有硬失败，别绕过它。
 
 ### 读后端仓库的那 4 条门禁在哪跑（2026-08-06 定型，别再重新推导一遍）
 
