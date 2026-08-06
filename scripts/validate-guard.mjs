@@ -201,6 +201,71 @@ const cases = [
         new_string: 'viewModel.configure(with: appState, speechService: SpeechService())'
       }
     }
+  },
+  {
+    // 2026-08-06：verify.yml 里两处 `if: ${{ secrets.X != '' }}` 让 workflow 连续 9 次
+    // 启动失败 —— 0 个 job、0 条日志，UI 上看不出红在哪，只有邮件。这条守卫防的就是它。
+    name: 'workflow step 的 if 里用 secrets',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/.github/workflows/verify.yml',
+        old_string: 'a',
+        new_string: "      - name: Checkout backend\n        if: ${{ secrets.BACKEND_REPO_TOKEN != '' }}"
+      }
+    }
+  },
+  {
+    // job 级 if 的可用上下文更窄（只有 github/needs/vars/inputs），同样炸。
+    name: 'workflow job 的 if 里用 secrets',
+    expect: 2,
+    input: {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: '/repo/.github/workflows/deploy.yml',
+        content: "jobs:\n  ship:\n    if: ${{ secrets.DEPLOY_KEY != '' }}\n    runs-on: ubuntu-latest"
+      }
+    }
+  },
+  {
+    // job 级 env 允许 secrets —— 这就是那条规则的正解，不能被误伤。
+    name: 'job 级 env 里读 secrets（正解，放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/.github/workflows/verify.yml',
+        old_string: 'a',
+        new_string: "    env:\n      HAS_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}\n    steps:\n      - if: env.HAS_TOKEN == 'true'"
+      }
+    }
+  },
+  {
+    // steps.with 也允许 secrets，token 就得这么传。
+    name: 'step 的 with 里传 secrets（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/.github/workflows/verify.yml',
+        old_string: 'a',
+        new_string: '        with:\n          token: ${{ secrets.BACKEND_REPO_TOKEN }}'
+      }
+    }
+  },
+  {
+    // 规则按路径生效：workflow 之外的 YAML 没有这个上下文限制，不该被拦。
+    name: '非 workflow 的 YAML 不受此规则约束（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/fastlane/config.yml',
+        old_string: 'a',
+        new_string: "if: ${{ secrets.SOMETHING }}"
+      }
+    }
   }
 ];
 

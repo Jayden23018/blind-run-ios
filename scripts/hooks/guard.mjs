@@ -245,6 +245,39 @@ function main() {
       );
     }
 
+    // 6. workflow 的 if: 里出现 secrets（2026-08-06）
+    //
+    // `secrets` 不在 `if:` 的可用上下文里 —— 官方 context availability 表：
+    //   jobs.<job_id>.if        → github, needs, vars, inputs
+    //   jobs.<job_id>.steps.if  → github, needs, strategy, matrix, job, runner, env, vars, steps, inputs
+    // 两处都没有 secrets。写了不是「这一步失败」，是**整个 workflow 启动失败**：
+    // 0 个 job、0 条日志，Actions 页面点进去什么都没有，只有一封 run failed 邮件。
+    // verify.yml 因此连续 9 次 run 全红，而红的原因在 UI 上根本看不见。
+    //
+    // 改法：job 级 `env` 是允许 secrets 的，转一道再在 `if` 里读 env：
+    //   env:
+    //     HAS_TOKEN: ${{ secrets.FOO != '' }}
+    //   steps:
+    //     - if: env.HAS_TOKEN == 'true'
+    //
+    // 只查新内容不查 old_string：把坏的 if 删掉是我们想要的方向。
+    const isWorkflow = /\.github\/workflows\/[^/]+\.ya?ml$/.test(filePath);
+    const secretsIfLine = isWorkflow
+      ? body
+          .split('\n')
+          .find((l) => /^\s*-?\s*if:\s.*\bsecrets\./.test(l) && !l.includes('guard:allow secrets-in-if'))
+      : undefined;
+    if (secretsIfLine) {
+      fail(
+        'secrets-in-if',
+        `${filePath}\n  ${secretsIfLine.trim()}\n\n` +
+          `\`secrets\` 在 job 级和 step 级的 \`if:\` 里都不可用，GitHub 解析到就报 Unrecognized named-value，\n` +
+          `**整个 workflow 不启动** —— 0 个 job、0 条日志，只有一封 run failed 邮件，红在哪根本看不见。\n` +
+          `改法：job 级 env 允许 secrets，转一道再在 if 里读 env：\n` +
+          `  env:\n    HAS_TOKEN: \${{ secrets.FOO != '' }}\n  steps:\n    - if: env.HAS_TOKEN == 'true'`
+      );
+    }
+
     process.exit(0);
   }
 
