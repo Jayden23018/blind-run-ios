@@ -206,7 +206,14 @@ scripts/dual-device-validation.sh
 ```
 
 后三条要读后端仓库。装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
-CI（`.github/workflows/verify.yml`）跑编译门禁 + 全部规格校验，但**跑不了真机 XCTest**。
+CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑不了真机 XCTest**。
+
+**读后端仓库的那 4 条（契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料）在 CI 上永远是
+warning 空过**，别以为 CI 绿了就代表它们过了。原因是死结：后端仓库私有且 owner 是
+`Jayden23018`，本 iOS 仓库 owner 是 `JerryZhao-1` 而我们不是它的 admin，配不了
+`BACKEND_REPO_TOKEN`。所以这 4 条**只在本地 pre-push 跑**，没装钩子等于没跑。
+钩子会先校验 `../demo` 与其 `origin/main` 一致 —— 停在特性分支或工作区脏着时，
+这 4 条读的就不是契约本身，会直接拦下（逃生口 `AIDRUN_ALLOW_BACKEND_DRIFT=1`）。
 
 契约 fixture（真实响应回归，见 `blindRunTests/ContractFixtureTests.swift`）：
 
