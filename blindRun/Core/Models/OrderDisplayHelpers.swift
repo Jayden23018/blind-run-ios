@@ -30,6 +30,35 @@ extension RunOrderStatus {
         }
     }
 
+    /// 志愿者能否看到盲人的自由文本备注（`specialNotes`）。
+    ///
+    /// `AGENTS.md §8`：**接单前隐藏盲人的敏感健康信息。** 自由文本取值空间开放、敏感度无法预判，
+    /// 语音下单落地后它装的就是用户原话（「我有低血糖，如果我说头晕请马上停下来」）。
+    /// 派单是串行的，接单前展示等于把它交给这一单碰到过的每一个志愿者，包括最后拒单的那些。
+    ///
+    /// 刻意写成穷举 switch 而不是 `!= .pendingMatch`，为的是两件事：
+    /// - `.rematching` —— 原志愿者取消后订单回到重新派单，**那个人已经不是参与者了**，
+    ///   简写的 `!=` 会把他判成可见。
+    /// - `.unknown` —— 后端新增状态时必须**默认不公开**。这一族的其他 helper 对未知值取
+    ///   「保守地当作进行中」，那是为了不让订单从界面上消失；隐私边界的保守方向相反，是关。
+    ///
+    /// `.pendingAccept` 判为可见，因为它已经在接单**之后**：盲人端该状态的文案是
+    /// 「志愿者已接单」，且志愿者此时才拥有取消权（`AGENTS.md §5`）。
+    /// 派单弹窗那一刻订单还是 `PENDING_MATCH`。
+    ///
+    /// 结构化条件（配速 / 路线偏好 / 导盲犬）**不走这条闸**：取值空间封闭（枚举 / 布尔），
+    /// 且它们是志愿者判断「我接不接得下来」的依据，藏起来只会让人盲接、接了再取消。
+    var disclosesBlindRunnerNotesToVolunteer: Bool {
+        switch self {
+        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed, .cancelled:
+            return true
+        case .pendingMatch, .rematching, .noVolunteer:
+            return false
+        case .unknown:
+            return false
+        }
+    }
+
     var blindRunnerDescription: String {
         switch self {
         case .pendingMatch:

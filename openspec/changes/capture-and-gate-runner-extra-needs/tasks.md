@@ -28,21 +28,34 @@
 
 ## 2. 存量泄露的展示端（不依赖契约结论）
 
-- [ ] 2.1 **P0 判定**：`VolunteerHomeView.swift:1685` 那 6 行是否本轮就删。删除是纯减法、不依赖后端，
-      且今天表单里手打的「特殊说明」已经在漏。**未决 —— 需要项目负责人拍板本轮做还是随第 3 组一起做。**
-- [ ] 2.2 若删：同时确认没有别的接单前展示面漏同一个字段
-      （已知面：`VolunteerHomeView` 派单弹窗、`VolunteerOrderFlowViews.swift:2557-2565` / `:2794-2811`
-      —— 后两处需逐个核实是接单前还是接单后视图，**不要照抄本文件的判断，自己读**）。
-- [ ] 2.3 若删：加一条守卫或测试钉住它，别只改代码（`AGENTS.md §1`）。倾向测试：
-      构造一条带 `specialNotes` 的 `WSNewOrder`，断言派单弹窗的可访问性树里不出现那段文本。
-- [ ] 2.4 **第二条接单前的路**：串行派单之外还有抢单式兜底 —— 「可接订单」列表
-      （`VolunteerOrderFlowViews.swift:440`）调 `GET /api/orders/available`。
-      卡片 `VolunteerAvailableOrderCard` 目前只渲染 `routeNotes`（`:2165`），**屏幕上不漏**，
-      但该端点在契约里是裸 `type: object`（`api_spec.yaml:1899-1905`），
-      返不返 `specialNotes` 无从判断 —— 数据可能已经到设备上了。已随 ⑥ 投 handoff。
-- [ ] 2.5 `routeNotes`（路线备注）同为自由文本、同在接单前可见（`:2165` / `:2557`），
+- [x] 2.1 **派单弹窗**：`VolunteerHomeView.swift:1685` 那 6 行已删。
+      但只删渲染不够 —— 字段还在类型上，下一个人加回去没有任何东西拦着。
+      **根因修法是把 `specialNotes` 从 `WSNewOrder` 整个删掉**（`WebSocketModels.swift:189-221`）：
+      后端照发，`JSONDecoder` 忽略多余键，那段文本从此进不了 App 的任何一个类型，编译器替我们守着。
+- [x] 2.2 逐个核实其余展示面（**没照抄，自己读的**）：
+      - `VolunteerServiceOrderEssentials`（`:2544`）→ 只被在服务中的底部面板 `:2399` 用 → **接单后，保留**
+      - `VolunteerAvailableOrderCard`（`:2144`）→ 只渲染 `routeNotes`，不渲染 `specialNotes` → 屏幕上不漏
+      - ⚠️ `VolunteerOrderInfoSection`（`:2780`）→ **这是第二处真实泄露**：
+        「可接订单」列表 `:449-450` 直接 `NavigationLink` 到 `VolunteerOrderDetailView`，
+        那一页 `:921` 渲染它，而列表里的订单是 `PENDING_MATCH` —— **任何志愿者都能点进去读**。
+        比弹窗更糟：弹窗是依次 1~3 人看到，这里是可随时浏览的列表。
+- [x] 2.3 判据集中到 `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`
+      （`OrderDisplayHelpers.swift`），穷举 switch：
+      `PENDING_MATCH` / `REMATCHING` / `NO_VOLUNTEER` / `.unknown` 关，其余开。
+      不就地写 `!= .pendingMatch` 的两个理由都在那段注释里（`REMATCHING` 的原志愿者已退出；
+      未知状态的保守方向是**关**，与这一族其他 helper 相反）。
+- [x] 2.4 两条测试都已真跑（真机，`passed=320 failed=0`）：
+      - `AppRealtimeCoordinatorTests.testNewOrderCarryingSpecialNotesDecodesButNeverReachesTheClient`
+        —— 带 `specialNotes` 的载荷仍解得出来（否则派单静默失效），且 `Mirror` 遍历确认那段文本
+        不在解出来的对象里。**已验红**：把字段加回 `WSNewOrder`，该用例立刻失败。
+      - `OrderEnumLeniencyDecodingTests.testBlindRunnerNotesAreDisclosedOnlyAfterAVolunteerHasAccepted`
+        —— 9 个状态逐个钉死，并断言两组之和 == `allCases.count`，新加状态必须回来归类。
+- [ ] 2.5 `routeNotes`（路线备注）同为自由文本、同在接单前可见（`:2165` / `:2794`），
       按 `design.md` D2 的判据本该也归到接单后。**本轮不改**：它只有表单入口、语音不写它，
-      量级不同。但要在 §4 文档里写明这是**已知的、有意留下的**边界，别让它变成绕行通道。
+      量级不同，且它的产品用途（「沿湖边跑道」这类）恰恰是志愿者接单前的决策依据。
+      已随 handoff ⑥ 一并问后端。要在 §4 文档里写明这是**已知的、有意留下的**边界。
+- [ ] 2.6 `GET /api/orders/available` 在契约里是裸 `type: object`（`api_spec.yaml:1899-1905`），
+      返不返 `specialNotes` 无从判断 —— 客户端现在不渲染了，但数据可能仍到设备上。已投 handoff ⑥。
 
 ## 3. iOS 实现（**等 1.1 有结论后再开始**）
 

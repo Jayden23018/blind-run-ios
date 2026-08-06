@@ -2781,6 +2781,14 @@ struct VolunteerOrderInfoSection: View {
     let order: OrderDetailResponse
     let distanceText: String?
 
+    /// 自由文本备注只在**接单后**展示。判据集中在
+    /// `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`（穷举 switch，含 `.unknown` 默认关），
+    /// 不在这里就地写 `!= .pendingMatch` —— 这个视图的两个调用点里，
+    /// `VolunteerOrderDetailView:921` 是从「可接订单」列表点进来的，那里的订单任何志愿者都能浏览。
+    private var showsSensitiveNotes: Bool {
+        order.status.disclosesBlindRunnerNotesToVolunteer
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("订单信息")
@@ -2806,7 +2814,7 @@ struct VolunteerOrderInfoSection: View {
             if order.hasGuideDogThisRun == true {
                 infoRow("导盲犬", "本次携带")
             }
-            if let notes = order.specialNotes?.nilIfBlank {
+            if showsSensitiveNotes, let notes = order.specialNotes?.nilIfBlank {
                 infoRow("特殊说明", notes)
             }
         }
