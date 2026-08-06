@@ -15,13 +15,19 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 
 ## 1. 事故复盘规则（最重要的一条）
 
-任何一个**已经犯过第二次**的错误，必须落到下面三者之一，**不许只写进文档**：
+任何一个**已经犯过第二次**的错误，必须落到下面四者之一，**不许只写进文档**：
 
-1. 能被静态检查抓到 → `scripts/hooks/guard.sh` 加一条守卫
+1. 能被静态检查抓到 → `scripts/hooks/guard.mjs` 加一条守卫
 2. 能被运行时检查抓到 → 加一条测试（优先 `blindRunTests/Fixtures/` 的真实响应回归）
-3. 两者都不能（纯语义认知）→ 写进项目记忆，并在本文件留一行索引
+3. 能被「该做没做」抓到 → 加进 Stop 钩子 `scripts/hooks/stop-checklist.mjs`
+4. 三者都不能（纯语义认知）→ 写进项目记忆，并在本文件留一行索引
 
 只写文档不算完成。文档挡不住重复犯错，这条规则的存在就是因为它已经被证明挡不住。
+
+**「反复查」和「反复错」同等对待。** 同一个事实如果第二次还要重新 grep / 重读文件才能确定
+（某个函数在哪、某个脚本叫什么、某个字段的真实类型），那不是记性问题，是事实没落地：
+就地把它写进本文件或对应 skill，带上 `文件路径:行号`。上面 §1.1 那条 `guard.sh` → `guard.mjs`
+就是例子 —— 文件早改名了，规则里没跟，于是每次都要重查一遍才发现引用是错的。
 
 ## 2. 源真相优先级
 
@@ -60,7 +66,7 @@ PENDING_MATCH  PENDING_ACCEPT  IN_PROGRESS  DRIVER_EN_ROUTE  DRIVER_ARRIVED
 COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 ```
 
-**禁用的遗留词汇**（`scripts/hooks/guard.sh` 会拦）：
+**禁用的遗留词汇**（`scripts/hooks/guard.mjs` 会拦）：
 
 `submitted` · `contacted` · `expired` · `matching`（用 `PENDING_MATCH`） · `accepted`（用 `PENDING_ACCEPT`） · `arrived`（用 `DRIVER_ARRIVED`） · `emergency`（求助是独立事件，不是订单状态）
 
@@ -134,13 +140,34 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 ## 10. 工作流
 
+**开工前**
+
 1. 先读 `AGENTS.md`
 2. 再读相关 docs 与 OpenSpec
-3. 一次只实现一个内聚模块
-4. 行为有变时，实现前先确认对应 spec
-5. 实现后更新必要文档
-6. 实现后跑测试
-7. 按 skill `aidrun-ship-check` 的格式输出
+3. 判一次这活要不要派 subagent —— 判定表在全局 `~/.claude/CLAUDE.md` 的「委派」节，**本文件不留副本**（理由同 §7：两份会漂移）。一句话版：定位/摘要/读日志外包，设计与编辑自己干
+
+**实现中**
+
+4. 一次只实现一个内聚模块
+5. 行为有变时，实现前先确认对应 spec
+6. **改任何文件前，自己完整读一遍那个文件** —— 探索可以外包，编辑不行
+
+**收尾：三件事，缺一件都不算做完**
+
+7. 跑测试、更新必要文档，按 skill `aidrun-ship-check` 的格式输出
+8. **同步 handoff**（`demo/docs/handoff.md`）：
+   - 全文近 3000 行，**只读末尾最新几条**（`tail -80`）或用 `grep -n "^- \[ \]"` 定位未答项，**不要整读**
+   - 本轮答掉的问题：`- [ ]` 改 `- [x]`，答案写在 `答：` 后面；**不删除已答条目**，历史是决策记录
+   - 本轮新产生的、需要后端拍板的问题：追加到「待后端确认」，每条带日期 / 提问方 / 具体到文件行号或端点的上下文 / 明确的问题
+   - 契约本身的变更不写这里 —— 直接改后端 `docs/api_spec.yaml`
+9. **commit**：`type: 描述`（type 取 feat/fix/refactor/docs/test/chore/perf/ci）。**不带 `Co-Authored-By`**（`~/.claude/settings.json` 的 `includeCoAuthoredBy: false` 已全局关闭，不要手动加回来）
+10. **push**
+
+> 第 8–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：工作树脏、领先 origin、或
+> handoff 比最后一次提交还旧时，会拦住本次停止并列出欠账。每轮只拦一次（`stop_hook_active` 兜底），
+> 所以用户说了「先不提交」时，回一句说明再停即可，不会死循环。
+>
+> 这条从「用户每轮口头提醒」升级成钩子，走的是 §1.3。
 
 ## 11. 验证命令
 

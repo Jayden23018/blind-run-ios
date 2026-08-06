@@ -28,6 +28,7 @@ run() {
 run "openspec validate --all --strict" openspec validate --all --strict --no-interactive
 run "validate-docs" node scripts/validate-docs.mjs
 run "validate-guard（冻结文件守卫自测）" node scripts/validate-guard.mjs
+run "validate-stop-checklist（收尾钩子自测）" node scripts/validate-stop-checklist.mjs
 run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --package-path Packages/AidRunAPI
 
 # 契约覆盖：只有能读到后端 spec 时才跑，读不到就明说没跑，不假装通过。

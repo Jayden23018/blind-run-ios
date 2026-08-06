@@ -53,6 +53,10 @@ jobs:
       - name: validate frozen-file guard
         run: node scripts/validate-guard.mjs
 
+      # Stop 钩子的循环兜底坏掉不会报错，只会让每次会话结束卡住。没有测试就发现不了。
+      - name: validate stop-checklist hook
+        run: node scripts/validate-stop-checklist.mjs
+
       - name: validate golden corpus alignment
         run: |
           if [ -f .backend/docs/voice-golden-corpus.json ]; then
