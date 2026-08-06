@@ -68,6 +68,39 @@ if (fs.existsSync(state)) {
   if (m) lines.push(`\`.claude/state.md\` 有待办小节：${m.map((s) => s.replace(/^#+\s*/, '')).join(' / ')}`);
 }
 
-if (lines.length) {
+// 「每台机器装一次」的那几项。装过之后没有任何地方显示它还在不在 ——
+// 于是每次都要重查 AGENTS.md 或重跑命令才敢下结论，这正是 §1 说的「反复查」。
+// 全绿时不输出：开场上下文已经够长，「一切正常」是噪声，只报缺口。
+export function localGuardrailWarnings({ prePushInstalled, forkUrl, pushUrls }) {
+  const out = [];
+  if (!prePushInstalled) {
+    out.push(
+      '⚠️ pre-push 钩子未装 —— 那 4 条读后端契约的门禁在本地一条都不会跑，而它们在上游 CI 上是 warning 空过。装：`scripts/install-git-hooks.sh`'
+    );
+  }
+  if (!forkUrl) {
+    out.push(
+      '⚠️ 没有名为 `fork` 的 remote —— fork 上那套真跑契约门禁的 CI 不会被你的 push 触发。加：`git remote add fork <你的 fork URL>` 后重跑 `scripts/install-git-hooks.sh`'
+    );
+  } else if (!pushUrls.includes(forkUrl)) {
+    // 有 fork 却没进 pushurl：多半是先加了 remote、装钩子脚本没重跑，或后来 remote 改了 URL。
+    out.push(
+      `⚠️ 双推未生效 —— \`git push origin\` 不会推到 ${forkUrl}，fork 上的契约 CI 等于没配。修：重跑 \`scripts/install-git-hooks.sh\``
+    );
+  }
+  return out;
+}
+
+lines.push(
+  ...localGuardrailWarnings({
+    prePushInstalled: fs.existsSync(path.join(root, '.git/hooks/pre-push')),
+    forkUrl: git('remote', 'get-url', 'fork'),
+    pushUrls: git('config', '--get-all', 'remote.origin.pushurl').split('\n').filter(Boolean),
+  })
+);
+
+// import 时不输出 —— 自测要 import 这个模块拿 localGuardrailWarnings。
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename);
+if (lines.length && isMain) {
   process.stdout.write(`AidRun 仓库当前状态（由 session-context hook 自动生成）：\n- ${lines.join('\n- ')}\n`);
 }

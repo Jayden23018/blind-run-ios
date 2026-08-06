@@ -76,6 +76,11 @@ jobs:
       - name: validate stop-checklist hook
         run: node scripts/validate-stop-checklist.mjs
 
+      # SessionStart 钩子里「本机护栏装没装」的告警分支：在任何配置齐全的机器上
+      # 都走不到，坏了只会安静地不再提醒 —— 而提醒就是它的全部作用。
+      - name: validate session-context hook
+        run: node scripts/validate-session-context.mjs
+
       - name: validate golden corpus alignment
         run: |
           if [ -f .backend/docs/voice-golden-corpus.json ]; then

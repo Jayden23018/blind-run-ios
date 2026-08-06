@@ -156,6 +156,13 @@ REMATCHING → CANCELLED（只能盲人 token）
 2. 再读相关 docs 与 OpenSpec
 3. 判一次这活要不要派 subagent —— 判定表在全局 `~/.claude/CLAUDE.md` 的「委派」节，**本文件不留副本**（理由同 §7：两份会漂移）。一句话版：定位/摘要/读日志外包，设计与编辑自己干
 
+> 开场不用手查的那几条事实由 SessionStart 钩子 `scripts/hooks/session-context.mjs` 自动注入：
+> 分支与脏文件数、未归档 OpenSpec 变更、后端契约可读性，以及**本机护栏三项**
+> （pre-push 钩子装没装 / 有没有 `fork` remote / 双推配没配）。
+> 三项全绿时不输出 —— 每轮都响的提醒会被无视，报缺口才有信息量。
+> 自测 `scripts/validate-session-context.mjs`（6 条，CI 与 pre-push 都跑）：
+> 配齐的机器永远走不到告警分支，坏了只会安静地不再提醒。
+
 **实现中**
 
 4. 一次只实现一个内聚模块
