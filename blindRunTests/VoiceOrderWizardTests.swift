@@ -692,6 +692,93 @@ final class VoiceOrderWizardTests: XCTestCase {
         }
     }
 
+    /// **端到端**：真人原话经真正的 `MockAPIClient` 走完整条链路，时间必须落到向导上。
+    ///
+    /// 上一条只调了 `mockVoiceStartTime`，那是链路的**第一环**。它绿着而真机仍然「识别不了时间点」，
+    /// 说明断点在后面几环里：`handleVoiceParseOrder` 组响应 → `mockBackendLocalDateTime` 格式化
+    /// → `backendLocalDate` 解回来 → `didCaptureStartTime` 置位。只测第一环等于没测。
+    func testRealUtteranceCapturesTheStartTimeThroughTheRealMockClient() async {
+        let client = MockAPIClient()
+        client.syncSessionFromAppState(token: "mock_jwt_token_test", role: .blind)
+        let bookingViewModel = BlindBookingViewModel()
+        let wizard = VoiceOrderWizard()
+        wizard.configure(
+            bookingViewModel: bookingViewModel,
+            speechService: SpeechService(), // guard:allow weak-temporary
+            speechInputService: SpeechInputService(), // guard:allow weak-temporary
+            apiClient: client
+        )
+        wizard.startForTesting(at: .freeform)
+
+        await wizard.submitTranscript("明天早上八点钟从阳光棕榈园跑")
+
+        XCTAssertTrue(
+            wizard.didCaptureStartTime,
+            "整条链路没把时间带过来 —— 真机「识别不了时间点」就是这一条"
+        )
+        let spoken = wizard.lastSpokenPrompt ?? ""
+        XCTAssertFalse(spoken.contains("预约时间还没说"), "读回仍然说没听到时间：\(spoken)")
+    }
+
+    /// iOS 的 `SFSpeechRecognizer` 对同一句话有多种输出形式，Mock 必须都认。
+    ///
+    /// 诊断用：真机说「明天早上八点钟」而时间抽不出，但端到端用例是绿的 —— 说明识别出的字面
+    /// 不是我们假设的那个。把现实中可能的形式一次全列出来，绿的排除、红的就是断点。
+    func testRealisticRecognizerOutputsForTheSameSpokenTime() {
+        let variants = [
+            "明天早上八点钟从阳光棕榈园跑",
+            "明天早上8点钟从阳光棕榈园跑",
+            "明天早上8点从阳光棕榈园跑",
+            "明天早上8:00从阳光棕榈园跑",
+            "明天早上8：00从阳光棕榈园跑",
+            "明天早上八点半从阳光棕榈园跑",
+            "明天上午八点从阳光棕榈园跑",
+            "明天早上八点，从阳光棕榈园跑"
+        ]
+        var failures: [String] = []
+        for variant in variants where MockAPIClient.mockVoiceStartTime(in: variant) == nil {
+            failures.append(variant)
+        }
+        XCTAssertTrue(failures.isEmpty, "这些识别形式抽不出时间：\(failures)")
+    }
+
+    /// 冒号形式解出来的必须是**正确的时分**，不能只是「没返回 nil」。
+    func testColonClockTimeResolvesToTheRightHourAndMinute() {
+        let cases: [(String, Int, Int)] = [
+            ("明天早上8:00出发", 8, 0),
+            ("明天早上8：30出发", 8, 30),
+            ("明天18:45出发", 18, 45),
+            // 时段词对冒号形式同样生效：识别成 `3:00` 时「下午」是唯一的 12/24 制线索
+            ("明天下午3:00出发", 15, 0)
+        ]
+        for (transcript, hour, minute) in cases {
+            guard let parsed = MockAPIClient.mockVoiceStartTime(in: transcript) else {
+                XCTFail("「\(transcript)」抽不出时间")
+                continue
+            }
+            let components = Calendar.current.dateComponents([.hour, .minute], from: parsed)
+            XCTAssertEqual(components.hour, hour, "「\(transcript)」的小时不对")
+            XCTAssertEqual(components.minute, minute, "「\(transcript)」的分钟不对")
+        }
+    }
+
+    /// 「8点半」的半小时不能被静默抹掉。
+    ///
+    /// 原来只查中文形式「八点半」，识别输出阿拉伯数字时半小时被悄悄归零 ——
+    /// 对听不见屏幕的人，静默改掉他说的时间就是一次无声的篡改。
+    func testHalfPastIsRecognisedForArabicDigitsToo() {
+        for transcript in ["明天早上8点半出发", "明天早上八点半出发"] {
+            guard let parsed = MockAPIClient.mockVoiceStartTime(in: transcript) else {
+                XCTFail("「\(transcript)」抽不出时间")
+                continue
+            }
+            XCTAssertEqual(
+                Calendar.current.component(.minute, from: parsed), 30,
+                "「\(transcript)」的半小时被抹掉了"
+            )
+        }
+    }
+
     /// 同一句话里的地点：「阳光棕榈园」不在 Mock 的关键词表里，抽不出是**预期**的。
     /// 这条断言存在的意义是把「预期抽不出」写死，免得下次又被当成客户端 bug 查一遍。
     func testRealUtterancePlaceIsKnownlyUnsupportedByMock() {

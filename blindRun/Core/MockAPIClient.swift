@@ -1564,17 +1564,46 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return nil
     }
 
-    /// 「八点半」「下午三点」→ 24 小时制时分。时段词负责 12 小时制换算。
+    /// 「八点半」「下午三点」「8:00」→ 24 小时制时分。时段词负责 12 小时制换算。
     private static func clockTime(in transcript: String) -> (hour: Int, minute: Int)? {
-        guard var hour = chineseNumber(before: "点", in: transcript), (1...24).contains(hour) else {
+        guard var parsed = colonClockTime(in: transcript) ?? spokenClockTime(in: transcript) else {
+            return nil
+        }
+        if parsed.hour < 12,
+           transcript.contains("下午") || transcript.contains("晚上") || transcript.contains("傍晚") {
+            parsed.hour += 12
+        }
+        return parsed
+    }
+
+    /// 冒号钟点：`8:00`、`8：00`、`18:30`。
+    ///
+    /// **这条在黄金语料里找不到依据，是照真机实况补的。** 语料 13 条 START_TIME 全是
+    /// 「明天早上八点」这种中文数字加「点」的写法，而 iOS 的 `SFSpeechRecognizer` 说中文时
+    /// 经常把「八点钟」直接渲染成 `8:00` —— 句子里连「点」字都没有，原来那条规则一定抽不出。
+    /// 2026-08-06 真机手测「说了时间但识别不了时间点」就是这一条（已提给后端，见 handoff）。
+    private static func colonClockTime(in transcript: String) -> (hour: Int, minute: Int)? {
+        guard let range = transcript.range(of: #"\d{1,2}[:：]\d{2}"#, options: .regularExpression) else {
+            return nil
+        }
+        let parts = transcript[range].split(whereSeparator: { $0 == ":" || $0 == "：" })
+        guard parts.count == 2,
+              let hour = Int(parts[0]), let minute = Int(parts[1]),
+              (0...24).contains(hour), (0..<60).contains(minute) else { return nil }
+        return (hour, minute)
+    }
+
+    /// 「N点」「N点半」。N 中文与阿拉伯数字都认。
+    private static func spokenClockTime(in transcript: String) -> (hour: Int, minute: Int)? {
+        guard let hour = chineseNumber(before: "点", in: transcript), (1...24).contains(hour) else {
             return nil
         }
         // 「N点半」只认紧跟在「点」后面的「半」，避免「八点跑半小时」被读成 08:30。
-        let minute = transcript.contains("\(chineseDigits[hour] ?? "")点半") ? 30 : 0
-        if hour < 12, transcript.contains("下午") || transcript.contains("晚上") || transcript.contains("傍晚") {
-            hour += 12
-        }
-        return (hour, minute)
+        // 两种写法都要查：识别输出「8点半」时，只查中文形式「八点半」会漏掉，
+        // 半小时就被静默抹成整点 —— 对听不见屏幕的人，这是一次无声的篡改。
+        let isHalfPast = transcript.contains("\(chineseDigits[hour] ?? "")点半")
+            || transcript.contains("\(hour)点半")
+        return (hour, isHalfPast ? 30 : 0)
     }
 
     /// 汉字数字 → 整数，只覆盖 Mock 语料需要的 1~59。找 `suffix` 前面那一段来解。
