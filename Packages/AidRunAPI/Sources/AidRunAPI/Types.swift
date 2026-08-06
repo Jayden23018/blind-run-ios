@@ -2824,21 +2824,21 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/status`.
             public var status: Components.Schemas.OrderDetailResponse.statusPayload
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/startAddress`.
-            public var startAddress: Swift.String?
+            public var startAddress: Swift.String
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/startLatitude`.
-            public var startLatitude: Swift.Double?
+            public var startLatitude: Swift.Double
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/startLongitude`.
-            public var startLongitude: Swift.Double?
+            public var startLongitude: Swift.Double
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/plannedStart`.
-            public var plannedStart: Swift.String?
+            public var plannedStart: Swift.String
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/plannedEnd`.
-            public var plannedEnd: Swift.String?
+            public var plannedEnd: Swift.String
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerPhone`.
             public var volunteerPhone: Swift.String?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/acceptedAt`.
             public var acceptedAt: Swift.String?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/createdAt`.
-            public var createdAt: Swift.String?
+            public var createdAt: Swift.String
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/expectedDurationMinutes`.
             public var expectedDurationMinutes: Swift.Int32?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/pacePreference`.
@@ -2914,14 +2914,14 @@ public enum Components {
             public init(
                 orderId: Swift.Int64,
                 status: Components.Schemas.OrderDetailResponse.statusPayload,
-                startAddress: Swift.String? = nil,
-                startLatitude: Swift.Double? = nil,
-                startLongitude: Swift.Double? = nil,
-                plannedStart: Swift.String? = nil,
-                plannedEnd: Swift.String? = nil,
+                startAddress: Swift.String,
+                startLatitude: Swift.Double,
+                startLongitude: Swift.Double,
+                plannedStart: Swift.String,
+                plannedEnd: Swift.String,
                 volunteerPhone: Swift.String? = nil,
                 acceptedAt: Swift.String? = nil,
-                createdAt: Swift.String? = nil,
+                createdAt: Swift.String,
                 expectedDurationMinutes: Swift.Int32? = nil,
                 pacePreference: Components.Schemas.OrderDetailResponse.pacePreferencePayload? = nil,
                 routePreference: Components.Schemas.OrderDetailResponse.routePreferencePayload? = nil,
@@ -3574,21 +3574,21 @@ public enum Components {
         /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder`.
         public struct VolunteerDispatchActiveOrder: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/orderId`.
-            public var orderId: Swift.Int64?
+            public var orderId: Swift.Int64
             /// 订单状态枚举名（IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED）
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/status`.
-            public var status: Swift.String?
+            public var status: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/plannedStartTime`.
-            public var plannedStartTime: Swift.String?
+            public var plannedStartTime: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/plannedEndTime`.
-            public var plannedEndTime: Swift.String?
+            public var plannedEndTime: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/startAddress`.
-            public var startAddress: Swift.String?
+            public var startAddress: Swift.String
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/startLatitude`.
-            public var startLatitude: Swift.Double?
+            public var startLatitude: Swift.Double
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/startLongitude`.
-            public var startLongitude: Swift.Double?
+            public var startLongitude: Swift.Double
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder/blindName`.
             public var blindName: Swift.String?
             /// 盲人手机号（已脱敏，如 138****0001）
@@ -3611,13 +3611,13 @@ public enum Components {
             ///   - blindPhoneMasked: 盲人手机号（已脱敏，如 138****0001）
             ///   - acceptedAt:
             public init(
-                orderId: Swift.Int64? = nil,
-                status: Swift.String? = nil,
-                plannedStartTime: Swift.String? = nil,
-                plannedEndTime: Swift.String? = nil,
-                startAddress: Swift.String? = nil,
-                startLatitude: Swift.Double? = nil,
-                startLongitude: Swift.Double? = nil,
+                orderId: Swift.Int64,
+                status: Swift.String,
+                plannedStartTime: Swift.String,
+                plannedEndTime: Swift.String,
+                startAddress: Swift.String,
+                startLatitude: Swift.Double,
+                startLongitude: Swift.Double,
                 blindName: Swift.String? = nil,
                 blindPhoneMasked: Swift.String? = nil,
                 acceptedAt: Swift.String? = nil
