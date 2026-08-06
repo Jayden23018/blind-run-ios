@@ -749,6 +749,84 @@ final class VoiceOrderWizardTests: XCTestCase {
         )
     }
 
+    // MARK: - 沉默不等于同意默认值
+    //
+    // 2026-08-06 真机：用户没听到起音提示、不知道麦克风开了，沉默着等；8 秒后系统判定
+    // 「他想用默认值」，念了一整单他从没说过的预约。原话是「他也没有经过我的同意」。
+    // 沉默的原因绝大多数是没听见 / 没听懂 / 还在想，不是「我接受默认值」。
+
+    /// 整句那一轮**什么都没听到**时必须重问，不能直接跳去读回默认整单。
+    func testTotalSilenceInFreeformReasksInsteadOfReadingBackDefaults() async {
+        let wizard = makeWizard(stub: VoiceOrderAPIClientStub(), startingAt: .freeform)
+
+        wizard.handleCompletionForTesting(
+            SpeechInputCompletion(
+                field: .voiceOrderFreeform,
+                recognizedText: "",
+                reason: .silenceTimeout(hadDetectedSound: false)
+            )
+        )
+
+        XCTAssertEqual(wizard.step, .freeform, "没听到任何话就跳去读回，等于替用户决定了整张订单")
+        XCTAssertEqual(wizard.reaskCount, 1)
+        XCTAssertNil(wizard.createdOrder)
+    }
+
+    /// 重问那句要**带例句** —— 听不见屏幕的人缺的是「我该说什么」，不是「再说一次」。
+    /// 调研 §6.6 引 Google 的错误处理规范：例子比解释有效。
+    func testFreeformSilenceReaskGivesAnExample() async {
+        let wizard = makeWizard(stub: VoiceOrderAPIClientStub(), startingAt: .freeform)
+
+        wizard.handleCompletionForTesting(
+            SpeechInputCompletion(
+                field: .voiceOrderFreeform,
+                recognizedText: "",
+                reason: .silenceTimeout(hadDetectedSound: false)
+            )
+        )
+
+        let spoken = wizard.lastSpokenPrompt ?? ""
+        XCTAssertTrue(spoken.contains("没有听到你说话"), "实际：\(spoken)")
+        XCTAssertTrue(spoken.contains("比如"), "重问必须给例句，实际：\(spoken)")
+    }
+
+    /// 连续沉默不会无限重问：两次之后交回表单，而不是把人按在麦克风前。
+    func testRepeatedSilenceEventuallyFallsBackToTheForm() async {
+        let wizard = makeWizard(stub: VoiceOrderAPIClientStub(), startingAt: .freeform)
+        let silence = SpeechInputCompletion(
+            field: .voiceOrderFreeform,
+            recognizedText: "",
+            reason: .silenceTimeout(hadDetectedSound: false)
+        )
+
+        for _ in 0..<VoiceOrderWizard.maximumReasksPerSlot {
+            wizard.handleCompletionForTesting(silence)
+        }
+
+        XCTAssertFalse(wizard.isRunning, "连续听不到就该交回表单，不能一直重问")
+        XCTAssertNotNil(wizard.fallbackMessage)
+        XCTAssertNil(wizard.createdOrder)
+    }
+
+    /// **说了话但抽不出槽位**那条路径不受影响 —— 用户确实说了，用默认值补齐并读回是对的，
+    /// 他能在读回里听出来。这条钉住上面三条没有把它一起改掉。
+    func testSpeakingSomethingUnparseableStillReadsBackInsteadOfReasking() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: nil, durationMinutes: nil, address: nil,
+                latitude: nil, longitude: nil,
+                missing: [.address, .startTime, .duration], needReask: true, ttsText: nil
+            )
+        ]
+        let wizard = makeWizard(stub: stub, startingAt: .freeform)
+
+        await wizard.submitTranscript("呃那个我想想")
+
+        XCTAssertEqual(wizard.step, .confirm, "说了话就该往读回走 —— 沉默才重问，这两件事不一样")
+        XCTAssertEqual(wizard.reaskCount, 0)
+    }
+
     // MARK: - 等 TTS 播完再开麦的上限
     //
     // 2026-08-06 真机手测：读回念到一半被切掉，麦克风当场打开。根因是这个上限写死 8 秒，

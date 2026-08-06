@@ -288,16 +288,24 @@ final class VoiceOrderWizard: ObservableObject {
         partialTranscript = ""
 
         guard completion.reason.shouldTriggerSearchWithRecognizedText, !transcript.isEmpty else {
-            // 整句这一轮什么都没听到：不重问，直接读回默认整单让用户确认或修改。
-            // 用户可能就是想「什么都不说，按默认下单」，重问只会挡着他。
-            guard step != .freeform else {
-                lastUtterance = nil
-                moveToConfirm()
-                return
-            }
-            reask(with: completion.reason == .error
-                  ? "语音识别没能启动，我再问一次。"
-                  : "没有听到你说话，我再问一次。")
+            // ~~整句这一轮什么都没听到：不重问，直接读回默认整单。用户可能就是想「什么都不说，
+            // 按默认下单」，重问只会挡着他。~~ **2026-08-06 真机手测推翻这条。**
+            //
+            // 实际发生的是：用户没听到起音提示（提示音走响铃通道、被静音拨杆关掉，见
+            // `RecordingCue`），根本不知道麦克风开了，于是沉默着等提示；8 秒后系统判定
+            // 「他想用默认值」，念了一整单他从没说过的预约 —— 时间是 30 分钟后、时长是默认档。
+            // 用户的原话是「他也没有经过我的同意」。
+            //
+            // 「沉默 = 同意默认值」这个假设本身就不成立，对看不见屏幕的人尤其不成立：
+            // 沉默的原因绝大多数是**没听见、没听懂、还在想**，而不是「我接受你的默认值」。
+            // 而这条路径的下一步就是读回 + 说「确认」成单，把一次没听清放大成一张真实订单。
+            //
+            // 现在整句轮和别的轮一样重问，共用 `maximumReasksPerSlot`（两次重问后交回表单）。
+            // 这也与调研 §6.6 一致：识别为空一律重问、上限 3 次，那一节本来就没有给整句开口子。
+            //
+            // 注意这**不影响**「说了话但抽不出槽位」那条路径 —— 那时 transcript 非空，
+            // 走 `parseFreeform` 用默认值补齐并读回，是对的：用户确实说了，他能在读回里听出来。
+            reask(with: silenceReaskMessage(for: completion.reason))
             return
         }
 
@@ -305,6 +313,21 @@ final class VoiceOrderWizard: ObservableObject {
         parseTask = Task { [weak self] in
             await self?.submitTranscript(transcript)
         }
+    }
+
+    /// 什么都没听到时说的那句话。
+    ///
+    /// 整句那一轮**带上例句**：调研 §6.6 引 Google 的错误处理规范 ——「例子比解释有效」，
+    /// 而听不见屏幕的人在这里缺的正是「我到底该说什么」，不是「再说一次」这个指令。
+    /// 其余轮次的提问本身就短且带例子（见 `Step.prompt`），重复一遍反而拖长。
+    private func silenceReaskMessage(for reason: SpeechInputStopReason) -> String {
+        if reason == .error {
+            return "语音识别没能启动，我再问一次。"
+        }
+        if step == .freeform {
+            return "没有听到你说话。请说你想从哪儿出发、什么时候跑、跑多久，比如：明天早上八点从人民广场出发跑一个小时。"
+        }
+        return "没有听到你说话，我再问一次。"
     }
 
     /// 把一段转录文本交给当前这一轮的处理逻辑。
@@ -621,6 +644,15 @@ final class VoiceOrderWizard: ObservableObject {
         self.step = step
         reaskCount = 0
         fallbackMessage = nil
+    }
+
+    /// 把一次录音完成回调直接喂进来，不碰麦克风。
+    ///
+    /// `submitTranscript` 进不了这条路径：它从**有转录文本**的地方开始，而这里要验的恰恰是
+    /// 「一个字都没听到」时的分支 —— 2026-08-06 那张「没经用户同意的默认订单」就出在这里，
+    /// 而它此前一条断言都没有。
+    func handleCompletionForTesting(_ completion: SpeechInputCompletion) {
+        handle(completion)
     }
     #endif
 

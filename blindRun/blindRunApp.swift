@@ -43,6 +43,10 @@ struct blindRunApp: App {
                     applyUITestLaunchConfigurationIfNeeded()
                     injectUITestRealtimeNotificationsIfNeeded()
                     #endif
+                    // 在任何一句播报之前把音频分类定下来。不做的话冷启动到第一次录音之间
+                    // 会话一直是系统默认的 `.soloAmbient`，合成器得自己去协商，第一句话
+                    // 因此有一段能听出来的延迟（2026-08-06 真机报的「点开始约跑之后要等一下」）。
+                    speechInputService.prepareForPlaybackAtLaunch()
                     configurePushNotifications()
                     Task { await appState.restoreSession() }
                 }

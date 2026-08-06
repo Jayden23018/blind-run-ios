@@ -87,17 +87,35 @@ final class SystemSpeechAudioSession: SpeechAudioSessionManaging {
 /// 的评测原话是「感觉从没找真实盲人测试过」；另一条对 iMessage 语音消息的抱怨是「打开就开始录，
 /// 很难干净地停下来，唯一的反馈是结束时的一声」。屏幕上的波形动画对全盲用户是零价值。
 ///
-/// 声音走系统自带的 `begin_record` / `end_record`（1113 / 1114），与系统听写、相机用的是同一套，
-/// 用户已经认得。震动是为了外放静音或戴耳机时仍然可感知 —— 两条通道互为备份，不是重复。
+/// ~~声音走系统自带的 `begin_record` / `end_record`（1113 / 1114）~~ —— **2026-08-06 真机推翻。**
 ///
+/// `AudioServicesPlaySystemSound` 走的是**响铃 / 系统提示音通道**，受侧面静音拨杆和响铃音量控制；
+/// 而 TTS 走**媒体通道**，是另一套独立音量。于是出现了真机上那个现象：合成器念得清清楚楚，
+/// 起止提示一声都没有 —— 用户的响铃是静音的，而他没有任何理由知道这件事。
+///
+/// **对全盲用户，这条提示不是通知，是他判断「麦克风开没开」的唯一非视觉信号，
+/// 不能挂在一个他看不见、也想不到要去检查的物理开关上。** 所以改成自己合成一小段纯音、
+/// 用 `AVAudioPlayer` 走 App 自己的音频会话播 —— 和 TTS 同一条通道，TTS 听得见它就听得见。
+///
+/// 两个音高可区分（Alexa 的 attention system 要求起止两个 earcon 音色不同）：起音 880 Hz、
+/// 收音 587 Hz，各 120 ms，首尾 8 ms 淡入淡出防爆音。
+///
+/// 震动是为了戴耳机或环境嘈杂时仍然可感知 —— 两条通道互为备份，不是重复。
 /// 触觉的语义按 Apple 文档分工：开始是「此刻发生了一件事」用 impact，结束是「一段过程完成了」
 /// 用 notification。
 @MainActor
 enum RecordingCue {
     enum Kind: Equatable { case begin, end }
 
-    private static let beginSoundID: SystemSoundID = 1113
-    private static let endSoundID: SystemSoundID = 1114
+    /// 播放器必须被持有，否则出了作用域就停 —— 提示音只有 120 ms，丢掉等于没响。
+    private static var player: AVAudioPlayer?
+
+    static let beginToneFrequency: Double = 880
+    static let endToneFrequency: Double = 587
+    static let toneDuration: TimeInterval = 0.12
+
+    static let beginToneData = ToneSynthesizer.wav(frequency: beginToneFrequency, duration: toneDuration)
+    static let endToneData = ToneSynthesizer.wav(frequency: endToneFrequency, duration: toneDuration)
 
     #if DEBUG
     /// 测试替身。设了就**接管**发声与震动（跑测时不该真的响、真的震），并记下发生了哪一次。
@@ -121,16 +139,79 @@ enum RecordingCue {
         #endif
         switch kind {
         case .begin:
-            AudioServicesPlaySystemSound(beginSoundID)
+            playTone(beginToneData)
             // 不 `prepare()` 的话首次触发常被系统丢掉 —— 而首次正是最要紧的那次：
             // 用户刚进语音下单，还不知道麦克风开没开。
             let generator = UIImpactFeedbackGenerator(style: .light)
             generator.prepare()
             generator.impactOccurred()
         case .end:
-            AudioServicesPlaySystemSound(endSoundID)
+            playTone(endToneData)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
+    }
+
+    /// 提示音放不出来**不该影响录音本身** —— 少一声提示是可用性损失，抛出去会把整条语音路径带崩。
+    private static func playTone(_ data: Data) {
+        do {
+            let tonePlayer = try AVAudioPlayer(data: data)
+            tonePlayer.volume = 1
+            player = tonePlayer
+            tonePlayer.play()
+        } catch {
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "AidRun", category: "SpeechInput")
+                .error("录音提示音播放失败：\(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
+
+// MARK: - Tone Synthesizer
+
+/// 就地合成一小段 16-bit 单声道 PCM 纯音，包成 WAV 交给 `AVAudioPlayer`。
+///
+/// 为什么不打包音频资源：起止两声各 120 ms 的正弦波，合成比维护两个二进制资源更简单，
+/// 也不用动 `project.pbxproj`。为什么不用 `AudioServicesPlaySystemSound`：见 `RecordingCue` 的说明，
+/// 那条走响铃通道，会被静音拨杆关掉。
+enum ToneSynthesizer {
+    static let sampleRate = 44_100
+
+    /// 首尾各 8 ms 淡入淡出。直接切方波边缘会有「咔」的爆音，对贴着耳朵听的用户尤其难受。
+    static let fadeSeconds = 0.008
+
+    static func wav(frequency: Double, duration: TimeInterval, amplitude: Double = 0.6) -> Data {
+        let frameCount = Int(Double(sampleRate) * duration)
+        var pcm = Data(capacity: frameCount * 2)
+        for frame in 0..<frameCount {
+            let time = Double(frame) / Double(sampleRate)
+            let envelope = max(0, min(min(time, duration - time) / fadeSeconds, 1))
+            let value = sin(2 * .pi * frequency * time) * envelope * amplitude
+            var sample = Int16(max(-1, min(1, value)) * Double(Int16.max))
+            withUnsafeBytes(of: &sample) { pcm.append(contentsOf: $0) }
+        }
+        return container(pcm: pcm)
+    }
+
+    private static func container(pcm: Data, channels: Int = 1, bitsPerSample: Int = 16) -> Data {
+        var data = Data()
+        func append<T: FixedWidthInteger>(_ value: T) {
+            var littleEndian = value.littleEndian
+            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
+        }
+        data.append(contentsOf: Array("RIFF".utf8))
+        append(UInt32(36 + pcm.count))
+        data.append(contentsOf: Array("WAVE".utf8))
+        data.append(contentsOf: Array("fmt ".utf8))
+        append(UInt32(16))
+        append(UInt16(1)) // PCM
+        append(UInt16(channels))
+        append(UInt32(sampleRate))
+        append(UInt32(sampleRate * channels * bitsPerSample / 8))
+        append(UInt16(channels * bitsPerSample / 8))
+        append(UInt16(bitsPerSample))
+        data.append(contentsOf: Array("data".utf8))
+        append(UInt32(pcm.count))
+        data.append(pcm)
+        return data
     }
 }
 
@@ -248,6 +329,30 @@ final class SpeechInputService: ObservableObject {
 
     init(audioSession: (any SpeechAudioSessionManaging)? = nil) {
         self.audioSession = audioSession ?? SystemSpeechAudioSession()
+    }
+
+    /// 启动时就把音频分类定下来。**由 `blindRunApp` 在启动阶段调一次。**
+    ///
+    /// 在此之前，整个 App **从来没有人配过音频会话** —— `setCategory` 只出现在本类里，
+    /// 而它只在第一次开麦时才跑。也就是说冷启动到第一次录音之间，会话一直是系统默认的
+    /// `.soloAmbient`，合成器要自己去协商一个会话，第一句话因此有一段可感知的延迟
+    /// （2026-08-06 真机报的「点开始约跑之后要等一下才开始读」）。
+    ///
+    /// **只配分类，不激活**：激活会立刻打断用户正在听的音乐，而这时候我们还没有任何话要说。
+    /// 分类本身不打断，只是让随后合成器的隐式激活落在 `.playback` 上，而不是随机的默认值。
+    /// 取的值与 `restorePlaybackAudioSession()` 完全一致 —— 冷启动状态和录音结束后的状态
+    /// 从此是同一个，少一种需要单独推理的情形。
+    ///
+    /// 刻意**不放进 `init`**：那会让每一个构造出替身的用例都先记一次会话操作，
+    /// 而它们断言的是「录音停下来时依次做了什么」，多一条开头就全错。构造函数做音频 I/O
+    /// 本身也是意外行为 —— 启动该做的事就写在启动那一段里。
+    func prepareForPlaybackAtLaunch() {
+        do {
+            try audioSession.configurePlaybackCategory()
+        } catch {
+            // 配不上不该挡住 App 起来：合成器仍会自己协商一个会话，只是回到从前那样有延迟。
+            logger.error("启动时配置播放音频分类失败：\(error.localizedDescription, privacy: .public)")
+        }
     }
 
     var activeFieldId: String? {

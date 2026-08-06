@@ -3422,6 +3422,70 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(cues(), [], "授权被拒的这一路从头到尾没开过麦克风，不该有任何提示音")
     }
 
+    /// 启动时必须把音频分类配成播放，否则冷启动第一句播报要等合成器自己去协商会话。
+    ///
+    /// 在这条之前，整个 App 的 `setCategory` 只在第一次开麦时才跑 —— 冷启动到那之前会话是
+    /// 系统默认的 `.soloAmbient`。2026-08-06 真机报的「点开始约跑之后要等一下才开始读」是这条。
+    func testLaunchPreparesThePlaybackCategoryBeforeAnythingIsSpoken() {
+        let audioSession = MockSpeechAudioSession()
+        let service = SpeechInputService(audioSession: audioSession)
+        XCTAssertEqual(audioSession.operations, [], "构造函数不该碰音频会话")
+
+        service.prepareForPlaybackAtLaunch()
+
+        XCTAssertEqual(
+            audioSession.operations,
+            ["configurePlayback"],
+            "启动只配分类、不激活 —— 激活会当场打断用户正在听的音乐，而这时我们还没有话要说"
+        )
+    }
+
+    /// 起止提示音必须走**媒体通道**，不能走响铃 / 系统提示音通道。
+    ///
+    /// 2026-08-06 真机：合成器念得清清楚楚，起止提示一声都没有。根因是
+    /// `AudioServicesPlaySystemSound` 走响铃通道，受侧面静音拨杆和响铃音量控制，
+    /// 而 TTS 走媒体通道 —— iOS 上这是两套独立音量。**对全盲用户，这条提示是他判断
+    /// 「麦克风开没开」的唯一非视觉信号，不能挂在一个他看不见、也想不到要检查的物理开关上。**
+    ///
+    /// 改成自己合成纯音、用 `AVAudioPlayer` 走 App 自己的会话播。这条断言锁的是「音频数据
+    /// 真的能被解出来」—— 合成器写错一个字节头，提示音就又静悄悄地消失了，而那正是上一次
+    /// 它消失时的样子：代码在，没人听得见。
+    func testRecordingCueTonesAreDecodableAudioOnTheMediaChannel() throws {
+        for (name, data) in [("起音", RecordingCue.beginToneData), ("收音", RecordingCue.endToneData)] {
+            let player = try AVAudioPlayer(data: data)
+            XCTAssertEqual(
+                player.duration,
+                RecordingCue.toneDuration,
+                accuracy: 0.01,
+                "\(name)提示音时长不对，WAV 头多半写错了"
+            )
+            XCTAssertGreaterThan(player.numberOfChannels, 0, "\(name)提示音没有声道")
+        }
+        XCTAssertNotEqual(
+            RecordingCue.beginToneData,
+            RecordingCue.endToneData,
+            "起止两声必须可区分 —— 音色一样等于只告诉用户「有事发生」，没告诉他是开始还是结束"
+        )
+    }
+
+    /// 合成出来的必须是**有声音**的，不是一段静音。
+    ///
+    /// WAV 头写对、时长也对，但采样点全是 0 的话，`AVAudioPlayer` 照样能解、照样「播放成功」，
+    /// 而用户什么都听不见 —— 上面那条断言抓不到这种。
+    func testSynthesizedToneIsNotSilence() {
+        let data = ToneSynthesizer.wav(frequency: 880, duration: 0.12)
+        let header = 44
+        let samples = data.dropFirst(header)
+
+        XCTAssertFalse(samples.isEmpty, "没有采样数据")
+        let peak = stride(from: 0, to: samples.count - 1, by: 2).map { offset -> Int16 in
+            let index = samples.startIndex + offset
+            return Int16(littleEndian: Int16(samples[index]) | (Int16(samples[index + 1]) << 8))
+        }.map { abs(Int32($0)) }.max() ?? 0
+
+        XCTAssertGreaterThan(peak, 1000, "采样点几乎全是 0 —— 播放器会「成功播放」一段静音，用户什么都听不见")
+    }
+
     /// 开麦头一小段的音量检测要丢掉 —— 那是自己放出来的起音提示。
     ///
     /// 录音分类改成 `.playAndRecord` 后，起音提示是真的从扬声器出去的，而 `.measurement` 模式没有
