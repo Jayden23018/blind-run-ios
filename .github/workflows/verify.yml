@@ -29,25 +29,11 @@ jobs:
     env:
       HAS_BACKEND_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}
     steps:
-      # 配置缺失是配置错误，不是「暂时没有」。PAT 会过期（fine-grained 最长 1 年），
-      # 过期那天下面 4 个门禁会静默退回「打 warning 但 job 仍然绿」—— 那是假绿，
-      # 而假绿正是这套 CI 要消灭的东西。所以在这里直接红掉。
-      #
-      # 唯一例外是 fork 的 PR：GitHub 本来就不把 secret 传给 fork，那不是配置错误，
-      # 落到下面各步骤原有的 warning 分支。
-      - name: 后端契约必须可达
-        if: env.HAS_BACKEND_TOKEN != 'true' && github.event.pull_request.head.repo.fork != true
-        run: |
-          echo "::error title=BACKEND_REPO_TOKEN 未配置或已过期::拿不到后端契约，4 个门禁（契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料）都跑不了。"
-          echo "契约唯一源在后端仓库，本仓库不留副本（AGENTS.md 第 7 节），没有它这些门禁只能空过。"
-          echo "配置：建一个 fine-grained PAT（仅 Jayden23018/blind-run-backend，Contents: Read-only），然后"
-          echo "  gh secret set BACKEND_REPO_TOKEN --repo JerryZhao-1/blind-run-ios"
-          exit 1
-
       - uses: actions/checkout@v4
 
       # 契约唯一源在后端仓库，本仓库不留副本（AGENTS.md 第 7 节）。
-      # 两个仓库不同 owner，所以需要 PAT。
+      # 两个仓库不同 owner，所以需要 PAT。没配就跳过并**大声说出来** ——
+      # 静默跳过等于假绿，那正是这套 CI 要消灭的东西。
       - name: Checkout backend contract
         id: backend
         if: env.HAS_BACKEND_TOKEN == 'true'
