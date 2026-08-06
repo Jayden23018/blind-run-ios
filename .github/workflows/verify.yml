@@ -11,6 +11,15 @@ on:
   pull_request:
   push:
     branches: [main, 'integrate/**']
+  # 每天跑一次，为的是 push 触发天生抓不到的那一类：**你 push 之后后端才改契约**。
+  # pre-push 只在你 push 那一刻看一眼，之后代码悄悄过期，没有任何东西会说话。
+  #
+  # 定时任务只在仓库的**默认分支**上跑：
+  #   · fork（Jayden23018）默认分支是 integrate/swift-migration，且配了 BACKEND_REPO_TOKEN → 真跑
+  #   · 上游（JerryZhao-1）默认分支是 main，main 上没有本文件 → 不会触发，不产生噪音
+  # 错开整点：整点是 GitHub 的排队高峰，会被延迟很久。
+  schedule:
+    - cron: '17 1 * * *'   # UTC 01:17 = 北京时间 09:17
   workflow_dispatch:
 
 concurrency:

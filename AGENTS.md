@@ -208,11 +208,36 @@ scripts/dual-device-validation.sh
 后三条要读后端仓库。装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
 CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑不了真机 XCTest**。
 
-**读后端仓库的那 4 条（契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料）在 CI 上永远是
-warning 空过**，别以为 CI 绿了就代表它们过了。原因是死结：后端仓库私有且 owner 是
-`Jayden23018`，本 iOS 仓库 owner 是 `JerryZhao-1` 而我们不是它的 admin，配不了
-`BACKEND_REPO_TOKEN`。所以这 4 条**只在本地 pre-push 跑**，没装钩子等于没跑。
-钩子会先校验 `../demo` 与其 `origin/main` 一致 —— 停在特性分支或工作区脏着时，
+### 读后端仓库的那 4 条门禁在哪跑（2026-08-06 定型，别再重新推导一遍）
+
+契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料这 4 条需要读后端私有仓库，跑在**三个不同的地方**：
+
+| 位置 | 这 4 条 | 说明 |
+|---|---|---|
+| 上游 `JerryZhao-1/blind-run-ios` | ⚠️ **warning 空过** | 我们不是它的 admin，配不了 secret。**上游 CI 绿 ≠ 契约对过了** |
+| fork `Jayden23018/blind-run-ios` | ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
+| 本地 pre-push | ✅ 真跑 | 读 `../demo`，装钩子后每次 push 自动 |
+
+**fork 的既定配置**（改动前先知道，别当成异常）：
+
+- 默认分支被**故意**设成 `integrate/swift-migration`，不是 `main` —— `workflow_dispatch`
+  和 `schedule` 都只认默认分支，而 `main` 上没有 `verify.yml`。手动触发：
+  `gh workflow run verify.yml --repo Jayden23018/blind-run-ios --ref integrate/swift-migration`
+- `schedule` 每天 09:17（北京）跑一次。它抓的是 **push 触发天生抓不到的那类：你 push 之后
+  后端才改契约**。上游默认分支是 `main` 且 `main` 上没有本文件，所以定时跑不会在上游触发。
+- **fork 的 CI 红在 `Checkout backend contract`（403）= PAT 过期了**，不是代码坏了。
+  重建 PAT 后 `gh secret set BACKEND_REPO_TOKEN --repo Jayden23018/blind-run-ios`。
+- GitHub 会把连续 60 天无活动仓库的定时任务停掉。长期没推东西时留意一下。
+
+**推送必须两边都到**，否则 fork 上那套 CI 等于没配。`scripts/install-git-hooks.sh` 已把
+`git push origin` 配成同时推上游与 fork（前提是本机有名为 `fork` 的 remote），不靠人记：
+
+```bash
+git remote add fork https://github.com/Jayden23018/blind-run-ios.git   # 每台机器一次
+scripts/install-git-hooks.sh                                          # 装钩子 + 配双推
+```
+
+pre-push 会先校验 `../demo` 与其 `origin/main` 一致 —— 停在特性分支或工作区脏着时，
 这 4 条读的就不是契约本身，会直接拦下（逃生口 `AIDRUN_ALLOW_BACKEND_DRIFT=1`）。
 
 契约 fixture（真实响应回归，见 `blindRunTests/ContractFixtureTests.swift`）：

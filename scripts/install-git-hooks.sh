@@ -112,3 +112,26 @@ HOOK_BODY
 
 chmod +x "$HOOK"
 echo "已安装 $HOOK"
+
+# ── 双推：上游 + fork ───────────────────────────────────────────────────────
+#
+# 那 4 条契约门禁在上游仓库跑不了（配不了 secret，见 AGENTS.md 第 11 节），
+# 只在 fork 上真跑。于是「推了上游、忘了 fork」= 那套 CI 等于没配。
+#
+# 靠记性挡不住这种事（第 1 节说的就是它），所以让 `git push origin` 一次推两个地方，
+# 而不是写一句「记得两边都推」。
+#
+# 只在**已经有 fork remote** 的机器上生效 —— 不替别人凭空造一个指向某人 fork 的推送。
+# 需要它的机器先执行一次：
+#   git remote add fork https://github.com/<你的账号>/blind-run-ios.git
+FORK_URL="$(git remote get-url fork 2>/dev/null || true)"
+if [ -n "$FORK_URL" ]; then
+  UPSTREAM_URL="$(git remote get-url origin)"
+  # 先清空再加两条，重复执行不会越堆越多
+  git remote set-url --delete --push origin '.*' 2>/dev/null || true
+  git remote set-url --add --push origin "$UPSTREAM_URL"
+  git remote set-url --add --push origin "$FORK_URL"
+  echo "已配置双推：git push origin → $UPSTREAM_URL + $FORK_URL"
+else
+  echo "未配置双推：没有名为 fork 的 remote。若 CI 在 fork 上跑，先 git remote add fork <URL> 再重跑本脚本。"
+fi
