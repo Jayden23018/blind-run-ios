@@ -72,18 +72,41 @@ final class SystemSpeechAudioSession: SpeechAudioSessionManaging {
 ///
 /// 触觉的语义按 Apple 文档分工：开始是「此刻发生了一件事」用 impact，结束是「一段过程完成了」
 /// 用 notification。
+@MainActor
 enum RecordingCue {
+    enum Kind: Equatable { case begin, end }
+
     private static let beginSoundID: SystemSoundID = 1113
     private static let endSoundID: SystemSoundID = 1114
 
-    static func begin() {
-        AudioServicesPlaySystemSound(beginSoundID)
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    }
+    #if DEBUG
+    /// 测试替身。设了就**接管**发声与震动（跑测时不该真的响、真的震），并记下发生了哪一次。
+    ///
+    /// 这条接缝存在的理由不是「方便测试」，而是这段代码曾经因为**没有任何断言**被三份文档
+    /// 集体误判成「尚未实现」（2026-08-06 订正）。没有守卫的实现，和不存在的实现在下一个人
+    /// 眼里是一样的 —— 而对全盲用户，这是判断「麦克风开没开」的唯一非视觉信号。
+    static var observerForTesting: ((Kind) -> Void)?
+    #endif
 
-    static func end() {
-        AudioServicesPlaySystemSound(endSoundID)
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    static func begin() { emit(.begin) }
+
+    static func end() { emit(.end) }
+
+    private static func emit(_ kind: Kind) {
+        #if DEBUG
+        if let observerForTesting {
+            observerForTesting(kind)
+            return
+        }
+        #endif
+        switch kind {
+        case .begin:
+            AudioServicesPlaySystemSound(beginSoundID)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        case .end:
+            AudioServicesPlaySystemSound(endSoundID)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
     }
 }
 
@@ -363,6 +386,26 @@ final class SpeechInputService: ObservableObject {
         }
     }
 
+    /// 「起听成功」的状态转换 —— 生产路径与测试替身共用的唯一出口。
+    ///
+    /// 抽出来是因为替身此前**少做了四件事**（`isSpeechPathUnavailable` 复位、两个静音检测游标、
+    /// 以及起音提示 `RecordingCue.begin()`），于是「起音提示丢了」这类缺陷在测试里根本看不见。
+    /// 与 `clearRecognitionStartState` 是同一个理由：成功与失败各有一个共同出口，
+    /// 下一条新增的路径自动受益，而不是每个调用点各补一遍、各漏一遍。
+    ///
+    /// 计时器**刻意不在其中**：它依赖真实音频轮询，替身起了会在 8 秒后把自己停掉。
+    private func markRecognitionStarted() {
+        isListening = true
+        lastStopReason = nil
+        // 真的起听成功了，之前那次「语音链路不可用」的判断作废（授权可能刚被补授、recognizer 可能刚恢复）。
+        isSpeechPathUnavailable = false
+        recognitionStartedAt = Date()
+        lastSoundAt = nil
+        hasDetectedSound = false
+        currentRecognizedText = ""
+        RecordingCue.begin()
+    }
+
     private func isCurrentRecognitionSession(_ sessionID: UUID, field: SpeechInputField) -> Bool {
         recognitionSessionID == sessionID && activeField == field && !Task.isCancelled
     }
@@ -450,15 +493,7 @@ final class SpeechInputService: ObservableObject {
             return
         }
 
-        isListening = true
-        lastStopReason = nil
-        // 真的起听成功了，之前那次「语音链路不可用」的判断作废（授权可能刚被补授、recognizer 可能刚恢复）。
-        isSpeechPathUnavailable = false
-        recognitionStartedAt = Date()
-        RecordingCue.begin()
-        lastSoundAt = nil
-        hasDetectedSound = false
-        currentRecognizedText = ""
+        markRecognitionStarted()
         startStopTimers()
         announce("语音输入已开启，请说话。")
         recognitionTask = recognizer?.recognitionTask(with: request) { [weak self] result, error in
@@ -687,12 +722,9 @@ final class SpeechInputService: ObservableObject {
 
         recognitionSessionID = UUID()
         activeField = field
-        isListening = true
-        recognitionStartedAt = Date()
-        lastStopReason = nil
-        currentRecognizedText = ""
         announcementHandler = onAnnouncement
         completionHandler = onCompletion
+        markRecognitionStarted()
     }
 
     func failRecognitionStartupForTesting(_ message: String) {
@@ -730,8 +762,7 @@ final class SpeechInputService: ObservableObject {
         field: SpeechInputField
     ) {
         guard isCurrentRecognitionSession(sessionID, field: field) else { return }
-        isListening = true
-        recognitionStartedAt = Date()
+        markRecognitionStarted()
     }
 
     func finishRecognitionForTesting(

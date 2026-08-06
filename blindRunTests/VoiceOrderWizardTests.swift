@@ -467,12 +467,28 @@ final class VoiceOrderWizardTests: XCTestCase {
 
     // MARK: - 与后端黄金语料对齐
 
-    /// 后端 `demo/docs/voice-golden-corpus.json` 里 `source: "regex"` 的 DURATION 用例。
-    ///
-    /// 锁的是 **Mock 不许比真实解析器松或紧**：Mock 认得的说法真机上也要认得，Mock 认不得的
-    /// （语料里 `source: "llm"` 那几条）在开发期就该走到 `needReask` 分支，否则向导的重问路径
-    /// 永远没被走过，上真机才发现是死的。语料由后端维护，这里是它的 iOS 侧镜像。
+    // 后端 `demo/docs/voice-golden-corpus.json` 的 iOS 侧镜像，**四族 45 条全覆盖**。
+    //
+    // 锁的是 **Mock 不许比真实解析器松或紧**：Mock 认得的说法真机上也要认得，Mock 认不得的
+    // （语料里 `source: "llm"` 那几条）在开发期就该走到 `needReask` 分支，否则向导的重问路径
+    // 永远没被走过，上真机才发现是死的。
+    //
+    // ⚠️ 下面每个清单上方的 `golden-corpus:` 标记是给 `scripts/validate-golden-corpus.mjs` 认的，
+    // 别删。在 2026-08-06 之前那个脚本只比对 DURATION 的 11 条，另外 34 条既无镜像也无告警，
+    // 却照样打印「通过」—— 假绿比没有守卫更坏，因为它让人以为查过了。
+
+    /// 语料的时间基准。START_TIME 的期望值全是相对它算出的绝对时间戳，
+    /// 不钉住基准就验不出「过去的钟点滚次日」这条规则。
+    private static let corpusNow = "2026-07-24T10:00:00"
+
+    private func withCorpusClock(_ body: () -> Void) {
+        MockAPIClient.voiceClockForTesting = DateFormatter.aidRunBackendLocalDateTime.date(from: Self.corpusNow)
+        defer { MockAPIClient.voiceClockForTesting = nil }
+        body()
+    }
+
     func testMockDurationParsingMatchesTheBackendGoldenCorpus() {
+        // golden-corpus: DURATION regex
         let regexCases: [(transcript: String, expected: Int)] = [
             ("跑一小时", 60),
             ("跑一个小时", 60),
@@ -491,11 +507,151 @@ final class VoiceOrderWizardTests: XCTestCase {
             )
         }
 
+        // golden-corpus: DURATION llm
         // `source: "llm"` 的长尾表达：Mock 没有模型兜底，必须落到 needReask，不能瞎猜一个值。
         for transcript in ["随便说点什么", "陪我跑个把小时吧", "跑到我累了为止"] {
             XCTAssertNil(
                 MockAPIClient.mockVoiceMinutes(in: transcript),
                 "「\(transcript)」在 Mock 里不该被解析出数值"
+            )
+        }
+    }
+
+    /// START_TIME 13 条。这一族是 2026-08-06 才补上镜像的 —— 补之前 Mock 只认 5 个钟点、
+    /// 落点恒定是「明天」，10 条 regex 只对得上 3 条：说「今天八点半」被念成明天，
+    /// 说「下午三点」「半小时后」直接走重问，而线上这三种都解得出。
+    func testMockStartTimeParsingMatchesTheBackendGoldenCorpus() {
+        withCorpusClock {
+            // golden-corpus: START_TIME regex
+            let regexCases: [(transcript: String, expected: String)] = [
+                ("八点半", "2026-07-25T08:30:00"),
+                ("今天八点半", "2026-07-24T08:30:00"),
+                ("明天早上八点", "2026-07-25T08:00:00"),
+                ("后天上午九点", "2026-07-26T09:00:00"),
+                ("下午三点", "2026-07-24T15:00:00"),
+                ("晚上七点半", "2026-07-24T19:30:00"),
+                ("半小时后", "2026-07-24T10:30:00"),
+                ("两个小时后", "2026-07-24T12:00:00"),
+                ("四十分钟后", "2026-07-24T10:40:00"),
+                ("呃，明天早上八点吧", "2026-07-25T08:00:00")
+            ]
+            for testCase in regexCases {
+                let parsed = MockAPIClient.mockVoiceStartTime(in: testCase.transcript)
+                XCTAssertEqual(
+                    parsed.map(MockAPIClient.mockBackendLocalDateTime),
+                    testCase.expected,
+                    "Mock 与黄金语料漂移：「\(testCase.transcript)」（now=\(Self.corpusNow)）应为 \(testCase.expected)"
+                )
+            }
+
+            // golden-corpus: START_TIME llm
+            for transcript in ["随便说点什么", "明天差不多这个点吧", "等我吃完早饭吧"] {
+                XCTAssertNil(
+                    MockAPIClient.mockVoiceStartTime(in: transcript),
+                    "「\(transcript)」在 Mock 里不该被解析出时间"
+                )
+            }
+        }
+    }
+
+    /// 「八点半」滚次日这条规则单独再锁一次 —— 它是这一族里唯一**依赖 now** 的行为，
+    /// 上面那张表只要基准写错就会整体失效，而这条会指名道姓地失败。
+    func testAClockTimeAlreadyPastTodayRollsToTomorrowUnlessTodayIsSpoken() {
+        withCorpusClock {
+            let rolled = MockAPIClient.mockVoiceStartTime(in: "八点半")
+            XCTAssertEqual(
+                rolled.map(MockAPIClient.mockBackendLocalDateTime), "2026-07-25T08:30:00",
+                "now=10:00 时「八点半」必须滚到次日：返回今天 08:30 会被提前量校验判成「太近了」，"
+                    + "而用户压根没打算约今天"
+            )
+            XCTAssertEqual(
+                MockAPIClient.mockVoiceStartTime(in: "今天八点半").map(MockAPIClient.mockBackendLocalDateTime),
+                "2026-07-24T08:30:00",
+                "显式说了「今天」就不该滚 —— 那是用户的明确选择，该由提前量校验去拒绝"
+            )
+        }
+    }
+
+    /// ADDRESS 9 条。语料只断言**剥壳抽取**，不断言地理编码结果（语料 `_address_note`）：
+    /// 抽出「五角场」而 Mock 的地点表里查不到坐标，正是线上「抽到 span 但正向编码失败」的同形场景。
+    func testMockAddressSpanExtractionMatchesTheBackendGoldenCorpus() {
+        // golden-corpus: ADDRESS regex
+        let regexCases: [(transcript: String, expected: String)] = [
+            ("明天早上八点从五角场出发跑一小时", "五角场"),
+            ("我想在人民广场跑步", "人民广场"),
+            ("到中山公园那边跑四十分钟", "中山公园"),
+            ("从我家楼下出发", "我家楼下"),
+            ("在天安门集合", "天安门")
+        ]
+        for testCase in regexCases {
+            XCTAssertEqual(
+                MockAPIClient.mockVoiceAddressSpan(in: testCase.transcript),
+                testCase.expected,
+                "Mock 与黄金语料漂移：「\(testCase.transcript)」应抽出「\(testCase.expected)」"
+            )
+        }
+
+        // golden-corpus: ADDRESS llm
+        // 「从明天早上八点开始跑」这类最危险：壳字「从」在，但后面跟的是时间。
+        // 抽出来当地点就把人约到了一个不存在的起点，所以必须一条都不许命中。
+        for transcript in ["从明天早上八点开始跑", "从半小时后开始跑", "老地方见，跑一小时", "随便说点什么"] {
+            XCTAssertNil(
+                MockAPIClient.mockVoiceAddressSpan(in: transcript),
+                "「\(transcript)」不该被抽出地名"
+            )
+        }
+    }
+
+    /// GUIDE_DOG 6 条。`nil`（没提）与 `false`（明确不带）必须分得开 ——
+    /// 这个字段进派单硬过滤，混淆会让登记了导盲犬的用户被静默按「不带」派单。
+    func testMockGuideDogExtractionMatchesTheBackendGoldenCorpus() {
+        // golden-corpus: GUIDE_DOG regex
+        let regexCases: [(transcript: String, expected: Bool)] = [
+            ("明天八点从五角场出发跑一小时，我带导盲犬", true),
+            ("我牵着导盲犬", true),
+            ("今天不带导盲犬", false),
+            ("这次没带导盲犬", false)
+        ]
+        for testCase in regexCases {
+            XCTAssertEqual(
+                MockAPIClient.mockVoiceGuideDog(in: testCase.transcript),
+                testCase.expected,
+                "Mock 与黄金语料漂移：「\(testCase.transcript)」应为 \(testCase.expected)"
+            )
+        }
+
+        // golden-corpus: GUIDE_DOG none
+        for transcript in ["跑步的时候有狗叫", "明天八点从五角场出发跑一小时"] {
+            XCTAssertNil(
+                MockAPIClient.mockVoiceGuideDog(in: transcript),
+                "「\(transcript)」没提导盲犬，必须是 nil 而不是 false —— nil 才会回落档案默认值"
+            )
+        }
+    }
+
+    /// PACE 6 条。
+    func testMockPaceExtractionMatchesTheBackendGoldenCorpus() {
+        // golden-corpus: PACE regex
+        let regexCases: [(transcript: String, expected: String)] = [
+            ("慢一点跑", "EASY"),
+            ("想轻松跑跑", "EASY"),
+            ("能不能快一点", "FAST"),
+            ("走跑结合就行", "WALK_RUN"),
+            ("中等速度", "MODERATE")
+        ]
+        for testCase in regexCases {
+            XCTAssertEqual(
+                MockAPIClient.mockVoicePace(in: testCase.transcript)?.rawValue,
+                testCase.expected,
+                "Mock 与黄金语料漂移：「\(testCase.transcript)」应为 \(testCase.expected)"
+            )
+        }
+
+        // golden-corpus: PACE none
+        for transcript in ["明天八点从五角场出发跑一小时"] {
+            XCTAssertNil(
+                MockAPIClient.mockVoicePace(in: transcript),
+                "「\(transcript)」没提配速，必须是 nil"
             )
         }
     }
@@ -590,6 +746,96 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertNil(
             wizard.lastSpokenPrompt,
             "等待提示不该进「重复一遍」的记忆，实际留下：「\(wizard.lastSpokenPrompt ?? "")」"
+        )
+    }
+
+    // MARK: - start() 的门槛接线
+    //
+    // 上面 28 条用例全部走 `startForTesting(at:)`，**绕过了 `start()`**，所以门槛那三道分支
+    // 一条都没被验过 —— 和「兜底坐标让 `.startPoint` 恒真」是同一类：逻辑写对了，但没人证明
+    // 它真的被接上。（openspec tasks 3.4 / 3.5）
+
+    private func makeUnstartedWizard(
+        bookingViewModel: BlindBookingViewModel,
+        speechInputService: SpeechInputService? = nil
+    ) -> VoiceOrderWizard {
+        let wizard = VoiceOrderWizard()
+        wizard.configure(
+            bookingViewModel: bookingViewModel,
+            speechService: SpeechService(),
+            speechInputService: speechInputService ?? SpeechInputService(),
+            apiClient: VoiceOrderAPIClientStub()
+        )
+        return wizard
+    }
+
+    /// 四道「本页填不了」的门槛缺任意一道，`start()` 都不得开麦，并且必须把原因说出来。
+    ///
+    /// 门槛的唯一真源是后端 `OrderCreationService.createOrder`，客户端这份只是把同样的顺序提前。
+    /// 让盲人说完一整句才被服务端 403 拒掉是最坏的顺序。
+    func testStartIsBlockedByGatesThatVoiceCannotFill() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        // 昵称未填 ⇒ basicProfile 缺失，这一道只能去个人资料页补。
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(speechService: SpeechService(), locationService: nil, appState: appState)
+        let wizard = makeUnstartedWizard(bookingViewModel: viewModel)
+
+        XCTAssertFalse(wizard.start(), "门槛没过就不该起步")
+        XCTAssertFalse(wizard.isRunning)
+        XCTAssertEqual(wizard.fallbackMessage, BlindBookingGate.basicProfile.message, "拦住了就必须说得出原因")
+    }
+
+    /// 起点与时间**缺失时反而要照常起步** —— 它们正是用户接下来要说出口的槽位。
+    ///
+    /// ⚠️ openspec tasks 3.4 原文写的是「默认值不可用时**不**出现首步」，那描述属于已被推翻的
+    /// `.confirmDefaults` 形态（先念默认值再逐项追问）。现在首步是整句自由说，把这两道门槛
+    /// 当成阻断条件会让「没有 GPS 就彻底用不了语音」—— 而语音正是拿来说出发地点的。
+    /// `VoiceOrderWizard.start()` 里那两个 `gate != ...` 判断就是这条规则，本用例锁住它。
+    func testStartProceedsWhenOnlyTheVoiceFilledSlotsAreMissing() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
+        appState.updateEmergencyContacts([
+            EmergencyContactResponse(id: 1, name: "联系人1", phone: "13900139001", relationship: "家人", isPrimary: true)
+        ])
+        let location = LocationService()
+        XCTAssertTrue(location.isUsingDemoFallback, "前提：没有真实定位，所以起点是缺的")
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(speechService: SpeechService(), locationService: location, appState: appState)
+        XCTAssertEqual(viewModel.firstMissingGate, .startPoint, "前提：只差语音要填的槽位")
+
+        let wizard = makeUnstartedWizard(bookingViewModel: viewModel)
+
+        XCTAssertTrue(wizard.start(), "起点缺失恰恰是要用语音补的，不能反过来把语音关掉")
+        XCTAssertTrue(wizard.isRunning)
+        XCTAssertEqual(wizard.step, .freeform)
+        XCTAssertNil(wizard.fallbackMessage)
+    }
+
+    /// 语音链路已经在启动阶段失败过（授权被拒 / recognizer 不可用）就直接交回表单。
+    /// 明知打不开麦克风还走一遍重问循环，只会让人听三轮「我再问一次」才等到降级。
+    func testStartFallsBackImmediatelyWhenTheSpeechPathIsAlreadyKnownBroken() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
+        appState.updateEmergencyContacts([
+            EmergencyContactResponse(id: 1, name: "联系人1", phone: "13900139001", relationship: "家人", isPrimary: true)
+        ])
+        let viewModel = BlindBookingViewModel()
+        viewModel.configureForTesting(
+            speechService: SpeechService(), locationService: LocationService(), appState: appState
+        )
+        let speech = SpeechInputService()
+        speech.startPendingAuthorizationForTesting(field: .voiceOrderFreeform)
+        speech.denyAuthorizationForTesting()
+        XCTAssertTrue(speech.isSpeechPathUnavailable, "前提：语音这条路已知不可用")
+
+        let wizard = makeUnstartedWizard(bookingViewModel: viewModel, speechInputService: speech)
+
+        XCTAssertFalse(wizard.start())
+        XCTAssertFalse(wizard.isRunning)
+        XCTAssertEqual(
+            wizard.fallbackMessage,
+            "语音输入当前不可用，已切回表单填写，你可以用屏幕上的输入框继续预约。",
+            "降级必须说清接下来去哪 —— 看不见屏幕的人没有别的方式发现语音已经停了"
         )
     }
 

@@ -96,6 +96,59 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     /// 抽不出的槽位保留什么默认值只有客户端知道，后端拼不出整单）。
     let ttsText: String?
 
+    // MARK: 额外需求槽位（可选，2026-08-04 后端新增）
+    //
+    // 三者都是「抽不出不追问」的可选槽位：解析不出不会进 `missing`，也不会单独触发大模型兜底
+    // （大多数人不提导盲犬，那样每单都要白付一次调用）。
+
+    /// 本次是否携带导盲犬。
+    ///
+    /// ⚠️ **`nil` ≠ `false`，两者在下单时的处理完全不同**：
+    /// - `nil` —— 原话没提。下单时**不要传** `hasGuideDogThisRun`，让后端回落
+    ///   `BlindProfile.hasGuideDog` 档案默认值。
+    /// - `false` —— 本次明确不带（「今天不带导盲犬」）。要原样传。
+    ///
+    /// 传错的后果不是文案问题：这个字段进派单的**硬过滤**（不接受导盲犬的志愿者被直接踢出候选池），
+    /// 把 `nil` 当 `false` 传，会让档案里登记了导盲犬的用户被静默按「不带」派单。
+    let hasGuideDog: Bool?
+
+    /// 本次配速偏好；`nil` 表示原话没提，下单时不传即回落档案默认配速。
+    let pacePreference: PacePreference?
+
+    /// 本次备注；`nil` 表示原话没提。
+    ///
+    /// 非 nil 时后端保证是用户原话的子串 —— 备注原样展示给志愿者，模型编出来的「我行动不便」
+    /// 会直接误导对方，所以改写过的备注在后端就被丢弃了。
+    let specialNotes: String?
+
+    /// 三个额外槽位默认 `nil`（＝原话没提），让只关心三个必填槽位的调用点不必逐个写 `nil`。
+    /// 解码走 `Codable` 合成路径，不受这里的默认值影响。
+    init(
+        plannedStartTime: String?,
+        durationMinutes: Int?,
+        address: String?,
+        latitude: Double?,
+        longitude: Double?,
+        missing: [VoiceOrderMissingSlot]?,
+        needReask: Bool?,
+        ttsText: String?,
+        hasGuideDog: Bool? = nil,
+        pacePreference: PacePreference? = nil,
+        specialNotes: String? = nil
+    ) {
+        self.plannedStartTime = plannedStartTime
+        self.durationMinutes = durationMinutes
+        self.address = address
+        self.latitude = latitude
+        self.longitude = longitude
+        self.missing = missing
+        self.needReask = needReask
+        self.ttsText = ttsText
+        self.hasGuideDog = hasGuideDog
+        self.pacePreference = pacePreference
+        self.specialNotes = specialNotes
+    }
+
     /// 起点三项要么全有要么当没抽到 —— 只有地址没有坐标下不了单，只有坐标没有地址读回时没法念。
     var resolvedStartPlace: (address: String, latitude: Double, longitude: Double)? {
         guard let address = address?.nilIfBlank, let latitude, let longitude else { return nil }

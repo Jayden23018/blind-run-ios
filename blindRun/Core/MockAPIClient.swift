@@ -1287,26 +1287,34 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let transcript = request.transcript.trimmed
 
         let place = Self.matchedVoicePlace(in: transcript, near: request)
-        let hour = Self.mockVoiceHour(in: transcript)
+        let startTime = Self.mockVoiceStartTime(in: transcript)
         let minutes = Self.mockVoiceMinutes(in: transcript).flatMap { (10...300).contains($0) ? $0 : nil }
 
         var missing: [VoiceOrderMissingSlot] = []
         if place == nil { missing.append(.address) }
-        if hour == nil { missing.append(.startTime) }
+        if startTime == nil { missing.append(.startTime) }
         if minutes == nil { missing.append(.duration) }
 
         return ParseVoiceOrderResponse(
-            plannedStartTime: hour.map { Self.mockPlannedStartTime(hour: $0) },
+            plannedStartTime: startTime.map(Self.mockBackendLocalDateTime),
             durationMinutes: minutes,
             address: place?.address,
             latitude: place?.latitude,
             longitude: place?.longitude,
             missing: missing,
+            // 在接入请求侧的 `current`（一步修正）之前，后端的 `correctionUnclear` 场景不可达，
+            // 此处等价推导成立。接 `current` 时这一行要一起改成独立字段 —— 那时
+            // `missing` 为空但 `needReask=true` 会真的发生（契约 2026-08-04）。
             needReask: !missing.isEmpty,
             // `missing` 非空时后端给的是追问文案，非空即追问 —— 向导刻意不播它，这里照形状给出即可。
             ttsText: missing.isEmpty
                 ? "好的，我记下了"
-                : "还差\(missing.count)项没听清，可以再说一次"
+                : "还差\(missing.count)项没听清，可以再说一次",
+            hasGuideDog: Self.mockVoiceGuideDog(in: transcript),
+            pacePreference: Self.mockVoicePace(in: transcript),
+            // 备注只由大模型在必填槽位兜底那次顺带抽，正则不抽（语料 `_extra_slots_note`），
+            // 所以 Mock 这条规则路径恒 nil，不是漏实现。
+            specialNotes: nil
         )
     }
 
@@ -1349,7 +1357,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let transcript = request.transcript.trimmed
         switch request.field {
         case .startTime:
-            guard let hour = Self.mockVoiceHour(in: transcript) else {
+            guard let startTime = Self.mockVoiceStartTime(in: transcript) else {
                 return ParseSlotResponse(
                     plannedStartTime: nil,
                     durationMinutes: nil,
@@ -1358,10 +1366,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 )
             }
             return ParseSlotResponse(
-                plannedStartTime: Self.mockPlannedStartTime(hour: hour),
+                plannedStartTime: Self.mockBackendLocalDateTime(startTime),
                 durationMinutes: nil,
                 needReask: false,
-                ttsText: "好的，明天\(hour.hour)点\(hour.minute)分"
+                // 读回念实际落点，不再恒说「明天」—— 说「今天八点半」却被念成明天，
+                // 对听不见屏幕的人就是改了他的预约。
+                ttsText: "好的，\(DateFormatter.aidRunDisplayDateTime.string(from: startTime))"
             )
         case .duration:
             guard let minutes = Self.mockVoiceMinutes(in: transcript), (10...300).contains(minutes) else {
@@ -1399,17 +1409,76 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let candidates = request.latitude != nil && request.longitude != nil
             ? mockVoicePlaces.sorted { squaredDistance($0, request) < squaredDistance($1, request) }
             : mockVoicePlaces
-        return candidates.first { transcript.contains($0.keyword) }
+        // 整句里先剥壳拿地名 span，拿不到再退回整句包含匹配（单点修改那一轮用户只说地名，没有壳）。
+        let haystack = mockVoiceAddressSpan(in: transcript) ?? transcript
+        return candidates.first { haystack.contains($0.keyword) }
     }
 
-    /// 明天的某个时刻，格式与后端 `LocalDateTime` 一致（无时区）。
-    private static func mockPlannedStartTime(hour: (hour: Int, minute: Int)) -> String {
-        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
-        var components = Calendar.current.dateComponents([.year, .month, .day], from: tomorrow)
-        components.hour = hour.hour
-        components.minute = hour.minute
-        let date = Calendar.current.date(from: components) ?? tomorrow
-        return DateFormatter.aidRunBackendLocalDateTime.string(from: date)
+    /// 从整句里剥出地名 span。取值与语料里 `field: "ADDRESS"` 的 9 条一致。
+    ///
+    /// **只断言抽取，不断言地理编码**（语料 `_address_note`）：抽出「五角场」「我家楼下」而
+    /// `mockVoicePlaces` 里查不到坐标，是线上「抽到 span 但正向编码失败」的同形场景，
+    /// 结果就该是 `missing` 含 `ADDRESS`，而不是当成用户没说起点。
+    static func mockVoiceAddressSpan(in transcript: String) -> String? {
+        for (prefix, suffix) in addressSpanShells {
+            guard let head = transcript.range(of: prefix),
+                  let tail = transcript.range(of: suffix, range: head.upperBound..<transcript.endIndex)
+            else { continue }
+            let span = String(transcript[head.upperBound..<tail.lowerBound]).trimmed
+            if !span.isEmpty { return span }
+        }
+        return nil
+    }
+
+    /// 顺序即优先级。壳必须成对出现，只有「从」没有「出发」不算 ——
+    /// 「从明天早上八点开始跑」里的「从」后面跟的是时间，抽出来当地点就把人约到了不存在的起点。
+    private static let addressSpanShells: [(prefix: String, suffix: String)] = [
+        ("从", "出发"), ("在", "集合"), ("在", "跑步"), ("到", "那边")
+    ]
+
+    /// 是否携带导盲犬。`nil` = 原话没提，与 `false`（本次明确不带）语义不同 ——
+    /// 这个字段进派单硬过滤，两者混淆会让登记了导盲犬的用户被静默按「不带」派单。
+    static func mockVoiceGuideDog(in transcript: String) -> Bool? {
+        guard transcript.contains("导盲犬") else { return nil }
+        // 否定式必须先判，否则「不带导盲犬」会被「带导盲犬」吃掉。
+        if transcript.contains("不带") || transcript.contains("没带") || transcript.contains("没有带") {
+            return false
+        }
+        return true
+    }
+
+    /// 配速偏好。`nil` = 原话没提，下单时不传即回落档案默认配速。
+    static func mockVoicePace(in transcript: String) -> PacePreference? {
+        if transcript.contains("走跑结合") { return .walkRun }
+        if transcript.contains("慢一点") || transcript.contains("慢点") || transcript.contains("轻松") {
+            return .easy
+        }
+        if transcript.contains("快一点") || transcript.contains("快点") { return .fast }
+        if transcript.contains("中等") { return .moderate }
+        return nil
+    }
+
+    /// 格式与后端 `LocalDateTime` 一致（无时区）。
+    static func mockBackendLocalDateTime(_ date: Date) -> String {
+        DateFormatter.aidRunBackendLocalDateTime.string(from: date)
+    }
+
+    #if DEBUG
+    /// 语音时间解析的「现在」。设了就取代 `Date()`。
+    ///
+    /// 存在的理由不是「方便测试」：黄金语料（`demo/docs/voice-golden-corpus.json`）的 START_TIME
+    /// 期望值是**相对 `now = 2026-07-24T10:00:00` 的绝对时间戳**，不钉住基准就没法逐条对齐，
+    /// 而「过去的钟点滚次日」这条规则恰恰只有在固定基准下才验得出来。
+    /// 与 `RecordingCue.observerForTesting` 是同一种接缝。
+    static var voiceClockForTesting: Date?
+    #endif
+
+    private static var voiceNow: Date {
+        #if DEBUG
+        return voiceClockForTesting ?? Date()
+        #else
+        return Date()
+        #endif
     }
 
     /// 只用于排序，不需要真实距离，所以不做球面换算。
@@ -1427,14 +1496,103 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         MockVoicePlace(keyword: "奥林匹克", address: "北京市朝阳区奥林匹克森林公园", latitude: 40.0026, longitude: 116.3915)
     ]
 
-    private static func mockVoiceHour(in transcript: String) -> (hour: Int, minute: Int)? {
-        if transcript.contains("八点半") { return (8, 30) }
-        if transcript.contains("八点") { return (8, 0) }
-        if transcript.contains("七点半") { return (7, 30) }
-        if transcript.contains("七点") { return (7, 0) }
-        if transcript.contains("六点") { return (6, 0) }
+    /// 开始时间解析。取值与 `demo/docs/voice-golden-corpus.json` 里 `field: "START_TIME"`、
+    /// `source: "regex"` 的 10 条用例一致，`VoiceOrderWizardTests` 锁了这份对齐。
+    ///
+    /// 此前这里只认 5 个钟点、且落点恒定是「明天」，10 条语料只对得上 3 条 —— 于是开发期用 Mock 说
+    /// 「今天八点半」会被念成明天，说「下午三点」「半小时后」则直接走重问，**而线上这三种都解得出**。
+    /// Mock 比线上严和比线上松一样有害：一个让开发期以为功能没有，一个让上真机才发现走不通。
+    static func mockVoiceStartTime(in transcript: String, now: Date? = nil) -> Date? {
+        let now = now ?? voiceNow
+        let calendar = Calendar.current
+
+        // ① 相对时间优先。「半小时后」不能被下面的钟点分支按「半」误读。
+        if let offset = relativeMinutesOffset(in: transcript) {
+            return calendar.date(byAdding: .minute, value: offset, to: now)
+        }
+
+        // ② 钟点。没有「N点」就不是时间表达（llm 那几条走这里返回 nil）。
+        guard let clock = clockTime(in: transcript) else { return nil }
+
+        // ③ 日期词。没说日期词时 dayOffset 为 nil —— 与「说了今天」不是一回事，见 ④。
+        let dayOffset: Int? = transcript.contains("后天") ? 2
+            : transcript.contains("明天") ? 1
+            : transcript.contains("今天") ? 0
+            : nil
+
+        var components = calendar.dateComponents(
+            [.year, .month, .day],
+            from: calendar.date(byAdding: .day, value: dayOffset ?? 0, to: now) ?? now
+        )
+        components.hour = clock.hour
+        components.minute = clock.minute
+        guard let candidate = calendar.date(from: components) else { return nil }
+
+        // ④ 没带日期词的钟点若早于现在，自动滚次日（语料 `_past_time_note`）。
+        // 不滚的话「八点半」会返回今天 08:30，被提前量校验判成「太近了」—— 而用户压根没打算约今天。
+        // 显式说了「今天」则不滚：那是用户的明确选择，该让提前量校验去拒绝它。
+        if dayOffset == nil, candidate <= now {
+            return calendar.date(byAdding: .day, value: 1, to: candidate)
+        }
+        return candidate
+    }
+
+    /// 「半小时后」「四十分钟后」「两个小时后」→ 相对分钟数。没有「后」字就不是相对表达。
+    private static func relativeMinutesOffset(in transcript: String) -> Int? {
+        guard transcript.contains("后"), !transcript.contains("后天") else { return nil }
+        if transcript.contains("半小时后") || transcript.contains("半个小时后") { return 30 }
+        if let minutes = chineseNumber(before: "分钟后", in: transcript) { return minutes }
+        if let hours = chineseNumber(before: "个小时后", in: transcript)
+            ?? chineseNumber(before: "小时后", in: transcript) {
+            return hours * 60
+        }
         return nil
     }
+
+    /// 「八点半」「下午三点」→ 24 小时制时分。时段词负责 12 小时制换算。
+    private static func clockTime(in transcript: String) -> (hour: Int, minute: Int)? {
+        guard var hour = chineseNumber(before: "点", in: transcript), (1...24).contains(hour) else {
+            return nil
+        }
+        // 「N点半」只认紧跟在「点」后面的「半」，避免「八点跑半小时」被读成 08:30。
+        let minute = transcript.contains("\(chineseDigits[hour] ?? "")点半") ? 30 : 0
+        if hour < 12, transcript.contains("下午") || transcript.contains("晚上") || transcript.contains("傍晚") {
+            hour += 12
+        }
+        return (hour, minute)
+    }
+
+    /// 汉字数字 → 整数，只覆盖 Mock 语料需要的 1~59。找 `suffix` 前面那一段来解。
+    private static func chineseNumber(before suffix: String, in transcript: String) -> Int? {
+        guard let range = transcript.range(of: suffix) else { return nil }
+        let head = String(transcript[transcript.startIndex..<range.lowerBound])
+        // 从尾部往前吃数字字符，最多 3 个（「四十五」）。
+        let digits = head.reversed().prefix(3).reversed().map(String.init)
+        for start in 0..<digits.count {
+            let candidate = digits[start...].joined()
+            if let value = chineseNumberValue(candidate) { return value }
+        }
+        return nil
+    }
+
+    private static func chineseNumberValue(_ text: String) -> Int? {
+        if let arabic = Int(text) { return arabic }
+        let units = ["零": 0, "一": 1, "两": 2, "二": 2, "三": 3, "四": 4,
+                     "五": 5, "六": 6, "七": 7, "八": 8, "九": 9]
+        if let single = units[text] { return single }
+        guard text.contains("十") else { return nil }
+        let parts = text.components(separatedBy: "十")
+        guard parts.count == 2 else { return nil }
+        let tens = parts[0].isEmpty ? 1 : (units[parts[0]] ?? -1)
+        let ones = parts[1].isEmpty ? 0 : (units[parts[1]] ?? -1)
+        guard tens >= 0, ones >= 0 else { return nil }
+        return tens * 10 + ones
+    }
+
+    private static let chineseDigits: [Int: String] = [
+        1: "一", 2: "两", 3: "三", 4: "四", 5: "五", 6: "六",
+        7: "七", 8: "八", 9: "九", 10: "十", 11: "十一", 12: "十二"
+    ]
 
     /// 取值与 `demo/docs/voice-golden-corpus.json` 里 `source: "regex"` 的 DURATION 用例一致。
     /// Mock 与真实解析器漂移会让开发期调通的向导在真机上走不通，`VoiceOrderWizardTests` 锁了这份对齐。

@@ -3317,6 +3317,78 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(service.lastStopReason, .error)
     }
 
+    // MARK: - 录音起止的非视觉提示（RecordingCue）
+    //
+    // 这一组存在的直接原因：`RecordingCue` 实现完整、两个调用点也都正确，却因为**一条断言
+    // 都没有**，被三份文档集体误判成「尚未实现」（2026-08-06 订正）。对全盲用户，这两声提示
+    // 是判断「麦克风开没开」的唯一非视觉信号 —— 屏幕上的波形动画对他们是零价值。
+    // 没有守卫的实现，在下一个人眼里和不存在是一样的。
+
+    /// 观察点是静态的，漏收会串到别的用例上。
+    private func captureRecordingCues() -> () -> [RecordingCue.Kind] {
+        var cues: [RecordingCue.Kind] = []
+        RecordingCue.observerForTesting = { cues.append($0) }
+        addTeardownBlock { @MainActor in RecordingCue.observerForTesting = nil }
+        return { cues }
+    }
+
+    func testRecordingCueSoundsWhenRecognitionStarts() {
+        let cues = captureRecordingCues()
+        let service = SpeechInputService(audioSession: MockSpeechAudioSession())
+
+        service.startRecognitionForTesting(field: .remark)
+
+        XCTAssertEqual(cues(), [.begin], "起听成功必须发出起音提示，否则用户不知道可以开口了")
+        XCTAssertTrue(service.isListening)
+    }
+
+    func testRecordingCueSoundsWhenRecognitionStops() {
+        let cues = captureRecordingCues()
+        let service = SpeechInputService(audioSession: MockSpeechAudioSession())
+        service.startRecognitionForTesting(field: .remark)
+
+        service.finishRecognitionForTesting(text: "大观楼")
+
+        XCTAssertEqual(cues(), [.begin, .end], "停止必须发出收音提示，两端各一次、不重复")
+    }
+
+    /// 收音提示**必须在音频会话切回播放之后**才响。
+    ///
+    /// 录音会话下放系统音会被路由到录音链路，用户可能根本听不见 —— 那等于没有这个提示。
+    /// 这条顺序约束只写在 `stopAudioRecognition` 的注释里，把它钉成断言。
+    func testRecordingCueEndComesAfterThePlaybackSessionIsRestored() {
+        let audioSession = MockSpeechAudioSession()
+        var observedAtCue: [String] = []
+        RecordingCue.observerForTesting = { kind in
+            guard kind == .end else { return }
+            observedAtCue = audioSession.operations + ["cue:end"]
+        }
+        addTeardownBlock { @MainActor in RecordingCue.observerForTesting = nil }
+        let service = SpeechInputService(audioSession: audioSession)
+        service.startRecognitionForTesting(field: .remark)
+
+        service.finishRecognitionForTesting(text: "大观楼")
+
+        XCTAssertEqual(
+            observedAtCue,
+            ["deactivateRecording", "configurePlayback", "activatePlayback", "cue:end"],
+            "收音提示在音频会话切回播放之前响，用户就听不见它"
+        )
+    }
+
+    /// 从来没起听成功过就不该有任何提示音 —— 响一声等于告诉盲人「在录了」，而麦克风根本没开。
+    /// 锁的是 `stopAudioRecognition` 里那道 `wasListening` 守卫。
+    func testRecordingCueStaysSilentWhenRecognitionNeverStarted() {
+        let cues = captureRecordingCues()
+        let service = SpeechInputService(audioSession: MockSpeechAudioSession())
+        service.startPendingAuthorizationForTesting(field: .voiceOrderFreeform)
+
+        service.denyAuthorizationForTesting()
+        service.stopRecognition()
+
+        XCTAssertEqual(cues(), [], "授权被拒的这一路从头到尾没开过麦克风，不该有任何提示音")
+    }
+
     /// 授权被拒是**启动阶段**失败，走的是 `clearRecognitionStartState` 而不是 `stopAudioRecognition`。
     /// 调用方（语音下单向导）只能靠这一次完成回调发现语音这条路断了：看不见屏幕的人没有别的方式
     /// 察觉向导已经停住，漏掉这次回调等于让向导无限静默等待。

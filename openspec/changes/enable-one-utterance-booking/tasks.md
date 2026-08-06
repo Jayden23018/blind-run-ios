@@ -60,7 +60,15 @@
   即返回 nil，于是 `firstMissingGate == .startPoint`、`canSubmit == false`，
   `makeCreateOrderRequest()`（`:614-615`）再挡一道。**表单和语音走的是同一道闸，都提交不出北京坐标的单。**
   `isUsingDemoFallback` / `effectiveLocation` 的行为描述本身是准确的，错在没看到调用侧已不再无条件消费它们。
-  ⚠️ 但这条红线**目前没有任何自动化守卫**（见 3.4），下一个人仍可能把它改回去。
+  ~~⚠️ 但这条红线目前没有任何自动化守卫（见 3.4），下一个人仍可能把它改回去。~~
+  **这句也是错的**（同日写下、同日推翻）：守卫一直都在 ——
+  `BlindBookingGateTests.testDemoFallbackCoordinateIsNotAcceptedAsStartPoint`
+  逐条断言 `resolvedStartPlace == nil`、`firstMissingGate == .startPoint`、`canSubmit == false`、
+  `makeCreateOrderRequest() == nil`。写那句话时没去查用例，只看了 3.4 的「用例未写」就下了结论，
+  而 3.4 说的根本是另一件事（首步出不出现）。**这正是本变更里第四次同类错误：拿一份陈旧描述当现状。**
+
+- [x] 2.11 **录音起止的非视觉提示**（`RecordingCue`，`SpeechInputService.swift`）：起音系统音 1113 + `.light` impact，收音 1114 + `.success` notification，对应 `specs/blind-runner-voice-first-experience/spec.md:79-87`。收音提示**必须在音频会话切回播放之后**才响 —— 录音会话下放系统音会被路由到录音链路，用户可能根本听不见。
+  ⚠️ **本条此前没有任务项也没有守卫**，结果实现完整却被三份文档集体误判成「尚未实现」（2026-08-06 订正）。**2026-08-06 补齐守卫**：`RecordingCue` 加 DEBUG 观察接缝；起听成功的状态转换抽成共同出口 `markRecognitionStarted()`，生产路径与测试替身共用（替身此前少做四件事，起音提示丢了在测试里根本看不见）；四条用例锁起音、收音、**收音的顺序**、以及「从没起听成功过不得有任何提示音」。
 
 ## 2A. 整句解析改走 `/api/orders/voice/parse`（2026-08-04）
 
@@ -78,8 +86,10 @@
 - [x] 3.1 `testOnlyExplicitAffirmativesAreTreatedAsConfirmation` + `testTrailingParticlesAndPunctuationDoNotBlockConfirmation`。**2026-08-04 真机跑通。**
 - [x] 3.2 **2026-08-04 订正**：原文写的 `testNonAffirmativeFallsThroughToGuidedStepsWithoutAnyRequest` 与 `testUnintelligibleConfirmationDoesNotReaskAndDoesNotSubmit` **全仓不存在**，是 `.confirmDefaults` 时期的遗留描述（那时「未命中肯定词 → 落入引导步骤」才是行为）。实际覆盖同一意图的是 `testUnrecognizedConfirmCommandReasksAndNeverSubmits`（认不出即重问、`createdOrder == nil`、不发请求）与 `testEmptyOrUnrelatedTranscriptIsNotConfirmation`。**均已真机跑通。**
 - [x] 3.3 `testNegationsContainingAffirmativeWordsAreNotConfirmation`（"不确认""先别确认""确认一下时间""还不能确认"等 13 条）。**2026-08-04 真机跑通。**
-- [ ] 3.4 默认值不可用时不出现首步 —— **用例未写**。需要给 `BlindBookingViewModel` 造出 `resolvedStartPlace == nil` 的状态，而它依赖 `locationService`，得先看 `configureForTesting`（`BlindBookingView.swift:397`）能否满足。留给批次 2 之前补。
-- [ ] 3.5 非槽位门槛缺失时 `start()` 仍返回 false 并播报门槛原因 —— **用例未写**，需要构造 `AppState` 的门槛状态。
+- [x] 3.4 ~~默认值不可用时不出现首步~~ **2026-08-06 订正并补齐**。原措辞描述的是已被推翻的 `.confirmDefaults` 形态（先念默认值再逐项追问）——那时默认值不可用，首步自然无意义。现在首步是**整句自由说**，起点缺失恰恰是要用语音补的，把它当阻断条件等于「没有 GPS 就彻底用不了语音」。`VoiceOrderWizard.start()` 里 `gate != .startPoint, gate != .appointmentTime` 两个判断就是这条规则，现由 `testStartProceedsWhenOnlyTheVoiceFilledSlotsAreMissing` 锁住。
+  另：任务原文担心的「造不出 `resolvedStartPlace == nil`」早已被解决，`BlindBookingGateTests.testDemoFallbackCoordinateIsNotAcceptedAsStartPoint` 就是这么造的（裸 `LocationService()` + `configureForTesting`），并且它已经覆盖了「演示坐标不得成单」四道断言。
+- [x] 3.5 非槽位门槛缺失时 `start()` 返回 false 并播报门槛原因 —— **2026-08-06 补齐**：`testStartIsBlockedByGatesThatVoiceCannotFill`。顺带补了第三条分支 `testStartFallsBackImmediatelyWhenTheSpeechPathIsAlreadyKnownBroken`（语音链路已知不可用时直接交回表单，不走三轮重问）。
+  ⚠️ 补之前 `start()` 的三道分支**一条都没被验过** —— 28 条既有用例全部走 `startForTesting(at:)` 绕开了它。
 - [x] 3.6 `BlindBookingGateTests` / `blindRunTests` 回归 —— **2026-08-04 全量真机跑通（483 单测 0 失败），1.7 那条「新增回调是否波及其他 `SpeechInputField` 使用方」也随之得到回答：没有波及。**
 - [ ] 3.7 UI 测试（Mock 环境）验证首步文案 —— 未写、未跑。
 
