@@ -116,9 +116,44 @@ if (fs.existsSync(handoff)) {
   }
 }
 
+// 归档提问。AGENTS.md §1 的触发条件本来只有「犯过第二次」—— 于是第一次就卡了两小时、
+// 试了六遍才对的东西没人管，下次换个人（或换个会话）从头再踩一遍。
+// 「反复查」和「反复错」同等对待，「一次卡很久」也是同一类：代价已经付了，不落地就是白付。
+//
+// 每会话只问一次，且与欠账去重分开算：欠账在一轮里可能变好几次（提交了一半、又改了一个文件），
+// 而这个问题问一次就够，跟着欠账重复问会变成噪声，那就等于废掉它。
+// 拿不到 session_id 时照问 —— 宁可多问一次，也不要静默失效。
+const askedFile =
+  process.env.AIDRUN_STOP_ARCHIVE_ASKED ||
+  path.join(root, '.git', 'aidrun-stop-archive-asked');
+const sessionId = typeof payload.session_id === 'string' ? payload.session_id : '';
+let archiveNote = '';
+let alreadyAsked = false;
+if (sessionId) {
+  try {
+    alreadyAsked = fs.readFileSync(askedFile, 'utf8') === sessionId;
+  } catch {
+    // 没读到就当没问过
+  }
+}
+if (!alreadyAsked) {
+  archiveNote =
+    '\n本轮有没有「卡了很久」或「试了三次以上才对」的东西？有就**现在**按 §1 归档 ——\n' +
+    'guard.mjs 守卫 / 测试 / Stop 钩子 / 项目记忆，四选一，只写文档不算。\n' +
+    '第一次就付过的代价不落地，下个会话会从头再踩一遍。没有就跳过这条。\n';
+  if (sessionId) {
+    try {
+      fs.writeFileSync(askedFile, sessionId);
+    } catch {
+      // 写不进去只影响去重，不该让钩子失效
+    }
+  }
+}
+
 process.stderr.write(
   `收尾没做完（scripts/hooks/stop-checklist.mjs）：\n- ${todo.join('\n- ')}\n` +
     handoffNote +
+    archiveNote +
     '\n顺序固定：① 需要投递时先同步 handoff（`- [ ]` → `- [x]`，答写在 `答：` 后面，' +
     '并追加本轮产生的新问题）② commit（`type: 描述`，不带 co-author）③ push。\n' +
     '不是本轮产生的脏文件不要顺手提交 —— 说清楚哪些留着、为什么留着。\n' +

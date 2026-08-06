@@ -89,6 +89,34 @@ const cases = [
       return third.status === 2 ? null : `欠账变了却没重新提醒（exit ${third.status}）`;
     },
   },
+  {
+    // 归档提问必须每会话只问一次：跟着欠账重复问就成了噪声，而噪声等于废掉它。
+    // 但换了会话必须重新问 —— 新会话的「卡很久」是新的账。
+    name: '归档提问每会话一次，换会话重新问',
+    stdin: '{}',
+    check: () => {
+      const asked = path.join(
+        fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-archive-')),
+        'asked'
+      );
+      const env = { AIDRUN_STOP_ARCHIVE_ASKED: asked };
+      const has = (r) => r.stderr.includes('试了三次以上才对');
+      const first = run('{"session_id":"s-1"}', env);
+      if (first.status === 0) return null; // 无欠账，钩子提前放行，没有样本可验
+      if (!has(first)) return '有欠账时第一次没问归档';
+      if (has(run('{"session_id":"s-1"}', env))) return '同一会话第二次仍在问，去重没生效';
+      return has(run('{"session_id":"s-2"}', env)) ? null : '换了会话却没重新问';
+    },
+  },
+  {
+    // 拿不到 session_id 时宁可多问一次，也不要静默不问 —— 静默失效是这类提醒最常见的死法。
+    name: '没有 session_id 时照问（不静默失效）',
+    stdin: '{}',
+    check: (r) =>
+      r.status === 0 || r.stderr.includes('试了三次以上才对')
+        ? null
+        : '缺 session_id 时没问归档',
+  },
 ];
 
 let failed = 0;
