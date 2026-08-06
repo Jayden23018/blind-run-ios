@@ -48,8 +48,12 @@ jobs:
         with:
           node-version: '22'
 
+      # 钉版本，理由和下面钉 Xcode 一样：`@latest` 会让上游发一个版就把 CI 变红，
+      # 而仓库里一行没改。1.8.0 新增了「MODIFIED 需求必须抄全现有 scenario」这条 strict 规则，
+      # 本地装的 1.7.0 看不见它 —— pre-push 绿、CI 红的漂移就是这么来的。
+      # 升版本时同步升本地：npm i -g @fission-ai/openspec@<新版本>
       - name: openspec validate --all --strict
-        run: npx -y @fission-ai/openspec@latest validate --all --strict --no-interactive
+        run: npx -y @fission-ai/openspec@1.8.0 validate --all --strict --no-interactive
 
       - name: validate maintained docs
         run: node scripts/validate-docs.mjs
