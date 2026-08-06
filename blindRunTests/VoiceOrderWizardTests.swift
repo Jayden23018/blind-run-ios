@@ -797,10 +797,13 @@ final class VoiceOrderWizardTests: XCTestCase {
         appState.updateEmergencyContacts([
             EmergencyContactResponse(id: 1, name: "联系人1", phone: "13900139001", relationship: "家人", isPrimary: true)
         ])
-        let location = LocationService()
-        XCTAssertTrue(location.isUsingDemoFallback, "前提：没有真实定位，所以起点是缺的")
         let viewModel = BlindBookingViewModel()
-        viewModel.configureForTesting(speechService: SpeechService(), locationService: location, appState: appState)
+        // ⚠️ 起点缺失必须用 `locationService: nil` 构造，**不能**用裸 `LocationService()`。
+        // 后者在真机上是个竞态：`resolvedStartPlace` 只要 `currentLocation != nil` 就成立
+        // （`BlindBookingView.swift:358`），而真机几毫秒内就回调出真实坐标，于是起点反而有了、
+        // 门槛跳到 `.appointmentTime`。本用例 2026-08-06 首次上真机就是这么红的 ——
+        // 它要验的是「起点缺失时照常起步」，跟坐标是不是演示值无关，没必要引入定位的时序。
+        viewModel.configureForTesting(speechService: SpeechService(), locationService: nil, appState: appState)
         XCTAssertEqual(viewModel.firstMissingGate, .startPoint, "前提：只差语音要填的槽位")
 
         let wizard = makeUnstartedWizard(bookingViewModel: viewModel)
