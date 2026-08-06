@@ -144,6 +144,23 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/users/{userId}/emergency-contacts`.
     /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/post(addContact)`.
     func addContact(_ input: Operations.addContact.Input) async throws -> Operations.addContact.Output
+    /// 设定用户身份（一次性）
+    ///
+    /// ⚠️ **角色一次性，没有修改入口。** `role` 一旦非 `UNSET` 再调本端点即 409 `ROLE_ALREADY_SET`，
+    /// 全仓不存在任何改角色的路径（没有 `PUT /api/user/role`）。设错只能删号重来。
+    /// 产品已决定下一轮改造成「双身份」，届时会新增 `PUT /api/user/role` + 专用错误码
+    /// `ROLE_SWITCH_BLOCKED_BY_ACTIVE_ORDER`，**不会**复用 `ROLE_ALREADY_SET`。
+    ///
+    /// ⚠️ **成功体是裸 `Map`，不走 `ApiResponse` 信封**（`token` 在顶层，不在 `data` 下）；
+    /// 而 409 走 `RoleAlreadySetException` → `ApiResponse` 信封。
+    /// **同一个端点的成功体与错误体是两种形状**，客户端要分开解。
+    ///
+    /// ⚠️ **返回的是新签发的 token，客户端必须替换旧 token** —— `role` claim 决定
+    /// `SecurityConfig` 的路由授权（`/api/blind/**`→BLIND、`/api/volunteer/**`→VOLUNTEER），
+    /// 继续用旧 token 会被 403。
+    ///
+    /// 设定角色会自动创建对应的空白 `BlindProfile` / `VolunteerProfile`。
+    ///
     /// - Remark: HTTP `POST /api/user/role`.
     /// - Remark: Generated from `#/paths//api/user/role/post(setRole)`.
     func setRole(_ input: Operations.setRole.Input) async throws -> Operations.setRole.Output
@@ -657,6 +674,23 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// 设定用户身份（一次性）
+    ///
+    /// ⚠️ **角色一次性，没有修改入口。** `role` 一旦非 `UNSET` 再调本端点即 409 `ROLE_ALREADY_SET`，
+    /// 全仓不存在任何改角色的路径（没有 `PUT /api/user/role`）。设错只能删号重来。
+    /// 产品已决定下一轮改造成「双身份」，届时会新增 `PUT /api/user/role` + 专用错误码
+    /// `ROLE_SWITCH_BLOCKED_BY_ACTIVE_ORDER`，**不会**复用 `ROLE_ALREADY_SET`。
+    ///
+    /// ⚠️ **成功体是裸 `Map`，不走 `ApiResponse` 信封**（`token` 在顶层，不在 `data` 下）；
+    /// 而 409 走 `RoleAlreadySetException` → `ApiResponse` 信封。
+    /// **同一个端点的成功体与错误体是两种形状**，客户端要分开解。
+    ///
+    /// ⚠️ **返回的是新签发的 token，客户端必须替换旧 token** —— `role` claim 决定
+    /// `SecurityConfig` 的路由授权（`/api/blind/**`→BLIND、`/api/volunteer/**`→VOLUNTEER），
+    /// 继续用旧 token 会被 403。
+    ///
+    /// 设定角色会自动创建对应的空白 `BlindProfile` / `VolunteerProfile`。
+    ///
     /// - Remark: HTTP `POST /api/user/role`.
     /// - Remark: Generated from `#/paths//api/user/role/post(setRole)`.
     public func setRole(
@@ -6599,6 +6633,23 @@ public enum Operations {
             }
         }
     }
+    /// 设定用户身份（一次性）
+    ///
+    /// ⚠️ **角色一次性，没有修改入口。** `role` 一旦非 `UNSET` 再调本端点即 409 `ROLE_ALREADY_SET`，
+    /// 全仓不存在任何改角色的路径（没有 `PUT /api/user/role`）。设错只能删号重来。
+    /// 产品已决定下一轮改造成「双身份」，届时会新增 `PUT /api/user/role` + 专用错误码
+    /// `ROLE_SWITCH_BLOCKED_BY_ACTIVE_ORDER`，**不会**复用 `ROLE_ALREADY_SET`。
+    ///
+    /// ⚠️ **成功体是裸 `Map`，不走 `ApiResponse` 信封**（`token` 在顶层，不在 `data` 下）；
+    /// 而 409 走 `RoleAlreadySetException` → `ApiResponse` 信封。
+    /// **同一个端点的成功体与错误体是两种形状**，客户端要分开解。
+    ///
+    /// ⚠️ **返回的是新签发的 token，客户端必须替换旧 token** —— `role` claim 决定
+    /// `SecurityConfig` 的路由授权（`/api/blind/**`→BLIND、`/api/volunteer/**`→VOLUNTEER），
+    /// 继续用旧 token 会被 403。
+    ///
+    /// 设定角色会自动创建对应的空白 `BlindProfile` / `VolunteerProfile`。
+    ///
     /// - Remark: HTTP `POST /api/user/role`.
     /// - Remark: Generated from `#/paths//api/user/role/post(setRole)`.
     public enum setRole {
@@ -6639,13 +6690,54 @@ public enum Operations {
             public struct Ok: Sendable, Hashable {
                 /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content/json`.
+                    public struct jsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content/json/success`.
+                        public var success: Swift.Bool
+                        /// 实际落库的角色，与请求一致
+                        ///
+                        /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content/json/role`.
+                        @frozen public enum rolePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                            case BLIND = "BLIND"
+                            case VOLUNTEER = "VOLUNTEER"
+                            case UNSET = "UNSET"
+                        }
+                        /// 实际落库的角色，与请求一致
+                        ///
+                        /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content/json/role`.
+                        public var role: Operations.setRole.Output.Ok.Body.jsonPayload.rolePayload
+                        /// 带新 `role` claim 的 JWT，**客户端必须用它替换旧 token**
+                        ///
+                        /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content/json/token`.
+                        public var token: Swift.String
+                        /// Creates a new `jsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - success:
+                        ///   - role: 实际落库的角色，与请求一致
+                        ///   - token: 带新 `role` claim 的 JWT，**客户端必须用它替换旧 token**
+                        public init(
+                            success: Swift.Bool,
+                            role: Operations.setRole.Output.Ok.Body.jsonPayload.rolePayload,
+                            token: Swift.String
+                        ) {
+                            self.success = success
+                            self.role = role
+                            self.token = token
+                        }
+                        public enum CodingKeys: String, CodingKey {
+                            case success
+                            case role
+                            case token
+                        }
+                    }
                     /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content/application\/json`.
-                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    case json(Operations.setRole.Output.Ok.Body.jsonPayload)
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
                     /// - Throws: An error if `self` is not `.json`.
                     /// - SeeAlso: `.json`.
-                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                    public var json: Operations.setRole.Output.Ok.Body.jsonPayload {
                         get throws {
                             switch self {
                             case let .json(body):
@@ -6664,7 +6756,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// OK
+            /// 设定成功，返回新 token
             ///
             /// - Remark: Generated from `#/paths//api/user/role/post(setRole)/responses/200`.
             ///
@@ -6682,6 +6774,57 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/user/role/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/user/role/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.setRole.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.setRole.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 角色已设定过，errorCode `ROLE_ALREADY_SET`（message「身份已设定，不可修改」）。走 `ApiResponse` 信封
+            ///
+            /// - Remark: Generated from `#/paths//api/user/role/post(setRole)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.setRole.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.setRole.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
                             response: self
                         )
                     }

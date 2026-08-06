@@ -1396,6 +1396,23 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 设定用户身份（一次性）
+    ///
+    /// ⚠️ **角色一次性，没有修改入口。** `role` 一旦非 `UNSET` 再调本端点即 409 `ROLE_ALREADY_SET`，
+    /// 全仓不存在任何改角色的路径（没有 `PUT /api/user/role`）。设错只能删号重来。
+    /// 产品已决定下一轮改造成「双身份」，届时会新增 `PUT /api/user/role` + 专用错误码
+    /// `ROLE_SWITCH_BLOCKED_BY_ACTIVE_ORDER`，**不会**复用 `ROLE_ALREADY_SET`。
+    ///
+    /// ⚠️ **成功体是裸 `Map`，不走 `ApiResponse` 信封**（`token` 在顶层，不在 `data` 下）；
+    /// 而 409 走 `RoleAlreadySetException` → `ApiResponse` 信封。
+    /// **同一个端点的成功体与错误体是两种形状**，客户端要分开解。
+    ///
+    /// ⚠️ **返回的是新签发的 token，客户端必须替换旧 token** —— `role` claim 决定
+    /// `SecurityConfig` 的路由授权（`/api/blind/**`→BLIND、`/api/volunteer/**`→VOLUNTEER），
+    /// 继续用旧 token 会被 403。
+    ///
+    /// 设定角色会自动创建对应的空白 `BlindProfile` / `VolunteerProfile`。
+    ///
     /// - Remark: HTTP `POST /api/user/role`.
     /// - Remark: Generated from `#/paths//api/user/role/post(setRole)`.
     public func setRole(_ input: Operations.setRole.Input) async throws -> Operations.setRole.Output {
@@ -1441,7 +1458,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            Operations.setRole.Output.Ok.Body.jsonPayload.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -1451,6 +1468,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.setRole.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
