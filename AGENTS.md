@@ -29,6 +29,14 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 就地把它写进本文件或对应 skill，带上 `文件路径:行号`。上面 §1.1 那条 `guard.sh` → `guard.mjs`
 就是例子 —— 文件早改名了，规则里没跟，于是每次都要重查一遍才发现引用是错的。
 
+**已归档的语义认知（§1.4）索引：**
+
+- 单测里构造硬件服务当「缺失状态」的前提是竞态：真机 CoreLocation 几毫秒就回调，
+  用 `LocationService.simulateMissingDeviceLocationForTesting()`（`blindRun/Map/LocationService.swift:169`）钉死。
+  另一半陷阱是 `BlindBookingViewModel` 的 `appState` / `locationService` / `placeSearchProvider`
+  都是 `weak`（`blindRun/BlindRunner/BlindBookingView.swift:182-184`）—— 传进去的临时对象当场释放，
+  断言看着绿其实什么都没测。详见记忆 `location-service-test-seam-and-weak-viewmodel-deps`。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：

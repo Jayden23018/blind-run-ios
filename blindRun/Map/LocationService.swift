@@ -94,6 +94,7 @@ final class LocationService: NSObject, ObservableObject {
     /// 是否被拒绝定位权限
     var isDenied: Bool {
         #if DEBUG
+        if let authorizationOverrideForTesting { return !authorizationOverrideForTesting }
         if isUsingUITestDemoLocation {
             return false
         }
@@ -104,6 +105,7 @@ final class LocationService: NSObject, ObservableObject {
     /// 是否尚未请求过定位权限
     var isNotDetermined: Bool {
         #if DEBUG
+        if authorizationOverrideForTesting != nil { return false }
         if isUsingUITestDemoLocation {
             return false
         }
@@ -162,6 +164,18 @@ final class LocationService: NSObject, ObservableObject {
             clearDeviceLocation()
             setLocationError(.permissionDenied)
         }
+    }
+
+    /// 把服务钉在「已授权、但一个真实定位都还没拿到」的状态，并从此忽略硬件回调。
+    ///
+    /// 真机上 CoreLocation 几毫秒内就会送来真实坐标，所以裸 `LocationService()` 构造出的
+    /// 「无定位」状态活不过一次 runloop —— 拿它断言演示坐标兜底行为是在赌回调时序，不是在测守卫。
+    /// 与 `RecordingCue.observerForTesting`、`MockAPIClient.voiceClockForTesting` 是同一种接缝。
+    func simulateMissingDeviceLocationForTesting() {
+        suppressHardwareUpdatesForTesting = true
+        authorizationOverrideForTesting = true
+        clearDeviceLocation()
+        setLocationError(nil)
     }
 
     func simulateLocationFailureForTesting() {
@@ -323,6 +337,9 @@ extension LocationService: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         Task { @MainActor in
+            #if DEBUG
+            if self.suppressHardwareUpdatesForTesting { return }
+            #endif
             self.applyDeviceLocation(location.coordinate, capturedAt: location.timestamp)
             self.setLocationError(nil)
         }
@@ -331,6 +348,7 @@ extension LocationService: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in
             #if DEBUG
+            if self.suppressHardwareUpdatesForTesting { return }
             print("[LocationService] 定位失败: \(error.localizedDescription)")
             #endif
             self.setLocationError(.locationUnavailable)
@@ -339,6 +357,9 @@ extension LocationService: CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
+            #if DEBUG
+            if self.suppressHardwareUpdatesForTesting { return }
+            #endif
             if self.authorizationStatus != manager.authorizationStatus {
                 self.authorizationStatus = manager.authorizationStatus
             }

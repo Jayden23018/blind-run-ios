@@ -128,9 +128,13 @@ final class BlindBookingGateTests: XCTestCase {
     ///
     /// 它一旦充当，`resolvedStartPlace` 就永不为 nil，`.startPoint` 这道门槛在生产里
     /// 变成死代码，一个在上海的用户会被约到北京。
+    ///
+    /// 前提用接缝钉死：裸 `LocationService()` 在真机上几毫秒内就会被 CoreLocation 填上真实坐标，
+    /// 那样这条用例过不过取决于回调时序而不是守卫本身。
     @MainActor
     func testDemoFallbackCoordinateIsNotAcceptedAsStartPoint() {
         let location = LocationService()
+        location.simulateMissingDeviceLocationForTesting()
         XCTAssertTrue(location.isUsingDemoFallback, "前提：没有真实定位")
         XCTAssertFalse(location.isDenied, "前提：权限未拒绝，所以 locationPermission 门槛不会先拦下来")
 
@@ -182,7 +186,10 @@ final class BlindBookingGateTests: XCTestCase {
         // 前四道都过、只差本页的起点时，进页面不该播报。
         appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
         appState.updateEmergencyContacts([contact(1, primary: true)])
-        let onPageOnly = makeBookingViewModel(locationService: LocationService(), appState: appState)
+        // 起点缺失只能用 `locationService: nil` 表达：这个 appState 是 Mock 环境，
+        // 而 Mock 通道本来就放行演示坐标当起点（`allowsDemoFallbackAsStartPoint`），
+        // 挂任何一个活着的 LocationService 都会让 `.startPoint` 直接通过。
+        let onPageOnly = makeBookingViewModel(locationService: nil, appState: appState)
         XCTAssertEqual(onPageOnly.firstMissingGate, .startPoint, "前提：只差本页槽位")
         onPageOnly.announceEntryGateIfNeeded()
         XCTAssertNil(onPageOnly.errorMessage)
