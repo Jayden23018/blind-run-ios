@@ -535,6 +535,24 @@ final class BlindBookingViewModel: ObservableObject {
         selectPlace(place, announce: false)
     }
 
+    /// 语音说「重说」时把上一轮抽到的槽位清干净。
+    ///
+    /// 不清的话，新的一句里没提到的项会留着旧值，而读回照样把它念出来 ——
+    /// 用户会以为那是他这次说的。对听不见屏幕的人，这种「上一轮的残留」无从察觉。
+    ///
+    /// **不碰 `appointmentTime`**：它没有「未设置」这个状态（初值就是 `Date()`），
+    /// 「这一轮有没有真的抽到时间」由 `VoiceOrderWizard.didCaptureStartTime` 记着，
+    /// 读回只在那个标志为真时才念具体时刻。
+    func resetVoiceFilledSlots() {
+        selectedStartPlace = nil
+        duration = .none
+        routeNotes = ""
+        specialNotes = ""
+        pacePreference = .noPreference
+        routePreference = .noPreference
+        hasGuideDogThisRun = false
+    }
+
     private func updateAuxiliaryMapPlaceIfNeeded(
         to place: ResolvedPlace,
         lockMapCenterIfNeeded: Bool
@@ -807,13 +825,13 @@ struct BlindBookingView: View {
         }
         .onChange(of: voiceWizard.step) { step in
             // 表单跟着向导走：语音填到哪一项，屏幕上就停在哪一项，读屏用户切回手动时不用重新找位置。
-            switch step {
-            // 整句和读回这两轮，屏幕停在确认页：向导念的就是这一页的内容，
+            // 只剩整句和读回两轮，两轮屏幕都停在确认页：向导念的就是这一页的内容，
             // 用户中途切回手动时看到的和刚听到的是同一件事。
+            //
+            // 逐项修改删掉之后，这里再也不会在用户说话的中途把屏幕换成另一张表单
+            // （2026-08-06 用户报的「点了改地点之后跳转到了一个界面」）。
+            switch step {
             case .freeform, .confirm: viewModel.currentStep = .review
-            case .startPlace: viewModel.currentStep = .startPoint
-            case .startTime: viewModel.currentStep = .appointmentTime
-            case .duration: viewModel.currentStep = .runningNeeds
             }
         }
         // 语音提交与按钮提交共用同一个出口，跳转逻辑只有一份。

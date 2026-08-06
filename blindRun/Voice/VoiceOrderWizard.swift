@@ -26,23 +26,17 @@ import Foundation
 @MainActor
 final class VoiceOrderWizard: ObservableObject {
 
+    /// **只有两轮。** 逐项修改（改地点 / 改时间 / 改时长）已于 2026-08-06 删除，理由见 `Command.restart`。
     enum Step: Equatable {
-        /// 一次说完。用户在这一轮讲一整句，能抽出什么算什么，抽不出的用默认值补。
+        /// 一次说完。用户在这一轮讲一整句。
         case freeform
-        /// 读回整单后等指令：「确认」或「改地点 / 改时间 / 改时长」。
+        /// 读回整单后等指令：「确认」或「重说」。
         case confirm
-        /// 定点修改。**只有这一轮说的是纯地名**，所以只有这一轮的 geocode 是可靠的。
-        case startPlace
-        case startTime
-        case duration
 
         var speechField: SpeechInputField? {
             switch self {
             case .freeform: return .voiceOrderFreeform
             case .confirm: return .voiceOrderConfirm
-            case .startPlace: return .voiceOrderStartPlace
-            case .startTime: return .voiceOrderStartTime
-            case .duration: return .voiceOrderDuration
             }
         }
 
@@ -53,18 +47,26 @@ final class VoiceOrderWizard: ObservableObject {
             case .freeform:
                 return "请说你想从哪儿出发、什么时候跑、跑多久，比如：明天早上八点从人民广场出发跑一个小时。说完再点一下就好。"
             case .confirm:
-                return "说「确认」就下单；要改就说「改地点」「改时间」或者「改时长」。"
-            case .startPlace: return "请只说出发地点，比如：人民广场地铁站。"
-            case .startTime: return "请说什么时候出发，比如：明天早上八点半。"
-            case .duration: return "请说打算跑多久，比如：一个小时。"
+                return "说「确认」就下单；要重新说一遍就说「重说」。"
             }
         }
     }
 
     /// `.confirm` 轮的本地指令判定结果。
+    ///
+    /// **`.restart` 取代了原来的三个 `.fix(...)`**（2026-08-06）。删除逐项修改的直接原因是真机手测：
+    /// 用户说「改地点」，识别成同音的「**该地点**」——「该地点」本身就是常用词，屏幕上的字看起来
+    /// 几乎一样 —— 整串精确匹配不中，于是人一直卡在读回这一轮，之后说的每个地名对
+    /// 「确认 / 改X」这张表都是无效指令，每次都回「没听懂」。用户报的
+    /// 「不管我说什么地点他都返回没听懂」就是这个现象。
+    ///
+    /// 换成「重说」有三个好处，而代价只有「只想改时间也要把整句重说一遍」（约 5 秒）：
+    /// - 22 个修改词的整串匹配表整个消失，脆的东西没了
+    /// - 三个只在这条路径上存在的向导步骤消失，界面不再在用户脚下换成表单
+    /// - 出错时只有一个动作要记，而不是三个 —— 记忆成本对目标用户是最贵的那部分
     enum Command: Equatable {
         case confirm
-        case fix(Step)
+        case restart
         case repeatBack
         case unrecognized
     }
@@ -123,6 +125,12 @@ final class VoiceOrderWizard: ObservableObject {
     private var pendingNotice: String?
     /// 当前这一句最晚等到什么时候就强行开麦。由 `speak(_:)` 按字数定，见 `settleTimeout(forCharacterCount:)`。
     private var speechSettleDeadline: Date?
+    /// 本轮语音**真的抽到了**开始时间。
+    ///
+    /// 必须与 `bookingViewModel.appointmentTime` 分开记：那个字段的初值是 `Date()`，
+    /// 光看它分不出「用户说了个正好是现在的时间」和「压根没抽出来」。而这两者对盲人是天壤之别 ——
+    /// 一个是他说的，另一个是系统编的。
+    @Published private(set) var didCaptureStartTime = false
 
     private enum WizardError: Error { case parseTimedOut, notConfigured }
 
@@ -168,6 +176,7 @@ final class VoiceOrderWizard: ObservableObject {
         createdOrder = nil
         lastUtterance = nil
         partialTranscript = ""
+        didCaptureStartTime = false
         isRunning = true
         step = .freeform
         reaskCount = 0
@@ -240,10 +249,33 @@ final class VoiceOrderWizard: ObservableObject {
         }
         parts.append("这次的预约是：")
         parts.append(bookingViewModel.startPointSummary)
-        parts.append(bookingViewModel.appointmentSummary)
+        // 时间这一项**只在真的抽到时才念具体时刻**。
+        //
+        // 以前无条件念 `appointmentSummary`，而 `appointmentTime` 的初值是 `Date()` ——
+        // 抽不出时间时，读回会念出一个用户从没说过的具体时刻，后面再补一句「需至少在 30 分钟后」。
+        // 对听不见屏幕的人，那就是「它念了一张我没说过的单」（2026-08-06 用户原话：
+        // 「他也没有经过我的同意」）。没说就说没说，不许编。
+        parts.append(didCaptureStartTime ? bookingViewModel.appointmentSummary : "预约时间还没说。")
         parts.append(bookingViewModel.optionalNeedsSpeechSummary)
-        parts.append("说「确认」就下单；要改就说「改地点」「改时间」或者「改时长」。")
+        parts.append(confirmOutro)
         return parts.joined()
+    }
+
+    /// 读回结尾那句出路。缺关键槽位时**不能**教用户说「确认」——
+    /// 教了他会说，说了不生效，那是比不教更糟的体验。
+    private var confirmOutro: String {
+        if let blocked = missingRequiredSlotMessage {
+            return blocked
+        }
+        return "说「确认」就下单；要重新说一遍就说「重说」。"
+    }
+
+    /// 关键槽位缺失时的说明。**只有开始时间是关键的**：
+    /// 起点缺失有正当默认（当前位置，且读回会念出来）；时长在产品上就是选填，
+    /// 读回念「没有填写选填跑步需求」本来就是诚实的，没有编造。
+    private var missingRequiredSlotMessage: String? {
+        guard !didCaptureStartTime else { return nil }
+        return "还没听到你说预约时间，现在不能下单。请说「重说」，然后把出发地点、什么时候跑、跑多久一次说完。"
     }
 
     private func listen(for field: SpeechInputField) {
@@ -340,8 +372,6 @@ final class VoiceOrderWizard: ObservableObject {
             await parseFreeform(transcript)
         case .confirm:
             await handleConfirmCommand(transcript)
-        case .startPlace, .startTime, .duration:
-            await parseSingleSlot(transcript)
         }
     }
 
@@ -379,6 +409,7 @@ final class VoiceOrderWizard: ObservableObject {
 
         if let raw = parsed?.plannedStartTime, let date = raw.backendLocalDate {
             bookingViewModel?.appointmentTime = date
+            didCaptureStartTime = true
         }
         if let place = parsed?.resolvedStartPlace {
             bookingViewModel?.applyVoiceResolvedStartPlace(
@@ -430,17 +461,34 @@ final class VoiceOrderWizard: ObservableObject {
     private func handleConfirmCommand(_ transcript: String) async {
         switch Self.command(for: transcript) {
         case .confirm:
+            // 缺关键槽位时「确认」不生效 —— 用户没说过时间，不能凭一句「确认」就派单。
+            // 读回结尾已经念过原因（`missingRequiredSlotMessage`），这里再说一次是因为
+            // 用户可能是听完很久才开的口，中间隔了多少秒我们不知道。
+            if let blocked = missingRequiredSlotMessage {
+                reask(with: blocked)
+                return
+            }
             await submitConfirmedBooking()
         case .repeatBack:
             reaskCount = 0
             askCurrentStep()
-        case .fix(let target):
-            reaskCount = 0
-            step = target
-            askCurrentStep()
+        case .restart:
+            restartFromFreeform()
         case .unrecognized:
-            reask(with: "没听懂。说「确认」就下单，或者说「改地点」「改时间」「改时长」。")
+            reask(with: "没听懂。说「确认」就下单，或者说「重说」重新说一遍。")
         }
+    }
+
+    /// 从头再说一遍。**必须把上一轮抽到的槽位清干净**，否则新的一句没提到的项会留着旧值，
+    /// 而读回照样把它念出来 —— 用户会以为那是他这次说的。
+    private func restartFromFreeform() {
+        reaskCount = 0
+        lastUtterance = nil
+        pendingNotice = nil
+        didCaptureStartTime = false
+        bookingViewModel?.resetVoiceFilledSlots()
+        step = .freeform
+        askCurrentStep()
     }
 
     /// 用户说了「确认」：走既有的提交路径。
@@ -461,78 +509,7 @@ final class VoiceOrderWizard: ObservableObject {
         }
     }
 
-    // MARK: Single-slot fix
-
-    /// 定点修改。修好一项就回到读回环节把整单再念一遍 —— 改完不复核，用户无从确认改对了没有。
-    private func parseSingleSlot(_ transcript: String) async {
-        enterParsing(saying: "正在识别，请稍候。")
-        defer { isParsing = false }
-
-        do {
-            switch step {
-            case .startPlace:
-                let response = try await resolveAddressResponse(transcript)
-                guard response.isUsable,
-                      let latitude = response.latitude,
-                      let longitude = response.longitude,
-                      let address = response.address else {
-                    reask(with: response.ttsText ?? "没听清地点，请再说一次出发地。")
-                    return
-                }
-                bookingViewModel?.applyVoiceResolvedStartPlace(
-                    address: address, latitude: latitude, longitude: longitude
-                )
-                moveToConfirm()
-
-            case .startTime:
-                let response = try await parseSlotResponse(transcript, field: .startTime)
-                guard response.needReask != true,
-                      let raw = response.plannedStartTime,
-                      let date = raw.backendLocalDate else {
-                    reask(with: response.ttsText ?? "没听清开始时间，请再说一次，比如：明天早上八点。")
-                    return
-                }
-                bookingViewModel?.appointmentTime = date
-                moveToConfirm()
-
-            case .duration:
-                let response = try await parseSlotResponse(transcript, field: .duration)
-                guard response.needReask != true, let minutes = response.durationMinutes else {
-                    reask(with: response.ttsText ?? "没听清时长，请再说一次，比如：一个小时。")
-                    return
-                }
-                let option = Self.durationOption(forMinutes: minutes)
-                bookingViewModel?.duration = option
-                // 只有在真的挪动了用户说的数字时才多说一句 —— 静默取整对听不见屏幕的人就是篡改。
-                moveToConfirm(notice: Self.durationRoundingNotice(spokenMinutes: minutes, option: option))
-
-            case .freeform, .confirm:
-                return
-            }
-        } catch is WizardError {
-            // 超时不是「没听清」，但对用户来说下一步是一样的：再说一次。计入重问上限，
-            // 连续卡三次就交回表单，而不是让人对着麦克风重复到放弃。
-            reask(with: "网络有点慢，没能及时听懂，请再说一次。")
-        } catch let error as APIError {
-            // 接口层面的失败重问多少次都不会变好，直接交回表单。
-            fallBack(reason: error.localizedMessage)
-        } catch {
-            fallBack(reason: "网络异常")
-        }
-    }
-
     // MARK: Networking
-
-    private func parseSlotResponse(_ transcript: String, field: VoiceSlotField) async throws -> ParseSlotResponse {
-        guard let apiClient else { throw WizardError.notConfigured }
-        return try await withParseTimeout {
-            let response: ParseSlotResponse = try await apiClient.post(
-                VoiceOrderEndpoint.parseSlot,
-                body: ParseSlotRequest(transcript: transcript, field: field)
-            )
-            return response
-        }
-    }
 
     /// 整句解析。请求体与 `resolve-address` 完全一致（spec 明说），所以复用同一个类型。
     private func parseOrderResponse(_ transcript: String) async throws -> ParseVoiceOrderResponse {
@@ -541,18 +518,6 @@ final class VoiceOrderWizard: ObservableObject {
         return try await withParseTimeout {
             let response: ParseVoiceOrderResponse = try await apiClient.post(
                 VoiceOrderEndpoint.parseOrder,
-                body: body
-            )
-            return response
-        }
-    }
-
-    private func resolveAddressResponse(_ transcript: String) async throws -> ResolveAddressResponse {
-        guard let apiClient else { throw WizardError.notConfigured }
-        let body = disambiguationRequest(transcript: transcript)
-        return try await withParseTimeout {
-            let response: ResolveAddressResponse = try await apiClient.post(
-                VoiceOrderEndpoint.resolveAddress,
                 body: body
             )
             return response
@@ -639,11 +604,15 @@ final class VoiceOrderWizard: ObservableObject {
     #if DEBUG
     /// 从任意轮起步，且不碰麦克风。用例要验的是解析与推进，真录音由 `SpeechInputService` 自己的
     /// 用例覆盖（且单测环境拿不到麦克风授权）。
-    func startForTesting(at step: Step) {
+    /// - Parameter didCaptureStartTime: 这一轮语音是否真的抽到了开始时间。
+    ///   默认 `false`（= 用户还没说过时间），此时「确认」按设计不生效 —— 想验提交路径的用例
+    ///   必须显式传 `true`，否则测的是「缺时间被拦住」而不是提交。
+    func startForTesting(at step: Step, didCaptureStartTime: Bool = false) {
         isRunning = true
         self.step = step
         reaskCount = 0
         fallbackMessage = nil
+        self.didCaptureStartTime = didCaptureStartTime
     }
 
     /// 把一次录音完成回调直接喂进来，不碰麦克风。
@@ -687,20 +656,26 @@ final class VoiceOrderWizard: ObservableObject {
         "没问题", "就这样", "就这么办", "开始约跑"
     ]
 
-    private static let placeFixWords: Set<String> = [
-        "改地点", "修改地点", "换地点", "换个地点", "改出发地", "改出发地点", "地点", "改地址"
+    /// 「重说」的触发词。**这一组用包含匹配，不用整串匹配** —— 与 `affirmatives` 刻意相反。
+    ///
+    /// 两组的失败方向不对称，所以匹配严格程度也该不一样：
+    /// - 把「不是确认的话」误判成确认 → 产生一张用户没打算下的真实订单。必须整串、必须严。
+    /// - 把「不是重说的话」误判成重说 → 用户多说一句话。可以松。
+    ///
+    /// 整串匹配在这一组上已经被真机证伪：用户说「改地点」被识别成同音的「该地点」，整串不中，
+    /// 人就卡在读回那一轮出不来。包含匹配对同音字仍然无能为力，所以词表里把
+    /// **「重」「从」两种常见误识都收进来**，并且不依赖单个字。
+    private static let restartWords: [String] = [
+        "重说", "重新说", "从新说", "重新讲", "重来", "重新来", "从头说", "从头再说", "从头来",
+        "再说一次", "重新预约", "重新说一遍", "重新来过"
     ]
 
-    private static let timeFixWords: Set<String> = [
-        "改时间", "修改时间", "换时间", "换个时间", "改出发时间", "时间", "改几点"
-    ]
-
-    private static let durationFixWords: Set<String> = [
-        "改时长", "修改时长", "换时长", "改跑多久", "时长", "改多久", "改时间长度"
-    ]
-
+    /// 「把刚才那段再念给我听」。**注意与 `restartWords` 的语义分界**：
+    /// 这一组是「你再念一遍」，那一组是「我再说一遍」。中文里「再说一遍」两种意思都有，
+    /// 这里把它划给「重说」（`restartWords` 里），因为读回结尾教的就是「重说」，
+    /// 而「重复」「再念一遍」在语义上不可能被理解成「我要重新讲」。
     private static let repeatWords: Set<String> = [
-        "再说一遍", "重复", "重复一遍", "再念一遍", "没听清", "再说一次"
+        "重复", "重复一遍", "再念一遍", "没听清", "再念一次", "你再说一遍"
     ]
 
     /// 句尾语气词不改变语义，剥掉可以显著提高召回而不牺牲安全性（「确认吧」「好的呀」）。
@@ -725,14 +700,13 @@ final class VoiceOrderWizard: ObservableObject {
         return affirmatives.contains(normalized)
     }
 
+    /// 判定顺序有意义：**肯定词先判、且只认整串**，免得「重新确认一下」这种话里的「确认」被包含匹配吃掉。
     static func command(for transcript: String) -> Command {
         let normalized = normalizedCommand(transcript)
         guard !normalized.isEmpty else { return .unrecognized }
         if affirmatives.contains(normalized) { return .confirm }
         if repeatWords.contains(normalized) { return .repeatBack }
-        if placeFixWords.contains(normalized) { return .fix(.startPlace) }
-        if timeFixWords.contains(normalized) { return .fix(.startTime) }
-        if durationFixWords.contains(normalized) { return .fix(.duration) }
+        if restartWords.contains(where: { normalized.contains($0) }) { return .restart }
         return .unrecognized
     }
 

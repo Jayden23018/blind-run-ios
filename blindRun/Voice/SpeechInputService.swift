@@ -112,7 +112,12 @@ enum RecordingCue {
 
     static let beginToneFrequency: Double = 880
     static let endToneFrequency: Double = 587
-    static let toneDuration: TimeInterval = 0.12
+    /// 2026-08-06 真机第三轮：120 ms 的纯正弦「声音不大，可能会被盲人忽略」。
+    ///
+    /// 短促的纯音在感知响度上天生远低于语音 —— 同样的峰值电平，人耳听着就是更小声。
+    /// 三处一起加：时长 120→200 ms（给耳朵反应时间）、振幅 0.6→0.95、加一个八度泛音
+    /// （谐波让音色更「亮」，在同样峰值下明显更容易被注意到）。
+    static let toneDuration: TimeInterval = 0.2
 
     static let beginToneData = ToneSynthesizer.wav(frequency: beginToneFrequency, duration: toneDuration)
     static let endToneData = ToneSynthesizer.wav(frequency: endToneFrequency, duration: toneDuration)
@@ -178,13 +183,21 @@ enum ToneSynthesizer {
     /// 首尾各 8 ms 淡入淡出。直接切方波边缘会有「咔」的爆音，对贴着耳朵听的用户尤其难受。
     static let fadeSeconds = 0.008
 
-    static func wav(frequency: Double, duration: TimeInterval, amplitude: Double = 0.6) -> Data {
+    /// 基频 + 一个八度泛音。纯正弦在感知响度上偏「闷」，加谐波能在同样峰值电平下明显更容易被注意到
+    /// —— 2026-08-06 真机反馈「声音不大，可能会被盲人忽略」，这是三处调整之一。
+    static let overtoneRatio = 0.35
+
+    static func wav(frequency: Double, duration: TimeInterval, amplitude: Double = 0.95) -> Data {
         let frameCount = Int(Double(sampleRate) * duration)
         var pcm = Data(capacity: frameCount * 2)
+        // 基频与八度加在一起会超过 1，先归一化再乘振幅，否则削顶会变成刺耳的失真。
+        let normalizer = 1 + overtoneRatio
         for frame in 0..<frameCount {
             let time = Double(frame) / Double(sampleRate)
             let envelope = max(0, min(min(time, duration - time) / fadeSeconds, 1))
-            let value = sin(2 * .pi * frequency * time) * envelope * amplitude
+            let fundamental = sin(2 * .pi * frequency * time)
+            let overtone = sin(2 * .pi * frequency * 2 * time) * overtoneRatio
+            let value = (fundamental + overtone) / normalizer * envelope * amplitude
             var sample = Int16(max(-1, min(1, value)) * Double(Int16.max))
             withUnsafeBytes(of: &sample) { pcm.append(contentsOf: $0) }
         }

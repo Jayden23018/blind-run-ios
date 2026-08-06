@@ -95,9 +95,12 @@ final class VoiceOrderWizardTests: XCTestCase {
     }
 
     /// 确认走的是提交路径而不是解析端点。
+    ///
+    /// `didCaptureStartTime: true` 不能省 —— 没抽到时间时「确认」按设计不生效（见
+    /// `testConfirmIsRefusedWhenTheStartTimeWasNeverSpoken`），不传就变成在测拦截而不是提交。
     func testAffirmativeTakesTheSubmitPathInsteadOfParsing() async {
         let stub = VoiceOrderAPIClientStub()
-        let wizard = makeWizard(stub: stub, startingAt: .confirm)
+        let wizard = makeWizard(stub: stub, startingAt: .confirm, didCaptureStartTime: true)
 
         await wizard.submitTranscript("确认")
 
@@ -105,35 +108,59 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertTrue(stub.paths.isEmpty, "确认判定不走后端：\(stub.paths)")
     }
 
-    /// 「改 X」要跳到对应那一项，而不是从头再问一遍。
-    func testFixCommandsJumpToTheNamedSlot() async {
-        let cases: [(String, VoiceOrderWizard.Step)] = [
-            ("改地点", .startPlace),
-            ("改时间", .startTime),
-            ("改时长", .duration),
-            ("换个地点", .startPlace),
-            ("改多久", .duration)
-        ]
-        for (transcript, expected) in cases {
+    /// 「重说」回到整句那一轮，而不是跳进某个逐项流程（逐项修改已于 2026-08-06 删除）。
+    func testRestartGoesBackToTheFullUtteranceRound() async {
+        for transcript in ["重说", "重新说", "重来", "从头再说", "重新说一遍"] {
             let stub = VoiceOrderAPIClientStub()
             let wizard = makeWizard(stub: stub, startingAt: .confirm)
 
             await wizard.submitTranscript(transcript)
 
-            XCTAssertEqual(wizard.step, expected, "「\(transcript)」应跳到 \(expected)")
+            XCTAssertEqual(wizard.step, .freeform, "「\(transcript)」应回到整句轮")
             XCTAssertTrue(wizard.isRunning)
-            XCTAssertNil(wizard.createdOrder, "修改指令绝不能提交")
-            XCTAssertTrue(stub.paths.isEmpty)
+            XCTAssertNil(wizard.createdOrder, "重说绝不能提交")
+            XCTAssertTrue(stub.paths.isEmpty, "重说是本地判定，不走后端")
         }
     }
 
-    func testCommandClassificationIsWholeStringAndConservative() {
+    /// 「重说」必须**把上一轮抽到的槽位清干净**。
+    ///
+    /// 不清的话，新一句里没提到的项会留着旧值，读回照样念出来 —— 用户会以为那是他这次说的，
+    /// 而看不见屏幕的人无从察觉这是上一轮的残留。
+    func testRestartClearsSlotsCapturedInThePreviousRound() async {
+        let bookingViewModel = BlindBookingViewModel()
+        bookingViewModel.duration = .sixty
+        let wizard = makeWizard(
+            stub: VoiceOrderAPIClientStub(),
+            bookingViewModel: bookingViewModel,
+            startingAt: .confirm
+        )
+
+        await wizard.submitTranscript("重说")
+
+        XCTAssertEqual(bookingViewModel.duration, .none, "上一轮的时长留着，用户会以为是这次说的")
+        XCTAssertNil(bookingViewModel.selectedStartPlace)
+        XCTAssertFalse(wizard.didCaptureStartTime)
+    }
+
+    /// 肯定词与「重说」的匹配严格程度**刻意不同** —— 两者的失败方向不对称：
+    /// 误判成确认会产生一张用户没打算下的真实订单；误判成重说只是让人多说一句话。
+    func testCommandClassificationIsStrictForConfirmAndLenientForRestart() {
         XCTAssertEqual(VoiceOrderWizard.command(for: "确认"), .confirm)
         XCTAssertEqual(VoiceOrderWizard.command(for: "确认吧"), .confirm)
-        XCTAssertEqual(VoiceOrderWizard.command(for: "改时间"), .fix(.startTime))
-        XCTAssertEqual(VoiceOrderWizard.command(for: "再说一遍"), .repeatBack)
-        // 含肯定词的否定与复核请求：整串匹配的存在理由
-        for transcript in ["不确认", "先别确认", "确认一下时间", "还不能确认", "我要修改", "嗯"] {
+        XCTAssertEqual(VoiceOrderWizard.command(for: "重复"), .repeatBack)
+
+        // 重说用包含匹配：真机上「改地点」被听成同音的「该地点」，整串精确匹配把人卡死在读回轮，
+        // 之后说什么都是「没听懂」。宽一点的代价只是偶尔多重说一轮。
+        for transcript in ["重说", "那我重说一遍", "我想重新说", "重来吧", "算了重新来过"] {
+            XCTAssertEqual(
+                VoiceOrderWizard.command(for: transcript), .restart,
+                "「\(transcript)」应判为重说"
+            )
+        }
+
+        // 肯定词仍然整串：含肯定词的否定与复核请求一个都不许放行。
+        for transcript in ["不确认", "先别确认", "确认一下时间", "还不能确认", "嗯"] {
             XCTAssertEqual(
                 VoiceOrderWizard.command(for: transcript), .unrecognized,
                 "「\(transcript)」不得被判成任何指令"
@@ -257,7 +284,13 @@ final class VoiceOrderWizardTests: XCTestCase {
             spoken.contains("我听到你说：明天早上八点从人民广场出发跑一个小时。"),
             "识别到的原话仍要念：失败的是解析不是听写，用户得能对出差在哪：\(spoken)"
         )
-        XCTAssertTrue(spoken.contains("说「确认」就下单"), "出路照旧念全：\(spoken)")
+        // 整句解析失败 = 一个槽位都没抽到 = 时间也没抽到，所以出路念的是「缺时间不能下单」，
+        // 而不是「说确认就下单」。教用户说一个说了也不生效的词，比不教更糟。
+        XCTAssertTrue(spoken.contains("重说"), "必须给出唯一可行的出路：\(spoken)")
+        XCTAssertFalse(
+            spoken.contains("说「确认」就下单"),
+            "时间都没抽到还教用户说确认，他说了不生效：\(spoken)"
+        )
     }
 
     /// 解析成功时不得出现失败提示 —— 一句每次都念的「提示」等于没有提示。
@@ -343,119 +376,15 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertNil(coordinateOnly.resolvedStartPlace)
     }
 
-    // MARK: - needReask 不是错误
-
-    /// `needReask: true` 是 HTTP 200 的正常业务状态。把它当成错误分支处理，或者据此推进到下一个槽位，
-    /// 都会让盲人在完全没确认地点的情况下被问「什么时候出发」。
-    func testNeedReaskKeepsTheSameSlotAndDoesNotAdvance() async {
-        let stub = VoiceOrderAPIClientStub()
-        stub.resolveAddressResponses = [
-            ResolveAddressResponse(
-                address: nil, latitude: nil, longitude: nil,
-                needReask: true, ttsText: "没听清地点，请再说一次出发地"
-            )
-        ]
-        let wizard = makeWizard(stub: stub)
-
-        await wizard.submitTranscript("嗯那个")
-
-        XCTAssertEqual(wizard.step, .startPlace, "needReask 不得推进到下一个槽位")
-        XCTAssertEqual(wizard.reaskCount, 1)
-        XCTAssertNil(wizard.fallbackMessage, "一次听不清不该降级")
-        XCTAssertEqual(wizard.lastSpokenPrompt, "没听清地点，请再说一次出发地")
-    }
-
-    /// 同一个槽位连续听不清就交回表单，并且必须说清楚接下来去哪 —— 看不见屏幕的人没有别的方式
-    /// 发现语音已经停了。
-    func testThreeConsecutiveReasksFallBackToTheForm() async {
-        let stub = VoiceOrderAPIClientStub()
-        let reask = ResolveAddressResponse(
-            address: nil, latitude: nil, longitude: nil, needReask: true, ttsText: "没听清地点"
-        )
-        stub.resolveAddressResponses = [reask, reask, reask]
-        let wizard = makeWizard(stub: stub)
-
-        for _ in 0..<VoiceOrderWizard.maximumReasksPerSlot {
-            await wizard.submitTranscript("听不清的话")
-        }
-
-        XCTAssertFalse(wizard.isRunning, "降级后不得继续占着麦克风")
-        let fallback = wizard.fallbackMessage ?? ""
-        XCTAssertTrue(fallback.contains("表单"), "降级文案必须指出回退到表单：\(fallback)")
-        XCTAssertEqual(wizard.step, .startPlace)
-    }
-
-    // MARK: - 解析结果回填
-
-    func testResolvedSlotsLandOnTheBookingForm() async {
-        let stub = VoiceOrderAPIClientStub()
-        stub.resolveAddressResponses = [
-            ResolveAddressResponse(
-                address: "上海市黄浦区人民广场",
-                latitude: 31.2304,
-                longitude: 121.4737,
-                needReask: false,
-                ttsText: "您是说在上海市黄浦区人民广场出发吗？"
-            )
-        ]
-        let plannedStart = DateFormatter.aidRunBackendLocalDateTime.string(
-            from: Date().addingTimeInterval(3600 * 24)
-        )
-        stub.parseSlotResponses = [
-            ParseSlotResponse(
-                plannedStartTime: plannedStart, durationMinutes: nil,
-                needReask: false, ttsText: "好的，明天八点半"
-            ),
-            ParseSlotResponse(
-                plannedStartTime: nil, durationMinutes: 90,
-                needReask: false, ttsText: "好的，大约90分钟"
-            )
-        ]
-        let viewModel = BlindBookingViewModel()
-        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel)
-
-        // 定点修改：改完一项就回读回环节把整单再念一遍，改完不复核用户无从确认改对了没有。
-        await wizard.submitTranscript("人民广场地铁站")
-        XCTAssertEqual(wizard.step, .confirm, "改完地点要回到读回")
-        XCTAssertEqual(viewModel.selectedStartPlace?.latitude, 31.2304)
-        XCTAssertEqual(viewModel.selectedStartPlace?.longitude, 121.4737)
-        XCTAssertEqual(viewModel.selectedStartPlace?.addressText, "上海市黄浦区人民广场")
-
-        wizard.startForTesting(at: .startTime)
-        await wizard.submitTranscript("明天早上八点半")
-        XCTAssertEqual(wizard.step, .confirm, "改完时间要回到读回")
-        XCTAssertEqual(
-            DateFormatter.aidRunBackendLocalDateTime.string(from: viewModel.appointmentTime),
-            plannedStart,
-            "开始时间必须原样透传，客户端不得二次格式化"
-        )
-
-        wizard.startForTesting(at: .duration)
-        await wizard.submitTranscript("跑一个半小时")
-        XCTAssertEqual(wizard.step, .confirm, "改完时长要回到读回")
-        XCTAssertEqual(viewModel.duration, .ninety)
-        XCTAssertNil(wizard.createdOrder, "定点修改绝不自动提交，必须由用户说确认")
-    }
-
-    /// 后端接受 10~300 的任意分钟数，表单只有固定档位。取整本身可以接受，**静默**取整不行 ——
-    /// 对听不见屏幕的人，没说出口的改动等于没发生。
-    func testSnappedDurationIsSpokenOutLoud() async {
-        let stub = VoiceOrderAPIClientStub()
-        stub.parseSlotResponses = [
-            ParseSlotResponse(
-                plannedStartTime: nil, durationMinutes: 40, needReask: false, ttsText: "好的，大约40分钟"
-            )
-        ]
-        let viewModel = BlindBookingViewModel()
-        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .duration)
-
-        await wizard.submitTranscript("四十分钟")
-
-        XCTAssertEqual(viewModel.duration, .fortyFive)
-        let spoken = wizard.lastSpokenPrompt ?? ""
-        XCTAssertTrue(spoken.contains("40"), "必须复述用户说的数字：\(spoken)")
-        XCTAssertTrue(spoken.contains("45"), "必须说明实际按哪个档位预约：\(spoken)")
-    }
+    // MARK: - 逐项修改已删除（2026-08-06）
+    //
+    // 原来这里有四条用例覆盖「改地点 / 改时间 / 改时长」那条逐项流程：needReask 不推进、
+    // 连续三次听不清降级、解析结果回填、取整要念出来。逐项修改随 `.restart` 一起删掉之后，
+    // 它们测的代码已经不存在。等价保障都在整句轮那几条上：
+    //   · 回填 → testFreeformUtteranceFillsAllThreeSlotsInASingleRequest
+    //   · 取整播报 → testFreeformAnnouncesDurationRounding
+    //   · 连续失败降级 → testRepeatedSilenceEventuallyFallsBackToTheForm
+    //   · needReask 不当错误 → testFreeformTreatsMissingSlotsAsDefaultsAndNeverReasks
 
     func testDurationSnappingPicksTheNearestOption() {
         XCTAssertEqual(VoiceOrderWizard.durationOption(forMinutes: 90), .ninety)
@@ -670,18 +599,10 @@ final class VoiceOrderWizardTests: XCTestCase {
 
     // MARK: - 网络失败
 
-    /// 解析端点报错不是「没听清」，重问没有意义，直接交回表单。
-    func testTransportErrorFallsBackInsteadOfReasking() async {
-        let stub = VoiceOrderAPIClientStub()
-        stub.error = APIError.serverError(ErrorResponse(code: "INTERNAL_ERROR", message: "服务器内部错误"))
-        let wizard = makeWizard(stub: stub)
-
-        await wizard.submitTranscript("人民广场")
-
-        XCTAssertFalse(wizard.isRunning)
-        XCTAssertNotNil(wizard.fallbackMessage)
-        XCTAssertEqual(wizard.reaskCount, 0, "网络错误不该消耗重问次数")
-    }
+    // 「解析端点报错就交回表单」那条用例随逐项修改一起删除（2026-08-06）：它测的是
+    // `parseSingleSlot` 的 APIError 分支。整句轮**刻意相反** —— 传输失败被吞掉、仍然读回，
+    // 由 `testFreeformSwallowsTransportFailuresAndStillReadsBackDefaults` 与
+    // `testFreeformAnnouncesThatParsingFailedBeforeReadingBackDefaults` 覆盖。
 
     /// 等待期间必须出声。不出声的话，全盲用户在结束音之后听到的是最长 8 秒的绝对静默 ——
     /// 这正是我们用来论证要做 `RecordingCue` 的那条 AppleVis 抱怨（「按下之后全程没有任何反馈」），
@@ -705,18 +626,19 @@ final class VoiceOrderWizardTests: XCTestCase {
         )
         await freeformWizard.submitTranscript("明天早上八点跑一个小时")
 
-        let slotStub = VoiceOrderAPIClientStub()
-        slotStub.parseSlotResponses = [
-            ParseSlotResponse(
+        let secondStub = VoiceOrderAPIClientStub()
+        secondStub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
                 plannedStartTime: "2026-08-05T08:00:00", durationMinutes: nil,
-                needReask: false, ttsText: nil
+                address: nil, latitude: nil, longitude: nil,
+                missing: nil, needReask: nil, ttsText: nil
             )
         ]
-        slotStub.onRequest = { heardWhileWaiting.append(speechService.lastSpokenText ?? "") }
-        let slotWizard = makeWizard(
-            stub: slotStub, speechService: speechService, startingAt: .startTime
+        secondStub.onRequest = { heardWhileWaiting.append(speechService.lastSpokenText ?? "") }
+        let secondWizard = makeWizard(
+            stub: secondStub, speechService: speechService, startingAt: .freeform
         )
-        await slotWizard.submitTranscript("明天早上八点")
+        await secondWizard.submitTranscript("明天早上八点")
 
         XCTAssertEqual(heardWhileWaiting.count, 2, "两轮都该发出请求")
         for heard in heardWhileWaiting {
@@ -738,7 +660,8 @@ final class VoiceOrderWizardTests: XCTestCase {
         let wizard = makeWizard(
             stub: VoiceOrderAPIClientStub(),
             bookingViewModel: bookingViewModel,
-            startingAt: .confirm
+            startingAt: .confirm,
+            didCaptureStartTime: true
         )
 
         await wizard.submitTranscript("确认")
@@ -747,6 +670,82 @@ final class VoiceOrderWizardTests: XCTestCase {
             wizard.lastSpokenPrompt,
             "等待提示不该进「重复一遍」的记忆，实际留下：「\(wizard.lastSpokenPrompt ?? "")」"
         )
+    }
+
+    // MARK: - 不许编时间
+    //
+    // 2026-08-06 用户原话：「这个默认配置我觉得不应该给它默认配置，除了地点有默认地点之外，
+    // 其他的为什么能默认呢」。`appointmentTime` 的初值是 `Date()`，抽不出时间时读回会念出一个
+    // 用户从没说过的具体时刻，再补一句「需至少在 30 分钟后」—— 听不见屏幕的人只会记住前半句。
+
+    /// 没抽到开始时间时，读回**不得念出任何具体时刻**。
+    func testReadbackSaysTheTimeIsMissingInsteadOfInventingOne() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: nil, durationMinutes: nil, address: nil,
+                latitude: nil, longitude: nil,
+                missing: [.startTime], needReask: nil, ttsText: nil
+            )
+        ]
+        // bookingViewModel 必须本地强持有：向导那侧是 `weak`，不持有的话 `askCurrentStep`
+        // 会走 `else` 分支念 `Step.confirm.prompt` 兜底文案，整单一个字都不念 —— 用例
+        // 测的就不是读回内容了。本仓库 `weak-temporary` 守卫说的就是这个坑。
+        let bookingViewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("我想去人民广场")
+
+        let spoken = wizard.lastSpokenPrompt ?? ""
+        XCTAssertTrue(spoken.contains("预约时间还没说"), "没说就要说没说：\(spoken)")
+        XCTAssertFalse(wizard.didCaptureStartTime)
+        XCTAssertFalse(
+            spoken.contains("预约时间：20"),
+            "念出了一个用户从没说过的具体时刻：\(spoken)"
+        )
+    }
+
+    /// 缺开始时间时「确认」不生效 —— 不能凭一句「确认」就派一张用户没说过时间的单。
+    func testConfirmIsRefusedWhenTheStartTimeWasNeverSpoken() async {
+        let bookingViewModel = BlindBookingViewModel()
+        let wizard = makeWizard(
+            stub: VoiceOrderAPIClientStub(),
+            bookingViewModel: bookingViewModel,
+            startingAt: .confirm,
+            didCaptureStartTime: false
+        )
+
+        await wizard.submitTranscript("确认")
+
+        XCTAssertNil(wizard.createdOrder, "用户从没说过时间，不能成单")
+        XCTAssertTrue(wizard.isRunning, "拦住之后要留在语音里，而不是静默结束")
+        XCTAssertTrue((wizard.lastSpokenPrompt ?? "").contains("重说"), "必须给出唯一可行的出路")
+    }
+
+    /// 抽到了时间就正常放行 —— 上面那条拦截不能宽到把正常流程也挡了。
+    func testConfirmProceedsOnceTheStartTimeWasCaptured() async {
+        let stub = VoiceOrderAPIClientStub()
+        let plannedStart = DateFormatter.aidRunBackendLocalDateTime.string(
+            from: Date().addingTimeInterval(3600 * 24)
+        )
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: plannedStart, durationMinutes: nil, address: nil,
+                latitude: nil, longitude: nil,
+                missing: nil, needReask: nil, ttsText: nil
+            )
+        ]
+        // 同上：不强持有的话下面那条断言会因为兜底文案恰好也含「说「确认」就下单」而**假通过**。
+        let bookingViewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上八点从人民广场出发")
+
+        XCTAssertTrue(wizard.didCaptureStartTime)
+        let spoken = wizard.lastSpokenPrompt ?? ""
+        XCTAssertTrue(spoken.contains("这次的预约是："), "念的必须是整单读回而不是兜底提问：\(spoken)")
+        XCTAssertTrue(spoken.contains("说「确认」就下单"), "抽到时间后就该正常给出确认这条出路：\(spoken)")
+        XCTAssertFalse(spoken.contains("预约时间还没说"))
     }
 
     // MARK: - 沉默不等于同意默认值
@@ -962,7 +961,8 @@ final class VoiceOrderWizardTests: XCTestCase {
         stub: VoiceOrderAPIClientStub,
         bookingViewModel: BlindBookingViewModel? = nil,
         speechService: SpeechService = SpeechService(),
-        startingAt step: VoiceOrderWizard.Step = .startPlace
+        startingAt step: VoiceOrderWizard.Step = .freeform,
+        didCaptureStartTime: Bool = false
     ) -> VoiceOrderWizard {
         let bookingViewModel = bookingViewModel ?? BlindBookingViewModel()
         let wizard = VoiceOrderWizard()
@@ -974,7 +974,7 @@ final class VoiceOrderWizardTests: XCTestCase {
             speechInputService: SpeechInputService(), // guard:allow weak-temporary
             apiClient: stub
         )
-        wizard.startForTesting(at: step)
+        wizard.startForTesting(at: step, didCaptureStartTime: didCaptureStartTime)
         return wizard
     }
 }

@@ -1490,10 +1490,25 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     }
 
     /// GCJ-02，与真实接口同坐标系。
+    /// 前三条逐字对齐后端黄金语料，**不得改动**（`VoiceOrderWizardTests` 锁着）。
+    ///
+    /// 其余是 2026-08-06 补的手测用地点：原来只有三个关键词，说别的一律抽不出，
+    /// 真机手测时表现成「说了地点但读回还是默认起点」，会被误诊成客户端 bug。
+    /// Mock 只是**测试设施**，比语料宽不影响正确性判定 —— 语料那几条仍然逐条断言。
     private static let mockVoicePlaces: [MockVoicePlace] = [
         MockVoicePlace(keyword: "人民广场", address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737),
         MockVoicePlace(keyword: "天安门", address: "北京市东城区天安门广场", latitude: 39.9087, longitude: 116.3975),
-        MockVoicePlace(keyword: "奥林匹克", address: "北京市朝阳区奥林匹克森林公园", latitude: 40.0026, longitude: 116.3915)
+        MockVoicePlace(keyword: "奥林匹克", address: "北京市朝阳区奥林匹克森林公园", latitude: 40.0026, longitude: 116.3915),
+        MockVoicePlace(keyword: "世纪公园", address: "上海市浦东新区世纪公园", latitude: 31.2200, longitude: 121.5540),
+        MockVoicePlace(keyword: "中山公园", address: "上海市长宁区中山公园", latitude: 31.2230, longitude: 121.4200),
+        MockVoicePlace(keyword: "徐家汇", address: "上海市徐汇区徐家汇", latitude: 31.1950, longitude: 121.4370),
+        MockVoicePlace(keyword: "陆家嘴", address: "上海市浦东新区陆家嘴", latitude: 31.2400, longitude: 121.5000),
+        MockVoicePlace(keyword: "静安寺", address: "上海市静安区静安寺", latitude: 31.2240, longitude: 121.4450),
+        MockVoicePlace(keyword: "西湖", address: "浙江省杭州市西湖", latitude: 30.2450, longitude: 120.1490),
+        MockVoicePlace(keyword: "颐和园", address: "北京市海淀区颐和园", latitude: 39.9999, longitude: 116.2755),
+        MockVoicePlace(keyword: "朝阳公园", address: "北京市朝阳区朝阳公园", latitude: 39.9450, longitude: 116.4800),
+        MockVoicePlace(keyword: "体育中心", address: "广东省深圳市福田区深圳体育中心", latitude: 22.5480, longitude: 114.0900),
+        MockVoicePlace(keyword: "公园", address: "本市公园", latitude: 31.2304, longitude: 121.4737)
     ]
 
     /// 开始时间解析。取值与 `demo/docs/voice-golden-corpus.json` 里 `field: "START_TIME"`、
@@ -1605,6 +1620,26 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if transcript.contains("一小时") || transcript.contains("一个小时") { return 60 }
         if transcript.contains("四十分钟") { return 40 }
         if transcript.contains("二十分钟") { return 20 }
+        // 语料之外的兜底：**阿拉伯数字**。
+        //
+        // 上面那几条逐字对齐后端黄金语料，全是中文数字；而 iOS 的 `SFSpeechRecognizer` 实际
+        // 输出的是「跑1个小时」「跑30分钟」这种阿拉伯数字形式。2026-08-06 真机手测因此出现
+        // 「说了时长，读回还是默认值」—— 不是客户端 bug，是 Mock 比真实解析器窄。
+        // 后端 `VoiceSlotParser` 先把中文数字归一成阿拉伯数字再跑正则，本来就两种都吃。
+        if let hours = numberBefore(["个小时", "小时"], in: transcript) { return hours * 60 }
+        if let minutes = numberBefore(["分钟"], in: transcript) { return minutes }
+        return nil
+    }
+
+    /// 取某个后缀之前紧邻的数字，中文与阿拉伯数字都认。
+    /// 顺序敏感：`["个小时", "小时"]` 里「个小时」必须排前面，否则「1个小时」会在「小时」处
+    /// 往前吃到「个」而取不到数。
+    private static func numberBefore(_ suffixes: [String], in transcript: String) -> Int? {
+        for suffix in suffixes {
+            if let value = chineseNumber(before: suffix, in: transcript), value > 0 {
+                return value
+            }
+        }
         return nil
     }
 
