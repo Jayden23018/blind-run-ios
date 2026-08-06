@@ -22,6 +22,12 @@ jobs:
   specs:
     name: 规格与文档
     runs-on: ubuntu-latest
+    # `secrets` 在 step 的 `if:` 里不可用（官方 context availability 表：
+    # jobs.<job_id>.steps.if 只允许 github/needs/strategy/matrix/job/runner/env/vars/steps/inputs）。
+    # 直接写会让整个 workflow **启动失败**——0 个 job、没有日志，只有一封 run failed 邮件。
+    # job 级 env 允许 secrets，转一道再在 if 里读 env。
+    env:
+      HAS_BACKEND_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +36,7 @@ jobs:
       # 静默跳过等于假绿，那正是这套 CI 要消灭的东西。
       - name: Checkout backend contract
         id: backend
-        if: ${{ secrets.BACKEND_REPO_TOKEN != '' }}
+        if: env.HAS_BACKEND_TOKEN == 'true'
         uses: actions/checkout@v4
         with:
           repository: Jayden23018/blind-run-backend
@@ -89,13 +95,15 @@ jobs:
     name: 编译门禁（device SDK）
     runs-on: macos-15
     needs: specs
+    env:
+      HAS_BACKEND_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}   # 理由同 specs job
     steps:
       - uses: actions/checkout@v4
 
       # 生成代码要拿后端契约重新生成后对撞，所以这个 job 也需要后端仓库。
       # 与 specs job 同样的条件与同样的「拿不到就大声说」原则。
       - name: Checkout backend contract
-        if: ${{ secrets.BACKEND_REPO_TOKEN != '' }}
+        if: env.HAS_BACKEND_TOKEN == 'true'
         uses: actions/checkout@v4
         with:
           repository: Jayden23018/blind-run-backend
