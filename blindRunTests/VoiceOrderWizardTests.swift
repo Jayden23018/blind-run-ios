@@ -763,7 +763,10 @@ final class VoiceOrderWizardTests: XCTestCase {
         wizard.configure(
             bookingViewModel: bookingViewModel,
             speechService: SpeechService(),
-            speechInputService: speechInputService ?? SpeechInputService(),
+            // 参数是非可选的，但 wizard 那侧是 `weak var`：不传时这个临时对象出了本行就释放，
+            // wizard 拿到的实际是 nil。走门槛分支的用例本来就不碰语音服务，故此保持现状；
+            // 需要真的语音服务的用例（见 testStartFallsBackImmediately...）必须自己 `let` 住再传进来。
+            speechInputService: speechInputService ?? SpeechInputService(), // guard:allow weak-temporary
             apiClient: VoiceOrderAPIClientStub()
         )
         return wizard
@@ -823,8 +826,10 @@ final class VoiceOrderWizardTests: XCTestCase {
             EmergencyContactResponse(id: 1, name: "联系人1", phone: "13900139001", relationship: "家人", isPrimary: true)
         ])
         let viewModel = BlindBookingViewModel()
+        // `locationService` 在 view model 里是 weak，这里原本传的临时对象当场就释放了 ——
+        // 等价于 nil，写成 nil 才不误导。本用例验的是语音链路失败后的降级，与定位无关。
         viewModel.configureForTesting(
-            speechService: SpeechService(), locationService: LocationService(), appState: appState
+            speechService: SpeechService(), locationService: nil, appState: appState
         )
         let speech = SpeechInputService()
         speech.startPendingAuthorizationForTesting(field: .voiceOrderFreeform)
@@ -855,7 +860,9 @@ final class VoiceOrderWizardTests: XCTestCase {
         wizard.configure(
             bookingViewModel: bookingViewModel,
             speechService: speechService,
-            speechInputService: SpeechInputService(),
+            // 同上：wizard 侧是 weak，这个临时对象等于传 nil。这批用例全走 `startForTesting(at:)`，
+            // 不经过真正的开麦路径，所以不需要一个活着的语音服务。
+            speechInputService: SpeechInputService(), // guard:allow weak-temporary
             apiClient: stub
         )
         wizard.startForTesting(at: step)

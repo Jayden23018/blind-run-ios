@@ -2879,10 +2879,9 @@ final class blindRunTests: XCTestCase {
     func testBlindBookingGuidedStepValidationBlocksInvalidAppointmentAndSpeaksReason() {
         let speechService = SpeechService()
         let viewModel = BlindBookingViewModel()
-        viewModel.configureForTesting(
-            placeSearchProvider: FakePlaceSearchProvider(results: []),
-            speechService: speechService
-        )
+        // 不传 placeSearchProvider：它在 view model 里是 weak，原先传的临时对象当场就释放，
+        // 等于没传；这两条用例也确实不搜地点。
+        viewModel.configureForTesting(speechService: speechService)
         viewModel.currentStep = .appointmentTime
         viewModel.appointmentTime = Date().addingTimeInterval(10 * 60)
 
@@ -2897,10 +2896,9 @@ final class blindRunTests: XCTestCase {
     func testBlindBookingGuidedStepSummariesOmitEmptyOptionalNeeds() {
         let speechService = SpeechService()
         let viewModel = BlindBookingViewModel()
-        viewModel.configureForTesting(
-            placeSearchProvider: FakePlaceSearchProvider(results: []),
-            speechService: speechService
-        )
+        // 不传 placeSearchProvider：它在 view model 里是 weak，原先传的临时对象当场就释放，
+        // 等于没传；这两条用例也确实不搜地点。
+        viewModel.configureForTesting(speechService: speechService)
         viewModel.currentStep = .runningNeeds
 
         XCTAssertTrue(viewModel.optionalReviewItems.isEmpty)

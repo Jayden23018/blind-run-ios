@@ -137,6 +137,70 @@ const cases = [
         new_string: 'import Foundation\nimport AidRunAPI'
       }
     }
+  },
+  {
+    // 2026-08-06：weak 依赖收到临时对象 = 收到 nil，测试照样绿。
+    name: '把当场构造的 LocationService 传给 weak 依赖',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: 'viewModel.configureForTesting(speechService: SpeechService(), locationService: LocationService())'
+      }
+    }
+  },
+  {
+    // `x ?? Type()` 是同一个陷阱换了件衣服：默认分支同样没人持有。
+    name: '?? 兜底构造出的临时对象也要拦',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: 'wizard.configure(speechInputService: speechInputService ?? SpeechInputService())'
+      }
+    }
+  },
+  {
+    name: '先 let 住再传（正确用法，放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: 'let location = LocationService()\nviewModel.configureForTesting(locationService: location)'
+      }
+    }
+  },
+  {
+    // 显式 nil 是表达「这项依赖不存在」的正当写法，不能被这条规则逼成别的样子。
+    name: '显式传 nil（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: 'viewModel.configureForTesting(locationService: nil, appState: appState)'
+      }
+    }
+  },
+  {
+    // speechService 在十几个 view model 里是强引用，按标签名拦会全是误报，故意不在名单里。
+    name: 'speechService 临时对象不在名单内（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: 'viewModel.configure(with: appState, speechService: SpeechService())'
+      }
+    }
   }
 ];
 

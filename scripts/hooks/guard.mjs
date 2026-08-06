@@ -218,6 +218,33 @@ function main() {
       );
     }
 
+    // 5. 把临时对象传给 weak 依赖（2026-08-06）
+    //
+    // View model 的依赖清一色是 `weak var`（避免和 View 持有的对象循环引用）。
+    // 传一个当场构造的临时对象进去，出了这一行就没人持有它 —— 属性立刻变 nil，
+    // 而测试照样绿：它只是没在测你以为在测的那件事。
+    // `BlindBookingGateTests.testEntryAnnouncementCoversOnlyGatesFixedElsewhere` 就这么
+    // 「过」了很久，把它 `let` 住之后才发现那条断言从来没碰过 LocationService。
+    //
+    // 名单是「本仓库里所有以该名字存储的属性都是 weak」的那些标签（核对于 2026-08-06）：
+    //   appState / locationService / placeSearchProvider / speechInputService / bookingViewModel
+    // `speechService` **不在**名单里：它在 VoiceOrderWizard.swift:104 是 weak，
+    // 在十几个 view model 里却是强引用的 `SpeechService?`，按标签名拦会全是误报。
+    const WEAK_DEP_LABELS = /\b(appState|locationService|placeSearchProvider|speechInputService|bookingViewModel):\s*(?:[\w.]+\s*\?\?\s*)?[A-Z]\w*\(/;
+    const weakTempLine = /\.swift$/.test(filePath)
+      ? body.split('\n').find((l) => WEAK_DEP_LABELS.test(l) && !l.includes('guard:allow weak-temporary'))
+      : undefined;
+    if (weakTempLine) {
+      fail(
+        'weak-temporary',
+        `${filePath}\n  ${weakTempLine.trim()}\n\n` +
+          `这些依赖在 view model 里是 \`weak var\`（例：BlindBookingView.swift:182-184、VoiceOrderWizard.swift:103-105）。\n` +
+          `传当场构造的临时对象 = 传 nil：对象在这一行结束就释放，属性变 nil，断言看着绿其实什么都没测。\n` +
+          `改法：先 \`let x = ...\` 在测试方法作用域里持有它再传（helper 函数里的局部变量同样会释放，要么让调用方持有，要么显式传 nil）。\n` +
+          `确实就是想传 nil 语义，行尾加 \`// guard:allow weak-temporary\`。`
+      );
+    }
+
     process.exit(0);
   }
 

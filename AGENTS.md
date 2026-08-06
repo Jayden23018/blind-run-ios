@@ -33,9 +33,9 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 
 - 单测里构造硬件服务当「缺失状态」的前提是竞态：真机 CoreLocation 几毫秒就回调，
   用 `LocationService.simulateMissingDeviceLocationForTesting()`（`blindRun/Map/LocationService.swift:169`）钉死。
-  另一半陷阱是 `BlindBookingViewModel` 的 `appState` / `locationService` / `placeSearchProvider`
-  都是 `weak`（`blindRun/BlindRunner/BlindBookingView.swift:182-184`）—— 传进去的临时对象当场释放，
-  断言看着绿其实什么都没测。详见记忆 `location-service-test-seam-and-weak-viewmodel-deps`。
+  详见记忆 `location-service-test-seam-and-weak-viewmodel-deps`。
+  另一半陷阱（view model 依赖是 `weak`，传临时对象等于传 nil）已按 §1.1 落成守卫规则
+  `weak-temporary`，不再靠人记。
 
 ## 2. 源真相优先级
 
@@ -144,7 +144,7 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 > 2026-08-06 从整文件冻结改为行级。核对后发现原先给的两条理由只有一条落在 pbxproj 上（`DEVELOPMENT_TEAM`，12 处）；`EXCLUDED_ARCHS` 在 pbxproj 里出现 **0 次**，它只存在于 `Podfile:36`。整文件冻结的代价是连加一个 SPM 依赖都做不到，而「临时解锁、改完加回来」依赖人记得加回来 —— 第 1 节说的就是这种挡不住重复犯错的做法。
 >
-> 守卫在 `scripts/hooks/guard.mjs`，自测在 `scripts/validate-guard.mjs`（8 条用例，CI 与 pre-push 都跑）。
+> 守卫在 `scripts/hooks/guard.mjs`，自测在 `scripts/validate-guard.mjs`（16 条用例，CI 与 pre-push 都跑）。
 
 ## 10. 工作流
 
