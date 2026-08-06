@@ -197,7 +197,7 @@ final class VoiceOrderWizardTests: XCTestCase {
         await wizard.submitTranscript("明天早上八点从人民广场出发跑一个小时")
 
         XCTAssertEqual(wizard.step, .confirm, "整句解析完必须落到读回确认")
-        XCTAssertEqual(viewModel.duration, .sixty)
+        XCTAssertEqual(viewModel.resolvedDurationMinutes, 60)
         XCTAssertEqual(
             DateFormatter.aidRunBackendLocalDateTime.string(from: viewModel.appointmentTime),
             plannedStart,
@@ -342,10 +342,35 @@ final class VoiceOrderWizardTests: XCTestCase {
 
         await wizard.submitTranscript("跑四十分钟")
 
-        XCTAssertEqual(viewModel.duration, .fortyFive, "40 分钟没有对应档位，取最近的 45")
+        XCTAssertEqual(viewModel.resolvedDurationMinutes, 40, "40 分钟在契约区间内，必须原样保留")
         let spoken = wizard.lastSpokenPrompt ?? ""
-        XCTAssertTrue(spoken.contains("你说的是40分钟"), "必须说出用户原本说的数字：\(spoken)")
-        XCTAssertTrue(spoken.contains("45"), "必须说出实际下单的时长：\(spoken)")
+        XCTAssertTrue(spoken.contains("40 分钟"), "读回要念用户说的时长：\(spoken)")
+        XCTAssertFalse(
+            spoken.contains("你说的是"),
+            "没有改动就不该有那句「你说的是⋯⋯本次按⋯⋯」——每次都念的提示等于没有提示：\(spoken)"
+        )
+    }
+
+    /// 只有真的超出契约区间才播报改动。**静默改动对听不见屏幕的人就是篡改**，
+    /// 这条红线不因为现在很少触发而消失。
+    func testDurationBeyondTheContractRangeIsClampedOutLoud() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: nil, durationMinutes: 400, address: nil,
+                latitude: nil, longitude: nil,
+                missing: [.address, .startTime], needReask: true, ttsText: nil
+            )
+        ]
+        let viewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("跑四百分钟")
+
+        XCTAssertEqual(viewModel.resolvedDurationMinutes, 300, "超出契约上限要夹到 300")
+        let spoken = wizard.lastSpokenPrompt ?? ""
+        XCTAssertTrue(spoken.contains("400"), "必须说出用户原本说的数字：\(spoken)")
+        XCTAssertTrue(spoken.contains("5 小时"), "必须说出实际下单的时长：\(spoken)")
     }
 
     /// `missing` 收到后端将来新增的值不得把整条响应带崩 —— 崩了表现是「说了一整句什么都没发生」。
@@ -386,13 +411,25 @@ final class VoiceOrderWizardTests: XCTestCase {
     //   · 连续失败降级 → testRepeatedSilenceEventuallyFallsBackToTheForm
     //   · needReask 不当错误 → testFreeformTreatsMissingSlotsAsDefaultsAndNeverReasks
 
-    func testDurationSnappingPicksTheNearestOption() {
-        XCTAssertEqual(VoiceOrderWizard.durationOption(forMinutes: 90), .ninety)
-        XCTAssertEqual(VoiceOrderWizard.durationOption(forMinutes: 40), .fortyFive)
-        XCTAssertEqual(VoiceOrderWizard.durationOption(forMinutes: 10), .fifteen)
-        XCTAssertEqual(VoiceOrderWizard.durationOption(forMinutes: 300), .oneTwenty)
-        XCTAssertNil(BookingDurationOption.none.minutes)
+    /// 语音说多少就是多少，只在超出契约区间（10–300）时夹到边界。
+    ///
+    /// 原来是「就近 snap 到 6 个枚举档位」，于是「跑三个小时」变成两小时 ——
+    /// 枚举存在的理由是选择器需要有限选项，而说话的人不需要选择器。
+    func testSpokenDurationIsTakenLiterallyAndOnlyClampedToTheContractRange() {
+        XCTAssertEqual(VoiceOrderWizard.acceptedDurationMinutes(180), 180, "三个小时不该被砍成两小时")
+        XCTAssertEqual(VoiceOrderWizard.acceptedDurationMinutes(40), 40, "40 分钟不该被抬到 45")
+        XCTAssertEqual(VoiceOrderWizard.acceptedDurationMinutes(300), 300)
+        XCTAssertEqual(VoiceOrderWizard.acceptedDurationMinutes(400), 300, "超出契约上限夹到 300")
+        XCTAssertEqual(VoiceOrderWizard.acceptedDurationMinutes(5), 10, "低于契约下限夹到 10")
     }
+
+    /// 时长文案按精确分钟数生成，不套枚举档位名。
+    func testDurationTextReadsTheExactMinutes() {
+        XCTAssertEqual(BlindBookingViewModel.durationText(forMinutes: 180), "3 小时")
+        XCTAssertEqual(BlindBookingViewModel.durationText(forMinutes: 150), "2 小时 30 分钟")
+        XCTAssertEqual(BlindBookingViewModel.durationText(forMinutes: 40), "40 分钟")
+    }
+
 
     // MARK: - 与后端黄金语料对齐
 
@@ -585,14 +622,15 @@ final class VoiceOrderWizardTests: XCTestCase {
         }
     }
 
-    /// 语料里的每个真实时长都要能落到一个档位，且落点不能荒唐（差值不超过一档间距）。
-    func testEveryCorpusDurationSnapsToAReasonableOption() {
+    /// 语料里的每个真实时长都必须**原样保留**。
+    ///
+    /// 原来这条验的是「取整落点不荒唐（偏差不超过 30 分钟）」—— 那是取整还存在时的将就写法。
+    /// 取整删掉之后，正确的断言是零偏差：语料里没有一条超出契约区间，所以一条都不该被改动。
+    func testEveryCorpusDurationSurvivesUnchanged() {
         for minutes in [20, 30, 40, 60, 80, 90, 120] {
-            let option = VoiceOrderWizard.durationOption(forMinutes: minutes)
-            let snapped = option.minutes ?? 0
-            XCTAssertLessThanOrEqual(
-                abs(snapped - minutes), 30,
-                "\(minutes) 分钟被取整到 \(snapped) 分钟，偏差过大"
+            XCTAssertEqual(
+                VoiceOrderWizard.acceptedDurationMinutes(minutes), minutes,
+                "\(minutes) 分钟被改动了 —— 语料里的时长全在 10~300 内，不该有任何夹取"
             )
         }
     }

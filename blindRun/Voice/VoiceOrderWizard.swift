@@ -444,9 +444,9 @@ final class VoiceOrderWizard: ObservableObject {
 
         var notice: String? = parseFailed ? Self.parseFailureNotice : nil
         if let minutes = parsed?.durationMinutes {
-            let option = Self.durationOption(forMinutes: minutes)
-            bookingViewModel?.duration = option
-            notice = Self.durationRoundingNotice(spokenMinutes: minutes, option: option)
+            let accepted = Self.acceptedDurationMinutes(minutes)
+            bookingViewModel?.exactDurationMinutes = accepted
+            notice = Self.durationClampNotice(spokenMinutes: minutes, accepted: accepted)
         }
 
         moveToConfirm(notice: notice)
@@ -476,13 +476,25 @@ final class VoiceOrderWizard: ObservableObject {
         return response.code == "NOT_FOUND"
     }
 
-    /// 时长被挪到最近档位时要说的那句话；没挪动就返回 nil。
+    /// 契约允许的时长区间（`api_spec.yaml:2549`：`minimum: 10` / `maximum: 300`）。
+    static let minimumDurationMinutes = 10
+    static let maximumDurationMinutes = 300
+
+    /// 语音说的分钟数**原样采用**，只在超出契约区间时夹到边界。
     ///
-    /// 整句轮和定点修改轮共用同一句 —— 此前只有定点修改轮播报，整句轮是静默取整，
-    /// 而**静默取整对听不见屏幕的人就是篡改**，同一条红线不该有两种行为。
-    private static func durationRoundingNotice(spokenMinutes: Int, option: BookingDurationOption) -> String? {
-        guard option.minutes != spokenMinutes else { return nil }
-        return "你说的是\(spokenMinutes)分钟，本应用按\(option.displayName)预约。"
+    /// 2026-08-06 之前这里是「就近 snap 到 6 个枚举档位」，于是「跑三个小时」变成两小时 ——
+    /// 枚举存在的理由是选择器需要有限选项，而说话的人不需要选择器。契约本来就收 10–300。
+    static func acceptedDurationMinutes(_ spoken: Int) -> Int {
+        min(maximumDurationMinutes, max(minimumDurationMinutes, spoken))
+    }
+
+    /// 时长被夹到边界时要说的那句话；没动就返回 nil。
+    ///
+    /// **静默改动对听不见屏幕的人就是篡改**，这条红线不因为改动幅度变小而消失 ——
+    /// 现在只有真的超出契约区间才会发生，但发生了就必须说。
+    private static func durationClampNotice(spokenMinutes: Int, accepted: Int) -> String? {
+        guard accepted != spokenMinutes else { return nil }
+        return "你说的是\(spokenMinutes)分钟，超出了可预约范围，本次按\(BlindBookingViewModel.durationText(forMinutes: accepted))预约。"
     }
 
     /// - Parameter notice: 需要先说一句再读回的话（例如时长被取整）。**必须和读回拼成同一段**，
@@ -777,16 +789,6 @@ final class VoiceOrderWizard: ObservableObject {
 
     // MARK: Helpers
 
-    /// 后端接受 10~300 的任意分钟数，表单只有 6 个固定档位。就近取一档，
-    /// 并在读回确认时明说取整了。
-    ///
-    /// ponytail: 取整而不是把 `BookingDurationOption` 改成任意分钟数 —— 后者要动选择器 UI、复核文案和
-    /// 既有用例。等产品确定语音要支持任意时长，再把这个枚举换成 `Int?`。
-    static func durationOption(forMinutes minutes: Int) -> BookingDurationOption {
-        let options = BookingDurationOption.allCases.filter { $0.minutes != nil }
-        let nearest = options.min { lhs, rhs in
-            abs((lhs.minutes ?? 0) - minutes) < abs((rhs.minutes ?? 0) - minutes)
-        }
-        return nearest ?? .sixty
-    }
+    // `durationOption(forMinutes:)`（就近 snap 到 6 个枚举档位）已于 2026-08-06 删除。
+    // 语音说多少就是多少，只夹到契约区间，见 `acceptedDurationMinutes(_:)`。
 }

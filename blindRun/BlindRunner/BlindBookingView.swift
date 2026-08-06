@@ -165,7 +165,21 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var startLocationDescription = ""
     @Published var appointmentTime = Date()
     @Published var routeNotes = ""
-    @Published var duration: BookingDurationOption = .none
+    /// 表单那个选择器的绑定。**它只是 UI**，真正下单用的分钟数看 `resolvedDurationMinutes`。
+    @Published var duration: BookingDurationOption = .none {
+        didSet {
+            // 手动改了选择器就以选择器为准 —— 用户刚在屏幕上做的动作，优先级高于上一轮语音。
+            guard duration != oldValue else { return }
+            exactDurationMinutes = duration.minutes
+        }
+    }
+    /// 语音说出来的**精确**分钟数。
+    ///
+    /// 枚举只有 6 个档位、最大 120 分钟，而契约允许 10–300（`api_spec.yaml:2549`）。
+    /// 枚举存在的理由是「选择器需要有限选项」，而**说话的人不需要选择器** ——
+    /// 让语音迁就一个为触屏设计的控件，等于把用户说的「三个小时」改成两小时。
+    /// 2026-08-06 用户报的「时间上只有两个小时这样的限制」就是这条。
+    @Published var exactDurationMinutes: Int?
     @Published var pacePreference: PacePreference = .noPreference
     @Published var routePreference: RoutePreference = .noPreference
     @Published var hasGuideDogThisRun = false
@@ -274,6 +288,28 @@ final class BlindBookingViewModel: ObservableObject {
         }
     }
 
+    /// 下单真正用的时长。语音说了精确值就用精确值，否则用选择器那一档。
+    var resolvedDurationMinutes: Int? {
+        exactDurationMinutes ?? duration.minutes
+    }
+
+    /// 读回与复核用的时长文案。**按精确分钟数生成**，不套枚举的 `displayName` ——
+    /// 说了三个小时就该念「3 小时」，不是念一个最接近的档位名。
+    var resolvedDurationText: String? {
+        guard let minutes = resolvedDurationMinutes else { return nil }
+        return Self.durationText(forMinutes: minutes)
+    }
+
+    static func durationText(forMinutes minutes: Int) -> String {
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        switch (hours, remainder) {
+        case (0, _): return "\(remainder) 分钟"
+        case (_, 0): return "\(hours) 小时"
+        default: return "\(hours) 小时 \(remainder) 分钟"
+        }
+    }
+
     var startPointSummary: String {
         let placeText = resolvedStartLocationDescription.nilIfBlank ?? "正在获取当前位置"
         return "\(startPointSourceText)出发地点：\(placeText)。"
@@ -284,8 +320,8 @@ final class BlindBookingViewModel: ObservableObject {
         if let routeNotes = routeNotes.nilIfBlank {
             items.append(BookingReviewItem(id: "routeNotes", title: "路线备注", value: routeNotes))
         }
-        if duration != .none {
-            items.append(BookingReviewItem(id: "duration", title: "预计时长", value: duration.displayName))
+        if let durationText = resolvedDurationText {
+            items.append(BookingReviewItem(id: "duration", title: "预计时长", value: durationText))
         }
         if pacePreference != .noPreference {
             items.append(BookingReviewItem(id: "pace", title: "配速偏好", value: pacePreference.displayName))
@@ -546,6 +582,7 @@ final class BlindBookingViewModel: ObservableObject {
     func resetVoiceFilledSlots() {
         selectedStartPlace = nil
         duration = .none
+        exactDurationMinutes = nil
         routeNotes = ""
         specialNotes = ""
         pacePreference = .noPreference
@@ -633,7 +670,7 @@ final class BlindBookingViewModel: ObservableObject {
         guard let startPlace = resolvedStartPlace else { return nil }
         let plannedStartTime = DateFormatter.aidRunBackendLocalDateTime.string(from: appointmentTime)
         let plannedEndTime: String
-        if let minutes = duration.minutes {
+        if let minutes = resolvedDurationMinutes {
             let endDate = appointmentTime.addingTimeInterval(TimeInterval(minutes * 60))
             plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
         } else {
@@ -647,7 +684,7 @@ final class BlindBookingViewModel: ObservableObject {
             startAddress: resolvedStartLocationDescription,
             plannedStartTime: plannedStartTime,
             plannedEndTime: plannedEndTime,
-            expectedDurationMinutes: duration.minutes,
+            expectedDurationMinutes: resolvedDurationMinutes,
             pacePreference: pacePreference == .noPreference ? nil : pacePreference,
             routePreference: routePreference == .noPreference ? nil : routePreference,
             routeNotes: routeNotes.nilIfBlank,
