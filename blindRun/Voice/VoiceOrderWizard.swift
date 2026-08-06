@@ -131,6 +131,17 @@ final class VoiceOrderWizard: ObservableObject {
     /// 光看它分不出「用户说了个正好是现在的时间」和「压根没抽出来」。而这两者对盲人是天壤之别 ——
     /// 一个是他说的，另一个是系统编的。
     @Published private(set) var didCaptureStartTime = false
+    /// 连续多少轮没拿到开始时间。到上限就交回表单，见 `moveToConfirm`。
+    private var roundsWithoutStartTime = 0
+    /// 最近一次解析失败是「这个接口根本不存在」，而不是「没听懂你说什么」。
+    ///
+    /// 这两者对用户的**下一步动作完全不同**：前者重说多少遍都不会变好，后者值得再说一次。
+    /// 后端把未部署的端点回成带 `NOT_FOUND` 的业务信封（`/api/orders/voice/parse` 生产上
+    /// 就是这个状态，见 handoff 2026-08-06），所以客户端分得出来 —— 分得出来就不该混为一谈。
+    private var parseIsUnavailable = false
+
+    /// 连着这么多轮拿不到开始时间就不再让人重说。取 2：给一次重说的机会，不给第二次。
+    static let maximumRoundsWithoutStartTime = 2
 
     private enum WizardError: Error { case parseTimedOut, notConfigured }
 
@@ -177,6 +188,8 @@ final class VoiceOrderWizard: ObservableObject {
         lastUtterance = nil
         partialTranscript = ""
         didCaptureStartTime = false
+        roundsWithoutStartTime = 0
+        parseIsUnavailable = false
         isRunning = true
         step = .freeform
         reaskCount = 0
@@ -401,10 +414,22 @@ final class VoiceOrderWizard: ObservableObject {
         // 只在后端未部署分支上，生产恒 404，这条路径不是偶发而是常态。
         var parsed: ParseVoiceOrderResponse?
         var parseFailed = false
+        parseIsUnavailable = false
         do {
             parsed = try await parseOrderResponse(transcript)
         } catch {
             parseFailed = true
+            parseIsUnavailable = Self.isEndpointMissing(error)
+        }
+
+        // 端点根本不存在：连一次读回都不做，直接交回表单。
+        //
+        // 读回在这里没有任何价值 —— 它必然念一整套默认值，而时间抽不到就不许确认，
+        // 用户唯一能做的只有重说，重说还是 404。给他一次「听起来像是可以再试试」的读回，
+        // 只是把死路包装得像活路。
+        if parseIsUnavailable {
+            fallBack(reason: Self.parseUnavailableNotice, joinsReasonDirectly: true)
+            return
         }
 
         if let raw = parsed?.plannedStartTime, let date = raw.backendLocalDate {
@@ -437,6 +462,20 @@ final class VoiceOrderWizard: ObservableObject {
     ///   本就 15~25 秒的读回拖得更长。
     static let parseFailureNotice = "这次没能把你说的话转成预约内容，下面念的是默认值。"
 
+    /// 「这个接口在服务端根本不存在」——**重说多少遍都不会变好**，与「没听懂」必须分开。
+    ///
+    /// 上面 `parseFailureNotice` 那三条措辞约束（不说网络、不说没听到、不给指令）针对的是
+    /// **偶发**失败。端点未部署不是偶发，它是常态，而对它说「下面念的是默认值」等于邀请用户
+    /// 再试一次 —— 试一万次也一样。所以这一路单独播、并且直接交回表单。
+    static let parseUnavailableNotice = "语音下单暂时用不了，"
+
+    /// 后端把未部署的端点回成 `errorCode: NOT_FOUND` 的业务信封（不是 nginx 裸 404）。
+    /// 只认这一种：超时、鉴权过期、5xx 都可能是暂时的，不该被当成「功能不存在」。
+    private static func isEndpointMissing(_ error: Error) -> Bool {
+        guard case APIError.serverError(let response) = error else { return false }
+        return response.code == "NOT_FOUND"
+    }
+
     /// 时长被挪到最近档位时要说的那句话；没挪动就返回 nil。
     ///
     /// 整句轮和定点修改轮共用同一句 —— 此前只有定点修改轮播报，整句轮是静默取整，
@@ -451,6 +490,28 @@ final class VoiceOrderWizard: ObservableObject {
     ///   对听不见屏幕的人，念不到等于没发生。
     private func moveToConfirm(notice: String? = nil) {
         reaskCount = 0
+
+        // 连着两轮都没拿到开始时间就交回表单，**不许再让人重说**。
+        //
+        // 这是「时间抽不出就不许确认」那条规则的必要配套。少了它，只要解析这一环是坏的
+        // （例如 `/api/orders/voice/parse` 在生产上恒 404），用户就落进一个没有出口的圈：
+        // 说一整句 → 抽不出时间 → 不给确认 → 「请说重说」→ 重说 → 还是抽不出 → 无限循环。
+        // 2026-08-06 手测就是这么卡住的：用户第二遍明确说了时间，仍然抽不到。
+        //
+        // 对看不见屏幕的人，一个没有出口的循环比一条错误信息糟得多 —— 他没有别的方式发现
+        // 这条路根本走不通。
+        if didCaptureStartTime {
+            roundsWithoutStartTime = 0
+        } else {
+            roundsWithoutStartTime += 1
+            if roundsWithoutStartTime >= Self.maximumRoundsWithoutStartTime {
+                fallBack(reason: parseIsUnavailable
+                         ? "语音下单服务暂时不可用"
+                         : "连续两次没听到预约时间")
+                return
+            }
+        }
+
         step = .confirm
         pendingNotice = notice
         askCurrentStep()
@@ -569,10 +630,14 @@ final class VoiceOrderWizard: ObservableObject {
     }
 
     /// 语音路径走不通时**必须**说清楚接下来去哪 —— 看不见屏幕的人没有别的方式发现语音已经停了。
-    private func fallBack(reason: String) {
+    /// - Parameter joinsReasonDirectly: `reason` 自己已经带了标点、直接拼下一句。
+    ///   默认 `false` 时补一个逗号（「连续两次没听到预约时间，已切回表单⋯⋯」）。
+    private func fallBack(reason: String, joinsReasonDirectly: Bool = false) {
         isRunning = false
         speechInputService?.stopRecognition()
-        let message = "\(reason)，已切回表单填写，你可以用屏幕上的输入框继续预约。"
+        let message = joinsReasonDirectly
+            ? "\(reason)已切回表单填写，你可以用屏幕上的输入框继续预约。"
+            : "\(reason)，已切回表单填写，你可以用屏幕上的输入框继续预约。"
         fallbackMessage = message
         speak(message)
     }

@@ -672,6 +672,35 @@ final class VoiceOrderWizardTests: XCTestCase {
         )
     }
 
+    // MARK: - 真人手测说过的原话
+    //
+    // 语料是造出来的，真人说的话不是。这一组收真机手测里实际说过、且当场出过问题的句子，
+    // 用来把「到底是 Mock 认不出，还是别的环节断了」钉死 —— 靠推理分不出来，靠断言可以。
+
+    /// 2026-08-06 手测原话：「明天早上八点钟从阳光棕榈园跑」。时间和地点都没被填上。
+    func testRealUtteranceFromDeviceTestParsesTheTimeInMock() {
+        let transcript = "明天早上八点钟从阳光棕榈园跑"
+
+        let parsed = MockAPIClient.mockVoiceStartTime(in: transcript)
+
+        let time = try? XCTUnwrap(parsed)
+        XCTAssertNotNil(parsed, "Mock 认不出这句话的时间，那手测里「时间没识别到」就是 Mock 的锅")
+        if let time {
+            let components = Calendar.current.dateComponents([.hour, .minute], from: time)
+            XCTAssertEqual(components.hour, 8, "「八点钟」应解析成 8 点")
+            XCTAssertEqual(components.minute, 0)
+        }
+    }
+
+    /// 同一句话里的地点：「阳光棕榈园」不在 Mock 的关键词表里，抽不出是**预期**的。
+    /// 这条断言存在的意义是把「预期抽不出」写死，免得下次又被当成客户端 bug 查一遍。
+    func testRealUtterancePlaceIsKnownlyUnsupportedByMock() {
+        XCTAssertNil(
+            MockAPIClient.mockVoiceAddressSpan(in: "明天早上八点钟从阳光棕榈园跑"),
+            "如果这条开始失败，说明 Mock 已经支持这个地点了，把它从『已知不支持』里挪走"
+        )
+    }
+
     // MARK: - 不许编时间
     //
     // 2026-08-06 用户原话：「这个默认配置我觉得不应该给它默认配置，除了地点有默认地点之外，
@@ -746,6 +775,82 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertTrue(spoken.contains("这次的预约是："), "念的必须是整单读回而不是兜底提问：\(spoken)")
         XCTAssertTrue(spoken.contains("说「确认」就下单"), "抽到时间后就该正常给出确认这条出路：\(spoken)")
         XCTAssertFalse(spoken.contains("预约时间还没说"))
+    }
+
+    // MARK: - 不许把人关在没有出口的循环里
+    //
+    // 「时间抽不出就不许确认」这条规则必须配一个出口，否则解析这一环一坏就成死循环：
+    // 说一整句 → 抽不出时间 → 不给确认 → 「请说重说」→ 重说 → 还是抽不出 → 无限。
+    // 2026-08-06 手测就是这么卡住的：用户第二遍明确说了时间，仍然抽不到。
+    // 对看不见屏幕的人，没有出口的循环比一条错误信息糟得多。
+
+    /// 端点根本不存在（生产上 `/api/orders/voice/parse` 恒 404）时**一次读回都不做**，直接交回表单。
+    func testMissingParseEndpointFallsBackImmediatelyInsteadOfOfferingARetry() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.error = APIError.serverError(
+            ErrorResponse(code: "NOT_FOUND", message: "请求的资源不存在")
+        )
+        let bookingViewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上八点钟从阳光棕榈园跑")
+
+        XCTAssertFalse(wizard.isRunning, "端点不存在，重说一万遍也一样，不该留在语音里")
+        let fallback = wizard.fallbackMessage ?? ""
+        XCTAssertTrue(fallback.contains("表单"), "必须给出真正的出路：\(fallback)")
+        XCTAssertFalse(
+            fallback.contains("重说"),
+            "不得建议重说 —— 那是把死路包装成活路：\(fallback)"
+        )
+    }
+
+    /// 解析活着但连着两轮都抽不到时间，同样要交回表单，而不是第三次说「请说重说」。
+    func testTwoRoundsWithoutAStartTimeFallBackToTheForm() async {
+        let stub = VoiceOrderAPIClientStub()
+        let noTime = ParseVoiceOrderResponse(
+            plannedStartTime: nil, durationMinutes: nil, address: nil,
+            latitude: nil, longitude: nil,
+            missing: [.startTime], needReask: nil, ttsText: nil
+        )
+        stub.parseOrderResponses = [noTime, noTime]
+        let bookingViewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("我想去人民广场")
+        XCTAssertTrue(wizard.isRunning, "第一次抽不到时间应该给一次重说的机会")
+
+        await wizard.submitTranscript("重说")
+        await wizard.submitTranscript("还是没说时间")
+
+        XCTAssertFalse(wizard.isRunning, "第二次还抽不到就不能再让人重说了")
+        XCTAssertTrue((wizard.fallbackMessage ?? "").contains("表单"))
+    }
+
+    /// 出口不能宽到把正常流程也带走：中间成功抽到过时间，计数要清零。
+    func testCapturingAStartTimeResetsTheDeadEndCounter() async {
+        let stub = VoiceOrderAPIClientStub()
+        let plannedStart = DateFormatter.aidRunBackendLocalDateTime.string(
+            from: Date().addingTimeInterval(3600 * 24)
+        )
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: nil, durationMinutes: nil, address: nil,
+                latitude: nil, longitude: nil, missing: [.startTime], needReask: nil, ttsText: nil
+            ),
+            ParseVoiceOrderResponse(
+                plannedStartTime: plannedStart, durationMinutes: nil, address: nil,
+                latitude: nil, longitude: nil, missing: nil, needReask: nil, ttsText: nil
+            )
+        ]
+        let bookingViewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("我想去人民广场")
+        await wizard.submitTranscript("重说")
+        await wizard.submitTranscript("明天早上八点从人民广场出发")
+
+        XCTAssertTrue(wizard.isRunning, "这一轮抽到时间了，不该被上一轮的失败计数带走")
+        XCTAssertTrue(wizard.didCaptureStartTime)
     }
 
     // MARK: - 沉默不等于同意默认值

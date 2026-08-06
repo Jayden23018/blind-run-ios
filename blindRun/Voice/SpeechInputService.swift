@@ -54,10 +54,23 @@ final class SystemSpeechAudioSession: SpeechAudioSessionManaging {
     static let recordingCategory: AVAudioSession.Category = .playAndRecord
     static let recordingCategoryOptions: AVAudioSession.CategoryOptions = [.duckOthers, .defaultToSpeaker]
 
+    /// 录音期间的 mode。**2026-08-06 由 `.measurement` 改为 `.default`。**
+    ///
+    /// `.measurement` 是给测量类 App 用的：它把系统的信号处理降到最低，对**只录不放**的
+    /// 识别场景确实更准（Apple 的语音识别示例配的就是 `.record` + `.measurement`）。
+    /// 但我们已经不是「只录不放」了 —— 起音提示要在录音会话下放出来。`.measurement` 下
+    /// 输出增益被压得很低，真机连续两轮都反馈「声音不够响」。
+    ///
+    /// 取 `.default`：`.playAndRecord` + `.defaultToSpeaker` + `.default` 是同时收放的常规组合。
+    /// 代价是输入侧多了一层系统处理，理论上对识别有影响 —— 但**提示音听不见是确定的可用性
+    /// 损失，识别精度的变化是推测的**，先保住前者。若真机发现识别变差，再回头考虑
+    /// 「提示音改在切录音会话之前放」这条更绕的路。
+    static let recordingMode: AVAudioSession.Mode = .default
+
     func configureRecordingCategory() throws {
         try session.setCategory(
             Self.recordingCategory,
-            mode: .measurement,
+            mode: Self.recordingMode,
             options: Self.recordingCategoryOptions
         )
     }
@@ -110,17 +123,27 @@ enum RecordingCue {
     /// 播放器必须被持有，否则出了作用域就停 —— 提示音只有 120 ms，丢掉等于没响。
     private static var player: AVAudioPlayer?
 
-    static let beginToneFrequency: Double = 880
-    static let endToneFrequency: Double = 587
-    /// 2026-08-06 真机第三轮：120 ms 的纯正弦「声音不大，可能会被盲人忽略」。
+    /// **双音提示，不是单音。** 起音上行（低→高）＝「开始了」，收音下行（高→低）＝「结束了」。
     ///
-    /// 短促的纯音在感知响度上天生远低于语音 —— 同样的峰值电平，人耳听着就是更小声。
-    /// 三处一起加：时长 120→200 ms（给耳朵反应时间）、振幅 0.6→0.95、加一个八度泛音
-    /// （谐波让音色更「亮」，在同样峰值下明显更容易被注意到）。
-    static let toneDuration: TimeInterval = 0.2
+    /// 这是语音助手普遍的做法，也是调研 §6.1 引 Alexa attention system 的要求：起止两个 earcon
+    /// 必须音色可区分。上行/下行比「两个不同音高的单音」好认得多 —— 人对音高**方向**的敏感度
+    /// 远高于对绝对音高的记忆，不需要记住「880 是开始、587 是结束」。
+    ///
+    /// 2026-08-06 第三、四轮真机都反馈「声音不够响，可能会被盲人忽略」。单音正弦在感知响度上
+    /// 天生吃亏：能量集中在一个频点，而人耳的响度感知是跨频带累加的。改双音之后每段更短
+    /// （各 110 ms）但总时长相当，频谱铺开，同样峰值电平下明显更容易被注意到。
+    static let beginToneFrequencies: [Double] = [660, 990]
+    static let endToneFrequencies: [Double] = [880, 587]
+    /// 单段时长；一次提示是两段，总长约 0.22 秒。
+    static let toneSegmentDuration: TimeInterval = 0.11
+    static var toneDuration: TimeInterval { toneSegmentDuration * 2 }
 
-    static let beginToneData = ToneSynthesizer.wav(frequency: beginToneFrequency, duration: toneDuration)
-    static let endToneData = ToneSynthesizer.wav(frequency: endToneFrequency, duration: toneDuration)
+    static let beginToneData = ToneSynthesizer.wav(
+        frequencies: beginToneFrequencies, segmentDuration: toneSegmentDuration
+    )
+    static let endToneData = ToneSynthesizer.wav(
+        frequencies: endToneFrequencies, segmentDuration: toneSegmentDuration
+    )
 
     #if DEBUG
     /// 测试替身。设了就**接管**发声与震动（跑测时不该真的响、真的震），并记下发生了哪一次。
@@ -187,13 +210,28 @@ enum ToneSynthesizer {
     /// —— 2026-08-06 真机反馈「声音不大，可能会被盲人忽略」，这是三处调整之一。
     static let overtoneRatio = 0.35
 
-    static func wav(frequency: Double, duration: TimeInterval, amplitude: Double = 0.95) -> Data {
+    /// 把若干段等长纯音（各自带八度泛音）首尾相接成一条 WAV。
+    /// 两段就是一个上行或下行的「叮咚」，方向本身携带语义。
+    static func wav(
+        frequencies: [Double],
+        segmentDuration: TimeInterval,
+        amplitude: Double = 0.95
+    ) -> Data {
+        var pcm = Data()
+        for frequency in frequencies {
+            pcm.append(segment(frequency: frequency, duration: segmentDuration, amplitude: amplitude))
+        }
+        return container(pcm: pcm)
+    }
+
+    private static func segment(frequency: Double, duration: TimeInterval, amplitude: Double) -> Data {
         let frameCount = Int(Double(sampleRate) * duration)
         var pcm = Data(capacity: frameCount * 2)
         // 基频与八度加在一起会超过 1，先归一化再乘振幅，否则削顶会变成刺耳的失真。
         let normalizer = 1 + overtoneRatio
         for frame in 0..<frameCount {
             let time = Double(frame) / Double(sampleRate)
+            // 每段自己淡入淡出：段与段之间不做淡化的话，频率突变处会有一声「咔」。
             let envelope = max(0, min(min(time, duration - time) / fadeSeconds, 1))
             let fundamental = sin(2 * .pi * frequency * time)
             let overtone = sin(2 * .pi * frequency * 2 * time) * overtoneRatio
@@ -201,7 +239,7 @@ enum ToneSynthesizer {
             var sample = Int16(max(-1, min(1, value)) * Double(Int16.max))
             withUnsafeBytes(of: &sample) { pcm.append(contentsOf: $0) }
         }
-        return container(pcm: pcm)
+        return pcm
     }
 
     private static func container(pcm: Data, channels: Int = 1, bitsPerSample: Int = 16) -> Data {

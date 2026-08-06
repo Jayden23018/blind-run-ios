@@ -3473,7 +3473,7 @@ final class blindRunTests: XCTestCase {
     /// WAV 头写对、时长也对，但采样点全是 0 的话，`AVAudioPlayer` 照样能解、照样「播放成功」，
     /// 而用户什么都听不见 —— 上面那条断言抓不到这种。
     func testSynthesizedToneIsNotSilence() {
-        let data = ToneSynthesizer.wav(frequency: 880, duration: 0.12)
+        let data = ToneSynthesizer.wav(frequencies: [660, 990], segmentDuration: 0.11)
         let header = 44
         let samples = data.dropFirst(header)
 
@@ -3540,6 +3540,29 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(
             SystemSpeechAudioSession.recordingCategoryOptions.contains(.defaultToSpeaker),
             "playAndRecord 默认路由到听筒，不加 defaultToSpeaker 提示音会小到等于没有"
+        )
+        XCTAssertNotEqual(
+            SystemSpeechAudioSession.recordingMode,
+            .measurement,
+            "measurement 把输出增益压得很低 —— 我们已经不是只录不放了，起音提示要在录音会话下响得出来"
+        )
+    }
+
+    /// 起止提示必须是**方向相反的双音**，不是两个不同音高的单音。
+    ///
+    /// 人对音高「往上走 / 往下走」的敏感度远高于对绝对音高的记忆 —— 单音要求用户记住
+    /// 「880 是开始、587 是结束」，双音不需要记任何东西。真机连续两轮反馈「不够响、
+    /// 可能会被盲人忽略」，双音同时把频谱铺开，同样峰值电平下更容易被注意到。
+    func testCueTonesRiseToStartAndFallToStop() {
+        XCTAssertEqual(RecordingCue.beginToneFrequencies.count, 2)
+        XCTAssertEqual(RecordingCue.endToneFrequencies.count, 2)
+        XCTAssertLessThan(
+            RecordingCue.beginToneFrequencies[0], RecordingCue.beginToneFrequencies[1],
+            "起音必须上行 —— 「开始」在听感上是往上走的"
+        )
+        XCTAssertGreaterThan(
+            RecordingCue.endToneFrequencies[0], RecordingCue.endToneFrequencies[1],
+            "收音必须下行"
         )
     }
 
