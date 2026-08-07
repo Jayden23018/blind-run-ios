@@ -59,8 +59,16 @@
         本来就不含备注，**读屏那条路没有单独的泄露**。
       - `VolunteerOrderInfoSection`（`:2802`）接上 `showsSensitiveNotes`，与特殊说明同闸。
       - `VolunteerServiceOrderEssentials` 不加闸（只被服务中面板用），已在类型上留注释说明前提。
-- [ ] 2.6 `GET /api/orders/available` 在契约里是裸 `type: object`（`api_spec.yaml:1899-1905`），
+- [x] 2.6 `GET /api/orders/available` 在契约里是裸 `type: object`（`api_spec.yaml:1899-1905`），
       返不返 `specialNotes` 无从判断 —— 客户端现在不渲染了，但数据可能仍到设备上。已投 handoff ⑥。
+      **答（2026-08-07）：两个方向同时解掉，顾虑不再成立。**
+      - 契约侧：后端已补 `components.schemas.AvailableOrderResponse`（`api_spec.yaml:3500`），
+        9 个分量，**明确不含** `specialNotes` / `routeNotes` —— `AvailableOrderResponse.java`
+        的 record 注释里写死了理由（「这里每个字段都会下发给还没接单、可能最终拒单的志愿者」）。
+      - 客户端侧：那条链路整个删了。唯一的调用点是一个只在 `#Preview` 里构造、
+        App 里根本进不去的页面，**现在 App 不再请求这条路径**。
+        顺带查出它从 2026-05-24 起就把响应解错（裸数组解成 `PagedOrderResponse`）
+        并被宽容解码器静默吞成空列表。见 PR #5。
 
 ## 3. iOS 实现（**等 1.1 有结论后再开始**）
 
