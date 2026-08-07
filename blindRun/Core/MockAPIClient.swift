@@ -299,9 +299,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/orders/mine" && method == .get {
             return handleGetMyOrders(query: query)
         }
-        if path == "/api/orders/available" && method == .get {
-            return handleGetAvailableOrders()
-        }
+        // 刻意没有 `/api/orders/available`：公开订单池那条链路已删除，App 不再请求它。
+        // Mock 里保着一条 App 走不到的路由，只会在真实形状漂移时替它遮丑
+        // —— 这条路径的真实响应是 `AvailableOrderResponse` 裸数组，与 `PagedOrderResponse` 不是一回事。
 
         // Order actions
         if let orderId = extractOrderId(from: path) {
@@ -1136,20 +1136,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if let status = query?["status"], let s = RunOrderStatus(rawValue: status) {
             filtered = filtered.filter { $0.status == s }
         }
-        return PagedOrderResponse(
-            content: filtered.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") },
-            totalElements: Int64(filtered.count),
-            totalPages: 1,
-            number: 0,
-            size: 100,
-            first: true,
-            last: true,
-            empty: filtered.isEmpty
-        )
-    }
-
-    private func handleGetAvailableOrders() -> PagedOrderResponse {
-        let filtered = orders.filter { $0.status == .pendingMatch }
         return PagedOrderResponse(
             content: filtered.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") },
             totalElements: Int64(filtered.count),

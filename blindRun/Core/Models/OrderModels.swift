@@ -357,6 +357,19 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
 
 // MARK: - Paginated Order Response
 
+/// `GET /api/orders/mine` 的分页响应。契约里是 `PageOrderDetailResponse`（对象），
+/// 这是本类型**唯一**的来源。
+///
+/// ⚠️ 解码**故意不留兜底**，这条是有事故背书的：这里曾有一个「宽容解码器」，
+/// 依次试对象 / 裸数组 / 最后返空页，任何失败都不抛。
+/// 结果是 `GET /api/orders/available`（真实形状是 `AvailableOrderResponse` 裸数组，
+/// 元素没有 `status`，而 `OrderDetailResponse.status` 非可选）被解成**空列表且零报错**，
+/// 从 2026-05-24 一直没人发现 —— 屏幕上是「暂无可用订单」，看起来完全正常。
+///
+/// 所以：`content` 缺失、元素缺必填字段、根节点不是对象，一律抛，让用户看见「加载失败」。
+/// 这与「未知枚举值不许整条崩」不矛盾 —— 那条由 `RunOrderStatus.unknown` 一族承担，
+/// 管的是**认识不了的取值**；这里管的是**根本没给的字段**，两者的安全方向相反。
+/// 回归用例在 `OrderEnumLeniencyDecodingTests`。
 struct PagedOrderResponse: Codable, Sendable {
     let content: [OrderDetailResponse]
     let totalElements: Int64?
@@ -366,41 +379,6 @@ struct PagedOrderResponse: Codable, Sendable {
     let first: Bool?
     let last: Bool?
     let empty: Bool?
-
-    /// Flexible decoder: handles both paged response and direct array from backend
-    init(from decoder: Decoder) throws {
-        // First try decoding as a paged response object
-        if let container = try? decoder.container(keyedBy: CodingKeys.self) {
-            self.content = (try? container.decode([OrderDetailResponse].self, forKey: .content)) ?? []
-            self.totalElements = try? container.decode(Int64.self, forKey: .totalElements)
-            self.totalPages = try? container.decode(Int.self, forKey: .totalPages)
-            self.number = try? container.decode(Int.self, forKey: .number)
-            self.size = try? container.decode(Int.self, forKey: .size)
-            self.first = try? container.decode(Bool.self, forKey: .first)
-            self.last = try? container.decode(Bool.self, forKey: .last)
-            self.empty = try? container.decode(Bool.self, forKey: .empty)
-        } else if let array = try? decoder.singleValueContainer().decode([OrderDetailResponse].self) {
-            // Fallback: backend returns a plain array
-            self.content = array
-            self.totalElements = Int64(array.count)
-            self.totalPages = 1
-            self.number = 0
-            self.size = array.count
-            self.first = true
-            self.last = true
-            self.empty = array.isEmpty
-        } else {
-            // Last resort: empty response
-            self.content = []
-            self.totalElements = 0
-            self.totalPages = 0
-            self.number = 0
-            self.size = 0
-            self.first = true
-            self.last = true
-            self.empty = true
-        }
-    }
 
     private enum CodingKeys: String, CodingKey {
         case content, totalElements, totalPages, number, size, first, last, empty

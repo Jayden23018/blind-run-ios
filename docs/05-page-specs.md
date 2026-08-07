@@ -560,38 +560,36 @@
 
 ---
 
-## 页面 11：志愿者订单列表页
+## 页面 11：志愿者订单列表页（已删除，2026-08-07）
 
-**页面目标**：旧版公开订单池入口。系统派单上线后不作为主流程展示，仅保留为调试/历史兼容页面时不得引导志愿者主动选单。
+**现状**：这一页**不存在了**，代码已从 `blindRun/Volunteer/VolunteerOrderFlowViews.swift` 删除。
+不要按下面的历史记录重新实现它。
 
-**入口**：默认无入口；如 Debug 或后续灰度需要，必须明确标记为非主流程。
+**为什么删**：
 
-**主要内容**：
-- 标题："可接订单（非主流程）"
-- 订单列表（List / ScrollView，下拉刷新）：
-  - 每项：盲人昵称、出发地点、距离、预约时间、备注预览
-  - 按距离从近到远排序
-- 可服务开关（顶部快捷切换）
+1. **它从来没有入口。** 系统派单（`GET /api/volunteer/dispatch-summary`）上线后，
+   `ContentView` 志愿者侧只路由到 `VolunteerProfileView` / `VolunteerHomeView`，
+   这一页唯一的构造点是 `#if DEBUG` 的 `#Preview`。
+   这是有意的：见归档决策 `openspec/changes/archive/2026-07-02-enforce-formal-dispatch-service-flow/design.md` 第 7 条，
+   以及活规格 `openspec/specs/system-dispatch-flow/spec.md` 的
+   「Public order pool is removed from primary home flow」。
+2. **它拿到的数据从 2026-05-24 起就是错的。** 它把 `GET /api/orders/available` 解成
+   `PagedOrderResponse`，而后端返的是 `AvailableOrderResponse` 裸数组（无 `status` 字段），
+   解码必失败；当时 `PagedOrderResponse` 的宽容解码器把失败吞成空数组且不报错。
+   也就是说即使有人打开这一页，看到的也永远是「暂无可用订单」。
+3. **点进详情必然 403。** 卡片跳 `VolunteerOrderDetailView` → `GET /api/orders/{id}`，
+   而订单在 `PENDING_MATCH` 时后端对非参与方返 403（`OrderQueryService.java:36-39`）。
 
-**主要操作**：
-- 点击订单 → 仅调试/兼容进入订单详情页
-- 下拉刷新 → 重新加载列表
-- 切换可服务开关
+一个没有入口、拿不到数据、点进去必然失败的页面，留着只会让人以为它能用。
 
-**状态变化**：
-- 下拉刷新 → loading → 更新列表
-- 某个订单被其他人接走 → 从列表移除（下次刷新时）
+**历史记录（删除前的规格，仅供考古）**：标题「可接订单（非主流程）」；
+按距离升序的订单列表（盲人昵称 / 出发地点 / 距离 / 预约时间）；顶部可服务开关；
+下拉刷新；空态「暂无可用订单」。
 
-**错误状态**：
-- 网络错误 → "加载失败，下拉重试"
-- 定位不可用 → 提示"需要定位权限"，阻断调试接单流程
-
-**空状态**：
-- 无 PENDING_MATCH 订单 → 空状态插图 + "暂无可用订单" + "下拉刷新"提示
-
-**无障碍要求**：
-- 每个订单卡片：accessibilityLabel = "盲人：" + 昵称 + "，距离：" + 距离 + "，地点：" + 出发地点 + "，时间：" + 预约时间
-- 下拉刷新：accessibilityHint = "下拉刷新订单列表"
+**若未来要重做**：`GET /api/orders/available` 的响应见后端 `api_spec.yaml` 的
+`components.schemas.AvailableOrderResponse` —— 9 个分量，**不含**坐标、盲人姓名与 `status`，
+自带 `distanceKm` 且后端已按距离升序返回（客户端不需要再排一次）。
+接单前拿不到订单详情，所以卡片上不能有「查看详情」，只能直接给接单动作。
 
 ---
 

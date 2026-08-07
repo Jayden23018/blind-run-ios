@@ -489,8 +489,11 @@ function findNewOrder(volunteerMessages, orderId) {
 
 async function checkAvailableOrder(volunteer, orderId) {
   const availableResponse = await http('GET', '/api/orders/available', { token: volunteer.token, allowFailure: true });
-  const availableOrders = Array.isArray(availableResponse.body.content) ? availableResponse.body.content : [];
-  const containsOrder = availableOrders.some(order => Number(order.id ?? order.orderId) === Number(orderId));
+  // 这条端点返的是 `AvailableOrderResponse` 裸数组，不是分页对象。
+  // 这里曾经读 `body.content`，于是 `count` 恒为 0、`containsOrder` 恒为 false ——
+  // 派单就绪的这条兜底路径静默失效了很久，日志看起来还一切正常。
+  const availableOrders = Array.isArray(availableResponse.body) ? availableResponse.body : [];
+  const containsOrder = availableOrders.some(order => Number(order.orderId) === Number(orderId));
   const summary = {
     status: availableResponse.status,
     count: availableOrders.length,
