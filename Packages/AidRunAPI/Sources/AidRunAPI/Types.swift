@@ -394,6 +394,9 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/orders/mine`.
     /// - Remark: Generated from `#/paths//api/orders/mine/get(getMyOrders)`.
     func getMyOrders(_ input: Operations.getMyOrders.Input) async throws -> Operations.getMyOrders.Output
+    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
+    ///
     /// - Remark: HTTP `GET /api/orders/available`.
     /// - Remark: Generated from `#/paths//api/orders/available/get(getAvailableOrders)`.
     func getAvailableOrders(_ input: Operations.getAvailableOrders.Input) async throws -> Operations.getAvailableOrders.Output
@@ -417,6 +420,28 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
     func registerApnsToken(_ input: Operations.registerApnsToken.Input) async throws -> Operations.registerApnsToken.Output
+    /// 解绑本机 APNs device token（登出流程调用）
+    ///
+    /// 2026-08-07 新增。BLIND 或 VOLUNTEER 解绑**当前这一台**设备的 token。
+    ///
+    /// **为什么需要**：设备上登出、但没有别人再登录时，token 仍绑在旧 userId 上，
+    /// 旧账号的推送会继续送达这台设备。推送带 `ttsText`，对盲人用户意味着可能被朗读出
+    /// 一条不属于当前使用者的订单或紧急消息。此前无任何自动兜底
+    /// （APNs 只在 token 失效——卸载/轮换——时才回报删除，登出不会让 token 失效）。
+    ///
+    /// ⚠️ **调用顺序：必须先调本接口、再调 `POST /api/auth/logout`。**
+    /// logout 会把 JWT 拉黑，反过来调的话 JwtFilter 查到黑名单直接返 401，
+    /// token 删不掉，洞照样在。这一条读代码看不出来，请写进登出流程的注释。
+    ///
+    /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
+    /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
+    ///
+    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
+    ///
+    /// - Remark: HTTP `DELETE /api/devices/apns`.
+    /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)`.
+    func unregisterApnsToken(_ input: Operations.unregisterApnsToken.Input) async throws -> Operations.unregisterApnsToken.Output
     /// 获取隐私政策/用户协议链接（App Store 审核 5.1.1/5.1.2）
     ///
     /// 2026-07-27 新增，`SecurityConfig` 已 `permitAll`（无需登录）。
@@ -1114,6 +1139,9 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
+    ///
     /// - Remark: HTTP `GET /api/orders/available`.
     /// - Remark: Generated from `#/paths//api/orders/available/get(getAvailableOrders)`.
     public func getAvailableOrders(headers: Operations.getAvailableOrders.Input.Headers = .init()) async throws -> Operations.getAvailableOrders.Output {
@@ -1155,6 +1183,36 @@ extension APIProtocol {
         body: Operations.registerApnsToken.Input.Body
     ) async throws -> Operations.registerApnsToken.Output {
         try await registerApnsToken(Operations.registerApnsToken.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// 解绑本机 APNs device token（登出流程调用）
+    ///
+    /// 2026-08-07 新增。BLIND 或 VOLUNTEER 解绑**当前这一台**设备的 token。
+    ///
+    /// **为什么需要**：设备上登出、但没有别人再登录时，token 仍绑在旧 userId 上，
+    /// 旧账号的推送会继续送达这台设备。推送带 `ttsText`，对盲人用户意味着可能被朗读出
+    /// 一条不属于当前使用者的订单或紧急消息。此前无任何自动兜底
+    /// （APNs 只在 token 失效——卸载/轮换——时才回报删除，登出不会让 token 失效）。
+    ///
+    /// ⚠️ **调用顺序：必须先调本接口、再调 `POST /api/auth/logout`。**
+    /// logout 会把 JWT 拉黑，反过来调的话 JwtFilter 查到黑名单直接返 401，
+    /// token 删不掉，洞照样在。这一条读代码看不出来，请写进登出流程的注释。
+    ///
+    /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
+    /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
+    ///
+    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
+    ///
+    /// - Remark: HTTP `DELETE /api/devices/apns`.
+    /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)`.
+    public func unregisterApnsToken(
+        headers: Operations.unregisterApnsToken.Input.Headers = .init(),
+        body: Operations.unregisterApnsToken.Input.Body
+    ) async throws -> Operations.unregisterApnsToken.Output {
+        try await unregisterApnsToken(Operations.unregisterApnsToken.Input(
             headers: headers,
             body: body
         ))
@@ -3094,6 +3152,85 @@ public enum Components {
                 case distanceMeters
                 case durationSeconds
                 case avgPaceSecPerKm
+            }
+        }
+        /// 附近可接订单摘要（接单前可见面）。刻意不含 specialNotes / routeNotes —— 这份数据会下发给还没接单、可能最终拒单的志愿者。
+        ///
+        /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse`.
+        public struct AvailableOrderResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/startAddress`.
+            public var startAddress: Swift.String?
+            /// 志愿者当前位置到起点的距离（公里，保留 1 位小数）
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/distanceKm`.
+            public var distanceKm: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/plannedStart`.
+            public var plannedStart: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/plannedEnd`.
+            public var plannedEnd: Foundation.Date?
+            /// 盲人手机号，已掩码（前 3 后 4，中间 `****`）
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/blindUserPhone`.
+            public var blindUserPhone: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/expectedDurationMinutes`.
+            public var expectedDurationMinutes: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/pacePreference`.
+            @frozen public enum pacePreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case WALK_RUN = "WALK_RUN"
+                case EASY = "EASY"
+                case MODERATE = "MODERATE"
+                case FAST = "FAST"
+                case NO_PREFERENCE = "NO_PREFERENCE"
+            }
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/pacePreference`.
+            public var pacePreference: Components.Schemas.AvailableOrderResponse.pacePreferencePayload?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/hasGuideDogThisRun`.
+            public var hasGuideDogThisRun: Swift.Bool?
+            /// Creates a new `AvailableOrderResponse`.
+            ///
+            /// - Parameters:
+            ///   - orderId:
+            ///   - startAddress:
+            ///   - distanceKm: 志愿者当前位置到起点的距离（公里，保留 1 位小数）
+            ///   - plannedStart:
+            ///   - plannedEnd:
+            ///   - blindUserPhone: 盲人手机号，已掩码（前 3 后 4，中间 `****`）
+            ///   - expectedDurationMinutes:
+            ///   - pacePreference:
+            ///   - hasGuideDogThisRun:
+            public init(
+                orderId: Swift.Int64? = nil,
+                startAddress: Swift.String? = nil,
+                distanceKm: Swift.Double? = nil,
+                plannedStart: Foundation.Date? = nil,
+                plannedEnd: Foundation.Date? = nil,
+                blindUserPhone: Swift.String? = nil,
+                expectedDurationMinutes: Swift.Int32? = nil,
+                pacePreference: Components.Schemas.AvailableOrderResponse.pacePreferencePayload? = nil,
+                hasGuideDogThisRun: Swift.Bool? = nil
+            ) {
+                self.orderId = orderId
+                self.startAddress = startAddress
+                self.distanceKm = distanceKm
+                self.plannedStart = plannedStart
+                self.plannedEnd = plannedEnd
+                self.blindUserPhone = blindUserPhone
+                self.expectedDurationMinutes = expectedDurationMinutes
+                self.pacePreference = pacePreference
+                self.hasGuideDogThisRun = hasGuideDogThisRun
+            }
+            public enum CodingKeys: String, CodingKey {
+                case orderId
+                case startAddress
+                case distanceKm
+                case plannedStart
+                case plannedEnd
+                case blindUserPhone
+                case expectedDurationMinutes
+                case pacePreference
+                case hasGuideDogThisRun
             }
         }
         /// - Remark: Generated from `#/components/schemas/PageOrderDetailResponse`.
@@ -11314,6 +11451,9 @@ public enum Operations {
             }
         }
     }
+    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
+    ///
     /// - Remark: HTTP `GET /api/orders/available`.
     /// - Remark: Generated from `#/paths//api/orders/available/get(getAvailableOrders)`.
     public enum getAvailableOrders {
@@ -11344,12 +11484,12 @@ public enum Operations {
                 /// - Remark: Generated from `#/paths/api/orders/available/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/api/orders/available/GET/responses/200/content/application\/json`.
-                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    case json([Components.Schemas.AvailableOrderResponse])
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
                     /// - Throws: An error if `self` is not `.json`.
                     /// - SeeAlso: `.json`.
-                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                    public var json: [Components.Schemas.AvailableOrderResponse] {
                         get throws {
                             switch self {
                             case let .json(body):
@@ -12144,6 +12284,249 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.forbidden`.
             /// - SeeAlso: `.forbidden`.
             public var forbidden: Operations.registerApnsToken.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 解绑本机 APNs device token（登出流程调用）
+    ///
+    /// 2026-08-07 新增。BLIND 或 VOLUNTEER 解绑**当前这一台**设备的 token。
+    ///
+    /// **为什么需要**：设备上登出、但没有别人再登录时，token 仍绑在旧 userId 上，
+    /// 旧账号的推送会继续送达这台设备。推送带 `ttsText`，对盲人用户意味着可能被朗读出
+    /// 一条不属于当前使用者的订单或紧急消息。此前无任何自动兜底
+    /// （APNs 只在 token 失效——卸载/轮换——时才回报删除，登出不会让 token 失效）。
+    ///
+    /// ⚠️ **调用顺序：必须先调本接口、再调 `POST /api/auth/logout`。**
+    /// logout 会把 JWT 拉黑，反过来调的话 JwtFilter 查到黑名单直接返 401，
+    /// token 删不掉，洞照样在。这一条读代码看不出来，请写进登出流程的注释。
+    ///
+    /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
+    /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
+    ///
+    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
+    ///
+    /// - Remark: HTTP `DELETE /api/devices/apns`.
+    /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)`.
+    public enum unregisterApnsToken {
+        public static let id: Swift.String = "unregisterApnsToken"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/devices/apns/DELETE/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.unregisterApnsToken.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.unregisterApnsToken.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.unregisterApnsToken.Input.Headers
+            /// - Remark: Generated from `#/paths/api/devices/apns/DELETE/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/devices/apns/DELETE/requestBody/content/application\/json`.
+                case json(Components.Schemas.ApnsTokenRequest)
+            }
+            public var body: Operations.unregisterApnsToken.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.unregisterApnsToken.Input.Headers = .init(),
+                body: Operations.unregisterApnsToken.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/devices/apns/DELETE/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/devices/apns/DELETE/responses/200/content/application\/json`.
+                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.unregisterApnsToken.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.unregisterApnsToken.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK（含 token 不存在 / 不属于当前用户的情况）
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.unregisterApnsToken.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.unregisterApnsToken.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// deviceToken 格式错误
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.unregisterApnsToken.Output.BadRequest)
+            /// deviceToken 格式错误
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.unregisterApnsToken.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证（含 token 已被 logout 拉黑 —— 说明调用顺序反了）
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.unregisterApnsToken.Output.Unauthorized)
+            /// 未认证（含 token 已被 logout 拉黑 —— 说明调用顺序反了）
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.unregisterApnsToken.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非 BLIND/VOLUNTEER 角色
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.unregisterApnsToken.Output.Forbidden)
+            /// 非 BLIND/VOLUNTEER 角色
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.unregisterApnsToken.Output.Forbidden {
                 get throws {
                     switch self {
                     case let .forbidden(response):

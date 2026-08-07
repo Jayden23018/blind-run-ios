@@ -3595,6 +3595,9 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
+    ///
     /// - Remark: HTTP `GET /api/orders/available`.
     /// - Remark: Generated from `#/paths//api/orders/available/get(getAvailableOrders)`.
     public func getAvailableOrders(_ input: Operations.getAvailableOrders.Input) async throws -> Operations.getAvailableOrders.Output {
@@ -3631,7 +3634,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            [Components.Schemas.AvailableOrderResponse].self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -3884,6 +3887,98 @@ public struct Client: APIProtocol {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.registerApnsToken.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 400:
+                    return .badRequest(.init())
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    return .forbidden(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 解绑本机 APNs device token（登出流程调用）
+    ///
+    /// 2026-08-07 新增。BLIND 或 VOLUNTEER 解绑**当前这一台**设备的 token。
+    ///
+    /// **为什么需要**：设备上登出、但没有别人再登录时，token 仍绑在旧 userId 上，
+    /// 旧账号的推送会继续送达这台设备。推送带 `ttsText`，对盲人用户意味着可能被朗读出
+    /// 一条不属于当前使用者的订单或紧急消息。此前无任何自动兜底
+    /// （APNs 只在 token 失效——卸载/轮换——时才回报删除，登出不会让 token 失效）。
+    ///
+    /// ⚠️ **调用顺序：必须先调本接口、再调 `POST /api/auth/logout`。**
+    /// logout 会把 JWT 拉黑，反过来调的话 JwtFilter 查到黑名单直接返 401，
+    /// token 删不掉，洞照样在。这一条读代码看不出来，请写进登出流程的注释。
+    ///
+    /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
+    /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
+    ///
+    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
+    ///
+    /// - Remark: HTTP `DELETE /api/devices/apns`.
+    /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)`.
+    public func unregisterApnsToken(_ input: Operations.unregisterApnsToken.Input) async throws -> Operations.unregisterApnsToken.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.unregisterApnsToken.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/devices/apns",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .delete
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.unregisterApnsToken.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
