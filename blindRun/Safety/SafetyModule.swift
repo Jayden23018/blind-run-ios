@@ -164,6 +164,49 @@ struct EmergencyStatusNotice: View {
     }
 }
 
+/// 求助按钮 + 状态提示 + 撤销入口的组合，**自己 `@ObservedObject` 持有 coordinator**。
+///
+/// 为什么必须持有而不能由页面直接读 `appState.emergencyCoordinator.state`：
+/// `AppState.emergencyCoordinator` 是 `let`，不是 `@Published`（`AppState.swift:63`），
+/// 而 `AppState` 没有把子对象的 `objectWillChange` 转发上来。SwiftUI 只订阅 `AppState`
+/// 自己的变化，所以在页面 body 里读嵌套 ObservableObject 的属性是**读得到值、但不跟着更新**。
+///
+/// 这不是理论问题：`BlindOrderStatusView` 原先就是那么写的，它看起来能刷新，靠的是本页
+/// view model 恰好在 5 秒轮询里持续发布、把整个 body 重算了 —— 巧合而非设计。而这里显示的是
+/// **盲人端求助状态**：停在旧值意味着用户听到的是过期结论（比如仍念「正在发送」而其实已经失败），
+/// 直接违反「每一种结果都必须可见且可听地如实告知」（`AGENTS.md` §6）。
+///
+/// 反过来**不要**在 `AppState` 里转发所有子对象的 `objectWillChange`：那会让每次定位采样、
+/// 每条 WebSocket 消息都重绘所有订阅 `AppState` 的视图（盲人首页、地图、志愿者首页都在内）。
+/// 由需要跟随的那个视图自己订阅，代价才是局部的。
+struct EmergencyActionSection: View {
+    @ObservedObject var coordinator: EmergencyCoordinator
+    let onTrigger: () -> Void
+    let onCancelOwnEmergency: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            EmergencyActionButton(isLoading: coordinator.state.isBusy, action: onTrigger)
+
+            if let message = coordinator.state.message {
+                EmergencyStatusNotice(message: message, isFailure: coordinator.state.isFailure)
+            }
+
+            // 只有本人发出、且还没结束的求助才谈得上撤销。判据直接读被观察的 coordinator，
+            // 不再经由 view model 绕一手 —— 绕一手就又回到「值对但不刷新」。
+            if coordinator.activeEvent != nil {
+                Button(EmergencySafetyCopy.cancelButtonTitleForOwner, action: onCancelOwnEmergency)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
+                    .accessibilityLabel(EmergencySafetyCopy.cancelButtonTitleForOwner)
+                    .accessibilityHint("误触时撤销本次求助，需要确认")
+            }
+        }
+    }
+}
+
 extension View {
     func emergencyConfirmationAlert(
         isPresented: Binding<Bool>,

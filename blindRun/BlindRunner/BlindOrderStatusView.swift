@@ -42,10 +42,6 @@ final class BlindOrderStatusViewModel: ObservableObject {
         order?.status.canBlindRunnerTriggerEmergency == true
     }
 
-    var emergencyState: EmergencySOSState {
-        appState?.emergencyCoordinator.state ?? .idle
-    }
-
     var canShowCancel: Bool {
         order?.status.canBlindRunnerCancel == true
     }
@@ -176,11 +172,6 @@ final class BlindOrderStatusViewModel: ObservableObject {
         } else {
             speechService?.speak(outcome.message)
         }
-    }
-
-    /// 只有本人发出、且还没结束的求助才谈得上撤销。
-    var canCancelEmergency: Bool {
-        appState?.emergencyCoordinator.activeEvent != nil
     }
 
     /// Freshest real GCJ-02 sample, with one bounded retry.
@@ -918,26 +909,14 @@ struct BlindOrderStatusView: View {
     private func actionSection(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 14) {
             if viewModel.canShowEmergency {
-                EmergencyActionButton(isLoading: appState.emergencyCoordinator.state.isBusy) {
-                    showEmergencyConfirmation = true
-                }
-                if let message = appState.emergencyCoordinator.state.message {
-                    EmergencyStatusNotice(
-                        message: message,
-                        isFailure: appState.emergencyCoordinator.state.isFailure
-                    )
-                }
-                if viewModel.canCancelEmergency {
-                    Button(EmergencySafetyCopy.cancelButtonTitleForOwner) {
-                        showEmergencyCancelConfirmation = true
-                    }
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                    .accessibilityLabel(EmergencySafetyCopy.cancelButtonTitleForOwner)
-                    .accessibilityHint("误触时撤销本次求助，需要确认")
-                }
+                // 求助区块整体交给 `EmergencyActionSection`：它自己订阅 coordinator。
+                // 此前这里直接读 `appState.emergencyCoordinator.state`，值是对的但不保证跟着更新
+                // —— 详见该类型的注释。
+                EmergencyActionSection(
+                    coordinator: appState.emergencyCoordinator,
+                    onTrigger: { showEmergencyConfirmation = true },
+                    onCancelOwnEmergency: { showEmergencyCancelConfirmation = true }
+                )
             }
 
             if viewModel.canShowCancel {
