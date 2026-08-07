@@ -199,100 +199,17 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 ## 11. 验证命令
 
-```bash
-# 无真机时的编译上限
-xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \
-  -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing
+**全部验证命令、「跑多大范围」的判据、以及读后端仓库那 4 条门禁在哪跑 —— 唯一源是
+skill `aidrun-ship-check`**（`.claude/skills/aidrun-ship-check/SKILL.md` §二）。
+实现完成、准备提交、准备宣称「做完了 / 测试通过」之前读它。
 
-# 真机（唯一 XCTest 通道；脚本会先探活并按小写 `Test case` 统计）
-# ⚠️ 默认**不要**这样裸跑全量，先看下面「跑多大范围」
-scripts/device-test.sh
+> 2026-08-07 去重：此前本节与该 skill **各存一份验证命令，并且已经漂移** ——
+> skill 那份漏了 `validate-error-codes.mjs` / `validate-golden-corpus.mjs` 两条 CI 门禁，
+> 也没有「默认不要裸跑全量」的警告；照它走的人会静默跳过两道门。已按 §7「本仓库不留副本」
+> 合并进 skill，本节只留指针。**别再在这里补第二份。**
 
-openspec validate --all --strict --no-interactive
-node scripts/validate-docs.mjs
-node scripts/validate-spec-coverage.mjs    # 路径级：前端调的每条路径都在契约里
-node scripts/validate-golden-corpus.mjs    # 语音黄金语料 vs 前端镜像清单
-node scripts/validate-error-codes.mjs      # 前端 ErrorCode 枚举 vs 后端 ErrorCode.java
-scripts/production-readiness-check.sh      # 需 AIDRUN_* 环境变量，见 aidrun-ship-check
-scripts/dual-device-validation.sh
-```
+两条不会因为漂移而失效、所以留在本文件：
 
-后三条要读后端仓库。装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
-CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑不了真机 XCTest**。
-
-### 跑多大范围：默认只跑覆盖本次改动的 suite，不是全量
-
-全量约 10 分钟、会超 Bash 600s 上限、还会撞上脚本的 preflight watchdog 反复被掐。
-**默认做法**：先查哪些用例真的碰了你改的东西，只跑那几个 suite。
-
-```bash
-# ① 先定范围（把改动涉及的类型/方法名列进去）
-python3 - <<'EOF'
-import os, re
-PATTERN = r'(BookingDurationOption|expectedDurationMinutes|makeCreateOrderRequest)'  # 换成你改的符号
-for root, _, fs in os.walk('blindRunTests'):
-    for f in (x for x in fs if x.endswith('.swift')):
-        p = os.path.join(root, f)
-        n = sum(1 for l in open(p).read().split('\n') if re.search(PATTERN, l))
-        if n: print(f'{f}: {n} 处')
-EOF
-
-# ② 只跑命中的 suite
-scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
-                       -only-testing:blindRunTests/blindRunTests
-```
-
-**什么时候才必须全量**——只有一条判据：**改的东西是全 App 唯一的出口 / 共享单例 / 全局配置**，
-所有调用方都从它身上过。例如 `SystemSpeechAudioSession`（每个用麦克风的地方都走它）、
-`APIClient`、`AppState`。这类改动的影响面按符号搜不出来，必须全量。
-
-反过来，「改了一个 view model 的一个字段」「加了一条解析规则」不属于这类，按符号搜到的 suite
-就是完整覆盖面。**命中数只有 1 且是无关字面量的文件要看一眼再决定跳过**，别只看数字。
-
-> 2026-08-06 立此条：同一天里全量被反复跑了 5 次，其中 4 次的结论在第 1 次就已经拿到，
-> 后面纯粹是在跟脚本的 watchdog 较劲。用户两次指出这件事，走 §1.4。
->
-> **零执行不是通过。** `passed=0 failed=0` 一律当失败查——设备锁屏、`-only-testing` 名字打错、
-> 测试目标没编出来都会长这样：命令回来了、看起来一切正常，但一条断言都没跑。
-> 脚本对这种情况有硬失败，别绕过它。
-
-### 读后端仓库的那 4 条门禁在哪跑（2026-08-06 定型，别再重新推导一遍）
-
-契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料这 4 条需要读后端私有仓库，跑在**三个不同的地方**：
-
-| 位置 | 这 4 条 | 说明 |
-|---|---|---|
-| 上游 `JerryZhao-1/blind-run-ios` | ⚠️ **warning 空过** | 我们不是它的 admin，配不了 secret。**上游 CI 绿 ≠ 契约对过了** |
-| fork `Jayden23018/blind-run-ios` | ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
-| 本地 pre-push | ✅ 真跑 | 读 `../demo`，装钩子后每次 push 自动 |
-
-**fork 的既定配置**（改动前先知道，别当成异常）：
-
-- 默认分支被**故意**设成 `integrate/swift-migration`，不是 `main` —— `workflow_dispatch`
-  和 `schedule` 都只认默认分支，而 `main` 上没有 `verify.yml`。手动触发：
-  `gh workflow run verify.yml --repo Jayden23018/blind-run-ios --ref integrate/swift-migration`
-- `schedule` 每天 09:17（北京）跑一次。它抓的是 **push 触发天生抓不到的那类：你 push 之后
-  后端才改契约**。上游默认分支是 `main` 且 `main` 上没有本文件，所以定时跑不会在上游触发。
-- **fork 的 CI 红在 `Checkout backend contract`（403）= PAT 过期了**，不是代码坏了。
-  重建 PAT 后 `gh secret set BACKEND_REPO_TOKEN --repo Jayden23018/blind-run-ios`。
-- GitHub 会把连续 60 天无活动仓库的定时任务停掉。长期没推东西时留意一下。
-
-**推送必须两边都到**，否则 fork 上那套 CI 等于没配。`scripts/install-git-hooks.sh` 已把
-`git push origin` 配成同时推上游与 fork（前提是本机有名为 `fork` 的 remote），不靠人记：
-
-```bash
-git remote add fork https://github.com/Jayden23018/blind-run-ios.git   # 每台机器一次
-scripts/install-git-hooks.sh                                          # 装钩子 + 配双推
-```
-
-pre-push 会先校验 `../demo` 与其 `origin/main` 一致 —— 停在特性分支或工作区脏着时，
-这 4 条读的就不是契约本身，会直接拦下（逃生口 `AIDRUN_ALLOW_BACKEND_DRIFT=1`）。
-
-契约 fixture（真实响应回归，见 `blindRunTests/ContractFixtureTests.swift`）：
-
-```bash
-node scripts/capture-fixtures.mjs            # dry-run，只列要打的只读端点
-node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
-```
-
-**编译通过不等于测试通过。永远不许把没执行过的测试写成通过。**
+- **编译通过不等于测试通过。永远不许把没执行过的测试写成通过。**
+- **零执行不是通过。** `passed=0 failed=0` 一律当失败查（设备锁屏 / `-only-testing` 名字打错 /
+  测试目标没编出来都长这样）。
