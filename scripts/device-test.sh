@@ -7,8 +7,9 @@ set -uo pipefail
 #
 #   1. 设备锁屏时 xcodebuild 会静默等在 "Run Destination Preflight: Unlock ... to Continue"，
 #      不报错、不退出，输出文件 0 字节，看着像在跑。这里改成主动检出并立刻失败。
-#   2. 日志里是 `Test case '...' passed`（小写 c）。按 `Test Case` 去 grep 会全部计成 0，
-#      于是「0 失败」看起来像全绿，其实是一条都没数到。这里按正确大小写统计并打印三个数。
+#   2. 从日志里数用例根本不可靠。先是大小写坑（`Test case` 小写 c，按 `Test Case` grep 全计成 0），
+#      后来发现更深的一层：三路输出并发写同一个 fd，会把统计行拦腰截断（详见第 3 节注释）。
+#      现在统计**只认 result bundle**，日志仅用于人看和 preflight 探活。
 #
 # 用法：
 #   scripts/device-test.sh                      # 全量
@@ -25,6 +26,8 @@ SCHEME="${AIDRUN_SCHEME:-blindRun}"
 TEAM="${AIDRUN_TEAM:-ZW39BS8NXT}"
 WORKSPACE="blindRun.xcworkspace"
 LOG="$(mktemp -t aidrun-device-test)"
+# xcodebuild 要求 -resultBundlePath 指向一个**还不存在**的路径，所以只建父目录。
+BUNDLE="$(mktemp -d -t aidrun-device-test-bundle)/result.xcresult"
 PREFLIGHT_TIMEOUT="${AIDRUN_PREFLIGHT_TIMEOUT:-180}"
 
 say() { printf '[device-test] %s\n' "$*"; }
@@ -57,6 +60,7 @@ xcodebuild test \
   -scheme "$SCHEME" \
   -destination "platform=iOS,id=${DEVICE_ID}" \
   -allowProvisioningUpdates \
+  -resultBundlePath "$BUNDLE" \
   DEVELOPMENT_TEAM="$TEAM" \
   "$@" >"$LOG" 2>&1 &
 XCB_PID=$!
@@ -86,26 +90,39 @@ done
 wait "$XCB_PID"
 XCB_STATUS=$?
 
-# ---------- 3. 统计（注意是小写 c 的 `Test case`）----------
-PASSED=$(grep -c "Test case '.*' passed"  "$LOG" || true)
-FAILED=$(grep -c "Test case '.*' failed"  "$LOG" || true)
-SKIPPED=$(grep -c "Test case '.*' skipped" "$LOG" || true)
-TOTAL=$((PASSED + FAILED + SKIPPED))
-
+# ---------- 3. 统计（权威来源是 result bundle，不是日志）----------
+#
+# 为什么不再 grep 日志：xcodebuild 的进度输出、XCTest runner 的 stdout、以及设备侧
+# os_log 转发，三路并发写同一个 fd，`Test case '...' passed` 会被拦腰截断并与另一路拼接，例如：
+#   Test case 'AppRealtimeCoordinatorTests.testProductionOrderStatusPayloadDecoTest Case '-[...]' started.
+# 被截断的行匹配不上，于是数目偏少。2026-08-07 同一天四次实测（脚本数 → bundle 真值）：
+#   528→535、29→30、73→73、530→539。少的都是 passed，但**同样的截断一样会吞掉 failed 行**，
+#   而「不许把没通过的测试当成通过」正是本脚本存在的全部理由。
+#
+# result bundle 是 xcodebuild 自己写的结构化产物，不受日志交错影响。
+# 判定逻辑抽在 `xcresult-verdict.mjs`，因为内联在这里就没法写自测 ——
+# 而这条链路的统计口径已经错过两次。自测：scripts/validate-xcresult-verdict.mjs
 echo
-say "passed=${PASSED}  failed=${FAILED}  skipped=${SKIPPED}  (total=${TOTAL})"
-say "日志：$LOG"
+xcrun xcresulttool get test-results summary --path "$BUNDLE" --format json 2>/dev/null \
+  | node "$(dirname "$0")/xcresult-verdict.mjs" 2>&1 \
+  | sed 's/^/[device-test] /'
+VERDICT_STATUS="${PIPESTATUS[1]}"
 
-if [ "$TOTAL" -eq 0 ]; then
-  tail -n 30 "$LOG" >&2
-  die "一条用例都没执行。xcodebuild 退出码 ${XCB_STATUS}，但零执行不能算通过。"
+say "日志：$LOG"
+say "result bundle：$BUNDLE"
+
+if [ "$VERDICT_STATUS" -eq 1 ]; then
+  # 有用例失败，失败清单已由 verdict 打印过了。
+  exit 1
 fi
 
-if [ "$FAILED" -gt 0 ]; then
-  echo
-  say "失败用例："
-  grep "Test case '.*' failed" "$LOG" | sed 's/^/    /' >&2
-  exit 1
+# 0 以外的都不是「通过」。2 = 结果不可信（读不出 / 零执行 / 整体结论对不上）；
+# 其它退出码（例如 127 = 没装 node）同样按不可信处理 —— 未知状态绝不能落到通过那一侧。
+if [ "$VERDICT_STATUS" -ne 0 ]; then
+  tail -n 30 "$LOG" >&2
+  die "测试结果不可信（verdict 退出码 ${VERDICT_STATUS}，xcodebuild 退出码 ${XCB_STATUS}）。
+     刻意不退回 grep 日志兜底：那条路会少数用例、也会漏掉 failed 行，
+     等于把「没通过」报成「通过」—— 本脚本存在的全部意义就是不许这样。"
 fi
 
 if [ "$XCB_STATUS" -ne 0 ]; then

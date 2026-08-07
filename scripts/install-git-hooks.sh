@@ -34,6 +34,7 @@ run "validate-docs" node scripts/validate-docs.mjs
 run "validate-guard（冻结文件守卫自测）" node scripts/validate-guard.mjs
 run "validate-stop-checklist（收尾钩子自测）" node scripts/validate-stop-checklist.mjs
 run "validate-session-context（开场钩子自测）" node scripts/validate-session-context.mjs
+run "validate-xcresult-verdict（真机测试判定自测）" node scripts/validate-xcresult-verdict.mjs
 run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --package-path Packages/AidRunAPI
 
 # 后端 checkout 的新鲜度。下面 4 个门禁的结论，只和它们读到的那份契约一样可信 ——

@@ -204,7 +204,7 @@ REMATCHING → CANCELLED（只能盲人 token）
 xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \
   -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing
 
-# 真机（唯一 XCTest 通道；脚本会先探活并按小写 `Test case` 统计）
+# 真机（唯一 XCTest 通道；脚本会先探活，统计只认 result bundle 不认日志）
 # ⚠️ 默认**不要**这样裸跑全量，先看下面「跑多大范围」
 scripts/device-test.sh
 
