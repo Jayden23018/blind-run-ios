@@ -35,9 +35,12 @@ final class GeneratedTypesFixtureTests: XCTestCase {
     func testBlindProfileFixtureDecodes() throws {
         let profile = try decode(Components.Schemas.BlindProfileResponse.self, from: "BlindProfileResponse__self")
         XCTAssertEqual(profile.name, "测试盲人")
-        XCTAssertEqual(profile.verifyStatus, .VERIFIED)
-        XCTAssertEqual(profile.visionLevel, .TOTAL_BLIND)
-        XCTAssertEqual(profile.tetherPreference, .TETHER_ROPE)
+        // 这三个字段的契约已从封闭 `enum` 改成 `anyOf: [enum, string]`（开放枚举），
+        // 生成类型因此成了 `value1`（认识的取值）+ `value2`（原样字符串）的组合。
+        // 认识的取值两边都在。
+        XCTAssertEqual(profile.verifyStatus?.value1, .VERIFIED)
+        XCTAssertEqual(profile.visionLevel?.value1, .TOTAL_BLIND)
+        XCTAssertEqual(profile.tetherPreference?.value1, .TETHER_ROPE)
         XCTAssertEqual(profile.hasGuideDog, false)
         // 后端真的会回 null，而不是省略字段。可空性必须解得动。
         XCTAssertNil(profile.specialNeeds)
@@ -85,20 +88,31 @@ final class GeneratedTypesFixtureTests: XCTestCase {
     // MARK: - 未知枚举值（AGENTS.md / CLAUDE.md 红线）
 
     /// CLAUDE.md 的硬约束：「枚举解码遇未知值不许整条崩」，见 commit 4793805。
-    /// 生成器产出的是 `@frozen` 封闭枚举，遇到契约里没有的值会抛错，
-    /// 而抛错会让整条响应解不出来 —— 对盲人端就是「点了没反应」。
     ///
-    /// 这条用例**锁定现状**：它断言的是「生成类型确实会崩」，不是「它没问题」。
-    /// 若哪天生成器支持了开放枚举、或我们加了兜底，这条用例会失败，
-    /// 那时候该做的是把它改成断言「降级到未知」，而不是删掉它。
-    func testGeneratedEnumRejectsUnknownValue() throws {
+    /// 这条用例原先锁的是相反的结论：契约里 `visionLevel` 是封闭 `enum`，
+    /// 生成器产出 `@frozen` 枚举，遇到没见过的取值会抛错、把整条响应带走。
+    /// 当时留了一句「哪天变成开放枚举，就把它改成断言降级，而不是删掉」——
+    /// 后端已经把这一族改成 `anyOf: [enum, string]`，那天到了。
+    ///
+    /// 现在锁的是降级本身：认不出的取值落到 `value2` 原样保留，
+    /// `value1` 为 nil，而**同一个对象里的兄弟字段必须完好**。
+    ///
+    /// ⚠️ 这不等于生成代码可以投入运行时。运行时仍走手写 `APIClient`：
+    /// 开放枚举目前只覆盖到这几个字段，全量核对完之前不改结论。
+    func testGeneratedEnumDegradesOnUnknownValueInsteadOfFailingTheWholeResponse() throws {
         let payloadWithFutureEnumValue = Data("""
-        {"name":"测试盲人","visionLevel":"MONOCULAR_BLIND"}
+        {"name":"测试盲人","visionLevel":"MONOCULAR_BLIND","hasGuideDog":true}
         """.utf8)
 
-        XCTAssertThrowsError(
-            try JSONDecoder().decode(Components.Schemas.BlindProfileResponse.self, from: payloadWithFutureEnumValue),
-            "生成的封闭枚举遇未知值时若不再抛错，说明上游行为变了，这条用例的结论要重写"
+        let profile = try JSONDecoder().decode(
+            Components.Schemas.BlindProfileResponse.self,
+            from: payloadWithFutureEnumValue
         )
+
+        XCTAssertNil(profile.visionLevel?.value1, "认不出的取值不得被硬塞进已知枚举")
+        XCTAssertEqual(profile.visionLevel?.value2, "MONOCULAR_BLIND", "原文要留着，否则排查时无从下手")
+        // 真正要守的是这两行：兄弟字段没被一起带走。
+        XCTAssertEqual(profile.name, "测试盲人")
+        XCTAssertEqual(profile.hasGuideDog, true)
     }
 }

@@ -972,8 +972,10 @@ final class blindRunTests: XCTestCase {
 
     func testMockOrderActionsSupportEmptyResponseAndFetchDetailAfterwards() async throws {
         let client = MockAPIClient()
-        let available: PagedOrderResponse = try await client.get("/api/orders/available")
-        let order = try XCTUnwrap(available.content.first)
+        // 曾经从 `/api/orders/available` 取种子。那条路由已随公开订单池一起删除
+        // （App 走不到，且它的真实形状是 `AvailableOrderResponse` 裸数组，不是分页对象）。
+        let mine: PagedOrderResponse = try await client.get("/api/orders/mine")
+        let order = try XCTUnwrap(mine.content.first { $0.status == .pendingMatch })
 
         let _: EmptyResponse = try await client.post(
             "/api/orders/\(order.orderId)/respond",

@@ -8,7 +8,6 @@ import SwiftUI
 final class VolunteerHomeViewModel: ObservableObject {
     @Published var isAvailable = false
     @Published var nickname = ""
-    @Published var rows: [VolunteerAvailableOrderRow] = []
     @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
     @Published var errorMessage: String?
     @Published var dispatchSummaryErrorMessage: String?
@@ -374,7 +373,6 @@ final class VolunteerHomeViewModel: ObservableObject {
             }
             guard activeRequestID == requestID, !Task.isCancelled else { return }
             apply(summary: summary)
-            rows = []
             dispatchLoadState = .loaded(summary)
             dispatchSummaryErrorMessage = nil
         } catch HomeLoadCoordinatorError.timedOut {
@@ -950,7 +948,9 @@ struct VolunteerHomeView: View {
         MapViewWrapper(
             centerCoordinate: locationService.effectiveBackendLocation,
             showsUserLocation: locationService.isAuthorized,
-            annotations: viewModel.rows.compactMap(\.annotation),
+            // 志愿者首页走系统派单，不再展示公开订单池，所以底图上没有订单标注。
+            // 派单来的那一单有自己的地图（`VolunteerOrderMap`），不在这张底图上。
+            annotations: [],
             zoomLevel: 13,
             recenterToken: recenterToken,
             showsCompass: false,

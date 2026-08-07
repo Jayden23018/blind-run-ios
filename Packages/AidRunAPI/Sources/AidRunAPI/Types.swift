@@ -394,6 +394,9 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/orders/mine`.
     /// - Remark: Generated from `#/paths//api/orders/mine/get(getMyOrders)`.
     func getMyOrders(_ input: Operations.getMyOrders.Input) async throws -> Operations.getMyOrders.Output
+    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
+    ///
     /// - Remark: HTTP `GET /api/orders/available`.
     /// - Remark: Generated from `#/paths//api/orders/available/get(getAvailableOrders)`.
     func getAvailableOrders(_ input: Operations.getAvailableOrders.Input) async throws -> Operations.getAvailableOrders.Output
@@ -417,6 +420,28 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/devices/apns`.
     /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
     func registerApnsToken(_ input: Operations.registerApnsToken.Input) async throws -> Operations.registerApnsToken.Output
+    /// 解绑本机 APNs device token（登出流程调用）
+    ///
+    /// 2026-08-07 新增。BLIND 或 VOLUNTEER 解绑**当前这一台**设备的 token。
+    ///
+    /// **为什么需要**：设备上登出、但没有别人再登录时，token 仍绑在旧 userId 上，
+    /// 旧账号的推送会继续送达这台设备。推送带 `ttsText`，对盲人用户意味着可能被朗读出
+    /// 一条不属于当前使用者的订单或紧急消息。此前无任何自动兜底
+    /// （APNs 只在 token 失效——卸载/轮换——时才回报删除，登出不会让 token 失效）。
+    ///
+    /// ⚠️ **调用顺序：必须先调本接口、再调 `POST /api/auth/logout`。**
+    /// logout 会把 JWT 拉黑，反过来调的话 JwtFilter 查到黑名单直接返 401，
+    /// token 删不掉，洞照样在。这一条读代码看不出来，请写进登出流程的注释。
+    ///
+    /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
+    /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
+    ///
+    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
+    ///
+    /// - Remark: HTTP `DELETE /api/devices/apns`.
+    /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)`.
+    func unregisterApnsToken(_ input: Operations.unregisterApnsToken.Input) async throws -> Operations.unregisterApnsToken.Output
     /// 获取隐私政策/用户协议链接（App Store 审核 5.1.1/5.1.2）
     ///
     /// 2026-07-27 新增，`SecurityConfig` 已 `permitAll`（无需登录）。
@@ -1114,6 +1139,9 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
+    ///
     /// - Remark: HTTP `GET /api/orders/available`.
     /// - Remark: Generated from `#/paths//api/orders/available/get(getAvailableOrders)`.
     public func getAvailableOrders(headers: Operations.getAvailableOrders.Input.Headers = .init()) async throws -> Operations.getAvailableOrders.Output {
@@ -1155,6 +1183,36 @@ extension APIProtocol {
         body: Operations.registerApnsToken.Input.Body
     ) async throws -> Operations.registerApnsToken.Output {
         try await registerApnsToken(Operations.registerApnsToken.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// 解绑本机 APNs device token（登出流程调用）
+    ///
+    /// 2026-08-07 新增。BLIND 或 VOLUNTEER 解绑**当前这一台**设备的 token。
+    ///
+    /// **为什么需要**：设备上登出、但没有别人再登录时，token 仍绑在旧 userId 上，
+    /// 旧账号的推送会继续送达这台设备。推送带 `ttsText`，对盲人用户意味着可能被朗读出
+    /// 一条不属于当前使用者的订单或紧急消息。此前无任何自动兜底
+    /// （APNs 只在 token 失效——卸载/轮换——时才回报删除，登出不会让 token 失效）。
+    ///
+    /// ⚠️ **调用顺序：必须先调本接口、再调 `POST /api/auth/logout`。**
+    /// logout 会把 JWT 拉黑，反过来调的话 JwtFilter 查到黑名单直接返 401，
+    /// token 删不掉，洞照样在。这一条读代码看不出来，请写进登出流程的注释。
+    ///
+    /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
+    /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
+    ///
+    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
+    ///
+    /// - Remark: HTTP `DELETE /api/devices/apns`.
+    /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)`.
+    public func unregisterApnsToken(
+        headers: Operations.unregisterApnsToken.Input.Headers = .init(),
+        body: Operations.unregisterApnsToken.Input.Body
+    ) async throws -> Operations.unregisterApnsToken.Output {
+        try await unregisterApnsToken(Operations.unregisterApnsToken.Input(
             headers: headers,
             body: body
         ))
@@ -1231,12 +1289,59 @@ public enum Components {
             /// **客户端不要自行判断「哪些值算注册完成」** —— 这是后端语义且已经变过一次，请读 `registrationCompleted`。
             ///
             /// - Remark: Generated from `#/components/schemas/RegistrationStatusResponse/currentStep`.
-            @frozen public enum currentStepPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case STEP_1_BASIC_INFO = "STEP_1_BASIC_INFO"
-                case STEP_2_ID_UPLOAD = "STEP_2_ID_UPLOAD"
-                case STEP_3_FACE_VERIFY = "STEP_3_FACE_VERIFY"
-                case STEP_4_TRAINING = "STEP_4_TRAINING"
-                case STEP_4_COMPLETED = "STEP_4_COMPLETED"
+            public struct currentStepPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/RegistrationStatusResponse/currentStep/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case STEP_1_BASIC_INFO = "STEP_1_BASIC_INFO"
+                    case STEP_2_ID_UPLOAD = "STEP_2_ID_UPLOAD"
+                    case STEP_3_FACE_VERIFY = "STEP_3_FACE_VERIFY"
+                    case STEP_4_TRAINING = "STEP_4_TRAINING"
+                    case STEP_4_COMPLETED = "STEP_4_COMPLETED"
+                }
+                /// - Remark: Generated from `#/components/schemas/RegistrationStatusResponse/currentStep/value1`.
+                public var value1: Components.Schemas.RegistrationStatusResponse.currentStepPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/RegistrationStatusResponse/currentStep/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `currentStepPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.RegistrationStatusResponse.currentStepPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// 当前注册步骤。`STEP_2_ID_UPLOAD` 已下线（读到时后端自动迁移到 `STEP_3_FACE_VERIFY` 并写回）；
             /// `STEP_4_TRAINING` / `STEP_4_COMPLETED` 是培训模块下线前的历史值，仅存量账号会出现。
@@ -1678,9 +1783,56 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/FaceVerifyInitResponse/certifyUrl`.
             public var certifyUrl: Swift.String?
             /// - Remark: Generated from `#/components/schemas/FaceVerifyInitResponse/status`.
-            @frozen public enum statusPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case PENDING = "PENDING"
-                case ERROR = "ERROR"
+            public struct statusPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/FaceVerifyInitResponse/status/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PENDING = "PENDING"
+                    case ERROR = "ERROR"
+                }
+                /// - Remark: Generated from `#/components/schemas/FaceVerifyInitResponse/status/value1`.
+                public var value1: Components.Schemas.FaceVerifyInitResponse.statusPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/FaceVerifyInitResponse/status/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `statusPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.FaceVerifyInitResponse.statusPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/FaceVerifyInitResponse/status`.
             public var status: Components.Schemas.FaceVerifyInitResponse.statusPayload
@@ -1739,10 +1891,57 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/FaceVerifyResultResponse/passed`.
             public var passed: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/FaceVerifyResultResponse/status`.
-            @frozen public enum statusPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case APPROVED = "APPROVED"
-                case REJECTED = "REJECTED"
-                case PENDING = "PENDING"
+            public struct statusPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/FaceVerifyResultResponse/status/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case APPROVED = "APPROVED"
+                    case REJECTED = "REJECTED"
+                    case PENDING = "PENDING"
+                }
+                /// - Remark: Generated from `#/components/schemas/FaceVerifyResultResponse/status/value1`.
+                public var value1: Components.Schemas.FaceVerifyResultResponse.statusPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/FaceVerifyResultResponse/status/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `statusPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.FaceVerifyResultResponse.statusPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/FaceVerifyResultResponse/status`.
             public var status: Components.Schemas.FaceVerifyResultResponse.statusPayload
@@ -1887,16 +2086,63 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/OrderResponse/id`.
             public var id: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/OrderResponse/status`.
-            @frozen public enum statusPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case PENDING_MATCH = "PENDING_MATCH"
-                case PENDING_ACCEPT = "PENDING_ACCEPT"
-                case IN_PROGRESS = "IN_PROGRESS"
-                case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
-                case DRIVER_ARRIVED = "DRIVER_ARRIVED"
-                case COMPLETED = "COMPLETED"
-                case CANCELLED = "CANCELLED"
-                case REMATCHING = "REMATCHING"
-                case NO_VOLUNTEER = "NO_VOLUNTEER"
+            public struct statusPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/OrderResponse/status/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PENDING_MATCH = "PENDING_MATCH"
+                    case PENDING_ACCEPT = "PENDING_ACCEPT"
+                    case IN_PROGRESS = "IN_PROGRESS"
+                    case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
+                    case DRIVER_ARRIVED = "DRIVER_ARRIVED"
+                    case COMPLETED = "COMPLETED"
+                    case CANCELLED = "CANCELLED"
+                    case REMATCHING = "REMATCHING"
+                    case NO_VOLUNTEER = "NO_VOLUNTEER"
+                }
+                /// - Remark: Generated from `#/components/schemas/OrderResponse/status/value1`.
+                public var value1: Components.Schemas.OrderResponse.statusPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/OrderResponse/status/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `statusPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.OrderResponse.statusPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/OrderResponse/status`.
             public var status: Components.Schemas.OrderResponse.statusPayload
@@ -2081,10 +2327,57 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/longitude`.
             public var longitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/missingPayload`.
-            @frozen public enum missingPayloadPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case ADDRESS = "ADDRESS"
-                case START_TIME = "START_TIME"
-                case DURATION = "DURATION"
+            public struct missingPayloadPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/missingPayload/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case ADDRESS = "ADDRESS"
+                    case START_TIME = "START_TIME"
+                    case DURATION = "DURATION"
+                }
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/missingPayload/value1`.
+                public var value1: Components.Schemas.ParseVoiceOrderResponse.missingPayloadPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/missingPayload/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `missingPayloadPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.ParseVoiceOrderResponse.missingPayloadPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// 还缺（或校验不通过）的槽位，按向导顺序：起点 → 开始时间 → 时长
             ///
@@ -2143,12 +2436,59 @@ public enum Components {
             /// 本次配速偏好 —— 可选槽位，`null` 表示原话没提，下单时不传即回落档案默认配速
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/pacePreference`.
-            @frozen public enum pacePreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case WALK_RUN = "WALK_RUN"
-                case EASY = "EASY"
-                case MODERATE = "MODERATE"
-                case FAST = "FAST"
-                case NO_PREFERENCE = "NO_PREFERENCE"
+            public struct pacePreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/pacePreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case WALK_RUN = "WALK_RUN"
+                    case EASY = "EASY"
+                    case MODERATE = "MODERATE"
+                    case FAST = "FAST"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/pacePreference/value1`.
+                public var value1: Components.Schemas.ParseVoiceOrderResponse.pacePreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/pacePreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `pacePreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.ParseVoiceOrderResponse.pacePreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// 本次配速偏好 —— 可选槽位，`null` 表示原话没提，下单时不传即回落档案默认配速
             ///
@@ -2442,9 +2782,56 @@ public enum Components {
             /// 实际只会是两个值之一：`CONTACT_NOTIFIED`（找到主要紧急联系人，已发起通知）、 `PENDING`（未设置紧急联系人，已转客服待处理）。 **`VOLUNTEER_NOTIFIED` 不会出现在这里** —— 通知志愿者是并行旁路，不改 status。
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyTriggerResponse/status`.
-            @frozen public enum statusPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case CONTACT_NOTIFIED = "CONTACT_NOTIFIED"
-                case PENDING = "PENDING"
+            public struct statusPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/EmergencyTriggerResponse/status/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case CONTACT_NOTIFIED = "CONTACT_NOTIFIED"
+                    case PENDING = "PENDING"
+                }
+                /// - Remark: Generated from `#/components/schemas/EmergencyTriggerResponse/status/value1`.
+                public var value1: Components.Schemas.EmergencyTriggerResponse.statusPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/EmergencyTriggerResponse/status/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `statusPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.EmergencyTriggerResponse.statusPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// 实际只会是两个值之一：`CONTACT_NOTIFIED`（找到主要紧急联系人，已发起通知）、 `PENDING`（未设置紧急联系人，已转客服待处理）。 **`VOLUNTEER_NOTIFIED` 不会出现在这里** —— 通知志愿者是并行旁路，不改 status。
             ///
@@ -2474,14 +2861,61 @@ public enum Components {
         /// 紧急事件的**升级进度**。志愿者那条线不在 status 里，用 `volunteerNotifiedAt` / `volunteerConfirmedAt` / `volunteerAction` 三个字段表达，两者正交。
         ///
         /// - Remark: Generated from `#/components/schemas/EmergencyStatus`.
-        @frozen public enum EmergencyStatus: String, Codable, Hashable, Sendable, CaseIterable {
-            case PENDING = "PENDING"
-            case VOLUNTEER_NOTIFIED = "VOLUNTEER_NOTIFIED"
-            case VOLUNTEER_CONFIRMED = "VOLUNTEER_CONFIRMED"
-            case CS_HANDLING = "CS_HANDLING"
-            case CONTACT_NOTIFIED = "CONTACT_NOTIFIED"
-            case RESOLVED = "RESOLVED"
-            case FALSE_ALARM = "FALSE_ALARM"
+        public struct EmergencyStatus: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/EmergencyStatus/value1`.
+            @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                case PENDING = "PENDING"
+                case VOLUNTEER_NOTIFIED = "VOLUNTEER_NOTIFIED"
+                case VOLUNTEER_CONFIRMED = "VOLUNTEER_CONFIRMED"
+                case CS_HANDLING = "CS_HANDLING"
+                case CONTACT_NOTIFIED = "CONTACT_NOTIFIED"
+                case RESOLVED = "RESOLVED"
+                case FALSE_ALARM = "FALSE_ALARM"
+            }
+            /// - Remark: Generated from `#/components/schemas/EmergencyStatus/value1`.
+            public var value1: Components.Schemas.EmergencyStatus.Value1Payload?
+            /// - Remark: Generated from `#/components/schemas/EmergencyStatus/value2`.
+            public var value2: Swift.String?
+            /// Creates a new `EmergencyStatus`.
+            ///
+            /// - Parameters:
+            ///   - value1:
+            ///   - value2:
+            public init(
+                value1: Components.Schemas.EmergencyStatus.Value1Payload? = nil,
+                value2: Swift.String? = nil
+            ) {
+                self.value1 = value1
+                self.value2 = value2
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                var errors: [any Swift.Error] = []
+                do {
+                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                do {
+                    self.value2 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                    [
+                        self.value1,
+                        self.value2
+                    ],
+                    type: Self.self,
+                    codingPath: decoder.codingPath,
+                    errors: errors
+                )
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                    self.value1,
+                    self.value2
+                ])
+            }
         }
         /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse`.
         public struct EmergencyEventResponse: Codable, Hashable, Sendable {
@@ -2498,11 +2932,58 @@ public enum Components {
             /// `VOLUNTEER_BUTTON` = 陪跑志愿者代触发；`AI_DETECTED` = 走散/信号缺失自动触发
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/triggerType`.
-            @frozen public enum triggerTypePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case BUTTON = "BUTTON"
-                case VOLUNTEER_BUTTON = "VOLUNTEER_BUTTON"
-                case AI_DETECTED = "AI_DETECTED"
-                case MANUAL = "MANUAL"
+            public struct triggerTypePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/triggerType/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case BUTTON = "BUTTON"
+                    case VOLUNTEER_BUTTON = "VOLUNTEER_BUTTON"
+                    case AI_DETECTED = "AI_DETECTED"
+                    case MANUAL = "MANUAL"
+                }
+                /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/triggerType/value1`.
+                public var value1: Components.Schemas.EmergencyEventResponse.triggerTypePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/triggerType/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `triggerTypePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.EmergencyEventResponse.triggerTypePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// `VOLUNTEER_BUTTON` = 陪跑志愿者代触发；`AI_DETECTED` = 走散/信号缺失自动触发
             ///
@@ -2525,9 +3006,56 @@ public enum Components {
             /// 实际只会是 `NEED_HELP`（志愿者无权标误触）
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/volunteerAction`.
-            @frozen public enum volunteerActionPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case NEED_HELP = "NEED_HELP"
-                case FALSE_ALARM = "FALSE_ALARM"
+            public struct volunteerActionPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/volunteerAction/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case NEED_HELP = "NEED_HELP"
+                    case FALSE_ALARM = "FALSE_ALARM"
+                }
+                /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/volunteerAction/value1`.
+                public var value1: Components.Schemas.EmergencyEventResponse.volunteerActionPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/volunteerAction/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `volunteerActionPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.EmergencyEventResponse.volunteerActionPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// 实际只会是 `NEED_HELP`（志愿者无权标误触）
             ///
@@ -2759,12 +3287,59 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileResponse/acceptsGuideDog`.
             public var acceptsGuideDog: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileResponse/paceRange`.
-            @frozen public enum paceRangePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case WALK_RUN = "WALK_RUN"
-                case EASY = "EASY"
-                case MODERATE = "MODERATE"
-                case FAST = "FAST"
-                case NO_PREFERENCE = "NO_PREFERENCE"
+            public struct paceRangePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/VolunteerProfileResponse/paceRange/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case WALK_RUN = "WALK_RUN"
+                    case EASY = "EASY"
+                    case MODERATE = "MODERATE"
+                    case FAST = "FAST"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/VolunteerProfileResponse/paceRange/value1`.
+                public var value1: Components.Schemas.VolunteerProfileResponse.paceRangePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/VolunteerProfileResponse/paceRange/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `paceRangePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.VolunteerProfileResponse.paceRangePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileResponse/paceRange`.
             public var paceRange: Components.Schemas.VolunteerProfileResponse.paceRangePayload?
@@ -2810,16 +3385,63 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/orderId`.
             public var orderId: Swift.Int64
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/status`.
-            @frozen public enum statusPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case PENDING_MATCH = "PENDING_MATCH"
-                case PENDING_ACCEPT = "PENDING_ACCEPT"
-                case IN_PROGRESS = "IN_PROGRESS"
-                case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
-                case DRIVER_ARRIVED = "DRIVER_ARRIVED"
-                case COMPLETED = "COMPLETED"
-                case CANCELLED = "CANCELLED"
-                case REMATCHING = "REMATCHING"
-                case NO_VOLUNTEER = "NO_VOLUNTEER"
+            public struct statusPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/status/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PENDING_MATCH = "PENDING_MATCH"
+                    case PENDING_ACCEPT = "PENDING_ACCEPT"
+                    case IN_PROGRESS = "IN_PROGRESS"
+                    case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
+                    case DRIVER_ARRIVED = "DRIVER_ARRIVED"
+                    case COMPLETED = "COMPLETED"
+                    case CANCELLED = "CANCELLED"
+                    case REMATCHING = "REMATCHING"
+                    case NO_VOLUNTEER = "NO_VOLUNTEER"
+                }
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/status/value1`.
+                public var value1: Components.Schemas.OrderDetailResponse.statusPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/status/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `statusPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.OrderDetailResponse.statusPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/status`.
             public var status: Components.Schemas.OrderDetailResponse.statusPayload
@@ -2842,21 +3464,115 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/expectedDurationMinutes`.
             public var expectedDurationMinutes: Swift.Int32?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/pacePreference`.
-            @frozen public enum pacePreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case WALK_RUN = "WALK_RUN"
-                case EASY = "EASY"
-                case MODERATE = "MODERATE"
-                case FAST = "FAST"
-                case NO_PREFERENCE = "NO_PREFERENCE"
+            public struct pacePreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/pacePreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case WALK_RUN = "WALK_RUN"
+                    case EASY = "EASY"
+                    case MODERATE = "MODERATE"
+                    case FAST = "FAST"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/pacePreference/value1`.
+                public var value1: Components.Schemas.OrderDetailResponse.pacePreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/pacePreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `pacePreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.OrderDetailResponse.pacePreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/pacePreference`.
             public var pacePreference: Components.Schemas.OrderDetailResponse.pacePreferencePayload?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/routePreference`.
-            @frozen public enum routePreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case PARK_TRAIL = "PARK_TRAIL"
-                case STREET = "STREET"
-                case TRACK = "TRACK"
-                case NO_PREFERENCE = "NO_PREFERENCE"
+            public struct routePreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/routePreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PARK_TRAIL = "PARK_TRAIL"
+                    case STREET = "STREET"
+                    case TRACK = "TRACK"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/routePreference/value1`.
+                public var value1: Components.Schemas.OrderDetailResponse.routePreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/routePreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `routePreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.OrderDetailResponse.routePreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/routePreference`.
             public var routePreference: Components.Schemas.OrderDetailResponse.routePreferencePayload?
@@ -2867,25 +3583,166 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/specialNotes`.
             public var specialNotes: Swift.String?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/visionLevel`.
-            @frozen public enum visionLevelPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case TOTAL_BLIND = "TOTAL_BLIND"
-                case LOW_VISION = "LOW_VISION"
+            public struct visionLevelPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/visionLevel/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case TOTAL_BLIND = "TOTAL_BLIND"
+                    case LOW_VISION = "LOW_VISION"
+                }
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/visionLevel/value1`.
+                public var value1: Components.Schemas.OrderDetailResponse.visionLevelPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/visionLevel/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `visionLevelPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.OrderDetailResponse.visionLevelPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/visionLevel`.
             public var visionLevel: Components.Schemas.OrderDetailResponse.visionLevelPayload?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/tetherPreference`.
-            @frozen public enum tetherPreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case TETHER_ROPE = "TETHER_ROPE"
-                case ARM_HOLD = "ARM_HOLD"
-                case VERBAL_ONLY = "VERBAL_ONLY"
+            public struct tetherPreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/tetherPreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case TETHER_ROPE = "TETHER_ROPE"
+                    case ARM_HOLD = "ARM_HOLD"
+                    case VERBAL_ONLY = "VERBAL_ONLY"
+                }
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/tetherPreference/value1`.
+                public var value1: Components.Schemas.OrderDetailResponse.tetherPreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/tetherPreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `tetherPreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.OrderDetailResponse.tetherPreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/tetherPreference`.
             public var tetherPreference: Components.Schemas.OrderDetailResponse.tetherPreferencePayload?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/chatPreference`.
-            @frozen public enum chatPreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case PREFER_CHAT = "PREFER_CHAT"
-                case PREFER_QUIET = "PREFER_QUIET"
-                case NO_PREFERENCE = "NO_PREFERENCE"
+            public struct chatPreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/chatPreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PREFER_CHAT = "PREFER_CHAT"
+                    case PREFER_QUIET = "PREFER_QUIET"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/chatPreference/value1`.
+                public var value1: Components.Schemas.OrderDetailResponse.chatPreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/chatPreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `chatPreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.OrderDetailResponse.chatPreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/chatPreference`.
             public var chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload?
@@ -2981,16 +3838,63 @@ public enum Components {
             /// 订单当前状态，用于区分空轨迹的含义（IN_PROGRESS 之前=陪跑未开始；IN_PROGRESS=数据采集中；终态但轨迹为空=轨迹功能上线前的历史订单，不支持回放）
             ///
             /// - Remark: Generated from `#/components/schemas/OrderTrackResponse/status`.
-            @frozen public enum statusPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case PENDING_MATCH = "PENDING_MATCH"
-                case PENDING_ACCEPT = "PENDING_ACCEPT"
-                case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
-                case DRIVER_ARRIVED = "DRIVER_ARRIVED"
-                case IN_PROGRESS = "IN_PROGRESS"
-                case COMPLETED = "COMPLETED"
-                case CANCELLED = "CANCELLED"
-                case REMATCHING = "REMATCHING"
-                case NO_VOLUNTEER = "NO_VOLUNTEER"
+            public struct statusPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/OrderTrackResponse/status/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PENDING_MATCH = "PENDING_MATCH"
+                    case PENDING_ACCEPT = "PENDING_ACCEPT"
+                    case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
+                    case DRIVER_ARRIVED = "DRIVER_ARRIVED"
+                    case IN_PROGRESS = "IN_PROGRESS"
+                    case COMPLETED = "COMPLETED"
+                    case CANCELLED = "CANCELLED"
+                    case REMATCHING = "REMATCHING"
+                    case NO_VOLUNTEER = "NO_VOLUNTEER"
+                }
+                /// - Remark: Generated from `#/components/schemas/OrderTrackResponse/status/value1`.
+                public var value1: Components.Schemas.OrderTrackResponse.statusPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/OrderTrackResponse/status/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `statusPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.OrderTrackResponse.statusPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// 订单当前状态，用于区分空轨迹的含义（IN_PROGRESS 之前=陪跑未开始；IN_PROGRESS=数据采集中；终态但轨迹为空=轨迹功能上线前的历史订单，不支持回放）
             ///
@@ -3094,6 +3998,132 @@ public enum Components {
                 case distanceMeters
                 case durationSeconds
                 case avgPaceSecPerKm
+            }
+        }
+        /// 附近可接订单摘要（接单前可见面）。刻意不含 specialNotes / routeNotes —— 这份数据会下发给还没接单、可能最终拒单的志愿者。
+        ///
+        /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse`.
+        public struct AvailableOrderResponse: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/orderId`.
+            public var orderId: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/startAddress`.
+            public var startAddress: Swift.String?
+            /// 志愿者当前位置到起点的距离（公里，保留 1 位小数）
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/distanceKm`.
+            public var distanceKm: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/plannedStart`.
+            public var plannedStart: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/plannedEnd`.
+            public var plannedEnd: Foundation.Date?
+            /// 盲人手机号，已掩码（前 3 后 4，中间 `****`）
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/blindUserPhone`.
+            public var blindUserPhone: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/expectedDurationMinutes`.
+            public var expectedDurationMinutes: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/pacePreference`.
+            public struct pacePreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/pacePreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case WALK_RUN = "WALK_RUN"
+                    case EASY = "EASY"
+                    case MODERATE = "MODERATE"
+                    case FAST = "FAST"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/pacePreference/value1`.
+                public var value1: Components.Schemas.AvailableOrderResponse.pacePreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/pacePreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `pacePreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.AvailableOrderResponse.pacePreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/pacePreference`.
+            public var pacePreference: Components.Schemas.AvailableOrderResponse.pacePreferencePayload?
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/hasGuideDogThisRun`.
+            public var hasGuideDogThisRun: Swift.Bool?
+            /// Creates a new `AvailableOrderResponse`.
+            ///
+            /// - Parameters:
+            ///   - orderId:
+            ///   - startAddress:
+            ///   - distanceKm: 志愿者当前位置到起点的距离（公里，保留 1 位小数）
+            ///   - plannedStart:
+            ///   - plannedEnd:
+            ///   - blindUserPhone: 盲人手机号，已掩码（前 3 后 4，中间 `****`）
+            ///   - expectedDurationMinutes:
+            ///   - pacePreference:
+            ///   - hasGuideDogThisRun:
+            public init(
+                orderId: Swift.Int64? = nil,
+                startAddress: Swift.String? = nil,
+                distanceKm: Swift.Double? = nil,
+                plannedStart: Foundation.Date? = nil,
+                plannedEnd: Foundation.Date? = nil,
+                blindUserPhone: Swift.String? = nil,
+                expectedDurationMinutes: Swift.Int32? = nil,
+                pacePreference: Components.Schemas.AvailableOrderResponse.pacePreferencePayload? = nil,
+                hasGuideDogThisRun: Swift.Bool? = nil
+            ) {
+                self.orderId = orderId
+                self.startAddress = startAddress
+                self.distanceKm = distanceKm
+                self.plannedStart = plannedStart
+                self.plannedEnd = plannedEnd
+                self.blindUserPhone = blindUserPhone
+                self.expectedDurationMinutes = expectedDurationMinutes
+                self.pacePreference = pacePreference
+                self.hasGuideDogThisRun = hasGuideDogThisRun
+            }
+            public enum CodingKeys: String, CodingKey {
+                case orderId
+                case startAddress
+                case distanceKm
+                case plannedStart
+                case plannedEnd
+                case blindUserPhone
+                case expectedDurationMinutes
+                case pacePreference
+                case hasGuideDogThisRun
             }
         }
         /// - Remark: Generated from `#/components/schemas/PageOrderDetailResponse`.
@@ -3316,10 +4346,57 @@ public enum Components {
             /// （2026-07-30 由软引导升级为硬门槛，回应 handoff Q1，2026-07-29）。
             ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/verifyStatus`.
-            @frozen public enum verifyStatusPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case NOT_VERIFIED = "NOT_VERIFIED"
-                case VERIFIED = "VERIFIED"
-                case FAILED = "FAILED"
+            public struct verifyStatusPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/verifyStatus/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case NOT_VERIFIED = "NOT_VERIFIED"
+                    case VERIFIED = "VERIFIED"
+                    case FAILED = "FAILED"
+                }
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/verifyStatus/value1`.
+                public var value1: Components.Schemas.BlindProfileResponse.verifyStatusPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/verifyStatus/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `verifyStatusPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.BlindProfileResponse.verifyStatusPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// 实名认证状态，权威来源。仅三态，**没有 PENDING / 审核中** —— `POST /api/blind/verify-identity`
             /// 是同步二要素核验，直接落 `VERIFIED` 或 `FAILED`。
@@ -3329,37 +4406,225 @@ public enum Components {
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/verifyStatus`.
             public var verifyStatus: Components.Schemas.BlindProfileResponse.verifyStatusPayload?
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/visionLevel`.
-            @frozen public enum visionLevelPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case TOTAL_BLIND = "TOTAL_BLIND"
-                case LOW_VISION = "LOW_VISION"
+            public struct visionLevelPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/visionLevel/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case TOTAL_BLIND = "TOTAL_BLIND"
+                    case LOW_VISION = "LOW_VISION"
+                }
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/visionLevel/value1`.
+                public var value1: Components.Schemas.BlindProfileResponse.visionLevelPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/visionLevel/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `visionLevelPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.BlindProfileResponse.visionLevelPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/visionLevel`.
             public var visionLevel: Components.Schemas.BlindProfileResponse.visionLevelPayload?
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/hasGuideDog`.
             public var hasGuideDog: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/tetherPreference`.
-            @frozen public enum tetherPreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case TETHER_ROPE = "TETHER_ROPE"
-                case ARM_HOLD = "ARM_HOLD"
-                case VERBAL_ONLY = "VERBAL_ONLY"
+            public struct tetherPreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/tetherPreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case TETHER_ROPE = "TETHER_ROPE"
+                    case ARM_HOLD = "ARM_HOLD"
+                    case VERBAL_ONLY = "VERBAL_ONLY"
+                }
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/tetherPreference/value1`.
+                public var value1: Components.Schemas.BlindProfileResponse.tetherPreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/tetherPreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `tetherPreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.BlindProfileResponse.tetherPreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/tetherPreference`.
             public var tetherPreference: Components.Schemas.BlindProfileResponse.tetherPreferencePayload?
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/chatPreference`.
-            @frozen public enum chatPreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case PREFER_CHAT = "PREFER_CHAT"
-                case PREFER_QUIET = "PREFER_QUIET"
-                case NO_PREFERENCE = "NO_PREFERENCE"
+            public struct chatPreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/chatPreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PREFER_CHAT = "PREFER_CHAT"
+                    case PREFER_QUIET = "PREFER_QUIET"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/chatPreference/value1`.
+                public var value1: Components.Schemas.BlindProfileResponse.chatPreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/chatPreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `chatPreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.BlindProfileResponse.chatPreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/chatPreference`.
             public var chatPreference: Components.Schemas.BlindProfileResponse.chatPreferencePayload?
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/defaultPace`.
-            @frozen public enum defaultPacePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case WALK_RUN = "WALK_RUN"
-                case EASY = "EASY"
-                case MODERATE = "MODERATE"
-                case FAST = "FAST"
-                case NO_PREFERENCE = "NO_PREFERENCE"
+            public struct defaultPacePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/defaultPace/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case WALK_RUN = "WALK_RUN"
+                    case EASY = "EASY"
+                    case MODERATE = "MODERATE"
+                    case FAST = "FAST"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/defaultPace/value1`.
+                public var value1: Components.Schemas.BlindProfileResponse.defaultPacePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/defaultPace/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `defaultPacePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.BlindProfileResponse.defaultPacePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
             }
             /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/defaultPace`.
             public var defaultPace: Components.Schemas.BlindProfileResponse.defaultPacePayload?
@@ -3715,10 +4980,57 @@ public enum Components {
         /// 可服务时段不纳入本枚举，也不计入 canDispatch。
         ///
         /// - Remark: Generated from `#/components/schemas/DispatchBlockReason`.
-        @frozen public enum DispatchBlockReason: String, Codable, Hashable, Sendable, CaseIterable {
-            case DISPATCH_DISABLED = "DISPATCH_DISABLED"
-            case NOT_VERIFIED = "NOT_VERIFIED"
-            case OFFLINE = "OFFLINE"
+        public struct DispatchBlockReason: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DispatchBlockReason/value1`.
+            @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                case DISPATCH_DISABLED = "DISPATCH_DISABLED"
+                case NOT_VERIFIED = "NOT_VERIFIED"
+                case OFFLINE = "OFFLINE"
+            }
+            /// - Remark: Generated from `#/components/schemas/DispatchBlockReason/value1`.
+            public var value1: Components.Schemas.DispatchBlockReason.Value1Payload?
+            /// - Remark: Generated from `#/components/schemas/DispatchBlockReason/value2`.
+            public var value2: Swift.String?
+            /// Creates a new `DispatchBlockReason`.
+            ///
+            /// - Parameters:
+            ///   - value1:
+            ///   - value2:
+            public init(
+                value1: Components.Schemas.DispatchBlockReason.Value1Payload? = nil,
+                value2: Swift.String? = nil
+            ) {
+                self.value1 = value1
+                self.value2 = value2
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                var errors: [any Swift.Error] = []
+                do {
+                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                do {
+                    self.value2 = try decoder.decodeFromSingleValueContainer()
+                } catch {
+                    errors.append(error)
+                }
+                try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                    [
+                        self.value1,
+                        self.value2
+                    ],
+                    type: Self.self,
+                    codingPath: decoder.codingPath,
+                    errors: errors
+                )
+            }
+            public func encode(to encoder: any Swift.Encoder) throws {
+                try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                    self.value1,
+                    self.value2
+                ])
+            }
         }
         /// 两个字段均可能为 null（生产 URL 未配置时）
         ///
@@ -5592,11 +6904,58 @@ public enum Operations {
                         /// 提交成功后固定为 PENDING
                         ///
                         /// - Remark: Generated from `#/paths/api/volunteer/verification/POST/responses/200/content/json/status`.
-                        @frozen public enum statusPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                            case NONE = "NONE"
-                            case PENDING = "PENDING"
-                            case APPROVED = "APPROVED"
-                            case REJECTED = "REJECTED"
+                        public struct statusPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/api/volunteer/verification/POST/responses/200/content/json/status/value1`.
+                            @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                                case NONE = "NONE"
+                                case PENDING = "PENDING"
+                                case APPROVED = "APPROVED"
+                                case REJECTED = "REJECTED"
+                            }
+                            /// - Remark: Generated from `#/paths/api/volunteer/verification/POST/responses/200/content/json/status/value1`.
+                            public var value1: Operations.submitVerification.Output.Ok.Body.jsonPayload.statusPayload.Value1Payload?
+                            /// - Remark: Generated from `#/paths/api/volunteer/verification/POST/responses/200/content/json/status/value2`.
+                            public var value2: Swift.String?
+                            /// Creates a new `statusPayload`.
+                            ///
+                            /// - Parameters:
+                            ///   - value1:
+                            ///   - value2:
+                            public init(
+                                value1: Operations.submitVerification.Output.Ok.Body.jsonPayload.statusPayload.Value1Payload? = nil,
+                                value2: Swift.String? = nil
+                            ) {
+                                self.value1 = value1
+                                self.value2 = value2
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                var errors: [any Swift.Error] = []
+                                do {
+                                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                                } catch {
+                                    errors.append(error)
+                                }
+                                do {
+                                    self.value2 = try decoder.decodeFromSingleValueContainer()
+                                } catch {
+                                    errors.append(error)
+                                }
+                                try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                                    [
+                                        self.value1,
+                                        self.value2
+                                    ],
+                                    type: Self.self,
+                                    codingPath: decoder.codingPath,
+                                    errors: errors
+                                )
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                                    self.value1,
+                                    self.value2
+                                ])
+                            }
                         }
                         /// 提交成功后固定为 PENDING
                         ///
@@ -6697,10 +8056,57 @@ public enum Operations {
                         /// 实际落库的角色，与请求一致
                         ///
                         /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content/json/role`.
-                        @frozen public enum rolePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                            case BLIND = "BLIND"
-                            case VOLUNTEER = "VOLUNTEER"
-                            case UNSET = "UNSET"
+                        public struct rolePayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content/json/role/value1`.
+                            @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                                case BLIND = "BLIND"
+                                case VOLUNTEER = "VOLUNTEER"
+                                case UNSET = "UNSET"
+                            }
+                            /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content/json/role/value1`.
+                            public var value1: Operations.setRole.Output.Ok.Body.jsonPayload.rolePayload.Value1Payload?
+                            /// - Remark: Generated from `#/paths/api/user/role/POST/responses/200/content/json/role/value2`.
+                            public var value2: Swift.String?
+                            /// Creates a new `rolePayload`.
+                            ///
+                            /// - Parameters:
+                            ///   - value1:
+                            ///   - value2:
+                            public init(
+                                value1: Operations.setRole.Output.Ok.Body.jsonPayload.rolePayload.Value1Payload? = nil,
+                                value2: Swift.String? = nil
+                            ) {
+                                self.value1 = value1
+                                self.value2 = value2
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                var errors: [any Swift.Error] = []
+                                do {
+                                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                                } catch {
+                                    errors.append(error)
+                                }
+                                do {
+                                    self.value2 = try decoder.decodeFromSingleValueContainer()
+                                } catch {
+                                    errors.append(error)
+                                }
+                                try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                                    [
+                                        self.value1,
+                                        self.value2
+                                    ],
+                                    type: Self.self,
+                                    codingPath: decoder.codingPath,
+                                    errors: errors
+                                )
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                                    self.value1,
+                                    self.value2
+                                ])
+                            }
                         }
                         /// 实际落库的角色，与请求一致
                         ///
@@ -10072,11 +11478,58 @@ public enum Operations {
                     /// - Remark: Generated from `#/paths/api/volunteer/verification/status/GET/responses/200/content/json`.
                     public struct jsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/api/volunteer/verification/status/GET/responses/200/content/json/status`.
-                        @frozen public enum statusPayload: String, Codable, Hashable, Sendable, CaseIterable {
-                            case NONE = "NONE"
-                            case PENDING = "PENDING"
-                            case APPROVED = "APPROVED"
-                            case REJECTED = "REJECTED"
+                        public struct statusPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/api/volunteer/verification/status/GET/responses/200/content/json/status/value1`.
+                            @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                                case NONE = "NONE"
+                                case PENDING = "PENDING"
+                                case APPROVED = "APPROVED"
+                                case REJECTED = "REJECTED"
+                            }
+                            /// - Remark: Generated from `#/paths/api/volunteer/verification/status/GET/responses/200/content/json/status/value1`.
+                            public var value1: Operations.getVerificationStatus.Output.Ok.Body.jsonPayload.statusPayload.Value1Payload?
+                            /// - Remark: Generated from `#/paths/api/volunteer/verification/status/GET/responses/200/content/json/status/value2`.
+                            public var value2: Swift.String?
+                            /// Creates a new `statusPayload`.
+                            ///
+                            /// - Parameters:
+                            ///   - value1:
+                            ///   - value2:
+                            public init(
+                                value1: Operations.getVerificationStatus.Output.Ok.Body.jsonPayload.statusPayload.Value1Payload? = nil,
+                                value2: Swift.String? = nil
+                            ) {
+                                self.value1 = value1
+                                self.value2 = value2
+                            }
+                            public init(from decoder: any Swift.Decoder) throws {
+                                var errors: [any Swift.Error] = []
+                                do {
+                                    self.value1 = try decoder.decodeFromSingleValueContainer()
+                                } catch {
+                                    errors.append(error)
+                                }
+                                do {
+                                    self.value2 = try decoder.decodeFromSingleValueContainer()
+                                } catch {
+                                    errors.append(error)
+                                }
+                                try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                                    [
+                                        self.value1,
+                                        self.value2
+                                    ],
+                                    type: Self.self,
+                                    codingPath: decoder.codingPath,
+                                    errors: errors
+                                )
+                            }
+                            public func encode(to encoder: any Swift.Encoder) throws {
+                                try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                                    self.value1,
+                                    self.value2
+                                ])
+                            }
                         }
                         /// - Remark: Generated from `#/paths/api/volunteer/verification/status/GET/responses/200/content/json/status`.
                         public var status: Operations.getVerificationStatus.Output.Ok.Body.jsonPayload.statusPayload?
@@ -11314,6 +12767,9 @@ public enum Operations {
             }
         }
     }
+    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
+    ///
     /// - Remark: HTTP `GET /api/orders/available`.
     /// - Remark: Generated from `#/paths//api/orders/available/get(getAvailableOrders)`.
     public enum getAvailableOrders {
@@ -11344,12 +12800,12 @@ public enum Operations {
                 /// - Remark: Generated from `#/paths/api/orders/available/GET/responses/200/content`.
                 @frozen public enum Body: Sendable, Hashable {
                     /// - Remark: Generated from `#/paths/api/orders/available/GET/responses/200/content/application\/json`.
-                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    case json([Components.Schemas.AvailableOrderResponse])
                     /// The associated value of the enum case if `self` is `.json`.
                     ///
                     /// - Throws: An error if `self` is not `.json`.
                     /// - SeeAlso: `.json`.
-                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                    public var json: [Components.Schemas.AvailableOrderResponse] {
                         get throws {
                             switch self {
                             case let .json(body):
@@ -12144,6 +13600,249 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.forbidden`.
             /// - SeeAlso: `.forbidden`.
             public var forbidden: Operations.registerApnsToken.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 解绑本机 APNs device token（登出流程调用）
+    ///
+    /// 2026-08-07 新增。BLIND 或 VOLUNTEER 解绑**当前这一台**设备的 token。
+    ///
+    /// **为什么需要**：设备上登出、但没有别人再登录时，token 仍绑在旧 userId 上，
+    /// 旧账号的推送会继续送达这台设备。推送带 `ttsText`，对盲人用户意味着可能被朗读出
+    /// 一条不属于当前使用者的订单或紧急消息。此前无任何自动兜底
+    /// （APNs 只在 token 失效——卸载/轮换——时才回报删除，登出不会让 token 失效）。
+    ///
+    /// ⚠️ **调用顺序：必须先调本接口、再调 `POST /api/auth/logout`。**
+    /// logout 会把 JWT 拉黑，反过来调的话 JwtFilter 查到黑名单直接返 401，
+    /// token 删不掉，洞照样在。这一条读代码看不出来，请写进登出流程的注释。
+    ///
+    /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
+    /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
+    ///
+    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
+    ///
+    /// - Remark: HTTP `DELETE /api/devices/apns`.
+    /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)`.
+    public enum unregisterApnsToken {
+        public static let id: Swift.String = "unregisterApnsToken"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/devices/apns/DELETE/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.unregisterApnsToken.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.unregisterApnsToken.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.unregisterApnsToken.Input.Headers
+            /// - Remark: Generated from `#/paths/api/devices/apns/DELETE/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/devices/apns/DELETE/requestBody/content/application\/json`.
+                case json(Components.Schemas.ApnsTokenRequest)
+            }
+            public var body: Operations.unregisterApnsToken.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            ///   - body:
+            public init(
+                headers: Operations.unregisterApnsToken.Input.Headers = .init(),
+                body: Operations.unregisterApnsToken.Input.Body
+            ) {
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/devices/apns/DELETE/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/devices/apns/DELETE/responses/200/content/application\/json`.
+                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.unregisterApnsToken.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.unregisterApnsToken.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK（含 token 不存在 / 不属于当前用户的情况）
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.unregisterApnsToken.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.unregisterApnsToken.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct BadRequest: Sendable, Hashable {
+                /// Creates a new `BadRequest`.
+                public init() {}
+            }
+            /// deviceToken 格式错误
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            case badRequest(Operations.unregisterApnsToken.Output.BadRequest)
+            /// deviceToken 格式错误
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/400`.
+            ///
+            /// HTTP response code: `400 badRequest`.
+            public static var badRequest: Self {
+                .badRequest(.init())
+            }
+            /// The associated value of the enum case if `self` is `.badRequest`.
+            ///
+            /// - Throws: An error if `self` is not `.badRequest`.
+            /// - SeeAlso: `.badRequest`.
+            public var badRequest: Operations.unregisterApnsToken.Output.BadRequest {
+                get throws {
+                    switch self {
+                    case let .badRequest(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "badRequest",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证（含 token 已被 logout 拉黑 —— 说明调用顺序反了）
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.unregisterApnsToken.Output.Unauthorized)
+            /// 未认证（含 token 已被 logout 拉黑 —— 说明调用顺序反了）
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.unregisterApnsToken.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非 BLIND/VOLUNTEER 角色
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.unregisterApnsToken.Output.Forbidden)
+            /// 非 BLIND/VOLUNTEER 角色
+            ///
+            /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.unregisterApnsToken.Output.Forbidden {
                 get throws {
                     switch self {
                     case let .forbidden(response):

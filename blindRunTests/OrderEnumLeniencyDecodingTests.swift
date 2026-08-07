@@ -14,6 +14,10 @@ import XCTest
 /// 这三个枚举一共有 8 处解码点，改枚举一次全覆盖。
 ///
 /// 用例走 `APIPayloadDecoder.decodePayload`，与线上同一条解码策略。
+///
+/// 文件末尾还钉着这条宽容的**边界**：认不出的取值降级，没给的必填字段必须抛。
+/// 两个方向放在一起，是因为分开写的结果已经出现过 —— 见
+/// `testPagedOrderResponseRejectsABareArrayInsteadOfSilentlyReturningAnEmptyPage`。
 final class OrderEnumLeniencyDecodingTests: XCTestCase {
 
     private let decoder = JSONDecoder()
@@ -206,5 +210,54 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
         XCTAssertEqual(PacePreference.unknown.selectable, .noPreference)
         XCTAssertEqual(RoutePreference.unknown.selectable, .noPreference)
         XCTAssertEqual(PacePreference.fast.selectable, .fast)
+    }
+
+    // MARK: - 宽容的边界：认不出的**取值**降级，没给的**字段**必须抛
+
+    /// 这两条和上面所有用例的方向相反，放在同一个文件里就是为了让边界看得见。
+    ///
+    /// `PagedOrderResponse` 曾有一个「宽容解码器」：先试对象、再试裸数组、
+    /// 最后无条件返空页且不抛。于是 `GET /api/orders/available` 的真实响应
+    /// （`AvailableOrderResponse` 裸数组，元素没有 `status`，而 `OrderDetailResponse.status`
+    /// 是非可选的）被静默解成空列表 —— 屏幕上写着「暂无可用订单」，
+    /// 谁也看不出错，从 2026-05-24 一直挂着。
+    ///
+    /// 所以这里钉的不是「解不出」，是「解不出时必须**吵**」。
+
+    /// 裸数组（即旧 `/api/orders/available` 的形状）不得被吞成空页。
+    func testPagedOrderResponseRejectsABareArrayInsteadOfSilentlyReturningAnEmptyPage() {
+        let bareArray = """
+        [{"orderId": 4201, "startAddress": "北京市海淀区中关村大街1号", "distanceKm": 1.2}]
+        """
+
+        XCTAssertThrowsError(try decode(PagedOrderResponse.self, bareArray)) { error in
+            XCTAssertTrue(
+                error is DecodingError,
+                "形状不符必须抛 DecodingError，让调用方走到「加载失败」而不是「暂无订单」，实收 \(error)"
+            )
+        }
+    }
+
+    /// 元素缺非可选的 `status` 时整条要抛，不得把那一条悄悄丢掉后返回一个短列表 ——
+    /// 「少了几单」比「一单都没有」更难被发现。
+    func testPagedOrderResponseRejectsAnElementMissingItsRequiredStatus() {
+        let missingStatus = """
+        {"content": [{"orderId": 4201, "startAddress": "北京市海淀区中关村大街1号"}]}
+        """
+
+        XCTAssertThrowsError(try decode(PagedOrderResponse.self, missingStatus))
+    }
+
+    /// 反向锁：合法的分页响应仍要正常解出，且**可选**字段缺失依旧宽容 ——
+    /// 收紧的只是必填字段，别把整条策略收成一刀切。
+    func testPagedOrderResponseStillDecodesAValidPageWithOptionalFieldsAbsent() throws {
+        let page = try decode(PagedOrderResponse.self, """
+        {"content": [{"orderId": 4201, "status": "PENDING_MATCH"}]}
+        """)
+
+        XCTAssertEqual(page.content.count, 1)
+        XCTAssertEqual(page.content.first?.status, .pendingMatch)
+        XCTAssertNil(page.totalElements)
+        XCTAssertNil(page.empty)
     }
 }
