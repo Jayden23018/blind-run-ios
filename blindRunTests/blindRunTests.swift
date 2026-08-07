@@ -5200,8 +5200,7 @@ final class blindRunTests: XCTestCase {
             dispatchTimeoutSeconds: 30,
             priority: "HIGH",
             pacePreference: "MODERATE",
-            hasGuideDog: false,
-            specialNotes: nil
+            hasGuideDog: false
         )
     }
 

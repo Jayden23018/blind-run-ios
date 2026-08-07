@@ -681,6 +681,46 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pendingDispatch?.order.orderId, 43)
     }
 
+    /// 接单前的派单载荷不得把盲人的自由文本备注带进 App（`AGENTS.md §8`）。
+    ///
+    /// 两件事一起验，因为它们会以相反的方向坏掉：
+    /// - **带 `specialNotes` 的载荷仍要解得出来** —— 后端还在发这个字段，我们只是不声明它。
+    ///   要是哪天解码变严了（多余键改成报错之类），派单会整条静默失效，志愿者收不到单，
+    ///   而这条路上没有任何用户可见的报错。
+    /// - **那段文本不能出现在解出来的对象里** —— 用 `Mirror` 遍历而不是断言某个属性，
+    ///   是因为要拦的正是「有人把字段加回来」，针对具体属性写的断言在那种改动下要么编译不过、
+    ///   要么根本不存在。已验红：把字段加回 `WSNewOrder`，本用例立刻失败。
+    func testNewOrderCarryingSpecialNotesDecodesButNeverReachesTheClient() async {
+        let coordinator = AppRealtimeCoordinator()
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .volunteer)
+        let generation = service.simulateNewTransportForTesting()
+
+        let sensitive = "我有低血糖，如果我说头晕请马上停下来"
+        service.simulateTextMessageForTesting(
+            #"{"type":"NEW_ORDER","orderId":91,"dispatchTimeoutSeconds":30,"pacePreference":"MODERATE","hasGuideDog":true,"specialNotes":"\#(sensitive)"}"#,
+            generation: generation
+        )
+        await Task.yield()
+
+        guard let order = coordinator.pendingDispatch?.order else {
+            return XCTFail("带 specialNotes 的 NEW_ORDER 必须仍然解得出来，否则志愿者会静默收不到派单")
+        }
+        XCTAssertEqual(order.orderId, 91)
+        // 匹配条件照常可见 —— 藏它们会让志愿者盲接，成本落回盲人身上。
+        XCTAssertEqual(order.pacePreference, "MODERATE")
+        XCTAssertEqual(order.hasGuideDog, true)
+
+        for child in Mirror(reflecting: order).children {
+            XCTAssertFalse(
+                String(describing: child.value).contains(sensitive),
+                "接单前的派单载荷带上了盲人自由文本（属性 \(child.label ?? "?")）。"
+                    + "派单是串行的，一单会依次推给多个志愿者，包括最后拒单的那些。"
+                    + "详见 WebSocketModels.swift 里 WSNewOrder 上的说明。"
+            )
+        }
+    }
+
     func testDuplicateNewOrderDoesNotRepublishRetainedPrompt() async {
         let coordinator = AppRealtimeCoordinator()
         let service = WebSocketService()
@@ -786,8 +826,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
             dispatchTimeoutSeconds: 30,
             priority: "HIGH",
             pacePreference: nil,
-            hasGuideDog: nil,
-            specialNotes: nil
+            hasGuideDog: nil
         )
     }
 

@@ -187,6 +187,23 @@ nonisolated struct WSPong: Codable, Sendable {
 }
 
 /// New order dispatch (sent to volunteer)
+///
+/// ⚠️ **刻意不解 `specialNotes`。** 后端的 `NEW_ORDER` 载荷现在仍带这个字段
+/// （`websocket-protocol.md:359,376`），这里不声明它 —— `JSONDecoder` 忽略多余的键，
+/// 于是那段文本进不了 App 的任何一个类型，也就没有任何视图能把它渲染出来。
+///
+/// 理由是 `AGENTS.md §8`「接单前隐藏盲人**敏感健康信息**」。派单是串行的，一单会依次推给
+/// 多个候选志愿者，而这个弹窗紧挨着「接单 / 拒绝」按钮 —— 也就是接单前。`specialNotes` 是
+/// 自由文本，取值空间开放、敏感度无法预判；语音下单落地后它装的就是用户原话
+/// （「我有低血糖，如果我说头晕请马上停下来」），等于广播给所有最终拒单的人。
+///
+/// 只删渲染那几行不够：字段还在类型上，下一个人加回去没有任何东西拦着。删字段才是根因修法，
+/// 编译器从此替我们守着。接单后的完整备注走 `OrderDetailResponse.specialNotes`，那条路不变。
+///
+/// 回归用例 `AppRealtimeCoordinatorTests.testNewOrderCarryingSpecialNotesDecodesButNeverReachesTheClient`
+/// （已验红：把字段加回来，该用例立刻失败）。
+/// 对照：`pacePreference` / `hasGuideDog` 留着 —— 取值空间封闭（枚举 / 布尔），且它们是志愿者
+/// 判断「我接不接得下来」的依据，藏起来只会让人盲接、接了再取消，成本落回盲人身上。
 nonisolated struct WSNewOrder: Codable, Sendable {
     let type: String
     let timestamp: String?
@@ -201,7 +218,6 @@ nonisolated struct WSNewOrder: Codable, Sendable {
     let priority: String?
     let pacePreference: String?
     let hasGuideDog: Bool?
-    let specialNotes: String?
 }
 
 /// Emergency alert for volunteer

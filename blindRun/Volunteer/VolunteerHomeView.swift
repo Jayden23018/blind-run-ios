@@ -1682,12 +1682,10 @@ private struct VolunteerDispatchOverlay: View {
                         .font(AppFonts.body())
                     }
 
-                    if let notes = order.specialNotes, !notes.isEmpty {
-                        Text(notes)
-                            .font(AppFonts.caption())
-                            .foregroundColor(AppColors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    // 这里**不展示**盲人的自由文本备注：这是接单前（下面就是倒计时和接单/拒绝按钮），
+                    // 而 AGENTS.md §8 要求接单前隐藏敏感健康信息。字段已从 `WSNewOrder` 整个删掉，
+                    // 所以这不是一条靠人遵守的约定 —— 见 WebSocketModels.swift 上那段说明。
+                    // 接单后的完整备注在 `VolunteerServiceOrderEssentials`。
                 }
 
                 // Countdown

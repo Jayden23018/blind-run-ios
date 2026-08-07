@@ -2293,6 +2293,9 @@ struct VolunteerServiceRunnerCard: View {
     }
 }
 
+/// 服务中面板的订单要点。**只被 `VolunteerServiceBottomPanel` 用**，那是接单之后的界面，
+/// 所以这里的自由文本（路线备注 / 特殊说明）不加闸。
+/// 要在接单前的界面复用它，先接 `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`。
 struct VolunteerServiceOrderEssentials: View {
     let order: OrderDetailResponse
     let distanceText: String?
@@ -2533,6 +2536,14 @@ struct VolunteerOrderInfoSection: View {
     let order: OrderDetailResponse
     let distanceText: String?
 
+    /// 盲人填的自由文本（路线备注 / 特殊说明）只在**接单后**展示。判据集中在
+    /// `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`（穷举 switch，含 `.unknown` 默认关），
+    /// 不在这里就地写 `!= .pendingMatch` —— 这个视图的两个调用点里，
+    /// `VolunteerOrderDetailView:921` 是从「可接订单」列表点进来的，那里的订单任何志愿者都能浏览。
+    private var showsSensitiveNotes: Bool {
+        order.status.disclosesBlindRunnerNotesToVolunteer
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("订单信息")
@@ -2543,7 +2554,7 @@ struct VolunteerOrderInfoSection: View {
             if let distanceText {
                 infoRow("距离", distanceText)
             }
-            if let routeNotes = order.routeNotes?.nilIfBlank {
+            if showsSensitiveNotes, let routeNotes = order.routeNotes?.nilIfBlank {
                 infoRow("路线备注", routeNotes)
             }
             if let minutes = order.expectedDurationMinutes {
@@ -2558,7 +2569,7 @@ struct VolunteerOrderInfoSection: View {
             if order.hasGuideDogThisRun == true {
                 infoRow("导盲犬", "本次携带")
             }
-            if let notes = order.specialNotes?.nilIfBlank {
+            if showsSensitiveNotes, let notes = order.specialNotes?.nilIfBlank {
                 infoRow("特殊说明", notes)
             }
         }

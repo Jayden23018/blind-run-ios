@@ -66,6 +66,36 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
         XCTAssertFalse(status.canFinishService)
         XCTAssertFalse(status.canBlindRunnerTriggerEmergency)
         XCTAssertFalse(status.canVolunteerTriggerEmergency)
+        XCTAssertFalse(
+            status.disclosesBlindRunnerNotesToVolunteer,
+            "隐私边界对未知值要**关**，方向与本文件其他兜底相反：那些取「当作进行中」是为了不让订单从界面消失"
+        )
+    }
+
+    /// 盲人填的自由文本（`specialNotes` 特殊说明 / `routeNotes` 路线备注）
+    /// 只在接单后对志愿者可见（`AGENTS.md §8`；`routeNotes` 于 2026-08-07 一并收进同一条闸）。
+    ///
+    /// 逐个状态钉死而不是只测两三个，是因为这条闸的漏法就是「新加一个状态忘了归类」。
+    /// `PENDING_MATCH` 是派单弹窗与「可接订单」列表那一刻的状态 —— 全 App 最该关的一处；
+    /// `REMATCHING` 是原志愿者取消后，他已经不是这一单的参与者了。
+    func testBlindRunnerNotesAreDisclosedOnlyAfterAVolunteerHasAccepted() {
+        let hidden: [RunOrderStatus] = [.pendingMatch, .rematching, .noVolunteer]
+        let disclosed: [RunOrderStatus] = [.pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed, .cancelled]
+
+        for status in hidden {
+            XCTAssertFalse(
+                status.disclosesBlindRunnerNotesToVolunteer,
+                "\(status.rawValue) 是接单前（或志愿者已退出），不得展示盲人自由文本"
+            )
+        }
+        for status in disclosed {
+            XCTAssertTrue(
+                status.disclosesBlindRunnerNotesToVolunteer,
+                "\(status.rawValue) 时志愿者已是参与者，藏起备注反而让他执行不了盲人交代的事"
+            )
+        }
+        // 加了新状态就必须回来把它归进上面两组之一，别让它悄悄跟着 `.unknown` 走。
+        XCTAssertEqual(hidden.count + disclosed.count, RunOrderStatus.allCases.count)
     }
 
     /// `.unknown` 不是真实状态，不得混进状态机遍历或任何选项列表。
