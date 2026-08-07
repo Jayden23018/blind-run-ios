@@ -6,7 +6,7 @@ Define a voice-first, accessible blind-runner experience in which current state 
 ## Requirements
 
 ### Requirement: Blind-runner home is voice-first
-The iOS blind-runner home SHALL present the current service state or next primary action before auxiliary visual map content in both visual order and VoiceOver traversal order.
+The iOS blind-runner home SHALL present the current service state or next primary action before auxiliary visual map content **in VoiceOver traversal order**. Visual order is not constrained, provided the auxiliary map remains non-interactive and carries no information that is unavailable in text elsewhere on the screen.
 
 #### Scenario: No active order
 - **WHEN** a logged-in blind-runner user opens the home screen without an active order
@@ -17,7 +17,7 @@ The iOS blind-runner home SHALL present the current service state or next primar
 #### Scenario: Active order exists
 - **WHEN** a logged-in blind-runner user opens the home screen with an active order
 - **THEN** the first meaningful content SHALL summarize the current order status, appointment time, and start address when available
-- **AND** the screen SHALL expose "查看当前订单" before auxiliary map content
+- **AND** the screen SHALL expose "查看当前订单" before auxiliary map content in VoiceOver traversal
 - **AND** cancellation SHALL be visible only when the active order status allows blind-runner cancellation
 
 #### Scenario: Repeat status on home

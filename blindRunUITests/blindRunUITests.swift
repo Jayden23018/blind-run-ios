@@ -26,7 +26,7 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
-    func testMockBlindRunnerHomePlacesPrimaryActionBeforeAuxiliaryMap() throws {
+    func testMockBlindRunnerHomePlacesPrimaryActionBeforeAuxiliaryMapInVoiceOverOrder() throws {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
@@ -41,11 +41,26 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(auxiliaryMap.waitForExistence(timeout: 12), "Blind runner home should mount its auxiliary map container")
         XCTAssertEqual(auxiliaryMaps.count, 1, "Committed blind home should mount exactly one auxiliary map")
         XCTAssertFalse(app.descendants(matching: .any)["homeMapPlaceholder"].firstMatch.exists)
-        XCTAssertLessThan(
-            startButton.frame.minY,
-            auxiliaryMap.frame.minY,
-            "Voice-first home should place primary action before auxiliary map visually"
-        )
+
+        // 2026-08-07：这里原本断言 `startButton.frame.minY < auxiliaryMap.frame.minY`，即**视觉**顺序。
+        // 首页改成「地图铺满上半屏、内容压在上面」之后那个前提反转了，而规格也随之放宽：
+        // 视觉顺序不再受限，受限的是**读屏遍历顺序**（`blind-runner-voice-first-experience` 规格）。
+        // 所以断言换成遍历顺序，并补上放宽的两个前提条件：地图不可交互、且不承载必要信息。
+        let elements = app.descendants(matching: .any).allElementsBoundByAccessibilityElement
+        let startIndex = elements.firstIndex { $0.label.contains("开始约跑") }
+        let mapIndex = elements.firstIndex { $0.identifier == "blindRunnerHomeAuxiliaryMap" }
+        XCTAssertNotNil(startIndex, "主操作必须在无障碍元素树里")
+        XCTAssertNotNil(mapIndex, "地图必须在无障碍元素树里")
+        if let startIndex, let mapIndex {
+            XCTAssertLessThan(
+                startIndex,
+                mapIndex,
+                "Voice-first home must place the primary action before the auxiliary map in VoiceOver traversal"
+            )
+        }
+
+        // 放宽视觉顺序的前提之一：地图纯装饰，不能被点到。
+        XCTAssertFalse(auxiliaryMap.isHittable, "辅助地图必须不可交互")
     }
 
     @MainActor

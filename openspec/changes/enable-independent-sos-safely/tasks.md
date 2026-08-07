@@ -49,6 +49,36 @@
 - [x] 6.5 `openspec validate enable-independent-sos-safely --strict --no-interactive` 通过；`node scripts/validate-docs.mjs` 通过。
 - [ ] 6.6 真机批跑 —— **未执行**。设备 `111`（`00008140-000161D62112801C`）本轮全程离线，`iPad Pro (2)` 未连接；模拟器因高德无 arm64-sim slice 永久不可用。已完成的是 `xcodebuild build-for-testing -destination 'generic/platform=IOS'`，输出 `** TEST BUILD SUCCEEDED **`（app + 单测 + UI 测试三个 target 全部编译通过）。**编译通过不等于测试通过**，真机可用后必须补跑，且需含锁屏/后台监督验收。
 
+## 8. 2026-08-07 盲人首页常驻求助条（批次 2）
+
+放进本变更而不是另开一个：首页求助条 delta 的是 `in-run-dual-role-sos`，而该能力**不在
+`openspec/specs/` 里**，只存在于本变更。另开变更会有两个未归档变更 delta 同一个能力，规格必打架。
+
+- [x] 8.1 `BlindHomeSOSBar` + `BlindHomeSOSMode`（`blindRun/Safety/SafetyModule.swift`）。
+  模式由订单状态决定、用户不可选：`IN_PROGRESS` 走云端（复用 `EmergencyCoordinator.trigger`
+  与逐字锁定的二次确认），其余状态一律本地拨号，**不碰任何求助端点**。
+  判定抽成 `BlindHomeSOSMode.resolve(order:role:)` 而不是留在 View 里 —— 真机 UI 测试通道
+  当前起不来（code 74），只放在 UI 断言里等于零覆盖。
+- [x] 8.2 降级分支文案进 `EmergencySafetyCopy`（`homeCall*` 一族），并补进
+  `testNoEmergencyCopyClaimsAnSMSWasDelivered` 的清单。刻意**不叫**「一键求助」——
+  那四个字在本 App 里专指云端求助，本地拨号复用会让盲人以为求助已发出。
+- [x] 8.3 拨号 URL 唯一构造点 `EmergencyDialer.telURL`，只取数字：号码带空格/横线会拼出无效
+  `tel://`，而无效 URL 的表现是「点了没反应」。
+- [x] 8.4 首页布局改 `ZStack`：地图背景层 `accessibilitySortPriority(-1)` + 内容层 `100`，
+  地图 `allowsHitTesting(false)`；设置齿轮移出标题行并排到遍历最后；
+  「重复当前状态」降视觉权重但保留 64pt 触达区。求助条挂 `.safeAreaInset(edge:.bottom)`
+  并注册 `.accessibilityAction(.magicTap)`。
+- [x] 8.5 规格：`openspec/specs/blind-runner-voice-first-experience/spec.md` 放宽视觉顺序约束
+  （改为只约束 VoiceOver 遍历顺序，并写明放宽的两个前提）；本变更 delta 补「首页常驻求助条」
+  requirement，并把原「非 IN_PROGRESS 时隐藏 SOS」澄清为**隐藏的是订单关联的云端求助**。
+- [x] 8.6 单测：逐状态钉住 `resolve`（只有 `IN_PROGRESS` 走云端）、拨号号码净化、
+  降级文案必须含「不会代你发送求助」。
+- [ ] 8.7 真机批跑本轮改动 —— 与 6.6 同一个阻塞项，见那里。
+- [ ] 8.8 UI 测试 `testMockBlindRunnerHomePlacesPrimaryActionBeforeAuxiliaryMapInVoiceOverOrder`
+  已按新布局改成断言**遍历顺序**（原断言的是视觉顺序，新布局下前提反转），
+  但**没能执行验证**：UI runner 自 2026-08-06 起稳定 code 74 起不来
+  （`.claude/state.md:193-236`，未解决）。改对了没有，要等那条通道修好才能确认。
+
 ## 7. 2026-08-04 规格订正（归档前置）
 
 - [x] 7.1 **本变更的 spec 落后于实现一周，已修正。** `specs/in-run-dual-role-sos/spec.md` 与

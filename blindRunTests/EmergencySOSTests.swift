@@ -47,7 +47,17 @@ final class EmergencySOSTests: XCTestCase {
             // 结果 `closedFalseAlarm` 长期写着「紧急联系人已收到解除通知」—— 解除短信走的是和求助短信
             // 同一条异步路径，没有运营商回执，这就是本红线的同类违规。由 scripts/hooks/guard.mjs 抓出。
             EmergencySafetyCopy.closedResolved,
-            EmergencySafetyCopy.closedFalseAlarm
+            EmergencySafetyCopy.closedFalseAlarm,
+            // 2026-08-07 补：首页 SOS 条在非 IN_PROGRESS 时的本地拨号分支。
+            // 这条分支 App 一个字节都没发出去，所以它比任何一条都更不能有「已通知」的味道。
+            EmergencySafetyCopy.homeCallTitle,
+            EmergencySafetyCopy.homeCallAccessibilityLabel,
+            EmergencySafetyCopy.homeCallAccessibilityHint,
+            EmergencySafetyCopy.homeCallDialogMessage,
+            EmergencySafetyCopy.homeCallPoliceTitle,
+            EmergencySafetyCopy.homeCallNoContactHint,
+            EmergencySafetyCopy.homeCallContactTitle(name: "妈妈"),
+            EmergencySafetyCopy.homeCallContactTitle(name: nil)
         ]
         allCopy.append(contentsOf: EmergencyEventStatus.allCases.map(EmergencySafetyCopy.submitted))
 
@@ -496,6 +506,60 @@ final class EmergencySOSTests: XCTestCase {
             speechText: "ignored",
             timestamp: nil
         )
+    }
+
+    // MARK: - 首页 SOS 条：模式判定与拨号
+
+    /// 首页那条求助按钮在**没有进行中订单**时绝不能走云端 —— `POST /api/emergency/trigger`
+    /// 两端都只在 `IN_PROGRESS` 开放且必须带 `orderId`（`AGENTS.md` §6）。
+    ///
+    /// 这条判据此前只存在于 View 的私有属性里，而真机 UI 测试通道起不来（code 74），
+    /// 等于完全没有覆盖。抽成 `BlindHomeSOSMode.resolve` 就是为了能在这里钉住。
+    func testHomeSOSBarOnlyUsesTheCloudPathDuringInProgress() {
+        XCTAssertEqual(
+            BlindHomeSOSMode.resolve(order: Self.makeOrder(status: .inProgress), role: .blind),
+            .cloudTrigger
+        )
+
+        // 每一个非 IN_PROGRESS 的状态都必须降级成本地拨号，包括「志愿者已到达」这种
+        // 看起来很接近服务中、最容易被误判的一档。
+        for status in RunOrderStatus.allCases where status != .inProgress {
+            XCTAssertEqual(
+                BlindHomeSOSMode.resolve(order: Self.makeOrder(status: status), role: .blind),
+                .localCall,
+                "\(status) 不得走云端求助"
+            )
+        }
+    }
+
+    func testHomeSOSBarFallsBackToLocalCallWithoutAnOrderOrRole() {
+        XCTAssertEqual(BlindHomeSOSMode.resolve(order: nil, role: .blind), .localCall)
+        XCTAssertEqual(
+            BlindHomeSOSMode.resolve(order: Self.makeOrder(status: .inProgress), role: nil),
+            .localCall
+        )
+    }
+
+    /// 号码里的空格/横线不过滤就会拼出无效 `tel://` URL，而无效 URL 的表现是「点了没反应」——
+    /// 对盲人端就是事故：他以为电话正在拨出，其实什么都没发生。
+    func testDialerKeepsOnlyDigitsAndRefusesEmptyNumbers() {
+        XCTAssertEqual(EmergencyDialer.telURL(for: "138 0000 0000")?.absoluteString, "tel://13800000000")
+        XCTAssertEqual(EmergencyDialer.telURL(for: "138-0000-0000")?.absoluteString, "tel://13800000000")
+        XCTAssertEqual(EmergencyDialer.telURL(for: EmergencyDialer.policeNumber)?.absoluteString, "tel://110")
+
+        XCTAssertNil(EmergencyDialer.telURL(for: nil))
+        XCTAssertNil(EmergencyDialer.telURL(for: ""))
+        XCTAssertNil(EmergencyDialer.telURL(for: "   "))
+        XCTAssertNil(EmergencyDialer.telURL(for: "未填写"))
+    }
+
+    /// 本地拨号分支的文案必须说清「App 不会代你发送求助」。
+    /// 缺了这句，盲人按完只会听见拨号音之外的沉默，并合理地以为求助已经发出去了。
+    func testLocalCallCopySaysTheAppSendsNothing() {
+        XCTAssertTrue(EmergencySafetyCopy.homeCallDialogMessage.contains("不会代你发送求助"))
+        XCTAssertTrue(EmergencySafetyCopy.homeCallAccessibilityHint.contains("不会代你发送求助"))
+        // 「一键求助」在本 App 里专指云端求助，本地拨号分支不得复用这四个字。
+        XCTAssertFalse(EmergencySafetyCopy.homeCallTitle.contains(EmergencySafetyCopy.title))
     }
 
     private static func makeOrder(status: RunOrderStatus) -> OrderDetailResponse {
