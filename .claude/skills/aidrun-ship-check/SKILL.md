@@ -197,5 +197,6 @@ Apple 自己的立场是「审计是地板不是天花板」，且**只检查当
 
 如果本轮修的是一个**已经犯过第二次**的错，按 `AGENTS.md` 的「事故复盘规则」给它找归宿：能静态查的进 `scripts/hooks/guard.mjs`，能运行时查的进测试，能「该做没做」查的进 `scripts/hooks/stop-checklist.mjs`，三者都不能的写进项目记忆。只写文档不算完成。
 
-> 2026-08-07 订正：本行此前写的是 `scripts/hooks/guard.sh`，**该文件不存在**（早已改名 `guard.mjs`）。
+> 2026-08-07 订正：本行此前写的是 `scripts/hooks/guard.sh`，**该文件不存在**（早已改名 `guard.mjs`）。 <!-- cc-audit:allow -->
+
 > `AGENTS.md` §1 正好拿这次改名当「反复查 = 事实没落地」的范例，而这条死引用就躺在它自己举的例子上。

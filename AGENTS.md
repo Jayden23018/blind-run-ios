@@ -184,6 +184,10 @@ REMATCHING → CANCELLED（只能盲人 token）
 9. **commit**：`type: 描述`（type 取 feat/fix/refactor/docs/test/chore/perf/ci）。**不带 `Co-Authored-By`**（`~/.claude/settings.json` 的 `includeCoAuthoredBy: false` 已全局关闭，不要手动加回来）
 10. **push**
 
+> 跨 >3 文件，或改了状态机 / SOS 路径 / 无障碍相关时，**第 9 步之前加一道 `/code-review`**
+> ——新鲜 subagent 只看 diff，看不到产生它的推理，所以是独立判断。判据与「只报影响正确性的」
+> 那条警告在全局 `~/.claude/CLAUDE.md`，**本文件不留副本**（理由同 §7）。
+
 > 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**工作树脏**或**领先 origin**
 > 时拦住本次停止并列出欠账。两条约束让它不至于变成噪音：
 > - `stop_hook_active` 兜底，一次停止只拦一次 —— 用户说「先不提交」时回一句说明再停即可，不会死循环
