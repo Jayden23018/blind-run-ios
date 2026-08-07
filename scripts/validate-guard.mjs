@@ -266,6 +266,65 @@ const cases = [
         new_string: "if: ${{ secrets.SOMETHING }}"
       }
     }
+  },
+  {
+    // 2026-08-07：dual-device-validation.sh 与 device-test-safety.sh 里 7 处 xcodebuild
+    // 一处都没传 DEVELOPMENT_TEAM —— 这两个脚本是发布验证的入口，却在任何非原开发者的
+    // 机器上必然签名失败。报错是 `No Account for Team "R6PH2TFB3Q"`，字面上不提团队号
+    // 从哪来，很容易被当成证书问题查半天。
+    name: '脚本里打真机的 xcodebuild 没传 DEVELOPMENT_TEAM',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/scripts/dual-device-validation.sh',
+        old_string: 'a',
+        new_string:
+          'xcodebuild test \\\n  -workspace blindRun.xcworkspace \\\n  -scheme blindRun \\\n  -destination "platform=iOS,name=${BLIND_DEVICE}"'
+      }
+    }
+  },
+  {
+    // 传了就该放行。续行要先粘成一条命令再判，否则 DEVELOPMENT_TEAM 在下一行会被判成「没传」。
+    name: '真机 xcodebuild 传了 DEVELOPMENT_TEAM（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/scripts/dual-device-validation.sh',
+        old_string: 'a',
+        new_string:
+          'xcodebuild test \\\n  -destination "platform=iOS,name=${BLIND_DEVICE}" \\\n  -allowProvisioningUpdates \\\n  DEVELOPMENT_TEAM="${TEAM}"'
+      }
+    }
+  },
+  {
+    // 编译门禁走 generic destination + CODE_SIGNING_ALLOWED=NO，本就不需要团队号。
+    // 拦它是误报，而误报是这类守卫的死因。
+    name: '编译门禁（generic destination，不签名）不该被拦',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/scripts/ci-build.sh',
+        old_string: 'a',
+        new_string:
+          "xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \\\n  -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing"
+      }
+    }
+  },
+  {
+    // 规则只管 shell 脚本。文档里必须能写出反例，否则这条规则自己的说明就落不了地。
+    name: 'Markdown 里出现同样的命令（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/docs/08-ios-architecture.md',
+        old_string: 'a',
+        new_string: 'xcodebuild test -destination "platform=iOS,name=111"'
+      }
+    }
   }
 ];
 

@@ -278,6 +278,49 @@ function main() {
       );
     }
 
+    // 7. 脚本里调 xcodebuild 真机动作却没传 DEVELOPMENT_TEAM（2026-08-07）
+    //
+    // pbxproj 里写死的 R6PH2TFB3Q 是原开发者的团队号（第 9 节行级冻结，不许改工程文件），
+    // 所以每条打真机的 xcodebuild 都得在命令行覆盖。**只当环境变量前缀不生效** ——
+    // `DEVELOPMENT_TEAM=… xcodebuild …` 会被静默忽略，报的是
+    // `No Account for Team "R6PH2TFB3Q"` + `No profiles for 'com.jerry.aidrun' were found`，
+    // 两条都不提团队号是从哪来的，很容易被当成证书或 provisioning 问题去查。
+    //
+    // 落这条的直接原因：`dual-device-validation.sh` 与 `device-test-safety.sh` 里
+    // 6+1 处 xcodebuild 一处都没传，等于这两个脚本在任何非原开发者的机器上都必然失败，
+    // 而它们是发布验证的入口。同一天我自己也用环境变量前缀撞了一次。
+    //
+    // 只查真机动作：`-destination 'generic/platform=iOS'` 那种编译门禁走
+    // CODE_SIGNING_ALLOWED=NO，不需要团队号，拦它是误报。
+    const isShellScript = /\.(sh|bash)$/.test(filePath) || /^#!.*\b(bash|sh)\b/.test(body);
+    let missingTeamCmd;
+    if (isShellScript && /xcodebuild/.test(body)) {
+      // xcodebuild 的调用是多行续行的，按 `\` 折行重新粘成一条命令再判。
+      const commands = body.replace(/\\\n\s*/g, ' ').split('\n');
+      missingTeamCmd = commands.find(
+        (l) =>
+          /\bxcodebuild\b/.test(l) &&
+          /-destination\s+["']?platform=iOS,\s*(name|id)=/.test(l) &&
+          !/DEVELOPMENT_TEAM=/.test(l) &&
+          !/CODE_SIGNING_ALLOWED=NO/.test(l) &&
+          !l.includes('guard:allow missing-team')
+      );
+    }
+    if (missingTeamCmd) {
+      fail(
+        'missing-team',
+        `${filePath}\n  ${missingTeamCmd.trim().slice(0, 160)}\n\n` +
+          `这条 xcodebuild 打的是真机（-destination platform=iOS,name=/id=）却没传 DEVELOPMENT_TEAM。\n` +
+          `pbxproj 里写死的 R6PH2TFB3Q 是原开发者的团队号（AGENTS.md 第 9 节，不许改工程文件），\n` +
+          `**环境变量前缀不生效**，必须作为构建设置参数传：\n` +
+          `  TEAM="\${AIDRUN_TEAM:-ZW39BS8NXT}"\n` +
+          `  xcodebuild … -allowProvisioningUpdates DEVELOPMENT_TEAM="\$TEAM"\n` +
+          `照抄 scripts/device-test.sh:25,60。不传的报错是 \`No Account for Team "R6PH2TFB3Q"\`，\n` +
+          `字面上不提团队号从哪来，容易被误当成证书或 provisioning 问题查半天。\n` +
+          `确实不需要签名（编译门禁），用 CODE_SIGNING_ALLOWED=NO，或行尾加 \`guard:allow missing-team\`。`
+      );
+    }
+
     process.exit(0);
   }
 

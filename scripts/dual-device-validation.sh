@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 环境变量：
+#   AIDRUN_BLIND_DEVICE_NAME      默认 111
+#   AIDRUN_VOLUNTEER_DEVICE_NAME  默认 iPad Pro (2)
+#   AIDRUN_TEAM                   默认 ZW39BS8NXT
+#
+# ⚠️ `DEVELOPMENT_TEAM` 必须作为**构建设置参数**传给 xcodebuild，不能只当环境变量前缀 ——
+# 环境变量前缀不生效，报的是 `No Account for Team "R6PH2TFB3Q"`（pbxproj 里写死的那个
+# 原开发者团队号，AGENTS §9 行级冻结，不许改工程文件）。这个脚本此前一处都没传，
+# 也就是说它在任何非原开发者的机器上都必然签名失败。与 `scripts/device-test.sh:25,60` 保持同一套写法。
+
 BLIND_DEVICE="${AIDRUN_BLIND_DEVICE_NAME:-111}"
 VOLUNTEER_DEVICE="${AIDRUN_VOLUNTEER_DEVICE_NAME:-iPad Pro (2)}"
+TEAM="${AIDRUN_TEAM:-ZW39BS8NXT}"
+export AIDRUN_TEAM="$TEAM"   # device-test-safety.sh 是独立进程，靠它读到同一个团队号
 SAFETY_SCRIPT="scripts/device-test-safety.sh"
 STATE_DIR="$(mktemp -d)"
 BLIND_STATE="${STATE_DIR}/blind.sha256"
@@ -34,13 +46,17 @@ echo "[dual-device] baseline XCTest on blind device"
 xcodebuild test \
   -workspace blindRun.xcworkspace \
   -scheme blindRun \
-  -destination "platform=iOS,name=${BLIND_DEVICE}"
+  -destination "platform=iOS,name=${BLIND_DEVICE}" \
+  -allowProvisioningUpdates \
+  DEVELOPMENT_TEAM="${TEAM}"
 
 echo "[dual-device] baseline XCTest on volunteer device"
 xcodebuild test \
   -workspace blindRun.xcworkspace \
   -scheme blindRun \
-  -destination "platform=iOS,name=${VOLUNTEER_DEVICE}"
+  -destination "platform=iOS,name=${VOLUNTEER_DEVICE}" \
+  -allowProvisioningUpdates \
+  DEVELOPMENT_TEAM="${TEAM}"
 
 if [[ "${AIDRUN_RUN_REAL_AMAP:-0}" == "1" ]]; then
   echo "[dual-device] real AMap smoke on blind device"
@@ -48,6 +64,8 @@ if [[ "${AIDRUN_RUN_REAL_AMAP:-0}" == "1" ]]; then
     -workspace blindRun.xcworkspace \
     -scheme blindRun \
     -destination "platform=iOS,name=${BLIND_DEVICE}" \
+    -allowProvisioningUpdates \
+    DEVELOPMENT_TEAM="${TEAM}" \
     -only-testing:blindRunUITests/blindRunUITests/testRealAMapEnabledSmoke
 
   echo "[dual-device] real AMap smoke on volunteer device"
@@ -55,6 +73,8 @@ if [[ "${AIDRUN_RUN_REAL_AMAP:-0}" == "1" ]]; then
     -workspace blindRun.xcworkspace \
     -scheme blindRun \
     -destination "platform=iOS,name=${VOLUNTEER_DEVICE}" \
+    -allowProvisioningUpdates \
+    DEVELOPMENT_TEAM="${TEAM}" \
     -only-testing:blindRunUITests/blindRunUITests/testRealAMapEnabledSmoke
 else
   echo "[dual-device] skip real AMap smoke; set AIDRUN_RUN_REAL_AMAP=1 to enable"
@@ -66,6 +86,8 @@ if [[ "${AIDRUN_RUN_CLOUD_UI:-0}" == "1" ]]; then
     -workspace blindRun.xcworkspace \
     -scheme blindRun-Demo \
     -destination "platform=iOS,name=${BLIND_DEVICE}" \
+    -allowProvisioningUpdates \
+    DEVELOPMENT_TEAM="${TEAM}" \
     -only-testing:blindRunUITests/blindRunUITests/testCloudBackendBlindRunnerBookingSmoke
 
   echo "[dual-device] Demo Cloud UI smoke on volunteer device"
@@ -73,6 +95,8 @@ if [[ "${AIDRUN_RUN_CLOUD_UI:-0}" == "1" ]]; then
     -workspace blindRun.xcworkspace \
     -scheme blindRun-Demo \
     -destination "platform=iOS,name=${VOLUNTEER_DEVICE}" \
+    -allowProvisioningUpdates \
+    DEVELOPMENT_TEAM="${TEAM}" \
     -only-testing:blindRunUITests/blindRunUITests/testCloudBackendBlindRunnerBookingSmoke
 else
   echo "[dual-device] skip Demo Cloud UI smoke; set AIDRUN_RUN_CLOUD_UI=1 to enable"
