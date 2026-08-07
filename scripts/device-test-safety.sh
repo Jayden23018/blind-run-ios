@@ -4,6 +4,10 @@ set -euo pipefail
 APP_BUNDLE_ID="com.jerry.aidrun"
 UI_TEST_RUNNER_BUNDLE_ID="com.jerry.aidrun.uitests.xctrunner"
 
+# pbxproj 里写死的 R6PH2TFB3Q 是原开发者的团队号（AGENTS §9 行级冻结，不许改工程文件），
+# 必须在命令行覆盖。注意：只当环境变量前缀不生效，得作为**构建设置参数**传给 xcodebuild。
+TEAM="${AIDRUN_TEAM:-ZW39BS8NXT}"
+
 hash_app_state() {
   local device="$1"
   local destination="$2"
@@ -77,7 +81,9 @@ build_demo_app() {
     -scheme blindRun-Demo \
     -configuration DemoRelease \
     -destination "platform=iOS,name=${device}" \
-    -derivedDataPath "${derived_data}"
+    -derivedDataPath "${derived_data}" \
+    -allowProvisioningUpdates \
+    DEVELOPMENT_TEAM="${TEAM}"
   printf '%s\n' "${derived_data}/Build/Products/DemoRelease-iphoneos/blindRun.app"
 }
 
