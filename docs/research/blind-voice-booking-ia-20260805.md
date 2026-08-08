@@ -189,10 +189,22 @@ AFB AccessWorld 对它的评价是「不能更简单」`[B]` [afb.org/aw/16/2/15
 | **Action Button（iPhone 15 Pro+）** | 能，但**只能用户自己在设置里绑定**，App 不能占用 | iOS 18 起可绑 Control | `[A]` 同上 |
 | **Back Tap（轻点背面）** | 能，但**只能用户手动绑定 Shortcut**，无注册 API | iPhone 8+ / iOS 14+；厚壳可能失败 | `[A]` [Apple Support](https://support.apple.com/en-us/111772) |
 | **Magic Tap** | 能，但见上文缺陷 | 可被用户全局重映射；iOS 26 起可整个关闭 | `[A][D]` |
+| **电源键 / 侧边键** | **不能** | **无任何 API。** 三击侧边键是系统「辅助功能快捷键」，只能选系统功能（VoiceOver / 放大器 / AssistiveTouch…），第三方 App 的动作不在候选列表里 | `[A]` [Apple Support](https://support.apple.com/en-us/HT204390) |
+| **音量键** | 不能 | 只有 KVO 监听 `AVAudioSession.outputVolume` 的 hack，审核不允许且后台无效 | `[A]` |
 | **摇一摇** | 未找到任何官方无障碍指引 | — | 未找到证据 |
 
 **落地结论：iOS 16 基线下，唯一可编程的非视觉入口是 App Shortcuts。** Controls 需 iOS 18，只能作增强。
 Back Tap / Action Button 只能写进用户引导文档，**不能当作产品保证的能力**。
+
+#### App Shortcuts 的两条硬约束与本工程的具体障碍（2026-08-08 补）
+
+- 每条短语**必须**包含 `.applicationName` token（不能把 App 名直接写进字符串，那样短语不会出现在快捷指令 App 与 Spotlight 里）；每个 App **最多 10 条** App Shortcut；一个 App 只能有**一个** `AppShortcutsProvider`（写两个时只有最后定义的那个生效）。定义在**主 App target**，不需要 Siri entitlement，也不需要额外 extension。`[A]` [AppShortcutsProvider](https://developer.apple.com/documentation/appintents/appshortcutsprovider)、[WWDC22-10170](https://developer.apple.com/videos/play/wwdc2022/10170/)
+- **本工程的具体障碍**：`blindRun.xcodeproj/project.pbxproj:549` 是 `PRODUCT_NAME = "$(TARGET_NAME)"`，`blindRun/Info.plist` 里**没有** `CFBundleDisplayName` ⇒ App 显示名是 `blindRun`，`.applicationName` 展开后 Siri 短语会变成「问一句 blindRun」，中文用户念不出来。**做 App Intent 之前必须先补中文显示名。**
+- **Back Tap 对本项目用户群的两个已知折扣**：厚壳会明显降低识别率；且**盲人无法用视觉确认手势是否命中**，所以绑到它的动作必须自带一声可听反馈（本仓库已有 `RecordingCue`，见 `enable-one-utterance-booking/tasks.md` 1B.3）。`[A]` [Apple Support](https://support.apple.com/en-us/111772)
+
+> **下一步**：把「问一句」的非视觉入口做成 App Intent（同时点亮「嘿 Siri」、快捷指令 App、轻点背面、操作按钮四条路），
+> **另开 OpenSpec 变更**，不与首页布局修复混在一个 PR 里。Intent 在**无进行中订单**时必须直接播报
+> 「当前没有进行中的预约」而不是空开麦 —— 与首页那个按钮同一个根因，见 `VoiceStatusQuery.swift:109`。
 
 ### 2.3 中国大陆标准
 

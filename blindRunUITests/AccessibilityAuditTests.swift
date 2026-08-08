@@ -171,6 +171,63 @@ final class AccessibilityAuditTests: XCTestCase {
     }
 
 
+    // MARK: - 首屏可达性
+
+    /// 无订单首页不得出现「问一句」，且「重复当前状态」必须**不滚动**就够得着。
+    ///
+    /// 两笔改动叠在一起造出过这个缺陷：`925e78c` 把「开始约跑」放大到 280pt，
+    /// 当天晚些的 `03f3e40` 又在它后面无条件追加了「问一句」，于是 64 + 24 的一行把
+    /// 「重复当前状态」整个顶进底部 SOS 条后面（那条用 `.ultraThinMaterial`，看着就是被挡住）。
+    ///
+    /// 后半句断言才是真正拦根因的那一条 —— 它对「谁又往这一列追加了一行」一律报警，
+    /// 不只认「问一句」这一个名字。`blindRunUITests.swift:97` 有一条同源断言，
+    /// 但那条只在「请求挂起」的加载态里跑，正常首页没人守。
+    @MainActor
+    func testBlindHomeWithoutAnOrderHidesAskQuestionAndKeepsRepeatStatusReachable() throws {
+        let app = launchBlindHome()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+                .waitForExistence(timeout: 20),
+            "盲人首页没起来，后面的断言没有意义"
+        )
+
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindRunnerHomeAskQuestionButton"].firstMatch.exists,
+            """
+            无订单首页出现了「问一句」。它在这一态下对四个意图统一回「当前没有进行中的预约」\
+            （VoiceStatusQuery.swift:109），按下去只换来 header 已经念过的同一句话。
+            """
+        )
+
+        let repeatControl = app.buttons["重复当前状态"].firstMatch
+        XCTAssertTrue(repeatControl.waitForExistence(timeout: 10), "盲人首页缺少「重复当前状态」")
+        XCTAssertTrue(
+            repeatControl.isHittable,
+            """
+            「重复当前状态」要滚动才够得着 —— 它被底部 SOS 条盖住了。\
+            首页在「开始约跑」和它之间又多了一行的话，先想清楚这一行值不值得把它顶下去。
+            """
+        )
+    }
+
+    /// 反向断言：有进行中订单时「问一句」必须在。
+    /// 防止把上一条用「整个删掉」来满足 —— 那是这个能力真正有用的唯一状态。
+    @MainActor
+    func testBlindHomeWithAnActiveOrderOffersAskQuestion() throws {
+        let app = launchBlindHome(emptyOrders: false)
+        XCTAssertTrue(
+            app.buttons["查看当前订单"].firstMatch.waitForExistence(timeout: 20),
+            "有订单的盲人首页没起来，后面的断言没有意义"
+        )
+
+        let ask = app.descendants(matching: .any)["blindRunnerHomeAskQuestionButton"].firstMatch
+        XCTAssertTrue(
+            ask.waitForExistence(timeout: 10),
+            "有进行中订单时首页必须能「问一句」—— 这是它唯一有答案可给的状态"
+        )
+        XCTAssertTrue(ask.isHittable, "「问一句」存在但够不着，等于没有")
+    }
+
     // MARK: - Helpers
 
     private static let minimumBlindPrimaryButtonHeight: CGFloat = 64
@@ -203,8 +260,14 @@ final class AccessibilityAuditTests: XCTestCase {
         return false
     }
 
+    /// - Parameter emptyOrders: `true` 走无订单首页（默认，绝大多数用例要的就是这一态）。
+    ///   传 `false` 就不设 `AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS`，`MockAPIClient` 会 seed 一张
+    ///   `PENDING_MATCH` 订单（`MockAPIClient.swift:1924-1933`）—— 不需要另造 mock。
     @MainActor
-    private func launchBlindHome(forcingVoiceStage: Bool = false) -> XCUIApplication {
+    private func launchBlindHome(
+        forcingVoiceStage: Bool = false,
+        emptyOrders: Bool = true
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
             await MainActor.run { app.terminate() }
@@ -218,7 +281,9 @@ final class AccessibilityAuditTests: XCTestCase {
         // 注意是 PRESEEDED 不是 PRESEED —— 与 blindRunUITests.launchApp 保持一致，
         // 写错不会报错，只会静默进到「资料未填」分支，然后审计的是错的那一页。
         app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_BLIND_PROFILE"] = "1"
-        app.launchEnvironment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] = "1"
+        if emptyOrders {
+            app.launchEnvironment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] = "1"
+        }
         app.launchEnvironment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"

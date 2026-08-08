@@ -613,7 +613,10 @@ struct BlindRunnerHomeView: View {
                 newBookingSection
             }
 
-            askQuestionButton
+            // 无订单时不给这个按钮 —— 它在那个状态下没有答案可给，见 `askQuestionButton` 的注释。
+            if viewModel.activeOrder != nil {
+                askQuestionButton
+            }
             repeatStatusButton
             locationSummarySection
 
@@ -795,6 +798,17 @@ struct BlindRunnerHomeView: View {
     /// 是这两个「听」入口里更省时间的那个，所以先遍历到它。
     ///
     /// 与「重复当前状态」同一套次要按钮样式和 64pt 触达 —— 主按钮位置留给「开始约跑」。
+    ///
+    /// **只在有进行中订单时出现。** 两条理由，第二条才是根因：
+    ///
+    /// 1. 无订单态的上方是 280pt 的「开始约跑」（`primaryBookingHeight`，还会随字号长），
+    ///    它排在后面正好落进底部 SOS 条那一截，把「重复当前状态」一起顶出可见区。
+    /// 2. 更要紧的是**那个状态下它没有答案可给**：`VoiceStatusQuery.answer` 在
+    ///    `order == nil` 时短路，四个意图统一回「当前没有进行中的预约」
+    ///    （`VoiceStatusQuery.swift:109`）。按下去要走一趟麦克风授权 + 录音 + 等待，
+    ///    换来的是 header 已经念过的同一句话 —— 对全盲用户这就是一次白等。
+    ///
+    /// 订单详情页那个「问一句」（`blindOrderStatusAskQuestionButton`）不受此限，它天然只在有订单时存在。
     private var askQuestionButton: some View {
         Button("问一句") {
             viewModel.askVoiceQuestion()
