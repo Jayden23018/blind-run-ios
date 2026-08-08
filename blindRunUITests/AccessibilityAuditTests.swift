@@ -97,9 +97,39 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
+    /// 主按钮必须**看起来**就是主按钮，不只是够得着。
+    ///
+    /// 上一条只查 64pt，而 64pt 正是它此前和「重复当前状态」同高时的值 —— 那一版全绿，
+    /// 用户看到的却是「约跑的按钮还是小」。对标 Be My Eyes 的 `Call a volunteer` 占内容区约 75%
+    /// （`docs/research/blind-ui-visual-benchmark-20260808.md` §1）。
+    ///
+    /// 阈值取窗口高度的 25% 而不是 55%：内容区在窗口里还要扣掉地图、SOS 条与次级按钮，
+    /// 这里要抓的是「有没有被缩回次级按钮那一档」，不是精确复刻某个比例。
+    @MainActor
+    func testBlindRunnerPrimaryButtonDominatesTheScreen() throws {
+        let app = launchBlindHome()
+        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+
+        let windowHeight = app.windows.firstMatch.frame.height
+        XCTAssertGreaterThan(windowHeight, 0, "拿不到窗口高度，这条断言等于没跑")
+
+        let share = start.frame.height / windowHeight
+        XCTAssertGreaterThanOrEqual(
+            share,
+            Self.minimumBlindPrimaryButtonScreenShare,
+            """
+            主按钮实测 \(start.frame.height)pt，只占屏高 \(Int(share * 100))%，\
+            低于 \(Int(Self.minimumBlindPrimaryButtonScreenShare * 100))%。\
+            低视力用户找不到它。要改这个阈值先看对标文档 §1。
+            """
+        )
+    }
+
     // MARK: - Helpers
 
     private static let minimumBlindPrimaryButtonHeight: CGFloat = 64
+    private static let minimumBlindPrimaryButtonScreenShare: CGFloat = 0.25
 
     /// 低版本设备上明确 skip 而不是静默通过 —— 「没跑」和「跑过了」必须可区分。
     @available(iOS 17.0, *)

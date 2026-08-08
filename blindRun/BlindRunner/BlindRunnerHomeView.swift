@@ -374,6 +374,17 @@ struct BlindRunnerHomeView: View {
     private static let mapVisualHeight: CGFloat = 300
     private static let mapRevealHeight: CGFloat = 236
 
+    /// 「开始约跑」吃掉内容区的大半。此前它是 `minHeight: 64` —— 和「重复当前状态」一样高，
+    /// 视觉上根本不像主按钮。对标 Be My Eyes 的 `Call a volunteer`（占内容区约 75%，
+    /// 见 `docs/research/blind-ui-visual-benchmark-20260808.md` §1）。
+    ///
+    /// 这块面积对全盲用户没有点击收益 —— VoiceOver 选中后在屏幕任意位置双击都能激活，
+    /// 物理面积不参与激活。它服务的是低视力用户和没开读屏的用户。
+    ///
+    /// ponytail: 固定高度而不是按屏高算比例。小屏（SE）上会滚动，而 ScrollView 本来就在；
+    /// 要按比例得引 GeometryReader 重排整个内容层，不值这个复杂度。
+    @ScaledMetric(relativeTo: .largeTitle) private var primaryBookingHeight: CGFloat = 280
+
     var body: some View {
         NavigationStack(path: $path) {
             ZStack(alignment: .top) {
@@ -537,10 +548,17 @@ struct BlindRunnerHomeView: View {
                         .font(AppFonts.body())
                         .foregroundColor(AppColors.destructive)
                         .accessibilityLabel(errorMessage)
+                    // 错误态下这是唯一的出路，按项目 64pt 硬规则给足触达 ——
+                    // `.bordered` 的系统默认高度约 34pt，达不到。
                     Button("重试加载") {
                         Task { await viewModel.loadActiveOrder() }
                     }
-                    .buttonStyle(.bordered)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
+                    .background(AppColors.secondaryBackground)
+                    .cornerRadius(12)
                     .accessibilityHint("重新加载当前订单状态")
                 }
             }
@@ -612,37 +630,33 @@ struct BlindRunnerHomeView: View {
         UIApplication.shared.open(url)
     }
 
+    /// 标题与状态摘要合成**一个**焦点。它们语义相同（GB/T 37668 3.3.2.2 一级：
+    /// 语义相同的部件应设联合单一聚焦框），拆成两个只是让读屏用户多滑一次。
+    /// 合并后的朗读文本这里写死，不交给 `.combine` 自己拼 —— 自动拼接容易糊成一长串。
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HighContrastText("盲人跑者首页", style: .title)
-                .accessibilityAddTraits(.isHeader)
 
             Text(viewModel.currentStatusText)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel(viewModel.currentStatusText)
-                .accessibilityHint("这里显示当前预约状态摘要")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityLabel("盲人跑者首页。\(viewModel.currentStatusText)")
     }
 
+    /// 地图的文字等价物 —— `docs/09-accessibility-and-voice-guidelines.md:78` 硬性要求它必须
+    /// 在地图之外可用，所以不能删。但「位置摘要」这个标题可以：下面那行本身就自解释，
+    /// 标题只对视觉扫读有用，而这一页没有扫读。降成一行 caption，不再是一张卡片。
     private var locationSummarySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("位置摘要")
-                .font(.headline)
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-
-            Text(locationDescription)
-                .font(AppFonts.body())
-                .foregroundColor(locationService.isDenied ? AppColors.warning : AppColors.textSecondary)
-                .accessibilityLabel(locationDescription)
-                .accessibilityHint(locationService.isDenied ? "需要开启定位权限后才能创建预约" : "当前位置摘要")
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
+        Text(locationDescription)
+            .font(AppFonts.caption())
+            .foregroundColor(locationService.isDenied ? AppColors.warning : AppColors.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel(locationDescription)
+            .accessibilityHint(locationService.isDenied ? "需要开启定位权限后才能创建预约" : "当前位置摘要")
     }
 
     private var activeOrderMapAnnotations: [MapAnnotationItem] {
@@ -692,27 +706,17 @@ struct BlindRunnerHomeView: View {
         }
     }
 
+    /// 无订单态的唯一动作。此前上面还有一句「准备好后，可以创建一次新的陪跑预约。」——
+    /// 那是在解释按钮要干什么，正好是 `accessibilityHint` 的定义，读屏用户听 hint、
+    /// 低视力用户看按钮本身就够，屏幕上不需要第三份。
     private var newBookingSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("准备好后，可以创建一次新的陪跑预约。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("准备好后，可以创建一次新的陪跑预约")
-
+        Group {
             if viewModel.canStartNewBooking {
                 // 只留一个入口。原来「开始约跑」和「语音下单」并列，等于每次下单前都要先做一次
                 // 「我该点哪个」的判断，而两者进的本来就是同一个页面。现在统一进语音：进去就录音，
                 // 说完读回整单再确认；不想说话就按「改用表单」，那张表一直都在。
                 NavigationLink(value: BlindRunnerRoute.voiceBooking) {
-                    HStack {
-                        Text("开始约跑")
-                            .font(AppFonts.primaryButton())
-                            .foregroundColor(.white)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                    .background(AppColors.primary)
-                    .cornerRadius(12)
+                    bookingButtonLabel
                 }
                 .accessibilityLabel("开始约跑")
                 .accessibilityHint("点击后进入语音下单：说一句想什么时候跑、跑多久，听完复述再确认。也可以改用表单填写")
@@ -721,19 +725,25 @@ struct BlindRunnerHomeView: View {
                 Button {
                     viewModel.explainBookingUnavailable()
                 } label: {
-                    Text("开始约跑")
-                        .font(AppFonts.primaryButton())
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
+                    bookingButtonLabel
                 }
-                .frame(minHeight: 64)
-                .background(AppColors.primary)
-                .cornerRadius(12)
                 .accessibilityLabel("开始约跑，订单状态尚未确认")
                 .accessibilityHint("点击后说明如何先确认当前订单状态")
                 .accessibilityIdentifier("blindRunnerHomeStartBookingGuardButton")
             }
         }
+    }
+
+    /// 按钮内部只有四个字：无图标、无副标题。对标产品的主按钮里一律没有第二样东西 ——
+    /// 图标对读屏是噪音，对低视力是在跟文字抢字号。
+    private var bookingButtonLabel: some View {
+        Text("开始约跑")
+            .font(AppFonts.largeTitle())
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: primaryBookingHeight)
+            .background(AppColors.primary)
+            .cornerRadius(16)
     }
 
     /// 视觉权重降为次要按钮，但**保留**：`AGENTS.md` 要求每个关键盲人页面都有它，
