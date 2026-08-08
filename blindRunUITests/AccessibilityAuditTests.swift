@@ -126,6 +126,7 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
+
     // MARK: - Helpers
 
     private static let minimumBlindPrimaryButtonHeight: CGFloat = 64
@@ -177,7 +178,13 @@ final class AccessibilityAuditTests: XCTestCase {
         }
 
         app.launch()
-        app.tap() // 触发一次 interruption monitor，否则弹窗要等下一次交互才被处理
+        // 触发一次 interruption monitor，否则弹窗要等下一次交互才被处理。
+        //
+        // **不能用 `app.tap()`** —— 它敲的是屏幕正中，而首页正中现在是「开始约跑」，
+        // 一启动就被导航进下单页，然后每条用例都报「找不到 blindRunnerHomeStartBookingButton」，
+        // 看起来像首页没起来。改敲顶部地图区：那一层 `allowsHitTesting(false)`，
+        // 是这一页唯一保证不会触发任何动作的地方（设置齿轮在右上，dx 0.5 躲得开）。
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
         return app
     }
 }

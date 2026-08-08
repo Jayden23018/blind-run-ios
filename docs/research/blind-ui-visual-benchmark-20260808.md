@@ -251,7 +251,27 @@ VoiceVista · BlindSquare · 小艾帮帮 · 豆芽看见
 
 ---
 
-## 5. 本篇没做的事
+## 5. 已知红灯：两条静态审计用例，改动前就红
+
+`AccessibilityAuditTests` 里的 `testBlindRunnerHomePassesAccessibilityAudit` 与
+`testBlindBookingPassesAccessibilityAudit` **在本轮改动之前就是红的**，实测对照：
+
+| 版本 | performAccessibilityAudit 报警数 |
+|---|---|
+| 改动前（旧视图 + 修好的 helper） | **6** 条（5 × Contrast nearly passed + 1 × Dynamic Type unsupported） |
+| 改动后 | **4** 条（2 × nearly + 1 × Contrast failed + 1 × Dynamic Type） |
+
+4 条里 3 条落在**只存在于 DEBUG 构建**的开发者面板上（`测试入口`、`Mock 本地模拟，不连接云端`、
+`参考 LocalConfig.xcconfig.example 创建配置文件`），发布产物里没有它们。
+唯一落在出货 UI 上的是首页状态文字「当前没有进行中的预约，可以开始一次新的陪跑预约。」的
+`Contrast nearly passed` —— 它用的是 `AppColors.textSecondary`（`.secondaryLabel`），
+本轮没有改过它的颜色或字号，改动前的 6 条里也有同一条。
+
+**没在本轮修**：这是先于本次改动存在的问题，且修法（换掉 `textSecondary` 的用法、
+或把 DEBUG 面板排除出审计范围）会牵动全仓库的次要文字配色与审计白名单口径，
+按 `AGENTS.md` §4 属于另一件事。修之前不要把这两条用例的红当成本次改版引入的。
+
+## 6. 本篇没做的事
 
 - **没有改任何代码。** 首页与订单页的改版会动到 `enable-one-utterance-booking` 与
   `enable-live-escort-location-and-track-summary` 两个未归档的 OpenSpec 变更所覆盖的能力，

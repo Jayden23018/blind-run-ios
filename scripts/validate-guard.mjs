@@ -325,6 +325,44 @@ const cases = [
         new_string: 'xcodebuild test -destination "platform=iOS,name=111"'
       }
     }
+  },
+  {
+    name: 'UI 测试里 app.tap() 敲屏幕正中（会点到盲人端主按钮）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunUITests/AccessibilityAuditTests.swift',
+        old_string: 'a',
+        new_string: '        app.launch()\n        app.tap()'
+      }
+    }
+  },
+  {
+    name: '改敲顶部无动作区域（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunUITests/AccessibilityAuditTests.swift',
+        old_string: 'a',
+        new_string:
+          '        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()'
+      }
+    }
+  },
+  {
+    // 显式标注过的放行 —— 否则这条规则会把「确实要点正中」的场景堵死。
+    name: 'app.tap() 带 guard:allow 标注（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunUITests/SomeOtherTests.swift',
+        old_string: 'a',
+        new_string: '        app.tap() // guard:allow blind-tap-center'
+      }
+    }
   }
 ];
 
