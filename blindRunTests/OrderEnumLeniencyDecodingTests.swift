@@ -53,6 +53,33 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
         XCTAssertEqual(detail.pacePreference, .moderate)
     }
 
+    /// 「打电话给志愿者」是接单后唯一的主动作，它的开放范围要逐状态钉住。
+    ///
+    /// 陪跑没有车牌 / 车型 / 颜色，这通电话是视障者确认「眼前这人是不是我的志愿者」的唯一手段
+    /// （`docs/research/blind-ui-visual-benchmark-20260808.md` §3.2）。给少了盲人找不到人；
+    /// 给多了会在订单已结束、或那个志愿者已不是本单参与者时，诱导一通没有理由的外呼。
+    func testVolunteerCallOpensOnlyWhenMeetingUpIsStillAhead() {
+        for status in [RunOrderStatus.pendingAccept, .driverEnRoute, .driverArrived, .inProgress] {
+            XCTAssertTrue(
+                status.offersVolunteerCall,
+                "\(status.rawValue) 需要当面汇合，必须给出拨号入口"
+            )
+        }
+
+        for status in [RunOrderStatus.pendingMatch, .rematching, .noVolunteer, .completed, .cancelled, .unknown] {
+            XCTAssertFalse(
+                status.offersVolunteerCall,
+                "\(status.rawValue) 下不存在「本单的志愿者」或订单已结束，不得给拨号入口"
+            )
+        }
+
+        XCTAssertEqual(
+            RunOrderStatus.allCases.filter(\.offersVolunteerCall).count,
+            4,
+            "枚举加了新状态就要在这里做一次决策，不能默默落到 false"
+        )
+    }
+
     /// 未知状态**不得**被当成已结束，也不得触发任何破坏性操作入口。
     func testUnknownStatusIsNotTerminalAndUnlocksNothing() {
         let status = RunOrderStatus.unknown

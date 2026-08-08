@@ -63,6 +63,32 @@ extension RunOrderStatus {
         }
     }
 
+    /// 盲人端订单页该不该给出「打电话给志愿者」的主按钮。
+    ///
+    /// 陪跑没有车牌 / 车型 / 颜色，视障者确认「眼前这个人是不是我的志愿者」的唯一手段就是这通电话
+    /// （依据见 `docs/research/blind-ui-visual-benchmark-20260808.md` §3.2）。所以凡是需要**当面汇合**
+    /// 的状态都要给，且要给成主按钮而不是一行文字。
+    ///
+    /// 终态一律不给：订单结束后 `volunteerPhone` 可能还在响应里，但那时候摆一个占半屏的拨号按钮
+    /// 是在诱导盲人打一通没有理由的电话。
+    ///
+    /// 写成穷举 switch 而不是集合字面量：后端往枚举加值时编译器会在这里逼一次决策，
+    /// 而集合字面量会默默把新状态判成 false。
+    var offersVolunteerCall: Bool {
+        switch self {
+        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+            return true
+        // 还没有志愿者，或那个志愿者已经不是本单参与者（`REMATCHING` 是他取消后进入的状态）。
+        case .pendingMatch, .rematching, .noVolunteer:
+            return false
+        case .completed, .cancelled:
+            return false
+        // 状态未知时落到只读跟踪页，不提供任何会产生外呼的动作。
+        case .unknown:
+            return false
+        }
+    }
+
     var blindRunnerDescription: String {
         switch self {
         case .pendingMatch:
