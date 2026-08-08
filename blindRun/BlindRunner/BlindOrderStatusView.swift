@@ -27,6 +27,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     private var peerExpiryTask: Task<Void, Never>?
     private var acceptsPeerLocations = true
     private var cancellables = Set<AnyCancellable>()
+    private let voiceQuerySession = VoiceStatusQuerySession()
     private let peerFreshness: TimeInterval
 
     init(peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness) {
@@ -50,16 +51,31 @@ final class BlindOrderStatusViewModel: ObservableObject {
         order?.status.shouldPoll ?? true
     }
 
+    /// - Parameter speechInputService: 「问一句」用。可选是为了让既有的一批单测不必凭空造一个
+    ///   麦克风服务；传 nil 时按下按钮不会起听（`VoiceStatusQuerySession.ask` 自己 guard 掉）。
     func configure(
         appState: AppState,
         speechService: SpeechService,
-        locationService: LocationService? = nil
+        locationService: LocationService? = nil,
+        speechInputService: SpeechInputService? = nil
     ) {
         self.appState = appState
         self.speechService = speechService
         self.locationService = locationService
         acceptsPeerLocations = true
+        // 坐标取 `latestVolunteerCoordinate` 而不是重算一遍：它已经过了新鲜度闸
+        // （WebSocket 那条判 `age <= peerFreshness`，过期由 `schedulePeerExpiry` 清空）。
+        voiceQuerySession.configure(
+            speechService: speechService,
+            speechInputService: speechInputService,
+            context: { [weak self] in (self?.order, self?.latestVolunteerCoordinate) }
+        )
         subscribeToRealtimeCoordinator(appState: appState)
+    }
+
+    /// 按下「问一句」。判定与答句在 `VoiceStatusQuery`，录音与拨号在 `VoiceStatusQuerySession`。
+    func askVoiceQuestion() {
+        voiceQuerySession.ask()
     }
 
     func startPolling(orderId: Int64) {
@@ -438,8 +454,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     }
 
     private func refreshVolunteerDistance() {
-        guard let order,
-              [.pendingAccept, .driverEnRoute, .driverArrived].contains(order.status) else {
+        guard let order, order.status.offersVolunteerDistanceToStart else {
             volunteerDistanceToStartText = nil
             return
         }
@@ -447,7 +462,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     }
 
     private func refreshVolunteerLocationFallbackIfNeeded(for order: OrderDetailResponse, appState: AppState) async {
-        guard [.pendingAccept, .driverEnRoute, .driverArrived].contains(order.status) else { return }
+        guard order.status.offersVolunteerDistanceToStart else { return }
         let websocketSampleIsFresh = latestVolunteerWebSocketDate.map { Date().timeIntervalSince($0) <= 15 } ?? false
         guard !appState.isWebSocketConnected || !websocketSampleIsFresh else { return }
 
@@ -518,6 +533,7 @@ struct BlindOrderStatusView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
+    @EnvironmentObject private var speechInputService: SpeechInputService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
@@ -605,7 +621,8 @@ struct BlindOrderStatusView: View {
             viewModel.configure(
                 appState: appState,
                 speechService: speechService,
-                locationService: locationService
+                locationService: locationService,
+                speechInputService: speechInputService
             )
             viewModel.startPolling(orderId: orderId)
         }
@@ -1012,15 +1029,35 @@ struct BlindOrderStatusView: View {
         #endif
     }
 
+    /// 「问一句」排在「重复当前状态」**之前**：它是这两者里更省时间的那个 ——
+    /// 整段状态播报要 15~25 秒，而问一句只念被问的那一项。
     private var repeatStatusArea: some View {
-        PrimaryButton("重复当前状态") {
-            viewModel.repeatStatus()
+        VStack(spacing: 12) {
+            askQuestionButton
+            PrimaryButton("重复当前状态") {
+                viewModel.repeatStatus()
+            }
+            .accessibilityLabel("重复当前状态")
+            .accessibilityHint("点击后重新播报当前订单状态")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
         .background(.regularMaterial)
-        .accessibilityLabel("重复当前状态")
-        .accessibilityHint("点击后重新播报当前订单状态")
+    }
+
+    private var askQuestionButton: some View {
+        Button("问一句") {
+            viewModel.askVoiceQuestion()
+        }
+        .font(AppFonts.body().weight(.semibold))
+        .foregroundColor(AppColors.primary)
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 64)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(12)
+        .accessibilityLabel("问一句")
+        .accessibilityHint("点击后开始录音，可以问志愿者还有多远、几点开始，或者打电话给志愿者")
+        .accessibilityIdentifier("blindOrderStatusAskQuestionButton")
     }
 }
 
@@ -1030,6 +1067,8 @@ struct BlindOrderStatusView: View {
         BlindOrderStatusView(orderId: 1) { _ in }
             .environmentObject(AppState())
             .environmentObject(SpeechService())
+            .environmentObject(LocationService())
+            .environmentObject(SpeechInputService())
     }
 }
 #endif

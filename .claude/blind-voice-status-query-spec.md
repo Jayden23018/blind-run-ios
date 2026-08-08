@@ -110,9 +110,20 @@ enum VoiceStatusQuery {
 | 文件 | 改什么 |
 |---|---|
 | `blindRun/Voice/SpeechInputService.swift:271` | `SpeechInputField` 加两个 case：`voiceStatusQuery`、`voiceStatusConfirmCall`。`isAllowlisted`（`:290`）用 `rawValue` 反查，加了 case 自动生效，**不用改它**。 |
-| `blindRun/BlindRunner/BlindRunnerHomeView.swift` | `BlindRunnerHomeViewModel` 加 `askVoiceQuestion()` 与 `handleVoiceTranscript(_:)`；`homeSections`（`:531`）在 `repeatStatusButton`（`:752`）**之前**插入「问一句」按钮。 |
-| `blindRun/BlindRunner/BlindOrderStatusView.swift` | `BlindOrderStatusViewModel` 同样两个方法。距离直接用已有的 `volunteerDistanceToStartText`（`:16`），**不要**再算一遍。 |
+| `blindRun/BlindRunner/BlindRunnerHomeView.swift` | `BlindRunnerHomeViewModel` 加 `askVoiceQuestion()`；`homeSections`（`:531`）在 `repeatStatusButton`（`:752`）**之前**插入「问一句」按钮。 |
+| `blindRun/BlindRunner/BlindOrderStatusView.swift` | `BlindOrderStatusViewModel` 同样一个方法。距离直接用已有的坐标 `latestVolunteerCoordinate`（已过新鲜度闸），**不要**再判一遍。 |
 | `blindRunTests/VoiceStatusQueryTests.swift`（新建） | 见「验收」。 |
+
+**实现时改掉的两条（2026-08-08，按本文件开头的规矩先改文档）：**
+
+- 原写「两个 view model 各加 `askVoiceQuestion()` 与 `handleVoiceTranscript(_:)`」。实际只在
+  两个 view model 各加 `askVoiceQuestion()`，转发给新建的 `blindRun/Voice/VoiceStatusQuerySession.swift`
+  （录音 → 答 → 拨号确认 → 拨号）。**理由**：两页的差别只有「订单和坐标从哪来」，
+  而拨号确认那一段是安全逻辑；抄两份等于这条保证要守两遍（`AGENTS.md` §1）。
+  `VoiceStatusQuery` 仍是纯函数、仍是单测的唯一对象。
+- 新增 `RunOrderStatus.offersVolunteerDistanceToStart`（`OrderDisplayHelpers.swift`）。
+  `[.pendingAccept, .driverEnRoute, .driverArrived]` 这个三元组原本在 `BlindOrderStatusView`
+  里抄了两遍（`:442` / `:450`），语音入口是第三遍。写成穷举 switch，后端加状态时编译器逼一次决策。
 
 ### 现成可用的接口（照抄签名，别自己造）
 
@@ -185,7 +196,7 @@ func latestPeerLocation(orderID: Int64, ownerRole: RealtimePeerRole) -> Realtime
 | 情况 | 期望行为 |
 |---|---|
 | 无进行中订单时问任何问题 | 「当前没有进行中的预约」+ 可问清单 |
-| `PENDING_MATCH` 时问距离 | 「还没有志愿者接单，所以暂时算不出距离。当前是等待匹配。」 |
+| `PENDING_MATCH` 时问距离 | 「还没有志愿者接单，所以暂时算不出距离。当前是系统派单中。」（状态名一律取 `displayName`，不另写一套叫法 —— 原文档这里写的「等待匹配」在 App 里不存在） |
 | `IN_PROGRESS` 时问距离 | 已经在一起跑了，距离无意义 → 说清并给当前状态 |
 | 有志愿者但坐标**过期**（超 `peerFreshness`） | 当作没有坐标，说清「暂时收不到志愿者位置」+ 当前状态，**不许念旧距离** |
 | `volunteerPhone` 为 nil 或状态不 `offersVolunteerCall` 时说「打电话」 | 说清现在还不能打电话及原因，**不拨号** |

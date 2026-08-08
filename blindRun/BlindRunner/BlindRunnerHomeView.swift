@@ -28,6 +28,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     private var activeLoadTask: Task<Void, Never>?
     private var activeRequestID: UUID?
     private var realtimeStatusCancellable: AnyCancellable?
+    private let voiceQuerySession = VoiceStatusQuerySession()
     private let loadTimeout: TimeInterval
 
     init(loadTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout) {
@@ -61,9 +62,20 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         speechService?.speakError(message)
     }
 
-    func configure(with appState: AppState, speechService: SpeechService) {
+    /// - Parameter speechInputService: 「问一句」用。可选是为了让既有的一批单测不必凭空造一个
+    ///   麦克风服务；传 nil 时按下按钮不会起听（`VoiceStatusQuerySession.ask` 自己 guard 掉）。
+    func configure(
+        with appState: AppState,
+        speechService: SpeechService,
+        speechInputService: SpeechInputService? = nil
+    ) {
         self.appState = appState
         self.speechService = speechService
+        voiceQuerySession.configure(
+            speechService: speechService,
+            speechInputService: speechInputService,
+            context: { [weak self] in (self?.activeOrder, self?.freshVolunteerCoordinate) }
+        )
         if realtimeStatusCancellable == nil {
             realtimeStatusCancellable = appState.realtimeCoordinator.statusUpdatePublisher
                 .receive(on: DispatchQueue.main)
@@ -254,6 +266,33 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         }
     }
 
+    /// 按下「问一句」。判定与答句在 `VoiceStatusQuery`，录音与拨号在 `VoiceStatusQuerySession`。
+    func askVoiceQuestion() {
+        voiceQuerySession.ask()
+    }
+
+    /// 志愿者的最新坐标，**过期的一律当没有**。
+    ///
+    /// `latestPeerLocation` 只是取缓存、不判新鲜度（订单状态页那套过期清理在
+    /// `schedulePeerExpiry`，首页没有）。念一个几分钟前的距离，对听不见屏幕的人就是假数据。
+    private var freshVolunteerCoordinate: CLLocationCoordinate2D? {
+        guard let activeOrder,
+              let sample = appState?.realtimeCoordinator.latestPeerLocation(
+                orderID: activeOrder.orderId,
+                ownerRole: .volunteer
+              ),
+              sample.isValid else { return nil }
+        let capturedAt = Date(timeIntervalSince1970: TimeInterval(sample.timestampMilliseconds) / 1_000)
+        guard Date().timeIntervalSince(capturedAt) <= LiveEscortSessionCoordinator.peerFreshness else {
+            return nil
+        }
+        return BackendCoordinateNormalizer.backend(
+            latitude: sample.latitude,
+            longitude: sample.longitude,
+            capturedAt: capturedAt
+        )?.coordinate
+    }
+
     func repeatCurrentStatus(locationDescription: String) {
         if let activeOrder {
             speechService?.speak(homeAnnouncement(for: activeOrder, locationDescription: locationDescription))
@@ -363,6 +402,7 @@ struct BlindRunnerHomeView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
+    @EnvironmentObject private var speechInputService: SpeechInputService
     @StateObject private var viewModel = BlindRunnerHomeViewModel()
     @State private var path: [BlindRunnerRoute] = []
     @State private var showCancelConfirmation = false
@@ -402,7 +442,11 @@ struct BlindRunnerHomeView: View {
                 destination(for: route)
             }
             .onAppear {
-                viewModel.configure(with: appState, speechService: speechService)
+                viewModel.configure(
+                    with: appState,
+                    speechService: speechService,
+                    speechInputService: speechInputService
+                )
                 if locationService.isNotDetermined {
                     locationService.requestPermission()
                 }
@@ -569,6 +613,7 @@ struct BlindRunnerHomeView: View {
                 newBookingSection
             }
 
+            askQuestionButton
             repeatStatusButton
             locationSummarySection
 
@@ -746,6 +791,25 @@ struct BlindRunnerHomeView: View {
             .cornerRadius(16)
     }
 
+    /// 排在「重复当前状态」之前：整段状态播报要 15~25 秒，问一句只念被问的那一项，
+    /// 是这两个「听」入口里更省时间的那个，所以先遍历到它。
+    ///
+    /// 与「重复当前状态」同一套次要按钮样式和 64pt 触达 —— 主按钮位置留给「开始约跑」。
+    private var askQuestionButton: some View {
+        Button("问一句") {
+            viewModel.askVoiceQuestion()
+        }
+        .font(AppFonts.body().weight(.semibold))
+        .foregroundColor(AppColors.primary)
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 64)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(12)
+        .accessibilityLabel("问一句")
+        .accessibilityHint("点击后开始录音，可以问志愿者还有多远、几点开始，或者打电话给志愿者")
+        .accessibilityIdentifier("blindRunnerHomeAskQuestionButton")
+    }
+
     /// 视觉权重降为次要按钮，但**保留**：`AGENTS.md` 要求每个关键盲人页面都有它，
     /// 而且系统的 Speak Screen 读不到一次性 announcement，这是唯一能重听当前状态的入口。
     /// 降权只是为了不与「开始约跑」抢主按钮的位置，触达区仍是 64pt。
@@ -872,5 +936,6 @@ struct DebugTestingPanel: View {
         .environmentObject(AppState())
         .environmentObject(SpeechService())
         .environmentObject(LocationService())
+        .environmentObject(SpeechInputService())
 }
 #endif

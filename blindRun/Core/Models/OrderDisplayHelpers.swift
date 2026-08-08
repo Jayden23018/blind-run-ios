@@ -89,6 +89,25 @@ extension RunOrderStatus {
         }
     }
 
+    /// 「志愿者离出发地点还有多远」这个数字对本状态有没有意义。
+    ///
+    /// 汇合前的三态才有：`IN_PROGRESS` 时两人已经在一起，念距离是噪音；派单中 / 重新匹配时
+    /// 根本没有志愿者；终态更没有。语音查距离（`VoiceStatusQuery`）与状态页的距离刷新
+    /// （`BlindOrderStatusViewModel.refreshVolunteerDistance`）共用这一处判定 ——
+    /// 此前这个三元组在状态页里抄了两遍，再加语音入口就是第三遍。
+    ///
+    /// 同 `offersVolunteerCall` 写成穷举 switch：后端加状态时编译器逼一次决策。
+    var offersVolunteerDistanceToStart: Bool {
+        switch self {
+        case .pendingAccept, .driverEnRoute, .driverArrived:
+            return true
+        case .pendingMatch, .rematching, .noVolunteer, .inProgress, .completed, .cancelled:
+            return false
+        case .unknown:
+            return false
+        }
+    }
+
     var blindRunnerDescription: String {
         switch self {
         case .pendingMatch:
