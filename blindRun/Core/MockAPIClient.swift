@@ -1406,21 +1406,36 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// `mockVoicePlaces` 里查不到坐标，是线上「抽到 span 但正向编码失败」的同形场景，
     /// 结果就该是 `missing` 含 `ADDRESS`，而不是当成用户没说起点。
     static func mockVoiceAddressSpan(in transcript: String) -> String? {
-        for (prefix, suffix) in addressSpanShells {
-            guard let head = transcript.range(of: prefix),
-                  let tail = transcript.range(of: suffix, range: head.upperBound..<transcript.endIndex)
-            else { continue }
-            let span = String(transcript[head.upperBound..<tail.lowerBound]).trimmed
-            if !span.isEmpty { return span }
-        }
-        return nil
+        guard let match = transcript.firstMatch(of: addressSpanRegex),
+              let span = match.output[1].substring.map(String.init)?.trimmed,
+              !span.isEmpty else { return nil }
+        // 壳抽出来的不一定是地名：「从明天早上八点开始跑」的壳内是时间片。
+        // 送去正向地理编码要么返空、要么错命中，后者会让盲人确认到错地方 ——
+        // 所以宁可误杀（多走一次兜底，结果仍对），也不漏杀。
+        guard span.firstRange(of: timeLikeRegex) == nil else { return nil }
+        return span
     }
 
-    /// 顺序即优先级。壳必须成对出现，只有「从」没有「出发」不算 ——
-    /// 「从明天早上八点开始跑」里的「从」后面跟的是时间，抽出来当地点就把人约到了不存在的起点。
-    private static let addressSpanShells: [(prefix: String, suffix: String)] = [
-        ("从", "出发"), ("在", "集合"), ("在", "跑步"), ("到", "那边")
-    ]
+    /// 逐字照抄后端 `VoiceSlotParser.ADDRESS_SPAN`（`demo/.../util/VoiceSlotParser.java:52`）。
+    ///
+    /// 此前这里是手列的 4 对壳（`从-出发` / `在-集合` / `在-跑步` / `到-那边`），
+    /// 而后端是 4 个前缀 × 9 个后缀的叉积。手列必然漏：语料
+    /// 「明天早上8:00从阳光棕榈园跑」的壳是 `从…跑`，四对里一对都不中，Mock 抽不出起点。
+    /// 抄整条正则而不是补一对，是因为补一对下次还会漏 —— 叉积穷举不进人脑。
+    ///
+    /// 非贪婪 `{2,15}?` 与「span 内不含标点空格」都是后端的原样约束，别顺手放宽。
+    private static let addressSpanRegex = try! Regex(
+        "(?:从|在|去|到)([^，,。！？!?\\s]{2,15}?)(?:出发|集合|等我|见面|开始|跑|附近|那边|旁边)"
+    )
+
+    /// 逐字照抄后端 `VoiceSlotParser.TIME_LIKE`（`VoiceSlotParser.java:63`）。
+    ///
+    /// `\d{1,2}[:：][0-5]\d` 那一段是 2026-08-08 后端 PR #14 补的：只认「点」时，
+    /// 「从8:00开始跑」的 span 抽出来是 `8:00`，判不出是时间就当地名送高德了。
+    private static let timeLikeRegex = try! Regex(
+        "[0-9零一二两三四五六七八九十半]\\s*(?:点|分|小时|分钟)|\\d{1,2}[:：][0-5]\\d"
+            + "|明天|后天|今天|上午|下午|早上|晚上|中午"
+    )
 
     /// 是否携带导盲犬。`nil` = 原话没提，与 `false`（本次明确不带）语义不同 ——
     /// 这个字段进派单硬过滤，两者混淆会让登记了导盲犬的用户被静默按「不带」派单。
@@ -1564,19 +1579,39 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     /// 冒号钟点：`8:00`、`8：00`、`18:30`。
     ///
-    /// **这条在黄金语料里找不到依据，是照真机实况补的。** 语料 13 条 START_TIME 全是
-    /// 「明天早上八点」这种中文数字加「点」的写法，而 iOS 的 `SFSpeechRecognizer` 说中文时
-    /// 经常把「八点钟」直接渲染成 `8:00` —— 句子里连「点」字都没有，原来那条规则一定抽不出。
-    /// 2026-08-06 真机手测「说了时间但识别不了时间点」就是这一条（已提给后端，见 handoff）。
+    /// **这条起初在黄金语料里找不到依据，是照真机实况补的**（2026-08-06 手测「说了时间但识别不了
+    /// 时间点」）：iOS 的 `SFSpeechRecognizer` 说中文时经常把「八点钟」渲染成 `8:00`，
+    /// 句子里连「点」字都没有。后端 2026-08-08 的 PR #14 补齐同一条并进了语料，
+    /// 现在两边同口径。
+    ///
+    /// 分钟写 `[0-5]\d` 而不是 `\d{2}` + 范围校验：非法分钟（`8:75`）直接不匹配，
+    /// 与后端 `CLOCK_TIME` 逐字一致。
     private static func colonClockTime(in transcript: String) -> (hour: Int, minute: Int)? {
-        guard let range = transcript.range(of: #"\d{1,2}[:：]\d{2}"#, options: .regularExpression) else {
-            return nil
+        for match in transcript.matches(of: colonClockRegex) {
+            // ⚠️「跑1:30」是**时长**口语（识别器可能把「跑一个半小时」渲染成这样），不是 01:30 出发。
+            // 不挡的话它会被当成钟点 → 01:30 已过 → 滚到次日 → 提前量校验放行 →
+            // 读回念出一个用户从没说过的时刻。**静默篡改比抽不出更糟**：抽不出至少读回时听得出来。
+            //
+            // 跳过本次继续找，不是直接返 nil ——「跑1:30，明天早上8点出发」里真正的钟点在后面。
+            if isDurationLeadIn(transcript, hourStart: match.range.lowerBound) { continue }
+            let parts = transcript[match.range].split(whereSeparator: { $0 == ":" || $0 == "：" })
+            guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]),
+                  (0...24).contains(hour) else { continue }
+            return (hour, minute)
         }
-        let parts = transcript[range].split(whereSeparator: { $0 == ":" || $0 == "：" })
-        guard parts.count == 2,
-              let hour = Int(parts[0]), let minute = Int(parts[1]),
-              (0...24).contains(hour), (0..<60).contains(minute) else { return nil }
-        return (hour, minute)
+        return nil
+    }
+
+    private static let colonClockRegex = try! Regex(#"\d{1,2}[:：][0-5]\d"#)
+
+    /// 数字紧跟在时长引导词后面吗（「跑1:30」「跑步1:30」）。照抄后端
+    /// `VoiceSlotParser.isDurationLeadIn`。
+    ///
+    /// **只在冒号钟点上判**：「跑8点」这种写法现实中不存在，加进来只会多一条没人走的分支。
+    /// 用引导词而不是「小时数看着像时长」之类的启发式 —— 后者会把「跑到1:30」这类真钟点误杀。
+    private static func isDurationLeadIn(_ transcript: String, hourStart: String.Index) -> Bool {
+        guard hourStart > transcript.startIndex else { return false }
+        return "跑步".contains(transcript[transcript.index(before: hourStart)])
     }
 
     /// 「N点」「N点半」。N 中文与阿拉伯数字都认。
@@ -1600,7 +1635,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let digits = head.reversed().prefix(3).reversed().map(String.init)
         for start in 0..<digits.count {
             let candidate = digits[start...].joined()
-            if let value = chineseNumberValue(candidate) { return value }
+            guard let value = chineseNumberValue(candidate) else { continue }
+            // ⚠️「跑1.5小时」不许被读成 5 小时 = 300 分钟。而 300 正好是 `MAX_DURATION_MINUTES`，
+            // 范围校验拦不住 —— 用户说 1.5 小时，读回却说 5 小时，是一次**静默篡改**。
+            // 对齐后端 `VoiceSlotParser.HOUR_ONLY` 的 `(?<!\.)` 守卫（`VoiceSlotParser.java:94`）：
+            // 只挡「抽错」，不新增「认小数时长」—— 落到追问是诚实的降级。
+            if start > 0, digits[start - 1] == "." { continue }
+            return value
         }
         return nil
     }
