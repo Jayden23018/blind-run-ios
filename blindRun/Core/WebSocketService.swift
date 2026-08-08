@@ -333,69 +333,61 @@ final class WebSocketService: ObservableObject {
         guard let data = text.data(using: .utf8) else { return nil }
         let decoder = JSONDecoder()
 
-        // First decode the envelope to get the type
-        guard let envelope = try? decoder.decode(WSMessageEnvelope.self, from: data) else {
+        // 信封解不出就拿不到 type，`messageType` 只能留 nil —— 但**失败本身必须留痕**。
+        // 从前这里返回一条全 nil 的消息，看着像在处理，实际与 `return nil` 行为等价：静默。
+        let envelope: WSMessageEnvelope
+        do {
+            envelope = try decoder.decode(WSMessageEnvelope.self, from: data)
+        } catch {
             return DecodedWebSocketMessage(
                 event: nil,
                 messageType: nil,
                 dispatchOrderID: nil,
-                failedField: nil
+                failedField: Self.failedField(from: error)
             )
         }
 
+        // 八个分支从前只有 `newOrder` 一个上报失败，其余七个 `try?` 到 `return nil` 后
+        // 无日志、无计数、无诊断 —— 盲人端的现象就是「点了没反应」。
+        // 统一成一条 `do/catch`：解不出的**取值**照旧降级（见 `default`），解不出的**消息**必须吵。
         let event: WSIncomingEvent
+        do {
+            switch envelope.type {
+            case WSMessageType.volunteerLocationUpdate.rawValue:
+                event = .volunteerLocation(try decoder.decode(WSVolunteerLocationUpdate.self, from: data))
 
-        switch envelope.type {
-        case WSMessageType.volunteerLocationUpdate.rawValue:
-            if let msg = try? decoder.decode(WSVolunteerLocationUpdate.self, from: data) {
-                event = .volunteerLocation(msg)
-            } else { return nil }
+            case WSMessageType.blindLocationUpdate.rawValue:
+                event = .blindLocation(try decoder.decode(WSBlindLocationUpdate.self, from: data))
 
-        case WSMessageType.blindLocationUpdate.rawValue:
-            if let msg = try? decoder.decode(WSBlindLocationUpdate.self, from: data) {
-                event = .blindLocation(msg)
-            } else { return nil }
+            case WSMessageType.appNotification.rawValue:
+                event = .notification(try decoder.decode(WSAppNotification.self, from: data))
 
-        case WSMessageType.appNotification.rawValue:
-            if let msg = try? decoder.decode(WSAppNotification.self, from: data) {
-                event = .notification(msg)
-            } else { return nil }
+            case WSMessageType.orderStatusChanged.rawValue:
+                event = .orderStatusChanged(try decoder.decode(WSOrderStatusChanged.self, from: data))
 
-        case WSMessageType.orderStatusChanged.rawValue:
-            if let msg = try? decoder.decode(WSOrderStatusChanged.self, from: data) {
-                event = .orderStatusChanged(msg)
-            } else { return nil }
+            case WSMessageType.emergencyResolvedByVolunteer.rawValue:
+                event = .emergencyResolved(try decoder.decode(WSEmergencyResolved.self, from: data))
 
-        case WSMessageType.emergencyResolvedByVolunteer.rawValue:
-            if let msg = try? decoder.decode(WSEmergencyResolved.self, from: data) {
-                event = .emergencyResolved(msg)
-            } else { return nil }
+            case WSMessageType.pong.rawValue:
+                event = .pong(try decoder.decode(WSPong.self, from: data))
 
-        case WSMessageType.pong.rawValue:
-            if let msg = try? decoder.decode(WSPong.self, from: data) {
-                event = .pong(msg)
-            } else { return nil }
+            case WSMessageType.newOrder.rawValue:
+                event = .newOrder(try decoder.decode(WSNewOrder.self, from: data))
 
-        case WSMessageType.newOrder.rawValue:
-            do {
-                let msg = try decoder.decode(WSNewOrder.self, from: data)
-                event = .newOrder(msg)
-            } catch {
-                return DecodedWebSocketMessage(
-                    event: nil,
-                    messageType: envelope.type,
-                    dispatchOrderID: nil,
-                    failedField: Self.failedField(from: error)
-                )
+            case WSMessageType.emergencyVolunteerAlert.rawValue:
+                event = .emergencyAlert(try decoder.decode(WSEmergencyVolunteerAlert.self, from: data))
+
+            default:
+                // 认不出的**类型**是降级，不是失败 —— 后端加类型而 spec 没跟上时不许整条崩。
+                event = .unknown(envelope.type)
             }
-
-        case WSMessageType.emergencyVolunteerAlert.rawValue:
-            if let msg = try? decoder.decode(WSEmergencyVolunteerAlert.self, from: data) {
-                event = .emergencyAlert(msg)
-            } else { return nil }
-
-        default:
-            event = .unknown(envelope.type)
+        } catch {
+            return DecodedWebSocketMessage(
+                event: nil,
+                messageType: envelope.type,
+                dispatchOrderID: nil,
+                failedField: Self.failedField(from: error)
+            )
         }
 
         let dispatchOrderID: Int64?
@@ -414,17 +406,23 @@ final class WebSocketService: ObservableObject {
 
     private func handleDecodedMessage(_ decoded: DecodedWebSocketMessage, generation: UInt64) {
         guard generation == connectionGeneration else { return }
-        if let failedField = decoded.failedField {
-            recordDispatchDiagnostic(
-                stage: .decodeFailed,
-                generation: generation,
-                messageType: decoded.messageType,
-                failedField: failedField
-            )
+        // `event == nil` 现在**只**由解码失败产生，所以这一条 guard 就是全部失败路径。
+        // 不能改按 `failedField` 判：`failedField(from:)` 对 codingPath 为空的
+        // `dataCorrupted`（即整段 JSON 畸形，最常见的一种）返回 nil，那样又会漏回静默。
+        guard let event = decoded.event else {
+            // 派单面包屑只归派单：`AppRealtimeCoordinator` 会对**当前**这条做
+            // `.advancing(to: .retained/.presented)`，别的类型的失败写进来会推进错的那条。
+            if decoded.messageType == WSMessageType.newOrder.rawValue {
+                recordDispatchDiagnostic(
+                    stage: .decodeFailed,
+                    generation: generation,
+                    messageType: decoded.messageType,
+                    failedField: decoded.failedField
+                )
+            }
             ClientFlowDiagnostics.record(event: "failed", operation: "websocket-decode")
             return
         }
-        guard let event = decoded.event else { return }
         if let orderID = decoded.dispatchOrderID {
             recordDispatchDiagnostic(
                 stage: .received,

@@ -130,6 +130,99 @@ enum EmergencySafetyCopy {
     static let noContact = "未找到你的紧急联系人，求助已转客服处理。\(emergencyCallReminder)"
 
     static let volunteerTimeout = "志愿者暂未响应你的求助，系统正在升级处理。\(emergencyCallReminder)"
+
+    // MARK: 首页常驻求助条（非 IN_PROGRESS 的本地拨号分支）
+
+    /// **刻意不叫「一键求助」。** 那四个字在本 App 里专指云端求助 —— 会记录事件、通知同行志愿者
+    /// 与客服。而这条分支只是拨一通电话，App 什么都没发出去。
+    /// `POST /api/emergency/trigger` 两端都只在 `IN_PROGRESS` 开放且必须带 `orderId`（`AGENTS.md` §6），
+    /// 没有进行中的订单时它根本不可调用。用同一个词会让看不见屏幕的人以为求助已经发出。
+    static let homeCallTitle = "紧急呼叫"
+    static let homeCallAccessibilityLabel = "紧急呼叫，直接拨打电话"
+    static let homeCallAccessibilityHint =
+        "当前没有进行中的陪跑。点击后由你选择拨打紧急联系人或110，App 不会代你发送求助。"
+
+    /// 第一句先说「App 不会代你发送求助」，理由与 `locationUnavailable` 相同：
+    /// 看不见屏幕的人最需要先知道的是**什么都还没发生**。
+    static let homeCallDialogMessage =
+        "当前没有进行中的陪跑，App 不会代你发送求助。请选择要拨打的号码。"
+
+    static let homeCallPoliceTitle = "拨打110"
+
+    static func homeCallContactTitle(name: String?) -> String {
+        "拨打\(name?.nilIfBlank ?? "紧急联系人")"
+    }
+
+    /// 没有唯一主联系人时的提示。`singlePrimary` 在 0 个或多个时都返回 nil，
+    /// 两种情况对用户是同一件事：现在没有一个确定该拨给谁的号码。
+    static let homeCallNoContactHint = "尚未设置唯一的主紧急联系人，只能拨打110。"
+}
+
+/// 拨号 URL 的唯一构造点。
+///
+/// 只取数字：后端返回的手机号是明文，但可能带空格或横线，直接拼进 `tel://` 会拼出无效 URL，
+/// 而无效 URL 的表现是「点了没反应」—— 对盲人端就是事故。
+enum EmergencyDialer {
+    static let policeNumber = "110"
+
+    static func telURL(for rawNumber: String?) -> URL? {
+        guard let digits = rawNumber?.filter(\.isNumber), !digits.isEmpty else { return nil }
+        return URL(string: "tel://\(digits)")
+    }
+}
+
+/// 首页求助条的两种模式。**由订单状态决定，不由用户选择。**
+enum BlindHomeSOSMode: Equatable {
+    /// `IN_PROGRESS`：走云端求助，与订单状态页同一条 `EmergencyCoordinator.trigger` 链路。
+    case cloudTrigger
+    /// 其余任何状态：本地拨号，绝不调 `POST /api/emergency/trigger`。
+    case localCall
+
+    /// 判据复用 `canTriggerEmergency(as:)` —— 与 `EmergencyCoordinator.trigger` 发送前的复核
+    /// 是同一个，免得两处对「什么算可以发起云端求助」各有一套理解而慢慢漂开。
+    ///
+    /// 独立成静态方法而不是写在 View 里，是为了能被单测直接钉住：真机 UI 测试通道
+    /// 目前起不来（code 74），把这条安全判据只放在 UI 断言里等于没有覆盖。
+    static func resolve(order: OrderDetailResponse?, role: UserRole?) -> BlindHomeSOSMode {
+        guard let order, let role, order.status.canTriggerEmergency(as: role) else {
+            return .localCall
+        }
+        return .cloudTrigger
+    }
+}
+
+/// 首页底部常驻求助条。挂在 `.safeAreaInset(edge: .bottom)` 上，所以滚动时不会离开屏幕。
+///
+/// 直接 `@ObservedObject` 持有 coordinator，而不是通过 `AppState` 读 ——
+/// `AppState.emergencyCoordinator` 是个 `let`（不是 `@Published`），嵌套 ObservableObject 的变化
+/// 不会经由 `AppState` 重新发布。订单状态页能刷新是因为它自己的 view model 恰好在 5 秒轮询里
+/// 一直发布，靠的是巧合；这里不重复那个巧合。
+struct BlindHomeSOSBar: View {
+    @ObservedObject var coordinator: EmergencyCoordinator
+    let mode: BlindHomeSOSMode
+    let action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            switch mode {
+            case .cloudTrigger:
+                EmergencyActionButton(isLoading: coordinator.state.isBusy, action: action)
+            case .localCall:
+                PrimaryButton(EmergencySafetyCopy.homeCallTitle, isDestructive: true, action: action)
+                    .accessibilityLabel(EmergencySafetyCopy.homeCallAccessibilityLabel)
+                    .accessibilityHint(EmergencySafetyCopy.homeCallAccessibilityHint)
+            }
+
+            // 只有云端求助才有状态可播报；本地拨号不产生任何后端状态。
+            if mode == .cloudTrigger, let message = coordinator.state.message {
+                EmergencyStatusNotice(
+                    message: message,
+                    isFailure: coordinator.state.isFailure
+                )
+            }
+        }
+        .accessibilityIdentifier("blindRunnerHomeSOSBar")
+    }
 }
 
 struct EmergencyActionButton: View {
@@ -161,6 +254,49 @@ struct EmergencyStatusNotice: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityLabel(message)
+    }
+}
+
+/// 求助按钮 + 状态提示 + 撤销入口的组合，**自己 `@ObservedObject` 持有 coordinator**。
+///
+/// 为什么必须持有而不能由页面直接读 `appState.emergencyCoordinator.state`：
+/// `AppState.emergencyCoordinator` 是 `let`，不是 `@Published`（`AppState.swift:63`），
+/// 而 `AppState` 没有把子对象的 `objectWillChange` 转发上来。SwiftUI 只订阅 `AppState`
+/// 自己的变化，所以在页面 body 里读嵌套 ObservableObject 的属性是**读得到值、但不跟着更新**。
+///
+/// 这不是理论问题：`BlindOrderStatusView` 原先就是那么写的，它看起来能刷新，靠的是本页
+/// view model 恰好在 5 秒轮询里持续发布、把整个 body 重算了 —— 巧合而非设计。而这里显示的是
+/// **盲人端求助状态**：停在旧值意味着用户听到的是过期结论（比如仍念「正在发送」而其实已经失败），
+/// 直接违反「每一种结果都必须可见且可听地如实告知」（`AGENTS.md` §6）。
+///
+/// 反过来**不要**在 `AppState` 里转发所有子对象的 `objectWillChange`：那会让每次定位采样、
+/// 每条 WebSocket 消息都重绘所有订阅 `AppState` 的视图（盲人首页、地图、志愿者首页都在内）。
+/// 由需要跟随的那个视图自己订阅，代价才是局部的。
+struct EmergencyActionSection: View {
+    @ObservedObject var coordinator: EmergencyCoordinator
+    let onTrigger: () -> Void
+    let onCancelOwnEmergency: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            EmergencyActionButton(isLoading: coordinator.state.isBusy, action: onTrigger)
+
+            if let message = coordinator.state.message {
+                EmergencyStatusNotice(message: message, isFailure: coordinator.state.isFailure)
+            }
+
+            // 只有本人发出、且还没结束的求助才谈得上撤销。判据直接读被观察的 coordinator，
+            // 不再经由 view model 绕一手 —— 绕一手就又回到「值对但不刷新」。
+            if coordinator.activeEvent != nil {
+                Button(EmergencySafetyCopy.cancelButtonTitleForOwner, action: onCancelOwnEmergency)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.textSecondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
+                    .accessibilityLabel(EmergencySafetyCopy.cancelButtonTitleForOwner)
+                    .accessibilityHint("误触时撤销本次求助，需要确认")
+            }
+        }
     }
 }
 

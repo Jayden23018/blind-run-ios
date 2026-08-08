@@ -681,6 +681,91 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pendingDispatch?.order.orderId, 43)
     }
 
+    // MARK: - 解码失败必须留痕（不是只有 NEW_ORDER）
+
+    /// 从前 `decodeTextMessage` 的八个分支里只有 `NEW_ORDER` 上报失败，其余七个
+    /// `try? … else { return nil }` 之后无日志、无计数、无诊断。受影响的正是
+    /// `APP_NOTIFICATION`（TTS 播报的输入）与两条求助事件 —— 盲人端的现象是「点了没反应」，
+    /// 而这恰好是 `PagedOrderResponse` 那次「静默吞成空页」的同一个 bug class 的 WebSocket 版本。
+    ///
+    /// 这四条钉的不是「解不出」，是「解不出时必须**吵**」。
+
+    /// `APP_NOTIFICATION` 解不出时要计入失败，且**不得**污染派单面包屑。
+    func testMalformedAppNotificationIsRecordedAsFailedWithoutTouchingDispatchDiagnostic() async {
+        let coordinator = AppRealtimeCoordinator()
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .volunteer)
+        let generation = service.simulateNewTransportForTesting()
+
+        // 先让派单面包屑停在 .retained，这样"有没有被别的类型踩脏"才看得出来。
+        service.simulateTextMessageForTesting(
+            #"{"type":"NEW_ORDER","orderId":42,"dispatchTimeoutSeconds":30}"#,
+            generation: generation
+        )
+        await Task.yield()
+        XCTAssertEqual(coordinator.dispatchDiagnostic?.stage, .retained)
+
+        // `body` 是必填，缺了必然解不出。
+        service.simulateTextMessageForTesting(
+            #"{"type":"APP_NOTIFICATION","eventType":"ESCORT_DISTANCE_ALERT"}"#,
+            generation: generation
+        )
+        await Task.yield()
+
+        XCTAssertEqual(ClientFlowDiagnostics.currentPhase, "websocket-decode.failed")
+        // 关键：派单诊断仍停在 .retained。若把非派单的失败也写进去，
+        // `AppRealtimeCoordinator` 后续的 `.advancing(to:)` 会推进错误的那条。
+        XCTAssertEqual(coordinator.dispatchDiagnostic?.stage, .retained)
+        XCTAssertEqual(coordinator.dispatchDiagnostic?.orderID, 42)
+    }
+
+    /// 求助告警解不出时同样要计入失败 —— 这条单独钉，因为它落在 SOS 红线上。
+    func testMalformedEmergencyVolunteerAlertIsRecordedAsFailed() async {
+        let service = WebSocketService()
+        let generation = service.simulateNewTransportForTesting()
+
+        // `eventId` 是必填。
+        service.simulateTextMessageForTesting(
+            #"{"type":"EMERGENCY_VOLUNTEER_ALERT","orderId":9}"#,
+            generation: generation
+        )
+        await Task.yield()
+
+        XCTAssertEqual(ClientFlowDiagnostics.currentPhase, "websocket-decode.failed")
+    }
+
+    /// 整段 JSON 畸形（信封都解不出）时也必须计入失败。
+    ///
+    /// 这条是设计上最容易漏的一个：`failedField(from:)` 对 codingPath 为空的
+    /// `dataCorrupted` 返回 `nil`，所以失败判定**不能**写成 `if let failedField`，
+    /// 否则最常见的一种失败反而会漏回静默。
+    func testCompletelyMalformedPayloadIsRecordedAsFailedEvenWithoutAFailedField() async {
+        let service = WebSocketService()
+        let generation = service.simulateNewTransportForTesting()
+
+        service.simulateTextMessageForTesting(#"{"type":"#, generation: generation)
+        await Task.yield()
+
+        XCTAssertEqual(ClientFlowDiagnostics.currentPhase, "websocket-decode.failed")
+    }
+
+    /// 反向锁：认不出的**类型**是降级，不是失败。
+    ///
+    /// 收紧的只是「解码失败要留痕」，绝不能顺手把「后端加了新类型而 spec 没跟上时不许整条崩」
+    /// 一起收掉 —— 那两条规则的安全方向相反。与 `OrderEnumLeniencyDecodingTests` 同构。
+    func testUnknownMessageTypeStillDegradesAndIsNotCountedAsAFailure() async {
+        let service = WebSocketService()
+        let generation = service.simulateNewTransportForTesting()
+
+        service.simulateTextMessageForTesting(
+            #"{"type":"SOME_TYPE_ADDED_BY_THE_BACKEND_LATER"}"#,
+            generation: generation
+        )
+        await Task.yield()
+
+        XCTAssertEqual(ClientFlowDiagnostics.currentPhase, "websocket-decode.applied")
+    }
+
     /// 接单前的派单载荷不得把盲人的自由文本备注带进 App（`AGENTS.md §8`）。
     ///
     /// 两件事一起验，因为它们会以相反的方向坏掉：

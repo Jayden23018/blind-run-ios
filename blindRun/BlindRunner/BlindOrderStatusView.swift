@@ -42,10 +42,6 @@ final class BlindOrderStatusViewModel: ObservableObject {
         order?.status.canBlindRunnerTriggerEmergency == true
     }
 
-    var emergencyState: EmergencySOSState {
-        appState?.emergencyCoordinator.state ?? .idle
-    }
-
     var canShowCancel: Bool {
         order?.status.canBlindRunnerCancel == true
     }
@@ -178,32 +174,16 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
-    /// 只有本人发出、且还没结束的求助才谈得上撤销。
-    var canCancelEmergency: Bool {
-        appState?.emergencyCoordinator.activeEvent != nil
-    }
-
-    /// Freshest real GCJ-02 sample, with one bounded retry.
+    /// 新鲜真实坐标，实现在 `EmergencyCoordinator.freshEmergencyCoordinate(using:)`。
     ///
-    /// `latestBackendSample()` only ever returns a genuine `CLLocation` normalized at the single
-    /// backend boundary — the Demo/UI-test location path never produces a device sample, so a demo
-    /// coordinate cannot leak into a cloud SOS through this function. During `IN_PROGRESS` the live
-    /// escort session is already sampling every five seconds, so the retry matters only when the
-    /// run has just started or updates were briefly paused.
+    /// 2026-08-07 从这里提走：首页 SOS 条是第二个求助入口，而这段逻辑的每一条都是安全约束
+    /// （只接受真实设备采样、演示坐标进不来、拿不到就返回 nil 让上层如实播报「未发出」）。
+    /// 两份实现意味着这条保证要守两遍，迟早漂移。
+    ///
+    /// `IN_PROGRESS` 期间实时陪跑会话每 5 秒采样一次，所以那次有界重试只在刚起跑
+    /// 或位置更新短暂暂停时才用得上。
     private func freshEmergencyCoordinate() async -> LocatedCoordinate? {
-        guard let locationService else { return nil }
-        if let sample = locationService.latestBackendSample() {
-            return sample
-        }
-        locationService.requestOneTimeLocation()
-        let deadline = Date().addingTimeInterval(EmergencyCoordinator.locationWaitTimeout)
-        while Date() < deadline {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            if let sample = locationService.latestBackendSample() {
-                return sample
-            }
-        }
-        return nil
+        await EmergencyCoordinator.freshEmergencyCoordinate(using: locationService)
     }
 
     func submitReview() async {
@@ -547,6 +527,10 @@ struct BlindOrderStatusView: View {
     let orderId: Int64
     let onOrderUpdated: (OrderDetailResponse) -> Void
 
+    /// 主按钮高度。比首页的 280 小：这一页顶上还有状态卡要占位置，
+    /// 而状态本身也是盲人此刻需要的信息，不能被按钮挤出首屏。
+    @ScaledMetric(relativeTo: .largeTitle) private var volunteerCallButtonHeight: CGFloat = 140
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -557,12 +541,15 @@ struct BlindOrderStatusView: View {
                 }
 
                 if let order = viewModel.order {
+                    // 顺序即优先级：状态（一句话 + 一个数字）→ 唯一主动作（打电话）→
+                    // 其余全部下沉。此前主动作排在第 4 位，读屏要滑过状态卡、地图、
+                    // 生命周期卡才够得着。
                     statusHeader(order)
+                    volunteerCallSection(order)
                     peerMapSection(order)
                     lifecycleSection(order)
-                    volunteerSection(order)
-                    orderInfoSection(order)
                     actionSection(order)
+                    orderInfoSection(order)
                     debugMockControls(order)
                 }
 
@@ -635,8 +622,13 @@ struct BlindOrderStatusView: View {
         }
     }
 
+    /// 一句话 + 一个数字，合成**一个** VoiceOver 焦点。
+    ///
+    /// 距离此前埋在下面的「志愿者信息」卡片里当正文读，而它恰恰是这一页唯一会变的数字 ——
+    /// 对标 GoodMaps 的 `Start Walking … 96 ft`、WeWALK 的 `116 meters`：状态旁边就该是那个数
+    /// （`docs/research/blind-ui-visual-benchmark-20260808.md` §1 规则 4）。
     private func statusHeader(_ order: OrderDetailResponse) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Image(systemName: order.status.statusSymbolName)
                 .font(.system(size: 56))
                 .foregroundColor(order.status.statusColor)
@@ -645,73 +637,54 @@ struct BlindOrderStatusView: View {
             Text(order.status.displayName)
                 .font(.largeTitle.bold())
                 .foregroundColor(AppColors.textPrimary)
-                .accessibilityLabel(order.status.displayName)
-                .accessibilityHint(order.status.blindRunnerDescription)
 
             Text(order.status.blindRunnerDescription)
                 .font(.title3)
                 .foregroundColor(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
-                .accessibilityLabel(order.status.blindRunnerDescription)
+
+            if let distanceText = viewModel.volunteerDistanceToStartText {
+                Text("志愿者\(distanceText)")
+                    .font(.title.bold())
+                    .foregroundColor(AppColors.textPrimary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding()
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(statusHeaderAnnouncement(order))
+    }
+
+    /// 合并后的朗读文本写死，不交给 `.combine` 自己拼 —— 自动拼接会把状态名、说明和距离
+    /// 糊成一长串没有停顿的音。
+    private func statusHeaderAnnouncement(_ order: OrderDetailResponse) -> String {
+        var parts = [order.status.displayName, order.status.blindRunnerDescription]
+        if let distanceText = viewModel.volunteerDistanceToStartText {
+            parts.append("志愿者\(distanceText)")
+        }
+        return parts.joined(separator: "。")
     }
 
     @ViewBuilder
     private func lifecycleSection(_ order: OrderDetailResponse) -> some View {
         switch order.status.blindRunnerRoute {
-        case .tracking:
-            if order.status.isArrivedWaitingForServiceStart {
-                waitingForServiceStartSection(order)
-            }
-        case .inService:
-            inServiceSection(order)
+        case .tracking, .inService:
+            // 这两条分支此前各渲染一张「标题 + 正文」卡片，两处正文都与 `statusHeader` 重复：
+            //   · `DRIVER_ARRIVED` 的 `arrivedWaitingCopy` **就是**它的 `blindRunnerDescription`
+            //     （`OrderDisplayHelpers.swift:77` 直接 return 了它）—— 逐字重复
+            //   · `IN_PROGRESS` 那句「请与志愿者保持沟通，注意安全。系统会持续同步订单状态，
+            //     服务完成后进入评价页面。」33 个字里没有一个能让盲人做出动作：
+            //     「持续同步订单状态」是实现细节，「完成后进入评价页面」是还没发生的事
+            // 读屏用户为此要多滑两次、把同一件事听两遍。状态语义由 `statusHeader` 一处承担。
+            EmptyView()
         case .completion:
             completionRatingSection(order)
         case .terminal:
             terminalSection(order)
         }
-    }
-
-    private func waitingForServiceStartSection(_ order: OrderDetailResponse) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("等待志愿者开始服务")
-                .font(.title3.bold())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            Text(order.status.arrivedWaitingCopy)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("等待志愿者开始服务，\(order.status.arrivedWaitingCopy)")
-    }
-
-    private func inServiceSection(_ order: OrderDetailResponse) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("服务进行中")
-                .font(.title3.bold())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            Text("请与志愿者保持沟通，注意安全。系统会持续同步订单状态，服务完成后进入评价页面。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.success.opacity(0.12))
-        .cornerRadius(8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("服务进行中，请与志愿者保持沟通，注意安全")
     }
 
     private func completionRatingSection(_ order: OrderDetailResponse) -> some View {
@@ -787,31 +760,34 @@ struct BlindOrderStatusView: View {
     private func peerMapSection(_ order: OrderDetailResponse) -> some View {
         if [.driverEnRoute, .driverArrived, .inProgress].contains(order.status) {
             let peer = viewModel.latestVolunteerSample?.coordinate
-            VStack(alignment: .leading, spacing: 8) {
-                Text("同行位置").font(.headline).accessibilityAddTraits(.isHeader)
-                if let peer {
-                    MapViewWrapper(
-                        centerCoordinate: peer,
-                        showsUserLocation: false,
-                        annotations: [MapAnnotationItem(
-                            id: "associated-volunteer",
-                            coordinate: peer,
-                            title: "同行志愿者",
-                            subtitle: "位置刚刚更新",
-                            kind: .peer
-                        )],
-                        tracksUserLocation: false
-                    )
-                    .frame(height: 180)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .allowsHitTesting(false)
-                    .accessibilityLabel("辅助地图，同行志愿者位置可用")
-                } else {
-                    Text("同行位置暂时不可用")
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.warning)
-                        .accessibilityLabel("同行位置暂时不可用")
-                }
+            if let peer {
+                // 与首页同一条规则：地图是装饰，列表才是界面。它不可交互、不承载任何必要信息
+                // ——「志愿者距你多远」的文字版在 `statusHeader` 里，是那一页最大的那个数字。
+                // 「同行位置」这个标题一并去掉：视觉扫读才需要标题，这一页没有扫读。
+                MapViewWrapper(
+                    centerCoordinate: peer,
+                    showsUserLocation: false,
+                    annotations: [MapAnnotationItem(
+                        id: "associated-volunteer",
+                        coordinate: peer,
+                        title: "同行志愿者",
+                        subtitle: "位置刚刚更新",
+                        kind: .peer
+                    )],
+                    tracksUserLocation: false
+                )
+                .frame(height: 180)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            } else {
+                // 但「拿不到位置」必须留在读屏里：盲人据此决定要不要打电话，
+                // 这是状态信息不是装饰。
+                Text("同行位置暂时不可用")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.warning)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel("同行位置暂时不可用")
             }
         }
     }
@@ -834,45 +810,62 @@ struct BlindOrderStatusView: View {
         .accessibilityLabel("\(order.status.displayName)，\(order.status.blindRunnerDescription)")
     }
 
+    /// 接单后这一页唯一的主动作：打电话给志愿者。
+    ///
+    /// 此前它是「志愿者信息」卡片里的一行只读文字（`Text("志愿者电话：…")`）。
+    /// 打车 App 里视障乘客靠车型 / 车牌 / 颜色确认对方，**陪跑场景这三样都没有** ——
+    /// 志愿者是个人，视障者手里唯一的汇合手段就是这通电话。把它做成一行文字，
+    /// 等于把唯一的出路藏在第四张卡片里。
+    ///
+    /// 依据：202 名视障者问卷 + 12 人访谈的结论是导航阶段最优先的信息为「怎么找到正确的那一个」；
+    /// Guide Dogs for the Blind 给视障乘客的操作建议直接就是「接驾前几分钟主动打电话说明自己在哪」。
+    /// 见 `docs/research/blind-ui-visual-benchmark-20260808.md` §3.2。
+    ///
+    /// 只在需要汇合的状态出现：终态（已完成 / 已取消 / 暂无志愿者）下电话可能还在，
+    /// 但那时候摆一个占半屏的拨号按钮是错的。
+    /// ponytail: 复用 `EmergencyDialer.telURL` —— 它只是在拼 `tel://`，与求助语义无关，
+    /// 不值得为「非紧急拨号」再造一个同样的三行函数。
     @ViewBuilder
-    private func volunteerSection(_ order: OrderDetailResponse) -> some View {
-        let volunteerPhone = order.volunteerPhone?.nilIfBlank
-        let distanceText = viewModel.volunteerDistanceToStartText
-        if volunteerPhone != nil || distanceText != nil {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("志愿者信息")
-                    .font(.title3.bold())
-                    .foregroundColor(AppColors.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-
-                if let volunteerPhone {
-                    Text("志愿者电话：\(volunteerPhone)")
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textPrimary)
-                        .accessibilityLabel("志愿者电话：\(volunteerPhone)")
-                }
-
-                if let distanceText {
-                    Text("志愿者\(distanceText)")
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textPrimary)
-                        .accessibilityLabel("志愿者\(distanceText)")
-                }
+    private func volunteerCallSection(_ order: OrderDetailResponse) -> some View {
+        if order.status.offersVolunteerCall,
+           let volunteerPhone = order.volunteerPhone?.nilIfBlank,
+           let telURL = EmergencyDialer.telURL(for: volunteerPhone) {
+            Button {
+                UIApplication.shared.open(telURL)
+            } label: {
+                Text("打电话给志愿者")
+                    .font(AppFonts.largeTitle())
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: volunteerCallButtonHeight)
+                    .background(AppColors.primary)
+                    .cornerRadius(16)
             }
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppColors.secondaryBackground)
-            .cornerRadius(8)
+            .accessibilityLabel("打电话给志愿者")
+            .accessibilityHint("拨打 \(volunteerPhone)，系统会先弹出拨号确认")
+            .accessibilityIdentifier("blindOrderStatusCallVolunteerButton")
         }
     }
 
+    /// 折叠。这 8 行在下单时已经被逐条读回确认过一遍，服务进行中它们既不可改也无需再听 ——
+    /// 摊开就是读屏用户在主路径上多滑 8 次。`DisclosureGroup` 保留了「想听时能听」，
+    /// 而不是把信息删掉。
     private func orderInfoSection(_ order: OrderDetailResponse) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("预约信息")
-                .font(.title3.bold())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
+        DisclosureGroup("预约信息") {
+            orderInfoRows(order)
+                .padding(.top, 12)
+        }
+        .font(.title3.bold())
+        .tint(AppColors.textPrimary)
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(8)
+        .accessibilityHint("展开后可以听到预约时间、出发地点等已确认的信息")
+    }
 
+    private func orderInfoRows(_ order: OrderDetailResponse) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
             infoRow("预约时间", (order.plannedStart ?? "").displayDateTime)
             if let address = order.startAddress, !address.trimmed.isEmpty {
                 infoRow("出发地点", address)
@@ -896,10 +889,7 @@ struct BlindOrderStatusView: View {
                 infoRow("特殊说明", notes)
             }
         }
-        .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
     }
 
     private func infoRow(_ title: String, _ value: String) -> some View {
@@ -918,26 +908,14 @@ struct BlindOrderStatusView: View {
     private func actionSection(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 14) {
             if viewModel.canShowEmergency {
-                EmergencyActionButton(isLoading: appState.emergencyCoordinator.state.isBusy) {
-                    showEmergencyConfirmation = true
-                }
-                if let message = appState.emergencyCoordinator.state.message {
-                    EmergencyStatusNotice(
-                        message: message,
-                        isFailure: appState.emergencyCoordinator.state.isFailure
-                    )
-                }
-                if viewModel.canCancelEmergency {
-                    Button(EmergencySafetyCopy.cancelButtonTitleForOwner) {
-                        showEmergencyCancelConfirmation = true
-                    }
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                    .accessibilityLabel(EmergencySafetyCopy.cancelButtonTitleForOwner)
-                    .accessibilityHint("误触时撤销本次求助，需要确认")
-                }
+                // 求助区块整体交给 `EmergencyActionSection`：它自己订阅 coordinator。
+                // 此前这里直接读 `appState.emergencyCoordinator.state`，值是对的但不保证跟着更新
+                // —— 详见该类型的注释。
+                EmergencyActionSection(
+                    coordinator: appState.emergencyCoordinator,
+                    onTrigger: { showEmergencyConfirmation = true },
+                    onCancelOwnEmergency: { showEmergencyCancelConfirmation = true }
+                )
             }
 
             if viewModel.canShowCancel {

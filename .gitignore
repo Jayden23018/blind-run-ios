@@ -75,3 +75,7 @@ LocalConfig.xcconfig
 # settings.local.json 是个人机器设置，团队共享的规则放 .claude/settings.json。
 .claude/worktrees/
 .claude/settings.local.json
+
+# 对标产品截图：App Store 官方素材，31MB 二进制，不进 git 历史。
+# 要看就自己抓一次：node scripts/fetch-reference-screenshots.mjs
+docs/ui/reference-screenshots/

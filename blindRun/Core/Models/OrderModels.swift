@@ -176,10 +176,6 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         self == .driverArrived
     }
 
-    var isArrivedWaitingForServiceStart: Bool {
-        self == .driverArrived
-    }
-
     var arrivedWaitingCopy: String {
         "志愿者已到达约定地点，请等待志愿者开始服务。服务开始前不能结束订单。"
     }

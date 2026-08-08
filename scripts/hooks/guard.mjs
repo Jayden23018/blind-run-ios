@@ -245,7 +245,35 @@ function main() {
       );
     }
 
-    // 6. workflow 的 if: 里出现 secrets（2026-08-06）
+    // 6. UI 测试里敲屏幕正中（2026-08-08）
+    //
+    // `app.tap()` 点的是屏幕几何中心。盲人端主按钮的设计目标就是**占满内容区**
+    // （对标 Be My Eyes，见 docs/research/blind-ui-visual-benchmark-20260808.md §1），
+    // 所以屏幕正中永远压着一个会导航走的按钮。
+    //
+    // 发作形态特别有欺骗性：用例一启动就被自己点进了下单页，随后每条断言都报
+    // 「找不到 blindRunnerHomeStartBookingButton」，看起来像**首页没起来**，
+    // 于是会去查启动 gate、mock 数据、签名 —— 全是错方向。
+    // 首页主按钮从 64pt 放大到 280pt 那次，5 条用例同时红，跑了 3 轮真机才定位到这一行。
+    //
+    // 正解是敲一个明确不吃点击的区域，首页顶部地图层就是（`allowsHitTesting(false)`）。
+    const isUITest = /blindRunUITests\/.*\.swift$/.test(filePath);
+    const tapCenterLine = isUITest
+      ? body.split('\n').find((l) => /\bapp\.tap\(\)/.test(l) && !l.includes('guard:allow blind-tap-center'))
+      : undefined;
+    if (tapCenterLine) {
+      fail(
+        'blind-tap-center',
+        `${filePath}\n  ${tapCenterLine.trim()}\n\n` +
+          `\`app.tap()\` 敲的是屏幕正中，而盲人端主按钮的设计目标就是占满那里 —— 一敲就导航走。\n` +
+          `症状会伪装成「页面没起来」：后续断言全报找不到元素，实际是用例自己点进了别的页。\n` +
+          `改法：敲一个明确无动作的区域，例如顶部地图层（allowsHitTesting(false)）：\n` +
+          `  app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()\n` +
+          `确实就是要点正中，行尾加 \`// guard:allow blind-tap-center\`。`
+      );
+    }
+
+    // 7. workflow 的 if: 里出现 secrets（2026-08-06）
     //
     // `secrets` 不在 `if:` 的可用上下文里 —— 官方 context availability 表：
     //   jobs.<job_id>.if        → github, needs, vars, inputs

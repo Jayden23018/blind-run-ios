@@ -140,7 +140,30 @@
 - [x] 3.5 非槽位门槛缺失时 `start()` 返回 false 并播报门槛原因 —— **2026-08-06 补齐**：`testStartIsBlockedByGatesThatVoiceCannotFill`。顺带补了第三条分支 `testStartFallsBackImmediatelyWhenTheSpeechPathIsAlreadyKnownBroken`（语音链路已知不可用时直接交回表单，不走三轮重问）。
   ⚠️ 补之前 `start()` 的三道分支**一条都没被验过** —— 28 条既有用例全部走 `startForTesting(at:)` 绕开了它。
 - [x] 3.6 `BlindBookingGateTests` / `blindRunTests` 回归 —— **2026-08-04 全量真机跑通（483 单测 0 失败），1.7 那条「新增回调是否波及其他 `SpeechInputField` 使用方」也随之得到回答：没有波及。**
-- [ ] 3.7 UI 测试（Mock 环境）验证首步文案 —— 未写、未跑。
+- [x] 3.7 UI 测试（Mock 环境）—— **2026-08-08 补齐并真机跑通**：`AccessibilityAuditTests.testVoiceStageRendersNoFormControls`，断言语音态里搜索框 / 补充描述框 / 搜索按钮 / 辅助地图 / 表单说明文字一个都不存在，且「改用表单」这个逃生口在。
+  ⚠️ 原措辞「验证首步文案」写不出可靠断言：首步文案是 TTS 播的，屏幕上那份是 `lastSpokenPrompt` 的镜像，断言它等于断言一个字符串常量等于它自己。改成断言**结构**（语音态里表单不存在），那才是自动化能抓、人眼容易漏的东西。
+  ⚠️ 真机跑 UI 测试拿不到语音识别授权时 `start()` 会直接降级到表单态，语音态在自动化里根本走不到 —— 加了接缝 `AIDRUN_UI_TEST_FORCE_VOICE_STAGE`（只调既有的 `startForTesting(at:)`，不碰麦克风、不伪造解析结果）。
+
+## 6. 预约页收成语音态 / 表单态二选一（2026-08-08）
+
+- [x] 6.1 `BlindBookingView.body` 从「header + 语音区 + 进度条 + 四步表单」四块并排改成 `if voiceWizard.isRunning { voiceStage } else { formStage }`。
+- [x] 6.2 `voiceStatusBlock` 取代原来挂在 `body` 上的整屏点击 `.overlay`。原实现在 `isParsing` 时把整层撤掉，那几秒屏幕上没有任何东西说「正在识别」；现在元素恒在，只有可点性与 `.isButton` 随状态变。VoiceOver 只给一个焦点：`label` 是现在能做什么，`value` 是刚念的那句话。
+- [x] 6.3 读回轮加 `voiceOrderRecap`：一行「一个名字 + 一个值」，不带「出发地点：」这类前缀（视觉对标 §1 规则 4）。时间只在 `didCaptureStartTime` 为真时显示具体时刻 —— 屏幕这一份不能把 2026-08-06 修过的「不许念用户没说过的时刻」退回去。
+- [x] 6.4 底栏 `voiceControls` 从并排改全宽竖排（视觉对标 §1 规则 3；横排也是本项目 UI 测试假失败的常见来源）。
+- [x] 6.5 **缺陷修复**：`.onChange(of: voiceWizard.step)` 首次进入不触发（`step` 初值即 `.freeform`，`start()` 是同值赋值，SwiftUI 的 `onChange` 只在新旧值不等时触发），表单因此停在第 1 步。三个启动点收敛到 `startVoiceWizard()`，成功时显式同步到 `.review`。
+  ⚠️ 这个缺陷的可见症状正是本轮的起点：`startsWithVoice: true` 进来时屏幕渲染的是 `locationSection`（搜索框 + 麦克风 + 辅助地图），而不是设计里的确认步。
+- [x] 6.6 零输入下单：`fallbackMessage != nil && firstMissingGate == nil` 时在表单顶部给两步按钮。演示坐标不需要单独判 —— 正式通道里 `resolvedStartPlace` 拿不到真实定位就是 nil，`.startPoint` 那道门槛已经挡住了。
+- [x] 6.9 **`/code-review` 抓到的一条 HIGH，已修**：`isZeroInputConfirming` 这个 `@State` 只在两个按钮里赋值、没有任何复位，活得比它的前提久。路径：点「不用填，直接下单」进第二步 → 改点「用语音重新说一次」→ 这一轮语音又失败 → 页面切回表单态时**直接露出真提交的按钮**，而用户这一轮既没点过 offer、也没听到「确认就再点一次」那句整单播报 —— 两步确认的全部理由就是那句播报，没听到等于一步提交。
+  修在两处，缺一不可：`startVoiceWizard()` 里显式复位（盖重启语音那条 —— 那条路上 `isZeroInputOfferAvailable` 一直是 true，`fallBack` 换的是消息内容不是有无，`onChange` 抓不到），以及 `.onChange(of: isZeroInputOfferAvailable)` 在前提消失时复位（盖门槛中途变化那条，例如去系统设置关掉定位再打开）。
+- [x] 6.7 既有 UI 用例适配：
+  - `blindRunUITests.createBookingAndAssertMatching` 不再写死「第 1 步 → 第 2 步 → 第 3 步 → 提交」。落在哪一步由麦克风授权决定，写死步数在授权成功的设备上必挂，且挂的原因与下单链路无关。
+  - `AccessibilityAuditTests.testBlindBookingPassesAccessibilityAudit` 改成等语音态或表单态任一标志元素。**基线实测这条本来就在报 `XCTAssertTrue failed - 下单页没起来`** —— 它只等表单态才有的 `blindBookingVoiceOrderButton`，而这台设备的麦克风授权是给过的。
+- [x] 6.8 真机验证（2026-08-08，iPhone 16 Pro）：
+  - `blindRunTests/VoiceOrderWizardTests` + `blindRunTests/BlindBookingGateTests` → passed=62 failed=0
+  - `blindRunTests/blindRunTests` → passed=278 failed=0
+  - `blindRunUITests/blindRunUITests/testMockBlindRunnerBookingSmoke` → passed=1 failed=0
+  - `blindRunUITests/AccessibilityAuditTests` → passed=4 failed=2，两条失败是先于本轮存在的静态审计红灯（对比度 + Dynamic Type，见 `docs/research/blind-ui-visual-benchmark-20260808.md` §5）。**基线对照实测**：改动前预约页那条报 4 条报警 + 1 条断言失败，改动后降到 2 条报警、断言失败消失。
+  - 未全量：本轮没碰 `SystemSpeechAudioSession` / `APIClient` / `AppState`，按 `AGENTS.md`「跑多大范围」只跑覆盖面内的 suite。
 
 ## 4. 文档
 

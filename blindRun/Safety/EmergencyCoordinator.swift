@@ -108,6 +108,28 @@ final class EmergencyCoordinator: ObservableObject {
     /// Longest we will make someone wait for a fresh fix before giving up and saying so.
     static let locationWaitTimeout: TimeInterval = 5
 
+    /// 取一份新鲜的真实 GCJ-02 坐标，拿不到就返回 nil（由 `trigger` 决定不发并如实播报）。
+    ///
+    /// 放在这里而不是各调用方各写一份：求助入口现在有两个（订单状态页、首页 SOS 条），
+    /// 而这段逻辑的每一条都是安全约束 —— `latestBackendSample()` 只返回经单一后端边界
+    /// 归一化过的**真实设备采样**，Demo / UI 测试的定位路径压根产不出设备采样，
+    /// 所以演示坐标无法经由这里混进云端求助。两份实现意味着这条保证要守两遍。
+    static func freshEmergencyCoordinate(using locationService: LocationService?) async -> LocatedCoordinate? {
+        guard let locationService else { return nil }
+        if let sample = locationService.latestBackendSample() {
+            return sample
+        }
+        locationService.requestOneTimeLocation()
+        let deadline = Date().addingTimeInterval(locationWaitTimeout)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if let sample = locationService.latestBackendSample() {
+                return sample
+            }
+        }
+        return nil
+    }
+
     @Published private(set) var state: EmergencySOSState = .idle
     @Published private(set) var activeEvent: ActiveEmergencyEvent?
     /// Set only on the escorting volunteer's device, from `EMERGENCY_VOLUNTEER_ALERT`.
