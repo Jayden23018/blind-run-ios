@@ -465,6 +465,7 @@ final class VoiceOrderWizardTests: XCTestCase {
             ("两个小时", 120),
             ("就跑二十分钟吧", 20)
         ]
+
         for testCase in regexCases {
             XCTAssertEqual(
                 MockAPIClient.mockVoiceMinutes(in: testCase.transcript),
@@ -475,7 +476,11 @@ final class VoiceOrderWizardTests: XCTestCase {
 
         // golden-corpus: DURATION llm
         // `source: "llm"` 的长尾表达：Mock 没有模型兜底，必须落到 needReask，不能瞎猜一个值。
-        for transcript in ["随便说点什么", "陪我跑个把小时吧", "跑到我累了为止"] {
+        //
+        // 「跑1.5小时」「跑0.5小时」是 2026-08-08 后端 PR #14 补进语料的，锁的是一次**静默篡改**：
+        // 没有小数守卫时它们会匹配到小数部分的「5小时」→ 300 分钟，而 300 正好是时长上限，
+        // 范围校验拦不住。用户说 1.5 小时、读回念 5 小时，比抽不出更糟。
+        for transcript in ["随便说点什么", "陪我跑个把小时吧", "跑到我累了为止", "跑1.5小时", "跑0.5小时"] {
             XCTAssertNil(
                 MockAPIClient.mockVoiceMinutes(in: transcript),
                 "「\(transcript)」在 Mock 里不该被解析出数值"
@@ -499,7 +504,18 @@ final class VoiceOrderWizardTests: XCTestCase {
                 ("半小时后", "2026-07-24T10:30:00"),
                 ("两个小时后", "2026-07-24T12:00:00"),
                 ("四十分钟后", "2026-07-24T10:40:00"),
-                ("呃，明天早上八点吧", "2026-07-25T08:00:00")
+                ("呃，明天早上八点吧", "2026-07-25T08:00:00"),
+                // 冒号钟点（后端 PR #14 补进语料）。识别器说中文时常把「八点钟」渲染成 `8:00`，
+                // 全角 `8：00` 同样出现过 —— 这类句子里连「点」字都没有。
+                ("8:00", "2026-07-25T08:00:00"),
+                ("8：00", "2026-07-25T08:00:00"),
+                ("18:45", "2026-07-24T18:45:00"),
+                ("下午3:00", "2026-07-24T15:00:00"),
+                ("8点半", "2026-07-25T08:30:00"),
+                ("明天早上8:00从阳光棕榈园跑", "2026-07-25T08:00:00"),
+                // 前半句的「跑1:30」必须被跳过、且**继续往后找** —— 真正的钟点在后面。
+                // 直接返 nil 会让这句整个抽不出时间。
+                ("跑1:30，明天早上8点出发", "2026-07-25T08:00:00")
             ]
             for testCase in regexCases {
                 let parsed = MockAPIClient.mockVoiceStartTime(in: testCase.transcript)
@@ -511,7 +527,11 @@ final class VoiceOrderWizardTests: XCTestCase {
             }
 
             // golden-corpus: START_TIME llm
-            for transcript in ["随便说点什么", "明天差不多这个点吧", "等我吃完早饭吧"] {
+            // 「跑1:30」「跑步1:30」是**时长**口语（识别器可能这么渲染「跑一个半小时」），
+            // 当成 01:30 出发就会滚到次日、通过提前量校验，然后读回一个用户从没说过的时刻。
+            for transcript in [
+                "随便说点什么", "明天差不多这个点吧", "等我吃完早饭吧", "跑1:30", "跑步1:30"
+            ] {
                 XCTAssertNil(
                     MockAPIClient.mockVoiceStartTime(in: transcript),
                     "「\(transcript)」在 Mock 里不该被解析出时间"
@@ -547,7 +567,9 @@ final class VoiceOrderWizardTests: XCTestCase {
             ("我想在人民广场跑步", "人民广场"),
             ("到中山公园那边跑四十分钟", "中山公园"),
             ("从我家楼下出发", "我家楼下"),
-            ("在天安门集合", "天安门")
+            ("在天安门集合", "天安门"),
+            // 壳是「从…跑」。手列壳对时这一条一对都不中 —— 抽不出起点，人被约到默认位置。
+            ("明天早上8:00从阳光棕榈园跑", "阳光棕榈园")
         ]
         for testCase in regexCases {
             XCTAssertEqual(
@@ -560,7 +582,12 @@ final class VoiceOrderWizardTests: XCTestCase {
         // golden-corpus: ADDRESS llm
         // 「从明天早上八点开始跑」这类最危险：壳字「从」在，但后面跟的是时间。
         // 抽出来当地点就把人约到了一个不存在的起点，所以必须一条都不许命中。
-        for transcript in ["从明天早上八点开始跑", "从半小时后开始跑", "老地方见，跑一小时", "随便说点什么"] {
+        // 「从8:00开始跑」的壳内是 `8:00`：不认冒号就判不出它是时间，会当地名送去正向编码。
+        // 这是冒号钟点漏洞的**第二个出口**，与 START_TIME 那条是同一个根因。
+        for transcript in [
+            "从明天早上八点开始跑", "从8:00开始跑", "从8：00开始跑",
+            "从半小时后开始跑", "老地方见，跑一小时", "随便说点什么"
+        ] {
             XCTAssertNil(
                 MockAPIClient.mockVoiceAddressSpan(in: transcript),
                 "「\(transcript)」不该被抽出地名"
@@ -817,12 +844,20 @@ final class VoiceOrderWizardTests: XCTestCase {
         }
     }
 
-    /// 同一句话里的地点：「阳光棕榈园」不在 Mock 的关键词表里，抽不出是**预期**的。
-    /// 这条断言存在的意义是把「预期抽不出」写死，免得下次又被当成客户端 bug 查一遍。
-    func testRealUtterancePlaceIsKnownlyUnsupportedByMock() {
-        XCTAssertNil(
+    /// 剥壳与地理编码是**两件事**，这条把它们分开钉住。
+    ///
+    /// 2026-08-08 之前这里断言的是「抽不出」，理由写的是「阳光棕榈园不在 Mock 的关键词表里」——
+    /// 那句话把两件事混成了一件：抽不出的真实原因是当时的壳只手列了 4 对，`从…跑` 不在里面。
+    /// 关键词表管的是**下一步**（span → 坐标），跟能不能剥壳无关。
+    ///
+    /// 现在壳照抄后端 `ADDRESS_SPAN` 的叉积，span 抽得出；而 `mockVoicePlaces` 里仍然没有这个
+    /// 地点，所以坐标依旧查不到 —— 这正是语料 `_address_note` 描述的线上同形场景
+    /// 「抽到 span 但正向编码失败」，结果该是 `missing` 含 `ADDRESS`，而不是当用户没说起点。
+    func testAddressSpanIsExtractedEvenWhenTheMockCannotGeocodeIt() {
+        XCTAssertEqual(
             MockAPIClient.mockVoiceAddressSpan(in: "明天早上八点钟从阳光棕榈园跑"),
-            "如果这条开始失败，说明 Mock 已经支持这个地点了，把它从『已知不支持』里挪走"
+            "阳光棕榈园",
+            "壳是「从…跑」，剥壳这一步与关键词表无关"
         )
     }
 
