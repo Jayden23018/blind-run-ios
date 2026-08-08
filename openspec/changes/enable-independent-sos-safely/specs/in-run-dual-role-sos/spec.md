@@ -21,8 +21,9 @@ The volunteer entry was withheld until 2026-07-31 because the backend keyed the 
 
 #### Scenario: Order is not IN_PROGRESS
 - **WHEN** canonical order status is any other value
-- **THEN** both role experiences SHALL hide the SOS action
+- **THEN** both role experiences SHALL hide the *order-associated* SOS action, meaning no path may reach `POST /api/emergency/trigger`
 - **AND** stale local or WebSocket state SHALL NOT expand eligibility
+- **AND** a local-call affordance that sends nothing to the backend is permitted and is governed by the home-screen requirement below
 
 ### Requirement: Every trigger uses exact second confirmation
 The app SHALL require second confirmation before every trigger and SHALL use exactly `是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。`
@@ -112,6 +113,29 @@ Emergency state SHALL be owned at app lifetime so it survives navigation, backgr
 #### Scenario: Authenticated identity changes
 - **WHEN** logout, account deletion, session expiration, role switch, or another user sign-in occurs
 - **THEN** prior emergency state SHALL be cleared and SHALL NOT be presented under the new session
+
+### Requirement: The blind-runner home exposes a persistent help affordance whose mode follows order status
+The blind-runner home SHALL present a persistent bottom help action, reachable without scrolling and also by the VoiceOver Magic Tap gesture. Its mode SHALL be derived from canonical order status and SHALL NOT be user-selectable.
+
+While the owned order is `IN_PROGRESS` it SHALL behave exactly as the order-associated SOS defined above, including the verbatim second confirmation and the fresh-GCJ-02 gate. In every other state it SHALL degrade to a purely local telephone call, SHALL NOT call any emergency endpoint, and its copy SHALL state that the app is not sending a request on the user's behalf — a blind user who presses it hears only a dialer, and silence about that would let them believe help had been summoned.
+
+#### Scenario: Owned order is IN_PROGRESS
+- **WHEN** the blind participant activates the home help action for an owned `IN_PROGRESS` order
+- **THEN** the app SHALL run the order-associated SOS path with the verbatim confirmation and the fresh-coordinate gate
+
+#### Scenario: No active order or a non-IN_PROGRESS order
+- **WHEN** the blind participant activates the home help action in any other state
+- **THEN** the app SHALL NOT issue any emergency request
+- **AND** it SHALL offer a choice between the sole primary emergency contact, when exactly one exists, and the emergency number
+- **AND** the presented copy SHALL state that the app is not sending a request on the user's behalf
+
+#### Scenario: Primary emergency contact is absent or ambiguous
+- **WHEN** zero or more than one primary emergency contact exists
+- **THEN** the app SHALL offer only the emergency number and SHALL say why the contact option is unavailable
+
+#### Scenario: Help action is reached by gesture
+- **WHEN** the blind participant performs the VoiceOver Magic Tap on the home screen
+- **THEN** the app SHALL activate the same mode-appropriate help action as the visible control
 
 ### Requirement: SOS presentation is accessible and responsibility safe
 Eligibility, locating, confirmation, submission, processing, failure, cooldown, contact-notified, and resolved states SHALL have equivalent visible, VoiceOver, and TTS presentation without promising rescue beyond backend-confirmed facts.

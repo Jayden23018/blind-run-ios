@@ -174,27 +174,16 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
-    /// Freshest real GCJ-02 sample, with one bounded retry.
+    /// 新鲜真实坐标，实现在 `EmergencyCoordinator.freshEmergencyCoordinate(using:)`。
     ///
-    /// `latestBackendSample()` only ever returns a genuine `CLLocation` normalized at the single
-    /// backend boundary — the Demo/UI-test location path never produces a device sample, so a demo
-    /// coordinate cannot leak into a cloud SOS through this function. During `IN_PROGRESS` the live
-    /// escort session is already sampling every five seconds, so the retry matters only when the
-    /// run has just started or updates were briefly paused.
+    /// 2026-08-07 从这里提走：首页 SOS 条是第二个求助入口，而这段逻辑的每一条都是安全约束
+    /// （只接受真实设备采样、演示坐标进不来、拿不到就返回 nil 让上层如实播报「未发出」）。
+    /// 两份实现意味着这条保证要守两遍，迟早漂移。
+    ///
+    /// `IN_PROGRESS` 期间实时陪跑会话每 5 秒采样一次，所以那次有界重试只在刚起跑
+    /// 或位置更新短暂暂停时才用得上。
     private func freshEmergencyCoordinate() async -> LocatedCoordinate? {
-        guard let locationService else { return nil }
-        if let sample = locationService.latestBackendSample() {
-            return sample
-        }
-        locationService.requestOneTimeLocation()
-        let deadline = Date().addingTimeInterval(EmergencyCoordinator.locationWaitTimeout)
-        while Date() < deadline {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            if let sample = locationService.latestBackendSample() {
-                return sample
-            }
-        }
-        return nil
+        await EmergencyCoordinator.freshEmergencyCoordinate(using: locationService)
     }
 
     func submitReview() async {
