@@ -143,8 +143,11 @@ openspec 变更：`openspec/changes/enable-one-utterance-booking/`（`validate -
 | `.github/workflows/verify.yml` | 编译门禁 + 全部规格校验（此前**零 CI**） |
 | `scripts/install-git-hooks.sh` → pre-push | 五条 node/openspec 校验钉在 push 前 |
 
-`scripts/device-test.sh`：把真机跑测的两个陷阱固化 —— 锁屏静默挂起会主动检出并失败，
-统计按小写 `Test case`（按大写 grep 会全计成 0）。
+`scripts/device-test.sh`：把真机跑测的两个陷阱固化 —— 锁屏静默挂起会主动检出并失败；
+用例统计**只认 `-resultBundlePath` 产出的 result bundle，不再 grep 日志**。
+（日志不可信：xcodebuild 进度、XCTest runner stdout、设备 os_log 三路并发写同一 fd，
+统计行会被拦腰截断。2026-08-07 实测真实 539 条只数出 530、535 只数出 528。
+判定逻辑在 `scripts/xcresult-verdict.mjs`，自测 `scripts/validate-xcresult-verdict.mjs`。）
 
 ### Claude Code 配置
 

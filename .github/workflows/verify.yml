@@ -81,6 +81,11 @@ jobs:
       - name: validate session-context hook
         run: node scripts/validate-session-context.mjs
 
+      # 真机测试的「算不算通过」判定。CI 跑不了真机 XCTest，但这段纯逻辑跑得了 ——
+      # 而它错过两次，两次都是「看起来全绿，其实没数到」。
+      - name: validate xcresult verdict
+        run: node scripts/validate-xcresult-verdict.mjs
+
       - name: validate golden corpus alignment
         run: |
           if [ -f .backend/docs/voice-golden-corpus.json ]; then
