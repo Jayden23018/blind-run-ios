@@ -284,6 +284,12 @@ enum SpeechInputField: String, CaseIterable, Identifiable {
     case voiceOrderStartPlace
     case voiceOrderStartTime
     case voiceOrderDuration
+    // 盲人端「问一句」查订单状态。与下单向导共用同一套授权 / 静音超时 / 最长时长，
+    // 区别是识别结果完全在本地判（`VoiceStatusQuery`），不发任何请求。
+    /// 问题那一轮：「志愿者还有多远」「几点开始」。
+    case voiceStatusQuery
+    /// 复述号码后的确认那一轮。只做本地判定，判据与下单确认同一张白名单。
+    case voiceStatusConfirmCall
 
     var id: String { rawValue }
 
