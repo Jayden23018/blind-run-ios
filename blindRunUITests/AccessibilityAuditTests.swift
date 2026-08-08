@@ -52,12 +52,56 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: 20))
         start.tap()
 
+        // 落在语音态还是表单态由麦克风授权决定，两个都算「下单页起来了」。
+        // 此前这里只等 `blindBookingVoiceOrderButton`（表单态才有），授权成功的设备上会误报「页面没起来」。
         XCTAssertTrue(
-            app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch
-                .waitForExistence(timeout: 20),
+            waitForBookingScreen(app),
             "下单页没起来"
         )
         try audit(app)
+    }
+
+    // MARK: - 语音态与表单态互斥
+
+    /// 语音在跑的时候，屏幕上**一个表单控件都不许有**。
+    ///
+    /// 这一页此前把语音区和四步表单堆在同一个滚动视图里，进来面对的是十几条 StaticText
+    /// 加两个文本框。用户 2026-08-08 的原话：「表单的形式不应该给盲人用」。
+    ///
+    /// 用 `AIDRUN_UI_TEST_FORCE_VOICE_STAGE` 把向导按在运行态 —— 真机跑 UI 测试拿不到语音识别
+    /// 授权，不加这个接缝，语音态在自动化里永远不出现，这条约束就只能靠人肉手测。
+    @MainActor
+    func testVoiceStageRendersNoFormControls() throws {
+        let app = launchBlindHome(forcingVoiceStage: true)
+        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+        start.tap()
+
+        let surface = app.descendants(matching: .any)["blindBookingFinishSpeakingSurface"].firstMatch
+        XCTAssertTrue(surface.waitForExistence(timeout: 20), "语音态没起来，后面的断言没有意义")
+
+        // 逃生口必须在。它在 `safeAreaInset` 的底栏里，不被内容区盖住。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindBookingStopVoiceButton"].firstMatch.exists,
+            "语音态必须留着「改用表单」这个逃生口"
+        )
+
+        // 表单那一套一个都不许出现。
+        XCTAssertFalse(app.textFields["搜索出发地点"].firstMatch.exists, "语音态不许渲染地点搜索框")
+        XCTAssertFalse(app.textFields["出发地点补充描述"].firstMatch.exists, "语音态不许渲染补充描述框")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindBookingAuxiliaryMap"].firstMatch.exists,
+            "语音态不许渲染辅助地图"
+        )
+        XCTAssertFalse(app.buttons["搜索地点"].firstMatch.exists, "语音态不许渲染搜索按钮")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch.exists,
+            "「用语音重新说一次」是表单态的按钮，语音已经在跑时它是噪音"
+        )
+        XCTAssertFalse(
+            app.staticTexts["按步骤确认出发地点、预约时间和选填需求，最后再提交。"].firstMatch.exists,
+            "语音态不许渲染表单的说明文字"
+        )
     }
 
     // MARK: - 静态审计抓不到的语义要求
@@ -146,8 +190,21 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
+    /// 下单页起来了没有 —— 语音态和表单态各有一个标志元素，命中任一即可。
     @MainActor
-    private func launchBlindHome() -> XCUIApplication {
+    private func waitForBookingScreen(_ app: XCUIApplication, timeout: TimeInterval = 20) -> Bool {
+        let voiceSurface = app.descendants(matching: .any)["blindBookingFinishSpeakingSurface"].firstMatch
+        let formButton = app.descendants(matching: .any)["blindBookingVoiceOrderButton"].firstMatch
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if voiceSurface.exists || formButton.exists { return true }
+            _ = voiceSurface.waitForExistence(timeout: 1)
+        }
+        return false
+    }
+
+    @MainActor
+    private func launchBlindHome(forcingVoiceStage: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
             await MainActor.run { app.terminate() }
@@ -165,6 +222,9 @@ final class AccessibilityAuditTests: XCTestCase {
         app.launchEnvironment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
+        if forcingVoiceStage {
+            app.launchEnvironment["AIDRUN_UI_TEST_FORCE_VOICE_STAGE"] = "1"
+        }
 
         addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in
             for title in ["允许", "好", "使用App时允许", "OK", "Allow"] {
