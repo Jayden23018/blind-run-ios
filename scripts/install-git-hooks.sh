@@ -29,11 +29,29 @@ run() {
   "$@" >/tmp/aidrun-prepush.log 2>&1 || { echo "[pre-push] ✗ 失败："; tail -n 15 /tmp/aidrun-prepush.log; fail=1; }
 }
 
+# 校验脚本存在与否**随分支变化**，而 .git/hooks 不随 `git checkout` 变化。
+# 于是在 A 分支装的钩子，切到还没有那个校验脚本的 B 分支时会让 push 整个失败 ——
+# 失败原因还是 `Cannot find module`，跟本次改动毫无关系，很容易被当成仓库坏了。
+# 2026-08-07 实测踩到：`validate-xcresult-verdict.mjs` 只在它自己的分支上存在。
+#
+# 缺文件按「这个分支还没有这条校验」跳过，但**明说没跑**，不静默 ——
+# 与下面那几条读后端仓库的门禁同一个口径：跳过不等于通过。
+run_node() {
+  label="$1"
+  script="$2"
+  if [ ! -f "$script" ]; then
+    echo "[pre-push] ⚠ 跳过 $label：本分支没有 $script。这不算通过。"
+    return
+  fi
+  run "$label" node "$script"
+}
+
 run "openspec validate --all --strict" openspec validate --all --strict --no-interactive
-run "validate-docs" node scripts/validate-docs.mjs
-run "validate-guard（冻结文件守卫自测）" node scripts/validate-guard.mjs
-run "validate-stop-checklist（收尾钩子自测）" node scripts/validate-stop-checklist.mjs
-run "validate-session-context（开场钩子自测）" node scripts/validate-session-context.mjs
+run_node "validate-docs" scripts/validate-docs.mjs
+run_node "validate-guard（冻结文件守卫自测）" scripts/validate-guard.mjs
+run_node "validate-stop-checklist（收尾钩子自测）" scripts/validate-stop-checklist.mjs
+run_node "validate-session-context（开场钩子自测）" scripts/validate-session-context.mjs
+run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
 run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --package-path Packages/AidRunAPI
 
 # 后端 checkout 的新鲜度。下面 4 个门禁的结论，只和它们读到的那份契约一样可信 ——
