@@ -94,8 +94,15 @@ final class VoiceOrderWizard: ObservableObject {
     /// 3 秒超时后自己降级成 `needReask`。客户端这层包的是整个 HTTP 往返，3.5 秒会把「服务端 3 秒
     /// 兜底成功 + 网络往返」这类**本该成功**的长尾表达判成超时，等于把后端专门为口语化表达做的兜底
     /// 一并废掉 —— 而「明天差不多这个点吧」正是最需要它的说法。
-    /// 取 8 秒：留足 3 秒解析 + 弱网往返，同时不至于让人无声地等下去。
-    static let parseTimeout: TimeInterval = 8
+    /// ~~取 8 秒~~ **2026-08-09 提到 12 秒**：后端接终点（SPEC B1）之后，`/parse` **每次都调大模型**
+    /// —— 终点没有正则实现，不调就恒为 null。后端实测 `qwen3.7-plus` + 结构化输出 3.4~4.3 秒，
+    /// 服务端自己的兜底超时是 8 秒。8 秒的客户端上限正好卡在服务端兜底的边界上，
+    /// 「服务端 8 秒兜底成功 + 网络往返」必然超过它 —— 那是把**本该成功**的响应判成超时，
+    /// 与上一段拒绝 3.5 秒是同一个理由。
+    ///
+    /// 12 秒也必须小于 `APIClient` 的 idle 超时（15 秒），这样先响的是这一层：
+    /// 用户听到的才是「这次没能把你说的话转成预约内容」这句人话，而不是一个网络错误。
+    static let parseTimeout: TimeInterval = 12
 
     @Published private(set) var step: Step = .freeform
     @Published private(set) var isRunning = false
@@ -262,6 +269,8 @@ final class VoiceOrderWizard: ObservableObject {
         }
         parts.append("这次的预约是：")
         parts.append(bookingViewModel.startPointSummary)
+        // 紧跟起点。终点为 nil 时是空串，一个字都不会念。
+        parts.append(bookingViewModel.endPointSummary)
         // 时间这一项**只在真的抽到时才念具体时刻**。
         //
         // 以前无条件念 `appointmentSummary`，而 `appointmentTime` 的初值是 `Date()` ——
@@ -441,6 +450,12 @@ final class VoiceOrderWizard: ObservableObject {
                 address: place.address, latitude: place.latitude, longitude: place.longitude
             )
         }
+        // 终点整体赋值（**含 nil**），不写 `if let`：本轮没说终点就该清空。
+        //
+        // 起点写成 `if let` 是对的 —— 抽不出起点有正当默认（当前位置），保留上一轮反而更糟。
+        // 终点没有默认值，留着上一轮的就是凭空多出一个用户这次没说过的目的地，
+        // 而屏幕上没有任何终点控件能让他察觉。
+        bookingViewModel?.endPlace = parsed?.resolvedEndPlace
 
         var notice: String? = parseFailed ? Self.parseFailureNotice : nil
         if let minutes = parsed?.durationMinutes {

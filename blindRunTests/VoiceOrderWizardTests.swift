@@ -401,6 +401,233 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertNil(coordinateOnly.resolvedStartPlace)
     }
 
+    // MARK: - 终点（SPEC B1，2026-08-08 后端新增）
+
+    /// 终点的规则**比起点松一档**，两边不是同一套（`api_spec.yaml:3007-3019`）：
+    /// 有地名没坐标算数（高德查不到是正常情况，订单照下），只有坐标没地名不算。
+    func testEndPlaceKeepsTheAddressEvenWithoutCoordinatesButNeverTheReverse() {
+        let full = ParseVoiceOrderResponse(
+            plannedStartTime: nil, durationMinutes: nil, address: nil, latitude: nil, longitude: nil,
+            missing: nil, needReask: nil, ttsText: nil,
+            endAddress: "上海市杨浦区五角场", endLatitude: 31.2989, endLongitude: 121.5036
+        )
+        let addressOnly = ParseVoiceOrderResponse(
+            plannedStartTime: nil, durationMinutes: nil, address: nil, latitude: nil, longitude: nil,
+            missing: nil, needReask: nil, ttsText: nil,
+            endAddress: "老王家门口", endLatitude: nil, endLongitude: nil, endAddressUnresolved: true
+        )
+        let coordinateOnly = ParseVoiceOrderResponse(
+            plannedStartTime: nil, durationMinutes: nil, address: nil, latitude: nil, longitude: nil,
+            missing: nil, needReask: nil, ttsText: nil,
+            endAddress: nil, endLatitude: 31.2989, endLongitude: 121.5036
+        )
+        // 半个坐标：后端会返 400「终点经纬度必须同时提供」，客户端不许构造出这种请求。
+        let halfCoordinate = ParseVoiceOrderResponse(
+            plannedStartTime: nil, durationMinutes: nil, address: nil, latitude: nil, longitude: nil,
+            missing: nil, needReask: nil, ttsText: nil,
+            endAddress: "五角场", endLatitude: 31.2989, endLongitude: nil
+        )
+
+        XCTAssertEqual(full.resolvedEndPlace?.latitude, 31.2989)
+        XCTAssertEqual(full.resolvedEndPlace?.isUnresolved, false)
+
+        XCTAssertEqual(addressOnly.resolvedEndPlace?.address, "老王家门口")
+        XCTAssertEqual(
+            addressOnly.resolvedEndPlace?.isUnresolved, true,
+            "说了地名但查不到坐标要保留地名 —— 静默丢掉的话，用户明明说了「跑到老王家门口」、"
+                + "读回却不念终点，盲人无从分辨是没听到还是没存下"
+        )
+
+        XCTAssertNil(coordinateOnly.resolvedEndPlace, "只有坐标没有地名，读回时无从念起")
+        XCTAssertNil(halfCoordinate.resolvedEndPlace?.latitude, "半个坐标必须降级成「只有地名」")
+        XCTAssertEqual(halfCoordinate.resolvedEndPlace?.address, "五角场")
+    }
+
+    /// 未知枚举/缺字段一律不许把整条响应带崩 —— 老客户端收到带终点的响应时表现成
+    /// 「说了一整句什么都没发生」，那对盲人就是事故。
+    func testEndLocationFieldsDecodeAndAreOptional() throws {
+        let withEnd = """
+        {"address":"人民广场","latitude":31.2304,"longitude":121.4737,
+         "endAddress":"五角场","endLatitude":31.2989,"endLongitude":121.5036,
+         "endAddressUnresolved":false,"missing":[],"needReask":false}
+        """
+        let withoutEnd = """
+        {"address":"人民广场","latitude":31.2304,"longitude":121.4737,"missing":[],"needReask":false}
+        """
+
+        let a = try JSONDecoder().decode(ParseVoiceOrderResponse.self, from: Data(withEnd.utf8))
+        let b = try JSONDecoder().decode(ParseVoiceOrderResponse.self, from: Data(withoutEnd.utf8))
+
+        XCTAssertEqual(a.resolvedEndPlace?.address, "五角场")
+        XCTAssertNil(b.resolvedEndPlace, "后端没给终点字段时不能凭空造一个")
+        XCTAssertNil(b.endAddressUnresolved)
+    }
+
+    /// 终点三件套要一路落到下单请求里。
+    func testResolvedEndPlaceReachesTheCreateOrderRequest() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: nil, durationMinutes: 60,
+                address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737,
+                missing: [], needReask: false, ttsText: nil,
+                endAddress: "上海市杨浦区五角场", endLatitude: 31.2989, endLongitude: 121.5036
+            )
+        ]
+        let viewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上八点从人民广场跑到五角场跑一个小时")
+
+        let request = viewModel.makeCreateOrderRequest()
+        XCTAssertEqual(request?.endAddress, "上海市杨浦区五角场")
+        XCTAssertEqual(request?.endLatitude, 31.2989)
+        XCTAssertEqual(request?.endLongitude, 121.5036)
+    }
+
+    /// 查不到坐标时**照样带地名下单**，坐标两个都不许带（只带一个后端返 400）。
+    func testUnresolvedEndPlaceStillShipsTheAddressWithoutCoordinates() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: nil, durationMinutes: 60,
+                address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737,
+                missing: [], needReask: false, ttsText: nil,
+                endAddress: "老王家门口", endLatitude: nil, endLongitude: nil,
+                endAddressUnresolved: true
+            )
+        ]
+        let viewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上八点从人民广场跑到老王家门口跑一个小时")
+
+        let request = viewModel.makeCreateOrderRequest()
+        XCTAssertEqual(request?.endAddress, "老王家门口")
+        XCTAssertNil(request?.endLatitude)
+        XCTAssertNil(request?.endLongitude)
+    }
+
+    /// 读回：终点必须**紧跟起点**念，而且要说清没定位到。
+    ///
+    /// 位置不是排版偏好 —— 起终点由大模型抽取，抽反了（把出发地听成目的地）只有读回能被用户
+    /// 发现，而两句挨着才听得出反没反。中间隔着预约时间就听不出来了。
+    func testEndPlaceIsReadBackRightAfterTheStartPlace() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: nil, durationMinutes: 60,
+                address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737,
+                missing: [], needReask: false, ttsText: nil,
+                endAddress: "老王家门口", endLatitude: nil, endLongitude: nil,
+                endAddressUnresolved: true
+            )
+        ]
+        let viewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上八点从人民广场跑到老王家门口跑一个小时")
+
+        let spoken = wizard.lastSpokenPrompt ?? ""
+        XCTAssertTrue(spoken.contains("结束地点：老王家门口"), "读回必须念出终点：\(spoken)")
+        XCTAssertTrue(
+            spoken.contains("这个地点没能定位到"),
+            "查不到坐标要说出来，否则盲人会以为终点已经定准了：\(spoken)"
+        )
+        guard let start = spoken.range(of: "出发地点"),
+              let end = spoken.range(of: "结束地点"),
+              let time = spoken.range(of: "预约时间") else {
+            return XCTFail("读回里缺了起点 / 终点 / 时间之一：\(spoken)")
+        }
+        XCTAssertTrue(start.lowerBound < end.lowerBound, "终点要排在起点后面：\(spoken)")
+        XCTAssertTrue(
+            end.lowerBound < time.lowerBound,
+            "终点必须紧跟起点、排在预约时间之前 —— 隔开就听不出起终点被抽反了：\(spoken)"
+        )
+    }
+
+    /// 没说终点就**一个字都不提**。`nil` 的语义是「用户未指定」，不是「原路返回起点」，
+    /// 多播一句「本次没有结束地点」会让人以为系统漏听了他没说过的话。
+    func testNoEndPlaceMeansTheReadBackNeverMentionsIt() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: nil, durationMinutes: 60,
+                address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737,
+                missing: [], needReask: false, ttsText: nil
+            )
+        ]
+        let viewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上八点从人民广场出发跑一个小时")
+
+        XCTAssertNil(viewModel.endPlace)
+        XCTAssertFalse(
+            (wizard.lastSpokenPrompt ?? "").contains("结束地点"),
+            "没说终点就不该出现「结束地点」：\(wizard.lastSpokenPrompt ?? "")"
+        )
+        let request = viewModel.makeCreateOrderRequest()
+        XCTAssertNil(request?.endAddress)
+        XCTAssertNil(request?.endLatitude)
+        XCTAssertNil(request?.endLongitude)
+    }
+
+    /// 第二句没提终点就必须把上一句的终点清掉。
+    ///
+    /// 屏幕上没有任何终点控件，用户重说一遍之后没有**视觉**线索能发现旧终点还挂着 ——
+    /// 只有读回会念，而那时他已经准备说「确认」了。
+    func testASecondUtteranceWithoutAnEndPlaceClearsThePreviousOne() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: nil, durationMinutes: 60,
+                address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737,
+                missing: [], needReask: false, ttsText: nil,
+                endAddress: "上海市杨浦区五角场", endLatitude: 31.2989, endLongitude: 121.5036
+            ),
+            ParseVoiceOrderResponse(
+                plannedStartTime: nil, durationMinutes: 30,
+                address: "上海市黄浦区人民广场", latitude: 31.2304, longitude: 121.4737,
+                missing: [], needReask: false, ttsText: nil
+            )
+        ]
+        let viewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上八点从人民广场跑到五角场跑一个小时")
+        XCTAssertEqual(viewModel.endPlace?.address, "上海市杨浦区五角场", "前提：第一句抽到了终点")
+
+        await wizard.submitTranscript("重说")
+        XCTAssertNil(viewModel.endPlace, "「重说」要把上一轮的终点一起清掉")
+
+        await wizard.submitTranscript("明天早上八点从人民广场出发跑半小时")
+        XCTAssertNil(viewModel.endPlace, "新一句没提终点，旧终点不许留着")
+        XCTAssertFalse((wizard.lastSpokenPrompt ?? "").contains("五角场"))
+    }
+
+    /// Mock 的终点抽取：只认「跑到」，且不许和起点抢同一段文字。
+    ///
+    /// 「明天早上8:00到五角场跑四十分钟」只有一个地点，口语里它就是**出发地**（到那儿去跑）。
+    /// 裸「到」也认的话，同一段文字会既当起点又当终点 —— 正是后端 2026-08-09 修掉的 N38。
+    func testMockEndSpanOnlyMatchesExplicitRunToPhrasing() {
+        let cases: [(transcript: String, expected: String?)] = [
+            ("明天早上8:00从人民广场跑到五角场，跑四十分钟", "五角场"),
+            ("明天早上8:00跑到五角场，从人民广场出发，跑四十分钟", "五角场"),
+            ("明天早上8:00从人民广场出发跑到五角场，跑一个小时", "五角场"),
+            ("明天下午三点跑到中山公园，跑半小时", "中山公园"),
+            ("明天早上8:00到五角场跑四十分钟", nil),
+            ("明天早上八点从人民广场出发跑一个小时", nil)
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                MockAPIClient.mockVoiceEndSpan(in: testCase.transcript),
+                testCase.expected,
+                "「\(testCase.transcript)」的终点应为 \(testCase.expected ?? "nil")"
+            )
+        }
+    }
+
     // MARK: - 逐项修改已删除（2026-08-06）
     //
     // 原来这里有四条用例覆盖「改地点 / 改时间 / 改时长」那条逐项流程：needReask 不推进、
@@ -433,7 +660,7 @@ final class VoiceOrderWizardTests: XCTestCase {
 
     // MARK: - 与后端黄金语料对齐
 
-    // 后端 `demo/docs/voice-golden-corpus.json` 的 iOS 侧镜像，**四族 45 条全覆盖**。
+    // 后端 `demo/docs/voice-golden-corpus.json` 的 iOS 侧镜像，**五族 85 条全覆盖**。
     //
     // 锁的是 **Mock 不许比真实解析器松或紧**：Mock 认得的说法真机上也要认得，Mock 认不得的
     // （语料里 `source: "llm"` 那几条）在开发期就该走到 `needReask` 分支，否则向导的重问路径
@@ -463,7 +690,13 @@ final class VoiceOrderWizardTests: XCTestCase {
             ("一个半小时", 90),
             ("一小时二十分钟", 80),
             ("两个小时", 120),
-            ("就跑二十分钟吧", 20)
+            ("就跑二十分钟吧", 20),
+            // 配速词打头。时长这一路不该被「快一点」带偏 —— 两条正则各管各的。
+            ("快一点跑四十分钟", 40),
+            // 起终点同现的三条：时长要照常抽出来，不受多出来的那个地点影响。
+            ("明天早上8:00从人民广场跑到五角场，跑四十分钟", 40),
+            ("明天早上8:00跑到五角场，从人民广场出发，跑四十分钟", 40),
+            ("明天下午三点跑到中山公园，跑半小时", 30)
         ]
 
         for testCase in regexCases {
@@ -515,7 +748,13 @@ final class VoiceOrderWizardTests: XCTestCase {
                 ("明天早上8:00从阳光棕榈园跑", "2026-07-25T08:00:00"),
                 // 前半句的「跑1:30」必须被跳过、且**继续往后找** —— 真正的钟点在后面。
                 // 直接返 nil 会让这句整个抽不出时间。
-                ("跑1:30，明天早上8点出发", "2026-07-25T08:00:00")
+                ("跑1:30，明天早上8点出发", "2026-07-25T08:00:00"),
+                // 同一条「跳过继续找」，被拒的是程度副词而不是时长引导词：
+                // 「慢一点」归一化后长得像「慢1点」，真正的钟点在后半句。
+                ("跑慢一点，明天早上八点出发", "2026-07-25T08:00:00"),
+                ("慢点跑，明天早上八点从人民广场出发", "2026-07-25T08:00:00"),
+                // 起终点同现：多出来的那个地点不该影响时间抽取。
+                ("明天早上8:00从人民广场跑到五角场，跑四十分钟", "2026-07-25T08:00:00")
             ]
             for testCase in regexCases {
                 let parsed = MockAPIClient.mockVoiceStartTime(in: testCase.transcript)
@@ -529,12 +768,33 @@ final class VoiceOrderWizardTests: XCTestCase {
             // golden-corpus: START_TIME llm
             // 「跑1:30」「跑步1:30」是**时长**口语（识别器可能这么渲染「跑一个半小时」），
             // 当成 01:30 出发就会滚到次日、通过提前量校验，然后读回一个用户从没说过的时刻。
+            //
+            // 后 8 条是**日期表达**（语料 `_unsupported_date_note`）。它们比「解析不出」更危险：
+            // Mock 的日期词只认明天/后天/今天，碰上「8月10号」不会失败，而是只取钟点、
+            // 把日期当没说，再套「已过就滚次日」—— 于是「8月10号早上8点」被静默解析成次日 08:00。
+            // 差 1 天、差 5 天的单都能过提前量校验，读回还念得很顺。
             for transcript in [
-                "随便说点什么", "明天差不多这个点吧", "等我吃完早饭吧", "跑1:30", "跑步1:30"
+                "随便说点什么", "明天差不多这个点吧", "等我吃完早饭吧", "跑1:30", "跑步1:30",
+                "8月10号早上8点跑步", "八月十号早上八点跑步", "8月10日早上8点跑步",
+                "下周三早上8点跑步", "下下周二早上八点", "这个星期五早上八点",
+                "大后天早上八点", "下个月十号早上八点"
             ] {
                 XCTAssertNil(
                     MockAPIClient.mockVoiceStartTime(in: transcript),
                     "「\(transcript)」在 Mock 里不该被解析出时间"
+                )
+            }
+
+            // golden-corpus: START_TIME none
+            // 「没说时间」而不是「说了但正则解不出」—— 后端连大模型兜底都不走。
+            // 对 Mock 的要求相同（返回 nil），但拦住它们的是另一道守卫：归一化把「一」转成「1」，
+            // 「慢一点」变成「慢1点」正好落进「N点」分支 → 凌晨 1 点。用户根本没提时间，
+            // 系统却造出一个能过提前量校验的时刻读给他听，同时「慢一点」还被配速正则认作 EASY
+            // —— 同一句话上两条正则打架，时间那条赢了。
+            for transcript in ["跑慢一点", "快一点跑四十分钟", "晚一点跑", "早一点出发"] {
+                XCTAssertNil(
+                    MockAPIClient.mockVoiceStartTime(in: transcript),
+                    "「\(transcript)」里没有时间表达，不该被解析出时刻"
                 )
             }
         }
@@ -569,7 +829,17 @@ final class VoiceOrderWizardTests: XCTestCase {
             ("从我家楼下出发", "我家楼下"),
             ("在天安门集合", "天安门"),
             // 壳是「从…跑」。手列壳对时这一条一对都不中 —— 抽不出起点，人被约到默认位置。
-            ("明天早上8:00从阳光棕榈园跑", "阳光棕榈园")
+            ("明天早上8:00从阳光棕榈园跑", "阳光棕榈园"),
+            // 起终点同现（语料 `_end_address_note`）。`ADDRESS_SPAN` 只产出「起点」这一种角色，
+            // 两个地点同现时它必须挑中**出发地**，挑错就是把人约到他要去的终点等着。
+            ("明天早上8:00从人民广场跑到五角场，跑四十分钟", "人民广场"),
+            // 倒装。SPEC B 刻意不做介词位置一致性校验（中文口语里倒装、省略介词都合法，
+            // 位置规则会误杀），所以这条只能靠壳词本身挑对。
+            ("明天早上8:00跑到五角场，从人民广场出发，跑四十分钟", "人民广场"),
+            ("明天早上8:00从人民广场出发跑到五角场，跑一个小时", "人民广场"),
+            // ⚠️ 只有一个地点时「到五角场跑」抽出五角场是**对的**：口语里它就是出发地
+            // （到那儿去跑），不是终点。Mock 的终点抽取因此刻意只认「跑到」不认裸「到」。
+            ("明天早上8:00到五角场跑四十分钟", "五角场")
         ]
         for testCase in regexCases {
             XCTAssertEqual(
@@ -584,9 +854,14 @@ final class VoiceOrderWizardTests: XCTestCase {
         // 抽出来当地点就把人约到了一个不存在的起点，所以必须一条都不许命中。
         // 「从8:00开始跑」的壳内是 `8:00`：不认冒号就判不出它是时间，会当地名送去正向编码。
         // 这是冒号钟点漏洞的**第二个出口**，与 START_TIME 那条是同一个根因。
+        //
+        // 「明天下午三点跑到中山公园，跑半小时」只说了终点，**起点是真的没说** ——
+        // 抽出中山公园当起点会把人约到目的地，所以这里必须是 nil，由 `missing` 含 ADDRESS
+        // 走「落回当前位置并读回念出来」那条路。
         for transcript in [
             "从明天早上八点开始跑", "从8:00开始跑", "从8：00开始跑",
-            "从半小时后开始跑", "老地方见，跑一小时", "随便说点什么"
+            "从半小时后开始跑", "老地方见，跑一小时", "随便说点什么",
+            "明天下午三点跑到中山公园，跑半小时"
         ] {
             XCTAssertNil(
                 MockAPIClient.mockVoiceAddressSpan(in: transcript),
@@ -622,10 +897,14 @@ final class VoiceOrderWizardTests: XCTestCase {
         }
     }
 
-    /// PACE 6 条。
+    /// PACE 8 条。
     func testMockPaceExtractionMatchesTheBackendGoldenCorpus() {
         // golden-corpus: PACE regex
         let regexCases: [(transcript: String, expected: String)] = [
+            // 这两条同时出现在 `START_TIME none` 里：配速要抽出来，时间必须是 nil。
+            // 「慢一点」两条正则都想要它，赢的必须是配速这条。
+            ("跑慢一点", "EASY"),
+            ("快一点跑四十分钟", "FAST"),
             ("慢一点跑", "EASY"),
             ("想轻松跑跑", "EASY"),
             ("能不能快一点", "FAST"),

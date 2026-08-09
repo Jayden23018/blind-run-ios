@@ -205,7 +205,14 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
 
     private static let defaultSession: URLSession = {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 10
+        // 15 而不是 10：`/api/orders/voice/parse` 现在每次都调大模型（后端实测 3.4~4.3 秒，
+        // 服务端兜底 8 秒），10 秒的 idle 超时会先于向导自己的 12 秒上限炸掉，用户听到的就成了
+        // 一句网络错误而不是「没能把你说的话转成预约内容」。15 > 12，让向导那层先响。
+        //
+        // ponytail: 全局调值，不给单条请求传超时。后者要改 `APIClientProtocol.request` 签名，
+        // 牵动两个实现 + 测试里所有 stub —— 一个 idle 超时不值那么大的面。
+        // 上限：真需要按端点分档（例如上传要更长）时再抽参数，别在这里叠特例。
+        configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 20
         return URLSession(configuration: configuration)
     }()

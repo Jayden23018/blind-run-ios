@@ -1109,6 +1109,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             startAddress: request.startAddress,
             startLatitude: request.startLatitude,
             startLongitude: request.startLongitude,
+            endAddress: request.endAddress,
+            endLatitude: request.endLatitude,
+            endLongitude: request.endLongitude,
             plannedStart: request.plannedStartTime,
             plannedEnd: request.plannedEndTime,
             blindName: blindProfile?.name,
@@ -1273,6 +1276,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let transcript = request.transcript.trimmed
 
         let place = Self.matchedVoicePlace(in: transcript, near: request)
+        let endPlace = Self.matchedVoiceEndPlace(in: transcript, near: request, startSpan: Self.mockVoiceAddressSpan(in: transcript))
         let startTime = Self.mockVoiceStartTime(in: transcript)
         let minutes = Self.mockVoiceMinutes(in: transcript).flatMap { (10...300).contains($0) ? $0 : nil }
 
@@ -1296,6 +1300,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             ttsText: missing.isEmpty
                 ? "好的，我记下了"
                 : "还差\(missing.count)项没听清，可以再说一次",
+            endAddress: endPlace?.address,
+            endLatitude: endPlace?.place?.latitude,
+            endLongitude: endPlace?.place?.longitude,
+            // 契约说它恒等于「有地名且没坐标」。这里照定义算，别另起一套 ——
+            // 客户端本来就不按这个字段做判断（见 `ParseVoiceOrderResponse.resolvedEndPlace`），
+            // 但 Mock 给错值会让「照契约读它」的新代码在开发期看起来是对的。
+            endAddressUnresolved: endPlace.map { $0.place == nil },
             hasGuideDog: Self.mockVoiceGuideDog(in: transcript),
             pacePreference: Self.mockVoicePace(in: transcript),
             // 备注只由大模型在必填槽位兜底那次顺带抽，正则不抽（语料 `_extra_slots_note`），
@@ -1428,6 +1439,58 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         "(?:从|在|去|到)([^，,。！？!?\\s]{2,15}?)(?:出发|集合|等我|见面|开始|跑|附近|那边|旁边)"
     )
 
+    /// Mock 抽出来的终点：地名一定有，坐标查得到才有。
+    private struct MockVoiceEndPlace {
+        let address: String
+        /// `nil` = 地名抽到了但 `mockVoicePlaces` 里查不到坐标，对应线上
+        /// `endAddressUnresolved = true`。
+        let place: MockVoicePlace?
+    }
+
+    /// 从整句里剥出**终点**地名。
+    ///
+    /// ponytail: 这是给 Demo / 开发期用的启发式，**不是契约的镜像**。线上终点只由大模型抽
+    /// （`api_spec.yaml:2846`：「终点只由大模型定位，没有正则链路」），百炼不可用时后端的终点恒为
+    /// null。Mock 没有模型，完全不抽的话终点这条链路在真机之前一次都走不到 —— 读回文案、
+    /// 「未定位到」降级、志愿者详情那一行全部无从验证。上限：**它比线上的正则降级松，
+    /// 但不比线上的完整行为松**；哪天后端给终点加了正则实现，这里要照抄那条正则，不是继续维护本函数。
+    ///
+    /// **只认 `跑到` 前缀，不认裸 `到`** —— 这条被语料钉死：
+    /// 「明天早上8:00到五角场跑四十分钟」的期望是 **ADDRESS（起点）= 五角场**，
+    /// 裸 `到` 会把同一段文字同时当成起点和终点，正是后端 2026-08-09 修掉的 N38。
+    static func mockVoiceEndSpan(in transcript: String) -> String? {
+        guard let match = transcript.firstMatch(of: endSpanRegex),
+              let span = match.output[1].substring.map(String.init)?.trimmed,
+              !span.isEmpty else { return nil }
+        // 与起点同一条防线：壳内是时间片时（「跑到八点」）送去地理编码只会错命中。
+        guard span.firstRange(of: timeLikeRegex) == nil else { return nil }
+        return span
+    }
+
+    /// 终点 = 抽到的终点 span + （可选）坐标。
+    ///
+    /// - Parameter startSpan: 本句抽到的起点 span。**与终点相同就整个丢弃终点** ——
+    ///   同一段文字不可能既是起点又是终点，后端遇到这种重叠也是两个都丢（N38）。
+    ///   丢掉的是终点而不是起点：起点有默认值（当前位置）能兜住，终点没有。
+    private static func matchedVoiceEndPlace(
+        in transcript: String,
+        near request: ResolveAddressRequest,
+        startSpan: String?
+    ) -> MockVoiceEndPlace? {
+        guard let span = mockVoiceEndSpan(in: transcript) else { return nil }
+        guard span != startSpan else { return nil }
+        let candidates = request.latitude != nil && request.longitude != nil
+            ? mockVoicePlaces.sorted { squaredDistance($0, request) < squaredDistance($1, request) }
+            : mockVoicePlaces
+        return MockVoiceEndPlace(address: span, place: candidates.first { span.contains($0.keyword) })
+    }
+
+    /// 终点壳。`跑到` 之后到标点或句尾为止 —— 与起点那条不同，终点没有「出发 / 集合 / 那边」
+    /// 这类后缀词可依赖（「跑到五角场」后面直接就是逗号）。
+    private static let endSpanRegex = try! Regex(
+        "跑到([^，,。！？!?\\s]{2,15})(?:[，,。！？!?]|$)"
+    )
+
     /// 逐字照抄后端 `VoiceSlotParser.TIME_LIKE`（`VoiceSlotParser.java:63`）。
     ///
     /// `\d{1,2}[:：][0-5]\d` 那一段是 2026-08-08 后端 PR #14 补的：只认「点」时，
@@ -1522,6 +1585,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let now = now ?? voiceNow
         let calendar = Calendar.current
 
+        // ⓪ 认不了的日期表达一律整句认输（语料 `_unsupported_date_note`）。
+        //
+        // 下面的日期词只认明天/后天/今天三个，碰上「8月10号」「下周三」它不会失败，
+        // 而是**只取钟点、把日期当没说**，再套 ④ 的「已过就滚次日」—— 于是任何日期
+        // 都被静默解析成今天或明天：「8月10号早上8点」→ 次日 08:00（差 1 天）。
+        // 这个值能过提前量校验、读回念得很顺，而盲人无从判断这不是自己说的那天。
+        if transcript.firstRange(of: unsupportedDateRegex) != nil { return nil }
+
         // ① 相对时间优先。「半小时后」不能被下面的钟点分支按「半」误读。
         if let offset = relativeMinutesOffset(in: transcript) {
             return calendar.date(byAdding: .minute, value: offset, to: now)
@@ -1614,24 +1685,57 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return "跑步".contains(transcript[transcript.index(before: hourStart)])
     }
 
+    /// 逐字照抄后端 `VoiceSlotParser.UNSUPPORTED_DATE`（`VoiceSlotParser.java:56-60`）。
+    ///
+    /// 同时收中文与阿拉伯数字，且**在原文上判** —— 后端是在中文数字归一化之前匹配的，
+    /// 归一化之后「下周三」就变成了「下周3」、词形没了。
+    ///
+    /// ponytail: 只让它认输，**不新增「认识 X月Y号」的解析分支**。日期表达是开放的
+    /// （下下周二 / 这个月底 / 月底前），正则永远穷举不完，那是大模型该干的活。
+    private static let unsupportedDateRegex = try! Regex(
+        "[0-9零一二两三四五六七八九十]{1,3}\\s*月\\s*[0-9零一二两三四五六七八九十]{1,3}\\s*[号日]"
+            + "|[下这本上]{1,2}\\s*个?\\s*(?:周|星期|礼拜)"
+            + "|大[前后]天"
+            + "|[下这本]\\s*个\\s*月"
+    )
+
     /// 「N点」「N点半」。N 中文与阿拉伯数字都认。
+    ///
+    /// **扫描每一个「点」，不是只看第一个**：对齐后端 `while (clock.find())` 的「跳过本次继续找」。
+    /// 只看第一个的话，「跑慢一点，明天早上八点出发」会停在被守卫拒掉的「慢一点」上，
+    /// 而真正的钟点在后面。
     private static func spokenClockTime(in transcript: String) -> (hour: Int, minute: Int)? {
-        guard let hour = chineseNumber(before: "点", in: transcript), (1...24).contains(hour) else {
-            return nil
+        var cursor = transcript.startIndex
+        while let range = transcript.range(of: "点", range: cursor..<transcript.endIndex) {
+            cursor = range.upperBound
+            let head = String(transcript[transcript.startIndex..<range.lowerBound])
+            guard let hour = trailingNumber(in: head, blockingDegreeLeadIn: true),
+                  (1...24).contains(hour) else { continue }
+            // 「N点半」只认紧跟在「点」后面的「半」，避免「八点跑半小时」被读成 08:30。
+            // 两种写法都要查：识别输出「8点半」时，只查中文形式「八点半」会漏掉，
+            // 半小时就被静默抹成整点 —— 对听不见屏幕的人，这是一次无声的篡改。
+            let isHalfPast = transcript.contains("\(chineseDigits[hour] ?? "")点半")
+                || transcript.contains("\(hour)点半")
+            return (hour, isHalfPast ? 30 : 0)
         }
-        // 「N点半」只认紧跟在「点」后面的「半」，避免「八点跑半小时」被读成 08:30。
-        // 两种写法都要查：识别输出「8点半」时，只查中文形式「八点半」会漏掉，
-        // 半小时就被静默抹成整点 —— 对听不见屏幕的人，这是一次无声的篡改。
-        let isHalfPast = transcript.contains("\(chineseDigits[hour] ?? "")点半")
-            || transcript.contains("\(hour)点半")
-        return (hour, isHalfPast ? 30 : 0)
+        return nil
     }
 
     /// 汉字数字 → 整数，只覆盖 Mock 语料需要的 1~59。找 `suffix` 前面那一段来解。
     private static func chineseNumber(before suffix: String, in transcript: String) -> Int? {
         guard let range = transcript.range(of: suffix) else { return nil }
-        let head = String(transcript[transcript.startIndex..<range.lowerBound])
-        // 从尾部往前吃数字字符，最多 3 个（「四十五」）。
+        return trailingNumber(in: String(transcript[transcript.startIndex..<range.lowerBound]))
+    }
+
+    /// 从一段文字的**尾部**往前吃数字字符（最多 3 个，够「四十五」）并解成整数。
+    ///
+    /// - Parameter blockingDegreeLeadIn: 数字紧跟在程度副词后面时拒绝。
+    ///   照抄后端 `VoiceSlotParser.isDegreeLeadIn`（`VoiceSlotParser.java:405`），**只在钟点上开**：
+    ///   「慢一点」里的「一点」正好长得像「1 点」，认了就凭空造出一个凌晨 1 点 ——
+    ///   而用户根本没提时间，这个时刻还能过提前量校验、被读回念得很顺。
+    ///   只收「慢快早晚」四个字，刻意**不收「多少」**（会误杀「差不多1点」）。
+    ///   时长那几个后缀（分钟后 / 小时后）不开，那里没有这个歧义。
+    private static func trailingNumber(in head: String, blockingDegreeLeadIn: Bool = false) -> Int? {
         let digits = head.reversed().prefix(3).reversed().map(String.init)
         for start in 0..<digits.count {
             let candidate = digits[start...].joined()
@@ -1641,6 +1745,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             // 对齐后端 `VoiceSlotParser.HOUR_ONLY` 的 `(?<!\.)` 守卫（`VoiceSlotParser.java:94`）：
             // 只挡「抽错」，不新增「认小数时长」—— 落到追问是诚实的降级。
             if start > 0, digits[start - 1] == "." { continue }
+            if blockingDegreeLeadIn, start > 0, "慢快早晚".contains(digits[start - 1]) { continue }
             return value
         }
         return nil
@@ -1811,6 +1916,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             startAddress: order.startAddress,
             startLatitude: order.startLatitude,
             startLongitude: order.startLongitude,
+            endAddress: order.endAddress,
+            endLatitude: order.endLatitude,
+            endLongitude: order.endLongitude,
             plannedStart: order.plannedStart,
             plannedEnd: order.plannedEnd,
             blindName: order.blindName,
@@ -1934,6 +2042,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 startAddress: "朝阳公园南门",
                 startLatitude: 39.9342,
                 startLongitude: 116.4740,
+                // 种子订单**刻意不带终点**：UI 用例按现有行数与标签断言，凭空多一行会假失败。
+                // 终点的展示路径由「语音下单 → 志愿者接单」这条真实路径覆盖，
+                // 不靠种子数据摆样子。
+                endAddress: nil,
+                endLatitude: nil,
+                endLongitude: nil,
                 plannedStart: formatter.string(from: futureDate),
                 plannedEnd: formatter.string(from: futureEnd),
                 blindName: "李明",
@@ -1957,6 +2071,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 startAddress: "奥林匹克森林公园",
                 startLatitude: 40.0150,
                 startLongitude: 116.3847,
+                endAddress: nil,
+                endLatitude: nil,
+                endLongitude: nil,
                 plannedStart: formatter.string(from: Date().addingTimeInterval(-86400)),
                 plannedEnd: formatter.string(from: Date().addingTimeInterval(-82800)),
                 blindName: "王芳",

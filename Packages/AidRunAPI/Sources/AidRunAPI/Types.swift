@@ -182,7 +182,9 @@ public protocol APIProtocol: Sendable {
     /// 语音解析起点地址
     ///
     /// 文字地址 → 坐标。可选传当前坐标 latitude/longitude：传了则「人民广场」这类全国重名地点
-    /// 按距离取最近的一个（高德周边搜索），不传则纯正向地理编码（可能取到外地同名地点）。
+    /// 按**综合排序**取最相关的一个（高德周边搜索 `sortrule=weight`），不传则纯正向地理编码（可能取到外地同名地点）。
+    /// ⚠️ 2026-08-09 由「按距离取最近」改为综合排序：实测说「五角场」时按距离排出来的第一个是
+    /// 「五角场市场监督管理所」，而用户说的是那个商圈地标。代价是连锁店类查询（「星巴克」）会变差。
     ///
     ///
     /// - Remark: HTTP `POST /api/orders/voice/resolve-address`.
@@ -753,7 +755,9 @@ extension APIProtocol {
     /// 语音解析起点地址
     ///
     /// 文字地址 → 坐标。可选传当前坐标 latitude/longitude：传了则「人民广场」这类全国重名地点
-    /// 按距离取最近的一个（高德周边搜索），不传则纯正向地理编码（可能取到外地同名地点）。
+    /// 按**综合排序**取最相关的一个（高德周边搜索 `sortrule=weight`），不传则纯正向地理编码（可能取到外地同名地点）。
+    /// ⚠️ 2026-08-09 由「按距离取最近」改为综合排序：实测说「五角场」时按距离排出来的第一个是
+    /// 「五角场市场监督管理所」，而用户说的是那个商圈地标。代价是连锁店类查询（「星巴克」）会变差。
     ///
     ///
     /// - Remark: HTTP `POST /api/orders/voice/resolve-address`.
@@ -1997,6 +2001,18 @@ public enum Components {
             public var startLongitude: Swift.Double
             /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/startAddress`.
             public var startAddress: Swift.String
+            /// 终点文字描述（可选）。不传 = 未指定终点，**不表示原路返回起点**。 后端不对终点做地理编码，坐标由客户端传入。
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/endAddress`.
+            public var endAddress: Swift.String?
+            /// 终点纬度（可选）。与 endLongitude 必须成对出现，只传一个返回 400「终点经纬度必须同时提供」
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/endLatitude`.
+            public var endLatitude: Swift.Double?
+            /// 终点经度（可选）。与 endLatitude 必须成对出现
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/endLongitude`.
+            public var endLongitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/plannedStartTime`.
             public var plannedStartTime: Swift.String
             /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/plannedEndTime`.
@@ -2034,6 +2050,9 @@ public enum Components {
             ///   - startLatitude:
             ///   - startLongitude:
             ///   - startAddress:
+            ///   - endAddress: 终点文字描述（可选）。不传 = 未指定终点，**不表示原路返回起点**。 后端不对终点做地理编码，坐标由客户端传入。
+            ///   - endLatitude: 终点纬度（可选）。与 endLongitude 必须成对出现，只传一个返回 400「终点经纬度必须同时提供」
+            ///   - endLongitude: 终点经度（可选）。与 endLatitude 必须成对出现
             ///   - plannedStartTime:
             ///   - plannedEndTime:
             ///   - expectedDurationMinutes:
@@ -2046,6 +2065,9 @@ public enum Components {
                 startLatitude: Swift.Double,
                 startLongitude: Swift.Double,
                 startAddress: Swift.String,
+                endAddress: Swift.String? = nil,
+                endLatitude: Swift.Double? = nil,
+                endLongitude: Swift.Double? = nil,
                 plannedStartTime: Swift.String,
                 plannedEndTime: Swift.String,
                 expectedDurationMinutes: Swift.Int32? = nil,
@@ -2058,6 +2080,9 @@ public enum Components {
                 self.startLatitude = startLatitude
                 self.startLongitude = startLongitude
                 self.startAddress = startAddress
+                self.endAddress = endAddress
+                self.endLatitude = endLatitude
+                self.endLongitude = endLongitude
                 self.plannedStartTime = plannedStartTime
                 self.plannedEndTime = plannedEndTime
                 self.expectedDurationMinutes = expectedDurationMinutes
@@ -2071,6 +2096,9 @@ public enum Components {
                 case startLatitude
                 case startLongitude
                 case startAddress
+                case endAddress
+                case endLatitude
+                case endLongitude
                 case plannedStartTime
                 case plannedEndTime
                 case expectedDurationMinutes
@@ -2171,7 +2199,12 @@ public enum Components {
         }
         /// - Remark: Generated from `#/components/schemas/ResolveAddressRequest`.
         public struct ResolveAddressRequest: Codable, Hashable, Sendable {
-            /// ASR 转录文本，例如「人民广场地铁站」，无需客户端清洗
+            /// ASR 转录文本，例如「人民广场地铁站」，无需客户端清洗。**没有长度上限，不会因为长而返 400。**
+            ///
+            /// ⚠️ 但超过 200 字时后端**不会调大模型**（直接降级走纯正则）。对整句 `/parse` 的影响是
+            /// **终点解析不出来**（终点没有正则实现），起点/时间/时长照常。正常语音下单远达不到
+            /// （我们最长的回归语料 22 字），但「把多轮转录拼起来再发」的客户端会踩到。
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/ResolveAddressRequest/transcript`.
             public var transcript: Swift.String
@@ -2186,7 +2219,7 @@ public enum Components {
             /// Creates a new `ResolveAddressRequest`.
             ///
             /// - Parameters:
-            ///   - transcript: ASR 转录文本，例如「人民广场地铁站」，无需客户端清洗
+            ///   - transcript: ASR 转录文本，例如「人民广场地铁站」，无需客户端清洗。**没有长度上限，不会因为长而返 400。**
             ///   - latitude: 用户当前纬度（GCJ-02），可选，用于同名地点就近消歧
             ///   - longitude: 用户当前经度（GCJ-02），可选，用于同名地点就近消歧
             public init(
@@ -2216,6 +2249,22 @@ public enum Components {
             public var needReask: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/ResolveAddressResponse/ttsText`.
             public var ttsText: Swift.String
+            /// 同名地点的候选，**有序**，最多 3 个。平铺的 `address` / `latitude` / `longitude`
+            /// 就是本数组的第一项，语义是「我们的最佳猜测」——
+            /// 老客户端不认识本字段，只读平铺字段也能正常下单。
+            ///
+            /// 长度 ≥ 2 时 `ttsText` 已经是序号播报文案（「找到3个地点，请说第几个。第一个，…」），
+            /// 客户端直接念即可；用户说「第二个」由**客户端本地指令表**匹配下标，后端只保证顺序稳定。
+            ///
+            /// ⚠️ 上限 3 由**后端**截断，不是客户端的展示限制 —— 纯听觉且要同时理解句子时，
+            /// 人平均只能记住约 3 项。别在客户端再放开。
+            ///
+            /// ⚠️ 只有请求带了 `latitude`/`longitude` 才可能有候选：没有坐标就算不出 `distanceMeters`，
+            /// 「人民广场」这类全国重名地点缺了距离更难选。没有候选时是**空数组，不是 null**。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ResolveAddressResponse/candidates`.
+            public var candidates: [Components.Schemas.AddressCandidate]?
             /// Creates a new `ResolveAddressResponse`.
             ///
             /// - Parameters:
@@ -2224,18 +2273,21 @@ public enum Components {
             ///   - longitude:
             ///   - needReask:
             ///   - ttsText:
+            ///   - candidates: 同名地点的候选，**有序**，最多 3 个。平铺的 `address` / `latitude` / `longitude`
             public init(
                 address: Swift.String? = nil,
                 latitude: Swift.Double? = nil,
                 longitude: Swift.Double? = nil,
                 needReask: Swift.Bool,
-                ttsText: Swift.String
+                ttsText: Swift.String,
+                candidates: [Components.Schemas.AddressCandidate]? = nil
             ) {
                 self.address = address
                 self.latitude = latitude
                 self.longitude = longitude
                 self.needReask = needReask
                 self.ttsText = ttsText
+                self.candidates = candidates
             }
             public enum CodingKeys: String, CodingKey {
                 case address
@@ -2243,6 +2295,76 @@ public enum Components {
                 case longitude
                 case needReask
                 case ttsText
+                case candidates
+            }
+        }
+        /// 候选地点。除 `name` / `latitude` / `longitude` 外均可能为 null（高德不保证返回）
+        ///
+        /// - Remark: Generated from `#/components/schemas/AddressCandidate`.
+        public struct AddressCandidate: Codable, Hashable, Sendable {
+            /// POI 名称（「五角场」），播报的主体
+            ///
+            /// - Remark: Generated from `#/components/schemas/AddressCandidate/name`.
+            public var name: Swift.String
+            /// 街道地址（「邯郸路」）
+            ///
+            /// - Remark: Generated from `#/components/schemas/AddressCandidate/address`.
+            public var address: Swift.String?
+            /// 区县名（「杨浦区」）
+            ///
+            /// - Remark: Generated from `#/components/schemas/AddressCandidate/adname`.
+            public var adname: Swift.String?
+            /// 商圈名（「五角场商圈」），高德常常不返回
+            ///
+            /// - Remark: Generated from `#/components/schemas/AddressCandidate/business`.
+            public var business: Swift.String?
+            /// 距请求里 `latitude`/`longitude` 的直线距离（米）
+            ///
+            /// - Remark: Generated from `#/components/schemas/AddressCandidate/distanceMeters`.
+            public var distanceMeters: Swift.Int?
+            /// 纬度（GCJ-02）
+            ///
+            /// - Remark: Generated from `#/components/schemas/AddressCandidate/latitude`.
+            public var latitude: Swift.Double
+            /// 经度（GCJ-02）
+            ///
+            /// - Remark: Generated from `#/components/schemas/AddressCandidate/longitude`.
+            public var longitude: Swift.Double
+            /// Creates a new `AddressCandidate`.
+            ///
+            /// - Parameters:
+            ///   - name: POI 名称（「五角场」），播报的主体
+            ///   - address: 街道地址（「邯郸路」）
+            ///   - adname: 区县名（「杨浦区」）
+            ///   - business: 商圈名（「五角场商圈」），高德常常不返回
+            ///   - distanceMeters: 距请求里 `latitude`/`longitude` 的直线距离（米）
+            ///   - latitude: 纬度（GCJ-02）
+            ///   - longitude: 经度（GCJ-02）
+            public init(
+                name: Swift.String,
+                address: Swift.String? = nil,
+                adname: Swift.String? = nil,
+                business: Swift.String? = nil,
+                distanceMeters: Swift.Int? = nil,
+                latitude: Swift.Double,
+                longitude: Swift.Double
+            ) {
+                self.name = name
+                self.address = address
+                self.adname = adname
+                self.business = business
+                self.distanceMeters = distanceMeters
+                self.latitude = latitude
+                self.longitude = longitude
+            }
+            public enum CodingKeys: String, CodingKey {
+                case name
+                case address
+                case adname
+                case business
+                case distanceMeters
+                case latitude
+                case longitude
             }
         }
         /// - Remark: Generated from `#/components/schemas/ParseSlotRequest`.
@@ -2326,6 +2448,44 @@ public enum Components {
             public var latitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/longitude`.
             public var longitude: Swift.Double?
+            /// 解析出的**终点**地址 —— 可选槽位，原话没说终点时为 `null`（2026-08-08 SPEC B1 新增）。
+            ///
+            /// ⚠️ 终点**永远不进 `missing`**：它是可选的，一个可选字段不该把用户卡在追问循环里。
+            /// 所以 `missing` 的枚举里也**没有** `END_ADDRESS`。
+            ///
+            /// 非 null 时后端保证已念进 `ttsText` 的读回确认 —— 终点由大模型抽取，
+            /// 读回是「起终点被抽反了」唯一能被用户发现的地方。
+            ///
+            /// ⚠️ 终点**只由大模型定位**，没有正则链路。百炼不可用时本字段恒为 `null`，
+            /// 这是明确接受的降级（起点/时间/时长仍照常解析）。**别把它当契约**。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/endAddress`.
+            public var endAddress: Swift.String?
+            /// 终点纬度（GCJ-02）。⚠️ 可能为 null 而 `endAddress` 非 null，见 `endAddressUnresolved`
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/endLatitude`.
+            public var endLatitude: Swift.Double?
+            /// 终点经度（GCJ-02），同 `endLatitude`
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/endLongitude`.
+            public var endLongitude: Swift.Double?
+            /// 终点抽到了地名、但地理编码查不到坐标（2026-08-08 SPEC B1 新增）。
+            ///
+            /// 此时 `endAddress` 是**用户原话里的地名**（不是高德的规范化地址），
+            /// `endLatitude`/`endLongitude` 为 `null`。**订单仍然可以下** ——
+            /// 终点是可选字段，不该因为高德查不到就把用户卡住，而地址本身对志愿者仍有展示价值。
+            ///
+            /// 本字段恒等于「`endAddress` 非 null 且 `endLatitude` 为 null」，**按本次响应的最终状态算，
+            /// 不是按本轮抽到了什么**（2026-08-09 修正，此前只按本轮算）：终点三元组会从 `current` 跨轮继承，
+            /// 用户第二轮只改时长时，这个地名和它缺失的坐标都还在响应里，标志位也就还是 `true`。
+            ///
+            /// 为什么不静默当没说：用户明明说了「跑到五角场」、读回却不念终点 ——
+            /// 盲人无从分辨是没听到还是没存下。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/endAddressUnresolved`.
+            public var endAddressUnresolved: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/missingPayload`.
             public struct missingPayloadPayload: Codable, Hashable, Sendable {
                 /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/missingPayload/value1`.
@@ -2379,11 +2539,17 @@ public enum Components {
                     ])
                 }
             }
-            /// 还缺（或校验不通过）的槽位，按向导顺序：起点 → 开始时间 → 时长
+            /// 还缺（或校验不通过）的槽位，按向导顺序：起点 → 开始时间 → 时长。
+            ///
+            /// ⚠️ **终点不在此列且永远不会出现**（可选字段，见 `endAddress`）。
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/missing`.
             public typealias missingPayload = [Components.Schemas.ParseVoiceOrderResponse.missingPayloadPayload]
-            /// 还缺（或校验不通过）的槽位，按向导顺序：起点 → 开始时间 → 时长
+            /// 还缺（或校验不通过）的槽位，按向导顺序：起点 → 开始时间 → 时长。
+            ///
+            /// ⚠️ **终点不在此列且永远不会出现**（可选字段，见 `endAddress`）。
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/missing`.
             public var missing: Components.Schemas.ParseVoiceOrderResponse.missingPayload
@@ -2409,9 +2575,18 @@ public enum Components {
             public var ttsText: Swift.String
             /// 地址缺失的**原因**区分，仅在 `missing` 含 `ADDRESS` 时有意义（2026-08-04 应 iOS 端要求新增）：
             ///
-            /// - `true` —— 从转录里**抽到了地名候选**（规则 span 或 LLM 抽取任一命中），但地理编码查不到。
-            ///   **用户确实说了一个地点，是我们没解析出来。**
+            /// - `true` —— 从转录里**抽到了地名候选**（规则 span 或 LLM 抽取任一命中），但没能把它变成
+            ///   一个可用的起点。**用户确实说了一个地点，是我们没解析出来。** 两种成因：
+            ///   ① 地理编码查不到；② 起终点 span 重叠、同一段文字的**角色定不下来**，两个都被丢弃
+            ///   （2026-08-09 修正：成因 ② 此前错报成 `false`）。
             /// - `false` —— 两道抽取都没拿到地名候选，用户很可能压根没说起点。
+            ///
+            /// ⚠️ **按本次响应的最终状态算，跨轮有效**（2026-08-09 修正，此前只按当前这一轮算）：
+            /// 第 1 轮说了地名但查不到 → `true`；把响应放进 `current` 再说一句只改时长的话，
+            /// 那一轮虽然没听见任何地名，本字段仍是 `true`，因为起点地址是跨轮继承的。
+            /// 此前会翻回 `false`，而 `false` 的含义是「用户压根没说起点」——
+            /// 客户端据此把起点静默落回「当前位置」，正是本字段要防的那个后果。
+            /// 这与 `endAddressUnresolved` 是同一条口径。
             ///
             /// 为什么需要：客户端在 ADDRESS 缺失时会落回「当前位置」默认值。用户没说起点时这是对的；
             /// 但用户明明说了「从人民广场出发」却被静默落回当前位置，就是**把人约到错误的起点**。
@@ -2521,7 +2696,11 @@ public enum Components {
             ///   - address:
             ///   - latitude:
             ///   - longitude:
-            ///   - missing: 还缺（或校验不通过）的槽位，按向导顺序：起点 → 开始时间 → 时长
+            ///   - endAddress: 解析出的**终点**地址 —— 可选槽位，原话没说终点时为 `null`（2026-08-08 SPEC B1 新增）。
+            ///   - endLatitude: 终点纬度（GCJ-02）。⚠️ 可能为 null 而 `endAddress` 非 null，见 `endAddressUnresolved`
+            ///   - endLongitude: 终点经度（GCJ-02），同 `endLatitude`
+            ///   - endAddressUnresolved: 终点抽到了地名、但地理编码查不到坐标（2026-08-08 SPEC B1 新增）。
+            ///   - missing: 还缺（或校验不通过）的槽位，按向导顺序：起点 → 开始时间 → 时长。
             ///   - needReask: 客户端需要再收一次语音。
             ///   - ttsText: ⚠️ 两种场景语义不同，客户端按 missing 是否为空分别处理（2026-08-04 与 iOS 端确认）：
             ///   - addressUnresolved: 地址缺失的**原因**区分，仅在 `missing` 含 `ADDRESS` 时有意义（2026-08-04 应 iOS 端要求新增）：
@@ -2535,6 +2714,10 @@ public enum Components {
                 address: Swift.String? = nil,
                 latitude: Swift.Double? = nil,
                 longitude: Swift.Double? = nil,
+                endAddress: Swift.String? = nil,
+                endLatitude: Swift.Double? = nil,
+                endLongitude: Swift.Double? = nil,
+                endAddressUnresolved: Swift.Bool? = nil,
                 missing: Components.Schemas.ParseVoiceOrderResponse.missingPayload,
                 needReask: Swift.Bool,
                 ttsText: Swift.String,
@@ -2549,6 +2732,10 @@ public enum Components {
                 self.address = address
                 self.latitude = latitude
                 self.longitude = longitude
+                self.endAddress = endAddress
+                self.endLatitude = endLatitude
+                self.endLongitude = endLongitude
+                self.endAddressUnresolved = endAddressUnresolved
                 self.missing = missing
                 self.needReask = needReask
                 self.ttsText = ttsText
@@ -2564,6 +2751,10 @@ public enum Components {
                 case address
                 case latitude
                 case longitude
+                case endAddress
+                case endLatitude
+                case endLongitude
+                case endAddressUnresolved
                 case missing
                 case needReask
                 case ttsText
@@ -2579,7 +2770,7 @@ public enum Components {
         ///
         /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderRequest`.
         public struct ParseVoiceOrderRequest: Codable, Hashable, Sendable {
-            /// 语音识别出的原始转录文本，不需要客户端清洗
+            /// 语音识别出的原始转录文本，不需要客户端清洗。⚠️ 超 200 字不返错，但后端会跳过大模型 → 解析不出终点
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderRequest/transcript`.
             public var transcript: Swift.String
@@ -2596,7 +2787,7 @@ public enum Components {
             /// Creates a new `ParseVoiceOrderRequest`.
             ///
             /// - Parameters:
-            ///   - transcript: 语音识别出的原始转录文本，不需要客户端清洗
+            ///   - transcript: 语音识别出的原始转录文本，不需要客户端清洗。⚠️ 超 200 字不返错，但后端会跳过大模型 → 解析不出终点
             ///   - latitude: 用户当前纬度（GCJ-02），可选，用于同名地点就近消歧；与 longitude 必须成对传
             ///   - longitude: 用户当前经度（GCJ-02），可选；只传一半返 400 VALIDATION_ERROR
             ///   - current:
@@ -2621,7 +2812,16 @@ public enum Components {
         /// 上一轮已确认的槽位，一步修正时由客户端回传。服务端不存对话状态，
         /// 「上一轮说到哪了」完全由客户端带回来。字段全部可选：只带已经确认过的那几项即可。
         ///
-        /// ⚠️ `address` / `latitude` / `longitude` **必须同时提供或同时缺省**，只带文字地址不带坐标返 400。
+        /// ⚠️ **起点和终点现在是同一档规则**（2026-08-09 起点跟着放宽，此前起点要求三元组同在或同缺）：
+        /// 允许「有地址、无坐标」—— 高德查不到时后端就是这么返回的（`addressUnresolved` /
+        /// `endAddressUnresolved` 为 `true`），客户端把响应原样放进下一轮 `current` 必然会回传上来，
+        /// 按旧的严格规则校**会把用户卡死在一个他自己解不开的循环里**。
+        ///
+        /// ⚠️ **反过来仍返 400**：只有坐标没有对应的文字地址是客户端 bug。
+        /// 且 `latitude`/`longitude`、`endLatitude`/`endLongitude` 各自必须成对。
+        ///
+        /// ⚠️ 「有地址无坐标」下不了单这件事**不靠本校验拦** —— 靠 `/parse` 响应里 `missing` 含 `ADDRESS`
+        /// （判据是**坐标**而不是地名），客户端会继续追问而不会走到创建订单。
         ///
         ///
         /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot`.
@@ -2636,6 +2836,16 @@ public enum Components {
             public var latitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot/longitude`.
             public var longitude: Swift.Double?
+            /// 已确认的终点文字地址（null=没说终点）。可以只有它而没有坐标，见上方说明。
+            /// 上限与 `CreateOrderRequest.endAddress` 对齐 —— 不在这里拦，要到最后一步下单才暴露。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot/endAddress`.
+            public var endAddress: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot/endLatitude`.
+            public var endLatitude: Swift.Double?
+            /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot/endLongitude`.
+            public var endLongitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot/hasGuideDog`.
             public var hasGuideDog: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/VoiceSlotSnapshot/pacePreference`.
@@ -2658,6 +2868,9 @@ public enum Components {
             ///   - address:
             ///   - latitude:
             ///   - longitude:
+            ///   - endAddress: 已确认的终点文字地址（null=没说终点）。可以只有它而没有坐标，见上方说明。
+            ///   - endLatitude:
+            ///   - endLongitude:
             ///   - hasGuideDog:
             ///   - pacePreference:
             ///   - specialNotes:
@@ -2667,6 +2880,9 @@ public enum Components {
                 address: Swift.String? = nil,
                 latitude: Swift.Double? = nil,
                 longitude: Swift.Double? = nil,
+                endAddress: Swift.String? = nil,
+                endLatitude: Swift.Double? = nil,
+                endLongitude: Swift.Double? = nil,
                 hasGuideDog: Swift.Bool? = nil,
                 pacePreference: Components.Schemas.VoiceSlotSnapshot.pacePreferencePayload? = nil,
                 specialNotes: Swift.String? = nil
@@ -2676,6 +2892,9 @@ public enum Components {
                 self.address = address
                 self.latitude = latitude
                 self.longitude = longitude
+                self.endAddress = endAddress
+                self.endLatitude = endLatitude
+                self.endLongitude = endLongitude
                 self.hasGuideDog = hasGuideDog
                 self.pacePreference = pacePreference
                 self.specialNotes = specialNotes
@@ -2686,6 +2905,9 @@ public enum Components {
                 case address
                 case latitude
                 case longitude
+                case endAddress
+                case endLatitude
+                case endLongitude
                 case hasGuideDog
                 case pacePreference
                 case specialNotes
@@ -3451,6 +3673,18 @@ public enum Components {
             public var startLatitude: Swift.Double
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/startLongitude`.
             public var startLongitude: Swift.Double
+            /// 终点文字描述。null = 用户未指定终点（**不表示原路返回起点**），前端不显示这一行
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/endAddress`.
+            public var endAddress: Swift.String?
+            /// 终点纬度。允许「有地址、无坐标」（用户说了地名但查不到坐标）
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/endLatitude`.
+            public var endLatitude: Swift.Double?
+            /// 终点经度
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/endLongitude`.
+            public var endLongitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/plannedStart`.
             public var plannedStart: Swift.String
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/plannedEnd`.
@@ -3754,6 +3988,9 @@ public enum Components {
             ///   - startAddress:
             ///   - startLatitude:
             ///   - startLongitude:
+            ///   - endAddress: 终点文字描述。null = 用户未指定终点（**不表示原路返回起点**），前端不显示这一行
+            ///   - endLatitude: 终点纬度。允许「有地址、无坐标」（用户说了地名但查不到坐标）
+            ///   - endLongitude: 终点经度
             ///   - plannedStart:
             ///   - plannedEnd:
             ///   - volunteerPhone:
@@ -3774,6 +4011,9 @@ public enum Components {
                 startAddress: Swift.String,
                 startLatitude: Swift.Double,
                 startLongitude: Swift.Double,
+                endAddress: Swift.String? = nil,
+                endLatitude: Swift.Double? = nil,
+                endLongitude: Swift.Double? = nil,
                 plannedStart: Swift.String,
                 plannedEnd: Swift.String,
                 volunteerPhone: Swift.String? = nil,
@@ -3794,6 +4034,9 @@ public enum Components {
                 self.startAddress = startAddress
                 self.startLatitude = startLatitude
                 self.startLongitude = startLongitude
+                self.endAddress = endAddress
+                self.endLatitude = endLatitude
+                self.endLongitude = endLongitude
                 self.plannedStart = plannedStart
                 self.plannedEnd = plannedEnd
                 self.volunteerPhone = volunteerPhone
@@ -3815,6 +4058,9 @@ public enum Components {
                 case startAddress
                 case startLatitude
                 case startLongitude
+                case endAddress
+                case endLatitude
+                case endLongitude
                 case plannedStart
                 case plannedEnd
                 case volunteerPhone
@@ -4012,6 +4258,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/distanceKm`.
             public var distanceKm: Swift.Double?
+            /// **起点到终点**的直线距离（公里，保留 1 位小数），即「这一单要跑多远」—— 注意与上面的 distanceKm 语义不同，那是志愿者当前位置到起点的距离。 null = 该单没有终点坐标（未指定，或只有地址没坐标）。 接单前刻意只给距离、不给终点地址：起点 + 终点 + 时间三件套 = 可跟踪的行踪信息， 而这份数据会下发给可能最终拒单的志愿者。
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/startToEndDistanceKm`.
+            public var startToEndDistanceKm: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/plannedStart`.
             public var plannedStart: Foundation.Date?
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/plannedEnd`.
@@ -4087,6 +4337,7 @@ public enum Components {
             ///   - orderId:
             ///   - startAddress:
             ///   - distanceKm: 志愿者当前位置到起点的距离（公里，保留 1 位小数）
+            ///   - startToEndDistanceKm: **起点到终点**的直线距离（公里，保留 1 位小数），即「这一单要跑多远」—— 注意与上面的 distanceKm 语义不同，那是志愿者当前位置到起点的距离。 null = 该单没有终点坐标（未指定，或只有地址没坐标）。 接单前刻意只给距离、不给终点地址：起点 + 终点 + 时间三件套 = 可跟踪的行踪信息， 而这份数据会下发给可能最终拒单的志愿者。
             ///   - plannedStart:
             ///   - plannedEnd:
             ///   - blindUserPhone: 盲人手机号，已掩码（前 3 后 4，中间 `****`）
@@ -4097,6 +4348,7 @@ public enum Components {
                 orderId: Swift.Int64? = nil,
                 startAddress: Swift.String? = nil,
                 distanceKm: Swift.Double? = nil,
+                startToEndDistanceKm: Swift.Double? = nil,
                 plannedStart: Foundation.Date? = nil,
                 plannedEnd: Foundation.Date? = nil,
                 blindUserPhone: Swift.String? = nil,
@@ -4107,6 +4359,7 @@ public enum Components {
                 self.orderId = orderId
                 self.startAddress = startAddress
                 self.distanceKm = distanceKm
+                self.startToEndDistanceKm = startToEndDistanceKm
                 self.plannedStart = plannedStart
                 self.plannedEnd = plannedEnd
                 self.blindUserPhone = blindUserPhone
@@ -4118,6 +4371,7 @@ public enum Components {
                 case orderId
                 case startAddress
                 case distanceKm
+                case startToEndDistanceKm
                 case plannedStart
                 case plannedEnd
                 case blindUserPhone
@@ -8554,7 +8808,9 @@ public enum Operations {
     /// 语音解析起点地址
     ///
     /// 文字地址 → 坐标。可选传当前坐标 latitude/longitude：传了则「人民广场」这类全国重名地点
-    /// 按距离取最近的一个（高德周边搜索），不传则纯正向地理编码（可能取到外地同名地点）。
+    /// 按**综合排序**取最相关的一个（高德周边搜索 `sortrule=weight`），不传则纯正向地理编码（可能取到外地同名地点）。
+    /// ⚠️ 2026-08-09 由「按距离取最近」改为综合排序：实测说「五角场」时按距离排出来的第一个是
+    /// 「五角场市场监督管理所」，而用户说的是那个商圈地标。代价是连锁店类查询（「星巴克」）会变差。
     ///
     ///
     /// - Remark: HTTP `POST /api/orders/voice/resolve-address`.

@@ -887,6 +887,9 @@ struct BlindOrderStatusView: View {
             if let address = order.startAddress, !address.trimmed.isEmpty {
                 infoRow("出发地点", address)
             }
+            if let endAddress = order.endAddressForDisplay {
+                infoRow("结束地点", endAddress)
+            }
             if let routeNotes = order.routeNotes, !routeNotes.trimmed.isEmpty {
                 infoRow("路线备注", routeNotes)
             }

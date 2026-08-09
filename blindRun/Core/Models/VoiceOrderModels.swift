@@ -88,6 +88,27 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     let address: String?
     let latitude: Double?
     let longitude: Double?
+
+    // MARK: 终点（可选槽位，2026-08-08 后端 SPEC B1 新增）
+
+    /// 解析出的终点地址；原话没说终点时 `nil`。
+    ///
+    /// **终点永远不进 `missing`，也不会触发追问**（`api_spec.yaml:2841`）—— 它是可选的，
+    /// 一个可选字段不该把用户卡在追问循环里。所以 `VoiceOrderMissingSlot` 里没有 `END_ADDRESS`。
+    ///
+    /// ⚠️ 终点**只由大模型抽取，没有正则链路**：百炼不可用时本字段恒为 `nil`，
+    /// 起点/时间/时长照常解析。这是后端明确接受的降级，**不能当契约**。
+    let endAddress: String?
+    /// ⚠️ 可能为 `nil` 而 `endAddress` 非 `nil`（说了地名、高德查不到坐标）。
+    let endLatitude: Double?
+    let endLongitude: Double?
+    /// 后端声明它恒等于「`endAddress` 非 null 且 `endLatitude` 为 null」。
+    ///
+    /// **解它是为了漂移可见，判断一律用 `resolvedEndPlace` 自己算** ——
+    /// 同一事实有两个来源时只信结构：这个字段 2026-08-09 刚因为算错被后端修过一次（N39），
+    /// 而三元组本身当时是对的。
+    let endAddressUnresolved: Bool?
+
     /// 还缺（或校验不通过）的槽位。**客户端把它当作「这几项保持默认值」**，不据此重问 ——
     /// 理由见 `VoiceOrderWizard.parseFreeform`。
     let missing: [VoiceOrderMissingSlot]?
@@ -121,7 +142,7 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     /// 会直接误导对方，所以改写过的备注在后端就被丢弃了。
     let specialNotes: String?
 
-    /// 三个额外槽位默认 `nil`（＝原话没提），让只关心三个必填槽位的调用点不必逐个写 `nil`。
+    /// 终点四项与三个额外槽位默认 `nil`（＝原话没提），让只关心三个必填槽位的调用点不必逐个写 `nil`。
     /// 解码走 `Codable` 合成路径，不受这里的默认值影响。
     init(
         plannedStartTime: String?,
@@ -132,6 +153,10 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
         missing: [VoiceOrderMissingSlot]?,
         needReask: Bool?,
         ttsText: String?,
+        endAddress: String? = nil,
+        endLatitude: Double? = nil,
+        endLongitude: Double? = nil,
+        endAddressUnresolved: Bool? = nil,
         hasGuideDog: Bool? = nil,
         pacePreference: PacePreference? = nil,
         specialNotes: String? = nil
@@ -141,6 +166,10 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
         self.address = address
         self.latitude = latitude
         self.longitude = longitude
+        self.endAddress = endAddress
+        self.endLatitude = endLatitude
+        self.endLongitude = endLongitude
+        self.endAddressUnresolved = endAddressUnresolved
         self.missing = missing
         self.needReask = needReask
         self.ttsText = ttsText
@@ -153,6 +182,16 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     var resolvedStartPlace: (address: String, latitude: Double, longitude: Double)? {
         guard let address = address?.nilIfBlank, let latitude, let longitude else { return nil }
         return (address, latitude, longitude)
+    }
+
+    /// 终点：**规则比起点松一档**，有地名就算数、坐标可缺（`api_spec.yaml:3007-3019` 明确两边不同）。
+    ///
+    /// 反过来不行：只有坐标没有地名一律当没抽到 —— 那是客户端 bug，
+    /// 而且读回时没有任何东西可念，盲人根本不知道被约到了哪。
+    /// 半个坐标由 `BookingEndPlace.init` 降级成「只有地名」。
+    var resolvedEndPlace: BookingEndPlace? {
+        guard let address = endAddress?.nilIfBlank else { return nil }
+        return BookingEndPlace(address: address, latitude: endLatitude, longitude: endLongitude)
     }
 }
 

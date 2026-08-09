@@ -215,6 +215,19 @@ extension OrderDetailResponse {
         startAddress?.nilIfBlank ?? "预约出发地点"
     }
 
+    /// 「结束地点」那一行要显示的文字；`nil` 表示**整行不渲染**。
+    ///
+    /// 没有终点时返回 `nil` 而不是「未指定」之类的占位：`endAddress == nil` 的语义是
+    /// 「用户没说终点」，**不是**「原路返回起点」。摆一行出来，志愿者就会去跟盲人核对
+    /// 一个对方从没说过的地点（后端 `websocket-protocol.md:429` 同一条口径）。
+    ///
+    /// 查不到坐标时把这件事说出来，是因为它改变志愿者的动作：没有坐标就没法导航，
+    /// 只能当面问。不标注的话，那一行看起来和有坐标的完全一样。
+    var endAddressForDisplay: String? {
+        guard let address = endAddress?.nilIfBlank else { return nil }
+        return endLatitude == nil ? "\(address)（未定位到）" : address
+    }
+
     var plannedStartForAnnouncement: String? {
         plannedStart?.nilIfBlank?.displayDateTime
     }

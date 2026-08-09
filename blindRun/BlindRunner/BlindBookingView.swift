@@ -162,6 +162,11 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var placeSearchResults: [ResolvedPlace] = []
     @Published var selectedStartPlace: ResolvedPlace?
     @Published var currentResolvedPlace: ResolvedPlace?
+    /// 本次预约的终点。**只有语音会写它** —— 表单向导没有终点输入，产品上终点是纯可选槽位，
+    /// 而在表单里再加一段 POI 搜索 + 候选列表，对看不见屏幕的人是又一段同样长的交互。
+    ///
+    /// `nil` = 用户未指定，任何读回与展示都**一个字不提终点**（不是「原路返回起点」）。
+    @Published var endPlace: BookingEndPlace?
     @Published var startLocationDescription = ""
     @Published var appointmentTime = Date()
     @Published var routeNotes = ""
@@ -315,6 +320,24 @@ final class BlindBookingViewModel: ObservableObject {
         return "\(startPointSourceText)出发地点：\(placeText)。"
     }
 
+    /// 终点读回。**必须紧挨着 `startPointSummary` 念**，别塞进选填需求那一段。
+    ///
+    /// 起终点由大模型抽取，抽反了（「从五角场跑到人民广场」听成反过来）只有读回能被用户发现，
+    /// 而两句挨着才听得出反没反 —— 中间隔着预约时间就听不出来了。后端 `api_spec.yaml:2843`
+    /// 也是拿读回当这条防线的。
+    ///
+    /// 没有终点时返回空串：`nil` 的语义是「用户未指定」，多说一句「本次没有结束地点」
+    /// 会让人以为系统漏听了他没说过的话。
+    var endPointSummary: String {
+        guard let endPlace else { return "" }
+        if endPlace.isUnresolved {
+            // 查不到坐标仍然照下单（后端允许「有地址无坐标」），但**必须说出来**：
+            // 不说，盲人会以为终点已经定准了，而实际上志愿者拿到的只是一个地名。
+            return "结束地点：\(endPlace.address)。这个地点没能定位到，志愿者会看到这个名字。"
+        }
+        return "结束地点：\(endPlace.address)。"
+    }
+
     var optionalReviewItems: [BookingReviewItem] {
         var items: [BookingReviewItem] = []
         if let routeNotes = routeNotes.nilIfBlank {
@@ -348,7 +371,7 @@ final class BlindBookingViewModel: ObservableObject {
 
     var reviewSummarySpeech: String {
         let blockingText = blockingReasonForCurrentStep.map { "当前还不能提交，\($0)" } ?? ""
-        return "请确认预约。\(startPointSummary)\(appointmentSummary)\(optionalNeedsSpeechSummary)\(blockingText)"
+        return "请确认预约。\(startPointSummary)\(endPointSummary)\(appointmentSummary)\(optionalNeedsSpeechSummary)\(blockingText)"
     }
 
     /// 零输入下单那一步要复核的整单。
@@ -593,6 +616,9 @@ final class BlindBookingViewModel: ObservableObject {
     /// 读回只在那个标志为真时才念具体时刻。
     func resetVoiceFilledSlots() {
         selectedStartPlace = nil
+        // 终点尤其不能留：屏幕上没有任何终点控件，用户重说一遍之后没有任何**视觉**线索
+        // 能让他发现上一轮的终点还挂着，只有读回会念出来 —— 而那时他已经在准备说「确认」了。
+        endPlace = nil
         duration = .none
         exactDurationMinutes = nil
         routeNotes = ""
@@ -694,6 +720,11 @@ final class BlindBookingViewModel: ObservableObject {
             startLatitude: startPlace.latitude,
             startLongitude: startPlace.longitude,
             startAddress: resolvedStartLocationDescription,
+            // 三项一律从 `endPlace` 取。坐标成对由 `BookingEndPlace.init` 保证，
+            // 这里不再判一次 —— 判两次就有两份规则，迟早有一份忘了改。
+            endAddress: endPlace?.address,
+            endLatitude: endPlace?.latitude,
+            endLongitude: endPlace?.longitude,
             plannedStartTime: plannedStartTime,
             plannedEndTime: plannedEndTime,
             expectedDurationMinutes: resolvedDurationMinutes,
@@ -1030,6 +1061,11 @@ struct BlindBookingView: View {
         if voiceWizard.step == .confirm {
             VStack(spacing: 8) {
                 recapRow("出发", viewModel.resolvedStartLocationDescription.nilIfBlank ?? "当前位置")
+                // 紧跟「出发」，与读回同一个顺序 —— 起终点抽反了要能一眼/一耳看出来。
+                // 没说终点就整行不渲染：nil 是「未指定」，摆一行「结束：无」是在回答用户没问的问题。
+                if let endPlace = viewModel.endPlace {
+                    recapRow("结束", endPlace.isUnresolved ? "\(endPlace.address)（未定位到）" : endPlace.address)
+                }
                 recapRow(
                     "时间",
                     voiceWizard.didCaptureStartTime
@@ -1594,6 +1630,13 @@ struct BlindBookingView: View {
             sectionTitle("确认预约")
 
             reviewRow(title: "出发地点", value: viewModel.resolvedStartLocationDescription.nilIfBlank ?? "出发地点待确认")
+            // 语音降级回表单时终点会跟着留下来，所以复核页也得能看到它。
+            if let endPlace = viewModel.endPlace {
+                reviewRow(
+                    title: "结束地点",
+                    value: endPlace.isUnresolved ? "\(endPlace.address)（未定位到）" : endPlace.address
+                )
+            }
             reviewRow(title: "预约时间", value: DateFormatter.aidRunDisplayDateTime.string(from: viewModel.appointmentTime))
 
             if viewModel.optionalReviewItems.isEmpty {
