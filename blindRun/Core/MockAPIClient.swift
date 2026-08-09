@@ -1522,6 +1522,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let now = now ?? voiceNow
         let calendar = Calendar.current
 
+        // ⓪ 认不了的日期表达直接认输（语料 `_unsupported_date_note`）。
+        // 下面的日期词只有明天/后天/今天三个，碰上「8月10号」「下周三」时它不会失败，
+        // 而是**只取钟点、把日期当没说**，再套「已过就滚次日」—— 于是任何日期都被静默解析成
+        // 今天或明天：「8月10号早上8点」差 1 天、「下周三早上8点」差 5 天。篡改后的值能过
+        // 提前量校验、读回文案念得很顺，盲人听到「8月9日8点」无从判断这不是自己说的那天。
+        guard transcript.firstRange(of: unsupportedDateRegex) == nil else { return nil }
+
         // ① 相对时间优先。「半小时后」不能被下面的钟点分支按「半」误读。
         if let offset = relativeMinutesOffset(in: transcript) {
             return calendar.date(byAdding: .minute, value: offset, to: now)
@@ -1552,6 +1559,21 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         return candidate
     }
+
+    /// 逐字照抄后端 `VoiceSlotParser.UNSUPPORTED_DATE`（`VoiceSlotParser.java:56`）。
+    ///
+    /// 后端在**中文数字归一化之前**用原文判，理由是归一化会把「下周三」变成「下周3」、
+    /// 「八月十号」变成「8月10号」，中文词形没了就要维护两套模式。Mock 没有归一化步骤，
+    /// 但同样在最前面判，保持两边同口径。
+    ///
+    /// 只让它「认输」，**不新增「认识 X月Y号」的解析分支** —— 日期表达是开放的
+    /// （「下下周二」「这个月底」），正则永远穷举不完，那是大模型该干的活。
+    private static let unsupportedDateRegex = try! Regex(
+        #"[0-9零一二两三四五六七八九十]{1,3}\s*月\s*[0-9零一二两三四五六七八九十]{1,3}\s*[号日]"#
+            + #"|[下这本上]{1,2}\s*个?\s*(?:周|星期|礼拜)"#
+            + #"|大[前后]天"#
+            + #"|[下这本]\s*个\s*月"#
+    )
 
     /// 「半小时后」「四十分钟后」「两个小时后」→ 相对分钟数。没有「后」字就不是相对表达。
     private static func relativeMinutesOffset(in transcript: String) -> Int? {
@@ -1594,6 +1616,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             //
             // 跳过本次继续找，不是直接返 nil ——「跑1:30，明天早上8点出发」里真正的钟点在后面。
             if isDurationLeadIn(transcript, hourStart: match.range.lowerBound) { continue }
+            // 程度副词守卫同样作用于冒号钟点 —— 后端把它放在两种写法的公共路径上
+            // （`VoiceSlotParser.java:205`，在 group(5) 判定之外），这里保持一致。
+            if isDegreeLeadIn(transcript, hourStart: match.range.lowerBound) { continue }
             let parts = transcript[match.range].split(whereSeparator: { $0 == ":" || $0 == "：" })
             guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]),
                   (0...24).contains(hour) else { continue }
@@ -1614,34 +1639,65 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return "跑步".contains(transcript[transcript.index(before: hourStart)])
     }
 
+    /// 数字紧跟在程度副词后面吗（「慢一点」「快一点」「早一点」「晚一点」）。照抄后端
+    /// `VoiceSlotParser.isDegreeLeadIn`（`VoiceSlotParser.java:405`）。
+    ///
+    /// 「慢一点」里的「一点」正好落进「N点」分支 → 解析成凌晨 1 点：用户**根本没提时间**，
+    /// 系统却凭空造出一个能过提前量校验的凌晨时刻读给他听。更糟的是「慢一点」同时被配速正则
+    /// 认作 EASY —— 同一句话上两条正则打架，而时间那条赢了。
+    ///
+    /// 只收「慢快早晚」四个字，**刻意不收「多少」** —— 那会误杀「差不多1点」这种真钟点。
+    private static func isDegreeLeadIn(_ transcript: String, hourStart: String.Index) -> Bool {
+        guard hourStart > transcript.startIndex else { return false }
+        return "慢快早晚".contains(transcript[transcript.index(before: hourStart)])
+    }
+
     /// 「N点」「N点半」。N 中文与阿拉伯数字都认。
+    ///
+    /// 逐个「点」地找，命中守卫就跳过**继续往后找**，不是直接返空 ——
+    /// 「跑慢一点，明天早上八点出发」里真正的钟点在后面（同后端 `while (clock.find())` + `continue`）。
+    /// 只取第一个「点」的写法还会让「慢点跑，明天早上八点…」整句抽不出时间：
+    /// 第一个「点」前面是「慢」，取不到数字就放弃了。
     private static func spokenClockTime(in transcript: String) -> (hour: Int, minute: Int)? {
-        guard let hour = chineseNumber(before: "点", in: transcript), (1...24).contains(hour) else {
-            return nil
+        var searchStart = transcript.startIndex
+        while let clock = transcript.range(of: "点", range: searchStart..<transcript.endIndex) {
+            searchStart = clock.upperBound
+            let head = transcript[transcript.startIndex..<clock.lowerBound]
+            guard let number = trailingNumber(in: head), (1...24).contains(number.value) else {
+                continue
+            }
+            if isDegreeLeadIn(transcript, hourStart: number.start) { continue }
+            let hour = number.value
+            // 「N点半」只认紧跟在「点」后面的「半」，避免「八点跑半小时」被读成 08:30。
+            // 两种写法都要查：识别输出「8点半」时，只查中文形式「八点半」会漏掉，
+            // 半小时就被静默抹成整点 —— 对听不见屏幕的人，这是一次无声的篡改。
+            let isHalfPast = transcript.contains("\(chineseDigits[hour] ?? "")点半")
+                || transcript.contains("\(hour)点半")
+            return (hour, isHalfPast ? 30 : 0)
         }
-        // 「N点半」只认紧跟在「点」后面的「半」，避免「八点跑半小时」被读成 08:30。
-        // 两种写法都要查：识别输出「8点半」时，只查中文形式「八点半」会漏掉，
-        // 半小时就被静默抹成整点 —— 对听不见屏幕的人，这是一次无声的篡改。
-        let isHalfPast = transcript.contains("\(chineseDigits[hour] ?? "")点半")
-            || transcript.contains("\(hour)点半")
-        return (hour, isHalfPast ? 30 : 0)
+        return nil
     }
 
     /// 汉字数字 → 整数，只覆盖 Mock 语料需要的 1~59。找 `suffix` 前面那一段来解。
     private static func chineseNumber(before suffix: String, in transcript: String) -> Int? {
         guard let range = transcript.range(of: suffix) else { return nil }
-        let head = String(transcript[transcript.startIndex..<range.lowerBound])
-        // 从尾部往前吃数字字符，最多 3 个（「四十五」）。
-        let digits = head.reversed().prefix(3).reversed().map(String.init)
-        for start in 0..<digits.count {
-            let candidate = digits[start...].joined()
-            guard let value = chineseNumberValue(candidate) else { continue }
+        return trailingNumber(in: transcript[transcript.startIndex..<range.lowerBound])?.value
+    }
+
+    /// 取 `head` 末尾那串数字（中文与阿拉伯数字都认），回显数值与它的起始位置。
+    ///
+    /// 回显起始位置是为了让调用方能看它**前面一个字**是什么 —— 时长引导词与程度副词
+    /// 两道守卫都靠这个判。从尾部往前最多吃 3 个字（「四十五」），长的优先。
+    private static func trailingNumber(in head: Substring) -> (value: Int, start: String.Index)? {
+        for length in stride(from: min(3, head.count), through: 1, by: -1) {
+            let start = head.index(head.endIndex, offsetBy: -length)
+            guard let value = chineseNumberValue(String(head[start...])) else { continue }
             // ⚠️「跑1.5小时」不许被读成 5 小时 = 300 分钟。而 300 正好是 `MAX_DURATION_MINUTES`，
             // 范围校验拦不住 —— 用户说 1.5 小时，读回却说 5 小时，是一次**静默篡改**。
-            // 对齐后端 `VoiceSlotParser.HOUR_ONLY` 的 `(?<!\.)` 守卫（`VoiceSlotParser.java:94`）：
+            // 对齐后端 `VoiceSlotParser.HOUR_ONLY` 的 `(?<!\.)` 守卫（`VoiceSlotParser.java:134`）：
             // 只挡「抽错」，不新增「认小数时长」—— 落到追问是诚实的降级。
-            if start > 0, digits[start - 1] == "." { continue }
-            return value
+            if start > head.startIndex, head[head.index(before: start)] == "." { continue }
+            return (value, start)
         }
         return nil
     }
