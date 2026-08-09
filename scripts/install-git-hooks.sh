@@ -25,6 +25,15 @@ if [ "${AIDRUN_SKIP_PREPUSH:-0}" = "1" ]; then
   exit 0
 fi
 
+# git 跑钩子时会导出 GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE，指向**本仓库**。
+# 它们会污染钩子里所有子进程的 git：SwiftPM 解析依赖时要 git clone/checkout 到自己的
+# 缓存目录，带着 GIT_WORK_TREE 就报 `fatal: this operation must be run in a work tree`，
+# 于是 `swift test` 在任何冷缓存的机器上必挂 —— 热缓存时不触发，所以一直没被发现。
+# 2026-08-09 实测：同一个包、同一台机器，unset 后 17s 编完，不 unset 一条依赖都拉不下来。
+# 本钩子自己用的 git 命令都在仓库根跑，靠 cwd 就能发现仓库，不需要这些变量。
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX GIT_COMMON_DIR GIT_NAMESPACE
+
 fail=0
 run() {
   echo "[pre-push] $1"

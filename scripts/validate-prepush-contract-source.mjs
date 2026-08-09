@@ -41,16 +41,22 @@ if (start < 0 || end < 0 || end <= start) {
 const section = body.slice(start, end);
 
 // ── 造 fixture：后端 origin/main 是契约，工作区是同事未提交的 WIP ────────────
-const git = (cwd, ...args) =>
-  spawnSync('git', args, {
-    cwd,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t',
-      GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t',
-    },
-  });
+//
+// 必须先把继承来的 GIT_* 全部剥掉。git 在跑钩子时会导出 GIT_DIR / GIT_WORK_TREE /
+// GIT_INDEX_FILE，指向**本仓库**；带着它们去 /tmp 里造 fixture，git init/commit 会
+// 报 `fatal: this operation must be run in a work tree`，于是这个测试单跑全绿、
+// 从 pre-push 里跑却红 —— 正好在它唯一要起作用的地方失效。2026-08-09 实测踩到。
+const cleanEnv = (extra = {}) => {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+  return {
+    ...env,
+    GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t',
+    GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t',
+    ...extra,
+  };
+};
+
+const git = (cwd, ...args) => spawnSync('git', args, { cwd, encoding: 'utf8', env: cleanEnv() });
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-prepush-src-'));
 const backend = path.join(tmp, 'backend');
@@ -109,7 +115,9 @@ function runHook(env = {}) {
   const r = spawnSync('bash', ['harness.sh'], {
     cwd: app,
     encoding: 'utf8',
-    env: { ...process.env, AIDRUN_BACKEND_DIR: backend, ...env },
+    // 同样要剥 GIT_*：被测段落里的 `git -C … show` 和 `git status --porcelain`
+    // 一旦被 GIT_DIR 指回本仓库，验的就不是 fixture 了。
+    env: cleanEnv({ AIDRUN_BACKEND_DIR: backend, ...env }),
   });
   return r.stdout + r.stderr;
 }
