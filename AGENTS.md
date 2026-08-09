@@ -290,8 +290,15 @@ git remote add fork https://github.com/Jayden23018/blind-run-ios.git   # 每台�
 scripts/install-git-hooks.sh                                          # 装钩子 + 配双推
 ```
 
-pre-push 会先校验 `../demo` 与其 `origin/main` 一致 —— 停在特性分支或工作区脏着时，
-这 4 条读的就不是契约本身，会直接拦下（逃生口 `AIDRUN_ALLOW_BACKEND_DRIFT=1`）。
+这 4 条读的契约**取自后端仓库的 `origin/main`**（`git show origin/main:docs/api_spec.yaml`
+落到临时文件），不是 `../demo` 的工作区文件 —— 工作区是共享 checkout，随时停在特性分支
+或带着同事未提交的 WIP，而 CI 是从后端默认分支拉契约的。所以 `../demo` 当前在哪个分支、
+脏不脏，都不影响门禁结论。
+
+确实要拿未合并的后端改动验证 iOS 侧：`AIDRUN_ALLOW_BACKEND_DRIFT=1 git push` 改读工作区文件
+（或用 `AIDRUN_API_SPEC=` / `AIDRUN_GOLDEN_CORPUS=` / `AIDRUN_BACKEND_ERROR_CODES=` 逐个指定）。
+此时「生成代码与契约不同步」**不构成提交理由** —— 那份契约不是上游的，提交重新生成的结果
+等于把别人的 WIP 烘进你的 PR。钩子在这条路径上会自己说明，并给出 `git checkout --` 的还原命令。
 
 契约 fixture（真实响应回归，见 `blindRunTests/ContractFixtureTests.swift`）：
 

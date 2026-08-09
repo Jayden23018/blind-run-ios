@@ -8,9 +8,12 @@ set -euo pipefail
 # 所以这 4 个契约门禁（契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料）**只在这里跑**，
 # CI 上永远是 warning 空过。本地的 ../demo 是真的能读到的，这一环在本地补是唯一选择。
 #
-# 正因为是唯一一道，它读的那份后端 checkout 必须是契约本身 —— 见下面的新鲜度检查。
+# 正因为是唯一一道，它读的必须是契约本身 —— 所以是从后端仓库的 origin/main 取，
+# 而不是读 ../demo 的工作区文件（那是共享 checkout，随时带着别人的 WIP）。见下面 backend_file。
 
-HOOK=".git/hooks/pre-push"
+# 用 --git-path 而不是写死 .git/hooks/：在 worktree 里 .git 是个文件，写死会报
+# 「Not a directory」装不上。--git-path 在普通 clone 里就回显 .git/hooks/pre-push，行为不变。
+HOOK="$(git rev-parse --git-path hooks/pre-push)"
 
 cat > "$HOOK" <<'HOOK_BODY'
 #!/usr/bin/env bash
@@ -52,73 +55,103 @@ run_node "validate-guard（冻结文件守卫自测）" scripts/validate-guard.m
 run_node "validate-stop-checklist（收尾钩子自测）" scripts/validate-stop-checklist.mjs
 run_node "validate-session-context（开场钩子自测）" scripts/validate-session-context.mjs
 run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
+run_node "validate-prepush-contract-source（契约来源自测）" scripts/validate-prepush-contract-source.mjs
 run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --package-path Packages/AidRunAPI
 
-# 后端 checkout 的新鲜度。下面 4 个门禁的结论，只和它们读到的那份契约一样可信 ——
-# ../demo 停在某个特性分支、或工作区脏着，门禁照样报绿，校验的却不是契约。
-# 这不是假想：2026-08-06 那次 ../demo 正停在 docs/spec-required-fields 上。
-# CI 上这 4 条是 warning 空过（secret 配不上），所以这里是唯一一道，读错等于没读。
+# 下面这几道门禁读的后端契约文件（3 份，4 道门禁），
+# **一律取自后端仓库的 origin/main，不是 ../demo 的工作区文件**。
 #
+# 为什么不能读工作区：../demo 是共享 checkout，随时可能停在某个特性分支、或带着同事
+# 未提交的契约 WIP。而 CI 是从后端默认分支拉契约的（verify.yml 把 ref: main checkout
+# 到 .backend）。拿工作区文件当契约，两个方向都会给出错误结论：
+#   - 门禁绿、CI 红 —— WIP 里有的字段上游根本没有；
+#   - 门禁红，还照它说的「把重新生成的结果一起提交」—— 等于把别人未合并的契约烘进自己的 PR。
+# 2026-08-09 实测踩到的是后者。
+#
+# 旧版本靠一道「../demo 必须与 origin/main 一致」的新鲜度检查挡这件事，删掉了，因为：
+# 直接读 origin/main 之后它无事可挡；而它给的修法 `checkout main && pull` 在共享 checkout
+# 上是叫人清掉同事的工作区；且它只拦 push，拦不住「读错文件」本身（AIDRUN_ALLOW_BACKEND_DRIFT=1
+# 会跳过它，却不影响读哪份文件 —— 那正是这个坑最容易踩的地方）。
+#
+# 确实要拿未合并的后端改动验证 iOS 侧：AIDRUN_ALLOW_BACKEND_DRIFT=1 git push
+# ——现在它的含义就是字面意思「改读工作区文件」。也可以用 AIDRUN_API_SPEC= 等变量逐个指定路径。
 # fetch 失败（离线）就拿手上已有的 origin/main 比，不因为没网就拦住 push。
-# 确实在拿未合并的后端改动验证 iOS 侧：AIDRUN_ALLOW_BACKEND_DRIFT=1 git push
 BACKEND_DIR="${AIDRUN_BACKEND_DIR:-../demo}"
-if [ -d "$BACKEND_DIR/.git" ] && [ "${AIDRUN_ALLOW_BACKEND_DRIFT:-0}" != "1" ]; then
+BACKEND_WORKTREE="${AIDRUN_ALLOW_BACKEND_DRIFT:-0}"
+BACKEND_TMP="$(mktemp -d 2>/dev/null)" || BACKEND_TMP="/tmp/aidrun-prepush-contract.$$"
+mkdir -p "$BACKEND_TMP"
+trap 'rm -rf "$BACKEND_TMP"' EXIT
+
+if [ "$BACKEND_WORKTREE" = "1" ]; then
+  BACKEND_SOURCE="$BACKEND_DIR 的工作区"
+  echo "[pre-push] ⚠ 按 AIDRUN_ALLOW_BACKEND_DRIFT=1 读 $BACKEND_SOURCE，不是 origin/main。结论不代表上游。"
+else
+  BACKEND_SOURCE="$BACKEND_DIR 的 origin/main"
   git -C "$BACKEND_DIR" fetch --quiet origin main 2>/dev/null || true
-  if git -C "$BACKEND_DIR" rev-parse --verify -q origin/main >/dev/null 2>&1; then
-    echo "[pre-push] 后端 checkout 与 origin/main 一致性"
-    drift=""
-    for f in docs/api_spec.yaml docs/voice-golden-corpus.json \
-             src/main/java/com/example/demo/exception/ErrorCode.java; do
-      git -C "$BACKEND_DIR" diff --quiet origin/main -- "$f" || drift="$drift $f"
-    done
-    if [ -n "$drift" ]; then
-      echo "[pre-push] ✗ 后端 checkout 与 origin/main 不一致，下面的门禁校验的不是契约本身："
-      for f in $drift; do echo "      $f"; done
-      echo "      $BACKEND_DIR 当前在 $(git -C "$BACKEND_DIR" rev-parse --abbrev-ref HEAD)"
-      echo "      修：git -C $BACKEND_DIR checkout main && git -C $BACKEND_DIR pull"
-      echo "      确实在验证未合并的后端改动：AIDRUN_ALLOW_BACKEND_DRIFT=1 git push"
-      fail=1
-    fi
-  else
-    echo "[pre-push] ⚠ $BACKEND_DIR 没有 origin/main 引用，跳过新鲜度检查。这不算通过。"
-  fi
 fi
 
+# 回显本次要用的契约文件路径；取不到回显空串（调用方按「读不到」处理）。
+#   $1 后端仓库内的相对路径   $2 落地文件名   $3 显式覆盖（环境变量值，可为空）
+backend_file() {
+  if [ -n "$3" ]; then echo "$3"; return; fi
+  if [ "$BACKEND_WORKTREE" = "1" ]; then
+    [ -f "$BACKEND_DIR/$1" ] && echo "$BACKEND_DIR/$1"
+    return
+  fi
+  dest="$BACKEND_TMP/$2"
+  git -C "$BACKEND_DIR" show "origin/main:$1" >"$dest" 2>/dev/null && [ -s "$dest" ] && echo "$dest"
+}
+
+# 报错信息里得说清这份文件到底哪来的，否则「取自 origin/main」会盖在一个显式指定的
+# 路径上 —— 那正是本次要根治的那类误导。$1 环境变量的值，$2 环境变量名。
+source_label() { if [ -n "$1" ]; then echo "$2 指定的 $1"; else echo "$BACKEND_SOURCE"; fi; }
+
 # 契约覆盖：只有能读到后端 spec 时才跑，读不到就明说没跑，不假装通过。
-SPEC="${AIDRUN_API_SPEC:-../demo/docs/api_spec.yaml}"
+SPEC="$(backend_file docs/api_spec.yaml api_spec.yaml "${AIDRUN_API_SPEC:-}")"
+SPEC_SOURCE="$(source_label "${AIDRUN_API_SPEC:-}" AIDRUN_API_SPEC)"
 if [ -f "$SPEC" ]; then
   run "validate-spec-coverage" node scripts/validate-spec-coverage.mjs "$SPEC"
 
   # 契约改了却忘了重新生成，生成代码就成了过期快照 —— 那比没有更糟，因为它看起来还是绿的。
   # 用 status --porcelain 而不是 diff：diff 看不见未跟踪文件，契约新增路径时会漏。
   GEN_DIR="Packages/AidRunAPI/Sources/AidRunAPI"
-  echo "[pre-push] 重新生成 API 客户端并比对"
+  echo "[pre-push] 重新生成 API 客户端并比对（契约取自 $SPEC_SOURCE）"
   if scripts/generate-api-client.sh "$SPEC" >/tmp/aidrun-prepush.log 2>&1; then
     DIRTY="$(git status --porcelain -- "$GEN_DIR")"
     if [ -n "$DIRTY" ]; then
-      echo "[pre-push] ✗ 生成代码与契约不同步，把重新生成的结果一起提交："
-      echo "$DIRTY"
+      if [ "$BACKEND_WORKTREE" = "1" ] || [ -n "${AIDRUN_API_SPEC:-}" ]; then
+        # 这份契约不是 origin/main 的版本，所以这里的「不同步」不构成提交理由 ——
+        # 提交它就是把未合并的契约烘进 PR，而 CI 从后端默认分支拉契约，两边必然对不上。
+        echo "[pre-push] ✗ 生成代码与这份**非 origin/main** 的契约不同步。别提交重新生成的结果："
+        echo "$DIRTY"
+        echo "      本次读的是 $SPEC_SOURCE"
+        echo "      丢弃刚生成的结果：git checkout -- $GEN_DIR"
+        echo "      只是想把 iOS 侧改动推上去：unset AIDRUN_ALLOW_BACKEND_DRIFT AIDRUN_API_SPEC 再 push（默认就按 origin/main 验）"
+      else
+        echo "[pre-push] ✗ 生成代码与契约不同步，把重新生成的结果一起提交："
+        echo "$DIRTY"
+      fi
       fail=1
     fi
   else
     echo "[pre-push] ✗ 生成失败："; tail -n 15 /tmp/aidrun-prepush.log; fail=1
   fi
 else
-  echo "[pre-push] ⚠ 跳过契约覆盖校验与生成代码比对：读不到 $SPEC。这不算通过。"
+  echo "[pre-push] ⚠ 跳过契约覆盖校验与生成代码比对：从 $SPEC_SOURCE 取不到 docs/api_spec.yaml。这不算通过。"
 fi
 
-CORPUS="${AIDRUN_GOLDEN_CORPUS:-../demo/docs/voice-golden-corpus.json}"
+CORPUS="$(backend_file docs/voice-golden-corpus.json voice-golden-corpus.json "${AIDRUN_GOLDEN_CORPUS:-}")"
 if [ -f "$CORPUS" ]; then
   run "validate-golden-corpus" node scripts/validate-golden-corpus.mjs "$CORPUS"
 else
-  echo "[pre-push] ⚠ 跳过黄金语料对齐：读不到 $CORPUS。这不算通过。"
+  echo "[pre-push] ⚠ 跳过黄金语料对齐：从 $(source_label "${AIDRUN_GOLDEN_CORPUS:-}" AIDRUN_GOLDEN_CORPUS) 取不到 docs/voice-golden-corpus.json。这不算通过。"
 fi
 
-CODES="${AIDRUN_BACKEND_ERROR_CODES:-../demo/src/main/java/com/example/demo/exception/ErrorCode.java}"
+CODES="$(backend_file src/main/java/com/example/demo/exception/ErrorCode.java ErrorCode.java "${AIDRUN_BACKEND_ERROR_CODES:-}")"
 if [ -f "$CODES" ]; then
   run "validate-error-codes" node scripts/validate-error-codes.mjs "$CODES"
 else
-  echo "[pre-push] ⚠ 跳过错误码对撞：读不到 $CODES。这不算通过。"
+  echo "[pre-push] ⚠ 跳过错误码对撞：从 $(source_label "${AIDRUN_BACKEND_ERROR_CODES:-}" AIDRUN_BACKEND_ERROR_CODES) 取不到 ErrorCode.java。这不算通过。"
 fi
 
 if [ "$fail" -ne 0 ]; then
