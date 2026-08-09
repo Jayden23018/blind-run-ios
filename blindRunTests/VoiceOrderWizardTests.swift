@@ -208,6 +208,85 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertEqual(wizard.lastUtterance, "明天早上八点从人民广场出发跑一个小时", "读回要先念用户原话")
     }
 
+    /// 三个可选槽位（导盲犬 / 配速 / 备注）必须真的落到订单上，并且**读回要念出来**。
+    ///
+    /// 回归的是一条静默缺陷：模型层 2026-08-04 就解出了这三项，向导却一个都没消费，
+    /// 于是「带导盲犬」被解析出来之后原地丢掉。`hasGuideDogThisRun` 进派单**硬过滤**，
+    /// 丢掉它等于按档案默认值缩小候选池，而读回不提这一项，盲人无从察觉。
+    func testFreeformAppliesOptionalSlotsAndReadsThemBack() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [
+            ParseVoiceOrderResponse(
+                plannedStartTime: DateFormatter.aidRunBackendLocalDateTime.string(
+                    from: Date().addingTimeInterval(3600 * 24)
+                ),
+                durationMinutes: 60,
+                address: "上海市黄浦区人民广场",
+                latitude: 31.2304,
+                longitude: 121.4737,
+                missing: [],
+                needReask: false,
+                ttsText: "好的，我记下了",
+                hasGuideDog: true,
+                pacePreference: .easy,
+                specialNotes: "我有低血糖"
+            )
+        ]
+        let viewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
+
+        await wizard.submitTranscript("明天早上八点从人民广场出发跑一个小时，带导盲犬，慢一点，我有低血糖")
+
+        XCTAssertEqual(viewModel.hasGuideDogThisRun, true)
+        XCTAssertEqual(viewModel.pacePreference, .easy)
+        XCTAssertEqual(viewModel.specialNotes, "我有低血糖")
+
+        let readback = wizard.lastSpokenPrompt ?? ""
+        XCTAssertTrue(readback.contains("本次携带"), "读回必须念出导盲犬：\(readback)")
+        XCTAssertTrue(readback.contains("我有低血糖"), "读回必须念出备注：\(readback)")
+
+        let request = viewModel.makeCreateOrderRequest()
+        XCTAssertEqual(request?.hasGuideDogThisRun, true)
+        XCTAssertEqual(request?.pacePreference, .easy)
+        XCTAssertEqual(request?.specialNotes, "我有低血糖")
+    }
+
+    /// 「今天不带导盲犬」（`false`）与「压根没提」（`nil`）在下单请求里**必须是两个不同的值**。
+    ///
+    /// 塌缩成同一个值的后果是静默的：`false` 变 `nil` 时后端回落 `BlindProfile.hasGuideDog`，
+    /// 档案里登记了导盲犬的用户明说了「今天不带」仍会按"带"派单，候选池被无声缩小；
+    /// 反过来 `nil` 变 `false` 则是替一个什么都没说的用户表了态。两个方向都听不出来。
+    func testFreeformKeepsExplicitNoGuideDogDistinctFromUnspoken() async {
+        func request(forParsedGuideDog parsed: Bool?) async -> CreateOrderRequest? {
+            let stub = VoiceOrderAPIClientStub()
+            stub.parseOrderResponses = [
+                ParseVoiceOrderResponse(
+                    plannedStartTime: DateFormatter.aidRunBackendLocalDateTime.string(
+                        from: Date().addingTimeInterval(3600 * 24)
+                    ),
+                    durationMinutes: 60,
+                    address: "上海市黄浦区人民广场",
+                    latitude: 31.2304,
+                    longitude: 121.4737,
+                    missing: [],
+                    needReask: false,
+                    ttsText: "好的，我记下了",
+                    hasGuideDog: parsed
+                )
+            ]
+            let viewModel = BlindBookingViewModel()
+            let wizard = makeWizard(stub: stub, bookingViewModel: viewModel, startingAt: .freeform)
+            await wizard.submitTranscript("明天早上八点从人民广场出发跑一个小时")
+            return viewModel.makeCreateOrderRequest()
+        }
+
+        let explicitNo = await request(forParsedGuideDog: false)
+        XCTAssertEqual(explicitNo?.hasGuideDogThisRun, false, "「今天不带」必须原样传 false，不能塌成 nil")
+
+        let unspoken = await request(forParsedGuideDog: nil)
+        XCTAssertNil(unspoken?.hasGuideDogThisRun, "没提就不传，让后端回落档案默认值")
+    }
+
     /// 整句那一轮**不重问、不失败**：`missing` 等价于「这几项保持默认值」，不是重问信号；
     /// 后端在 `missing` 非空时给的 `ttsText` 是**追问**文案，播它就等于把人拉回重问。
     func testFreeformTreatsMissingSlotsAsDefaultsAndNeverReasks() async {

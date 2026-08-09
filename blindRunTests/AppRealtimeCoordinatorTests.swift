@@ -401,9 +401,101 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         coordinator.attach(to: service, role: .blind)
         coordinator.registerActiveOrder(9)
 
-        service.simulateIncomingEventForTesting(.notification(makeNotification(eventID: 3, body: "志愿者已到达", priority: "NORMAL")))
+        service.simulateIncomingEventForTesting(.notification(makeNotification(
+            eventID: 3,
+            body: "志愿者已到达",
+            priority: "NORMAL",
+            eventType: "DRIVER_ARRIVED"
+        )))
         await Task.yield()
         XCTAssertNil(coordinator.currentNotification)
+    }
+
+    /// 抑制的判据是 `eventType`，**不是正文文案**。
+    ///
+    /// 旧实现匹配一张中文片段表，于是后端改任何一条模板正文都会静默改变 iOS 的播报行为。
+    /// 两个方向各钉一条：正文长得像生命周期但 `eventType` 不是 → 照播；
+    /// 正文毫无线索但 `eventType` 是 → 抑制。
+    func testSuppressionFollowsEventTypeNotBodyText() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+        coordinator.registerActiveOrder(9)
+
+        service.simulateIncomingEventForTesting(.notification(makeNotification(
+            eventID: 40,
+            body: "志愿者已取消，正在重新匹配，订单已完成",
+            priority: "NORMAL",
+            eventType: "ORDER_CANCELLATION_WARNING"
+        )))
+        await Task.yield()
+        XCTAssertEqual(
+            coordinator.currentNotification?.displayText,
+            "志愿者已取消，正在重新匹配，订单已完成",
+            "正文命中旧片段表但 eventType 不是状态重复播报，必须照播"
+        )
+        coordinator.dismissCurrentNotification()
+
+        service.simulateIncomingEventForTesting(.notification(makeNotification(
+            eventID: 41,
+            body: "本次跑步已结束，感谢您的使用",
+            priority: "NORMAL",
+            eventType: "ORDER_COMPLETED"
+        )))
+        await Task.yield()
+        XCTAssertNil(coordinator.currentNotification, "eventType 命中就抑制，与正文用词无关")
+    }
+
+    /// `REMATCH_ACCEPTED` **永远不抑制**，哪怕用户正开着订单页。
+    ///
+    /// 它与 `ORDER_ACCEPTED` 落到同一个 `PENDING_ACCEPT`，而订单页两次念的都是
+    /// 「志愿者已接单」——既没有「重新」也没有新志愿者的名字。吞掉这条，
+    /// 刚被告知上一个志愿者取消的用户就分不出这是新人还是原来那个。
+    ///
+    /// 旧的文案匹配正是这么吞的：模板正文「已为您**重新匹配**志愿者{name}」命中片段「重新匹配」。
+    func testRematchAcceptedIsNeverSuppressedSoTheNewVolunteerIsAnnounced() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+        coordinator.registerActiveOrder(9, status: .rematching)
+
+        service.simulateIncomingEventForTesting(.notification(makeNotification(
+            eventID: 42,
+            body: "已为您重新匹配志愿者张三，服务即将开始",
+            priority: "NORMAL",
+            eventType: "REMATCH_ACCEPTED"
+        )))
+        await Task.yield()
+
+        XCTAssertEqual(
+            coordinator.currentNotification?.speechText,
+            "已为您重新匹配志愿者张三，服务即将开始"
+        )
+    }
+
+    /// 派单期（最长 30 分钟、3 轮扩圈）订单一直停在 `PENDING_MATCH`，没有任何状态变化，
+    /// 所以订单页不会播 —— 这几条被抑制就等于整段静音，而看不见屏幕的人没有别的方式知道系统还在跑。
+    func testDispatchProgressNotificationsAreNeverSuppressed() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+        coordinator.registerActiveOrder(9, status: .pendingMatch)
+
+        for (index, eventType) in ["DISPATCH_STARTED", "DISPATCH_EXPANDING", "REMATCH_TIMEOUT"].enumerated() {
+            service.simulateIncomingEventForTesting(.notification(makeNotification(
+                eventID: Int64(50 + index),
+                body: "派单进度 \(eventType)",
+                priority: "NORMAL",
+                eventType: eventType
+            )))
+            await Task.yield()
+            XCTAssertEqual(
+                coordinator.currentNotification?.displayText,
+                "派单进度 \(eventType)",
+                "\(eventType) 不改订单状态，订单页不会播，抑制它等于静音"
+            )
+            coordinator.dismissCurrentNotification()
+        }
     }
 
     func testCompletedStatusThenParallelTemplateProducesOnlyStructuredStatusChannel() async {
@@ -428,7 +520,8 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         service.simulateIncomingEventForTesting(.notification(makeNotification(
             eventID: 90,
             body: "订单已完成",
-            priority: "NORMAL"
+            priority: "NORMAL",
+            eventType: "ORDER_COMPLETED"
         )))
         await Task.yield()
 
@@ -449,7 +542,8 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         service.simulateIncomingEventForTesting(.notification(makeNotification(
             eventID: 91,
             body: "订单已完成",
-            priority: "NORMAL"
+            priority: "NORMAL",
+            eventType: "ORDER_COMPLETED"
         )))
         service.simulateIncomingEventForTesting(.orderStatusChanged(makeStatusEvent(
             messageID: "99B27ECF-4B44-4C19-98AF-BD99F9BE652F",
@@ -488,7 +582,8 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         service.simulateIncomingEventForTesting(.notification(makeNotification(
             eventID: 92,
             body: "订单已完成",
-            priority: "NORMAL"
+            priority: "NORMAL",
+            eventType: "ORDER_COMPLETED"
         )))
         await Task.yield()
 
@@ -824,11 +919,16 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(deliveredOrderIDs, [44])
     }
 
-    private func makeNotification(eventID: Int64, body: String, priority: String) -> WSAppNotification {
+    private func makeNotification(
+        eventID: Int64,
+        body: String,
+        priority: String,
+        eventType: String = "TEST_NOTIFICATION"
+    ) -> WSAppNotification {
         WSAppNotification(
             type: WSMessageType.appNotification.rawValue,
             eventId: eventID,
-            eventType: "TEST_NOTIFICATION",
+            eventType: eventType,
             title: nil,
             body: body,
             ttsText: body,

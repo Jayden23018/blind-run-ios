@@ -187,7 +187,16 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var exactDurationMinutes: Int?
     @Published var pacePreference: PacePreference = .noPreference
     @Published var routePreference: RoutePreference = .noPreference
-    @Published var hasGuideDogThisRun = false
+    /// 本次是否携带导盲犬。**三态，不是布尔** —— `nil` 与 `false` 在下单时的含义完全不同：
+    ///
+    /// - `nil` —— 没提。请求里不传该字段，后端回落 `BlindProfile.hasGuideDog` 档案默认值。
+    /// - `false` —— 本次明确不带（语音说「今天不带导盲犬」）。原样传。
+    ///
+    /// 这个字段进派单的**硬过滤**（不接受导盲犬的志愿者被直接踢出候选池）。
+    /// 把 `false` 塌缩成 `nil`，档案里登记了导盲犬的用户说了「今天不带」也会按"带"派单，
+    /// 候选池被无声缩小 —— 而盲人全程听不出来。表单那个开关只能表达 `nil`/`true`
+    /// （关掉 = 没提），语音是唯一能说出 `false` 的入口。
+    @Published var hasGuideDogThisRun: Bool?
     @Published var specialNotes = ""
     @Published var isSubmitting = false
     @Published var isResolvingStartLocation = false
@@ -352,8 +361,14 @@ final class BlindBookingViewModel: ObservableObject {
         if routePreference != .noPreference {
             items.append(BookingReviewItem(id: "route", title: "路线偏好", value: routePreference.displayName))
         }
-        if hasGuideDogThisRun {
-            items.append(BookingReviewItem(id: "guideDog", title: "导盲犬", value: "本次携带"))
+        // `false` 也要念。用户说了「今天不带导盲犬」却在读回里一个字听不到，
+        // 与"我们没听懂"无从区分 —— 而这一项进派单硬过滤，听不出来的代价是候选池被改了。
+        if let hasGuideDogThisRun {
+            items.append(BookingReviewItem(
+                id: "guideDog",
+                title: "导盲犬",
+                value: hasGuideDogThisRun ? "本次携带" : "本次不带"
+            ))
         }
         if let specialNotes = specialNotes.nilIfBlank {
             items.append(BookingReviewItem(id: "specialNotes", title: "特殊说明", value: specialNotes))
@@ -625,7 +640,7 @@ final class BlindBookingViewModel: ObservableObject {
         specialNotes = ""
         pacePreference = .noPreference
         routePreference = .noPreference
-        hasGuideDogThisRun = false
+        hasGuideDogThisRun = nil
     }
 
     private func updateAuxiliaryMapPlaceIfNeeded(
@@ -731,7 +746,10 @@ final class BlindBookingViewModel: ObservableObject {
             pacePreference: pacePreference == .noPreference ? nil : pacePreference,
             routePreference: routePreference == .noPreference ? nil : routePreference,
             routeNotes: routeNotes.nilIfBlank,
-            hasGuideDogThisRun: hasGuideDogThisRun ? true : nil,
+            // 三态原样透传。⚠️ 不要写成 `hasGuideDogThisRun ?? false` 或
+            // `hasGuideDogThisRun == true ? true : nil` —— 前者把"没提"变成"明确不带"，
+            // 后者把"明确不带"变成"没提"，两个方向都会静默改掉派单候选池。
+            hasGuideDogThisRun: hasGuideDogThisRun,
             specialNotes: specialNotes.nilIfBlank
         )
     }
@@ -1605,7 +1623,13 @@ struct BlindBookingView: View {
                 .accessibilityHint("选择公园步道、街道或跑道")
             }
 
-            Toggle("本次携带导盲犬", isOn: $viewModel.hasGuideDogThisRun)
+            // 开关只能表达 `nil`/`true`：关掉等于「没提」，不是「明确不带」——
+            // 屏幕上一个关着的开关本来就分不出这两者，硬把它读成"明确不带"是替用户表态。
+            // `false` 只由语音产生（「今天不带导盲犬」）。
+            Toggle("本次携带导盲犬", isOn: Binding(
+                get: { viewModel.hasGuideDogThisRun == true },
+                set: { viewModel.hasGuideDogThisRun = $0 ? true : nil }
+            ))
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
                 .accessibilityLabel("是否本次携带导盲犬，选填")

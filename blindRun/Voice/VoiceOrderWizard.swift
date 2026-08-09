@@ -464,6 +464,28 @@ final class VoiceOrderWizard: ObservableObject {
             notice = Self.durationClampNotice(spokenMinutes: minutes, accepted: accepted)
         }
 
+        // 三个可选槽位。**抽到才写，抽不出保留原值** —— 与终点那行的「整体赋值含 nil」刻意相反。
+        //
+        // 分界不是「必填 / 选填」，是**屏幕上有没有对应控件**：终点没有任何控件，用户察觉不到
+        // 上一轮的残留；这三项都有（开关、两个 Picker、文本框），而且读回会把它们念出来，
+        // 所以留着用户自己填过的值是对的，清掉反而是替他撤销。
+        //
+        // ⚠️ 在此之前这三项**解出来就被丢掉了**：模型层 2026-08-04 就接了，向导一直没消费。
+        // 后果是静默的 —— 用户说「带导盲犬」，读回不提，而 `hasGuideDogThisRun` 进派单**硬过滤**，
+        // 候选池按档案默认值筛，盲人全程听不出来。
+        if let hasGuideDog = parsed?.hasGuideDog {
+            // `false` 原样落，不塌缩成 nil：见 `BlindBookingViewModel.hasGuideDogThisRun`。
+            bookingViewModel?.hasGuideDogThisRun = hasGuideDog
+        }
+        if let pace = parsed?.pacePreference {
+            bookingViewModel?.pacePreference = pace
+        }
+        if let notes = parsed?.specialNotes?.nilIfBlank {
+            // 后端保证非 nil 时是用户原话的子串（改写过的备注在后端就被丢弃了），
+            // 所以这里直接落，不做二次清洗 —— 备注要原样给志愿者看。
+            bookingViewModel?.specialNotes = notes
+        }
+
         moveToConfirm(notice: notice)
     }
 
@@ -679,7 +701,7 @@ final class VoiceOrderWizard: ObservableObject {
 
     /// 进入一次网络往返，并把这件事说出来。
     ///
-    /// 不说的话，全盲用户在结束音之后听到的是长达 `parseTimeout`（8 秒）的绝对静默 —— 这正是
+    /// 不说的话，全盲用户在结束音之后听到的是长达 `parseTimeout`（12 秒）的绝对静默 —— 这正是
     /// AppleVis 对语音类 App「按下之后全程没有任何反馈」的那条抱怨，和我们用来论证要做
     /// `RecordingCue` 的是同一条依据，只守住起止两端等于只守了一半。
     ///

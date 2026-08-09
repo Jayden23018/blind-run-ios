@@ -720,7 +720,7 @@ final class AppRealtimeCoordinator: ObservableObject {
         }
         let speechText = message.ttsText?.nilIfBlank ?? message.body
         guard !message.body.trimmed.isEmpty else { return }
-        if shouldSuppressLifecycleNotification(body: message.body, speechText: speechText) { return }
+        if shouldSuppressLifecycleNotification(eventType: eventType) { return }
         let notification = RealtimeForegroundNotification(
             stableEventID: message.messageId ?? message.eventId.map(String.init),
             title: message.title,
@@ -772,16 +772,26 @@ final class AppRealtimeCoordinator: ObservableObject {
         return .process(messageID: rawMessageID)
     }
 
-    private func shouldSuppressLifecycleNotification(body: String, speechText: String) -> Bool {
-        let combinedText = "\(body) \(speechText)"
-        guard Self.isLifecycleTemplate(combinedText) else { return false }
+    /// 订单页自己会播状态变化，所以「跟状态变化说同一件事」的那几条通知不再重复播一遍。
+    ///
+    /// **判据是 `eventType`，不是正文文案。** 2026-08-09 之前这里匹配的是一张中文片段表
+    /// （「已接单」「重新匹配」……），代价是后端改任何一条模板的正文都会**静默**改变 iOS 的播报行为。
+    /// 它已经咬过一次：后端新增的 `REMATCH_ACCEPTED`（正文「已为您**重新匹配**志愿者{name}」）
+    /// 命中片段「重新匹配」被整条吞掉，而重匹配成功时用户必然有活跃订单 ——
+    /// 于是「换了个志愿者」这件事在 iOS 上一个字都没播出去。
+    ///
+    /// 顺带修掉的另一处：`ORDER_ACCEPTED` 的正文含「正在确认行程」，旧表把它同时算成
+    /// `.pendingAccept` 和 `.rematching` 两个状态。
+    ///
+    /// ⚠️ **未知 `eventType` 一律不抑制**（`lifecycleStatus` 返回 nil），这是有意的默认方向：
+    /// 后端加了新通知而这张表没跟上时，盲人**多听一遍**好过**一个字都听不到**。
+    private func shouldSuppressLifecycleNotification(eventType: String) -> Bool {
+        guard let status = Self.lifecycleStatus(forEventType: eventType) else { return false }
         if !activeOrderIDs.isEmpty { return true }
 
         let cutoff = now().addingTimeInterval(-lifecycleNotificationSuppressionWindow)
         recentLifecycleStatusDates = recentLifecycleStatusDates.filter { $0.value >= cutoff }
-        return Self.lifecycleStatuses(matching: combinedText).contains {
-            recentLifecycleStatusDates[$0] != nil
-        }
+        return recentLifecycleStatusDates[status] != nil
     }
 
     static func emergencyKind(forEventType eventType: String) -> RealtimeSafetyEvent.Kind? {
@@ -1053,32 +1063,31 @@ final class AppRealtimeCoordinator: ObservableObject {
         "\(orderID):\(ownerRole.rawValue)"
     }
 
-    static func isLifecycleTemplate(_ text: String) -> Bool {
-        let fragments = [
-            "已接单", "待出发", "已出发", "正在前往", "距您", "距出发地点", "已到达",
-            "服务已开始", "服务已完成", "订单已完成", "订单已取消", "预约已取消", "已为您匹配",
-            "正在确认行程", "志愿者已取消", "重新匹配", "暂无志愿者", "暂无可用志愿者", "暂时没有可用志愿者"
-        ]
-        return fragments.contains { text.contains($0) }
-    }
-
-    private static func lifecycleStatuses(matching text: String) -> Set<RunOrderStatus> {
-        var statuses: Set<RunOrderStatus> = []
-        let fragments: [(RunOrderStatus, [String])] = [
-            (.pendingAccept, ["已接单", "待出发", "已为您匹配"]),
-            (.driverEnRoute, ["已出发", "正在前往"]),
-            (.driverArrived, ["已到达"]),
-            (.inProgress, ["服务已开始"]),
-            (.completed, ["服务已完成", "订单已完成"]),
-            (.cancelled, ["订单已取消", "预约已取消"]),
-            (.rematching, ["正在确认行程", "志愿者已取消", "重新匹配"]),
-            (.noVolunteer, ["暂无志愿者", "暂无可用志愿者", "暂时没有可用志愿者"])
-        ]
-        for (status, candidates) in fragments
-        where candidates.contains(where: text.contains) {
-            statuses.insert(status)
+    /// 通知 `eventType` → 它宣布的订单状态。返回 nil 表示「这条不是状态变化的重复播报」，一律照播。
+    ///
+    /// 常量取自后端 `docs/websocket-protocol.md` §2.2（盲人端）与 §3.2（志愿者端）事件表 ——
+    /// 那份表明写着「不应依赖 body/ttsText 文案匹配」，这里就是照它办。
+    ///
+    /// **刻意不在表里的，每一条都有理由：**
+    /// - `REMATCH_ACCEPTED` —— 状态与 `ORDER_ACCEPTED` 同为 `PENDING_ACCEPT`，但订单页两次念的是
+    ///   同一句「志愿者已接单」，既没有「重新」也没有新志愿者的名字。抑制它，用户就分不出
+    ///   这是新人还是原来那个 —— 而他刚被告知上一个志愿者取消了。这条**必须播**。
+    /// - `DISPATCH_STARTED` / `DISPATCH_EXPANDING` / `REMATCH_TIMEOUT` /
+    ///   `ORDER_CANCELLATION_WARNING` / `ORDER_OVERDUE` —— **不改订单状态**，订单页不会播。
+    ///   抑制它们等于让派单期（最长 30 分钟、3 轮扩圈）整段静音。
+    /// - `ROUTE_CONFIRM_REQUIRED*` / `PROXIMITY_ALERT` / `CERT_*` / `ID_VERIFY_*` ——
+    ///   与订单状态无关，本来就不该进这条闸。
+    static func lifecycleStatus(forEventType eventType: String) -> RunOrderStatus? {
+        switch eventType {
+        case "ORDER_ACCEPTED": return .pendingAccept
+        case "DRIVER_EN_ROUTE": return .driverEnRoute
+        case "DRIVER_ARRIVED": return .driverArrived
+        case "ORDER_COMPLETED": return .completed
+        case "ORDER_AUTO_CANCELLED", "ORDER_CANCELLED_BY_BLIND": return .cancelled
+        case "REMATCHING": return .rematching
+        case "NO_VOLUNTEER_AVAILABLE": return .noVolunteer
+        default: return nil
         }
-        return statuses
     }
 
     private static func fallbackDeduplicationKey(type: String, text: String, timestamp: String?) -> String {
