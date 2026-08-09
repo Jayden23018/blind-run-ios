@@ -4074,15 +4074,9 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(viewModel.latestVolunteerSample)
     }
 
-    func testBlindOrderStatusSuppressesLifecycleAppNotificationSpeech() {
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("测试志愿者已到达，距您100米"))
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("志愿者已出发，距您100米"))
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("服务已开始"))
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("订单已完成"))
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("暂时没有可用志愿者，仍在等待"))
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("已为您匹配志愿者张三，他正在确认行程，请稍候"))
-        XCTAssertFalse(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("紧急联系人已通知"))
-    }
+    // `testBlindOrderStatusSuppressesLifecycleAppNotificationSpeech` 随被测函数一起删除
+    // （2026-08-09）。它是那段死代码唯一的调用者，覆盖的是一条生产上走不到的路径。
+    // 抑制行为现在由 `AppRealtimeCoordinatorTests` 的 eventType 用例守着。
 
     func testBlindRunnerRematchingOrderShowsCancelAction() {
         let statusViewModel = BlindOrderStatusViewModel()
