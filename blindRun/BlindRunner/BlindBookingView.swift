@@ -878,7 +878,17 @@ struct BlindBookingView: View {
                 speechService: speechService,
                 speechInputService: speechInputService,
                 apiClient: appState.apiClient,
-                currentCoordinate: { locationService.latestBackendSample() }
+                // ⚠️ **必须放宽新鲜度门，别用默认的 15 秒**（2026-08-10，N48 的客户端那一级）。
+                //
+                // 非陪跑模式下 `distanceFilter = 10`，站着不动 Core Location 就不推新样本；
+                // 而语音下单恰恰是**站着说完一整句**，说完通常已经超过 15 秒 ——
+                // 于是这个闭包返回 nil、请求不带坐标，后端只能做全国范围解析。
+                // 用户报的「定位开着，在深圳说的地名却定位到海南」根因链的第一环就是这里。
+                //
+                // 300 秒对「50 公里半径内就近消歧」绰绰有余：真要走出这个误差，人早就不在原地了。
+                // **只改这一处、不动方法默认值** —— 另外三个调用点（`ContentView`、
+                // `EmergencyCoordinator`、`VolunteerOrderFlowViews`）各有各的新鲜度要求，不该被顺带改掉。
+                currentCoordinate: { locationService.latestBackendSample(freshness: 300) }
             )
             if holdVoiceStageForUITestingIfRequested() {
                 // 接缝已经把向导按在运行态，下面两条分支都会去碰麦克风，跳过。
@@ -915,8 +925,10 @@ struct BlindBookingView: View {
             //
             // 逐项修改删掉之后，这里再也不会在用户说话的中途把屏幕换成另一张表单
             // （2026-08-06 用户报的「点了改地点之后跳转到了一个界面」）。
+            // 候选消歧轮同样停在确认页：它问的是「出发地是哪一个」，而出发地就在这一页上。
+            // 换页会把用户从他刚听到的内容上挪开 —— 那正是 2026-08-06 删掉逐项追问的理由。
             switch step {
-            case .freeform, .confirm: viewModel.currentStep = .review
+            case .freeform, .disambiguateStart, .confirm: viewModel.currentStep = .review
             }
         }
         // 语音提交与按钮提交共用同一个出口，跳转逻辑只有一份。
