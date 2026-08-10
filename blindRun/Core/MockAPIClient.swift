@@ -1712,12 +1712,27 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 这个字段进派单硬过滤，两者混淆会让登记了导盲犬的用户被静默按「不带」派单。
     static func mockVoiceGuideDog(in transcript: String) -> Bool? {
         guard transcript.contains("导盲犬") else { return nil }
+        // 🔴 **正反问句先判，命中就返回 nil。** 「带不带导盲犬改一下」是用户在**点名要改这一项**，
+        // 不是在答。它同时长得像肯定和否定（「带不带导盲犬」里既有「不带导盲犬」也有「带…导盲犬」），
+        // 所以**只挡一边没用**：后端 2026-08-09 实测给否定加前置守卫之后，肯定那条立刻从
+        // 第二个「带」字重新匹配上，值从 false 翻成 true，一样是凭空造的（语料 `_guide_dog_question_note`）。
+        //
+        // 判错的后果不对称且不可见：档案里登记了导盲犬的用户被静默按「不带」派单，
+        // 这个字段进派单硬过滤，候选池被无声缩放，盲人全程听不出来。
+        // 语音的定点修改会**主动引导用户说出这类点名句**（`correctionTarget=GUIDE_DOG`），
+        // 所以它不是边角情况。
+        if transcript.firstRange(of: guideDogQuestionRegex) != nil { return nil }
         // 否定式必须先判，否则「不带导盲犬」会被「带导盲犬」吃掉。
         if transcript.contains("不带") || transcript.contains("没带") || transcript.contains("没有带") {
             return false
         }
         return true
     }
+
+    /// 逐字照抄后端 `VoiceSlotParser.GUIDE_DOG_QUESTION`。
+    private static let guideDogQuestionRegex = try! Regex(
+        "(?:带不带|用不用|需不需要|要不要)[^，,。！？!?]{0,4}(?:导盲犬|狗)"
+    )
 
     /// 配速偏好。`nil` = 原话没提，下单时不传即回落档案默认配速。
     static func mockVoicePace(in transcript: String) -> PacePreference? {
@@ -1810,8 +1825,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         guard let clock = clockTime(in: transcript) else { return nil }
 
         // ③ 日期词。没说日期词时 dayOffset 为 nil —— 与「说了今天」不是一回事，见 ④。
+        //
+        // 「第二天」= 明天（产品 2026-08-09 拍板）。⓪ 那条黑名单专门把它放行到这里，
+        // 这里再不认就等于「只取钟点、把日期当没说」，正是 ⓪ 要防的那个静默篡改。
+        // 阿拉伯写法也要收：识别器把「第二天」渲染成「第2天」时，只认中文会静默丢掉日期。
         let dayOffset: Int? = transcript.contains("后天") ? 2
             : transcript.contains("明天") ? 1
+            : transcript.contains("第二天") || transcript.contains("第2天") ? 1
             : transcript.contains("今天") ? 0
             : nil
 
@@ -1905,6 +1925,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             + "|[下这本上]{1,2}\\s*个?\\s*(?:周|星期|礼拜)"
             + "|大[前后]天"
             + "|[下这本]\\s*个\\s*月"
+            // 「第三天」以上 —— 相对哪一天的「第三天」没说清。**「第二天」是例外，它当明天解**
+            // （产品 2026-08-09 拍板），所以用 `(?![二2]\s*天)` 把它放行给下面的日期词。
+            + "|第(?![二2]\\s*天)[0-9零一二两三四五六七八九十]{1,3}\\s*天"
+            // 「隔天」**刻意不当明天**：中文里它同样常指「每隔一天」（「隔天跑一次」），
+            // 而这是个跑步 App，这个歧义是真的。宁可追问一次，不猜。
+            + "|隔天"
     )
 
     /// 「N点」「N点半」。N 中文与阿拉伯数字都认。
