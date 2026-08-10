@@ -956,6 +956,16 @@ struct BlindBookingView: View {
         // 而用户这一轮既没点过 offer、也没听到「确认就再点一次」那句整单播报。
         // 两步确认的全部理由就是那句播报，没听到就等于一步提交。
         isZeroInputConfirming = false
+        // 主动要一次新坐标 —— **这是 N48 根因的正面修法**，放宽新鲜度门只是它的兜底。
+        //
+        // `onAppear` 里的 `startUpdating()` 是**持续**定位，而非陪跑模式下 `distanceFilter = 10`
+        // 意味着站着不动 Core Location 就不推新样本；语音下单恰恰是站着说完一整句。
+        // `requestLocation()` 绕过 distanceFilter 直接要一次新 fix，而用户接下来要说 10~20 秒 ——
+        // 新坐标早在解析请求发出前就到了，**零延迟代价**。
+        //
+        // 同一个模式 `EmergencyCoordinator.freshEmergencyCoordinate` 已经在用（`:117-131`），
+        // 那边还额外轮询等 5 秒；这里不等，因为拿不到也有 300 秒兜底，而求助没有兜底可言。
+        locationService.requestOneTimeLocation()
         if voiceWizard.start() {
             viewModel.currentStep = .review
         }
