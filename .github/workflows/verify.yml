@@ -103,6 +103,15 @@ jobs:
             echo "::warning title=错误码未对撞::未配置 BACKEND_REPO_TOKEN，拿不到 ErrorCode.java。这**不是**通过。"
           fi
 
+      - name: validate confirm-round intent words (local fast path vs backend VoiceSlotParser)
+        run: |
+          PARSER=.backend/src/main/java/com/example/demo/util/VoiceSlotParser.java
+          if [ -f "$PARSER" ]; then
+            node scripts/validate-voice-intent-words.mjs "$PARSER"
+          else
+            echo "::warning title=确认轮词表未对撞::未配置 BACKEND_REPO_TOKEN，拿不到 VoiceSlotParser.java。这**不是**通过。"
+          fi
+
       - name: validate spec coverage (frontend vs backend contract)
         run: |
           if [ -f .backend/docs/api_spec.yaml ]; then

@@ -1270,49 +1270,257 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private func handleVoiceParseOrder(body: (any Encodable & Sendable)?) throws -> ParseVoiceOrderResponse {
         guard mockToken != nil else { throw APIError.unauthorized }
         guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
-              let request = try? JSONDecoder().decode(ResolveAddressRequest.self, from: data) else {
+              let request = try? JSONDecoder().decode(ParseVoiceOrderRequest.self, from: data) else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
         }
         let transcript = request.transcript.trimmed
+        let current = request.current
+        // 既有的地点匹配helper按坐标就近排序，签名收 `ResolveAddressRequest`。
+        // 两个请求体在坐标这两项上逐字相同，转一次比把签名改成协议便宜。
+        let near = ResolveAddressRequest(
+            transcript: transcript, latitude: request.latitude, longitude: request.longitude
+        )
 
-        let place = Self.matchedVoicePlace(in: transcript, near: request)
-        let endPlace = Self.matchedVoiceEndPlace(in: transcript, near: request, startSpan: Self.mockVoiceAddressSpan(in: transcript))
+        // MARK: 本轮抽到了什么
+        let place = Self.matchedVoicePlace(in: transcript, near: near)
+        let endPlace = Self.matchedVoiceEndPlace(in: transcript, near: near, startSpan: Self.mockVoiceAddressSpan(in: transcript))
         let startTime = Self.mockVoiceStartTime(in: transcript)
         let minutes = Self.mockVoiceMinutes(in: transcript).flatMap { (10...300).contains($0) ? $0 : nil }
+        let guideDog = Self.mockVoiceGuideDog(in: transcript)
+        let pace = Self.mockVoicePace(in: transcript)
 
+        // MARK: 与 `current` 合并 —— 本轮抽到的覆盖，没抽到的继承
+        //
+        // 口径抄后端 `frontend-guide.md`「本轮正则 > 本轮模型 > `current`」。
+        // 起点三元组**整体覆盖或整体继承**，绝不拼出「新地址 + 旧坐标」—— 那会把人约到
+        // 一个名字对、坐标错的地方，而读回只念名字，盲人一个字都听不出来。
+        let mergedStartTime = startTime.map(Self.mockBackendLocalDateTime) ?? current?.plannedStartTime
+        let mergedMinutes = minutes ?? current?.durationMinutes
+        // 起点：本轮抽到就三项一起用本轮的，没抽到就三项一起继承。`matchedVoicePlace` 只会返回
+        // 带坐标的结果，所以起点不存在「有地名没坐标」的半状态。
+        let mergedAddress = place?.address ?? current?.address
+        let mergedLatitude = place?.latitude ?? current?.latitude
+        let mergedLongitude = place?.longitude ?? current?.longitude
+        // 终点：本轮抽到地名但查不到坐标时**绝不能继承上一轮的坐标** —— 那会拼出
+        // 「新地名 + 旧坐标」，名字对、位置错，而读回只念名字，盲人一个字都听不出来。
+        let mergedEndAddress = endPlace?.address ?? current?.endAddress
+        let mergedEndLatitude = endPlace?.place?.latitude ?? (endPlace == nil ? current?.endLatitude : nil)
+        let mergedEndLongitude = endPlace?.place?.longitude ?? (endPlace == nil ? current?.endLongitude : nil)
+        let mergedGuideDog = guideDog ?? current?.hasGuideDog
+        let mergedPace = pace ?? current?.pacePreference
+
+        // MARK: missing 按**合并后**的状态算
+        //
+        // ⚠️ 起点判据是**坐标**而不是地名（`api_spec.yaml` 的 `VoiceSlotSnapshot` 说明）：
+        // 「有地址无坐标」下不了单，但那是靠 missing 拦，不是靠请求校验拦。
         var missing: [VoiceOrderMissingSlot] = []
-        if place == nil { missing.append(.address) }
-        if startTime == nil { missing.append(.startTime) }
-        if minutes == nil { missing.append(.duration) }
+        if mergedLatitude == nil { missing.append(.address) }
+        if mergedStartTime == nil { missing.append(.startTime) }
+        if mergedMinutes == nil { missing.append(.duration) }
+
+        // MARK: 确认轮的表态与定点修改
+        //
+        // 两者都**只在带了 `current` 时可能非 null**（契约：没带 current 时恒为 null）。
+        let intent = current == nil ? nil : Self.mockVoiceUserIntent(in: transcript, missingIsEmpty: missing.isEmpty)
+        // 本轮抽到了任何新值就不是「点名没给值」。契约：给了新值 `correctionTarget` 与
+        // `userIntent` 都为 null（「对，但时间改成九点」是修正不是确认）。
+        let broughtNewValue = startTime != nil || minutes != nil || place != nil
+            || endPlace != nil || guideDog != nil || pace != nil
+        let correctionTarget: VoiceCorrectionTarget? = (current == nil || intent != nil || broughtNewValue)
+            ? nil
+            : Self.mockVoiceCorrectionTarget(in: transcript)
+        // 只说了「不对」、既没表态也没点名也没给值。
+        let correctionUnclear = current != nil && intent == nil && correctionTarget == nil
+            && !broughtNewValue && Self.mockVoiceIsPlainNegation(transcript)
+
+        // `needReask` 与 `missing` **双向解耦**（契约 2026-08-09）。这一行曾经写成
+        // `!missing.isEmpty`，注释里挂着「接 `current` 时要一起改」—— 现在有三个反例：
+        // `CANCEL` 时 missing 可能非空而不该再收音；`correctionTarget` / `correctionUnclear`
+        // 时 missing 为空却必须再收一次。
+        let needReask: Bool
+        switch intent {
+        case .confirm, .cancel:
+            needReask = false
+        case .restart, .repeatBack:
+            needReask = true
+        default:
+            needReask = correctionTarget != nil || correctionUnclear || !missing.isEmpty
+        }
 
         return ParseVoiceOrderResponse(
-            plannedStartTime: startTime.map(Self.mockBackendLocalDateTime),
-            durationMinutes: minutes,
-            address: place?.address,
-            latitude: place?.latitude,
-            longitude: place?.longitude,
+            plannedStartTime: mergedStartTime,
+            durationMinutes: mergedMinutes,
+            address: mergedAddress,
+            latitude: mergedLatitude,
+            longitude: mergedLongitude,
             missing: missing,
-            // 在接入请求侧的 `current`（一步修正）之前，后端的 `correctionUnclear` 场景不可达，
-            // 此处等价推导成立。接 `current` 时这一行要一起改成独立字段 —— 那时
-            // `missing` 为空但 `needReask=true` 会真的发生（契约 2026-08-04）。
-            needReask: !missing.isEmpty,
-            // `missing` 非空时后端给的是追问文案，非空即追问 —— 向导刻意不播它，这里照形状给出即可。
-            ttsText: missing.isEmpty
-                ? "好的，我记下了"
-                : "还差\(missing.count)项没听清，可以再说一次",
-            endAddress: endPlace?.address,
-            endLatitude: endPlace?.place?.latitude,
-            endLongitude: endPlace?.place?.longitude,
-            // 契约说它恒等于「有地名且没坐标」。这里照定义算，别另起一套 ——
-            // 客户端本来就不按这个字段做判断（见 `ParseVoiceOrderResponse.resolvedEndPlace`），
-            // 但 Mock 给错值会让「照契约读它」的新代码在开发期看起来是对的。
-            endAddressUnresolved: endPlace.map { $0.place == nil },
-            hasGuideDog: Self.mockVoiceGuideDog(in: transcript),
-            pacePreference: Self.mockVoicePace(in: transcript),
+            needReask: needReask,
+            ttsText: Self.mockVoiceTtsText(
+                intent: intent,
+                correctionTarget: correctionTarget,
+                correctionUnclear: correctionUnclear,
+                missing: missing
+            ),
+            endAddress: mergedEndAddress,
+            endLatitude: mergedEndLatitude,
+            endLongitude: mergedEndLongitude,
+            // 契约说它恒等于「有地名且没坐标」，且**按本次响应的最终状态算，不是按本轮抽到了什么**
+            // （后端 N39 修正）—— 终点三元组会从 `current` 跨轮继承。这里照定义算，别另起一套。
+            endAddressUnresolved: mergedEndAddress == nil ? nil : (mergedEndLatitude == nil),
+            hasGuideDog: mergedGuideDog,
+            pacePreference: mergedPace,
             // 备注只由大模型在必填槽位兜底那次顺带抽，正则不抽（语料 `_extra_slots_note`），
-            // 所以 Mock 这条规则路径恒 nil，不是漏实现。
-            specialNotes: nil
+            // 所以 Mock 这条规则路径恒 nil，不是漏实现。继承 `current` 里已有的那份。
+            specialNotes: current?.specialNotes,
+            userIntent: intent,
+            correctionTarget: correctionTarget,
+            correctionUnclear: correctionUnclear
         )
+    }
+
+    /// 确认轮的表态判定。**逐字转写**后端 `VoiceSlotParser` 的五条正则与判定顺序
+    /// （`demo/src/main/java/com/example/demo/util/VoiceSlotParser.java:187-308`）。
+    ///
+    /// 转写而不是自己写一套，理由与整个 Mock 一致：**Mock 不许比线上松也不许比线上紧**。
+    /// 客户端的本地直通表要求是这份正则的子集，Mock 若比它松，那条子集关系在开发期就验不出来。
+    /// 真正的对撞由 `scripts/validate-voice-intent-words.mjs` 直接读 Java 源码做，这里只保证
+    /// 开发期跑通的分支和线上是同一批。
+    ///
+    /// 后端还有一路大模型识别，Mock 没有 —— 所以方言与长句在 Mock 里会落到 `nil`，
+    /// 与「模型不可用」时的线上行为一致，不是漏实现。
+    static func mockVoiceUserIntent(in transcript: String, missingIsEmpty: Bool) -> VoiceUserIntent? {
+        let text = transcript.trimmed
+        guard !text.isEmpty else { return nil }
+        // 判定顺序有意义，别调换：
+        // ① CANCEL 先判 ——「算了不下了」里也有个「了」。
+        // ② REPEAT 必须在 RESTART **之后** ——「重新说一遍」两条都命中，而它是 RESTART。
+        // ③ NOT_CONFIRM 必须在 CONFIRM 之前 ——「不对」含「对」，不先挡就会被判成确认→直接下单。
+        if Self.mockVoiceIntentCancel.contains(where: text.contains)
+            || Self.mockVoiceBareCancel.contains(Self.mockVoiceStripTrailingParticles(text)) {
+            return .cancel
+        }
+        if Self.mockVoiceIntentRestart.contains(where: text.contains) { return .restart }
+        if Self.mockVoiceIntentRepeat.contains(where: text.contains) { return .repeatBack }
+        if Self.mockVoiceIntentNotConfirm.contains(where: text.contains) { return nil }
+        guard Self.mockVoiceIntentConfirm.contains(where: text.contains)
+                || Self.mockVoiceBareConfirm.contains(Self.mockVoiceStripTrailingParticles(text)) else {
+            return nil
+        }
+        // ⚠️ `CONFIRM` 只在 `missing` 为空时出现：槽位没齐就无从确认，那时用户说「对」
+        // 多半是没听清追问。`CANCEL`/`RESTART`/`REPEAT` 不受此限 —— 被卡住的人最需要那几个出口。
+        return missingIsEmpty ? .confirm : nil
+    }
+
+    // 以下五组逐字对应后端的 `INTENT_*` 正则（`VoiceSlotParser.java:187-262`）。
+    // 后端用 `Matcher.find()`（子串命中），所以这里也是 `contains`。
+    private static let mockVoiceIntentCancel = [
+        "算了", "不下单", "不下了", "不订了", "不跑了", "别下单", "别下了", "不要了",
+        "取消订单", "取消下单", "放弃"
+    ]
+    /// 后端 `^\s*取消[吧了]?\s*$` —— 光秃秃的「取消」只在**整句就是它**时才算数：
+    /// 「把导盲犬取消」是改一项，判成 CANCEL 会让用户的整单凭空消失。
+    private static let mockVoiceBareCancel: Set<String> = ["取消", "取消吧", "取消了"]
+    private static let mockVoiceIntentRestart = [
+        "重新说", "重新来", "重新开始", "重来", "从头再来", "从头说"
+    ]
+    /// ⚠️ 「再说一遍 / 再说一次」在**这一组**，不在 RESTART —— 中文里那是「你把刚才那句重复一次」，
+    /// 盲人没听清读回时最自然的请求。判成重来会把他刚说完的一整句清空。
+    private static let mockVoiceIntentRepeat = [
+        "再说一遍", "再说一次", "再念一遍", "再念一次", "再读一遍", "再播一遍",
+        "重复一遍", "重复一下", "重复一次",
+        "没听清", "没听见", "没听到", "刚才说啥", "刚才说什么", "你说啥", "说的啥", "再讲一遍"
+    ]
+    /// 否定/不满 —— 命中返回 nil（=没有表态），交给 `correctionTarget` / `correctionUnclear` 那条路。
+    private static let mockVoiceIntentNotConfirm = [
+        "不对", "不太对", "不是", "不行", "不可以", "不好", "先不", "错了", "有问题", "等一下", "等等"
+    ]
+    private static let mockVoiceIntentConfirm = [
+        "没问题", "就这样", "就这么", "可以了", "下单吧", "直接下单", "开始吧",
+        "确认", "是的", "对的", "行吧", "行了", "可行", "OK", "ok", "Ok"
+    ]
+    /// 后端的三条 `^…$` 锚定模式：裸「对」算确认，裸「好」**不算**（要带后缀），裸「可以」算。
+    /// 两者刻意不对称 ——「好」是中文最强的话语标记（「好，那我们…」），旁人对话里出现时多半
+    /// 不是在回答问题；而读回句以「对吗？」结尾，「对」是它唯一的自然答句。
+    private static let mockVoiceBareConfirm: Set<String> = [
+        "对", "对的", "对了", "对吧", "对呀", "对啊",
+        "好的", "好了", "好吧", "好呀", "好啊",
+        "可以"
+    ]
+
+    /// 后端那三条锚定模式允许的句尾语气词与标点。
+    private static func mockVoiceStripTrailingParticles(_ text: String) -> String {
+        var stripped = text
+        while let last = stripped.last, "。！!？? ".contains(last) {
+            stripped.removeLast()
+        }
+        return stripped
+    }
+
+    /// 用户点名要改哪一项、但没给新值。
+    ///
+    /// ⚠️ **这是刻意的粗近似**：线上这一路纯靠大模型（与终点抽取同一次调用），没有正则实现，
+    /// 所以不存在可以逐字转写的后端源码。这里只覆盖最直白的说法，够开发期把
+    /// 「播定向追问 → 再收一次音 → 新值覆盖」这条链路跑通即可。
+    /// 模型不可用时线上恒为 null 并退回消歧问句 —— Mock 认不出来时的表现与那一档一致。
+    static func mockVoiceCorrectionTarget(in transcript: String) -> VoiceCorrectionTarget? {
+        // 必须先确认用户在说「改」这件事，否则「时间」两个字出现在任何句子里都会命中。
+        let changeWords = ["改", "换", "错了", "不对"]
+        guard changeWords.contains(where: transcript.contains) else { return nil }
+        // 顺序有意义：终点的说法里含「地点」，起点那条放后面会被它吃掉。
+        if ["终点", "结束地点", "跑到哪", "目的地"].contains(where: transcript.contains) { return .endAddress }
+        if ["起点", "出发", "地点", "地方"].contains(where: transcript.contains) { return .startAddress }
+        if ["时间", "几点", "点钟"].contains(where: transcript.contains) { return .startTime }
+        if ["时长", "跑多久", "多长时间"].contains(where: transcript.contains) { return .duration }
+        if ["导盲犬", "狗"].contains(where: transcript.contains) { return .guideDog }
+        if ["配速", "快慢"].contains(where: transcript.contains) { return .pace }
+        if ["备注", "说明"].contains(where: transcript.contains) { return .notes }
+        return nil
+    }
+
+    /// 只说了「不对」这类否定、既没点名也没给值。
+    static func mockVoiceIsPlainNegation(_ transcript: String) -> Bool {
+        Self.mockVoiceIntentNotConfirm.contains(where: transcript.contains)
+    }
+
+    /// 五个分支的文案，优先级即契约里那一串（`api_spec.yaml` 的 `ttsText` 说明）。
+    /// ⚠️ `CANCEL`/`RESTART` 排在 `missing` **之前**：用户被卡在追问里说「算了」，
+    /// 再回他一句「没听清出发地点」就是把人锁死。
+    private static func mockVoiceTtsText(
+        intent: VoiceUserIntent?,
+        correctionTarget: VoiceCorrectionTarget?,
+        correctionUnclear: Bool,
+        missing: [VoiceOrderMissingSlot]
+    ) -> String {
+        switch intent {
+        case .cancel: return "已取消"
+        case .restart: return "好的，我们重新来"
+        case .repeatBack: return "好的，我再念一遍"
+        case .confirm: return "好的，这就为您下单"
+        default: break
+        }
+        if !missing.isEmpty {
+            return "还差\(missing.count)项没听清，可以再说一次"
+        }
+        if let correctionTarget {
+            return "好的，请说新的\(Self.mockVoiceCorrectionTargetName(correctionTarget))"
+        }
+        if correctionUnclear {
+            return "您想改哪一项？出发地、开始时间，还是时长？"
+        }
+        return "好的，我记下了"
+    }
+
+    private static func mockVoiceCorrectionTargetName(_ target: VoiceCorrectionTarget) -> String {
+        switch target {
+        case .startAddress: return "出发地点"
+        case .endAddress: return "结束地点"
+        case .startTime: return "开始时间"
+        case .duration: return "时长"
+        case .guideDog: return "导盲犬安排"
+        case .pace: return "配速偏好"
+        case .notes: return "备注"
+        case .unknown: return "内容"
+        }
     }
 
     /// `POST /api/orders/voice/resolve-address`。`needReask` 是 **200 的正常业务状态**，

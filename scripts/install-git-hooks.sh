@@ -121,6 +121,13 @@ else
   echo "[pre-push] ⚠ 跳过错误码对撞：读不到 $CODES。这不算通过。"
 fi
 
+VOICE_PARSER="${AIDRUN_BACKEND_VOICE_PARSER:-../demo/src/main/java/com/example/demo/util/VoiceSlotParser.java}"
+if [ -f "$VOICE_PARSER" ]; then
+  run "validate-voice-intent-words" node scripts/validate-voice-intent-words.mjs "$VOICE_PARSER"
+else
+  echo "[pre-push] ⚠ 跳过确认轮词表对撞：读不到 $VOICE_PARSER。这不算通过。"
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo "[pre-push] 校验未通过，push 已中止。确需绕过：AIDRUN_SKIP_PREPUSH=1 git push"
   exit 1

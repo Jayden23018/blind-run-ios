@@ -218,11 +218,13 @@ node scripts/validate-docs.mjs
 node scripts/validate-spec-coverage.mjs    # 路径级：前端调的每条路径都在契约里
 node scripts/validate-golden-corpus.mjs    # 语音黄金语料 vs 前端镜像清单
 node scripts/validate-error-codes.mjs      # 前端 ErrorCode 枚举 vs 后端 ErrorCode.java
+node scripts/validate-voice-intent-words.mjs  # 确认轮本地直通表 vs 后端 VoiceSlotParser 的 INTENT_* 正则
 scripts/production-readiness-check.sh      # 需 AIDRUN_* 环境变量，见 aidrun-ship-check
 scripts/dual-device-validation.sh
 ```
 
-后三条要读后端仓库。装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
+中间四条（spec-coverage / golden-corpus / error-codes / voice-intent-words）要读后端仓库。
+装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
 CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑不了真机 XCTest**。
 
 ### 跑多大范围：默认只跑覆盖本次改动的 suite，不是全量
@@ -261,11 +263,12 @@ scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
 > 测试目标没编出来都会长这样：命令回来了、看起来一切正常，但一条断言都没跑。
 > 脚本对这种情况有硬失败，别绕过它。
 
-### 读后端仓库的那 4 条门禁在哪跑（2026-08-06 定型，别再重新推导一遍）
+### 读后端仓库的那 5 条门禁在哪跑（2026-08-06 定型，别再重新推导一遍）
 
-契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料这 4 条需要读后端私有仓库，跑在**三个不同的地方**：
+契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料 / 确认轮词表这 5 条需要读后端私有仓库，
+跑在**三个不同的地方**：
 
-| 位置 | 这 4 条 | 说明 |
+| 位置 | 这 5 条 | 说明 |
 |---|---|---|
 | 上游 `JerryZhao-1/blind-run-ios` | ⚠️ **warning 空过** | 我们不是它的 admin，配不了 secret。**上游 CI 绿 ≠ 契约对过了** |
 | fork `Jayden23018/blind-run-ios` | ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
@@ -291,7 +294,11 @@ scripts/install-git-hooks.sh                                          # 装钩�
 ```
 
 pre-push 会先校验 `../demo` 与其 `origin/main` 一致 —— 停在特性分支或工作区脏着时，
-这 4 条读的就不是契约本身，会直接拦下（逃生口 `AIDRUN_ALLOW_BACKEND_DRIFT=1`）。
+这 5 条读的就不是契约本身，会直接拦下（逃生口 `AIDRUN_ALLOW_BACKEND_DRIFT=1`）。
+
+> 第 5 条 `validate-voice-intent-words.mjs` 是 2026-08-10 加的：确认轮改成「本地直通 + 后端兜底」
+> 之后，同一句话由两处判定，本地表里出现一个后端判成**别的**意图的词就会让有网/断网行为分叉。
+> 加它的直接起因是「再说一次」——前端判「重说」（清空整句）、后端判 `REPEAT`（只重念）。
 
 契约 fixture（真实响应回归，见 `blindRunTests/ContractFixtureTests.swift`）：
 

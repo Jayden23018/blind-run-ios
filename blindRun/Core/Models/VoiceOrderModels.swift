@@ -7,7 +7,8 @@ import Foundation
 /// 分工：**后端只收文本、不收音频、不存状态**。录音、ASR、TTS、以及「下一个字段问不问」的向导状态机
 /// 全在客户端；后端提供无状态的解析原语。所以这里只有 DTO，状态机在 `VoiceOrderWizard`。
 enum VoiceOrderEndpoint {
-    /// 整句一次抽三槽（起点 / 开始时间 / 时长）。请求体与 `resolveAddress` **完全一致**，故复用同一个类型。
+    /// 整句一次抽三槽（起点 / 开始时间 / 时长）。**请求体是 `ParseVoiceOrderRequest`，不再与
+    /// `resolveAddress` 共用** —— 2026-08-10 接入跨轮修正的 `current` 之后两者不再逐字相同。
     static let parseOrder = "/api/orders/voice/parse"
     static let resolveAddress = "/api/orders/voice/resolve-address"
     static let parseSlot = "/api/orders/voice/parse-slot"
@@ -72,6 +73,104 @@ enum VoiceOrderMissingSlot: String, Codable, Sendable, Equatable {
     }
 }
 
+/// 用户对读回确认的**表态**（后端 2026-08-09 新增）。`nil` = 没表态。
+///
+/// 此前这一判断没有契约，每个客户端各写一套关键词匹配，用户实际被限制在「说『确认』或整句重说」
+/// 二选一里。现在后端用大模型 + 正则确定性兜底给出结论，客户端照字段分支。
+///
+/// ⚠️ `REPEAT` 与 `RESTART` 的界线是「**重听** vs **重说**」，判反的代价不对称：
+/// 把 `REPEAT` 当成 `RESTART` 会把用户刚说完的一整句清空。
+///
+/// 未知值退化成 `.unknown` 而不是抛 —— 与 `VoiceOrderMissingSlot` 同一套写法。
+enum VoiceUserIntent: String, Codable, Sendable, Equatable {
+    case confirm = "CONFIRM"
+    case cancel = "CANCEL"
+    case restart = "RESTART"
+    case repeatBack = "REPEAT"
+    /// 后端新增取值时的兜底，不是后端会发的值。
+    case unknown = "UNKNOWN"
+
+    init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = VoiceUserIntent(rawValue: rawValue) ?? .unknown
+    }
+}
+
+/// 用户点名要改的那一项 —— 他说了「改哪一项」但**没给新值**（后端 2026-08-09 新增）。
+///
+/// **刻意不复用 `VoiceSlotField`**（那个只有两个值、且是 `parse-slot` 的请求入参）：
+/// 这是响应侧的独立枚举，读回里念到的每一项都能被点名，包括终点和三个可选槽位。
+///
+/// ⚠️ 非 nil 时**不改任何槽位的值，只决定问句问什么** —— 模型判错的代价只是问错一句话。
+enum VoiceCorrectionTarget: String, Codable, Sendable, Equatable {
+    case startAddress = "START_ADDRESS"
+    case endAddress = "END_ADDRESS"
+    case startTime = "START_TIME"
+    case duration = "DURATION"
+    case guideDog = "GUIDE_DOG"
+    case pace = "PACE"
+    case notes = "NOTES"
+    /// 后端新增取值时的兜底，不是后端会发的值。
+    case unknown = "UNKNOWN"
+
+    init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = VoiceCorrectionTarget(rawValue: rawValue) ?? .unknown
+    }
+}
+
+/// 上一轮已确认的槽位快照。**服务端不存对话状态**，「上一轮说到哪了」完全由客户端带回来。
+///
+/// 字段全部可选：只带已经确认过的那几项。后端的合并口径是
+/// **本轮正则 > 本轮模型 > `current`**（新抽到的覆盖旧值，没抽到的继承）。
+///
+/// ⚠️ 起点与终点是**同一档规则**（`api_spec.yaml` 的 `VoiceSlotSnapshot`，2026-08-09 起点跟着放宽）：
+/// 允许「有地址、无坐标」—— 高德查不到时后端就是这么返回的，客户端把响应原样放进下一轮
+/// 必然会回传上来，按旧的严格规则校会把用户卡死在一个他自己解不开的循环里。
+/// **反过来仍返 400**：只有坐标没有文字地址是客户端 bug，所以 `init` 里坐标缺地址一律整组丢弃。
+///
+/// ⚠️ `demo/docs/frontend-guide.md` 里那句「起点三项必须同时提供或同时缺省」是放宽之前的旧文，
+/// 与 `api_spec.yaml` 矛盾。契约唯一源是 `api_spec.yaml`（`AGENTS.md` 第 7 节），按放宽版写。
+struct VoiceSlotSnapshot: Codable, Sendable, Equatable {
+    let plannedStartTime: String?
+    let durationMinutes: Int?
+    let address: String?
+    let latitude: Double?
+    let longitude: Double?
+    let endAddress: String?
+    let endLatitude: Double?
+    let endLongitude: Double?
+    let hasGuideDog: Bool?
+    let pacePreference: PacePreference?
+    let specialNotes: String?
+}
+
+/// `POST /api/orders/voice/parse` 的请求体。
+///
+/// **不再复用 `ResolveAddressRequest`**：在没有 `current` 的世界里两个端点的请求体确实逐字相同，
+/// 复用是对的；接了跨轮修正之后不再成立。
+struct ParseVoiceOrderRequest: Codable, Sendable {
+    /// 原始 ASR 转录文本，**不要做客户端清洗**，理由同 `ResolveAddressRequest.transcript`。
+    let transcript: String
+    /// 当前位置（GCJ-02，可选），用于同名地点就近消歧。**与 `longitude` 必须成对**，只传一半返 400。
+    let latitude: Double?
+    let longitude: Double?
+    /// 上一轮的槽位快照。`nil` = 整句那一轮（还没有「上一轮」），后端行为与老客户端完全一致。
+    let current: VoiceSlotSnapshot?
+
+    init(
+        transcript: String,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        current: VoiceSlotSnapshot? = nil
+    ) {
+        self.transcript = transcript
+        self.latitude = latitude
+        self.longitude = longitude
+        self.current = current
+    }
+}
+
 /// 整句解析结果：一句话同时抽起点、开始时间、时长。
 ///
 /// **地点这一路是 2026-08-04 才有的**。此前只有 `resolve-address`，它把整个 transcript 原样喂高德正向
@@ -115,7 +214,21 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     let needReask: Bool?
     /// `missing` 非空时这是**追问**文案，不是整单读回，所以整句轮不播它（后端 2026-08-04 确认：
     /// 抽不出的槽位保留什么默认值只有客户端知道，后端拼不出整单）。
+    ///
+    /// 确认轮**只在 `correctionTarget` / `correctionUnclear` 两个分支播它** —— 那两句是定向追问与
+    /// 消歧问句，正是本地拼不出来的东西；其余分支仍用客户端自己的读回。
     let ttsText: String?
+
+    // MARK: 确认轮的表态与定点修改（可选，2026-08-09 后端新增；iOS 2026-08-10 接入）
+
+    /// 用户对读回确认的表态。三个可空字段一律**放宽成可选**，理由同上面那段：
+    /// 线上偶发缺字段应该退化成「没表态」，而不是让整条响应解不出来。
+    let userIntent: VoiceUserIntent?
+    /// 用户点名要改的那一项（没给新值）。与 `userIntent` **互斥**。
+    let correctionTarget: VoiceCorrectionTarget?
+    /// 用户否定了读回但没说改哪一项，且模型也没识别出他想改什么。
+    /// ⚠️ 用户**点了名**时这是 `false`，那一项由 `correctionTarget` 回报。
+    let correctionUnclear: Bool?
 
     // MARK: 额外需求槽位（可选，2026-08-04 后端新增）
     //
@@ -159,7 +272,10 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
         endAddressUnresolved: Bool? = nil,
         hasGuideDog: Bool? = nil,
         pacePreference: PacePreference? = nil,
-        specialNotes: String? = nil
+        specialNotes: String? = nil,
+        userIntent: VoiceUserIntent? = nil,
+        correctionTarget: VoiceCorrectionTarget? = nil,
+        correctionUnclear: Bool? = nil
     ) {
         self.plannedStartTime = plannedStartTime
         self.durationMinutes = durationMinutes
@@ -176,6 +292,9 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
         self.hasGuideDog = hasGuideDog
         self.pacePreference = pacePreference
         self.specialNotes = specialNotes
+        self.userIntent = userIntent
+        self.correctionTarget = correctionTarget
+        self.correctionUnclear = correctionUnclear
     }
 
     /// 起点三项要么全有要么当没抽到 —— 只有地址没有坐标下不了单，只有坐标没有地址读回时没法念。
@@ -192,6 +311,34 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     var resolvedEndPlace: BookingEndPlace? {
         guard let address = endAddress?.nilIfBlank else { return nil }
         return BookingEndPlace(address: address, latitude: endLatitude, longitude: endLongitude)
+    }
+
+    /// 下一轮 `/parse` 要回传的 `current`。
+    ///
+    /// **快照唯一从响应派生，绝不从 view model 派生。** 契约本身说的就是「把响应原样放进下一轮
+    /// `current`」，而 view model 那边分不出「用户说的」和「初值」—— `appointmentTime` 的初值是
+    /// `Date()`，从它取会把一个用户从没说过的时刻当成「已确认槽位」发给后端，
+    /// 后端再原样继承回来、读回念出来，一张没人说过的单就这么成立了。
+    ///
+    /// 坐标缺地址一律整组丢弃：只有坐标没有文字地址后端返 400，而那是客户端 bug，
+    /// 不是该在运行时发出去试试看的东西。
+    var slotSnapshot: VoiceSlotSnapshot {
+        let startAddress = address?.nilIfBlank
+        let endAddress = self.endAddress?.nilIfBlank
+        return VoiceSlotSnapshot(
+            plannedStartTime: plannedStartTime,
+            durationMinutes: durationMinutes,
+            address: startAddress,
+            // 地址在就带坐标，地址不在就连坐标一起丢。允许「有地址无坐标」，禁止反过来。
+            latitude: startAddress == nil ? nil : latitude,
+            longitude: startAddress == nil ? nil : longitude,
+            endAddress: endAddress,
+            endLatitude: endAddress == nil ? nil : endLatitude,
+            endLongitude: endAddress == nil ? nil : endLongitude,
+            hasGuideDog: hasGuideDog,
+            pacePreference: pacePreference,
+            specialNotes: specialNotes
+        )
     }
 }
 
