@@ -537,7 +537,13 @@ final class VoiceOrderWizard: ObservableObject {
                 applyCandidate(candidates[0], notice: Self.pickedFirstCandidateNotice)
                 return
             }
-            promptAndListen("没听清是第几个。请说「第一个」或者「第二个」，要重新讲就说「重说」。")
+            // ⚠️ **不能图省事用 `promptAndListen`**：它开头就把 `reaskCount` 清零
+            // （那是给定向追问用的「不计入重问上限」路径）。用在这里，上面那个上限永远数不到，
+            // 挑不出来的用户就被**永远关在候选列表里** —— 又一个没有出口的循环。
+            speak("没听清是第几个。请说「第一个」或者「第二个」，要重新讲就说「重说」。")
+            if let field = step.speechField {
+                listen(for: field)
+            }
             return
         }
         applyCandidate(candidates[index], notice: pendingNotice)

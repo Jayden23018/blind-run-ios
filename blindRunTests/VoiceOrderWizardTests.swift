@@ -2134,7 +2134,10 @@ final class VoiceOrderWizardTests: XCTestCase {
             needReask: true,
             addressUnresolved: true
         )]
-        let wizard = makeWizard(stub: stub)
+        // 必须持有一个活着的 view model：wizard 侧是 weak，临时对象等于传 nil，
+        // 而 `confirmPrompt(for:)` 拿不到它就退回只念出路那句，读回整段根本不会拼出来
+        let bookingViewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel)
 
         await wizard.submitTranscript("明天早上八点从老王家门口出发跑一个小时")
 
