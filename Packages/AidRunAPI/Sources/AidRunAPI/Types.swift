@@ -206,8 +206,18 @@ public protocol APIProtocol: Sendable {
     ///
     /// **一步修正**：用户否定读回确认时（"不对，九点"），把上一轮结果填进 `current` 再调一次本端点。
     /// 槽位优先级 **本轮正则 > 本轮模型 > current**：新抽到的覆盖旧值，没抽到的原样继承。
-    /// 继承来的值同样重跑校验（提前量可能在修正过程中失效）。用户只说"不对"没说改哪项时，
-    /// 返回 correctionUnclear=true + 消歧问句 —— **不要清空 current 让用户整句重说**。
+    /// 继承来的值同样重跑校验（提前量可能在修正过程中失效）。**不要清空 current 让用户整句重说。**
+    ///
+    /// 用户否定确认时的三种形态（2026-08-09 补第一种）：
+    ///
+    /// | 用户说 | 响应 | 客户端做什么 |
+    /// |---|---|---|
+    /// | 「时间改成九点」（点名 + 给值） | 槽位被覆盖，missing 空，ttsText 是新的读回确认 | 播读回，等确认 |
+    /// | 「我想改时间」（只点名，没给值） | `correctionTarget=START_TIME`，needReask=true，**其余槽位与 current 逐字相同**，ttsText 是定向追问 | 播追问，再收一次语音，连同**同一份 current** 再发本端点 |
+    /// | 「不对」（什么都没说） | `correctionUnclear=true`，ttsText 是消歧问句 | 同上 |
+    ///
+    /// ⚠️ 第二种此前也落在 `correctionUnclear` 上，于是消歧问句「您想改哪一项？」**无法作答** ——
+    /// 用户答"时间"会再走一遍同一条路径又被问一次，唯一出路是整句重说（N41）。
     ///
     ///
     /// - Remark: HTTP `POST /api/orders/voice/parse`.
@@ -787,8 +797,18 @@ extension APIProtocol {
     ///
     /// **一步修正**：用户否定读回确认时（"不对，九点"），把上一轮结果填进 `current` 再调一次本端点。
     /// 槽位优先级 **本轮正则 > 本轮模型 > current**：新抽到的覆盖旧值，没抽到的原样继承。
-    /// 继承来的值同样重跑校验（提前量可能在修正过程中失效）。用户只说"不对"没说改哪项时，
-    /// 返回 correctionUnclear=true + 消歧问句 —— **不要清空 current 让用户整句重说**。
+    /// 继承来的值同样重跑校验（提前量可能在修正过程中失效）。**不要清空 current 让用户整句重说。**
+    ///
+    /// 用户否定确认时的三种形态（2026-08-09 补第一种）：
+    ///
+    /// | 用户说 | 响应 | 客户端做什么 |
+    /// |---|---|---|
+    /// | 「时间改成九点」（点名 + 给值） | 槽位被覆盖，missing 空，ttsText 是新的读回确认 | 播读回，等确认 |
+    /// | 「我想改时间」（只点名，没给值） | `correctionTarget=START_TIME`，needReask=true，**其余槽位与 current 逐字相同**，ttsText 是定向追问 | 播追问，再收一次语音，连同**同一份 current** 再发本端点 |
+    /// | 「不对」（什么都没说） | `correctionUnclear=true`，ttsText 是消歧问句 | 同上 |
+    ///
+    /// ⚠️ 第二种此前也落在 `correctionUnclear` 上，于是消歧问句「您想改哪一项？」**无法作答** ——
+    /// 用户答"时间"会再走一遍同一条路径又被问一次，唯一出路是整句重说（N41）。
     ///
     ///
     /// - Remark: HTTP `POST /api/orders/voice/parse`.
@@ -2029,6 +2049,38 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/pacePreference`.
             public var pacePreference: Components.Schemas.CreateOrderRequest.pacePreferencePayload?
+            /// 配速区间**下限（最快）**，秒/公里。可选，**必须与 `paceMaxSecondsPerKm` 成对提供**，
+            /// 且 `min <= max`，否则 400 `VALIDATION_ERROR`。2026-08-09 新增。
+            ///
+            /// 与 `pacePreference` 不是二选一，回答的是两个不同问题：后者是定性档位（进派单评分），
+            /// 本字段是志愿者判断「我跟不跟得下来」的**量** ——「中等」对一个人是 5'30"、对另一个是 7'00"。
+            ///
+            /// ⚠️ **本字段不进派单过滤，也不进排序**，只随订单展示给志愿者自己判断。
+            /// 原因是志愿者档案侧只有定性的 `paceRange`（同一个枚举），**没有 sec/km 区间可以对撞**。
+            ///
+            /// 范围 150–1200 秒/公里（约 2'30"–20'00"）：下界比马拉松世界纪录还宽一点，上界覆盖慢走。
+            /// 超出多半是客户端把单位搞错了（传了分钟，或秒/百米）。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/paceMinSecondsPerKm`.
+            public var paceMinSecondsPerKm: Swift.Int32?
+            /// 配速区间**上限（最慢）**，秒/公里。与 `paceMinSecondsPerKm` 成对，口径见那一条。
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/paceMaxSecondsPerKm`.
+            public var paceMaxSecondsPerKm: Swift.Int32?
+            /// 本次**计划里程**（米），可选。2026-08-09 新增。
+            ///
+            /// 与 `expectedDurationMinutes` 互补而不重复：「跑 60 分钟」不告诉志愿者要跑多远。
+            ///
+            /// ⚠️ 与 `AvailableOrderResponse.startToEndDistanceKm` **不是一回事** ——
+            /// 那个是起终点**直线距离**（绕圈跑、起点=终点时为 0），本字段是计划跑多远。
+            ///
+            /// ⚠️ 同样**不进派单过滤或排序**，只作展示。
+            /// 范围 100 米–100 公里：上界给超马留余量，下界挡住把公里当米传的情况。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/plannedDistanceMeters`.
+            public var plannedDistanceMeters: Swift.Int32?
             /// - Remark: Generated from `#/components/schemas/CreateOrderRequest/routePreference`.
             @frozen public enum routePreferencePayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case PARK_TRAIL = "PARK_TRAIL"
@@ -2057,6 +2109,9 @@ public enum Components {
             ///   - plannedEndTime:
             ///   - expectedDurationMinutes:
             ///   - pacePreference:
+            ///   - paceMinSecondsPerKm: 配速区间**下限（最快）**，秒/公里。可选，**必须与 `paceMaxSecondsPerKm` 成对提供**，
+            ///   - paceMaxSecondsPerKm: 配速区间**上限（最慢）**，秒/公里。与 `paceMinSecondsPerKm` 成对，口径见那一条。
+            ///   - plannedDistanceMeters: 本次**计划里程**（米），可选。2026-08-09 新增。
             ///   - routePreference:
             ///   - routeNotes:
             ///   - hasGuideDogThisRun:
@@ -2072,6 +2127,9 @@ public enum Components {
                 plannedEndTime: Swift.String,
                 expectedDurationMinutes: Swift.Int32? = nil,
                 pacePreference: Components.Schemas.CreateOrderRequest.pacePreferencePayload? = nil,
+                paceMinSecondsPerKm: Swift.Int32? = nil,
+                paceMaxSecondsPerKm: Swift.Int32? = nil,
+                plannedDistanceMeters: Swift.Int32? = nil,
                 routePreference: Components.Schemas.CreateOrderRequest.routePreferencePayload? = nil,
                 routeNotes: Swift.String? = nil,
                 hasGuideDogThisRun: Swift.Bool? = nil,
@@ -2087,6 +2145,9 @@ public enum Components {
                 self.plannedEndTime = plannedEndTime
                 self.expectedDurationMinutes = expectedDurationMinutes
                 self.pacePreference = pacePreference
+                self.paceMinSecondsPerKm = paceMinSecondsPerKm
+                self.paceMaxSecondsPerKm = paceMaxSecondsPerKm
+                self.plannedDistanceMeters = plannedDistanceMeters
                 self.routePreference = routePreference
                 self.routeNotes = routeNotes
                 self.hasGuideDogThisRun = hasGuideDogThisRun
@@ -2103,6 +2164,9 @@ public enum Components {
                 case plannedEndTime
                 case expectedDurationMinutes
                 case pacePreference
+                case paceMinSecondsPerKm
+                case paceMaxSecondsPerKm
+                case plannedDistanceMeters
                 case routePreference
                 case routeNotes
                 case hasGuideDogThisRun
@@ -2444,6 +2508,26 @@ public enum Components {
             public var durationMinutes: Swift.Int32?
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/address`.
             public var address: Swift.String?
+            /// `address` 的**朗读形态** —— 只有 POI 名，不含门牌号与步行指引（2026-08-09 新增）。
+            /// `address` 为 `null` 时本字段同样为 `null`。
+            ///
+            /// 例：`address` = `五角场市场监督管理所 国定路335号1号楼4层(国权路地铁站4号口步行110米)`，
+            /// 本字段 = `五角场市场监督管理所`。
+            ///
+            /// **自己拼读回文案时念这个，不要念 `address`。** 读回的作用是让用户听出
+            /// 「这不是我说的地方」，他能靠听分辨的是**名字**；「国定路335号1号楼4层」听完也无从判断，
+            /// 只会把确认句拖长、把关键信息埋掉。而 `address` 仍是**完整地址**，一个字没少 ——
+            /// 下单与志愿者上门要用门牌号。
+            ///
+            /// ⚠️ 本字段与 `ttsText` 里念的那一段**由构造保证一致**（后端同一个方法算的），
+            /// 不是两份各自维护的文案。
+            ///
+            /// ⚠️ 正向地理编码回落路径给的地址（`上海市黄浦区人民广场`）不带 POI 名分隔，
+            /// 此时本字段 **等于** `address`。那种地址本来就短，整串念是对的。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/addressShort`.
+            public var addressShort: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/latitude`.
             public var latitude: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/longitude`.
@@ -2462,6 +2546,11 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/endAddress`.
             public var endAddress: Swift.String?
+            /// `endAddress` 的朗读形态，口径与 `addressShort` 完全一致（后端同一个方法算的）。2026-08-09 新增。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/endAddressShort`.
+            public var endAddressShort: Swift.String?
             /// 终点纬度（GCJ-02）。⚠️ 可能为 null 而 `endAddress` 非 null，见 `endAddressUnresolved`
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/endLatitude`.
@@ -2555,20 +2644,34 @@ public enum Components {
             public var missing: Components.Schemas.ParseVoiceOrderResponse.missingPayload
             /// 客户端需要再收一次语音。
             ///
-            /// ⚠️ **2026-08-04 起不再等价于 `missing` 非空**：`correctionUnclear=true` 时
-            /// `missing` 为空（槽位其实都有值，只是不知道哪一项错了）但本字段为 true。
-            /// 按 `needReask` 决定"要不要再录一次"，按 `missing` 决定"要问哪一项"。
+            /// ⚠️ **2026-08-04 起不再等价于 `missing` 非空**：`missing` 为空但本字段为 true 的情况有两种 ——
+            /// `correctionUnclear=true`（不知道用户想改哪一项）和 `correctionTarget` 非 null
+            /// （知道改哪一项，在等新值，2026-08-09 新增）。
+            /// ⚠️ **反过来也不再等价**：`userIntent` 为 `CANCEL` 时 `missing` 可能非空而本字段是 `false`
+            /// （用户要退出，不该再收音）；`CONFIRM` 同样是 `false`。
+            /// 按 `needReask` 决定"要不要再录一次"，按 `missing` / `correctionTarget` 决定"要问哪一项"。
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/needReask`.
             public var needReask: Swift.Bool
-            /// ⚠️ 两种场景语义不同，客户端按 missing 是否为空分别处理（2026-08-04 与 iOS 端确认）：
+            /// ⚠️ 五个分支语义不同（2026-08-09 补第 0、2 条），**优先级即下面的顺序**：
             ///
-            /// - **missing 为空**：三项都抽到了，这是**整单读回确认文案**，可直接播报。
-            /// - **missing 非空**：这是 missing 里**第一项**的单项追问语（如「没听清出发地点，请再说一次」），
-            ///   **不是**整单读回。整句轮若不想把用户按在同一句话上反复重说，可以忽略本字段，
-            ///   自行拼「已抽到的 + 保留默认值的」整单读回 —— iOS 端即如此处理，后端认可这种用法。
-            ///   后端拼不出整单读回：抽不出的槽位保留什么默认值只有客户端知道，后端拼出来必然缺项。
+            /// 0. **`userIntent` 非 null** —— 表态后的回话（「好的，这就为您下单」/「已取消」/「我们重新来」）。
+            ///    ⚠️ `CANCEL`/`RESTART` 排在 `missing` **之前**：用户被卡在追问里说「算了」，
+            ///    再回他一句「没听清出发地点」就是把人锁死。`CONFIRM` 反之，排在 `missing` 之后。
+            /// 1. **missing 非空** —— missing 里**第一项**的单项追问语（如「没听清出发地点，请再说一次」），
+            ///    **不是**整单读回。整句轮若不想把用户按在同一句话上反复重说，可以忽略本字段，
+            ///    自行拼「已抽到的 + 保留默认值的」整单读回 —— iOS 端即如此处理，后端认可这种用法。
+            ///    后端拼不出整单读回：抽不出的槽位保留什么默认值只有客户端知道，后端拼出来必然缺项。
+            /// 2. **`correctionTarget` 非 null** —— 该项的**定向追问语**（「好的，请说新的开始时间，
+            ///    比如"明天早上八点"」）。用户点名要改这一项但还没给新值。
+            /// 3. **`correctionUnclear=true`** —— 消歧问句「您想改哪一项？出发地、开始时间，还是时长？」。
+            /// 4. **以上都不是** —— **整单读回确认文案**，可直接播报。
+            ///    ⚠️ 2026-08-09 起，三个可选槽位（`hasGuideDog`/`pacePreference`/`specialNotes`）里
+            ///    用户还没提过的，会被点名提醒一句：「…跑60分钟。还没说带不带导盲犬、跑步配速、备注，
+            ///    要补充直接说，对吗？」。三项都提过就一个字都不加。
+            ///    这几项不进 `missing`、不会被追问，不主动点用户就不知道能说，
+            ///    而导盲犬进派单**硬过滤** —— 档案默认值与本次不符会静默缩放候选志愿者池。
             ///
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/ttsText`.
@@ -2677,7 +2780,8 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/specialNotes`.
             public var specialNotes: Swift.String?
-            /// 用户否定了读回确认、但没说要改哪一项（只说了"不对"）。仅在请求带了 `current` 时可能为 true。
+            /// 用户否定了读回确认、但没说要改哪一项（只说了"不对"），**且模型也没识别出他想改什么**。
+            /// 仅在请求带了 `current` 时可能为 true。
             ///
             /// 此时 `missing` 为空、`needReask` 为 true，`ttsText` 是消歧问句
             /// 「您想改哪一项？出发地、开始时间，还是时长？」。
@@ -2685,36 +2789,285 @@ public enum Components {
             /// 客户端应播报问句并再收一次语音，把用户的回答连同**同一份 `current`** 再发一次 ——
             /// **不要**清空 current 让用户整句重说，那正是对话设计里要避免的「取消重来」。
             ///
+            /// ⚠️ **2026-08-09 语义收窄**：用户点了名（"我想改时间"）时本字段是 `false`，
+            /// 那一项由 `correctionTarget` 回报。此前那种情况也落在本字段上，于是这个消歧问句
+            /// **无法作答** —— 用户答"时间"会再走一遍同一条路径又被问一次（N41）。
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/correctionUnclear`.
             public var correctionUnclear: Swift.Bool
+            /// 用户对读回确认的**表态** —— 确认下单 / 取消 / 全部重来。没表态时为 `null`。2026-08-09 新增。
+            ///
+            /// 此前后端只生成「…对吗？」这句话，**却从没说客户端该怎么判断用户的回答** ——
+            /// 于是每个客户端各自写死关键词匹配，用户实际被限制在「说『确认』或者整句重说」二选一里。
+            /// 现在这一判断收回后端，客户端照字段分支即可。
+            ///
+            /// | 值 | 客户端做什么 | `needReask` |
+            /// |---|---|---|
+            /// | `CONFIRM` | 播报 `ttsText` 后调 `POST /api/orders` 下单 | `false` |
+            /// | `CANCEL` | 结束本次语音下单流程 | `false` |
+            /// | `RESTART` | **清空 `current`** 后重新收音 | `true` |
+            /// | `REPEAT` | 播报 `ttsText`（= 上一轮那句，逐字相同）后再收一次音。**不要清空 `current`** | `true` |
+            ///
+            /// ⚠️ **后端不会替你下单** —— `/parse` 是无副作用的解析端点，`CONFIRM` 只是识别结果。
+            /// 所以 `ttsText` 说的是「这就为您下单」而不是「已经下单了」。
+            ///
+            /// ⚠️ **`CONFIRM` 只在 `missing` 为空时出现**：槽位没齐就无从确认，
+            /// 那时用户说「对」多半是没听清追问，继续追问才对。
+            /// **`CANCEL`/`RESTART`/`REPEAT` 则不受 `missing` 限制** —— 用户被卡在追问里想退出
+            /// 或者没听清，恰恰最需要这两个出口。
+            ///
+            /// ⚠️ **给了新值就一律为 `null`**：「对，但时间改成九点」是修正不是确认，
+            /// 口径由后端兜住、不依赖模型。没带 `current` 时也恒为 `null`。
+            ///
+            /// ⚠️ 与 `correctionTarget` **互斥**：用户要么在表态，要么在改某一项。
+            ///
+            /// **`REPEAT`（2026-08-09 新增，此前这类说法恒为 `null`）**：
+            /// 「再说一遍」「你重复一下」「没听清」「你刚才说啥来着」。
+            /// 它**不改任何槽位**，`ttsText` 是**当前状态下本来就该念的那一句**由后端重算出来的：
+            /// 槽位齐了就是读回确认，卡在追问里就是那句追问 —— 所以卡在「没听清出发地点」时说
+            /// 「没听清」，重播的是那句追问而不是读回。其余字段与请求里的 `current` 一致。
+            /// ⚠️ 它与 `RESTART` 的界线是「重听」vs「重说」，判反的代价不对称：
+            /// 把 `REPEAT` 当成 `RESTART` 会清空用户刚说完的一整句。
+            ///
+            /// 由大模型识别 + **正则确定性兜底**（与 `correctionTarget` 不同，那个纯靠模型）：
+            /// 模型不可用时若连「对」都识别不出来，用户就永远下不了单，所以这条路没有模型也能走通。
+            ///
+            /// ⚠️ **2026-08-09 收紧：光秃秃一个「好」字不再算 `CONFIRM`**（返回 `null`），
+            /// 而光秃秃的「对」**仍然算**。两者刻意不对称，不是漏改：
+            /// 「好」是中文里最强的话语标记（「好，那我们…」），旁人对话里出现时多半不是在回答问题；
+            /// 而读回句以「对吗？」结尾，「对」是它唯一的自然答句，砍掉它等于惩罚最自然的回答。
+            /// 出处是 2018 年 5 月 Portland 那起 Alexa 事故 —— 背景对话里一句 "right" 满足了确认。
+            /// 「好的」「好了」「好吧」等带后缀的说法**不受影响，仍是 `CONFIRM`**。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/userIntent`.
+            public struct userIntentPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/userIntent/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case CONFIRM = "CONFIRM"
+                    case CANCEL = "CANCEL"
+                    case RESTART = "RESTART"
+                    case REPEAT = "REPEAT"
+                }
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/userIntent/value1`.
+                public var value1: Components.Schemas.ParseVoiceOrderResponse.userIntentPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/userIntent/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `userIntentPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.ParseVoiceOrderResponse.userIntentPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 用户对读回确认的**表态** —— 确认下单 / 取消 / 全部重来。没表态时为 `null`。2026-08-09 新增。
+            ///
+            /// 此前后端只生成「…对吗？」这句话，**却从没说客户端该怎么判断用户的回答** ——
+            /// 于是每个客户端各自写死关键词匹配，用户实际被限制在「说『确认』或者整句重说」二选一里。
+            /// 现在这一判断收回后端，客户端照字段分支即可。
+            ///
+            /// | 值 | 客户端做什么 | `needReask` |
+            /// |---|---|---|
+            /// | `CONFIRM` | 播报 `ttsText` 后调 `POST /api/orders` 下单 | `false` |
+            /// | `CANCEL` | 结束本次语音下单流程 | `false` |
+            /// | `RESTART` | **清空 `current`** 后重新收音 | `true` |
+            /// | `REPEAT` | 播报 `ttsText`（= 上一轮那句，逐字相同）后再收一次音。**不要清空 `current`** | `true` |
+            ///
+            /// ⚠️ **后端不会替你下单** —— `/parse` 是无副作用的解析端点，`CONFIRM` 只是识别结果。
+            /// 所以 `ttsText` 说的是「这就为您下单」而不是「已经下单了」。
+            ///
+            /// ⚠️ **`CONFIRM` 只在 `missing` 为空时出现**：槽位没齐就无从确认，
+            /// 那时用户说「对」多半是没听清追问，继续追问才对。
+            /// **`CANCEL`/`RESTART`/`REPEAT` 则不受 `missing` 限制** —— 用户被卡在追问里想退出
+            /// 或者没听清，恰恰最需要这两个出口。
+            ///
+            /// ⚠️ **给了新值就一律为 `null`**：「对，但时间改成九点」是修正不是确认，
+            /// 口径由后端兜住、不依赖模型。没带 `current` 时也恒为 `null`。
+            ///
+            /// ⚠️ 与 `correctionTarget` **互斥**：用户要么在表态，要么在改某一项。
+            ///
+            /// **`REPEAT`（2026-08-09 新增，此前这类说法恒为 `null`）**：
+            /// 「再说一遍」「你重复一下」「没听清」「你刚才说啥来着」。
+            /// 它**不改任何槽位**，`ttsText` 是**当前状态下本来就该念的那一句**由后端重算出来的：
+            /// 槽位齐了就是读回确认，卡在追问里就是那句追问 —— 所以卡在「没听清出发地点」时说
+            /// 「没听清」，重播的是那句追问而不是读回。其余字段与请求里的 `current` 一致。
+            /// ⚠️ 它与 `RESTART` 的界线是「重听」vs「重说」，判反的代价不对称：
+            /// 把 `REPEAT` 当成 `RESTART` 会清空用户刚说完的一整句。
+            ///
+            /// 由大模型识别 + **正则确定性兜底**（与 `correctionTarget` 不同，那个纯靠模型）：
+            /// 模型不可用时若连「对」都识别不出来，用户就永远下不了单，所以这条路没有模型也能走通。
+            ///
+            /// ⚠️ **2026-08-09 收紧：光秃秃一个「好」字不再算 `CONFIRM`**（返回 `null`），
+            /// 而光秃秃的「对」**仍然算**。两者刻意不对称，不是漏改：
+            /// 「好」是中文里最强的话语标记（「好，那我们…」），旁人对话里出现时多半不是在回答问题；
+            /// 而读回句以「对吗？」结尾，「对」是它唯一的自然答句，砍掉它等于惩罚最自然的回答。
+            /// 出处是 2018 年 5 月 Portland 那起 Alexa 事故 —— 背景对话里一句 "right" 满足了确认。
+            /// 「好的」「好了」「好吧」等带后缀的说法**不受影响，仍是 `CONFIRM`**。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/userIntent`.
+            public var userIntent: Components.Schemas.ParseVoiceOrderResponse.userIntentPayload?
+            /// 用户点名要改的那一项 —— 他说了"改哪一项"、但**没给新值**（"我想改时间"/"终点错了"）。
+            /// 2026-08-09 新增。仅在请求带了 `current` 时可能非 null。
+            ///
+            /// 非 null 时：`missing` 为空、`needReask` 为 true、`correctionUnclear` 为 false，
+            /// `ttsText` 是该项的定向追问语。**其余槽位与请求里的 `current` 逐字相同** ——
+            /// 本轮什么都没覆盖（模型说了"用户没给值"，那本轮抽出来的东西按它自己的口径就不该采信）。
+            ///
+            /// 客户端应播报 `ttsText` 并再收一次语音，把用户的回答连同**同一份 `current`** 再发一次。
+            /// 下一轮用户只说值（"明天九点"），新值覆盖该槽位、其余继承，直接回到读回确认。
+            ///
+            /// ⚠️ 本字段**不改任何槽位的值，只决定问句问什么** —— 模型判错的代价只是问错一句话，
+            /// 不会写进订单，用户接着说值就能纠正回来。
+            ///
+            /// ⚠️ 由大模型识别（与终点抽取同一次调用，零额外延迟）。模型不可用时恒为 null，
+            /// 退回 `correctionUnclear` 的消歧问句 —— 与超时/未配 key 走同一条降级路径。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/correctionTarget`.
+            public struct correctionTargetPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/correctionTarget/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case START_ADDRESS = "START_ADDRESS"
+                    case END_ADDRESS = "END_ADDRESS"
+                    case START_TIME = "START_TIME"
+                    case DURATION = "DURATION"
+                    case GUIDE_DOG = "GUIDE_DOG"
+                    case PACE = "PACE"
+                    case NOTES = "NOTES"
+                }
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/correctionTarget/value1`.
+                public var value1: Components.Schemas.ParseVoiceOrderResponse.correctionTargetPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/correctionTarget/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `correctionTargetPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.ParseVoiceOrderResponse.correctionTargetPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 用户点名要改的那一项 —— 他说了"改哪一项"、但**没给新值**（"我想改时间"/"终点错了"）。
+            /// 2026-08-09 新增。仅在请求带了 `current` 时可能非 null。
+            ///
+            /// 非 null 时：`missing` 为空、`needReask` 为 true、`correctionUnclear` 为 false，
+            /// `ttsText` 是该项的定向追问语。**其余槽位与请求里的 `current` 逐字相同** ——
+            /// 本轮什么都没覆盖（模型说了"用户没给值"，那本轮抽出来的东西按它自己的口径就不该采信）。
+            ///
+            /// 客户端应播报 `ttsText` 并再收一次语音，把用户的回答连同**同一份 `current`** 再发一次。
+            /// 下一轮用户只说值（"明天九点"），新值覆盖该槽位、其余继承，直接回到读回确认。
+            ///
+            /// ⚠️ 本字段**不改任何槽位的值，只决定问句问什么** —— 模型判错的代价只是问错一句话，
+            /// 不会写进订单，用户接着说值就能纠正回来。
+            ///
+            /// ⚠️ 由大模型识别（与终点抽取同一次调用，零额外延迟）。模型不可用时恒为 null，
+            /// 退回 `correctionUnclear` 的消歧问句 —— 与超时/未配 key 走同一条降级路径。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/correctionTarget`.
+            public var correctionTarget: Components.Schemas.ParseVoiceOrderResponse.correctionTargetPayload?
             /// Creates a new `ParseVoiceOrderResponse`.
             ///
             /// - Parameters:
             ///   - plannedStartTime:
             ///   - durationMinutes:
             ///   - address:
+            ///   - addressShort: `address` 的**朗读形态** —— 只有 POI 名，不含门牌号与步行指引（2026-08-09 新增）。
             ///   - latitude:
             ///   - longitude:
             ///   - endAddress: 解析出的**终点**地址 —— 可选槽位，原话没说终点时为 `null`（2026-08-08 SPEC B1 新增）。
+            ///   - endAddressShort: `endAddress` 的朗读形态，口径与 `addressShort` 完全一致（后端同一个方法算的）。2026-08-09 新增。
             ///   - endLatitude: 终点纬度（GCJ-02）。⚠️ 可能为 null 而 `endAddress` 非 null，见 `endAddressUnresolved`
             ///   - endLongitude: 终点经度（GCJ-02），同 `endLatitude`
             ///   - endAddressUnresolved: 终点抽到了地名、但地理编码查不到坐标（2026-08-08 SPEC B1 新增）。
             ///   - missing: 还缺（或校验不通过）的槽位，按向导顺序：起点 → 开始时间 → 时长。
             ///   - needReask: 客户端需要再收一次语音。
-            ///   - ttsText: ⚠️ 两种场景语义不同，客户端按 missing 是否为空分别处理（2026-08-04 与 iOS 端确认）：
+            ///   - ttsText: ⚠️ 五个分支语义不同（2026-08-09 补第 0、2 条），**优先级即下面的顺序**：
             ///   - addressUnresolved: 地址缺失的**原因**区分，仅在 `missing` 含 `ADDRESS` 时有意义（2026-08-04 应 iOS 端要求新增）：
             ///   - hasGuideDog: 本次是否携带导盲犬 —— **可选槽位**，`null` 表示原话没提。
             ///   - pacePreference: 本次配速偏好 —— 可选槽位，`null` 表示原话没提，下单时不传即回落档案默认配速
             ///   - specialNotes: 本次备注 —— 可选槽位，`null` 表示原话没提。
-            ///   - correctionUnclear: 用户否定了读回确认、但没说要改哪一项（只说了"不对"）。仅在请求带了 `current` 时可能为 true。
+            ///   - correctionUnclear: 用户否定了读回确认、但没说要改哪一项（只说了"不对"），**且模型也没识别出他想改什么**。
+            ///   - userIntent: 用户对读回确认的**表态** —— 确认下单 / 取消 / 全部重来。没表态时为 `null`。2026-08-09 新增。
+            ///   - correctionTarget: 用户点名要改的那一项 —— 他说了"改哪一项"、但**没给新值**（"我想改时间"/"终点错了"）。
             public init(
                 plannedStartTime: Swift.String? = nil,
                 durationMinutes: Swift.Int32? = nil,
                 address: Swift.String? = nil,
+                addressShort: Swift.String? = nil,
                 latitude: Swift.Double? = nil,
                 longitude: Swift.Double? = nil,
                 endAddress: Swift.String? = nil,
+                endAddressShort: Swift.String? = nil,
                 endLatitude: Swift.Double? = nil,
                 endLongitude: Swift.Double? = nil,
                 endAddressUnresolved: Swift.Bool? = nil,
@@ -2725,14 +3078,18 @@ public enum Components {
                 hasGuideDog: Swift.Bool? = nil,
                 pacePreference: Components.Schemas.ParseVoiceOrderResponse.pacePreferencePayload? = nil,
                 specialNotes: Swift.String? = nil,
-                correctionUnclear: Swift.Bool
+                correctionUnclear: Swift.Bool,
+                userIntent: Components.Schemas.ParseVoiceOrderResponse.userIntentPayload? = nil,
+                correctionTarget: Components.Schemas.ParseVoiceOrderResponse.correctionTargetPayload? = nil
             ) {
                 self.plannedStartTime = plannedStartTime
                 self.durationMinutes = durationMinutes
                 self.address = address
+                self.addressShort = addressShort
                 self.latitude = latitude
                 self.longitude = longitude
                 self.endAddress = endAddress
+                self.endAddressShort = endAddressShort
                 self.endLatitude = endLatitude
                 self.endLongitude = endLongitude
                 self.endAddressUnresolved = endAddressUnresolved
@@ -2744,14 +3101,18 @@ public enum Components {
                 self.pacePreference = pacePreference
                 self.specialNotes = specialNotes
                 self.correctionUnclear = correctionUnclear
+                self.userIntent = userIntent
+                self.correctionTarget = correctionTarget
             }
             public enum CodingKeys: String, CodingKey {
                 case plannedStartTime
                 case durationMinutes
                 case address
+                case addressShort
                 case latitude
                 case longitude
                 case endAddress
+                case endAddressShort
                 case endLatitude
                 case endLongitude
                 case endAddressUnresolved
@@ -2763,6 +3124,8 @@ public enum Components {
                 case pacePreference
                 case specialNotes
                 case correctionUnclear
+                case userIntent
+                case correctionTarget
             }
         }
         /// 整句解析请求 —— 转录文本 + 可选当前坐标（同 ResolveAddressRequest）+ 可选的已确认槽位快照。
@@ -3754,6 +4117,18 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/pacePreference`.
             public var pacePreference: Components.Schemas.OrderDetailResponse.pacePreferencePayload?
+            /// 配速区间下限（最快），秒/公里。与 `paceMaxSecondsPerKm` 成对，null=用户没填。**只作展示，不进派单**
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/paceMinSecondsPerKm`.
+            public var paceMinSecondsPerKm: Swift.Int32?
+            /// 配速区间上限（最慢），秒/公里。见 `paceMinSecondsPerKm`
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/paceMaxSecondsPerKm`.
+            public var paceMaxSecondsPerKm: Swift.Int32?
+            /// 本次计划里程（米），null=用户没填。⚠️ 与 `startToEndDistanceKm`（起终点直线距离）不是一回事
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/plannedDistanceMeters`.
+            public var plannedDistanceMeters: Swift.Int32?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/routePreference`.
             public struct routePreferencePayload: Codable, Hashable, Sendable {
                 /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/routePreference/value1`.
@@ -3998,6 +4373,9 @@ public enum Components {
             ///   - createdAt:
             ///   - expectedDurationMinutes:
             ///   - pacePreference:
+            ///   - paceMinSecondsPerKm: 配速区间下限（最快），秒/公里。与 `paceMaxSecondsPerKm` 成对，null=用户没填。**只作展示，不进派单**
+            ///   - paceMaxSecondsPerKm: 配速区间上限（最慢），秒/公里。见 `paceMinSecondsPerKm`
+            ///   - plannedDistanceMeters: 本次计划里程（米），null=用户没填。⚠️ 与 `startToEndDistanceKm`（起终点直线距离）不是一回事
             ///   - routePreference:
             ///   - routeNotes:
             ///   - hasGuideDogThisRun:
@@ -4021,6 +4399,9 @@ public enum Components {
                 createdAt: Swift.String,
                 expectedDurationMinutes: Swift.Int32? = nil,
                 pacePreference: Components.Schemas.OrderDetailResponse.pacePreferencePayload? = nil,
+                paceMinSecondsPerKm: Swift.Int32? = nil,
+                paceMaxSecondsPerKm: Swift.Int32? = nil,
+                plannedDistanceMeters: Swift.Int32? = nil,
                 routePreference: Components.Schemas.OrderDetailResponse.routePreferencePayload? = nil,
                 routeNotes: Swift.String? = nil,
                 hasGuideDogThisRun: Swift.Bool? = nil,
@@ -4044,6 +4425,9 @@ public enum Components {
                 self.createdAt = createdAt
                 self.expectedDurationMinutes = expectedDurationMinutes
                 self.pacePreference = pacePreference
+                self.paceMinSecondsPerKm = paceMinSecondsPerKm
+                self.paceMaxSecondsPerKm = paceMaxSecondsPerKm
+                self.plannedDistanceMeters = plannedDistanceMeters
                 self.routePreference = routePreference
                 self.routeNotes = routeNotes
                 self.hasGuideDogThisRun = hasGuideDogThisRun
@@ -4068,6 +4452,9 @@ public enum Components {
                 case createdAt
                 case expectedDurationMinutes
                 case pacePreference
+                case paceMinSecondsPerKm
+                case paceMaxSecondsPerKm
+                case plannedDistanceMeters
                 case routePreference
                 case routeNotes
                 case hasGuideDogThisRun
@@ -4329,6 +4716,28 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/pacePreference`.
             public var pacePreference: Components.Schemas.AvailableOrderResponse.pacePreferencePayload?
+            /// 配速区间下限（最快），秒/公里，与 `paceMaxSecondsPerKm` 成对。null = 用户没填。2026-08-09 新增。
+            ///
+            /// **接单前可见**，判据是「取值空间封不封闭」：数值区间可以逐个判定给陌生人看是否可接受，
+            /// 与 `pacePreference` / `hasGuideDogThisRun` 同类；开放取值空间的自由文本
+            /// （`specialNotes` / `routeNotes`）才一律推迟到接单后。
+            ///
+            /// ⚠️ **不进派单过滤或排序**，只给志愿者自己判断「我跟不跟得下来」。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/paceMinSecondsPerKm`.
+            public var paceMinSecondsPerKm: Swift.Int32?
+            /// 配速区间上限（最慢），秒/公里。见 `paceMinSecondsPerKm`
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/paceMaxSecondsPerKm`.
+            public var paceMaxSecondsPerKm: Swift.Int32?
+            /// 本次计划里程（米），null = 用户没填。2026-08-09 新增。
+            /// ⚠️ **与上面的 `startToEndDistanceKm` 不是一回事** —— 那个是起终点直线距离
+            /// （绕圈跑、起点=终点时为 0），本字段是计划跑多远。同样不进派单。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/plannedDistanceMeters`.
+            public var plannedDistanceMeters: Swift.Int32?
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/hasGuideDogThisRun`.
             public var hasGuideDogThisRun: Swift.Bool?
             /// Creates a new `AvailableOrderResponse`.
@@ -4343,6 +4752,9 @@ public enum Components {
             ///   - blindUserPhone: 盲人手机号，已掩码（前 3 后 4，中间 `****`）
             ///   - expectedDurationMinutes:
             ///   - pacePreference:
+            ///   - paceMinSecondsPerKm: 配速区间下限（最快），秒/公里，与 `paceMaxSecondsPerKm` 成对。null = 用户没填。2026-08-09 新增。
+            ///   - paceMaxSecondsPerKm: 配速区间上限（最慢），秒/公里。见 `paceMinSecondsPerKm`
+            ///   - plannedDistanceMeters: 本次计划里程（米），null = 用户没填。2026-08-09 新增。
             ///   - hasGuideDogThisRun:
             public init(
                 orderId: Swift.Int64? = nil,
@@ -4354,6 +4766,9 @@ public enum Components {
                 blindUserPhone: Swift.String? = nil,
                 expectedDurationMinutes: Swift.Int32? = nil,
                 pacePreference: Components.Schemas.AvailableOrderResponse.pacePreferencePayload? = nil,
+                paceMinSecondsPerKm: Swift.Int32? = nil,
+                paceMaxSecondsPerKm: Swift.Int32? = nil,
+                plannedDistanceMeters: Swift.Int32? = nil,
                 hasGuideDogThisRun: Swift.Bool? = nil
             ) {
                 self.orderId = orderId
@@ -4365,6 +4780,9 @@ public enum Components {
                 self.blindUserPhone = blindUserPhone
                 self.expectedDurationMinutes = expectedDurationMinutes
                 self.pacePreference = pacePreference
+                self.paceMinSecondsPerKm = paceMinSecondsPerKm
+                self.paceMaxSecondsPerKm = paceMaxSecondsPerKm
+                self.plannedDistanceMeters = plannedDistanceMeters
                 self.hasGuideDogThisRun = hasGuideDogThisRun
             }
             public enum CodingKeys: String, CodingKey {
@@ -4377,6 +4795,9 @@ public enum Components {
                 case blindUserPhone
                 case expectedDurationMinutes
                 case pacePreference
+                case paceMinSecondsPerKm
+                case paceMaxSecondsPerKm
+                case plannedDistanceMeters
                 case hasGuideDogThisRun
             }
         }
@@ -8948,8 +9369,18 @@ public enum Operations {
     ///
     /// **一步修正**：用户否定读回确认时（"不对，九点"），把上一轮结果填进 `current` 再调一次本端点。
     /// 槽位优先级 **本轮正则 > 本轮模型 > current**：新抽到的覆盖旧值，没抽到的原样继承。
-    /// 继承来的值同样重跑校验（提前量可能在修正过程中失效）。用户只说"不对"没说改哪项时，
-    /// 返回 correctionUnclear=true + 消歧问句 —— **不要清空 current 让用户整句重说**。
+    /// 继承来的值同样重跑校验（提前量可能在修正过程中失效）。**不要清空 current 让用户整句重说。**
+    ///
+    /// 用户否定确认时的三种形态（2026-08-09 补第一种）：
+    ///
+    /// | 用户说 | 响应 | 客户端做什么 |
+    /// |---|---|---|
+    /// | 「时间改成九点」（点名 + 给值） | 槽位被覆盖，missing 空，ttsText 是新的读回确认 | 播读回，等确认 |
+    /// | 「我想改时间」（只点名，没给值） | `correctionTarget=START_TIME`，needReask=true，**其余槽位与 current 逐字相同**，ttsText 是定向追问 | 播追问，再收一次语音，连同**同一份 current** 再发本端点 |
+    /// | 「不对」（什么都没说） | `correctionUnclear=true`，ttsText 是消歧问句 | 同上 |
+    ///
+    /// ⚠️ 第二种此前也落在 `correctionUnclear` 上，于是消歧问句「您想改哪一项？」**无法作答** ——
+    /// 用户答"时间"会再走一遍同一条路径又被问一次，唯一出路是整句重说（N41）。
     ///
     ///
     /// - Remark: HTTP `POST /api/orders/voice/parse`.
