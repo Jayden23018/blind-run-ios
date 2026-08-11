@@ -153,9 +153,25 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 > 2026-08-06 从整文件冻结改为行级。核对后发现原先给的两条理由只有一条落在 pbxproj 上（`DEVELOPMENT_TEAM`，12 处）；`EXCLUDED_ARCHS` 在 pbxproj 里出现 **0 次**，它只存在于 `Podfile:36`。整文件冻结的代价是连加一个 SPM 依赖都做不到，而「临时解锁、改完加回来」依赖人记得加回来 —— 第 1 节说的就是这种挡不住重复犯错的做法。
 >
-> 守卫在 `scripts/hooks/guard.mjs`，自测在 `scripts/validate-guard.mjs`（21 条用例，CI 与 pre-push 都跑）。
-> 守卫管的不止冻结文件，还有遗留状态词、SOS 文案、服务端地址、高德 key、OpenAPI 运行时越界、
-> weak 依赖收临时对象、workflow 的 `if:` 里用 `secrets`。规则清单以 `guard.mjs` 为准，本文件不留副本。
+> 守卫在 `scripts/hooks/guard.mjs`，自测在 `scripts/validate-guard.mjs`（CI 与 pre-push 都跑）。
+> 守卫管的不止冻结文件。**规则清单和用例数这里一律不写** —— 要用就当场取，一条命令的事：
+>
+> ```bash
+> # 规则 id（两处来源：rules 对象的键 + fail() 里硬编码的。少查一处就会漏掉三条）
+> python3 -c "
+> import re
+> s=open('scripts/hooks/guard.mjs').read()
+> ids=set(re.findall(r\"fail\(\s*'([a-z0-9-]+)'\",s))|set(re.findall(r\"^  '([a-z0-9-]+)':\",s,re.M))
+> print('\n'.join(sorted(ids)));print('共',len(ids),'条')"
+>
+> node scripts/validate-guard.mjs | tail -1   # 用例数
+> ```
+>
+> 别用 `grep` 抓规则 id —— `fail(` 后面常换行，逐行匹配一条都取不到（空结果比错结果更难发现）。
+>
+> 2026-08-11 立此条：原文写着「规则清单以 guard.mjs 为准，本文件不留副本」，紧接着**自己抄了一份**
+> —— 抄的那份漏了 `blind-tap-center`、`missing-team`、`archived-contract` 三条，用例数也停在 21（实为 28）。
+> 有人照它写进对外文档，发现对不上才返工。写「以 X 为准」再抄一份 X，等于制造一个必然过期的第二源。
 
 ## 10. 工作流
 
