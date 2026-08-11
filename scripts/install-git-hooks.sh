@@ -51,6 +51,7 @@ run_node "validate-docs" scripts/validate-docs.mjs
 run_node "validate-guard（冻结文件守卫自测）" scripts/validate-guard.mjs
 run_node "validate-stop-checklist（收尾钩子自测）" scripts/validate-stop-checklist.mjs
 run_node "validate-session-context（开场钩子自测）" scripts/validate-session-context.mjs
+run_node "validate-research-log（调研落盘钩子自测）" scripts/validate-research-log.mjs
 run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
 run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --package-path Packages/AidRunAPI
 

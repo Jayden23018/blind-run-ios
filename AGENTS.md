@@ -308,3 +308,22 @@ node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
 ```
 
 **编译通过不等于测试通过。永远不许把没执行过的测试写成通过。**
+
+## 12. 联网调研只落一个地方
+
+唯一位置 `docs/research/`，唯一索引 `docs/research/INDEX.md`。规则三条：
+
+1. **开搜前整份读 INDEX.md**，按「复核触发条件」列判旧结论还作不作数。没触发就直接用，不要重搜。
+2. 新一轮只搜**表里缺的那一段**，不是把整个问题重来一遍。
+3. 调研完落 `docs/research/{topic}-{YYYYMMDD}.md`，**并回写 INDEX.md 一行**（日期 / 问题 /
+   一句话结论 / 复核触发条件 / 报告，五列齐全）。不回写等于没做 —— 下次搜不到，原样重跑。
+
+被否掉的方案同样留一行：「试过 X 因为 Y 放弃」跟「选了 Z」一样值钱，且更容易被忘。
+
+> 强制在 `scripts/hooks/research-log.mjs`（走 §1.1 + §1.3）：PreToolUse 在联网工具调用前把整份索引
+> 灌回给模型（第 1 条）；Stop 钩子发现本轮联网过但 `docs/research/` 一个字节没动就拦（第 3 条）。
+> 只是查一个 API 签名、不构成调研的，回一句说明再停。
+> 自测 `scripts/validate-research-log.mjs`（7 条，CI 与 pre-push 都跑）。
+>
+> 位置约定本来就写在 skill `tech-decision-research` 里，但 skill 不被显式调用就不生效 ——
+> 于是 `docs/research/` 建了两份报告却一直没有索引。这条是把约定接上强制。

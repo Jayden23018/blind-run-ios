@@ -13,6 +13,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { researchTodo } from './research-log.mjs';
+
 const root = path.resolve(import.meta.dirname, '../..');
 
 function gitRaw(...args) {
@@ -61,6 +63,10 @@ try {
 if (payload.stop_hook_active) process.exit(0);
 
 const todo = [];
+
+// 调研落盘。放在最前面：它是「本轮做了但没留下痕迹」，比未提交更容易随会话一起消失。
+const research = researchTodo(payload);
+if (research) todo.push(research);
 
 const dirty = dirtyPaths();
 if (dirty.length) {
