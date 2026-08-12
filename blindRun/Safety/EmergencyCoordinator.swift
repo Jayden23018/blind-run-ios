@@ -130,7 +130,18 @@ final class EmergencyCoordinator: ObservableObject {
         return nil
     }
 
-    @Published private(set) var state: EmergencySOSState = .idle
+    /// 触觉挂在 `didSet` 而不是 8 个赋值点上：漏一个就是「这条路径不震」，
+    /// 而求助恰恰是最不能靠人记得加的地方。映射直接复用 `isBusy` / `isFailure`，不新造 switch。
+    ///
+    /// 为什么求助最需要触觉：按下之后「发出去了没有」是盲人唯一必须立刻知道的事，
+    /// 而这个时刻的环境通常是最吵的、人也最慌。`.error` 那一下的语义是
+    /// **求助未发出、请自己拨 110** —— 与 `EmergencySafetyCopy` 里的失败文案同时到达。
+    @Published private(set) var state: EmergencySOSState = .idle {
+        didSet {
+            guard state != oldValue, !state.isBusy, state != .idle else { return }
+            HapticFeedback.play(state.isFailure ? .error : .success)
+        }
+    }
     @Published private(set) var activeEvent: ActiveEmergencyEvent?
     /// Set only on the escorting volunteer's device, from `EMERGENCY_VOLUNTEER_ALERT`.
     @Published private(set) var volunteerAlert: VolunteerEmergencyAlert?

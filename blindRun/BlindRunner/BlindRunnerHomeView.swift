@@ -408,11 +408,29 @@ struct BlindRunnerHomeView: View {
     @State private var showCancelConfirmation = false
     @State private var showEmergencyConfirmation = false
     @State private var showCallOptions = false
+    /// 横屏（含 iPhone 横置、iPad 分屏的矮窗口）判定。
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// 地图在视觉上占据的高度，`mapRevealHeight` 是内容层为它让出的部分 ——
     /// 两者相差的一段就是内容盖住地图下沿的量，做出「面板压在地图上」的层次。
-    private static let mapVisualHeight: CGFloat = 300
-    private static let mapRevealHeight: CGFloat = 236
+    ///
+    /// **横屏必须压扁**：这两个值原本是写死的 300 / 236。iPhone 横屏可用高度约 390pt，
+    /// 300pt 的装饰性地图会吃掉 77% 的屏幕，把「开始约跑」整个挤到折叠线以下 ——
+    /// 而地图在这个 App 里是 `allowsHitTesting(false)` 的纯装饰层
+    /// （不承载任何必要信息，文字版在 `locationSummarySection`）。
+    /// 让一个不可交互的装饰把唯一的主操作挤出屏幕，是本末倒置。
+    ///
+    /// 用 `verticalSizeClass` 而不是 `GeometryReader`：只需要区分「横屏/竖屏」这一个二值，
+    /// 引 `GeometryReader` 要重排整个内容层，不值这个复杂度。
+    private var mapVisualHeight: CGFloat { verticalSizeClass == .compact ? 140 : 300 }
+    private var mapRevealHeight: CGFloat { verticalSizeClass == .compact ? 96 : 236 }
+
+    /// iPad 与横屏上的正文最大宽度。
+    ///
+    /// 不限宽的话，一行正文在 iPad Pro 上会铺满 1024pt —— 对**低视力用户**尤其糟：
+    /// 把字调大之后仍要横扫整行，换行时极易串行。排版通行的舒适区是每行 45–75 字符，
+    /// 700pt 在放大字号下大致落在这个区间。全宽的 iPhone 竖屏不受影响（屏比这窄）。
+    private static let readableContentWidth: CGFloat = 700
 
     /// 「开始约跑」吃掉内容区的大半。此前它是 `minHeight: 64` —— 和「重复当前状态」一样高，
     /// 视觉上根本不像主按钮。对标 Be My Eyes 的 `Call a volunteer`（占内容区约 75%，
@@ -505,7 +523,7 @@ struct BlindRunnerHomeView: View {
             annotations: activeOrderMapAnnotations
         )
         .frame(maxWidth: .infinity)
-        .frame(height: Self.mapVisualHeight)
+        .frame(height: mapVisualHeight)
         .allowsHitTesting(false)
         .ignoresSafeArea(edges: .top)
         .accessibilityElement(children: .combine)
@@ -520,7 +538,7 @@ struct BlindRunnerHomeView: View {
             VStack(spacing: 0) {
                 // 纯视觉留白，把地图让出来。读屏里不存在这一段。
                 Color.clear
-                    .frame(height: Self.mapRevealHeight)
+                    .frame(height: mapRevealHeight)
                     .accessibilityHidden(true)
 
                 VStack(spacing: 24) {
@@ -528,6 +546,9 @@ struct BlindRunnerHomeView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 28)
+                // 先限宽再居中：内容列在 iPad / 横屏上不铺满整屏，见 `readableContentWidth`。
+                // 背景仍然铺满，所以视觉上还是一整块面板压在地图上，只是文字不横跨全宽。
+                .frame(maxWidth: Self.readableContentWidth)
                 .frame(maxWidth: .infinity)
                 // ponytail: 直角。只圆上面两角要 iOS 16.4 的 UnevenRoundedRectangle 或自定义 Path，
                 // 而本工程下限是 iOS 16 —— 视觉收益不值这个兼容成本。
