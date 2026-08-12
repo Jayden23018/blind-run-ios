@@ -26,16 +26,30 @@ import Foundation
 @MainActor
 final class VoiceOrderWizard: ObservableObject {
 
-    /// **只有两轮。** 逐项修改（改地点 / 改时间 / 改时长）已于 2026-08-06 删除，理由见 `Command.restart`。
+    /// **只有两轮。** 走「逐项追问」的独立步骤已于 2026-08-06 删除，理由见 `Command.restart`；
+    /// 2026-08-10 接入后端 `current` 之后，定点修改**在读回这一轮之内完成**，
+    /// 没有再回到多步骤形态 —— 屏幕不会在用户说话的中途换成另一张表单。
     enum Step: Equatable {
         /// 一次说完。用户在这一轮讲一整句。
         case freeform
-        /// 读回整单后等指令：「确认」或「重说」。
+        /// 起点撞了同名地点，念候选让用户挑一个（后端 2026-08-10 起返回 `candidates`，N48）。
+        ///
+        /// **这是唯一一个由后端文案驱动的轮次** —— 候选列表只有后端知道
+        /// （名称、行政区、距您多少米），客户端拼不出来，所以 `prompt` 直接带着后端的 `ttsText`。
+        ///
+        /// 为什么值得为它加回一个步骤（2026-08-06 才刚删掉三个步骤）：那三个删掉的是**逐项追问**，
+        /// 用户得记住「改地点/改时间/改时长」三个指令；这一轮只要记一个序数，而且刚被念过。
+        /// 更重要的是它没有替代品 —— 不挑就只能静默取第一条，而那正是把人约到外省的那条路。
+        case disambiguateStart(candidates: [AddressCandidate], prompt: String)
+        /// 读回整单后等用户的下一句：确认、改某一项、取消、重听，或整句重说。
         case confirm
 
         var speechField: SpeechInputField? {
             switch self {
             case .freeform: return .voiceOrderFreeform
+            // 复用既有的起点轮字段：逐项追问删掉之后它一直空着，而这一轮问的正是起点。
+            // 新加一个枚举值要同步 `isAllowlisted` 的白名单，白拿一处可能漏改的地方。
+            case .disambiguateStart: return .voiceOrderStartPlace
             case .confirm: return .voiceOrderConfirm
             }
         }
@@ -46,13 +60,21 @@ final class VoiceOrderWizard: ObservableObject {
             switch self {
             case .freeform:
                 return "请说你想从哪儿出发、什么时候跑、跑多久，比如：明天早上八点从人民广场出发跑一个小时。说完再点一下就好。"
+            case .disambiguateStart(_, let prompt):
+                return prompt
             case .confirm:
-                return "说「确认」就下单；要重新说一遍就说「重说」。"
+                return Self.confirmOutroText
             }
         }
+
+        /// 读回结尾那句出路。**三条都要念** —— 看不见屏幕的人不会自己发现「可以只改一项」，
+        /// 不教就等于没有这个功能。中间那条是 2026-08-10 接入跨轮修正后加的。
+        static let confirmOutroText =
+            "说「确认」就下单；要改哪一项直接说，比如「时间改成明天早上九点」；要整句重说就说「重说」。"
     }
 
-    /// `.confirm` 轮的本地指令判定结果。
+    /// `.confirm` 轮**第 1 档**（本地直通）的判定结果。`.unrecognized` 不是终点 ——
+    /// 它意味着「本地表接不住，交后端」，见 `handleConfirmCommand`。
     ///
     /// **`.restart` 取代了原来的三个 `.fix(...)`**（2026-08-06）。删除逐项修改的直接原因是真机手测：
     /// 用户说「改地点」，识别成同音的「**该地点**」——「该地点」本身就是常用词，屏幕上的字看起来
@@ -94,8 +116,15 @@ final class VoiceOrderWizard: ObservableObject {
     /// 3 秒超时后自己降级成 `needReask`。客户端这层包的是整个 HTTP 往返，3.5 秒会把「服务端 3 秒
     /// 兜底成功 + 网络往返」这类**本该成功**的长尾表达判成超时，等于把后端专门为口语化表达做的兜底
     /// 一并废掉 —— 而「明天差不多这个点吧」正是最需要它的说法。
-    /// 取 8 秒：留足 3 秒解析 + 弱网往返，同时不至于让人无声地等下去。
-    static let parseTimeout: TimeInterval = 8
+    /// ~~取 8 秒~~ **2026-08-09 提到 12 秒**：后端接终点（SPEC B1）之后，`/parse` **每次都调大模型**
+    /// —— 终点没有正则实现，不调就恒为 null。后端实测 `qwen3.7-plus` + 结构化输出 3.4~4.3 秒，
+    /// 服务端自己的兜底超时是 8 秒。8 秒的客户端上限正好卡在服务端兜底的边界上，
+    /// 「服务端 8 秒兜底成功 + 网络往返」必然超过它 —— 那是把**本该成功**的响应判成超时，
+    /// 与上一段拒绝 3.5 秒是同一个理由。
+    ///
+    /// 12 秒也必须小于 `APIClient` 的 idle 超时（15 秒），这样先响的是这一层：
+    /// 用户听到的才是「这次没能把你说的话转成预约内容」这句人话，而不是一个网络错误。
+    static let parseTimeout: TimeInterval = 12
 
     @Published private(set) var step: Step = .freeform
     @Published private(set) var isRunning = false
@@ -139,6 +168,12 @@ final class VoiceOrderWizard: ObservableObject {
     /// 后端把未部署的端点回成带 `NOT_FOUND` 的业务信封（`/api/orders/voice/parse` 生产上
     /// 就是这个状态，见 handoff 2026-08-06），所以客户端分得出来 —— 分得出来就不该混为一谈。
     private var parseIsUnavailable = false
+    /// 上一次解析的完整结果，确认轮回传给后端当 `current`（跨轮修正的全部前提）。
+    ///
+    /// **只从响应赋值**，理由见 `ParseVoiceOrderResponse.slotSnapshot`。
+    /// `nil` 时确认轮照样发 `/parse`，只是不带 `current` —— 后端行为退回老客户端那一档，
+    /// 意图判定仍然可用（`userIntent` 的正则兜底不依赖 `current`）。
+    private var lastParsed: ParseVoiceOrderResponse?
 
     /// 连着这么多轮拿不到开始时间就不再让人重说。取 2：给一次重说的机会，不给第二次。
     static let maximumRoundsWithoutStartTime = 2
@@ -190,6 +225,7 @@ final class VoiceOrderWizard: ObservableObject {
         didCaptureStartTime = false
         roundsWithoutStartTime = 0
         parseIsUnavailable = false
+        lastParsed = nil
         isRunning = true
         step = .freeform
         reaskCount = 0
@@ -262,6 +298,8 @@ final class VoiceOrderWizard: ObservableObject {
         }
         parts.append("这次的预约是：")
         parts.append(bookingViewModel.startPointSummary)
+        // 紧跟起点。终点为 nil 时是空串，一个字都不会念。
+        parts.append(bookingViewModel.endPointSummary)
         // 时间这一项**只在真的抽到时才念具体时刻**。
         //
         // 以前无条件念 `appointmentSummary`，而 `appointmentTime` 的初值是 `Date()` ——
@@ -280,7 +318,7 @@ final class VoiceOrderWizard: ObservableObject {
         if let blocked = missingRequiredSlotMessage {
             return blocked
         }
-        return "说「确认」就下单；要重新说一遍就说「重说」。"
+        return Step.confirmOutroText
     }
 
     /// 关键槽位缺失时的说明。**只有开始时间是关键的**：
@@ -288,7 +326,9 @@ final class VoiceOrderWizard: ObservableObject {
     /// 读回念「没有填写选填跑步需求」本来就是诚实的，没有编造。
     private var missingRequiredSlotMessage: String? {
         guard !didCaptureStartTime else { return nil }
-        return "还没听到你说预约时间，现在不能下单。请说「重说」，然后把出发地点、什么时候跑、跑多久一次说完。"
+        // 2026-08-10：先教「直接说时间」。跨轮修正之后补一个槽位不再需要把整句重说一遍，
+        // 而对听不见屏幕的人，少说一整句就是少一次出错的机会。「重说」仍然留着当第二条出路。
+        return "还没听到你说预约时间，现在不能下单。直接说时间就行，比如「明天早上八点」；要整句重说就说「重说」。"
     }
 
     private func listen(for field: SpeechInputField) {
@@ -383,6 +423,11 @@ final class VoiceOrderWizard: ObservableObject {
         switch step {
         case .freeform:
             await parseFreeform(transcript)
+        case .disambiguateStart(let candidates, _):
+            // 完全本地判定，一个字节都不发 —— 「第二个」不是地名，把它发回 `/parse`
+            // 会被模型圈成起点 span，高德查不到又按后端口径保留下来，
+            // 于是把刚挑好的地址冲掉（后端 `api_spec.yaml` 的 `candidates` 字段写死了这一条）。
+            chooseCandidate(from: candidates, saying: transcript)
         case .confirm:
             await handleConfirmCommand(transcript)
         }
@@ -432,25 +477,210 @@ final class VoiceOrderWizard: ObservableObject {
             return
         }
 
-        if let raw = parsed?.plannedStartTime, let date = raw.backendLocalDate {
+        var notice: String? = parseFailed ? Self.parseFailureNotice : nil
+        if let parsed {
+            notice = apply(parsed) ?? notice
+        }
+
+        // 起点撞了同名地点：**先让用户挑，再读回整单**。
+        //
+        // 排在读回之前不是顺序偏好：读回念的是「我们的最佳猜测」（候选第一条），
+        // 用户听完多半就说「确认」，那批候选白算了，而如果第一条不是他要的那个，
+        // 错地点已经被确认下单 —— 而他听到的读回念得很顺，无从分辨。
+        if let parsed, let candidates = parsed.startCandidatesToDisambiguate {
+            moveToDisambiguation(candidates, prompt: parsed.ttsText, notice: notice)
+            return
+        }
+
+        moveToConfirm(notice: notice)
+    }
+
+    // MARK: Disambiguate start place
+
+    /// 进候选消歧轮。`prompt` 用后端的 `ttsText`（候选的名称/行政区/距离只有它知道），
+    /// 缺了才本地兜一句 —— 兜底那句念不出距离，是降级不是等价物。
+    private func moveToDisambiguation(_ candidates: [AddressCandidate], prompt: String?, notice: String?) {
+        reaskCount = 0
+        // 时长夹取之类的提示**不在这一轮说**，留到读回：候选已经占满了纯听觉能记住的约 3 项，
+        // 再往前面塞一句会把序数挤出记忆。挑完由 `moveToConfirm` 原样带出去。
+        pendingNotice = notice
+        step = .disambiguateStart(
+            candidates: candidates,
+            prompt: prompt?.nilIfBlank ?? Self.localCandidatePrompt(candidates)
+        )
+        askCurrentStep()
+    }
+
+    /// 后端 `ttsText` 缺失时的本地兜底播报。**格式跟着后端走**（「找到N个地点，请说第几个。」+ 逐条），
+    /// 否则两条路径教用户说的话不一样，而他只学得会先听到的那一种。
+    static func localCandidatePrompt(_ candidates: [AddressCandidate]) -> String {
+        let body = candidates.enumerated()
+            .map { "\(ordinalWords[$0.offset])，\($0.element.name)。" }
+            .joined()
+        return "找到\(candidates.count)个地点，请说第几个。" + body
+    }
+
+    /// 用户在消歧轮说的那一句。**全本地判定。**
+    private func chooseCandidate(from candidates: [AddressCandidate], saying transcript: String) {
+        // 出口优先：被一批他听不明白的候选卡住时，「重说」必须随时能退出去。
+        // 复用确认轮那张表，不另写一份 —— 教给用户的词只有一套才记得住。
+        if Self.command(for: transcript) == .restart {
+            restartFromFreeform()
+            return
+        }
+        guard let index = Self.ordinalIndex(in: transcript, count: candidates.count) else {
+            reaskCount += 1
+            if reaskCount >= Self.maximumReasksPerSlot {
+                // 三次没挑出来**不把人丢回表单**（那是其余轮次的降级方式）：这里手上已经有一个
+                // 可用的最佳猜测，而读回会把它念出来、用户仍然可以说「重说」。
+                // 但**必须说出「按第一个来」** —— 静默取第一条正是这轮改动要消灭的那个失败。
+                applyCandidate(candidates[0], notice: Self.pickedFirstCandidateNotice)
+                return
+            }
+            // ⚠️ **不能图省事用 `promptAndListen`**：它开头就把 `reaskCount` 清零
+            // （那是给定向追问用的「不计入重问上限」路径）。用在这里，上面那个上限永远数不到，
+            // 挑不出来的用户就被**永远关在候选列表里** —— 又一个没有出口的循环。
+            speak("没听清是第几个。请说「第一个」或者「第二个」，要重新讲就说「重说」。")
+            if let field = step.speechField {
+                listen(for: field)
+            }
+            return
+        }
+        applyCandidate(candidates[index], notice: pendingNotice)
+    }
+
+    static let pickedFirstCandidateNotice = "没听清是第几个，先按第一个来。"
+
+    private func applyCandidate(_ candidate: AddressCandidate, notice: String?) {
+        bookingViewModel?.applyVoiceResolvedStartPlace(
+            address: candidate.readbackAddress,
+            latitude: candidate.latitude,
+            longitude: candidate.longitude
+        )
+        // 快照必须跟着换：确认轮会把 `lastParsed.slotSnapshot` 当 `current` 发回 `/parse`，
+        // 不换的话后端按旧快照把起点继承成第一条，读回念的又变回最佳猜测 ——
+        // 用户刚挑的那一下就白挑了，而且没有任何提示。
+        lastParsed = lastParsed?.replacingStartPlace(with: candidate)
+        moveToConfirm(notice: notice)
+    }
+
+    /// 「第二个」→ 1。认不出返回 nil。
+    ///
+    /// **汉字这一路是实测过的，不是假设**（2026-08-06，记在 `demo/docs/handoff.md:2072-2088`）：
+    /// 「第一个」「第二个」「第三个」「就第二个吧」「选第三个」「我要第一个」**12/12 全对**，
+    /// 且加不加 `contextualStrings` 偏置**逐字相同** —— 渲染出来的是汉字「第二个」，
+    /// **不是**「第2个」。所以本地表按汉字整串匹配是对的。
+    /// 专门测这一条，是因为本仓库被同一个坑咬过：「八点钟」被识别器渲染成 `8:00`。
+    ///
+    /// ⚠️ **那批数据是合成音频**。真实人声（尤其户外）召回会掉，但**渲染形式**这一条是稳的 ——
+    /// 所以下面的阿拉伯数字写法不是「防版本漂移」（我们没有那种证据），
+    /// 而纯粹是零成本的超集：这几个串不可能是别的意思，收下不花任何东西。
+    /// 词表门禁只要求「后端念的每个词本地都认得」，本地多认几种不违反它。
+    ///
+    /// `count` 是护栏：只认真实存在的那几条。念了 2 个却认「第三个」等于让用户挑一个不存在的地点。
+    static func ordinalIndex(in transcript: String, count: Int) -> Int? {
+        let normalized = normalizedCommand(transcript)
+        guard !normalized.isEmpty else { return nil }
+        for (index, forms) in ordinalForms.enumerated() where index < count {
+            if forms.contains(where: normalized.contains) { return index }
+        }
+        return nil
+    }
+
+    /// 播报用的序数词，下标即候选下标。与后端 `VoiceOrderService.ORDINALS` 同一套写法。
+    static let ordinalWords = ["第一个", "第二个", "第三个"]
+
+    /// ⚠️ 外层顺序即判定优先级，别按字典序重排：「第二个」不含任何 index 0 的写法，
+    /// 所以从前往后扫是安全的；但把「第一」放到「第二个」后面就会先命中错的那条。
+    private static let ordinalForms: [[String]] = [
+        ["第一个", "第1个", "第一", "第1", "头一个"],
+        ["第二个", "第2个", "第二", "第2"],
+        ["第三个", "第3个", "第三", "第3"]
+    ]
+
+    /// 把一次解析结果落到 view model 上。**整句轮与确认轮共用这一份** ——
+    /// 跨轮修正之后确认轮也会拿到完整的合并结果，两处各写一遍迟早有一边漏掉一个槽位
+    /// （这正是三个可选槽位曾经被静默丢掉的成因）。
+    ///
+    /// - Returns: 需要在下一次读回前先说的一句话（目前只有时长夹取），没有就是 nil。
+    @discardableResult
+    private func apply(_ parsed: ParseVoiceOrderResponse) -> String? {
+        // 快照留给下一轮的 `current`。**必须在这里存**，而不是只在整句轮存：
+        // 用户连改两项时，第二轮要继承的是第一轮**合并后**的结果。
+        lastParsed = parsed
+
+        // 时间**跟着响应走**，不是只置真不置假。跨轮继承下第 2 轮响应里时间还在，
+        // 标志位就该还是真；而 `RESTART` 之后响应里没有时间，就该翻回假。
+        if let raw = parsed.plannedStartTime, let date = raw.backendLocalDate {
             bookingViewModel?.appointmentTime = date
             didCaptureStartTime = true
+        } else {
+            didCaptureStartTime = false
         }
-        if let place = parsed?.resolvedStartPlace {
+        if let place = parsed.resolvedStartPlace {
             bookingViewModel?.applyVoiceResolvedStartPlace(
                 address: place.address, latitude: place.latitude, longitude: place.longitude
             )
         }
+        // 终点整体赋值（**含 nil**），不写 `if let`：本轮没说终点就该清空。
+        //
+        // 起点写成 `if let` 是对的 —— 抽不出起点有正当默认（当前位置），保留上一轮反而更糟。
+        // 终点没有默认值，留着上一轮的就是凭空多出一个用户这次没说过的目的地，
+        // 而屏幕上没有任何终点控件能让他察觉。
+        //
+        // 接了 `current` 之后这行**变得更对**：后端会把上一轮的终点继承回来，
+        // 所以「整体赋值」不再等于「只改时间就把终点擦了」。
+        bookingViewModel?.endPlace = parsed.resolvedEndPlace
 
-        var notice: String? = parseFailed ? Self.parseFailureNotice : nil
-        if let minutes = parsed?.durationMinutes {
+        var notice: String?
+        if let minutes = parsed.durationMinutes {
             let accepted = Self.acceptedDurationMinutes(minutes)
             bookingViewModel?.exactDurationMinutes = accepted
             notice = Self.durationClampNotice(spokenMinutes: minutes, accepted: accepted)
         }
 
-        moveToConfirm(notice: notice)
+        // 三个可选槽位。**抽到才写，抽不出保留原值** —— 与终点那行的「整体赋值含 nil」刻意相反。
+        //
+        // 分界不是「必填 / 选填」，是**屏幕上有没有对应控件**：终点没有任何控件，用户察觉不到
+        // 上一轮的残留；这三项都有（开关、两个 Picker、文本框），而且读回会把它们念出来，
+        // 所以留着用户自己填过的值是对的，清掉反而是替他撤销。
+        //
+        // ⚠️ 在此之前这三项**解出来就被丢掉了**：模型层 2026-08-04 就接了，向导一直没消费。
+        // 后果是静默的 —— 用户说「带导盲犬」，读回不提，而 `hasGuideDogThisRun` 进派单**硬过滤**，
+        // 候选池按档案默认值筛，盲人全程听不出来。
+        if let hasGuideDog = parsed.hasGuideDog {
+            // `false` 原样落，不塌缩成 nil：见 `BlindBookingViewModel.hasGuideDogThisRun`。
+            bookingViewModel?.hasGuideDogThisRun = hasGuideDog
+        }
+        if let pace = parsed.pacePreference {
+            bookingViewModel?.pacePreference = pace
+        }
+        if let notes = parsed.specialNotes?.nilIfBlank {
+            // 后端保证非 nil 时是用户原话的子串（改写过的备注在后端就被丢弃了），
+            // 所以这里直接落，不做二次清洗 —— 备注要原样给志愿者看。
+            bookingViewModel?.specialNotes = notes
+        }
+
+        // 「说了一个地点，但我们没查到」—— **必须说出来**，而且要和上面那条一起说，不是二选一。
+        //
+        // 起点解析不出时读回念的是「当前位置」（`startPointSummary` 的默认值），
+        // 而用户明明说了一个地名 —— 静默落回当前位置就是**把人约到错误的起点**，他全程听不出来。
+        // `addressUnresolved` 正是为了让客户端分得开「压根没说起点」和「说了但没查到」。
+        //
+        // ⚠️ 后端 2026-08-10 起不再拿全国范围的正向编码兜底（那条路曾把深圳说的地名解析到海南），
+        // 所以这个 `true` 会**变常见** —— 在此之前它几乎不出现，接不接看不出差别。
+        if parsed.resolvedStartPlace == nil, parsed.addressUnresolved == true {
+            notice = [notice, Self.startAddressUnresolvedNotice].compactMap { $0 }.joined()
+        }
+        return notice
     }
+
+    /// 听见了地名却没查到时，读回前先说的那一句。
+    ///
+    /// 措辞的两条约束：**说清楚「没找到」而不是「没听到」**（我们听到了，是查不到），
+    /// 以及**说清楚起点现在是什么**（不说的话用户得从后面那句 `startPointSummary` 里自己推）。
+    static let startAddressUnresolvedNotice =
+        "没找到你说的那个地点，出发地先按当前位置来，要改就说「重说」。"
 
     /// 整句解析失败时先说的那句话。
     ///
@@ -531,24 +761,132 @@ final class VoiceOrderWizard: ObservableObject {
 
     // MARK: Confirm
 
+    /// 读回之后用户说的那一句。**两档：本地整串直通，其余交后端。**
+    ///
+    /// 为什么不像后端建议的那样把本地词表整个撤掉（handoff N45 ④）：后端的确定性兜底跑在
+    /// **服务端**，它挡不住网络。确认轮发一次 `/parse` 要 3.4~4.3 秒（每次都调大模型），
+    /// 客户端超时 12 秒 —— 全流程最高频、最简单的那一句「确认」要等 4 秒才下单，网络一抖就
+    /// 下不了单：用户刚才那一整句已经解析成功、槽位全在客户端手里，却因为一次确认往返失败被打回表单。
+    /// 对看不见屏幕的人，那是把一次已经成功的语音下单在最后一步丢掉。
+    ///
+    /// 这**不是「两处各判一套」**：本地表是后端正则兜底的子集时，两者不可能给出不同结论。
+    /// 这个子集关系由 `scripts/validate-voice-intent-words.mjs` 逐词对撞后端
+    /// `VoiceSlotParser.java` 的 `INTENT_*` 正则钉住，本地表里出现一个后端判成别的意图的词就红。
     private func handleConfirmCommand(_ transcript: String) async {
+        // 第 1 档：本地整串命中 → 零延迟直通，一个字节都不发。
         switch Self.command(for: transcript) {
         case .confirm:
-            // 缺关键槽位时「确认」不生效 —— 用户没说过时间，不能凭一句「确认」就派单。
-            // 读回结尾已经念过原因（`missingRequiredSlotMessage`），这里再说一次是因为
-            // 用户可能是听完很久才开的口，中间隔了多少秒我们不知道。
-            if let blocked = missingRequiredSlotMessage {
-                reask(with: blocked)
-                return
-            }
-            await submitConfirmedBooking()
+            await confirmBooking()
+            return
         case .repeatBack:
-            reaskCount = 0
-            askCurrentStep()
+            repeatReadback()
+            return
         case .restart:
             restartFromFreeform()
+            return
         case .unrecognized:
-            reask(with: "没听懂。说「确认」就下单，或者说「重说」重新说一遍。")
+            break
+        }
+
+        // 第 2 档：其余一律交后端。方言、长句、「我想改时间」全在这一档 ——
+        // 这正是「只能说确认或重说」那个二选一被打开的地方。
+        await handleConfirmViaBackend(transcript)
+    }
+
+    private func handleConfirmViaBackend(_ transcript: String) async {
+        enterParsing(saying: "正在识别，请稍候。")
+        defer { isParsing = false }
+
+        let parsed: ParseVoiceOrderResponse
+        do {
+            parsed = try await parseOrderResponse(transcript, current: lastParsed?.slotSnapshot)
+        } catch {
+            // **不再回「没听懂」** —— 这里失败的是网络，不是听力，说成没听懂会让用户去改说法，
+            // 而改说法一点用都没有。本地那几个词仍然直通，所以「确认」这条出路没有被网络挡住，
+            // 提示里必须把它说出来。
+            reask(with: Self.confirmRoundNetworkFailureNotice)
+            return
+        }
+
+        switch parsed.userIntent {
+        case .confirm:
+            // ⚠️ **不播后端的「这就为您下单」**：`/parse` 无副作用，那句话说的是一个还没发生的结果。
+            // 沿用 `confirmBooking()` 里的「正在提交订单。」，进行时口径与 SOS 那条红线同源。
+            await confirmBooking()
+            return
+        case .cancel:
+            // 用户要退出，不是要改。**不重问**（后端此时 `needReask` 也是 false）。
+            fallBack(reason: "已取消这次语音下单")
+            return
+        case .restart:
+            restartFromFreeform()
+            return
+        case .repeatBack:
+            repeatReadback()
+            return
+        case .unknown, .none:
+            break
+        }
+
+        if let target = parsed.correctionTarget {
+            // 用户点名要改哪一项、还没给新值。播后端的定向追问语，再收一次音，
+            // **`current` 一个字都不动** —— 后端说了本轮什么都没覆盖。
+            //
+            // 这一轮**不计入重问上限**：后端听懂了、用户也在正常推进，把「改三项」记成
+            // 「三次没听清」会在第三项上把人降级到表单。真听不清仍然有界 ——
+            // 用户接下来若沉默，`handle` 那条空转录路径走的还是 `reask`。
+            promptAndListen(parsed.ttsText?.nilIfBlank ?? Self.fallbackCorrectionPrompt(for: target))
+            return
+        }
+
+        if parsed.correctionUnclear == true {
+            // 用户否定了读回但没说改哪一项。这一条**确实是没听懂**，计入上限。
+            reask(with: parsed.ttsText?.nilIfBlank ?? "您想改哪一项？出发地、开始时间，还是时长？")
+            return
+        }
+
+        // 剩下的只有一种情况：用户给了新值，后端已经把它合进整单。落槽位、重念一遍。
+        let notice = apply(parsed)
+        moveToConfirm(notice: notice)
+    }
+
+    /// 「确认」这条路的唯一出口 —— 本地直通与后端 `CONFIRM` 都走它，缺槽位的拦截只有一份。
+    private func confirmBooking() async {
+        // 缺关键槽位时「确认」不生效 —— 用户没说过时间，不能凭一句「确认」就派单。
+        // 读回结尾已经念过原因（`missingRequiredSlotMessage`），这里再说一次是因为
+        // 用户可能是听完很久才开的口，中间隔了多少秒我们不知道。
+        if let blocked = missingRequiredSlotMessage {
+            reask(with: blocked)
+            return
+        }
+        await submitConfirmedBooking()
+    }
+
+    /// 「再念一遍」。重播上一整段读回，不改任何槽位、不计重问。
+    private func repeatReadback() {
+        reaskCount = 0
+        askCurrentStep()
+    }
+
+    /// 确认轮网络失败时说的那句话。
+    ///
+    /// 三条约束与 `parseFailureNotice` 同源（不说网络、不说没听到、不编原因），
+    /// 但**必须把本地还能用的那两条出路念出来** —— 网络断着的时候它们是仅存的通路。
+    static let confirmRoundNetworkFailureNotice =
+        "这次没能听明白你想改什么。说「确认」就按刚才念的下单，说「重说」重新说一遍。"
+
+    /// 后端 `ttsText` 缺失时的定向追问兜底。正常情况下用不到 —— 后端保证 `correctionTarget`
+    /// 非 null 时 `ttsText` 是该项的追问语；这里只防「字段在、文案空」那种线上偶发。
+    private static func fallbackCorrectionPrompt(for target: VoiceCorrectionTarget) -> String {
+        switch target {
+        case .startAddress: return "好的，请说新的出发地点。"
+        case .endAddress: return "好的，请说新的结束地点。"
+        case .startTime: return "好的，请说新的开始时间，比如「明天早上八点」。"
+        case .duration: return "好的，请说新的时长，比如「跑一个小时」。"
+        case .guideDog: return "好的，请说这次带不带导盲犬。"
+        case .pace: return "好的，请说这次的配速偏好。"
+        case .notes: return "好的，请说要给志愿者的备注。"
+        case .unknown: return "好的，请说新的内容。"
         }
     }
 
@@ -559,6 +897,9 @@ final class VoiceOrderWizard: ObservableObject {
         lastUtterance = nil
         pendingNotice = nil
         didCaptureStartTime = false
+        // `current` 也要清 —— 留着它，用户「重说」的那一整句会被后端和上一轮的旧槽位合并，
+        // 于是他这次没提的东西又原样回来了，而屏幕上一个字都不会变。
+        lastParsed = nil
         bookingViewModel?.resetVoiceFilledSlots()
         step = .freeform
         askCurrentStep()
@@ -584,10 +925,17 @@ final class VoiceOrderWizard: ObservableObject {
 
     // MARK: Networking
 
-    /// 整句解析。请求体与 `resolve-address` 完全一致（spec 明说），所以复用同一个类型。
-    private func parseOrderResponse(_ transcript: String) async throws -> ParseVoiceOrderResponse {
+    /// 整句解析。
+    ///
+    /// - Parameter current: 上一轮的槽位快照。整句轮传 nil（还没有「上一轮」），
+    ///   确认轮传 `lastParsed?.slotSnapshot` —— 后端据此做「新抽到的覆盖、没抽到的继承」，
+    ///   用户只说「时间改成九点」也能保住其余槽位。
+    private func parseOrderResponse(
+        _ transcript: String,
+        current: VoiceSlotSnapshot? = nil
+    ) async throws -> ParseVoiceOrderResponse {
         guard let apiClient else { throw WizardError.notConfigured }
-        let body = disambiguationRequest(transcript: transcript)
+        let body = parseRequest(transcript: transcript, current: current)
         return try await withParseTimeout {
             let response: ParseVoiceOrderResponse = try await apiClient.post(
                 VoiceOrderEndpoint.parseOrder,
@@ -600,14 +948,18 @@ final class VoiceOrderWizard: ObservableObject {
     /// 带上当前坐标让后端走周边搜索做就近消歧。**拿不到真实定位就不带** —— 宁可退回正向编码，
     /// 也不能拿演示坐标去消歧，那会把人约到另一座城市。
     ///
-    /// 两个解析端点共用这一份：这条红线只该有一个出处，复制第二遍迟早有一边忘了判 `system`。
-    private func disambiguationRequest(transcript: String) -> ResolveAddressRequest {
+    /// 两轮共用这一份：这条红线只该有一个出处，复制第二遍迟早有一边忘了判 `system`。
+    private func parseRequest(
+        transcript: String,
+        current: VoiceSlotSnapshot?
+    ) -> ParseVoiceOrderRequest {
         let sample = currentCoordinate?()
         let coordinate = sample?.system == .gcj02Backend ? sample?.coordinate : nil
-        return ResolveAddressRequest(
+        return ParseVoiceOrderRequest(
             transcript: transcript,
             latitude: coordinate?.latitude,
-            longitude: coordinate?.longitude
+            longitude: coordinate?.longitude,
+            current: current
         )
     }
 
@@ -641,6 +993,18 @@ final class VoiceOrderWizard: ObservableObject {
         listen(for: field)
     }
 
+    /// 播一句、再收一次音，**不计入重问上限**。
+    ///
+    /// 与 `reask` 的分界是「这一轮是不是没听清」：定点修改的定向追问里后端听懂了、用户也在正常
+    /// 推进，把它记成没听清会让「连改三项」在第三项上被降级到表单。
+    /// 计数没有因此消失 —— 用户若在追问后沉默，`handle` 那条空转录路径走的仍是 `reask`。
+    private func promptAndListen(_ message: String) {
+        reaskCount = 0
+        speak(message)
+        guard let field = step.speechField else { return }
+        listen(for: field)
+    }
+
     /// 语音路径走不通时**必须**说清楚接下来去哪 —— 看不见屏幕的人没有别的方式发现语音已经停了。
     /// - Parameter joinsReasonDirectly: `reason` 自己已经带了标点、直接拼下一句。
     ///   默认 `false` 时补一个逗号（「连续两次没听到预约时间，已切回表单⋯⋯」）。
@@ -664,7 +1028,7 @@ final class VoiceOrderWizard: ObservableObject {
 
     /// 进入一次网络往返，并把这件事说出来。
     ///
-    /// 不说的话，全盲用户在结束音之后听到的是长达 `parseTimeout`（8 秒）的绝对静默 —— 这正是
+    /// 不说的话，全盲用户在结束音之后听到的是长达 `parseTimeout`（12 秒）的绝对静默 —— 这正是
     /// AppleVis 对语音类 App「按下之后全程没有任何反馈」的那条抱怨，和我们用来论证要做
     /// `RecordingCue` 的是同一条依据，只守住起止两端等于只守了一半。
     ///
@@ -728,9 +1092,13 @@ final class VoiceOrderWizard: ObservableObject {
     /// **白名单必须和系统教用户说的话一致**，否则用户照着念却不生效。改任一边都要改另一边。
     ///
     /// 代价是方言与长句表达更容易被判为「非确认」，用户多说一轮。这正是可接受的失败方向。
+    ///
+    /// **2026-08-10 删掉「开始约跑」**：本地直通表必须是后端确定性兜底
+    /// （`VoiceSlotParser.INTENT_CONFIRM`）的子集，而后端那条正则里没有任何模式能命中它
+    /// （最接近的是「开始吧」）。它也从来没被 `confirmPrompt` 教给用户，删掉零损失。
     private static let affirmatives: Set<String> = [
         "确认", "确认下单", "确认预约", "确认提交",
-        "没问题", "就这样", "就这么办", "开始约跑"
+        "没问题", "就这样", "就这么办"
     ]
 
     /// 「重说」的触发词。**这一组用包含匹配，不用整串匹配** —— 与 `affirmatives` 刻意相反。
@@ -742,27 +1110,39 @@ final class VoiceOrderWizard: ObservableObject {
     /// 整串匹配在这一组上已经被真机证伪：用户说「改地点」被识别成同音的「该地点」，整串不中，
     /// 人就卡在读回那一轮出不来。包含匹配对同音字仍然无能为力，所以词表里把
     /// **「重」「从」两种常见误识都收进来**，并且不依赖单个字。
+    ///
+    /// 🔴 **2026-08-10 把「再说一次」移出本组**，它现在归 `repeatWords`。
+    /// 逐词对撞后端 `VoiceSlotParser` 时查出这是一处**方向相反**的判定分歧：本地判「重说」会把
+    /// 用户刚说完的一整句清空，后端 `INTENT_REPEAT` 判的是「你把刚才那句再念一遍」。
+    /// 后端 `INTENT_RESTART` 的注释写得很直白 ——「刻意不收『再说一遍』」，因为判错的代价不对称。
+    /// 这一条现在由 `scripts/validate-voice-intent-words.mjs` 钉住，再漂就红。
     private static let restartWords: [String] = [
         "重说", "重新说", "从新说", "重新讲", "重来", "重新来", "从头说", "从头再说", "从头来",
-        "再说一次", "重新预约", "重新说一遍", "重新来过"
+        "重新预约", "重新说一遍", "重新来过"
     ]
 
     /// 「把刚才那段再念给我听」。**注意与 `restartWords` 的语义分界**：
-    /// 这一组是「你再念一遍」，那一组是「我再说一遍」。中文里「再说一遍」两种意思都有，
-    /// 这里把它划给「重说」（`restartWords` 里），因为读回结尾教的就是「重说」，
-    /// 而「重复」「再念一遍」在语义上不可能被理解成「我要重新讲」。
+    /// 这一组是「你再念一遍」，那一组是「我再说一遍」。
+    ///
+    /// 「再说一遍 / 再说一次」中文里两种意思都有。**2026-08-10 从「重说」改判到本组**，
+    /// 依据是后端 `VoiceSlotParser.INTENT_REPEAT` 把它们收进了重播，而 `INTENT_RESTART`
+    /// 注释里明说「刻意不收」。判反的代价不对称：当成重说会把用户刚说完的一整句清空，
+    /// 当成重播最坏只是多念一遍 —— 而这一句正是盲人没听清读回时最自然的说法。
+    ///
+    /// 长句形式（「再给我念一遍呗」「你刚才说啥来着」）不进本表，交给后端 —— 本地整串表
+    /// 接不住方言与长句，那正是第 2 档存在的理由。
     private static let repeatWords: Set<String> = [
-        "重复", "重复一遍", "再念一遍", "没听清", "再念一次", "你再说一遍"
+        "重复", "重复一遍", "再念一遍", "没听清", "再念一次", "你再说一遍",
+        "再说一遍", "再说一次"
     ]
 
     /// 句尾语气词不改变语义，剥掉可以显著提高召回而不牺牲安全性（「确认吧」「好的呀」）。
     /// 句首不剥：那会让「不确认」这类否定的判定变得脆弱，而多问一轮是可接受的失败方向。
     private static let trailingParticles: Set<Character> = ["吧", "啊", "呀", "了", "哦", "喔", "嘛", "呗", "咯", "啦"]
 
-    /// ponytail: 本地整串匹配，不接后端。`parse-slot` 没有 confirm 槽位，而这里要的是
-    /// 高精度的指令识别、不是意图分类，本地表在这件事上不比大模型差，还省掉网络往返与超时窗口。
-    /// 天花板：方言与长句表达会被判为「没听懂」，用户因此多说一轮。等真实使用数据显示误判率
-    /// 高到值得处理，再考虑新增后端 confirm 槽位。
+    /// ponytail: 本地整串匹配只做**第 1 档直通**，判不出来不是终点 —— 交给
+    /// `handleConfirmViaBackend` 的 `userIntent` / `correctionTarget`。原来那条「方言与长句会被判成
+    /// 没听懂，用户多说一轮」的天花板已经由后端接住，本地表只保留零延迟与离线可用这两件事。
     static func normalizedCommand(_ transcript: String) -> String {
         var normalized = transcript.filter { !$0.isWhitespace && !$0.isPunctuation && !$0.isSymbol }
         while let last = normalized.last, trailingParticles.contains(last) {

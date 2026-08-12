@@ -41,6 +41,13 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   另一半陷阱（view model 依赖是 `weak`，传临时对象等于传 nil）已按 §1.1 落成守卫规则
   `weak-temporary`，不再靠人记。
 
+- 本仓库有**两条**无障碍通道，只有 VoiceOver 那条被验收过。低视力用户的视觉通道
+  （对比度 / 横屏与 iPad / Dynamic Type 上限）从没被系统性检查过，三块空白打的是同一群人 ——
+  而 `VisionLevel.LOW_VISION` 在数据模型里是一等公民。改盲人端 UI 时要**问两遍**：
+  VoiceOver 用户怎么样？不开读屏、字调到 AX5、横屏、户外的低视力用户怎么样？
+  详见记忆 `low-vision-visual-channel-unaudited` 与 `docs/frontend-backend-alignment-review-20260812.md` §D。
+  这条抓不成静态守卫：对比度要看颜色**用在什么语义的文本上**（装饰图标不算），机器分不出来。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：
@@ -218,11 +225,13 @@ node scripts/validate-docs.mjs
 node scripts/validate-spec-coverage.mjs    # 路径级：前端调的每条路径都在契约里
 node scripts/validate-golden-corpus.mjs    # 语音黄金语料 vs 前端镜像清单
 node scripts/validate-error-codes.mjs      # 前端 ErrorCode 枚举 vs 后端 ErrorCode.java
+node scripts/validate-voice-intent-words.mjs  # 确认轮本地直通表 vs 后端 VoiceSlotParser 的 INTENT_* 正则
 scripts/production-readiness-check.sh      # 需 AIDRUN_* 环境变量，见 aidrun-ship-check
 scripts/dual-device-validation.sh
 ```
 
-后三条要读后端仓库。装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
+中间四条（spec-coverage / golden-corpus / error-codes / voice-intent-words）要读后端仓库。
+装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
 CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑不了真机 XCTest**。
 
 ### 跑多大范围：默认只跑覆盖本次改动的 suite，不是全量
@@ -261,11 +270,12 @@ scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
 > 测试目标没编出来都会长这样：命令回来了、看起来一切正常，但一条断言都没跑。
 > 脚本对这种情况有硬失败，别绕过它。
 
-### 读后端仓库的那 4 条门禁在哪跑（2026-08-06 定型，别再重新推导一遍）
+### 读后端仓库的那 5 条门禁在哪跑（2026-08-06 定型，别再重新推导一遍）
 
-契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料这 4 条需要读后端私有仓库，跑在**三个不同的地方**：
+契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料 / 确认轮词表这 5 条需要读后端私有仓库，
+跑在**三个不同的地方**：
 
-| 位置 | 这 4 条 | 说明 |
+| 位置 | 这 5 条 | 说明 |
 |---|---|---|
 | 上游 `JerryZhao-1/blind-run-ios` | ⚠️ **warning 空过** | 我们不是它的 admin，配不了 secret。**上游 CI 绿 ≠ 契约对过了** |
 | fork `Jayden23018/blind-run-ios` | ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
@@ -291,7 +301,11 @@ scripts/install-git-hooks.sh                                          # 装钩�
 ```
 
 pre-push 会先校验 `../demo` 与其 `origin/main` 一致 —— 停在特性分支或工作区脏着时，
-这 4 条读的就不是契约本身，会直接拦下（逃生口 `AIDRUN_ALLOW_BACKEND_DRIFT=1`）。
+这 5 条读的就不是契约本身，会直接拦下（逃生口 `AIDRUN_ALLOW_BACKEND_DRIFT=1`）。
+
+> 第 5 条 `validate-voice-intent-words.mjs` 是 2026-08-10 加的：确认轮改成「本地直通 + 后端兜底」
+> 之后，同一句话由两处判定，本地表里出现一个后端判成**别的**意图的词就会让有网/断网行为分叉。
+> 加它的直接起因是「再说一次」——前端判「重说」（清空整句）、后端判 `REPEAT`（只重念）。
 
 契约 fixture（真实响应回归，见 `blindRunTests/ContractFixtureTests.swift`）：
 
@@ -301,3 +315,22 @@ node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
 ```
 
 **编译通过不等于测试通过。永远不许把没执行过的测试写成通过。**
+
+## 12. 联网调研只落一个地方
+
+唯一位置 `docs/research/`，唯一索引 `docs/research/INDEX.md`。规则三条：
+
+1. **开搜前整份读 INDEX.md**，按「复核触发条件」列判旧结论还作不作数。没触发就直接用，不要重搜。
+2. 新一轮只搜**表里缺的那一段**，不是把整个问题重来一遍。
+3. 调研完落 `docs/research/{topic}-{YYYYMMDD}.md`，**并回写 INDEX.md 一行**（日期 / 问题 /
+   一句话结论 / 复核触发条件 / 报告，五列齐全）。不回写等于没做 —— 下次搜不到，原样重跑。
+
+被否掉的方案同样留一行：「试过 X 因为 Y 放弃」跟「选了 Z」一样值钱，且更容易被忘。
+
+> 强制在 `scripts/hooks/research-log.mjs`（走 §1.1 + §1.3）：PreToolUse 在联网工具调用前把整份索引
+> 灌回给模型（第 1 条）；Stop 钩子发现本轮联网过但 `docs/research/` 一个字节没动就拦（第 3 条）。
+> 只是查一个 API 签名、不构成调研的，回一句说明再停。
+> 自测 `scripts/validate-research-log.mjs`（7 条，CI 与 pre-push 都跑）。
+>
+> 位置约定本来就写在 skill `tech-decision-research` 里，但 skill 不被显式调用就不生效 ——
+> 于是 `docs/research/` 建了两份报告却一直没有索引。这条是把约定接上强制。

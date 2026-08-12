@@ -380,43 +380,16 @@ final class BlindOrderStatusViewModel: ObservableObject {
         )
     }
 
-    static func shouldSuppressDirectNotificationSpeech(_ text: String) -> Bool {
-        let normalizedText = text.trimmed
-        guard !normalizedText.isEmpty else { return true }
-        let lifecycleFragments = [
-            "志愿者已接单",
-            "已接单",
-            "待确认",
-            "待出发",
-            "志愿者已出发",
-            "已出发",
-            "正在前往",
-            "正在赶来",
-            "距您",
-            "距出发地点",
-            "志愿者已到达",
-            "已到达",
-            "服务已开始",
-            "服务已完成",
-            "订单已完成",
-            "订单已取消",
-            "预约已取消",
-            "本次预约已取消",
-            "已为您匹配",
-            "正在确认行程",
-            "请按预约时间前往或等待在出发地点",
-            "志愿者已取消",
-            "重新匹配",
-            "正在重新匹配",
-            "暂无志愿者",
-            "暂无可用志愿者",
-            "暂时没有可用志愿者",
-            "仍在等待",
-            "测试志愿者",
-            "志愿者测试"
-        ]
-        return lifecycleFragments.contains { normalizedText.contains($0) }
-    }
+    // `shouldSuppressDirectNotificationSpeech(_:)` 已于 2026-08-09 删除（连同 31 条中文片段表）。
+    //
+    // 它按通知正文的中文片段决定要不要抑制播报，而**生产代码里一个调用点都没有** ——
+    // 唯一的调用者是它自己的那条测试。抑制实际发生在 `AppRealtimeCoordinator`，
+    // 那边已经改成按 `eventType` 判定（`lifecycleStatus(forEventType:)`）。
+    //
+    // 删掉而不是留着的理由不是「没人用」，是**它会被照抄**：按正文匹配意味着后端改任何一条
+    // 通知模板的正文都会静默改变 iOS 的播报行为，后端新增的 `REMATCH_ACCEPTED` 就是这么被吞掉的。
+    // 片段表里还混着 `"测试志愿者"` / `"志愿者测试"` 两条——测试数据渗进产品代码，
+    // 本身就是这段代码只为测试而活的证据。
 
     private var activeOrderId: Int64? {
         order?.orderId ?? currentOrderId
@@ -886,6 +859,9 @@ struct BlindOrderStatusView: View {
             infoRow("预约时间", (order.plannedStart ?? "").displayDateTime)
             if let address = order.startAddress, !address.trimmed.isEmpty {
                 infoRow("出发地点", address)
+            }
+            if let endAddress = order.endAddressForDisplay {
+                infoRow("结束地点", endAddress)
             }
             if let routeNotes = order.routeNotes, !routeNotes.trimmed.isEmpty {
                 infoRow("路线备注", routeNotes)

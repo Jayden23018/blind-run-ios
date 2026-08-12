@@ -162,6 +162,11 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var placeSearchResults: [ResolvedPlace] = []
     @Published var selectedStartPlace: ResolvedPlace?
     @Published var currentResolvedPlace: ResolvedPlace?
+    /// 本次预约的终点。**只有语音会写它** —— 表单向导没有终点输入，产品上终点是纯可选槽位，
+    /// 而在表单里再加一段 POI 搜索 + 候选列表，对看不见屏幕的人是又一段同样长的交互。
+    ///
+    /// `nil` = 用户未指定，任何读回与展示都**一个字不提终点**（不是「原路返回起点」）。
+    @Published var endPlace: BookingEndPlace?
     @Published var startLocationDescription = ""
     @Published var appointmentTime = Date()
     @Published var routeNotes = ""
@@ -182,7 +187,16 @@ final class BlindBookingViewModel: ObservableObject {
     @Published var exactDurationMinutes: Int?
     @Published var pacePreference: PacePreference = .noPreference
     @Published var routePreference: RoutePreference = .noPreference
-    @Published var hasGuideDogThisRun = false
+    /// 本次是否携带导盲犬。**三态，不是布尔** —— `nil` 与 `false` 在下单时的含义完全不同：
+    ///
+    /// - `nil` —— 没提。请求里不传该字段，后端回落 `BlindProfile.hasGuideDog` 档案默认值。
+    /// - `false` —— 本次明确不带（语音说「今天不带导盲犬」）。原样传。
+    ///
+    /// 这个字段进派单的**硬过滤**（不接受导盲犬的志愿者被直接踢出候选池）。
+    /// 把 `false` 塌缩成 `nil`，档案里登记了导盲犬的用户说了「今天不带」也会按"带"派单，
+    /// 候选池被无声缩小 —— 而盲人全程听不出来。表单那个开关只能表达 `nil`/`true`
+    /// （关掉 = 没提），语音是唯一能说出 `false` 的入口。
+    @Published var hasGuideDogThisRun: Bool?
     @Published var specialNotes = ""
     @Published var isSubmitting = false
     @Published var isResolvingStartLocation = false
@@ -315,6 +329,24 @@ final class BlindBookingViewModel: ObservableObject {
         return "\(startPointSourceText)出发地点：\(placeText)。"
     }
 
+    /// 终点读回。**必须紧挨着 `startPointSummary` 念**，别塞进选填需求那一段。
+    ///
+    /// 起终点由大模型抽取，抽反了（「从五角场跑到人民广场」听成反过来）只有读回能被用户发现，
+    /// 而两句挨着才听得出反没反 —— 中间隔着预约时间就听不出来了。后端 `api_spec.yaml:2843`
+    /// 也是拿读回当这条防线的。
+    ///
+    /// 没有终点时返回空串：`nil` 的语义是「用户未指定」，多说一句「本次没有结束地点」
+    /// 会让人以为系统漏听了他没说过的话。
+    var endPointSummary: String {
+        guard let endPlace else { return "" }
+        if endPlace.isUnresolved {
+            // 查不到坐标仍然照下单（后端允许「有地址无坐标」），但**必须说出来**：
+            // 不说，盲人会以为终点已经定准了，而实际上志愿者拿到的只是一个地名。
+            return "结束地点：\(endPlace.address)。这个地点没能定位到，志愿者会看到这个名字。"
+        }
+        return "结束地点：\(endPlace.address)。"
+    }
+
     var optionalReviewItems: [BookingReviewItem] {
         var items: [BookingReviewItem] = []
         if let routeNotes = routeNotes.nilIfBlank {
@@ -329,8 +361,14 @@ final class BlindBookingViewModel: ObservableObject {
         if routePreference != .noPreference {
             items.append(BookingReviewItem(id: "route", title: "路线偏好", value: routePreference.displayName))
         }
-        if hasGuideDogThisRun {
-            items.append(BookingReviewItem(id: "guideDog", title: "导盲犬", value: "本次携带"))
+        // `false` 也要念。用户说了「今天不带导盲犬」却在读回里一个字听不到，
+        // 与"我们没听懂"无从区分 —— 而这一项进派单硬过滤，听不出来的代价是候选池被改了。
+        if let hasGuideDogThisRun {
+            items.append(BookingReviewItem(
+                id: "guideDog",
+                title: "导盲犬",
+                value: hasGuideDogThisRun ? "本次携带" : "本次不带"
+            ))
         }
         if let specialNotes = specialNotes.nilIfBlank {
             items.append(BookingReviewItem(id: "specialNotes", title: "特殊说明", value: specialNotes))
@@ -348,7 +386,7 @@ final class BlindBookingViewModel: ObservableObject {
 
     var reviewSummarySpeech: String {
         let blockingText = blockingReasonForCurrentStep.map { "当前还不能提交，\($0)" } ?? ""
-        return "请确认预约。\(startPointSummary)\(appointmentSummary)\(optionalNeedsSpeechSummary)\(blockingText)"
+        return "请确认预约。\(startPointSummary)\(endPointSummary)\(appointmentSummary)\(optionalNeedsSpeechSummary)\(blockingText)"
     }
 
     /// 零输入下单那一步要复核的整单。
@@ -593,13 +631,16 @@ final class BlindBookingViewModel: ObservableObject {
     /// 读回只在那个标志为真时才念具体时刻。
     func resetVoiceFilledSlots() {
         selectedStartPlace = nil
+        // 终点尤其不能留：屏幕上没有任何终点控件，用户重说一遍之后没有任何**视觉**线索
+        // 能让他发现上一轮的终点还挂着，只有读回会念出来 —— 而那时他已经在准备说「确认」了。
+        endPlace = nil
         duration = .none
         exactDurationMinutes = nil
         routeNotes = ""
         specialNotes = ""
         pacePreference = .noPreference
         routePreference = .noPreference
-        hasGuideDogThisRun = false
+        hasGuideDogThisRun = nil
     }
 
     private func updateAuxiliaryMapPlaceIfNeeded(
@@ -694,13 +735,21 @@ final class BlindBookingViewModel: ObservableObject {
             startLatitude: startPlace.latitude,
             startLongitude: startPlace.longitude,
             startAddress: resolvedStartLocationDescription,
+            // 三项一律从 `endPlace` 取。坐标成对由 `BookingEndPlace.init` 保证，
+            // 这里不再判一次 —— 判两次就有两份规则，迟早有一份忘了改。
+            endAddress: endPlace?.address,
+            endLatitude: endPlace?.latitude,
+            endLongitude: endPlace?.longitude,
             plannedStartTime: plannedStartTime,
             plannedEndTime: plannedEndTime,
             expectedDurationMinutes: resolvedDurationMinutes,
             pacePreference: pacePreference == .noPreference ? nil : pacePreference,
             routePreference: routePreference == .noPreference ? nil : routePreference,
             routeNotes: routeNotes.nilIfBlank,
-            hasGuideDogThisRun: hasGuideDogThisRun ? true : nil,
+            // 三态原样透传。⚠️ 不要写成 `hasGuideDogThisRun ?? false` 或
+            // `hasGuideDogThisRun == true ? true : nil` —— 前者把"没提"变成"明确不带"，
+            // 后者把"明确不带"变成"没提"，两个方向都会静默改掉派单候选池。
+            hasGuideDogThisRun: hasGuideDogThisRun,
             specialNotes: specialNotes.nilIfBlank
         )
     }
@@ -829,7 +878,17 @@ struct BlindBookingView: View {
                 speechService: speechService,
                 speechInputService: speechInputService,
                 apiClient: appState.apiClient,
-                currentCoordinate: { locationService.latestBackendSample() }
+                // ⚠️ **必须放宽新鲜度门，别用默认的 15 秒**（2026-08-10，N48 的客户端那一级）。
+                //
+                // 非陪跑模式下 `distanceFilter = 10`，站着不动 Core Location 就不推新样本；
+                // 而语音下单恰恰是**站着说完一整句**，说完通常已经超过 15 秒 ——
+                // 于是这个闭包返回 nil、请求不带坐标，后端只能做全国范围解析。
+                // 用户报的「定位开着，在深圳说的地名却定位到海南」根因链的第一环就是这里。
+                //
+                // 300 秒对「50 公里半径内就近消歧」绰绰有余：真要走出这个误差，人早就不在原地了。
+                // **只改这一处、不动方法默认值** —— 另外三个调用点（`ContentView`、
+                // `EmergencyCoordinator`、`VolunteerOrderFlowViews`）各有各的新鲜度要求，不该被顺带改掉。
+                currentCoordinate: { locationService.latestBackendSample(freshness: 300) }
             )
             if holdVoiceStageForUITestingIfRequested() {
                 // 接缝已经把向导按在运行态，下面两条分支都会去碰麦克风，跳过。
@@ -866,8 +925,10 @@ struct BlindBookingView: View {
             //
             // 逐项修改删掉之后，这里再也不会在用户说话的中途把屏幕换成另一张表单
             // （2026-08-06 用户报的「点了改地点之后跳转到了一个界面」）。
+            // 候选消歧轮同样停在确认页：它问的是「出发地是哪一个」，而出发地就在这一页上。
+            // 换页会把用户从他刚听到的内容上挪开 —— 那正是 2026-08-06 删掉逐项追问的理由。
             switch step {
-            case .freeform, .confirm: viewModel.currentStep = .review
+            case .freeform, .disambiguateStart, .confirm: viewModel.currentStep = .review
             }
         }
         // 语音提交与按钮提交共用同一个出口，跳转逻辑只有一份。
@@ -895,6 +956,16 @@ struct BlindBookingView: View {
         // 而用户这一轮既没点过 offer、也没听到「确认就再点一次」那句整单播报。
         // 两步确认的全部理由就是那句播报，没听到就等于一步提交。
         isZeroInputConfirming = false
+        // 主动要一次新坐标 —— **这是 N48 根因的正面修法**，放宽新鲜度门只是它的兜底。
+        //
+        // `onAppear` 里的 `startUpdating()` 是**持续**定位，而非陪跑模式下 `distanceFilter = 10`
+        // 意味着站着不动 Core Location 就不推新样本；语音下单恰恰是站着说完一整句。
+        // `requestLocation()` 绕过 distanceFilter 直接要一次新 fix，而用户接下来要说 10~20 秒 ——
+        // 新坐标早在解析请求发出前就到了，**零延迟代价**。
+        //
+        // 同一个模式 `EmergencyCoordinator.freshEmergencyCoordinate` 已经在用（`:117-131`），
+        // 那边还额外轮询等 5 秒；这里不等，因为拿不到也有 300 秒兜底，而求助没有兜底可言。
+        locationService.requestOneTimeLocation()
         if voiceWizard.start() {
             viewModel.currentStep = .review
         }
@@ -1030,6 +1101,11 @@ struct BlindBookingView: View {
         if voiceWizard.step == .confirm {
             VStack(spacing: 8) {
                 recapRow("出发", viewModel.resolvedStartLocationDescription.nilIfBlank ?? "当前位置")
+                // 紧跟「出发」，与读回同一个顺序 —— 起终点抽反了要能一眼/一耳看出来。
+                // 没说终点就整行不渲染：nil 是「未指定」，摆一行「结束：无」是在回答用户没问的问题。
+                if let endPlace = viewModel.endPlace {
+                    recapRow("结束", endPlace.isUnresolved ? "\(endPlace.address)（未定位到）" : endPlace.address)
+                }
                 recapRow(
                     "时间",
                     voiceWizard.didCaptureStartTime
@@ -1569,7 +1645,13 @@ struct BlindBookingView: View {
                 .accessibilityHint("选择公园步道、街道或跑道")
             }
 
-            Toggle("本次携带导盲犬", isOn: $viewModel.hasGuideDogThisRun)
+            // 开关只能表达 `nil`/`true`：关掉等于「没提」，不是「明确不带」——
+            // 屏幕上一个关着的开关本来就分不出这两者，硬把它读成"明确不带"是替用户表态。
+            // `false` 只由语音产生（「今天不带导盲犬」）。
+            Toggle("本次携带导盲犬", isOn: Binding(
+                get: { viewModel.hasGuideDogThisRun == true },
+                set: { viewModel.hasGuideDogThisRun = $0 ? true : nil }
+            ))
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
                 .accessibilityLabel("是否本次携带导盲犬，选填")
@@ -1594,6 +1676,13 @@ struct BlindBookingView: View {
             sectionTitle("确认预约")
 
             reviewRow(title: "出发地点", value: viewModel.resolvedStartLocationDescription.nilIfBlank ?? "出发地点待确认")
+            // 语音降级回表单时终点会跟着留下来，所以复核页也得能看到它。
+            if let endPlace = viewModel.endPlace {
+                reviewRow(
+                    title: "结束地点",
+                    value: endPlace.isUnresolved ? "\(endPlace.address)（未定位到）" : endPlace.address
+                )
+            }
             reviewRow(title: "预约时间", value: DateFormatter.aidRunDisplayDateTime.string(from: viewModel.appointmentTime))
 
             if viewModel.optionalReviewItems.isEmpty {

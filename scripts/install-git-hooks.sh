@@ -51,13 +51,19 @@ run_node "validate-docs" scripts/validate-docs.mjs
 run_node "validate-guard（冻结文件守卫自测）" scripts/validate-guard.mjs
 run_node "validate-stop-checklist（收尾钩子自测）" scripts/validate-stop-checklist.mjs
 run_node "validate-session-context（开场钩子自测）" scripts/validate-session-context.mjs
+run_node "validate-research-log（调研落盘钩子自测）" scripts/validate-research-log.mjs
 run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
 run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --package-path Packages/AidRunAPI
 
-# 后端 checkout 的新鲜度。下面 4 个门禁的结论，只和它们读到的那份契约一样可信 ——
+# 后端 checkout 的新鲜度。下面 5 个门禁的结论，只和它们读到的那份契约一样可信 ——
 # ../demo 停在某个特性分支、或工作区脏着，门禁照样报绿，校验的却不是契约。
-# 这不是假想：2026-08-06 那次 ../demo 正停在 docs/spec-required-fields 上。
-# CI 上这 4 条是 warning 空过（secret 配不上），所以这里是唯一一道，读错等于没读。
+# 这不是假想：2026-08-06 那次 ../demo 正停在 docs/spec-required-fields 上；
+# 2026-08-10 又一次，停在 fix/voice-address-candidates 上（N48 的后端 PR 还没合）。
+# CI 上这 5 条是 warning 空过（secret 配不上），所以这里是唯一一道，读错等于没读。
+#
+# ⚠️ **这张清单必须覆盖每一个门禁真正读的后端文件。** 少列一个，那个门禁就能悄悄拿
+# 未合并的分支报绿 —— 2026-08-10 新加 validate-voice-intent-words 时就漏了它读的两个
+# .java（当次是 api_spec.yaml 恰好也漂了才被这道拦下，纯属运气）。加门禁时一起加这里。
 #
 # fetch 失败（离线）就拿手上已有的 origin/main 比，不因为没网就拦住 push。
 # 确实在拿未合并的后端改动验证 iOS 侧：AIDRUN_ALLOW_BACKEND_DRIFT=1 git push
@@ -68,7 +74,9 @@ if [ -d "$BACKEND_DIR/.git" ] && [ "${AIDRUN_ALLOW_BACKEND_DRIFT:-0}" != "1" ]; 
     echo "[pre-push] 后端 checkout 与 origin/main 一致性"
     drift=""
     for f in docs/api_spec.yaml docs/voice-golden-corpus.json \
-             src/main/java/com/example/demo/exception/ErrorCode.java; do
+             src/main/java/com/example/demo/exception/ErrorCode.java \
+             src/main/java/com/example/demo/util/VoiceSlotParser.java \
+             src/main/java/com/example/demo/service/VoiceOrderService.java; do
       git -C "$BACKEND_DIR" diff --quiet origin/main -- "$f" || drift="$drift $f"
     done
     if [ -n "$drift" ]; then
@@ -119,6 +127,13 @@ if [ -f "$CODES" ]; then
   run "validate-error-codes" node scripts/validate-error-codes.mjs "$CODES"
 else
   echo "[pre-push] ⚠ 跳过错误码对撞：读不到 $CODES。这不算通过。"
+fi
+
+VOICE_PARSER="${AIDRUN_BACKEND_VOICE_PARSER:-../demo/src/main/java/com/example/demo/util/VoiceSlotParser.java}"
+if [ -f "$VOICE_PARSER" ]; then
+  run "validate-voice-intent-words" node scripts/validate-voice-intent-words.mjs "$VOICE_PARSER"
+else
+  echo "[pre-push] ⚠ 跳过确认轮词表对撞：读不到 $VOICE_PARSER。这不算通过。"
 fi
 
 if [ "$fail" -ne 0 ]; then

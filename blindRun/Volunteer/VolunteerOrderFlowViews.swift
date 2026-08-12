@@ -2303,6 +2303,9 @@ struct VolunteerServiceOrderEssentials: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             serviceRow(systemImage: "mappin.and.ellipse", title: "出发地点", value: order.startAddress ?? "")
+            if let endAddress = order.endAddressForDisplay {
+                serviceRow(systemImage: "flag.checkered", title: "结束地点", value: endAddress)
+            }
             serviceRow(systemImage: "clock", title: "预约时间", value: (order.plannedStart ?? "").displayDateTime)
 
             if let distanceText {
@@ -2550,6 +2553,9 @@ struct VolunteerOrderInfoSection: View {
                 .font(.headline)
                 .foregroundColor(AppColors.textPrimary)
             infoRow("出发地点", order.startAddress ?? "")
+            if let endAddress = order.endAddressForDisplay {
+                infoRow("结束地点", endAddress)
+            }
             infoRow("预约时间", (order.plannedStart ?? "").displayDateTime)
             if let distanceText {
                 infoRow("距离", distanceText)

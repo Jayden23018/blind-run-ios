@@ -1110,6 +1110,9 @@ final class blindRunTests: XCTestCase {
                 startLatitude: 39.9342,
                 startLongitude: 116.4740,
                 startAddress: "朝阳公园南门",
+                endAddress: nil,
+                endLatitude: nil,
+                endLongitude: nil,
                 plannedStartTime: DateFormatter.aidRunBackendLocalDateTime.string(from: plannedStart),
                 plannedEndTime: DateFormatter.aidRunBackendLocalDateTime.string(from: plannedEnd),
                 expectedDurationMinutes: 60,
@@ -2754,6 +2757,9 @@ final class blindRunTests: XCTestCase {
             startLatitude: 31.2304,
             startLongitude: 121.4737,
             startAddress: "人民广场",
+            endAddress: nil,
+            endLatitude: nil,
+            endLongitude: nil,
             plannedStartTime: "2026-05-22T09:00:00Z",
             plannedEndTime: "2026-05-22T10:00:00Z",
             expectedDurationMinutes: 60,
@@ -4068,15 +4074,9 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(viewModel.latestVolunteerSample)
     }
 
-    func testBlindOrderStatusSuppressesLifecycleAppNotificationSpeech() {
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("测试志愿者已到达，距您100米"))
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("志愿者已出发，距您100米"))
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("服务已开始"))
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("订单已完成"))
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("暂时没有可用志愿者，仍在等待"))
-        XCTAssertTrue(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("已为您匹配志愿者张三，他正在确认行程，请稍候"))
-        XCTAssertFalse(BlindOrderStatusViewModel.shouldSuppressDirectNotificationSpeech("紧急联系人已通知"))
-    }
+    // `testBlindOrderStatusSuppressesLifecycleAppNotificationSpeech` 随被测函数一起删除
+    // （2026-08-09）。它是那段死代码唯一的调用者，覆盖的是一条生产上走不到的路径。
+    // 抑制行为现在由 `AppRealtimeCoordinatorTests` 的 eventType 用例守着。
 
     func testBlindRunnerRematchingOrderShowsCancelAction() {
         let statusViewModel = BlindOrderStatusViewModel()
@@ -5209,7 +5209,10 @@ final class blindRunTests: XCTestCase {
         status: RunOrderStatus,
         createdAt: String = "2026-06-25T10:00:00Z",
         startLatitude: Double? = 39.9342,
-        startLongitude: Double? = 116.4740
+        startLongitude: Double? = 116.4740,
+        endAddress: String? = nil,
+        endLatitude: Double? = nil,
+        endLongitude: Double? = nil
     ) -> OrderDetailResponse {
         OrderDetailResponse(
             orderId: orderId,
@@ -5217,6 +5220,9 @@ final class blindRunTests: XCTestCase {
             startAddress: "朝阳公园南门",
             startLatitude: startLatitude,
             startLongitude: startLongitude,
+            endAddress: endAddress,
+            endLatitude: endLatitude,
+            endLongitude: endLongitude,
             plannedStart: "2026-06-25T20:00:00Z",
             plannedEnd: "2026-06-25T21:00:00Z",
             blindName: "李明",
@@ -5234,6 +5240,44 @@ final class blindRunTests: XCTestCase {
             tetherPreference: "TETHER_ROPE",
             chatPreference: "PREFER_CHAT"
         )
+    }
+
+    // MARK: - 终点在状态流转中不许丢
+
+    /// `replacingStatus` 是每一条 WebSocket 状态变更的必经之路（7 个调用点），
+    /// 而它是全参构造 —— 漏传一个字段不会报错，只会让终点在**第一次状态更新之后**静默消失：
+    /// 志愿者详情页上一秒有「结束地点」下一秒没有，而没人会去查一个「本来就可能为空」的字段。
+    /// 这是本仓库记过案的那一类静默降级。
+    func testReplacingStatusKeepsTheEndLocation() {
+        let order = makeOrder(
+            orderId: 9_001,
+            status: .pendingAccept,
+            endAddress: "上海市杨浦区五角场",
+            endLatitude: 31.2989,
+            endLongitude: 121.5036
+        )
+
+        let updated = order.replacingStatus(with: .driverEnRoute)
+
+        XCTAssertEqual(updated.status, .driverEnRoute)
+        XCTAssertEqual(updated.endAddress, "上海市杨浦区五角场", "状态流转不得抹掉终点")
+        XCTAssertEqual(updated.endLatitude, 31.2989)
+        XCTAssertEqual(updated.endLongitude, 121.5036)
+    }
+
+    /// 展示口径：没有终点整行不渲染；有地名没坐标要把「没定位到」标出来 ——
+    /// 志愿者据此决定是导航过去还是当面问。
+    func testEndAddressForDisplayMarksUnlocatedPlacesAndHidesEmptyOnes() {
+        let none = makeOrder(orderId: 9_002, status: .inProgress)
+        let located = makeOrder(
+            orderId: 9_003, status: .inProgress,
+            endAddress: "上海市杨浦区五角场", endLatitude: 31.2989, endLongitude: 121.5036
+        )
+        let unlocated = makeOrder(orderId: 9_004, status: .inProgress, endAddress: "老王家门口")
+
+        XCTAssertNil(none.endAddressForDisplay, "没说终点就整行不渲染，不许摆一句「未指定」")
+        XCTAssertEqual(located.endAddressForDisplay, "上海市杨浦区五角场")
+        XCTAssertEqual(unlocated.endAddressForDisplay, "老王家门口（未定位到）")
     }
 
     private func makeNavigationRequest() -> ExternalMapNavigationRequest {
