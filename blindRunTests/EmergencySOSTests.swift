@@ -389,7 +389,19 @@ final class EmergencySOSTests: XCTestCase {
                 return Self.coordinate()
             }
         )
-        await Task.yield()
+        // 这里原本是单次 `await Task.yield()` 然后立刻断言。**那是 flaky 的**：一次 yield 只保证
+        // 当前任务让出一次，不保证 `trigger` 已经跑到 `state = .locating`。单跑本套件永远绿，
+        // 和另外三套一起跑（77 条）时会间歇性红成 `("idle") is not equal to ("locating")` ——
+        // 2026-08-12 实测同一份代码、同一条命令，一次 76/77、一次 77/77。
+        //
+        // 改成有界自旋。断言的意图一个字没变（「`.locating` 期间守卫就必须已经武装」），
+        // 变的只是不再假设一次 yield 足够：真回归时状态永远不会变成 `.locating`，
+        // 循环空转到超时，断言照样红。
+        var spins = 0
+        while coordinator.state != .locating && spins < 100 {
+            await Task.yield()
+            spins += 1
+        }
         XCTAssertEqual(coordinator.state, .locating, "the button must show progress while locating")
 
         let second = await coordinator.trigger(
