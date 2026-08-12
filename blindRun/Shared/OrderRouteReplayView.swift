@@ -108,6 +108,11 @@ struct OrderRouteReplayView: View {
         .background(AppColors.background)
         .navigationTitle("本次路线")
         .navigationBarTitleDisplayMode(.inline)
+        // `children: .contain` 不能省。`accessibilityIdentifier` 加在容器上会**向下覆盖**
+        // 每个子元素的标识符：2026-08-12 实测这一页的按钮和三个统计格全部变成了
+        // `orderRouteReplay`，`app.buttons["routeReplayRepeatStatus"]` 因此永远落空。
+        // `CompletedTrackSummaryView` 一直没踩到，就是因为它本来就写了这一行。
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("orderRouteReplay")
         .task {
             guard preloadedTrack == nil else { return }
@@ -161,13 +166,16 @@ struct OrderRouteReplayView: View {
 
             // 地图对看不见的人是零信息。这个按钮是他们拿到里程/时长/配速的唯一通道，
             // 所以它跟随页面本身存在，不跟随地图画没画出来。
+            // 标识符**直接挂在 Button 上**，放在 `.frame` 外面时 XCUITest 找不到
+            // （`app.buttons["routeReplayRepeatStatus"]` 落空，2026-08-12 实测）——
+            // `.frame(maxWidth:)` 会包一层布局容器，标识符落到容器而不是按钮元素上。
             Button("重复当前状态") {
                 speechService.speak(track.spokenSummary)
             }
+            .accessibilityIdentifier("routeReplayRepeatStatus")
+            .accessibilityHint("朗读本次路线的里程、时长和平均配速")
             .buttonStyle(.borderedProminent)
             .frame(maxWidth: .infinity, minHeight: 64)
-            .accessibilityHint("朗读本次路线的里程、时长和平均配速")
-            .accessibilityIdentifier("routeReplayRepeatStatus")
         }
         .padding(20)
         .background(AppColors.secondaryBackground)

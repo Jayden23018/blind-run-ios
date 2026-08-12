@@ -259,7 +259,7 @@ final class blindRunUITests: XCTestCase {
         let replay = app.descendants(matching: .any)["orderRouteReplay"].firstMatch
         XCTAssertTrue(replay.waitForExistence(timeout: 10), "Tapping the entry should open the full-screen route replay")
         XCTAssertTrue(
-            app.buttons["routeReplayRepeatStatus"].firstMatch.waitForExistence(timeout: 5),
+            app.descendants(matching: .any)["routeReplayRepeatStatus"].firstMatch.waitForExistence(timeout: 5),
             "The replay page must stay usable without inspecting the map"
         )
     }
