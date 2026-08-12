@@ -72,6 +72,48 @@ iPhone 侧：控制中心 → 屏幕镜像 → 选 Mac。
 新版已改善 —— 但**两台设备同时 AirPlay 到同一台 Mac 不被支持**，所以它只能当
 「QuickTime 挂了之后救其中一台」的退路，不能替代主方案。
 
+## 2c. ⛔ iPhone 镜像（iPhone Mirroring）：语音演示下**绝对不能用**
+
+**这是与 §2a 完全不同的机制，极易混淆，务必分清。**「iPhone 镜像」是 macOS Sequoia 起的
+连续互通功能（在 Mac 上反向控制 iPhone）；QuickTime「影片录制」是把设备当采集源。
+
+**致命限制：iPhone 镜像会话期间 iPhone 必须保持锁定，因此摄像头、麦克风、Face ID
+全部不可用。** 这是 Apple 的设计而非 bug，无绕法 —— 语音听写、语音消息、通话、
+相机类功能在镜像会话里一律不工作。iPhone 若处于解锁状态，镜像要么连不上、
+要么自动暂停。音频**输出**方向是通的（iPhone 播的声音会从 Mac 出），但**输入**方向不通。
+来源：[MacRumors · iPhone Mirroring 完全指南](https://www.macrumors.com/guide/iphone-mirroring/)（2026-08-13 核实）
+
+> **AidRun 盲人端的核心演示是语音下单，需要 App 实时占用麦克风，两个方向都要 ——
+> 所以 iPhone 镜像对本项目直接出局。**
+
+其它限制：看不到控制中心/通知中心/锁屏；DRM 内容不能播；欧盟因 DMA 不可用；
+要求 macOS 15 + iOS 18、同一 Wi-Fi、蓝牙开启、无进行中的 AirPlay / 热点 / 随航会话。
+
+## 2d. QuickTime 镜像时音频怎么配（语音演示的关键）
+
+QuickTime 的 **Camera（画面源）** 与 **Microphone（音频源）** 是两个独立下拉项。
+
+- **Camera / Screen 选 iPhone** —— 画面源，必选。
+- **Microphone 选「无」或 Mac 自带麦克风，不要选 iPhone。**
+  选成 iPhone 会劫持音频路由：它把 iPhone 的音频**输出**灌进 Mac 的音频输入，
+  有用户报告因此在通话里听不到声音（内容仍被录下）。
+  来源：[Apple Community 254563291](https://discussions.apple.com/thread/254563291)、
+  [OSXDaily · Record iPhone Screen with QuickTime](https://osxdaily.com/2016/02/15/howto-record-iphone-screen-mac-quicktime/)
+
+**推荐的最简配置（零额外软件）**：QuickTime Microphone 设为「无」，iPhone 的 TTS 从
+它自己的扬声器放出来，手机放在 Mac 麦克风旁边，腾讯会议用 **Mac 麦克风**同时收
+「你的讲解 + 手机的播报」。音质一般，但环节最少、直播时最不容易炸。
+
+**不推荐**为此装 BlackHole / Loopback 建聚合设备 + 多输出设备把系统音回环 ——
+QuickTime 本身没有系统音采集通道，要做就得搭一整套虚拟音频设备，
+演示前一天引入这套东西风险大于收益。
+
+> ⚠️ **一个未核实项，只能实测**：QuickTime 采集 iOS 屏幕时是否会与 App 自身的
+> `AVAudioSession`（语音识别要独占麦克风）冲突 —— 官方文档没写，社区也无可信记载。
+> 插线、开 QuickTime、真跑一次语音下单，确认识别正常且能听见播报。
+> 本仓库记忆 `audio-correctness-needs-real-ears-not-code-reading` 说的正是这类问题：
+> 调用点全对也可能一声不响，只能用耳朵验。
+
 ## 3. 被否掉的方案
 
 | 方案 | 为什么否 |
@@ -79,6 +121,7 @@ iPhone 侧：控制中心 → 屏幕镜像 → 选 Mac。
 | 两台设备各自加入腾讯会议并共享自己屏幕 | 腾讯会议默认同一时刻只允许一个共享者；且两台设备入会会引入回声，还要各自占一路上行带宽 |
 | 用腾讯会议的「本地投屏 / Rooms 投屏」 | 需要 Rooms 硬件终端或 NP30 配件，是会议室场景，不是远程会议共享 |
 | 跑模拟器省掉一台真机 | 本仓库硬约束：高德 SDK 无 arm64-sim slice，模拟器通道**永久不可用** |
+| **iPhone 镜像（iPhone Mirroring）** | **镜像期间 iPhone 必须锁定 → 麦克风不可用 → 语音下单跑不起来。见 §2c，无绕法** |
 | 第三方投屏软件（AirServer / Reflector 等） | 知乎上有人这么解决，但均为付费闭源、要装内核外的采集组件，演示前一天引入新变量不划算 |
 
 ---
@@ -87,4 +130,6 @@ iPhone 侧：控制中心 → 屏幕镜像 → 选 Mac。
 
 - 腾讯会议大版本更新（尤其若新增「移动设备作为共享源」能力，则 §1 结论作废）
 - macOS 大版本更新改变 QuickTime 设备捕获行为，或 Apple 修掉 §2a 的镜像中断 bug
+- Apple 放开 iPhone 镜像的锁定要求或开放麦克风（则 §2c 的出局理由作废）
+- §2d 末尾那条「QuickTime 采集是否抢 App 麦克风」实测出结论后，回来把它从未核实改成定论
 - 换演示设备组合（例如改成两台 iPhone，或引入 Apple Silicon 以外的 Mac）
