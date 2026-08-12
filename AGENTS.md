@@ -41,6 +41,13 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   另一半陷阱（view model 依赖是 `weak`，传临时对象等于传 nil）已按 §1.1 落成守卫规则
   `weak-temporary`，不再靠人记。
 
+- 本仓库有**两条**无障碍通道，只有 VoiceOver 那条被验收过。低视力用户的视觉通道
+  （对比度 / 横屏与 iPad / Dynamic Type 上限）从没被系统性检查过，三块空白打的是同一群人 ——
+  而 `VisionLevel.LOW_VISION` 在数据模型里是一等公民。改盲人端 UI 时要**问两遍**：
+  VoiceOver 用户怎么样？不开读屏、字调到 AX5、横屏、户外的低视力用户怎么样？
+  详见记忆 `low-vision-visual-channel-unaudited` 与 `docs/frontend-backend-alignment-review-20260812.md` §D。
+  这条抓不成静态守卫：对比度要看颜色**用在什么语义的文本上**（装饰图标不算），机器分不出来。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：
