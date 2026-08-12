@@ -70,15 +70,16 @@
 - [x] 5.3 单测：409 `ORDER_STATUS_NOT_ALLOWED` 后**没有**第二个请求发出（钉住 design D3）。
 - [x] 5.4 单测：`KEEP_WAITING_LIMIT_REACHED` 之后 `offersKeepWaiting` 对应的 UI 状态收起。
 - [x] 5.5 单测：成功文案不含数字时长（钉住 design D6，防止有人后来「优化」成「已延长 10 分钟」）。
-- [ ] 5.6 UI 测试（Mock）：VoiceOver 下该按钮可达，且在「重复当前状态」里被念到。
+- [x] 5.6 UI 测试（Mock）：VoiceOver 下该按钮可达，且在「重复当前状态」里被念到。
       需 USB 连线（记忆 `ui-test-runner-needs-usb-not-wifi`）。
-      🔴 **已写完并编译通过，但一次都没执行过。**
-      `AccessibilityAuditTests.testBlindOrderStatusOffersKeepWaitingWhileWaitingForAMatch`。
-      真机 UI runner 起不来：`code 74 ... before establishing connection`，
-      清掉残留 `DTServiceHub` 后重试仍失败。**已用对照组确认是环境不是代码** ——
-      未经改动的既有用例 `testBlindHomeWithAnActiveOrderOffersAskQuestion` 报**同一个签名**。
-      按记忆 `ui-test-runner-needs-usb-not-wifi`，这是 Wi-Fi 调试下 DTX 握手失败，
-      需插 USB 重跑。**插上线后必须补跑本条。**
+      —— `AccessibilityAuditTests.testBlindOrderStatusOffersKeepWaitingWhileWaitingForAMatch`
+      **已执行并通过**（从 result bundle 逐条核过用例名与结果，不是数日志）。
+      断言：按钮存在、`isHittable`、高度 ≥64pt、读屏 label 逐字是「继续等待」、
+      点击后**不弹**二次确认。
+      ⚠️ 中途一度连续三次起不来（`code 74 ... before establishing connection`，
+      清 `DTServiceHub` 无效）。**当时用对照组定位到是环境不是代码** —— 未改动的既有用例
+      `testBlindHomeWithAnActiveOrderOffersAskQuestion` 报同一签名；稍后连接恢复即全部正常。
+      记忆 `ui-test-runner-needs-usb-not-wifi` 的判据再次成立：这个签名不要去查代码/签名/依赖。
       （播报那半 UI 测试本来也测不到 —— 黑盒读不到 TTS 文本，由 5.3 那组单测的
       `testRepeatStatusMentionsKeepWaitingWhileWaiting` 承担。）
 - [ ] 5.7 真机手测：`PENDING_MATCH` 订单上点一次，确认听到进行时反馈且订单没被取消。
@@ -98,12 +99,21 @@
 - [x] 6.1 1.x 的契约结论已落到后端，且 handoff 里那条已 `- [x]`。
       —— 后端 2026-08-09 那条「你们会做这个按钮吗」已打勾并逐条答复（含两个可选字段的取舍）；
       本轮新产生的 4 条已追加到「待后端确认」。
-- [ ] 6.2 5.x 全部真跑过且非零执行（`passed=0 failed=0` 一律当失败查）。
-      🔴 **单测部分达成，UI 部分没有。**
+- [x] 6.2 5.x 全部真跑过且非零执行（`passed=0 failed=0` 一律当失败查）。
       单测：`passed=344 failed=0`（含 `KeepWaitingTests` 15 条，逐条从 result bundle 核过名字，
       不是数日志）。**并且验过红** —— 分别破坏 D3 / D5 / D6 三条不变式后重跑，
       对应 5 条用例以预期报错失败，证明这些断言真的会咬。
-      UI：5.6 / 5.7 未执行，理由见上，**不得据此宣称已验证**。
+      又在**隔离 worktree**（`/tmp`，只含本变更的提交）里对 `KeepWaitingTests` 单独复跑 15/15，
+      排除工作区里同时存在的他人在途改动的影响。
+      UI：`AccessibilityAuditTests` 9 条跑完，本变更新增那条通过（见 5.6）。
+      ⚠️ 同批 2 条**先前就红**：`testBlindRunnerHomePassesAccessibilityAudit` /
+      `testBlindBookingPassesAccessibilityAudit`，失败项是 `Contrast failed/nearly passed`
+      与 `Dynamic Type font sizes are unsupported`，命中的是**盲人首页与下单页**，
+      本变更一行都没碰，且与记忆 `low-vision-visual-channel-unaudited` 记的两块空白
+      （对比度 ≈2.20:1、Dynamic Type 封顶）逐条对上。
+      **没有跑改动前的基线做对照**（命令被拒），所以「先前就红」是按「改动未触及这两页」
+      推出来的，不是实测出来的 —— 记忆 `known-red-suites-hide-new-failures` 提醒过这类判断的风险。
+      5.7 仍未做，见下。
 - [x] 6.3 更新 `docs/05-page-specs.md` 的订单状态页小节。
 - [ ] 6.4 **归档顺序**：本变更 MODIFY 的 `Blind runner state updates remain status driven`
       与 `enable-live-escort-location-and-track-summary` 是同一条，且本变更的 MODIFIED 块
