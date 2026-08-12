@@ -25,7 +25,7 @@ iOS 侧对 `PUT /api/orders/{id}/keep-waiting` 与 `PUT /api/orders/{id}/keep-re
 
 ## 一条必须先纠正的认识
 
-本变更的上游 review 报告（`docs/frontend-backend-alignment-review-20260812.md` §A4）
+本变更的上游 review 报告（`docs/review/frontend-backend-alignment-review-20260812.md` §A4）
 写的是「`.noVolunteer` 在 15 处被当终态与 `.cancelled`/`.completed` 同组，**要拆开**」。
 **那句是错的，本变更不照它做。**
 

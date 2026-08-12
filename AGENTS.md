@@ -45,7 +45,7 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   （对比度 / 横屏与 iPad / Dynamic Type 上限）从没被系统性检查过，三块空白打的是同一群人 ——
   而 `VisionLevel.LOW_VISION` 在数据模型里是一等公民。改盲人端 UI 时要**问两遍**：
   VoiceOver 用户怎么样？不开读屏、字调到 AX5、横屏、户外的低视力用户怎么样？
-  详见记忆 `low-vision-visual-channel-unaudited` 与 `docs/frontend-backend-alignment-review-20260812.md` §D。
+  详见记忆 `low-vision-visual-channel-unaudited` 与 `docs/review/frontend-backend-alignment-review-20260812.md` §D。
   这条抓不成静态守卫：对比度要看颜色**用在什么语义的文本上**（装饰图标不算），机器分不出来。
 
 ## 2. 源真相优先级
@@ -316,7 +316,7 @@ scripts/install-git-hooks.sh
 > 2026-08-12 因此把一份**正确**的语料镜像改动判成了伪造（后端当时停在特性分支，语料 96 条而
 > `origin/main` 已 101 条），差点据此删掉。手动跑之前自己导出真契约：
 > `git -C ../demo show origin/main:docs/voice-golden-corpus.json > /tmp/c.json` 再传进去。
-> 详见 `docs/frontend-backend-alignment-review-20260812.md` §B1。
+> 详见 `docs/review/frontend-backend-alignment-review-20260812.md` §B1。
 
 > 第 5 条 `validate-voice-intent-words.mjs` 是 2026-08-10 加的：确认轮改成「本地直通 + 后端兜底」
 > 之后，同一句话由两处判定，本地表里出现一个后端判成**别的**意图的词就会让有网/断网行为分叉。
@@ -349,3 +349,17 @@ node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
 >
 > 位置约定本来就写在 skill `tech-decision-research` 里，但 skill 不被显式调用就不生效 ——
 > 于是 `docs/research/` 建了两份报告却一直没有索引。这条是把约定接上强制。
+
+## 13. 成体系的 review 也只落一个地方
+
+唯一位置 `docs/review/`，唯一索引 `docs/review/INDEX.md`，规则与 §12 同构：**开新 review 前整份读索引**，
+按「复核触发条件」判旧结论作不作数；review 完落 `docs/review/{topic}-{YYYYMMDD}.md` 并回写索引一行。
+
+与 §12 的分工：`docs/research/` 记「外面是怎么做的」（联网事实，带来源与核实日期）；
+`docs/review/` 记「我们做成了什么样」（对着代码与契约的判断，带 `文件:行号`）。
+一次 review 引用一次 research 是常态，反过来不成立 —— 竞品事实不要写进 review，两处都写会漂移。
+
+> ⚠️ 这条**没有 hook 强制**，`research-log.mjs` 只管联网调研。漏过第二次就按 §1.1 落成守卫。
+>
+> 2026-08-12 立此条：`frontend-backend-alignment-review-20260812.md` 原本躺在 `docs/` 根目录，
+> 与 20 个同级文档混在一起 —— 下一次 review 既不会先读它，也不会挨着它落盘。已迁入 `docs/review/`。
