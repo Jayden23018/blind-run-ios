@@ -849,6 +849,8 @@ struct BlindBookingView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = BlindBookingViewModel()
     @StateObject private var voiceWizard = VoiceOrderWizard()
+    /// 常用出发地点。纯本地（`UserDefaults`），不与后端同步 —— 理由见 `FavoritePlaceStore`。
+    @StateObject private var favorites = FavoritePlaceStore()
     @AccessibilityFocusState private var focusedSearchResultID: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
@@ -1404,6 +1406,10 @@ struct BlindBookingView: View {
                 permissionDeniedView
             } else {
                 currentLocationCard
+                saveFavoriteButton
+                // 排在搜索之前：常用地点是**跳过**「地名 → 坐标」那一段，
+                // 而搜索是走进那一段。能不走就不该先摆搜索框。
+                favoritePlacesSection
 
                 VoiceTextField(
                     title: "搜索出发地点",
@@ -1461,6 +1467,86 @@ struct BlindBookingView: View {
 
                 auxiliaryStartMap
             }
+        }
+    }
+
+    /// 「收藏这个出发地点」。
+    ///
+    /// 只在 `selectedStartPlace` 非空时出现，这一条同时挡掉两种不该收藏的东西：
+    /// 「当前位置」与演示坐标 —— 它们只会出现在 `resolvedStartPlace` 的兜底分支里，
+    /// 从来不会写进 `selectedStartPlace`（见那两处的实现）。所以这里不必再嗅探 `source`。
+    @ViewBuilder
+    private var saveFavoriteButton: some View {
+        if let place = viewModel.selectedStartPlace, !favorites.contains(place) {
+            Button {
+                if favorites.add(place) {
+                    speechService.speak("已收藏出发地点，\(place.title)。下次可以直接选。")
+                }
+            } label: {
+                Label("收藏这个出发地点", systemImage: "star")
+                    .font(AppFonts.body().weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 52)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("收藏这个出发地点，\(place.title)")
+            .accessibilityHint("收藏后可以直接选择，不用再搜一次地名")
+            .accessibilityIdentifier("bookingSaveFavoritePlaceButton")
+        }
+    }
+
+    /// 常用地点列表。
+    ///
+    /// 每行**两个**独立按钮（选择 / 删除）而不是侧滑删除：侧滑对 VoiceOver 用户是
+    /// 「自定义操作」转子里的一项，得先知道它存在才找得到；而误删一条收藏之后，
+    /// 用户下一次下单会退回那条最容易出错的搜索路径。
+    @ViewBuilder
+    private var favoritePlacesSection: some View {
+        if !favorites.places.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("常用地点")
+                    .font(.headline)
+                    .foregroundColor(AppColors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+
+                ForEach(favorites.places) { place in
+                    HStack(spacing: 12) {
+                        Button {
+                            viewModel.selectPlace(place)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(place.title)
+                                    .font(AppFonts.body().weight(.semibold))
+                                    .foregroundColor(AppColors.textPrimary)
+                                if !place.addressText.trimmed.isEmpty, place.addressText.trimmed != place.title.trimmed {
+                                    Text(place.addressText)
+                                        .font(AppFonts.caption())
+                                        .foregroundColor(AppColors.textSecondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(minHeight: 52)
+                        }
+                        .accessibilityLabel(place.bookingSearchAccessibilityLabel)
+                        .accessibilityHint("直接使用这个已保存的地点，不再重新搜索")
+
+                        Button {
+                            favorites.remove(id: place.id)
+                            speechService.speak("已删除常用地点，\(place.title)。")
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundColor(AppColors.destructive)
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("删除常用地点，\(place.title)")
+                    }
+                    .padding(.horizontal, 12)
+                    .background(AppColors.secondaryBackground)
+                    .cornerRadius(8)
+                }
+            }
+            .accessibilityIdentifier("bookingFavoritePlacesSection")
         }
     }
 
