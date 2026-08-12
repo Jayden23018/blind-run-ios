@@ -270,34 +270,35 @@ scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
 > 测试目标没编出来都会长这样：命令回来了、看起来一切正常，但一条断言都没跑。
 > 脚本对这种情况有硬失败，别绕过它。
 
-### 读后端仓库的那 5 条门禁在哪跑（2026-08-06 定型，别再重新推导一遍）
+### 读后端仓库的那 5 条门禁在哪跑（2026-08-12 改口径，别再按旧的双推推导）
 
 契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料 / 确认轮词表这 5 条需要读后端私有仓库，
-跑在**三个不同的地方**：
+跑在**两个地方**：
 
 | 位置 | 这 5 条 | 说明 |
 |---|---|---|
-| 上游 `JerryZhao-1/blind-run-ios` | ⚠️ **warning 空过** | 我们不是它的 admin，配不了 secret。**上游 CI 绿 ≠ 契约对过了** |
-| fork `Jayden23018/blind-run-ios` | ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
-| 本地 pre-push | ✅ 真跑 | 读 `../demo`，装钩子后每次 push 自动 |
+| `Jayden23018/blind-run-ios`（`origin`，**主线**）| ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
+| 本地 pre-push | ✅ 真跑 | 读 `../demo` 的 `origin/main`，装钩子后每次 push 自动 |
 
-**fork 的既定配置**（改动前先知道，别当成异常）：
+**`JerryZhao-1/blind-run-ios` 自 2026-08-12 起只是 `upstream`，不再是投递目标。** 分支不往那边推、
+PR 也不往那边开。它的 CI 配不上 secret（我们不是 admin），这 5 条在那边是 warning 空过 ——
+**上游 CI 绿 ≠ 契约对过了**。要取上游的新提交：`git fetch upstream`。
 
-- 默认分支被**故意**设成 `integrate/swift-migration`，不是 `main` —— `workflow_dispatch`
+**主线仓库的既定配置**（改动前先知道，别当成异常）：
+
+- 默认分支是 `integrate/swift-migration`，不是 `main` —— `workflow_dispatch`
   和 `schedule` 都只认默认分支，而 `main` 上没有 `verify.yml`。手动触发：
   `gh workflow run verify.yml --repo Jayden23018/blind-run-ios --ref integrate/swift-migration`
 - `schedule` 每天 09:17（北京）跑一次。它抓的是 **push 触发天生抓不到的那类：你 push 之后
-  后端才改契约**。上游默认分支是 `main` 且 `main` 上没有本文件，所以定时跑不会在上游触发。
-- **fork 的 CI 红在 `Checkout backend contract`（403）= PAT 过期了**，不是代码坏了。
+  后端才改契约**。
+- **CI 红在 `Checkout backend contract`（403）= PAT 过期了**，不是代码坏了。
   重建 PAT 后 `gh secret set BACKEND_REPO_TOKEN --repo Jayden23018/blind-run-ios`。
 - GitHub 会把连续 60 天无活动仓库的定时任务停掉。长期没推东西时留意一下。
 
-**推送必须两边都到**，否则 fork 上那套 CI 等于没配。`scripts/install-git-hooks.sh` 已把
-`git push origin` 配成同时推上游与 fork（前提是本机有名为 `fork` 的 remote），不靠人记：
+每台机器装一次钩子即可，不再需要配双推（旧机器重跑本脚本会清掉遗留的双推配置）：
 
 ```bash
-git remote add fork https://github.com/Jayden23018/blind-run-ios.git   # 每台机器一次
-scripts/install-git-hooks.sh                                          # 装钩子 + 配双推
+scripts/install-git-hooks.sh
 ```
 
 这 5 条读的契约**取自后端仓库的 `origin/main`**（`git show origin/main:docs/api_spec.yaml`
