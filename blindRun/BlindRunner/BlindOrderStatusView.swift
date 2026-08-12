@@ -907,7 +907,14 @@ struct BlindOrderStatusView: View {
                     .cornerRadius(16)
             }
             .accessibilityLabel("打电话给志愿者")
-            .accessibilityHint("拨打 \(volunteerPhone)，系统会先弹出拨号确认")
+            // 这里此前是「拨打 \(volunteerPhone)，系统会先弹出拨号确认」——
+            // VoiceOver 每次焦点落到按钮上就把 11 位号码整个念出来，用户还没决定要不要打。
+            // 视障跑者在户外常常**不戴耳机**（要听车流），外放等于把志愿者的手机号广播给周围的人。
+            // 号码对「要不要打这通电话」这个决策没有任何帮助，唯一有用的信息是「会先弹确认」。
+            //
+            // 语音拨号那条路**照旧逐位复述号码**（`VoiceStatusQuery.swift:212`），
+            // 那不是冗余暴露：用户已经明确说了要打，复述是拨号前确认拨给谁，删掉会变成盲拨。
+            .accessibilityHint("系统会先弹出拨号确认，确认后才会拨出")
             .accessibilityIdentifier("blindOrderStatusCallVolunteerButton")
         }
     }
