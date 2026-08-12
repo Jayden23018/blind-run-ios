@@ -1018,7 +1018,7 @@ public struct Client: APIProtocol {
     }
     /// 查询动作活体认证结果（Step 3 - result）
     ///
-    /// 根据 certifyId（须与当前用户绑定的 certifyId 一致，防越权）调用阿里云 DescribeFaceVerify 查询认证结果。客户端在 init 返回后使用 App SDK （AliyunFaceAuthFacade.verify(certifyId)）完成动作活体， 然后轮询本接口直到 status 变为 APPROVED 或 REJECTED。
+    /// 根据 certifyId（须与当前用户绑定的 certifyId 一致，防越权）调用阿里云 DescribeFaceVerify 查询认证结果。客户端在 init 返回后使用 App SDK （AliyunFaceAuthFacade.verify(certifyId)）完成动作活体， 然后轮询本接口直到 status 变为 APPROVED 或 REJECTED。 ⚠️ 轮询期间管理员若拒掉该志愿者的身份证，本接口改回 400 `ID_INFO_INVALID` （与 init 同码同语义）：此时活体结果一律不落库，客户端应停止轮询并回到 step1 重填身份信息。
     ///
     /// - Remark: HTTP `POST /api/volunteer/registration/step3/face-verify/result`.
     /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/result/post(queryFaceVerifyResult)`.
@@ -1746,6 +1746,13 @@ public struct Client: APIProtocol {
     /// `/v3/geocode/geo` 是结构化地址接口，对 POI 简称只能分词尽力匹配 ——
     /// 生产实测在深圳南山区说「前海万象」被拆出「前海」落到海南。现在直接报
     /// `addressUnresolved=true` 走追问。**代价是约外地地点解析不出，收益是不会把人约到外省。**
+    ///
+    /// ⚠️ **2026-08-12 起模型降到 flash 档（延迟中位 5.0s → 2.5s），失败更安静**：
+    /// 该档不支持 `json_schema`，没有结构约束了 —— 模型吐出畸形结构不再被 API 层挡住，
+    /// 而是被后端**静默把该槽位置成 null**，表现为 `missing` 多一项 / `endAddress` 为 null，
+    /// 走的是你已经在走的追问路径。**接口契约与你侧行为逐字未变**（识别质量实测与 plus 打平）。
+    /// 防幻觉守卫一条没少：抽出的片段必须是用户原话的字面子串，编出来的地址进不了订单。
+    /// ⇒ 「识别不准」这类问题现在更可能是模型侧静默退化，**反馈时请带上用户原话**，只有原话能复现。
     ///
     /// **一步修正**：用户否定读回确认时（"不对，九点"），把上一轮结果填进 `current` 再调一次本端点。
     /// 槽位优先级 **本轮正则 > 本轮模型 > current**：新抽到的覆盖旧值，没抽到的原样继承。

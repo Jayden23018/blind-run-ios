@@ -228,6 +228,47 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(ask.isHittable, "「问一句」存在但够不着，等于没有")
     }
 
+    /// 后端的 `ORDER_CANCELLATION_WARNING` 正文逐字是「您的订单即将因长时间无人接单被取消，
+    /// **点击继续等待可延长**」。这条用例钉的就是那句话响起时，屏幕上真的有这个控件、
+    /// 而且**不用滚动**就够得着 —— 播报里让人点一个只存在于后端文案里的按钮，
+    /// 对看不见屏幕的人是纯粹的死路。
+    ///
+    /// 播报内容本身（「重复当前状态」要念到这个动作）由单测
+    /// `KeepWaitingTests.testRepeatStatusMentionsKeepWaitingWhileWaiting` 断言 ——
+    /// UI 测试是黑盒，读不到 TTS 文本，在这里断言只能断言个寂寞。
+    @MainActor
+    func testBlindOrderStatusOffersKeepWaitingWhileWaitingForAMatch() throws {
+        let app = launchBlindHome(emptyOrders: false)
+        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        XCTAssertTrue(
+            currentOrder.waitForExistence(timeout: 20),
+            "有订单的盲人首页没起来，后面的断言没有意义"
+        )
+        currentOrder.tap()
+
+        // 种子订单是 PENDING_MATCH（`MockAPIClient.seedDemoData`），正是可延长的状态。
+        let keepWaiting = app.descendants(matching: .any)["blindOrderStatusKeepWaitingButton"].firstMatch
+        XCTAssertTrue(
+            keepWaiting.waitForExistence(timeout: 15),
+            "PENDING_MATCH 的订单状态页没有「继续等待」—— 后端预警文案让用户点的正是它"
+        )
+        XCTAssertTrue(keepWaiting.isHittable, "「继续等待」存在但够不着，等于没有")
+        XCTAssertGreaterThanOrEqual(
+            keepWaiting.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            "盲人端主动作触达高度不得低于 64pt"
+        )
+        XCTAssertEqual(keepWaiting.label, "继续等待", "读屏念出来的必须就是这四个字")
+
+        // 幂等且方向是保住订单，所以**不弹二次确认**（取消订单那条才弹）。
+        keepWaiting.tap()
+        let confirmation = app.alerts.firstMatch
+        XCTAssertFalse(
+            confirmation.waitForExistence(timeout: 3),
+            "「继续等待」不该有二次确认：多一轮确认对读屏用户是实打实的十几秒"
+        )
+    }
+
     // MARK: - Helpers
 
     private static let minimumBlindPrimaryButtonHeight: CGFloat = 64

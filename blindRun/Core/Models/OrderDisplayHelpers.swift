@@ -89,6 +89,69 @@ extension RunOrderStatus {
         }
     }
 
+    /// 等待期延长窗口该打哪个端点；`nil` 表示本状态没有这个动作。
+    ///
+    /// 后端在订单长时间无人接单时推 `ORDER_CANCELLATION_WARNING`，正文逐字是
+    /// 「您的订单即将因长时间无人接单被取消，**点击继续等待可延长**」。在这条动作存在之前，
+    /// 盲人听到那句话、屏幕上没有对应的控件，能做的只有等订单被自动取消再重下一单。
+    ///
+    /// 两个端点的前置状态**互斥**（后端 `OrderLifecycleService.keepWaiting` 只收 `PENDING_MATCH`，
+    /// `keepRematching` 只收 `REMATCHING`，其余一律 409 `ORDER_STATUS_NOT_ALLOWED`）。
+    /// 所以这里返回的是「**该打哪一个**」而不是「能不能打」——
+    /// 判定与选路合成一处，`offersKeepWaiting` 为真却没有端点这种状态在结构上就不存在。
+    ///
+    /// 同 `offersVolunteerCall` 写成穷举 switch：后端加状态时编译器逼一次决策，
+    /// 集合字面量会把新状态默默判成「没有这个动作」——那正是「点了没反应」的来源。
+    var keepWaitingEndpoint: KeepWaitingEndpoint? {
+        switch self {
+        case .pendingMatch:
+            return .keepWaiting
+        case .rematching:
+            return .keepRematching
+        // 已经有志愿者了，等待窗口不再是这一单的问题。
+        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+            return nil
+        // `NO_VOLUNTEER` 是**终态**（后端 `OrderStatus.java:46`「预留终态」、
+        // `DispatchService.java:574`），两个端点都会拒。可恢复的窗口在走到它**之前**。
+        case .completed, .cancelled, .noVolunteer:
+            return nil
+        case .unknown:
+            return nil
+        }
+    }
+
+    /// 盲人端订单页该不该给出「继续等待」。派生自 `keepWaitingEndpoint`，不另写一遍 switch。
+    var offersKeepWaiting: Bool {
+        keepWaitingEndpoint != nil
+    }
+}
+
+/// 两条延长端点。存在的理由是 `scripts/validate-spec-coverage.mjs`：
+/// 它扫源码里的接口路径**字符串字面量**，逐条对撞后端契约。若把路径拼成
+/// 「订单前缀 + 订单号 + **变量**后缀」，两段插值都会被归一成 `{param}`，
+/// 得到一条契约里不存在的路径，于是这两个端点对门禁**彻底隐形** ——
+/// 而门禁存在的全部意义就是拦住「前端在调后端没有的路径」。
+///
+/// 所以完整路径必须在这里写成字面量（连注释里也不能出现示例路径，同样会被扫到）。
+/// 两个 case 的 switch 由编译器保证穷举，与上面那个按状态选路的 switch 不会各自漂移。
+enum KeepWaitingEndpoint {
+    case keepWaiting
+    case keepRematching
+
+    /// ⚠️ 这两条都是 `PUT`（`api_spec.yaml:236` / `:256`），
+    /// 与其余走 `POST` 的订单状态流转端点不同族。
+    func path(orderId: Int64) -> String {
+        switch self {
+        case .keepWaiting:
+            return "/api/orders/\(orderId)/keep-waiting"
+        case .keepRematching:
+            return "/api/orders/\(orderId)/keep-rematching"
+        }
+    }
+}
+
+extension RunOrderStatus {
+
     /// 「志愿者离出发地点还有多远」这个数字对本状态有没有意义。
     ///
     /// 汇合前的三态才有：`IN_PROGRESS` 时两人已经在一起，念距离是噪音；派单中 / 重新匹配时
@@ -197,6 +260,34 @@ extension RunOrderStatus {
             return AppColors.textSecondary
         }
     }
+}
+
+// MARK: - Keep Waiting Copy
+
+/// 「继续等待」的全部对外文案。集中一处是为了让它们能被测试逐条钉住 ——
+/// 这里每一句的措辞都有约束，散在 view 和 view model 里就只能靠人记。
+enum KeepWaitingCopy {
+    static let buttonTitle = "继续等待"
+    static let accessibilityHint = "告诉系统你还想继续等，避免订单因为长时间没人接单被自动取消"
+
+    /// 成功文案。两条硬约束：
+    ///
+    /// 1. **进行时，不是完成时。** 后端 200 只回 `{"success": true}`，订单状态不变
+    ///    （`PENDING_MATCH` 还是 `PENDING_MATCH`），所以用户唯一的反馈就是这句话。
+    /// 2. **不许出现具体时长。** 窗口长度是后端配置（`app.match.max-keep-waiting-count`
+    ///    和对应的超时值），客户端读不到。写「已为你延长 10 分钟」就是编一个数字念给盲人听
+    ///    —— 与 SOS 那条「不得宣称短信已送达」同一个道理。
+    ///    `KeepWaitingCopyTests` 断言本串不含任何阿拉伯数字。
+    static let success = "已经告诉系统继续等待，正在继续为你寻找志愿者。"
+
+    /// 上限文案。后端在延长次数用尽后**不再推送** `ORDER_CANCELLATION_WARNING`
+    /// （`websocket-protocol.md`：那时文案里的「点击继续等待可延长」已经不成立）。
+    /// 客户端对齐同一口径：说清没得延长了，并说明**还能做什么** —— 只说「不能延长」
+    /// 会把盲人留在一个没有下一步的地方。
+    static let limitReached = "已经到了可以延长的次数上限，不能再延长了。系统还会继续为你匹配；如果不想再等，可以取消订单后重新预约。"
+
+    /// 「重复当前状态」里附带的一句。看不见屏幕的人靠这句发现这个动作存在。
+    static let repeatStatusSuffix = "如果还想继续等，可以点继续等待。"
 }
 
 // MARK: - Order Detail Helpers
