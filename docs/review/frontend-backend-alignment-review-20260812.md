@@ -107,23 +107,37 @@
 这条理由针对的是**另一个端点**，而且 classify-query 的失败语义天生不会产生「恒报错的按钮」。
 接入时这段注释要一起改掉，留着会误导下一个人。
 
-### A4 · 中高 · `NO_VOLUNTEER` / `PENDING_MATCH` 的「继续等」没有出口
+### A4 · 中高 · 订单被自动取消前，盲人没有「继续等待」的出路
 
-后端两个对称端点（spec `:235-293`）：
+> ⚠️ **本条初稿有一句是错的，已订正。** 初稿写「`.noVolunteer` 在 15 处被当终态与
+> `.cancelled`/`.completed` 同组，**要拆开**」。核实后端（`git fetch` 之后）：
+> `OrderStatus.java:46` 写着 `NO_VOLUNTEER; // 超时无人接单（预留终态）`，
+> `DispatchService.java:574` 也说「`NO_VOLUNTEER` 是终态」。
+> **前端当终态是对的，不该拆。**
 
-- `PUT /api/orders/{id}/keep-waiting` —— `PENDING_MATCH` 下刷新匹配超时窗口，避免兜底取消
-- `PUT /api/orders/{id}/keep-rematching` —— `REMATCHING` 下同理
+真正的缺口更窄也更要紧 —— **可恢复的窗口在订单走到 `NO_VOLUNTEER` 之前**：
 
-前端对两者 **0 命中**。`.noVolunteer` 在 15 处都与 `.cancelled` / `.completed` 归为同一组当终态
-（`blindRun/Core/Models/OrderDisplayHelpers.swift:15`、`blindRun/Core/Models/OrderModels.swift:69`、
-`blindRun/Core/Models/OrderTrackModels.swift:57` 等）。
+- `PUT /api/orders/{id}/keep-waiting` —— `PENDING_MATCH` 下刷新匹配超时窗口
+- `PUT /api/orders/{id}/keep-rematching` —— `REMATCHING` 下同理（契约明写其他状态返 409）
 
-后端会推 `ORDER_CANCELLATION_WARNING`，前端 `blindRun/Core/AppRealtimeCoordinator.swift:1075-1076`
-明确把它划为「不改订单状态」→ 走通用分支念出来，**但没有任何可操作的出口**。
-盲人听到「订单即将被取消」，唯一能做的是重新下单。
+前端对两者 **0 命中**。而后端在放弃订单前会推 `ORDER_CANCELLATION_WARNING`（HIGH），
+文案逐字是：
 
-**前端自己知道少了这块的证据**：`blindRun/Core/Models/ErrorModels.swift:20` 映射了
-`KEEP_WAITING_LIMIT_REACHED` —— 而这个错误码只有调上面两个端点才可能收到。
+> 您的订单即将因长时间无人接单被取消，**点击继续等待可延长**
+
+**后端的播报已经在教用户点一个 App 里不存在的按钮。** 盲人听到这句、屏幕上没有这个控件，
+而他看不见屏幕 —— 能做的只有等订单被自动取消，再重下一单。
+
+前端自己知道少了这块：`blindRun/Core/Models/ErrorModels.swift:20` 映射了
+`KEEP_WAITING_LIMIT_REACHED`，而这个码**只有调那两个端点才可能收到**。
+
+**去向**：已起草 openspec 变更 `offer-keep-waiting-before-auto-cancel`
+（`openspec validate --strict` 通过）。注意它 MODIFY 的 Requirement 与
+`enable-live-escort-location-and-track-summary` 是同一条，**必须在它之后归档**。
+
+顺带一个待后端澄清的同名不同义：通知 `NO_VOLUNTEER_AVAILABLE` 的文案是
+「您的订单**仍在等待中**」，而状态 `NO_VOLUNTEER` 是终态；
+`AppRealtimeCoordinator.lifecycleStatus` 目前把该 eventType 映射成 `.noVolunteer`（用于播报去重）。
 
 ### A5 · 中 · 位置上报只有 WebSocket 一条路，REST 兜底端点没接
 
@@ -415,7 +429,7 @@ skill `aidrun-a11y-voice` 写的是「盲人端关键主按钮高度 ≥ 64pt」
 | ~~A1 `blindPhone`~~ | **作废** —— 后端 `ca7c735` 已加齐，前端 `offersVolunteerCall` 与其窗口逐态一致 |
 | A2 `addressShort` | 前端认领，下个变更接上（不需要后端做事） |
 | A3 `classify-query` | 后端已合进 main（`4e31766`），可以开工 |
-| A4 `keep-waiting` / `keep-rematching` | 可以开工，`.noVolunteer` 现在被 15 处当终态要拆开 |
+| A4 `keep-waiting` / `keep-rematching` | 已起草 openspec `offer-keep-waiting-before-auto-cancel`；**不拆 `.noVolunteer` 终态**（初稿那句是错的） |
 | A5 / A6 | 需要产品判断，未立项 |
 | B1 门禁读错文件 | **已修**（PR #16 + 补上它漏的第 5 道门禁）；`fetch` 那步仍靠人记 |
 | D1–D4 低视力通道 | 建议整体验收立项，不要拆成零散修补 |

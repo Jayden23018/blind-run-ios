@@ -16,6 +16,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
     @Published var volunteerDistanceToStartText: String?
     @Published private(set) var latestVolunteerSample: LocatedCoordinate?
     @Published var errorMessage: String?
+    /// 本单是否已经用完延长次数。**按单记**，换单时清空（见 `startPolling`）。
+    @Published private(set) var keepWaitingLimitReached = false
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -45,6 +47,12 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     var canShowCancel: Bool {
         order?.status.canBlindRunnerCancel == true
+    }
+
+    /// 上限到了就把按钮收起来，不留一个必定失败的控件 —— 对盲人来说
+    /// 「按了、听到报错、再按、还是报错」比没有按钮更糟。
+    var canShowKeepWaiting: Bool {
+        order?.status.offersKeepWaiting == true && !keepWaitingLimitReached
     }
 
     var shouldPoll: Bool {
@@ -81,6 +89,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
     func startPolling(orderId: Int64) {
         if currentOrderId != orderId {
             clearPeerLocation()
+            // 上限是**这一单**的属性，不是这个 view model 的。换单不清会让新订单
+            // 一进来就少一个本来该有的动作。
+            keepWaitingLimitReached = false
         }
         currentOrderId = orderId
         acceptsPeerLocations = true
@@ -111,6 +122,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
     func repeatStatus() {
         if let order {
             var announcement = order.blindRunnerAnnouncement(distanceText: volunteerDistanceToStartText)
+            // 「继续等待」只有在这里被念到才会被发现：它是等待期唯一的主动作，
+            // 而看不见屏幕的人不会知道页面上多了一个按钮。
+            if canShowKeepWaiting {
+                announcement += " " + KeepWaitingCopy.repeatStatusSuffix
+            }
             // Canonical order status first, emergency state appended after it — never instead of it.
             if let sos = appState?.emergencyCoordinator.repeatStatusSuffix {
                 announcement += " " + sos
@@ -118,6 +134,60 @@ final class BlindOrderStatusViewModel: ObservableObject {
             speechService?.speak(announcement)
         } else {
             speechService?.speak("正在获取订单状态。")
+        }
+    }
+
+    /// 刷新后端的等待超时窗口，让订单不被自动取消。
+    ///
+    /// **按状态分派，且只打这一个端点。** 两个端点的前置状态互斥，409
+    /// `ORDER_STATUS_NOT_ALLOWED` 的含义是「你手上的状态已经过期了」——
+    /// 此时正确的动作是刷新订单，不是换一个 URL 再打一次。盲人听不见网络请求，
+    /// 连打两次的唯一可见结果是等待时间翻倍。
+    ///
+    /// 刻意**不做二次确认**：这个动作幂等、可重复，且方向是保住订单。误触的代价是多等一会儿，
+    /// 而多一轮确认对读屏用户的代价是实打实的十几秒。（取消订单那条的二次确认不受影响。）
+    func keepWaiting() async {
+        guard let order, let appState else { return }
+        guard let endpoint = order.status.keepWaitingEndpoint else {
+            let message = "当前订单状态不能继续等待。"
+            errorMessage = message
+            speechService?.speakError(message)
+            return
+        }
+
+        isPerformingAction = true
+        errorMessage = nil
+        do {
+            let _: EmptyResponse = try await appState.apiClient.put(
+                endpoint.path(orderId: order.orderId)
+            )
+            isPerformingAction = false
+            // 成功不改状态（后端只回 `{"success": true}`），所以反馈只能由本地这句话给出。
+            speechService?.speak(KeepWaitingCopy.success)
+        } catch let error as APIError {
+            isPerformingAction = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
+            switch error.errorCode {
+            case .keepWaitingLimitReached:
+                keepWaitingLimitReached = true
+                errorMessage = KeepWaitingCopy.limitReached
+                speechService?.speakError(KeepWaitingCopy.limitReached)
+            case .invalidOrderStatus:
+                // 本地状态过期。刷订单让页面回到真实状态，**不重试另一个端点**。
+                errorMessage = error.localizedMessage
+                speechService?.speakError(error.localizedMessage)
+                await loadOrder(orderId: order.orderId, speakChanges: true)
+            default:
+                errorMessage = error.localizedMessage
+                speechService?.speakError(error.localizedMessage)
+            }
+        } catch {
+            isPerformingAction = false
+            let message = "继续等待没有成功，请再试一次。"
+            errorMessage = message
+            speechService?.speakError(message)
         }
     }
 
@@ -518,7 +588,11 @@ struct BlindOrderStatusView: View {
 
     /// 主按钮高度。比首页的 280 小：这一页顶上还有状态卡要占位置，
     /// 而状态本身也是盲人此刻需要的信息，不能被按钮挤出首屏。
-    @ScaledMetric(relativeTo: .largeTitle) private var volunteerCallButtonHeight: CGFloat = 140
+    ///
+    /// 「打电话给志愿者」与「继续等待」共用它：两者的状态集互斥
+    /// （`offersVolunteerCall` 是汇合中的四态，`offersKeepWaiting` 是等待中的两态），
+    /// 同一个版位在任一时刻只会有其中一个，高度不该因为是哪一个而变。
+    @ScaledMetric(relativeTo: .largeTitle) private var primaryActionButtonHeight: CGFloat = 140
 
     var body: some View {
         ScrollView {
@@ -535,6 +609,7 @@ struct BlindOrderStatusView: View {
                     // 生命周期卡才够得着。
                     statusHeader(order)
                     volunteerCallSection(order)
+                    keepWaitingSection(order)
                     peerMapSection(order)
                     lifecycleSection(order)
                     actionSection(order)
@@ -827,13 +902,43 @@ struct BlindOrderStatusView: View {
                     .font(AppFonts.largeTitle())
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
-                    .frame(minHeight: volunteerCallButtonHeight)
+                    .frame(minHeight: primaryActionButtonHeight)
                     .background(AppColors.primary)
                     .cornerRadius(16)
             }
             .accessibilityLabel("打电话给志愿者")
             .accessibilityHint("拨打 \(volunteerPhone)，系统会先弹出拨号确认")
             .accessibilityIdentifier("blindOrderStatusCallVolunteerButton")
+        }
+    }
+
+    /// 等待期这一页唯一的主动作。
+    ///
+    /// 后端的 `ORDER_CANCELLATION_WARNING` 正文逐字写着「点击继续等待可延长」，在这个按钮
+    /// 存在之前，盲人听到那句话之后**在屏幕上找不到它**，能做的只有等订单被自动取消再重下一单。
+    ///
+    /// 排在 `volunteerCallSection` 后面同一个版位：两者状态集互斥，等待中给这个、汇合中给电话，
+    /// 读屏遍历时状态卡之后紧跟的永远是此刻唯一该做的那件事。
+    ///
+    /// 没有二次确认（幂等 + 方向是保住订单）。取消订单那条的确认对话框不受影响。
+    @ViewBuilder
+    private func keepWaitingSection(_ order: OrderDetailResponse) -> some View {
+        if viewModel.canShowKeepWaiting {
+            Button {
+                Task { await viewModel.keepWaiting() }
+            } label: {
+                Text(KeepWaitingCopy.buttonTitle)
+                    .font(AppFonts.largeTitle())
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: primaryActionButtonHeight)
+                    .background(AppColors.primary)
+                    .cornerRadius(16)
+            }
+            .disabled(viewModel.isPerformingAction)
+            .accessibilityLabel(KeepWaitingCopy.buttonTitle)
+            .accessibilityHint(KeepWaitingCopy.accessibilityHint)
+            .accessibilityIdentifier("blindOrderStatusKeepWaitingButton")
         }
     }
 

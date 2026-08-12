@@ -619,13 +619,6 @@ struct BlindRunnerHomeView: View {
             }
             repeatStatusButton
             locationSummarySection
-
-            #if DEBUG
-            if AppBuildChannel.current.allowsEnvironmentSwitcher {
-                DebugTestingPanel()
-                    .environmentObject(appState)
-            }
-            #endif
         }
     }
 
