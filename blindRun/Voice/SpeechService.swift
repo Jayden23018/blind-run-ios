@@ -97,9 +97,26 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         speak(text: latestRepeatableText ?? "当前没有进行中的订单。")
     }
 
-    /// 播报错误信息
+    /// 播报错误信息。
+    ///
+    /// 触觉的第二个接线点，语义精确到可以直接映射：**App 刚刚念出了一条错误**。
+    /// 出错恰恰是最可能漏听的时刻（用户在做别的事、环境吵、耳机在放东西），
+    /// 而漏听一条错误的代价通常大于漏听一条进度。
+    ///
+    /// 求助失败走的就是这里（三个 view model 都是 `outcome.isFailure ? speakError : speak`），
+    /// 所以「求助未发出、请自己拨 110」这条会震 `.error` ——
+    /// 这是求助路径上最不能被漏掉的一条消息。
+    ///
+    /// **求助成功刻意不震**：它走的是通用的 `speak(_:)`，在那儿挂触觉等于每一句播报都震一下，
+    /// 频繁到失去语义。危险的方向是「以为发出去了其实没有」，那一侧已经被这里盖住。
+    ///
+    /// 第一版挂在 `EmergencyCoordinator.state` 的 `didSet` 上，覆盖面更全（成功也震）。
+    /// 换成这里**不是**因为那样有错 —— 当时误判了一条 flaky 用例的归因，
+    /// 复跑后证明与 `didSet` 无关。改用方法 funnel 纯粹因为它更简单：
+    /// 不碰属性观察器，且语义正好落在「刚念出一条错误」上，顺带覆盖了求助之外的全部错误播报。
     func speakError(_ message: String) {
         speak(text: message)
+        HapticFeedback.play(.error)
     }
 
     /// 停止播报
