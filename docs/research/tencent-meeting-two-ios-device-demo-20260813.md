@@ -40,8 +40,9 @@
 标准流程：QuickTime Player → `File > New Movie Recording`（⌘⌥N）→ USB 连接设备 →
 点录制键旁的下拉箭头 → 在 **Screen** 分类下选择该设备。麦克风/扬声器可另外单独选。
 
-**两台设备同时镜像是可行的**：每台设备各占一个「影片录制」窗口 —— 开第一个窗口指到设备 A，
-再按一次 ⌘⌥N 开第二个窗口指到设备 B，两个窗口可自由缩放并排摆放。
+**两台设备同时镜像是可行的，但不是「在同一个 QuickTime 里按两次 ⌘⌥N」** —— 一个实例
+只能开一个影片录制窗口，第二台设备必须起**第二个 QuickTime 实例**，详见 §2f。
+两个实例的窗口可自由缩放并排摆放。
 只镜像不录制时，把鼠标移开窗口，录制控件会自动隐藏。
 来源：[MacSales · Tech 101: How to Mirror More Than One iOS Device to a Mac or PC](https://eshop.macsales.com/blog/43966-tech-101-how-to-mirror-more-than-one-ios-device-to-a-mac-or-pc/)、
 [BigBlueButton 支持文档](https://support.blindsidenetworks.com/hc/en-us/articles/4407788663309-How-to-mirror-your-iPad-iPhone-screen-to-a-Mac-computer-with-QuickTime)
@@ -191,6 +192,37 @@ osascript -e 'quit app "iPhone Mirroring"'
 > **Finder 能看到 ≠ QuickTime 能看到。** Finder 在「在 Wi-Fi 下显示此 iPhone」开启时
 > 也会列出无线设备，且它用的是另一条通道，与屏幕采集设备是否发布无关。
 > 不要拿 Finder 当 QuickTime 的前置判据（本文上一版这么写过，是错的）。
+
+## 2f. ⚠️ 一个 QuickTime 实例只能开**一个**影片录制窗口 —— 第二台设备要起第二个实例
+
+**这条推翻了本文 §2a 最初的写法。** §2a 原先照抄了「再按一次 ⌘⌥N 开第二个窗口」，
+2026-08-13 实测**做不到**：第一个影片录制窗口占着采集会话时，
+`文件 > 新建影片录制` 是灰的 / 无反应。Apple 支持的口径是 QuickTime 一次只录一路。
+
+**解法：启动第二个 QuickTime 实例**，每个实例各占一台设备。
+
+```bash
+open -n -a "/System/Applications/QuickTime Player.app"   # -n = 强制新实例
+```
+
+然后在**新起的那个实例**里 `文件 > 新建影片录制`，Camera 选另一台设备。
+验证实例数：
+
+```bash
+ps -Axo pid,comm | grep "QuickTime Player.app"   # 应该有两个 pid
+```
+
+> 早年的做法是在 Finder 里「复制」QuickTime Player.app 得到第二份再打开，
+> **Ventura 起 Apple 移除了系统 App 的「复制」选项**，该做法已失效，`open -n` 是现行替代。
+> 来源：[HighTechDad · Launch multiple instances of QuickTime Player](https://www.hightechdad.com/articles/how-to/how-to-launch-multiple-instances-quicktime-player-to-record-several-cameras/)、
+> [Jeff Geerling · Recording multiple camera angles simultaneously on a Mac](https://www.jeffgeerling.com/blog/2020/recording-multiple-camera-angles-full-size-simultaneously-on-mac/)、
+> [Apple Community 254453078](https://discussions.apple.com/thread/254453078)
+
+**两条附带约束**：
+
+- **每个实例必须用不同的采集设备** —— 两个实例抢同一台设备不行。
+- **机器要扛得住两路并发采集**。1080p × 2 一般没问题；本项目只是镜像预览、
+  **不点录制键**，负载远低于真录制。
 
 ## 3. 被否掉的方案
 
