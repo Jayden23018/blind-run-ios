@@ -1333,6 +1333,10 @@ public enum Components {
             /// 当前注册步骤。`STEP_2_ID_UPLOAD` 已下线（读到时后端自动迁移到 `STEP_3_FACE_VERIFY` 并写回）；
             /// `STEP_4_TRAINING` / `STEP_4_COMPLETED` 是培训模块下线前的历史值，仅存量账号会出现。
             /// **客户端不要自行判断「哪些值算注册完成」** —— 这是后端语义且已经变过一次，请读 `registrationCompleted`。
+            /// 身份证被判不通过时（`stepDetails.idVerifyStatus=REJECTED`，二要素自动核验失败或管理员人工拒绝）
+            /// 本字段一律为 `STEP_1_BASIC_INFO` —— 重提交身份证姓名+号码的唯一入口就是 step1。
+            /// （2026-08-12 N56：管理员拒绝此前写 `STEP_2_ID_UPLOAD`，客户端读到的是迁移后的 `STEP_3_FACE_VERIFY`，
+            /// 要等进活体页拿到 400 `ID_INFO_INVALID` 才被弹回 step1。枚举取值集合未变，仅收敛了到达路径。）
             ///
             /// - Remark: Generated from `#/components/schemas/RegistrationStatusResponse/currentStep`.
             public struct currentStepPayload: Codable, Hashable, Sendable {
@@ -1392,6 +1396,10 @@ public enum Components {
             /// 当前注册步骤。`STEP_2_ID_UPLOAD` 已下线（读到时后端自动迁移到 `STEP_3_FACE_VERIFY` 并写回）；
             /// `STEP_4_TRAINING` / `STEP_4_COMPLETED` 是培训模块下线前的历史值，仅存量账号会出现。
             /// **客户端不要自行判断「哪些值算注册完成」** —— 这是后端语义且已经变过一次，请读 `registrationCompleted`。
+            /// 身份证被判不通过时（`stepDetails.idVerifyStatus=REJECTED`，二要素自动核验失败或管理员人工拒绝）
+            /// 本字段一律为 `STEP_1_BASIC_INFO` —— 重提交身份证姓名+号码的唯一入口就是 step1。
+            /// （2026-08-12 N56：管理员拒绝此前写 `STEP_2_ID_UPLOAD`，客户端读到的是迁移后的 `STEP_3_FACE_VERIFY`，
+            /// 要等进活体页拿到 400 `ID_INFO_INVALID` 才被弹回 step1。枚举取值集合未变，仅收敛了到达路径。）
             ///
             /// - Remark: Generated from `#/components/schemas/RegistrationStatusResponse/currentStep`.
             public var currentStep: Components.Schemas.RegistrationStatusResponse.currentStepPayload
