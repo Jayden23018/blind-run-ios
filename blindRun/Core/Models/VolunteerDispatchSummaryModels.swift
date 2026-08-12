@@ -141,6 +141,11 @@ struct VolunteerDispatchSummaryActiveOrder: Codable, Identifiable, Sendable {
             startAddress: startAddress,
             startLatitude: startLatitude,
             startLongitude: startLongitude,
+            // 派单摘要契约里没有终点字段（`VolunteerDispatchSummary` 是接单前后共用的轻量摘要），
+            // 这里不能编。要看终点走 `GET /api/orders/{id}` 的完整详情。
+            endAddress: nil,
+            endLatitude: nil,
+            endLongitude: nil,
             plannedStart: plannedStartTime,
             plannedEnd: plannedEndTime,
             blindName: blindName,

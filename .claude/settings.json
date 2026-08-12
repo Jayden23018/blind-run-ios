@@ -25,6 +25,16 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/guard.mjs\" pre"
           }
         ]
+      },
+      {
+        "$comment": "联网调研前把 docs/research/INDEX.md 灌回来：先查记录，缺的那段才重搜。",
+        "matcher": "WebSearch|WebFetch|mcp__firecrawl__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/research-log.mjs\" pre"
+          }
+        ]
       }
     ],
     "PostToolUse": [

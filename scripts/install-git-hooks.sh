@@ -63,12 +63,23 @@ run_node "validate-docs" scripts/validate-docs.mjs
 run_node "validate-guard（冻结文件守卫自测）" scripts/validate-guard.mjs
 run_node "validate-stop-checklist（收尾钩子自测）" scripts/validate-stop-checklist.mjs
 run_node "validate-session-context（开场钩子自测）" scripts/validate-session-context.mjs
+run_node "validate-research-log（调研落盘钩子自测）" scripts/validate-research-log.mjs
 run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
 run_node "validate-prepush-contract-source（契约来源自测）" scripts/validate-prepush-contract-source.mjs
 run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --package-path Packages/AidRunAPI
 
-# 下面这几道门禁读的后端契约文件（3 份，4 道门禁），
+# 下面这几道门禁读的后端契约文件（5 份，5 道门禁），
 # **一律取自后端仓库的 origin/main，不是 ../demo 的工作区文件**。
+#
+# ⚠️ **这张清单必须覆盖每一个门禁真正读的后端文件。** 少列一个，那个门禁就会回退成读工作区，
+# 于是能悄悄拿未合并的分支报绿 —— 2026-08-10 新加 validate-voice-intent-words 时就漏了它读的
+# 两个 .java（当次是 api_spec.yaml 恰好也漂了才被旧的新鲜度检查拦下，纯属运气）。加门禁时一起加这里。
+#
+# 读错文件的代价是双向的，两个方向都实际发生过：
+#   - 2026-08-06 / 08-10：../demo 停在特性分支，门禁拿未合并的契约报绿；
+#   - 2026-08-12：../demo 停在 feat/voice-query-intent（语料 96 条，origin/main 已 101 条），
+#     门禁把一份**正确**的语料镜像改动报成「后端语料里已不存在」，差点被据此删掉。
+#     方向最坏的那种错误 —— 把对的判成错的。
 #
 # 为什么不能读工作区：../demo 是共享 checkout，随时可能停在某个特性分支、或带着同事
 # 未提交的契约 WIP。而 CI 是从后端默认分支拉契约的（verify.yml 把 ref: main checkout
@@ -161,6 +172,18 @@ if [ -f "$CODES" ]; then
   run "validate-error-codes" node scripts/validate-error-codes.mjs "$CODES"
 else
   echo "[pre-push] ⚠ 跳过错误码对撞：从 $(source_label "${AIDRUN_BACKEND_ERROR_CODES:-}" AIDRUN_BACKEND_ERROR_CODES) 取不到 ErrorCode.java。这不算通过。"
+fi
+
+# 这一道读两个 .java：VoiceSlotParser（INTENT_* 正则）与 VoiceOrderService（序数播报用词）。
+# 两个都必须走 backend_file —— 2026-08-12 合 #16 时发现它俩漏在外面，仍直接指向工作区路径，
+# 于是第 5 道门禁会绕过「取自 origin/main」这条约定，正是本文件上面那段注释警告的情形。
+VOICE_PARSER="$(backend_file src/main/java/com/example/demo/util/VoiceSlotParser.java VoiceSlotParser.java "${AIDRUN_BACKEND_VOICE_PARSER:-}")"
+VOICE_SERVICE="$(backend_file src/main/java/com/example/demo/service/VoiceOrderService.java VoiceOrderService.java "${AIDRUN_BACKEND_VOICE_SERVICE:-}")"
+if [ -f "$VOICE_PARSER" ] && [ -f "$VOICE_SERVICE" ]; then
+  run "validate-voice-intent-words" env AIDRUN_BACKEND_VOICE_SERVICE="$VOICE_SERVICE" \
+    node scripts/validate-voice-intent-words.mjs "$VOICE_PARSER"
+else
+  echo "[pre-push] ⚠ 跳过确认轮词表对撞：从 $(source_label "${AIDRUN_BACKEND_VOICE_PARSER:-}" AIDRUN_BACKEND_VOICE_PARSER) 取不到 VoiceSlotParser.java / VoiceOrderService.java。这不算通过。"
 fi
 
 if [ "$fail" -ne 0 ]; then

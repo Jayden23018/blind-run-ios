@@ -305,6 +305,14 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     let startAddress: String?
     let startLatitude: Double?
     let startLongitude: Double?
+    /// 终点文字描述。`nil` = **用户未指定终点**，不是「原路返回起点」——
+    /// 两者混淆会让志愿者去确认一个盲人从没说过的地点，所以 nil 时任何 UI 都不许提终点
+    /// （后端 `api_spec.yaml:3535` 与 `websocket-protocol.md:429` 同一条口径）。
+    let endAddress: String?
+    /// 允许「有地址、无坐标」：用户说了地名但高德查不到时后端就是这么返回的。
+    /// **起点没有这个宽容度**（起点无坐标就下不了单），别把两边的规则抄成一份。
+    let endLatitude: Double?
+    let endLongitude: Double?
     let plannedStart: String?
     let plannedEnd: String?
     let blindName: String?
@@ -331,6 +339,13 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             startAddress: startAddress,
             startLatitude: startLatitude,
             startLongitude: startLongitude,
+            // 终点三项必须原样带过去。漏掉不会报错，只会让终点在每一次状态轮询后
+            // 静默消失 —— 志愿者详情页上一秒有「结束地点」下一秒没有，而没人会去查
+            // 一个「本来就可能为空」的字段。回归用例
+            // `blindRunTests.testReplacingStatusKeepsTheEndLocation`。
+            endAddress: endAddress,
+            endLatitude: endLatitude,
+            endLongitude: endLongitude,
             plannedStart: plannedStart,
             plannedEnd: plannedEnd,
             blindName: blindName,
@@ -394,10 +409,46 @@ struct PagedOrderResponse: Codable, Sendable {
 
 // MARK: - Order Create
 
+/// 终点三元组打成一个值，**不许拆成三个平铺属性**。
+///
+/// 拆开的后果有先例：后端 `VoiceOrderService.Slots.fillFrom()` 的教训注释说的就是这个 ——
+/// 地址三元组分别赋值会拼出「新地址 + 旧坐标」，读回念的是新地点、实际派到旧坐标，
+/// 而盲人完全听不出来。打包成一个值之后，要换就整个换。
+///
+/// `latitude` / `longitude` 要么同在要么同缺：只带半个后端返 400「终点经纬度必须同时提供」。
+/// 这个不变式由 `init` 守着，构造完就不可能坏。
+struct BookingEndPlace: Equatable, Sendable {
+    let address: String
+    let latitude: Double?
+    let longitude: Double?
+
+    /// 半个坐标一律降级成「只有地名」，不是丢弃整个终点 ——
+    /// 地名本身对志愿者仍有展示价值，而半个坐标没有任何意义。
+    init(address: String, latitude: Double?, longitude: Double?) {
+        self.address = address
+        if let latitude, let longitude {
+            self.latitude = latitude
+            self.longitude = longitude
+        } else {
+            self.latitude = nil
+            self.longitude = nil
+        }
+    }
+
+    /// 说了地名但高德查不到坐标。后端叫 `endAddressUnresolved`，
+    /// 但判据在这边是**结构**而不是那个标志位 —— 同一事实有两个来源时只信结构。
+    var isUnresolved: Bool { latitude == nil }
+}
+
 struct CreateOrderRequest: Codable, Sendable {
     let startLatitude: Double
     let startLongitude: Double
     let startAddress: String
+    /// 终点三项全部可选，`nil` = 用户未指定。坐标只传一个会被后端 400 拦下 ——
+    /// 构造请求时一律从 `BookingEndPlace` 取，别手拼三个字段。
+    let endAddress: String?
+    let endLatitude: Double?
+    let endLongitude: Double?
     let plannedStartTime: String
     let plannedEndTime: String
     let expectedDurationMinutes: Int?

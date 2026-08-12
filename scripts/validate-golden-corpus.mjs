@@ -56,7 +56,12 @@ function mirrorBlocks() {
     // `let x: [(transcript: String, expected: Int)] = [` 的类型注解里就有一个 `]`，
     // 从那里截断会把清单抓成空，然后每条语料都报「不在镜像里」。
     const open = rest.match(/(?:=|\bin)\s*\[/);
-    const end = open ? rest.indexOf(']', open.index + open[0].length) : -1;
+    // 找收尾的 `]` 时**跳过行注释里的内容**。清单里的条目常带一段解释，而解释里随手写一个
+    // 正则字符组（`[二2]`）或一句「见 docs/x.md[1]」就会在这里截断 —— 报出来的错是
+    // 「这几条不在镜像里」，看起来像漏写，实际是被截掉了。2026-08-10 连续踩了两次，
+    // 第二次踩在「提醒不要踩这个坑」的那句注释本身上。掩码而不是禁止写注释。
+    const masked = rest.replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length));
+    const end = open ? masked.indexOf(']', open.index + open[0].length) : -1;
     if (!open || end === -1) {
       console.error(`[golden-corpus] 标记「${key}」后面找不到清单（应形如 \`= [\` 或 \`in [\` … \`]\`）`);
       process.exit(1);

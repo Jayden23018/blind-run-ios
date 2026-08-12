@@ -2,7 +2,7 @@
 //
 // scripts/install-git-hooks.sh 生成的 pre-push 里「后端契约取自哪份文件」的回归测试。
 //
-// 为什么需要它：那 4 道契约门禁是本地唯一一道（CI 配不上 BACKEND_REPO_TOKEN，见
+// 为什么需要它：那 5 道契约门禁是本地唯一一道（CI 配不上 BACKEND_REPO_TOKEN，见
 // AGENTS.md §11），而 ../demo 是共享 checkout。一旦门禁改回读工作区文件，症状不是报错，
 // 而是**一条听起来很有道理的错误建议**：
 //
@@ -62,10 +62,16 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-prepush-src-'));
 const backend = path.join(tmp, 'backend');
 const app = path.join(tmp, 'app');
 
+// 5 份契约 = 5 道门禁真正读到的后端文件。**加门禁时这里要一起加** ——
+// 少一份，那道门禁就会绕过 backend_file 回退成读工作区，而本测试看不见它。
+// 2026-08-12 补上后两个：validate-voice-intent-words 读两个 .java，
+// 合 #16 时发现它们仍直接指向 ../demo 工作区路径，是这类漏网的现行例子。
 const FILES = {
   'docs/api_spec.yaml': (tag) => `openapi: 3.0.3\ninfo: {title: ${tag}, version: 1.0.0}\n`,
   'docs/voice-golden-corpus.json': (tag) => `{"corpus":"${tag}"}\n`,
   'src/main/java/com/example/demo/exception/ErrorCode.java': (tag) => `enum ErrorCode { ${tag} }\n`,
+  'src/main/java/com/example/demo/util/VoiceSlotParser.java': (tag) => `class VoiceSlotParser { ${tag} }\n`,
+  'src/main/java/com/example/demo/service/VoiceOrderService.java': (tag) => `class VoiceOrderService { ${tag} }\n`,
 };
 const writeContracts = (tag) => {
   for (const [rel, make] of Object.entries(FILES)) {
@@ -125,14 +131,14 @@ function runHook(env = {}) {
 // ── 用例 ────────────────────────────────────────────────────────────────────
 const cases = [
   {
-    name: '默认路径：3 份契约全部取自 origin/main，不读后端工作区的 WIP',
+    name: '默认路径：5 份契约全部取自 origin/main，不读后端工作区的 WIP',
     check: () => {
       const out = runHook();
       if (out.includes('COLLEAGUE_WIP')) {
         return `门禁读到了后端工作区未提交的契约。实得：\n${out}`;
       }
       const gates = out.split('\n').filter((l) => l.startsWith('GATE '));
-      return gates.length === 3 ? null : `期望 3 道 run 门禁都拿到文件，实得 ${gates.length}：\n${out}`;
+      return gates.length === 4 ? null : `期望 4 道 run 门禁都拿到文件，实得 ${gates.length}：\n${out}`;
     },
   },
   {
@@ -170,7 +176,7 @@ const cases = [
     check: () => {
       const out = runHook({ AIDRUN_BACKEND_DIR: path.join(tmp, 'nope') });
       const skipped = out.split('\n').filter((l) => l.includes('这不算通过。')).length;
-      if (skipped !== 3) return `期望 3 条「这不算通过」，实得 ${skipped}：\n${out}`;
+      if (skipped !== 4) return `期望 4 条「这不算通过」，实得 ${skipped}：\n${out}`;
       return out.includes('FAIL=0') ? null : `读不到契约不该判 push 失败：\n${out}`;
     },
   },
