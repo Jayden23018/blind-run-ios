@@ -18,10 +18,13 @@ final class RoleSelectionViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
+    private let apiClientOverride: (any APIClientProtocol)?
 
     // MARK: - Init
 
-    init() {}
+    init(apiClient: (any APIClientProtocol)? = nil) {
+        self.apiClientOverride = apiClient
+    }
 
     func configure(with appState: AppState, speechService: SpeechService) {
         self.appState = appState
@@ -47,15 +50,15 @@ final class RoleSelectionViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let switchRequest = SwitchRoleRequest(activeRole: role)
-            let updatedUser: UserDto = try await appState.apiClient.request(
-                method: .patch,
-                path: "/api/users/me/active-role",
+            let request = SetRoleRequest(role: role)
+            let response: SetRoleResponse = try await activeAPIClient(appState: appState).request(
+                method: .post,
+                path: "/api/user/role",
                 query: nil,
-                body: switchRequest,
+                body: request,
                 requiresAuth: true
             )
-            appState.updateCurrentUser(updatedUser, fallbackActiveRole: role)
+            appState.handleRoleSwitchSuccess(response: response, requestedRole: role)
             isLoading = false
         } catch let error as APIError {
             isLoading = false
@@ -70,7 +73,7 @@ final class RoleSelectionViewModel: ObservableObject {
     private func handleSwitchError(_ error: APIError) {
         switch error {
         case .serverError(let response):
-            if response.errorCode == .activeOrderRoleSwitchBlocked {
+            if response.errorCode == .roleAlreadySet {
                 errorMessage = response.message
                 showBlockedAlert = true
             } else {
@@ -78,14 +81,21 @@ final class RoleSelectionViewModel: ObservableObject {
             }
         case .networkError:
             errorMessage = "网络错误，请重试"
+        case .rateLimited(let info):
+            errorMessage = APIError.rateLimited(info).localizedMessage
         case .unauthorized:
-            errorMessage = "登录已过期，请重新登录。"
+            appState?.expireSession()
+            errorMessage = nil
         case .decodingError, .invalidURL, .unknown:
             errorMessage = "角色设置失败，请重试。"
         }
         if let message = errorMessage {
             speechService?.speakError(message)
         }
+    }
+
+    private func activeAPIClient(appState: AppState) -> any APIClientProtocol {
+        apiClientOverride ?? appState.apiClient
     }
 }
 
@@ -112,7 +122,7 @@ struct RoleSelectionView: View {
 
                     // 盲人跑者卡片
                     roleCard(
-                        role: .blindRunner,
+                        role: .blind,
                         icon: "figure.run",
                         title: "我是盲人跑者",
                         subtitle: "预约志愿者陪我跑步",
@@ -148,7 +158,7 @@ struct RoleSelectionView: View {
                     Spacer()
 
                     // 底部说明
-                    Text("一个手机号可同时拥有两个身份，后续可在设置中切换")
+                    Text("身份一经选定不可更改，请谨慎选择")
                         .font(.caption)
                         .foregroundColor(AppColors.textSecondary)
                         .multilineTextAlignment(.center)
@@ -156,7 +166,9 @@ struct RoleSelectionView: View {
 
                     // 环境切换入口
                     #if DEBUG
-                    environmentSwitcher
+                    if AppBuildChannel.current.allowsEnvironmentSwitcher {
+                        environmentSwitcher
+                    }
                     #endif
                 }
                 .padding(.horizontal, 32)
@@ -167,12 +179,13 @@ struct RoleSelectionView: View {
         .onAppear {
             viewModel.configure(with: appState, speechService: speechService)
             // TTS 播报警示语
-            speechService.speak("请选择您的角色。我是盲人跑者，预约志愿者陪我跑步。我是志愿者，陪伴盲人跑者完成跑步。")
+            // 身份不可逆，盲人用户只靠语音，这句警示必须进播报。
+            speechService.speak("请选择您的角色。我是盲人跑者，预约志愿者陪我跑步。我是志愿者，陪伴盲人跑者完成跑步。身份一经选定不可更改，请谨慎选择。")
         }
-        .alert("无法切换角色", isPresented: $viewModel.showBlockedAlert) {
+        .alert("身份已设定", isPresented: $viewModel.showBlockedAlert) {
             Button("确定", role: .cancel) {}
         } message: {
-            Text(viewModel.errorMessage ?? "存在进行中的订单，无法切换角色。")
+            Text(viewModel.errorMessage ?? "身份已设定，不可修改。")
         }
     }
 
@@ -206,10 +219,10 @@ struct RoleSelectionView: View {
             .cornerRadius(16)
         }
         .disabled(viewModel.isLoading)
-        .accessibilityLabel(role == .blindRunner
+        .accessibilityLabel(role == .blind
             ? "我是盲人跑者，预约志愿者陪我跑步"
             : "我是志愿者，陪伴盲人跑者完成跑步")
-        .accessibilityHint(role == .blindRunner
+        .accessibilityHint(role == .blind
             ? "点击后进入盲人跑者模式"
             : "点击后进入志愿者模式")
         .accessibilityAddTraits(.isButton)
@@ -220,7 +233,7 @@ struct RoleSelectionView: View {
     #if DEBUG
     private var environmentSwitcher: some View {
         Button {
-            let allEnvs = APIEnvironment.allCases
+            let allEnvs = AppState.debugTestEnvironments
             guard let currentIndex = allEnvs.firstIndex(of: appState.currentEnvironment) else { return }
             let nextIndex = (currentIndex + 1) % allEnvs.count
             appState.currentEnvironment = allEnvs[nextIndex]

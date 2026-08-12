@@ -48,6 +48,9 @@ final class LoginViewModel: ObservableObject {
     /// API 请求 loading 状态
     @Published var isLoading: Bool = false
 
+    /// 验证码发送 loading 状态
+    @Published var isSendingCode: Bool = false
+
     /// 用户可见的错误消息
     @Published var errorMessage: String? = nil
 
@@ -64,6 +67,8 @@ final class LoginViewModel: ObservableObject {
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
+    private let apiClientOverride: (any APIClientProtocol)?
+    private let loginSuccessHandler: ((LoginResponse) -> Void)?
 
     // MARK: - Timer
 
@@ -73,7 +78,7 @@ final class LoginViewModel: ObservableObject {
     // MARK: - Computed Properties
 
     var isPhoneValid: Bool {
-        let phoneRegex = #"^1\d{10}$"#
+        let phoneRegex = #"^1[3-9]\d{9}$"#
         return phoneNumber.range(of: phoneRegex, options: .regularExpression) != nil
     }
 
@@ -94,6 +99,9 @@ final class LoginViewModel: ObservableObject {
     }
 
     var countdownText: String {
+        if isSendingCode {
+            return "发送中..."
+        }
         if let countdown = countdown, countdown > 0 {
             return "重新发送(\(countdown)s)"
         }
@@ -108,14 +116,28 @@ final class LoginViewModel: ObservableObject {
         return countdown > 0
     }
 
+    var canRequestCode: Bool {
+        isPhoneValid && !isCountdownActive && !isSendingCode
+    }
+
     // MARK: - Init
 
-    init() {}
+    init(
+        apiClient: (any APIClientProtocol)? = nil,
+        loginSuccessHandler: ((LoginResponse) -> Void)? = nil
+    ) {
+        self.apiClientOverride = apiClient
+        self.loginSuccessHandler = loginSuccessHandler
+    }
 
     /// 注入依赖，在 View.onAppear 中调用
     func configure(with appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
+        if errorMessage == nil,
+           let sessionExpirationMessage = appState.consumeSessionExpirationMessage() {
+            errorMessage = sessionExpirationMessage
+        }
     }
 
     func sanitizePhoneInput(_ value: String) {
@@ -141,11 +163,41 @@ final class LoginViewModel: ObservableObject {
             speakPhoneValidationErrorIfNeeded(force: true)
             return
         }
+        guard !isSendingCode, !isCountdownActive else { return }
 
         errorMessage = nil
-        showCodeInput = true
-        startCountdown()
-        // Demo 阶段验证码固定为 123456，无需向后端发送请求
+        isSendingCode = true
+        let requestPhone = phoneNumber
+
+        // Long-lived test accounts may still use the fixed code 000000, but the
+        // send-code API must return before we show the input and countdown.
+        Task {
+            guard let apiClient = activeAPIClient else {
+                isSendingCode = false
+                errorMessage = "应用未初始化，请重启"
+                return
+            }
+            let request = SendCodeRequest(phone: requestPhone)
+            do {
+                let _: SendCodeResponse = try await apiClient.request(
+                    method: .post,
+                    path: "/api/auth/send-code",
+                    query: nil,
+                    body: request,
+                    requiresAuth: false
+                )
+                isSendingCode = false
+                showCodeInput = true
+                startCountdown()
+            } catch let error as APIError {
+                isSendingCode = false
+                handleSendCodeError(error)
+            } catch {
+                isSendingCode = false
+                errorMessage = "网络错误，请重试"
+                speechService?.speakError("网络错误，请重试")
+            }
+        }
     }
 
     func submitLogin() {
@@ -167,7 +219,7 @@ final class LoginViewModel: ObservableObject {
     // MARK: - Private
 
     private func performLogin() async {
-        guard let appState = appState else {
+        guard let apiClient = activeAPIClient else {
             errorMessage = "应用未初始化，请重启"
             return
         }
@@ -176,15 +228,19 @@ final class LoginViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let request = PhoneLoginRequest(phoneNumber: phoneNumber, verificationCode: verificationCode)
-            let response: AuthResponse = try await appState.apiClient.request(
+            let request = VerifyCodeRequest(phone: phoneNumber, code: verificationCode)
+            let response: LoginResponse = try await apiClient.request(
                 method: .post,
-                path: "/api/auth/phone-login",
+                path: "/api/auth/verify-code",
                 query: nil,
                 body: request,
                 requiresAuth: false
             )
-            appState.handleLoginSuccess(response: response)
+            if let appState {
+                appState.handleLoginSuccess(response: response)
+            } else {
+                loginSuccessHandler?(response)
+            }
             isLoading = false
         } catch let error as APIError {
             isLoading = false
@@ -211,12 +267,38 @@ final class LoginViewModel: ObservableObject {
             }
         case .networkError:
             errorMessage = "网络错误，请重试"
+        case .rateLimited(let info):
+            errorMessage = rateLimitMessage(info)
+            if let seconds = info.retryAfterSeconds { startCountdown(seconds: seconds) }
         case .unauthorized:
             errorMessage = "登录已过期，请重新登录。"
         case .decodingError, .invalidURL, .unknown:
             errorMessage = "登录失败，请稍后重试。"
         }
         // TTS 播报错误信息，确保盲人用户能听到错误提示
+        if let message = errorMessage {
+            speechService?.speakError(message)
+        }
+    }
+
+    private var activeAPIClient: (any APIClientProtocol)? {
+        apiClientOverride ?? appState?.apiClient
+    }
+
+    private func handleSendCodeError(_ error: APIError) {
+        switch error {
+        case .serverError(let response):
+            errorMessage = response.message
+        case .networkError:
+            errorMessage = "网络错误，请重试"
+        case .rateLimited(let info):
+            errorMessage = rateLimitMessage(info)
+            if let seconds = info.retryAfterSeconds { startCountdown(seconds: seconds) }
+        case .unauthorized:
+            errorMessage = "登录已过期，请重新登录。"
+        case .decodingError, .invalidURL, .unknown:
+            errorMessage = "验证码发送失败，请稍后重试。"
+        }
         if let message = errorMessage {
             speechService?.speakError(message)
         }
@@ -235,9 +317,9 @@ final class LoginViewModel: ObservableObject {
         speechService?.speakError(message)
     }
 
-    private func startCountdown() {
+    private func startCountdown(seconds: Int = 60) {
         timerCancellable?.cancel()
-        countdown = 60
+        countdown = max(0, seconds)
         timerCancellable = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
@@ -251,11 +333,18 @@ final class LoginViewModel: ObservableObject {
             }
     }
 
-    private static func normalizedPhoneNumber(_ value: String) -> String {
+    private func rateLimitMessage(_ info: RateLimitInfo) -> String {
+        if let seconds = info.retryAfterSeconds {
+            return "\(info.message) 请在\(seconds)秒后重试。"
+        }
+        return info.message
+    }
+
+    static func normalizedPhoneNumber(_ value: String) -> String {
         String(value.filter(\.isNumber).prefix(11))
     }
 
-    private static func normalizedVerificationCode(_ value: String) -> String {
+    static func normalizedVerificationCode(_ value: String) -> String {
         String(value.filter(\.isNumber).prefix(6))
     }
 }

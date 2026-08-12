@@ -46,14 +46,16 @@ final class MapViewModel: ObservableObject {
         self.locationService = locationService
 
         // 初始化为当前有效位置
-        centerCoordinate = locationService.effectiveLocation
+        centerCoordinate = locationService.effectiveBackendLocation
 
         // 订阅位置变化
         locationService.$currentLocation
             .compactMap { $0 }
             .receive(on: RunLoop.main)
             .sink { [weak self] coordinate in
-                self?.centerCoordinate = coordinate
+                self?.centerCoordinate = BackendCoordinateNormalizer.normalize(
+                    LocatedCoordinate(coordinate: coordinate, system: .wgs84Device)
+                )?.coordinate ?? coordinate
             }
             .store(in: &cancellables)
     }
@@ -63,7 +65,7 @@ final class MapViewModel: ObservableObject {
     /// 将地图中心移动到用户当前位置
     func centerOnUser() {
         guard let locationService else { return }
-        centerCoordinate = locationService.effectiveLocation
+        centerCoordinate = locationService.effectiveBackendLocation
     }
 
     /// 在地图上显示订单出发地点标注
@@ -81,16 +83,17 @@ final class MapViewModel: ObservableObject {
     }
 
     /// 在地图上显示多个订单位置标注（用于志愿者查看附近订单）
-    func showOrderLocations(_ orders: [AvailableOrderDto]) {
-        annotations = orders.map { order in
-            MapAnnotationItem(
-                id: order.id,
+    func showOrderLocations(_ orders: [OrderDetailResponse]) {
+        annotations = orders.compactMap { order in
+            guard let lat = order.startLatitude, let lng = order.startLongitude else { return nil }
+            return MapAnnotationItem(
+                id: String(order.orderId),
                 coordinate: CLLocationCoordinate2D(
-                    latitude: order.startLocation.latitude,
-                    longitude: order.startLocation.longitude
+                    latitude: lat,
+                    longitude: lng
                 ),
-                title: order.startLocation.addressText ?? "出发地点",
-                subtitle: order.blindRunnerNickname
+                title: order.startAddress ?? "出发地点",
+                subtitle: order.blindName
             )
         }
     }

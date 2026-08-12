@@ -1,0 +1,324 @@
+> # ⚠️ 本文档已作废（SUPERSEDED）
+>
+> **权威来源是后端仓库的 `demo/docs/test-accounts.md`（v2.0.0，2026-07-31）**，
+> 那份文档含两端完整的下单/接单前置条件清单和排障 SQL。本文件（v1.2.0，2026-05-23）仅作存档保留，**不要照本文操作**。
+>
+> **联调账号角色分配跟直觉相反，注意别搞反：**
+>
+> | 号码 | 角色 |
+> |------|------|
+> | `13823594196` | **志愿者**（VOLUNTEER，接单方） |
+> | `18664945138` | **盲人用户**（BLIND，下单方） |
+
+---
+
+# 测试账号 & 对接指南（前端）
+
+> **版本**: v1.2.0 | **更新**: 2026-05-23
+> **对接人**: 后端 Jayden
+
+---
+
+## 一、环境地址
+
+| 项目 | 地址 |
+|------|------|
+| API Base URL | `http://47.114.113.171` |
+| Swagger UI | 当前已关闭，联调契约以仓库 `docs/` 为准 |
+
+---
+
+## 二、用户测试账号
+
+云端已提供以下预置用户账号，供 iOS 与云端 API / WebSocket 联调使用。预置测试账号的演示验证码统一为 `000000`。
+`scripts/cloud-e2e.mjs` 默认使用主账号；如需覆盖账号，可设置 `AIDRUN_E2E_BLIND_PHONE` 和 `AIDRUN_E2E_VOLUNTEER_PHONE`。
+
+| 手机号 | 角色 | 状态 | 推荐用途 |
+|------|------|------|------|
+| `13800000001` | 盲人用户 | 已认证 | 云端 E2E 盲人端主账号 |
+| `13800000003` | 盲人用户 | 已认证 | 云端 E2E 盲人端备用账号 |
+| `13800000002` | 志愿者 | 注册完成、已认证 | 云端 E2E 志愿者主账号 |
+| `13800000004` | 志愿者 | 注册完成、已认证 | 云端 E2E 志愿者备用账号 |
+
+当前 iOS 前端使用云端验证码策略，不保存真实短信验证码。预置测试账号长期使用固定验证码 `000000`；非预置手机号若需自动化 E2E，必须由后端提供可自动化验证的测试验证码机制。
+
+### 2.1 创建测试用户（通用步骤）
+
+**步骤 1**: 发送验证码
+
+```
+POST /api/auth/send-code
+Content-Type: application/json
+
+{
+  "phone": "13800010001"
+}
+```
+
+响应：
+```json
+{
+  "success": true,
+  "message": "验证码已发送"
+}
+```
+
+> 当前云端预置测试账号实测验证码为 `000000`。非预置手机号不作为前端自动化 E2E 的默认前提。
+
+**步骤 2**: 验证码登录
+
+```
+POST /api/auth/verify-code
+Content-Type: application/json
+
+{
+  "phone": "13800010001",
+  "code": "000000"
+}
+```
+
+响应：
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOi...",
+  "userId": 1
+}
+```
+
+**步骤 3**: 设置角色（**必须保存返回的新 token！**）
+
+```
+POST /api/user/role
+Authorization: Bearer <步骤2的token>
+Content-Type: application/json
+
+{
+  "role": "BLIND"  // 或 "VOLUNTEER"
+}
+```
+
+响应：
+```json
+{
+  "success": true,
+  "role": "BLIND",
+  "token": "eyJhbGciOi..."  // ← 新 token，必须替换旧的！
+}
+```
+
+### 2.2 盲人用户完整流程
+
+```bash
+# 假设已登录并设置角色为 BLIND，拿到 token
+
+# 1. 完善盲人资料
+curl -X PUT http://47.114.113.171/api/blind/profile \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "测试盲人",
+    "runningPace": "MODERATE",
+    "hasGuideDog": false
+  }'
+
+# 2. 添加紧急联系人（至少1个才能下单）
+curl -X POST http://47.114.113.171/api/users/{userId}/emergency-contacts \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "紧急联系人",
+    "phone": "13900139001",
+    "relationship": "家人"
+  }'
+
+# 3. 连接 WebSocket
+# ws://47.114.113.171/ws/blind?token=<token>
+
+# 4. 创建订单
+curl -X POST http://47.114.113.171/api/orders \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "startLatitude": 39.9042,
+    "startLongitude": 116.4074,
+    "startAddress": "朝阳公园南门",
+    "plannedStartTime": "2099-06-01T18:00:00",
+    "plannedEndTime": "2099-06-01T19:00:00"
+  }'
+```
+
+### 2.3 志愿者用户完整流程
+
+```bash
+# 假设已登录并设置角色为 VOLUNTEER，拿到 token
+
+# 1. 完善志愿者资料
+curl -X PUT http://47.114.113.171/api/volunteer/profile \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "测试志愿者",
+    "paceRange": "MODERATE",
+    "acceptsGuideDog": true,
+    "availableTimeSlots": [
+      { "dayOfWeek": "SATURDAY", "startTime": "09:00", "endTime": "12:00" },
+      { "dayOfWeek": "SUNDAY", "startTime": "09:00", "endTime": "12:00" }
+    ]
+  }'
+
+# 2. 志愿者认证：身份证、人脸核验与管理员审核按 OpenAPI 契约接入
+
+# 3. 开启系统派单
+curl -X PUT http://47.114.113.171/api/volunteer/dispatch-status \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "wantsDispatch": true
+  }'
+
+# 4. 连接 WebSocket
+# ws://47.114.113.171/ws/volunteer?token=<token>
+
+# 5. 上报位置
+# 通过 WebSocket 发送: {"type":"LOCATION_UPDATE","lat":39.9050,"lng":116.4080}
+# 后端只会向满足派单条件的在线志愿者发送 NEW_ORDER；iOS 端不主动从公开订单池选单。
+# 未收到 NEW_ORDER 前，不要调用 /respond。
+
+# 6. 接单
+curl -X POST http://47.114.113.171/api/orders/{orderId}/respond \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "ACCEPT"
+  }'
+```
+
+### 2.4 管理员审核测试志愿者
+
+管理员/客服登录和审核接口来自后端仓库的 `docs/api_spec.yaml`：
+
+- `POST /api/cs/auth/login`
+- `GET/POST /api/admin/volunteers/review/id`
+- `GET/POST /api/admin/volunteers/review/cert`
+- 主注册流程只需要审核身份证；资质证书审核是可选加分项，不影响接单资格。
+
+长期测试管理员账号：
+
+- 用户名：`admin`
+- 密码：`admin123`
+
+管理员审核页后续做成独立 Web 管理端；当前 iOS 用户端不增加管理员角色入口或审核页面。
+
+脚本用法：
+
+```bash
+AIDRUN_ADMIN_USERNAME=admin \
+AIDRUN_ADMIN_PASSWORD=admin123 \
+AIDRUN_ADMIN_REVIEW_PHONE=13800000002 \
+AIDRUN_ADMIN_REVIEW_KIND=id \
+scripts/admin-review-volunteer.mjs
+```
+
+也可以直接指定 userId：
+
+```bash
+AIDRUN_ADMIN_USERNAME=admin \
+AIDRUN_ADMIN_PASSWORD=admin123 \
+AIDRUN_ADMIN_REVIEW_USER_ID=<userId> \
+AIDRUN_ADMIN_REVIEW_KIND=id \
+scripts/admin-review-volunteer.mjs
+```
+
+长期测试账号可能已经审核完成；脚本会把“不待审核 / 不在待审核状态”视为 skipped 并成功结束，便于重复执行双真机验收。
+
+---
+
+## 三、Postman 快速导入
+
+### 3.1 导入 API 规范
+
+1. 打开 Postman → Import → 选择 File
+2. 选择后端仓库的 `docs/api_spec.yaml`（`/Users/mac/Downloads/demo/docs/api_spec.yaml`）
+3. Postman 会自动识别 OpenAPI 3.1 格式并生成所有请求
+
+### 3.2 配置认证
+
+1. 在 Postman Collection 中设置 Variables：
+   - `base_url` = `http://47.114.113.171`
+   - `token` = （登录后获取）
+
+2. 在 Collection Auth 中设置：
+   - Type: Bearer Token
+   - Token: `{{token}}`
+
+### 3.3 推荐的测试顺序
+
+1. **发送验证码** → `POST /api/auth/send-code`
+2. **登录** → `POST /api/auth/verify-code`（当前测试验证码固定为 `000000`）
+3. **设置角色** → `POST /api/user/role`（**保存返回的新 token 到变量**）
+4. 根据角色继续后续操作
+
+---
+
+## 四、常见问题
+
+### Q: 验证码是什么？
+预置测试账号验证码固定为 `000000`，可长期用于自动化测试和上线验收。真实短信发送由后端验证码策略负责，iOS 不保存短信验证码。
+
+### Q: 设置角色后 403 了？
+设置角色后返回的新 token 包含角色信息。如果你还在用旧 token，会因为缺少角色而被 403 拒绝。**必须替换为新 token**。
+
+### Q: 为什么创建订单失败？
+创建订单需要：
+1. 用户角色为 BLIND
+2. 至少添加 1 个紧急联系人
+3. Token 中包含角色信息（已设置角色并替换 token）
+
+### Q: 志愿者收不到派单？
+志愿者必须：
+1. 完善志愿者资料并通过身份证、人脸核验和管理员审核
+2. 手动开启可服务状态
+3. WebSocket 保持连接
+4. 定时上报位置（至少一次）
+
+### Q: WebSocket 连接被拒绝？
+检查：
+- token 是否有效（未过期、未登出）
+- 连接的端点是否匹配角色（BLIND → `/ws/blind`，VOLUNTEER → `/ws/volunteer`）
+
+### Q: 手机号格式要求？
+11 位中国手机号：以 1 开头，第二位 3-9。正则：`^1[3-9]\d{9}$`
+
+---
+
+## 五、验证码获取方式
+
+预置测试账号验证码固定为 `000000`。如果预置账号返回验证码错误或过期，需要后端确认测试验证码策略是否已开启。
+
+---
+
+## 六、上线前后端验收项（2026-06-24）
+
+后端理论上已具备上线服务。以下项目必须用 `scripts/cloud-e2e.mjs`、Demo Cloud XCUITest、`111` 和 `iPad Pro (2)` 重新验收；若仍失败，不能由前端伪造状态或绕过业务校验修复：
+
+1. `GET /api/volunteer/dispatch-summary` 必须返回 `canDispatch`、不可派单原因、覆盖范围、统计、当前订单和近期订单；`PUT /api/volunteer/dispatch-status` 必须持久化 `wantsDispatch`。
+2. 接单失败不得返回 HTTP 500，应返回 `VOLUNTEER_NOT_AVAILABLE`、`ORDER_ALREADY_ACCEPTED` 等统一业务错误。
+3. 创建距当前时间不足 30 分钟的预约必须拒绝，并返回 `APPOINTMENT_TOO_SOON`。
+4. 验证码错误应返回统一 `INVALID_VERIFICATION_CODE` 错误结构；前端暂时兼容当前 `{ "error": ... }`。
+5. 当前用户读取自己的紧急联系人时应返回完整电话，或明确提供“不修改掩码电话”的更新语义。
+6. 已确认没有盲人确认按钮；`DRIVER_ARRIVED -> IN_PROGRESS` 由志愿者端调用 `POST /api/orders/{id}/start-service` 触发，需在真机和 `scripts/cloud-e2e.mjs` 中验收。
+
+### 6.1 志愿者派单资格账号探针（2026-07-18）
+
+- 使用 `scripts/volunteer-dispatch-readiness-probe.mjs` 对指定志愿者账号执行脱敏诊断；脚本不会切换角色、修改资料或修改可服务开关，只创建登录会话、读取派单相关接口、连接志愿者 WebSocket 并上报一次测试位置。
+- `13360846885` 在先调用 `send-code` 后继续使用 `000000`，实测仍返回 `INVALID_VERIFICATION_CODE`，因此尚未取得该账号 profile、registration status 和 dispatch summary 的权威快照。
+- 标准志愿者账号 `13800000002` 回归通过：初始摘要因 `OFFLINE` 且无最近位置返回 `canDispatch = false`，WebSocket 建连并上报一次位置后 2 秒内变为 `canDispatch = true`、`isOnline = true`、覆盖半径 10 公里且原因数组为空。这证明位置上报后的摘要传播链路可用，也验证 iOS 必须在传播后重查而不能停留在旧快照。
+- 派单摘要刷新改动已在真机 `111` 和 `iPad Pro (2)` 分别完成全量 `blindRunTests` 回归：两台设备均为 208 通过、1 个文档路径相关测试按预期跳过、0 失败；iPad 首轮曾发生单个测试进程被系统 kill，失败用例独立通过且第二次全量回归完全通过。
+- `需要人工确认`：后端应将该号码加入长期固定测试码策略，或由账号持有人提供本次短信验证码后重跑探针。不得通过 iOS 绕过验证码或伪造派单资格。
+## 账户生命周期测试注意事项
+
+- 测试账号恢复时必须以 `GET /api/auth/me` 为准，不得仅信任本地角色。
+- 调用 `POST /api/auth/logout` 后，原 Token 的 HTTP 与 WebSocket 请求均应返回未授权。
+- 自助删除仅允许当前用户 ID；活动订单返回 `ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED`。删除成功后该账户全部 Token 失效，原手机号可重新执行发送验证码和注册流程。
+- 频繁操作可能返回 `RATE_LIMITED`；测试应记录 `Retry-After` 整数秒及可选桶标识，不应绕过服务端限流。

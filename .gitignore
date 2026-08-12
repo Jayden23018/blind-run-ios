@@ -7,6 +7,8 @@ xcuserdata/
 
 ## Obj-C/Swift specific
 *.hmap
+.derivedData*/
+.xcodebuild-derived*/
 
 ## App packaging
 *.ipa
@@ -64,7 +66,16 @@ fastlane/test_output
 # Local configuration (AMap keys, secrets)
 LocalConfig.xcconfig
 
-# Maven / Spring Boot backend
-backend/target/
-backend/.m2/
-backend/.mvn/wrapper/dists/
+# Editor leftovers
+*.swp
+*.swo
+*~
+
+# Claude Code：worktrees 是临时副本（曾有两个 28MB 僵尸卡在旧 commit）；
+# settings.local.json 是个人机器设置，团队共享的规则放 .claude/settings.json。
+.claude/worktrees/
+.claude/settings.local.json
+
+# 对标产品截图：App Store 官方素材，31MB 二进制，不进 git 历史。
+# 要看就自己抓一次：node scripts/fetch-reference-screenshots.mjs
+docs/ui/reference-screenshots/

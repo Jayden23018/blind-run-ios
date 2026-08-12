@@ -20,6 +20,13 @@ final class blindRunUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        addTeardownBlock {
+            await MainActor.run { app.terminate() }
+        }
+        app.launchEnvironment["AIDRUN_UI_TEST_RESET_STATE"] = "1"
+        app.launchEnvironment["AIDRUN_UI_TEST_RESET_TOKEN"] = UUID().uuidString
+        app.launchEnvironment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] = "1"
+        app.launchEnvironment["AIDRUN_UI_TEST_API_ENV"] = "mock"
         app.launch()
 
         // Insert steps here to perform after app launch but before taking a screenshot,

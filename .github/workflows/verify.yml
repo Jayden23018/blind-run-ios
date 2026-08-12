@@ -1,0 +1,238 @@
+name: verify
+
+# 本仓库此前零 CI —— AGENTS.md 第 11 节列的验证命令全靠人工记得跑。
+#
+# 真机 XCTest 进不了 CI：高德 SDK 没有 arm64-sim slice，模拟器通道永久不可用，
+# 而 GitHub / Xcode Cloud 的 runner 只有模拟器。所以这里做的是**编译门禁 + 规格门禁**，
+# 真机测试仍由 scripts/device-test.sh 在本地跑。
+# 不能因为最后一环上不了 CI，就让前面几环也全靠人工。
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'integrate/**']
+  # 每天跑一次，为的是 push 触发天生抓不到的那一类：**你 push 之后后端才改契约**。
+  # pre-push 只在你 push 那一刻看一眼，之后代码悄悄过期，没有任何东西会说话。
+  #
+  # 定时任务只在仓库的**默认分支**上跑：
+  #   · fork（Jayden23018）默认分支是 integrate/swift-migration，且配了 BACKEND_REPO_TOKEN → 真跑
+  #   · 上游（JerryZhao-1）默认分支是 main，main 上没有本文件 → 不会触发，不产生噪音
+  # 错开整点：整点是 GitHub 的排队高峰，会被延迟很久。
+  schedule:
+    - cron: '17 1 * * *'   # UTC 01:17 = 北京时间 09:17
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 便宜的先跑。macOS runner 是 Linux 的 10 倍价，别让它替语法错误买单。
+  specs:
+    name: 规格与文档
+    runs-on: ubuntu-latest
+    # `secrets` 在 step 的 `if:` 里不可用（官方 context availability 表：
+    # jobs.<job_id>.steps.if 只允许 github/needs/strategy/matrix/job/runner/env/vars/steps/inputs）。
+    # 直接写会让整个 workflow **启动失败**——0 个 job、没有日志，只有一封 run failed 邮件。
+    # job 级 env 允许 secrets，转一道再在 if 里读 env。
+    env:
+      HAS_BACKEND_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 契约唯一源在后端仓库，本仓库不留副本（AGENTS.md 第 7 节）。
+      # 两个仓库不同 owner，所以需要 PAT。没配就跳过并**大声说出来** ——
+      # 静默跳过等于假绿，那正是这套 CI 要消灭的东西。
+      - name: Checkout backend contract
+        id: backend
+        if: env.HAS_BACKEND_TOKEN == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: Jayden23018/blind-run-backend
+          ref: ${{ vars.BACKEND_REF || 'main' }}
+          token: ${{ secrets.BACKEND_REPO_TOKEN }}
+          path: .backend
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 钉版本，理由和下面钉 Xcode 一样：`@latest` 会让上游发一个版就把 CI 变红，
+      # 而仓库里一行没改。1.8.0 新增了「MODIFIED 需求必须抄全现有 scenario」这条 strict 规则，
+      # 本地装的 1.7.0 看不见它 —— pre-push 绿、CI 红的漂移就是这么来的。
+      # 升版本时同步升本地：npm i -g @fission-ai/openspec@<新版本>
+      - name: openspec validate --all --strict
+        run: npx -y @fission-ai/openspec@1.8.0 validate --all --strict --no-interactive
+
+      - name: validate maintained docs
+        run: node scripts/validate-docs.mjs
+
+      # 守卫本身没测试的话，放宽它的那次改动就没有任何东西兜底。
+      # 2026-08-06 把 project.pbxproj 从整文件冻结改成行级冻结时加的。
+      - name: validate frozen-file guard
+        run: node scripts/validate-guard.mjs
+
+      # Stop 钩子的循环兜底坏掉不会报错，只会让每次会话结束卡住。没有测试就发现不了。
+      - name: validate stop-checklist hook
+        run: node scripts/validate-stop-checklist.mjs
+
+      # SessionStart 钩子里「本机护栏装没装」的告警分支：在任何配置齐全的机器上
+      # 都走不到，坏了只会安静地不再提醒 —— 而提醒就是它的全部作用。
+      - name: validate session-context hook
+        run: node scripts/validate-session-context.mjs
+
+      # 调研落盘钩子。两种死法都是静默的：pre 吐非法 JSON 就当没注入过，
+      # researchTodo 崩掉 Stop 钩子就整个不拦 —— 都不报错，而约束已经没了。
+      - name: validate research-log hook
+        run: node scripts/validate-research-log.mjs
+
+      # 真机测试的「算不算通过」判定。CI 跑不了真机 XCTest，但这段纯逻辑跑得了 ——
+      # 而它错过两次，两次都是「看起来全绿，其实没数到」。
+      - name: validate xcresult verdict
+        run: node scripts/validate-xcresult-verdict.mjs
+
+      # pre-push 那 4 道契约门禁读哪份文件。读错不会报错，只会给出一条听起来很有道理的
+      # 错误建议（「把重新生成的结果一起提交」），照做就是把同事未合并的契约烘进 PR。
+      # 2026-08-09 实测踩到，所以这条自测跑在 CI 上 —— 本地钩子坏了本地是发现不了的。
+      - name: validate pre-push contract source
+        run: node scripts/validate-prepush-contract-source.mjs
+
+      - name: validate golden corpus alignment
+        run: |
+          if [ -f .backend/docs/voice-golden-corpus.json ]; then
+            node scripts/validate-golden-corpus.mjs .backend/docs/voice-golden-corpus.json
+          else
+            echo "::warning title=黄金语料未对齐校验::未配置 BACKEND_REPO_TOKEN，拿不到 voice-golden-corpus.json。这**不是**通过。"
+          fi
+
+      - name: validate error codes (frontend enum vs backend ErrorCode.java)
+        run: |
+          CODES=.backend/src/main/java/com/example/demo/exception/ErrorCode.java
+          if [ -f "$CODES" ]; then
+            node scripts/validate-error-codes.mjs "$CODES"
+          else
+            echo "::warning title=错误码未对撞::未配置 BACKEND_REPO_TOKEN，拿不到 ErrorCode.java。这**不是**通过。"
+          fi
+
+      - name: validate confirm-round intent words (local fast path vs backend VoiceSlotParser)
+        run: |
+          PARSER=.backend/src/main/java/com/example/demo/util/VoiceSlotParser.java
+          if [ -f "$PARSER" ]; then
+            node scripts/validate-voice-intent-words.mjs "$PARSER"
+          else
+            echo "::warning title=确认轮词表未对撞::未配置 BACKEND_REPO_TOKEN，拿不到 VoiceSlotParser.java。这**不是**通过。"
+          fi
+
+      - name: validate spec coverage (frontend vs backend contract)
+        run: |
+          if [ -f .backend/docs/api_spec.yaml ]; then
+            AIDRUN_API_SPEC=.backend/docs/api_spec.yaml node scripts/validate-spec-coverage.mjs
+          else
+            echo "::warning title=契约覆盖未校验::未配置 BACKEND_REPO_TOKEN，拿不到后端 api_spec.yaml，本步骤未执行。"
+            echo "这**不是**通过。本地推送前用 pre-push 钩子或手动跑："
+            echo "  node scripts/validate-spec-coverage.mjs   # 读 ../demo/docs/api_spec.yaml"
+            exit 0
+          fi
+
+  build:
+    name: 编译门禁（device SDK）
+    runs-on: macos-15
+    needs: specs
+    env:
+      HAS_BACKEND_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}   # 理由同 specs job
+    steps:
+      - uses: actions/checkout@v4
+
+      # 生成代码要拿后端契约重新生成后对撞，所以这个 job 也需要后端仓库。
+      # 与 specs job 同样的条件与同样的「拿不到就大声说」原则。
+      - name: Checkout backend contract
+        if: env.HAS_BACKEND_TOKEN == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: Jayden23018/blind-run-backend
+          ref: ${{ vars.BACKEND_REF || 'main' }}
+          token: ${{ secrets.BACKEND_REPO_TOKEN }}
+          path: .backend
+
+      # runner 默认 Xcode 版本会被 GitHub 不打招呼地换掉，静默炸构建。显式钉住。
+      - name: Select Xcode
+        env:
+          # 经 env 传入而不是直接插进 shell 串 —— 仓库变量虽然只有管理员能改，
+          # 但把「表达式插值进 run:」当成默认习惯是错的，见 GitHub Actions 注入指南。
+          WANT: ${{ vars.XCODE_VERSION || '26' }}
+        run: |
+          set -e
+          APP="$(ls -d /Applications/Xcode_${WANT}*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$APP" ]; then
+            echo "::error::runner 上没有 Xcode ${WANT}.x。现有：$(ls -d /Applications/Xcode*.app | tr '\n' ' ')"
+            echo "改仓库变量 XCODE_VERSION 指到实际存在的版本。"
+            exit 1
+          fi
+          sudo xcode-select -s "$APP/Contents/Developer"
+          xcodebuild -version
+
+      # 本仓库唯一能在 CI 上真正**执行**的测试。AidRunAPI 包不依赖高德，
+      # 所以它不受「模拟器永久不可用」的限制。别的测试仍然只能真机跑。
+      # 放在 pod install 之前：它不需要 Pods，且失败得快。
+      - name: swift test — AidRunAPI 包（CI 唯一可执行的测试）
+        run: swift test --package-path Packages/AidRunAPI
+
+      # 契约改了却没重新生成，生成代码就成了过期的快照 —— 那比没有它更糟，
+      # 因为它看起来还是绿的。这一步让「忘记重新生成」变成红。
+      - name: 重新生成 API 客户端并比对
+        run: |
+          set -euo pipefail
+          SPEC=.backend/docs/api_spec.yaml
+          if [ ! -f "$SPEC" ]; then
+            echo "::warning title=生成代码未比对::未配置 BACKEND_REPO_TOKEN，拿不到后端 api_spec.yaml。这**不是**通过。"
+            echo "本地推送前手动跑：scripts/generate-api-client.sh && git diff --exit-code Packages/AidRunAPI/Sources/AidRunAPI"
+            exit 0
+          fi
+          GEN_DIR=Packages/AidRunAPI/Sources/AidRunAPI
+          scripts/generate-api-client.sh "$SPEC"
+          # 用 status --porcelain 而不是 diff --exit-code：diff 看不见**未跟踪**文件，
+          # 契约新增一条路径时生成的新文件会被它漏掉，门禁就变成静默空过。
+          DIRTY="$(git status --porcelain -- "$GEN_DIR")"
+          if [ -n "$DIRTY" ]; then
+            echo "::error title=生成代码与契约不同步::后端契约变了但生成代码没跟上（或生成产物被手改过）。"
+            echo "生成代码是机器产物，不要手改。本地跑 scripts/generate-api-client.sh 后把结果一起提交。"
+            echo "$DIRTY"
+            git diff -- "$GEN_DIR" | head -100
+            exit 1
+          fi
+
+      - name: Local config (compile-only placeholder key)
+        # 真实高德 key 绝不进仓库、绝不进 CI（AGENTS.md 第 8 节）。
+        # 编译不需要有效 key，占位值足够。
+        run: cp LocalConfig.xcconfig.example LocalConfig.xcconfig
+
+      - uses: actions/cache@v4
+        with:
+          path: Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('Podfile.lock') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - name: pod install
+        run: pod install --repo-update
+
+      # 只 build-for-testing，不 test：模拟器不可用，真机不在 runner 上。
+      # 这一步能挡住的是「编译不过」和「测试 target 不编译」，那已经是目前人工漏得最多的一类。
+      - name: build-for-testing (generic iOS device)
+        run: |
+          set -o pipefail
+          if command -v xcbeautify >/dev/null; then
+            FILTER=(xcbeautify --renderer github-actions)
+          else
+            FILTER=(cat)   # runner 镜像里没有就原样输出，别为了好看让门禁挂掉
+          fi
+          xcodebuild build-for-testing \
+            -workspace blindRun.xcworkspace \
+            -scheme blindRun \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            | "${FILTER[@]}"
+
+      - name: Reminder — 真机测试未在 CI 覆盖
+        if: success()
+        run: |
+          echo "::notice title=真机 XCTest 未在 CI 执行::编译通过 ≠ 测试通过。合并前请在本地跑 scripts/device-test.sh 并贴出 passed/failed/skipped。"

@@ -1,5 +1,11 @@
 # 03 — 用户故事
 
+> Cloud contract note: canonical order status values are `PENDING_MATCH`, `PENDING_ACCEPT`,
+> `DRIVER_EN_ROUTE`, `DRIVER_ARRIVED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`,
+> `REMATCHING`, and `NO_VOLUNTEER`. Older lower-case names in historical examples map to
+> those values only for reading context; new iOS/backend work must use the canonical values.
+> The current iOS release shows the one-tap SOS entry to the blind runner in `IN_PROGRESS` only, and never to the volunteer. It calls the real `POST /api/emergency/trigger`. Emergency is not an order status and never mutates `RunOrderStatus`.
+
 ## Epic 1：登录认证 (US-AUTH)
 
 ### US-AUTH-001：手机号登录
@@ -35,13 +41,13 @@
 **验收标准**：
 
 **Given** 用户在验证码输入页
-**When** 用户输入正确验证码 `123456`
-**Then** 后端返回 JWT accessToken，前端存储至 UserDefaults
+**When** 用户输入正确验证码 `000000`
+**Then** 后端返回 JWT accessToken，前端存储至 Keychain（`KeychainTokenStore`）
 
 ---
 
 **Given** 用户在验证码输入页
-**When** 用户输入非 `123456` 的验证码
+**When** 用户输入非 `000000` 的验证码
 **Then** 系统显示错误提示"验证码错误，请重新输入"，不清除已输入内容
 
 ---
@@ -68,13 +74,13 @@
 
 **验收标准**：
 
-**Given** 用户在之前登录过且 UserDefaults 中存在有效 JWT
+**Given** 用户在之前登录过且 Keychain 中存在有效 JWT
 **When** App 启动
 **Then** 验证 token 有效性，直接进入对应角色首页
 
 ---
 
-**Given** UserDefaults 中的 token 已过期或无效
+**Given** Keychain 中的 token 已过期或无效
 **When** App 启动
 **Then** 清除过期 token，导航至登录页
 
@@ -92,7 +98,7 @@
 
 **Given** 用户在设置页
 **When** 用户点击"退出登录"并确认
-**Then** 清除 UserDefaults 中的 token，导航至登录页
+**Then** 清除 Keychain 中的 token，导航至登录页
 
 ---
 
@@ -122,11 +128,13 @@
 
 ### US-ROLE-002：角色切换成功
 
+**【未决 / 未实现】** 「一号一身份 vs 双身份」尚未有产品结论（见 `demo/docs/handoff.md` 2026-07-31「一号一身份是不是最终产品形态」）。后端当前**没有任何角色切换端点**，App 内切换角色入口已删除。本故事在结论出来前不代表现状，也不代表已排期。
+
 **作为**：已有角色的用户
 **我想要**：在盲人跑者和志愿者之间切换 activeRole
 **以便**：使用另一角色的功能
 
-**优先级**：P0
+**优先级**：未决（原 P0）
 
 **验收标准**：
 
@@ -138,23 +146,25 @@
 
 ### US-ROLE-003：活跃订单拦截角色切换
 
+**【未决 / 未实现】** 依赖 US-ROLE-002，同样等产品结论。注意下面那句弹窗文案「您有进行中的订单，无法切换角色」曾被误接到 `ROLE_ALREADY_SET` 上、造成过线上误报，重做时必须要求后端给**专用**错误码。
+
 **作为**：有活跃订单的用户
 **我想要**：在切换角色时收到提示
 **以便**：了解无法切换的原因
 
-**优先级**：P0
+**优先级**：未决（原 P0）
 
 **验收标准**：
 
-**Given** 用户存在状态为 accepted / arrived / in_progress / emergency 的订单
+**Given** 用户存在状态为 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 的订单
 **When** 用户尝试切换角色
 **Then** 弹出警告弹窗"您有进行中的订单，无法切换角色"，角色切换不执行
 
 ---
 
-**Given** 用户存在状态为 matching / completed / cancelled 的订单
+**Given** 用户存在状态为 PENDING_MATCH / COMPLETED / CANCELLED 的订单
 **When** 用户尝试切换角色
-**Then** 角色切换正常执行（matching 中订单不影响切换，但切换后将看不到该订单）
+**Then** 角色切换正常执行（PENDING_MATCH 中订单不影响切换，但切换后将看不到该订单）
 
 ---
 
@@ -163,7 +173,7 @@
 ### US-BR-001：填写盲人资料
 
 **作为**：盲人跑者
-**我想要**：填写个人资料和紧急联系人信息
+**我想要**：填写个人资料
 **以便**：完成注册并开始使用服务
 
 **优先级**：P0
@@ -171,20 +181,96 @@
 **验收标准**：
 
 **Given** 首次选择盲人角色的用户在资料填写页
-**When** 用户填写昵称、紧急联系人姓名、紧急联系人电话并点击"完成"
-**Then** 资料保存到后端，导航至盲人首页
+**When** 用户填写昵称并点击"完成"
+**Then** 资料保存到后端，继续引导至紧急联系人管理页（见 US-BR-001b）
 
 ---
 
 **Given** 用户在资料填写页
-**When** 用户未填写昵称或紧急联系人电话
+**When** 用户未填写昵称
 **Then** 系统提示"请填写必填信息"，阻止提交
 
 ---
 
-**Given** 用户在资料填写页
-**When** 用户输入的紧急联系人电话不是 11 位手机号
-**Then** 系统提示"请输入正确的手机号"
+### US-BR-001b：管理紧急联系人
+
+**作为**：盲人跑者
+**我想要**：维护 1～5 个紧急联系人并指定其中 1 个为主联系人
+**以便**：满足下单前置条件，并在意外时能被联系到
+
+**优先级**：P0
+
+**验收标准**：
+
+**Given** 盲人用户没有任何紧急联系人
+**When** 用户尝试创建预约
+**Then** 系统阻止提交 `POST /api/orders`，展示并播报"请先添加紧急联系人"，并提供跳转到紧急联系人管理页的入口
+
+---
+
+**Given** 盲人用户已保存 1～5 个紧急联系人且恰好 1 个为主联系人
+**When** 其余下单前置条件（定位权限、出发地点、预约时间）也满足
+**Then** 允许提交预约
+
+---
+
+**Given** 用户在紧急联系人管理页
+**When** 用户输入的联系人电话不是 11 位手机号
+**Then** 系统提示"请输入正确的手机号"，阻止提交
+
+---
+
+**Given** 用户已有 5 个紧急联系人
+**When** 用户尝试新增第 6 个
+**Then** 新增入口不可用，系统展示并播报最多 5 个的限制
+
+---
+
+**Given** 用户只剩 1 个紧急联系人
+**When** 用户尝试删除该联系人
+**Then** 系统阻止删除并说明至少需要保留 1 个联系人
+
+---
+
+**Given** 用户存在多个紧急联系人
+**When** 用户对某个非主联系人确认"设为主联系人"
+**Then** 该联系人成为主联系人，原主联系人自动取消，页面刷新后恰好 1 个主联系人
+
+---
+
+### US-BR-001c：实名认证（下单硬门槛）
+
+**作为**：盲人跑者
+**我想要**：提交身份证姓名和号码完成实名认证
+**以便**：能够预约跑步
+
+**优先级**：P1
+
+**说明**：2026-07-30 后端按 `demo/docs/handoff.md` Q1 的方案 ① 落地，`OrderCreationService.createOrder` 校验 `BlindProfile.verifyStatus == VERIFIED`，否则 403 `IDENTITY_NOT_VERIFIED`。该校验排在紧急联系人（403 `EMERGENCY_CONTACT_REQUIRED`）**之前**，客户端门槛顺序必须与之一致。
+
+**验收标准**：
+
+**Given** 盲人用户的 `verifyStatus` 为 `NOT_VERIFIED` / `FAILED`，或后端未返回该字段
+**When** 用户进入创建预约流程并尝试提交
+**Then** 系统阻止提交，并播报实名认证这一档缺失（实名与紧急联系人同时缺失时**只**播报实名），文案指向「设置 → 实名认证」这条能走通的路径
+
+---
+
+**Given** 用户在引导流的实名提示页选择「稍后再说」
+**When** 用户进入首页
+**Then** 可以查看历史订单和设置，但创建预约仍被实名门槛拦截；可随时从「设置 → 实名认证」回到实名页
+
+---
+
+**Given** 用户在实名认证页提交了姓名和身份证号
+**When** 后端核验通过
+**Then** 优先采用响应体 `data.verifyStatus` 更新状态（字段缺失时回退到 `GET /api/blind/profile`），状态变为 `VERIFIED` 并播报结果，客户端清除内存中的身份证号
+
+---
+
+**Given** 用户在实名认证页提交了姓名和身份证号
+**When** 后端核验不通过
+**Then** 状态为 `FAILED`，系统展示安全的失败原因和重试入口，播报内容不包含身份证号
 
 ---
 
@@ -200,8 +286,9 @@
 
 **Given** 盲人跑者进入首页，且无活跃订单
 **When** 页面加载完成
-**Then** 显示高德地图（标注当前位置）、"开始约跑"按钮（最小高度 64pt）、角色切换入口
-**And** TTS 播报"欢迎来到助盲跑"
+**Then** 首个主要内容说明当前没有进行中的预约，并显示"开始约跑"按钮（最小高度 64pt）和"重复当前状态"（~~角色切换入口~~ **【未决 / 未实现】入口已删除**，见 US-ROLE-002）
+**And** 当前位置文字和高德地图作为辅助位置确认展示在主操作之后，VoiceOver 遍历顺序不得先于"开始约跑"
+**And** TTS/VoiceOver 公告播报"欢迎来到助盲跑"并包含当前位置或定位兜底说明
 
 ---
 
@@ -215,10 +302,11 @@
 
 **验收标准**：
 
-**Given** 盲人跑者进入首页，且存在活跃订单（matching / accepted / arrived / in_progress）
+**Given** 盲人跑者进入首页，且存在活跃订单（PENDING_MATCH / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS / REMATCHING）
 **When** 页面加载完成
-**Then** 不显示"开始约跑"按钮，改为显示订单状态卡片（含订单状态、时间、地点）
-**And** TTS 播报当前订单状态
+**Then** 不显示"开始约跑"按钮，首个主要内容改为订单状态卡片（含订单状态、时间、地点）和"查看当前订单"
+**And** 地图或位置辅助内容不得先于订单状态、"查看当前订单"和"重复当前状态"
+**And** TTS/VoiceOver 公告播报当前订单状态、预约时间和出发地点
 
 ---
 
@@ -226,16 +314,25 @@
 
 **作为**：盲人跑者
 **我想要**：创建跑步预约订单
-**以便**：等待志愿者接单
+**以便**：等待系统为我派单
 
 **优先级**：P0
 
+**下单前置条件**（全部满足才允许提交 `POST /api/orders`）：角色为 `BLIND`、盲人资料完整、**已保存 1～5 个紧急联系人且恰好 1 个为主联系人**、定位权限已授予、已确认出发地点、预约时间至少在 30 分钟后。实名认证状态不属于前置条件（见 US-BR-001c）。任一条件不满足时，App 展示并播报第一个可执行的缺失项，"重复当前状态"也必须包含该阻断原因。
+
 **验收标准**：
 
-**Given** 盲人跑者在创建预约页
-**When** 用户选择出发地点（默认当前定位）、预约时间、可选项（目的地、预计时长、预计距离、配速偏好、是否需要同性志愿者、备注）并点击"提交预约"
-**Then** 订单创建成功，状态为 matching，导航至订单状态等待页
-**And** TTS 播报"订单提交成功，等待志愿者接单"
+**Given** 盲人跑者在创建预约页且全部下单前置条件已满足
+**When** 用户按引导步骤确认出发地点（默认当前定位或高德 POI）、选择预约时间、可选填写跑步需求并在确认页点击"提交预约"
+**Then** 订单创建成功，状态为 PENDING_MATCH，导航至订单状态等待页
+**And** TTS 播报"订单提交成功，系统正在为你派单"
+
+---
+
+**Given** 用户在创建预约页
+**When** 用户点击"重复当前状态"
+**Then** App 播报当前步骤、已选地点或定位兜底、预约时间、已填写的可选需求和下一步动作
+**And** 未填写的可选项不出现在复述内容中
 
 ---
 
@@ -251,6 +348,12 @@
 
 ---
 
+**Given** 用户没有紧急联系人，或联系人中没有恰好 1 个主联系人
+**When** 用户尝试提交预约
+**Then** 系统阻止提交，展示并播报"请先添加紧急联系人并设置主联系人"，并提供跳转紧急联系人管理页的入口
+
+---
+
 ### US-BR-005：订单状态等待（轮询）
 
 **作为**：盲人跑者
@@ -261,113 +364,188 @@
 
 **验收标准**：
 
-**Given** 盲人跑者在订单状态等待页，订单状态为 matching
+**Given** 盲人跑者在订单状态等待页，订单状态为 PENDING_MATCH
 **When** 页面每 5 秒轮询一次
-**Then** 如果状态仍为 matching，显示"匹配中"动画
+**Then** 如果状态仍为 PENDING_MATCH，显示"系统派单中"动画
 
 ---
 
 **Given** 盲人跑者在订单状态等待页
-**When** 轮询发现状态变为 accepted
-**Then** 页面更新为"已接单"，显示志愿者昵称
-**And** TTS 播报"志愿者已接单"
+**When** 轮询发现状态变为 PENDING_ACCEPT
+**Then** 页面更新为"待出发"，显示志愿者信息
+**And** TTS 播报"志愿者已接单"，并朗读预约时间和出发地点，提示盲人跑者可以前往或等待在预约出发地点
+
+---
+
+**Given** 盲人跑者在订单状态等待页，订单状态为 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED
+**When** App 收到当前订单的 VOLUNTEER_LOCATION_UPDATE
+**Then** 使用志愿者最新坐标到订单出发点坐标计算距离，并显示"志愿者距出发地点约 X"
+**And** 不使用"距您"描述该距离；缺少任一坐标时不显示距离
 
 ---
 
 **Given** 盲人跑者在订单状态等待页
-**When** 轮询发现状态变为 arrived
-**Then** 页面更新为"志愿者已到达"，显示"确认开始服务"按钮
-**And** TTS 播报"志愿者已到达约定地点，请确认开始服务"
+**When** WebSocket 或轮询发现状态变为 DRIVER_ARRIVED
+**Then** 页面更新为"志愿者已到达"
+**And** TTS 播报"志愿者已到达约定地点"
 
 ---
 
 **Given** 盲人跑者在订单状态等待页
-**When** 轮询发现状态变为 cancelled（no_volunteer_available）
+**When** 轮询发现状态变为 CANCELLED（NO_VOLUNTEER）
 **Then** 显示"抱歉，暂无志愿者"，TTS 播报对应提示
-
----
-
-### US-BR-006：确认开始服务
-
-**作为**：盲人跑者
-**我想要**：确认志愿者已到达并开始服务
-**以便**：正式进入跑步服务阶段
-
-**优先级**：P0
-
-**验收标准**：
-
-**Given** 订单状态为 arrived，盲人跑者在订单页面
-**When** 用户点击"确认开始服务"（大按钮，最小 64pt）
-**Then** 订单状态变为 in_progress，显示服务中信息
-**And** TTS 播报"服务已开始，祝您跑步愉快"
 
 ---
 
 ### US-BR-007：服务中页面
 
 **作为**：盲人跑者
-**我想要**：在服务中页面查看志愿者信息和求助入口
-**以便**：遇到紧急情况时可以求助
+**我想要**：在服务中页面查看志愿者信息和服务状态
+**以便**：不用看地图也能理解当前陪跑状态
 
 **优先级**：P0
 
 **验收标准**：
 
-**Given** 订单状态为 in_progress，盲人跑者在服务中页面
+**Given** 订单状态为 IN_PROGRESS，盲人跑者在服务中页面
 **When** 页面加载
-**Then** 显示志愿者昵称和联系电话（接单后可查看）、一键求助按钮（红色醒目）、"重复当前状态"按钮
+**Then** 显示志愿者昵称和联系电话（接单后可查看）、服务进行提示、"重复当前状态"按钮
+**And** 显示"一键求助"入口（见 US-BR-008）
 
 ---
 
-### US-BR-008：触发紧急求助
+### US-BR-008：一键求助
 
 **作为**：盲人跑者
-**我想要**：在遇到紧急情况时触发求助
-**以便**：订单被标记为异常状态
+**我想要**：在陪跑进行中一键发出求助
+**以便**：遇到危险时让系统记录并联系我的紧急联系人
 
 **优先级**：P0
 
 **验收标准**：
 
-**Given** 订单状态为 accepted / arrived / in_progress
-**When** 用户点击"紧急求助"
-**Then** 弹出确认弹窗"是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
+**入口资格**
+
+**Given** 订单状态为 IN_PROGRESS 且当前角色为盲人跑者
+**When** 用户查看盲人端服务中页面
+**Then** 显示"一键求助"按钮，最小高度 64pt，带 accessibilityLabel"一键求助，遇到紧急情况时点击"和说明需要二次确认的 accessibilityHint
 
 ---
 
-**Given** 用户在紧急求助确认弹窗
-**When** 用户确认求助
-**Then** 订单状态变为 emergency，显示紧急提示信息
-**And** TTS 播报"已进入求助状态，请保持冷静"
+**Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT / REMATCHING / NO_VOLUNTEER / DRIVER_EN_ROUTE / DRIVER_ARRIVED / COMPLETED / CANCELLED
+**When** 用户查看盲人端任意订单页面
+**Then** 不显示"紧急求助"或"一键求助"入口，也不显示任何求助未开放提示文案
 
 ---
 
-**Given** 用户在紧急求助确认弹窗
-**When** 用户取消求助
-**Then** 返回原页面，订单状态不变
+**Given** 当前角色为志愿者，订单处于 `IN_PROGRESS`
+**When** 用户查看志愿者端服务中页面
+**Then** 显示"一键求助"入口，二次确认文案与盲人端逐字一致
+**And** 事件按**订单的盲人方**建，不按触发人 —— 后端 commit `a5ba523`（SOS-1）已把 `event.userId` 改为取订单盲人方，用 `TriggerType.VOLUNTEER_BUTTON` 区分来源
+**And** 志愿者**没有撤销入口**：后端一律回 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`，因为一对一陪跑里志愿者可能就是威胁来源，撤销权只在受助者本人（`PUT /api/emergency/{id}/cancel`）和客服手里
+
+> ~~此前本条写「志愿者端全状态不显示求助入口，待后端改为按订单参与方路由后再启用」~~ ——
+> 该前提自 2026-07-31 起已不成立，入口已开放。2026-08-06 订正。
+
+---
+
+**Given** 当前角色为志愿者，订单处于 `IN_PROGRESS` 以外的任意状态
+**When** 用户查看志愿者端订单详情页
+**Then** 不显示"紧急求助"或"一键求助"入口（`EmergencyTriggerRequest` 必须带 `orderId` 且仅 `IN_PROGRESS`）
+
+---
+
+**二次确认**
+
+**Given** 盲人跑者在 IN_PROGRESS 点击"一键求助"
+**When** 弹出确认
+**Then** 确认文案为"是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"，操作为"确认求助"和"取消"
+
+---
+
+**Given** 求助确认弹窗已弹出
+**When** 用户选择"取消"或以其他方式关闭弹窗
+**Then** 不发送任何请求，不产生 emergency event，订单状态保持 IN_PROGRESS
+
+---
+
+**成功提交**
+
+**Given** 用户选择"确认求助"，且已取得新鲜的真实 GCJ-02 坐标
+**When** App 提交求助
+**Then** 调用 `POST /api/emergency/trigger`，请求体为 `EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`，三个字段一律上送
+**And** 成功响应为 `{success, eventId, status}`，其中 `status` 是 `EmergencyStatus` 名（PENDING / VOLUNTEER_NOTIFIED / VOLUNTEER_CONFIRMED / CS_HANDLING / CONTACT_NOTIFIED / RESOLVED / FALSE_ALARM）
+**And** 界面与 TTS 按该状态播报进行时文案，订单状态保持 IN_PROGRESS，`RunOrderStatus` 不因求助改变
+
+---
+
+**定位不可用**
+
+**Given** 用户选择"确认求助"，但拿不到新鲜的真实 GCJ-02 样本
+**When** App 处理该次求助
+**Then** **不发送任何请求**，界面与 TTS 播报"求助未发出：当前无法获取你的位置。请在设置中允许定位后重试，或直接拨打110。"
+**And** Mock / Demo 坐标永不上送云端；后端可接受的无 GPS 降级路径由常量 `EmergencyCoordinator.allowsSubmissionWithoutLocation`（当前 `false`）单点控制，翻开需产品/安全批准
+
+---
+
+**失败与冷却**
+
+**Given** 后端在冷却期内拒绝求助
+**When** 返回 HTTP 429 `TOO_MANY_REQUESTS`（带 `retryAfterSeconds` 与 `Retry-After` 头）
+**Then** 界面与 TTS 按权威秒数提示稍后再试，并保留"若情况危急请立即拨打110"
+
+---
+
+**Given** 当前用户不是该订单参与方，或订单不存在
+**When** 后端分别返回 403 `NOT_ORDER_PARTICIPANT` 或 400 `BAD_REQUEST`
+**Then** 界面与 TTS 以"求助未发出"开头如实说明并指向 110，不呈现为求助已受理
+
+---
+
+**短信真实性（合规硬约束）**
+
+**Given** 求助已被后端受理，后端推送 `EMERGENCY_CONTACT_NOTIFIED`
+**When** App 呈现该进展
+**Then** 播报"系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打110。"
+**And** App **永不**声称短信已送达或紧急联系人/家属已被联系上；字符串"联系人已收到短信"不得作为交付文案出现在任何位置
+**And** 依据：后端在触发事务内同步推送该通知（`service/EmergencyService.java:370-373`），短信在 `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` 之后才发（`service/EmergencyContactNotifier.java:60-62`），发送失败只广播给客服（`:126-135`）且不会回纠给盲人
+
+---
+
+**状态留存**
+
+**Given** 求助已发出
+**When** 用户离开服务中页面再返回，或 App 后台后恢复
+**Then** 求助状态仍可见——状态由 `AppState` 持有的 app 生命周期 `EmergencyCoordinator`（`blindRun/Safety/EmergencyCoordinator.swift`）维护
+**And** 求助信息不落盘：后端没有事件恢复接口或重放，留存的元数据只能以未经核实的状态呈现；退出登录、注销账户、会话过期、切换用户和切换角色时一律清空
 
 ---
 
 ### US-BR-009：取消订单
 
 **作为**：盲人跑者
-**我想要**：在服务开始前取消订单
+**我想要**：在允许取消的状态取消订单
 **以便**：处理计划变更
 
 **优先级**：P0
 
 **验收标准**：
 
-**Given** 订单状态为 matching / accepted / arrived
+**Given** 订单状态为 PENDING_MATCH / PENDING_ACCEPT，或订单因志愿者主动取消进入 REMATCHING
 **When** 用户点击"取消订单"并确认
-**Then** 订单状态变为 cancelled，cancelledBy = blind_runner，记录取消原因
+**Then** App 调用 `POST /api/orders/{id}/cancel`（无请求体），订单状态变为 CANCELLED，cancelledBy = blind_runner
 
 ---
 
-**Given** 订单状态为 in_progress
-**When** 用户尝试取消订单
-**Then** 不显示取消按钮，只能走紧急求助流程
+**Given** 订单状态为 IN_PROGRESS
+**When** 盲人跑者查看订单
+**Then** App 不显示"取消订单"入口
+
+---
+
+**Given** 订单状态为 REMATCHING
+**When** 盲人跑者使用自己的账号点击"取消订单"并确认
+**Then** App 调用 `POST /api/orders/{id}/cancel`，订单状态变为 CANCELLED；志愿者 token 不用于该取消请求
 
 ---
 
@@ -381,7 +559,7 @@
 
 **验收标准**：
 
-**Given** 订单状态变为 completed
+**Given** 订单状态变为 COMPLETED
 **When** 页面显示完成状态
 **Then** TTS 播报"服务已完成"
 **And** 显示 1-5 星评分 UI 和文字反馈输入框（可选）
@@ -428,8 +606,8 @@
 ### US-VOL-002：志愿者首页
 
 **作为**：志愿者
-**我想要**：在首页看到附近可接订单和我的信息
-**以便**：快速开始公益服务
+**我想要**：在首页看到系统派单状态、覆盖范围和服务统计
+**以便**：知道自己是否已经准备好接收系统派单
 
 **优先级**：P0
 
@@ -437,14 +615,15 @@
 
 **Given** 志愿者进入首页
 **When** 页面加载完成
-**Then** 显示附近订单列表（按距离排序）、可服务开关、积分余额、角色切换入口
-**And** 如果有可用订单，提示附近有 N 个订单
+**Then** 调用 `GET /api/volunteer/dispatch-summary`
+**And** 显示可服务开关、是否可接收系统派单、不可接单原因、覆盖半径、在线/定位状态、当前订单、近期订单、积分占位、完成次数、评分和派单统计
 
 ---
 
 **Given** 志愿者首页
-**When** 无可用订单
-**Then** 显示"暂无可用订单"空状态，可服务开关仍可用
+**When** `canDispatch = false`
+**Then** 根据 `notAvailableReasons` 显示原因，例如已关闭接单、注册未完成、未在线、不在可服务时间或定位不可用
+**And** 可服务开关仍可用（认证/注册未完成时除外）
 
 ---
 
@@ -460,88 +639,100 @@
 
 **Given** 志愿者首页可服务开关为开启状态
 **When** 志愿者关闭可服务开关
-**Then** 志愿者仍可查看订单列表，但不能接新订单；已有已接订单不受影响
+**Then** 志愿者不再接收新的系统派单；已有已接订单不受影响
 
 ---
 
 **Given** 可服务开关为关闭状态
-**When** 志愿者查看订单列表
-**Then** 订单仍然可见，但接单按钮不可用 / 点击后提示开启可服务
+**When** 志愿者停留在首页
+**Then** 首页显示已关闭接单，不展示公开订单池作为主体验
 
 ---
 
-### US-VOL-004：浏览附近订单列表
+### US-VOL-004：接收系统派单
 
 **作为**：志愿者
-**我想要**：查看附近可接订单列表
-**以便**：选择合适的订单
+**我想要**：在上线接单后收到系统派单并快速响应
+**以便**：由系统按距离、时间和排序规则分配合适订单
 
 **优先级**：P0
 
 **验收标准**：
 
-**Given** 志愿者在订单列表页
-**When** 页面加载
-**Then** 显示所有 matching 状态订单，按距离从近到远排序
-**And** 每个订单卡片显示：盲人昵称、出发地点、预约时间、距离、可选项（目的地、预计时长、配速偏好等）
+**Given** 志愿者已开启可服务开关、WebSocket 在线且已上报位置
+**When** 后端通过 `/ws/volunteer` 发送 `NEW_ORDER`
+**Then** App 显示 30 秒倒计时派单弹窗
+**And** 弹窗展示起点、距离、预约时间、优先级、配速、导盲犬、备注和可选坐标
 
 ---
 
-**Given** 志愿者订单列表页
-**When** 用户下拉刷新
-**Then** 重新加载订单列表，更新状态
+**Given** 志愿者收到派单弹窗
+**When** 用户点击接受
+**Then** App 调用 `POST /api/orders/{id}/respond`，body 为 `action = ACCEPT`
+**And** 成功后进入订单详情或服务执行页
 
 ---
 
-**Given** 用户拒绝定位权限
-**When** 进入订单列表页
-**Then** 提示"需要开启定位权限才能查看和接单"
+**Given** 志愿者收到派单弹窗
+**When** 用户点击拒绝或倒计时结束
+**Then** App 调用 `POST /api/orders/{id}/respond`，body 为 `action = DECLINE`（如后端已自动超时处理则允许幂等失败提示）
+**And** App 不提供“稍后处理”业务动作
 
 ---
 
-### US-VOL-005：查看订单详情与接单
+### US-VOL-005：查看已接订单详情
 
 **作为**：志愿者
-**我想要**：查看订单详情并接单
-**以便**：开始帮助盲人跑者
+**我想要**：接单后查看订单详情并推进服务状态
+**以便**：按流程完成陪跑服务
 
 **优先级**：P0
 
 **验收标准**：
 
-**Given** 志愿者在订单详情页（订单状态为 matching）
-**When** 页面显示订单完整信息（盲人昵称、出发地点、时间、所有可选项）
-**And** 接单前不显示盲人联系电话
-**And** 显示"接单"按钮
+**Given** 志愿者接受系统派单成功
+**When** 进入订单详情页
+**Then** 显示盲人昵称、完整联系电话、出发地点、预约时间和服务操作按钮
 
 ---
 
-**Given** 志愿者点击"接单"
-**When** 后端确认接单成功（乐观锁校验通过）
-**Then** 订单状态变为 accepted，页面显示盲人完整联系电话
-**And** 进入订单详情页（已接单状态），显示"我已到达"和"查看地图"按钮
+**Given** 订单状态为 PENDING_ACCEPT
+**When** 志愿者点击"我已出发"
+**Then** App 调用 `POST /api/orders/{id}/en-route`
 
 ---
 
-**Given** 志愿者点击"接单"
-**When** 后端返回 ORDER_ALREADY_ACCEPTED
-**Then** 提示"该订单已被其他志愿者接单"，返回订单列表
+**Given** 订单状态为 DRIVER_EN_ROUTE
+**When** 志愿者点击"我已到达"
+**Then** App 调用 `POST /api/orders/{id}/arrived`
 
 ---
 
-### US-VOL-006：到达约定地点
+### US-VOL-006：前往并到达约定地点
 
 **作为**：志愿者
-**我想要**：标记已到达约定地点
+**我想要**：标记已出发和已到达约定地点
 **以便**：通知盲人跑者
 
 **优先级**：P0
 
 **验收标准**：
 
-**Given** 订单状态为 accepted
+**Given** 订单状态为 PENDING_ACCEPT
+**When** 志愿者点击"我已出发"
+**Then** 订单状态变为 DRIVER_EN_ROUTE
+
+---
+
+**Given** 订单状态为 PENDING_ACCEPT 或 DRIVER_EN_ROUTE
+**When** 志愿者查看服务页面
+**Then** 页面显示"前往出发地点"，地图固定红色出发地点标记，当前位置仅作为辅助标记/定位显示，不随位置更新重算地图中心，并可选择外部地图 App 进行步行导航
+
+---
+
+**Given** 订单状态为 DRIVER_EN_ROUTE
 **When** 志愿者点击"我已到达"
-**Then** 订单状态变为 arrived，盲人端通过轮询收到通知
+**Then** 订单状态变为 DRIVER_ARRIVED，盲人端通过 WebSocket 或轮询收到通知
 
 ---
 
@@ -555,17 +746,24 @@
 
 **验收标准**：
 
-**Given** 订单状态为 arrived，盲人已确认开始服务
+**Given** 订单状态为 DRIVER_ARRIVED，志愿者尚未开始服务
 **When** 志愿者查看订单页面
-**Then** 订单状态变为 in_progress，显示盲人信息和一键求助按钮
+**Then** 页面显示"开始服务"按钮
+**And** 点击后调用 `POST /api/orders/{id}/start-service`，成功后状态变为 IN_PROGRESS
 
 ---
 
-**Given** 订单状态为 in_progress
+**Given** 订单状态为 IN_PROGRESS
 **When** 志愿者点击"结束服务"
-**Then** 弹出确认弹窗，确认后订单状态变为 completed
+**Then** 弹出确认弹窗，确认后订单状态变为 COMPLETED
 **And** 志愿者获得 +100 积分
 **And** 可选填写服务总结
+
+---
+
+**Given** 订单状态为 IN_PROGRESS
+**When** 志愿者点击"取消订单"并确认
+**Then** App 调用 `POST /api/orders/{id}/cancel`，订单状态变为 CANCELLED
 
 ---
 
@@ -604,51 +802,75 @@
 
 **验收标准**：
 
-**Given** 订单状态为 matching
+**Given** 订单状态为 PENDING_MATCH
 **When** 志愿者接单成功
-**Then** 状态流转为 accepted
+**Then** 状态流转为 PENDING_ACCEPT
 
 ---
 
-**Given** 订单状态为 matching
-**When** 盲人在服务开始前取消
-**Then** 状态流转为 cancelled，记录 cancelledBy = blind_runner
+**Given** 订单状态为 PENDING_MATCH
+**When** 盲人跑者取消订单并二次确认
+**Then** 状态流转为 CANCELLED，记录 cancelledBy = blind_runner
 
 ---
 
-**Given** 订单状态为 accepted
+**Given** 订单状态为 PENDING_ACCEPT
+**When** 志愿者点击"我已出发"
+**Then** 状态流转为 DRIVER_EN_ROUTE
+
+---
+
+**Given** 订单状态为 DRIVER_EN_ROUTE
 **When** 志愿者点击"我已到达"
-**Then** 状态流转为 arrived
+**Then** 状态流转为 DRIVER_ARRIVED
 
 ---
 
-**Given** 订单状态为 arrived
-**When** 盲人确认开始服务
-**Then** 状态流转为 in_progress
+**Given** 订单状态为 DRIVER_ARRIVED
+**When** 志愿者点击"开始服务"
+**Then** 状态流转为 IN_PROGRESS
 
 ---
 
-**Given** 订单状态为 in_progress
+**Given** 订单状态为 IN_PROGRESS
 **When** 志愿者结束服务
-**Then** 状态流转为 completed
+**Then** 状态流转为 COMPLETED
 
 ---
 
-**Given** 订单状态为 matching / accepted / arrived
-**When** 任一方触发取消
-**Then** 状态流转为 cancelled，记录 cancelledBy
+**Given** 盲人跑者端订单状态为 PENDING_MATCH / PENDING_ACCEPT / REMATCHING
+**When** 盲人跑者触发取消并二次确认
+**Then** 状态流转为 CANCELLED，记录 cancelledBy
 
 ---
 
-**Given** 订单状态为 accepted / arrived / in_progress
-**When** 任一方触发紧急求助
-**Then** 状态流转为 emergency
+**Given** 志愿者端订单状态为 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
+**When** 志愿者触发取消并二次确认
+**Then** 状态流转为 REMATCHING，记录 cancelledBy；志愿者端退出当前服务流程
 
 ---
 
-**Given** 订单状态为 in_progress
+**Given** 志愿者接单后主动取消，订单状态为 REMATCHING
+**When** 盲人跑者触发取消
+**Then** 状态流转为 CANCELLED，取消请求使用盲人 token；志愿者不再作为该订单参与者取消
+
+---
+
+**Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
+**When** 任一方查看订单或服务页面
+**Then** 只有盲人端且状态为 IN_PROGRESS 时显示求助入口（见 US-BR-008），志愿者端全状态不显示；求助不改变订单状态
+
+---
+
+**Given** 订单状态为 IN_PROGRESS
 **When** 任一方尝试取消订单
-**Then** 不允许取消，只能走紧急求助
+**Then** 弹出二次确认，确认后状态流转为 CANCELLED
+
+---
+
+**Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED
+**When** 任一方查看订单页面
+**Then** 盲人端不显示"取消订单"按钮；这两个状态下双方也都不显示求助入口
 
 ---
 
@@ -678,9 +900,9 @@
 
 **验收标准**：
 
-**Given** 订单状态为 matching 且距离预约开始时间不足 30 分钟
+**Given** 订单状态为 PENDING_MATCH 且距离预约开始时间不足 30 分钟
 **When** 仍未有人接单
-**Then** 订单自动变为 cancelled，cancelledReason = no_volunteer_available
+**Then** 订单状态变为 NO_VOLUNTEER
 
 ---
 
@@ -694,8 +916,8 @@
 
 **验收标准**：
 
-**Given** 订单 A 状态为 matching，志愿者甲和志愿者乙几乎同时请求接单
-**When** 甲先成功更新订单状态为 accepted
+**Given** 订单 A 状态为 PENDING_MATCH，志愿者甲和志愿者乙几乎同时请求接单
+**When** 甲先成功更新订单状态为 PENDING_ACCEPT
 **Then** 乙的接单请求返回 ORDER_ALREADY_ACCEPTED 错误
 
 ---
@@ -730,7 +952,7 @@
 **验收标准**：
 
 **Given** 盲人端发生关键状态变化
-**When** 进入盲人首页 / 订单提交成功 / 志愿者接单 / 志愿者到达 / 确认开始 / 服务开始 / 服务完成 / 进入求助 / 错误提示
+**When** 进入盲人首页 / 订单提交成功 / 志愿者接单 / 志愿者到达 / 服务开始 / 服务完成 / 错误提示
 **Then** AVSpeechSynthesizer 自动播报对应中文提示
 
 ---
@@ -750,11 +972,28 @@
 **Then** 启动 iOS Speech Framework 语音识别，实时显示识别文本
 **And** 识别结束后文本填入输入框
 
----
-
 **Given** 语音识别启动
 **When** 识别失败（无语音输入、权限拒绝、网络问题）
 **Then** 显示错误提示，允许键盘输入作为降级方案
+
+---
+
+### US-SYS-004：跨页面实时事件连续性
+
+**作为**：任一已登录角色
+
+**我想要**：在页面切换期间仍收到与当前订单相关的派单、状态和前台通知
+
+**以便**：不会因导航丢失关键提示或听到重复生命周期播报
+
+**验收标准**：
+
+**Given** 角色 WebSocket 已连接且用户切换到另一页面
+**When** 后端发送 `ORDER_STATUS_CHANGED`、`NEW_ORDER` 或 `APP_NOTIFICATION`
+**Then** app-lifetime 协调器保留或路由事件
+**And** 关联且合法的结构化状态立即推进本地 UI，相同 UUID 重发不重复更新、播报或刷新，迟到 REST 不得回退状态
+**And** REST 详情与五秒轮询继续作为完整字段补充及断线/漏事件降级，派单保持后端期限，HIGH 通知抢占 NORMAL
+**And** 可见、VoiceOver 与 TTS 文案等价，结构化状态与并行生命周期模板合计只播报客户端固定文案一次
 
 ---
 
@@ -784,7 +1023,7 @@
 
 **验收标准**：
 
-**Given** 用户触发危险操作（取消订单、紧急求助、结束服务、退出登录）
+**Given** 用户触发危险操作（取消订单、结束服务、退出登录、一键求助）
 **When** 点击操作按钮
 **Then** 先弹出确认弹窗 / ActionSheet，用户再次确认后才执行
 
@@ -870,6 +1109,32 @@
 
 **验收标准**：
 
-**Given** 志愿者完成一次服务（订单状态变为 completed）
+**Given** 志愿者完成一次服务（订单状态变为 COMPLETED）
 **When** 服务完成
 **Then** 积分增加 100，服务记录中显示本次获得积分
+
+---
+
+## Epic 9：实时同行与轨迹总结 (US-TRACK)
+
+### US-TRACK-001：订单双方查看实时同行位置
+
+**Given** 当前用户是订单参与者且订单为 `DRIVER_EN_ROUTE`、`DRIVER_ARRIVED` 或 `IN_PROGRESS`
+**When** 收到匹配订单、方向正确且不超过 15 秒的同行位置
+**Then** 辅助地图显示同行角色 marker，并提供不含原始经纬度的可读新鲜度摘要
+**And** 错订单、非法或过期位置不得展示
+
+### US-TRACK-002：锁屏期间继续记录陪跑
+
+**Given** 订单为 `IN_PROGRESS` 且定位权限有效
+**When** App 锁屏或进入后台
+**Then** 系统继续真实定位与五秒上报，并显示后台定位指示
+**And** 静止且无新设备回调时复用最近一次真实位置；权限撤销、Core Location 明确失败或网络中断时显示并播报降级状态，不上传 Demo 坐标
+
+### US-TRACK-003：查看完成路线
+
+**Given** 订单为 `COMPLETED`
+**When** 任一订单参与者打开完成详情
+**Then** 页面以盲人轨迹显示“本次路线”和可用的里程、时长、平均配速
+**And** 空或部分数据必须如实说明，重复状态与 TTS 不依赖地图
+**And** 志愿者轨迹不得作为默认路线或生成未获批的异常结论

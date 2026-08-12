@@ -1,4 +1,62 @@
 import Foundation
+import OSLog
+
+// MARK: - Shared Async State
+
+/// A single-request UI state. The request identifier prevents a late response
+/// from replacing a newer refresh.
+enum AsyncLoadState<Value> {
+    case idle
+    case loading(requestID: UUID)
+    case loaded(Value)
+    case failed(message: String)
+
+    var isLoading: Bool {
+        if case .loading = self { return true }
+        return false
+    }
+}
+
+// MARK: - Privacy-safe Network Diagnostics
+
+enum NetworkDiagnosticStage: String, Sendable {
+    case response
+    case transportFailure
+    case decodingFailure
+    case cancelled
+}
+
+struct NetworkDiagnosticEvent: Sendable, Equatable {
+    let requestID: String
+    let endpointCategory: String
+    let statusCode: Int?
+    let durationMilliseconds: Int
+    let stage: NetworkDiagnosticStage
+}
+
+actor NetworkDiagnosticRecorder {
+    static let shared = NetworkDiagnosticRecorder()
+
+    private let logger = Logger(subsystem: "com.jerry.aidrun", category: "network")
+    private var events: [NetworkDiagnosticEvent] = []
+    private let capacity = 50
+
+    func record(_ event: NetworkDiagnosticEvent) {
+        events.append(event)
+        if events.count > capacity {
+            events.removeFirst(events.count - capacity)
+        }
+        logger.info(
+            "request=\(event.requestID, privacy: .public) endpoint=\(event.endpointCategory, privacy: .public) stage=\(event.stage.rawValue, privacy: .public) status=\(event.statusCode ?? -1, privacy: .public) durationMs=\(event.durationMilliseconds, privacy: .public)"
+        )
+    }
+
+    func snapshot() -> [NetworkDiagnosticEvent] { events }
+
+    #if DEBUG
+    func resetForTesting() { events.removeAll(keepingCapacity: false) }
+    #endif
+}
 
 // MARK: - HTTP Method
 
@@ -14,6 +72,7 @@ enum HTTPMethod: String, Sendable {
 
 enum APIError: Error, Sendable {
     case serverError(ErrorResponse)
+    case rateLimited(RateLimitInfo)
     case unauthorized
     case networkError(Error)
     case decodingError(Error)
@@ -27,6 +86,11 @@ enum APIError: Error, Sendable {
                 return code.localizedMessage
             }
             return response.message
+        case .rateLimited(let info):
+            if let seconds = info.retryAfterSeconds {
+                return "\(info.message) 请在\(seconds)秒后重试。"
+            }
+            return info.message
         case .unauthorized:
             return "登录已过期，请重新登录。"
         case .networkError:
@@ -38,6 +102,15 @@ enum APIError: Error, Sendable {
         case .unknown(let statusCode):
             return "未知错误 (\(statusCode))，请稍后重试。"
         }
+    }
+
+    /// 从 .serverError 关联值解出后端 errorCode；其他 case 返回 nil。
+    /// ponytail: 只有 serverError 携带后端 errorCode，统一暴露一个计算属性避免各调用点重复 switch。
+    var errorCode: ErrorCode? {
+        if case .serverError(let response) = self {
+            return response.errorCode
+        }
+        return nil
     }
 }
 
@@ -55,6 +128,21 @@ protocol APIClientProtocol: Sendable {
         body: (any Encodable & Sendable)?,
         requiresAuth: Bool
     ) async throws -> T
+
+    func upload<T: Decodable>(
+        path: String,
+        query: [String: String]?,
+        fields: [String: String]?,
+        files: [MultipartFile],
+        requiresAuth: Bool
+    ) async throws -> T
+}
+
+struct MultipartFile: Sendable {
+    let fieldName: String
+    let fileName: String
+    let mimeType: String
+    let data: Data
 }
 
 extension APIClientProtocol {
@@ -96,6 +184,16 @@ extension APIClientProtocol {
     ) async throws -> T {
         try await request(method: .delete, path: path, query: nil, body: nil, requiresAuth: requiresAuth)
     }
+
+    func upload<T: Decodable>(
+        _ path: String,
+        query: [String: String]? = nil,
+        fields: [String: String]? = nil,
+        files: [MultipartFile],
+        requiresAuth: Bool = true
+    ) async throws -> T {
+        try await upload(path: path, query: query, fields: fields, files: files, requiresAuth: requiresAuth)
+    }
 }
 
 // MARK: - URLSession API Client
@@ -107,7 +205,14 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
 
     private static let defaultSession: URLSession = {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 10
+        // 15 而不是 10：`/api/orders/voice/parse` 现在每次都调大模型（后端实测 3.4~4.3 秒，
+        // 服务端兜底 8 秒），10 秒的 idle 超时会先于向导自己的 12 秒上限炸掉，用户听到的就成了
+        // 一句网络错误而不是「没能把你说的话转成预约内容」。15 > 12，让向导那层先响。
+        //
+        // ponytail: 全局调值，不给单条请求传超时。后者要改 `APIClientProtocol.request` 签名，
+        // 牵动两个实现 + 测试里所有 stub —— 一个 idle 超时不值那么大的面。
+        // 上限：真需要按端点分档（例如上传要更长）时再抽参数，别在这里叠特例。
+        configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 20
         return URLSession(configuration: configuration)
     }()
@@ -139,6 +244,9 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         body: (any Encodable & Sendable)?,
         requiresAuth: Bool
     ) async throws -> T {
+        let diagnosticID = String(UUID().uuidString.prefix(8))
+        let diagnosticStart = Date()
+        let endpointCategory = Self.endpointCategory(for: path)
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: true)
 
         if let query, !query.isEmpty {
@@ -167,6 +275,115 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            await recordDiagnostic(
+                id: diagnosticID,
+                endpointCategory: endpointCategory,
+                statusCode: nil,
+                startedAt: diagnosticStart,
+                stage: error is CancellationError ? .cancelled : .transportFailure
+            )
+            throw APIError.networkError(error)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.unknown(statusCode: -1)
+        }
+
+        await recordDiagnostic(
+            id: diagnosticID,
+            endpointCategory: endpointCategory,
+            statusCode: httpResponse.statusCode,
+            startedAt: diagnosticStart,
+            stage: .response
+        )
+
+        switch httpResponse.statusCode {
+        case 200...299:
+            if T.self == EmptyResponse.self, data.isEmpty {
+                return EmptyResponse() as! T
+            }
+            // 信封优先、裸解兜底。策略本体在 `APIPayloadDecoder`，两个调用点共用同一份并由用例锁住。
+            do {
+                return try APIPayloadDecoder.decodePayload(T.self, from: data, decoder: decoder)
+            } catch {
+                await recordDiagnostic(
+                    id: diagnosticID,
+                    endpointCategory: endpointCategory,
+                    statusCode: httpResponse.statusCode,
+                    startedAt: diagnosticStart,
+                    stage: .decodingFailure
+                )
+                throw APIError.decodingError(error)
+            }
+        case 401:
+            throw APIError.unauthorized
+        case 429:
+            throw Self.rateLimitError(data: data, response: httpResponse, decoder: decoder)
+        default:
+            // Try string-code ErrorResponse (e.g. {"code": "INVALID_VERIFICATION_CODE", "message": "..."})
+            if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
+                throw APIError.serverError(errorResponse)
+            }
+            // Accept the cloud backend's flexible error payload during contract convergence.
+            if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data),
+               let errorResponse = envelope.resolvedErrorResponse(statusCode: httpResponse.statusCode) {
+                throw APIError.serverError(errorResponse)
+            }
+            throw APIError.unknown(statusCode: httpResponse.statusCode)
+        }
+    }
+
+    // MARK: - Multipart Upload
+
+    func upload<T: Decodable>(
+        path: String,
+        query: [String: String]? = nil,
+        fields: [String: String]? = nil,
+        files: [MultipartFile],
+        requiresAuth: Bool = true
+    ) async throws -> T {
+        var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: true)
+
+        if let query, !query.isEmpty {
+            components?.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
+
+        guard let url = components?.url else {
+            throw APIError.invalidURL
+        }
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if requiresAuth, let token = tokenProvider() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body = Data()
+        for (name, value) in (fields ?? [:]).sorted(by: { $0.key < $1.key }) {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append(value.data(using: .utf8) ?? Data())
+            body.append("\r\n".data(using: .utf8)!)
+        }
+        for file in files {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(file.fieldName)\"; filename=\"\(file.fileName)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: \(file.mimeType)\r\n\r\n".data(using: .utf8)!)
+            body.append(file.data)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
             throw APIError.networkError(error)
         }
 
@@ -176,18 +393,78 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
 
         switch httpResponse.statusCode {
         case 200...299:
+            if T.self == EmptyResponse.self, data.isEmpty {
+                return EmptyResponse() as! T
+            }
+            // 与 `request` 共用同一份策略，见 `APIPayloadDecoder`。
             do {
-                return try decoder.decode(T.self, from: data)
+                return try APIPayloadDecoder.decodePayload(T.self, from: data, decoder: decoder)
             } catch {
                 throw APIError.decodingError(error)
             }
         case 401:
             throw APIError.unauthorized
+        case 429:
+            throw Self.rateLimitError(data: data, response: httpResponse, decoder: decoder)
         default:
+            // Try string-code ErrorResponse (e.g. {"code": "INVALID_VERIFICATION_CODE", "message": "..."})
             if let errorResponse = try? decoder.decode(ErrorResponse.self, from: data) {
+                throw APIError.serverError(errorResponse)
+            }
+            // Accept the cloud backend's flexible error payload during contract convergence.
+            if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data),
+               let errorResponse = envelope.resolvedErrorResponse(statusCode: httpResponse.statusCode) {
                 throw APIError.serverError(errorResponse)
             }
             throw APIError.unknown(statusCode: httpResponse.statusCode)
         }
+    }
+
+    private static func rateLimitError(
+        data: Data,
+        response: HTTPURLResponse,
+        decoder: JSONDecoder
+    ) -> APIError {
+        let headerSeconds = response.value(forHTTPHeaderField: "Retry-After")
+            .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        if let payload = try? decoder.decode(ErrorResponse.self, from: data) {
+            return .rateLimited(RateLimitInfo(
+                message: payload.message,
+                retryAfterSeconds: headerSeconds ?? payload.retryAfterSeconds
+            ))
+        }
+        if let envelope = try? decoder.decode(APIErrorEnvelope.self, from: data) {
+            return .rateLimited(RateLimitInfo(
+                message: envelope.message ?? "操作过于频繁。",
+                retryAfterSeconds: headerSeconds ?? envelope.retryAfterSeconds
+            ))
+        }
+        return .rateLimited(RateLimitInfo(
+            message: "操作过于频繁。",
+            retryAfterSeconds: headerSeconds
+        ))
+    }
+
+    private func recordDiagnostic(
+        id: String,
+        endpointCategory: String,
+        statusCode: Int?,
+        startedAt: Date,
+        stage: NetworkDiagnosticStage
+    ) async {
+        await NetworkDiagnosticRecorder.shared.record(NetworkDiagnosticEvent(
+            requestID: id,
+            endpointCategory: endpointCategory,
+            statusCode: statusCode,
+            durationMilliseconds: max(0, Int(Date().timeIntervalSince(startedAt) * 1_000)),
+            stage: stage
+        ))
+    }
+
+    private static func endpointCategory(for path: String) -> String {
+        let segments = path.split(separator: "/").map { segment -> String in
+            segment.allSatisfy(\.isNumber) ? "{id}" : String(segment)
+        }
+        return "/" + segments.joined(separator: "/")
     }
 }
