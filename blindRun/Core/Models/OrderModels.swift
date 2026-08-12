@@ -496,6 +496,89 @@ struct CreateReviewRequest: Codable, Sendable {
     let comment: String?
 }
 
+/// `GET /api/orders/{id}/reviews` 的 `data`（后端 `dto/ReviewResponse.java`）。
+/// `comment` / `createdAt` 契约里显式可空；`rating` 上有 `@NotNull @Min(1) @Max(5)`，写入侧保证非空。
+struct OrderReview: Decodable, Sendable, Equatable {
+    let orderId: Int64?
+    let rating: Int
+    let comment: String?
+    /// 后端 `LocalDateTime.toString()`，可能带小数秒。展示走 `String.displayDateTime`。
+    let createdAt: String?
+}
+
+/// `GET /api/orders/{id}/reviews` 的整个响应体：裸 `Map`，只有一个 `data` 键，
+/// **不走 `ApiResponse` 信封**（`ReviewController.java:41-48`）。
+/// 尚未评价时是 200 + `data: null`，不是 404 —— 这是正常业务状态，不是错误。
+struct OrderReviewEnvelope: Decodable, Sendable, Equatable {
+    let data: OrderReview?
+
+    private enum CodingKeys: String, CodingKey { case data }
+
+    /// 自定义 `init(from:)` 会顶掉合成的逐成员初始化器，而 `MockAPIClient` 需要直接构造它。
+    init(data: OrderReview?) {
+        self.data = data
+    }
+
+    /// 合成的 `Decodable` 在这里是错的，理由是 `APIPayloadDecoder` 的「信封优先」：
+    /// 它会先拿 `APIEnvelopeResponse<OrderReviewEnvelope>` 去解，把内层的
+    /// `{orderId, rating, ...}` 当成本类型解 —— 合成版对缺失的 `data` 键宽容，
+    /// 于是**解得出来、值是 nil**，一条真实评价被静默吞成「无评价」。
+    /// 要求 `data` 键必须存在，就让那条错误路径解不出来、退回裸解，两种响应体都落到正确分支。
+    /// （`EmergencyActiveEnvelope` 用非可选 `success` 达到同一目的，那边有 `success` 可用，这边没有。）
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.contains(.data) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.data,
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "缺少 data 键，不是 GET /api/orders/{id}/reviews 的响应体"
+                )
+            )
+        }
+        data = try container.decodeIfPresent(OrderReview.self, forKey: .data)
+    }
+}
+
+// MARK: - Order Status Log
+
+/// `GET /api/orders/{id}/status-logs` 的一条记录（后端 `dto/OrderStatusLogResponse.java`）。
+/// 响应体是**裸数组**，按 `changedAt` **倒序**（最新在前，`OrderStatusLogRepository:16`），客户端不再排序。
+///
+/// 可空性取自实体的列定义而不是 spec（spec 没写 `required`）：
+/// `toStatus` / `changedAt` 是 `nullable = false`，`fromStatus`（首条无前序状态）与 `remark` 可空。
+/// 未取用 `changedBy` —— 它是原始 userId，对用户没有展示价值。
+struct OrderStatusLog: Decodable, Sendable, Equatable, Identifiable {
+    let id: Int64
+    let fromStatus: RunOrderStatus?
+    let toStatus: RunOrderStatus
+    let changedAt: String
+    let remark: String?
+
+    /// 这一条要念给用户听的话。
+    ///
+    /// 后端 12 处 `logStatusChange` 里有 11 处的 `remark` 就是可直接朗读的中文
+    /// （「志愿者已出发」「服务完成」「匹配超时自动取消」…），且比 `toStatus.displayName` 更具体，
+    /// 所以默认原样用。唯一的例外是取消那一条：它拼的是原始枚举
+    /// （`OrderLifecycleService.java:260` 的 `"取消方=" + CancelledBy`），直接渲染会对盲人
+    /// 念出「取消方=BLIND」。
+    ///
+    /// ponytail: 只翻译这一个已知前缀，后端再塞第二个机器串就会漏。上限已知，
+    /// 升级路径是让后端把 `remark` 定成展示串或另给一个 reasonCode（已进 handoff 待确认）。
+    var displayText: String {
+        guard let remark = remark?.nilIfBlank else { return toStatus.displayName }
+        guard remark.hasPrefix(Self.cancelledByPrefix) else { return remark }
+        switch String(remark.dropFirst(Self.cancelledByPrefix.count)).trimmed {
+        case "BLIND": return "你取消了订单"
+        case "VOLUNTEER": return "志愿者取消了订单"
+        case "SYSTEM": return "系统自动取消了订单"
+        default: return toStatus.displayName
+        }
+    }
+
+    private static let cancelledByPrefix = "取消方="
+}
+
 // MARK: - Emergency
 
 struct EmergencyTriggerRequest: Codable, Sendable {

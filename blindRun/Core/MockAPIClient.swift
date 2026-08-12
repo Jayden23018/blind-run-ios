@@ -41,6 +41,18 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private var keepWaitingCounts: [Int64: Int] = [:]
     private static let mockKeepWaitingLimit = 2
 
+    /// 已提交的评价，`GET /api/orders/{id}/reviews` 的回放源。没有键就是「尚未评价」，
+    /// 对应后端的 200 + `data: null`。
+    private var orderReviews: [Int64: OrderReview] = [:]
+
+    /// 状态变更记录，`GET /api/orders/{id}/status-logs` 的回放源。
+    /// **新的插在最前面**，与后端 `findByOrderIdOrderByChangedAtDesc` 同序。
+    /// 种子订单刻意不带记录：它们的状态是直接摆出来的、没有经过状态机，
+    /// 编一份假的转移史只会让「空列表」这条分支在开发期永远走不到。
+    /// 想看有内容的样子，用页面底部的 Mock 状态测试按钮推一遍流程即可。
+    private var orderStatusLogs: [Int64: [OrderStatusLog]] = [:]
+    private var nextStatusLogId: Int64 = 5000
+
     /// 已上报的 APNs device token（幂等 upsert 的本地等价物）。
     private(set) var registeredApnsTokens: Set<String> = []
     /// `/api/notifications/since` 的补读语料。Mock 不主动产生离线通知，默认为空。
@@ -344,7 +356,16 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 return try handleKeepWaiting(orderId: orderId, requiredStatus: .rematching)
             }
             if path.hasSuffix("/review") && method == .post {
-                return handleReview()
+                return try handleReview(orderId: orderId, body: body)
+            }
+            // ⚠️ 读是 `/reviews`（复数），写是 `/review`（单数）—— 契约就是这么不对称的
+            // （`ReviewController.java:41` vs `:30`）。这里能靠 `hasSuffix` 分开纯属巧合，
+            // 换成 `contains("/review")` 之类的宽松匹配就会把读吞进写的分支。
+            if path.hasSuffix("/reviews") && method == .get {
+                return try handleGetReview(orderId: orderId)
+            }
+            if path.hasSuffix("/status-logs") && method == .get {
+                return try handleGetStatusLogs(orderId: orderId)
             }
 
             // Order detail
@@ -1147,6 +1168,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             chatPreference: blindProfile?.chatPreference
         )
         orders.append(order)
+        // 后端在 `OrderCreationService:125` 写的第一条日志，`fromStatus` 为 null。
+        appendStatusLog(orderId: orderId, from: nil, to: .pendingMatch, remark: "创建订单")
 
         return OrderResponse(id: orderId, status: .pendingMatch, message: "订单已创建", success: true)
     }
@@ -1301,8 +1324,77 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         OrderResponse(id: order.orderId, status: order.status, message: message, success: true)
     }
 
-    private func handleReview() -> ApiSuccessResponse {
+    /// `POST /api/orders/{id}/review`。
+    ///
+    /// 此前无条件回成功、也不留存 —— 于是 `REVIEW_ALREADY_SUBMITTED` 那条分支在开发期
+    /// 一次都走不到，而它恰恰是「重进已完成订单再点提交」的必经之路。
+    /// 两条前置校验对齐后端 `ReviewService:57`（非 COMPLETED）与 `:62`（重复提交）。
+    private func handleReview(orderId: Int64, body: (any Encodable & Sendable)?) throws -> ApiSuccessResponse {
+        guard let order = orders.first(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard order.status == .completed else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "订单未完成，暂不能评价"))
+        }
+        guard orderReviews[orderId] == nil else {
+            throw APIError.serverError(ErrorResponse(
+                code: "REVIEW_ALREADY_SUBMITTED", message: "已评价过此订单"))
+        }
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(CreateReviewRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
+        }
+        orderReviews[orderId] = OrderReview(
+            orderId: orderId,
+            rating: request.rating,
+            comment: request.comment,
+            createdAt: Self.backendLocalTimestamp()
+        )
         return ApiSuccessResponse(success: true, message: nil)
+    }
+
+    /// `GET /api/orders/{id}/reviews`。尚未评价时 `data` 为 null，**不是 404**。
+    private func handleGetReview(orderId: Int64) throws -> OrderReviewEnvelope {
+        guard orders.contains(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        return OrderReviewEnvelope(data: orderReviews[orderId])
+    }
+
+    /// `GET /api/orders/{id}/status-logs`。裸数组，最新在前。
+    /// 订单不存在时后端抛 `IllegalArgumentException` → **400 `BAD_REQUEST`，不是 404**
+    /// （`OrderController.java:261-262`）。
+    private func handleGetStatusLogs(orderId: Int64) throws -> [OrderStatusLog] {
+        guard orders.contains(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "BAD_REQUEST", message: "订单不存在"))
+        }
+        return orderStatusLogs[orderId] ?? []
+    }
+
+    /// 记一条状态变更。后端在每个状态流转点都写一条（12 处 `logStatusChange`），
+    /// Mock 把它收在 `updateOrderStatus` 一处 —— 那是所有状态改动的唯一出口，
+    /// 逐个调用点补记漏一处就是审计链断裂。
+    private func appendStatusLog(
+        orderId: Int64,
+        from: RunOrderStatus?,
+        to: RunOrderStatus,
+        remark: String
+    ) {
+        let log = OrderStatusLog(
+            id: nextStatusLogId,
+            fromStatus: from,
+            toStatus: to,
+            changedAt: Self.backendLocalTimestamp(),
+            remark: remark
+        )
+        nextStatusLogId += 1
+        orderStatusLogs[orderId, default: []].insert(log, at: 0)
+    }
+
+    /// 后端 `LocalDateTime` 的无时区串（`2026-08-04T09:05:03`），与 `String.backendLocalDate` 对得上。
+    private static func backendLocalTimestamp() -> String {
+        DateFormatter.aidRunBackendLocalDateTime.string(from: Date())
     }
 
     // MARK: - Voice Order Handlers
@@ -2344,6 +2436,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         to newStatus: RunOrderStatus,
         volunteerPhone: String? = nil
     ) -> OrderDetailResponse {
+        appendStatusLog(
+            orderId: order.orderId,
+            from: order.status,
+            to: newStatus,
+            remark: Self.mockStatusLogRemark(to: newStatus)
+        )
         return OrderDetailResponse(
             orderId: order.orderId,
             status: newStatus,
@@ -2370,6 +2468,24 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             tetherPreference: order.tetherPreference,
             chatPreference: order.chatPreference
         )
+    }
+
+    /// Mock 的 remark 逐字抄后端那 12 处 `logStatusChange` 的第五个参数，
+    /// 让「remark 就是可朗读的中文」这条前端假设在开发期真的被验到。
+    /// `CANCELLED` 刻意保留后端那个机器串（`"取消方=" + CancelledBy`）——
+    /// `OrderStatusLog.displayText` 的翻译分支只有靠它才走得到。
+    private static func mockStatusLogRemark(to newStatus: RunOrderStatus) -> String {
+        switch newStatus {
+        case .pendingMatch: return "创建订单"
+        case .pendingAccept: return "志愿者接单"
+        case .driverEnRoute: return "志愿者已出发"
+        case .driverArrived: return "志愿者已到达"
+        case .inProgress: return "志愿者确认开始服务"
+        case .completed: return "服务完成"
+        case .cancelled: return "取消方=BLIND"
+        case .rematching: return "志愿者取消，进入重新匹配，第1次"
+        case .noVolunteer, .unknown: return ""
+        }
     }
 
     private func extractOrderId(from path: String) -> Int64? {

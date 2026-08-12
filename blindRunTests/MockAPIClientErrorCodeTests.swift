@@ -10,6 +10,11 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
 
     /// `MockAPIClient.swift` 里所有 `ErrorResponse(code: "...")` 字面量。
     /// 用 `grep -o 'code: "[A-Z_]*"' blindRun/Core/MockAPIClient.swift | sort -u` 重新生成。
+    ///
+    /// 2026-08-12 重新生成过一次：手动维护已经漂了 7 条
+    /// （`EMERGENCY_*` 三条、`KEEP_WAITING_LIMIT_REACHED`、`NOT_ORDER_PARTICIPANT` 等），
+    /// 也就是说这条守卫在那段时间对新增 throw 点是瞎的。**改 Mock 就重跑一次上面那条命令**，
+    /// 别只往下加自己那一条。
     private static let mockWireCodes = [
         "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED",
         "APPOINTMENT_TOO_SOON",
@@ -17,16 +22,22 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
         "CONTACT_FIELD_REQUIRED",
         "CONTACT_LIMIT_EXCEEDED",
         "CONTACT_MINIMUM_REQUIRED",
+        "EMERGENCY_ALREADY_CLOSED",
         "EMERGENCY_CONTACT_REQUIRED",
+        "EMERGENCY_NOT_OWNER",
+        "EMERGENCY_VOLUNTEER_CANNOT_DISMISS",
         "IDENTITY_NOT_VERIFIED",
         "ID_INFO_INVALID",
         "INVALID_TIMESTAMP",
         "INVALID_VERIFICATION_CODE",
+        "KEEP_WAITING_LIMIT_REACHED",
+        "NOT_ORDER_PARTICIPANT",
         "ORDER_ALREADY_ACCEPTED",
         "ORDER_NOT_FOUND",
         "ORDER_STATUS_NOT_ALLOWED",
         "REGISTRATION_STEP_INVALID",
         "RESOURCE_NOT_FOUND",
+        "REVIEW_ALREADY_SUBMITTED",
         "SECURITY_FORBIDDEN",
         "VALIDATION_ERROR"
     ]

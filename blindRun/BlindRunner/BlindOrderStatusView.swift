@@ -13,6 +13,14 @@ final class BlindOrderStatusViewModel: ObservableObject {
     @Published var reviewRating = 5
     @Published var reviewComment = ""
     @Published var didSubmitReview = false
+    /// 本单已有的评价。**离开页面再回来时唯一的真相来源** —— `didSubmitReview` 是进程内的一次性标记，
+    /// 重进这一单它就回到 false，评价表单会再摆一次，提交后只能收到 409 `REVIEW_ALREADY_SUBMITTED`。
+    @Published private(set) var existingReview: OrderReview?
+    @Published private(set) var statusLogs: [OrderStatusLog] = []
+    @Published private(set) var isLoadingStatusLogs = false
+    /// 状态记录单独一条错误，不复用 `errorMessage`：那条会被 `speakError` 念出来，
+    /// 而这是用户主动展开的一块辅助信息，加载失败不该打断正在进行的服务播报。
+    @Published private(set) var statusLogsErrorMessage: String?
     @Published var volunteerDistanceToStartText: String?
     @Published private(set) var latestVolunteerSample: LocatedCoordinate?
     @Published var errorMessage: String?
@@ -92,6 +100,10 @@ final class BlindOrderStatusViewModel: ObservableObject {
             // 上限是**这一单**的属性，不是这个 view model 的。换单不清会让新订单
             // 一进来就少一个本来该有的动作。
             keepWaitingLimitReached = false
+            // 同理：评价与状态记录都是按单的，留着就会把上一单的内容展示在这一单下面。
+            existingReview = nil
+            statusLogs = []
+            statusLogsErrorMessage = nil
         }
         currentOrderId = orderId
         acceptsPeerLocations = true
@@ -304,6 +316,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
             if error.errorCode == .reviewAlreadySubmitted {
                 didSubmitReview = true
                 speechService?.speak(ErrorCode.reviewAlreadySubmitted.localizedMessage)
+                // 把那条已存在的评价取回来念给用户听。否则「已评价过此订单」之后是一片空白，
+                // 用户既不知道自己当初打了几分，也无从判断要不要联系客服。
+                await loadExistingReview()
                 return
             }
             errorMessage = error.localizedMessage
@@ -318,6 +333,52 @@ final class BlindOrderStatusViewModel: ObservableObject {
     func skipReview() {
         didSubmitReview = true
         speechService?.speak("已跳过评价，返回首页。")
+    }
+
+    /// 取回本单已有的评价（`GET /api/orders/{id}/reviews`，订单双方均可查）。
+    ///
+    /// 尚未评价时后端回 200 + `data: null`，那是正常业务状态：`existingReview` 保持 nil，
+    /// 评价表单照常展示。**只在 `COMPLETED` 调** —— 其余状态下这一单不可能有评价。
+    func loadExistingReview() async {
+        guard let order, let appState, order.status == .completed else { return }
+        do {
+            let envelope: OrderReviewEnvelope = try await appState.apiClient.get(
+                "/api/orders/\(order.orderId)/reviews"
+            )
+            existingReview = envelope.data
+            if envelope.data != nil {
+                didSubmitReview = true
+            }
+        } catch {
+            // 刻意不报错、不播报：拿不到已有评价的唯一后果是评价表单多摆一次，
+            // 而重复提交那一路已经由 `REVIEW_ALREADY_SUBMITTED` 兜住（见 `submitReview`）。
+            // 为一块只读的辅助信息打断服务播报，代价比它自己大。
+        }
+    }
+
+    /// 取回本单的状态变更记录（`GET /api/orders/{id}/status-logs`，订单双方均可查）。
+    ///
+    /// 响应是裸数组，后端已按时间**倒序**返回（`OrderStatusLogRepository:16`），这里不重排。
+    func loadStatusLogs() async {
+        guard let order, let appState else { return }
+        isLoadingStatusLogs = true
+        statusLogsErrorMessage = nil
+        do {
+            let logs: [OrderStatusLog] = try await appState.apiClient.get(
+                "/api/orders/\(order.orderId)/status-logs"
+            )
+            isLoadingStatusLogs = false
+            statusLogs = logs
+        } catch let error as APIError {
+            isLoadingStatusLogs = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
+            statusLogsErrorMessage = error.localizedMessage
+        } catch {
+            isLoadingStatusLogs = false
+            statusLogsErrorMessage = "获取状态变更记录失败。"
+        }
     }
 
     private var shouldContinuePolling: Bool {
@@ -583,6 +644,7 @@ struct BlindOrderStatusView: View {
     @State private var showEmergencyConfirmation = false
     @State private var showEmergencyCancelConfirmation = false
     @State private var showCancelConfirmation = false
+    @State private var showStatusLogs = false
     let orderId: Int64
     let onOrderUpdated: (OrderDetailResponse) -> Void
 
@@ -614,6 +676,7 @@ struct BlindOrderStatusView: View {
                     lifecycleSection(order)
                     actionSection(order)
                     orderInfoSection(order)
+                    statusLogSection
                     debugMockControls(order)
                 }
 
@@ -682,9 +745,20 @@ struct BlindOrderStatusView: View {
         }
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
+            await viewModel.loadExistingReview()
             await trackViewModel.load(orderID: orderId, appState: appState)
             if let summary = trackViewModel.track?.spokenSummary { speechService.speak(summary) }
         }
+        // 展开时拉一次，之后每次状态推进再拉一次 —— 服务进行中新增的那条转移会自己出现。
+        // 折叠状态下不请求：这是一块用户主动来找的辅助信息，不该给主路径加一次 5 秒一轮的开销。
+        .task(id: statusLogReloadKey) {
+            guard showStatusLogs else { return }
+            await viewModel.loadStatusLogs()
+        }
+    }
+
+    private var statusLogReloadKey: String {
+        "\(showStatusLogs)-\(viewModel.order?.status.rawValue ?? "")"
     }
 
     /// 一句话 + 一个数字，合成**一个** VoiceOver 焦点。
@@ -770,6 +844,9 @@ struct BlindOrderStatusView: View {
             }
 
             if viewModel.didSubmitReview {
+                if let review = viewModel.existingReview {
+                    submittedReviewSummary(review)
+                }
                 Text("感谢反馈，可以返回首页。")
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textSecondary)
@@ -819,6 +896,90 @@ struct BlindOrderStatusView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
+    }
+
+    /// 已提交过的评价读回来。
+    ///
+    /// 这一块的存在理由是**重进这一单**：`didSubmitReview` 只活在这个进程里，
+    /// 重开 App 再进已完成的订单，用户看到的是一张空白评价表 —— 填完提交只会撞上
+    /// 409「已评价过此订单」。把真实评价念出来，用户才知道这一单已经评过、评的是什么。
+    /// 合成一个焦点：星数和评语分两次读会让读屏用户以为是两条不同的记录。
+    private func submittedReviewSummary(_ review: OrderReview) -> some View {
+        let comment = review.comment?.nilIfBlank
+        let reviewedAt = review.createdAt?.nilIfBlank?.displayDateTime
+        // 视觉与读屏两条通道给同一份内容，不给读屏偷偷多塞一句 —— 低视力用户走的是视觉那条
+        // （AGENTS.md §1.4）。
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("你给本次服务打了 \(review.rating) 星")
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.textPrimary)
+            if let comment {
+                Text(comment)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+            }
+            if let reviewedAt {
+                Text("评价于\(reviewedAt)")
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "你给本次服务打了 \(review.rating) 星"
+                + (comment.map { "，评语：\($0)" } ?? "")
+                + (reviewedAt.map { "，评价于\($0)" } ?? "")
+        )
+    }
+
+    /// 「刚才到底发生了什么」。
+    ///
+    /// 折叠，理由与「预约信息」同一条：这是用户想回溯时才来找的信息，不是主路径上的动作。
+    /// 摊开会让读屏用户在到达「重复当前状态」之前多滑十几次。
+    private var statusLogSection: some View {
+        DisclosureGroup("状态变更记录", isExpanded: $showStatusLogs) {
+            statusLogContent
+                .padding(.top, 12)
+        }
+        .font(.title3.bold())
+        .tint(AppColors.textPrimary)
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(8)
+        .accessibilityHint("展开后可以听到这一单每一次状态变化和发生时间")
+        .accessibilityIdentifier("blindOrderStatusLogsDisclosure")
+    }
+
+    @ViewBuilder
+    private var statusLogContent: some View {
+        if viewModel.isLoadingStatusLogs && viewModel.statusLogs.isEmpty {
+            ProgressView("正在获取状态变更记录")
+                .tint(AppColors.primary)
+                .accessibilityLabel("正在获取状态变更记录")
+        } else if let errorMessage = viewModel.statusLogsErrorMessage {
+            // 「拿不到」和「没有记录」必须分得开：前者可以重试，后者重试也没用。
+            Text(errorMessage)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.destructive)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel(errorMessage)
+        } else if viewModel.statusLogs.isEmpty {
+            Text("暂无状态变更记录")
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("暂无状态变更记录")
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                // 后端已按时间倒序给，最新的一条在最上面 —— 读屏第一个听到的就是刚发生的事。
+                ForEach(viewModel.statusLogs) { log in
+                    infoRow(log.changedAt.displayDateTime, log.displayText)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     @ViewBuilder
