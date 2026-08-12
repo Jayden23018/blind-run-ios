@@ -3,10 +3,11 @@ set -euo pipefail
 
 # 装 pre-push 钩子。.git/hooks 不入库，所以每台机器跑一次这个脚本。
 #
-# 为什么本地也要拦：契约覆盖校验在 CI 里需要 BACKEND_REPO_TOKEN 才能拿到后端 spec。
-# 后端仓库私有、且与本仓库不同 owner，而本仓库的 admin 不是我们 —— secret 配不上，
-# 所以这 4 个契约门禁（契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料）**只在这里跑**，
-# CI 上永远是 warning 空过。本地的 ../demo 是真的能读到的，这一环在本地补是唯一选择。
+# 为什么本地也要拦：那 5 个契约门禁（契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料 /
+# 确认轮词表）在 CI 里需要 BACKEND_REPO_TOKEN 才能拿到后端 spec。主线仓库
+# `Jayden23018/blind-run-ios` 配了这个 secret，所以那边真跑；但那是 push 之后才知道结果，
+# 而本地的 ../demo 本来就读得到 —— 在这里拦住，比推上去等 CI 红一轮便宜。
+# `JerryZhao-1/blind-run-ios` 那边配不上 secret（不是 admin），这 5 条是 warning 空过。
 #
 # 正因为是唯一一道，它读的必须是契约本身 —— 所以是从后端仓库的 origin/main 取，
 # 而不是读 ../demo 的工作区文件（那是共享 checkout，随时带着别人的 WIP）。见下面 backend_file。
@@ -197,25 +198,14 @@ HOOK_BODY
 chmod +x "$HOOK"
 echo "已安装 $HOOK"
 
-# ── 双推：上游 + fork ───────────────────────────────────────────────────────
+# ── 推送目标：只推 origin ───────────────────────────────────────────────────
 #
-# 那 4 条契约门禁在上游仓库跑不了（配不了 secret，见 AGENTS.md 第 11 节），
-# 只在 fork 上真跑。于是「推了上游、忘了 fork」= 那套 CI 等于没配。
+# 2026-08-12 起主线就是 `origin`（`Jayden23018/blind-run-ios`），那 5 条契约门禁在它的 CI 上真跑，
+# `JerryZhao-1/blind-run-ios` 退成 `upstream`、不再是投递目标。见 AGENTS.md 第 11 节。
 #
-# 靠记性挡不住这种事（第 1 节说的就是它），所以让 `git push origin` 一次推两个地方，
-# 而不是写一句「记得两边都推」。
-#
-# 只在**已经有 fork remote** 的机器上生效 —— 不替别人凭空造一个指向某人 fork 的推送。
-# 需要它的机器先执行一次：
-#   git remote add fork https://github.com/<你的账号>/blind-run-ios.git
-FORK_URL="$(git remote get-url fork 2>/dev/null || true)"
-if [ -n "$FORK_URL" ]; then
-  UPSTREAM_URL="$(git remote get-url origin)"
-  # 先清空再加两条，重复执行不会越堆越多
+# 此前这里配过「一次推上游 + fork」的双推。那条配置写在 .git/config 里，不随 checkout 变化，
+# 留着会继续把分支推去上游 —— 所以在这里清掉，而不是写一句「记得改一下 remote」。
+if git config --get-all remote.origin.pushurl >/dev/null 2>&1; then
   git remote set-url --delete --push origin '.*' 2>/dev/null || true
-  git remote set-url --add --push origin "$UPSTREAM_URL"
-  git remote set-url --add --push origin "$FORK_URL"
-  echo "已配置双推：git push origin → $UPSTREAM_URL + $FORK_URL"
-else
-  echo "未配置双推：没有名为 fork 的 remote。若 CI 在 fork 上跑，先 git remote add fork <URL> 再重跑本脚本。"
+  echo "已清除 origin 上遗留的双推配置：git push origin 现在只推 $(git remote get-url origin)"
 fi
