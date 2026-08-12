@@ -167,6 +167,15 @@ final class BlindBookingViewModel: ObservableObject {
     ///
     /// `nil` = 用户未指定，任何读回与展示都**一个字不提终点**（不是「原路返回起点」）。
     @Published var endPlace: BookingEndPlace?
+    /// 起点的**朗读**形态（后端 `addressShort`，只有 POI 名）。`nil` = 念完整地址。
+    ///
+    /// **只喂读回。** 下单请求（`startAddress`）、屏幕上的出发地点行、志愿者看到的地址，
+    /// 一律仍是 `resolvedStartLocationDescription` 那份完整地址 —— 契约里两者分工明确：
+    /// 念的是名字（听得出对不对），下单带的是门牌号（走得到）。
+    ///
+    /// 生命周期与 `selectedStartPlace` 绑死：`selectPlace` 一律先清空它，
+    /// 只有 `applyVoiceResolvedStartPlace` 会在之后写回。所以「屏幕上是 A、耳朵里是 B」构造不出来。
+    @Published var voiceStartAddressShort: String?
     @Published var startLocationDescription = ""
     @Published var appointmentTime = Date()
     @Published var routeNotes = ""
@@ -324,9 +333,26 @@ final class BlindBookingViewModel: ObservableObject {
         }
     }
 
+    /// 读回里那句出发地点。**念 `spokenStartLocationDescription` 而不是完整地址** ——
+    /// 见 `voiceStartAddressShort` 与后端 `api_spec.yaml:3032`。
     var startPointSummary: String {
-        let placeText = resolvedStartLocationDescription.nilIfBlank ?? "正在获取当前位置"
+        let placeText = spokenStartLocationDescription.nilIfBlank ?? "正在获取当前位置"
         return "\(startPointSourceText)出发地点：\(placeText)。"
+    }
+
+    /// `resolvedStartLocationDescription` 的朗读版：底座换成 POI 名，**补充说明照旧带着**。
+    ///
+    /// 补充说明是用户自己敲进去的会合提示（「我在 A 口外侧等候」），
+    /// 它不属于「门牌号那种听完无从判断」的东西，砍掉反而丢信息。
+    var spokenStartLocationDescription: String {
+        guard let short = voiceStartAddressShort?.nilIfBlank else {
+            return resolvedStartLocationDescription
+        }
+        let supplement = startLocationDescription.trimmed
+        if supplement.isEmpty || short.contains(supplement) {
+            return short
+        }
+        return "\(short)；补充：\(supplement)"
     }
 
     /// 终点读回。**必须紧挨着 `startPointSummary` 念**，别塞进选填需求那一段。
@@ -342,9 +368,9 @@ final class BlindBookingViewModel: ObservableObject {
         if endPlace.isUnresolved {
             // 查不到坐标仍然照下单（后端允许「有地址无坐标」），但**必须说出来**：
             // 不说，盲人会以为终点已经定准了，而实际上志愿者拿到的只是一个地名。
-            return "结束地点：\(endPlace.address)。这个地点没能定位到，志愿者会看到这个名字。"
+            return "结束地点：\(endPlace.spokenAddress)。这个地点没能定位到，志愿者会看到这个名字。"
         }
-        return "结束地点：\(endPlace.address)。"
+        return "结束地点：\(endPlace.spokenAddress)。"
     }
 
     var optionalReviewItems: [BookingReviewItem] {
@@ -592,6 +618,11 @@ final class BlindBookingViewModel: ObservableObject {
     /// - Parameter announce: 语音向导会自己播报后端返回的确认文案，这时把这里的播报关掉，
     ///   否则同一件事被念两遍 —— 对语速调到 14 字/秒的读屏用户，重复播报是最伤的干扰。
     func selectPlace(_ place: ResolvedPlace, announce: Bool = true) {
+        // 起点换人了，上一轮语音的朗读形态立刻作废。
+        // 不清的话，用户从表单搜索里挑了别的地点，读回念的还是上一句语音抽到的 POI 名 ——
+        // 屏幕上显示 A、耳朵里听到 B，而看不见屏幕的人只有耳朵那一路。
+        // `applyVoiceResolvedStartPlace` 在调用本方法**之后**再写入自己的那一份。
+        voiceStartAddressShort = nil
         selectedStartPlace = place
         auxiliaryMapPlace = place
         auxiliaryMapCenter = place.coordinate
@@ -609,7 +640,14 @@ final class BlindBookingViewModel: ObservableObject {
     ///
     /// 与表单路径的差别值得记一笔：POI 搜索给候选列表让用户挑，语音只给一个点。重名地点的消歧
     /// 责任因此完全落在后端，前端能做的只有把地址读回去让用户确认 —— 向导正是这么做的。
-    func applyVoiceResolvedStartPlace(address: String, latitude: Double, longitude: Double) {
+    /// - Parameter spokenAddress: 后端 `addressShort` —— **只喂读回**，不进下单请求也不上屏。
+    ///   `nil` 时读回退回完整地址。
+    func applyVoiceResolvedStartPlace(
+        address: String,
+        spokenAddress: String? = nil,
+        latitude: Double,
+        longitude: Double
+    ) {
         let place = ResolvedPlace(
             id: "voice-resolved",
             title: address,
@@ -619,6 +657,8 @@ final class BlindBookingViewModel: ObservableObject {
             source: .manual
         )
         selectPlace(place, announce: false)
+        // 必须在 `selectPlace` 之后 —— 它会把这一份清空（见那里的注释）。
+        voiceStartAddressShort = spokenAddress?.nilIfBlank
     }
 
     /// 语音说「重说」时把上一轮抽到的槽位清干净。
@@ -631,6 +671,8 @@ final class BlindBookingViewModel: ObservableObject {
     /// 读回只在那个标志为真时才念具体时刻。
     func resetVoiceFilledSlots() {
         selectedStartPlace = nil
+        // 跟着起点一起清 —— 留着会让下一轮读回念上一句话里的地名。
+        voiceStartAddressShort = nil
         // 终点尤其不能留：屏幕上没有任何终点控件，用户重说一遍之后没有任何**视觉**线索
         // 能让他发现上一轮的终点还挂着，只有读回会念出来 —— 而那时他已经在准备说「确认」了。
         endPlace = nil

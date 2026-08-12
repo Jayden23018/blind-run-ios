@@ -215,6 +215,18 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     let plannedStartTime: String?
     let durationMinutes: Int?
     let address: String?
+    /// `address` 的**朗读形态** —— 只有 POI 名，不含门牌号与步行指引（后端 2026-08-09 新增）。
+    ///
+    /// 契约原话：**「自己拼读回文案时念这个，不要念 `address`」**（`api_spec.yaml:3032`）。
+    /// 读回的作用是让用户听出「这不是我说的地方」，他能靠听分辨的是**名字**；
+    /// 「国定路335号1号楼4层(国权路地铁站4号口步行110米)」听完无从判断，只会把确认句拖长。
+    ///
+    /// ⚠️ **只用于播报。** `address` 仍是完整地址，下单（`CreateOrderRequest.startAddress`）、
+    /// 屏幕显示、志愿者上门都要门牌号 —— 拿这个字段替掉它等于把地址精度丢了。
+    ///
+    /// `address` 为 `nil` 时本字段同样为 `nil`；正向地理编码回落给的地址（`上海市黄浦区人民广场`）
+    /// 不带 POI 名分隔，此时后端让本字段**等于** `address`（那种地址本来就短，整串念是对的）。
+    let addressShort: String?
     let latitude: Double?
     let longitude: Double?
 
@@ -228,6 +240,9 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     /// ⚠️ 终点**只由大模型抽取，没有正则链路**：百炼不可用时本字段恒为 `nil`，
     /// 起点/时间/时长照常解析。这是后端明确接受的降级，**不能当契约**。
     let endAddress: String?
+    /// `endAddress` 的朗读形态，口径与 `addressShort` 完全一致（后端同一个方法算的）。
+    /// 同样**只用于播报**，下单仍带完整的 `endAddress`。
+    let endAddressShort: String?
     /// ⚠️ 可能为 `nil` 而 `endAddress` 非 `nil`（说了地名、高德查不到坐标）。
     let endLatitude: Double?
     let endLongitude: Double?
@@ -318,7 +333,9 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
         missing: [VoiceOrderMissingSlot]?,
         needReask: Bool?,
         ttsText: String?,
+        addressShort: String? = nil,
         endAddress: String? = nil,
+        endAddressShort: String? = nil,
         endLatitude: Double? = nil,
         endLongitude: Double? = nil,
         endAddressUnresolved: Bool? = nil,
@@ -334,9 +351,11 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
         self.plannedStartTime = plannedStartTime
         self.durationMinutes = durationMinutes
         self.address = address
+        self.addressShort = addressShort
         self.latitude = latitude
         self.longitude = longitude
         self.endAddress = endAddress
+        self.endAddressShort = endAddressShort
         self.endLatitude = endLatitude
         self.endLongitude = endLongitude
         self.endAddressUnresolved = endAddressUnresolved
@@ -359,6 +378,12 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
         return (address, latitude, longitude)
     }
 
+    /// 起点的**朗读**形态。后端没给（老版本、或正向编码回落）就退回完整地址 ——
+    /// 念长一点总好过不念，而 `nil` 会让读回缺一整项。
+    var spokenStartAddress: String? {
+        addressShort?.nilIfBlank ?? address?.nilIfBlank
+    }
+
     /// 终点：**规则比起点松一档**，有地名就算数、坐标可缺（`api_spec.yaml:3007-3019` 明确两边不同）。
     ///
     /// 反过来不行：只有坐标没有地名一律当没抽到 —— 那是客户端 bug，
@@ -366,7 +391,12 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     /// 半个坐标由 `BookingEndPlace.init` 降级成「只有地名」。
     var resolvedEndPlace: BookingEndPlace? {
         guard let address = endAddress?.nilIfBlank else { return nil }
-        return BookingEndPlace(address: address, latitude: endLatitude, longitude: endLongitude)
+        return BookingEndPlace(
+            address: address,
+            spokenAddress: endAddressShort?.nilIfBlank,
+            latitude: endLatitude,
+            longitude: endLongitude
+        )
     }
 
     /// 需要让用户挑一个的候选；不需要消歧时为 `nil`。
@@ -393,7 +423,12 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
             missing: missing,
             needReask: needReask,
             ttsText: ttsText,
+            // 候选自带朗读形态：`name` 就是 POI 名，正是 `addressShort` 那一档。
+            // 不沿用上一轮的 `addressShort` —— 那是「最佳猜测」那条候选的名字，
+            // 用户刚挑的是另一个，念旧的等于告诉他挑没生效。
+            addressShort: candidate.name.nilIfBlank,
             endAddress: endAddress,
+            endAddressShort: endAddressShort,
             endLatitude: endLatitude,
             endLongitude: endLongitude,
             endAddressUnresolved: endAddressUnresolved,
