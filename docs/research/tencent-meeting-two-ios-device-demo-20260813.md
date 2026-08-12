@@ -114,6 +114,39 @@ QuickTime 本身没有系统音采集通道，要做就得搭一整套虚拟音�
 > 本仓库记忆 `audio-correctness-needs-real-ears-not-code-reading` 说的正是这类问题：
 > 调用点全对也可能一声不响，只能用耳朵验。
 
+## 2e. 设备不出现在 QuickTime 列表里 —— 头号原因是「配对 ≠ USB 连接」
+
+**2026-08-13 本机实测踩到**：`xcrun devicectl list devices` 把两台设备都报成
+`available (paired)`，看起来一切正常，但 QuickTime 的下拉里只有 Mac 自己的摄像头。
+
+**根因**：那两台是 **Wi-Fi 配对**（主机名形如 `macs-iPhone.coredevice.local`），
+而 **QuickTime 的 iOS 屏幕采集只走 USB**，无线配对的设备不会出现在采集源列表里。
+`devicectl` 的 `available` 只说明"已配对且可达"，**不代表有线连着**。
+
+**一条命令定论**（比在 QuickTime 菜单里翻找快得多）：
+
+```bash
+system_profiler SPUSBDataType | grep -A6 -iE "iPhone|iPad"   # 无输出 = 根本没插 USB
+```
+
+**菜单位置的准确说法**（此前本文写成「Screen」，不完全对）：
+`文件 > 新建影片录制`（**不是**「新建屏幕录制」，后者录的是 Mac 桌面）→ 点录制键
+**旁边的下拉箭头** → 设备出现在 **Camera / 摄像头**分组下；较新系统还会另有一个
+独立的 **Screen / 屏幕**分组。老版 iOS 上曾出现过只显示「iPhone Camera」（真的是相机画面、
+不是屏幕）的情况，升级 iOS 后才出现 Screen 分组。
+来源：[Apple 支持 · QuickTime Player 录制影片](https://support.apple.com/en-lb/guide/quicktime-player/qtp356b55534/mac)、
+[Apple Community 255406835](https://discussions.apple.com/thread/255406835)
+
+**其余排查顺序**（按命中率）：
+
+1. 用**数据线**，不是只能充电的线；不要经 hub，直插 Mac
+2. 设备**解锁**，弹出「信任此电脑」点**信任**并输密码
+3. **先看 Finder 侧边栏有没有这台设备** —— Finder 看不到，QuickTime 一定也看不到
+4. 之前误点过「不信任」：iPhone 设置 → 通用 → 传输或还原 → 还原 → **还原位置与隐私**，
+   重新插线再点信任
+5. 设备被识别**之后**再退出并重开 QuickTime（顺序反了会看不到）
+6. 退掉会抢摄像头/麦克风的工具（Micro Snitch 一类）
+
 ## 3. 被否掉的方案
 
 | 方案 | 为什么否 |
