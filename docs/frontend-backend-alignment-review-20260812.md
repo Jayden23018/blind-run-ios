@@ -1,24 +1,31 @@
 # 前后端对齐与前端全量 review — 2026-08-12
 
-**分支** `chore/research-log-index`（领先工作线 `origin/integrate/swift-migration` 15 个提交）
+**落地** 初稿随 PR #20 合入 `integrate/swift-migration`；A1/A3/B1 三节在合 PR #16 时按
+`git fetch` 后的事实改写过（见下方「方法上的两个坑」）。
 **范围** 前后端契约对齐 / 未适配的后端能力 / UI 与无障碍 / 「列了但没做」的功能
 **方法** 全部只读核查。后端事实取自 `/Users/mac/Downloads/demo` 的 `docs/api_spec.yaml`
 与 `src/main/java/**`，前端事实取自本仓库源码，每条都给了可复核的 `文件:行号`。
 
-> ⚠️ **方法上的一个坑，读本文时要知道**：核查当时后端工作区停在特性分支
-> `feat/voice-query-intent`（领先 `origin/main` 2 个提交），所以**工作区的 `api_spec.yaml`
-> 比 `origin/main` 多东西**。凡是判断「后端有没有某能力」，都要用
-> `git show origin/main:docs/api_spec.yaml` 而不是直接读文件 ——
-> A3 初稿就是踩了这个坑（已订正）。本文其余各条已复核过取自 `origin/main`。
-
-> 本文件是**代码 review 报告**，不是联网调研。按 `AGENTS.md` §12，`docs/research/` 只收联网调研，
-> 不要把本文件登记进 `docs/research/INDEX.md`。
+> ⚠️ **方法上的两个坑，读本文时要知道 —— 我两个都踩了：**
+>
+> 1. **别读后端工作区。** 核查当时后端签出在特性分支，工作区的 `api_spec.yaml` / 语料
+>    与 `origin/main` 不同。判断「后端有没有某能力」一律用 `git show origin/main:<path>`。
+> 2. **`git show` 之前先 `git fetch`。** 本地的 `origin/main` 引用可能停在几小时前 ——
+>    本轮 §A1 报的那个「高危缺陷」根本不存在，就是因为后端 9 小时前刚加的字段我没 fetch 到。
+>
+> 两条合起来才成立，只做第 1 条仍会判错。**A1 已作废、A3 改写过两次、B1 是这件事本身。**
+> 其余各条已在 `git fetch` 之后对 `origin/main` 复核。
 
 ---
 
 ## 结论先行
 
-**没有完全对齐。** 契约层有 2 个会在真机上静默失效的缺陷，4 类后端已交付而前端零接入的能力。
+**没有完全对齐，但比初稿判的轻。** 契约层真正成立的是 **1 个**（`addressShort` 零消费），
+初稿报的另一个高危缺陷（`blindPhone`）**是我读了陈旧 ref 造成的误判，已作废**。
+另有 3 类后端已交付而前端零接入的能力。
+
+**本轮最有价值的产出不是缺陷清单，是 §B1**：五道契约门禁一直在验「后端当前签出的那个分支」
+而不是契约，而它制造的是方向最坏的错误 —— 把正确的改动判成伪造。本轮实际发生两次。已修。
 
 无障碍**架构**做得好——遍历顺序解耦、地图隐藏、「重复当前状态」全覆盖、二次确认文案逐字锁定。
 但颜色对比度、横屏/iPad、Dynamic Type 上限三块基本空白，且**三者精确落在同一个用户段：低视力用户**。
@@ -29,49 +36,31 @@
 
 ## A. 前后端契约对齐
 
-### A1 · 高 · `blindName` / `blindPhone` 是前端凭空声明的字段，真机上恒 nil
+### A1 · ~~高~~ **已作废（我判错了）** · `blindName` / `blindPhone`
 
-前端 `blindRun/Core/Models/OrderModels.swift:318-319` 声明 `blindName: String?` / `blindPhone: String?`。
+> 🔴 **本条初稿断言这两个字段是前端凭空声明的、真机上恒 nil、志愿者接单后一次都打不了盲人电话。
+> 结论是错的，撤回。**
+>
+> 后端 `ca7c735`（2026-08-12 01:44，「把拨号断点补完整 —— 志愿者能打给盲人，客服能打给所有人」）
+> 早已加齐：`origin/main` 的 `OrderDetailResponse.java` 里 `:28 blindName`、`:33 blindPhone` 都在，
+> 契约里也有，且 `blindPhone` 明确是**明文可拨**（与 `volunteerPhone` 对称）。
+>
+> **错因：我全程没在后端仓库跑过 `git fetch`。** 手上的 `origin/main` 引用停在几小时前，
+> 于是 `git show origin/main:...` 拿到的是旧快照 —— 而 `ca7c735` 比我开始 review 只早 9 小时。
+> 同一个根因当天还造成了 §B1 那次误判。**教训见 §B1 末尾。**
 
-后端两处独立证据都说它们不在该 DTO：
+复核后确认对得上的两件事（留档，省得下次重查）：
 
-- `demo/src/main/java/com/example/demo/dto/OrderDetailResponse.java` —— 26 个字段里没有这两个
-- `demo/docs/api_spec.yaml` —— `blindPhone` 全仓 **0 命中**；`blindName` 只出现在**另一个** schema
-  （`:4337`，志愿者派单摘要用的 ActiveOrder），且那里配的是 `blindPhoneMasked`（`138****0001`，脱敏、不可拨）
+- 后端的拨号下发窗口 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`
+  （判据 `OrderStatus.allowsCounterpartCall()`）与前端
+  `RunOrderStatus.offersVolunteerCall`（`blindRun/Core/Models/OrderDisplayHelpers.swift:77-90`）
+  **逐态一致**，且前端写成穷举 `switch` —— 后端往枚举加值时编译器会逼一次决策，
+  不会像集合字面量那样默默判 `false`。
+- 后端 N52（`volunteerPhone` 曾返回掩码串 `138****1234`，客户端只取数字位 → `1381234` → 空号）
+  已于 2026-08-11 修掉，现在是明文，`tel:` 拼装那条路是通的。
 
-已核对 `demo/src/main/java/com/example/demo/controller/OrderController.java:187-192`：
-`GET /api/orders/{id}` 返回的确实是 `OrderDetailResponse`。
-`blindName` 在后端只存在于 `VolunteerDispatchActiveOrder.java` / `VolunteerDispatchRecentOrder.java`。
-
-因为是 Optional，解码不会失败，只是解出 nil。后果分两档，**第二档是硬失效**：
-
-**`blindName` —— 时有时无（取决于这个 `OrderDetailResponse` 是解码来的还是转换来的）**
-
-| 位置 | 数据来源 | 行为 |
-|---|---|---|
-| `VolunteerHomeView.swift:1370` `VolunteerCurrentOrderCard` | `:528` 派单摘要转换 `active.orderDetail` | **有名字**（`VolunteerDispatchSummaryModels.swift:151` 透传）|
-| 同上 | `:206/:214` 来自 `GET /api/orders/{id}` | **nil** → 同一张卡刷新前后名字会闪 |
-| `VolunteerHomeView.swift:1538` `VolunteerRecentOrderCard` | `VolunteerDispatchSummaryRecentOrder` | **有名字**，契约支持 ✅ |
-| `VolunteerOrderFlowViews.swift:2241/:2501` 接单后详情 | `GET /api/orders/{id}` | **恒 nil** → 恒回退成「盲人跑者」|
-| `blindRun/Map/MapViewModel.swift:96` | 同上 | 地图标注副标题恒 nil |
-
-**`blindPhone` —— 全路径恒 nil，无一例外**
-
-派单摘要那条**显式传 `nil`**（`VolunteerDispatchSummaryModels.swift:152`，因为后端只给
-`blindPhoneMasked` 脱敏值）；`GET /api/orders/{id}` 那条解码得 nil。
-于是 `VolunteerOrderFlowViews.swift:402` 的 `canShowPhone` 恒 `false`，
-`:2638` 传进 `VolunteerBlindRunnerInfoCard` 的 `showPhone` 也恒 `false` ——
-**志愿者接单后一次都打不了盲人电话。**
-
-**违反 `AGENTS.md` §8「接单后展示完整手机号」。** 对一对一陪跑，志愿者在集合点找不到人
-却没有任何方式打电话，是**安全相关**的失效，不只是体验问题。
-
-**Mock 把它完全盖住了**：`blindRun/Core/MockAPIClient.swift:2424-2425` 写死了「李明 / 13800001001」，
-所以每一条 Mock 测试都是绿的 —— 正是 `AGENTS.md` §1 说的「制造假信心」。
-
-方向性事实：后端**从设计上就不打算**给未脱敏号码。真正的通道是
-`POST /api/orders/{orderId}/call/initiate`（隐私号中转，
-`CallInitiateRequest { callerRole: BLIND_USER | VOLUNTEER }` 双向对称）。前端对该端点 **0 命中**。
+唯一还留着的小口子：`/api/orders/{orderId}/call/records` 的 `CallRecordResponse`
+在 `components/schemas` 里没有定义。前端暂不接该端点，已在 handoff 里提了一句。
 
 ### A2 · 高 · `addressShort` / `endAddressShort` 没接，语音读回念的是完整门牌地址
 
@@ -90,40 +79,33 @@
 读回存在的唯一意义是让盲人听出「这不是我说的地方」，他能靠听分辨的是**名字**。
 这个字段就是为了修这件事加的。
 
-### A3 · 中 · 「问一句」的后端第 2 档 —— **后端还在做，没合并，现在不能接**
+### A3 · 中高 · 「问一句」的后端第 2 档 `classify-query` 前端零接入
 
-> ⚠️ **本条初稿写错过，已订正。** 初稿说「后端已交付、前端零接入」，
-> 依据是工作区 `api_spec.yaml` 里有 `/api/orders/voice/classify-query`（`:922-937`）。
-> 但那份 spec 取自后端**特性分支** `feat/voice-query-intent` 的工作区，**不是 `origin/main`**：
->
-> ```bash
-> git show origin/main:docs/api_spec.yaml | grep -c "classify-query"   # → 0
-> ```
->
-> 这正是记忆 `verify-facts-on-the-work-line-not-the-feature-branch` 说的那类错。
+> ⚠️ 本条改过两次，最终事实如下（前两版都因为**没 fetch 后端仓库**而判错）。
 
-事实：
+后端 `/api/orders/voice/classify-query` **已合进 `origin/main`**（`4e31766`，PR #63
+`feat/voice-query-intent`）。前端零命中。
 
-- 两个提交都**未合并**（`origin/main..HEAD`）：
-  `e747206`「加后端意图分类兜底」、`0bf8cd8`「C 档改占位符 —— 模型只生成句式，真值不出后端」。
-- **契约今天还在变形。** `0bf8cd8`（2026-08-12 16:36）把 `ClassifyQueryResponse` 从 1 个字段
-  改成 2 个：除 `intent` 外新增 `template`（nullable，**只有 `intent=DISTANCE` 才可能有值**，
-  其余四类恒 `null`），形如 `{{VOLUNTEER}}离你还有{{DISTANCE}}，预计{{ETA}}到`，
-  三个占位符由客户端用本地数据填 —— 也就是说**真值不出后端，模型只出句式**。
-  同批把校验从「数字查白名单」收紧成「输出里一个数字都不许有」。
-- `intent` 用 `anyOf [enum, string]` 建模成**开放枚举**，符合本仓库「未知枚举值不许整条崩」那条红线。
+契约形状（合并后的最终版，比初版多一个字段）：
 
-**结论：现在接入 = 原样重演 N48 那次的错。** handoff 2026-08-10 前端自己写过
-「我们这一批是照着你们还没合并的分支写的……你们合并前如果改了任何一处，告诉我们一声」——
-而这次后端**已经**改了（1 字段 → 2 字段 + 设计方向从「模型组合问答」转向「占位符」）。
-**接入应当等 `feat/voice-query-intent` 合进 `origin/main` 之后再开工。**
+- `ClassifyQueryRequest { transcript }` —— **刻意不带 `orderId`**：本端点不读订单、不生成文案
+- `ClassifyQueryResponse { intent, template }`
+  - `intent`：`DISTANCE` / `STATUS` / `SCHEDULE` / `CALL_VOLUNTEER` / `OUT_OF_SCOPE`，
+    **永不为 null**，判不准或任何失败一律 `OUT_OF_SCOPE`。
+    用 `anyOf [enum, string]` 建成**开放枚举** —— 正合本仓库「未知枚举值不许整条崩」那条红线
+  - `template`：**只有 `intent=DISTANCE` 才可能有值**，其余四类恒 `null`。
+    形如 `{{VOLUNTEER}}离你还有{{DISTANCE}}，预计{{ETA}}到`，三个占位符由客户端用本地数据填 ——
+    **真值不出后端**，模型只出句式，校验是「输出里一个数字都不许有」
 
-仍然成立、且与合并无关的一条：前端 `blindRun/Voice/VoiceStatusQuery.swift:10-11`
-拒绝后端 NLU 的理由是
+设计上逐条对上了前端当初拒绝后端 NLU 的每个顾虑：不读订单、模型碰不到任何数字、
+枚举里刻意没有「取消」、任何失败退回客户端原有兜底。
+
+前端 `blindRun/Voice/VoiceStatusQuery.swift:10-11` 现在的理由是：
 
 > 后端 `/api/orders/voice/parse` 在生产上恒 404 …… 按它写完，盲人拿到手的是一个恒报错的按钮。
 
-这条理由针对的是**另一个端点**。留着会误导下一个人，无论 classify-query 何时合并都该改掉。
+这条理由针对的是**另一个端点**，而且 classify-query 的失败语义天生不会产生「恒报错的按钮」。
+接入时这段注释要一起改掉，留着会误导下一个人。
 
 ### A4 · 中高 · `NO_VOLUNTEER` / `PENDING_MATCH` 的「继续等」没有出口
 
@@ -168,58 +150,47 @@
 
 ## B. 工作树与门禁状态（本轮已处理）
 
-### B1 · 高 · **五道后端契约门禁默认对着「后端当前签出的那个分支」验，不是契约** ⚠️
+### B1 · 高 · **契约门禁一直在验「后端当前签出的分支」，不是契约；而我自己还叠了一层「没 fetch」** ⚠️
 
-**这条是本轮最值得落地的发现，而且我自己先踩了一次，过程留在这里当证据。**
+**这条是本轮最值得落地的发现，我先后踩了两次，过程留在这里当证据。**
 
-`blindRunTests/VoiceOrderWizardTests.swift` 有一份 +25/-1 未提交改动，新增 7 条冒号形语料镜像。
-`node scripts/validate-golden-corpus.mjs` 报「7 条在后端语料里已不存在」，
-`git log -S"_asr_date_rendering_note"` 也查不到它引用的 note key ——
-**两个信号都指向「这份改动是编的」。两个信号都是假的。**
+**第一层：门禁读工作区。** `scripts/validate-golden-corpus.mjs:26` 读的是
+`../demo/docs/voice-golden-corpus.json`，即后端仓库的**工作区文件**。当时后端签出在特性分支
+`feat/voice-query-intent`（从 PR #55 合并前切出，语料 96 条），而 `origin/main` 已经更多。
+于是它把一份**完全正确**的语料镜像改动报成「7 条在后端语料里已不存在」，我据此 revert 掉了它。
 
-真相：
+**第二层：我自己没 fetch。** 意识到第一层之后，我改用
+`git show origin/main:docs/voice-golden-corpus.json` 复核 —— **但没先 `git fetch`**。
+本地 `origin/main` 引用停在几小时前（101 条），于是我判定其中 2 条「后端也没有」，把它们删了。
+`git fetch` 之后是 **103 条**，那 2 条在里面，`source: regex`，期望值与原改动**逐字一致**。
 
-- `scripts/validate-golden-corpus.mjs:26` 读的是 `../demo/docs/voice-golden-corpus.json`，
-  即后端仓库的**工作区文件**。当时后端签出在特性分支 `feat/voice-query-intent`，
-  该分支从 PR #55 合并**之前**切出，工作区语料 **96 条**，
-  而 `origin/main` 已经是 **101 条**。
-- 多出来的 5 条正是那份改动加的：`8月10号早上8:00跑步`、`下周三早上8:00跑步`、
-  `这个月底下午3:00`、`第三天早上8:00`、`隔天8:00`。**它是对的。**
-- `_asr_date_rendering_note` 确实存在于 `origin/main`（commit `9c92568`），
-  `_crosscheck_note` 见 `9aef7df`。我先前的 `git log -S` **没带 `--all`**，
-  只走了那条陈旧特性分支的历史，所以查不到。
+**7 条全都是对的。我删了 2 条，删错。** 同一个根因还让我在 §A1 里凭空报了一个不存在的高危缺陷。
 
-对着真契约重验才是准的：
+正确的复核姿势（两步缺一不可）：
 
 ```bash
+git -C ../demo fetch origin main
 git -C ../demo show origin/main:docs/voice-golden-corpus.json > /tmp/corpus-main.json
 node scripts/validate-golden-corpus.mjs /tmp/corpus-main.json
 ```
 
-→ `通过：101 条全部与前端镜像一致`（保留 5 条、移除下面那 2 条之后）。
-
-**7 条里真正没有契约支撑的只有 2 条**：`下月10号早上8:00`、`三天后早上8:00`
-（非 null 期望值那一对）。`origin/main` 语料里查无此条，已移除并投 handoff 请后端补。
-
 **为什么这不是「注意一下」而是要落地的缺陷**：
 
 - 受影响的是**全部五道读后端仓库的门禁**（spec-coverage / golden-corpus / error-codes /
-  voice-intent-words / 生成代码比对），它们统一读工作区路径，
-  **后端同事切到任何分支，我们的门禁结论就跟着变，而且不报警**。
-- 唯一的防线是 pre-push 里的漂移检查（`scripts/install-git-hooks.sh:71-91`，
-  `git -C "$BACKEND_DIR" diff --quiet origin/main -- "$f"`），
-  但它**只在 push 时跑**。日常直接 `node scripts/validate-*.mjs` 完全不经过它 ——
-  于是「我跑了门禁，绿的」这句话在日常开发里是没有保证的。
-- 它制造的是**方向最坏的那种错误**：把正确的改动判成伪造。本轮我据此 revert 掉了一份对的改动
-  （靠事先存了 `git diff` 才救回来）。
+  voice-intent-words / 生成代码比对）。后端同事切到任何分支，我们的门禁结论就跟着变，且不报警。
+- 它制造的是**方向最坏的那种错误**：把正确的改动判成伪造。本轮实际发生了两次，
+  第一次靠事先存了 `git diff` 才救回来。
+- 「我跑了门禁，绿的」这句话在日常开发里因此是没有保证的。
 
-**建议**（走 `AGENTS.md` §1.1，本轮只记录不实现）：让这五个脚本默认就从
-`git show origin/main:<path>` 取，工作区路径退化成显式 opt-in（对应 PR #16 的方向）。
-在那之前，**手动跑门禁时要自己导出 `origin/main` 的副本再传进去**。
+**已修（本轮）**：PR #16 把契约来源改成默认 `git show origin/main:` 落临时文件。
+合并时发现它自己漏了第 5 道门禁读的两个 `.java`（`VoiceSlotParser` / `VoiceOrderService`
+仍直接指向工作区路径），一并补上；回归测试 `scripts/validate-prepush-contract-source.mjs`
+的 fixture 从 3 份契约扩到 5 份。**但 `fetch` 那一步仍然靠人记** ——
+钩子里有 `git -C "$BACKEND_DIR" fetch --quiet origin main`，手动跑脚本时没有。
 
-> 记忆 `prepush-contract-gate-reads-backend-worktree` 说「PR #16 已修掉，3 份契约统一
-> `git show origin/main` 取」—— **PR #16 至今仍是 open 状态**（见 B2），工作线上的钩子
-> 还是漂移检测那一版。该记忆已按本轮事实订正。
+> 记忆 `prepush-contract-gate-reads-backend-worktree` 曾记着「PR #16 已修掉」，
+> 而 #16 当时仍是 open —— 那条记忆写于该 PR 的分支上下文，把分支行为当成了工作线现状。
+> 已订正，并补上「先 fetch」这一条。
 
 ### B2 · 中 · 7 个 PR 挂着没合，最老的开了 11 天
 
@@ -441,11 +412,14 @@ skill `aidrun-a11y-voice` 写的是「盲人端关键主按钮高度 ≥ 64pt」
 
 | 项 | 去向 |
 |---|---|
-| A1 / A2 + 语料缺一格 | 已投后端 handoff（2026-08-12） |
-| A3 + A4 | 独立变更实现，见各自 §A 描述 |
-| B1 | 已 revert，等后端补语料后再镜像 |
-| D1 / D2 / D3 / D4 | 低视力通道整体验收，建议单独立项，不要拆成零散修补 |
+| ~~A1 `blindPhone`~~ | **作废** —— 后端 `ca7c735` 已加齐，前端 `offersVolunteerCall` 与其窗口逐态一致 |
+| A2 `addressShort` | 前端认领，下个变更接上（不需要后端做事） |
+| A3 `classify-query` | 后端已合进 main（`4e31766`），可以开工 |
+| A4 `keep-waiting` / `keep-rematching` | 可以开工，`.noVolunteer` 现在被 15 处当终态要拆开 |
+| A5 / A6 | 需要产品判断，未立项 |
+| B1 门禁读错文件 | **已修**（PR #16 + 补上它漏的第 5 道门禁）；`fetch` 那步仍靠人记 |
+| D1–D4 低视力通道 | 建议整体验收立项，不要拆成零散修补 |
 
-**建议加一条机器守卫**（`AGENTS.md` §1.1）：A1 那类「前端 `Codable` 声明了契约里不存在的字段」
-是可以静态抓到的 —— 把前端模型字段与 `api_spec.yaml` 对应 schema 对撞即可。
-这正是 `scripts/validate-spec-coverage.mjs` 现在够不着的一层（它只比路径，`:6` 自己写了这个边界）。
+**建议再加一条机器守卫**（`AGENTS.md` §1.1）：手动跑那五个脚本时没有任何东西提醒「你读的是工作区
+而且可能没 fetch」。钩子里已经有 `fetch`，脚本自己没有 —— 可以让脚本在读到工作区路径时打一行警告，
+或干脆默认也走 `git show origin/main:`。本轮只记录，不实现。
