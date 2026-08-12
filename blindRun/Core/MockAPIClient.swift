@@ -33,6 +33,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private var nextOrderId: Int64 = 100
     private var nextContactId: Int64 = 100
 
+    /// 每单已用掉的「继续等待」延长次数。
+    ///
+    /// 上限刻意设成 2 而不是后端默认的 10：这一档存在的唯一理由是让
+    /// `KEEP_WAITING_LIMIT_REACHED` 那条分支在开发期离线走得到，点 10 次没人会点。
+    /// 计数**不**随订单状态改变而清零 —— 后端的 `matchNotifyCount` 也是累计值。
+    private var keepWaitingCounts: [Int64: Int] = [:]
+    private static let mockKeepWaitingLimit = 2
+
     /// 已上报的 APNs device token（幂等 upsert 的本地等价物）。
     private(set) var registeredApnsTokens: Set<String> = []
     /// `/api/notifications/since` 的补读语料。Mock 不主动产生离线通知，默认为空。
@@ -326,6 +334,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             }
             if path.hasSuffix("/cancel") && method == .post {
                 return try handleCancel(orderId: orderId)
+            }
+            // ⚠️ `PUT`，不是 `POST` —— 契约里这两条都是 `put`（`api_spec.yaml:236` / `:256`），
+            // 与同文件里其余走 POST 的状态流转端点不同族。
+            if path.hasSuffix("/keep-waiting") && method == .put {
+                return try handleKeepWaiting(orderId: orderId, requiredStatus: .pendingMatch)
+            }
+            if path.hasSuffix("/keep-rematching") && method == .put {
+                return try handleKeepWaiting(orderId: orderId, requiredStatus: .rematching)
             }
             if path.hasSuffix("/review") && method == .post {
                 return handleReview()
@@ -1251,6 +1267,34 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         orders[index] = updateOrderStatus(orders[index], to: nextStatus)
         let message = role == .volunteer ? "志愿者已取消，订单重新匹配中" : "订单已取消"
         return actionResponse(for: orders[index], message: message)
+    }
+
+    /// `PUT /api/orders/{id}/keep-waiting` 与 `/keep-rematching`。
+    ///
+    /// 两条端点前置状态互斥，所以调用方传进来要求的那一个 —— Mock 不去猜订单当前是什么，
+    /// 猜的话就把「客户端打错了端点」这类 bug 遮掉了。
+    ///
+    /// 成功只回 `{"success": true}`，**订单状态不变**，这是契约保证的全部形状
+    /// （`api_spec.yaml:277-283`）。不要在这里编一个带剩余次数或新超时时刻的回执 ——
+    /// 那样客户端会长出依赖后端并不提供的字段的代码。
+    private func handleKeepWaiting(
+        orderId: Int64,
+        requiredStatus: RunOrderStatus
+    ) throws -> ApiSuccessResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status == requiredStatus else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不支持此操作"))
+        }
+        let used = keepWaitingCounts[orderId] ?? 0
+        guard used < Self.mockKeepWaitingLimit else {
+            throw APIError.serverError(ErrorResponse(
+                code: "KEEP_WAITING_LIMIT_REACHED", message: "继续等待次数已达上限，请取消订单后重新下单"))
+        }
+        keepWaitingCounts[orderId] = used + 1
+        return ApiSuccessResponse(success: true, message: nil)
     }
 
     private func actionResponse(for order: OrderDetailResponse, message: String) -> OrderResponse {

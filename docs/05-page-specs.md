@@ -378,11 +378,16 @@
   - DRIVER_ARRIVED：志愿者卡片 + "志愿者已到达约定地点，等待志愿者开始服务"
 - 订单信息卡片（出发地点、预约时间、可选项）
 - 志愿者距离（收到位置且订单有出发坐标时）：显示"志愿者距出发地点约 X"，来源为志愿者最新 WebSocket 位置到订单出发坐标
+- "继续等待"主按钮（PENDING_MATCH / REMATCHING 状态显示）：与"打电话给志愿者"共用状态卡下方的主动作版位，两者状态集互斥
 - "取消订单"按钮（PENDING_MATCH / PENDING_ACCEPT / REMATCHING 状态显示，灰色/危险色）
 - 本页覆盖的状态均不显示"一键求助"入口（求助仅在 IN_PROGRESS 对盲人显示，见页面 7）
 - "重复当前状态"按钮
 
 **主要操作**：
+- PENDING_MATCH / REMATCHING：点击"继续等待" → 按状态分派到 `PUT /api/orders/{id}/keep-waiting`（PENDING_MATCH）或 `PUT /api/orders/{id}/keep-rematching`（REMATCHING），刷新后端超时窗口
+  - **不做二次确认**：动作幂等、可重复，方向是保住订单，误触代价只是多等一会儿
+  - 被 409 `ORDER_STATUS_NOT_ALLOWED` 拒绝时刷新订单详情，**不回退去试另一个端点**（两端点前置状态互斥，重试必然也失败）
+  - 收到 409 `KEEP_WAITING_LIMIT_REACHED` 后播报上限已到并说明还能做什么，同时把该按钮从本单 UI 移除
 - PENDING_MATCH / PENDING_ACCEPT / REMATCHING：点击"取消订单"（二次确认）
 - 点击"重复当前状态"
 
@@ -406,8 +411,9 @@
 - 状态文本：大号字体，高对比度
 - TTS：每次状态变化自动播报；PENDING_MATCH 播报"预约已提交，系统正在为你派单"
 - "取消订单"按钮：二次确认弹窗 + accessibilityHint = "取消当前订单"
+- "继续等待"按钮：accessibilityLabel = "继续等待"，触达高度随 Dynamic Type 缩放且不低于 64pt；成功文案必须用**进行时**且**不含具体时长**（窗口长度是后端配置 `app.match.max-keep-waiting-count` 及对应超时值，客户端读不到，写死数字即假信息）
 - 本页覆盖的状态均不显示"一键求助"或"紧急求助"按钮
-- "重复当前状态"按钮：accessibilityLabel = "重复当前状态"；先播报订单状态，若存在最新求助状态则追加在后，不替代订单状态
+- "重复当前状态"按钮：accessibilityLabel = "重复当前状态"；先播报订单状态，若存在最新求助状态则追加在后，不替代订单状态；PENDING_MATCH / REMATCHING 且延长次数未用尽时，播报内容必须提到"继续等待"——看不见屏幕的人只能靠这句发现该动作存在
 
 ---
 
