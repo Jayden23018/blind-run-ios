@@ -418,14 +418,24 @@ struct PagedOrderResponse: Codable, Sendable {
 /// `latitude` / `longitude` 要么同在要么同缺：只带半个后端返 400「终点经纬度必须同时提供」。
 /// 这个不变式由 `init` 守着，构造完就不可能坏。
 struct BookingEndPlace: Equatable, Sendable {
+    /// 完整地址。**下单与展示都用它**，一个字都不能少 —— 志愿者要靠门牌号找到人。
     let address: String
+    /// 朗读形态（后端 `endAddressShort`），只有 POI 名。`nil` = 后端没给，念完整地址。
+    ///
+    /// **单独存一份而不是替换 `address`**：契约明确两者分工不同 ——
+    /// 念的是名字（听得出对不对），下单带的是门牌号（走得到）。合并成一个字段就得二选一。
+    private let shortAddress: String?
     let latitude: Double?
     let longitude: Double?
 
+    /// 读回念这个。没有朗读形态时退回完整地址：念长一点总好过不念。
+    var spokenAddress: String { shortAddress?.nilIfBlank ?? address }
+
     /// 半个坐标一律降级成「只有地名」，不是丢弃整个终点 ——
     /// 地名本身对志愿者仍有展示价值，而半个坐标没有任何意义。
-    init(address: String, latitude: Double?, longitude: Double?) {
+    init(address: String, spokenAddress: String? = nil, latitude: Double?, longitude: Double?) {
         self.address = address
+        self.shortAddress = spokenAddress
         if let latitude, let longitude {
             self.latitude = latitude
             self.longitude = longitude

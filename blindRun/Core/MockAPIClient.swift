@@ -1381,7 +1381,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 correctionUnclear: correctionUnclear,
                 missing: missing
             ),
+            addressShort: Self.mockVoiceAddressShort(mergedAddress),
             endAddress: mergedEndAddress,
+            endAddressShort: Self.mockVoiceAddressShort(mergedEndAddress),
             endLatitude: mergedEndLatitude,
             endLongitude: mergedEndLongitude,
             // 契约说它恒等于「有地名且没坐标」，且**按本次响应的最终状态算，不是按本轮抽到了什么**
@@ -1399,6 +1401,23 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             candidates: startCandidates,
             addressUnresolved: addressUnresolved
         )
+    }
+
+    /// `addressShort` / `endAddressShort` 的 Mock 口径：取 POI 名，即第一个空格之前那一段。
+    ///
+    /// 镜像后端的两条规则（`api_spec.yaml:3026-3041`）：
+    /// - 完整地址形如 `五角场市场监督管理所 国定路335号1号楼4层(...)` → `五角场市场监督管理所`
+    /// - 正向地理编码回落给的 `上海市黄浦区人民广场` **不带 POI 名分隔**，此时**等于** `address`
+    ///
+    /// 与 `AddressCandidate.readbackAddress` 是同一条拼法的反向操作（那边 `name + " " + address`），
+    /// 所以候选消歧挑定之后两条路得到的朗读形态一致。
+    ///
+    /// ponytail: 按空格切就够，不去猜门牌号的正则。后端真实实现更复杂，但 Mock 的职责是
+    /// 让「读回念的是短名」这条链路在离线时走得到，不是复刻高德的地址格式。
+    static func mockVoiceAddressShort(_ address: String?) -> String? {
+        guard let address = address?.nilIfBlank else { return nil }
+        guard let head = address.split(separator: " ", maxSplits: 1).first else { return address }
+        return String(head)
     }
 
     /// 确认轮的表态判定。**逐字转写**后端 `VoiceSlotParser` 的五条正则与判定顺序
