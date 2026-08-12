@@ -4109,6 +4109,32 @@ public enum Components {
             public var plannedStart: Swift.String
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/plannedEnd`.
             public var plannedEnd: Swift.String
+            /// 盲人姓名，**始终脱敏**（`张*`，`NameMaskUtils.mask()`）。只有志愿者端渲染它。
+            /// 与手机号不同：姓名没有「拨得通」这回事，所以这里就是展示值，不存在明文版本。
+            /// 盲人账号注销后 `cascadeDeletePii()` 清空姓名 → null。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/blindName`.
+            public var blindName: Swift.String?
+            /// 盲人手机号，**明文、可直接拨打**（供志愿者拨号），与 `volunteerPhone` 完全对称 ——
+            /// 同一个不变量、同一个下发窗口、同样终态收回。详见 `volunteerPhone` 的说明。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/blindPhone`.
+            public var blindPhone: Swift.String?
+            /// 志愿者手机号，**明文、可直接拨打**（客户端拿它拼 `tel:`）。
+            ///
+            /// ⚠️ **不变量：要么是能直接拨通的号码，要么是 `null`，永远不会是掩码串。**
+            /// 2026-08-11 之前这里返回的是 `138****1234`，客户端只取数字位拨号 → `1381234` → 空号
+            /// （见 `docs/ISSUES.md` N52）。展示要不要脱敏由客户端在展示层决定，后端不再往拨号字段塞人眼格式。
+            ///
+            /// **下发窗口 = 需要当面汇合的窗口**：`PENDING_ACCEPT` / `DRIVER_EN_ROUTE` /
+            /// `DRIVER_ARRIVED` / `IN_PROGRESS` 四态给号；`PENDING_MATCH` / `REMATCHING` /
+            /// `NO_VOLUNTEER`（无志愿者）与 `COMPLETED` / `CANCELLED`（终态）一律 `null`，
+            /// 志愿者注销后同样 `null`。判据在 `OrderStatus.allowsCounterpartCall()`，
+            /// 与 iOS `RunOrderStatus.offersVolunteerCall` 同增同减。
+            ///
+            /// 对照：`AvailableOrderResponse.blindUserPhone` **仍然掩码** —— 那是接单前的候选列表，
+            /// 拒单的人也看得到，不是拨号用的。两个字段口径不同是有意为之。
+            ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerPhone`.
             public var volunteerPhone: Swift.String?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/acceptedAt`.
@@ -4425,7 +4451,9 @@ public enum Components {
             ///   - endLongitude: 终点经度
             ///   - plannedStart:
             ///   - plannedEnd:
-            ///   - volunteerPhone:
+            ///   - blindName: 盲人姓名，**始终脱敏**（`张*`，`NameMaskUtils.mask()`）。只有志愿者端渲染它。
+            ///   - blindPhone: 盲人手机号，**明文、可直接拨打**（供志愿者拨号），与 `volunteerPhone` 完全对称 ——
+            ///   - volunteerPhone: 志愿者手机号，**明文、可直接拨打**（客户端拿它拼 `tel:`）。
             ///   - acceptedAt:
             ///   - createdAt:
             ///   - expectedDurationMinutes:
@@ -4451,6 +4479,8 @@ public enum Components {
                 endLongitude: Swift.Double? = nil,
                 plannedStart: Swift.String,
                 plannedEnd: Swift.String,
+                blindName: Swift.String? = nil,
+                blindPhone: Swift.String? = nil,
                 volunteerPhone: Swift.String? = nil,
                 acceptedAt: Swift.String? = nil,
                 createdAt: Swift.String,
@@ -4477,6 +4507,8 @@ public enum Components {
                 self.endLongitude = endLongitude
                 self.plannedStart = plannedStart
                 self.plannedEnd = plannedEnd
+                self.blindName = blindName
+                self.blindPhone = blindPhone
                 self.volunteerPhone = volunteerPhone
                 self.acceptedAt = acceptedAt
                 self.createdAt = createdAt
@@ -4504,6 +4536,8 @@ public enum Components {
                 case endLongitude
                 case plannedStart
                 case plannedEnd
+                case blindName
+                case blindPhone
                 case volunteerPhone
                 case acceptedAt
                 case createdAt
