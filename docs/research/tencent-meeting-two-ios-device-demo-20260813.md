@@ -114,20 +114,60 @@ QuickTime 本身没有系统音采集通道，要做就得搭一整套虚拟音�
 > 本仓库记忆 `audio-correctness-needs-real-ears-not-code-reading` 说的正是这类问题：
 > 调用点全对也可能一声不响，只能用耳朵验。
 
-## 2e. 设备不出现在 QuickTime 列表里 —— 头号原因是「配对 ≠ USB 连接」
+## 2e. 设备不出现在 QuickTime 列表里 —— 排查顺序与**两个会骗人的检查**
 
-**2026-08-13 本机实测踩到**：`xcrun devicectl list devices` 把两台设备都报成
-`available (paired)`，看起来一切正常，但 QuickTime 的下拉里只有 Mac 自己的摄像头。
+**2026-08-13 本机实测，排查过程本身踩了两个坑，两个都会让你得出反向结论。**
 
-**根因**：那两台是 **Wi-Fi 配对**（主机名形如 `macs-iPhone.coredevice.local`），
-而 **QuickTime 的 iOS 屏幕采集只走 USB**，无线配对的设备不会出现在采集源列表里。
-`devicectl` 的 `available` 只说明"已配对且可达"，**不代表有线连着**。
+### ⛔ 坑 1：`system_profiler SPUSBDataType` 会静默返回空
 
-**一条命令定论**（比在 QuickTime 菜单里翻找快得多）：
+这条命令在本机（macOS 26.5.2 + Claude Code 沙箱）**returncode = 0、stdout = 0 字节**，
+既不报错也不提示。据此判「USB 上没有 iOS 设备」是**假阴性** —— 实际设备好好连着。
+判 USB 连接**不要用它**，用下面两条之一：
 
 ```bash
-system_profiler SPUSBDataType | grep -A6 -iE "iPhone|iPad"   # 无输出 = 根本没插 USB
+# ① 看 USB 树上有没有 IOUSBHostDevice 节点
+ioreg -p IOUSB -w 0 -l | grep -E '\+-o (iPhone|iPad)'
+
+# ② 直接问 devicectl 传输方式（最权威，一眼看到 wired / wireless）
+xcrun devicectl device info details --device <UDID> --quiet --json-output /tmp/d.json
+python3 -c "import json;d=json.load(open('/tmp/d.json'));import re;print(re.findall(r'\"transportType\"\s*:\s*\"[^\"]*\"',json.dumps(d)))"
 ```
+
+`transportType = "wired"` + `pairingState = "paired"` 才算「线和信任都通了」。
+⚠️ `xcrun devicectl list devices` 的 `available (paired)` **不含传输方式信息**，
+它对无线配对的设备也显示 available，不能拿来判有线。
+
+### ⛔ 坑 2：命令行 Swift 枚举 `AVCaptureDevice` 也可能是假阴性
+
+用未签名的 `swift xxx.swift` 枚举采集设备时，`AVMediaType.muxed`（iOS 屏幕采集设备所在的
+类别）返回 0 个，而同一次枚举**能**列出连续互通相机与各路麦克风。未签名 CLI 拿不拿得到
+完整设备列表没有可信记载，**因此「muxed 为空」不能证明 QuickTime 也看不到**。
+权威判据只有 QuickTime 本身。
+
+> 顺带一个真实存在、值得知道的区分：枚举里出现的 `xxx's iPhone Camera`
+> （`AVCaptureDeviceTypeExternal`、`isContinuityCamera = true`）是**连续互通相机**——
+> 无线的、拍的是**摄像头画面**，不是手机屏幕。误选它就会看到"直接调用了摄像头"。
+
+### macOS 26 没有移除这个功能
+
+Apple 的 QuickTime Player 用户指南在 macOS Tahoe 26 上仍然写着
+`File > New Movie Recording` → 在 **Camera** 下选择已连接的 iPhone / iPad。
+社区反馈是**画质下降**（无 4K、压缩变重）和**长时间录制中途停止**，不是功能移除。
+来源：[Apple 支持 · Record a movie in QuickTime Player](https://support.apple.com/guide/quicktime-player/record-a-movie-qtp356b55534/mac)、
+[Apple Community 256154125](https://discussions.apple.com/thread/256154125)、
+[256183321](https://discussions.apple.com/thread/256183321)
+
+### 已排除但值得先查的一项：iPhone 镜像正在运行
+
+`iPhone Mirroring.app` **强制手机保持锁定**（见 §2c），运行期间会占着设备。
+查 + 退：
+
+```bash
+ps -Axo comm | grep -i "iPhone Mirroring"
+osascript -e 'quit app "iPhone Mirroring"'
+```
+
+（本次实测退掉后 muxed 仍为 0，但受坑 2 影响该结论不作数，仍建议先退。）
 
 **菜单位置的准确说法**（此前本文写成「Screen」，不完全对）：
 `文件 > 新建影片录制`（**不是**「新建屏幕录制」，后者录的是 Mac 桌面）→ 点录制键
@@ -139,13 +179,18 @@ system_profiler SPUSBDataType | grep -A6 -iE "iPhone|iPad"   # 无输出 = 根�
 
 **其余排查顺序**（按命中率）：
 
-1. 用**数据线**，不是只能充电的线；不要经 hub，直插 Mac
-2. 设备**解锁**，弹出「信任此电脑」点**信任**并输密码
-3. **先看 Finder 侧边栏有没有这台设备** —— Finder 看不到，QuickTime 一定也看不到
-4. 之前误点过「不信任」：iPhone 设置 → 通用 → 传输或还原 → 还原 → **还原位置与隐私**，
-   重新插线再点信任
-5. 设备被识别**之后**再退出并重开 QuickTime（顺序反了会看不到）
-6. 退掉会抢摄像头/麦克风的工具（Micro Snitch 一类）
+1. **手机解锁并让屏幕常亮** —— 锁着屏时屏幕采集设备不发布，这是最容易忽略的一条
+2. **完全退出 QuickTime（⌘Q）再重开** —— 它在启动时枚举设备，插线晚于开 App 就看不到
+3. 退掉 `iPhone Mirroring.app`（见上）
+4. 用**数据线**、直插 Mac 不经 hub；换个口试
+5. 弹出「信任此电脑」要点**信任**并输密码；误点过「不信任」→ iPhone 设置 → 通用 →
+   传输或还原 → 还原 → **还原位置与隐私**，重插再点信任
+6. 重启 iPhone（社区反馈命中率不低）
+7. 退掉会抢摄像头/麦克风的工具（Micro Snitch 一类）
+
+> **Finder 能看到 ≠ QuickTime 能看到。** Finder 在「在 Wi-Fi 下显示此 iPhone」开启时
+> 也会列出无线设备，且它用的是另一条通道，与屏幕采集设备是否发布无关。
+> 不要拿 Finder 当 QuickTime 的前置判据（本文上一版这么写过，是错的）。
 
 ## 3. 被否掉的方案
 
