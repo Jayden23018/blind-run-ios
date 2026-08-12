@@ -4,18 +4,29 @@ import UIKit
 // MARK: - Shake Modifier
 
 /// 输入框抖动动画修饰器，用于验证码错误反馈。
+///
+/// 「减弱动态效果」开启时**整个不抖**：`interpolatingSpring(stiffness: 2000, damping: 5)`
+/// 配 `repeatCount(3)` 是一次高频往复位移，正是那个开关要挡的前庭刺激来源
+/// （晕动敏感、前庭偏头痛的用户会因此恶心，不是"觉得晃"而已）。
+///
+/// 关掉不丢信息：验证码错误同时会写 `errorMessage`（「验证码错误，请重新输入」），
+/// 抖动一直只是那句话的强调，不是唯一通道。
 private struct ShakeEffect: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let shouldShake: Bool
+
+    private var isShaking: Bool { shouldShake && !reduceMotion }
 
     func body(content: Content) -> some View {
         content
-            .offset(x: shouldShake ? -10 : 0)
+            .offset(x: isShaking ? -10 : 0)
             .animation(
-                shouldShake
+                isShaking
                     ? Animation.interpolatingSpring(stiffness: 2000, damping: 5)
                         .repeatCount(3, autoreverses: true)
                     : .default,
-                value: shouldShake
+                value: isShaking
             )
     }
 }

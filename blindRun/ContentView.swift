@@ -227,6 +227,7 @@ final class ContentRootRouter: ObservableObject {
 /// 根路由视图，根据 AppState 的登录状态和活跃角色决定显示内容。
 /// 路由由 @Published 属性驱动，登录或角色切换后自动更新。
 struct ContentView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var locationService: LocationService
     @State private var showRestorationLocalSignOutConfirmation = false
@@ -312,7 +313,15 @@ struct ContentView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             if appState.currentEnvironment == .mock {
                 Label("Mock 本地模拟，不连接云端", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 16, weight: .bold))
+                    // `.callout` 在默认档就是 16pt，与此前写死的 `.system(size: 16)` 视觉等价，
+                    // 但它跟着 Dynamic Type 缩放。
+                    //
+                    // 写死那版是 `AccessibilityAuditTests.testBlindBookingPassesAccessibilityAudit`
+                    // 长期报红的**唯一**原因（`.dynamicType` 审计，报「User will not be able to change
+                    // the font size of this element」）。已用同设备同用例取过基线确认是既有问题。
+                    // 它只在 DEBUG 出现、永远不会发布 —— 但一个常年红的门禁等于没有门禁：
+                    // 下一个人分不清新失败和旧失败（这正是记忆 `known-red-suites-hide-new-failures` 那条）。
+                    .font(.callout.weight(.bold))
                     .foregroundColor(.black)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -352,7 +361,10 @@ struct ContentView: View {
                 )
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                // 「减弱动态效果」开启时只淡入淡出，不从屏幕顶端滑进来。
+                // 这条横幅是主动弹出的（不是用户操作触发），突然的位移最容易引起不适；
+                // 淡入保留了「有新东西出现」这个提示本身。
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                 .zIndex(100)
             }
         }
