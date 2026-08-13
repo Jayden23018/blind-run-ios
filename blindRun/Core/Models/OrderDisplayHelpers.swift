@@ -89,6 +89,41 @@ extension RunOrderStatus {
         }
     }
 
+    /// 盲人端订单页该不该给出「把这次行程告诉家人」。
+    ///
+    /// United In Stride 把**开始时间 / 集合地点 / 路线 / 结束时间**列为陪跑出发前必须约定的
+    /// 四要素（`docs/research/blind-app-feature-landscape-20260812.md` §2.2）。在这条动作
+    /// 存在之前，家属唯一会被触达的时机是 SOS 之后 —— 也就是说，跑步正常进行的全程，
+    /// 家里人根本不知道这件事在发生。
+    ///
+    /// **非终态全给**，与后端 `POST /api/orders/{id}/share` 的口径一致
+    /// （2026-08-13 后端通报：非终态都允许分享，含 `PENDING_MATCH` —— 家属看到
+    /// 「正在找志愿者」也是有意义的）。初版曾把 `PENDING_MATCH` 排除在外，理由是
+    /// 「订单可能被自动取消，家属拿到会失效的信息」；那条理由不成立：链接是幂等的，
+    /// 订单取消后家属看到的是 `410`（曾经有效但已结束），不是一条无限期的坏链接。
+    ///
+    /// 终态一律不给，而且是**隐藏不是禁用**：后端对终态返 409
+    /// `SHARE_ORDER_ALREADY_FINISHED`，摆一个按下去必然报错的按钮，对读屏用户是纯噪音。
+    ///
+    /// 状态集与 `offersVolunteerCall` 不同，且是各自独立的产品判断：那条是「要不要当面
+    /// 确认志愿者身份」（只在需要汇合的四态），这条是「有没有一个还在进行的行程」。
+    /// 合并成一个属性会让将来任一侧改状态集时静默带偏另一侧。
+    ///
+    /// 同样写成穷举 switch：后端往枚举加值时编译器在这里逼一次决策。
+    var offersRunPlanShare: Bool {
+        switch self {
+        case .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching:
+            return true
+        // 终态：没有还在进行的行程可分享。`NO_VOLUNTEER` 是后端明写的预留终态
+        // （`OrderStatus.java:46`），归在这一组。
+        case .completed, .cancelled, .noVolunteer:
+            return false
+        // 未知状态不给：分不清是不是终态，而猜错的代价是让盲人按下一个必然 409 的按钮。
+        case .unknown:
+            return false
+        }
+    }
+
     /// 等待期延长窗口该打哪个端点；`nil` 表示本状态没有这个动作。
     ///
     /// 后端在订单长时间无人接单时推 `ORDER_CANCELLATION_WARNING`，正文逐字是
