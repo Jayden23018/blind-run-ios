@@ -411,6 +411,37 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/orders/{id}`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/get(getOrder)`.
     func getOrder(_ input: Operations.getOrder.Input) async throws -> Operations.getOrder.Output
+    /// 生成行程分享链接（给家属）
+    ///
+    /// 盲人把这一趟行程分享给家属。家属**没有账号也不需要装 App**，凭返回的链接直接看。
+    ///
+    /// **重复调用返回同一个链接**：多点一次不会让已经发出去的那条失效
+    /// —— 换了令牌，家属那边只会看到「分享已结束」，无法区分是「跑完了」还是「链接被换了」。
+    ///
+    /// ⚠️ 严格说是「顺序调用幂等」：两个 POST **并发**到达且此前无有效链接时，可能各自生成一个。
+    /// 两个都有效、都能打开，且 `DELETE` 会一次性撤销该订单名下全部链接，
+    /// 所以「已发给家属的链接被换掉」不会发生。客户端不需要为此做任何处理。
+    ///
+    /// 令牌在 URL 的 **fragment** 里（`.../share.html#<token>`）而不是 query：
+    /// fragment 不进 Referer、不上服务端访问日志，而分享页要加载高德 JS SDK 这个第三方脚本。
+    ///
+    /// ⚠️ **调用本接口 = 盲人对「向持链接者提供本人实时位置与轨迹」的单独同意**
+    /// （PIPL 第 23/29 条，轨迹属第 28 条敏感个人信息）。
+    /// 客户端必须在调用**之前**明示分享内容与对象；做成一键静默分享则同意不成立。
+    ///
+    /// 有效期 = `max(plannedEndTime, now) + app.share.ttl-after-end-hours`（默认 2 小时）。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/share`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)`.
+    func createShareLink(_ input: Operations.createShareLink.Input) async throws -> Operations.createShareLink.Output
+    /// 停止分享行程
+    ///
+    /// 撤销该订单名下全部未撤销的分享链接，已经发出去的链接立刻失效（对齐 Uber 的 Stop Sharing）。
+    /// 幂等：没有可撤销的链接时同样返回 204。
+    ///
+    /// - Remark: HTTP `DELETE /api/orders/{id}/share`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)`.
+    func revokeShareLink(_ input: Operations.revokeShareLink.Input) async throws -> Operations.revokeShareLink.Output
     /// 查询订单双方历史路径轨迹与统计（订单结束后回放用）
     ///
     /// 鉴权与 `GET /api/orders/{id}` 一致：JWT 用户必须是该订单的盲人或志愿者一方。
@@ -1166,6 +1197,53 @@ extension APIProtocol {
         headers: Operations.getOrder.Input.Headers = .init()
     ) async throws -> Operations.getOrder.Output {
         try await getOrder(Operations.getOrder.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 生成行程分享链接（给家属）
+    ///
+    /// 盲人把这一趟行程分享给家属。家属**没有账号也不需要装 App**，凭返回的链接直接看。
+    ///
+    /// **重复调用返回同一个链接**：多点一次不会让已经发出去的那条失效
+    /// —— 换了令牌，家属那边只会看到「分享已结束」，无法区分是「跑完了」还是「链接被换了」。
+    ///
+    /// ⚠️ 严格说是「顺序调用幂等」：两个 POST **并发**到达且此前无有效链接时，可能各自生成一个。
+    /// 两个都有效、都能打开，且 `DELETE` 会一次性撤销该订单名下全部链接，
+    /// 所以「已发给家属的链接被换掉」不会发生。客户端不需要为此做任何处理。
+    ///
+    /// 令牌在 URL 的 **fragment** 里（`.../share.html#<token>`）而不是 query：
+    /// fragment 不进 Referer、不上服务端访问日志，而分享页要加载高德 JS SDK 这个第三方脚本。
+    ///
+    /// ⚠️ **调用本接口 = 盲人对「向持链接者提供本人实时位置与轨迹」的单独同意**
+    /// （PIPL 第 23/29 条，轨迹属第 28 条敏感个人信息）。
+    /// 客户端必须在调用**之前**明示分享内容与对象；做成一键静默分享则同意不成立。
+    ///
+    /// 有效期 = `max(plannedEndTime, now) + app.share.ttl-after-end-hours`（默认 2 小时）。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/share`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)`.
+    public func createShareLink(
+        path: Operations.createShareLink.Input.Path,
+        headers: Operations.createShareLink.Input.Headers = .init()
+    ) async throws -> Operations.createShareLink.Output {
+        try await createShareLink(Operations.createShareLink.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 停止分享行程
+    ///
+    /// 撤销该订单名下全部未撤销的分享链接，已经发出去的链接立刻失效（对齐 Uber 的 Stop Sharing）。
+    /// 幂等：没有可撤销的链接时同样返回 204。
+    ///
+    /// - Remark: HTTP `DELETE /api/orders/{id}/share`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)`.
+    public func revokeShareLink(
+        path: Operations.revokeShareLink.Input.Path,
+        headers: Operations.revokeShareLink.Input.Headers = .init()
+    ) async throws -> Operations.revokeShareLink.Output {
+        try await revokeShareLink(Operations.revokeShareLink.Input(
             path: path,
             headers: headers
         ))
@@ -4681,6 +4759,36 @@ public enum Components {
                 case volunteerStats
                 case blindTrack
                 case blindStats
+            }
+        }
+        /// 行程分享链接（返回给盲人本人）
+        ///
+        /// - Remark: Generated from `#/components/schemas/ShareLinkResponse`.
+        public struct ShareLinkResponse: Codable, Hashable, Sendable {
+            /// 完整链接，客户端直接丢进系统分享面板即可。
+            /// 令牌在 **fragment** 里（`#` 之后），不是 query —— 不进 Referer、不上服务端日志。
+            ///
+            /// - Remark: Generated from `#/components/schemas/ShareLinkResponse/shareUrl`.
+            public var shareUrl: Swift.String?
+            /// 链接失效时间
+            ///
+            /// - Remark: Generated from `#/components/schemas/ShareLinkResponse/expiresAt`.
+            public var expiresAt: Swift.String?
+            /// Creates a new `ShareLinkResponse`.
+            ///
+            /// - Parameters:
+            ///   - shareUrl: 完整链接，客户端直接丢进系统分享面板即可。
+            ///   - expiresAt: 链接失效时间
+            public init(
+                shareUrl: Swift.String? = nil,
+                expiresAt: Swift.String? = nil
+            ) {
+                self.shareUrl = shareUrl
+                self.expiresAt = expiresAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case shareUrl
+                case expiresAt
             }
         }
         /// 单个轨迹点
@@ -13134,6 +13242,597 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 生成行程分享链接（给家属）
+    ///
+    /// 盲人把这一趟行程分享给家属。家属**没有账号也不需要装 App**，凭返回的链接直接看。
+    ///
+    /// **重复调用返回同一个链接**：多点一次不会让已经发出去的那条失效
+    /// —— 换了令牌，家属那边只会看到「分享已结束」，无法区分是「跑完了」还是「链接被换了」。
+    ///
+    /// ⚠️ 严格说是「顺序调用幂等」：两个 POST **并发**到达且此前无有效链接时，可能各自生成一个。
+    /// 两个都有效、都能打开，且 `DELETE` 会一次性撤销该订单名下全部链接，
+    /// 所以「已发给家属的链接被换掉」不会发生。客户端不需要为此做任何处理。
+    ///
+    /// 令牌在 URL 的 **fragment** 里（`.../share.html#<token>`）而不是 query：
+    /// fragment 不进 Referer、不上服务端访问日志，而分享页要加载高德 JS SDK 这个第三方脚本。
+    ///
+    /// ⚠️ **调用本接口 = 盲人对「向持链接者提供本人实时位置与轨迹」的单独同意**
+    /// （PIPL 第 23/29 条，轨迹属第 28 条敏感个人信息）。
+    /// 客户端必须在调用**之前**明示分享内容与对象；做成一键静默分享则同意不成立。
+    ///
+    /// 有效期 = `max(plannedEndTime, now) + app.share.ttl-after-end-hours`（默认 2 小时）。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/share`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)`.
+    public enum createShareLink {
+        public static let id: Swift.String = "createShareLink"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.createShareLink.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.createShareLink.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.createShareLink.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.createShareLink.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.createShareLink.Input.Path,
+                headers: Operations.createShareLink.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/responses/200/content/application\/json`.
+                    case json(Components.Schemas.ShareLinkResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ShareLinkResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.createShareLink.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.createShareLink.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK（新建或返回已有的有效链接，两种情况都是 200）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.createShareLink.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.createShareLink.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证。响应体形状与其余端点不同——没有 errorCode 字段：
+            /// `{"success": false, "code": 401, "message": "未认证"}`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.createShareLink.Output.Unauthorized)
+            /// 未认证。响应体形状与其余端点不同——没有 errorCode 字段：
+            /// `{"success": false, "code": 401, "message": "未认证"}`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.createShareLink.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.createShareLink.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.createShareLink.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 不是该订单的下单人，errorCode `ORDER_PERMISSION_DENIED`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.createShareLink.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.createShareLink.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.createShareLink.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.createShareLink.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不存在，errorCode `ORDER_NOT_FOUND`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.createShareLink.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.createShareLink.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/share/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.createShareLink.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.createShareLink.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单已终态，不能再新开分享链接，errorCode `SHARE_ORDER_ALREADY_FINISHED`。
+            /// **已有的链接不受影响**，终态后照常能看完成摘要。
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.createShareLink.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.createShareLink.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 停止分享行程
+    ///
+    /// 撤销该订单名下全部未撤销的分享链接，已经发出去的链接立刻失效（对齐 Uber 的 Stop Sharing）。
+    /// 幂等：没有可撤销的链接时同样返回 204。
+    ///
+    /// - Remark: HTTP `DELETE /api/orders/{id}/share`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)`.
+    public enum revokeShareLink {
+        public static let id: Swift.String = "revokeShareLink"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/share/DELETE/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/share/DELETE/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.revokeShareLink.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/share/DELETE/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.revokeShareLink.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.revokeShareLink.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.revokeShareLink.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.revokeShareLink.Input.Path,
+                headers: Operations.revokeShareLink.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct NoContent: Sendable, Hashable {
+                /// Creates a new `NoContent`.
+                public init() {}
+            }
+            /// 已停止分享
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            case noContent(Operations.revokeShareLink.Output.NoContent)
+            /// 已停止分享
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)/responses/204`.
+            ///
+            /// HTTP response code: `204 noContent`.
+            public static var noContent: Self {
+                .noContent(.init())
+            }
+            /// The associated value of the enum case if `self` is `.noContent`.
+            ///
+            /// - Throws: An error if `self` is not `.noContent`.
+            /// - SeeAlso: `.noContent`.
+            public var noContent: Operations.revokeShareLink.Output.NoContent {
+                get throws {
+                    switch self {
+                    case let .noContent(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "noContent",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证。响应体形状与其余端点不同——没有 errorCode 字段：
+            /// `{"success": false, "code": 401, "message": "未认证"}`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.revokeShareLink.Output.Unauthorized)
+            /// 未认证。响应体形状与其余端点不同——没有 errorCode 字段：
+            /// `{"success": false, "code": 401, "message": "未认证"}`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.revokeShareLink.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/share/DELETE/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/share/DELETE/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.revokeShareLink.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.revokeShareLink.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 不是该订单的下单人，errorCode `ORDER_PERMISSION_DENIED`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.revokeShareLink.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.revokeShareLink.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/share/DELETE/responses/404/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/share/DELETE/responses/404/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.revokeShareLink.Output.NotFound.Body
+                /// Creates a new `NotFound`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.revokeShareLink.Output.NotFound.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不存在，errorCode `ORDER_NOT_FOUND`
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.revokeShareLink.Output.NotFound)
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.revokeShareLink.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }

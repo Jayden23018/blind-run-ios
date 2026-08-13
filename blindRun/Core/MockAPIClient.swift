@@ -53,6 +53,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private var orderStatusLogs: [Int64: [OrderStatusLog]] = [:]
     private var nextStatusLogId: Int64 = 5000
 
+    /// 已生成的行程分享链接，按订单号存 —— `POST /api/orders/{id}/share` 的幂等性载体。
+    /// 重复调返回同一条，`DELETE` 移除。
+    private var shareLinks: [Int64: ShareLinkResponse] = [:]
+
     /// 已上报的 APNs device token（幂等 upsert 的本地等价物）。
     private(set) var registeredApnsTokens: Set<String> = []
     /// `/api/notifications/since` 的补读语料。Mock 不主动产生离线通知，默认为空。
@@ -366,6 +370,15 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             }
             if path.hasSuffix("/status-logs") && method == .get {
                 return try handleGetStatusLogs(orderId: orderId)
+            }
+            // 同一条路径两个方法：`POST` 开分享、`DELETE` 停分享（`api_spec.yaml` 的
+            // `createShareLink` / `revokeShareLink`）。分开两个 `if` 而不是 switch method，
+            // 与本文件其余路由同形。
+            if path.hasSuffix("/share") && method == .post {
+                return try handleCreateShareLink(orderId: orderId)
+            }
+            if path.hasSuffix("/share") && method == .delete {
+                return try handleRevokeShareLink(orderId: orderId)
             }
 
             // Order detail
@@ -1372,6 +1385,44 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             throw APIError.serverError(ErrorResponse(code: "BAD_REQUEST", message: "订单不存在"))
         }
         return orderStatusLogs[orderId] ?? []
+    }
+
+    /// 开分享链接。**幂等**：同一单重复调返回同一条链接，与后端一致
+    /// （换令牌会让已经发出去的那条失效，家属只看到「分享已结束」，分不清是跑完了还是链接被换了）。
+    private func handleCreateShareLink(orderId: Int64) throws -> ShareLinkResponse {
+        guard let order = orders.first(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard order.status.offersRunPlanShare else {
+            throw APIError.serverError(ErrorResponse(
+                code: "SHARE_ORDER_ALREADY_FINISHED",
+                message: "订单已结束，不能再新开分享链接"
+            ))
+        }
+        if let existing = shareLinks[orderId] {
+            return existing
+        }
+        // 令牌放 **fragment**，与契约同形。Mock 里也照做的理由：这一条正是「客户端不许重新拼链接」
+        // 那条约束的载体，Mock 里写成 `?t=` 会让测试在一个错误形状上过绿。
+        //
+        // 域名用 RFC 2606 保留的 `example.com`：真实分享域名由后端下发，
+        // 客户端一个字都不该知道。`guard.mjs` 的 `server-addr` 白名单也只放行这一族。
+        let token = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(43))
+        let link = ShareLinkResponse(
+            shareUrl: "https://example.com/share.html#\(token)",
+            expiresAt: Self.backendLocalTimestamp()
+        )
+        shareLinks[orderId] = link
+        return link
+    }
+
+    /// 停分享。**幂等**：没有可撤销的链接时同样成功（后端返 204）。
+    private func handleRevokeShareLink(orderId: Int64) throws -> EmptyResponse {
+        guard orders.contains(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        shareLinks.removeValue(forKey: orderId)
+        return EmptyResponse()
     }
 
     /// 记一条状态变更。后端在每个状态流转点都写一条（12 处 `logStatusChange`），

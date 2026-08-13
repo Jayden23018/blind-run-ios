@@ -55,6 +55,11 @@ enum ErrorCode: String, Codable, Sendable {
     case contactLimitExceeded = "CONTACT_LIMIT_EXCEEDED"
     case contactMinimumRequired = "CONTACT_MINIMUM_REQUIRED"
     case contactFieldRequired = "CONTACT_FIELD_REQUIRED"
+    // 行程实时分享（后端 `ErrorCode.java:119`，2026-08-13 随 `POST /api/orders/{id}/share` 上线）。
+    // 终态订单不能再开新链接。客户端在终态**隐藏**分享入口而不是禁用后报错，
+    // 所以这个码只会在竞态里出现：订单页每 5 秒轮询一次，用户可能正好在订单刚结束的窗口里按下。
+    // 映射它不是为了那个窗口好看，是为了别把一个有确切含义的 409 念成「未知错误 (409)」。
+    case shareOrderAlreadyFinished = "SHARE_ORDER_ALREADY_FINISHED"
 
     var localizedMessage: String {
         switch self {
@@ -142,6 +147,8 @@ enum ErrorCode: String, Codable, Sendable {
             return "至少保留 1 个紧急联系人，请先添加新的再删除。"
         case .contactFieldRequired:
             return "请填写联系人姓名和手机号。"
+        case .shareOrderAlreadyFinished:
+            return RunPlanLiveShareCopy.alreadyFinished
         }
     }
 

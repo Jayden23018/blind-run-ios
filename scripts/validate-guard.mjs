@@ -368,6 +368,9 @@ const cases = [
   },
   // placeholder-promise：起因是「积分商城」占位页在仓库里躺了很久，没有任何检查说过一句话。
   //
+  // sos-copy 此前**一条自测都没有** —— 规则在 guard.mjs 里躺了很久，却没人验过它拦不拦得住。
+  // 2026-08-13 补上，起因是行程告知功能用「家人」这个称呼，整条从原词表旁边绕了过去。
+  //
   // 这几条走 post 模式：内容级规则是从磁盘读改动后的真实文件再查的（比解析 diff 可靠），
   // 所以用 `swift` 字段声明文件内容，由下面的 runner 落成临时文件。
   {
@@ -389,6 +392,46 @@ const cases = [
     mode: 'post',
     expect: 0,
     swift: 'enum C { static let title = "这个功能还没有开放" }'
+  },
+  {
+    name: 'SOS 文案宣称已通知紧急联系人（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let done = "已通知紧急联系人" }'
+  },
+  {
+    // 换个称呼就穿过去，正是这条规则最容易被绕开的方式 —— 也正是它 2026-08-13 被绕开的方式。
+    name: 'SOS 文案换用「家人」称呼（同样拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let sent = "已通知家人" }'
+  },
+  {
+    name: 'SOS 文案说「家人已收到」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let sent = "家人已收到你的行程" }'
+  },
+  {
+    // 进行时文案必须放行 —— 否则这条规则会把唯一正确的写法也堵死，
+    // 逼着后来的人去加 guard:allow，那等于把规则关掉。
+    name: '进行时文案「已交给系统短信」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let sent = "短信已交给系统，请在短信里确认已发出。" }'
+  },
+  {
+    name: '按钮文案「把这次行程告诉家人」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let buttonTitle = "把这次行程告诉家人" }'
+  },
+  {
+    // 注释里引用坏文案来解释「为什么要覆盖它」是我们希望留在代码里的东西。
+    name: '注释里出现坏文案（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: '// 后端 body 写的是「已通知家人」，客户端必须用自己的进行时文案覆盖它。'
   }
 ];
 
