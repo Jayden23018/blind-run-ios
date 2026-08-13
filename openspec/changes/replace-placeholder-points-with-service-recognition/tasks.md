@@ -103,9 +103,29 @@
 - [x] 7.7 `blindRunTests/VolunteerAchievementsTests.swift`：国标阈值逐条对国标、
       向下取整、服务端值优先于本地推算、**badges 只含已解锁**（回归门）、
       未知 code 不崩、进度是可读文本、文案不含「证明/证书/已认证」、主页 4 枚上限。
-- [ ] 7.8 真机跑上面这些 suite。⚠️ **未执行**：两台设备当前都是 `unavailable`
-      （`xcrun devicectl list devices`），本仓库唯一 XCTest 通道不可用。
-      编译门禁已过（`build-for-testing` → `TEST BUILD SUCCEEDED`）。
+- [x] 7.8 真机跑（iPhone 16 Pro，2026-08-13）：
+      ```
+      scripts/device-test.sh -only-testing:blindRunTests/VolunteerAchievementsTests \
+                             -only-testing:blindRunTests/WeChatShareCardTests \
+                             -only-testing:blindRunTests/ShareLinkViewedNotificationTests
+      ```
+      **`passed=50 failed=0 skipped=0 result=Passed`**。逐 suite 核过 result bundle 不是零执行：
+      `VolunteerAchievementsTests` 27、`WeChatShareCardTests` 17、
+      `ShareLinkViewedNotificationTests` 6。
+- [x] 7.11 **补上志愿者端的无障碍审计**（`blindRunUITests/AccessibilityAuditTests`）。
+      此前那 9 条**全在盲人端**，志愿者端一条都没有 —— 于是「跑了无障碍门」与
+      「新页面被审计过」是两回事，而门是绿的。新增两条：静态审计 + 星级栏念得出小时数。
+      两条当场逮到三个真缺陷，见 7.12。
+      全套 **`passed=11 failed=0 result=Passed`**。
+- [x] 7.12 审计逮到的三个缺陷（都不是猜的，是审计报出来的）：
+      1. 成就页头部那个大数字用 `.font(.system(size: 48, weight: .bold))` ——
+         **固定磅值不跟 Dynamic Type 走**，而这一页最大的数字恰恰是低视力用户最需要放大的。
+         这行是从旧版原样搬过来的，旧版没被审计过所以没人发现。改用 `AppFonts.largeTitle()`。
+      2. 没有评价时评分格念出「评分：破折号破折号」（`--` 是给眼睛的占位符，不是给耳朵的）。
+         改成「还没有收到评价」。
+      3. 🔴 **`ContentView.swift` 的 Mock 环境横幅也是固定磅值**，而它 `#if DEBUG` + Mock 环境
+         常驻**每一屏** —— `AccessibilityAuditTests` 里那两条常年失败的盲人端审计，
+         根因一直是这一行，不是被审计的页面。改用 `.callout.bold()` 后整套审计**第一次全绿**。
 - [x] 7.9 ~~投 handoff 问 `nextBadge` 的单位~~ **不用问了**：写这条的同一天后端就发布了 D1
       （`9f8606d`），契约里写清楚了 —— `RUNS_*` 是次、`HOURS_*` 是**分钟**、
       `HIGH_RATED` 是条评价，且没有 `unit` 字段（按 `code` 查表）。

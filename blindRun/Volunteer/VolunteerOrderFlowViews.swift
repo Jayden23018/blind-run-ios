@@ -1764,8 +1764,12 @@ struct VolunteerServiceRecognitionView: View {
 
     private func header(_ response: VolunteerAchievementsResponse) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            // 🔴 **不要写回 `.font(.system(size: 48, weight: .bold))`。**
+            // 固定磅值不跟 Dynamic Type 走 —— 这一页最大的那个数字，恰恰是低视力用户
+            // 最需要放大的东西。旧版就是这么写的，而当时志愿者端**一条无障碍审计都没有**，
+            // 所以没人发现。`testVolunteerAchievementsPassesAccessibilityAudit` 现在钉住它。
             Text("\(response.completedCount)")
-                .font(.system(size: 48, weight: .bold))
+                .font(AppFonts.largeTitle())
                 .foregroundColor(AppColors.textPrimary)
             Text("已完成的陪跑服务")
                 .font(AppFonts.body())
@@ -1785,11 +1789,18 @@ struct VolunteerServiceRecognitionView: View {
     private func statsRow(_ response: VolunteerAchievementsResponse) -> some View {
         HStack(spacing: 12) {
             statTile("累计服务", "\(max(0, response.totalServiceMinutes ?? 0) / 60) 小时")
-            statTile("评分", response.avgRating.map { String(format: "%.1f", $0) } ?? "--")
+            statTile(
+                "评分",
+                response.avgRating.map { String(format: "%.1f", $0) } ?? "--",
+                // 视觉上的 `--` 念出来是「评分：破折号破折号」。审计把这条判为
+                // `Label not human-readable`，而它确实不可读 —— 屏幕上的占位符号
+                // 从来不是给耳朵用的。
+                spoken: response.avgRating.map { "评分 \(String(format: "%.1f", $0))" } ?? "还没有收到评价"
+            )
         }
     }
 
-    private func statTile(_ title: String, _ value: String) -> some View {
+    private func statTile(_ title: String, _ value: String, spoken: String? = nil) -> some View {
         VStack(spacing: 6) {
             Text(value)
                 .font(AppFonts.title())
@@ -1803,7 +1814,7 @@ struct VolunteerServiceRecognitionView: View {
         .background(AppColors.secondaryBackground)
         .cornerRadius(12)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title)：\(value)")
+        .accessibilityLabel(spoken ?? "\(title)：\(value)")
     }
 
     /// 国标星级栏。**与平台勋章分开的两栏，不合并** —— 平台最高的时长勋章是 50 小时，

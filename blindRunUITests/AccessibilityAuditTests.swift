@@ -61,6 +61,77 @@ final class AccessibilityAuditTests: XCTestCase {
         try audit(app)
     }
 
+    /// 志愿者服务成就页。
+    ///
+    /// **这条是补一个真实的覆盖缺口，不是凑数。** 2026-08-13 之前本文件 9 条用例**全在盲人端**，
+    /// 志愿者端一条审计都没有 —— 于是「跑了无障碍门」和「新页面被审计过」是两回事，
+    /// 而门是绿的。志愿者里同样有低视力用户（`VisionLevel.LOW_VISION` 在数据模型里是一等公民）。
+    ///
+    /// 这一页值得单独审计的地方：两个进度条（国标星级 / 下一枚勋章）都被 `accessibilityHidden`，
+    /// 进度靠独立文本节点承载；星级栏与勋章行各自 `children: .combine` 成一个焦点。
+    /// 这几处都是「看着对、读屏是空的」的高发形态。
+    @MainActor
+    func testVolunteerAchievementsPassesAccessibilityAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchVolunteerHome()
+
+        // 入口在首页底部那排（记录 / 成就 / 设置）。SwiftUI 不渲染屏幕外的内容，
+        // 直接断言会假失败 —— 先滚到底（commit 4cee939 的同一个坑）。
+        let entry = app.descendants(matching: .any)["服务成就"].firstMatch
+        if !entry.waitForExistence(timeout: 20) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(entry.waitForExistence(timeout: 10), "志愿者首页没有「成就」入口，后面的审计没有意义")
+        entry.tap()
+
+        let page = app.descendants(matching: .any)["volunteerServiceRecognitionView"].firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 15), "成就页没起来，审计结果没有意义")
+
+        // 页面自己要发一次 `GET /api/volunteer/achievements`（Mock 直接返回），
+        // 数据没到之前屏幕上只有一个 ProgressView，那时审计等于审计一个空页。
+        let starSection = app.descendants(matching: .any)["volunteerStarLevelSection"].firstMatch
+        XCTAssertTrue(starSection.waitForExistence(timeout: 15), "国标星级栏没渲染出来")
+
+        try audit(app)
+    }
+
+    /// 进度条对 VoiceOver 是空的 —— 「还差多少小时」必须作为**可读文本**存在。
+    ///
+    /// 审计查不出这一条：它只查「有没有 label」，查不出「这一栏丢了唯一一条有信息量的内容」。
+    /// 把进度只画进进度条、不留文本节点，对看不见屏幕的人这一栏就等于没有内容，
+    /// 而静态审计全绿。
+    @MainActor
+    func testVolunteerStarLevelExposesRemainingHoursAsText() throws {
+        let app = launchVolunteerHome()
+
+        let entry = app.descendants(matching: .any)["服务成就"].firstMatch
+        if !entry.waitForExistence(timeout: 20) {
+            app.swipeUp()
+        }
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        entry.tap()
+
+        let starSection = app.descendants(matching: .any)["volunteerStarLevelSection"].firstMatch
+        XCTAssertTrue(starSection.waitForExistence(timeout: 15), "国标星级栏没渲染出来")
+
+        // 星级栏合成一个焦点，所以断言打在它的 label 上 —— 那正是 VoiceOver 会念的整句。
+        let spoken = starSection.label
+        XCTAssertTrue(
+            spoken.contains("小时"),
+            "星级栏念不出小时数，进度只剩进度条 —— 对读屏用户这一栏是空的。实际念出：\(spoken)"
+        )
+        XCTAssertTrue(
+            spoken.contains("还差") || spoken.contains("最高星级"),
+            "星级栏既没说还差多少，也没说已到顶。实际念出：\(spoken)"
+        )
+        // 民政部令第 67 号：这一页是展示不是凭据，措辞红线同样要在真机上成立。
+        for banned in ["证明", "证书", "已认证"] {
+            XCTAssertFalse(spoken.contains(banned), "星级栏念出了违规措辞「\(banned)」：\(spoken)")
+        }
+    }
+
     // MARK: - 语音态与表单态互斥
 
     /// 语音在跑的时候，屏幕上**一个表单控件都不许有**。
@@ -350,6 +421,47 @@ final class AccessibilityAuditTests: XCTestCase {
         // 一启动就被导航进下单页，然后每条用例都报「找不到 blindRunnerHomeStartBookingButton」，
         // 看起来像首页没起来。改敲顶部地图区：那一层 `allowsHitTesting(false)`，
         // 是这一页唯一保证不会触发任何动作的地方（设置齿轮在右上，dx 0.5 躲得开）。
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+        return app
+    }
+
+    /// 志愿者首页。与 `launchBlindHome` 分开而不是加一个 role 参数：两边要设的
+    /// preseed 变量集合不同（志愿者要 profile + available，盲人要 profile + prefill），
+    /// 合成一个函数会变成一串互斥的 if，改一次错一次。
+    ///
+    /// ⚠️ **`PRESEEDED` 不是 `PRESEED`** —— 写错不会报错，只会静默进到「资料未填」分支，
+    /// 然后审计的是错的那一页（与 `launchBlindHome` 上那条注释同一个坑）。
+    @MainActor
+    private func launchVolunteerHome() -> XCUIApplication {
+        let app = XCUIApplication()
+        addTeardownBlock {
+            await MainActor.run { app.terminate() }
+        }
+        app.launchEnvironment["AIDRUN_UI_TEST_RESET_STATE"] = "1"
+        app.launchEnvironment["AIDRUN_UI_TEST_RESET_TOKEN"] = UUID().uuidString
+        app.launchEnvironment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] = "1"
+        app.launchEnvironment["AIDRUN_UI_TEST_API_ENV"] = "mock"
+        app.launchEnvironment["AIDRUN_UI_TEST_ACTIVE_ROLE"] = "volunteer"
+        app.launchEnvironment["AIDRUN_UI_TEST_ACCESS_TOKEN"] = "mock_jwt_token_for_testing"
+        app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_PROFILE"] = "1"
+        app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] = "1"
+        app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
+        app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
+
+        addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in
+            for title in ["允许", "好", "使用App时允许", "OK", "Allow"] {
+                let button = alert.buttons[title]
+                if button.exists {
+                    button.tap()
+                    return true
+                }
+            }
+            return false
+        }
+
+        app.launch()
+        // 触发一次 interruption monitor。敲顶部地图区 —— 志愿者首页那一层同样不接受点击，
+        // 是这一页唯一保证不触发任何动作的地方。
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
         return app
     }
