@@ -157,6 +157,39 @@ const cases = [
       return null;
     },
   },
+  {
+    name: '调研落在 A 分支、停止时站在 B 分支，仍要判定为「已落盘」（缺 --all 会误报）',
+    check: () => {
+      // 「一个 PR 只装一件事」意味着一个会话里开两三条分支是常态：
+      // 调研提交在文档分支上，收尾时人可能站在另一条修复分支上。
+      // git log 默认只走 HEAD 祖先，不带 --all 这里就会误报。
+      const repo = path.join(tmp, 'repo-branches');
+      fs.mkdirSync(path.join(repo, 'docs/research'), { recursive: true });
+      const g = (...a) => spawnSync('git', a, { cwd: repo, encoding: 'utf8' });
+      g('init', '-q', '-b', 'main');
+      g('config', 'user.email', 't@example.com');
+      g('config', 'user.name', 'validate-research-log');
+      g('commit', '-q', '--allow-empty', '-m', 'base');
+
+      const since = new Date(Date.now() - 3600_000).toISOString();
+
+      g('checkout', '-q', '-b', 'docs/research-branch');
+      fs.writeFileSync(path.join(repo, 'docs/research/INDEX.md'), '| 日期 |\n');
+      g('add', '-A');
+      g('commit', '-q', '-m', 'docs: 调研落盘');
+
+      // 切到一条与调研无关的分支收尾 —— 调研提交不再是 HEAD 的祖先
+      g('checkout', '-q', 'main');
+      g('checkout', '-q', '-b', 'fix/unrelated');
+      fs.writeFileSync(path.join(repo, 'other.txt'), 'x\n');
+      g('add', '-A');
+      g('commit', '-q', '-m', 'fix: 无关改动');
+
+      return researchLanded(since, repo)
+        ? null
+        : '调研在另一条分支上就误判成「没落盘」（git log 缺 --all）';
+    },
+  },
 ];
 
 let failed = 0;

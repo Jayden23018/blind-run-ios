@@ -113,11 +113,15 @@ export function sessionStart(transcriptPath) {
 // 当时 HEAD 是一个只动 Types.swift 的 merge commit，而调研在 HEAD~1/HEAD~2 ——
 // 落盘做完了、还推送了，钩子仍然拦。误报一次这个钩子就开始被无视，
 // 所以判据必须覆盖**整个会话**，不是最后一笔。
+//
+// ⚠️ `--all` 也不是可选项：`git log` 默认只走 HEAD 的祖先，而一个会话里开两三条
+// 分支是常态（本仓库 §「一个 PR 只装一件事」正是这么要求的）。调研落在 A 分支、
+// 停止时站在 B 分支，不带 `--all` 就照样误报 —— 修第一版时当场又踩了一次。
 export function researchLanded(sinceIso, cwd = root) {
   const dirty = git(cwd, 'status', '--porcelain', '--', RESEARCH_DIR);
   if (dirty && dirty.trim()) return true;
   if (sinceIso) {
-    const inSession = git(cwd, 'log', `--since=${sinceIso}`, '--name-only', '--pretty=format:', '--', RESEARCH_DIR);
+    const inSession = git(cwd, 'log', '--all', `--since=${sinceIso}`, '--name-only', '--pretty=format:', '--', RESEARCH_DIR);
     return Boolean(inSession && inSession.trim());
   }
   const lastCommit = git(cwd, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD', '--', RESEARCH_DIR);
