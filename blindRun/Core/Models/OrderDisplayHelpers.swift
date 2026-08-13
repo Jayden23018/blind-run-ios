@@ -323,15 +323,38 @@ extension OrderDetailResponse {
         plannedStart?.nilIfBlank?.displayDateTime
     }
 
+    /// 约定的结束时间。
+    ///
+    /// **取 `plannedEnd`，不许用 `plannedStart + expectedDurationMinutes` 自己推。**
+    /// 两个数是后端各自算的，口径不保证一致；推出来的值与订单详情、与家属分享页显示的
+    /// 对不上时，同一趟跑步在三个地方有三个结束时间，而没有任何一处会报错。
+    /// 契约里 `plannedEnd` 是 required（`api_spec.yaml` 的 `OrderDetailResponse`），
+    /// 这里仍收成 optional 只是解码宽容，不是允许缺失时另找一个数顶上 —— 缺了就不显示这一行。
+    var plannedEndForAnnouncement: String? {
+        plannedEnd?.nilIfBlank?.displayDateTime
+    }
+
     func volunteerDistanceToStartText(from volunteerCoordinate: CLLocationCoordinate2D?) -> String? {
         guard let volunteerCoordinate, let startCoordinate else { return nil }
         let meters = DistanceCalculator.distance(from: volunteerCoordinate, to: startCoordinate)
         return "距出发地点约 \(DistanceCalculator.formattedDistance(meters))"
     }
 
+    /// 服务进行中，把约定的结束时间念进主播报。
+    ///
+    /// 折叠在「预约信息」里等于没有：那一段是 `DisclosureGroup`，读屏用户要先展开才听得到，
+    /// 而跑步途中他不会去展开一段标着「已确认的信息」的折叠区。约定结束时间是这段时间里
+    /// **唯一会变成安全问题的数字** —— 后端在它之后 15 分钟推 `ORDER_OVERDUE`，
+    /// 用户听不到这个约定，就无从判断那条告警是不是意外。
+    ///
+    /// 只在 `IN_PROGRESS` 加。派单期、汇合期念它没有用：那时还没开始跑，
+    /// 而每多一句都是读屏用户在主路径上多等的时间。
     func blindRunnerAnnouncement(distanceText: String? = nil) -> String {
         let distanceSentence = distanceText.map { "志愿者\($0)。" } ?? ""
         switch status {
+        case .inProgress:
+            guard let plannedEndForAnnouncement else { return status.blindRunnerAnnouncement }
+            return "\(status.blindRunnerAnnouncement)预计\(plannedEndForAnnouncement)结束。"
         case .pendingAccept:
             if let plannedStartForAnnouncement {
                 return "志愿者已接单。请在\(plannedStartForAnnouncement)前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)志愿者出发后会继续通知你。"
