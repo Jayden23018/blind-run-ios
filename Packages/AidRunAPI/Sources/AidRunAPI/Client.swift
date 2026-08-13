@@ -170,6 +170,84 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 志愿者成就页（累计单数/服务时长/评分 + 派生勋章）
+    ///
+    /// ⚠️ **这不是「志愿服务时长证明」。** 可出具、可查验的证明受《志愿服务记录与证明出具办法（试行）》
+    /// （民政部令第 67 号）约束，须经志愿服务信息系统出具；第三方平台的时长要有法律效力，
+    /// 必须先与全国志愿服务信息系统完成数据对接。本端点只提供数据本身，
+    /// **客户端展示时不要用「证明」「证书」这类措辞**。
+    ///
+    /// **响应不套 `ApiResponse` 信封**（与同控制器的 `GET /api/volunteer/profile` 一致，
+    /// 但与 `GET /api/volunteer/dispatch-summary` **不同** —— 那条是套的，别照抄解析代码）。
+    ///
+    /// 与 `dispatch-summary` 字段重叠是刻意的（同一真相源 `volunteer_profile`）：
+    /// 分开是因为 `totalServiceMinutes` 要扫该志愿者的全部已完成订单，
+    /// 而 dispatch-summary 是首页、每次打开都调，不该让低频页面的代价压在最热的端点上。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/achievements`.
+    /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)`.
+    public func getVolunteerAchievements(_ input: Operations.getVolunteerAchievements.Input) async throws -> Operations.getVolunteerAchievements.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getVolunteerAchievements.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/achievements",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getVolunteerAchievements.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.VolunteerAchievementsResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    return .forbidden(.init())
+                case 404:
+                    return .notFound(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// 志愿者首页聚合数据（接单资格/在线位置/覆盖范围/时段/评分/订单）
     ///
     /// - Remark: HTTP `GET /api/volunteer/dispatch-summary`.

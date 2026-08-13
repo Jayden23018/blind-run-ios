@@ -432,6 +432,54 @@ const cases = [
     mode: 'post',
     expect: 0,
     swift: '// 后端 body 写的是「已通知家人」，客户端必须用自己的进行时文案覆盖它。'
+  },
+
+  // volunteer-hours-credential：成就页把时长/星级说成凭据是违规（民政部令第 67 号），
+  // 不是措辞问题。这条规则最容易出的错是把注册流程里合法的「资质证书」「实名认证」
+  // 一起堵死 —— 下面四条放行用例就是钉这条边界的，删了它规则会变成噪音源。
+  {
+    name: '成就页把时长说成「服务证明」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "志愿服务证明" }'
+  },
+  {
+    name: '成就页把时长说成「时长证书」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "导出你的服务时长证书" }'
+  },
+  {
+    name: '成就页宣称「时长已认证」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let subtitle = "你的服务时长已认证" }'
+  },
+  {
+    // 注册流程里的资质证书是真实动作，与服务时长的法律效力无关。堵死它等于把这条规则关掉。
+    name: '注册流程的「资质证书」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let title = "上传资质证书" }'
+  },
+  {
+    name: '注册流程的「实名认证」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let title = "请先完成实名认证" }'
+  },
+  {
+    name: '注册流程的「培训证书」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let hint = "上传助盲陪跑相关资质或培训证书" }'
+  },
+  {
+    // 成就页真正该用的措辞。它必须放行，否则唯一正确的写法也过不去。
+    name: '成就页的展示性措辞（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let d = "以上数据来自平台记录，供你自己查看。向学校或单位申报星级需要通过全国志愿服务信息系统办理。" }'
   }
 ];
 

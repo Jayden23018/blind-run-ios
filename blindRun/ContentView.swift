@@ -312,7 +312,12 @@ struct ContentView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             if appState.currentEnvironment == .mock {
                 Label("Mock 本地模拟，不连接云端", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 16, weight: .bold))
+                    // 固定磅值不跟 Dynamic Type 走。这条横幅是 `#if DEBUG` + Mock 环境专属，
+                    // 而 UI 测试正好全在这个组合下跑 —— 于是它**出现在每一屏**，
+                    // 让 `AccessibilityAuditTests` 里每一条静态审计都恒红。
+                    // 2026-08-13 之前那两条常年失败的盲人端审计，根因就是这一行，
+                    // 而不是被审计的那些页面。
+                    .font(.callout.bold())
                     .foregroundColor(.black)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)

@@ -6,8 +6,10 @@
       有没有兑换出口、会不会过期。注明前端已撤掉假实现，**不阻塞**后端将来做真的。
 - [ ] 1.2 投 handoff：完成单数多的志愿者要不要在派单里加权（滴滴「点亮勋章后接单概率增加」）？
       这决定成就体系是纯荣誉还是有实际收益，会影响前端文案措辞。
-- [ ] 1.3 投 handoff：`dispatch-summary` 能否补**累计服务时长**？按小时数分层是行业通行做法，
-      我们缺这一维只能退用单数。
+- [x] 1.3 ~~投 handoff：`dispatch-summary` 能否补**累计服务时长**？~~
+      **当场作废（2026-08-13）**：不用补。`GET /api/volunteer/achievements` 一直就有
+      `totalServiceMinutes`，后端刻意与 dispatch-summary 分开（扫全部已完成订单的代价
+      不该压在首页最热的端点上）。是本变更起初没查这条端点。见第 7 节。
 
 ## 2. 删除假积分
 
@@ -73,6 +75,68 @@
       （逐条 passed）、`blindRunTests` 281 条、`OrderEnumLeniencyDecodingTests` 17 条。
       `blindRunTests` 全绿说明改掉的那两处旧断言（`resolvedPointsBalance == 100 / 200`）
       没有连累同套件的其它用例。
+
+## 7. 改用真端点 + 国标星级（后端 SPEC-D D1，2026-08-13 追加）
+
+- [x] 7.1 `scripts/openapi/openapi-generator-config.yaml` 加 `/api/volunteer/achievements`
+      并重新生成（`scripts/generate-api-client.sh`，+492 行纯新增）。
+      生成代码只当漂移探测器，运行时仍走手写 `APIClient` —— 但正因为进了 filter，
+      后端发布 `nextBadge` / `starLevel` 的当天 CI 的「重新生成并比对」会变红，
+      那就是联调信号。
+- [x] 7.2 新建 `blindRun/Volunteer/VolunteerAchievements.swift`：
+      响应模型（全字段可选）、`VolunteerStarLevel`（GB/T 阈值 + 本地推算 fallback）、
+      `VolunteerAchievementsCopy`、`VolunteerBadgeWall`（主页 4 枚 + 二级页）。
+      **不 import SwiftUI**，保证可单测。
+- [x] 7.3 `VolunteerServiceRecognitionView` 改读 `GET /api/volunteer/achievements`
+      （一个 `.task`，无 `AnyCancellable`）；国标星级栏与平台勋章栏**分两栏**；
+      进度条 `accessibilityHidden`，进度作为独立文本节点存在；
+      新增 `VolunteerBadgeWallView` 二级页；失败态给重试。
+- [x] 7.4 删除 `VolunteerServiceRecognition.swift` 与 `VolunteerServiceRecognitionTests.swift`
+      （客户端自编的五档称号）；`VolunteerHomeView` 调用点去掉 `summary:` 传参。
+- [x] 7.5 `MockAPIClient` 加 `/api/volunteer/achievements` 分支，勋章判定逐条抄后端
+      `VolunteerBadge.isUnlockedBy`；`nextBadge` / `starLevel` **一律返回 nil**
+      —— Mock 造后端不会下发的字段，会让「字段缺失」这条真实分支永远跑不到。
+- [x] 7.6 **落成守卫**（`AGENTS.md` §1.1）：`guard.mjs` 新增 `volunteer-hours-credential`，
+      拦「服务/时长/志愿证明·证书」「时长已认证」。词表刻意不含「资质证书」「实名认证」
+      （注册流程的真实动作）。全仓复扫零误伤，`validate-guard.mjs` 加 7 条正反用例
+      → 44 条全过。
+- [x] 7.7 `blindRunTests/VolunteerAchievementsTests.swift`：国标阈值逐条对国标、
+      向下取整、服务端值优先于本地推算、**badges 只含已解锁**（回归门）、
+      未知 code 不崩、进度是可读文本、文案不含「证明/证书/已认证」、主页 4 枚上限。
+- [x] 7.8 真机跑（iPhone 16 Pro，2026-08-13）：
+      ```
+      scripts/device-test.sh -only-testing:blindRunTests/VolunteerAchievementsTests \
+                             -only-testing:blindRunTests/WeChatShareCardTests \
+                             -only-testing:blindRunTests/ShareLinkViewedNotificationTests
+      ```
+      **`passed=50 failed=0 skipped=0 result=Passed`**。逐 suite 核过 result bundle 不是零执行：
+      `VolunteerAchievementsTests` 27、`WeChatShareCardTests` 17、
+      `ShareLinkViewedNotificationTests` 6。
+- [x] 7.11 **补上志愿者端的无障碍审计**（`blindRunUITests/AccessibilityAuditTests`）。
+      此前那 9 条**全在盲人端**，志愿者端一条都没有 —— 于是「跑了无障碍门」与
+      「新页面被审计过」是两回事，而门是绿的。新增两条：静态审计 + 星级栏念得出小时数。
+      两条当场逮到三个真缺陷，见 7.12。
+      全套 **`passed=11 failed=0 result=Passed`**。
+- [x] 7.12 审计逮到的三个缺陷（都不是猜的，是审计报出来的）：
+      1. 成就页头部那个大数字用 `.font(.system(size: 48, weight: .bold))` ——
+         **固定磅值不跟 Dynamic Type 走**，而这一页最大的数字恰恰是低视力用户最需要放大的。
+         这行是从旧版原样搬过来的，旧版没被审计过所以没人发现。改用 `AppFonts.largeTitle()`。
+      2. 没有评价时评分格念出「评分：破折号破折号」（`--` 是给眼睛的占位符，不是给耳朵的）。
+         改成「还没有收到评价」。
+      3. 🔴 **`ContentView.swift` 的 Mock 环境横幅也是固定磅值**，而它 `#if DEBUG` + Mock 环境
+         常驻**每一屏** —— `AccessibilityAuditTests` 里那两条常年失败的盲人端审计，
+         根因一直是这一行，不是被审计的页面。改用 `.callout.bold()` 后整套审计**第一次全绿**。
+- [x] 7.9 ~~投 handoff 问 `nextBadge` 的单位~~ **不用问了**：写这条的同一天后端就发布了 D1
+      （`9f8606d`），契约里写清楚了 —— `RUNS_*` 是次、`HOURS_*` 是**分钟**、
+      `HIGH_RATED` 是条评价，且没有 `unit` 字段（按 `code` 查表）。
+      客户端原先准备的「不拼单位、只渲染分数」方案在 `HOURS_*` 上会显示
+      「已完成 360 / 600」—— 分母对但读起来像小时，实际是分钟。已改成按 code 换算。
+- [x] 7.10 后端 D1 上线后的跟进（同日）：
+      `nextBadge` 按 code 选量词并把分钟换算成小时；`starLevel` 契约里恒非 null，
+      本地推算降为防御路径（字段真缺时不让整栏空白）；Mock 补齐两个字段并照分钟口径给；
+      重新生成 API 客户端（Types.swift +222 行）。
+      **`HIGH_RATED` 满格不解锁**（双条件，进度只跟条数）已单独立测，文案一律不写
+      「还差 N 就解锁」。
 
 ## 6. 收尾
 

@@ -16,12 +16,45 @@ The iOS volunteer home screen SHALL display service statistics from dispatch sum
 
 #### Scenario: Volunteer opens service recognition
 - **WHEN** the volunteer opens the service recognition screen
-- **THEN** the screen SHALL show tiers keyed to completed service count with the unlock threshold of each tier stated
-- **AND** each tier SHALL be distinguishable by its name and its symbol, not by colour alone
-- **AND** a locked tier SHALL state how many further completed services unlock it
-- **AND** the screen SHALL read its data from the already-loaded dispatch summary without issuing its own request
+- **THEN** the screen SHALL read its data from `GET /api/volunteer/achievements`
+- **AND** the screen SHALL NOT synthesise recognition tiers that no backend field supplies
+- **AND** the screen SHALL show the national star level and the platform badges as two separate sections
+- **AND** each badge SHALL be distinguishable by its name and its symbol, not by colour alone
 
-#### Scenario: Completed count is absent
-- **WHEN** `totalCompleted` is absent from dispatch summary
-- **THEN** the recognition screen SHALL treat the count as zero and show every tier as locked
-- **AND** the screen SHALL NOT fail to render
+#### Scenario: National star level is shown separately from platform badges
+- **WHEN** the recognition screen renders the national star level
+- **THEN** the thresholds SHALL be those of GB/T 40143—2021, namely 100, 300, 600, 1000 and 1500 accumulated service hours
+- **AND** the screen SHALL NOT merge the star level with the platform badges, because the highest platform hour badge is 50 hours and cannot reach the 100-hour first star
+- **AND** the remaining hours to the next star SHALL be available as readable text, not only as the geometry of a progress bar
+
+#### Scenario: Badge list semantics
+- **WHEN** the response contains `badges`
+- **THEN** the app SHALL treat every entry as unlocked, because the contract states that locked badges do not appear in the list
+- **AND** the app SHALL NOT read an `unlocked` flag to decide whether an entry is unlocked
+- **AND** an unrecognised badge `code` SHALL still render with its `name` and a fallback symbol rather than failing the whole response
+
+#### Scenario: Progress toward the next badge is not available
+- **WHEN** the response omits `nextBadge`, which the contract uses to mean every badge is unlocked
+- **THEN** the screen SHALL omit the next-badge section entirely
+- **AND** the screen SHALL NOT derive that progress from client-side badge thresholds
+
+#### Scenario: Next-badge progress carries a code-dependent unit
+- **WHEN** the screen renders `nextBadge.current` and `nextBadge.target`
+- **THEN** a `FIRST_RUN` or `RUNS_*` code SHALL be rendered as a count of runs
+- **AND** an `HOURS_*` code SHALL be converted from minutes to whole hours before display, because the backend sends minutes for those codes
+- **AND** a `HIGH_RATED` code SHALL be rendered as a count of ratings
+- **AND** an unrecognised code SHALL hide the progress bar and its text while still showing the badge name
+
+#### Scenario: Next-badge copy does not promise an unlock
+- **WHEN** the screen renders next-badge progress for `HIGH_RATED`
+- **THEN** the copy SHALL NOT state how many more units unlock the badge, because `HIGH_RATED` also requires an average rating and its progress bar can be full while the badge stays locked
+
+#### Scenario: Achievements request fails or fields are absent
+- **WHEN** the request fails, or `totalCompleted` and `totalServiceMinutes` are absent
+- **THEN** the screen SHALL treat the missing figures as zero and SHALL NOT fail to render
+- **AND** a failed request SHALL offer a retry
+
+#### Scenario: Recognition copy is not a credential
+- **WHEN** the recognition screen renders any of its own copy
+- **THEN** that copy SHALL NOT use the words 证明, 证书 or 已认证 for service hours or star level, because a verifiable volunteer service record must be issued through the volunteer service information system (民政部令第 67 号) and this platform has no data integration with it
+- **AND** the screen SHALL state where an external declaration is actually filed
