@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { isResearchTool, researchToolsUsed, researchTodo } from './hooks/research-log.mjs';
+import { isResearchTool, researchLanded, researchToolsUsed, researchTodo, sessionStart } from './hooks/research-log.mjs';
 
 const hook = path.resolve(import.meta.dirname, 'hooks/research-log.mjs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-research-'));
@@ -111,6 +111,50 @@ const cases = [
       }
       if (!todo) return '联网过、docs/research 没动，却没有欠账';
       return todo.includes('docs/research') ? null : '欠账没写清落盘路径';
+    },
+  },
+  {
+    name: 'sessionStart 取得到会话起点，且缺失/损坏时返回 null 而不是崩',
+    check: () => {
+      const p = path.join(tmp, 'ts.jsonl');
+      fs.writeFileSync(p, `${JSON.stringify({ timestamp: '2026-08-13T14:11:11.722Z', type: 'x' })}\n{坏行\n`);
+      if (sessionStart(p) !== '2026-08-13T14:11:11.722Z') return `没取到首行 timestamp，实得 ${sessionStart(p)}`;
+      const bad = path.join(tmp, 'bad.jsonl');
+      fs.writeFileSync(bad, '{ 这行不是 JSON\n');
+      if (sessionStart(bad) !== null) return '首行损坏时没返回 null';
+      if (sessionStart(path.join(tmp, '不存在.jsonl')) !== null) return '文件不存在时没返回 null';
+      return sessionStart(undefined) === null ? null : '路径缺失时没返回 null';
+    },
+  },
+  {
+    name: '调研提交后再叠一笔无关提交，仍要判定为「已落盘」（只看 HEAD 会误报）',
+    check: () => {
+      // 2026-08-13 的真实事故：调研已落盘并推送，但随后合入了一笔契约同步的 merge，
+      // HEAD 变成只动 Types.swift 的那笔，钩子照样拦「调研没落盘」。
+      const repo = path.join(tmp, 'repo');
+      fs.mkdirSync(path.join(repo, 'docs/research'), { recursive: true });
+      const g = (...a) => spawnSync('git', a, { cwd: repo, encoding: 'utf8' });
+      g('init', '-q', '-b', 'main');
+      g('config', 'user.email', 't@example.com');
+      g('config', 'user.name', 'validate-research-log');
+      g('commit', '-q', '--allow-empty', '-m', 'base');
+
+      const since = new Date(Date.now() - 3600_000).toISOString();
+
+      fs.writeFileSync(path.join(repo, 'docs/research/INDEX.md'), '| 日期 |\n');
+      g('add', '-A');
+      g('commit', '-q', '-m', 'docs: 调研落盘');
+      if (!researchLanded(since, repo)) return '调研那笔刚提交完就判成没落盘';
+
+      // 再叠一笔与调研无关的提交 —— 这一步正是当初触发误报的动作
+      fs.writeFileSync(path.join(repo, 'other.txt'), 'x\n');
+      g('add', '-A');
+      g('commit', '-q', '-m', 'chore: 无关改动');
+
+      if (!researchLanded(since, repo)) return '叠了一笔无关提交后误判成「调研没落盘」（就是这次的 bug）';
+      // 同时钉住：旧判据（只看 HEAD）在这个场景下确实是错的，防止有人改回去
+      if (researchLanded(null, repo)) return '只看 HEAD 的兜底路径居然也过了，说明这条用例没真正复现旧 bug';
+      return null;
     },
   },
 ];
