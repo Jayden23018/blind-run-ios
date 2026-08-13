@@ -166,3 +166,62 @@ Firecrawl 的 `firecrawl_research_*`（独立论文摘要/全文索引）**需�
 - **内置浏览器抓 Reddit** —— 否。`reddit.com is blocked by policy`。
 - **靠 `WebFetch` 做政策文件汇报** —— 否。转述会丢原话，而汇报要求引用可核对。
 - **给 subagent 写「原样粘贴不要转述」的格式契约来拿原文** —— 部分有效但不可依赖，理由见 §5 架构性事实。
+
+---
+
+## 8. 追加：Exa 的搜索会比内置 `WebSearch` 更好吗？（同日，问题独立成节）
+
+### 8.1 先纠正本报告自己的一个错
+
+§2.1 原写「四次 `WebSearch` 返回的全是厂商软文」「HN Algolia 是唯一通道」—— **那是操作失误，不是工具缺陷**。
+
+`WebSearch` 有 `allowed_domains` **参数**，而第一轮把 `site:news.ycombinator.com` 写进了**查询串**。查询串里的 `site:` 不生效，于是返回一堆 SEO 软文，工具还自己解释「I didn't find Hacker News discussion threads」—— 看起来像工具没能力，实则是参数没用对。
+
+改用参数后重测，一次命中 10 条真实 HN 帖，其中 `item?id=47942777` 标题正是「Tavily, Exa, Firecrawl, Perplexity, and Linkup are all tools for agents to search the web」—— 第一轮完全没找到。
+
+**⇒ 原本支持「考虑 Exa」的最强证据（内置搜索找不到论坛原文）不成立。** `WebSearch` + `allowed_domains` 就是精准的定向搜索。
+
+### 8.2 `reddit.com` 是 user agent 层硬屏蔽
+
+`allowed_domains: ["reddit.com"]` 返回的不是空结果，是 **HTTP 400 硬错误**，原文：
+
+```
+The following domains are not accessible to our user agent: ['reddit.com']
+```
+
+这和 §2.1 里 `.json` 403、内置浏览器 policy 拦、`r.jina.ai` 被 403 是同一件事的第四个面：Reddit 在**爬虫身份**层面拒绝所有非 OAuth 流量。**⇒ Reddit 官方 OAuth 不是「更好的选择」，是唯一选择**，脚本见 `~/.claude/scripts/reddit-search.sh`。
+
+### 8.3 `s.jina.ai` 与 `r.jina.ai` 不是一个东西
+
+| | 作用 | 免 key |
+|---|---|---|
+| `r.jina.ai` | Reader：一个 URL → markdown | ✅ 20 RPM |
+| `s.jina.ai` | Search：一个问题 → 前 N 条结果**连正文一起返回** | ❌ 实测 `401 AuthenticationRequiredError` |
+
+⇒ Jina 免费 key 的价值不止「20 RPM → 500 RPM」，而是**解锁整个 search 端点**。
+
+### 8.4 Exa 真正会赢与会输的地方
+
+**会赢**：① 语义检索（「论证 X 的论文」这类概念查询，`WebSearch` 是传统检索）；② 一步返回全文（`WebSearch` 只给 URL + 小模型转述）；③ 有自己的索引，不受 Anthropic user agent 屏蔽名单约束。
+
+**会输**：① 索引偏「信息密集」内容（博客/论文/新闻/GitHub），长尾缺失；② 语义检索的固有失败模式 —— 概念相似但实际不相关；③ **中文内容基本没有**，政策场景补不上（而 `WebSearch` 同样 US-only，两者都不行）；④ HN 实测反馈：要产品数据「got back articles rather than structured data」，Tavily 与 Bing 同样。
+
+### 8.5 决定性的一条：Exa 的条款与「调研必须落盘」直接冲突
+
+**Exa 服务条款 §4.2(a) 原文**（2026-08-13 从 `exa.ai/assets/Exa_Labs_Terms_of_Service.pdf` 核）：
+
+> You may not ... download, modify, copy, distribute, transmit, display, perform, reproduce, duplicate, publish, license, create derivative works from, or offer for sale any information contained on, or obtained from or through, the Services, **except for temporary files that are automatically cached by your web browser for display purposes**
+
+本仓库 AGENTS.md §12 要求「调研完落盘 `docs/research/{topic}-{YYYYMMDD}.md`」并提交进 git —— 这在字面上**正是**该条禁止的 download / copy / reproduce。
+
+**同条款 §1(c)**：用户授予 Exa 对 User Input 与 Output 的「nonexclusive, royalty-free, transferable, sub-licensable, worldwide, **perpetual and irrevocable** license to access, use, host, cache, store, reproduce, transmit, display, publish, distribute, and modify」。HN 用户 `lukewarm707`（2026-04-29）另引 Exa 条款：「Query Data is used to improve our products and technology, including by **training and fine-tuning models** that power our Services」。
+
+⇒ 医学项目的未发表研究方向、给老板的调研选题（暴露关注点），都不该进这条管道。
+
+**公平起见**：同一条 HN 评论逐字对比了五家，条款一样贪 —— Firecrawl（「worldwide, irrevocable, non-exclusive, royalty-free license ... You also grant to us the right to sub-license」）、Perplexity（「may retain, copy, distribute and otherwise use Search Data」）、Linkup、Tavily。**这不是 Exa 独有的缺陷，是「把研究问题发给搜索厂商」这个动作本身的代价。** `r.jina.ai` 暴露面不同：给它的是一个你已经选好的 URL，不是你的研究问题。
+
+### 8.6 结论
+
+**不买 Exa。** 理由不是它不好，是**它在真实瓶颈上没有增量，却在归档工作流上引入法务摩擦**。三个真实缺口它一个都补不上：中文搜索（Exa 没有）、Reddit（官方 OAuth 免费且干净）、语义找论文（OpenAlex / Semantic Scholar 的 related-works 免费且专业对口）。
+
+**什么时候回头看**：确实开始做大量**英文语义检索**且 OpenAlex 相关工作推荐不够用时。那时先申请教育额度（$1000 credits），不要直接付费。
