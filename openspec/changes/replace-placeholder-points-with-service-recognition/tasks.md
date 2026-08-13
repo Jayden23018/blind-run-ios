@@ -106,9 +106,17 @@
 - [ ] 7.8 真机跑上面这些 suite。⚠️ **未执行**：两台设备当前都是 `unavailable`
       （`xcrun devicectl list devices`），本仓库唯一 XCTest 通道不可用。
       编译门禁已过（`build-for-testing` → `TEST BUILD SUCCEEDED`）。
-- [ ] 7.9 投 handoff：`nextBadge.current` / `target` 的**单位**未定义
-      （`HOURS_10` 的 target 是 10 还是 600？`HIGH_RATED` 是双条件，没有单一进度轴）。
-      在拿到答复前界面只渲染 `已完成 37 / 50` 这种分数形式，不拼单位。
+- [x] 7.9 ~~投 handoff 问 `nextBadge` 的单位~~ **不用问了**：写这条的同一天后端就发布了 D1
+      （`9f8606d`），契约里写清楚了 —— `RUNS_*` 是次、`HOURS_*` 是**分钟**、
+      `HIGH_RATED` 是条评价，且没有 `unit` 字段（按 `code` 查表）。
+      客户端原先准备的「不拼单位、只渲染分数」方案在 `HOURS_*` 上会显示
+      「已完成 360 / 600」—— 分母对但读起来像小时，实际是分钟。已改成按 code 换算。
+- [x] 7.10 后端 D1 上线后的跟进（同日）：
+      `nextBadge` 按 code 选量词并把分钟换算成小时；`starLevel` 契约里恒非 null，
+      本地推算降为防御路径（字段真缺时不让整栏空白）；Mock 补齐两个字段并照分钟口径给；
+      重新生成 API 客户端（Types.swift +222 行）。
+      **`HIGH_RATED` 满格不解锁**（双条件，进度只跟条数）已单独立测，文案一律不写
+      「还差 N 就解锁」。
 
 ## 6. 收尾
 

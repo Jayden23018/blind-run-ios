@@ -74,8 +74,8 @@ final class VolunteerAchievementsTests: XCTestCase {
         XCTAssertEqual(response.resolvedStarLevel.currentHours, 301)
     }
 
-    /// 后端尚未发布 `starLevel`（核于 2026-08-13）时必须能落到本地推算，
-    /// 而不是让整栏空着 —— 那一栏空着等于这次改版没做。
+    /// 契约承诺 `starLevel` 恒非 null。真缺了的时候要落到本地推算而不是整栏空着 ——
+    /// 那一栏空着等于这次改版没做。防御路径，不是常规路径。
     func testMissingStarLevelFallsBackToLocalDerivation() throws {
         let json = #"{"totalCompleted": 42, "totalServiceMinutes": 2520}"#
         let response = try JSONDecoder().decode(
@@ -133,46 +133,113 @@ final class VolunteerAchievementsTests: XCTestCase {
         XCTAssertEqual(response.unlockedBadges.count, 1)
     }
 
-    /// 今天后端真实返回的形状：没有 `nextBadge`、没有 `starLevel`。必须解得出来。
-    func testTodaysBackendShapeDecodes() throws {
+    /// 后端 `9f8606d` 之后的完整形状。
+    func testFullBackendShapeDecodes() throws {
         let json = """
         {"totalCompleted": 37, "totalServiceMinutes": 2520, "avgRating": 4.9,
-         "totalRatings": 30, "badges": [{"code": "FIRST_RUN", "name": "首次陪跑"}]}
+         "totalRatings": 30, "badges": [{"code": "FIRST_RUN", "name": "首次陪跑"}],
+         "nextBadge": {"code": "RUNS_50", "name": "陪跑达人 · 50 次", "current": 37, "target": 50},
+         "starLevel": {"current": 0, "currentHours": 42, "nextTarget": 100}}
         """
         let response = try JSONDecoder().decode(
             VolunteerAchievementsResponse.self,
             from: Data(json.utf8)
         )
         XCTAssertEqual(response.completedCount, 37)
+        XCTAssertEqual(response.resolvedStarLevel.currentHours, 42)
+        XCTAssertEqual(response.nextBadge?.progressText, "已完成 37 / 50 次")
+    }
+
+    /// 七枚全解锁时 `nextBadge` 是 null，整段不显示。老版本形状（连字段都没有）也要解得出来 ——
+    /// 已发版客户端与新客户端会同时在线。
+    func testAllBadgesUnlockedMeansNoNextBadge() throws {
+        let json = """
+        {"totalCompleted": 120, "totalServiceMinutes": 90000,
+         "starLevel": {"current": 1, "currentHours": 1500, "nextTarget": null}}
+        """
+        let response = try JSONDecoder().decode(
+            VolunteerAchievementsResponse.self,
+            from: Data(json.utf8)
+        )
         XCTAssertNil(response.nextBadge)
-        XCTAssertNil(response.starLevel)
+        XCTAssertNil(response.resolvedStarLevel.nextTarget)
     }
 
     // MARK: - nextBadge 进度
 
-    func testNextBadgeProgressIsAUnitFreeFraction() throws {
-        let json = #"{"nextBadge": {"code": "RUNS_50", "name": "陪跑达人 · 50 次", "current": 37, "target": 50}}"#
-        let response = try JSONDecoder().decode(
-            VolunteerAchievementsResponse.self,
-            from: Data(json.utf8)
+    func testRunBadgeProgressIsCountedInRuns() throws {
+        let next = try decodeNextBadge(
+            #"{"code": "RUNS_50", "name": "陪跑达人 · 50 次", "current": 37, "target": 50}"#
         )
-        let next = try XCTUnwrap(response.nextBadge)
-        XCTAssertEqual(next.progressText, "已完成 37 / 50")
-        // 不拼「次」「小时」：`HOURS_10` 的 target 是 10 还是 600 契约没写，已投 handoff。
-        // 分数形式在三种答案下都对。
-        XCTAssertFalse(next.progressText?.contains("次") ?? true)
-        XCTAssertFalse(next.progressText?.contains("小时") ?? true)
+        XCTAssertEqual(next.progressText, "已完成 37 / 50 次")
+    }
+
+    /// 🔴 `HOURS_*` 的 `current` / `target` 后端给的是**分钟**，不是小时。
+    /// 直接拼上去会变成「已完成 360 / 600 小时」—— 一个大 60 倍的谎。
+    func testHourBadgeProgressConvertsMinutesToHours() throws {
+        let next = try decodeNextBadge(
+            #"{"code": "HOURS_10", "name": "累计服务 10 小时", "current": 360, "target": 600}"#
+        )
+        XCTAssertEqual(next.progressText, "已完成 6 / 10 小时")
+    }
+
+    /// 分钟向下取整，与 `starLevel.currentHours` 同口径：599 分钟不是 10 小时。
+    func testHourBadgeMinutesRoundDown() throws {
+        let next = try decodeNextBadge(
+            #"{"code": "HOURS_10", "name": "累计服务 10 小时", "current": 599, "target": 600}"#
+        )
+        XCTAssertEqual(next.progressText, "已完成 9 / 10 小时")
+    }
+
+    func testHighRatedProgressIsCountedInRatings() throws {
+        let next = try decodeNextBadge(
+            #"{"code": "HIGH_RATED", "name": "口碑之星", "current": 8, "target": 10}"#
+        )
+        XCTAssertEqual(next.progressText, "已完成 8 / 10 条评价")
+    }
+
+    /// 🔴 `HIGH_RATED` 是双条件（均分 ≥ 4.8 **且** ≥ 10 条评价），进度条跟的只是条数 ——
+    /// 20 条评价、均分 4.0 会满格但仍未解锁。所以文案一律不许出现「还差 N 就解锁」，
+    /// 否则那是一个我们兑现不了的承诺，而且只在少数志愿者身上翻车、极难被发现。
+    func testProgressCopyNeverPromisesUnlock() throws {
+        let next = try decodeNextBadge(
+            #"{"code": "HIGH_RATED", "name": "口碑之星", "current": 10, "target": 10}"#
+        )
+        let text = try XCTUnwrap(next.progressText)
+        XCTAssertFalse(text.contains("还差"))
+        XCTAssertFalse(text.contains("解锁"))
+        XCTAssertFalse(VolunteerAchievementsCopy.nextBadgeSectionTitle.contains("还差"))
+        XCTAssertFalse(
+            VolunteerAchievementsCopy.nextBadgeAccessibilityLabel(next).contains("解锁")
+        )
+    }
+
+    /// 未知 `code` 时契约要求**把整块进度条隐藏**，不是拿一个猜的量词硬拼 ——
+    /// 猜错的后果是把分钟念成小时。
+    func testUnknownNextBadgeCodeHidesTheProgressBlock() throws {
+        let next = try decodeNextBadge(
+            #"{"code": "NIGHT_OWL", "name": "夜跑之星", "current": 3, "target": 5}"#
+        )
+        XCTAssertNil(next.progressUnit)
+        XCTAssertNil(next.progressFraction)
+        XCTAssertNil(next.progressText)
+        XCTAssertEqual(next.displayName, "夜跑之星", "名字仍要显示，隐藏的只是进度条")
     }
 
     func testNextBadgeWithZeroTargetShowsNoProgressBar() throws {
-        let json = #"{"nextBadge": {"code": "X", "name": "X", "current": 0, "target": 0}}"#
-        let response = try JSONDecoder().decode(
-            VolunteerAchievementsResponse.self,
-            from: Data(json.utf8)
+        let next = try decodeNextBadge(
+            #"{"code": "RUNS_10", "name": "陪跑达人 · 10 次", "current": 0, "target": 0}"#
         )
-        let next = try XCTUnwrap(response.nextBadge)
         XCTAssertNil(next.progressFraction, "分母为 0 时不画进度条，也不显示 0/0")
         XCTAssertNil(next.progressText)
+    }
+
+    private func decodeNextBadge(_ badgeJSON: String) throws -> VolunteerNextBadgeDto {
+        let response = try JSONDecoder().decode(
+            VolunteerAchievementsResponse.self,
+            from: Data(#"{"nextBadge": \#(badgeJSON)}"#.utf8)
+        )
+        return try XCTUnwrap(response.nextBadge)
     }
 
     // MARK: - 无障碍：进度必须是可读的文本，不能只画在进度条里

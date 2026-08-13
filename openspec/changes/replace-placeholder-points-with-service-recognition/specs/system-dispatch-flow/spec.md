@@ -34,9 +34,20 @@ The iOS volunteer home screen SHALL display service statistics from dispatch sum
 - **AND** an unrecognised badge `code` SHALL still render with its `name` and a fallback symbol rather than failing the whole response
 
 #### Scenario: Progress toward the next badge is not available
-- **WHEN** the response omits `nextBadge`
-- **THEN** the screen SHALL omit the next-badge progress entirely
+- **WHEN** the response omits `nextBadge`, which the contract uses to mean every badge is unlocked
+- **THEN** the screen SHALL omit the next-badge section entirely
 - **AND** the screen SHALL NOT derive that progress from client-side badge thresholds
+
+#### Scenario: Next-badge progress carries a code-dependent unit
+- **WHEN** the screen renders `nextBadge.current` and `nextBadge.target`
+- **THEN** a `FIRST_RUN` or `RUNS_*` code SHALL be rendered as a count of runs
+- **AND** an `HOURS_*` code SHALL be converted from minutes to whole hours before display, because the backend sends minutes for those codes
+- **AND** a `HIGH_RATED` code SHALL be rendered as a count of ratings
+- **AND** an unrecognised code SHALL hide the progress bar and its text while still showing the badge name
+
+#### Scenario: Next-badge copy does not promise an unlock
+- **WHEN** the screen renders next-badge progress for `HIGH_RATED`
+- **THEN** the copy SHALL NOT state how many more units unlock the badge, because `HIGH_RATED` also requires an average rating and its progress bar can be full while the badge stays locked
 
 #### Scenario: Achievements request fails or fields are absent
 - **WHEN** the request fails, or `totalCompleted` and `totalServiceMinutes` are absent

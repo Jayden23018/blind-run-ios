@@ -964,39 +964,47 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 勋章判定逐条抄后端 `VolunteerBadge.isUnlockedBy`：Mock 的职责是像后端，
     /// 不是自己发明一套。真正**不**能抄的是把这套阈值搬进 App 的展示逻辑 —— 那才会漂移。
     ///
-    /// ⚠️ `nextBadge` / `starLevel` 一律返回 `nil`：**后端 SPEC-D D1 还没实现**（核于 2026-08-13）。
-    /// Mock 造后端不会下发的字段，会让「字段缺失」这条真实分支在 Mock 下永远跑不到 ——
-    /// `notAvailableReasons` 那次静默全 nil 的解码 bug 就是这么活到真机联调的。
-    /// 后端发布 D1 之后再把这两个字段填上，同时把成就页的本地推算 fallback 删掉。
+    /// ⚠️ **`nextBadge` 的单位随 `code` 变**：`RUNS_*` 是次，`HOURS_*` 是**分钟**，
+    /// `HIGH_RATED` 是条评价。Mock 也照这个口径给，否则 Mock 下看着对、真机上差 60 倍。
     private func handleGetVolunteerAchievements() -> VolunteerAchievementsResponse {
-        let completedOrders = orders.filter { $0.status == .completed }
-        let totalCompleted = completedOrders.count
+        let totalCompleted = orders.filter { $0.status == .completed }.count
         // 每单按 60 分钟计。Mock 里订单没有真实的 IN_PROGRESS → COMPLETED 时间戳，
         // 编一个精确到分钟的数只会让人以为它有意义。
         let totalServiceMinutes = Int64(totalCompleted) * 60
         let avgRating: Double? = totalCompleted > 0 ? 5.0 : nil
         let totalRatings = totalCompleted
 
-        var badges: [VolunteerBadgeDto] = []
-        func unlock(_ code: String, _ name: String, _ condition: Bool) {
-            if condition { badges.append(VolunteerBadgeDto(code: code, name: name)) }
+        /// 声明顺序即后端的顺序：`nextBadge` 取的是**第一枚未解锁的**，不是最接近达成的那枚。
+        let table: [(code: String, name: String, unlocked: Bool, current: Int64, target: Int64)] = [
+            ("FIRST_RUN", "首次陪跑", totalCompleted >= 1, Int64(totalCompleted), 1),
+            ("RUNS_10", "陪跑达人 · 10 次", totalCompleted >= 10, Int64(totalCompleted), 10),
+            ("RUNS_50", "陪跑达人 · 50 次", totalCompleted >= 50, Int64(totalCompleted), 50),
+            ("RUNS_100", "陪跑达人 · 100 次", totalCompleted >= 100, Int64(totalCompleted), 100),
+            ("HOURS_10", "累计服务 10 小时", totalServiceMinutes >= 600, totalServiceMinutes, 600),
+            ("HOURS_50", "累计服务 50 小时", totalServiceMinutes >= 3000, totalServiceMinutes, 3000),
+            ("HIGH_RATED", "口碑之星",
+             (avgRating ?? 0) >= 4.8 && totalRatings >= 10, Int64(totalRatings), 10)
+        ]
+
+        let nextBadge = table.first { !$0.unlocked }.map {
+            VolunteerNextBadgeDto(
+                code: $0.code,
+                name: $0.name,
+                // 契约：`current` 恒 ≤ `target`，可直接当分子用。
+                current: min($0.current, $0.target),
+                target: $0.target
+            )
         }
-        unlock("FIRST_RUN", "首次陪跑", totalCompleted >= 1)
-        unlock("RUNS_10", "陪跑达人 · 10 次", totalCompleted >= 10)
-        unlock("RUNS_50", "陪跑达人 · 50 次", totalCompleted >= 50)
-        unlock("RUNS_100", "陪跑达人 · 100 次", totalCompleted >= 100)
-        unlock("HOURS_10", "累计服务 10 小时", totalServiceMinutes >= 10 * 60)
-        unlock("HOURS_50", "累计服务 50 小时", totalServiceMinutes >= 50 * 60)
-        unlock("HIGH_RATED", "口碑之星", (avgRating ?? 0) >= 4.8 && totalRatings >= 10)
 
         return VolunteerAchievementsResponse(
             totalCompleted: totalCompleted,
             totalServiceMinutes: totalServiceMinutes,
             avgRating: avgRating,
             totalRatings: totalRatings,
-            badges: badges,
-            nextBadge: nil,
-            starLevel: nil
+            badges: table.filter(\.unlocked).map { VolunteerBadgeDto(code: $0.code, name: $0.name) },
+            nextBadge: nextBadge,
+            // 契约里 `starLevel` 恒非 null。Mock 给 null 会让「恒非 null」这条永远验不到。
+            starLevel: VolunteerStarLevel.derive(totalServiceMinutes: totalServiceMinutes)
         )
     }
 

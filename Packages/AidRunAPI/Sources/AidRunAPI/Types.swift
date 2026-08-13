@@ -4825,10 +4825,63 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/totalRatings`.
             public var totalRatings: Swift.Int32?
-            /// 已解锁的勋章（未解锁的不出现在列表里）
+            /// 已解锁的勋章（未解锁的不出现在列表里）。
+            ///
+            /// 🚨 **这条语义是已发版 iOS 依赖的，不要改成「全量 + unlocked 布尔」** ——
+            /// 老客户端不认识那个布尔，会把七枚勋章一律当已解锁渲染（成就页全亮），
+            /// 而 `openapi-diff` 只看到「加了可选字段」判 Backward compatible：**门是绿的，线上是坏的**。
+            /// 要展示未解锁进度用 `nextBadge`。
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/badges`.
             public var badges: [Components.Schemas.VolunteerBadgeDto]?
+            /// 下一枚未解锁的勋章及进度，**全部解锁时为 null**
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/nextBadge`.
+            public struct nextBadgePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/nextBadge/value1`.
+                public var value1: Components.Schemas.VolunteerNextBadgeDto
+                /// Creates a new `nextBadgePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                public init(value1: Components.Schemas.VolunteerNextBadgeDto) {
+                    self.value1 = value1
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    self.value1 = try .init(from: decoder)
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try self.value1.encode(to: encoder)
+                }
+            }
+            /// 下一枚未解锁的勋章及进度，**全部解锁时为 null**
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/nextBadge`.
+            public var nextBadge: Components.Schemas.VolunteerAchievementsResponse.nextBadgePayload?
+            /// 国标星级（GB/T 40143—2021）。**恒非 null**，未达一星时 `current = 0`
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/starLevel`.
+            public struct starLevelPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/starLevel/value1`.
+                public var value1: Components.Schemas.VolunteerStarLevelDto
+                /// Creates a new `starLevelPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                public init(value1: Components.Schemas.VolunteerStarLevelDto) {
+                    self.value1 = value1
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    self.value1 = try .init(from: decoder)
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try self.value1.encode(to: encoder)
+                }
+            }
+            /// 国标星级（GB/T 40143—2021）。**恒非 null**，未达一星时 `current = 0`
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/starLevel`.
+            public var starLevel: Components.Schemas.VolunteerAchievementsResponse.starLevelPayload?
             /// Creates a new `VolunteerAchievementsResponse`.
             ///
             /// - Parameters:
@@ -4836,19 +4889,25 @@ public enum Components {
             ///   - totalServiceMinutes: 累计服务时长（分钟）。口径：**每单从「志愿者点开始服务」到「订单完成」**，跨全部已完成订单求和。
             ///   - avgRating: 平均评分 1.0–5.0，null = 尚无评价
             ///   - totalRatings: 累计收到的评价条数
-            ///   - badges: 已解锁的勋章（未解锁的不出现在列表里）
+            ///   - badges: 已解锁的勋章（未解锁的不出现在列表里）。
+            ///   - nextBadge: 下一枚未解锁的勋章及进度，**全部解锁时为 null**
+            ///   - starLevel: 国标星级（GB/T 40143—2021）。**恒非 null**，未达一星时 `current = 0`
             public init(
                 totalCompleted: Swift.Int32? = nil,
                 totalServiceMinutes: Swift.Int64? = nil,
                 avgRating: Swift.Double? = nil,
                 totalRatings: Swift.Int32? = nil,
-                badges: [Components.Schemas.VolunteerBadgeDto]? = nil
+                badges: [Components.Schemas.VolunteerBadgeDto]? = nil,
+                nextBadge: Components.Schemas.VolunteerAchievementsResponse.nextBadgePayload? = nil,
+                starLevel: Components.Schemas.VolunteerAchievementsResponse.starLevelPayload? = nil
             ) {
                 self.totalCompleted = totalCompleted
                 self.totalServiceMinutes = totalServiceMinutes
                 self.avgRating = avgRating
                 self.totalRatings = totalRatings
                 self.badges = badges
+                self.nextBadge = nextBadge
+                self.starLevel = starLevel
             }
             public enum CodingKeys: String, CodingKey {
                 case totalCompleted
@@ -4856,6 +4915,166 @@ public enum Components {
                 case avgRating
                 case totalRatings
                 case badges
+                case nextBadge
+                case starLevel
+            }
+        }
+        /// 下一枚未解锁的勋章 —— 画进度条用。
+        ///
+        /// 「下一枚」= 勋章声明顺序里第一枚未解锁的，不是「最接近达成的那枚」；
+        /// 声明顺序本身从易到难，按达成率重排会让这个字段在两枚勋章之间反复横跳。
+        ///
+        /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto`.
+        public struct VolunteerNextBadgeDto: Codable, Hashable, Sendable {
+            /// 稳定机器码，取值同 `VolunteerBadgeDto.code`。**开放枚举** ——
+            /// 遇到不认识的值应把整块进度条隐藏，而不是让响应解析失败。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/code`.
+            public struct codePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/code/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case FIRST_RUN = "FIRST_RUN"
+                    case RUNS_10 = "RUNS_10"
+                    case RUNS_50 = "RUNS_50"
+                    case RUNS_100 = "RUNS_100"
+                    case HOURS_10 = "HOURS_10"
+                    case HOURS_50 = "HOURS_50"
+                    case HIGH_RATED = "HIGH_RATED"
+                }
+                /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/code/value1`.
+                public var value1: Components.Schemas.VolunteerNextBadgeDto.codePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/code/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `codePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.VolunteerNextBadgeDto.codePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 稳定机器码，取值同 `VolunteerBadgeDto.code`。**开放枚举** ——
+            /// 遇到不认识的值应把整块进度条隐藏，而不是让响应解析失败。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/code`.
+            public var code: Components.Schemas.VolunteerNextBadgeDto.codePayload?
+            /// 中文展示名
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/name`.
+            public var name: Swift.String?
+            /// 当前值。⚠️ **单位随 `code` 而变**：`FIRST_RUN` / `RUNS_*` 是「次」，
+            /// `HOURS_*` 是「**分钟**」（不是小时），`HIGH_RATED` 是「条评价」。
+            /// 不单开 `unit` 字段是因为客户端本来就要按 `code` 选图标，顺带选量词是同一次查表。
+            ///
+            /// 恒 ≤ `target`，可直接当分子用。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/current`.
+            public var current: Swift.Int64?
+            /// 解锁门槛，与 `current` 同单位
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/target`.
+            public var target: Swift.Int64?
+            /// Creates a new `VolunteerNextBadgeDto`.
+            ///
+            /// - Parameters:
+            ///   - code: 稳定机器码，取值同 `VolunteerBadgeDto.code`。**开放枚举** ——
+            ///   - name: 中文展示名
+            ///   - current: 当前值。⚠️ **单位随 `code` 而变**：`FIRST_RUN` / `RUNS_*` 是「次」，
+            ///   - target: 解锁门槛，与 `current` 同单位
+            public init(
+                code: Components.Schemas.VolunteerNextBadgeDto.codePayload? = nil,
+                name: Swift.String? = nil,
+                current: Swift.Int64? = nil,
+                target: Swift.Int64? = nil
+            ) {
+                self.code = code
+                self.name = name
+                self.current = current
+                self.target = target
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case name
+                case current
+                case target
+            }
+        }
+        /// 国标志愿服务星级（GB/T 40143—2021）：100 / 300 / 600 / 1000 / 1500 小时。
+        ///
+        /// ⚠️ **展示上必须与平台勋章分两栏**。平台勋章的 `HOURS_10` / `HOURS_50` 是早期反馈
+        /// （一星 100 小时 ≈ 100 单，中间零反馈会劝退新志愿者），这一栏才是对外的真实目标。
+        /// 合并会让志愿者以为拿了最高平台勋章就能评星。
+        ///
+        /// ⚠️ **文案禁用「证明」「证书」「已认证」** —— 这一栏是展示，不承诺法律效力。
+        /// 正式的服务记录证明须经全国志愿服务信息系统出具（民政部令第 67 号）。
+        ///
+        /// - Remark: Generated from `#/components/schemas/VolunteerStarLevelDto`.
+        public struct VolunteerStarLevelDto: Codable, Hashable, Sendable {
+            /// 当前星级，**0 = 未达一星**，1..5
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerStarLevelDto/current`.
+            public var current: Swift.Int32?
+            /// 累计服务小时数，由 `totalServiceMinutes` **向下取整**得到 ——
+            /// 99 小时 59 分不是一星，与「少算而不是多算」的口径一致。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerStarLevelDto/currentHours`.
+            public var currentHours: Swift.Int64?
+            /// 下一星门槛（小时）。**已达五星时为 null**
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerStarLevelDto/nextTarget`.
+            public var nextTarget: Swift.Int64?
+            /// Creates a new `VolunteerStarLevelDto`.
+            ///
+            /// - Parameters:
+            ///   - current: 当前星级，**0 = 未达一星**，1..5
+            ///   - currentHours: 累计服务小时数，由 `totalServiceMinutes` **向下取整**得到 ——
+            ///   - nextTarget: 下一星门槛（小时）。**已达五星时为 null**
+            public init(
+                current: Swift.Int32? = nil,
+                currentHours: Swift.Int64? = nil,
+                nextTarget: Swift.Int64? = nil
+            ) {
+                self.current = current
+                self.currentHours = currentHours
+                self.nextTarget = nextTarget
+            }
+            public enum CodingKeys: String, CodingKey {
+                case current
+                case currentHours
+                case nextTarget
             }
         }
         /// 一枚已解锁的勋章。按累计数据现算，不落库

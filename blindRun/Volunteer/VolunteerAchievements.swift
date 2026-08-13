@@ -23,18 +23,20 @@ struct VolunteerAchievementsResponse: Decodable, Sendable, Equatable {
     /// 会把七枚勋章一律当已解锁渲染，而 `openapi-diff` 只看到「加了两个可选字段」，判绿。
     let badges: [VolunteerBadgeDto]?
 
-    /// 下一枚未解锁的勋章；全部解锁时为 `null`。
+    /// 下一枚未解锁的勋章；**七枚全解锁时为 `null`**（后端 `9f8606d` 已上线）。
     ///
-    /// **后端尚未发布**（SPEC-D D1 待实现，核于 2026-08-13）。缺失时平台勋章栏不显示进度，
-    /// 而**不是**拿客户端的阈值表补一个 —— 理由见 `VolunteerStarLevel` 顶部那段对比。
+    /// 「下一枚」= 勋章**声明顺序**里第一枚未解锁的，不是「最接近达成的那枚」——
+    /// 按达成率重排会让这个字段在两枚勋章之间反复横跳。
     let nextBadge: VolunteerNextBadgeDto?
 
-    /// 国标星级。**后端尚未发布**；缺失时由 `totalServiceMinutes` 本地推算
-    /// （`VolunteerStarLevel.derive`），因为门槛是公开的国家标准，不是平台业务规则。
+    /// 国标星级。契约里**恒非 null**，未达一星时 `current = 0`（不是「没有星级数据」）。
+    ///
+    /// 这里仍收成 optional 并配本地兜底：少一个字段不该让整栏空白。
+    /// 兜底算的是同一套公开国标门槛，与后端算出同一个数，不构成第二个真相源。
     let starLevel: VolunteerStarLevelDto?
 
-    /// 服务端给了就用服务端的，没给就本地推。等后端发布 D1 之后这个 fallback 就是死代码，
-    /// 那时连同 `VolunteerStarLevel.derive` 一起删。
+    /// 服务端给了就用服务端的。走到 `derive` 说明契约承诺的「恒非 null」没兑现，
+    /// 是防御路径不是常规路径。
     var resolvedStarLevel: VolunteerStarLevelDto {
         starLevel ?? VolunteerStarLevel.derive(totalServiceMinutes: totalServiceMinutes ?? 0)
     }
@@ -81,14 +83,19 @@ struct VolunteerBadgeDto: Decodable, Sendable, Equatable, Identifiable {
 
 /// 下一枚未解锁的勋章及其进度。
 ///
-/// ⚠️ **`current` / `target` 的单位没有在契约里说明。** `RUNS_*` 显然是「次」，
-/// 但 `HOURS_10` 的 target 是 `10`（小时）还是 `600`（分钟）契约没写，
-/// `HIGH_RATED` 是评分 + 评价条数的双条件，压根没有单一进度轴。
-/// 已投 handoff 待后端明确。
+/// ⚠️ **`current` / `target` 的单位随 `code` 变，契约里没有 `unit` 字段。**
+/// 后端的说法是：客户端本来就要按 `code` 选图标，顺带选量词是同一次查表。
 ///
-/// 在拿到答复之前，界面**不拼单位**，只渲染 `已完成 37 / 50` 这种分数形式 ——
-/// 勋章名本身带着单位（「陪跑达人 · 50 次」「累计服务 10 小时」），
-/// 分数形式在三种答案下都是对的。
+/// | code | 单位 |
+/// |---|---|
+/// | `FIRST_RUN` / `RUNS_*` | 次 |
+/// | `HOURS_10` / `HOURS_50` | **分钟**（不是小时）—— 展示前要换算 |
+/// | `HIGH_RATED` | 条评价 |
+///
+/// 🔴 **`HIGH_RATED` 的进度只反映「评价条数」一维。** 它是双条件（均分 ≥ 4.8 **且**
+/// ≥ 10 条评价），进度条跟的是条数，所以会出现**进度条满格但勋章仍未解锁**
+/// （20 条评价、均分 4.0）。因此这一栏的文案**一律不写「还差 N 就解锁」** ——
+/// 只陈述已完成多少，不承诺达到分母就会解锁。
 struct VolunteerNextBadgeDto: Decodable, Sendable, Equatable {
     let code: String?
     let name: String?
@@ -97,16 +104,54 @@ struct VolunteerNextBadgeDto: Decodable, Sendable, Equatable {
 
     var displayName: String { name?.nilIfBlank ?? code?.nilIfBlank ?? "下一枚勋章" }
 
-    /// 只有 `target > 0` 且 `current` 可比时才画进度；否则这一格整条不显示，
-    /// 不显示一个分母为 0 的分数。
+    /// 进度的量词与换算方式。未知 `code` 为 `nil` ——
+    /// 契约要求此时**把整块进度条隐藏**，而不是拿一个猜的量词硬拼。
+    enum ProgressUnit {
+        /// 次。原值直接用。
+        case runs
+        /// 后端给的是**分钟**，展示成小时（向下取整，与 `currentHours` 同口径）。
+        case minutes
+        /// 条评价。
+        case ratings
+
+        var suffix: String {
+            switch self {
+            case .runs: return "次"
+            case .minutes: return "小时"
+            case .ratings: return "条评价"
+            }
+        }
+
+        func display(_ raw: Int64) -> Int64 {
+            switch self {
+            case .minutes: return raw / 60
+            case .runs, .ratings: return raw
+            }
+        }
+    }
+
+    var progressUnit: ProgressUnit? {
+        switch code {
+        case "FIRST_RUN", "RUNS_10", "RUNS_50", "RUNS_100": return .runs
+        case "HOURS_10", "HOURS_50": return .minutes
+        case "HIGH_RATED": return .ratings
+        default: return nil
+        }
+    }
+
+    /// 只有单位已知、`target > 0` 且 `current` 可比时才画进度。
+    /// 未知 `code` 或分母为 0 时整块隐藏 —— 不显示 `0/0`，也不拼一个猜的量词。
     var progressFraction: Double? {
-        guard let target, target > 0, let current, current >= 0 else { return nil }
+        guard progressUnit != nil, let target, target > 0, let current, current >= 0 else { return nil }
         return min(1, Double(current) / Double(target))
     }
 
+    /// **不写「还差 N 就解锁」** —— `HIGH_RATED` 满格也可能不解锁。
     var progressText: String? {
-        guard let target, target > 0, let current, current >= 0 else { return nil }
-        return "已完成 \(current) / \(target)"
+        guard let unit = progressUnit, let target, target > 0, let current, current >= 0 else {
+            return nil
+        }
+        return "已完成 \(unit.display(current)) / \(unit.display(target)) \(unit.suffix)"
     }
 }
 
@@ -125,12 +170,12 @@ struct VolunteerStarLevelDto: Decodable, Sendable, Equatable {
 ///
 /// **为什么这个能放在客户端算，而平台勋章的阈值不能：**
 ///
-/// - 星级门槛是**公开的国家标准**，不随平台业务代码变。后端发布 `starLevel` 之后
-///   这里退成 fallback，两边算出同一个数，不构成漂移。
+/// - 星级门槛是**公开的国家标准**，不随平台业务代码变。后端已发布 `starLevel`
+///   （契约里恒非 null），这里只是字段缺失时的防御路径，两边算出同一个数，不构成漂移。
 /// - 平台勋章的阈值住在后端 `VolunteerBadge.isUnlockedBy` 的穷举 switch 里，
 ///   那段代码的注释写着「要改阈值时改这里一行即可」—— 客户端镜像它必然漂移。
 ///   而且 `HIGH_RATED` 是「均分 ≥ 4.8 **且** 评价 ≥ 10 条」的双条件，
-///   单一阈值根本表达不了。所以那一栏宁可等 `nextBadge`，不本地编。
+///   单一阈值根本表达不了。所以那一栏一律用 `nextBadge`，不本地编。
 ///
 /// 这也是国标星级与平台勋章**必须分两栏**的原因：平台最高的时长勋章是 50 小时，
 /// 够不着一星的 100 小时。合并展示会让志愿者以为拿了最高勋章就能去学校评星。
@@ -174,9 +219,10 @@ enum VolunteerAchievementsCopy {
 
     static let badgeSectionEmpty = "还没有解锁的勋章。完成第一次陪跑服务就会解锁「首次陪跑」。"
 
-    /// 平台勋章的进度来自后端 `nextBadge`，后端未发布时这一行整条不显示。
-    /// **不写「即将上线」之类的承诺** —— 守卫规则 `placeholder-promise` 拦那类措辞，
-    /// 而且那正是这一页取代掉的「积分商城」犯的错。
+    /// 平台勋章的进度来自后端 `nextBadge`；七枚全解锁时该字段为 null，这一段整条不显示。
+    ///
+    /// 🔴 标题**不带「还差…就解锁」**：`HIGH_RATED` 是双条件，进度条满格也可能没解锁，
+    /// 那句话会变成一个我们兑现不了的承诺。
     static let nextBadgeSectionTitle = "下一枚勋章"
 
     static func starTitle(current: Int) -> String {
