@@ -366,11 +366,33 @@ const cases = [
       }
     }
   },
+  // placeholder-promise：起因是「积分商城」占位页在仓库里躺了很久，没有任何检查说过一句话。
+  //
   // sos-copy 此前**一条自测都没有** —— 规则在 guard.mjs 里躺了很久，却没人验过它拦不拦得住。
   // 2026-08-13 补上，起因是行程告知功能用「家人」这个称呼，整条从原词表旁边绕了过去。
   //
   // 这几条走 post 模式：内容级规则是从磁盘读改动后的真实文件再查的（比解析 diff 可靠），
   // 所以用 `swift` 字段声明文件内容，由下面的 runner 落成临时文件。
+  {
+    name: '出货代码里承诺「敬请期待」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "积分商城即将上线，敬请期待" }'
+  },
+  {
+    name: '出货代码里承诺「即将上线」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "该功能即将上线" }'
+  },
+  {
+    // 占位 UI 本身不该被禁，如实说明当前不可用才是正确写法 ——
+    // 规则拦的是「会兑现」的暗示，不是占位本身。
+    name: '如实说明功能不可用（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let title = "这个功能还没有开放" }'
+  },
   {
     name: 'SOS 文案宣称已通知紧急联系人（拦下）',
     mode: 'post',
@@ -416,8 +438,8 @@ const cases = [
 // post 模式的内容规则是**从磁盘读改动后的真实文件**再查的，所以这类用例得落一个真文件。
 //
 // 路径放在临时目录里，但要造出 `/blindRun/` 这一段 —— 守卫用它区分生产代码与测试代码
-// （`guard.mjs:370`）。**不要**写进真实的 `blindRun/` 目录：本工程是文件系统同步式的
-// （`PBXFileSystemSynchronizedRootGroup`），那里多一个 .swift 会直接被编进 target，
+// （`guard.mjs` 末尾的路径过滤）。**不要**写进真实的 `blindRun/` 目录：本工程是文件系统
+// 同步式的（`PBXFileSystemSynchronizedRootGroup`），那里多一个 .swift 会直接被编进 target，
 // 用例中断时残留文件会让整个工程编译不过。
 function materialize(testCase) {
   if (testCase.mode !== 'post') return { input: testCase.input, cleanup: () => {} };
