@@ -3,14 +3,18 @@
 ## D1. 静态告知与实时分享的分工（2026-08-13 修订）
 
 初版这一节的标题是「这一版为什么是静态告知**而不是**实时分享」，理由是后端零基础。
-后端在同一天把三个端点做出来了（分支 `feat/trip-share-link`，尚未提交），所以两者不再是二选一：
+后端在同一天把三个端点做出来并合入 `origin/main`（`fdbc4ee`，#86），所以两者不再是二选一：
 
 | | 实时分享 | 静态告知（短信） |
 |---|---|---|
-| 依赖 | `POST` / `DELETE /api/orders/{id}/share`（未合入） | 无 |
+| 依赖 | `POST` / `DELETE /api/orders/{id}/share` | 无 |
 | 家属看到 | 实时位置 + 轨迹，随行程结束失效 | 一条不会更新的文本 |
 | 前置 | **必须先有明示同意**（PIPL） | 不需要（用户自己发的静态文本，不构成向第三方持续提供位置） |
-| 何时用 | 主路径 | 断网 / `POST` 失败 / 订单已终态 409 / 设备无网但能发短信 |
+| 何时用 | 主路径，常驻 | 降级路径，**实时分享失败后才露出** |
+
+**短信入口不常驻。** 两个都摆着，读屏用户每次都要多滑一个按钮去分辨哪个是他要的 ——
+而在实时分享可用时，静态文本从来不是他想要的那条。失败时再露出，用户此刻正需要一条别的路。
+`canSendText == false` 的设备连降级入口都不给：摆出来等于把人支上一条同样走不通的路。
 
 **同意只挂在实时分享上，不挂在短信上。** 给短信也加一道同意页是错误的合规理解：
 用户自己在系统短信里发一段静态文本，既不是自动化的第三方提供，也不含实时位置。
@@ -140,13 +144,37 @@ VoiceOver 遍历**，换来的能力系统界面本来就有。
 **判定与展示分开**：`RunPlanShareConsentStep.next(hasGivenConsent:)` 是纯函数，
 「首次没走全屏引导」这种缺陷在 UI 里几乎测不出来，在这里是一行断言。
 
-## D7. 并发模型：全同步，不引入 Task 也不引入 Combine
+## D7. 并发模型：只有 async/await，没有 Combine
 
-本功能**不发任何网络请求**——数据全部来自订单状态页已经持有的 `OrderDetailResponse`。
-文本拼装是纯函数，composer 呈现与回调是 UIKit delegate。
+静态告知那半边**不发任何网络请求**，数据全部来自订单状态页已经持有的 `OrderDetailResponse`。
+实时分享那半边只有两个 `await` 调用（`POST` / `DELETE`），走 `Task {}`，
+不新增 `AnyCancellable` —— `AGENTS.md` 那条「同一条数据流不许既订阅 Combine 又 await async」
+在这里的姿势是：**新代码一律 async/await**。
 
-因此不新增 `Task`、不新增 `AnyCancellable`。`AGENTS.md` 那条「同一条数据流不许既订阅
-Combine 又 await async」在这里的正确姿势就是：**这条数据流一个都不要**。
+`isWorkingOnLiveShare` 是两个请求共用的一道闸：重复点击会打出两个并发 `POST`，
+而后端的幂等是「顺序调用幂等」，并发到达时可能各生成一个链接（契约里逐字写着）。
+两个都有效、`DELETE` 会一次性撤销全部，所以不是正确性问题，但没必要制造它。
 
-纯函数的那部分（`RunPlanShareMessage.compose`）是全部可测逻辑的所在地——
-状态门控、字段缺失降级、终点 `nil` 的禁提规则，都在它上面用单测钉死，不需要真机也不需要 UI 测试。
+纯函数那部分（`RunPlanShareMessage.compose` / `RunPlanLiveShareMessage.compose` /
+`RunPlanLiveShareStore`）是全部可测逻辑的所在地，用单测钉死，不需要 UI 测试。
+
+## D9. 分享状态存在客户端，是后端缺口的临时补丁
+
+`/api/orders/{id}/share` 只有 `POST` 和 `DELETE`，**没有 `GET`**，`OrderDetailResponse`
+里也没有任何分享状态字段（核过 `origin/main` 契约的 required 列表）。于是「这一单是不是
+正在分享」这个事实在客户端只能靠自己记。
+
+不记的后果不是体验问题：告知页第三条逐字承诺「你可以随时停止分享」，而链接在服务端能活到
+`max(plannedEndTime, now) + 2h`。App 被杀一次，承诺就静默失效 —— 链接还在外面有效，
+用户再也找不到停止的入口。所以 `RunPlanLiveShareStore` 写 `UserDefaults`。
+
+**只存一个订单号，不是每单一个 key。** 盲人同一时刻只可能有一个进行中的订单
+（后端 `DUPLICATE_ORDER` 挡着），按单存会在 `UserDefaults` 里堆下无上限、没人清的历史 key。
+这个 key 进 `AppStatePersistenceKeys.all`，登出时随 `reset()` 清掉 —— 漏掉的话，
+下一个登录的人会看到「停止分享」，而那是上一个账号的链接，他既停不掉也不该知道它存在。
+
+**停止失败时不清本地状态**：链接可能还有效，把入口一起收走等于再也停不掉。
+宁可让用户多按一次。
+
+已向后端提出补 `shareActive` / `shareExpiresAt`（proposal「需要后端确认的」第 4 条），
+补上后这个类可以整个删掉。

@@ -2,9 +2,7 @@
 
 ## 1. 契约投递
 
-> ⚠️ 当前**投不了**：`demo/docs/handoff.md` 是后端同事的未提交工作区（` M`），
-> 现在写会跟他的 WIP 打架。等 `feat/trip-share-link` 合入 `main` 后立即投递。
-> 答案已经定下来，写在 `proposal.md`「回后端的两个问题」一节，届时原样搬过去。
+> 2026-08-13：后端 `fdbc4ee`（#86）已合入 `origin/main`，三个端点在契约里，投递不再受阻。
 
 - [ ] 1.1 答后端问题①：明示告知的形态 → 首次全屏引导页 + 之后每次简短确认，
       同意按用户 + 告知版本记录。
@@ -14,6 +12,11 @@
       但短信降级路径拿不到它，能否在订单详情里补同一口径的标识。
 - [ ] 1.4 提问：`expiresAt` 是绝对过期还是随订单生命周期延长？决定客户端要不要做续期提示。
 - [ ] 1.5 提问：志愿者手机号能否写进发给第三方的短信（默认不写，与你们「志愿者是第三方」同一口径）。
+- [ ] 1.6 提问（新）：`OrderDetailResponse` 里没有分享状态字段，且 `/share` 只有 `POST` / `DELETE`
+      没有 `GET` —— 客户端判断「这一单是不是正在分享」只能靠本地记录，
+      重装或换设备后「停止分享」的入口就没了，而链接在服务端还活着。
+      能否在订单详情补 `shareActive` / `shareExpiresAt`？补上后客户端可以删掉
+      `RunPlanLiveShareStore`。
 
 ## 2. 静态告知（降级路径）
 
@@ -47,11 +50,23 @@
 - [x] 3.2 `blindRun/Shared/RunPlanShareConsentView.swift`：全屏告知页，三条各自是独立
       VoiceOver 焦点（该 `VStack` 上**不许**加 `children: .combine`），
       拒绝按钮与同意按钮同样大、同样整行铺满。
-- [ ] 3.3 **挂载点等契约**：`POST` / `DELETE /api/orders/{id}/share` 合入 `main` 后，
-      在实时分享入口前接上 `RunPlanShareConsentStep`，同意后才发请求。
-      拿到 `shareUrl` 原样丢进系统分享面板（**不要**重新拼链接把 fragment 里的 token 挪到 query）。
-- [ ] 3.4 **挂载点等契约**：`DELETE /share` 的「停止分享」入口，以及 404 / 410 的文案分开
-      （404 = 链接不存在，让家属跟分享的人核对；410 = 曾经有效但已结束）。
+- [x] 3.3 接上 `RunPlanShareConsentStep`：首次走 `.fullScreenCover` 的全屏告知页，
+      之后走 `.alert` 简短确认，同意后才 `POST /api/orders/{id}/share`。
+      同意**在发请求之前**落盘 —— 反过来的话一次网络失败会让用户再看一遍全文告知，
+      而他已经同意过了，重复告知是在消耗告知本身的效力。
+      拿到 `shareUrl` 经 `RunPlanLiveShareMessage.compose` 原样丢进 `UIActivityViewController`
+      （**不重新拼链接**，token 留在 fragment 里）。
+- [x] 3.4 `DELETE /share` 的「停止分享」入口，以及跨重启的可撤销性：
+      - 分享状态存 `RunPlanLiveShareStore`（单键，`AppStatePersistenceKeys` 里登出会清）。
+        后端没有查询分享状态的端点，不持久化的话「随时可以停止」这句承诺会在杀 App 后静默失效。
+      - **停止失败时不清本地状态**：链接可能还有效，把入口一起收走等于再也停不掉。
+      - ⚠️ **原计划里的「404 / 410 文案分开」不归 iOS 管，已删除该项**：这两个码属于
+        `GET /api/share/{token}`，那是免登录的家属分享页自己调的，页面（`share.html`）也是后端的。
+        iOS 只调 `POST`（403/404/409）和 `DELETE`（403/404），全程见不到 410。
+        映射的是 409 `SHARE_ORDER_ALREADY_FINISHED`（终态竞态），进 `ErrorCode`。
+- [x] 3.5 短信降级路径改为**失败后才露出**，不再常驻：常驻会让读屏用户每次都多滑一个按钮，
+      而它在实时分享可用时并不是用户想要的那条路。`canSendText` 为假时连降级入口都不给 ——
+      摆出来等于把用户支上一条同样走不通的路。
 
 ## 4. 测试
 
@@ -73,14 +88,32 @@
       逐 suite 核过日志确认不是零执行：`RunPlanShareMessageTests` 10 条、
       `RunPlanShareConsentTests` 9 条、`KeepWaitingTests` 15 条、
       `OrderEnumLeniencyDecodingTests` 17 条。
+- [x] 4.3b `blindRunTests/RunPlanLiveShareTests.swift`（实时分享，16 条）：
+      链接原样带出（fragment 未被改写、正文里没有 `?`）、文案不宣称送达、
+      停止失败不说「已停止」、`canSendText` 为假时不提短信、`ShareLinkResponse` 缺
+      `expiresAt` 不整条崩、409 有专属播报、单键分享状态（换单让位 / 重启仍在 / 登出会清）、
+      Mock 端点幂等（重复 POST 同一条链接、DELETE 后重开是新链接、无链接时 DELETE 仍成功、
+      终态返 409）。
+      ```bash
+      scripts/device-test.sh -only-testing:blindRunTests/RunPlanLiveShareTests \
+                             -only-testing:blindRunTests/RunPlanShareConsentTests \
+                             -only-testing:blindRunTests/RunPlanShareMessageTests \
+                             -only-testing:blindRunTests/MockAPIClientErrorCodeTests
+      ```
+      **`passed=38 failed=0 skipped=0 result=Passed`**（iPhone 16 Pro）。
+      逐 suite 核过日志确认不是零执行：`RunPlanLiveShareTests` 16 条、
+      `RunPlanShareConsentTests` 8 条、`RunPlanShareMessageTests` 10 条、
+      `MockAPIClientErrorCodeTests` 3 条。
 - [x] 4.4 编译门禁 `build-for-testing` —— **TEST BUILD SUCCEEDED**。
 - [x] 4.5 `validate-guard` / `validate-docs` / `validate-spec-coverage`（读后端 `origin/main`
       契约）/ `openspec validate --strict` 全过。
 
 ## 5. 收尾
 
-- [ ] 5.1 真机 `111` 开 VoiceOver 走一遍：短信按钮可达、hint 说清「需要你自己点发送」、
-      composer 关闭后**听得到**结果播报；同意页三条告知右滑一次一条、拒绝按钮找得到。
+- [ ] 5.1 真机 `111` 开 VoiceOver 走一遍：分享按钮可达、hint 说清「先说明再生成」、
+      同意页三条告知右滑一次一条、拒绝按钮找得到；分享面板关闭后**听得到**「仍在分享中」；
+      「停止分享」按钮在重开 App 后仍在。
 - [ ] 5.2 低视力档位（AX3 以上字号 + 深色模式）看一眼同意页不裁切。
 - [ ] 5.3 按 skill `aidrun-ship-check` 输出验证结论，贴真实测试输出。
-- [ ] 5.4 后端合入后：投 handoff（第 1 节五条）、接上 3.3 / 3.4、撤掉本文件这条说明。
+- [x] 5.4 后端合入后：接上 3.3 / 3.4 / 3.5，撤掉第 1 节的「投不了」说明。
+      handoff 六条待投（后端仓库 `demo/docs/handoff.md`）。

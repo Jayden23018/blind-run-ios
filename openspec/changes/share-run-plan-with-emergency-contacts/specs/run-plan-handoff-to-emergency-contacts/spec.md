@@ -5,9 +5,15 @@ The blind-runner order experience SHALL offer a way to send the current run plan
 
 #### Scenario: Run plan is shareable
 - **WHEN** the order status is not terminal
-- **THEN** the order status screen SHALL present a share-run-plan action
-- **AND** the action SHALL prefill the system message composer with the primary emergency contact as recipient
+- **THEN** the order status screen SHALL present a real-time sharing action as the primary handoff
+- **AND** the message-composer action SHALL be revealed only after a real-time share request fails, so that the primary path is not competing with a fallback for the same screen position
+- **AND** the message-composer action SHALL prefill the primary emergency contact as recipient
 - **AND** the message-composer path SHALL NOT issue any network request
+
+#### Scenario: Real-time sharing fails on a device that cannot send messages
+- **WHEN** a real-time share request fails and `canSendText` reports that the device cannot send messages
+- **THEN** the app SHALL NOT reveal the message-composer fallback
+- **AND** the failure announcement SHALL NOT suggest messaging as an alternative
 
 #### Scenario: Run plan is not shareable
 - **WHEN** the order status is `COMPLETED`, `CANCELLED`, `NO_VOLUNTEER`, or unknown
@@ -87,3 +93,35 @@ Requesting a real-time share link exposes the blind runner's live location and t
 #### Scenario: A different account signs in
 - **WHEN** another user signs in on the same device
 - **THEN** that user SHALL be treated as not having consented
+
+### Requirement: The share link is carried verbatim and stays revocable
+The share token lives in the URL fragment so that it never reaches a `Referer` header or a server access log, and the share page loads a third-party map SDK. The app SHALL pass the returned link through unchanged, and SHALL keep the stop-sharing control reachable for as long as the link may still be live.
+
+#### Scenario: A share link is obtained
+- **WHEN** the share request succeeds
+- **THEN** the app SHALL place the returned `shareUrl` into the system share sheet without rewriting it
+- **AND** the app SHALL NOT move the token from the fragment into a query parameter or any other URL component
+
+#### Scenario: Sharing is stopped
+- **WHEN** the blind runner activates stop sharing and the revoke request succeeds
+- **THEN** the app SHALL announce that sharing has ended and that the link is no longer valid
+- **AND** the app SHALL restore the start-sharing action
+
+#### Scenario: Stopping fails
+- **WHEN** the revoke request fails
+- **THEN** the app SHALL NOT claim that sharing has ended
+- **AND** the app SHALL keep the stop-sharing control available, because the link may still be live and removing the control would leave no way to revoke it
+
+#### Scenario: The app is relaunched while a share is live
+- **WHEN** the blind runner reopens the order status screen after the app was terminated
+- **THEN** the app SHALL still present the stop-sharing control for that order
+- **AND** the sharing state SHALL be persisted locally, because no endpoint reports whether a share link is currently active
+
+#### Scenario: Another account signs in after a share
+- **WHEN** the previous user signs out
+- **THEN** the persisted sharing state SHALL be cleared, so that the next account is not offered a stop-sharing control for a link it cannot revoke
+
+#### Scenario: The order reaches a terminal state between polls
+- **WHEN** a share request is rejected because the order already finished
+- **THEN** the app SHALL announce that the run has ended rather than reporting an unrecognised error
+- **AND** the app SHALL keep the terminal state hiding the entry point rather than disabling it

@@ -647,6 +647,14 @@ struct BlindOrderStatusView: View {
     @State private var showStatusLogs = false
     @State private var showRunPlanShare = false
     @State private var runPlanShareNotice: RunPlanShareNotice?
+    @State private var showLiveShareConsent = false
+    @State private var showLiveShareConfirmation = false
+    @State private var liveSharePayload: ShareLinkPayload?
+    @State private var isLiveSharing = false
+    @State private var isWorkingOnLiveShare = false
+    /// 短信入口是**降级路径**，不是常驻功能：实时分享失败（断网 / 权限 / 终态 409）时才露出来。
+    /// 常驻会让读屏用户每次都多滑一个按钮，而它在实时分享可用时并不是用户想要的那条路。
+    @State private var showSMSFallback = false
     let orderId: Int64
 
     /// 行程告知的结果提示。盲人靠 `speak` 听到，低视力用户靠这行字看到 ——
@@ -752,6 +760,42 @@ struct BlindOrderStatusView: View {
                 }
             }
         }
+        // 全屏，不是对话框：三条告知要各自可听、可停、可回头再听，理由见 `RunPlanShareConsentView`。
+        .fullScreenCover(isPresented: $showLiveShareConsent) {
+            RunPlanShareConsentView(
+                onAgree: {
+                    showLiveShareConsent = false
+                    // 同意在**发请求之前**落盘。反过来的话，一次网络失败会让用户下次再看一遍
+                    // 全文告知 —— 而他已经同意过了，重复告知是在消耗告知本身的效力。
+                    consentStore.recordConsent(userKey: consentUserKey)
+                    Task { await startLiveShare() }
+                },
+                onDecline: {
+                    showLiveShareConsent = false
+                    setRunPlanShareNotice(RunPlanShareConsentCopy.declined, isProblem: false)
+                    speechService.speak(RunPlanShareConsentCopy.declined)
+                }
+            )
+        }
+        .alert(RunPlanShareConsentCopy.repeatConfirmationTitle, isPresented: $showLiveShareConfirmation) {
+            Button(RunPlanShareConsentCopy.agreeButtonTitle) {
+                Task { await startLiveShare() }
+            }
+            Button(RunPlanShareConsentCopy.declineButtonTitle, role: .cancel) {
+                setRunPlanShareNotice(RunPlanShareConsentCopy.declined, isProblem: false)
+                speechService.speak(RunPlanShareConsentCopy.declined)
+            }
+        } message: {
+            Text(RunPlanShareConsentCopy.repeatConfirmationMessage)
+        }
+        .sheet(item: $liveSharePayload) { payload in
+            ShareLinkSheet(text: payload.text) {
+                liveSharePayload = nil
+                // 面板关掉不改变任何事实：链接在服务端已经生效，选没选目标应用都一样在分享中。
+                setRunPlanShareNotice(RunPlanLiveShareCopy.panelDismissed, isProblem: false)
+                speechService.speak(RunPlanLiveShareCopy.panelDismissed)
+            }
+        }
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation) {
             Task {
                 await viewModel.enterEmergency()
@@ -761,6 +805,9 @@ struct BlindOrderStatusView: View {
             }
         }
         .onAppear {
+            // 分享状态来自本地记录而不是订单详情：后端没有查询分享状态的端点，
+            // 理由与代价写在 `RunPlanLiveShareStore` 的注释里。
+            isLiveSharing = liveShareStore.isSharing(orderID: orderId)
             viewModel.configure(
                 appState: appState,
                 speechService: speechService,
@@ -1142,32 +1189,50 @@ struct BlindOrderStatusView: View {
         }
     }
 
-    /// 把行程要素交给系统短信，发给紧急联系人。**不发任何网络请求** ——
-    /// 行程来自本页已持有的 `OrderDetailResponse`，收件人来自 `AppState.emergencyContacts`。
+    /// 把这次行程告诉家人。主路径是**实时分享**（后端生成免登录链接，家属能看到位置与轨迹），
+    /// 短信是它失败时的降级路径。
     ///
     /// 排在两个主动作之后、地图之前：它是次级动作（不该抢 140pt 的主按钮版位），
     /// 但也不能沉到订单信息下面 —— 看不见屏幕的人靠遍历顺序发现功能存在，
     /// 沉下去等于没做。样式用整行铺满的次级按钮，与
     /// `docs/research/blind-ui-visual-benchmark-20260808.md` 那条「次级操作一律整行铺满
     /// 竖直堆叠」一致。
+    ///
+    /// 终态整段消失（`offersRunPlanShare`），不是禁用：后端对终态返 409，
+    /// 摆一个按下去必然报错的按钮，对读屏用户是纯噪音。
     @ViewBuilder
     private func runPlanShareSection(_ order: OrderDetailResponse) -> some View {
         if order.status.offersRunPlanShare {
             VStack(spacing: 10) {
-                Button {
-                    shareRunPlan(order)
-                } label: {
-                    Text(RunPlanShareCopy.buttonTitle)
-                        .font(AppFonts.title())
-                        .foregroundColor(AppColors.primary)
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 64)
-                        .background(AppColors.secondaryBackground)
-                        .cornerRadius(16)
+                if isLiveSharing {
+                    runPlanShareButton(
+                        title: RunPlanLiveShareCopy.stopButtonTitle,
+                        hint: RunPlanLiveShareCopy.stopAccessibilityHint,
+                        identifier: "blindOrderStatusStopLiveShareButton",
+                        tint: AppColors.destructive,
+                        action: { Task { await stopLiveShare() } }
+                    )
+                } else {
+                    runPlanShareButton(
+                        title: RunPlanLiveShareCopy.buttonTitle,
+                        hint: RunPlanLiveShareCopy.accessibilityHint,
+                        identifier: "blindOrderStatusLiveShareButton",
+                        tint: AppColors.primary,
+                        action: { requestLiveShare() }
+                    )
                 }
-                .accessibilityLabel(RunPlanShareCopy.buttonTitle)
-                .accessibilityHint(RunPlanShareCopy.accessibilityHint)
-                .accessibilityIdentifier("blindOrderStatusShareRunPlanButton")
+
+                // 只在实时分享走不通时露出来。`canSendText` 一并判掉：这台设备本来就发不了短信时
+                // 摆出降级入口，等于把用户支上一条同样走不通的路。
+                if showSMSFallback, MessageComposeSheet.canSendText {
+                    runPlanShareButton(
+                        title: RunPlanLiveShareCopy.smsFallbackButtonTitle,
+                        hint: RunPlanLiveShareCopy.smsFallbackHint,
+                        identifier: "blindOrderStatusShareRunPlanButton",
+                        tint: AppColors.primary,
+                        action: { shareRunPlanBySMS(order) }
+                    )
+                }
 
                 if let notice = runPlanShareNotice {
                     Text(notice.text)
@@ -1181,11 +1246,117 @@ struct BlindOrderStatusView: View {
         }
     }
 
-    /// 三道门，顺序不能换：**先问设备能不能发**，再问有没有收件人。
+    private func runPlanShareButton(
+        title: String,
+        hint: String,
+        identifier: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(AppFonts.title())
+                .foregroundColor(tint)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+                .background(AppColors.secondaryBackground)
+                .cornerRadius(16)
+        }
+        .disabled(isWorkingOnLiveShare)
+        .accessibilityLabel(title)
+        .accessibilityHint(hint)
+        .accessibilityIdentifier(identifier)
+    }
+
+    // MARK: - Live share
+
+    private var consentStore: RunPlanShareConsentStore {
+        RunPlanShareConsentStore(persistence: appState.persistence)
+    }
+
+    private var liveShareStore: RunPlanLiveShareStore {
+        RunPlanLiveShareStore(persistence: appState.persistence)
+    }
+
+    /// 同意按**用户**存。未登录拿不到 userId 时用一个恒不命中的 key，效果是每次都走全屏告知 ——
+    /// 这条路正常走不到（这一页在登录后才可达），宁可多告知一次也不要让一个空 key
+    /// 被所有账号共用。
+    private var consentUserKey: String {
+        appState.currentUser.map { String($0.userId) } ?? "anonymous"
+    }
+
+    /// 按下分享：先过明示同意这道门。**不许直接发请求** ——
+    /// 调 `POST /api/orders/{id}/share` 本身就等同于盲人对「向持链接者提供实时位置与轨迹」
+    /// 作出单独同意（PIPL 第 23/29 条，轨迹属第 28 条敏感个人信息）。后端挡不住这一层，
+    /// 只有客户端能，判定在 `RunPlanShareConsentStep.next`。
+    private func requestLiveShare() {
+        runPlanShareNotice = nil
+        showSMSFallback = false
+        switch RunPlanShareConsentStep.next(hasGivenConsent: consentStore.hasGivenConsent(userKey: consentUserKey)) {
+        case .fullDisclosure:
+            showLiveShareConsent = true
+        case .shortConfirmation:
+            showLiveShareConfirmation = true
+        }
+    }
+
+    private func startLiveShare() async {
+        guard !isWorkingOnLiveShare else { return }
+        isWorkingOnLiveShare = true
+        defer { isWorkingOnLiveShare = false }
+
+        setRunPlanShareNotice(RunPlanLiveShareCopy.preparing, isProblem: false)
+        speechService.speak(RunPlanLiveShareCopy.preparing)
+        do {
+            let response: ShareLinkResponse = try await appState.apiClient.post("/api/orders/\(orderId)/share")
+            liveShareStore.markSharing(orderID: orderId)
+            isLiveSharing = true
+            setRunPlanShareNotice(RunPlanLiveShareCopy.sharing, isProblem: false)
+            speechService.speak(RunPlanLiveShareCopy.ready)
+            liveSharePayload = ShareLinkPayload(
+                text: RunPlanLiveShareMessage.compose(shareUrl: response.shareUrl)
+            )
+        } catch {
+            // 失败一律露出短信降级入口，包括 409（终态竞态）—— 那种情况下实时分享已经不可能，
+            // 而「把这次行程告诉家人」这件事仍然做得到。
+            let reason = (error as? APIError)?.localizedMessage ?? APIError.networkError(error).localizedMessage
+            showSMSFallback = true
+            let text = RunPlanLiveShareCopy.failed(reason, offersSMSFallback: MessageComposeSheet.canSendText)
+            setRunPlanShareNotice(text, isProblem: true)
+            speechService.speakError(text)
+        }
+    }
+
+    private func stopLiveShare() async {
+        guard !isWorkingOnLiveShare else { return }
+        isWorkingOnLiveShare = true
+        defer { isWorkingOnLiveShare = false }
+
+        setRunPlanShareNotice(RunPlanLiveShareCopy.stopping, isProblem: false)
+        speechService.speak(RunPlanLiveShareCopy.stopping)
+        do {
+            let _: EmptyResponse = try await appState.apiClient.delete("/api/orders/\(orderId)/share")
+            liveShareStore.clear()
+            isLiveSharing = false
+            setRunPlanShareNotice(RunPlanLiveShareCopy.stopped, isProblem: false)
+            speechService.speak(RunPlanLiveShareCopy.stopped)
+        } catch {
+            // **失败时不清本地状态**：链接可能还有效，把「停止分享」入口一起收走，
+            // 用户就再也停不掉了。宁可让他多按一次，也不要把入口弄丢。
+            setRunPlanShareNotice(RunPlanLiveShareCopy.stopFailed, isProblem: true)
+            speechService.speakError(RunPlanLiveShareCopy.stopFailed)
+        }
+    }
+
+    // MARK: - SMS fallback
+
+    /// 把行程要素交给系统短信，发给紧急联系人。**不发任何网络请求** ——
+    /// 行程来自本页已持有的 `OrderDetailResponse`，收件人来自 `AppState.emergencyContacts`。
     ///
+    /// 三道门，顺序不能换：**先问设备能不能发**，再问有没有收件人。
     /// 反过来的话，一台不能发短信的设备会先把用户支去添加紧急联系人，
     /// 加完回来发现还是发不出去 —— 那是一趟白跑的路，而这条路对盲人格外贵。
-    private func shareRunPlan(_ order: OrderDetailResponse) {
+    private func shareRunPlanBySMS(_ order: OrderDetailResponse) {
         guard MessageComposeSheet.canSendText else {
             setRunPlanShareNotice(RunPlanShareCopy.unavailable, isProblem: true)
             speechService.speakError(RunPlanShareCopy.unavailable)
