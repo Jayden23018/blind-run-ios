@@ -68,6 +68,8 @@ curl -s -G "https://hn.algolia.com/api/v1/search" \
 | 内置浏览器 `preview_start` | `https://reddit.com is blocked by policy` |
 | `firecrawl_scrape` | 当日额度已耗尽 |
 
+> ⚠️ **本段结论已被 §9 部分推翻** —— 限速数字没错，但「注册即可用」不成立。先读 §9 再决定。
+
 官方通道是可行的：Reddit Data API 文档原文 ——「Clients must authenticate with a registered OAuth token. We can and will freely throttle or block unidentified Data API users.」免费层限速「**100 queries per minute (QPM) per OAuth client id**」，按 10 分钟窗口取平均以支持突发。
 
 ### 2.2 医学论文
@@ -225,3 +227,32 @@ The following domains are not accessible to our user agent: ['reddit.com']
 **不买 Exa。** 理由不是它不好，是**它在真实瓶颈上没有增量，却在归档工作流上引入法务摩擦**。三个真实缺口它一个都补不上：中文搜索（Exa 没有）、Reddit（官方 OAuth 免费且干净）、语义找论文（OpenAlex / Semantic Scholar 的 related-works 免费且专业对口）。
 
 **什么时候回头看**：确实开始做大量**英文语义检索**且 OpenAlex 相关工作推荐不够用时。那时先申请教育额度（$1000 credits），不要直接付费。
+
+---
+
+## 9. 追加：Reddit 官方 API 不是「注册即用」，§2.1 与 §6 的建议要改
+
+实际去建 script app 时，Reddit 弹出了 **Responsible Builder Policy**（`support.reddithelp.com/hc/en-us/articles/42728983564564`）。读完发现 §2.1 里「官方通道是可行的、免费 100 QPM」这个结论**只对了一半**：限速数字没错，**但资格不是自助获得的**。
+
+政策里三条直接卡住本仓库的用法（以下为转述，原文见链接）：
+
+1. **访问需要事先批准**。政策开篇把「必须先申请并取得明确批准」列为访问 Reddit 数据的前置条件，并禁止为同一用途注册多个账号或重复提交申请。
+2. **研究用途必须走 RFR 项目**。Researchers 一节结尾写死：在 Reddit for Researchers 项目之外收集 Reddit 数据做研究，即属违反本政策。
+3. **商业用途需书面批准**，且「未经批准的商业化」一节把**商业与非商业的挖掘、抓取**一并列为禁止行为。
+
+**对 AidRun 的调研用法的判定**：「读公开讨论判断竞品技术路线」落在第 2 条的解释空间里；「为汇报收集信息」很难主张成非商业。⇒ **自助注册 script app + 跑脚本这条路，在新政策下是灰色偏违规**，执行手段包括吊销 token、封停 app 与关联账号。
+
+**修订后的建议**（覆盖 §6 第 5 条）：
+
+| 做法 | 状态 |
+|---|---|
+| HN Algolia | ✅ 照常。HN API 开放，无此类限制，且本报告识破厂商软文靠的就是它 |
+| 人工在浏览器里读 Reddit | ✅ 干净。人读公开页面是正常使用，把关键段落手工带回即可 |
+| `~/.claude/scripts/reddit-search.sh` | ⛔ **暂停使用**。脚本保留，取得授权前不启用 |
+| 正式申请（研究走 RFR / 商业走企业授权） | 需本人提交，非自动化步骤 |
+
+**性价比判断**：HN + 官方文档 + 目标站直连已覆盖三个场景的大部分，为 Reddit 一家走审批流程不划算 —— 除非出现只有 Reddit 有的话题。
+
+> 这条也是「端点存在 ≠ 端点可用」的又一例（见记忆 `endpoint-exists-is-not-endpoint-usable`）：
+> 第一轮只读了 Data API Wiki 的**限速**那节就下了「可行」的结论，没去读**准入**那节。
+> 技术文档说得通，不代表政策允许。
