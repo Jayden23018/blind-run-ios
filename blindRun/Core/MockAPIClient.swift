@@ -892,7 +892,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                     startAddress: $0.startAddress,
                     blindName: $0.blindName,
                     rating: $0.status == .completed ? 5 : nil,
-                    pointsDelta: $0.status == .completed ? 100 : nil
+                    // Mock 不得造出后端不存在的字段值：真实响应里 `pointsDelta` 恒为
+                    // `nil`（后端契约与 `src/` 里 `points` 零命中）。此前这里返回 100，
+                    // 于是 Mock 环境下的 UI 与真实环境长得不一样，而 UI 是照着 Mock 调的。
+                    pointsDelta: nil
                 )
             }
         let totalCompleted = orders.filter { $0.status == .completed }.count
@@ -935,7 +938,6 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             totalCompleted: totalCompleted,
             totalCancelled: orders.filter { $0.status == .cancelled }.count,
             acceptanceRate: 0.7,
-            pointsBalance: nil,
             activeOrders: activeOrders,
             recentOrders: Array(recentOrders)
         )

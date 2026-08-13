@@ -8,11 +8,13 @@ struct VolunteerServiceRecord: Identifiable {
     let order: OrderDetailResponse
 
     var id: Int64 { order.orderId }
-    var pointsText: String { order.status == .completed ? "+100 积分" : "—" }
     var sortKey: String { order.createdAt ?? order.plannedStart ?? "" }
 
+    // 这里此前是 `pointsText`，值恒为「+100 积分」——后端从来没有过积分字段，
+    // 那个数字是客户端凭 `status == .completed` 现编的，还被念进了下面这条 label。
+    // 真实的服务量在「服务成就」页（`VolunteerServiceRecognition`），基于 `totalCompleted`。
     var accessibilityLabel: String {
-        "时间：\(sortKey.displayDateTime)，盲人：\(order.blindName ?? "")，地点：\(order.startAddress ?? "")，状态：\(order.status.displayName)，积分：\(pointsText)"
+        "时间：\(sortKey.displayDateTime)，盲人：\(order.blindName ?? "")，地点：\(order.startAddress ?? "")，状态：\(order.status.displayName)"
     }
 }
 
@@ -62,7 +64,10 @@ extension RunOrderStatus {
         case .driverArrived:
             return "已到达，可开始服务"
         case .completed:
-            return "服务完成，获得 +100 积分"
+            // 不再说「获得 +100 积分」：后端没有积分字段，那个数字是编的。
+            // 但也不能只剩「服务完成」——这是志愿者跑完一趟唯一的正反馈，
+            // 把承诺删掉不该连同反馈一起删掉。一句感谢不涉及任何数字，零成本且是真的。
+            return "服务完成，感谢你的陪伴"
         case .cancelled:
             return "订单已取消"
         case .rematching:
@@ -1697,93 +1702,142 @@ struct VolunteerServiceRecordsView: View {
     }
 }
 
-// MARK: - Points Placeholder
+// MARK: - Service Recognition
 
-@MainActor
-final class VolunteerPointsViewModel: ObservableObject {
-    @Published var errorMessage: String?
+/// 志愿者服务成就页。**取代了此前的「积分商城」占位页。**
+///
+/// 那一页的积分数字写死 `--`，4 个商品（运动腰包 / 水壶 / 毛巾 / 腰灯）硬编码在数组里
+/// 全标「敬请期待」，`VolunteerPointsViewModel` 只有一个从不被赋值的 `errorMessage`。
+/// 一个永远兑换不了的商城比没有激励更伤：它每次都在提醒志愿者，平台承诺过什么、
+/// 又没有兑现 —— 调研里「没有实质的表彰」正是激励设计的首要陷阱
+/// （`docs/research/live-trip-sharing-and-volunteer-incentives-20260813.md` §2）。
+///
+/// 现在页面上的**每个数字都来自后端真有的字段**：`totalCompleted` / `avgRating` /
+/// `acceptanceRate`，志愿者可以自己核对。
+///
+/// 页面**没有自己的网络请求与状态**：数据来自首页已经加载好的 `dispatchSummary`，
+/// 由调用方传入。因此不新增 `Task`，也不新增 `AnyCancellable`。
+struct VolunteerServiceRecognitionView: View {
+    let summary: VolunteerDispatchSummaryResponse?
 
-    private weak var appState: AppState?
-
-    func configure(with appState: AppState) {
-        self.appState = appState
-    }
-}
-
-struct VolunteerPointsPlaceholderView: View {
-    @EnvironmentObject private var appState: AppState
-    @StateObject private var viewModel = VolunteerPointsViewModel()
-
-    private let products: [(name: String, icon: String)] = [
-        ("运动腰包", "bag"),
-        ("运动水壶", "waterbottle"),
-        ("运动毛巾", "tshirt"),
-        ("跑步腰灯", "flashlight.on.fill")
-    ]
+    private var completedCount: Int { summary?.completedCount ?? 0 }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                VStack(spacing: 8) {
-                    Text("--")
-                        .font(.system(size: 48, weight: .bold))
-                        .foregroundColor(AppColors.textPrimary)
-                    Text("积分")
-                        .font(.headline)
-                    Text("每完成一次服务 +100 积分")
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
+            VStack(alignment: .leading, spacing: 24) {
+                header
+                if summary != nil {
+                    statsRow
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(AppColors.secondaryBackground)
-                .cornerRadius(8)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("积分商城占位")
-
-                VStack(spacing: 8) {
-                    Image(systemName: "gift.fill")
-                        .font(.system(size: 42))
-                        .foregroundColor(AppColors.primary)
-                    Text("积分商城即将上线，敬请期待")
-                        .font(AppFonts.title())
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("积分商城即将上线，敬请期待")
-
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    ForEach(products, id: \.name) { product in
-                        VStack(spacing: 10) {
-                            Image(systemName: product.icon)
-                                .font(.title)
-                                .foregroundColor(AppColors.primary)
-                            Text(product.name)
-                                .font(.headline)
-                            Text("敬请期待")
-                                .font(AppFonts.caption())
-                                .foregroundColor(AppColors.textSecondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(AppColors.secondaryBackground)
-                        .cornerRadius(8)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("\(product.name)，敬请期待")
-                    }
-                }
-
-                if let errorMessage = viewModel.errorMessage {
-                    Text(errorMessage)
-                        .foregroundColor(AppColors.destructive)
-                        .accessibilityLabel(errorMessage)
-                }
+                tierSection
             }
             .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationTitle("积分商城")
-        .task {
-            viewModel.configure(with: appState)
+        .background(AppColors.background)
+        .navigationTitle("服务成就")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("volunteerServiceRecognitionView")
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(completedCount)")
+                .font(.system(size: 48, weight: .bold))
+                .foregroundColor(AppColors.textPrimary)
+            Text("已完成的陪跑服务")
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+            Text(VolunteerServiceRecognition.headlineText(completedCount: completedCount))
+                .font(AppFonts.title())
+                .foregroundColor(AppColors.primary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(12)
+        // 合成一个焦点：三行是同一件事的三种说法，分开念会让读屏用户听三遍同一个数。
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(VolunteerServiceRecognition.summarySpeech(completedCount: completedCount))
+        .accessibilityIdentifier("volunteerServiceRecognitionHeader")
+    }
+
+    /// 评分与接单率都是后端真值，如实展示；没有评价时 `ratingText` 自己就是 `--`。
+    private var statsRow: some View {
+        HStack(spacing: 12) {
+            statTile("评分", summary?.ratingText ?? "--")
+            statTile("接单率", summary?.acceptanceRateText ?? "--")
+        }
+    }
+
+    private func statTile(_ title: String, _ value: String) -> some View {
+        VStack(spacing: 6) {
+            Text(value)
+                .font(AppFonts.title())
+                .foregroundColor(AppColors.textPrimary)
+            Text(title)
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(12)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title)：\(value)")
+    }
+
+    private var tierSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("称号")
+                .font(AppFonts.title())
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+
+            // 规则写在页面上，志愿者能自己算出下一档还差几单
+            // —— 调研那条「积分口径要透明可预测」。
+            Text("每完成一次陪跑服务累计一单，达到下面的单数就解锁对应称号。")
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(VolunteerServiceRecognition.progress(completedCount: completedCount)) { item in
+                tierRow(item)
+            }
+        }
+    }
+
+    private func tierRow(_ item: ServiceRecognitionProgress) -> some View {
+        HStack(spacing: 14) {
+            // 图标 + 名称 + 状态文字三者共同区分档位，**颜色不是唯一指示**
+            // （WCAG 1.4.1）。未解锁的档位写「还差 N 单」而不是只置灰：
+            // 置灰对读屏用户不存在，对低视力用户也只是「看不清的那个」。
+            Image(systemName: item.tier.symbolName)
+                .font(.title2)
+                .frame(width: 36)
+                .foregroundColor(item.isUnlocked ? AppColors.primary : AppColors.textSecondary)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.tier.name)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.textPrimary)
+                Text("\(item.tier.threshold) 单")
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+            }
+
+            Spacer()
+
+            Text(item.statusText)
+                .font(AppFonts.caption().weight(.semibold))
+                .foregroundColor(item.isUnlocked ? AppColors.success : AppColors.textSecondary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .cornerRadius(12)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(item.accessibilityLabel)
     }
 }
 
@@ -2372,7 +2426,10 @@ enum VolunteerServiceActionKind: Hashable {
         case .completeService:
             return "结束服务"
         case .completedMessage:
-            return "服务完成，获得 +100 积分"
+            // 不再说「获得 +100 积分」：后端没有积分字段，那个数字是编的。
+            // 但也不能只剩「服务完成」——这是志愿者跑完一趟唯一的正反馈，
+            // 把承诺删掉不该连同反馈一起删掉。一句感谢不涉及任何数字，零成本且是真的。
+            return "服务完成，感谢你的陪伴"
         case .terminalMessage:
             return "订单已结束"
         }
@@ -2455,7 +2512,7 @@ struct VolunteerServiceActions: View {
                 .frame(minHeight: 64)
                 .background(AppColors.success.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .accessibilityLabel("服务完成，获得一百积分")
+                .accessibilityLabel(action.title)
         case .terminalMessage:
             Text(status.volunteerDescription)
                 .font(AppFonts.body().weight(.semibold))
@@ -2617,9 +2674,8 @@ struct VolunteerServiceRecordRow: View {
             Text(record.order.startAddress ?? "")
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
-            Text(record.pointsText)
-                .font(AppFonts.caption().weight(.semibold))
-                .foregroundColor(record.order.status == .completed ? AppColors.success : AppColors.textSecondary)
+            // 这里此前是 `record.pointsText`，恒为「+100 积分」——一个后端不存在的数字。
+            // 删掉不补：完成状态已经在上面那行显示了，服务量在「服务成就」页。
         }
         .padding(.vertical, 4)
     }

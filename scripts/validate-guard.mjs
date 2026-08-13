@@ -8,6 +8,8 @@
 // AGENTS.md 第 1 节要求这类事落到机器归宿，这就是那个归宿。
 
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -363,16 +365,63 @@ const cases = [
         new_string: '        app.tap() // guard:allow blind-tap-center'
       }
     }
+  },
+  // placeholder-promise：起因是「积分商城」占位页在仓库里躺了很久，没有任何检查说过一句话。
+  //
+  // 这几条走 post 模式：内容级规则是从磁盘读改动后的真实文件再查的（比解析 diff 可靠），
+  // 所以用 `swift` 字段声明文件内容，由下面的 runner 落成临时文件。
+  {
+    name: '出货代码里承诺「敬请期待」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "积分商城即将上线，敬请期待" }'
+  },
+  {
+    name: '出货代码里承诺「即将上线」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "该功能即将上线" }'
+  },
+  {
+    // 占位 UI 本身不该被禁，如实说明当前不可用才是正确写法 ——
+    // 规则拦的是「会兑现」的暗示，不是占位本身。
+    name: '如实说明功能不可用（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let title = "这个功能还没有开放" }'
   }
 ];
+
+// post 模式的内容规则是**从磁盘读改动后的真实文件**再查的，所以这类用例得落一个真文件。
+//
+// 路径放在临时目录里，但要造出 `/blindRun/` 这一段 —— 守卫用它区分生产代码与测试代码
+// （`guard.mjs` 末尾的路径过滤）。**不要**写进真实的 `blindRun/` 目录：本工程是文件系统
+// 同步式的（`PBXFileSystemSynchronizedRootGroup`），那里多一个 .swift 会直接被编进 target，
+// 用例中断时残留文件会让整个工程编译不过。
+function materialize(testCase) {
+  if (testCase.mode !== 'post') return { input: testCase.input, cleanup: () => {} };
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-guard-'));
+  const productionDir = path.join(dir, 'blindRun', 'Shared');
+  fs.mkdirSync(productionDir, { recursive: true });
+  const filePath = path.join(productionDir, 'GuardSelfTest.swift');
+  fs.writeFileSync(filePath, `${testCase.swift}\n`, 'utf8');
+
+  return {
+    input: { tool_name: 'Edit', tool_input: { file_path: filePath } },
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true })
+  };
+}
 
 let failed = false;
 
 for (const testCase of cases) {
-  const result = spawnSync('node', [guard, 'pre'], {
-    input: JSON.stringify(testCase.input),
+  const { input, cleanup } = materialize(testCase);
+  const result = spawnSync('node', [guard, testCase.mode ?? 'pre'], {
+    input: JSON.stringify(input),
     encoding: 'utf8'
   });
+  cleanup();
   const status = result.status ?? -1;
   if (status !== testCase.expect) {
     console.error(

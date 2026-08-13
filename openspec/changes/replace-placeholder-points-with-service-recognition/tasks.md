@@ -11,35 +11,33 @@
 
 ## 2. 删除假积分
 
-- [ ] 2.1 `blindRun/Core/Models/VolunteerDispatchSummaryModels.swift`：
-      删 `pointsBalance` 字段（`:78`）与 `resolvedPointsBalance`（`:82-84`）；
-      删 `pointsDelta` 的 `+100` 兜底（`:177-182`），**保留 `pointsDelta` 字段本身**（见 D6）。
-- [ ] 2.2 `blindRun/Volunteer/VolunteerHomeView.swift`：
-      `:1431` 删「积分」那格（剩三格，不补第四格）；
-      `:1481` 的 `accessibilityLabel` 同步删「积分 N」——**这条最容易漏，视觉上没了但读屏还在念**；
-      `:1266-1269` 入口图标 `gift` → `rosette`，标题「积分」→「服务成就」，hint 同步。
-- [ ] 2.3 `blindRun/Volunteer/VolunteerOrderFlowViews.swift`：
-      删 `:11` 的 `"+100 积分"`、`:65` 与 `:2375` 的「服务完成，获得 +100 积分」、
-      `:2458` 的 `accessibilityLabel("服务完成，获得一百积分")`。
-      `pointsDelta` 为 `nil` 时不显示积分行（不再编造）。
-- [ ] 2.4 `blindRun/Core/MockAPIClient.swift`：`:895` 的 `pointsDelta: 100`、`:938` 的
-      `pointsBalance: nil` 随字段调整。Mock 不得再造出后端不存在的字段值。
+- [x] 2.1 `VolunteerDispatchSummaryModels.swift`：删 `pointsBalance` 字段与 `resolvedPointsBalance`；
+      删 `resolvedPointsDelta` 的 `+100` 兜底，`pointsText` 改为 `String?`（`nil` 时整行不显示），
+      **保留 `pointsDelta` 字段本身**（见 D6）。
+- [x] 2.2 `VolunteerHomeView.swift`：四格改三格（不补第四格凑数）；
+      `accessibilityLabel` 里的「积分 N」同步删——**这条最容易漏，视觉上没了但读屏还在念**；
+      入口图标 `gift` → `rosette`，标题「积分」→「成就」，label/hint 同步。
+      最近订单卡的积分行改为「后端真发了才显示」。
+- [x] 2.3 `VolunteerOrderFlowViews.swift`：删 `VolunteerServiceRecord.pointsText`（恒为「+100 积分」）
+      及其在 accessibility label 里的引用；服务记录卡里那行积分整行删掉。
+      `.completed` 的描述文案由「服务完成，获得 +100 积分」改为「服务完成，感谢你的陪伴」——
+      **不是只删**：这是志愿者跑完一趟唯一的正反馈，把假承诺删掉不该连正反馈一起删掉，
+      一句感谢不涉及任何数字且是真的。
+- [x] 2.4 `MockAPIClient.swift`：`pointsDelta` 改 `nil`，删 `pointsBalance` 传参。
+      Mock 造出后端不存在的字段值会让 Mock 环境的 UI 与真实环境长得不一样，而 UI 是照着 Mock 调的。
 
 ## 3. 服务成就页
 
-- [ ] 3.1 新建 `blindRun/Volunteer/VolunteerServiceRecognition.swift`：
-      纯数据类型 `ServiceRecognitionTier`（5 档，见 D2），
-      纯函数 `tiers(completedCount:) -> [(tier, isUnlocked, remaining)]`。
+- [x] 3.1 新建 `blindRun/Volunteer/VolunteerServiceRecognition.swift`：
+      `ServiceRecognitionTier`（5 档，见 D2）、`ServiceRecognitionProgress`、
+      `progress(completedCount:)` / `currentTier` / `nextTierRemaining` / `summarySpeech`。
       **不 import SwiftUI**，保证可单测。
-- [ ] 3.2 改写 `VolunteerOrderFlowViews.swift:1700-1788` 的 `VolunteerPointsPlaceholderView`
-      为 `VolunteerServiceRecognitionView`：
-      - 删掉 `VolunteerPointsViewModel` 整个类（死代码，只有一个从不赋值的 `errorMessage`）
-      - 头部显示真实完成单数 + 当前档位
-      - 5 档列表，每档带**档位名文字 + 独立 SF Symbol + 颜色**（D3：颜色不得是唯一指示）
-      - 未解锁档位写「还差 N 单解锁」，不只是置灰
-      - `accessibilityLabel` 给完整语义（「金牌陪跑员，已解锁」/「荣誉陪跑员，还差 43 单解锁」）
-      - 页面无自己的网络请求与状态，`dispatchSummary` 由调用方传入（D4）
-- [ ] 3.3 更新调用点的导航与页面标题（「积分商城」→「服务成就」）。
+- [x] 3.2 `VolunteerPointsPlaceholderView` → `VolunteerServiceRecognitionView`：
+      删掉 `VolunteerPointsViewModel` 整个类（死代码）；头部是真实完成单数 + 当前称号；
+      5 档列表每档带档位名 + 独立 SF Symbol + 状态文字（颜色不是唯一指示）；
+      未解锁写「还差 N 单」；`accessibilityLabel` 给完整语义；
+      页面无自己的网络请求与状态，`dispatchSummary` 由调用方传入。
+- [x] 3.3 调用点导航与标题更新（「积分商城」→「服务成就」）。
 
 ## 4. 规格
 
@@ -50,23 +48,27 @@
 
 ## 5. 测试
 
-- [ ] 5.1 `blindRunTests/VolunteerServiceRecognitionTests.swift`（纯单测）：
-      - `completedCount = 0` → 全部未解锁，第一档提示「还差 1 单」
-      - 边界值 1 / 9 / 10 / 24 / 25 / 49 / 50 / 99 / 100 / 101 各自解锁到哪一档
-      - `totalCompleted == nil` 时按 0 处理，不崩
-- [ ] 5.2 加一条回归断言：`VolunteerDispatchSummaryResponse` 解码一份**不含** `pointsBalance`
-      的真实响应后，全仓不再有任何地方产出「完成数×100」这个值。
-- [ ] 5.3 全仓字符串检查：发布产物里不再出现「积分商城」「+100 积分」「敬请期待」。
-      按 `AGENTS.md` §1.1 考虑落成 `scripts/hooks/guard.mjs` 一条守卫
-      （拦「敬请期待」这类占位承诺文案）。
-- [ ] 5.4 跑收窄范围的真机测试（本变更不碰全局单例，不需要全量）：
+- [x] 5.1 `blindRunTests/VolunteerServiceRecognitionTests.swift`（纯单测，12 条）：
+      边界值 0/1/9/10/24/25/49/50/99/100/101 逐个钉解锁档数与当前称号；
+      已解锁档 `remaining == 0`；负数按 0 处理；每档靠名称与图标可区分（非颜色）；
+      未解锁 label 说清还差几单；播报不出现「积分」「兑换」。
+- [x] 5.2 回归断言：`pointsDelta` 为 `null` 时 `pointsText` 为 `nil`（不再编「+100」）；
+      后端真发时如实显示；`VolunteerDispatchSummaryResponse` 解码一份**含** `pointsBalance`
+      的 JSON 时该键被忽略，成就页仍只用 `completedCount`。
+      同时改掉 `blindRunTests.swift` 两处断言 `resolvedPointsBalance == 100 / 200` 的旧用例
+      —— 它们钉住的正是本变更要撤掉的合成值。
+- [x] 5.3 **落成守卫**（`AGENTS.md` §1.1）：`guard.mjs` 新增 `placeholder-promise`，
+      拦出货代码里的「敬请期待 / 即将上线 / 敬请关注」。占位 UI 本身不禁，
+      拦的是「会兑现」的暗示。全仓复扫确认零误伤，`validate-guard.mjs` 加 3 条正反用例
+      （并带上 post 模式 runner —— 内容级规则要从磁盘读真实文件，此前 runner 只跑 `pre`）。
+      `node scripts/validate-guard.mjs` → 31 条全过。
+- [ ] 5.4 跑收窄范围的真机测试。**当前阻塞：两台设备都不可用**
+      （iPhone `unavailable` 掉线，iPad 锁屏）。
       ```bash
       scripts/device-test.sh -only-testing:blindRunTests/VolunteerServiceRecognitionTests \
-                             -only-testing:blindRunTests/blindRunTests
+                             -only-testing:blindRunTests/blindRunTests \
+                             -only-testing:blindRunTests/OrderEnumLeniencyDecodingTests
       ```
-      ⚠️ `blindRunTests.swift:1048-1049` 与 `:4730-4731` 现在断言的是
-      `resolvedPointsBalance == 100 / 200`，**这两处会红，是预期内的**——
-      它们正是本变更要撤掉的行为，改成断言完成单数。
       `passed=0` 一律当失败查。
 
 ## 6. 收尾
