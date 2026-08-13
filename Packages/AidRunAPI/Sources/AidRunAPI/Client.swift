@@ -3426,6 +3426,245 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 生成行程分享链接（给家属）
+    ///
+    /// 盲人把这一趟行程分享给家属。家属**没有账号也不需要装 App**，凭返回的链接直接看。
+    ///
+    /// **重复调用返回同一个链接**：多点一次不会让已经发出去的那条失效
+    /// —— 换了令牌，家属那边只会看到「分享已结束」，无法区分是「跑完了」还是「链接被换了」。
+    ///
+    /// ⚠️ 严格说是「顺序调用幂等」：两个 POST **并发**到达且此前无有效链接时，可能各自生成一个。
+    /// 两个都有效、都能打开，且 `DELETE` 会一次性撤销该订单名下全部链接，
+    /// 所以「已发给家属的链接被换掉」不会发生。客户端不需要为此做任何处理。
+    ///
+    /// 令牌在 URL 的 **fragment** 里（`.../share.html#<token>`）而不是 query：
+    /// fragment 不进 Referer、不上服务端访问日志，而分享页要加载高德 JS SDK 这个第三方脚本。
+    ///
+    /// ⚠️ **调用本接口 = 盲人对「向持链接者提供本人实时位置与轨迹」的单独同意**
+    /// （PIPL 第 23/29 条，轨迹属第 28 条敏感个人信息）。
+    /// 客户端必须在调用**之前**明示分享内容与对象；做成一键静默分享则同意不成立。
+    ///
+    /// 有效期 = `max(plannedEndTime, now) + app.share.ttl-after-end-hours`（默认 2 小时）。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/share`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)`.
+    public func createShareLink(_ input: Operations.createShareLink.Input) async throws -> Operations.createShareLink.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.createShareLink.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/share",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.createShareLink.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ShareLinkResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.createShareLink.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.createShareLink.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.createShareLink.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 停止分享行程
+    ///
+    /// 撤销该订单名下全部未撤销的分享链接，已经发出去的链接立刻失效（对齐 Uber 的 Stop Sharing）。
+    /// 幂等：没有可撤销的链接时同样返回 204。
+    ///
+    /// - Remark: HTTP `DELETE /api/orders/{id}/share`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)`.
+    public func revokeShareLink(_ input: Operations.revokeShareLink.Input) async throws -> Operations.revokeShareLink.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.revokeShareLink.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/share",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .delete
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 204:
+                    return .noContent(.init())
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.revokeShareLink.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.revokeShareLink.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// 查询订单双方历史路径轨迹与统计（订单结束后回放用）
     ///
     /// 鉴权与 `GET /api/orders/{id}` 一致：JWT 用户必须是该订单的盲人或志愿者一方。
