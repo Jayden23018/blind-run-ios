@@ -6,8 +6,10 @@
       有没有兑换出口、会不会过期。注明前端已撤掉假实现，**不阻塞**后端将来做真的。
 - [ ] 1.2 投 handoff：完成单数多的志愿者要不要在派单里加权（滴滴「点亮勋章后接单概率增加」）？
       这决定成就体系是纯荣誉还是有实际收益，会影响前端文案措辞。
-- [ ] 1.3 投 handoff：`dispatch-summary` 能否补**累计服务时长**？按小时数分层是行业通行做法，
-      我们缺这一维只能退用单数。
+- [x] 1.3 ~~投 handoff：`dispatch-summary` 能否补**累计服务时长**？~~
+      **当场作废（2026-08-13）**：不用补。`GET /api/volunteer/achievements` 一直就有
+      `totalServiceMinutes`，后端刻意与 dispatch-summary 分开（扫全部已完成订单的代价
+      不该压在首页最热的端点上）。是本变更起初没查这条端点。见第 7 节。
 
 ## 2. 删除假积分
 
@@ -73,6 +75,40 @@
       （逐条 passed）、`blindRunTests` 281 条、`OrderEnumLeniencyDecodingTests` 17 条。
       `blindRunTests` 全绿说明改掉的那两处旧断言（`resolvedPointsBalance == 100 / 200`）
       没有连累同套件的其它用例。
+
+## 7. 改用真端点 + 国标星级（后端 SPEC-D D1，2026-08-13 追加）
+
+- [x] 7.1 `scripts/openapi/openapi-generator-config.yaml` 加 `/api/volunteer/achievements`
+      并重新生成（`scripts/generate-api-client.sh`，+492 行纯新增）。
+      生成代码只当漂移探测器，运行时仍走手写 `APIClient` —— 但正因为进了 filter，
+      后端发布 `nextBadge` / `starLevel` 的当天 CI 的「重新生成并比对」会变红，
+      那就是联调信号。
+- [x] 7.2 新建 `blindRun/Volunteer/VolunteerAchievements.swift`：
+      响应模型（全字段可选）、`VolunteerStarLevel`（GB/T 阈值 + 本地推算 fallback）、
+      `VolunteerAchievementsCopy`、`VolunteerBadgeWall`（主页 4 枚 + 二级页）。
+      **不 import SwiftUI**，保证可单测。
+- [x] 7.3 `VolunteerServiceRecognitionView` 改读 `GET /api/volunteer/achievements`
+      （一个 `.task`，无 `AnyCancellable`）；国标星级栏与平台勋章栏**分两栏**；
+      进度条 `accessibilityHidden`，进度作为独立文本节点存在；
+      新增 `VolunteerBadgeWallView` 二级页；失败态给重试。
+- [x] 7.4 删除 `VolunteerServiceRecognition.swift` 与 `VolunteerServiceRecognitionTests.swift`
+      （客户端自编的五档称号）；`VolunteerHomeView` 调用点去掉 `summary:` 传参。
+- [x] 7.5 `MockAPIClient` 加 `/api/volunteer/achievements` 分支，勋章判定逐条抄后端
+      `VolunteerBadge.isUnlockedBy`；`nextBadge` / `starLevel` **一律返回 nil**
+      —— Mock 造后端不会下发的字段，会让「字段缺失」这条真实分支永远跑不到。
+- [x] 7.6 **落成守卫**（`AGENTS.md` §1.1）：`guard.mjs` 新增 `volunteer-hours-credential`，
+      拦「服务/时长/志愿证明·证书」「时长已认证」。词表刻意不含「资质证书」「实名认证」
+      （注册流程的真实动作）。全仓复扫零误伤，`validate-guard.mjs` 加 7 条正反用例
+      → 44 条全过。
+- [x] 7.7 `blindRunTests/VolunteerAchievementsTests.swift`：国标阈值逐条对国标、
+      向下取整、服务端值优先于本地推算、**badges 只含已解锁**（回归门）、
+      未知 code 不崩、进度是可读文本、文案不含「证明/证书/已认证」、主页 4 枚上限。
+- [ ] 7.8 真机跑上面这些 suite。⚠️ **未执行**：两台设备当前都是 `unavailable`
+      （`xcrun devicectl list devices`），本仓库唯一 XCTest 通道不可用。
+      编译门禁已过（`build-for-testing` → `TEST BUILD SUCCEEDED`）。
+- [ ] 7.9 投 handoff：`nextBadge.current` / `target` 的**单位**未定义
+      （`HOURS_10` 的 target 是 10 还是 600？`HIGH_RATED` 是双条件，没有单一进度轴）。
+      在拿到答复前界面只渲染 `已完成 37 / 50` 这种分数形式，不拼单位。
 
 ## 6. 收尾
 

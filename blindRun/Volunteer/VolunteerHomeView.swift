@@ -1261,7 +1261,7 @@ struct VolunteerHomeView: View {
             .accessibilityLabel("我的服务记录")
 
             NavigationLink {
-                VolunteerServiceRecognitionView(summary: viewModel.dispatchSummary)
+                VolunteerServiceRecognitionView()
             } label: {
                 VolunteerEntryItem(icon: "rosette", title: "成就")
             }

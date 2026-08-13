@@ -17,6 +17,23 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PUT /api/volunteer/profile`.
     /// - Remark: Generated from `#/paths//api/volunteer/profile/put(updateProfile)`.
     func updateProfile(_ input: Operations.updateProfile.Input) async throws -> Operations.updateProfile.Output
+    /// 志愿者成就页（累计单数/服务时长/评分 + 派生勋章）
+    ///
+    /// ⚠️ **这不是「志愿服务时长证明」。** 可出具、可查验的证明受《志愿服务记录与证明出具办法（试行）》
+    /// （民政部令第 67 号）约束，须经志愿服务信息系统出具；第三方平台的时长要有法律效力，
+    /// 必须先与全国志愿服务信息系统完成数据对接。本端点只提供数据本身，
+    /// **客户端展示时不要用「证明」「证书」这类措辞**。
+    ///
+    /// **响应不套 `ApiResponse` 信封**（与同控制器的 `GET /api/volunteer/profile` 一致，
+    /// 但与 `GET /api/volunteer/dispatch-summary` **不同** —— 那条是套的，别照抄解析代码）。
+    ///
+    /// 与 `dispatch-summary` 字段重叠是刻意的（同一真相源 `volunteer_profile`）：
+    /// 分开是因为 `totalServiceMinutes` 要扫该志愿者的全部已完成订单，
+    /// 而 dispatch-summary 是首页、每次打开都调，不该让低频页面的代价压在最热的端点上。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/achievements`.
+    /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)`.
+    func getVolunteerAchievements(_ input: Operations.getVolunteerAchievements.Input) async throws -> Operations.getVolunteerAchievements.Output
     /// 志愿者首页聚合数据（接单资格/在线位置/覆盖范围/时段/评分/订单）
     ///
     /// - Remark: HTTP `GET /api/volunteer/dispatch-summary`.
@@ -536,6 +553,25 @@ extension APIProtocol {
             headers: headers,
             body: body
         ))
+    }
+    /// 志愿者成就页（累计单数/服务时长/评分 + 派生勋章）
+    ///
+    /// ⚠️ **这不是「志愿服务时长证明」。** 可出具、可查验的证明受《志愿服务记录与证明出具办法（试行）》
+    /// （民政部令第 67 号）约束，须经志愿服务信息系统出具；第三方平台的时长要有法律效力，
+    /// 必须先与全国志愿服务信息系统完成数据对接。本端点只提供数据本身，
+    /// **客户端展示时不要用「证明」「证书」这类措辞**。
+    ///
+    /// **响应不套 `ApiResponse` 信封**（与同控制器的 `GET /api/volunteer/profile` 一致，
+    /// 但与 `GET /api/volunteer/dispatch-summary` **不同** —— 那条是套的，别照抄解析代码）。
+    ///
+    /// 与 `dispatch-summary` 字段重叠是刻意的（同一真相源 `volunteer_profile`）：
+    /// 分开是因为 `totalServiceMinutes` 要扫该志愿者的全部已完成订单，
+    /// 而 dispatch-summary 是首页、每次打开都调，不该让低频页面的代价压在最热的端点上。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/achievements`.
+    /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)`.
+    public func getVolunteerAchievements(headers: Operations.getVolunteerAchievements.Input.Headers = .init()) async throws -> Operations.getVolunteerAchievements.Output {
+        try await getVolunteerAchievements(Operations.getVolunteerAchievements.Input(headers: headers))
     }
     /// 志愿者首页聚合数据（接单资格/在线位置/覆盖范围/时段/评分/订单）
     ///
@@ -4761,6 +4797,157 @@ public enum Components {
                 case blindStats
             }
         }
+        /// 志愿者成就页数据。**刻意没有**：累计里程（要先在订单上落完成时的统计快照，
+        /// 否则跨订单求和会把 OOM 风险搬进成就页）、积分/兑换（运营决策）、
+        /// 勋章解锁时间（库里没有痕迹，宁可不给也不编）。
+        ///
+        /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse`.
+        public struct VolunteerAchievementsResponse: Codable, Hashable, Sendable {
+            /// 累计完成的陪跑次数（订单走到 COMPLETED 才算，接了没跑完不计）
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/totalCompleted`.
+            public var totalCompleted: Swift.Int32?
+            /// 累计服务时长（分钟）。口径：**每单从「志愿者点开始服务」到「订单完成」**，跨全部已完成订单求和。
+            ///
+            /// ⚠️ **不是从接单算起** —— 志愿者可能在跑步开始前几小时就接了单，
+            /// 用接单时刻起算会把干等的时间算成志愿服务时长。
+            ///
+            /// 因此两类已完成订单不计入：① 从未进入 IN_PROGRESS 就被超时自动完成的
+            /// （志愿者到了但没点开始服务）；② 状态日志缺失的历史订单。**少算而不是多算。**
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/totalServiceMinutes`.
+            public var totalServiceMinutes: Swift.Int64?
+            /// 平均评分 1.0–5.0，null = 尚无评价
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/avgRating`.
+            public var avgRating: Swift.Double?
+            /// 累计收到的评价条数
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/totalRatings`.
+            public var totalRatings: Swift.Int32?
+            /// 已解锁的勋章（未解锁的不出现在列表里）
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/badges`.
+            public var badges: [Components.Schemas.VolunteerBadgeDto]?
+            /// Creates a new `VolunteerAchievementsResponse`.
+            ///
+            /// - Parameters:
+            ///   - totalCompleted: 累计完成的陪跑次数（订单走到 COMPLETED 才算，接了没跑完不计）
+            ///   - totalServiceMinutes: 累计服务时长（分钟）。口径：**每单从「志愿者点开始服务」到「订单完成」**，跨全部已完成订单求和。
+            ///   - avgRating: 平均评分 1.0–5.0，null = 尚无评价
+            ///   - totalRatings: 累计收到的评价条数
+            ///   - badges: 已解锁的勋章（未解锁的不出现在列表里）
+            public init(
+                totalCompleted: Swift.Int32? = nil,
+                totalServiceMinutes: Swift.Int64? = nil,
+                avgRating: Swift.Double? = nil,
+                totalRatings: Swift.Int32? = nil,
+                badges: [Components.Schemas.VolunteerBadgeDto]? = nil
+            ) {
+                self.totalCompleted = totalCompleted
+                self.totalServiceMinutes = totalServiceMinutes
+                self.avgRating = avgRating
+                self.totalRatings = totalRatings
+                self.badges = badges
+            }
+            public enum CodingKeys: String, CodingKey {
+                case totalCompleted
+                case totalServiceMinutes
+                case avgRating
+                case totalRatings
+                case badges
+            }
+        }
+        /// 一枚已解锁的勋章。按累计数据现算，不落库
+        ///
+        /// - Remark: Generated from `#/components/schemas/VolunteerBadgeDto`.
+        public struct VolunteerBadgeDto: Codable, Hashable, Sendable {
+            /// 稳定机器码，客户端据此选图标。**开放枚举** ——
+            /// 遇到不认识的值应忽略该条，而不是让整个响应解析失败。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerBadgeDto/code`.
+            public struct codePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/VolunteerBadgeDto/code/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case FIRST_RUN = "FIRST_RUN"
+                    case RUNS_10 = "RUNS_10"
+                    case RUNS_50 = "RUNS_50"
+                    case RUNS_100 = "RUNS_100"
+                    case HOURS_10 = "HOURS_10"
+                    case HOURS_50 = "HOURS_50"
+                    case HIGH_RATED = "HIGH_RATED"
+                }
+                /// - Remark: Generated from `#/components/schemas/VolunteerBadgeDto/code/value1`.
+                public var value1: Components.Schemas.VolunteerBadgeDto.codePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/VolunteerBadgeDto/code/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `codePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.VolunteerBadgeDto.codePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 稳定机器码，客户端据此选图标。**开放枚举** ——
+            /// 遇到不认识的值应忽略该条，而不是让整个响应解析失败。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerBadgeDto/code`.
+            public var code: Components.Schemas.VolunteerBadgeDto.codePayload?
+            /// 中文展示名
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerBadgeDto/name`.
+            public var name: Swift.String?
+            /// Creates a new `VolunteerBadgeDto`.
+            ///
+            /// - Parameters:
+            ///   - code: 稳定机器码，客户端据此选图标。**开放枚举** ——
+            ///   - name: 中文展示名
+            public init(
+                code: Components.Schemas.VolunteerBadgeDto.codePayload? = nil,
+                name: Swift.String? = nil
+            ) {
+                self.code = code
+                self.name = name
+            }
+            public enum CodingKeys: String, CodingKey {
+                case code
+                case name
+            }
+        }
         /// 行程分享链接（返回给盲人本人）
         ///
         /// - Remark: Generated from `#/components/schemas/ShareLinkResponse`.
@@ -6157,6 +6344,233 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 志愿者成就页（累计单数/服务时长/评分 + 派生勋章）
+    ///
+    /// ⚠️ **这不是「志愿服务时长证明」。** 可出具、可查验的证明受《志愿服务记录与证明出具办法（试行）》
+    /// （民政部令第 67 号）约束，须经志愿服务信息系统出具；第三方平台的时长要有法律效力，
+    /// 必须先与全国志愿服务信息系统完成数据对接。本端点只提供数据本身，
+    /// **客户端展示时不要用「证明」「证书」这类措辞**。
+    ///
+    /// **响应不套 `ApiResponse` 信封**（与同控制器的 `GET /api/volunteer/profile` 一致，
+    /// 但与 `GET /api/volunteer/dispatch-summary` **不同** —— 那条是套的，别照抄解析代码）。
+    ///
+    /// 与 `dispatch-summary` 字段重叠是刻意的（同一真相源 `volunteer_profile`）：
+    /// 分开是因为 `totalServiceMinutes` 要扫该志愿者的全部已完成订单，
+    /// 而 dispatch-summary 是首页、每次打开都调，不该让低频页面的代价压在最热的端点上。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/achievements`.
+    /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)`.
+    public enum getVolunteerAchievements {
+        public static let id: Swift.String = "getVolunteerAchievements"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/volunteer/achievements/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getVolunteerAchievements.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getVolunteerAchievements.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getVolunteerAchievements.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - headers:
+            public init(headers: Operations.getVolunteerAchievements.Input.Headers = .init()) {
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/volunteer/achievements/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/volunteer/achievements/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.VolunteerAchievementsResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.VolunteerAchievementsResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getVolunteerAchievements.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getVolunteerAchievements.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getVolunteerAchievements.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getVolunteerAchievements.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Unauthorized: Sendable, Hashable {
+                /// Creates a new `Unauthorized`.
+                public init() {}
+            }
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            case unauthorized(Operations.getVolunteerAchievements.Output.Unauthorized)
+            /// 未认证
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)/responses/401`.
+            ///
+            /// HTTP response code: `401 unauthorized`.
+            public static var unauthorized: Self {
+                .unauthorized(.init())
+            }
+            /// The associated value of the enum case if `self` is `.unauthorized`.
+            ///
+            /// - Throws: An error if `self` is not `.unauthorized`.
+            /// - SeeAlso: `.unauthorized`.
+            public var unauthorized: Operations.getVolunteerAchievements.Output.Unauthorized {
+                get throws {
+                    switch self {
+                    case let .unauthorized(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "unauthorized",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// Creates a new `Forbidden`.
+                public init() {}
+            }
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.getVolunteerAchievements.Output.Forbidden)
+            /// 非志愿者角色
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            public static var forbidden: Self {
+                .forbidden(.init())
+            }
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.getVolunteerAchievements.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct NotFound: Sendable, Hashable {
+                /// Creates a new `NotFound`.
+                public init() {}
+            }
+            /// 志愿者资料不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            case notFound(Operations.getVolunteerAchievements.Output.NotFound)
+            /// 志愿者资料不存在
+            ///
+            /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)/responses/404`.
+            ///
+            /// HTTP response code: `404 notFound`.
+            public static var notFound: Self {
+                .notFound(.init())
+            }
+            /// The associated value of the enum case if `self` is `.notFound`.
+            ///
+            /// - Throws: An error if `self` is not `.notFound`.
+            /// - SeeAlso: `.notFound`.
+            public var notFound: Operations.getVolunteerAchievements.Output.NotFound {
+                get throws {
+                    switch self {
+                    case let .notFound(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "notFound",
                             response: self
                         )
                     }

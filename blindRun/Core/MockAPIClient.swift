@@ -281,6 +281,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/volunteer/dispatch-summary" && method == .get {
             return handleGetVolunteerDispatchSummary()
         }
+        if path == "/api/volunteer/achievements" && method == .get {
+            return handleGetVolunteerAchievements()
+        }
         if path == "/api/volunteer/verification/status" && method == .get {
             // 后端只返回 {"status": "..."}，不带信封。
             return VolunteerVerificationStatusResponse(status: volunteerVerificationStatus.rawValue)
@@ -953,6 +956,47 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             acceptanceRate: 0.7,
             activeOrders: activeOrders,
             recentOrders: Array(recentOrders)
+        )
+    }
+
+    /// `GET /api/volunteer/achievements`（**不套信封**，与 `/api/volunteer/profile` 一致）。
+    ///
+    /// 勋章判定逐条抄后端 `VolunteerBadge.isUnlockedBy`：Mock 的职责是像后端，
+    /// 不是自己发明一套。真正**不**能抄的是把这套阈值搬进 App 的展示逻辑 —— 那才会漂移。
+    ///
+    /// ⚠️ `nextBadge` / `starLevel` 一律返回 `nil`：**后端 SPEC-D D1 还没实现**（核于 2026-08-13）。
+    /// Mock 造后端不会下发的字段，会让「字段缺失」这条真实分支在 Mock 下永远跑不到 ——
+    /// `notAvailableReasons` 那次静默全 nil 的解码 bug 就是这么活到真机联调的。
+    /// 后端发布 D1 之后再把这两个字段填上，同时把成就页的本地推算 fallback 删掉。
+    private func handleGetVolunteerAchievements() -> VolunteerAchievementsResponse {
+        let completedOrders = orders.filter { $0.status == .completed }
+        let totalCompleted = completedOrders.count
+        // 每单按 60 分钟计。Mock 里订单没有真实的 IN_PROGRESS → COMPLETED 时间戳，
+        // 编一个精确到分钟的数只会让人以为它有意义。
+        let totalServiceMinutes = Int64(totalCompleted) * 60
+        let avgRating: Double? = totalCompleted > 0 ? 5.0 : nil
+        let totalRatings = totalCompleted
+
+        var badges: [VolunteerBadgeDto] = []
+        func unlock(_ code: String, _ name: String, _ condition: Bool) {
+            if condition { badges.append(VolunteerBadgeDto(code: code, name: name)) }
+        }
+        unlock("FIRST_RUN", "首次陪跑", totalCompleted >= 1)
+        unlock("RUNS_10", "陪跑达人 · 10 次", totalCompleted >= 10)
+        unlock("RUNS_50", "陪跑达人 · 50 次", totalCompleted >= 50)
+        unlock("RUNS_100", "陪跑达人 · 100 次", totalCompleted >= 100)
+        unlock("HOURS_10", "累计服务 10 小时", totalServiceMinutes >= 10 * 60)
+        unlock("HOURS_50", "累计服务 50 小时", totalServiceMinutes >= 50 * 60)
+        unlock("HIGH_RATED", "口碑之星", (avgRating ?? 0) >= 4.8 && totalRatings >= 10)
+
+        return VolunteerAchievementsResponse(
+            totalCompleted: totalCompleted,
+            totalServiceMinutes: totalServiceMinutes,
+            avgRating: avgRating,
+            totalRatings: totalRatings,
+            badges: badges,
+            nextBadge: nil,
+            starLevel: nil
         )
     }
 

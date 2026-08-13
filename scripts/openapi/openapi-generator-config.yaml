@@ -61,6 +61,7 @@ filter:
     - /api/users/{userId}/emergency-contacts
     - /api/users/{userId}/emergency-contacts/{contactId}
     - /api/users/{userId}/emergency-contacts/{contactId}/set-primary
+    - /api/volunteer/achievements
     - /api/volunteer/dispatch-status
     - /api/volunteer/dispatch-summary
     - /api/volunteer/profile
