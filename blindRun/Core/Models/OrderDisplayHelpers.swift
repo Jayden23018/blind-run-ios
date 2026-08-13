@@ -89,6 +89,34 @@ extension RunOrderStatus {
         }
     }
 
+    /// 盲人端订单页该不该给出「把这次行程告诉家人」。
+    ///
+    /// United In Stride 把**开始时间 / 集合地点 / 路线 / 结束时间**列为陪跑出发前必须约定的
+    /// 四要素（`docs/research/blind-app-feature-landscape-20260812.md` §2.2）。在这条动作
+    /// 存在之前，家属唯一会被触达的时机是 SOS 之后 —— 也就是说，跑步正常进行的全程，
+    /// 家里人根本不知道这件事在发生。
+    ///
+    /// `PENDING_MATCH` 不给：还没人接单，此时能告诉家人的只有「我打算跑」，而订单可能
+    /// 被自动取消，家属拿到的是一条会失效的信息。终态不给：没有进行中的行程可告知。
+    ///
+    /// 状态集**目前**与 `offersVolunteerCall` 完全相同，但两者是各自独立的产品判断，
+    /// 不是同一件事：那条是「要不要当面确认志愿者身份」，这条是「行程要素齐没齐」。
+    /// 合并成一个属性会让将来任一侧改状态集时静默带偏另一侧。
+    ///
+    /// 同样写成穷举 switch：后端往枚举加值时编译器在这里逼一次决策。
+    var offersRunPlanShare: Bool {
+        switch self {
+        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+            return true
+        case .pendingMatch, .rematching, .noVolunteer:
+            return false
+        case .completed, .cancelled:
+            return false
+        case .unknown:
+            return false
+        }
+    }
+
     /// 等待期延长窗口该打哪个端点；`nil` 表示本状态没有这个动作。
     ///
     /// 后端在订单长时间无人接单时推 `ORDER_CANCELLATION_WARNING`，正文逐字是

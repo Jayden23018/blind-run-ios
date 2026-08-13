@@ -645,7 +645,16 @@ struct BlindOrderStatusView: View {
     @State private var showEmergencyCancelConfirmation = false
     @State private var showCancelConfirmation = false
     @State private var showStatusLogs = false
+    @State private var showRunPlanShare = false
+    @State private var runPlanShareNotice: RunPlanShareNotice?
     let orderId: Int64
+
+    /// 行程告知的结果提示。盲人靠 `speak` 听到，低视力用户靠这行字看到 ——
+    /// 两条通道都要有，`isProblem` 只决定颜色，不决定有没有。
+    private struct RunPlanShareNotice: Equatable {
+        let text: String
+        let isProblem: Bool
+    }
     let onOrderUpdated: (OrderDetailResponse) -> Void
 
     /// 主按钮高度。比首页的 280 小：这一页顶上还有状态卡要占位置，
@@ -672,6 +681,7 @@ struct BlindOrderStatusView: View {
                     statusHeader(order)
                     volunteerCallSection(order)
                     keepWaitingSection(order)
+                    runPlanShareSection(order)
                     peerMapSection(order)
                     lifecycleSection(order)
                     actionSection(order)
@@ -719,6 +729,28 @@ struct BlindOrderStatusView: View {
             Button("保持求助", role: .cancel) {}
         } message: {
             Text(EmergencySafetyCopy.cancelOwnerConfirmation)
+        }
+        .sheet(isPresented: $showRunPlanShare) {
+            // 正文在呈现时重算而不是提前存进 @State：这一页每 5 秒轮询一次订单，
+            // 打开 sheet 那一刻的行程要素才是要发出去的那份。
+            MessageComposeSheet(
+                recipients: [appState.primaryEmergencyContact?.phone?.nilIfBlank].compactMap { $0 },
+                body: viewModel.order.flatMap(RunPlanShareMessage.compose(order:)) ?? ""
+            ) { outcome in
+                showRunPlanShare = false
+                switch outcome {
+                case .sent:
+                    // 进行时。`.sent` 只代表用户点了发送，不代表送达 —— 见 `RunPlanShareCopy`。
+                    setRunPlanShareNotice(RunPlanShareCopy.sent, isProblem: false)
+                    speechService.speak(RunPlanShareCopy.sent)
+                case .cancelled:
+                    setRunPlanShareNotice(RunPlanShareCopy.cancelled, isProblem: false)
+                    speechService.speak(RunPlanShareCopy.cancelled)
+                case .failed:
+                    setRunPlanShareNotice(RunPlanShareCopy.failed, isProblem: true)
+                    speechService.speakError(RunPlanShareCopy.failed)
+                }
+            }
         }
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation) {
             Task {
@@ -1108,6 +1140,69 @@ struct BlindOrderStatusView: View {
             .accessibilityHint(KeepWaitingCopy.accessibilityHint)
             .accessibilityIdentifier("blindOrderStatusKeepWaitingButton")
         }
+    }
+
+    /// 把行程要素交给系统短信，发给紧急联系人。**不发任何网络请求** ——
+    /// 行程来自本页已持有的 `OrderDetailResponse`，收件人来自 `AppState.emergencyContacts`。
+    ///
+    /// 排在两个主动作之后、地图之前：它是次级动作（不该抢 140pt 的主按钮版位），
+    /// 但也不能沉到订单信息下面 —— 看不见屏幕的人靠遍历顺序发现功能存在，
+    /// 沉下去等于没做。样式用整行铺满的次级按钮，与
+    /// `docs/research/blind-ui-visual-benchmark-20260808.md` 那条「次级操作一律整行铺满
+    /// 竖直堆叠」一致。
+    @ViewBuilder
+    private func runPlanShareSection(_ order: OrderDetailResponse) -> some View {
+        if order.status.offersRunPlanShare {
+            VStack(spacing: 10) {
+                Button {
+                    shareRunPlan(order)
+                } label: {
+                    Text(RunPlanShareCopy.buttonTitle)
+                        .font(AppFonts.title())
+                        .foregroundColor(AppColors.primary)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 64)
+                        .background(AppColors.secondaryBackground)
+                        .cornerRadius(16)
+                }
+                .accessibilityLabel(RunPlanShareCopy.buttonTitle)
+                .accessibilityHint(RunPlanShareCopy.accessibilityHint)
+                .accessibilityIdentifier("blindOrderStatusShareRunPlanButton")
+
+                if let notice = runPlanShareNotice {
+                    Text(notice.text)
+                        .font(AppFonts.body())
+                        .foregroundColor(notice.isProblem ? AppColors.destructive : AppColors.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel(notice.text)
+                        .accessibilityIdentifier("blindOrderStatusShareRunPlanNotice")
+                }
+            }
+        }
+    }
+
+    /// 三道门，顺序不能换：**先问设备能不能发**，再问有没有收件人。
+    ///
+    /// 反过来的话，一台不能发短信的设备会先把用户支去添加紧急联系人，
+    /// 加完回来发现还是发不出去 —— 那是一趟白跑的路，而这条路对盲人格外贵。
+    private func shareRunPlan(_ order: OrderDetailResponse) {
+        guard MessageComposeSheet.canSendText else {
+            setRunPlanShareNotice(RunPlanShareCopy.unavailable, isProblem: true)
+            speechService.speakError(RunPlanShareCopy.unavailable)
+            return
+        }
+        guard appState.primaryEmergencyContact?.phone?.nilIfBlank != nil else {
+            setRunPlanShareNotice(RunPlanShareCopy.noContact, isProblem: true)
+            speechService.speakError(RunPlanShareCopy.noContact)
+            return
+        }
+        guard RunPlanShareMessage.compose(order: order) != nil else { return }
+        runPlanShareNotice = nil
+        showRunPlanShare = true
+    }
+
+    private func setRunPlanShareNotice(_ text: String, isProblem: Bool) {
+        runPlanShareNotice = RunPlanShareNotice(text: text, isProblem: isProblem)
     }
 
     /// 折叠。这 8 行在下单时已经被逐条读回确认过一遍，服务进行中它们既不可改也无需再听 ——
