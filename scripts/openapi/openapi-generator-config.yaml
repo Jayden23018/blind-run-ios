@@ -53,6 +53,7 @@ filter:
     - /api/orders/{id}/finish
     - /api/orders/{id}/respond
     - /api/orders/{id}/review
+    - /api/orders/{id}/share
     - /api/orders/{id}/start-service
     - /api/orders/{id}/track
     - /api/user/role
