@@ -18,7 +18,10 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const root = path.resolve(import.meta.dirname, '../..');
+import { sessionStartedAt, transcriptEntries } from './transcript.mjs';
+
+// AIDRUN_REPO_ROOT 只给自测用（拿一个临时 git 仓库当靶子），生产路径永远走仓库根。
+const root = process.env.AIDRUN_REPO_ROOT || path.resolve(import.meta.dirname, '../..');
 
 export const RESEARCH_DIR = 'docs/research';
 export const INDEX_PATH = path.join(RESEARCH_DIR, 'INDEX.md');
@@ -56,23 +59,10 @@ export function readIndex() {
 
 // 本轮用过哪些联网工具。transcript 是 JSONL，每行一条消息，
 // 工具调用在 message.content[] 里 type === 'tool_use'。
+// 读不到就当没调研过：这里宁可漏报也不要每轮误报。
 export function researchToolsUsed(transcriptPath) {
-  if (!transcriptPath) return [];
-  let raw;
-  try {
-    raw = fs.readFileSync(transcriptPath, 'utf8');
-  } catch {
-    return []; // 读不到就当没调研过：这里宁可漏报也不要每轮误报
-  }
   const used = [];
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue; // 半行/损坏行跳过，别让整个钩子挂掉
-    }
+  for (const entry of transcriptEntries(transcriptPath) || []) {
     const content = entry?.message?.content;
     if (!Array.isArray(content)) continue;
     for (const block of content) {
@@ -82,23 +72,30 @@ export function researchToolsUsed(transcriptPath) {
   return used;
 }
 
-// 落盘判定要覆盖两种「已经做了」：还没提交（工作树脏）和本轮已提交（最后一次提交动过）。
-// 只看工作树的话，模型先提交再停止就会被误判成没落盘 —— 误报一次这个钩子就开始被无视。
-export function researchLanded() {
+// 落盘判定要覆盖三种「已经做了」：还没提交（工作树脏）、已提交在 HEAD 上、
+// **已提交但不在 HEAD 上**。第三种是最容易误判的一种：为遵守「一个 PR 只装一件事」
+// 单开了 docs 分支，或者这个 checkout 被并行会话切走了分支 —— 调研早就落盘并推上去了，
+// 只看工作树和 HEAD 却查不到，于是每一轮都报一次「没落盘」（2026-08-13 连报 4 次）。
+// `--all` 覆盖本地分支与远端跟踪分支，`--since` 把范围压在本轮会话内。
+export function researchLanded(since) {
   const dirty = git('status', '--porcelain', '--', RESEARCH_DIR);
   if (dirty && dirty.trim()) return true;
   const lastCommit = git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD', '--', RESEARCH_DIR);
-  return Boolean(lastCommit && lastCommit.trim());
+  if (lastCommit && lastCommit.trim()) return true;
+  if (!since) return false; // 拿不到会话开始时间就不放宽范围，退回原判据
+  const anyBranch = git('log', '--all', `--since=${since}`, '--format=%H', '-1', '--', RESEARCH_DIR);
+  return Boolean(anyBranch && anyBranch.trim());
 }
 
 // 给 Stop 钩子用：返回一条欠账文本，或 null（无需提醒）。
 export function researchTodo(payload) {
   const used = researchToolsUsed(payload?.transcript_path);
   if (!used.length) return null;
-  if (researchLanded()) return null;
+  if (researchLanded(sessionStartedAt(payload?.transcript_path))) return null;
   const kinds = [...new Set(used)].join('、');
   return (
-    `**调研没落盘**：本轮联网 ${used.length} 次（${kinds}），但 \`${RESEARCH_DIR}/\` 没有任何改动。` +
+    `**调研没落盘**：本轮联网 ${used.length} 次（${kinds}），但 \`${RESEARCH_DIR}/\` 没有任何改动` +
+    `（工作树、HEAD、本轮会话内所有分支的提交都查过）。` +
     `落到 \`${RESEARCH_DIR}/{topic}-{YYYYMMDD}.md\` 并回写 \`${INDEX_PATH}\` 一行` +
     `（日期/问题/一句话结论/复核触发条件/报告，五列齐全）。` +
     `只是查一个 API 签名、不构成调研的，回一句说明再停。`
