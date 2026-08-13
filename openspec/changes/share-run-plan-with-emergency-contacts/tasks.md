@@ -28,9 +28,16 @@
 - [x] 2.3 `blindRun/BlindRunner/BlindOrderStatusView.swift` 入口：非终态渲染次级按钮，
       收件人取主紧急联系人，三道门（先查设备能不能发、再查有没有联系人）。
       回调按 `didFinishWithResult:` 播报，成功走 `speak`、受阻走 `speakError`。
-- [ ] 2.4 **按 `AGENTS.md` §1.1 落守卫**：`scripts/hooks/guard.mjs` 加一条，
-      拦发布产物里的「已通知家人 / 家人已收到 / 已送达」这类完成时态措辞
-      （与既有 SOS 文案守卫同族）。同步给 `scripts/validate-guard.mjs` 加正反用例。
+- [x] 2.4 **按 `AGENTS.md` §1.1 落守卫**。做的时候发现两个既有缺口，比原计划的「新加一条规则」更值得修：
+      - `sos-copy` 的接收方词表是 `(联系人|家属|亲属)`，**没有「家人」** —— 本功能通篇用的
+        正是这个称呼，等于整条从守卫旁边绕了过去。补词表比新加规则对：同一类缺陷换个称呼
+        就能穿过去，说明词表本身是这条规则的薄弱面。
+      - `scripts/validate-guard.mjs` 里 `sos-copy` **一条自测都没有**（28 条覆盖的是 pbxproj、
+        架构排除、服务端地址）。规则躺了很久没人验过它拦不拦得住。补 6 条正反用例，
+        并让 runner 支持 post 模式（内容级规则从磁盘读真实文件，此前 runner 硬编码只跑 `pre`）。
+      - 全仓复扫确认新词表**不误伤既有代码**：唯一命中的 `SafetyModule.swift:88` 带
+        `guard:allow sos-copy`（运营商回执支撑的唯一完成时分支）。
+      - `node scripts/validate-guard.mjs` → 34 条全过。
 
 ## 3. 明示同意（不依赖契约，本次做完）
 
@@ -54,14 +61,18 @@
 - [x] 4.2 `blindRunTests/RunPlanShareConsentTests.swift`：首次走全屏 / 之后走简短确认、
       换账号不继承、bump 版本使旧同意失效、三条告知互不相同且各自完整、
       版本号与文案的字面绑定、拒绝反馈不带劝说。
-- [ ] 4.3 真机跑这两个 suite + 受影响的既有 suite。**当前阻塞：设备锁屏。**
+- [x] 4.3 真机跑这两个 suite + 受影响的既有 suite（范围按符号搜 `blindRunTests` 定，
+      本变更不碰全局单例，不需要全量）：
       ```bash
       scripts/device-test.sh -only-testing:blindRunTests/RunPlanShareMessageTests \
                              -only-testing:blindRunTests/RunPlanShareConsentTests \
                              -only-testing:blindRunTests/KeepWaitingTests \
                              -only-testing:blindRunTests/OrderEnumLeniencyDecodingTests
       ```
-      `passed=0` 一律当失败查。
+      **`passed=51 failed=0 skipped=0 result=Passed`**（iPhone 16 Pro）。
+      逐 suite 核过日志确认不是零执行：`RunPlanShareMessageTests` 10 条、
+      `RunPlanShareConsentTests` 9 条、`KeepWaitingTests` 15 条、
+      `OrderEnumLeniencyDecodingTests` 17 条。
 - [x] 4.4 编译门禁 `build-for-testing` —— **TEST BUILD SUCCEEDED**。
 - [x] 4.5 `validate-guard` / `validate-docs` / `validate-spec-coverage`（读后端 `origin/main`
       契约）/ `openspec validate --strict` 全过。
