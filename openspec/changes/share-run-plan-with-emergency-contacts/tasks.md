@@ -1,52 +1,75 @@
 # Tasks
 
-## 1. 契约投递（与实现并行，结论到之前不改本变更的行为）
+## 1. 契约投递
 
-- [ ] 1.1 投 handoff「待后端确认」：**实时行程分享的完整契约**——令牌签发端点、免登录只读页、
-      失效时机（对标产品绑行程生命周期，不用固定 TTL）、联系人上限、跑后只读页内容。
-      注明这是本方向的终局，本次交付的静态告知是它的真子集。
-- [ ] 1.2 投 handoff：`OrderDetailResponse` **无志愿者身份字段**（只有 `volunteerPhone`），
-      请补一个可对外披露的标识（姓氏 + 平台编号）。附本变更 `design.md` D5 的理由。
-- [ ] 1.3 投 handoff：志愿者手机号能否写进发给第三方的短信，需要志愿者侧授权口径。
+> ⚠️ 当前**投不了**：`demo/docs/handoff.md` 是后端同事的未提交工作区（` M`），
+> 现在写会跟他的 WIP 打架。等 `feat/trip-share-link` 合入 `main` 后立即投递。
+> 答案已经定下来，写在 `proposal.md`「回后端的两个问题」一节，届时原样搬过去。
 
-## 2. 实现
+- [ ] 1.1 答后端问题①：明示告知的形态 → 首次全屏引导页 + 之后每次简短确认，
+      同意按用户 + 告知版本记录。
+- [ ] 1.2 答后端问题②：入口在盲人端订单状态页，非终态全给（含 `PENDING_MATCH`），
+      终态隐藏而非禁用。
+- [ ] 1.3 提问：`OrderDetailResponse` 无志愿者身份字段 —— 分享页你们已给掩码姓名（`李*`），
+      但短信降级路径拿不到它，能否在订单详情里补同一口径的标识。
+- [ ] 1.4 提问：`expiresAt` 是绝对过期还是随订单生命周期延长？决定客户端要不要做续期提示。
+- [ ] 1.5 提问：志愿者手机号能否写进发给第三方的短信（默认不写，与你们「志愿者是第三方」同一口径）。
 
-- [ ] 2.1 新建 `blindRun/Shared/RunPlanShareMessage.swift`：
-      纯函数 `compose(order:) -> String?` + 状态门控 `canShare(status:)`（穷举 switch，见 D2）。
-      **不 import UIKit**，保证可单测。
-- [ ] 2.2 新建 `blindRun/Shared/MessageComposePresenter.swift`：
-      `UIViewControllerRepresentable` 包 `MFMessageComposeViewController`，
-      呈现前查 `canSendText`，`didFinishWithResult:` 回调把 sent/cancelled/failed 交给调用方。
-- [ ] 2.3 `blindRun/BlindRunner/BlindOrderStatusView.swift` 加入口：
-      按 D2 的四态渲染「把这次行程告诉家人」，收件人取主紧急联系人，
-      无联系人时引导到紧急联系人管理页（不隐藏按钮）。
-      按 D4 在回调里播报，走既有 `SpeechService`。
-- [ ] 2.4 **按 `AGENTS.md` §1.1 落守卫**：`scripts/hooks/guard.mjs` 加一条规则，
-      拦住发布产物里出现「已通知家人 / 家人已收到 / 已送达」这类完成时态措辞
-      （与既有 SOS 文案守卫同一族）。同步给 `scripts/validate-guard.mjs` 加正反用例。
+## 2. 静态告知（降级路径）
 
-## 3. 测试
+- [x] 2.1 `blindRun/Shared/RunPlanShareMessage.swift`：文案集中 `RunPlanShareCopy` +
+      纯函数 `compose(order:)`，不 import UIKit。
+      **与初版计划的差异**：状态门控没有放在这个文件，而是作为 `offersRunPlanShare` 放进
+      `blindRun/Core/Models/OrderDisplayHelpers.swift` —— 与 `offersVolunteerCall` /
+      `keepWaitingEndpoint` 同族，后端加状态时一个文件里一起编译报错。
+- [x] 2.2 `blindRun/Shared/MessageComposeSheet.swift`：`UIViewControllerRepresentable` 包
+      `MFMessageComposeViewController`，呈现前查 `canSendText`，coordinator 不自己 dismiss
+      （交给 SwiftUI 的 `isPresented`，避免两边都关）。
+- [x] 2.3 `blindRun/BlindRunner/BlindOrderStatusView.swift` 入口：非终态渲染次级按钮，
+      收件人取主紧急联系人，三道门（先查设备能不能发、再查有没有联系人）。
+      回调按 `didFinishWithResult:` 播报，成功走 `speak`、受阻走 `speakError`。
+- [ ] 2.4 **按 `AGENTS.md` §1.1 落守卫**：`scripts/hooks/guard.mjs` 加一条，
+      拦发布产物里的「已通知家人 / 家人已收到 / 已送达」这类完成时态措辞
+      （与既有 SOS 文案守卫同族）。同步给 `scripts/validate-guard.mjs` 加正反用例。
 
-- [ ] 3.1 `blindRunTests/RunPlanShareMessageTests.swift`（纯单测，不需要真机）：
-      - 四个允许状态各返回非 nil；`PENDING_MATCH` / `COMPLETED` / `CANCELLED` /
-        `REMATCHING` / `NO_VOLUNTEER` 各返回 nil
-      - `endAddress == nil` 时**正文一个「终点」字样都没有**（D5 的硬口径，这条是回归的重点）
-      - `plannedStart` / `plannedEnd` / `startAddress` 各自为 nil 时只省略该项，不整条崩
-      - 正文**不含** `volunteerPhone`、`blindPhone`、`specialNotes`、`visionLevel`
-- [ ] 3.2 `blindRunTests/` 加一条断言：三条播报文案不含「已通知 / 已收到 / 已送达」。
-- [ ] 3.3 跑**收窄范围**的真机测试（按 `AGENTS.md` §11「跑多大范围」，本变更不碰全局单例，
-      不需要全量）：
+## 3. 明示同意（不依赖契约，本次做完）
+
+- [x] 3.1 `blindRun/Shared/RunPlanShareConsent.swift`：告知文案 `RunPlanShareConsentCopy`
+      （三条各自独立）、`RunPlanShareConsentStore`（按用户 + 告知版本存，key 形如
+      `runPlanShareConsent.v1.<userId>`）、`RunPlanShareConsentStep.next(hasGivenConsent:)` 纯函数。
+- [x] 3.2 `blindRun/Shared/RunPlanShareConsentView.swift`：全屏告知页，三条各自是独立
+      VoiceOver 焦点（该 `VStack` 上**不许**加 `children: .combine`），
+      拒绝按钮与同意按钮同样大、同样整行铺满。
+- [ ] 3.3 **挂载点等契约**：`POST` / `DELETE /api/orders/{id}/share` 合入 `main` 后，
+      在实时分享入口前接上 `RunPlanShareConsentStep`，同意后才发请求。
+      拿到 `shareUrl` 原样丢进系统分享面板（**不要**重新拼链接把 fragment 里的 token 挪到 query）。
+- [ ] 3.4 **挂载点等契约**：`DELETE /share` 的「停止分享」入口，以及 404 / 410 的文案分开
+      （404 = 链接不存在，让家属跟分享的人核对；410 = 曾经有效但已结束）。
+
+## 4. 测试
+
+- [x] 4.1 `blindRunTests/RunPlanShareMessageTests.swift`：状态门控穷举（非终态全给 /
+      终态隐藏）、终点为空时正文一个字都不提终点、字段缺失逐项降级、正文不含双方手机号与健康信息、
+      文案不含完成时态措辞。
+- [x] 4.2 `blindRunTests/RunPlanShareConsentTests.swift`：首次走全屏 / 之后走简短确认、
+      换账号不继承、bump 版本使旧同意失效、三条告知互不相同且各自完整、
+      版本号与文案的字面绑定、拒绝反馈不带劝说。
+- [ ] 4.3 真机跑这两个 suite + 受影响的既有 suite。**当前阻塞：设备锁屏。**
       ```bash
       scripts/device-test.sh -only-testing:blindRunTests/RunPlanShareMessageTests \
-                             -only-testing:blindRunTests/blindRunTests
+                             -only-testing:blindRunTests/RunPlanShareConsentTests \
+                             -only-testing:blindRunTests/KeepWaitingTests \
+                             -only-testing:blindRunTests/OrderEnumLeniencyDecodingTests
       ```
       `passed=0` 一律当失败查。
-- [ ] 3.4 `node scripts/validate-guard.mjs` 与 `node scripts/validate-spec-coverage.mjs`
-      （本变更不新增 `/api/` 路径，coverage 应当零变化——若变了说明拼错了路径字面量）。
+- [x] 4.4 编译门禁 `build-for-testing` —— **TEST BUILD SUCCEEDED**。
+- [x] 4.5 `validate-guard` / `validate-docs` / `validate-spec-coverage`（读后端 `origin/main`
+      契约）/ `openspec validate --strict` 全过。
 
-## 4. 收尾
+## 5. 收尾
 
-- [ ] 4.1 真机 `111` 上开 VoiceOver 走一遍：按钮可达、hint 说清「需要你自己点发送」、
-      composer 关闭后**听得到**结果播报（D4 的核心，看不到 sheet 收起）。
-- [ ] 4.2 按 skill `aidrun-ship-check` 输出验证结论，贴真实测试输出。
-- [ ] 4.3 同步 handoff（第 1 节三条），commit，push，开 PR。
+- [ ] 5.1 真机 `111` 开 VoiceOver 走一遍：短信按钮可达、hint 说清「需要你自己点发送」、
+      composer 关闭后**听得到**结果播报；同意页三条告知右滑一次一条、拒绝按钮找得到。
+- [ ] 5.2 低视力档位（AX3 以上字号 + 深色模式）看一眼同意页不裁切。
+- [ ] 5.3 按 skill `aidrun-ship-check` 输出验证结论，贴真实测试输出。
+- [ ] 5.4 后端合入后：投 handoff（第 1 节五条）、接上 3.3 / 3.4、撤掉本文件这条说明。

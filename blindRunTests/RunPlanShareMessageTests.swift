@@ -12,8 +12,13 @@ final class RunPlanShareMessageTests: XCTestCase {
     // MARK: - 状态门控
 
     /// 穷举所有状态。用 `allCases` 而不是逐个写：后端加状态时这条会连同编译器一起提醒。
+    ///
+    /// 非终态全给，与后端 `POST /share` 一致；终态隐藏（后端对终态返 409
+    /// `SHARE_ORDER_ALREADY_FINISHED`，摆一个必然报错的按钮对读屏用户是纯噪音）。
     func testShareIsOfferedOnlyWhenThereIsAnActualRunToDescribe() {
-        let allowed: Set<RunOrderStatus> = [.pendingAccept, .driverEnRoute, .driverArrived, .inProgress]
+        let allowed: Set<RunOrderStatus> = [
+            .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching
+        ]
 
         for status in RunOrderStatus.allCases {
             let shouldOffer = allowed.contains(status)
@@ -30,10 +35,20 @@ final class RunPlanShareMessageTests: XCTestCase {
         }
     }
 
-    /// `PENDING_MATCH` 单独钉一条：还没人接单时能告诉家人的只有「我打算跑」，
-    /// 而订单可能被自动取消 —— 家属拿到的是一条会失效的信息。
-    func testPendingMatchGetsNoShareBecauseTheRunMayNeverHappen() {
-        XCTAssertNil(RunPlanShareMessage.compose(order: Self.makeOrder(status: .pendingMatch)))
+    /// 终态单独钉一条：这三个状态下后端会返 409 `SHARE_ORDER_ALREADY_FINISHED`，
+    /// 客户端要**隐藏**入口而不是禁用后报错。
+    func testTerminalStatusesHideTheEntryInsteadOfFailingLater() {
+        for status in [RunOrderStatus.completed, .cancelled, .noVolunteer] {
+            XCTAssertFalse(status.offersRunPlanShare, "终态 \(status.rawValue) 不该给分享入口")
+            XCTAssertNil(RunPlanShareMessage.compose(order: Self.makeOrder(status: status)))
+        }
+    }
+
+    /// `PENDING_MATCH` 给 —— 与后端口径一致（家属看到「正在找志愿者」也是有意义的）。
+    /// 订单若被自动取消，家属看到的是 `410`（曾经有效但已结束），不是一条无限期的坏链接。
+    func testPendingMatchIsShareableSoFamilyKnowsTheRunIsBeingArranged() throws {
+        let body = try XCTUnwrap(RunPlanShareMessage.compose(order: Self.makeOrder(status: .pendingMatch)))
+        XCTAssertTrue(body.contains("订单号：7001"))
     }
 
     // MARK: - 正文内容
