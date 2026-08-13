@@ -62,14 +62,17 @@
       拦的是「会兑现」的暗示。全仓复扫确认零误伤，`validate-guard.mjs` 加 3 条正反用例
       （并带上 post 模式 runner —— 内容级规则要从磁盘读真实文件，此前 runner 只跑 `pre`）。
       `node scripts/validate-guard.mjs` → 31 条全过。
-- [ ] 5.4 跑收窄范围的真机测试。**当前阻塞：两台设备都不可用**
-      （iPhone `unavailable` 掉线，iPad 锁屏）。
+- [x] 5.4 跑收窄范围的真机测试（范围按符号搜 `blindRunTests` 定；本变更不碰全局单例）：
       ```bash
       scripts/device-test.sh -only-testing:blindRunTests/VolunteerServiceRecognitionTests \
                              -only-testing:blindRunTests/blindRunTests \
                              -only-testing:blindRunTests/OrderEnumLeniencyDecodingTests
       ```
-      `passed=0` 一律当失败查。
+      **`passed=311 failed=0 skipped=0 result=Passed`**（iPhone 16 Pro）。
+      逐 suite 核过日志确认不是零执行：`VolunteerServiceRecognitionTests` 12 条
+      （逐条 passed）、`blindRunTests` 281 条、`OrderEnumLeniencyDecodingTests` 17 条。
+      `blindRunTests` 全绿说明改掉的那两处旧断言（`resolvedPointsBalance == 100 / 200`）
+      没有连累同套件的其它用例。
 
 ## 6. 收尾
 
