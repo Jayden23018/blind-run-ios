@@ -11,7 +11,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { isResearchTool, researchLanded, researchToolsUsed, researchTodo, sessionStart } from './hooks/research-log.mjs';
+import { isResearchTool, researchLanded, researchToolsUsed, researchTodo } from './hooks/research-log.mjs';
+// 会话起点在 #8 的重构里搬去了 transcript.mjs（stop-checklist 也用它），研究钩子只是消费方。
+import { sessionStartedAt } from './hooks/transcript.mjs';
 
 const hook = path.resolve(import.meta.dirname, 'hooks/research-log.mjs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-research-'));
@@ -114,16 +116,31 @@ const cases = [
     },
   },
   {
-    name: 'sessionStart 取得到会话起点，且缺失/损坏时返回 null 而不是崩',
+    name: 'sessionStartedAt 取得到会话起点；损坏行跳过而不是放弃，只有读不到文件才返回 null',
     check: () => {
       const p = path.join(tmp, 'ts.jsonl');
       fs.writeFileSync(p, `${JSON.stringify({ timestamp: '2026-08-13T14:11:11.722Z', type: 'x' })}\n{坏行\n`);
-      if (sessionStart(p) !== '2026-08-13T14:11:11.722Z') return `没取到首行 timestamp，实得 ${sessionStart(p)}`;
-      const bad = path.join(tmp, 'bad.jsonl');
-      fs.writeFileSync(bad, '{ 这行不是 JSON\n');
-      if (sessionStart(bad) !== null) return '首行损坏时没返回 null';
-      if (sessionStart(path.join(tmp, '不存在.jsonl')) !== null) return '文件不存在时没返回 null';
-      return sessionStart(undefined) === null ? null : '路径缺失时没返回 null';
+      if (sessionStartedAt(p) !== '2026-08-13T14:11:11.722Z') return `没取到首行 timestamp，实得 ${sessionStartedAt(p)}`;
+
+      // 首行损坏**不能**放弃整份 transcript：放弃 = 退回只看 HEAD 的旧判据，
+      // 而那个判据正是 2026-08-13 连报 4 次误报的成因。要的是跳过坏行接着找。
+      const leading = path.join(tmp, 'leading-bad.jsonl');
+      fs.writeFileSync(leading, `{ 这行不是 JSON\n${JSON.stringify({ timestamp: '2026-08-13T15:00:00.000Z' })}\n`);
+      if (sessionStartedAt(leading) !== '2026-08-13T15:00:00.000Z') {
+        return `首行损坏时没跳过去取下一条，实得 ${sessionStartedAt(leading)}`;
+      }
+
+      // 一条时间戳都没有（旧格式 / 夹具）：退回文件自身时间，仍然给得出可喂 --since 的值。
+      const noTs = path.join(tmp, 'no-timestamp.jsonl');
+      fs.writeFileSync(noTs, '{ 这行不是 JSON\n');
+      const fallback = sessionStartedAt(noTs);
+      if (!fallback || Number.isNaN(Date.parse(fallback))) {
+        return `没有时间戳时该退回文件时间，实得 ${fallback}`;
+      }
+
+      // 只有「压根读不到」才是 null —— 调用方靠它区分「没有 transcript」和「有但没干活」。
+      if (sessionStartedAt(path.join(tmp, '不存在.jsonl')) !== null) return '文件不存在时没返回 null';
+      return sessionStartedAt(undefined) === null ? null : '路径缺失时没返回 null';
     },
   },
   {
