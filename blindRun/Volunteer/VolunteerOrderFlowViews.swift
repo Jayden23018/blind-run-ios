@@ -709,6 +709,7 @@ struct VolunteerOrderDetailView: View {
 
                 if let order = viewModel.order {
                     VolunteerStatusBanner(status: order.status)
+                    VolunteerRunnerNeedsBanner(order: order)
                     VolunteerOrderMap(order: order)
                     VolunteerBlindRunnerInfoCard(order: order, showPhone: viewModel.canShowPhone)
                     VolunteerOrderInfoSection(order: order, distanceText: distanceText(for: order))
@@ -2373,6 +2374,9 @@ struct VolunteerServiceBottomPanel: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 VolunteerServiceStageHeader(status: order.status)
+                // 排在跑者卡（姓名 + 电话）之前：先知道「这个人需要我怎么带」，
+                // 再知道「他叫什么、怎么联系」。
+                VolunteerRunnerNeedsBanner(order: order)
                 VolunteerServiceRunnerCard(order: order)
                 VolunteerServiceOrderEssentials(order: order, distanceText: distanceText)
 
@@ -2522,6 +2526,57 @@ struct VolunteerServiceRunnerCard: View {
 /// 服务中面板的订单要点。**只被 `VolunteerServiceBottomPanel` 用**，那是接单之后的界面，
 /// 所以这里的自由文本（路线备注 / 特殊说明）不加闸。
 /// 要在接单前的界面复用它，先接 `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`。
+/// 「本单为视障跑者」提示位。
+///
+/// 对标打车软件给司机弹的「此订单乘客为视障人士」：那条提示的价值不在于告知身份，
+/// 而在于**改变司机接下来的动作**（下车接、口头引导、别按喇叭催）。这里同理，
+/// 真正有用的是 `引导方式` 那一行 —— 递牵引绳 / 让对方挽手臂 / 只用口令是三种完全不同的做法。
+///
+/// 刻意**不做可折叠**：折叠等于把它降级成「想看再看」，而这几行正是志愿者见面前
+/// 唯一必须先知道的东西。内容为空时整块不渲染（判定在 `OrderDetailResponse.escortNeeds`），
+/// 所以「不可跳过」不会变成「每单都有一块空卡片」。
+struct VolunteerRunnerNeedsBanner: View {
+    let order: OrderDetailResponse
+
+    var body: some View {
+        let needs = order.escortNeeds
+        if !needs.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("本单为视障跑者", systemImage: "figure.walk.motion")
+                    .font(AppFonts.body().weight(.bold))
+                    .foregroundColor(AppColors.primary)
+
+                ForEach(needs) { need in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: need.symbolName)
+                            .font(AppFonts.caption().weight(.semibold))
+                            .foregroundColor(AppColors.primary)
+                            .frame(width: 20)
+                            .accessibilityHidden(true)
+                        Text("\(need.title)：\(need.value)")
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppColors.primary.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(AppColors.primary.opacity(0.35), lineWidth: 1)
+            )
+            // 合成一个焦点，且朗读文本写死：逐行分开会让读屏用户滑过其中一条而不自知，
+            // 而这几行的意义恰恰在于「一条都不能漏」。
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(order.escortNeedsAnnouncement)
+            .accessibilityIdentifier("volunteerRunnerNeedsBanner")
+        }
+    }
+}
+
 struct VolunteerServiceOrderEssentials: View {
     let order: OrderDetailResponse
     let distanceText: String?
@@ -2801,9 +2856,9 @@ struct VolunteerOrderInfoSection: View {
             if let route = order.routePreference {
                 infoRow("路线偏好", route.displayName)
             }
-            if order.hasGuideDogThisRun == true {
-                infoRow("导盲犬", "本次携带")
-            }
+            // 「导盲犬」那一行移进 `VolunteerRunnerNeedsBanner` —— 它和视力情况、引导方式
+            // 是同一类信息（决定见面第一个动作），散在订单信息的第 8 行里等于没有。
+            // 两处都渲染会让接单后同一句话出现两遍。
             if showsSensitiveNotes, let notes = order.specialNotes?.nilIfBlank {
                 infoRow("特殊说明", notes)
             }
@@ -2863,6 +2918,9 @@ struct VolunteerReadOnlyOrderView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VolunteerStatusBanner(status: order.status)
+                // 只读回看也保留：导盲犬那一行原本在订单信息里，从那儿移走之后
+                // 这个页面不补上就成了净丢失。
+                VolunteerRunnerNeedsBanner(order: order)
                 VolunteerBlindRunnerInfoCard(order: order, showPhone: order.status != .pendingMatch && order.blindPhone?.trimmed.isEmpty == false)
                 VolunteerOrderInfoSection(order: order, distanceText: nil)
                 if order.status == .completed, let track = trackViewModel.track {
