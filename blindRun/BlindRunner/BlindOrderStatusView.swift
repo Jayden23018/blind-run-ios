@@ -868,6 +868,15 @@ struct BlindOrderStatusView: View {
                     .foregroundColor(AppColors.textPrimary)
                     .multilineTextAlignment(.center)
             }
+
+            // 服务进行中，把约定的结束时间摆在首屏。低视力用户靠这行字看到，
+            // 读屏用户靠 `statusHeaderAnnouncement` 听到 —— 两条通道都要有。
+            if let plannedEndText = plannedEndHeaderText(order) {
+                Text(plannedEndText)
+                    .font(.title2.bold())
+                    .foregroundColor(AppColors.textPrimary)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding()
@@ -877,12 +886,25 @@ struct BlindOrderStatusView: View {
         .accessibilityLabel(statusHeaderAnnouncement(order))
     }
 
+    /// 结束时间只在服务进行中出现在首屏。派单期、汇合期摆它没有用（还没开始跑），
+    /// 终态更不该摆（已经结束了，一个「预计」是噪音）。
+    ///
+    /// 拼接抽成独立函数而不是塞进 `Text(...)`：带可选拆包的字符串插值放在 view builder 里
+    /// 会把类型检查器拖到超时（`unable to type-check this expression in reasonable time`）。
+    private func plannedEndHeaderText(_ order: OrderDetailResponse) -> String? {
+        guard order.status == .inProgress, let end = order.plannedEndForAnnouncement else { return nil }
+        return "预计 \(end) 结束"
+    }
+
     /// 合并后的朗读文本写死，不交给 `.combine` 自己拼 —— 自动拼接会把状态名、说明和距离
     /// 糊成一长串没有停顿的音。
     private func statusHeaderAnnouncement(_ order: OrderDetailResponse) -> String {
         var parts = [order.status.displayName, order.status.blindRunnerDescription]
         if let distanceText = viewModel.volunteerDistanceToStartText {
             parts.append("志愿者\(distanceText)")
+        }
+        if let plannedEndText = plannedEndHeaderText(order) {
+            parts.append(plannedEndText)
         }
         return parts.joined(separator: "。")
     }
@@ -1398,6 +1420,12 @@ struct BlindOrderStatusView: View {
     private func orderInfoRows(_ order: OrderDetailResponse) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             infoRow("预约时间", (order.plannedStart ?? "").displayDateTime)
+            // 约定的结束时间。取 `plannedEnd`，**不是** `预约时间 + 预计时长` 推的 ——
+            // 理由见 `plannedEndForAnnouncement`。下面那行「预计时长」是用户下单时选的档位，
+            // 两者放在一起时更要分清：时长是意愿，结束时间是后端算出来的约定。
+            if let plannedEnd = order.plannedEndForAnnouncement {
+                infoRow("预计结束时间", plannedEnd)
+            }
             if let address = order.startAddress, !address.trimmed.isEmpty {
                 infoRow("出发地点", address)
             }

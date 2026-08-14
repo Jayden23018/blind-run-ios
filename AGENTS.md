@@ -196,16 +196,19 @@ REMATCHING → CANCELLED（只能盲人 token）
 9. **commit**：`type: 描述`（type 取 feat/fix/refactor/docs/test/chore/perf/ci）。**不带 `Co-Authored-By`**（`~/.claude/settings.json` 的 `includeCoAuthoredBy: false` 已全局关闭，不要手动加回来）
 10. **push**
 
-> 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**工作树脏**或**领先 origin**
-> 时拦住本次停止并列出欠账。两条约束让它不至于变成噪音：
+> 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**本轮写过的文件没提交**或
+> **领先 origin** 时拦住本次停止并列出欠账。三条约束让它不至于变成噪音：
 > - `stop_hook_active` 兜底，一次停止只拦一次 —— 用户说「先不提交」时回一句说明再停即可，不会死循环
 > - 同一份欠账（相同路径集合 + 相同领先数）只提醒一次，签名存 `.git/aidrun-stop-checklist-seen`。
 >   别人没写完的脏文件长期躺着时不会每轮都叫；欠账内容变了才重新叫
+> - **欠账只算本轮 Edit/Write 写过的路径**（从 transcript 取，`scripts/hooks/transcript.mjs`）。
+>   并行会话或同事在改的脏文件降级为提示；调研落盘同理，会去**本轮会话内的所有分支**找提交，
+>   不只看工作树和 HEAD —— 单开 docs 分支提交调研是常态，只看 HEAD 会每轮误报一次
 >
 > handoff（第 8 步）**不作独立触发条件**，只在已有欠账时附带提醒 —— 纯客户端改动本就不该投递，
 > 拿「提交晚于 handoff」当触发会让每次工具链提交都误报。什么该投递见记忆 `handoff-upkeep-workflow`。
 >
-> 自测 `scripts/validate-stop-checklist.mjs`（5 条，CI 与 pre-push 都跑）。
+> 自测 `scripts/validate-stop-checklist.mjs`（9 条，CI 与 pre-push 都跑）。
 >
 > 这条从「用户每轮口头提醒」升级成钩子，走的是 §1.3。
 
