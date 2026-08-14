@@ -281,6 +281,50 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
+    // MARK: - 首次使用引导
+
+    /// 全新安装第一次进首页，必须自动给到引导；按「知道了」之后回到首页。
+    ///
+    /// 这条是**唯一**覆盖自动进入路径的用例 —— 其余所有 UI 用例都走默认的「已看过」分支
+    /// （见 `launchBlindHome` 的 `forcingFirstRunHelp`），删了它就没有任何东西
+    /// 证明引导真的会出现。
+    @MainActor
+    func testBlindFirstRunHelpAppearsOnFirstLaunchAndReturnsHome() throws {
+        let app = launchBlindHome(forcingFirstRunHelp: true)
+
+        let done = app.descendants(matching: .any)["blindRunnerHelpDoneButton"].firstMatch
+        XCTAssertTrue(
+            done.waitForExistence(timeout: 20),
+            "全新安装第一次进首页没有出现引导。没人教的话，两指双击求助这个手势谁都猜不到"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindRunnerHelpRepeatButton"].firstMatch.exists,
+            "引导页缺少「再听一遍」。一次性播报漏听就再也拿不回来，这一页最需要重听"
+        )
+
+        done.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+                .waitForExistence(timeout: 20),
+            "按「知道了」之后没回到首页"
+        )
+    }
+
+    @MainActor
+    func testBlindFirstRunHelpPassesAccessibilityAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome(forcingFirstRunHelp: true)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindRunnerHelpDoneButton"].firstMatch
+                .waitForExistence(timeout: 20),
+            "引导页没起来，后面的审计结果没有意义"
+        )
+        try audit(app)
+    }
+
     /// 反向断言：有进行中订单时「问一句」必须在。
     /// 防止把上一条用「整个删掉」来满足 —— 那是这个能力真正有用的唯一状态。
     @MainActor
@@ -378,7 +422,8 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     private func launchBlindHome(
         forcingVoiceStage: Bool = false,
-        emptyOrders: Bool = true
+        emptyOrders: Bool = true,
+        forcingFirstRunHelp: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -401,6 +446,11 @@ final class AccessibilityAuditTests: XCTestCase {
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
         if forcingVoiceStage {
             app.launchEnvironment["AIDRUN_UI_TEST_FORCE_VOICE_STAGE"] = "1"
+        }
+        // 不传就跳过首次引导。`blindRunApp.applyUITestLaunchConfigurationIfNeeded` 默认把
+        // 「已看过」置位 —— 否则每条用例一进首页就被引导页挡住，二十多条断言全红。
+        if forcingFirstRunHelp {
+            app.launchEnvironment["AIDRUN_UI_TEST_FORCE_FIRST_RUN_HELP"] = "1"
         }
 
         addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in

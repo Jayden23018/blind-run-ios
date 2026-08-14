@@ -98,6 +98,12 @@ struct blindRunApp: App {
         if let activeRole = resolvedUITestRoleRaw(from: environment["AIDRUN_UI_TEST_ACTIVE_ROLE"]) {
             appState.activeRole = UserRole(rawValue: activeRole)
         }
+        // 首次引导默认**跳过**。UI 用例一律 `RESET_STATE`，于是每一条都会在首页被引导页挡住，
+        // 全部断言当场红 —— 让二十多条用例各加一个环境变量是把关系搞反了。
+        // 专门测引导的用例设 `AIDRUN_UI_TEST_FORCE_FIRST_RUN_HELP=1` 走真实首次路径。
+        if environment["AIDRUN_UI_TEST_FORCE_FIRST_RUN_HELP"] != "1" {
+            appState.markBlindFirstRunHelpSeen()
+        }
         if environment["AIDRUN_UI_TEST_PRESEEDED_BLIND_PROFILE"] == "1" {
             appState.updateBlindProfile(
                 BlindProfileResponse(
