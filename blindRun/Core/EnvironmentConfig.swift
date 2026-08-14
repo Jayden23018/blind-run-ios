@@ -84,6 +84,13 @@ enum AppConstants {
         static let activeRole = "com.aidrun.mvp.activeRole"
         static let apiEnvironment = "com.aidrun.mvp.apiEnvironment"
         static let blindIdentityPromptDismissed = "com.aidrun.mvp.blindIdentityPromptDismissed"
+        /// 首次使用引导是否已经看过。
+        ///
+        /// **刻意不进 `AppStatePersistenceKeys.all`，登出也不清。** 它记的是「这个人会不会用
+        /// 这个 App」，不是账号数据 —— 换手机号重新登录的盲人被强制再听一遍一分钟的引导，
+        /// 是实打实的打扰，而漏掉引导的代价有兜底：「设置 → 使用帮助」一直在。
+        /// 测试不受影响：单测与 UI 测试都跑在独立 suite 上，`reset()` 整域清除。
+        static let blindFirstRunHelpSeen = "com.aidrun.mvp.blindFirstRunHelpSeen"
     }
 
     enum Defaults {

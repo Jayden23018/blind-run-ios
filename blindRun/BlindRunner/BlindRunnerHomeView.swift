@@ -11,6 +11,8 @@ private enum BlindRunnerRoute: Hashable {
     case voiceBooking
     case orderStatus(Int64)
     case settings
+    /// 首次使用引导。首次进首页自动推入一次，也可从设置进入。
+    case help
 }
 
 // MARK: - Blind Runner Home ViewModel
@@ -486,6 +488,13 @@ struct BlindRunnerHomeView: View {
                 viewModel.cancelLoading()
             }
             .task {
+                // 引导先于订单加载推入：它不依赖订单，而等加载完再跳会让用户先听半句首页播报
+                // 再被切走。`.task` 只在根视图首次出现时跑，所以从引导页返回不会把人弹回去；
+                // 标志只在按下「知道了」时才写（`markBlindFirstRunHelpSeen`），
+                // 没看完就退出的人下次重进 App 仍会拿到引导。
+                if !appState.didSeeBlindFirstRunHelp {
+                    path.append(.help)
+                }
                 await viewModel.loadActiveOrder()
             }
             .confirmationDialog("取消订单", isPresented: $showCancelConfirmation) {
@@ -671,6 +680,8 @@ struct BlindRunnerHomeView: View {
             }
         case .settings:
             BlindRunnerSettingsView()
+        case .help:
+            BlindRunnerHelpView(isFirstRun: true)
         }
     }
 
