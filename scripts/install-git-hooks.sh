@@ -97,8 +97,26 @@ run "swift test AidRunAPI（本机唯一不用真机的测试）" swift test --p
 # 确实要拿未合并的后端改动验证 iOS 侧：AIDRUN_ALLOW_BACKEND_DRIFT=1 git push
 # ——现在它的含义就是字面意思「改读工作区文件」。也可以用 AIDRUN_API_SPEC= 等变量逐个指定路径。
 # fetch 失败（离线）就拿手上已有的 origin/main 比，不因为没网就拦住 push。
-BACKEND_DIR="${AIDRUN_BACKEND_DIR:-../demo}"
+# `../demo` 相对于**主 worktree**解析，不是相对于当前 worktree。
+#
+# 2026-08-14 踩到：为了不打扰并行会话，在 /tmp/aidrun-pr8 开了个隔离 worktree 解冲突，
+# 从那里 push —— `../demo` 变成 `/tmp/demo`，不存在，于是读后端契约的 4 条门禁**全部跳过**，
+# 而末行照样打印「全部通过」。隔离 worktree 恰恰是本仓库推荐的复验方式
+# （记忆 `shared-checkout-concurrent-colleague-edits`），所以这条会反复发生。
+# `--git-common-dir` 在任何 worktree 里都指向主仓库的 .git，它的父目录就是主 worktree。
+BACKEND_DIR="${AIDRUN_BACKEND_DIR:-}"
+if [ -z "$BACKEND_DIR" ]; then
+  BACKEND_DIR="../demo"
+  if _common_git_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
+    BACKEND_DIR="$(dirname "$(dirname "$_common_git_dir")")/demo"
+  fi
+fi
 BACKEND_WORKTREE="${AIDRUN_ALLOW_BACKEND_DRIFT:-0}"
+
+# 有没有门禁被跳过。跳过不等于失败（离线、没有后端 checkout 都是合理的），
+# 但**绝不能汇报成「全部通过」** —— 那正是上面那次事故里最危险的一环：
+# 4 行 ⚠「这不算通过」之后紧跟一行「全部通过」，只看末行的人会以为验过了。
+SKIPPED_GATES=0
 BACKEND_TMP="$(mktemp -d 2>/dev/null)" || BACKEND_TMP="/tmp/aidrun-prepush-contract.$$"
 mkdir -p "$BACKEND_TMP"
 trap 'rm -rf "$BACKEND_TMP"' EXIT
@@ -159,6 +177,7 @@ if [ -f "$SPEC" ]; then
   fi
 else
   echo "[pre-push] ⚠ 跳过契约覆盖校验与生成代码比对：从 $SPEC_SOURCE 取不到 docs/api_spec.yaml。这不算通过。"
+  SKIPPED_GATES=$((SKIPPED_GATES + 1))
 fi
 
 CORPUS="$(backend_file docs/voice-golden-corpus.json voice-golden-corpus.json "${AIDRUN_GOLDEN_CORPUS:-}")"
@@ -166,6 +185,7 @@ if [ -f "$CORPUS" ]; then
   run "validate-golden-corpus" node scripts/validate-golden-corpus.mjs "$CORPUS"
 else
   echo "[pre-push] ⚠ 跳过黄金语料对齐：从 $(source_label "${AIDRUN_GOLDEN_CORPUS:-}" AIDRUN_GOLDEN_CORPUS) 取不到 docs/voice-golden-corpus.json。这不算通过。"
+  SKIPPED_GATES=$((SKIPPED_GATES + 1))
 fi
 
 CODES="$(backend_file src/main/java/com/example/demo/exception/ErrorCode.java ErrorCode.java "${AIDRUN_BACKEND_ERROR_CODES:-}")"
@@ -173,6 +193,7 @@ if [ -f "$CODES" ]; then
   run "validate-error-codes" node scripts/validate-error-codes.mjs "$CODES"
 else
   echo "[pre-push] ⚠ 跳过错误码对撞：从 $(source_label "${AIDRUN_BACKEND_ERROR_CODES:-}" AIDRUN_BACKEND_ERROR_CODES) 取不到 ErrorCode.java。这不算通过。"
+  SKIPPED_GATES=$((SKIPPED_GATES + 1))
 fi
 
 # 这一道读两个 .java：VoiceSlotParser（INTENT_* 正则）与 VoiceOrderService（序数播报用词）。
@@ -185,6 +206,7 @@ if [ -f "$VOICE_PARSER" ] && [ -f "$VOICE_SERVICE" ]; then
     node scripts/validate-voice-intent-words.mjs "$VOICE_PARSER"
 else
   echo "[pre-push] ⚠ 跳过确认轮词表对撞：从 $(source_label "${AIDRUN_BACKEND_VOICE_PARSER:-}" AIDRUN_BACKEND_VOICE_PARSER) 取不到 VoiceSlotParser.java / VoiceOrderService.java。这不算通过。"
+  SKIPPED_GATES=$((SKIPPED_GATES + 1))
 fi
 
 if [ "$fail" -ne 0 ]; then
@@ -192,7 +214,12 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "[pre-push] 全部通过。提醒：编译通过 ≠ 测试通过，真机跑测用 scripts/device-test.sh。"
+if [ "$SKIPPED_GATES" -ne 0 ]; then
+  echo "[pre-push] 跑过的都通过了，但**有 $SKIPPED_GATES 道读后端契约的门禁被跳过（见上面的 ⚠）**，不等于契约对过了。"
+  echo "          最常见的原因是 $BACKEND_DIR 不存在或不是后端 checkout；用 AIDRUN_BACKEND_DIR= 指到正确路径。"
+else
+  echo "[pre-push] 全部通过。提醒：编译通过 ≠ 测试通过，真机跑测用 scripts/device-test.sh。"
+fi
 HOOK_BODY
 
 chmod +x "$HOOK"

@@ -39,6 +39,9 @@ if (start < 0 || end < 0 || end <= start) {
   process.exit(1);
 }
 const section = body.slice(start, end);
+// 收尾那段（fail 判定 + 最终汇报）。它不属于「契约来源」，但**汇报是否诚实**要在这里验：
+// 2026-08-14 事故正是 4 行 ⚠「这不算通过」之后紧跟一行「全部通过」。
+const tail = body.slice(end);
 
 // ── 造 fixture：后端 origin/main 是契约，工作区是同事未提交的 WIP ────────────
 //
@@ -115,21 +118,67 @@ ${section}
 echo "FAIL=$fail"
 `;
 fs.writeFileSync(path.join(app, 'harness.sh'), harness);
+// 带收尾汇报的版本，只给「跳过 ≠ 全部通过」那条用例用。
+fs.writeFileSync(path.join(app, 'harness-with-report.sh'), `${harness}${tail}`);
 
-function runHook(env = {}) {
+function runHook(env = {}, { cwd = app, script = 'harness.sh', backendDir = backend } = {}) {
   git(app, 'checkout', '-q', '--', '.'); // 上一条用例可能把产物改脏了
-  const r = spawnSync('bash', ['harness.sh'], {
-    cwd: app,
+  const r = spawnSync('bash', [path.join(app, script)], {
+    cwd,
     encoding: 'utf8',
     // 同样要剥 GIT_*：被测段落里的 `git -C … show` 和 `git status --porcelain`
     // 一旦被 GIT_DIR 指回本仓库，验的就不是 fixture 了。
-    env: cleanEnv({ AIDRUN_BACKEND_DIR: backend, ...env }),
+    // backendDir=null 表示**不设** AIDRUN_BACKEND_DIR，走默认解析那条路径。
+    env: cleanEnv({ ...(backendDir === null ? {} : { AIDRUN_BACKEND_DIR: backendDir }), ...env }),
   });
   return r.stdout + r.stderr;
 }
 
 // ── 用例 ────────────────────────────────────────────────────────────────────
 const cases = [
+  {
+    // 2026-08-14 事故：为了不打扰并行会话，在 /tmp 开隔离 worktree 解冲突并从那里 push，
+    // `../demo` 变成 `/tmp/demo`（不存在）→ 4 道读后端契约的门禁全部静默跳过。
+    // 隔离 worktree 正是本仓库推荐的复验方式，所以这条不修就会反复发生。
+    name: '从 linked worktree push 时，默认路径仍要按**主 worktree** 找到后端（不是当前 worktree 的 ../demo）',
+    check: () => {
+      // 后端放在主 worktree 的兄弟位置（真实布局：~/Downloads/blind-run-ios 与 ~/Downloads/demo）
+      const sibling = path.join(tmp, 'demo');
+      if (!fs.existsSync(sibling)) fs.symlinkSync(backend, sibling);
+      // worktree 故意开在**另一个父目录**下：这样 `../demo` 解不出来，
+      // 只有「按主 worktree 解析」才找得到。不这么放，用例会假绿。
+      const away = path.join(tmp, 'elsewhere');
+      fs.mkdirSync(away, { recursive: true });
+      const wt = path.join(away, 'app-wt');
+      if (!fs.existsSync(wt)) {
+        const r = git(app, 'worktree', 'add', '-q', '--detach', wt);
+        if (r.status !== 0) return `建 worktree 失败：${r.stderr}`;
+      }
+      if (fs.existsSync(path.join(away, 'demo'))) return 'fixture 布置错了：worktree 的 ../demo 不该存在';
+
+      const out = runHook({}, { cwd: wt, backendDir: null });
+      if (out.includes('这不算通过')) {
+        return `在 linked worktree 里没找到后端契约，门禁被静默跳过 —— 就是这次的 bug。实得：\n${out}`;
+      }
+      const gates = out.split('\n').filter((l) => l.startsWith('GATE '));
+      return gates.length === 4 ? null : `期望 4 道门禁都拿到文件，实得 ${gates.length}：\n${out}`;
+    },
+  },
+  {
+    name: '有门禁被跳过时，收尾**不许**汇报「全部通过」（只看末行的人会以为验过了）',
+    check: () => {
+      const empty = path.join(tmp, 'not-a-backend');
+      fs.mkdirSync(empty, { recursive: true });
+      const out = runHook({}, { script: 'harness-with-report.sh', backendDir: empty });
+      if (!out.includes('这不算通过')) return `fixture 没造出「取不到契约」的场景：\n${out}`;
+      if (out.includes('全部通过')) {
+        return `4 道门禁被跳过，末行仍说「全部通过」—— 就是这次的 bug。实得：\n${out}`;
+      }
+      if (!/被跳过/.test(out)) return `跳过时的收尾没说清有多少道没跑：\n${out}`;
+      // 跳过不是失败：不能因为读不到后端就拦住 push（离线、没 checkout 都合理）。
+      return /FAIL=0/.test(out) ? null : `跳过被当成了失败：\n${out}`;
+    },
+  },
   {
     name: '默认路径：5 份契约全部取自 origin/main，不读后端工作区的 WIP',
     check: () => {
