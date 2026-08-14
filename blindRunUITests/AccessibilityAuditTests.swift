@@ -299,6 +299,34 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(ask.isHittable, "「问一句」存在但够不着，等于没有")
     }
 
+    /// 有订单态也要能不滚动够到「重复当前状态」。
+    ///
+    /// 上面那条无订单版守了半年，而**有订单态一直没人守** —— 偏偏这一态的内容更长：
+    /// 状态卡 + 「查看当前订单」+ 可能的「取消订单」+ 「问一句」全排在它前面。
+    /// 2026-08-14 用户在真机上看到的就是这个：默认进来「重复当前状态」被底部 SOS 条切掉一截。
+    ///
+    /// 断言写在这一态而不是把上面那条改成参数化：两态的前置数据（`emptyOrders`）不同，
+    /// 合成一条要么共用一个 launch 参数、要么在用例里分支，都比多一条用例难读。
+    @MainActor
+    func testBlindHomeWithAnActiveOrderKeepsRepeatStatusReachable() throws {
+        let app = launchBlindHome(emptyOrders: false)
+        XCTAssertTrue(
+            app.buttons["查看当前订单"].firstMatch.waitForExistence(timeout: 20),
+            "有订单的盲人首页没起来，后面的断言没有意义"
+        )
+
+        let repeatControl = app.buttons["重复当前状态"].firstMatch
+        XCTAssertTrue(repeatControl.waitForExistence(timeout: 10), "有订单的盲人首页缺少「重复当前状态」")
+        XCTAssertTrue(
+            repeatControl.isHittable,
+            """
+            有进行中订单时「重复当前状态」要滚动才够得着。\
+            这一态排在它前面的东西最多，是最容易把它顶出可见区的一态 —— \
+            往这一列加东西之前，先想清楚新加的那行值不值得把它顶下去。
+            """
+        )
+    }
+
     /// 后端的 `ORDER_CANCELLATION_WARNING` 正文逐字是「您的订单即将因长时间无人接单被取消，
     /// **点击继续等待可延长**」。这条用例钉的就是那句话响起时，屏幕上真的有这个控件、
     /// 而且**不用滚动**就够得着 —— 播报里让人点一个只存在于后端文案里的按钮，
