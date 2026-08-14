@@ -46,6 +46,31 @@ final class AccountDeletionViewModel: ObservableObject {
         }
         showFinalConfirmation = true
     }
+
+    /// 最终确认弹窗正文。逐条对着后端 `UserService.deleteAccount` 的真实行为写：
+    /// 用户行软删除 + 手机号改写释放，PII 级联硬删（盲人是实名资料 / 紧急联系人 / 常用地址，
+    /// 志愿者是证件照 OSS / 资料 / 可服务时间，两端都删轨迹点 / 工单 / APNs token），
+    /// 而**订单、评价、求助事件刻意保留** —— 后端注释写明它们不存姓名手机号，留作纠纷复核审计。
+    ///
+    /// 两端说各自删的那份：文案里出现用户根本没有的东西（对盲人说「证件照」）会让他怀疑自己填过什么。
+    /// 保留项必须说 —— PIPL 第 47 条下用户对「删了什么、留了什么」有知情权，
+    /// 而「此操作不可撤销」配上只字不提的保留项，很容易被理解成订单记录也一并没了。
+    static func finalConfirmationMessage(for role: UserRole) -> String {
+        let deleted: String
+        switch role {
+        case .blind:
+            deleted = "你的实名信息、紧急联系人、常用地址和跑步轨迹"
+        case .volunteer:
+            deleted = "你的资质证件照、志愿者资料、可服务时间和服务轨迹"
+        case .unset:
+            // 角色还没定的账号只有登录信息，没有上面任何一份资料。
+            deleted = "你的账户资料"
+        }
+        return """
+        将删除\(deleted)。历史订单与评价会保留用于纠纷复核，其中不含你的姓名和手机号。\
+        所有登录令牌立即失效，手机号可以重新注册。此操作不可撤销。
+        """
+    }
 }
 
 // MARK: - AppState

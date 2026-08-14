@@ -2363,6 +2363,27 @@ final class blindRunTests: XCTestCase {
         XCTAssertFalse(viewModel.showFinalConfirmation)
     }
 
+    /// 后端 `UserService.cascadeDeletePii` 刻意保留订单与评价（不存姓名手机号，留作纠纷复核审计）。
+    /// PIPL 第 47 条下这件事必须让用户在按下「永久删除账户」之前知道 —— 而这句正是未来
+    /// 「文案太长，精简一下」时最先被删掉的一句，所以钉在这里。
+    func testAccountDeletionCopyStatesWhatIsDeletedAndWhatIsKept() {
+        for role in [UserRole.blind, .volunteer, .unset] {
+            let message = AccountDeletionViewModel.finalConfirmationMessage(for: role)
+            XCTAssertTrue(message.contains("历史订单与评价会保留"), "\(role.rawValue) 文案没说清保留项")
+            XCTAssertTrue(message.contains("手机号可以重新注册"), "\(role.rawValue) 文案没说手机号可重注册")
+            XCTAssertTrue(message.contains("不可撤销"), "\(role.rawValue) 文案没说不可撤销")
+        }
+
+        // 两端各说各自真的会被删的那份：对盲人说「证件照」会让他怀疑自己填过什么。
+        let blind = AccountDeletionViewModel.finalConfirmationMessage(for: .blind)
+        XCTAssertTrue(blind.contains("紧急联系人"))
+        XCTAssertFalse(blind.contains("资质证件照"))
+
+        let volunteer = AccountDeletionViewModel.finalConfirmationMessage(for: .volunteer)
+        XCTAssertTrue(volunteer.contains("资质证件照"))
+        XCTAssertFalse(volunteer.contains("紧急联系人"))
+    }
+
     func testURLSessionRateLimitPrefersRetryAfterHeader() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [AuthLifecycleURLProtocol.self]
