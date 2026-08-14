@@ -1714,7 +1714,7 @@ struct BlindBookingView: View {
 
             Button("去设置") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
+                    UIApplication.shared.open(url) // guard:allow raw-open-url 系统设置，不是拨号
                 }
             }
             .buttonStyle(.borderedProminent)

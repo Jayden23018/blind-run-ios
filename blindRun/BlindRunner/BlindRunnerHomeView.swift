@@ -495,11 +495,11 @@ struct BlindRunnerHomeView: View {
                 if let contact = primaryEmergencyContact,
                    let url = EmergencyDialer.telURL(for: contact.phone) {
                     Button(EmergencySafetyCopy.homeCallContactTitle(name: contact.name)) {
-                        openURL(url)
+                        EmergencyDialer.dial(url)
                     }
                 }
                 if let policeURL = EmergencyDialer.telURL(for: EmergencyDialer.policeNumber) {
-                    Button(EmergencySafetyCopy.homeCallPoliceTitle) { openURL(policeURL) }
+                    Button(EmergencySafetyCopy.homeCallPoliceTitle) { EmergencyDialer.dial(policeURL) }
                 }
                 Button(EmergencySafetyCopy.cancelButtonTitle, role: .cancel) {}
             } message: {
@@ -686,10 +686,6 @@ struct BlindRunnerHomeView: View {
         case .localCall:
             showCallOptions = true
         }
-    }
-
-    private func openURL(_ url: URL) {
-        UIApplication.shared.open(url)
     }
 
     /// 标题与状态摘要合成**一个**焦点。它们语义相同（GB/T 37668 3.3.2.2 一级：

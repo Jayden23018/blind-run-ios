@@ -100,7 +100,7 @@ final class VoiceStatusQuerySession {
             return
         }
         speechService?.speak("正在拨号。")
-        UIApplication.shared.open(telURL)
+        EmergencyDialer.dial(telURL)
     }
 
     // MARK: Plumbing

@@ -160,7 +160,7 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 > 2026-08-06 从整文件冻结改为行级。核对后发现原先给的两条理由只有一条落在 pbxproj 上（`DEVELOPMENT_TEAM`，12 处）；`EXCLUDED_ARCHS` 在 pbxproj 里出现 **0 次**，它只存在于 `Podfile:36`。整文件冻结的代价是连加一个 SPM 依赖都做不到，而「临时解锁、改完加回来」依赖人记得加回来 —— 第 1 节说的就是这种挡不住重复犯错的做法。
 >
-> 守卫在 `scripts/hooks/guard.mjs`，自测在 `scripts/validate-guard.mjs`（21 条用例，CI 与 pre-push 都跑）。
+> 守卫在 `scripts/hooks/guard.mjs`，自测在 `scripts/validate-guard.mjs`（CI 与 pre-push 都跑）。
 > 守卫管的不止冻结文件，还有遗留状态词、SOS 文案、服务端地址、高德 key、OpenAPI 运行时越界、
 > weak 依赖收临时对象、workflow 的 `if:` 里用 `secrets`。规则清单以 `guard.mjs` 为准，本文件不留副本。
 

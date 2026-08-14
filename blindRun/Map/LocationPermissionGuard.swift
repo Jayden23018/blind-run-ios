@@ -54,7 +54,7 @@ struct LocationPermissionGuard: View {
         guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else {
             return
         }
-        UIApplication.shared.open(settingsURL)
+        UIApplication.shared.open(settingsURL) // guard:allow raw-open-url 系统设置，不是拨号
     }
 }
 

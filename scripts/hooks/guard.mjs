@@ -308,6 +308,41 @@ function main() {
       );
     }
 
+    // 6.5 绕开 EmergencyDialer 直接开 URL（2026-08-14）
+    //
+    // 真机 UI 测试里一次误触走到了 `tel://110`：触点落在底部常驻求助条上，弹出本地拨号
+    // 确认单，随后的 swipe 又在确认单上选中「拨打110」。那台 iPhone 是双卡，iOS 多弹了
+    // 一层 `com.apple.BusinessActionSheet` 选号单才没拨出去 —— 单卡设备上会直接拨给警方。
+    //
+    // 现在拨号统一走 `EmergencyDialer.dial(_:)`，它在 DEBUG 下按启动环境拦截并留痕。
+    // 但只要有人再写一行裸的 `UIApplication.shared.open`，那道拦截就等于不存在，
+    // 而这种「新增一个出口」是最不会被 review 注意到的改法。
+    //
+    // 规则按出口登记：拨号走 `EmergencyDialer.dial`；确实是别的 scheme（地图、系统设置、
+    // 短信 composer）就在行尾标注，标注本身就是那份出口清单。
+    // 已登记：ExternalMapNavigation.swift:145、LocationPermissionGuard.swift:57、
+    // BlindBookingView.swift:1717。
+    const isProductionSwift =
+      /\/blindRun\/[^/]/.test(filePath) &&
+      /\.swift$/.test(filePath) &&
+      !/\/blindRun(Tests|UITests)\//.test(filePath) &&
+      !/\/Safety\/SafetyModule\.swift$/.test(filePath);
+    const rawOpenLine = isProductionSwift
+      ? body
+          .split('\n')
+          .find((l) => /UIApplication\.shared\.open\(/.test(l) && !l.includes('guard:allow raw-open-url'))
+      : undefined;
+    if (rawOpenLine) {
+      fail(
+        'raw-open-url',
+        `${filePath}\n  ${rawOpenLine.trim()}\n\n` +
+          `拨号必须走 \`EmergencyDialer.dial(_:)\`（blindRun/Safety/SafetyModule.swift）——\n` +
+          `它是唯一拨出点，DEBUG 下按启动环境拦截并记一次痕迹。裸的 UIApplication.shared.open\n` +
+          `会绕开拦截：2026-08-14 真机 UI 测试因此差点真的拨出 110（当时只有双卡选号单挡了一下）。\n` +
+          `确实是别的 scheme（地图 / 系统设置 / 短信），行尾加 \`// guard:allow raw-open-url\`。`
+      );
+    }
+
     // 7. workflow 的 if: 里出现 secrets（2026-08-06）
     //
     // `secrets` 不在 `if:` 的可用上下文里 —— 官方 context availability 表：

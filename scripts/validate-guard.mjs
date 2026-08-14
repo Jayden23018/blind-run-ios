@@ -329,6 +329,72 @@ const cases = [
     }
   },
   {
+    // 2026-08-14：误触让真机 UI 测试走到了 tel://110，只有双卡选号单挡了一下。
+    // 拨号已收敛到 EmergencyDialer.dial（DEBUG 下可拦截），这条守卫防的是有人再开一个出口。
+    name: '生产代码里裸的 UIApplication.shared.open（绕开拨号拦截）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/FooView.swift',
+        old_string: 'a',
+        new_string: '        UIApplication.shared.open(telURL)'
+      }
+    }
+  },
+  {
+    name: '改走 EmergencyDialer.dial（正解，放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/FooView.swift',
+        old_string: 'a',
+        new_string: '        EmergencyDialer.dial(telURL)'
+      }
+    }
+  },
+  {
+    // 地图 / 系统设置这些别的 scheme 是正当出口，标注就是那份出口清单。
+    name: '别的 scheme 带 guard:allow 标注（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Map/ExternalMapNavigation.swift',
+        old_string: 'a',
+        new_string: '            UIApplication.shared.open(url) // guard:allow raw-open-url 地图 App scheme'
+      }
+    }
+  },
+  {
+    // 拦截实现本身就住在这个文件里，拦它等于让这条规则自己改不动。
+    name: 'SafetyModule.swift 里的那唯一一处（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Safety/SafetyModule.swift',
+        old_string: 'a',
+        new_string: '    static func dial(_ url: URL, open: (URL) -> Void = { UIApplication.shared.open($0) }) {'
+      }
+    }
+  },
+  {
+    // 测试代码不受此规则约束：UI 测试自己没有 UIApplication.shared 可用，
+    // 而单测里出现这行只可能是在写反例。
+    name: '测试代码里出现同一行（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: '        // 别写成 UIApplication.shared.open(url)'
+      }
+    }
+  },
+  {
     name: 'UI 测试里 app.tap() 敲屏幕正中（会点到盲人端主按钮）',
     expect: 2,
     input: {
