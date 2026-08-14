@@ -36,6 +36,22 @@ ICP / App 备案是**中国区 App Store 正式上架**的门槛，不是 TestFl
 > ⚠️ 上表经 WebFetch 的小模型转述，未逐字取原文。100 / 10,000 / 90 天这三个数多方一致，
 > 可放心用；「后续构建可能免审」这条的边界（改了什么会重新触发全审）**没查到明确规则**。
 
+### TestFlight 是不是上架的前置？**不是。**
+
+来源：[Apple Developer Forums 694703](https://developer.apple.com/forums/thread/694703)（含 Apple 员工回帖）·
+[Submitting — App Store](https://developer.apple.com/app-store/submitting/)
+
+- **上架不需要先过 TestFlight**。构建传到 App Store Connect 之后就在可发布池里，
+  不管有没有发给测试员，直接选中提交 App Review 即可。TestFlight 与上架**从同一个构建池取包**，是两条并列的分发路径，不是先后关系。
+- ⚠️ **反直觉的一条**：TestFlight 外部测试的 Beta App Review 与 App Store 的 App Review
+  **是相互独立的两道**。App Store 过审**不等于**外部测试自动获准，反之亦然。
+  ⇒ **先走外部 TestFlight 再上架 = 过两次审，不是一次。**
+- 内部测试（≤100 名 App Store Connect 团队成员）**完全不过审**，上传即测。
+
+⇒ 决策含义：**如果目标只是上架，TestFlight 纯属多余的一道等待。**
+只有当「需要外部真实用户的反馈」这件事本身值钱时，才值得付这道额外审核的成本 ——
+对 AidRun 这种承诺人身安全、且目标用户是视障者的产品，它值。但要清楚代价是多一次审核周期。
+
 **外部测试的额外必填项**：与外部测试员共享前，**Beta App Description** 与
 **Beta App Review Information** 是必填的。本项目的含义 —— 审核员拿不到验证码就进不去，
 必须在 Beta App Review Information 里给**演示账号**（本仓库 `docs/test-accounts.md` 的
