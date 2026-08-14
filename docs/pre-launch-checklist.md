@@ -91,7 +91,7 @@
 | 平台内文字消息 | 不存在，跑前沟通只能打电话 |
 | 固定搭档 / 收藏志愿者 | 不存在，每单重新派 |
 | 用户侧客服/申诉入口 | 后端 `/api/cs/*` 全是坐席侧，C 端提交端点不存在 |
-| 账号注销 | iOS 端**没有入口**（见 §C2）|
+| ~~账号注销~~ | ~~iOS 端**没有入口**~~ → **可以拍**，两端都有入口且走真实端点（2026-08-15 订正，见 §C2）|
 
 ### B3 拍之前先在真机上走一遍确认
 
@@ -123,7 +123,21 @@
 ### C2 法律与合规
 
 - [ ] 🔴 **隐私政策与用户协议正文写出来并挂到可访问 URL**。已实测 `GET /api/misc/legal-links` 线上返回 `{"privacyPolicyUrl": null, "userAgreementUrl": null}` —— iOS 侧入口（`LegalDocumentsView.swift`）**已经做好了，就等 URL**。这是 App Review 5.1.1 的硬阻塞，也是收集真实用户身份证号/轨迹的法律前提。**归后端/运营。**
-- [ ] 🔴 **iOS 端做账号注销入口**。后端 `DELETE /api/users/{id}` 已在契约里（`api_spec.yaml:1793`），iOS **零调用点**（全仓只映射了 `ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED` 错误码）。App Review 5.1.1(v) 要求支持注册的 App 必须提供应用内删除账号；PIPL 第 47 条同样要求。**纯前端工作。**
+- [x] ~~🔴 **iOS 端做账号注销入口**~~ → **本来就有，这条断言是错的**（2026-08-15 核实并订正）。
+  盲人端 [`BlindRunnerSettingsView.swift:67`](../blindRun/BlindRunner/BlindRunnerSettingsView.swift)「删除账户」、
+  志愿者端 [`VolunteerOrderFlowViews.swift:2071`](../blindRun/Volunteer/VolunteerOrderFlowViews.swift)，
+  两道确认 + `AccountDeletionViewModel` 先 preflight 查活跃订单（被拦时**语音播报**原因），
+  真实调用在 [`AppState.swift:534`](../blindRun/Core/AppState.swift)
+  `apiClient.delete("/api/users/\(userId)")`，失败重试在 `ContentView.swift:489`，
+  单测 `blindRunTests.swift:2349` + UI 测试 `blindRunUITests.swift:880-893` 都在。
+  - ⚠️ **写错的原因值得记一笔**：搜的是「注销 / deleteAccount / 删除账号」，
+    代码里写的是「**删除账户** / `deleteCurrentAccount`」—— 同义词错开，两个人先后判成「零调用点」。
+    断言某功能「不存在」之前，至少换一组近义词再搜一遍。
+  - 后端实际行为（`origin/main` 的 `UserService.deleteAccount`，2026-08-15 读）：用户行软删除、
+    手机号改写成 `deleted_{id}_{phone}` 释放可重注册、`name` 置空；**PII 级联硬删**（盲人：实名资料 /
+    紧急联系人 / 常用地址；志愿者：证件照 OSS / 资料 / 可服务时间；两端：轨迹点 / 工单 / APNs token）；
+    **订单、评价、求助事件刻意保留**（不存 PII，留作纠纷复核审计）。现有确认文案与这些逐条对得上。
+  - 剩下的唯一小缺口：确认弹窗没逐项说清**删什么、留什么**（PIPL 第 47 条下用户有知情权）。已单独处理。
 - [ ] 🔴 身份证号与行踪轨迹的**单独同意**（PIPL 第 29 条）在收集点逐一核对。行程分享那条已经做了（`RunPlanShareConsent.swift`），**实名认证那屏要确认也有**。
 - [ ] 🟡 紧急联系人是第三方，其手机号未经本人同意即被收集。确认后端 `contact-added` 短信模板（`SMS_505950033`）真的在发告知短信。
 - [ ] 🟡 隐私政策里逐条列全实际收集项：手机号、身份证号姓名、实时位置与轨迹、麦克风与语音内容、紧急联系人手机号、相机（志愿者活体认证）。
