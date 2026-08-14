@@ -106,10 +106,6 @@ final class blindRunUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["正在后台同步当前状态，页面仍可使用"].waitForExistence(timeout: 12))
 
-        let repeatButton = app.buttons["重复当前状态"].firstMatch
-        XCTAssertTrue(repeatButton.isHittable, "Local TTS action must not wait for the backend")
-        repeatButton.tap()
-
         let scrollView = app.scrollViews["blindRunnerHomeScrollView"].firstMatch
         XCTAssertTrue(scrollView.exists, "Blind home must expose a scrollable surface during loading")
         scrollView.swipeUp()
@@ -123,6 +119,22 @@ final class blindRunUITests: XCTestCase {
         let retryButton = app.buttons["重试加载"].firstMatch
         XCTAssertTrue(retryButton.waitForExistence(timeout: 5), "A non-cooperative request must release loading at the deadline")
         XCTAssertTrue(retryButton.isHittable)
+
+        // 「重复当前状态」排在 280pt 的「开始约跑」下面，无订单态里整段落在首屏之外
+        // （`BlindRunnerHomeView.askQuestionButton` 的注释记着同一件事）。**必须先滚过去再点。**
+        // 不滚也照样 `isHittable == true`，但触点落在屏幕底部常驻的「紧急呼叫」条上：
+        // 2026-08-14 因此弹出本地拨号确认单，紧接着的 swipe 又在确认单上拖拽选中「拨打110」，
+        // iOS 弹出 `com.apple.BusinessActionSheet` 选号单，对它的快照查询超时 ——
+        // 报出来是 "Failed to get matching snapshots"，看着完全不像误触。
+        let repeatButton = app.buttons["重复当前状态"].firstMatch
+        scrollElementIntoView(repeatButton, app: app)
+        XCTAssertTrue(repeatButton.isHittable, "Local TTS action must not wait for the backend")
+        repeatButton.tap()
+        // 误触求助条的回归钉子。真机上这条路径会真的拨出去，当时只有双卡选号单挡了一下。
+        XCTAssertFalse(
+            app.buttons["拨打110"].firstMatch.exists,
+            "本地操作的触点落到了常驻求助条上，弹出了本地拨号确认单"
+        )
 
         let settingsButton = app.buttons["设置"].firstMatch
         XCTAssertTrue(settingsButton.isHittable, "Settings must remain independent from home loading")
