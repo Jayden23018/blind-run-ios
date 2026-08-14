@@ -3176,6 +3176,40 @@ final class blindRunTests: XCTestCase {
         )
     }
 
+    /// 播报语速必须跟随用户的 VoiceOver 设置，不能写死默认值。
+    ///
+    /// 读屏用户日常把语速调到远高于系统默认，而 `prefersAssistiveTechnologySettings` 的**出厂值是
+    /// `false`**（已实测，不是推测）—— 不显式打开，App 的每一句播报都会比用户习惯的慢一大截，
+    /// 且和同一句话的 VoiceOver 通告快慢不一。这是**每次播报都在犯**的缺陷，不是边界情况。
+    ///
+    /// ⚠️ 这条**只能**断言开关本身。SDK 头文件写明 `querying the properties will not reflect the
+    /// user's settings` —— `utterance.rate` 永远读回我们写进去的 0.5，真实语速在进程里测不出来。
+    /// 听感必须真机开 VoiceOver 人耳验，见记忆 `audio-correctness-needs-real-ears-not-code-reading`。
+    func testSpokenUtteranceFollowsTheUsersVoiceOverRateInsteadOfTheFixedDefault() {
+        let utterance = VoiceService.makeUtterance("志愿者已到达，请等待志愿者开始服务。")
+
+        XCTAssertTrue(
+            utterance.prefersAssistiveTechnologySettings,
+            "没开这个标志，播报就锁死在默认语速 —— 读屏用户把语速调快过的，全被拖回默认"
+        )
+        // VoiceOver 没开时（低视力用户、明眼陪同者）走的是这三个值，删掉会连中文音色一起丢。
+        XCTAssertEqual(utterance.voice?.language, "zh-CN")
+        XCTAssertEqual(utterance.rate, AVSpeechUtteranceDefaultSpeechRate)
+        XCTAssertEqual(utterance.speechString, "志愿者已到达，请等待志愿者开始服务。")
+    }
+
+    /// 验红用的对照：**没经过 `makeUtterance` 的裸 utterance 必须是关着的**。
+    ///
+    /// 上面那条断言 `true`，而 `AVSpeechUtterance` 要是哪天把出厂值改成 `true`，那条会在
+    /// `makeUtterance` 被误删的情况下照样绿。这条钉住「绿是因为我们设了，不是因为系统白送」。
+    func testRawUtteranceDoesNotFollowAssistiveSettingsByDefault() {
+        XCTAssertFalse(
+            AVSpeechUtterance(string: "志愿者已到达，请等待志愿者开始服务。")
+                .prefersAssistiveTechnologySettings,
+            "出厂值若变成 true，上面那条用例就不再能证明 makeUtterance 真的设了这个标志"
+        )
+    }
+
     func testVoiceServiceCanPostVoiceOverOnlyAnnouncement() {
         let service = VoiceService()
 
