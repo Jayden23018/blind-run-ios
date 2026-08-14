@@ -1040,6 +1040,11 @@ final class blindRunUITests: XCTestCase {
         }
         app.launchEnvironment["AIDRUN_UI_TEST_RESET_STATE"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_RESET_TOKEN"] = UUID().uuidString
+        // 误触求助条 = 真的拨 110（2026-08-14 差一层双卡选号单就拨出去了）。
+        // DEBUG 构建里这个开关让 `EmergencyDialer.dial` 只记一次痕迹、不真的拨号。
+        // 别的启动 helper 不必重复这一行：没显式设时 `EmergencyDialer.resolveDialBlock`
+        // 认 `AIDRUN_UI_TEST_RESET_STATE` 就默认拦。
+        app.launchEnvironment["AIDRUN_UI_TEST_BLOCK_TEL_DIAL"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_FORCE_DEMO_LOCATION"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_API_ENV"] = apiEnvironment
         if let activeRole {

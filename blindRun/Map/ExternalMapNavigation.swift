@@ -142,7 +142,7 @@ enum ExternalMapNavigationLauncher {
         switch provider {
         case .amap, .baidu:
             guard let url = ExternalMapNavigationURLBuilder.url(for: provider, request: request) else { return }
-            UIApplication.shared.open(url)
+            UIApplication.shared.open(url) // guard:allow raw-open-url 地图 App scheme，不是拨号
         case .appleMaps:
             openAppleMaps(request: request)
         }

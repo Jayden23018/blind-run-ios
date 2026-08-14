@@ -1160,7 +1160,7 @@ struct BlindOrderStatusView: View {
            let volunteerPhone = order.volunteerPhone?.nilIfBlank,
            let telURL = EmergencyDialer.telURL(for: volunteerPhone) {
             Button {
-                UIApplication.shared.open(telURL)
+                EmergencyDialer.dial(telURL)
             } label: {
                 Text("打电话给志愿者")
                     .font(AppFonts.largeTitle())
