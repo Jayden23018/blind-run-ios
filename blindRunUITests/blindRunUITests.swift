@@ -26,7 +26,7 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
-    func testMockBlindRunnerHomePlacesPrimaryActionBeforeAuxiliaryMapInVoiceOverOrder() throws {
+    func testMockBlindRunnerHomeKeepsAuxiliaryMapOutOfVoiceOverSoPrimaryActionComesFirst() throws {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
@@ -36,31 +36,44 @@ final class blindRunUITests: XCTestCase {
 
         let startButton = app.buttons["开始约跑"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 12), "Blind runner home should show start booking")
-        let auxiliaryMaps = app.descendants(matching: .any).matching(identifier: "blindRunnerHomeAuxiliaryMap")
-        let auxiliaryMap = auxiliaryMaps.firstMatch
-        XCTAssertTrue(auxiliaryMap.waitForExistence(timeout: 12), "Blind runner home should mount its auxiliary map container")
-        XCTAssertEqual(auxiliaryMaps.count, 1, "Committed blind home should mount exactly one auxiliary map")
         XCTAssertFalse(app.descendants(matching: .any)["homeMapPlaceholder"].firstMatch.exists)
 
-        // 2026-08-07：这里原本断言 `startButton.frame.minY < auxiliaryMap.frame.minY`，即**视觉**顺序。
-        // 首页改成「地图铺满上半屏、内容压在上面」之后那个前提反转了，而规格也随之放宽：
-        // 视觉顺序不再受限，受限的是**读屏遍历顺序**（`blind-runner-voice-first-experience` 规格）。
-        // 所以断言换成遍历顺序，并补上放宽的两个前提条件：地图不可交互、且不承载必要信息。
+        // 2026-08-07 这条用例断言的是「主操作排在地图之前」，从那天起就一直红着（27 vs 16），
+        // 而且**改不动**：`allElementsBoundByAccessibilityElement` 是逐层枚举的（同深度的兄弟
+        // 全排完才轮到它们的子元素），地图是 ZStack 的直接子层、按钮在滚动视图里面，两个下标
+        // 差的是深度不是顺序，怎么排都填不平。
+        //
+        // 2026-08-14 在真机上实测了四种排法（裸 `accessibilitySortPriority`、换声明顺序 +
+        // `zIndex`、三层都加 `children: .contain` 再排、地图改成内容层的 `.background`），
+        // 地图一律排在内容前面 —— SwiftUI 把遍历顺序绑死在绘制顺序上，而地图必须画在最底层。
+        // 详见 `docs/research/swiftui-voiceover-traversal-order-20260814.md`。
+        //
+        // 结论：地图改为对读屏**完全隐藏**（纯装饰、不可交互、信息在 `locationSummarySection`
+        // 有文字版），读屏用户 0 次多余划动就够到主操作。所以这里断言的是「不在树里」。
+        XCTAssertEqual(
+            app.descendants(matching: .any).matching(identifier: "blindRunnerHomeAuxiliaryMap").count,
+            0,
+            "装饰性地图不得出现在无障碍元素树里"
+        )
+
+        // 仍然钉住一条真实的遍历顺序：内容层排在设置齿轮之前（齿轮曾经是进首页遍历到的第 2 个
+        // 元素）。这两个是 ZStack 的直接子层，**同一深度**，下标可比。
         let elements = app.descendants(matching: .any).allElementsBoundByAccessibilityElement
-        let startIndex = elements.firstIndex { $0.label.contains("开始约跑") }
-        let mapIndex = elements.firstIndex { $0.identifier == "blindRunnerHomeAuxiliaryMap" }
-        XCTAssertNotNil(startIndex, "主操作必须在无障碍元素树里")
-        XCTAssertNotNil(mapIndex, "地图必须在无障碍元素树里")
-        if let startIndex, let mapIndex {
+        let contentIndex = elements.firstIndex { $0.identifier == "blindRunnerHomeScrollView" }
+        let settingsIndex = elements.firstIndex { $0.label == "设置" }
+        XCTAssertNotNil(contentIndex, "内容层必须在无障碍元素树里")
+        XCTAssertNotNil(settingsIndex, "设置入口必须在无障碍元素树里")
+        XCTAssertTrue(
+            app.scrollViews["blindRunnerHomeScrollView"].buttons["开始约跑"].firstMatch.exists,
+            "主操作必须在内容层内部，否则上面的下标比较证明不了主操作的位置"
+        )
+        if let contentIndex, let settingsIndex {
             XCTAssertLessThan(
-                startIndex,
-                mapIndex,
-                "Voice-first home must place the primary action before the auxiliary map in VoiceOver traversal"
+                contentIndex,
+                settingsIndex,
+                "Voice-first home must place the primary action before auxiliary controls in VoiceOver traversal"
             )
         }
-
-        // 放宽视觉顺序的前提之一：地图纯装饰，不能被点到。
-        XCTAssertFalse(auxiliaryMap.isHittable, "辅助地图必须不可交互")
     }
 
     @MainActor
@@ -100,7 +113,10 @@ final class blindRunUITests: XCTestCase {
         let scrollView = app.scrollViews["blindRunnerHomeScrollView"].firstMatch
         XCTAssertTrue(scrollView.exists, "Blind home must expose a scrollable surface during loading")
         scrollView.swipeUp()
-        XCTAssertTrue(app.descendants(matching: .any)["blindRunnerHomeAuxiliaryMap"].firstMatch.exists)
+        // 2026-08-14 起地图对读屏隐藏（`accessibilityHidden(true)`，理由见
+        // `docs/research/swiftui-voiceover-traversal-order-20260814.md`），XCUITest 只看得见
+        // 无障碍树，所以这里不再断言地图已挂载 —— 那是隐藏地图的既定代价。
+        // 「加载挂起时首页仍可用」由上下文的滚动、重试、设置三条断言覆盖。
         XCTAssertFalse(app.descendants(matching: .any)["homeMapPlaceholder"].firstMatch.exists)
         scrollView.swipeDown()
 
