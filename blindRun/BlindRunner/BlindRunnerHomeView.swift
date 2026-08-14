@@ -531,12 +531,20 @@ struct BlindRunnerHomeView: View {
 
     // MARK: - Layers
 
-    /// 背景层：地图铺满上半屏。
+    /// 背景层：地图铺满上半屏，**对读屏完全隐藏**。
     ///
-    /// `accessibilitySortPriority(-1)` 让它在读屏遍历里排到内容之后 —— 视觉顺序与 VoiceOver
-    /// 顺序在这里是**刻意解耦**的。规格允许这样做的前提有两条，都由这里满足：
-    /// 地图不可交互（`allowsHitTesting(false)`），且不承载任何必要信息（同样的内容
-    /// 在 `locationSummarySection` 里有文字版）。
+    /// 这一层是纯装饰：不可交互（`allowsHitTesting(false)`），且不承载任何必要信息
+    /// （同样的内容在 `locationSummarySection` 里有文字版）。装饰性内容的标准处理就是
+    /// 对辅助技术隐藏 —— 读屏用户进首页 0 次多余划动就够到唯一的主操作，比「排到内容后面」
+    /// 还好一档。低视力用户看到的画面完全不变。
+    ///
+    /// **为什么不是「排到内容后面」**：SwiftUI 把 VoiceOver 遍历顺序绑死在**绘制顺序**上，
+    /// 而地图必须画在最底层。2026-08-14 在真机上逐个实测了四种排法 —— 裸
+    /// `accessibilitySortPriority`、换声明顺序 + `zIndex` 维持视觉、三层都加
+    /// `accessibilityElement(children: .contain)` 再排、把地图改成内容层的 `.background`
+    /// —— 地图**一律**排在内容前面。`accessibilitySortPriority` 在这个结构里是空操作，
+    /// 别再往回加。详见 `docs/research/swiftui-voiceover-traversal-order-20260814.md`。
+    ///
     private var mapBackgroundLayer: some View {
         MapViewWrapper(
             centerCoordinate: viewModel.activeOrder?.startCoordinate ?? locationService.effectiveBackendLocation,
@@ -547,11 +555,9 @@ struct BlindRunnerHomeView: View {
         .frame(height: mapVisualHeight)
         .allowsHitTesting(false)
         .ignoresSafeArea(edges: .top)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("辅助地图，显示当前位置或订单出发点")
-        .accessibilityHint("地图仅用于视觉确认，不能操作。当前状态和主要操作排在读屏顺序的前面")
-        .accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")
-        .accessibilitySortPriority(-1)
+        // 整棵子树一起隐藏：真机上高德的 `MKMapView` 自己会挂一堆无障碍元素，只在最外层
+        // 挂 label 挡不住它们冒出来。
+        .accessibilityHidden(true)
     }
 
     private var contentLayer: some View {
@@ -577,11 +583,13 @@ struct BlindRunnerHomeView: View {
             }
         }
         .accessibilityIdentifier("blindRunnerHomeScrollView")
-        .accessibilitySortPriority(100)
     }
 
     /// 设置齿轮悬浮在地图右上角：视觉上还在老位置，但读屏遍历排到最后 ——
     /// 它此前在 header 的 `HStack` 里，于是每次进首页都是遍历到的第 2 个元素。
+    ///
+    /// 「排到最后」靠的是它在 `body` 的 ZStack 里**最后声明**（遍历顺序 = 绘制顺序），
+    /// 不是 `accessibilitySortPriority` —— 那个修饰符在这个结构里实测无效，已移除。
     private var settingsOverlay: some View {
         HStack {
             Spacer()
@@ -596,7 +604,6 @@ struct BlindRunnerHomeView: View {
             }
             .accessibilityLabel("设置")
             .accessibilityHint("进入设置页面，可以编辑资料、实名认证或退出登录")
-            .accessibilitySortPriority(-2)
         }
         .padding(.horizontal, 12)
     }

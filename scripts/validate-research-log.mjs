@@ -99,15 +99,14 @@ const cases = [
     check: () => {
       const p = writeTranscript('web.jsonl', ['WebSearch', 'WebSearch']);
       const todo = researchTodo({ transcript_path: p });
-      const dirty = spawnSync('git', ['status', '--porcelain', '--', 'docs/research'], {
-        cwd: path.resolve(import.meta.dirname, '..'),
-        encoding: 'utf8',
-      }).stdout.trim();
-      const landed = spawnSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD', '--', 'docs/research'], {
-        cwd: path.resolve(import.meta.dirname, '..'),
-        encoding: 'utf8',
-      }).stdout.trim();
-      if (dirty || landed) {
+      // ⚠️ 这条判据必须和钩子**同一个**，不能自己另写一个近似的。
+      // 2026-08-14 踩到：原先这里用 `diff-tree HEAD` 当「已落盘」，而钩子用的是
+      // **按会话时间窗**的 `git log --since`。合成 transcript 没有 timestamp，
+      // `sessionStartedAt` 退化成取文件 mtime，也就是「会话从现在开始」——
+      // 于是「调研提交就在 HEAD 上、但早于现在」时两边结论相反：
+      // 本用例判「已落盘、不该报警」，钩子判「本会话内没落盘、该报警」，用例红。
+      // 后果是任何以调研提交收尾的分支都 push 不出去（pre-push 会跑这份自测）。
+      if (researchLanded(sessionStartedAt(p))) {
         // 本轮确实动过 docs/research/：此时正确行为是**不**报警。
         return todo === null ? null : 'docs/research 已有改动却仍在报「没落盘」（误报会让钩子被无视）';
       }
