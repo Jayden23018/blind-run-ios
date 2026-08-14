@@ -316,12 +316,13 @@ struct ContentView: View {
                     // `.callout` 在默认档就是 16pt，与此前写死的 `.system(size: 16)` 视觉等价，
                     // 但它跟着 Dynamic Type 缩放。
                     //
-                    // 写死那版是 `AccessibilityAuditTests.testBlindBookingPassesAccessibilityAudit`
-                    // 长期报红的**唯一**原因（`.dynamicType` 审计，报「User will not be able to change
-                    // the font size of this element」）。已用同设备同用例取过基线确认是既有问题。
-                    // 它只在 DEBUG 出现、永远不会发布 —— 但一个常年红的门禁等于没有门禁：
-                    // 下一个人分不清新失败和旧失败（这正是记忆 `known-red-suites-hide-new-failures` 那条）。
-                    .font(.callout.weight(.bold))
+                    // 写死那版是 `AccessibilityAuditTests` 里静态审计长期报红的**唯一**根因
+                    // （`.dynamicType` 报「User will not be able to change the font size of this
+                    // element」）：这条横幅是 `#if DEBUG` + Mock 环境专属，而 UI 测试正好全在
+                    // 这个组合下跑 —— 于是它出现在**每一屏**，红的是它，不是被审计的那些页面。
+                    // 它永远不会发布，但一个常年红的门禁等于没有门禁：下一个人分不清新旧失败
+                    // （记忆 `known-red-suites-hide-new-failures`）。
+                    .font(.callout.bold())
                     .foregroundColor(.black)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)

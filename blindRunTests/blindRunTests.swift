@@ -1046,7 +1046,10 @@ final class blindRunTests: XCTestCase {
         // （与后端 getDispatchSummary 的三条件独立评估一致）。
         XCTAssertEqual(initialSummary.notAvailableReasons, [.dispatchDisabled, .offline])
         XCTAssertEqual(initialSummary.completedCount, 1)
-        XCTAssertEqual(initialSummary.resolvedPointsBalance, 100)
+        // 此前这里断言 `resolvedPointsBalance == 100`，也就是 `completedCount * 100` ——
+        // 后端从来没有 `pointsBalance` 字段，那条断言钉住的是客户端自己编的数。
+        // 现在断言真实字段本身，并确认没有任何地方再产出那个合成值。
+        XCTAssertEqual(initialSummary.totalCompleted, 1)
 
         let _: EmptyResponse = try await client.put(
             "/api/volunteer/dispatch-status",
@@ -4728,7 +4731,6 @@ final class blindRunTests: XCTestCase {
         let didConfirmCompletion = await waitUntil {
             viewModel.order?.status == .completed
                 && viewModel.dispatchSummary?.completedCount == 2
-                && viewModel.dispatchSummary?.resolvedPointsBalance == 200
         }
         XCTAssertTrue(didConfirmCompletion)
     }

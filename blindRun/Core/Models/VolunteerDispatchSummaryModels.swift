@@ -75,13 +75,8 @@ struct VolunteerDispatchSummaryResponse: Codable, Sendable {
     let totalCompleted: Int?
     let totalCancelled: Int?
     let acceptanceRate: Double?
-    let pointsBalance: Int?
     let activeOrders: [VolunteerDispatchSummaryActiveOrder]?
     let recentOrders: [VolunteerDispatchSummaryRecentOrder]?
-
-    var resolvedPointsBalance: Int {
-        pointsBalance ?? ((totalCompleted ?? 0) * 100)
-    }
 
     var completedCount: Int {
         totalCompleted ?? 0
@@ -174,18 +169,19 @@ struct VolunteerDispatchSummaryRecentOrder: Codable, Identifiable, Sendable {
     let startAddress: String?
     let blindName: String?
     let rating: Int?
+    /// 后端**至今没有**这个字段（契约与 `src/` 里 `points` 零命中，核于 2026-08-13），
+    /// 所以它实际永远是 `nil`。字段本身保留：若后端将来真发积分，这是它的落点。
+    /// 但**不再给它编造兜底值** —— 此前 `resolvedPointsDelta` 在 `nil` 时返回 100，
+    /// 于是每张完成的订单卡都印着一个凭空生成的「+100」。
     let pointsDelta: Int?
 
     var id: Int64 { orderId }
 
-    var resolvedPointsDelta: Int? {
-        if let pointsDelta { return pointsDelta }
-        return status == .completed ? 100 : nil
-    }
-
-    var pointsText: String {
-        guard let resolvedPointsDelta else { return "--" }
-        return resolvedPointsDelta > 0 ? "+\(resolvedPointsDelta)" : "\(resolvedPointsDelta)"
+    /// `nil` 时整行不显示，而不是显示 `--` 或编一个数。
+    /// 这与「兜底之后无法区分真值和兜底值」那类缺陷相反：什么都不显示是可区分的。
+    var pointsText: String? {
+        guard let pointsDelta else { return nil }
+        return pointsDelta > 0 ? "+\(pointsDelta)" : "\(pointsDelta)"
     }
 }
 
