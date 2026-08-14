@@ -89,6 +89,41 @@ extension RunOrderStatus {
         }
     }
 
+    /// 盲人端订单页该不该给出「把这次行程告诉家人」。
+    ///
+    /// United In Stride 把**开始时间 / 集合地点 / 路线 / 结束时间**列为陪跑出发前必须约定的
+    /// 四要素（`docs/research/blind-app-feature-landscape-20260812.md` §2.2）。在这条动作
+    /// 存在之前，家属唯一会被触达的时机是 SOS 之后 —— 也就是说，跑步正常进行的全程，
+    /// 家里人根本不知道这件事在发生。
+    ///
+    /// **非终态全给**，与后端 `POST /api/orders/{id}/share` 的口径一致
+    /// （2026-08-13 后端通报：非终态都允许分享，含 `PENDING_MATCH` —— 家属看到
+    /// 「正在找志愿者」也是有意义的）。初版曾把 `PENDING_MATCH` 排除在外，理由是
+    /// 「订单可能被自动取消，家属拿到会失效的信息」；那条理由不成立：链接是幂等的，
+    /// 订单取消后家属看到的是 `410`（曾经有效但已结束），不是一条无限期的坏链接。
+    ///
+    /// 终态一律不给，而且是**隐藏不是禁用**：后端对终态返 409
+    /// `SHARE_ORDER_ALREADY_FINISHED`，摆一个按下去必然报错的按钮，对读屏用户是纯噪音。
+    ///
+    /// 状态集与 `offersVolunteerCall` 不同，且是各自独立的产品判断：那条是「要不要当面
+    /// 确认志愿者身份」（只在需要汇合的四态），这条是「有没有一个还在进行的行程」。
+    /// 合并成一个属性会让将来任一侧改状态集时静默带偏另一侧。
+    ///
+    /// 同样写成穷举 switch：后端往枚举加值时编译器在这里逼一次决策。
+    var offersRunPlanShare: Bool {
+        switch self {
+        case .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching:
+            return true
+        // 终态：没有还在进行的行程可分享。`NO_VOLUNTEER` 是后端明写的预留终态
+        // （`OrderStatus.java:46`），归在这一组。
+        case .completed, .cancelled, .noVolunteer:
+            return false
+        // 未知状态不给：分不清是不是终态，而猜错的代价是让盲人按下一个必然 409 的按钮。
+        case .unknown:
+            return false
+        }
+    }
+
     /// 等待期延长窗口该打哪个端点；`nil` 表示本状态没有这个动作。
     ///
     /// 后端在订单长时间无人接单时推 `ORDER_CANCELLATION_WARNING`，正文逐字是
@@ -323,15 +358,38 @@ extension OrderDetailResponse {
         plannedStart?.nilIfBlank?.displayDateTime
     }
 
+    /// 约定的结束时间。
+    ///
+    /// **取 `plannedEnd`，不许用 `plannedStart + expectedDurationMinutes` 自己推。**
+    /// 两个数是后端各自算的，口径不保证一致；推出来的值与订单详情、与家属分享页显示的
+    /// 对不上时，同一趟跑步在三个地方有三个结束时间，而没有任何一处会报错。
+    /// 契约里 `plannedEnd` 是 required（`api_spec.yaml` 的 `OrderDetailResponse`），
+    /// 这里仍收成 optional 只是解码宽容，不是允许缺失时另找一个数顶上 —— 缺了就不显示这一行。
+    var plannedEndForAnnouncement: String? {
+        plannedEnd?.nilIfBlank?.displayDateTime
+    }
+
     func volunteerDistanceToStartText(from volunteerCoordinate: CLLocationCoordinate2D?) -> String? {
         guard let volunteerCoordinate, let startCoordinate else { return nil }
         let meters = DistanceCalculator.distance(from: volunteerCoordinate, to: startCoordinate)
         return "距出发地点约 \(DistanceCalculator.formattedDistance(meters))"
     }
 
+    /// 服务进行中，把约定的结束时间念进主播报。
+    ///
+    /// 折叠在「预约信息」里等于没有：那一段是 `DisclosureGroup`，读屏用户要先展开才听得到，
+    /// 而跑步途中他不会去展开一段标着「已确认的信息」的折叠区。约定结束时间是这段时间里
+    /// **唯一会变成安全问题的数字** —— 后端在它之后 15 分钟推 `ORDER_OVERDUE`，
+    /// 用户听不到这个约定，就无从判断那条告警是不是意外。
+    ///
+    /// 只在 `IN_PROGRESS` 加。派单期、汇合期念它没有用：那时还没开始跑，
+    /// 而每多一句都是读屏用户在主路径上多等的时间。
     func blindRunnerAnnouncement(distanceText: String? = nil) -> String {
         let distanceSentence = distanceText.map { "志愿者\($0)。" } ?? ""
         switch status {
+        case .inProgress:
+            guard let plannedEndForAnnouncement else { return status.blindRunnerAnnouncement }
+            return "\(status.blindRunnerAnnouncement)预计\(plannedEndForAnnouncement)结束。"
         case .pendingAccept:
             if let plannedStartForAnnouncement {
                 return "志愿者已接单。请在\(plannedStartForAnnouncement)前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)志愿者出发后会继续通知你。"
@@ -347,6 +405,106 @@ extension OrderDetailResponse {
         default:
             return status.blindRunnerAnnouncement
         }
+    }
+}
+
+// MARK: - Escort Needs（志愿者侧「本单为视障跑者」提示位）
+
+/// 志愿者见面前必须知道的一条陪跑要求。
+///
+/// 存在理由：`visionLevel` / `tetherPreference` 在契约里躺了很久，志愿者端**一处都没展示**
+/// （`hasGuideDogThisRun` 也只有订单信息卡里的一行）。数据早就送到了，是前端没给它版位。
+/// 对志愿者来说这三项决定的是见面第一个动作 —— 尤其 `tetherPreference`：
+/// 该递牵引绳、该让对方挽住手臂、还是只用口令，抓错方式对盲人是实打实的身体风险。
+struct EscortNeed: Equatable, Identifiable {
+    enum Kind: String, Hashable {
+        case guideDog
+        case vision
+        case tether
+        /// 档案里三项都没填。**不是「无要求」** —— 是「不知道」，得当面问。
+        case unstated
+    }
+
+    let kind: Kind
+    let symbolName: String
+    let title: String
+    let value: String
+
+    var id: Kind { kind }
+
+    /// 认得出字段、但认不出取值时的落点。
+    ///
+    /// 不念 rawValue（那是内部标识符），也**不静默丢掉这一行**：丢掉等于告诉志愿者
+    /// 「跑者没有偏好」，而真实情况是「跑者填了，只是这个版本的 App 不认识」。
+    /// 引导方式认错的后果是见面第一下就抓错人。
+    static let confirmInPerson = "请当面与跑者确认"
+}
+
+extension OrderDetailResponse {
+    /// 提示位的内容。**空数组 = 整块不渲染。**
+    ///
+    /// 可见性逐字段判，不是一刀切：
+    /// - `hasGuideDogThisRun` **不走** `disclosesBlindRunnerNotesToVolunteer` 闸 —— 它在
+    ///   `AvailableOrderResponse` 与 `WSNewOrder` 里本来就下发给还没接单的志愿者
+    ///   （取值空间封闭，且是「我接不接得下来」的判据，见那两处的契约说明）。
+    /// - `visionLevel` / `tetherPreference` **走闸**：`AGENTS.md §8` 要求接单前隐藏敏感健康信息，
+    ///   而视力程度就是其中最直接的一项。闸的判据（含 `.rematching` 与 `.unknown` 默认关）
+    ///   复用 `disclosesBlindRunnerNotesToVolunteer`，不在这里就地写 `!= .pendingMatch`。
+    ///
+    /// ⚠️ 眼下**接单前拿不到**这两个字段：派单弹窗吃的是 `WSNewOrder`，它只有
+    /// `pacePreference` / `hasGuideDog`。所以这道闸此刻拦不到任何东西，它防的是
+    /// 「以后有人把一份接单前的 `OrderDetailResponse` 喂进这个视图」。
+    /// 让后端在派单载荷里补这两项的请求已进 handoff。
+    var escortNeeds: [EscortNeed] {
+        var needs: [EscortNeed] = []
+
+        if hasGuideDogThisRun == true {
+            needs.append(EscortNeed(
+                kind: .guideDog,
+                symbolName: "pawprint.fill",
+                title: "导盲犬",
+                value: "本次携带，请预留通行空间"
+            ))
+        }
+
+        guard status.disclosesBlindRunnerNotesToVolunteer else { return needs }
+
+        if let raw = visionLevel?.nilIfBlank {
+            needs.append(EscortNeed(
+                kind: .vision,
+                symbolName: "eye.slash",
+                title: "视力情况",
+                value: VisionLevel(rawValue: raw)?.displayName ?? EscortNeed.confirmInPerson
+            ))
+        }
+
+        if let raw = tetherPreference?.nilIfBlank {
+            needs.append(EscortNeed(
+                kind: .tether,
+                symbolName: "link",
+                title: "引导方式",
+                value: TetherPreference(rawValue: raw)?.displayName ?? EscortNeed.confirmInPerson
+            ))
+        }
+
+        // 两项都没有 ≠ 没有要求。档案不全时志愿者更需要被提醒去问，而不是看到一片空白
+        // 然后自己猜一种带法。
+        if !needs.contains(where: { $0.kind == .vision || $0.kind == .tether }) {
+            needs.append(EscortNeed(
+                kind: .unstated,
+                symbolName: "questionmark.circle",
+                title: "引导方式",
+                value: "跑者没有填写，出发前请当面问清楚怎么带"
+            ))
+        }
+
+        return needs
+    }
+
+    /// 提示位合成的一句话。读屏把整块当**一个**焦点读，避免逐行滑过时漏掉其中一条。
+    var escortNeedsAnnouncement: String {
+        (["本单为视障跑者"] + escortNeeds.map { "\($0.title)：\($0.value)" })
+            .joined(separator: "。")
     }
 }
 

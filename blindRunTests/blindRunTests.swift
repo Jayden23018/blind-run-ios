@@ -1046,7 +1046,10 @@ final class blindRunTests: XCTestCase {
         // （与后端 getDispatchSummary 的三条件独立评估一致）。
         XCTAssertEqual(initialSummary.notAvailableReasons, [.dispatchDisabled, .offline])
         XCTAssertEqual(initialSummary.completedCount, 1)
-        XCTAssertEqual(initialSummary.resolvedPointsBalance, 100)
+        // 此前这里断言 `resolvedPointsBalance == 100`，也就是 `completedCount * 100` ——
+        // 后端从来没有 `pointsBalance` 字段，那条断言钉住的是客户端自己编的数。
+        // 现在断言真实字段本身，并确认没有任何地方再产出那个合成值。
+        XCTAssertEqual(initialSummary.totalCompleted, 1)
 
         let _: EmptyResponse = try await client.put(
             "/api/volunteer/dispatch-status",
@@ -4728,7 +4731,6 @@ final class blindRunTests: XCTestCase {
         let didConfirmCompletion = await waitUntil {
             viewModel.order?.status == .completed
                 && viewModel.dispatchSummary?.completedCount == 2
-                && viewModel.dispatchSummary?.resolvedPointsBalance == 200
         }
         XCTAssertTrue(didConfirmCompletion)
     }
@@ -5083,17 +5085,29 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(error.localizedMessage, ErrorCode.duplicateOrder.localizedMessage)
     }
 
-    func testBlindRunnerRepeatStatusSpeaksInServiceState() {
+    /// 2026-08-13 起「重复当前状态」在服务进行中还要念**约定的结束时间**，
+    /// 所以这里不再与状态级的定值比较（那个定值不含时间）。
+    ///
+    /// 加它的理由不是信息更全：后端 N63 修好后，超过 `plannedEnd` 15 分钟会推 `ORDER_OVERDUE`。
+    /// 用户从没听到过这个约定，那条告警对他就只是一句没有参照系的话。而这一页把结束时间
+    /// 折叠在「预约信息」的 `DisclosureGroup` 里，跑步途中不会有人去展开它。
+    func testBlindRunnerRepeatStatusSpeaksInServiceStateWithTheAgreedEndTime() {
         let appState = AppState()
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: speechService)
-        viewModel.order = makeOrder(orderId: 1, status: .inProgress)
+        let order = makeOrder(orderId: 1, status: .inProgress)
+        viewModel.order = order
 
         viewModel.repeatStatus()
 
-        XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.inProgress.blindRunnerAnnouncement)
+        let spoken = speechService.lastSpokenText ?? ""
+        XCTAssertTrue(spoken.hasPrefix(RunOrderStatus.inProgress.blindRunnerAnnouncement), "状态本身仍要先说")
+        XCTAssertTrue(
+            spoken.contains("2026-06-25T21:00:00Z".displayDateTime),
+            "服务进行中必须念到约定的结束时间，否则 ORDER_OVERDUE 到达时用户没有参照系"
+        )
     }
 
     func testBlindRunnerHomeAppliesRealtimeStatusWhileBackgroundRefreshIsSuspended() async {

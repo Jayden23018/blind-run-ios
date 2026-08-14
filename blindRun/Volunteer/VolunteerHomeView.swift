@@ -1261,12 +1261,12 @@ struct VolunteerHomeView: View {
             .accessibilityLabel("我的服务记录")
 
             NavigationLink {
-                VolunteerPointsPlaceholderView()
+                VolunteerServiceRecognitionView()
             } label: {
-                VolunteerEntryItem(icon: "gift", title: "积分")
+                VolunteerEntryItem(icon: "rosette", title: "成就")
             }
-            .accessibilityLabel("积分商城")
-            .accessibilityHint("查看积分和商城占位页")
+            .accessibilityLabel("服务成就")
+            .accessibilityHint("查看已完成的服务次数、评分和称号")
 
             NavigationLink {
                 VolunteerSettingsView()
@@ -1426,9 +1426,14 @@ private struct VolunteerCurrentOrderCard: View {
 private struct VolunteerDispatchSummaryCard: View {
     let summary: VolunteerDispatchSummaryResponse
 
+    /// 三格，不是四格。此前第一格是「积分」，值是 `totalCompleted * 100` ——
+    /// 后端从来没有 `pointsBalance` 字段，那个数字只是「完成 N 单」换了个说法，
+    /// 却被命名成一种可累积、可兑换的东西。
+    ///
+    /// ponytail: 删掉后**不补第四格凑数**。`totalDispatched` / `totalDeclined` /
+    /// `totalTimeout` 在下面本来就有一行专门展示，挪上来只是重复。
     private var metrics: [(String, String)] {
         [
-            ("积分", "\(summary.resolvedPointsBalance)"),
             ("完成", "\(summary.completedCount)"),
             ("评分", summary.ratingText),
             ("接单率", summary.acceptanceRateText)
@@ -1478,7 +1483,9 @@ private struct VolunteerDispatchSummaryCard: View {
         .background(AppColors.secondaryBackground)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("派单状态：\(summary.dispatchStatusText)，\(summary.coverageText)，积分 \(summary.resolvedPointsBalance)，完成 \(summary.completedCount) 次，评分 \(summary.ratingText)")
+        // 「积分 N」也从这条 label 里删掉 —— 数字从视觉上消失了，但读屏用户还在听，
+        // 这一处最容易漏。
+        .accessibilityLabel("派单状态：\(summary.dispatchStatusText)，\(summary.coverageText)，完成 \(summary.completedCount) 次，评分 \(summary.ratingText)")
     }
 }
 
@@ -1537,6 +1544,24 @@ private struct VolunteerRecentOrdersSection: View {
 private struct VolunteerRecentOrderCard: View {
     let order: VolunteerDispatchSummaryRecentOrder
 
+    /// 抽成独立属性而不是在 `.accessibilityLabel(...)` 里现拼：
+    /// 把这段带可选拆包的拼接塞回 `body` 会让 Swift 类型检查器超时
+    /// （`unable to type-check this expression in reasonable time`）。
+    ///
+    /// `pointsText` 现在是 `String?`，只在后端真的发了 `pointsDelta` 时才有值 ——
+    /// 没有就整段不念，而不是念一个编出来的「+100」。
+    private var accessibilityDescription: String {
+        var parts = [
+            "盲人：\(order.blindName ?? "")",
+            "地点：\(order.startAddress ?? "")",
+            "状态：\(order.status.displayName)"
+        ]
+        if let points = order.pointsText {
+            parts.append("积分：\(points)")
+        }
+        return parts.joined(separator: "，")
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: order.status.statusSymbolName)
@@ -1565,16 +1590,20 @@ private struct VolunteerRecentOrderCard: View {
                     .font(AppFonts.caption().weight(.semibold))
                     .foregroundColor(order.status.statusColor)
 
-                Text(order.pointsText)
-                    .font(AppFonts.caption())
-                    .foregroundColor(order.resolvedPointsDelta == nil ? AppColors.textSecondary : AppColors.success)
+                // 只在后端真的发了 `pointsDelta` 时才显示这一行。此前它恒显示 `+100`
+                // （`resolvedPointsDelta` 在 nil 时返回 100），而后端从来没有这个字段。
+                if let points = order.pointsText {
+                    Text(points)
+                        .font(AppFonts.caption())
+                        .foregroundColor(AppColors.success)
+                }
             }
         }
         .padding(12)
         .background(AppColors.secondaryBackground)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("盲人：\(order.blindName ?? "")，地点：\(order.startAddress ?? "")，状态：\(order.status.displayName)，积分：\(order.pointsText)")
+        .accessibilityLabel(accessibilityDescription)
     }
 }
 
@@ -1598,6 +1627,12 @@ private struct VolunteerEntryItem: View {
 // MARK: - Dispatch Overlay
 
 private struct VolunteerDispatchOverlay: View {
+    /// 倒计时转入「紧迫」的阈值。具名是因为它同时决定颜色和那个感叹号 ——
+    /// 两处各写一个 10，改一处漏一处的表现是「图标出现了但字还是蓝的」。
+    private static let urgentCountdownSeconds = 10
+
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     let order: WSNewOrder
     let countdown: Int
     let isResponding: Bool
@@ -1609,7 +1644,9 @@ private struct VolunteerDispatchOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.5)
+            // 半透明遮罩在「降低透明度」开启时换成不透明：那个开关的用户正是被
+            // 底层内容透上来的杂色干扰的人，而这一层底下是地图（高对比度的彩色纹理）。
+            Color.black.opacity(reduceTransparency ? 1 : 0.5)
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
 
@@ -1689,10 +1726,22 @@ private struct VolunteerDispatchOverlay: View {
                 }
 
                 // Countdown
-                Text("\(countdown)s")
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .foregroundColor(countdown <= 10 ? AppColors.destructive : AppColors.primary)
-                    .accessibilityLabel("剩余\(countdown)秒")
+                //
+                // 进入最后 10 秒此前**只有颜色变化**（蓝 → 红）。红绿色觉障碍看不出这个转折，
+                // 而这个转折决定的是「还要不要再想想」——超时算拒单，代价落回正在等的盲人身上。
+                // 开启「不使用颜色区分」时补一个感叹号：形状差异不依赖色觉。
+                HStack(spacing: 6) {
+                    if differentiateWithoutColor && countdown <= Self.urgentCountdownSeconds {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 32, weight: .bold))
+                            .accessibilityHidden(true)
+                    }
+                    Text("\(countdown)s")
+                        .font(.system(size: 48, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(countdown <= Self.urgentCountdownSeconds ? AppColors.destructive : AppColors.primary)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("剩余\(countdown)秒")
 
                 // Action buttons
                 HStack(spacing: 16) {

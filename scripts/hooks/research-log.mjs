@@ -37,10 +37,12 @@ export function isResearchTool(name) {
   return typeof name === 'string' && RESEARCH_TOOL.test(name);
 }
 
-function git(...args) {
+// cwd 可覆盖，只为让 validate-research-log.mjs 能在临时仓库里跑真函数而不是复刻命令串
+// —— 复刻的命令串会跟实现漂移，而这个钩子的 bug 恰恰就出在命令选错。
+function git(cwd, ...args) {
   try {
     return execFileSync('git', args, {
-      cwd: root,
+      cwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -72,19 +74,27 @@ export function researchToolsUsed(transcriptPath) {
   return used;
 }
 
-// 落盘判定要覆盖三种「已经做了」：还没提交（工作树脏）、已提交在 HEAD 上、
-// **已提交但不在 HEAD 上**。第三种是最容易误判的一种：为遵守「一个 PR 只装一件事」
-// 单开了 docs 分支，或者这个 checkout 被并行会话切走了分支 —— 调研早就落盘并推上去了，
-// 只看工作树和 HEAD 却查不到，于是每一轮都报一次「没落盘」（2026-08-13 连报 4 次）。
-// `--all` 覆盖本地分支与远端跟踪分支，`--since` 把范围压在本轮会话内。
-export function researchLanded(since) {
-  const dirty = git('status', '--porcelain', '--', RESEARCH_DIR);
+// 落盘判定要覆盖三种「已经做了」：还没提交（工作树脏）、本轮任意一笔提交动过、
+// 以及拿不到会话起点时退回只看最后一笔。
+//
+// ⚠️ 只看 HEAD 是不够的，2026-08-13 实测踩到：调研提交之后只要再叠**任何**一笔
+// （merge、契约同步、fixup），HEAD 就不再是调研那笔，钩子照样报「调研没落盘」。
+// 当时 HEAD 是一个只动 Types.swift 的 merge commit，而调研在 HEAD~1/HEAD~2 ——
+// 落盘做完了、还推送了，钩子仍然拦。误报一次这个钩子就开始被无视，
+// 所以判据必须覆盖**整个会话**，不是最后一笔。
+//
+// ⚠️ `--all` 也不是可选项：`git log` 默认只走 HEAD 的祖先，而一个会话里开两三条
+// 分支是常态（本仓库 §「一个 PR 只装一件事」正是这么要求的）。调研落在 A 分支、
+// 停止时站在 B 分支，不带 `--all` 就照样误报 —— 修第一版时当场又踩了一次。
+export function researchLanded(sinceIso, cwd = root) {
+  const dirty = git(cwd, 'status', '--porcelain', '--', RESEARCH_DIR);
   if (dirty && dirty.trim()) return true;
-  const lastCommit = git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD', '--', RESEARCH_DIR);
-  if (lastCommit && lastCommit.trim()) return true;
-  if (!since) return false; // 拿不到会话开始时间就不放宽范围，退回原判据
-  const anyBranch = git('log', '--all', `--since=${since}`, '--format=%H', '-1', '--', RESEARCH_DIR);
-  return Boolean(anyBranch && anyBranch.trim());
+  if (sinceIso) {
+    const inSession = git(cwd, 'log', '--all', `--since=${sinceIso}`, '--name-only', '--pretty=format:', '--', RESEARCH_DIR);
+    return Boolean(inSession && inSession.trim());
+  }
+  const lastCommit = git(cwd, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD', '--', RESEARCH_DIR);
+  return Boolean(lastCommit && lastCommit.trim());
 }
 
 // 给 Stop 钩子用：返回一条欠账文本，或 null（无需提醒）。
