@@ -2588,6 +2588,12 @@ struct VolunteerServiceOrderEssentials: View {
                 serviceRow(systemImage: "flag.checkered", title: "结束地点", value: endAddress)
             }
             serviceRow(systemImage: "clock", title: "预约时间", value: (order.plannedStart ?? "").displayDateTime)
+            // 志愿者也要看得到约定的结束时间：超过它 15 分钟后端就推 `ORDER_OVERDUE`，
+            // 而志愿者侧那条是 HIGH 优先级、会走 APNs。收到告警却不知道约定的是几点，
+            // 那条推送就只是一次惊吓。
+            if let plannedEnd = order.plannedEndForAnnouncement {
+                serviceRow(systemImage: "clock.badge.checkmark", title: "预计结束时间", value: plannedEnd)
+            }
 
             if let distanceText {
                 serviceRow(systemImage: "location", title: "当前位置距离", value: distanceText)
@@ -2841,6 +2847,9 @@ struct VolunteerOrderInfoSection: View {
                 infoRow("结束地点", endAddress)
             }
             infoRow("预约时间", (order.plannedStart ?? "").displayDateTime)
+            if let plannedEnd = order.plannedEndForAnnouncement {
+                infoRow("预计结束时间", plannedEnd)
+            }
             if let distanceText {
                 infoRow("距离", distanceText)
             }
