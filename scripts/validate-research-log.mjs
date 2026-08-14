@@ -11,7 +11,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { isResearchTool, researchToolsUsed, researchTodo } from './hooks/research-log.mjs';
+import { isResearchTool, researchLanded, researchToolsUsed, researchTodo } from './hooks/research-log.mjs';
+// 会话起点在 #8 的重构里搬去了 transcript.mjs（stop-checklist 也用它），研究钩子只是消费方。
+import { sessionStartedAt } from './hooks/transcript.mjs';
 
 const hook = path.resolve(import.meta.dirname, 'hooks/research-log.mjs');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-research-'));
@@ -97,20 +99,111 @@ const cases = [
     check: () => {
       const p = writeTranscript('web.jsonl', ['WebSearch', 'WebSearch']);
       const todo = researchTodo({ transcript_path: p });
-      const dirty = spawnSync('git', ['status', '--porcelain', '--', 'docs/research'], {
-        cwd: path.resolve(import.meta.dirname, '..'),
-        encoding: 'utf8',
-      }).stdout.trim();
-      const landed = spawnSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD', '--', 'docs/research'], {
-        cwd: path.resolve(import.meta.dirname, '..'),
-        encoding: 'utf8',
-      }).stdout.trim();
-      if (dirty || landed) {
+      // ⚠️ 这条判据必须和钩子**同一个**，不能自己另写一个近似的。
+      // 2026-08-14 踩到：原先这里用 `diff-tree HEAD` 当「已落盘」，而钩子用的是
+      // **按会话时间窗**的 `git log --since`。合成 transcript 没有 timestamp，
+      // `sessionStartedAt` 退化成取文件 mtime，也就是「会话从现在开始」——
+      // 于是「调研提交就在 HEAD 上、但早于现在」时两边结论相反：
+      // 本用例判「已落盘、不该报警」，钩子判「本会话内没落盘、该报警」，用例红。
+      // 后果是任何以调研提交收尾的分支都 push 不出去（pre-push 会跑这份自测）。
+      if (researchLanded(sessionStartedAt(p))) {
         // 本轮确实动过 docs/research/：此时正确行为是**不**报警。
         return todo === null ? null : 'docs/research 已有改动却仍在报「没落盘」（误报会让钩子被无视）';
       }
       if (!todo) return '联网过、docs/research 没动，却没有欠账';
       return todo.includes('docs/research') ? null : '欠账没写清落盘路径';
+    },
+  },
+  {
+    name: 'sessionStartedAt 取得到会话起点；损坏行跳过而不是放弃，只有读不到文件才返回 null',
+    check: () => {
+      const p = path.join(tmp, 'ts.jsonl');
+      fs.writeFileSync(p, `${JSON.stringify({ timestamp: '2026-08-13T14:11:11.722Z', type: 'x' })}\n{坏行\n`);
+      if (sessionStartedAt(p) !== '2026-08-13T14:11:11.722Z') return `没取到首行 timestamp，实得 ${sessionStartedAt(p)}`;
+
+      // 首行损坏**不能**放弃整份 transcript：放弃 = 退回只看 HEAD 的旧判据，
+      // 而那个判据正是 2026-08-13 连报 4 次误报的成因。要的是跳过坏行接着找。
+      const leading = path.join(tmp, 'leading-bad.jsonl');
+      fs.writeFileSync(leading, `{ 这行不是 JSON\n${JSON.stringify({ timestamp: '2026-08-13T15:00:00.000Z' })}\n`);
+      if (sessionStartedAt(leading) !== '2026-08-13T15:00:00.000Z') {
+        return `首行损坏时没跳过去取下一条，实得 ${sessionStartedAt(leading)}`;
+      }
+
+      // 一条时间戳都没有（旧格式 / 夹具）：退回文件自身时间，仍然给得出可喂 --since 的值。
+      const noTs = path.join(tmp, 'no-timestamp.jsonl');
+      fs.writeFileSync(noTs, '{ 这行不是 JSON\n');
+      const fallback = sessionStartedAt(noTs);
+      if (!fallback || Number.isNaN(Date.parse(fallback))) {
+        return `没有时间戳时该退回文件时间，实得 ${fallback}`;
+      }
+
+      // 只有「压根读不到」才是 null —— 调用方靠它区分「没有 transcript」和「有但没干活」。
+      if (sessionStartedAt(path.join(tmp, '不存在.jsonl')) !== null) return '文件不存在时没返回 null';
+      return sessionStartedAt(undefined) === null ? null : '路径缺失时没返回 null';
+    },
+  },
+  {
+    name: '调研提交后再叠一笔无关提交，仍要判定为「已落盘」（只看 HEAD 会误报）',
+    check: () => {
+      // 2026-08-13 的真实事故：调研已落盘并推送，但随后合入了一笔契约同步的 merge，
+      // HEAD 变成只动 Types.swift 的那笔，钩子照样拦「调研没落盘」。
+      const repo = path.join(tmp, 'repo');
+      fs.mkdirSync(path.join(repo, 'docs/research'), { recursive: true });
+      const g = (...a) => spawnSync('git', a, { cwd: repo, encoding: 'utf8' });
+      g('init', '-q', '-b', 'main');
+      g('config', 'user.email', 't@example.com');
+      g('config', 'user.name', 'validate-research-log');
+      g('commit', '-q', '--allow-empty', '-m', 'base');
+
+      const since = new Date(Date.now() - 3600_000).toISOString();
+
+      fs.writeFileSync(path.join(repo, 'docs/research/INDEX.md'), '| 日期 |\n');
+      g('add', '-A');
+      g('commit', '-q', '-m', 'docs: 调研落盘');
+      if (!researchLanded(since, repo)) return '调研那笔刚提交完就判成没落盘';
+
+      // 再叠一笔与调研无关的提交 —— 这一步正是当初触发误报的动作
+      fs.writeFileSync(path.join(repo, 'other.txt'), 'x\n');
+      g('add', '-A');
+      g('commit', '-q', '-m', 'chore: 无关改动');
+
+      if (!researchLanded(since, repo)) return '叠了一笔无关提交后误判成「调研没落盘」（就是这次的 bug）';
+      // 同时钉住：旧判据（只看 HEAD）在这个场景下确实是错的，防止有人改回去
+      if (researchLanded(null, repo)) return '只看 HEAD 的兜底路径居然也过了，说明这条用例没真正复现旧 bug';
+      return null;
+    },
+  },
+  {
+    name: '调研落在 A 分支、停止时站在 B 分支，仍要判定为「已落盘」（缺 --all 会误报）',
+    check: () => {
+      // 「一个 PR 只装一件事」意味着一个会话里开两三条分支是常态：
+      // 调研提交在文档分支上，收尾时人可能站在另一条修复分支上。
+      // git log 默认只走 HEAD 祖先，不带 --all 这里就会误报。
+      const repo = path.join(tmp, 'repo-branches');
+      fs.mkdirSync(path.join(repo, 'docs/research'), { recursive: true });
+      const g = (...a) => spawnSync('git', a, { cwd: repo, encoding: 'utf8' });
+      g('init', '-q', '-b', 'main');
+      g('config', 'user.email', 't@example.com');
+      g('config', 'user.name', 'validate-research-log');
+      g('commit', '-q', '--allow-empty', '-m', 'base');
+
+      const since = new Date(Date.now() - 3600_000).toISOString();
+
+      g('checkout', '-q', '-b', 'docs/research-branch');
+      fs.writeFileSync(path.join(repo, 'docs/research/INDEX.md'), '| 日期 |\n');
+      g('add', '-A');
+      g('commit', '-q', '-m', 'docs: 调研落盘');
+
+      // 切到一条与调研无关的分支收尾 —— 调研提交不再是 HEAD 的祖先
+      g('checkout', '-q', 'main');
+      g('checkout', '-q', '-b', 'fix/unrelated');
+      fs.writeFileSync(path.join(repo, 'other.txt'), 'x\n');
+      g('add', '-A');
+      g('commit', '-q', '-m', 'fix: 无关改动');
+
+      return researchLanded(since, repo)
+        ? null
+        : '调研在另一条分支上就误判成「没落盘」（git log 缺 --all）';
     },
   },
 ];

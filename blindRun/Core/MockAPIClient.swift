@@ -41,6 +41,22 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private var keepWaitingCounts: [Int64: Int] = [:]
     private static let mockKeepWaitingLimit = 2
 
+    /// 已提交的评价，`GET /api/orders/{id}/reviews` 的回放源。没有键就是「尚未评价」，
+    /// 对应后端的 200 + `data: null`。
+    private var orderReviews: [Int64: OrderReview] = [:]
+
+    /// 状态变更记录，`GET /api/orders/{id}/status-logs` 的回放源。
+    /// **新的插在最前面**，与后端 `findByOrderIdOrderByChangedAtDesc` 同序。
+    /// 种子订单刻意不带记录：它们的状态是直接摆出来的、没有经过状态机，
+    /// 编一份假的转移史只会让「空列表」这条分支在开发期永远走不到。
+    /// 想看有内容的样子，用页面底部的 Mock 状态测试按钮推一遍流程即可。
+    private var orderStatusLogs: [Int64: [OrderStatusLog]] = [:]
+    private var nextStatusLogId: Int64 = 5000
+
+    /// 已生成的行程分享链接，按订单号存 —— `POST /api/orders/{id}/share` 的幂等性载体。
+    /// 重复调返回同一条，`DELETE` 移除。
+    private var shareLinks: [Int64: ShareLinkResponse] = [:]
+
     /// 已上报的 APNs device token（幂等 upsert 的本地等价物）。
     private(set) var registeredApnsTokens: Set<String> = []
     /// `/api/notifications/since` 的补读语料。Mock 不主动产生离线通知，默认为空。
@@ -265,6 +281,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/volunteer/dispatch-summary" && method == .get {
             return handleGetVolunteerDispatchSummary()
         }
+        if path == "/api/volunteer/achievements" && method == .get {
+            return handleGetVolunteerAchievements()
+        }
         if path == "/api/volunteer/verification/status" && method == .get {
             // 后端只返回 {"status": "..."}，不带信封。
             return VolunteerVerificationStatusResponse(status: volunteerVerificationStatus.rawValue)
@@ -344,7 +363,25 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 return try handleKeepWaiting(orderId: orderId, requiredStatus: .rematching)
             }
             if path.hasSuffix("/review") && method == .post {
-                return handleReview()
+                return try handleReview(orderId: orderId, body: body)
+            }
+            // ⚠️ 读是 `/reviews`（复数），写是 `/review`（单数）—— 契约就是这么不对称的
+            // （`ReviewController.java:41` vs `:30`）。这里能靠 `hasSuffix` 分开纯属巧合，
+            // 换成 `contains("/review")` 之类的宽松匹配就会把读吞进写的分支。
+            if path.hasSuffix("/reviews") && method == .get {
+                return try handleGetReview(orderId: orderId)
+            }
+            if path.hasSuffix("/status-logs") && method == .get {
+                return try handleGetStatusLogs(orderId: orderId)
+            }
+            // 同一条路径两个方法：`POST` 开分享、`DELETE` 停分享（`api_spec.yaml` 的
+            // `createShareLink` / `revokeShareLink`）。分开两个 `if` 而不是 switch method，
+            // 与本文件其余路由同形。
+            if path.hasSuffix("/share") && method == .post {
+                return try handleCreateShareLink(orderId: orderId)
+            }
+            if path.hasSuffix("/share") && method == .delete {
+                return try handleRevokeShareLink(orderId: orderId)
             }
 
             // Order detail
@@ -871,7 +908,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                     startAddress: $0.startAddress,
                     blindName: $0.blindName,
                     rating: $0.status == .completed ? 5 : nil,
-                    pointsDelta: $0.status == .completed ? 100 : nil
+                    // Mock 不得造出后端不存在的字段值：真实响应里 `pointsDelta` 恒为
+                    // `nil`（后端契约与 `src/` 里 `points` 零命中）。此前这里返回 100，
+                    // 于是 Mock 环境下的 UI 与真实环境长得不一样，而 UI 是照着 Mock 调的。
+                    pointsDelta: nil
                 )
             }
         let totalCompleted = orders.filter { $0.status == .completed }.count
@@ -914,9 +954,57 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             totalCompleted: totalCompleted,
             totalCancelled: orders.filter { $0.status == .cancelled }.count,
             acceptanceRate: 0.7,
-            pointsBalance: nil,
             activeOrders: activeOrders,
             recentOrders: Array(recentOrders)
+        )
+    }
+
+    /// `GET /api/volunteer/achievements`（**不套信封**，与 `/api/volunteer/profile` 一致）。
+    ///
+    /// 勋章判定逐条抄后端 `VolunteerBadge.isUnlockedBy`：Mock 的职责是像后端，
+    /// 不是自己发明一套。真正**不**能抄的是把这套阈值搬进 App 的展示逻辑 —— 那才会漂移。
+    ///
+    /// ⚠️ **`nextBadge` 的单位随 `code` 变**：`RUNS_*` 是次，`HOURS_*` 是**分钟**，
+    /// `HIGH_RATED` 是条评价。Mock 也照这个口径给，否则 Mock 下看着对、真机上差 60 倍。
+    private func handleGetVolunteerAchievements() -> VolunteerAchievementsResponse {
+        let totalCompleted = orders.filter { $0.status == .completed }.count
+        // 每单按 60 分钟计。Mock 里订单没有真实的 IN_PROGRESS → COMPLETED 时间戳，
+        // 编一个精确到分钟的数只会让人以为它有意义。
+        let totalServiceMinutes = Int64(totalCompleted) * 60
+        let avgRating: Double? = totalCompleted > 0 ? 5.0 : nil
+        let totalRatings = totalCompleted
+
+        /// 声明顺序即后端的顺序：`nextBadge` 取的是**第一枚未解锁的**，不是最接近达成的那枚。
+        let table: [(code: String, name: String, unlocked: Bool, current: Int64, target: Int64)] = [
+            ("FIRST_RUN", "首次陪跑", totalCompleted >= 1, Int64(totalCompleted), 1),
+            ("RUNS_10", "陪跑达人 · 10 次", totalCompleted >= 10, Int64(totalCompleted), 10),
+            ("RUNS_50", "陪跑达人 · 50 次", totalCompleted >= 50, Int64(totalCompleted), 50),
+            ("RUNS_100", "陪跑达人 · 100 次", totalCompleted >= 100, Int64(totalCompleted), 100),
+            ("HOURS_10", "累计服务 10 小时", totalServiceMinutes >= 600, totalServiceMinutes, 600),
+            ("HOURS_50", "累计服务 50 小时", totalServiceMinutes >= 3000, totalServiceMinutes, 3000),
+            ("HIGH_RATED", "口碑之星",
+             (avgRating ?? 0) >= 4.8 && totalRatings >= 10, Int64(totalRatings), 10)
+        ]
+
+        let nextBadge = table.first { !$0.unlocked }.map {
+            VolunteerNextBadgeDto(
+                code: $0.code,
+                name: $0.name,
+                // 契约：`current` 恒 ≤ `target`，可直接当分子用。
+                current: min($0.current, $0.target),
+                target: $0.target
+            )
+        }
+
+        return VolunteerAchievementsResponse(
+            totalCompleted: totalCompleted,
+            totalServiceMinutes: totalServiceMinutes,
+            avgRating: avgRating,
+            totalRatings: totalRatings,
+            badges: table.filter(\.unlocked).map { VolunteerBadgeDto(code: $0.code, name: $0.name) },
+            nextBadge: nextBadge,
+            // 契约里 `starLevel` 恒非 null。Mock 给 null 会让「恒非 null」这条永远验不到。
+            starLevel: VolunteerStarLevel.derive(totalServiceMinutes: totalServiceMinutes)
         )
     }
 
@@ -1147,6 +1235,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             chatPreference: blindProfile?.chatPreference
         )
         orders.append(order)
+        // 后端在 `OrderCreationService:125` 写的第一条日志，`fromStatus` 为 null。
+        appendStatusLog(orderId: orderId, from: nil, to: .pendingMatch, remark: "创建订单")
 
         return OrderResponse(id: orderId, status: .pendingMatch, message: "订单已创建", success: true)
     }
@@ -1301,8 +1391,115 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         OrderResponse(id: order.orderId, status: order.status, message: message, success: true)
     }
 
-    private func handleReview() -> ApiSuccessResponse {
+    /// `POST /api/orders/{id}/review`。
+    ///
+    /// 此前无条件回成功、也不留存 —— 于是 `REVIEW_ALREADY_SUBMITTED` 那条分支在开发期
+    /// 一次都走不到，而它恰恰是「重进已完成订单再点提交」的必经之路。
+    /// 两条前置校验对齐后端 `ReviewService:57`（非 COMPLETED）与 `:62`（重复提交）。
+    private func handleReview(orderId: Int64, body: (any Encodable & Sendable)?) throws -> ApiSuccessResponse {
+        guard let order = orders.first(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard order.status == .completed else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "订单未完成，暂不能评价"))
+        }
+        guard orderReviews[orderId] == nil else {
+            throw APIError.serverError(ErrorResponse(
+                code: "REVIEW_ALREADY_SUBMITTED", message: "已评价过此订单"))
+        }
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(CreateReviewRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
+        }
+        orderReviews[orderId] = OrderReview(
+            orderId: orderId,
+            rating: request.rating,
+            comment: request.comment,
+            createdAt: Self.backendLocalTimestamp()
+        )
         return ApiSuccessResponse(success: true, message: nil)
+    }
+
+    /// `GET /api/orders/{id}/reviews`。尚未评价时 `data` 为 null，**不是 404**。
+    private func handleGetReview(orderId: Int64) throws -> OrderReviewEnvelope {
+        guard orders.contains(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        return OrderReviewEnvelope(data: orderReviews[orderId])
+    }
+
+    /// `GET /api/orders/{id}/status-logs`。裸数组，最新在前。
+    /// 订单不存在时后端抛 `IllegalArgumentException` → **400 `BAD_REQUEST`，不是 404**
+    /// （`OrderController.java:261-262`）。
+    private func handleGetStatusLogs(orderId: Int64) throws -> [OrderStatusLog] {
+        guard orders.contains(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "BAD_REQUEST", message: "订单不存在"))
+        }
+        return orderStatusLogs[orderId] ?? []
+    }
+
+    /// 开分享链接。**幂等**：同一单重复调返回同一条链接，与后端一致
+    /// （换令牌会让已经发出去的那条失效，家属只看到「分享已结束」，分不清是跑完了还是链接被换了）。
+    private func handleCreateShareLink(orderId: Int64) throws -> ShareLinkResponse {
+        guard let order = orders.first(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard order.status.offersRunPlanShare else {
+            throw APIError.serverError(ErrorResponse(
+                code: "SHARE_ORDER_ALREADY_FINISHED",
+                message: "订单已结束，不能再新开分享链接"
+            ))
+        }
+        if let existing = shareLinks[orderId] {
+            return existing
+        }
+        // 令牌放 **fragment**，与契约同形。Mock 里也照做的理由：这一条正是「客户端不许重新拼链接」
+        // 那条约束的载体，Mock 里写成 `?t=` 会让测试在一个错误形状上过绿。
+        //
+        // 域名用 RFC 2606 保留的 `example.com`：真实分享域名由后端下发，
+        // 客户端一个字都不该知道。`guard.mjs` 的 `server-addr` 白名单也只放行这一族。
+        let token = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(43))
+        let link = ShareLinkResponse(
+            shareUrl: "https://example.com/share.html#\(token)",
+            expiresAt: Self.backendLocalTimestamp()
+        )
+        shareLinks[orderId] = link
+        return link
+    }
+
+    /// 停分享。**幂等**：没有可撤销的链接时同样成功（后端返 204）。
+    private func handleRevokeShareLink(orderId: Int64) throws -> EmptyResponse {
+        guard orders.contains(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        shareLinks.removeValue(forKey: orderId)
+        return EmptyResponse()
+    }
+
+    /// 记一条状态变更。后端在每个状态流转点都写一条（12 处 `logStatusChange`），
+    /// Mock 把它收在 `updateOrderStatus` 一处 —— 那是所有状态改动的唯一出口，
+    /// 逐个调用点补记漏一处就是审计链断裂。
+    private func appendStatusLog(
+        orderId: Int64,
+        from: RunOrderStatus?,
+        to: RunOrderStatus,
+        remark: String
+    ) {
+        let log = OrderStatusLog(
+            id: nextStatusLogId,
+            fromStatus: from,
+            toStatus: to,
+            changedAt: Self.backendLocalTimestamp(),
+            remark: remark
+        )
+        nextStatusLogId += 1
+        orderStatusLogs[orderId, default: []].insert(log, at: 0)
+    }
+
+    /// 后端 `LocalDateTime` 的无时区串（`2026-08-04T09:05:03`），与 `String.backendLocalDate` 对得上。
+    private static func backendLocalTimestamp() -> String {
+        DateFormatter.aidRunBackendLocalDateTime.string(from: Date())
     }
 
     // MARK: - Voice Order Handlers
@@ -2344,6 +2541,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         to newStatus: RunOrderStatus,
         volunteerPhone: String? = nil
     ) -> OrderDetailResponse {
+        appendStatusLog(
+            orderId: order.orderId,
+            from: order.status,
+            to: newStatus,
+            remark: Self.mockStatusLogRemark(to: newStatus)
+        )
         return OrderDetailResponse(
             orderId: order.orderId,
             status: newStatus,
@@ -2370,6 +2573,24 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             tetherPreference: order.tetherPreference,
             chatPreference: order.chatPreference
         )
+    }
+
+    /// Mock 的 remark 逐字抄后端那 12 处 `logStatusChange` 的第五个参数，
+    /// 让「remark 就是可朗读的中文」这条前端假设在开发期真的被验到。
+    /// `CANCELLED` 刻意保留后端那个机器串（`"取消方=" + CancelledBy`）——
+    /// `OrderStatusLog.displayText` 的翻译分支只有靠它才走得到。
+    private static func mockStatusLogRemark(to newStatus: RunOrderStatus) -> String {
+        switch newStatus {
+        case .pendingMatch: return "创建订单"
+        case .pendingAccept: return "志愿者接单"
+        case .driverEnRoute: return "志愿者已出发"
+        case .driverArrived: return "志愿者已到达"
+        case .inProgress: return "志愿者确认开始服务"
+        case .completed: return "服务完成"
+        case .cancelled: return "取消方=BLIND"
+        case .rematching: return "志愿者取消，进入重新匹配，第1次"
+        case .noVolunteer, .unknown: return ""
+        }
     }
 
     private func extractOrderId(from path: String) -> Int64? {

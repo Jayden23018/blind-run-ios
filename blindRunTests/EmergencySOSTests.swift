@@ -389,7 +389,19 @@ final class EmergencySOSTests: XCTestCase {
                 return Self.coordinate()
             }
         )
-        await Task.yield()
+        // 这里原本是单次 `await Task.yield()` 然后立刻断言。**那是 flaky 的**：一次 yield 只保证
+        // 当前任务让出一次，不保证 `trigger` 已经跑到 `state = .locating`。单跑本套件永远绿，
+        // 和另外三套一起跑（77 条）时会间歇性红成 `("idle") is not equal to ("locating")` ——
+        // 2026-08-12 实测同一份代码、同一条命令，一次 76/77、一次 77/77。
+        //
+        // 改成有界自旋。断言的意图一个字没变（「`.locating` 期间守卫就必须已经武装」），
+        // 变的只是不再假设一次 yield 足够：真回归时状态永远不会变成 `.locating`，
+        // 循环空转到超时，断言照样红。
+        var spins = 0
+        while coordinator.state != .locating && spins < 100 {
+            await Task.yield()
+            spins += 1
+        }
         XCTAssertEqual(coordinator.state, .locating, "the button must show progress while locating")
 
         let second = await coordinator.trigger(
@@ -586,6 +598,49 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertNil(EmergencyDialer.telURL(for: ""))
         XCTAssertNil(EmergencyDialer.telURL(for: "   "))
         XCTAssertNil(EmergencyDialer.telURL(for: "未填写"))
+    }
+
+    /// 测试期拦截：开着时不真的拨、但要留痕；关掉时必须照常拨出去。
+    ///
+    /// **后半条和前半条一样重要。** 这道拦截如果把生产路径也吞了，盲人按下「拨打110」
+    /// 会毫无反应 —— 那正是 `telURL` 只取数字要防的那种事故，只是换了个来源。
+    /// `AGENTS.md` §6 限定它只能影响 DEBUG 构建。
+    func testDialIsInterceptedOnlyWhileTheUITestSwitchIsOn() throws {
+        let url = try XCTUnwrap(EmergencyDialer.telURL(for: EmergencyDialer.policeNumber))
+        let wasBlocked = EmergencyDialer.isDialBlockedForUITesting
+        defer { EmergencyDialer.isDialBlockedForUITesting = wasBlocked }
+        EmergencyDialer.resetBlockedDialCountForTesting()
+
+        var dialed: [URL] = []
+        EmergencyDialer.isDialBlockedForUITesting = true
+        EmergencyDialer.dial(url) { dialed.append($0) }
+        XCTAssertEqual(dialed, [])
+        XCTAssertEqual(
+            EmergencyDialer.blockedDialCount,
+            1,
+            "拦截必须留痕，否则测试证明不了「按下去确实要拨」"
+        )
+
+        EmergencyDialer.isDialBlockedForUITesting = false
+        EmergencyDialer.dial(url) { dialed.append($0) }
+        XCTAssertEqual(dialed, [url], "开关关掉后必须照常拨出去")
+        XCTAssertEqual(EmergencyDialer.blockedDialCount, 1)
+    }
+
+    /// 启动环境判定。默认认的是 UI 测试的启动标记，不是那个专用键 ——
+    /// 本仓库有四处 `launchEnvironment` 装配，要求每处都记得加一行是挡不住的。
+    func testDialBlockDefaultsToOnForAnyUITestLaunchEnvironment() {
+        XCTAssertTrue(EmergencyDialer.resolveDialBlock(from: ["AIDRUN_UI_TEST_RESET_STATE": "1"]))
+        XCTAssertTrue(EmergencyDialer.resolveDialBlock(from: [EmergencyDialer.uiTestBlockEnvironmentKey: "1"]))
+
+        // 显式关掉优先于启动标记：将来真要有用例验拨号，得留这个出口。
+        XCTAssertFalse(EmergencyDialer.resolveDialBlock(from: [
+            "AIDRUN_UI_TEST_RESET_STATE": "1",
+            EmergencyDialer.uiTestBlockEnvironmentKey: "0"
+        ]))
+
+        // 手动跑 App（没有任何 UI 测试变量）绝不能被拦。
+        XCTAssertFalse(EmergencyDialer.resolveDialBlock(from: [:]))
     }
 
     /// 本地拨号分支的文案必须说清「App 不会代你发送求助」。

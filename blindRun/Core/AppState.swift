@@ -127,6 +127,11 @@ final class AppState: ObservableObject {
     /// 走 `persistence` 而不是 `@AppStorage`，否则单元/UI 测试会写进 App 的标准域。
     @Published private(set) var didDismissBlindIdentityPrompt = false
 
+    /// 首次使用引导是否已经看过。**按设备记，登出不清**（理由见
+    /// `AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen`）——
+    /// 与上面那条按账号记的实名标记刻意不同。
+    @Published private(set) var didSeeBlindFirstRunHelp = false
+
     /// 会话过期后带到登录页展示的一次性提示。
     @Published private(set) var sessionExpirationMessage: String?
 
@@ -254,11 +259,24 @@ final class AppState: ObservableObject {
         )
     }
 
-    /// 「稍后再说」：跳过实名引导页进首页看历史订单和设置。**不等于可以下单**——
+    /// 「稍后再说」：跳过实名引导页进首页。**不等于可以下单**——
     /// 未实名仍会被 `BlindBookingGate.identityVerification` 拦住（后端 403 `IDENTITY_NOT_VERIFIED`）。
+    ///
+    /// ⚠️ 这句话原本写的是「进首页**看历史订单**和设置」，而盲人端**没有任何历史入口** ——
+    /// 跳过实名的用户进来只有一个必定失败的「开始约跑」。注释在描述一个不存在的能力。
+    /// 入口由 PR #24（`BlindRunHistoryView`，跑步记录）补，合入前这里不要再写「历史订单」。
+    /// 那一页只收 `COMPLETED`，取消掉的订单和补评价仍然没有去处。
     func dismissBlindIdentityPrompt() {
         didDismissBlindIdentityPrompt = true
         persistence.set(true, forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
+    }
+
+    /// 首次引导看完（按了「知道了」）。**只有这一个写入点** ——
+    /// 「进过这一页」不算看完：自动进入的那次如果用户直接返回，下次还该给他。
+    func markBlindFirstRunHelpSeen() {
+        guard !didSeeBlindFirstRunHelp else { return }
+        didSeeBlindFirstRunHelp = true
+        persistence.set(true, forKey: AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen)
     }
 
     var isVolunteerProfileComplete: Bool {
@@ -322,6 +340,8 @@ final class AppState: ObservableObject {
         }
         self.didDismissBlindIdentityPrompt =
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed) as? Bool ?? false
+        self.didSeeBlindFirstRunHelp =
+            persistence.object(forKey: AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen) as? Bool ?? false
 
         // 紧急事件的后续推送在触发它的界面消失后才到，订阅点必须在 App 生命周期层。
         // provider 而不是直接传 client：环境可以在运行时切换（Mock / 生产），求助恢复必须打当下那一个。
@@ -639,6 +659,13 @@ final class AppState: ObservableObject {
     func resetUITestPersistence() {
         persistence.reset()
         performLocalSessionCleanup()
+        // 按**设备**记的标志不进 `performLocalSessionCleanup`（登出不该清它们），
+        // 但这里的语义是「恢复到全新安装」，必须一起清。
+        //
+        // 只清盘不够：`persistence.reset()` 抹掉的是磁盘，而 `AppState` 早在 init 里
+        // 就把值读进内存了。漏掉这一行的表现是**跨用例串味** —— 前一条用例按过「知道了」，
+        // 后一条就再也等不到引导页，报「引导页没起来」，看着像功能坏了。
+        didSeeBlindFirstRunHelp = false
         // Keychain 不随 App 沙盒一起清除：只清 UserDefaults 的话，重置后 Token 仍会残留，
         // 「本该未登录」的 UI 用例会拿着上一轮的 Token 继续跑。必须显式删除。
         tokenStore.delete()

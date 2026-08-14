@@ -8,6 +8,8 @@
 // AGENTS.md 第 1 节要求这类事落到机器归宿，这就是那个归宿。
 
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -327,6 +329,72 @@ const cases = [
     }
   },
   {
+    // 2026-08-14：误触让真机 UI 测试走到了 tel://110，只有双卡选号单挡了一下。
+    // 拨号已收敛到 EmergencyDialer.dial（DEBUG 下可拦截），这条守卫防的是有人再开一个出口。
+    name: '生产代码里裸的 UIApplication.shared.open（绕开拨号拦截）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/FooView.swift',
+        old_string: 'a',
+        new_string: '        UIApplication.shared.open(telURL)'
+      }
+    }
+  },
+  {
+    name: '改走 EmergencyDialer.dial（正解，放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/FooView.swift',
+        old_string: 'a',
+        new_string: '        EmergencyDialer.dial(telURL)'
+      }
+    }
+  },
+  {
+    // 地图 / 系统设置这些别的 scheme 是正当出口，标注就是那份出口清单。
+    name: '别的 scheme 带 guard:allow 标注（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Map/ExternalMapNavigation.swift',
+        old_string: 'a',
+        new_string: '            UIApplication.shared.open(url) // guard:allow raw-open-url 地图 App scheme'
+      }
+    }
+  },
+  {
+    // 拦截实现本身就住在这个文件里，拦它等于让这条规则自己改不动。
+    name: 'SafetyModule.swift 里的那唯一一处（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Safety/SafetyModule.swift',
+        old_string: 'a',
+        new_string: '    static func dial(_ url: URL, open: (URL) -> Void = { UIApplication.shared.open($0) }) {'
+      }
+    }
+  },
+  {
+    // 测试代码不受此规则约束：UI 测试自己没有 UIApplication.shared 可用，
+    // 而单测里出现这行只可能是在写反例。
+    name: '测试代码里出现同一行（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: '        // 别写成 UIApplication.shared.open(url)'
+      }
+    }
+  },
+  {
     name: 'UI 测试里 app.tap() 敲屏幕正中（会点到盲人端主按钮）',
     expect: 2,
     input: {
@@ -363,16 +431,154 @@ const cases = [
         new_string: '        app.tap() // guard:allow blind-tap-center'
       }
     }
+  },
+  // placeholder-promise：起因是「积分商城」占位页在仓库里躺了很久，没有任何检查说过一句话。
+  //
+  // sos-copy 此前**一条自测都没有** —— 规则在 guard.mjs 里躺了很久，却没人验过它拦不拦得住。
+  // 2026-08-13 补上，起因是行程告知功能用「家人」这个称呼，整条从原词表旁边绕了过去。
+  //
+  // 这几条走 post 模式：内容级规则是从磁盘读改动后的真实文件再查的（比解析 diff 可靠），
+  // 所以用 `swift` 字段声明文件内容，由下面的 runner 落成临时文件。
+  {
+    name: '出货代码里承诺「敬请期待」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "积分商城即将上线，敬请期待" }'
+  },
+  {
+    name: '出货代码里承诺「即将上线」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "该功能即将上线" }'
+  },
+  {
+    // 占位 UI 本身不该被禁，如实说明当前不可用才是正确写法 ——
+    // 规则拦的是「会兑现」的暗示，不是占位本身。
+    name: '如实说明功能不可用（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let title = "这个功能还没有开放" }'
+  },
+  {
+    name: 'SOS 文案宣称已通知紧急联系人（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let done = "已通知紧急联系人" }'
+  },
+  {
+    // 换个称呼就穿过去，正是这条规则最容易被绕开的方式 —— 也正是它 2026-08-13 被绕开的方式。
+    name: 'SOS 文案换用「家人」称呼（同样拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let sent = "已通知家人" }'
+  },
+  {
+    name: 'SOS 文案说「家人已收到」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let sent = "家人已收到你的行程" }'
+  },
+  {
+    // 进行时文案必须放行 —— 否则这条规则会把唯一正确的写法也堵死，
+    // 逼着后来的人去加 guard:allow，那等于把规则关掉。
+    name: '进行时文案「已交给系统短信」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let sent = "短信已交给系统，请在短信里确认已发出。" }'
+  },
+  {
+    name: '按钮文案「把这次行程告诉家人」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let buttonTitle = "把这次行程告诉家人" }'
+  },
+  {
+    // 注释里引用坏文案来解释「为什么要覆盖它」是我们希望留在代码里的东西。
+    name: '注释里出现坏文案（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: '// 后端 body 写的是「已通知家人」，客户端必须用自己的进行时文案覆盖它。'
+  },
+
+  // volunteer-hours-credential：成就页把时长/星级说成凭据是违规（民政部令第 67 号），
+  // 不是措辞问题。这条规则最容易出的错是把注册流程里合法的「资质证书」「实名认证」
+  // 一起堵死 —— 下面四条放行用例就是钉这条边界的，删了它规则会变成噪音源。
+  {
+    name: '成就页把时长说成「服务证明」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "志愿服务证明" }'
+  },
+  {
+    name: '成就页把时长说成「时长证书」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "导出你的服务时长证书" }'
+  },
+  {
+    name: '成就页宣称「时长已认证」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let subtitle = "你的服务时长已认证" }'
+  },
+  {
+    // 注册流程里的资质证书是真实动作，与服务时长的法律效力无关。堵死它等于把这条规则关掉。
+    name: '注册流程的「资质证书」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let title = "上传资质证书" }'
+  },
+  {
+    name: '注册流程的「实名认证」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let title = "请先完成实名认证" }'
+  },
+  {
+    name: '注册流程的「培训证书」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let hint = "上传助盲陪跑相关资质或培训证书" }'
+  },
+  {
+    // 成就页真正该用的措辞。它必须放行，否则唯一正确的写法也过不去。
+    name: '成就页的展示性措辞（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let d = "以上数据来自平台记录，供你自己查看。向学校或单位申报星级需要通过全国志愿服务信息系统办理。" }'
   }
 ];
+
+// post 模式的内容规则是**从磁盘读改动后的真实文件**再查的，所以这类用例得落一个真文件。
+//
+// 路径放在临时目录里，但要造出 `/blindRun/` 这一段 —— 守卫用它区分生产代码与测试代码
+// （`guard.mjs` 末尾的路径过滤）。**不要**写进真实的 `blindRun/` 目录：本工程是文件系统
+// 同步式的（`PBXFileSystemSynchronizedRootGroup`），那里多一个 .swift 会直接被编进 target，
+// 用例中断时残留文件会让整个工程编译不过。
+function materialize(testCase) {
+  if (testCase.mode !== 'post') return { input: testCase.input, cleanup: () => {} };
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-guard-'));
+  const productionDir = path.join(dir, 'blindRun', 'Shared');
+  fs.mkdirSync(productionDir, { recursive: true });
+  const filePath = path.join(productionDir, 'GuardSelfTest.swift');
+  fs.writeFileSync(filePath, `${testCase.swift}\n`, 'utf8');
+
+  return {
+    input: { tool_name: 'Edit', tool_input: { file_path: filePath } },
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true })
+  };
+}
 
 let failed = false;
 
 for (const testCase of cases) {
-  const result = spawnSync('node', [guard, 'pre'], {
-    input: JSON.stringify(testCase.input),
+  const { input, cleanup } = materialize(testCase);
+  const result = spawnSync('node', [guard, testCase.mode ?? 'pre'], {
+    input: JSON.stringify(input),
     encoding: 'utf8'
   });
+  cleanup();
   const status = result.status ?? -1;
   if (status !== testCase.expect) {
     console.error(

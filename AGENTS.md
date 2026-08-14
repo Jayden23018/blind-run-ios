@@ -48,6 +48,16 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   详见记忆 `low-vision-visual-channel-unaudited` 与 `docs/review/frontend-backend-alignment-review-20260812.md` §D。
   这条抓不成静态守卫：对比度要看颜色**用在什么语义的文本上**（装饰图标不算），机器分不出来。
 
+- XCUITest 报 `Failed to get matching snapshots: Timed out while evaluating UI query` 时，
+  **先看 result bundle 里的屏幕录像找误触，不要去 grep 重绘循环**。2026-08-14 那次的真因是
+  「重复当前状态」在首屏外、不滚就 `tap()`，触点被钳到底部常驻求助条上，一路误触到
+  `tel://110`，超时的是对系统 `com.apple.BusinessActionSheet` 的查询。
+  连带一条反直觉的事实：SwiftUI `ScrollView` 屏幕外的子视图**照样** `isHittable == true`
+  （`List` 是压根不渲染，两种坑不一样），所以 `scrollUntilExists` 对它无效，要用
+  `scrollElementIntoView`（`blindRunUITests/blindRunUITests.swift:1225`）。
+  误触本身已按 §1.2 钉成运行时断言；「怎么诊断」这半条抓不成检查，
+  详见记忆 `snapshot-timeout-means-a-system-app-took-over`。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：
@@ -160,7 +170,7 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 > 2026-08-06 从整文件冻结改为行级。核对后发现原先给的两条理由只有一条落在 pbxproj 上（`DEVELOPMENT_TEAM`，12 处）；`EXCLUDED_ARCHS` 在 pbxproj 里出现 **0 次**，它只存在于 `Podfile:36`。整文件冻结的代价是连加一个 SPM 依赖都做不到，而「临时解锁、改完加回来」依赖人记得加回来 —— 第 1 节说的就是这种挡不住重复犯错的做法。
 >
-> 守卫在 `scripts/hooks/guard.mjs`，自测在 `scripts/validate-guard.mjs`（21 条用例，CI 与 pre-push 都跑）。
+> 守卫在 `scripts/hooks/guard.mjs`，自测在 `scripts/validate-guard.mjs`（CI 与 pre-push 都跑）。
 > 守卫管的不止冻结文件，还有遗留状态词、SOS 文案、服务端地址、高德 key、OpenAPI 运行时越界、
 > weak 依赖收临时对象、workflow 的 `if:` 里用 `secrets`。规则清单以 `guard.mjs` 为准，本文件不留副本。
 
@@ -196,16 +206,19 @@ REMATCHING → CANCELLED（只能盲人 token）
 9. **commit**：`type: 描述`（type 取 feat/fix/refactor/docs/test/chore/perf/ci）。**不带 `Co-Authored-By`**（`~/.claude/settings.json` 的 `includeCoAuthoredBy: false` 已全局关闭，不要手动加回来）
 10. **push**
 
-> 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**工作树脏**或**领先 origin**
-> 时拦住本次停止并列出欠账。两条约束让它不至于变成噪音：
+> 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**本轮写过的文件没提交**或
+> **领先 origin** 时拦住本次停止并列出欠账。三条约束让它不至于变成噪音：
 > - `stop_hook_active` 兜底，一次停止只拦一次 —— 用户说「先不提交」时回一句说明再停即可，不会死循环
 > - 同一份欠账（相同路径集合 + 相同领先数）只提醒一次，签名存 `.git/aidrun-stop-checklist-seen`。
 >   别人没写完的脏文件长期躺着时不会每轮都叫；欠账内容变了才重新叫
+> - **欠账只算本轮 Edit/Write 写过的路径**（从 transcript 取，`scripts/hooks/transcript.mjs`）。
+>   并行会话或同事在改的脏文件降级为提示；调研落盘同理，会去**本轮会话内的所有分支**找提交，
+>   不只看工作树和 HEAD —— 单开 docs 分支提交调研是常态，只看 HEAD 会每轮误报一次
 >
 > handoff（第 8 步）**不作独立触发条件**，只在已有欠账时附带提醒 —— 纯客户端改动本就不该投递，
 > 拿「提交晚于 handoff」当触发会让每次工具链提交都误报。什么该投递见记忆 `handoff-upkeep-workflow`。
 >
-> 自测 `scripts/validate-stop-checklist.mjs`（5 条，CI 与 pre-push 都跑）。
+> 自测 `scripts/validate-stop-checklist.mjs`（9 条，CI 与 pre-push 都跑）。
 >
 > 这条从「用户每轮口头提醒」升级成钩子，走的是 §1.3。
 

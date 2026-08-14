@@ -18,7 +18,10 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const root = path.resolve(import.meta.dirname, '../..');
+import { sessionStartedAt, transcriptEntries } from './transcript.mjs';
+
+// AIDRUN_REPO_ROOT 只给自测用（拿一个临时 git 仓库当靶子），生产路径永远走仓库根。
+const root = process.env.AIDRUN_REPO_ROOT || path.resolve(import.meta.dirname, '../..');
 
 export const RESEARCH_DIR = 'docs/research';
 export const INDEX_PATH = path.join(RESEARCH_DIR, 'INDEX.md');
@@ -34,10 +37,12 @@ export function isResearchTool(name) {
   return typeof name === 'string' && RESEARCH_TOOL.test(name);
 }
 
-function git(...args) {
+// cwd 可覆盖，只为让 validate-research-log.mjs 能在临时仓库里跑真函数而不是复刻命令串
+// —— 复刻的命令串会跟实现漂移，而这个钩子的 bug 恰恰就出在命令选错。
+function git(cwd, ...args) {
   try {
     return execFileSync('git', args, {
-      cwd: root,
+      cwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -56,23 +61,10 @@ export function readIndex() {
 
 // 本轮用过哪些联网工具。transcript 是 JSONL，每行一条消息，
 // 工具调用在 message.content[] 里 type === 'tool_use'。
+// 读不到就当没调研过：这里宁可漏报也不要每轮误报。
 export function researchToolsUsed(transcriptPath) {
-  if (!transcriptPath) return [];
-  let raw;
-  try {
-    raw = fs.readFileSync(transcriptPath, 'utf8');
-  } catch {
-    return []; // 读不到就当没调研过：这里宁可漏报也不要每轮误报
-  }
   const used = [];
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue; // 半行/损坏行跳过，别让整个钩子挂掉
-    }
+  for (const entry of transcriptEntries(transcriptPath) || []) {
     const content = entry?.message?.content;
     if (!Array.isArray(content)) continue;
     for (const block of content) {
@@ -82,12 +74,26 @@ export function researchToolsUsed(transcriptPath) {
   return used;
 }
 
-// 落盘判定要覆盖两种「已经做了」：还没提交（工作树脏）和本轮已提交（最后一次提交动过）。
-// 只看工作树的话，模型先提交再停止就会被误判成没落盘 —— 误报一次这个钩子就开始被无视。
-export function researchLanded() {
-  const dirty = git('status', '--porcelain', '--', RESEARCH_DIR);
+// 落盘判定要覆盖三种「已经做了」：还没提交（工作树脏）、本轮任意一笔提交动过、
+// 以及拿不到会话起点时退回只看最后一笔。
+//
+// ⚠️ 只看 HEAD 是不够的，2026-08-13 实测踩到：调研提交之后只要再叠**任何**一笔
+// （merge、契约同步、fixup），HEAD 就不再是调研那笔，钩子照样报「调研没落盘」。
+// 当时 HEAD 是一个只动 Types.swift 的 merge commit，而调研在 HEAD~1/HEAD~2 ——
+// 落盘做完了、还推送了，钩子仍然拦。误报一次这个钩子就开始被无视，
+// 所以判据必须覆盖**整个会话**，不是最后一笔。
+//
+// ⚠️ `--all` 也不是可选项：`git log` 默认只走 HEAD 的祖先，而一个会话里开两三条
+// 分支是常态（本仓库 §「一个 PR 只装一件事」正是这么要求的）。调研落在 A 分支、
+// 停止时站在 B 分支，不带 `--all` 就照样误报 —— 修第一版时当场又踩了一次。
+export function researchLanded(sinceIso, cwd = root) {
+  const dirty = git(cwd, 'status', '--porcelain', '--', RESEARCH_DIR);
   if (dirty && dirty.trim()) return true;
-  const lastCommit = git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD', '--', RESEARCH_DIR);
+  if (sinceIso) {
+    const inSession = git(cwd, 'log', '--all', `--since=${sinceIso}`, '--name-only', '--pretty=format:', '--', RESEARCH_DIR);
+    return Boolean(inSession && inSession.trim());
+  }
+  const lastCommit = git(cwd, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD', '--', RESEARCH_DIR);
   return Boolean(lastCommit && lastCommit.trim());
 }
 
@@ -95,10 +101,11 @@ export function researchLanded() {
 export function researchTodo(payload) {
   const used = researchToolsUsed(payload?.transcript_path);
   if (!used.length) return null;
-  if (researchLanded()) return null;
+  if (researchLanded(sessionStartedAt(payload?.transcript_path))) return null;
   const kinds = [...new Set(used)].join('、');
   return (
-    `**调研没落盘**：本轮联网 ${used.length} 次（${kinds}），但 \`${RESEARCH_DIR}/\` 没有任何改动。` +
+    `**调研没落盘**：本轮联网 ${used.length} 次（${kinds}），但 \`${RESEARCH_DIR}/\` 没有任何改动` +
+    `（工作树、HEAD、本轮会话内所有分支的提交都查过）。` +
     `落到 \`${RESEARCH_DIR}/{topic}-{YYYYMMDD}.md\` 并回写 \`${INDEX_PATH}\` 一行` +
     `（日期/问题/一句话结论/复核触发条件/报告，五列齐全）。` +
     `只是查一个 API 签名、不构成调研的，回一句说明再停。`

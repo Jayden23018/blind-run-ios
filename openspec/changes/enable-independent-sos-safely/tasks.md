@@ -64,8 +64,11 @@
   那四个字在本 App 里专指云端求助，本地拨号复用会让盲人以为求助已发出。
 - [x] 8.3 拨号 URL 唯一构造点 `EmergencyDialer.telURL`，只取数字：号码带空格/横线会拼出无效
   `tel://`，而无效 URL 的表现是「点了没反应」。
-- [x] 8.4 首页布局改 `ZStack`：地图背景层 `accessibilitySortPriority(-1)` + 内容层 `100`，
-  地图 `allowsHitTesting(false)`；设置齿轮移出标题行并排到遍历最后；
+- [x] 8.4 首页布局改 `ZStack`：地图背景层 `allowsHitTesting(false)` + 对读屏
+  `accessibilityHidden(true)`；设置齿轮移出标题行并排到遍历最后（靠 ZStack 里的声明顺序，
+  遍历顺序 = 绘制顺序）。
+  ~~地图背景层 `accessibilitySortPriority(-1)` + 内容层 `100`~~ —— 2026-08-14 真机实测
+  该修饰符在叠放层上是**空操作**，已移除，见 8.8。
   「重复当前状态」降视觉权重但保留 64pt 触达区。求助条挂 `.safeAreaInset(edge:.bottom)`
   并注册 `.accessibilityAction(.magicTap)`。
 - [x] 8.5 规格：`openspec/specs/blind-runner-voice-first-experience/spec.md` 放宽视觉顺序约束
@@ -74,10 +77,13 @@
 - [x] 8.6 单测：逐状态钉住 `resolve`（只有 `IN_PROGRESS` 走云端）、拨号号码净化、
   降级文案必须含「不会代你发送求助」。
 - [ ] 8.7 真机批跑本轮改动 —— 与 6.6 同一个阻塞项，见那里。
-- [ ] 8.8 UI 测试 `testMockBlindRunnerHomePlacesPrimaryActionBeforeAuxiliaryMapInVoiceOverOrder`
-  已按新布局改成断言**遍历顺序**（原断言的是视觉顺序，新布局下前提反转），
-  但**没能执行验证**：UI runner 自 2026-08-06 起稳定 code 74 起不来
-  （`.claude/state.md:193-236`，未解决）。改对了没有，要等那条通道修好才能确认。
+- [x] 8.8 UI 测试已在真机执行并通过（2026-08-14，`passed=12 failed=0`）。
+  用例更名为 `testMockBlindRunnerHomeKeepsAuxiliaryMapOutOfVoiceOverSoPrimaryActionComesFirst`：
+  原断言（主操作下标 < 地图下标）**从来就没有可通过的实现** —— `allElementsBoundByAccessibilityElement`
+  是逐层枚举的，地图是深度 1、按钮是深度 3，27 vs 16 差的是深度不是顺序。
+  且 `accessibilitySortPriority` 在叠放层上是空操作（四种排法真机实测，见
+  `docs/research/swiftui-voiceover-traversal-order-20260814.md`），装饰地图已改为
+  `accessibilityHidden(true)`。code 74 是无线连接掉链，插稳/重连后可复现地跑通。
 
 ## 7. 2026-08-04 规格订正（归档前置）
 

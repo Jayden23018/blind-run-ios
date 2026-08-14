@@ -5,7 +5,9 @@ import Foundation
 
 // MARK: - Resolved Place
 
-struct ResolvedPlace: Identifiable, Equatable, Sendable {
+/// `Codable` 是给 `FavoritePlaceStore` 落盘用的（常用出发地点存 `UserDefaults`）。
+/// 字段全是 `String` / `Double` / 一个 `String` 枚举，合成实现就够，无需自定义编解码。
+struct ResolvedPlace: Identifiable, Equatable, Sendable, Codable {
     let id: String
     let title: String
     let addressText: String

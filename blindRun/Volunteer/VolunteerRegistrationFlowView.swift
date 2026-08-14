@@ -1072,6 +1072,7 @@ struct VolunteerRegistrationFlowView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @StateObject private var viewModel = VolunteerRegistrationViewModel()
 
     var body: some View {
@@ -1128,14 +1129,16 @@ struct VolunteerRegistrationFlowView: View {
         HStack(spacing: 4) {
             ForEach(RegistrationStep.allCases, id: \.rawValue) { step in
                 VStack(spacing: 4) {
-                    Circle()
-                        .fill(step.displayIndex <= viewModel.currentStep.displayIndex ? AppColors.primary : AppColors.textSecondary.opacity(0.3))
-                        .frame(width: 28, height: 28)
-                        .overlay {
-                            Text("\(step.displayIndex)")
-                                .font(.caption.bold())
-                                .foregroundColor(.white)
-                        }
+                    // 已完成 / 未完成此前只有填充色不同，圈里那个白色序号在两种状态下都一样。
+                    // 与盲人端预约向导共用同一条「实心 / 空心」规则（见 `StepProgressDot`），
+                    // 不在这里再写一遍 —— 两处各写各的，漏改一处的表现是「某些页面的进度条
+                    // 对色觉障碍用户还是一排相同的圈」，而那种漏没人会发现。
+                    StepProgressDot(
+                        isReached: step.displayIndex <= viewModel.currentStep.displayIndex,
+                        differentiateWithoutColor: differentiateWithoutColor,
+                        diameter: 28,
+                        stepNumber: step.displayIndex
+                    )
                     Text(step.title)
                         .font(.caption2)
                         .foregroundColor(step == viewModel.currentStep ? AppColors.primary : AppColors.textSecondary)

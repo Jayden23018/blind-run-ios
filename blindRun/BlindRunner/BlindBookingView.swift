@@ -230,6 +230,23 @@ final class BlindBookingViewModel: ObservableObject {
         appointmentTime >= minimumAppointmentTime
     }
 
+    /// 预约时间那行提示。合法时说规则，不合法时说**当前这个选择哪里不行**。
+    ///
+    /// 此前两种状态是同一句话，合法与否只由颜色区分（灰 / 红）。那不只是色觉障碍的问题：
+    /// 读屏用户根本没有颜色这条通道，选了一个过近的时间之后听到的还是那句中性的规则说明，
+    /// 只有提交被拒时才知道。所以改文案而不是加一个 `differentiateWithoutColor` 分支 ——
+    /// 后者只补色觉一条通道，前者对所有人都修好，且顺带让颜色不再是唯一信号。
+    ///
+    /// 两句都带「30 分钟」这个数字：听的人无论落在哪一句，要做的动作都是完整的。
+    /// 分钟数取自 `AppConstants.Timing.minimumBookingLeadMinutes`，与 `minimumAppointmentTime`
+    /// 同源 —— 写死 30 会在后端调整提前量时变成一句骗人的话。
+    var appointmentTimeHint: String {
+        let minutes = AppConstants.Timing.minimumBookingLeadMinutes
+        return isAppointmentTimeValid
+            ? "预约时间需至少在 \(minutes) 分钟后。"
+            : "当前选择的时间太近了，请改到 \(minutes) 分钟以后。"
+    }
+
     /// 下单前第一个未通过的门槛；nil 表示全部通过。
     var firstMissingGate: BlindBookingGate? {
         BlindBookingGate.firstMissing(
@@ -849,8 +866,13 @@ struct BlindBookingView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = BlindBookingViewModel()
     @StateObject private var voiceWizard = VoiceOrderWizard()
+    /// 常用出发地点。纯本地（`UserDefaults`），不与后端同步 —— 理由见 `FavoritePlaceStore`。
+    @StateObject private var favorites = FavoritePlaceStore()
     @AccessibilityFocusState private var focusedSearchResultID: String?
+    /// 换步后读屏焦点的落点。绑在 `guidedStepHeader` 的标题行上。
+    @AccessibilityFocusState private var focusedStepHeader: BlindBookingGuidedStep?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @State private var isPulsing = false
     /// 零输入下单走到第二步（复核整单）了没有。见 `zeroInputBookingSection`。
     @State private var isZeroInputConfirming = false
@@ -949,6 +971,18 @@ struct BlindBookingView: View {
         }
         .onChange(of: viewModel.searchResultFocusID) { focusID in
             focusedSearchResultID = focusID
+        }
+        // 换步之后把读屏焦点搬到新步骤的标题上。
+        //
+        // 不搬的话焦点留在刚按下的「下一步」按钮上 —— 那个按钮在页面**底部**，
+        // 而新内容整块出现在它**上面**。读屏用户按完只听到按钮标题变了，
+        // 得反向往上滑好几次才够得着这一步要他做的事。看得见的人一眼扫到，看不见的人没有这条捷径。
+        //
+        // 用 `@AccessibilityFocusState` 而不是 `UIAccessibility.post(.screenChanged)`：
+        // 后者把焦点扔到屏幕**第一个**元素（导航栏），还得再往下滑过标题和进度点；
+        // 前者精确落在「当前步骤」那行标题上，下一个元素就是要填的东西。
+        .onChange(of: viewModel.currentStep) { step in
+            focusedStepHeader = step
         }
         // 前提消失就回到第一步。这一条堵的是「门槛中途变化」那类路径（例如用户去系统设置关掉定位
         // 再打开）：`zeroInputBookingSection` 期间被整块藏起来，再出现时不该还停在提交那一步。
@@ -1350,10 +1384,15 @@ struct BlindBookingView: View {
                 HStack(spacing: 8) {
                     ForEach(BlindBookingGuidedStep.allCases) { step in
                         VStack(spacing: 6) {
-                            Circle()
-                                .fill(step.rawValue <= viewModel.currentStep.rawValue ? AppColors.primary : AppColors.textSecondary.opacity(0.25))
-                                .frame(width: 12, height: 12)
-                                .accessibilityHidden(true)
+                            // 走过 / 没走过此前**只有填充色**不同 —— 对红绿色觉障碍
+                            // （常与低视力并发，而 `VisionLevel.LOW_VISION` 是本 App 的一等公民）
+                            // 这排点是完全一样的六个圆。开启「不使用颜色区分」时改成
+                            // 实心 / 空心：形状差异不依赖任何色觉。
+                            StepProgressDot(
+                                isReached: step.rawValue <= viewModel.currentStep.rawValue,
+                                differentiateWithoutColor: differentiateWithoutColor
+                            )
+                            .accessibilityHidden(true)
                             Text(step.shortName)
                                 .font(AppFonts.caption())
                                 .foregroundColor(step == viewModel.currentStep ? AppColors.textPrimary : AppColors.textSecondary)
@@ -1369,6 +1408,7 @@ struct BlindBookingView: View {
                 .font(.title2.bold())
                 .foregroundColor(AppColors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($focusedStepHeader, equals: viewModel.currentStep)
 
             Text(viewModel.currentStepSpeechSummary)
                 .font(AppFonts.body())
@@ -1404,6 +1444,10 @@ struct BlindBookingView: View {
                 permissionDeniedView
             } else {
                 currentLocationCard
+                saveFavoriteButton
+                // 排在搜索之前：常用地点是**跳过**「地名 → 坐标」那一段，
+                // 而搜索是走进那一段。能不走就不该先摆搜索框。
+                favoritePlacesSection
 
                 VoiceTextField(
                     title: "搜索出发地点",
@@ -1461,6 +1505,86 @@ struct BlindBookingView: View {
 
                 auxiliaryStartMap
             }
+        }
+    }
+
+    /// 「收藏这个出发地点」。
+    ///
+    /// 只在 `selectedStartPlace` 非空时出现，这一条同时挡掉两种不该收藏的东西：
+    /// 「当前位置」与演示坐标 —— 它们只会出现在 `resolvedStartPlace` 的兜底分支里，
+    /// 从来不会写进 `selectedStartPlace`（见那两处的实现）。所以这里不必再嗅探 `source`。
+    @ViewBuilder
+    private var saveFavoriteButton: some View {
+        if let place = viewModel.selectedStartPlace, !favorites.contains(place) {
+            Button {
+                if favorites.add(place) {
+                    speechService.speak("已收藏出发地点，\(place.title)。下次可以直接选。")
+                }
+            } label: {
+                Label("收藏这个出发地点", systemImage: "star")
+                    .font(AppFonts.body().weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 52)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("收藏这个出发地点，\(place.title)")
+            .accessibilityHint("收藏后可以直接选择，不用再搜一次地名")
+            .accessibilityIdentifier("bookingSaveFavoritePlaceButton")
+        }
+    }
+
+    /// 常用地点列表。
+    ///
+    /// 每行**两个**独立按钮（选择 / 删除）而不是侧滑删除：侧滑对 VoiceOver 用户是
+    /// 「自定义操作」转子里的一项，得先知道它存在才找得到；而误删一条收藏之后，
+    /// 用户下一次下单会退回那条最容易出错的搜索路径。
+    @ViewBuilder
+    private var favoritePlacesSection: some View {
+        if !favorites.places.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("常用地点")
+                    .font(.headline)
+                    .foregroundColor(AppColors.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+
+                ForEach(favorites.places) { place in
+                    HStack(spacing: 12) {
+                        Button {
+                            viewModel.selectPlace(place)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(place.title)
+                                    .font(AppFonts.body().weight(.semibold))
+                                    .foregroundColor(AppColors.textPrimary)
+                                if !place.addressText.trimmed.isEmpty, place.addressText.trimmed != place.title.trimmed {
+                                    Text(place.addressText)
+                                        .font(AppFonts.caption())
+                                        .foregroundColor(AppColors.textSecondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(minHeight: 52)
+                        }
+                        .accessibilityLabel(place.bookingSearchAccessibilityLabel)
+                        .accessibilityHint("直接使用这个已保存的地点，不再重新搜索")
+
+                        Button {
+                            favorites.remove(id: place.id)
+                            speechService.speak("已删除常用地点，\(place.title)。")
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundColor(AppColors.destructive)
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("删除常用地点，\(place.title)")
+                    }
+                    .padding(.horizontal, 12)
+                    .background(AppColors.secondaryBackground)
+                    .cornerRadius(8)
+                }
+            }
+            .accessibilityIdentifier("bookingFavoritePlacesSection")
         }
     }
 
@@ -1590,7 +1714,7 @@ struct BlindBookingView: View {
 
             Button("去设置") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
+                    UIApplication.shared.open(url) // guard:allow raw-open-url 系统设置，不是拨号
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -1620,10 +1744,15 @@ struct BlindBookingView: View {
             .accessibilityLabel("预约时间，\(viewModel.appointmentTime.formatted(date: .abbreviated, time: .shortened))")
             .accessibilityHint("请选择至少三十分钟后的时间")
 
-            Text("预约时间需至少在 30 分钟后。")
+            // 这里此前**两种状态同一句话**，合法与否只由颜色区分（灰 / 红）。
+            // 那不只是色觉障碍的问题：读屏用户根本没有颜色这条通道，选了一个过近的时间
+            // 之后听到的还是那句中性的规则说明，只有提交被拒时才知道。
+            // 所以改文案而不是加一个 `differentiateWithoutColor` 分支 —— 后者只补色觉一条通道，
+            // 前者对所有人都修好，且顺带让颜色不再是唯一信号。
+            Text(viewModel.appointmentTimeHint)
                 .font(AppFonts.caption())
                 .foregroundColor(viewModel.isAppointmentTimeValid ? AppColors.textSecondary : AppColors.destructive)
-                .accessibilityLabel("预约时间需至少在三十分钟后")
+                .accessibilityLabel(viewModel.appointmentTimeHint)
         }
         .padding()
         .background(AppColors.secondaryBackground)
