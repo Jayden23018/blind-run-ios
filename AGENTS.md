@@ -48,6 +48,16 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   详见记忆 `low-vision-visual-channel-unaudited` 与 `docs/review/frontend-backend-alignment-review-20260812.md` §D。
   这条抓不成静态守卫：对比度要看颜色**用在什么语义的文本上**（装饰图标不算），机器分不出来。
 
+- XCUITest 报 `Failed to get matching snapshots: Timed out while evaluating UI query` 时，
+  **先看 result bundle 里的屏幕录像找误触，不要去 grep 重绘循环**。2026-08-14 那次的真因是
+  「重复当前状态」在首屏外、不滚就 `tap()`，触点被钳到底部常驻求助条上，一路误触到
+  `tel://110`，超时的是对系统 `com.apple.BusinessActionSheet` 的查询。
+  连带一条反直觉的事实：SwiftUI `ScrollView` 屏幕外的子视图**照样** `isHittable == true`
+  （`List` 是压根不渲染，两种坑不一样），所以 `scrollUntilExists` 对它无效，要用
+  `scrollElementIntoView`（`blindRunUITests/blindRunUITests.swift:1225`）。
+  误触本身已按 §1.2 钉成运行时断言；「怎么诊断」这半条抓不成检查，
+  详见记忆 `snapshot-timeout-means-a-system-app-took-over`。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：
