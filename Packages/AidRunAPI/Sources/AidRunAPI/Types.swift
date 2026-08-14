@@ -5007,6 +5007,94 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/target`.
             public var target: Swift.Int64?
+            /// 多条件勋章「卡在哪一维」，**单条件勋章为 null**（看 `current`/`target` 就够了）。
+            ///
+            /// 目前只有 `HIGH_RATED` 会给值 —— 它是「均分 ≥4.8 **且** ≥10 条评价」双条件，
+            /// 而 `current`/`target` 只有一根轴，表达不了。
+            /// 于是「20 条评价、均分 4.0」会看到**满格进度条 + 未解锁的勋章**，
+            /// 没有 `blockedBy` 就没有任何线索（这比进度慢更让人放弃）。
+            ///
+            /// | 值 | 含义 |
+            /// |---|---|
+            /// | `RATING` | 平均评分不够。⚠️ 此时进度条（评价条数）**可能已满格**，文案别说「快解锁了」 |
+            /// | `RATINGS_COUNT` | 评价条数不够，与进度条同一维 |
+            ///
+            /// ⚠️ **刻意不下发阈值（4.8）**：客户端据此说「你的评分还差一点」即可，
+            /// 把业务阈值抄进客户端会让它一改就漂移。
+            ///
+            /// **响应向开放枚举** —— 遇到不认识的值当 null 处理。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/blockedBy`.
+            public struct blockedByPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/blockedBy/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case RATING = "RATING"
+                    case RATINGS_COUNT = "RATINGS_COUNT"
+                }
+                /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/blockedBy/value1`.
+                public var value1: Components.Schemas.VolunteerNextBadgeDto.blockedByPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/blockedBy/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `blockedByPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.VolunteerNextBadgeDto.blockedByPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 多条件勋章「卡在哪一维」，**单条件勋章为 null**（看 `current`/`target` 就够了）。
+            ///
+            /// 目前只有 `HIGH_RATED` 会给值 —— 它是「均分 ≥4.8 **且** ≥10 条评价」双条件，
+            /// 而 `current`/`target` 只有一根轴，表达不了。
+            /// 于是「20 条评价、均分 4.0」会看到**满格进度条 + 未解锁的勋章**，
+            /// 没有 `blockedBy` 就没有任何线索（这比进度慢更让人放弃）。
+            ///
+            /// | 值 | 含义 |
+            /// |---|---|
+            /// | `RATING` | 平均评分不够。⚠️ 此时进度条（评价条数）**可能已满格**，文案别说「快解锁了」 |
+            /// | `RATINGS_COUNT` | 评价条数不够，与进度条同一维 |
+            ///
+            /// ⚠️ **刻意不下发阈值（4.8）**：客户端据此说「你的评分还差一点」即可，
+            /// 把业务阈值抄进客户端会让它一改就漂移。
+            ///
+            /// **响应向开放枚举** —— 遇到不认识的值当 null 处理。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerNextBadgeDto/blockedBy`.
+            public var blockedBy: Components.Schemas.VolunteerNextBadgeDto.blockedByPayload?
             /// Creates a new `VolunteerNextBadgeDto`.
             ///
             /// - Parameters:
@@ -5014,22 +5102,26 @@ public enum Components {
             ///   - name: 中文展示名
             ///   - current: 当前值。⚠️ **单位随 `code` 而变**：`FIRST_RUN` / `RUNS_*` 是「次」，
             ///   - target: 解锁门槛，与 `current` 同单位
+            ///   - blockedBy: 多条件勋章「卡在哪一维」，**单条件勋章为 null**（看 `current`/`target` 就够了）。
             public init(
                 code: Components.Schemas.VolunteerNextBadgeDto.codePayload? = nil,
                 name: Swift.String? = nil,
                 current: Swift.Int64? = nil,
-                target: Swift.Int64? = nil
+                target: Swift.Int64? = nil,
+                blockedBy: Components.Schemas.VolunteerNextBadgeDto.blockedByPayload? = nil
             ) {
                 self.code = code
                 self.name = name
                 self.current = current
                 self.target = target
+                self.blockedBy = blockedBy
             }
             public enum CodingKeys: String, CodingKey {
                 case code
                 case name
                 case current
                 case target
+                case blockedBy
             }
         }
         /// 国标志愿服务星级（GB/T 40143—2021）：100 / 300 / 600 / 1000 / 1500 小时。
