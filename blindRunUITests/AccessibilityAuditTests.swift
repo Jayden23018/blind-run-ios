@@ -272,10 +272,16 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let repeatControl = app.buttons["重复当前状态"].firstMatch
         XCTAssertTrue(repeatControl.waitForExistence(timeout: 10), "盲人首页缺少「重复当前状态」")
-        XCTAssertTrue(
-            repeatControl.isHittable,
+
+        // 判据与有订单态那条同源：`isHittable` 只判中心点，盖住上半截时它照样是 true。
+        let sosBar = app.descendants(matching: .any)["blindRunnerHomeSOSBar"].firstMatch
+        XCTAssertTrue(sosBar.waitForExistence(timeout: 10), "首页底部求助条不在，遮挡判据没有参照物")
+        XCTAssertLessThanOrEqual(
+            repeatControl.frame.maxY,
+            sosBar.frame.minY,
             """
-            「重复当前状态」要滚动才够得着 —— 它被底部 SOS 条盖住了。\
+            「重复当前状态」下沿 \(repeatControl.frame.maxY) 越过了底部 SOS 条上沿 \(sosBar.frame.minY)，\
+            被盖住了 \(repeatControl.frame.maxY - sosBar.frame.minY)pt。\
             首页在「开始约跑」和它之间又多了一行的话，先想清楚这一行值不值得把它顶下去。
             """
         )
@@ -297,6 +303,51 @@ final class AccessibilityAuditTests: XCTestCase {
             "有进行中订单时首页必须能「问一句」—— 这是它唯一有答案可给的状态"
         )
         XCTAssertTrue(ask.isHittable, "「问一句」存在但够不着，等于没有")
+    }
+
+    /// 有订单态也要能不滚动够到「重复当前状态」。
+    ///
+    /// 上面那条无订单版守了半年，而**有订单态一直没人守** —— 偏偏这一态的内容更长：
+    /// 状态卡 + 「查看当前订单」+ 可能的「取消订单」+ 「问一句」全排在它前面。
+    /// 2026-08-14 用户在真机上看到的就是这个：默认进来「重复当前状态」被底部 SOS 条切掉一截。
+    ///
+    /// 断言写在这一态而不是把上面那条改成参数化：两态的前置数据（`emptyOrders`）不同，
+    /// 合成一条要么共用一个 launch 参数、要么在用例里分支，都比多一条用例难读。
+    @MainActor
+    func testBlindHomeWithAnActiveOrderKeepsRepeatStatusReachable() throws {
+        let app = launchBlindHome(emptyOrders: false)
+        XCTAssertTrue(
+            app.buttons["查看当前订单"].firstMatch.waitForExistence(timeout: 20),
+            "有订单的盲人首页没起来，后面的断言没有意义"
+        )
+
+        let repeatControl = app.buttons["重复当前状态"].firstMatch
+        XCTAssertTrue(repeatControl.waitForExistence(timeout: 10), "有订单的盲人首页缺少「重复当前状态」")
+
+        // 这一态的内容天然超一屏（状态卡 + 「查看当前订单」+ 「取消订单」+ 「问一句」+ 它自己，
+        // 四个 64pt 起跳的块），**要求不滚动就全露出来是不合理的** —— 真那么排，被牺牲的
+        // 会是别的东西。2026-08-14 实测：地图 300pt 时它下沿 922、SOS 条上沿 772。
+        //
+        // 所以这一态抓的是另一件事：**滚到底也够不着**。那才是永久被固定条盖住，
+        // 与「在折叠线以下、滑一下就有」是两回事。
+        let sosBar = app.descendants(matching: .any)["blindRunnerHomeSOSBar"].firstMatch
+        XCTAssertTrue(sosBar.waitForExistence(timeout: 10), "首页底部求助条不在，遮挡判据没有参照物")
+
+        var swipes = 0
+        while repeatControl.frame.maxY > sosBar.frame.minY && swipes < 4 {
+            app.swipeUp()
+            swipes += 1
+        }
+
+        XCTAssertLessThanOrEqual(
+            repeatControl.frame.maxY,
+            sosBar.frame.minY,
+            """
+            滚了 \(swipes) 次，「重复当前状态」下沿仍是 \(repeatControl.frame.maxY)，\
+            压在底部 SOS 条上沿 \(sosBar.frame.minY) 之下 —— 它被那条常驻条永久盖住了，\
+            滚动也救不回来。底部 `safeAreaInset` 的高度变了、或者这一列又多了一块时会撞到这条。
+            """
+        )
     }
 
     /// 后端的 `ORDER_CANCELLATION_WARNING` 正文逐字是「您的订单即将因长时间无人接单被取消，
@@ -355,9 +406,47 @@ final class AccessibilityAuditTests: XCTestCase {
             // （视觉可以铺满，读屏遍历顺序必须操作优先）。这是唯一的白名单项 ——
             // 每加一条都要写清为什么，否则白名单会慢慢把审计架空。
             let identifier = issue.element?.identifier ?? ""
-            return identifier == "blindRunnerHomeAuxiliaryMap" || identifier == "blindBookingAuxiliaryMap"
+            let label = issue.element?.label ?? ""
+            if Self.auditIgnoredIdentifiers.contains(identifier) || Self.auditIgnoredLabels.contains(label) {
+                return true
+            }
+            // 审计失败只报一句「Contrast failed」，**不说是哪个元素** —— 2026-08-14 为定位一次
+            // 对比度失败，加打印、重跑、再删，白花了两轮真机。留着，失败日志里直接就有。
+            print("""
+            [AUDIT] \(issue.auditType) id=\(identifier) label=\(label) \
+            frame=\(issue.element?.frame ?? .zero) \(issue.detailedDescription)
+            """)
+            return false
         }
     }
+
+    /// 审计白名单。**每加一条都要写清为什么，否则白名单会慢慢把审计架空。**
+    private static let auditIgnoredIdentifiers: Set<String> = [
+        // 高德地图图层无法承载有意义的 label，且它已被显式降权为辅助内容
+        // （视觉可以铺满，读屏遍历顺序必须操作优先）。
+        "blindRunnerHomeAuxiliaryMap",
+        "blindBookingAuxiliaryMap",
+        "mapPlaceholder"
+    ]
+
+    /// 上面两个地图的替身：缺高德 key 时（UI 测试构建**永远**缺）渲染的占位图。
+    ///
+    /// **按文案而不是 identifier 认它**：`MapPlaceholderView` 上确实挂了
+    /// `accessibilityIdentifier("mapPlaceholder")`，但审计穿透 `children: .combine`
+    /// 报的是内部那几个 `Text`，它们的 identifier 是空字符串 —— 只按 id 白名单放不掉。
+    ///
+    /// 2026-08-14 加：地图从 300 压到 200pt 后它开始报 `Contrast failed`，而它用的是
+    /// `.label` on `.secondarySystemBackground`（约 19:1）—— **颜色没问题**，是文字位置
+    /// 变了之后审计的采样结果变了。放行的理由不是「颜色达标」，而是：它只在缺 key 时出现，
+    /// 生产构建走真地图；且这几句话是给开发者看的，不是盲人用户的界面。
+    ///
+    /// 按文案匹配意味着**改文案会让白名单失效**。那是想要的行为：文案变了就该重新审一次。
+    private static let auditIgnoredLabels: Set<String> = [
+        "地图服务暂不可用",
+        "请配置高德地图 API Key",
+        "参考 LocalConfig.xcconfig.example 创建配置文件",
+        "地图服务暂不可用，请配置高德地图 API Key"
+    ]
 
     /// 下单页起来了没有 —— 语音态和表单态各有一个标志元素，命中任一即可。
     @MainActor

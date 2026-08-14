@@ -422,8 +422,20 @@ struct BlindRunnerHomeView: View {
     ///
     /// 用 `verticalSizeClass` 而不是 `GeometryReader`：只需要区分「横屏/竖屏」这一个二值，
     /// 引 `GeometryReader` 要重排整个内容层，不值这个复杂度。
-    private var mapVisualHeight: CGFloat { verticalSizeClass == .compact ? 140 : 300 }
-    private var mapRevealHeight: CGFloat { verticalSizeClass == .compact ? 96 : 236 }
+    ///
+    /// **竖屏也压过一次（300/236 → 200/150）**：横屏那轮只修了横屏，同一个本末倒置在竖屏上
+    /// 仍然成立，只是程度轻到没被当成 bug。按 iPhone 15（852pt）默认字号排一遍无订单态：
+    /// 让位 236 + 内边距 28 + 标题区约 64 + 间距 24 + 「开始约跑」280 + 间距 24 = 656pt，
+    /// 而底部 SOS 条（64pt 按钮 + 上下 16 + 安全区 34）之上只剩到 738pt ——
+    /// 「重复当前状态」落在 656–720，**首屏只露得出小半截**。
+    /// 它是 `AGENTS.md` 要求每个盲人页面都有的 M 档入口，却要先滚动才看得全。
+    ///
+    /// 这一刀切掉的 86pt 全给内容：同样排法下按钮落到 570–634，默认字号首屏整条可见。
+    /// 对 VoiceOver 用户（A 类）没有区别 —— 滑动本来就到得了；受损的一直是**低视力且不开读屏**
+    /// 的 B 类，他们只有「看得见的那一屏」这一条通道。见
+    /// `docs/research/blind-ui-visual-benchmark-20260808.md` 规则 5「地图是装饰，列表是界面」。
+    private var mapVisualHeight: CGFloat { verticalSizeClass == .compact ? 140 : 200 }
+    private var mapRevealHeight: CGFloat { verticalSizeClass == .compact ? 96 : 150 }
 
     /// iPad 与横屏上的正文最大宽度。
     ///
