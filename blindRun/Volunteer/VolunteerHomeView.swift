@@ -1627,6 +1627,12 @@ private struct VolunteerEntryItem: View {
 // MARK: - Dispatch Overlay
 
 private struct VolunteerDispatchOverlay: View {
+    /// 倒计时转入「紧迫」的阈值。具名是因为它同时决定颜色和那个感叹号 ——
+    /// 两处各写一个 10，改一处漏一处的表现是「图标出现了但字还是蓝的」。
+    private static let urgentCountdownSeconds = 10
+
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     let order: WSNewOrder
     let countdown: Int
     let isResponding: Bool
@@ -1638,7 +1644,9 @@ private struct VolunteerDispatchOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.5)
+            // 半透明遮罩在「降低透明度」开启时换成不透明：那个开关的用户正是被
+            // 底层内容透上来的杂色干扰的人，而这一层底下是地图（高对比度的彩色纹理）。
+            Color.black.opacity(reduceTransparency ? 1 : 0.5)
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
 
@@ -1718,10 +1726,22 @@ private struct VolunteerDispatchOverlay: View {
                 }
 
                 // Countdown
-                Text("\(countdown)s")
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .foregroundColor(countdown <= 10 ? AppColors.destructive : AppColors.primary)
-                    .accessibilityLabel("剩余\(countdown)秒")
+                //
+                // 进入最后 10 秒此前**只有颜色变化**（蓝 → 红）。红绿色觉障碍看不出这个转折，
+                // 而这个转折决定的是「还要不要再想想」——超时算拒单，代价落回正在等的盲人身上。
+                // 开启「不使用颜色区分」时补一个感叹号：形状差异不依赖色觉。
+                HStack(spacing: 6) {
+                    if differentiateWithoutColor && countdown <= Self.urgentCountdownSeconds {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 32, weight: .bold))
+                            .accessibilityHidden(true)
+                    }
+                    Text("\(countdown)s")
+                        .font(.system(size: 48, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(countdown <= Self.urgentCountdownSeconds ? AppColors.destructive : AppColors.primary)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("剩余\(countdown)秒")
 
                 // Action buttons
                 HStack(spacing: 16) {

@@ -639,6 +639,7 @@ struct BlindOrderStatusView: View {
     @EnvironmentObject private var locationService: LocationService
     @EnvironmentObject private var speechInputService: SpeechInputService
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @State private var showEmergencyConfirmation = false
@@ -961,6 +962,7 @@ struct BlindOrderStatusView: View {
                 .foregroundColor(AppColors.textSecondary)
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 52)
+                .buttonShapeOutlineIfNeeded(color: AppColors.textSecondary)
                 .accessibilityLabel("跳过评价并返回首页")
             }
 
@@ -1458,6 +1460,10 @@ struct BlindOrderStatusView: View {
                 .foregroundColor(AppColors.destructive)
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 64)
+                // 这一页只有这一个按钮是**纯文字**（其余都是实心色块），开启「按钮形状」时
+                // 它是唯一一个看不出可点的。而它是破坏性操作，认不出来的代价是两个方向的：
+                // 想取消的人找不到，不想取消的人以为那只是一行说明。
+                .buttonShapeOutlineIfNeeded(color: AppColors.destructive)
                 .accessibilityLabel("取消订单")
                 .accessibilityHint("需要确认后取消")
             }
@@ -1557,7 +1563,10 @@ struct BlindOrderStatusView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
-        .background(.regularMaterial)
+        // 这条常驻底栏压在滚动内容之上，`.regularMaterial` 会把下面滑过去的文字透上来。
+        // 「降低透明度」开启时换成实色 —— 那个开关的用户正是被这种叠影干扰的人，
+        // 而底下这两个按钮（问一句 / 重复当前状态）是这一页任何时刻都要够得着的东西。
+        .background(reduceTransparency ? AnyShapeStyle(AppColors.background) : AnyShapeStyle(.regularMaterial))
     }
 
     private var askQuestionButton: some View {
