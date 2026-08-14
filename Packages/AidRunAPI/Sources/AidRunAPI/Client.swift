@@ -170,6 +170,84 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 志愿者成就页（累计单数/服务时长/评分 + 派生勋章）
+    ///
+    /// ⚠️ **这不是「志愿服务时长证明」。** 可出具、可查验的证明受《志愿服务记录与证明出具办法（试行）》
+    /// （民政部令第 67 号）约束，须经志愿服务信息系统出具；第三方平台的时长要有法律效力，
+    /// 必须先与全国志愿服务信息系统完成数据对接。本端点只提供数据本身，
+    /// **客户端展示时不要用「证明」「证书」这类措辞**。
+    ///
+    /// **响应不套 `ApiResponse` 信封**（与同控制器的 `GET /api/volunteer/profile` 一致，
+    /// 但与 `GET /api/volunteer/dispatch-summary` **不同** —— 那条是套的，别照抄解析代码）。
+    ///
+    /// 与 `dispatch-summary` 字段重叠是刻意的（同一真相源 `volunteer_profile`）：
+    /// 分开是因为 `totalServiceMinutes` 要扫该志愿者的全部已完成订单，
+    /// 而 dispatch-summary 是首页、每次打开都调，不该让低频页面的代价压在最热的端点上。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/achievements`.
+    /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)`.
+    public func getVolunteerAchievements(_ input: Operations.getVolunteerAchievements.Input) async throws -> Operations.getVolunteerAchievements.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getVolunteerAchievements.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/achievements",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getVolunteerAchievements.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.VolunteerAchievementsResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    return .forbidden(.init())
+                case 404:
+                    return .notFound(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// 志愿者首页聚合数据（接单资格/在线位置/覆盖范围/时段/评分/订单）
     ///
     /// - Remark: HTTP `GET /api/volunteer/dispatch-summary`.
@@ -1018,7 +1096,7 @@ public struct Client: APIProtocol {
     }
     /// 查询动作活体认证结果（Step 3 - result）
     ///
-    /// 根据 certifyId（须与当前用户绑定的 certifyId 一致，防越权）调用阿里云 DescribeFaceVerify 查询认证结果。客户端在 init 返回后使用 App SDK （AliyunFaceAuthFacade.verify(certifyId)）完成动作活体， 然后轮询本接口直到 status 变为 APPROVED 或 REJECTED。
+    /// 根据 certifyId（须与当前用户绑定的 certifyId 一致，防越权）调用阿里云 DescribeFaceVerify 查询认证结果。客户端在 init 返回后使用 App SDK （AliyunFaceAuthFacade.verify(certifyId)）完成动作活体， 然后轮询本接口直到 status 变为 APPROVED 或 REJECTED。 ⚠️ 轮询期间管理员若拒掉该志愿者的身份证，本接口改回 400 `ID_INFO_INVALID` （与 init 同码同语义）：此时活体结果一律不落库，客户端应停止轮询并回到 step1 重填身份信息。
     ///
     /// - Remark: HTTP `POST /api/volunteer/registration/step3/face-verify/result`.
     /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/result/post(queryFaceVerifyResult)`.
@@ -1746,6 +1824,13 @@ public struct Client: APIProtocol {
     /// `/v3/geocode/geo` 是结构化地址接口，对 POI 简称只能分词尽力匹配 ——
     /// 生产实测在深圳南山区说「前海万象」被拆出「前海」落到海南。现在直接报
     /// `addressUnresolved=true` 走追问。**代价是约外地地点解析不出，收益是不会把人约到外省。**
+    ///
+    /// ⚠️ **2026-08-12 起模型降到 flash 档（延迟中位 5.0s → 2.5s），失败更安静**：
+    /// 该档不支持 `json_schema`，没有结构约束了 —— 模型吐出畸形结构不再被 API 层挡住，
+    /// 而是被后端**静默把该槽位置成 null**，表现为 `missing` 多一项 / `endAddress` 为 null，
+    /// 走的是你已经在走的追问路径。**接口契约与你侧行为逐字未变**（识别质量实测与 plus 打平）。
+    /// 防幻觉守卫一条没少：抽出的片段必须是用户原话的字面子串，编出来的地址进不了订单。
+    /// ⇒ 「识别不准」这类问题现在更可能是模型侧静默退化，**反馈时请带上用户原话**，只有原话能复现。
     ///
     /// **一步修正**：用户否定读回确认时（"不对，九点"），把上一轮结果填进 `current` 再调一次本端点。
     /// 槽位优先级 **本轮正则 > 本轮模型 > current**：新抽到的覆盖旧值，没抽到的原样继承。
@@ -3407,6 +3492,245 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 生成行程分享链接（给家属）
+    ///
+    /// 盲人把这一趟行程分享给家属。家属**没有账号也不需要装 App**，凭返回的链接直接看。
+    ///
+    /// **重复调用返回同一个链接**：多点一次不会让已经发出去的那条失效
+    /// —— 换了令牌，家属那边只会看到「分享已结束」，无法区分是「跑完了」还是「链接被换了」。
+    ///
+    /// ⚠️ 严格说是「顺序调用幂等」：两个 POST **并发**到达且此前无有效链接时，可能各自生成一个。
+    /// 两个都有效、都能打开，且 `DELETE` 会一次性撤销该订单名下全部链接，
+    /// 所以「已发给家属的链接被换掉」不会发生。客户端不需要为此做任何处理。
+    ///
+    /// 令牌在 URL 的 **fragment** 里（`.../share.html#<token>`）而不是 query：
+    /// fragment 不进 Referer、不上服务端访问日志，而分享页要加载高德 JS SDK 这个第三方脚本。
+    ///
+    /// ⚠️ **调用本接口 = 盲人对「向持链接者提供本人实时位置与轨迹」的单独同意**
+    /// （PIPL 第 23/29 条，轨迹属第 28 条敏感个人信息）。
+    /// 客户端必须在调用**之前**明示分享内容与对象；做成一键静默分享则同意不成立。
+    ///
+    /// 有效期 = `max(plannedEndTime, now) + app.share.ttl-after-end-hours`（默认 2 小时）。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/share`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/share/post(createShareLink)`.
+    public func createShareLink(_ input: Operations.createShareLink.Input) async throws -> Operations.createShareLink.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.createShareLink.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/share",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.createShareLink.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ShareLinkResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.createShareLink.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.createShareLink.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.createShareLink.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 停止分享行程
+    ///
+    /// 撤销该订单名下全部未撤销的分享链接，已经发出去的链接立刻失效（对齐 Uber 的 Stop Sharing）。
+    /// 幂等：没有可撤销的链接时同样返回 204。
+    ///
+    /// - Remark: HTTP `DELETE /api/orders/{id}/share`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/share/delete(revokeShareLink)`.
+    public func revokeShareLink(_ input: Operations.revokeShareLink.Input) async throws -> Operations.revokeShareLink.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.revokeShareLink.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/share",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .delete
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 204:
+                    return .noContent(.init())
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.revokeShareLink.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.revokeShareLink.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,

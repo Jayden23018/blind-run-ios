@@ -554,6 +554,8 @@ final class VoiceOrderWizard: ObservableObject {
     private func applyCandidate(_ candidate: AddressCandidate, notice: String?) {
         bookingViewModel?.applyVoiceResolvedStartPlace(
             address: candidate.readbackAddress,
+            // 候选的 `name` 就是 POI 名，与后端 `addressShort` 同一档 —— 读回念它。
+            spokenAddress: candidate.name,
             latitude: candidate.latitude,
             longitude: candidate.longitude
         )
@@ -619,7 +621,11 @@ final class VoiceOrderWizard: ObservableObject {
         }
         if let place = parsed.resolvedStartPlace {
             bookingViewModel?.applyVoiceResolvedStartPlace(
-                address: place.address, latitude: place.latitude, longitude: place.longitude
+                address: place.address,
+                // 读回念 POI 名，下单仍带完整地址 —— 后端 `api_spec.yaml:3032` 明确的分工。
+                spokenAddress: parsed.spokenStartAddress,
+                latitude: place.latitude,
+                longitude: place.longitude
             )
         }
         // 终点整体赋值（**含 nil**），不写 `if let`：本轮没说终点就该清空。

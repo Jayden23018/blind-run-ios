@@ -31,8 +31,9 @@ The iOS blind-runner experience SHALL keep AMap-backed location confirmation ava
 
 #### Scenario: Map content is not the primary task surface
 - **WHEN** a blind-runner screen includes a map for current location or order start location
-- **THEN** the map SHALL be placed after the current state, next action, and repeat-status controls in VoiceOver traversal
-- **AND** the map SHALL have an accessibility label that identifies it as auxiliary visual confirmation
+- **THEN** the map SHALL NOT precede the current state, next action, or repeat-status controls in VoiceOver traversal
+- **AND** where the map is purely decorative and non-interactive, it SHALL be hidden from assistive technologies outright rather than merely reordered — SwiftUI binds VoiceOver traversal to paint order, so a map painted behind foreground content cannot be sorted after it (`accessibilitySortPriority` is a no-op across overlapping layers; see `docs/research/swiftui-voiceover-traversal-order-20260814.md`)
+- **AND** where the map does carry information, it SHALL have an accessibility label that identifies it as auxiliary visual confirmation
 - **AND** the screen SHALL provide equivalent textual/TTS location information outside the map
 
 #### Scenario: Raw coordinates remain hidden

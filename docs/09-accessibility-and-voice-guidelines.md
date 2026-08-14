@@ -14,6 +14,23 @@
 
 Use iOS native `AVSpeechSynthesizer` for TTS.
 
+**语速跟随用户，不写死默认值。** 每一条 utterance 都必须经 `VoiceService.makeUtterance`
+（`blindRun/Voice/SpeechService.swift`）构造，它打开 `prefersAssistiveTechnologySettings` ——
+VoiceOver 在跑时系统用**用户自己选的音色与语速**覆盖我们写的值，VoiceOver 没开时才用我们的值
+（`AVSpeechSynthesis.h`，`API_AVAILABLE(ios(14.0))`，本仓库部署目标 16.0 所以不需要 `#available`）。
+
+- 这个标志的**出厂值是 `false`**（实测）。不显式打开，App 的每一句播报都锁死在
+  `AVSpeechUtteranceDefaultSpeechRate`，而读屏用户日常把语速调得远高于默认 —— 越熟练的用户越难受，
+  且同一句话的 VoiceOver 通告与合成器快慢不一，两条通道互相拖。
+- `AVSpeechSynthesisVoice(language: "zh-CN")` 与 `rate` 那两行**不要删**：VoiceOver 没开时
+  （低视力用户、明眼陪同者）它们仍是生效值。
+- ⚠️ **语速在进程里测不出来。** 头文件写明 `querying the properties will not reflect the user's
+  settings`，`utterance.rate` 永远读回我们写进去的值。单测只能断言开关本身
+  （`testSpokenUtteranceFollowsTheUsersVoiceOverRateInsteadOfTheFixedDefault` + 一条验红对照），
+  **听感必须真机开 VoiceOver 人耳验**。
+- 未决：VoiceOver 开着时同一句会同时走通告与合成器，听感上是否成为「念两遍」**仍未在真机确认**。
+  两条通道都不能砍（通告在 VoiceOver 忙时会被丢弃，而 SOS 不允许丢），要改先听。
+
 必须播报：
 
 - 进入盲人首页

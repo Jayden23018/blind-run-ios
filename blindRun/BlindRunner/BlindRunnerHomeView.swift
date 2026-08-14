@@ -11,6 +11,8 @@ private enum BlindRunnerRoute: Hashable {
     case voiceBooking
     case orderStatus(Int64)
     case settings
+    /// 首次使用引导。首次进首页自动推入一次，也可从设置进入。
+    case help
 }
 
 // MARK: - Blind Runner Home ViewModel
@@ -408,11 +410,41 @@ struct BlindRunnerHomeView: View {
     @State private var showCancelConfirmation = false
     @State private var showEmergencyConfirmation = false
     @State private var showCallOptions = false
+    /// 横屏（含 iPhone 横置、iPad 分屏的矮窗口）判定。
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// 地图在视觉上占据的高度，`mapRevealHeight` 是内容层为它让出的部分 ——
     /// 两者相差的一段就是内容盖住地图下沿的量，做出「面板压在地图上」的层次。
-    private static let mapVisualHeight: CGFloat = 300
-    private static let mapRevealHeight: CGFloat = 236
+    ///
+    /// **横屏必须压扁**：这两个值原本是写死的 300 / 236。iPhone 横屏可用高度约 390pt，
+    /// 300pt 的装饰性地图会吃掉 77% 的屏幕，把「开始约跑」整个挤到折叠线以下 ——
+    /// 而地图在这个 App 里是 `allowsHitTesting(false)` 的纯装饰层
+    /// （不承载任何必要信息，文字版在 `locationSummarySection`）。
+    /// 让一个不可交互的装饰把唯一的主操作挤出屏幕，是本末倒置。
+    ///
+    /// 用 `verticalSizeClass` 而不是 `GeometryReader`：只需要区分「横屏/竖屏」这一个二值，
+    /// 引 `GeometryReader` 要重排整个内容层，不值这个复杂度。
+    ///
+    /// **竖屏也压过一次（300/236 → 200/150）**：横屏那轮只修了横屏，同一个本末倒置在竖屏上
+    /// 仍然成立，只是程度轻到没被当成 bug。按 iPhone 15（852pt）默认字号排一遍无订单态：
+    /// 让位 236 + 内边距 28 + 标题区约 64 + 间距 24 + 「开始约跑」280 + 间距 24 = 656pt，
+    /// 而底部 SOS 条（64pt 按钮 + 上下 16 + 安全区 34）之上只剩到 738pt ——
+    /// 「重复当前状态」落在 656–720，**首屏只露得出小半截**。
+    /// 它是 `AGENTS.md` 要求每个盲人页面都有的 M 档入口，却要先滚动才看得全。
+    ///
+    /// 这一刀切掉的 86pt 全给内容：同样排法下按钮落到 570–634，默认字号首屏整条可见。
+    /// 对 VoiceOver 用户（A 类）没有区别 —— 滑动本来就到得了；受损的一直是**低视力且不开读屏**
+    /// 的 B 类，他们只有「看得见的那一屏」这一条通道。见
+    /// `docs/research/blind-ui-visual-benchmark-20260808.md` 规则 5「地图是装饰，列表是界面」。
+    private var mapVisualHeight: CGFloat { verticalSizeClass == .compact ? 140 : 200 }
+    private var mapRevealHeight: CGFloat { verticalSizeClass == .compact ? 96 : 150 }
+
+    /// iPad 与横屏上的正文最大宽度。
+    ///
+    /// 不限宽的话，一行正文在 iPad Pro 上会铺满 1024pt —— 对**低视力用户**尤其糟：
+    /// 把字调大之后仍要横扫整行，换行时极易串行。排版通行的舒适区是每行 45–75 字符，
+    /// 700pt 在放大字号下大致落在这个区间。全宽的 iPhone 竖屏不受影响（屏比这窄）。
+    private static let readableContentWidth: CGFloat = 700
 
     /// 「开始约跑」吃掉内容区的大半。此前它是 `minHeight: 64` —— 和「重复当前状态」一样高，
     /// 视觉上根本不像主按钮。对标 Be My Eyes 的 `Call a volunteer`（占内容区约 75%，
@@ -456,6 +488,13 @@ struct BlindRunnerHomeView: View {
                 viewModel.cancelLoading()
             }
             .task {
+                // 引导先于订单加载推入：它不依赖订单，而等加载完再跳会让用户先听半句首页播报
+                // 再被切走。`.task` 只在根视图首次出现时跑，所以从引导页返回不会把人弹回去；
+                // 标志只在按下「知道了」时才写（`markBlindFirstRunHelpSeen`），
+                // 没看完就退出的人下次重进 App 仍会拿到引导。
+                if !appState.didSeeBlindFirstRunHelp {
+                    path.append(.help)
+                }
                 await viewModel.loadActiveOrder()
             }
             .confirmationDialog("取消订单", isPresented: $showCancelConfirmation) {
@@ -477,11 +516,11 @@ struct BlindRunnerHomeView: View {
                 if let contact = primaryEmergencyContact,
                    let url = EmergencyDialer.telURL(for: contact.phone) {
                     Button(EmergencySafetyCopy.homeCallContactTitle(name: contact.name)) {
-                        openURL(url)
+                        EmergencyDialer.dial(url)
                     }
                 }
                 if let policeURL = EmergencyDialer.telURL(for: EmergencyDialer.policeNumber) {
-                    Button(EmergencySafetyCopy.homeCallPoliceTitle) { openURL(policeURL) }
+                    Button(EmergencySafetyCopy.homeCallPoliceTitle) { EmergencyDialer.dial(policeURL) }
                 }
                 Button(EmergencySafetyCopy.cancelButtonTitle, role: .cancel) {}
             } message: {
@@ -492,12 +531,20 @@ struct BlindRunnerHomeView: View {
 
     // MARK: - Layers
 
-    /// 背景层：地图铺满上半屏。
+    /// 背景层：地图铺满上半屏，**对读屏完全隐藏**。
     ///
-    /// `accessibilitySortPriority(-1)` 让它在读屏遍历里排到内容之后 —— 视觉顺序与 VoiceOver
-    /// 顺序在这里是**刻意解耦**的。规格允许这样做的前提有两条，都由这里满足：
-    /// 地图不可交互（`allowsHitTesting(false)`），且不承载任何必要信息（同样的内容
-    /// 在 `locationSummarySection` 里有文字版）。
+    /// 这一层是纯装饰：不可交互（`allowsHitTesting(false)`），且不承载任何必要信息
+    /// （同样的内容在 `locationSummarySection` 里有文字版）。装饰性内容的标准处理就是
+    /// 对辅助技术隐藏 —— 读屏用户进首页 0 次多余划动就够到唯一的主操作，比「排到内容后面」
+    /// 还好一档。低视力用户看到的画面完全不变。
+    ///
+    /// **为什么不是「排到内容后面」**：SwiftUI 把 VoiceOver 遍历顺序绑死在**绘制顺序**上，
+    /// 而地图必须画在最底层。2026-08-14 在真机上逐个实测了四种排法 —— 裸
+    /// `accessibilitySortPriority`、换声明顺序 + `zIndex` 维持视觉、三层都加
+    /// `accessibilityElement(children: .contain)` 再排、把地图改成内容层的 `.background`
+    /// —— 地图**一律**排在内容前面。`accessibilitySortPriority` 在这个结构里是空操作，
+    /// 别再往回加。详见 `docs/research/swiftui-voiceover-traversal-order-20260814.md`。
+    ///
     private var mapBackgroundLayer: some View {
         MapViewWrapper(
             centerCoordinate: viewModel.activeOrder?.startCoordinate ?? locationService.effectiveBackendLocation,
@@ -505,14 +552,12 @@ struct BlindRunnerHomeView: View {
             annotations: activeOrderMapAnnotations
         )
         .frame(maxWidth: .infinity)
-        .frame(height: Self.mapVisualHeight)
+        .frame(height: mapVisualHeight)
         .allowsHitTesting(false)
         .ignoresSafeArea(edges: .top)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("辅助地图，显示当前位置或订单出发点")
-        .accessibilityHint("地图仅用于视觉确认，不能操作。当前状态和主要操作排在读屏顺序的前面")
-        .accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")
-        .accessibilitySortPriority(-1)
+        // 整棵子树一起隐藏：真机上高德的 `MKMapView` 自己会挂一堆无障碍元素，只在最外层
+        // 挂 label 挡不住它们冒出来。
+        .accessibilityHidden(true)
     }
 
     private var contentLayer: some View {
@@ -520,7 +565,7 @@ struct BlindRunnerHomeView: View {
             VStack(spacing: 0) {
                 // 纯视觉留白，把地图让出来。读屏里不存在这一段。
                 Color.clear
-                    .frame(height: Self.mapRevealHeight)
+                    .frame(height: mapRevealHeight)
                     .accessibilityHidden(true)
 
                 VStack(spacing: 24) {
@@ -528,6 +573,9 @@ struct BlindRunnerHomeView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 28)
+                // 先限宽再居中：内容列在 iPad / 横屏上不铺满整屏，见 `readableContentWidth`。
+                // 背景仍然铺满，所以视觉上还是一整块面板压在地图上，只是文字不横跨全宽。
+                .frame(maxWidth: Self.readableContentWidth)
                 .frame(maxWidth: .infinity)
                 // ponytail: 直角。只圆上面两角要 iOS 16.4 的 UnevenRoundedRectangle 或自定义 Path，
                 // 而本工程下限是 iOS 16 —— 视觉收益不值这个兼容成本。
@@ -535,11 +583,13 @@ struct BlindRunnerHomeView: View {
             }
         }
         .accessibilityIdentifier("blindRunnerHomeScrollView")
-        .accessibilitySortPriority(100)
     }
 
     /// 设置齿轮悬浮在地图右上角：视觉上还在老位置，但读屏遍历排到最后 ——
     /// 它此前在 header 的 `HStack` 里，于是每次进首页都是遍历到的第 2 个元素。
+    ///
+    /// 「排到最后」靠的是它在 `body` 的 ZStack 里**最后声明**（遍历顺序 = 绘制顺序），
+    /// 不是 `accessibilitySortPriority` —— 那个修饰符在这个结构里实测无效，已移除。
     private var settingsOverlay: some View {
         HStack {
             Spacer()
@@ -554,7 +604,6 @@ struct BlindRunnerHomeView: View {
             }
             .accessibilityLabel("设置")
             .accessibilityHint("进入设置页面，可以编辑资料、实名认证或退出登录")
-            .accessibilitySortPriority(-2)
         }
         .padding(.horizontal, 12)
     }
@@ -613,16 +662,12 @@ struct BlindRunnerHomeView: View {
                 newBookingSection
             }
 
-            askQuestionButton
+            // 无订单时不给这个按钮 —— 它在那个状态下没有答案可给，见 `askQuestionButton` 的注释。
+            if viewModel.activeOrder != nil {
+                askQuestionButton
+            }
             repeatStatusButton
             locationSummarySection
-
-            #if DEBUG
-            if AppBuildChannel.current.allowsEnvironmentSwitcher {
-                DebugTestingPanel()
-                    .environmentObject(appState)
-            }
-            #endif
         }
     }
 
@@ -642,6 +687,8 @@ struct BlindRunnerHomeView: View {
             }
         case .settings:
             BlindRunnerSettingsView()
+        case .help:
+            BlindRunnerHelpView(isFirstRun: true)
         }
     }
 
@@ -669,10 +716,6 @@ struct BlindRunnerHomeView: View {
         case .localCall:
             showCallOptions = true
         }
-    }
-
-    private func openURL(_ url: URL) {
-        UIApplication.shared.open(url)
     }
 
     /// 标题与状态摘要合成**一个**焦点。它们语义相同（GB/T 37668 3.3.2.2 一级：
@@ -795,6 +838,17 @@ struct BlindRunnerHomeView: View {
     /// 是这两个「听」入口里更省时间的那个，所以先遍历到它。
     ///
     /// 与「重复当前状态」同一套次要按钮样式和 64pt 触达 —— 主按钮位置留给「开始约跑」。
+    ///
+    /// **只在有进行中订单时出现。** 两条理由，第二条才是根因：
+    ///
+    /// 1. 无订单态的上方是 280pt 的「开始约跑」（`primaryBookingHeight`，还会随字号长），
+    ///    它排在后面正好落进底部 SOS 条那一截，把「重复当前状态」一起顶出可见区。
+    /// 2. 更要紧的是**那个状态下它没有答案可给**：`VoiceStatusQuery.answer` 在
+    ///    `order == nil` 时短路，四个意图统一回「当前没有进行中的预约」
+    ///    （`VoiceStatusQuery.swift:109`）。按下去要走一趟麦克风授权 + 录音 + 等待，
+    ///    换来的是 header 已经念过的同一句话 —— 对全盲用户这就是一次白等。
+    ///
+    /// 订单详情页那个「问一句」（`blindOrderStatusAskQuestionButton`）不受此限，它天然只在有订单时存在。
     private var askQuestionButton: some View {
         Button("问一句") {
             viewModel.askVoiceQuestion()

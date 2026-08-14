@@ -41,6 +41,23 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   另一半陷阱（view model 依赖是 `weak`，传临时对象等于传 nil）已按 §1.1 落成守卫规则
   `weak-temporary`，不再靠人记。
 
+- 本仓库有**两条**无障碍通道，只有 VoiceOver 那条被验收过。低视力用户的视觉通道
+  （对比度 / 横屏与 iPad / Dynamic Type 上限）从没被系统性检查过，三块空白打的是同一群人 ——
+  而 `VisionLevel.LOW_VISION` 在数据模型里是一等公民。改盲人端 UI 时要**问两遍**：
+  VoiceOver 用户怎么样？不开读屏、字调到 AX5、横屏、户外的低视力用户怎么样？
+  详见记忆 `low-vision-visual-channel-unaudited` 与 `docs/review/frontend-backend-alignment-review-20260812.md` §D。
+  这条抓不成静态守卫：对比度要看颜色**用在什么语义的文本上**（装饰图标不算），机器分不出来。
+
+- XCUITest 报 `Failed to get matching snapshots: Timed out while evaluating UI query` 时，
+  **先看 result bundle 里的屏幕录像找误触，不要去 grep 重绘循环**。2026-08-14 那次的真因是
+  「重复当前状态」在首屏外、不滚就 `tap()`，触点被钳到底部常驻求助条上，一路误触到
+  `tel://110`，超时的是对系统 `com.apple.BusinessActionSheet` 的查询。
+  连带一条反直觉的事实：SwiftUI `ScrollView` 屏幕外的子视图**照样** `isHittable == true`
+  （`List` 是压根不渲染，两种坑不一样），所以 `scrollUntilExists` 对它无效，要用
+  `scrollElementIntoView`（`blindRunUITests/blindRunUITests.swift:1225`）。
+  误触本身已按 §1.2 钉成运行时断言；「怎么诊断」这半条抓不成检查，
+  详见记忆 `snapshot-timeout-means-a-system-app-took-over`。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：
@@ -205,16 +222,19 @@ REMATCHING → CANCELLED（只能盲人 token）
 9. **commit**：`type: 描述`（type 取 feat/fix/refactor/docs/test/chore/perf/ci）。**不带 `Co-Authored-By`**（`~/.claude/settings.json` 的 `includeCoAuthoredBy: false` 已全局关闭，不要手动加回来）
 10. **push**
 
-> 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**工作树脏**或**领先 origin**
-> 时拦住本次停止并列出欠账。两条约束让它不至于变成噪音：
+> 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**本轮写过的文件没提交**或
+> **领先 origin** 时拦住本次停止并列出欠账。三条约束让它不至于变成噪音：
 > - `stop_hook_active` 兜底，一次停止只拦一次 —— 用户说「先不提交」时回一句说明再停即可，不会死循环
 > - 同一份欠账（相同路径集合 + 相同领先数）只提醒一次，签名存 `.git/aidrun-stop-checklist-seen`。
 >   别人没写完的脏文件长期躺着时不会每轮都叫；欠账内容变了才重新叫
+> - **欠账只算本轮 Edit/Write 写过的路径**（从 transcript 取，`scripts/hooks/transcript.mjs`）。
+>   并行会话或同事在改的脏文件降级为提示；调研落盘同理，会去**本轮会话内的所有分支**找提交，
+>   不只看工作树和 HEAD —— 单开 docs 分支提交调研是常态，只看 HEAD 会每轮误报一次
 >
 > handoff（第 8 步）**不作独立触发条件**，只在已有欠账时附带提醒 —— 纯客户端改动本就不该投递，
 > 拿「提交晚于 handoff」当触发会让每次工具链提交都误报。什么该投递见记忆 `handoff-upkeep-workflow`。
 >
-> 自测 `scripts/validate-stop-checklist.mjs`（5 条，CI 与 pre-push 都跑）。
+> 自测 `scripts/validate-stop-checklist.mjs`（9 条，CI 与 pre-push 都跑）。
 >
 > 这条从「用户每轮口头提醒」升级成钩子，走的是 §1.3。
 
@@ -279,38 +299,53 @@ scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
 > 测试目标没编出来都会长这样：命令回来了、看起来一切正常，但一条断言都没跑。
 > 脚本对这种情况有硬失败，别绕过它。
 
-### 读后端仓库的那 5 条门禁在哪跑（2026-08-06 定型，别再重新推导一遍）
+### 读后端仓库的那 5 条门禁在哪跑（2026-08-12 改口径，别再按旧的双推推导）
 
 契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料 / 确认轮词表这 5 条需要读后端私有仓库，
-跑在**三个不同的地方**：
+跑在**两个地方**：
 
 | 位置 | 这 5 条 | 说明 |
 |---|---|---|
-| 上游 `JerryZhao-1/blind-run-ios` | ⚠️ **warning 空过** | 我们不是它的 admin，配不了 secret。**上游 CI 绿 ≠ 契约对过了** |
-| fork `Jayden23018/blind-run-ios` | ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
-| 本地 pre-push | ✅ 真跑 | 读 `../demo`，装钩子后每次 push 自动 |
+| `Jayden23018/blind-run-ios`（`origin`，**主线**）| ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
+| 本地 pre-push | ✅ 真跑 | 读 `../demo` 的 `origin/main`，装钩子后每次 push 自动 |
 
-**fork 的既定配置**（改动前先知道，别当成异常）：
+**`JerryZhao-1/blind-run-ios` 自 2026-08-12 起只是 `upstream`，不再是投递目标。** 分支不往那边推、
+PR 也不往那边开。它的 CI 配不上 secret（我们不是 admin），这 5 条在那边是 warning 空过 ——
+**上游 CI 绿 ≠ 契约对过了**。要取上游的新提交：`git fetch upstream`。
 
-- 默认分支被**故意**设成 `integrate/swift-migration`，不是 `main` —— `workflow_dispatch`
+**主线仓库的既定配置**（改动前先知道，别当成异常）：
+
+- 默认分支是 `integrate/swift-migration`，不是 `main` —— `workflow_dispatch`
   和 `schedule` 都只认默认分支，而 `main` 上没有 `verify.yml`。手动触发：
   `gh workflow run verify.yml --repo Jayden23018/blind-run-ios --ref integrate/swift-migration`
 - `schedule` 每天 09:17（北京）跑一次。它抓的是 **push 触发天生抓不到的那类：你 push 之后
-  后端才改契约**。上游默认分支是 `main` 且 `main` 上没有本文件，所以定时跑不会在上游触发。
-- **fork 的 CI 红在 `Checkout backend contract`（403）= PAT 过期了**，不是代码坏了。
+  后端才改契约**。
+- **CI 红在 `Checkout backend contract`（403）= PAT 过期了**，不是代码坏了。
   重建 PAT 后 `gh secret set BACKEND_REPO_TOKEN --repo Jayden23018/blind-run-ios`。
 - GitHub 会把连续 60 天无活动仓库的定时任务停掉。长期没推东西时留意一下。
 
-**推送必须两边都到**，否则 fork 上那套 CI 等于没配。`scripts/install-git-hooks.sh` 已把
-`git push origin` 配成同时推上游与 fork（前提是本机有名为 `fork` 的 remote），不靠人记：
+每台机器装一次钩子即可，不再需要配双推（旧机器重跑本脚本会清掉遗留的双推配置）：
 
 ```bash
-git remote add fork https://github.com/Jayden23018/blind-run-ios.git   # 每台机器一次
-scripts/install-git-hooks.sh                                          # 装钩子 + 配双推
+scripts/install-git-hooks.sh
 ```
 
-pre-push 会先校验 `../demo` 与其 `origin/main` 一致 —— 停在特性分支或工作区脏着时，
-这 5 条读的就不是契约本身，会直接拦下（逃生口 `AIDRUN_ALLOW_BACKEND_DRIFT=1`）。
+这 5 条读的契约**取自后端仓库的 `origin/main`**（`git show origin/main:docs/api_spec.yaml`
+落到临时文件），不是 `../demo` 的工作区文件 —— 工作区是共享 checkout，随时停在特性分支
+或带着同事未提交的 WIP，而 CI 是从后端默认分支拉契约的。所以 `../demo` 当前在哪个分支、
+脏不脏，都不影响门禁结论。
+
+确实要拿未合并的后端改动验证 iOS 侧：`AIDRUN_ALLOW_BACKEND_DRIFT=1 git push` 改读工作区文件
+（或用 `AIDRUN_API_SPEC=` / `AIDRUN_GOLDEN_CORPUS=` / `AIDRUN_BACKEND_ERROR_CODES=` /
+`AIDRUN_BACKEND_VOICE_PARSER=` / `AIDRUN_BACKEND_VOICE_SERVICE=` 逐个指定）。
+此时「生成代码与契约不同步」**不构成提交理由** —— 那份契约不是上游的，提交重新生成的结果
+等于把别人的 WIP 烘进你的 PR。钩子在这条路径上会自己说明，并给出 `git checkout --` 的还原命令。
+
+> ⚠️ **这只管 pre-push。** 手动跑 `node scripts/validate-*.mjs` 仍然默认读 `../demo` 工作区 ——
+> 2026-08-12 因此把一份**正确**的语料镜像改动判成了伪造（后端当时停在特性分支，语料 96 条而
+> `origin/main` 已 101 条），差点据此删掉。手动跑之前自己导出真契约：
+> `git -C ../demo show origin/main:docs/voice-golden-corpus.json > /tmp/c.json` 再传进去。
+> 详见 `docs/review/frontend-backend-alignment-review-20260812.md` §B1。
 
 > 第 5 条 `validate-voice-intent-words.mjs` 是 2026-08-10 加的：确认轮改成「本地直通 + 后端兜底」
 > 之后，同一句话由两处判定，本地表里出现一个后端判成**别的**意图的词就会让有网/断网行为分叉。
@@ -324,3 +359,36 @@ node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
 ```
 
 **编译通过不等于测试通过。永远不许把没执行过的测试写成通过。**
+
+## 12. 联网调研只落一个地方
+
+唯一位置 `docs/research/`，唯一索引 `docs/research/INDEX.md`。规则三条：
+
+1. **开搜前整份读 INDEX.md**，按「复核触发条件」列判旧结论还作不作数。没触发就直接用，不要重搜。
+2. 新一轮只搜**表里缺的那一段**，不是把整个问题重来一遍。
+3. 调研完落 `docs/research/{topic}-{YYYYMMDD}.md`，**并回写 INDEX.md 一行**（日期 / 问题 /
+   一句话结论 / 复核触发条件 / 报告，五列齐全）。不回写等于没做 —— 下次搜不到，原样重跑。
+
+被否掉的方案同样留一行：「试过 X 因为 Y 放弃」跟「选了 Z」一样值钱，且更容易被忘。
+
+> 强制在 `scripts/hooks/research-log.mjs`（走 §1.1 + §1.3）：PreToolUse 在联网工具调用前把整份索引
+> 灌回给模型（第 1 条）；Stop 钩子发现本轮联网过但 `docs/research/` 一个字节没动就拦（第 3 条）。
+> 只是查一个 API 签名、不构成调研的，回一句说明再停。
+> 自测 `scripts/validate-research-log.mjs`（7 条，CI 与 pre-push 都跑）。
+>
+> 位置约定本来就写在 skill `tech-decision-research` 里，但 skill 不被显式调用就不生效 ——
+> 于是 `docs/research/` 建了两份报告却一直没有索引。这条是把约定接上强制。
+
+## 13. 成体系的 review 也只落一个地方
+
+唯一位置 `docs/review/`，唯一索引 `docs/review/INDEX.md`，规则与 §12 同构：**开新 review 前整份读索引**，
+按「复核触发条件」判旧结论作不作数；review 完落 `docs/review/{topic}-{YYYYMMDD}.md` 并回写索引一行。
+
+与 §12 的分工：`docs/research/` 记「外面是怎么做的」（联网事实，带来源与核实日期）；
+`docs/review/` 记「我们做成了什么样」（对着代码与契约的判断，带 `文件:行号`）。
+一次 review 引用一次 research 是常态，反过来不成立 —— 竞品事实不要写进 review，两处都写会漂移。
+
+> ⚠️ 这条**没有 hook 强制**，`research-log.mjs` 只管联网调研。漏过第二次就按 §1.1 落成守卫。
+>
+> 2026-08-12 立此条：`frontend-backend-alignment-review-20260812.md` 原本躺在 `docs/` 根目录，
+> 与 20 个同级文档混在一起 —— 下一次 review 既不会先读它，也不会挨着它落盘。已迁入 `docs/review/`。

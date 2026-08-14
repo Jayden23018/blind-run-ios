@@ -169,6 +169,57 @@ enum EmergencyDialer {
         guard let digits = rawNumber?.filter(\.isNumber), !digits.isEmpty else { return nil }
         return URL(string: "tel://\(digits)")
     }
+
+    /// **唯一的拨出点。** 三处调用方（首页本地拨号、订单状态页拨志愿者、语音确认拨号）都走这里，
+    /// 所以「测试期不许真的拨出去」只需要拦一处。新增拨号入口也必须走它 ——
+    /// `scripts/hooks/guard.mjs` 的 `raw-open-url` 会拦住绕开这里的 `UIApplication.shared.open`。
+    ///
+    /// 2026-08-14：真机 UI 测试里一次误触走到了 `tel://110`，只因那台 iPhone 是双卡、
+    /// iOS 多弹了一层选号单才没拨出去 —— 单卡设备上会直接拨给警方。误触本身已修（断言前先滚动），
+    /// 但只要拨号这条路在测试构建里通着，下一次触点飘到底部常驻求助条上就会重演。
+    ///
+    /// 拦截**只存在于 DEBUG**：Demo / Release 里 `#if` 整段不编译，真实拨号行为一个字节没变
+    /// （`AGENTS.md` §6）。所以走 DemoRelease 的云端冒烟用例仍然拨得出去，那条通道靠用例自己
+    /// 先滚动再点来保证。
+    static func dial(_ url: URL, open: (URL) -> Void = { UIApplication.shared.open($0) }) {
+        #if DEBUG
+        if isDialBlockedForUITesting {
+            blockedDialCount += 1
+            // 不静默：留一条能断言、也能在真机日志里看见的痕迹 ——
+            // 「按下去确实要拨」和「没有真的拨」都得能证明。
+            ClientFlowDiagnostics.record(event: "blocked", operation: "tel-dial")
+            return
+        }
+        #endif
+        open(url)
+    }
+
+    #if DEBUG
+    static let uiTestBlockEnvironmentKey = "AIDRUN_UI_TEST_BLOCK_TEL_DIAL"
+
+    /// 默认值取自启动环境。做成可写的 var 是为了单测能直接翻开关，不必去改进程环境。
+    static var isDialBlockedForUITesting =
+        resolveDialBlock(from: ProcessInfo.processInfo.environment)
+
+    /// 显式开关优先；没设时，**只要这是 UI 测试注入的启动环境就默认拦**。
+    ///
+    /// 不要求每个启动 helper 都记得设那个键：本仓库有四处 `launchEnvironment` 装配
+    /// （`blindRunUITests.launchApp`、`AccessibilityAuditTests` 的两个、`blindRunUITestsLaunchTests`），
+    /// 「新加一处时记得也加一行」正是 `AGENTS.md` §1 说的挡不住的做法。
+    /// 真要在某条用例里放行真实拨号，显式传 `AIDRUN_UI_TEST_BLOCK_TEL_DIAL=0`。
+    static func resolveDialBlock(from environment: [String: String]) -> Bool {
+        if let explicit = environment[uiTestBlockEnvironmentKey] {
+            return explicit == "1"
+        }
+        return environment["AIDRUN_UI_TEST_RESET_STATE"] == "1"
+    }
+
+    private(set) static var blockedDialCount = 0
+
+    static func resetBlockedDialCountForTesting() {
+        blockedDialCount = 0
+    }
+    #endif
 }
 
 /// 首页求助条的两种模式。**由订单状态决定，不由用户选择。**

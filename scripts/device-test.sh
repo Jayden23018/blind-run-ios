@@ -16,7 +16,13 @@ set -uo pipefail
 #   scripts/device-test.sh -only-testing:blindRunTests/EmergencySOSTests
 #
 # 环境变量：
-#   AIDRUN_DEVICE_ID    真机 UDID（默认见下；设备名会变，所以默认用 id 不用 name）
+#   AIDRUN_DEVICE_ID    真机**硬件 UDID**（默认见下；设备名会变，所以默认用 id 不用 name）
+#                       ⚠️ 不是 `devicectl list devices` 那列 Identifier —— 那是 CoreDevice
+#                       的 UUID（`3B6214C9-BA98-…` 这种），xcodebuild 不认，传了会以
+#                       退出码 70 失败，报「Unable to find a device matching」，
+#                       看起来像设备掉线。要的是 `00008103-001C71490E62201E` 这种形状，
+#                       取自 `xcrun xctrace list devices` 或本脚本失败时打印的 destination 列表。
+#                       格式不对会被下面的 preflight 直接拦住并给出正确取法。
 #   AIDRUN_SCHEME       默认 blindRun
 #   AIDRUN_TEAM         默认 ZW39BS8NXT（工程里写死的 R6PH2TFB3Q 是原开发者的团队，
 #                       用命令行覆盖，不要改 pbxproj）
@@ -32,6 +38,26 @@ PREFLIGHT_TIMEOUT="${AIDRUN_PREFLIGHT_TIMEOUT:-180}"
 
 say() { printf '[device-test] %s\n' "$*"; }
 die() { printf '[device-test] ERROR: %s\n' "$*" >&2; exit 1; }
+
+# 硬件 UDID 是 8 位十六进制 + '-' + 16 位十六进制。CoreDevice 的 UUID 是标准的
+# 8-4-4-4-12。后者是 `devicectl list devices` 的 Identifier 列，两台设备都在时最容易
+# 顺手复制的就是它 —— 而 xcodebuild 不认，只回一句「Unable to find a device matching」
+# 加退出码 70，与「设备掉线」长得一模一样，会把人支去查 USB 线。
+case "${AIDRUN_DEVICE_ID:-}" in
+  '') ;;
+  [0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]-*)
+    # 再排掉 8-4-4-4-12：硬件 UDID 只有一个 '-'。
+    if [ "$(printf '%s' "$AIDRUN_DEVICE_ID" | tr -cd '-' | wc -c | tr -d ' ')" != "1" ]; then
+      die "AIDRUN_DEVICE_ID='$AIDRUN_DEVICE_ID' 看起来是 CoreDevice UUID（\`devicectl list devices\` 的 Identifier 列），xcodebuild 不认。
+     要的是硬件 UDID（一个连字符，形如 00008103-001C71490E62201E）：
+       xcrun xctrace list devices"
+    fi
+    ;;
+  *)
+    die "AIDRUN_DEVICE_ID='$AIDRUN_DEVICE_ID' 不像硬件 UDID（形如 00008103-001C71490E62201E）。取法：
+       xcrun xctrace list devices"
+    ;;
+esac
 
 # ---------- 1. 设备探活 ----------
 say "检查设备连接…"

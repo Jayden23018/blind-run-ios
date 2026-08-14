@@ -43,6 +43,15 @@ struct BlindRunnerSettingsView: View {
                 }
                 #endif
 
+                // 首次进首页会自动播一遍，这里是它**唯一**的重听入口 ——
+                // 没有这条，漏听的人就永远拿不回来了（引导正是最容易漏听的那一段）。
+                NavigationLink("使用帮助") {
+                    BlindRunnerHelpView(isFirstRun: false)
+                }
+                .accessibilityLabel("使用帮助")
+                .accessibilityHint("重新播报怎么约跑、怎么求助、怎么重听当前状态")
+                .accessibilityIdentifier("blindRunnerSettingsHelpLink")
+
                 NavigationLink("关于") {
                     AboutAidRunView()
                 }

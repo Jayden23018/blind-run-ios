@@ -72,6 +72,10 @@ enum AppStatePersistenceFactory {
 enum AppStatePersistenceKeys {
     static let uiTestLastResetToken = "com.aidrun.mvp.uiTestLastResetToken"
     static let mockSnapshot = "com.aidrun.mvp.mockAPIStore.snapshot"
+    /// 正在实时分享的订单号（`RunPlanLiveShareStore`）。**必须进下面的 `all`**：
+    /// `reset()` 在登出时跑，漏掉这条的话下一个登录的人会在自己的订单页上看到
+    /// 「停止分享」——而那条链接是上一个账号的，他既停不掉也不该知道它存在。
+    static let runPlanLiveShareOrderId = "com.aidrun.mvp.runPlanLiveShare.orderId"
 
     static let all = [
         AppConstants.UserDefaultsKeys.accessToken,
@@ -82,7 +86,8 @@ enum AppStatePersistenceKeys {
         AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed,
         AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp,
         uiTestLastResetToken,
-        mockSnapshot
+        mockSnapshot,
+        runPlanLiveShareOrderId
     ]
 }
 

@@ -13,7 +13,11 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const root = path.resolve(import.meta.dirname, '../..');
+import { researchTodo } from './research-log.mjs';
+import { sessionEditedPaths } from './transcript.mjs';
+
+// AIDRUN_REPO_ROOT 只给自测用（拿一个临时 git 仓库当靶子），生产路径永远走仓库根。
+const root = process.env.AIDRUN_REPO_ROOT || path.resolve(import.meta.dirname, '../..');
 
 function gitRaw(...args) {
   try {
@@ -62,9 +66,22 @@ if (payload.stop_hook_active) process.exit(0);
 
 const todo = [];
 
+// 调研落盘。放在最前面：它是「本轮做了但没留下痕迹」，比未提交更容易随会话一起消失。
+const research = researchTodo(payload);
+if (research) todo.push(research);
+
+const sample = (ps) => `${ps.slice(0, 4).join('、')}${ps.length > 4 ? ' …' : ''}`;
+
+// 脏文件不一定是本轮的：这个 checkout 可能被并行会话或同事同时在改。
+// 只把本轮 Edit/Write 写过的算欠账，其余降级为提示 —— 2026-08-13 一次会话里
+// 「未提交」列了 8 个本会话一个字节都没碰过的文件，那种提醒只会训练人忽略钩子。
+// 拿不到 transcript（mine === null）时分不出来，保守全算欠账：宁可多拦，不要静默失效。
 const dirty = dirtyPaths();
-if (dirty.length) {
-  todo.push(`**未提交**：${dirty.length} 个文件（${dirty.slice(0, 4).join('、')}${dirty.length > 4 ? ' …' : ''}）`);
+const mine = sessionEditedPaths(payload.transcript_path, root);
+const ownDirty = mine === null ? dirty : dirty.filter((p) => mine.has(p));
+const otherDirty = mine === null ? [] : dirty.filter((p) => !mine.has(p));
+if (ownDirty.length) {
+  todo.push(`**未提交**：${ownDirty.length} 个文件（${sample(ownDirty)}）`);
 }
 
 const upstream = git('rev-parse', '--abbrev-ref', '@{u}');
@@ -100,6 +117,18 @@ if (process.env.AIDRUN_STOP_CHECKLIST_NO_SNOOZE !== '1') {
   } catch {
     // 写不进去只影响去重，不该让钩子失效
   }
+}
+
+// 别人的脏文件只作提示，不作阻断条件（上面已经把它们排除在欠账外了）。
+// 有欠账时才附带，没欠账时整个钩子已经放行 —— 提示不该单独把人拦下来。
+let otherNote = '';
+if (otherDirty.length) {
+  otherNote =
+    `\n参考：另有 ${otherDirty.length} 个脏文件不是本轮 Edit/Write 写的` +
+    `（${sample(otherDirty)}）—— 多半是并行会话或同事在改，别顺手提交。\n`;
+} else if (mine === null && dirty.length) {
+  otherNote =
+    '\n参考：拿不到本轮 transcript，上面的「未提交」里可能混着并行会话的改动，提交前自己认一眼。\n';
 }
 
 // handoff 是后端仓库的文件，前端 session 未必挂载了 —— 挂了才看。
@@ -152,11 +181,11 @@ if (!alreadyAsked) {
 
 process.stderr.write(
   `收尾没做完（scripts/hooks/stop-checklist.mjs）：\n- ${todo.join('\n- ')}\n` +
+    otherNote +
     handoffNote +
     archiveNote +
     '\n顺序固定：① 需要投递时先同步 handoff（`- [ ]` → `- [x]`，答写在 `答：` 后面，' +
     '并追加本轮产生的新问题）② commit（`type: 描述`，不带 co-author）③ push。\n' +
-    '不是本轮产生的脏文件不要顺手提交 —— 说清楚哪些留着、为什么留着。\n' +
     '用户明确说过「先不提交」的，回一句说明再停 —— 本钩子每轮只拦一次，不会死循环。\n'
 );
 process.exit(2);

@@ -26,6 +26,39 @@ function run(stdin, env = {}) {
   });
 }
 
+const scratches = [];
+
+// 判据依赖 git 状态的两条用例拿临时仓库当靶子（AIDRUN_REPO_ROOT）。
+// 在本仓库里造分支/脏文件太脏，且结论会随本仓库当时的状态漂移。
+function scratchRepo() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-stopcheck-repo-'));
+  scratches.push(dir);
+  const g = (...args) =>
+    spawnSync(
+      'git',
+      ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...args],
+      { cwd: dir, encoding: 'utf8' }
+    );
+  g('init', '-q');
+  fs.writeFileSync(path.join(dir, 'seed.txt'), 'seed\n');
+  g('add', '-A');
+  g('commit', '-qm', 'seed');
+  return { dir, g };
+}
+
+// 一条 transcript：blocks 里每项是 {name, input}，会被包成 tool_use。
+function writeTranscript(dir, name, blocks, startedAt) {
+  const p = path.join(dir, name);
+  const lines = blocks.map((b) =>
+    JSON.stringify({
+      timestamp: startedAt,
+      message: { content: [{ type: 'tool_use', name: b.name, input: b.input }] },
+    })
+  );
+  fs.writeFileSync(p, lines.join('\n') + '\n');
+  return p;
+}
+
 const cases = [
   {
     name: 'stop_hook_active=true 必须静默放行（防无限循环）',
@@ -109,6 +142,68 @@ const cases = [
     },
   },
   {
+    // 2026-08-13 真实误报：同一份调研已分 4 个提交推到单开的 docs 分支
+    // （`origin/docs/demo-runbook-research`），当前 HEAD 与工作树自然查不到它，
+    // 于是连报 4 次「本轮联网 N 次但 docs/research/ 没有任何改动」。
+    // 误报的代价是钩子开始被习惯性无视 —— 那等于把它废掉。
+    name: '调研提交在别的分支上时不许报「没落盘」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      const base = g('rev-parse', '--abbrev-ref', 'HEAD').stdout.trim();
+      g('checkout', '-qb', 'docs/x');
+      fs.mkdirSync(path.join(dir, 'docs/research'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'docs/research/INDEX.md'), '| 日期 | 问题 |\n');
+      fs.writeFileSync(path.join(dir, 'docs/research/topic-20260813.md'), '# 调研\n');
+      g('add', '-A');
+      g('commit', '-qm', 'docs: 调研落盘');
+      g('checkout', '-q', base); // 回到没有 docs/research 的分支，工作树干净
+      const startedAt = new Date(Date.now() - 3600_000).toISOString();
+      const transcript = writeTranscript(
+        dir,
+        'web.jsonl',
+        [{ name: 'WebSearch', input: { query: 'x' } }],
+        startedAt
+      );
+      const r = run(JSON.stringify({ transcript_path: transcript }), { AIDRUN_REPO_ROOT: dir });
+      // 临时仓库必然「无 upstream」，钩子一定会拦 —— 拦不住说明这条根本没跑到判定。
+      if (r.status !== 2) return `期望钩子被其他欠账拦住（exit 2），实得 ${r.status}`;
+      return r.stderr.includes('调研没落盘')
+        ? '调研已提交到别的分支，却仍在报「没落盘」'
+        : null;
+    },
+  },
+  {
+    // 同一场景的另一半：并行会话正在改的脏文件被算成本轮欠账（那次列了 8 个没碰过的文件）。
+    name: '不是本轮写的脏文件不算欠账，只作提示',
+    stdin: '{}',
+    check: () => {
+      const { dir } = scratchRepo();
+      fs.writeFileSync(path.join(dir, 'theirs.txt'), '并行会话在改\n');
+      fs.writeFileSync(path.join(dir, 'mine.txt'), '本轮写的\n');
+      const transcript = writeTranscript(
+        dir,
+        'edits.jsonl',
+        [{ name: 'Edit', input: { file_path: path.join(dir, 'mine.txt') } }],
+        new Date().toISOString()
+      );
+      const payload = JSON.stringify({ transcript_path: transcript });
+      const r = run(payload, { AIDRUN_REPO_ROOT: dir });
+      const line = r.stderr.split('\n').find((l) => l.includes('**未提交**'));
+      if (!line) return '本轮确实写过 mine.txt，却没进欠账';
+      if (!line.includes('mine.txt')) return `欠账里没有本轮写的文件：${line}`;
+      if (line.includes('theirs.txt')) return `别人的脏文件被算进欠账：${line}`;
+      if (!r.stderr.includes('theirs.txt')) return '别人的脏文件既没进欠账也没作提示，等于被吞掉';
+
+      // 只剩别人的脏文件时，「未提交」这条欠账整条都不该出现。
+      fs.rmSync(path.join(dir, 'mine.txt'));
+      const cleaned = run(payload, { AIDRUN_REPO_ROOT: dir });
+      return cleaned.stderr.includes('**未提交**')
+        ? '本轮没写任何文件，却仍把别人的脏文件报成未提交'
+        : null;
+    },
+  },
+  {
     // 拿不到 session_id 时宁可多问一次，也不要静默不问 —— 静默失效是这类提醒最常见的死法。
     name: '没有 session_id 时照问（不静默失效）',
     stdin: '{}',
@@ -121,7 +216,12 @@ const cases = [
 
 let failed = 0;
 for (const c of cases) {
-  const err = c.check(run(c.stdin));
+  let err;
+  try {
+    err = c.check(run(c.stdin));
+  } catch (e) {
+    err = `抛异常：${e.message}`;
+  }
   if (err) {
     console.error(`✗ ${c.name}\n  ${err}`);
     failed += 1;
@@ -129,6 +229,8 @@ for (const c of cases) {
     console.log(`✓ ${c.name}`);
   }
 }
+
+for (const dir of scratches) fs.rmSync(dir, { recursive: true, force: true });
 
 if (failed) {
   console.error(`\n${failed} 条失败。`);

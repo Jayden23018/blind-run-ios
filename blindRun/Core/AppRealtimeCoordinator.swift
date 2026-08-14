@@ -726,11 +726,31 @@ final class AppRealtimeCoordinator: ObservableObject {
             title: message.title,
             displayText: message.body,
             speechText: speechText,
-            priority: RealtimePriority(rawValue: message.priority),
+            priority: Self.clientPriority(forEventType: eventType, serverPriority: message.priority),
             timestamp: message.timestamp,
             isSafetyEvent: false
         )
         enqueue(notification, type: message.type)
+    }
+
+    /// 展示优先级。默认照后端模板给的 `priority`，**只有一条例外**。
+    ///
+    /// `ORDER_OVERDUE`（陪跑超过约定结束时间）在后端盲人侧模板里是 `NORMAL`
+    /// （`websocket-protocol.md:158`；志愿者侧同一个 eventType 是 `HIGH`，见 `:451`）。
+    /// `NORMAL` 在这里的后果是它**排在派单进度那类通知后面**，用蓝色铃铛、不带 header trait。
+    /// 而这条告警的语义是「跑者可能失联」—— 后端 N63 的复盘逐字写着：修复前失联和
+    /// 「跑完了忘了点结束」在系统里长得一模一样，对看不见屏幕的人是安全缺口不是体验问题。
+    ///
+    /// 后端 2026-08-13 的通报把这件事划成了我们的边界：「播报文案和打断策略是你们的设计边界，
+    /// 不自己改」。所以在这里抬，不去改后端模板。
+    ///
+    /// ⚠️ **这只影响 App 在前台时的横幅与播报顺序，改不了推送能不能到达。**
+    /// 后端只对模板 `priority == HIGH` 的通知补发 APNs（`NotificationService.java:134`），
+    /// 判据是模板值不是客户端的展示值 —— 所以盲人端 App 不在前台时**这条告警根本收不到**。
+    /// 那一半只能后端把模板提到 HIGH，已投 handoff。别以为抬了这一下就补上了。
+    static func clientPriority(forEventType eventType: String, serverPriority: String?) -> RealtimePriority {
+        if eventType == "ORDER_OVERDUE" { return .high }
+        return RealtimePriority(rawValue: serverPriority)
     }
 
     private func retainOrderStatusIdentity(
@@ -913,7 +933,12 @@ final class AppRealtimeCoordinator: ObservableObject {
                     title: nil,
                     displayText: missed.body,
                     speechText: speechText,
-                    priority: RealtimePriority(rawValue: missed.priority),
+                    // 补读走同一条抬优先级的规则。断线期间错过的 `ORDER_OVERDUE` 恰恰是最该
+                    // 被听见的那条 —— 重连时它已经迟了，再排在派单进度后面就更迟。
+                    priority: Self.clientPriority(
+                        forEventType: (missed.eventType ?? "").uppercased(),
+                        serverPriority: missed.priority
+                    ),
                     timestamp: missed.sentAt,
                     isSafetyEvent: false
                 ),
