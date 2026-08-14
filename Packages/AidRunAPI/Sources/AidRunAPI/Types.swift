@@ -4574,6 +4574,31 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/chatPreference`.
             public var chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload?
+            /// **完赛实际里程（米）**，订单进 `COMPLETED` 时算一次落库（迁移 `0022`）。2026-08-14 新增。
+            ///
+            /// 🚨 **与 `plannedDistanceMeters`（下单时说的「我打算跑多远」）不是一回事** ——
+            /// `actual` 前缀是刻意的，两者只差一个词就会被读反。
+            ///
+            /// ⚠️ **`null` = 没有轨迹数据可算**（轨迹点 < 2、超统计上限降级、或订单没跑完），
+            /// **不是「跑了 0 米」。客户端按 null 隐藏该行，不要显示 0。**
+            /// 存量已完成订单全是 null 且不回填 —— 它们的轨迹点可能已被 3am 保留期清理删掉，
+            /// 回填只会得到一批假的 0。
+            ///
+            /// 存在的理由是历史列表：`GET /api/orders/{id}/track` 是**单订单**端点，
+            /// 列表一行打一次 = 20 条记录 20 个请求，且各自全量投影轨迹坐标（有 OOM 风险）。
+            /// 落库后 `GET /api/orders/mine` 直接带出，零额外查询。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/actualDistanceMeters`.
+            public var actualDistanceMeters: Swift.Int32?
+            /// 完赛实际耗时（秒），取轨迹点首末时间之差。null 语义同 `actualDistanceMeters`。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/actualDurationSeconds`.
+            public var actualDurationSeconds: Swift.Int32?
+            /// 完赛平均配速（秒/公里）。里程为 0 时为 null —— 除以 0 得不出配速，给 0 是假的。 null 语义同 `actualDistanceMeters`。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/actualAvgPaceSecPerKm`.
+            public var actualAvgPaceSecPerKm: Swift.Int32?
             /// Creates a new `OrderDetailResponse`.
             ///
             /// - Parameters:
@@ -4604,6 +4629,9 @@ public enum Components {
             ///   - visionLevel:
             ///   - tetherPreference:
             ///   - chatPreference:
+            ///   - actualDistanceMeters: **完赛实际里程（米）**，订单进 `COMPLETED` 时算一次落库（迁移 `0022`）。2026-08-14 新增。
+            ///   - actualDurationSeconds: 完赛实际耗时（秒），取轨迹点首末时间之差。null 语义同 `actualDistanceMeters`。
+            ///   - actualAvgPaceSecPerKm: 完赛平均配速（秒/公里）。里程为 0 时为 null —— 除以 0 得不出配速，给 0 是假的。 null 语义同 `actualDistanceMeters`。
             public init(
                 orderId: Swift.Int64,
                 status: Components.Schemas.OrderDetailResponse.statusPayload,
@@ -4631,7 +4659,10 @@ public enum Components {
                 specialNotes: Swift.String? = nil,
                 visionLevel: Components.Schemas.OrderDetailResponse.visionLevelPayload? = nil,
                 tetherPreference: Components.Schemas.OrderDetailResponse.tetherPreferencePayload? = nil,
-                chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload? = nil
+                chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload? = nil,
+                actualDistanceMeters: Swift.Int32? = nil,
+                actualDurationSeconds: Swift.Int32? = nil,
+                actualAvgPaceSecPerKm: Swift.Int32? = nil
             ) {
                 self.orderId = orderId
                 self.status = status
@@ -4660,6 +4691,9 @@ public enum Components {
                 self.visionLevel = visionLevel
                 self.tetherPreference = tetherPreference
                 self.chatPreference = chatPreference
+                self.actualDistanceMeters = actualDistanceMeters
+                self.actualDurationSeconds = actualDurationSeconds
+                self.actualAvgPaceSecPerKm = actualAvgPaceSecPerKm
             }
             public enum CodingKeys: String, CodingKey {
                 case orderId
@@ -4689,6 +4723,9 @@ public enum Components {
                 case visionLevel
                 case tetherPreference
                 case chatPreference
+                case actualDistanceMeters
+                case actualDurationSeconds
+                case actualAvgPaceSecPerKm
             }
         }
         /// 订单轨迹回放：双方各一条轨迹 + 各自统计
@@ -5459,6 +5496,157 @@ public enum Components {
             public var plannedDistanceMeters: Swift.Int32?
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/hasGuideDogThisRun`.
             public var hasGuideDogThisRun: Swift.Bool?
+            /// 盲人的视障程度。**2026-08-14 新增，接单前即下发**（此前只在接单后的 `OrderDetailResponse` 里）。
+            ///
+            /// 用途是志愿者的**行动准备**：对方能不能看见我挥手、见面时该怎么打招呼。
+            /// 陪跑是一对一、长达一小时的线下接触，这件事决定见面那一刻做什么，不是接单之后再补课。
+            /// 滴滴给司机弹「此订单乘客为盲人」是他们盲人无障碍出行服务的核心机制之一。
+            ///
+            /// **接单前可见**的判据与 `paceMinSecondsPerKm` 那条一致：取值空间封闭的枚举可以逐个判定，
+            /// 与 `pacePreference` / `hasGuideDogThisRun` 同类；自由文本仍推迟到接单后。
+            ///
+            /// `null` = 盲人档案缺失。**客户端不要脑补默认值** —— 把「不知道」显示成「全盲」同样是错的。
+            ///
+            /// 🚨 **不进派单过滤或排序**，与 pace 三项同一条红线：它是给人看的行动提示，
+            /// 一旦进了打分就变成「按残障程度挑单」。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/visionLevel`.
+            public struct visionLevelPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/visionLevel/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case TOTAL_BLIND = "TOTAL_BLIND"
+                    case LOW_VISION = "LOW_VISION"
+                }
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/visionLevel/value1`.
+                public var value1: Components.Schemas.AvailableOrderResponse.visionLevelPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/visionLevel/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `visionLevelPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.AvailableOrderResponse.visionLevelPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 盲人的视障程度。**2026-08-14 新增，接单前即下发**（此前只在接单后的 `OrderDetailResponse` 里）。
+            ///
+            /// 用途是志愿者的**行动准备**：对方能不能看见我挥手、见面时该怎么打招呼。
+            /// 陪跑是一对一、长达一小时的线下接触，这件事决定见面那一刻做什么，不是接单之后再补课。
+            /// 滴滴给司机弹「此订单乘客为盲人」是他们盲人无障碍出行服务的核心机制之一。
+            ///
+            /// **接单前可见**的判据与 `paceMinSecondsPerKm` 那条一致：取值空间封闭的枚举可以逐个判定，
+            /// 与 `pacePreference` / `hasGuideDogThisRun` 同类；自由文本仍推迟到接单后。
+            ///
+            /// `null` = 盲人档案缺失。**客户端不要脑补默认值** —— 把「不知道」显示成「全盲」同样是错的。
+            ///
+            /// 🚨 **不进派单过滤或排序**，与 pace 三项同一条红线：它是给人看的行动提示，
+            /// 一旦进了打分就变成「按残障程度挑单」。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/visionLevel`.
+            public var visionLevel: Components.Schemas.AvailableOrderResponse.visionLevelPayload?
+            /// 牵引方式偏好。**2026-08-14 新增，接单前即下发**，理由同 `visionLevel` ——
+            /// 「要不要带牵引绳」是志愿者出门前就得知道的事。
+            ///
+            /// `null` = 盲人档案缺失，客户端不渲染该提示位。同样**不进派单过滤或排序**。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/tetherPreference`.
+            public struct tetherPreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/tetherPreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case TETHER_ROPE = "TETHER_ROPE"
+                    case ARM_HOLD = "ARM_HOLD"
+                    case VERBAL_ONLY = "VERBAL_ONLY"
+                }
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/tetherPreference/value1`.
+                public var value1: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/tetherPreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `tetherPreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 牵引方式偏好。**2026-08-14 新增，接单前即下发**，理由同 `visionLevel` ——
+            /// 「要不要带牵引绳」是志愿者出门前就得知道的事。
+            ///
+            /// `null` = 盲人档案缺失，客户端不渲染该提示位。同样**不进派单过滤或排序**。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/tetherPreference`.
+            public var tetherPreference: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload?
             /// Creates a new `AvailableOrderResponse`.
             ///
             /// - Parameters:
@@ -5475,6 +5663,8 @@ public enum Components {
             ///   - paceMaxSecondsPerKm: 配速区间上限（最慢），秒/公里。见 `paceMinSecondsPerKm`
             ///   - plannedDistanceMeters: 本次计划里程（米），null = 用户没填。2026-08-09 新增。
             ///   - hasGuideDogThisRun:
+            ///   - visionLevel: 盲人的视障程度。**2026-08-14 新增，接单前即下发**（此前只在接单后的 `OrderDetailResponse` 里）。
+            ///   - tetherPreference: 牵引方式偏好。**2026-08-14 新增，接单前即下发**，理由同 `visionLevel` ——
             public init(
                 orderId: Swift.Int64? = nil,
                 startAddress: Swift.String? = nil,
@@ -5488,7 +5678,9 @@ public enum Components {
                 paceMinSecondsPerKm: Swift.Int32? = nil,
                 paceMaxSecondsPerKm: Swift.Int32? = nil,
                 plannedDistanceMeters: Swift.Int32? = nil,
-                hasGuideDogThisRun: Swift.Bool? = nil
+                hasGuideDogThisRun: Swift.Bool? = nil,
+                visionLevel: Components.Schemas.AvailableOrderResponse.visionLevelPayload? = nil,
+                tetherPreference: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload? = nil
             ) {
                 self.orderId = orderId
                 self.startAddress = startAddress
@@ -5503,6 +5695,8 @@ public enum Components {
                 self.paceMaxSecondsPerKm = paceMaxSecondsPerKm
                 self.plannedDistanceMeters = plannedDistanceMeters
                 self.hasGuideDogThisRun = hasGuideDogThisRun
+                self.visionLevel = visionLevel
+                self.tetherPreference = tetherPreference
             }
             public enum CodingKeys: String, CodingKey {
                 case orderId
@@ -5518,6 +5712,8 @@ public enum Components {
                 case paceMaxSecondsPerKm
                 case plannedDistanceMeters
                 case hasGuideDogThisRun
+                case visionLevel
+                case tetherPreference
             }
         }
         /// - Remark: Generated from `#/components/schemas/PageOrderDetailResponse`.
