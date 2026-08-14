@@ -34,10 +34,12 @@ export function isResearchTool(name) {
   return typeof name === 'string' && RESEARCH_TOOL.test(name);
 }
 
-function git(...args) {
+// cwd 可覆盖，只为让 validate-research-log.mjs 能在临时仓库里跑真函数而不是复刻命令串
+// —— 复刻的命令串会跟实现漂移，而这个钩子的 bug 恰恰就出在命令选错。
+function git(cwd, ...args) {
   try {
     return execFileSync('git', args, {
-      cwd: root,
+      cwd,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -82,12 +84,47 @@ export function researchToolsUsed(transcriptPath) {
   return used;
 }
 
-// 落盘判定要覆盖两种「已经做了」：还没提交（工作树脏）和本轮已提交（最后一次提交动过）。
-// 只看工作树的话，模型先提交再停止就会被误判成没落盘 —— 误报一次这个钩子就开始被无视。
-export function researchLanded() {
-  const dirty = git('status', '--porcelain', '--', RESEARCH_DIR);
+// 本轮的起点。transcript 是 JSONL，第一行的 timestamp 就是会话开始时间（ISO-8601）。
+export function sessionStart(transcriptPath) {
+  if (!transcriptPath) return null;
+  let firstLine;
+  try {
+    firstLine = fs
+      .readFileSync(transcriptPath, 'utf8')
+      .split('\n')
+      .find((l) => l.trim());
+  } catch {
+    return null;
+  }
+  if (!firstLine) return null;
+  try {
+    const ts = JSON.parse(firstLine)?.timestamp;
+    return typeof ts === 'string' && ts.trim() ? ts : null;
+  } catch {
+    return null;
+  }
+}
+
+// 落盘判定要覆盖三种「已经做了」：还没提交（工作树脏）、本轮任意一笔提交动过、
+// 以及拿不到会话起点时退回只看最后一笔。
+//
+// ⚠️ 只看 HEAD 是不够的，2026-08-13 实测踩到：调研提交之后只要再叠**任何**一笔
+// （merge、契约同步、fixup），HEAD 就不再是调研那笔，钩子照样报「调研没落盘」。
+// 当时 HEAD 是一个只动 Types.swift 的 merge commit，而调研在 HEAD~1/HEAD~2 ——
+// 落盘做完了、还推送了，钩子仍然拦。误报一次这个钩子就开始被无视，
+// 所以判据必须覆盖**整个会话**，不是最后一笔。
+//
+// ⚠️ `--all` 也不是可选项：`git log` 默认只走 HEAD 的祖先，而一个会话里开两三条
+// 分支是常态（本仓库 §「一个 PR 只装一件事」正是这么要求的）。调研落在 A 分支、
+// 停止时站在 B 分支，不带 `--all` 就照样误报 —— 修第一版时当场又踩了一次。
+export function researchLanded(sinceIso, cwd = root) {
+  const dirty = git(cwd, 'status', '--porcelain', '--', RESEARCH_DIR);
   if (dirty && dirty.trim()) return true;
-  const lastCommit = git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD', '--', RESEARCH_DIR);
+  if (sinceIso) {
+    const inSession = git(cwd, 'log', '--all', `--since=${sinceIso}`, '--name-only', '--pretty=format:', '--', RESEARCH_DIR);
+    return Boolean(inSession && inSession.trim());
+  }
+  const lastCommit = git(cwd, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD', '--', RESEARCH_DIR);
   return Boolean(lastCommit && lastCommit.trim());
 }
 
@@ -95,7 +132,7 @@ export function researchLanded() {
 export function researchTodo(payload) {
   const used = researchToolsUsed(payload?.transcript_path);
   if (!used.length) return null;
-  if (researchLanded()) return null;
+  if (researchLanded(sessionStart(payload?.transcript_path))) return null;
   const kinds = [...new Set(used)].join('、');
   return (
     `**调研没落盘**：本轮联网 ${used.length} 次（${kinds}），但 \`${RESEARCH_DIR}/\` 没有任何改动。` +
