@@ -4,6 +4,10 @@
 <dict>
 	<key>AMapApiKey</key>
 	<string>$(AMAP_API_KEY)</string>
+	<!-- 出口合规：本 App 只用系统提供的 HTTPS / Keychain，没有自研或第三方加密实现，
+	     属于豁免类。不声明的话每次上传构建都要在 App Store Connect 手工回答一遍。 -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>iosamap</string>

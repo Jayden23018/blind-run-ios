@@ -157,6 +157,11 @@ final class AppState: ObservableObject {
     /// 与上面那条按账号记的实名标记刻意不同。
     @Published private(set) var didSeeBlindFirstRunHelp = false
 
+    /// 首次启动的隐私告知是否已同意（`PrivacyConsentPurpose.appLaunch`）。
+    /// 按**设备**记：同意发生在登录之前，那时还没有账号。登出不清 —— 告知的是这个 App 会收集什么，
+    /// 与谁登录无关。告知内容改版时靠 key 里的版本号失效，不靠登出。
+    @Published private(set) var didAcceptPrivacyConsent = false
+
     /// 会话过期后带到登录页展示的一次性提示。
     @Published private(set) var sessionExpirationMessage: String?
 
@@ -304,6 +309,38 @@ final class AppState: ObservableObject {
         persistence.set(true, forKey: AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen)
     }
 
+    /// 首次启动告知的同意。**只有这一个写入点**：唯一的触发者是用户按下「同意并开始使用」。
+    /// 「看过这一页」不算同意 —— 同意必须是一个主动动作（PIPL 第 14 条）。
+    func acceptPrivacyConsent() {
+        guard !didAcceptPrivacyConsent else { return }
+        didAcceptPrivacyConsent = true
+        PrivacyConsentStore(persistence: persistence)
+            .recordConsent(to: .appLaunch, scope: .device)
+    }
+
+    /// 启动时的初值。**在 `init` 里解析而不是等 `onAppear`** —— 晚一帧的代价是 UI 用例先看到
+    /// 同意页再看到它消失，断言打在那一帧上就是随机红。
+    ///
+    /// `environment` 可注入只是为了让下面这条规则本身有用例可测：它一旦写反，表现是**全部 UI 用例
+    /// 被同意页挡住**，而真机 UI 通道时好时坏，坏的时候没人会发现是这里写反了。
+    static func resolveInitialPrivacyConsent(
+        persistence: any AppStatePersistence,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        if PrivacyConsentStore(persistence: persistence).hasConsented(to: .appLaunch, scope: .device) {
+            return true
+        }
+        #if DEBUG || DEMO
+        // UI 用例一律 `RESET_STATE`，于是每一条都会被同意页挡住 —— 与首次引导同一个理由，默认跳过。
+        // 专门测同意门的用例设 `AIDRUN_UI_TEST_FORCE_PRIVACY_CONSENT=1` 走真实首启路径。
+        if environment["AIDRUN_UI_TEST_RESET_STATE"] == "1",
+           environment["AIDRUN_UI_TEST_FORCE_PRIVACY_CONSENT"] != "1" {
+            return true
+        }
+        #endif
+        return false
+    }
+
     var isVolunteerProfileComplete: Bool {
         guard let profile = volunteerProfile else {
             return false
@@ -367,6 +404,7 @@ final class AppState: ObservableObject {
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed) as? Bool ?? false
         self.didSeeBlindFirstRunHelp =
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindFirstRunHelpSeen) as? Bool ?? false
+        self.didAcceptPrivacyConsent = AppState.resolveInitialPrivacyConsent(persistence: persistence)
 
         // 紧急事件的后续推送在触发它的界面消失后才到，订阅点必须在 App 生命周期层。
         // provider 而不是直接传 client：环境可以在运行时切换（Mock / 生产），求助恢复必须打当下那一个。
@@ -691,6 +729,8 @@ final class AppState: ObservableObject {
         // 就把值读进内存了。漏掉这一行的表现是**跨用例串味** —— 前一条用例按过「知道了」，
         // 后一条就再也等不到引导页，报「引导页没起来」，看着像功能坏了。
         didSeeBlindFirstRunHelp = false
+        // 同意门走同一个解析器，于是「默认跳过、显式要求时才真弹」的规则只有一处。
+        didAcceptPrivacyConsent = AppState.resolveInitialPrivacyConsent(persistence: persistence)
         // Keychain 不随 App 沙盒一起清除：只清 UserDefaults 的话，重置后 Token 仍会残留，
         // 「本该未登录」的 UI 用例会拿着上一轮的 Token 继续跑。必须显式删除。
         tokenStore.delete()
