@@ -18,6 +18,14 @@ struct BlindRunnerSettingsView: View {
             }
 
             Section {
+                // 入口放设置而不是首页：首页刚按 `blind-ui-visual-benchmark-20260808.md`
+                // 做过减法（主按钮吃掉内容区七成），再塞一个列表入口会把那次结论推翻。
+                NavigationLink("我的历史订单") {
+                    BlindRunHistoryView()
+                }
+                .accessibilityLabel("我的历史订单")
+                .accessibilityHint("查看已结束的每一单：路线、里程和用时，也可以在这里补评价")
+
                 NavigationLink("个人资料") {
                     BlindRunnerProfileView()
                 }

@@ -292,10 +292,10 @@ final class AppState: ObservableObject {
     /// 「稍后再说」：跳过实名引导页进首页。**不等于可以下单**——
     /// 未实名仍会被 `BlindBookingGate.identityVerification` 拦住（后端 403 `IDENTITY_NOT_VERIFIED`）。
     ///
-    /// ⚠️ 这句话原本写的是「进首页**看历史订单**和设置」，而盲人端**没有任何历史入口** ——
+    /// ⚠️ 这句话原本写的是「进首页**看历史订单**和设置」，而盲人端长期**没有任何历史入口** ——
     /// 跳过实名的用户进来只有一个必定失败的「开始约跑」。注释在描述一个不存在的能力。
-    /// 入口由 PR #24（`BlindRunHistoryView`，跑步记录）补，合入前这里不要再写「历史订单」。
-    /// 那一页只收 `COMPLETED`，取消掉的订单和补评价仍然没有去处。
+    /// 入口现在有了：设置页 →「我的历史订单」（`BlindRunHistoryView`），
+    /// 收全部终态、点进去是订单详情，补评价也在那里。
     func dismissBlindIdentityPrompt() {
         didDismissBlindIdentityPrompt = true
         persistence.set(true, forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
