@@ -180,6 +180,17 @@ struct VoiceSlotSnapshot: Codable, Sendable, Equatable {
 /// **不再复用 `ResolveAddressRequest`**：在没有 `current` 的世界里两个端点的请求体确实逐字相同，
 /// 复用是对的；接了跨轮修正之后不再成立。
 struct ParseVoiceOrderRequest: Codable, Sendable {
+    /// 后端**跳过大模型**的字数线（`api_spec.yaml` 的 `transcript` 字段说明，2026-08-08）。
+    ///
+    /// 契约原文：超过这个长度不返 400，而是**静默降级走纯正则**。代价有两项，都不报错：
+    /// 终点抽不出来（正则没有终点实现），备注也抽不出来（`specialNotes`「只在触发大模型
+    /// 兜底那次顺带抽，正则不抽」）。
+    ///
+    /// 对盲人这是最坏的一种失败：他说了终点和身体状况，读回里一个字都听不到，
+    /// 而「没说」和「说了但因为太长被丢了」听起来完全一样。所以这个数字必须在客户端有名字 ——
+    /// `VoiceOrderWizard.longUtteranceNotice(forCharacterCount:)` 靠它决定要不要先说一句。
+    static let modelFallbackCharacterLimit = 200
+
     /// 原始 ASR 转录文本，**不要做客户端清洗**，理由同 `ResolveAddressRequest.transcript`。
     let transcript: String
     /// 当前位置（GCJ-02，可选），用于同名地点就近消歧。**与 `longitude` 必须成对**，只传一半返 400。

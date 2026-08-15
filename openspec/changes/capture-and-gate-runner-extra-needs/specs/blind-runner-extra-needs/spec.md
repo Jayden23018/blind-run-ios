@@ -13,10 +13,11 @@ The app SHALL record a blind runner's spoken extra needs as the user's own words
 - **THEN** the app SHALL discard that text rather than store it
 - **AND** the booking SHALL proceed with no free-text extra needs rather than fail
 
-#### Scenario: Free text exceeds the contract length limit
-- **WHEN** the verbatim extra needs exceed the length the contract permits for the field
-- **THEN** the app SHALL state during read-back that the note was too long and read out exactly the part it can keep
-- **AND** it SHALL NOT silently truncate the text
+#### Scenario: The utterance is long enough that the parser silently stops extracting
+- **WHEN** a blind runner's utterance is longer than the length above which the parsing service stops using its language model and falls back to patterns alone
+- **THEN** the app SHALL say, before it reads the order back, that it could only keep the keywords and that the destination and the extra needs may be missing
+- **AND** that statement SHALL name the way out, namely restating the request more briefly
+- **AND** the app SHALL NOT silently truncate the utterance, and SHALL NOT present the resulting order as though nothing was dropped
 
 ### Requirement: Extra needs are read back before the order is created
 The app SHALL read back every extra need it extracted, so that an extraction error is discoverable by ear before the order exists.
