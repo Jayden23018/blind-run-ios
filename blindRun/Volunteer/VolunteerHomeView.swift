@@ -814,6 +814,11 @@ enum VolunteerHomeTopLayout {
 
 struct VolunteerHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
+    /// 派单面板是全 App 位移幅度最大的动效（整块面板弹到另一个档位），而弹簧的回弹正是
+    /// 「减弱动态效果」要压掉的那一类。开启后改成瞬时切换：落点不变，只是不弹。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .title) private var nearbyHeaderLargeSize: CGFloat = 30
+    @ScaledMetric(relativeTo: .title) private var nearbyHeaderCompactSize: CGFloat = 24
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
@@ -1008,13 +1013,19 @@ struct VolunteerHomeView: View {
         .accessibilityHint("将地图中心移动到当前定位，不提供路线导航")
     }
 
+    /// 面板换档的动效。三处（点抓手 / 拖拽结束 / 高度变化）必须是同一条曲线，
+    /// 否则同一个动作会有两种回弹。`nil` = 瞬时到位，这是「减弱动态效果」下的正解。
+    private var demandPanelAnimation: Animation? {
+        reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86)
+    }
+
     private func nearbyDemandPanel(height: CGFloat, isCompact: Bool, proxy: GeometryProxy) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             demandPanelGrabber
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                    withAnimation(demandPanelAnimation) {
                         demandPanelDetent = demandPanelDetent.next()
                     }
                 }
@@ -1042,7 +1053,7 @@ struct VolunteerHomeView: View {
         .background(AppColors.background)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: -8)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: demandPanelDetent)
+        .animation(demandPanelAnimation, value: demandPanelDetent)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerHomeDemandPanel")
     }
@@ -1062,7 +1073,10 @@ struct VolunteerHomeView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("系统派单")
-                    .font(.system(size: showsSubtitle ? 30 : 24, weight: .bold))
+                    // 写死 pt 的字号不跟 Dynamic Type 走：把系统字号调到 AX5 之后，
+                    // 整屏都变大而这个标题纹丝不动 —— 它是这一屏的入口标题，不该是唯一不变的那个。
+                    // `@ScaledMetric` 保住原来的视觉尺寸，同时跟着用户设置缩放。
+                    .font(.system(size: showsSubtitle ? nearbyHeaderLargeSize : nearbyHeaderCompactSize, weight: .bold))
                     .foregroundColor(AppColors.textPrimary)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
@@ -1211,7 +1225,7 @@ struct VolunteerHomeView: View {
                     viewportHeight: proxy.size.height,
                     topContentBottom: resolvedTopBottom
                 )
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                withAnimation(demandPanelAnimation) {
                     demandPanelDetent = target
                     demandPanelDragTranslation = 0
                 }
@@ -1627,6 +1641,7 @@ private struct VolunteerEntryItem: View {
 // MARK: - Dispatch Overlay
 
 private struct VolunteerDispatchOverlay: View {
+    @ScaledMetric(relativeTo: .largeTitle) private var countdownSize: CGFloat = 48
     /// 倒计时转入「紧迫」的阈值。具名是因为它同时决定颜色和那个感叹号 ——
     /// 两处各写一个 10，改一处漏一处的表现是「图标出现了但字还是蓝的」。
     private static let urgentCountdownSeconds = 10
@@ -1737,7 +1752,8 @@ private struct VolunteerDispatchOverlay: View {
                             .accessibilityHidden(true)
                     }
                     Text("\(countdown)s")
-                        .font(.system(size: 48, weight: .bold, design: .rounded))
+                        // 同上：倒计时是这张卡上最要紧的数字，调大系统字号时它必须跟着变。
+                        .font(.system(size: countdownSize, weight: .bold, design: .rounded))
                 }
                 .foregroundColor(countdown <= Self.urgentCountdownSeconds ? AppColors.destructive : AppColors.primary)
                 .accessibilityElement(children: .combine)

@@ -71,6 +71,26 @@ const rules = {
     pattern: /(志愿服务|服务时长|服务|时长|志愿|公益)(记录)?(证明|证书)|(时长|服务|星级|服务记录)已认证/,
     why: '客户端不得把志愿服务时长/星级说成「证明」「证书」「已认证」：可查验的志愿服务记录证明须经志愿服务信息系统出具（民政部令第 67 号），本平台尚未与全国志愿服务信息系统完成数据对接。改用「平台记录」「累计服务」这类展示性措辞，并说明对外申报要走志愿服务信息系统。确实要引用这些词（例如注释里解释为什么不能这么写），行尾加 `// guard:allow volunteer-hours-credential`。',
   },
+  'motion-not-gated': {
+    // 「减弱动态效果」是前庭功能的无障碍设置，与看不看得见无关：它服务的是晕动症用户，
+    // 位移越大越难受。这条被漏过**两轮 review**（2026-08-12 与 08-15 都记着「只有 3 个文件响应」），
+    // 原因是它没有任何运行时症状 —— 开发者自己不开这个设置就永远看不见。
+    //
+    // 拦的是**位移类**动效：滑入 / 弹簧 / 缩放 / 偏移，以及 `withAnimation`。
+    // 不拦 `.opacity` / `.easeInOut` 的纯淡入淡出 —— 那正是降级后该有的样子。
+    //
+    // 降级写法（任选，`check` 认的是同一条语句里出现 reduceMotion）：
+    //   .transition(reduceMotion ? .opacity : .move(edge: .top))
+    //   .animation(reduceMotion ? nil : .spring(...), value: x)
+    //   withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { ... }
+    //
+    // 只拦**写在这一行的动画字面量**（`.spring(` / `.move(` 这种）。传具名属性的写法
+    // （`withAnimation(demandPanelAnimation)`）放行 —— 降级判断在那个属性的定义处，
+    // 而那处若写了字面量同样会被这条规则查到，所以没有漏洞，只是把检查点挪到了定义处。
+    pattern: /\.transition\(\s*\.(move|slide|scale|offset|push)|\.animation\(\s*\.(spring|interpolatingSpring|bouncy|snappy|smooth)|withAnimation\(\s*\./,
+    check: (_line, statement) => !/reduceMotion|accessibilityReduceMotion/.test(statement),
+    why: '位移类动效必须先看「减弱动态效果」（`@Environment(\\.accessibilityReduceMotion)`）：开启时降级为淡入淡出或瞬时到位。滑入/弹簧/缩放对晕动症用户是实打实的不适，而这条没有任何运行时症状 —— 自己不开这个设置就永远发现不了，所以只能靠守卫。确实无关（例如动的是不可见的辅助层），行尾加 `// guard:allow motion-not-gated`。',
+  },
   'server-addr': {
     pattern: /https?:\/\/[a-zA-Z0-9.\-_:]+/,
     check: (line) => {
@@ -133,7 +153,9 @@ function scanSwift(filePath) {
       const marker = `guard:allow ${id}`;
       if (line.includes(marker) || (i > 0 && lines[i - 1].includes(marker))) continue;
       if (!rule.pattern.test(line)) continue;
-      if (rule.check && !rule.check(line)) continue;
+      // check 拿得到后续几行：SwiftUI 经常把动画曲线折到 `.animation(` 的下一行，
+      // 只看当前行会把已经做了降级的写法误判成违规。
+      if (rule.check && !rule.check(line, lines.slice(i, i + 4).join('\n'))) continue;
       fail(id, `${filePath}:${i + 1}\n  ${line.trim()}\n\n${rule.why}`);
     }
   }
