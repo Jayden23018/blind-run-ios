@@ -1074,6 +1074,10 @@ struct VolunteerRegistrationFlowView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @StateObject private var viewModel = VolunteerRegistrationViewModel()
+    /// 身份证号 + 人脸的**单独同意**（PIPL 第 29 条）。与盲人实名页同一套告知组件，
+    /// 只是告知内容多一条人脸活体 —— 这一步提交成功后下一屏就是活体认证，不能等到那时才说。
+    @State private var showIdentityConsent = false
+    @State private var consentDeclinedNotice: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1121,6 +1125,45 @@ struct VolunteerRegistrationFlowView: View {
             guard viewModel.shouldPollRegistrationStatus else { return }
             await viewModel.pollStatusWhileNeeded()
         }
+        // 全屏而不是对话框：三条告知要各自可听、可停、可回头再听，理由见 `ConsentDisclosureView`。
+        .fullScreenCover(isPresented: $showIdentityConsent) {
+            ConsentDisclosureView(
+                purpose: .volunteerIdentity,
+                onAgree: {
+                    showIdentityConsent = false
+                    consentDeclinedNotice = nil
+                    // 同意先落盘再发请求：一次网络失败不该让用户再看一遍全文告知。
+                    consentStore.recordConsent(to: .volunteerIdentity, scope: consentScope)
+                    Task { await viewModel.submitBasicInfo() }
+                },
+                onDecline: {
+                    showIdentityConsent = false
+                    consentDeclinedNotice = PrivacyConsentPurpose.volunteerIdentity.declinedFeedback
+                    speechService.speak(PrivacyConsentPurpose.volunteerIdentity.declinedFeedback)
+                }
+            )
+        }
+    }
+
+    // MARK: - Sensitive Consent
+
+    private var consentStore: PrivacyConsentStore {
+        PrivacyConsentStore(persistence: appState.persistence)
+    }
+
+    /// 同意按**人**记；拿不到 userId 时用恒不命中的 scope，宁可多问一次。
+    private var consentScope: PrivacyConsentScope {
+        guard let userId = appState.userId else { return .user("unknown") }
+        return .user(String(userId))
+    }
+
+    /// 提交按钮的唯一入口：**没有单独同意就不发请求**。
+    private func handleBasicInfoSubmitTapped() {
+        guard consentStore.hasConsented(to: .volunteerIdentity, scope: consentScope) else {
+            showIdentityConsent = true
+            return
+        }
+        Task { await viewModel.submitBasicInfo() }
     }
 
     // MARK: - Step Indicator
@@ -1188,8 +1231,16 @@ struct VolunteerRegistrationFlowView: View {
                     .accessibilityLabel("无法提交身份信息：\(validationMessage)")
             }
 
+            if let consentDeclinedNotice {
+                Text(consentDeclinedNotice)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityLabel(consentDeclinedNotice)
+                    .accessibilityIdentifier("volunteerIdentityConsentDeclinedNotice")
+            }
+
             PrimaryButton("提交身份信息", isLoading: viewModel.isLoading) {
-                Task { await viewModel.submitBasicInfo() }
+                handleBasicInfoSubmitTapped()
             }
             .disabled(!viewModel.canSubmitBasicInfo)
             .opacity(viewModel.canSubmitBasicInfo ? 1 : 0.45)

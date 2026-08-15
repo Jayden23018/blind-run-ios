@@ -996,6 +996,36 @@ final class blindRunUITests: XCTestCase {
         #endif
     }
 
+    /// 首次启动的告知与同意门。**同意之前不许出现任何会收集信息的界面**，登录页也算 ——
+    /// 手机号是个人信息，把登录页放在同意之前就等于「未经同意即开始收集」。
+    ///
+    /// 这条必须是 UI 测试：单测能证明标志位对，证明不了它真的挡在根路由前面。
+    @MainActor
+    func testFirstLaunchBlocksTheLoginScreenUntilTheDisclosureIsAccepted() throws {
+        let app = launchApp(apiEnvironment: "mock", activeRole: nil, forcePrivacyConsent: true)
+
+        let gate = app.descendants(matching: .any)["appLaunchConsentView"].firstMatch
+        XCTAssertTrue(gate.waitForExistence(timeout: 20), "首次启动必须先出现隐私告知页")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["rootRoute.unauthenticated"].firstMatch.exists,
+            "同意之前不该出现登录页"
+        )
+
+        // 拒绝是一个合法选择：说明后果，但留在本页，不退出 App（退出对看不见屏幕的人是「App 坏了」）。
+        let decline = app.buttons["appLaunchConsentDeclineButton"].firstMatch
+        XCTAssertTrue(decline.waitForExistence(timeout: 10))
+        decline.tap()
+        XCTAssertTrue(app.staticTexts["appLaunchConsentDeclineNotice"].waitForExistence(timeout: 10))
+        XCTAssertTrue(gate.exists, "拒绝后仍应停在告知页")
+        XCTAssertFalse(app.descendants(matching: .any)["rootRoute.unauthenticated"].firstMatch.exists)
+
+        app.buttons["appLaunchConsentAgreeButton"].firstMatch.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["rootRoute.unauthenticated"].firstMatch.waitForExistence(timeout: 20),
+            "同意后应当放行到登录页"
+        )
+    }
+
     private var isPhysicalDevice: Bool {
         #if targetEnvironment(simulator)
         false
@@ -1032,7 +1062,8 @@ final class blindRunUITests: XCTestCase {
         hangTransitionConfirmation: Bool = false,
         confirmTransitionViaRealtime: Bool = false,
         hangEscortLocationSend: Bool = false,
-        homeLoadTimeout: TimeInterval? = nil
+        homeLoadTimeout: TimeInterval? = nil,
+        forcePrivacyConsent: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1104,6 +1135,11 @@ final class blindRunUITests: XCTestCase {
         }
         if mockLogoutFailure {
             app.launchEnvironment["AIDRUN_MOCK_LOGOUT_FAILURE"] = "1"
+        }
+        // 同意门默认跳过（判定在 `AppState.resolveInitialPrivacyConsent`）：UI 用例一律
+        // `RESET_STATE`，不跳过的话每一条都会被挡在告知页，断言全红。只有专测它的用例打开这一条。
+        if forcePrivacyConsent {
+            app.launchEnvironment["AIDRUN_UI_TEST_FORCE_PRIVACY_CONSENT"] = "1"
         }
         app.launch()
         dismissSystemAlertsIfPresent(app: app)
