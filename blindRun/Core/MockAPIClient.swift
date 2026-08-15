@@ -1535,6 +1535,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let minutes = Self.mockVoiceMinutes(in: transcript).flatMap { (10...300).contains($0) ? $0 : nil }
         let guideDog = Self.mockVoiceGuideDog(in: transcript)
         let pace = Self.mockVoicePace(in: transcript)
+        let notes = Self.mockVoiceSpecialNotes(in: transcript)
 
         // MARK: 与 `current` 合并 —— 本轮抽到的覆盖，没抽到的继承
         //
@@ -1559,6 +1560,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         let mergedEndLongitude = endPlace?.place?.longitude ?? (endPlace == nil ? current?.endLongitude : nil)
         let mergedGuideDog = guideDog ?? current?.hasGuideDog
         let mergedPace = pace ?? current?.pacePreference
+        // 备注与另外两个可选槽位同一口径：本轮抽到就覆盖，没抽到就继承 ——
+        // 用户第二轮只说「时间改成九点」时，第一轮说的身体状况不该被擦掉。
+        let mergedNotes = notes ?? current?.specialNotes
 
         // MARK: missing 按**合并后**的状态算
         //
@@ -1632,9 +1636,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             endAddressUnresolved: mergedEndAddress == nil ? nil : (mergedEndLatitude == nil),
             hasGuideDog: mergedGuideDog,
             pacePreference: mergedPace,
-            // 备注只由大模型在必填槽位兜底那次顺带抽，正则不抽（语料 `_extra_slots_note`），
-            // 所以 Mock 这条规则路径恒 nil，不是漏实现。继承 `current` 里已有的那份。
-            specialNotes: current?.specialNotes,
+            // 备注只由大模型在必填槽位兜底那次顺带抽，正则不抽（语料 `_extra_slots_note`）。
+            // 曾经因此恒为 nil，代价是「原文照录」这条规格在开发期永远走不到 ——
+            // 现在由 `mockVoiceSpecialNotes` 按原话**取子串**产出，并复现超字数线时的降级。
+            specialNotes: mergedNotes,
             userIntent: intent,
             correctionTarget: correctionTarget,
             correctionUnclear: correctionUnclear,
@@ -2120,6 +2125,39 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if transcript.contains("中等") { return .moderate }
         return nil
     }
+
+    /// 本次备注 —— **从原话里取子串，绝不重新组织语言**。
+    ///
+    /// 在此之前这个槽位在 Mock 里恒为 nil，于是「原文照录」（`design.md` D1）这条规格
+    /// **在开发期永远验不到**：开发和 UI 测试都走 Mock，走不到自由文本分支就等于这条规格
+    /// 从来没被执行过。而它是本变更里唯一关系到「志愿者会读到什么」的规格。
+    ///
+    /// 实现刻意只做子串截取而不做任何归纳：Mock 一旦自己编一句话出来，
+    /// 「非 null 时保证是用户原话的子串」这条契约在 Mock 下就是假的，
+    /// 而假的 Mock 比没有 Mock 更糟 —— 它让人以为验过了。
+    static func mockVoiceSpecialNotes(in transcript: String) -> String? {
+        // 超字数线时后端跳过大模型，而备注「只在触发大模型兜底那次顺带抽，正则不抽」
+        // （`api_spec.yaml` 的 `specialNotes` 说明）。Mock 必须复现这个降级，
+        // 否则开发期看到的是「说多长都有备注」，真机上却没有 —— 那正是
+        // `VoiceOrderWizard.longUtteranceNotice` 要提醒用户的那件事。
+        guard transcript.count <= ParseVoiceOrderRequest.modelFallbackCharacterLimit else { return nil }
+        guard let marker = specialNotesMarkers
+            .compactMap({ transcript.range(of: $0) })
+            .min(by: { $0.lowerBound < $1.lowerBound })
+        else { return nil }
+
+        // 从标记词一路取到句尾，**不在标点处切断**：条件从句（「如果我说头晕就…」）
+        // 恰恰在后半段，切了等于把要执行的那半句丢掉。
+        let notes = String(transcript[marker.lowerBound...]).trimmed
+        guard !notes.isEmpty, notes.count <= 200 else { return nil }
+        return notes
+    }
+
+    /// 备注从哪个词开始算。按后端语料里的真实说法挑的，**不求全**——
+    /// Mock 的职责是让这条分支可达，不是复刻大模型。
+    private static let specialNotesMarkers = [
+        "我有", "我患", "如果我", "麻烦", "注意", "另外", "提醒"
+    ]
 
     /// 格式与后端 `LocalDateTime` 一致（无时区）。
     static func mockBackendLocalDateTime(_ date: Date) -> String {
