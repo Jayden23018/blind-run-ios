@@ -55,7 +55,7 @@ struct CompletedTrackSummaryView: View {
                     Label("查看大图路线", systemImage: "map")
                         .font(AppFonts.body())
                 }
-                .frame(minHeight: 44)
+                .frame(minHeight: 64)
                 .accessibilityHint("全屏查看本次跑步轨迹")
                 .accessibilityIdentifier("completedTrackFullScreenLink")
             }
