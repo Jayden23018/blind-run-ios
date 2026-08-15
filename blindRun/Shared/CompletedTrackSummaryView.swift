@@ -28,7 +28,6 @@ final class CompletedTrackSummaryViewModel: ObservableObject {
 /// 大屏回放在 `OrderRouteReplayView`，由下面那条链接进入。
 struct CompletedTrackSummaryView: View {
     let track: OrderTrackResponse
-    let orderID: Int64
     let repeatSummary: () -> Void
 
     var body: some View {
@@ -51,7 +50,7 @@ struct CompletedTrackSummaryView: View {
                 // 独立成行而不是把地图本身做成链接：`MAMapView` 自己吃掉平移手势，
                 // 包在 NavigationLink 里点不动。这一行同时也是读屏用户唯一能对上的入口。
                 NavigationLink {
-                    OrderRouteReplayView(orderID: orderID, preloadedTrack: track)
+                    OrderRouteReplayView(track: track)
                 } label: {
                     Label("查看大图路线", systemImage: "map")
                         .font(AppFonts.body())

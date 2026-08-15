@@ -3,14 +3,14 @@ import XCTest
 
 /// `BlindRunHistoryViewModel` 的过滤与排序。
 ///
-/// 合入「我的跑步记录」时这段逻辑一条断言都没有，而它做的两个决定都会被用户看见：
-/// **只收 `COMPLETED`**（取消掉的订单看不到，这是刻意的，见 `BlindRunHistoryView.swift:29-30`）
-/// 和**时间倒序**（最近一次跑在最上面）。未知状态的处理更要钉住 ——
-/// 后端加新状态时把它当「跑过了」是在替用户下结论，而这一页点进去是轨迹回放，没轨迹就是空页。
+/// 合入「我的历史订单」时这段逻辑一条断言都没有，而它做的两个决定都会被用户看见：
+/// **收全部终态**（已完成 / 已取消 / 暂无志愿者 —— 「上次那单为什么没跑成」是用户会问的）
+/// 和**时间倒序**（最近一单在最上面）。未知状态的处理更要钉住 ——
+/// 后端加新状态时把它当「已经结束了」是在替用户下结论。
 @MainActor
 final class BlindRunHistoryTests: XCTestCase {
 
-    func testOnlyCompletedOrdersAppear() async {
+    func testEveryTerminalOrderAppearsNewestFirst() async {
         let (viewModel, appState) = makeViewModel(orders: [
             makeOrder(orderId: 1, status: .completed, createdAt: "2026-08-01T10:00:00"),
             makeOrder(orderId: 2, status: .cancelled, createdAt: "2026-08-02T10:00:00"),
@@ -22,13 +22,33 @@ final class BlindRunHistoryTests: XCTestCase {
 
         await viewModel.load()
 
-        XCTAssertEqual(viewModel.records.map(\.orderId), [5, 1], "只有已完成的订单能进跑步记录，且最近的排最前")
+        XCTAssertEqual(
+            viewModel.records.map(\.orderId),
+            [5, 4, 2, 1],
+            "三种终态都要能回看（取消掉的那单恰恰是用户会追问的），最近的排最前"
+        )
         XCTAssertNil(viewModel.errorMessage)
     }
 
-    func testUnknownStatusIsExcludedRatherThanAssumedCompleted() async {
+    func testInFlightOrderStaysOutOfHistory() async {
+        // 进行中的那单由首页负责，列表里再出现一次就是两个真相源：
+        // 用户在这里看到的状态是上一次拉取的快照，首页却在 5 秒一轮地推进。
+        let (viewModel, appState) = makeViewModel(orders: [
+            makeOrder(orderId: 3, status: .inProgress, createdAt: "2026-08-03T10:00:00"),
+            makeOrder(orderId: 6, status: .pendingMatch, createdAt: "2026-08-06T10:00:00"),
+            makeOrder(orderId: 7, status: .driverArrived, createdAt: "2026-08-07T10:00:00"),
+            makeOrder(orderId: 8, status: .rematching, createdAt: "2026-08-08T10:00:00"),
+        ])
+        _ = appState
+
+        await viewModel.load()
+
+        XCTAssertTrue(viewModel.records.isEmpty, "非终态订单一律不进历史列表")
+    }
+
+    func testUnknownStatusIsExcludedRatherThanAssumedFinished() async {
         // 解码遇未知枚举值降级成 .unknown 而不是整条崩（AGENTS 硬约束）。
-        // 降级之后这一页要把它**排除**：当成「跑过了」会让用户点进一个没有轨迹的空回放页。
+        // 降级之后这一页要把它**排除**：当成「已经结束了」会让用户以为那一单已经了结。
         let (viewModel, appState) = makeViewModel(orders: [
             makeOrder(orderId: 9, status: .unknown, createdAt: "2026-08-09T10:00:00"),
             makeOrder(orderId: 1, status: .completed, createdAt: "2026-08-01T10:00:00"),

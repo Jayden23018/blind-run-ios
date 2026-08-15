@@ -85,25 +85,19 @@ struct TrackStatsRow: View {
 /// 「大屏地图」回放页：地图占满统计卡片以外的全部高度，对标同类产品把地图放在
 /// 顶部 35–45% 的做法，我们没有社交/海拔那几块内容，所以给得更满。
 ///
-/// 数据来源二选一：调用方已经拉过轨迹就把 `preloadedTrack` 传进来，
-/// 否则自己按 `orderID` 拉一次。合成一个类型是为了不让「订单详情点进来」
-/// 和「跑步记录点进来」再次分叉成两份实现 —— 那正是这个功能一开始只做了一半的原因。
+/// 轨迹由调用方传进来。此前这里还有一条「只给 `orderID`、自己拉一次」的分支，
+/// 服务于「跑步记录直接点进回放」那个入口；历史列表改成落到订单详情之后没有调用方了，
+/// 一条永远走不到的加载路径比没有更糟 —— 读的人分不清哪条是真的在跑。
+/// 真要再加入口，从 `CompletedTrackSummaryViewModel` 拿到 track 再进来即可。
 struct OrderRouteReplayView: View {
-    @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
-    @StateObject private var viewModel = CompletedTrackSummaryViewModel()
 
-    let orderID: Int64
-    var preloadedTrack: OrderTrackResponse?
-
-    private var track: OrderTrackResponse? { preloadedTrack ?? viewModel.track }
+    let track: OrderTrackResponse
 
     var body: some View {
         VStack(spacing: 0) {
             content
-            if let track {
-                summaryCard(track)
-            }
+            summaryCard(track)
         }
         .background(AppColors.background)
         .navigationTitle("本次路线")
@@ -114,33 +108,18 @@ struct OrderRouteReplayView: View {
         // `CompletedTrackSummaryView` 一直没踩到，就是因为它本来就写了这一行。
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("orderRouteReplay")
-        .task {
-            guard preloadedTrack == nil else { return }
-            await viewModel.load(orderID: orderID, appState: appState)
-            if let summary = viewModel.track?.spokenSummary {
-                speechService.speak(summary)
-            }
-        }
     }
 
     @ViewBuilder
     private var content: some View {
-        if let track {
-            if let emptyText = track.emptyStateText {
-                centeredMessage(emptyText)
-            } else {
-                // ponytail: 地图吃掉统计卡片以外的全部高度，下限 200pt。
-                // 上限交给布局而不是写死屏高比例 —— 写比例要引 GeometryReader 重排整页，
-                // 而 AX5 字号下统计卡片本来就该往上挤地图。
-                TrackRouteMap(track: track)
-                    .frame(minHeight: 200, maxHeight: .infinity)
-            }
-        } else if viewModel.isLoading {
-            centeredMessage("正在加载本次路线")
-        } else if let error = viewModel.errorMessage {
-            centeredMessage(error)
+        if let emptyText = track.emptyStateText {
+            centeredMessage(emptyText)
         } else {
-            centeredMessage("本次路线暂时无法加载。")
+            // ponytail: 地图吃掉统计卡片以外的全部高度，下限 200pt。
+            // 上限交给布局而不是写死屏高比例 —— 写比例要引 GeometryReader 重排整页，
+            // 而 AX5 字号下统计卡片本来就该往上挤地图。
+            TrackRouteMap(track: track)
+                .frame(minHeight: 200, maxHeight: .infinity)
         }
     }
 

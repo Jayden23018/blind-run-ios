@@ -3,7 +3,7 @@ import SwiftUI
 
 // MARK: - View Model
 
-/// 盲人端的历史跑步记录。此前**整条路都不存在** —— `/api/orders/mine` 只被首页用来
+/// 盲人端的历史订单。此前**整条路都不存在** —— `/api/orders/mine` 只被首页用来
 /// 找当前进行中的那一单（`BlindRunnerHomeView.swift:165-169`），订单一旦完成就再也回不去，
 /// 于是 `BlindOrderStatusView` 里那段已完成轨迹实际上只在「跑完那一刻恰好还停在该页」时露过面。
 @MainActor
@@ -26,10 +26,12 @@ final class BlindRunHistoryViewModel: ObservableObject {
         errorMessage = nil
         do {
             let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/mine")
-            // 只留已完成：这一页的名字是「跑步记录」，而取消掉的订单没有轨迹可看。
-            // 未知状态一并排除 —— 后端新增状态时把它当成「跑过了」是在替用户下结论。
+            // 留全部终态（已完成 / 已取消 / 暂无志愿者）：「上次那单为什么没跑成」和
+            // 「上次是谁陪我跑的」是同一个用户的同一次回看，分成两处只会多一个入口。
+            // 进行中的那单不进来 —— 首页已经在管它，列表里再出现一次是两个真相源。
+            // 未知状态一并排除：后端新增状态时把它当成「已经结束了」是在替用户下结论。
             records = paged.content
-                .filter { $0.status == .completed }
+                .filter { $0.status.isTerminal }
                 .sorted { ($0.createdAt ?? $0.plannedStart ?? "") > ($1.createdAt ?? $1.plannedStart ?? "") }
             isLoading = false
         } catch let error as APIError {
@@ -56,18 +58,24 @@ struct BlindRunHistoryView: View {
     var body: some View {
         List {
             if viewModel.isLoading {
-                ProgressView("正在加载跑步记录...")
-                    .accessibilityLabel("正在加载跑步记录")
+                ProgressView("正在加载历史订单...")
+                    .accessibilityLabel("正在加载历史订单")
             } else if viewModel.records.isEmpty {
-                EmptyStateView(title: "暂无跑步记录", message: "完成一次陪跑后，这里会显示当时的路线。")
+                EmptyStateView(title: "暂无历史订单", message: "结束一次预约后，这里会显示那一单的详情。")
             } else {
                 ForEach(viewModel.records, id: \.orderId) { order in
                     NavigationLink {
-                        OrderRouteReplayView(orderID: order.orderId)
+                        // 落到订单详情而不是直接进轨迹回放：详情页在这一单是 `COMPLETED` 时
+                        // 内嵌轨迹摘要（并自动播报里程/时长/配速）、给出「查看大图路线」链接，
+                        // 而且是**补评价唯一的入口** —— 评价此前只在「跑完那一刻恰好还停在详情页」
+                        // 时出现过一次，错过就再也交不上。
+                        BlindOrderStatusView(orderId: order.orderId) { _ in }
                     } label: {
                         BlindRunHistoryRow(order: order)
                     }
-                    .accessibilityHint("查看这次陪跑的路线、里程和用时")
+                    .accessibilityHint(order.status == .completed
+                        ? "查看这一单的详情、路线，也可以在这里补评价"
+                        : "查看这一单的详情")
                 }
             }
 
@@ -77,7 +85,7 @@ struct BlindRunHistoryView: View {
                     .accessibilityLabel(errorMessage)
             }
         }
-        .navigationTitle("我的跑步记录")
+        .navigationTitle("我的历史订单")
         .accessibilityIdentifier("blindRunHistoryList")
         .task {
             viewModel.configure(with: appState, speechService: speechService)
@@ -98,8 +106,13 @@ private struct BlindRunHistoryRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(dateText)
+            // 状态排在最前，视觉与朗读同序：列表混了已完成 / 已取消 / 暂无志愿者之后，
+            // 读屏用户逐行划过时第一个词就得能判断「这单跑成没有」，否则要听完整行才知道。
+            Text(order.status.displayName)
                 .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(order.status == .completed ? AppColors.textPrimary : AppColors.textSecondary)
+            Text(dateText)
+                .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
             Text(order.startAddress ?? "地点未记录")
                 .font(AppFonts.caption())
@@ -109,6 +122,6 @@ private struct BlindRunHistoryRow: View {
         // 行里不放里程 —— 那要为每一行单独打一次 `/track`。
         // ponytail: 需要的话再让后端在列表响应里带上，不在客户端拿 N 个请求换一行小字。
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(dateText)，出发地 \(order.startAddress ?? "未记录")")
+        .accessibilityLabel("\(order.status.displayName)，\(dateText)，出发地 \(order.startAddress ?? "未记录")")
     }
 }
