@@ -983,7 +983,7 @@ struct BlindOrderStatusView: View {
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(AppColors.textSecondary)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 52)
+                .frame(minHeight: 64)
                 .buttonShapeOutlineIfNeeded(color: AppColors.textSecondary)
                 .accessibilityLabel("跳过评价并返回首页")
             }

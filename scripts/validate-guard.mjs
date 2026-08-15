@@ -395,6 +395,70 @@ const cases = [
     }
   },
   {
+    // 2026-08-15：UI 审计只量逐页点名的主按钮，次级控件（跳过评价 52pt、查看大图路线 44pt、
+    // 收藏地点三处 52pt）一路漏过去。盲人端 44pt 读得到按不中，表现是「点了没反应」。
+    name: '盲人端次级控件只有 52pt（拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindOrderStatusView.swift',
+        old_string: 'a',
+        new_string: '                .frame(minHeight: 52)'
+      }
+    }
+  },
+  {
+    name: '同一行写成 .frame(maxWidth: .infinity, minHeight: 44)（拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Shared/CompletedTrackSummaryView.swift',
+        old_string: 'a',
+        new_string: '                .frame(maxWidth: .infinity, minHeight: 44)'
+      }
+    }
+  },
+  {
+    name: '改到 64pt（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindBookingView.swift',
+        old_string: 'a',
+        new_string: '                    .frame(minHeight: 64)'
+      }
+    }
+  },
+  {
+    // 志愿者端是明眼人用的，走 Apple 的 44pt 线，不受这条约束。
+    name: '志愿者端 52pt（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Volunteer/VolunteerOrderFlowViews.swift',
+        old_string: 'a',
+        new_string: '                .frame(minHeight: 52)'
+      }
+    }
+  },
+  {
+    // 非交互元素确实用得着小数值，标注本身就是「这不是触达目标」的声明。
+    name: '非触达目标带 guard:allow 标注（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindRunHistoryView.swift',
+        old_string: 'a',
+        new_string: '            .frame(minHeight: 24) // guard:allow small-touch-target 纯文本行，不可点'
+      }
+    }
+  },
+  {
     name: 'UI 测试里 app.tap() 敲屏幕正中（会点到盲人端主按钮）',
     expect: 2,
     input: {

@@ -343,6 +343,42 @@ function main() {
       );
     }
 
+    // 6.6 盲人端触达低于 64pt（2026-08-15）
+    //
+    // AGENTS 与 `AccessibilityAuditTests` 的线是 64pt，不是 Apple 的 44pt —— 视障用户是靠
+    // 手指扫过屏幕找控件的，44pt 的目标能被 VoiceOver 读到，却不一定按得中。
+    //
+    // 但那条 UI 审计只量**主按钮**（`minimumBlindPrimaryButtonHeight`，逐页点名），
+    // 于是次级控件一路漏了过去：「跳过评价并返回首页」52pt、「查看大图路线」44pt、
+    // 「临时显示身份证号」44pt、收藏地点那三处 52pt —— 六处都在盲人自己要按的路径上，
+    // 六处都没有任何检查说过一句话（`docs/review/frontend-backend-alignment-review-20260812.md` §D6
+    // 只点了其中一处，一处一处修就是这条守卫存在的理由）。
+    //
+    // 志愿者端不在此列：那边是明眼人用的，走 Apple 的 44pt 线。
+    // 非交互元素（文本块最小高度之类）确实用得着小数值，行尾标注即可 —— 标注本身
+    // 就是「这不是触达目标」的声明。
+    const isBlindFacingSwift =
+      /\/blindRun\/[^/]/.test(filePath) &&
+      /\.swift$/.test(filePath) &&
+      !/\/blindRun(Tests|UITests)\//.test(filePath) &&
+      !/\/blindRun\/Volunteer\//.test(filePath);
+    const smallTargetLine = isBlindFacingSwift
+      ? body.split('\n').find((l) => {
+          const m = l.match(/\.frame\((?:[^)]*,\s*)?minHeight:\s*(\d+)/);
+          return m && Number(m[1]) < 64 && !l.includes('guard:allow small-touch-target');
+        })
+      : undefined;
+    if (smallTargetLine) {
+      fail(
+        'small-touch-target',
+        `${filePath}\n  ${smallTargetLine.trim()}\n\n` +
+          `盲人端触达高度不得低于 64pt（AGENTS.md 第 8 节的 64pt 线，比 WCAG 2.5.5 的 44pt 更严）。\n` +
+          `视障用户靠手指扫过屏幕找控件：44pt 的目标读得到、按不中，而按不中在盲人端的表现是「点了没反应」。\n` +
+          `\`AccessibilityAuditTests\` 只量逐页点名的主按钮，次级控件全靠这条守卫。\n` +
+          `确实不是触达目标（纯文本块的最小高度等），行尾加 \`// guard:allow small-touch-target\`。`
+      );
+    }
+
     // 7. workflow 的 if: 里出现 secrets（2026-08-06）
     //
     // `secrets` 不在 `if:` 的可用上下文里 —— 官方 context availability 表：

@@ -370,6 +370,25 @@ skill `aidrun-a11y-voice` 写的是「盲人端关键主按钮高度 ≥ 64pt」
 同一屏的评分控件用 `.pickerStyle(.segmented)`（`:708`），segmented control 实际高约 32pt，
 是这一页最难点中的控件。
 
+> **2026-08-15 已修，并且比本条写的多五处。** 按这一条去改的时候顺手全仓扫了一遍
+> `.frame(minHeight:)`，盲人侧低于 64pt 的**一共六处**，本条只点了其中一处：
+> 「跳过评价并返回首页」52 →「临时显示身份证号」44 →
+> 搜索地点 / 收藏这个出发地点 / 收藏地点行 三处 52。全部提到 64pt。
+>
+> 第六处「查看大图路线」44pt **不在本分支**：那个入口是历史订单那条线
+> （`CompletedTrackSummaryView` 的全屏回放链接）带进来的，`main` 上还没有这段代码，
+> 所以它跟着那个 PR 一起改，不在这里重复。
+>
+> 一处一处修正是这类缺陷会反复回来的原因，所以同时落了守卫
+> `guard.mjs` 的 `small-touch-target`：盲人侧生产代码里 `.frame(minHeight: <64)` 一律拦，
+> 志愿者端豁免（明眼人走 Apple 的 44pt 线），非触达目标行尾标注放行。
+> 自测 `scripts/validate-guard.mjs` 49 → 54 条。
+>
+> 为什么之前没被 `AccessibilityAuditTests` 抓到：那条审计量的是**逐页点名的主按钮**
+> （`minimumBlindPrimaryButtonHeight`），次级控件从来不在它的视野里。
+>
+> segmented 评分控件那半条**没动** —— 换控件会改评价交互本身，属另一件事。
+
 ### D7 · 中 · 13 处 `.font(.system(size:))` 固定字号，不随 Dynamic Type 缩放
 
 最扎眼的是 `blindRun/Volunteer/VolunteerOrderFlowViews.swift:1729`（积分数字 48pt）、

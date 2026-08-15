@@ -1476,7 +1476,7 @@ struct BlindBookingView: View {
                     }
                     .font(AppFonts.body().weight(.semibold))
                     .frame(maxWidth: .infinity)
-                    .frame(minHeight: 52)
+                    .frame(minHeight: 64)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isRecognizingStartPlace || viewModel.isSearchingPlaces || viewModel.placeSearchKeyword.trimmed.isEmpty)
@@ -1524,7 +1524,7 @@ struct BlindBookingView: View {
                 Label("收藏这个出发地点", systemImage: "star")
                     .font(AppFonts.body().weight(.semibold))
                     .frame(maxWidth: .infinity)
-                    .frame(minHeight: 52)
+                    .frame(minHeight: 64)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("收藏这个出发地点，\(place.title)")
@@ -1563,7 +1563,7 @@ struct BlindBookingView: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .frame(minHeight: 52)
+                            .frame(minHeight: 64)
                         }
                         .accessibilityLabel(place.bookingSearchAccessibilityLabel)
                         .accessibilityHint("直接使用这个已保存的地点，不再重新搜索")
