@@ -435,8 +435,119 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
+    // MARK: - 横屏与宽窗口
+
+    /// 横屏审计。**这是本仓库唯一能验「横屏裁切」的通道** ——
+    /// `docs/review/blind-app-full-review-20260812.md` §6 第 11 项（M 档，WCAG 1.3.4）
+    /// 说的就是这块：单测覆盖不到布局，而此前 12 条 UI 用例**全部**在 `setUp` 里钉死竖屏，
+    /// 于是「横屏一个字都没被验过」和「审计全绿」长期同时成立。
+    ///
+    /// 审计里真正抓这件事的是 `.textClipped` 与 `.hitRegion`：矮窗口下被装饰地图挤扁的文本、
+    /// 被底部常驻条盖住的按钮，都从这两条出来。
+    @MainActor
+    func testBlindRunnerHomeInLandscapePassesAccessibilityAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+                .waitForExistence(timeout: 20),
+            "盲人首页没起来，后面的审计结果没有意义"
+        )
+        rotateToLandscape(app)
+        try audit(app)
+    }
+
+    @MainActor
+    func testBlindBookingInLandscapePassesAccessibilityAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome()
+        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+        start.tap()
+        XCTAssertTrue(waitForBookingScreen(app), "下单页没起来")
+        rotateToLandscape(app)
+        try audit(app)
+    }
+
+    /// 订单状态页横屏。这一页横屏最吃亏：状态卡 + 同行地图（此前写死 180pt）+ 生命周期
+    /// 全排在一列里，而横屏可用高度只有约 390pt。
+    @MainActor
+    func testBlindOrderStatusInLandscapePassesAccessibilityAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome(emptyOrders: false)
+        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+        currentOrder.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindOrderStatusKeepWaitingButton"].firstMatch
+                .waitForExistence(timeout: 15),
+            "订单状态页没起来"
+        )
+        rotateToLandscape(app)
+        try audit(app)
+    }
+
+    /// 宽窗口下正文列必须收窄，不许铺满整屏。
+    ///
+    /// 静态审计抓不到这一条：一行横跨 1024pt 的文字**没有任何**审计问题 ——
+    /// 有 label、不裁切、对比度达标。它只是让低视力用户把字放大后要横扫整屏，
+    /// 换行时找不回下一行的行首（`BlindLayout.readableContentWidth` 里有完整理由）。
+    ///
+    /// **在 iPhone 横屏上就是真检查，不是只有 iPad 才算数**：iPhone 16 Pro 横屏 852pt，
+    /// 已经宽过 700pt 的列宽。前置断言保证窗口真的够宽，否则这条会静默变成空过。
+    @MainActor
+    func testBlindPagesKeepPrimaryActionsWithinReadableWidthOnWideWindows() throws {
+        let app = launchBlindHome()
+        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 20), "盲人首页没起来")
+        rotateToLandscape(app)
+
+        let windowWidth = app.windows.firstMatch.frame.width
+        try XCTSkipUnless(
+            windowWidth > Self.readableContentWidth,
+            "窗口只有 \(windowWidth)pt，不宽于 \(Self.readableContentWidth)pt —— 这条断言在这台设备上无从判定"
+        )
+
+        XCTAssertLessThanOrEqual(
+            start.frame.width,
+            Self.readableContentWidth,
+            "「开始约跑」宽 \(start.frame.width)pt，超过可读列宽 —— 内容列没有收窄"
+        )
+        // 反向锚一下：收窄不等于收没了。触达下限仍是 64pt（`AGENTS.md` §8，
+        // 且 `scripts/hooks/guard.mjs` 的 small-touch-target 在静态面上守同一条）。
+        XCTAssertGreaterThanOrEqual(
+            start.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            "横屏收窄之后主按钮被压到 64pt 以下"
+        )
+        XCTAssertTrue(start.isHittable, "横屏下「开始约跑」够不着")
+    }
+
     // MARK: - Helpers
 
+    /// 转横屏并等布局落定。
+    ///
+    /// 转完必须等一次：`XCUIDevice.orientation` 的 setter 一返回，SwiftUI 还没重排完，
+    /// 立刻断言 `frame` 拿到的是旧值。用 `waitForExistence` 而不是 `sleep` ——
+    /// 等的是一次真实的查询往返，快的设备上不会白等满一秒。
+    @MainActor
+    private func rotateToLandscape(_ app: XCUIApplication) {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        addTeardownBlock {
+            await MainActor.run { XCUIDevice.shared.orientation = .portrait }
+        }
+        _ = app.windows.firstMatch.waitForExistence(timeout: 5)
+    }
+
+    /// `BlindLayout.readableContentWidth` 的副本。XCUITest 是黑盒，进不了 app 的类型 ——
+    /// 只能抄一份。抄错的方向是安全的：把生产值调**大**而这里没跟，断言会红不会绿。
+    private static let readableContentWidth: CGFloat = 700
     private static let minimumBlindPrimaryButtonHeight: CGFloat = 64
     private static let minimumBlindPrimaryButtonScreenShare: CGFloat = 0.25
 
