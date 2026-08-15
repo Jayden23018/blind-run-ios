@@ -104,7 +104,7 @@ struct BlindRunnerSettingsView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("账户将被软删除，所有登录令牌会失效。删除成功后手机号可以重新注册。此操作不可撤销。")
+            Text(AccountDeletionViewModel.finalConfirmationMessage(for: .blind))
         }
     }
 
