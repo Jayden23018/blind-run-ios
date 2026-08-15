@@ -708,6 +708,9 @@ struct BlindOrderStatusView: View {
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 28)
+            // 这一页在 iPad 上最吃亏：状态卡、生命周期、订单信息全是长文本行，
+            // 不限宽时一行横跨 1024pt。见 `BlindLayout.readableContentWidth`。
+            .readableContentColumn()
         }
         .background(AppColors.background)
         .navigationTitle("订单状态")
@@ -1105,7 +1108,7 @@ struct BlindOrderStatusView: View {
                     )],
                     tracksUserLocation: false
                 )
-                .frame(height: 180)
+                .decorativeMapHeight(180)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -1589,6 +1592,8 @@ struct BlindOrderStatusView: View {
             .accessibilityLabel("重复当前状态")
             .accessibilityHint("点击后重新播报当前订单状态")
         }
+        // 与内容列同宽。两个都是具名按钮，收窄不影响读屏用户找得到。
+        .readableContentColumn()
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
         // 这条常驻底栏压在滚动内容之上，`.regularMaterial` 会把下面滑过去的文字透上来。
