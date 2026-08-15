@@ -903,6 +903,9 @@ struct BlindBookingView: View {
                         .padding(.horizontal, 24)
                         .padding(.top, 24)
                         .padding(.bottom, 120)
+                        // 表单在 iPad 上不铺满整屏：输入框横跨 1024pt 时，低视力用户把字放大后
+                        // 每填一项都要横扫全屏才找得到右边的按钮。见 `BlindLayout.readableContentWidth`。
+                        .readableContentColumn()
                 }
             }
         }
@@ -1081,6 +1084,10 @@ struct BlindBookingView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 24)
+        // **这一态刻意不收 `readableContentColumn()`**：`voiceStatusBlock` 整块可点是它的核心交互
+        // （「说完了」/「别念了」不需要先找按钮）。收到 700pt 会在 iPad 左右各留出 160pt
+        // 点不到的边，而盲人是靠空间记忆盲点的 —— 那正是这一态要消除的成本。
+        // 可读列宽治的是「长文本横扫串行」，这一屏只有一句话，不适用。
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -1476,7 +1483,7 @@ struct BlindBookingView: View {
                     }
                     .font(AppFonts.body().weight(.semibold))
                     .frame(maxWidth: .infinity)
-                    .frame(minHeight: 52)
+                    .frame(minHeight: 64)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isRecognizingStartPlace || viewModel.isSearchingPlaces || viewModel.placeSearchKeyword.trimmed.isEmpty)
@@ -1524,7 +1531,7 @@ struct BlindBookingView: View {
                 Label("收藏这个出发地点", systemImage: "star")
                     .font(AppFonts.body().weight(.semibold))
                     .frame(maxWidth: .infinity)
-                    .frame(minHeight: 52)
+                    .frame(minHeight: 64)
             }
             .buttonStyle(.bordered)
             .accessibilityLabel("收藏这个出发地点，\(place.title)")
@@ -1563,7 +1570,7 @@ struct BlindBookingView: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .frame(minHeight: 52)
+                            .frame(minHeight: 64)
                         }
                         .accessibilityLabel(place.bookingSearchAccessibilityLabel)
                         .accessibilityHint("直接使用这个已保存的地点，不再重新搜索")
@@ -1646,7 +1653,7 @@ struct BlindBookingView: View {
                 tracksUserLocation: false,
                 animatesCenterChanges: false
             )
-            .frame(height: 160)
+            .decorativeMapHeight(160)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityElement(children: .combine)
             .accessibilityLabel(viewModel.auxiliaryMapAccessibilityLabel)
@@ -1904,6 +1911,9 @@ struct BlindBookingView: View {
                 formControls
             }
         }
+        // 与表单列同宽，两者左右对齐。语音态的两个控件同样收窄 —— 它们是**具名按钮**
+        // （「重复一遍」/「改用表单」），靠 label 找得到，不依赖整屏可点。
+        .readableContentColumn()
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
         .background(.regularMaterial)

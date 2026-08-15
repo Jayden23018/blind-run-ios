@@ -240,6 +240,9 @@ struct BlindIdentityVerificationView: View {
     @StateObject private var viewModel = BlindIdentityVerificationViewModel()
     /// 明文查看必须由用户主动触发，再点一次立刻回到掩码。
     @State private var isRevealingNumber = false
+    /// 身份证号的**单独同意**（PIPL 第 29 条）。首次提交前全屏告知，同意后才发请求。
+    @State private var showIdentityConsent = false
+    @State private var consentDeclinedNotice: String?
 
     var body: some View {
         ScrollView {
@@ -271,6 +274,48 @@ struct BlindIdentityVerificationView: View {
             isRevealingNumber = false
             viewModel.handleDisappear()
         }
+        // 全屏而不是对话框：三条告知要各自可听、可停、可回头再听，理由见 `ConsentDisclosureView`。
+        .fullScreenCover(isPresented: $showIdentityConsent) {
+            ConsentDisclosureView(
+                purpose: .blindIdentity,
+                onAgree: {
+                    showIdentityConsent = false
+                    consentDeclinedNotice = nil
+                    // 同意在**发请求之前**落盘，与行程分享同一个理由：一次网络失败不该让用户
+                    // 再看一遍全文告知，他已经同意过了，重复告知是在消耗告知本身的效力。
+                    consentStore.recordConsent(to: .blindIdentity, scope: consentScope)
+                    viewModel.submit()
+                },
+                onDecline: {
+                    showIdentityConsent = false
+                    consentDeclinedNotice = PrivacyConsentPurpose.blindIdentity.declinedFeedback
+                    speechService.speak(PrivacyConsentPurpose.blindIdentity.declinedFeedback)
+                }
+            )
+        }
+    }
+
+    // MARK: - Sensitive Consent
+
+    private var consentStore: PrivacyConsentStore {
+        PrivacyConsentStore(persistence: appState.persistence)
+    }
+
+    /// 同意按**人**记。拿不到 userId 时用一个恒不命中的 scope，效果是每次都走全屏告知 ——
+    /// 宁可多问一次，也不能让一个身份不明的会话继承别人的同意。
+    private var consentScope: PrivacyConsentScope {
+        guard let userId = appState.userId else { return .user("unknown") }
+        return .user(String(userId))
+    }
+
+    /// 提交按钮的唯一入口：**没有单独同意就不发请求**。
+    /// 按钮本身有 `.disabled(!canSubmit)`，格式校验仍由 `viewModel.submit()` 兜底。
+    private func handleSubmitTapped() {
+        guard consentStore.hasConsented(to: .blindIdentity, scope: consentScope) else {
+            showIdentityConsent = true
+            return
+        }
+        viewModel.submit()
     }
 
     // MARK: - Sections
@@ -338,7 +383,7 @@ struct BlindIdentityVerificationView: View {
                     isRevealingNumber.toggle()
                 }
                 .font(AppFonts.body())
-                .frame(minHeight: 44)
+                .frame(minHeight: 64)
                 .accessibilityLabel(isRevealingNumber ? "隐藏身份证号" : "临时显示身份证号")
                 .accessibilityHint(
                     isRevealingNumber
@@ -351,6 +396,13 @@ struct BlindIdentityVerificationView: View {
 
     @ViewBuilder
     private var messageSection: some View {
+        if let consentDeclinedNotice {
+            Text(consentDeclinedNotice)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+                .accessibilityLabel(consentDeclinedNotice)
+                .accessibilityIdentifier("blindIdentityConsentDeclinedNotice")
+        }
         if let successMessage = viewModel.successMessage {
             Text(successMessage)
                 .font(AppFonts.body())
@@ -369,7 +421,7 @@ struct BlindIdentityVerificationView: View {
         VStack(spacing: 12) {
             if viewModel.status != .verified {
                 PrimaryButton(submitTitle, isLoading: viewModel.isSubmitting) {
-                    viewModel.submit()
+                    handleSubmitTapped()
                 }
                 .disabled(!viewModel.canSubmit)
                 .opacity(viewModel.canSubmit ? 1 : 0.45)

@@ -249,7 +249,10 @@ struct ContentView: View {
         return "\(restoration)-\(appState.accessToken?.hashValue ?? 0)-\(appState.activeRole?.rawValue ?? "no-role")-\(appState.userId ?? -1)-\(appState.isBlindBookingReady)-\(appState.didDismissBlindIdentityPrompt)-\(appState.isVolunteerProfileApproved)"
     }
 
-    var body: some View {
+    /// 同意隐私告知之后的正文。抽成独立属性只是为了给 `body` 里的同意门腾出 if/else 的位置，
+    /// 路由逻辑一行未动。
+    @ViewBuilder
+    private var routedContent: some View {
         Group {
             switch rootRouter.route {
             case .restoringAccount:
@@ -307,6 +310,20 @@ struct ContentView: View {
             case .volunteerHome:
                 VolunteerHomeView()
                     .accessibilityIdentifier("rootRoute.volunteerHome")
+            }
+        }
+    }
+
+    var body: some View {
+        Group {
+            // 同意门排在路由**之前**：没同意就不该出现任何一个会收集信息的界面，登录页也算
+            // （手机号是个人信息）。判定在 `AppState.didAcceptPrivacyConsent`，
+            // 只有用户按下「同意并开始使用」才会翻面 —— 「看过这一页」不算同意。
+            if !appState.didAcceptPrivacyConsent {
+                PrivacyConsentGateView()
+                    .accessibilityIdentifier("rootRoute.privacyConsent")
+            } else {
+                routedContent
             }
         }
         #if DEBUG

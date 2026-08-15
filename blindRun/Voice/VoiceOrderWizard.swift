@@ -479,7 +479,13 @@ final class VoiceOrderWizard: ObservableObject {
 
         var notice: String? = parseFailed ? Self.parseFailureNotice : nil
         if let parsed {
-            notice = apply(parsed) ?? notice
+            notice = apply(parsed, spokenIn: transcript) ?? notice
+        }
+        // 说得太长时后端静默降级成纯正则，终点与备注**一定**抽不到（见
+        // `ParseVoiceOrderRequest.modelFallbackCharacterLimit`）。排在最前面说：
+        // 它解释的是后面那一整段读回为什么缺东西，放在后面等于让用户先困惑一遍。
+        if let lengthNotice = Self.longUtteranceNotice(forCharacterCount: transcript.count) {
+            notice = [lengthNotice, notice].compactMap { $0 }.joined()
         }
 
         // 起点撞了同名地点：**先让用户挑，再读回整单**。
@@ -605,8 +611,10 @@ final class VoiceOrderWizard: ObservableObject {
     /// （这正是三个可选槽位曾经被静默丢掉的成因）。
     ///
     /// - Returns: 需要在下一次读回前先说的一句话（目前只有时长夹取），没有就是 nil。
+    ///
+    /// - Parameter transcript: 本轮的原话。备注要靠它验「是不是用户自己说的」，见下面那段。
     @discardableResult
-    private func apply(_ parsed: ParseVoiceOrderResponse) -> String? {
+    private func apply(_ parsed: ParseVoiceOrderResponse, spokenIn transcript: String) -> String? {
         // 快照留给下一轮的 `current`。**必须在这里存**，而不是只在整句轮存：
         // 用户连改两项时，第二轮要继承的是第一轮**合并后**的结果。
         lastParsed = parsed
@@ -662,9 +670,23 @@ final class VoiceOrderWizard: ObservableObject {
             bookingViewModel?.pacePreference = pace
         }
         if let notes = parsed.specialNotes?.nilIfBlank {
-            // 后端保证非 nil 时是用户原话的子串（改写过的备注在后端就被丢弃了），
-            // 所以这里直接落，不做二次清洗 —— 备注要原样给志愿者看。
-            bookingViewModel?.specialNotes = notes
+            // 后端**声称**非 nil 时是用户原话的子串（改写过的备注在后端就被丢弃了），
+            // 但这条声称我们自己验一遍：备注是原样展示给志愿者、并被当成盲人本人的话读的，
+            // 模型编出来的「我行动不便」会直接误导对方，而盲人看不见屏幕、核对不了。
+            // 这正是 spec 里 `Parser returns rewritten text` 那条场景 ——
+            // 校验外部响应是信任边界的义务，不是对后端不信任。
+            //
+            // ⚠️ 判据里的 `== 已有值` 分支不能省：跨轮修正时后端会把上一轮的备注从 `current`
+            // 继承回来，而这一轮的原话是「时间改成九点」—— 只比对本轮 transcript
+            // 会把一条用户真说过的备注当成伪造删掉。
+            let alreadyHeld = bookingViewModel?.specialNotes.nilIfBlank
+            if notes == alreadyHeld || transcript.contains(notes) {
+                bookingViewModel?.specialNotes = notes
+            } else {
+                // 丢弃不静默：读回不念它，用户听得出备注没了，可以说「重说」。
+                // 但排查时要能看见它发生过 —— 静默降级是本仓库的一类反复缺陷。
+                ClientFlowDiagnostics.record(event: "rewritten_notes_discarded", operation: "voice-parse")
+            }
         }
 
         // 「说了一个地点，但我们没查到」—— **必须说出来**，而且要和上面那条一起说，不是二选一。
@@ -679,6 +701,22 @@ final class VoiceOrderWizard: ObservableObject {
             notice = [notice, Self.startAddressUnresolvedNotice].compactMap { $0 }.joined()
         }
         return notice
+    }
+
+    /// 说得超过后端的大模型字数线时，读回前先说的那一句。
+    ///
+    /// **不做客户端截断**（`design.md` D4）：截断是无声的信息丢失，而丢的必然是句子后半段 ——
+    /// 「我有低血糖，如果我说头晕请马上停下来扶我坐到路边」里要执行的那半句正好在后半段。
+    /// 静默取整已经被判过一次「对听不见屏幕的人等于篡改」，这是同一类问题的更严重版本。
+    ///
+    /// 措辞的两条约束，与 `startAddressUnresolvedNotice` 同源：
+    /// **说清楚是「太长没记全」而不是「没听见」**（我们听见了），
+    /// 以及**给出唯一的出路**（说短一点重说）。不列举具体丢了哪几项 ——
+    /// 读回紧接着就会把记下的念一遍，用户自己听得出缺什么，而读回本来就要 15~25 秒。
+    static func longUtteranceNotice(forCharacterCount count: Int) -> String? {
+        guard count > ParseVoiceOrderRequest.modelFallbackCharacterLimit else { return nil }
+        return "这句话超过 \(ParseVoiceOrderRequest.modelFallbackCharacterLimit) 个字，"
+            + "我只能按关键词记，终点和备注可能没记下。缺了就说「重说」，讲短一点。"
     }
 
     /// 听见了地名却没查到时，读回前先说的那一句。
@@ -852,7 +890,7 @@ final class VoiceOrderWizard: ObservableObject {
         }
 
         // 剩下的只有一种情况：用户给了新值，后端已经把它合进整单。落槽位、重念一遍。
-        let notice = apply(parsed)
+        let notice = apply(parsed, spokenIn: transcript)
         moveToConfirm(notice: notice)
     }
 
@@ -1049,6 +1087,22 @@ final class VoiceOrderWizard: ObservableObject {
     }
 
     #if DEBUG
+    /// 只挂 view model，不碰麦克风、网络和 TTS。
+    ///
+    /// 落槽位那一段（`apply`）不依赖其余三个依赖，而 `configure` 要求四个一起给 ——
+    /// 为了验一条赋值规则去造 `SpeechInputService` 是在给测试引入麦克风授权这种真实前置。
+    /// ⚠️ `bookingViewModel` 是 `weak`：调用方必须自己持有传进来的那个对象。
+    func configureForTesting(bookingViewModel: BlindBookingViewModel) {
+        self.bookingViewModel = bookingViewModel
+    }
+
+    /// 把一次解析结果直接落进去，跳过网络。
+    /// 备注的「是不是用户原话」判定要看 `transcript`，所以它必须由用例给。
+    @discardableResult
+    func applyForTesting(_ parsed: ParseVoiceOrderResponse, spokenIn transcript: String) -> String? {
+        apply(parsed, spokenIn: transcript)
+    }
+
     /// 从任意轮起步，且不碰麦克风。用例要验的是解析与推进，真录音由 `SpeechInputService` 自己的
     /// 用例覆盖（且单测环境拿不到麦克风授权）。
     /// - Parameter didCaptureStartTime: 这一轮语音是否真的抽到了开始时间。

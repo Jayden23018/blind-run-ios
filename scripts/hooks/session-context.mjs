@@ -71,31 +71,60 @@ if (fs.existsSync(state)) {
 // 「每台机器装一次」的那几项。装过之后没有任何地方显示它还在不在 ——
 // 于是每次都要重查 AGENTS.md 或重跑命令才敢下结论，这正是 §1 说的「反复查」。
 // 全绿时不输出：开场上下文已经够长，「一切正常」是噪声，只报缺口。
-export function localGuardrailWarnings({ prePushInstalled, forkUrl, pushUrls }) {
+//
+// 2026-08-15：这里原本还报「没有 `fork` remote」「双推未生效」两条，已删。
+// AGENTS.md §11 在 08-12 就改了口径（主线即 origin，不再需要双推），而
+// `install-git-hooks.sh:233-237` 现在会**主动清掉**遗留的双推配置 —— 于是这两条告警
+// 每次开场都响、照它做又会被安装脚本撤销，成了本文件自己警告过的那种「每轮都响就被无视」。
+export function localGuardrailWarnings({ prePushInstalled }) {
   const out = [];
   if (!prePushInstalled) {
     out.push(
-      '⚠️ pre-push 钩子未装 —— 那 4 条读后端契约的门禁在本地一条都不会跑，而它们在上游 CI 上是 warning 空过。装：`scripts/install-git-hooks.sh`'
-    );
-  }
-  if (!forkUrl) {
-    out.push(
-      '⚠️ 没有名为 `fork` 的 remote —— fork 上那套真跑契约门禁的 CI 不会被你的 push 触发。加：`git remote add fork <你的 fork URL>` 后重跑 `scripts/install-git-hooks.sh`'
-    );
-  } else if (!pushUrls.includes(forkUrl)) {
-    // 有 fork 却没进 pushurl：多半是先加了 remote、装钩子脚本没重跑，或后来 remote 改了 URL。
-    out.push(
-      `⚠️ 双推未生效 —— \`git push origin\` 不会推到 ${forkUrl}，fork 上的契约 CI 等于没配。修：重跑 \`scripts/install-git-hooks.sh\``
+      '⚠️ pre-push 钩子未装 —— 那 5 条读后端契约的门禁在本地一条都不会跑。装：`scripts/install-git-hooks.sh`'
     );
   }
   return out;
 }
 
+// 推上去了、却再没人管的分支。2026-08-12 主线从旧上游切到 `Jayden23018` 时，
+// 一批在途 PR 被孤儿化：**分支还在 origin 上，但主线没有对应的 PR**，于是
+// 「已有在途 PR #24」这类记录全部作废，而没人会发现 —— 直到有人照着它宣称功能已完成
+// （`BlindRunHistoryView` 就是这么在 review 里挂了三天「已实现」）。
+//
+// 判据只用 git，不打网络：**领先 main（有独有提交）且落后 main 很多**（久没跟进）。
+// 落后阈值取 30：正常在途分支不会落这么多，落这么多的基本都是被忘了。
+// 不查 PR 状态 —— 那要 `gh` 联网，开场卡住比漏报更糟；这里只负责让分支重新被看见。
+export const STALE_BEHIND_THRESHOLD = 30;
+
+export function staleUnmergedBranches({ refs, currentBranch }) {
+  const stale = refs
+    .filter((r) => r.name !== 'origin' && r.name !== 'origin/main')
+    .filter((r) => r.name !== `origin/${currentBranch}`)
+    .filter((r) => r.ahead > 0 && r.behind > STALE_BEHIND_THRESHOLD)
+    .sort((a, b) => b.behind - a.behind);
+  if (!stale.length) return [];
+  const detail = stale.map((r) => `${r.name.replace(/^origin\//, '')}(+${r.ahead}/-${r.behind})`).join('、');
+  return [
+    `⚠️ ${stale.length} 条远端分支有独有提交却长期没跟进（领先 main 且落后 >${STALE_BEHIND_THRESHOLD}）：${detail}。` +
+      '逐条判活：意图已被主线重新落地的判死存档，仍有价值的合 main 后开 PR。别默认它们「已经在某个 PR 里」。',
+  ];
+}
+
 lines.push(
   ...localGuardrailWarnings({
     prePushInstalled: fs.existsSync(path.join(root, '.git/hooks/pre-push')),
-    forkUrl: git('remote', 'get-url', 'fork'),
-    pushUrls: git('config', '--get-all', 'remote.origin.pushurl').split('\n').filter(Boolean),
+  }),
+  ...staleUnmergedBranches({
+    refs: git('for-each-ref', '--format=%(refname:short) %(ahead-behind:origin/main)', 'refs/remotes/origin')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [name, ahead, behind] = line.split(' ');
+        return { name, ahead: Number(ahead), behind: Number(behind) };
+      })
+      // ahead-behind 对没有共同祖先的 ref 不输出数字，解析出 NaN 时直接丢掉。
+      .filter((r) => Number.isFinite(r.ahead) && Number.isFinite(r.behind)),
+    currentBranch: branch,
   })
 );
 
