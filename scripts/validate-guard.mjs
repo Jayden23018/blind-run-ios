@@ -610,6 +610,57 @@ const cases = [
     mode: 'post',
     expect: 0,
     swift: 'enum C { static let d = "以上数据来自平台记录，供你自己查看。向学校或单位申报星级需要通过全国志愿服务信息系统办理。" }'
+  },
+
+  // motion-not-gated（2026-08-15）。这条被漏过两轮 review，因为它没有任何运行时症状：
+  // 开发者自己不开「减弱动态效果」就永远看不见。下面六条把两个方向都钉住 ——
+  // 光拦不放行会逼出一堆 `guard:allow`，那等于把规则关掉。
+  {
+    name: '滑入过渡没看减弱动态效果（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct V { var body: some View { Text("x").transition(.move(edge: .top)) } }'
+  },
+  {
+    name: '弹簧动画没看减弱动态效果（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct V { var body: some View { Text("x").animation(.spring(response: 0.32), value: v) } }'
+  },
+  {
+    name: 'withAnimation 没看减弱动态效果（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct V { func f() { withAnimation(.easeInOut(duration: 0.25)) { x = 1 } } }'
+  },
+  {
+    name: '滑入过渡已降级为淡入（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct V { var body: some View { Text("x").transition(reduceMotion ? .opacity : .move(edge: .top)) } }'
+  },
+  {
+    // SwiftUI 常把动画曲线折到下一行。只看当前行会把已经降级的写法误判成违规，
+    // 而误报比漏报更致命：下一个人会直接加 `guard:allow` 把规则关掉。
+    name: '曲线折到下一行的降级写法（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct V { var body: some View { Text("x")\n      .animation(\n        reduceMotion ? nil : .spring(response: 0.32),\n        value: v\n      ) } }'
+  },
+  {
+    // 纯淡入淡出不该被拦：它正是降级之后该有的样子，拦它等于没有正确写法。
+    name: '纯淡入淡出（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct V { var body: some View { Text("x").transition(.opacity) } }'
+  },
+  {
+    // 同一条曲线用在三处时会被收敛成一个具名属性（`VolunteerHomeView.demandPanelAnimation`）。
+    // 降级判断在属性定义处，那里写的字面量照样过这条规则 —— 检查点只是挪了位置，没有漏掉。
+    name: '传具名动画属性（放行，判断在属性定义处）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct V { func f() { withAnimation(demandPanelAnimation) { x = 1 } } }'
   }
 ];
 

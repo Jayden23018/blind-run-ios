@@ -95,6 +95,56 @@ final class BlindRunHistoryTests: XCTestCase {
         XCTAssertFalse(viewModel.isLoading, "失败后不能卡在加载态，否则下拉重试的提示也不会出现")
     }
 
+    // MARK: - 加载完成的播报与转子
+
+    /// 加载成功此前一个字都不播：「正在加载历史订单」那一行被列表换掉，读屏焦点随之被系统收走，
+    /// 用户既没听到结果也不知道自己停在哪。**条数是读屏本身给不了的信息** ——
+    /// VoiceOver 只念焦点所在那一行，「一共几条」要划到底才知道。
+    func testLoadedSummaryReportsCountsAndTheLatestOrder() async {
+        let (viewModel, appState) = makeViewModel(orders: [
+            makeOrder(orderId: 1, status: .completed, createdAt: "2026-08-01T10:00:00"),
+            makeOrder(orderId: 2, status: .cancelled, createdAt: "2026-08-02T10:00:00"),
+            makeOrder(orderId: 5, status: .completed, createdAt: "2026-08-05T10:00:00"),
+        ])
+        _ = appState
+
+        await viewModel.load()
+
+        let summary = viewModel.loadedSummary
+        XCTAssertTrue(summary.contains("共 3 条"), "要报总条数：\(summary)")
+        XCTAssertTrue(summary.contains("2 条已完成"), "已完成条数是「能不能补评价」的前提：\(summary)")
+        XCTAssertTrue(summary.contains(RunOrderStatus.completed.displayName), "最近一条的状态要念出来：\(summary)")
+    }
+
+    /// 空列表也必须出声。静默的空页对看不见屏幕的人和「加载卡住了」无法区分。
+    func testEmptyHistoryStillAnnouncesSomething() async {
+        let (viewModel, appState) = makeViewModel(orders: [])
+        _ = appState
+
+        await viewModel.load()
+
+        XCTAssertTrue(viewModel.loadedSummary.contains("暂无历史订单"))
+    }
+
+    /// 转子只收已完成的：列表混着三种终态，而「上次是谁陪我跑的」「补个评价」只发生在已完成单上。
+    /// 与 `records` 同源，不会出现「转子里有、列表里没有」的漂移。
+    func testCompletedRotorEntriesAreASubsetOfTheVisibleRecords() async {
+        let (viewModel, appState) = makeViewModel(orders: [
+            makeOrder(orderId: 1, status: .completed, createdAt: "2026-08-01T10:00:00"),
+            makeOrder(orderId: 2, status: .cancelled, createdAt: "2026-08-02T10:00:00"),
+            makeOrder(orderId: 4, status: .noVolunteer, createdAt: "2026-08-04T10:00:00"),
+        ])
+        _ = appState
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.completedRecords.map(\.orderId), [1])
+        let visibleIDs = Set(viewModel.records.map(\.orderId))
+        for entry in viewModel.completedRecords {
+            XCTAssertTrue(visibleIDs.contains(entry.orderId), "转子条目必须在列表里真实存在，否则跳过去是空的")
+        }
+    }
+
     // MARK: - Fixtures
 
     private func makeViewModel(

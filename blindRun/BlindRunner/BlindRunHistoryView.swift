@@ -34,6 +34,10 @@ final class BlindRunHistoryViewModel: ObservableObject {
                 .filter { $0.status.isTerminal }
                 .sorted { ($0.createdAt ?? $0.plannedStart ?? "") > ($1.createdAt ?? $1.plannedStart ?? "") }
             isLoading = false
+            // 加载成功此前**一个字都不播**：「正在加载历史订单」那一行直接被列表换掉，
+            // 而读屏焦点正停在它上面 —— 元素消失后焦点被系统收走，用户既没听到结果，
+            // 也不知道自己现在停在哪。失败播报一直有，成功反而没有。
+            speechService?.speak(loadedSummary)
         } catch let error as APIError {
             isLoading = false
             if appState.handleAuthenticatedAPIError(error) { return }
@@ -46,6 +50,31 @@ final class BlindRunHistoryViewModel: ObservableObject {
             speechService?.speakError(message)
         }
     }
+
+    /// 加载完成后的播报。**报条数**是读屏本身给不了的信息：VoiceOver 只会念到焦点所在的那一行，
+    /// 「一共几条」要划到底才知道。纯函数，用例直接钉住三种形态。
+    var loadedSummary: String {
+        guard let latest = records.first else {
+            return "暂无历史订单。结束一次预约后，这里会显示那一单的详情。"
+        }
+        let completedCount = records.filter { $0.status == .completed }.count
+        let dateText = (latest.createdAt ?? latest.plannedStart ?? "").displayDateTime
+        return "共 \(records.count) 条历史订单，其中 \(completedCount) 条已完成。"
+            + "最近一条是\(latest.status.displayName)，\(dateText)。"
+    }
+
+    /// 转子只收已完成的：列表里混着已取消和暂无志愿者，而「上次是谁陪我跑的」「补个评价」
+    /// 这两件事只可能发生在已完成的单上。
+    var completedRecords: [OrderDetailResponse] {
+        records.filter { $0.status == .completed }
+    }
+}
+
+private extension OrderDetailResponse {
+    /// 转子条目的朗读文本。比行内 label 短：转子是用来**跳**的，念完整行等于没有加速。
+    var historyRotorLabel: String {
+        (createdAt ?? plannedStart ?? "").displayDateTime
+    }
 }
 
 // MARK: - List
@@ -54,6 +83,10 @@ struct BlindRunHistoryView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = BlindRunHistoryViewModel()
+    /// 加载完成后把读屏焦点落到第一条记录上。**只在条数从 0 变成非 0 时动**——
+    /// 加载态那一行消失后焦点会被系统收走，落在哪不确定；这一步把它接住。
+    /// 之后的刷新不再抢焦点（用户可能正在中间某一行）。
+    @AccessibilityFocusState private var focusedRecordID: Int64?
 
     var body: some View {
         List {
@@ -76,6 +109,7 @@ struct BlindRunHistoryView: View {
                     .accessibilityHint(order.status == .completed
                         ? "查看这一单的详情、路线，也可以在这里补评价"
                         : "查看这一单的详情")
+                    .accessibilityFocused($focusedRecordID, equals: order.orderId)
                 }
             }
 
@@ -87,6 +121,19 @@ struct BlindRunHistoryView: View {
         }
         .navigationTitle("我的历史订单")
         .accessibilityIdentifier("blindRunHistoryList")
+        // 自定义转子：列表里混着已完成 / 已取消 / 暂无志愿者，逐行右滑要听完每一条的状态。
+        // 系统自带的「标题」转子在这里没有着力点（列表行不是标题），这是它唯一能补上的位置。
+        // 数据驱动，条件与 ForEach 同源，不会漂移。
+        .accessibilityRotor(
+            "已完成的跑步",
+            entries: viewModel.completedRecords,
+            entryID: \.orderId,
+            entryLabel: \.historyRotorLabel
+        )
+        .onChange(of: viewModel.records.count) { count in
+            guard count > 0, focusedRecordID == nil else { return }
+            focusedRecordID = viewModel.records.first?.orderId
+        }
         .task {
             viewModel.configure(with: appState, speechService: speechService)
             await viewModel.load()

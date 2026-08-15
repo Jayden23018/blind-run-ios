@@ -174,6 +174,10 @@ struct LoginView: View {
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = LoginViewModel()
     @State private var pendingVerificationFocus = false
+    /// 「减弱动态效果」是**前庭功能**的无障碍设置，与看不看得见无关 —— 它服务的是晕动症用户，
+    /// 而这一屏的三处动效（验证码框滑入、错误提示淡入淡出、滚动到验证码框）全是位移。
+    /// `ShakeEffect` 早就尊重了它，同一屏的其余三处一直没有。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @FocusState private var focusedField: FocusField?
 
@@ -274,7 +278,9 @@ struct LoginView: View {
 
                             }
                             .id(ScrollTarget.verificationCode)
-                            .transition(.move(edge: .top).combined(with: .opacity))
+                            // 开启「减弱动态效果」时只淡入，不从顶端滑进来。淡入保留了
+                            // 「有新东西出现」这个提示本身，去掉的只是位移（与 `ContentView` 的横幅同一处理）。
+                            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                         }
 
                         // Loading 状态文字
@@ -350,8 +356,8 @@ struct LoginView: View {
         .onDisappear {
             viewModel.resetCountdown()
         }
-        .animation(.easeInOut(duration: 0.3), value: viewModel.showCodeInput)
-        .animation(.easeInOut(duration: 0.3), value: viewModel.errorMessage)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: viewModel.showCodeInput)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: viewModel.errorMessage)
     }
 
     private func requestCodeAndPrepareVerificationFocus(using scrollProxy: ScrollViewProxy) {
@@ -367,7 +373,9 @@ struct LoginView: View {
 
     private func focusVerificationCode(using scrollProxy: ScrollViewProxy) {
         DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.25)) {
+            // 动画滚动是位移里最容易引起不适的一种（整屏内容移动）。关掉动画不影响落点，
+            // 焦点仍然会移到验证码框上。
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
                 scrollProxy.scrollTo(ScrollTarget.verificationCode, anchor: .center)
             }
 

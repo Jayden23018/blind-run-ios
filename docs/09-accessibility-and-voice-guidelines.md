@@ -113,6 +113,20 @@ Required coverage:
 - Accept, en-route, arrived, start-service, complete, and cancel (the volunteer has no SOS action in any status)
 - Rating controls
 
+## 3a. 系统无障碍开关（不只服务盲人）
+
+这一组设置服务的是**另外几群人**，与看不看得见无关，而且开发者自己不打开就永远看不见问题 ——
+所以每一条都要么有守卫、要么有用例，不靠自觉。
+
+| 设置 | 我们怎么响应 | 强制手段 |
+|---|---|---|
+| 减弱动态效果（Reduce Motion）| 位移类动效（滑入 / 弹簧 / 缩放 / 动画滚动）降级为淡入淡出或瞬时到位。服务的是晕动症用户，位移越大越难受 | `guard.mjs` 的 `motion-not-gated`，自测 7 条 |
+| 加粗文字（Bold Text）| **不需要写代码**：`AppFonts` 全部走系统文本样式（`.body` / `.title2.bold()`），系统自动加粗。反过来说，谁把字体换成自定义字族，这条就静默失效了 | —— |
+| 增强对比度（Increase Contrast）| `HighContrastText` 读 `colorSchemeContrast`，切到更高对比的一组色 | `LowVisionChannelTests` 按 WCAG 相对亮度公式复算 |
+| 按钮形状（Button Shapes）| `HighContrastText.buttonShapeOutlineIfNeeded` 给纯文字按钮补边框 | 同上 |
+| 不使用颜色区分（Differentiate Without Color）| 进度点用实心/空心，倒计时进入危险档补感叹号 | `StepProgressDot` 的用例 |
+| 更大字体（Dynamic Type）| 不写死 pt。确需固定视觉尺寸时用 `@ScaledMetric(relativeTo:)`，**不要**用 `minimumScaleFactor` 顶替 —— 后者只会缩小，永远不会放大 | `AccessibilityAuditTests` 的 `.dynamicType` 审计 |
+
 ## 4. Blind Runner UI Rules
 
 - Prefer one primary action per screen.

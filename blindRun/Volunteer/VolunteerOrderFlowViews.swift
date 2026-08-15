@@ -2459,6 +2459,7 @@ struct VolunteerServiceBottomPanel: View {
 }
 
 struct VolunteerServiceStageHeader: View {
+    @ScaledMetric(relativeTo: .largeTitle) private var stageTitleSize: CGFloat = 34
     let status: RunOrderStatus
 
     var body: some View {
@@ -2477,7 +2478,9 @@ struct VolunteerServiceStageHeader: View {
             .cornerRadius(999)
 
             Text(status.serviceStageTitle)
-                .font(.system(size: 34, weight: .bold))
+                // 写死 34pt 不跟 Dynamic Type 走。下面的 `minimumScaleFactor(0.72)` 只在
+                // 空间不够时**缩小**，永远不会放大 —— 两者方向相反，不能互相替代。
+                .font(.system(size: stageTitleSize, weight: .bold))
                 .foregroundColor(AppColors.textPrimary)
                 .multilineTextAlignment(.center)
                 .minimumScaleFactor(0.72)
