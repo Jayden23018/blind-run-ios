@@ -183,11 +183,18 @@ REMATCHING → CANCELLED（只能盲人 token）
 3. 判一次这活要不要派 subagent —— 判定表在全局 `~/.claude/CLAUDE.md` 的「委派」节，**本文件不留副本**（理由同 §7：两份会漂移）。一句话版：定位/摘要/读日志外包，设计与编辑自己干
 
 > 开场不用手查的那几条事实由 SessionStart 钩子 `scripts/hooks/session-context.mjs` 自动注入：
-> 分支与脏文件数、未归档 OpenSpec 变更、后端契约可读性，以及**本机护栏三项**
-> （pre-push 钩子装没装 / 有没有 `fork` remote / 双推配没配）。
-> 三项全绿时不输出 —— 每轮都响的提醒会被无视，报缺口才有信息量。
-> 自测 `scripts/validate-session-context.mjs`（6 条，CI 与 pre-push 都跑）：
+> 分支与脏文件数、未归档 OpenSpec 变更、后端契约可读性、pre-push 钩子装没装，以及
+> **有独有提交却长期没跟进的远端分支**（领先 main 且落后 >30）。
+> 全绿时不输出 —— 每轮都响的提醒会被无视，报缺口才有信息量。
+> 自测 `scripts/validate-session-context.mjs`（CI 与 pre-push 都跑，条数当场看输出别写在这）：
 > 配齐的机器永远走不到告警分支，坏了只会安静地不再提醒。
+>
+> 最后那条 2026-08-15 立：08-12 主线从旧上游切过来时，一批在途 PR 被孤儿化 ——
+> **分支还在 `origin` 上，但主线没有对应的 PR**。于是「已有在途 PR #24」这类记录集体作废，
+> 而没人会发现：`BlindRunHistoryView` 因此在 review 里挂着「已实现」三天，
+> 连上线前检查单都把它列进了演示视频「可以放心拍」。判活口径见 PR #27。
+> 同一次删掉了这里原有的 `fork` remote / 双推两条告警 —— §11 在 08-12 已改口径，
+> 而 `install-git-hooks.sh:233-237` 现在会主动清掉双推配置：照着那两条做会被安装脚本撤销。
 
 **实现中**
 
