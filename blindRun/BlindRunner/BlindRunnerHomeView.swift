@@ -400,6 +400,15 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
 // MARK: - Blind Runner Home View
 
+/// 首页在订单出现 / 消失后要把 VoiceOver 焦点接到哪一块。
+///
+/// 用枚举而不是两个 Bool：两块内容互斥（有订单渲染订单卡，没订单渲染约跑按钮），
+/// 两个 Bool 允许「都为 true」这种在页面上不存在的状态。
+private enum BlindHomeFocusTarget: Hashable {
+    case activeOrder
+    case newBooking
+}
+
 struct BlindRunnerHomeView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
@@ -412,6 +421,12 @@ struct BlindRunnerHomeView: View {
     @State private var showCallOptions = false
     /// 横屏（含 iPhone 横置、iPad 分屏的矮窗口）判定。
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    /// 订单出现或消失后，这一屏换掉的正是主内容块，焦点会被系统收走且落点不确定。
+    /// 已经有 `speakStatusChange` 在播报变化，焦点不跟过来就是「听到了，但滑不到」。
+    ///
+    /// 只在 `activeOrder?.status` 变化时移。首页无订单时它恒为 nil，`onChange` 不触发 ——
+    /// 没订单的用户进首页不会被抢焦点。
+    @AccessibilityFocusState private var focusedSection: BlindHomeFocusTarget?
 
     /// 地图在视觉上占据的高度，`mapRevealHeight` 是内容层为它让出的部分 ——
     /// 两者相差的一段就是内容盖住地图下沿的量，做出「面板压在地图上」的层次。
@@ -479,6 +494,9 @@ struct BlindRunnerHomeView: View {
             }
             .onDisappear {
                 viewModel.cancelLoading()
+            }
+            .onChange(of: viewModel.activeOrder?.status) { status in
+                focusedSection = status == nil ? .newBooking : .activeOrder
             }
             .task {
                 // 引导先于订单加载推入：它不依赖订单，而等加载完再跳会让用户先听半句首页播报
@@ -653,8 +671,10 @@ struct BlindRunnerHomeView: View {
 
             if let order = viewModel.activeOrder {
                 activeOrderSection(order)
+                    .accessibilityFocused($focusedSection, equals: .activeOrder)
             } else {
                 newBookingSection
+                    .accessibilityFocused($focusedSection, equals: .newBooking)
             }
 
             // 无订单时不给这个按钮 —— 它在那个状态下没有答案可给，见 `askQuestionButton` 的注释。

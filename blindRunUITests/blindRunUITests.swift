@@ -552,20 +552,28 @@ final class blindRunUITests: XCTestCase {
         refreshButton.tap()
 
         let recordsButton = app.buttons["我的服务记录"].firstMatch
-        let pointsButton = app.buttons["积分商城"].firstMatch
+        // 「积分商城」是被撤掉的那个假占位页（积分写死 `--`、商品全是「敬请期待」），
+        // 已由 `VolunteerServiceRecognitionView` 取代。用例没跟着改，于是这一条从那次
+        // 改动起就一直红 —— 而红着的用例会把后来引入的失败一起吃掉（`continueAfterFailure`），
+        // 志愿者首页因此有一段时间没有任何有效的 UI 覆盖。
+        //
+        // XCUITest 是黑盒，进不了 app 的类型 —— `VolunteerAchievementsCopy.navigationTitle`
+        // 只能抄一份。抄错的方向是安全的：生产改了文案而这里没跟，断言会红不会绿。
+        let recognitionTitle = "服务成就"
+        let recognitionButton = app.buttons[recognitionTitle].firstMatch
         let settingsButton = app.buttons["设置"].firstMatch
         XCTAssertTrue(recordsButton.isHittable)
-        XCTAssertTrue(pointsButton.isHittable)
+        XCTAssertTrue(recognitionButton.isHittable)
         XCTAssertTrue(settingsButton.isHittable)
 
         recordsButton.tap()
         XCTAssertTrue(app.navigationBars["服务记录"].waitForExistence(timeout: 5))
         popNavigationBar(app, title: "服务记录")
 
-        XCTAssertTrue(waitForElementToBeHittable(pointsButton, timeout: 5))
-        pointsButton.tap()
-        XCTAssertTrue(app.navigationBars["积分商城"].waitForExistence(timeout: 5))
-        popNavigationBar(app, title: "积分商城")
+        XCTAssertTrue(waitForElementToBeHittable(recognitionButton, timeout: 5))
+        recognitionButton.tap()
+        XCTAssertTrue(app.navigationBars[recognitionTitle].waitForExistence(timeout: 5))
+        popNavigationBar(app, title: recognitionTitle)
 
         XCTAssertTrue(waitForElementToBeHittable(settingsButton, timeout: 5))
         settingsButton.tap()

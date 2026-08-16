@@ -656,6 +656,15 @@ struct BlindOrderStatusView: View {
     /// 短信入口是**降级路径**，不是常驻功能：实时分享失败（断网 / 权限 / 终态 409）时才露出来。
     /// 常驻会让读屏用户每次都多滑一个按钮，而它在实时分享可用时并不是用户想要的那条路。
     @State private var showSMSFallback = false
+    /// 状态推进后把 VoiceOver 焦点接到状态卡上。
+    ///
+    /// 这一页每 5 秒轮询一次，重绘时焦点会被系统收走，落点不确定 —— 而状态卡恰恰是
+    /// 盲人此刻在等的那一条。已经有 `speakStatusChange` 在播报了，焦点不跟过来的话
+    /// 两条通道就分家：听到「志愿者已到达」，抬手一滑却还在旧位置。
+    ///
+    /// 只在 `status` **真的变了**时移（含首次加载的 nil → 有值），不是每次轮询都移 ——
+    /// 后者会把正在读订单信息的用户反复弹回顶部。
+    @AccessibilityFocusState private var statusHeaderFocused: Bool
     let orderId: Int64
 
     /// 行程告知的结果提示。盲人靠 `speak` 听到，低视力用户靠这行字看到 ——
@@ -688,6 +697,7 @@ struct BlindOrderStatusView: View {
                     // 其余全部下沉。此前主动作排在第 4 位，读屏要滑过状态卡、地图、
                     // 生命周期卡才够得着。
                     statusHeader(order)
+                        .accessibilityFocused($statusHeaderFocused)
                     volunteerCallSection(order)
                     keepWaitingSection(order)
                     runPlanShareSection(order)
@@ -825,6 +835,10 @@ struct BlindOrderStatusView: View {
             if let order = viewModel.order {
                 onOrderUpdated(order)
             }
+        }
+        .onChange(of: viewModel.order?.status) { status in
+            guard status != nil else { return }
+            statusHeaderFocused = true
         }
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }

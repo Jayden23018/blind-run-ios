@@ -716,6 +716,19 @@ enum VolunteerDemandPanelDetent: CaseIterable, Equatable {
 
     static let bottomMargin: CGFloat = 8
 
+    /// 档位的可读名。调整动作必须有它 —— 没有当前值的可调整控件，
+    /// 读屏用户调完听不到自己调到了哪一档，等于在盲调。
+    var accessibilityValue: String {
+        switch self {
+        case .compact:
+            return "收起"
+        case .medium:
+            return "中等"
+        case .expanded:
+            return "展开"
+        }
+    }
+
     func height(viewportHeight: CGFloat, topContentBottom: CGFloat) -> CGFloat {
         let viewportHeight = Self.safeViewportHeight(viewportHeight)
         let topContentBottom = Self.safeTopContentBottom(topContentBottom)
@@ -742,6 +755,17 @@ enum VolunteerDemandPanelDetent: CaseIterable, Equatable {
         case .expanded:
             return .compact
         }
+    }
+
+    /// 相邻档位，**不循环**。
+    ///
+    /// 与 `next()` 的区别是刻意的：`next()` 给点抓手用，点到最大再点回最小是一个手指
+    /// 在同一个位置反复点时想要的行为。而 VoiceOver 的「向上轻扫增大」和 Switch Control
+    /// 的「调整」都有方向语义 —— 增大到顶应该停住，循环回最小会让人以为自己滑反了。
+    func adjusted(by delta: Int) -> VolunteerDemandPanelDetent {
+        let all = Self.allCases
+        guard let index = all.firstIndex(of: self) else { return self }
+        return all[min(max(index + delta, 0), all.count - 1)]
     }
 
     static func compactHeight(viewportHeight: CGFloat) -> CGFloat {
@@ -802,11 +826,34 @@ struct VolunteerHomeMapLayout {
 }
 
 enum VolunteerHomeTopLayout {
-    static func reservedBottom(safeAreaTop: CGFloat, hasActiveOrder: Bool) -> CGFloat {
+    /// 顶部保留高度占视口的上限。
+    ///
+    /// 定这个数的是 `.expanded` 档位的算式：它 = `viewport − (reservedBottom + 8) − bottomMargin`。
+    /// 保留高度不封顶时，iPhone 横屏（视口约 390pt）+ 有进行中订单会算出
+    /// `390 − 308 − 8 = 74`，被 `max(compactHeight, …)` 抬回 104 —— **与 `.compact` 相等**。
+    /// 于是 `clampedHeight` 的上下界重合，面板卡死在最小高度：展开点了没反应，也拖不动。
+    ///
+    /// 0.55 是从「展开档至少要占视口 45%」倒推的：`reserved ≤ viewport × 0.55 − 16`。
+    /// iPhone 竖屏（844pt → 448）与 iPad（≥1024pt → ≥547）都够不着这条线，行为不变；
+    /// 只有矮窗口会被压。压小后面板可能盖住顶部状态块 —— 但面板是可拖的，
+    /// 拖下来就能看到；卡死则是无解。
+    static let maximumReservedFraction: CGFloat = 0.55
+    private static let expandedDetentInset: CGFloat = 16
+
+    static func reservedBottom(
+        safeAreaTop: CGFloat,
+        hasActiveOrder: Bool,
+        viewportHeight: CGFloat
+    ) -> CGFloat {
         let safeTop = safeAreaTop.isFinite ? max(safeAreaTop, 0) : 0
         // Keep the panel below the material status block without feeding a measured
         // child frame back into the same layout graph.
-        return safeTop + (hasActiveOrder ? 300 : 180)
+        let desired = safeTop + (hasActiveOrder ? 300 : 180)
+        guard viewportHeight.isFinite, viewportHeight > 0 else { return desired }
+        let ceiling = viewportHeight * maximumReservedFraction - expandedDetentInset
+        // `ceiling` 在极矮的视口下会算成负数，那时保留 0 —— 让面板拿走整屏，
+        // 总好过返回一个负的保留高度把地图锚点算到屏幕外。
+        return min(desired, max(ceiling, 0))
     }
 }
 
@@ -1064,8 +1111,23 @@ struct VolunteerHomeView: View {
             .frame(width: 46, height: 5)
             .padding(.top, 10)
             .padding(.bottom, 12)
-            .accessibilityLabel("拖动派单状态面板")
-            .accessibilityHint("上滑展开，下滑收起")
+            .accessibilityLabel("派单面板高度，当前\(demandPanelDetent.accessibilityValue)")
+            // 原文案是「上滑展开，下滑收起」—— 那是给**手指**说的。开着 VoiceOver 或
+            // Switch Control 时，上滑下滑早被辅助技术接管，照做没有任何反应，
+            // 而这块面板是志愿者接单的唯一入口。换成这两条通道真正能执行的动作。
+            .accessibilityHint("双击切换到下一档；用调整手势逐档展开或收起")
+            .accessibilityAdjustableAction { direction in
+                withAnimation(demandPanelAnimation) {
+                    switch direction {
+                    case .increment:
+                        demandPanelDetent = demandPanelDetent.adjusted(by: 1)
+                    case .decrement:
+                        demandPanelDetent = demandPanelDetent.adjusted(by: -1)
+                    @unknown default:
+                        break
+                    }
+                }
+            }
             .accessibilityIdentifier("volunteerHomeDemandPanelGrabber")
     }
 
@@ -1247,7 +1309,8 @@ struct VolunteerHomeView: View {
     private func resolvedTopContentBottom(in proxy: GeometryProxy) -> CGFloat {
         VolunteerHomeTopLayout.reservedBottom(
             safeAreaTop: proxy.safeAreaInsets.top,
-            hasActiveOrder: viewModel.activeOrder != nil
+            hasActiveOrder: viewModel.activeOrder != nil,
+            viewportHeight: proxy.size.height
         )
     }
 

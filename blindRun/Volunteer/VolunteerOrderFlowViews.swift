@@ -753,6 +753,7 @@ struct VolunteerOrderDetailView: View {
                 }
             }
             .padding(20)
+            .readableContentColumn()
         }
         .navigationTitle("订单详情")
         .navigationBarTitleDisplayMode(.inline)
@@ -1606,6 +1607,7 @@ struct VolunteerInServiceView: View {
                     speechService.speak(track.spokenSummary)
                 }
                 .padding(20)
+                .readableContentColumn()
             } else if trackViewModel.isLoading {
                 ProgressView("正在加载本次路线")
                     .padding(24)
@@ -1784,6 +1786,8 @@ struct VolunteerServiceRecognitionView: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // 内层 `.infinity` 保留左对齐，外层把这条左对齐的列收进可读宽度并居中。
+            .readableContentColumn()
         }
         .background(AppColors.background)
         .navigationTitle(VolunteerAchievementsCopy.navigationTitle)
@@ -2975,6 +2979,7 @@ struct VolunteerReadOnlyOrderView: View {
                 }
             }
             .padding(20)
+            .readableContentColumn()
         }
         .navigationTitle("订单详情")
         .task {
