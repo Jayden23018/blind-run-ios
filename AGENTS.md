@@ -250,6 +250,18 @@ REMATCHING → CANCELLED（只能盲人 token）
 >
 > 这条从「用户每轮口头提醒」升级成钩子，走的是 §1.3。
 
+**暂存这一步另有一道守卫**：`scripts/hooks/shared-checkout-guard.mjs`（PreToolUse / Bash）拦住
+不带显式路径的 `git commit --amend` / `git add -A` / `git commit -a` / `git stash` ——
+**当且仅当**它们会捎带上本轮没碰过的文件。判据不是「命令危不危险」，
+所以暂存区里全是自己写的东西时不会响。
+
+理由是这个仓库的物理事实：**前后端两个工作区都可能有同事在同时编辑，而 `.git/index` 是共用的**
+（记忆 `shared-checkout-concurrent-colleague-edits`）。同事跑一次 `git add`，
+他的改动就在你的暂存区里；随后一个 `--amend` 把它们一并吞进你的提交。
+2026-08-16 就这样把一笔编译不过的 WIP 推进了 PR，靠事后手动核对 `git show --stat` 才发现。
+
+自测 `scripts/validate-shared-checkout-guard.mjs`（条数当场跑，别写在这里——理由同 §9）。
+
 ## 11. 验证命令
 
 ```bash
