@@ -830,14 +830,40 @@ final class blindRunTests: XCTestCase {
         )
     }
 
+    /// 调整动作（VoiceOver 上下轻扫 / Switch Control「调整」）必须在两端停住。
+    ///
+    /// 与 `next()` 的循环行为分开测：把 `adjusted(by:)` 实现成调 `next()` 是最容易犯的
+    /// 简化，那样「展开」再增大会掉回「收起」——读屏用户听到的是自己滑反了。
+    func testDemandPanelAdjustableActionClampsAtBothEndsUnlikeTappingTheGrabber() {
+        XCTAssertEqual(VolunteerDemandPanelDetent.compact.adjusted(by: 1), .medium)
+        XCTAssertEqual(VolunteerDemandPanelDetent.medium.adjusted(by: 1), .expanded)
+        XCTAssertEqual(VolunteerDemandPanelDetent.expanded.adjusted(by: 1), .expanded)
+
+        XCTAssertEqual(VolunteerDemandPanelDetent.expanded.adjusted(by: -1), .medium)
+        XCTAssertEqual(VolunteerDemandPanelDetent.medium.adjusted(by: -1), .compact)
+        XCTAssertEqual(VolunteerDemandPanelDetent.compact.adjusted(by: -1), .compact)
+
+        // 点抓手仍然是循环的 —— 两种交互刻意不同，别把其中一个改成另一个。
+        XCTAssertEqual(VolunteerDemandPanelDetent.expanded.next(), .compact)
+
+        // 每一档都要有可读的当前值，否则调整完读屏用户不知道调到了哪。
+        for detent in VolunteerDemandPanelDetent.allCases {
+            XCTAssertFalse(detent.accessibilityValue.isEmpty)
+        }
+    }
+
     func testVolunteerHomeTopLayoutIsDeterministicAndDoesNotDependOnChildMeasurement() {
+        // iPhone 竖屏视口，够不着封顶线（844 × 0.55 − 16 = 448），行为与加封顶之前逐字相同。
+        let portraitViewport: CGFloat = 844
         let withoutOrder = VolunteerHomeTopLayout.reservedBottom(
             safeAreaTop: 24,
-            hasActiveOrder: false
+            hasActiveOrder: false,
+            viewportHeight: portraitViewport
         )
         let withOrder = VolunteerHomeTopLayout.reservedBottom(
             safeAreaTop: 24,
-            hasActiveOrder: true
+            hasActiveOrder: true,
+            viewportHeight: portraitViewport
         )
 
         XCTAssertEqual(withoutOrder, 204)
@@ -846,10 +872,68 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(
             VolunteerHomeTopLayout.reservedBottom(
                 safeAreaTop: .nan,
-                hasActiveOrder: true
+                hasActiveOrder: true,
+                viewportHeight: portraitViewport
             ),
             300
         )
+        // 视口本身拿不到（首帧的 GeometryProxy 可能是 0）时不封顶，退回原值。
+        XCTAssertEqual(
+            VolunteerHomeTopLayout.reservedBottom(
+                safeAreaTop: 24,
+                hasActiveOrder: true,
+                viewportHeight: 0
+            ),
+            324
+        )
+    }
+
+    /// iPhone 横屏 + 有进行中订单时，派单面板此前卡死在最小高度：
+    /// `.expanded` 算出 74pt 被 `max(compactHeight, …)` 抬回 104，与 `.compact` 相等，
+    /// 于是 `clampedHeight` 的上下界重合 —— 展开点了没反应、拖也拖不动。
+    ///
+    /// 这条用例在封顶之前必然失败（两个档位都会是 104）。
+    func testVolunteerDemandPanelStaysExpandableInLandscapeWithActiveOrder() {
+        // iPhone 横屏可用高度约 390pt，横屏下顶部安全区为 0。
+        let landscapeViewport: CGFloat = 390
+        let reserved = VolunteerHomeTopLayout.reservedBottom(
+            safeAreaTop: 0,
+            hasActiveOrder: true,
+            viewportHeight: landscapeViewport
+        )
+
+        XCTAssertLessThan(reserved, 300, "矮窗口必须压掉写死的 300pt 保留高度")
+
+        let compact = VolunteerDemandPanelDetent.compact.height(
+            viewportHeight: landscapeViewport,
+            topContentBottom: reserved
+        )
+        let expanded = VolunteerDemandPanelDetent.expanded.height(
+            viewportHeight: landscapeViewport,
+            topContentBottom: reserved
+        )
+
+        XCTAssertGreaterThan(expanded, compact, "展开档必须真的比收起档高，否则面板拖不动")
+        // 0.5pt 容差吸收浮点：`0.55` 与 `0.45` 两次乘法算下来正好落在边界上
+        // （实测 175.49999999999997 vs 175.5），而半个点在屏幕上不存在。
+        XCTAssertGreaterThanOrEqual(
+            expanded,
+            landscapeViewport * 0.45 - 0.5,
+            "展开档至少占视口 45% —— 这正是 maximumReservedFraction 倒推出来的那条线"
+        )
+
+        // 上下界不重合 ⇒ 拖拽真的能改变高度。
+        let clampedToTop = VolunteerDemandPanelDetent.clampedHeight(
+            .greatestFiniteMagnitude,
+            viewportHeight: landscapeViewport,
+            topContentBottom: reserved
+        )
+        let clampedToBottom = VolunteerDemandPanelDetent.clampedHeight(
+            0,
+            viewportHeight: landscapeViewport,
+            topContentBottom: reserved
+        )
+        XCTAssertGreaterThan(clampedToTop, clampedToBottom)
     }
 
     func testCurrentValueReplayGateRejectsPublisherReplayAcrossViewRecalculation() {

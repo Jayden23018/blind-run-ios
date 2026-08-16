@@ -127,6 +127,60 @@ Required coverage:
 | 不使用颜色区分（Differentiate Without Color）| 进度点用实心/空心，倒计时进入危险档补感叹号 | `StepProgressDot` 的用例 |
 | 更大字体（Dynamic Type）| 不写死 pt。确需固定视觉尺寸时用 `@ScaledMetric(relativeTo:)`，**不要**用 `minimumScaleFactor` 顶替 —— 后者只会缩小，永远不会放大 | `AccessibilityAuditTests` 的 `.dynamicType` 审计 |
 
+## 3b. 内容异步变化后，焦点要有落点
+
+页面内容被网络回包换掉时，VoiceOver 焦点会被系统收走，落点不确定 —— 用户听到了播报，
+抬手一滑却还在旧位置。**有 TTS 播报的地方就要有对应的焦点落点**，两条通道不许分家。
+
+| 页面 | 什么变化 | 焦点落到 | 实现 |
+|---|---|---|---|
+| 订单状态 | `status` 推进（5 秒轮询 / WebSocket） | 状态卡 | `BlindOrderStatusView.statusHeaderFocused` |
+| 盲人首页 | 订单出现 / 消失 | 有订单→当前订单卡；无订单→「开始约跑」 | `BlindRunnerHomeView.focusedSection` |
+| 历史订单 | 加载态消失 | 第一条记录 | `BlindRunHistoryView.focusedRecordID` |
+| 下单向导 | 步骤推进、错误出现 | 当前步骤 / 错误文本 | `BlindBookingView` |
+
+两条通用约束：
+
+- **只在值真的变了时移**，不是每次刷新都移 —— 轮询页每 5 秒抢一次焦点，等于用户没法读页面下半部分。
+- **首次加载（nil → 有值）也要移**，那正是加载态消失、焦点被收走的时刻。
+
+## 3c. Switch Control 与盲文屏幕输入：代码只守前置条件，结论必须人工验
+
+这两条**没有自动化通道**。`performAccessibilityAudit` 查不到它们，XCUITest 也驱动不了
+Switch Control 的扫描与 VoiceOver 转子。写在这里的是「代码这一侧要成立的前置条件」
+加「人工怎么验」，**不要把前者当成后者已经做过**。
+
+### 代码侧前置条件
+
+- **不许有只能靠手势完成的操作。** 拖拽、捏合、双指旋转在 Switch Control 下不存在，
+  在 VoiceOver 下也被接管。每个手势必须有等价的可激活控件或 `accessibilityAction`。
+  - 已知唯一的手势控件是志愿者首页的派单面板：抓手有 `.onTapGesture`（循环换档）
+    与 `.accessibilityAdjustableAction`（逐档，两端停住，`VolunteerDemandPanelDetent.adjusted(by:)`）。
+    hint 里**不要**再写「上滑展开，下滑收起」—— 那是给手指说的，开着辅助技术照做没反应。
+  - 可调整控件必须有 `accessibilityValue`，否则调完听不到调到了哪一档。
+- **文本输入一律用标准控件**（`TextField` / `TextEditor` / `SecureField`，或包装
+  `UITextField` 的 `UIViewRepresentable`）。盲文屏幕输入只对标准文本输入生效，
+  自绘的输入控件它进不去。
+  - 全仓唯一的包装件是 `LoginPhoneNumberField`（`LoginView.swift:42`），
+    label / hint / value 与 `adjustsFontForContentSizeCategory` 都已设置。
+
+### 人工验证清单（真机，各约 10 分钟）
+
+**Switch Control**（设置 → 辅助功能 → 开关控制，用「屏幕」当开关）：
+
+1. 登录 → 输入手机号 → 收验证码 → 登录：每一步都能扫到并激活。
+2. 盲人首页：「开始约跑」「重复当前状态」「求助」三个控件都在扫描序列里。
+3. 志愿者首页：派单面板能展开、能收起（这一条 2026-08-16 之前必然失败）。
+4. 全程不出现「扫到了但激活没反应」的元素。
+
+**盲文屏幕输入**（VoiceOver 打开 → 转子选「盲文屏幕输入」）：
+
+1. 登录页手机号框：能输入 11 位数字并提交。`keyboardType = .numberPad` 下能否输入是
+   这一条的核心疑点，**没验过之前不要写「支持」**。
+2. 订单备注（`VoiceTextField`）、评价文本框（`TextEditor`）：能输入中文并提交。
+
+结论回填到 `docs/review/` 的当期 review，不要只回在这里。
+
 ## 4. Blind Runner UI Rules
 
 - Prefer one primary action per screen.

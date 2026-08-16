@@ -315,7 +315,10 @@ struct LoginView: View {
                     }
                     .padding(.horizontal, 32)
                     .padding(.bottom, viewModel.showCodeInput ? 160 : 0)
-                    .frame(maxWidth: .infinity)
+                    // 登录是两端共用的第一屏，也是 iPad 上最先被看到的一屏。
+                    // 不限宽时手机号输入框会拉到 1024pt 宽，光标离标签一整个屏幕。
+                    // `readableContentColumn()` 自带居中，原来的 `.frame(maxWidth: .infinity)` 由它接管。
+                    .readableContentColumn()
                 }
                 .scrollDismissesKeyboard(.immediately)
                 .onChange(of: viewModel.showCodeInput) { showCodeInput in
@@ -337,6 +340,7 @@ struct LoginView: View {
                     viewModel.submitLogin()
                 }
                 .padding(.horizontal, 32)
+                .readableContentColumn()
                 .padding(.vertical, 12)
                 .background(.regularMaterial)
             }
