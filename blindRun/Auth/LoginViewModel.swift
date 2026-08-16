@@ -272,7 +272,9 @@ final class LoginViewModel: ObservableObject {
             if let seconds = info.retryAfterSeconds { startCountdown(seconds: seconds) }
         case .unauthorized:
             errorMessage = "登录已过期，请重新登录。"
-        case .decodingError, .invalidURL, .unknown:
+        // `.missingCredentials` 在这里不可达（登录请求 `requiresAuth: false`），
+        // 归进兜底分支即可，不值得单开一句文案。
+        case .missingCredentials, .decodingError, .invalidURL, .unknown:
             errorMessage = "登录失败，请稍后重试。"
         }
         // TTS 播报错误信息，确保盲人用户能听到错误提示
@@ -296,7 +298,8 @@ final class LoginViewModel: ObservableObject {
             if let seconds = info.retryAfterSeconds { startCountdown(seconds: seconds) }
         case .unauthorized:
             errorMessage = "登录已过期，请重新登录。"
-        case .decodingError, .invalidURL, .unknown:
+        // 同上，发验证码也是 `requiresAuth: false`。
+        case .missingCredentials, .decodingError, .invalidURL, .unknown:
             errorMessage = "验证码发送失败，请稍后重试。"
         }
         if let message = errorMessage {

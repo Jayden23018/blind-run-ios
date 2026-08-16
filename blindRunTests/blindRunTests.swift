@@ -2493,6 +2493,68 @@ final class blindRunTests: XCTestCase {
         AuthLifecycleURLProtocol.handler = nil
     }
 
+    /// `requiresAuth` 却拿不到 Token 时，**一个请求都不许发出去**，且抛的必须是
+    /// `.missingCredentials` 而不是 `.unauthorized`。
+    ///
+    /// 这条守的是 2026-08-16 那次排查里最贵的一段。旧写法是「没 Token 就静默不带头发出去」，
+    /// 于是：服务端理所当然回 401 → 客户端把它当成会话被撤销 → `expireSession()`
+    /// → 清掉 Token → 弹「登录状态已失效」。本地状态错误伪装成服务端拒绝，
+    /// 且清 Token 顺手把现场抹了 —— 抓包看到 401、服务端日志看到「没带 Authorization 头」，
+    /// 两边互相指向对方。
+    ///
+    /// 空串一并覆盖：那是 Keychain 读失败的常见返回值，发出去是个空的 `Bearer `，
+    /// 与没带头同样 401 却更难看出来。
+    ///
+    /// **stub 的 handler 刻意留空**：一旦真的发出请求，它会抛 `badServerResponse`，
+    /// 客户端拿到的就是 `.networkError`。所以「catch 到 `.missingCredentials`」
+    /// 本身就证明了请求没出门，不需要再数调用次数。
+    func testMissingTokenThrowsMissingCredentialsWithoutSendingRequest() async {
+        for token in [nil, ""] as [String?] {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [AuthLifecycleURLProtocol.self]
+            AuthLifecycleURLProtocol.handler = nil
+            let client = URLSessionAPIClient(
+                baseURL: URL(string: "http://example.test")!,
+                session: URLSession(configuration: configuration),
+                tokenProvider: { token }
+            )
+
+            do {
+                let _: EmptyResponse = try await client.get("/api/volunteer/profile")
+                XCTFail("token=\(String(describing: token)) 时不该发出请求")
+            } catch APIError.missingCredentials {
+                // 期望路径
+            } catch {
+                XCTFail("token=\(String(describing: token)) 期望 .missingCredentials，实际拿到 \(error)")
+            }
+        }
+    }
+
+    /// 反向门：有 Token 时照常带头。
+    /// 没有这条，上面那道 `guard` 写成「永远拦」也是绿的，而那样全 App 都发不出鉴权请求。
+    func testPresentTokenIsStillSentAsBearerHeader() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AuthLifecycleURLProtocol.self]
+        AuthLifecycleURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer real-token")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data("{}".utf8))
+        }
+        let client = URLSessionAPIClient(
+            baseURL: URL(string: "http://example.test")!,
+            session: URLSession(configuration: configuration),
+            tokenProvider: { "real-token" }
+        )
+
+        let _: EmptyResponse = try await client.get("/api/volunteer/profile")
+        AuthLifecycleURLProtocol.handler = nil
+    }
+
     func testNetworkDiagnosticsSanitizeIdentifiersAndSecrets() async throws {
         await NetworkDiagnosticRecorder.shared.resetForTesting()
         let configuration = URLSessionConfiguration.ephemeral

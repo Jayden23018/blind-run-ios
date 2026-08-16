@@ -184,6 +184,9 @@ enum BlindIdentityVerificationFailure {
             return "提交过于频繁，请稍后重试。"
         case .unauthorized:
             return "登录已过期，请重新登录。"
+        case .missingCredentials:
+            // 与上一条分开：那条是服务端说"你的会话没了"，这条是本地压根没拿出凭据。
+            return "本地登录信息缺失，请退出后重新登录。"
         case .networkError:
             return "网络连接失败，请检查网络后重试。"
         case .decodingError, .invalidURL, .unknown:
