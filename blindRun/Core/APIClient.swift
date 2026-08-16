@@ -74,6 +74,13 @@ enum APIError: Error, Sendable {
     case serverError(ErrorResponse)
     case rateLimited(RateLimitInfo)
     case unauthorized
+    /// 需要鉴权的请求，但本地根本没有 Token —— **客户端状态错误，不是服务端拒绝**。
+    ///
+    /// 刻意与 `.unauthorized` 分开：`AppState.handleAuthenticatedAPIError` 只认后者，
+    /// 于是这条**不会**触发 `expireSession()`。原因见下面 `request` 里那段注释——
+    /// 把两者混为一谈会让「本地没 Token」伪装成「服务端撤销了会话」，
+    /// 然后清掉 Token 把现场毁掉。
+    case missingCredentials
     case networkError(Error)
     case decodingError(Error)
     case invalidURL
@@ -93,6 +100,10 @@ enum APIError: Error, Sendable {
             return info.message
         case .unauthorized:
             return "登录已过期，请重新登录。"
+        case .missingCredentials:
+            // 刻意不写「登录已过期」：过期是服务端说的，这条是本地压根没有凭据。
+            // 两句话看起来差不多，但排查时指向的方向完全相反。
+            return "本地登录信息缺失，请退出后重新登录。"
         case .networkError:
             return "网络连接失败，请检查网络设置。"
         case .decodingError:
@@ -262,7 +273,21 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        if requiresAuth, let token = tokenProvider() {
+        // 需要鉴权却拿不到 Token 时**不发请求**。
+        //
+        // 旧写法是「没 Token 就静默不带头发出去」，后果是一条闭合的自噬链：
+        // 服务端理所当然回 401 → 客户端把它当成「服务端撤销了会话」→ `expireSession()`
+        // → `performLocalSessionCleanup()` 清掉 Token → 弹「登录状态已失效」。
+        // 于是**本地状态错误被伪装成服务端拒绝**，且清 Token 顺手销毁了现场：
+        // 抓包看到的是 401，服务端日志看到的是「没带 Authorization 头」，
+        // 两边都指向对方。2026-08-16 排查志愿者登不进去时，这条链把方向带偏了大半天。
+        //
+        // 空串一并挡住 —— 那是 Keychain 读失败的常见返回值，发出去就是个空的 `Bearer `，
+        // 与没带头同样是 401，却更难看出来（`BearerTokenMiddleware` 那边早就挡了，这里漏了）。
+        if requiresAuth {
+            guard let token = tokenProvider(), !token.isEmpty else {
+                throw APIError.missingCredentials
+            }
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
@@ -358,7 +383,12 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        if requiresAuth, let token = tokenProvider() {
+        // 同 `request(...)`，理由见那里。上传更该早退：多几 MB 的证件照传上去再被 401 打回，
+        // 白烧一次流量。
+        if requiresAuth {
+            guard let token = tokenProvider(), !token.isEmpty else {
+                throw APIError.missingCredentials
+            }
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 

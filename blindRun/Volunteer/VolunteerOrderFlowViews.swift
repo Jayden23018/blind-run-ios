@@ -599,7 +599,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             switch error {
             case .networkError, .decodingError:
                 markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
-            case .serverError, .rateLimited, .unknown, .invalidURL:
+            case .serverError, .rateLimited, .unknown, .invalidURL, .missingCredentials:
                 transitionState = .failed(message: error.localizedMessage)
                 // 403 VOLUNTEER_NOT_VERIFIED 的唯一解法是上传资质证书，错误区必须给出入口。
                 needsCertificateUpload = error.errorCode == .volunteerNotApproved
@@ -1227,7 +1227,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             switch error {
             case .networkError, .decodingError:
                 markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
-            case .serverError, .rateLimited, .unknown, .invalidURL:
+            case .serverError, .rateLimited, .unknown, .invalidURL, .missingCredentials:
                 transitionState = .failed(message: error.localizedMessage)
                 errorMessage = error.localizedMessage
                 speechService?.speakError(error.localizedMessage)

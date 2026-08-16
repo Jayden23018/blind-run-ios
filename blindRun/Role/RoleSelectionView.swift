@@ -86,6 +86,10 @@ final class RoleSelectionViewModel: ObservableObject {
         case .unauthorized:
             appState?.expireSession()
             errorMessage = nil
+        case .missingCredentials:
+            // 刻意不走 `expireSession()`：本地本来就没 Token，再清一次只会把现场抹掉。
+            // 照原样把话说清楚，让人能看出这是客户端状态问题而不是"服务端把我踢了"。
+            errorMessage = error.localizedMessage
         case .decodingError, .invalidURL, .unknown:
             errorMessage = "角色设置失败，请重试。"
         }
