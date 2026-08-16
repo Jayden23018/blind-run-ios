@@ -27,6 +27,16 @@
         ]
       },
       {
+        "$comment": "共享 checkout 的 git 安全网：.git 整个是共用的（HEAD 也是）。拦「改写别人分支的历史」与「不带显式路径的暂存」两类。",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/shared-checkout-guard.mjs\""
+          }
+        ]
+      },
+      {
         "$comment": "联网调研前把 docs/research/INDEX.md 灌回来：先查记录，缺的那段才重搜。",
         "matcher": "WebSearch|WebFetch|mcp__firecrawl__.*",
         "hooks": [

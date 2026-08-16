@@ -86,6 +86,11 @@ jobs:
       - name: validate research-log hook
         run: node scripts/validate-research-log.mjs
 
+      # 共享 checkout 守卫。它两个方向都会静默失效：判据太松放过真事故（2026-08-16
+      # 那条 --amend 改掉了同事的提交），太紧就每次 amend 都报一次然后被无视。
+      - name: validate shared-checkout guard
+        run: node scripts/validate-shared-checkout-guard.mjs
+
       # 真机测试的「算不算通过」判定。CI 跑不了真机 XCTest，但这段纯逻辑跑得了 ——
       # 而它错过两次，两次都是「看起来全绿，其实没数到」。
       - name: validate xcresult verdict
