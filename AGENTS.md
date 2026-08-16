@@ -48,6 +48,17 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   详见记忆 `low-vision-visual-channel-unaudited` 与 `docs/review/frontend-backend-alignment-review-20260812.md` §D。
   这条抓不成静态守卫：对比度要看颜色**用在什么语义的文本上**（装饰图标不算），机器分不出来。
 
+- 崩在 `-[__NSDictionaryM finishedPlaying:]: unrecognized selector` 时，**接收者的类名是随机的**
+  （只是那块内存恰好被复用成了字典），要看 **selector 属于谁**：`finishedPlaying:` 是
+  `AVAudioPlayer` **自己的**内部完成回调，代理那条叫 `audioPlayerDidFinishPlaying:successfully:`。
+  所以它意味着「播放器在**还在播**的时候被释放了」，**不是** delegate 没置 nil / 没声明 `weak`
+  —— 本仓库从没给任何 `AVAudioPlayer` 设过 delegate，照 delegate 那条查会一无所获。
+  连带一条：**崩溃落在哪条用例上完全无关**（那次是限流 / 验证码 / 志愿者途中确认三条，都不碰音频），
+  互不相关的用例随机崩要往进程级野指针想。
+  具体那次的根因与修法已按 §1.2 钉成 `testRecordingCueReusesOnePlayerPerKind`（已验红），
+  「怎么判读这个崩溃签名」这半条抓不成检查，详见记忆
+  `finishedplaying-crash-means-player-freed-not-delegate`。
+
 - XCUITest 报 `Failed to get matching snapshots: Timed out while evaluating UI query` 时，
   **先看 result bundle 里的屏幕录像找误触，不要去 grep 重绘循环**。2026-08-14 那次的真因是
   「重复当前状态」在首屏外、不滚就 `tap()`，触点被钳到底部常驻求助条上，一路误触到
