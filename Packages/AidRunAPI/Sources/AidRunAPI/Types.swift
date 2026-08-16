@@ -469,6 +469,12 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/orders/{id}/track`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/track/get(getOrderTrack)`.
     func getOrderTrack(_ input: Operations.getOrderTrack.Input) async throws -> Operations.getOrderTrack.Output
+    /// 查询我的订单列表（分页）。
+    ///
+    /// **排序：固定按 `createdAt` 倒序（最近的在最前），不可配** —— 实现见 `OrderController.getMyOrders` 的 `PageRequest.of(page, size, Sort.by(DESC, "createdAt"))`。 此前这条没写进契约，属未定义行为，客户端只能自己再排一遍兜底（iOS 2026-08-12 提出）。 **现在它是契约的一部分**：客户端可以去掉本地兜底排序。
+    ///
+    /// 刻意**不提供 `sort` 参数**：盲人在历史里找的是「哪一次」，顺序错了就得从头听到尾， 而多一个排序维度只会多一种听起来一样、顺序却不同的列表。真需要别的顺序再单开参数。
+    ///
     /// - Remark: HTTP `GET /api/orders/mine`.
     /// - Remark: Generated from `#/paths//api/orders/mine/get(getMyOrders)`.
     func getMyOrders(_ input: Operations.getMyOrders.Input) async throws -> Operations.getMyOrders.Output
@@ -1302,6 +1308,12 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 查询我的订单列表（分页）。
+    ///
+    /// **排序：固定按 `createdAt` 倒序（最近的在最前），不可配** —— 实现见 `OrderController.getMyOrders` 的 `PageRequest.of(page, size, Sort.by(DESC, "createdAt"))`。 此前这条没写进契约，属未定义行为，客户端只能自己再排一遍兜底（iOS 2026-08-12 提出）。 **现在它是契约的一部分**：客户端可以去掉本地兜底排序。
+    ///
+    /// 刻意**不提供 `sort` 参数**：盲人在历史里找的是「哪一次」，顺序错了就得从头听到尾， 而多一个排序维度只会多一种听起来一样、顺序却不同的列表。真需要别的顺序再单开参数。
+    ///
     /// - Remark: HTTP `GET /api/orders/mine`.
     /// - Remark: Generated from `#/paths//api/orders/mine/get(getMyOrders)`.
     public func getMyOrders(
@@ -4574,6 +4586,18 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/chatPreference`.
             public var chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload?
+            /// 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 未接单时为 null。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerName`.
+            public var volunteerName: Swift.String?
+            /// 这一单当前是否有生效中的行程分享链接。 🚨 **只对下单的盲人本人下发；志愿者视角恒为 `null`**（不是 `false`）。 客户端据此渲染「停止分享」入口 —— 此前该状态只记在客户端本地， App 被杀 / 换设备 / 重装后，告知页承诺的「你可以随时停止分享」就静默失效。 为什么志愿者拿不到：本仓库的威胁模型是「陪跑中志愿者可能就是威胁来源」， 下发这个字段等于告诉一个潜在的坏人**这趟有没有人在看**，`false` 比 `true` 危险得多。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/shareActive`.
+            public var shareActive: Swift.Bool?
+            /// 生效中分享链接的到期时刻；`shareActive` 为 true 时才有值，同样只对盲人本人下发。 ⚠️ 该值在**建立令牌时一次算定**（`max(plannedEndTime, now) + app.share.ttl-after-end-hours`）， **不随订单被 keep-waiting 反复延长而重算** —— 跑得比计划久很多时链接会先到期， 盲人重新生成一个即可。客户端可据此做到期前提示，但不要假设它会自己往后延。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/shareExpiresAt`.
+            public var shareExpiresAt: Foundation.Date?
             /// **完赛实际里程（米）**，订单进 `COMPLETED` 时算一次落库（迁移 `0022`）。2026-08-14 新增。
             ///
             /// 🚨 **与 `plannedDistanceMeters`（下单时说的「我打算跑多远」）不是一回事** ——
@@ -4629,6 +4653,9 @@ public enum Components {
             ///   - visionLevel:
             ///   - tetherPreference:
             ///   - chatPreference:
+            ///   - volunteerName: 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 未接单时为 null。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
+            ///   - shareActive: 这一单当前是否有生效中的行程分享链接。 🚨 **只对下单的盲人本人下发；志愿者视角恒为 `null`**（不是 `false`）。 客户端据此渲染「停止分享」入口 —— 此前该状态只记在客户端本地， App 被杀 / 换设备 / 重装后，告知页承诺的「你可以随时停止分享」就静默失效。 为什么志愿者拿不到：本仓库的威胁模型是「陪跑中志愿者可能就是威胁来源」， 下发这个字段等于告诉一个潜在的坏人**这趟有没有人在看**，`false` 比 `true` 危险得多。
+            ///   - shareExpiresAt: 生效中分享链接的到期时刻；`shareActive` 为 true 时才有值，同样只对盲人本人下发。 ⚠️ 该值在**建立令牌时一次算定**（`max(plannedEndTime, now) + app.share.ttl-after-end-hours`）， **不随订单被 keep-waiting 反复延长而重算** —— 跑得比计划久很多时链接会先到期， 盲人重新生成一个即可。客户端可据此做到期前提示，但不要假设它会自己往后延。
             ///   - actualDistanceMeters: **完赛实际里程（米）**，订单进 `COMPLETED` 时算一次落库（迁移 `0022`）。2026-08-14 新增。
             ///   - actualDurationSeconds: 完赛实际耗时（秒），取轨迹点首末时间之差。null 语义同 `actualDistanceMeters`。
             ///   - actualAvgPaceSecPerKm: 完赛平均配速（秒/公里）。里程为 0 时为 null —— 除以 0 得不出配速，给 0 是假的。 null 语义同 `actualDistanceMeters`。
@@ -4660,6 +4687,9 @@ public enum Components {
                 visionLevel: Components.Schemas.OrderDetailResponse.visionLevelPayload? = nil,
                 tetherPreference: Components.Schemas.OrderDetailResponse.tetherPreferencePayload? = nil,
                 chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload? = nil,
+                volunteerName: Swift.String? = nil,
+                shareActive: Swift.Bool? = nil,
+                shareExpiresAt: Foundation.Date? = nil,
                 actualDistanceMeters: Swift.Int32? = nil,
                 actualDurationSeconds: Swift.Int32? = nil,
                 actualAvgPaceSecPerKm: Swift.Int32? = nil
@@ -4691,6 +4721,9 @@ public enum Components {
                 self.visionLevel = visionLevel
                 self.tetherPreference = tetherPreference
                 self.chatPreference = chatPreference
+                self.volunteerName = volunteerName
+                self.shareActive = shareActive
+                self.shareExpiresAt = shareExpiresAt
                 self.actualDistanceMeters = actualDistanceMeters
                 self.actualDurationSeconds = actualDurationSeconds
                 self.actualAvgPaceSecPerKm = actualAvgPaceSecPerKm
@@ -4723,6 +4756,9 @@ public enum Components {
                 case visionLevel
                 case tetherPreference
                 case chatPreference
+                case volunteerName
+                case shareActive
+                case shareExpiresAt
                 case actualDistanceMeters
                 case actualDurationSeconds
                 case actualAvgPaceSecPerKm
@@ -15062,6 +15098,12 @@ public enum Operations {
             }
         }
     }
+    /// 查询我的订单列表（分页）。
+    ///
+    /// **排序：固定按 `createdAt` 倒序（最近的在最前），不可配** —— 实现见 `OrderController.getMyOrders` 的 `PageRequest.of(page, size, Sort.by(DESC, "createdAt"))`。 此前这条没写进契约，属未定义行为，客户端只能自己再排一遍兜底（iOS 2026-08-12 提出）。 **现在它是契约的一部分**：客户端可以去掉本地兜底排序。
+    ///
+    /// 刻意**不提供 `sort` 参数**：盲人在历史里找的是「哪一次」，顺序错了就得从头听到尾， 而多一个排序维度只会多一种听起来一样、顺序却不同的列表。真需要别的顺序再单开参数。
+    ///
     /// - Remark: HTTP `GET /api/orders/mine`.
     /// - Remark: Generated from `#/paths//api/orders/mine/get(getMyOrders)`.
     public enum getMyOrders {
