@@ -3856,6 +3856,12 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 查询我的订单列表（分页）。
+    ///
+    /// **排序：固定按 `createdAt` 倒序（最近的在最前），不可配** —— 实现见 `OrderController.getMyOrders` 的 `PageRequest.of(page, size, Sort.by(DESC, "createdAt"))`。 此前这条没写进契约，属未定义行为，客户端只能自己再排一遍兜底（iOS 2026-08-12 提出）。 **现在它是契约的一部分**：客户端可以去掉本地兜底排序。
+    ///
+    /// 刻意**不提供 `sort` 参数**：盲人在历史里找的是「哪一次」，顺序错了就得从头听到尾， 而多一个排序维度只会多一种听起来一样、顺序却不同的列表。真需要别的顺序再单开参数。
+    ///
     /// - Remark: HTTP `GET /api/orders/mine`.
     /// - Remark: Generated from `#/paths//api/orders/mine/get(getMyOrders)`.
     public func getMyOrders(_ input: Operations.getMyOrders.Input) async throws -> Operations.getMyOrders.Output {
