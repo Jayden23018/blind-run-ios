@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "XcodeBuildMCP": {
+      "command": "npx",
+      "args": ["-y", "xcodebuildmcp@latest", "mcp"],
+      "env": {
+        "XCODEBUILDMCP_ENABLED_WORKFLOWS": "device,project-discovery",
+        "XCODEBUILDMCP_SENTRY_DISABLED": "true",
+        "XCODEBUILDMCP_WORKSPACE_PATH": "blindRun.xcworkspace",
+        "XCODEBUILDMCP_SCHEME": "blindRun"
+      }
+    }
+  }
+}

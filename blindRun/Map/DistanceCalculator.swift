@@ -3,8 +3,13 @@ import Foundation
 
 // MARK: - Distance Calculator
 
-/// 距离计算工具，提供两点距离计算、格式化显示和按距离排序功能。
+/// 距离计算工具，提供两点距离计算与格式化显示。
 /// 使用 CoreLocation 内置的 WGS84 椭球体距离算法。
+///
+/// 曾经有一个 `sortOrdersByDistance`，服务于「可接订单」列表的客户端排序。
+/// 那条链路已随公开订单池一起删除（系统派单上线后它就没有入口了），
+/// 而后端的 `/api/orders/available` 本来就按距离升序返回并自带 `distanceKm` ——
+/// 客户端重算一遍距离从来不是必要的。
 enum DistanceCalculator {
 
     /// 计算两个坐标点之间的距离（米）
@@ -15,6 +20,16 @@ enum DistanceCalculator {
         let originLocation = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
         let destinationLocation = CLLocation(latitude: destination.latitude, longitude: destination.longitude)
         return originLocation.distance(from: destinationLocation)
+    }
+
+    static func distanceFromDeviceToBackend(
+        deviceCoordinate: CLLocationCoordinate2D,
+        backendCoordinate: CLLocationCoordinate2D
+    ) -> CLLocationDistance {
+        let normalized = BackendCoordinateNormalizer.normalize(
+            LocatedCoordinate(coordinate: deviceCoordinate, system: .wgs84Device)
+        )?.coordinate ?? deviceCoordinate
+        return distance(from: normalized, to: backendCoordinate)
     }
 
     /// 格式化距离为人类可读字符串
@@ -28,25 +43,5 @@ enum DistanceCalculator {
             let km = meters / 1000.0
             return String(format: "%.1f 公里", km)
         }
-    }
-
-    /// 按距离对可用订单列表排序（从近到远）
-    /// - Parameters:
-    ///   - orders: 待排序的可用订单列表
-    ///   - location: 参考位置（通常为志愿者当前位置）
-    /// - Returns: 排序后的 (订单, 距离) 元组数组
-    static func sortOrdersByDistance(
-        orders: [AvailableOrderDto],
-        from location: CLLocationCoordinate2D
-    ) -> [(order: AvailableOrderDto, distance: CLLocationDistance)] {
-        let ordersWithDistance = orders.map { order -> (order: AvailableOrderDto, distance: CLLocationDistance) in
-            let orderCoordinate = CLLocationCoordinate2D(
-                latitude: order.startLocation.latitude,
-                longitude: order.startLocation.longitude
-            )
-            let dist = distance(from: location, to: orderCoordinate)
-            return (order: order, distance: dist)
-        }
-        return ordersWithDistance.sorted { $0.distance < $1.distance }
     }
 }

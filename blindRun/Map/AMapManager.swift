@@ -1,5 +1,8 @@
 import Foundation
 import AMapFoundationKit
+import AMapLocationKit
+import AMapSearchKit
+import MAMapKit
 
 // MARK: - AMap SDK Manager
 
@@ -24,6 +27,7 @@ enum AMapManager {
             return
         }
 
+        configurePrivacyCompliance()
         AMapServices.shared().apiKey = key
         AMapServices.shared().enableHTTPS = true
         isConfigured = true
@@ -34,6 +38,16 @@ enum AMapManager {
     }
 
     // MARK: - Private
+
+    private static func configurePrivacyCompliance() {
+        // App privacy policy includes AMap SDK usage; these calls must happen before creating SDK clients/views.
+        MAMapView.updatePrivacyShow(.didShow, privacyInfo: .didContain)
+        MAMapView.updatePrivacyAgree(.didAgree)
+        AMapSearchAPI.updatePrivacyShow(.didShow, privacyInfo: .didContain)
+        AMapSearchAPI.updatePrivacyAgree(.didAgree)
+        AMapLocationManager.updatePrivacyShow(.didShow, privacyInfo: .didContain)
+        AMapLocationManager.updatePrivacyAgree(.didAgree)
+    }
 
     private static func resolveAPIKey() -> String? {
         // 优先从 Info.plist 的 AMapApiKey 字段读取（由 xcconfig 注入）

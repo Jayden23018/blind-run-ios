@@ -17,14 +17,14 @@
 | 4. 盲人首页 | `legacy-screenshots/blind-runner/01-blind-home.png` |
 | 5. 创建预约页 | `legacy-screenshots/blind-runner/02-create-booking-1.png` ~ `05-create-booking-4.png` |
 | 5a. 地点搜索子流程 | `legacy-screenshots/blind-runner/04-create-booking-3.png` |
-| 6. 盲人订单状态等待页 | `legacy-screenshots/blind-runner/06-order-matching-1.png` ~ `10-volunteer-arrived.png` |
+| 6. 盲人订单状态等待页 | `legacy-screenshots/blind-runner/06-order-PENDING_MATCH-1.png` ~ `10-volunteer-DRIVER_ARRIVED.png` |
 | 7. 盲人服务中页 | 无对应旧截图（旧版合并在 BlindActiveRunPage） |
-| 8. 盲人完成/评分页 | `legacy-screenshots/blind-runner/11-service-completed-rating.png`、`12-service-completed-result.png` |
+| 8. 盲人完成/评分页 | `legacy-screenshots/blind-runner/11-service-COMPLETED-rating.png`、`12-service-COMPLETED-result.png` |
 | 9. 志愿者资料认证页 | `legacy-screenshots/volunteer/02-volunteer-profile-verification.png` |
 | 10. 志愿者首页 | `legacy-screenshots/volunteer/01-volunteer-home.png` |
 | 11. 志愿者订单列表页 | `legacy-screenshots/volunteer/03-available-orders.png` |
 | 12. 志愿者订单详情页 | `legacy-screenshots/volunteer/04-order-detail-after-accept.png` |
-| 13. 志愿者服务中页 | `legacy-screenshots/volunteer/05-arrived-confirmation.png` ~ `07-complete-service-summary.png` |
+| 13. 志愿者服务中页 | `legacy-screenshots/volunteer/05-DRIVER_ARRIVED-confirmation.png` ~ `07-complete-service-summary.png` |
 | 14. 志愿者服务记录页 | `legacy-screenshots/volunteer/08-service-records.png` |
 | 15. 志愿者积分/商城占位页 | `legacy-screenshots/volunteer/09-points-shop-placeholder.png` |
 | 16. 设置页 | `legacy-screenshots/volunteer/10-settings.png` |
@@ -37,12 +37,12 @@
 
 | 原则 | 细则 |
 |------|------|
-| 视觉 | 深色背景（黑/近黑）、高对比度文字、大字号（≥20pt body）、无多余装饰 |
+| 视觉 | 深色背景（黑/近黑）、高对比度文字、大字号（≥20pt body）、无多余装饰；状态和主操作先于地图 |
 | 触控 | 关键主按钮最小高度 **64pt**，点击区域充足，按钮间距 ≥16pt |
 | 层级 | 每屏一个主任务，避免嵌套导航和过多选择 |
 | 语音 | TTS 播报所有关键状态变化；每个关键页面有"重复当前状态"按钮 |
-| 危险操作 | 取消订单、进入求助、退出登录必须**二次确认** |
-| 状态文案 | 仅使用 MVP 7 个订单状态中文，不显示英文状态名 |
+| 危险操作 | 取消订单、退出登录必须**二次确认**；当前 release 不显示求助入口，未来恢复时也必须二次确认 |
+| 状态文案 | 仅使用当前后端 9 个订单状态中文，不显示英文状态名 |
 
 ### 志愿者端（Volunteer）
 
@@ -51,15 +51,15 @@
 | 视觉 | 浅色/标准主题，信息密度可高于盲人端，但关键按钮仍需清晰 |
 | 地图 | 全屏或半屏高德地图，显示当前位置和订单 marker |
 | 隐私 | 接单前**隐藏**盲人联系电话、紧急联系人；接单后显示完整电话 |
-| 危险操作 | 取消订单、进入求助、结束服务、退出登录必须**二次确认** |
+| 危险操作 | 取消订单、结束服务、退出登录必须**二次确认**；当前 release 不显示求助入口，未来恢复时也必须二次确认 |
 | 积分 | 完成服务 `+100` 积分（不是旧版 `+50`） |
 
 ### 双端共享
 
-- 订单状态：`matching` / `accepted` / `arrived` / `in_progress` / `completed` / `cancelled` / `emergency`
-- 禁止旧状态名：`pendingMatch`、`pendingAccept`、`driverEnRoute`、`driverArrived`、`rematching`、`noVolunteer`、`submitted`、`contacted`、`expired`
-- 不做：WebSocket、实时轨迹、路线导航、AI 助手、App 内聊天
-- API 环境切换入口：Mock / Local Backend / Production Backend（所有页面底部角落不显眼位置）
+- 订单状态：`PENDING_MATCH` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` / `COMPLETED` / `CANCELLED` / `REMATCHING` / `NO_VOLUNTEER`
+- `emergency` 不是订单状态；求助仅记录独立紧急事件。
+- 不做：实时轨迹、路线导航、AI 助手、App 内聊天
+- API 环境切换入口：仅 Debug 显示 Mock / Demo Cloud；Demo 和 Production 包隐藏入口
 
 ---
 
@@ -69,7 +69,7 @@
 登录页（手机号 + 验证码）
 
 ### 页面目标
-用户通过手机号 + 固定验证码 `123456` 登录，首次登录自动创建账号。
+用户通过手机号 + 固定验证码 `000000` 登录，首次登录自动创建账号。
 
 ### 适用角色
 盲人跑者、志愿者（通用）
@@ -95,7 +95,7 @@ App 启动（UserDefaults 中无有效 JWT 时）
 | 字段 | 类型 | 校验规则 |
 |------|------|----------|
 | 手机号 | 数字键盘，11 位 | 必须 1 开头 11 位数字 |
-| 验证码 | 数字键盘，6 位 | 固定 `123456`，其他值返回 `INVALID_VERIFICATION_CODE` |
+| 验证码 | 数字键盘，6 位 | 固定 `000000`，其他值返回 `INVALID_VERIFICATION_CODE` |
 
 ### 状态展示
 - 默认：手机号输入 + "获取验证码" 按钮（验证码输入区隐藏或灰色）
@@ -358,20 +358,22 @@ VStack {
 登录成功（已有盲人资料）/ 资料填写完成 / 服务完成返回 / 切换角色
 
 ### 页面主要内容（无活跃订单）
-- 高德小地图（上 1/3 区域）：显示当前位置蓝色圆点，文字标注当前位置如 "深圳市南山区科技园附近"
-- "开始约跑" 大按钮（屏幕中下部，占主要视觉区域，最小 64pt）
-- 当前位置文字描述
+- 状态摘要："当前没有进行中的预约"
+- "开始约跑" 大按钮（最小 64pt）
 - "重复当前状态" 按钮
+- 当前位置文字描述
+- 辅助高德小地图：显示当前位置蓝色圆点，必须位于状态、主操作和重复状态之后
 
 ### 页面主要内容（有活跃订单）
-- 高德小地图：显示订单地点 marker
 - 订单状态卡片（大号，覆盖 "开始约跑" 位置）：
-  - matching：旋转动画 + "匹配中，等待志愿者接单"
-  - accepted：绿色 + "志愿者已接单，正在赶来"
-  - arrived：蓝色 + "志愿者已到达约定地点"
-  - in_progress：绿色 + "服务进行中"
+  - PENDING_MATCH：旋转动画 + "系统正在派单，请稍候"
+  - PENDING_ACCEPT：绿色 + "志愿者已接单，请按预约时间前往或等待在出发地点"
+  - DRIVER_EN_ROUTE：绿色 + "志愿者已出发，正在前往出发地点"
+  - DRIVER_ARRIVED：蓝色 + "志愿者已到达约定地点"
+  - IN_PROGRESS：绿色 + "服务进行中"
 - "查看当前订单" 按钮（点击进入对应状态页）
 - "重复当前状态" 按钮
+- 辅助高德小地图：显示订单地点 marker，必须位于状态、主操作和重复状态之后
 
 ### 主要按钮
 | 按钮 | 可见条件 | 行为 |
@@ -386,8 +388,8 @@ VStack {
 无
 
 ### 状态展示
-- 无订单 → 地图 + "开始约跑" 大按钮
-- 有订单 → 地图 + 订单状态卡片 + "查看当前订单" 按钮
+- 无订单 → 状态摘要 + "开始约跑" 大按钮 + 重复状态 + 当前位置摘要 + 辅助地图
+- 有订单 → 订单状态卡片 + "查看当前订单" 按钮 + 重复状态 + 位置摘要 + 辅助地图
 - 活跃订单状态变化 → 状态卡片实时更新（由 ViewModel 驱动，不在此页轮询）
 
 ### 错误状态
@@ -401,7 +403,7 @@ VStack {
 ### TTS 播报文案
 **无活跃订单时**："欢迎来到助盲跑。当前位置：深圳市南山区科技园附近。开始约跑按钮。"
 
-**有活跃订单时**：播报当前订单状态，如 "您有一个进行中的订单。志愿者已接单，正在赶来。预约时间：今天下午 3 点。"
+**有活跃订单时**：播报当前订单状态，如 "您有一个进行中的订单。志愿者已接单。请在今天下午 3 点前往或等待在出发地点。"
 
 ### VoiceOver 建议
 | 元素 | accessibilityLabel | accessibilityHint |
@@ -409,23 +411,12 @@ VStack {
 | "开始约跑" 按钮 | "开始约跑" | "点击后创建跑步预约" |
 | 订单状态卡片 | "当前订单：" + 状态中文 + "，" + 时间 + "，" + 地点 | "点击查看订单详情" |
 | "重复当前状态" 按钮 | "重复当前状态" | "点击后重新播报当前页面信息" |
-| 地图区域 | "地图，显示当前位置" | — |
+| 辅助地图区域 | "辅助地图，显示当前位置或订单出发点" | "地图仅用于视觉确认，当前状态和操作在上方" |
 
 ### SwiftUI 布局建议
 ```
 VStack(spacing: 0) {
-    // 地图区域（上 1/3）
-    AMapContainer(location: currentLocation, markers: orderMarkers)
-        .frame(height: UIScreen.main.bounds.height / 3)
-    
-    // 当前位置文字
-    Text(currentLocationDescription)
-        .font(.subheadline)
-        .padding(.horizontal)
-    
-    Spacer()
-    
-    // 主操作区（下 2/3 居中）
+    // 主操作区优先
     if let order = activeOrder {
         StatusCard(order: order)
         LargePrimaryButton("查看当前订单") { navigateToOrder(order) }
@@ -437,6 +428,15 @@ VStack(spacing: 0) {
     }
     
     RepeatStatusButton(action: speakCurrentStatus)
+
+    Text(currentLocationDescription)
+        .font(.subheadline)
+        .padding(.horizontal)
+
+    // 辅助地图区域
+    AMapContainer(location: currentLocation, markers: orderMarkers)
+        .frame(height: 180)
+        .accessibilityLabel("辅助地图，显示当前位置或订单出发点")
     
     Spacer()
 }
@@ -450,11 +450,11 @@ VStack(spacing: 0) {
 - 状态变化 TTS 播报思路
 
 ### 旧 UI 必须修改的部分
-- 旧版缺地图和当前位置描述 → 新版本必须加入 AMap 小地图
+- 旧版缺地图和当前位置描述 → 新版本必须加入 AMap 辅助地图，但不能放在状态和主操作之前
 - 旧版 AI 语音助手入口 → 必须删除
 - 旧版退出登录无二次确认 → 必须补齐
 - 旧版缺 "重复当前状态" 按钮 → 必须补齐
-- 旧版使用旧状态名 → 全部替换为 MVP 7 状态中文
+- 旧版使用旧状态名 → 全部替换为当前后端 9 个状态中文
 
 ---
 
@@ -473,46 +473,50 @@ VStack(spacing: 0) {
 盲人首页 → 点击 "开始约跑"
 
 ### 页面主要内容
-分区表单布局，自上而下：
+语音优先引导式步骤布局：
 
-1. **出发地点区**（必填）
-   - 大按钮 "选择出发地点"（显示已选地点名称，默认填充当前位置文字描述）
-   - 点击进入地点搜索子流程
+1. **确认出发地点**（必填）
+   - 文本摘要先显示当前地点来源、地点名称和地址
+   - 可保留当前位置，也可搜索高德 POI
+   - 辅助地图在地点摘要、搜索和结果列表之后显示
 
-2. **预约时间区**（必填）
+2. **确认预约时间**（必填）
    - iOS 原生 `DatePicker`（`.graphical` 或 `.compact` 样式）
    - 限制：只能选择当前时间 30 分钟后的时间
    - 下方提示文字："预约时间需至少在 30 分钟后"
 
-3. **可选项区**（选填，可折叠或直接展开）
-   - 目的地/路线：文本输入框 + 麦克风按钮
+3. **跑步需求**（全部选填）
+   - 路线备注：文本输入框 + 麦克风按钮
    - 预计跑步时长：Picker（15 分钟 / 30 分钟 / 45 分钟 / 1 小时 / 1.5 小时 / 2 小时）
-   - 预计距离：数字输入框（单位：公里）
-   - 配速偏好：分段选择器（慢跑 / 中速 / 较快）
-   - 是否需要同性志愿者：Toggle
-   - 备注：多行文本输入框 + 麦克风按钮
+   - 配速偏好：分段选择器（走跑结合 / 轻松 / 中等 / 快速 / 无偏好）
+   - 路线偏好：分段选择器（公园步道 / 街道 / 跑道 / 无偏好）
+   - 本次携带导盲犬：Toggle
+   - 特殊说明：多行文本输入框 + 麦克风按钮
 
-4. **提交区**（底部固定）
+4. **确认并提交**
+   - 汇总出发地点、预约时间和已填写选填项
+   - 空选填项不出现在确认摘要和重复状态播报中
    - "提交预约" 按钮（最小 64pt，必填项全部完成时启用）
 
 ### 主要按钮
 | 按钮 | 行为 |
 |------|------|
-| "选择出发地点" | 进入地点搜索子流程 |
+| "下一步" | 校验当前步骤，通过后进入下一步 |
 | 麦克风按钮（地点描述/备注旁） | 启动 Speech Framework 语音识别 |
 | "提交预约" | 校验 → `POST /api/orders` → 进入订单状态等待页 |
+| "重复当前状态" | 播报当前步骤、当前值、下一步动作和阻塞错误 |
 
 ### 表单字段
 | 字段 | 类型 | 必填 | 语音输入 | 说明 |
 |------|------|------|----------|------|
 | 出发地点 | 地点选择器 | 是 | 是（在地点搜索子流程） | 默认当前定位 |
 | 预约时间 | DatePicker | 是 | 否 | ≥ 当前时间 + 30 分钟 |
-| 目的地/路线 | 文本 | 否 | 是 | — |
+| 路线备注 | 文本 | 否 | 是 | — |
 | 预计时长 | Picker | 否 | 否 | 6 个选项 |
-| 预计距离 | 数字键盘 | 否 | 否 | 单位公里 |
-| 配速偏好 | 分段选择 | 否 | 否 | 3 个选项 |
-| 同性志愿者 | Toggle | 否 | 否 | 默认关 |
-| 备注 | 多行文本 | 否 | 是 | — |
+| 配速偏好 | 分段选择 | 否 | 否 | 5 个选项 |
+| 路线偏好 | 分段选择 | 否 | 否 | 4 个选项 |
+| 本次携带导盲犬 | Toggle | 否 | 否 | 默认关 |
+| 特殊说明 | 多行文本 | 否 | 是 | — |
 
 ### 状态展示
 - 定位初始化中 → 出发地点显示 "正在获取位置..."
@@ -531,53 +535,25 @@ VStack(spacing: 0) {
 
 ### TTS 播报文案
 - 进入页面：不自动播报（避免干扰）
-- 提交成功："订单提交成功，等待志愿者接单"（在跳转后的订单等待页播报）
+- 步骤切换：只播报当前步骤摘要，不随每次输入或时间调整长播报
+- 重复当前状态：播报当前步骤、地点来源、预约时间、已填写选填项和下一步动作
+- 提交成功："订单提交成功，系统正在为你派单"（在跳转后的订单等待页播报）
 - 定位权限拒绝："定位权限未开启。请前往系统设置开启定位，以便创建跑步预约。"
 
 ### VoiceOver 建议
 | 元素 | accessibilityLabel | accessibilityHint |
 |------|--------------------|-------------------|
-| 选择出发地点按钮 | "选择出发地点，" + 当前选中地点名 | "点击搜索并选择出发地点" |
 | 预约时间选择器 | "预约时间，" + 当前选择时间 | "选择至少 30 分钟后的时间" |
 | 麦克风按钮 | "语音输入" | "点击后说出内容，语音自动转文字" |
-| 提交预约按钮 | "提交预约" | "提交后等待志愿者接单" |
+| 辅助地图 | "辅助地图，显示当前出发地点" | "地图仅用于视觉确认，地点文字在上方" |
+| 提交预约按钮 | "提交预约" | "提交后系统将为你派单" |
 
 ### SwiftUI 布局建议
 ```
 ScrollView {
     VStack(spacing: 20) {
-        // 出发地点（大卡片）
-        Button(action: { showPlaceSearch = true }) {
-            HStack {
-                Image(systemName: "mappin.and.ellipse")
-                VStack(alignment: .leading) {
-                    Text("出发地点").font(.headline)
-                    Text(selectedPlace ?? "点击选择").font(.body)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-            }
-            .padding()
-            .frame(minHeight: 64)
-            .background(Color(.systemGray6))
-            .cornerRadius(12)
-        }
-        
-        // 预约时间
-        DatePicker("预约时间", selection: $bookingTime, in: dateRange)
-            .padding()
-        
-        // 可选项区
-        DisclosureGroup("更多选项（选填）") {
-            VStack(spacing: 16) {
-                TextField("目的地/路线", text: $destination)
-                Picker("预计时长", selection: $duration) { ... }
-                TextField("预计距离（公里）", text: $distance)
-                Picker("配速偏好", selection: $pace) { ... }
-                Toggle("需要同性志愿者", isOn: $sameGender)
-                TextField("备注", text: $notes)
-            }
-        }
+        GuidedBookingStepHeader(step: currentStep)
+        currentStepContent
     }
     .padding()
 }
@@ -598,7 +574,7 @@ VStack {
 
 ### 旧 UI 必须修改的部分
 - 旧版 "现在出发" "明天上午" 语音时间解析 → 替换为系统 DatePicker
-- 旧版缺少目的地/路线、时长、距离、配速、同性志愿者、备注字段 → 补齐
+- 旧版长表单并列字段 → 改为语音优先引导步骤；字段按当前 `CreateOrderRequest` 保留路线备注、时长、配速、路线偏好、导盲犬和特殊说明
 - 旧版预约不足 30 分钟未拦截 → 增加校验
 - 旧版提交后直接回首页 → 改为进入订单状态等待页
 
@@ -715,75 +691,74 @@ VStack(spacing: 0) {
 盲人订单状态等待页
 
 ### 页面目标
-展示订单 `matching`、`accepted`、`arrived` 状态，等待志愿者接单和到达。此页面是盲人端的核心等待中枢。
+展示订单 `PENDING_MATCH`、`PENDING_ACCEPT`、`DRIVER_EN_ROUTE`、`DRIVER_ARRIVED` 和 `REMATCHING` 状态，等待系统派单、志愿者接单、出发和到达。此页面是盲人端的核心等待中枢。
 
 ### 适用角色
 盲人跑者
 
 ### 页面入口
-创建预约提交成功 / 盲人首页点击 "查看当前订单"（状态为 matching/accepted/arrived 时）
+创建预约提交成功 / 盲人首页点击 "查看当前订单"（状态为 PENDING_MATCH / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / REMATCHING 时）
 
 ### 页面主要内容
 - **大号状态指示区**（上半部分）：
-  - matching：动画旋转圆圈 + "匹配中，请稍候" + 预计等待提示
-  - accepted：绿色勾 + "志愿者已接单" + 志愿者昵称
-  - arrived：蓝色铃铛 + "志愿者已到达约定地点" + 志愿者昵称
-- **志愿者信息卡片**（accepted / arrived 时显示）：
+  - PENDING_MATCH：动画旋转圆圈 + "系统正在派单，请稍候" + 预计等待提示
+  - PENDING_ACCEPT：绿色勾 + "志愿者已接单" + 志愿者昵称
+  - DRIVER_EN_ROUTE：绿色箭头 + "志愿者已出发，正在前往出发地点"
+  - DRIVER_ARRIVED：蓝色铃铛 + "志愿者已到达约定地点" + 志愿者昵称
+  - REMATCHING：重新匹配提示 + "正在确认志愿者状态，请稍候"
+- **志愿者信息卡片**（PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED 时显示）：
   - 昵称（大字）
-  - 联系电话（arrived 起显示，可点击拨打）
+  - 联系电话（DRIVER_ARRIVED 起显示，可点击拨打）
 - **订单信息卡片**：
   - 出发地点
   - 预约时间
   - 其他可选项（目的地、时长等，如有）
 - **底部操作区**：
-  - arrived："确认开始服务" 按钮（最小 64pt，绿色醒目）
-  - matching / accepted / arrived："取消订单" 按钮（灰色，次要位置）
-  - accepted / arrived："一键求助" 按钮（红色醒目）
+  - DRIVER_ARRIVED：显示"志愿者已到达"，等待志愿者触发服务开始
+  - PENDING_MATCH / PENDING_ACCEPT / REMATCHING："取消订单"按钮（灰色/危险色，需二次确认）
+  - 当前 release 不显示"一键求助"或"紧急求助"入口
 
 ### 主要按钮
 | 按钮 | 可见状态 | 行为 |
 |------|----------|------|
-| "确认开始服务" | arrived | 调用 `POST /api/orders/{id}/confirm-start` → 进入服务中页 |
-| "取消订单" | matching / accepted / arrived | 弹出 CancelReasonSheet（5 个固定原因）→ 确认 → cancelled |
-| "一键求助" | accepted / arrived | DangerConfirmDialog → emergency |
+| "取消订单" | PENDING_MATCH / PENDING_ACCEPT / REMATCHING | 二次确认 → CANCELLED |
 | "重复当前状态" | 始终 | TTS 重新播报 |
 
 ### 表单字段
-无（取消时弹出 CancelReasonSheet 选择原因）
+无
 
 ### 状态展示
 | 订单状态 | UI | 轮询 |
 |----------|-----|------|
-| matching | 旋转圆 + "匹配中" + 取消按钮 | 每 5 秒 `GET /api/orders/{id}` |
-| accepted | 志愿者昵称 + "已接单" + 取消按钮 + 求助按钮 | 每 5 秒轮询 |
-| arrived | 志愿者信息 + "已到达" + 确认开始按钮 + 取消按钮 + 求助按钮 | 每 5 秒轮询 |
+| PENDING_MATCH | 旋转圆 + "系统正在派单" + 取消按钮 | 每 5 秒 `GET /api/orders/{id}` |
+| PENDING_ACCEPT | 志愿者昵称 + "已接单" + 取消按钮 | 每 5 秒轮询 |
+| DRIVER_EN_ROUTE | 志愿者信息 + "已出发" | WebSocket，断线时每 5 秒轮询 |
+| DRIVER_ARRIVED | 志愿者信息 + "已到达" | WebSocket，断线时每 5 秒轮询 |
+| REMATCHING | 重新匹配提示 + 取消按钮 | 每 5 秒轮询 |
 
 ### 错误状态
 - 网络错误 → 保留上次查询结果，静默重试，不重复播报
 - 轮询接口异常 → Toast "获取订单状态失败"
-- 确认开始失败 → Toast "操作失败，请重试"
 - 取消失败 → Toast "取消失败"
 
 ### 空状态
 不适用（订单已创建）
 
 ### TTS 播报文案
-- matching → "订单提交成功，正在等待志愿者接单"
-- matching → accepted（状态变化时）："志愿者已接单，志愿者正在赶来"
-- accepted → arrived（状态变化时）："志愿者已到达约定地点，请确认开始服务"
-- matching → cancelled："抱歉，暂无志愿者可用。本次预约已取消。"
-- accepted / arrived → cancelled："预约已取消"
+- PENDING_MATCH → "订单提交成功，系统正在为你派单"
+- PENDING_MATCH → PENDING_ACCEPT（状态变化时）："志愿者已接单"，并朗读预约时间和出发地点，提示前往或等待在出发地点
+- DRIVER_EN_ROUTE → DRIVER_ARRIVED（状态变化时）："志愿者已到达约定地点"
+- PENDING_MATCH → CANCELLED："抱歉，暂无志愿者可用。本次预约已取消。"
+- PENDING_ACCEPT / REMATCHING → CANCELLED："预约已取消"
 - **注意**：轮询期间只在状态变化时播报一次，不重复播报同一状态
 
 ### VoiceOver 建议
 | 元素 | accessibilityLabel | accessibilityHint |
 |------|--------------------|-------------------|
-| 状态指示器 | 状态中文 + 说明，如 "匹配中，正在等待志愿者接单" | — |
+| 状态指示器 | 状态中文 + 说明，如 "系统正在派单，请稍候" | — |
 | 志愿者信息卡片 | "志愿者：" + 昵称 | — |
 | 志愿者电话 | "拨打志愿者电话 " + 完整号码 | — |
-| "确认开始服务" | "确认开始服务" | "点击后正式开始跑步" |
-| "取消订单" | "取消订单" | "需要选择取消原因并确认" |
-| "一键求助" | "一键求助，遇到紧急情况时点击" | "需要使用二次确认" |
+| "取消订单" | "取消订单" | "需要确认后取消当前订单" |
 | "重复当前状态" | "重复当前状态" | — |
 
 ### SwiftUI 布局建议
@@ -795,27 +770,19 @@ VStack(spacing: 0) {
             StatusIndicator(status: order.status)
                 .padding(.top, 60)
             
-            // 志愿者信息卡片（accepted/arrived 时）
-            if order.status == .accepted || order.status == .arrived {
-                VolunteerInfoCard(volunteer: order.volunteer, showPhone: order.status == .arrived)
+            // 志愿者信息卡片（PENDING_ACCEPT/DRIVER_EN_ROUTE/DRIVER_ARRIVED 时）
+            if [.pendingAccept, .driverEnRoute, .driverArrived].contains(order.status) {
+                VolunteerInfoCard(volunteer: order.volunteer, showPhone: true)
             }
             
             // 订单信息卡片
             OrderInfoCard(order: order)
             
-            // 确认开始按钮（arrived）
-            if order.status == .arrived {
-                LargePrimaryButton("确认开始服务") { confirmStart() }
-                    .frame(minHeight: 64)
-            }
+            // 服务开始由志愿者端触发；盲人端仅展示状态变化。
             
-            // 取消订单（matching/accepted/arrived）
-            Button("取消订单") { showCancelSheet = true }
-                .foregroundColor(.red)
-            
-            // 一键求助（accepted/arrived）
-            if order.status == .accepted || order.status == .arrived {
-                Button("一键求助") { showEmergencyConfirm = true }
+            // 取消订单（PENDING_MATCH/PENDING_ACCEPT/REMATCHING）
+            if [.pendingMatch, .pendingAccept, .rematching].contains(order.status) {
+                Button("取消订单") { showCancelConfirmation = true }
                     .foregroundColor(.red)
                     .frame(minHeight: 64)
             }
@@ -837,9 +804,9 @@ VStack(spacing: 0) {
 
 ### 旧 UI 必须修改的部分
 - 旧状态名 `pendingMatch/pendingAccept/driverEnRoute/driverArrived` → 全部替换
-- 旧版缺少 arrived 状态的 "确认开始服务" → 补齐
-- 旧版缺少 "一键求助" 入口 → 补齐
-- 旧版取消无双确认和固定原因 → 补齐 CancelReasonSheet
+- 服务开始不再需要盲人端确认按钮
+- 当前 release 不显示 "一键求助" 或 "紧急求助" 入口；未来恢复需专项安全变更
+- 旧版取消无双确认 → 补齐二次确认
 - 旧版三合一（状态+服务中+完成）→ 拆分为独立的三个页面
 - 旧版缺少 "重复当前状态" → 补齐
 
@@ -851,34 +818,33 @@ VStack(spacing: 0) {
 盲人服务中页
 
 ### 页面目标
-`in_progress` 状态中展示服务信息和求助入口。
+`IN_PROGRESS` 状态中展示服务信息；当前 release 隐藏求助入口。
 
 ### 适用角色
 盲人跑者
 
 ### 页面入口
-订单状态变为 `in_progress` 时自动跳转 / 盲人首页点击进行中订单
+订单状态变为 `IN_PROGRESS` 时自动跳转 / 盲人首页点击进行中订单
 
 ### 页面主要内容
 - 页面标题："服务进行中"
 - 志愿者信息卡片（昵称 + 联系电话，可点击拨打）
 - 服务进度信息：开始时间 / 已进行时长
-- "一键求助" 大按钮（红色醒目，最小高度 64pt）
+- 当前 release 不显示"一键求助"或"紧急求助"入口
 - "重复当前状态" 按钮
 
 ### 主要按钮
 | 按钮 | 行为 |
 |------|------|
 | 志愿者电话 | 点击 → 系统拨号 |
-| "一键求助" | DangerConfirmDialog（固定文案） → 确认 → emergency |
 | "重复当前状态" | TTS 重新播报当前状态 |
 
 ### 表单字段
 无
 
 ### 状态展示
-- in_progress：显示志愿者信息 + 服务已开始时长的计时器
-- 每 5 秒轮询 `GET /api/orders/{id}`，检测 completed / emergency
+- IN_PROGRESS：显示志愿者信息 + 服务已开始时长的计时器
+- 每 5 秒轮询 `GET /api/orders/{id}`，检测 COMPLETED / emergency event
 
 ### 错误状态
 - 网络错误 → 保留当前 UI，静默重试
@@ -889,14 +855,12 @@ VStack(spacing: 0) {
 
 ### TTS 播报文案
 - 进入页："服务已开始，祝您跑步愉快。志愿者：" + 昵称
-- in_progress → completed（轮询变化）："服务已完成，感谢使用助盲跑"
-- in_progress → emergency（轮询变化）："已进入求助状态，请保持冷静"
+- IN_PROGRESS → COMPLETED（轮询变化）："服务已完成，感谢使用助盲跑"
 
 ### VoiceOver 建议
 | 元素 | accessibilityLabel | accessibilityHint |
 |------|--------------------|-------------------|
 | 志愿者电话按钮 | "拨打志愿者电话 " + 完整号码 | — |
-| "一键求助" | "一键求助，遇到紧急情况时点击" | "确认后将标记为异常状态" |
 | "重复当前状态" | "重复当前状态" | — |
 | 计时器 | "服务已进行 " + N + " 分钟" | — |
 
@@ -915,12 +879,6 @@ VStack(spacing: 0) {
             VolunteerInfoCard(volunteer: volunteer, showPhone: true)
             
             Spacer().frame(height: 40)
-            
-            // 紧急求助
-            Button("一键求助") { showEmergencyConfirm = true }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .frame(minHeight: 64)
         }
         .padding()
     }
@@ -936,8 +894,8 @@ VStack(spacing: 0) {
 - 轮询监听状态变化
 
 ### 旧 UI 必须修改的部分
-- 旧版 `BlindActiveRunPage` 混合了多种状态 → 拆分为独立 in_progress 页
-- 旧版缺少独立的紧急求助按钮 → 补齐
+- 旧版 `BlindActiveRunPage` 混合了多种状态 → 拆分为独立 IN_PROGRESS 页
+- 当前 release 不显示紧急求助按钮；未来恢复需专项安全变更
 - 旧版缺少 "重复当前状态" → 补齐
 
 ---
@@ -954,7 +912,7 @@ VStack(spacing: 0) {
 盲人跑者
 
 ### 页面入口
-订单状态变为 `completed` 时自动跳转
+订单状态变为 `COMPLETED` 时自动跳转
 
 ### 页面主要内容
 - 完成图标/动画 + "服务已完成"
@@ -1174,7 +1132,7 @@ VStack {
 志愿者首页
 
 ### 页面目标
-志愿者功能总览：查看附近订单、管理可服务状态、积分信息。
+志愿者系统派单工作台：查看当前订单、接单开关、覆盖范围、派单状态和服务统计。
 
 ### 适用角色
 志愿者
@@ -1183,195 +1141,108 @@ VStack {
 认证完成 / 登录（已有认证资料）/ 服务完成返回 / 切换角色
 
 ### 页面主要内容
-- **顶部用户信息栏**：昵称 + 积分余额（如 "350 积分"）
+- **顶部用户信息栏**：昵称 + 系统派单状态 + 定位摘要
 - **可服务开关**（Toggle，新志愿者默认关闭，需手动开启）
   - 开启：绿色 "可接单"
   - 关闭：灰色 "已关闭接单"
-- **高德小地图**（上 1/3 区域）：显示当前位置 + 附近订单 marker
-- **附近订单卡片列表**（前 3 个，按距离排序）：
-  - 每张卡片：盲人昵称、距离、出发地点、预约时间
-- "查看全部订单" 链接
+- **当前订单提示框**：有志愿者活跃订单时显示状态、盲人昵称、地点、预约时间，点击进入订单详情或服务页面
+- **高德地图全屏背景**：显示当前位置 + 覆盖范围；首页隐藏地图指南针
+- **派单状态卡片**：显示 `canDispatch`、不可接单原因、在线/定位状态、可服务时间命中情况
+- **服务统计卡片**：显示临时积分、完成次数、平均评分、派单/接受/拒绝/超时次数和接单率
+- **近期订单列表**：显示盲人昵称、地点、预约时间、状态、评分和积分占位
 - **底部标签栏**：首页 / 服务记录 / 积分商城 / 设置
 
 ### 主要按钮
 | 按钮 | 行为 |
 |------|------|
 | 可服务开关 Toggle | 即时调用 API 更新状态 |
-| 订单卡片 | 点击 → 进入订单详情页 |
-| "查看全部订单" | 进入订单列表页 |
+| 当前订单提示框 | 点击 → `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 进入服务页面 |
+| 近期订单卡片 | 点击 → 当前订单进入订单详情或服务页面；历史订单作为记录展示 |
 | 底部 Tab | 切换页面 |
 
 ### 表单字段
 无（Toggle 是控件）
 
 ### 状态展示
-- 可服务开：绿色 Toggle + "附近有 N 个可接订单" + 订单卡片显示距离
-- 可服务关：灰色 Toggle + 订单仍可见（无距离数字）+ 接单按钮被禁用
-- 定位不可用：地图灰色占位 + 订单无距离信息 + 接单按钮禁用 + 提示开启定位
-- 定位正常但无订单：地图正常 + "暂无可用订单，请稍后再来"
+- 可服务开且可派单：绿色 Toggle + "已上线，等待系统派单"
+- 可服务关：灰色 Toggle + "已关闭接单，不会收到新的系统派单"
+- 有当前订单：顶部用户信息栏下方显示当前订单提示框；终态订单不显示
+- 定位不可用：地图灰色占位 + 提示开启定位，系统派单不可用
+- 无当前订单：显示"等待系统派单"
+- 地图当前位置蓝点：展示当前位置和覆盖半径
 
 ### 错误状态
-- 定位权限拒绝 → "需要开启定位权限才能查看距离和接单" + "去设置" 按钮
-- 订单加载失败 → "加载失败，下拉重试"
+- 定位权限拒绝 → "需要开启定位权限才能接收系统派单" + "去设置" 按钮
+- 派单摘要加载失败 → "加载失败，请重试"
 - 网络错误 → 保留上次缓存数据
 
 ### 空状态
-无可用订单 → 空状态插图 + "暂无可用订单，请稍后再来"
+无当前订单 → "等待系统派单" 或按不可接单原因展示说明
 
 ### TTS 播报文案
-进入页："欢迎来到志愿者中心。可服务状态：" + 开/关 + "。附近有 " + N + " 个可接订单。"
+进入页："欢迎来到志愿者中心。当前状态：" + 派单状态文案。
 
 ### VoiceOver 建议
 | 元素 | accessibilityLabel | accessibilityHint |
 |------|--------------------|-------------------|
-| 可服务开关 | "可服务开关，" + 当前状态 | "关闭后其他用户看不到你的接单状态，但不影响当前订单" |
-| 订单卡片 | "盲人：" + 昵称 + "，距离：" + 距离 + "，" + 地点 + "，" + 时间 | "点击查看订单详情" |
-| 积分余额 | "当前积分：" + 数字 + "分" | — |
-| "查看全部订单" | "查看全部订单" | — |
+| 可服务开关 | "可服务开关，" + 当前状态 | "关闭后不会收到新的系统派单，但不影响当前订单" |
+| 当前订单提示框 | "当前订单：" + 状态 + 盲人昵称 + 地点 | "点击进入当前订单" |
+| 派单状态卡片 | 当前派单状态 + 不可接单原因 | — |
+| 近期订单卡片 | "盲人：" + 昵称 + "，地点：" + 地点 + "，时间：" + 时间 + "，状态：" + 状态 + "，积分：" + 积分 | — |
 
 ### SwiftUI 布局建议
 ```
-VStack(spacing: 0) {
-    // 用户信息 + 可服务开关
-    HStack {
-        VStack(alignment: .leading) {
-            Text(nickname).font(.headline)
-            Text("\(points) 积分").font(.subheadline)
+ZStack(alignment: .bottom) {
+    AMapContainer(
+        location: currentLocation,
+        markers: orderMarkers,
+        showsCompass: false,
+        screenAnchor: calculatedVisibleCenterAnchor
+    )
+    .ignoresSafeArea()
+
+    VStack(spacing: 8) {
+        VolunteerHomeStatusOverlay(...)
+        if let activeOrder {
+            VolunteerCurrentOrderCard(order: activeOrder)
         }
         Spacer()
-        Toggle("可服务", isOn: $isAvailable)
-            .labelsHidden()
     }
-    .padding(.horizontal)
-    
-    // 地图
-    AMapContainer(location: currentLocation, markers: orderMarkers)
-        .frame(height: UIScreen.main.bounds.height / 3)
-    
-    // 附近订单
-    ScrollView {
-        VStack(spacing: 12) {
-            ForEach(nearbyOrders.prefix(3)) { order in
-                OrderCardView(order: order, showDistance: locationAuthorized)
-            }
-            NavigationLink("查看全部订单") { OrderListView() }
-        }
-        .padding()
-    }
-    
-    // 底部 TabBar
-    TabBar(selectedTab: $selectedTab)
+
+    VolunteerDemandPanel(detent: $detent, orders: nearbyOrders)
 }
 ```
 
 ### 旧 UI 可保留的部分
-- 地图 + 底部列表的空间模型
+- 地图作为覆盖范围背景
 - 可服务开关放在首页首屏
 - 定位失败状态文案
 
 ### 旧 UI 必须修改的部分
-- 旧版 WebSocket 实时派单概念 → 改为静态加载
+- 旧版首页公开订单列表 → 改为系统派单工作台；首页通过 `GET /api/volunteer/dispatch-summary` 刷新派单状态、统计、当前订单和近期订单
 - 旧版可服务开关文案 "推送" → 改为 "可接单"
 - 旧版接单前可能出现盲人电话 → 确保隐藏
-- 旧版缺积分展示 → 补齐
+- 顶部不显示导航标题和右上角设置按钮；设置保留在底部入口
+- 首页地图隐藏指南针，当前位置蓝点按可视区域居中
+- 当前订单必须在首页可回到订单详情或服务页面
 - **注意**：可服务开关仅影响接新单，不影响当前已接订单
 
 ---
 
-## 11. 志愿者订单列表页
+## 11. 志愿者订单列表页（已删除，2026-08-07）
 
-### 页面名称
-志愿者订单列表页
+这一页**不存在了**，代码已从 `blindRun/Volunteer/VolunteerOrderFlowViews.swift` 删除。
+不要按旧稿重新实现它 —— 完整理由见 `docs/05-page-specs.md` 的「页面 11」。
 
-### 页面目标
-展示所有 `matching` 状态可接订单，按距离排序。
+一句话版：它从来没有入口（系统派单上线后被有意不接进主流程），
+拿到的数据从 2026-05-24 起因契约形状不符而恒为空且不报错，
+点进详情又会因订单处于 `PENDING_MATCH` 被后端返 403 —— 三条同时成立。
 
-### 适用角色
-志愿者
+若未来要重做，注意旧稿里这几条已经不成立：
 
-### 页面入口
-志愿者首页 → "查看全部订单" / 底部标签栏
-
-### 页面主要内容
-- 标题："可接订单"
-- 顶部可服务开关（快速切换，无需回首页）
-- 刷新提示
-- 订单列表（List，支持下拉刷新）：
-  - 每项卡片：盲人昵称、距离（定位可用时）、出发地点、预约时间、备注预览
-  - 按距离从近到远排序
-- 空状态（无订单时）
-
-### 主要按钮
-| 按钮 | 行为 |
-|------|------|
-| 可服务开关 | 即时切换 |
-| 订单卡片 | 点击 → 进入订单详情页 |
-| 下拉刷新 | 重新拉取列表 |
-
-### 表单字段
-无
-
-### 状态展示
-- 加载中：骨架屏 / spinner
-- 加载完成：订单列表
-- 某个订单被接走：下次刷新时从列表中移除
-- 定位可用：显示距离数字
-- 定位不可用：隐藏距离，接单按钮禁用
-- 可服务关：订单可见但接单按钮禁用
-
-### 错误状态
-- 网络错误 → "加载失败，下拉重试"
-- 定位权限拒绝 → "需要定位权限" 提示 + 距离隐藏 + 接单禁用
-
-### 空状态
-无 matching 订单 → 空状态插图 + "暂无可用订单" + "下拉刷新" 提示
-
-### TTS 播报文案
-（此页面非盲人端，TTS 不强制；但建议为 VoiceOver 完整做无障碍）
-进入页："可接订单列表，共 " + N + " 个订单。"
-
-### VoiceOver 建议
-| 元素 | accessibilityLabel | accessibilityHint |
-|------|--------------------|-------------------|
-| 订单卡片 | "盲人：" + 昵称 + "，距离：" + 距离 + "，地点：" + 出发地点 + "，时间：" + 预约时间 | "点击查看详情" |
-| 可服务开关 | "可服务开关" | — |
-| 下拉刷新 | — | "下拉刷新订单列表" |
-
-### SwiftUI 布局建议
-```
-VStack(spacing: 0) {
-    // 顶部可服务开关
-    HStack {
-        Text("可服务")
-        Toggle("", isOn: $isAvailable)
-    }
-    .padding(.horizontal)
-    
-    // 订单列表
-    List {
-        ForEach(orders) { order in
-            NavigationLink(destination: OrderDetailView(orderId: order.id)) {
-                OrderCardView(order: order, showDistance: locationAuthorized)
-            }
-        }
-    }
-    .refreshable { await loadOrders() }
-    .overlay {
-        if orders.isEmpty {
-            ContentUnavailableView("暂无可用订单", systemImage: "figure.run", description: Text("下拉刷新试试"))
-        }
-    }
-}
-```
-
-### 旧 UI 可保留的部分
-- 地图 + 底部列表布局方向的视觉参考（此页为纯列表，地图已在首页）
-- 下拉刷新
-
-### 旧 UI 必须修改的部分
-- 旧版接单在列表卡片内直接操作 → 新版本必须点击进入详情页再接单
-- 旧版可能展示盲人电话 → 确保隐藏
-- 旧版缺少可服务开关的快速切换
+- 「卡片展示盲人昵称」：`AvailableOrderResponse` 不含姓名，只有掩码手机号。
+- 「按距离从近到远排序」：后端已按距离升序返回并自带 `distanceKm`，客户端不需要再排。
+- 「点击进入详情页再接单」：接单前拿不到详情（403），接单动作只能放在卡片上。
 
 ---
 
@@ -1393,12 +1264,12 @@ VStack(spacing: 0) {
 - **订单信息区**：
   - 出发地点
   - 预约时间
-  - 目的地/路线（如有）
+  - 路线备注（如有）
   - 预计时长（如有）
-  - 预计距离（如有）
   - 配速偏好（如有）
-  - 是否需要同性志愿者（如有）
-  - 备注（如有）
+  - 路线偏好（如有）
+  - 导盲犬（如有）
+  - 特殊说明（如有）
 - **盲人非敏感信息**：昵称（**不含**联系电话、紧急联系人）
 - **高德地图**：显示出发地点 marker、当前志愿者位置、距离数值
 - **"接单" 按钮**（底部固定，绿色醒目，最小 64pt）
@@ -1407,26 +1278,27 @@ VStack(spacing: 0) {
 - 订单信息同上
 - **盲人完整信息**：昵称 + 联系电话（可点击拨打）
 - "查看地图" 按钮（显示高德地图出发点、当前位置、距离，不做路线导航）
+- "我已出发" 按钮
 - "我已到达" 按钮
 - "取消订单" 按钮
-- "一键求助" 按钮
+- 当前 release 不显示"一键求助"或"紧急求助"入口
 
 ### 主要按钮
 | 按钮 | 可见条件 | 行为 |
 |------|----------|------|
-| "接单" | 接单前 | 确认弹窗 → `POST /api/orders/{id}/accept` → 成功切换接单后 UI |
+| "接单" | 接单前 | 确认弹窗 → 先通过 WebSocket 补报当前位置 → `POST /api/orders/{id}/respond` with `action=ACCEPT` → 成功切换接单后 UI |
 | "查看地图" | 接单后 | 显示出发点位置、当前位置和距离信息 |
-| "我已到达" | 接单后（状态为 accepted） | `POST /api/orders/{id}/arrive` → 状态变 arrived |
-| "取消订单" | 接单后（状态为 accepted / arrived） | CancelReasonSheet → cancelled |
-| "一键求助" | 接单后（状态为 accepted / arrived） | DangerConfirmDialog → emergency |
+| "我已出发" | 接单后（状态为 PENDING_ACCEPT） | `POST /api/orders/{id}/en-route` → 状态变 DRIVER_EN_ROUTE |
+| "我已到达" | 出发后（状态为 DRIVER_EN_ROUTE） | `POST /api/orders/{id}/arrived` → 状态变 DRIVER_ARRIVED |
+| "取消订单" | 接单后（状态为 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS） | 二次确认 → REMATCHING |
 
 ### 表单字段
-无（取消时弹出 CancelReasonSheet）
+无
 
 ### 状态展示
 - 加载中：骨架屏
 - 接单前：完整订单信息 + 隐藏电话 + "接单" 按钮
-- 接单后：显示电话 + "查看地图" + "我已到达" + 危险操作
+- 接单后：显示电话 + "查看地图" + 服务推进动作 + 取消操作
 - 接单中：按钮 loading
 
 ### 错误状态
@@ -1447,8 +1319,7 @@ VStack(spacing: 0) {
 | 盲人电话（接单后） | "拨打盲人电话 " + 号码 | — |
 | "查看地图" | "查看出发点位置" | "显示出发点、当前位置和距离" |
 | "我已到达" | "我已到达约定地点" | — |
-| "取消订单" | "取消订单" | "需要选择取消原因并确认" |
-| "一键求助" | "一键求助" | "确认后将标记为异常状态" |
+| "取消订单" | "取消订单" | "需要确认后取消当前服务，系统将为盲人重新匹配" |
 
 ### SwiftUI 布局建议
 ```
@@ -1475,11 +1346,11 @@ ScrollView {
             VStack(spacing: 12) {
                 Button("查看地图") { showMapDetail = true }
                     .frame(minHeight: 52)
+                Button("我已出发") { markEnRoute() }
+                    .frame(minHeight: 52)
                 Button("我已到达") { arrive() }
                     .frame(minHeight: 52)
-                Button("取消订单", role: .destructive) { showCancelSheet = true }
-                Button("一键求助", role: .destructive) { showEmergencyConfirm = true }
-                    .frame(minHeight: 64)
+                Button("取消订单", role: .destructive) { showCancelConfirmation = true }
             }
         }
     }
@@ -1495,7 +1366,7 @@ ScrollView {
 - 旧版在列表卡片内直接接单 → 改为独立详情页再接单
 - 旧版 "导航" → 改为 "查看地图"（不做路线导航）
 - 旧版缺接单确认弹窗 → 补齐
-- 旧版缺取消原因选择 → 补齐 CancelReasonSheet
+- 当前 release 不显示求助入口；志愿者取消已接单服务后订单进入 REMATCHING
 
 ---
 
@@ -1505,44 +1376,48 @@ ScrollView {
 志愿者服务中页
 
 ### 页面目标
-志愿者管理 accepted / arrived / in_progress 各阶段的订单执行。
+志愿者管理 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 各阶段的订单执行。
 
 ### 适用角色
 志愿者
 
 ### 页面入口
-接单成功后进入（accepted 状态）/ 从首页或列表点击当前订单
+接单成功后进入（PENDING_ACCEPT 状态）/ 从首页或列表点击当前订单
 
 ### 页面主要内容
 - **状态指示区**：
-  - accepted：绿色 + "已接单，请前往约定地点"
-  - arrived：蓝色 + "已到达，等待盲人确认开始服务"
-  - in_progress：绿色 + "服务进行中"
+  - PENDING_ACCEPT：绿色 + "已接单，请前往约定地点"
+  - DRIVER_EN_ROUTE：绿色 + "前往出发地点"
+  - DRIVER_ARRIVED：蓝色 + "已到达，准备开始服务"
+  - IN_PROGRESS：绿色 + "服务进行中"
 - **盲人信息卡片**：昵称 + 联系电话（可点击拨打）
 - **订单信息**：出发地点、预约时间
 - **高德小地图**：出发地点 marker
 - **底部操作区**（根据状态变化）：
-  - accepted："我已到达" + "取消订单" + "一键求助"
-  - arrived："等待盲人确认开始..." + "一键求助"
-  - in_progress："结束服务" + "一键求助"
+  - PENDING_ACCEPT："我已出发" + "取消订单"
+  - DRIVER_EN_ROUTE："我已到达" + "取消订单"
+  - DRIVER_ARRIVED："开始服务" + "取消订单"
+  - IN_PROGRESS："结束服务" + "取消订单"
+  - 当前 release 不显示"一键求助"或"紧急求助"入口
 
 ### 主要按钮
 | 按钮 | 可见状态 | 行为 |
 |------|----------|------|
-| "我已到达" | accepted | `POST /api/orders/{id}/arrive` → arrived |
-| "取消订单" | accepted / arrived | CancelReasonSheet → cancelled |
-| "结束服务" | in_progress | DangerConfirmDialog（可选服务总结） → completed |
-| "一键求助" | accepted / arrived / in_progress | DangerConfirmDialog → emergency |
+| "我已到达" | DRIVER_EN_ROUTE | `POST /api/orders/{id}/arrived` → DRIVER_ARRIVED |
+| "开始服务" | DRIVER_ARRIVED | `POST /api/orders/{id}/start-service` → IN_PROGRESS |
+| "取消订单" | PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS | 二次确认 → REMATCHING |
+| "结束服务" | IN_PROGRESS | DangerConfirmDialog（可选服务总结） → COMPLETED |
 | 盲人电话 | 始终（接单后） | 系统拨号 |
 
 ### 表单字段
 服务总结输入框（选填，结束服务时弹出，多行文本）
 
 ### 状态展示
-- accepted：显示 "我已到达" 按钮
-- arrived：等待盲人确认提示（非按钮操作），显示求助按钮
-- in_progress：显示 "结束服务" 按钮
-- 每 5 秒轮询（监听盲人确认开始、紧急求助）
+- PENDING_ACCEPT：显示 "我已出发" 按钮
+- DRIVER_EN_ROUTE：显示 "我已到达" 按钮
+- DRIVER_ARRIVED：显示 "开始服务" 按钮
+- IN_PROGRESS：显示 "结束服务" 按钮
+- WebSocket 监听状态与紧急事件，断线时每 5 秒轮询
 
 ### 错误状态
 - 网络错误 → 保留当前 UI，静默重试
@@ -1554,15 +1429,15 @@ ScrollView {
 
 ### TTS 播报文案
 （非盲人端，TTS 不强制）
-进入 in_progress 时："服务已开始"（可选播报）
+进入 IN_PROGRESS 时："服务已开始"（可选播报）
 
 ### VoiceOver 建议
 | 元素 | accessibilityLabel | accessibilityHint |
 |------|--------------------|-------------------|
 | "我已到达" | "我已到达约定地点" | — |
+| "开始服务" | "开始服务" | "确认已与盲人跑者会合后开始服务" |
 | "结束服务" | "结束服务" | "需要使用二次确认" |
-| "取消订单" | "取消订单" | "需要选择取消原因并确认" |
-| "一键求助" | "一键求助" | "确认后将标记为异常状态" |
+| "取消订单" | "取消订单" | "需要确认后取消当前服务，系统将为盲人重新匹配" |
 | 盲人电话 | "拨打盲人电话 " + 号码 | — |
 
 ### SwiftUI 布局建议
@@ -1588,16 +1463,19 @@ VStack(spacing: 0) {
     
     // 底部操作栏（根据状态变化）
     VStack(spacing: 12) {
-        if order.status == .accepted {
+        if order.status == .pendingAccept {
+            LargePrimaryButton("我已出发") { markEnRoute() }
+            Button("取消订单", role: .destructive) { showCancelConfirmation = true }
+        } else if order.status == .driverEnRoute {
             LargePrimaryButton("我已到达") { arrive() }
-            Button("取消订单", role: .destructive) { showCancelSheet = true }
-        } else if order.status == .arrived {
-            Text("等待盲人确认开始服务...").foregroundColor(.secondary)
+            Button("取消订单", role: .destructive) { showCancelConfirmation = true }
+        } else if order.status == .driverArrived {
+            LargePrimaryButton("开始服务") { startService() }
+            Button("取消订单", role: .destructive) { showCancelConfirmation = true }
         } else if order.status == .inProgress {
             LargePrimaryButton("结束服务") { showCompleteConfirm = true }
+            Button("取消订单", role: .destructive) { showCancelConfirmation = true }
         }
-        Button("一键求助", role: .destructive) { showEmergencyConfirm = true }
-            .frame(minHeight: 64)
     }
     .padding()
 }
@@ -1611,9 +1489,9 @@ VStack(spacing: 0) {
 - 完成结算反馈
 
 ### 旧 UI 必须修改的部分
-- 旧动作链 `inProgress → driverEnRoute → driverArrived → completed` → 替换为 `accepted → arrived → in_progress → completed`
-- 旧版缺少等待盲人确认开始的状态（arrived） → 补齐
-- 旧版 "我已出发" 动作 → 删除（不在当前状态机中）
+- 旧动作链 `inProgress -> driverEnRoute -> driverArrived -> completed` → 替换为 `PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED`
+- 保留 DRIVER_ARRIVED 状态展示，服务开始由志愿者端触发
+- 保留"我已出发"动作，对应 `DRIVER_EN_ROUTE`
 - 旧版结束服务缺少二次确认和可选服务总结 → 补齐
 - 旧版结算积分 `+50` → 改为 `+100`
 
@@ -1644,7 +1522,6 @@ VStack(spacing: 0) {
 |------|------|
 | 记录卡片 | 点击 → 只读订单详情 |
 | 下拉刷新 | 重新加载 |
-| "去接单"（空状态） | 跳转订单列表页 |
 
 ### 表单字段
 无
@@ -1658,7 +1535,7 @@ VStack(spacing: 0) {
 - 网络错误 → "加载失败，下拉重试"
 
 ### 空状态
-无服务记录 → 空状态插图 + "暂无服务记录" + "去接单" 按钮（跳转订单列表页，最小 64pt）
+无服务记录 → 空状态插图 + "暂无服务记录" + "完成服务后记录将显示在这里。开启可服务状态后，系统会自动派单。"
 
 ### TTS 播报文案
 （非盲人端，TTS 不强制）
@@ -1667,7 +1544,7 @@ VStack(spacing: 0) {
 | 元素 | accessibilityLabel | accessibilityHint |
 |------|--------------------|-------------------|
 | 每条记录 | "时间：" + 时间 + "，盲人：" + 昵称 + "，地点：" + 出发地点 + "，状态：" + 状态 + "，积分：" + 积分 | — |
-| "去接单" 按钮 | "去接单" | "点击查看可接订单" |
+| "返回首页" 按钮 | "返回首页" | "回到系统派单工作台" |
 
 ### SwiftUI 布局建议
 ```
@@ -1692,8 +1569,7 @@ List {
 .refreshable { await loadRecords() }
 .overlay {
     if serviceRecords.isEmpty {
-        ContentUnavailableView("暂无服务记录", systemImage: "clock", description: Text("完成服务后记录将显示在这里"))
-        // "去接单" 按钮
+        ContentUnavailableView("暂无服务记录", systemImage: "clock", description: Text("完成服务后记录将显示在这里。开启可服务状态后，系统会自动派单。"))
     }
 }
 ```
@@ -1704,7 +1580,7 @@ List {
 
 ### 旧 UI 必须修改的部分
 - 旧版积分显示 `+50` → 改为 `+100`
-- 旧版空状态缺少 "去接单" 按钮 → 补齐
+- 不提供跳转公开订单池的空状态按钮
 - 旧版缺只读详情入口 → 补齐
 
 ---
@@ -1827,7 +1703,7 @@ ScrollView {
 - **菜单列表**：
   - 个人资料 → 进入对应角色资料编辑页
   - 切换角色 → 角色选择页（检查活跃订单）
-  - API 环境 → 选择器（Mock / 本地后端 / 生产后端）
+  - API 环境 → 选择器（仅 Debug：Mock / 演示云端）
   - 关于 → App 名称、版本号、Build 号
   - 退出登录 → 红色文字，底部独立，二次确认
 
@@ -1845,7 +1721,7 @@ ScrollView {
 
 ### 状态展示
 - 当前角色标签：盲人跑者 / 志愿者
-- 当前 API 环境标签：Mock / 本地 / 生产
+- 当前 API 环境标签：Mock / 演示云端 / 生产
 
 ### 错误状态
 - 退出登录失败 → "退出失败，请重试"
@@ -1887,8 +1763,7 @@ List {
         Button("切换角色") { checkAndSwitchRole() }
         Picker("API 环境", selection: $apiEnvironment) {
             Text("Mock").tag("mock")
-            Text("本地后端").tag("local")
-            Text("生产后端").tag("production")
+            Text("演示云端").tag("demoCloud")
         }
         NavigationLink("关于") { AboutView() }
     }
@@ -1927,7 +1802,7 @@ List {
 // 订单状态卡片
 // 包含：大号状态图标/动画 + 状态中文 + 一行辅助说明
 // 背景：圆角卡片， muted 背景色
-// 7 个状态各自有对应颜色和文案
+// 9 个当前后端状态各自有对应颜色和文案
 ```
 
 ### DangerConfirmDialog
@@ -1941,12 +1816,13 @@ List {
 // 必须有两个按钮："取消"（取消操作）和 "确认"（执行操作）
 ```
 
-### CancelReasonSheet
+### CancelConfirmation
 ```swift
-// 取消原因选择
-// 5 个固定选项：时间不合适、地点填写错误、临时有事、联系不上对方、其他
-// Picker 或 ActionSheet 形式
-// 选择后确认 → 调用取消 API
+// 取消确认
+// 当前取消接口 POST /api/orders/{id}/cancel 不需要请求体
+// 盲人仅 PENDING_MATCH / PENDING_ACCEPT / REMATCHING 可取消
+// 志愿者仅 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 可取消
+// 确认后调用取消 API
 ```
 
 ### RepeatStatusButton
@@ -1970,13 +1846,15 @@ List {
 
 | 状态 | 盲人端文案 | 志愿者端文案 | 图标/颜色 |
 |------|------------|-------------|-----------|
-| `matching` | 匹配中，等待志愿者接单 | 可接订单 | 橙色旋转 |
-| `accepted` | 志愿者已接单，正在赶来 | 已接单，请前往约定地点 | 绿色勾 |
-| `arrived` | 志愿者已到达，请确认开始服务 | 已到达，等待盲人确认 | 蓝色铃铛 |
-| `in_progress` | 服务已开始，请注意安全 | 服务进行中 | 绿色播放 |
-| `completed` | 服务已完成，感谢使用助盲跑 | 服务完成，+100 积分 | 绿色对勾 |
-| `cancelled` | 本次预约已取消 | 订单已取消 | 灰色叉 |
-| `emergency` | 已进入求助状态 | 已进入求助状态 | 红色感叹号 |
+| `PENDING_MATCH` | 系统正在派单，请稍候 | 等待系统派单 | 橙色旋转 |
+| `PENDING_ACCEPT` | 待出发 | 待出发 | 橙色提示 |
+| `DRIVER_EN_ROUTE` | 志愿者已出发，正在前往出发地点 | 正在前往约定地点 | 蓝色箭头 |
+| `DRIVER_ARRIVED` | 志愿者已到达 | 已到达，准备开始服务 | 蓝色铃铛 |
+| `IN_PROGRESS` | 服务已开始，请注意安全 | 服务进行中 | 绿色播放 |
+| `COMPLETED` | 服务已完成，感谢使用助盲跑 | 服务完成，+100 积分 | 绿色对勾 |
+| `CANCELLED` | 本次预约已取消 | 订单已取消 | 灰色叉 |
+| `REMATCHING` | 正在确认志愿者状态，请稍候 | 不作为志愿者活跃订单展示 | 橙色重试 |
+| `NO_VOLUNTEER` | 暂时没有可用志愿者 | 暂无可接订单 | 灰色提示 |
 
 ---
 
@@ -1996,8 +1874,7 @@ List {
 - WebSocket 实时派单 / 重连状态 / 连接状态 UI
 - "AI 语音助手" 入口和气泡
 - "现在出发" "明天上午" "今天晚上" 自然语言时间选择
-- `pendingMatch` `pendingAccept` `driverEnRoute` `driverArrived` `rematching` `noVolunteer` 状态和对应 UI
-- "我已出发" 动作按钮
+- 旧订单状态词汇（`submitted`、`contacted`、`expired`、`matching`、`accepted`、`arrived`、`emergency`）和对应 UI
 - 接单前展示盲人电话
 - 三档评价（好评/一般/差评）
 - `+50` 积分显示

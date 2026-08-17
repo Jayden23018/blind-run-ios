@@ -6,7 +6,7 @@
 
 1. `AGENTS.md`
 2. `docs/01-10`
-3. `openspec/changes/add-aidrun-ios-spring-mvp/`
+3. `openspec/changes/remove-local-backend-use-cloud-only/`
 4. `docs/ui/ui-handoff-ios.md`
 5. 本目录截图（最低优先级）
 
@@ -53,7 +53,7 @@
 | 07 | 07-order-matching-2.png | P6 订单状态等待页 | blind_runner | Orders | 匹配中另一状态截图 | ✅ 大部分 | 同 06 |
 | 08 | 08-order-matching-3.png | P6 订单状态等待页 | blind_runner | Orders | 匹配中第三状态截图 | ✅ 大部分 | 同 06 |
 | 09 | 09-order-accepted.png | P6 订单状态等待页 (accepted) | blind_runner | Orders | 志愿者接单后信息卡片、志愿者姓名展示 | ✅ 大部分 | 否：需添加"一键求助"按钮和志愿者联系电话 |
-| 10 | 10-volunteer-arrived.png | P6 订单状态等待页 (arrived) | blind_runner | Orders | 志愿者到达状态展示、操作引导文案 | ⚠️ 部分 | 是：需突出显示"确认开始服务"64pt 主按钮 |
+| 10 | 10-volunteer-arrived.png | P6 订单状态等待页 (arrived) | blind_runner | Orders | 志愿者到达状态展示、操作引导文案 | ⚠️ 部分 | 是：盲人端不提供开始服务按钮，仅被动提示"等待志愿者开始服务" |
 | 11 | 11-service-completed-rating.png | P8 完成/评分页 | blind_runner | Orders | 大面积色块评价按钮、黑底高对比 | ❌ 重设计 | 是：旧版是三档评价（非常满意/基本满意/需要改进），新版必须改为 1-5 星评分；移除"AI语音助手" |
 | 12 | 12-service-completed-result.png | P8 完成/评分页 | blind_runner | Orders | 完成结果展示布局 | ⚠️ 部分 | 是：需增加服务摘要（时长、志愿者、地点）和"返回首页"按钮 |
 
@@ -67,7 +67,7 @@
 | 02 | 02-volunteer-profile-verification.png | P9 志愿者认证页 | volunteer | Profile | 认证流程 UI、状态显示 | ⚠️ 部分 | 是：需单独认证页面，Mock 一键认证按钮，状态显示改为中文（非英文 APPROVED）|
 | 03 | 03-available-orders.png | P11 志愿者订单列表页 | volunteer | Orders | 订单卡片（地点、时间、部分遮掩电话）、"立即接单"按钮、地图+列表混合布局 | ⚠️ 部分 | 是：接单前必须完全隐藏电话（非部分遮掩）；需添加距离排序信息；"立即接单"改为进入详情页后再接单 |
 | 04 | 04-order-detail-after-accept.png | P12 志愿者订单详情页 | volunteer | Orders | 接单后详情布局、联系信息展示 | ✅ 大部分 | 否：接单后显示完整电话可保留；需补充地图显示和"我已到达"按钮 |
-| 05 | 05-arrived-confirmation.png | P13 志愿者服务中页 (arrived) | volunteer | Orders | 到达确认页布局 | ✅ 大部分 | 否：到达后等待盲人确认的状态展示可参考 |
+| 05 | 05-arrived-confirmation.png | P13 志愿者服务中页 (arrived) | volunteer | Orders | 到达确认页布局 | ⚠️ 部分 | 是：到达后旧确认状态已过时，当前应显示志愿者端"开始服务"按钮 |
 | 06 | 06-service-in-progress.png | P13 志愿者服务中页 (in_progress) | volunteer | Orders | 全屏地图+底部信息卡、"已到达集合点"状态文字、盲人信息卡（含备注）、红色"结束行程"按钮 | ⚠️ 部分 | 是：按钮文案改为"结束服务"；需添加"一键求助"按钮；电话显示需按接单后规则完整展示 |
 | 07 | 07-complete-service-summary.png | P13 志愿者服务中页 (complete) | volunteer | Orders | 完成结算展示 | ⚠️ 部分 | 是：需显示 +100 积分（非旧版积分数）；可选服务小结输入 |
 | 08 | 08-service-records.png | P14 志愿者服务记录页 | volunteer | Volunteer | 历史列表布局、时间+状态标签 | ✅ 大部分 | 否：列表结构可保留；需添加积分显示和下拉刷新 |

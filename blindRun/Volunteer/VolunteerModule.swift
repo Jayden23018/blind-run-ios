@@ -4,19 +4,29 @@ import SwiftUI
 // MARK: - Volunteer Action Guard
 
 enum VolunteerOrderActionGuard {
-    static func acceptBlockMessage(profile: VolunteerProfileDto?) -> String? {
-        guard let profile,
-              !profile.nickname.trimmed.isEmpty,
-              AppState.isValidMainlandPhone(profile.phoneNumber) else {
+    static func acceptBlockMessage(
+        profile: VolunteerProfileResponse?,
+        registrationStatus: VolunteerRegistrationStatus? = nil
+    ) -> String? {
+        guard let profile, profile.isProfileCompleteForDispatch else {
             return "请先完善志愿者资料"
         }
 
-        guard profile.verificationStatus == .approved,
-              profile.adminReviewStatus == .approved else {
-            return "请先完成志愿者认证"
+        if let registrationStatus {
+            guard registrationStatus.isRegistrationComplete else {
+                return "请先完成志愿者注册流程"
+            }
+        } else {
+            guard profile.isMainRegistrationCompleteWhenStatusUnavailable else {
+                return "请先完成志愿者注册流程"
+            }
         }
 
-        guard profile.isAvailable else {
+        guard registrationStatus != nil || profile.isAdminReviewApprovedWhenAvailable else {
+            return "请等待管理员审核通过"
+        }
+
+        guard profile.hasManualDispatchOptIn else {
             return "请先开启可服务状态"
         }
 
@@ -28,10 +38,10 @@ enum VolunteerOrderActionGuard {
 
 @MainActor
 final class VolunteerProfileViewModel: ObservableObject {
-    @Published var nickname = ""
-    @Published var phoneNumber = ""
-    @Published var verificationStatus: VerificationStatus = .notSubmitted
-    @Published var adminReviewStatus: AdminReviewStatus = .notSubmitted
+    @Published var name = ""
+    @Published var verificationStatus = "not_submitted"
+    @Published var adminReviewStatus: String?
+    @Published var registrationStatus: VolunteerRegistrationStatus?
     @Published var isLoading = false
     @Published var isCertificationRunning = false
     @Published var errorMessage: String?
@@ -40,41 +50,87 @@ final class VolunteerProfileViewModel: ObservableObject {
     private var speechService: SpeechService?
 
     var canSubmit: Bool {
-        !nickname.trimmed.isEmpty &&
+        !name.trimmed.isEmpty &&
         !isLoading &&
         !isCertificationRunning
+    }
+
+    var isApproved: Bool {
+        if let registrationStatus {
+            return registrationStatus.isRegistrationComplete
+        }
+        return verificationStatus.lowercased() == "approved" &&
+            ((adminReviewStatus?.lowercased() ?? "approved") == "approved")
+    }
+
+    var isPendingReview: Bool {
+        if let idStatus = registrationStatus?.idVerifyStatus?.uppercased() {
+            return idStatus == "PENDING"
+        }
+        return verificationStatus.lowercased() == "pending"
+    }
+
+    var isRegistrationInProgress: Bool {
+        if let registrationStatus {
+            return !registrationStatus.isRegistrationComplete
+        }
+        return verificationStatus.lowercased() == "in_progress"
+    }
+
+    var isRejected: Bool {
+        if let idStatus = registrationStatus?.idVerifyStatus?.uppercased() {
+            return idStatus == "REJECTED"
+        }
+        return verificationStatus.lowercased() == "rejected"
     }
 
     var certificationButtonTitle: String {
         if isCertificationRunning {
             return "认证中"
         }
-        if verificationStatus == .approved && adminReviewStatus == .approved {
-            return "模拟认证已完成"
+        if isApproved {
+            return "认证已完成"
         }
-        return "开始模拟认证"
+        if isPendingReview {
+            return "审核中"
+        }
+        if isRegistrationInProgress {
+            return "继续认证"
+        }
+        if isRejected {
+            return "重新认证"
+        }
+        return "开始认证"
     }
 
     var certificationAccessibilityHint: String {
-        if verificationStatus == .approved && adminReviewStatus == .approved {
-            return "模拟认证已完成"
+        if isApproved {
+            return "认证已完成"
         }
-        if appState?.isVolunteerProfileComplete != true {
-            return "请先填写昵称并提交志愿者资料"
+        if isPendingReview {
+            return "认证资料已提交，请等待审核"
         }
-        return "点击后开始 Demo 模拟认证"
+        if isRegistrationInProgress {
+            return "点击后继续志愿者注册认证流程"
+        }
+        return "点击后进入志愿者注册认证流程"
+    }
+
+    /// 是否需要显示真实注册流程（非 mock 环境）
+    var shouldShowRealRegistration: Bool {
+        appState?.currentEnvironment != .mock ||
+            ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_FORCE_REAL_REGISTRATION"] == "1"
     }
 
     func configure(with appState: AppState, speechService: SpeechService) {
         self.appState = appState
         self.speechService = speechService
+        registrationStatus = appState.volunteerRegistrationStatus
 
-        phoneNumber = appState.currentUser?.phoneNumber ?? appState.volunteerProfile?.phoneNumber ?? ""
         guard let profile = appState.volunteerProfile else { return }
-        nickname = profile.nickname
-        phoneNumber = profile.phoneNumber
-        verificationStatus = profile.verificationStatus
-        adminReviewStatus = profile.adminReviewStatus
+        name = profile.name ?? ""
+        verificationStatus = profile.verificationStatus?.lowercased() ?? "not_submitted"
+        adminReviewStatus = profile.adminReviewStatus?.lowercased()
     }
 
     func startMockCertification() {
@@ -93,7 +149,7 @@ final class VolunteerProfileViewModel: ObservableObject {
 
     func submit() {
         guard canSubmit, let appState else {
-            let message = nickname.trimmed.isEmpty ? "请填写昵称" : "请稍候"
+            let message = name.trimmed.isEmpty ? "请填写昵称" : "请稍候"
             errorMessage = message
             speechService?.speakError(message)
             return
@@ -107,29 +163,28 @@ final class VolunteerProfileViewModel: ObservableObject {
     private func runMockCertification(appState: AppState) async {
         isCertificationRunning = true
         errorMessage = nil
-        verificationStatus = .pending
-        adminReviewStatus = .pending
+        verificationStatus = "pending"
 
         do {
             try await Task.sleep(nanoseconds: 1_000_000_000)
-            let profile: VolunteerProfileDto = try await appState.apiClient.post(
+            let profile: VolunteerProfileResponse = try await appState.apiClient.post(
                 "/api/volunteer/mock-verification/approve"
             )
             appState.updateVolunteerProfile(profile)
-            phoneNumber = profile.phoneNumber
-            verificationStatus = profile.verificationStatus
-            adminReviewStatus = profile.adminReviewStatus
+            verificationStatus = profile.verificationStatus?.lowercased() ?? "not_submitted"
+            adminReviewStatus = profile.adminReviewStatus?.lowercased()
             isCertificationRunning = false
         } catch let error as APIError {
             isCertificationRunning = false
-            verificationStatus = .notSubmitted
-            adminReviewStatus = .notSubmitted
+            verificationStatus = "not_submitted"
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
             isCertificationRunning = false
-            verificationStatus = .notSubmitted
-            adminReviewStatus = .notSubmitted
+            verificationStatus = "not_submitted"
             errorMessage = "认证失败，请重试"
             speechService?.speakError("认证失败，请重试")
         }
@@ -140,15 +195,19 @@ final class VolunteerProfileViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let profile: VolunteerProfileDto = try await appState.apiClient.put(
-                "/api/profiles/volunteer",
-                body: VolunteerProfileUpsertRequest(nickname: nickname.trimmed)
+            let request = VolunteerProfileUpdateRequest(name: name.trimmed)
+            let profile: VolunteerProfileResponse = try await appState.apiClient.put(
+                "/api/volunteer/profile",
+                body: request
             )
             appState.updateVolunteerProfile(profile)
             apply(profile: profile)
             isLoading = false
         } catch let error as APIError {
             isLoading = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         } catch {
@@ -158,11 +217,10 @@ final class VolunteerProfileViewModel: ObservableObject {
         }
     }
 
-    private func apply(profile: VolunteerProfileDto) {
-        nickname = profile.nickname
-        phoneNumber = profile.phoneNumber
-        verificationStatus = profile.verificationStatus
-        adminReviewStatus = profile.adminReviewStatus
+    private func apply(profile: VolunteerProfileResponse) {
+        name = profile.name ?? ""
+        verificationStatus = profile.verificationStatus?.lowercased() ?? "not_submitted"
+        adminReviewStatus = profile.adminReviewStatus?.lowercased()
     }
 }
 
@@ -172,6 +230,7 @@ struct VolunteerProfileView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = VolunteerProfileViewModel()
+    @State private var showLogoutConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -200,17 +259,39 @@ struct VolunteerProfileView: View {
         .onAppear {
             viewModel.configure(with: appState, speechService: speechService)
         }
+        .alert("确认退出", isPresented: $showLogoutConfirm) {
+            Button("确认退出", role: .destructive) {
+                Task { await appState.logout() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("确认后将清除当前登录状态，返回登录页。")
+        }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HighContrastText("志愿者认证", style: .title)
-                .accessibilityAddTraits(.isHeader)
-            Text("填写昵称并完成 Demo 模拟认证。")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("填写昵称并完成 Demo 模拟认证")
-                .accessibilityHint("认证为模拟流程，不会进行真实实名认证")
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                HighContrastText("志愿者认证", style: .title)
+                    .accessibilityAddTraits(.isHeader)
+                Text(viewModel.shouldShowRealRegistration ? "填写昵称并完成志愿者认证。" : "填写昵称并完成 Demo 模拟认证。")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityLabel(viewModel.shouldShowRealRegistration ? "填写昵称并完成志愿者认证" : "填写昵称并完成 Demo 模拟认证")
+            }
+
+            Spacer()
+
+            Button {
+                showLogoutConfirm = true
+            } label: {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                    .font(.system(size: 18))
+                    .foregroundColor(AppColors.destructive)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("退出登录")
+            .accessibilityHint("退出后需要重新登录，需要二次确认")
         }
     }
 
@@ -219,60 +300,67 @@ struct VolunteerProfileView: View {
             VolunteerTextField(
                 title: "昵称",
                 placeholder: "请输入昵称",
-                text: $viewModel.nickname,
-                errorMessage: viewModel.nickname.trimmed.isEmpty ? "请填写昵称" : nil,
+                text: $viewModel.name,
+                errorMessage: viewModel.name.trimmed.isEmpty ? "请填写昵称" : nil,
                 accessibilityLabel: "请输入昵称",
                 accessibilityHint: "昵称为必填项"
             )
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("手机号")
-                    .font(.headline)
-                    .foregroundColor(AppColors.textPrimary)
-                    .accessibilityLabel("手机号")
-                    .accessibilityHint("自动填充登录手机号，只读")
-
-                Text(viewModel.phoneNumber.isEmpty ? "未获取手机号" : viewModel.phoneNumber)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(AppColors.secondaryBackground)
-                    .cornerRadius(8)
-                    .accessibilityLabel("手机号 \(viewModel.phoneNumber.isEmpty ? "未获取" : viewModel.phoneNumber)")
-                    .accessibilityHint("只读字段，来自登录手机号")
-            }
         }
     }
 
     private var certificationSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("请完成以下认证步骤（Demo 版为模拟认证）")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityLabel("请完成以下认证步骤，Demo 版为模拟认证")
-                .accessibilityHint("点击开始模拟认证后会自动通过")
+            if viewModel.shouldShowRealRegistration {
+                Text("请完成以下认证步骤")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .accessibilityLabel("请完成以下认证步骤")
 
-            Button {
-                viewModel.startMockCertification()
-            } label: {
-                HStack(spacing: 8) {
-                    if viewModel.isCertificationRunning {
-                        ProgressView()
+                NavigationLink {
+                    VolunteerRegistrationFlowView()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.badge.shield.checkmark")
+                        Text(viewModel.certificationButtonTitle)
+                            .font(AppFonts.primaryButton())
                     }
-                    Text(viewModel.certificationButtonTitle)
-                        .font(AppFonts.primaryButton())
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isCertificationRunning || viewModel.verificationStatus == .approved)
-            .accessibilityLabel("开始模拟认证")
-            .accessibilityHint(viewModel.certificationAccessibilityHint)
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.isApproved || viewModel.isPendingReview)
+                .accessibilityLabel("开始认证")
+                .accessibilityHint(viewModel.certificationAccessibilityHint)
+                .accessibilityIdentifier("volunteerRealRegistrationEntry")
+            } else {
+                Text("请完成以下认证步骤（Demo 版为模拟认证）")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .accessibilityLabel("请完成以下认证步骤，Demo 版为模拟认证")
 
-            statusRow(title: "verificationStatus", value: viewModel.verificationStatus.rawValue)
-            statusRow(title: "adminReviewStatus", value: viewModel.adminReviewStatus.rawValue)
+                Button {
+                    viewModel.startMockCertification()
+                } label: {
+                    HStack(spacing: 8) {
+                        if viewModel.isCertificationRunning {
+                            ProgressView()
+                        }
+                        Text(viewModel.certificationButtonTitle)
+                            .font(AppFonts.primaryButton())
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.isCertificationRunning || viewModel.isApproved)
+                .accessibilityLabel("开始模拟认证")
+                .accessibilityHint(viewModel.certificationAccessibilityHint)
+            }
+
+            statusRow(title: "认证状态", value: viewModel.verificationStatus)
+            if let adminReviewStatus = viewModel.adminReviewStatus {
+                statusRow(title: "管理员审核", value: adminReviewStatus)
+            }
         }
         .padding()
         .background(AppColors.secondaryBackground)
@@ -285,13 +373,24 @@ struct VolunteerProfileView: View {
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
             Spacer()
-            Text(value)
+            Text(statusDisplayName(value))
                 .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(value == "approved" ? AppColors.success : AppColors.textPrimary)
+                .foregroundColor(value.lowercased() == "approved" ? AppColors.success : AppColors.textPrimary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title) 状态 \(value)")
+        .accessibilityLabel("\(title) 状态 \(statusDisplayName(value))")
         .accessibilityHint("认证状态展示")
+    }
+
+    private func statusDisplayName(_ value: String) -> String {
+        switch value.lowercased() {
+        case "approved": return "已通过"
+        case "pending": return "审核中"
+        case "in_progress": return "认证中"
+        case "rejected": return "未通过"
+        case "not_submitted", "none": return "未提交"
+        default: return value
+        }
     }
 
     private var submitButton: some View {
@@ -348,12 +447,6 @@ private struct VolunteerTextField: View {
                     .accessibilityLabel(errorMessage)
             }
         }
-    }
-}
-
-private extension String {
-    var trimmed: String {
-        trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

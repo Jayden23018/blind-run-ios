@@ -1,5 +1,11 @@
 platform :ios, '16.0'
 
+project 'blindRun', {
+  'Debug' => :debug,
+  'DemoRelease' => :release,
+  'Release' => :release
+}
+
 target 'blindRun' do
   use_frameworks!
 
@@ -7,6 +13,11 @@ target 'blindRun' do
   pod 'AMap3DMap-NO-IDFA'
   pod 'AMapLocation-NO-IDFA'
   pod 'AMapSearch-NO-IDFA'
+  pod 'AliyunCloudAuth', :path => 'Vendor/AliyunCloudAuth/2.3.50'
+
+  target 'blindRunTests' do
+    inherit! :search_paths
+  end
 end
 
 post_install do |installer|

@@ -1,0 +1,4210 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "助盲跑 API",
+    "description": "盲人陪跑志愿者匹配服务",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://47.114.113.171",
+      "description": "AidRun 外部云端服务唯一地址"
+    }
+  ],
+  "security": [
+    {
+      "Bearer": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "盲人用户",
+      "description": "盲人用户资料和身份认证接口"
+    }
+  ],
+  "paths": {
+    "/api/volunteer/profile": {
+      "get": {
+        "tags": [
+          "volunteer-controller"
+        ],
+        "operationId": "getProfile",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/VolunteerProfileResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "volunteer-controller"
+        ],
+        "operationId": "updateProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VolunteerProfileUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/VolunteerProfileResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/dispatch-status": {
+      "put": {
+        "tags": [
+          "volunteer-controller"
+        ],
+        "operationId": "updateDispatchStatus",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/dispatch-summary": {
+      "get": {
+        "tags": [
+          "volunteer-controller"
+        ],
+        "operationId": "getDispatchSummary",
+        "summary": "获取志愿者系统派单工作台摘要",
+        "description": "用于志愿者首页展示是否可接收系统派单、不可接单原因、覆盖范围、当前订单、近期订单和统计。系统派单排序、扩圈、最后一轮多人派单和全城兜底通知均由后端控制。canDispatch = false 时 notAvailableReasons 不得缺失或为空；位置上报和在线状态变化后必须返回最新权威快照。",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/VolunteerDispatchSummaryEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/emergency-contacts/{contactId}": {
+      "put": {
+        "tags": [
+          "emergency-contact-controller"
+        ],
+        "operationId": "updateContact",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmergencyContactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmergencyContactResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "emergency-contact-controller"
+        ],
+        "operationId": "deleteContact",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{userId}/emergency-contacts/{contactId}/set-primary": {
+      "put": {
+        "tags": [
+          "emergency-contact-controller"
+        ],
+        "operationId": "setPrimary",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/keep-waiting": {
+      "put": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "keepWaiting",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/emergency/{eventId}/volunteer-response": {
+      "put": {
+        "tags": [
+          "emergency-controller"
+        ],
+        "operationId": "volunteerResponse",
+        "parameters": [
+          {
+            "name": "eventId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "FALSE_ALARM",
+                "NEED_HELP"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cs/emergency-events/{eventId}/resolve": {
+      "put": {
+        "tags": [
+          "cs-controller"
+        ],
+        "operationId": "resolveEvent",
+        "parameters": [
+          {
+            "name": "eventId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "notes",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cs/emergency-events/{eventId}/notify-contact": {
+      "put": {
+        "tags": [
+          "cs-controller"
+        ],
+        "operationId": "notifyContact",
+        "parameters": [
+          {
+            "name": "eventId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cs/emergency-events/{eventId}/false-alarm": {
+      "put": {
+        "tags": [
+          "cs-controller"
+        ],
+        "operationId": "markFalseAlarm",
+        "parameters": [
+          {
+            "name": "eventId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cs/emergency-events/{eventId}/accept": {
+      "put": {
+        "tags": [
+          "cs-controller"
+        ],
+        "operationId": "acceptEvent",
+        "parameters": [
+          {
+            "name": "eventId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/blind/profile": {
+      "get": {
+        "tags": [
+          "盲人用户"
+        ],
+        "summary": "获取盲人资料",
+        "operationId": "getProfile_1",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlindProfileResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "盲人用户"
+        ],
+        "summary": "更新盲人资料",
+        "operationId": "updateProfile_1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlindProfileUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/volunteers/training/questions/{id}": {
+      "put": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "updateQuestion",
+        "deprecated": true,
+        "description": "遗留培训题库兼容接口；培训和答题已退出当前志愿者主注册流程，iOS 不调用。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuizQuestionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseTrainingQuizQuestionResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "deleteQuestion",
+        "deprecated": true,
+        "description": "遗留培训题库兼容接口；培训和答题已退出当前志愿者主注册流程，iOS 不调用。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseString"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/volunteers/training/courses/{id}": {
+      "put": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "updateCourse",
+        "deprecated": true,
+        "description": "遗留培训课程兼容接口；培训和答题已退出当前志愿者主注册流程，iOS 不调用。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainingCourseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseTrainingCourseResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "deleteCourse",
+        "deprecated": true,
+        "description": "遗留培训课程兼容接口；培训和答题已退出当前志愿者主注册流程，iOS 不调用。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseString"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/notification-templates/{id}": {
+      "put": {
+        "tags": [
+          "admin-controller"
+        ],
+        "operationId": "updateTemplate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/verification": {
+      "post": {
+        "tags": [
+          "volunteer-controller"
+        ],
+        "operationId": "submitVerification",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "资质证件文件（图片或PDF）"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/registration/training/quiz/answer": {
+      "post": {
+        "tags": [
+          "volunteer-registration-controller"
+        ],
+        "operationId": "submitQuizAnswer",
+        "deprecated": true,
+        "description": "遗留注册测验兼容接口；当前志愿者在活体认证通过后直接完成注册，iOS 不调用。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuizAnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/registration/training/progress": {
+      "post": {
+        "tags": [
+          "volunteer-registration-controller"
+        ],
+        "operationId": "submitTrainingProgress",
+        "deprecated": true,
+        "description": "遗留课程进度兼容接口；当前志愿者注册不要求培训进度，iOS 不调用。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainingProgressRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/registration/step3/face-verify/init": {
+      "post": {
+        "tags": [
+          "volunteer-registration-controller"
+        ],
+        "summary": "发起动作活体认证（Step 3）",
+        "description": "提交阿里云实人认证 SDK 采集的 metaInfo。后端从 JWT 获取用户并使用 Step1 已通过的身份数据、ID_PRO、IDENTITY_CARD、MULTI_ACTION、唯一 OuterOrderNo 和配置的 SceneId 创建全新且不可复用的 App SDK 尝试；返回 certifyId 后，iOS 使用 AliyunFaceAuthFacade 原生 SDK 按页面提示完成动作。",
+        "operationId": "initFaceVerify",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FaceVerifyInitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaceVerifyInitResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/registration/step3/face-verify/result": {
+      "post": {
+        "tags": [
+          "volunteer-registration-controller"
+        ],
+        "summary": "查询动作活体认证结果（Step 3）",
+        "description": "提交 certifyId 查询阿里云实人认证结果；PENDING 时前端继续轮询。结果首次变为 APPROVED 时，外部后端必须原子设置 registrationStep = STEP_4_COMPLETED 和 canAcceptOrders = true，新注册不得进入 STEP_4_TRAINING。",
+        "operationId": "getFaceVerifyResult",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FaceVerifyResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaceVerifyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/registration/step1": {
+      "post": {
+        "tags": [
+          "volunteer-registration-controller"
+        ],
+        "operationId": "submitBasicInfo",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BasicInfoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/location": {
+      "post": {
+        "tags": [
+          "volunteer-controller"
+        ],
+        "operationId": "updateLocation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VolunteerLocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "deprecated": true
+      }
+    },
+    "/api/users/{userId}/emergency-contacts": {
+      "get": {
+        "tags": [
+          "emergency-contact-controller"
+        ],
+        "operationId": "getContacts",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EmergencyContactResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "emergency-contact-controller"
+        ],
+        "operationId": "addContact",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmergencyContactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmergencyContactResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/role": {
+      "post": {
+        "tags": [
+          "role-controller"
+        ],
+        "operationId": "setRole",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders": {
+      "post": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "createOrder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{orderId}/call/initiate": {
+      "post": {
+        "tags": [
+          "call-controller"
+        ],
+        "operationId": "initiateCall",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallInitiateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/review": {
+      "post": {
+        "tags": [
+          "review-controller"
+        ],
+        "operationId": "createReview",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/respond": {
+      "post": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "respondToDispatch",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispatchRespondRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/start-service": {
+      "post": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "startService",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/finish": {
+      "post": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "finishOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/en-route": {
+      "post": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "driverEnRoute",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/cancel": {
+      "post": {
+        "tags": [
+          "order-controller"
+        ],
+        "description": "Cancels an order. Blind runners may cancel PENDING_MATCH, PENDING_ACCEPT, and REMATCHING. Volunteers may cancel PENDING_ACCEPT, DRIVER_EN_ROUTE, DRIVER_ARRIVED, and IN_PROGRESS; successful volunteer cancellation moves the order to REMATCHING. REMATCHING orders may be cancelled only by the blind runner with the blind-runner token after the accepted volunteer has cancelled; a volunteer token is not valid for that rematching cancellation.",
+        "operationId": "cancelOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/arrived": {
+      "post": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "driverArrived",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/emergency/trigger": {
+      "post": {
+        "tags": [
+          "emergency-controller"
+        ],
+        "description": "Backend emergency contract. The current iOS release does not expose an in-app emergency entry; scripts may probe this endpoint, and UI enablement requires a later safety change.",
+        "operationId": "triggerEmergency",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmergencyTriggerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cs/auth/logout": {
+      "post": {
+        "tags": [
+          "cs-auth-controller"
+        ],
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cs/auth/login": {
+      "post": {
+        "tags": [
+          "cs-auth-controller"
+        ],
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CsLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/blind/verify-identity": {
+      "post": {
+        "tags": [
+          "盲人用户"
+        ],
+        "summary": "身份认证",
+        "description": "提交身份证姓名和号码进行二要素核验",
+        "operationId": "verifyIdentity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlindVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/blind/location": {
+      "post": {
+        "tags": [
+          "blind-location-controller"
+        ],
+        "operationId": "updateLocation_1",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlindLocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/verify-code": {
+      "post": {
+        "tags": [
+          "auth-controller"
+        ],
+        "operationId": "verifyCode",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/send-code": {
+      "post": {
+        "tags": [
+          "auth-controller"
+        ],
+        "operationId": "sendCode",
+        "security": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "auth-controller"
+        ],
+        "operationId": "logoutCurrentSession",
+        "description": "将当前 Bearer JWT 加入服务端黑名单。成功后该 Token 的 HTTP 与 WebSocket 使用均被拒绝。",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/admin/volunteers/training/courses": {
+      "post": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "createCourse",
+        "deprecated": true,
+        "description": "遗留培训课程兼容接口；培训和答题已退出当前志愿者主注册流程，iOS 不调用。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainingCourseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseTrainingCourseResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/volunteers/training/courses/{courseId}/questions": {
+      "post": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "createQuestion",
+        "deprecated": true,
+        "description": "遗留培训题库兼容接口；培训和答题已退出当前志愿者主注册流程，iOS 不调用。",
+        "parameters": [
+          {
+            "name": "courseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuizQuestionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseTrainingQuizQuestionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/volunteers/review/id": {
+      "get": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "getVolunteersForIdReview",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListVolunteerReviewItemResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "reviewIdCard",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseString"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/volunteers/review/cert": {
+      "get": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "getVolunteersForCertReview",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseListCertReviewItemResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "reviewCertificate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CertReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseString"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/verification/status": {
+      "get": {
+        "tags": [
+          "volunteer-controller"
+        ],
+        "operationId": "getVerificationStatus",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/registration/training/quiz/{courseId}": {
+      "get": {
+        "tags": [
+          "volunteer-registration-controller"
+        ],
+        "operationId": "getQuizQuestions",
+        "deprecated": true,
+        "description": "遗留注册测验兼容接口；当前志愿者在活体认证通过后直接完成注册，iOS 不调用。",
+        "parameters": [
+          {
+            "name": "courseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/registration/training/courses": {
+      "get": {
+        "tags": [
+          "volunteer-registration-controller"
+        ],
+        "operationId": "getTrainingCourses",
+        "deprecated": true,
+        "description": "遗留注册课程兼容接口；当前志愿者注册不要求培训课程，iOS 不调用。",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/volunteer/registration/status": {
+      "get": {
+        "tags": [
+          "volunteer-registration-controller"
+        ],
+        "operationId": "getRegistrationStatus",
+        "description": "返回后端权威的志愿者主注册状态。活体认证通过后应返回 STEP_4_COMPLETED 且 canAcceptOrders = true；STEP_4_TRAINING 仅为遗留兼容状态，新版 iOS 将其按主注册完成处理但不会自动开启可服务状态。",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/VolunteerRegistrationStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{id}": {
+      "get": {
+        "tags": [
+          "user-controller"
+        ],
+        "operationId": "getUserById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "user-controller"
+        ],
+        "operationId": "deleteCurrentUser",
+        "description": "仅允许当前 JWT 用户删除自身账户。成功后软删除账户、使该账户全部有效 Token 失效；原手机号可重新注册。",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteAccountResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "路径用户 ID 不属于当前认证用户",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "409": {
+            "description": "存在阻断账户删除的活动订单。状态：PENDING_MATCH、PENDING_ACCEPT、DRIVER_EN_ROUTE、DRIVER_ARRIVED、IN_PROGRESS、REMATCHING；错误码 ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED。",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/orders/{orderId}/call/records": {
+      "get": {
+        "tags": [
+          "call-controller"
+        ],
+        "operationId": "getCallRecords",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CallRecord"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}": {
+      "get": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "getOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/status-logs": {
+      "get": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "getStatusLogs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrderStatusLogResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/reviews": {
+      "get": {
+        "tags": [
+          "review-controller"
+        ],
+        "operationId": "getReview",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/mine": {
+      "get": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "getMyOrders",
+        "parameters": [
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 10,
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOrderDetailResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/available": {
+      "get": {
+        "tags": [
+          "order-controller"
+        ],
+        "operationId": "getAvailableOrders",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cs/emergency-events": {
+      "get": {
+        "tags": [
+          "cs-controller"
+        ],
+        "operationId": "getPendingEvents",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/blind/volunteer-location": {
+      "get": {
+        "tags": [
+          "blind-location-controller"
+        ],
+        "operationId": "getVolunteerLocation",
+        "responses": {
+          "200": {
+            "description": "Eligible pre-service volunteer location. When no fresh location exists, data is null and stale coordinates must not be returned. 需要人工确认: production timestamp timezone and exact no-data behavior.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VolunteerLocationFallbackResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "auth-controller"
+        ],
+        "operationId": "getCurrentUser",
+        "description": "校验当前 JWT 并返回未删除的当前用户。首次选择角色前 role 可缺省、为 null 或 UNSET。过期、已拉黑或已删除账户的 Token 返回统一 401。",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentUserResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/admin/volunteers/training/stats": {
+      "get": {
+        "tags": [
+          "admin-volunteer-controller"
+        ],
+        "operationId": "getTrainingStats",
+        "deprecated": true,
+        "description": "遗留培训统计兼容接口；培训和答题已退出当前志愿者主注册流程，iOS 不调用。",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseTrainingStatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/notification-templates": {
+      "get": {
+        "tags": [
+          "admin-controller"
+        ],
+        "operationId": "getAllTemplates",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "VolunteerAvailableTimeSlot": {
+        "type": "object",
+        "properties": {
+          "dayOfWeek": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY"
+          },
+          "startTime": {
+            "type": "string",
+            "example": "14:30:00"
+          },
+          "endTime": {
+            "type": "string",
+            "example": "14:30:00"
+          }
+        },
+        "required": [
+          "endTime",
+          "startTime"
+        ]
+      },
+      "VolunteerProfileUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2
+          },
+          "availableTimeSlots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolunteerAvailableTimeSlot"
+            }
+          },
+          "acceptsGuideDog": {
+            "type": "boolean"
+          },
+          "paceRange": {
+            "type": "string",
+            "enum": [
+              "WALK_RUN",
+              "EASY",
+              "MODERATE",
+              "FAST",
+              "NO_PREFERENCE"
+            ]
+          },
+          "wantsDispatch": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DispatchStatusRequest": {
+        "type": "object",
+        "properties": {
+          "wantsDispatch": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "wantsDispatch"
+        ]
+      },
+      "VolunteerDispatchSummaryEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/VolunteerDispatchSummaryResponse"
+          }
+        }
+      },
+      "VolunteerDispatchSummaryResponse": {
+        "type": "object",
+        "required": [
+          "canDispatch"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "canDispatch": {
+                  "const": false
+                }
+              },
+              "required": [
+                "canDispatch"
+              ]
+            },
+            "then": {
+              "properties": {
+                "notAvailableReasons": {
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "notAvailableReasons"
+              ]
+            }
+          }
+        ],
+        "properties": {
+          "canDispatch": {
+            "type": "boolean",
+            "description": "后端权威派单资格；客户端不得自行改写为 true。"
+          },
+          "notAvailableReasons": {
+            "type": "array",
+            "description": "不可派单原因；canDispatch = false 时至少返回一项。",
+            "items": {
+              "type": "string",
+              "enum": [
+                "DISPATCH_DISABLED",
+                "REGISTRATION_INCOMPLETE",
+                "OFFLINE",
+                "OUTSIDE_SERVICE_TIME",
+                "NO_LOCATION",
+                "ACTIVE_ORDER",
+                "NOT_APPROVED"
+              ]
+            }
+          },
+          "wantsDispatch": {
+            "type": "boolean"
+          },
+          "isOnline": {
+            "type": "boolean"
+          },
+          "lastLat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lastLng": {
+            "type": "number",
+            "format": "double"
+          },
+          "lastLocationAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "coverageRadiusKm": {
+            "type": "number",
+            "format": "double",
+            "description": "当前派单覆盖半径；工作台摘要不得以缺失字段代替尚未计算或不可派单原因。"
+          },
+          "isWithinServiceTime": {
+            "type": "boolean"
+          },
+          "availableTimeSlots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolunteerAvailableTimeSlot"
+            }
+          },
+          "avgRating": {
+            "type": "number",
+            "format": "double"
+          },
+          "totalRatings": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalDispatched": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalAccepted": {
+            "type": "integer",
+            "format": "int32",
+            "description": "接受系统派单次数，不等同于完成次数"
+          },
+          "totalDeclined": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalTimeout": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalCompleted": {
+            "type": "integer",
+            "format": "int32",
+            "description": "完成服务次数；积分系统未接入前 iOS 可用 totalCompleted * 100 显示临时积分"
+          },
+          "totalCancelled": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "acceptanceRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "pointsBalance": {
+            "type": "integer",
+            "format": "int32",
+            "description": "真实积分余额；积分系统未接入时可为空，由 iOS 临时计算"
+          },
+          "activeOrders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolunteerDispatchSummaryActiveOrder"
+            }
+          },
+          "recentOrders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolunteerDispatchSummaryRecentOrder"
+            }
+          }
+        }
+      },
+      "VolunteerDispatchSummaryActiveOrder": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "plannedStartTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plannedEndTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startAddress": {
+            "type": "string"
+          },
+          "startLatitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90
+          },
+          "startLongitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180
+          },
+          "blindName": {
+            "type": "string"
+          },
+          "blindPhoneMasked": {
+            "type": "string"
+          },
+          "acceptedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "VolunteerDispatchSummaryRecentOrder": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "plannedStartTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startAddress": {
+            "type": "string"
+          },
+          "blindName": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pointsDelta": {
+            "type": "integer",
+            "format": "int32",
+            "description": "积分系统未接入时可为空，由 iOS 对 COMPLETED 临时显示 +100"
+          }
+        }
+      },
+      "EmergencyContactRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 0
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 0
+          },
+          "relationship": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 0
+          },
+          "isPrimary": {
+            "type": "boolean"
+          }
+        }
+      },
+      "EmergencyContactResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "relationship": {
+            "type": "string"
+          },
+          "isPrimary": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BlindProfileUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2
+          },
+          "runningPace": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 0
+          },
+          "specialNeeds": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 0
+          },
+          "visionLevel": {
+            "type": "string",
+            "enum": [
+              "TOTAL_BLIND",
+              "LOW_VISION"
+            ]
+          },
+          "hasGuideDog": {
+            "type": "boolean"
+          },
+          "tetherPreference": {
+            "type": "string",
+            "enum": [
+              "TETHER_ROPE",
+              "ARM_HOLD",
+              "VERBAL_ONLY"
+            ]
+          },
+          "chatPreference": {
+            "type": "string",
+            "enum": [
+              "PREFER_CHAT",
+              "PREFER_QUIET",
+              "NO_PREFERENCE"
+            ]
+          },
+          "defaultPace": {
+            "type": "string",
+            "enum": [
+              "WALK_RUN",
+              "EASY",
+              "MODERATE",
+              "FAST",
+              "NO_PREFERENCE"
+            ]
+          }
+        }
+      },
+      "QuizQuestionRequest": {
+        "type": "object",
+        "description": "遗留培训题库兼容 schema；当前 iOS 志愿者注册不使用。",
+        "properties": {
+          "courseId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "questionText": {
+            "type": "string",
+            "minLength": 1
+          },
+          "questionType": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "correctAnswer": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "displayOrder": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "courseId",
+          "displayOrder",
+          "questionType"
+        ]
+      },
+      "ApiResponseTrainingQuizQuestionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TrainingQuizQuestionResponse"
+          }
+        }
+      },
+      "TrainingQuizQuestionResponse": {
+        "type": "object",
+        "description": "遗留培训题库兼容 schema；当前 iOS 志愿者注册不使用。",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "courseId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "questionText": {
+            "type": "string"
+          },
+          "questionType": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "correctAnswer": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "displayOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TrainingCourseRequest": {
+        "type": "object",
+        "description": "遗留培训课程兼容 schema；当前 iOS 志愿者注册不使用。",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "durationMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "videoUrl": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "displayOrder": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "displayOrder",
+          "durationMinutes"
+        ]
+      },
+      "ApiResponseTrainingCourseResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TrainingCourseResponse"
+          }
+        }
+      },
+      "TrainingCourseResponse": {
+        "type": "object",
+        "description": "遗留培训课程兼容 schema；当前 iOS 志愿者注册不使用。",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "durationMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "videoUrl": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "displayOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "UpdateNotificationTemplateRequest": {
+        "type": "object",
+        "properties": {
+          "templateText": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ttsText": {
+            "type": "string"
+          }
+        }
+      },
+      "QuizAnswerRequest": {
+        "type": "object",
+        "description": "遗留注册测验兼容 schema；当前 iOS 志愿者注册不使用。",
+        "properties": {
+          "courseId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "questionId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "timeSpentSeconds": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "courseId",
+          "questionId",
+          "timeSpentSeconds"
+        ]
+      },
+      "TrainingProgressRequest": {
+        "type": "object",
+        "description": "遗留课程进度兼容 schema；当前 iOS 志愿者注册不使用。",
+        "properties": {
+          "courseId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "progressPercent": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 0
+          },
+          "lastPositionSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "timeSpentSeconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "courseId",
+          "lastPositionSeconds",
+          "progressPercent",
+          "timeSpentSeconds"
+        ]
+      },
+      "BasicInfoRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2
+          },
+          "phone": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^1[3-9]\\d{9}$"
+          },
+          "idCardName": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "description": "身份证姓名，用于后端身份证二要素核验"
+          },
+          "idCardNumber": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\d{17}[\\dXx]$",
+            "description": "身份证号码，用于后端身份证二要素核验"
+          },
+          "runningExperience": {
+            "type": "string"
+          },
+          "hasGuidedBefore": {
+            "type": "boolean"
+          },
+          "emergencyExperience": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "idCardName",
+          "idCardNumber",
+          "name",
+          "phone"
+        ]
+      },
+      "VolunteerLocationRequest": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90
+          },
+          "longitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180
+          },
+          "isOnline": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ]
+      },
+      "SetRoleRequest": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "UNSET",
+              "BLIND",
+              "VOLUNTEER"
+            ]
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "CreateOrderRequest": {
+        "type": "object",
+        "properties": {
+          "startLatitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90
+          },
+          "startLongitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180
+          },
+          "startAddress": {
+            "type": "string"
+          },
+          "plannedStartTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plannedEndTime": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expectedDurationMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 300,
+            "minimum": 10
+          },
+          "pacePreference": {
+            "type": "string",
+            "enum": [
+              "WALK_RUN",
+              "EASY",
+              "MODERATE",
+              "FAST",
+              "NO_PREFERENCE"
+            ]
+          },
+          "routePreference": {
+            "type": "string",
+            "enum": [
+              "PARK_TRAIL",
+              "STREET",
+              "TRACK",
+              "NO_PREFERENCE"
+            ]
+          },
+          "routeNotes": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 0
+          },
+          "hasGuideDogThisRun": {
+            "type": "boolean"
+          },
+          "specialNotes": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "plannedEndTime",
+          "plannedStartTime",
+          "startAddress",
+          "startLatitude",
+          "startLongitude"
+        ]
+      },
+      "OrderResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_MATCH",
+              "PENDING_ACCEPT",
+              "IN_PROGRESS",
+              "DRIVER_EN_ROUTE",
+              "DRIVER_ARRIVED",
+              "COMPLETED",
+              "CANCELLED",
+              "REMATCHING",
+              "NO_VOLUNTEER"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CallInitiateRequest": {
+        "type": "object",
+        "properties": {
+          "callerRole": {
+            "type": "string",
+            "enum": [
+              "BLIND_USER",
+              "VOLUNTEER"
+            ]
+          }
+        },
+        "required": [
+          "callerRole"
+        ]
+      },
+      "CreateReviewRequest": {
+        "type": "object",
+        "properties": {
+          "rating": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 5,
+            "minimum": 1
+          },
+          "comment": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rating"
+        ]
+      },
+      "DispatchRespondRequest": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "ACCEPT",
+              "DECLINE"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "EmergencyTriggerRequest": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "gpsLat": {
+            "type": "number",
+            "maximum": 90,
+            "minimum": -90
+          },
+          "gpsLng": {
+            "type": "number",
+            "maximum": 180,
+            "minimum": -180
+          }
+        }
+      },
+      "CsLoginRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "BlindVerifyRequest": {
+        "type": "object",
+        "properties": {
+          "idCardName": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2
+          },
+          "idCardNumber": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\d{17}[\\dXx]$"
+          }
+        }
+      },
+      "BlindLocationRequest": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90
+          },
+          "longitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
+        ]
+      },
+      "VerifyCodeRequest": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^1[3-9]\\d{9}$"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "CurrentUserResponse": {
+        "type": "object",
+        "required": ["userId"],
+        "properties": {
+          "userId": { "type": "integer", "format": "int64" },
+          "phone": { "type": "string", "pattern": "^1[3-9]\\d{9}$" },
+          "role": {
+            "oneOf": [
+              { "type": "string", "enum": ["BLIND", "VOLUNTEER", "UNSET"] },
+              { "type": "null" }
+            ],
+            "description": "首次选择角色前可缺省、为 null 或 UNSET。"
+          }
+        }
+      },
+      "LogoutResponse": {
+        "type": "object",
+        "required": ["success"],
+        "properties": {
+          "success": { "type": "boolean", "const": true },
+          "message": { "type": "string" }
+        }
+      },
+      "DeleteAccountResponse": {
+        "type": "object",
+        "required": ["success", "phoneReusable", "allTokensInvalidated"],
+        "properties": {
+          "success": { "type": "boolean", "const": true },
+          "message": { "type": "string" },
+          "phoneReusable": { "type": "boolean", "const": true },
+          "allTokensInvalidated": { "type": "boolean", "const": true }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "rateLimitBucket": {
+            "type": "string",
+            "enum": ["AUTH", "REGISTRATION", "GENERAL"]
+          },
+          "retryAfterSeconds": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "SendCodeRequest": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^1[3-9]\\d{9}$"
+          }
+        }
+      },
+      "IdReviewRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "rejectionReason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "approved",
+          "userId"
+        ]
+      },
+      "ApiResponseString": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          }
+        }
+      },
+      "CertReviewRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "approved": {
+            "type": "boolean"
+          },
+          "rejectionReason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "approved",
+          "userId"
+        ]
+      },
+      "VolunteerProfileResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "verificationStatus": {
+            "type": "string"
+          },
+          "adminReviewStatus": {
+            "type": "string"
+          },
+          "registrationStep": {
+            "type": "string",
+            "description": "主注册状态。STEP_4_COMPLETED 为规范完成终态；STEP_4_TRAINING 仅为遗留兼容值，新注册不得产生，新版 iOS 将其按主注册完成处理。",
+            "enum": [
+              "STEP_1_BASIC_INFO",
+              "STEP_3_FACE_VERIFY",
+              "STEP_4_TRAINING",
+              "STEP_4_COMPLETED"
+            ]
+          },
+          "canAcceptOrders": {
+            "type": "boolean"
+          },
+          "availableTimeSlots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolunteerAvailableTimeSlot"
+            }
+          },
+          "acceptsGuideDog": {
+            "type": "boolean"
+          },
+          "paceRange": {
+            "type": "string",
+            "enum": [
+              "WALK_RUN",
+              "EASY",
+              "MODERATE",
+              "FAST",
+              "NO_PREFERENCE"
+            ]
+          },
+          "wantsDispatch": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CallRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "orderId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "callerId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "callerRole": {
+            "type": "string",
+            "enum": [
+              "BLIND_USER",
+              "VOLUNTEER"
+            ]
+          },
+          "calleeId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "calleeRole": {
+            "type": "string",
+            "enum": [
+              "BLIND_USER",
+              "VOLUNTEER"
+            ]
+          },
+          "virtualNumber": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "INITIATED",
+              "CONNECTED",
+              "FAILED",
+              "NOT_AVAILABLE"
+            ]
+          },
+          "initiatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "connectedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrderDetailResponse": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_MATCH",
+              "PENDING_ACCEPT",
+              "IN_PROGRESS",
+              "DRIVER_EN_ROUTE",
+              "DRIVER_ARRIVED",
+              "COMPLETED",
+              "CANCELLED",
+              "REMATCHING",
+              "NO_VOLUNTEER"
+            ]
+          },
+          "startAddress": {
+            "type": "string"
+          },
+          "startLatitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90
+          },
+          "startLongitude": {
+            "type": "number",
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180
+          },
+          "plannedStart": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plannedEnd": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "volunteerPhone": {
+            "type": "string"
+          },
+          "acceptedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expectedDurationMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pacePreference": {
+            "type": "string",
+            "enum": [
+              "WALK_RUN",
+              "EASY",
+              "MODERATE",
+              "FAST",
+              "NO_PREFERENCE"
+            ]
+          },
+          "routePreference": {
+            "type": "string",
+            "enum": [
+              "PARK_TRAIL",
+              "STREET",
+              "TRACK",
+              "NO_PREFERENCE"
+            ]
+          },
+          "routeNotes": {
+            "type": "string"
+          },
+          "hasGuideDogThisRun": {
+            "type": "boolean"
+          },
+          "specialNotes": {
+            "type": "string"
+          },
+          "visionLevel": {
+            "type": "string",
+            "enum": [
+              "TOTAL_BLIND",
+              "LOW_VISION"
+            ]
+          },
+          "tetherPreference": {
+            "type": "string",
+            "enum": [
+              "TETHER_ROPE",
+              "ARM_HOLD",
+              "VERBAL_ONLY"
+            ]
+          },
+          "chatPreference": {
+            "type": "string",
+            "enum": [
+              "PREFER_CHAT",
+              "PREFER_QUIET",
+              "NO_PREFERENCE"
+            ]
+          }
+        }
+      },
+      "OrderStatusLogResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "orderId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "fromStatus": {
+            "type": "string"
+          },
+          "toStatus": {
+            "type": "string"
+          },
+          "changedBy": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "remark": {
+            "type": "string"
+          }
+        }
+      },
+      "PageOrderDetailResponse": {
+        "type": "object",
+        "properties": {
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageable": {
+            "$ref": "#/components/schemas/PageableObject"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderDetailResponse"
+            }
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sort": {
+            "$ref": "#/components/schemas/SortObject"
+          },
+          "first": {
+            "type": "boolean"
+          },
+          "last": {
+            "type": "boolean"
+          },
+          "numberOfElements": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "empty": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PageableObject": {
+        "type": "object",
+        "properties": {
+          "pageNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "paged": {
+            "type": "boolean"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sort": {
+            "$ref": "#/components/schemas/SortObject"
+          },
+          "unpaged": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SortObject": {
+        "type": "object",
+        "properties": {
+          "sorted": {
+            "type": "boolean"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "unsorted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiResponseObject": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          }
+        }
+      },
+      "BlindProfileResponse": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "runningPace": {
+            "type": "string"
+          },
+          "specialNeeds": {
+            "type": "string"
+          },
+          "verifyStatus": {
+            "type": "string",
+            "enum": [
+              "NOT_VERIFIED",
+              "VERIFIED",
+              "FAILED"
+            ]
+          },
+          "visionLevel": {
+            "type": "string",
+            "enum": [
+              "TOTAL_BLIND",
+              "LOW_VISION"
+            ]
+          },
+          "hasGuideDog": {
+            "type": "boolean"
+          },
+          "tetherPreference": {
+            "type": "string",
+            "enum": [
+              "TETHER_ROPE",
+              "ARM_HOLD",
+              "VERBAL_ONLY"
+            ]
+          },
+          "chatPreference": {
+            "type": "string",
+            "enum": [
+              "PREFER_CHAT",
+              "PREFER_QUIET",
+              "NO_PREFERENCE"
+            ]
+          },
+          "defaultPace": {
+            "type": "string",
+            "enum": [
+              "WALK_RUN",
+              "EASY",
+              "MODERATE",
+              "FAST",
+              "NO_PREFERENCE"
+            ]
+          }
+        }
+      },
+      "ApiResponseTrainingStatsResponse": {
+        "type": "object",
+        "description": "遗留培训统计兼容响应；当前主注册流程不使用。",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TrainingStatsResponse"
+          }
+        }
+      },
+      "TrainingStatsResponse": {
+        "type": "object",
+        "description": "遗留培训统计 schema；当前主注册流程不使用。",
+        "properties": {
+          "totalVolunteers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "completedTrainingVolunteers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "inProgressVolunteers": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "completionRate": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "FaceVerifyInitRequest": {
+        "type": "object",
+        "properties": {
+          "metaInfo": {
+            "type": "string",
+            "minLength": 1,
+            "description": "前端通过阿里云实人认证 SDK 采集的设备指纹 JSON 字符串"
+          }
+        },
+        "required": [
+          "metaInfo"
+        ]
+      },
+      "FaceVerifyInitResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "certifyId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "阿里云原生 App SDK 认证流水号"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "PENDING"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "certifyId",
+              "status"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ERROR"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "message"
+            ]
+          }
+        ],
+        "discriminator": {
+          "propertyName": "status"
+        }
+      },
+      "FaceVerifyResultRequest": {
+        "type": "object",
+        "properties": {
+          "certifyId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "certifyId"
+        ]
+      },
+      "FaceVerifyResponse": {
+        "type": "object",
+        "properties": {
+          "passed": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "APPROVED",
+              "PENDING",
+              "REJECTED",
+              "ERROR"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "VolunteerRegistrationStatusResponse": {
+        "type": "object",
+        "description": "后端权威主注册状态；活体通过后应返回 STEP_4_COMPLETED 且 canAcceptOrders = true。为兼容旧账号和尚未升级的后端，新版 iOS 将 STEP_4_TRAINING 按主注册完成处理。",
+        "properties": {
+          "currentStep": {
+            "type": "string",
+            "description": "STEP_4_TRAINING 仅为遗留兼容值，新注册不得产生；新版 iOS 将其按主注册完成处理但仍要求用户手动开启可服务状态。",
+            "enum": [
+              "STEP_1_BASIC_INFO",
+              "STEP_3_FACE_VERIFY",
+              "STEP_4_TRAINING",
+              "STEP_4_COMPLETED"
+            ]
+          },
+          "canAcceptOrders": {
+            "type": "boolean"
+          },
+          "stepDetails": {
+            "$ref": "#/components/schemas/VolunteerRegistrationStepDetails"
+          }
+        }
+      },
+      "VolunteerRegistrationStepDetails": {
+        "type": "object",
+        "properties": {
+          "idVerifyStatus": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "faceVerifyStatus": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "totalTrainingMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "遗留培训统计字段；当前主注册流程不使用。"
+          },
+          "completedCoursesCount": {
+            "type": "integer",
+            "format": "int32",
+            "description": "遗留培训统计字段；当前主注册流程不使用。"
+          },
+          "currentCourseId": {
+            "type": "integer",
+            "format": "int64",
+            "description": "遗留培训统计字段；当前主注册流程不使用。"
+          },
+          "idVerifyRejectionReason": {
+            "type": "string"
+          },
+          "faceVerifyRejectionReason": {
+            "type": "string"
+          }
+        }
+      },
+      "VolunteerLocationFallbackResponse": {
+        "type": "object",
+        "required": ["success", "data"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "code": { "type": "integer", "format": "int32" },
+          "message": { "type": "string" },
+          "data": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/VolunteerLocationFallbackData" },
+              { "type": "null" }
+            ]
+          }
+        }
+      },
+      "VolunteerLocationFallbackData": {
+        "type": "object",
+        "required": ["orderId", "status", "lat", "lng", "updatedAt"],
+        "properties": {
+          "orderId": { "type": "integer", "format": "int64" },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING_ACCEPT", "DRIVER_EN_ROUTE", "DRIVER_ARRIVED"]
+          },
+          "lat": { "type": "number", "format": "double", "minimum": -90, "maximum": 90 },
+          "lng": { "type": "number", "format": "double", "minimum": -180, "maximum": 180 },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339 timestamp with timezone. iOS accepts only samples no more than 30 seconds old; 需要人工确认 production timezone/precision."
+          }
+        }
+      },
+      "ApiResponseListVolunteerReviewItemResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolunteerReviewItemResponse"
+            }
+          }
+        }
+      },
+      "VolunteerReviewItemResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "idCardNumber": {
+            "type": "string"
+          },
+          "idCardName": {
+            "type": "string"
+          },
+          "idCardFrontUrl": {
+            "type": "string"
+          },
+          "idCardBackUrl": {
+            "type": "string"
+          },
+          "facePhotoUrl": {
+            "type": "string"
+          },
+          "registrationStep": {
+            "type": "string",
+            "description": "主注册状态。STEP_4_TRAINING 仅为遗留兼容值，新版 iOS 将其按主注册完成处理。",
+            "enum": [
+              "STEP_1_BASIC_INFO",
+              "STEP_3_FACE_VERIFY",
+              "STEP_4_TRAINING",
+              "STEP_4_COMPLETED"
+            ]
+          },
+          "idVerifyStatus": {
+            "type": "string",
+            "enum": [
+              "NOT_STARTED",
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "faceVerifyStatus": {
+            "type": "string",
+            "enum": [
+              "NOT_STARTED",
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponseListCertReviewItemResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CertReviewItemResponse"
+            }
+          }
+        }
+      },
+      "CertReviewItemResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "verificationDocUrl": {
+            "type": "string"
+          },
+          "verificationStatus": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "registrationStep": {
+            "type": "string",
+            "description": "主注册状态。STEP_4_TRAINING 仅为遗留兼容值，新版 iOS 将其按主注册完成处理。",
+            "enum": [
+              "STEP_1_BASIC_INFO",
+              "STEP_3_FACE_VERIFY",
+              "STEP_4_TRAINING",
+              "STEP_4_COMPLETED"
+            ]
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Token 缺失、过期、已拉黑，或所属账户已删除",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "请求超过限流桶配额。错误码固定为 RATE_LIMITED；Retry-After 为整数秒，响应体可同时提供 retryAfterSeconds 与 rateLimitBucket。",
+        "headers": {
+          "Retry-After": {
+            "required": true,
+            "schema": { "type": "integer", "minimum": 0 },
+            "description": "可重试前等待的整数秒数。"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "name": "Authorization",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}

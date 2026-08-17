@@ -7,7 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0A0E0A0100000000000000C3 /* AidRunAPI in Frameworks */ = {isa = PBXBuildFile; productRef = 0A0E0A0100000000000000B3 /* AidRunAPI */; };
 		1C059396A3E75AD40C512BE9 /* Pods_blindRun.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 069303316284F792AF3C8631 /* Pods_blindRun.framework */; };
+		D097D1DCC74C3A89C47863B7 /* Pods_blindRunTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,12 +31,17 @@
 
 /* Begin PBXFileReference section */
 		069303316284F792AF3C8631 /* Pods_blindRun.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_blindRun.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		1140F503088D1E5AD50F9394 /* Pods-blindRunTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRunTests.debug.xcconfig"; path = "Target Support Files/Pods-blindRunTests/Pods-blindRunTests.debug.xcconfig"; sourceTree = "<group>"; };
 		32373961A29BE67B5BB79B99 /* Pods-blindRun.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRun.release.xcconfig"; path = "Target Support Files/Pods-blindRun/Pods-blindRun.release.xcconfig"; sourceTree = "<group>"; };
+		50C5D31EBB0BC838F20BA6C5 /* Pods-blindRunTests.demorelease.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRunTests.demorelease.xcconfig"; path = "Target Support Files/Pods-blindRunTests/Pods-blindRunTests.demorelease.xcconfig"; sourceTree = "<group>"; };
+		ADEF951FDCD2DBB1C055074E /* Pods-blindRun.demorelease.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRun.demorelease.xcconfig"; path = "Target Support Files/Pods-blindRun/Pods-blindRun.demorelease.xcconfig"; sourceTree = "<group>"; };
 		C490E0772FBB552800807A54 /* blindRun.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = blindRun.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C490E0842FBB552A00807A54 /* blindRunTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = blindRunTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C490E08E2FBB552A00807A54 /* blindRunUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = blindRunUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C490E24D2FC0924D00807A54 /* LocalConfig.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalConfig.xcconfig; sourceTree = "<group>"; };
 		C490E2512FC0955300807A54 /* BeijingDemo.gpx */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = BeijingDemo.gpx; sourceTree = "<group>"; };
+		CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_blindRunTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		F31690AA2891E27444E91434 /* Pods-blindRunTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRunTests.release.xcconfig"; path = "Target Support Files/Pods-blindRunTests/Pods-blindRunTests.release.xcconfig"; sourceTree = "<group>"; };
 		FCD854F16EA9710ADA4DCE3A /* Pods-blindRun.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRun.debug.xcconfig"; path = "Target Support Files/Pods-blindRun/Pods-blindRun.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -78,6 +85,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0A0E0A0100000000000000C3 /* AidRunAPI in Frameworks */,
 				1C059396A3E75AD40C512BE9 /* Pods_blindRun.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -86,6 +94,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D097D1DCC74C3A89C47863B7 /* Pods_blindRunTests.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -104,6 +113,10 @@
 			children = (
 				FCD854F16EA9710ADA4DCE3A /* Pods-blindRun.debug.xcconfig */,
 				32373961A29BE67B5BB79B99 /* Pods-blindRun.release.xcconfig */,
+				1140F503088D1E5AD50F9394 /* Pods-blindRunTests.debug.xcconfig */,
+				F31690AA2891E27444E91434 /* Pods-blindRunTests.release.xcconfig */,
+				ADEF951FDCD2DBB1C055074E /* Pods-blindRun.demorelease.xcconfig */,
+				50C5D31EBB0BC838F20BA6C5 /* Pods-blindRunTests.demorelease.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -112,6 +125,7 @@
 			isa = PBXGroup;
 			children = (
 				069303316284F792AF3C8631 /* Pods_blindRun.framework */,
+				CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -161,6 +175,9 @@
 				C490E0792FBB552800807A54 /* blindRun */,
 			);
 			name = blindRun;
+			packageProductDependencies = (
+				0A0E0A0100000000000000B3 /* AidRunAPI */,
+			);
 			productName = blindRun;
 			productReference = C490E0772FBB552800807A54 /* blindRun.app */;
 			productType = "com.apple.product-type.application";
@@ -169,6 +186,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = C490E09B2FBB552A00807A54 /* Build configuration list for PBXNativeTarget "blindRunTests" */;
 			buildPhases = (
+				2AA53A743695286704E796B4 /* [CP] Check Pods Manifest.lock */,
 				C490E0802FBB552A00807A54 /* Sources */,
 				C490E0812FBB552A00807A54 /* Frameworks */,
 				C490E0822FBB552A00807A54 /* Resources */,
@@ -239,6 +257,9 @@
 			);
 			mainGroup = C490E06E2FBB552800807A54;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				0A0E0A0100000000000000A3 /* XCLocalSwiftPackageReference "Packages/AidRunAPI" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C490E0782FBB552800807A54 /* Products */;
 			projectDirPath = "";
@@ -276,6 +297,28 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		2AA53A743695286704E796B4 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-blindRunTests-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
 		6A179414A776BC35A117336E /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -490,7 +533,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = blindRun/Info.plist;
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑需要您的位置信息来创建预约和计算距离";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -501,7 +544,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.blindRun;
+				PODS_FILELIST_CONFIGURATION = Debug;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -525,7 +569,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = blindRun/Info.plist;
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑需要您的位置信息来创建预约和计算距离";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -536,7 +580,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.blindRun;
+				PODS_FILELIST_CONFIGURATION = Release;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -550,6 +595,7 @@
 		};
 		C490E09C2FBB552A00807A54 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1140F503088D1E5AD50F9394 /* Pods-blindRunTests.debug.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
@@ -558,7 +604,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.blindRunTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -572,6 +618,7 @@
 		};
 		C490E09D2FBB552A00807A54 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = F31690AA2891E27444E91434 /* Pods-blindRunTests.release.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
@@ -580,7 +627,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.blindRunTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -600,7 +647,7 @@
 				DEVELOPMENT_TEAM = R6PH2TFB3Q;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.blindRunUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -620,7 +667,7 @@
 				DEVELOPMENT_TEAM = R6PH2TFB3Q;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.blindRunUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -632,6 +679,147 @@
 			};
 			name = Release;
 		};
+		C490E2602FC0D000000807A54 /* DemoRelease */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C490E24D2FC0924D00807A54 /* LocalConfig.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = R6PH2TFB3Q;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEMO $(inherited)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = DemoRelease;
+		};
+		C490E2612FC0D000000807A54 /* DemoRelease */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = ADEF951FDCD2DBB1C055074E /* Pods-blindRun.demorelease.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R6PH2TFB3Q;
+				ENABLE_PREVIEWS = YES;
+				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = blindRun/Info.plist;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEMO $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = DemoRelease;
+		};
+		C490E2622FC0D000000807A54 /* DemoRelease */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 50C5D31EBB0BC838F20BA6C5 /* Pods-blindRunTests.demorelease.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R6PH2TFB3Q;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEMO $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/blindRun.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/blindRun";
+			};
+			name = DemoRelease;
+		};
+		C490E2632FC0D000000807A54 /* DemoRelease */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R6PH2TFB3Q;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEMO $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = blindRun;
+			};
+			name = DemoRelease;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -639,6 +827,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C490E0962FBB552A00807A54 /* Debug */,
+				C490E2602FC0D000000807A54 /* DemoRelease */,
 				C490E0972FBB552A00807A54 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
@@ -648,6 +837,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C490E0992FBB552A00807A54 /* Debug */,
+				C490E2612FC0D000000807A54 /* DemoRelease */,
 				C490E09A2FBB552A00807A54 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
@@ -657,6 +847,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C490E09C2FBB552A00807A54 /* Debug */,
+				C490E2622FC0D000000807A54 /* DemoRelease */,
 				C490E09D2FBB552A00807A54 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
@@ -666,12 +857,27 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C490E09F2FBB552A00807A54 /* Debug */,
+				C490E2632FC0D000000807A54 /* DemoRelease */,
 				C490E0A02FBB552A00807A54 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		0A0E0A0100000000000000A3 /* XCLocalSwiftPackageReference "Packages/AidRunAPI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/AidRunAPI;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0A0E0A0100000000000000B3 /* AidRunAPI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AidRunAPI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C490E06F2FBB552800807A54 /* Project object */;
 }

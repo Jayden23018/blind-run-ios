@@ -1,0 +1,73 @@
+# swift-openapi-generator 配置。生成入口是 scripts/generate-api-client.sh。
+#
+# accessModifier 是 public：生成代码住在独立的 AidRunAPI 包里（见 Packages/AidRunAPI/Package.swift
+# 顶部关于隔离冲突的说明），App 要跨模块用它，所以不能是 internal。
+# 也不能用生成器的默认值 package —— Xcode 工程不传 -package-name，会报
+# "Decl has a package access level but no -package-name was passed"。
+#
+# filter.paths 只列 App 真正调用的路径（2026-08-05 实测 43 条）。不 filter 的话
+# 产物是 22,015 行 / 1.0MB，其中约 1/3 是 App 从不调用的 admin/ 与 cs/ 客服端；
+# filter 后是 16,162 行 / 788K。
+#
+# ⚠️ 新接一个后端端点时必须往下面加一行，否则生成的 Client 里没有对应方法。
+#    这件事由 scripts/validate-spec-coverage.mjs 兜底：它会发现前端在调一条
+#    没被生成的路径。别指望记性。
+#
+# 已确认排除、不要「顺手补回来」的两条：
+#   /api/blind/location、/api/volunteer/location —— REST 版本从不调用，
+#     真实位置上报走 WebSocket（AGENTS.md §3）；只有 MockAPIClient 里有 mock 分支。
+#   /api/volunteer/mock-verification/approve —— 根本不在后端 spec 里，是 mock 专用路径。
+
+generate:
+  - types
+  - client
+
+accessModifier: public
+
+filter:
+  paths:
+    - /api/auth/logout
+    - /api/auth/me
+    - /api/auth/send-code
+    - /api/auth/verify-code
+    - /api/blind/profile
+    - /api/blind/verify-identity
+    - /api/blind/volunteer-location
+    - /api/devices/apns
+    - /api/emergency/active
+    - /api/emergency/trigger
+    - /api/emergency/{eventId}/cancel
+    - /api/emergency/{eventId}/volunteer-response
+    - /api/misc/legal-links
+    - /api/notifications/since
+    - /api/orders
+    - /api/orders/available
+    - /api/orders/mine
+    - /api/orders/voice/parse
+    - /api/orders/voice/parse-slot
+    - /api/orders/voice/resolve-address
+    - /api/orders/{id}
+    - /api/orders/{id}/arrived
+    - /api/orders/{id}/cancel
+    - /api/orders/{id}/en-route
+    - /api/orders/{id}/finish
+    - /api/orders/{id}/respond
+    - /api/orders/{id}/review
+    - /api/orders/{id}/share
+    - /api/orders/{id}/start-service
+    - /api/orders/{id}/track
+    - /api/user/role
+    - /api/users/{id}
+    - /api/users/{userId}/emergency-contacts
+    - /api/users/{userId}/emergency-contacts/{contactId}
+    - /api/users/{userId}/emergency-contacts/{contactId}/set-primary
+    - /api/volunteer/achievements
+    - /api/volunteer/dispatch-status
+    - /api/volunteer/dispatch-summary
+    - /api/volunteer/profile
+    - /api/volunteer/registration/status
+    - /api/volunteer/registration/step1
+    - /api/volunteer/registration/step3/face-verify/init
+    - /api/volunteer/registration/step3/face-verify/result
+    - /api/volunteer/verification
+    - /api/volunteer/verification/status

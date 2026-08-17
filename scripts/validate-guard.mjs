@@ -1,0 +1,711 @@
+#!/usr/bin/env node
+//
+// scripts/hooks/guard.mjs 的回归测试。
+//
+// 为什么需要它：2026-08-05 把 project.pbxproj 从「整文件冻结」改成了「行级冻结」，
+// 好让 SPM 依赖能加进去，同时把签名团队号永久锁死。这个放宽本身就是风险点 ——
+// 万一哪次改动把行级判断改坏了，工程文件就等于完全敞开，而没有任何东西会报警。
+// AGENTS.md 第 1 节要求这类事落到机器归宿，这就是那个归宿。
+
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const guard = path.join(scriptDir, 'hooks', 'guard.mjs');
+
+const PBXPROJ = '/x/blindRun.xcodeproj/project.pbxproj';
+
+// 拼出来而不是写字面量：本文件自己也要过守卫，而守卫拦的就是这个键名。
+const ARCH_KEY = ['EXCLUDED', 'ARCHS'].join('_');
+
+// exit 2 = 守卫拦下（Claude Code 的 PreToolUse 约定），exit 0 = 放行。
+const cases = [
+  {
+    name: 'pbxproj 加 SPM 依赖段',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: PBXPROJ,
+        old_string: '/* Begin PBXBuildFile section */',
+        new_string:
+          '/* Begin PBXBuildFile section */\n\t\t0A0 /* OpenAPIRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 0A1 /* OpenAPIRuntime */; };'
+      }
+    }
+  },
+  {
+    name: 'pbxproj 写入签名团队号',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: { file_path: PBXPROJ, old_string: 'A', new_string: 'DEVELOPMENT_TEAM = ZW39BS8NXT;' }
+    }
+  },
+  {
+    // 只查 new_string 会漏掉这种：把那 12 行整段删掉，新内容里干干净净。
+    name: 'pbxproj 删掉签名团队行',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: { file_path: PBXPROJ, old_string: 'DEVELOPMENT_TEAM = R6PH2TFB3Q;', new_string: '' }
+    }
+  },
+  {
+    name: 'pbxproj 整文件重写（Write 带全文，必然含签名团队号）',
+    expect: 2,
+    input: {
+      tool_name: 'Write',
+      tool_input: { file_path: PBXPROJ, content: '// !$*UTF8*$!\nDEVELOPMENT_TEAM = R6PH2TFB3Q;\n' }
+    }
+  },
+  {
+    name: 'Podfile 任何改动仍整文件冻结',
+    expect: 2,
+    input: { tool_name: 'Edit', tool_input: { file_path: '/x/Podfile', old_string: 'a', new_string: 'b' } }
+  },
+  {
+    // 这条规则对所有构建相关文件生效，不只 pbxproj。模拟器通道靠它保命。
+    name: '任何文件写入架构排除设置',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: { file_path: '/x/anything.xcconfig', old_string: 'a', new_string: ARCH_KEY + ' = arm64' }
+    }
+  },
+  {
+    // 2026-08-06：这条规则曾拦住 AGENTS.md 第 9 节自己 —— 那节的正文就得写出这个键名。
+    // 文档设不了构建设置，放行零风险；不放行的话，记录规则的文档反而改不动。
+    name: 'Markdown 文档可以提及架构排除设置',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/x/AGENTS.md',
+        old_string: 'a',
+        new_string: `任何文件都不得写入 \`${ARCH_KEY}\` —— 真机是唯一 XCTest 通道。`
+      }
+    }
+  },
+  {
+    // 同一天它还拦住了 guard.mjs 自己的注释。行尾标注是留给这类场景的口子。
+    name: '代码里带 guard:allow 标注时可以提及',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/x/build-helper.sh',
+        old_string: 'a',
+        new_string: `echo "别设 ${ARCH_KEY}" # guard:allow excluded-archs`
+      }
+    }
+  },
+  {
+    // MainActor 默认隔离 vs OpenAPI 类型的冲突已发作两次，第二次之后把生成代码
+    // 搬进了独立包。这条守卫防的是有人把它又拽回 App target。
+    name: 'App target 里 import OpenAPIRuntime',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Core/Foo.swift',
+        old_string: 'a',
+        new_string: 'import Foundation\nimport OpenAPIRuntime'
+      }
+    }
+  },
+  {
+    name: '包内 import OpenAPIRuntime（正当用法，放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/Packages/AidRunAPI/Sources/AidRunAPI/Foo.swift',
+        old_string: 'a',
+        new_string: 'import Foundation\nimport OpenAPIRuntime'
+      }
+    }
+  },
+  {
+    name: 'App target 里 import AidRunAPI（推荐用法，放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Core/Foo.swift',
+        old_string: 'a',
+        new_string: 'import Foundation\nimport AidRunAPI'
+      }
+    }
+  },
+  {
+    // 2026-08-06：weak 依赖收到临时对象 = 收到 nil，测试照样绿。
+    name: '把当场构造的 LocationService 传给 weak 依赖',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: 'viewModel.configureForTesting(speechService: SpeechService(), locationService: LocationService())'
+      }
+    }
+  },
+  {
+    // `x ?? Type()` 是同一个陷阱换了件衣服：默认分支同样没人持有。
+    name: '?? 兜底构造出的临时对象也要拦',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: 'wizard.configure(speechInputService: speechInputService ?? SpeechInputService())'
+      }
+    }
+  },
+  {
+    name: '先 let 住再传（正确用法，放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: 'let location = LocationService()\nviewModel.configureForTesting(locationService: location)'
+      }
+    }
+  },
+  {
+    // 显式 nil 是表达「这项依赖不存在」的正当写法，不能被这条规则逼成别的样子。
+    name: '显式传 nil（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: 'viewModel.configureForTesting(locationService: nil, appState: appState)'
+      }
+    }
+  },
+  {
+    // speechService 在十几个 view model 里是强引用，按标签名拦会全是误报，故意不在名单里。
+    name: 'speechService 临时对象不在名单内（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: 'viewModel.configure(with: appState, speechService: SpeechService())'
+      }
+    }
+  },
+  {
+    // 2026-08-06：verify.yml 里两处 `if: ${{ secrets.X != '' }}` 让 workflow 连续 9 次
+    // 启动失败 —— 0 个 job、0 条日志，UI 上看不出红在哪，只有邮件。这条守卫防的就是它。
+    name: 'workflow step 的 if 里用 secrets',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/.github/workflows/verify.yml',
+        old_string: 'a',
+        new_string: "      - name: Checkout backend\n        if: ${{ secrets.BACKEND_REPO_TOKEN != '' }}"
+      }
+    }
+  },
+  {
+    // job 级 if 的可用上下文更窄（只有 github/needs/vars/inputs），同样炸。
+    name: 'workflow job 的 if 里用 secrets',
+    expect: 2,
+    input: {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: '/repo/.github/workflows/deploy.yml',
+        content: "jobs:\n  ship:\n    if: ${{ secrets.DEPLOY_KEY != '' }}\n    runs-on: ubuntu-latest"
+      }
+    }
+  },
+  {
+    // job 级 env 允许 secrets —— 这就是那条规则的正解，不能被误伤。
+    name: 'job 级 env 里读 secrets（正解，放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/.github/workflows/verify.yml',
+        old_string: 'a',
+        new_string: "    env:\n      HAS_TOKEN: ${{ secrets.BACKEND_REPO_TOKEN != '' }}\n    steps:\n      - if: env.HAS_TOKEN == 'true'"
+      }
+    }
+  },
+  {
+    // steps.with 也允许 secrets，token 就得这么传。
+    name: 'step 的 with 里传 secrets（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/.github/workflows/verify.yml',
+        old_string: 'a',
+        new_string: '        with:\n          token: ${{ secrets.BACKEND_REPO_TOKEN }}'
+      }
+    }
+  },
+  {
+    // 规则按路径生效：workflow 之外的 YAML 没有这个上下文限制，不该被拦。
+    name: '非 workflow 的 YAML 不受此规则约束（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/fastlane/config.yml',
+        old_string: 'a',
+        new_string: "if: ${{ secrets.SOMETHING }}"
+      }
+    }
+  },
+  {
+    // 2026-08-07：dual-device-validation.sh 与 device-test-safety.sh 里 7 处 xcodebuild
+    // 一处都没传 DEVELOPMENT_TEAM —— 这两个脚本是发布验证的入口，却在任何非原开发者的
+    // 机器上必然签名失败。报错是 `No Account for Team "R6PH2TFB3Q"`，字面上不提团队号
+    // 从哪来，很容易被当成证书问题查半天。
+    name: '脚本里打真机的 xcodebuild 没传 DEVELOPMENT_TEAM',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/scripts/dual-device-validation.sh',
+        old_string: 'a',
+        new_string:
+          'xcodebuild test \\\n  -workspace blindRun.xcworkspace \\\n  -scheme blindRun \\\n  -destination "platform=iOS,name=${BLIND_DEVICE}"'
+      }
+    }
+  },
+  {
+    // 传了就该放行。续行要先粘成一条命令再判，否则 DEVELOPMENT_TEAM 在下一行会被判成「没传」。
+    name: '真机 xcodebuild 传了 DEVELOPMENT_TEAM（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/scripts/dual-device-validation.sh',
+        old_string: 'a',
+        new_string:
+          'xcodebuild test \\\n  -destination "platform=iOS,name=${BLIND_DEVICE}" \\\n  -allowProvisioningUpdates \\\n  DEVELOPMENT_TEAM="${TEAM}"'
+      }
+    }
+  },
+  {
+    // 编译门禁走 generic destination + CODE_SIGNING_ALLOWED=NO，本就不需要团队号。
+    // 拦它是误报，而误报是这类守卫的死因。
+    name: '编译门禁（generic destination，不签名）不该被拦',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/scripts/ci-build.sh',
+        old_string: 'a',
+        new_string:
+          "xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \\\n  -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing"
+      }
+    }
+  },
+  {
+    // 规则只管 shell 脚本。文档里必须能写出反例，否则这条规则自己的说明就落不了地。
+    name: 'Markdown 里出现同样的命令（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/docs/08-ios-architecture.md',
+        old_string: 'a',
+        new_string: 'xcodebuild test -destination "platform=iOS,name=111"'
+      }
+    }
+  },
+  {
+    // 2026-08-14：误触让真机 UI 测试走到了 tel://110，只有双卡选号单挡了一下。
+    // 拨号已收敛到 EmergencyDialer.dial（DEBUG 下可拦截），这条守卫防的是有人再开一个出口。
+    name: '生产代码里裸的 UIApplication.shared.open（绕开拨号拦截）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/FooView.swift',
+        old_string: 'a',
+        new_string: '        UIApplication.shared.open(telURL)'
+      }
+    }
+  },
+  {
+    name: '改走 EmergencyDialer.dial（正解，放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/FooView.swift',
+        old_string: 'a',
+        new_string: '        EmergencyDialer.dial(telURL)'
+      }
+    }
+  },
+  {
+    // 地图 / 系统设置这些别的 scheme 是正当出口，标注就是那份出口清单。
+    name: '别的 scheme 带 guard:allow 标注（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Map/ExternalMapNavigation.swift',
+        old_string: 'a',
+        new_string: '            UIApplication.shared.open(url) // guard:allow raw-open-url 地图 App scheme'
+      }
+    }
+  },
+  {
+    // 拦截实现本身就住在这个文件里，拦它等于让这条规则自己改不动。
+    name: 'SafetyModule.swift 里的那唯一一处（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Safety/SafetyModule.swift',
+        old_string: 'a',
+        new_string: '    static func dial(_ url: URL, open: (URL) -> Void = { UIApplication.shared.open($0) }) {'
+      }
+    }
+  },
+  {
+    // 测试代码不受此规则约束：UI 测试自己没有 UIApplication.shared 可用，
+    // 而单测里出现这行只可能是在写反例。
+    name: '测试代码里出现同一行（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: '        // 别写成 UIApplication.shared.open(url)'
+      }
+    }
+  },
+  {
+    // 2026-08-15：UI 审计只量逐页点名的主按钮，次级控件（跳过评价 52pt、查看大图路线 44pt、
+    // 收藏地点三处 52pt）一路漏过去。盲人端 44pt 读得到按不中，表现是「点了没反应」。
+    name: '盲人端次级控件只有 52pt（拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindOrderStatusView.swift',
+        old_string: 'a',
+        new_string: '                .frame(minHeight: 52)'
+      }
+    }
+  },
+  {
+    name: '同一行写成 .frame(maxWidth: .infinity, minHeight: 44)（拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Shared/CompletedTrackSummaryView.swift',
+        old_string: 'a',
+        new_string: '                .frame(maxWidth: .infinity, minHeight: 44)'
+      }
+    }
+  },
+  {
+    name: '改到 64pt（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindBookingView.swift',
+        old_string: 'a',
+        new_string: '                    .frame(minHeight: 64)'
+      }
+    }
+  },
+  {
+    // 志愿者端是明眼人用的，走 Apple 的 44pt 线，不受这条约束。
+    name: '志愿者端 52pt（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Volunteer/VolunteerOrderFlowViews.swift',
+        old_string: 'a',
+        new_string: '                .frame(minHeight: 52)'
+      }
+    }
+  },
+  {
+    // 非交互元素确实用得着小数值，标注本身就是「这不是触达目标」的声明。
+    name: '非触达目标带 guard:allow 标注（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindRunHistoryView.swift',
+        old_string: 'a',
+        new_string: '            .frame(minHeight: 24) // guard:allow small-touch-target 纯文本行，不可点'
+      }
+    }
+  },
+  {
+    name: 'UI 测试里 app.tap() 敲屏幕正中（会点到盲人端主按钮）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunUITests/AccessibilityAuditTests.swift',
+        old_string: 'a',
+        new_string: '        app.launch()\n        app.tap()'
+      }
+    }
+  },
+  {
+    name: '改敲顶部无动作区域（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunUITests/AccessibilityAuditTests.swift',
+        old_string: 'a',
+        new_string:
+          '        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()'
+      }
+    }
+  },
+  {
+    // 显式标注过的放行 —— 否则这条规则会把「确实要点正中」的场景堵死。
+    name: 'app.tap() 带 guard:allow 标注（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunUITests/SomeOtherTests.swift',
+        old_string: 'a',
+        new_string: '        app.tap() // guard:allow blind-tap-center'
+      }
+    }
+  },
+  // placeholder-promise：起因是「积分商城」占位页在仓库里躺了很久，没有任何检查说过一句话。
+  //
+  // sos-copy 此前**一条自测都没有** —— 规则在 guard.mjs 里躺了很久，却没人验过它拦不拦得住。
+  // 2026-08-13 补上，起因是行程告知功能用「家人」这个称呼，整条从原词表旁边绕了过去。
+  //
+  // 这几条走 post 模式：内容级规则是从磁盘读改动后的真实文件再查的（比解析 diff 可靠），
+  // 所以用 `swift` 字段声明文件内容，由下面的 runner 落成临时文件。
+  {
+    name: '出货代码里承诺「敬请期待」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "积分商城即将上线，敬请期待" }'
+  },
+  {
+    name: '出货代码里承诺「即将上线」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "该功能即将上线" }'
+  },
+  {
+    // 占位 UI 本身不该被禁，如实说明当前不可用才是正确写法 ——
+    // 规则拦的是「会兑现」的暗示，不是占位本身。
+    name: '如实说明功能不可用（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let title = "这个功能还没有开放" }'
+  },
+  {
+    name: 'SOS 文案宣称已通知紧急联系人（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let done = "已通知紧急联系人" }'
+  },
+  {
+    // 换个称呼就穿过去，正是这条规则最容易被绕开的方式 —— 也正是它 2026-08-13 被绕开的方式。
+    name: 'SOS 文案换用「家人」称呼（同样拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let sent = "已通知家人" }'
+  },
+  {
+    name: 'SOS 文案说「家人已收到」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let sent = "家人已收到你的行程" }'
+  },
+  {
+    // 进行时文案必须放行 —— 否则这条规则会把唯一正确的写法也堵死，
+    // 逼着后来的人去加 guard:allow，那等于把规则关掉。
+    name: '进行时文案「已交给系统短信」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let sent = "短信已交给系统，请在短信里确认已发出。" }'
+  },
+  {
+    name: '按钮文案「把这次行程告诉家人」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let buttonTitle = "把这次行程告诉家人" }'
+  },
+  {
+    // 注释里引用坏文案来解释「为什么要覆盖它」是我们希望留在代码里的东西。
+    name: '注释里出现坏文案（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: '// 后端 body 写的是「已通知家人」，客户端必须用自己的进行时文案覆盖它。'
+  },
+
+  // volunteer-hours-credential：成就页把时长/星级说成凭据是违规（民政部令第 67 号），
+  // 不是措辞问题。这条规则最容易出的错是把注册流程里合法的「资质证书」「实名认证」
+  // 一起堵死 —— 下面四条放行用例就是钉这条边界的，删了它规则会变成噪音源。
+  {
+    name: '成就页把时长说成「服务证明」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "志愿服务证明" }'
+  },
+  {
+    name: '成就页把时长说成「时长证书」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let title = "导出你的服务时长证书" }'
+  },
+  {
+    name: '成就页宣称「时长已认证」（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'enum C { static let subtitle = "你的服务时长已认证" }'
+  },
+  {
+    // 注册流程里的资质证书是真实动作，与服务时长的法律效力无关。堵死它等于把这条规则关掉。
+    name: '注册流程的「资质证书」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let title = "上传资质证书" }'
+  },
+  {
+    name: '注册流程的「实名认证」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let title = "请先完成实名认证" }'
+  },
+  {
+    name: '注册流程的「培训证书」（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let hint = "上传助盲陪跑相关资质或培训证书" }'
+  },
+  {
+    // 成就页真正该用的措辞。它必须放行，否则唯一正确的写法也过不去。
+    name: '成就页的展示性措辞（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'enum C { static let d = "以上数据来自平台记录，供你自己查看。向学校或单位申报星级需要通过全国志愿服务信息系统办理。" }'
+  },
+
+  // motion-not-gated（2026-08-15）。这条被漏过两轮 review，因为它没有任何运行时症状：
+  // 开发者自己不开「减弱动态效果」就永远看不见。下面六条把两个方向都钉住 ——
+  // 光拦不放行会逼出一堆 `guard:allow`，那等于把规则关掉。
+  {
+    name: '滑入过渡没看减弱动态效果（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct V { var body: some View { Text("x").transition(.move(edge: .top)) } }'
+  },
+  {
+    name: '弹簧动画没看减弱动态效果（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct V { var body: some View { Text("x").animation(.spring(response: 0.32), value: v) } }'
+  },
+  {
+    name: 'withAnimation 没看减弱动态效果（拦下）',
+    mode: 'post',
+    expect: 2,
+    swift: 'struct V { func f() { withAnimation(.easeInOut(duration: 0.25)) { x = 1 } } }'
+  },
+  {
+    name: '滑入过渡已降级为淡入（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct V { var body: some View { Text("x").transition(reduceMotion ? .opacity : .move(edge: .top)) } }'
+  },
+  {
+    // SwiftUI 常把动画曲线折到下一行。只看当前行会把已经降级的写法误判成违规，
+    // 而误报比漏报更致命：下一个人会直接加 `guard:allow` 把规则关掉。
+    name: '曲线折到下一行的降级写法（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct V { var body: some View { Text("x")\n      .animation(\n        reduceMotion ? nil : .spring(response: 0.32),\n        value: v\n      ) } }'
+  },
+  {
+    // 纯淡入淡出不该被拦：它正是降级之后该有的样子，拦它等于没有正确写法。
+    name: '纯淡入淡出（放行）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct V { var body: some View { Text("x").transition(.opacity) } }'
+  },
+  {
+    // 同一条曲线用在三处时会被收敛成一个具名属性（`VolunteerHomeView.demandPanelAnimation`）。
+    // 降级判断在属性定义处，那里写的字面量照样过这条规则 —— 检查点只是挪了位置，没有漏掉。
+    name: '传具名动画属性（放行，判断在属性定义处）',
+    mode: 'post',
+    expect: 0,
+    swift: 'struct V { func f() { withAnimation(demandPanelAnimation) { x = 1 } } }'
+  }
+];
+
+// post 模式的内容规则是**从磁盘读改动后的真实文件**再查的，所以这类用例得落一个真文件。
+//
+// 路径放在临时目录里，但要造出 `/blindRun/` 这一段 —— 守卫用它区分生产代码与测试代码
+// （`guard.mjs` 末尾的路径过滤）。**不要**写进真实的 `blindRun/` 目录：本工程是文件系统
+// 同步式的（`PBXFileSystemSynchronizedRootGroup`），那里多一个 .swift 会直接被编进 target，
+// 用例中断时残留文件会让整个工程编译不过。
+function materialize(testCase) {
+  if (testCase.mode !== 'post') return { input: testCase.input, cleanup: () => {} };
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-guard-'));
+  const productionDir = path.join(dir, 'blindRun', 'Shared');
+  fs.mkdirSync(productionDir, { recursive: true });
+  const filePath = path.join(productionDir, 'GuardSelfTest.swift');
+  fs.writeFileSync(filePath, `${testCase.swift}\n`, 'utf8');
+
+  return {
+    input: { tool_name: 'Edit', tool_input: { file_path: filePath } },
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true })
+  };
+}
+
+let failed = false;
+
+for (const testCase of cases) {
+  const { input, cleanup } = materialize(testCase);
+  const result = spawnSync('node', [guard, testCase.mode ?? 'pre'], {
+    input: JSON.stringify(input),
+    encoding: 'utf8'
+  });
+  cleanup();
+  const status = result.status ?? -1;
+  if (status !== testCase.expect) {
+    console.error(
+      `[validate-guard] ${testCase.name}：期望 exit=${testCase.expect}，实际 exit=${status}` +
+        (result.stderr ? `\n  守卫输出：${result.stderr.trim().split('\n')[0]}` : '')
+    );
+    failed = true;
+  }
+}
+
+if (failed) {
+  process.exitCode = 1;
+} else {
+  console.log(`[validate-guard] ${cases.length} 条守卫用例全部通过`);
+}
