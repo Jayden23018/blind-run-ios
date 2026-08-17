@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  隐私清单（Apple Privacy Manifest）。缺这个文件会在**上传阶段**被拒：ITMS-91053 Missing API declaration。
+
+  ⚠️ 只声明「required reason API」，**刻意不写 NSPrivacyCollectedDataTypes**。
+     理由：对主 App 来说，对外的数据收集口径以 App Store Connect 的隐私标签
+     （Privacy Nutrition Label）为准，那才是审核和用户看到的东西。
+     在这里再写一份等于开出第二个要同步维护的地方，而两处不一致比只有一处更糟。
+     本 App 的隐私标签逐项答案见后端仓库 docs/review/appstore-readiness-review-20260817.md §4。
+     （第三方 SDK 的清单不一样 —— 它们**必须**在自己的 manifest 里写 NSPrivacyCollectedDataTypes，
+     因为宿主 App 无从得知它们收了什么。别照着本文件去改 Vendor/ 下阿里云那几份。）
+
+  ⚠️ 新增任何用到下列 API 的代码，必须回来加一条，否则下次上传直接被拒：
+     文件时间戳 / 磁盘空间 / 活动键盘 / 系统启动时间 / UserDefaults
+     全量类别见 https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
+-->
+<plist version="1.0">
+<dict>
+	<!-- 不做任何跨 App/网站的追踪：无广告 SDK、不用 IDFA（高德用的是 -NO-IDFA 版本）、未接 ATT -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<!-- 用途：会话恢复、常用地点本地缓存、UI 测试的独立持久化域
+			     实际用点：Core/AppStatePersistence.swift、BlindRunner/FavoritePlaceStore.swift
+			     选 CA92.1 而不是 1C8F.1：本 App **没有** App Group entitlement，
+			     代码里 UserDefaults(suiteName:) 用的全是自身容器内的测试域（aidrun.tests.*），
+			     不是跨进程共享的 group.* —— 填 1C8F.1 会触发 ITMS-91055 无效理由。 -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- 用途：计算两次交互之间的时长（单调时钟，避免用户改系统时间导致负数）
+			     实际用点：blindRunApp.swift:235/269/285 的 ProcessInfo.processInfo.systemUptime
+			     35F9.1 = 仅在 App 内部测量经过时间，不外传、不用于用户标识 -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
