@@ -841,9 +841,10 @@ final class VoiceOrderWizard: ObservableObject {
         enterParsing(saying: "正在识别，请稍候。")
         defer { isParsing = false }
 
+        let sentSnapshot = confirmRoundSnapshot
         let parsed: ParseVoiceOrderResponse
         do {
-            parsed = try await parseOrderResponse(transcript, current: lastParsed?.slotSnapshot)
+            parsed = try await parseOrderResponse(transcript, current: sentSnapshot)
         } catch {
             // **不再回「没听懂」** —— 这里失败的是网络，不是听力，说成没听懂会让用户去改说法，
             // 而改说法一点用都没有。本地那几个词仍然直通，所以「确认」这条出路没有被网络挡住，
@@ -889,9 +890,79 @@ final class VoiceOrderWizard: ObservableObject {
             return
         }
 
+        // 🔴 **这一轮什么都没变，而后端还缺槽位 —— 不许再念一遍读回**（2026-08-18，后端 N97）。
+        //
+        // 走到这里未必是「用户给了新值」：`userIntent` / `correctionTarget` / `correctionUnclear`
+        // 三个信号在 `missing` 非空时会被后端**一起压掉**（`correctionTarget` 至今仍要求 `missing` 为空）。
+        // 而下面那条兜底会 `apply` 一份什么都没变的响应、再 `moveToConfirm` 把同一段读回**原样重念**，
+        // 且 `moveToConfirm` 那道闸只数「连续两轮没拿到开始时间」—— 缺的是别的槽位时它一次都不触发
+        // ⇒ **无限循环**。用户听到的就是「我说什么它都只把刚才那段再念一遍」。
+        //
+        // 这正是 2026-08-18 用户报的那条：确认轮只有本地直通词表里的那几个词管用，
+        // 因为**只有它们不发这个请求**；说「对」「可以了」的人被永远关在读回里出不去。
+        //
+        // 判据用**槽位有没有真的变**而不是光看 `missing` 非空：用户说「结束地点改成五角场」时
+        // 终点确实落进去了，那一轮该照常读回（内容会变，听得出来），不该被这条截胡。
+        // 播后端那句追问（`missing` 非空时 `ttsText` 就是该项的追问语，正是本地拼不出来的东西），
+        // 并**计入重问上限** —— 有上限才有出口，连着 3 次走不通时向导会交回表单。
+        let unchanged = parsed.slotSnapshot == sentSnapshot
+        if unchanged, let missing = parsed.missing, !missing.isEmpty {
+            apply(parsed, spokenIn: transcript)
+            reask(with: parsed.ttsText?.nilIfBlank ?? Self.confirmRoundNetworkFailureNotice)
+            return
+        }
+
         // 剩下的只有一种情况：用户给了新值，后端已经把它合进整单。落槽位、重念一遍。
         let notice = apply(parsed, spokenIn: transcript)
         moveToConfirm(notice: notice)
+    }
+
+    /// 确认轮回传给后端的 `current`。
+    ///
+    /// 底座是 `lastParsed.slotSnapshot`（**只从响应派生**，理由见
+    /// `ParseVoiceOrderResponse.slotSnapshot` 上那段红线），但起点在这里要补一手。
+    ///
+    /// 🔴 **为什么必须补**（2026-08-18，后端 N97）：起点解析不出来时我们**本地回落当前位置**，
+    /// 而快照只从响应派生 ⇒ 坐标进不去 `current` ⇒ 后端每一轮都报 `missing:[ADDRESS]` ⇒
+    /// 它按「槽位没齐无从确认」把 `userIntent` 和 `correctionTarget` 一起压成 null ⇒
+    /// 用户说什么都拿不到信号。而读回**已经把这个起点念出来了**（`startPointSummary`
+    /// 开头就是「使用设备当前位置。」），用户听到并认可了它，此刻它就是一个已确认槽位。
+    ///
+    /// ⚠️ **只补起点，`plannedStartTime` 一个字都不许补** —— 那条红线原样保留：
+    /// `appointmentTime` 的初值是 `Date()`，补它会把用户从没说过的时刻当成已确认发出去
+    /// （`testCurrentNeverCarriesAnAppointmentTimeTheUserNeverSpoke` 钉着这一点）。
+    /// 两者的区别是**读回里念没念过**：起点念了，时间在没抽到时明说「预约时间还没说。」。
+    ///
+    /// ⚠️ 地址与坐标**整组一起补**，绝不拆开 —— 拆开会拼出「新地址 + 旧坐标」，
+    /// 读回念的是一个地方、实际派到另一个地方，而盲人完全听不出来（后端 `Slots.fillFrom` 同款约束）。
+    ///
+    /// 🚨 **只在响应里一个地名都没有时才补**（判据是 `address` 而不是坐标）。
+    /// 「说了一个地名但高德查不到」时响应里**有地名、没坐标**（`addressUnresolved == true`），
+    /// 那种情况**绝不能**拿当前位置顶掉它 —— 用户说的是「从老王家门口出发」，
+    /// 静默换成设备当前位置就是**把人约到错误的起点**，而他全程听不出来。
+    /// 那一路照旧让后端继续报 `missing:[ADDRESS]` 并追问（`apply` 里那句
+    /// `startAddressUnresolvedNotice` 也会一起念出来），出口由上面那条 `missing` 分支给。
+    private var confirmRoundSnapshot: VoiceSlotSnapshot? {
+        guard let base = lastParsed?.slotSnapshot else { return nil }
+        // 响应里已经有地名 = 要么后端解析出来了、要么用户说了个查不到的地名。两种都不许覆盖。
+        guard base.address?.nilIfBlank == nil else { return base }
+        guard let place = bookingViewModel?.resolvedStartPlace,
+              let address = bookingViewModel?.resolvedStartLocationDescription.nilIfBlank else {
+            return base
+        }
+        return VoiceSlotSnapshot(
+            plannedStartTime: base.plannedStartTime,
+            durationMinutes: base.durationMinutes,
+            address: address,
+            latitude: place.latitude,
+            longitude: place.longitude,
+            endAddress: base.endAddress,
+            endLatitude: base.endLatitude,
+            endLongitude: base.endLongitude,
+            hasGuideDog: base.hasGuideDog,
+            pacePreference: base.pacePreference,
+            specialNotes: base.specialNotes
+        )
     }
 
     /// 「确认」这条路的唯一出口 —— 本地直通与后端 `CONFIRM` 都走它，缺槽位的拦截只有一份。
