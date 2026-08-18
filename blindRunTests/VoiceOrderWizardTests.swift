@@ -2018,7 +2018,12 @@ final class VoiceOrderWizardTests: XCTestCase {
     // 2026-08-06 手测就是这么卡住的：用户第二遍明确说了时间，仍然抽不到。
     // 对看不见屏幕的人，没有出口的循环比一条错误信息糟得多。
 
-    /// 端点根本不存在（生产上 `/api/orders/voice/parse` 恒 404）时**一次读回都不做**，直接交回表单。
+    /// 端点根本不存在时**一次读回都不做**，直接交回表单 —— 重说一万遍也一样。
+    ///
+    /// ⚠️ **2026-08-18 更正**：这条用例原来的说明写着「生产上 `/api/orders/voice/parse` 恒 404」，
+    /// 那是 2026-08-06 的一次观测，**现在不成立** —— 生产 `GET /v3/api-docs` 里列着该端点。
+    /// 用例本身照旧有效：它测的是「端点 404 时不许把人关在循环里」这个**类别**，
+    /// 不依赖那个具体故障今天还在不在。
     func testMissingParseEndpointFallsBackImmediatelyInsteadOfOfferingARetry() async {
         let stub = VoiceOrderAPIClientStub()
         stub.error = APIError.serverError(
