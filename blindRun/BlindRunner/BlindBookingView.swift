@@ -109,11 +109,21 @@ struct BookingReviewItem: Identifiable, Equatable {
 /// 随后才是无紧急联系人 → 403 `EMERGENCY_CONTACT_REQUIRED`（2026-07-30 起，见 `handoff.md`）。
 /// **实名必须排在紧急联系人之前**，否则本地播报的「下一步」会和服务端实际拒绝的原因对不上。
 /// `basicProfile` 是客户端自有的前置项（后端不校验 `BlindProfile.name`），保持在最前不影响上述同序。
+///
+/// ⚠️ **定位权限被拒不在这里，这是刻意的。** 2026-08-18 之前它是第四道门槛，拒绝定位后
+/// 整个出发地点区块被权限提示顶掉（搜索框、常用地点、语音输入全不渲染），`canSubmit` 恒 false ——
+/// 也就是关掉定位等于 App 的核心功能不可用。Apple 审核指南 **5.1.1(iv)** 举的例子与这个场景
+/// 逐字吻合：拒绝定位后应当提供手动输入地址的替代路径。高德 POI 搜索本来就不需要定位权限
+/// （`searchPlaces` 只依赖 `placeSearchProvider`），那条替代路径一直存在，只是被这道门槛藏起来了。
+///
+/// 拿掉门槛**不等于**当作没事：定位关着会真的降级两件事（陪跑中志愿者看不到实时位置、
+/// 云端求助拿不到坐标会发不出去，见 `EmergencyCoordinator.allowsSubmissionWithoutLocation`），
+/// 所以改成**可听可见的降级告知**而不是拦截 —— `BlindBookingViewModel.locationDegradationNotice`。
+/// 志愿者侧的「无定位不接单」没有动：那一侧的实时位置是服务本体，不是可替代的输入。
 enum BlindBookingGate: Equatable {
     case basicProfile
     case identityVerification
     case emergencyContacts
-    case locationPermission
     case startPoint
     case appointmentTime
 
@@ -121,14 +131,12 @@ enum BlindBookingGate: Equatable {
         isBasicProfileComplete: Bool,
         isIdentityVerified: Bool,
         hasValidEmergencyContacts: Bool,
-        isLocationDenied: Bool,
         hasStartPoint: Bool,
         isAppointmentTimeValid: Bool
     ) -> BlindBookingGate? {
         if !isBasicProfileComplete { return .basicProfile }
         if !isIdentityVerified { return .identityVerification }
         if !hasValidEmergencyContacts { return .emergencyContacts }
-        if isLocationDenied { return .locationPermission }
         if !hasStartPoint { return .startPoint }
         if !isAppointmentTimeValid { return .appointmentTime }
         return nil
@@ -143,8 +151,6 @@ enum BlindBookingGate: Equatable {
             return "请先完成实名认证才能下单。返回上一页，打开右上角设置，选择实名认证，填写姓名和身份证号后提交。"
         case .emergencyContacts:
             return "请先设置紧急联系人：至少 1 位，并指定其中 1 位为主联系人。"
-        case .locationPermission:
-            return "定位权限未开启。请前往系统设置开启定位，以便创建跑步预约。"
         case .startPoint:
             return "请选择出发地点。"
         case .appointmentTime:
@@ -253,7 +259,6 @@ final class BlindBookingViewModel: ObservableObject {
             isBasicProfileComplete: appState?.isBlindBasicProfileComplete ?? true,
             isIdentityVerified: appState?.isBlindIdentityVerified ?? true,
             hasValidEmergencyContacts: appState?.hasValidEmergencyContacts ?? true,
-            isLocationDenied: locationService?.isDenied == true,
             hasStartPoint: resolvedStartPlace != nil,
             isAppointmentTimeValid: isAppointmentTimeValid
         )
@@ -275,12 +280,24 @@ final class BlindBookingViewModel: ObservableObject {
         blockingReasonForCurrentStep == nil
     }
 
+    /// 定位权限被拒时的降级告知。**不是门槛，不进 `blockingReasonForCurrentStep`** ——
+    /// 它不阻止任何一步推进，理由见 `BlindBookingGate` 的注释。
+    ///
+    /// 两句话都必须留着：第一句说「还能怎么下单」（否则用户不知道有手动搜索这条路），
+    /// 第二句说「关着定位会失去什么」。只说第一句是把一次安全降级说成无关紧要，
+    /// 而这两件事都发生在陪跑过程中、盲人当场看不见也问不了。
+    var locationDegradationNotice: String? {
+        guard locationService?.isDenied == true else { return nil }
+        return Self.locationDeniedNotice
+    }
+
+    static let locationDeniedNotice =
+        "定位权限未开启，无法自动获取当前位置。可以直接搜索地点作为出发地点，预约照常提交。"
+        + "但陪跑过程中志愿者看不到你的实时位置，紧急求助也可能因为拿不到位置发不出去，建议在系统设置里开启定位。"
+
     var blockingReasonForCurrentStep: String? {
         switch currentStep {
         case .startPoint:
-            if locationService?.isDenied == true {
-                return "定位权限未开启。请前往系统设置开启定位，以便创建跑步预约。"
-            }
             if resolvedStartPlace == nil {
                 return "请选择出发地点。"
             }
@@ -552,7 +569,9 @@ final class BlindBookingViewModel: ObservableObject {
     func refreshCurrentLocation(lockMapCenterIfNeeded: Bool = true) async {
         guard let locationService else { return }
         guard !locationService.isDenied else {
-            placeMessage = "需要开启定位权限才能创建预约。"
+            // 只说「自动获取当前位置」这一件事失败了。整页的降级告知由
+            // `locationDegradationNotice` 统一承担，这里再写一遍会让读屏连听两段近似的话。
+            placeMessage = "定位权限未开启，无法自动获取当前位置。请在下面搜索出发地点。"
             return
         }
 
@@ -767,8 +786,8 @@ final class BlindBookingViewModel: ObservableObject {
     /// 进页面就把第一个「本页填不了」的门槛播出来。
     ///
     /// 起点和时间是这一页自己的槽位，缺了不算进不来，向导和分步提示各自会管。
-    /// 剩下四道要么得去别的页面补（资料 / 实名 / 紧急联系人），要么得去系统设置开（定位），
-    /// 越早说越好：审阅步的按钮禁用状态走的是全部六道门槛，用户填完四步撞上一个灰按钮时，
+    /// 剩下三道都得去别的页面补（资料 / 实名 / 紧急联系人），
+    /// 越早说越好：审阅步的按钮禁用状态走的是全部五道门槛，用户填完四步撞上一个灰按钮时，
     /// 看不见屏幕的人只会当成「点了没反应」。
     ///
     /// 语音路径不走这里 —— `VoiceOrderWizard.start()` 在启动前用同一套门槛自己播过一次了。
@@ -1447,71 +1466,76 @@ struct BlindBookingView: View {
         VStack(alignment: .leading, spacing: 16) {
             sectionTitle("出发地点")
 
+            // 定位被拒时只少掉「当前位置」这一个来源，**其余整条手动路径照常渲染** ——
+            // 搜索、常用地点、语音输入都不依赖定位权限（`searchPlaces` 只用 `placeSearchProvider`）。
+            // 2026-08-18 之前这里是 `if/else`，被拒时整段被权限提示顶掉，等于关掉定位就没法下单，
+            // 违反 Apple 5.1.1(iv)。理由全文见 `BlindBookingGate`。
             if locationService.isDenied {
-                permissionDeniedView
+                locationDegradationView
             } else {
                 currentLocationCard
-                saveFavoriteButton
-                // 排在搜索之前：常用地点是**跳过**「地名 → 坐标」那一段，
-                // 而搜索是走进那一段。能不走就不该先摆搜索框。
-                favoritePlacesSection
-
-                VoiceTextField(
-                    title: "搜索出发地点",
-                    placeholder: "例如：科技园地铁站 A 口",
-                    text: $viewModel.placeSearchKeyword,
-                    speechInputService: speechInputService,
-                    speechService: speechService,
-                    speechField: .startPlaceSearch,
-                    accessibilityLabel: "搜索出发地点",
-                    accessibilityHint: "可以使用语音或键盘搜索高德地点",
-                    onRecognitionCompleted: { completion in
-                        Task {
-                            await viewModel.handlePlaceSearchSpeechCompletion(completion)
-                        }
-                    }
-                )
-
-                Button {
-                    Task { await viewModel.searchPlaces() }
-                } label: {
-                    HStack {
-                        if viewModel.isSearchingPlaces {
-                            ProgressView()
-                        }
-                        Text(searchButtonTitle)
-                    }
-                    .font(AppFonts.body().weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isRecognizingStartPlace || viewModel.isSearchingPlaces || viewModel.placeSearchKeyword.trimmed.isEmpty)
-                .accessibilityLabel(searchButtonTitle)
-                .accessibilityHint(isRecognizingStartPlace ? "请说出地点名称，识别结束后会自动搜索" : "搜索高德地点并显示可选择的出发地点列表")
-
-                placeSearchResultsView
-
-                VoiceTextField(
-                    title: "出发地点补充描述",
-                    placeholder: "例如：我在 A 口外侧等候",
-                    text: $viewModel.startLocationDescription,
-                    speechInputService: speechInputService,
-                    speechService: speechService,
-                    speechField: .startLocationDescription,
-                    accessibilityLabel: "出发地点补充描述",
-                    accessibilityHint: "可以使用语音或键盘补充出发地点说明，不能替代坐标"
-                )
-
-                if let placeMessage = viewModel.placeMessage {
-                    Text(placeMessage)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                        .accessibilityLabel(placeMessage)
-                }
-
-                auxiliaryStartMap
             }
+
+            saveFavoriteButton
+            // 排在搜索之前：常用地点是**跳过**「地名 → 坐标」那一段，
+            // 而搜索是走进那一段。能不走就不该先摆搜索框。
+            favoritePlacesSection
+
+            VoiceTextField(
+                title: "搜索出发地点",
+                placeholder: "例如：科技园地铁站 A 口",
+                text: $viewModel.placeSearchKeyword,
+                speechInputService: speechInputService,
+                speechService: speechService,
+                speechField: .startPlaceSearch,
+                accessibilityLabel: "搜索出发地点",
+                accessibilityHint: "可以使用语音或键盘搜索高德地点",
+                onRecognitionCompleted: { completion in
+                    Task {
+                        await viewModel.handlePlaceSearchSpeechCompletion(completion)
+                    }
+                }
+            )
+
+            Button {
+                Task { await viewModel.searchPlaces() }
+            } label: {
+                HStack {
+                    if viewModel.isSearchingPlaces {
+                        ProgressView()
+                    }
+                    Text(searchButtonTitle)
+                }
+                .font(AppFonts.body().weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isRecognizingStartPlace || viewModel.isSearchingPlaces || viewModel.placeSearchKeyword.trimmed.isEmpty)
+            .accessibilityLabel(searchButtonTitle)
+            .accessibilityHint(isRecognizingStartPlace ? "请说出地点名称，识别结束后会自动搜索" : "搜索高德地点并显示可选择的出发地点列表")
+
+            placeSearchResultsView
+
+            VoiceTextField(
+                title: "出发地点补充描述",
+                placeholder: "例如：我在 A 口外侧等候",
+                text: $viewModel.startLocationDescription,
+                speechInputService: speechInputService,
+                speechService: speechService,
+                speechField: .startLocationDescription,
+                accessibilityLabel: "出发地点补充描述",
+                accessibilityHint: "可以使用语音或键盘补充出发地点说明，不能替代坐标"
+            )
+
+            if let placeMessage = viewModel.placeMessage {
+                Text(placeMessage)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityLabel(placeMessage)
+            }
+
+            auxiliaryStartMap
         }
     }
 
@@ -1712,27 +1736,35 @@ struct BlindBookingView: View {
         return "搜索地点"
     }
 
-    private var permissionDeniedView: some View {
+    /// 定位被拒时的降级告知。**这不是错误态** —— 预约在这个状态下照常能提交，
+    /// 所以用 `speak` 而不是 `speakError`（后者带错误震动与错误音，对一个还能继续走的流程
+    /// 是在制造「我是不是做错了」的错觉）。文案的唯一来源是 `BlindBookingViewModel.locationDeniedNotice`，
+    /// 屏幕与耳朵读的是同一份字符串。
+    private var locationDegradationView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("需要开启定位权限才能创建预约。")
+            Text(BlindBookingViewModel.locationDeniedNotice)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.warning)
-                .accessibilityLabel("需要开启定位权限才能创建预约")
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(BlindBookingViewModel.locationDeniedNotice)
 
-            Button("去设置") {
+            Button("去设置开启定位") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(url) // guard:allow raw-open-url 系统设置，不是拨号
                 }
             }
             .buttonStyle(.borderedProminent)
-            .accessibilityLabel("去设置")
-            .accessibilityHint("打开系统设置以开启定位权限")
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 64)
+            .accessibilityLabel("去设置开启定位")
+            .accessibilityHint("打开系统设置以开启定位权限；不开启也可以继续手动搜索出发地点")
         }
         .padding()
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
+        .accessibilityIdentifier("bookingLocationDegradationNotice")
         .onAppear {
-            speechService.speakError("定位权限未开启。请前往系统设置开启定位，以便创建跑步预约。")
+            speechService.speak(BlindBookingViewModel.locationDeniedNotice)
         }
     }
 

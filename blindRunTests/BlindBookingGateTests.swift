@@ -1,3 +1,4 @@
+import CoreLocation
 import XCTest
 @testable import blindRun
 
@@ -12,7 +13,6 @@ final class BlindBookingGateTests: XCTestCase {
                 isBasicProfileComplete: true,
                 isIdentityVerified: true,
                 hasValidEmergencyContacts: true,
-                isLocationDenied: false,
                 hasStartPoint: true,
                 isAppointmentTimeValid: true
             )
@@ -23,19 +23,18 @@ final class BlindBookingGateTests: XCTestCase {
         // 全部缺失时只报第一个可操作项，逐个补齐后依次推进。
         let expectedSequence: [BlindBookingGate] = [
             .basicProfile, .identityVerification, .emergencyContacts,
-            .locationPermission, .startPoint, .appointmentTime
+            .startPoint, .appointmentTime
         ]
-        // profile, identity, contacts, locationDenied, startPoint, timeValid
-        var flags = [false, false, false, true, false, false]
+        // profile, identity, contacts, startPoint, timeValid
+        var flags = [false, false, false, false, false]
 
         for expected in expectedSequence {
             let gate = BlindBookingGate.firstMissing(
                 isBasicProfileComplete: flags[0],
                 isIdentityVerified: flags[1],
                 hasValidEmergencyContacts: flags[2],
-                isLocationDenied: flags[3],
-                hasStartPoint: flags[4],
-                isAppointmentTimeValid: flags[5]
+                hasStartPoint: flags[3],
+                isAppointmentTimeValid: flags[4]
             )
             XCTAssertEqual(gate, expected)
 
@@ -43,9 +42,8 @@ final class BlindBookingGateTests: XCTestCase {
             case .basicProfile: flags[0] = true
             case .identityVerification: flags[1] = true
             case .emergencyContacts: flags[2] = true
-            case .locationPermission: flags[3] = false
-            case .startPoint: flags[4] = true
-            case .appointmentTime: flags[5] = true
+            case .startPoint: flags[3] = true
+            case .appointmentTime: flags[4] = true
             }
         }
 
@@ -54,9 +52,8 @@ final class BlindBookingGateTests: XCTestCase {
                 isBasicProfileComplete: flags[0],
                 isIdentityVerified: flags[1],
                 hasValidEmergencyContacts: flags[2],
-                isLocationDenied: flags[3],
-                hasStartPoint: flags[4],
-                isAppointmentTimeValid: flags[5]
+                hasStartPoint: flags[3],
+                isAppointmentTimeValid: flags[4]
             )
         )
     }
@@ -68,7 +65,6 @@ final class BlindBookingGateTests: XCTestCase {
             isBasicProfileComplete: true,
             isIdentityVerified: false,
             hasValidEmergencyContacts: false,
-            isLocationDenied: false,
             hasStartPoint: true,
             isAppointmentTimeValid: true
         )
@@ -81,7 +77,6 @@ final class BlindBookingGateTests: XCTestCase {
                 isBasicProfileComplete: true,
                 isIdentityVerified: true,
                 hasValidEmergencyContacts: false,
-                isLocationDenied: false,
                 hasStartPoint: true,
                 isAppointmentTimeValid: true
             ),
@@ -136,7 +131,7 @@ final class BlindBookingGateTests: XCTestCase {
         let location = LocationService()
         location.simulateMissingDeviceLocationForTesting()
         XCTAssertTrue(location.isUsingDemoFallback, "前提：没有真实定位")
-        XCTAssertFalse(location.isDenied, "前提：权限未拒绝，所以 locationPermission 门槛不会先拦下来")
+        XCTAssertFalse(location.isDenied, "前提：权限未拒绝 —— 这条测的是演示坐标，不是权限")
 
         let viewModel = makeBookingViewModel(locationService: location)
 
@@ -146,9 +141,76 @@ final class BlindBookingGateTests: XCTestCase {
         XCTAssertNil(viewModel.makeCreateOrderRequest(), "演示坐标不得进入下单请求体")
     }
 
-    /// 审阅步的提示语必须覆盖全部六道门槛。
+    /// 关掉定位权限之后，手动搜到的出发地点必须仍然能下单（Apple 5.1.1(iv)）。
     ///
-    /// 按钮禁用状态走的是 `canSubmit`（六道全查）。提示语若只查后三道，
+    /// 2026-08-18 之前 `isLocationDenied` 是第四道硬门槛：关掉定位 ⇒ `canSubmit` 恒 false，
+    /// 而屏幕上那一段（搜索框 / 常用地点 / 语音输入）同时被权限提示整段顶掉 ——
+    /// 也就是没有任何替代路径，App 的核心功能随权限一起消失。
+    /// 这条用例钉的就是那道门槛不许回来。
+    @MainActor
+    func testLocationDeniedStillAllowsBookingWithManualStartPlace() {
+        let appState = AppState(persistence: AppStatePersistenceFactory.makeIsolatedTest())
+        appState.updateBlindProfile(BlindProfileResponse(name: "测试用户", verifyStatus: "VERIFIED"))
+        appState.updateEmergencyContacts([contact(1, primary: true)])
+
+        let location = LocationService()
+        // 已有接缝：`authorized: false` 会清掉设备坐标并把权限钉在「被拒」。
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737),
+            capturedAt: Date(),
+            authorized: false
+        )
+        XCTAssertTrue(location.isDenied, "前提：权限确实被拒")
+
+        let viewModel = makeBookingViewModel(locationService: location, appState: appState)
+        // 手动搜索这条路不依赖定位权限，选中的地点自带坐标。
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1", title: "人民广场", addressText: "上海市黄浦区人民广场",
+            latitude: 31.2304, longitude: 121.4737, source: .manual
+        )
+        viewModel.appointmentTime = viewModel.minimumAppointmentTime.addingTimeInterval(600)
+
+        XCTAssertNil(viewModel.firstMissingGate, "定位被拒不再是下单门槛")
+        XCTAssertTrue(viewModel.canSubmit, "手动选了起点就必须能提交")
+        XCTAssertNotNil(viewModel.makeCreateOrderRequest(), "请求体用的是手动地点的坐标")
+
+        // 起点这一步也不许被挡住 —— 挡住等于分步向导走不到第二步。
+        viewModel.currentStep = .startPoint
+        XCTAssertNil(viewModel.blockingReasonForCurrentStep)
+        XCTAssertTrue(viewModel.canAdvanceFromCurrentStep)
+    }
+
+    /// 不拦截**不等于**不告知：降级告知必须同时说清「还能怎么下单」和「关着会失去什么」。
+    ///
+    /// 只说前半句会把一次真实的安全降级说成无关紧要 —— 陪跑过程中志愿者看不到位置、
+    /// 云端求助可能发不出去，两件事都发生在盲人当场问不了任何人的时候。
+    @MainActor
+    func testLocationDeniedNoticeStatesBothTheWorkaroundAndTheSafetyCost() {
+        let location = LocationService()
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 31.2304, longitude: 121.4737),
+            capturedAt: Date(),
+            authorized: false
+        )
+        let viewModel = makeBookingViewModel(locationService: location)
+
+        XCTAssertEqual(
+            viewModel.locationDegradationNotice,
+            BlindBookingViewModel.locationDeniedNotice,
+            "屏幕与耳朵读同一份文案"
+        )
+        XCTAssertTrue(BlindBookingViewModel.locationDeniedNotice.contains("搜索"), "要说还能手动搜地点")
+        XCTAssertTrue(BlindBookingViewModel.locationDeniedNotice.contains("求助"), "要说求助会受影响")
+
+        // 权限正常时不该出现这段告知。
+        let authorized = LocationService()
+        authorized.simulateMissingDeviceLocationForTesting()
+        XCTAssertNil(makeBookingViewModel(locationService: authorized).locationDegradationNotice)
+    }
+
+    /// 审阅步的提示语必须覆盖全部五道门槛。
+    ///
+    /// 按钮禁用状态走的是 `canSubmit`（五道全查）。提示语若只查后两道，
     /// 缺实名或紧急联系人时用户听到的是「提交后系统将为你派单」配一个按不动的按钮 ——
     /// 看不见屏幕的人只会当成「点了没反应」。
     @MainActor
