@@ -276,6 +276,60 @@ struct BlindHomeSOSBar: View {
     }
 }
 
+/// 志愿者端「服务进行中」页的求助入口：地图右上角的圆形悬浮盾牌。
+///
+/// **为什么不复用 `EmergencyActionButton` 那个全宽横条。** 它此前就是全宽横条，夹在底部操作面板
+/// 上方（`VolunteerOrderFlowViews.swift` 的 `emergencySection`），于是：与「结束服务」「取消订单」
+/// 同一个组件、同一个宽度、同样落在拇指自然区，而垂直位置还随面板内容高度上下漂移。
+/// 对标产品无一例外把安全入口做成「地图角落固定悬浮图标 + 二级确认」，没有一款混排进常规操作列表
+/// （Uber Driver 左下盾牌 / Lyft Driver 右上图标 / 滴滴左下「安全中心」，见
+/// `docs/research/volunteer-sos-button-placement-20260819.md`）。
+///
+/// **误触在这一侧的代价比打车场景更高**：后端对志愿者的 `action=FALSE_ALARM` 恒回 403
+/// `EMERGENCY_VOLUNTEER_CANNOT_DISMISS` —— 一对一陪跑里志愿者可能就是威胁来源，撤销权只在受助者
+/// 本人和客服手里。按错了自己撤不掉，所以「远离拇指区」不只是观感问题。
+///
+/// 尺寸取 64pt：`small-touch-target` 守卫显式排除 `/blindRun/Volunteer/`（那一侧是明眼人用的，
+/// 走 Apple 的 44pt 线），64 只是更好按，不是被强制的。
+///
+/// 可见文字是「求助」两个字而不是「一键求助」—— 后者在本 App 里专指云端求助这一整套流程
+/// （`EmergencySOSTests.swift` 里有断言钉着这个词的归属）。读屏听到的仍是完整的
+/// `EmergencySafetyCopy.accessibilityLabel`，两者不冲突。
+///
+/// 和 `BlindHomeSOSBar` 同样自己 `@ObservedObject` 持有 coordinator，理由见
+/// `EmergencyActionSection` 的注释：`AppState.emergencyCoordinator` 是 `let` 不是 `@Published`，
+/// 在页面 body 里读它的属性是**读得到值、但不跟着更新**。
+struct VolunteerSOSFloatingButton: View {
+    @ObservedObject var coordinator: EmergencyCoordinator
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                if coordinator.state.isBusy {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Image(systemName: "shield.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                Text("求助")
+                    .font(AppFonts.caption().weight(.semibold))
+                    .foregroundColor(.white)
+            }
+            .frame(width: 64, height: 64)
+            .background(AppColors.destructive)
+            .clipShape(Circle())
+        }
+        .disabled(coordinator.state.isBusy)
+        .accessibilityLabel(EmergencySafetyCopy.accessibilityLabel)
+        .accessibilityHint(EmergencySafetyCopy.accessibilityHint)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("volunteerServiceSOSButton")
+    }
+}
+
 struct EmergencyActionButton: View {
     let isLoading: Bool
     let action: () -> Void

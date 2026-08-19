@@ -435,6 +435,107 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
+    // MARK: - 求助入口的位置
+
+    /// 服务进行中，盲人端的求助按钮必须**不滚动**就在屏幕上。
+    ///
+    /// 2026-08-19 之前它排在滚动内容第 7 位（`actionSection`），上面压着状态卡、140pt 的
+    /// 「打电话给志愿者」、行程分享、180pt 装饰地图 —— 内容顶到它约 700pt，而底部常驻条吃掉
+    /// 约 164pt 后视口只剩约 550pt。**看不见屏幕的人在跑步中要先滑一段才摸得到求助。**
+    /// 更阴的是它不稳定：拿不到志愿者位置时地图退化成一行文字，求助又回到首屏 ——
+    /// 于是「手测了一次没问题」不代表下一次也在。
+    ///
+    /// 判据用 `frame` 边界而不是 `isHittable`：后者只判中心点，一个上半截被盖住的按钮照样是 true
+    /// （与 `testBlindHomeWithoutAnOrderHidesAskQuestionAndKeepsRepeatStatusReachable` 同源）。
+    /// 全程**一次滚动都不做** —— 这条断言的全部意义就是「不滚也在」。
+    @MainActor
+    func testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling() throws {
+        let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS")
+        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        XCTAssertTrue(
+            currentOrder.waitForExistence(timeout: 20),
+            "有订单的盲人首页没起来，后面的断言没有意义"
+        )
+        currentOrder.tap()
+
+        let emergency = app.buttons[Self.emergencyActionLabel].firstMatch
+        XCTAssertTrue(
+            emergency.waitForExistence(timeout: 15),
+            "服务进行中的订单状态页没有求助入口 —— 这一页最要紧的动作不在了"
+        )
+        XCTAssertGreaterThanOrEqual(
+            emergency.frame.minY,
+            app.frame.minY,
+            "求助按钮上沿越过了屏幕顶，说明它其实在滚动区更上方、当前是被滚出去的"
+        )
+        XCTAssertLessThanOrEqual(
+            emergency.frame.maxY,
+            app.frame.maxY,
+            """
+            求助按钮下沿 \(emergency.frame.maxY) 超出屏幕底 \(app.frame.maxY)，要下滑才够得到。\
+            它必须留在底部常驻条（`BlindOrderStatusView.repeatStatusArea`）里；\
+            往那条常驻区加东西之前，先想清楚多的那一行值不值得把求助顶下去。
+            """
+        )
+        XCTAssertGreaterThanOrEqual(
+            emergency.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            "盲人端主动作触达高度不得低于 64pt"
+        )
+
+        // 「问一句」是被求助顶出常驻条的那一个，它下沉进滚动区、不是被删掉。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindOrderStatusAskQuestionButton"].firstMatch
+                .waitForExistence(timeout: 5),
+            "「问一句」在服务进行中整个消失了 —— 让位是移到滚动区，不是删除"
+        )
+    }
+
+    /// 志愿者端服务中页，求助入口必须待在**屏幕上三分之一**，不和常规操作按钮混在一起。
+    ///
+    /// 2026-08-19 之前它是底部面板上方那个全宽 64pt 红色 `PrimaryButton`：与「结束服务」
+    /// 「取消订单」同一个组件、同一个宽度、同样落在拇指自然区，而且面板高度按内容自适应，
+    /// 于是它的垂直位置**会上下漂移**。对标产品无一例外把安全入口做成地图角落的悬浮图标
+    /// （见 `docs/research/volunteer-sos-button-placement-20260819.md`）。
+    ///
+    /// 误触在这一侧撤不回来：后端对志愿者的 `FALSE_ALARM` 恒 403
+    /// `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`。所以「远离拇指区」是安全要求，不是观感偏好。
+    ///
+    /// `blindRunUITests` 里的 `assertEmergencyActionIsUsable` 管的是「点得到」，与本条互补：
+    /// 那条防它被挤出可视区，这条防它被挪回操作按钮堆里。
+    @MainActor
+    func testVolunteerInServiceSOSStaysOutOfTheActionButtonCluster() throws {
+        let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
+        let currentOrderCard = app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch
+        XCTAssertTrue(
+            currentOrderCard.waitForExistence(timeout: 20),
+            "志愿者首页没有当前订单卡，进不去服务中页"
+        )
+        currentOrderCard.tap()
+        XCTAssertTrue(
+            app.navigationBars["服务中"].waitForExistence(timeout: 15),
+            "没进到服务中页"
+        )
+
+        let sos = app.buttons["volunteerServiceSOSButton"].firstMatch
+        XCTAssertTrue(sos.waitForExistence(timeout: 10), "服务进行中必须提供求助入口")
+        XCTAssertLessThan(
+            sos.frame.midY,
+            app.frame.minY + app.frame.height * 0.4,
+            """
+            求助按钮中心落在 \(sos.frame.midY)，已经进了屏幕下 60%（拇指自然区）。\
+            它此前正是这样和「结束服务」「取消订单」挤在一起、且位置随面板高度漂移的。
+            """
+        )
+        // 志愿者端走 Apple 的 44pt 线（`guard.mjs` 的 `small-touch-target` 显式排除
+        // `/blindRun/Volunteer/`），这里量的是别把悬浮按钮做成一个图标大小的点。
+        XCTAssertGreaterThanOrEqual(sos.frame.height, 44, "求助按钮触达高度不足 44pt")
+        XCTAssertGreaterThanOrEqual(sos.frame.width, 44, "求助按钮触达宽度不足 44pt")
+
+        // 换了形态不等于换了语义：读屏念出来的必须还是那句完整的。
+        XCTAssertEqual(sos.label, Self.emergencyActionLabel)
+    }
+
     // MARK: - 横屏与宽窗口
 
     /// 横屏审计。**这是本仓库唯一能验「横屏裁切」的通道** ——
@@ -549,6 +650,12 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 只能抄一份。抄错的方向是安全的：把生产值调**大**而这里没跟，断言会红不会绿。
     private static let readableContentWidth: CGFloat = 700
     private static let minimumBlindPrimaryButtonHeight: CGFloat = 64
+
+    /// 求助按钮按 **accessibilityLabel** 找，不按可见文字 —— 两端的可见文字已经不一样了
+    /// （盲人端仍是「一键求助」，志愿者端是圆形盾牌里的「求助」两个字），而读屏念出来的
+    /// 必须是同一句。字面量与 `EmergencySafetyCopy.accessibilityLabel` 对齐；
+    /// UI 测试 target 拿不到 App 的类型，只能抄一份，改文案时两处一起改。
+    private static let emergencyActionLabel = "一键求助，遇到紧急情况时点击"
     private static let minimumBlindPrimaryButtonScreenShare: CGFloat = 0.25
 
     /// 低版本设备上明确 skip 而不是静默通过 —— 「没跑」和「跑过了」必须可区分。
@@ -619,11 +726,15 @@ final class AccessibilityAuditTests: XCTestCase {
     /// - Parameter emptyOrders: `true` 走无订单首页（默认，绝大多数用例要的就是这一态）。
     ///   传 `false` 就不设 `AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS`，`MockAPIClient` 会 seed 一张
     ///   `PENDING_MATCH` 订单（`MockAPIClient.swift:1924-1933`）—— 不需要另造 mock。
+    /// - Parameter seedOrderStatus: 把那张种子订单直接钉在某个 `RunOrderStatus` 的 raw value 上
+    ///   （例 `"IN_PROGRESS"`）。要验服务进行中的页面时用它，别去点订单页底部那三个 mock 按钮 ——
+    ///   那要先滚到最底、连点三次，慢且是误触的温床。只在 `emptyOrders: false` 时有意义。
     @MainActor
     private func launchBlindHome(
         forcingVoiceStage: Bool = false,
         emptyOrders: Bool = true,
-        forcingFirstRunHelp: Bool = false
+        forcingFirstRunHelp: Bool = false,
+        seedOrderStatus: String? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -640,6 +751,9 @@ final class AccessibilityAuditTests: XCTestCase {
         app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_BLIND_PROFILE"] = "1"
         if emptyOrders {
             app.launchEnvironment["AIDRUN_UI_TEST_EMPTY_MOCK_ORDERS"] = "1"
+        }
+        if let seedOrderStatus {
+            app.launchEnvironment["AIDRUN_UI_TEST_SEED_ORDER_STATUS"] = seedOrderStatus
         }
         app.launchEnvironment["AIDRUN_UI_TEST_PREFILL_PROFILE_FORM"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
@@ -681,8 +795,10 @@ final class AccessibilityAuditTests: XCTestCase {
     ///
     /// ⚠️ **`PRESEEDED` 不是 `PRESEED`** —— 写错不会报错，只会静默进到「资料未填」分支，
     /// 然后审计的是错的那一页（与 `launchBlindHome` 上那条注释同一个坑）。
+    /// - Parameter seedOrderStatus: 同 `launchBlindHome` 的同名参数。传非空值时一并置上
+    ///   `PRESEEDED_VOLUNTEER_ACTIVE_ORDER`，让志愿者首页确实认这张单为「当前订单」。
     @MainActor
-    private func launchVolunteerHome() -> XCUIApplication {
+    private func launchVolunteerHome(seedOrderStatus: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
             await MainActor.run { app.terminate() }
@@ -697,6 +813,10 @@ final class AccessibilityAuditTests: XCTestCase {
         app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
+        if let seedOrderStatus {
+            app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"
+            app.launchEnvironment["AIDRUN_UI_TEST_SEED_ORDER_STATUS"] = seedOrderStatus
+        }
 
         addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in
             for title in ["允许", "好", "使用App时允许", "OK", "Allow"] {
