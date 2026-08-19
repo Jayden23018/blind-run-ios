@@ -184,6 +184,35 @@ final class NotificationCatchUpTests: XCTestCase {
         persistence.reset()
     }
 
+    /// 回前台（`blindRunApp.swift` 的 scenePhase handler）在 WS 重连之外再补读一次。
+    /// 补读没有服务端游标，多调一次本身无害 —— 前提是 `missed:{id}` 去重真的挡住重播：
+    /// 对盲人来说同一条通知被念第二遍，等于凭空多收到一条消息。
+    func testRepeatedCatchUpDoesNotReplayTheSameNotification() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        let stub = CatchUpAPIClientStub()
+        stub.missed = [makeMissed(id: 5, body: "错过的通知", sentAt: "2026-07-24T12:00:00")]
+        let appState = AppState(apiClient: stub, persistence: persistence, tokenStore: InMemoryTokenStore())
+        appState.accessToken = "token"
+        persistence.set("2026-07-24T10:00:00", forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
+
+        await appState.catchUpMissedNotifications()  // WS 重连那条路
+        await appState.catchUpMissedNotifications()  // 回前台那条路
+
+        // 两次都必须真的发出去：不许为此加节流，否则回前台这条路会被重连那次吃掉。
+        XCTAssertEqual(
+            stub.requests.map(\.path),
+            ["/api/notifications/since", "/api/notifications/since"]
+        )
+        // 第二次带的是已推进的游标，不会把整段窗口重拉一遍。
+        XCTAssertEqual(stub.requests.last?.query?["after"], "2026-07-24T12:00:00")
+
+        XCTAssertEqual(appState.realtimeCoordinator.currentNotification?.displayText, "错过的通知")
+        appState.realtimeCoordinator.dismissCurrentNotification()
+        XCTAssertNil(appState.realtimeCoordinator.currentNotification, "同一条通知不得被念第二遍")
+
+        persistence.reset()
+    }
+
     func testCatchUpIsSkippedWithoutCursor() async {
         let persistence = AppStatePersistenceFactory.makeIsolatedTest()
         let stub = CatchUpAPIClientStub()
