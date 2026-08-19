@@ -431,6 +431,22 @@
 - 最新求助状态文案（求助发出后显示，失败态用危险色）
 - "重复当前状态"按钮
 
+**底部常驻条的构成（`safeAreaInset(edge: .bottom)`，恒为两个版位）**：
+
+| 版位 | IN_PROGRESS | 其余状态 |
+|---|---|---|
+| 上 | 求助区块（一键求助 + 结果文案 + 撤销求助） | "问一句" |
+| 下 | "重复当前状态" | "重复当前状态" |
+
+- IN_PROGRESS 时"问一句"下沉到滚动区、紧跟"打电话给志愿者"，**仍在首屏内**；标识符
+  `blindOrderStatusAskQuestionButton` 不变。它是让位不是删除。
+- **不得把求助改回滚动区**：它此前排在滚动内容第 7 位，上面压着状态卡、140pt 拨号按钮、
+  行程分享与 180pt 装饰地图，实测落在首屏之外 —— 看不见屏幕的人在跑步中要先滑一段才摸得到求助，
+  且拿不到志愿者位置时地图退化成一行文字、位置又会变回来。由
+  `AccessibilityAuditTests.testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling` 钉住。
+- **也不要往这条常驻区加第三个版位**：三个 64pt 按钮在 6.1" 上吃掉约 26% 屏幕，
+  治了求助够不着换来别的都够不着。要加之前先想清楚多的那一行值不值得把求助顶下去。
+
 **主要操作**：
 - 点击志愿者电话 → 系统拨号
 - 点击"一键求助" → 二次确认："是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。" → 选择"确认求助"提交，选择"取消"什么都不发送
@@ -454,7 +470,7 @@
 
 **无障碍要求**：
 - 志愿者电话：accessibilityLabel = "拨打志愿者电话 " + 电话号码
-- "一键求助"按钮：最小高度 64pt，accessibilityLabel = "一键求助，遇到紧急情况时点击"，accessibilityHint 说明需要二次确认并会上报当前位置；每次求助状态变化都同时更新可见文案和 TTS
+- "一键求助"按钮：最小高度 64pt，accessibilityLabel = "一键求助，遇到紧急情况时点击"，accessibilityHint 说明需要二次确认并会上报当前位置；每次求助状态变化都同时更新可见文案和 TTS；**位于底部常驻条，不滚动即可达**（见上文"底部常驻条的构成"）
 - 求助文案不得声称短信已送达或紧急联系人已被联系上；`EMERGENCY_CONTACT_NOTIFIED` 一律呈现为"系统正在联系你的紧急联系人，尚未确认对方是否收到。若情况危急请立即拨打110。"
 - TTS：进入页面播报"服务已开始，祝您跑步愉快"
 - "重复当前状态"按钮：accessibilityLabel = "重复当前状态"；先播报订单状态，再追加最新求助状态，不替代订单状态
@@ -735,6 +751,7 @@
   - IN_PROGRESS："结束服务"按钮（最小 64pt）和"取消订单"按钮
   - PENDING_ACCEPT："取消订单"按钮
 - 志愿者端仅在 `IN_PROGRESS` 显示"一键求助"入口（`RunOrderStatus.canVolunteerTriggerEmergency == (self == .inProgress)`），**自 2026-07-31 起已开放**。~~此前全状态隐藏，因为后端按触发人建事件~~ —— 后端 commit `a5ba523`（SOS-1）已把 `event.userId` 改为取订单的盲人方，用 `TriggerType.VOLUNTEER_BUTTON` 区分来源。志愿者**没有撤销按钮**（后端 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`）：一对一陪跑里志愿者可能就是威胁来源
+- **求助入口的形态与位置（2026-08-19 定）**：地图**右上角的 64pt 圆形悬浮盾牌**（`VolunteerSOSFloatingButton`），**不得放回底部操作按钮堆**。此前它是底部面板上方的全宽 64pt 红色 `PrimaryButton`：与"结束服务""取消订单"同一个组件、同一个宽度、同样落在拇指自然区，而面板高度按内容自适应，导致它的垂直位置会上下漂移。对标产品（Uber Driver 左下盾牌 / Lyft Driver 右上图标 / 滴滴左下"安全中心"）无一例外把安全入口做成地图角落的悬浮图标 + 二级确认，没有一款混排进常规操作列表 —— 见 `docs/research/volunteer-sos-button-placement-20260819.md`。误触在这一侧撤不回来（后端对志愿者 `FALSE_ALARM` 恒 403），所以"远离拇指区"是安全要求不是观感偏好。由 `AccessibilityAuditTests.testVolunteerInServiceSOSStaysOutOfTheActionButtonCluster` 钉住。面板上方那条只保留"确认需要帮助"（响应盲人求助）与求助结果文案，两者都不成立时渲染为空、面板贴底
 - 高德地图背景：服务流以红色出发地点为唯一自定义主标记，地图中心固定在出发地点；当前位置使用高德系统蓝点辅助显示，不作为自定义 marker，不触发地图中心随位置上报重算；相同 id 的 marker 更新坐标和标题时不移除重加，不重复 drop 动画
 - 高德地图背景和盲人辅助地图只在 marker 内容实际变化时更新 annotation；作为滚动内容或背景时不得截获垂直拖动手势
 - 地图桥接以稳定 UIKit 宿主容器隔离 `MAMapView` 的内部布局和持续变化的无障碍元素；保留一个稳定、无原始坐标的地图摘要元素，同行角色与新鲜度继续由相邻文本区域说明
@@ -759,7 +776,7 @@
 - 志愿者取消成功后不再用志愿者 token 拉取已解除参与关系的订单详情，直接退出服务流并清空本地当前订单
 - DRIVER_ARRIVED → IN_PROGRESS（志愿者点击开始服务）：UI 更新；只有进入 IN_PROGRESS 后才显示"结束服务"
 - IN_PROGRESS → COMPLETED：跳转首页 + 显示"服务完成，获得 +100 积分"
-- DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS：志愿者端不显示求助入口；盲人在 IN_PROGRESS 发起求助也不改变订单状态
+- DRIVER_EN_ROUTE / DRIVER_ARRIVED：志愿者端不显示求助入口（入口只在 IN_PROGRESS 开放，见上文"主要内容"）；IN_PROGRESS 时无论哪一方发起求助，**订单状态都不变**（求助是独立事件，不是订单状态）
 - `REMATCHING` 作为真实后端状态保留，表示志愿者接单后主动取消；盲人端提示"正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"，并显示"取消订单"逃生按钮，取消请求使用盲人 token
 
 **错误状态**：
@@ -780,7 +797,7 @@
 - "开始服务"按钮：最小高度 64pt，accessibilityLabel = "开始服务"，accessibilityHint = "点击后通知盲人服务已开始"
 - "取消订单"按钮：PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 显示，需二次确认，accessibilityHint = "需要确认后取消当前订单"
 - "结束服务"按钮：最小高度 64pt，需二次确认
-- 志愿者端全状态不显示求助入口
+- 求助盾牌：64×64pt，accessibilityLabel = "一键求助，遇到紧急情况时点击"（与盲人端**逐字相同** —— 可见文字是圆里的"求助"两字，读屏念出来的必须仍是完整那句），accessibilityHint 说明需要二次确认并会上报当前位置。志愿者端其余触达走 Apple 的 44pt 线（`guard.mjs` 的 `small-touch-target` 显式排除 `/blindRun/Volunteer/`），64pt 是选出来的余量、不是被强制的
 - TTS：进入 DRIVER_ARRIVED 状态不自动播报（由盲人端播报）
 - TTS：进入 IN_PROGRESS 状态播报"服务已开始"
 

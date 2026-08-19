@@ -1463,6 +1463,21 @@ struct VolunteerInServiceView: View {
                         .accessibilityLabel("正在获取订单状态")
                 }
 
+                // 求助盾牌**声明在主内容之前**，两件事各要一半：
+                // ① 绘制顺序 = VoiceOver 遍历顺序（`accessibilitySortPriority` 排不动叠放层，
+                //    2026-08-14 真机实测四种排法全废，见
+                //    `docs/research/swiftui-voiceover-traversal-order-20260814.md`），
+                //    声明在前 = 读屏先念到它，这正是求助该有的序位；
+                // ② 它与底部面板在几何上不重叠（右上 vs 贴底），所以画在下层不会被盖住。
+                if let order = viewModel.order, order.status.canVolunteerTriggerEmergency {
+                    VolunteerSOSFloatingButton(coordinator: appState.emergencyCoordinator) {
+                        showEmergencyConfirm = true
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.top, 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                }
+
                 if let order = viewModel.order {
                     if order.status == .completed {
                         completedTrackContent
@@ -1554,12 +1569,25 @@ struct VolunteerInServiceView: View {
         }
     }
 
-    /// 志愿者侧的两个紧急动作，都在服务进行中才有意义。
+    /// 面板上方那条紧急信息区。**「代盲人发起求助」的按钮不在这里** —— 它是地图右上角的
+    /// `VolunteerSOSFloatingButton`（见 `body` 的 `ZStack`）。
     ///
-    /// 上半：被陪同者发出求助时的**唯一**响应「确认需要帮助」。**没有「误触」按钮** —— 后端对
-    /// `action=FALSE_ALARM` 恒 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`：一对一陪跑里陪同者本身
-    /// 可能就是威胁来源，撤销权只在受助者本人和客服手里。
-    /// 下半：代盲人发起求助（后端 2026-07-31 起按订单参与方归属事件，不再回推给按按钮的人）。
+    /// 2026-08-19 把触发按钮搬走：它此前是这个 `VStack` 的第一个子视图，而这个 `VStack` 底部对齐、
+    /// 上方就是高度自适应的 `VolunteerServiceBottomPanel`，于是一个全宽红色 `PrimaryButton` 浮在屏幕
+    /// 30–36% 处、且垂直位置随面板内容漂移 —— 和「结束服务」「取消订单」同一个组件同一个宽度，
+    /// 落在拇指自然区。理由与对标见 `docs/research/volunteer-sos-button-placement-20260819.md`。
+    ///
+    /// 留在这里的两样东西都**不是主动触发的动作**，全宽横条对它们是对的形态：
+    ///
+    /// - 上半：被陪同者发出求助时的**唯一**响应「确认需要帮助」。**没有「误触」按钮** —— 后端对
+    ///   `action=FALSE_ALARM` 恒 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`：一对一陪跑里陪同者本身
+    ///   可能就是威胁来源，撤销权只在受助者本人和客服手里。
+    /// - 下半：求助结果文案。它的渲染条件与触发按钮**拆开**了 —— 原先包在同一个
+    ///   `canVolunteerTriggerEmergency` 的 `if` 里，按钮搬走时若一并带走，
+    ///   「求助已记录 / 求助未发出」就会没有地方显示，直接违反 `AGENTS.md` §6
+    ///   「每一种结果都必须可见且可听地如实告知」。
+    ///
+    /// 两者都不成立时这个 section 渲染为空，面板直接贴底 —— 那正是绝大多数时刻的样子。
     @ViewBuilder
     private func emergencySection(for order: OrderDetailResponse) -> some View {
         let coordinator = appState.emergencyCoordinator
@@ -1577,13 +1605,8 @@ struct VolunteerInServiceView: View {
                 .accessibilityHint("确认被陪同者确实需要帮助，客服会介入")
             }
 
-            if order.status.canVolunteerTriggerEmergency {
-                EmergencyActionButton(isLoading: coordinator.state.isBusy) {
-                    showEmergencyConfirm = true
-                }
-                if let message = coordinator.state.message {
-                    EmergencyStatusNotice(message: message, isFailure: coordinator.state.isFailure)
-                }
+            if order.status.canVolunteerTriggerEmergency, let message = coordinator.state.message {
+                EmergencyStatusNotice(message: message, isFailure: coordinator.state.isFailure)
             }
         }
     }

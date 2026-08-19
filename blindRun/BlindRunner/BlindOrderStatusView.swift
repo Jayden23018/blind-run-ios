@@ -699,6 +699,7 @@ struct BlindOrderStatusView: View {
                     statusHeader(order)
                         .accessibilityFocused($statusHeaderFocused)
                     volunteerCallSection(order)
+                    inlineAskQuestionSection
                     keepWaitingSection(order)
                     runPlanShareSection(order)
                     peerMapSection(order)
@@ -1484,19 +1485,16 @@ struct BlindOrderStatusView: View {
         .accessibilityLabel("\(title)：\(value)")
     }
 
+    /// 求助区块**不在这里** —— 它在底部常驻的 `repeatStatusArea` 里（`IN_PROGRESS` 时）。
+    ///
+    /// 2026-08-19 搬走：这个 section 排在滚动内容第 7 位，`IN_PROGRESS` 时上面压着状态卡、
+    /// 140pt 的「打电话给志愿者」、行程分享、180pt 装饰地图 —— 内容顶到求助按钮约 700pt，
+    /// 而底部常驻条吃掉约 164pt 后视口只剩约 550pt，**服务进行中的求助按钮在首屏之外，要下滑**。
+    /// 而且它的位置还不稳定：拿不到志愿者位置时地图退化成一行文字，求助又回到首屏。
+    /// 这直接违反 `docs/research/blind-voice-booking-ia-20260805.md` §4「求助（`IN_PROGRESS` 时）
+    /// 必须在首屏两次滑动内可达」。
     private func actionSection(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 14) {
-            if viewModel.canShowEmergency {
-                // 求助区块整体交给 `EmergencyActionSection`：它自己订阅 coordinator。
-                // 此前这里直接读 `appState.emergencyCoordinator.state`，值是对的但不保证跟着更新
-                // —— 详见该类型的注释。
-                EmergencyActionSection(
-                    coordinator: appState.emergencyCoordinator,
-                    onTrigger: { showEmergencyConfirmation = true },
-                    onCancelOwnEmergency: { showEmergencyCancelConfirmation = true }
-                )
-            }
-
             if viewModel.canShowCancel {
                 Button("取消订单") {
                     showCancelConfirmation = true
@@ -1595,25 +1593,59 @@ struct BlindOrderStatusView: View {
         #endif
     }
 
-    /// 「问一句」排在「重复当前状态」**之前**：它是这两者里更省时间的那个 ——
-    /// 整段状态播报要 15~25 秒，而问一句只念被问的那一项。
+    /// 底部常驻区。**永远是两个版位**，第二个恒为「重复当前状态」，第一个按状态换人：
+    ///
+    /// - `IN_PROGRESS`：求助区块。这是这一页唯一一个「晚一秒都算代价」的动作，必须零滚动可达。
+    /// - 其余状态：「问一句」。它排在「重复当前状态」之前是因为更省时间 ——
+    ///   整段状态播报要 15~25 秒，而问一句只念被问的那一项。
+    ///
+    /// **为什么是换而不是加**：再叠一个 64pt 就是三个按钮 220pt，在 6.1" 上吃掉 26% 屏幕，
+    /// 把滚动区压得更小 —— 治了求助够不着，换来别的都够不着。`IN_PROGRESS` 时「问一句」下沉到
+    /// 滚动区「打电话给志愿者」的下一位（仍在首屏内），不是删掉：
+    /// `blindOrderStatusAskQuestionButton` 这个标识符没变，按 id 找它的用例照样找得到。
+    ///
+    /// 求助进行中时这一条会变高（求助 + 结果文案 + 撤销求助 + 重复当前状态）。这是有意的：
+    /// 那正是这一页唯一该被求助占满的时刻，也是「撤销求助」必须跟着按钮走的理由 ——
+    /// 按下去的结果不该出现在屏幕外。
     private var repeatStatusArea: some View {
         VStack(spacing: 12) {
-            askQuestionButton
+            if viewModel.canShowEmergency {
+                // 整块交给 `EmergencyActionSection`：它自己订阅 coordinator。
+                // 直接读 `appState.emergencyCoordinator.state` 是值对但不跟着刷新 —— 详见该类型的注释。
+                EmergencyActionSection(
+                    coordinator: appState.emergencyCoordinator,
+                    onTrigger: { showEmergencyConfirmation = true },
+                    onCancelOwnEmergency: { showEmergencyCancelConfirmation = true }
+                )
+            } else {
+                askQuestionButton
+            }
             PrimaryButton("重复当前状态") {
                 viewModel.repeatStatus()
             }
             .accessibilityLabel("重复当前状态")
             .accessibilityHint("点击后重新播报当前订单状态")
         }
-        // 与内容列同宽。两个都是具名按钮，收窄不影响读屏用户找得到。
+        // 与内容列同宽。都是具名按钮，收窄不影响读屏用户找得到。
         .readableContentColumn()
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
         // 这条常驻底栏压在滚动内容之上，`.regularMaterial` 会把下面滑过去的文字透上来。
         // 「降低透明度」开启时换成实色 —— 那个开关的用户正是被这种叠影干扰的人，
-        // 而底下这两个按钮（问一句 / 重复当前状态）是这一页任何时刻都要够得着的东西。
+        // 而底下这些按钮是这一页任何时刻都要够得着的东西。
         .background(reduceTransparency ? AnyShapeStyle(AppColors.background) : AnyShapeStyle(.regularMaterial))
+    }
+
+    /// `IN_PROGRESS` 时「问一句」被求助顶出底部常驻条，落在这里 —— 紧跟「打电话给志愿者」。
+    ///
+    /// 选这个位置是为了让它仍在首屏内：状态卡 ≈150 + 打电话 140 + 问一句 64 + 间距 ≈ 430pt，
+    /// 而这一态下的视口约 550pt。排到 `actionSection` 那边就又掉出首屏了，
+    /// 那正是求助原先的处境。
+    @ViewBuilder
+    private var inlineAskQuestionSection: some View {
+        if viewModel.canShowEmergency {
+            askQuestionButton
+        }
     }
 
     private var askQuestionButton: some View {

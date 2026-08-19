@@ -2728,10 +2728,31 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             return
         }
 
+        // 让 UI 用例把种子订单直接钉在某个状态上。没有它，要验 `IN_PROGRESS` 的页面就得在订单状态页
+        // 最底部的 mock 面板上连点三次（模拟接单 → 模拟到达 → 模拟服务开始），每次都要先滚到底 ——
+        // 慢，而且滚动 + 盲点 tap 正是 `snapshot timeout` 那类误触的温床。
+        //
+        // 与 `AIDRUN_MOCK_VOLUNTEER_VERIFICATION_STATUS` 同口径：只认真实存在的取值，
+        // 未知值（含 `UNKNOWN` 这个纯解码兜底）一律忽略、退回原来的种子状态。
+        let seededStatus: RunOrderStatus? = ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SEED_ORDER_STATUS"]
+            .flatMap(RunOrderStatus.init(rawValue:))
+            .flatMap { RunOrderStatus.allCases.contains($0) ? $0 : nil }
+        let activeOrderStatus = seededStatus ?? (uiTestActiveVolunteerOrder ? .pendingAccept : .pendingMatch)
+        // 汇合之后的状态必须带上接单痕迹，否则页面会同时显示「进行中」和「还没有志愿者」。
+        // `plannedStart` 同理要落到过去：一单已经跑起来的约在两小时后开始是自相矛盾的，
+        // 而「预计结束时间」「已进行时长」都从这两个字段算。
+        //
+        // 判据借 `offersVolunteerCall` —— 它的语义就是「本单此刻有一个还在场的志愿者」
+        // （`REMATCHING` 为 false，因为那个志愿者已经退出了），正是要不要填
+        // `volunteerPhone` / `acceptedAt` 的同一个问题，不另起一套集合字面量。
+        let isPastMatching = activeOrderStatus.offersVolunteerCall
+        let startedAt = Calendar.current.date(byAdding: .minute, value: -20, to: Date())!
+        let startedEnd = Calendar.current.date(byAdding: .minute, value: 40, to: Date())!
+
         orders = [
             OrderDetailResponse(
                 orderId: 1,
-                status: uiTestActiveVolunteerOrder ? .pendingAccept : .pendingMatch,
+                status: activeOrderStatus,
                 startAddress: "朝阳公园南门",
                 startLatitude: 39.9342,
                 startLongitude: 116.4740,
@@ -2741,12 +2762,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 endAddress: nil,
                 endLatitude: nil,
                 endLongitude: nil,
-                plannedStart: formatter.string(from: futureDate),
-                plannedEnd: formatter.string(from: futureEnd),
+                plannedStart: formatter.string(from: isPastMatching ? startedAt : futureDate),
+                plannedEnd: formatter.string(from: isPastMatching ? startedEnd : futureEnd),
                 blindName: "李明",
                 blindPhone: "13800001001",
-                volunteerPhone: uiTestActiveVolunteerOrder ? "13800000002" : nil,
-                acceptedAt: uiTestActiveVolunteerOrder ? activeAcceptedAt : nil,
+                volunteerPhone: isPastMatching ? "13800000002" : nil,
+                acceptedAt: isPastMatching ? activeAcceptedAt : nil,
                 createdAt: formatter.string(from: Date()),
                 expectedDurationMinutes: 60,
                 pacePreference: .moderate,

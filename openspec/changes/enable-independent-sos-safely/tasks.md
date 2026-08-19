@@ -33,7 +33,7 @@
 
 ## 5. Blind-Runner IN_PROGRESS Experience
 
-- [x] 5.1 盲人服务页在且仅在 `IN_PROGRESS` 展示 `EmergencyActionButton`（`BlindOrderStatusView.swift` `actionSection`），复用 `PrimaryButton` 的 `minHeight: 64`。志愿者侧的三处入口与配套 `emergency()` 桩已删除（`VolunteerOrderFlowViews.swift`），不留 `if false` 死代码。
+- [x] 5.1 盲人服务页在且仅在 `IN_PROGRESS` 展示 `EmergencyActionButton`，复用 `PrimaryButton` 的 `minHeight: 64`。**2026-08-19 起位置从 `actionSection`（滚动内容第 7 位）移到 `repeatStatusArea`（`safeAreaInset(edge:.bottom)` 的底部常驻条）** —— 原位置实测落在首屏之外，服务进行中要下滑才够得到，且随装饰地图是否渲染而漂移；`IN_PROGRESS` 时「问一句」让出该版位、下沉进滚动区。由 `AccessibilityAuditTests.testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling` 钉住，理由见 `docs/05-page-specs.md` 页面 7「底部常驻条的构成」。志愿者侧的三处入口与配套 `emergency()` 桩已删除（`VolunteerOrderFlowViews.swift`），不留 `if false` 死代码。
 - [x] 5.2 复用既有 `emergencyConfirmationAlert`，文案与 `AGENTS.md` 第 10 节逐字一致（`testConfirmationCopyMatchesTheMandatedTextExactly`）；取消不发请求；提交中禁止重复确认。
 - [x] 5.3 locating / submitting / unsent / failure / cooldown / contact-notified / resolved 七态均有可见文案（`EmergencyStatusNotice`）与 TTS（`enterEmergency` 分支走 `speak` 或 `speakError`），文案集中在 `EmergencySafetyCopy`。
 - [x] 5.4 「联系人已收到短信」**永不展示**——不是「等匹配后再展示」。后端该事件先于短信发出且失败不回告（`EmergencyService.java:370-373` vs `EmergencyContactNotifier.java:60-62,126-135`），任何时刻都不成立。`AppRealtimeCoordinator.emergencyCopy` 用本地进行时文案覆盖后端 body/ttsText，由 `testNoEmergencyCopyClaimsAnSMSWasDelivered` 等三条测试锁定。
