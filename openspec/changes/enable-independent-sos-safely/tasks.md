@@ -1,12 +1,15 @@
-> **交付范围**：盲人侧 `IN_PROGRESS` SOS 已交付；志愿者侧入口继续隐藏（后端按触发者而非订单参与方路由事件，
-> 见 `proposal.md` 顶部）。凡与志愿者触发相关的子项均标注为「后端阻塞」并说明阻塞点，不空勾。
+> **交付范围（2026-08-19 订正）**：**两侧 `IN_PROGRESS` SOS 均已交付**。
+> 志愿者侧曾因「后端按触发者而非订单参与方路由事件」而关闭，后端 commit `a5ba523`（SOS-1，2026-07-31）
+> 把 `event.userId` 改为取订单的盲人方、用 `TriggerType.VOLUNTEER_BUTTON` 区分来源，阻塞随之解除；
+> iOS 侧的开关在 `4793805`（2026-08-01）就已打开，本文件此前一直没跟上。
+> 仍未完成的只有真机批跑（6.6）与云端演练（6.4），与角色无关。
 
 ## 1. Safety Preconditions And Contract Confirmation
 
 - [x] 1.1 依赖已就绪：`complete-realtime-fallback-and-notifications`（`AppRealtimeCoordinator.swift`）与 `enable-live-escort-location-and-track-summary`（`LiveEscortSessionCoordinator.swift`、`Map/CoordinateSystem.swift` 的单点 GCJ-02 边界）均已合入并被本变更直接复用。
 - [x] 1.2 GPS 门槛与文案：严格门槛落为 `EmergencyCoordinator.allowsSubmissionWithoutLocation = false`（`blindRun/Safety/EmergencyCoordinator.swift`），降级路径存在但需产品/安全拍板，翻转一个常量即可；pending/failure/retry/resolved 文案集中在 `EmergencySafetyCopy`（`blindRun/Safety/SafetyModule.swift`）。**产品/安全的书面批准仍未收到**，已再次投递 `demo/docs/handoff.md`。
 - [x] 1.3 契约已按后端**实现**对齐（不是按文档）：成功体 `{success,eventId,status}`（`EmergencyController.java:34-38`）→ `EmergencyTriggerResponse`；`EmergencyStatus` 全集（`entity/EmergencyStatus.java`）→ `EmergencyEventStatus`；冷却 429 `TOO_MANY_REQUESTS` + `retryAfterSeconds`（`GlobalExceptionHandler.java:218-231`）→ `APIError.rateLimited`；非参与方 403 `NOT_ORDER_PARTICIPANT`、订单不存在 400 `BAD_REQUEST`。三项无法由代码回答的（志愿者路由、恢复端点、法务文案口径）已在 handoff 标为待答。
-- [x] 1.4 志愿者入口保持关闭：`RunOrderStatus.canVolunteerTriggerEmergency` 恒 `false`（`OrderModels.swift`），由 `testVolunteerEmergencyStaysHiddenInEveryStatus` 锁定。
+- [x] 1.4 志愿者入口与盲人侧同一个门槛：`RunOrderStatus.canVolunteerTriggerEmergency == (self == .inProgress)`（`blindRun/Core/Models/OrderModels.swift:140-142`），由 `EmergencySOSTests.testVolunteerEmergencyEntryIsEnabledOnlyDuringService`（`blindRunTests/EmergencySOSTests.swift:100-110`）逐状态锁定。~~恒 `false`，由 `testVolunteerEmergencyStaysHiddenInEveryStatus` 锁定~~ —— 该测试已随入口开放删除（`blindRunTests/blindRunTests.swift:3944-3947` 留了删除说明），理由见 7.1。
 
 ## 2. Canonical Documentation And Contracts
 
@@ -31,20 +34,22 @@
 - [x] 4.5 事件按订单归属过滤（`EmergencyCoordinator.apply`）：带 `orderId` 且不匹配 → 丢弃；无活跃事件 → 丢弃。**按 `eventId` 匹配做不到**，后端该消息不带 `eventId`（`NotificationService:93-99`），代码注释已写明这一降级为何可接受（文案本身不承诺送达）。
 - [x] 4.6 不持久化任何事件元数据（后端无恢复端点/重放），`reset()` 挂在 `accessToken` / `userId` / `activeRole` 三个 `didSet` 上，覆盖登出、注销、过期、换号、切角色（`AppState.swift`）。
 
-## 5. Blind-Runner IN_PROGRESS Experience
+## 5. IN_PROGRESS Experience（盲人 + 志愿者）
 
 - [x] 5.1 盲人服务页在且仅在 `IN_PROGRESS` 展示 `EmergencyActionButton`，复用 `PrimaryButton` 的 `minHeight: 64`。**2026-08-19 起位置从 `actionSection`（滚动内容第 7 位）移到 `repeatStatusArea`（`safeAreaInset(edge:.bottom)` 的底部常驻条）** —— 原位置实测落在首屏之外，服务进行中要下滑才够得到，且随装饰地图是否渲染而漂移；`IN_PROGRESS` 时「问一句」让出该版位、下沉进滚动区。由 `AccessibilityAuditTests.testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling` 钉住，理由见 `docs/05-page-specs.md` 页面 7「底部常驻条的构成」。志愿者侧的三处入口与配套 `emergency()` 桩已删除（`VolunteerOrderFlowViews.swift`），不留 `if false` 死代码。
 - [x] 5.2 复用既有 `emergencyConfirmationAlert`，文案与 `AGENTS.md` 第 10 节逐字一致（`testConfirmationCopyMatchesTheMandatedTextExactly`）；取消不发请求；提交中禁止重复确认。
 - [x] 5.3 locating / submitting / unsent / failure / cooldown / contact-notified / resolved 七态均有可见文案（`EmergencyStatusNotice`）与 TTS（`enterEmergency` 分支走 `speak` 或 `speakError`），文案集中在 `EmergencySafetyCopy`。
 - [x] 5.4 「联系人已收到短信」**永不展示**——不是「等匹配后再展示」。后端该事件先于短信发出且失败不回告（`EmergencyService.java:370-373` vs `EmergencyContactNotifier.java:60-62,126-135`），任何时刻都不成立。`AppRealtimeCoordinator.emergencyCopy` 用本地进行时文案覆盖后端 body/ttsText，由 `testNoEmergencyCopyClaimsAnSMSWasDelivered` 等三条测试锁定。
 - [x] 5.5 `repeatStatus()` 先播权威订单状态，再追加 `emergencyCoordinator.repeatStatusSuffix`，不替换、不改变结束/取消权限。
+- [x] 5.6 志愿者服务中页入口（`VolunteerInServiceView`，`blindRun/Volunteer/VolunteerOrderFlowViews.swift:1472-1479`）：`canVolunteerTriggerEmergency` 为真时渲染地图右上角的 64pt 圆形悬浮盾牌 `VolunteerSOSFloatingButton`（`blindRun/Safety/SafetyModule.swift:302-331`），确认走与盲人侧同一个 `emergencyConfirmationAlert`（`:1554`）与同一条 `EmergencyCoordinator.trigger` 链路。**没有「误触」按钮** —— 后端对志愿者 `action=FALSE_ALARM` 恒 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`，志愿者侧只留「确认需要帮助」（`emergencySection`，`:1592-1612`）。位置与形态由 `AccessibilityAuditTests.testVolunteerInServiceSOSStaysOutOfTheActionButtonCluster` 钉住。
+  > 5.1 末句「志愿者侧的三处入口与配套 `emergency()` 桩已删除」说的是 `ecea28b`（2026-07-31，后端还按触发者归属事件时）那次删除，**已被本条取代**：`4793805`（2026-08-01）按新的后端归属重新开放，2026-08-19（PR #45）把它从底部操作区搬到地图角落。
 
 ## 6. Tests And Validation
 
-- [x] 6.1 `blindRunTests/EmergencySOSTests.swift`：角色/状态资格、精确确认文案、取消不发请求、GCJ-02 编码、结构化成功门槛、重复点击、冷却、事件匹配、会话隔离、状态枚举与后端对齐；`blindRunTests.swift` 的 `testBlindRunnerEmergencyIsAvailableOnlyInProgress` / `testVolunteerEmergencyStaysHiddenInEveryStatus` / `testUnsetRoleCannotTriggerEmergency` 覆盖全 9 个状态 × 3 个角色。
+- [x] 6.1 `blindRunTests/EmergencySOSTests.swift`：角色/状态资格、精确确认文案、取消不发请求、GCJ-02 编码、结构化成功门槛、重复点击、冷却、事件匹配、会话隔离、状态枚举与后端对齐；`blindRunTests.swift` 的 `testBlindRunnerEmergencyIsAvailableOnlyInProgress` / `testUnsetRoleCannotTriggerEmergency` 与 `EmergencySOSTests.testVolunteerEmergencyEntryIsEnabledOnlyDuringService` 覆盖全 9 个状态 × 3 个角色；志愿者只有「确认需要帮助」一个响应动作，由 `testVolunteerAcknowledgementCopyOffersNoDismissAction` 锁定。
 - [x] 6.2 无定位、未转换的 WGS-84 样本、解码失败、网络失败、429 冷却均有用例；禁止 Demo 坐标由「只接受 `.gcj02Backend`」+「取样只走 `latestBackendSample()`」双重保证。
 - [ ] 6.2a 后台/锁屏下触发的用例 —— **未做**，需真机，见 6.6。
-- [x] 6.3 `blindRunUITests`：`testMockBlindOrderHidesEmergencyActionInAcceptedStates` 扩到 `IN_PROGRESS` 显示 + 64pt + 弹窗原文 + 取消不提交；新增 `testBlindEmergencyCopyNeverClaimsSmsDelivery`；志愿者全流程仍断言入口不存在。`AppRealtimeCoordinatorTests` 新增两条文案替换的端到端用例。
+- [x] 6.3 `blindRunUITests`：`testMockBlindOrderHidesEmergencyActionInAcceptedStates` 扩到 `IN_PROGRESS` 显示 + 64pt + 弹窗原文 + 取消不提交；新增 `testBlindEmergencyCopyNeverClaimsSmsDelivery`；志愿者全流程（`testMockVolunteerOrderFlowSmoke`）在 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 断言入口不存在（`assertNoEmergencyAction`），进入 `IN_PROGRESS` 后断言入口存在**且点得到**（`assertEmergencyActionIsUsable`，`blindRunUITests/blindRunUITests.swift:255`）。`AppRealtimeCoordinatorTests` 新增两条文案替换的端到端用例。
 - [ ] 6.4 云端探针 —— **未做**。触发真实 SOS 会给紧急联系人发真短信并惊动客服，不能拿测试账号随便打；需要与后端约定演练时间窗后再补。
 - [x] 6.5 `openspec validate enable-independent-sos-safely --strict --no-interactive` 通过；`node scripts/validate-docs.mjs` 通过。
 - [ ] 6.6 真机批跑 —— **未执行**。设备 `111`（`00008140-000161D62112801C`）本轮全程离线，`iPad Pro (2)` 未连接；模拟器因高德无 arm64-sim slice 永久不可用。已完成的是 `xcodebuild build-for-testing -destination 'generic/platform=IOS'`，输出 `** TEST BUILD SUCCEEDED **`（app + 单测 + UI 测试三个 target 全部编译通过）。**编译通过不等于测试通过**，真机可用后必须补跑，且需含锁屏/后台监督验收。

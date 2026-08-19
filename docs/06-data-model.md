@@ -49,7 +49,7 @@
 
 取消流转：盲人端 `PENDING_MATCH / PENDING_ACCEPT -> CANCELLED`，志愿者端 `PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS -> REMATCHING`；志愿者取消已接单订单后，盲人端可执行 `REMATCHING -> CANCELLED`。
 
-求助入口：盲人端仅在 `IN_PROGRESS` 显示求助入口（`RunOrderStatus.canBlindRunnerTriggerEmergency`），志愿者端全状态隐藏（`canVolunteerTriggerEmergency` 恒为 `false`）。求助调用 `POST /api/emergency/trigger`，emergency 不是订单状态，触发后 `RunOrderStatus` 不变。
+求助入口：**两端都只在 `IN_PROGRESS` 开放** —— 盲人端 `RunOrderStatus.canBlindRunnerTriggerEmergency`，志愿者端 `canVolunteerTriggerEmergency == (self == .inProgress)`（`blindRun/Core/Models/OrderModels.swift:128` / `:140`）。~~志愿者端全状态隐藏（`canVolunteerTriggerEmergency` 恒为 `false`）~~ —— 该说法自 2026-07-31 起失效：后端 commit `a5ba523`（SOS-1）已把 `event.userId` 改为取订单的盲人方、用 `TriggerType.VOLUNTEER_BUTTON` 区分来源，志愿者代触发不再惊动他自己。求助调用 `POST /api/emergency/trigger`，emergency 不是订单状态，触发后 `RunOrderStatus` 不变。
 
 ### CancellationActor
 
@@ -276,7 +276,7 @@ iOS 对无法识别的取值归一化为 `unknown`，并按"系统正在处理"�
 
 Rules:
 
-- 盲人端仅在 `IN_PROGRESS` 显示一键求助入口；志愿者端全状态隐藏。
+- **两端都只在 `IN_PROGRESS` 显示求助入口**（盲人端「一键求助」，志愿者端地图角落的悬浮盾牌）；~~志愿者端全状态隐藏~~ 自 2026-07-31 起失效，见上文「求助入口」。
 - 求助事件不是订单状态，触发后 `RunOrderStatus` 保持不变。
 - 严格 GPS 门槛：拿不到新鲜的真实 GCJ-02 样本就**不发送**请求，界面与 TTS 如实说明"求助未发出"并指向设置/重试和 110；Mock/Demo 坐标永不上送。无 GPS 降级提交由 `EmergencyCoordinator.allowsSubmissionWithoutLocation`（当前 `false`）单点控制。
 - 冷却拒绝为 HTTP 429 `TOO_MANY_REQUESTS`（带 `retryAfterSeconds` 与 `Retry-After` 头）；非订单参与方为 403 `NOT_ORDER_PARTICIPANT`；订单不存在为 400 `BAD_REQUEST`。

@@ -716,7 +716,7 @@
 - 出发：PENDING_ACCEPT → DRIVER_EN_ROUTE
 - 到达：DRIVER_EN_ROUTE → DRIVER_ARRIVED
 - 取消：PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING；志愿者端清空本地当前订单并退出服务流程
-- 志愿者端全状态不显示求助入口；求助只对盲人端在 IN_PROGRESS 开放
+- 求助入口两端都只在 IN_PROGRESS 开放，志愿者侧的入口在**服务中页（页面 13）**，本页不提供；~~志愿者端全状态不显示求助入口~~ 自 2026-07-31 起失效（后端 `a5ba523` 把事件挂在订单的盲人方）
 - 若云端接单后直接返回 `IN_PROGRESS`，iOS 保留真实状态并记录为真机联调问题；若看到 `REMATCHING`，优先排查是否志愿者接单后主动取消
 
 **错误状态**：
@@ -730,7 +730,7 @@
 - 派单弹窗按钮：最小高度 64pt，accessibilityLabel = "接受派单" / "拒绝派单"
 - "我已到达"按钮：最小高度 64pt，accessibilityLabel = "我已到达约定地点"
 - "查看地图"按钮：accessibilityLabel = "查看出发点位置"
-- 志愿者端全状态不显示求助入口
+- 本页（派单/前往中）不显示求助入口 —— 入口只在 IN_PROGRESS 开放，见页面 13
 
 ---
 

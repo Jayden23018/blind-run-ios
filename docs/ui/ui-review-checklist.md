@@ -44,7 +44,7 @@
 - [ ] 进入盲人首页时播报（有/无订单两种文案）
 - [ ] 订单提交成功时播报
 - [ ] 状态变化时播报：PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
-- [ ] 当前 release 不显示求助入口；未来恢复求助入口时必须补求助状态播报
+- [ ] `IN_PROGRESS` 显示求助入口，且每一种求助状态（定位中 / 提交中 / 未发出 / 失败 / 冷却 / 联系中 / 已解除）都同时更新可见文案与 TTS（~~当前 release 不显示求助入口~~ 自 2026-07-31 起失效）
 - [ ] 错误提示时播报
 - [ ] 不重复播报已播报过的状态（ViewModel 跟踪 lastSpokenStatus）
 - [ ] TTS 文案与 `ui-handoff-ios.md` 中定义的文案一致

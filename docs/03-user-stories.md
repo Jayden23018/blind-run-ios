@@ -858,7 +858,7 @@
 
 **Given** 订单状态为 DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS
 **When** 任一方查看订单或服务页面
-**Then** 只有盲人端且状态为 IN_PROGRESS 时显示求助入口（见 US-BR-008），志愿者端全状态不显示；求助不改变订单状态
+**Then** 只有 IN_PROGRESS 时显示求助入口，**两端都显示**（两端的资格条款都在 US-BR-008）；~~志愿者端全状态不显示~~ 自后端 `a5ba523` 起失效；求助不改变订单状态
 
 ---
 
