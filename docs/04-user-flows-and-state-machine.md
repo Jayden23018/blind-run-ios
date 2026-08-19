@@ -269,7 +269,7 @@ sequenceDiagram
     participant Loc as LocationService
     participant API as 云端 API
 
-    Note over BR,App: 仅订单状态为 IN_PROGRESS 且角色为盲人时显示入口；志愿者端全状态隐藏
+    Note over BR,App: 仅订单状态为 IN_PROGRESS 时显示入口，两端都显示（志愿者端自 2026-07-31 起已开放，见上文）
 
     BR->>App: 点击"一键求助"
     App->>BR: 二次确认"是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"

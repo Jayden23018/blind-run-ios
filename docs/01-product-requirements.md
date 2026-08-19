@@ -156,7 +156,7 @@ Swift 原生 iOS
 | 进行中 | IN_PROGRESS | 服务正在进行 |
 | 已完成 | COMPLETED | 服务正常结束 |
 | 已取消 | CANCELLED | 订单被取消 |
-| 紧急求助 | Emergency（不是订单状态） | 盲人端仅在 `IN_PROGRESS` 显示入口，二次确认后调用 `POST /api/emergency/trigger`；志愿者端全状态隐藏。求助事件独立于 `RunOrderStatus`，不改变订单状态；App 不得宣称短信已送达或联系人已被联系上 |
+| 紧急求助 | Emergency（不是订单状态） | **两端都仅在 `IN_PROGRESS` 显示入口**，二次确认后调用 `POST /api/emergency/trigger`；~~志愿者端全状态隐藏~~ 自 2026-07-31 起失效（后端 `a5ba523` 把事件挂在订单的盲人方）。志愿者没有撤销入口（403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`）。求助事件独立于 `RunOrderStatus`，不改变订单状态；App 不得宣称短信已送达或联系人已被联系上 |
 | 预约 | Booking | 盲人发起的跑步预约 |
 | 积分 | Points | 志愿者奖励积分 |
 | 接单 | Accept | 志愿者接受订单 |

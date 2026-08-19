@@ -7,7 +7,7 @@ AidRun 当前仓库是原生 iOS 客户端，采用 SwiftUI + MVVM，后端为�
 已经具备的上线基础：
 
 - 手机号验证码登录、JWT 会话（Token 存 Keychain）、`/api/auth/me` 启动校验、服务端撤销登出、两阶段自助删除账户、角色选择与切换。
-- 盲人预约、志愿者接单、出发、到达、开始服务、完成、取消等核心订单流程。**盲人一键求助（SOS）本版交付，且仅限 `IN_PROGRESS`**：门槛为 `OrderModels.swift:93` `canBlindRunnerTriggerEmergency` / `:109` `canTriggerEmergency(as:)`，触发走真实 `POST /api/emergency/trigger`，状态由 `blindRun/Safety/EmergencyCoordinator.swift` 承接。志愿者侧求助入口全状态隐藏（`OrderModels.swift:105` `canVolunteerTriggerEmergency` 恒为 `false`）。求助事件不是订单状态，不改变 `RunOrderStatus`。见 `openspec/changes/enable-independent-sos-safely/`（2026-07-31 已重启，盲人侧交付）。
+- 盲人预约、志愿者接单、出发、到达、开始服务、完成、取消等核心订单流程。**一键求助（SOS）本版交付，两端都仅限 `IN_PROGRESS`**：门槛为 `OrderModels.swift:128` `canBlindRunnerTriggerEmergency` / `:140` `canVolunteerTriggerEmergency` / `:144` `canTriggerEmergency(as:)`，触发走真实 `POST /api/emergency/trigger`，状态由 `blindRun/Safety/EmergencyCoordinator.swift` 承接。~~志愿者侧求助入口全状态隐藏~~ —— 后端 commit `a5ba523`（SOS-1，2026-07-31）把 `event.userId` 改为取订单的盲人方、用 `TriggerType.VOLUNTEER_BUTTON` 区分来源后已开放；志愿者**没有**撤销入口（后端恒 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`）。求助事件不是订单状态，不改变 `RunOrderStatus`。见 `openspec/changes/enable-independent-sos-safely/`（2026-07-31 已重启，双角色交付）。
 - 盲人实名认证与 1–5 位紧急联系人管理，二者均为 `POST /api/orders` 的硬门槛（服务端 403 `IDENTITY_NOT_VERIFIED` / `EMERGENCY_CONTACT_REQUIRED`）。
 - 志愿者两步注册（身份证 + 阿里云 CloudAuth 原生活体），培训/答题环节已彻底移除。
 - 高德地图桥接、定位、POI 搜索、逆地理编码、地图 marker。
@@ -89,7 +89,7 @@ node scripts/cloud-e2e.mjs
 - 云端已确认 `POST /api/orders/{id}/cancel` 接受 `REMATCHING` 状态；iOS 必须使用盲人 token 调用该接口，志愿者 token 不应成功。
 - 志愿者端负责在 `DRIVER_ARRIVED` 后调用 `POST /api/orders/{id}/start-service` 将订单推进到 `IN_PROGRESS`；iOS 不会从 `DRIVER_ARRIVED` 直接调用完成服务。若真机验证卡在 `DRIVER_ARRIVED`，优先检查志愿者端 start-service 请求和后端状态推进日志。
 - 百度地图 `baidumap://map/direction` 跳转已按 GCJ-02 步行参数接入，发布前需在安装百度地图的真机上 smoke 验证。
-- 当前 release 盲人端在 `IN_PROGRESS` 显示一键求助，二次确认后调用 `POST /api/emergency/trigger`（`EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`，三个字段一律上送）。严格 GPS 门槛：拿不到新鲜的真实 GCJ-02 样本就**不发请求**，界面与 TTS 明确说"求助未发出"并指向设置/重试和 110；Mock/Demo 坐标永不上送。无 GPS 降级提交由常量 `EmergencyCoordinator.allowsSubmissionWithoutLocation`（当前 `false`）单点控制，翻开需产品/安全书面批准。志愿者端求助入口全状态隐藏，等后端按订单参与方路由后再开。
+- 当前 release **两端**都在 `IN_PROGRESS` 显示求助入口，二次确认后调用 `POST /api/emergency/trigger`（`EmergencyTriggerRequest(orderId, gpsLat, gpsLng)`，三个字段一律上送）。严格 GPS 门槛：拿不到新鲜的真实 GCJ-02 样本就**不发请求**，界面与 TTS 明确说"求助未发出"并指向设置/重试和 110；Mock/Demo 坐标永不上送。无 GPS 降级提交由常量 `EmergencyCoordinator.allowsSubmissionWithoutLocation`（当前 `false`）单点控制，翻开需产品/安全书面批准。~~志愿者端求助入口全状态隐藏，等后端按订单参与方路由后再开~~ —— 后端已按订单参与方路由（`a5ba523`），志愿者端入口同样在 `IN_PROGRESS` 开放，形态是地图右上角的悬浮盾牌（远离拇指区：误触在这一侧撤不回来）。
 - 后端所有当前坐标约定为 GCJ-02。数据库虽无来源字段或迁移机制，但后端确认现有写入路径仅来自高德/腾讯定位链路，历史数据按干净 GCJ-02 处理；未来新增 WGS-84 来源须在写入边界转换。
 - 后端 100 米/连续 2 次仅为运行时告警工程参数，未获产品批准为完成轨迹异常结论；iOS 只展示服务端即时告警，不比较双方轨迹得出异常。
 - 轨迹接口保留 0/1/多个原始点；iOS 少于 2 点不绘制，角色统计固定为 `0 / 0 / null`。非 403/404 响应保证包含 `status`。

@@ -33,7 +33,7 @@ Acceptance:
 
 ### PR-IOS-03 Blind Runner Flow
 
-- 实现盲人资料、紧急联系人管理（1～5 个，恰好 1 个主联系人）、预约、订单状态、取消和评分流程；一键求助只在 `IN_PROGRESS` 对盲人开放，志愿者端全状态隐藏。
+- 实现盲人资料、紧急联系人管理（1～5 个，恰好 1 个主联系人）、预约、订单状态、取消和评分流程；一键求助只在 `IN_PROGRESS` 开放，~~志愿者端全状态隐藏~~ —— 自后端 `a5ba523`（SOS-1，2026-07-31）按订单参与方归属事件起，志愿者端同样在 `IN_PROGRESS` 开放（形态见 `docs/05-page-specs.md` 页面 13）。
 - 一键求助：二次确认文案逐字固定，取消不发送任何请求；无新鲜真实 GCJ-02 样本不发请求并如实播报「求助未发出」；提交 `POST /api/emergency/trigger`（`orderId` + `gpsLat` + `gpsLng` 三个字段一律上送）；求助不改变 `RunOrderStatus`；文案不得声称短信已送达或联系人已被联系上。
 - 下单硬前置条件为「实名认证已通过」+「至少 1 个紧急联系人且恰好 1 个主联系人」，与后端 `OrderCreationService` 的校验一致（403 `IDENTITY_NOT_VERIFIED` / 403 `EMERGENCY_CONTACT_REQUIRED`）；缺失时阻断 `POST /api/orders` 并播报第一个可执行的缺失项。
 - 实名认证（`verifyStatus`：`NOT_VERIFIED` / `VERIFIED` / `FAILED`，无审核中态）自 2026-07-30 起是**下单硬门槛**（`demo/docs/handoff.md` Q1 按方案 ① 答复），客户端门槛必须与后端同序：实名在紧急联系人**之前**。
