@@ -18,6 +18,7 @@ The volunteer entry was withheld until 2026-07-31 because the backend keyed the 
 - **WHEN** the authenticated volunteer tries to close or false-alarm an emergency raised for the blind runner
 - **THEN** the app SHALL NOT offer that action, because in a one-to-one escort the volunteer may themselves be the threat
 - **AND** the backend rejects it with 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`
+- **AND** the only volunteer-side response the app SHALL offer is acknowledging that help is genuinely needed
 
 #### Scenario: Order is not IN_PROGRESS
 - **WHEN** canonical order status is any other value
