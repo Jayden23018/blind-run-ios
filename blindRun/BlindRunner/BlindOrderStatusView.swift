@@ -693,18 +693,25 @@ struct BlindOrderStatusView: View {
                 }
 
                 if let order = viewModel.order {
-                    // 顺序即优先级：状态（一句话 + 一个数字）→ 唯一主动作（打电话）→
-                    // 其余全部下沉。此前主动作排在第 4 位，读屏要滑过状态卡、地图、
-                    // 生命周期卡才够得着。
+                    // 顺序即优先级：状态（一句话 + 一个数字）→ 这一态唯一的主动作 →
+                    // 同一态的次级动作 → 附属动作 → 其余全部下沉。此前主动作排在第 4 位，
+                    // 读屏要滑过状态卡、地图、生命周期卡才够得着。
+                    //
+                    // `actionSection` 2026-08-19 从第 8 位提到这里：它装的是**这一态的
+                    // 状态机动作**（等待中取消、终态返回首页），与上面的主动作同族；
+                    // 而「把行程告诉家人」是附属动作 —— 跑不跑得成与它无关。
+                    // 排在附属动作后面的直接后果：延长次数用完的 `REMATCHING`
+                    // 主动作版位是空的，于是首屏第一个能按的东西是分享，
+                    // 而此刻用户唯一还能做的决定是「要不要取消」。
                     statusHeader(order)
                         .accessibilityFocused($statusHeaderFocused)
                     volunteerCallSection(order)
                     inlineAskQuestionSection
                     keepWaitingSection(order)
+                    actionSection(order)
                     runPlanShareSection(order)
                     peerMapSection(order)
                     lifecycleSection(order)
-                    actionSection(order)
                     orderInfoSection(order)
                     statusLogSection
                     debugMockControls(order)
@@ -880,6 +887,16 @@ struct BlindOrderStatusView: View {
                 .foregroundColor(AppColors.textSecondary)
                 .multilineTextAlignment(.center)
 
+            // 还在等人时，这一格是「已等待 12 分钟」；有志愿者了换成距离；跑起来了换成
+            // 约定结束时间。三者状态集互不相交（`offersWaitedDuration` 的注释里有理由），
+            // 所以卡上任何时刻只有一个数字。
+            if let waitedText = order.blindRunnerWaitedText() {
+                Text(waitedText)
+                    .font(.title.bold())
+                    .foregroundColor(AppColors.textPrimary)
+                    .multilineTextAlignment(.center)
+            }
+
             if let distanceText = viewModel.volunteerDistanceToStartText {
                 Text("志愿者\(distanceText)")
                     .font(.title.bold())
@@ -918,6 +935,9 @@ struct BlindOrderStatusView: View {
     /// 糊成一长串没有停顿的音。
     private func statusHeaderAnnouncement(_ order: OrderDetailResponse) -> String {
         var parts = [order.status.displayName, order.status.blindRunnerDescription]
+        if let waitedText = order.blindRunnerWaitedText() {
+            parts.append(waitedText)
+        }
         if let distanceText = viewModel.volunteerDistanceToStartText {
             parts.append("志愿者\(distanceText)")
         }
@@ -930,19 +950,21 @@ struct BlindOrderStatusView: View {
     @ViewBuilder
     private func lifecycleSection(_ order: OrderDetailResponse) -> some View {
         switch order.status.blindRunnerRoute {
-        case .tracking, .inService:
-            // 这两条分支此前各渲染一张「标题 + 正文」卡片，两处正文都与 `statusHeader` 重复：
+        case .tracking, .inService, .terminal:
+            // 这三条分支此前各渲染一张「标题 + 正文」卡片，正文都与 `statusHeader` 重复：
             //   · `DRIVER_ARRIVED` 的 `arrivedWaitingCopy` **就是**它的 `blindRunnerDescription`
             //     （`OrderDisplayHelpers.swift:77` 直接 return 了它）—— 逐字重复
             //   · `IN_PROGRESS` 那句「请与志愿者保持沟通，注意安全。系统会持续同步订单状态，
             //     服务完成后进入评价页面。」33 个字里没有一个能让盲人做出动作：
             //     「持续同步订单状态」是实现细节，「完成后进入评价页面」是还没发生的事
-            // 读屏用户为此要多滑两次、把同一件事听两遍。状态语义由 `statusHeader` 一处承担。
+            //   · `.terminal` 的 `terminalSection`（2026-08-19 并进来）整张卡就是
+            //     `Text(status.displayName)` + `Text(status.blindRunnerDescription)`，
+            //     与 `statusHeader` **逐字**是同两句 —— 已取消 / 暂无志愿者的人把
+            //     「本次预约已取消」听两遍，中间还隔着一次滑动
+            // 读屏用户为此要多滑一次、把同一件事听两遍。状态语义由 `statusHeader` 一处承担。
             EmptyView()
         case .completion:
             completionRatingSection(order)
-        case .terminal:
-            terminalSection(order)
         }
     }
 
@@ -1139,24 +1161,6 @@ struct BlindOrderStatusView: View {
         }
     }
 
-    private func terminalSection(_ order: OrderDetailResponse) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(order.status.displayName)
-                .font(.title3.bold())
-                .foregroundColor(AppColors.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            Text(order.status.blindRunnerDescription)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(order.status.displayName)，\(order.status.blindRunnerDescription)")
-    }
-
     /// 接单后这一页唯一的主动作：打电话给志愿者。
     ///
     /// 此前它是「志愿者信息」卡片里的一行只读文字（`Text("志愿者电话：…")`）。
@@ -1234,9 +1238,9 @@ struct BlindOrderStatusView: View {
     /// 把这次行程告诉家人。主路径是**实时分享**（后端生成免登录链接，家属能看到位置与轨迹），
     /// 短信是它失败时的降级路径。
     ///
-    /// 排在两个主动作之后、地图之前：它是次级动作（不该抢 140pt 的主按钮版位），
-    /// 但也不能沉到订单信息下面 —— 看不见屏幕的人靠遍历顺序发现功能存在，
-    /// 沉下去等于没做。样式用整行铺满的次级按钮，与
+    /// 排在主动作与 `actionSection` 之后、地图之前：它是**附属**动作（不该抢 140pt 的主按钮
+    /// 版位，也不该排在「取消订单」这种状态机动作前面），但也不能沉到订单信息下面 ——
+    /// 看不见屏幕的人靠遍历顺序发现功能存在，沉下去等于没做。样式用整行铺满的次级按钮，与
     /// `docs/research/blind-ui-visual-benchmark-20260808.md` 那条「次级操作一律整行铺满
     /// 竖直堆叠」一致。
     ///
@@ -1493,6 +1497,12 @@ struct BlindOrderStatusView: View {
     /// 而且它的位置还不稳定：拿不到志愿者位置时地图退化成一行文字，求助又回到首屏。
     /// 这直接违反 `docs/research/blind-voice-booking-ia-20260805.md` §4「求助（`IN_PROGRESS` 时）
     /// 必须在首屏两次滑动内可达」。
+    ///
+    /// 求助搬走之后这里剩下的两个都是**这一态的状态机动作**：等待中的「取消订单」、
+    /// 终态的「返回首页」。所以同日把整段从第 8 位提到主动作紧后面 —— 一个页面上
+    /// 「此刻能对这一单做的事」应该连在一起，中间不隔着分享和地图。
+    /// `IN_PROGRESS` 时这一段是空的（`canBlindRunnerCancel` 为假，`AGENTS.md` §5
+    /// 明确禁止服务中展示取消），所以那一态的布局不受这次移动影响。
     private func actionSection(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 14) {
             if viewModel.canShowCancel {

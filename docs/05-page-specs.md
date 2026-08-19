@@ -380,6 +380,29 @@
 - 志愿者距离（收到位置且订单有出发坐标时）：显示"志愿者距出发地点约 X"，来源为志愿者最新 WebSocket 位置到订单出发坐标
 - "继续等待"主按钮（PENDING_MATCH / REMATCHING 状态显示）：与"打电话给志愿者"共用状态卡下方的主动作版位，两者状态集互斥
 - "取消订单"按钮（PENDING_MATCH / PENDING_ACCEPT / REMATCHING 状态显示，灰色/危险色）
+
+**状态卡恒定只给一个数字**（`RunOrderStatus.offersWaitedDuration` / `offersVolunteerDistanceToStart` /
+`plannedEndForAnnouncement` 三者状态集互不相交，卡上任何时刻只会出现其中一个）：
+
+| 状态 | 那个数字 | 来源 |
+|---|---|---|
+| PENDING_MATCH / REMATCHING | "已等待 X 分钟" / "已等待 X 小时" | `createdAt`（下单时刻）到当前时间 |
+| PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED | "志愿者距出发地点约 X" | 志愿者最新位置到订单出发坐标 |
+| IN_PROGRESS | "预计 X 结束" | `plannedEnd`（见页面 7） |
+
+- "已等待"的锚点是**下单时刻**，不是本轮匹配开始时刻——后者（`lastRematchAt`）不在订单详情契约里。
+- **不得据此推算"还能等多久"**：放弃时刻是 `plannedStart` 减去后端配置且被"继续等待"往后推
+  （`DispatchService.dispatchDeadline`），该配置客户端读不到，写死任何窗口长度都是假信息。
+  与"继续等待"成功文案同一条口径。
+- 上下界：不足 1 分钟不显示（"已等待 0 分钟"是噪音），满 1 小时后按整小时说，
+  超过 24 小时整格消失（提前很久下的单在派单期确实等了那么久，但"已等待 168 小时"吓人且不可行动）。
+
+**滚动区顺序**（顺序即优先级，看不见屏幕的人靠遍历顺序发现功能存在）：
+状态卡 → 该状态唯一的主动作（打电话 / 继续等待）→ 同一状态的状态机动作（取消订单 / 返回首页）
+→ 附属动作（把行程告诉家人）→ 装饰地图 → 折叠的预约信息与状态变更记录。
+"取消订单"必须与主动作连在一起、不滚动即可达：等待期用户只有"再等"和"不等了"两个决定，
+把其中一个放到首屏外等于只给了一半。由
+`AccessibilityAuditTests.testBlindOrderStatusOffersKeepWaitingWhileWaitingForAMatch` 钉住。
 - 本页覆盖的状态均不显示"一键求助"入口（求助仅在 IN_PROGRESS 对盲人显示，见页面 7）
 - "重复当前状态"按钮
 
@@ -394,7 +417,9 @@
 **状态变化**：
 - 每 5 秒轮询 GET /api/orders/{orderId}
 - PENDING_MATCH → PENDING_ACCEPT：更新 UI 为"待出发" + TTS "志愿者已接单"，并朗读预约时间和出发地点，提示前往或等待在出发地点
-- PENDING_MATCH → CANCELLED / NO_VOLUNTEER：显示"暂时没有可用志愿者" + TTS
+- PENDING_MATCH → CANCELLED / NO_VOLUNTEER：显示"暂时没有可用志愿者" + TTS。
+  终态**只由状态卡说一遍**，下面直接是"返回首页"——不再另起一张卡重复状态名与说明
+  （那张卡与状态卡逐字相同，读屏用户要隔着一次滑动把同一句话听两遍）
 - PENDING_ACCEPT / REMATCHING → CANCELLED：显示"预约已取消" + TTS
 - REMATCHING → CANCELLED：后端已确认 `/api/orders/{id}/cancel` 接受该状态；iOS 仅调用现有取消接口，请求必须使用盲人 token，志愿者 token 不适用
 - PENDING_ACCEPT → DRIVER_EN_ROUTE：更新状态 + TTS "志愿者已出发，正在前往出发地点"
@@ -413,6 +438,11 @@
 - "取消订单"按钮：二次确认弹窗 + accessibilityHint = "取消当前订单"
 - "继续等待"按钮：accessibilityLabel = "继续等待"，触达高度随 Dynamic Type 缩放且不低于 64pt；成功文案必须用**进行时**且**不含具体时长**（窗口长度是后端配置 `app.match.max-keep-waiting-count` 及对应超时值，客户端读不到，写死数字即假信息）
 - 本页覆盖的状态均不显示"一键求助"或"紧急求助"按钮
+- "已等待 X 分钟"与状态名、状态说明合成**一个** VoiceOver 焦点（状态卡整体），每次状态推进
+  焦点自动落回该卡，所以读屏用户听得到；低视力用户靠卡上那行大字看到——两条通道都有
+- "已等待"**不进** `blindRunnerAnnouncement`（即不进"重复当前状态"与状态变化自动播报）：
+  那条播报同时被状态变化、语音问答复用，而这个数每分钟都变，会让同一个按钮每次念出不同的话；
+  它的归宿是状态卡的合成标签。与"预计 X 结束"不同——那个数只存在于折叠区，不进播报等于没有
 - "重复当前状态"按钮：accessibilityLabel = "重复当前状态"；先播报订单状态，若存在最新求助状态则追加在后，不替代订单状态；PENDING_MATCH / REMATCHING 且延长次数未用尽时，播报内容必须提到"继续等待"——看不见屏幕的人只能靠这句发现该动作存在
 
 ---

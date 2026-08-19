@@ -426,6 +426,25 @@ final class AccessibilityAuditTests: XCTestCase {
         )
         XCTAssertEqual(keepWaiting.label, "继续等待", "读屏念出来的必须就是这四个字")
 
+        // 「取消订单」是这一态的另一个状态机动作，必须**不滚动**就够得着。
+        //
+        // 2026-08-19 之前 `actionSection` 排在滚动内容第 8 位，上面压着「继续等待」140pt、
+        // 行程分享 64pt、地图与生命周期卡 —— 而等待期用户唯一的两个决定就是「再等」和
+        // 「不等了」。把其中一个放在首屏外，等于只给了一半。
+        // 判据用 `frame` 边界不用 `isHittable`：后者只判中心点，与
+        // `testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling` 同源。
+        // 全程不滚动。
+        let cancel = app.buttons["取消订单"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "PENDING_MATCH 的订单状态页没有「取消订单」")
+        XCTAssertLessThanOrEqual(
+            cancel.frame.maxY,
+            app.frame.maxY,
+            """
+            「取消订单」下沿 \(cancel.frame.maxY) 超出屏幕底 \(app.frame.maxY)，要下滑才够得到。\
+            它属于「此刻能对这一单做的事」，得跟主动作连在一起，中间不隔分享和地图。
+            """
+        )
+
         // 幂等且方向是保住订单，所以**不弹二次确认**（取消订单那条才弹）。
         keepWaiting.tap()
         let confirmation = app.alerts.firstMatch

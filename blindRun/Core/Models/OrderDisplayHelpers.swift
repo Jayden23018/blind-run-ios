@@ -206,6 +206,32 @@ extension RunOrderStatus {
         }
     }
 
+    /// 「已等待 12 分钟」这个数字对本状态有没有意义。
+    ///
+    /// 状态卡上恒定只给**一个**数字（`docs/research/blind-ui-visual-benchmark-20260808.md` §3.2
+    /// 的「一个数字」列）：还在等人时是等了多久，有人了是志愿者距离，跑起来了是约定结束时间。
+    /// 三者的状态集互不相交，所以卡上不会同时冒出两个数。
+    ///
+    /// 状态集与 `offersKeepWaiting` 恰好相同，**但不复用它**：那条问的是「还能不能延长窗口」
+    /// （延长次数用完后按钮收起，人却还在等），这条问的是「等了多久」。合成一处会让
+    /// 上限逻辑一改就把数字一起弄没 —— 而那正是最该看到自己等了多久的时刻。
+    ///
+    /// 同族其余判定一样写成穷举 switch：后端往枚举加值时编译器在这里逼一次决策。
+    var offersWaitedDuration: Bool {
+        switch self {
+        case .pendingMatch, .rematching:
+            return true
+        // 已经有志愿者了，这一格的数字换成距离 / 约定结束时间。
+        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+            return false
+        // 终态：一个还在走的秒表只会让人以为事情还没结束。
+        case .completed, .cancelled, .noVolunteer:
+            return false
+        case .unknown:
+            return false
+        }
+    }
+
     var blindRunnerDescription: String {
         switch self {
         case .pendingMatch:
@@ -367,6 +393,37 @@ extension OrderDetailResponse {
     /// 这里仍收成 optional 只是解码宽容，不是允许缺失时另找一个数顶上 —— 缺了就不显示这一行。
     var plannedEndForAnnouncement: String? {
         plannedEnd?.nilIfBlank?.displayDateTime
+    }
+
+    /// 等待态状态卡上的那个数字：「已等待 12 分钟」。
+    ///
+    /// 锚点是 `createdAt`（下单时刻），**不是**「本轮匹配开始时刻」—— 后者客户端根本拿不到
+    /// （`REMATCHING` 的基准是后端的 `lastRematchAt`，订单详情里没有这个字段）。所以这句话
+    /// 回答的是「我下单到现在多久了」，对两个等待态都逐字为真，不需要按状态换算法。
+    ///
+    /// **不许拿它推「还能等多久」**：放弃时刻是 `plannedStart` 减去一个后端配置，且会被
+    /// 「继续等待」往后推（后端 `DispatchService.dispatchDeadline`）。那个配置客户端读不到，
+    /// 写死任何窗口长度都是假信息 —— 与 `KeepWaitingCopy` 的进行时口径同一条理由。
+    ///
+    /// ponytail: 超过 24 小时返回 nil。提前一周下的单在派单期确实等了一周（后端创建后几秒
+    /// 就开始派），但「已等待 10080 分钟」既吓人又不能让盲人做出任何动作。上限到了就不说，
+    /// 不去猜一个「有效等待时间」——猜出来的数没有任何一处能核对。
+    func blindRunnerWaitedText(now: Date = Date()) -> String? {
+        guard status.offersWaitedDuration,
+              let placedAt = createdAt?.nilIfBlank?.backendTimestamp else { return nil }
+        let minutes = Int(now.timeIntervalSince(placedAt) / 60)
+        switch minutes {
+        case ..<1:
+            // 「已等待 0 分钟」是噪音，刚下完单的人知道自己刚下完单。负数同理（设备时钟偏了）。
+            return nil
+        case ..<60:
+            return "已等待 \(minutes) 分钟"
+        case ..<(24 * 60):
+            // 到小时级时那几分钟不再影响任何决定，念出来只是拉长播报。
+            return "已等待 \(minutes / 60) 小时"
+        default:
+            return nil
+        }
     }
 
     func volunteerDistanceToStartText(from volunteerCoordinate: CLLocationCoordinate2D?) -> String? {
@@ -537,17 +594,21 @@ extension String {
         return formatter.date(from: String(parts[0]))
     }
 
+    /// 后端时间戳 → `Date`，三种形状依次试：无偏移的 `LocalDateTime`（后端默认形状）、
+    /// 带小数秒的 ISO-8601、不带小数秒的 ISO-8601。
+    ///
+    /// 抽出来是给**要算时间差**的调用方用的（`blindRunnerWaitedText`）。此前这条链只长在
+    /// `displayDateTime` 里，于是任何要算差值的地方都得自己再写一遍解析 ——
+    /// `BlindOrderStatusViewModel.parseISO8601` 就是那样来的，它只认第三种形状。
+    var backendTimestamp: Date? {
+        backendLocalDate
+            ?? ISO8601DateFormatter.aidRunFormatter.date(from: self)
+            ?? ISO8601DateFormatter().date(from: self)
+    }
+
     var displayDateTime: String {
-        if let date = backendLocalDate {
-            return DateFormatter.aidRunDisplayDateTime.string(from: date)
-        }
-        if let date = ISO8601DateFormatter.aidRunFormatter.date(from: self) {
-            return DateFormatter.aidRunDisplayDateTime.string(from: date)
-        }
-        if let date = ISO8601DateFormatter().date(from: self) {
-            return DateFormatter.aidRunDisplayDateTime.string(from: date)
-        }
-        return self
+        guard let date = backendTimestamp else { return self }
+        return DateFormatter.aidRunDisplayDateTime.string(from: date)
     }
 }
 
