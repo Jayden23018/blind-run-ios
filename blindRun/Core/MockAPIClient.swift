@@ -2566,8 +2566,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 orderId: orders.first(where: { [.pendingAccept, .driverEnRoute, .driverArrived].contains($0.status) })?.orderId,
                 status: orders.first(where: { [.pendingAccept, .driverEnRoute, .driverArrived].contains($0.status) })?.status,
                 lat: AppConstants.Defaults.demoLatitude + 0.002,
-                lng: AppConstants.Defaults.demoLongitude + 0.001,
-                updatedAt: ISO8601DateFormatter().string(from: Date())
+                lng: AppConstants.Defaults.demoLongitude + 0.001
             )
         )
     }

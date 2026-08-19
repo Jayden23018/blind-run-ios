@@ -716,12 +716,19 @@ struct VolunteerLocationResponse: Codable, Sendable {
     let data: VolunteerLocationData?
 }
 
+/// `GET /api/blind/volunteer-location` 的 `data`。后端只放四个键：
+/// `lat` / `lng` / `orderId` / `orderStatus`（`BlindLocationController.java:102-107`）。
+///
+/// **没有 `updatedAt`** —— 曾经这里有个同名字段，兜底逻辑拿它当新鲜度闸，于是对真实后端恒缺、
+/// 恒 return，「志愿者距出发地点约 X」在 WebSocket 断线时永远不出现。新鲜度归服务端 Redis
+/// `vol:loc:{id}` 的 30 秒 TTL 管。要加回来先让后端把字段发出来（已投 handoff）。
 struct VolunteerLocationData: Codable, Sendable {
     let orderId: Int64?
+    /// ⚠️ 后端那个键叫 `orderStatus`，所以这个字段实际恒为 nil，详见
+    /// `BlindOrderStatusViewModel.volunteerFallbackCoordinate`。
     let status: RunOrderStatus?
     let lat: Double?
     let lng: Double?
-    let updatedAt: String?
 
     var coordinateIsValid: Bool {
         guard let lat, let lng else { return false }

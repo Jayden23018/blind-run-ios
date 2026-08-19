@@ -4172,6 +4172,51 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(noCoordinateOrder.volunteerDistanceToStartText(from: volunteerAtStart))
     }
 
+    /// WebSocket 断线时的 REST 兜底必须吃得下**真实**后端响应。
+    ///
+    /// 后端 `GET /api/blind/volunteer-location` 的 `data` 只有 `lat` / `lng` / `orderId` /
+    /// `orderStatus`（`BlindLocationController.java:102-107`，2026-08-19 对 `origin/main` 核实），
+    /// 没有任何时间戳。这里曾经卡一道 `updatedAt` 新鲜度闸 —— 字段恒缺 ⇒ 兜底 100% 静默失效，
+    /// 「志愿者距出发地点约 X」在断线时永远不出现，且一行日志都没有。
+    /// Mock 那边自己造了一个 `updatedAt`，所以开发期从来看不到这个洞。
+    func testVolunteerLocationFallbackAcceptsTheRealBackendPayload() throws {
+        let order = makeOrder(orderId: 1, status: .driverEnRoute)
+        let response = try JSONDecoder().decode(VolunteerLocationResponse.self, from: Data("""
+        {"success":true,"code":200,"message":null,
+         "data":{"lat":39.9342,"lng":116.4740,"orderId":1,"orderStatus":"DRIVER_EN_ROUTE"}}
+        """.utf8))
+
+        XCTAssertNil(
+            try XCTUnwrap(response.data).status,
+            "后端那个键叫 orderStatus，解不进 status —— 这条比较恒为 nil 侧，兜底不得依赖它"
+        )
+
+        let coordinate = try XCTUnwrap(
+            BlindOrderStatusViewModel.volunteerFallbackCoordinate(from: response.data, matching: order),
+            "真实响应里没有时间戳，兜底不得因此放弃坐标"
+        )
+        XCTAssertEqual(order.volunteerDistanceToStartText(from: coordinate), "距出发地点约 10 米")
+    }
+
+    /// 兜底不是无条件采信：别单的坐标和越界坐标仍要挡掉。
+    func testVolunteerLocationFallbackRejectsForeignOrderAndInvalidCoordinate() {
+        let order = makeOrder(orderId: 1, status: .driverEnRoute)
+
+        XCTAssertNil(BlindOrderStatusViewModel.volunteerFallbackCoordinate(from: nil, matching: order))
+        XCTAssertNil(BlindOrderStatusViewModel.volunteerFallbackCoordinate(
+            from: VolunteerLocationData(orderId: 2, status: nil, lat: 39.9342, lng: 116.4740),
+            matching: order
+        ))
+        XCTAssertNil(BlindOrderStatusViewModel.volunteerFallbackCoordinate(
+            from: VolunteerLocationData(orderId: 1, status: nil, lat: 91, lng: 116.4740),
+            matching: order
+        ))
+        XCTAssertNil(BlindOrderStatusViewModel.volunteerFallbackCoordinate(
+            from: VolunteerLocationData(orderId: 1, status: nil, lat: nil, lng: nil),
+            matching: order
+        ))
+    }
+
     func testBlindRunnerAnnouncementIncludesDistanceForTrackingStates() {
         let distanceText = "距出发地点约 10 米"
         for status in [RunOrderStatus.pendingAccept, .driverEnRoute, .driverArrived] {

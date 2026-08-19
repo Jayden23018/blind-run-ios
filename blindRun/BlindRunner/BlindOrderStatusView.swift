@@ -572,23 +572,39 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
         do {
             let response: VolunteerLocationResponse = try await appState.apiClient.get("/api/blind/volunteer-location")
-            guard let data = response.data,
-                  data.coordinateIsValid,
-                  data.orderId == nil || data.orderId == order.orderId,
-                  data.status == nil || data.status == order.status,
-                  let updatedAt = data.updatedAt.flatMap(Self.parseISO8601),
-                  abs(Date().timeIntervalSince(updatedAt)) <= 30,
-                  let lat = data.lat,
-                  let lng = data.lng else { return }
-            latestVolunteerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
+            guard let coordinate = Self.volunteerFallbackCoordinate(from: response.data, matching: order) else { return }
+            latestVolunteerCoordinate = coordinate
             refreshVolunteerDistance()
         } catch {
             // Order polling remains authoritative; an unavailable location fallback is non-fatal.
         }
     }
 
-    private static func parseISO8601(_ value: String) -> Date? {
-        ISO8601DateFormatter().date(from: value)
+    /// REST 兜底拿到的坐标能不能采信。抽成静态方法只为**可测** —— 唯一调用点埋在 async 网络分支里。
+    ///
+    /// 这里刻意**不做时间新鲜度判断**：后端 `data` 只有 `lat` / `lng` / `orderId` / `orderStatus`
+    /// （`BlindLocationController.java:102-107`，2026-08-19 对 `origin/main` 核实），从来没有过时间戳
+    /// （`git log -S updatedAt` 在该文件上零命中）。新鲜度由服务端 Redis `vol:loc:{id}` 的 30 秒 TTL
+    /// 保证：key 还在 ⇒ 志愿者 30 秒内上报过，与这里原先想卡的阈值是同一个数。
+    ///
+    /// 原先这条 guard 卡在 `let updatedAt = data.updatedAt.flatMap(parseISO8601)` 上，
+    /// 而真实响应里该字段恒缺 → 兜底 100% 静默失效：WebSocket 一断，「志愿者距出发地点约 X」
+    /// 就再也不出现，且没有任何日志。Mock 那边自己造了一个 `updatedAt`，于是开发期永远看不到这个洞。
+    ///
+    /// `data.status` 同理恒为 nil —— 后端那个键叫 `orderStatus`，`VolunteerLocationData` 解的是
+    /// `status`。这条比较因此从未真正执行过。故意保持原样：它是**失败开放**的（nil 直接放行），
+    /// 修正键名反而会新增一条可能否掉坐标的分支，与本次要修的症状相反 —— 要改先跟后端对齐键名。
+    static func volunteerFallbackCoordinate(
+        from data: VolunteerLocationData?,
+        matching order: OrderDetailResponse
+    ) -> CLLocationCoordinate2D? {
+        guard let data,
+              data.coordinateIsValid,
+              data.orderId == nil || data.orderId == order.orderId,
+              data.status == nil || data.status == order.status,
+              let lat = data.lat,
+              let lng = data.lng else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lng)
     }
 
     // MARK: - App-lifetime realtime routing
