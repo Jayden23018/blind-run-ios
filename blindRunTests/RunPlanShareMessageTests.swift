@@ -44,6 +44,20 @@ final class RunPlanShareMessageTests: XCTestCase {
         }
     }
 
+    /// F12：入口是隐藏了，但**按下与处理之间那一瞬**订单可能刚被 5 秒轮询推到终态。
+    /// `shareRunPlanBySMS` 的第三道 guard 命中的就是这一瞬，此前它静默 `return` ——
+    /// 对盲人端「点了没反应」就是事故。这条钉住兜底文案：说清行程已结束，
+    /// 而不是泛泛地说失败（用户下一步不该是重试）。
+    func testTerminalRaceHasSomethingToSayInsteadOfReturningSilently() {
+        XCTAssertFalse(RunPlanShareCopy.notShareable.isEmpty)
+        XCTAssertTrue(RunPlanShareCopy.notShareable.contains("已经结束"))
+        XCTAssertNotEqual(RunPlanShareCopy.notShareable, RunPlanShareCopy.failed)
+        XCTAssertFalse(
+            RunPlanShareCopy.notShareable.contains("重试"),
+            "终态不是可重试的失败，不该把人引向重试"
+        )
+    }
+
     /// `PENDING_MATCH` 给 —— 与后端口径一致（家属看到「正在找志愿者」也是有意义的）。
     /// 订单若被自动取消，家属看到的是 `410`（曾经有效但已结束），不是一条无限期的坏链接。
     func testPendingMatchIsShareableSoFamilyKnowsTheRunIsBeingArranged() throws {

@@ -31,7 +31,9 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.volunteerTimeout,
             EmergencySafetyCopy.locating,
             EmergencySafetyCopy.submitting,
-            EmergencySafetyCopy.locationUnavailable,
+            EmergencySafetyCopy.locationUnavailable(.permissionDenied),
+            EmergencySafetyCopy.locationUnavailable(.locationUnavailable),
+            EmergencySafetyCopy.locationUnavailable(nil),
             EmergencySafetyCopy.failure(nil),
             EmergencySafetyCopy.cooldown(retryAfterSeconds: 42),
             EmergencySafetyCopy.cooldown(retryAfterSeconds: nil),
@@ -58,7 +60,10 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.homeCallPoliceTitle,
             EmergencySafetyCopy.homeCallNoContactHint,
             EmergencySafetyCopy.homeCallContactTitle(name: "妈妈"),
-            EmergencySafetyCopy.homeCallContactTitle(name: nil)
+            EmergencySafetyCopy.homeCallContactTitle(name: nil),
+            // 2026-08-20 补：云端求助失败后的本地拨号兜底（F7）。同样一个字节都没发出去。
+            EmergencySafetyCopy.cloudFailedCallAccessibilityHint,
+            EmergencySafetyCopy.cloudFailedCallDialogMessage
         ]
         allCopy.append(contentsOf: EmergencyEventStatus.allCases.map(EmergencySafetyCopy.submitted))
 
@@ -138,7 +143,9 @@ final class EmergencySOSTests: XCTestCase {
             .acknowledged(.contactNotified),
             .acknowledged(.csHandling),
             .acknowledged(.unknown),
-            .unsentNoLocation,
+            .unsentNoLocation(.permissionDenied),
+            .unsentNoLocation(.locationUnavailable),
+            .unsentNoLocation(nil),
             .failed("网络异常"),
             .cooldown(retryAfterSeconds: 30)
         ]
@@ -147,9 +154,57 @@ final class EmergencySOSTests: XCTestCase {
         }
     }
 
+    /// F7：求助发不出去时，屏幕上必须有一个**能按的东西**，而不只是一段说明文字。
+    ///
+    /// `BlindHomeSOSBar` 的兜底拨号按钮完全由 `state.isFailure` 驱动，所以这里把每个状态逐个钉住。
+    /// 新增一个失败态却落到非失败那一侧时，兜底按钮会静默消失 —— 屏幕上看不出任何差别，
+    /// 只有真正按下求助键的人才会发现，而那时已经晚了。
+    func testEveryFailedSOSStateOffersTheLocalCallFallback() {
+        let failures: [EmergencySOSState] = [
+            .unsentNoLocation(nil),
+            .unsentNoLocation(.permissionDenied),
+            .unsentNoLocation(.locationUnavailable),
+            .failed("网络异常"),
+            .cooldown(retryAfterSeconds: nil),
+            .cooldown(retryAfterSeconds: 30),
+            .contactNotifyFailed
+        ]
+        for state in failures {
+            XCTAssertTrue(state.isFailure, "\(state) 没被判成失败，首页兜底拨号按钮不会出现")
+        }
+        let nonFailures: [EmergencySOSState] = [
+            .idle, .locating, .submitting,
+            .acknowledged(.contactNotified),
+            .contactSmsDelivered,
+            .cancelledByOwner
+        ]
+        for state in nonFailures {
+            XCTAssertFalse(state.isFailure, "\(state) 不是失败，不该露出兜底拨号入口")
+        }
+    }
+
+    /// 兜底弹窗复用首页那条本地拨号 UI，但**第一句不能共用**：`homeCall*` 的开头是
+    /// 「当前没有进行中的陪跑」，而这条分支恰恰发生在陪跑进行中、刚按过求助键的时候。
+    func testCloudFailureCallCopyDoesNotDenyTheRunInProgress() {
+        let copies = [
+            EmergencySafetyCopy.cloudFailedCallDialogMessage,
+            EmergencySafetyCopy.cloudFailedCallAccessibilityHint
+        ]
+        for copy in copies {
+            XCTAssertFalse(copy.contains("没有进行中"), "陪跑正在进行时不能说没有进行中的陪跑：\(copy)")
+            XCTAssertTrue(copy.contains("不会代你发送求助"), "必须说清 App 什么都没发出去：\(copy)")
+            XCTAssertTrue(copy.hasPrefix("求助没有发出去"), "第一句要先说没发出去：\(copy)")
+        }
+        XCTAssertNotEqual(
+            EmergencySafetyCopy.cloudFailedCallDialogMessage,
+            EmergencySafetyCopy.homeCallDialogMessage
+        )
+    }
+
     /// A failure must lead with 未发出: for a blind user the first words decide the next action.
     func testFailureCopyLeadsWithNotSent() {
-        XCTAssertTrue(EmergencySafetyCopy.locationUnavailable.hasPrefix("求助未发出"))
+        XCTAssertTrue(EmergencySafetyCopy.locationUnavailable(.permissionDenied).hasPrefix("求助未发出"))
+        XCTAssertTrue(EmergencySafetyCopy.locationUnavailable(nil).hasPrefix("求助未发出"))
         XCTAssertTrue(EmergencySafetyCopy.failure("服务器错误").hasPrefix("求助未发出"))
         XCTAssertTrue(EmergencySafetyCopy.failure(nil).contains("网络异常"))
     }
@@ -260,12 +315,45 @@ final class EmergencySOSTests: XCTestCase {
             role: .blind,
             userID: 7,
             apiClient: client,
-            locate: { nil }
+            locate: { nil },
+            locationFailureReason: { .permissionDenied }
         )
-        XCTAssertEqual(coordinator.state, .unsentNoLocation)
+        XCTAssertEqual(coordinator.state, .unsentNoLocation(.permissionDenied))
         XCTAssertTrue(outcome.isFailure)
         XCTAssertTrue(client.requests.isEmpty)
         XCTAssertTrue(outcome.message.contains("设置"), "must guide the user to Settings")
+    }
+
+    /// F12：定位失败的两种成因，下一步动作完全不同。把「室内没信号」说成「去开权限」，
+    /// 是让一个正处在紧急状态的盲人去翻一个根本没关的开关。
+    func testNoLocationCopySplitsPermissionFromSignalLoss() async {
+        let denied = EmergencySafetyCopy.locationUnavailable(.permissionDenied)
+        XCTAssertTrue(denied.contains("定位权限"))
+        XCTAssertTrue(denied.contains("设置"))
+
+        for reason: LocationError? in [.locationUnavailable, .timeout, nil] {
+            let signalLost = EmergencySafetyCopy.locationUnavailable(reason)
+            XCTAssertFalse(
+                signalLost.contains("设置"),
+                "权限没问题时不该把人支去翻设置（reason=\(String(describing: reason))）"
+            )
+            XCTAssertTrue(signalLost.contains("开阔处"))
+            XCTAssertTrue(signalLost.hasPrefix("求助未发出"))
+            XCTAssertTrue(signalLost.contains("110"))
+        }
+
+        // 默认不传 reason 时走通用支，不许退回原来那句「请在设置中允许定位」。
+        let coordinator = EmergencyCoordinator()
+        let client = EmergencyAPIClientStub()
+        let outcome = await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            apiClient: client,
+            locate: { nil }
+        )
+        XCTAssertEqual(coordinator.state, .unsentNoLocation(nil))
+        XCTAssertFalse(outcome.message.contains("设置"))
     }
 
     /// A device WGS-84 sample must never be uploaded raw; only the value already normalized at the
@@ -285,7 +373,7 @@ final class EmergencySOSTests: XCTestCase {
             apiClient: client,
             locate: { raw }
         )
-        XCTAssertEqual(coordinator.state, .unsentNoLocation)
+        XCTAssertEqual(coordinator.state, .unsentNoLocation(nil))
         XCTAssertTrue(client.requests.isEmpty)
     }
 

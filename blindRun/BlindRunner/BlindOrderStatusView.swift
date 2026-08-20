@@ -248,7 +248,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
             role: appState.activeRole,
             userID: appState.userId,
             apiClient: appState.apiClient,
-            locate: { await self.freshEmergencyCoordinate() }
+            locate: { await self.freshEmergencyCoordinate() },
+            locationFailureReason: { self.locationService?.locationError }
         )
         // The visible surface is `EmergencyStatusNotice`, driven by the coordinator's state.
         // Deliberately not also setting `errorMessage`: that would render the same sentence twice
@@ -1453,7 +1454,14 @@ struct BlindOrderStatusView: View {
             speechService.speakError(RunPlanShareCopy.noContact)
             return
         }
-        guard RunPlanShareMessage.compose(order: order) != nil else { return }
+        // 第三道门与前两道一样要出声。`compose` 只在 `status.offersRunPlanShare == false` 时返回 nil，
+        // 也就是 5 秒轮询把订单推到终态、而按钮还留在屏幕上的那一瞬 —— 静默 return 的表现是
+        // 「点了没反应」，对盲人端就是事故（`AGENTS.md` §1 那条枚举红线的同类）。
+        guard RunPlanShareMessage.compose(order: order) != nil else {
+            setRunPlanShareNotice(RunPlanShareCopy.notShareable, isProblem: true)
+            speechService.speakError(RunPlanShareCopy.notShareable)
+            return
+        }
         runPlanShareNotice = nil
         showRunPlanShare = true
     }

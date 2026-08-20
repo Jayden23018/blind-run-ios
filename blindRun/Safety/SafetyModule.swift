@@ -38,8 +38,20 @@ enum EmergencySafetyCopy {
 
     /// Not sent, because no fresh real coordinate was available. Says "未发出" first: the most
     /// important fact for someone who cannot see the screen is that nothing has been sent.
-    static let locationUnavailable =
-        "求助未发出：当前无法获取你的位置。请在设置中允许定位后重试，或直接拨打110。"
+    ///
+    /// **第二句必须跟着 `LocationService.locationError` 分岔。** 原文对所有定位失败都说
+    /// 「请在设置中允许定位后重试」，可是室内 / 隧道 / 遮挡拿不到 GPS 时权限是好的 ——
+    /// 让一个正处在紧急状态的盲人去翻设置，是把最贵的那几十秒花在一个不存在的问题上。
+    /// `.timeout` 与 `nil`（Core Location 没报错，只是还没给出定位）归到同一支：
+    /// 对用户而言可做的动作相同，都是换个地方重试。
+    static func locationUnavailable(_ reason: LocationError?) -> String {
+        switch reason {
+        case .permissionDenied:
+            return "求助未发出：App 没有定位权限。请在设置中允许定位后重试，或直接拨打110。"
+        case .locationUnavailable, .timeout, .none:
+            return "求助未发出：当前无法获取你的位置，可能在室内或信号被遮挡。请到室外开阔处重试，或直接拨打110。"
+        }
+    }
 
     static func failure(_ reason: String?) -> String {
         let detail = reason?.trimmed.isEmpty == false ? reason!.trimmed : "网络异常"
@@ -156,6 +168,21 @@ enum EmergencySafetyCopy {
     /// 没有唯一主联系人时的提示。`singlePrimary` 在 0 个或多个时都返回 nil，
     /// 两种情况对用户是同一件事：现在没有一个确定该拨给谁的号码。
     static let homeCallNoContactHint = "尚未设置唯一的主紧急联系人，只能拨打110。"
+
+    // MARK: 云端求助失败后的本地拨号兜底
+
+    /// 复用上面那套本地拨号弹窗，但**第一句不能照抄** —— `homeCall*` 那两句的开头是
+    /// 「当前没有进行中的陪跑」，而这条分支恰恰发生在陪跑进行中、且刚刚按过求助键。
+    /// 说错这一句会让盲人以为自己按错了地方。要说的事实只有一个：求助没发出去。
+    ///
+    /// 最坏时序是等定位 5 秒（`EmergencyCoordinator.locationWaitTimeout`）+ 请求超时 15 秒
+    /// （`APIClient` 的 `timeoutIntervalForRequest`），按下按钮到听见「未发出」最长 20 秒。
+    /// 那之后再让人退出 App 盲操作找电话，是本仓库能自己消掉的最贵一段延迟。
+    static let cloudFailedCallAccessibilityHint =
+        "求助没有发出去。点击后由你选择拨打紧急联系人或110，App 不会代你发送求助。"
+
+    static let cloudFailedCallDialogMessage =
+        "求助没有发出去，App 不会代你发送求助。请选择要拨打的号码。"
 }
 
 /// 拨号 URL 的唯一构造点。
@@ -252,6 +279,9 @@ struct BlindHomeSOSBar: View {
     @ObservedObject var coordinator: EmergencyCoordinator
     let mode: BlindHomeSOSMode
     let action: () -> Void
+    /// 云端求助失败后的兜底出口。与 `.localCall` 分支按的是**同一个**拨号弹窗，
+    /// 只是文案换成不再声称「没有进行中的陪跑」。
+    let onLocalCall: () -> Void
 
     var body: some View {
         VStack(spacing: 8) {
@@ -270,6 +300,20 @@ struct BlindHomeSOSBar: View {
                     message: message,
                     isFailure: coordinator.state.isFailure
                 )
+
+                // 求助没发出去时，屏幕上必须有一个**能按的东西**，而不只是一段说明。
+                // 覆盖 `.unsentNoLocation` / `.failed` / `.cooldown` / `.contactNotifyFailed`
+                // 四种 `isFailure`，判据直接读 `state.isFailure`，新增失败态自动进来。
+                if coordinator.state.isFailure {
+                    PrimaryButton(
+                        EmergencySafetyCopy.homeCallTitle,
+                        isDestructive: true,
+                        action: onLocalCall
+                    )
+                    .accessibilityLabel(EmergencySafetyCopy.homeCallAccessibilityLabel)
+                    .accessibilityHint(EmergencySafetyCopy.cloudFailedCallAccessibilityHint)
+                    .accessibilityIdentifier("blindRunnerHomeSOSFailureCallButton")
+                }
             }
         }
         .accessibilityIdentifier("blindRunnerHomeSOSBar")
