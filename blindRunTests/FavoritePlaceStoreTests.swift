@@ -222,6 +222,32 @@ final class FavoritePlaceStoreTests: XCTestCase {
         XCTAssertEqual(FavoritePlaceStore(directory: directory).places.map(\.title), ["五角场"], "迁移结果没落盘")
     }
 
+    /// 迁移必须「先写成功、再删旧的」。
+    ///
+    /// 反过来（先删后写）有一个真实的数据丢失窗口：`write` 内部每一步都可能失败，
+    /// 而旧的那份已经删了 —— 当次会话还看得见收藏（内存里有），下次冷启动两边都读不到。
+    /// 这里把目标目录做成一个**同名普通文件**，`createDirectory` 必然失败，逼出写失败那条路。
+    func testMigrationKeepsTheLegacyCopyWhenTheNewFileCannotBeWritten() throws {
+        let legacy = [makePlace(title: "五角场", latitude: 31.2989, longitude: 121.5069)]
+        let payload = try JSONEncoder().encode(legacy)
+        UserDefaults.standard.set(payload, forKey: "aidrun.favorite-start-places.v1")
+        defer { UserDefaults.standard.removeObject(forKey: "aidrun.favorite-start-places.v1") }
+
+        // 目标目录的位置上放一个文件：目录建不出来，写必然失败。
+        let blocked = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("aidrun.tests.blocked.\(UUID().uuidString)")
+        try Data("occupied".utf8).write(to: blocked)
+        defer { try? FileManager.default.removeItem(at: blocked) }
+
+        let store = FavoritePlaceStore(directory: blocked)
+
+        XCTAssertEqual(store.places.map(\.title), ["五角场"], "本次会话仍应看得见收藏")
+        XCTAssertNotNil(
+            UserDefaults.standard.data(forKey: "aidrun.favorite-start-places.v1"),
+            "新文件没写成功时必须保留旧的那份，否则用户的收藏两边都没了"
+        )
+    }
+
     /// 换账号登录后，上一个人的常去地点不该原样留在这台设备上。
     /// `AppState.performLocalSessionCleanup` 调的就是这个静态方法。
     func testSessionCleanupErasesBothTheFileAndTheLegacyKey() {

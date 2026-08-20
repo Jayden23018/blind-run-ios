@@ -135,13 +135,21 @@ final class FavoritePlaceStore: ObservableObject {
 
     private static func load(from directory: URL) -> [ResolvedPlace] {
         let url = directory.appendingPathComponent(fileName)
-        // 存量迁移：老版本写在 `UserDefaults` 里。搬过来之后**立刻删掉那把 key** ——
+        // 存量迁移：老版本写在 `UserDefaults` 里。搬过来之后要删掉那把 key ——
         // 留着就等于这次改动只是多了一份副本，明文那份照旧躺在备份里。
+        //
+        // **顺序：先写成功，再删旧的。** 反过来（先删后写）有一个真实的数据丢失窗口：
+        // `write` 里每一步都是 `try?`，磁盘满 / 目录建不出来时它安静地什么也没写，
+        // 而旧的那份已经被删了 —— 当次会话还看得见收藏（`migrated` 已经在内存里），
+        // 下次冷启动两边都读不到，用户的收藏无声消失。
         if !FileManager.default.fileExists(atPath: url.path),
            let legacy = UserDefaults.standard.data(forKey: legacyDefaultsKey) {
-            UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
             let migrated = (try? JSONDecoder().decode([ResolvedPlace].self, from: legacy)) ?? []
-            if !migrated.isEmpty { write(migrated, to: directory) }
+            // 空集合（解不出来，或本来就是空的）没有东西可丢，直接删；
+            // 有内容的必须等 `write` 确认落盘。写失败就把旧 key 留着，下次启动再试一次。
+            if migrated.isEmpty || write(migrated, to: directory) {
+                UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+            }
             return migrated
         }
         guard let data = try? Data(contentsOf: url) else { return [] }
@@ -151,17 +159,29 @@ final class FavoritePlaceStore: ObservableObject {
         return (try? JSONDecoder().decode([ResolvedPlace].self, from: data)) ?? []
     }
 
-    private static func write(_ places: [ResolvedPlace], to directory: URL) {
-        guard let data = try? JSONEncoder().encode(places) else { return }
+    /// - Returns: 真的落盘了吗。迁移路径靠这个返回值决定要不要删掉旧的明文那份 ——
+    ///   全 `try?` 吞掉错误、再让调用方假设写成功，正是数据丢失的那条路。
+    @discardableResult
+    private static func write(_ places: [ResolvedPlace], to directory: URL) -> Bool {
+        guard let data = try? JSONEncoder().encode(places) else { return false }
+        // `applicationSupportDirectory` 在 iOS 上**不保证已存在**（不像 Documents），
+        // 首次写入必须自己建；建不出来后面的写必然失败，所以这里的失败要往外传。
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(
+                to: directory.appendingPathComponent(fileName),
+                options: [.atomic, .completeFileProtectionUnlessOpen]
+            )
+        } catch {
+            return false
+        }
+        // 「不进备份」标在目录上。它失败不影响数据可用性（只是没被排除出备份），
+        // 所以不当作写失败 —— 否则一个备份属性设不上就会让上面那份数据被判成没写成。
         var dir = directory
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         var resourceValues = URLResourceValues()
         resourceValues.isExcludedFromBackup = true
         try? dir.setResourceValues(resourceValues)
-        try? data.write(
-            to: directory.appendingPathComponent(fileName),
-            options: [.atomic, .completeFileProtectionUnlessOpen]
-        )
+        return true
     }
 
     private func persist() {
