@@ -166,7 +166,8 @@ final class PrivacyConsentTests: XCTestCase {
         }
 
         let pinned: [PrivacyConsentPurpose: (version: Int, fingerprint: Int)] = [
-            .appLaunch: (1, 511_058_511),
+            // v2（2026-08-20）：删除账户那句改成正面列举保留了什么，并拆成两条独立焦点。
+            .appLaunch: (2, 787_414_606),
             .blindIdentity: (1, 997_349_647),
             .volunteerIdentity: (1, 57_319_275)
         ]
