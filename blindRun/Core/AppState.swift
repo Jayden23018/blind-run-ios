@@ -86,6 +86,9 @@ final class AppState: ObservableObject {
     let realtimeCoordinator: AppRealtimeCoordinator
     let liveEscortCoordinator: LiveEscortSessionCoordinator
     let emergencyCoordinator: EmergencyCoordinator
+    /// 由 `blindRunApp.configurePushNotifications()` 注入。`weak` 是因为真正持有它的是那边的
+    /// `@StateObject` —— 这里只是为了让登出流程能在**拉黑 JWT 之前**解绑本机 APNs token。
+    weak var pushNotificationsManager: PushNotificationsManager?
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Session
@@ -564,6 +567,11 @@ final class AppState: ObservableObject {
     func logout() async {
         guard logoutState != .inProgress else { return }
         logoutState = .inProgress
+        // **顺序不能换**：logout 会把 JWT 拉黑，之后再调解绑必然 401、token 删不掉，
+        // 而旧账号的 HIGH 推送（求助 / 走散告警 / 到达 / 取消预警）会继续送到这台手机
+        // 并被前台朗读出来。后端契约把这条顺序写在 `unregisterApnsToken` 的 description 里。
+        // 解绑失败不阻断登出：接口幂等、可安全重试。
+        await pushNotificationsManager?.unregisterDeviceTokenBeforeLogout()
         do {
             let _: LogoutResponse = try await apiClient.post("/api/auth/logout")
             performLocalSessionCleanup()
@@ -634,6 +642,14 @@ final class AppState: ObservableObject {
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed)
         // 补读游标同样是按账号的：留着会让新账号补读到上一个账号的时间窗。
         persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
+        // 「这个 device token 已经报给这个账号了」这份记忆也是按账号的。留着会让下一个账号的
+        // 上报被 `submitToken` 的短路判成「报过了」—— 推送从此静默失效，且没有任何报错。
+        // 与上面的解绑请求分开：那条只在主动登出时可能成功，而这一条每条会话结束路径都要走
+        // （401 过期那条路上 token 已经废了，解绑必然失败，本地这份记忆照样得清）。
+        pushNotificationsManager?.forgetLocalTokenBinding()
+        // 常用出发地点通常就是家庭住址。它不在 `persistence` 里（见 `FavoritePlaceStore`），
+        // 但同样是按账号的：换账号登录后，上一个人「什么时候会在哪」不该原样留在这台设备上。
+        FavoritePlaceStore.clearPersistedPlaces()
     }
 
     /// 会话过期：清除本地登录态并让登录页展示一次性提示。

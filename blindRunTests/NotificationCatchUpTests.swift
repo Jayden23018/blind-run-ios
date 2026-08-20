@@ -298,6 +298,60 @@ final class NotificationCatchUpTests: XCTestCase {
         XCTAssertTrue(mock.registeredApnsTokens.contains(token))
     }
 
+    /// F4：登出必须解绑本机 token，而且**必须在 `POST /api/auth/logout` 之前**。
+    ///
+    /// 顺序反了的后果在 Mock 上也是真的：logout 清掉 `mockToken` 之后，解绑会抛 `unauthorized`，
+    /// token 留在服务端、绑在旧 userId 上，旧账号的 HIGH 推送继续送到这台手机并被前台**朗读出来**。
+    func testLogoutUnbindsTheDeviceTokenBeforeBlacklistingTheJWT() async throws {
+        let mock = MockAPIClient()
+        mock.syncSessionFromAppState(token: "mock-token", role: .blind)
+        let token = String(repeating: "0a", count: 32)
+        let _: EmptyResponse = try await mock.post("/api/devices/apns", body: ApnsTokenRequest(deviceToken: token))
+        XCTAssertTrue(mock.registeredApnsTokens.contains(token))
+
+        // 正确顺序：先解绑
+        let _: EmptyResponse = try await mock.request(
+            method: .delete,
+            path: "/api/devices/apns",
+            query: nil,
+            body: ApnsTokenRequest(deviceToken: token),
+            requiresAuth: true
+        )
+        XCTAssertFalse(mock.registeredApnsTokens.contains(token), "解绑之后 token 不该还绑在这个账号上")
+
+        // 幂等：再解绑一次同样成功，所以「失败不阻断登出、下次重试」是安全的。
+        let _: EmptyResponse = try await mock.request(
+            method: .delete,
+            path: "/api/devices/apns",
+            query: nil,
+            body: ApnsTokenRequest(deviceToken: token),
+            requiresAuth: true
+        )
+    }
+
+    /// 反向条件：顺序反了会 401 —— 这条钉住「为什么解绑必须排在 logout 之前」。
+    func testUnbindingAfterLogoutIsRejectedSoTheOrderCannotBeSwapped() async throws {
+        let mock = MockAPIClient()
+        mock.syncSessionFromAppState(token: "mock-token", role: .blind)
+        let token = String(repeating: "0a", count: 32)
+        let _: EmptyResponse = try await mock.post("/api/devices/apns", body: ApnsTokenRequest(deviceToken: token))
+
+        mock.syncSessionFromAppState(token: nil, role: nil)  // logout 之后 JWT 已失效
+
+        do {
+            let _: EmptyResponse = try await mock.request(
+                method: .delete,
+                path: "/api/devices/apns",
+                query: nil,
+                body: ApnsTokenRequest(deviceToken: token),
+                requiresAuth: true
+            )
+            XCTFail("logout 之后解绑必须失败，否则这条顺序约束等于没有")
+        } catch APIError.unauthorized {
+            XCTAssertTrue(mock.registeredApnsTokens.contains(token), "顺序反了的后果就是 token 删不掉")
+        }
+    }
+
     /// APNs 上报的去重键必须带上后端与账号：只比 token 会让切环境 / 换账号后
     /// 同一个 device token 被永久短路，新后端收不到注册，推送静默失效。
     func testApnsReportScopeIsKeyedByEnvironmentAndAccount() {
