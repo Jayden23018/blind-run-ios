@@ -728,7 +728,7 @@ final class AppRealtimeCoordinator: ObservableObject {
             speechText: speechText,
             priority: Self.clientPriority(forEventType: eventType, serverPriority: message.priority),
             timestamp: message.timestamp,
-            isSafetyEvent: false
+            isSafetyEvent: Self.isSafetyEventType(eventType)
         )
         enqueue(notification, type: message.type)
     }
@@ -812,6 +812,26 @@ final class AppRealtimeCoordinator: ObservableObject {
         let cutoff = now().addingTimeInterval(-lifecycleNotificationSuppressionWindow)
         recentLifecycleStatusDates = recentLifecycleStatusDates.filter { $0.value >= cutoff }
         return recentLifecycleStatusDates[status] != nil
+    }
+
+    /// 该不该按「安全提醒」呈现（队列裁剪时最后被丢、抢占正在显示的 NORMAL 横幅）。
+    ///
+    /// 这不是求助事件（那条走 `emergencyKind`，还会落 `latestSafetyEvent`、驱动求助 UI），
+    /// 只是**呈现强度**。后端把 `priority` 给到 HIGH 就到边界了，剩下的是端上的事
+    /// （后端 2026-08-15 原话：「具体做成什么样是你们的决定，我们不越界」）。
+    ///
+    /// `REMATCHING_MID_RUN`：志愿者在**已经出发之后**取消（`DRIVER_EN_ROUTE` /
+    /// `DRIVER_ARRIVED` / `IN_PROGRESS`），盲人很可能正独自在户外，而他看不见身边还有没有人。
+    /// 同一件事在派单等待期取消走的是 `REMATCHING`(NORMAL) —— 那时人还没出门，
+    /// 一起提上来只会制造噪音，而噪音会让真正紧急的那条被忽略。
+    ///
+    /// 🔴 **它绝对不能进 `lifecycleStatus(forEventType:)` 那张表。**
+    /// `shouldSuppressLifecycleNotification` 的第一条就是「有活跃订单 ⇒ 抑制」，
+    /// 而这条通知发生时**必然**有活跃订单 ⇒ 一旦映射进去就是 100% 静默吞掉，
+    /// 恰好是后端拆出这一档想避免的后果。未知 `eventType` 不抑制的默认方向在这里正好是对的，
+    /// 所以这里只加呈现强度、不加状态映射。
+    static func isSafetyEventType(_ eventType: String) -> Bool {
+        eventType == "REMATCHING_MID_RUN"
     }
 
     static func emergencyKind(forEventType eventType: String) -> RealtimeSafetyEvent.Kind? {
@@ -940,7 +960,9 @@ final class AppRealtimeCoordinator: ObservableObject {
                         serverPriority: missed.priority
                     ),
                     timestamp: missed.sentAt,
-                    isSafetyEvent: false
+                    // 补读同样按类型判呈现强度。断线期间错过的 `REMATCHING_MID_RUN` 是这批里
+                    // 最该被听见的一条 —— 它意味着盲人当时已经独自在户外，而他到现在都不知道。
+                    isSafetyEvent: Self.isSafetyEventType((missed.eventType ?? "").uppercased())
                 ),
                 type: WSMessageType.appNotification.rawValue
             )
