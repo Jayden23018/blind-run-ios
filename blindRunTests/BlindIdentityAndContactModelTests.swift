@@ -236,6 +236,67 @@ final class MockEmergencyContactContractTests: XCTestCase {
             XCTAssertEqual(error.errorCode, .validationFailed)
         }
     }
+
+    /// `name` 与 `phone` 的空值**不对称**，而且这不对称是后端刻意保留的。
+    ///
+    /// | 输入 | `phone` | `name` |
+    /// |---|---|---|
+    /// | `""` / `"   "` | `VALIDATION_ERROR` | `CONTACT_FIELD_REQUIRED` |
+    /// | 缺省 / `nil` | `CONTACT_FIELD_REQUIRED` | `CONTACT_FIELD_REQUIRED` |
+    ///
+    /// 机理：`phone` 上有 `@Pattern(^1[3-9]\d{9}$)`，它的语义是「非 null 时必须匹配」——
+    /// 空串和全空格都匹配不上，所以在 Bean Validation 层就被拦下，走不到服务端手写的判空。
+    /// `name` 上只有 `@Size`，没有格式可言，三种空值一律落到手写判空。
+    ///
+    /// 后端明确**不打算改齐**（handoff 2026-08-09）：改齐要么给 `name` 编一个假正则，
+    /// 要么把 `phone` 的 `@Pattern` 拆掉重写，两种都是为了对称而降低校验质量。
+    /// 不对称是「PATCH 语义（不传字段要保留原值，所以两个字段都不能加 `@NotBlank`）」
+    /// 与「新增时必填」两个需求叠出来的结果，不是遗漏。
+    ///
+    /// ⚠️ 全空格这两格此前只有代码推导、没有用例（2026-08-20 答 handoff 时自曝）。
+    /// 它们正是最容易在重构时被「顺手对齐」掉的两格 —— trim 一下看起来那么自然。
+    func testBlankAndWhitespaceOnlyFieldsFollowTheBackendAsymmetry() async throws {
+        let client = MockAPIClient()
+
+        // name 的三种空值：全部 CONTACT_FIELD_REQUIRED
+        for blankName in ["", "   "] {
+            do {
+                let _: EmergencyContactResponse = try await client.post(
+                    "/api/users/1/emergency-contacts",
+                    body: request(name: blankName, phone: "13900139009")
+                )
+                XCTFail("空姓名应当被拒绝：\(blankName.debugDescription)")
+            } catch let error as APIError {
+                XCTAssertEqual(
+                    error.errorCode, .contactFieldRequired,
+                    "name 上没有 @Pattern，空值只能落到手写判空：\(blankName.debugDescription)"
+                )
+            }
+        }
+        do {
+            let _: EmergencyContactResponse = try await client.post(
+                "/api/users/1/emergency-contacts",
+                body: EmergencyContactRequest(name: nil, phone: "13900139009", relationship: "家人", isPrimary: nil)
+            )
+            XCTFail("缺省姓名应当被拒绝")
+        } catch let error as APIError {
+            XCTAssertEqual(error.errorCode, .contactFieldRequired)
+        }
+
+        // phone 全空格：与空串同侧（VALIDATION_ERROR），与缺省不同侧
+        do {
+            let _: EmergencyContactResponse = try await client.post(
+                "/api/users/1/emergency-contacts",
+                body: request(name: "家人", phone: "   ")
+            )
+            XCTFail("全空格手机号应当被拒绝")
+        } catch let error as APIError {
+            XCTAssertEqual(
+                error.errorCode, .validationFailed,
+                "全空格匹配不上 @Pattern，在 Bean Validation 层就被拦下，走不到 CONTACT_FIELD_REQUIRED"
+            )
+        }
+    }
 }
 
 final class MockBlindIdentityVerificationTests: XCTestCase {
