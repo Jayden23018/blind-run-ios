@@ -417,7 +417,9 @@
 **状态变化**：
 - 每 5 秒轮询 GET /api/orders/{orderId}
 - PENDING_MATCH → PENDING_ACCEPT：更新 UI 为"待出发" + TTS "志愿者已接单"，并朗读预约时间和出发地点，提示前往或等待在出发地点
-- PENDING_MATCH → CANCELLED / NO_VOLUNTEER：显示"暂时没有可用志愿者" + TTS。
+- PENDING_MATCH → CANCELLED / NO_VOLUNTEER：显示"本次预约已取消，因为没有匹配到可用的志愿者" + TTS
+  "没有匹配到志愿者，本次预约已取消，你可以重新发起一次"。**`NO_VOLUNTEER` 是终态**，
+  文案不得写成"暂时没有…请稍后再试"——那会让盲人继续等一件已经结束的事（见 docs/09 该条）。
   终态**只由状态卡说一遍**，下面直接是"返回首页"——不再另起一张卡重复状态名与说明
   （那张卡与状态卡逐字相同，读屏用户要隔着一次滑动把同一句话听两遍）
 - PENDING_ACCEPT / REMATCHING → CANCELLED：显示"预约已取消" + TTS

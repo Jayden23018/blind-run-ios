@@ -250,8 +250,10 @@ extension RunOrderStatus {
             return "本次预约已取消。"
         case .rematching:
             return "正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"
+        // 终态。这条在语音查询里跟在 `displayName`（「暂无志愿者」）后面念
+        // （`VoiceStatusQuery.swift:131`），所以不再重复「没有志愿者」，直接说结果与出路。
         case .noVolunteer:
-            return "暂时没有可用志愿者，请稍后重试。"
+            return "本次预约已取消，因为没有匹配到可用的志愿者。你可以重新发起一次预约。"
         case .unknown:
             return "订单状态有更新，请刷新页面或稍后重试。"
         }
@@ -275,8 +277,10 @@ extension RunOrderStatus {
             return "本次预约已取消。"
         case .rematching:
             return "正在确认志愿者状态，请稍候。"
+        // 与 `SpeechService.statusAnnouncement` 逐字相同 —— 两者都是「状态刚变成这个」时的
+        // 独立播报，语境没有区别（同 `.rematching` / `.cancelled` 等状态的既有写法）。
         case .noVolunteer:
-            return "暂时没有可用志愿者。"
+            return "没有匹配到志愿者，本次预约已取消，你可以重新发起一次。"
         case .unknown:
             return "订单状态有更新，请刷新页面或稍后重试。"
         }
