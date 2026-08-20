@@ -3634,6 +3634,38 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(cues(), [], "授权被拒的这一路从头到尾没开过麦克风，不该有任何提示音")
     }
 
+    /// 同一种提示音必须始终复用**同一个** `AVAudioPlayer`。
+    ///
+    /// 这条不是性能优化，是 use-after-free 的守卫。播放器只要还会被「换掉」，就存在
+    /// 「上一声还在播（0.22 秒）就被释放」的窗口 —— 而起听→停听在测试里只隔几微秒。
+    /// 音频队列随后把 `AVAudioPlayer` 自己的完成回调 `-[AVAudioPlayer finishedPlaying:]`
+    /// 派回主线程，打在那块已被复用的内存上，**崩在任意一条与音频无关的用例上**：
+    /// 2026-08-16 真机同命令连跑两次，288 passed / 3 failed（限流、验证码、志愿者途中确认三条
+    /// 各报 `-[__NSDictionaryM finishedPlaying:] unrecognized selector` 或 signal segv）
+    /// 随后 291 passed / 0 failed。生产里就是 App 当场挂掉，而看不见屏幕的人只会觉得「点了没反应」。
+    ///
+    /// 一旦有人改回「每次发声 new 一个播放器」，这条当场变红。
+    func testRecordingCueReusesOnePlayerPerKind() {
+        // 必须走**真实**播放路径：装了观察者 `emit` 直接 return，播放器一个都不会建。
+        RecordingCue.observerForTesting = nil
+
+        RecordingCue.begin()
+        let firstBeginPlayer = RecordingCue.playerForTesting(.begin)
+        XCTAssertNotNil(firstBeginPlayer, "起音播放器没建起来，后面的对身份是空对空")
+
+        RecordingCue.end()
+        RecordingCue.begin()
+
+        XCTAssertTrue(
+            RecordingCue.playerForTesting(.begin) === firstBeginPlayer,
+            "起音换了播放器 —— 旧的那个会在还在播的时候被释放，完成回调打到野指针上"
+        )
+        XCTAssertFalse(
+            RecordingCue.playerForTesting(.end) === firstBeginPlayer,
+            "起止两声必须各有自己的播放器，共用一个等于互相打断"
+        )
+    }
+
     /// 启动时必须把音频分类配成播放，否则冷启动第一句播报要等合成器自己去协商会话。
     ///
     /// 在这条之前，整个 App 的 `setCategory` 只在第一次开麦时才跑 —— 冷启动到那之前会话是

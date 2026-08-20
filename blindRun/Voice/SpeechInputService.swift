@@ -118,10 +118,21 @@ final class SystemSpeechAudioSession: SpeechAudioSessionManaging {
 /// 用 notification。
 @MainActor
 enum RecordingCue {
-    enum Kind: Equatable { case begin, end }
+    enum Kind: Equatable, Hashable { case begin, end }
 
     /// 播放器必须被持有，否则出了作用域就停 —— 提示音只有 120 ms，丢掉等于没响。
-    private static var player: AVAudioPlayer?
+    ///
+    /// **而且要按种类各持有一个、创建后永不释放。** 2026-08-16 之前这里是「每次发声 new 一个
+    /// `AVAudioPlayer`、覆盖同一个静态槽」：一次提示 0.22 秒，而起听→停听在测试里只隔几微秒，
+    /// 于是起音那个播放器在**还在播**的时候就被覆盖释放。音频队列随后把它自己的完成回调
+    /// `-[AVAudioPlayer finishedPlaying:]` 派回主线程，打在那块已被复用的内存上 ——
+    /// 真机表现是 `-[__NSDictionaryM finishedPlaying:] unrecognized selector` 或 signal segv，
+    /// **崩在任意一条与音频无关的用例上**（同命令连跑两次：288 passed / 3 failed，随后 291 passed / 0 failed）。
+    /// 生产里就是 App 当场挂掉，而看不见屏幕的用户只会觉得「点了没反应」。
+    ///
+    /// 常驻两个播放器就没有「播放中被释放」这个状态可言，顺带省掉每次发声的重复解码。
+    /// 不变式由 `testRecordingCueReusesOnePlayerPerKind` 钉住。
+    private static var players: [Kind: AVAudioPlayer] = [:]
 
     /// **双音提示，不是单音。** 起音上行（低→高）＝「开始了」，收音下行（高→低）＝「结束了」。
     ///
@@ -165,32 +176,44 @@ enum RecordingCue {
             return
         }
         #endif
+        playTone(kind)
         switch kind {
         case .begin:
-            playTone(beginToneData)
             // 不 `prepare()` 的话首次触发常被系统丢掉 —— 而首次正是最要紧的那次：
             // 用户刚进语音下单，还不知道麦克风开没开。
             let generator = UIImpactFeedbackGenerator(style: .light)
             generator.prepare()
             generator.impactOccurred()
         case .end:
-            playTone(endToneData)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
     }
 
     /// 提示音放不出来**不该影响录音本身** —— 少一声提示是可用性损失，抛出去会把整条语音路径带崩。
-    private static func playTone(_ data: Data) {
+    private static func playTone(_ kind: Kind) {
         do {
-            let tonePlayer = try AVAudioPlayer(data: data)
-            tonePlayer.volume = 1
-            player = tonePlayer
+            let tonePlayer = try players[kind] ?? makePlayer(kind)
+            // 复用同一个播放器，所以要自己回到开头；上一声还没播完时这就是重新触发。
+            tonePlayer.currentTime = 0
             tonePlayer.play()
         } catch {
             Logger(subsystem: Bundle.main.bundleIdentifier ?? "AidRun", category: "SpeechInput")
                 .error("录音提示音播放失败：\(error.localizedDescription, privacy: .public)")
         }
     }
+
+    private static func makePlayer(_ kind: Kind) throws -> AVAudioPlayer {
+        let created = try AVAudioPlayer(data: kind == .begin ? beginToneData : endToneData)
+        created.volume = 1
+        created.prepareToPlay()
+        players[kind] = created
+        return created
+    }
+
+    #if DEBUG
+    /// 让测试能对播放器**对身份**——「同一种提示音始终是同一个对象」正是防 use-after-free 的不变式。
+    static func playerForTesting(_ kind: Kind) -> AVAudioPlayer? { players[kind] }
+    #endif
 }
 
 // MARK: - Tone Synthesizer
