@@ -53,7 +53,10 @@ TTS 用 `AVSpeechSynthesizer`，STT 用 iOS `Speech` 框架。
 - 志愿者派单依赖其最新的 WebSocket `LOCATION_UPDATE`。
 - 盲人下单默认以当前位置为起点。
 - 高德 key 只能来自本地配置文件。**不要硬编码，不要提交真实 key。** 提供示例配置文件说明需要哪些 key。
-- 位置权限被拒时：阻断下单、阻断志愿者接单，并给出前往设置的引导。
+- 位置权限被拒时：**盲人端不阻断下单**（Apple 5.1.1(iv) 要求提供替代路径），出发地点走手动搜索，
+  并给出可听可见的降级告知 + 前往设置的引导。判定与文案在 `BlindBookingGate` / `BlindBookingViewModel.locationDeniedNotice`，
+  用例 `BlindBookingGateTests.testLocationDeniedStillAllowsBookingWithManualStartPlace` 钉住。
+  **志愿者接单仍然阻断** —— 那一侧的实时位置是服务本体，不是可替代的输入。
 
 ### 坐标系（踩过的坑）
 

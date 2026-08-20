@@ -42,7 +42,11 @@
 ## 5. Booking Gate Integration
 
 - [x] 5.1 Update home and booking ViewModels to block `POST /api/orders` unless profile, identity, primary-contact, location, start point, and appointment-time gates pass.
-  - `blindRun/BlindRunner/BlindBookingView.swift:112-135` `BlindBookingGate.firstMissing`，顺序 `basicProfile → identityVerification → emergencyContacts → locationPermission → startPoint → appointmentTime`，与服务端 `OrderCreationService` 的 403 顺序一致。
+  - `blindRun/BlindRunner/BlindBookingView.swift` `BlindBookingGate.firstMissing`，顺序 `basicProfile → identityVerification → emergencyContacts → startPoint → appointmentTime`，与服务端 `OrderCreationService` 的 403 顺序一致。
+  - ⚠️ **2026-08-18 变更**：`locationPermission` 已从门槛中移除。它原本排在 `emergencyContacts` 之后，
+    但「拒绝定位 ⇒ 完全无法下单」违反 Apple 5.1.1(iv)（要求提供手动输入地址的替代路径）。
+    现在改为降级告知（`BlindBookingViewModel.locationDeniedNotice`），下单本身不再被拦。
+    本条其余部分未变。
 - [x] 5.2 Present and speak the first actionable missing gate without changing `CreateOrderRequest` or the order state machine.
   - 同文件 `BlindBookingGate.message` 为展示与朗读共用文案；`CreateOrderRequest` 与订单状态机未改动。
 

@@ -214,8 +214,27 @@ final class URLSessionAPIClient: APIClientProtocol, @unchecked Sendable {
     private let session: URLSession
     private let tokenProvider: @Sendable () -> String?
 
-    private static let defaultSession: URLSession = {
+    /// 非 private：`APIClientCachePolicyTests` 要读它的 configuration 守住下面那条缓存设置。
+    static let defaultSession: URLSession = {
         let configuration = URLSessionConfiguration.default
+
+        // 🚨 API 请求一律不走 HTTP 缓存。真正咬人的不是响应体，是**永久重定向**（301/308）：
+        // CFNetwork 会按 URL 把它存进 `URLCache.shared`，之后每次请求这个 URL 都在本地直接改写、
+        // **根本不再问服务器**，而跨 scheme 改写（http→https）是标准的凭证剥离场景 ——
+        // `Authorization` 被丢掉，后端收到一个没鉴权的请求返 401，App 渲染成「登录已过期」。
+        //
+        // 2026-08-16 线上 P0（后端 ISSUES N96）：8 月 15 日 Nginx 短暂对 80 端口开过
+        // `return 308 https://`（N95），那一小时里被请求过的 URL 就此在设备上留下永久重定向。
+        // 服务端回滚之后**故障仍在**，因为重放发生在客户端；而且只有那段时间访问过的 URL 中招 ——
+        // 于是表现为「志愿者登不进去、盲人一切正常」，看上去像账号或权限问题，查了整整一天。
+        // 重装 App 也不管用：`devicectl install` / Xcode Run 都是升级安装，App 容器原样保留。
+        //
+        // 把缓存摘掉，这条链的**客户端一侧**就断了：查不到缓存条目 = 不会本地改写 = 头不会丢。
+        // 已中招的设备升级后即刻恢复，不需要用户删 App —— 这是本修复的重点。
+        // ponytail: 只关这一个 session 的缓存，不动 `URLCache.shared`（它还给别处用）。
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+
         // 15 而不是 10：`/api/orders/voice/parse` 现在每次都调大模型（后端实测 3.4~4.3 秒，
         // 服务端兜底 8 秒），10 秒的 idle 超时会先于向导自己的 12 秒上限炸掉，用户听到的就成了
         // 一句网络错误而不是「没能把你说的话转成预约内容」。15 > 12，让向导那层先响。

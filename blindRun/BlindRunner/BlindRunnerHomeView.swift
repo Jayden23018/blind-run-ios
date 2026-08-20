@@ -759,7 +759,7 @@ struct BlindRunnerHomeView: View {
             .foregroundColor(locationService.isDenied ? AppColors.warning : AppColors.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel(locationDescription)
-            .accessibilityHint(locationService.isDenied ? "需要开启定位权限后才能创建预约" : "当前位置摘要")
+            .accessibilityHint(locationService.isDenied ? "定位权限未开启，预约时需要手动搜索出发地点" : "当前位置摘要")
     }
 
     private var activeOrderMapAnnotations: [MapAnnotationItem] {
@@ -776,7 +776,8 @@ struct BlindRunnerHomeView: View {
 
     private var locationDescription: String {
         if locationService.isDenied {
-            return "需要开启定位权限后才能创建预约。"
+            // 不说「不能预约」——现在能（见 `BlindBookingGate`）。只说少了什么、下一步做什么。
+            return "定位权限未开启。预约时可以手动搜索出发地点，开启定位会更省事。"
         }
         if let address = viewModel.activeOrder?.startAddress, !address.trimmed.isEmpty {
             return "订单出发点：\(address)。\(locationService.readableCurrentLocationSummary)"
