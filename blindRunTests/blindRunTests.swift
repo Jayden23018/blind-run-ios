@@ -3979,6 +3979,38 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(VoiceService.statusAnnouncement(for: .rematching), "正在确认志愿者状态，请稍候。")
     }
 
+    /// `NO_VOLUNTEER` 是**终态** —— 后端派单彻底失败时订单已经是
+    /// `NO_VOLUNTEER` + `cancelledBy=SYSTEM`，这一单结束了。三处盲人侧文案都必须说出这件事
+    /// 并给出出路，且不得再出现「稍后再试」这类暗示还能等的话。
+    /// 对看不见屏幕的人，「被告知继续等一件已经结束的事」是事故，不是措辞问题。
+    ///
+    /// ⚠️ **后端的正确文案救不了这里。** 后端 2026-08-19 已把终态通知换成
+    /// `ORDER_AUTO_CANCELLED`（「暂未匹配到志愿者，订单已取消，您可以稍后重新发起」），
+    /// 但 `AppRealtimeCoordinator.shouldSuppressLifecycleNotification` 在有活跃订单时
+    /// 把所有能映射到订单状态的模板通知整条抑制，而派单失败时盲人**必然**有活跃订单 ——
+    /// 用户实际听到的只会是下面这三句。详见后端 handoff 2026-08-19 的 N98。
+    ///
+    /// 断言的是不变式而不是字面量：换个说法不该让这条红，退回「还能等」才该红。
+    func testNoVolunteerCopySaysTheOrderEndedInsteadOfAskingToKeepWaiting() {
+        let copies = [
+            "blindRunnerDescription": RunOrderStatus.noVolunteer.blindRunnerDescription,
+            "blindRunnerAnnouncement": RunOrderStatus.noVolunteer.blindRunnerAnnouncement,
+            "statusAnnouncement": VoiceService.statusAnnouncement(for: .noVolunteer)
+        ]
+
+        for (name, copy) in copies {
+            XCTAssertTrue(copy.contains("已取消"), "\(name) 没说出这一单已经结束：\(copy)")
+            // 出路也要给：终态只说「结束了」而不说能怎么办，等于把人留在原地。
+            XCTAssertTrue(copy.contains("重新发起"), "\(name) 没给出「可以重新发起」这条出路：\(copy)")
+            for misleading in ["稍后再试", "稍后重试", "请稍候", "暂时"] {
+                XCTAssertFalse(
+                    copy.contains(misleading),
+                    "\(name) 仍在暗示这一单还能等（「\(misleading)」）：\(copy)"
+                )
+            }
+        }
+    }
+
     func testOrderStatusTerminalStates() {
         XCTAssertTrue(RunOrderStatus.completed.isTerminal)
         XCTAssertTrue(RunOrderStatus.cancelled.isTerminal)

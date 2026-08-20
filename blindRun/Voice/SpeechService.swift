@@ -204,8 +204,12 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
             return "本次预约已取消。"
         case .rematching:
             return "正在确认志愿者状态，请稍候。"
+        // `NO_VOLUNTEER` 是**终态**：后端派单彻底失败时订单已经是
+        // `NO_VOLUNTEER` + `cancelledBy=SYSTEM`，这一单结束了。
+        // 旧文案「暂无可用志愿者，请稍后再试」把它说成还能等 —— 对看不见屏幕的人，
+        // 「被告知继续等一件已经结束的事」不是措辞问题，是事故。必须说出终态与出路。
         case .noVolunteer:
-            return "暂无可用志愿者，请稍后再试。"
+            return "没有匹配到志愿者，本次预约已取消，你可以重新发起一次。"
         // 后端新增了本客户端不认识的状态。宁可播一句「请刷新」，也不能因为编不出文案就静默 ——
         // 盲人用户没有别的渠道知道订单变了。
         case .unknown:
