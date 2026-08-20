@@ -498,16 +498,6 @@ final class VoiceOrderWizard: ObservableObject {
             return
         }
 
-        // 起点说了但查不到：**追问，不读回**。
-        //
-        // 排在读回之前和上面候选消歧同一个理由，而且更硬：读回会把起点念成「当前位置」，
-        // 用户听完多半就说「确认」——那一刻他确认的是一个自己没说过的出发地点。
-        // 候选消歧是「有几个都对，你挑一个」，这条是「一个都没查到」，两者互斥。
-        if let parsed, Self.startAddressNeedsReask(parsed) {
-            reask(with: Self.startAddressReaskText(parsed, prefixedBy: notice))
-            return
-        }
-
         moveToConfirm(notice: notice)
     }
 
@@ -699,52 +689,18 @@ final class VoiceOrderWizard: ObservableObject {
             }
         }
 
-        // **终点**说了但查不到：告知，然后继续读回 —— 与起点刻意不同处理，见下。
+        // 「说了一个地点，但我们没查到」—— **必须说出来**，而且要和上面那条一起说，不是二选一。
         //
-        // 分界不是「必填 / 选填」，是**有没有一个错误的默认值顶上来**：
-        // 起点查不到会落回「当前位置」，那是一个用户没说过、而且听起来很正常的地点
-        // ⇒ 必须追问（出口在 `startAddressNeedsReask`）。
-        // 终点查不到就是没有终点，不会凭空多出一个目的地 ⇒ 告知即可，不必把整单卡住。
+        // 起点解析不出时读回念的是「当前位置」（`startPointSummary` 的默认值），
+        // 而用户明明说了一个地名 —— 静默落回当前位置就是**把人约到错误的起点**，他全程听不出来。
+        // `addressUnresolved` 正是为了让客户端分得开「压根没说起点」和「说了但没查到」。
         //
-        // ⚠️ 但**必须告知**：读回在没有终点时根本不念终点，用户无从判断是「没听到」
-        // 还是「本来就不念」。这一句是他唯一的信号。
-        if parsed.resolvedEndPlace == nil, parsed.endAddressUnresolved == true {
-            notice = [notice, Self.endAddressUnresolvedNotice].compactMap { $0 }.joined()
+        // ⚠️ 后端 2026-08-10 起不再拿全国范围的正向编码兜底（那条路曾把深圳说的地名解析到海南），
+        // 所以这个 `true` 会**变常见** —— 在此之前它几乎不出现，接不接看不出差别。
+        if parsed.resolvedStartPlace == nil, parsed.addressUnresolved == true {
+            notice = [notice, Self.startAddressUnresolvedNotice].compactMap { $0 }.joined()
         }
         return notice
-    }
-
-    /// 说了起点地名、但后端拿不到坐标 —— **必须追问，绝不能落回当前位置。**
-    ///
-    /// `addressUnresolved == true` 的契约含义是「用户说了一个地方，但我们查不到它」，
-    /// 与「用户压根没说起点」是两件事：后者用当前位置是正当默认，前者用当前位置
-    /// 就是**把人约到一个他没说过的起点**，而读回念出来的「当前位置」听起来完全正常。
-    ///
-    /// 上一版这里是「播一句『出发地先按当前位置来』然后照样回落」。那个取舍看起来更友好
-    /// （不卡住用户），但它把判断的责任推给了一个正准备出门跑步、注意力在别处、
-    /// 而且刚听完一长串读回的人。后端 2026-08-13 的红线是「绝不能落回当前位置」，
-    /// 2026-08-20 确认按红线走。
-    ///
-    /// 不会卡死：追问计入 `reaskCount` 上限，超限走 `fallBack` 回表单，表单里起点可以自己改。
-    ///
-    /// ⚠️ 后端 2026-08-10 起不再拿全国范围的正向编码兜底（那条路曾把深圳说的地名解析到海南），
-    /// 所以这个 `true` 会**变常见** —— 在此之前它几乎不出现，接不接看不出差别。
-    private static func startAddressNeedsReask(_ parsed: ParseVoiceOrderResponse) -> Bool {
-        parsed.resolvedStartPlace == nil && parsed.addressUnresolved == true
-    }
-
-    /// 起点追问那一句的完整文本。
-    ///
-    /// 后端的 `ttsText` 优先（它知道候选、行政区、距离这些我们没有的东西），本地那句是兜底；
-    /// `prefixedBy` 是本轮攒下的其它提示（时长夹取、说得太长、终点没查到），
-    /// 它们说的是同一轮里的别的事，丢掉就再也没机会说了。
-    private static func startAddressReaskText(
-        _ parsed: ParseVoiceOrderResponse,
-        prefixedBy notice: String?
-    ) -> String {
-        [notice, parsed.ttsText?.nilIfBlank ?? startAddressUnresolvedReask]
-            .compactMap { $0 }
-            .joined()
     }
 
     /// 说得超过后端的大模型字数线时，读回前先说的那一句。
@@ -753,7 +709,7 @@ final class VoiceOrderWizard: ObservableObject {
     /// 「我有低血糖，如果我说头晕请马上停下来扶我坐到路边」里要执行的那半句正好在后半段。
     /// 静默取整已经被判过一次「对听不见屏幕的人等于篡改」，这是同一类问题的更严重版本。
     ///
-    /// 措辞的两条约束，与 `startAddressUnresolvedReask` 同源：
+    /// 措辞的两条约束，与 `startAddressUnresolvedNotice` 同源：
     /// **说清楚是「太长没记全」而不是「没听见」**（我们听见了），
     /// 以及**给出唯一的出路**（说短一点重说）。不列举具体丢了哪几项 ——
     /// 读回紧接着就会把记下的念一遍，用户自己听得出缺什么，而读回本来就要 15~25 秒。
@@ -763,24 +719,12 @@ final class VoiceOrderWizard: ObservableObject {
             + "我只能按关键词记，终点和备注可能没记下。缺了就说「重说」，讲短一点。"
     }
 
-    /// 听见了**起点**地名却没查到时的追问语（后端没给 `ttsText` 时才用这句）。
+    /// 听见了地名却没查到时，读回前先说的那一句。
     ///
-    /// 措辞的三条约束：
-    /// - **说清「没找到」而不是「没听到」** —— 我们听到了，是查不到，说错会让用户提高音量重说一遍同一个词。
-    /// - **不说起点现在是什么** —— 因为现在什么都不是。上一版这里写「出发地先按当前位置来」，
-    ///   那句话本身没错，错的是它后面真的就那么做了。
-    /// - **给一条能改变结果的出路** —— 「换个说法」而不是「再说一次」：同一个词再说一遍，
-    ///   高德还是查不到，只会让用户重复撞同一堵墙。
-    static let startAddressUnresolvedReask =
-        "没找到你说的那个地点。换个说法再说一次，比如说街道名，或者附近的商场、地铁站。"
-
-    /// 听见了**终点**地名却没查到时，读回前先说的那一句。
-    ///
-    /// 与起点那条的分工见 `startAddressNeedsReask`：终点没有会顶上来的错误默认值，
-    /// 所以这里只告知、不追问。但必须告知 —— 读回在没有终点时压根不念终点，
-    /// 用户分不出是「没听到」还是「本来就不念」。
-    static let endAddressUnresolvedNotice =
-        "没找到你说的那个终点，这一单先不设终点。要加就说「改终点」。"
+    /// 措辞的两条约束：**说清楚「没找到」而不是「没听到」**（我们听到了，是查不到），
+    /// 以及**说清楚起点现在是什么**（不说的话用户得从后面那句 `startPointSummary` 里自己推）。
+    static let startAddressUnresolvedNotice =
+        "没找到你说的那个地点，出发地先按当前位置来，要改就说「重说」。"
 
     /// 整句解析失败时先说的那句话。
     ///
@@ -976,13 +920,6 @@ final class VoiceOrderWizard: ObservableObject {
 
         // 剩下的只有一种情况：用户给了新值，后端已经把它合进整单。落槽位、重念一遍。
         let notice = apply(parsed, spokenIn: transcript)
-        // 但如果他给的新值是一个查不到的起点地名，同样不许落回当前位置 —— 修正轮里这更隐蔽：
-        // 用户刚说完「出发地改成XX」，读回却把起点念回「当前位置」，听起来像是没改成功，
-        // 而实际上是改成了一个他从没说过的地方。
-        if Self.startAddressNeedsReask(parsed) {
-            reask(with: Self.startAddressReaskText(parsed, prefixedBy: notice))
-            return
-        }
         moveToConfirm(notice: notice)
     }
 
@@ -1009,8 +946,8 @@ final class VoiceOrderWizard: ObservableObject {
     /// 「说了一个地名但高德查不到」时响应里**有地名、没坐标**（`addressUnresolved == true`），
     /// 那种情况**绝不能**拿当前位置顶掉它 —— 用户说的是「从老王家门口出发」，
     /// 静默换成设备当前位置就是**把人约到错误的起点**，而他全程听不出来。
-    /// 那一路由 `startAddressNeedsReask` 拦在读回之前直接追问（2026-08-20 起不再「播一句然后
-    /// 照样回落」），所以这里补不补都不该让那种响应走到下单 —— 但仍然不补，两道锁各挡各的。
+    /// 那一路照旧让后端继续报 `missing:[ADDRESS]` 并追问（`apply` 里那句
+    /// `startAddressUnresolvedNotice` 也会一起念出来），出口由上面那条 `missing` 分支给。
     private var confirmRoundSnapshot: VoiceSlotSnapshot? {
         guard let base = lastParsed?.slotSnapshot else { return nil }
         // 响应里已经有地名 = 要么后端解析出来了、要么用户说了个查不到的地名。两种都不许覆盖。

@@ -2469,16 +2469,11 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertEqual(wizard.step, .freeform)
     }
 
-    /// 🔴 说了起点地名但查不到时，**不许读回、不许落回当前位置**，必须追问。
+    /// 说了地名但没查到时，读回前必须先说出来。
     ///
-    /// 这条用例上一版断言的是「进读回，但先播一句提示」。2026-08-20 按后端红线改成硬追问：
-    /// `addressUnresolved=true` 的契约含义是「用户说了一个地方，但我们查不到它」，
-    /// 与「压根没说起点」是两件事 —— 后者用当前位置是正当默认，前者用当前位置就是
-    /// **把人约到一个他没说过的起点**，而读回念出来的「当前位置」听起来完全正常。
-    ///
-    /// 「播一句提示然后照样回落」把判断责任推给了一个正准备出门、注意力在别处、
-    /// 刚听完一长串读回的人。后端 2026-08-10 起不再拿全国范围正向编码兜底，这条会变常见。
-    func testUnresolvedStartAddressBlocksReadbackAndAsksAgain() async {
+    /// 不说的话读回念的是「当前位置」，而用户明明说了一个地名 —— 静默落回就是把人约到错误的起点，
+    /// 他全程听不出来。后端 2026-08-10 起不再拿全国范围的正向编码兜底，这条会变常见。
+    func testUnresolvedStartAddressIsAnnouncedBeforeReadback() async {
         let stub = VoiceOrderAPIClientStub()
         stub.parseOrderResponses = [Self.parseResponse(
             plannedStartTime: Self.backendTime(hoursFromNow: 20),
@@ -2486,118 +2481,19 @@ final class VoiceOrderWizardTests: XCTestCase {
             address: "老王家门口",
             missing: [.address],
             needReask: true,
-            ttsText: "没听清出发地点，请再说一次",
             addressUnresolved: true
         )]
-        // 必须持有一个活着的 view model：wizard 侧是 weak，临时对象等于传 nil。
+        // 必须持有一个活着的 view model：wizard 侧是 weak，临时对象等于传 nil，
+        // 而 `confirmPrompt(for:)` 拿不到它就退回只念出路那句，读回整段根本不会拼出来
         let bookingViewModel = BlindBookingViewModel()
         let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel)
 
         await wizard.submitTranscript("明天早上八点从老王家门口出发跑一个小时")
 
-        XCTAssertNotEqual(
-            wizard.step, .confirm,
-            "进了读回就意味着下一句「确认」会把一个用户没说过的起点下单出去"
-        )
-        XCTAssertEqual(
-            wizard.lastSpokenPrompt, "没听清出发地点，请再说一次",
-            "后端的 ttsText 是那一项的定向追问语，优先于本地兜底句"
-        )
-    }
-
-    /// 后端没给 `ttsText` 时用本地兜底句，且那句必须给出**能改变结果**的出路。
-    ///
-    /// 「再说一次」不行 —— 同一个词再说一遍高德还是查不到，只会让用户重复撞同一堵墙。
-    func testUnresolvedStartAddressFallsBackToALocalReaskThatSuggestsRewording() async {
-        let stub = VoiceOrderAPIClientStub()
-        stub.parseOrderResponses = [Self.parseResponse(
-            plannedStartTime: Self.backendTime(hoursFromNow: 20),
-            durationMinutes: 60,
-            address: "老王家门口",
-            missing: [.address],
-            needReask: true,
-            ttsText: "",
-            addressUnresolved: true
-        )]
-        let bookingViewModel = BlindBookingViewModel()
-        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel)
-
-        await wizard.submitTranscript("明天早上八点从老王家门口出发跑一个小时")
-
-        let spoken = wizard.lastSpokenPrompt ?? ""
+        XCTAssertEqual(wizard.step, .confirm)
         XCTAssertTrue(
-            spoken.contains(VoiceOrderWizard.startAddressUnresolvedReask),
-            "后端没给追问语时必须有本地兜底：\(spoken)"
-        )
-        XCTAssertTrue(spoken.contains("换个说法"), "出路必须能改变结果，不能只是「再说一次」")
-        XCTAssertFalse(
-            spoken.contains("当前位置"),
-            "不许再提当前位置 —— 现在起点什么都不是，提它会让用户以为已经有个起点了"
-        )
-    }
-
-    /// 修正轮里说了一个查不到的起点，同样不许落回当前位置。
-    ///
-    /// 这一档更隐蔽：用户刚说完「出发地改成XX」，读回却把起点念回「当前位置」，
-    /// 听起来像是没改成功，而实际上是改成了一个他从没说过的地方。
-    func testUnresolvedStartAddressInCorrectionRoundAlsoAsksAgain() async {
-        let stub = VoiceOrderAPIClientStub()
-        stub.parseOrderResponses = [
-            Self.parseResponse(
-                plannedStartTime: Self.backendTime(hoursFromNow: 20),
-                durationMinutes: 60,
-                address: "阳光棕榈园",
-                latitude: 22.5333,
-                longitude: 113.9300
-            ),
-            Self.parseResponse(
-                plannedStartTime: Self.backendTime(hoursFromNow: 20),
-                durationMinutes: 60,
-                address: "老王家门口",
-                missing: [.address],
-                needReask: true,
-                ttsText: "没听清出发地点，请再说一次",
-                addressUnresolved: true
-            )
-        ]
-        let bookingViewModel = BlindBookingViewModel()
-        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel)
-
-        await wizard.submitTranscript("明天早上八点从阳光棕榈园出发跑一个小时")
-        XCTAssertEqual(wizard.step, .confirm, "前置条件：第一轮正常进读回")
-
-        await wizard.submitTranscript("出发地改成老王家门口")
-
-        XCTAssertNotEqual(wizard.step, .confirm, "修正轮同样不许把查不到的起点读回成当前位置")
-        XCTAssertEqual(wizard.lastSpokenPrompt, "没听清出发地点，请再说一次")
-    }
-
-    /// **终点**查不到走另一条路：告知，但不卡住整单。
-    ///
-    /// 分界不是「必填 / 选填」，是**有没有一个错误的默认值顶上来**：起点查不到会落回
-    /// 「当前位置」（一个用户没说过、听起来还很正常的地点），终点查不到就是没有终点。
-    /// 但必须告知 —— 读回在没有终点时压根不念终点，用户分不出是「没听到」还是「本来就不念」。
-    func testUnresolvedEndAddressIsAnnouncedButStillReachesReadback() async {
-        let stub = VoiceOrderAPIClientStub()
-        stub.parseOrderResponses = [Self.parseResponse(
-            plannedStartTime: Self.backendTime(hoursFromNow: 20),
-            durationMinutes: 60,
-            address: "阳光棕榈园",
-            latitude: 22.5333,
-            longitude: 113.9300,
-            endAddress: "老王家门口",
-            endLatitude: nil,
-            endLongitude: nil
-        )]
-        let bookingViewModel = BlindBookingViewModel()
-        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel)
-
-        await wizard.submitTranscript("明天早上八点从阳光棕榈园跑到老王家门口，跑一个小时")
-
-        XCTAssertEqual(wizard.step, .confirm, "终点没有会顶上来的错误默认值，不该把整单卡住")
-        XCTAssertTrue(
-            (wizard.lastSpokenPrompt ?? "").contains(VoiceOrderWizard.endAddressUnresolvedNotice),
-            "终点被静默丢掉，而读回不念终点 —— 用户没有任何信号：\(wizard.lastSpokenPrompt ?? "")"
+            (wizard.lastSpokenPrompt ?? "").contains(VoiceOrderWizard.startAddressUnresolvedNotice),
+            "听见了地名却没查到，读回却只字未提：\(wizard.lastSpokenPrompt ?? "")"
         )
     }
 

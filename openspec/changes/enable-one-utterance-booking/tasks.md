@@ -128,10 +128,7 @@
 - [x] 2A.5 `disambiguationRequest(transcript:)` 抽出坐标取值：只认 `.gcj02Backend` 真实采样，**演示坐标绝不进消歧请求**（会把人约到另一座城市）。两个解析端点共用这一份，红线只留一个出处。
 - [x] 2A.6 整句轮补上时长取整播报（`durationRoundingNotice`），与定点修改轮共用同一句 —— 此前整句轮是静默取整，而静默取整对听不见屏幕的人就是篡改。
 - [x] 2A.7 `MockAPIClient.handleVoiceParseOrder`；地点匹配与 `handleVoiceResolveAddress` 共用 `matchedVoicePlace`，Mock 不许比线上松。
-- [x] 2A.8 **`missing: ADDRESS` 的歧义已解**（2026-08-20 闭合）：后端 N48 加了 `addressUnresolved`，
-      客户端据此分开处理 —— `true`（说了但查不到）走 `startAddressNeedsReask` 直接追问，
-      `false/nil`（压根没说）才用当前位置。「后者静默用当前位置会把人约到错误起点」这个后果消失了。
-      实现见 `disambiguate-same-name-start-place` 的 tasks 3.7。
+- [ ] 2A.8 **`missing: ADDRESS` 的歧义未解**：分不出「用户没说地点」和「说了但抽不出」。后者静默用当前位置会把人约到错误起点。已提给后端（handoff 2026-08-04），等他们区分。
 
 ## 3. 测试
 
