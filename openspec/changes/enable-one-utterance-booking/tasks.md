@@ -128,7 +128,22 @@
 - [x] 2A.5 `disambiguationRequest(transcript:)` 抽出坐标取值：只认 `.gcj02Backend` 真实采样，**演示坐标绝不进消歧请求**（会把人约到另一座城市）。两个解析端点共用这一份，红线只留一个出处。
 - [x] 2A.6 整句轮补上时长取整播报（`durationRoundingNotice`），与定点修改轮共用同一句 —— 此前整句轮是静默取整，而静默取整对听不见屏幕的人就是篡改。
 - [x] 2A.7 `MockAPIClient.handleVoiceParseOrder`；地点匹配与 `handleVoiceResolveAddress` 共用 `matchedVoicePlace`，Mock 不许比线上松。
-- [ ] 2A.8 **`missing: ADDRESS` 的歧义未解**：分不出「用户没说地点」和「说了但抽不出」。后者静默用当前位置会把人约到错误起点。已提给后端（handoff 2026-08-04），等他们区分。
+- [x] 2A.8 **`missing: ADDRESS` 的歧义已解**（2026-08-20 复核确认，后端 N48 就是这条请求的落地）。
+      分法**不是**再加一道客户端拦截，而是既有的三段机制，判据一律看**结构**（有没有坐标）
+      而不是 `addressUnresolved` 那个标志位 —— 同一事实有两个来源时只信结构
+      （`ResolvedPlace.isUnresolved` 上那句注释）：
+      1. 用户说的地名**保留**在槽位里，绝不被当前位置顶掉（`confirmRoundSnapshot` 只在响应里
+         一个地名都没有时才补起点，判据是 `address` 而不是坐标）；
+      2. 读回把它念出来并明说没定位到（起点走 `startAddressUnresolvedNotice`，
+         终点走 `endPointSummary` 的 `isUnresolved` 分支「这个地点没能定位到，志愿者会看到这个名字」）
+         —— 后端允许「有地址无坐标」，所以**照样带名下单**，志愿者看到的是那个地名；
+      3. 下一轮后端继续报 `missing:[ADDRESS]`，走确认轮那条 `unchanged + missing` 分支
+         播它的定向追问（含具体地名，本地拼不出来），并计入重问上限。
+      > ⚠️ **2026-08-20 走过一次弯路，记在这里免得再来一遍**：曾按「后端红线说绝不能落回当前位置」
+      > 又加了一层 `startAddressNeedsReask`，拦在读回之前直接追问。那是**误读** ——
+      > 既有实现本来就没有静默落回，而新加的那层会打断上面第 1 条的槽位回传，
+      > 也与终点的「带名下单」直接矛盾（新文案说「先不设终点」，而终点其实带上了）。
+      > 已整体 revert（PR #55 → revert）。判据看结构、不看标志位这条，是这次的教训。
 
 ## 3. 测试
 
