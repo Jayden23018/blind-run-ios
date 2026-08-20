@@ -523,7 +523,12 @@ final class VoiceOrderWizardTests: XCTestCase {
             endAddress: "五角场 邯郸路", endLatitude: 31.2990, endLongitude: 121.5140
         )
         stub.parseOrderResponses = [first, second]
-        let wizard = makeWizard(stub: stub, startingAt: .freeform)
+        // ⚠️ 必须持有一个活着的 view model：wizard 侧是 `weak`，临时对象等于传 nil，
+        // 而 `confirmPrompt(for:)` 拿不到它就**退回只念出路那句**，整单一个字都不会念出来。
+        // 这条用例断言的正是「整单里有没有五角场」，所以少了这一行它必然失败，
+        // 而失败信息看起来像是终点没落进去（同文件 :2492 有同款注释）。
+        let bookingViewModel = BlindBookingViewModel()
+        let wizard = makeWizard(stub: stub, bookingViewModel: bookingViewModel, startingAt: .freeform)
 
         await wizard.submitTranscript("明天早上八点从人民广场出发")
         await wizard.submitTranscript("结束地点改成五角场")
@@ -585,9 +590,20 @@ final class VoiceOrderWizardTests: XCTestCase {
                 missing: [.address],
                 addressUnresolved: true
             ),
+            // ⚠️ 追问轮的响应**不是空壳**。后端无状态，靠 `current` 把上一轮的槽位带回去，
+            // 再把合并后的整单原样返回 —— 时间、时长、以及那个查不到坐标的地名都还在，
+            // 变的只有 `missing` 与 `ttsText`。
+            //
+            // 写成空壳的话 `parsed.slotSnapshot != sentSnapshot`，确认轮会判成「用户给了新值」
+            // 而落到兜底去复读读回 —— 那正是 N97 那个症状，于是这条用例测出来的是
+            // 一个**它自己造出来的**假场景，而不是线上会发生的事。
             Self.parseResponse(
+                plannedStartTime: Self.backendTime(hoursFromNow: 24),
+                durationMinutes: 60,
+                address: "老王家门口",
                 missing: [.address],
-                ttsText: "没找到“老王家门口”，请换个说法再说一次出发地点"
+                ttsText: "没找到“老王家门口”，请换个说法再说一次出发地点",
+                addressUnresolved: true
             )
         ]
         let viewModel = BlindBookingViewModel()
