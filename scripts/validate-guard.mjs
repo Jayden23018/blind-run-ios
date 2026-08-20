@@ -355,6 +355,21 @@ const cases = [
     }
   },
   {
+    // 2026-08-20：志愿者端两处拨号用的是 SwiftUI 的 `@Environment(\.openURL)`，
+    // 而不是 `UIApplication.shared.open` —— 同一个洞换一种拼法，从旧规则底下整整走了两处。
+    // 现在按 URL 本身登记：`tel://` 只允许出现在 `EmergencyDialer.telURL` 里。
+    name: 'openURL 拼 tel:// 绕开 EmergencyDialer（拦）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/Volunteer/VolunteerOrderFlowViews.swift',
+        old_string: 'a',
+        new_string: '                    if let url = URL(string: "tel://\\(phone)") {'
+      }
+    }
+  },
+  {
     // 地图 / 系统设置这些别的 scheme 是正当出口，标注就是那份出口清单。
     name: '别的 scheme 带 guard:allow 标注（放行）',
     expect: 0,

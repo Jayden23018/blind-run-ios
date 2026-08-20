@@ -2556,18 +2556,21 @@ struct VolunteerServiceRunnerCard: View {
 
             if let phone = order.blindPhone?.nilIfBlank {
                 Button {
-                    if let url = URL(string: "tel://\(phone)") {
-                        openURL(url)
+                    if let url = EmergencyDialer.telURL(for: phone) {
+                        EmergencyDialer.dial(url, open: { openURL($0) })
                     }
                 } label: {
-                    Label(phone, systemImage: "phone.fill")
+                    Label(
+                        EmergencyContactResponse.maskPhone(phone) ?? phone,
+                        systemImage: "phone.fill"
+                    )
                         .labelStyle(.titleAndIcon)
                         .font(AppFonts.body().weight(.semibold))
                         .foregroundColor(AppColors.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 }
-                .accessibilityLabel("拨打盲人电话 \(phone)")
+                .accessibilityLabel("拨打盲人电话")
             } else {
                 Text("电话暂不可用")
                     .font(AppFonts.caption())
@@ -2862,14 +2865,17 @@ struct VolunteerBlindRunnerInfoCard: View {
 
             if showPhone, let phone = order.blindPhone {
                 Button {
-                    if let url = URL(string: "tel://\(phone)") {
-                        openURL(url)
+                    if let url = EmergencyDialer.telURL(for: phone) {
+                        EmergencyDialer.dial(url, open: { openURL($0) })
                     }
                 } label: {
-                    Label(phone, systemImage: "phone.fill")
+                    Label(
+                        EmergencyContactResponse.maskPhone(phone) ?? phone,
+                        systemImage: "phone.fill"
+                    )
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .accessibilityLabel("拨打盲人电话 \(phone)")
+                .accessibilityLabel("拨打盲人电话")
             } else {
                 Text("联系方式将在接单后显示")
                     .font(AppFonts.caption())
