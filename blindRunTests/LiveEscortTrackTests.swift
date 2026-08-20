@@ -534,6 +534,98 @@ final class LiveEscortTrackTests: XCTestCase {
         XCTAssertNil(coordinator.freshPeerCoordinate(now: now.addingTimeInterval(15.01)))
     }
 
+    /// F2：样本停更 90 秒后必须停发并落到 `.waitingForLocation`。
+    ///
+    /// 修复前这条会绿着挂 —— 陈旧样本永远不是 nil，`refreshHealth` 一直停在 `.active`，
+    /// 而发送端每 5 秒把同一个坐标重发一次，服务端每次打上**当前**时间戳，
+    /// 对端每次都判定「这是 15 秒内的新位置」。地图上的点看着在动，其实是同一个点。
+    ///
+    /// 用 `now:` 显式推进时钟而不是真的 sleep 90 秒：年龄闸的输入就是这个参数。
+    @MainActor
+    func testEscortStopsResendingWhenTheSampleStopsAdvancing() async {
+        let realtime = AppRealtimeCoordinator()
+        var sent: [LocatedCoordinate] = []
+        let coordinator = LiveEscortSessionCoordinator(
+            realtimeCoordinator: realtime,
+            reportInterval: 0.05,
+            sendLocation: { _, sample in sent.append(sample) }
+        )
+        let service = WebSocketService()
+        service.simulateConnectionStateForTesting(.connected)
+        let location = LocationService()
+        let capturedAt = Date()
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 39.9, longitude: 116.4),
+            capturedAt: capturedAt
+        )
+        coordinator.configure(identityKey: "account:blind:token", role: .blind, webSocketService: service)
+        coordinator.attachLocationService(location)
+        coordinator.updateOwnedOrder(orderID: 79, status: .inProgress)
+
+        // 正向条件：新鲜样本照常上报
+        let didSend = await waitUntil { sent.count >= 2 }
+        XCTAssertTrue(didSend, "新鲜样本应按周期上报")
+        XCTAssertEqual(coordinator.healthState, .active(background: true))
+
+        // 闸门本身：同一个样本，只把时钟往前推。
+        XCTAssertNotNil(
+            location.latestEscortBackendSample(now: capturedAt.addingTimeInterval(60)),
+            "60 秒整仍在门内 —— 阈值取这么宽正是为了不把「人站住了」误判成定位失效"
+        )
+        XCTAssertNil(
+            location.latestEscortBackendSample(now: capturedAt.addingTimeInterval(60.01)),
+            "超过 60 秒的样本不该再被当作可上报的位置"
+        )
+
+        // 会话这一级：把「最后一个样本已经 90 秒没更新」摆到协调器面前，
+        // 让它自己用真实时钟判 —— 这才是隧道 / 地库 / iOS 自动暂停时的真实形状。
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 39.9, longitude: 116.4),
+            capturedAt: Date().addingTimeInterval(-90)
+        )
+        let didEnterWaiting = await waitUntil { coordinator.healthState == .waitingForLocation }
+        XCTAssertTrue(didEnterWaiting, "样本停更 90 秒后健康状态必须落到 waitingForLocation")
+
+        // 反向条件：停发要在一个真实时间窗内确实成立，保留固定 sleep（同本文件既有做法）。
+        // 观测点取注入的 `sendLocation` 而不是 `ClientFlowDiagnostics` ——
+        // 后者只存**最后一条** phase 字符串（`HomeRecoverySupport.swift:24,54`），
+        // 别的 operation 一写就把它盖掉，断言「没有再产生 finished」在那上面立不住。
+        let beforeStale = sent.count
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(sent.count, beforeStale, "样本停更后不许再把同一个陈旧坐标重发出去")
+        XCTAssertEqual(coordinator.healthState, .waitingForLocation)
+    }
+
+    /// F3：Core Location 自行暂停之后必须自己重启，并且**在拿到新定位之前如实说不可用**。
+    ///
+    /// Apple 原文：in-use 授权下一次暂停会终止位置访问直到 App 重新启动
+    /// （`docs/research/ios-location-pause-and-ats-20260820.md` §1）。
+    @MainActor
+    func testPausedLocationUpdatesRestartAndReportUnavailableUntilARealFixArrives() {
+        let location = LocationService()
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 39.9, longitude: 116.4),
+            capturedAt: Date()
+        )
+        XCTAssertNotNil(location.latestEscortBackendSample())
+
+        location.handlePausedLocationUpdates()
+
+        XCTAssertEqual(location.locationError, .locationUnavailable)
+        XCTAssertNil(
+            location.latestEscortBackendSample(),
+            "暂停之后不许继续把最后一个坐标当作可上报的位置"
+        )
+
+        // 下一次真实回调把这一格清掉，会话随之恢复。
+        location.simulateDeviceLocationForTesting(
+            CLLocationCoordinate2D(latitude: 39.9002, longitude: 116.4002),
+            capturedAt: Date()
+        )
+        XCTAssertNil(location.locationError)
+        XCTAssertNotNil(location.latestEscortBackendSample())
+    }
+
     @MainActor
     func testStationaryRealLocationContinuesUntilExplicitFailureAndThenRecovers() async {
         let realtime = AppRealtimeCoordinator()
@@ -546,9 +638,15 @@ final class LiveEscortTrackTests: XCTestCase {
         let service = WebSocketService()
         service.simulateConnectionStateForTesting(.connecting)
         let location = LocationService()
+        // `capturedAt` 从 `-60` 改成当下：本用例钉的是「**坐标**不变仍要继续上报」，
+        // 而 `-60` 同时也是「样本停更 60 秒」—— 两件事此前被同一个 fixture 混在一起。
+        // 样本年龄闸（`LocationService.escortSampleMaxAge`）上线后这个混淆有了后果：
+        // 用 `-60` 的话第二次上报会被闸掉，用例会以「静止不该停发」的名义失败，
+        // 而真正被测中的是年龄。样本停更那一半由
+        // `testEscortStopsResendingWhenTheSampleStopsAdvancing` 单独覆盖。
         location.simulateDeviceLocationForTesting(
             CLLocationCoordinate2D(latitude: 39.9, longitude: 116.4),
-            capturedAt: Date().addingTimeInterval(-60)
+            capturedAt: Date()
         )
         coordinator.configure(identityKey: "account:blind:token", role: .blind, webSocketService: service)
         coordinator.attachLocationService(location)
@@ -557,9 +655,9 @@ final class LiveEscortTrackTests: XCTestCase {
         let didSendFirstReport = await waitUntil { sent.count >= 1 }
         XCTAssertTrue(didSendFirstReport, "进入 IN_PROGRESS 后应上报一次位置")
 
-        // 正向条件：位置静止也要继续按周期上报，等第二次上报到达
+        // 正向条件：坐标静止也要继续按周期上报，等第二次上报到达
         let didKeepReportingWhileStationary = await waitUntil { sent.count >= 2 }
-        XCTAssertTrue(didKeepReportingWhileStationary, "位置静止时应继续周期上报第二次")
+        XCTAssertTrue(didKeepReportingWhileStationary, "坐标静止时应继续周期上报第二次")
 
         service.simulateConnectionStateForTesting(.connected)
         await Task.yield()
