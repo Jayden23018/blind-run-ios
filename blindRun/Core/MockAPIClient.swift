@@ -2557,17 +2557,31 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     // MARK: - Location Handler
 
+    /// ⚠️ **这里的三态是后端的，不是客户端的，两者不是同一个三态。** 别"顺手对齐"成后者。
+    ///
+    /// - 后端 `OrderStatus.sharesLiveLocation()`：`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`
+    /// - 客户端 `RunOrderStatus.offersVolunteerDistanceToStart`：`PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`
+    ///
+    /// 交集只有中间两态。`PENDING_ACCEPT` 时客户端会调而后端返 404（位置 key 不存在）；
+    /// `IN_PROGRESS` 时后端有数据而客户端根本不调（那一段的对方位置走 WebSocket
+    /// `peerLocationPublisher`，没有 REST 兜底）。Mock 必须照**后端**来演，
+    /// 否则这个不对称在开发期永远看不见 —— 上一次 Mock 自作主张（造了个后端不发的
+    /// `updatedAt`）的代价是兜底对真实后端 100% 静默失效。
     private func handleGetVolunteerLocation() -> VolunteerLocationResponse {
+        let sharing = orders.first {
+            [.driverEnRoute, .driverArrived, .inProgress].contains($0.status)
+        }
         return VolunteerLocationResponse(
             success: true,
             code: 200,
             message: nil,
             data: VolunteerLocationData(
-                orderId: orders.first(where: { [.pendingAccept, .driverEnRoute, .driverArrived].contains($0.status) })?.orderId,
-                status: orders.first(where: { [.pendingAccept, .driverEnRoute, .driverArrived].contains($0.status) })?.status,
+                orderId: sharing?.orderId,
+                status: sharing?.status,
+                // epoch 毫秒，与 WS `VOLUNTEER_LOCATION_UPDATE` 的 `timestamp` 同格式（后端 119c810）。
+                updatedAt: sharing.map { _ in Int64(Date().timeIntervalSince1970 * 1_000) },
                 lat: AppConstants.Defaults.demoLatitude + 0.002,
-                lng: AppConstants.Defaults.demoLongitude + 0.001,
-                updatedAt: ISO8601DateFormatter().string(from: Date())
+                lng: AppConstants.Defaults.demoLongitude + 0.001
             )
         )
     }

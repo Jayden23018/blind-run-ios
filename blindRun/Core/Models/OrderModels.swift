@@ -716,12 +716,29 @@ struct VolunteerLocationResponse: Codable, Sendable {
     let data: VolunteerLocationData?
 }
 
+/// `GET /api/blind/volunteer-location` 的 `data`。五个键：
+/// `lat` / `lng`（GCJ-02）、`orderId`、`status`、`updatedAt`（`api_spec.yaml:2352-2362`）。
+///
+/// 这个结构体上的两个字段都有过一次「看着在、实际从未生效」的历史，改动前先读注释：
+/// `status` 曾因后端键名是 `orderStatus` 而恒为 nil，`updatedAt` 曾根本不存在。
+/// 两个都在 2026-08-20（后端 `119c810`）对齐了。
 struct VolunteerLocationData: Codable, Sendable {
     let orderId: Int64?
+    /// 订单当前状态，与 `GET /api/orders/{id}` 同源，**同一时刻可能领先于**客户端上一次轮询到的值。
+    ///
+    /// 🔴 **不得用它否掉坐标** —— 契约原话「坐标是这个端点存在的唯一理由」。
+    /// 2026-08-20 之前后端发的键叫 `orderStatus`，这个字段恒为 nil，那条比较从未真正执行过；
+    /// 改名之后它会第一次生效，所以「保持原样」在那一刻等价于**新增一条会否掉坐标的分支**。
     let status: RunOrderStatus?
+    /// 位置采样时刻，**epoch 毫秒**（与 WS `VOLUNTEER_LOCATION_UPDATE` 的 `timestamp` 同格式同来源）。
+    ///
+    /// ⚠️ 不是 ISO-8601 字符串。上一版这里是 `String?` + `ISO8601DateFormatter`，
+    /// 而后端当时压根不发这个字段 —— 于是新鲜度闸恒 nil 恒 return，兜底 100% 静默失效。
+    /// 拿它做判断必须**失败开放**（字段缺失就放行），理由见
+    /// `BlindOrderStatusViewModel.volunteerFallbackCoordinate`。
+    let updatedAt: Int64?
     let lat: Double?
     let lng: Double?
-    let updatedAt: String?
 
     var coordinateIsValid: Bool {
         guard let lat, let lng else { return false }
