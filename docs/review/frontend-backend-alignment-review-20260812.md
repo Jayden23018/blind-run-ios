@@ -104,6 +104,9 @@
 
 > 后端 `/api/orders/voice/parse` 在生产上恒 404 …… 按它写完，盲人拿到手的是一个恒报错的按钮。
 
+⚠️ **2026-08-18 更正：上面引的这句注释（当时的代码原文）已经不成立** —— 生产实测该端点存在，
+证据与复核方法见本文档末尾「未决问题 2」。原注释已从代码里改掉。
+
 这条理由针对的是**另一个端点**，而且 classify-query 的失败语义天生不会产生「恒报错的按钮」。
 接入时这段注释要一起改掉，留着会误导下一个人。
 
@@ -432,10 +435,27 @@ skill `aidrun-a11y-voice` 写的是「盲人端关键主按钮高度 ≥ 64pt」
    安全做法是用 `docs/test-accounts.md` 的白名单账号走 `scripts/cloud-e2e.mjs`，
    **会真实发短信并创建订单，需先取得授权**。
 
-2. **`/api/orders/voice/parse` 现在还 404 吗** —— 整个语音降级设计
-   （`blindRun/Voice/VoiceOrderWizard.swift:168`、`:458`、`:739`、`parseIsUnavailable` 整条分支）
-   和 A3 里 VoiceStatusQuery 不接后端 NLU 的理由，
-   **全部建立在 2026-08-06 那一次观测上**，至今未复核。
+2. ~~**`/api/orders/voice/parse` 现在还 404 吗**~~ —— ✅ **2026-08-18 已复核：不是 404，端点在生产上活着。**
+
+   整个语音降级设计（`blindRun/Voice/VoiceOrderWizard.swift` 的 `parseIsUnavailable` 整条分支）
+   和 A3 里 VoiceStatusQuery 不接后端 NLU 的理由，此前**全部建立在 2026-08-06 那一次观测上**。现已复核：
+
+   - `GET http://47.114.113.171/v3/api-docs`（经 80 端口 Nginx）**200**，61KB，87 个 operation，
+     里面**列着 `POST /api/orders/voice/parse`**（连同 `/parse-slot`、`/resolve-address`、`/classify-query`）。
+     springdoc 是扫**运行中**应用的 handler mapping 生成的，所以这等于「handler 已部署且已映射」。
+   - 对该路径发无鉴权 `POST` 收到的是**后端自己的** `{"code":401,"message":"未认证","success":false}`
+     ⇒ Nginx 确实把这个路径代理到了 Spring Boot 并由它处理，不存在「只有这条路由没配」的可能。
+
+   🔑 **上面第 1 条那句「无鉴权探测定不了论」是对的，但漏了一条不需要鉴权的路**：
+   `/v3/api-docs` 在 `SecurityConfig` 里是 `permitAll`（Swagger 白名单），
+   **不用 JWT、不用发短信、不用建订单，就能确认某个 handler 在不在生产上**。
+   下次再问「某端点部署了没」先走这条，别再去动 `scripts/cloud-e2e.mjs`。
+   （401 那一条本身仍然定不了论 —— Security 过滤器排在 handler mapping 之前，
+   随便编一个路径也返同样的 401，本次已实测复现。）
+
+   ⇒ 依赖这条的三处代码注释已同步更正（`VoiceStatusQuery.swift`、`VoiceOrderWizard.swift`、
+   `VoiceOrderWizardTests.swift`）。`parseIsUnavailable` 那条降级分支**保留** ——
+   它防的是「解析这一环坏了」这个类别，不是那个已经不存在的具体故障。
 
 3. **`candidates` 消歧轮在生产上走不走得到** —— 取决于 1。
 
