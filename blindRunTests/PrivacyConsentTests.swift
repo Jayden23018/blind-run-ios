@@ -154,8 +154,17 @@ final class PrivacyConsentTests: XCTestCase {
         XCTAssertTrue(volunteer.contains("人脸"), "志愿者下一步就是活体认证，必须在这一屏说清")
     }
 
-    /// 告知内容改了而 `disclosureVersion` 没改，旧同意会被当成对新内容的同意 —— 那是合规上的漏洞，
-    /// 且没有任何运行时表现，只能靠这条钉住：**改文案时必须同时 +1 版本号并更新这里的指纹**。
+    /// 告知内容改了而 `disclosureVersion` 该 +1 却没 +1，旧同意会被当成对新内容的同意 ——
+    /// 那是合规上的漏洞，且没有任何运行时表现，只能靠这条钉住。
+    ///
+    /// ⚠️ **这条红了不是「去 +1 版本号」，是「去做一次判断」**（判据见
+    /// `PrivacyConsentPurpose.disclosureVersion` 的文档注释）：
+    /// - 告知的**处理行为**变了（新收集一类信息、换用途、换接收方、改删除规则）→ +1 版本号，再换指纹
+    /// - 同一个行为**换一种说法**（更准、更好懂、错别字）→ 版本号不动，只换指纹，
+    ///   并在下面 `pinned` 里那一行写清这次属于哪一种
+    ///
+    /// 无脑 +1 的代价不是零：每个老用户下次冷启动都会被拦在同意页前面重来一次，
+    /// 而对读屏用户那是一整屏要逐条听完的文本。
     func testDisclosureFingerprintIsPinnedToItsVersion() {
         // 指纹自己算，不用 `hashValue`：Swift 的 Hasher 每个进程重新播种，跨进程不稳定。
         func fingerprint(_ purpose: PrivacyConsentPurpose) -> Int {
@@ -166,8 +175,10 @@ final class PrivacyConsentTests: XCTestCase {
         }
 
         let pinned: [PrivacyConsentPurpose: (version: Int, fingerprint: Int)] = [
-            // v2（2026-08-20）：删除账户那句改成正面列举保留了什么，并拆成两条独立焦点。
-            .appLaunch: (2, 787_414_606),
+            // 2026-08-20 指纹变了而版本号没变，是**有意的**：删除账户那句改成正面列举保留了什么、
+            // 并拆成两条独立焦点，但后端 `UserService.cascadeDeletePii` 的删除行为一个字节都没改
+            // （handoff 2026-08-19 逐句核过）—— 属「同一行为换个说法」，不属「行为变了」。
+            .appLaunch: (1, 787_414_606),
             .blindIdentity: (1, 997_349_647),
             .volunteerIdentity: (1, 57_319_275)
         ]
@@ -180,7 +191,11 @@ final class PrivacyConsentTests: XCTestCase {
             XCTAssertEqual(
                 fingerprint(purpose),
                 expected.fingerprint,
-                "\(purpose) 的告知文案变了：把 disclosureVersion +1，再把新指纹填进这条用例"
+                """
+                \(purpose) 的告知文案变了。先判一次这次属于哪一种：
+                ① 告知的处理行为变了 → 把 disclosureVersion +1，再把新指纹填进来；
+                ② 同一行为换个说法 → 版本号不动，只换指纹，并在 pinned 那一行写清理由。
+                """
             )
         }
     }
