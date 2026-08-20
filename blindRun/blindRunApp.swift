@@ -56,6 +56,12 @@ struct blindRunApp: App {
                     } else {
                         // device token 会被 Apple 轮换：每次回前台重新注册并上报最新值。
                         pushNotificationsManager.refreshRegistrationIfReady()
+                        // 补读此前只挂在 WS 重连上，而后台挂起期间的断连 App 根本观察不到：
+                        // 回前台时连接可能直接停在 `.connected`，`handleConnectionState` 的
+                        // `hasConnectedOnce && !wasConnected` 不成立，recoveryPublisher 一声不响
+                        // （AppRealtimeCoordinator.swift:1046-1055），错过的通知就永远补不回来。
+                        // 补读没有服务端游标，`after` 完全由客户端给，重复调用只会被 `missed:{id}` 去重。
+                        Task { await appState.catchUpMissedNotifications() }
                     }
                 }
         }
