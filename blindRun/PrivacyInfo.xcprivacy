@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  隐私清单（Apple Privacy Manifest）。缺这个文件会在**上传阶段**被拒：ITMS-91053 Missing API declaration。
+
+  ⚠️ 只声明「required reason API」，**刻意不写 NSPrivacyCollectedDataTypes**。
+     理由：对主 App 来说，对外的数据收集口径以 App Store Connect 的隐私标签
+     （Privacy Nutrition Label）为准，那才是审核和用户看到的东西。
+     在这里再写一份等于开出第二个要同步维护的地方，而两处不一致比只有一处更糟。
+     本 App 的隐私标签逐项答案见后端仓库 docs/review/appstore-readiness-review-20260817.md §4。
+     其中「设备 ID」一项要按阿里云 SDK 的实际行为勾选：它自报收集 DeviceID 且 Linked=true，
+     用途按 Apple 口径归入 App functionality（防欺诈 / 安全措施）。
+
+  ⚠️ 下面 DiskSpace 与 FileTimestamp 两条不是我们自己的 Swift 代码用的，**别当成冗余删掉**。
+     Vendor/AliyunCloudAuth 的 10 个 framework 全是**静态库**（`file` 显示 ar archive），
+     静态库的代码被链进主二进制，Apple 的扫描器把这些 API 引用算在**主 App 的 binary** 头上，
+     所以必须由本文件声明 —— 阿里云自己 framework 里那 5 份 PrivacyInfo.xcprivacy 根本进不了
+     App bundle（静态库不会被 embed）。实测符号：
+       DiskSpace     statfs / fstatfs / NSFileSystemFreeSize  → APPSecuritySDK, DTFUtility, faceguard
+       FileTimestamp attributesOfItemAtPath / NSFileCreationDate / stat → 9 个 framework 中多个
+     ⚠️ 且**不能照抄**阿里云那份 roll-up 的 reason code：7D9E.1 限「健康研究类 App」、
+     E174.1 要求把磁盘信息显著展示在用户主动提交的 bug 报告里、3B52.1 与 1C8F.1 明写
+     "may only be declared by third-party SDKs" —— 抄进主 App 清单会触发 ITMS-91055。
+
+  ⚠️ 新增任何用到下列 API 的代码，必须回来加一条，否则下次上传直接被拒：
+     文件时间戳 / 磁盘空间 / 活动键盘 / 系统启动时间 / UserDefaults
+     全量类别见 https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
+-->
+<plist version="1.0">
+<dict>
+	<!-- 不做任何跨 App/网站的追踪：无广告 SDK、不用 IDFA（高德用的是 -NO-IDFA 版本）、未接 ATT -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<!-- 用途：会话恢复、常用地点本地缓存、UI 测试的独立持久化域
+			     实际用点：Core/AppStatePersistence.swift、BlindRunner/FavoritePlaceStore.swift
+			     选 CA92.1 而不是 1C8F.1：本 App **没有** App Group entitlement，
+			     代码里 UserDefaults(suiteName:) 用的全是自身容器内的测试域（aidrun.tests.*），
+			     不是跨进程共享的 group.* —— 填 1C8F.1 会触发 ITMS-91055 无效理由。 -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- 用途：计算两次交互之间的时长（单调时钟，避免用户改系统时间导致负数）
+			     实际用点：blindRunApp.swift:244/278/294 的 ProcessInfo.processInfo.systemUptime
+			     阿里云静态库（APPSecuritySDK / faceguard）也用同一类，同样落在本条下。
+			     35F9.1 = 仅在 App 内部测量经过时间，不外传、不用于用户标识 -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- 来源：链进主二进制的阿里云静态库（APPSecuritySDK / DTFUtility / faceguard）
+			     85F4.1 = 写文件前检查空间是否足够 / 空间不足时删文件，是活体检测落盘模型与临时帧的行为。
+			     ⚠️ 不填 7D9E.1（限健康研究类 App）、不填 E174.1（要求把磁盘信息显著展示在
+			     用户主动提交的 bug 报告里）—— 本 App 两者都不成立，填了是虚假声明。 -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>85F4.1</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- 来源：链进主二进制的阿里云静态库（attributesOfItemAtPath / NSFileCreationDate / stat）
+			     DDA9.1 = 读 App 容器内文件的时间戳与大小等元数据，SDK 读的是自己写在容器里的文件。
+			     ⚠️ 不填 3B52.1（Apple 明写 "may only be declared by third-party SDKs"），
+			     不填 C617.1（那条是用户经文档选择器显式授权的文件，本 App 没有文档选择器）。 -->
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>DDA9.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

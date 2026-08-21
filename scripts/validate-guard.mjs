@@ -76,6 +76,95 @@ const cases = [
     }
   },
   {
+    // s.resources 是平铺复制到 App bundle 根目录 —— 那是主 App 自己的清单槽位。
+    name: 'podspec 把 PrivacyInfo.xcprivacy 列进 s.resources',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/x/Vendor/AliyunCloudAuth/2.3.51/AliyunCloudAuth.podspec',
+        old_string: 'a',
+        new_string: "  s.resources = [\n    'Resources/BioAuthEngine.bundle',\n    'PrivacyInfo.xcprivacy'\n  ]"
+      }
+    }
+  },
+  {
+    name: 'podspec 显式标注后放行（例如改用 s.resource_bundles）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/x/Vendor/AliyunCloudAuth/2.3.51/AliyunCloudAuth.podspec',
+        old_string: 'a',
+        new_string: "  s.resource_bundles = { 'AliyunCloudAuth' => ['PrivacyInfo.xcprivacy'] } # guard:allow vendor-privacy-manifest"
+      }
+    }
+  },
+  {
+    // podspec 里解释「为什么不要加回来」的注释必须能写出这个文件名，否则该文件自己改不动。
+    name: 'podspec 注释里提到 PrivacyInfo.xcprivacy',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/x/Vendor/AliyunCloudAuth/2.3.51/AliyunCloudAuth.podspec',
+        old_string: 'a',
+        new_string: '  # ⚠️ 不要把 PrivacyInfo.xcprivacy 加回 s.resources'
+      }
+    }
+  },
+  {
+    // Apple 逐字写着 "may only be declared by third-party SDKs"，主 App 填了换来 ITMS-91055。
+    name: '主 App 清单填第三方专用 reason code 3B52.1',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/x/blindRun/PrivacyInfo.xcprivacy',
+        old_string: 'a',
+        new_string: '\t\t\t<array>\n\t\t\t\t<string>3B52.1</string>\n\t\t\t</array>'
+      }
+    }
+  },
+  {
+    name: '主 App 清单填第三方专用 reason code 1C8F.1',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/x/blindRun/PrivacyInfo.xcprivacy',
+        old_string: 'a',
+        new_string: '<string>1C8F.1</string>'
+      }
+    }
+  },
+  {
+    // 主 App 该用的对应项，必须放行 —— 否则这条规则会把正确修法一起拦掉。
+    name: '主 App 清单填 App 可用的 DDA9.1',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/x/blindRun/PrivacyInfo.xcprivacy',
+        old_string: 'a',
+        new_string: '<string>DDA9.1</string>'
+      }
+    }
+  },
+  {
+    // 第三方 SDK **自己的**清单里 3B52.1 是合法的，不能连它一起拦。
+    name: 'Vendor 下第三方 SDK 自己的清单填 3B52.1',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/x/Vendor/AliyunCloudAuth/2.3.50/PrivacyInfo.xcprivacy',
+        old_string: 'a',
+        new_string: '<string>3B52.1</string>'
+      }
+    }
+  },
+  {
     // 2026-08-06：这条规则曾拦住 AGENTS.md 第 9 节自己 —— 那节的正文就得写出这个键名。
     // 文档设不了构建设置，放行零风险；不放行的话，记录规则的文档反而改不动。
     name: 'Markdown 文档可以提及架构排除设置',
