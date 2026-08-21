@@ -12,6 +12,7 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 | `aidrun-a11y-voice` | 盲人端 UI、VoiceOver、语音输入/播报、高德地图、定位与坐标系 |
 | `aidrun-error-codes` | 处理 API 错误、写 TTS 错误播报、新增错误分支 |
 | `aidrun-ship-check` | 实现完成、准备提交、准备宣称「做完了 / 测试通过」 |
+| `aidrun-contract-sync` | 后端契约变了、pre-push 报「生成代码与契约不同步」、判契约新字段要不要接入 |
 
 ## 1. 事故复盘规则（最重要的一条）
 
