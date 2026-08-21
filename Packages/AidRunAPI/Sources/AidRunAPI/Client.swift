@@ -4009,6 +4009,22 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// WebSocket 断线时的 REST 位置降级。**仅 BLIND**，取当前进行中订单里志愿者的最新坐标。
+    ///
+    /// `data` 的键：`lat` / `lng`（GCJ-02）、`orderId`、`status`、`updatedAt`。
+    ///
+    /// - `status` —— 订单当前状态，**与 `GET /api/orders/{id}` 同源**，同一时刻可能领先于
+    ///   客户端上一次轮询到的值。⚠️ 拿它做交叉校验时应「不一致以本条为准并刷新订单」，
+    ///   **不要用它否掉坐标** —— 坐标是这个端点存在的唯一理由。
+    ///   （2026-08-20 由 `orderStatus` 改名为 `status`：iOS 一直解 `status`，
+    ///   于是那条校验从未真正执行过。回归门 `OrderTrackTest#volunteerLocationFallback_worksDuringInProgress`。）
+    /// - `updatedAt` —— 位置采样时刻，**epoch 毫秒**，与 WebSocket `VOLUNTEER_LOCATION_UPDATE`
+    ///   的 `timestamp` 同格式同来源。没有它客户端只能完全依赖服务端 Redis TTL
+    ///   （`app.volunteer.location-ttl-seconds`，当前 30 秒）判新鲜度。
+    ///
+    ///
+    /// 位置 key 不存在（志愿者超过 TTL 没上报）返 404 —— **这是正常情况，不是错误**， 客户端应静默保持上一个已知位置，别念报错。
+    ///
     /// - Remark: HTTP `GET /api/blind/volunteer-location`.
     /// - Remark: Generated from `#/paths//api/blind/volunteer-location/get(getVolunteerLocation)`.
     public func getVolunteerLocation(_ input: Operations.getVolunteerLocation.Input) async throws -> Operations.getVolunteerLocation.Output {

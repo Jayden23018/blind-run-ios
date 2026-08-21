@@ -484,6 +484,22 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /api/orders/available`.
     /// - Remark: Generated from `#/paths//api/orders/available/get(getAvailableOrders)`.
     func getAvailableOrders(_ input: Operations.getAvailableOrders.Input) async throws -> Operations.getAvailableOrders.Output
+    /// WebSocket 断线时的 REST 位置降级。**仅 BLIND**，取当前进行中订单里志愿者的最新坐标。
+    ///
+    /// `data` 的键：`lat` / `lng`（GCJ-02）、`orderId`、`status`、`updatedAt`。
+    ///
+    /// - `status` —— 订单当前状态，**与 `GET /api/orders/{id}` 同源**，同一时刻可能领先于
+    ///   客户端上一次轮询到的值。⚠️ 拿它做交叉校验时应「不一致以本条为准并刷新订单」，
+    ///   **不要用它否掉坐标** —— 坐标是这个端点存在的唯一理由。
+    ///   （2026-08-20 由 `orderStatus` 改名为 `status`：iOS 一直解 `status`，
+    ///   于是那条校验从未真正执行过。回归门 `OrderTrackTest#volunteerLocationFallback_worksDuringInProgress`。）
+    /// - `updatedAt` —— 位置采样时刻，**epoch 毫秒**，与 WebSocket `VOLUNTEER_LOCATION_UPDATE`
+    ///   的 `timestamp` 同格式同来源。没有它客户端只能完全依赖服务端 Redis TTL
+    ///   （`app.volunteer.location-ttl-seconds`，当前 30 秒）判新鲜度。
+    ///
+    ///
+    /// 位置 key 不存在（志愿者超过 TTL 没上报）返 404 —— **这是正常情况，不是错误**， 客户端应静默保持上一个已知位置，别念报错。
+    ///
     /// - Remark: HTTP `GET /api/blind/volunteer-location`.
     /// - Remark: Generated from `#/paths//api/blind/volunteer-location/get(getVolunteerLocation)`.
     func getVolunteerLocation(_ input: Operations.getVolunteerLocation.Input) async throws -> Operations.getVolunteerLocation.Output
@@ -1333,6 +1349,22 @@ extension APIProtocol {
     public func getAvailableOrders(headers: Operations.getAvailableOrders.Input.Headers = .init()) async throws -> Operations.getAvailableOrders.Output {
         try await getAvailableOrders(Operations.getAvailableOrders.Input(headers: headers))
     }
+    /// WebSocket 断线时的 REST 位置降级。**仅 BLIND**，取当前进行中订单里志愿者的最新坐标。
+    ///
+    /// `data` 的键：`lat` / `lng`（GCJ-02）、`orderId`、`status`、`updatedAt`。
+    ///
+    /// - `status` —— 订单当前状态，**与 `GET /api/orders/{id}` 同源**，同一时刻可能领先于
+    ///   客户端上一次轮询到的值。⚠️ 拿它做交叉校验时应「不一致以本条为准并刷新订单」，
+    ///   **不要用它否掉坐标** —— 坐标是这个端点存在的唯一理由。
+    ///   （2026-08-20 由 `orderStatus` 改名为 `status`：iOS 一直解 `status`，
+    ///   于是那条校验从未真正执行过。回归门 `OrderTrackTest#volunteerLocationFallback_worksDuringInProgress`。）
+    /// - `updatedAt` —— 位置采样时刻，**epoch 毫秒**，与 WebSocket `VOLUNTEER_LOCATION_UPDATE`
+    ///   的 `timestamp` 同格式同来源。没有它客户端只能完全依赖服务端 Redis TTL
+    ///   （`app.volunteer.location-ttl-seconds`，当前 30 秒）判新鲜度。
+    ///
+    ///
+    /// 位置 key 不存在（志愿者超过 TTL 没上报）返 404 —— **这是正常情况，不是错误**， 客户端应静默保持上一个已知位置，别念报错。
+    ///
     /// - Remark: HTTP `GET /api/blind/volunteer-location`.
     /// - Remark: Generated from `#/paths//api/blind/volunteer-location/get(getVolunteerLocation)`.
     public func getVolunteerLocation(headers: Operations.getVolunteerLocation.Input.Headers = .init()) async throws -> Operations.getVolunteerLocation.Output {
@@ -2954,9 +2986,28 @@ public enum Components {
             /// 非 null 时保证是用户原话的子串：模型改写/编造的备注会被丢弃（备注原样展示给志愿者，
             /// 编出来的"我行动不便"会直接误导对方）。只在触发大模型兜底那次顺带抽，正则不抽。
             ///
+            /// ⚠️ **保证 ≤ 200 字符**：超长时后端截断并置 `specialNotesTruncated: true`。
+            /// 不截断的后果不是「备注长一点」，而是用户听完一段完整的读回说「确认」，
+            /// 然后 `POST /api/orders` 被 `@Size(max=200)` 打回 400 —— 整单失败。
+            ///
             ///
             /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/specialNotes`.
             public var specialNotes: Swift.String?
+            /// 上面那条备注是不是被后端截断过。`false` = 用户说的备注被完整记下。
+            ///
+            /// 备注不是用户打进来的，是后端从转录里抽的，到客户端时天然 ≤200 ⇒
+            /// 「说得短」「说了 300 字被截到 200」「说了 300 字整个丢了」在客户端长得一模一样。
+            /// 对看不见屏幕的人这是一次静默失败：他那句「如果我说头晕就扶我坐下」有没有进去，无从分辨。
+            ///
+            /// `true` 时客户端应在读回里说明只记下了前面一部分（截掉的必然是句子后半段，
+            /// 而条件从句恰恰都在后半段）。
+            ///
+            /// 🚨 **别用「长度正好 200」去猜** —— 恰好 200 字是合法输入，猜错的代价是对着一段
+            /// 完整的备注念「我只记下了前面这些」，比不念更糟。这个字段就是为了让客户端不必猜。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/ParseVoiceOrderResponse/specialNotesTruncated`.
+            public var specialNotesTruncated: Swift.Bool?
             /// 用户否定了读回确认、但没说要改哪一项（只说了"不对"），**且模型也没识别出他想改什么**。
             /// 仅在请求带了 `current` 时可能为 true。
             ///
@@ -3286,6 +3337,7 @@ public enum Components {
             ///   - hasGuideDog: 本次是否携带导盲犬 —— **可选槽位**，`null` 表示原话没提。
             ///   - pacePreference: 本次配速偏好 —— 可选槽位，`null` 表示原话没提，下单时不传即回落档案默认配速
             ///   - specialNotes: 本次备注 —— 可选槽位，`null` 表示原话没提。
+            ///   - specialNotesTruncated: 上面那条备注是不是被后端截断过。`false` = 用户说的备注被完整记下。
             ///   - correctionUnclear: 用户否定了读回确认、但没说要改哪一项（只说了"不对"），**且模型也没识别出他想改什么**。
             ///   - userIntent: 用户对读回确认的**表态** —— 确认下单 / 取消 / 全部重来。没表态时为 `null`。2026-08-09 新增。
             ///   - correctionTarget: 用户点名要改的那一项 —— 他说了"改哪一项"、但**没给新值**（"我想改时间"/"终点错了"）。
@@ -3309,6 +3361,7 @@ public enum Components {
                 hasGuideDog: Swift.Bool? = nil,
                 pacePreference: Components.Schemas.ParseVoiceOrderResponse.pacePreferencePayload? = nil,
                 specialNotes: Swift.String? = nil,
+                specialNotesTruncated: Swift.Bool? = nil,
                 correctionUnclear: Swift.Bool,
                 userIntent: Components.Schemas.ParseVoiceOrderResponse.userIntentPayload? = nil,
                 correctionTarget: Components.Schemas.ParseVoiceOrderResponse.correctionTargetPayload? = nil,
@@ -3332,6 +3385,7 @@ public enum Components {
                 self.hasGuideDog = hasGuideDog
                 self.pacePreference = pacePreference
                 self.specialNotes = specialNotes
+                self.specialNotesTruncated = specialNotesTruncated
                 self.correctionUnclear = correctionUnclear
                 self.userIntent = userIntent
                 self.correctionTarget = correctionTarget
@@ -3356,6 +3410,7 @@ public enum Components {
                 case hasGuideDog
                 case pacePreference
                 case specialNotes
+                case specialNotesTruncated
                 case correctionUnclear
                 case userIntent
                 case correctionTarget
@@ -4619,6 +4674,18 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerName`.
             public var volunteerName: Swift.String?
+            /// 已接单志愿者的历史平均评分（1–5）。**未接单时为 null**（三个 volunteer* 统计字段 都挂在 `order.volunteer` 上，`PENDING_MATCH`/`REMATCHING`/`NO_VOLUNTEER`/`CANCELLED` 期它本就是 null ⇒「接单前不下发可识别信息」是结构上成立的，不靠调用方判状态）。 🚨 **null 与 0 语义完全不同**：null = 这位志愿者还没有收到过评价（`volunteerTotalRatings` 为 0）， 客户端要念「这位志愿者还没有评价」；念成「0 分」是把一个新人说成了差评。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerAvgRating`.
+            public var volunteerAvgRating: Swift.Double?
+            /// 已接单志愿者收到过的评价条数。0 是真实的 0（新人），不是缺数据；未接单时为 null。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerTotalRatings`.
+            public var volunteerTotalRatings: Swift.Int?
+            /// 已接单志愿者累计完成的陪跑单数。未接单时为 null。 ⚠️ **纯展示，不进派单权重** —— 文案上别写成「完成得多更容易接到单」。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerTotalCompleted`.
+            public var volunteerTotalCompleted: Swift.Int?
             /// 这一单当前是否有生效中的行程分享链接。 🚨 **只对下单的盲人本人下发；志愿者视角恒为 `null`**（不是 `false`）。 客户端据此渲染「停止分享」入口 —— 此前该状态只记在客户端本地， App 被杀 / 换设备 / 重装后，告知页承诺的「你可以随时停止分享」就静默失效。 为什么志愿者拿不到：本仓库的威胁模型是「陪跑中志愿者可能就是威胁来源」， 下发这个字段等于告诉一个潜在的坏人**这趟有没有人在看**，`false` 比 `true` 危险得多。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/shareActive`.
@@ -4683,6 +4750,9 @@ public enum Components {
             ///   - tetherPreference:
             ///   - chatPreference:
             ///   - volunteerName: 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 未接单时为 null。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
+            ///   - volunteerAvgRating: 已接单志愿者的历史平均评分（1–5）。**未接单时为 null**（三个 volunteer* 统计字段 都挂在 `order.volunteer` 上，`PENDING_MATCH`/`REMATCHING`/`NO_VOLUNTEER`/`CANCELLED` 期它本就是 null ⇒「接单前不下发可识别信息」是结构上成立的，不靠调用方判状态）。 🚨 **null 与 0 语义完全不同**：null = 这位志愿者还没有收到过评价（`volunteerTotalRatings` 为 0）， 客户端要念「这位志愿者还没有评价」；念成「0 分」是把一个新人说成了差评。
+            ///   - volunteerTotalRatings: 已接单志愿者收到过的评价条数。0 是真实的 0（新人），不是缺数据；未接单时为 null。
+            ///   - volunteerTotalCompleted: 已接单志愿者累计完成的陪跑单数。未接单时为 null。 ⚠️ **纯展示，不进派单权重** —— 文案上别写成「完成得多更容易接到单」。
             ///   - shareActive: 这一单当前是否有生效中的行程分享链接。 🚨 **只对下单的盲人本人下发；志愿者视角恒为 `null`**（不是 `false`）。 客户端据此渲染「停止分享」入口 —— 此前该状态只记在客户端本地， App 被杀 / 换设备 / 重装后，告知页承诺的「你可以随时停止分享」就静默失效。 为什么志愿者拿不到：本仓库的威胁模型是「陪跑中志愿者可能就是威胁来源」， 下发这个字段等于告诉一个潜在的坏人**这趟有没有人在看**，`false` 比 `true` 危险得多。
             ///   - shareExpiresAt: 生效中分享链接的到期时刻；`shareActive` 为 true 时才有值，同样只对盲人本人下发。 ⚠️ 该值在**建立令牌时一次算定**（`max(plannedEndTime, now) + app.share.ttl-after-end-hours`）， **不随订单被 keep-waiting 反复延长而重算** —— 跑得比计划久很多时链接会先到期， 盲人重新生成一个即可。客户端可据此做到期前提示，但不要假设它会自己往后延。
             ///   - actualDistanceMeters: **完赛实际里程（米）**，订单进 `COMPLETED` 时算一次落库（迁移 `0022`）。2026-08-14 新增。
@@ -4717,6 +4787,9 @@ public enum Components {
                 tetherPreference: Components.Schemas.OrderDetailResponse.tetherPreferencePayload? = nil,
                 chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload? = nil,
                 volunteerName: Swift.String? = nil,
+                volunteerAvgRating: Swift.Double? = nil,
+                volunteerTotalRatings: Swift.Int? = nil,
+                volunteerTotalCompleted: Swift.Int? = nil,
                 shareActive: Swift.Bool? = nil,
                 shareExpiresAt: Foundation.Date? = nil,
                 actualDistanceMeters: Swift.Int32? = nil,
@@ -4751,6 +4824,9 @@ public enum Components {
                 self.tetherPreference = tetherPreference
                 self.chatPreference = chatPreference
                 self.volunteerName = volunteerName
+                self.volunteerAvgRating = volunteerAvgRating
+                self.volunteerTotalRatings = volunteerTotalRatings
+                self.volunteerTotalCompleted = volunteerTotalCompleted
                 self.shareActive = shareActive
                 self.shareExpiresAt = shareExpiresAt
                 self.actualDistanceMeters = actualDistanceMeters
@@ -4786,6 +4862,9 @@ public enum Components {
                 case tetherPreference
                 case chatPreference
                 case volunteerName
+                case volunteerAvgRating
+                case volunteerTotalRatings
+                case volunteerTotalCompleted
                 case shareActive
                 case shareExpiresAt
                 case actualDistanceMeters
@@ -15387,6 +15466,22 @@ public enum Operations {
             }
         }
     }
+    /// WebSocket 断线时的 REST 位置降级。**仅 BLIND**，取当前进行中订单里志愿者的最新坐标。
+    ///
+    /// `data` 的键：`lat` / `lng`（GCJ-02）、`orderId`、`status`、`updatedAt`。
+    ///
+    /// - `status` —— 订单当前状态，**与 `GET /api/orders/{id}` 同源**，同一时刻可能领先于
+    ///   客户端上一次轮询到的值。⚠️ 拿它做交叉校验时应「不一致以本条为准并刷新订单」，
+    ///   **不要用它否掉坐标** —— 坐标是这个端点存在的唯一理由。
+    ///   （2026-08-20 由 `orderStatus` 改名为 `status`：iOS 一直解 `status`，
+    ///   于是那条校验从未真正执行过。回归门 `OrderTrackTest#volunteerLocationFallback_worksDuringInProgress`。）
+    /// - `updatedAt` —— 位置采样时刻，**epoch 毫秒**，与 WebSocket `VOLUNTEER_LOCATION_UPDATE`
+    ///   的 `timestamp` 同格式同来源。没有它客户端只能完全依赖服务端 Redis TTL
+    ///   （`app.volunteer.location-ttl-seconds`，当前 30 秒）判新鲜度。
+    ///
+    ///
+    /// 位置 key 不存在（志愿者超过 TTL 没上报）返 404 —— **这是正常情况，不是错误**， 客户端应静默保持上一个已知位置，别念报错。
+    ///
     /// - Remark: HTTP `GET /api/blind/volunteer-location`.
     /// - Remark: Generated from `#/paths//api/blind/volunteer-location/get(getVolunteerLocation)`.
     public enum getVolunteerLocation {
