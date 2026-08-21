@@ -247,7 +247,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
     private func sendLatestLocation(now: Date) async {
         guard isSessionEligible,
               webSocketService?.connectionState.canSendOrQueueMessages == true,
-              let sample = locationService?.latestEscortBackendSample() else { return }
+              let sample = locationService?.latestEscortBackendSample(now: now) else { return }
         guard let webSocketService else { return }
         ClientFlowDiagnostics.record(event: "started", operation: "escort-location-send")
         await sendLocation(webSocketService, sample)
@@ -269,7 +269,10 @@ final class LiveEscortSessionCoordinator: ObservableObject {
             setHealthState(.networkDisconnected)
             return
         }
-        guard locationService?.latestEscortBackendSample() != nil else {
+        // 样本年龄闸在 `latestEscortBackendSample` 里，所以「样本停更超过 60 秒」和
+        // 「Core Location 明确报错」在这里是同一条分支 —— 对用户也确实是同一件事。
+        // 不需要额外的定时器：上报循环每 `reportInterval`（5 秒）就会走一次这里。
+        guard locationService?.latestEscortBackendSample(now: now) != nil else {
             setHealthState(.waitingForLocation)
             return
         }

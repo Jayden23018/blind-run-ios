@@ -200,6 +200,22 @@ final class LocationService: NSObject, ObservableObject {
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.distanceFilter = 10 // 每移动 10 米更新一次
+        // **在唯一的构造点无条件关掉自动暂停，不交给任何分支去设。**
+        //
+        // Core Location 的默认值是 `true`，而 Apple 的原文是（2026-08-20 核实，
+        // `docs/research/ios-location-pause-and-ats-20260820.md` §1）：
+        // 「For apps that have in-use authorization, a pause to location updates ends access to
+        //  location changes **until the app launches again**」。
+        // 本 App 只申请 in-use（全仓无 `requestAlwaysAuthorization`），所以一次暂停 = 到重启为止
+        // 都拿不到新位置，而调用方完全不知道。
+        //
+        // 此前这一行写在 `setEscortBackgroundMode` 里，形如 `= !enabled`，于是：
+        // ① 该方法开头的 `guard isEscortBackgroundModeEnabled != enabled` 在初值 `false` 时
+        //    把第一次 `enabled: false` 的调用整段吞掉，这一行从未执行；
+        // ② 即便执行，非 `IN_PROGRESS`（`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`）反而会把它设回 `true`。
+        // 而志愿者在路上等红灯、或到了集合点站着等人，正是「位置不变」的典型场景 ——
+        // iOS 判定可以暂停，盲人正在原地等一个据说「已到达」的人。
+        manager.pausesLocationUpdatesAutomatically = false
     }
 
     // MARK: - Public Methods
@@ -248,7 +264,8 @@ final class LocationService: NSObject, ObservableObject {
         locationManager.activityType = enabled ? .fitness : .other
         locationManager.desiredAccuracy = enabled ? kCLLocationAccuracyBestForNavigation : kCLLocationAccuracyBest
         locationManager.distanceFilter = enabled ? 5 : 10
-        locationManager.pausesLocationUpdatesAutomatically = !enabled
+        // `pausesLocationUpdatesAutomatically` **不在这里设** —— 见 `init`。它是全 App 恒 false 的
+        // 不变量，放在这个带 guard 的分支方法里正是它此前从未生效的原因。
         locationManager.showsBackgroundLocationIndicator = enabled
         locationManager.allowsBackgroundLocationUpdates = enabled
         if enabled {
@@ -262,13 +279,63 @@ final class LocationService: NSObject, ObservableObject {
         return BackendCoordinateNormalizer.normalize(sample)
     }
 
-    /// 同行会话按固定 cadence 复用最近一次真实设备样本；静止不等于定位失效。
-    /// 只有权限撤销或 Core Location 明确报告失败时才暂停发送。
-    func latestEscortBackendSample() -> LocatedCoordinate? {
+    /// 同行会话可以接受的最大样本年龄。
+    ///
+    /// **不是 15 秒**（求助路径 `latestBackendSample` 那道闸的值）。上报周期是 5 秒，而
+    /// `distanceFilter` 是 5–10 米 —— 正常走动时样本随时在来，60 秒是个很宽的门；
+    /// 取这么宽正是为了不把「人站住了、坐标没变」误判成定位失效。
+    ///
+    /// ⚠️ 已知代价：非陪跑模式下 `distanceFilter = 10`，本仓库自己记着「站着不动 Core Location
+    /// 就不推新样本」（`BlindBookingView.swift:967-977`，那条注释来自一次真实的线上误判）。
+    /// 所以 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 期间原地站够 60 秒仍可能报一次
+    /// 「设备位置暂时不可用」。相对于「让对端一直以为陈旧坐标是新的」，这一侧的代价更小 ——
+    /// 说错「位置暂时不可用」用户还能自己判断，说对了「15 秒内的新位置」而其实是十分钟前的，
+    /// 看不见屏幕的人无从分辨。
+    nonisolated static let escortSampleMaxAge: TimeInterval = 60
+
+    /// 同行会话按固定 cadence 复用最近一次真实设备样本；**坐标静止不等于定位失效，
+    /// 但样本停更等于**。
+    ///
+    /// 这两件事此前被当成一件事：原实现只看权限与 `locationError`，不看样本年龄，
+    /// 注释还写明是故意的。后果是 GPS 卡住（隧道、地库、商场、iOS 自动暂停）时
+    /// Core Location 常常**不报错**、只是不再送新样本，于是发送端每 5 秒把同一个陈旧坐标
+    /// 重发一次，服务端每次打上**当前**时间戳，接收端每次都判定「这是 15 秒内的新位置」。
+    /// 上行报文里没有采样时间（`WSLocationUpdateMessage` 只有 `type/lat/lng`），
+    /// 对端因此没有任何办法自己看穿 —— 只能由发送端不发。
+    ///
+    /// 返回 nil 同时达成两件事，不需要各自再加判断：
+    /// `sendLatestLocation` 的 `guard let sample` 停发（连 `escort-location-send` 的诊断事件
+    /// 都不会产生），`refreshHealth` 的 `guard ... != nil` 落到 `.waitingForLocation`。
+    ///
+    /// 根因修法是后端给 `WSLocationUpdateMessage` 补 `capturedAt` 并透传给对端 —— 已列入待投递。
+    func latestEscortBackendSample(
+        now: Date = Date(),
+        maxAge: TimeInterval = LocationService.escortSampleMaxAge
+    ) -> LocatedCoordinate? {
         guard isAuthorized,
               locationError == nil,
-              let sample = latestDeviceSample else { return nil }
+              let sample = latestDeviceSample,
+              now.timeIntervalSince(sample.capturedAt) <= maxAge else { return nil }
         return BackendCoordinateNormalizer.normalize(sample)
+    }
+
+    /// Core Location 自行暂停之后的恢复。
+    ///
+    /// `init` 里已经把 `pausesLocationUpdatesAutomatically` 关掉，所以正常情况下这条路走不到。
+    /// 仍然实现它，是因为 Apple 明说暂停之后**重启是 App 自己的责任**，而这个 App 里
+    /// 「不再有新位置」这件事必须被说出来，不能安静地停在最后一个坐标上 ——
+    /// 那正是 F2 描述的那条链路（每 5 秒把同一个陈旧坐标重发一次，对端每次都判成新位置）。
+    ///
+    /// 两行顺序不能反，各自都有理由：
+    /// - 先把 `isUpdatingLocation` 归位，否则 `startUpdating()` 的幂等 guard 会把这次重启整个吞掉
+    ///   （暂停时它仍是 `true`，Core Location 停了但这边不知道）。
+    /// - `setLocationError` 放在 `startUpdating()` **之后**，因为后者会先把错误清成 `nil`。
+    ///   这一格由下一次真实回调（`didUpdateLocations`）清掉；在那之前
+    ///   `latestEscortBackendSample()` 返回 nil，同行会话停发并落到 `.waitingForLocation`。
+    func handlePausedLocationUpdates() {
+        isUpdatingLocation = false
+        startUpdating()
+        setLocationError(.locationUnavailable)
     }
 
     /// 请求一次定位（获取当前位置后自动停止）
@@ -352,6 +419,15 @@ extension LocationService: CLLocationManagerDelegate {
             print("[LocationService] 定位失败: \(error.localizedDescription)")
             #endif
             self.setLocationError(.locationUnavailable)
+        }
+    }
+
+    nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            #if DEBUG
+            if self.suppressHardwareUpdatesForTesting { return }
+            #endif
+            self.handlePausedLocationUpdates()
         }
     }
 
