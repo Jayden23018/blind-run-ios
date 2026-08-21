@@ -447,6 +447,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             return try handleRegisterApnsToken(body: body)
         }
 
+        // 解绑本机 token（登出流程）。后端**幂等**：token 不存在、或属于别人时同样返 200 且不做事
+        // —— 返 403 会把「这个 token 是不是别人的」变成可探测的答案（契约 `unregisterApnsToken`）。
+        if path == "/api/devices/apns" && method == .delete {
+            return try handleUnregisterApnsToken(body: body)
+        }
+
         // 重连补读。后端要求 `after` 是 ISO-8601 字符串，传 epoch 会 400 INVALID_TIMESTAMP。
         if path == "/api/notifications/since" && method == .get {
             return try handleGetMissedNotifications(after: query?["after"])
@@ -474,6 +480,19 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "deviceToken 格式不正确"))
         }
         registeredApnsTokens.insert(request.deviceToken)
+        return EmptyResponse()
+    }
+
+    /// 解绑。`401` 那条分支照抄真实后端的行为，正是它让「先 logout 再解绑」的错误顺序
+    /// 在 Mock 上也现原形：logout 之后 `mockToken` 已清，这里就会抛 `unauthorized`。
+    private func handleUnregisterApnsToken(body: (any Encodable & Sendable)?) throws -> EmptyResponse {
+        guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(ApnsTokenRequestProbe.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
+        }
+        // 幂等：不存在也返 200。
+        registeredApnsTokens.remove(request.deviceToken)
         return EmptyResponse()
     }
 

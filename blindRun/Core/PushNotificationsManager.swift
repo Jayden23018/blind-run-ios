@@ -115,6 +115,54 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
         }
     }
 
+    /// 解绑本机 token，**必须在 `POST /api/auth/logout` 之前调**。
+    ///
+    /// 顺序不是风格问题，是后端契约写死的（`api_spec.yaml` `unregisterApnsToken` 的 description）：
+    /// logout 会把 JWT 拉黑，反过来调的话 JwtFilter 查到黑名单直接返 401，token 删不掉、洞照样在。
+    /// 契约原文特意加了一句「这一条读代码看不出来，请写进登出流程的注释」—— 就是这一段。
+    ///
+    /// 不解绑的后果：token 仍绑在旧 userId 上，后端会继续对 `priority=HIGH`（求助 / 走散告警 /
+    /// 到达 / 取消预警）补发 APNs 到这台手机，而 `userNotificationCenter(_:willPresent:)`
+    /// **会直接朗读出来** —— 设备转手、借用、换人登录之后，念的是上一个人的订单和紧急消息。
+    ///
+    /// 失败不阻断登出：接口幂等、可安全重试，而把人卡在登录态里更糟。本地那份绑定记忆
+    /// 无论成败都清掉，否则下一个账号的同一个 token 会被 `submitToken` 的短路判成「报过了」。
+    func unregisterDeviceTokenBeforeLogout() async {
+        defer { forgetLocalTokenBinding() }
+        guard let token = lastReportedScope?.token ?? pendingToken,
+              let appState, appState.isLoggedIn else { return }
+        do {
+            let _: EmptyResponse = try await appState.apiClient.request(
+                method: .delete,
+                path: "/api/devices/apns",
+                query: nil,
+                body: ApnsTokenRequest(deviceToken: token),
+                requiresAuth: true
+            )
+        } catch {
+            ClientFlowDiagnostics.record(event: "failed", operation: "apns-token-unregister")
+        }
+    }
+
+    /// 忘掉「这个 token 已经报给这个账号了」。
+    ///
+    /// 每一条会话结束路径都要走（含 401 过期 —— 那条路上 token 已经废了，解绑必然 401，
+    /// 但本地这份记忆留着就会让下一个账号的上报被短路掉，推送从此静默失效）。
+    func forgetLocalTokenBinding() {
+        lastReportedScope = nil
+        pendingToken = nil
+    }
+
+    #if DEBUG
+    var hasLocalTokenBindingForTesting: Bool {
+        lastReportedScope != nil || pendingToken != nil
+    }
+
+    func seedReportedScopeForTesting(_ scope: ReportedTokenScope) {
+        lastReportedScope = scope
+    }
+    #endif
+
     // MARK: - UNUserNotificationCenterDelegate
 
     /// 前台收到推送：直接朗读，并保留横幅与提示音（HIGH 通知不应静默）。

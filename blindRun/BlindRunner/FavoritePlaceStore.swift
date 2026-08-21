@@ -21,16 +21,19 @@ final class FavoritePlaceStore: ObservableObject {
     /// 读屏用户要从头听到尾才能选中最后一条，20 条的列表等于没有列表。
     static let capacity = 10
 
-    private static let storageKey = "aidrun.favorite-start-places.v1"
+    /// 仅用于把历史存量搬走后删掉。**新数据不再写这里。**
+    private static let legacyDefaultsKey = "aidrun.favorite-start-places.v1"
+
+    private static let fileName = "favorite-start-places.v1.json"
 
     @Published private(set) var places: [ResolvedPlace] = []
 
-    private let defaults: UserDefaults
+    private let directory: URL
 
-    /// - Parameter defaults: 单测传一个临时 suite，别污染真机上用户自己的收藏。
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        places = Self.load(from: defaults)
+    /// - Parameter directory: 单测传一个临时目录，别污染真机上用户自己的收藏。
+    init(directory: URL = FavoritePlaceStore.defaultDirectory) {
+        self.directory = directory
+        places = Self.load(from: directory)
     }
 
     /// 这个地点是不是已经收藏过了。判据是坐标不是名字 —— 同一个点用不同关键词搜出来，
@@ -94,16 +97,94 @@ final class FavoritePlaceStore: ObservableObject {
         )
     }
 
-    private static func load(from defaults: UserDefaults) -> [ResolvedPlace] {
-        guard let data = defaults.data(forKey: storageKey) else { return [] }
-        // 解不出就当没有收藏，**但不清除那份数据** —— 下一次 `persist()` 才会覆盖它。
+    // MARK: - 落盘位置
+
+    /// **不是 `UserDefaults`。**
+    ///
+    /// 存的是 `title` + `addressText` + 5 位小数的经纬度（约 1 米）。一个视障用户的常去地点集合
+    /// 直接就是「这个人什么时候会在哪」，泄露价值不比身份证号低 —— 而同一个仓库里，身份证号写着
+    /// 「只在内存中短暂存在，不写入 `UserDefaults`、Keychain 或任何日志」
+    /// （`BlindIdentityVerificationView.swift:25`），证书文件写着「不落 UserDefaults/Keychain」
+    /// （`VolunteerCertificateUploadView.swift:22`）。`UserDefaults` 是 App 容器里的明文 plist，
+    /// 没有 data protection class，且**进 iTunes / iCloud 备份**。
+    ///
+    /// 改落 Application Support 下的文件，两条属性缺一不可：
+    /// - `.completeUnlessOpen`：静止时加密。不用 `.complete` 是因为它在锁屏后连已打开的句柄都读不了；
+    ///   这份数据只在前台被读写，`UnlessOpen` 足够且不会制造锁屏期的静默失败。
+    /// - `isExcludedFromBackup`：不进备份。这是 `UserDefaults` 拿不到的那一半。
+    static let defaultDirectory: URL = {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        return base.appendingPathComponent("AidRun", isDirectory: true)
+    }()
+
+    private var fileURL: URL { directory.appendingPathComponent(Self.fileName) }
+
+    /// 会话结束时清空。由 `AppState.performLocalSessionCleanup` 调用。
+    ///
+    /// 做成 static 而不是实例方法：这个 store 是 `BlindBookingView` 的 `@StateObject`
+    /// （`BlindBookingView.swift:889`），`AppState` 手里没有它的引用，而登出时那个页面早已销毁。
+    /// 顺带把历史存量那把明文 key 也删掉 —— 只搬家不删除等于把明文副本永远留在设备上。
+    static func clearPersistedPlaces(
+        directory: URL = FavoritePlaceStore.defaultDirectory,
+        defaults: UserDefaults = .standard
+    ) {
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent(fileName))
+        defaults.removeObject(forKey: legacyDefaultsKey)
+    }
+
+    private static func load(from directory: URL) -> [ResolvedPlace] {
+        let url = directory.appendingPathComponent(fileName)
+        // 存量迁移：老版本写在 `UserDefaults` 里。搬过来之后要删掉那把 key ——
+        // 留着就等于这次改动只是多了一份副本，明文那份照旧躺在备份里。
+        //
+        // **顺序：先写成功，再删旧的。** 反过来（先删后写）有一个真实的数据丢失窗口：
+        // `write` 里每一步都是 `try?`，磁盘满 / 目录建不出来时它安静地什么也没写，
+        // 而旧的那份已经被删了 —— 当次会话还看得见收藏（`migrated` 已经在内存里），
+        // 下次冷启动两边都读不到，用户的收藏无声消失。
+        if !FileManager.default.fileExists(atPath: url.path),
+           let legacy = UserDefaults.standard.data(forKey: legacyDefaultsKey) {
+            let migrated = (try? JSONDecoder().decode([ResolvedPlace].self, from: legacy)) ?? []
+            // 空集合（解不出来，或本来就是空的）没有东西可丢，直接删；
+            // 有内容的必须等 `write` 确认落盘。写失败就把旧 key 留着，下次启动再试一次。
+            if migrated.isEmpty || write(migrated, to: directory) {
+                UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+            }
+            return migrated
+        }
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        // 解不出就当没有收藏，**但不删那份文件** —— 下一次 `persist()` 才会覆盖它。
         // 这是本地便利数据，读失败的代价是用户少了几条快捷方式，不值得为它加一条错误提示；
         // 但也没有理由主动把用户的东西删掉。
         return (try? JSONDecoder().decode([ResolvedPlace].self, from: data)) ?? []
     }
 
+    /// - Returns: 真的落盘了吗。迁移路径靠这个返回值决定要不要删掉旧的明文那份 ——
+    ///   全 `try?` 吞掉错误、再让调用方假设写成功，正是数据丢失的那条路。
+    @discardableResult
+    private static func write(_ places: [ResolvedPlace], to directory: URL) -> Bool {
+        guard let data = try? JSONEncoder().encode(places) else { return false }
+        // `applicationSupportDirectory` 在 iOS 上**不保证已存在**（不像 Documents），
+        // 首次写入必须自己建；建不出来后面的写必然失败，所以这里的失败要往外传。
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(
+                to: directory.appendingPathComponent(fileName),
+                options: [.atomic, .completeFileProtectionUnlessOpen]
+            )
+        } catch {
+            return false
+        }
+        // 「不进备份」标在目录上。它失败不影响数据可用性（只是没被排除出备份），
+        // 所以不当作写失败 —— 否则一个备份属性设不上就会让上面那份数据被判成没写成。
+        var dir = directory
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        try? dir.setResourceValues(resourceValues)
+        return true
+    }
+
     private func persist() {
-        guard let data = try? JSONEncoder().encode(places) else { return }
-        defaults.set(data, forKey: Self.storageKey)
+        Self.write(places, to: directory)
     }
 }

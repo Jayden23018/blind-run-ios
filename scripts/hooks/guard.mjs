@@ -349,10 +349,20 @@ function main() {
       /\.swift$/.test(filePath) &&
       !/\/blindRun(Tests|UITests)\//.test(filePath) &&
       !/\/Safety\/SafetyModule\.swift$/.test(filePath);
+    //
+    // 2026-08-20 补 `tel://`：原规则只认 `UIApplication.shared.open`，而志愿者端两处拨号写的是
+    // SwiftUI 的 `@Environment(\.openURL)` + `openURL(URL(string: "tel://\(phone)"))`
+    // （`VolunteerOrderFlowViews.swift:2559,2865`）—— 同一个洞、换一种拼法，整整两处从这道
+    // 守卫底下走了过去。所以判据改成**按 URL 本身登记**：`tel://` 只允许出现在
+    // `EmergencyDialer.telURL` 里，不再去追有多少种 open 的写法（追写法必然漏下一种）。
     const rawOpenLine = isProductionSwift
       ? body
           .split('\n')
-          .find((l) => /UIApplication\.shared\.open\(/.test(l) && !l.includes('guard:allow raw-open-url'))
+          .find(
+            (l) =>
+              (/UIApplication\.shared\.open\(/.test(l) || /"tel:\/\//.test(l)) &&
+              !l.includes('guard:allow raw-open-url')
+          )
       : undefined;
     if (rawOpenLine) {
       fail(

@@ -938,8 +938,11 @@ struct BlindStatusCard: View {
             Text("出发地点：\(order.startAddress ?? "")")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
+            // 掩码，理由与订单状态页那条拨号按钮「刻意不念号码」同源
+            // （`BlindOrderStatusView.swift:1196-1199`）：读屏是**外放**的，念全号等于把
+            // 志愿者的手机号广播给周围所有人。要真号去订单详情页按拨号键，那条路不经过朗读。
             if let volunteerPhone = order.volunteerPhone, !volunteerPhone.trimmed.isEmpty {
-                Text("志愿者电话：\(volunteerPhone)")
+                Text("志愿者电话：\(EmergencyContactResponse.maskPhone(volunteerPhone) ?? volunteerPhone)")
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textPrimary)
             }
