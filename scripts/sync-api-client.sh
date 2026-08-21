@@ -62,56 +62,9 @@ if [[ ! -s "$DIFF_TMP" ]]; then
   exit 0
 fi
 
-# ②③ 分离注释与字段，再交叉查手写模型
-python3 - "$DIFF_TMP" "$REPO_ROOT" <<'PYEOF'
-import re, subprocess, sys, pathlib
-
-diff_path, repo = sys.argv[1], pathlib.Path(sys.argv[2])
-added = [l[1:] for l in open(diff_path)
-         if l.startswith('+') and not l.startswith('+++')]
-
-# stat 摘要行（'123 ++++----' / '+16 -0'）不是代码，别算进来 —— 这是坑 ②
-def is_stat(s):
-    return bool(re.fullmatch(r'[+\-]?\d+\s*[+\-]*\s*', s.strip()))
-
-comments = [s for s in added if s.strip().startswith('///')]
-code     = [s for s in added if not s.strip().startswith('///')
-            and s.strip() and not is_stat(s)]
-
-print(f"\n[sync-api-client] 漂移 {len(added)} 行：注释 {len(comments)}，代码 {len(code)}")
-
-# 从代码行里抽字段名：public var <name>:
-fields = sorted({m.group(1) for s in code
-                 for m in [re.search(r'public var (\w+):', s)] if m})
-if not fields:
-    print("[sync-api-client] 纯文档注释同步，无新字段。可以直接提交。")
-    sys.exit(0)
-
-print(f"\n[sync-api-client] ⚠ 契约新增 {len(fields)} 个字段，逐个查手写模型有没有：\n")
-missing = []
-for f in fields:
-    # 手写模型在 blindRun/ 下；生成代码在 Packages/ 下，不能算数
-    hit = subprocess.run(
-        ['grep', '-rl', f, str(repo / 'blindRun')],
-        capture_output=True, text=True).stdout.strip()
-    if hit:
-        print(f"  ✅ {f} —— 手写模型已有")
-    else:
-        print(f"  ❌ {f} —— 手写模型没有，运行时读不到")
-        missing.append(f)
-
-if missing:
-    print(f"""
-[sync-api-client] {len(missing)} 个字段只存在于生成代码里。生成代码**不投入运行时**
-（运行时走手写 APIClient，见 Packages/AidRunAPI/Package.swift），所以这些字段当前等于不存在。
-
-下一步不是顺手加进模型 —— 先读契约里每个字段的 description 判后果，再决定：
-  · 触及盲人端红线（静默失败 / TTS 播报 / null 与 0 语义相反）→ 单独开变更，要测试
-  · 纯展示且无播报 → 可以并入下一个相关 PR
-  · 前端用不上 → 什么都不做，但在 PR body 里写明为什么不接
-
-判完把结论写进 PR body，别让它悄悄消失 —— 这正是 skill aidrun-contract-sync 存在的理由。""")
-PYEOF
+# ②③ 分离注释与字段、交叉查手写模型 —— 与 pre-push 共用同一份实现，
+# 免得两处判据漂开（pre-push 那条是自动触发的，这条是人手动跑的，结论必须一致）
+node "$REPO_ROOT/scripts/report-drift-fields.mjs"
 
 rm -f "$DIFF_TMP"
 

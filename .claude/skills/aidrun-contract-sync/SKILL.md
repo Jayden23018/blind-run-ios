@@ -13,14 +13,29 @@ description: 后端契约变了、pre-push 报「生成代码与契约不同步�
 需要固化的是「知道之后干什么」，那部分以前每次都靠人重新想一遍，于是每次都要重新查
 「契约该从哪取」「fetch 了没」「新字段要不要接」。
 
-## 一条命令
+## 你不需要记得检查 —— pre-push 自动做
+
+装过 `scripts/install-git-hooks.sh` 的机器上，**每次 push 都会自动**：
+
+1. 从后端 `origin/main` 取契约
+2. 重新生成，**并把结果留在你的工作区**
+3. 比对，不一致就拦住 push
+4. 跑 `scripts/report-drift-fields.mjs`，把新增字段逐个交叉查手写模型有没有
+
+所以被拦住时**不用再跑任何生成命令** —— 结果已经在工作区里了，直接 `git add` + `commit`。
+终端上会直接列出哪几个字段手写模型没有。
+
+> 没装钩子的机器上这一切都不会发生。装：`scripts/install-git-hooks.sh`（每台机器一次）。
+
+## 手动跑（想在 push 之前先看看）
 
 ```bash
 scripts/sync-api-client.sh          # 取正式契约 → 重新生成 → 报告漂移
 scripts/sync-api-client.sh --check  # 同上，但生成后还原，工作区不留改动
+node scripts/report-drift-fields.mjs  # 只报告，不生成（读工作区已有的 diff）
 ```
 
-不确定要不要动手时先跑 `--check`。
+两条路径共用同一份判据实现（`report-drift-fields.mjs`），不会漂开。
 
 **不要直接跑 `scripts/generate-api-client.sh`** —— 它默认读 `../demo` 的**工作区文件**，
 而那是共享 checkout，随时停在别人的特性分支上（2026-08-21 实测停在 `review/backend-audit-20260820`）。
