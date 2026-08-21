@@ -56,6 +56,9 @@ extension RunOrderStatus {
         switch self {
         case .pendingMatch:
             return "可接订单"
+        // 中性、不归因：志愿者同样不该被告知自己是「第几个候选人」。
+        case .pendingIntroCall:
+            return "等待与跑者通话确认"
         case .pendingAccept:
             return "已接单，请前往约定地点"
         case .inProgress:
@@ -96,6 +99,8 @@ extension RunOrderStatus {
             return "订单异常"
         case .pendingMatch:
             return "等待接单"
+        case .pendingIntroCall:
+            return "通话确认"
         case .unknown:
             return "订单状态未知"
         }
@@ -128,6 +133,8 @@ extension RunOrderStatus {
             return "本次服务已结束"
         case .pendingMatch:
             return "订单尚未进入服务流程"
+        case .pendingIntroCall:
+            return "跑者会打电话给你，聊完双方都说合适才算接单"
         case .unknown:
             return "当前状态无法识别，请刷新后再操作"
         }
@@ -339,6 +346,9 @@ private extension RunOrderStatus {
         case .completed:
             return false
         case .pendingMatch, .cancelled, .noVolunteer:
+            return false
+        // 通话磨合不是志愿者的状态机动作（它由双方表态驱动），永远不会是这里的目标状态。
+        case .pendingIntroCall:
             return false
         // `.unknown` 只可能来自解码兜底，永远不会是志愿者操作的目标状态。
         case .unknown:
@@ -2605,10 +2615,20 @@ struct VolunteerServiceRunnerCard: View {
 /// 唯一必须先知道的东西。内容为空时整块不渲染（判定在 `OrderDetailResponse.escortNeeds`），
 /// 所以「不可跳过」不会变成「每单都有一块空卡片」。
 struct VolunteerRunnerNeedsBanner: View {
-    let order: OrderDetailResponse
+    private let needs: [EscortNeed]
+
+    init(order: OrderDetailResponse) {
+        self.needs = order.escortNeeds
+    }
+
+    /// 接单前的入口（通话磨合页）。那一刻拿不到 `OrderDetailResponse` ——
+    /// 后端 `OrderQueryService.getOrder` 只认 `order.volunteer`，通话期它恒为 null → 403。
+    /// 所以内容由派单载荷 `WSNewOrder.escortNeeds` 直接给（只剩导盲犬那一行）。
+    init(needs: [EscortNeed]) {
+        self.needs = needs
+    }
 
     var body: some View {
-        let needs = order.escortNeeds
         if !needs.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Label("本单为视障跑者", systemImage: "figure.walk.motion")
@@ -2640,7 +2660,7 @@ struct VolunteerRunnerNeedsBanner: View {
             // 合成一个焦点，且朗读文本写死：逐行分开会让读屏用户滑过其中一条而不自知，
             // 而这几行的意义恰恰在于「一条都不能漏」。
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(order.escortNeedsAnnouncement)
+            .accessibilityLabel(needs.escortNeedsAnnouncement)
             .accessibilityIdentifier("volunteerRunnerNeedsBanner")
         }
     }
@@ -2772,6 +2792,10 @@ struct VolunteerServiceActions: View {
         case .cancelled, .noVolunteer:
             return [.terminalMessage]
         case .pendingMatch, .rematching:
+            return []
+        // 通话磨合期的三个动作（合适 / 不合适 / 没接到电话）在 `VolunteerIntroCallView` 上，
+        // 走的是通话专用接口而不是订单状态流转端点，所以这条服务流程的动作条一个都不给。
+        case .pendingIntroCall:
             return []
         // 认不出状态就一个按钮都不给：宁可让志愿者刷新，也不能在未知状态上放出取消/结束这类不可逆操作。
         case .unknown:

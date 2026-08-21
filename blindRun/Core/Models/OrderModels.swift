@@ -11,6 +11,17 @@ enum BlindRunnerOrderRoute: String, Sendable {
 
 enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     case pendingMatch = "PENDING_MATCH"
+    /// 接单前通话磨合（后端迁移 `0031`）。候选志愿者选了「有意向，想先聊聊」，订单**锁定给他**，
+    /// 等盲人打过电话、双方各自表态；都说合适才转 `PENDING_ACCEPT`，任一方不合适或窗口超时
+    /// （20 分钟）退回 `PENDING_MATCH` 换下一位，满 3 轮转 `NO_VOLUNTEER`。
+    ///
+    /// ⚠️ **这一态还没有志愿者接单**：后端 `order.volunteer` 恒为 null，候选人只存在于
+    /// `dispatchCurrentVolunteerId`（`IntroCallService.markInterested`）。两个直接后果：
+    /// - 志愿者调 `GET /api/orders/{id}` 会被 `OrderQueryService.getOrder` 判 403 —— 他这一刻
+    ///   拿不到 `OrderDetailResponse`，志愿者侧通话页只能吃派单载荷 + `IntroCallView`。
+    /// - `volunteerPhone` 也不会有值，所以本状态下的拨号一律走通话专用接口，
+    ///   不走 `offersVolunteerCall` 那条双向下发号码的老路径。
+    case pendingIntroCall = "PENDING_INTRO_CALL"
     case pendingAccept = "PENDING_ACCEPT"
     case inProgress = "IN_PROGRESS"
     case driverEnRoute = "DRIVER_EN_ROUTE"
@@ -38,6 +49,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     static var allCases: [RunOrderStatus] {
         [
             .pendingMatch,
+            .pendingIntroCall,
             .pendingAccept,
             .inProgress,
             .driverEnRoute,
@@ -52,6 +64,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .pendingMatch: return "系统派单中"
+        case .pendingIntroCall: return "等待通话确认"
         case .pendingAccept: return "待出发"
         case .inProgress: return "进行中"
         case .driverEnRoute: return "志愿者出发中"
@@ -76,7 +89,7 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     /// Whether blind runner should keep polling for updates
     var shouldPoll: Bool {
         switch self {
-        case .pendingMatch, .pendingAccept, .inProgress, .driverEnRoute, .driverArrived, .rematching:
+        case .pendingMatch, .pendingIntroCall, .pendingAccept, .inProgress, .driverEnRoute, .driverArrived, .rematching:
             return true
         case .completed, .cancelled, .noVolunteer:
             return false
@@ -95,7 +108,10 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 
     var canBlindRunnerCancel: Bool {
         switch self {
-        case .pendingMatch, .pendingAccept, .rematching:
+        // `.pendingIntroCall` 在列是后端明写的（`OrderLifecycleService.cancelOrder` 的盲人分支
+        // 逐字写着「通话磨合期盲人随时可以放弃这一单」）：聊到一半发现今天不想跑了是正常的，
+        // 漏掉会把人困在通话态直到窗口超时。
+        case .pendingMatch, .pendingIntroCall, .pendingAccept, .rematching:
             return true
         default:
             return false
@@ -154,7 +170,8 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 
     var blindRunnerRoute: BlindRunnerOrderRoute {
         switch self {
-        case .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .rematching:
+        // `.pendingIntroCall` 归跟踪侧：通话还在接单**之前**，不是服务中。
+        case .pendingMatch, .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .rematching:
             return .tracking
         case .inProgress:
             return .inService
@@ -483,6 +500,16 @@ struct OrderResponse: Codable, Sendable {
 enum OrderRespondAction: String, Codable, Sendable {
     case accept = "ACCEPT"
     case decline = "DECLINE"
+    /// 「有意向，想先聊聊」—— 订单转 `PENDING_INTRO_CALL` 并锁给这位志愿者（后端迁移 `0031`）。
+    ///
+    /// ⚠️ **这不是接单**：后端 `order.volunteer` 仍是 null，聊崩了对志愿者也没有统计损失
+    /// （`IntroCallService.markInterested` 的方法注释）。
+    ///
+    /// 🚨 陌生人直接发 `.accept` 会被后端 409 `INTRO_CALL_REQUIRED` 拦下
+    /// （`DispatchService.java:264` 的守卫）。判据（这两人磨合成功过没有、时间够不够聊一轮）
+    /// 全在后端，客户端一个都算不出来 —— 所以志愿者端一律先发 `.interested`。
+    /// 详见 `VolunteerHomeViewModel.respondToDispatch` 上那段说明。
+    case interested = "INTERESTED"
 }
 
 struct OrderRespondRequest: Codable, Sendable {

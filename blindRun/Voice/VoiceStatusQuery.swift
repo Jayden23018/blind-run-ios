@@ -182,6 +182,9 @@ enum VoiceStatusQuery {
         switch status {
         case .pendingMatch, .noVolunteer:
             return "还没有志愿者接单，所以暂时算不出距离。"
+        // 通话磨合期后端不下发候选人位置（他还没接单），不是「收不到」而是「本来就没有」。
+        case .pendingIntroCall:
+            return "还在通话确认阶段，还没有志愿者接单，所以暂时算不出距离。"
         case .rematching:
             return "正在重新匹配志愿者，暂时算不出距离。"
         case .inProgress:
@@ -202,6 +205,16 @@ enum VoiceStatusQuery {
     /// 状态允许 + 有号码 + 号码拼得出 `tel:` URL。绕过其中任何一个，就等于在不该打电话的状态下
     /// 让盲人拨出去一通电话。
     private static func callAnswer(order: OrderDetailResponse) -> VoiceStatusAnswer {
+        // 通话磨合期**确实有一通该打的电话**，只是号码走专用接口（`IntroCallEndpoint.view`）、
+        // 不在 `volunteerPhone` 上，所以 `offersVolunteerCall` 判 false。
+        // 落到下面那句通用的「现在还不能打电话给志愿者」是错的 —— 能打，只是语音这条路暂时不接。
+        // 对看不见屏幕的人，说「不能打」而不说去哪打就是死路，所以在通用分支之前单独答。
+        if order.status == .pendingIntroCall {
+            return VoiceStatusAnswer(
+                speech: "这一单还在通话确认阶段。打电话给这位志愿者的按钮就在订单状态页上，语音暂时不能替你拨。",
+                pendingAction: nil
+            )
+        }
         guard order.status.offersVolunteerCall else {
             return VoiceStatusAnswer(
                 speech: "现在还不能打电话给志愿者，\(noCallReason(for: order.status))当前是\(order.status.displayName)。",
@@ -236,6 +249,9 @@ enum VoiceStatusQuery {
             return "订单状态有更新，请先刷新页面。"
         case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             // `offersVolunteerCall` 已经放行这四态，走不到这里。
+            return "当前状态不支持拨号。"
+        case .pendingIntroCall:
+            // `callAnswer` 在通用分支之前就把这一态单独答掉了，走不到这里。
             return "当前状态不支持拨号。"
         }
     }

@@ -27,6 +27,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private var emergencyContacts: [EmergencyContactResponse] = []
 
     private var orders: [OrderDetailResponse] = []
+    /// 通话磨合期两侧各自的表态。**按角色分开存**：后端的 `IntroCallPair` 也是两列
+    /// （`blindDecision` / `volunteerDecision`），而 `IntroCallView.myDecision` 只回自己那一列 ——
+    /// 存成一个值会让「只有一方表了态」这条最要紧的中间态在 Mock 里根本演不出来。
+    private var introCallDecisions: [Int64: [UserRole: IntroCallDecision]] = [:]
     private var emergencyEventSequence: Int64 = 9000
     /// 当前未终态的紧急事件，`GET /api/emergency/active` 的回放源。撤销后置 nil。
     private var activeEmergencyEvent: EmergencyEventResponse?
@@ -79,6 +83,34 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     ) {
         blindVerifyStatus = verifyStatus.rawValue
         self.emergencyContacts = emergencyContacts
+    }
+
+    /// 替志愿者那一侧表态。
+    ///
+    /// 存在理由：通话磨合要**两个人**才走得完，而 Mock 只有一个 `mockRole`。
+    /// 没有它，「双方都说合适 ⇒ 成单」这条主路径在单设备上永远凑不齐，
+    /// `PENDING_INTRO_CALL → PENDING_ACCEPT` 在开发期一次都跑不到。
+    func simulateIntroCallDecisionForTesting(
+        orderId: Int64,
+        role: UserRole,
+        decision: IntroCallDecision
+    ) {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }),
+              orders[index].status == .pendingIntroCall else { return }
+        var decisions = introCallDecisions[orderId] ?? [:]
+        decisions[role] = decision
+        introCallDecisions[orderId] = decisions
+        if decision == .decline {
+            orders[index] = updateOrderStatus(orders[index], to: .pendingMatch)
+            introCallDecisions[orderId] = nil
+        } else if decisions[.blind] == .accept, decisions[.volunteer] == .accept {
+            orders[index] = updateOrderStatus(
+                orders[index],
+                to: .pendingAccept,
+                volunteerPhone: "13800000002"
+            )
+            introCallDecisions[orderId] = nil
+        }
     }
     #endif
 
@@ -338,6 +370,21 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             }
             if path.hasSuffix("/respond") && method == .post {
                 return try handleRespondOrder(orderId: orderId, body: body)
+            }
+            // ⚠️ 三条 `intro-call/*` 必须排在 `intro-call` 之前 —— `hasSuffix("/intro-call")`
+            // 对 `/intro-call/decision` 为 false，顺序其实无所谓，但把子路径放前面
+            // 是这一族路由的既有写法（见下面 `/review` 与 `/reviews` 那段注释）。
+            if path.hasSuffix("/intro-call/decision") && method == .post {
+                return try handleIntroCallDecision(orderId: orderId, body: body)
+            }
+            if path.hasSuffix("/intro-call/unreachable") && method == .post {
+                return try handleIntroCallUnreachable(orderId: orderId)
+            }
+            if path.hasSuffix("/intro-call/notify-incoming") && method == .post {
+                return try handleIntroCallNotifyIncoming(orderId: orderId)
+            }
+            if path.hasSuffix("/intro-call") && method == .get {
+                return try handleGetIntroCall(orderId: orderId)
             }
             if path.hasSuffix("/en-route") && method == .post {
                 return try handleEnRoute(orderId: orderId)
@@ -1294,7 +1341,113 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             return try handleAcceptOrder(orderId: orderId)
         case .decline:
             return try handleDeclineOrder(orderId: orderId)
+        case .interested:
+            return try handleInterestedOrder(orderId: orderId)
         }
+    }
+
+    /// `action=INTERESTED` —— 订单转 `PENDING_INTRO_CALL` 并锁给这位志愿者。
+    ///
+    /// ⚠️ **刻意不写 `volunteerPhone`**：后端这一态 `order.volunteer` 恒为 null，号码只从
+    /// 通话专用接口按角色单向下发。Mock 里图省事填上，开发期就永远看不到「志愿者拿不到明文号」
+    /// 这条真实约束 —— 而那正是本仓库 2026-08-11 那个「掩码串被拨成空号」缺陷的土壤。
+    private func handleInterestedOrder(orderId: Int64) throws -> OrderResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status == .pendingMatch || orders[index].status == .rematching else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_ALREADY_ACCEPTED", message: "订单已被他人接单或状态不允许"))
+        }
+        orders[index] = updateOrderStatus(orders[index], to: .pendingIntroCall)
+        introCallDecisions[orderId] = [:]
+        return actionResponse(for: orders[index], message: "已表示有意向")
+    }
+
+    // MARK: - 接单前通话磨合
+
+    /// `GET /api/orders/{id}/intro-call`。
+    ///
+    /// 🚨 **按角色返回不同内容**，这正是这个端点最容易被实现错的地方，所以 Mock 也照演：
+    /// 盲人拿明文号 + 掩码为 null，志愿者拿掩码 + 明文为 null。
+    /// 两边都给全的 Mock 会让「掩码串不能拼 tel:」这条约束在开发期彻底隐形。
+    private func handleGetIntroCall(orderId: Int64) throws -> IntroCallView {
+        guard let order = orders.first(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard order.status == .pendingIntroCall else {
+            throw APIError.serverError(ErrorResponse(
+                code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
+        }
+        let isBlind = mockRole == .blind
+        return IntroCallView(
+            counterpartName: isBlind ? "李*" : "王*",
+            counterpartPhone: isBlind ? "13800000002" : nil,
+            counterpartPhoneMasked: isBlind ? nil : "138****0001",
+            myDecision: introCallDecisions[orderId]?[mockRole ?? .unset]?.rawValue,
+            windowEndsAt: ISO8601DateFormatter.aidRunFormatter.string(
+                from: Date().addingTimeInterval(20 * 60)
+            )
+        )
+    }
+
+    /// `POST /api/orders/{id}/intro-call/decision`。
+    ///
+    /// 演的是后端 `IntroCallService.submitDecision` 的三条出路：任一方 `DECLINE` 立即结束本轮
+    /// 并退回 `PENDING_MATCH`（**不是 `REMATCHING`** —— 通话没成时从来没有志愿者接过单）；
+    /// 双方都 `ACCEPT` 才转 `PENDING_ACCEPT`；只有一方表态就存下来等另一方，
+    /// **且不告诉对方**（无声）。
+    private func handleIntroCallDecision(orderId: Int64, body: (any Encodable & Sendable)?) throws -> ApiSuccessResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }),
+              orders[index].status == .pendingIntroCall else {
+            throw APIError.serverError(ErrorResponse(
+                code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
+        }
+        guard let data = try? JSONEncoder().encode(AnyEncodable(body)),
+              let request = try? JSONDecoder().decode(IntroCallDecisionRequest.self, from: data) else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "请求格式错误"))
+        }
+        let role = mockRole ?? .unset
+        var decisions = introCallDecisions[orderId] ?? [:]
+        decisions[role] = request.decision
+        introCallDecisions[orderId] = decisions
+
+        if request.decision == .decline {
+            orders[index] = updateOrderStatus(orders[index], to: .pendingMatch)
+            introCallDecisions[orderId] = nil
+        } else if decisions[.blind] == .accept, decisions[.volunteer] == .accept {
+            orders[index] = updateOrderStatus(
+                orders[index],
+                to: .pendingAccept,
+                volunteerPhone: "13800000002"
+            )
+            introCallDecisions[orderId] = nil
+        }
+        return ApiSuccessResponse(success: true, message: nil)
+    }
+
+    /// `POST /api/orders/{id}/intro-call/unreachable`（仅志愿者）。
+    /// 与 `DECLINE` 的区别在后端的统计口径，订单侧的结果相同：退回派单队列。
+    private func handleIntroCallUnreachable(orderId: Int64) throws -> ApiSuccessResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }),
+              orders[index].status == .pendingIntroCall else {
+            throw APIError.serverError(ErrorResponse(
+                code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
+        }
+        orders[index] = updateOrderStatus(orders[index], to: .pendingMatch)
+        introCallDecisions[orderId] = nil
+        return ApiSuccessResponse(success: true, message: nil)
+    }
+
+    /// `POST /api/orders/{id}/intro-call/notify-incoming`（仅盲人）。真实后端只推一条通知，
+    /// 不改订单，所以这里也只回成功 —— 客户端本来就 fire-and-forget，不等这个响应。
+    private func handleIntroCallNotifyIncoming(orderId: Int64) throws -> ApiSuccessResponse {
+        guard let order = orders.first(where: { $0.orderId == orderId }),
+              order.status == .pendingIntroCall else {
+            throw APIError.serverError(ErrorResponse(
+                code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
+        }
+        return ApiSuccessResponse(success: true, message: nil)
     }
 
     private func handleAcceptOrder(orderId: Int64) throws -> OrderResponse {
@@ -2653,6 +2806,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private static func mockStatusLogRemark(to newStatus: RunOrderStatus) -> String {
         switch newStatus {
         case .pendingMatch: return "创建订单"
+        case .pendingIntroCall: return "志愿者表示有意向，进入通话磨合"
         case .pendingAccept: return "志愿者接单"
         case .driverEnRoute: return "志愿者已出发"
         case .driverArrived: return "志愿者已到达"
