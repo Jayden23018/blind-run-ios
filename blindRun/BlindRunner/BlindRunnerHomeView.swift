@@ -361,7 +361,8 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             role: appState.activeRole,
             userID: appState.userId,
             apiClient: appState.apiClient,
-            locate: { await EmergencyCoordinator.freshEmergencyCoordinate(using: locationService) }
+            locate: { await EmergencyCoordinator.freshEmergencyCoordinate(using: locationService) },
+            locationFailureReason: { locationService?.locationError }
         )
         // 可见面是 SOS 条里的 `EmergencyStatusNotice`，这里只负责播报。
         // 刻意不再写 `errorMessage`：那会让同一句话在屏幕上出现两次、被读屏念两遍。
@@ -622,7 +623,8 @@ struct BlindRunnerHomeView: View {
         BlindHomeSOSBar(
             coordinator: appState.emergencyCoordinator,
             mode: sosMode,
-            action: activateSOS
+            action: activateSOS,
+            onLocalCall: { showCallOptions = true }
         )
         // 与内容列同宽：不限的话 SOS 条在 iPad 上是一条 1024pt 宽的红杠，
         // 和上面 700pt 的内容列左右都对不齐。材质背景仍铺满整宽。
@@ -717,11 +719,17 @@ struct BlindRunnerHomeView: View {
         EmergencyContactResponse.singlePrimary(in: appState.emergencyContacts)
     }
 
+    /// 同一个弹窗有两个入口，第一句不同：`.localCall` 是「当前没有进行中的陪跑」，
+    /// 而云端求助失败后按进来时陪跑正在进行，那句话是错的（见 `cloudFailedCallDialogMessage`）。
+    /// 没有主联系人时的补充提示两条路共用。
     private var callDialogMessage: String {
+        let lead = sosMode == .cloudTrigger
+            ? EmergencySafetyCopy.cloudFailedCallDialogMessage
+            : EmergencySafetyCopy.homeCallDialogMessage
         guard primaryEmergencyContact.flatMap({ EmergencyDialer.telURL(for: $0.phone) }) != nil else {
-            return "\(EmergencySafetyCopy.homeCallDialogMessage)\(EmergencySafetyCopy.homeCallNoContactHint)"
+            return "\(lead)\(EmergencySafetyCopy.homeCallNoContactHint)"
         }
-        return EmergencySafetyCopy.homeCallDialogMessage
+        return lead
     }
 
     private func activateSOS() {

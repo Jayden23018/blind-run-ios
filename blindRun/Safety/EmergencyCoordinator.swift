@@ -32,7 +32,9 @@ enum EmergencySOSState: Equatable {
     case locating
     case submitting
     case acknowledged(EmergencyEventStatus)
-    case unsentNoLocation
+    /// 没有新鲜真实坐标，所以一个字节都没发出去。带上 `LocationService` 当时的报错，
+    /// 让文案能区分「权限被关」和「拿不到 GPS」—— 两者的下一步动作完全不同。
+    case unsentNoLocation(LocationError?)
     case failed(String)
     case cooldown(retryAfterSeconds: Int?)
     /// Carrier receipt confirmed the SMS reached the contact's handset
@@ -55,8 +57,8 @@ enum EmergencySOSState: Equatable {
             return EmergencySafetyCopy.submitting
         case .acknowledged(let status):
             return EmergencySafetyCopy.submitted(status)
-        case .unsentNoLocation:
-            return EmergencySafetyCopy.locationUnavailable
+        case .unsentNoLocation(let reason):
+            return EmergencySafetyCopy.locationUnavailable(reason)
         case .failed(let reason):
             return EmergencySafetyCopy.failure(reason)
         case .cooldown(let seconds):
@@ -284,13 +286,16 @@ final class EmergencyCoordinator: ObservableObject {
     ///   It is a closure rather than a value so the wait for a fresh fix happens *inside*
     ///   `.locating`: otherwise a blind runner gets several seconds of silence after tapping and the
     ///   duplicate-tap guard is not yet armed.
+    /// - Parameter locationFailureReason: read **after** `locate` returns nil, so the copy can tell
+    ///   「权限被关」from「拿不到 GPS」. Defaults to nil, which speaks the generic 拿不到定位 branch.
     @discardableResult
     func trigger(
         order: OrderDetailResponse,
         role: UserRole?,
         userID: Int64?,
         apiClient: any APIClientProtocol,
-        locate: () async -> LocatedCoordinate?
+        locate: () async -> LocatedCoordinate?,
+        locationFailureReason: () -> LocationError? = { nil }
     ) async -> TriggerOutcome {
         // Duplicate-submit protection: one tap at a time, regardless of how the alert was dismissed.
         guard !state.isBusy else {
@@ -308,7 +313,7 @@ final class EmergencyCoordinator: ObservableObject {
 
         guard let coordinate, coordinate.system == .gcj02Backend else {
             guard Self.allowsSubmissionWithoutLocation else {
-                return finish(.unsentNoLocation)
+                return finish(.unsentNoLocation(locationFailureReason()))
             }
             return await send(
                 request: EmergencyTriggerRequest(orderId: order.orderId, gpsLat: nil, gpsLng: nil),
