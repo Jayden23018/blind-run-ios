@@ -21,20 +21,25 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     /// 志愿者实名认证：姓名 + 身份证号，下一步还有人脸活体与证件照。
     case volunteerIdentity
 
-    /// 告知内容的版本。**改下面任何一条 `disclosures` 就 +1**：旧同意没有覆盖到新内容，
-    /// 必须重新征得。版本号进存储 key，旧记录自然失效 —— 这是唯一能让「告知内容」和
-    /// 「已同意」不漂移的做法，靠人记必然漏。
-    /// `PrivacyConsentTests.testDisclosureFingerprintIsPinnedToItsVersion` 会在文案变了
-    /// 而版本没变时失败。
+    /// 告知内容的版本。版本号进存储 key，+1 之后旧记录自然失效、用户会被重新问一次。
+    ///
+    /// **判据是「告知的处理行为变没变」，不是「这几个字变没变」：**
+    /// - 新收集一类信息、换用途、换接收方、改保留或删除规则 → **必须 +1**。
+    ///   旧同意没有覆盖到新内容，继续拿它当同意是合规漏洞。
+    /// - 同一个行为**换一种说法**（更准、更好懂、错别字）→ **不 +1**，
+    ///   只更新 `PrivacyConsentTests` 里的指纹，并在那条用例旁写清这次属于哪一种。
+    ///
+    /// `PrivacyConsentTests.testDisclosureFingerprintIsPinnedToItsVersion` 会在文案一变就失败 ——
+    /// 它的作用是**逼一次上面这个判断**，不是自动要求 +1。
+    ///
+    /// 2026-08-20 的例子（删除账户那句改成正面列举）：后端逐句核过代码，
+    /// `UserService.cascadeDeletePii` 的删除行为一个字节都没改，变的只是我们把它描述得更准。
+    /// 曾一度按「用户此前以为位置被删干净了」的理由 +1 到 2，同日回退 —— 处理行为没变，
+    /// 就不该把全部老用户拦在同意页前面重来一次。**该版本从未随任何构建对外发布过**
+    /// （`CURRENT_PROJECT_VERSION` 至今为 1，没有上传过 TestFlight），所以回退零影响。
     var disclosureVersion: Int {
         switch self {
-        // v2（2026-08-20）：删除账户那句从「里面不含这些资料」这种**否定式列举**改成正面列举。
-        // 后端逐句核了代码（handoff 2026-08-19）：保留的订单里逐条存着精确起终点坐标和
-        // `specialNotes`（用户自己口述的身体状况），求助记录里存着按下 SOS 那一刻的 GPS 单点。
-        // 旧那句逐字成立，但读起来像「位置都清干净了」—— 用户关心的是「我的位置还在不在」，
-        // 不是「哪张表还在」。⚠️ 后端说他们的删除语义没变、不用 bump；这里仍然 bump，
-        // 因为版本号钉的是**告知内容**，而旧文案让人以为位置被删了，这是实质变化。
-        case .appLaunch: return 2
+        case .appLaunch: return 1
         case .blindIdentity: return 1
         case .volunteerIdentity: return 1
         }
