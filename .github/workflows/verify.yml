@@ -10,13 +10,16 @@ name: verify
 on:
   pull_request:
   push:
-    branches: [main, 'integrate/**']
+    branches: [main]
   # 每天跑一次，为的是 push 触发天生抓不到的那一类：**你 push 之后后端才改契约**。
   # pre-push 只在你 push 那一刻看一眼，之后代码悄悄过期，没有任何东西会说话。
   #
   # 定时任务只在仓库的**默认分支**上跑：
-  #   · fork（Jayden23018）默认分支是 integrate/swift-migration，且配了 BACKEND_REPO_TOKEN → 真跑
-  #   · 上游（JerryZhao-1）默认分支是 main，main 上没有本文件 → 不会触发，不产生噪音
+  #   · 主线（Jayden23018）默认分支是 main，配了 BACKEND_REPO_TOKEN → 真跑
+  #   · 上游（JerryZhao-1）默认分支也是 main，但那边配不上 secret → 5 条契约门禁 warning 空过
+  #
+  # 2026-08-21：默认分支从 integrate/swift-migration 改为 main，该分支已删除，
+  # 上面的 'integrate/**' 通配一并去掉。schedule 认默认分支，而本文件在 main 上，所以不受影响。
   # 错开整点：整点是 GitHub 的排队高峰，会被延迟很久。
   schedule:
     - cron: '17 1 * * *'   # UTC 01:17 = 北京时间 09:17
