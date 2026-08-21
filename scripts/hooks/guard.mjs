@@ -233,6 +233,64 @@ function main() {
       );
     }
 
+    // 2.5 隐私清单的两个坑（2026-08-21）
+    //
+    // (a) vendored podspec 把 PrivacyInfo.xcprivacy 列进 s.resources
+    //
+    // `s.resources` 是**平铺**复制到 App bundle 根目录，而根目录那份**就是主 App 自己的**
+    // 隐私清单槽位。Vendor/AliyunCloudAuth/2.3.50 原先就这么写，造成两件事：
+    //   · 与 blindRun/PrivacyInfo.xcprivacy 撞车 → "Multiple commands produce .../PrivacyInfo.xcprivacy"
+    //   · 撞车之前（没有主 App 清单时）更隐蔽：阿里云的清单**冒充**主 App 的对外声明，
+    //     ITMS-91053 看着过了，实际过的是别人的文件 —— 且它带着 NSPrivacyCollectedDataTypes
+    //     DeviceID/Linked=true，purpose 写的 "Protect Device Security" 根本不是 Apple 的合法取值。
+    // 升级阿里云 SDK 时重新落一份 podspec 是常规动作，这个洞会原样回来，所以按文件类型拦死。
+    const isPodspec = /\.podspec$/.test(filePath);
+    const vendorManifestLine = isPodspec
+      ? body
+          .split('\n')
+          .find(
+            (l) =>
+              // 注释行放行：podspec 里那段「为什么不要加回来」的说明本身就写着这个文件名，
+              // 不跳过的话整份 Write 会被自己的文档拦住。
+              !/^\s*#/.test(l) &&
+              /PrivacyInfo\.xcprivacy/.test(l) &&
+              !l.includes('guard:allow vendor-privacy-manifest')
+          )
+      : undefined;
+    if (vendorManifestLine) {
+      fail(
+        'vendor-privacy-manifest',
+        `${filePath}\n  ${vendorManifestLine.trim()}\n\n` +
+          `不要在 podspec 里声明 PrivacyInfo.xcprivacy。\`s.resources\` 是平铺复制到 App bundle 根目录，\n` +
+          `而根目录那份是**主 App 自己的**隐私清单槽位 —— 会撞车（Multiple commands produce），\n` +
+          `或者更糟：在主 App 还没有清单时冒充主 App 的对外数据收集声明。\n` +
+          `本 SDK 的 framework 全是静态库，静态库代码链进主二进制，它用到的 required reason API\n` +
+          `必须由 blindRun/PrivacyInfo.xcprivacy 声明（已声明 DiskSpace/FileTimestamp）。\n` +
+          `确有必要（例如改用 s.resource_bundles 放进独立 .bundle），行尾加 \`# guard:allow vendor-privacy-manifest\`。`
+      );
+    }
+
+    // (b) 把「仅限第三方 SDK」的 reason code 抄进主 App 的清单
+    //
+    // Apple 对 1C8F.1（UserDefaults）与 3B52.1（FileTimestamp）逐字写着
+    // "This reason may only be declared by third-party SDKs"。阿里云的 roll-up 清单里两条都有，
+    // 而「把 vendor 清单的内容合并进主 App 清单」正是修 ITMS-91053 时最自然的动作 ——
+    // 抄进来换到的是 ITMS-91055 无效理由，且要等下一次上传才知道。
+    // 路径按「含不含 /Vendor/」判，不能锚在字符串开头 —— 钩子拿到的是绝对路径。
+    const isAppManifest = /\.xcprivacy$/.test(filePath) && !/(^|\/)Vendor\//.test(filePath);
+    const sdkOnlyCodeLine = isAppManifest
+      ? body.split('\n').find((l) => /<string>\s*(3B52\.1|1C8F\.1)\s*<\/string>/.test(l))
+      : undefined;
+    if (sdkOnlyCodeLine) {
+      fail(
+        'sdk-only-reason-code',
+        `${filePath}\n  ${sdkOnlyCodeLine.trim()}\n\n` +
+          `1C8F.1 与 3B52.1 是 Apple 明写「仅限第三方 SDK 声明」的 reason code，主 App 的清单里填了会触发 ITMS-91055。\n` +
+          `主 App 该用的对应项：UserDefaults → CA92.1；FileTimestamp → DDA9.1（App 容器内文件）或 C617.1（用户经文档选择器授权的文件）。\n` +
+          `注意别照抄 Vendor/ 下第三方 SDK 的 roll-up 清单，那份是按「第三方 SDK」身份写的。`
+      );
+    }
+
     // 3. 高德 key 硬编码（AGENTS.md 第 8 节）
     const keyLine = body
       .split('\n')
