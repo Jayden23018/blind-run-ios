@@ -350,9 +350,18 @@ PR 也不往那边开。它的 CI 配不上 secret（我们不是 admin），这
 
 **主线仓库的既定配置**（改动前先知道，别当成异常）：
 
-- 默认分支是 `integrate/swift-migration`，不是 `main` —— `workflow_dispatch`
-  和 `schedule` 都只认默认分支，而 `main` 上没有 `verify.yml`。手动触发：
-  `gh workflow run verify.yml --repo Jayden23018/blind-run-ios --ref integrate/swift-migration`
+- 默认分支是 `main`（2026-08-21 从 `integrate/swift-migration` 改过来，该分支同日已删除）。
+  `workflow_dispatch` 和 `schedule` 都只认默认分支，而 `verify.yml` 就在 `main` 上，
+  且比原 integrate 上那份更新（多一个 `validate-shared-checkout-guard` job）。手动触发：
+  `gh workflow run verify.yml --repo Jayden23018/blind-run-ios --ref main`
+
+  > 改动前这里写着「默认分支是 integrate，而 `main` 上没有 `verify.yml`」—— **后半句早就不成立了**，
+  > `main` 上一直有。这句过时描述的代价是真的：2026-08-21 据它推导出「要删 integrate 得先把
+  > `verify.yml` 落到 main」这个根本不存在的前置步骤。清理时 integrate 已落后 main 62 个提交、
+  > 独有提交 0，唯一活着的理由就是被默认分支设置钉住。
+  > **教训**：这一节标题写着「既定配置」，最容易被当成不用核的背景事实照抄。
+  > 引用本节任何一条之前，用一条命令当场核，别转述：
+  > `git ls-tree -r origin/main --name-only | grep .github`
 - `schedule` 每天 09:17（北京）跑一次。它抓的是 **push 触发天生抓不到的那类：你 push 之后
   后端才改契约**。
 - **CI 红在 `Checkout backend contract`（403）= PAT 过期了**，不是代码坏了。
