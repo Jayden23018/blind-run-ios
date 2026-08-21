@@ -168,8 +168,12 @@ if [ -f "$SPEC" ]; then
         echo "      丢弃刚生成的结果：git checkout -- $GEN_DIR"
         echo "      只是想把 iOS 侧改动推上去：unset AIDRUN_ALLOW_BACKEND_DRIFT AIDRUN_API_SPEC 再 push（默认就按 origin/main 验）"
       else
-        echo "[pre-push] ✗ 生成代码与契约不同步，把重新生成的结果一起提交："
+        echo "[pre-push] ✗ 生成代码与契约不同步。**重新生成的结果已经在你工作区里了**，"
+        echo "      不用再跑任何生成命令，直接 git add + commit 即可："
         echo "$DIRTY"
+        # 只报「不同步」不够：生成代码不投入运行时，契约新增的字段落没落到手写模型
+        # 才是真问题。这一步不需要人记得去查，红的时候直接把答案打出来。
+        node scripts/report-drift-fields.mjs || true
       fi
       fail=1
     fi
