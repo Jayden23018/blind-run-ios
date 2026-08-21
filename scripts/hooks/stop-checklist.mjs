@@ -84,10 +84,33 @@ if (ownDirty.length) {
   todo.push(`**未提交**：${ownDirty.length} 个文件（${sample(ownDirty)}）`);
 }
 
+// `@{u}` 解析失败有两种成因，只有第一种是欠账：
+//   ① 从没设过 upstream —— 真的没推过，该拦
+//   ② 设过，但远端分支已经没了 —— 本仓库一律 squash 合并 + `--delete-branch`，
+//      所以这是每个合完的分支的**终局状态**，不是欠账
+// 分不出这两种，②就会每轮都被报成「还没跟远端」，而分支内容其实早在 main 里。
+// 每轮都响的提醒会被无视 —— 这个钩子自己在下面就是这么写的，那条道理对它自己也成立。
+function branchLandedOnMain(branch) {
+  if (!branch || branch === 'HEAD') return false;
+  // 配置还在 = upstream 曾经设过。从没推过的分支没有这两项，照常走欠账分支。
+  if (git('config', `branch.${branch}.merge`) === null) return false;
+  if (git('rev-parse', '--verify', '--quiet', 'origin/main') === null) return false;
+  // 比内容，不比祖先：squash 之后 HEAD 的提交对象根本不在 main 的历史里，
+  // `branch --merged` 和 `rev-list origin/main..HEAD` 一律把它判成「有独有提交」。
+  // 两步缺一不可 —— 三点取「这个分支改过哪些文件」，两点比「那些文件在 main 上一不一样」。
+  // 不限定文件的裸 `git diff origin/main..HEAD` 是双向差异，会把 main 领先的部分也算进来。
+  const files = git('diff', '--name-only', 'origin/main...HEAD');
+  if (files === null) return false;
+  if (files === '') return true;
+  return git('diff', 'origin/main..HEAD', '--', ...files.split('\n')) === '';
+}
+
 const upstream = git('rev-parse', '--abbrev-ref', '@{u}');
 if (upstream === null) {
   const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
-  todo.push(`**无 upstream**：\`${branch}\` 还没跟远端，push 要带 \`-u\``);
+  if (!branchLandedOnMain(branch)) {
+    todo.push(`**无 upstream**：\`${branch}\` 还没跟远端，push 要带 \`-u\``);
+  }
 } else {
   const ahead = Number(git('rev-list', '--count', '@{u}..HEAD') || 0);
   if (ahead > 0) todo.push(`**未推送**：领先 \`${upstream}\` ${ahead} 个提交`);

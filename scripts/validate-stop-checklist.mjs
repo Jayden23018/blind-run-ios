@@ -204,6 +204,44 @@ const cases = [
     },
   },
   {
+    // 2026-08-21 真实误报：同一条「无 upstream」连报三轮。分支的 PR 早已 squash 合并、
+    // 远端分支随 --delete-branch 删掉，于是 `@{u}` 解析不了 —— 但内容早在 main 里，不是欠账。
+    // 本仓库一律 squash 合并，所以这是每个合完的分支的终局状态，会反复发生。
+    name: 'upstream 曾设过、远端分支已删、内容已在 main → 不报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'claude/merged-and-deleted');
+      // upstream 配置还在，但 refs/remotes/origin/<branch> 不存在 —— 正是 --delete-branch 之后的样子
+      g('config', 'branch.claude/merged-and-deleted.remote', 'origin');
+      g('config', 'branch.claude/merged-and-deleted.merge', 'refs/heads/claude/merged-and-deleted');
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? '分支内容与 origin/main 完全一致，却仍报「无 upstream」'
+        : null;
+    },
+  },
+  {
+    // 反例，防止上一条修过头把真欠账一起放过：内容没进 main 就还是欠账，必须照报。
+    name: 'upstream 曾设过但内容没进 main → 仍要报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'feat/not-landed');
+      g('config', 'branch.feat/not-landed.remote', 'origin');
+      g('config', 'branch.feat/not-landed.merge', 'refs/heads/feat/not-landed');
+      fs.writeFileSync(path.join(dir, 'new-work.txt'), '还没进 main 的活\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 尚未合并');
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? null
+        : '分支有 main 上没有的内容，却没报「无 upstream」—— 真欠账被放过了';
+    },
+  },
+  {
     // 拿不到 session_id 时宁可多问一次，也不要静默不问 —— 静默失效是这类提醒最常见的死法。
     name: '没有 session_id 时照问（不静默失效）',
     stdin: '{}',
