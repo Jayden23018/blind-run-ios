@@ -106,7 +106,9 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
     /// `PENDING_MATCH` 是派单弹窗与「可接订单」列表那一刻的状态 —— 全 App 最该关的一处；
     /// `REMATCHING` 是原志愿者取消后，他已经不是这一单的参与者了。
     func testBlindRunnerNotesAreDisclosedOnlyAfterAVolunteerHasAccepted() {
-        let hidden: [RunOrderStatus] = [.pendingMatch, .rematching, .noVolunteer]
+        // `.pendingIntroCall` 归 hidden：通话磨合发生在接单**之前**，而派单是串行的 ——
+        // 一单最多聊 3 位候选人，展示等于把这段自由文本交给每一个人，包括最后没聊成的。
+        let hidden: [RunOrderStatus] = [.pendingMatch, .pendingIntroCall, .rematching, .noVolunteer]
         let disclosed: [RunOrderStatus] = [.pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed, .cancelled]
 
         for status in hidden {
@@ -130,7 +132,9 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
         XCTAssertFalse(RunOrderStatus.allCases.contains(.unknown))
         XCTAssertFalse(PacePreference.allCases.contains(.unknown))
         XCTAssertFalse(RoutePreference.allCases.contains(.unknown))
-        XCTAssertEqual(RunOrderStatus.allCases.count, 9)
+        // 10 = 后端 `OrderStatus.java` 的十个真实状态（含 2026-08-21 迁移 0031 加的
+        // `PENDING_INTRO_CALL`），不含 `.unknown`。
+        XCTAssertEqual(RunOrderStatus.allCases.count, 10)
     }
 
     /// `OrderResponse.status` 是**可选**的 —— 可选并不带来宽容，这正是这一整类问题的由来。
