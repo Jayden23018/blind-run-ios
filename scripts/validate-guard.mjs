@@ -600,6 +600,94 @@ const cases = [
       }
     }
   },
+  {
+    // 2026-08-22：这条规则拦住了 AccessibilityAuditTests.swift 的整份 Write ——
+    // 那个文件的注释里写着「不能用 app.tap()」，即守卫拦住了解释自己的那段文档。
+    // 下面两条成对：注释放行、同一文件里真调用照拦，缺一条都验不出这次修的东西。
+    name: '注释里写「不能用 app.tap()」（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: '/repo/blindRunUITests/AccessibilityAuditTests.swift',
+        content: '        // **不能用 `app.tap()`** —— 它敲的是屏幕正中，会点进下单页。\n'
+      }
+    }
+  },
+  {
+    name: '注释解释 + 下面仍有真调用（照拦）',
+    expect: 2,
+    input: {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: '/repo/blindRunUITests/AccessibilityAuditTests.swift',
+        content: '        // **不能用 `app.tap()`** —— 它敲的是屏幕正中。\n        app.tap()\n'
+      }
+    }
+  },
+  {
+    // 同一个洞在几条规则上都有。这三条各钉一条，防止只修 blind-tap-center 一处。
+    name: '注释里举反例 UIApplication.shared.open（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/FooView.swift',
+        old_string: 'a',
+        new_string: '        // 不要写 UIApplication.shared.open(telURL)，走 EmergencyDialer.dial'
+      }
+    }
+  },
+  {
+    name: '注释里举反例 .frame(minHeight: 44)（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindOrderStatusView.swift',
+        old_string: 'a',
+        new_string: '        // 这里曾经是 .frame(minHeight: 44)，盲人端按不中'
+      }
+    }
+  },
+  {
+    name: '注释里举反例 appState: AppState()（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRunTests/FooTests.swift',
+        old_string: 'a',
+        new_string: '        // 别写成 appState: AppState()：它是 weak，出了这行就是 nil'
+      }
+    }
+  },
+  {
+    // `#` 后面直接跟字母的是 Swift 编译指令，不是注释 —— 别把它当注释跳过。
+    name: '#Preview 一行里塞 44pt（仍拦下）',
+    expect: 2,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/blindRun/BlindRunner/BlindBookingView.swift',
+        old_string: 'a',
+        new_string: '#Preview("Blind") { Button("x") {}.frame(minHeight: 44) }'
+      }
+    }
+  },
+  {
+    // 脚本顶部的用法说明常常原样贴着这条命令。注释掉的命令不会执行。
+    name: 'shell 注释里贴真机 xcodebuild 命令（放行）',
+    expect: 0,
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: '/repo/scripts/device-test.sh',
+        old_string: 'a',
+        new_string: '#!/usr/bin/env bash\n# 用法：xcodebuild test -destination "platform=iOS,name=111"'
+      }
+    }
+  },
   // placeholder-promise：起因是「积分商城」占位页在仓库里躺了很久，没有任何检查说过一句话。
   //
   // sos-copy 此前**一条自测都没有** —— 规则在 guard.mjs 里躺了很久，却没人验过它拦不拦得住。
@@ -873,6 +961,92 @@ const cases = [
     },
     editPath: 'blindRun/Home.swift',
     oldString: 'Text("x").accessibilityIdentifier("nobodyQueriesThis")',
+    newString: 'Text("x")'
+  },
+
+  // ---- 规则 8 的注释判定（2026-08-22，与本文件上面那批同一个洞）----
+  //
+  // 这条规则五处取 identifier 的地方原本都把注释当代码。两个方向的正确行为**相反**，
+  // 所以下面成对钉：注释里的引用不算查询（不该拦），而 App 侧被注释掉的 identifier
+  // 也不算还在（该拦）—— 否则把它注释掉就能让这条规则闭嘴。
+  {
+    name: '注释里讲「这个 id 已被删掉」（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("blindHomeStartButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString: '// 这里以前是 app.buttons["blindRunnerHomeAuxiliaryMap"]，30b0770 把它删了'
+  },
+  {
+    name: '注释解释 + 下面仍有真查询（照拦）',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("blindHomeStartButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString:
+      '// 这里以前是 app.buttons["blindRunnerHomeAuxiliaryMap"]\n' +
+      'app.buttons["blindRunnerHomeAuxiliaryMap"].tap()'
+  },
+  {
+    // 方向 B 的读取面：UI 测试里只剩注释提到它，就不算「还有人在用」。
+    name: 'UI 测试只在注释里提到，App 侧可以删（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")\n',
+      'blindRunUITests/T.swift': '// 装饰地图对读屏隐藏后，"blindRunnerHomeAuxiliaryMap" 就没了\n'
+    },
+    editPath: 'blindRun/Home.swift',
+    oldString: 'Text("x").accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")',
+    newString: 'Text("x").accessibilityHidden(true)'
+  },
+  {
+    // 反过来：App 侧只在注释里挂着的 identifier，运行时根本不存在，测试查它必然红。
+    name: 'App 侧 identifier 只存在于注释里，测试还在查（拦）',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      'blindRun/Home.swift':
+        '// Text("x").accessibilityIdentifier("blindHomeStartButton")\n' +
+        'Text("y").accessibilityIdentifier("someOtherRealId")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString: 'app.buttons["blindHomeStartButton"].tap()'
+  },
+  {
+    // 把它注释掉而不是删掉，等于删掉 —— 否则这条规则用一个 `//` 就能被绕过。
+    name: '把 App 侧 identifier 注释掉（等同删除，照拦）',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")\n',
+      'blindRunUITests/T.swift': 'app.descendants(matching: .any)["blindRunnerHomeAuxiliaryMap"].tap()\n'
+    },
+    editPath: 'blindRun/Home.swift',
+    oldString: 'Text("x").accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")',
+    newString: '// Text("x").accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")'
+  },
+  {
+    // 「挪了位置不算删」那条豁免同样不能被注释骗过：别处只剩注释 = 别处也没有。
+    name: '别的 App 文件里只剩注释，不算「挪了位置」（照拦）',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("sharedId")\n',
+      'blindRun/Other.swift':
+        '// Text("z").accessibilityIdentifier("sharedId")\n' +
+        'Text("w").accessibilityIdentifier("someOtherRealId")\n',
+      'blindRunUITests/T.swift': 'app.buttons["sharedId"].tap()\n'
+    },
+    editPath: 'blindRun/Home.swift',
+    oldString: 'Text("x").accessibilityIdentifier("sharedId")',
     newString: 'Text("x")'
   }
 ];
