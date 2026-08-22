@@ -303,6 +303,79 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/respond`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
     func respondToDispatch(_ input: Operations.respondToDispatch.Input) async throws -> Operations.respondToDispatch.Output
+    /// 通话磨合页数据（BLIND / VOLUNTEER）
+    ///
+    /// 接单前通话磨合（迁移 `0031`）。订单处于 `PENDING_INTRO_CALL` 时可读。
+    ///
+    /// 🚨 **同一个端点对两种角色返回不同内容，号码是单向的**：
+    /// - 盲人侧：`counterpartPhone` 是志愿者**能直接拨通的明文号**，`counterpartPhoneMasked` 为 null
+    /// - 志愿者侧：`counterpartPhone` **恒为 null**，只给 `counterpartPhoneMasked`（掩码，仅用于认人）
+    ///
+    /// 为什么单向：接单前通话会把号码下发面从「1 个已接单的人」放大到「N 个候选人」，
+    /// 聊崩 3 次就是 3 个陌生人永久持有。所以泄露方向收敛到已实名、已过活体认证的志愿者一侧。
+    ///
+    /// 🚨 **响应体不含对方的表态、也不含轮次进度**——这不是漏了。「无声拒绝」要求任何一方
+    /// 都不知道自己是否被对方拒绝过；「这是第 3 位志愿者」本身就是在告诉盲人前两位没成。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束（最常见成因是窗口超时后客户端才发上来）
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/intro-call`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/get(getIntroCall)`.
+    func getIntroCall(_ input: Operations.getIntroCall.Input) async throws -> Operations.getIntroCall.Output
+    /// 通话后表态：合适 / 不合适（BLIND / VOLUNTEER）
+    ///
+    /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
+    /// 订单退回 `PENDING_MATCH` 派给下一个候选人。
+    ///
+    /// ⚠️ **退回的是 `PENDING_MATCH` 不是 `REMATCHING`**：后者语义是「已经有过志愿者、他走了」，
+    /// 而通话没成时从来没有志愿者接过单。
+    ///
+    /// 幂等：重复提交同一个表态直接返回 200，不报错（弱网重试是常态）。
+    ///
+    /// 🚨 **响应体只回 `{success, orderId}`**，不回对方是否已表态、不回还剩几轮——
+    /// 那些信息会让客户端能显示「对方拒绝了你」，而本功能的意义就是不制造这种压力。
+    ///
+    /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
+    /// 要求填理由等于要求当面说「不」。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
+    func submitIntroCallDecision(_ input: Operations.submitIntroCallDecision.Input) async throws -> Operations.submitIntroCallDecision.Output
+    /// 志愿者报告「一直没接到电话」（VOLUNTEER）
+    ///
+    /// 与 `decision=DECLINE` 分开是因为**统计口径相反**：本端点计志愿者 timeout
+    /// （只增 dispatched+timeout，不动 declined），把它并进 DECLINE 会错误拉低这位志愿者的
+    /// `acceptanceRate`——他并没有拒绝任何人。且这一对**不进候选池硬过滤**，
+    /// 没接到电话不代表两人不合适，下次仍可配对。
+    ///
+    /// ⚠️ **盲人侧没有对应端点**：对盲人来说「聊完不合适」与「没打通」结果完全一样（换一位），
+    /// 不该为了后端的统计口径让他多按一个键。这个口径由志愿者侧提供。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/unreachable`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/unreachable/post(reportIntroCallUnreachable)`.
+    func reportIntroCallUnreachable(_ input: Operations.reportIntroCallUnreachable.Input) async throws -> Operations.reportIntroCallUnreachable.Output
+    /// 盲人即将拨号，提前提醒志愿者（BLIND）
+    ///
+    /// 给志愿者推一条 **HIGH** 优先级通知（`INTRO_CALL_INCOMING`），
+    /// 避免陌生号码来电被当成骚扰电话挂掉。
+    ///
+    /// 🚨 **客户端不要等这个响应再拨号**——对盲人来说「点了没反应」是最糟的反馈。
+    /// 调完立即拨 `tel:`，不等响应。APNs 到达与对方手机响铃之间本就有几秒差，
+    /// 时序天然能对上；即使推送晚到，派单文案里那句「稍后可能有陌生号码打给你」也能兜底。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/notify-incoming`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)`.
+    func notifyIntroCallIncoming(_ input: Operations.notifyIntroCallIncoming.Input) async throws -> Operations.notifyIntroCallIncoming.Output
     /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
     func startService(_ input: Operations.startService.Input) async throws -> Operations.startService.Output
@@ -1018,6 +1091,113 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// 通话磨合页数据（BLIND / VOLUNTEER）
+    ///
+    /// 接单前通话磨合（迁移 `0031`）。订单处于 `PENDING_INTRO_CALL` 时可读。
+    ///
+    /// 🚨 **同一个端点对两种角色返回不同内容，号码是单向的**：
+    /// - 盲人侧：`counterpartPhone` 是志愿者**能直接拨通的明文号**，`counterpartPhoneMasked` 为 null
+    /// - 志愿者侧：`counterpartPhone` **恒为 null**，只给 `counterpartPhoneMasked`（掩码，仅用于认人）
+    ///
+    /// 为什么单向：接单前通话会把号码下发面从「1 个已接单的人」放大到「N 个候选人」，
+    /// 聊崩 3 次就是 3 个陌生人永久持有。所以泄露方向收敛到已实名、已过活体认证的志愿者一侧。
+    ///
+    /// 🚨 **响应体不含对方的表态、也不含轮次进度**——这不是漏了。「无声拒绝」要求任何一方
+    /// 都不知道自己是否被对方拒绝过；「这是第 3 位志愿者」本身就是在告诉盲人前两位没成。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束（最常见成因是窗口超时后客户端才发上来）
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/intro-call`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/get(getIntroCall)`.
+    public func getIntroCall(
+        path: Operations.getIntroCall.Input.Path,
+        headers: Operations.getIntroCall.Input.Headers = .init()
+    ) async throws -> Operations.getIntroCall.Output {
+        try await getIntroCall(Operations.getIntroCall.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 通话后表态：合适 / 不合适（BLIND / VOLUNTEER）
+    ///
+    /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
+    /// 订单退回 `PENDING_MATCH` 派给下一个候选人。
+    ///
+    /// ⚠️ **退回的是 `PENDING_MATCH` 不是 `REMATCHING`**：后者语义是「已经有过志愿者、他走了」，
+    /// 而通话没成时从来没有志愿者接过单。
+    ///
+    /// 幂等：重复提交同一个表态直接返回 200，不报错（弱网重试是常态）。
+    ///
+    /// 🚨 **响应体只回 `{success, orderId}`**，不回对方是否已表态、不回还剩几轮——
+    /// 那些信息会让客户端能显示「对方拒绝了你」，而本功能的意义就是不制造这种压力。
+    ///
+    /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
+    /// 要求填理由等于要求当面说「不」。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
+    public func submitIntroCallDecision(
+        path: Operations.submitIntroCallDecision.Input.Path,
+        headers: Operations.submitIntroCallDecision.Input.Headers = .init(),
+        body: Operations.submitIntroCallDecision.Input.Body
+    ) async throws -> Operations.submitIntroCallDecision.Output {
+        try await submitIntroCallDecision(Operations.submitIntroCallDecision.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// 志愿者报告「一直没接到电话」（VOLUNTEER）
+    ///
+    /// 与 `decision=DECLINE` 分开是因为**统计口径相反**：本端点计志愿者 timeout
+    /// （只增 dispatched+timeout，不动 declined），把它并进 DECLINE 会错误拉低这位志愿者的
+    /// `acceptanceRate`——他并没有拒绝任何人。且这一对**不进候选池硬过滤**，
+    /// 没接到电话不代表两人不合适，下次仍可配对。
+    ///
+    /// ⚠️ **盲人侧没有对应端点**：对盲人来说「聊完不合适」与「没打通」结果完全一样（换一位），
+    /// 不该为了后端的统计口径让他多按一个键。这个口径由志愿者侧提供。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/unreachable`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/unreachable/post(reportIntroCallUnreachable)`.
+    public func reportIntroCallUnreachable(
+        path: Operations.reportIntroCallUnreachable.Input.Path,
+        headers: Operations.reportIntroCallUnreachable.Input.Headers = .init()
+    ) async throws -> Operations.reportIntroCallUnreachable.Output {
+        try await reportIntroCallUnreachable(Operations.reportIntroCallUnreachable.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// 盲人即将拨号，提前提醒志愿者（BLIND）
+    ///
+    /// 给志愿者推一条 **HIGH** 优先级通知（`INTRO_CALL_INCOMING`），
+    /// 避免陌生号码来电被当成骚扰电话挂掉。
+    ///
+    /// 🚨 **客户端不要等这个响应再拨号**——对盲人来说「点了没反应」是最糟的反馈。
+    /// 调完立即拨 `tel:`，不等响应。APNs 到达与对方手机响铃之间本就有几秒差，
+    /// 时序天然能对上；即使推送晚到，派单文案里那句「稍后可能有陌生号码打给你」也能兜底。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/notify-incoming`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)`.
+    public func notifyIntroCallIncoming(
+        path: Operations.notifyIntroCallIncoming.Input.Path,
+        headers: Operations.notifyIntroCallIncoming.Input.Headers = .init()
+    ) async throws -> Operations.notifyIntroCallIncoming.Output {
+        try await notifyIntroCallIncoming(Operations.notifyIntroCallIncoming.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
@@ -2384,6 +2564,7 @@ public enum Components {
                 /// - Remark: Generated from `#/components/schemas/OrderResponse/status/value1`.
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case PENDING_MATCH = "PENDING_MATCH"
+                    case PENDING_INTRO_CALL = "PENDING_INTRO_CALL"
                     case PENDING_ACCEPT = "PENDING_ACCEPT"
                     case IN_PROGRESS = "IN_PROGRESS"
                     case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
@@ -3594,6 +3775,7 @@ public enum Components {
             @frozen public enum actionPayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case ACCEPT = "ACCEPT"
                 case DECLINE = "DECLINE"
+                case INTERESTED = "INTERESTED"
             }
             /// - Remark: Generated from `#/components/schemas/DispatchRespondRequest/action`.
             public var action: Components.Schemas.DispatchRespondRequest.actionPayload
@@ -4263,6 +4445,7 @@ public enum Components {
                 /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/status/value1`.
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case PENDING_MATCH = "PENDING_MATCH"
+                    case PENDING_INTRO_CALL = "PENDING_INTRO_CALL"
                     case PENDING_ACCEPT = "PENDING_ACCEPT"
                     case IN_PROGRESS = "IN_PROGRESS"
                     case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
@@ -4883,6 +5066,7 @@ public enum Components {
                 /// - Remark: Generated from `#/components/schemas/OrderTrackResponse/status/value1`.
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case PENDING_MATCH = "PENDING_MATCH"
+                    case PENDING_INTRO_CALL = "PENDING_INTRO_CALL"
                     case PENDING_ACCEPT = "PENDING_ACCEPT"
                     case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
                     case DRIVER_ARRIVED = "DRIVER_ARRIVED"
@@ -5533,6 +5717,143 @@ public enum Components {
                 case avgPaceSecPerKm
             }
         }
+        /// 通话磨合页数据。**同一端点对两种角色返回不同内容**，这是有意的。
+        ///
+        /// 🚨 号码单向：只有盲人拿得到对方能拨通的明文号。理由见 GET /api/orders/{id}/intro-call。
+        /// 🚨 **不含对方的表态、不含轮次进度**——「无声拒绝」要求任何一方都不知道自己是否被拒绝过。
+        ///
+        /// - Remark: Generated from `#/components/schemas/IntroCallView`.
+        public struct IntroCallView: Codable, Hashable, Sendable {
+            /// 对方姓名，**双向都掩码**（`张*`）。与电话是两套相反的规则——姓名没有「拨得通」这回事
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/counterpartName`.
+            public var counterpartName: Swift.String?
+            /// 对方能直接拨通的**明文号**——**仅盲人侧有值，志愿者侧恒为 null**。 ⚠️ 与 `OrderDetailResponse.volunteerPhone` 同一条硬不变量：**要么明文可拨，要么 null， 绝不下发掩码串**。客户端拼 `tel:` 时只取数字位，`138****1234` 会被拨成 `1381234` 打成空号。
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/counterpartPhone`.
+            public var counterpartPhone: Swift.String?
+            /// 对方号码的掩码串——**仅志愿者侧有值**，用途只有一个：**认人**（他会接到陌生号码来电）。 🚨 **绝不能拿它去拼 `tel:`**，它是展示字段不是拨号字段。
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/counterpartPhoneMasked`.
+            public var counterpartPhoneMasked: Swift.String?
+            /// 我自己的表态，null = 还没表态。**只有自己的，没有对方的**
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/myDecision`.
+            public struct myDecisionPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/IntroCallView/myDecision/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case ACCEPT = "ACCEPT"
+                    case DECLINE = "DECLINE"
+                }
+                /// - Remark: Generated from `#/components/schemas/IntroCallView/myDecision/value1`.
+                public var value1: Components.Schemas.IntroCallView.myDecisionPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/IntroCallView/myDecision/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `myDecisionPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.IntroCallView.myDecisionPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 我自己的表态，null = 还没表态。**只有自己的，没有对方的**
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/myDecision`.
+            public var myDecision: Components.Schemas.IntroCallView.myDecisionPayload?
+            /// 本轮通话窗口的结束时刻。到点双方仍未表完态则本轮作废，换下一个候选人
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/windowEndsAt`.
+            public var windowEndsAt: Foundation.Date?
+            /// Creates a new `IntroCallView`.
+            ///
+            /// - Parameters:
+            ///   - counterpartName: 对方姓名，**双向都掩码**（`张*`）。与电话是两套相反的规则——姓名没有「拨得通」这回事
+            ///   - counterpartPhone: 对方能直接拨通的**明文号**——**仅盲人侧有值，志愿者侧恒为 null**。 ⚠️ 与 `OrderDetailResponse.volunteerPhone` 同一条硬不变量：**要么明文可拨，要么 null， 绝不下发掩码串**。客户端拼 `tel:` 时只取数字位，`138****1234` 会被拨成 `1381234` 打成空号。
+            ///   - counterpartPhoneMasked: 对方号码的掩码串——**仅志愿者侧有值**，用途只有一个：**认人**（他会接到陌生号码来电）。 🚨 **绝不能拿它去拼 `tel:`**，它是展示字段不是拨号字段。
+            ///   - myDecision: 我自己的表态，null = 还没表态。**只有自己的，没有对方的**
+            ///   - windowEndsAt: 本轮通话窗口的结束时刻。到点双方仍未表完态则本轮作废，换下一个候选人
+            public init(
+                counterpartName: Swift.String? = nil,
+                counterpartPhone: Swift.String? = nil,
+                counterpartPhoneMasked: Swift.String? = nil,
+                myDecision: Components.Schemas.IntroCallView.myDecisionPayload? = nil,
+                windowEndsAt: Foundation.Date? = nil
+            ) {
+                self.counterpartName = counterpartName
+                self.counterpartPhone = counterpartPhone
+                self.counterpartPhoneMasked = counterpartPhoneMasked
+                self.myDecision = myDecision
+                self.windowEndsAt = windowEndsAt
+            }
+            public enum CodingKeys: String, CodingKey {
+                case counterpartName
+                case counterpartPhone
+                case counterpartPhoneMasked
+                case myDecision
+                case windowEndsAt
+            }
+        }
+        /// 通话后的表态。⚠️ **刻意没有 reason 字段**——拒绝不需要给理由，系统也不记录理由。
+        /// 要求填理由等于要求当面说「不」，而这个功能存在的意义正是让拒绝可以是无声的。
+        ///
+        /// - Remark: Generated from `#/components/schemas/IntroCallDecisionRequest`.
+        public struct IntroCallDecisionRequest: Codable, Hashable, Sendable {
+            /// 请求向枚举保持**闭合**（客户端只发已知值），与响应向的开放枚举规则相反
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallDecisionRequest/decision`.
+            @frozen public enum decisionPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case ACCEPT = "ACCEPT"
+                case DECLINE = "DECLINE"
+            }
+            /// 请求向枚举保持**闭合**（客户端只发已知值），与响应向的开放枚举规则相反
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallDecisionRequest/decision`.
+            public var decision: Components.Schemas.IntroCallDecisionRequest.decisionPayload
+            /// Creates a new `IntroCallDecisionRequest`.
+            ///
+            /// - Parameters:
+            ///   - decision: 请求向枚举保持**闭合**（客户端只发已知值），与响应向的开放枚举规则相反
+            public init(decision: Components.Schemas.IntroCallDecisionRequest.decisionPayload) {
+                self.decision = decision
+            }
+            public enum CodingKeys: String, CodingKey {
+                case decision
+            }
+        }
         /// 附近可接订单摘要（接单前可见面）。刻意不含 specialNotes / routeNotes —— 这份数据会下发给还没接单、可能最终拒单的志愿者。
         ///
         /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse`.
@@ -5791,6 +6112,22 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/tetherPreference`.
             public var tetherPreference: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload?
+            /// **这一单要不要先通电话磨合**（迁移 `0031`，2026-08-22 新增）。
+            ///
+            /// 🚨 **客户端必须按它决定 `POST /api/orders/{id}/respond` 发哪个 `action`**：
+            /// - `true` → 发 `INTERESTED`（先聊）。此时直接发 `ACCEPT` 会被回 409
+            ///   `INTRO_CALL_REQUIRED`，而志愿者看到的是「点了接单没反应」
+            /// - `false` → 发 `ACCEPT`（直接接单）
+            ///
+            /// 没有这个字段客户端只能盲猜 —— 判断依据（这两人磨合成功过没有、距开跑还够不够
+            /// 塞下一轮通话窗口）全在后端，客户端一个都拿不到。
+            ///
+            /// `false` 的三种成因（**客户端不需要区分**）：通话功能整体关闭、
+            /// 这两人已经磨合成功过、距开跑时间已不够聊一轮（退化成直接接单）。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/requiresIntroCall`.
+            public var requiresIntroCall: Swift.Bool?
             /// Creates a new `AvailableOrderResponse`.
             ///
             /// - Parameters:
@@ -5809,6 +6146,7 @@ public enum Components {
             ///   - hasGuideDogThisRun:
             ///   - visionLevel: 盲人的视障程度。**2026-08-14 新增，接单前即下发**（此前只在接单后的 `OrderDetailResponse` 里）。
             ///   - tetherPreference: 牵引方式偏好。**2026-08-14 新增，接单前即下发**，理由同 `visionLevel` ——
+            ///   - requiresIntroCall: **这一单要不要先通电话磨合**（迁移 `0031`，2026-08-22 新增）。
             public init(
                 orderId: Swift.Int64? = nil,
                 startAddress: Swift.String? = nil,
@@ -5824,7 +6162,8 @@ public enum Components {
                 plannedDistanceMeters: Swift.Int32? = nil,
                 hasGuideDogThisRun: Swift.Bool? = nil,
                 visionLevel: Components.Schemas.AvailableOrderResponse.visionLevelPayload? = nil,
-                tetherPreference: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload? = nil
+                tetherPreference: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload? = nil,
+                requiresIntroCall: Swift.Bool? = nil
             ) {
                 self.orderId = orderId
                 self.startAddress = startAddress
@@ -5841,6 +6180,7 @@ public enum Components {
                 self.hasGuideDogThisRun = hasGuideDogThisRun
                 self.visionLevel = visionLevel
                 self.tetherPreference = tetherPreference
+                self.requiresIntroCall = requiresIntroCall
             }
             public enum CodingKeys: String, CodingKey {
                 case orderId
@@ -5858,6 +6198,7 @@ public enum Components {
                 case hasGuideDogThisRun
                 case visionLevel
                 case tetherPreference
+                case requiresIntroCall
             }
         }
         /// - Remark: Generated from `#/components/schemas/PageOrderDetailResponse`.
@@ -11553,6 +11894,988 @@ public enum Operations {
             /// - Throws: An error if `self` is not `.conflict`.
             /// - SeeAlso: `.conflict`.
             public var conflict: Operations.respondToDispatch.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 通话磨合页数据（BLIND / VOLUNTEER）
+    ///
+    /// 接单前通话磨合（迁移 `0031`）。订单处于 `PENDING_INTRO_CALL` 时可读。
+    ///
+    /// 🚨 **同一个端点对两种角色返回不同内容，号码是单向的**：
+    /// - 盲人侧：`counterpartPhone` 是志愿者**能直接拨通的明文号**，`counterpartPhoneMasked` 为 null
+    /// - 志愿者侧：`counterpartPhone` **恒为 null**，只给 `counterpartPhoneMasked`（掩码，仅用于认人）
+    ///
+    /// 为什么单向：接单前通话会把号码下发面从「1 个已接单的人」放大到「N 个候选人」，
+    /// 聊崩 3 次就是 3 个陌生人永久持有。所以泄露方向收敛到已实名、已过活体认证的志愿者一侧。
+    ///
+    /// 🚨 **响应体不含对方的表态、也不含轮次进度**——这不是漏了。「无声拒绝」要求任何一方
+    /// 都不知道自己是否被对方拒绝过；「这是第 3 位志愿者」本身就是在告诉盲人前两位没成。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束（最常见成因是窗口超时后客户端才发上来）
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/intro-call`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/get(getIntroCall)`.
+    public enum getIntroCall {
+        public static let id: Swift.String = "getIntroCall"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/GET/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/GET/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.getIntroCall.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/GET/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getIntroCall.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.getIntroCall.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.getIntroCall.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.getIntroCall.Input.Path,
+                headers: Operations.getIntroCall.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/GET/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/GET/responses/200/content/application\/json`.
+                    case json(Components.Schemas.IntroCallView)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.IntroCallView {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getIntroCall.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getIntroCall.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/get(getIntroCall)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.getIntroCall.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.getIntroCall.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/GET/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/GET/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getIntroCall.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getIntroCall.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 不是本次通话的参与者（NOT_ORDER_PARTICIPANT）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/get(getIntroCall)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.getIntroCall.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.getIntroCall.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/GET/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/GET/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.getIntroCall.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.getIntroCall.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 这一轮通话已结束（INTRO_CALL_NOT_ACTIVE）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/get(getIntroCall)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.getIntroCall.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.getIntroCall.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 通话后表态：合适 / 不合适（BLIND / VOLUNTEER）
+    ///
+    /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
+    /// 订单退回 `PENDING_MATCH` 派给下一个候选人。
+    ///
+    /// ⚠️ **退回的是 `PENDING_MATCH` 不是 `REMATCHING`**：后者语义是「已经有过志愿者、他走了」，
+    /// 而通话没成时从来没有志愿者接过单。
+    ///
+    /// 幂等：重复提交同一个表态直接返回 200，不报错（弱网重试是常态）。
+    ///
+    /// 🚨 **响应体只回 `{success, orderId}`**，不回对方是否已表态、不回还剩几轮——
+    /// 那些信息会让客户端能显示「对方拒绝了你」，而本功能的意义就是不制造这种压力。
+    ///
+    /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
+    /// 要求填理由等于要求当面说「不」。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
+    public enum submitIntroCallDecision {
+        public static let id: Swift.String = "submitIntroCallDecision"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.submitIntroCallDecision.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.submitIntroCallDecision.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.submitIntroCallDecision.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.submitIntroCallDecision.Input.Headers
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/requestBody`.
+            @frozen public enum Body: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/requestBody/content/application\/json`.
+                case json(Components.Schemas.IntroCallDecisionRequest)
+            }
+            public var body: Operations.submitIntroCallDecision.Input.Body
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            ///   - body:
+            public init(
+                path: Operations.submitIntroCallDecision.Input.Path,
+                headers: Operations.submitIntroCallDecision.Input.Headers = .init(),
+                body: Operations.submitIntroCallDecision.Input.Body
+            ) {
+                self.path = path
+                self.headers = headers
+                self.body = body
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/responses/200/content/application\/json`.
+                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitIntroCallDecision.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitIntroCallDecision.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.submitIntroCallDecision.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.submitIntroCallDecision.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitIntroCallDecision.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitIntroCallDecision.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 不是本次通话的参与者（NOT_ORDER_PARTICIPANT）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.submitIntroCallDecision.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.submitIntroCallDecision.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/decision/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.submitIntroCallDecision.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.submitIntroCallDecision.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 这一轮通话已结束（INTRO_CALL_NOT_ACTIVE）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.submitIntroCallDecision.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.submitIntroCallDecision.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 志愿者报告「一直没接到电话」（VOLUNTEER）
+    ///
+    /// 与 `decision=DECLINE` 分开是因为**统计口径相反**：本端点计志愿者 timeout
+    /// （只增 dispatched+timeout，不动 declined），把它并进 DECLINE 会错误拉低这位志愿者的
+    /// `acceptanceRate`——他并没有拒绝任何人。且这一对**不进候选池硬过滤**，
+    /// 没接到电话不代表两人不合适，下次仍可配对。
+    ///
+    /// ⚠️ **盲人侧没有对应端点**：对盲人来说「聊完不合适」与「没打通」结果完全一样（换一位），
+    /// 不该为了后端的统计口径让他多按一个键。这个口径由志愿者侧提供。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/unreachable`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/unreachable/post(reportIntroCallUnreachable)`.
+    public enum reportIntroCallUnreachable {
+        public static let id: Swift.String = "reportIntroCallUnreachable"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/unreachable/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/unreachable/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.reportIntroCallUnreachable.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/unreachable/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.reportIntroCallUnreachable.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.reportIntroCallUnreachable.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.reportIntroCallUnreachable.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.reportIntroCallUnreachable.Input.Path,
+                headers: Operations.reportIntroCallUnreachable.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/unreachable/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/unreachable/POST/responses/200/content/application\/json`.
+                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.reportIntroCallUnreachable.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.reportIntroCallUnreachable.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/unreachable/post(reportIntroCallUnreachable)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.reportIntroCallUnreachable.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.reportIntroCallUnreachable.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/unreachable/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/unreachable/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.reportIntroCallUnreachable.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.reportIntroCallUnreachable.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 不是本次通话的参与者（NOT_ORDER_PARTICIPANT）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/unreachable/post(reportIntroCallUnreachable)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.reportIntroCallUnreachable.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.reportIntroCallUnreachable.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/unreachable/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/unreachable/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.reportIntroCallUnreachable.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.reportIntroCallUnreachable.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 这一轮通话已结束（INTRO_CALL_NOT_ACTIVE）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/unreachable/post(reportIntroCallUnreachable)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.reportIntroCallUnreachable.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.reportIntroCallUnreachable.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
+                            response: self
+                        )
+                    }
+                }
+            }
+            /// Undocumented response.
+            ///
+            /// A response with a code that is not documented in the OpenAPI document.
+            case undocumented(statusCode: Swift.Int, OpenAPIRuntime.UndocumentedPayload)
+        }
+        @frozen public enum AcceptableContentType: AcceptableProtocol {
+            case json
+            case other(Swift.String)
+            public init?(rawValue: Swift.String) {
+                switch rawValue.lowercased() {
+                case "application/json":
+                    self = .json
+                default:
+                    self = .other(rawValue)
+                }
+            }
+            public var rawValue: Swift.String {
+                switch self {
+                case let .other(string):
+                    return string
+                case .json:
+                    return "application/json"
+                }
+            }
+            public static var allCases: [Self] {
+                [
+                    .json
+                ]
+            }
+        }
+    }
+    /// 盲人即将拨号，提前提醒志愿者（BLIND）
+    ///
+    /// 给志愿者推一条 **HIGH** 优先级通知（`INTRO_CALL_INCOMING`），
+    /// 避免陌生号码来电被当成骚扰电话挂掉。
+    ///
+    /// 🚨 **客户端不要等这个响应再拨号**——对盲人来说「点了没反应」是最糟的反馈。
+    /// 调完立即拨 `tel:`，不等响应。APNs 到达与对方手机响铃之间本就有几秒差，
+    /// 时序天然能对上；即使推送晚到，派单文案里那句「稍后可能有陌生号码打给你」也能兜底。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/notify-incoming`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)`.
+    public enum notifyIntroCallIncoming {
+        public static let id: Swift.String = "notifyIntroCallIncoming"
+        public struct Input: Sendable, Hashable {
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/notify-incoming/POST/path`.
+            public struct Path: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/notify-incoming/POST/path/id`.
+                public var id: Swift.Int64
+                /// Creates a new `Path`.
+                ///
+                /// - Parameters:
+                ///   - id:
+                public init(id: Swift.Int64) {
+                    self.id = id
+                }
+            }
+            public var path: Operations.notifyIntroCallIncoming.Input.Path
+            /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/notify-incoming/POST/header`.
+            public struct Headers: Sendable, Hashable {
+                public var accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.notifyIntroCallIncoming.AcceptableContentType>]
+                /// Creates a new `Headers`.
+                ///
+                /// - Parameters:
+                ///   - accept:
+                public init(accept: [OpenAPIRuntime.AcceptHeaderContentType<Operations.notifyIntroCallIncoming.AcceptableContentType>] = .defaultValues()) {
+                    self.accept = accept
+                }
+            }
+            public var headers: Operations.notifyIntroCallIncoming.Input.Headers
+            /// Creates a new `Input`.
+            ///
+            /// - Parameters:
+            ///   - path:
+            ///   - headers:
+            public init(
+                path: Operations.notifyIntroCallIncoming.Input.Path,
+                headers: Operations.notifyIntroCallIncoming.Input.Headers = .init()
+            ) {
+                self.path = path
+                self.headers = headers
+            }
+        }
+        @frozen public enum Output: Sendable, Hashable {
+            public struct Ok: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/notify-incoming/POST/responses/200/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/notify-incoming/POST/responses/200/content/application\/json`.
+                    case json(OpenAPIRuntime.OpenAPIObjectContainer)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: OpenAPIRuntime.OpenAPIObjectContainer {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.notifyIntroCallIncoming.Output.Ok.Body
+                /// Creates a new `Ok`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.notifyIntroCallIncoming.Output.Ok.Body) {
+                    self.body = body
+                }
+            }
+            /// OK
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)/responses/200`.
+            ///
+            /// HTTP response code: `200 ok`.
+            case ok(Operations.notifyIntroCallIncoming.Output.Ok)
+            /// The associated value of the enum case if `self` is `.ok`.
+            ///
+            /// - Throws: An error if `self` is not `.ok`.
+            /// - SeeAlso: `.ok`.
+            public var ok: Operations.notifyIntroCallIncoming.Output.Ok {
+                get throws {
+                    switch self {
+                    case let .ok(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Forbidden: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/notify-incoming/POST/responses/403/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/notify-incoming/POST/responses/403/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.notifyIntroCallIncoming.Output.Forbidden.Body
+                /// Creates a new `Forbidden`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.notifyIntroCallIncoming.Output.Forbidden.Body) {
+                    self.body = body
+                }
+            }
+            /// 不是本次通话的参与者（NOT_ORDER_PARTICIPANT）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)/responses/403`.
+            ///
+            /// HTTP response code: `403 forbidden`.
+            case forbidden(Operations.notifyIntroCallIncoming.Output.Forbidden)
+            /// The associated value of the enum case if `self` is `.forbidden`.
+            ///
+            /// - Throws: An error if `self` is not `.forbidden`.
+            /// - SeeAlso: `.forbidden`.
+            public var forbidden: Operations.notifyIntroCallIncoming.Output.Forbidden {
+                get throws {
+                    switch self {
+                    case let .forbidden(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "forbidden",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/notify-incoming/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/intro-call/notify-incoming/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.notifyIntroCallIncoming.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.notifyIntroCallIncoming.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 这一轮通话已结束（INTRO_CALL_NOT_ACTIVE）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.notifyIntroCallIncoming.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.notifyIntroCallIncoming.Output.Conflict {
                 get throws {
                     switch self {
                     case let .conflict(response):

@@ -190,6 +190,10 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         switch status {
         case .pendingMatch:
             return "订单提交成功，系统正在为你派单。"
+        // 与 `RunOrderStatus.blindRunnerAnnouncement` 逐字相同。
+        // 🚨 不提轮次、不提「换了一位」——「无声拒绝」要求盲人无从得知自己被谁拒过。
+        case .pendingIntroCall:
+            return "有位志愿者想陪你跑，可以打个电话聊聊。"
         case .pendingAccept:
             return "志愿者已接单，请前往或等待在预约出发地点。"
         case .driverEnRoute:

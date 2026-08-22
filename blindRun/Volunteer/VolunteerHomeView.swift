@@ -25,6 +25,13 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var needsCertificateUpload = false
     @Published var acceptedDispatchOrderId: Int64?
     @Published var acceptedDispatchInitialOrder: OrderDetailResponse?
+    /// 发出「有意向，想先聊聊」之后要进的那一单。
+    ///
+    /// 🚨 存的是**派单载荷**而不是订单 id，因为通话磨合期志愿者根本取不到订单详情：
+    /// 后端 `OrderQueryService.getOrder` 只认 `order.volunteer`，而 `markInterested`
+    /// 只写 `dispatchCurrentVolunteerId`、`order.volunteer` 恒为 null ⇒ `GET /api/orders/{id}` 403。
+    /// 这条推送是那一刻**唯一**的订单事实来源（出发地、时间、导盲犬），丢了就没别的地方能取回来。
+    @Published var pendingIntroCallOrder: WSNewOrder?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -129,22 +136,55 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     // MARK: - WebSocket Dispatch
 
+    /// 响应派单。
+    ///
+    /// 🚨 **`.interested` 是陌生人路径的默认动作，不是一个可选项。**
+    /// 后端 `app.intro-call.enabled` 默认 true，陌生人直接发 `ACCEPT` 会 409
+    /// `INTRO_CALL_REQUIRED`（`DispatchService.handleAccept` 的守卫）。后端只在两种情况放行
+    /// `ACCEPT`：这一对已经磨合成功过（`IntroCallPair.outcome == MATCHED`），或者距开跑时间
+    /// 已经塞不下一轮 20 分钟的通话窗口。
+    ///
+    /// 后端**已经算好了这个判据并起了名字**：`AvailableOrderResponse.requiresIntroCall`
+    /// （`api_spec.yaml:5646`，2026-08-22 新增，逐字写着「客户端必须按它决定发哪个 action」）。
+    /// 但它只挂在 `GET /api/orders/available` 上，而**本 App 不调那条端点** ——
+    /// 公开订单池链路已删除，志愿者这边唯一的派单通道是 `NEW_ORDER` 推送，
+    /// 而那份载荷里没有这个字段（后端 `NotificationService.sendDispatchNotification`
+    /// 逐个 `msg.put` 得出来的键里没有它）。
+    ///
+    /// 自己算也不行：「这两人磨合成功过没有」客户端无从得知；通话窗口长度是后端配置
+    /// （`app.intro-call.window-minutes`），照 20 分钟硬编码会在后端改配置那天静默错。
+    ///
+    /// 所以在字段搬到推送上之前一律发 `.interested` —— 那条路径在开关关掉时也照常可用
+    /// （`DispatchService.introCallEnabled` 的注释：关掉只是不再**强制**）。
+    /// 代价是熟人也要多聊一次。**已投 `demo/docs/handoff.md`**，
+    /// 字段到了这里才该长出 `.accept` 分支。
     func respondToDispatch(
-        accept: Bool,
+        action: OrderRespondAction,
         currentLocation: CLLocationCoordinate2D?,
         locationAuthorized: Bool
     ) {
         guard let order = incomingOrder else { return }
         guard let appState else { return }
-        if accept,
-             let message = VolunteerOrderActionGuard.acceptBlockMessage(
-                 profile: appState.volunteerProfile,
-                 registrationStatus: appState.volunteerRegistrationStatus,
-                 locationAuthorized: locationAuthorized
-             ) {
-            errorMessage = message
-            speechService?.speakError(message)
-            return
+        let accept = action == .accept
+        if accept || action == .interested {
+            // 定位权限只对 `.accept` 卡：`INTERESTED` 不上报位置，也还不是接单。
+            // 为一件不需要定位的事拦住用户，代价落回正在等的盲人身上。
+            // 资质（`verified`）两条路径都要过 —— 后端 `markInterested` 也跑同一套校验。
+            let message = accept
+                ? VolunteerOrderActionGuard.acceptBlockMessage(
+                    profile: appState.volunteerProfile,
+                    registrationStatus: appState.volunteerRegistrationStatus,
+                    locationAuthorized: locationAuthorized
+                )
+                : VolunteerOrderActionGuard.acceptBlockMessage(
+                    profile: appState.volunteerProfile,
+                    registrationStatus: appState.volunteerRegistrationStatus
+                )
+            if let message {
+                errorMessage = message
+                speechService?.speakError(message)
+                return
+            }
         }
         isRespondingToDispatch = true
         Task {
@@ -156,7 +196,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                         locationAuthorized: locationAuthorized
                     )
                 }
-                let request = OrderRespondRequest(action: accept ? .accept : .decline)
+                let request = OrderRespondRequest(action: action)
                 let _: EmptyResponse = try await appState.apiClient.post(
                     "/api/orders/\(order.orderId)/respond",
                     body: request
@@ -170,7 +210,10 @@ final class VolunteerHomeViewModel: ObservableObject {
                 appState.realtimeCoordinator.clearDispatch(orderID: order.orderId)
                 acceptedDispatchInitialOrder = acceptedOrder
                 acceptedDispatchOrderId = acceptedOrderId
-                speechService?.speak(accept ? "已接受订单" : "已拒绝订单")
+                if action == .interested {
+                    pendingIntroCallOrder = order
+                }
+                speechService?.speak(Self.dispatchResponseSpeech(for: action))
             } catch let error as APIError {
                 isRespondingToDispatch = false
                 if appState.handleAuthenticatedAPIError(error) {
@@ -187,12 +230,30 @@ final class VolunteerHomeViewModel: ObservableObject {
         }
     }
 
+    /// 三种动作各自的播报。`.interested` 刻意不说「已接单」——它不是接单，说错了志愿者
+    /// 会以为事情已经定了，然后错过那通电话。
+    static func dispatchResponseSpeech(for action: OrderRespondAction) -> String {
+        switch action {
+        case .accept:
+            return "已接受订单"
+        case .decline:
+            return "已拒绝订单"
+        case .interested:
+            return "已告诉跑者你有意向，请留意他的来电"
+        }
+    }
+
     func dismissDispatch() {
         countdownTask?.cancel()
         countdownTask = nil
         incomingOrder = nil
         dispatchCountdown = 0
         isRespondingToDispatch = false
+    }
+
+    /// 通话磨合结束（成单 / 换人 / 超时）后把入口收掉。
+    func clearIntroCall() {
+        pendingIntroCallOrder = nil
     }
 
     private func refreshAfterDispatchResponse(
@@ -280,7 +341,7 @@ final class VolunteerHomeViewModel: ObservableObject {
             }
             if !Task.isCancelled {
                 // 超时自动拒绝
-                respondToDispatch(accept: false, currentLocation: nil, locationAuthorized: false)
+                respondToDispatch(action: .decline, currentLocation: nil, locationAuthorized: false)
             }
         }
     }
@@ -926,18 +987,23 @@ struct VolunteerHomeView: View {
             }
             .navigationTitle("")
             .navigationBarHidden(true)
+            // 一个 destination 分两种落点，不是两个 `navigationDestination(isPresented:)` ——
+            // 同一个视图上挂两条 `isPresented` 版本在 iOS 16 上会互相顶掉。
             .navigationDestination(
                 isPresented: Binding(
-                    get: { viewModel.acceptedDispatchOrderId != nil },
+                    get: { viewModel.acceptedDispatchOrderId != nil || viewModel.pendingIntroCallOrder != nil },
                     set: { isPresented in
                         if !isPresented {
                             viewModel.acceptedDispatchOrderId = nil
                             viewModel.acceptedDispatchInitialOrder = nil
+                            viewModel.clearIntroCall()
                         }
                     }
                 )
             ) {
-                if let orderId = viewModel.acceptedDispatchOrderId {
+                if let dispatchOrder = viewModel.pendingIntroCallOrder {
+                    VolunteerIntroCallView(dispatchOrder: dispatchOrder)
+                } else if let orderId = viewModel.acceptedDispatchOrderId {
                     VolunteerInServiceView(
                         orderId: orderId,
                         initialOrder: viewModel.acceptedDispatchInitialOrder
@@ -976,16 +1042,19 @@ struct VolunteerHomeView: View {
                         currentLocation: locationService.currentLocation,
                         locationAuthorized: locationService.isAuthorized,
                         fallbackCoordinate: locationService.effectiveBackendLocation,
-                        onAccept: {
+                        // 🚨 「有意向」替代了「接单」：陌生人直接发 ACCEPT 会被后端 409
+                        // `INTRO_CALL_REQUIRED`，而派单推送里没带 `requiresIntroCall`，
+                        // 客户端分不出这一对是不是熟人（见 `respondToDispatch` 上那段说明）。
+                        onInterested: {
                             viewModel.respondToDispatch(
-                                accept: true,
+                                action: .interested,
                                 currentLocation: locationService.currentLocation,
                                 locationAuthorized: locationService.isAuthorized
                             )
                         },
                         onDecline: {
                             viewModel.respondToDispatch(
-                                accept: false,
+                                action: .decline,
                                 currentLocation: nil,
                                 locationAuthorized: false
                             )
@@ -1717,7 +1786,7 @@ private struct VolunteerDispatchOverlay: View {
     let currentLocation: CLLocationCoordinate2D?
     let locationAuthorized: Bool
     let fallbackCoordinate: CLLocationCoordinate2D
-    let onAccept: () -> Void
+    let onInterested: () -> Void
     let onDecline: () -> Void
 
     var body: some View {
@@ -1837,8 +1906,8 @@ private struct VolunteerDispatchOverlay: View {
                     .accessibilityLabel("拒绝订单")
                     .accessibilityHint("拒绝此次派单")
 
-                    Button(action: onAccept) {
-                        Text("接受")
+                    Button(action: onInterested) {
+                        Text("有意向，想先聊聊")
                             .font(AppFonts.body().weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
@@ -1847,8 +1916,11 @@ private struct VolunteerDispatchOverlay: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .disabled(isResponding)
-                    .accessibilityLabel("接受订单")
-                    .accessibilityHint("接受此次派单并进入服务流程")
+                    .accessibilityLabel("有意向，想先聊聊")
+                    // 说清「还不是接单」：把 INTERESTED 当成接单的人会以为事情定了，
+                    // 然后错过跑者那通电话 —— 而 20 分钟窗口过了这一单就换人了。
+                    .accessibilityHint("先锁定这一单并等跑者打电话给你，聊完双方都说合适才算接单")
+                    .accessibilityIdentifier("volunteerDispatchInterestedButton")
                 }
 
                 if isResponding {

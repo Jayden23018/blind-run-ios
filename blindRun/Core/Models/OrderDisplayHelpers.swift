@@ -10,7 +10,7 @@ import SwiftUI
 extension RunOrderStatus {
     var isActiveForBlindRunner: Bool {
         switch self {
-        case .pendingMatch, .pendingAccept, .inProgress, .driverEnRoute, .driverArrived, .rematching:
+        case .pendingMatch, .pendingIntroCall, .pendingAccept, .inProgress, .driverEnRoute, .driverArrived, .rematching:
             return true
         case .completed, .cancelled, .noVolunteer:
             return false
@@ -19,9 +19,17 @@ extension RunOrderStatus {
         }
     }
 
+    /// `.pendingIntroCall` 判 true 而 `.pendingMatch` 判 false：这一态订单**已经锁给了
+    /// 这一位志愿者**（后端 `dispatchCurrentVolunteerId`），他有一件必须做的事（表态）。
+    ///
+    /// ⚠️ 眼下这个分支实际走不到 —— 志愿者在通话期取不到 `OrderDetailResponse`
+    /// （`OrderQueryService.getOrder` 只认 `order.volunteer`，通话期恒为 null → 403），
+    /// 所以 `activeOrder` 永远不会是这一态，通话页吃的是派单载荷。
+    /// 判 true 是取**不把订单从界面上抹掉**这个保守方向，与 `.unknown` 那条同源；
+    /// 后端哪天让志愿者读得到这一态的订单详情，这里不必再改一次。
     var isActiveForVolunteer: Bool {
         switch self {
-        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+        case .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return true
         case .pendingMatch, .completed, .cancelled, .rematching, .noVolunteer:
             return false
@@ -52,11 +60,15 @@ extension RunOrderStatus {
     ///
     /// 结构化条件（配速 / 路线偏好 / 导盲犬）**不走这条闸**：取值空间封闭（枚举 / 布尔），
     /// 且它们是志愿者判断「我接不接得下来」的依据，藏起来只会让人盲接、接了再取消。
+    ///
+    /// `.pendingIntroCall` 判为**不可见**：通话发生在接单**之前**，而派单是串行的 ——
+    /// 一单最多聊 3 位候选人，展示等于把这段自由文本交给这一单碰到的每一个人，包括
+    /// 最后没聊成的那些。通话本身就是用来替代文字沟通的，要问什么当面（电话里）问。
     var disclosesBlindRunnerNotesToVolunteer: Bool {
         switch self {
         case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed, .cancelled:
             return true
-        case .pendingMatch, .rematching, .noVolunteer:
+        case .pendingMatch, .pendingIntroCall, .rematching, .noVolunteer:
             return false
         case .unknown:
             return false
@@ -74,12 +86,19 @@ extension RunOrderStatus {
     ///
     /// 写成穷举 switch 而不是集合字面量：后端往枚举加值时编译器会在这里逼一次决策，
     /// 而集合字面量会默默把新状态判成 false。
+    ///
+    /// 🚨 `.pendingIntroCall` 判 **false**，尽管那一态盲人确实要打一通电话。
+    /// 这条属性控制的是**双向下发号码的老路径**（号码来自 `OrderDetailResponse.volunteerPhone`，
+    /// 接单后两边都拿得到对方明文号）。通话磨合走的是**单向**专用接口
+    /// `GET /api/orders/{id}/intro-call` —— 只有盲人拿得到能拨通的明文号，志愿者只拿到掩码串。
+    /// 混用会让两条路径的号码来源、可见方向和状态集全部搅在一起。
+    /// 那一态的拨号入口在 `BlindOrderStatusView.introCallSection`。
     var offersVolunteerCall: Bool {
         switch self {
         case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return true
         // 还没有志愿者，或那个志愿者已经不是本单参与者（`REMATCHING` 是他取消后进入的状态）。
-        case .pendingMatch, .rematching, .noVolunteer:
+        case .pendingMatch, .pendingIntroCall, .rematching, .noVolunteer:
             return false
         case .completed, .cancelled:
             return false
@@ -112,7 +131,7 @@ extension RunOrderStatus {
     /// 同样写成穷举 switch：后端往枚举加值时编译器在这里逼一次决策。
     var offersRunPlanShare: Bool {
         switch self {
-        case .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching:
+        case .pendingMatch, .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching:
             return true
         // 终态：没有还在进行的行程可分享。`NO_VOLUNTEER` 是后端明写的预留终态
         // （`OrderStatus.java:46`），归在这一组。
@@ -144,7 +163,10 @@ extension RunOrderStatus {
         case .rematching:
             return .keepRematching
         // 已经有志愿者了，等待窗口不再是这一单的问题。
-        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+        // `.pendingIntroCall` 同样是 nil，但理由不同：后端 `keepWaiting` 只收 `PENDING_MATCH`、
+        // `keepRematching` 只收 `REMATCHING`，通话态两条都会 409；而且通话窗口有自己的
+        // 20 分钟计时，不由「继续等待」延长。
+        case .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return nil
         // `NO_VOLUNTEER` 是**终态**（后端 `OrderStatus.java:46`「预留终态」、
         // `DispatchService.java:574`），两个端点都会拒。可恢复的窗口在走到它**之前**。
@@ -199,7 +221,8 @@ extension RunOrderStatus {
         switch self {
         case .pendingAccept, .driverEnRoute, .driverArrived:
             return true
-        case .pendingMatch, .rematching, .noVolunteer, .inProgress, .completed, .cancelled:
+        // `.pendingIntroCall` 还没有志愿者接单，后端也不会为这一态下发对方位置。
+        case .pendingMatch, .pendingIntroCall, .rematching, .noVolunteer, .inProgress, .completed, .cancelled:
             return false
         case .unknown:
             return false
@@ -222,7 +245,9 @@ extension RunOrderStatus {
         case .pendingMatch, .rematching:
             return true
         // 已经有志愿者了，这一格的数字换成距离 / 约定结束时间。
-        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+        // `.pendingIntroCall` 也不给：那一刻用户不是在等，是有一件该做的事（打这通电话），
+        // 状态卡下面紧跟的就是拨号按钮，再摆一个「已等待 N 分钟」是在催他等。
+        case .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return false
         // 终态：一个还在走的秒表只会让人以为事情还没结束。
         case .completed, .cancelled, .noVolunteer:
@@ -236,6 +261,10 @@ extension RunOrderStatus {
         switch self {
         case .pendingMatch:
             return "系统正在派单，请稍候。"
+        // 🚨 不提「第几位」「换了一位」「重新」——「无声拒绝」要求盲人无从得知自己被谁拒过。
+        // 让他看到「第 3 位志愿者拒绝了你」，这个功能就从降低求助心理成本变成制造挫败。
+        case .pendingIntroCall:
+            return "有位志愿者想陪你跑。先打个电话聊聊，双方都觉得合适就算约好了。"
         case .pendingAccept:
             return "志愿者已接单，请按预约时间前往或等待在出发地点。"
         case .inProgress:
@@ -263,6 +292,9 @@ extension RunOrderStatus {
         switch self {
         case .pendingMatch:
             return "订单提交成功，系统正在为你派单。"
+        // 与 `blindRunnerDescription` 同一条无声拒绝口径：不出现轮次、不出现「换」。
+        case .pendingIntroCall:
+            return "有位志愿者想陪你跑，可以打个电话聊聊。"
         case .pendingAccept:
             return "志愿者已接单，请前往或等待在预约出发地点。"
         case .inProgress:
@@ -290,6 +322,8 @@ extension RunOrderStatus {
         switch self {
         case .pendingMatch:
             return "clock.arrow.circlepath"
+        case .pendingIntroCall:
+            return "phone.circle.fill"
         case .pendingAccept:
             return "person.crop.circle.badge.questionmark"
         case .inProgress:
@@ -317,7 +351,9 @@ extension RunOrderStatus {
             return AppColors.warning
         case .inProgress, .driverEnRoute, .completed:
             return AppColors.success
-        case .driverArrived:
+        // 与 `.driverArrived` 同一档：这两态的共同点是**等着用户做一件事**，
+        // 而不是等系统。等待色（warning）会让人以为还是干等着。
+        case .pendingIntroCall, .driverArrived:
             return AppColors.primary
         case .cancelled, .noVolunteer:
             return AppColors.textSecondary
@@ -499,6 +535,26 @@ struct EscortNeed: Equatable, Identifiable {
     /// 「跑者没有偏好」，而真实情况是「跑者填了，只是这个版本的 App 不认识」。
     /// 引导方式认错的后果是见面第一下就抓错人。
     static let confirmInPerson = "请当面与跑者确认"
+
+    /// 导盲犬那一行的唯一构造点。
+    ///
+    /// 抽出来是因为它有**两个**数据源：接单后的 `OrderDetailResponse.hasGuideDogThisRun`，
+    /// 以及接单前的派单载荷 `WSNewOrder.hasGuideDog`（通话磨合期志愿者拿不到订单详情，
+    /// 后端 `OrderQueryService.getOrder` 只认 `order.volunteer`，那一态它恒为 null → 403）。
+    /// 两处各抄一份文案，改一处必漏一处。
+    static let guideDogThisRun = EscortNeed(
+        kind: .guideDog,
+        symbolName: "pawprint.fill",
+        title: "导盲犬",
+        value: "本次携带，请预留通行空间"
+    )
+}
+
+extension Array where Element == EscortNeed {
+    /// 提示位合成的一句话。读屏把整块当**一个**焦点读，避免逐行滑过时漏掉其中一条。
+    var escortNeedsAnnouncement: String {
+        (["本单为视障跑者"] + map { "\($0.title)：\($0.value)" }).joined(separator: "。")
+    }
 }
 
 extension OrderDetailResponse {
@@ -516,16 +572,19 @@ extension OrderDetailResponse {
     /// `pacePreference` / `hasGuideDog`。所以这道闸此刻拦不到任何东西，它防的是
     /// 「以后有人把一份接单前的 `OrderDetailResponse` 喂进这个视图」。
     /// 让后端在派单载荷里补这两项的请求已进 handoff。
+    ///
+    /// 通话磨合（`.pendingIntroCall`）同理，且更彻底：那一态志愿者连 `OrderDetailResponse`
+    /// 都取不到（`OrderQueryService.getOrder` 只认 `order.volunteer`，通话期它是 null → 403），
+    /// 所以志愿者侧通话页走的是 `WSNewOrder.escortNeeds` —— 只剩导盲犬那一行。
+    ///
+    /// ⚠️ 闸关着时**「跑者没有填写」那条兜底也不会出现**（它在 `guard` 之后）。
+    /// 这是有意保留的既有行为：接单前把「后端没给我」说成「跑者没填」是另一种误导，
+    /// 而 `EscortNeedsTests.testHidesHealthFieldsAfterTheVolunteerDroppedOut` 逐字钉着空数组。
     var escortNeeds: [EscortNeed] {
         var needs: [EscortNeed] = []
 
         if hasGuideDogThisRun == true {
-            needs.append(EscortNeed(
-                kind: .guideDog,
-                symbolName: "pawprint.fill",
-                title: "导盲犬",
-                value: "本次携带，请预留通行空间"
-            ))
+            needs.append(.guideDogThisRun)
         }
 
         guard status.disclosesBlindRunnerNotesToVolunteer else { return needs }
@@ -564,8 +623,22 @@ extension OrderDetailResponse {
 
     /// 提示位合成的一句话。读屏把整块当**一个**焦点读，避免逐行滑过时漏掉其中一条。
     var escortNeedsAnnouncement: String {
-        (["本单为视障跑者"] + escortNeeds.map { "\($0.title)：\($0.value)" })
-            .joined(separator: "。")
+        escortNeeds.escortNeedsAnnouncement
+    }
+}
+
+extension WSNewOrder {
+    /// 接单**前**能给志愿者看的陪跑要求 —— 只有导盲犬那一行。
+    ///
+    /// 派单载荷刻意只带取值空间封闭的字段（`pacePreference` / `hasGuideDog`），
+    /// 自由文本与 `visionLevel` / `tetherPreference` 都不在其中（见 `WSNewOrder` 的类型注释
+    /// 与 `AGENTS.md §8`）。所以这里**没有闸可判**：能给的就这一条，判据在数据源上，
+    /// 不在状态上。
+    ///
+    /// 用在通话磨合页（`VolunteerIntroCallView`）：那一刻志愿者取不到 `OrderDetailResponse`
+    /// （后端 `OrderQueryService.getOrder` 只认 `order.volunteer`，通话期恒为 null → 403）。
+    var escortNeeds: [EscortNeed] {
+        hasGuideDog == true ? [.guideDogThisRun] : []
     }
 }
 

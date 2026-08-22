@@ -16,8 +16,11 @@ final class RunPlanShareMessageTests: XCTestCase {
     /// 非终态全给，与后端 `POST /share` 一致；终态隐藏（后端对终态返 409
     /// `SHARE_ORDER_ALREADY_FINISHED`，摆一个必然报错的按钮对读屏用户是纯噪音）。
     func testShareIsOfferedOnlyWhenThereIsAnActualRunToDescribe() {
+        // `.pendingIntroCall` 在列：它是非终态，后端 `POST /share` 照常受理。
+        // 通话没聊成也不影响家属那条链接 —— 链接是幂等的，行程要素本身没变。
         let allowed: Set<RunOrderStatus> = [
-            .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching
+            .pendingMatch, .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived,
+            .inProgress, .rematching
         ]
 
         for status in RunOrderStatus.allCases {

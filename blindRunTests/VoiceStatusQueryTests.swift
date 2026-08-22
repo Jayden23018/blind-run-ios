@@ -257,6 +257,21 @@ final class VoiceStatusQueryTests: XCTestCase {
                     .confirmDialVolunteer(phone: "13800000000"),
                     "\(status) 应该允许拨号"
                 )
+            } else if status == .pendingIntroCall {
+                // 唯一的例外，而且是刻意的：这一态**确实有一通该打的电话**，
+                // 只是号码走通话专用接口（`IntroCallEndpoint.view`）、不在 `volunteerPhone` 上，
+                // 所以 `offersVolunteerCall` 判 false。通用那句「现在还不能打电话给志愿者」
+                // 在这里是**错的** —— 能打，只是语音这条路暂时不接。
+                // 对看不见屏幕的人，说「不能打」而不说去哪打就是死路，所以要求它指回屏幕。
+                XCTAssertNil(answer.pendingAction, "语音不得替盲人拨通话磨合的号码")
+                XCTAssertTrue(
+                    answer.speech.contains("订单状态页"),
+                    "要把人指回屏幕上那个按钮：\(answer.speech)"
+                )
+                XCTAssertTrue(
+                    answer.speech.contains(status.displayName),
+                    "\(status) 要带上当前状态：\(answer.speech)"
+                )
             } else {
                 XCTAssertNil(answer.pendingAction, "\(status) 不得拨号")
                 XCTAssertTrue(

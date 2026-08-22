@@ -2290,6 +2290,492 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 通话磨合页数据（BLIND / VOLUNTEER）
+    ///
+    /// 接单前通话磨合（迁移 `0031`）。订单处于 `PENDING_INTRO_CALL` 时可读。
+    ///
+    /// 🚨 **同一个端点对两种角色返回不同内容，号码是单向的**：
+    /// - 盲人侧：`counterpartPhone` 是志愿者**能直接拨通的明文号**，`counterpartPhoneMasked` 为 null
+    /// - 志愿者侧：`counterpartPhone` **恒为 null**，只给 `counterpartPhoneMasked`（掩码，仅用于认人）
+    ///
+    /// 为什么单向：接单前通话会把号码下发面从「1 个已接单的人」放大到「N 个候选人」，
+    /// 聊崩 3 次就是 3 个陌生人永久持有。所以泄露方向收敛到已实名、已过活体认证的志愿者一侧。
+    ///
+    /// 🚨 **响应体不含对方的表态、也不含轮次进度**——这不是漏了。「无声拒绝」要求任何一方
+    /// 都不知道自己是否被对方拒绝过；「这是第 3 位志愿者」本身就是在告诉盲人前两位没成。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束（最常见成因是窗口超时后客户端才发上来）
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `GET /api/orders/{id}/intro-call`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/get(getIntroCall)`.
+    public func getIntroCall(_ input: Operations.getIntroCall.Input) async throws -> Operations.getIntroCall.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getIntroCall.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/intro-call",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getIntroCall.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.IntroCallView.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getIntroCall.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getIntroCall.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 通话后表态：合适 / 不合适（BLIND / VOLUNTEER）
+    ///
+    /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
+    /// 订单退回 `PENDING_MATCH` 派给下一个候选人。
+    ///
+    /// ⚠️ **退回的是 `PENDING_MATCH` 不是 `REMATCHING`**：后者语义是「已经有过志愿者、他走了」，
+    /// 而通话没成时从来没有志愿者接过单。
+    ///
+    /// 幂等：重复提交同一个表态直接返回 200，不报错（弱网重试是常态）。
+    ///
+    /// 🚨 **响应体只回 `{success, orderId}`**，不回对方是否已表态、不回还剩几轮——
+    /// 那些信息会让客户端能显示「对方拒绝了你」，而本功能的意义就是不制造这种压力。
+    ///
+    /// ⚠️ 拒绝**不需要给理由，系统也不记录理由**（请求体没有 reason 字段）：
+    /// 要求填理由等于要求当面说「不」。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/decision`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/decision/post(submitIntroCallDecision)`.
+    public func submitIntroCallDecision(_ input: Operations.submitIntroCallDecision.Input) async throws -> Operations.submitIntroCallDecision.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.submitIntroCallDecision.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/intro-call/decision",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitIntroCallDecision.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitIntroCallDecision.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitIntroCallDecision.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 志愿者报告「一直没接到电话」（VOLUNTEER）
+    ///
+    /// 与 `decision=DECLINE` 分开是因为**统计口径相反**：本端点计志愿者 timeout
+    /// （只增 dispatched+timeout，不动 declined），把它并进 DECLINE 会错误拉低这位志愿者的
+    /// `acceptanceRate`——他并没有拒绝任何人。且这一对**不进候选池硬过滤**，
+    /// 没接到电话不代表两人不合适，下次仍可配对。
+    ///
+    /// ⚠️ **盲人侧没有对应端点**：对盲人来说「聊完不合适」与「没打通」结果完全一样（换一位），
+    /// 不该为了后端的统计口径让他多按一个键。这个口径由志愿者侧提供。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/unreachable`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/unreachable/post(reportIntroCallUnreachable)`.
+    public func reportIntroCallUnreachable(_ input: Operations.reportIntroCallUnreachable.Input) async throws -> Operations.reportIntroCallUnreachable.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.reportIntroCallUnreachable.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/intro-call/unreachable",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.reportIntroCallUnreachable.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.reportIntroCallUnreachable.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.reportIntroCallUnreachable.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 盲人即将拨号，提前提醒志愿者（BLIND）
+    ///
+    /// 给志愿者推一条 **HIGH** 优先级通知（`INTRO_CALL_INCOMING`），
+    /// 避免陌生号码来电被当成骚扰电话挂掉。
+    ///
+    /// 🚨 **客户端不要等这个响应再拨号**——对盲人来说「点了没反应」是最糟的反馈。
+    /// 调完立即拨 `tel:`，不等响应。APNs 到达与对方手机响铃之间本就有几秒差，
+    /// 时序天然能对上；即使推送晚到，派单文案里那句「稍后可能有陌生号码打给你」也能兜底。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/notify-incoming`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)`.
+    public func notifyIntroCallIncoming(_ input: Operations.notifyIntroCallIncoming.Input) async throws -> Operations.notifyIntroCallIncoming.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.notifyIntroCallIncoming.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/intro-call/notify-incoming",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.notifyIntroCallIncoming.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.notifyIntroCallIncoming.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.notifyIntroCallIncoming.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
     public func startService(_ input: Operations.startService.Input) async throws -> Operations.startService.Output {
