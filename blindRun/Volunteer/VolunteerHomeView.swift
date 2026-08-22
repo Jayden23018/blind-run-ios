@@ -1608,7 +1608,9 @@ private struct VolunteerDispatchSummaryCard: View {
                 Spacer(minLength: 0)
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+            // 列数跟着 `metrics` 走，不写字面量 —— `be4e030` 删掉「积分」那格时列数留在 4，
+            // 于是三格挤在左边、右边空一格挂了很久。
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: metrics.count), spacing: 8) {
                 ForEach(metrics, id: \.0) { metric in
                     VolunteerMetricTile(title: metric.0, value: metric.1)
                 }
