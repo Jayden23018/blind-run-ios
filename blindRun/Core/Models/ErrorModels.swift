@@ -60,6 +60,15 @@ enum ErrorCode: String, Codable, Sendable {
     // 所以这个码只会在竞态里出现：订单页每 5 秒轮询一次，用户可能正好在订单刚结束的窗口里按下。
     // 映射它不是为了那个窗口好看，是为了别把一个有确切含义的 409 念成「未知错误 (409)」。
     case shareOrderAlreadyFinished = "SHARE_ORDER_ALREADY_FINISHED"
+    // 接单前通话磨合（后端 `ErrorCode.java:111` / `:119`，2026-08-21 随迁移 `0031` 上线）。
+    //
+    // `INTRO_CALL_NOT_ACTIVE` 最常见的成因**不是客户端乱调**，而是这一轮的 20 分钟窗口已经超时、
+    // 订单已经换了下一个候选人，用户此刻才把表态发上来。所以文案说「这一轮已经结束」，
+    // 不能说成「参数错误」或「操作失败」——后者会让人以为再点一次就好。
+    case introCallNotActive = "INTRO_CALL_NOT_ACTIVE"
+    // 陌生人试图跳过通话直接接单。客户端一律先发 `INTERESTED`，所以正常路径下见不到它；
+    // 映射它是为了别把一个有确切含义的 409 念成「未知错误 (409)」。
+    case introCallRequired = "INTRO_CALL_REQUIRED"
 
     var localizedMessage: String {
         switch self {
@@ -149,6 +158,10 @@ enum ErrorCode: String, Codable, Sendable {
             return "请填写联系人姓名和手机号。"
         case .shareOrderAlreadyFinished:
             return RunPlanLiveShareCopy.alreadyFinished
+        case .introCallNotActive:
+            return IntroCallCopy.roundAlreadyEnded
+        case .introCallRequired:
+            return "还没有和这位跑者通过电话，请先选「有意向，想先聊聊」。"
         }
     }
 

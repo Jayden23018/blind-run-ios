@@ -24,6 +24,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
     @Published var volunteerDistanceToStartText: String?
     @Published private(set) var latestVolunteerSample: LocatedCoordinate?
     @Published var errorMessage: String?
+    /// 通话磨合页数据。`nil` = 这一单不在 `PENDING_INTRO_CALL`，或者这一轮已经结束。
+    ///
+    /// 🚨 它里面**没有对方的表态、也没有轮次进度**，而且不许在客户端补算出来
+    /// （见 `IntroCallView` 的类型注释）。
+    @Published private(set) var introCall: IntroCallView?
     /// 本单是否已经用完延长次数。**按单记**，换单时清空（见 `startPolling`）。
     @Published private(set) var keepWaitingLimitReached = false
 
@@ -198,6 +203,92 @@ final class BlindOrderStatusViewModel: ObservableObject {
         } catch {
             isPerformingAction = false
             let message = "继续等待没有成功，请再试一次。"
+            errorMessage = message
+            speechService?.speakError(message)
+        }
+    }
+
+    // MARK: - 接单前通话磨合
+
+    /// 拉通话页数据。跟着订单轮询走，不另起一条定时器 —— 这一页本来就每 5 秒刷一次订单。
+    ///
+    /// 拿不到就把 `introCall` 清空：那一刻界面上唯一该有的动作是拨号，
+    /// 而没有号码的拨号按钮按下去就是「点了没反应」。
+    private func refreshIntroCallIfNeeded(for order: OrderDetailResponse, appState: AppState) async {
+        guard order.status == .pendingIntroCall else {
+            introCall = nil
+            return
+        }
+        let view: IntroCallView? = try? await appState.apiClient.get(
+            IntroCallEndpoint.view.path(orderId: order.orderId)
+        )
+        introCall = view
+    }
+
+    #if DEBUG
+    /// 单测接缝：正常路径下通话数据跟着订单轮询一起拉，而用例要的是「只拉这一次」——
+    /// 起轮询会顺带打订单详情、动状态机，把断言埋进一堆无关请求里。
+    func loadIntroCallForTesting() async {
+        guard let order, let appState else { return }
+        await refreshIntroCallIfNeeded(for: order, appState: appState)
+    }
+    #endif
+
+    /// 先通知对方，然后**立刻**回拨号 URL 给调用方。
+    ///
+    /// 🚨 **不等响应**：对盲人来说「点了没反应」是最糟的反馈。APNs 到达与对方手机响铃之间
+    /// 本就有几秒差，时序天然对得上；推送晚到还有派单文案兜底
+    /// （后端 `notify-incoming` 的端点说明逐字写着这一条）。
+    ///
+    /// 🚨 返回的号码**只能**来自 `dialableCounterpartPhone`。掩码串拼进 `tel:` 会被
+    /// `EmergencyDialer.telURL` 取成 `1381234` 拨出去 —— 空号，而界面上看不出任何异常。
+    func introCallDialURL() -> URL? {
+        guard let order, let appState, let phone = introCall?.dialableCounterpartPhone else { return nil }
+        let apiClient = appState.apiClient
+        let path = IntroCallEndpoint.notifyIncoming.path(orderId: order.orderId)
+        Task {
+            let _: EmptyResponse? = try? await apiClient.post(path)
+        }
+        return EmergencyDialer.telURL(for: phone)
+    }
+
+    /// 通话后的表态。`.accept` = 合适；`.decline` = 换一位。
+    ///
+    /// ⚠️ 请求体**没有 reason 字段**，这是后端刻意的：要求填理由等于要求当面说「不」。
+    /// 成功后不改本地状态 —— 订单是不是转 `PENDING_ACCEPT` 取决于对方，而我们拿不到对方的表态。
+    /// 让 5 秒轮询把真实状态带回来。
+    func submitIntroCallDecision(_ decision: IntroCallDecision) async {
+        guard let order, let appState else { return }
+        isPerformingAction = true
+        errorMessage = nil
+        do {
+            let _: EmptyResponse = try await appState.apiClient.post(
+                IntroCallEndpoint.decision.path(orderId: order.orderId),
+                body: IntroCallDecisionRequest(decision: decision)
+            )
+            isPerformingAction = false
+            switch decision {
+            case .accept:
+                speechService?.speak(IntroCallCopy.waitingForCounterpart)
+            case .decline:
+                // 🚨 中性、进行时，与常规等待读起来完全一样：不许出现「重新」「换了一位」
+                // 这类暗示前面失败过的措辞（无声拒绝）。
+                speechService?.speak(IntroCallCopy.continuedSearch)
+            }
+            await loadOrder(orderId: order.orderId, speakChanges: false)
+        } catch let error as APIError {
+            isPerformingAction = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+            // 409 `INTRO_CALL_NOT_ACTIVE` 的常见成因是窗口已经超时。刷订单让页面回到真实状态，
+            // 不重试 —— 重试只会得到同一个 409。
+            await loadOrder(orderId: order.orderId, speakChanges: true)
+        } catch {
+            isPerformingAction = false
+            let message = "没有提交成功，请再试一次。"
             errorMessage = message
             speechService?.speakError(message)
         }
@@ -421,6 +512,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             refreshedAuthoritativeOrder = true
             isLoading = false
             apply(updated, speakChanges: speakChanges)
+            await refreshIntroCallIfNeeded(for: updated, appState: appState)
             await refreshVolunteerLocationFallbackIfNeeded(for: updated, appState: appState)
         } catch let error as APIError {
             isLoading = false
@@ -468,8 +560,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
         if speakChanges, previousStatus != updated.status {
             speechService?.speakStatusChange(
                 updated.status,
-                text: updated.blindRunnerAnnouncement(distanceText: volunteerDistanceToStartText)
+                text: statusChangeAnnouncement(from: previousStatus, to: updated)
             )
+        }
+        if updated.status != .pendingIntroCall {
+            introCall = nil
         }
         if !updated.status.shouldPoll {
             appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
@@ -478,6 +573,25 @@ final class BlindOrderStatusViewModel: ObservableObject {
             }
             stopPolling()
         }
+    }
+
+    /// 状态推进时该播哪一句。除了一处例外，都是 `blindRunnerAnnouncement`。
+    ///
+    /// 例外是**通话没聊成、退回派单队列**（`PENDING_INTRO_CALL` → `PENDING_MATCH`）：
+    /// `.pendingMatch` 的常规播报是「订单提交成功，系统正在为你派单」—— 订单是二十分钟前
+    /// 提交的，这句话在这一刻是**错的**。后端为这条转移专门发了 `INTRO_CALL_CONTINUE`
+    /// （正文「正在为你寻找合适的陪跑伙伴」），这里逐字复用它。
+    ///
+    /// 🚨 措辞里不许出现「重新」「换一位」「再找一位」这类暗示前面失败过的词：
+    /// 无声拒绝的全部要求就是盲人无从得知自己被谁拒过。
+    private func statusChangeAnnouncement(
+        from previousStatus: RunOrderStatus?,
+        to updated: OrderDetailResponse
+    ) -> String {
+        if previousStatus == .pendingIntroCall, updated.status == .pendingMatch {
+            return IntroCallCopy.continuedSearch
+        }
+        return updated.blindRunnerAnnouncement(distanceText: volunteerDistanceToStartText)
     }
 
     func handleVolunteerLocationUpdate(_ sample: RealtimePeerLocationSample) {
@@ -681,6 +795,9 @@ struct BlindOrderStatusView: View {
     @EnvironmentObject private var speechInputService: SpeechInputService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    /// 通话磨合两阶段切换的唯一信号源。iOS 不告诉 App「这通电话打完了」——
+    /// 能观察到的只有「拨号确认框把我推到后台、然后我回来了」。
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @State private var showEmergencyConfirmation = false
@@ -697,6 +814,13 @@ struct BlindOrderStatusView: View {
     /// 短信入口是**降级路径**，不是常驻功能：实时分享失败（断网 / 权限 / 终态 409）时才露出来。
     /// 常驻会让读屏用户每次都多滑一个按钮，而它在实时分享可用时并不是用户想要的那条路。
     @State private var showSMSFallback = false
+    /// 用户按过通话磨合的拨号按钮。
+    @State private var introCallDidDial = false
+    /// 拨号之后 App 回到前台了 ⇒ 进入阶段 B（给出「聊过了，合适」）。
+    ///
+    /// ⚠️ 这是**推断，不是事实**：在系统拨号确认框上点「取消」走的是同一条路径。
+    /// 所以阶段 B 一定要保留「再打一次」，见 `introCallSection`。
+    @State private var introCallReturnedFromDialer = false
     /// 状态推进后把 VoiceOver 焦点接到状态卡上。
     ///
     /// 这一页每 5 秒轮询一次，重绘时焦点会被系统收走，落点不确定 —— 而状态卡恰恰是
@@ -746,6 +870,7 @@ struct BlindOrderStatusView: View {
                     // 而此刻用户唯一还能做的决定是「要不要取消」。
                     statusHeader(order)
                         .accessibilityFocused($statusHeaderFocused)
+                    introCallSection(order)
                     volunteerCallSection(order)
                     inlineAskQuestionSection
                     keepWaitingSection(order)
@@ -888,6 +1013,17 @@ struct BlindOrderStatusView: View {
         .onChange(of: viewModel.order?.status) { status in
             guard status != nil else { return }
             statusHeaderFocused = true
+            // 换了一轮通话（或离开通话态）就把两阶段状态归零：上一轮的「已经打过了」
+            // 不该让新一轮直接跳到阶段 B —— 那会把拨号按钮从主版位上撤掉，
+            // 而新一轮的第一件事恰恰是打电话。
+            if status != .pendingIntroCall {
+                introCallDidDial = false
+                introCallReturnedFromDialer = false
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active, introCallDidDial else { return }
+            introCallReturnedFromDialer = true
         }
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
@@ -1246,6 +1382,142 @@ struct BlindOrderStatusView: View {
         }
     }
 
+    /// 接单**前**通话磨合这一页唯一的主动作。**两阶段，每阶段只有一个主动作。**
+    ///
+    /// | 阶段 | 主动作 | 次动作 |
+    /// |---|---|---|
+    /// | A：还没拨号 | 打电话给这位志愿者 | 换一位 |
+    /// | B：拨号返回后 | 聊过了，合适 | 再打一次、换一位 |
+    ///
+    /// 版位与 `volunteerCallSection` / `keepWaitingSection` 相同、状态集互斥
+    /// （`.pendingIntroCall` 不在 `offersVolunteerCall` 也不在 `offersKeepWaiting` 里），
+    /// 所以读屏遍历时状态卡之后紧跟的永远是此刻唯一该做的那件事。
+    ///
+    /// 🚩 **阶段 B 必须保留「再打一次」。** 阶段切换的判定（点过拨号按钮 + `scenePhase`
+    /// 回到 `.active`）是**推断不是事实**：用户在系统拨号确认框上点「取消」会走同一条路径，
+    /// 界面于是变成他没预期的样子。保留拨号入口 = 推断错了也有退路。
+    /// **这处冗余是刻意的，不要以「阶段 B 不该有拨号按钮」为由删掉。**
+    ///
+    /// 盲人侧**只有两个结果动作**（合适 / 换一位），刻意没有「没打通」：对他来说
+    /// 「聊完不合适」和「没打通」结果完全一样（换一位），分成两个按钮只是多一次读屏滑动。
+    /// 后端确实要区分（timeout vs declined 直接进 `acceptanceRate`），
+    /// 但那个口径由志愿者侧提供 —— 不让盲人替系统的统计需求多按一个键。
+    @ViewBuilder
+    private func introCallSection(_ order: OrderDetailResponse) -> some View {
+        if order.status == .pendingIntroCall, let introCall = viewModel.introCall {
+            VStack(spacing: 14) {
+                if introCall.isWaitingForCounterpart {
+                    // 🚨 只说自己那一半。**不许说「对方还没回复」** —— 那等于告诉盲人对方看过了
+                    // 还没答应，把压力转嫁回来；而且我们根本拿不到对方的表态。
+                    Text(IntroCallCopy.waitingForCounterpart)
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel(IntroCallCopy.waitingForCounterpart)
+                        .accessibilityIdentifier("blindOrderStatusIntroCallWaitingNotice")
+                } else if introCallReturnedFromDialer {
+                    introCallPrimaryButton(
+                        title: IntroCallCopy.acceptButtonTitle,
+                        hint: IntroCallCopy.acceptAccessibilityHint,
+                        identifier: "blindOrderStatusIntroCallAcceptButton",
+                        tint: AppColors.success
+                    ) {
+                        Task { await viewModel.submitIntroCallDecision(.accept) }
+                    }
+                }
+
+                if introCallReturnedFromDialer || introCall.isWaitingForCounterpart {
+                    introCallSecondaryButton(
+                        title: IntroCallCopy.callAgainButtonTitle,
+                        hint: IntroCallCopy.callAccessibilityHint,
+                        identifier: "blindOrderStatusIntroCallDialAgainButton",
+                        tint: AppColors.primary,
+                        action: dialIntroCall
+                    )
+                } else {
+                    introCallPrimaryButton(
+                        title: IntroCallCopy.callButtonTitle,
+                        hint: IntroCallCopy.callAccessibilityHint,
+                        identifier: "blindOrderStatusIntroCallDialButton",
+                        tint: AppColors.primary,
+                        action: dialIntroCall
+                    )
+                }
+
+                introCallSecondaryButton(
+                    title: IntroCallCopy.declineButtonTitle,
+                    hint: IntroCallCopy.declineAccessibilityHint,
+                    identifier: "blindOrderStatusIntroCallDeclineButton",
+                    tint: AppColors.destructive
+                ) {
+                    Task { await viewModel.submitIntroCallDecision(.decline) }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(
+                IntroCallCopy.blindCallSectionAnnouncement(
+                    counterpartName: introCall.counterpartDisplayName(fallback: "这位志愿者")
+                )
+            )
+        }
+    }
+
+    /// 拨号。**先通知对方再立刻拨**，不等响应（理由在 `introCallDialURL` 上）。
+    ///
+    /// `introCallDidDial` 在这里就置 true，而不是等 `openURL` 回调 —— 系统拨号确认框弹出
+    /// 本身就会把 App 推到后台，回来时要能认出「刚才去拨号了」。
+    private func dialIntroCall() {
+        guard let url = viewModel.introCallDialURL() else {
+            speechService.speakError(IntroCallCopy.loadFailed)
+            return
+        }
+        introCallDidDial = true
+        EmergencyDialer.dial(url)
+    }
+
+    private func introCallPrimaryButton(
+        title: String,
+        hint: String,
+        identifier: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(AppFonts.largeTitle())
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: primaryActionButtonHeight)
+                .background(tint)
+                .cornerRadius(16)
+        }
+        .disabled(viewModel.isPerformingAction)
+        .accessibilityLabel(title)
+        .accessibilityHint(hint)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func introCallSecondaryButton(
+        title: String,
+        hint: String,
+        identifier: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(tint)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+        }
+        .disabled(viewModel.isPerformingAction)
+        .buttonShapeOutlineIfNeeded(color: tint)
+        .accessibilityLabel(title)
+        .accessibilityHint(hint)
+        .accessibilityIdentifier(identifier)
+    }
+
     /// 等待期这一页唯一的主动作。
     ///
     /// 后端的 `ORDER_CANCELLATION_WARNING` 正文逐字写着「点击继续等待可延长」，在这个按钮
@@ -1601,6 +1873,36 @@ struct BlindOrderStatusView: View {
                     }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("模拟志愿者接单")
+
+                    // 真实链路里陌生人**不能**直接接单（后端 409 `INTRO_CALL_REQUIRED`），
+                    // 走的是这一条。留着上面那个是因为熟人路径与「后端把开关关掉」都还走它。
+                    Button("模拟志愿者想先聊聊") {
+                        Task {
+                            let request = OrderRespondRequest(action: .interested)
+                            let _: EmptyResponse? = try? await appState.apiClient.post(
+                                "/api/orders/\(order.orderId)/respond",
+                                body: request
+                            )
+                            viewModel.startPolling(orderId: order.orderId)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("模拟志愿者想先聊聊")
+                }
+
+                // 通话磨合期只有盲人这一侧能在 Mock 里操作，志愿者那半边由这个按钮代打 ——
+                // 否则「双方都说合适」在单设备上永远凑不齐。
+                if order.status == .pendingIntroCall {
+                    Button("模拟志愿者说合适") {
+                        (appState.apiClient as? MockAPIClient)?.simulateIntroCallDecisionForTesting(
+                            orderId: order.orderId,
+                            role: .volunteer,
+                            decision: .accept
+                        )
+                        viewModel.startPolling(orderId: order.orderId)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("模拟志愿者说合适")
                 }
 
                 if order.status == .driverEnRoute || order.status == .pendingAccept {

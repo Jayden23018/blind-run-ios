@@ -147,7 +147,12 @@ struct OrderStatusReconciler {
 private extension RunOrderStatus {
     var lifecycleRank: Int {
         switch self {
-        case .pendingMatch: return 0
+        // `.pendingIntroCall` 与 `.pendingMatch` **同档**，这不是偷懒。
+        // 这一档只被 `reconcileREST` 用来拒绝「倒退的」REST 结果，而这两态之间的倒退是真的：
+        // 本轮没聊成时后端把订单退回 `PENDING_MATCH`（`IntroCallService.releaseToQueue`，
+        // 刻意不是 `REMATCHING`）。给通话态排更高的档，那条真实迁移会被判成陈旧丢掉，
+        // 盲人的页面就永远停在「等待通话确认」。
+        case .pendingMatch, .pendingIntroCall: return 0
         case .pendingAccept, .rematching: return 1
         case .driverEnRoute: return 2
         case .driverArrived: return 3
@@ -161,7 +166,12 @@ private extension RunOrderStatus {
     func isDirectlyFollowed(by candidate: RunOrderStatus) -> Bool {
         switch self {
         case .pendingMatch:
-            return [.pendingAccept, .cancelled, .noVolunteer].contains(candidate)
+            return [.pendingIntroCall, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
+        // 后端 `OrderStatus.java` 的通话磨合分支：双方认可 → PENDING_ACCEPT；
+        // 任一方不认可 / 没接到 / 窗口超时 → 退回 PENDING_MATCH（**不是 REMATCHING**）；
+        // 轮次达上限 → NO_VOLUNTEER；盲人取消 → CANCELLED。
+        case .pendingIntroCall:
+            return [.pendingAccept, .pendingMatch, .cancelled, .noVolunteer].contains(candidate)
         case .pendingAccept:
             return [.driverEnRoute, .cancelled, .rematching].contains(candidate)
         case .driverEnRoute:
@@ -170,8 +180,10 @@ private extension RunOrderStatus {
             return [.inProgress, .rematching].contains(candidate)
         case .inProgress:
             return [.completed, .rematching].contains(candidate)
+        // `REMATCHING` 与 `PENDING_MATCH` 在后端 `isDispatchable()` 下行为一致，
+        // 所以它同样能被一个候选人「有意向」拽进通话磨合。
         case .rematching:
-            return [.pendingAccept, .cancelled, .noVolunteer].contains(candidate)
+            return [.pendingIntroCall, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
         case .completed, .cancelled, .noVolunteer:
             return false
         // 未知态没有任何可信的后继约束，一律放行，让下一个认识的状态把界面救回来。

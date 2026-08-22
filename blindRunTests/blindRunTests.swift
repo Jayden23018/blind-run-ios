@@ -598,7 +598,7 @@ final class blindRunTests: XCTestCase {
         viewModel.dispatchCountdown = 30
 
         viewModel.respondToDispatch(
-            accept: true,
+            action: .accept,
             currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
             locationAuthorized: true
         )
@@ -626,7 +626,7 @@ final class blindRunTests: XCTestCase {
         viewModel.dispatchCountdown = 30
 
         viewModel.respondToDispatch(
-            accept: true,
+            action: .accept,
             currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
             locationAuthorized: true
         )
@@ -648,7 +648,7 @@ final class blindRunTests: XCTestCase {
         unavailableViewModel.incomingOrder = makeDispatchOrder(orderId: 1)
 
         unavailableViewModel.respondToDispatch(
-            accept: true,
+            action: .accept,
             currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
             locationAuthorized: true
         )
@@ -665,7 +665,7 @@ final class blindRunTests: XCTestCase {
         noLocationViewModel.incomingOrder = makeDispatchOrder(orderId: 1)
 
         noLocationViewModel.respondToDispatch(
-            accept: true,
+            action: .accept,
             currentLocation: nil,
             locationAuthorized: false
         )
@@ -685,7 +685,7 @@ final class blindRunTests: XCTestCase {
         viewModel.dispatchCountdown = 30
 
         viewModel.respondToDispatch(
-            accept: false,
+            action: .decline,
             currentLocation: nil,
             locationAuthorized: false
         )
@@ -780,7 +780,7 @@ final class blindRunTests: XCTestCase {
         appState.updateVolunteerProfile(makeApprovedVolunteerProfile())
         viewModel.incomingOrder = makeDispatchOrder(orderId: 1)
         viewModel.respondToDispatch(
-            accept: true,
+            action: .accept,
             currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
             locationAuthorized: true
         )
