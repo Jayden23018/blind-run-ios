@@ -171,6 +171,23 @@ function readFileOrEmpty(file) {
     return '';
   }
 }
+// 纯注释行不参与扫描 —— 守卫管的是出货代码。
+//
+// 2026-08-22：`blind-tap-center` 拦住了 `AccessibilityAuditTests.swift` 的整份 Write，
+// 因为那个文件自己的注释里写着「不能用 app.tap() —— 它敲的是屏幕正中」。
+// 守卫拦住了解释这条守卫的文档，而那段注释正是它存在的理由。
+// 每条「别这么写」的规则都要求它的说明能原样写出坏写法，否则规则一落地就锁死自己的文档，
+// 逼人去加 `guard:allow` —— 那等于把规则关掉。
+//
+// `#` 后面直接跟字母的**不算**注释：那是 Swift 编译指令（`#if` / `#Preview("…")`，
+// 见 LocationPermissionGuard.swift:85），会真的编进产物。shell / yaml / podspec 的
+// `# 说明` 与 `#!` 则照常跳过。
+const COMMENT_LINE = /^\s*(\/\/|\/\*|\*|#(?![A-Za-z]))/;
+
+const nonCommentLines = (body) => body.split('\n').filter((l) => !COMMENT_LINE.test(l));
+
+// 整段文本里只留代码 —— 给那些按整份内容 `.includes()` 判断的地方用（规则 8 有几处）。
+const codeOnly = (text) => nonCommentLines(text).join('\n');
 
 function readStdin() {
   try {
@@ -198,8 +215,8 @@ function scanSwift(filePath) {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       // 纯注释行跳过：守卫管的是出货代码。引用后端的坏文案来解释「为什么要覆盖它」
-      // 恰恰是我们希望留在代码里的东西，不该被拦。
-      if (/^\s*(\/\/|\*|\/\*)/.test(line)) continue;
+      // 恰恰是我们希望留在代码里的东西，不该被拦。判据与上面的 nonCommentLines 同源。
+      if (COMMENT_LINE.test(line)) continue;
       // 标注可以写在同一行，也可以写在紧邻的上一行 —— Swift 经常把长字符串折到
       // 声明的下一行，强制同行标注会把标注挤成噪声。
       const marker = `guard:allow ${id}`;
@@ -271,6 +288,10 @@ function main() {
     //
     // 键名拆开拼：这条规则会拦住任何含该键名的改动，**包括对本文件的改动**。
     // 写成字面量的话，以后谁想再调这条规则都得先绕过它自己。
+    //
+    // 这条**故意不过 nonCommentLines**：AGENTS.md 第 9 节写死了「确需在代码或注释里提及，
+    // 行尾加 guard:allow excluded-archs」。注释里出现这个键名值得停一下看看是不是真注释，
+    // 而 .md 已经整类豁免，文档本身不受影响。
     const isDocument = /\.md$/i.test(filePath);
     const offendingArchLine = isDocument
       ? undefined
@@ -297,17 +318,12 @@ function main() {
     //     DeviceID/Linked=true，purpose 写的 "Protect Device Security" 根本不是 Apple 的合法取值。
     // 升级阿里云 SDK 时重新落一份 podspec 是常规动作，这个洞会原样回来，所以按文件类型拦死。
     const isPodspec = /\.podspec$/.test(filePath);
+    // 注释行放行（nonCommentLines）：podspec 里那段「为什么不要加回来」的说明本身就写着
+    // 这个文件名，不跳过的话整份 Write 会被自己的文档拦住。
     const vendorManifestLine = isPodspec
-      ? body
-          .split('\n')
-          .find(
-            (l) =>
-              // 注释行放行：podspec 里那段「为什么不要加回来」的说明本身就写着这个文件名，
-              // 不跳过的话整份 Write 会被自己的文档拦住。
-              !/^\s*#/.test(l) &&
-              /PrivacyInfo\.xcprivacy/.test(l) &&
-              !l.includes('guard:allow vendor-privacy-manifest')
-          )
+      ? nonCommentLines(body).find(
+          (l) => /PrivacyInfo\.xcprivacy/.test(l) && !l.includes('guard:allow vendor-privacy-manifest')
+        )
       : undefined;
     if (vendorManifestLine) {
       fail(
@@ -344,6 +360,9 @@ function main() {
     }
 
     // 3. 高德 key 硬编码（AGENTS.md 第 8 节）
+    //
+    // 这条**故意不过 nonCommentLines**：注释里的真实 key 一样是被提交的真实 key，
+    // 「注释掉就不算泄露」正是密钥进仓库最常见的那条路。
     const keyLine = body
       .split('\n')
       .find(
@@ -399,7 +418,9 @@ function main() {
     // 在十几个 view model 里却是强引用的 `SpeechService?`，按标签名拦会全是误报。
     const WEAK_DEP_LABELS = /\b(appState|locationService|placeSearchProvider|speechInputService|bookingViewModel):\s*(?:[\w.]+\s*\?\?\s*)?[A-Z]\w*\(/;
     const weakTempLine = /\.swift$/.test(filePath)
-      ? body.split('\n').find((l) => WEAK_DEP_LABELS.test(l) && !l.includes('guard:allow weak-temporary'))
+      ? nonCommentLines(body).find(
+          (l) => WEAK_DEP_LABELS.test(l) && !l.includes('guard:allow weak-temporary')
+        )
       : undefined;
     if (weakTempLine) {
       fail(
@@ -426,7 +447,9 @@ function main() {
     // 正解是敲一个明确不吃点击的区域，首页顶部地图层就是（`allowsHitTesting(false)`）。
     const isUITest = /blindRunUITests\/.*\.swift$/.test(filePath);
     const tapCenterLine = isUITest
-      ? body.split('\n').find((l) => /\bapp\.tap\(\)/.test(l) && !l.includes('guard:allow blind-tap-center'))
+      ? nonCommentLines(body).find(
+          (l) => /\bapp\.tap\(\)/.test(l) && !l.includes('guard:allow blind-tap-center')
+        )
       : undefined;
     if (tapCenterLine) {
       fail(
@@ -466,13 +489,11 @@ function main() {
     // 守卫底下走了过去。所以判据改成**按 URL 本身登记**：`tel://` 只允许出现在
     // `EmergencyDialer.telURL` 里，不再去追有多少种 open 的写法（追写法必然漏下一种）。
     const rawOpenLine = isProductionSwift
-      ? body
-          .split('\n')
-          .find(
-            (l) =>
-              (/UIApplication\.shared\.open\(/.test(l) || /"tel:\/\//.test(l)) &&
-              !l.includes('guard:allow raw-open-url')
-          )
+      ? nonCommentLines(body).find(
+          (l) =>
+            (/UIApplication\.shared\.open\(/.test(l) || /"tel:\/\//.test(l)) &&
+            !l.includes('guard:allow raw-open-url')
+        )
       : undefined;
     if (rawOpenLine) {
       fail(
@@ -505,7 +526,7 @@ function main() {
       !/\/blindRun(Tests|UITests)\//.test(filePath) &&
       !/\/blindRun\/Volunteer\//.test(filePath);
     const smallTargetLine = isBlindFacingSwift
-      ? body.split('\n').find((l) => {
+      ? nonCommentLines(body).find((l) => {
           const m = l.match(/\.frame\((?:[^)]*,\s*)?minHeight:\s*(\d+)/);
           return m && Number(m[1]) < 64 && !l.includes('guard:allow small-touch-target');
         })
@@ -572,7 +593,8 @@ function main() {
     let missingTeamCmd;
     if (isShellScript && /xcodebuild/.test(body)) {
       // xcodebuild 的调用是多行续行的，按 `\` 折行重新粘成一条命令再判。
-      const commands = body.replace(/\\\n\s*/g, ' ').split('\n');
+      // 先粘再滤注释：脚本顶部的用法说明里常常原样贴着这条命令，注释掉的命令不会执行。
+      const commands = nonCommentLines(body.replace(/\\\n\s*/g, ' '));
       missingTeamCmd = commands.find(
         (l) =>
           /\bxcodebuild\b/.test(l) &&
@@ -618,6 +640,12 @@ function main() {
     //
     // 故意断言某个 identifier **不存在**（例如 `matching(identifier:).count == 0`）是合法的，
     // 行尾加 `// guard:allow stale-ui-test-identifier` —— 标注本身就是「这个 id 是被有意删掉的」的声明。
+    //
+    // 下面**每一处**取 identifier 都走 codeOnly / nonCommentLines，注释一律不算数（2026-08-22）。
+    // 两个方向的理由不同，别只改一半：
+    //   · 注释里引用一个已删掉的 id（讲「为什么删」）不是查询 → 不该拦，也不该算「还有人在用」
+    //   · App 侧**被注释掉的** `.accessibilityIdentifier("x")` 运行时并不存在 → 不能算它还在，
+    //     否则把 identifier 注释掉就能让这条规则闭嘴，而那正是它要防的漂移（`30b0770` 的同款）
     const repoRootMatch = filePath.match(/^(.*)\/blindRun(?:Tests|UITests)?\//);
     const repoRoot = repoRootMatch ? repoRootMatch[1] : '';
     const appDir = repoRoot ? path.join(repoRoot, 'blindRun') : '';
@@ -628,13 +656,13 @@ function main() {
     if (canCrossCheck && isUITest) {
       const matchers = [];
       for (const file of collectSwiftFiles(appDir)) {
-        for (const m of readFileOrEmpty(file).matchAll(ACCESSIBILITY_IDENTIFIER)) {
+        for (const m of codeOnly(readFileOrEmpty(file)).matchAll(ACCESSIBILITY_IDENTIFIER)) {
           matchers.push(identifierLiteralToRegExp(m[1]));
         }
       }
       // 一个都没读到说明扫描本身出了问题，别把它当成「App 侧什么 id 都没有」。
       if (matchers.length > 0) {
-        for (const line of body.split('\n')) {
+        for (const line of nonCommentLines(body)) {
           if (line.includes('guard:allow stale-ui-test-identifier')) continue;
           for (const m of line.matchAll(UI_TEST_QUERY_KEY)) {
             const key = m[1] || m[2] || m[3];
@@ -659,20 +687,22 @@ function main() {
     // 只对 Edit 生效（要有 old_string 才知道删了什么）。Write 整文件重写查不到，
     // 那种改法本来就会被方向 A 在改测试时拦下。
     const removedIdentifiers = canCrossCheck && /\.swift$/.test(filePath) && appDir && filePath.startsWith(`${appDir}/`)
-      ? [...(input.old_string || '').matchAll(ACCESSIBILITY_IDENTIFIER)]
+      ? [...codeOnly(input.old_string || '').matchAll(ACCESSIBILITY_IDENTIFIER)]
           .map((m) => m[1])
-          .filter((lit) => !lit.includes('\\(') && !body.includes(`accessibilityIdentifier("${lit}")`))
+          .filter((lit) => !lit.includes('\\(') && !codeOnly(body).includes(`accessibilityIdentifier("${lit}")`))
       : [];
     for (const removed of removedIdentifiers) {
       // 同一个 id 可能在别处还挂着（挪了位置而不是删了），那不算删除。
       const stillInApp = collectSwiftFiles(appDir).some(
-        (file) => file !== filePath && readFileOrEmpty(file).includes(`accessibilityIdentifier("${removed}")`)
+        (file) =>
+          file !== filePath &&
+          codeOnly(readFileOrEmpty(file)).includes(`accessibilityIdentifier("${removed}")`)
       );
       if (stillInApp) continue;
       const referencing = collectSwiftFiles(uiTestDir).filter((file) =>
-        readFileOrEmpty(file)
-          .split('\n')
-          .some((l) => l.includes(`"${removed}"`) && !l.includes('guard:allow stale-ui-test-identifier'))
+        nonCommentLines(readFileOrEmpty(file)).some(
+          (l) => l.includes(`"${removed}"`) && !l.includes('guard:allow stale-ui-test-identifier')
+        )
       );
       if (referencing.length === 0) continue;
       fail(
