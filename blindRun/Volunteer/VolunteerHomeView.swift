@@ -801,7 +801,12 @@ enum VolunteerDemandPanelDetent: CaseIterable, Equatable {
             let maximum = max(Self.compactHeight(viewportHeight: viewportHeight), viewportHeight * 0.56)
             return min(max(proposed, 300), maximum)
         case .expanded:
-            let topLimit = max(topContentBottom + 8, 96)
+            // 顶部状态块最多只能预留 40% 视口。它本身也随字号长 —— 真机 AX5 上被撑到 429pt，
+            // 照「顶部块下面的剩余空间」算出来的 `.expanded` 只有 166pt，比 `.medium` 的
+            // 300pt 下限还小，于是 `nearest(to:)` 怎么拖都 snap 不到更高的档：面板卡在 300pt、
+            // 内部滚动视口只剩 79pt，而 AX5 下单个指标格约 140pt 高，三格从不实例化。
+            // 大字号下宁可盖住顶部状态块 —— 被盖住的信息拖一下就回来，够不着的信息没有出路。
+            let topLimit = min(max(topContentBottom + 8, 96), viewportHeight * 0.4)
             let proposed = viewportHeight - topLimit - Self.bottomMargin
             return max(Self.compactHeight(viewportHeight: viewportHeight), proposed)
         }

@@ -830,6 +830,48 @@ final class blindRunTests: XCTestCase {
         )
     }
 
+    /// 大字号下 `.expanded` 曾经**比 `.medium` 还小**，于是面板永远长不大。
+    ///
+    /// 上面那条用例只测了 viewport 1000 / 顶部 180 这一组宽松几何，不变式在那儿成立。
+    /// 真机 AX5（iPhone 16 Pro）实测的是另一组：顶部状态块被字号撑到 429pt，
+    /// 面板视口只有 611pt —— `.expanded` 按「顶部状态块下面的剩余空间」算出来只有 166pt，
+    /// 而 `.medium` 有 300pt 的下限，于是 `nearest(to:)` 再怎么拖也snap不到更高的档。
+    /// 后果：面板卡在 300pt，内部滚动视口只剩 79pt，而 AX5 下单个指标格约 140pt 高，
+    /// 完成 / 评分 / 接单率三格在 `LazyVGrid` 里从不实例化 —— 低视力用户彻底够不着。
+    func testExpandedDetentStaysTallestEvenWhenAccessibilityTextEatsTheTopBlock() {
+        // 真机 AX5 实测值：面板高度回来是 299.999…，与 `.medium` 的 300pt 下限对得上。
+        let viewportHeight: CGFloat = 611
+        let topContentBottom: CGFloat = 429
+
+        let mediumHeight = VolunteerDemandPanelDetent.medium.height(
+            viewportHeight: viewportHeight,
+            topContentBottom: topContentBottom
+        )
+        let expandedHeight = VolunteerDemandPanelDetent.expanded.height(
+            viewportHeight: viewportHeight,
+            topContentBottom: topContentBottom
+        )
+
+        XCTAssertGreaterThan(
+            expandedHeight,
+            mediumHeight,
+            "展开档必须真的比中等档高，否则拖不动：medium=\(mediumHeight) expanded=\(expandedHeight)"
+        )
+        XCTAssertEqual(
+            VolunteerDemandPanelDetent.nearest(
+                to: VolunteerDemandPanelDetent.clampedHeight(
+                    viewportHeight,
+                    viewportHeight: viewportHeight,
+                    topContentBottom: topContentBottom
+                ),
+                viewportHeight: viewportHeight,
+                topContentBottom: topContentBottom
+            ),
+            .expanded,
+            "往上拖到底必须落在展开档"
+        )
+    }
+
     /// 调整动作（VoiceOver 上下轻扫 / Switch Control「调整」）必须在两端停住。
     ///
     /// 与 `next()` 的循环行为分开测：把 `adjusted(by:)` 实现成调 `next()` 是最容易犯的
