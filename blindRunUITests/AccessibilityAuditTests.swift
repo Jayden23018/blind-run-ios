@@ -705,7 +705,9 @@ final class AccessibilityAuditTests: XCTestCase {
     private static let auditIgnoredIdentifiers: Set<String> = [
         // 高德地图图层无法承载有意义的 label，且它已被显式降权为辅助内容
         // （视觉可以铺满，读屏遍历顺序必须操作优先）。
-        "blindRunnerHomeAuxiliaryMap",
+        //
+        // `blindRunnerHomeAuxiliaryMap` 已于 2026-08-14（`30b0770`）随「盲人首页装饰地图对读屏隐藏」
+        // 一起删除，不再需要白名单 —— 死条目会让人以为这一项还在被放行。
         "blindBookingAuxiliaryMap",
         "mapPlaceholder"
     ]
