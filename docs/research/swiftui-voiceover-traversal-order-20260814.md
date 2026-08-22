@@ -8,6 +8,30 @@
   SwiftUI 的 VoiceOver 遍历顺序跟随**绘制顺序**，`accessibilitySortPriority` 是空操作。
   装饰性地图改为 `accessibilityHidden(true)`。
 
+> ## ⚠️ 2026-08-22 修正：隐藏的**位置**当时写错了，洞开了 8 天
+>
+> 上面这句「改为 `accessibilityHidden(true)`」被落成了**在调用方外层**加修饰符
+> （`BlindRunnerHomeView.mapBackgroundLayer`）。**那是无效的。**
+>
+> `MapViewWrapper` 内部有 `.accessibilityElement(children: .ignore)` + `.accessibilityLabel`，
+> 它**合成了一个新的无障碍元素**，外层的 `accessibilityHidden` 盖不住。真机实测（真 key 构建）：
+>
+> ```
+> Other  (0,0) 402x200  «地图，显示当前位置和订单地点»   ← 仍排在内容层前面
+> ScrollView (0,0) 402x874  #blindRunnerHomeScrollView
+> ```
+>
+> **为什么 08-14 那次没发现**：验证跑的是 UI 测试，而 UI 测试默认 `disableMap: true`
+> （`blindRunUITests.swift` 的 `launchApp`），走的是 `MapPlaceholderView` 那条路径 ——
+> 占位图确实被藏住了。**生产构建走的是真 key 那条**，从没验过。
+> 「在占位图路径上验过」不等于「验过」，这条以后对任何走 `MapViewWrapper` 的改动都成立。
+>
+> **本文的主结论不变**（遍历顺序 = 绘制顺序；隐藏优于排序）。变的只是落点：
+> 隐藏必须发生在**元素被合成的那一层**。现已改为 `MapViewWrapper.isDecorative`，
+> 装饰用法根本不合成该元素 —— 藏不住一个不存在的元素。
+> 同一个洞在 `BlindOrderStatusView.peerMapSection` 也开着，一并修了。
+> 回归钉子：`testRealAMapEnabledSmoke`（真 key 路径，已验红 → 绿）。
+
 ## 1. 先修正一个把人带偏的前提：那条断言本身就不可能通过
 
 `app.descendants(matching: .any).allElementsBoundByAccessibilityElement` 是**逐层枚举**的：

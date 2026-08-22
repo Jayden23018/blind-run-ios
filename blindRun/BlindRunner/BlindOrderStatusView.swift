@@ -1310,6 +1310,10 @@ struct BlindOrderStatusView: View {
                 // 与首页同一条规则：地图是装饰，列表才是界面。它不可交互、不承载任何必要信息
                 // ——「志愿者距你多远」的文字版在 `statusHeader` 里，是那一页最大的那个数字。
                 // 「同行位置」这个标题一并去掉：视觉扫读才需要标题，这一页没有扫读。
+                // 隐藏走 `isDecorative`，不是在外层加 `.accessibilityHidden(true)` ——
+                // 后者在真 key 构建下盖不住 `MapViewWrapper` 自己合成的那个元素
+                // （2026-08-22 在盲人首页实测，见 `MapViewWrapper.isDecorative` 的说明）。
+                // 这一页同样是「地图是装饰、列表才是界面」，所以同一个洞在这里也开着。
                 MapViewWrapper(
                     centerCoordinate: peer,
                     showsUserLocation: false,
@@ -1320,12 +1324,12 @@ struct BlindOrderStatusView: View {
                         subtitle: "位置刚刚更新",
                         kind: .peer
                     )],
-                    tracksUserLocation: false
+                    tracksUserLocation: false,
+                    isDecorative: true
                 )
                 .decorativeMapHeight(180)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .allowsHitTesting(false)
-                .accessibilityHidden(true)
             } else {
                 // 但「拿不到位置」必须留在读屏里：盲人据此决定要不要打电话，
                 // 这是状态信息不是装饰。

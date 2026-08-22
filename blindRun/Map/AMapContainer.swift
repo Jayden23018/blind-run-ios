@@ -318,6 +318,23 @@ private extension MapAnnotationKind {
 
 // MARK: - Map View Wrapper
 
+private extension View {
+    /// 装饰用法**不合成**无障碍元素；其余用法维持原来的 label + hint。
+    ///
+    /// 分两条路而不是「合成之后再 hidden」，是因为后者实测无效 —— 见
+    /// `MapViewWrapper.isDecorative` 的说明。
+    @ViewBuilder
+    func mapAccessibility(isDecorative: Bool) -> some View {
+        if isDecorative {
+            accessibilityHidden(true)
+        } else {
+            accessibilityElement(children: .ignore)
+                .accessibilityLabel("地图，显示当前位置和订单地点")
+                .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")
+        }
+    }
+}
+
 /// 显示 AMap；仅在 Key 缺失或 UI 测试显式禁用地图时呈现配置故障降级视图。
 struct MapViewWrapper: View {
     let centerCoordinate: CLLocationCoordinate2D
@@ -331,10 +348,30 @@ struct MapViewWrapper: View {
     var tracksUserLocation: Bool = true
     var animatesCenterChanges: Bool = true
 
+    /// 装饰用法：地图是纯背景（不可交互，且同样的信息在别处有文字版），
+    /// 读屏用户不该在遍历里碰到它。
+    ///
+    /// **它必须在这里生效，而不是由调用方在外面加 `.accessibilityHidden(true)`。**
+    /// 下面那条 `.accessibilityElement(children: .ignore)` + `.accessibilityLabel` 会
+    /// **合成一个新的无障碍元素**，外层的 `accessibilityHidden` 盖不住它 —— 2026-08-22 在真机上
+    /// 实测：`BlindRunnerHomeView.mapBackgroundLayer` 明明写着 `.accessibilityHidden(true)`，
+    /// 真 key 构建下 `Other 402x200 «地图，显示当前位置和订单地点»` 照样排在
+    /// `blindRunnerHomeScrollView` **前面**。
+    ///
+    /// 2026-08-14 的 `30b0770` 以为这个问题修好了，是因为它只在 `disableMap: true`（占位图）
+    /// 路径上验过，而**生产构建走的是真 key 那条**。修法是根本不合成那个元素 ——
+    /// 藏不住一个不存在的元素。底层 `MAMapView` 早就设了
+    /// `isAccessibilityElement = false` / `accessibilityElementsHidden = true`（见 makeUIView），
+    /// 所以不合成就干净了。
+    ///
+    /// 只影响无障碍树，视觉完全不变。
+    var isDecorative: Bool = false
+
     var body: some View {
         #if DEBUG || DEMO
         if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_DISABLE_MAP"] == "1" {
             MapPlaceholderView()
+                .accessibilityHidden(isDecorative)
         } else if AMapManager.isConfigured {
             AMapContainer(
                 centerCoordinate: centerCoordinate,
@@ -348,11 +385,10 @@ struct MapViewWrapper: View {
                 tracksUserLocation: tracksUserLocation,
                 animatesCenterChanges: animatesCenterChanges
             )
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("地图，显示当前位置和订单地点")
-            .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")
+            .mapAccessibility(isDecorative: isDecorative)
         } else {
             MapPlaceholderView()
+                .accessibilityHidden(isDecorative)
         }
         #else
         if AMapManager.isConfigured {
@@ -368,11 +404,10 @@ struct MapViewWrapper: View {
                 tracksUserLocation: tracksUserLocation,
                 animatesCenterChanges: animatesCenterChanges
             )
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("地图，显示当前位置和订单地点")
-            .accessibilityHint("地图为辅助显示，主要操作请使用下方按钮")
+            .mapAccessibility(isDecorative: isDecorative)
         } else {
             MapPlaceholderView()
+                .accessibilityHidden(isDecorative)
         }
         #endif
     }

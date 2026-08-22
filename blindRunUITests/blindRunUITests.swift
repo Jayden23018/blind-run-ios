@@ -1000,6 +1000,22 @@ final class blindRunUITests: XCTestCase {
         )
         XCTAssertFalse(blindApp.staticTexts["地图服务暂不可用"].exists, "Blind home must not fall back to the missing-key view")
         XCTAssertFalse(blindApp.staticTexts["请配置高德地图 API Key"].exists, "Blind home real AMap smoke requires a configured local key")
+
+        // 装饰地图对读屏隐藏这件事，此前**只在占位图路径上验过** ——
+        // `testMockBlindRunnerHomeKeepsAuxiliaryMapOutOfVoiceOverSoPrimaryActionComesFirst`
+        // 走的是 `disableMap: true`。而真 key 路径上 `MapViewWrapper` 会自己合成一个带 label 的
+        // 无障碍元素，外层的 `.accessibilityHidden(true)` 盖不住它：2026-08-22 从
+        // `testRealAMapEnabledSmoke` 的失败快照里读到 `Other 402x200 «地图，显示当前位置和订单地点»`
+        // 排在 `blindRunnerHomeScrollView` **前面** —— 正是 `30b0770` 声称修掉的那个问题。
+        // 生产构建走的就是这条真 key 路径，所以这条断言守的是真实用户的遍历顺序。
+        XCTAssertEqual(
+            blindApp.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", "地图，显示当前位置和订单地点"))
+                .count,
+            0,
+            "真 key 构建下，盲人首页的装饰地图仍然不得出现在无障碍树里"
+        )
+
         attachScreenshot(named: "real-amap-blind-home", app: blindApp)
         blindApp.terminate()
 

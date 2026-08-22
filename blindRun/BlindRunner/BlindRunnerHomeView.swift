@@ -558,18 +558,25 @@ struct BlindRunnerHomeView: View {
     /// 别再往回加。详见 `docs/research/swiftui-voiceover-traversal-order-20260814.md`。
     ///
     private var mapBackgroundLayer: some View {
+        // 隐藏必须由 `isDecorative` 在 `MapViewWrapper` **内部**完成。
+        //
+        // 2026-08-22 之前这里写的是在外层加 `.accessibilityHidden(true)`，而它**盖不住** ——
+        // `MapViewWrapper` 内部的 `.accessibilityElement(children: .ignore)` + `.accessibilityLabel`
+        // 会合成一个新元素，真机上（真 key 构建）`Other 402x200 «地图，显示当前位置和订单地点»`
+        // 照样排在 `blindRunnerHomeScrollView` 前面。`30b0770` 当时只验了占位图路径，
+        // 而生产构建走的是真 key 那条，所以这个洞一直开着。
+        // 现在的修法是根本不合成那个元素 —— 藏不住一个不存在的元素。
+        // 回归钉子：`testRealAMapEnabledSmoke`（已验红）。
         MapViewWrapper(
             centerCoordinate: viewModel.activeOrder?.startCoordinate ?? locationService.effectiveBackendLocation,
             showsUserLocation: locationService.isAuthorized,
-            annotations: activeOrderMapAnnotations
+            annotations: activeOrderMapAnnotations,
+            isDecorative: true
         )
         .frame(maxWidth: .infinity)
         .frame(height: mapVisualHeight)
         .allowsHitTesting(false)
         .ignoresSafeArea(edges: .top)
-        // 整棵子树一起隐藏：真机上高德的 `MKMapView` 自己会挂一堆无障碍元素，只在最外层
-        // 挂 label 挡不住它们冒出来。
-        .accessibilityHidden(true)
     }
 
     private var contentLayer: some View {
