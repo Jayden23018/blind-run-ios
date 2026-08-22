@@ -552,6 +552,27 @@ final class blindRunUITests: XCTestCase {
         attachScreenshot(named: "volunteer-home-map-and-controls", app: app)
     }
 
+    /// 派单卡片在 AX5 下仍然三格成行 —— 这是本仓库第一条 Dynamic Type 用例，
+    /// 见记忆 `low-vision-visual-channel-unaudited`：字号上限一直没人系统性看过。
+    @MainActor
+    func testVolunteerDispatchSummaryTilesSurviveAX5() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            contentSizeCategory: "UICTContentSizeCategoryAccessibilityXXXL"
+        )
+        let rate = app.staticTexts["接单率"].firstMatch
+        XCTAssertTrue(rate.waitForExistence(timeout: 20), "Dispatch summary should exist at AX5")
+        // 上一版传的是 `...AccessibilityExtraExtraExtraLarge`（不是真的常量名），被静默忽略，
+        // 截图与默认字号一模一样却看着像验过了。钉一条断言，别再靠肉眼分辨。
+        XCTAssertGreaterThan(rate.frame.height, 30, "AX5 launch argument did not take effect (height=\(rate.frame.height))")
+        _ = scrollElementIntoView(rate, app: app)
+        attachScreenshot(named: "volunteer-dispatch-summary-ax5", app: app)
+    }
+
     @MainActor
     func testVolunteerHomeRemainsInteractiveWhileDispatchRequestNeverReturns() throws {
         let app = launchApp(
@@ -1141,7 +1162,8 @@ final class blindRunUITests: XCTestCase {
         confirmTransitionViaRealtime: Bool = false,
         hangEscortLocationSend: Bool = false,
         homeLoadTimeout: TimeInterval? = nil,
-        forcePrivacyConsent: Bool = false
+        forcePrivacyConsent: Bool = false,
+        contentSizeCategory: String? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1218,6 +1240,9 @@ final class blindRunUITests: XCTestCase {
         // `RESET_STATE`，不跳过的话每一条都会被挡在告知页，断言全红。只有专测它的用例打开这一条。
         if forcePrivacyConsent {
             app.launchEnvironment["AIDRUN_UI_TEST_FORCE_PRIVACY_CONSENT"] = "1"
+        }
+        if let contentSizeCategory {
+            app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSizeCategory]
         }
         app.launch()
         dismissSystemAlertsIfPresent(app: app)
