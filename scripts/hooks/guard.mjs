@@ -120,6 +120,58 @@ const PBXPROJ_FROZEN_KEY = /DEVELOPMENT_TEAM/;
 // 键名拼出来而不是写成字面量 —— 见下面用到它的地方的说明。
 const ARCH_EXCLUSION_KEY = new RegExp(['EXCLUDED', 'ARCHS'].join('_'));
 
+// ---- accessibilityIdentifier 漂移检测（规则 8，见下面用到它的地方的完整说明）----
+
+// XCUITest 里「按 identifier 找元素」的几种写法。
+const UI_TEST_QUERY_KEY =
+  /(?:staticTexts|buttons|textFields|switches|navigationBars|alerts|scrollViews|otherElements|images|cells)\[\s*"([^"]+)"\s*\]|matching\(identifier:\s*"([^"]+)"\)|descendants\(matching:\s*\.any\)\[\s*"([^"]+)"\s*\]/g;
+
+// 只判 ASCII 标识符形状的键。中文文案不在此列 —— 理由见规则 8 的注释。
+const IDENTIFIER_SHAPED = /^[A-Za-z][A-Za-z0-9._]*$/;
+
+// iOS 系统键盘的按键（收键盘用），不是 App 挂的 identifier，App 侧永远找不到它们。
+// 白名单只有这两个，且必须写明理由 —— 白名单一长，这条规则就被架空了。
+const SYSTEM_KEYBOARD_IDENTIFIERS = new Set(['Done', 'Return']);
+
+const ACCESSIBILITY_IDENTIFIER = /accessibilityIdentifier\(\s*"((?:[^"\\]|\\.)*)"\s*\)/g;
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// App 侧字面量里的插值段当通配：`"\(identifierPrefix)AgreeButton"` 要能匹配
+// `appLaunchConsentAgreeButton`，`"volunteerRegistrationStep.\(step.displayIndex)"`
+// 要能匹配 `volunteerRegistrationStep.1`。
+// 已知上限：插值里再套括号（`\(f(x))`）会截断在第一个 `)` —— 本仓库目前没有这种写法，
+// 真出现了它只会让规则更宽松（多匹配），不会误报。
+function identifierLiteralToRegExp(literal) {
+  const parts = literal.split(/\\\([^)]*\)/).map(escapeRegExp);
+  return new RegExp(`^${parts.join('.+')}$`);
+}
+
+function collectSwiftFiles(dir, out = []) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) collectSwiftFiles(full, out);
+    else if (entry.name.endsWith('.swift')) out.push(full);
+  }
+  return out;
+}
+
+function readFileOrEmpty(file) {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
 function readStdin() {
   try {
     return fs.readFileSync(0, 'utf8');
@@ -542,6 +594,95 @@ function main() {
           `照抄 scripts/device-test.sh:25,60。不传的报错是 \`No Account for Team "R6PH2TFB3Q"\`，\n` +
           `字面上不提团队号从哪来，容易被误当成证书或 provisioning 问题查半天。\n` +
           `确实不需要签名（编译门禁），用 CODE_SIGNING_ALLOWED=NO，或行尾加 \`guard:allow missing-team\`。`
+      );
+    }
+
+    // 8. UI 测试与 App 的 accessibilityIdentifier 对不上（2026-08-22）
+    //
+    // 2026-08-14 `30b0770` 把盲人首页装饰地图对读屏隐藏，连同
+    // `.accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")` 一起删掉 —— 那是隐藏它的既定代价。
+    // 同一个提交改了 blindRunUITests 58 行，但**漏了一处**，`testRealAMapEnabledSmoke` 从那天起
+    // 一直红，8 天后才被查出来（`docs/review/ui-test-red-triage-20260822.md`）。
+    // 本仓库 CI 跑不了 XCTest（高德无 arm64-sim slice），红用例照样能合进 main，
+    // 所以这类漂移**没有任何运行时信号**，只能靠静态检查。
+    //
+    // 两个方向都查：
+    //   A. 改 UI 测试时写了一个 App 侧不存在的 identifier
+    //   B. 改 App 代码时删掉了一个 UI 测试还在用的 identifier（`30b0770` 就是这个方向）
+    //
+    // **只判 identifier 形状的键。** 中文文案那版实测过：149 个查询键报 28 个，其中 26 个是
+    // 插值拼出来的 a11y label（「张三，关系家人，电话139****9001，非主联系人」这种），误报 93%
+    // —— 白名单会比信号还长，那种守卫会被下一个人直接关掉。identifier 版实测 45 个键报 5 个：
+    // 2 个系统键盘键（已白名单），3 个是真问题。所以「积分」那类中文文案漂移这条**管不了**，
+    // 别以为它覆盖了。
+    //
+    // 故意断言某个 identifier **不存在**（例如 `matching(identifier:).count == 0`）是合法的，
+    // 行尾加 `// guard:allow stale-ui-test-identifier` —— 标注本身就是「这个 id 是被有意删掉的」的声明。
+    const repoRootMatch = filePath.match(/^(.*)\/blindRun(?:Tests|UITests)?\//);
+    const repoRoot = repoRootMatch ? repoRootMatch[1] : '';
+    const appDir = repoRoot ? path.join(repoRoot, 'blindRun') : '';
+    const uiTestDir = repoRoot ? path.join(repoRoot, 'blindRunUITests') : '';
+    // 两侧都读得到才判。读不到（工程结构变了、跑在别的目录里）时宁可漏，不可误报。
+    const canCrossCheck = Boolean(appDir) && fs.existsSync(appDir) && fs.existsSync(uiTestDir);
+
+    if (canCrossCheck && isUITest) {
+      const matchers = [];
+      for (const file of collectSwiftFiles(appDir)) {
+        for (const m of readFileOrEmpty(file).matchAll(ACCESSIBILITY_IDENTIFIER)) {
+          matchers.push(identifierLiteralToRegExp(m[1]));
+        }
+      }
+      // 一个都没读到说明扫描本身出了问题，别把它当成「App 侧什么 id 都没有」。
+      if (matchers.length > 0) {
+        for (const line of body.split('\n')) {
+          if (line.includes('guard:allow stale-ui-test-identifier')) continue;
+          for (const m of line.matchAll(UI_TEST_QUERY_KEY)) {
+            const key = m[1] || m[2] || m[3];
+            if (!key || !IDENTIFIER_SHAPED.test(key)) continue;
+            if (SYSTEM_KEYBOARD_IDENTIFIERS.has(key)) continue;
+            if (matchers.some((re) => re.test(key))) continue;
+            fail(
+              'stale-ui-test-identifier',
+              `${filePath}\n  ${line.trim()}\n\n` +
+                `UI 测试引用了 identifier \`${key}\`，但 blindRun/ 里没有任何 accessibilityIdentifier 会产出它。\n` +
+                `这条断言永远命中不了：正面断言必然红，反面断言（XCTAssertFalse）恒真、等于没写。\n` +
+                `本仓库 CI 跑不了 XCTest，所以这种漂移合进 main 时不会有任何信号。\n` +
+                `改法：用 App 侧真实存在的 identifier，或改成按 label 断言。\n` +
+                `确实是想断言它**不存在**，行尾加 \`// guard:allow stale-ui-test-identifier\`。`
+            );
+          }
+        }
+      }
+    }
+
+    // B：App 侧删掉 identifier，而 UI 测试还在用它。
+    // 只对 Edit 生效（要有 old_string 才知道删了什么）。Write 整文件重写查不到，
+    // 那种改法本来就会被方向 A 在改测试时拦下。
+    const removedIdentifiers = canCrossCheck && /\.swift$/.test(filePath) && appDir && filePath.startsWith(`${appDir}/`)
+      ? [...(input.old_string || '').matchAll(ACCESSIBILITY_IDENTIFIER)]
+          .map((m) => m[1])
+          .filter((lit) => !lit.includes('\\(') && !body.includes(`accessibilityIdentifier("${lit}")`))
+      : [];
+    for (const removed of removedIdentifiers) {
+      // 同一个 id 可能在别处还挂着（挪了位置而不是删了），那不算删除。
+      const stillInApp = collectSwiftFiles(appDir).some(
+        (file) => file !== filePath && readFileOrEmpty(file).includes(`accessibilityIdentifier("${removed}")`)
+      );
+      if (stillInApp) continue;
+      const referencing = collectSwiftFiles(uiTestDir).filter((file) =>
+        readFileOrEmpty(file)
+          .split('\n')
+          .some((l) => l.includes(`"${removed}"`) && !l.includes('guard:allow stale-ui-test-identifier'))
+      );
+      if (referencing.length === 0) continue;
+      fail(
+        'stale-ui-test-identifier',
+        `${filePath}\n  删掉了 accessibilityIdentifier("${removed}")\n\n` +
+          `但这些 UI 测试还在按它找元素：\n` +
+          referencing.map((f) => `  · ${path.relative(repoRoot, f)}`).join('\n') +
+          `\n\n先把 UI 测试改掉再删 identifier。本仓库 CI 跑不了 XCTest，漏改的那一处不会有任何信号：\n` +
+          `2026-08-14 \`30b0770\` 就是这么让 testRealAMapEnabledSmoke 红了 8 天。\n` +
+          `确实是有意让它消失、且测试那边断的就是「不存在」，在测试那一行加 \`// guard:allow stale-ui-test-identifier\`。`
       );
     }
 

@@ -36,7 +36,9 @@ final class blindRunUITests: XCTestCase {
 
         let startButton = app.buttons["开始约跑"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 12), "Blind runner home should show start booking")
-        XCTAssertFalse(app.descendants(matching: .any)["homeMapPlaceholder"].firstMatch.exists)
+        // 删掉了一条断 `homeMapPlaceholder` 不存在的断言：那个 identifier App 侧从来没有过
+        // （占位图真实的 id 是 `mapPlaceholder`），所以它恒真、等于没写。
+        // 也不能直接改成 `mapPlaceholder`：UI 测试默认 `disableMap: true`，占位图是被强制渲染的。
 
         // 2026-08-07 这条用例断言的是「主操作排在地图之前」，从那天起就一直红着（27 vs 16），
         // 而且**改不动**：`allElementsBoundByAccessibilityElement` 是逐层枚举的（同深度的兄弟
@@ -51,7 +53,7 @@ final class blindRunUITests: XCTestCase {
         // 结论：地图改为对读屏**完全隐藏**（纯装饰、不可交互、信息在 `locationSummarySection`
         // 有文字版），读屏用户 0 次多余划动就够到主操作。所以这里断言的是「不在树里」。
         XCTAssertEqual(
-            app.descendants(matching: .any).matching(identifier: "blindRunnerHomeAuxiliaryMap").count,
+            app.descendants(matching: .any).matching(identifier: "blindRunnerHomeAuxiliaryMap").count, // guard:allow stale-ui-test-identifier
             0,
             "装饰性地图不得出现在无障碍元素树里"
         )
@@ -113,7 +115,10 @@ final class blindRunUITests: XCTestCase {
         // `docs/research/swiftui-voiceover-traversal-order-20260814.md`），XCUITest 只看得见
         // 无障碍树，所以这里不再断言地图已挂载 —— 那是隐藏地图的既定代价。
         // 「加载挂起时首页仍可用」由上下文的滚动、重试、设置三条断言覆盖。
-        XCTAssertFalse(app.descendants(matching: .any)["homeMapPlaceholder"].firstMatch.exists)
+        // 此前这里断的是 `homeMapPlaceholder` 不存在 —— 那个 identifier **App 侧从来没有过**
+        // （全历史 `git log -S` 0 命中），断言恒真，写下之日起就是摆设。
+        // 也不能改成真实的 `mapPlaceholder`：本用例走 `disableMap` 默认值 `true`，占位图是被
+        // 强制渲染的，断它不存在必红。真 key 路径的对应断言在 `testRealAMapEnabledSmoke`。
         scrollView.swipeDown()
 
         let retryButton = app.buttons["重试加载"].firstMatch
@@ -127,7 +132,12 @@ final class blindRunUITests: XCTestCase {
         // iOS 弹出 `com.apple.BusinessActionSheet` 选号单，对它的快照查询超时 ——
         // 报出来是 "Failed to get matching snapshots"，看着完全不像误触。
         let repeatButton = app.buttons["重复当前状态"].firstMatch
-        scrollElementIntoView(repeatButton, app: app)
+        // 断言滚动**真的成功了**：滚不动时 helper 会静默放弃，随后的 tap 打在求助条上，
+        // 报出来的错（拨号确认单 / 系统选号单超时）和真因隔了三层，2026-08-14 因此查了半天。
+        XCTAssertTrue(
+            scrollElementIntoView(repeatButton, app: app),
+            "没能把「重复当前状态」滚出底部常驻求助条的遮挡，接下来的 tap 必然误触"
+        )
         XCTAssertTrue(repeatButton.isHittable, "Local TTS action must not wait for the backend")
         repeatButton.tap()
         // 误触求助条的回归钉子。真机上这条路径会真的拨出去，当时只有双卡选号单挡了一下。
@@ -225,7 +235,8 @@ final class blindRunUITests: XCTestCase {
         let homeMaps = app.descendants(matching: .any).matching(identifier: "volunteerHomeMap")
         XCTAssertTrue(homeMaps.firstMatch.waitForExistence(timeout: 5), "Volunteer home should mount its map container")
         XCTAssertEqual(homeMaps.count, 1, "Committed volunteer home should mount exactly one home map")
-        XCTAssertFalse(app.descendants(matching: .any)["volunteerHomeMapPlaceholderBackground"].firstMatch.exists)
+        // 同上：`volunteerHomeMapPlaceholderBackground` 这个 identifier App 侧从来没有过，
+        // 断言恒真。真 key 路径的对应断言在 `testRealAMapEnabledSmoke`。
 
         let currentOrderCard = app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch
         XCTAssertTrue(currentOrderCard.waitForExistence(timeout: 5), "Preseeded active order should appear below the status block")
@@ -447,6 +458,16 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(waitForElementToBeEnabled(submit, timeout: 5))
         submit.tap()
 
+        // 身份证号与人脸要单独同意才发得出去（`c46da3c`，闸门在
+        // `VolunteerRegistrationFlowView.handleBasicInfoSubmitTapped`）。UI 用例一律 `RESET_STATE`，
+        // 同意没有落盘，所以这道门每次都会出现 —— 不点它，后面的活体认证永远不来。
+        let identityConsentAgree = app.buttons["volunteerIdentityConsentAgreeButton"].firstMatch
+        XCTAssertTrue(
+            identityConsentAgree.waitForExistence(timeout: 8),
+            "提交实名信息前必须先过单独的告知同意门"
+        )
+        identityConsentAgree.tap()
+
         let faceVerify = app.buttons["开始活体认证"].firstMatch
         XCTAssertTrue(faceVerify.waitForExistence(timeout: 8))
         faceVerify.tap()
@@ -510,7 +531,9 @@ final class blindRunUITests: XCTestCase {
             "Volunteer home should expose its map container"
         )
         XCTAssertEqual(homeMaps.count, 1, "Volunteer home must not duplicate its map during refresh")
-        XCTAssertFalse(app.descendants(matching: .any)["volunteerHomeMapPlaceholderBackground"].firstMatch.exists)
+        // 此前这里断的是 `volunteerHomeMapPlaceholderBackground` 不存在 —— 那个 identifier
+        // **App 侧从来没有过**，断言恒真。同上：本用例 `disableMap` 默认 `true`，占位图是预期产物，
+        // 换成真实的 `mapPlaceholder` 会必红；真 key 路径的断言在 `testRealAMapEnabledSmoke`。
 
         let availabilitySwitch = app.switches.firstMatch
         XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should remain visible above the map")
@@ -521,7 +544,9 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.buttons["回到当前位置"].firstMatch.waitForExistence(timeout: 5), "Home should keep the local recenter control")
         XCTAssertTrue(app.staticTexts["系统派单"].firstMatch.waitForExistence(timeout: 5), "Volunteer home should show the system dispatch workbench")
         XCTAssertTrue(app.staticTexts["近期服务"].firstMatch.waitForExistence(timeout: 5), "Dispatch workbench should show recent service history")
-        XCTAssertTrue(app.staticTexts["积分"].firstMatch.waitForExistence(timeout: 5), "Dispatch summary should show points")
+        // 三格：完成 / 评分 / 接单率。此前这里断的是「积分」，而 `be4e030` 已经把那一格删了
+        // —— 它的值是 `totalCompleted * 100`，后端从来没有积分字段（见 VolunteerHomeView 的注释）。
+        XCTAssertTrue(app.staticTexts["接单率"].firstMatch.waitForExistence(timeout: 5), "Dispatch summary should show the acceptance rate")
         XCTAssertFalse(app.buttons["查看全部订单"].firstMatch.exists, "Primary volunteer home must not expose the public order list")
 
         attachScreenshot(named: "volunteer-home-map-and-controls", app: app)
@@ -911,7 +936,12 @@ final class blindRunUITests: XCTestCase {
 
         let finalAlert = app.alerts["最终确认删除账户"].firstMatch
         XCTAssertTrue(finalAlert.waitForExistence(timeout: 8))
-        XCTAssertTrue(finalAlert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "所有登录令牌会失效")).firstMatch.exists)
+        // 文案内容**不在这里断**。它的主是单测 `testAccountDeletionCopyStatesWhatIsDeletedAndWhatIsKept`
+        // （`blindRunTests/blindRunTests.swift`），那条进程内直接对
+        // `AccountDeletionViewModel.finalConfirmationMessage(for:)` 断言，拿得到真源。
+        // 这里再抄一份字面量只会周期性漂移 —— `9f9cede` 把「会失效」改成「立即失效」，
+        // 单测跟着改了，抄在这儿的那份没有，于是这条用例红了 7 天。
+        // UI 用例守的是流程：两段式弹窗、且只提交一次。
         let finalButton = app.buttons["永久删除账户"].firstMatch
         XCTAssertTrue(finalButton.exists)
         finalButton.tap()
@@ -957,9 +987,16 @@ final class blindRunUITests: XCTestCase {
             disableMap: false
         )
 
+        // 盲人首页的装饰地图自 `30b0770` 起对读屏隐藏，identifier 一并删了（那是隐藏它的既定代价），
+        // 所以**不能**再按 identifier 断言它挂上了。改成断反面：配了真 key 就不该渲染缺 key 占位图。
+        // `mapPlaceholder` 是真实存在的那个（`blindRun/Map/MapPlaceholderView.swift`）。
         XCTAssertTrue(
-            blindApp.descendants(matching: .any)["blindRunnerHomeAuxiliaryMap"].firstMatch.waitForExistence(timeout: 20),
-            "Real AMap run should expose the blind-runner home map container"
+            blindApp.descendants(matching: .any)["blindRunnerHomeScrollView"].firstMatch.waitForExistence(timeout: 20),
+            "Real AMap run should still commit the blind-runner home"
+        )
+        XCTAssertFalse(
+            blindApp.descendants(matching: .any)["mapPlaceholder"].firstMatch.exists,
+            "配了真 key 的构建不该回落到缺 key 占位图"
         )
         XCTAssertFalse(blindApp.staticTexts["地图服务暂不可用"].exists, "Blind home must not fall back to the missing-key view")
         XCTAssertFalse(blindApp.staticTexts["请配置高德地图 API Key"].exists, "Blind home real AMap smoke requires a configured local key")
@@ -980,7 +1017,10 @@ final class blindRunUITests: XCTestCase {
             volunteerApp.descendants(matching: .any)["volunteerHomeMap"].firstMatch.waitForExistence(timeout: 20),
             "Real AMap run should expose the volunteer home map container"
         )
-        XCTAssertFalse(volunteerApp.descendants(matching: .any)["volunteerHomeMapPlaceholderBackground"].firstMatch.exists)
+        XCTAssertFalse(
+            volunteerApp.descendants(matching: .any)["mapPlaceholder"].firstMatch.exists,
+            "配了真 key 的构建不该回落到缺 key 占位图"
+        )
         XCTAssertFalse(volunteerApp.staticTexts["地图服务暂不可用"].exists, "Volunteer home must not fall back to the missing-key view")
         attachScreenshot(named: "real-amap-volunteer-home", app: volunteerApp)
 
@@ -1297,19 +1337,51 @@ final class blindRunUITests: XCTestCase {
         return element.exists
     }
 
-    private func scrollElementIntoView(_ element: XCUIElement, app: XCUIApplication, maxSwipes: Int = 5) {
+    /// 底部常驻栏（`safeAreaInset(edge: .bottom)`）画在滚动内容之上：落在它下面的控件
+    /// `isHittable` 仍然是 `true`，但触点会被钳到栏上。
+    ///
+    /// 2026-08-14 因此在盲人首页误触常驻求助条、差点拨出 110（`a68bed4`）；2026-08-22 二分
+    /// 确认它自 `30b0770` 起复发（`docs/review/ui-test-red-triage-20260822.md`）。当时的判据
+    /// 只问「在屏幕矩形内」—— 真机 402×874 上「重复当前状态」在 y 763–827、求助条在 y 772–836，
+    /// 中心点 795 落在 `insetBy(dy: 44)` 给出的 44…830 里，于是 helper 一次都没滚就返回了。
+    ///
+    /// ponytail: 固定 112pt，不去查每个底栏的真实高度 —— 那要按 identifier 逐个登记，而全仓有
+    /// 9 处 `safeAreaInset(edge: .bottom)`，登记表必然漏掉下一个。代价是在没有底栏的页面多滚
+    /// 一两下（无害）。真要精确时再改成按 identifier 取底栏 frame。
+    /// （盲人首页实测底栏顶边 772，874 − 772 = 102，这里留 10pt 余量。）
+    private static let persistentBottomBarInset: CGFloat = 112
+
+    /// 把控件滚进「真正能点」的区域。
+    ///
+    /// 判据是「中心点在可见区内 **且** 整个 frame 不越过可见区底边」：只判中心点会放过
+    /// 下半截被底栏盖住的控件 —— 那正是上面那次误触的成因。用中心点而不是 `isHittable`：
+    /// 禁用态的按钮永远不 hittable，用它会让上限用例白白滑满 `maxSwipes` 次。
+    ///
+    /// 返回是否真的滚到位。**底部有常驻栏的页面必须断言返回值** —— 否则滚不动时这里静默放弃，
+    /// 接下来的 `tap()` 打在别的控件上，报出来的错和真因毫无关系。
+    @discardableResult
+    private func scrollElementIntoView(_ element: XCUIElement, app: XCUIApplication, maxSwipes: Int = 5) -> Bool {
         let appFrame = app.frame
-        guard !appFrame.isNull, !appFrame.isEmpty else { return }
-        let visibleArea = appFrame.insetBy(dx: 0, dy: 44)
-        for _ in 0..<maxSwipes {
-            guard element.exists else { return }
+        guard !appFrame.isNull, !appFrame.isEmpty else { return false }
+        let top = appFrame.minY + 44
+        let bottom = appFrame.maxY - Self.persistentBottomBarInset
+        guard bottom > top else { return false }
+        let visibleArea = CGRect(x: appFrame.minX, y: top, width: appFrame.width, height: bottom - top)
+
+        func isUncovered() -> Bool {
+            guard element.exists else { return false }
             let frame = element.frame
-            if !frame.isNull, !frame.isEmpty,
-               visibleArea.contains(CGPoint(x: frame.midX, y: frame.midY)) {
-                return
-            }
+            guard !frame.isNull, !frame.isEmpty else { return false }
+            return visibleArea.contains(CGPoint(x: frame.midX, y: frame.midY))
+                && frame.maxY <= visibleArea.maxY
+        }
+
+        for _ in 0..<maxSwipes {
+            if isUncovered() { return true }
+            guard element.exists else { return false }
             scrollableSurface(app).swipeUp()
         }
+        return isUncovered()
     }
 
     private func scrollableSurface(_ app: XCUIApplication) -> XCUIElement {
@@ -1352,8 +1424,23 @@ final class blindRunUITests: XCTestCase {
         tapWhenHittableOrByCoordinate(firstOrder, app: app)
 
         if requirePhone {
-            let phoneText = app.staticTexts["13800001001"].firstMatch
-            XCTAssertTrue(phoneText.waitForExistence(timeout: 8), "Phone should be shown for an accepted current service")
+            // 号码上屏是**掩码**的（`VolunteerOrderFlowViews.swift` 走 `EmergencyContactResponse.maskPhone`）：
+            // VoiceOver 外放，念全号等于把盲人的号码广播给周围所有人（`f404de2` / 审计 F10）。
+            // 全号只进 `tel:`，所以这里两条一起断 —— 只断掩码的话，拨号按钮被删掉也不会有人发现，
+            // 而那是志愿者接单后唯一够得到真号的出口。
+            let maskedPhone = app.staticTexts["138****1001"].firstMatch
+            XCTAssertTrue(
+                maskedPhone.waitForExistence(timeout: 8),
+                "接单后应展示掩码号码，全号不上屏、不朗读"
+            )
+            XCTAssertFalse(
+                app.staticTexts["13800001001"].firstMatch.exists,
+                "全号不得作为可见文本出现"
+            )
+            XCTAssertTrue(
+                app.buttons["拨打盲人电话"].firstMatch.exists,
+                "掩码之后，拨号按钮是志愿者够到真号的唯一出口"
+            )
         } else {
             XCTAssertTrue(app.navigationBars["服务中"].waitForExistence(timeout: 8))
         }

@@ -765,6 +765,115 @@ const cases = [
     mode: 'post',
     expect: 0,
     swift: 'struct V { func f() { withAnimation(demandPanelAnimation) { x = 1 } } }'
+  },
+
+  // ---- stale-ui-test-identifier（2026-08-22）----
+  //
+  // `30b0770` 删掉 `blindRunnerHomeAuxiliaryMap` 时漏改了一处 UI 测试，那条用例红了 8 天
+  // 才被查出来 —— 本仓库 CI 跑不了 XCTest，这类漂移没有任何运行时信号。
+  // 下面两个方向各有正反用例，外加三条「不许误报」的边界。
+  {
+    name: 'UI 测试引用 App 侧存在的 identifier（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("blindHomeStartButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString: 'XCTAssertTrue(app.buttons["blindHomeStartButton"].exists)'
+  },
+  {
+    name: 'UI 测试引用 App 侧不存在的 identifier（拦）',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("blindHomeStartButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString: 'XCTAssertTrue(app.descendants(matching: .any)["blindRunnerHomeAuxiliaryMap"].exists)'
+  },
+  {
+    // App 侧大量 identifier 是拼出来的（`"\(purpose.rawValue)Consent"`、
+    // `"volunteerRegistrationStep.\(step.displayIndex)"`）。不把插值段当通配的话，
+    // 光这两类就会造出十几条误报，规则当天就会被关掉。
+    name: '插值拼出来的 identifier 能匹配上（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Step.swift':
+        'Text("x").accessibilityIdentifier("volunteerRegistrationStep.\\(step.displayIndex)")\n' +
+        'Text("y").accessibilityIdentifier("\\(identifierPrefix)AgreeButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString:
+      'app.descendants(matching: .any)["volunteerRegistrationStep.1"].tap()\n' +
+      'app.buttons["appLaunchConsentAgreeButton"].tap()'
+  },
+  {
+    // 系统键盘的收键盘按钮，App 侧永远不会有。白名单只有这两个。
+    name: '系统键盘按键 Done / Return（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("blindHomeStartButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString: 'app.buttons["Done"].tap()\napp.buttons["Return"].tap()'
+  },
+  {
+    // 中文文案键**不判**：它们大量是插值拼出来的 a11y label，实测误报 93%。
+    // 这条用例是那个决定的锚 —— 有人以后想把中文也纳进来，会先在这里看到为什么没纳。
+    name: '中文文案键不参与判定（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("blindHomeStartButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString: 'XCTAssertTrue(app.staticTexts["张三，关系家人，电话139****9001，主联系人"].exists)'
+  },
+  {
+    // 「断言这个 id 不存在」是合法用法（`blindRunUITests.swift:54` 就是），靠行内标注放行。
+    name: '带 guard:allow 标注的失效 id（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("blindHomeStartButton")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRunUITests/T.swift',
+    newString:
+      'XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "blindRunnerHomeAuxiliaryMap").count, 0) // guard:allow stale-ui-test-identifier'
+  },
+  {
+    // 方向 B：`30b0770` 的那个形状 —— 删 App 侧 identifier，漏改测试。
+    name: 'App 删掉 UI 测试还在用的 identifier（拦）',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")\n',
+      'blindRunUITests/T.swift': 'app.descendants(matching: .any)["blindRunnerHomeAuxiliaryMap"].tap()\n'
+    },
+    editPath: 'blindRun/Home.swift',
+    oldString: 'Text("x").accessibilityIdentifier("blindRunnerHomeAuxiliaryMap")',
+    newString: 'Text("x").accessibilityHidden(true)'
+  },
+  {
+    name: 'App 删掉没有测试引用的 identifier（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Home.swift': 'Text("x").accessibilityIdentifier("nobodyQueriesThis")\n',
+      'blindRunUITests/T.swift': '// seed\n'
+    },
+    editPath: 'blindRun/Home.swift',
+    oldString: 'Text("x").accessibilityIdentifier("nobodyQueriesThis")',
+    newString: 'Text("x")'
   }
 ];
 
@@ -774,7 +883,32 @@ const cases = [
 // （`guard.mjs` 末尾的路径过滤）。**不要**写进真实的 `blindRun/` 目录：本工程是文件系统
 // 同步式的（`PBXFileSystemSynchronizedRootGroup`），那里多一个 .swift 会直接被编进 target，
 // 用例中断时残留文件会让整个工程编译不过。
+// `stale-ui-test-identifier` 是本文件里唯一的**跨文件**规则：它要同时读 blindRun/ 与
+// blindRunUITests/ 才判得了。所以这类用例得先造一个最小仓库出来，再对里面某个文件发 Edit。
+// 用 `/x/...` 那种假路径不行 —— 守卫读不到两侧目录时会按「宁可漏不可误」直接放行，
+// 于是所有用例都变成恒过，测不出任何东西。
+function materializeRepo(testCase) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-guard-repo-'));
+  for (const [relative, contents] of Object.entries(testCase.repoFiles)) {
+    const full = path.join(dir, relative);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, contents, 'utf8');
+  }
+  return {
+    input: {
+      tool_name: 'Edit',
+      tool_input: {
+        file_path: path.join(dir, testCase.editPath),
+        old_string: testCase.oldString ?? 'PLACEHOLDER_OLD',
+        new_string: testCase.newString ?? ''
+      }
+    },
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true })
+  };
+}
+
 function materialize(testCase) {
+  if (testCase.mode === 'repo') return materializeRepo(testCase);
   if (testCase.mode !== 'post') return { input: testCase.input, cleanup: () => {} };
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-guard-'));
@@ -793,7 +927,12 @@ let failed = false;
 
 for (const testCase of cases) {
   const { input, cleanup } = materialize(testCase);
-  const result = spawnSync('node', [guard, testCase.mode ?? 'pre'], {
+  // `mode` 说的是**用例怎么搭台子**（假路径 / 落一个真文件 / 造一个最小仓库），
+  // 不是守卫的运行模式。只有 'post' 两者同名 —— 其余一律按 pre 跑。
+  // 混用过一次：`mode: 'repo'` 被原样传成 argv，`guard.mjs` 把它归成 post，
+  // 整个 pre 段（含被测的那条规则）压根没执行，两条「该拦」的用例安静地返回 0。
+  const guardMode = testCase.mode === 'post' ? 'post' : 'pre';
+  const result = spawnSync('node', [guard, guardMode], {
     input: JSON.stringify(input),
     encoding: 'utf8'
   });

@@ -170,7 +170,13 @@ REMATCHING → CANCELLED（只能盲人 token）
 - 开发期支持 Mock / Demo Cloud 切换；Demo 与 Production 构建锁定 Demo Cloud。
 - **高德 key 只能来自本地配置文件，不得硬编码，不得提交真实 key**，并提供示例配置文件。
 - 志愿者默认 `isAvailable = false`，必须手动打开才开始接单；关闭不影响当前订单。
-- 接单前隐藏盲人联系方式、紧急联系人与敏感健康信息；接单后展示完整手机号。
+- 接单前隐藏盲人联系方式、紧急联系人与敏感健康信息；**接单后展示掩码号码并给出拨号入口**。
+  全号只进 `tel:`，不上屏、不进 `accessibilityLabel` —— VoiceOver 是外放的，念全号等于把盲人的
+  号码广播给周围所有人（`f404de2` / 审计 F10）。渲染走 `EmergencyContactResponse.maskPhone`，
+  拨号统一走 `EmergencyDialer.telURL/dial`。
+  > 2026-08-22 改口径。原文是「接单后展示完整手机号」，与 `f404de2` 之后的实现直接冲突，
+  > 而那次改动的隐私理由更硬 —— 保留掩码、改这句话。同批改了
+  > `docs/technical-design-overview.md` 与 `docs/user-manual.md` 的同一条描述。
   **判据是字段的取值空间封不封闭，不是字段名听起来敏不敏感** —— 枚举 / 布尔（导盲犬、配速、
   引导方式）可以逐个判定「这个值给陌生人看行不行」，所以能留在接单前；**自由文本一律接单后**，
   因为同一个输入框里写「沿湖边跑道」和「我住院刚出来只能走平路」都自然，展示前分不出是哪一种。
