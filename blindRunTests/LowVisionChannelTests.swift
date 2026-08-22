@@ -71,6 +71,9 @@ final class LowVisionChannelTests: XCTestCase {
     func testEveryOrderStatusMakesAnExplicitHapticDecision() {
         let expected: [RunOrderStatus: HapticFeedback.Kind?] = [
             .pendingMatch: nil,
+            // 有人想陪你跑，而且**需要你去打一通电话** —— 既是好消息又带着一个待办，
+            // 正是该打断用户的时刻。
+            .pendingIntroCall: .success,
             .pendingAccept: .success,
             .driverEnRoute: .success,
             .driverArrived: .success,

@@ -211,7 +211,10 @@ enum VoiceStatusQuery {
         // 对看不见屏幕的人，说「不能打」而不说去哪打就是死路，所以在通用分支之前单独答。
         if order.status == .pendingIntroCall {
             return VoiceStatusAnswer(
-                speech: "这一单还在通话确认阶段。打电话给这位志愿者的按钮就在订单状态页上，语音暂时不能替你拨。",
+                // 结尾照样带上 `displayName`：这一族答句的共同不变式是「答完必须让用户知道
+                // 现在是什么状态」，只有开头那句「现在还不能打电话给志愿者」是这一态的例外。
+                speech: "这一单还在通话确认阶段，语音暂时不能替你拨号。"
+                    + "打电话给这位志愿者的按钮就在订单状态页上。当前是\(order.status.displayName)。",
                 pendingAction: nil
             )
         }
