@@ -69,6 +69,14 @@ enum ErrorCode: String, Codable, Sendable {
     // 陌生人试图跳过通话直接接单。客户端一律先发 `INTERESTED`，所以正常路径下见不到它；
     // 映射它是为了别把一个有确切含义的 409 念成「未知错误 (409)」。
     case introCallRequired = "INTRO_CALL_REQUIRED"
+    // 固定搭档收藏（后端 `ErrorCode.java:169` / `:176`）。
+    //
+    // 🚨 `FAVORITE_VOLUNTEER_NOT_ELIGIBLE` 是**两种情况同码同文案**：「没一起跑完过」与
+    // 「这个 id 根本不是志愿者」。契约点名要求客户端**不要试图区分** ——
+    // 区分开就等于确认了这个 id 是个志愿者，那个端点就成了枚举接口。
+    // 所以文案只说门槛，不说「这个人不存在」。
+    case favoriteVolunteerNotEligible = "FAVORITE_VOLUNTEER_NOT_ELIGIBLE"
+    case favoriteVolunteerLimitExceeded = "FAVORITE_VOLUNTEER_LIMIT_EXCEEDED"
 
     var localizedMessage: String {
         switch self {
@@ -162,6 +170,10 @@ enum ErrorCode: String, Codable, Sendable {
             return IntroCallCopy.roundAlreadyEnded
         case .introCallRequired:
             return "还没有和这位跑者通过电话，请先选「有意向，想先聊聊」。"
+        case .favoriteVolunteerNotEligible:
+            return PartnerStreakCopy.favoriteNotEligible
+        case .favoriteVolunteerLimitExceeded:
+            return PartnerStreakCopy.favoriteLimitExceeded
         }
     }
 

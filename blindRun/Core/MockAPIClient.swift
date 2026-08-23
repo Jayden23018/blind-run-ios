@@ -55,6 +55,15 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 那条记录仍然出现在两侧列表里，只是带上退出标记。
     private var volunteerOptedOutPartnerIds: Set<Int64> = []
 
+    /// 盲人当前收藏了哪几位志愿者（`PUT` / `DELETE /api/blind/favorite-volunteers/{volunteerId}`）。
+    ///
+    /// 与上面那个**刻意不同**：盲人侧取消收藏是真的删行（后端 `removeFavoriteVolunteer`），
+    /// 志愿者侧退出是打标记。两条路的语义不一样，Mock 里也别写成一样。
+    private var blindFavoritedVolunteerIds: Set<Int64> = [9001, 9002, 9003]
+
+    /// 后端默认 `app.favorite-volunteer.max-per-user=10`。
+    private static let mockFavoriteVolunteerLimit = 10
+
     /// 状态变更记录，`GET /api/orders/{id}/status-logs` 的回放源。
     /// **新的插在最前面**，与后端 `findByOrderIdOrderByChangedAtDesc` 同序。
     /// 种子订单刻意不带记录：它们的状态是直接摆出来的、没有经过状态机，
@@ -334,6 +343,15 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         if path == "/api/blind/favorite-volunteers" && method == .get {
             return handleGetBlindFavoriteVolunteers()
+        }
+        if path.hasPrefix("/api/blind/favorite-volunteers/"),
+           let volunteerId = Int64(path.replacingOccurrences(of: "/api/blind/favorite-volunteers/", with: "")) {
+            if method == .put {
+                return try handleAddBlindFavoriteVolunteer(volunteerId: volunteerId)
+            }
+            if method == .delete {
+                return handleRemoveBlindFavoriteVolunteer(volunteerId: volunteerId)
+            }
         }
         if path == "/api/volunteer/favorites" && method == .get {
             return handleGetVolunteerFavoritedBy()
@@ -1207,36 +1225,82 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         ]
     }
 
+    /// 盲人侧固定搭档的种子行。哪几行**当前在列表里**由 `blindFavoritedVolunteerIds` 决定，
+    /// 所以 Mock 里收藏 / 取消收藏是真的会改变这一屏的。
+    private static let blindFavoriteSeeds: [Int64: FavoriteVolunteerResponse] = [
+        MockIncentiveSeed.partnerWithStreakId: FavoriteVolunteerResponse(
+            volunteerId: MockIncentiveSeed.partnerWithStreakId,
+            volunteerName: "张*",
+            completedRunsTogether: 12,
+            favoritedAt: "2026-07-03T09:15:00",
+            // 与 `/partners/streaks` 里那条同一个数（契约明说两处口径一致）。
+            streakWeeks: 3,
+            partnerOptedOut: false
+        ),
+        MockIncentiveSeed.partnerWithoutStreakId: FavoriteVolunteerResponse(
+            volunteerId: MockIncentiveSeed.partnerWithoutStreakId,
+            volunteerName: "李*",
+            completedRunsTogether: 3,
+            favoritedAt: "2026-08-01T18:40:00",
+            // 🔴 未点亮是 `null` 不是 0 —— 这一行存在的意义就是让「那一行不念」被验到。
+            streakWeeks: nil,
+            partnerOptedOut: false
+        ),
+        MockIncentiveSeed.partnerOptedOutId: FavoriteVolunteerResponse(
+            volunteerId: MockIncentiveSeed.partnerOptedOutId,
+            volunteerName: "王*",
+            completedRunsTogether: 5,
+            favoritedAt: "2026-06-20T07:05:00",
+            streakWeeks: nil,
+            // 🔴 退出的条目**仍然留在列表里**，不是从列表消失。
+            partnerOptedOut: true
+        ),
+        // 只有火花、初始未收藏 —— 「设为固定搭档」那个按钮在 Mock 里点的就是它。
+        MockIncentiveSeed.streakOnlyPartnerId: FavoriteVolunteerResponse(
+            volunteerId: MockIncentiveSeed.streakOnlyPartnerId,
+            volunteerName: "赵*",
+            completedRunsTogether: 2,
+            favoritedAt: "2026-08-23T08:00:00",
+            streakWeeks: 2,
+            partnerOptedOut: false
+        )
+    ]
+
     private func handleGetBlindFavoriteVolunteers() -> [FavoriteVolunteerResponse] {
-        [
-            FavoriteVolunteerResponse(
-                volunteerId: MockIncentiveSeed.partnerWithStreakId,
-                volunteerName: "张*",
-                completedRunsTogether: 12,
-                favoritedAt: "2026-07-03T09:15:00",
-                // 与 `/partners/streaks` 里那条同一个数（契约明说两处口径一致）。
-                streakWeeks: 3,
-                partnerOptedOut: false
-            ),
-            FavoriteVolunteerResponse(
-                volunteerId: MockIncentiveSeed.partnerWithoutStreakId,
-                volunteerName: "李*",
-                completedRunsTogether: 3,
-                favoritedAt: "2026-08-01T18:40:00",
-                // 🔴 未点亮是 `null` 不是 0 —— 这一行存在的意义就是让「那一行不念」被验到。
-                streakWeeks: nil,
-                partnerOptedOut: false
-            ),
-            FavoriteVolunteerResponse(
-                volunteerId: MockIncentiveSeed.partnerOptedOutId,
-                volunteerName: "王*",
-                completedRunsTogether: 5,
-                favoritedAt: "2026-06-20T07:05:00",
-                streakWeeks: nil,
-                // 🔴 退出的条目**仍然留在列表里**，不是从列表消失。
-                partnerOptedOut: true
-            )
-        ]
+        // 契约：收藏时间倒序。
+        blindFavoritedVolunteerIds
+            .compactMap { Self.blindFavoriteSeeds[$0] }
+            .sorted { ($0.favoritedAt ?? "") > ($1.favoritedAt ?? "") }
+    }
+
+    /// `PUT /api/blind/favorite-volunteers/{volunteerId}` —— **幂等，恒 204**。
+    ///
+    /// 🚨 门槛：必须一起跑完过至少一单，否则 400 `FAVORITE_VOLUNTEER_NOT_ELIGIBLE`。
+    /// Mock 用「这个 id 在不在种子表里」当门槛的替身 —— 不在表里就是没一起跑过。
+    /// 「没一起跑完过」与「这个 id 根本不是志愿者」**同码同文案**，这里也不区分，
+    /// 否则 Mock 会诱导客户端写出一段真实后端不支持的分支。
+    private func handleAddBlindFavoriteVolunteer(volunteerId: Int64) throws -> EmptyResponse {
+        guard Self.blindFavoriteSeeds[volunteerId] != nil else {
+            throw APIError.serverError(ErrorResponse(
+                code: "FAVORITE_VOLUNTEER_NOT_ELIGIBLE",
+                message: "需要先和这位志愿者一起跑完至少一次"
+            ))
+        }
+        guard blindFavoritedVolunteerIds.count < Self.mockFavoriteVolunteerLimit
+                || blindFavoritedVolunteerIds.contains(volunteerId) else {
+            throw APIError.serverError(ErrorResponse(
+                code: "FAVORITE_VOLUNTEER_LIMIT_EXCEEDED",
+                message: "固定搭档数量已达上限"
+            ))
+        }
+        blindFavoritedVolunteerIds.insert(volunteerId)
+        return EmptyResponse()
+    }
+
+    /// `DELETE` —— 同样幂等，没收藏过也返 204。
+    private func handleRemoveBlindFavoriteVolunteer(volunteerId: Int64) -> EmptyResponse {
+        blindFavoritedVolunteerIds.remove(volunteerId)
+        return EmptyResponse()
     }
 
     private func handleGetVolunteerFavoritedBy() -> [VolunteerFavoritedByResponse] {

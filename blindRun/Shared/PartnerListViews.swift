@@ -88,16 +88,40 @@ private struct PartnerRowCard: View {
 /// （主按钮吃掉内容区七成），再塞一个列表入口会把那次结论推翻。
 struct BlindFavoriteVolunteersView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var speechService: SpeechService
 
     @State private var rows: [PartnerRow] = []
     @State private var errorMessage: String?
     @State private var isLoading = true
     @State private var hasLoadedOnce = false
+    @State private var actionNotice: String?
+    @State private var busyUserId: Int64?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if hasLoadedOnce {
+                    // 操作结果既要看得见也要听得见 —— 这一屏在盲人端，
+                    // 只把状态画进列表等于对读屏用户什么都没说。
+                    if let actionNotice {
+                        Text(actionNotice)
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.success)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("blindFavoriteActionNotice")
+                    }
+
+                    // 列表已经加载出来之后再失败（收藏 / 取消收藏），错误要就地显示 ——
+                    // 下面那个失败态整块只在**首次加载**失败时才出现，
+                    // 光把 errorMessage 赋上而不在这里渲染，用户什么都看不到。
+                    if let errorMessage, actionNotice == nil {
+                        Text(errorMessage)
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.destructive)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("blindFavoriteActionError")
+                    }
+
                     if rows.isEmpty {
                         Text(PartnerStreakCopy.blindEmpty)
                             .font(AppFonts.body())
@@ -106,11 +130,7 @@ struct BlindFavoriteVolunteersView: View {
                             .accessibilityIdentifier("blindFavoriteVolunteersEmpty")
                     } else {
                         ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                            PartnerRowCard(
-                                row: row,
-                                fallbackName: PartnerStreakCopy.unknownVolunteerName,
-                                optedOutText: PartnerStreakCopy.partnerOptedOutSuffix
-                            )
+                            partnerSection(row)
                         }
                     }
                 } else if isLoading {
@@ -138,6 +158,88 @@ struct BlindFavoriteVolunteersView: View {
         .task {
             guard !hasLoadedOnce else { return }
             await load()
+        }
+    }
+
+    /// 一行搭档 + 它的收藏动作。按钮在卡片**外面**：卡片是 `children: .ignore` 的单焦点，
+    /// 放进去按钮就拿不到焦点了。
+    @ViewBuilder
+    private func partnerSection(_ row: PartnerRow) -> some View {
+        PartnerRowCard(
+            row: row,
+            fallbackName: PartnerStreakCopy.unknownVolunteerName,
+            optedOutText: PartnerStreakCopy.partnerOptedOutSuffix
+        )
+
+        if let userId = row.userId {
+            let name = row.name?.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
+            if row.isFavorite {
+                // 取消收藏是可逆的（再收藏一次即可），所以**不做二次确认** ——
+                // AGENTS.md 的二次确认清单给的是不可逆或高代价的动作，
+                // 给每个可逆动作都加一道弹窗，读屏用户要多听一遍、多点一次。
+                Button(PartnerStreakCopy.removeFavoriteTitle(name)) {
+                    Task { await setFavorite(false, userId: userId, name: name) }
+                }
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.destructive)
+                .buttonShapeOutlineIfNeeded(color: AppColors.destructive)
+                .disabled(busyUserId == userId)
+                .padding(.bottom, 6)
+                .accessibilityIdentifier("blindRemoveFavoriteButton")
+            } else {
+                // 只有火花、还没收藏的一对。
+                //
+                // 🚩 这里是全 App **唯一**能拿到 volunteerId 的地方：`OrderDetailResponse`
+                // 契约里根本没有这个字段（只有 volunteerName / volunteerPhone），
+                // 所以订单详情、历史订单都给不出收藏入口。已投 handoff 请后端补。
+                //
+                // 好在这条路的覆盖面正好对得上：收藏的门槛是「一起跑完过至少一单」，
+                // 而能出现在火花列表里的一对**必然**满足这个门槛。
+                Button(PartnerStreakCopy.addFavoriteTitle(name)) {
+                    Task { await setFavorite(true, userId: userId, name: name) }
+                }
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.primary)
+                .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+                .disabled(busyUserId == userId)
+                .accessibilityHint(PartnerStreakCopy.favoriteExplanation)
+                .padding(.bottom, 6)
+                .accessibilityIdentifier("blindAddFavoriteButton")
+            }
+        }
+    }
+
+    /// `PUT` / `DELETE /api/blind/favorite-volunteers/{volunteerId}` —— 两个都**幂等、恒 204**，
+    /// 所以不看响应体、也不做本地乐观更新（本地改一份状态就有了第二个真相源），
+    /// 改完直接重新拉一次列表。
+    private func setFavorite(_ isFavorite: Bool, userId: Int64, name: String) async {
+        busyUserId = userId
+        defer { busyUserId = nil }
+        do {
+            let _: EmptyResponse = try await appState.apiClient.request(
+                method: isFavorite ? .put : .delete,
+                path: "/api/blind/favorite-volunteers/\(userId)",
+                query: nil,
+                body: nil,
+                requiresAuth: true
+            )
+            let notice = isFavorite
+                ? PartnerStreakCopy.favoriteAdded(name)
+                : PartnerStreakCopy.favoriteRemoved(name)
+            actionNotice = notice
+            errorMessage = nil
+            // 盲人端：结果必须念出来。列表刷新是看得见的反馈，播报是听得见的那一半。
+            speechService.announce(notice)
+            await load()
+        } catch let error as APIError {
+            actionNotice = nil
+            let message = error.localizedMessage
+            errorMessage = message
+            speechService.speakError(message)
+        } catch {
+            actionNotice = nil
+            errorMessage = PartnerStreakCopy.favoriteFailed
+            speechService.speakError(PartnerStreakCopy.favoriteFailed)
         }
     }
 

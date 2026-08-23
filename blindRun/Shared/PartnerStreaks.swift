@@ -286,6 +286,35 @@ enum PartnerStreakCopy {
     static let loadFailure = "暂时没能读到固定搭档，请稍后重试。"
     static let retry = "重新加载"
 
+    // MARK: 收藏 / 取消收藏（盲人侧）
+
+    /// 🔴 **不得写「优先派给他」。** 契约逐字：收藏只影响派单排序、不影响资格，
+    /// 加分（默认 15 分）加在满分 100 的五维加权和之外，**不是压倒一切** ——
+    /// 附近有个不错的陌生人时，很远的固定搭档仍然会输。
+    /// 所以只能说「更可能」。承诺「优先」就是承诺一件系统做不到的事。
+    static let favoriteExplanation = "设为固定搭档后，系统派单时会更可能派给他，但不保证一定是他。"
+
+    /// 🚨 「没一起跑完过」与「这个 id 根本不是志愿者」后端**同码同文案**，
+    /// 客户端不要试图区分 —— 区分开就等于确认了这个 id 是个志愿者。
+    /// 所以这句只说门槛，不说「这个人不存在」。
+    static let favoriteNotEligible = "还不能设为固定搭档。需要先和这位志愿者一起跑完至少一次。"
+
+    static let favoriteLimitExceeded = "固定搭档的数量已经到上限了，先取消一位再添加。"
+
+    static let favoriteFailed = "操作没有成功，请稍后重试。"
+
+    static func addFavoriteTitle(_ name: String) -> String { "把\(name)设为固定搭档" }
+
+    static func removeFavoriteTitle(_ name: String) -> String { "取消收藏\(name)" }
+
+    static func favoriteAdded(_ name: String) -> String {
+        "已把\(name)设为固定搭档。\(favoriteExplanation)"
+    }
+
+    static func favoriteRemoved(_ name: String) -> String {
+        "已取消收藏\(name)。"
+    }
+
     static func togetherText(_ count: Int?) -> String? {
         guard let count, count > 0 else { return nil }
         return "一起跑完过 \(count) 次"

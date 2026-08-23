@@ -317,10 +317,99 @@ final class IncentiveAdoptionTests: XCTestCase {
         XCTAssertTrue(PartnerStreakCopy.optOutConfirmMessage.contains("重新一起跑一单"))
     }
 
-    /// 空态不得承诺一个 App 里不存在的动作：本仓库**没有**「收藏这位志愿者」的入口。
-    func testBlindEmptyStateDoesNotPromiseAFavoriteButton() {
-        XCTAssertFalse(PartnerStreakCopy.blindEmpty.contains("设为固定搭档"))
+    /// 空态说的是火花怎么来的（一起跑完订单就会结算），**不是**「去点某个按钮收藏他」——
+    /// 收藏入口只在已经一起跑过的搭档那一行上，空列表时根本没有可点的对象。
+    func testBlindEmptyStateExplainsHowStreaksAppear() {
         XCTAssertTrue(PartnerStreakCopy.blindEmpty.contains("连续两周"))
+        XCTAssertFalse(PartnerStreakCopy.blindEmpty.contains("按钮"))
+    }
+
+    // MARK: - 收藏固定搭档
+
+    /// 🔴 契约逐字：收藏只影响派单**排序**、不影响资格，加分加在满分 100 的五维加权和之外，
+    /// 不是压倒一切 —— 附近有个不错的陌生人时，很远的固定搭档仍然会输。
+    /// ⇒ 文案只能说「更可能」，**说「优先」就是承诺一件系统做不到的事**。
+    func testFavoriteCopyNeverPromisesPriorityDispatch() {
+        let copies = [
+            PartnerStreakCopy.favoriteExplanation,
+            PartnerStreakCopy.favoriteAdded("张*"),
+            PartnerStreakCopy.addFavoriteTitle("张*")
+        ]
+        for copy in copies {
+            XCTAssertFalse(copy.contains("优先派"), "不得承诺优先派单：\(copy)")
+            XCTAssertFalse(copy.contains("一定派"), "不得承诺一定派给他：\(copy)")
+        }
+        XCTAssertTrue(PartnerStreakCopy.favoriteExplanation.contains("更可能"))
+        XCTAssertTrue(PartnerStreakCopy.favoriteExplanation.contains("不保证"))
+    }
+
+    /// 🚨 「没一起跑完过」与「这个 id 根本不是志愿者」后端同码同文案，客户端不得区分 ——
+    /// 区分开就等于确认了这个 id 是个志愿者，端点变成枚举接口。
+    func testNotEligibleCopyDoesNotLeakWhetherTheAccountExists() {
+        let copy = PartnerStreakCopy.favoriteNotEligible
+        XCTAssertTrue(copy.contains("一起跑完"))
+        XCTAssertFalse(copy.contains("不存在"))
+        XCTAssertFalse(copy.contains("不是志愿者"))
+        XCTAssertFalse(copy.contains("找不到"))
+    }
+
+    /// 两个新错误码要真的映射到人话，否则用户听到的是「未知错误 (400)」。
+    func testFavoriteErrorCodesMapToHumanReadableMessages() throws {
+        let notEligible = try XCTUnwrap(ErrorCode(rawValue: "FAVORITE_VOLUNTEER_NOT_ELIGIBLE"))
+        XCTAssertEqual(notEligible.localizedMessage, PartnerStreakCopy.favoriteNotEligible)
+
+        let limit = try XCTUnwrap(ErrorCode(rawValue: "FAVORITE_VOLUNTEER_LIMIT_EXCEEDED"))
+        XCTAssertEqual(limit.localizedMessage, PartnerStreakCopy.favoriteLimitExceeded)
+
+        // TTS 与屏幕上是同一句，不另写一套。
+        XCTAssertEqual(notEligible.ttsMessage, notEligible.localizedMessage)
+    }
+
+    /// 收藏 / 取消收藏两个端点都幂等且恒 204，Mock 必须照这个演：
+    /// 重复收藏不报错，没收藏过也能取消。
+    func testMockFavoriteEndpointsAreIdempotent() async throws {
+        let client = MockAPIClient()
+        let before: [FavoriteVolunteerResponse] = try await client.get("/api/blind/favorite-volunteers")
+
+        // 只有火花、还没收藏的那一位。
+        let newPartner: Int64 = 9004
+        XCTAssertFalse(before.contains { $0.volunteerId == newPartner })
+
+        for _ in 0..<2 {
+            let _: EmptyResponse = try await client.request(
+                method: .put, path: "/api/blind/favorite-volunteers/\(newPartner)",
+                query: nil, body: nil, requiresAuth: true
+            )
+        }
+        let added: [FavoriteVolunteerResponse] = try await client.get("/api/blind/favorite-volunteers")
+        XCTAssertEqual(added.filter { $0.volunteerId == newPartner }.count, 1)
+
+        for _ in 0..<2 {
+            let _: EmptyResponse = try await client.request(
+                method: .delete, path: "/api/blind/favorite-volunteers/\(newPartner)",
+                query: nil, body: nil, requiresAuth: true
+            )
+        }
+        let removed: [FavoriteVolunteerResponse] = try await client.get("/api/blind/favorite-volunteers")
+        XCTAssertFalse(removed.contains { $0.volunteerId == newPartner })
+    }
+
+    /// 没一起跑完过的 id 必须走 400 那条路，而不是静默成功 ——
+    /// 静默成功会让「门槛」这条分支在开发期永远走不到。
+    func testMockRejectsFavoritingSomeoneYouNeverRanWith() async {
+        let client = MockAPIClient()
+        do {
+            let _: EmptyResponse = try await client.request(
+                method: .put, path: "/api/blind/favorite-volunteers/424242",
+                query: nil, body: nil, requiresAuth: true
+            )
+            XCTFail("不该成功")
+        } catch let error as APIError {
+            XCTAssertEqual(error.errorCode, .favoriteVolunteerNotEligible)
+            XCTAssertEqual(error.localizedMessage, PartnerStreakCopy.favoriteNotEligible)
+        } catch {
+            XCTFail("错误类型不对：\(error)")
+        }
     }
 
     // MARK: - Helpers
