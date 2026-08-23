@@ -1011,7 +1011,8 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
             dispatchTimeoutSeconds: 30,
             priority: "HIGH",
             pacePreference: nil,
-            hasGuideDog: nil
+            hasGuideDog: nil,
+            requiresIntroCall: true
         )
     }
 

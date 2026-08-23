@@ -436,6 +436,61 @@ final class IntroCallTests: XCTestCase {
         XCTAssertEqual(order.escortNeeds.map(\.kind), [.guideDog])
     }
 
+    // MARK: - 派单发哪个 action
+
+    /// 「发 `ACCEPT` 还是 `INTERESTED`」只认后端下发的 `requiresIntroCall`。
+    ///
+    /// 判断的另一半（这两人磨合成功过没有）客户端根本拿不到，窗口长度又是后端配置，
+    /// 所以自己推算必然与后端守卫漂移 —— 漂移的表现是「界面说能直接接、后端回 409」。
+    func testDispatchActionFollowsTheBackendFlagNotLocalArithmetic() {
+        XCTAssertEqual(
+            Self.makeDispatchOrder(hasGuideDog: nil, requiresIntroCall: true).dispatchRespondAction,
+            .interested
+        )
+        XCTAssertEqual(
+            Self.makeDispatchOrder(hasGuideDog: nil, requiresIntroCall: false).dispatchRespondAction,
+            .accept
+        )
+    }
+
+    /// 契约把 `requiresIntroCall` 标成必填，客户端仍要**解得出来**。
+    ///
+    /// 🚨 这条必须走 `JSONDecoder` 而不是构造器 —— 验的正是「缺这个键会不会整条崩」，
+    /// 用构造器传 `nil` 只验到了默认值那一半。
+    /// 非可选化的代价是整条 `NEW_ORDER` 被丢弃、志愿者连派单弹窗都看不到（静默退出派单池），
+    /// 而落回的 `INTERESTED` 后端在通话开关开与关两种情况下都放行。
+    func testMissingRequiresIntroCallStillDecodesAndFallsBackToTheAlwaysAllowedAction() throws {
+        let json = """
+        {
+          "type": "NEW_ORDER",
+          "orderId": 4321,
+          "startAddress": "朝阳公园南门",
+          "dispatchTimeoutSeconds": 30,
+          "priority": "HIGH"
+        }
+        """
+        let order = try JSONDecoder().decode(WSNewOrder.self, from: Data(json.utf8))
+
+        XCTAssertNil(order.requiresIntroCall)
+        XCTAssertEqual(order.dispatchRespondAction, .interested)
+    }
+
+    /// 后端真发了这个键时照常读出来 —— 上一条的宽容不能宽容到把值也吃掉。
+    func testRequiresIntroCallFalseDecodesFromThePushPayload() throws {
+        let json = """
+        {
+          "type": "NEW_ORDER",
+          "orderId": 4322,
+          "dispatchTimeoutSeconds": 30,
+          "requiresIntroCall": false
+        }
+        """
+        let order = try JSONDecoder().decode(WSNewOrder.self, from: Data(json.utf8))
+
+        XCTAssertEqual(order.requiresIntroCall, false)
+        XCTAssertEqual(order.dispatchRespondAction, .accept)
+    }
+
     // MARK: - Fixtures
 
     private static let blindSideView = IntroCallView(
@@ -454,7 +509,10 @@ final class IntroCallTests: XCTestCase {
         windowEndsAt: nil
     )
 
-    private static func makeDispatchOrder(hasGuideDog: Bool?) -> WSNewOrder {
+    private static func makeDispatchOrder(
+        hasGuideDog: Bool?,
+        requiresIntroCall: Bool? = true
+    ) -> WSNewOrder {
         WSNewOrder(
             type: "NEW_ORDER",
             timestamp: nil,
@@ -468,7 +526,8 @@ final class IntroCallTests: XCTestCase {
             dispatchTimeoutSeconds: 30,
             priority: "HIGH",
             pacePreference: nil,
-            hasGuideDog: hasGuideDog
+            hasGuideDog: hasGuideDog,
+            requiresIntroCall: requiresIntroCall
         )
     }
 

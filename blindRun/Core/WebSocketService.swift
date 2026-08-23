@@ -424,11 +424,21 @@ final class WebSocketService: ObservableObject {
             return
         }
         if let orderID = decoded.dispatchOrderID {
+            // `requiresIntroCall` 契约上必填，客户端却宽容解码（理由在 `WSNewOrder` 的字段注释：
+            // 严格必填会让志愿者静默退出派单池）。宽容 ≠ 无声：缺了就借 `failedField` 记一笔，
+            // 那条诊断渲染在志愿者首页的「派单诊断：…」上，是**屏幕上看得见**的面包屑。
+            // 借这个字段而不是新加一个 stage：stage 是 received → retained → presented 的推进链，
+            // 塞一个旁支进去会把那条链读坏。
+            var toleratedMissingField: String?
+            if case .newOrder(let order) = event, order.requiresIntroCall == nil {
+                toleratedMissingField = "requiresIntroCall"
+            }
             recordDispatchDiagnostic(
                 stage: .received,
                 generation: generation,
                 messageType: decoded.messageType,
-                orderID: orderID
+                orderID: orderID,
+                failedField: toleratedMissingField
             )
         }
         ClientFlowDiagnostics.record(event: "applied", operation: "websocket-decode")
