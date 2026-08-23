@@ -33,24 +33,33 @@ final class RoleSelectionViewModel: ObservableObject {
 
     // MARK: - Actions
 
-    /// 选择角色并调用后端 API 切换
-    func selectRole(_ role: UserRole) {
+    /// 选择角色并调用后端 API 切换。
+    ///
+    /// - Parameter inviteCode: 用户在这一屏填的邀请码原文。清洗与丢弃规则见
+    ///   `InviteCodeEntryCopy.sanitize` —— 非法或超长时当作没填，**不拦住注册**。
+    func selectRole(_ role: UserRole, inviteCode: String = "") {
         guard let appState = appState else {
             errorMessage = "应用未初始化，请重启"
             return
         }
 
-        Task { await performRoleSwitch(role: role, appState: appState) }
+        Task {
+            await performRoleSwitch(
+                role: role,
+                inviteCode: InviteCodeEntryCopy.sanitize(inviteCode),
+                appState: appState
+            )
+        }
     }
 
     // MARK: - Private
 
-    private func performRoleSwitch(role: UserRole, appState: AppState) async {
+    private func performRoleSwitch(role: UserRole, inviteCode: String?, appState: AppState) async {
         isLoading = true
         errorMessage = nil
 
         do {
-            let request = SetRoleRequest(role: role)
+            let request = SetRoleRequest(role: role, inviteCode: inviteCode)
             let response: SetRoleResponse = try await activeAPIClient(appState: appState).request(
                 method: .post,
                 path: "/api/user/role",
@@ -112,6 +121,16 @@ struct RoleSelectionView: View {
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = RoleSelectionViewModel()
 
+    /// 邀请码格默认**折叠**。
+    ///
+    /// 两个坏处各消掉一半：默认展开会让**每个**新用户都要听读屏念一遍一个跟自己无关的输入框
+    /// （绝大多数人没被邀请）；默认折叠又可能让真被邀请的人错过，而它**只有一次机会**。
+    /// ⇒ 折叠成一个按钮（读屏一次划动就跳过），并在进页面的播报里加一句它存在
+    /// （`InviteCodeEntryCopy.speechHint`）—— 那句播报是折叠态下读屏用户
+    /// 知道有这个格子的**唯一**途径，删了它这个折叠就变成了「藏起来」。
+    @State private var showsInviteCodeField = false
+    @State private var inviteCode = ""
+
     var body: some View {
         GeometryReader { geometry in
             ScrollView {
@@ -141,6 +160,8 @@ struct RoleSelectionView: View {
                         subtitle: "陪伴盲人跑者完成跑步",
                         backgroundColor: Color.blue.opacity(0.15)
                     )
+
+                    inviteCodeSection
 
                     // Loading
                     if viewModel.isLoading {
@@ -184,12 +205,60 @@ struct RoleSelectionView: View {
             viewModel.configure(with: appState, speechService: speechService)
             // TTS 播报警示语
             // 身份不可逆，盲人用户只靠语音，这句警示必须进播报。
-            speechService.speak("请选择您的角色。我是盲人跑者，预约志愿者陪我跑步。我是志愿者，陪伴盲人跑者完成跑步。身份一经选定不可更改，请谨慎选择。")
+            speechService.speak("请选择您的角色。我是盲人跑者，预约志愿者陪我跑步。我是志愿者，陪伴盲人跑者完成跑步。身份一经选定不可更改，请谨慎选择。" + InviteCodeEntryCopy.speechHint)
         }
         .alert("身份已设定", isPresented: $viewModel.showBlockedAlert) {
             Button("确定", role: .cancel) {}
         } message: {
             Text(viewModel.errorMessage ?? "身份已设定，不可修改。")
+        }
+    }
+
+    // MARK: - Invite Code
+
+    /// 「我有邀请码」这一格。
+    ///
+    /// 🔴 折叠态是**一个按钮**而不是一个空输入框：读屏用户一次划动就跳过，
+    /// 而不是听 VoiceOver 念一个「邀请码，文本框，双击编辑」。
+    ///
+    /// 🔴 展开后那句 `oneShotNotice` 是诚实红线，**不能删也不能软化**：
+    /// 填错不会让请求失败，且没有任何端点能回查邀请码是否生效
+    /// ⇒ 我们永远无法在事后告诉用户「你填错了」，只能在填之前说清楚。
+    @ViewBuilder
+    private var inviteCodeSection: some View {
+        if showsInviteCodeField {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(InviteCodeEntryCopy.fieldLabel)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+
+                TextField(InviteCodeEntryCopy.fieldPrompt, text: $inviteCode)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .disabled(viewModel.isLoading)
+                    .accessibilityLabel(InviteCodeEntryCopy.fieldLabel)
+                    .accessibilityHint(InviteCodeEntryCopy.oneShotNotice)
+                    .accessibilityIdentifier("roleSelectionInviteCodeField")
+
+                Text(InviteCodeEntryCopy.oneShotNotice)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("roleSelectionInviteCodeNotice")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            Button(InviteCodeEntryCopy.disclosureTitle) {
+                showsInviteCodeField = true
+            }
+            .font(AppFonts.body())
+            .foregroundColor(AppColors.primary)
+            .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+            .disabled(viewModel.isLoading)
+            .accessibilityHint("展开后可以填写邀请你的人的邀请码，只能填这一次")
+            .accessibilityIdentifier("roleSelectionInviteCodeDisclosure")
         }
     }
 
@@ -203,7 +272,9 @@ struct RoleSelectionView: View {
         backgroundColor: Color
     ) -> some View {
         Button {
-            viewModel.selectRole(role)
+            // 邀请码与角色**在同一个请求里**提交 —— 设角色只能成功一次，
+            // 没有「先设角色、再补邀请码」这条路。
+            viewModel.selectRole(role, inviteCode: inviteCode)
         } label: {
             VStack(spacing: 8) {
                 Image(systemName: icon)

@@ -49,6 +49,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 对应后端的 200 + `data: null`。
     private var orderReviews: [Int64: OrderReview] = [:]
 
+    /// 志愿者已单方面退出的固定搭档（`DELETE /api/volunteer/favorites/{blindUserId}`）。
+    ///
+    /// 只记 userId、不删行 —— 与后端一致：退出是**打标记不是删行**，
+    /// 那条记录仍然出现在两侧列表里，只是带上退出标记。
+    private var volunteerOptedOutPartnerIds: Set<Int64> = []
+
     /// 状态变更记录，`GET /api/orders/{id}/status-logs` 的回放源。
     /// **新的插在最前面**，与后端 `findByOrderIdOrderByChangedAtDesc` 同序。
     /// 种子订单刻意不带记录：它们的状态是直接摆出来的、没有经过状态机，
@@ -315,6 +321,30 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         if path == "/api/volunteer/achievements" && method == .get {
             return handleGetVolunteerAchievements()
+        }
+        // SPEC-E 激励体系
+        if path == "/api/volunteer/points" && method == .get {
+            return handleGetVolunteerPoints(query: query)
+        }
+        if path == "/api/blind/partners/streaks" && method == .get {
+            return handleGetPartnerStreaks(asBlind: true)
+        }
+        if path == "/api/volunteer/partners/streaks" && method == .get {
+            return handleGetPartnerStreaks(asBlind: false)
+        }
+        if path == "/api/blind/favorite-volunteers" && method == .get {
+            return handleGetBlindFavoriteVolunteers()
+        }
+        if path == "/api/volunteer/favorites" && method == .get {
+            return handleGetVolunteerFavoritedBy()
+        }
+        if method == .delete,
+           path.hasPrefix("/api/volunteer/favorites/"),
+           let blindUserId = Int64(path.replacingOccurrences(of: "/api/volunteer/favorites/", with: "")) {
+            return handleVolunteerOptOutOfFavorite(blindUserId: blindUserId)
+        }
+        if path == "/api/users/me/invite-code" && method == .get {
+            return handleGetInviteCode()
         }
         if path == "/api/volunteer/verification/status" && method == .get {
             // 后端只返回 {"status": "..."}，不带信封。
@@ -1071,6 +1101,174 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             nextBadge: nextBadge,
             // 契约里 `starLevel` 恒非 null。Mock 给 null 会让「恒非 null」这条永远验不到。
             starLevel: VolunteerStarLevel.derive(totalServiceMinutes: totalServiceMinutes)
+        )
+    }
+
+    // MARK: - SPEC-E 激励体系
+
+    /// ⚠️ **Mock 演的是「三个开关都打开之后」的行为。**
+    ///
+    /// 真实后端上，火花（`app.incentive.streak.enabled`）、派单优先轮、邀请奖励三个开关
+    /// **默认全关**，所以联调时火花端点会返回空数组、邀请关系建立了但积分不动 ——
+    /// 那不是接错了。Mock 如果也演成空的，这几屏 UI 在开发期永远走不到，
+    /// 而「空数组」那条分支本来就有单测钉着（`IncentiveAdoptionTests`）。
+    ///
+    /// **积分没有开关**（`PointService` 只有数值参数），它从第一天就在记 —— 这一条 Mock 与真实一致。
+    ///
+    /// 搭档数据是**写死的种子**，不是从订单推的：`OrderDetailResponse` 里没有志愿者 id 与姓名，
+    /// 推不出「哪两个人是一对」。种子刻意覆盖三种真实存在、且 UI 必须分别处理的形态：
+    /// 有火花 / 没点亮火花（`streakWeeks == nil`）/ 对方已退出。
+    private enum MockIncentiveSeed {
+        static let partnerWithStreakId: Int64 = 9001
+        static let partnerWithoutStreakId: Int64 = 9002
+        static let partnerOptedOutId: Int64 = 9003
+        /// 只有火花、没有收藏关系的一对 —— 用来验合并逻辑的第二段。
+        static let streakOnlyPartnerId: Int64 = 9004
+
+        /// 8 位大写字母数字，且**逐字排除了 `0 O 1 I L`**，与后端字符集一致。
+        static let inviteCode = "AK37PQR9"
+    }
+
+    private func handleGetVolunteerPoints(query: [String: String]?) -> VolunteerPointsResponse {
+        let completed = orders.filter { $0.status == .completed }
+        let size = query?["size"].flatMap(Int.init) ?? 20
+        let page = query?["page"].flatMap(Int.init) ?? 0
+
+        var transactions: [PointTransactionResponse] = []
+        var nextId: Int64 = 7000
+        for (index, order) in completed.enumerated() {
+            // 后端每人每日上限 20 分、每单 10 分 ⇒ 同一天的第 3 单起写一条 delta = 0 的流水。
+            // 这条**不是**装饰：它是「我这单怎么没加分」的唯一答案，UI 必须能显示它。
+            let cappedByDailyLimit = index >= 2
+            transactions.append(
+                PointTransactionResponse(
+                    id: nextId,
+                    delta: cappedByDailyLimit ? 0 : 10,
+                    reason: "ORDER_COMPLETED",
+                    orderId: order.orderId,
+                    note: cappedByDailyLimit ? "已达每人每日上限 20 分，本单不加分" : nil,
+                    createdAt: order.createdAt
+                )
+            )
+            nextId += 1
+        }
+
+        // 拉新奖励。`INVITE_REWARD` 是后端 SPEC-E 第 4 步新增的取值，
+        // 放一条进来正是为了让「开放枚举新增取值」这条路在开发期走得到。
+        if !completed.isEmpty {
+            transactions.append(
+                PointTransactionResponse(
+                    id: nextId,
+                    delta: 20,
+                    reason: "INVITE_REWARD",
+                    orderId: nil,
+                    note: nil,
+                    createdAt: DateFormatter.aidRunBackendLocalDateTime.string(
+                        from: Date().addingTimeInterval(-86_400)
+                    )
+                )
+            )
+        }
+
+        let balance = transactions.reduce(Int64(0)) { $0 + Int64($1.resolvedDelta) }
+        let start = min(page * size, transactions.count)
+        let end = min(start + size, transactions.count)
+        return VolunteerPointsResponse(
+            balance: balance,
+            transactions: Array(transactions[start..<end]),
+            page: page,
+            size: size,
+            totalElements: Int64(transactions.count),
+            totalPages: max(1, Int(ceil(Double(transactions.count) / Double(size))))
+        )
+    }
+
+    /// 契约：**只返回已点亮的**（默认门槛连续 2 周），按 `currentWeeks` 倒序。
+    /// 未点亮的一对根本不在数组里 —— 所以这里也不放 `currentWeeks == 1` 的条目。
+    private func handleGetPartnerStreaks(asBlind: Bool) -> [PartnerStreakResponse] {
+        guard !orders.filter({ $0.status == .completed }).isEmpty else { return [] }
+        return [
+            PartnerStreakResponse(
+                id: 8001,
+                partnerUserId: MockIncentiveSeed.partnerWithStreakId,
+                partnerName: asBlind ? "张*" : "李*",
+                currentWeeks: 3,
+                bestWeeks: 7,
+                lastCreditedWeek: "2026-W34"
+            ),
+            PartnerStreakResponse(
+                id: 8002,
+                partnerUserId: MockIncentiveSeed.streakOnlyPartnerId,
+                partnerName: asBlind ? "王*" : "赵*",
+                currentWeeks: 2,
+                bestWeeks: 2,
+                lastCreditedWeek: "2026-W34"
+            )
+        ]
+    }
+
+    private func handleGetBlindFavoriteVolunteers() -> [FavoriteVolunteerResponse] {
+        [
+            FavoriteVolunteerResponse(
+                volunteerId: MockIncentiveSeed.partnerWithStreakId,
+                volunteerName: "张*",
+                completedRunsTogether: 12,
+                favoritedAt: "2026-07-03T09:15:00",
+                // 与 `/partners/streaks` 里那条同一个数（契约明说两处口径一致）。
+                streakWeeks: 3,
+                partnerOptedOut: false
+            ),
+            FavoriteVolunteerResponse(
+                volunteerId: MockIncentiveSeed.partnerWithoutStreakId,
+                volunteerName: "李*",
+                completedRunsTogether: 3,
+                favoritedAt: "2026-08-01T18:40:00",
+                // 🔴 未点亮是 `null` 不是 0 —— 这一行存在的意义就是让「那一行不念」被验到。
+                streakWeeks: nil,
+                partnerOptedOut: false
+            ),
+            FavoriteVolunteerResponse(
+                volunteerId: MockIncentiveSeed.partnerOptedOutId,
+                volunteerName: "王*",
+                completedRunsTogether: 5,
+                favoritedAt: "2026-06-20T07:05:00",
+                streakWeeks: nil,
+                // 🔴 退出的条目**仍然留在列表里**，不是从列表消失。
+                partnerOptedOut: true
+            )
+        ]
+    }
+
+    private func handleGetVolunteerFavoritedBy() -> [VolunteerFavoritedByResponse] {
+        [
+            VolunteerFavoritedByResponse(
+                blindUserId: MockIncentiveSeed.partnerWithStreakId,
+                blindName: "李*",
+                favoritedAt: "2026-07-03T09:15:00",
+                optedOut: volunteerOptedOutPartnerIds.contains(MockIncentiveSeed.partnerWithStreakId)
+            ),
+            VolunteerFavoritedByResponse(
+                blindUserId: MockIncentiveSeed.partnerWithoutStreakId,
+                blindName: "王*",
+                favoritedAt: "2026-08-01T18:40:00",
+                optedOut: volunteerOptedOutPartnerIds.contains(MockIncentiveSeed.partnerWithoutStreakId)
+            )
+        ]
+    }
+
+    /// **恒 204，不区分「改到了」与「没这一行」** —— 区分开这个端点就成了
+    /// 「拿任意 userId 试一下看响应差异」的探测器。重复点也是 204（幂等）。
+    private func handleVolunteerOptOutOfFavorite(blindUserId: Int64) -> EmptyResponse {
+        volunteerOptedOutPartnerIds.insert(blindUserId)
+        return EmptyResponse()
+    }
+
+    private func handleGetInviteCode() -> InviteCodeResponse {
+        InviteCodeResponse(
+            inviteCode: MockIncentiveSeed.inviteCode,
+            invitedCount: 3,
+            // 只有被邀请的**志愿者**跑完首单才发奖，所以这个数天然小于 invitedCount。
+            rewardedCount: 1
         )
     }
 

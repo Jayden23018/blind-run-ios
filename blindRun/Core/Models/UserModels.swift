@@ -117,6 +117,27 @@ struct DeleteAccountResponse: Codable, Sendable, Equatable {
 
 struct SetRoleRequest: Codable, Sendable {
     let role: UserRole
+
+    /// 邀请人的邀请码，**可选**（SPEC-E 第 4 步）。
+    ///
+    /// 🚩 **为什么挂在这一步而不是 `POST /api/auth/verify-code`**：后者是登录与注册合一的入口，
+    /// 老用户每次登录都会经过它 —— 挂在那里等于给任何老用户开一个「随时补填邀请码」的入口，
+    /// 那就是刷分入口。设角色天然只能成功一次（角色已设定时返 409 `ROLE_ALREADY_SET`，
+    /// 且角色不可修改），于是「老用户不能补填」由已有的数据库状态保证。
+    ///
+    /// ⚠️ **填错不会让本请求失败**：码不存在、填了自己的、或已被别人邀请过，
+    /// 一律照常设角色成功、只是不建立邀请关系。
+    /// ⇒ **不要根据这个请求的成功与否判断邀请码有没有生效**，
+    /// 本轮也没有「我的邀请人是谁」这个端点可以回查。
+    ///
+    /// 合成的 `Encodable` 对 Optional 走 `encodeIfPresent`，所以 `nil` 时这个键根本不出现 ——
+    /// 与老客户端的请求体逐字节一致。
+    let inviteCode: String?
+
+    init(role: UserRole, inviteCode: String? = nil) {
+        self.role = role
+        self.inviteCode = inviteCode
+    }
 }
 
 /// Response from POST /api/user/role - contains new token

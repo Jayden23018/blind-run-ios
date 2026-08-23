@@ -711,4 +711,13 @@ extension DateFormatter {
         formatter.dateFormat = "yyyy年M月d日 HH:mm"
         return formatter
     }()
+
+    /// 只到天，用于把列表按日期分节（积分明细）。与上面那个共用一套 locale 与写法，
+    /// 不另起一个 `zh_Hans` 之类的标识符 —— 两个格式器给出不同的月份写法会很难发现。
+    static let aidRunDisplayDay: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日"
+        return formatter
+    }()
 }
