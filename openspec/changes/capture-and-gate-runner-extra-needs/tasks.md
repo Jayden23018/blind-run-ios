@@ -27,21 +27,31 @@
       **已投并已互相答过**：handoff `2106-2110` 后端提 `meetingPointHint`，`2155-2172` 我方答复。
 - [x] 1.3 同一条里问清：`maxLength: 200` 能否放宽？口语化的身体状况说明容易超（`design.md` D4）。
       **已投**：handoff `6111`；后端在 `2109` 表态「同理 200→500 一并等 `meetingPointHint` 那条回复」。
-- [ ] 1.4 后端答复后，更新本变更的 `proposal.md` / `design.md` / `specs/` **三份一起过**
+- [x] 1.4 后端答复后，更新本变更的 `proposal.md` / `design.md` / `specs/` **三份一起过**
       —— 只改实现不改 spec 是本仓库已犯过三次的漂移（记忆 `openspec-artifacts-drift-from-implementation`）。
+      **2026-08-24 做完**：`design.md` D3 加「08-24 结案」小节（不拆 `meetingPointHint`、200 不放宽、
+      两条重开条件），`proposal.md` §3/§4 从「阻塞项 / 留在契约后面」改成结论与现状。
+      `specs/` 不动 —— 逐条核过，四条 requirement 描述的都是**已经落地的行为**，
+      没有一条依赖 `meetingPointHint` 或 500 上限（唯一沾边的
+      `Free text is captured by voice before the disclosure boundary exists` 是条件式守卫，
+      前置条件自 08-07 起为假，规则本身仍然正确，保留）。
 
-> ⚠️ **2026-08-15 对账后的真实阻塞点：卡的不是后端，是产品。**
+> ✅ **2026-08-24 结案：这里原先记的「真实阻塞点是产品」已经作废。**
 >
-> 1.1–1.3 三条早就投完、后端也回过了。真正悬着的是 handoff `2155-2172` 我方那条答复里
-> 提给产品的两问：**① 语音路径要不要也承载 `meetingPointHint`？② 如果要，读回时那句
-> 「这句话附近志愿者接单前就能听到」的告知措辞谁给？**
+> 原文（08-15 写的）说：1.1–1.3 三条早就投完、后端也回过了，真正悬着的是我方答复里
+> 提给产品的两问 —— ① 语音路径要不要也承载 `meetingPointHint`？② 告知措辞谁给？
 >
-> 后端的前置条件是「输入界面必须在采集时就告诉用户接单前可见」。打字路径加一行提示就行；
-> **语音路径没有输入框、没有可视标签**，履行同样的告知只能在读回时用 TTS 念出来，
-> 而盲人端每多一句播报都是实打实的成本。这不是工程判断，只能产品定。
+> **那两问随字段一起作废了。** 后端 2026-08-09 就否掉了 `meetingPointHint`
+> （碰头点的正确形态是坐标不是自由文本；而且「防它变成绕行通道」的唯一手段
+> ——采集时念出可见范围——恰好在语音这条主路径上失效，正是我们提的那个顾虑），
+> 2026-08-20 在 handoff 里正式确认「是否掉了，不是排期未到」，`maxLength` 200→500 一并不放宽。
+> 字段不存在，就不存在「语音路径要不要承载它」。详见 `design.md` D3 的 08-24 结案小节。
 >
-> 在此之前 3.2 保持不做：**不把任何自由文本写进接单前可见的字段**。
-> 本变更名字里的 gate 就是这件事，不做 3.2 不等于没做完 —— 它是被设计成有条件的。
+> ⚠️ **它被挂了 9 天的原因值得记一笔**：后端把新结论写进了 08-06 那条**已经打过勾**的旧条目末尾，
+> 而我们按 `- [ ]` 扫未答项，整条跳过。教训：判一个前置条件还成不成立，
+> 要去看它的结论落在哪，不能只看自己文档里那句「等 X」还在不在。
+>
+> 3.2 因此早就可以做、也已经做了（见第 3 组）。**本变更现在唯一的欠账是真机验证。**
 
 ## 2. 存量泄露的展示端（不依赖契约结论）
 
@@ -140,12 +150,20 @@
       `testReadbackSpeaksEveryCapturedOptionalNeed` / `...SpeaksAnExplicitNoGuideDog` /
       `...DoesNotEnumerateEmptyOptionalNeeds`。
 - [ ] 5.5 UI 测试（Mock）：派单弹窗不出现自由文本（需 USB 连线，见记忆 `ui-test-runner-needs-usb-not-wifi`）。
+      **2026-08-24 仍未跑**：`xcrun devicectl list devices` 两台设备都是 `unavailable`。
 - [ ] 5.6 真机手测（开 VoiceOver）：说一句带身体状况的整话，确认读回念得出原话、
-      确认后志愿者端接单前看不到、接单后看得到。**只能人耳验**。
-- [ ] 5.7 `node scripts/validate-spec-coverage.mjs` + `openspec validate --all --strict --no-interactive`。
+      确认后志愿者端接单前看不到、接单后看得到。**只能人耳验**。同 5.5，卡设备。
+- [x] 5.7 `node scripts/validate-spec-coverage.mjs` + `openspec validate --all --strict --no-interactive`。
+      2026-08-24 实跑，输出贴在本变更的 PR 里。
 
 ## 6. 验收
 
-- [ ] 6.1 契约结论已落到后端 `api_spec.yaml` / `websocket-protocol.md`，且 handoff 里那条已 `- [x]`。
+- [x] 6.1 契约结论已落到后端 `api_spec.yaml` / `websocket-protocol.md`，且 handoff 里那条已 `- [x]`。
+      三条都有着落：路线 A 已执行（`api_spec.yaml` 的 `AvailableOrderResponse` 明确不含 `specialNotes`）；
+      `meetingPointHint` 不拆、`maxLength` 不放宽两条的 handoff 条目
+      （`demo/docs/handoff.md` 2026-08-14「08-06 拍板的三件事里有两件没落到契约」）已 `- [x]`。
 - [ ] 6.2 上面 5.x 全部真跑过且非零执行（`passed=0 failed=0` 一律当失败查）。
+      **只差 5.5 / 5.6 两条真机项**，5.1–5.4、5.7 都已真跑（5.2–5.4 的单测在真机上跑过，
+      `passed=320 failed=0`，见 2.4）。
 - [ ] 6.3 `openspec archive capture-and-gate-runner-extra-needs`。
+      **唯一前置是 6.2**，也就是等设备。契约与文档侧已全部结清（第 1、4 组全绿）。
