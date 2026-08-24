@@ -52,12 +52,25 @@ export function sessionStartedAt(transcriptPath) {
   }
 }
 
+// macOS 上同一个目录常有两个名字（`/tmp` ↔ `/private/tmp`、`/var` ↔ `/private/var`）。
+// transcript 里记的是 Edit 当时用的那个写法，而调用方的 root 可能来自 `git rev-parse`
+// （给的是 realpath）—— 两边不一致时 `path.relative` 算出来是 `../…`，整个集合会**静默变成空**，
+// 调用方据此判定「这些文件都不是本轮写的」，于是每条隐式暂存命令都误报。
+function realish(p) {
+  try {
+    return path.join(fs.realpathSync(path.dirname(p)), path.basename(p));
+  } catch {
+    return p; // 目录已不存在：按原样比，退回旧行为
+  }
+}
+
 // 本轮会话用 Edit/Write 写过的文件，仓库相对路径。null = 拿不到 transcript。
 // ponytail: 只认工具写的路径。Bash 里重定向、脚本生成的文件会落在集合外，
 // 由调用方降级为提示而不是阻断 —— 与其每轮误报，不如少拦一次。
 export function sessionEditedPaths(transcriptPath, root) {
   const entries = transcriptEntries(transcriptPath);
   if (entries === null) return null;
+  const base = realish(root);
   const paths = new Set();
   for (const entry of entries) {
     const content = entry?.message?.content;
@@ -66,7 +79,7 @@ export function sessionEditedPaths(transcriptPath, root) {
       if (block?.type !== 'tool_use' || !EDIT_TOOLS.has(block?.name)) continue;
       const file = block.input?.file_path || block.input?.notebook_path;
       if (typeof file !== 'string' || !file.trim()) continue;
-      const rel = path.relative(root, path.resolve(root, file));
+      const rel = path.relative(base, realish(path.resolve(root, file)));
       if (rel && !rel.startsWith('..')) paths.add(rel);
     }
   }
