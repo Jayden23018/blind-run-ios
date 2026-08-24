@@ -72,6 +72,14 @@ enum ErrorCode: String, Codable, Sendable {
     // 所以这句文案只在重试也失败时才会被念出来 —— 文案因此**不指任何按钮**：
     // 这条路径下界面上的主按钮是「接单」，让他去找一个不存在的「有意向」按钮是在骗人。
     case introCallRequired = "INTRO_CALL_REQUIRED"
+    // 固定搭档收藏（后端 `ErrorCode.java:169` / `:176`）。
+    //
+    // 🚨 `FAVORITE_VOLUNTEER_NOT_ELIGIBLE` 是**两种情况同码同文案**：「没一起跑完过」与
+    // 「这个 id 根本不是志愿者」。契约点名要求客户端**不要试图区分** ——
+    // 区分开就等于确认了这个 id 是个志愿者，那个端点就成了枚举接口。
+    // 所以文案只说门槛，不说「这个人不存在」。
+    case favoriteVolunteerNotEligible = "FAVORITE_VOLUNTEER_NOT_ELIGIBLE"
+    case favoriteVolunteerLimitExceeded = "FAVORITE_VOLUNTEER_LIMIT_EXCEEDED"
 
     var localizedMessage: String {
         switch self {
@@ -165,6 +173,10 @@ enum ErrorCode: String, Codable, Sendable {
             return IntroCallCopy.roundAlreadyEnded
         case .introCallRequired:
             return "这一单需要先和跑者通个电话，请再试一次。"
+        case .favoriteVolunteerNotEligible:
+            return PartnerStreakCopy.favoriteNotEligible
+        case .favoriteVolunteerLimitExceeded:
+            return PartnerStreakCopy.favoriteLimitExceeded
         }
     }
 
