@@ -2104,6 +2104,37 @@ struct VolunteerSettingsView: View {
                 settingsRow("资质审核", value: certificateState.displayName)
             }
 
+            // SPEC-E 激励体系的三个入口。
+            //
+            // 🔴 「我的积分」刻意**不放进「服务成就」页**：积分与志愿服务时长必须是两个数、
+            // 两处文案，一次都不能混（中央网信办 2026-06-19 通知第 2 条）。放同一屏最容易混，
+            // 所以在信息架构层就隔开，两屏之间用一句话互相指路。
+            //
+            // 也刻意不加进首页底部那条三格入口栏：那是一条固定横排，第 4 格在 AX5 下必然挤压，
+            // 而挤压的表现正是本仓库已经发生过的「指标格截断成 …」。
+            Section {
+                NavigationLink("我的积分") {
+                    VolunteerPointsView()
+                }
+                .accessibilityLabel("我的积分")
+                .accessibilityHint("查看积分余额和每一笔的加分原因")
+                .accessibilityIdentifier("volunteerPointsSettingsEntry")
+
+                NavigationLink("固定搭档") {
+                    VolunteerPartnersView()
+                }
+                .accessibilityLabel("固定搭档")
+                .accessibilityHint("查看哪些跑者把你设为固定搭档，以及你们连续一起跑步的周数")
+                .accessibilityIdentifier("volunteerPartnersSettingsEntry")
+
+                NavigationLink("我的邀请码") {
+                    InviteCodeView()
+                }
+                .accessibilityLabel("我的邀请码")
+                .accessibilityHint("查看你的邀请码和已经邀请的人数")
+                .accessibilityIdentifier("volunteerInviteCodeSettingsEntry")
+            }
+
             Section {
                 NavigationLink("个人资料") {
                     VolunteerProfileView()

@@ -2384,15 +2384,29 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/SetRoleRequest/role`.
             public var role: Components.Schemas.SetRoleRequest.rolePayload
+            /// 邀请人的邀请码，**可选**（SPEC-E §5A.2，第一版手填、不做深链接）。 大小写不敏感，首尾空白会被忽略。
+            ///
+            /// 🚩 **邀请码挂在这一步而不是 `POST /api/auth/verify-code`**： 后者是登录与注册合一的入口，**老用户每次登录都会经过它** —— 挂在那里等于给任何老用户开一个「随时补填邀请码」的入口，那正是刷分入口。 设角色天然只能成功一次（角色已设定时返 409，且角色不可修改）， 于是「老用户不能补填」由已有的数据库状态保证，不需要任何新的标志位。
+            ///
+            /// ⚠️ **填错不会让本请求失败**：码不存在、填了自己的、或已被别人邀请过， 一律照常设角色、只是不建立邀请关系。 为一个可有可无的邀请码打断注册流程，对盲人用户是灾难性的。
+            ///
+            /// - Remark: Generated from `#/components/schemas/SetRoleRequest/inviteCode`.
+            public var inviteCode: Swift.String?
             /// Creates a new `SetRoleRequest`.
             ///
             /// - Parameters:
             ///   - role:
-            public init(role: Components.Schemas.SetRoleRequest.rolePayload) {
+            ///   - inviteCode: 邀请人的邀请码，**可选**（SPEC-E §5A.2，第一版手填、不做深链接）。 大小写不敏感，首尾空白会被忽略。
+            public init(
+                role: Components.Schemas.SetRoleRequest.rolePayload,
+                inviteCode: Swift.String? = nil
+            ) {
                 self.role = role
+                self.inviteCode = inviteCode
             }
             public enum CodingKeys: String, CodingKey {
                 case role
+                case inviteCode
             }
         }
         /// - Remark: Generated from `#/components/schemas/CreateOrderRequest`.

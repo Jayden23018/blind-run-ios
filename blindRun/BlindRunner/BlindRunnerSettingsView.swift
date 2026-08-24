@@ -32,6 +32,21 @@ struct BlindRunnerSettingsView: View {
                 .accessibilityLabel("个人资料")
                 .accessibilityHint("编辑盲人跑者资料和紧急联系人")
 
+                // SPEC-E 的两个入口。同样放设置而不是首页，理由与上面「我的历史订单」那条一样。
+                NavigationLink("我的固定搭档") {
+                    BlindFavoriteVolunteersView()
+                }
+                .accessibilityLabel("我的固定搭档")
+                .accessibilityHint("查看你的固定搭档，以及你们连续一起跑步的周数")
+                .accessibilityIdentifier("blindFavoriteVolunteersSettingsEntry")
+
+                NavigationLink("我的邀请码") {
+                    InviteCodeView()
+                }
+                .accessibilityLabel("我的邀请码")
+                .accessibilityHint("查看你的邀请码和已经邀请的人数")
+                .accessibilityIdentifier("blindInviteCodeSettingsEntry")
+
                 // 实名是下单硬门槛（后端 403 IDENTITY_NOT_VERIFIED），引导流里「稍后再说」跳过后
                 // 必须还有一条随时能走回实名页的路，否则未实名用户会被永久挡在预约之外。
                 NavigationLink("实名认证") {
