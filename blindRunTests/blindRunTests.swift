@@ -2672,20 +2672,60 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(appState.consumeSessionExpirationMessage(), "登录已过期，请重新登录。")
     }
 
-    func testLoginViewModelShowsAndConsumesSessionExpirationMessage() {
+    /// 🚨 **`lastSpokenText` 那条断言是这条用例的重点，不是顺手加的。**
+    ///
+    /// 会话过期时整个 App 被换成登录页，而下单 / 接单 / 语音确认三个调用点在
+    /// `handleAuthenticatedAPIError` 返回 true 之后都只是 `return nil`。
+    /// 光有 `errorMessage` 只修好了看得见屏幕的那一半 —— 对盲人，
+    /// 一次真实的会话过期与「点了没反应」完全无从分辨。
+    func testLoginViewModelShowsAndSpeaksAndConsumesSessionExpirationMessage() {
         let appState = AppState()
         appState.currentEnvironment = .mock
         appState.expireSession()
+        let speechService = SpeechService()
         let viewModel = LoginViewModel()
 
-        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.configure(with: appState, speechService: speechService)
 
         XCTAssertEqual(viewModel.errorMessage, "登录已过期，请重新登录。")
+        XCTAssertEqual(speechService.lastSpokenText, "登录已过期，请重新登录。")
         XCTAssertNil(appState.consumeSessionExpirationMessage())
 
         viewModel.sanitizePhoneInput("138")
 
         XCTAssertNil(viewModel.errorMessage)
+    }
+
+    /// 第二次 `onAppear` 不能再播一遍 —— 消息已经被 consume 掉了。
+    /// 这条守的是「加一句播报」不许顺带引入重复播报：读屏用户听同一句话两遍
+    /// 会以为发生了两次会话过期。
+    ///
+    /// ⚠️ 第二次用**另一个** `SpeechService` 实例来验，不是 `stop()` 之后复用同一个 ——
+    /// `stop()` 只停合成器，`lastSpokenText` 是不清的（`SpeechService.swift:150-154`），
+    /// 复用会让这条断言恒假地通过（读到的是第一次那句）。
+    func testSessionExpirationIsSpokenOnceEvenIfConfigureRunsAgain() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        appState.expireSession()
+        let firstAppearance = SpeechService()
+        let viewModel = LoginViewModel()
+
+        viewModel.configure(with: appState, speechService: firstAppearance)
+        XCTAssertEqual(firstAppearance.lastSpokenText, "登录已过期，请重新登录。")
+
+        // 先把 `errorMessage` 清掉（用户开始输手机号就会清），否则第二次 configure
+        // 会被 `errorMessage == nil` 那道 guard 挡在 consume 之前，
+        // 这条用例就变成在验 guard 而不是在验 consume。
+        viewModel.sanitizePhoneInput("138")
+        XCTAssertNil(viewModel.errorMessage)
+
+        let secondAppearance = SpeechService()
+        viewModel.configure(with: appState, speechService: secondAppearance)
+
+        XCTAssertNil(
+            secondAppearance.lastSpokenText,
+            "第二次 configure 又播了一遍 —— sessionExpirationMessage 应该已经被 consume 掉"
+        )
     }
 
     func testLoginPhoneInputKeepsOnlyFirstElevenDigits() {
