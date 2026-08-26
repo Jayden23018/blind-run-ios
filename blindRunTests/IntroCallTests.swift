@@ -104,7 +104,10 @@ final class IntroCallTests: XCTestCase {
             counterpartPhone: nil,
             counterpartPhoneMasked: "138****1234",
             myDecision: nil,
-            windowEndsAt: nil
+            windowEndsAt: nil,
+            startAddress: nil,
+            plannedStartTime: nil,
+            plannedEndTime: nil
         )
 
         XCTAssertNil(volunteerSide.dialableCounterpartPhone)
@@ -123,7 +126,10 @@ final class IntroCallTests: XCTestCase {
             counterpartPhone: "13800000002",
             counterpartPhoneMasked: nil,
             myDecision: nil,
-            windowEndsAt: nil
+            windowEndsAt: nil,
+            startAddress: nil,
+            plannedStartTime: nil,
+            plannedEndTime: nil
         )
 
         XCTAssertEqual(blindSide.dialableCounterpartPhone, "13800000002")
@@ -582,6 +588,37 @@ final class IntroCallTests: XCTestCase {
         XCTAssertNil(viewModel.pendingIntroCallOrder)
     }
 
+    /// 🚨 **恢复出来的页面不能只有一个号码。**
+    ///
+    /// 后端为这件事往 `IntroCallView` 加了 `startAddress` / `plannedStartTime`
+    /// （字段说明里点名「杀掉 App 再打开就回不到通话页」），而手写模型此前一个都没接 ——
+    /// 字段到了被 `Decodable` 静默丢弃。这条走 `JSONDecoder` 验字段名，
+    /// 因为构造器测不出「后端叫 startAddress 而我们写成别的」。
+    func testIntroCallViewCarriesTheOrderFactsNeededAfterAColdStart() throws {
+        let json = """
+        {"counterpartName":"王*","counterpartPhoneMasked":"138****1234",
+         "startAddress":"朝阳公园南门","startLatitude":39.94,"startLongitude":116.47,
+         "plannedStartTime":"2026-08-27T07:30:00","plannedEndTime":"2026-08-27T08:30:00"}
+        """
+        let decoded = try JSONDecoder().decode(IntroCallView.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.startAddress, "朝阳公园南门")
+        XCTAssertEqual(decoded.plannedStartTime, "2026-08-27T07:30:00")
+        XCTAssertEqual(decoded.plannedEndTime, "2026-08-27T08:30:00")
+        // 志愿者侧仍然只有掩码号 —— 加这三个字段不许把号码那条单向规则捎带松掉。
+        XCTAssertNil(decoded.dialableCounterpartPhone)
+    }
+
+    /// 时间形状：`IntroCallView.plannedStartTime` 契约上是 `date-time`（可带偏移），
+    /// 而派单推送那条 `plannedStart` 是无偏移的 `LocalDateTime`。
+    /// 两条路径展示走**同一个** `String.displayDateTime`，所以两种形状都得认得出来 ——
+    /// 认不出时它原样返回，界面上就会出现一串 ISO 时间戳。
+    func testBothTimestampShapesRenderAsDisplayTimeNotRawISO() {
+        for raw in ["2026-08-27T07:30:00", "2026-08-27T07:30:00+08:00", "2026-08-27T07:30:00.123Z"] {
+            XCTAssertNotEqual(raw.displayDateTime, raw, "「\(raw)」没被解析，会原样显示成 ISO 串")
+        }
+    }
+
     /// 走 `JSONDecoder` 不走构造器：验的是**字段名对不对得上**。
     /// 构造器测不出后端叫 `introCallOrderId` 而我们写成别的 —— 那正是这个字段
     /// 「到了但被静默丢弃」了三天的原因。
@@ -639,7 +676,10 @@ final class IntroCallTests: XCTestCase {
         counterpartPhone: "13800000002",
         counterpartPhoneMasked: nil,
         myDecision: nil,
-        windowEndsAt: nil
+        windowEndsAt: nil,
+        startAddress: "朝阳公园南门",
+        plannedStartTime: "2026-08-27T07:30:00",
+        plannedEndTime: "2026-08-27T08:30:00"
     )
 
     private static let volunteerSideView = IntroCallView(
@@ -647,7 +687,10 @@ final class IntroCallTests: XCTestCase {
         counterpartPhone: nil,
         counterpartPhoneMasked: "138****1234",
         myDecision: nil,
-        windowEndsAt: nil
+        windowEndsAt: nil,
+        startAddress: "朝阳公园南门",
+        plannedStartTime: "2026-08-27T07:30:00",
+        plannedEndTime: "2026-08-27T08:30:00"
     )
 
     private static func makeDispatchOrder(hasGuideDog: Bool?) -> WSNewOrder {

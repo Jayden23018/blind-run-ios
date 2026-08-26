@@ -8,10 +8,12 @@ import SwiftUI
 /// - 推送路径（`INTERESTED` 发出去之后）：`dispatchOrder` 有值，本单信息与导盲犬提示位照常渲染。
 /// - **冷启动恢复路径**（`dispatch-summary` 的 `introCallOrderId`）：`dispatchOrder` 是 nil。
 ///
-/// 🚨 恢复路径上那两块**就是空的，这是诚实不是缺陷**：`IntroCallView` 里没有出发地 /
-/// 时间 / 距离 / 导盲犬，`GET /api/orders/{id}` 在这一态又恒 403 —— 客户端没有任何数据源。
-/// 不许为了把界面填满去造值：志愿者据此判断的是「要不要接这一单」，编一个出发地比空着更糟。
-/// 拿得到的（对方掩码号、三个动作）一样不少，而这条路存在的意义就是**回得去**。
+/// 恢复路径上**出发地与时间照常有** —— 它们来自 `IntroCallView`（后端为这件事专门加的
+/// `startAddress` / `plannedStartTime`，字段说明里点名了「杀掉 App 再打开就回不到通话页」）。
+///
+/// 拿不到的只有**距离**和**导盲犬**：前者要 `distanceKm`（只在派单推送里），
+/// 后者要 `escortNeeds`（同上）。这两块在恢复路径上不渲染，**这是诚实不是缺陷** ——
+/// 志愿者据此判断的是「要不要接这一单」，编一个距离比空着更糟。
 /// 不加 `Equatable`：`WSNewOrder` 是 `Codable, Sendable` 而非 `Equatable`，
 /// 为了一个导航值给整条派单载荷补 `Equatable` 是本末倒置。
 /// 断言拿 `orderId` 和 `dispatchOrder == nil` 比即可（后者对任何类型都成立）。
@@ -299,15 +301,23 @@ struct VolunteerIntroCallView: View {
         }
     }
 
-    /// 冷启动恢复路径上四行全空，整块不渲染 —— **这是诚实的**，理由见 `VolunteerIntroCallRoute`。
-    /// 不要在这里补「出发地：暂无」之类的占位：志愿者据此判断要不要接这一单，
+    /// 出发地与时间**优先取派单载荷，取不到回落 `IntroCallView`**。
+    ///
+    /// 两个来源同源（契约逐字：`IntroCallView.startAddress` 与 `NEW_ORDER` 的 `startAddress`
+    /// 是同一个值），所以回落不会让两条路径显示不同的地址。回落存在的理由只有冷启动恢复：
+    /// 那时派单推送已经随进程一起没了。
+    ///
+    /// 距离与配速**没有回落** —— `IntroCallView` 里没有它们，而编一个比空着更糟。
+    /// 不要在这里补「距离：暂无」之类的占位：志愿者据此判断要不要接这一单，
     /// 一个说不出内容的占位行比没有这一行更容易被当成真的。
     private var orderFactsCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let address = dispatchOrder?.startAddress?.nilIfBlank {
+            if let address = dispatchOrder?.startAddress?.nilIfBlank
+                ?? viewModel.introCall?.startAddress?.nilIfBlank {
                 Text("出发地：\(address)")
             }
-            if let plannedStart = dispatchOrder?.plannedStart?.nilIfBlank {
+            if let plannedStart = dispatchOrder?.plannedStart?.nilIfBlank
+                ?? viewModel.introCall?.plannedStartTime?.nilIfBlank {
                 Text("时间：\(plannedStart.displayDateTime)")
             }
             if let distance = dispatchOrder?.distanceKm {

@@ -43,6 +43,27 @@ nonisolated struct IntroCallView: Decodable, Sendable, Equatable {
     /// 本轮通话窗口的结束时刻（ISO-8601）。到点双方仍未表完态则本轮作废，换下一个候选人。
     let windowEndsAt: String?
 
+    /// 起跑点文字地址。**双方角色都给** —— 契约逐字：「它是『这一单的信息』不是『对方的信息』」，
+    /// 与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
+    ///
+    /// 🚨 **它存在的理由就是冷启动恢复**：志愿者在这一态读不到订单详情
+    /// （`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403），杀掉 App 再打开时
+    /// 派单推送已经没了 —— 没有这个字段，恢复出来的通话页只有一个号码和三个按钮，
+    /// 志愿者无从判断这一单要不要接。
+    let startAddress: String?
+
+    /// 计划开始时间。形状是 ISO-8601（`format: date-time`），与 `windowEndsAt` 同档，
+    /// 展示走 `String.displayDateTime` —— 它对「无偏移的 LocalDateTime」和「带偏移的 ISO-8601」
+    /// 都认（`backendTimestamp` 三种形状依次试），所以与派单推送那条 `plannedStart`
+    /// 虽然契约形状不同，展示路径是同一条。
+    let plannedStartTime: String?
+
+    /// 计划结束时间。
+    ///
+    /// ⚠️ 契约在这个字段上钉了一条边界，别越过：**不要往这个 DTO 里加自由文本**
+    /// （`specialNotes` / `routeNotes`）—— 通话发生在接单前，`AGENTS.md §8` 那条不变。
+    let plannedEndTime: String?
+
     /// 唯一允许拼 `tel:` 的来源。掩码串永远进不来 —— 它在另一个字段上。
     var dialableCounterpartPhone: String? {
         counterpartPhone?.nilIfBlank

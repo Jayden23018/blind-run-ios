@@ -1661,7 +1661,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             myDecision: introCallDecisions[orderId]?[mockRole ?? .unset]?.rawValue,
             windowEndsAt: ISO8601DateFormatter.aidRunFormatter.string(
                 from: Date().addingTimeInterval(20 * 60)
-            )
+            ),
+            // 这三项**双方角色都给**（契约：它们是「这一单的信息」不是「对方的信息」），
+            // 且必须从真实订单取而不是写死 —— 冷启动恢复出来的通话页正是靠它们才不是一片空白，
+            // 写死会让「恢复出来的页面显示的是不是这一单」在开发期永远验不出来。
+            startAddress: order.startAddress,
+            plannedStartTime: order.plannedStart,
+            plannedEndTime: order.plannedEnd
         )
     }
 
