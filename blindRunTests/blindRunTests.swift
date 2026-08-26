@@ -3129,6 +3129,123 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(request.specialNotes, "我会带导盲杖")
     }
 
+    /// 🚨 **没说时长那一支此前一条测试都没有**，而它才是有代价的那一支。
+    ///
+    /// `plannedEndTime` 在契约上必填，用户没说时长时客户端补
+    /// `AppConstants.Timing.defaultBookingDurationMinutes`。这个数字不是无害的默认值：
+    /// 后端 `+15min` 推 `ORDER_OVERDUE`、`+60min` 自动把订单置成 COMPLETED，
+    /// 行程分享链接的有效期也跟着它。
+    ///
+    /// 第二条断言是这条用例真正的重点：**`expectedDurationMinutes` 必须仍是 nil**。
+    /// 顺手把兜底值一起填进去，就是把「用户没提」改写成「用户说了一小时」——
+    /// 与 `hasGuideDogThisRun` 那条三态红线同一类错误，且同样静默。
+    func testCreateOrderRequestFallsBackToTheDefaultDurationWithoutFakingUserIntent() throws {
+        let viewModel = BlindBookingViewModel()
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1",
+            title: "科技园地铁站",
+            addressText: "深圳市南山区科技园地铁站 A 口",
+            latitude: 22.5401,
+            longitude: 113.9345,
+            source: .manual
+        )
+        viewModel.appointmentTime = try XCTUnwrap(
+            DateFormatter.aidRunBackendLocalDateTime.date(from: "2026-07-06T09:30:00")
+        )
+        viewModel.duration = .none
+
+        let request = try XCTUnwrap(viewModel.makeCreateOrderRequest())
+
+        XCTAssertEqual(request.plannedStartTime, "2026-07-06T09:30:00")
+        XCTAssertEqual(
+            request.plannedEndTime,
+            "2026-07-06T10:30:00",
+            "兜底时长与 AppConstants.Timing.defaultBookingDurationMinutes 对不上"
+        )
+        XCTAssertNil(
+            request.expectedDurationMinutes,
+            "把兜底值一起填进 expectedDurationMinutes = 把「用户没提」改写成「用户说了一小时」"
+        )
+    }
+
+    /// 兜底那一支**必须说出来**。此前整条链一个字都没提：复核页那时显示的是
+    /// 「未填写选填跑步需求。」，而请求里已经装着一个具体的结束时刻。
+    func testReviewSpeechDisclosesTheDefaultedEndTime() throws {
+        let viewModel = BlindBookingViewModel()
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1",
+            title: "科技园地铁站",
+            addressText: "深圳市南山区科技园地铁站 A 口",
+            latitude: 22.5401,
+            longitude: 113.9345,
+            source: .manual
+        )
+        viewModel.appointmentTime = try XCTUnwrap(
+            DateFormatter.aidRunBackendLocalDateTime.date(from: "2026-07-06T09:30:00")
+        )
+        viewModel.duration = .none
+
+        let speech = viewModel.reviewSummarySpeech
+
+        XCTAssertTrue(speech.contains("没有说跑多久"), "没交代这个结束时刻是系统补的：\(speech)")
+        XCTAssertTrue(speech.contains("1 小时"), "没说按多久计：\(speech)")
+        XCTAssertTrue(speech.contains("10:30"), "没念出具体结束时刻：\(speech)")
+    }
+
+    /// 说了时长就只念时刻，**不能还挂着「没有说跑多久」** —— 那是在说用户没做过的事。
+    func testReviewSpeechStatesTheEndTimePlainlyWhenDurationWasGiven() throws {
+        let viewModel = BlindBookingViewModel()
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1",
+            title: "科技园地铁站",
+            addressText: "深圳市南山区科技园地铁站 A 口",
+            latitude: 22.5401,
+            longitude: 113.9345,
+            source: .manual
+        )
+        viewModel.appointmentTime = try XCTUnwrap(
+            DateFormatter.aidRunBackendLocalDateTime.date(from: "2026-07-06T09:30:00")
+        )
+        viewModel.exactDurationMinutes = 180
+
+        let speech = viewModel.reviewSummarySpeech
+
+        XCTAssertFalse(speech.contains("没有说跑多久"), "用户说了三小时，却被说成没说：\(speech)")
+        XCTAssertTrue(speech.contains("12:30"), "结束时刻没跟着精确分钟数走：\(speech)")
+    }
+
+    /// 🚨 零输入路径**没有复核屏**，按钮标题就是唯一的复核面（也是它的 accessibilityLabel）。
+    /// 而走到这条路径的用户一定没说过时长（他连语音都用不了）⇒ 结束时刻一定是补的那个。
+    /// 不念，他就会在 1 小时 15 分时收到一条无从解释的「可能失联」提示。
+    func testZeroInputSummaryStatesTheEndTimeItIsAboutToCommit() throws {
+        let viewModel = BlindBookingViewModel()
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1",
+            title: "科技园地铁站",
+            addressText: "深圳市南山区科技园地铁站 A 口",
+            latitude: 22.5401,
+            longitude: 113.9345,
+            source: .manual
+        )
+        viewModel.appointmentTime = try XCTUnwrap(
+            DateFormatter.aidRunBackendLocalDateTime.date(from: "2026-07-06T09:30:00")
+        )
+
+        let summary = viewModel.zeroInputSummary
+
+        XCTAssertTrue(summary.contains("1 小时"), "没说按多久计：\(summary)")
+        XCTAssertTrue(summary.contains("10:30"), "没念出结束时刻：\(summary)")
+    }
+
+    /// 结束时刻**不许混进选填需求那一段** —— 它是推出来的事实不是用户填的项，
+    /// 混进去用户会以为那是自己填过的东西。这两条既有断言正好守住这条边界。
+    func testDefaultedEndTimeDoesNotLeakIntoTheOptionalNeedsSection() {
+        let viewModel = BlindBookingViewModel()
+
+        XCTAssertTrue(viewModel.optionalReviewItems.isEmpty)
+        XCTAssertEqual(viewModel.optionalNeedsSpeechSummary, "没有填写选填跑步需求。")
+    }
+
     func testBlindBookingAuxiliaryMapAccessibilityLabelDoesNotExposeCoordinates() {
         let viewModel = BlindBookingViewModel()
         viewModel.selectedStartPlace = ResolvedPlace(

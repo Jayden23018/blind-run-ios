@@ -357,6 +357,34 @@ final class BlindBookingViewModel: ObservableObject {
         return Self.durationText(forMinutes: minutes)
     }
 
+    /// 这一单**实际会被提交**的结束时刻。
+    ///
+    /// 用户没说时长时它是 `开始 + AppConstants.Timing.defaultBookingDurationMinutes`。
+    /// 那个兜底不是无害的：后端 `+15min` 推 `ORDER_OVERDUE`、`+60min` 自动完成订单，
+    /// 分享链接的有效期也跟着它。所以它必须能被读出来（见 `plannedEndSummary`），
+    /// 而不是只活在 `makeCreateOrderRequest` 里。
+    var plannedEndDate: Date {
+        let minutes = resolvedDurationMinutes ?? AppConstants.Timing.defaultBookingDurationMinutes
+        return appointmentTime.addingTimeInterval(TimeInterval(minutes * 60))
+    }
+
+    /// 结束时刻的读回 / 展示文案。**两种情况说的话必须不一样。**
+    ///
+    /// 🚨 说了时长那一支只念时刻；**没说时长那一支必须交代「这个数是系统补的」** ——
+    /// 用户从没同意过它，而服务开始后他会听到「预计 X 结束」（`blindRunnerAnnouncement`），
+    /// 过了 15 分钟还会收到一条「可能失联」级别的提示。不说清来源，那条提示对他就是没来由的。
+    ///
+    /// 分钟数与实际提交用的是同一个常量，不写死 60 —— 写死会在产品调整兜底时长的那天
+    /// 变成一句骗人的话（与 `appointmentTimeHint` 那条同源）。
+    var plannedEndSummary: String {
+        let timeText = DateFormatter.aidRunDisplayDateTime.string(from: plannedEndDate)
+        guard resolvedDurationMinutes == nil else {
+            return "预计 \(timeText) 结束。"
+        }
+        let fallback = Self.durationText(forMinutes: AppConstants.Timing.defaultBookingDurationMinutes)
+        return "没有说跑多久，按 \(fallback) 计，预计 \(timeText) 结束。"
+    }
+
     static func durationText(forMinutes minutes: Int) -> String {
         let hours = minutes / 60
         let remainder = minutes % 60
@@ -444,9 +472,12 @@ final class BlindBookingViewModel: ObservableObject {
         return items.map { "\($0.title)：\($0.value)" }.joined(separator: "。") + "。"
     }
 
+    /// 结束时刻紧跟预约时间念，**不进 `optionalNeedsSpeechSummary`** ——
+    /// 它不是一项「选填需求」，是由开始时间和时长推出来的事实。塞进选填那一段，
+    /// 用户会以为它是自己填过的东西。
     var reviewSummarySpeech: String {
         let blockingText = blockingReasonForCurrentStep.map { "当前还不能提交，\($0)" } ?? ""
-        return "请确认预约。\(startPointSummary)\(endPointSummary)\(appointmentSummary)\(optionalNeedsSpeechSummary)\(blockingText)"
+        return "请确认预约。\(startPointSummary)\(endPointSummary)\(appointmentSummary)\(plannedEndSummary)\(optionalNeedsSpeechSummary)\(blockingText)"
     }
 
     /// 零输入下单那一步要复核的整单。
@@ -455,10 +486,17 @@ final class BlindBookingViewModel: ObservableObject {
     /// 「最早可约时间」是一个他无法验证的相对说法，而下单是会真实派单的不可逆动作。
     /// 表单路径靠 `reviewSection` 把整单摆在屏幕上满足 WCAG 3.3.4 的「可复核确认」，
     /// 零输入路径没有那一屏，这句话就是它的等价物 —— 它同时是确认按钮的 `accessibilityLabel`。
+    ///
+    /// 🚨 **结束时刻必须在这里念。** 这条路径上没有任何别的复核面，而走到这里的用户
+    /// 一定没说过时长（他连语音都用不了）⇒ 结束时刻**一定**是系统补的那个。
+    /// 不念它，这个盲人就会在跑到 1 小时 15 分时收到一条他无从解释的「可能失联」提示，
+    /// 而订单会在 2 小时整被自动结束。多念这半句是这条路径上唯一能让他知情的机会。
     var zeroInputSummary: String {
         let place = resolvedStartLocationDescription.nilIfBlank ?? "当前位置"
         let time = DateFormatter.aidRunDisplayDateTime.string(from: appointmentTime)
-        return "从\(place)出发，\(time) 开始，直接下单"
+        let end = DateFormatter.aidRunDisplayDateTime.string(from: plannedEndDate)
+        let fallback = Self.durationText(forMinutes: AppConstants.Timing.defaultBookingDurationMinutes)
+        return "从\(place)出发，\(time) 开始，按 \(fallback) 计到 \(end) 结束，直接下单"
     }
 
     var currentStepSpeechSummary: String {
@@ -800,14 +838,7 @@ final class BlindBookingViewModel: ObservableObject {
     func makeCreateOrderRequest() -> CreateOrderRequest? {
         guard let startPlace = resolvedStartPlace else { return nil }
         let plannedStartTime = DateFormatter.aidRunBackendLocalDateTime.string(from: appointmentTime)
-        let plannedEndTime: String
-        if let minutes = resolvedDurationMinutes {
-            let endDate = appointmentTime.addingTimeInterval(TimeInterval(minutes * 60))
-            plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
-        } else {
-            let endDate = appointmentTime.addingTimeInterval(3600)
-            plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
-        }
+        let plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: plannedEndDate)
 
         return CreateOrderRequest(
             startLatitude: startPlace.latitude,
@@ -1894,6 +1925,9 @@ struct BlindBookingView: View {
                 )
             }
             reviewRow(title: "预约时间", value: DateFormatter.aidRunDisplayDateTime.string(from: viewModel.appointmentTime))
+            // 紧跟预约时间，**不进下面那段选填需求** —— 它是推出来的事实不是用户填的项。
+            // 没说时长时这一行会自己交代「按 1 小时计」，那正是此前整条链上一个字都没说的东西。
+            reviewRow(title: "预计结束", value: viewModel.plannedEndSummary)
 
             if viewModel.optionalReviewItems.isEmpty {
                 Text("未填写选填跑步需求。")

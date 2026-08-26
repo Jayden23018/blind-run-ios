@@ -306,7 +306,16 @@ final class VoiceOrderWizard: ObservableObject {
         // 抽不出时间时，读回会念出一个用户从没说过的具体时刻，后面再补一句「需至少在 30 分钟后」。
         // 对听不见屏幕的人，那就是「它念了一张我没说过的单」（2026-08-06 用户原话：
         // 「他也没有经过我的同意」）。没说就说没说，不许编。
-        parts.append(didCaptureStartTime ? bookingViewModel.appointmentSummary : "预约时间还没说。")
+        // 结束时刻**只在真的抽到开始时间的那一支念**。
+        //
+        // 另一支里 `appointmentTime` 还是 `Date()` 初值，由它推出来的结束时刻同样是编的 ——
+        // 在「预约时间还没说。」后面接一句「预计 X 结束」，正是上面那段注释在防的事，
+        // 而且更糟：用户会以为系统听到了时间、只是没念出来。
+        parts.append(
+            didCaptureStartTime
+                ? bookingViewModel.appointmentSummary + bookingViewModel.plannedEndSummary
+                : "预约时间还没说。"
+        )
         parts.append(bookingViewModel.optionalNeedsSpeechSummary)
         parts.append(confirmOutro)
         return parts.joined()
