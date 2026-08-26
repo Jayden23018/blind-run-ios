@@ -25,13 +25,24 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var needsCertificateUpload = false
     @Published var acceptedDispatchOrderId: Int64?
     @Published var acceptedDispatchInitialOrder: OrderDetailResponse?
-    /// 发出「有意向，想先聊聊」之后要进的那一单。
+    /// 要进的那一单通话磨合。**两种到达方式共用这一个导航源。**
     ///
-    /// 🚨 存的是**派单载荷**而不是订单 id，因为通话磨合期志愿者根本取不到订单详情：
+    /// 🚨 带着**派单载荷**而不只是订单 id，因为通话磨合期志愿者根本取不到订单详情：
     /// 后端 `OrderQueryService.getOrder` 只认 `order.volunteer`，而 `markInterested`
     /// 只写 `dispatchCurrentVolunteerId`、`order.volunteer` 恒为 null ⇒ `GET /api/orders/{id}` 403。
-    /// 这条推送是那一刻**唯一**的订单事实来源（出发地、时间、导盲犬），丢了就没别的地方能取回来。
-    @Published var pendingIntroCallOrder: WSNewOrder?
+    /// 那条推送是那一刻**唯一**的订单事实来源（出发地、时间、导盲犬），丢了就没别的地方能取回来。
+    ///
+    /// 而冷启动恢复那条路上它**确实丢了**（App 被杀，推送不会重放），所以
+    /// `VolunteerIntroCallRoute.dispatchOrder` 是可选的 —— 见那个类型的注释。
+    @Published var pendingIntroCallOrder: VolunteerIntroCallRoute?
+    /// 已经因为 `introCallOrderId` 自动跳过一次的那一单。
+    ///
+    /// 🚨 **没有它就是一个导航死循环**：用户手动返回 → `pendingIntroCallOrder` 被清 →
+    /// 下一次 `dispatch-summary` 刷新（首页每几秒就会刷）看到 `introCallOrderId` 还在 →
+    /// 又把他推回通话页。在 20 分钟窗口结束前他出不来。
+    ///
+    /// 只记 id 不记「跳过几次」：换了一单就该再跳一次，那是另一个人在等他。
+    private var autoOpenedIntroCallOrderId: Int64?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -211,7 +222,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 acceptedDispatchInitialOrder = acceptedOrder
                 acceptedDispatchOrderId = acceptedOrderId
                 if action == .interested {
-                    pendingIntroCallOrder = order
+                    pendingIntroCallOrder = VolunteerIntroCallRoute(dispatchOrder: order)
                 }
                 speechService?.speak(Self.dispatchResponseSpeech(for: action))
             } catch let error as APIError {
@@ -252,6 +263,10 @@ final class VolunteerHomeViewModel: ObservableObject {
     }
 
     /// 通话磨合结束（成单 / 换人 / 超时）后把入口收掉。
+    ///
+    /// ⚠️ **不清 `autoOpenedIntroCallOrderId`。** 用户手动返回也走这里，
+    /// 清了的话下一次 `dispatch-summary` 刷新会把他重新推回通话页 —— 见那个字段的注释。
+    /// 那个记号跟着 orderId 走，换一单自然失效。
     func clearIntroCall() {
         pendingIntroCallOrder = nil
     }
@@ -578,7 +593,12 @@ final class VolunteerHomeViewModel: ObservableObject {
         isAvailable = profile.isAvailable ?? false
     }
 
-    private func apply(
+    /// 摘要的唯一漏斗 —— 冷启动首屏、下拉刷新、接单后回读全从这里过，
+    /// 所以 `recoverIntroCallIfNeeded` 挂在这里就够，不必在每个调用点各接一次。
+    ///
+    /// 非 private 是为了让单测能直接喂一份摘要进来：起真实的加载流程会顺带打三四个端点、
+    /// 动状态机，把「摘要里有 introCallOrderId 会怎样」这一条断言埋进一堆无关请求里。
+    func apply(
         summary: VolunteerDispatchSummaryResponse,
         statusRequestToken: OrderStatusRequestToken? = nil
     ) {
@@ -620,6 +640,30 @@ final class VolunteerHomeViewModel: ObservableObject {
         } else {
             appState?.liveEscortCoordinator.clearOwnedOrder()
         }
+        recoverIntroCallIfNeeded(summary: summary)
+    }
+
+    /// 冷启动恢复：App 被杀之后回到那一通没打完的电话。
+    ///
+    /// 🚨 **这不是「顺手多接一个字段」，它补的是一个真实的失联**：通话磨合态
+    /// `order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403、`/api/orders/mine` 也不返回，
+    /// 而派单推送不会重放 —— 志愿者重开 App 之后**没有任何入口**回到通话页，
+    /// 只能等 20 分钟窗口超时，而盲人在等他这通电话。
+    /// `introCallOrderId` 是那一刻唯一的线索（后端为此专门加的字段）。
+    ///
+    /// 三道闸缺一不可：
+    /// 1. `introCallOrderId` 非空 —— 绝大多数时候它是 null。
+    /// 2. `pendingIntroCallOrder == nil` —— 已经在通话页上了就别再动导航。
+    /// 3. `autoOpenedIntroCallOrderId != id` —— **同一单只自动跳一次**。
+    ///    没有第 3 条，用户手动返回后每次摘要刷新都会把他拽回去，20 分钟内出不来。
+    ///
+    /// `dispatchOrder` 传 nil：那条推送早随进程一起没了，客户端拿不回来，也不许编。
+    private func recoverIntroCallIfNeeded(summary: VolunteerDispatchSummaryResponse) {
+        guard let introCallOrderId = summary.introCallOrderId,
+              pendingIntroCallOrder == nil,
+              autoOpenedIntroCallOrderId != introCallOrderId else { return }
+        autoOpenedIntroCallOrderId = introCallOrderId
+        pendingIntroCallOrder = VolunteerIntroCallRoute(orderId: introCallOrderId)
     }
 
     func refreshDispatchSummary() async {
@@ -1001,8 +1045,8 @@ struct VolunteerHomeView: View {
                     }
                 )
             ) {
-                if let dispatchOrder = viewModel.pendingIntroCallOrder {
-                    VolunteerIntroCallView(dispatchOrder: dispatchOrder)
+                if let introCallRoute = viewModel.pendingIntroCallOrder {
+                    VolunteerIntroCallView(route: introCallRoute)
                 } else if let orderId = viewModel.acceptedDispatchOrderId {
                     VolunteerInServiceView(
                         orderId: orderId,

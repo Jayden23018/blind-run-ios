@@ -24,11 +24,23 @@ final class BlindOrderStatusViewModel: ObservableObject {
     @Published var volunteerDistanceToStartText: String?
     @Published private(set) var latestVolunteerSample: LocatedCoordinate?
     @Published var errorMessage: String?
-    /// 通话磨合页数据。`nil` = 这一单不在 `PENDING_INTRO_CALL`，或者这一轮已经结束。
+    /// 通话磨合页数据。`nil` = 这一单不在 `PENDING_INTRO_CALL`，或者这一轮已经结束，
+    /// **或者这一轮的数据拉失败了** —— 后者由 `introCallUnavailable` 区分。
     ///
     /// 🚨 它里面**没有对方的表态、也没有轮次进度**，而且不许在客户端补算出来
     /// （见 `IntroCallView` 的类型注释）。
     @Published private(set) var introCall: IntroCallView?
+    /// 处在 `PENDING_INTRO_CALL` 但通话数据**拉不到**。
+    ///
+    /// 存在的理由是一个真实缺陷：`introCall == nil` 此前同时代表「不在通话态」和
+    /// 「拉失败了」，而 `introCallSection` 靠 `let introCall` 拆包 ⇒ 拉失败时
+    /// 拨号 / 合适 / 换一位三个按钮**一个都不渲染**，没有错误文字、没有播报，
+    /// 而状态播报仍在说「有位志愿者想陪你跑，可以打个电话聊聊」。
+    /// 对看不见屏幕的人，那是被告知去做一件屏幕上根本没有入口的事。
+    ///
+    /// **不复用 `errorMessage`**：`loadOrder` 每一轮开头都会把它清空（见那里），
+    /// 而这个状态要跨轮活着。理由与 `statusLogsErrorMessage` 同源。
+    @Published private(set) var introCallUnavailable = false
     /// 本单是否已经用完延长次数。**按单记**，换单时清空（见 `startPolling`）。
     @Published private(set) var keepWaitingLimitReached = false
 
@@ -212,27 +224,54 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     /// 拉通话页数据。跟着订单轮询走，不另起一条定时器 —— 这一页本来就每 5 秒刷一次订单。
     ///
-    /// 拿不到就把 `introCall` 清空：那一刻界面上唯一该有的动作是拨号，
-    /// 而没有号码的拨号按钮按下去就是「点了没反应」。
+    /// **拿不到仍然清空 `introCall`，但必须同时立起 `introCallUnavailable`。**
+    ///
+    /// 清空是对的，别改成「保留上一轮的号码」：同一个 `PENDING_INTRO_CALL` 里候选人是会换的
+    /// （后端 `INTRO_CALL_NOT_ACTIVE` 的说明逐字写着「本轮候选人已换人」），
+    /// 留着旧号码就会把电话打给上一位候选人 —— 而屏幕上看不出任何异常。
+    ///
+    /// 🚨 缺的从来不是「保留数据」，是**说出来**。原来这里是 `try?`，失败与
+    /// 「不在通话态」塌缩成同一个 `nil`，于是整块操作区静默消失。
     private func refreshIntroCallIfNeeded(for order: OrderDetailResponse, appState: AppState) async {
         guard order.status == .pendingIntroCall else {
-            introCall = nil
+            clearIntroCallState()
             return
         }
-        let view: IntroCallView? = try? await appState.apiClient.get(
-            IntroCallEndpoint.view.path(orderId: order.orderId)
-        )
-        introCall = view
+        do {
+            let view: IntroCallView = try await appState.apiClient.get(
+                IntroCallEndpoint.view.path(orderId: order.orderId)
+            )
+            introCall = view
+            introCallUnavailable = false
+        } catch {
+            introCall = nil
+            // **只在 false → true 那一跳播一次。** `loadOrder` 每 5 秒重跑一遍，
+            // 每轮都播会把读屏用户淹掉 —— 而他要听的是「这次没拿到，可以重试」，
+            // 不是同一句话每 5 秒一遍。
+            if !introCallUnavailable {
+                introCallUnavailable = true
+                speechService?.speakError(IntroCallCopy.loadFailed)
+            }
+        }
     }
 
-    #if DEBUG
-    /// 单测接缝：正常路径下通话数据跟着订单轮询一起拉，而用例要的是「只拉这一次」——
-    /// 起轮询会顺带打订单详情、动状态机，把断言埋进一堆无关请求里。
-    func loadIntroCallForTesting() async {
+    /// 离开通话态、或换单时把这一族状态整组清掉。**两个字段必须一起动** ——
+    /// 只清 `introCall` 会让下一单一进通话态就顶着上一单的错误块。
+    private func clearIntroCallState() {
+        introCall = nil
+        introCallUnavailable = false
+    }
+
+    /// 「重新加载」按下时走这里。也是单测的入口：正常路径下通话数据跟着订单轮询一起拉，
+    /// 而用例要的是「只拉这一次」—— 起轮询会顺带打订单详情、动状态机，
+    /// 把断言埋进一堆无关请求里。
+    ///
+    /// 2026-08-26 从 `#if DEBUG` 的 `loadIntroCallForTesting` 提成正式方法：
+    /// 失败态那个「重新加载」按钮要的正是同一件事，没有理由再留一个只给测试的孪生入口。
+    func reloadIntroCall() async {
         guard let order, let appState else { return }
         await refreshIntroCallIfNeeded(for: order, appState: appState)
     }
-    #endif
 
     /// 先通知对方，然后**立刻**回拨号 URL 给调用方。
     ///
@@ -564,7 +603,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             )
         }
         if updated.status != .pendingIntroCall {
-            introCall = nil
+            clearIntroCallState()
         }
         if !updated.status.shouldPoll {
             appState?.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
@@ -1408,7 +1447,43 @@ struct BlindOrderStatusView: View {
     /// 但那个口径由志愿者侧提供 —— 不让盲人替系统的统计需求多按一个键。
     @ViewBuilder
     private func introCallSection(_ order: OrderDetailResponse) -> some View {
-        if order.status == .pendingIntroCall, let introCall = viewModel.introCall {
+        if order.status == .pendingIntroCall, viewModel.introCall == nil, viewModel.introCallUnavailable {
+            // 🚨 **这一块的存在本身就是修复。** 此前拉失败时这个 `@ViewBuilder` 返回空视图，
+            // 于是三个按钮一个都不渲染、一个字都不显示，而状态播报仍在说
+            // 「有位志愿者想陪你跑，可以打个电话聊聊」—— 被告知去做一件屏幕上没有入口的事。
+            //
+            // 播报由 `refreshIntroCallIfNeeded` 在失败那一跳负责（只播一次），这里只管看得见的那半。
+            VStack(spacing: 14) {
+                Text(IntroCallCopy.loadFailed)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(IntroCallCopy.loadFailed)
+                    .accessibilityIdentifier("blindOrderStatusIntroCallLoadFailedNotice")
+
+                introCallSecondaryButton(
+                    title: IntroCallCopy.retryButtonTitle,
+                    hint: IntroCallCopy.retryAccessibilityHint,
+                    identifier: "blindOrderStatusIntroCallRetryButton",
+                    tint: AppColors.primary
+                ) {
+                    Task { await viewModel.reloadIntroCall() }
+                }
+
+                // 「换一位」在这里也留着：拉不到号码时用户仍然有权结束这一轮，
+                // 不该被一个加载失败按在原地等 20 分钟窗口超时。
+                introCallSecondaryButton(
+                    title: IntroCallCopy.declineButtonTitle,
+                    hint: IntroCallCopy.declineAccessibilityHint,
+                    identifier: "blindOrderStatusIntroCallDeclineButton",
+                    tint: AppColors.destructive
+                ) {
+                    Task { await viewModel.submitIntroCallDecision(.decline) }
+                }
+            }
+            .accessibilityElement(children: .contain)
+        } else if order.status == .pendingIntroCall, let introCall = viewModel.introCall {
             VStack(spacing: 14) {
                 if introCall.isWaitingForCounterpart {
                     // 🚨 只说自己那一半。**不许说「对方还没回复」** —— 那等于告诉盲人对方看过了

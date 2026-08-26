@@ -180,5 +180,12 @@ enum IntroCallCopy {
     /// 所以要说清「这一轮已经结束」，不能说成「操作失败」。
     static let roundAlreadyEnded = "这一轮通话已经结束了。"
 
+    /// 通话数据拉不到时**看得见也听得到**的那句。
+    ///
+    /// 🚩 措辞不许说成「打不通」「对方不在」—— 失败的是我们这次取号码的请求，
+    /// 而志愿者那边一切正常。说错方向会让盲人以为该换人，而他只需要重试一下。
     static let loadFailed = "暂时拿不到通话信息，请稍后重试。"
+
+    static let retryButtonTitle = "重新加载"
+    static let retryAccessibilityHint = "再取一次这位志愿者的通话信息"
 }

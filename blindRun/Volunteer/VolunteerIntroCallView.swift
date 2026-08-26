@@ -3,6 +3,33 @@ import SwiftUI
 
 // MARK: - 志愿者侧「接单前通话磨合」
 
+/// 进通话页要带的东西。**两条到达路径共用一个导航源**，区别只在 `dispatchOrder` 有没有。
+///
+/// - 推送路径（`INTERESTED` 发出去之后）：`dispatchOrder` 有值，本单信息与导盲犬提示位照常渲染。
+/// - **冷启动恢复路径**（`dispatch-summary` 的 `introCallOrderId`）：`dispatchOrder` 是 nil。
+///
+/// 🚨 恢复路径上那两块**就是空的，这是诚实不是缺陷**：`IntroCallView` 里没有出发地 /
+/// 时间 / 距离 / 导盲犬，`GET /api/orders/{id}` 在这一态又恒 403 —— 客户端没有任何数据源。
+/// 不许为了把界面填满去造值：志愿者据此判断的是「要不要接这一单」，编一个出发地比空着更糟。
+/// 拿得到的（对方掩码号、三个动作）一样不少，而这条路存在的意义就是**回得去**。
+/// 不加 `Equatable`：`WSNewOrder` 是 `Codable, Sendable` 而非 `Equatable`，
+/// 为了一个导航值给整条派单载荷补 `Equatable` 是本末倒置。
+/// 断言拿 `orderId` 和 `dispatchOrder == nil` 比即可（后者对任何类型都成立）。
+struct VolunteerIntroCallRoute {
+    let orderId: Int64
+    let dispatchOrder: WSNewOrder?
+
+    init(orderId: Int64, dispatchOrder: WSNewOrder? = nil) {
+        self.orderId = orderId
+        self.dispatchOrder = dispatchOrder
+    }
+
+    init(dispatchOrder: WSNewOrder) {
+        self.orderId = dispatchOrder.orderId
+        self.dispatchOrder = dispatchOrder
+    }
+}
+
 /// 本轮通话在志愿者这边的落点。
 enum VolunteerIntroCallOutcome: Equatable {
     /// 还在通话磨合中。
@@ -163,7 +190,10 @@ struct VolunteerIntroCallView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = VolunteerIntroCallViewModel()
 
-    let dispatchOrder: WSNewOrder
+    let route: VolunteerIntroCallRoute
+
+    /// 派单载荷。冷启动恢复路径上是 nil —— 那两块信息没有数据源，见 `VolunteerIntroCallRoute`。
+    private var dispatchOrder: WSNewOrder? { route.dispatchOrder }
 
     var body: some View {
         ScrollView {
@@ -173,7 +203,9 @@ struct VolunteerIntroCallView: View {
                 // 复用接单后那块「本单为视障跑者」提示位，不新建组件。
                 // 接单前只剩导盲犬那一行 —— 视力情况与引导方式走
                 // `disclosesBlindRunnerNotesToVolunteer` 闸，通话发生在接单之前。
-                VolunteerRunnerNeedsBanner(needs: dispatchOrder.escortNeeds)
+                //
+                // 恢复路径上是空数组，该组件对空数组本来就什么都不渲染（见它的 `body`）。
+                VolunteerRunnerNeedsBanner(needs: dispatchOrder?.escortNeeds ?? [])
 
                 counterpartCard
                 orderFactsCard
@@ -203,7 +235,7 @@ struct VolunteerIntroCallView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             viewModel.configure(
-                orderId: dispatchOrder.orderId,
+                orderId: route.orderId,
                 appState: appState,
                 speechService: speechService
             )
@@ -267,18 +299,21 @@ struct VolunteerIntroCallView: View {
         }
     }
 
+    /// 冷启动恢复路径上四行全空，整块不渲染 —— **这是诚实的**，理由见 `VolunteerIntroCallRoute`。
+    /// 不要在这里补「出发地：暂无」之类的占位：志愿者据此判断要不要接这一单，
+    /// 一个说不出内容的占位行比没有这一行更容易被当成真的。
     private var orderFactsCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let address = dispatchOrder.startAddress?.nilIfBlank {
+            if let address = dispatchOrder?.startAddress?.nilIfBlank {
                 Text("出发地：\(address)")
             }
-            if let plannedStart = dispatchOrder.plannedStart?.nilIfBlank {
+            if let plannedStart = dispatchOrder?.plannedStart?.nilIfBlank {
                 Text("时间：\(plannedStart.displayDateTime)")
             }
-            if let distance = dispatchOrder.distanceKm {
+            if let distance = dispatchOrder?.distanceKm {
                 Text(String(format: "距离：%.1fkm", distance))
             }
-            if let pace = dispatchOrder.pacePreference?.nilIfBlank {
+            if let pace = dispatchOrder?.pacePreference?.nilIfBlank {
                 Text("配速：\(PacePreference(rawValue: pace)?.displayName ?? pace)")
             }
         }
