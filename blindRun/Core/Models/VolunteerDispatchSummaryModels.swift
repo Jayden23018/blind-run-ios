@@ -77,6 +77,17 @@ struct VolunteerDispatchSummaryResponse: Codable, Sendable {
     let acceptanceRate: Double?
     let activeOrders: [VolunteerDispatchSummaryActiveOrder]?
     let recentOrders: [VolunteerDispatchSummaryRecentOrder]?
+    /// 此刻正在通话磨合的那一单（`PENDING_INTRO_CALL`），没有则 null（绝大多数时候）。
+    ///
+    /// 🚨 **它存在的唯一理由是冷启动恢复**，不是又一个可展示的字段。契约逐字
+    /// （`api_spec.yaml` `introCallOrderId` 的 description）：那一态 `order.volunteer` 还是 null，
+    /// `GET /api/orders/{id}` 恒 403、`/api/orders/mine` 也不返回 ——
+    /// **志愿者杀掉 App 再打开就回不到通话页，只能等 20 分钟窗口超时，而盲人在等他。**
+    /// 拿到这个 id 之后调 `GET /api/orders/{id}/intro-call` 取全部通话页数据。
+    ///
+    /// 🚨 **它不在 `activeOrders` 里，也不要合并进去**：人还没接单，
+    /// 且那一态 `sharesLiveLocation()` 为 false，混进活跃订单会让位置协同在空转。
+    let introCallOrderId: Int64?
 
     var completedCount: Int {
         totalCompleted ?? 0
