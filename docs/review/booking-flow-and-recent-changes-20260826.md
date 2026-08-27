@@ -8,7 +8,36 @@
 
 ---
 
-## §0 验证状态（先说清楚，别拿它当"已验证"用）
+## §0.0 落地状态（2026-08-27 补记，引用本报告前先读这一节）
+
+写报告那天真机接不上，全部结论只来自读代码 + 契约对撞。**8-27 真机通了，其中四条已修并合入 `main`**：
+
+| 条目 | 状态 | 落地 |
+|---|---|---|
+| §3.1 P0 通话数据拉不到 → 整块操作区消失 | ✅ 已修 | [#82](https://github.com/Jayden23018/blind-run-ios/pull/82) |
+| §3.5 P1 `introCallOrderId` 没接 → 杀进程回不到通话页 | ✅ 已修 | [#82](https://github.com/Jayden23018/blind-run-ios/pull/82) |
+| §3.4 P1 401 在下单/接单/语音确认三处全静默 | ✅ 已修 | [#81](https://github.com/Jayden23018/blind-run-ios/pull/81) |
+| §3.2 P1 没说时长时写死一小时且从不告知 | ✅ 已修 | [#83](https://github.com/Jayden23018/blind-run-ios/pull/83) |
+| §3.3 P1 "缺 `requiresIntroCall` 不是静默降级"只在 DEBUG 成立 | ❌ 未修 | —— |
+| §3.6 P2 邀请码填错静默丢弃 | ❌ 未修 | —— |
+| §3.7 P2 "不得承诺优先派单"红线自破一处 | ❌ 未修 | —— |
+| §3.8 P3 其余四条 | ❌ 未修 | —— |
+| **§3.9 契约漂移闸的逐字段 ✅ 会给假绿**（本轮实现时新发现） | ❌ 未修 | 见 §3.9 |
+
+真机验证（iPhone 16 Pro，按改动面收窄，未跑全量）：
+
+```
+#81  passed=334 failed=0        #82  passed=333 failed=0        #83  passed=450 failed=0
+```
+
+三个 PR 合并前都从 `main` 重新拉过并**再跑一遍**——合进来的是没测过的新状态，
+之前的结果不覆盖它。20 条新用例逐条 `grep` 过 result bundle 日志，不是靠总数推断的。
+
+> 🚩 **§3.5 里有一句是错的，且错得有代表性**，见那一节顶部的订正框。
+
+---
+
+## §0 验证状态（写报告当天，已被 §0.0 更新）
 
 | 检查 | 结果 |
 |---|---|
@@ -18,7 +47,14 @@
 | `validate-golden-corpus.mjs` | ✅ 103 条与前端镜像一致 |
 | `validate-error-codes.mjs` | ✅ 前端映射 44 个码后端都存在（后端另有 6 个码前端未映射，见 §3.7） |
 | `validate-voice-intent-words.mjs` | ✅ 本地直通表无一词被后端判成别的意图 |
-| **真机 XCTest** | ❌ **没跑。** `xcrun devicectl list devices` 两台设备（iPhone 16 Pro / iPad Air 5）**都是 `unavailable`**——USB 没接。本仓库真机是唯一 XCTest 通道，所以本报告里**没有任何一条结论来自运行时观测**，全部来自读代码 + 契约对撞。 |
+| **真机 XCTest** | ❌ 写报告当天**没跑**：两台设备 `unavailable`（USB 没接）。⇒ 本报告的**全部结论都来自读代码 + 契约对撞**，没有一条来自运行时观测。**8-27 已补跑，见 §0.0。** |
+
+> 8-27 接上 USB 后还卡了两关，都不是代码，记一笔省得下次重查：
+> ① Xcode 里**一个 Apple ID 都没登录**（`DVTDeveloperAccountManagerAppleIDLists` 为空），
+> 描述文件目录 0 个 —— 此时 `-allowProvisioningUpdates` 也申请不了，证书有效也没用；
+> ② 手机没信任开发者证书（`Developer App Certificate is not trusted`）。
+> 两关的报错都长得像「设备/代码有问题」，实际都在 `设置` 里点一下就好。
+> 个人 team 的描述文件 **7 天到期**，这两关会再来。
 
 ⚠️ **当前分支 `feat/intro-call-dispatch-flag`（PR #77）里有 4 条从未执行过的用例**，
 PR 正文自己写着这一点。这正是记忆 `merged-prs-whose-tests-never-ran` 记的那个坑——
@@ -181,6 +217,21 @@ basicProfile → identityVerification → emergencyContacts → startPoint → a
 
 ### 3.1 🔴 P0 — 通话数据拉不到时，盲人端整块操作区消失，而播报还在叫他打电话
 
+> ✅ **已修（[#82](https://github.com/Jayden23018/blind-run-ios/pull/82)，2026-08-27）。**
+> 新增 `introCallUnavailable` 把「不在通话态」与「拉失败了」分开，失败态渲染文案 +
+> 「重新加载」+ 保留「换一位」，播报只在 `false → true` 那一跳播一次。
+>
+> 🚩 **修的过程本身值得记**：第一版真机一跑就红了一条既有用例 ——
+> 表态成功后紧接着的那次刷新失败，会用「暂时拿不到通话信息」盖掉用户刚听到的
+> 「已经告诉系统你觉得合适」，**而失败块里还摆着「换一位」，他刚说完合适**。
+> 也就是说第一版把一个静默失败换成了一个「响得不是时候」的失败。
+> 根因是判据太粗：**表过态之后拉不到 view 并不构成「有事要做却做不了」**。
+> 最终修法引入 `submittedIntroCallDecision`，且**服务端说了话就以它为准**
+> （每次成功拉到 view 都用 `myDecisionValue` 覆盖本地记号，换候选人时自动作废）。
+>
+> 教训与 §3.1 本身同源：问「这个失败态下屏幕上会**多**出什么」还不够，
+> 得再问一句**多出来的那个东西，此刻该不该给**。
+
 **现象**：订单进 `PENDING_INTRO_CALL` 后，`GET /api/orders/{id}/intro-call` 只要失败一次
 （网络抖动、5xx、解码失败），盲人的订单状态页就变成：状态卡还在、播报说
 **"有位志愿者想陪你跑，可以打个电话聊聊。"**，而**拨号按钮、"合适"按钮、"换一位"按钮
@@ -227,6 +278,12 @@ basicProfile → identityVerification → emergencyContacts → startPoint → a
 ---
 
 ### 3.2 🟠 P1 — 没说时长的单子静默写死"一小时"，而复核页明说"未填写"
+
+> ✅ **已修（[#83](https://github.com/Jayden23018/blind-run-ios/pull/83)，2026-08-27）。**
+> `3600` 提成 `AppConstants.Timing.defaultBookingDurationMinutes`，新增 `plannedEndSummary`
+> 在复核页 / 读回 / 零输入按钮标题三处说清「没有说跑多久，按 1 小时计，预计 X 结束」。
+> **`expectedDurationMinutes` 保持 nil 不动**（填进去就是把「没提」改写成「说了一小时」），
+> 这一条已立成断言。
 
 **现象**：用户没指定时长时，请求里 `plannedEndTime = 开始时间 + 3600 秒`，
 **这个数字从头到尾没有任何一处告诉过用户**。
@@ -317,6 +374,10 @@ basicProfile → identityVerification → emergencyContacts → startPoint → a
 
 ### 3.4 🟠 P1 — 401 在下单/接单路径上完全静默，盲人端尤其
 
+> ✅ **已修（[#81](https://github.com/Jayden23018/blind-run-ios/pull/81)，2026-08-27）。**
+> `LoginViewModel.configure` 里补一行 `speakError` —— 改源头一处，
+> 下单 / 接单 / 语音确认三条路径一起修好。另加一条用例守「不许因此重复播报」。
+
 **现象**：token 过期时，盲人按下"提交预约"→ 整个 App 跳回登录页，
 **一句话都没播**。原因只以红色小字写在登录页上。
 
@@ -358,6 +419,29 @@ basicProfile → identityVerification → emergencyContacts → startPoint → a
 ---
 
 ### 3.5 🟠 P1 — 后端已经把"志愿者杀进程就回不到通话页"修好了，前端没接（本轮 push 时被契约漂移闸抓出来）
+
+> ✅ **已修（[#82](https://github.com/Jayden23018/blind-run-ios/pull/82)，2026-08-27）。**
+>
+> 🚩 **但本节末尾那句话是错的，而且错得有代表性 —— 引用本节前先读这一段。**
+>
+> 原文写着：
+> > 另外六个"契约新增"字段（`plannedEndTime` / `plannedStartTime` / `startAddress` /
+> > `startLatitude` / `startLongitude` / `volunteerId`）手写模型都已有，不需要动。
+>
+> **其中三个不成立。** `startAddress` / `plannedStartTime` / `plannedEndTime` 是后端加在
+> **`IntroCallView`** 上的，而手写 `IntroCallView` 一个都没有 —— 这三个名字确实存在于
+> `OrderDetailResponse` 和 `WSNewOrder` 上，于是漂移闸按名字全局匹配，把它们标成了 ✅。
+> 我照抄了那份清单，没去读生成代码的 diff。详见 §3.9。
+>
+> 代价差点很实在：按那句话推导出的修法是「恢复路径上本单信息那两块就是空的，这是诚实的」，
+> 并且我已经把这句话写进了代码注释 —— 而后端加那三个字段的 description 里
+> **逐字点名的就是这个场景**（「杀掉 App 再打开就回不到通话页」）。
+> 差一点把一个后端已经解决的问题当成不可解钉进注释里。
+>
+> 实际落地：三个字段接进手写 `IntroCallView`，`orderFactsCard` 优先取派单载荷、
+> 取不到回落 `IntroCallView`（两个来源同源）。恢复路径上仍然没有的只有**距离**和**导盲犬**
+> —— 那两项只在派单推送里，`IntroCallView` 确实没有。
+> `startLatitude` / `startLongitude` 刻意不接：眼下没有消费方。
 
 **这条不是读代码读出来的，是 pre-push 的契约漂移闸拦下来的**，值得单独记一笔：
 PR #77 自己的正文把这个洞挂在"不在本 PR 范围（都在等后端）"里，**后端已经答复并上线了**。
@@ -451,6 +535,52 @@ PR #77 自己的正文把这个洞挂在"不在本 PR 范围（都在等后端�
 
 ---
 
+### 3.9 🟠 P1 — 契约漂移闸的逐字段 ✅ 会给假绿（2026-08-27 实现 §3.5 时发现）
+
+**现象**：pre-push 的「重新生成 API 客户端并比对」会打一份
+`[drift-fields] ⚠ 契约新增 N 个字段，逐个查手写模型有没有` 的清单。
+**那份清单的 ✅ 不可信 —— 它按字段名在「全部」手写模型里找，不区分是哪个模型。**
+
+**实测**（同一次 push 的同一份输出）：
+
+```
+❌ introCallOrderId —— 手写模型没有，运行时读不到
+✅ startAddress     —— 手写模型已有      ← 假的
+✅ plannedStartTime —— 手写模型已有      ← 假的
+✅ plannedEndTime   —— 手写模型已有      ← 假的
+✅ startLatitude / startLongitude / volunteerId
+```
+
+后端把这批字段加在 **`IntroCallView`** 上，而手写 `IntroCallView` 一个都没有。
+被标成 ✅ 只因为这三个名字存在于 `OrderDetailResponse` / `WSNewOrder` 上。
+
+**为什么这是 P1 而不是工具小瑕疵**：
+
+1. **它的假阳性方向正好是最危险的那个** —— 报 ❌ 顶多多查一遍，报 ✅ 是让人不查。
+2. **名字越通用越假绿**：`startAddress` / `plannedEndTime` / `status` / `name` 这类字段
+   几乎必然在别的模型上出现过。而通用名字恰恰最常被后端复用到新 DTO 上。
+3. **本报告自己就中招了**：§3.5 原文照抄了那份清单，写下「另外六个手写模型都已有，
+   不需要动」，并据此推导出一个「恢复路径上信息就是空的」的错误结论 ——
+   而后端加那三个字段的 description 里逐字点名的就是这个场景。
+4. `introCallOrderId` 之所以被正确报 ❌，只是因为**名字够独特**。所以这不是「闸坏了」，
+   是**它只在字段名唯一时才准**，而清单的呈现方式看不出这个前提。
+
+**唯一可靠的判法**（判「加在哪个模型上」）：
+
+```bash
+git diff Packages/AidRunAPI/Sources/AidRunAPI/Types.swift | grep -B2 "Generated from"
+```
+
+`- Remark: Generated from '#/components/schemas/<模型名>/<字段名>'` 这一行带着模型名。
+
+**建议**：按 `AGENTS.md` §1.1 把它落成闸本身的改进 —— 比对时带上模型名（生成代码里现成有），
+清单打成 `IntroCallView.startAddress ❌` 而不是 `startAddress ✅`。
+在那之前，**闸报漂移时必须去读一遍生成代码的 diff，不许只看那份清单**。
+
+已同步进项目记忆 `drift-gate-field-check-matches-globally`。
+
+---
+
 ## §4 查过了、不是问题（防止下一轮重提）
 
 1. **`try?` 满仓 113 处**——逐条看过：绝大多数是 `Task.sleep`（无意义可失败）、
@@ -475,29 +605,35 @@ PR #77 自己的正文把这个洞挂在"不在本 PR 范围（都在等后端�
 
 ## §5 修复优先级建议
 
-按"改动量 ÷ 后果"排：
+前四条已按此顺序落地（#81 → #82 → #83，见 §0.0）。**剩下的**，按"改动量 ÷ 后果"排：
 
-1. **§3.4（401 静默）** — 一行，改在 `LoginViewModel.configure`，两条路径一起修好。
-2. **§3.1（通话数据拉不到）** — 一个 `else` 分支 + 一条用例。这是唯一的 P0。
-3. **§3.5（`introCallOrderId` 没接）** — 后端已经上线了，前端加一个字段 + 一条恢复路径。
-   它和 §3.1 是同一个功能的两个洞（一个是"拉失败没兜底"，一个是"冷启动回不去"），
-   建议同一个 PR 一起修。
-4. **§3.2（写死一小时）** — 具名常量 + 复核/零输入播报里念出结束时刻 + 一条用例钉住 nil 分支。
-5. **§3.3（诊断只在 DEBUG）** — 先把注释改成实话（5 分钟），生产观测另开一件事。
-6. **§3.7（文案红线）** — 改一个字符串 + 调两条断言。
-7. **§3.6（邀请码静默丢弃）** — 一句播报。
-8. §3.8 a/b/c — 顺手清理，别单开 PR。
+1. **§3.9（漂移闸假绿）** — 新的第一优先。它不是一个缺陷，是**一个会持续制造缺陷的判据**：
+   在它修好之前，每一次「契约新增字段」都要靠人去读生成代码的 diff 才不会漏。
+   本报告自己已经栽过一次（§3.5 的订正框）。
+2. **§3.3（诊断只在 DEBUG）** — 先把注释改成实话（5 分钟），生产观测另开一件事。
+   ⚠️ 它与 §3.9 是同一个形状：**「我们有观测」这个前提不成立，而没人会去核**。
+3. **§3.7（文案红线）** — 改一个字符串 + 调两条断言。
+4. **§3.6（邀请码静默丢弃）** — 一句播报。
+5. §3.8 a/b/c — 顺手清理，别单开 PR。
 
-⚠️ **在这些之前**：PR #77 那 4 条从未执行过的用例得先在真机上跑一遍
-（设备现在 `unavailable`，接 USB 后 `scripts/device-test.sh -only-testing:blindRunTests/IntroCallTests`）。
+⚠️ **[PR #77](https://github.com/Jayden23018/blind-run-ios/pull/77)（`requiresIntroCall`）仍开着，
+正文里挂着 4 条从未执行过的用例。** 真机通道 8-27 已恢复，跑一遍就能补上那个数：
+`scripts/device-test.sh -only-testing:blindRunTests/IntroCallTests`。
 带着没跑过的用例合进 main 是本仓库已经犯过两次的错。
+
+⚠️ **[#82](https://github.com/Jayden23018/blind-run-ios/pull/82) 还剩一条单测覆盖不到的人验**（合并时尚未做）：
+杀掉志愿者 App → 重开 → 应当自动落在通话页 → 手动返回 → 等 ≥5 秒确认**没有**被拽回去。
+`autoOpenedIntroCallOrderId` 防的是导航死循环，单测只验到 view model 层，
+真实 `navigationDestination` 行为验不到。
 
 ---
 
 ## 复核触发条件
 
-- §3.1 / §3.2 / §3.4 任一被修
+- **§3.3 / §3.6 / §3.7 / §3.8 / §3.9 任一被修**（§3.1 / §3.2 / §3.4 / §3.5 已修，见 §0.0）
+- 漂移闸 `[drift-fields]` 的清单改成带模型名（届时 §3.9 作废）
 - 后端把 `requiresIntroCall` 改成非必填，或 `PENDING_INTRO_CALL` 的窗口/状态语义变化
+- 后端再往 `IntroCallView` 加字段（§3.5 订正框里那条「按名字全局匹配」的坑会原样重现）
 - `plannedEndTime` 的后端超时口径（`+15min` / `+60min`）变化
 - 下单三条路径（表单 / 语音 / 零输入）任一有信息架构改动
 - CI 获得真机 XCTest 通道（届时 §0 的验证状态整段作废）
