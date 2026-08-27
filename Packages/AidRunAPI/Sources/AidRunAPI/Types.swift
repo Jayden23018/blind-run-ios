@@ -4871,6 +4871,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerName`.
             public var volunteerName: Swift.String?
+            /// 已接单志愿者的用户 id。**未接单时为 null。** 🚨 **用途只有一个：拿去调 `PUT /api/blind/favorite-volunteers/{volunteerId}` 收藏这位志愿者。** 不要拿它拼任何展示文案，也不要拿它做拨号 —— 号码仍然只走 `volunteerPhone` 那条状态门。 ⚠️ 「只在接单后下发」是**结构上成立**的，不是额外判断：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` / `NO_VOLUNTEER` / `CANCELLED` 期 `order.volunteer` 本就是 null（通话磨合期的候选人存在 `dispatchCurrentVolunteerId` 里，**刻意不从这里漏出去** —— 接单前给出一个稳定 id 等于给每个候选人一个可长期持有的标识）。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerId`.
+            public var volunteerId: Swift.Int64?
             /// 已接单志愿者的历史平均评分（1–5）。**未接单时为 null**（三个 volunteer* 统计字段 都挂在 `order.volunteer` 上，`PENDING_MATCH`/`REMATCHING`/`NO_VOLUNTEER`/`CANCELLED` 期它本就是 null ⇒「接单前不下发可识别信息」是结构上成立的，不靠调用方判状态）。 🚨 **null 与 0 语义完全不同**：null = 这位志愿者还没有收到过评价（`volunteerTotalRatings` 为 0）， 客户端要念「这位志愿者还没有评价」；念成「0 分」是把一个新人说成了差评。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerAvgRating`.
@@ -4947,6 +4951,7 @@ public enum Components {
             ///   - tetherPreference:
             ///   - chatPreference:
             ///   - volunteerName: 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 未接单时为 null。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
+            ///   - volunteerId: 已接单志愿者的用户 id。**未接单时为 null。** 🚨 **用途只有一个：拿去调 `PUT /api/blind/favorite-volunteers/{volunteerId}` 收藏这位志愿者。** 不要拿它拼任何展示文案，也不要拿它做拨号 —— 号码仍然只走 `volunteerPhone` 那条状态门。 ⚠️ 「只在接单后下发」是**结构上成立**的，不是额外判断：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` / `NO_VOLUNTEER` / `CANCELLED` 期 `order.volunteer` 本就是 null（通话磨合期的候选人存在 `dispatchCurrentVolunteerId` 里，**刻意不从这里漏出去** —— 接单前给出一个稳定 id 等于给每个候选人一个可长期持有的标识）。
             ///   - volunteerAvgRating: 已接单志愿者的历史平均评分（1–5）。**未接单时为 null**（三个 volunteer* 统计字段 都挂在 `order.volunteer` 上，`PENDING_MATCH`/`REMATCHING`/`NO_VOLUNTEER`/`CANCELLED` 期它本就是 null ⇒「接单前不下发可识别信息」是结构上成立的，不靠调用方判状态）。 🚨 **null 与 0 语义完全不同**：null = 这位志愿者还没有收到过评价（`volunteerTotalRatings` 为 0）， 客户端要念「这位志愿者还没有评价」；念成「0 分」是把一个新人说成了差评。
             ///   - volunteerTotalRatings: 已接单志愿者收到过的评价条数。0 是真实的 0（新人），不是缺数据；未接单时为 null。
             ///   - volunteerTotalCompleted: 已接单志愿者累计完成的陪跑单数。未接单时为 null。 ⚠️ **纯展示，不进派单权重** —— 文案上别写成「完成得多更容易接到单」。
@@ -4984,6 +4989,7 @@ public enum Components {
                 tetherPreference: Components.Schemas.OrderDetailResponse.tetherPreferencePayload? = nil,
                 chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload? = nil,
                 volunteerName: Swift.String? = nil,
+                volunteerId: Swift.Int64? = nil,
                 volunteerAvgRating: Swift.Double? = nil,
                 volunteerTotalRatings: Swift.Int? = nil,
                 volunteerTotalCompleted: Swift.Int? = nil,
@@ -5021,6 +5027,7 @@ public enum Components {
                 self.tetherPreference = tetherPreference
                 self.chatPreference = chatPreference
                 self.volunteerName = volunteerName
+                self.volunteerId = volunteerId
                 self.volunteerAvgRating = volunteerAvgRating
                 self.volunteerTotalRatings = volunteerTotalRatings
                 self.volunteerTotalCompleted = volunteerTotalCompleted
@@ -5059,6 +5066,7 @@ public enum Components {
                 case tetherPreference
                 case chatPreference
                 case volunteerName
+                case volunteerId
                 case volunteerAvgRating
                 case volunteerTotalRatings
                 case volunteerTotalCompleted
@@ -5812,6 +5820,26 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/windowEndsAt`.
             public var windowEndsAt: Foundation.Date?
+            /// 起跑点文字地址。**双方角色都给**——它是「这一单的信息」不是「对方的信息」。 志愿者这一态读不到订单详情（`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403）， 杀掉 App 再打开就回不到通话页。与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/startAddress`.
+            public var startAddress: Swift.String?
+            /// 起跑点纬度（GCJ-02）
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/startLatitude`.
+            public var startLatitude: Swift.Double?
+            /// 起跑点经度（GCJ-02）
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/startLongitude`.
+            public var startLongitude: Swift.Double?
+            /// 计划开始时间
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/plannedStartTime`.
+            public var plannedStartTime: Foundation.Date?
+            /// 计划结束时间。⚠️ **不要往这个 DTO 里加自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/plannedEndTime`.
+            public var plannedEndTime: Foundation.Date?
             /// Creates a new `IntroCallView`.
             ///
             /// - Parameters:
@@ -5820,18 +5848,33 @@ public enum Components {
             ///   - counterpartPhoneMasked: 对方号码的掩码串——**仅志愿者侧有值**，用途只有一个：**认人**（他会接到陌生号码来电）。 🚨 **绝不能拿它去拼 `tel:`**，它是展示字段不是拨号字段。
             ///   - myDecision: 我自己的表态，null = 还没表态。**只有自己的，没有对方的**
             ///   - windowEndsAt: 本轮通话窗口的结束时刻。到点双方仍未表完态则本轮作废，换下一个候选人
+            ///   - startAddress: 起跑点文字地址。**双方角色都给**——它是「这一单的信息」不是「对方的信息」。 志愿者这一态读不到订单详情（`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403）， 杀掉 App 再打开就回不到通话页。与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
+            ///   - startLatitude: 起跑点纬度（GCJ-02）
+            ///   - startLongitude: 起跑点经度（GCJ-02）
+            ///   - plannedStartTime: 计划开始时间
+            ///   - plannedEndTime: 计划结束时间。⚠️ **不要往这个 DTO 里加自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
             public init(
                 counterpartName: Swift.String? = nil,
                 counterpartPhone: Swift.String? = nil,
                 counterpartPhoneMasked: Swift.String? = nil,
                 myDecision: Components.Schemas.IntroCallView.myDecisionPayload? = nil,
-                windowEndsAt: Foundation.Date? = nil
+                windowEndsAt: Foundation.Date? = nil,
+                startAddress: Swift.String? = nil,
+                startLatitude: Swift.Double? = nil,
+                startLongitude: Swift.Double? = nil,
+                plannedStartTime: Foundation.Date? = nil,
+                plannedEndTime: Foundation.Date? = nil
             ) {
                 self.counterpartName = counterpartName
                 self.counterpartPhone = counterpartPhone
                 self.counterpartPhoneMasked = counterpartPhoneMasked
                 self.myDecision = myDecision
                 self.windowEndsAt = windowEndsAt
+                self.startAddress = startAddress
+                self.startLatitude = startLatitude
+                self.startLongitude = startLongitude
+                self.plannedStartTime = plannedStartTime
+                self.plannedEndTime = plannedEndTime
             }
             public enum CodingKeys: String, CodingKey {
                 case counterpartName
@@ -5839,6 +5882,11 @@ public enum Components {
                 case counterpartPhoneMasked
                 case myDecision
                 case windowEndsAt
+                case startAddress
+                case startLatitude
+                case startLongitude
+                case plannedStartTime
+                case plannedEndTime
             }
         }
         /// 通话后的表态。⚠️ **刻意没有 reason 字段**——拒绝不需要给理由，系统也不记录理由。
@@ -6836,6 +6884,10 @@ public enum Components {
             public var activeOrders: [Components.Schemas.VolunteerDispatchActiveOrder]?
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/recentOrders`.
             public var recentOrders: [Components.Schemas.VolunteerDispatchRecentOrder]?
+            /// 此刻正在通话磨合的那一单（`PENDING_INTRO_CALL`），没有则 null（绝大多数时候）。 存在的唯一理由是**冷启动恢复**：这一态 `order.volunteer` 还是 null， `GET /api/orders/{id}` 恒 403、`/api/orders/mine` 也不返回 —— 志愿者杀掉 App 再打开就回不到通话页，只能等 20 分钟窗口超时，而盲人在等他。 拿到这个 id 后调 `GET /api/orders/{id}/intro-call` 取全部通话页数据。 🚨 **它不在 `activeOrders` 里，也不要合并进去**：人还没接单， 且那一态 `sharesLiveLocation()` 为 false，混进活跃订单会让位置协同在空转。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/introCallOrderId`.
+            public var introCallOrderId: Swift.Int64?
             /// Creates a new `VolunteerDispatchSummaryResponse`.
             ///
             /// - Parameters:
@@ -6859,6 +6911,7 @@ public enum Components {
             ///   - acceptanceRate: 接单率 0.0-1.0（null=无派单记录）
             ///   - activeOrders:
             ///   - recentOrders:
+            ///   - introCallOrderId: 此刻正在通话磨合的那一单（`PENDING_INTRO_CALL`），没有则 null（绝大多数时候）。 存在的唯一理由是**冷启动恢复**：这一态 `order.volunteer` 还是 null， `GET /api/orders/{id}` 恒 403、`/api/orders/mine` 也不返回 —— 志愿者杀掉 App 再打开就回不到通话页，只能等 20 分钟窗口超时，而盲人在等他。 拿到这个 id 后调 `GET /api/orders/{id}/intro-call` 取全部通话页数据。 🚨 **它不在 `activeOrders` 里，也不要合并进去**：人还没接单， 且那一态 `sharesLiveLocation()` 为 false，混进活跃订单会让位置协同在空转。
             public init(
                 canDispatch: Swift.Bool? = nil,
                 notAvailableReasons: [Components.Schemas.DispatchBlockReason]? = nil,
@@ -6879,7 +6932,8 @@ public enum Components {
                 totalTimeout: Swift.Int? = nil,
                 acceptanceRate: Swift.Double? = nil,
                 activeOrders: [Components.Schemas.VolunteerDispatchActiveOrder]? = nil,
-                recentOrders: [Components.Schemas.VolunteerDispatchRecentOrder]? = nil
+                recentOrders: [Components.Schemas.VolunteerDispatchRecentOrder]? = nil,
+                introCallOrderId: Swift.Int64? = nil
             ) {
                 self.canDispatch = canDispatch
                 self.notAvailableReasons = notAvailableReasons
@@ -6901,6 +6955,7 @@ public enum Components {
                 self.acceptanceRate = acceptanceRate
                 self.activeOrders = activeOrders
                 self.recentOrders = recentOrders
+                self.introCallOrderId = introCallOrderId
             }
             public enum CodingKeys: String, CodingKey {
                 case canDispatch
@@ -6923,6 +6978,7 @@ public enum Components {
                 case acceptanceRate
                 case activeOrders
                 case recentOrders
+                case introCallOrderId
             }
         }
         /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder`.
