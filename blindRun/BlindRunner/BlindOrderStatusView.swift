@@ -41,6 +41,27 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// **不复用 `errorMessage`**：`loadOrder` 每一轮开头都会把它清空（见那里），
     /// 而这个状态要跨轮活着。理由与 `statusLogsErrorMessage` 同源。
     @Published private(set) var introCallUnavailable = false
+    /// 这一轮我**已经提交过**的表态。`nil` = 还没表态。
+    ///
+    /// 🚨 它的作用只有一个：**表过态之后，「拉不到通话数据」就不再算失败。**
+    /// 表态已经被服务端记下了，再拉不到 view 也不改变这个事实。
+    /// 没有它，用户刚听完「已经告诉系统你觉得合适」就会被「暂时拿不到通话信息」盖掉，
+    /// 而屏幕上还会冒出一个「换一位」—— 他刚说完合适，那个按钮在那一刻是危险的。
+    /// （`submitIntroCallDecision` 成功后紧接着就 `loadOrder`，这条路每次都会走到。）
+    ///
+    /// 🚩 **服务端说了话就以它为准**：每次成功拉到 view 都用 `myDecisionValue` 覆盖它。
+    /// 换了候选人时后端回的 `myDecision` 是 nil，本地这个记号必须跟着作废 ——
+    /// 否则新一轮一开局就显示成「正在等对方」，而用户其实还没打那通电话。
+    /// 本地只是在**拉不到的时候**替服务端记着，不是另一个真相来源。
+    @Published private(set) var submittedIntroCallDecision: IntroCallDecision?
+
+    /// 我已经说过「合适」，正在等对方。
+    ///
+    /// 表过态之后**不依赖再拉一次 view** 才知道这件事 —— 那正是上面那个记号存在的理由。
+    var isWaitingForIntroCallCounterpart: Bool {
+        submittedIntroCallDecision == .accept || introCall?.isWaitingForCounterpart == true
+    }
+
     /// 本单是否已经用完延长次数。**按单记**，换单时清空（见 `startPolling`）。
     @Published private(set) var keepWaitingLimitReached = false
 
@@ -243,8 +264,15 @@ final class BlindOrderStatusViewModel: ObservableObject {
             )
             introCall = view
             introCallUnavailable = false
+            // 服务端说了话就以它为准。换了候选人时它是 nil，本地记号跟着作废 ——
+            // 见 `submittedIntroCallDecision` 的注释。
+            submittedIntroCallDecision = view.myDecisionValue
         } catch {
             introCall = nil
+            // 🚩 **已经表过态就不算失败。** 表态服务端已经记下了，拉不到 view 不改变这件事，
+            // 而此刻用户没有任何该做而做不了的事 —— 报错只会盖掉他刚听到的确认，
+            // 并在屏幕上摆出一个他不该在这一刻碰到的「换一位」。
+            guard submittedIntroCallDecision == nil else { return }
             // **只在 false → true 那一跳播一次。** `loadOrder` 每 5 秒重跑一遍，
             // 每轮都播会把读屏用户淹掉 —— 而他要听的是「这次没拿到，可以重试」，
             // 不是同一句话每 5 秒一遍。
@@ -255,11 +283,12 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
-    /// 离开通话态、或换单时把这一族状态整组清掉。**两个字段必须一起动** ——
-    /// 只清 `introCall` 会让下一单一进通话态就顶着上一单的错误块。
+    /// 离开通话态、或换单时把这一族状态整组清掉。**三个字段必须一起动** ——
+    /// 少清一个就会让下一单一进通话态就顶着上一单的错误块或表态。
     private func clearIntroCallState() {
         introCall = nil
         introCallUnavailable = false
+        submittedIntroCallDecision = nil
     }
 
     /// 「重新加载」按下时走这里。也是单测的入口：正常路径下通话数据跟着订单轮询一起拉，
@@ -306,6 +335,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
                 body: IntroCallDecisionRequest(decision: decision)
             )
             isPerformingAction = false
+            // 先落本地记号，再刷订单 —— `loadOrder` 紧接着就会去拉通话数据，
+            // 而那一步拉失败时要靠这个记号判「已经表过态，不算失败」。
+            // 顺带把失败态收掉：用户是从失败块里按的「换一位」时，那个块该消失了。
+            submittedIntroCallDecision = decision
+            introCallUnavailable = false
             switch decision {
             case .accept:
                 speechService?.speak(IntroCallCopy.waitingForCounterpart)
@@ -1447,7 +1481,48 @@ struct BlindOrderStatusView: View {
     /// 但那个口径由志愿者侧提供 —— 不让盲人替系统的统计需求多按一个键。
     @ViewBuilder
     private func introCallSection(_ order: OrderDetailResponse) -> some View {
-        if order.status == .pendingIntroCall, viewModel.introCall == nil, viewModel.introCallUnavailable {
+        if order.status == .pendingIntroCall, viewModel.isWaitingForIntroCallCounterpart {
+            // 🚩 **表过态之后这一支优先，且不依赖再拉一次 view。**
+            // 服务端已经记下了我的表态，此刻拉不拉得到通话数据都不改变「在等对方」这件事。
+            // 排在失败块前面是刻意的：说完「合适」之后不该再看到「换一位」。
+            VStack(spacing: 14) {
+                // 🚨 只说自己那一半。**不许说「对方还没回复」** —— 那等于告诉盲人对方看过了
+                // 还没答应，把压力转嫁回来；而且我们根本拿不到对方的表态。
+                Text(IntroCallCopy.waitingForCounterpart)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(IntroCallCopy.waitingForCounterpart)
+                    .accessibilityIdentifier("blindOrderStatusIntroCallWaitingNotice")
+
+                // 拿得到号码就仍然给「再打一次」—— 等待期间对方可能想再聊两句。
+                if viewModel.introCall?.dialableCounterpartPhone != nil {
+                    introCallSecondaryButton(
+                        title: IntroCallCopy.callAgainButtonTitle,
+                        hint: IntroCallCopy.callAccessibilityHint,
+                        identifier: "blindOrderStatusIntroCallDialAgainButton",
+                        tint: AppColors.primary,
+                        action: dialIntroCall
+                    )
+                }
+
+                introCallSecondaryButton(
+                    title: IntroCallCopy.declineButtonTitle,
+                    hint: IntroCallCopy.declineAccessibilityHint,
+                    identifier: "blindOrderStatusIntroCallDeclineButton",
+                    tint: AppColors.destructive
+                ) {
+                    Task { await viewModel.submitIntroCallDecision(.decline) }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(
+                IntroCallCopy.blindCallSectionAnnouncement(
+                    counterpartName: viewModel.introCall?
+                        .counterpartDisplayName(fallback: "这位志愿者") ?? "这位志愿者"
+                )
+            )
+        } else if order.status == .pendingIntroCall, viewModel.introCall == nil, viewModel.introCallUnavailable {
             // 🚨 **这一块的存在本身就是修复。** 此前拉失败时这个 `@ViewBuilder` 返回空视图，
             // 于是三个按钮一个都不渲染、一个字都不显示，而状态播报仍在说
             // 「有位志愿者想陪你跑，可以打个电话聊聊」—— 被告知去做一件屏幕上没有入口的事。
@@ -1484,17 +1559,11 @@ struct BlindOrderStatusView: View {
             }
             .accessibilityElement(children: .contain)
         } else if order.status == .pendingIntroCall, let introCall = viewModel.introCall {
+            // 走到这里 = 还没表过态（表过的在上面第一支）。所以这一支不再判
+            // `isWaitingForCounterpart` —— 那条分支已经移到上面，
+            // 留在这里会是永远走不到的死代码。
             VStack(spacing: 14) {
-                if introCall.isWaitingForCounterpart {
-                    // 🚨 只说自己那一半。**不许说「对方还没回复」** —— 那等于告诉盲人对方看过了
-                    // 还没答应，把压力转嫁回来；而且我们根本拿不到对方的表态。
-                    Text(IntroCallCopy.waitingForCounterpart)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityLabel(IntroCallCopy.waitingForCounterpart)
-                        .accessibilityIdentifier("blindOrderStatusIntroCallWaitingNotice")
-                } else if introCallReturnedFromDialer {
+                if introCallReturnedFromDialer {
                     introCallPrimaryButton(
                         title: IntroCallCopy.acceptButtonTitle,
                         hint: IntroCallCopy.acceptAccessibilityHint,
@@ -1505,7 +1574,7 @@ struct BlindOrderStatusView: View {
                     }
                 }
 
-                if introCallReturnedFromDialer || introCall.isWaitingForCounterpart {
+                if introCallReturnedFromDialer {
                     introCallSecondaryButton(
                         title: IntroCallCopy.callAgainButtonTitle,
                         hint: IntroCallCopy.callAccessibilityHint,

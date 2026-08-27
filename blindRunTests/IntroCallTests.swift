@@ -535,6 +535,65 @@ final class IntroCallTests: XCTestCase {
         XCTAssertEqual(viewModel.introCallDialURL()?.absoluteString, "tel://13800000002")
     }
 
+    /// 🚨 **表过态之后，「拉不到通话数据」不算失败。**
+    ///
+    /// 这条是 2026-08-27 真机跑出来的一条真回归的钉子：`submitIntroCallDecision` 成功后
+    /// 紧接着 `loadOrder` → 会去拉通话数据，而那一步失败时最初的实现照样报错，
+    /// 于是用户刚听完「已经告诉系统你觉得合适」就被「暂时拿不到通话信息」盖掉，
+    /// **屏幕上还会冒出一个「换一位」—— 他刚说完合适**。
+    ///
+    /// 表态服务端已经记下了，拉不到 view 不改变这件事，此刻他也没有任何该做而做不了的事。
+    func testFailedRefreshAfterAcceptingIsNotReportedAsAFailure() async {
+        let client = IntroCallAPIClientStub()
+        // introCall 不设 ⇒ GET /intro-call 抛错，正是表态成功后那一次刷新会走的路。
+        client.order = Self.makeOrder(orderId: 705, status: .pendingIntroCall)
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.order = Self.makeOrder(orderId: 705, status: .pendingIntroCall)
+
+        await viewModel.submitIntroCallDecision(.accept)
+
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            IntroCallCopy.waitingForCounterpart,
+            "表态成功的确认被那次刷新失败盖掉了"
+        )
+        XCTAssertFalse(viewModel.introCallUnavailable, "表过态之后还把拉不到当成失败")
+        XCTAssertTrue(
+            viewModel.isWaitingForIntroCallCounterpart,
+            "拉不到就不知道自己在等对方了 —— 这件事本地已经知道，不该依赖再拉一次"
+        )
+    }
+
+    /// 服务端说了话就以它为准：换了候选人时 `myDecision` 回 nil，
+    /// 本地那个「我表过态」的记号必须跟着作废 —— 否则新一轮一开局就显示成「正在等对方」，
+    /// 而用户其实还没打那通电话。
+    func testServerClearsTheLocalDecisionWhenTheRoundMovesToANewCandidate() async {
+        let client = IntroCallAPIClientStub()
+        client.order = Self.makeOrder(orderId: 706, status: .pendingIntroCall)
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.order = Self.makeOrder(orderId: 706, status: .pendingIntroCall)
+
+        await viewModel.submitIntroCallDecision(.accept)
+        XCTAssertTrue(viewModel.isWaitingForIntroCallCounterpart)
+
+        // 换了候选人：后端这一轮回的 myDecision 是 nil。
+        client.introCall = Self.blindSideView
+        await viewModel.reloadIntroCall()
+
+        XCTAssertNil(viewModel.submittedIntroCallDecision)
+        XCTAssertFalse(
+            viewModel.isWaitingForIntroCallCounterpart,
+            "新一轮开局就显示成「正在等对方」，而用户还没打那通电话"
+        )
+    }
+
     // MARK: - 冷启动恢复（introCallOrderId）
 
     /// 🚨 后端为这个字段写的理由逐字：通话态 `order.volunteer` 还是 null ⇒
