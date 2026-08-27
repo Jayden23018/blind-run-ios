@@ -104,6 +104,18 @@ enum AppConstants {
         static let orderPollingInterval: TimeInterval = 5.0
         // 预约最少提前时间（分钟）
         static let minimumBookingLeadMinutes: Int = 30
+        /// 用户没说时长时，给 `plannedEndTime` 的兜底。
+        ///
+        /// 🚨 **它不是 `expectedDurationMinutes`。** 那个字段在用户没说时长时必须保持 nil
+        /// （没说就是没说，与 `hasGuideDogThisRun` 那条三态红线同源）；
+        /// 只有 `plannedEndTime` 在契约上是必填，必须有个值。
+        ///
+        /// 🚨 **这个数字有真实后果，不是一个无害的默认值。** 后端全部超时判定都用
+        /// `plannedEndTime`：`+15min` 推 `ORDER_OVERDUE`（家属/跑者会收到「可能失联」级别的提示）、
+        /// `+60min` **自动把订单置成 COMPLETED**；行程分享链接的有效期也是
+        /// `max(plannedEndTime, now) + 2h`。所以它必须被**说出来**，
+        /// 见 `BlindBookingViewModel.plannedEndSummary`。
+        static let defaultBookingDurationMinutes: Int = 60
     }
 
     enum DemoCloud {

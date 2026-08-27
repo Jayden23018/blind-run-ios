@@ -137,6 +137,23 @@ final class LoginViewModel: ObservableObject {
         if errorMessage == nil,
            let sessionExpirationMessage = appState.consumeSessionExpirationMessage() {
             errorMessage = sessionExpirationMessage
+            // 🚨 **必须播。** 会话过期是这个文件里唯一一条只写 `errorMessage`、不播报的错误
+            // （其余五处都走 `speakError`：`:198 / :251 / :282 / :306 / :320`）——
+            // 是漏了，不是取舍。
+            //
+            // 它的到达方式与那五条都不同：用户按的是「提交预约」/「接单」，
+            // 401 之后 `AppState.expireSession()` 把整个 App 换成登录页，而三个调用点
+            // （`BlindBookingViewModel.submit` / `VolunteerHomeViewModel.respondToDispatch` /
+            // `VoiceOrderWizard.submitConfirmedBooking`）拿到 `handleAuthenticatedAPIError == true`
+            // 之后都只是 `return nil`。于是屏幕整个换掉、原因只以红色小字写在新页面上 ——
+            // 对看不见屏幕的人，一次真实发生的会话过期与「点了没反应」完全无从分辨。
+            //
+            // 修在这里而不是在那三个调用点各补一句：它们本来就不该知道「过期之后要说什么」，
+            // 而且消息的所有权在 `AppState.sessionExpirationMessage` 上。
+            //
+            // 不会重复播：`consumeSessionExpirationMessage()` 取完即置 nil，
+            // `onAppear` 再触发一次拿到的是 nil。
+            speechService.speakError(sessionExpirationMessage)
         }
     }
 
