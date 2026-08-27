@@ -992,8 +992,16 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     private func handleGetVolunteerDispatchSummary() -> VolunteerDispatchSummaryResponse {
         let profile = handleGetVolunteerProfile()
         let wantsDispatch = profile.isAvailable ?? profile.wantsDispatch ?? false
+        // 🚨 **通话磨合态刻意排除在 `activeOrders` 之外**，尽管 `isActiveForVolunteer` 判它为 true。
+        // 契约逐字（`introCallOrderId` 的 description）：「它不在 `activeOrders` 里，
+        // 也不要合并进去」—— 人还没接单，那一态 `sharesLiveLocation()` 为 false，
+        // 混进活跃订单会让位置协同空转。后端就是这么发的，Mock 照着演。
+        //
+        // 不去改 `isActiveForVolunteer`：那个属性的注释写明了它取「不把订单从界面上抹掉」
+        // 的保守方向、且那条分支在生产里走不到（志愿者通话期读订单详情恒 403）。
+        // 这里要对齐的是**后端这个响应装了什么**，不是那个判定本身。
         let activeOrders = orders
-            .filter { $0.status.isActiveForVolunteer }
+            .filter { $0.status.isActiveForVolunteer && $0.status != .pendingIntroCall }
             .sorted { ($0.acceptedAt ?? $0.createdAt ?? "") > ($1.acceptedAt ?? $1.createdAt ?? "") }
             .map {
                 VolunteerDispatchSummaryActiveOrder(
@@ -1069,7 +1077,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             totalCancelled: orders.filter { $0.status == .cancelled }.count,
             acceptanceRate: 0.7,
             activeOrders: activeOrders,
-            recentOrders: Array(recentOrders)
+            recentOrders: Array(recentOrders),
+            // 冷启动恢复用的那一个 id。Mock 从真实订单里取，不写死 ——
+            // 写死就会让「没有通话在进行时它必须是 null」这条分支在开发期永远走不到，
+            // 而志愿者首页正是靠 null 判断「不要自动跳进通话页」。
+            introCallOrderId: orders.first { $0.status == .pendingIntroCall }?.orderId
         )
     }
 
@@ -1649,7 +1661,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             myDecision: introCallDecisions[orderId]?[mockRole ?? .unset]?.rawValue,
             windowEndsAt: ISO8601DateFormatter.aidRunFormatter.string(
                 from: Date().addingTimeInterval(20 * 60)
-            )
+            ),
+            // 这三项**双方角色都给**（契约：它们是「这一单的信息」不是「对方的信息」），
+            // 且必须从真实订单取而不是写死 —— 冷启动恢复出来的通话页正是靠它们才不是一片空白，
+            // 写死会让「恢复出来的页面显示的是不是这一单」在开发期永远验不出来。
+            startAddress: order.startAddress,
+            plannedStartTime: order.plannedStart,
+            plannedEndTime: order.plannedEnd
         )
     }
 
