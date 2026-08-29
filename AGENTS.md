@@ -103,8 +103,8 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 **只允许**这些状态：
 
 ```
-PENDING_MATCH  PENDING_ACCEPT  IN_PROGRESS  DRIVER_EN_ROUTE  DRIVER_ARRIVED
-COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
+PENDING_MATCH  PENDING_INTRO_CALL  PENDING_ACCEPT  IN_PROGRESS  DRIVER_EN_ROUTE
+DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 ```
 
 **禁用的遗留词汇**（`scripts/hooks/guard.mjs` 会拦）：
@@ -114,25 +114,45 @@ COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 正常流转：
 
 ```
-PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
+PENDING_MATCH → PENDING_INTRO_CALL → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
+```
+
+通话磨合没成时**退回 `PENDING_MATCH`，不是 `REMATCHING`**：
+
+```
+PENDING_INTRO_CALL → PENDING_MATCH（本轮没成，换下一位候选人）
+PENDING_INTRO_CALL → NO_VOLUNTEER（已满 3 轮 app.intro-call.max-rounds）
 ```
 
 取消流转：
 
 ```
-PENDING_MATCH / PENDING_ACCEPT → CANCELLED（盲人 token）
+PENDING_MATCH / PENDING_INTRO_CALL / PENDING_ACCEPT → CANCELLED（盲人 token）
 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING（志愿者 token）
 REMATCHING → CANCELLED（只能盲人 token）
 ```
 
 - 取消端点 `POST /api/orders/{orderId}/cancel`，无需请求体。
-- 盲人只能取消 `PENDING_MATCH` / `PENDING_ACCEPT` / `REMATCHING`；`IN_PROGRESS` 期间**不得**展示取消入口。
-- 志愿者只能取消 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。
+- 盲人只能取消 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `PENDING_ACCEPT` / `REMATCHING`；`IN_PROGRESS` 期间**不得**展示取消入口。
+- 志愿者只能取消 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。**`PENDING_INTRO_CALL` 不在内** —— 那一态他还没接单，退出的方式是表态「不合适」，不是取消订单。
 - `REMATCHING` 是已接单志愿者取消后进入的状态，此后只能盲人用自己的 token 取消 —— 那个志愿者已不是订单参与者。
-- 状态流转端点统一 `POST /api/orders/{orderId}/{action}`：`respond`（体带 `action = ACCEPT|DECLINE`）、`en-route`、`arrived`、`start-service`、`finish`。
+- 状态流转端点统一 `POST /api/orders/{orderId}/{action}`：`respond`（体带 `action = ACCEPT|DECLINE|INTERESTED`）、`en-route`、`arrived`、`start-service`、`finish`。
 - 下单起始时间距今不足 30 分钟必须返回 `APPOINTMENT_TOO_SOON`（`EnvironmentConfig.minimumBookingLeadMinutes = 30`）。**没有「现在就跑」。**
 - 订单列表用分页响应 `PagedOrderResponse`；盲人订单详情每 5 秒轮询作为 WebSocket 兜底。
 - WebSocket 端点：`/ws/blind?token={jwt}` 与 `/ws/volunteer?token={jwt}`。
+
+### PENDING_INTRO_CALL（接单前通话磨合，后端迁移 `0031`）
+
+志愿者对派单选「有意向，想先聊聊」后进入。订单锁给这个候选人，双方打完电话各自表态，都说合适才转 `PENDING_ACCEPT`。
+
+- **这一态还没有志愿者接单**。后端 `order.volunteer` 恒为 null，候选人只存在于 `dispatchCurrentVolunteerId`。直接后果：志愿者调 `GET /api/orders/{orderId}` 会被判 403，他这一刻**拿不到订单详情**，通话页只能吃派单推送 + `GET /api/orders/{orderId}/intro-call`。`IntroCallView` 里的 `startAddress` / `plannedStartTime` 就是为这个冷启动恢复存在的，别当冗余字段删掉。
+- 专用端点四条：`GET /intro-call`（通话页数据）、`POST /intro-call/decision`（表态 `ACCEPT|DECLINE`）、`POST /intro-call/unreachable`（志愿者报「没打通」，**盲人侧没有对应端点**）、`POST /intro-call/notify-incoming`（盲人拨号前提醒志愿者）。
+- **号码单向**：盲人拿到明文号可直拨，志愿者只拿到掩码串用于认人。掩码串**绝不能拼 `tel:`** —— `EmergencyDialer` 只取数字位，`138****1234` 会拨成空号且界面看不出异常（2026-08-11 的真实缺陷）。唯一允许拼 `tel:` 的来源是 `IntroCallView.dialableCounterpartPhone`。
+- **无声拒绝**：响应体不含对方的表态、也不含轮次进度，这不是后端漏字段。只有一方表态时后端**不通知**对方；「这是第 3 位志愿者」本身就是在告诉盲人前两位没成。客户端**也不许自己算**轮次再显示（例如按收到几次 `INTRO_CALL_CONTINUE` 计数）。
+- 盲人的自由文本在这一态**不可见**（`disclosesBlindRunnerNotesToVolunteer` 判 false，见 §8）：一单最多聊 3 位候选人，展示等于交给这一单碰到的每一个人。
+- 窗口 20 分钟（`app.intro-call.window-minutes`，**别硬编码**）；退回时轮次 +1，满 3 轮（`max-rounds`）转 `NO_VOLUNTEER`。
+- ⚠️ **客户端目前对陌生人一律发 `INTERESTED`**：判据字段 `requiresIntroCall` 只挂在 `AvailableOrderResponse` 上，而本 App 不调 `GET /api/orders/available`，唯一派单通道 `NEW_ORDER` 推送里没有它。自己算也不行（「这两人磨合成功过没有」客户端无从得知）。代价是熟人也要多聊一次。**已投 `demo/docs/handoff.md`，字段搬到推送上之前不要自作主张加 `.accept` 分支。**
+- 反过来也不能假设「陌生人必然被拦」：距开跑时间已塞不下一轮通话窗口时后端**刻意放行** `ACCEPT`（退化成直接接单）。
 
 ## 6. 求助 / SOS 红线
 

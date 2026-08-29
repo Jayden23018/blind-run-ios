@@ -4629,7 +4629,9 @@ public struct Client: APIProtocol {
     }
     /// 重连后补读离线期间错过的通知
     ///
-    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。前端按 ttsText 逐条朗读。
+    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。 前端按 ttsText 逐条朗读。
+    ///
+    /// **续读靠顶层 `hasMore`**（2026-08-29 新增）：为 `true` 时表示窗口里还有没返回完的， 客户端应当拿本次**最后一条**的 `sentAt` 当新的 `after` 再调一次，直到它为 `false`。 在此之前客户端只能靠「是不是正好 50 条」去猜，而那个上限是后端可以改的 —— 离线越久越容易超过 50 条，也就越容易漏掉最该补读的那一批。
     ///
     /// - Remark: HTTP `GET /api/notifications/since`.
     /// - Remark: Generated from `#/paths//api/notifications/since/get`.
