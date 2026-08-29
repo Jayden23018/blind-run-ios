@@ -581,7 +581,9 @@ public protocol APIProtocol: Sendable {
     func getCurrentUser(_ input: Operations.getCurrentUser.Input) async throws -> Operations.getCurrentUser.Output
     /// 重连后补读离线期间错过的通知
     ///
-    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。前端按 ttsText 逐条朗读。
+    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。 前端按 ttsText 逐条朗读。
+    ///
+    /// **续读靠顶层 `hasMore`**（2026-08-29 新增）：为 `true` 时表示窗口里还有没返回完的， 客户端应当拿本次**最后一条**的 `sentAt` 当新的 `after` 再调一次，直到它为 `false`。 在此之前客户端只能靠「是不是正好 50 条」去猜，而那个上限是后端可以改的 —— 离线越久越容易超过 50 条，也就越容易漏掉最该补读的那一批。
     ///
     /// - Remark: HTTP `GET /api/notifications/since`.
     /// - Remark: Generated from `#/paths//api/notifications/since/get`.
@@ -1557,7 +1559,9 @@ extension APIProtocol {
     }
     /// 重连后补读离线期间错过的通知
     ///
-    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。前端按 ttsText 逐条朗读。
+    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。 前端按 ttsText 逐条朗读。
+    ///
+    /// **续读靠顶层 `hasMore`**（2026-08-29 新增）：为 `true` 时表示窗口里还有没返回完的， 客户端应当拿本次**最后一条**的 `sentAt` 当新的 `after` 再调一次，直到它为 `false`。 在此之前客户端只能靠「是不是正好 50 条」去猜，而那个上限是后端可以改的 —— 离线越久越容易超过 50 条，也就越容易漏掉最该补读的那一批。
     ///
     /// - Remark: HTTP `GET /api/notifications/since`.
     /// - Remark: Generated from `#/paths//api/notifications/since/get`.
@@ -17093,7 +17097,9 @@ public enum Operations {
     }
     /// 重连后补读离线期间错过的通知
     ///
-    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。前端按 ttsText 逐条朗读。
+    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。 前端按 ttsText 逐条朗读。
+    ///
+    /// **续读靠顶层 `hasMore`**（2026-08-29 新增）：为 `true` 时表示窗口里还有没返回完的， 客户端应当拿本次**最后一条**的 `sentAt` 当新的 `after` 再调一次，直到它为 `false`。 在此之前客户端只能靠「是不是正好 50 条」去猜，而那个上限是后端可以改的 —— 离线越久越容易超过 50 条，也就越容易漏掉最该补读的那一批。
     ///
     /// - Remark: HTTP `GET /api/notifications/since`.
     /// - Remark: Generated from `#/paths//api/notifications/since/get`.
@@ -17207,25 +17213,33 @@ public enum Operations {
                         public typealias dataPayload = [Operations.get_sol_api_sol_notifications_sol_since.Output.Ok.Body.jsonPayload.dataPayloadPayload]
                         /// - Remark: Generated from `#/paths/api/notifications/since/GET/responses/200/content/json/data`.
                         public var data: Operations.get_sol_api_sol_notifications_sol_since.Output.Ok.Body.jsonPayload.dataPayload?
+                        /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+                        ///
+                        /// - Remark: Generated from `#/paths/api/notifications/since/GET/responses/200/content/json/hasMore`.
+                        public var hasMore: Swift.Bool?
                         /// Creates a new `jsonPayload`.
                         ///
                         /// - Parameters:
                         ///   - success:
                         ///   - code:
                         ///   - data:
+                        ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
                         public init(
                             success: Swift.Bool? = nil,
                             code: Swift.Int? = nil,
-                            data: Operations.get_sol_api_sol_notifications_sol_since.Output.Ok.Body.jsonPayload.dataPayload? = nil
+                            data: Operations.get_sol_api_sol_notifications_sol_since.Output.Ok.Body.jsonPayload.dataPayload? = nil,
+                            hasMore: Swift.Bool? = nil
                         ) {
                             self.success = success
                             self.code = code
                             self.data = data
+                            self.hasMore = hasMore
                         }
                         public enum CodingKeys: String, CodingKey {
                             case success
                             case code
                             case data
+                            case hasMore
                         }
                     }
                     /// - Remark: Generated from `#/paths/api/notifications/since/GET/responses/200/content/application\/json`.
