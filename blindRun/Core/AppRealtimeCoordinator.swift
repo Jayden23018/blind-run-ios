@@ -168,10 +168,14 @@ private extension RunOrderStatus {
         case .pendingMatch:
             return [.pendingIntroCall, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
         // 后端 `OrderStatus.java` 的通话磨合分支：双方认可 → PENDING_ACCEPT；
-        // 任一方不认可 / 没接到 / 窗口超时 → 退回 PENDING_MATCH（**不是 REMATCHING**）；
+        // 任一方不认可 / 没接到 / 窗口超时 → **退回进通话之前那个状态**；
         // 轮次达上限 → NO_VOLUNTEER；盲人取消 → CANCELLED。
+        //
+        // ⚠️ 「退回之前那个状态」是 2026-08-26 后端修 P0（N105）时改的，此前写死 `PENDING_MATCH`。
+        // 所以 `REMATCHING`（志愿者接过单又中途取消、正在重新找人，期间又有人表示有意向）
+        // 现在也是一个合法的后继 —— 那条边此前不会出现。
         case .pendingIntroCall:
-            return [.pendingAccept, .pendingMatch, .cancelled, .noVolunteer].contains(candidate)
+            return [.pendingAccept, .pendingMatch, .rematching, .cancelled, .noVolunteer].contains(candidate)
         case .pendingAccept:
             return [.driverEnRoute, .cancelled, .rematching].contains(candidate)
         case .driverEnRoute:
@@ -695,15 +699,45 @@ final class AppRealtimeCoordinator: ObservableObject {
         }
     }
 
-    private func routePeerLocation(_ sample: RealtimePeerLocationSample, expectedReceiver: WSRole) {
-        guard (attachedRole == nil || attachedRole == expectedReceiver), sample.isValid else { return }
-        guard activeOrderIDs.contains(sample.orderId) else { return }
+    /// REST 兜底拿到的对方位置。**只入库，不发布。**
+    ///
+    /// 存在的理由：`LiveEscortSessionCoordinator.freshPeerCoordinate` 只读这个存量
+    /// （`latestPeerLocation`）—— 也就是说陪跑途中 WebSocket 一断，走散检测就没有输入了。
+    /// 而后端**恰好**在 `IN_PROGRESS` 提供 `GET /api/blind/volunteer-location`
+    /// （`sharesLiveLocation()` 的三态之一）：数据一直在，从前只是没人把它接过来。
+    ///
+    /// 🚩 **刻意不走 `routePeerLocation` 的发布那一半。** 发布会回流到
+    /// `BlindOrderStatusViewModel.handleVolunteerLocationUpdate`，把 `latestVolunteerWebSocketDate`
+    /// 也一并推新 —— 而那个字段正是「WebSocket 还在给我样本吗」这个判断的依据，
+    /// 拿 REST 的结果去喂它，下一轮兜底就会被自己刚写进去的值劝退。
+    /// 入库这一半共用 `retainPeerLocation`，所以「只进不退」那条守卫两条路一模一样。
+    ///
+    /// ⚠️ 调用方必须传**真实采样时刻**（后端的 `updatedAt`），不许拿「现在」凑：
+    /// 那会让一个 29 秒前的坐标伪装成刚采的，直接削弱走散检测。
+    func ingestFallbackPeerLocation(_ sample: RealtimePeerLocationSample) {
+        _ = retainPeerLocation(sample, expectedReceiver: .blind)
+    }
+
+    /// 入库并回答「这条样本是不是新的」。抽出来只为一件事：REST 兜底与 WebSocket
+    /// 共用同一条「只进不退」的守卫，不各写一份。
+    private func retainPeerLocation(
+        _ sample: RealtimePeerLocationSample,
+        expectedReceiver: WSRole
+    ) -> Bool {
+        guard (attachedRole == nil || attachedRole == expectedReceiver), sample.isValid else { return false }
+        guard activeOrderIDs.contains(sample.orderId) else { return false }
         let key = peerKey(orderID: sample.orderId, ownerRole: sample.ownerRole)
         if let previous = latestPeerSamples[key],
            previous.timestampMilliseconds >= sample.timestampMilliseconds {
-            return
+            return false
         }
         latestPeerSamples[key] = sample
+        return true
+    }
+
+    private func routePeerLocation(_ sample: RealtimePeerLocationSample, expectedReceiver: WSRole) {
+        guard retainPeerLocation(sample, expectedReceiver: expectedReceiver) else { return }
+        let key = peerKey(orderID: sample.orderId, ownerRole: sample.ownerRole)
         guard peerPublishTasks[key] == nil else {
             ClientFlowDiagnostics.record(event: "coalesced", operation: "peer-location-event")
             return

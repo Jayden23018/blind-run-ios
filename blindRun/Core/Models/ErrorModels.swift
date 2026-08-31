@@ -69,6 +69,16 @@ enum ErrorCode: String, Codable, Sendable {
     // 陌生人试图跳过通话直接接单。客户端一律先发 `INTERESTED`，所以正常路径下见不到它；
     // 映射它是为了别把一个有确切含义的 409 念成「未知错误 (409)」。
     case introCallRequired = "INTRO_CALL_REQUIRED"
+    // 反过来的那一头（后端 2026-08-26 新增）：**已经磨合成功过的一对**又发了 `INTERESTED`。
+    //
+    // 🚨 这个码是本 App 会真撞上的，不是理论分支：派单弹窗只有「有意向」和「拒绝」两个按钮
+    // （`VolunteerHomeView.dispatchOverlay`），界面上**没有任何控件能发 `ACCEPT`**。
+    // 所以只把它翻成一句文案就等于让志愿者卡在一个本该能接的单上 ——
+    // `respondToDispatch` 收到它会自动改发一次 `ACCEPT`，用户无感。
+    //
+    // 后端刻意不替客户端转：`INTERESTED` 不构成接单、聊崩了没有统计损失，`ACCEPT` 当场把人
+    // 绑在这一单上，把不承诺静默转成承诺是后端最不该做的事。所以这一步必须由客户端做。
+    case introCallNotRequired = "INTRO_CALL_NOT_REQUIRED"
     // 固定搭档收藏（后端 `ErrorCode.java:169` / `:176`）。
     //
     // 🚨 `FAVORITE_VOLUNTEER_NOT_ELIGIBLE` 是**两种情况同码同文案**：「没一起跑完过」与
@@ -170,6 +180,10 @@ enum ErrorCode: String, Codable, Sendable {
             return IntroCallCopy.roundAlreadyEnded
         case .introCallRequired:
             return "还没有和这位跑者通过电话，请先选「有意向，想先聊聊」。"
+        // 只有**自动改发 `ACCEPT` 也失败**时才会被念到（正常路径下用户看不到这一句）。
+        // 所以文案说的是「再点一次」这个还能做的动作，不是解释那个码。
+        case .introCallNotRequired:
+            return "你们之前已经聊过了，可以直接接单。请再点一次试试。"
         case .favoriteVolunteerNotEligible:
             return PartnerStreakCopy.favoriteNotEligible
         case .favoriteVolunteerLimitExceeded:
