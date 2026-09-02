@@ -691,7 +691,8 @@ App 主动播报（`SpeechService`）与 VoiceOver 朗读并行存在。这带�
 | Token 存储 | `blindRun/Core/KeychainTokenStore.swift`（107 行） |
 | 环境配置 | `blindRun/Core/EnvironmentConfig.swift`（105 行） |
 | 志愿者服务流程 | `blindRun/Volunteer/VolunteerOrderFlowViews.swift`（2727 行） |
-| 进程内 Mock | `blindRun/Core/MockAPIClient.swift`（2494 行） |
+| 进程内 Mock | `blindRun/Core/MockAPIClient.swift` + `MockAPIClient+{Auth,Profile,Incentive,EmergencyContact,Order,IntroCall,Voice}.swift` |
+| 领域 service 层 | `blindRun/Core/Services/`（当前只有 `AuthService.swift`）+ `blindRun/Core/Endpoints/EndpointRequest.swift` |
 
 ## 附录 B：验证命令
 

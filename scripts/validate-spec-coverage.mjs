@@ -58,7 +58,11 @@ function readSpecOperations(text) {
 // 还有 `/api/orders/\d+$` 这种正则片段 —— 全部会被当成「前端在调、spec 没有」误报。
 // 误报是这类脚本的死因（报几次假的，人就开始无视它），所以整个文件排除。
 // 真正的调用路径在 app 代码里，Mock 只是照着它们分支。
-const EXCLUDED_FILES = new Set(['MockAPIClient.swift']);
+//
+// **按前缀判，不按文件名判**：Mock 已拆成 `MockAPIClient+Auth.swift` 等 7 个分片，
+// 原来的 `Set(['MockAPIClient.swift'])` 会把分片全放进扫描面，Mock 的路由字面量
+// （含 mock 专属的 `/api/volunteer/mock-verification/approve`）立刻变成假的「前端在调」。
+const isExcludedFile = (name) => name.startsWith('MockAPIClient') && name.endsWith('.swift');
 
 // Mock 环境专用、真实后端本来就没有的路径。每加一条都要写清楚为什么它不该进契约 ——
 // 这个白名单是给「已知的例外」用的，不是给「懒得查」用的。
@@ -73,9 +77,32 @@ function swiftFiles(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) swiftFiles(full, out);
-    else if (entry.name.endsWith('.swift') && !EXCLUDED_FILES.has(entry.name)) out.push(full);
+    else if (entry.name.endsWith('.swift') && !isExcludedFile(entry.name)) out.push(full);
   }
   return out;
+}
+
+/**
+ * 砍掉一行里的 `//` 注释。
+ *
+ * 必须先认字符串：`"http://47.114.113.171/api/orders"` 里的 `//` 不是注释，
+ * 一刀切会把真实调用点砍成半截路径 —— 那是把误报换成漏报，更难发现。
+ */
+function stripLineComment(line) {
+  let inString = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (c === '\\') {
+      i += 1;
+      continue;
+    }
+    if (c === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString && c === '/' && line[i + 1] === '/') return line.slice(0, i);
+  }
+  return line;
 }
 
 /**
@@ -84,11 +111,18 @@ function swiftFiles(dir, out = []) {
  * Swift 侧路径带插值（`"/api/orders/\(order.orderId)/review"`），归一成 `{param}` 才能和 spec 对齐。
  * 拿不到 HTTP 方法 —— 它在调用点的 `post(...)` / `get(...)` 上，跨行不好抓，所以**只比对 path**，
  * 方法不同但路径相同的算命中。宁可漏报也不误报：误报会让人开始无视这个脚本。
+ *
+ * 注释里的示例路径**不算调用点**（`stripLineComment`）：迁移期的注释会大量出现
+ * 「原来打的是 /api/xxx」这种句子，扫进来就是纯误报。
  */
 function readClientPaths(files) {
   const paths = new Map(); // normalized path -> 出处
   for (const file of files) {
-    const text = fs.readFileSync(file, 'utf8');
+    const text = fs
+      .readFileSync(file, 'utf8')
+      .split('\n')
+      .map(stripLineComment)
+      .join('\n');
     for (const match of text.matchAll(/"(\/api\/[^"]*)"/g)) {
       const normalized = match[1]
         .replace(/\\\([^)]*\)/g, '{param}')
@@ -101,6 +135,33 @@ function readClientPaths(files) {
 
 /** spec 的 `{orderId}` 与前端的 `{param}` 名字不同，比对前统一。 */
 const eraseParamNames = (p) => p.replace(/\{[^}]*\}/g, '{param}');
+
+/**
+ * 两个判据的自检。**无条件跑**，不挂在 flag 上 —— 挂了就没人跑，
+ * 而这两条正是这个脚本历史上误报的来源。耗时可忽略。
+ */
+(function selfTest() {
+  const cases = [
+    [isExcludedFile('MockAPIClient.swift'), true, '主 Mock 文件仍要排除'],
+    [isExcludedFile('MockAPIClient+Order.swift'), true, 'Mock 分片也要排除'],
+    [isExcludedFile('MockAPIClientTests.swift'), true, '同前缀的都排除，宁可漏报'],
+    [isExcludedFile('APIClient.swift'), false, '真实调用方不能被排除'],
+    [stripLineComment('  // 原来打的是 "/api/gone"'), '  ', '整行注释被砍掉'],
+    [stripLineComment('let p = "/api/x" // 说明 "/api/y"'), 'let p = "/api/x" ', '行尾注释被砍掉'],
+    [
+      stripLineComment('let u = "http://47.114.113.171/api/orders"'),
+      'let u = "http://47.114.113.171/api/orders"',
+      '字符串里的 // 不是注释',
+    ],
+    [stripLineComment('let s = "a\\"// b" // real'), 'let s = "a\\"// b" ', '转义引号不打断字符串'],
+  ];
+  for (const [actual, expected, why] of cases) {
+    if (actual !== expected) {
+      console.error(`[spec-coverage] 自检失败（${why}）：得到 ${JSON.stringify(actual)}，期望 ${JSON.stringify(expected)}`);
+      process.exit(2);
+    }
+  }
+})();
 
 if (!fs.existsSync(specPath)) {
   console.error(`[spec-coverage] 找不到契约文件：${specPath}`);

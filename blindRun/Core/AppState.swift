@@ -28,10 +28,7 @@ final class AccountDeletionViewModel: ObservableObject {
     func preflight(appState: AppState, speechService: SpeechService) async {
         preflightMessage = nil
         do {
-            let orders: PagedOrderResponse = try await appState.apiClient.get(
-                "/api/orders/mine",
-                query: ["page": "0", "size": "100"]
-            )
+            let orders = try await appState.auth.accountDeletionOrderPreflight()
             if orders.content.contains(where: { Self.blockingStatuses.contains($0.status) }) {
                 let message = "当前存在进行中的服务，请处理完成后再删除账户。"
                 preflightMessage = message
@@ -81,6 +78,7 @@ final class AccountDeletionViewModel: ObservableObject {
 final class AppState: ObservableObject {
     private let mockAPIClient = MockAPIClient()
     private let apiClientOverride: (any APIClientProtocol)?
+    private let authOverride: (any AuthServing)?
     let persistence: AppStatePersistence
     private let tokenStore: any TokenStoring
     let realtimeCoordinator: AppRealtimeCoordinator
@@ -381,10 +379,20 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// 认证·会话片的领域 service。
+    ///
+    /// 与 `apiClient` 一样**每次取都新建**：环境可以在运行时切换（Mock / Demo Cloud），
+    /// 缓存一个实例会让切换后的调用还打在旧 transport 上。
+    var auth: any AuthServing {
+        if let authOverride { return authOverride }
+        return AuthService(transport: apiClient)
+    }
+
     // MARK: - Init
 
     init(
         apiClient: (any APIClientProtocol)? = nil,
+        auth: (any AuthServing)? = nil,
         persistence: AppStatePersistence? = nil,
         tokenStore: (any TokenStoring)? = nil
     ) {
@@ -395,6 +403,7 @@ final class AppState: ObservableObject {
         let emergencyCoordinator = EmergencyCoordinator()
         self.emergencyCoordinator = emergencyCoordinator
         self.apiClientOverride = apiClient
+        self.authOverride = auth
         self.persistence = persistence
         self.tokenStore = tokenStore ?? TokenStoreFactory.makeDefault()
         if let envRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
@@ -450,10 +459,7 @@ final class AppState: ObservableObject {
             ?? persistence.string(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
         guard let after, !after.isEmpty else { return }
         do {
-            let missed: [MissedNotificationResponse] = try await apiClient.get(
-                "/api/notifications/since",
-                query: ["after": after]
-            )
+            let missed = try await auth.missedNotifications(after: after)
             realtimeCoordinator.ingestCatchUp(missed)
             if let latest = realtimeCoordinator.lastObservedNotificationTimestamp {
                 persistence.set(latest, forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
@@ -477,7 +483,7 @@ final class AppState: ObservableObject {
         guard !didAttemptLegalLinksLoad else { return }
         didAttemptLegalLinksLoad = true
         do {
-            legalLinks = try await apiClient.get("/api/misc/legal-links", requiresAuth: false)
+            legalLinks = try await auth.legalLinks()
         } catch {
             ClientFlowDiagnostics.record(event: "failed", operation: "legal-links")
         }
@@ -501,7 +507,7 @@ final class AppState: ObservableObject {
         }
         mockAPIClient.syncSessionFromAppState(token: accessToken, role: activeRole)
         do {
-            let user: CurrentUserResponse = try await apiClient.get("/api/auth/me")
+            let user = try await auth.currentUser()
             guard user.roleResolution != .invalid else {
                 performLocalSessionCleanup()
                 sessionExpirationMessage = "登录角色信息异常，请重新登录。"
@@ -573,7 +579,7 @@ final class AppState: ObservableObject {
         // 解绑失败不阻断登出：接口幂等、可安全重试。
         await pushNotificationsManager?.unregisterDeviceTokenBeforeLogout()
         do {
-            let _: LogoutResponse = try await apiClient.post("/api/auth/logout")
+            _ = try await auth.logout()
             performLocalSessionCleanup()
         } catch APIError.unauthorized {
             performLocalSessionCleanup()
@@ -602,7 +608,7 @@ final class AppState: ObservableObject {
         guard accountDeletionState != .inProgress, let userId = currentUser?.userId ?? self.userId else { return }
         accountDeletionState = .inProgress
         do {
-            let response: DeleteAccountResponse = try await apiClient.delete("/api/users/\(userId)")
+            let response = try await auth.deleteAccount(userId: userId)
             guard response.success else {
                 accountDeletionState = .revocationFailed(message: response.message ?? "账户删除未完成。")
                 return

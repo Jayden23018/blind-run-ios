@@ -91,10 +91,10 @@ final class ContentRootRouter: ObservableObject {
         switch role {
         case .blind:
             let profileTask: Task<BlindProfileResponse, Error> = Task {
-                try await appState.apiClient.get("/api/blind/profile")
+                try await appState.auth.blindProfile()
             }
             let contactsTask: Task<[EmergencyContactResponse], Error>? = userID.map { id in
-                Task { try await appState.apiClient.get("/api/users/\(id)/emergency-contacts") }
+                Task { try await appState.auth.emergencyContacts(userId: id) }
             }
             defer {
                 profileTask.cancel()
@@ -134,10 +134,12 @@ final class ContentRootRouter: ObservableObject {
 
         case .volunteer:
             let profileTask: Task<VolunteerProfileResponse, Error> = Task {
-                try await appState.apiClient.get("/api/volunteer/profile")
+                try await appState.auth.volunteerProfile()
             }
+            // `try?` 是既有的刻意降级：拿不到注册状态时 `isVolunteerProfileApproved`
+            // 退回只看 profile 的判定（`AppState.swift` 同名属性），不是静默失败。
             let registrationTask: Task<VolunteerRegistrationStatus?, Never> = Task {
-                try? await appState.apiClient.get("/api/volunteer/registration/status")
+                try? await appState.auth.volunteerRegistrationStatus()
             }
             defer {
                 profileTask.cancel()
