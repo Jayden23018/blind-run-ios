@@ -150,7 +150,7 @@ struct InviteCodeView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            response = try await appState.apiClient.get("/api/users/me/invite-code")
+            response = try await appState.incentive.inviteCode()
             errorMessage = nil
         } catch let error as APIError {
             // UNSET 用户拿不到邀请码（403）。入口本就放在设完角色之后，这是防御分支 ——

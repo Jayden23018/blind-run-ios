@@ -2053,7 +2053,7 @@ struct VolunteerServiceRecognitionView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            achievements = try await appState.apiClient.get("/api/volunteer/achievements")
+            achievements = try await appState.incentive.volunteerAchievements()
             errorMessage = nil
         } catch let error as APIError {
             errorMessage = error.localizedMessage

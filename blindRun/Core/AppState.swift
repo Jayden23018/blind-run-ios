@@ -79,6 +79,7 @@ final class AppState: ObservableObject {
     private let mockAPIClient = MockAPIClient()
     private let apiClientOverride: (any APIClientProtocol)?
     private let authOverride: (any AuthServing)?
+    private let incentiveOverride: (any IncentiveServing)?
     let persistence: AppStatePersistence
     private let tokenStore: any TokenStoring
     let realtimeCoordinator: AppRealtimeCoordinator
@@ -388,11 +389,18 @@ final class AppState: ObservableObject {
         return AuthService(transport: apiClient)
     }
 
+    /// 激励片的领域 service。每次取都新建，理由同 `auth`。
+    var incentive: any IncentiveServing {
+        if let incentiveOverride { return incentiveOverride }
+        return IncentiveService(transport: apiClient)
+    }
+
     // MARK: - Init
 
     init(
         apiClient: (any APIClientProtocol)? = nil,
         auth: (any AuthServing)? = nil,
+        incentive: (any IncentiveServing)? = nil,
         persistence: AppStatePersistence? = nil,
         tokenStore: (any TokenStoring)? = nil
     ) {
@@ -404,6 +412,7 @@ final class AppState: ObservableObject {
         self.emergencyCoordinator = emergencyCoordinator
         self.apiClientOverride = apiClient
         self.authOverride = auth
+        self.incentiveOverride = incentive
         self.persistence = persistence
         self.tokenStore = tokenStore ?? TokenStoreFactory.makeDefault()
         if let envRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),

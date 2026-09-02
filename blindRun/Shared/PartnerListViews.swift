@@ -216,13 +216,11 @@ struct BlindFavoriteVolunteersView: View {
         busyUserId = userId
         defer { busyUserId = nil }
         do {
-            let _: EmptyResponse = try await appState.apiClient.request(
-                method: isFavorite ? .put : .delete,
-                path: "/api/blind/favorite-volunteers/\(userId)",
-                query: nil,
-                body: nil,
-                requiresAuth: true
-            )
+            if isFavorite {
+                try await appState.incentive.addBlindFavoriteVolunteer(volunteerId: userId)
+            } else {
+                try await appState.incentive.removeBlindFavoriteVolunteer(volunteerId: userId)
+            }
             let notice = isFavorite
                 ? PartnerStreakCopy.favoriteAdded(name)
                 : PartnerStreakCopy.favoriteRemoved(name)
@@ -249,12 +247,8 @@ struct BlindFavoriteVolunteersView: View {
         do {
             // 两个只读端点，谁先回来都行 —— 串行写法足够（这一页低频、且两条都很轻）。
             // ponytail: 不为两个请求引入 async let 的并发编排，等真慢了再说。
-            let favorites: [FavoriteVolunteerResponse] = try await appState.apiClient.get(
-                "/api/blind/favorite-volunteers"
-            )
-            let streaks: [PartnerStreakResponse] = try await appState.apiClient.get(
-                "/api/blind/partners/streaks"
-            )
+            let favorites = try await appState.incentive.blindFavoriteVolunteers()
+            let streaks = try await appState.incentive.blindPartnerStreaks()
             rows = PartnerRowMerge.blindRows(favorites: favorites, streaks: streaks)
             errorMessage = nil
             hasLoadedOnce = true
@@ -388,12 +382,8 @@ struct VolunteerPartnersView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            let favorites: [VolunteerFavoritedByResponse] = try await appState.apiClient.get(
-                "/api/volunteer/favorites"
-            )
-            let streaks: [PartnerStreakResponse] = try await appState.apiClient.get(
-                "/api/volunteer/partners/streaks"
-            )
+            let favorites = try await appState.incentive.volunteerFavoritedBy()
+            let streaks = try await appState.incentive.volunteerPartnerStreaks()
             favoritedByCount = favorites.count
             rows = PartnerRowMerge.volunteerRows(favorites: favorites, streaks: streaks)
             errorMessage = nil
@@ -415,9 +405,7 @@ struct VolunteerPartnersView: View {
         guard let userId = row.userId else { return }
         let name = row.name?.nilIfBlank ?? PartnerStreakCopy.unknownBlindName
         do {
-            let _: EmptyResponse = try await appState.apiClient.delete(
-                "/api/volunteer/favorites/\(userId)"
-            )
+            try await appState.incentive.volunteerOptOutOfFavorite(blindUserId: userId)
             optOutNotice = PartnerStreakCopy.optOutSucceeded(name)
             await load()
         } catch let error as APIError {
