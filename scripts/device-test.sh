@@ -182,7 +182,9 @@ say "result bundle：$BUNDLE"
 # （布局、间距、截断、层级压盖）因此一直只能靠人肉复核。
 #
 # 一并导出的 manifest.json 记录了每个附件属于哪条用例，比文件名更可靠。
-# 导出失败不改变测试结论 —— 它只是可视化，`|| true` 是有意的。
+#
+# 导出失败**不改变测试结论**：走 if/else 各自打印，两条路都不 exit。
+# 本脚本是 `set -uo pipefail`（没有 -e），所以这里不需要也没有 `|| true`。
 SHOTS="$(dirname "$BUNDLE")/attachments"
 if xcrun xcresulttool export attachments --path "$BUNDLE" --output-path "$SHOTS" >/dev/null 2>&1; then
   SHOT_COUNT="$(find "$SHOTS" -type f ! -name manifest.json 2>/dev/null | wc -l | tr -d ' ')"

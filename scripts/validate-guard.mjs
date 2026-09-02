@@ -1088,9 +1088,42 @@ const cases = [
       '  .hitRegion, .sufficientElementDescription, .trait])\n'
   },
   {
-    name: 'a11y 审计缺项但代码行带 guard:allow（放行）',
+    // 2026-09-02 code review 抓到的绕过，已复现：`codeOnly` 只剥**整行**注释，
+    // 于是「缺项 + 行尾一句 TODO」会让规则反向失效 —— 注释里的类型名把缺项补上了。
+    // 这是本规则要堵的那个形状的最常见写法，判据退回文本级包含时这条会立刻变绿。
+    name: 'a11y 审计缺项 + 行尾注释里提到缺的类型（仍然拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription]) // TODO: 补 .textClipped 和 .trait\n'
+  },
+  {
+    // 反方向的误伤（同轮自查发现）：不传实参时默认就是 `.all`，是完全正确、
+    // 甚至更好的写法（自动跟随 SDK 新增类型）。初版把它判成「七项全缺」。
+    name: 'performAccessibilityAudit() 不传实参即默认 .all（放行）',
     mode: 'post',
     expect: 0,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift: 'try app.performAccessibilityAudit()\n'
+  },
+  {
+    name: 'a11y 审计缺项但列表内带 guard:allow（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription, .trait // guard:allow a11y-audit-types\n' +
+      '])\n'
+  },
+  {
+    // 抑制标记的作用域：必须落在**这个列表**里。写在列表外（哪怕同一行的 `])` 之后）
+    // 不算数 —— 否则在文件任意角落写一次就能让整条规则失效，这是初版的第二个洞。
+    name: 'guard:allow 写在列表外（仍然拦下）',
+    mode: 'post',
+    expect: 2,
     swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
     swift:
       'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
@@ -1105,13 +1138,23 @@ const cases = [
     swift: 'private static let readableContentWidth: CGFloat = 700\n'
   },
   {
-    // 反向哨兵：确认上面几条不是因为路径没匹配才「通过」的。
-    // 同样的缺项内容放在别的文件里必须放行 —— 否则说明规则的文件名判据失效了。
-    name: '缺项内容出现在别的测试文件里（放行 —— 证明前面几条不是恒过）',
+    // 触发面按**内容**而不是文件名：审计调用哪天拆到别的文件里，规则要照样管得住。
+    // 初版按文件名匹配，新文件不叫这个名字就完全不被检查、且没有任何提示 ——
+    // 那正是这条规则想避免的「少了什么但看不出来」，只是换了个面。
+    name: '缺项出现在别的测试文件里（同样拦下 —— 触发面按内容不按文件名）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunUITests/SomeOtherAuditTests.swift',
+    swift: 'try app.performAccessibilityAudit(for: [.contrast])\n'
+  },
+  {
+    // 反向哨兵：确认上面那些 expect: 0 不是「规则压根没跑」造成的假通过。
+    // 无关文件里放一份缺项内容，必须**不**被这条规则碰到（它不含 audit 调用）。
+    name: '无关文件不含 audit 调用（放行 —— 证明前面的放行不是恒过）',
     mode: 'post',
     expect: 0,
-    swiftPath: 'blindRunUITests/SomeOtherTests.swift',
-    swift: 'try app.performAccessibilityAudit(for: [.contrast])\n'
+    swiftPath: 'blindRunUITests/UnrelatedTests.swift',
+    swift: 'let types = [".contrast", ".textClipped"]\n'
   }
 ];
 
