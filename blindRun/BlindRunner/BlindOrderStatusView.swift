@@ -411,7 +411,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             order: order,
             role: appState.activeRole,
             userID: appState.userId,
-            apiClient: appState.apiClient,
+            safety: appState.safety,
             locate: { await self.freshEmergencyCoordinate() },
             locationFailureReason: { self.locationService?.locationError }
         )
@@ -429,7 +429,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// is refused this action server-side on purpose.
     func cancelEmergency() async {
         guard let appState else { return }
-        let outcome = await appState.emergencyCoordinator.cancelByOwner(apiClient: appState.apiClient)
+        let outcome = await appState.emergencyCoordinator.cancelByOwner(safety: appState.safety)
         if outcome.isFailure {
             speechService?.speakError(outcome.message)
         } else {

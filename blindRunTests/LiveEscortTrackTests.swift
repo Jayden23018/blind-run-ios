@@ -737,20 +737,32 @@ final class LiveEscortTrackTests: XCTestCase {
     }
 
     @MainActor
-    func testCompletedTrackRetryRecoversWithoutRepeatingFinish() async {
-        let client = RecoveringTrackAPIClient()
-        let appState = AppState(apiClient: client)
+    func testCompletedTrackRetryRecoversWithoutRepeatingFinish() async throws {
+        let safety = FakeSafetyService()
+        safety.orderTrackResult = .failure(
+            APIError.serverError(ErrorResponse(code: "TRACK_UNAVAILABLE", message: "轨迹暂时不可用"))
+        )
+        let appState = AppState(safety: safety)
         let viewModel = CompletedTrackSummaryViewModel()
 
         await viewModel.load(orderID: 94, appState: appState)
         XCTAssertNil(viewModel.track)
         XCTAssertEqual(viewModel.errorMessage, "本次路线暂时无法加载。")
 
+        safety.orderTrackResult = .success(try Self.decodeTrack(Self.completedTrackJSON))
         await viewModel.load(orderID: 94, appState: appState)
         XCTAssertEqual(viewModel.track?.status, .completed)
         XCTAssertNil(viewModel.errorMessage)
-        XCTAssertEqual(client.requestedPaths, ["/api/orders/94/track", "/api/orders/94/track"])
-        XCTAssertEqual(client.requestedMethods, [.get, .get])
+        // 重试只该再读一次轨迹。`GET /api/orders/{id}/track` 的方法与路径由
+        // `SafetyServiceTests.testOrderTrackIsAGet` 守。
+        XCTAssertEqual(safety.calls, ["orderTrack(orderId:)", "orderTrack(orderId:)"])
+        XCTAssertEqual(safety.orderIds, [94, 94])
+    }
+
+    static let completedTrackJSON = #"{"status":"COMPLETED","volunteerTrack":[],"volunteerStats":{"distanceMeters":0,"durationSeconds":0,"avgPaceSecPerKm":null},"blindTrack":[],"blindStats":{"distanceMeters":0,"durationSeconds":0,"avgPaceSecPerKm":null}}"#
+
+    static func decodeTrack(_ json: String) throws -> OrderTrackResponse {
+        try JSONDecoder().decode(OrderTrackResponse.self, from: Data(json.utf8))
     }
 
     /// 轮询等待某个正向条件成立，替代"固定 sleep 之后直接断言"的写法。
@@ -768,38 +780,5 @@ final class LiveEscortTrackTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
         return condition()
-    }
-}
-
-private final class RecoveringTrackAPIClient: APIClientProtocol, @unchecked Sendable {
-    private(set) var requestedPaths: [String] = []
-    private(set) var requestedMethods: [HTTPMethod] = []
-
-    func request<T: Decodable>(
-        method: HTTPMethod,
-        path: String,
-        query: [String: String]?,
-        body: (any Encodable & Sendable)?,
-        requiresAuth: Bool
-    ) async throws -> T {
-        requestedMethods.append(method)
-        requestedPaths.append(path)
-        guard requestedPaths.count > 1 else {
-            throw APIError.serverError(
-                ErrorResponse(code: "TRACK_UNAVAILABLE", message: "轨迹暂时不可用")
-            )
-        }
-        let json = #"{"status":"COMPLETED","volunteerTrack":[],"volunteerStats":{"distanceMeters":0,"durationSeconds":0,"avgPaceSecPerKm":null},"blindTrack":[],"blindStats":{"distanceMeters":0,"durationSeconds":0,"avgPaceSecPerKm":null}}"#
-        return try JSONDecoder().decode(T.self, from: Data(json.utf8))
-    }
-
-    func upload<T: Decodable>(
-        path: String,
-        query: [String: String]?,
-        fields: [String: String]?,
-        files: [MultipartFile],
-        requiresAuth: Bool
-    ) async throws -> T {
-        throw APIError.invalidURL
     }
 }

@@ -138,4 +138,6 @@ final class AuthServiceTests: XCTestCase {
     }
 }
 
-// `RecordingTransport` 搬去了 `RecordingTransport.swift` —— 激励片起就是各片共用的。
+// MARK: - Test Doubles
+//
+// `RecordingTransport` 已搬到 `blindRunTests/RecordingTransport.swift`，激励片起各片共用一份。

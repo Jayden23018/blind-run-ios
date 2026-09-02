@@ -116,17 +116,23 @@ enum IntroCallEndpoint {
     case unreachable
     case notifyIncoming
 
-    func path(orderId: Int64) -> String {
+    func request(orderId: Int64) -> EndpointRequest {
         switch self {
         case .view:
-            return "/api/orders/\(orderId)/intro-call"
+            return EndpointRequest(.get, "/api/orders/\(orderId)/intro-call")
         case .decision:
-            return "/api/orders/\(orderId)/intro-call/decision"
+            return EndpointRequest(.post, "/api/orders/\(orderId)/intro-call/decision")
         case .unreachable:
-            return "/api/orders/\(orderId)/intro-call/unreachable"
+            return EndpointRequest(.post, "/api/orders/\(orderId)/intro-call/unreachable")
         case .notifyIncoming:
-            return "/api/orders/\(orderId)/intro-call/notify-incoming"
+            return EndpointRequest(.post, "/api/orders/\(orderId)/intro-call/notify-incoming")
         }
+    }
+
+    /// 盲人侧那三个调用点还在直接拼路径打 `apiClient`（`BlindOrderStatusView`），
+    /// 随订单片一起迁；迁完这个方法就没有调用点了，当场删。
+    func path(orderId: Int64) -> String {
+        request(orderId: orderId).path
     }
 }
 
