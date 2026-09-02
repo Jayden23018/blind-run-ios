@@ -74,10 +74,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
         )
 
         do {
-            let profile: BlindProfileResponse = try await appState.apiClient.put(
-                "/api/blind/profile",
-                body: profileRequest
-            )
+            let profile = try await appState.profile.updateBlindProfile(profileRequest)
             appState.updateBlindProfile(profile)
             isLoading = false
         } catch let error as APIError {

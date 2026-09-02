@@ -395,6 +395,15 @@ final class AppState: ObservableObject {
         return IncentiveService(transport: apiClient)
     }
 
+    /// 档案·实名·资质片的领域 service。同样**每次取都新建**，理由同上。
+    ///
+    /// 这里没有 `AppState(profile:)` 注入口 —— 本片现有用例全部通过 `AppState(apiClient:)`
+    /// 打桩，桩实现的是 `APIClientProtocol`，`ProfileService` 照样架在它上面。
+    /// 真需要一个 `FakeProfileService` 时再照 `auth` 加，不先摆一个没人用的入口。
+    var profile: any ProfileServing {
+        ProfileService(transport: apiClient)
+    }
+
     // MARK: - Init
 
     init(

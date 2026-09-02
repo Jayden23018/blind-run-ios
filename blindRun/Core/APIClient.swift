@@ -224,6 +224,24 @@ extension APIClientProtocol {
             requiresAuth: endpoint.requiresAuth
         )
     }
+
+    /// multipart 版本的 `send`。
+    ///
+    /// `upload` 只有 POST 一种语义，所以 `endpoint.method` 在这里不参与构造 ——
+    /// 端点表里照样写 `.post`，别改成别的，否则读端点表的人会以为这条走的是另一个方法。
+    func send<T: Decodable>(
+        _ endpoint: EndpointRequest,
+        files: [MultipartFile],
+        fields: [String: String]? = nil
+    ) async throws -> T {
+        try await upload(
+            path: endpoint.path,
+            query: nil,
+            fields: fields,
+            files: files,
+            requiresAuth: endpoint.requiresAuth
+        )
+    }
 }
 
 // MARK: - URLSession API Client

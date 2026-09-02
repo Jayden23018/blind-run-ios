@@ -15,10 +15,12 @@ import Foundation
 /// 只认字符串字面量，拼出来的路径它扫不到，于是这条端点就再也不会跟后端契约对撞。
 /// 带参数的写成插值（`"/api/users/\(userId)"`），脚本会归一成 `{param}`。
 ///
-/// 「会话」的边界按**流程**划，不按端点归属划：`hydrate` 里那三条资料端点
-/// （`blindProfile` / `emergencyContacts` / `volunteerProfile` / `volunteerRegistrationStatus`）
-/// 是会话恢复的一部分 —— 它们决定用户落在哪个首页。档案片落地后这几条会搬过去，
-/// 到时候这里删掉、`AuthServing` 上对应方法一起删。
+/// 边界按**数据归属**划：这一片管「会话本身」——登录、当前身份、令牌、注销。
+///
+/// `hydrate` 用到的四条资料端点（`blindProfile` / `emergencyContacts` /
+/// `volunteerProfile` / `volunteerRegistrationStatus`）曾经暂放在这里，
+/// 档案片落地时已按原计划搬进 `ProfileEndpoint`。**一条端点只能有一个 owner** ——
+/// 两片都留一份，就等于给同一条路径造了两个会各自漂移的定义。
 enum AuthEndpoint {
     case sendVerificationCode
     case verifyCode
@@ -29,10 +31,6 @@ enum AuthEndpoint {
     case missedNotifications
     /// 注销账号前的进行中订单预检。挂在这里是因为它只服务账号注销这一条流程。
     case accountDeletionOrderPreflight
-    case blindProfile
-    case emergencyContacts(userId: Int64)
-    case volunteerProfile
-    case volunteerRegistrationStatus
     case registerDeviceToken
     case unregisterDeviceToken
 
@@ -56,14 +54,6 @@ enum AuthEndpoint {
             return EndpointRequest(.get, "/api/notifications/since")
         case .accountDeletionOrderPreflight:
             return EndpointRequest(.get, "/api/orders/mine")
-        case .blindProfile:
-            return EndpointRequest(.get, "/api/blind/profile")
-        case .emergencyContacts(let userId):
-            return EndpointRequest(.get, "/api/users/\(userId)/emergency-contacts")
-        case .volunteerProfile:
-            return EndpointRequest(.get, "/api/volunteer/profile")
-        case .volunteerRegistrationStatus:
-            return EndpointRequest(.get, "/api/volunteer/registration/status")
         case .registerDeviceToken:
             return EndpointRequest(.post, "/api/devices/apns")
         case .unregisterDeviceToken:
@@ -76,7 +66,7 @@ enum AuthEndpoint {
 
 /// 认证·会话片对外的全部能力。
 ///
-/// **每个方法都必须有生产调用点**（当前 14 个，与迁移前的 14 个 `apiClient.<verb>` 一一对应）。
+/// **每个方法都必须有生产调用点**（当前 10 个）。
 /// 没有调用点的方法当场删 —— service 层的价值是收敛调用点，不是先摆一层空壳。
 ///
 /// 错误一律 `throws` 抛出去，**这一层不吞**。谁负责渲染谁 catch：
@@ -93,12 +83,6 @@ protocol AuthServing: Sendable {
     func legalLinks() async throws -> LegalLinksResponse
     func missedNotifications(after: String) async throws -> [MissedNotificationResponse]
     func accountDeletionOrderPreflight() async throws -> PagedOrderResponse
-
-    // 会话恢复时的资料水合
-    func blindProfile() async throws -> BlindProfileResponse
-    func emergencyContacts(userId: Int64) async throws -> [EmergencyContactResponse]
-    func volunteerProfile() async throws -> VolunteerProfileResponse
-    func volunteerRegistrationStatus() async throws -> VolunteerRegistrationStatus
 
     // 设备令牌
     func registerDeviceToken(_ token: String) async throws
@@ -160,22 +144,6 @@ struct AuthService: AuthServing {
             AuthEndpoint.accountDeletionOrderPreflight.request,
             query: ["page": "0", "size": "100"]
         )
-    }
-
-    func blindProfile() async throws -> BlindProfileResponse {
-        try await transport.send(AuthEndpoint.blindProfile.request)
-    }
-
-    func emergencyContacts(userId: Int64) async throws -> [EmergencyContactResponse] {
-        try await transport.send(AuthEndpoint.emergencyContacts(userId: userId).request)
-    }
-
-    func volunteerProfile() async throws -> VolunteerProfileResponse {
-        try await transport.send(AuthEndpoint.volunteerProfile.request)
-    }
-
-    func volunteerRegistrationStatus() async throws -> VolunteerRegistrationStatus {
-        try await transport.send(AuthEndpoint.volunteerRegistrationStatus.request)
     }
 
     func registerDeviceToken(_ token: String) async throws {

@@ -131,10 +131,7 @@ final class EmergencyContactsViewModel: ObservableObject {
             isPrimary: isPrimary
         )
         return await mutate(successMessage: "已添加紧急联系人\(name.trimmed)。") { appState, userId in
-            let _: EmergencyContactResponse = try await appState.apiClient.post(
-                "/api/users/\(userId)/emergency-contacts",
-                body: request
-            )
+            _ = try await appState.profile.createEmergencyContact(userId: userId, request)
         }
     }
 
@@ -156,9 +153,10 @@ final class EmergencyContactsViewModel: ObservableObject {
             isPrimary: contact.isPrimary ?? false
         )
         return await mutate(successMessage: "已更新紧急联系人\(name.trimmed)。") { appState, userId in
-            let _: EmergencyContactResponse = try await appState.apiClient.put(
-                "/api/users/\(userId)/emergency-contacts/\(contact.id)",
-                body: request
+            _ = try await appState.profile.updateEmergencyContact(
+                userId: userId,
+                contactId: contact.id,
+                request
             )
         }
     }
@@ -171,9 +169,7 @@ final class EmergencyContactsViewModel: ObservableObject {
         }
         let name = contact.name?.nilIfBlank ?? "该联系人"
         return await mutate(successMessage: "已删除紧急联系人\(name)。") { appState, userId in
-            let _: EmptyResponse = try await appState.apiClient.delete(
-                "/api/users/\(userId)/emergency-contacts/\(contact.id)"
-            )
+            try await appState.profile.deleteEmergencyContact(userId: userId, contactId: contact.id)
         }
     }
 
@@ -182,9 +178,7 @@ final class EmergencyContactsViewModel: ObservableObject {
         guard contact.isPrimary != true else { return true }
         let name = contact.name?.nilIfBlank ?? "该联系人"
         return await mutate(successMessage: "已把\(name)设为主联系人。") { appState, userId in
-            let _: EmptyResponse = try await appState.apiClient.put(
-                "/api/users/\(userId)/emergency-contacts/\(contact.id)/set-primary"
-            )
+            try await appState.profile.setPrimaryEmergencyContact(userId: userId, contactId: contact.id)
         }
     }
 
@@ -232,9 +226,7 @@ final class EmergencyContactsViewModel: ObservableObject {
     }
 
     private func refreshContacts(appState: AppState, userId: Int64) async throws {
-        let latest: [EmergencyContactResponse] = try await appState.apiClient.get(
-            "/api/users/\(userId)/emergency-contacts"
-        )
+        let latest = try await appState.profile.emergencyContacts(userId: userId)
         contacts = latest
         appState.updateEmergencyContacts(latest)
     }

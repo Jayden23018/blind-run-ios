@@ -29,10 +29,6 @@ final class FakeAuthService: AuthServing, @unchecked Sendable {
     var legalLinksResult: Result<LegalLinksResponse, Error> = .failure(NotStubbed(method: "legalLinks"))
     var missedNotificationsResult: Result<[MissedNotificationResponse], Error> = .failure(NotStubbed(method: "missedNotifications"))
     var accountDeletionOrderPreflightResult: Result<PagedOrderResponse, Error> = .failure(NotStubbed(method: "accountDeletionOrderPreflight"))
-    var blindProfileResult: Result<BlindProfileResponse, Error> = .failure(NotStubbed(method: "blindProfile"))
-    var emergencyContactsResult: Result<[EmergencyContactResponse], Error> = .failure(NotStubbed(method: "emergencyContacts"))
-    var volunteerProfileResult: Result<VolunteerProfileResponse, Error> = .failure(NotStubbed(method: "volunteerProfile"))
-    var volunteerRegistrationStatusResult: Result<VolunteerRegistrationStatus, Error> = .failure(NotStubbed(method: "volunteerRegistrationStatus"))
     var registerDeviceTokenResult: Result<Void, Error> = .failure(NotStubbed(method: "registerDeviceToken"))
     var unregisterDeviceTokenResult: Result<Void, Error> = .failure(NotStubbed(method: "unregisterDeviceToken"))
 
@@ -90,27 +86,6 @@ final class FakeAuthService: AuthServing, @unchecked Sendable {
     func accountDeletionOrderPreflight() async throws -> PagedOrderResponse {
         record()
         return try accountDeletionOrderPreflightResult.get()
-    }
-
-    func blindProfile() async throws -> BlindProfileResponse {
-        record()
-        return try blindProfileResult.get()
-    }
-
-    func emergencyContacts(userId: Int64) async throws -> [EmergencyContactResponse] {
-        record()
-        lastUserId = userId
-        return try emergencyContactsResult.get()
-    }
-
-    func volunteerProfile() async throws -> VolunteerProfileResponse {
-        record()
-        return try volunteerProfileResult.get()
-    }
-
-    func volunteerRegistrationStatus() async throws -> VolunteerRegistrationStatus {
-        record()
-        return try volunteerRegistrationStatusResult.get()
     }
 
     func registerDeviceToken(_ token: String) async throws {
