@@ -125,7 +125,11 @@ if (process.argv[2] === 'pre') {
         (index.length > MAX_INDEX_CHARS
           ? `${index.slice(0, MAX_INDEX_CHARS)}\n\n（索引已截断，完整内容见 ${INDEX_PATH}）`
           : index) +
-        `\n\n调研完必须落盘 \`${RESEARCH_DIR}/{topic}-{YYYYMMDD}.md\` 并回写索引一行，否则不算完成。`;
+        `\n\n调研完必须落盘 \`${RESEARCH_DIR}/{topic}-{YYYYMMDD}.md\` 并回写索引一行，否则不算完成。` +
+        `\n\n⚠️ 写下「本仓库还没有 X / 建议引入 X」之前，先在仓库里搜一次 X，并换一组近义词再搜一次。` +
+        `调研在回答「外面有什么」时会默认「我们没有」：2026-09-02 一路搜到「该给这个项目引入 iOS 无障碍` +
+        `自动审计」，而 \`blindRunUITests/AccessibilityAuditTests.swift\` 已经在那儿躺了 859 行。` +
+        `同类还犯过两次（记忆 \`synonym-mismatch-fakes-a-missing-feature\`）。成本一次 grep。`;
 
   process.stdout.write(
     JSON.stringify({

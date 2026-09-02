@@ -120,6 +120,22 @@ const PBXPROJ_FROZEN_KEY = /DEVELOPMENT_TEAM/;
 // 键名拼出来而不是写成字面量 —— 见下面用到它的地方的说明。
 const ARCH_EXCLUSION_KEY = new RegExp(['EXCLUDED', 'ARCHS'].join('_'));
 
+// ---- 无障碍审计类型全集（规则 a11y-audit-types，见 post 分支）----
+//
+// iOS 侧 `XCUIAccessibilityAuditType` 的**全部**取值，本机 SDK 头文件实证：
+// `Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/Frameworks/`
+// `XCUIAutomation.framework/Headers/XCUIAccessibilityAuditTypes.h`
+// （macOS 专属的 action / parentChild 在 `#elif TARGET_OS_OSX` 分支里，不属于这里）。
+const A11Y_AUDIT_TYPES = [
+  'contrast',
+  'elementDetection',
+  'hitRegion',
+  'sufficientElementDescription',
+  'dynamicType',
+  'textClipped',
+  'trait'
+];
+
 // ---- accessibilityIdentifier 漂移检测（规则 8，见下面用到它的地方的完整说明）----
 
 // XCUITest 里「按 identifier 找元素」的几种写法。
@@ -723,6 +739,40 @@ function main() {
   if (tool !== 'Edit' && tool !== 'Write') process.exit(0);
   if (!filePath.endsWith('.swift')) process.exit(0);
   if (!path.isAbsolute(filePath) || !fs.existsSync(filePath)) process.exit(0);
+
+  // a11y-audit-types：审计类型集合必须是全集。
+  //
+  // 少一项**从测试结果上完全看不出来** —— 用例照跑照绿，绿的是剩下那几项。
+  // 2026-09-02 实测的形状：`.textClipped` 与 `.trait` 从未启用，而同文件的注释逐字
+  // 宣称「审计里真正抓这件事的是 `.textClipped`」，还把三条横屏用例定成
+  // 「本仓库唯一能验横屏裁切的通道」。于是「横屏裁切有覆盖」这个判断错了三周，
+  // 且比「完全没覆盖」更难发现 —— 有绿灯在替它背书。
+  //
+  // **判据走 codeOnly，注释一个字都不算数。** 这不是顺手加的：本次缺陷的形状
+  // 恰恰就是「注释里有、参数列表里没有」。拿注释当证据的检查会原样放过它。
+  //
+  // 这条必须排在下面「只查生产 target」的过滤**之前** —— 那条过滤会跳过
+  // blindRunUITests/，而审计代码就住在那里。
+  if (/AccessibilityAuditTests\.swift$/.test(filePath)) {
+    const src = readFileOrEmpty(filePath);
+    const code = codeOnly(src);
+    if (code.includes('performAccessibilityAudit') && !code.includes('guard:allow a11y-audit-types')) {
+      const missing = A11Y_AUDIT_TYPES.filter((t) => !new RegExp(`\\.${t}\\b`).test(code));
+      if (missing.length > 0) {
+        fail(
+          'a11y-audit-types',
+          `${filePath}\n  缺少审计类型：${missing.map((t) => `.${t}`).join(', ')}\n\n` +
+            `\`performAccessibilityAudit(for:)\` 的集合必须覆盖 iOS 侧全部 7 个类型：\n` +
+            `  ${A11Y_AUDIT_TYPES.map((t) => `.${t}`).join(', ')}\n\n` +
+            `少一项不会让任何用例变红 —— 它只是不再检查那一类缺陷，而绿灯照常亮。\n` +
+            `盲人端的直接后果：漏 .textClipped 则文本被截断查不出，漏 .trait 则按钮\n` +
+            `缺 \`.button\` 时 VoiceOver 不念「按钮」，用户不知道那是能点的东西。\n` +
+            `确有理由长期排除某一项，在**代码行**上加 \`// guard:allow a11y-audit-types\`\n` +
+            `并写明为什么 —— 写在注释里的类型名不算数，本条规则只认参数列表。`
+        );
+      }
+    }
+  }
 
   // 只查生产 target。测试里出现这些字符串是**正确**的 —— 红线用例本身就得把违规文案
   // 写成断言清单（`EmergencySOSTests.forbidden`），在那儿拦等于把守住红线的人抓起来。

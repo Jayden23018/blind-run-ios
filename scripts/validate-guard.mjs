@@ -1048,6 +1048,70 @@ const cases = [
     editPath: 'blindRun/Home.swift',
     oldString: 'Text("x").accessibilityIdentifier("sharedId")',
     newString: 'Text("x")'
+  },
+
+  // ---- a11y-audit-types（2026-09-02）----
+  //
+  // 起因：`.textClipped` 与 `.trait` 从未被启用，而同文件注释宣称
+  // 「审计里真正抓这件事的是 `.textClipped`」，并把三条横屏用例定为
+  // 「唯一能验横屏裁切的通道」。三条用例一直是绿的 —— 绿的是另外五项。
+  // 少一项不会让任何东西变红，所以只能靠静态守卫抓。
+  //
+  // 第 3 条是这里最关键的一条：它复现缺陷的**确切形状**（注释里有、参数列表里没有）。
+  // 判据一旦退回「全文包含」，第 3 条立刻变绿而缺陷原样溜过去。
+  {
+    name: 'a11y 审计类型齐全（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription, .textClipped, .trait])\n'
+  },
+  {
+    name: 'a11y 审计缺 .textClipped（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription, .trait])\n'
+  },
+  {
+    name: 'a11y 审计类型只写在注释里（仍然拦下 —— 这就是 2026-09-02 那次的形状）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      '// 审计里真正抓这件事的是 .textClipped 与 .hitRegion：矮窗口下被挤扁的文本。\n' +
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription, .trait])\n'
+  },
+  {
+    name: 'a11y 审计缺项但代码行带 guard:allow（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription, .trait]) // guard:allow a11y-audit-types\n'
+  },
+  {
+    // 同名文件里还有一堆辅助代码，不该因为「文件名对上了」就要求它含审计类型。
+    name: 'AccessibilityAuditTests 里没有 audit 调用（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift: 'private static let readableContentWidth: CGFloat = 700\n'
+  },
+  {
+    // 反向哨兵：确认上面几条不是因为路径没匹配才「通过」的。
+    // 同样的缺项内容放在别的文件里必须放行 —— 否则说明规则的文件名判据失效了。
+    name: '缺项内容出现在别的测试文件里（放行 —— 证明前面几条不是恒过）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunUITests/SomeOtherTests.swift',
+    swift: 'try app.performAccessibilityAudit(for: [.contrast])\n'
   }
 ];
 
@@ -1086,9 +1150,13 @@ function materialize(testCase) {
   if (testCase.mode !== 'post') return { input: testCase.input, cleanup: () => {} };
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-guard-'));
-  const productionDir = path.join(dir, 'blindRun', 'Shared');
-  fs.mkdirSync(productionDir, { recursive: true });
-  const filePath = path.join(productionDir, 'GuardSelfTest.swift');
+  // 默认落进生产 target —— 内容级规则只查那里（post 段有一道 `/blindRun/` 过滤）。
+  // 少数规则按**文件名**匹配且被查的文件住在测试 target（`a11y-audit-types` 只认
+  // `AccessibilityAuditTests.swift`），这类用例用 `swiftPath` 指定相对路径。
+  // 名字写错会静默变成「规则没触发」= 恒过，所以每条这样的用例都要配一条反向用例。
+  const relative = testCase.swiftPath ?? path.join('blindRun', 'Shared', 'GuardSelfTest.swift');
+  const filePath = path.join(dir, relative);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${testCase.swift}\n`, 'utf8');
 
   return {
