@@ -101,10 +101,9 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
             pendingToken = nil
             return
         }
-        let request = ApnsTokenRequest(deviceToken: token)
         Task { @MainActor in
             do {
-                let _: EmptyResponse = try await appState.apiClient.post("/api/devices/apns", body: request)
+                try await appState.auth.registerDeviceToken(token)
                 self.lastReportedScope = scope
                 self.pendingToken = nil
             } catch {
@@ -132,13 +131,7 @@ final class PushNotificationsManager: NSObject, ObservableObject, UNUserNotifica
         guard let token = lastReportedScope?.token ?? pendingToken,
               let appState, appState.isLoggedIn else { return }
         do {
-            let _: EmptyResponse = try await appState.apiClient.request(
-                method: .delete,
-                path: "/api/devices/apns",
-                query: nil,
-                body: ApnsTokenRequest(deviceToken: token),
-                requiresAuth: true
-            )
+            try await appState.auth.unregisterDeviceToken(token)
         } catch {
             ClientFlowDiagnostics.record(event: "failed", operation: "apns-token-unregister")
         }
