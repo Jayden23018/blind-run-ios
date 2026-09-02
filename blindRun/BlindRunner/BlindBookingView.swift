@@ -879,7 +879,7 @@ final class BlindBookingViewModel: ObservableObject {
         }
 
         do {
-            let response: OrderResponse = try await appState.apiClient.post("/api/orders", body: request)
+            let response = try await appState.orders.createOrder(request)
             isSubmitting = false
             speechService?.resetLastStatus()
             speechService?.speak("订单提交成功，系统正在为你派单。")

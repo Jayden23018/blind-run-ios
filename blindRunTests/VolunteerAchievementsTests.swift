@@ -318,4 +318,59 @@ final class VolunteerAchievementsTests: XCTestCase {
         XCTAssertEqual(VolunteerBadgeWall.preview(badges).count, 4)
         XCTAssertFalse(VolunteerBadgeWall.hasMore(badges))
     }
+
+    // MARK: - View model：加载失败必须在屏幕上留下东西
+
+    // 这两条以前写不出来：`load()` 住在 `VolunteerServiceRecognitionView` 的 body 里，
+    // 三个 `@State` 从外面够不着。搬进 `VolunteerAchievementsViewModel` 之后才有测试面。
+
+    func testLoadedAchievementsClearTheErrorAndStopTheSpinner() async {
+        let service = FakeOrderService()
+        service.achievementsResult = .success(
+            try! JSONDecoder().decode(
+                VolunteerAchievementsResponse.self,
+                // ⚠️ 线上的字段名是 `totalCompleted`；`completedCount` 是本地派生的读取器
+                // （`VolunteerAchievementsResponse:44`）。照后者写 JSON 会静默解出 0。
+                from: Data(#"{"totalCompleted":3,"totalServiceMinutes":180,"badges":[]}"#.utf8)
+            )
+        )
+        let appState = AppState(orders: service)
+        let viewModel = VolunteerAchievementsViewModel()
+        viewModel.configure(appState: appState)
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.achievements?.completedCount, 3)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertFalse(viewModel.isLoading)
+    }
+
+    /// 🚨 失败时页面上必须**多**出一行原因加一个「重新加载」，而不是只少几块内容。
+    /// `errorSection` 是那两样东西的唯一驱动源，所以 `errorMessage` 非空是它的前提。
+    func testFailedLoadLeavesAReasonOnScreenInsteadOfAnEmptyPage() async {
+        let service = FakeOrderService()
+        service.achievementsResult = .failure(APIError.serverError(
+            ErrorResponse(code: "INTERNAL_ERROR", message: "服务暂时不可用")
+        ))
+        let appState = AppState(orders: service)
+        let viewModel = VolunteerAchievementsViewModel()
+        viewModel.configure(appState: appState)
+
+        await viewModel.load()
+
+        XCTAssertNil(viewModel.achievements)
+        XCTAssertNotNil(viewModel.errorMessage, "失败后一个字都不留，页面就只是空的 —— 重试入口也不会出现")
+        XCTAssertFalse(viewModel.isLoading, "卡在加载态的话连 errorSection 都渲染不到")
+    }
+
+    /// `appState` 是 `weak`：没人持有它时 `load()` 也必须给出可见的失败，不能静默空转。
+    func testMissingAppStateStillProducesAVisibleFailure() async {
+        let viewModel = VolunteerAchievementsViewModel()
+
+        await viewModel.load()
+
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertFalse(viewModel.isLoading)
+    }
 }
+

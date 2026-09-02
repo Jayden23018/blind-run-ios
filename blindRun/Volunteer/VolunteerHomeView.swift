@@ -207,11 +207,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                         locationAuthorized: locationAuthorized
                     )
                 }
-                let request = OrderRespondRequest(action: action)
-                let _: EmptyResponse = try await appState.apiClient.post(
-                    "/api/orders/\(order.orderId)/respond",
-                    body: request
-                )
+                try await appState.orders.respond(orderId: order.orderId, action: action)
                 let acceptedOrderId = accept ? order.orderId : nil
                 let acceptedOrder = await refreshAfterDispatchResponse(
                     acceptedOrderId: acceptedOrderId,
@@ -277,12 +273,14 @@ final class VolunteerHomeViewModel: ObservableObject {
     ) async -> OrderDetailResponse? {
         var acceptedOrder: OrderDetailResponse?
 
+        // 两处 `try?` 是**迁移前就有的**，这里原样保留：这一步跑在「已经响应成功」之后，
+        // 播报与导航都不依赖它，拿不到只是首页少刷一次，5 秒后的下一轮会补上。
         if let acceptedOrderId {
-            acceptedOrder = try? await appState.apiClient.get("/api/orders/\(acceptedOrderId)")
+            acceptedOrder = try? await appState.orders.orderDetail(orderId: acceptedOrderId)
             activeOrder = acceptedOrder
         }
 
-        if let summary: VolunteerDispatchSummaryResponse = try? await appState.apiClient.get("/api/volunteer/dispatch-summary") {
+        if let summary = try? await appState.orders.dispatchSummary() {
             apply(summary: summary)
         }
 
@@ -440,12 +438,12 @@ final class VolunteerHomeViewModel: ObservableObject {
         updateLocationDispatchWarning(didReportLocation: didReportLocation, appState: appState)
 
         do {
-            let apiClient = appState.apiClient
+            let orders = appState.orders
             let summary: VolunteerDispatchSummaryResponse = try await HomeLoadCoordinator.run(
                 timeout: loadTimeout,
                 operationName: "volunteer-dispatch-initial"
             ) {
-                try await apiClient.get("/api/volunteer/dispatch-summary")
+                try await orders.dispatchSummary()
             }
             guard activeRequestID == requestID, !Task.isCancelled else { return }
             apply(summary: summary)
@@ -481,7 +479,10 @@ final class VolunteerHomeViewModel: ObservableObject {
         auxiliaryLoadTask?.cancel()
         let requestID = UUID()
         auxiliaryRequestID = requestID
-        let apiClient = appState.apiClient
+        // 这两条是**认证·会话片**的端点（`AuthServing.volunteerProfile` /
+        // `.volunteerRegistrationStatus`），不在订单片里再开一条同路径 ——
+        // 同一个端点两处字面量迟早漂移。
+        let auth = appState.auth
         auxiliaryLoadTask = Task { [weak self, weak appState] in
             guard let self, let appState else { return }
             async let profileResult: Result<VolunteerProfileResponse, Error> = Self.fetchResult {
@@ -489,7 +490,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     timeout: self.loadTimeout,
                     operationName: "volunteer-profile"
                 ) {
-                    try await apiClient.get("/api/volunteer/profile")
+                    try await auth.volunteerProfile()
                 }
             }
             async let registrationResult: Result<VolunteerRegistrationStatus, Error> = Self.fetchResult {
@@ -497,7 +498,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     timeout: self.loadTimeout,
                     operationName: "volunteer-registration"
                 ) {
-                    try await apiClient.get("/api/volunteer/registration/status")
+                    try await auth.volunteerRegistrationStatus()
                 }
             }
 
@@ -542,11 +543,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let request = DispatchStatusRequest(wantsDispatch: value)
-            let _: EmptyResponse = try await appState.apiClient.put(
-                "/api/volunteer/dispatch-status",
-                body: request
-            )
+            try await appState.orders.setDispatchStatus(wantsDispatch: value)
             let existingProfile = appState.volunteerProfile
                 let profile = VolunteerProfileResponse(
                     name: existingProfile?.name,
@@ -567,7 +564,9 @@ final class VolunteerHomeViewModel: ObservableObject {
                 isUpdatingAvailability = false
                 return
             }
-            if let summary: VolunteerDispatchSummaryResponse = try? await appState.apiClient.get("/api/volunteer/dispatch-summary") {
+            // `try?` 是迁移前就有的：开关本身已经切成功并播报过了，这一步只是把摘要刷新一下，
+            // 拿不到不改变「已上线 / 已下线」这个既成事实。
+            if let summary = try? await appState.orders.dispatchSummary() {
                 apply(summary: summary)
             }
             isUpdatingAvailability = false
@@ -703,7 +702,7 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     private func performDispatchSummaryRefresh(appState: AppState, refreshID: UUID) async {
         do {
-            let apiClient = appState.apiClient
+            let orders = appState.orders
             let statusRequestToken = activeOrder.map {
                 appState.realtimeCoordinator.beginOrderStatusRequest(orderID: $0.orderId)
             }
@@ -711,7 +710,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 timeout: loadTimeout,
                 operationName: "volunteer-dispatch-refresh"
             ) {
-                try await apiClient.get("/api/volunteer/dispatch-summary")
+                try await orders.dispatchSummary()
             }
             guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
             apply(summary: summary, statusRequestToken: statusRequestToken)

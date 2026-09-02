@@ -81,6 +81,7 @@ final class AppState: ObservableObject {
     private let authOverride: (any AuthServing)?
     private let incentiveOverride: (any IncentiveServing)?
     private let safetyOverride: (any SafetyServing)?
+    private let ordersOverride: (any OrderServing)?
     let persistence: AppStatePersistence
     private let tokenStore: any TokenStoring
     let realtimeCoordinator: AppRealtimeCoordinator
@@ -411,6 +412,12 @@ final class AppState: ObservableObject {
         return SafetyService(transport: apiClient)
     }
 
+    /// 订单片的领域 service。理由与 `auth` 相同：每次取都新建，不缓存实例。
+    var orders: any OrderServing {
+        if let ordersOverride { return ordersOverride }
+        return OrderService(transport: apiClient)
+    }
+
     // MARK: - Init
 
     init(
@@ -418,6 +425,7 @@ final class AppState: ObservableObject {
         auth: (any AuthServing)? = nil,
         incentive: (any IncentiveServing)? = nil,
         safety: (any SafetyServing)? = nil,
+        orders: (any OrderServing)? = nil,
         persistence: AppStatePersistence? = nil,
         tokenStore: (any TokenStoring)? = nil
     ) {
@@ -431,6 +439,7 @@ final class AppState: ObservableObject {
         self.authOverride = auth
         self.incentiveOverride = incentive
         self.safetyOverride = safety
+        self.ordersOverride = orders
         self.persistence = persistence
         self.tokenStore = tokenStore ?? TokenStoreFactory.makeDefault()
         if let envRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
