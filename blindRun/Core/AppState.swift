@@ -80,6 +80,7 @@ final class AppState: ObservableObject {
     private let apiClientOverride: (any APIClientProtocol)?
     private let authOverride: (any AuthServing)?
     private let incentiveOverride: (any IncentiveServing)?
+    private let safetyOverride: (any SafetyServing)?
     let persistence: AppStatePersistence
     private let tokenStore: any TokenStoring
     let realtimeCoordinator: AppRealtimeCoordinator
@@ -404,12 +405,19 @@ final class AppState: ObservableObject {
         ProfileService(transport: apiClient)
     }
 
+    /// 求助·通话磨合·轨迹片的领域 service。每次取都新建，理由同 `auth`。
+    var safety: any SafetyServing {
+        if let safetyOverride { return safetyOverride }
+        return SafetyService(transport: apiClient)
+    }
+
     // MARK: - Init
 
     init(
         apiClient: (any APIClientProtocol)? = nil,
         auth: (any AuthServing)? = nil,
         incentive: (any IncentiveServing)? = nil,
+        safety: (any SafetyServing)? = nil,
         persistence: AppStatePersistence? = nil,
         tokenStore: (any TokenStoring)? = nil
     ) {
@@ -422,6 +430,7 @@ final class AppState: ObservableObject {
         self.apiClientOverride = apiClient
         self.authOverride = auth
         self.incentiveOverride = incentive
+        self.safetyOverride = safety
         self.persistence = persistence
         self.tokenStore = tokenStore ?? TokenStoreFactory.makeDefault()
         if let envRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
@@ -437,10 +446,10 @@ final class AppState: ObservableObject {
         self.didAcceptPrivacyConsent = AppState.resolveInitialPrivacyConsent(persistence: persistence)
 
         // 紧急事件的后续推送在触发它的界面消失后才到，订阅点必须在 App 生命周期层。
-        // provider 而不是直接传 client：环境可以在运行时切换（Mock / 生产），求助恢复必须打当下那一个。
+        // provider 而不是直接传 service：环境可以在运行时切换（Mock / 生产），求助恢复必须打当下那一个。
         emergencyCoordinator.observe(realtimeCoordinator) { [weak self] in
             guard let self, self.activeRole == .blind else { return nil }
-            return self.apiClient
+            return self.safety
         }
 
         // WS 重连成功后补读断线期间遗漏的通知，喂回 coordinator 复用去重/优先级排队。

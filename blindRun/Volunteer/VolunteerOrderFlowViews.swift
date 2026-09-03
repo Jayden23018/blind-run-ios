@@ -1167,7 +1167,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             order: order,
             role: appState.activeRole,
             userID: appState.userId,
-            apiClient: appState.apiClient,
+            safety: appState.safety,
             locate: locate,
             locationFailureReason: locationFailureReason
         )
@@ -1184,7 +1184,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         isAcknowledgingEmergency = true
         let succeeded = await appState.emergencyCoordinator.acknowledgeAsVolunteer(
             eventID: eventID,
-            apiClient: appState.apiClient
+            safety: appState.safety
         )
         isAcknowledgingEmergency = false
         if succeeded {

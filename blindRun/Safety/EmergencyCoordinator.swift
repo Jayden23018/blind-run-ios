@@ -141,7 +141,7 @@ final class EmergencyCoordinator: ObservableObject {
     /// Supplied by `AppState` so the coordinator can recover an event it never saw the trigger for
     /// (volunteer-initiated SOS, cold start, reconnect). Returns `nil` when recovery does not apply —
     /// `GET /api/emergency/active` is `BLIND`-only, so a volunteer session must not call it at all.
-    private var recoveryAPIClientProvider: (() -> (any APIClientProtocol)?)?
+    private var recoverySafetyProvider: (() -> (any SafetyServing)?)?
 
     // MARK: Wiring
 
@@ -150,9 +150,9 @@ final class EmergencyCoordinator: ObservableObject {
     /// navigation, backgrounding, and lock.
     func observe(
         _ realtimeCoordinator: AppRealtimeCoordinator,
-        recoveryAPIClientProvider: (() -> (any APIClientProtocol)?)? = nil
+        recoverySafetyProvider: (() -> (any SafetyServing)?)? = nil
     ) {
-        self.recoveryAPIClientProvider = recoveryAPIClientProvider
+        self.recoverySafetyProvider = recoverySafetyProvider
         realtimeCoordinator.$latestSafetyEvent
             .compactMap { $0 }
             .sink { [weak self] event in
@@ -183,9 +183,9 @@ final class EmergencyCoordinator: ObservableObject {
     /// can come from. Silent on failure: a recovery attempt that did not land must not manufacture
     /// rescue state, and there is nothing actionable to announce.
     func refreshActiveEvent(userID: Int64? = nil) async {
-        guard let apiClient = recoveryAPIClientProvider?() else { return }
+        guard let safety = recoverySafetyProvider?() else { return }
         do {
-            let envelope: EmergencyActiveEnvelope = try await apiClient.get("/api/emergency/active")
+            let envelope = try await safety.activeEmergency()
             guard let event = envelope.data, !event.eventStatus.isTerminal else {
                 // Backend says nothing is open. Any local echo of a finished event goes with it.
                 if activeEvent != nil {
@@ -213,14 +213,12 @@ final class EmergencyCoordinator: ObservableObject {
     /// (`EMERGENCY_VOLUNTEER_CANNOT_DISMISS`), because in a one-to-one escort the companion is the
     /// person a victim may need protection from.
     @discardableResult
-    func cancelByOwner(apiClient: any APIClientProtocol) async -> TriggerOutcome {
+    func cancelByOwner(safety: any SafetyServing) async -> TriggerOutcome {
         guard let active = activeEvent else {
             return finish(.failed("当前没有进行中的求助"))
         }
         do {
-            let response: EmergencyCancelResponse = try await apiClient.put(
-                "/api/emergency/\(active.eventID)/cancel"
-            )
+            let response = try await safety.cancelEmergencyByOwner(eventId: active.eventID)
             guard response.success else {
                 return finish(.failed(EmergencySafetyCopy.cancelOwnerFailed(nil)))
             }
@@ -243,16 +241,10 @@ final class EmergencyCoordinator: ObservableObject {
     @discardableResult
     func acknowledgeAsVolunteer(
         eventID: Int64,
-        apiClient: any APIClientProtocol
+        safety: any SafetyServing
     ) async -> Bool {
         do {
-            let response: VolunteerEmergencyAcknowledgement = try await apiClient.request(
-                method: .put,
-                path: "/api/emergency/\(eventID)/volunteer-response",
-                query: ["action": "NEED_HELP"],
-                body: nil,
-                requiresAuth: true
-            )
+            let response = try await safety.acknowledgeEmergencyAsVolunteer(eventId: eventID)
             if response.success, volunteerAlert?.eventID == eventID {
                 volunteerAlert?.isAcknowledged = true
             }
@@ -293,7 +285,7 @@ final class EmergencyCoordinator: ObservableObject {
         order: OrderDetailResponse,
         role: UserRole?,
         userID: Int64?,
-        apiClient: any APIClientProtocol,
+        safety: any SafetyServing,
         locate: () async -> LocatedCoordinate?,
         locationFailureReason: () -> LocationError? = { nil }
     ) async -> TriggerOutcome {
@@ -319,7 +311,7 @@ final class EmergencyCoordinator: ObservableObject {
                 request: EmergencyTriggerRequest(orderId: order.orderId, gpsLat: nil, gpsLng: nil),
                 orderID: order.orderId,
                 userID: userID,
-                apiClient: apiClient
+                safety: safety
             )
         }
 
@@ -331,7 +323,7 @@ final class EmergencyCoordinator: ObservableObject {
             ),
             orderID: order.orderId,
             userID: userID,
-            apiClient: apiClient
+            safety: safety
         )
     }
 
@@ -339,14 +331,11 @@ final class EmergencyCoordinator: ObservableObject {
         request: EmergencyTriggerRequest,
         orderID: Int64,
         userID: Int64?,
-        apiClient: any APIClientProtocol
+        safety: any SafetyServing
     ) async -> TriggerOutcome {
         state = .submitting
         do {
-            let response: EmergencyTriggerResponse = try await apiClient.post(
-                "/api/emergency/trigger",
-                body: request
-            )
+            let response = try await safety.triggerEmergency(request)
             // Only a structured success enters submitted state. A 200 that does not decode into
             // `{success, eventId, status}` is a failure, not an acknowledgement.
             guard response.success else {

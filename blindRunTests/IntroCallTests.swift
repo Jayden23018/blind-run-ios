@@ -340,29 +340,31 @@ final class IntroCallTests: XCTestCase {
     /// 与 `DECLINE` 合并会错误拉低这位志愿者的 `acceptanceRate` —— 他并没有拒绝任何人，
     /// 而那个数字直接进派单评分。
     func testVolunteerUnreachableUsesItsOwnEndpointNotDecline() async {
-        let client = IntroCallAPIClientStub()
-        let appState = AppState(apiClient: client)
-        appState.currentEnvironment = .mock
+        let safety = FakeSafetyService()
+        safety.introCallResult = .success(Self.volunteerSideView)
+        let appState = AppState(safety: safety)
         let viewModel = VolunteerIntroCallViewModel()
         viewModel.configure(orderId: 606, appState: appState, speechService: SpeechService())
 
         await viewModel.reportUnreachable()
 
-        XCTAssertTrue(client.paths.contains("/api/orders/606/intro-call/unreachable"))
-        XCTAssertFalse(client.paths.contains { $0.hasSuffix("/intro-call/decision") })
+        // 两条端点分别对应 service 上的两个方法（路径映射由 `SafetyServiceTests` 守），
+        // 所以「走的是不是另一条」在这里就是「调的是不是另一个方法」。
+        XCTAssertTrue(safety.calls.contains("reportIntroCallUnreachable(orderId:)"))
+        XCTAssertFalse(safety.calls.contains("submitIntroCallDecision(orderId:decision:)"))
+        XCTAssertEqual(safety.lastOrderId, 606)
     }
 
     /// 本轮结束后「这一单是不是我的」**只能**靠订单详情读不读得到来判 ——
     /// 通话端点刻意不回对方的表态，这是这个契约下唯一存在的判据。
     func testVolunteerResolvesTheRoundByWhetherOrderDetailBecameReadable() async {
         // 成了：后端 `confirmMatch` 写上 `order.volunteer`，订单详情从此读得到。
-        let matched = IntroCallAPIClientStub()
-        matched.introCallError = APIError.serverError(
-            ErrorResponse(code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了")
+        let matched = FakeSafetyService()
+        matched.introCallResult = .failure(
+            APIError.serverError(ErrorResponse(code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
         )
-        matched.order = Self.makeOrder(orderId: 607, status: .pendingAccept)
-        let matchedState = AppState(apiClient: matched)
-        matchedState.currentEnvironment = .mock
+        matched.matchedOrderResult = .success(Self.makeOrder(orderId: 607, status: .pendingAccept))
+        let matchedState = AppState(safety: matched)
         let matchedViewModel = VolunteerIntroCallViewModel()
         matchedViewModel.configure(orderId: 607, appState: matchedState, speechService: SpeechService())
 
@@ -373,13 +375,12 @@ final class IntroCallTests: XCTestCase {
         XCTAssertEqual(matchedViewModel.matchedOrder?.orderId, 607)
 
         // 没成：`order.volunteer` 仍是 null，订单详情继续 403。
-        let closed = IntroCallAPIClientStub()
-        closed.introCallError = APIError.serverError(
-            ErrorResponse(code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了")
+        let closed = FakeSafetyService()
+        closed.introCallResult = .failure(
+            APIError.serverError(ErrorResponse(code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
         )
-        closed.order = nil
-        let closedState = AppState(apiClient: closed)
-        closedState.currentEnvironment = .mock
+        closed.matchedOrderResult = .failure(APIError.unknown(statusCode: 403))
+        let closedState = AppState(safety: closed)
         let closedViewModel = VolunteerIntroCallViewModel()
         closedViewModel.configure(orderId: 608, appState: closedState, speechService: SpeechService())
 

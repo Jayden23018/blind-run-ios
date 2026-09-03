@@ -360,7 +360,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             order: activeOrder,
             role: appState.activeRole,
             userID: appState.userId,
-            apiClient: appState.apiClient,
+            safety: appState.safety,
             locate: { await EmergencyCoordinator.freshEmergencyCoordinate(using: locationService) },
             locationFailureReason: { locationService?.locationError }
         )
