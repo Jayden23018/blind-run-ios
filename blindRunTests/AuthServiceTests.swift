@@ -138,42 +138,4 @@ final class AuthServiceTests: XCTestCase {
     }
 }
 
-// MARK: - Test Doubles
-
-/// 只记录并回放罐装值的 transport。**不含任何判定** —— 判定属于被测代码。
-private final class RecordingTransport: APIClientProtocol, @unchecked Sendable {
-    struct Recorded {
-        let method: HTTPMethod
-        let path: String
-        let query: [String: String]?
-        let requiresAuth: Bool
-        let hasBody: Bool
-    }
-
-    var nextResponse: Any?
-    private(set) var requests: [Recorded] = []
-
-    func request<T: Decodable>(
-        method: HTTPMethod,
-        path: String,
-        query: [String: String]?,
-        body: (any Encodable & Sendable)?,
-        requiresAuth: Bool
-    ) async throws -> T {
-        requests.append(
-            Recorded(method: method, path: path, query: query, requiresAuth: requiresAuth, hasBody: body != nil)
-        )
-        guard let typed = nextResponse as? T else { throw APIError.unknown(statusCode: -1) }
-        return typed
-    }
-
-    func upload<T: Decodable>(
-        path: String,
-        query: [String: String]?,
-        fields: [String: String]?,
-        files: [MultipartFile],
-        requiresAuth: Bool
-    ) async throws -> T {
-        throw APIError.unknown(statusCode: -1)
-    }
-}
+// `RecordingTransport` 搬去了 `RecordingTransport.swift` —— 激励片起就是各片共用的。
