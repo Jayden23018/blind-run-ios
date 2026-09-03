@@ -566,7 +566,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             isLoading = true
         }
         do {
-            let status: VolunteerRegistrationStatus = try await activeAPIClient(appState: appState).get("/api/volunteer/registration/status")
+            let status = try await activeProfileService(appState: appState).volunteerRegistrationStatus()
             applyRegistrationStatus(status)
             isLoading = false
         } catch let error as APIError {
@@ -722,7 +722,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         )
 
         do {
-            let _: EmptyResponse = try await activeAPIClient(appState: appState).post("/api/volunteer/registration/step1", body: request)
+            try await activeProfileService(appState: appState).submitVolunteerBasicInfo(request)
             await syncStatusAfterBasicInfoSuccess(appState: appState)
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) {
@@ -739,7 +739,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
     private func syncStatusAfterBasicInfoSuccess(appState: AppState) async {
         do {
-            let status: VolunteerRegistrationStatus = try await activeAPIClient(appState: appState).get("/api/volunteer/registration/status")
+            let status = try await activeProfileService(appState: appState).volunteerRegistrationStatus()
             applyRegistrationStatus(status)
         } catch {
             currentStep = .faceVerify
@@ -763,7 +763,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         let localizedMessage = error.localizedMessage
         if shouldRefreshRegistrationStatus(after: error), let appState {
             do {
-                let status: VolunteerRegistrationStatus = try await activeAPIClient(appState: appState).get("/api/volunteer/registration/status")
+                let status = try await activeProfileService(appState: appState).volunteerRegistrationStatus()
                 applyRegistrationStatus(status)
                 isLoading = false
                 if currentStep != previousStep {
@@ -808,10 +808,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         do {
             let metaInfo = try await metaInfoProvider.collectMetaInfo(environment: appState.currentEnvironment)
             let request = FaceVerifyInitRequest(metaInfo: metaInfo)
-            let response: FaceVerifyInitResponse = try await activeAPIClient(appState: appState).post(
-                "/api/volunteer/registration/step3/face-verify/init",
-                body: request
-            )
+            let response = try await activeProfileService(appState: appState).initFaceVerify(request)
             isLoading = false
             await handleFaceVerifyInitResponse(response, environment: appState.currentEnvironment)
         } catch let error as CloudAuthMetaInfoError {
@@ -899,7 +896,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
         if let appState {
             do {
-                let status: VolunteerRegistrationStatus = try await activeAPIClient(appState: appState).get("/api/volunteer/registration/status")
+                let status = try await activeProfileService(appState: appState).volunteerRegistrationStatus()
                 applyRegistrationStatus(status)
             } catch {
                 // Keep the user on the current screen and expose the manual edit path.
@@ -971,10 +968,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         guard let appState, let certifyId = activeCertifyId else { return true }
         do {
             let request = FaceVerifyResultRequest(certifyId: certifyId)
-            let response: FaceVerifyResponse = try await activeAPIClient(appState: appState).post(
-                "/api/volunteer/registration/step3/face-verify/result",
-                body: request
-            )
+            let response = try await activeProfileService(appState: appState).faceVerifyResult(request)
             return await handleFaceVerifyResult(response)
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) {
@@ -1061,8 +1055,10 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             }
     }
 
-    private func activeAPIClient(appState: AppState) -> any APIClientProtocol {
-        apiClientOverride ?? appState.apiClient
+    /// 注入口仍收 `APIClientProtocol`（`init(apiClient:)` 没变）：用例注入的桩实现的就是它，
+    /// 迁到 service 层不该逼 30 多个用例跟着换类型。service 在这里就地架在那个桩上。
+    private func activeProfileService(appState: AppState) -> any ProfileServing {
+        ProfileService(transport: apiClientOverride ?? appState.apiClient)
     }
 }
 

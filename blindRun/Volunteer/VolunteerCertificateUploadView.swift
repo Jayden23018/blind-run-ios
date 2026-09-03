@@ -314,9 +314,7 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
         guard let appState else { return }
         isLoadingStatus = true
         do {
-            let response: VolunteerVerificationStatusResponse = try await appState.apiClient.get(
-                "/api/volunteer/verification/status"
-            )
+            let response = try await appState.profile.volunteerVerificationStatus()
             let parsed = VolunteerCertificateStatus.parse(response.status)
             isLoadingStatus = false
             if parsed == .unknown {
@@ -392,14 +390,13 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
         speechService?.speak("正在上传资质证书，请稍候。")
 
         do {
-            let _: VolunteerVerificationStatusResponse = try await appState.apiClient.upload(
-                "/api/volunteer/verification",
-                files: [MultipartFile(
+            _ = try await appState.profile.uploadVolunteerCertificate(
+                MultipartFile(
                     fieldName: "file",
                     fileName: file.fileName,
                     mimeType: file.mimeType,
                     data: file.data
-                )]
+                )
             )
             isUploading = false
             selectedFile = nil
