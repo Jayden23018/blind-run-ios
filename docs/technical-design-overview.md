@@ -692,7 +692,7 @@ App 主动播报（`SpeechService`）与 VoiceOver 朗读并行存在。这带�
 | 环境配置 | `blindRun/Core/EnvironmentConfig.swift`（105 行） |
 | 志愿者服务流程 | `blindRun/Volunteer/VolunteerOrderFlowViews.swift`（2727 行） |
 | 进程内 Mock | `blindRun/Core/MockAPIClient.swift` + `MockAPIClient+{Auth,Profile,Incentive,EmergencyContact,Order,IntroCall,Voice}.swift` |
-| 领域 service 层 | `blindRun/Core/Services/`（已迁：`AuthService.swift` 认证·会话、`IncentiveService.swift` 激励、`ProfileService.swift` 档案·实名·资质、`SafetyService.swift` 求助·通话磨合·轨迹；**未迁：订单片**仍直接用 `apiClient.<verb>`）+ `blindRun/Core/Endpoints/EndpointRequest.swift` |
+| 领域 service 层 | `blindRun/Core/Services/`：`AuthService`（认证·会话）、`IncentiveService`（激励）、`ProfileService`（档案·实名·资质）、`SafetyService`（求助·通话磨合·轨迹）、`OrderService`（订单）+ `blindRun/Core/Endpoints/{EndpointRequest,OrderEndpoint}.swift`。五片全部迁完；**唯一残留**是 `VoiceOrderWizard.parseOrderResponse`（`blindRun/Voice/VoiceOrderWizard.swift:1070`）仍直接 `apiClient.post`，它自己持有 `apiClient` 而不是走 `AppState`，端点已是常量 `VoiceOrderEndpoint.parseOrder`，缺的是一层 `VoiceServing`。 |
 
 ## 附录 B：验证命令
 
