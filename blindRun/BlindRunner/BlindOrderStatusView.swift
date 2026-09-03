@@ -208,9 +208,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         isPerformingAction = true
         errorMessage = nil
         do {
-            let _: EmptyResponse = try await appState.apiClient.put(
-                endpoint.path(orderId: order.orderId)
-            )
+            try await appState.orders.keepWaiting(endpoint, orderId: order.orderId)
             isPerformingAction = false
             // 成功不改状态（后端只回 `{"success": true}`），所以反馈只能由本地这句话给出。
             speechService?.speak(KeepWaitingCopy.success)
@@ -259,9 +257,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             return
         }
         do {
-            let view: IntroCallView = try await appState.apiClient.get(
-                IntroCallEndpoint.view.path(orderId: order.orderId)
-            )
+            let view = try await appState.orders.introCallView(orderId: order.orderId)
             introCall = view
             introCallUnavailable = false
             // 服务端说了话就以它为准。换了候选人时它是 nil，本地记号跟着作废 ——
@@ -312,10 +308,13 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// `EmergencyDialer.telURL` 取成 `1381234` 拨出去 —— 空号，而界面上看不出任何异常。
     func introCallDialURL() -> URL? {
         guard let order, let appState, let phone = introCall?.dialableCounterpartPhone else { return nil }
-        let apiClient = appState.apiClient
-        let path = IntroCallEndpoint.notifyIncoming.path(orderId: order.orderId)
+        let orders = appState.orders
+        let orderId = order.orderId
         Task {
-            let _: EmptyResponse? = try? await apiClient.post(path)
+            // 唯一一处刻意吞掉的错误，理由在上面：这是给对方的一条**预告推送**，
+            // 不是拨号的前置条件。它失败时用户该做的事（打这通电话）没有任何变化，
+            // 屏幕上也不该多出任何东西 —— 拨号 URL 已经返回，电话照打。
+            try? await orders.notifyIntroCallIncoming(orderId: orderId)
         }
         return EmergencyDialer.telURL(for: phone)
     }
@@ -330,10 +329,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         isPerformingAction = true
         errorMessage = nil
         do {
-            let _: EmptyResponse = try await appState.apiClient.post(
-                IntroCallEndpoint.decision.path(orderId: order.orderId),
-                body: IntroCallDecisionRequest(decision: decision)
-            )
+            try await appState.orders.submitIntroCallDecision(decision, orderId: order.orderId)
             isPerformingAction = false
             // 先落本地记号，再刷订单 —— `loadOrder` 紧接着就会去拉通话数据，
             // 而那一步拉失败时要靠这个记号判「已经表过态，不算失败」。
@@ -378,7 +374,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         isPerformingAction = true
         errorMessage = nil
         do {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(order.orderId)/cancel")
+            try await appState.orders.cancel(orderId: order.orderId)
             isPerformingAction = false
             await self.loadOrder(orderId: order.orderId, speakChanges: true)
         } catch let error as APIError {
@@ -464,10 +460,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
                 rating: reviewRating,
                 comment: reviewComment.nilIfBlank
             )
-            let _: EmptyResponse = try await appState.apiClient.post(
-                "/api/orders/\(order.orderId)/review",
-                body: request
-            )
+            try await appState.orders.submitReview(request, orderId: order.orderId)
             isSubmittingReview = false
             didSubmitReview = true
             speechService?.speak("评价已提交，感谢反馈。")
@@ -507,9 +500,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     func loadExistingReview() async {
         guard let order, let appState, order.status == .completed else { return }
         do {
-            let envelope: OrderReviewEnvelope = try await appState.apiClient.get(
-                "/api/orders/\(order.orderId)/reviews"
-            )
+            let envelope = try await appState.orders.reviews(orderId: order.orderId)
             existingReview = envelope.data
             if envelope.data != nil {
                 didSubmitReview = true
@@ -529,9 +520,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         isLoadingStatusLogs = true
         statusLogsErrorMessage = nil
         do {
-            let logs: [OrderStatusLog] = try await appState.apiClient.get(
-                "/api/orders/\(order.orderId)/status-logs"
-            )
+            let logs = try await appState.orders.statusLogs(orderId: order.orderId)
             isLoadingStatusLogs = false
             statusLogs = logs
         } catch let error as APIError {
@@ -568,12 +557,12 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
         do {
             let requestToken = appState.realtimeCoordinator.beginOrderStatusRequest(orderID: orderId)
-            let apiClient = appState.apiClient
+            let orders = appState.orders
             let candidate: OrderDetailResponse = try await HomeLoadCoordinator.run(
                 timeout: HomeLoadPolicy.defaultTimeout,
                 operationName: "blind-order-poll"
             ) {
-                try await apiClient.get("/api/orders/\(orderId)")
+                try await orders.orderDetail(orderId: orderId)
             }
             guard let updated = appState.realtimeCoordinator.reconcileOrderDetail(
                 candidate,
@@ -759,7 +748,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         guard !appState.isWebSocketConnected || !websocketSampleIsFresh else { return }
 
         do {
-            let response: VolunteerLocationResponse = try await appState.apiClient.get("/api/blind/volunteer-location")
+            let response = try await appState.orders.volunteerLocation()
             guard let coordinate = Self.volunteerFallbackCoordinate(from: response.data, matching: order) else { return }
             latestVolunteerCoordinate = coordinate
             refreshVolunteerDistance()
@@ -819,6 +808,53 @@ final class BlindOrderStatusViewModel: ObservableObject {
         return CLLocationCoordinate2D(latitude: lat, longitude: lng)
     }
 
+    // MARK: - Mock 环境的对家代打
+
+#if DEBUG
+    /// Mock 状态测试面板上那几个按钮代表的一步。志愿者那半边在单设备上凑不齐，
+    /// 由这一组按钮代打。
+    enum MockCounterpartStep {
+        case respond(OrderRespondAction)
+        case enRoute
+        case arrived
+        case startService
+        case finish
+    }
+
+    /// 代对方角色推进一次状态机（`.mock` 环境专用，调用点自己判环境）。
+    ///
+    /// 🚨 **失败必须说出来。** 这段原来是 6 个 `try?`，散在 view body 里：
+    /// 从 `PENDING_ACCEPT` 直接打 `/arrived` 会被 Mock 按真实状态机拒掉，
+    /// 而 `try?` 把拒绝吞成静默，现象是「点了没反应」，后续依赖 `DRIVER_ARRIVED`
+    /// 的「模拟服务开始」永不出现 —— 排查时看不出是被拒了还是按钮没接上。
+    func runMockCounterpartSteps(_ steps: [MockCounterpartStep], orderId: Int64) async {
+        guard let appState else { return }
+        let orders = appState.orders
+        do {
+            for step in steps {
+                switch step {
+                case .respond(let action):
+                    try await orders.respond(orderId: orderId, action: action)
+                case .enRoute:
+                    try await orders.enRoute(orderId: orderId)
+                case .arrived:
+                    try await orders.arrived(orderId: orderId)
+                case .startService:
+                    try await orders.startService(orderId: orderId)
+                case .finish:
+                    try await orders.finish(orderId: orderId)
+                }
+            }
+            errorMessage = nil
+        } catch let error as APIError {
+            errorMessage = "Mock 状态测试失败：\(error.localizedMessage)"
+        } catch {
+            errorMessage = "Mock 状态测试失败。"
+        }
+        startPolling(orderId: orderId)
+    }
+#endif
+
     // MARK: - App-lifetime realtime routing
 
     private func subscribeToRealtimeCoordinator(appState: AppState) {
@@ -873,20 +909,14 @@ struct BlindOrderStatusView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
+    @StateObject private var shareViewModel = RunPlanLiveShareViewModel()
     @State private var showEmergencyConfirmation = false
     @State private var showEmergencyCancelConfirmation = false
     @State private var showCancelConfirmation = false
     @State private var showStatusLogs = false
     @State private var showRunPlanShare = false
-    @State private var runPlanShareNotice: RunPlanShareNotice?
     @State private var showLiveShareConsent = false
     @State private var showLiveShareConfirmation = false
-    @State private var liveSharePayload: ShareLinkPayload?
-    @State private var isLiveSharing = false
-    @State private var isWorkingOnLiveShare = false
-    /// 短信入口是**降级路径**，不是常驻功能：实时分享失败（断网 / 权限 / 终态 409）时才露出来。
-    /// 常驻会让读屏用户每次都多滑一个按钮，而它在实时分享可用时并不是用户想要的那条路。
-    @State private var showSMSFallback = false
     /// 用户按过通话磨合的拨号按钮。
     @State private var introCallDidDial = false
     /// 拨号之后 App 回到前台了 ⇒ 进入阶段 B（给出「聊过了，合适」）。
@@ -904,13 +934,6 @@ struct BlindOrderStatusView: View {
     /// 后者会把正在读订单信息的用户反复弹回顶部。
     @AccessibilityFocusState private var statusHeaderFocused: Bool
     let orderId: Int64
-
-    /// 行程告知的结果提示。盲人靠 `speak` 听到，低视力用户靠这行字看到 ——
-    /// 两条通道都要有，`isProblem` 只决定颜色，不决定有没有。
-    private struct RunPlanShareNotice: Equatable {
-        let text: String
-        let isProblem: Bool
-    }
     let onOrderUpdated: (OrderDetailResponse) -> Void
 
     /// 主按钮高度。比首页的 280 小：这一页顶上还有状态卡要占位置，
@@ -1010,14 +1033,11 @@ struct BlindOrderStatusView: View {
                 switch outcome {
                 case .sent:
                     // 进行时。`.sent` 只代表用户点了发送，不代表送达 —— 见 `RunPlanShareCopy`。
-                    setRunPlanShareNotice(RunPlanShareCopy.sent, isProblem: false)
-                    speechService.speak(RunPlanShareCopy.sent)
+                    shareViewModel.note(RunPlanShareCopy.sent, isProblem: false)
                 case .cancelled:
-                    setRunPlanShareNotice(RunPlanShareCopy.cancelled, isProblem: false)
-                    speechService.speak(RunPlanShareCopy.cancelled)
+                    shareViewModel.note(RunPlanShareCopy.cancelled, isProblem: false)
                 case .failed:
-                    setRunPlanShareNotice(RunPlanShareCopy.failed, isProblem: true)
-                    speechService.speakError(RunPlanShareCopy.failed)
+                    shareViewModel.note(RunPlanShareCopy.failed, isProblem: true)
                 }
             }
         }
@@ -1029,32 +1049,29 @@ struct BlindOrderStatusView: View {
                     // 同意在**发请求之前**落盘。反过来的话，一次网络失败会让用户下次再看一遍
                     // 全文告知 —— 而他已经同意过了，重复告知是在消耗告知本身的效力。
                     consentStore.recordConsent(userKey: consentUserKey)
-                    Task { await startLiveShare() }
+                    Task { await shareViewModel.startLiveShare() }
                 },
                 onDecline: {
                     showLiveShareConsent = false
-                    setRunPlanShareNotice(RunPlanShareConsentCopy.declined, isProblem: false)
-                    speechService.speak(RunPlanShareConsentCopy.declined)
+                    shareViewModel.note(RunPlanShareConsentCopy.declined, isProblem: false)
                 }
             )
         }
         .alert(RunPlanShareConsentCopy.repeatConfirmationTitle, isPresented: $showLiveShareConfirmation) {
             Button(RunPlanShareConsentCopy.agreeButtonTitle) {
-                Task { await startLiveShare() }
+                Task { await shareViewModel.startLiveShare() }
             }
             Button(RunPlanShareConsentCopy.declineButtonTitle, role: .cancel) {
-                setRunPlanShareNotice(RunPlanShareConsentCopy.declined, isProblem: false)
-                speechService.speak(RunPlanShareConsentCopy.declined)
+                shareViewModel.note(RunPlanShareConsentCopy.declined, isProblem: false)
             }
         } message: {
             Text(RunPlanShareConsentCopy.repeatConfirmationMessage)
         }
-        .sheet(item: $liveSharePayload) { payload in
+        .sheet(item: $shareViewModel.payload) { payload in
             ShareLinkSheet(text: payload.text) {
-                liveSharePayload = nil
+                shareViewModel.payload = nil
                 // 面板关掉不改变任何事实：链接在服务端已经生效，选没选目标应用都一样在分享中。
-                setRunPlanShareNotice(RunPlanLiveShareCopy.panelDismissed, isProblem: false)
-                speechService.speak(RunPlanLiveShareCopy.panelDismissed)
+                shareViewModel.note(RunPlanLiveShareCopy.panelDismissed, isProblem: false)
             }
         }
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation) {
@@ -1066,9 +1083,11 @@ struct BlindOrderStatusView: View {
             }
         }
         .onAppear {
-            // 分享状态来自本地记录而不是订单详情：后端没有查询分享状态的端点，
-            // 理由与代价写在 `RunPlanLiveShareStore` 的注释里。
-            isLiveSharing = liveShareStore.isSharing(orderID: orderId)
+            shareViewModel.configure(
+                appState: appState,
+                speechService: speechService,
+                orderId: orderId
+            )
             viewModel.configure(
                 appState: appState,
                 speechService: speechService,
@@ -1711,13 +1730,13 @@ struct BlindOrderStatusView: View {
     private func runPlanShareSection(_ order: OrderDetailResponse) -> some View {
         if order.status.offersRunPlanShare {
             VStack(spacing: 10) {
-                if isLiveSharing {
+                if shareViewModel.isLiveSharing {
                     runPlanShareButton(
                         title: RunPlanLiveShareCopy.stopButtonTitle,
                         hint: RunPlanLiveShareCopy.stopAccessibilityHint,
                         identifier: "blindOrderStatusStopLiveShareButton",
                         tint: AppColors.destructive,
-                        action: { Task { await stopLiveShare() } }
+                        action: { Task { await shareViewModel.stopLiveShare() } }
                     )
                 } else {
                     runPlanShareButton(
@@ -1731,7 +1750,7 @@ struct BlindOrderStatusView: View {
 
                 // 只在实时分享走不通时露出来。`canSendText` 一并判掉：这台设备本来就发不了短信时
                 // 摆出降级入口，等于把用户支上一条同样走不通的路。
-                if showSMSFallback, MessageComposeSheet.canSendText {
+                if shareViewModel.showSMSFallback, MessageComposeSheet.canSendText {
                     runPlanShareButton(
                         title: RunPlanLiveShareCopy.smsFallbackButtonTitle,
                         hint: RunPlanLiveShareCopy.smsFallbackHint,
@@ -1741,7 +1760,7 @@ struct BlindOrderStatusView: View {
                     )
                 }
 
-                if let notice = runPlanShareNotice {
+                if let notice = shareViewModel.notice {
                     Text(notice.text)
                         .font(AppFonts.body())
                         .foregroundColor(notice.isProblem ? AppColors.destructive : AppColors.textSecondary)
@@ -1769,7 +1788,7 @@ struct BlindOrderStatusView: View {
                 .background(AppColors.secondaryBackground)
                 .cornerRadius(16)
         }
-        .disabled(isWorkingOnLiveShare)
+        .disabled(shareViewModel.isWorking)
         .accessibilityLabel(title)
         .accessibilityHint(hint)
         .accessibilityIdentifier(identifier)
@@ -1779,10 +1798,6 @@ struct BlindOrderStatusView: View {
 
     private var consentStore: RunPlanShareConsentStore {
         RunPlanShareConsentStore(persistence: appState.persistence)
-    }
-
-    private var liveShareStore: RunPlanLiveShareStore {
-        RunPlanLiveShareStore(persistence: appState.persistence)
     }
 
     /// 同意按**用户**存。未登录拿不到 userId 时用一个恒不命中的 key，效果是每次都走全屏告知 ——
@@ -1797,61 +1812,12 @@ struct BlindOrderStatusView: View {
     /// 作出单独同意（PIPL 第 23/29 条，轨迹属第 28 条敏感个人信息）。后端挡不住这一层，
     /// 只有客户端能，判定在 `RunPlanShareConsentStep.next`。
     private func requestLiveShare() {
-        runPlanShareNotice = nil
-        showSMSFallback = false
+        shareViewModel.clearNotice(hidingSMSFallback: true)
         switch RunPlanShareConsentStep.next(hasGivenConsent: consentStore.hasGivenConsent(userKey: consentUserKey)) {
         case .fullDisclosure:
             showLiveShareConsent = true
         case .shortConfirmation:
             showLiveShareConfirmation = true
-        }
-    }
-
-    private func startLiveShare() async {
-        guard !isWorkingOnLiveShare else { return }
-        isWorkingOnLiveShare = true
-        defer { isWorkingOnLiveShare = false }
-
-        setRunPlanShareNotice(RunPlanLiveShareCopy.preparing, isProblem: false)
-        speechService.speak(RunPlanLiveShareCopy.preparing)
-        do {
-            let response: ShareLinkResponse = try await appState.apiClient.post("/api/orders/\(orderId)/share")
-            liveShareStore.markSharing(orderID: orderId)
-            isLiveSharing = true
-            setRunPlanShareNotice(RunPlanLiveShareCopy.sharing, isProblem: false)
-            speechService.speak(RunPlanLiveShareCopy.ready)
-            liveSharePayload = ShareLinkPayload(
-                text: RunPlanLiveShareMessage.compose(shareUrl: response.shareUrl)
-            )
-        } catch {
-            // 失败一律露出短信降级入口，包括 409（终态竞态）—— 那种情况下实时分享已经不可能，
-            // 而「把这次行程告诉家人」这件事仍然做得到。
-            let reason = (error as? APIError)?.localizedMessage ?? APIError.networkError(error).localizedMessage
-            showSMSFallback = true
-            let text = RunPlanLiveShareCopy.failed(reason, offersSMSFallback: MessageComposeSheet.canSendText)
-            setRunPlanShareNotice(text, isProblem: true)
-            speechService.speakError(text)
-        }
-    }
-
-    private func stopLiveShare() async {
-        guard !isWorkingOnLiveShare else { return }
-        isWorkingOnLiveShare = true
-        defer { isWorkingOnLiveShare = false }
-
-        setRunPlanShareNotice(RunPlanLiveShareCopy.stopping, isProblem: false)
-        speechService.speak(RunPlanLiveShareCopy.stopping)
-        do {
-            let _: EmptyResponse = try await appState.apiClient.delete("/api/orders/\(orderId)/share")
-            liveShareStore.clear()
-            isLiveSharing = false
-            setRunPlanShareNotice(RunPlanLiveShareCopy.stopped, isProblem: false)
-            speechService.speak(RunPlanLiveShareCopy.stopped)
-        } catch {
-            // **失败时不清本地状态**：链接可能还有效，把「停止分享」入口一起收走，
-            // 用户就再也停不掉了。宁可让他多按一次，也不要把入口弄丢。
-            setRunPlanShareNotice(RunPlanLiveShareCopy.stopFailed, isProblem: true)
-            speechService.speakError(RunPlanLiveShareCopy.stopFailed)
         }
     }
 
@@ -1865,29 +1831,22 @@ struct BlindOrderStatusView: View {
     /// 加完回来发现还是发不出去 —— 那是一趟白跑的路，而这条路对盲人格外贵。
     private func shareRunPlanBySMS(_ order: OrderDetailResponse) {
         guard MessageComposeSheet.canSendText else {
-            setRunPlanShareNotice(RunPlanShareCopy.unavailable, isProblem: true)
-            speechService.speakError(RunPlanShareCopy.unavailable)
+            shareViewModel.note(RunPlanShareCopy.unavailable, isProblem: true)
             return
         }
         guard appState.primaryEmergencyContact?.phone?.nilIfBlank != nil else {
-            setRunPlanShareNotice(RunPlanShareCopy.noContact, isProblem: true)
-            speechService.speakError(RunPlanShareCopy.noContact)
+            shareViewModel.note(RunPlanShareCopy.noContact, isProblem: true)
             return
         }
         // 第三道门与前两道一样要出声。`compose` 只在 `status.offersRunPlanShare == false` 时返回 nil，
         // 也就是 5 秒轮询把订单推到终态、而按钮还留在屏幕上的那一瞬 —— 静默 return 的表现是
         // 「点了没反应」，对盲人端就是事故（`AGENTS.md` §1 那条枚举红线的同类）。
         guard RunPlanShareMessage.compose(order: order) != nil else {
-            setRunPlanShareNotice(RunPlanShareCopy.notShareable, isProblem: true)
-            speechService.speakError(RunPlanShareCopy.notShareable)
+            shareViewModel.note(RunPlanShareCopy.notShareable, isProblem: true)
             return
         }
-        runPlanShareNotice = nil
+        shareViewModel.clearNotice()
         showRunPlanShare = true
-    }
-
-    private func setRunPlanShareNotice(_ text: String, isProblem: Bool) {
-        runPlanShareNotice = RunPlanShareNotice(text: text, isProblem: isProblem)
     }
 
     /// 折叠。这 8 行在下单时已经被逐条读回确认过一遍，服务进行中它们既不可改也无需再听 ——
@@ -2011,12 +1970,10 @@ struct BlindOrderStatusView: View {
                 if order.status == .pendingMatch {
                     Button("模拟志愿者接单") {
                         Task {
-                            let request = OrderRespondRequest(action: .accept)
-                            let _: EmptyResponse? = try? await appState.apiClient.post(
-                                "/api/orders/\(order.orderId)/respond",
-                                body: request
+                            await viewModel.runMockCounterpartSteps(
+                                [.respond(.accept)],
+                                orderId: order.orderId
                             )
-                            viewModel.startPolling(orderId: order.orderId)
                         }
                     }
                     .buttonStyle(.bordered)
@@ -2026,12 +1983,10 @@ struct BlindOrderStatusView: View {
                     // 走的是这一条。留着上面那个是因为熟人路径与「后端把开关关掉」都还走它。
                     Button("模拟志愿者想先聊聊") {
                         Task {
-                            let request = OrderRespondRequest(action: .interested)
-                            let _: EmptyResponse? = try? await appState.apiClient.post(
-                                "/api/orders/\(order.orderId)/respond",
-                                body: request
+                            await viewModel.runMockCounterpartSteps(
+                                [.respond(.interested)],
+                                orderId: order.orderId
                             )
-                            viewModel.startPolling(orderId: order.orderId)
                         }
                     }
                     .buttonStyle(.bordered)
@@ -2056,15 +2011,12 @@ struct BlindOrderStatusView: View {
                 if order.status == .driverEnRoute || order.status == .pendingAccept {
                     Button("模拟志愿者到达") {
                         Task {
-                            // 真实状态机是 PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED，不能跳级。
-                            // 从 PENDING_ACCEPT 直接打 /arrived 会被拒（Mock 与后端同口径），
-                            // 而下面的 try? 把拒绝静默吞掉，现象是「点了没反应」，
-                            // 后续依赖 DRIVER_ARRIVED 的「模拟服务开始」永不出现。
-                            if order.status == .pendingAccept {
-                                let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/en-route")
-                            }
-                            let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/arrived")
-                            viewModel.startPolling(orderId: order.orderId)
+                            // 真实状态机是 PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED，不能跳级，
+                            // 所以 `PENDING_ACCEPT` 要先补一步 en-route。被 Mock 拒掉时
+                            // `runMockCounterpartSteps` 会把原因写进 `errorMessage`，不再静默。
+                            let steps: [BlindOrderStatusViewModel.MockCounterpartStep] =
+                                order.status == .pendingAccept ? [.enRoute, .arrived] : [.arrived]
+                            await viewModel.runMockCounterpartSteps(steps, orderId: order.orderId)
                         }
                     }
                     .buttonStyle(.bordered)
@@ -2074,8 +2026,7 @@ struct BlindOrderStatusView: View {
                 if order.status == .driverArrived {
                     Button("模拟服务开始") {
                         Task {
-                            let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/start-service")
-                            viewModel.startPolling(orderId: order.orderId)
+                            await viewModel.runMockCounterpartSteps([.startService], orderId: order.orderId)
                         }
                     }
                     .buttonStyle(.bordered)
@@ -2085,8 +2036,7 @@ struct BlindOrderStatusView: View {
                 if order.status == .inProgress {
                     Button("模拟服务完成") {
                         Task {
-                            let _: EmptyResponse? = try? await appState.apiClient.post("/api/orders/\(order.orderId)/finish")
-                            viewModel.startPolling(orderId: order.orderId)
+                            await viewModel.runMockCounterpartSteps([.finish], orderId: order.orderId)
                         }
                     }
                     .buttonStyle(.bordered)
