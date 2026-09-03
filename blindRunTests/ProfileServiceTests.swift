@@ -18,7 +18,7 @@ final class ProfileServiceTests: XCTestCase {
     /// 用一条 trace 而不是 17 个用例：端点映射错的形态永远是「打到了别人那条」，
     /// 整条序列一起比才看得出串了；拆成 17 个用例只会让每次加端点都要抄一遍样板。
     func testEveryMethodHitsItsOwnEndpoint() async throws {
-        let transport = RecordingTransport()
+        let transport = ProfileRecordingTransport()
         let service = ProfileService(transport: transport)
 
         transport.enqueue(BlindProfileResponse())
@@ -141,7 +141,7 @@ final class ProfileServiceTests: XCTestCase {
     /// 走错通道时后端收到的是一个没有文件的空 POST —— 接口照样 200、状态照样回读，
     /// 屏幕上会念「资质证书已提交，等待管理员审核」，而证书根本没离开这台手机。
     func testCertificateUploadCarriesTheFileThroughTheMultipartChannel() async throws {
-        let transport = RecordingTransport()
+        let transport = ProfileRecordingTransport()
         transport.enqueue(VolunteerVerificationStatusResponse())
 
         _ = try await ProfileService(transport: transport).uploadVolunteerCertificate(
@@ -165,9 +165,15 @@ final class ProfileServiceTests: XCTestCase {
 // MARK: - Test Doubles
 
 /// 只记录并回放罐装值的 transport。**不含任何判定** —— 判定属于被测代码。
-/// 与 `AuthServiceTests` 里那个同名替身分开各写一份：那个不需要记 `upload`，
-/// 合并会让两片的用例互相牵制。
-private final class RecordingTransport: APIClientProtocol, @unchecked Sendable {
+///
+/// 与共享的 `RecordingTransport`（`blindRunTests/RecordingTransport.swift`）分开各写一份：
+/// 那个只记一次性的 `nextResponse`、`upload` 直接抛错，而本片要按顺序排队回放、要记
+/// multipart 上传、还要看跨请求的调用顺序（`trace`）。合并会让两片的用例互相牵制。
+///
+/// 名字带 `Profile` 前缀是被迫的：本片与激励片并行开发时各自写了一个 `RecordingTransport`，
+/// 激励片那份后来被提成模块级文件，两者在同一个 target 里撞名（`invalid redeclaration`）。
+/// 各自的 CI 都看不见这个冲突 —— 它只在两片合进同一个 main 之后才存在。
+private final class ProfileRecordingTransport: APIClientProtocol, @unchecked Sendable {
     struct Recorded {
         let method: HTTPMethod
         let path: String
