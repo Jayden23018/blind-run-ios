@@ -1821,7 +1821,9 @@ final class VolunteerAchievementsViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         do {
-            achievements = try await appState.orders.achievements()
+            // 成就属于激励片（`IncentiveService`），不是订单片 —— 两片并行开发时
+            // 各自实现了一遍 `GET /api/volunteer/achievements`，合并时以先落 main 的激励片为准。
+            achievements = try await appState.incentive.volunteerAchievements()
             errorMessage = nil
         } catch let error as APIError {
             errorMessage = error.localizedMessage

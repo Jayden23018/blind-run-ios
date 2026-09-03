@@ -52,7 +52,6 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     var volunteerLocationResult: Result<VolunteerLocationResponse, Error> = .failure(NotStubbed(method: "volunteerLocation"))
     var dispatchSummaryResult: Result<VolunteerDispatchSummaryResponse, Error> = .failure(NotStubbed(method: "dispatchSummary"))
     var setDispatchStatusResult: Result<Void, Error> = .failure(NotStubbed(method: "setDispatchStatus"))
-    var achievementsResult: Result<VolunteerAchievementsResponse, Error> = .failure(NotStubbed(method: "achievements"))
 
     // MARK: 按顺序弹出的罐装值（空了退回上面的单值）
 
@@ -209,10 +208,5 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         record()
         lastWantsDispatch = wantsDispatch
         return try setDispatchStatusResult.get()
-    }
-
-    func achievements() async throws -> VolunteerAchievementsResponse {
-        record()
-        return try achievementsResult.get()
     }
 }

@@ -62,7 +62,6 @@ protocol OrderServing: Sendable {
     // 志愿者派单
     func dispatchSummary() async throws -> VolunteerDispatchSummaryResponse
     func setDispatchStatus(wantsDispatch: Bool) async throws
-    func achievements() async throws -> VolunteerAchievementsResponse
 }
 
 // MARK: - Implementation
@@ -175,9 +174,5 @@ struct OrderService: OrderServing {
             OrderEndpoint.dispatchStatus.request,
             body: DispatchStatusRequest(wantsDispatch: wantsDispatch)
         )
-    }
-
-    func achievements() async throws -> VolunteerAchievementsResponse {
-        try await transport.send(OrderEndpoint.achievements.request)
     }
 }

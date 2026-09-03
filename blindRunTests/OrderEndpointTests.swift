@@ -31,7 +31,6 @@ final class OrderEndpointTests: XCTestCase {
             (.volunteerLocation, .get, "/api/blind/volunteer-location"),
             (.dispatchSummary, .get, "/api/volunteer/dispatch-summary"),
             (.dispatchStatus, .put, "/api/volunteer/dispatch-status"),
-            (.achievements, .get, "/api/volunteer/achievements"),
         ]
 
         for (endpoint, method, path) in cases {
@@ -84,7 +83,7 @@ final class OrderEndpointTests: XCTestCase {
             .enRoute(orderId: 1), .arrived(orderId: 1), .startService(orderId: 1),
             .finish(orderId: 1), .review(orderId: 1), .reviews(orderId: 1),
             .statusLogs(orderId: 1), .startLiveShare(orderId: 1), .stopLiveShare(orderId: 1),
-            .volunteerLocation, .dispatchSummary, .dispatchStatus, .achievements,
+            .volunteerLocation, .dispatchSummary, .dispatchStatus,
             .keepWaiting(.keepWaiting, orderId: 1), .introCall(.view, orderId: 1),
         ]
         for endpoint in endpoints {

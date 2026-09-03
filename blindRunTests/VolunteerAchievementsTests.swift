@@ -325,8 +325,8 @@ final class VolunteerAchievementsTests: XCTestCase {
     // 三个 `@State` 从外面够不着。搬进 `VolunteerAchievementsViewModel` 之后才有测试面。
 
     func testLoadedAchievementsClearTheErrorAndStopTheSpinner() async {
-        let service = FakeOrderService()
-        service.achievementsResult = .success(
+        let service = FakeIncentiveService()
+        service.volunteerAchievementsResult = .success(
             try! JSONDecoder().decode(
                 VolunteerAchievementsResponse.self,
                 // ⚠️ 线上的字段名是 `totalCompleted`；`completedCount` 是本地派生的读取器
@@ -334,7 +334,7 @@ final class VolunteerAchievementsTests: XCTestCase {
                 from: Data(#"{"totalCompleted":3,"totalServiceMinutes":180,"badges":[]}"#.utf8)
             )
         )
-        let appState = AppState(orders: service)
+        let appState = AppState(incentive: service)
         let viewModel = VolunteerAchievementsViewModel()
         viewModel.configure(appState: appState)
 
@@ -348,11 +348,11 @@ final class VolunteerAchievementsTests: XCTestCase {
     /// 🚨 失败时页面上必须**多**出一行原因加一个「重新加载」，而不是只少几块内容。
     /// `errorSection` 是那两样东西的唯一驱动源，所以 `errorMessage` 非空是它的前提。
     func testFailedLoadLeavesAReasonOnScreenInsteadOfAnEmptyPage() async {
-        let service = FakeOrderService()
-        service.achievementsResult = .failure(APIError.serverError(
+        let service = FakeIncentiveService()
+        service.volunteerAchievementsResult = .failure(APIError.serverError(
             ErrorResponse(code: "INTERNAL_ERROR", message: "服务暂时不可用")
         ))
-        let appState = AppState(orders: service)
+        let appState = AppState(incentive: service)
         let viewModel = VolunteerAchievementsViewModel()
         viewModel.configure(appState: appState)
 

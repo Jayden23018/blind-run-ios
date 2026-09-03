@@ -47,7 +47,6 @@ enum OrderEndpoint {
     // 志愿者派单
     case dispatchSummary
     case dispatchStatus
-    case achievements
 
     /// 延长等待窗口。两条前置状态互斥的端点由 `RunOrderStatus.keepWaitingEndpoint` 选。
     case keepWaiting(KeepWaitingEndpoint, orderId: Int64)
@@ -91,8 +90,6 @@ enum OrderEndpoint {
             return EndpointRequest(.get, "/api/volunteer/dispatch-summary")
         case .dispatchStatus:
             return EndpointRequest(.put, "/api/volunteer/dispatch-status")
-        case .achievements:
-            return EndpointRequest(.get, "/api/volunteer/achievements")
         case .keepWaiting(let endpoint, let orderId):
             // ⚠️ 这两条都是 `PUT`，与其余走 `POST` 的状态流转端点不同族。
             return EndpointRequest(.put, endpoint.path(orderId: orderId))
