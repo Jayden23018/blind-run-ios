@@ -479,10 +479,13 @@ final class VolunteerHomeViewModel: ObservableObject {
         auxiliaryLoadTask?.cancel()
         let requestID = UUID()
         auxiliaryRequestID = requestID
-        // 这两条是**认证·会话片**的端点（`AuthServing.volunteerProfile` /
+        // 这两条是**档案·资质片**的端点（`ProfileServing.volunteerProfile` /
         // `.volunteerRegistrationStatus`），不在订单片里再开一条同路径 ——
         // 同一个端点两处字面量迟早漂移。
-        let auth = appState.auth
+        //
+        // 它们原先暂放在 `AuthServing` 上（订单片就是照那个写的），档案片落 main 时
+        // 搬回了自己家。两片并行开发看不见对方的搬迁，这里跟着改指向。
+        let profile = appState.profile
         auxiliaryLoadTask = Task { [weak self, weak appState] in
             guard let self, let appState else { return }
             async let profileResult: Result<VolunteerProfileResponse, Error> = Self.fetchResult {
@@ -490,7 +493,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     timeout: self.loadTimeout,
                     operationName: "volunteer-profile"
                 ) {
-                    try await auth.volunteerProfile()
+                    try await profile.volunteerProfile()
                 }
             }
             async let registrationResult: Result<VolunteerRegistrationStatus, Error> = Self.fetchResult {
@@ -498,7 +501,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     timeout: self.loadTimeout,
                     operationName: "volunteer-registration"
                 ) {
-                    try await auth.volunteerRegistrationStatus()
+                    try await profile.volunteerRegistrationStatus()
                 }
             }
 
