@@ -490,6 +490,22 @@ final class VoiceOrderWizard: ObservableObject {
         if let parsed {
             notice = apply(parsed, spokenIn: transcript) ?? notice
         }
+        // 后端因**阻断项**缺失而给的追问语，作为 notice 带进读回。
+        //
+        // 🚩 **这不违反上面那条「整句这一轮不重问」** —— 我们仍然读回、仍然让用户决定改不改，
+        // 只是把后端那句话说出来。加它的直接起因是夜间禁跑窗口（N134）：
+        // 后端在 `[22:00, 05:00)` 时把 `startTime` 置 null、往 `missing` 里放 `START_TIME`
+        // 并把 `ttsText` 换成夜间提示，然后**默认客户端会念它**（handoff 2026-09-05 原话
+        // 「如果你们是按 needReask / missing 走的（应该是），这里什么都不用动」）。
+        // 而这一轮本来一个字都不消费 ⇒ 用户听到的是「预约时间还没说」，
+        // 对一个刚刚清清楚楚说了「晚上九点」的人，这句话是错的，而且他重说一遍还是同样结果。
+        //
+        // 只取**阻断项**（`ADDRESS` / `START_TIME`）：缺时长照旧不打扰，那一项有正当默认值，
+        // 后端自己也把它排在非阻断档（`VoiceSlotField.blocksOrderCreation`）。
+        if let parsed, parsed.hasBlockingMissingSlot, let reask = parsed.ttsText?.nilIfBlank {
+            notice = [reask, notice].compactMap { $0 }.joined()
+        }
+
         // 说得太长时后端静默降级成纯正则，终点与备注**一定**抽不到（见
         // `ParseVoiceOrderRequest.modelFallbackCharacterLimit`）。排在最前面说：
         // 它解释的是后面那一整段读回为什么缺东西，放在后面等于让用户先困惑一遍。

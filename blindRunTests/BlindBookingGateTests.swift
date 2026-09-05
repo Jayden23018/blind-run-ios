@@ -168,7 +168,9 @@ final class BlindBookingGateTests: XCTestCase {
             id: "poi-1", title: "人民广场", addressText: "上海市黄浦区人民广场",
             latitude: 31.2304, longitude: 121.4737, source: .manual
         )
-        viewModel.appointmentTime = viewModel.minimumAppointmentTime.addingTimeInterval(600)
+        // 固定白天时刻而不是 `minimumAppointmentTime + 10 分钟`：后者落进夜间窗口
+        // `[22:00, 05:00)` 时不合法，会让用例白天绿、夜里红（见 `BookingTimeFixture`）。
+        viewModel.appointmentTime = BookingTimeFixture.daytime()
 
         XCTAssertNil(viewModel.firstMissingGate, "定位被拒不再是下单门槛")
         XCTAssertTrue(viewModel.canSubmit, "手动选了起点就必须能提交")
@@ -224,7 +226,9 @@ final class BlindBookingGateTests: XCTestCase {
             id: "poi-1", title: "人民广场", addressText: "上海市黄浦区人民广场",
             latitude: 31.2304, longitude: 121.4737, source: .manual
         )
-        viewModel.appointmentTime = viewModel.minimumAppointmentTime.addingTimeInterval(600)
+        // 固定白天时刻而不是 `minimumAppointmentTime + 10 分钟`：后者落进夜间窗口
+        // `[22:00, 05:00)` 时不合法，会让用例白天绿、夜里红（见 `BookingTimeFixture`）。
+        viewModel.appointmentTime = BookingTimeFixture.daytime()
         viewModel.currentStep = .review
 
         XCTAssertFalse(viewModel.canSubmit, "前提：按钮此时是禁用的")

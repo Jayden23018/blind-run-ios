@@ -3121,7 +3121,9 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertFalse(viewModel.isAppointmentTimeValid)
 
-        viewModel.appointmentTime = Date().addingTimeInterval(31 * 60)
+        // ⚠️ 不能写 `Date() + 31 分钟`：夜间禁跑窗口上线后那个时刻在 21:29–05:00 之间不合法，
+        // 用例会白天绿、夜里红。见 `BookingTimeFixture` 的注释。
+        viewModel.appointmentTime = BookingTimeFixture.daytime()
 
         XCTAssertTrue(viewModel.isAppointmentTimeValid)
     }

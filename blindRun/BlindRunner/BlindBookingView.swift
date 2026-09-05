@@ -33,6 +33,31 @@ enum BookingDurationOption: Int, CaseIterable, Identifiable {
     }
 }
 
+/// 预约时间过不了的三种原因。文案集中在这里，是为了让「提示行 / 步骤阻断语 / 语音摘要」
+/// 三处说的是同一句话 —— 它们此前各写各的，其中两处把 30 分钟硬编码进了句子。
+enum BookingTimeProblem: Equatable {
+    case tooSoon
+    case tooFar
+    case nightWindow
+
+    var message: String {
+        switch self {
+        case .tooSoon:
+            // 数字取自常量，与 `minimumAppointmentTime` 同源 —— 写死会在后端调整提前量时变成假话。
+            return "当前选择的时间太近了，请改到 \(AppConstants.Timing.minimumBookingLeadMinutes) 分钟以后。"
+        case .tooFar:
+            return "最多只能约 \(AppConstants.Timing.maximumBookingLeadDays) 天以内的时间，请改到近一些的日子。"
+        case .nightWindow:
+            // 🚨 必须说清判据是**整段**。只说「这个时间不能约」的话，21 点出发的用户会认为
+            // 自己没碰到 22 点，把开始时间往前挪一点再试 —— 而真正越界的是结束时间。
+            // 时刻念「晚上10点 / 早上5点」而不是 `22:00` / `05:00`：这段要过 TTS，
+            // 念钟点比念数字冒号稳。
+            return "晚上10点到次日早上5点之间不安排陪跑。这一单从开始到结束整段都要避开这个时段，"
+                + "请改到白天，或者把时长改短、让它在晚上10点前结束。"
+        }
+    }
+}
+
 enum BlindBookingGuidedStep: Int, CaseIterable, Identifiable {
     case startPoint
     case appointmentTime
@@ -232,8 +257,55 @@ final class BlindBookingViewModel: ObservableObject {
         Date().addingTimeInterval(TimeInterval(AppConstants.Timing.minimumBookingLeadMinutes * 60))
     }
 
+    /// 选择器的上界。后端 2026-09-05 起对 `plannedStartTime` 有了 7 天上限
+    /// （422 `APPOINTMENT_TOO_FAR`），在此之前**只有下限没有上限**，能选到几个月后再被拒。
+    var maximumAppointmentTime: Date {
+        Date().addingTimeInterval(TimeInterval(AppConstants.Timing.maximumBookingLeadDays * 24 * 3600))
+    }
+
     var isAppointmentTimeValid: Bool {
-        appointmentTime >= minimumAppointmentTime
+        appointmentTimeProblem == nil
+    }
+
+    /// 当前这个时间选择过不了哪一道，`nil` = 都过得了。
+    ///
+    /// 抽成一个枚举而不是三个 Bool：`appointmentTimeHint` / `blockingReasonForCurrentStep` /
+    /// `appointmentSummary` 三处都要说出**具体哪里不行**，散着写就会像此前那样漂 ——
+    /// 那两处曾经手抄「30 分钟」，而 hint 是从常量取的。
+    ///
+    /// 顺序即优先级：太近 → 太远 → 夜间。先说时间点本身的问题，再说整段的问题。
+    var appointmentTimeProblem: BookingTimeProblem? {
+        if appointmentTime < minimumAppointmentTime { return .tooSoon }
+        if appointmentTime > maximumAppointmentTime { return .tooFar }
+        if Self.overlapsNightWindow(start: appointmentTime, end: plannedEndDate) { return .nightWindow }
+        return nil
+    }
+
+    /// 整段行程与夜间禁跑窗口 `[22:00, 05:00)` 有没有交集。
+    ///
+    /// 🚩 **判据是整段不是开始时刻**，与后端 `OrderCreationService.overlapsNightWindow` 同构：
+    /// `21:00–22:30` 拒（尾巴进了夜间）、`21:00–22:00` 放行（恰好 22:00 结束不算重叠）、
+    /// `05:00–06:00` 放行（恰好 05:00 开始不算重叠）、`次日 04:00–06:00` 拒。
+    /// 半开区间的判据 `start < windowEnd && end > windowStart` 就是「恰好相接不算」的来源。
+    ///
+    /// 扫 `-1...1` 三天：一段最长 5 小时的行程只可能撞上「当天那扇」或「前一天那扇
+    /// （它延伸到今天 05:00）」，`+1` 是多余但无害的保险。
+    ///
+    /// `nonisolated static` + 显式 `calendar` 是为了能被单测直接驱动：它是纯函数，
+    /// 不碰任何 view model 状态，挂在 `@MainActor` 上只会逼调用方跑主线程。
+    nonisolated static func overlapsNightWindow(start: Date, end: Date, calendar: Calendar = .current) -> Bool {
+        guard end > start else { return false }
+        let startHour = AppConstants.Timing.nightWindowStartHour
+        let endHour = AppConstants.Timing.nightWindowEndHour
+        let windowHours = (24 - startHour) + endHour
+        for dayOffset in -1...1 {
+            guard let day = calendar.date(byAdding: .day, value: dayOffset, to: start),
+                  let windowStart = calendar.date(bySettingHour: startHour, minute: 0, second: 0, of: day),
+                  let windowEnd = calendar.date(byAdding: .hour, value: windowHours, to: windowStart)
+            else { continue }
+            if start < windowEnd && end > windowStart { return true }
+        }
+        return false
     }
 
     /// 预约时间那行提示。合法时说规则，不合法时说**当前这个选择哪里不行**。
@@ -247,10 +319,8 @@ final class BlindBookingViewModel: ObservableObject {
     /// 分钟数取自 `AppConstants.Timing.minimumBookingLeadMinutes`，与 `minimumAppointmentTime`
     /// 同源 —— 写死 30 会在后端调整提前量时变成一句骗人的话。
     var appointmentTimeHint: String {
-        let minutes = AppConstants.Timing.minimumBookingLeadMinutes
-        return isAppointmentTimeValid
-            ? "预约时间需至少在 \(minutes) 分钟后。"
-            : "当前选择的时间太近了，请改到 \(minutes) 分钟以后。"
+        appointmentTimeProblem?.message
+            ?? "预约时间需至少在 \(AppConstants.Timing.minimumBookingLeadMinutes) 分钟后。"
     }
 
     /// 下单前第一个未通过的门槛；nil 表示全部通过。
@@ -303,7 +373,9 @@ final class BlindBookingViewModel: ObservableObject {
             }
             return nil
         case .appointmentTime:
-            return isAppointmentTimeValid ? nil : "预约时间需至少在 30 分钟后。"
+            // 走 `appointmentTimeProblem` 而不是自己拼一句：此前这里手抄了「30 分钟」，
+            // 而 `appointmentTimeHint` 是从常量取的 —— 两句话对同一件事的说法可以各自漂。
+            return appointmentTimeProblem?.message
         case .runningNeeds:
             return nil
         case .review:
@@ -325,10 +397,10 @@ final class BlindBookingViewModel: ObservableObject {
 
     var appointmentSummary: String {
         let timeText = DateFormatter.aidRunDisplayDateTime.string(from: appointmentTime)
-        if isAppointmentTimeValid {
+        guard let problem = appointmentTimeProblem else {
             return "预约时间：\(timeText)。"
         }
-        return "预约时间：\(timeText)。预约时间需至少在 30 分钟后。"
+        return "预约时间：\(timeText)。\(problem.message)"
     }
 
     var startPointSourceText: String {
@@ -1845,14 +1917,19 @@ struct BlindBookingView: View {
             DatePicker(
                 "预约时间",
                 selection: $viewModel.appointmentTime,
-                in: viewModel.minimumAppointmentTime...,
+                // 上界是 2026-09-05 加的：后端此前对 `plannedStartTime` 只有下限，
+                // 用户能选到几个月后，然后在提交那一步吃 422 `APPOINTMENT_TOO_FAR`。
+                // 对盲人一次被拒等于重走整套读回流程，所以拦在选择器上。
+                // ⚠️ 夜间窗口 `[22:00, 05:00)` **拦不到这里** —— `DatePicker` 的 `in:`
+                // 只接受连续区间，挖不出一个洞。那道由 `appointmentTimeProblem` 在提交前拦。
+                in: viewModel.minimumAppointmentTime...viewModel.maximumAppointmentTime,
                 displayedComponents: [.date, .hourAndMinute]
             )
             .datePickerStyle(.compact)
             .font(AppFonts.body())
             .foregroundColor(AppColors.textPrimary)
             .accessibilityLabel("预约时间，\(viewModel.appointmentTime.formatted(date: .abbreviated, time: .shortened))")
-            .accessibilityHint("请选择至少三十分钟后的时间")
+            .accessibilityHint("请选择至少三十分钟后、\(AppConstants.Timing.maximumBookingLeadDays) 天以内的时间")
 
             // 这里此前**两种状态同一句话**，合法与否只由颜色区分（灰 / 红）。
             // 那不只是色觉障碍的问题：读屏用户根本没有颜色这条通道，选了一个过近的时间
