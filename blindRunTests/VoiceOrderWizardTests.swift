@@ -1861,7 +1861,10 @@ final class VoiceOrderWizardTests: XCTestCase {
             bookingViewModel: bookingViewModel,
             speechService: SpeechService(), // guard:allow weak-temporary
             speechInputService: SpeechInputService(), // guard:allow weak-temporary
-            apiClient: client
+            // 桩仍然实现 `APIClientProtocol`，架一层真的 `VoiceService` 在它上面 ——
+            // 这样验的是「向导 → service → 传输」这条真实路径，而不是另造一个假 service
+            // 把 service 那一层跳过去。
+            voiceOrderService: VoiceOrderService(transport: client)
         )
         wizard.startForTesting(at: .freeform)
 
@@ -2235,7 +2238,7 @@ final class VoiceOrderWizardTests: XCTestCase {
             // wizard 拿到的实际是 nil。走门槛分支的用例本来就不碰语音服务，故此保持现状；
             // 需要真的语音服务的用例（见 testStartFallsBackImmediately...）必须自己 `let` 住再传进来。
             speechInputService: speechInputService ?? SpeechInputService(), // guard:allow weak-temporary
-            apiClient: VoiceOrderAPIClientStub()
+            voiceOrderService: VoiceOrderService(transport: VoiceOrderAPIClientStub())
         )
         return wizard
     }
@@ -2773,7 +2776,7 @@ final class VoiceOrderWizardTests: XCTestCase {
             // 同上：wizard 侧是 weak，这个临时对象等于传 nil。这批用例全走 `startForTesting(at:)`，
             // 不经过真正的开麦路径，所以不需要一个活着的语音服务。
             speechInputService: SpeechInputService(), // guard:allow weak-temporary
-            apiClient: stub,
+            voiceOrderService: VoiceOrderService(transport: stub),
             currentCoordinate: currentCoordinate
         )
         wizard.startForTesting(at: step, didCaptureStartTime: didCaptureStartTime)

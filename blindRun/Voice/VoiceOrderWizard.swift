@@ -147,7 +147,7 @@ final class VoiceOrderWizard: ObservableObject {
     private weak var bookingViewModel: BlindBookingViewModel?
     private weak var speechService: SpeechService?
     private weak var speechInputService: SpeechInputService?
-    private var apiClient: (any APIClientProtocol)?
+    private var voiceOrderService: (any VoiceOrderServing)?
     private var currentCoordinate: (() -> LocatedCoordinate?)?
     private var parseTask: Task<Void, Never>?
     /// 下一次读回前要先说的一句话（目前只有时长取整）。拼进读回而不是单独播一次，见 `moveToConfirm`。
@@ -189,13 +189,13 @@ final class VoiceOrderWizard: ObservableObject {
         bookingViewModel: BlindBookingViewModel,
         speechService: SpeechService,
         speechInputService: SpeechInputService,
-        apiClient: any APIClientProtocol,
+        voiceOrderService: any VoiceOrderServing,
         currentCoordinate: (() -> LocatedCoordinate?)? = nil
     ) {
         self.bookingViewModel = bookingViewModel
         self.speechService = speechService
         self.speechInputService = speechInputService
-        self.apiClient = apiClient
+        self.voiceOrderService = voiceOrderService
         self.currentCoordinate = currentCoordinate
     }
 
@@ -1064,14 +1064,10 @@ final class VoiceOrderWizard: ObservableObject {
         _ transcript: String,
         current: VoiceSlotSnapshot? = nil
     ) async throws -> ParseVoiceOrderResponse {
-        guard let apiClient else { throw WizardError.notConfigured }
+        guard let voiceOrderService else { throw WizardError.notConfigured }
         let body = parseRequest(transcript: transcript, current: current)
         return try await withParseTimeout {
-            let response: ParseVoiceOrderResponse = try await apiClient.post(
-                VoiceOrderEndpoint.parseOrder,
-                body: body
-            )
-            return response
+            try await voiceOrderService.parseOrder(body)
         }
     }
 

@@ -431,6 +431,15 @@ final class AppState: ObservableObject {
         return OrderService(transport: apiClient)
     }
 
+    /// 语音下单解析片的领域 service。每次取都新建，理由同 `auth`。
+    ///
+    /// 这里没有注入口，理由同 `profile`：现有用例都通过给 `VoiceOrderWizard.configure`
+    /// 传一个架在 `APIClientProtocol` 桩上的 `VoiceOrderService` 打桩，够用。
+    /// 真需要 `FakeVoiceOrderService` 时再照 `auth` 加，不先摆一个没人用的入口。
+    var voiceOrder: any VoiceOrderServing {
+        VoiceOrderService(transport: apiClient)
+    }
+
     // MARK: - Init
 
     init(
