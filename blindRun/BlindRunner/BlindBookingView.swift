@@ -994,7 +994,7 @@ struct BlindBookingView: View {
                 bookingViewModel: viewModel,
                 speechService: speechService,
                 speechInputService: speechInputService,
-                apiClient: appState.apiClient,
+                voiceOrderService: appState.voiceOrder,
                 // ⚠️ **必须放宽新鲜度门，别用默认的 15 秒**（2026-08-10，N48 的客户端那一级）。
                 //
                 // 非陪跑模式下 `distanceFilter = 10`，站着不动 Core Location 就不推新样本；
