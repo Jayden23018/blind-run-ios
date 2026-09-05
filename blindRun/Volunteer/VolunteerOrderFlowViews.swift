@@ -59,6 +59,10 @@ extension RunOrderStatus {
         // 中性、不归因：志愿者同样不该被告知自己是「第几个候选人」。
         case .pendingIntroCall:
             return "等待与跑者通话确认"
+        // 说清**还没到点**，否则志愿者会以为现在就该出发。「请确认」那半句留给动作按钮，
+        // 不写进状态名 —— 状态名会出现在列表、卡片、读屏 label 里，那些地方带一个祈使句是噪音。
+        case .scheduledConfirmed:
+            return "已接单，等出发前确认"
         case .pendingAccept:
             return "已接单，请前往约定地点"
         case .inProgress:
@@ -85,6 +89,9 @@ extension RunOrderStatus {
 
     var serviceStageTitle: String {
         switch self {
+        // 单独一档：这一态的阶段目标既不是「前往」也不是「等待接单」，是「确认你还去」。
+        case .scheduledConfirmed:
+            return "确认这次预约"
         case .pendingAccept, .driverEnRoute:
             return "前往出发地点"
         case .driverArrived:
@@ -117,6 +124,11 @@ extension RunOrderStatus {
 
     var serviceStageSubtitle: String {
         switch self {
+        // 🚨 **不写「距开跑还有 X 小时要确认」**：那个提前量是后端配置
+        // （`app.order.departure-confirm-window-minutes`），客户端读不到，写死就是编一个数字。
+        // 只说清后果（不确认会转给别人），因为那是他真正需要知道的。
+        case .scheduledConfirmed:
+            return "这次陪跑还没到时间。出发前请确认你还会去，没有确认这一单会转给其他志愿者"
         case .pendingAccept:
             return "请确认当前位置和出发地点，可使用外部地图步行导航"
         case .driverEnRoute:
@@ -349,6 +361,10 @@ private extension RunOrderStatus {
             return false
         // 通话磨合不是志愿者的状态机动作（它由双方表态驱动），永远不会是这里的目标状态。
         case .pendingIntroCall:
+            return false
+        // 同理：确认出发的**目标**是 `.pendingAccept`，没有任何志愿者动作以这一态为目标。
+        // （它是接单那一刻由后端按「距开跑多远」决定的，客户端不驱动。）
+        case .scheduledConfirmed:
             return false
         // `.unknown` 只可能来自解码兜底，永远不会是志愿者操作的目标状态。
         case .unknown:
@@ -869,7 +885,10 @@ struct VolunteerOrderDetailView: View {
                         .foregroundColor(AppColors.warning)
                         .accessibilityLabel(blockMessage)
                 }
-            } else if order.status == .pendingAccept || order.status == .inProgress || order.status == .driverEnRoute || order.status == .driverArrived {
+            // `.scheduledConfirmed` 在列：跨天单的「确认我还会去」在服务页的动作条上
+            // （`VolunteerServiceActions.actionKinds`），这里给的是通往它的第二条路 ——
+            // 主入口是首页的「我的预约」区块，这条兜住「从近期服务点进详情页」的人。
+            } else if order.status == .scheduledConfirmed || order.status == .pendingAccept || order.status == .inProgress || order.status == .driverEnRoute || order.status == .driverArrived {
                 NavigationLink {
                     VolunteerInServiceView(orderId: order.orderId, initialOrder: order)
                 } label: {
@@ -1083,6 +1102,29 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
     }
 
+    /// 跨天预约单的临期确认：`SCHEDULED_CONFIRMED → PENDING_ACCEPT`。
+    ///
+    /// 走与其余流转动作**同一条** `submitTransition`，而不是自己写一遍 —— 那条路径自带
+    /// 提交去重、「已提交待确认」态、超时后的「重新确认状态」。这个动作恰恰最需要它们：
+    /// 提交成功但确认没回来时，志愿者会以为没点上而重复点，而重复点在 409 之后
+    /// 看起来和「真的没确认成功」一模一样。
+    ///
+    /// 🚩 目标是 `.pendingAccept` 而不是 `.scheduledConfirmed`：确认之后订单就进即时链路了。
+    /// 它与 `/en-route` **不是一回事**（那条会打开位置互推），别把两个动作合并。
+    func confirmDeparture() async {
+        guard let order, let appState else { return }
+        let orders = appState.orders
+        let orderID = order.orderId
+        await submitTransition(
+            target: .pendingAccept,
+            orderID: orderID,
+            appState: appState,
+            statusConflictMessage: "这一单已经转给其他志愿者了，不用再确认。"
+        ) {
+            try await orders.confirmDeparture(orderId: orderID)
+        }
+    }
+
     func handleBlindLocationUpdate(_ sample: RealtimePeerLocationSample) {
         guard acceptsPeerLocations,
               sample.ownerRole == .blind,
@@ -1192,10 +1234,17 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
     }
 
+    /// - Parameter statusConflictMessage: 409 `ORDER_STATUS_NOT_ALLOWED` 时替换掉那句通用文案。
+    ///   加它是因为**同一个错误码在不同动作下要说的话不一样**：`ErrorCode.invalidOrderStatus`
+    ///   在后端有 13 个抛出点，全局文案只能是「当前订单状态不允许此操作」，而
+    ///   `confirm-departure` 的契约 description 明写这条 409 最常见的成因是
+    ///   「闸门已经把这一单退回重新匹配了」，要告诉志愿者「这一单已经转走了」而不是「操作失败」——
+    ///   后者会让他以为再点一次就好。默认 nil = 沿用全局文案，其余调用点行为不变。
     private func submitTransition(
         target: RunOrderStatus,
         orderID: Int64,
         appState: AppState,
+        statusConflictMessage: String? = nil,
         operation: @escaping @Sendable () async throws -> Void
     ) async {
         guard !isPerformingAction else { return }
@@ -1237,6 +1286,15 @@ final class VolunteerInServiceViewModel: ObservableObject {
             switch error {
             case .networkError, .decodingError:
                 markTransitionOutcomeUnknown(target: target, orderID: orderID, appState: appState)
+            case .serverError(let response) where response.errorCode == .invalidOrderStatus
+                && statusConflictMessage != nil:
+                // 走到这里说明订单已经不在本次动作的前置状态上了。**同时刷新一次订单**：
+                // 只播一句「已经转走了」而屏幕还停在旧状态，等于让志愿者对着一个已经不成立的界面。
+                let message = statusConflictMessage ?? error.localizedMessage
+                transitionState = .failed(message: message)
+                errorMessage = message
+                speechService?.speakError(message)
+                await load(orderId: orderID, speakChanges: false)
             case .serverError, .rateLimited, .unknown, .invalidURL, .missingCredentials:
                 transitionState = .failed(message: error.localizedMessage)
                 errorMessage = error.localizedMessage
@@ -1521,6 +1579,7 @@ struct VolunteerInServiceView: View {
                             onStartService: { Task { await viewModel.startService() } },
                             onCancel: { showCancelConfirm = true },
                             onComplete: { activeSheet = .completion },
+                            onConfirmDeparture: { Task { await viewModel.confirmDeparture() } },
                             onRetryTransitionConfirmation: {
                                 viewModel.retryTransitionConfirmation()
                             },
@@ -2494,6 +2553,7 @@ struct VolunteerServiceBottomPanel: View {
     let onStartService: () -> Void
     let onCancel: () -> Void
     let onComplete: () -> Void
+    let onConfirmDeparture: () -> Void
     let onRetryTransitionConfirmation: () -> Void
 
     var body: some View {
@@ -2539,6 +2599,7 @@ struct VolunteerServiceBottomPanel: View {
                     onStartService: onStartService,
                     onCancel: onCancel,
                     onComplete: onComplete,
+                    onConfirmDeparture: onConfirmDeparture,
                 )
             }
             .padding(.horizontal, 22)
@@ -2782,6 +2843,17 @@ enum VolunteerServiceActionKind: Hashable {
     case markArrived
     case startService
     case cancelOrder
+    /// 跨天预约单的临期确认（`POST /api/orders/{id}/confirm-departure`）。
+    case confirmDeparture
+    /// 跨天预约单的「我去不了」。**动作与 `.cancelOrder` 完全相同**（同一个取消端点、同样转
+    /// `REMATCHING`），单独一个 case 只为换文案。
+    ///
+    /// 换文案不是修饰：对志愿者，「取消订单」读起来像是在替盲人取消这一单，而实际后果是
+    /// 「这一单回到派单池换个人」。这个差别在预约态下尤其要紧 —— 他要在几天前做这个决定，
+    /// 而**确认与释放必须并置且同样好按**（对标志愿者排班软件的 confirm-or-release：
+    /// 释放做得难，只会把 no-show 从「提前告知」变成「当天失联」，
+    /// 见 `docs/research/volunteer-scheduled-order-confirm-ui-20260906.md` §二.1）。
+    case releaseScheduled
     case completeService
     case completedMessage
     case terminalMessage
@@ -2790,6 +2862,10 @@ enum VolunteerServiceActionKind: Hashable {
         switch self {
         case .navigateToStart:
             return "导航到出发地点"
+        case .confirmDeparture:
+            return "确认我还会去"
+        case .releaseScheduled:
+            return "我去不了"
         case .markEnRoute:
             return "我已出发"
         case .markArrived:
@@ -2821,6 +2897,7 @@ struct VolunteerServiceActions: View {
     let onStartService: () -> Void
     let onCancel: () -> Void
     let onComplete: () -> Void
+    let onConfirmDeparture: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
@@ -2832,6 +2909,15 @@ struct VolunteerServiceActions: View {
 
     static func actionKinds(for status: RunOrderStatus) -> [VolunteerServiceActionKind] {
         switch status {
+        // 跨天预约：确认与释放并置，**不给导航** —— 距开跑 1–7 天，导航到出发地点是纯噪音，
+        // 而且它会和「确认我还会去」抢同一块视觉重量。
+        //
+        // 🚩 确认按钮在**整个** `SCHEDULED_CONFIRMED` 都给，不按「距开跑 X 分钟」开闸。
+        // 那个 X 是后端配置（`departure-confirm-window-minutes`），客户端算它就是第二个源；
+        // 后端调大它的那一天，通知到了而按钮还没出现 —— 那正是这次要防的事故。
+        // 代价是志愿者可能提前几天就确认掉，闸门的临期复查失效；两相比较这个代价小得多。
+        case .scheduledConfirmed:
+            return [.confirmDeparture, .releaseScheduled]
         case .pendingAccept:
             return [.navigateToStart, .markEnRoute, .cancelOrder]
         case .driverEnRoute:
@@ -2876,6 +2962,15 @@ struct VolunteerServiceActions: View {
                 .disabled(transitionsDisabled)
                 .accessibilityLabel(action.title)
                 .accessibilityHint("点击后通知盲人服务已开始")
+        case .confirmDeparture:
+            PrimaryButton(action.title, isLoading: isPerformingAction, action: onConfirmDeparture)
+                .disabled(transitionsDisabled)
+                .accessibilityLabel(action.title)
+                .accessibilityHint("告诉跑者你仍然会来。不确认这一单会转给其他志愿者")
+        case .releaseScheduled:
+            // 与确认同一组，走取消端点。**用 `secondaryDangerButton` 而不是再来一个主按钮**：
+            // 并置不等于同等强调 —— 释放要好按（一跳、不藏进菜单），但不该和确认抢第一焦点。
+            secondaryDangerButton(action.title, hint: "这一单会转给其他志愿者，需要确认后释放", action: onCancel)
         case .cancelOrder:
             secondaryDangerButton(action.title, hint: "取消当前订单", action: onCancel)
         case .completeService:
