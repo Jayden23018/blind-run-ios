@@ -75,6 +75,18 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   误触本身已按 §1.2 钉成运行时断言；「怎么诊断」这半条抓不成检查，
   详见记忆 `snapshot-timeout-means-a-system-app-took-over`。
 
+- 真机跑测报 `Test crashed with signal kill` 时，**先原样复跑一次比失败用例名**，
+  两次失败集合零重叠就不可能是代码。它是所有真机故障签名里唯一「跑起来了、跑了大半、
+  中间随机死几条」的一种，`result=Failed` 但退出码 0、零执行硬失败也不触发，所以最像真回归。
+  2026-09-02 实测：单测全量 967/2 失败 → 原样复跑 960/0；`AccessibilityAuditTests`
+  16/4 失败 → 复跑 17/3 失败且与上一次**零重叠**（20 条每条都在某一次里过了）。
+  当次 `transportType: wired`、`tunnelState: connected`，不是 USB 的事。
+  连带一条计数陷阱：崩溃后 XCTest 重启会把上一次的计数并进总数
+  （日志原文 `summary will include totals from previous launches`），
+  所以崩过那一次的 `total` 比真实用例数大，不可与另一次比条数。
+  详见记忆 `ui-test-runner-needs-usb-not-wifi` 第七种。
+  这条抓不成静态守卫也抓不成测试 —— 判据是「跨两次运行的失败集合关系」，单次运行内无从判断。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：
