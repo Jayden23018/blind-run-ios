@@ -1,7 +1,21 @@
 # Opus 5 的用法、effort 档位与本仓库工作流优化
 
 **日期**：2026-09-06 · **核实通道**：Anthropic 官方文档（platform.claude.com / code.claude.com / anthropic.com）+ HN Algolia 原始评论 + 本机实测
-**本机环境**：Claude Code `2.1.224`，`~/.claude/settings.json` 的 `env` 只有 4 项（无 effort、无 subagent 上限），`model` 未固定
+**本机环境**：Claude Code `2.1.224`
+
+> ⚠️ **先读这条：本报告有一份并行的姊妹篇，结论互补且有两处冲突。**
+> 同一天 01:42，后端仓库落了 [`demo/docs/research/opus5-workflow-optimization-20260906.md`](file:///Users/mac/Downloads/demo/docs/research/opus5-workflow-optimization-20260906.md)，
+> 查的是同一个问题。两份是**独立**做的 —— 本仓库的 `docs/research/INDEX.md` 只盖本仓库，
+> 而那份落在后端仓库，所以谁都没看见谁。这本身就是 `AGENTS.md` §12 第 1 条要防的事，
+> 只是它当时没跨仓库；已按 §1.1 把钩子改成两份索引都灌（PR #109）。
+>
+> **分工**（避免第三次重跑）：
+> - **那份更强的两块**：① §3.2 收集了「更高 effort 在编码上会变差」的三个反向证据
+>   （system card 的 "make more changes than the task requires"、Cognition FrontierCode 1.1 最佳分落在
+>   medium、CodeRabbit 基准 xhigh 精度升但**召回降**、nitpick 4×）；② §四 **在系统提示里直接核实**了
+>   官方三段 prompt 已被 `claude_code` 预设内置。本报告 §F 与 §G 已按这两条修正。
+> - **本份独有**：Claude Code 侧机制（`/effort` 优先级、`ultrathink` vs `ultracode` 的官方原文）、
+>   `/goal` 的完整机制、HN 45 条原始评论、以及**本仓库**的常驻上下文实测与瘦身方案。
 
 ---
 
@@ -290,17 +304,32 @@ Only correct an earlier statement when the error would change the user's code, c
 
 建议把 §B.1 的官方原文（或其中文等价）加进 `~/.claude/CLAUDE.md` —— 注意它是**全局问题不是本项目问题**，放全局。
 
-### E.4 🟡 effort 口径过时
+### E.4 ✅ effort 口径过时 —— 已由姊妹篇修好
 
-现状：`~/.claude/CLAUDE.md` 写「整会话要高 effort 用 `/effort xhigh`」，且 `settings.json` 里**没设** `CLAUDE_CODE_EFFORT_LEVEL` / `effortLevel` / `modelSettings` → 实际每次都是 Opus 5 的默认 `high`。
+原文写的是「`settings.json` 里**没设** `effortLevel`，实际跑默认 `high`」。**这句是错的**：
+实测 `~/.claude/settings.json` 明确设着 `"effortLevel": "high"`。
+错因是第一次的探测脚本只打印了 `env` / `model` / `hooks`，**没打印 `effortLevel` 这个键就下了断言** ——
+「只查了一处就断言不存在」，跟记忆 `rtk-silently-truncates-long-tool-output` 是同一个形状。
 
-**也就是说：规则写的和实际跑的不是一回事，而实际跑的那个（`high`）反而是对的。** 需要改的是规则文本，不是配置。
+结论（跑的是 `high`，且这是对的）不变，依据换成：**它是显式设的，不是默认兜底的**。
 
-### E.5 🟡 subagent 没有硬上限
+规则文本已由姊妹篇改好（`~/.claude/CLAUDE.md` 现在写着「Opus 5 的 effort 起点是 `high`，
+`xhigh` 是 Opus 4.7/4.8 时代的编码起点」）。
 
-`~/.claude/CLAUDE.md` 的「委派」节是一整套**纯 prompt 的**判定表（写得很好，三条已证伪的做法也标了）。但 Opus 5 更爱派活，官方原文：*"Either instruction only steers Claude, so set the limits as well."*
+### E.5 ✅ subagent 硬上限 —— 已由姊妹篇落地
 
-本机 2.1.224 支持这两个变量，**当前未设**（默认深度 3 / 并发 20 —— 对单人开发的这个仓库都偏大）。
+`~/.claude/CLAUDE.md` 的「委派」节是一整套**纯 prompt 的**判定表（写得很好，三条已证伪的做法也标了）。
+但 Opus 5 更爱派活，官方原文：*"Either instruction only steers Claude, so set the limits as well."*
+
+`~/.claude/settings.json` 的 `env` 现已设：
+
+```json
+"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",   // 禁止 subagent 再套 subagent（默认 3）
+"CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "3"    // 并发上限（默认 20）
+```
+
+数值取自姊妹篇 §6.4，理由：`SPAWN_DEPTH=1` 是「⛔ 别委派实现」的确定性版本；
+并发 3 对应「互相独立的模块并行开多个」的实际用量。
 
 ### E.6 🟢 已经做对、且被官方背书的（别动）
 
@@ -330,34 +359,80 @@ Only correct an earlier statement when the error would change the user's code, c
 
 判据来自 §A.2 官方口径 + 本仓库任务的实际形状（AGENTS §11「跑多大范围」已经把任务分好类了）。
 
+> ⚠️ **本表已按姊妹篇 §3.2 的反向证据下调过一档**。初稿把「跨多文件重构」直接推到 `xhigh`，
+> 但有三个独立来源指向「更高 effort 在编码上反而变差」：Anthropic system card 自己承认高 effort 下
+> 模型 "make more changes than the task requires"（超范围改动被评分器判罚）；Cognition FrontierCode 1.1
+> 上 Opus 5 最佳分落在 **medium**，过 high 之后下降；CodeRabbit 约 100 个真实 PR 的基准里
+> xhigh 精度升（39.3% vs 35.2%）但**召回降**（55.2% vs 61.1%）、nitpick 从 23 涨到 92 条。
+>
+> **对本仓库尤其相关**：这里的历史事故形态是「静默漂移」和「范围扩大」，**不是「想得不够深」**。
+> 抬 effort 治不了前者，反而放大后者 —— ponytail 模式常驻本身就是这个失败模式的证据。
+
 | 任务 | 建议 effort | 理由 |
 |---|---|---|
-| **默认**（无特别说明） | `high`（不设 = 默认） | Opus 5 官方起点；本机现状已经是这个 |
-| 跨多文件重构 / 新功能端到端（如一个完整 OpenSpec 变更） | `xhigh` | 官方：*"demanding coding and agentic work"*；这类在本仓库常跑 >30 分钟。**记得配大 `max_tokens`** |
-| 契约同步、错误码对撞、handoff 投递、文档回写 | `medium` | 机械且有脚本兜底（5 道 pre-push 门禁），质量下限由 gate 保住 |
-| 读日志、定位「X 在哪实现」、大文件摘要（走 subagent） | `low` | 官方表里 `low` 的典型用途就写着 subagent |
-| 疑难真机 bug 二分（`signal kill` / 快照超时那类） | `xhigh`，仍不行才 `max` | 官方：`max` 只在「`xhigh` 上测出还有余量」时才上 |
+| **默认**（无特别说明） | `high` | Opus 5 官方起点；`settings.json` 已显式设为这个 |
+| 机械同步：契约打勾、handoff 回写、文档补一行、守卫加一条矩阵 | `low` | 官方：low/medium *"liberally as your primary control"*；有 5 道 pre-push 门禁兜底 |
+| 常规单点改动 / 跨文件但方案清楚 | `high` | 官方起点，不用动 |
+| **真正难的**：状态机改动、事务与异步边界、线上事故根因、疑难真机 bug 二分 | `xhigh`（**单次抬，做完调回**） | 官方：*"demanding coding and agentic work"*。**记得配大 `max_tokens`（64k 起）** |
+| 代码审查 | `medium`~`high` | 官方：审查准确度**在低 effort 下保持**；且 xhigh 的 nitpick ×4 |
+| 读日志、定位、大文件摘要（走 subagent） | `low` | 官方表里 `low` 的典型用途原文就写着 subagent |
 | 无障碍 / VoiceOver 走查（要看截图） | `high` + **给它工具反复截图裁剪** | 官方：视觉任务上 *"tool use is a more cost-effective lever than thinking alone"* |
 | SOS / 隐私 / 认证这类红线代码 | `xhigh` + 单独跑 security-reviewer | 错误代价不对称，不是省 token 的地方 |
+| **从不用** | ~~`max`~~ | 本仓库没有「不计代价」的任务；编码上有 overthink 反证 |
 
-**不要做的**：把 `CLAUDE_CODE_EFFORT_LEVEL` 写死在 `settings.json` —— 它优先级最高，会**盖掉** `/effort` 和 `--effort`，还会让 `ultracode` 静默失效（§A.3）。按任务用 `/effort` 切。
+**两条不要做的**：
+
+- 别把 `CLAUDE_CODE_EFFORT_LEVEL` 写死在 `settings.json` —— 它优先级最高，会**盖掉** `/effort` 和
+  `--effort`，还会让 `ultracode` 静默失效（§A.3）。用 `effortLevel` 键设基线，按任务用 `/effort` 临时切。
+- 别在**同一会话中途**反复改 effort —— Claude Code 走顶层 effort，它参与 prompt 渲染，
+  **改它缓存前缀全失效**（保缓存的 per-message effort 是 API beta，Claude Code 用不到）。
+  要换档就 `/clear` 之后再换，正好并进「任务切换必须 `/clear`」那条。
+
+> Opus 5 **没有跨会话的 effort 保持**（Fable 5 / Opus 4.8 / 4.7 才有），所以「临时抬高」天然是临时的，
+> 不用担心忘了调回来粘住下一个会话。
 
 ---
 
-## G. 落地清单（按 ROI 排，未执行，等拍板）
+## G. 落地清单与实际执行状态（2026-09-06 收工时）
 
-| # | 动作 | 落在哪 | 预期收益 | 风险 |
-|---|---|---|---|---|
-| 1 | 加官方 conciseness + 播报节奏 + 更正克制三段指令 | `~/.claude/CLAUDE.md`（全局问题） | 直接打掉社区抱怨 Top 1/2 | 无 |
-| 2 | review 指令改两段式（全报 + 带严重度 → 第二遍过滤） | `~/.claude/CLAUDE.md` | 恢复被压制的 review 召回 | 第一遍输出变长，由 #1 抵消 |
-| 3 | 设 `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=5`、`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` | `~/.claude/settings.json` 的 `env` | 挡住 Opus 5 的派活冲动 | 大范围并行调研会被拒；真需要时临时调高 |
-| 4 | 加官方 subagent 阻尼指令 + 范围收口指令 | `~/.claude/CLAUDE.md` | 与 #3 配套（一个 steer 一个 enforce） | 无 |
-| 5 | effort 口径从「xhigh」改成本文件 §F 那张表 | `~/.claude/CLAUDE.md` | 消除规则与实际不一致 | 无 |
-| 6 | `AGENTS.md` §9–§13 迁进 skill，§1 索引压成一行指针 | 本仓库 | 常驻 21k → 12–14k | **要逐条核对不丢事故教训**，这步最需要小心 |
-| 7 | `MEMORY.md` 条目钩子压回一行 | 记忆目录 | 省 2–3k | 同上 |
-| 8 | 真机测试改用 `/goal`，条件写成「`device-test.sh` 输出里 `failed=0` 且 `passed>0`」 | 用法，不改文件 | 评估器每轮判，不靠我盯 | ⚠️ 评估器**不跑命令**，条件必须是 Claude 会贴出来的东西；且后台任务会让它跳过评估 |
+| # | 动作 | 落在哪 | 状态 |
+|---|---|---|---|
+| 1 | 控制输出长度（回复简洁 + 写文档长度校准） | `~/.claude/CLAUDE.md` | ⏳ **未做** —— 见下方说明 |
+| 2 | review 指令改两段式（全报 + 分档 → 第二遍过滤） | `~/.claude/CLAUDE.md` | ✅ **姊妹篇已落地**（现写作「让它全报并自分 A/B 两档，我只按 A 动手」） |
+| 3 | subagent 硬上限 `SPAWN_DEPTH=1` / `CONCURRENT=3` | `~/.claude/settings.json` | ✅ **姊妹篇已落地** |
+| 4 | ~~加官方 subagent 阻尼 + 范围收口指令~~ | ~~`~/.claude/CLAUDE.md`~~ | ❌ **撤销** —— 见下方 |
+| 5 | effort 口径从「xhigh」改成 §F 那张表 | `~/.claude/CLAUDE.md` | ✅ **姊妹篇已落地**，本报告 §F 又按其 §3.2 的反向证据下调一档 |
+| 6 | `AGENTS.md` §9–§13 迁进 skill，§1 索引压成路由表 | 本仓库 | ✅ **本轮完成**（PR #109） |
+| 7 | `MEMORY.md` 条目钩子压回一行 | 记忆目录 | ✅ **本轮完成**（最长 17 条，14,749→11,443 字符） |
+| 8 | 真机测试用 `/goal` | 用法 | ✅ **本轮完成** —— 可用的条件写法已写进 skill `aidrun-ship-check` |
 
-**#6 / #7 建议单开一个 PR**，与 #1–#5 分开——两拨改动的回滚粒度不同（AGENTS §1 那些是事故资产）。
+**实测收益（#6 + #7）**：常驻上下文 **53,890 字符 / ~21,556 tok → 41,099 字符 / ~16,440 tok（-23%）**。
+`AGENTS.md` 22,646→12,682，`MEMORY.md` 14,749→11,443。**规则一条没动，事故教训一条没丢** ——
+搬走的是理由、命令与踩坑史，每节留下规则本身加一行指针。
+
+### #4 为什么撤销
+
+官方那三段 prompt（范围收口 / 纠错克制 / 委派约束）**已被 Claude Code 的 `claude_code` 系统提示预设内置**。
+姊妹篇 §四 在系统提示里逐段核实过，本轮复核确认：`# Delivering work` 段有
+"The requested scope is the deliverable — don't quietly narrow, widen, or transform it"，
+`# Corrections` 段几乎逐字相同，委派那条是 "Do not use the Agent tool, workflows, or deep-research
+unless the user, a CLAUDE.md file, or a skill asks for it"。
+
+**抄进 `CLAUDE.md` = 同一件事说两遍**，还要占正在被瘦身的预算。
+⚠️ 但那句官方限定要看清：**只有用 `claude_code` 预设时才自动注入委派指令**，
+自建 harness 或 Agent SDK 传 custom system prompt 时**没有**，那时才需要自己加。
+
+### #1 为什么还没做
+
+它是唯一确认预设里**没有**对应物的一条（conciseness 与「写到磁盘的文档别注水」两段）。
+但 `~/.claude/CLAUDE.md` 与 `settings.json` 在 01:46–01:48 正被姊妹篇那轮并发修改
+（本轮 01:49 实测 mtime），此刻去改就是覆盖对撞 —— 记忆 `shared-checkout-concurrent-colleague-edits`
+说的正是这种情况。**留给使用者在无并发时补**，官方原文见 §B.1 / §B.3。
+
+### #6 / #7 的回滚粒度
+
+这批与调研报告本身（#108）分开成 #109，因为回滚粒度不同：`AGENTS.md` §1 那些是事故资产，
+真要回退时不应该连报告一起退。
 
 ---
 
@@ -365,7 +440,8 @@ Only correct an earlier statement when the error would change the user's code, c
 
 - **「Opus 5 比 Opus 4.8 强多少」在真实工作里的幅度**：官方给的是 Frontier-Bench「翻倍」、金融建模「平均高 9 个百分点、少 1/3 轮次与工具调用、少 60% 时间」；HN 上 `verdverm`（09-02）与 `bashtoni`（09-03）都说「感觉不比 4.8 明显好」。**两边都没有可复现的本仓库证据，按未定论对待。**
 - **`CLAUDE_CODE_MAX_*` 的最低版本号有两个口径**（prompting guide 说 2.1.217，SDK 页说 2.1.219）。本机 2.1.224 都满足，没去追。
-- **本文件的 token 估算用 ÷2.5 的粗系数**，中文 markdown 实际比值会偏离。要精确数字得用 `messages.count_tokens`，本次没跑。
+- **本文件的 token 估算用 ÷2.5 的粗系数**，中文 markdown 实际比值会偏离。要精确数字得用 `messages.count_tokens`，本次没跑。**字符数与字节数别混**：`ls -la` 给的是字节，中文 UTF-8 一个字 3 字节，本轮就差点据此报出「CLAUDE.md 翻倍」的假警报。
+- **姊妹篇引用的三个 effort 反向证据本轮没有独立复核**（system card 经 Zvi 转述、Cognition FrontierCode 1.1 为二手转述、CodeRabbit 基准有原文）。§F 已按它们下调，但若要拿这些数字对外，先自己核一遍原始来源。
 - **`/goal` 与本仓库 Stop 钩子的叠加行为**没实测：两者都在每轮结束后跑，`stop-checklist.mjs` 有 `stop_hook_active` 兜底、`/goal` 有连拦 8 次上限，理论上不冲突，但**没验过**。
 
 ---
