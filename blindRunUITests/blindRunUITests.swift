@@ -966,9 +966,15 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.alerts["确认删除账户"].firstMatch.waitForExistence(timeout: 5))
         app.buttons["继续删除账户"].tap()
 
-        let blocked = app.staticTexts["当前存在进行中的服务，请处理完成后再删除账户。"].firstMatch
+        // 拦截必须**自己弹出来**，而不是往设置页 `List` 末尾追加一行。
+        // 这条断言原本找的就是那一行 `StaticText`，从 `089960e`（#76，设置页加了三个激励入口）
+        // 起一直红：那一行被挤到第二屏，而 `List` 不渲染屏幕外的行 —— 屏幕上一个字都没多出来。
+        // 拦截本身一直是好的（失败快照里没有「最终确认删除账户」弹窗），坏的是它没有可见的落点。
+        // 文案内容不在这里断，主在单测 `testAccountDeletionPreflightSpeaksActiveOrderBlock`。
+        let blocked = app.alerts["无法删除账户"].firstMatch
         XCTAssertTrue(blocked.waitForExistence(timeout: 8))
         XCTAssertFalse(app.alerts["最终确认删除账户"].exists)
+        blocked.buttons["知道了"].tap()
         XCTAssertTrue(app.buttons["退出登录"].exists, "Blocked deletion must preserve the signed-in settings state")
     }
 

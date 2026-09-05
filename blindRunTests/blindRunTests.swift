@@ -2473,6 +2473,9 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(speechService.lastSpokenText, expected)
         XCTAssertEqual(speechService.lastVoiceOverAnnouncement, expected)
         XCTAssertFalse(viewModel.showFinalConfirmation)
+        // 拦截必须有一个**可见**的落点：两端设置页都拿这个开关驱动「无法删除账户」弹窗。
+        // 只播不显曾经就是真实行为 —— 明眼志愿者与低视力用户按下去屏幕上什么都不变。
+        XCTAssertTrue(viewModel.isShowingPreflightBlock)
     }
 
     /// 后端 `UserService.cascadeDeletePii` 刻意保留订单与评价（不存姓名手机号，留作纠纷复核审计）。
