@@ -184,6 +184,71 @@ enum IntroCallCopy {
         "\(counterpartName)想陪你跑。先打个电话聊聊，双方都觉得合适就算约好了。"
     }
 
+    // MARK: 盲人侧独立通话页
+
+    /// 订单状态页上那个「进通话页」的按钮。
+    ///
+    /// 🚨 **不许与 `callButtonTitle`（「打电话给这位志愿者」）用同一句话。** 那个按钮按下去
+    /// 立刻弹系统拨号确认，这个只是打开一个页面 —— 对看不见屏幕的人，两件事听起来一样
+    /// 就等于随时可能误拨。所以措辞落在「确认」而不是「打电话」上，hint 里再说一遍
+    /// 「打开一个页面」。
+    static let blindEntryButtonTitle = "和这位志愿者通话确认"
+    static let blindEntryAccessibilityHint = "打开通话确认页，在那里拨号并告诉系统合不合适"
+
+    /// 阶段 A 的页面标题。与 `blindCallSectionAnnouncement` 拆成标题 + 副标题两截，
+    /// 不是新写一套措辞：整屏只有一件事时，「谁」和「要做什么」该是两个 VoiceOver 焦点，
+    /// 用户滑一下就能跳过已经听过的那半句直接到按钮。
+    static func blindPageTitle(counterpartName: String) -> String {
+        "\(counterpartName)想陪你跑"
+    }
+
+    static let blindPageSubtitle = "先打个电话聊聊，双方都觉得合适就算约好了。"
+
+    /// 阶段 B（拨号返回后）的标题。
+    ///
+    /// 🚩 措辞是**开放式提问**而不是「请确认是否合适」：后者预设了「该说合适」，
+    /// 而这一屏的两个出口是平权的 —— 说「换一位」不需要理由，也不该显得像是拒绝了谁。
+    static func blindAfterCallTitle(counterpartName: String) -> String {
+        "和\(counterpartName)聊得怎么样"
+    }
+
+    static let blindAfterCallSubtitle = "双方都说合适才算约好。"
+
+    /// 通话数据还没拉回来时整屏该显示的那句。
+    ///
+    /// 🚨 这一句是**独立页才需要**的：内嵌 section 时这个状态渲染成空视图没有代价
+    /// （页面上还有状态卡和别的内容），而一个整屏空白的页面对读屏用户等同于死机 ——
+    /// 他滑不到任何东西，也无从判断是没加载完还是 App 挂了。
+    static let blindLoadingNotice = "正在获取这位志愿者的通话信息"
+
+    /// 退回订单页。**不叫「关闭」** —— 盲人需要知道退回去之后到哪儿，
+    /// 而不是知道这个动作会让当前这块东西消失。
+    static let blindCloseButtonTitle = "返回订单"
+    static let blindCloseAccessibilityHint = "回到订单状态页。这通电话还可以再进来打"
+
+    static let blindStartAddressPrefix = "出发地"
+    static let blindPlannedTimePrefix = "时间"
+
+    /// 本轮通话窗口还剩多久。
+    ///
+    /// 🚨 **只讲这一轮的剩余时间，不讲轮次。** 「还剩 18 分钟」与「这是第几位候选人」
+    /// 无关，所以它不触碰无声拒绝那条红线；但也正因如此，**不许**由它派生出任何
+    /// 「已经聊过 N 位」的展示。
+    ///
+    /// 三种情况一律返回 nil（不显示这一行），而不是显示一个说不出内容的占位：
+    /// - `windowEndsAt` 解析不出来（后端形状变了，或字段本来就是 optional）
+    /// - 已经过期。窗口到点后订单转走有延迟，这中间客户端**不替后端宣布结果** ——
+    ///   显示「已超时」而后端还在等表态，会让用户以为白打了一通电话。
+    /// - 不足 1 分钟。「还剩 0 分钟」既是噪音，又是在催一个正在打电话的人。
+    ///
+    /// 口径与 `blindRunnerWaitedText` 一致：算不出来就不说这一行，不猜。
+    static func blindWindowRemainingText(windowEndsAt: String?, now: Date = Date()) -> String? {
+        guard let endsAt = windowEndsAt?.nilIfBlank?.backendTimestamp else { return nil }
+        let minutes = Int(endsAt.timeIntervalSince(now) / 60)
+        guard minutes >= 1 else { return nil }
+        return "这一轮通话还剩 \(minutes) 分钟"
+    }
+
     // MARK: 志愿者侧
 
     static let volunteerAcceptButtonTitle = "合适，接这一单"

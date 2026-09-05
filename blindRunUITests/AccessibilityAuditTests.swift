@@ -419,10 +419,13 @@ final class AccessibilityAuditTests: XCTestCase {
             "PENDING_MATCH 的订单状态页没有「继续等待」—— 后端预警文案让用户点的正是它"
         )
         XCTAssertTrue(keepWaiting.isHittable, "「继续等待」存在但够不着，等于没有")
+        // 2026-09-05 起它是 **64pt 的次级按钮**，不再是 140pt 的主按钮 —— 它是一条保险
+        // （不按订单会被自动取消），不是等待期用户**该做**的事。这条断言的下限没变：
+        // 64pt 是盲人端任何可点控件的触达底线，不因为降级成次级就放宽。
         XCTAssertGreaterThanOrEqual(
             keepWaiting.frame.height,
             Self.minimumBlindPrimaryButtonHeight,
-            "盲人端主动作触达高度不得低于 64pt"
+            "盲人端可点控件触达高度不得低于 64pt"
         )
         XCTAssertEqual(keepWaiting.label, "继续等待", "读屏念出来的必须就是这四个字")
 
@@ -431,6 +434,7 @@ final class AccessibilityAuditTests: XCTestCase {
         // 2026-08-19 之前 `actionSection` 排在滚动内容第 8 位，上面压着「继续等待」140pt、
         // 行程分享 64pt、地图与生命周期卡 —— 而等待期用户唯一的两个决定就是「再等」和
         // 「不等了」。把其中一个放在首屏外，等于只给了一半。
+        // （「继续等待」2026-09-05 降级为 64pt，这条断言因此只会更宽松，不会更紧。）
         // 判据用 `frame` 边界不用 `isHittable`：后者只判中心点，与
         // `testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling` 同源。
         // 全程不滚动。
