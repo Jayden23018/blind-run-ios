@@ -34,8 +34,17 @@ final class AccountDeletionViewModel: ObservableObject {
         set { if !newValue { preflightMessage = nil } }
     }
 
+    /// 预检拦截的状态集。**口径是后端的「非终态」**（`OrderStatus.activeStatuses()`）——
+    /// 这道预检不做自己的判断，它存在的唯一价值是**在服务端拒绝之前先出声告诉用户**。
+    /// 漏一个状态的症状是：预检放行、不播任何提示，然后服务端按 `activeStatuses()` 拒 ⇒
+    /// 那一声提前的反馈就没了，而它正是为盲人加的。
+    ///
+    /// `.scheduledConfirmed` 在列：后端 `occupiesVolunteer()` 上逐字写着「必须拦住他带着
+    /// 这张单注销」，否则盲人的预约单会指向一个已注销的志愿者且不报任何错。
+    /// `.pendingIntroCall` 一并补上（它从加进枚举那天起就漏在这里）。
     private static let blockingStatuses: Set<RunOrderStatus> = [
-        .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching
+        .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept,
+        .driverEnRoute, .driverArrived, .inProgress, .rematching
     ]
 
     func preflight(appState: AppState, speechService: SpeechService) async {

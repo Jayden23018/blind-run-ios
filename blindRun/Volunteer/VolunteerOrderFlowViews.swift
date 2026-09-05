@@ -1119,7 +1119,9 @@ final class VolunteerInServiceViewModel: ObservableObject {
             target: .pendingAccept,
             orderID: orderID,
             appState: appState,
-            statusConflictMessage: "这一单已经转给其他志愿者了，不用再确认。"
+            // 不断言成因（转走了 / 盲人取消了 / 上一次其实已经成功），客户端分不出这三种。
+            // 这句话对三种都为真，而且这条路径紧接着会 `load()` 刷新，屏幕自己会给出真相。
+            statusConflictMessage: "这一单的状态已经变了，不用再确认。"
         ) {
             try await orders.confirmDeparture(orderId: orderID)
         }
@@ -1607,8 +1609,8 @@ struct VolunteerInServiceView: View {
             await trackViewModel.load(orderID: orderId, appState: appState)
             if let summary = trackViewModel.track?.spokenSummary { speechService.speak(summary) }
         }
-        .confirmationDialog("取消订单", isPresented: $showCancelConfirm) {
-            Button("确认取消", role: .destructive) {
+        .confirmationDialog(cancelDialogCopy.title, isPresented: $showCancelConfirm) {
+            Button(cancelDialogCopy.confirm, role: .destructive) {
                 Task {
                     await viewModel.cancel()
                     if viewModel.didCancelOrder {
@@ -1616,9 +1618,9 @@ struct VolunteerInServiceView: View {
                     }
                 }
             }
-            Button("不取消", role: .cancel) {}
+            Button(cancelDialogCopy.dismiss, role: .cancel) {}
         } message: {
-            Text("确认取消本次预约？")
+            Text(cancelDialogCopy.message)
         }
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm) {
             Task {
@@ -1639,6 +1641,27 @@ struct VolunteerInServiceView: View {
                 ExternalMapNavigationSheet(request: request)
             }
         }
+    }
+
+    /// 取消对话框的四句话。**按状态换，不是一句通用文案。**
+    ///
+    /// 跨天预约那一态走的是 `.releaseScheduled`，而新增那个 case 的**唯一理由**就是换掉
+    /// 「取消订单」这个词 —— 对志愿者它读起来像在替盲人取消这一单，而实际后果是
+    /// 「这一单回到派单池换个人」。按钮上换了、确认框里还写「确认取消本次预约？」的话，
+    /// 那次改名等于没做，而对话框才是他真正下决心的那一屏。
+    ///
+    /// 抽成一个元组而不是在 `confirmationDialog` 里写四个三元表达式：那样写在 SwiftUI 里
+    /// 会把类型检查器拖到超时（本文件 `VolunteerRecentOrderCard` 上有同一个坑的记录）。
+    private var cancelDialogCopy: (title: String, confirm: String, dismiss: String, message: String) {
+        guard viewModel.order?.status == .scheduledConfirmed else {
+            return ("取消订单", "确认取消", "不取消", "确认取消本次预约？")
+        }
+        return (
+            "确认去不了？",
+            "确认去不了",
+            "再想想",
+            "这一单会转给其他志愿者，之后不一定还能接回来。"
+        )
     }
 
     /// 面板上方那条紧急信息区。**「代盲人发起求助」的按钮不在这里** —— 它是地图右上角的

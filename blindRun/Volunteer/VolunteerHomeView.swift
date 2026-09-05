@@ -572,8 +572,13 @@ final class VolunteerHomeViewModel: ObservableObject {
             scheduledOrdersMessage = nil
         case .failure:
             ClientFlowDiagnostics.record(event: "failed", operation: "volunteer-scheduled-orders")
-            guard !scheduledOrders.isEmpty else { return }
-            scheduledOrdersMessage = "预约列表没能刷新，显示的是上一次的内容。"
+            // 🚨 **列表空时也要说话。** 早先这里是 `guard !scheduledOrders.isEmpty else { return }`，
+            // 于是首次加载失败时既不渲染区块、也不设提示 —— 志愿者看到的与「我没有预约单」
+            // 一模一样，而他可能正有一张单在倒计时。判据是「这个失败态下屏幕上会**多**出什么」，
+            // 当时的答案是「什么都不多」，那就是静默失败。
+            scheduledOrdersMessage = scheduledOrders.isEmpty
+                ? "预约列表没能加载，如果你有还没到时间的预约，请下拉刷新再看一次。"
+                : "预约列表没能刷新，显示的是上一次的内容。"
         }
     }
 
@@ -586,13 +591,26 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     /// 临期确认「我还会去」（`SCHEDULED_CONFIRMED → PENDING_ACCEPT`）。
     ///
-    /// 成功后把这一单从预约列表移除 —— 它已经进即时链路，不再是「待到点的预约」。
-    /// **不在这里把它塞进 `activeOrder`**：那个位由 `dispatch-summary` 单独负责，
-    /// 两处写同一个字段会在下一次刷新时打架。
+    /// 🚩 **成功后必须把他带进服务页，不能只把卡片移除。**
+    /// 确认之后订单是 `PENDING_ACCEPT`，而那一态**既不在预约列表里**（这个列表按
+    /// `status=SCHEDULED_CONFIRMED` 拉）、**也不在「当前订单」里**（后端
+    /// `VolunteerService.loadActiveOrders` 的白名单只有陪跑中那三态）⇒ 只移除卡片的话，
+    /// 他刚确认完就在首页上再也找不到这一单，而下一步「我已出发」要靠他自己翻回去。
+    ///
+    /// 复用派单接单后那条既有的导航（`acceptedDispatchOrderId` + `navigationDestination`），
+    /// 不另起一套：两者要去的是同一个页面、同一个状态。
     func confirmScheduledDeparture(orderID: Int64) async {
-        await submitScheduled(orderID: orderID, successSpeech: "已确认，到时间请按约定前往。") { orders in
+        let order = scheduledOrders.first { $0.orderId == orderID }
+        let confirmed = await submitScheduled(
+            orderID: orderID,
+            successSpeech: "已确认，到时间请按约定前往。"
+        ) { orders in
             try await orders.confirmDeparture(orderId: orderID)
         }
+        guard confirmed else { return }
+        // 带上手里这份详情当初值，服务页就不必空着等第一次 GET 回来。
+        acceptedDispatchInitialOrder = order?.replacingStatus(with: .pendingAccept)
+        acceptedDispatchOrderId = orderID
     }
 
     /// 「我去不了」（走取消端点，订单转 `REMATCHING` 回到派单池）。
@@ -601,19 +619,23 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 「提前告知」变成「当天失联」，那对盲人差得多（`docs/research/volunteer-scheduled-order-confirm-ui-20260906.md` §二.1）。
     /// 二次确认在 View 上（`confirmationDialog`），因为它不可逆：抢不回同一个盲人。
     func releaseScheduledOrder(orderID: Int64) async {
-        await submitScheduled(orderID: orderID, successSpeech: "已经告诉系统你去不了，这一单会转给其他志愿者。") { orders in
+        // 🚩 **不说「会转给其他志愿者」**：后端 `enterRematching` 在重匹次数达上限时是直接
+        // 置 `CANCELLED` 而不是重派（`OrderLifecycleService`），那时这句话就是假的。
+        // 只说他自己那一半 —— 那一半永远为真。
+        _ = await submitScheduled(orderID: orderID, successSpeech: "已经告诉系统你去不了，这一单不在你名下了。") { orders in
             try await orders.cancel(orderId: orderID)
         }
     }
 
-    /// 两个动作共用的提交路径。成功与 409 都从列表移除 —— 后者的事实是「这一单已经不在你手上」，
-    /// 留着它只会让志愿者对着一张按不动的卡反复点。
+    /// 两个动作共用的提交路径。返回**这次提交是不是真的成功了**（调用方据此决定要不要导航）。
+    ///
+    /// 成功与 409 都从列表移除：两种情况下这一单都不再是「待你确认的预约」。
     private func submitScheduled(
         orderID: Int64,
         successSpeech: String,
         operation: @escaping (any OrderServing) async throws -> Void
-    ) async {
-        guard submittingScheduledOrderID == nil, let appState else { return }
+    ) async -> Bool {
+        guard submittingScheduledOrderID == nil, let appState else { return false }
         submittingScheduledOrderID = orderID
         scheduledOrdersMessage = nil
         defer { submittingScheduledOrderID = nil }
@@ -621,24 +643,32 @@ final class VolunteerHomeViewModel: ObservableObject {
             try await operation(appState.orders)
             scheduledOrders.removeAll { $0.orderId == orderID }
             speechService?.speak(successSpeech)
+            return true
         } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return }
-            // 409 `ORDER_STATUS_NOT_ALLOWED`：闸门多半已经把这一单退回重新匹配了
-            // （后端 `confirm-departure` 的契约 description 逐字点了这一条）。
-            // 说「操作失败」会让他以为再点一次就好，而这一单已经不在他手上。
+            if appState.handleAuthenticatedAPIError(error) { return false }
+            // 409 `ORDER_STATUS_NOT_ALLOWED`：订单已经不在 `SCHEDULED_CONFIRMED` 上了。
+            //
+            // 🚨 **不许断言是哪一种。** 至少三种成因，客户端一个都分不出：
+            // 闸门已经把它退回重新匹配、盲人取消了、以及**上一次其实已经提交成功**
+            // （请求到了服务端、响应在回来的路上丢了，用户以为没成功又点了一次）。
+            // 早先这里写死「这一单已经转给其他志愿者了」——在第三种情况下那是句假话，
+            // 而且紧跟着把卡片删掉，他从此在首页上再也看不到一张仍在自己名下的单。
+            // 现在这句话对三种成因**都为真**，且给出的下一步（不用再确认）也都对。
             if case .serverError(let response) = error, response.errorCode == .invalidOrderStatus {
                 scheduledOrders.removeAll { $0.orderId == orderID }
-                let message = "这一单已经转给其他志愿者了。"
+                let message = "这一单的状态已经变了，不用再确认。可以到「近期服务」里看它现在怎么样。"
                 scheduledOrdersMessage = message
                 speechService?.speakError(message)
-                return
+                return false
             }
             scheduledOrdersMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
+            return false
         } catch {
             let message = "操作没有成功，请重试。"
             scheduledOrdersMessage = message
             speechService?.speakError(message)
+            return false
         }
     }
 
@@ -1418,6 +1448,24 @@ struct VolunteerHomeView: View {
 
     @ViewBuilder
     private var nearbyDemandContent: some View {
+        // 🚩 **必须在 `if let summary` 之外**，两条独立的理由：
+        // ① 数据源不同 —— 预约单来自 `GET /api/orders/mine`，与 dispatch-summary 无关。
+        //    嵌进去的话，派单摘要一失败（那是个有专门空态、被明确预期的失败），
+        //    连同确认按钮一起消失，而它带着一个 60 分钟到期的动作 —— 那正是本功能要防的后果。
+        // ② 排在最前 —— 这一块装的是**将要发生**且需要他动手的事；
+        //    派单摘要与近期服务都是状态与历史。读屏用户不该先划过三条已完成的单才听到待办。
+        VolunteerScheduledOrdersSection(
+            orders: viewModel.scheduledOrders,
+            submittingOrderID: viewModel.submittingScheduledOrderID,
+            message: viewModel.scheduledOrdersMessage,
+            onConfirm: { orderID in
+                Task { await viewModel.confirmScheduledDeparture(orderID: orderID) }
+            },
+            onRelease: { orderID in
+                Task { await viewModel.releaseScheduledOrder(orderID: orderID) }
+            }
+        )
+
         if let summary = viewModel.dispatchSummary {
             if viewModel.isLoading {
                 Label(
@@ -1448,20 +1496,6 @@ struct VolunteerHomeView: View {
                 .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
                 .accessibilityHint("点击进入当前订单")
             }
-
-            // 排在「近期服务」之前：这一块装的是**将要发生**的事，而且带着一个会到期的动作；
-            // 近期服务是历史。两者顺序颠倒的话，读屏用户要先划过三条已完成的单才听到待办。
-            VolunteerScheduledOrdersSection(
-                orders: viewModel.scheduledOrders,
-                submittingOrderID: viewModel.submittingScheduledOrderID,
-                message: viewModel.scheduledOrdersMessage,
-                onConfirm: { orderID in
-                    Task { await viewModel.confirmScheduledDeparture(orderID: orderID) }
-                },
-                onRelease: { orderID in
-                    Task { await viewModel.releaseScheduledOrder(orderID: orderID) }
-                }
-            )
 
             VolunteerRecentOrdersSection(orders: summary.recentOrders ?? [])
         } else if viewModel.isLoading {
@@ -1878,7 +1912,9 @@ private struct VolunteerScheduledOrdersSection: View {
     @State private var pendingReleaseOrder: OrderDetailResponse?
 
     var body: some View {
-        if !orders.isEmpty {
+        // `message` 非空时即使没有卡片也要渲染：加载失败而列表恰好为空是最需要说话的一刻，
+        // 只按 `orders.isEmpty` 判会让那条提示无处可去（见 `applyScheduled` 的失败分支）。
+        if !orders.isEmpty || message != nil {
             VStack(alignment: .leading, spacing: 10) {
                 Text("我的预约")
                     .font(AppFonts.body().weight(.bold))
@@ -1918,7 +1954,9 @@ private struct VolunteerScheduledOrdersSection: View {
         let isSubmitting = submittingOrderID == order.orderId
         let anySubmitting = submittingOrderID != nil
         return VStack(alignment: .leading, spacing: 10) {
-            Text((order.plannedStart ?? "").displayDateTime)
+            // 缺 `plannedStart` 时给一句话而不是空串：这一行是整张卡最重要的内容
+            // （「什么时候」就是这一态的全部），空 `Text` 对读屏用户等于这张卡没有时间。
+            Text(order.plannedStart?.nilIfBlank?.displayDateTime ?? "开跑时间待同步")
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)

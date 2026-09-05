@@ -149,6 +149,11 @@ final class ScheduledOrderTests: XCTestCase {
     /// 「我去不了」与「取消订单」是**两个文案**。
     ///
     /// 对志愿者，「取消订单」读起来像在替盲人取消这一单，而实际后果是「回派单池换个人」。
+    ///
+    /// ⚠️ **这条只覆盖按钮标题，覆盖不到确认对话框。** 对话框那四句在
+    /// `VolunteerInServiceView.cancelDialogCopy`（View 的 private 计算属性，测试够不着），
+    /// 而它才是志愿者真正下决心的那一屏 —— 那里曾经仍写着「确认取消本次预约？」，
+    /// 让这次改名等于没做，而本条用例当时是绿的。改按钮文案时请连着人眼看一遍对话框。
     func testReleaseAndCancelDoNotShareCopy() {
         XCTAssertNotEqual(
             VolunteerServiceActionKind.releaseScheduled.title,
@@ -182,16 +187,4 @@ final class ScheduledOrderTests: XCTestCase {
         XCTAssertFalse(BlindBookingViewModel.overlapsNightWindow(start: at(10, 9), end: at(10, 10)))
     }
 
-    // MARK: - 语音
-
-    /// 阻断项与非阻断项的分档，与后端 `VoiceSlotField.blocksOrderCreation()` 同口径。
-    ///
-    /// `.unknown` 判 false 是有意的：后端加了本客户端不认识的槽位时，宁可少念一句追问，
-    /// 也不要把一个说不清是什么的东西说成「这个必须填」。
-    func testOnlySlotsThatBlockOrderCreationInterruptTheReadback() {
-        XCTAssertTrue(VoiceOrderMissingSlot.address.blocksOrderCreation)
-        XCTAssertTrue(VoiceOrderMissingSlot.startTime.blocksOrderCreation)
-        XCTAssertFalse(VoiceOrderMissingSlot.duration.blocksOrderCreation, "缺时长照样下得了单")
-        XCTAssertFalse(VoiceOrderMissingSlot.unknown.blocksOrderCreation)
-    }
 }

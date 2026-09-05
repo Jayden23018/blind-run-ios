@@ -67,9 +67,17 @@ extension MockAPIClient {
             orders[index] = updateOrderStatus(orders[index], to: .pendingMatch)
             introCallDecisions[orderId] = nil
         } else if decisions[.blind] == .accept, decisions[.volunteer] == .accept {
+            // 🚩 **这里也要问 `isFarFuture`。** 后端 `OrderStatus.java` 逐字写着
+            // 「两个接单入口都要问它 —— 这个仓库已经为『接单入口有两个』漏过两次」，
+            // 而通话磨合成单（`IntroCallService.confirmMatch`）正是第二个入口。
+            //
+            // 对 Mock 尤其要紧：客户端对陌生人一律发 `INTERESTED`（AGENTS §5），
+            // 所以开发期走到的**主路径就是这一条** —— 只在 `handleAcceptOrder` 那边问的话，
+            // 跨天预约那一屏在 Mock 里实际上仍然走不到，而那正是镜像这个阈值的全部理由。
+            let target: RunOrderStatus = Self.isFarFuture(orders[index]) ? .scheduledConfirmed : .pendingAccept
             orders[index] = updateOrderStatus(
                 orders[index],
-                to: .pendingAccept,
+                to: target,
                 volunteerPhone: "13800000002"
             )
             introCallDecisions[orderId] = nil

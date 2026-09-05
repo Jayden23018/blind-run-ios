@@ -71,23 +71,6 @@ enum VoiceOrderMissingSlot: String, Codable, Sendable, Equatable {
         let rawValue = try decoder.singleValueContainer().decode(String.self)
         self = VoiceOrderMissingSlot(rawValue: rawValue) ?? .unknown
     }
-
-    /// 缺了它就**下不了单**（`POST /api/orders` 会 400）。
-    ///
-    /// 与后端 `VoiceSlotField.blocksOrderCreation()` 同一份口径（后端 2026-08-18 N97 加的）：
-    /// 时长缺着照样能下单（`CreateOrderRequest.expectedDurationMinutes` 没有 `@NotNull`），
-    /// 所以它**不阻断**，也不该抢在用户的诉求前面说话。
-    ///
-    /// `.unknown` 判 **false**：后端加了本客户端不认识的槽位时，宁可少念一句追问，
-    /// 也不要把一个说不清是什么的东西说成「这个必须填」。
-    var blocksOrderCreation: Bool {
-        switch self {
-        case .address, .startTime:
-            return true
-        case .duration, .unknown:
-            return false
-        }
-    }
 }
 
 /// 用户对读回确认的**表态**（后端 2026-08-09 新增）。`nil` = 没表态。
@@ -435,15 +418,6 @@ struct ParseVoiceOrderResponse: Codable, Sendable, Equatable {
     var startCandidatesToDisambiguate: [AddressCandidate]? {
         guard let candidates, candidates.count >= 2 else { return nil }
         return candidates
-    }
-
-    /// 缺的槽位里有没有**下不了单**的那种（`ADDRESS` / `START_TIME`）。
-    ///
-    /// 判它而不是判 `needReask`：`needReask` 在「只缺时长」和「候选要消歧」时同样为 true，
-    /// 三种情况混在一个布尔里分不开，而它们该做的事完全不同。
-    /// 这与后端把 `missing` 拆成阻断/非阻断两档（N97）是同一条口径。
-    var hasBlockingMissingSlot: Bool {
-        missing?.contains(where: \.blocksOrderCreation) ?? false
     }
 
     /// 用户在消歧轮挑定一条之后的结果：**起点三项换成他挑的那个，其余字段逐字不变**。

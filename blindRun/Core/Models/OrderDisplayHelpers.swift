@@ -532,6 +532,13 @@ extension OrderDetailResponse {
         case .inProgress:
             guard let plannedEndForAnnouncement else { return status.blindRunnerAnnouncement }
             return "\(status.blindRunnerAnnouncement)预计\(plannedEndForAnnouncement)结束。"
+        // 🚩 单独一支而不是落 `default`：这一态对盲人的**全部内容就是「什么时候」**，
+        // 而 `status.blindRunnerAnnouncement` 里没有时刻（它是与状态无关的通用句）。
+        // 落到 default 的话，跨天单的播报从头到尾不会出现预约时间 ——
+        // 而他要在接下来几天里靠这句话安排自己的日程。
+        case .scheduledConfirmed:
+            guard let plannedStartForAnnouncement else { return status.blindRunnerAnnouncement }
+            return "已经为你约好志愿者，时间是\(plannedStartForAnnouncement)，出发地点：\(startAddressForAnnouncement)。到出发前如果计划有变，可以打电话告诉他。"
         case .pendingAccept:
             if let plannedStartForAnnouncement {
                 return "志愿者已接单。请在\(plannedStartForAnnouncement)前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)志愿者出发后会继续通知你。"
