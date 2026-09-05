@@ -22,20 +22,23 @@ description: AidRun 模块收尾检查单与验证纪律。实现完成、准备
 - 真机跑测时若设备锁屏，`xcodebuild` 会**静默等在** `Run Destination Preflight: Unlock ... to Continue`，不报错也不退出，输出文件 0 字节看着像在跑。跑之前先解锁并保持屏幕常亮。用 `scripts/device-test.sh`，它会先探活。
 - 日志里是 `Test case '...' passed`（**小写 c**）。按 `Test Case` 去 grep 会全部计成 0，然后你会以为一条都没跑或全跑了。
 
-## 二、验证命令
+## 二、验证命令（`AGENTS.md` §11 的完整版）
 
 ```bash
 # 无真机时的编译上限
 xcodebuild -workspace blindRun.xcworkspace -scheme blindRun \
   -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing
 
-# 真机全量（唯一的 XCTest 通道，模拟器因高德无 arm64-sim slice 永久不可用）
+# 真机（唯一 XCTest 通道；脚本会先探活，统计只认 result bundle 不认日志）
+# ⚠️ 默认**不要**这样裸跑全量，先看下面「跑多大范围」
 scripts/device-test.sh
 
-# 规格与文档
-openspec validate <change-id> --strict --no-interactive
+openspec validate --all --strict --no-interactive
 node scripts/validate-docs.mjs
-node scripts/validate-spec-coverage.mjs
+node scripts/validate-spec-coverage.mjs    # 路径级：前端调的每条路径都在契约里
+node scripts/validate-golden-corpus.mjs    # 语音黄金语料 vs 前端镜像清单
+node scripts/validate-error-codes.mjs      # 前端 ErrorCode 枚举 vs 后端 ErrorCode.java
+node scripts/validate-voice-intent-words.mjs  # 确认轮本地直通表 vs 后端 VoiceSlotParser 的 INTENT_* 正则
 
 # 生产就绪
 AIDRUN_DEVICE_NAME=111 AIDRUN_RUN_REAL_AMAP=1 AIDRUN_RUN_CLOUD_UI=1 AIDRUN_RUN_CLOUD_E2E=1 \
@@ -43,7 +46,127 @@ AIDRUN_DEVICE_NAME=111 AIDRUN_RUN_REAL_AMAP=1 AIDRUN_RUN_CLOUD_UI=1 AIDRUN_RUN_C
 scripts/dual-device-validation.sh
 ```
 
+中间四条（spec-coverage / golden-corpus / error-codes / voice-intent-words）要读后端仓库。
+装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
+CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑不了真机 XCTest**。
+
 纯逻辑改动可以先用独立 Swift 脚本实跑，秒级出结果，但**它不能替代真机 XCTest**。
+
+### 跑多大范围：默认只跑覆盖本次改动的 suite，不是全量
+
+全量约 10 分钟、会超 Bash 600s 上限、还会撞上脚本的 preflight watchdog 反复被掐。
+**默认做法**：先查哪些用例真的碰了你改的东西，只跑那几个 suite。
+
+```bash
+# ① 先定范围（把改动涉及的类型/方法名列进去）
+python3 - <<'EOF'
+import os, re
+PATTERN = r'(BookingDurationOption|expectedDurationMinutes|makeCreateOrderRequest)'  # 换成你改的符号
+for root, _, fs in os.walk('blindRunTests'):
+    for f in (x for x in fs if x.endswith('.swift')):
+        p = os.path.join(root, f)
+        n = sum(1 for l in open(p).read().split('\n') if re.search(PATTERN, l))
+        if n: print(f'{f}: {n} 处')
+EOF
+
+# ② 只跑命中的 suite
+scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
+                       -only-testing:blindRunTests/blindRunTests
+```
+
+**什么时候才必须全量**——只有一条判据：**改的东西是全 App 唯一的出口 / 共享单例 / 全局配置**，
+所有调用方都从它身上过。例如 `SystemSpeechAudioSession`（每个用麦克风的地方都走它）、
+`APIClient`、`AppState`。这类改动的影响面按符号搜不出来，必须全量。
+
+反过来，「改了一个 view model 的一个字段」「加了一条解析规则」不属于这类，按符号搜到的 suite
+就是完整覆盖面。**命中数只有 1 且是无关字面量的文件要看一眼再决定跳过**，别只看数字。
+
+> 2026-08-06 立此条：同一天里全量被反复跑了 5 次，其中 4 次的结论在第 1 次就已经拿到，
+> 后面纯粹是在跟脚本的 watchdog 较劲。用户两次指出这件事，走 `AGENTS.md` §1.4。
+>
+> **零执行不是通过。** `passed=0 failed=0` 一律当失败查——设备锁屏、`-only-testing` 名字打错、
+> 测试目标没编出来都会长这样：命令回来了、看起来一切正常，但一条断言都没跑。
+> 脚本对这种情况有硬失败，别绕过它。
+
+### 读后端仓库的那 5 条门禁在哪跑（2026-08-12 改口径，别再按旧的双推推导）
+
+契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料 / 确认轮词表这 5 条需要读后端私有仓库，
+跑在**两个地方**：
+
+| 位置 | 这 5 条 | 说明 |
+|---|---|---|
+| `Jayden23018/blind-run-ios`（`origin`，**主线**）| ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
+| 本地 pre-push | ✅ 真跑 | 读 `../demo` 的 `origin/main`，装钩子后每次 push 自动 |
+
+**`JerryZhao-1/blind-run-ios` 自 2026-08-12 起只是 `upstream`，不再是投递目标。** 分支不往那边推、
+PR 也不往那边开。它的 CI 配不上 secret（我们不是 admin），这 5 条在那边是 warning 空过 ——
+**上游 CI 绿 ≠ 契约对过了**。要取上游的新提交：`git fetch upstream`。
+
+**主线仓库的既定配置**（改动前先知道，别当成异常）：
+
+- 默认分支是 `main`（2026-08-21 从 `integrate/swift-migration` 改过来，该分支同日已删除）。
+  `workflow_dispatch` 和 `schedule` 都只认默认分支，而 `verify.yml` 就在 `main` 上，
+  且比原 integrate 上那份更新（多一个 `validate-shared-checkout-guard` job）。手动触发：
+  `gh workflow run verify.yml --repo Jayden23018/blind-run-ios --ref main`
+
+  > 改动前这里写着「默认分支是 integrate，而 `main` 上没有 `verify.yml`」—— **后半句早就不成立了**，
+  > `main` 上一直有。这句过时描述的代价是真的：2026-08-21 据它推导出「要删 integrate 得先把
+  > `verify.yml` 落到 main」这个根本不存在的前置步骤。清理时 integrate 已落后 main 62 个提交、
+  > 独有提交 0，唯一活着的理由就是被默认分支设置钉住。
+  > **教训**：这一节标题写着「既定配置」，最容易被当成不用核的背景事实照抄。
+  > 引用本节任何一条之前，用一条命令当场核，别转述：
+  > `git ls-tree -r origin/main --name-only | grep .github`
+- `schedule` 每天 09:17（北京）跑一次。它抓的是 **push 触发天生抓不到的那类：你 push 之后
+  后端才改契约**。
+- **CI 红在 `Checkout backend contract`（403）= PAT 过期了**，不是代码坏了。
+  重建 PAT 后 `gh secret set BACKEND_REPO_TOKEN --repo Jayden23018/blind-run-ios`。
+- GitHub 会把连续 60 天无活动仓库的定时任务停掉。长期没推东西时留意一下。
+
+每台机器装一次钩子即可，不再需要配双推（旧机器重跑本脚本会清掉遗留的双推配置）：
+
+```bash
+scripts/install-git-hooks.sh
+```
+
+这 5 条读的契约**取自后端仓库的 `origin/main`**（`git show origin/main:docs/api_spec.yaml`
+落到临时文件），不是 `../demo` 的工作区文件 —— 工作区是共享 checkout，随时停在特性分支
+或带着同事未提交的 WIP，而 CI 是从后端默认分支拉契约的。所以 `../demo` 当前在哪个分支、
+脏不脏，都不影响门禁结论。
+
+确实要拿未合并的后端改动验证 iOS 侧：`AIDRUN_ALLOW_BACKEND_DRIFT=1 git push` 改读工作区文件
+（或用 `AIDRUN_API_SPEC=` / `AIDRUN_GOLDEN_CORPUS=` / `AIDRUN_BACKEND_ERROR_CODES=` /
+`AIDRUN_BACKEND_VOICE_PARSER=` / `AIDRUN_BACKEND_VOICE_SERVICE=` 逐个指定）。
+此时「生成代码与契约不同步」**不构成提交理由** —— 那份契约不是上游的，提交重新生成的结果
+等于把别人的 WIP 烘进你的 PR。钩子在这条路径上会自己说明，并给出 `git checkout --` 的还原命令。
+
+> ⚠️ **这只管 pre-push。** 手动跑 `node scripts/validate-*.mjs` 仍然默认读 `../demo` 工作区 ——
+> 2026-08-12 因此把一份**正确**的语料镜像改动判成了伪造（后端当时停在特性分支，语料 96 条而
+> `origin/main` 已 101 条），差点据此删掉。手动跑之前自己导出真契约：
+> `git -C ../demo show origin/main:docs/voice-golden-corpus.json > /tmp/c.json` 再传进去。
+> 详见 `docs/review/frontend-backend-alignment-review-20260812.md` §B1。
+
+> 第 5 条 `validate-voice-intent-words.mjs` 是 2026-08-10 加的：确认轮改成「本地直通 + 后端兜底」
+> 之后，同一句话由两处判定，本地表里出现一个后端判成**别的**意图的词就会让有网/断网行为分叉。
+> 加它的直接起因是「再说一次」——前端判「重说」（清空整句）、后端判 `REPEAT`（只重念）。
+
+契约 fixture（真实响应回归，见 `blindRunTests/ContractFixtureTests.swift`）：
+
+```bash
+node scripts/capture-fixtures.mjs            # dry-run，只列要打的只读端点
+node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
+```
+
+### 用 `/goal` 把「跑到绿」交给评估器
+
+真机测试是「终态可验证」的典型，适合 `/goal`。⚠️ 但评估器**不跑命令、不读文件**，
+只看 Claude 在对话里贴出来的东西 —— 所以条件必须写成脚本输出里会出现的字样：
+
+```text
+/goal scripts/device-test.sh 的输出里 failed=0 且 passed>0，且我没有改动 blindRunTests/ 以外的文件
+```
+
+写「测试通过」这种模糊条件没用，评估器判不了。另外后台任务在跑时它会**跳过该轮评估**，
+真机测试动辄几分钟，属于正常现象不是卡住。
 
 ## 三、模块完成检查单
 

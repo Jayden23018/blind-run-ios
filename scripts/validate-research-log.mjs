@@ -206,6 +206,64 @@ const cases = [
         : '调研在另一条分支上就误判成「没落盘」（git log 缺 --all）';
     },
   },
+
+  // ── 后端仓库索引（2026-09-06 立）────────────────────────────────────────
+  // 起因：「Opus 5 怎么用」被前后端两个仓库在同一天各查了一遍。本仓库的索引只盖本仓库，
+  // 而跨端问题两边都可能已有结论。走 §1.1：能灌回去的别写成「记得也去看看」。
+  {
+    name: '后端仓库有索引时，pre 要把它的表格行一起灌回去',
+    check: () => {
+      const sib = path.join(tmp, 'sibling-INDEX.md');
+      fs.writeFileSync(
+        sib,
+        '# 调研索引\n\n说明性正文不该被带过来。\n\n' +
+          '| 日期 | 问题 | 一句话结论 | 复核触发条件 | 报告 |\n|---|---|---|---|---|\n' +
+          '| 2026-09-06 | 后端那边查过的问题 | 后端那边的结论 | 某某变化 | [x.md](./x.md) |\n'
+      );
+      const r = spawnSync('node', [hook, 'pre'], {
+        encoding: 'utf8',
+        env: { ...process.env, AIDRUN_SIBLING_RESEARCH_INDEX: sib },
+      });
+      let ctx;
+      try {
+        ctx = JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
+      } catch {
+        return `pre 吐的不是合法 JSON：${r.stdout.slice(0, 120)}`;
+      }
+      if (!ctx.includes('后端那边的结论')) return '后端索引的表格行没有被灌回去';
+      if (!ctx.includes('两边都要扫')) return '没有说明这是后端仓库的索引，模型会当成本仓库的';
+      if (ctx.includes('说明性正文不该被带过来'))
+        return '把后端索引的正文也带过来了 —— 只该取表格行';
+      return null;
+    },
+  },
+  {
+    name: '后端仓库不存在 / 只有空表时，静默跳过而不是报错或塞垃圾',
+    check: () => {
+      const missing = path.join(tmp, 'no-such-INDEX.md');
+      const r1 = spawnSync('node', [hook, 'pre'], {
+        encoding: 'utf8',
+        env: { ...process.env, AIDRUN_SIBLING_RESEARCH_INDEX: missing },
+      });
+      let c1;
+      try {
+        c1 = JSON.parse(r1.stdout).hookSpecificOutput.additionalContext;
+      } catch {
+        return `后端索引缺席时 pre 吐的不是合法 JSON：${r1.stdout.slice(0, 120)}`;
+      }
+      if (c1.includes('两边都要扫')) return '后端仓库不存在却还是印了「两边都要扫」';
+
+      // 只有表头 + 分隔行 = 空表，同样不该注入（否则每轮都多一段没信息的噪音）
+      const empty = path.join(tmp, 'empty-INDEX.md');
+      fs.writeFileSync(empty, '| 日期 | 问题 |\n|---|---|\n');
+      const r2 = spawnSync('node', [hook, 'pre'], {
+        encoding: 'utf8',
+        env: { ...process.env, AIDRUN_SIBLING_RESEARCH_INDEX: empty },
+      });
+      const c2 = JSON.parse(r2.stdout).hookSpecificOutput.additionalContext;
+      return c2.includes('两边都要扫') ? '后端索引是空表却还是注入了' : null;
+    },
+  },
 ];
 
 let failed = 0;

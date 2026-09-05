@@ -59,6 +59,36 @@ export function readIndex() {
   }
 }
 
+// 后端仓库那份索引。跨端问题（模型与工具链用法、契约口径、发布流程）两边都可能已经查过，
+// 而本仓库的索引只盖本仓库 —— 2026-09-06「Opus 5 怎么用」被两边在同一天各查了一遍，
+// 就是只灌自己这份的代价。走 AGENTS.md §1.1：能被机器灌回去的，别写成一条「记得也去看看」。
+// 缺席不报警：不是每台机器都并排 checkout 了后端仓库，报了也没人能立刻补上。
+export const SIBLING_INDEX_PATH =
+  process.env.AIDRUN_SIBLING_RESEARCH_INDEX ||
+  path.resolve(root, '../demo/docs/research/INDEX.md');
+
+// 邻仓索引只取表格行 —— 一句话结论与复核触发条件都在列里，说明性正文不必带。
+// 上限也更低：它是参考不是主源，不该跟本仓库的索引抢上下文预算。
+const MAX_SIBLING_CHARS = 4000;
+
+export function readSiblingIndex() {
+  let raw;
+  try {
+    raw = fs.readFileSync(SIBLING_INDEX_PATH, 'utf8');
+  } catch {
+    return null;
+  }
+  // 表头分隔行（|---|---|）不含信息，去掉；只剩表头和分隔行时视作空表。
+  const rows = raw
+    .split('\n')
+    .filter((l) => l.startsWith('|') && !/^\|[\s|:-]+\|$/.test(l.trim()));
+  if (rows.length <= 1) return null;
+  const joined = rows.join('\n');
+  return joined.length > MAX_SIBLING_CHARS
+    ? `${joined.slice(0, MAX_SIBLING_CHARS)}\n\n（后端索引已截断，完整内容见 ${SIBLING_INDEX_PATH}）`
+    : joined;
+}
+
 // 本轮用过哪些联网工具。transcript 是 JSONL，每行一条消息，
 // 工具调用在 message.content[] 里 type === 'tool_use'。
 // 读不到就当没调研过：这里宁可漏报也不要每轮误报。
@@ -127,9 +157,16 @@ if (process.argv[2] === 'pre') {
           : index) +
         `\n\n调研完必须落盘 \`${RESEARCH_DIR}/{topic}-{YYYYMMDD}.md\` 并回写索引一行，否则不算完成。`;
 
+  const sibling = readSiblingIndex();
+  const full =
+    sibling === null
+      ? body
+      : `${body}\n\n────────\n\n**后端仓库 \`demo/docs/research/\` 的索引**（跨端问题两边都要扫，` +
+        `别只看本仓库；那边已有结论的同样不要重搜）：\n\n${sibling}`;
+
   process.stdout.write(
     JSON.stringify({
-      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: body },
+      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: full },
     })
   );
   process.exit(0);
