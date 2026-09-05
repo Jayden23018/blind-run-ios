@@ -14,6 +14,19 @@ enum ErrorCode: String, Codable, Sendable {
     case volunteerNotAvailable = "VOLUNTEER_NOT_AVAILABLE"
     case volunteerNotApproved = "VOLUNTEER_NOT_VERIFIED"
     case appointmentTooSoon = "APPOINTMENT_TOO_SOON"
+    // 下单时间类的另外两条（后端 `ErrorCode.java:174-190`，N134 随 `OrderCreationService` 一起上线）。
+    // 校验顺序在 `APPOINTMENT_TOO_SOON` 之后：先时长、再夜间窗口。
+    // **两条都命中时后端返回 `APPOINTMENT_TOO_LONG`**（跨多天的超长单必然也跨夜），
+    // 所以那句文案不能提夜间，否则用户改完时段还是过不了。
+    //
+    // ⚠️ `APPOINTMENT_TOO_LONG` 当前**客户端到不了**：表单选择器最大 120 分钟
+    // （`BookingDurationOption.oneTwenty`），语音那条被 `VoiceOrderWizard.acceptedDurationMinutes`
+    // 夹在 10–300。映射它的理由和 `introCallRequired` 一样 —— 别把一个有确切含义的 422
+    // 念成「未知错误 (422)」。契约一放宽（或哪天加了自定义时长输入）它立刻就是活分支。
+    // `APPOINTMENT_IN_NIGHT_WINDOW` 相反，**现在就到得了**：客户端没有任何夜间校验，
+    // 21:00 出发跑两小时是一次完全正常的操作。
+    case appointmentTooLong = "APPOINTMENT_TOO_LONG"
+    case appointmentInNightWindow = "APPOINTMENT_IN_NIGHT_WINDOW"
     case validationFailed = "VALIDATION_ERROR"
     case unauthorized = "UNAUTHORIZED"
     case activeOrderAccountDeletionBlocked = "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED"
@@ -98,6 +111,24 @@ enum ErrorCode: String, Codable, Sendable {
             return "尚未通过资质认证，请先上传资质证书。"
         case .appointmentTooSoon:
             return "预约时间需要至少30分钟之后。"
+        case .appointmentTooLong:
+            // 只说时长，不提夜间：两条同时命中时后端返回的就是这一条，
+            // 而这种单（跨多天）先要改短，改时段没用。
+            return "单次陪跑最长5小时，这一单排得太长了。请把时长改短一些再提交。"
+        case .appointmentInNightWindow:
+            // 🚨 必须说清判据是**整段**。只说「这个时间不能约」的话，21点出发的用户
+            // 会认为自己没碰到22点，把开始时间往前挪一点再试一次 —— 而真正越界的是结束时间。
+            //
+            // 语音那条路**指望不上后端的解析追问兜底**：`/api/orders/voice/parse` 也查夜间窗口
+            // （`VoiceOrderService.nightWindowReask`），但那个端点拿不到时长，只能按最短一单
+            // （`MIN_DURATION_MINUTES` = 10 分钟）探一次 —— 后端自己在 `:832` 写明了这一点。
+            // 于是「21点出发跑两小时」在解析轮照样放行，到提交才被拒，而用户此时已经确认过一遍。
+            // 这句话是那种情况下他唯一能听到的解释。
+            //
+            // 时刻用「晚上10点 / 早上5点」而不是后端那句的 `22:00` / `05:00`：这段要过 TTS，
+            // 念数字冒号不如念钟点稳。语义两边一致，措辞刻意不抄。
+            return "晚上10点到次日早上5点之间不安排陪跑。这一单从开始到结束整段都要避开这个时段，"
+                + "请改到白天，或者把时长改短、让它在晚上10点前结束。"
         case .validationFailed:
             return "提交内容不符合要求，请检查后重试。"
         case .unauthorized:

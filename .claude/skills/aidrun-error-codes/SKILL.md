@@ -43,12 +43,23 @@ description: AidRun 后端错误码语义表与前端映射规则，含 DUPLICAT
 | `VOLUNTEER_NOT_VERIFIED` | 403 | — | 志愿者未通过审核（**不叫** `VOLUNTEER_NOT_APPROVED`） |
 | `ROLE_ALREADY_SET` | 409 | `setRole` | **一次性设角色**，角色非 UNSET 直接 409。只会出现在首次选角色的并发场景，不是「有进行中订单挡住切换」 |
 | `APPOINTMENT_TOO_SOON` | 422 | `POST /api/orders` | 起始时间距今不足 30 分钟（`EnvironmentConfig.minimumBookingLeadMinutes`） |
+| `APPOINTMENT_TOO_LONG` | 422 | `POST /api/orders` | `plannedEndTime - plannedStartTime` > 300 分钟（N134）。**客户端当前到不了**：表单最大 120 分钟、语音夹在 10–300 |
+| `APPOINTMENT_IN_NIGHT_WINDOW` | 422 | `POST /api/orders` | 🚨 **整段行程**（不是开始时刻）有任一刻落进 `[22:00, 05:00)`（N134）。`21:00–22:30` 拒、`21:00–22:00` 放行、`05:00–06:00` 放行。**两条都命中时后端返回 `APPOINTMENT_TOO_LONG`**，所以那句文案不提时段 |
 | `TOO_MANY_REQUESTS` | 429 | emergency/trigger 等 | 带 `retryAfterSeconds` 与 `Retry-After` 头 |
 | ~~`PROFILE_INCOMPLETE`~~ | — | — | **不存在**，不要映射 |
 | ~~`LOCATION_PERMISSION_REQUIRED`~~ | — | — | **后端没有这个码**，位置权限是纯客户端概念 |
 | ~~`ACTIVE_ORDER_ROLE_SWITCH_BLOCKED`~~ | — | — | 不存在，后端无角色切换端点 |
 
-后端有、iOS 未映射的码目前只有 `ORDER_SELF_DISPATCH_FORBIDDEN` 一个（志愿者接自己的单）。
+后端有、iOS 未映射的码**当场取，别在这里抄一份**（抄一份就是制造一个必然过期的第二源 ——
+2026-09-05 核对时这句话写的是「只有 `ORDER_SELF_DISPATCH_FORBIDDEN` 一个」，实际是 14 个）：
+
+```bash
+git -C /Users/mac/Downloads/demo show origin/main:src/main/java/com/example/demo/exception/ErrorCode.java > /tmp/ec.java
+AIDRUN_BACKEND_ERROR_CODES=/tmp/ec.java node scripts/validate-error-codes.mjs
+```
+
+未映射**不是缺陷**，落到「未知错误 (状态码)」而用户又无从补救时才是。判据：这个码客户端到得了吗？
+到了之后用户能做点什么吗？两个都是「是」才值得映射。
 
 ## 紧急端点的错误面（独立一套）
 
