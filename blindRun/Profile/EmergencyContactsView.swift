@@ -374,8 +374,7 @@ struct EmergencyContactsView: View {
             speechService.speak("紧急联系人管理。\(viewModel.listSummary)")
             await viewModel.load()
         }
-        // 表单里失败过就别再补一次弹窗：那条 message 用户在表单里已经读过了。
-        .sheet(item: $editingTarget, onDismiss: { viewModel.isShowingFailure = false }) { target in
+        .sheet(item: $editingTarget) { target in
             NavigationStack {
                 EmergencyContactFormView(
                     viewModel: viewModel,
@@ -410,6 +409,10 @@ struct EmergencyContactsView: View {
 
     /// 表单以 sheet 呈现时不弹：被 sheet 盖住的视图上呈现 alert 会被 SwiftUI 丢掉，
     /// 而表单自己就把同一条 message 显示在它那张三段式短表里，不会被挤出屏幕。
+    ///
+    /// 关掉 sheet 时**不**顺手清 message：那等于在每一次保存成功的 dismiss 回调里都写一次
+    /// `@Published`，而保存成功是最热的那条路径。表单里失败过、用户又取消了的话，弹窗补报一次
+    /// 也不算错 —— 那条失败仍然成立。
     private var failureAlertBinding: Binding<Bool> {
         Binding(
             get: { editingTarget == nil && viewModel.isShowingFailure },
