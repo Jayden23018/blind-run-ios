@@ -153,7 +153,16 @@ private extension RunOrderStatus {
         // 刻意不是 `REMATCHING`）。给通话态排更高的档，那条真实迁移会被判成陈旧丢掉，
         // 盲人的页面就永远停在「等待通话确认」。
         case .pendingMatch, .pendingIntroCall: return 0
-        case .pendingAccept, .rematching: return 1
+        // 🚩 `.scheduledConfirmed` 与 `.pendingAccept` **同档 1，不能给 0**。
+        // `REMATCHING → SCHEDULED_CONFIRMED` 是真实迁移（重新派单后被一张远期单接走，
+        // 后端 `OrderStatus.canTransitionTo` 明写），而 `.rematching` 是 1 ——
+        // 给 0 会让这条真实迁移被判成「倒退的陈旧结果」丢掉，订单页永远停在「重新匹配中」。
+        // 这就是上面那段 `.pendingIntroCall` 注释说的同一个坑，换了个状态而已。
+        //
+        // 同档的已知代价（与 `.pendingAccept` / `.rematching` 之间那对完全一样，是本设计的既有边界）：
+        // 一条陈旧的 REST 结果可以把 `PENDING_ACCEPT` 拉回 `SCHEDULED_CONFIRMED`。
+        // 后果只是多显示一次确认按钮，按下去后端返 409，不是不可逆操作。
+        case .scheduledConfirmed, .pendingAccept, .rematching: return 1
         case .driverEnRoute: return 2
         case .driverArrived: return 3
         case .inProgress: return 4
@@ -166,12 +175,18 @@ private extension RunOrderStatus {
     func isDirectlyFollowed(by candidate: RunOrderStatus) -> Bool {
         switch self {
         case .pendingMatch:
-            return [.pendingIntroCall, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
+            return [.pendingIntroCall, .scheduledConfirmed, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
         // 后端 `OrderStatus.java` 的通话磨合分支：双方认可 → PENDING_ACCEPT；
         // 任一方不认可 / 没接到 / 窗口超时 → 退回 PENDING_MATCH（**不是 REMATCHING**）；
         // 轮次达上限 → NO_VOLUNTEER；盲人取消 → CANCELLED。
         case .pendingIntroCall:
-            return [.pendingAccept, .pendingMatch, .cancelled, .noVolunteer].contains(candidate)
+            return [.scheduledConfirmed, .pendingAccept, .pendingMatch, .cancelled, .noVolunteer].contains(candidate)
+        // 跨天预约（后端迁移 `0041`）：距开跑超过 240 分钟时被接单的订单落这一态。
+        // 出边三条，逐字取自后端 `OrderStatus.canTransitionTo`：临期确认 → `PENDING_ACCEPT`；
+        // 闸门到点未确认 / 志愿者取消 → `REMATCHING`；盲人取消 → `CANCELLED`。
+        // ⚠️ **没有 `→ NO_VOLUNTEER`** —— 人已经定了，「无人接单」在这一态不是可能的结局。
+        case .scheduledConfirmed:
+            return [.pendingAccept, .rematching, .cancelled].contains(candidate)
         case .pendingAccept:
             return [.driverEnRoute, .cancelled, .rematching].contains(candidate)
         case .driverEnRoute:
@@ -183,7 +198,7 @@ private extension RunOrderStatus {
         // `REMATCHING` 与 `PENDING_MATCH` 在后端 `isDispatchable()` 下行为一致，
         // 所以它同样能被一个候选人「有意向」拽进通话磨合。
         case .rematching:
-            return [.pendingIntroCall, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
+            return [.pendingIntroCall, .scheduledConfirmed, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
         case .completed, .cancelled, .noVolunteer:
             return false
         // 未知态没有任何可信的后继约束，一律放行，让下一个认识的状态把界面救回来。
@@ -1136,6 +1151,12 @@ final class AppRealtimeCoordinator: ObservableObject {
     ///   抑制它们等于让派单期（最长 30 分钟、3 轮扩圈）整段静音。
     /// - `ROUTE_CONFIRM_REQUIRED*` / `PROXIMITY_ALERT` / `CERT_*` / `ID_VERIFY_*` ——
     ///   与订单状态无关，本来就不该进这条闸。
+    /// - 🔴 **跨天预约那三条一个都不许加**（`SCHEDULED_RUN_REMINDER` / `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED` /
+    ///   `SCHEDULED_DEPARTURE_GATE_MISSED`，后端迁移 `0041`）。理由与 `REMATCHING_MID_RUN`
+    ///   那条逐字相同：`shouldSuppressLifecycleNotification` 的第一条是「有活跃订单 ⇒ 抑制」，
+    ///   而这三条**必然**在有活跃订单时触发 ⇒ 映射进去就是 100% 静默吞掉。
+    ///   其中 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED` 被吞掉的代价最重：志愿者收不到提醒 ⇒
+    ///   60 分钟后被判未确认、订单转走，而他并没有拒绝过。
     static func lifecycleStatus(forEventType eventType: String) -> RunOrderStatus? {
         switch eventType {
         case "ORDER_ACCEPTED": return .pendingAccept
