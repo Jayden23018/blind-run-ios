@@ -884,6 +884,50 @@ final class blindRunUITests: XCTestCase {
         XCTAssertFalse(addButton.isEnabled, "到达上限后新增按钮必须禁用")
     }
 
+    /// 诊断用，跑完就删：量一下失败反馈那一行到底落在哪。
+    @MainActor
+    func testDIAGContactFailureLineFallsOffScreen() throws {
+        let app = launchBlindContactsApp()
+        openContacts(app)
+        waitForContactSummary(app, Self.seededContactSummary)
+
+        for index in 2...5 {
+            addContact(app, name: "联系人\(index)", phone: "1370013700\(index)", relationship: "朋友")
+            waitForContactSummary(app, "共 \(index) 位紧急联系人，最多 5 位。主联系人是张三。")
+        }
+
+        for _ in 0..<6 { scrollableSurface(app).swipeDown() }
+
+        let deletePrimary = app.buttons["删除张三"].firstMatch
+        XCTAssertTrue(deletePrimary.waitForExistence(timeout: 8))
+        scrollElementIntoView(deletePrimary, app: app)
+        tapWhenHittableOrByCoordinate(deletePrimary, app: app)
+
+        let blocked = app.staticTexts["这是当前主联系人。请先把另一位设为主联系人，再删除这一位。"].firstMatch
+        _ = blocked.waitForExistence(timeout: 5)
+
+        let appFrame = app.frame
+        func describe(_ element: XCUIElement) -> String {
+            guard element.exists else { return "absent" }
+            let f = element.frame
+            return "minY=\(f.minY) maxY=\(f.maxY) h=\(f.height)"
+        }
+
+        var diag = "DIAGFRAME window=\(appFrame.height) "
+        diag += "afterTap_error=[\(describe(blocked))] "
+        diag += "afterTap_add=[\(describe(app.buttons["新增紧急联系人"].firstMatch))] "
+
+        var swipes = 0
+        while !blocked.exists || blocked.frame.maxY > appFrame.maxY, swipes < 8 {
+            scrollableSurface(app).swipeUp()
+            swipes += 1
+        }
+        diag += "afterScroll_error=[\(describe(blocked))] swipes=\(swipes)"
+
+        print(diag)
+        XCTFail(diag)
+    }
+
     @MainActor
     func testAuthLifecycleRolelessRestoreRoutesToRoleSelection() throws {
         let app = launchApp(
