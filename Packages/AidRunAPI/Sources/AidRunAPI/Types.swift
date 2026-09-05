@@ -187,9 +187,13 @@ public protocol APIProtocol: Sendable {
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
-    /// 4. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
-    /// 5. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
-    /// 6. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    /// 4. `plannedEndTime - plannedStartTime` 不得超过 300 分钟（5 小时），否则 422 `APPOINTMENT_TOO_LONG`（N134）
+    /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
+    ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
+    ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
+    /// 6. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
+    /// 7. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 8. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
     /// 成功返回 **201 Created**（历史文档误写为 200，已更正）。
     ///
@@ -949,9 +953,13 @@ extension APIProtocol {
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
-    /// 4. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
-    /// 5. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
-    /// 6. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    /// 4. `plannedEndTime - plannedStartTime` 不得超过 300 分钟（5 小时），否则 422 `APPOINTMENT_TOO_LONG`（N134）
+    /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
+    ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
+    ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
+    /// 6. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
+    /// 7. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 8. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
     /// 成功返回 **201 Created**（历史文档误写为 200，已更正）。
     ///
@@ -10693,9 +10701,13 @@ public enum Operations {
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
-    /// 4. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
-    /// 5. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
-    /// 6. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    /// 4. `plannedEndTime - plannedStartTime` 不得超过 300 分钟（5 小时），否则 422 `APPOINTMENT_TOO_LONG`（N134）
+    /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
+    ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
+    ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
+    /// 6. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
+    /// 7. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 8. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
     ///
     /// 成功返回 **201 Created**（历史文档误写为 200，已更正）。
     ///
@@ -10917,7 +10929,9 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 预约开始时间距当前时间不足最小提前量（APPOINTMENT_TOO_SOON）
+            /// 预约开始时间距当前时间不足最小提前量（`APPOINTMENT_TOO_SOON`）、
+            /// 计划时长超过 300 分钟（`APPOINTMENT_TOO_LONG`），
+            /// 或行程落进夜间禁跑窗口 `[22:00, 05:00)`（`APPOINTMENT_IN_NIGHT_WINDOW`）
             ///
             /// - Remark: Generated from `#/paths//api/orders/post(createOrder)/responses/422`.
             ///
