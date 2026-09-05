@@ -834,10 +834,12 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(deleteOnlyContact.waitForExistence(timeout: 8))
         scrollElementIntoView(deleteOnlyContact, app: app)
         tapWhenHittableOrByCoordinate(deleteOnlyContact, app: app)
-        XCTAssertTrue(
-            app.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].firstMatch.waitForExistence(timeout: 8)
-        )
+        let blocked = app.alerts["紧急联系人提示"]
+        XCTAssertTrue(blocked.waitForExistence(timeout: 8))
+        XCTAssertTrue(blocked.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].exists)
         XCTAssertFalse(app.alerts["确认删除联系人"].exists, "被拦下的删除不应弹出确认框")
+        blocked.buttons["知道了"].tap()
+        XCTAssertTrue(waitForElementToDisappear(blocked, timeout: 8))
 
         addContact(app, name: "李四", phone: "13700137000", relationship: "朋友")
         XCTAssertTrue(
@@ -884,9 +886,17 @@ final class blindRunUITests: XCTestCase {
         XCTAssertFalse(addButton.isEnabled, "到达上限后新增按钮必须禁用")
     }
 
-    /// 诊断用，跑完就删：量一下失败反馈那一行到底落在哪。
+    /// 列表长到超过一屏时，失败反馈仍然必须**自己弹出来**。
+    ///
+    /// 2026-09-05 实测（iPhone 16 Pro，window 高 874，默认字号，5 位联系人）：拦截文案原本是
+    /// `List` 末尾的一个 Section，点完「删除张三」之后它 **根本不在无障碍树里**（`List` 不渲染
+    /// 屏幕外的行），要往下滑一屏才出现在 minY=747.7 / maxY=820.0 —— 也就是说触发了失败分支、
+    /// 屏幕上一个字都不多。同形状的缺陷在账号删除预检那里刚修过
+    /// （`testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock`）。
+    ///
+    /// 挂在上限用例后面复用它那 4 次新增：单独再搭一次 5 位联系人要多花一分多钟。
     @MainActor
-    func testDIAGContactFailureLineFallsOffScreen() throws {
+    func testContactFailureSurfacesAsAlertWhenTheListOutgrowsOneScreen() throws {
         let app = launchBlindContactsApp()
         openContacts(app)
         waitForContactSummary(app, Self.seededContactSummary)
@@ -896,36 +906,26 @@ final class blindRunUITests: XCTestCase {
             waitForContactSummary(app, "共 \(index) 位紧急联系人，最多 5 位。主联系人是张三。")
         }
 
+        // 回到顶部，主联系人「张三」的删除按钮在第一屏，而失败反馈的旧落点在第二屏。
         for _ in 0..<6 { scrollableSurface(app).swipeDown() }
 
         let deletePrimary = app.buttons["删除张三"].firstMatch
         XCTAssertTrue(deletePrimary.waitForExistence(timeout: 8))
-        scrollElementIntoView(deletePrimary, app: app)
+        XCTAssertTrue(
+            scrollElementIntoView(deletePrimary, app: app),
+            "主联系人的删除按钮应在第一屏内"
+        )
         tapWhenHittableOrByCoordinate(deletePrimary, app: app)
 
-        let blocked = app.staticTexts["这是当前主联系人。请先把另一位设为主联系人，再删除这一位。"].firstMatch
-        _ = blocked.waitForExistence(timeout: 5)
-
-        let appFrame = app.frame
-        func describe(_ element: XCUIElement) -> String {
-            guard element.exists else { return "absent" }
-            let f = element.frame
-            return "minY=\(f.minY) maxY=\(f.maxY) h=\(f.height)"
-        }
-
-        var diag = "DIAGFRAME window=\(appFrame.height) "
-        diag += "afterTap_error=[\(describe(blocked))] "
-        diag += "afterTap_add=[\(describe(app.buttons["新增紧急联系人"].firstMatch))] "
-
-        var swipes = 0
-        while !blocked.exists || blocked.frame.maxY > appFrame.maxY, swipes < 8 {
-            scrollableSurface(app).swipeUp()
-            swipes += 1
-        }
-        diag += "afterScroll_error=[\(describe(blocked))] swipes=\(swipes)"
-
-        print(diag)
-        XCTFail(diag)
+        let alert = app.alerts["紧急联系人提示"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 8), "删除主联系人被拦下时必须弹窗，不能只往列表末尾追加一行")
+        XCTAssertTrue(
+            alert.staticTexts["这是当前主联系人。请先把另一位设为主联系人，再删除这一位。"].exists,
+            "弹窗里要带上具体原因"
+        )
+        XCTAssertFalse(app.alerts["确认删除联系人"].exists, "被拦下的删除不应弹出确认框")
+        alert.buttons["知道了"].tap()
+        XCTAssertTrue(waitForElementToDisappear(alert, timeout: 8), "「知道了」应关闭弹窗")
     }
 
     @MainActor
