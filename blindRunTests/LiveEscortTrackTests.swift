@@ -700,7 +700,10 @@ final class LiveEscortTrackTests: XCTestCase {
         var sent: [LocatedCoordinate] = []
         let coordinator = LiveEscortSessionCoordinator(
             realtimeCoordinator: realtime,
-            reportInterval: 0.05,
+            // 0.5s 而不是原来的 0.05s：下面两处「立刻上报」要靠**截止时间短于上报周期**来判定，
+            // 而 `waitUntil` 的轮询粒度就是 50ms —— 周期本身只有 50ms 时，
+            // 「立刻发了」和「等了一个周期才发」在轮询眼里是同一件事，判不出来。
+            reportInterval: 0.5,
             sendLocation: { _, sample in sent.append(sample) }
         )
         let service = WebSocketService()
@@ -713,9 +716,12 @@ final class LiveEscortTrackTests: XCTestCase {
         coordinator.configure(identityKey: "account:blind:token", role: .blind, webSocketService: service)
         coordinator.attachLocationService(location)
         coordinator.updateOwnedOrder(orderID: 88, status: .driverEnRoute)
-        // 这里的 10ms 窗口断言的是"立刻上报"：上报周期是 50ms，改成轮询等待会让即时性失去意义，故保留固定 sleep
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        XCTAssertGreaterThanOrEqual(sent.count, 1)
+        // 「立刻上报」= 在下一个上报周期（0.5s）到达**之前**就已经发出。断言这件事本身，
+        // 而不是「10ms 内」—— 后者在满载真机上会被调度挤掉（2026-09-05 全量跑里这条用例
+        // 因此红过一次，同一 suite 隔离重跑 28/28 全绿）。语义一点没丢：立刻上报那条路真断了，
+        // 第一个样本要到 0.5s 才出现，照样红。负载敏感性没了：余量从 10ms 变成 400ms。
+        let didSendImmediately = await waitUntil(timeout: 0.4) { sent.count >= 1 }
+        XCTAssertTrue(didSendImmediately, "订单进入进行中后应在下一个上报周期到达前就先发一次")
         XCTAssertEqual(sent.last?.system, .gcj02Backend)
         XCTAssertEqual(LiveEscortSessionCoordinator.reportInterval, 5)
 
@@ -725,14 +731,16 @@ final class LiveEscortTrackTests: XCTestCase {
         let beforeReconnect = sent.count
         service.simulateConnectionStateForTesting(.reconnecting(attempt: 1))
         service.simulateConnectionStateForTesting(.connecting)
-        // 同上：重连后的"立刻补发"必须快于 50ms 的上报周期，保留固定 sleep
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        XCTAssertGreaterThan(sent.count, beforeReconnect)
+        // 同上：重连后的「立刻补发」必须快于一个上报周期
+        let didResendAfterReconnect = await waitUntil(timeout: 0.4) { sent.count > beforeReconnect }
+        XCTAssertTrue(didResendAfterReconnect, "重连后应在下一个上报周期到达前就补发一次")
 
         coordinator.updateOwnedOrder(orderID: 88, status: .cancelled)
         let stoppedCount = sent.count
-        // 反向条件：终态订单之后在一个真实时间窗内不得再有上报，保留固定 sleep
-        try? await Task.sleep(nanoseconds: 80_000_000)
+        // 反向条件：终态订单之后**整整一个上报周期**内不得再有上报。
+        // 这个窗口必须长于上报周期（0.5s），否则「没再上报」只是还没轮到下一次 ——
+        // 原来的 80ms 配 50ms 周期只盖住 1.6 个周期，现在保持同一口径。
+        try? await Task.sleep(nanoseconds: 750_000_000)
         XCTAssertEqual(sent.count, stoppedCount)
     }
 
