@@ -1356,6 +1356,54 @@ final class blindRunUITests: XCTestCase {
         )
     }
 
+    /// 诊断用，跑完就删：iPad 上第三个输入框拿不到键盘焦点，量一下点击前后到底发生了什么。
+    @MainActor
+    func testDIAGiPadRelationshipFieldFocus() throws {
+        let app = launchBlindContactsApp()
+        openContacts(app)
+
+        let addButton = app.buttons["新增紧急联系人"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10))
+        tapWhenHittableOrByCoordinate(addButton, app: app)
+        XCTAssertTrue(app.navigationBars["新增紧急联系人"].waitForExistence(timeout: 8))
+
+        func snap(_ tag: String) -> String {
+            let kb = app.keyboards.firstMatch
+            let field = app.textFields["与联系人的关系，选填"].firstMatch
+            let kbDesc = kb.exists ? "\(kb.frame)" : "absent"
+            let fDesc = field.exists ? "\(field.frame) hittable=\(field.isHittable)" : "absent"
+            return "[\(tag) kb=\(kbDesc) rel=\(fDesc)]"
+        }
+
+        var diag = "DIAGPAD win=\(app.frame) "
+        diag += snap("start")
+
+        let nameField = app.textFields["联系人姓名，必填"].firstMatch
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        tapWhenHittableOrByCoordinate(nameField, app: app)
+        nameField.typeText("李四")
+        diag += snap("afterName")
+
+        let phoneField = app.textFields["联系人手机号，必填，11 位"].firstMatch
+        tapWhenHittableOrByCoordinate(phoneField, app: app)
+        phoneField.typeText("13700137000")
+        diag += snap("afterPhone")
+
+        let relationshipField = app.textFields["与联系人的关系，选填"].firstMatch
+        tapWhenHittableOrByCoordinate(relationshipField, app: app)
+        diag += snap("afterTap1")
+
+        // 第二下：如果第一下被浮动键盘吃掉了，这一下应该就能拿到焦点。
+        tapWhenHittableOrByCoordinate(relationshipField, app: app)
+        diag += snap("afterTap2")
+
+        // 真正的判据：这一下 typeText 成不成。成了 → 双击可解；还是挂 → 另有原因。
+        relationshipField.typeText("朋友")
+        diag += " typedValue=\((relationshipField.value as? String) ?? "nil")"
+
+        XCTFail(diag)
+    }
+
     private func deleteContact(_ app: XCUIApplication, named name: String) {
         let deleteButton = app.buttons["删除\(name)"].firstMatch
         XCTAssertTrue(deleteButton.waitForExistence(timeout: 8))
