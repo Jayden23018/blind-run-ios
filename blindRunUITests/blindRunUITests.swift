@@ -830,6 +830,15 @@ final class blindRunUITests: XCTestCase {
         waitForContactSummary(app, Self.seededContactSummary)
 
         // 只剩一位时删除被本地守卫拦下，不发请求、不弹确认框。
+        //
+        // 拦截必须**自己弹出来**。它此前唯一的展示面是 `List` 末尾的一个 Section，2026-09-05
+        // 真机实测（iPhone 16 Pro，window 高 874，**默认字号**，5 位联系人）：点完「删除张三」，
+        // 那一行 **根本不在无障碍树里**（`List` 不渲染屏幕外的行），要往下滑一屏才出现在
+        // minY=747.7 / maxY=820.0 —— 失败分支跑了、`speakError` 播了，屏幕上一个字都不多。
+        // 这里只有 1 位联系人，那一行本来就在屏内，所以断言弹窗才是能抓住回归的写法：
+        // 改回内联文字，`app.alerts` 这条立刻变红，与联系人有几位无关。
+        // 同形状的缺陷在账号删除预检那里同日修过
+        // （`testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock`）。
         let deleteOnlyContact = app.buttons["删除张三"].firstMatch
         XCTAssertTrue(deleteOnlyContact.waitForExistence(timeout: 8))
         scrollElementIntoView(deleteOnlyContact, app: app)
@@ -886,47 +895,6 @@ final class blindRunUITests: XCTestCase {
         XCTAssertFalse(addButton.isEnabled, "到达上限后新增按钮必须禁用")
     }
 
-    /// 列表长到超过一屏时，失败反馈仍然必须**自己弹出来**。
-    ///
-    /// 2026-09-05 实测（iPhone 16 Pro，window 高 874，默认字号，5 位联系人）：拦截文案原本是
-    /// `List` 末尾的一个 Section，点完「删除张三」之后它 **根本不在无障碍树里**（`List` 不渲染
-    /// 屏幕外的行），要往下滑一屏才出现在 minY=747.7 / maxY=820.0 —— 也就是说触发了失败分支、
-    /// 屏幕上一个字都不多。同形状的缺陷在账号删除预检那里刚修过
-    /// （`testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock`）。
-    ///
-    /// 挂在上限用例后面复用它那 4 次新增：单独再搭一次 5 位联系人要多花一分多钟。
-    @MainActor
-    func testContactFailureSurfacesAsAlertWhenTheListOutgrowsOneScreen() throws {
-        let app = launchBlindContactsApp()
-        openContacts(app)
-        waitForContactSummary(app, Self.seededContactSummary)
-
-        for index in 2...5 {
-            addContact(app, name: "联系人\(index)", phone: "1370013700\(index)", relationship: "朋友")
-            waitForContactSummary(app, "共 \(index) 位紧急联系人，最多 5 位。主联系人是张三。")
-        }
-
-        // 回到顶部，主联系人「张三」的删除按钮在第一屏，而失败反馈的旧落点在第二屏。
-        for _ in 0..<6 { scrollableSurface(app).swipeDown() }
-
-        let deletePrimary = app.buttons["删除张三"].firstMatch
-        XCTAssertTrue(deletePrimary.waitForExistence(timeout: 8))
-        XCTAssertTrue(
-            scrollElementIntoView(deletePrimary, app: app),
-            "主联系人的删除按钮应在第一屏内"
-        )
-        tapWhenHittableOrByCoordinate(deletePrimary, app: app)
-
-        let alert = app.alerts["紧急联系人提示"]
-        XCTAssertTrue(alert.waitForExistence(timeout: 8), "删除主联系人被拦下时必须弹窗，不能只往列表末尾追加一行")
-        XCTAssertTrue(
-            alert.staticTexts["这是当前主联系人。请先把另一位设为主联系人，再删除这一位。"].exists,
-            "弹窗里要带上具体原因"
-        )
-        XCTAssertFalse(app.alerts["确认删除联系人"].exists, "被拦下的删除不应弹出确认框")
-        alert.buttons["知道了"].tap()
-        XCTAssertTrue(waitForElementToDisappear(alert, timeout: 8), "「知道了」应关闭弹窗")
-    }
 
     @MainActor
     func testAuthLifecycleRolelessRestoreRoutesToRoleSelection() throws {
