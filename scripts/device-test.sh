@@ -59,6 +59,44 @@ case "${AIDRUN_DEVICE_ID:-}" in
     ;;
 esac
 
+# ---------- 0. 设备互斥 ----------
+#
+# 真机只有一台，而本机常同时开着多个 worktree 会话（2026-09-05 实测 7 个）。两次
+# xcodebuild 同时打同一台设备时，后起的那次 install 会把前一次的 runner 装掉，
+# 前一次报 `Test crashed with signal kill`、失败用例是 `(0.000 seconds)` ——
+# **看起来和真回归一模一样**，而且失败集合每次都不同，正好落进
+# 「跨两次运行零重叠就不是代码问题」那条判据里，于是被当成随机崩去查设备。
+# 那天下午 16:08–16:31 的全部结果因此作废（16:08:26 起的全量 UI 与 16:08:32 起的
+# 四条用例只差 6 秒；16:30 三个并发甚至报出 `Failed to create directory`）。
+#
+# 锁按设备分，所以两台设备可以并行跑。
+LOCK_DIR="${TMPDIR:-/tmp}/aidrun-device-test.lock.${DEVICE_ID}"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  LOCK_OWNER="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+  # 上次被 Ctrl-C / kill -9 掐掉会留下死锁。死锁比并发更坏 —— 它让所有人都跑不了，
+  # 所以持有者进程不在了就直接回收，不要求人工清理。
+  if [ -z "$LOCK_OWNER" ] || ! kill -0 "$LOCK_OWNER" 2>/dev/null; then
+    say "回收上次异常退出留下的设备锁（持有者 pid ${LOCK_OWNER:-未知} 已不存在）"
+    rm -rf "$LOCK_DIR"
+    mkdir "$LOCK_DIR" 2>/dev/null || die "设备锁 $LOCK_DIR 回收失败，手动删掉它再重试。"
+  else
+    die "设备 $DEVICE_ID 正被另一次 device-test 占用（pid $LOCK_OWNER）。
+     并发跑同一台真机会互相把 runner 装掉，两边都会报 signal kill 且看着像代码回归。
+     等它跑完，或先确认那次是不是跑飞了：
+       ps -p $LOCK_OWNER -o pid,etime,args"
+  fi
+fi
+printf '%s\n' "$$" >"$LOCK_DIR/pid"
+trap 'rm -rf "$LOCK_DIR"' EXIT
+
+# 自测钩子：拿到锁后原地待命，让 validate-device-lock.sh 能验并发/死锁回收两条分支
+# 而不用真去跑 xcodebuild。生产路径上这个变量永远是空的。
+if [ -n "${AIDRUN_LOCK_SELFTEST:-}" ]; then
+  say "已持有设备锁（pid $$），selftest 模式待命 ${AIDRUN_LOCK_SELFTEST}s"
+  sleep "$AIDRUN_LOCK_SELFTEST"
+  exit 0
+fi
+
 # ---------- 1. 设备探活 ----------
 say "检查设备连接…"
 DEVICES="$(xcrun devicectl list devices 2>&1 || true)"
