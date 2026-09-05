@@ -191,9 +191,20 @@ public protocol APIProtocol: Sendable {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
-    /// 7. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
-    /// 8. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
+    ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
+    ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
+    ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
+    /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
+    ///    这是第 7 条放开之后唯一的刷单闸门。
+    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    ///
+    /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
+    /// （默认 240 分钟）时被接单的订单进入 `SCHEDULED_CONFIRMED` 而不是 `PENDING_ACCEPT`，
+    /// 要等志愿者调 `POST /api/orders/{id}/confirm-departure` 才进入出发流程。
+    /// 客户端把这一态显示为「已预约，等待志愿者临期确认」。
     ///
     /// 成功返回 **201 Created**（历史文档误写为 200，已更正）。
     ///
@@ -957,9 +968,20 @@ extension APIProtocol {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
-    /// 7. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
-    /// 8. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
+    ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
+    ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
+    ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
+    /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
+    ///    这是第 7 条放开之后唯一的刷单闸门。
+    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    ///
+    /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
+    /// （默认 240 分钟）时被接单的订单进入 `SCHEDULED_CONFIRMED` 而不是 `PENDING_ACCEPT`，
+    /// 要等志愿者调 `POST /api/orders/{id}/confirm-departure` 才进入出发流程。
+    /// 客户端把这一态显示为「已预约，等待志愿者临期确认」。
     ///
     /// 成功返回 **201 Created**（历史文档误写为 200，已更正）。
     ///
@@ -2635,6 +2657,7 @@ public enum Components {
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case PENDING_MATCH = "PENDING_MATCH"
                     case PENDING_INTRO_CALL = "PENDING_INTRO_CALL"
+                    case SCHEDULED_CONFIRMED = "SCHEDULED_CONFIRMED"
                     case PENDING_ACCEPT = "PENDING_ACCEPT"
                     case IN_PROGRESS = "IN_PROGRESS"
                     case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
@@ -4516,6 +4539,7 @@ public enum Components {
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case PENDING_MATCH = "PENDING_MATCH"
                     case PENDING_INTRO_CALL = "PENDING_INTRO_CALL"
+                    case SCHEDULED_CONFIRMED = "SCHEDULED_CONFIRMED"
                     case PENDING_ACCEPT = "PENDING_ACCEPT"
                     case IN_PROGRESS = "IN_PROGRESS"
                     case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
@@ -5145,6 +5169,7 @@ public enum Components {
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case PENDING_MATCH = "PENDING_MATCH"
                     case PENDING_INTRO_CALL = "PENDING_INTRO_CALL"
+                    case SCHEDULED_CONFIRMED = "SCHEDULED_CONFIRMED"
                     case PENDING_ACCEPT = "PENDING_ACCEPT"
                     case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
                     case DRIVER_ARRIVED = "DRIVER_ARRIVED"
@@ -10705,9 +10730,20 @@ public enum Operations {
     /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
     ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
     ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
-    /// 6. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
-    /// 7. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
-    /// 8. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
+    ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
+    ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
+    ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
+    /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
+    ///    这是第 7 条放开之后唯一的刷单闸门。
+    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    ///
+    /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
+    /// （默认 240 分钟）时被接单的订单进入 `SCHEDULED_CONFIRMED` 而不是 `PENDING_ACCEPT`，
+    /// 要等志愿者调 `POST /api/orders/{id}/confirm-departure` 才进入出发流程。
+    /// 客户端把这一态显示为「已预约，等待志愿者临期确认」。
     ///
     /// 成功返回 **201 Created**（历史文档误写为 200，已更正）。
     ///
