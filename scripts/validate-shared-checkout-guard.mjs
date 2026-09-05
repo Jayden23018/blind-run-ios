@@ -34,11 +34,17 @@ function scratchRepo() {
   return { dir, g };
 }
 
-// transcript：本轮用 Edit 写过 `edited` 里的路径，用 Bash 跑过 `ran` 里的命令。
-function writeTranscript(dir, { edited = [], ran = [] } = {}) {
+// transcript：本轮用 Edit 写过 `edited` 里的路径（`dir` 相对），用 Bash 跑过 `ran` 里的命令。
+//
+// `startedAt` 默认落在**过去**，让靶子仓库的 reflog 一定比会话开始更新 ——
+// 即「HEAD 在本会话期间被动过」，判据 ① 走原来那条严格分支。要测跨会话继承分支那条豁免，
+// 显式传一个未来时刻（见 `FUTURE`）。
+const FUTURE = new Date(Date.now() + 3_600_000).toISOString();
+
+function writeTranscript(dir, { edited = [], ran = [], startedAt = '2026-08-16T00:00:00.000Z' } = {}) {
   const p = path.join(dir, 'transcript.jsonl');
   const blocks = [
-    ...edited.map((rel) => ({ name: 'Edit', input: { file_path: path.join(dir, rel) } })),
+    ...edited.map((rel) => ({ name: 'Edit', input: { file_path: path.resolve(dir, rel) } })),
     ...ran.map((cmd) => ({ name: 'Bash', input: { command: cmd } })),
   ];
   // 至少写一行：空文件会让 transcriptEntries 返回 []，与「读不到」这条放行分支混淆。
@@ -48,7 +54,7 @@ function writeTranscript(dir, { edited = [], ran = [] } = {}) {
     blocks
       .map((b) =>
         JSON.stringify({
-          timestamp: '2026-08-16T00:00:00.000Z',
+          timestamp: startedAt,
           message: { content: [{ type: 'tool_use', name: b.name, input: b.input }] },
         })
       )
@@ -57,12 +63,13 @@ function writeTranscript(dir, { edited = [], ran = [] } = {}) {
   return p;
 }
 
-function run({ command, repo, transcriptPath, tool = 'Bash' }) {
+function run({ command, repo, transcriptPath, tool = 'Bash', cwd }) {
   return spawnSync('node', [hook], {
     input: JSON.stringify({
       tool_name: tool,
       tool_input: { command },
       transcript_path: transcriptPath,
+      ...(cwd ? { cwd } : {}),
     }),
     encoding: 'utf8',
     env: { ...process.env, AIDRUN_REPO_ROOT: repo },
@@ -93,6 +100,9 @@ function ownBranchRepo() {
 }
 
 const OWN_SESSION = { edited: ['mine.txt'], ran: ['git checkout -b fix/my-own-work'] };
+
+const FOREIGN_BRANCH = 'fix/api-client-missing-token-guard';
+const OWN_BRANCH = 'fix/my-own-work';
 
 const cases = [
   // ── 基础 ──
@@ -317,21 +327,200 @@ const cases = [
     },
     expect: ALLOWED,
   },
+
+  // ── ⓐ 命令作用于哪个仓库（2026-08-24 误报一）──
+  //
+  // 老实现把判据全打在 `$CLAUDE_PROJECT_DIR` 上：在后端仓库里跑 `git reset --keep` 被拦下，
+  // 文案里印的却是 iOS 仓库的分支和提交。正反两例都要有 —— 后端仓库同样是共享 checkout，
+  // 「非本仓库一律放行」是另一种把守卫废掉的方式。
+  {
+    name: '⭐ ⓐ 在另一个仓库里 `git reset --keep` 按那个仓库判：那边是本会话开的分支 → 放行（本仓库这边正停在同事分支上，不许据此误报）',
+    build: () => {
+      const { dir } = foreignBranchRepo(); // 本仓库：同事的分支 —— 老实现的误报来源
+      const other = ownBranchRepo(); // 目标仓库：本会话自己开的分支
+      return {
+        command: `cd ${other.dir} && git reset --keep HEAD~1`,
+        repo: dir,
+        transcriptPath: writeTranscript(dir, OWN_SESSION),
+      };
+    },
+    expect: ALLOWED,
+  },
+  {
+    name: '⭐ ⓐ 反例：另一个仓库停在同事的分支上 → 照样拦，且文案印的是那个仓库的分支',
+    build: () => {
+      const { dir } = ownBranchRepo(); // 本仓库一切正常
+      const other = foreignBranchRepo();
+      return {
+        command: `git -C ${other.dir} commit --amend -m x`,
+        repo: dir,
+        transcriptPath: writeTranscript(dir, OWN_SESSION),
+        stderrIncludes: FOREIGN_BRANCH,
+        stderrExcludes: OWN_BRANCH, // 印错仓库的分支名正是这次误报的表征
+      };
+    },
+    expect: BLOCKED,
+  },
+  {
+    name: '⭐ ⓐ `cd <另一仓库> && git add -A` 用那个仓库的暂存区判 → 拦，列的是那边的文件',
+    build: () => {
+      const { dir } = ownBranchRepo();
+      const other = ownBranchRepo();
+      fs.writeFileSync(path.join(other.dir, 'their-wip.txt'), 'wip\n');
+      return {
+        command: `cd ${other.dir} && git add -A`,
+        repo: dir,
+        transcriptPath: writeTranscript(dir, OWN_SESSION), // transcript 落在本仓库，别污染目标仓库的未跟踪列表
+        stderrIncludes: 'their-wip.txt',
+      };
+    },
+    expect: BLOCKED,
+  },
+  {
+    name: '⭐ ⓐ 同上但那边的改动是本轮自己写的 → 放行（「本轮写过的文件」要按目标仓库取相对路径）',
+    build: () => {
+      const { dir } = ownBranchRepo();
+      const other = ownBranchRepo();
+      fs.writeFileSync(path.join(other.dir, 'my-other-repo-file.txt'), 'mine\n');
+      return {
+        command: `cd ${other.dir} && git add -A`,
+        repo: dir,
+        transcriptPath: writeTranscript(dir, {
+          edited: [path.join(other.dir, 'my-other-repo-file.txt')],
+          ran: OWN_SESSION.ran,
+        }),
+      };
+    },
+    expect: ALLOWED,
+  },
+  {
+    name: 'ⓐ 钩子 payload 的 cwd 也算（Bash 的工作目录跨调用保留，可能早就不在本仓库了）',
+    build: () => {
+      const { dir } = ownBranchRepo();
+      const other = ownBranchRepo();
+      fs.writeFileSync(path.join(other.dir, 'their-wip.txt'), 'wip\n');
+      return {
+        command: 'git add -A',
+        repo: dir,
+        cwd: other.dir,
+        transcriptPath: writeTranscript(dir, OWN_SESSION),
+        stderrIncludes: 'their-wip.txt',
+      };
+    },
+    expect: BLOCKED,
+  },
+  {
+    name: 'ⓐ cd 的目标解析不出来（变量未展开）→ 放行，别猜目录（猜错就是把判据打到别的仓库上）',
+    build: () => {
+      const { dir } = ownBranchRepo();
+      fs.writeFileSync(path.join(dir, 'colleague.txt'), 'wip\n');
+      return {
+        command: 'cd $BACKEND_REPO && git add -A',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, OWN_SESSION),
+      };
+    },
+    expect: ALLOWED,
+  },
+  {
+    name: '⭐ ⓐ `git -C` 不许把子命令解析歪：`-C <path> commit --amend` 仍然要认出 amend',
+    build: () => {
+      const { dir } = ownBranchRepo();
+      const other = ownBranchRepo();
+      fs.writeFileSync(path.join(other.dir, 'their-wip.txt'), 'wip\n');
+      other.g('add', 'their-wip.txt');
+      return {
+        command: `git -C ${other.dir} commit --amend -m x`,
+        repo: dir,
+        transcriptPath: writeTranscript(dir, OWN_SESSION),
+        stderrIncludes: 'their-wip.txt',
+      };
+    },
+    expect: BLOCKED,
+  },
+  {
+    name: '⭐ ⓐ `git commit -C <ref> --amend` 里的 -C 是复用提交信息，不是路径 → 不许因此漏拦',
+    build: () => {
+      const { dir } = foreignBranchRepo();
+      return {
+        command: 'git commit -C HEAD --amend',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, OWN_SESSION),
+        stderrIncludes: 'rewrite-foreign-history',
+      };
+    },
+    expect: BLOCKED,
+  },
+
+  // ── ⓑ 跨会话继续同一条分支（2026-08-24 误报二）──
+  //
+  // 「本会话没切到过 + HEAD 提交不是本会话写的」在跨会话继承分支时恒为真，而那是本仓库
+  // 最常见的干法。豁免的判据是 **HEAD 在本会话开始之后有没有被移动过**（reflog），
+  // 不是「HEAD 作者 == git config user.name」—— 本仓库全部提交的 author 都是同一个人，
+  // 含 2026-08-16 事故里同事那条 dd0d795，那条判据恒成立，等于把判据 ① 整条废掉。
+  //
+  // 下面两条只差一个变量：会话开始时刻在 reflog 顶端之后（继承）还是之前（被人切走）。
+  {
+    name: '⭐ ⓑ 跨会话继承的分支：HEAD 在本会话期间没被动过 → 放行（合法 rebase 不许被拦）',
+    build: () => {
+      const { dir } = foreignBranchRepo(); // HEAD 那条提交是「上一个会话」做的
+      return {
+        command: 'git rebase origin/main',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'], startedAt: FUTURE }),
+      };
+    },
+    expect: ALLOWED,
+  },
+  {
+    name: '⭐ ⓑ 反例：同一条 rebase，但 HEAD 是在本会话开始之后被移动的（同事切走了）→ 拦',
+    build: () => {
+      const { dir } = foreignBranchRepo();
+      return {
+        command: 'git rebase origin/main',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'] }), // 会话开始时刻在过去
+        stderrIncludes: 'rewrite-foreign-history',
+      };
+    },
+    expect: BLOCKED,
+  },
+  {
+    name: '⭐ ⓑ 豁免不许漏进判据 ②：继承来的分支上 `git add -A` 照样拦住同事的文件',
+    build: () => {
+      const { dir } = foreignBranchRepo();
+      fs.writeFileSync(path.join(dir, 'their-wip.txt'), 'wip\n');
+      return {
+        command: 'git add -A',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'], startedAt: FUTURE }),
+        stderrIncludes: 'their-wip.txt',
+      };
+    },
+    expect: BLOCKED,
+  },
 ];
 
 let failed = 0;
 for (const c of cases) {
-  const r = c.raw ? spawnSync('node', [hook], { input: c.raw, encoding: 'utf8' }) : run(c.build());
+  // 靶子里现造的路径（另一个仓库、临时分支）只有 build() 知道，所以断言也允许它给。
+  const built = c.raw ? null : c.build();
+  const r = built ? run(built) : spawnSync('node', [hook], { input: c.raw, encoding: 'utf8' });
+  const includes = built?.stderrIncludes ?? c.stderrIncludes;
+  const excludes = built?.stderrExcludes ?? c.stderrExcludes;
   const problems = [];
   if (r.status !== c.expect) {
     problems.push(
       `期望 exit ${c.expect}，实得 ${r.status}；stderr=${JSON.stringify(r.stderr.slice(0, 300))}`
     );
   }
-  if (c.stderrIncludes && !r.stderr.includes(c.stderrIncludes)) {
+  if (includes && !r.stderr.includes(includes)) {
     problems.push(
-      `stderr 里应出现 ${JSON.stringify(c.stderrIncludes)}，实得 ${JSON.stringify(r.stderr.slice(0, 300))}`
+      `stderr 里应出现 ${JSON.stringify(includes)}，实得 ${JSON.stringify(r.stderr.slice(0, 300))}`
     );
+  }
+  if (excludes && r.stderr.includes(excludes)) {
+    problems.push(`stderr 里不该出现 ${JSON.stringify(excludes)}（印错了仓库）`);
   }
   if (problems.length) {
     failed += 1;
