@@ -99,6 +99,12 @@ jobs:
       - name: validate xcresult verdict
         run: node scripts/validate-xcresult-verdict.mjs
 
+      # 真机只有一台而本机常开着多个会话。并发跑同一台设备时两边互相把 runner 装掉，
+      # 报出的 `Test crashed with signal kill` 与真回归无法区分 —— 2026-09-05 一下午的
+      # 结果因此作废。锁本身不碰真机，所以这条自测在 CI 上跑得了。
+      - name: validate device lock
+        run: scripts/validate-device-lock.sh
+
       # 契约漂移闸的「新字段接没接上」判据。它给的是绿灯，坏掉不报错、只会安静放过缺口 ——
       # 已经这样假绿过两次（按裸字段名全局搜，命中了无关模型上的同名字段）。
       - name: validate drift-fields gate
