@@ -42,13 +42,22 @@
 | 结构化匹配条件 | `hasGuideDog` · `pacePreference` | **可见（维持现状）** | 枚举/布尔，不是自由文本，不含健康细节；`hasGuideDog` 进派单硬过滤，`pacePreference` 是志愿者判断「我陪不陪得下来」的依据。接单前藏起来会制造「接了才发现做不到 → 取消 → `REMATCHING`」的浪费，成本落在盲人身上。 |
 | 自由文本额外需求 | `specialNotes`（及其接单后专用的继任字段） | **不可见** | 自由文本无法预先判定敏感度。语音路径下它就是用户原话，必然混入健康信息。 |
 
-### 3. 契约问题投给后端（**本变更的阻塞项**）
+### 3. 契约问题投给后端（**已结案，2026-08-24 更新**）
 
-需要后端提供「接单后才下发」的自由文本通道。两条候选路线写在 `design.md`，倾向**修 `specialNotes` 自身的下发时机**而不是新增字段——因为存量泄露也需要同一个修法，新增字段只会让存量口子继续开着。已按 `AGENTS.md §10` 投进 `demo/docs/handoff.md` 的「待后端确认」。
+原文写的是「本变更的阻塞项」：需要后端提供「接单后才下发」的自由文本通道，两条候选路线在 `design.md`，倾向修 `specialNotes` 自身的下发时机而不是新增字段。
 
-### 4. iOS 实现留在契约后面
+**结论已经全部拿到，本变更不再有契约阻塞项：**
 
-契约拍板前不改 iOS 业务代码。唯一的例外候选是把派单弹窗里那行自由文本摘掉（`VolunteerHomeView.swift:1685`）——它是**存量泄露的展示端**，与契约结论无关，且是纯删除。是否本轮就做，作为 `tasks.md` 里的 P0 项单独判定，不在本提案里默认执行。
+- **2026-08-07 后端走路线 A**：`specialNotes` 已从接单前的两条下发路径（`NEW_ORDER` WS 载荷、`GET /api/orders/available` 响应）删除，是破坏性变更。客户端同期把 `routeNotes` 收进同一条闸。
+- **2026-08-20 后端确认另外两条是「否掉了」不是「排期未到」**：`meetingPointHint` 不拆、`maxLength` 200 不放宽，重开条件已写死（见 `design.md` D3 的 08-24 结案小节）。
+
+⚠️ 此前 `tasks.md` 里记着「真正的阻塞点是产品：语音路径要不要也承载 `meetingPointHint`」——**那个问题随字段一起作废了**，字段不存在就谈不上语音路径要不要承载它。
+
+### 4. iOS 实现留在契约后面（**已完成**）
+
+原则不变：契约拍板前不改 iOS 业务代码。契约在 08-07 拍板后，第 2、3 组任务已全部落地——存量泄露的两处展示端（派单弹窗 `VolunteerHomeView.swift`、可接订单详情 `VolunteerOrderInfoSection`）已修，判据集中到穷举 switch `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`，`parseFreeform` 三个槽位已回写。
+
+**本变更目前唯一未完成的是真机验证**（`tasks.md` 5.5 / 5.6 / 6.2），卡在两台设备 `unavailable`，与契约无关。
 
 ## Capabilities
 
