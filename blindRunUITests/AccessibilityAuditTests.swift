@@ -331,6 +331,47 @@ final class AccessibilityAuditTests: XCTestCase {
         try audit(app)
     }
 
+    /// Mock 横幅必须待在状态栏那一条里，不许压到导航栏上。
+    ///
+    /// 它此前挂在 `.safeAreaInset(edge: .top)` 上，而各路由自己建 `NavigationStack` ——
+    /// 外层的安全区改动压不动里面那条栏。2026-09-05 iPhone 16 Pro 实测：横幅
+    /// `y 0..101.3`、导航栏 `y 62..116`、标题 `y 73.7..94.3`，标题整条被盖住。
+    /// 直接后果是 `.contrast` 审计采到横幅的黄底黑字、报的却是被盖住的标题，
+    /// 创建预约 / 使用帮助 / 服务成就三条审计用例随机红 —— 失败元素的
+    /// Element Screenshot 就是那条黄横幅本身。
+    ///
+    /// 用 frame 相交判而不是「横幅存不存在」：真正的不变式是**它不遮挡导航**，
+    /// 把它藏起来只是达成这条的一种方式。
+    @MainActor
+    func testMockBannerStaysClearOfTheNavigationBar() throws {
+        let app = launchBlindHome(forcingFirstRunHelp: true)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindRunnerHelpDoneButton"].firstMatch
+                .waitForExistence(timeout: 20),
+            "引导页没起来，下面要比的两个 frame 没有意义"
+        )
+
+        let banner = app.descendants(matching: .any)["mockEnvironmentBanner"].firstMatch
+        // 明确 skip 而不是静默通过：横幅是 `#if DEBUG` + Mock 专属，别的构建里本来就没有，
+        // 「没跑」和「跑过了」必须可区分。
+        try XCTSkipUnless(
+            banner.waitForExistence(timeout: 5),
+            "这个构建里没有 Mock 横幅（非 DEBUG 或非 Mock 环境）—— 这条断言无从判定"
+        )
+
+        let navigationBar = app.navigationBars.firstMatch
+        XCTAssertTrue(navigationBar.waitForExistence(timeout: 10), "引导页没有导航栏，没有参照物")
+
+        XCTAssertFalse(
+            banner.frame.intersects(navigationBar.frame),
+            """
+            Mock 横幅 \(banner.frame) 压在导航栏 \(navigationBar.frame) 上，页面标题会被盖住。
+            别把它改回 `.safeAreaInset(edge: .top)`：那条 inset 缩的是外层安全区，
+            压不动各路由自己那条 `NavigationStack` 的导航栏，只会又盖回去。
+            """
+        )
+    }
+
     /// 反向断言：有进行中订单时「问一句」必须在。
     /// 防止把上一条用「整个删掉」来满足 —— 那是这个能力真正有用的唯一状态。
     @MainActor
