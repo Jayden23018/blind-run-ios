@@ -830,14 +830,25 @@ final class blindRunUITests: XCTestCase {
         waitForContactSummary(app, Self.seededContactSummary)
 
         // 只剩一位时删除被本地守卫拦下，不发请求、不弹确认框。
+        //
+        // 拦截必须**自己弹出来**。它此前唯一的展示面是 `List` 末尾的一个 Section，2026-09-05
+        // 真机实测（iPhone 16 Pro，window 高 874，**默认字号**，5 位联系人）：点完「删除张三」，
+        // 那一行 **根本不在无障碍树里**（`List` 不渲染屏幕外的行），要往下滑一屏才出现在
+        // minY=747.7 / maxY=820.0 —— 失败分支跑了、`speakError` 播了，屏幕上一个字都不多。
+        // 这里只有 1 位联系人，那一行本来就在屏内，所以断言弹窗才是能抓住回归的写法：
+        // 改回内联文字，`app.alerts` 这条立刻变红，与联系人有几位无关。
+        // 同形状的缺陷在账号删除预检那里同日修过
+        // （`testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock`）。
         let deleteOnlyContact = app.buttons["删除张三"].firstMatch
         XCTAssertTrue(deleteOnlyContact.waitForExistence(timeout: 8))
         scrollElementIntoView(deleteOnlyContact, app: app)
         tapWhenHittableOrByCoordinate(deleteOnlyContact, app: app)
-        XCTAssertTrue(
-            app.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].firstMatch.waitForExistence(timeout: 8)
-        )
+        let blocked = app.alerts["紧急联系人提示"]
+        XCTAssertTrue(blocked.waitForExistence(timeout: 8))
+        XCTAssertTrue(blocked.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].exists)
         XCTAssertFalse(app.alerts["确认删除联系人"].exists, "被拦下的删除不应弹出确认框")
+        blocked.buttons["知道了"].tap()
+        XCTAssertTrue(waitForElementToDisappear(blocked, timeout: 8))
 
         addContact(app, name: "李四", phone: "13700137000", relationship: "朋友")
         XCTAssertTrue(
@@ -883,6 +894,7 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(limitNotice.waitForExistence(timeout: 8))
         XCTAssertFalse(addButton.isEnabled, "到达上限后新增按钮必须禁用")
     }
+
 
     @MainActor
     func testAuthLifecycleRolelessRestoreRoutesToRoleSelection() throws {

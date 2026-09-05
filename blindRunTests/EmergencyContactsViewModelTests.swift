@@ -86,6 +86,13 @@ final class EmergencyContactsViewModelTests: XCTestCase {
 
         XCTAssertFalse(deleted)
         XCTAssertTrue(client.requests.isEmpty)
+
+        // 拦截必须有一个**可见**的落点。它此前唯一的展示面是 `List` 末尾的一个 Section，
+        // 而 5 位联系人时那一行落在窗口外 145pt（真机实测：window=874，元素 minY=747 且要滚一屏
+        // 才进得了无障碍树）—— 只播不显，等于按下去屏幕上什么都不变。
+        XCTAssertTrue(viewModel.isShowingFailure)
+        viewModel.isShowingFailure = false
+        XCTAssertNil(viewModel.errorMessage, "关掉弹窗要把 message 一起清干净，否则下次进页面会重弹")
     }
 
     func testUpdateReplaysCurrentPrimaryFlagInsteadOfClearingIt() async {
