@@ -44,6 +44,23 @@ enum AppColors {
     /// 装饰性文本准备的，而本 App 用它承载状态说明和位置摘要，那是必须读得清的内容。
     static let textSecondary = dynamic(0x5C5C61, 0xAEAEB2)
 
+    /// 语音下单那块占满内容区的蓝底（`BlindBookingView.voiceStatusBlock`）。
+    ///
+    /// **它是背景色，所以不进 `tones`。** 那张表验的是「这个色当前景压在两种背景上」，
+    /// 而这个色从不当前景 —— 硬塞进去只会得到一条方向反了的断言（暗色值压在纯黑上
+    /// 只有 2.6:1，会把一个正确的取值判成不达标）。它自己的检查在
+    /// `LowVisionChannelTests.testVoiceStageSurfaceKeepsWhiteTextReadable`：白字压在
+    /// 它上面，亮暗两套都要过 4.5:1。
+    ///
+    /// 暗色**不能**沿用 `primary` 的 `#0A84FF`：白字压上去只有 3.38:1，正文不达标。
+    /// 而这一块是**整个内容区**而不是一枚按钮，大面积亮蓝在暗色下也刺眼。
+    /// `#0B4DA2` 白字 8.08:1。
+    static let voiceStageSurface = dynamic(voiceStageSurfaceTone.light, voiceStageSurfaceTone.dark)
+
+    /// `voiceStageSurface` 的取值，单独暴露给对比度用例 —— 理由同 `tones`：
+    /// `Color` 要解析成 RGB 得先过 `UITraitCollection`，那在单测里是个不稳定的依赖。
+    static let voiceStageSurfaceTone = Tone(light: 0x0058C7, dark: 0x0B4DA2)
+
     // 这三个继续用系统语义色：`label` 已经是 21:1，两个背景色本来就是对比的**基准**而非前景。
     static let background = Color(uiColor: .systemBackground)
     static let secondaryBackground = Color(uiColor: .secondarySystemBackground)

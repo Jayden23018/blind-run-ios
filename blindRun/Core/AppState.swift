@@ -21,6 +21,19 @@ final class AccountDeletionViewModel: ObservableObject {
     @Published var showFinalConfirmation = false
     @Published var preflightMessage: String?
 
+    /// 预检拦截的弹窗开关。
+    ///
+    /// 拦截**必须自己弹出来**。它此前唯一的展示面是设置页 `List` 末尾的一行文字，而 `089960e`（#76）
+    /// 往两端设置页各加了三、四个入口之后，那一行落到了第二屏 —— SwiftUI 的 `List` 压根不渲染
+    /// 屏幕外的行，于是用户点完「继续删除账户」屏幕上什么都不变，只有 `speakError` 那一声。
+    /// 明眼志愿者与低视力用户拿不到任何反馈，看起来就是「点了没反应」。
+    /// `testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock` 从那天起一直红着，
+    /// 红的正是这件事，只是被当成了用例陈旧。
+    var isShowingPreflightBlock: Bool {
+        get { preflightMessage != nil }
+        set { if !newValue { preflightMessage = nil } }
+    }
+
     private static let blockingStatuses: Set<RunOrderStatus> = [
         .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching
     ]
@@ -416,6 +429,15 @@ final class AppState: ObservableObject {
     var orders: any OrderServing {
         if let ordersOverride { return ordersOverride }
         return OrderService(transport: apiClient)
+    }
+
+    /// 语音下单解析片的领域 service。每次取都新建，理由同 `auth`。
+    ///
+    /// 这里没有注入口，理由同 `profile`：现有用例都通过给 `VoiceOrderWizard.configure`
+    /// 传一个架在 `APIClientProtocol` 桩上的 `VoiceOrderService` 打桩，够用。
+    /// 真需要 `FakeVoiceOrderService` 时再照 `auth` 加，不先摆一个没人用的入口。
+    var voiceOrder: any VoiceOrderServing {
+        VoiceOrderService(transport: apiClient)
     }
 
     // MARK: - Init

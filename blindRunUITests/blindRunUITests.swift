@@ -552,6 +552,51 @@ final class blindRunUITests: XCTestCase {
         attachScreenshot(named: "volunteer-home-map-and-controls", app: app)
     }
 
+    /// 派单卡片在 AX5 下仍然三格成行 —— 这是本仓库第一条 Dynamic Type 用例，
+    /// 见记忆 `low-vision-visual-channel-unaudited`：字号上限一直没人系统性看过。
+    @MainActor
+    func testVolunteerDispatchSummaryTilesSurviveAX5() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            contentSizeCategory: "UICTContentSizeCategoryAccessibilityXXXL"
+        )
+        let panel = app.descendants(matching: .any)["volunteerHomeDemandPanel"].firstMatch
+        let grabber = app.descendants(matching: .any)["volunteerHomeDemandPanelGrabber"].firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 20), "Dispatch panel should load at AX5")
+        XCTAssertTrue(grabber.waitForExistence(timeout: 5))
+
+        // 这一条就是「顶部状态块盖住抓手」的回归守卫：修之前顶部状态块从 y=149 长到 y=490，
+        // 把 y=365–392 的抓手整个盖住，拖拽触点全被吃掉，面板高度拖完仍是 299.999…。
+        // 用显式长按拖拽而不是 `grabber.swipeUp()`：后者在这种遮挡下同样无效，
+        // 但失败时看不出是「拖不动」还是「手势没识别」。
+        let panelHeightBefore = panel.frame.height
+        grabber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.2,
+                   thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)))
+        XCTAssertGreaterThan(panel.frame.height, panelHeightBefore, "Dispatch panel must be expandable at AX5")
+
+        // 三格在 `LazyVGrid` 里，屏幕外**不实例化**（无障碍树里是 `Other {{0,0},{0,0}}`），
+        // 所以必须先滚到它再断言存在 —— `waitForExistence` 等不到，
+        // `scrollElementIntoView` 第一行的 `guard element.exists` 也过不去。
+        // 慢速滚：AX5 下滚动视口很浅而默认速度一次跨度远大于它，采样点会整段跳过格子区。
+        let scrollView = app.scrollViews["volunteerHomeDemandScrollView"].firstMatch
+        let rate = app.staticTexts["接单率"].firstMatch
+        var drags = 0
+        while !rate.exists && drags < 10 {
+            scrollView.swipeUp(velocity: .slow)
+            drags += 1
+        }
+        XCTAssertTrue(rate.exists, "Acceptance-rate tile must still render at AX5 (drags=\(drags))\n\(app.debugDescription)")
+        // 上一版传的是 `...AccessibilityExtraExtraExtraLarge`（不是真的常量名），被静默忽略，
+        // 截图与默认字号一模一样却看着像验过了。钉一条断言，别再靠肉眼分辨。
+        XCTAssertGreaterThan(rate.frame.height, 30, "AX5 launch argument did not take effect (height=\(rate.frame.height))")
+        attachScreenshot(named: "volunteer-dispatch-summary-ax5", app: app)
+    }
+
     @MainActor
     func testVolunteerHomeRemainsInteractiveWhileDispatchRequestNeverReturns() throws {
         let app = launchApp(
@@ -785,14 +830,25 @@ final class blindRunUITests: XCTestCase {
         waitForContactSummary(app, Self.seededContactSummary)
 
         // 只剩一位时删除被本地守卫拦下，不发请求、不弹确认框。
+        //
+        // 拦截必须**自己弹出来**。它此前唯一的展示面是 `List` 末尾的一个 Section，2026-09-05
+        // 真机实测（iPhone 16 Pro，window 高 874，**默认字号**，5 位联系人）：点完「删除张三」，
+        // 那一行 **根本不在无障碍树里**（`List` 不渲染屏幕外的行），要往下滑一屏才出现在
+        // minY=747.7 / maxY=820.0 —— 失败分支跑了、`speakError` 播了，屏幕上一个字都不多。
+        // 这里只有 1 位联系人，那一行本来就在屏内，所以断言弹窗才是能抓住回归的写法：
+        // 改回内联文字，`app.alerts` 这条立刻变红，与联系人有几位无关。
+        // 同形状的缺陷在账号删除预检那里同日修过
+        // （`testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock`）。
         let deleteOnlyContact = app.buttons["删除张三"].firstMatch
         XCTAssertTrue(deleteOnlyContact.waitForExistence(timeout: 8))
         scrollElementIntoView(deleteOnlyContact, app: app)
         tapWhenHittableOrByCoordinate(deleteOnlyContact, app: app)
-        XCTAssertTrue(
-            app.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].firstMatch.waitForExistence(timeout: 8)
-        )
+        let blocked = app.alerts["紧急联系人提示"]
+        XCTAssertTrue(blocked.waitForExistence(timeout: 8))
+        XCTAssertTrue(blocked.staticTexts["至少需要保留 1 位紧急联系人，不能删除最后一位。"].exists)
         XCTAssertFalse(app.alerts["确认删除联系人"].exists, "被拦下的删除不应弹出确认框")
+        blocked.buttons["知道了"].tap()
+        XCTAssertTrue(waitForElementToDisappear(blocked, timeout: 8))
 
         addContact(app, name: "李四", phone: "13700137000", relationship: "朋友")
         XCTAssertTrue(
@@ -838,6 +894,7 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(limitNotice.waitForExistence(timeout: 8))
         XCTAssertFalse(addButton.isEnabled, "到达上限后新增按钮必须禁用")
     }
+
 
     @MainActor
     func testAuthLifecycleRolelessRestoreRoutesToRoleSelection() throws {
@@ -966,9 +1023,15 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.alerts["确认删除账户"].firstMatch.waitForExistence(timeout: 5))
         app.buttons["继续删除账户"].tap()
 
-        let blocked = app.staticTexts["当前存在进行中的服务，请处理完成后再删除账户。"].firstMatch
+        // 拦截必须**自己弹出来**，而不是往设置页 `List` 末尾追加一行。
+        // 这条断言原本找的就是那一行 `StaticText`，从 `089960e`（#76，设置页加了三个激励入口）
+        // 起一直红：那一行被挤到第二屏，而 `List` 不渲染屏幕外的行 —— 屏幕上一个字都没多出来。
+        // 拦截本身一直是好的（失败快照里没有「最终确认删除账户」弹窗），坏的是它没有可见的落点。
+        // 文案内容不在这里断，主在单测 `testAccountDeletionPreflightSpeaksActiveOrderBlock`。
+        let blocked = app.alerts["无法删除账户"].firstMatch
         XCTAssertTrue(blocked.waitForExistence(timeout: 8))
         XCTAssertFalse(app.alerts["最终确认删除账户"].exists)
+        blocked.buttons["知道了"].tap()
         XCTAssertTrue(app.buttons["退出登录"].exists, "Blocked deletion must preserve the signed-in settings state")
     }
 
@@ -1141,7 +1204,8 @@ final class blindRunUITests: XCTestCase {
         confirmTransitionViaRealtime: Bool = false,
         hangEscortLocationSend: Bool = false,
         homeLoadTimeout: TimeInterval? = nil,
-        forcePrivacyConsent: Bool = false
+        forcePrivacyConsent: Bool = false,
+        contentSizeCategory: String? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1218,6 +1282,9 @@ final class blindRunUITests: XCTestCase {
         // `RESET_STATE`，不跳过的话每一条都会被挡在告知页，断言全红。只有专测它的用例打开这一条。
         if forcePrivacyConsent {
             app.launchEnvironment["AIDRUN_UI_TEST_FORCE_PRIVACY_CONSENT"] = "1"
+        }
+        if let contentSizeCategory {
+            app.launchArguments += ["-UIPreferredContentSizeCategoryName", contentSizeCategory]
         }
         app.launch()
         dismissSystemAlertsIfPresent(app: app)

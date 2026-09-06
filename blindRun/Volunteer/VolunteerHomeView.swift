@@ -968,6 +968,7 @@ enum VolunteerHomeTopLayout {
 
 struct VolunteerHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// 派单面板是全 App 位移幅度最大的动效（整块面板弹到另一个档位），而弹簧的回弹正是
     /// 「减弱动态效果」要压掉的那一类。开启后改成瞬时切换：落点不变，只是不弹。
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1010,7 +1011,18 @@ struct VolunteerHomeView: View {
                         .padding(.bottom, VolunteerDemandPanelDetent.bottomMargin)
                 }
                 .overlay(alignment: .top) {
-                    VStack(spacing: 8) {
+                    // 顶部状态块画在面板之上（overlay 永远盖住 ZStack），而 `reservedBottom`
+                    // 写死它只占 `safeTop + 180` —— 那个数不跟 Dynamic Type 走。真机 AX5 实测
+                    // 它从 y=149 一路长到 y=490，预留却只有 242pt，于是把 y=365–392 的面板抓手
+                    // 整个盖住：拖拽触点全被状态块吃掉，面板永远停在中等档拖不动，
+                    // 卡片内容对低视力用户彻底够不着。
+                    //
+                    // 装进 ScrollView 并限高到已经声明的预留值，让实现兑现那个声明：
+                    // 大字号下一个字都不丢（滚得到），抓手也露出来。
+                    //
+                    // 只在辅助字号下换实现：ScrollView 会贪心占满限高，默认字号下那会把
+                    // 状态块与面板之间那条地图带的手势一并吃掉，而默认字号本来就不溢出。
+                    let topStatusBlock = VStack(spacing: 8) {
                         homeStatusOverlay
 
                         if let activeOrder = viewModel.activeOrder {
@@ -1028,6 +1040,15 @@ struct VolunteerHomeView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 4)
                     .frame(maxWidth: .infinity, alignment: .top)
+
+                    if dynamicTypeSize.isAccessibilitySize {
+                        ScrollView {
+                            topStatusBlock
+                        }
+                        .frame(maxHeight: max(96, resolvedTopBottom), alignment: .top)
+                    } else {
+                        topStatusBlock
+                    }
                 }
                 .background(AppColors.background)
             }
@@ -1654,7 +1675,9 @@ private struct VolunteerDispatchSummaryCard: View {
                 Spacer(minLength: 0)
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+            // 列数跟着 `metrics` 走，不写字面量 —— `be4e030` 删掉「积分」那格时列数留在 4，
+            // 于是三格挤在左边、右边空一格挂了很久。
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: metrics.count), spacing: 8) {
                 ForEach(metrics, id: \.0) { metric in
                     VolunteerMetricTile(title: metric.0, value: metric.1)
                 }

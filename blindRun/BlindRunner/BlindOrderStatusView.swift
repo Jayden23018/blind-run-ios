@@ -33,7 +33,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 处在 `PENDING_INTRO_CALL` 但通话数据**拉不到**。
     ///
     /// 存在的理由是一个真实缺陷：`introCall == nil` 此前同时代表「不在通话态」和
-    /// 「拉失败了」，而 `introCallSection` 靠 `let introCall` 拆包 ⇒ 拉失败时
+    /// 「拉失败了」，而通话区靠 `let introCall` 拆包 ⇒ 拉失败时
     /// 拨号 / 合适 / 换一位三个按钮**一个都不渲染**，没有错误文字、没有播报，
     /// 而状态播报仍在说「有位志愿者想陪你跑，可以打个电话聊聊」。
     /// 对看不见屏幕的人，那是被告知去做一件屏幕上根本没有入口的事。
@@ -904,9 +904,6 @@ struct BlindOrderStatusView: View {
     @EnvironmentObject private var speechInputService: SpeechInputService
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    /// 通话磨合两阶段切换的唯一信号源。iOS 不告诉 App「这通电话打完了」——
-    /// 能观察到的只有「拨号确认框把我推到后台、然后我回来了」。
-    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @StateObject private var shareViewModel = RunPlanLiveShareViewModel()
@@ -917,13 +914,10 @@ struct BlindOrderStatusView: View {
     @State private var showRunPlanShare = false
     @State private var showLiveShareConsent = false
     @State private var showLiveShareConfirmation = false
-    /// 用户按过通话磨合的拨号按钮。
-    @State private var introCallDidDial = false
-    /// 拨号之后 App 回到前台了 ⇒ 进入阶段 B（给出「聊过了，合适」）。
-    ///
-    /// ⚠️ 这是**推断，不是事实**：在系统拨号确认框上点「取消」走的是同一条路径。
-    /// 所以阶段 B 一定要保留「再打一次」，见 `introCallSection`。
-    @State private var introCallReturnedFromDialer = false
+    /// 通话页什么时候弹出来。整个通话流程在 `BlindIntroCallView` 里，这一页只管呈现时机 ——
+    /// 转移规则（关过一次不再弹、离开通话态复位）在 `BlindIntroCallPresentation` 上，
+    /// 连同它们各自防的那个缺陷一起。
+    @State private var introCallPresentation = BlindIntroCallPresentation()
     /// 状态推进后把 VoiceOver 焦点接到状态卡上。
     ///
     /// 这一页每 5 秒轮询一次，重绘时焦点会被系统收走，落点不确定 —— 而状态卡恰恰是
@@ -939,9 +933,8 @@ struct BlindOrderStatusView: View {
     /// 主按钮高度。比首页的 280 小：这一页顶上还有状态卡要占位置，
     /// 而状态本身也是盲人此刻需要的信息，不能被按钮挤出首屏。
     ///
-    /// 「打电话给志愿者」与「继续等待」共用它：两者的状态集互斥
-    /// （`offersVolunteerCall` 是汇合中的四态，`offersKeepWaiting` 是等待中的两态），
-    /// 同一个版位在任一时刻只会有其中一个，高度不该因为是哪一个而变。
+    /// 2026-09-05 起**只剩「打电话给志愿者」用它**。「继续等待」原先共用这个高度，
+    /// 已降级为 64pt 的次级按钮 —— 见 `keepWaitingSection`。
     @ScaledMetric(relativeTo: .largeTitle) private var primaryActionButtonHeight: CGFloat = 140
 
     var body: some View {
@@ -966,7 +959,7 @@ struct BlindOrderStatusView: View {
                     // 而此刻用户唯一还能做的决定是「要不要取消」。
                     statusHeader(order)
                         .accessibilityFocused($statusHeaderFocused)
-                    introCallSection(order)
+                    introCallEntrySection(order)
                     volunteerCallSection(order)
                     inlineAskQuestionSection
                     keepWaitingSection(order)
@@ -1103,19 +1096,18 @@ struct BlindOrderStatusView: View {
             }
         }
         .onChange(of: viewModel.order?.status) { status in
-            guard status != nil else { return }
+            guard let status else { return }
             statusHeaderFocused = true
-            // 换了一轮通话（或离开通话态）就把两阶段状态归零：上一轮的「已经打过了」
-            // 不该让新一轮直接跳到阶段 B —— 那会把拨号按钮从主版位上撤掉，
-            // 而新一轮的第一件事恰恰是打电话。
-            if status != .pendingIntroCall {
-                introCallDidDial = false
-                introCallReturnedFromDialer = false
-            }
+            introCallPresentation.apply(status: status)
         }
-        .onChange(of: scenePhase) { phase in
-            guard phase == .active, introCallDidDial else { return }
-            introCallReturnedFromDialer = true
+        // 全屏，不是 sheet：这一态盲人只有一件该做的事，而 sheet 会把订单页的内容
+        // 留在下缘可见、可被 VoiceOver 滑到 —— 那正是这次要解决的问题。
+        // 关闭只走「返回订单」按钮（`fullScreenCover` 本来就不能下滑关掉），
+        // 于是「用户主动关过」这个事实能被可靠地记下来，不会与「系统因状态变化收起」混淆。
+        .fullScreenCover(isPresented: $introCallPresentation.isShowing) {
+            BlindIntroCallView(viewModel: viewModel) {
+                introCallPresentation.dismiss()
+            }
         }
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
@@ -1478,211 +1470,43 @@ struct BlindOrderStatusView: View {
         }
     }
 
-    /// 接单**前**通话磨合这一页唯一的主动作。**两阶段，每阶段只有一个主动作。**
+    /// 进通话页的入口。通话本身整个在 `BlindIntroCallView` 里，这里只有一个按钮。
     ///
-    /// | 阶段 | 主动作 | 次动作 |
-    /// |---|---|---|
-    /// | A：还没拨号 | 打电话给这位志愿者 | 换一位 |
-    /// | B：拨号返回后 | 聊过了，合适 | 再打一次、换一位 |
+    /// 🚩 **它不能因为「反正会自动弹」而省掉。** 自动弹出只发生在 `status` **变化**那一跳，
+    /// 而用户按过「返回订单」之后本轮就不再自动弹（`BlindIntroCallPresentation`）——
+    /// 没有这个按钮，他此刻回不去了：状态卡还在念「有位志愿者想陪你跑，可以打个电话聊聊」，
+    /// 而屏幕上没有任何入口。那与 `introCallUnavailable` 当初修的是同一类缺陷。
+    ///
+    /// 还有一条更细的路会绕过自动弹出：同一次通话磨合里换候选人要经过 `PENDING_MATCH`
+    /// （`AGENTS.md` §5），而这一页 5 秒轮一次 —— 后端立刻派给下一位时，那个中间态
+    /// 可能整个落在两次轮询之间。客户端看到的是 `PENDING_INTRO_CALL → PENDING_INTRO_CALL`，
+    /// `onChange` 不触发。
     ///
     /// 版位与 `volunteerCallSection` / `keepWaitingSection` 相同、状态集互斥
     /// （`.pendingIntroCall` 不在 `offersVolunteerCall` 也不在 `offersKeepWaiting` 里），
     /// 所以读屏遍历时状态卡之后紧跟的永远是此刻唯一该做的那件事。
     ///
-    /// 🚩 **阶段 B 必须保留「再打一次」。** 阶段切换的判定（点过拨号按钮 + `scenePhase`
-    /// 回到 `.active`）是**推断不是事实**：用户在系统拨号确认框上点「取消」会走同一条路径，
-    /// 界面于是变成他没预期的样子。保留拨号入口 = 推断错了也有退路。
-    /// **这处冗余是刻意的，不要以「阶段 B 不该有拨号按钮」为由删掉。**
-    ///
-    /// 盲人侧**只有两个结果动作**（合适 / 换一位），刻意没有「没打通」：对他来说
-    /// 「聊完不合适」和「没打通」结果完全一样（换一位），分成两个按钮只是多一次读屏滑动。
-    /// 后端确实要区分（timeout vs declined 直接进 `acceptanceRate`），
-    /// 但那个口径由志愿者侧提供 —— 不让盲人替系统的统计需求多按一个键。
+    /// 🚨 文案**不许复用 `callButtonTitle`**（「打电话给这位志愿者」）：那个按钮按下去
+    /// 立刻弹系统拨号确认，这个按钮只是打开一个页面。对看不见屏幕的人，两件事听起来
+    /// 一样就等于随时可能误拨。
     @ViewBuilder
-    private func introCallSection(_ order: OrderDetailResponse) -> some View {
-        if order.status == .pendingIntroCall, viewModel.isWaitingForIntroCallCounterpart {
-            // 🚩 **表过态之后这一支优先，且不依赖再拉一次 view。**
-            // 服务端已经记下了我的表态，此刻拉不拉得到通话数据都不改变「在等对方」这件事。
-            // 排在失败块前面是刻意的：说完「合适」之后不该再看到「换一位」。
-            VStack(spacing: 14) {
-                // 🚨 只说自己那一半。**不许说「对方还没回复」** —— 那等于告诉盲人对方看过了
-                // 还没答应，把压力转嫁回来；而且我们根本拿不到对方的表态。
-                Text(IntroCallCopy.waitingForCounterpart)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel(IntroCallCopy.waitingForCounterpart)
-                    .accessibilityIdentifier("blindOrderStatusIntroCallWaitingNotice")
-
-                // 拿得到号码就仍然给「再打一次」—— 等待期间对方可能想再聊两句。
-                if viewModel.introCall?.dialableCounterpartPhone != nil {
-                    introCallSecondaryButton(
-                        title: IntroCallCopy.callAgainButtonTitle,
-                        hint: IntroCallCopy.callAccessibilityHint,
-                        identifier: "blindOrderStatusIntroCallDialAgainButton",
-                        tint: AppColors.primary,
-                        action: dialIntroCall
-                    )
-                }
-
-                introCallSecondaryButton(
-                    title: IntroCallCopy.declineButtonTitle,
-                    hint: IntroCallCopy.declineAccessibilityHint,
-                    identifier: "blindOrderStatusIntroCallDeclineButton",
-                    tint: AppColors.destructive
-                ) {
-                    Task { await viewModel.submitIntroCallDecision(.decline) }
-                }
+    private func introCallEntrySection(_ order: OrderDetailResponse) -> some View {
+        if order.status == .pendingIntroCall {
+            Button {
+                introCallPresentation.isShowing = true
+            } label: {
+                Text(IntroCallCopy.blindEntryButtonTitle)
+                    .font(AppFonts.largeTitle())
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: primaryActionButtonHeight)
+                    .background(AppColors.primary)
+                    .cornerRadius(16)
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(
-                IntroCallCopy.blindCallSectionAnnouncement(
-                    counterpartName: viewModel.introCall?
-                        .counterpartDisplayName(fallback: "这位志愿者") ?? "这位志愿者"
-                )
-            )
-        } else if order.status == .pendingIntroCall, viewModel.introCall == nil, viewModel.introCallUnavailable {
-            // 🚨 **这一块的存在本身就是修复。** 此前拉失败时这个 `@ViewBuilder` 返回空视图，
-            // 于是三个按钮一个都不渲染、一个字都不显示，而状态播报仍在说
-            // 「有位志愿者想陪你跑，可以打个电话聊聊」—— 被告知去做一件屏幕上没有入口的事。
-            //
-            // 播报由 `refreshIntroCallIfNeeded` 在失败那一跳负责（只播一次），这里只管看得见的那半。
-            VStack(spacing: 14) {
-                Text(IntroCallCopy.loadFailed)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.destructive)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel(IntroCallCopy.loadFailed)
-                    .accessibilityIdentifier("blindOrderStatusIntroCallLoadFailedNotice")
-
-                introCallSecondaryButton(
-                    title: IntroCallCopy.retryButtonTitle,
-                    hint: IntroCallCopy.retryAccessibilityHint,
-                    identifier: "blindOrderStatusIntroCallRetryButton",
-                    tint: AppColors.primary
-                ) {
-                    Task { await viewModel.reloadIntroCall() }
-                }
-
-                // 「换一位」在这里也留着：拉不到号码时用户仍然有权结束这一轮，
-                // 不该被一个加载失败按在原地等 20 分钟窗口超时。
-                introCallSecondaryButton(
-                    title: IntroCallCopy.declineButtonTitle,
-                    hint: IntroCallCopy.declineAccessibilityHint,
-                    identifier: "blindOrderStatusIntroCallDeclineButton",
-                    tint: AppColors.destructive
-                ) {
-                    Task { await viewModel.submitIntroCallDecision(.decline) }
-                }
-            }
-            .accessibilityElement(children: .contain)
-        } else if order.status == .pendingIntroCall, let introCall = viewModel.introCall {
-            // 走到这里 = 还没表过态（表过的在上面第一支）。所以这一支不再判
-            // `isWaitingForCounterpart` —— 那条分支已经移到上面，
-            // 留在这里会是永远走不到的死代码。
-            VStack(spacing: 14) {
-                if introCallReturnedFromDialer {
-                    introCallPrimaryButton(
-                        title: IntroCallCopy.acceptButtonTitle,
-                        hint: IntroCallCopy.acceptAccessibilityHint,
-                        identifier: "blindOrderStatusIntroCallAcceptButton",
-                        tint: AppColors.success
-                    ) {
-                        Task { await viewModel.submitIntroCallDecision(.accept) }
-                    }
-                }
-
-                if introCallReturnedFromDialer {
-                    introCallSecondaryButton(
-                        title: IntroCallCopy.callAgainButtonTitle,
-                        hint: IntroCallCopy.callAccessibilityHint,
-                        identifier: "blindOrderStatusIntroCallDialAgainButton",
-                        tint: AppColors.primary,
-                        action: dialIntroCall
-                    )
-                } else {
-                    introCallPrimaryButton(
-                        title: IntroCallCopy.callButtonTitle,
-                        hint: IntroCallCopy.callAccessibilityHint,
-                        identifier: "blindOrderStatusIntroCallDialButton",
-                        tint: AppColors.primary,
-                        action: dialIntroCall
-                    )
-                }
-
-                introCallSecondaryButton(
-                    title: IntroCallCopy.declineButtonTitle,
-                    hint: IntroCallCopy.declineAccessibilityHint,
-                    identifier: "blindOrderStatusIntroCallDeclineButton",
-                    tint: AppColors.destructive
-                ) {
-                    Task { await viewModel.submitIntroCallDecision(.decline) }
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(
-                IntroCallCopy.blindCallSectionAnnouncement(
-                    counterpartName: introCall.counterpartDisplayName(fallback: "这位志愿者")
-                )
-            )
+            .accessibilityLabel(IntroCallCopy.blindEntryButtonTitle)
+            .accessibilityHint(IntroCallCopy.blindEntryAccessibilityHint)
+            .accessibilityIdentifier("blindOrderStatusIntroCallEntryButton")
         }
-    }
-
-    /// 拨号。**先通知对方再立刻拨**，不等响应（理由在 `introCallDialURL` 上）。
-    ///
-    /// `introCallDidDial` 在这里就置 true，而不是等 `openURL` 回调 —— 系统拨号确认框弹出
-    /// 本身就会把 App 推到后台，回来时要能认出「刚才去拨号了」。
-    private func dialIntroCall() {
-        guard let url = viewModel.introCallDialURL() else {
-            speechService.speakError(IntroCallCopy.loadFailed)
-            return
-        }
-        introCallDidDial = true
-        EmergencyDialer.dial(url)
-    }
-
-    private func introCallPrimaryButton(
-        title: String,
-        hint: String,
-        identifier: String,
-        tint: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(AppFonts.largeTitle())
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: primaryActionButtonHeight)
-                .background(tint)
-                .cornerRadius(16)
-        }
-        .disabled(viewModel.isPerformingAction)
-        .accessibilityLabel(title)
-        .accessibilityHint(hint)
-        .accessibilityIdentifier(identifier)
-    }
-
-    private func introCallSecondaryButton(
-        title: String,
-        hint: String,
-        identifier: String,
-        tint: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(tint)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-        }
-        .disabled(viewModel.isPerformingAction)
-        .buttonShapeOutlineIfNeeded(color: tint)
-        .accessibilityLabel(title)
-        .accessibilityHint(hint)
-        .accessibilityIdentifier(identifier)
     }
 
     /// 等待期这一页唯一的主动作。
@@ -1694,6 +1518,21 @@ struct BlindOrderStatusView: View {
     /// 读屏遍历时状态卡之后紧跟的永远是此刻唯一该做的那件事。
     ///
     /// 没有二次确认（幂等 + 方向是保住订单）。取消订单那条的确认对话框不受影响。
+    ///
+    /// 🚩 **2026-09-05 从 140pt 的实心主按钮降级为 64pt 的描边次级按钮，功能一字未动。**
+    /// 等待态这一页真正的主体是「系统正在派单」这条状态，而这个按钮此刻并不是用户**该做**
+    /// 的事 —— 它是一条**保险**（不按，订单会在后端的窗口到点后被自动取消）。
+    /// 用主按钮的体量把它摆在那里，会让盲人以为等待期有一件必须完成的操作。
+    ///
+    /// 🚨 **降级的是体量，不是可达性。** 三条不许动：
+    /// 1. 仍在 `statusHeader` 之后的同一个版位，读屏遍历顺序不变；
+    /// 2. 仍是整行铺满、64pt 高（`docs/research/blind-ui-visual-benchmark-20260808.md`
+    ///    那条「次级操作一律整行铺满竖直堆叠」，与「换一位」「取消订单」同档）；
+    /// 3. `repeatStatus` 里那句 `KeepWaitingCopy.repeatStatusSuffix` 照旧念 ——
+    ///    看不见屏幕的人靠它知道这个按钮存在，那才是它真正的发现路径。
+    ///
+    /// `buttonShapeOutlineIfNeeded` 不能省：这一段降级后是纯文字按钮，开启「按钮形状」
+    /// 的低视力用户否则看不出它可点（与 `actionSection` 的「取消订单」同一条理由）。
     @ViewBuilder
     private func keepWaitingSection(_ order: OrderDetailResponse) -> some View {
         if viewModel.canShowKeepWaiting {
@@ -1701,14 +1540,13 @@ struct BlindOrderStatusView: View {
                 Task { await viewModel.keepWaiting() }
             } label: {
                 Text(KeepWaitingCopy.buttonTitle)
-                    .font(AppFonts.largeTitle())
-                    .foregroundColor(.white)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.primary)
                     .frame(maxWidth: .infinity)
-                    .frame(minHeight: primaryActionButtonHeight)
-                    .background(AppColors.primary)
-                    .cornerRadius(16)
+                    .frame(minHeight: 64)
             }
             .disabled(viewModel.isPerformingAction)
+            .buttonShapeOutlineIfNeeded(color: AppColors.primary)
             .accessibilityLabel(KeepWaitingCopy.buttonTitle)
             .accessibilityHint(KeepWaitingCopy.accessibilityHint)
             .accessibilityIdentifier("blindOrderStatusKeepWaitingButton")

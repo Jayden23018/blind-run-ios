@@ -75,6 +75,32 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   误触本身已按 §1.2 钉成运行时断言；「怎么诊断」这半条抓不成检查，
   详见记忆 `snapshot-timeout-means-a-system-app-took-over`。
 
+- 真机跑测报 `Test crashed with signal kill` 时，**先原样复跑一次比失败用例名**，
+  两次失败集合零重叠就不可能是代码。它是所有真机故障签名里唯一「跑起来了、跑了大半、
+  中间随机死几条」的一种，`result=Failed` 但退出码 0、零执行硬失败也不触发，所以最像真回归。
+  2026-09-02 实测：单测全量 967/2 失败 → 原样复跑 960/0；`AccessibilityAuditTests`
+  16/4 失败 → 复跑 17/3 失败且与上一次**零重叠**（20 条每条都在某一次里过了）。
+  当次 `transportType: wired`、`tunnelState: connected`，不是 USB 的事。
+  连带一条计数陷阱：崩溃后 XCTest 重启会把上一次的计数并进总数
+  （日志原文 `summary will include totals from previous launches`），
+  所以崩过那一次的 `total` 比真实用例数大，不可与另一次比条数。
+  详见记忆 `ui-test-runner-needs-usb-not-wifi` 第七种。
+  这条抓不成静态守卫也抓不成测试 —— 判据是「跨两次运行的失败集合关系」，单次运行内无从判断。
+
+- **「失败时在 `List` 末尾多出一行字」等于没有反馈。** 2026-09-05 一天里抓到同一形状两处：
+  账号删除预检（PR #98）与紧急联系人（本条）。真机实测（iPhone 16 Pro，window 高 874，
+  **默认字号就够，不用 AX 档**，5 位联系人）：点完「删除张三」被本地守卫拦下之后，那一行
+  **根本不在无障碍树里**（`List` 不渲染屏幕外的行），要往下滑一屏才出现在 minY=747.7 ——
+  失败分支跑了、`speakError` 播了，而屏幕上一个字都不多。
+  两处都已按 §1.2 钉成运行时断言（`testSetPrimaryIsAtomicAndLastContactCannotBeDeleted`、
+  `testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock`），断言的是**弹窗出现**，
+  与列表有几行无关 —— 5 位联系人那版用例反而留不住：它要连做 4 次新增，而那条路径在本机
+  未改动的 main 上就会 `signal kill`（见上一条）。
+  但**抓不成守卫**：全仓有 33 处同形状的 `if let errorMessage` 内联渲染，绝大多数是对的，
+  判据是「最坏情况下这一行还在不在第一屏」—— 取决于同屏行数与字号，机器判不出来。
+  写「失败只多一行字」的分支时自己问一遍：列表最长、字号最大时这一行还看得见吗？
+  详见记忆 `claimed-fallback-may-not-exist-in-release`。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：
@@ -302,6 +328,20 @@ REMATCHING → CANCELLED（只能盲人 token）
 （记忆 `shared-checkout-concurrent-colleague-edits`）。同事跑一次 `git add`，
 他的改动就在你的暂存区里；随后一个 `--amend` 把它们一并吞进你的提交。
 2026-08-16 就这样把一笔编译不过的 WIP 推进了 PR，靠事后手动核对 `git show --stat` 才发现。
+
+同一道守卫还拦「改写别人的历史」（amend / reset / rebase / branch -f 落在同事的分支上），
+判据两条，2026-08-24 各修过一次误报，**改它之前先知道这两条为什么长这样**：
+
+- **先判命令作用于哪个仓库**，再取 HEAD 与暂存区 —— 按 `git -C <path>` / `cd <path> &&` /
+  钩子 payload 的 `cwd` 解析（Bash 的工作目录跨调用保留，可能早就不在本仓库了）。
+  原先一律打在 `$CLAUDE_PROJECT_DIR` 上，于是在后端仓库跑 `git reset --keep` 被拦下、
+  文案里印的却是 iOS 仓库的分支。**目标是别的仓库不等于放行** —— 后端也是共享 checkout，
+  用它自己的 HEAD 判，拦截文案要指名那个仓库。
+- **HEAD 在本会话开始之后被移动过**才拦（reflog 顶端 vs 会话起点）。原判据只有
+  「本会话没切到过这条分支 + HEAD 提交不是本会话写的」，在**跨会话继续同一条分支**时恒为真，
+  而那是本仓库最常见的干法。⚠️ 别改用「HEAD 作者 == `git config user.name`」当豁免：
+  本仓库全部提交的 author 都是同一个人，**含事故里同事那条 `dd0d795`** —— 那条判据恒成立，
+  等于把这一整条判据废掉，而且不会有任何东西提示它已经废了。
 
 自测 `scripts/validate-shared-checkout-guard.mjs`（条数当场跑，别写在这里——理由同 §9）。
 
