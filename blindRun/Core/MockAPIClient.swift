@@ -605,17 +605,22 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return EmptyResponse()
     }
 
-    private func handleGetMissedNotifications(after: String?) throws -> [MissedNotificationResponse] {
+    /// 后端每页上限 50，Mock 刻意压到 3。
+    /// 照搬 50 等于把续读那条路藏起来：没人会为了开发期调试手工造 51 条离线通知，
+    /// 于是 `hasMore = true` 在 Mock 上永远不出现，多页补读只能靠上线后出事才被发现。
+    private static let mockCatchUpPageSize = 3
+
+    private func handleGetMissedNotifications(after: String?) throws -> MissedNotificationPage {
         guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
         guard let after, !after.isEmpty, !after.allSatisfy(\.isNumber) else {
             throw APIError.serverError(ErrorResponse(code: "INVALID_TIMESTAMP", message: "after 格式错误"))
         }
-        // 后端窗口：sent_at > after，24h 内，最多 50 条，按时间正序。
-        return missedNotifications
+        // 后端窗口：sent_at > after，24h 内，按时间正序，每页有上限。
+        let window = missedNotifications
             .filter { ($0.sentAt ?? "") > after }
             .sorted { ($0.sentAt ?? "") < ($1.sentAt ?? "") }
-            .prefix(50)
-            .map { $0 }
+        let page = Array(window.prefix(Self.mockCatchUpPageSize))
+        return MissedNotificationPage(notifications: page, hasMore: window.count > page.count)
     }
 
     private func handleGetOrderTrack(orderId: Int64) throws -> OrderTrackResponse {

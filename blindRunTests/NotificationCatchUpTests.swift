@@ -18,7 +18,12 @@ private final class CatchUpAPIClientStub: APIClientProtocol, @unchecked Sendable
     }
 
     var missed: [MissedNotificationResponse] = []
+    /// 每页条数。真后端是 50，桩里可调小，好用三五条语料就走到续读那条路。
+    var pageSize = 50
     var shouldFail = false
+    /// 坏后端：无论还有没有剩余都回 `hasMore = true`，且游标照常前进 ——
+    /// 专门用来验循环上限，不是验 `next > cursor` 那道保险。
+    var alwaysClaimsHasMore = false
 
     func request<T: Decodable>(
         method: HTTPMethod,
@@ -31,7 +36,8 @@ private final class CatchUpAPIClientStub: APIClientProtocol, @unchecked Sendable
         if shouldFail {
             throw APIError.serverError(ErrorResponse(code: "INVALID_TIMESTAMP", message: "after 格式错误"))
         }
-        guard let typed = missed as? T else {
+        let result = page(after: query?["after"] ?? "", callIndex: requests.count)
+        guard let typed = result as? T else {
             throw APIError.decodingError(
                 DecodingError.typeMismatch(
                     T.self,
@@ -40,6 +46,29 @@ private final class CatchUpAPIClientStub: APIClientProtocol, @unchecked Sendable
             )
         }
         return typed
+    }
+
+    /// 照后端行为切页：`sent_at > after`、正序、每页 `pageSize` 条，还有剩就 `hasMore = true`。
+    private func page(after: String, callIndex: Int) -> MissedNotificationPage {
+        if alwaysClaimsHasMore {
+            // 每次给一条更晚的，让游标真的前进 —— 否则 `next > cursor` 会先把循环收掉，
+            // 上限就成了永远走不到的死代码。
+            let fabricated = MissedNotificationResponse(
+                id: Int64(callIndex),
+                eventType: "ORDER_ACCEPTED",
+                body: "第 \(callIndex) 条",
+                ttsText: nil,
+                priority: "NORMAL",
+                sentAt: String(format: "2026-07-24T%02d:00:00", min(callIndex, 23)),
+                orderId: nil
+            )
+            return MissedNotificationPage(notifications: [fabricated], hasMore: true)
+        }
+        let window = missed
+            .filter { ($0.sentAt ?? "") > after }
+            .sorted { ($0.sentAt ?? "") < ($1.sentAt ?? "") }
+        let page = Array(window.prefix(pageSize))
+        return MissedNotificationPage(notifications: page, hasMore: window.count > page.count)
     }
 
     func upload<T: Decodable>(
@@ -213,6 +242,136 @@ final class NotificationCatchUpTests: XCTestCase {
         persistence.reset()
     }
 
+    // MARK: - hasMore 续读（契约 api_spec.yaml:3329）
+
+    /// 后端每页最多 50 条，只拉第一页会让离线久的盲人静默丢掉其余通知 ——
+    /// 而离线越久，漏掉的那批越是最该被听见的。
+    func testCatchUpFollowsHasMoreUntilTheWindowIsDrained() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        let stub = CatchUpAPIClientStub()
+        stub.pageSize = 2
+        stub.missed = (1...5).map {
+            makeMissed(id: Int64($0), body: "第 \($0) 条", sentAt: String(format: "2026-07-24T10:0%d:00", $0))
+        }
+        let appState = AppState(apiClient: stub, persistence: persistence, tokenStore: InMemoryTokenStore())
+        appState.accessToken = "token"
+        persistence.set("2026-07-24T10:00:00", forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
+
+        await appState.catchUpMissedNotifications()
+
+        // 2 + 2 + 1：末页 hasMore = false，不多发第四次。
+        XCTAssertEqual(stub.requests.count, 3)
+        // 每一轮都拿上一页最后一条的 sentAt 当新的 after。
+        XCTAssertEqual(
+            stub.requests.map { $0.query?["after"] },
+            ["2026-07-24T10:00:00", "2026-07-24T10:02:00", "2026-07-24T10:04:00"]
+        )
+
+        // 5 条全部喂回队列 —— 这才是这条链存在的理由，只数请求次数不算数。
+        var delivered: [String] = []
+        for _ in 0..<10 {  // 有界，免得队列不清空时整个套件挂在这里
+            guard let current = appState.realtimeCoordinator.currentNotification else { break }
+            delivered.append(current.displayText)
+            appState.realtimeCoordinator.dismissCurrentNotification()
+        }
+        XCTAssertEqual(delivered, (1...5).map { "第 \($0) 条" })
+
+        XCTAssertEqual(
+            persistence.string(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp),
+            "2026-07-24T10:05:00"
+        )
+        persistence.reset()
+    }
+
+    /// 反向条件：`hasMore = false` 时**不得**多发一次。多发那次带的是已推进的游标，
+    /// 后端每次重连都白跑一趟。
+    func testSinglePageCatchUpDoesNotIssueASecondRequest() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        let stub = CatchUpAPIClientStub()
+        stub.pageSize = 50
+        stub.missed = [
+            makeMissed(id: 1, body: "第 1 条", sentAt: "2026-07-24T10:01:00"),
+            makeMissed(id: 2, body: "第 2 条", sentAt: "2026-07-24T10:02:00")
+        ]
+        let appState = AppState(apiClient: stub, persistence: persistence, tokenStore: InMemoryTokenStore())
+        appState.accessToken = "token"
+        persistence.set("2026-07-24T10:00:00", forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
+
+        await appState.catchUpMissedNotifications()
+
+        XCTAssertEqual(stub.requests.count, 1)
+        persistence.reset()
+    }
+
+    /// 后端坏成恒回 `hasMore = true` 时循环必须自己停下。
+    /// 这条链跑在 WS 重连回调里，转不完就是盲人的手机在原地烧电、后面的实时通知排在它后面。
+    func testCatchUpStopsAtThePageLimitWhenBackendNeverSaysDone() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        let stub = CatchUpAPIClientStub()
+        stub.alwaysClaimsHasMore = true
+        let appState = AppState(apiClient: stub, persistence: persistence, tokenStore: InMemoryTokenStore())
+        appState.accessToken = "token"
+        persistence.set("2026-07-24T00:00:00", forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
+
+        await appState.catchUpMissedNotifications()
+
+        XCTAssertEqual(stub.requests.count, AppState.catchUpPageLimit)
+        persistence.reset()
+    }
+
+    /// 空页却说 `hasMore = true` 时同样要停：游标是从本页内容里取的，页里没内容就推不动，
+    /// 拿同一个 `after` 一路问到上限才停是白烧十次请求。
+    func testCatchUpStopsWhenTheCursorCannotAdvance() async {
+        let persistence = AppStatePersistenceFactory.makeIsolatedTest()
+        let stub = CatchUpAPIClientStub()
+        // pageSize 0 造出「窗口里还有、但本页一条没返回」这个形状：hasMore = true 而游标无从推进。
+        stub.pageSize = 0
+        stub.missed = [makeMissed(id: 1, body: "还在窗口里", sentAt: "2026-07-24T10:01:00")]
+        let appState = AppState(apiClient: stub, persistence: persistence, tokenStore: InMemoryTokenStore())
+        appState.accessToken = "token"
+        persistence.set("2026-07-24T10:00:00", forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
+
+        await appState.catchUpMissedNotifications()
+
+        XCTAssertEqual(stub.requests.count, 1)
+        persistence.reset()
+    }
+
+    /// Mock 必须能演出多页，否则这条路在开发期永远走不到 —— 上线后才发现等于没做。
+    func testMockPagesTheCatchUpWindowSoTheLoopIsReachableInDevelopment() async throws {
+        let mock = MockAPIClient()
+        mock.syncSessionFromAppState(token: "mock-token", role: .blind)
+        mock.missedNotifications = (1...5).map {
+            MissedNotificationResponse(
+                id: Int64($0),
+                eventType: "ORDER_ACCEPTED",
+                body: "第 \($0) 条",
+                ttsText: nil,
+                priority: "NORMAL",
+                sentAt: String(format: "2026-07-24T10:0%d:00", $0),
+                orderId: nil
+            )
+        }
+
+        let first: MissedNotificationPage = try await mock.get(
+            "/api/notifications/since",
+            query: ["after": "2026-07-24T10:00:00"]
+        )
+        XCTAssertEqual(first.hasMore, true, "Mock 页大小照搬 50 的话这里永远是 false")
+        let cursor = try XCTUnwrap(first.notifications.compactMap(\.sentAt).max())
+
+        let second: MissedNotificationPage = try await mock.get(
+            "/api/notifications/since",
+            query: ["after": cursor]
+        )
+        XCTAssertEqual(second.hasMore, false)
+        XCTAssertEqual(
+            (first.notifications + second.notifications).map(\.id),
+            [1, 2, 3, 4, 5],
+            "两页拼起来必须是完整窗口，不能漏也不能重"
+        )
+    }
+
     func testCatchUpIsSkippedWithoutCursor() async {
         let persistence = AppStatePersistenceFactory.makeIsolatedTest()
         let stub = CatchUpAPIClientStub()
@@ -382,7 +541,7 @@ final class NotificationCatchUpTests: XCTestCase {
         mock.syncSessionFromAppState(token: "mock-token", role: .blind)
 
         do {
-            let _: [MissedNotificationResponse] = try await mock.get(
+            let _: MissedNotificationPage = try await mock.get(
                 "/api/notifications/since",
                 query: ["after": "1753344000000"]
             )
