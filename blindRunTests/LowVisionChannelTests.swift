@@ -47,6 +47,36 @@ final class LowVisionChannelTests: XCTestCase {
         }
     }
 
+    /// 语音态那块占满内容区的蓝底，验的方向和上面那条**相反**：它是背景，白字压在它上面。
+    ///
+    /// 所以它不在 `AppColors.tones` 里 —— 硬塞进去会得到一条方向反了的断言
+    /// （暗色值 `#0B4DA2` 压在纯黑上只有 2.6:1，会把一个正确的取值判成不达标）。
+    ///
+    /// 暗色**不能**沿用 `primary` 的 `#0A84FF`：白字压上去只有 3.38:1。这条用例就是
+    /// 挡住「顺手复用 primary」那一步的地方 —— 那是改这块底色时最自然的第一反应。
+    func testVoiceStageSurfaceKeepsWhiteTextReadable() {
+        let white: UInt32 = 0xFFFFFF
+        let tone = AppColors.voiceStageSurfaceTone
+
+        let lightRatio = Self.contrastRatio(white, tone.light)
+        XCTAssertGreaterThanOrEqual(
+            lightRatio, Self.minimumContrast,
+            "亮色模式下白字压在语音态蓝底上只有 \(String(format: "%.2f", lightRatio)):1"
+        )
+
+        let darkRatio = Self.contrastRatio(white, tone.dark)
+        XCTAssertGreaterThanOrEqual(
+            darkRatio, Self.minimumContrast,
+            "暗色模式下白字压在语音态蓝底上只有 \(String(format: "%.2f", darkRatio)):1"
+        )
+
+        // 验红：被拒掉的那个候选值必须真的算不过，否则上面两条断言可能是在一个恒真的公式上通过。
+        XCTAssertLessThan(
+            Self.contrastRatio(white, 0x0A84FF), Self.minimumContrast,
+            "systemBlue 当大面积底色时白字不达标，这条用例存在的理由就是挡住复用它"
+        )
+    }
+
     /// 这条是**验红**用的：把已知不达标的旧取值喂进同一个计算，必须算出不达标。
     ///
     /// 没有它，上面那条用例在计算公式写错时会静默全绿 —— 一个恒返回 21 的

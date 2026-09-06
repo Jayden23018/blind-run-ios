@@ -1586,9 +1586,24 @@ public struct Client: APIProtocol {
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
-    /// 4. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
-    /// 5. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
-    /// 6. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    /// 4. `plannedEndTime - plannedStartTime` 不得超过 300 分钟（5 小时），否则 422 `APPOINTMENT_TOO_LONG`（N134）
+    /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
+    ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
+    ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
+    ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
+    ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
+    ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
+    /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
+    ///    这是第 7 条放开之后唯一的刷单闸门。
+    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    ///
+    /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
+    /// （默认 240 分钟）时被接单的订单进入 `SCHEDULED_CONFIRMED` 而不是 `PENDING_ACCEPT`，
+    /// 要等志愿者调 `POST /api/orders/{id}/confirm-departure` 才进入出发流程。
+    /// 客户端把这一态显示为「已预约，等待志愿者临期确认」。
     ///
     /// 成功返回 **201 Created**（历史文档误写为 200，已更正）。
     ///
@@ -2176,6 +2191,12 @@ public struct Client: APIProtocol {
     /// - 409 `ORDER_DISPATCH_MISMATCH` — 该订单当前未派送给你
     /// - 409 `ORDER_ALREADY_ACCEPTED` — 已被他人接单 / 状态不允许接单
     /// - 409 `ORDER_CONCURRENT_CONFLICT` — 乐观锁并发冲突，可稍后重试
+    /// - 409 `INTRO_CALL_REQUIRED` — 没聊过的一对发了 `ACCEPT`，改发 `INTERESTED`
+    /// - 409 `INTRO_CALL_NOT_REQUIRED` — 已聊成过的一对发了 `INTERESTED`，改发 `ACCEPT`。
+    ///   正常流程走不到（`requiresIntroCall` 对熟人恒为 false），撞上通常是界面状态过期 /
+    ///   弱网重试 / 旧版客户端。⚠️ 后端**刻意不「顺手当 ACCEPT 处理」**：`INTERESTED` 不构成接单、
+    ///   聊崩了对志愿者没有统计损失，`ACCEPT` 当场把他绑在这一单上，静默转换等于替他做了承诺。
+    ///   客户端收到后按 `requiresIntroCall=false` 重发 `ACCEPT` 即可
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/respond`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
@@ -2414,10 +2435,26 @@ public struct Client: APIProtocol {
     /// 通话后表态：合适 / 不合适（BLIND / VOLUNTEER）
     ///
     /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
-    /// 订单退回 `PENDING_MATCH` 派给下一个候选人。
+    /// 订单退回派单队列派给下一个候选人。
     ///
-    /// ⚠️ **退回的是 `PENDING_MATCH` 不是 `REMATCHING`**：后者语义是「已经有过志愿者、他走了」，
-    /// 而通话没成时从来没有志愿者接过单。
+    /// ⚠️ **退回的是「进通话之前那个状态」，不是一律 `PENDING_MATCH`**（2026-08-26 修正）：
+    /// - 这一单从没被重新匹配过 → 回 `PENDING_MATCH`（通话没成时从来没有志愿者接过单，
+    ///   用 `REMATCHING` 会让盲人听到暗示「刚才有人跑了」的文案）
+    /// - 这一单进通话之前是 `REMATCHING`（志愿者接过又中途取消，我们正在给他重新找人）
+    ///   → **回 `REMATCHING`**
+    ///
+    /// 🚩 `PENDING_INTRO_CALL → REMATCHING` 这条边此前不会出现，现在会。客户端若写了
+    /// 「退出通话后一定是 `PENDING_MATCH`」这类假设，要跟着放开 —— 尤其是「继续等待」的入口：
+    /// `PENDING_MATCH` 走 `PUT /keep-waiting`，`REMATCHING` 走 `PUT /keep-rematching`
+    /// （两个端点各数各的次数，都是 10 次上限），按状态分发即可。
+    ///
+    /// 为什么必须区分（不是文案洁癖）：派单的放弃时刻在 `REMATCHING` 下锚在
+    /// `lastRematchAt + 30min`，而那条分支只在状态确实是 `REMATCHING` 时生效。
+    /// 写成 `PENDING_MATCH` 会让基准掉回 `plannedStartTime - 30min` —— 对志愿者半路取消的单
+    /// 那是个过去时刻，订单会在退回后第一次候选池耗尽时直接转 `NO_VOLUNTEER`。
+    ///
+    /// 两侧的结束通知仍是**同一条中性文案**（`INTRO_CALL_CONTINUE`），不因状态不同而改口 ——
+    /// 「无声拒绝」要求两侧都不归因、不透露对方表态。
     ///
     /// 幂等：重复提交同一个表态直接返回 200，不报错（弱网重试是常态）。
     ///

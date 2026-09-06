@@ -367,42 +367,36 @@ final class IncentiveAdoptionTests: XCTestCase {
 
     /// 收藏 / 取消收藏两个端点都幂等且恒 204，Mock 必须照这个演：
     /// 重复收藏不报错，没收藏过也能取消。
+    ///
+    /// 走 `IncentiveService` 而不是直接拿路径字面量打 Mock：顺带钉住 service 选的
+    /// method / path 真的落到 Mock 对应的分支上（端点映射本身另见 `IncentiveServiceTests`）。
     func testMockFavoriteEndpointsAreIdempotent() async throws {
-        let client = MockAPIClient()
-        let before: [FavoriteVolunteerResponse] = try await client.get("/api/blind/favorite-volunteers")
+        let service = IncentiveService(transport: MockAPIClient())
+        let before = try await service.blindFavoriteVolunteers()
 
         // 只有火花、还没收藏的那一位。
         let newPartner: Int64 = 9004
         XCTAssertFalse(before.contains { $0.volunteerId == newPartner })
 
         for _ in 0..<2 {
-            let _: EmptyResponse = try await client.request(
-                method: .put, path: "/api/blind/favorite-volunteers/\(newPartner)",
-                query: nil, body: nil, requiresAuth: true
-            )
+            try await service.addBlindFavoriteVolunteer(volunteerId: newPartner)
         }
-        let added: [FavoriteVolunteerResponse] = try await client.get("/api/blind/favorite-volunteers")
+        let added = try await service.blindFavoriteVolunteers()
         XCTAssertEqual(added.filter { $0.volunteerId == newPartner }.count, 1)
 
         for _ in 0..<2 {
-            let _: EmptyResponse = try await client.request(
-                method: .delete, path: "/api/blind/favorite-volunteers/\(newPartner)",
-                query: nil, body: nil, requiresAuth: true
-            )
+            try await service.removeBlindFavoriteVolunteer(volunteerId: newPartner)
         }
-        let removed: [FavoriteVolunteerResponse] = try await client.get("/api/blind/favorite-volunteers")
+        let removed = try await service.blindFavoriteVolunteers()
         XCTAssertFalse(removed.contains { $0.volunteerId == newPartner })
     }
 
     /// 没一起跑完过的 id 必须走 400 那条路，而不是静默成功 ——
     /// 静默成功会让「门槛」这条分支在开发期永远走不到。
     func testMockRejectsFavoritingSomeoneYouNeverRanWith() async {
-        let client = MockAPIClient()
+        let service = IncentiveService(transport: MockAPIClient())
         do {
-            let _: EmptyResponse = try await client.request(
-                method: .put, path: "/api/blind/favorite-volunteers/424242",
-                query: nil, body: nil, requiresAuth: true
-            )
+            try await service.addBlindFavoriteVolunteer(volunteerId: 424242)
             XCTFail("不该成功")
         } catch let error as APIError {
             XCTAssertEqual(error.errorCode, .favoriteVolunteerNotEligible)

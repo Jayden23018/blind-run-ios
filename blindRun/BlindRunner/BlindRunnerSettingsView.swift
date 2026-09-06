@@ -95,11 +95,13 @@ struct BlindRunnerSettingsView: View {
                 .accessibilityHint("永久停用当前账户，需要再次确认")
             }
 
-            if let message = deletionViewModel.preflightMessage {
-                Section { Text(message).foregroundColor(AppColors.destructive).accessibilityLabel(message) }
-            }
         }
         .navigationTitle("设置")
+        .alert("无法删除账户", isPresented: $deletionViewModel.isShowingPreflightBlock) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(deletionViewModel.preflightMessage ?? "")
+        }
         .alert("确认退出", isPresented: $showLogoutConfirm) {
             Button("确认退出", role: .destructive) {
                 Task { await appState.logout() }

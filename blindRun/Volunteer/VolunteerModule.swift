@@ -167,9 +167,7 @@ final class VolunteerProfileViewModel: ObservableObject {
 
         do {
             try await Task.sleep(nanoseconds: 1_000_000_000)
-            let profile: VolunteerProfileResponse = try await appState.apiClient.post(
-                "/api/volunteer/mock-verification/approve"
-            )
+            let profile = try await appState.profile.approveMockVerification()
             appState.updateVolunteerProfile(profile)
             verificationStatus = profile.verificationStatus?.lowercased() ?? "not_submitted"
             adminReviewStatus = profile.adminReviewStatus?.lowercased()
@@ -196,10 +194,7 @@ final class VolunteerProfileViewModel: ObservableObject {
 
         do {
             let request = VolunteerProfileUpdateRequest(name: name.trimmed)
-            let profile: VolunteerProfileResponse = try await appState.apiClient.put(
-                "/api/volunteer/profile",
-                body: request
-            )
+            let profile = try await appState.profile.updateVolunteerProfile(request)
             appState.updateVolunteerProfile(profile)
             apply(profile: profile)
             isLoading = false

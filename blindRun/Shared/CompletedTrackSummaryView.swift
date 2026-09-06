@@ -11,8 +11,7 @@ final class CompletedTrackSummaryViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         do {
-            let response: OrderTrackResponse = try await appState.apiClient.get("/api/orders/\(orderID)/track")
-            track = response
+            track = try await appState.safety.orderTrack(orderId: orderID)
         } catch let error as APIError {
             if !appState.handleAuthenticatedAPIError(error) {
                 errorMessage = "本次路线暂时无法加载。"

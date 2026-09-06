@@ -238,7 +238,7 @@ final class EmergencySOSTests: XCTestCase {
             order: Self.makeOrder(status: .driverArrived),
             role: .blind,
             userID: 7,
-            apiClient: EmergencyAPIClientStub(),
+            safety: FakeSafetyService(),
             locate: { Self.coordinate() }
         )
 
@@ -254,16 +254,16 @@ final class EmergencySOSTests: XCTestCase {
 
     func testTriggerIsRejectedOutsideInProgress() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
+        let safety = FakeSafetyService()
         let outcome = await coordinator.trigger(
             order: Self.makeOrder(status: .driverArrived),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { Self.coordinate() }
         )
         XCTAssertTrue(outcome.isFailure)
-        XCTAssertTrue(client.requests.isEmpty, "no request may be sent outside IN_PROGRESS")
+        XCTAssertTrue(safety.calls.isEmpty, "no request may be sent outside IN_PROGRESS")
         XCTAssertNil(coordinator.activeEvent)
     }
 
@@ -275,18 +275,18 @@ final class EmergencySOSTests: XCTestCase {
     /// 留这段说明是因为下一个读到它的人会问「为什么曾经写死拒绝」。
     func testVolunteerMayTriggerDuringServiceButNotOutsideIt() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
-        client.response = EmergencyTriggerResponse(success: true, eventId: 77, status: "CONTACT_NOTIFIED")
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 77, status: "CONTACT_NOTIFIED"))
 
         let allowed = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .volunteer,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { Self.coordinate() }
         )
         XCTAssertFalse(allowed.isFailure)
-        XCTAssertEqual(client.requests.count, 1, "服务进行中，志愿者代触发必须真的发出去")
+        XCTAssertEqual(safety.calls.count, 1, "服务进行中，志愿者代触发必须真的发出去")
         XCTAssertEqual(coordinator.activeEvent?.eventID, 77)
 
         // 服务之外仍然不放行：与盲人侧同一个 IN_PROGRESS 门槛，不因为角色不同而放宽。
@@ -294,11 +294,11 @@ final class EmergencySOSTests: XCTestCase {
             order: Self.makeOrder(status: .driverArrived),
             role: .volunteer,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { Self.coordinate() }
         )
         XCTAssertTrue(blocked.isFailure)
-        XCTAssertEqual(client.requests.count, 1, "非服务中状态不得再发一次请求")
+        XCTAssertEqual(safety.calls.count, 1, "非服务中状态不得再发一次请求")
     }
 
     // MARK: - Trigger: GPS gate
@@ -309,18 +309,18 @@ final class EmergencySOSTests: XCTestCase {
             "the strict gate is the shipped default until product/safety approve degradation"
         )
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
+        let safety = FakeSafetyService()
         let outcome = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { nil },
             locationFailureReason: { .permissionDenied }
         )
         XCTAssertEqual(coordinator.state, .unsentNoLocation(.permissionDenied))
         XCTAssertTrue(outcome.isFailure)
-        XCTAssertTrue(client.requests.isEmpty)
+        XCTAssertTrue(safety.calls.isEmpty)
         XCTAssertTrue(outcome.message.contains("设置"), "must guide the user to Settings")
     }
 
@@ -344,12 +344,12 @@ final class EmergencySOSTests: XCTestCase {
 
         // 默认不传 reason 时走通用支，不许退回原来那句「请在设置中允许定位」。
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
+        let safety = FakeSafetyService()
         let outcome = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { nil }
         )
         XCTAssertEqual(coordinator.state, .unsentNoLocation(nil))
@@ -360,7 +360,7 @@ final class EmergencySOSTests: XCTestCase {
     /// single backend boundary is accepted.
     func testUnconvertedDeviceCoordinateIsTreatedAsNoLocation() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
+        let safety = FakeSafetyService()
         let raw = LocatedCoordinate(
             coordinate: CLLocationCoordinate2D(latitude: 39.9, longitude: 116.4),
             system: .wgs84Device,
@@ -370,32 +370,33 @@ final class EmergencySOSTests: XCTestCase {
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { raw }
         )
         XCTAssertEqual(coordinator.state, .unsentNoLocation(nil))
-        XCTAssertTrue(client.requests.isEmpty)
+        XCTAssertTrue(safety.calls.isEmpty)
     }
 
     func testSuccessfulTriggerSendsOrderAndGcj02Coordinate() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
-        client.response = EmergencyTriggerResponse(success: true, eventId: 512, status: "VOLUNTEER_NOTIFIED")
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 512, status: "VOLUNTEER_NOTIFIED"))
 
         let outcome = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
         )
 
-        XCTAssertEqual(client.requests.count, 1)
-        XCTAssertEqual(client.requests.first?.path, "/api/emergency/trigger")
-        XCTAssertEqual(client.requests.first?.method, .post)
-        XCTAssertEqual(client.capturedBody?.orderId, 4242)
-        XCTAssertEqual(client.capturedBody?.gpsLat ?? 0, 39.915, accuracy: 0.000001)
-        XCTAssertEqual(client.capturedBody?.gpsLng ?? 0, 116.404, accuracy: 0.000001)
+        // 打的是不是 `POST /api/emergency/trigger` 由
+        // `SafetyServiceTests.testTriggerEmergencyPostsTheRequestBody` 守，这里只管
+        // 「coordinator 有没有把订单和那份 GCJ-02 坐标原样交下去」。
+        XCTAssertEqual(safety.calls.count, 1)
+        XCTAssertEqual(safety.lastTriggerRequest?.orderId, 4242)
+        XCTAssertEqual(safety.lastTriggerRequest?.gpsLat ?? 0, 39.915, accuracy: 0.000001)
+        XCTAssertEqual(safety.lastTriggerRequest?.gpsLng ?? 0, 116.404, accuracy: 0.000001)
 
         XCTAssertEqual(coordinator.state, .acknowledged(.volunteerNotified))
         XCTAssertEqual(coordinator.activeEvent?.eventID, 512)
@@ -410,13 +411,13 @@ final class EmergencySOSTests: XCTestCase {
     /// HTTP 200 alone is not an acknowledgement — `success: false` is a failure.
     func testUnsuccessfulStructuredBodyIsAFailure() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
-        client.response = EmergencyTriggerResponse(success: false, eventId: 1, status: "PENDING")
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: false, eventId: 1, status: "PENDING"))
         let outcome = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { Self.coordinate() }
         )
         XCTAssertTrue(outcome.isFailure)
@@ -425,13 +426,13 @@ final class EmergencySOSTests: XCTestCase {
 
     func testDecodingFailureLeavesSosUnsent() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
-        client.error = APIError.decodingError(EmergencyAPIClientStub.StubError.decoding)
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .failure(APIError.decodingError(TriggerStubError.decoding))
         let outcome = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { Self.coordinate() }
         )
         XCTAssertTrue(outcome.isFailure)
@@ -443,13 +444,13 @@ final class EmergencySOSTests: XCTestCase {
     /// `retryAfterSeconds` + a `Retry-After` header (`GlobalExceptionHandler.java:218-231`).
     func testCooldownSurfacesTheRetryDelay() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
-        client.error = APIError.rateLimited(RateLimitInfo(message: "请求过于频繁", retryAfterSeconds: 47))
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .failure(APIError.rateLimited(RateLimitInfo(message: "请求过于频繁", retryAfterSeconds: 47)))
         let outcome = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { Self.coordinate() }
         )
         XCTAssertEqual(coordinator.state, .cooldown(retryAfterSeconds: 47))
@@ -459,9 +460,9 @@ final class EmergencySOSTests: XCTestCase {
 
     func testConcurrentTapsSendOnlyOneRequest() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
-        client.response = EmergencyTriggerResponse(success: true, eventId: 1, status: "PENDING")
-        client.delayNanoseconds = 200_000_000
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 1, status: "PENDING"))
+        safety.triggerDelayNanoseconds = 200_000_000
 
         let order = Self.makeOrder(status: .inProgress)
         // A slow fix acquisition is the realistic window for a second tap: the runner hears nothing
@@ -471,7 +472,7 @@ final class EmergencySOSTests: XCTestCase {
             order: order,
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 return Self.coordinate()
@@ -493,11 +494,11 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertEqual(coordinator.state, .locating, "the button must show progress while locating")
 
         let second = await coordinator.trigger(
-            order: order, role: .blind, userID: 7, apiClient: client, locate: { Self.coordinate() }
+            order: order, role: .blind, userID: 7, safety: safety, locate: { Self.coordinate() }
         )
         _ = await first
 
-        XCTAssertEqual(client.requests.count, 1, "a double tap must not send two SOS requests")
+        XCTAssertEqual(safety.calls.count, 1, "a double tap must not send two SOS requests")
         XCTAssertTrue(second.state.isBusy)
     }
 
@@ -505,13 +506,13 @@ final class EmergencySOSTests: XCTestCase {
 
     func testContactNotifiedEventAdvancesTheActiveEvent() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
-        client.response = EmergencyTriggerResponse(success: true, eventId: 9, status: "VOLUNTEER_NOTIFIED")
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 9, status: "VOLUNTEER_NOTIFIED"))
         _ = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { Self.coordinate() }
         )
 
@@ -524,13 +525,13 @@ final class EmergencySOSTests: XCTestCase {
 
     func testEventForAnotherOrderIsIgnored() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
-        client.response = EmergencyTriggerResponse(success: true, eventId: 9, status: "VOLUNTEER_NOTIFIED")
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 9, status: "VOLUNTEER_NOTIFIED"))
         _ = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { Self.coordinate() }
         )
 
@@ -548,13 +549,13 @@ final class EmergencySOSTests: XCTestCase {
 
     func testResetClearsEverythingAtSessionBoundaries() async {
         let coordinator = EmergencyCoordinator()
-        let client = EmergencyAPIClientStub()
-        client.response = EmergencyTriggerResponse(success: true, eventId: 9, status: "PENDING")
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .success(EmergencyTriggerResponse(success: true, eventId: 9, status: "PENDING"))
         _ = await coordinator.trigger(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
-            apiClient: client,
+            safety: safety,
             locate: { Self.coordinate() }
         )
         XCTAssertNotNil(coordinator.activeEvent)
@@ -770,46 +771,11 @@ final class EmergencySOSTests: XCTestCase {
     }
 }
 
-// MARK: - Stub
+// MARK: - Test Doubles
+//
+// 替身是 `FakeSafetyService`（`blindRunTests/FakeSafetyService.swift`）。原先这里那个
+// `EmergencyAPIClientStub` 是个 `APIClientProtocol` 桩，按 path 分支决定返回什么 ——
+// 于是「什么条件下才该发出请求」这个判定同时活在被测代码和替身里，而它正是 §6 的红线本身。
 
-private final class EmergencyAPIClientStub: APIClientProtocol, @unchecked Sendable {
-    enum StubError: Error { case decoding, unexpectedType }
-
-    struct RecordedRequest {
-        let method: HTTPMethod
-        let path: String
-    }
-
-    private(set) var requests: [RecordedRequest] = []
-    private(set) var capturedBody: EmergencyTriggerRequest?
-    var response: EmergencyTriggerResponse?
-    var error: APIError?
-    var delayNanoseconds: UInt64 = 0
-
-    func request<T: Decodable>(
-        method: HTTPMethod,
-        path: String,
-        query: [String: String]?,
-        body: (any Encodable & Sendable)?,
-        requiresAuth: Bool
-    ) async throws -> T {
-        requests.append(RecordedRequest(method: method, path: path))
-        capturedBody = body as? EmergencyTriggerRequest
-        if delayNanoseconds > 0 {
-            try? await Task.sleep(nanoseconds: delayNanoseconds)
-        }
-        if let error { throw error }
-        guard let response, let typed = response as? T else { throw StubError.unexpectedType }
-        return typed
-    }
-
-    func upload<T: Decodable>(
-        path: String,
-        query: [String: String]?,
-        fields: [String: String]?,
-        files: [MultipartFile],
-        requiresAuth: Bool
-    ) async throws -> T {
-        throw StubError.unexpectedType
-    }
-}
+/// 只用来喂 `APIError.decodingError` 一个底层错误。
+private enum TriggerStubError: Error { case decoding }
