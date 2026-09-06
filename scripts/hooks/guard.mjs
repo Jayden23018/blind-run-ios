@@ -28,7 +28,7 @@ const rules = {
   'legacy-status': {
     // AGENTS.md 第 5 节：禁用的遗留订单词汇
     pattern: /"(submitted|contacted|expired|matching|accepted|arrived|emergency)"/,
-    why: '订单状态只能用 PENDING_MATCH / PENDING_ACCEPT / IN_PROGRESS / DRIVER_EN_ROUTE / DRIVER_ARRIVED / COMPLETED / CANCELLED / REMATCHING / NO_VOLUNTEER（AGENTS.md 第 5 节）。若这里不是订单状态（例如诊断事件名），行尾加 `// guard:allow legacy-status`。',
+    why: '订单状态只能用 PENDING_MATCH / PENDING_INTRO_CALL / SCHEDULED_CONFIRMED / PENDING_ACCEPT / IN_PROGRESS / DRIVER_EN_ROUTE / DRIVER_ARRIVED / COMPLETED / CANCELLED / REMATCHING / NO_VOLUNTEER（AGENTS.md 第 5 节）。若这里不是订单状态（例如诊断事件名），行尾加 `// guard:allow legacy-status`。',
   },
   'sos-copy': {
     // AGENTS.md 第 6 节：短信是事务提交后异步发的，失败从不回告盲人。

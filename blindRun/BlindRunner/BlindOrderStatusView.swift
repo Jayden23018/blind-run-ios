@@ -815,6 +815,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 由这一组按钮代打。
     enum MockCounterpartStep {
         case respond(OrderRespondAction)
+        /// 跨天预约单的临期确认。志愿者那半边在单设备上凑不齐，由这个按钮代打 ——
+        /// 不做的话 `SCHEDULED_CONFIRMED` 之后的整条链路在 Mock 里根本走不下去。
+        case confirmDeparture
         case enRoute
         case arrived
         case startService
@@ -835,6 +838,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
                 switch step {
                 case .respond(let action):
                     try await orders.respond(orderId: orderId, action: action)
+                case .confirmDeparture:
+                    try await orders.confirmDeparture(orderId: orderId)
                 case .enRoute:
                     try await orders.enRoute(orderId: orderId)
                 case .arrived:
@@ -1844,6 +1849,19 @@ struct BlindOrderStatusView: View {
                     }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("模拟志愿者说合适")
+                }
+
+                // 跨天预约单：先让志愿者「确认出发」把它推到 `PENDING_ACCEPT`，
+                // 之后就接回既有的那几个按钮。分开一个按钮而不是并进下面那条链，
+                // 是因为这一步本身就是要验的东西 —— 合进去就跳过了它。
+                if order.status == .scheduledConfirmed {
+                    Button("模拟志愿者确认出发") {
+                        Task {
+                            await viewModel.runMockCounterpartSteps([.confirmDeparture], orderId: order.orderId)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("模拟志愿者确认出发")
                 }
 
                 if order.status == .driverEnRoute || order.status == .pendingAccept {
