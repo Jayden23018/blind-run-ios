@@ -490,6 +490,31 @@ final class VoiceOrderWizard: ObservableObject {
         if let parsed {
             notice = apply(parsed, spokenIn: transcript) ?? notice
         }
+        // 后端因**阻断项**缺失而给的追问语，作为 notice 带进读回。
+        //
+        // 🚩 **这不违反上面那条「整句这一轮不重问」** —— 我们仍然读回、仍然让用户决定改不改，
+        // 只是把后端那句话说出来。加它的直接起因是夜间禁跑窗口（N134）：
+        // 后端在 `[22:00, 05:00)` 时把 `startTime` 置 null、往 `missing` 里放 `START_TIME`
+        // 并把 `ttsText` 换成夜间提示，然后**默认客户端会念它**（handoff 2026-09-05 原话
+        // 「如果你们是按 needReask / missing 走的（应该是），这里什么都不用动」）。
+        // 而这一轮本来一个字都不消费 ⇒ 用户听到的是「预约时间还没说」，
+        // 对一个刚刚清清楚楚说了「晚上九点」的人，这句话是错的，而且他重说一遍还是同样结果。
+        //
+        // 🚩 **只取 `START_TIME` 一项，不取全部阻断项。**
+        // `ADDRESS` 缺失在本客户端有**正当默认值**：起点回落当前位置，而且读回开头就会念
+        // 「使用设备当前位置。」（见本文件 `confirmRoundSnapshot` 那段）。把后端那句
+        // 「没听清出发地点」塞进去，紧接着读回却念出一个具体地点 —— 两句话自相矛盾，
+        // 而对只能听的人，先听到的那句会被当成结论。
+        //
+        // `START_TIME` 没有这种默认值（`appointmentTime` 的初值是 `Date()`，
+        // 而「用户没说过的时间不许当成已确认」是条红线），缺了就是真的缺 —— 后端那句追问
+        // 是这一轮唯一能解释「为什么时间没进去」的东西，夜间禁跑那句正是走这条。
+        if let parsed,
+           parsed.missing?.contains(.startTime) == true,
+           let reask = parsed.ttsText?.nilIfBlank {
+            notice = [reask, notice].compactMap { $0 }.joined()
+        }
+
         // 说得太长时后端静默降级成纯正则，终点与备注**一定**抽不到（见
         // `ParseVoiceOrderRequest.modelFallbackCharacterLimit`）。排在最前面说：
         // 它解释的是后面那一整段读回为什么缺东西，放在后面等于让用户先困惑一遍。

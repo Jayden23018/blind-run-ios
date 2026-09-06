@@ -18,9 +18,11 @@ final class RunPlanShareMessageTests: XCTestCase {
     func testShareIsOfferedOnlyWhenThereIsAnActualRunToDescribe() {
         // `.pendingIntroCall` 在列：它是非终态，后端 `POST /share` 照常受理。
         // 通话没聊成也不影响家属那条链接 —— 链接是幂等的，行程要素本身没变。
+        // `.scheduledConfirmed` 在列：非终态，后端 `POST /share` 照常受理。
+        // 而且跨天单恰恰是最该提前告诉家人的一种 —— 那是一件几天后要发生的事。
         let allowed: Set<RunOrderStatus> = [
-            .pendingMatch, .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived,
-            .inProgress, .rematching
+            .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept,
+            .driverEnRoute, .driverArrived, .inProgress, .rematching
         ]
 
         for status in RunOrderStatus.allCases {

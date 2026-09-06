@@ -14,6 +14,17 @@ enum ErrorCode: String, Codable, Sendable {
     case volunteerNotAvailable = "VOLUNTEER_NOT_AVAILABLE"
     case volunteerNotApproved = "VOLUNTEER_NOT_VERIFIED"
     case appointmentTooSoon = "APPOINTMENT_TOO_SOON"
+    // 跨天预约（后端迁移 `0041`，2026-09-05）。**此前下单只有下限没有上限。**
+    //
+    // 客户端已经在选择器上封了 7 天（`AppConstants.Timing.maximumBookingLeadDays`），
+    // 所以正常路径下见不到 `APPOINTMENT_TOO_FAR`；映射它是因为那个天数是**后端配置**
+    // （`app.order.max-lead-days`），后端调小的那一天，选择器上的 7 天就是错的，
+    // 而这条 422 是当天唯一还能说清「为什么被拒」的东西。
+    case appointmentTooFar = "APPOINTMENT_TOO_FAR"
+    // 同批新增：同时最多 3 张未完成预约（`app.order.max-concurrent-scheduled`）。
+    // 🚩 它与 `DUPLICATE_ORDER` 是一对，别混：那条现在只拦**时段冲突**，这条拦**总数**。
+    // 客户端**算不出**它（拿不到「我还有几张未走完的单」的总数），只能等后端拒。
+    case tooManyScheduledOrders = "TOO_MANY_SCHEDULED_ORDERS"
     case validationFailed = "VALIDATION_ERROR"
     case unauthorized = "UNAUTHORIZED"
     case activeOrderAccountDeletionBlocked = "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED"
@@ -98,6 +109,13 @@ enum ErrorCode: String, Codable, Sendable {
             return "尚未通过资质认证，请先上传资质证书。"
         case .appointmentTooSoon:
             return "预约时间需要至少30分钟之后。"
+        case .appointmentTooFar:
+            // 不写死「7 天」：那是后端配置，而这条码恰恰是在**客户端那个 7 天已经不对**时才会到达。
+            // 念一个错的天数比不念更糟 —— 用户会照着它改，然后再被拒一次。
+            return "这个日期太远了，暂时约不了。请改到近一些的日子。"
+        case .tooManyScheduledOrders:
+            // 同理不写死「3 个」。说清**出路**（完成或取消一个），否则用户不知道自己该做什么。
+            return "你手上没跑完的预约已经到上限了。完成或取消其中一个，再来约新的。"
         case .validationFailed:
             return "提交内容不符合要求，请检查后重试。"
         case .unauthorized:
@@ -125,8 +143,12 @@ enum ErrorCode: String, Codable, Sendable {
         case .resourceNotFound:
             return "请求的资源不存在。"
         case .duplicateOrder:
-            // 后端拆码后只剩 `OrderCreationService` 一个抛出点，文案跟着这个唯一场景走。
-            return "您有进行中的订单，请完成后再下单。"
+            // 🚩 2026-09-05 改口径（跨天预约上线）：后端判据从「有任何未走完的单」改成
+            // **时段冲突**（与任一未走完订单的时间区间相交，两侧各外扩 60 分钟）。
+            // 原文案「您有进行中的订单，请完成后再下单」自那天起就是错的 ——
+            // 约了后天早上的单之后，今天临时想跑**照样能下单**，说成「有进行中的订单」
+            // 会让用户去取消一张完全不冲突的预约。
+            return "这个时间段你已经有一单了。换个时间再试试。"
         case .reviewAlreadySubmitted:
             return "您已评价过此订单。"
         case .registrationStepInvalid:

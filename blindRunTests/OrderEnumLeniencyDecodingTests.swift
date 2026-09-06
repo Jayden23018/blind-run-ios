@@ -66,6 +66,15 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
             )
         }
 
+        // 🚩 跨天预约单单独钉一条：它**不需要当面汇合**，却必须给拨号入口 ——
+        // 这是本谓词唯一一处例外，与后端 `OrderStatus.allowsCounterpartCall()` 上那段对应。
+        // 开跑前 1–7 天里改期/改地点只能靠这通电话，联系不上就只能取消重派，
+        // 而重派抢不回同一个人。漏了它的症状是拨号按钮不出现且不报错。
+        XCTAssertTrue(
+            RunOrderStatus.scheduledConfirmed.offersVolunteerCall,
+            "跨天预约单必须给拨号入口：这 1–7 天里它是双方唯一的联系通道"
+        )
+
         for status in [RunOrderStatus.pendingMatch, .rematching, .noVolunteer, .completed, .cancelled, .unknown] {
             XCTAssertFalse(
                 status.offersVolunteerCall,
@@ -75,7 +84,7 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
 
         XCTAssertEqual(
             RunOrderStatus.allCases.filter(\.offersVolunteerCall).count,
-            4,
+            5,
             "枚举加了新状态就要在这里做一次决策，不能默默落到 false"
         )
     }
@@ -108,8 +117,11 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
     func testBlindRunnerNotesAreDisclosedOnlyAfterAVolunteerHasAccepted() {
         // `.pendingIntroCall` 归 hidden：通话磨合发生在接单**之前**，而派单是串行的 ——
         // 一单最多聊 3 位候选人，展示等于把这段自由文本交给每一个人，包括最后没聊成的。
+        // `.scheduledConfirmed` 归 disclosed：它在接单**之后**（后端 `order.volunteer` 已落库、
+        // 明文号已双向下发），与 `.pendingAccept` 同档。判据是「有几个陌生人拿得到」，
+        // 不是「拿到多少天」—— 这一态志愿者已唯一确定。
         let hidden: [RunOrderStatus] = [.pendingMatch, .pendingIntroCall, .rematching, .noVolunteer]
-        let disclosed: [RunOrderStatus] = [.pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed, .cancelled]
+        let disclosed: [RunOrderStatus] = [.scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed, .cancelled]
 
         for status in hidden {
             XCTAssertFalse(
@@ -132,9 +144,14 @@ final class OrderEnumLeniencyDecodingTests: XCTestCase {
         XCTAssertFalse(RunOrderStatus.allCases.contains(.unknown))
         XCTAssertFalse(PacePreference.allCases.contains(.unknown))
         XCTAssertFalse(RoutePreference.allCases.contains(.unknown))
-        // 10 = 后端 `OrderStatus.java` 的十个真实状态（含 2026-08-21 迁移 0031 加的
-        // `PENDING_INTRO_CALL`），不含 `.unknown`。
-        XCTAssertEqual(RunOrderStatus.allCases.count, 10)
+        // 11 = 后端 `OrderStatus.java` 的十一个真实状态（含迁移 0031 的 `PENDING_INTRO_CALL`
+        // 与 2026-09-05 迁移 0041 的 `SCHEDULED_CONFIRMED`），不含 `.unknown`。
+        //
+        // 🚩 **这条是 `allCases` 唯一的看门人。** 那份清单是手写数组、编译器管不到，
+        // 而漏掉一个 case 的症状是静默的：`AppRealtimeCoordinator.canReach` 的图遍历只走
+        // `allCases`，遍历不到的状态会让 REST 对账把真实迁移判成非法，页面永久停在旧状态。
+        XCTAssertEqual(RunOrderStatus.allCases.count, 11)
+        XCTAssertTrue(RunOrderStatus.allCases.contains(.scheduledConfirmed))
     }
 
     /// `OrderResponse.status` 是**可选**的 —— 可选并不带来宽容，这正是这一整类问题的由来。
