@@ -20,7 +20,7 @@ description: 后端契约变了、pre-push 报「生成代码与契约不同步�
 1. 从后端 `origin/main` 取契约
 2. 重新生成，**并把结果留在你的工作区**
 3. 比对，不一致就拦住 push
-4. 跑 `scripts/report-drift-fields.mjs`，把新增字段逐个交叉查手写模型有没有
+4. 跑 `scripts/report-drift-fields.mjs`，按每个新字段的**归属路径**查**对应的那一个**手写模型有没有
 
 所以被拦住时**不用再跑任何生成命令** —— 结果已经在工作区里了，直接 `git add` + `commit`。
 终端上会直接列出哪几个字段手写模型没有。
@@ -42,20 +42,38 @@ node scripts/report-drift-fields.mjs  # 只报告，不生成（读工作区已�
 照它生成等于把别人未合并的 WIP 烘进你的提交，而门禁比对的是后端 `origin/main`，两边永远对不上。
 包装脚本做的就是「先 fetch、从 `origin/main` 取、再生成」。
 
-## 漂移分三级，处理方式不同
+## 漂移分四级，处理方式不同
 
 跑完看脚本输出的那行 `漂移 N 行：注释 X，代码 Y`。
+
+> 🚨 **✅ 的含义是「归属模型上有」，不是「某处有同名字段」。** 2026-08-29 之前这个闸是拿裸字段名
+> 在整个 `blindRun/` 里 grep 的，假绿过两次：`IntroCallView` 的 `startAddress` 命中了
+> `OrderDetailResponse`，`notifications/since` 信封的 `hasMore` 命中了 `VolunteerBadgeWall`。
+> 现在按生成代码里 `Generated from` 的归属路径定位模型，判不了就报 ❓，绝不报 ✅。
+> 判据自测 `node scripts/validate-drift-fields.mjs`（pre-push 与 CI 都跑）。
 
 ### ① 纯注释（代码 0 行）
 
 后端给端点补了 description。**直接提交**，一个 `chore:` PR 了事，不需要真机测试
 （生成代码不参与 App target 运行时）。
 
-### ② 有新字段，但手写模型已有（脚本报 ✅）
+### ② 有新字段，且**归属的**手写模型上已有（脚本报 ✅）
 
 说明前端早就跟上了，只是生成代码落后。同 ①，直接提交。
 
-### ③ 有新字段且手写模型没有（脚本报 ❌）—— 唯一需要动脑的一级
+### ③ 有新字段但判不了归属（脚本报 ❓）—— 必须手查，不许当 ✅ 放过
+
+两种成因，处理不同：
+
+- **响应信封顶层字段**（归属路径是 `#/paths/...` 而不是 `#/components/schemas/...`）。
+  它不属于任何 schema，手写侧也没有稳定的同名类型 —— `APIClient` 拆信封的方式按端点各不相同。
+  脚本会把端点打出来（如 `GET /api/notifications/since`），照它去看那个端点的手写响应模型。
+- **手写侧没有同名类型**。可能是改了名（那就自己确认那个模型上有没有），也可能压根没接
+  （那就按下面 ④ 处理）。
+
+判完照样要写进 PR body，理由与 ④ 相同。
+
+### ④ 有新字段且对应的手写模型没有（脚本报 ❌）—— 唯一需要动脑的一级
 
 **生成代码不投入运行时**（运行时走手写 `APIClient`，理由见 `Packages/AidRunAPI/Package.swift`：
 主工程 MainActor 默认隔离与生成代码相撞；且生成的是封闭枚举，会把「未知枚举值不许整条崩」

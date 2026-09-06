@@ -91,10 +91,10 @@ final class ContentRootRouter: ObservableObject {
         switch role {
         case .blind:
             let profileTask: Task<BlindProfileResponse, Error> = Task {
-                try await appState.apiClient.get("/api/blind/profile")
+                try await appState.profile.blindProfile()
             }
             let contactsTask: Task<[EmergencyContactResponse], Error>? = userID.map { id in
-                Task { try await appState.apiClient.get("/api/users/\(id)/emergency-contacts") }
+                Task { try await appState.profile.emergencyContacts(userId: id) }
             }
             defer {
                 profileTask.cancel()
@@ -134,10 +134,12 @@ final class ContentRootRouter: ObservableObject {
 
         case .volunteer:
             let profileTask: Task<VolunteerProfileResponse, Error> = Task {
-                try await appState.apiClient.get("/api/volunteer/profile")
+                try await appState.profile.volunteerProfile()
             }
+            // `try?` 是既有的刻意降级：拿不到注册状态时 `isVolunteerProfileApproved`
+            // 退回只看 profile 的判定（`AppState.swift` 同名属性），不是静默失败。
             let registrationTask: Task<VolunteerRegistrationStatus?, Never> = Task {
-                try? await appState.apiClient.get("/api/volunteer/registration/status")
+                try? await appState.profile.volunteerRegistrationStatus()
             }
             defer {
                 profileTask.cancel()
@@ -233,6 +235,10 @@ struct ContentView: View {
     @State private var showRestorationLocalSignOutConfirmation = false
     @EnvironmentObject private var speechService: SpeechService
     @State private var showLogoutConfirmation = false
+    #if DEBUG
+    // 只给下面那条 Mock 横幅用：横屏时顶部安全区为 0，没有能放它的地方。
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
     @StateObject private var rootRouter = ContentRootRouter()
     @State private var notificationAnnouncementGate = CurrentValueReplayGate<UUID>()
     @State private var healthAnnouncementGate = CurrentValueReplayGate<LiveEscortHealthState>()
@@ -327,27 +333,55 @@ struct ContentView: View {
             }
         }
         #if DEBUG
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if appState.currentEnvironment == .mock {
-                Label("Mock 本地模拟，不连接云端", systemImage: "exclamationmark.triangle.fill")
-                    // `.callout` 在默认档就是 16pt，与此前写死的 `.system(size: 16)` 视觉等价，
-                    // 但它跟着 Dynamic Type 缩放。
-                    //
-                    // 写死那版是 `AccessibilityAuditTests` 里静态审计长期报红的**唯一**根因
-                    // （`.dynamicType` 报「User will not be able to change the font size of this
-                    // element」）：这条横幅是 `#if DEBUG` + Mock 环境专属，而 UI 测试正好全在
-                    // 这个组合下跑 —— 于是它出现在**每一屏**，红的是它，不是被审计的那些页面。
-                    // 它永远不会发布，但一个常年红的门禁等于没有门禁：下一个人分不清新旧失败
-                    // （记忆 `known-red-suites-hide-new-failures`）。
+        // Mock 横幅：`.overlay` + 钉进状态栏那一条，**不是** `.safeAreaInset`。
+        //
+        // 原来写的是 `.safeAreaInset(edge: .top)`，而各路由自己建 `NavigationStack`
+        // （见 `routedContent`，盲人首页那条在 `BlindRunnerHomeView.body`）。safeAreaInset
+        // 改的是外层安全区，压不动内层那条导航栏 —— 2026-09-05 iPhone 16 Pro 真机实测
+        // （窗口 402x874）：横幅 y `0..101.3`，导航栏 y `62..116`，标题 y `73.7..94.3`
+        // **整条被盖住**。`.contrast` 审计于是采到横幅的黄底黑字、报的却是被盖在下面的
+        // 页面标题，创建预约 / 使用帮助 / 服务成就三条审计用例随机红。
+        //
+        // 换成 `overlay` 的关键在于**它一个 pt 都不占**。顶部一旦占位，每一屏的内容区都会
+        // 矮一截，而盲人首页那一列（地图留白 + 280pt 主按钮 + 「重复当前状态」）离底部
+        // 常驻 SOS 条只剩几十 pt —— `testBlindHomeWithoutAnOrderHidesAskQuestionAndKeeps…`
+        // 守的就是这个距离。overlay 不改任何 frame，那一批几何断言全部不受影响。
+        //
+        // **字号别动，保持 `.callout`。** 写死 pt 那版曾是这套审计长期报红的唯一根因
+        // （`.dynamicType` 报「User will not be able to change the font size of this element」）。
+        // 2026-09-05 改这条横幅时顺手换成 `.caption2`（配更紧的内边距），真机上**同一条审计
+        // 立刻又红**，报的还是这枚胶囊本身（`id=` 空、`label=Mock 本地模拟`、
+        // `frame=(33, 17, 97, 13.3)`），创建预约 / 使用帮助 / 服务成就三条全挂；换回
+        // `.callout` 当轮即干净。横幅是 `#if DEBUG` + Mock 专属，而 UI 测试恰好全跑在这个
+        // 组合下，于是它出现在**每一屏** —— 常年红的门禁等于没有门禁
+        // （记忆 `known-red-suites-hide-new-failures`）。
+        //
+        // ponytail: 压成状态栏里的一枚小胶囊，只盖掉时钟 —— 这块屏幕上最不重要的东西。
+        // 文字压短并靠左，躲开灵动岛（16 Pro 上约 x 143..259）；靠左 24 / 距顶 14 是为了
+        // 落在屏幕圆角之内。横屏（`verticalSizeClass == .compact`）顶部安全区为 0，
+        // 没有可落脚的地方，直接不挂 —— 与其盖住返回按钮，不如没有。
+        //
+        // ponytail 天花板：状态栏只有 59pt 高，而字号必须可缩放（上面那条），所以 AX4/AX5
+        // 下这枚胶囊仍会长到导航栏上。没管，因为它 `#if DEBUG` + Mock 专属、不会发布，
+        // 且没有任何自动用例跑在 AX 档（UI 测试一律默认字号）。真要管：把 `dynamicTypeSize`
+        // 也加进上面那个 `if`，代价是审计放大字号时元素会消失，得重新验一轮审计。
+        .overlay(alignment: .topLeading) {
+            if appState.currentEnvironment == .mock, verticalSizeClass != .compact {
+                Label("Mock 本地模拟", systemImage: "exclamationmark.triangle.fill")
                     .font(.callout.bold())
                     .foregroundColor(.black)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.yellow)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(Color.yellow, in: Capsule())
+                    .padding(.leading, 24)
+                    .padding(.top, 14)
+                    // 状态栏那一条本来就没有可点的东西，但让它可点会把「点状态栏回到顶部」
+                    // 这个系统手势吃掉。
+                    .allowsHitTesting(false)
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("警告：Mock 本地模拟，不连接云端")
                     .accessibilityIdentifier("mockEnvironmentBanner")
+                    .ignoresSafeArea(edges: .top)
             }
         }
         #endif

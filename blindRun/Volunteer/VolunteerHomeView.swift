@@ -25,13 +25,24 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published var needsCertificateUpload = false
     @Published var acceptedDispatchOrderId: Int64?
     @Published var acceptedDispatchInitialOrder: OrderDetailResponse?
-    /// 发出「有意向，想先聊聊」之后要进的那一单。
+    /// 要进的那一单通话磨合。**两种到达方式共用这一个导航源。**
     ///
-    /// 🚨 存的是**派单载荷**而不是订单 id，因为通话磨合期志愿者根本取不到订单详情：
+    /// 🚨 带着**派单载荷**而不只是订单 id，因为通话磨合期志愿者根本取不到订单详情：
     /// 后端 `OrderQueryService.getOrder` 只认 `order.volunteer`，而 `markInterested`
     /// 只写 `dispatchCurrentVolunteerId`、`order.volunteer` 恒为 null ⇒ `GET /api/orders/{id}` 403。
-    /// 这条推送是那一刻**唯一**的订单事实来源（出发地、时间、导盲犬），丢了就没别的地方能取回来。
-    @Published var pendingIntroCallOrder: WSNewOrder?
+    /// 那条推送是那一刻**唯一**的订单事实来源（出发地、时间、导盲犬），丢了就没别的地方能取回来。
+    ///
+    /// 而冷启动恢复那条路上它**确实丢了**（App 被杀，推送不会重放），所以
+    /// `VolunteerIntroCallRoute.dispatchOrder` 是可选的 —— 见那个类型的注释。
+    @Published var pendingIntroCallOrder: VolunteerIntroCallRoute?
+    /// 已经因为 `introCallOrderId` 自动跳过一次的那一单。
+    ///
+    /// 🚨 **没有它就是一个导航死循环**：用户手动返回 → `pendingIntroCallOrder` 被清 →
+    /// 下一次 `dispatch-summary` 刷新（首页每几秒就会刷）看到 `introCallOrderId` 还在 →
+    /// 又把他推回通话页。在 20 分钟窗口结束前他出不来。
+    ///
+    /// 只记 id 不记「跳过几次」：换了一单就该再跳一次，那是另一个人在等他。
+    private var autoOpenedIntroCallOrderId: Int64?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -206,6 +217,9 @@ final class VolunteerHomeViewModel: ObservableObject {
                         locationAuthorized: locationAuthorized
                     )
                 }
+                // 请求已经在上面的 `submitDispatchResponse` 里发过了（`.accept` 撞上
+                // `INTRO_CALL_REQUIRED` 时会自己改口重发一次），这里只是记结果。
+                // 判据用 `effectiveAction` 而不是入参 `action`：改过口之后这一单没接成。
                 let acceptedOrderId = effectiveAction == .accept ? order.orderId : nil
                 let acceptedOrder = await refreshAfterDispatchResponse(
                     acceptedOrderId: acceptedOrderId,
@@ -216,7 +230,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 acceptedDispatchInitialOrder = acceptedOrder
                 acceptedDispatchOrderId = acceptedOrderId
                 if effectiveAction == .interested {
-                    pendingIntroCallOrder = order
+                    pendingIntroCallOrder = VolunteerIntroCallRoute(dispatchOrder: order)
                 }
                 speechService?.speak(Self.dispatchResponseSpeech(for: effectiveAction))
             } catch let error as APIError {
@@ -251,11 +265,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 locationAuthorized: locationAuthorized
             )
         }
-        let request = OrderRespondRequest(action: action)
-        let _: EmptyResponse = try await appState.apiClient.post(
-            "/api/orders/\(order.orderId)/respond",
-            body: request
-        )
+        try await appState.orders.respond(orderId: order.orderId, action: action)
     }
 
     /// 三种动作各自的播报。`.interested` 刻意不说「已接单」——它不是接单，说错了志愿者
@@ -280,6 +290,10 @@ final class VolunteerHomeViewModel: ObservableObject {
     }
 
     /// 通话磨合结束（成单 / 换人 / 超时）后把入口收掉。
+    ///
+    /// ⚠️ **不清 `autoOpenedIntroCallOrderId`。** 用户手动返回也走这里，
+    /// 清了的话下一次 `dispatch-summary` 刷新会把他重新推回通话页 —— 见那个字段的注释。
+    /// 那个记号跟着 orderId 走，换一单自然失效。
     func clearIntroCall() {
         pendingIntroCallOrder = nil
     }
@@ -290,12 +304,14 @@ final class VolunteerHomeViewModel: ObservableObject {
     ) async -> OrderDetailResponse? {
         var acceptedOrder: OrderDetailResponse?
 
+        // 两处 `try?` 是**迁移前就有的**，这里原样保留：这一步跑在「已经响应成功」之后，
+        // 播报与导航都不依赖它，拿不到只是首页少刷一次，5 秒后的下一轮会补上。
         if let acceptedOrderId {
-            acceptedOrder = try? await appState.apiClient.get("/api/orders/\(acceptedOrderId)")
+            acceptedOrder = try? await appState.orders.orderDetail(orderId: acceptedOrderId)
             activeOrder = acceptedOrder
         }
 
-        if let summary: VolunteerDispatchSummaryResponse = try? await appState.apiClient.get("/api/volunteer/dispatch-summary") {
+        if let summary = try? await appState.orders.dispatchSummary() {
             apply(summary: summary)
         }
 
@@ -453,12 +469,12 @@ final class VolunteerHomeViewModel: ObservableObject {
         updateLocationDispatchWarning(didReportLocation: didReportLocation, appState: appState)
 
         do {
-            let apiClient = appState.apiClient
+            let orders = appState.orders
             let summary: VolunteerDispatchSummaryResponse = try await HomeLoadCoordinator.run(
                 timeout: loadTimeout,
                 operationName: "volunteer-dispatch-initial"
             ) {
-                try await apiClient.get("/api/volunteer/dispatch-summary")
+                try await orders.dispatchSummary()
             }
             guard activeRequestID == requestID, !Task.isCancelled else { return }
             apply(summary: summary)
@@ -494,7 +510,13 @@ final class VolunteerHomeViewModel: ObservableObject {
         auxiliaryLoadTask?.cancel()
         let requestID = UUID()
         auxiliaryRequestID = requestID
-        let apiClient = appState.apiClient
+        // 这两条是**档案·资质片**的端点（`ProfileServing.volunteerProfile` /
+        // `.volunteerRegistrationStatus`），不在订单片里再开一条同路径 ——
+        // 同一个端点两处字面量迟早漂移。
+        //
+        // 它们原先暂放在 `AuthServing` 上（订单片就是照那个写的），档案片落 main 时
+        // 搬回了自己家。两片并行开发看不见对方的搬迁，这里跟着改指向。
+        let profile = appState.profile
         auxiliaryLoadTask = Task { [weak self, weak appState] in
             guard let self, let appState else { return }
             async let profileResult: Result<VolunteerProfileResponse, Error> = Self.fetchResult {
@@ -502,7 +524,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     timeout: self.loadTimeout,
                     operationName: "volunteer-profile"
                 ) {
-                    try await apiClient.get("/api/volunteer/profile")
+                    try await profile.volunteerProfile()
                 }
             }
             async let registrationResult: Result<VolunteerRegistrationStatus, Error> = Self.fetchResult {
@@ -510,7 +532,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     timeout: self.loadTimeout,
                     operationName: "volunteer-registration"
                 ) {
-                    try await apiClient.get("/api/volunteer/registration/status")
+                    try await profile.volunteerRegistrationStatus()
                 }
             }
 
@@ -555,11 +577,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let request = DispatchStatusRequest(wantsDispatch: value)
-            let _: EmptyResponse = try await appState.apiClient.put(
-                "/api/volunteer/dispatch-status",
-                body: request
-            )
+            try await appState.orders.setDispatchStatus(wantsDispatch: value)
             let existingProfile = appState.volunteerProfile
                 let profile = VolunteerProfileResponse(
                     name: existingProfile?.name,
@@ -580,7 +598,9 @@ final class VolunteerHomeViewModel: ObservableObject {
                 isUpdatingAvailability = false
                 return
             }
-            if let summary: VolunteerDispatchSummaryResponse = try? await appState.apiClient.get("/api/volunteer/dispatch-summary") {
+            // `try?` 是迁移前就有的：开关本身已经切成功并播报过了，这一步只是把摘要刷新一下，
+            // 拿不到不改变「已上线 / 已下线」这个既成事实。
+            if let summary = try? await appState.orders.dispatchSummary() {
                 apply(summary: summary)
             }
             isUpdatingAvailability = false
@@ -606,7 +626,12 @@ final class VolunteerHomeViewModel: ObservableObject {
         isAvailable = profile.isAvailable ?? false
     }
 
-    private func apply(
+    /// 摘要的唯一漏斗 —— 冷启动首屏、下拉刷新、接单后回读全从这里过，
+    /// 所以 `recoverIntroCallIfNeeded` 挂在这里就够，不必在每个调用点各接一次。
+    ///
+    /// 非 private 是为了让单测能直接喂一份摘要进来：起真实的加载流程会顺带打三四个端点、
+    /// 动状态机，把「摘要里有 introCallOrderId 会怎样」这一条断言埋进一堆无关请求里。
+    func apply(
         summary: VolunteerDispatchSummaryResponse,
         statusRequestToken: OrderStatusRequestToken? = nil
     ) {
@@ -648,6 +673,30 @@ final class VolunteerHomeViewModel: ObservableObject {
         } else {
             appState?.liveEscortCoordinator.clearOwnedOrder()
         }
+        recoverIntroCallIfNeeded(summary: summary)
+    }
+
+    /// 冷启动恢复：App 被杀之后回到那一通没打完的电话。
+    ///
+    /// 🚨 **这不是「顺手多接一个字段」，它补的是一个真实的失联**：通话磨合态
+    /// `order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403、`/api/orders/mine` 也不返回，
+    /// 而派单推送不会重放 —— 志愿者重开 App 之后**没有任何入口**回到通话页，
+    /// 只能等 20 分钟窗口超时，而盲人在等他这通电话。
+    /// `introCallOrderId` 是那一刻唯一的线索（后端为此专门加的字段）。
+    ///
+    /// 三道闸缺一不可：
+    /// 1. `introCallOrderId` 非空 —— 绝大多数时候它是 null。
+    /// 2. `pendingIntroCallOrder == nil` —— 已经在通话页上了就别再动导航。
+    /// 3. `autoOpenedIntroCallOrderId != id` —— **同一单只自动跳一次**。
+    ///    没有第 3 条，用户手动返回后每次摘要刷新都会把他拽回去，20 分钟内出不来。
+    ///
+    /// `dispatchOrder` 传 nil：那条推送早随进程一起没了，客户端拿不回来，也不许编。
+    private func recoverIntroCallIfNeeded(summary: VolunteerDispatchSummaryResponse) {
+        guard let introCallOrderId = summary.introCallOrderId,
+              pendingIntroCallOrder == nil,
+              autoOpenedIntroCallOrderId != introCallOrderId else { return }
+        autoOpenedIntroCallOrderId = introCallOrderId
+        pendingIntroCallOrder = VolunteerIntroCallRoute(orderId: introCallOrderId)
     }
 
     func refreshDispatchSummary() async {
@@ -687,7 +736,7 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     private func performDispatchSummaryRefresh(appState: AppState, refreshID: UUID) async {
         do {
-            let apiClient = appState.apiClient
+            let orders = appState.orders
             let statusRequestToken = activeOrder.map {
                 appState.realtimeCoordinator.beginOrderStatusRequest(orderID: $0.orderId)
             }
@@ -695,7 +744,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 timeout: loadTimeout,
                 operationName: "volunteer-dispatch-refresh"
             ) {
-                try await apiClient.get("/api/volunteer/dispatch-summary")
+                try await orders.dispatchSummary()
             }
             guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
             apply(summary: summary, statusRequestToken: statusRequestToken)
@@ -950,6 +999,7 @@ enum VolunteerHomeTopLayout {
 
 struct VolunteerHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// 派单面板是全 App 位移幅度最大的动效（整块面板弹到另一个档位），而弹簧的回弹正是
     /// 「减弱动态效果」要压掉的那一类。开启后改成瞬时切换：落点不变，只是不弹。
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -992,7 +1042,18 @@ struct VolunteerHomeView: View {
                         .padding(.bottom, VolunteerDemandPanelDetent.bottomMargin)
                 }
                 .overlay(alignment: .top) {
-                    VStack(spacing: 8) {
+                    // 顶部状态块画在面板之上（overlay 永远盖住 ZStack），而 `reservedBottom`
+                    // 写死它只占 `safeTop + 180` —— 那个数不跟 Dynamic Type 走。真机 AX5 实测
+                    // 它从 y=149 一路长到 y=490，预留却只有 242pt，于是把 y=365–392 的面板抓手
+                    // 整个盖住：拖拽触点全被状态块吃掉，面板永远停在中等档拖不动，
+                    // 卡片内容对低视力用户彻底够不着。
+                    //
+                    // 装进 ScrollView 并限高到已经声明的预留值，让实现兑现那个声明：
+                    // 大字号下一个字都不丢（滚得到），抓手也露出来。
+                    //
+                    // 只在辅助字号下换实现：ScrollView 会贪心占满限高，默认字号下那会把
+                    // 状态块与面板之间那条地图带的手势一并吃掉，而默认字号本来就不溢出。
+                    let topStatusBlock = VStack(spacing: 8) {
                         homeStatusOverlay
 
                         if let activeOrder = viewModel.activeOrder {
@@ -1010,6 +1071,15 @@ struct VolunteerHomeView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 4)
                     .frame(maxWidth: .infinity, alignment: .top)
+
+                    if dynamicTypeSize.isAccessibilitySize {
+                        ScrollView {
+                            topStatusBlock
+                        }
+                        .frame(maxHeight: max(96, resolvedTopBottom), alignment: .top)
+                    } else {
+                        topStatusBlock
+                    }
                 }
                 .background(AppColors.background)
             }
@@ -1029,8 +1099,8 @@ struct VolunteerHomeView: View {
                     }
                 )
             ) {
-                if let dispatchOrder = viewModel.pendingIntroCallOrder {
-                    VolunteerIntroCallView(dispatchOrder: dispatchOrder)
+                if let introCallRoute = viewModel.pendingIntroCallOrder {
+                    VolunteerIntroCallView(route: introCallRoute)
                 } else if let orderId = viewModel.acceptedDispatchOrderId {
                     VolunteerInServiceView(
                         orderId: orderId,
@@ -1637,7 +1707,9 @@ private struct VolunteerDispatchSummaryCard: View {
                 Spacer(minLength: 0)
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+            // 列数跟着 `metrics` 走，不写字面量 —— `be4e030` 删掉「积分」那格时列数留在 4，
+            // 于是三格挤在左边、右边空一格挂了很久。
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: metrics.count), spacing: 8) {
                 ForEach(metrics, id: \.0) { metric in
                     VolunteerMetricTile(title: metric.0, value: metric.1)
                 }

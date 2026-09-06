@@ -461,13 +461,13 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let apiClient = appState.apiClient
+            let orders = appState.orders
             let requestToken = appState.realtimeCoordinator.beginOrderStatusRequest(orderID: orderId)
             let candidate: OrderDetailResponse = try await HomeLoadCoordinator.run(
                 timeout: orderLoadTimeout,
                 operationName: "volunteer-order-detail"
             ) {
-                try await apiClient.get("/api/orders/\(orderId)")
+                try await orders.orderDetail(orderId: orderId)
             }
             guard let loaded = appState.realtimeCoordinator.reconcileOrderDetail(
                 candidate,
@@ -509,32 +509,28 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             currentLocation: currentLocation,
             locationAuthorized: locationAuthorized
         )
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .pendingAccept, orderID: orderID, appState: appState) {
-            let request = OrderRespondRequest(action: .accept)
-            return try await apiClient.post(
-                "/api/orders/\(orderID)/respond",
-                body: request
-            ) as EmptyResponse
+            try await orders.respond(orderId: orderID, action: .accept)
         }
     }
 
     func enRoute() async {
         guard let order, let appState else { return }
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .driverEnRoute, orderID: orderID, appState: appState) {
-            try await apiClient.post("/api/orders/\(orderID)/en-route") as EmptyResponse
+            try await orders.enRoute(orderId: orderID)
         }
     }
 
     func arrive() async {
         guard let order, let appState else { return }
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .driverArrived, orderID: orderID, appState: appState) {
-            try await apiClient.post("/api/orders/\(orderID)/arrived") as EmptyResponse
+            try await orders.arrived(orderId: orderID)
         }
     }
 
@@ -546,19 +542,19 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
             speechService?.speakError(message)
             return
         }
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .inProgress, orderID: orderID, appState: appState) {
-            try await apiClient.post("/api/orders/\(orderID)/start-service") as EmptyResponse
+            try await orders.startService(orderId: orderID)
         }
     }
 
     func cancel() async {
         guard let order, let appState else { return }
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .rematching, orderID: orderID, appState: appState) {
-            try await apiClient.post("/api/orders/\(orderID)/cancel") as EmptyResponse
+            try await orders.cancel(orderId: orderID)
         }
     }
 
@@ -573,7 +569,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         target: RunOrderStatus,
         orderID: Int64,
         appState: AppState,
-        operation: @escaping @Sendable () async throws -> EmptyResponse
+        operation: @escaping @Sendable () async throws -> Void
     ) async {
         guard !isPerformingAction else { return }
         if transitionState.blocksDuplicateSubmission {
@@ -592,7 +588,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         needsCertificateUpload = false
         defer { isPerformingAction = false }
         do {
-            _ = try await withVolunteerOrderActionDeadline(
+            try await withVolunteerOrderActionDeadline(
                 nanoseconds: actionDeadlineNanoseconds,
                 operation: operation
             )
@@ -639,7 +635,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
         appState: AppState
     ) {
         confirmationTask?.cancel()
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let requestToken = appState.realtimeCoordinator.beginOrderStatusRequest(orderID: orderID)
         confirmationTask = Task { [weak self] in
             guard let self else { return }
@@ -648,7 +644,7 @@ final class VolunteerOrderDetailViewModel: ObservableObject {
                     timeout: self.confirmationTimeout,
                     operationName: "volunteer-detail-transition-confirmation"
                 ) {
-                    try await apiClient.get("/api/orders/\(orderID)")
+                    try await orders.orderDetail(orderId: orderID)
                 }
                 guard !Task.isCancelled,
                       self.order?.orderId == orderID,
@@ -1043,13 +1039,13 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
         isLoading = order == nil
         do {
-            let apiClient = appState.apiClient
+            let orders = appState.orders
             let requestToken = appState.realtimeCoordinator.beginOrderStatusRequest(orderID: orderId)
             let candidate: OrderDetailResponse = try await HomeLoadCoordinator.run(
                 timeout: orderLoadTimeout,
                 operationName: "volunteer-order-poll"
             ) {
-                try await apiClient.get("/api/orders/\(orderId)")
+                try await orders.orderDetail(orderId: orderId)
             }
             guard let loaded = appState.realtimeCoordinator.reconcileOrderDetail(
                 candidate,
@@ -1071,19 +1067,19 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     func enRoute() async {
         guard let order, let appState else { return }
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .driverEnRoute, orderID: orderID, appState: appState) {
-            try await apiClient.post("/api/orders/\(orderID)/en-route") as EmptyResponse
+            try await orders.enRoute(orderId: orderID)
         }
     }
 
     func arrive() async {
         guard let order, let appState else { return }
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .driverArrived, orderID: orderID, appState: appState) {
-            try await apiClient.post("/api/orders/\(orderID)/arrived") as EmptyResponse
+            try await orders.arrived(orderId: orderID)
         }
     }
 
@@ -1112,19 +1108,19 @@ final class VolunteerInServiceViewModel: ObservableObject {
             speechService?.speakError(message)
             return
         }
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .inProgress, orderID: orderID, appState: appState) {
-            try await apiClient.post("/api/orders/\(orderID)/start-service") as EmptyResponse
+            try await orders.startService(orderId: orderID)
         }
     }
 
     func cancel() async {
         guard let order, let appState else { return }
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .rematching, orderID: orderID, appState: appState) {
-            try await apiClient.post("/api/orders/\(orderID)/cancel") as EmptyResponse
+            try await orders.cancel(orderId: orderID)
         }
     }
 
@@ -1136,10 +1132,10 @@ final class VolunteerInServiceViewModel: ObservableObject {
             speechService?.speakError(message)
             return
         }
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let orderID = order.orderId
         await submitTransition(target: .completed, orderID: orderID, appState: appState) {
-            try await apiClient.post("/api/orders/\(orderID)/finish") as EmptyResponse
+            try await orders.finish(orderId: orderID)
         }
     }
 
@@ -1167,7 +1163,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             order: order,
             role: appState.activeRole,
             userID: appState.userId,
-            apiClient: appState.apiClient,
+            safety: appState.safety,
             locate: locate,
             locationFailureReason: locationFailureReason
         )
@@ -1184,7 +1180,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         isAcknowledgingEmergency = true
         let succeeded = await appState.emergencyCoordinator.acknowledgeAsVolunteer(
             eventID: eventID,
-            apiClient: appState.apiClient
+            safety: appState.safety
         )
         isAcknowledgingEmergency = false
         if succeeded {
@@ -1200,7 +1196,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         target: RunOrderStatus,
         orderID: Int64,
         appState: AppState,
-        operation: @escaping @Sendable () async throws -> EmptyResponse
+        operation: @escaping @Sendable () async throws -> Void
     ) async {
         guard !isPerformingAction else { return }
         if transitionState.blocksDuplicateSubmission {
@@ -1218,7 +1214,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         errorMessage = nil
         defer { isPerformingAction = false }
         do {
-            _ = try await withVolunteerOrderActionDeadline(
+            try await withVolunteerOrderActionDeadline(
                 nanoseconds: actionDeadlineNanoseconds,
                 operation: operation
             )
@@ -1300,7 +1296,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         appState: AppState
     ) {
         confirmationTask?.cancel()
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         let requestToken = appState.realtimeCoordinator.beginOrderStatusRequest(orderID: orderID)
         confirmationTask = Task { [weak self] in
             guard let self else { return }
@@ -1309,7 +1305,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
                     timeout: self.confirmationTimeout,
                     operationName: "volunteer-transition-confirmation"
                 ) {
-                    try await apiClient.get("/api/orders/\(orderID)")
+                    try await orders.orderDetail(orderId: orderID)
                 }
                 guard !Task.isCancelled,
                       self.order?.orderId == orderID,
@@ -1405,7 +1401,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     private func refreshDispatchSummary(using appState: AppState) {
         guard dispatchSummaryTask == nil else { return }
-        let apiClient = appState.apiClient
+        let orders = appState.orders
         dispatchSummaryTask = Task { [weak self] in
             guard let self else { return }
             defer { self.dispatchSummaryTask = nil }
@@ -1414,7 +1410,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
                     timeout: self.orderLoadTimeout,
                     operationName: "volunteer-service-summary-refresh"
                 ) {
-                    try await apiClient.get("/api/volunteer/dispatch-summary")
+                    try await orders.dispatchSummary()
                 }
                 guard !Task.isCancelled else { return }
                 self.dispatchSummary = summary
@@ -1714,7 +1710,7 @@ final class VolunteerServiceRecordsViewModel: ObservableObject {
         isLoading = records.isEmpty
         errorMessage = nil
         do {
-            let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/mine")
+            let paged = try await appState.orders.myOrders()
             records = paged.content
                 .filter { [.completed, .cancelled].contains($0.status) }
                 .map(VolunteerServiceRecord.init(order:))
@@ -1800,23 +1796,57 @@ struct VolunteerServiceRecordsView: View {
 /// （`api_spec.yaml` 那条 description）。所以这一页有自己的一次加载。
 ///
 /// 并发只用 async/await：一个 `.task`，没有 `AnyCancellable`（AGENTS.md 硬约束）。
+@MainActor
+final class VolunteerAchievementsViewModel: ObservableObject {
+    @Published private(set) var achievements: VolunteerAchievementsResponse?
+    @Published private(set) var errorMessage: String?
+    @Published private(set) var isLoading = true
+
+    private weak var appState: AppState?
+
+    /// ⚠️ `appState` 是 `weak`：传临时对象等于传 nil，用例要自己持有它。
+    func configure(appState: AppState) {
+        self.appState = appState
+    }
+
+    /// 拉服务成就。**失败一定要留下东西**：`errorMessage` 驱动 `errorSection`
+    /// （一行原因 + 一个「重新加载」）。这段原来住在 view body 里，
+    /// 三个 `@State` 之间没有任何测试面。
+    func load() async {
+        guard let appState else {
+            isLoading = false
+            errorMessage = "暂时没能读到服务成就，请稍后重试。"
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            // 成就属于激励片（`IncentiveService`），不是订单片 —— 两片并行开发时
+            // 各自实现了一遍 `GET /api/volunteer/achievements`，合并时以先落 main 的激励片为准。
+            achievements = try await appState.incentive.volunteerAchievements()
+            errorMessage = nil
+        } catch let error as APIError {
+            errorMessage = error.localizedMessage
+        } catch {
+            errorMessage = "暂时没能读到服务成就，请稍后重试。"
+        }
+    }
+}
+
 struct VolunteerServiceRecognitionView: View {
     @EnvironmentObject private var appState: AppState
-
-    @State private var achievements: VolunteerAchievementsResponse?
-    @State private var errorMessage: String?
-    @State private var isLoading = true
+    @StateObject private var viewModel = VolunteerAchievementsViewModel()
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if let achievements {
+                if let achievements = viewModel.achievements {
                     header(achievements)
                     statsRow(achievements)
                     starSection(achievements.resolvedStarLevel)
                     badgeSection(achievements)
                     disclaimer
-                } else if isLoading {
+                } else if viewModel.isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                         .accessibilityLabel("正在加载服务成就")
@@ -1833,7 +1863,10 @@ struct VolunteerServiceRecognitionView: View {
         .navigationTitle(VolunteerAchievementsCopy.navigationTitle)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerServiceRecognitionView")
-        .task { await load() }
+        .task {
+            viewModel.configure(appState: appState)
+            await viewModel.load()
+        }
     }
 
     private func header(_ response: VolunteerAchievementsResponse) -> some View {
@@ -2035,31 +2068,18 @@ struct VolunteerServiceRecognitionView: View {
 
     private var errorSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(errorMessage ?? "暂时没能读到服务成就。")
+            Text(viewModel.errorMessage ?? "暂时没能读到服务成就。")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Button("重新加载") {
-                Task { await load() }
+                Task { await viewModel.load() }
             }
             .font(AppFonts.body().weight(.semibold))
             .foregroundColor(AppColors.primary)
             .accessibilityIdentifier("volunteerAchievementsRetryButton")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func load() async {
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            achievements = try await appState.apiClient.get("/api/volunteer/achievements")
-            errorMessage = nil
-        } catch let error as APIError {
-            errorMessage = error.localizedMessage
-        } catch {
-            errorMessage = "暂时没能读到服务成就，请稍后重试。"
-        }
     }
 }
 
@@ -2180,11 +2200,13 @@ struct VolunteerSettingsView: View {
                 .accessibilityHint("永久停用当前账户，需要再次确认")
             }
 
-            if let message = deletionViewModel.preflightMessage {
-                Section { Text(message).foregroundColor(AppColors.destructive).accessibilityLabel(message) }
-            }
         }
         .navigationTitle("设置")
+        .alert("无法删除账户", isPresented: $deletionViewModel.isShowingPreflightBlock) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(deletionViewModel.preflightMessage ?? "")
+        }
         .alert("确认退出", isPresented: $showLogoutConfirm) {
             Button("确认退出", role: .destructive) {
                 Task { await appState.logout() }

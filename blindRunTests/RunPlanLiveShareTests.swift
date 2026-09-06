@@ -198,4 +198,95 @@ final class RunPlanLiveShareTests: XCTestCase {
             XCTAssertEqual(error.errorCode, .shareOrderAlreadyFinished)
         }
     }
+
+    // MARK: - View model：起 / 停分享的失败分支
+
+    // 这四条以前一条都写不出来：`startLiveShare` / `stopLiveShare` 住在
+    // `BlindOrderStatusView` 的 body 里，状态是三个 `@State`，从外面够不着。
+    // 搬进 `RunPlanLiveShareViewModel` 之后它们才有了测试面。
+
+    /// 成功时**屏幕上写的和念出来的刻意不同**：提示停在「分享中」，播报是「链接已生成」。
+    /// 合成一句会让读屏用户以为链接还没好。
+    func testStartingLiveShareShowsSharingAndSpeaksReady() async {
+        let (viewModel, appState, speech, service) = makeShareViewModel()
+        service.startLiveShareResult = .success(ShareLinkResponse(shareUrl: sampleUrl, expiresAt: nil))
+        _ = appState
+
+        await viewModel.startLiveShare()
+
+        XCTAssertTrue(viewModel.isLiveSharing)
+        XCTAssertEqual(viewModel.notice?.text, RunPlanLiveShareCopy.sharing)
+        XCTAssertEqual(viewModel.notice?.isProblem, false)
+        XCTAssertEqual(speech.lastSpokenText, RunPlanLiveShareCopy.ready)
+        XCTAssertEqual(viewModel.payload?.text.contains(sampleUrl), true, "链接必须原样带进分享面板")
+        XCTAssertFalse(viewModel.showSMSFallback, "成功时不该露出降级入口")
+    }
+
+    /// 🚨 **失败时屏幕上必须多出东西。** 「只是少了几个按钮」就是静默失败 ——
+    /// 这里要同时长出提示文字和短信降级入口，并且出声。
+    func testFailingToStartLiveShareSurfacesTheReasonAndTheSMSFallback() async {
+        let (viewModel, appState, speech, service) = makeShareViewModel()
+        service.startLiveShareResult = .failure(APIError.serverError(
+            ErrorResponse(code: "SHARE_ORDER_ALREADY_FINISHED", message: "订单已结束")
+        ))
+        _ = appState
+
+        await viewModel.startLiveShare()
+
+        XCTAssertFalse(viewModel.isLiveSharing)
+        XCTAssertTrue(viewModel.showSMSFallback, "实时分享走不通时必须给出短信这条路")
+        XCTAssertEqual(viewModel.notice?.isProblem, true)
+        XCTAssertNotNil(viewModel.notice?.text)
+        XCTAssertEqual(speech.lastSpokenText, viewModel.notice?.text, "看得见的和听得见的必须是同一句")
+        XCTAssertNil(viewModel.payload, "没拿到链接就不该弹分享面板")
+    }
+
+    /// **停止失败时不清本地状态。** 链接可能还有效，把「停止分享」入口一起收走，
+    /// 用户就再也停不掉了 —— 那比多按一次严重得多。
+    func testFailingToStopLiveShareKeepsTheStopEntryOnScreen() async {
+        let (viewModel, appState, speech, service) = makeShareViewModel()
+        service.startLiveShareResult = .success(ShareLinkResponse(shareUrl: sampleUrl, expiresAt: nil))
+        service.stopLiveShareResult = .failure(APIError.invalidURL)
+        _ = appState
+        await viewModel.startLiveShare()
+        XCTAssertTrue(viewModel.isLiveSharing)
+
+        await viewModel.stopLiveShare()
+
+        XCTAssertTrue(viewModel.isLiveSharing, "停止失败后入口被收走了，用户再也停不掉")
+        XCTAssertEqual(viewModel.notice?.text, RunPlanLiveShareCopy.stopFailed)
+        XCTAssertEqual(viewModel.notice?.isProblem, true)
+        XCTAssertEqual(speech.lastSpokenText, RunPlanLiveShareCopy.stopFailed)
+    }
+
+    /// 打开短信面板时**不能**顺手把降级入口收掉：用户在面板上点取消就回不去了。
+    /// 只有重新发起实时分享才该收。
+    func testOpeningTheSMSSheetKeepsTheFallbackButtonButANewAttemptClearsIt() async {
+        let (viewModel, appState, speech, service) = makeShareViewModel()
+        service.startLiveShareResult = .failure(APIError.invalidURL)
+        _ = appState
+        _ = speech
+        await viewModel.startLiveShare()
+        XCTAssertTrue(viewModel.showSMSFallback)
+
+        viewModel.clearNotice()
+        XCTAssertTrue(viewModel.showSMSFallback, "打开短信面板不该撤掉它背后的按钮")
+        XCTAssertNil(viewModel.notice)
+
+        viewModel.clearNotice(hidingSMSFallback: true)
+        XCTAssertFalse(viewModel.showSMSFallback, "重新发起实时分享时才该收走上一次的降级入口")
+    }
+
+    /// `AppState` 必须由调用方持有：view model 对它是 `weak`，传临时对象等于传 nil，
+    /// `startLiveShare` 会在第一行 guard 直接返回，所有断言静默全绿。
+    private func makeShareViewModel() -> (
+        RunPlanLiveShareViewModel, AppState, SpeechService, FakeOrderService
+    ) {
+        let service = FakeOrderService()
+        let appState = AppState(orders: service)
+        let speech = SpeechService()
+        let viewModel = RunPlanLiveShareViewModel()
+        viewModel.configure(appState: appState, speechService: speech, orderId: 77)
+        return (viewModel, appState, speech, service)
+    }
 }

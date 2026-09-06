@@ -21,6 +21,22 @@ final class EmergencyContactsViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var statusMessage: String?
 
+    /// 失败反馈的弹窗开关。
+    ///
+    /// 失败**必须自己弹出来**。它此前唯一的展示面是列表最末尾的一个 `Section`，而联系人到 4 位时
+    /// 「新增」入口就已经被顶出屏幕（`blindRunUITests.swift` 的 `addContact` 注释记的就是这件事），
+    /// 排在它后面的失败行只会更靠下 —— SwiftUI 的 `List` 压根不渲染屏幕外的行，于是「删除主联系人
+    /// 被拦下」在屏幕上一个字都不多，只有 `speakError` 那一声。明眼志愿者与低视力用户拿到的
+    /// 就是「点了没反应」。同形状的缺陷在账号删除预检那里已经修过一次
+    /// （`AccountDeletionViewModel.isShowingPreflightBlock`，`AppState.swift`）。
+    ///
+    /// 成功的 `statusMessage` **刻意不弹**：那条只是补充确认，列表本身已经变了、`announce`
+    /// 也播过，每次保存成功都弹一次等于给盲人多加一次「知道了」。它改成排在页首的概览行旁边。
+    var isShowingFailure: Bool {
+        get { errorMessage != nil }
+        set { if !newValue { errorMessage = nil } }
+    }
+
     private weak var appState: AppState?
     private var speechService: SpeechService?
 
@@ -131,10 +147,7 @@ final class EmergencyContactsViewModel: ObservableObject {
             isPrimary: isPrimary
         )
         return await mutate(successMessage: "已添加紧急联系人\(name.trimmed)。") { appState, userId in
-            let _: EmergencyContactResponse = try await appState.apiClient.post(
-                "/api/users/\(userId)/emergency-contacts",
-                body: request
-            )
+            _ = try await appState.profile.createEmergencyContact(userId: userId, request)
         }
     }
 
@@ -156,9 +169,10 @@ final class EmergencyContactsViewModel: ObservableObject {
             isPrimary: contact.isPrimary ?? false
         )
         return await mutate(successMessage: "已更新紧急联系人\(name.trimmed)。") { appState, userId in
-            let _: EmergencyContactResponse = try await appState.apiClient.put(
-                "/api/users/\(userId)/emergency-contacts/\(contact.id)",
-                body: request
+            _ = try await appState.profile.updateEmergencyContact(
+                userId: userId,
+                contactId: contact.id,
+                request
             )
         }
     }
@@ -171,9 +185,7 @@ final class EmergencyContactsViewModel: ObservableObject {
         }
         let name = contact.name?.nilIfBlank ?? "该联系人"
         return await mutate(successMessage: "已删除紧急联系人\(name)。") { appState, userId in
-            let _: EmptyResponse = try await appState.apiClient.delete(
-                "/api/users/\(userId)/emergency-contacts/\(contact.id)"
-            )
+            try await appState.profile.deleteEmergencyContact(userId: userId, contactId: contact.id)
         }
     }
 
@@ -182,9 +194,7 @@ final class EmergencyContactsViewModel: ObservableObject {
         guard contact.isPrimary != true else { return true }
         let name = contact.name?.nilIfBlank ?? "该联系人"
         return await mutate(successMessage: "已把\(name)设为主联系人。") { appState, userId in
-            let _: EmptyResponse = try await appState.apiClient.put(
-                "/api/users/\(userId)/emergency-contacts/\(contact.id)/set-primary"
-            )
+            try await appState.profile.setPrimaryEmergencyContact(userId: userId, contactId: contact.id)
         }
     }
 
@@ -232,9 +242,7 @@ final class EmergencyContactsViewModel: ObservableObject {
     }
 
     private func refreshContacts(appState: AppState, userId: Int64) async throws {
-        let latest: [EmergencyContactResponse] = try await appState.apiClient.get(
-            "/api/users/\(userId)/emergency-contacts"
-        )
+        let latest = try await appState.profile.emergencyContacts(userId: userId)
         contacts = latest
         appState.updateEmergencyContacts(latest)
     }
@@ -310,6 +318,13 @@ struct EmergencyContactsView: View {
                     .foregroundColor(AppColors.textSecondary)
                     .accessibilityLabel(viewModel.listSummary)
 
+                // 成功提示跟着概览走：它俩说的是同一件事（当前状态），排在页首才有机会被看见。
+                if let statusMessage = viewModel.statusMessage {
+                    Text(statusMessage)
+                        .font(AppFonts.body())
+                        .accessibilityLabel(statusMessage)
+                }
+
                 Button("重复当前状态") {
                     viewModel.repeatStatus()
                 }
@@ -348,23 +363,6 @@ struct EmergencyContactsView: View {
                         .accessibilityLabel(addBlockedReason)
                 }
             }
-
-            if let statusMessage = viewModel.statusMessage {
-                Section {
-                    Text(statusMessage)
-                        .font(AppFonts.body())
-                        .accessibilityLabel(statusMessage)
-                }
-            }
-
-            if let errorMessage = viewModel.errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.destructive)
-                        .accessibilityLabel(errorMessage)
-                }
-            }
         }
         .navigationTitle("紧急联系人")
         .refreshable {
@@ -386,6 +384,11 @@ struct EmergencyContactsView: View {
                 }
             }
         }
+        .alert("紧急联系人提示", isPresented: failureAlertBinding) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(viewModel.errorMessage ?? "")
+        }
         .alert("确认删除联系人", isPresented: deletionAlertBinding, presenting: pendingDeletion) { contact in
             Button("确认删除", role: .destructive) {
                 Task { await viewModel.delete(contact) }
@@ -402,6 +405,19 @@ struct EmergencyContactsView: View {
         } message: { contact in
             Text("紧急情况下会优先联系\(contact.name?.nilIfBlank ?? "该联系人")。原主联系人会自动变为普通联系人。")
         }
+    }
+
+    /// 表单以 sheet 呈现时不弹：被 sheet 盖住的视图上呈现 alert 会被 SwiftUI 丢掉，
+    /// 而表单自己就把同一条 message 显示在它那张三段式短表里，不会被挤出屏幕。
+    ///
+    /// 关掉 sheet 时**不**顺手清 message：那等于在每一次保存成功的 dismiss 回调里都写一次
+    /// `@Published`，而保存成功是最热的那条路径。表单里失败过、用户又取消了的话，弹窗补报一次
+    /// 也不算错 —— 那条失败仍然成立。
+    private var failureAlertBinding: Binding<Bool> {
+        Binding(
+            get: { editingTarget == nil && viewModel.isShowingFailure },
+            set: { if !$0 { viewModel.isShowingFailure = false } }
+        )
     }
 
     private var deletionAlertBinding: Binding<Bool> {

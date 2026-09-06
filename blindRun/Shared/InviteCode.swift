@@ -38,7 +38,11 @@ struct InviteCodeResponse: Decodable, Sendable, Equatable {
 ///   **不要**自己在字符串里插顿号 —— 那样 VoiceOver 会把顿号当标点念出来或吞掉，
 ///   而且拿不到读屏自己的拼读语速。
 ///
-/// ⚠️ 落地时真机验过一次：见 `docs/research/incentive-ui-blind-first-20260823.md` 反对意见 2。
+/// ⛔ **真机上还没听过一次。** 只在本机 SDK 的 `.swiftinterface` 上证明了这个 API 存在且部署目标够，
+/// 「VoiceOver 真的会逐字念」这半句**没有任何证据**——
+/// `docs/research/incentive-ui-blind-first-20260823.md` 反对意见 2 逐字写着「没有在真机上听过」，
+/// 而本仓库有先例：`swiftui-voiceover-traversal-order-20260814.md` 里社区说生效的写法真机全废。
+/// 设备恢复后先听这一条；不生效的退路是手拼顿号串（代价见上面那段）。
 enum InviteCodeFormatting {
     /// 视觉展示用。字符间的空隙靠 SwiftUI 的 `kerning`/`tracking` 给，
     /// **不在字符串里插空格** —— 插了的话用户复制出来的码是坏的。

@@ -187,9 +187,24 @@ public protocol APIProtocol: Sendable {
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
-    /// 4. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
-    /// 5. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
-    /// 6. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    /// 4. `plannedEndTime - plannedStartTime` 不得超过 300 分钟（5 小时），否则 422 `APPOINTMENT_TOO_LONG`（N134）
+    /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
+    ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
+    ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
+    ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
+    ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
+    ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
+    /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
+    ///    这是第 7 条放开之后唯一的刷单闸门。
+    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    ///
+    /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
+    /// （默认 240 分钟）时被接单的订单进入 `SCHEDULED_CONFIRMED` 而不是 `PENDING_ACCEPT`，
+    /// 要等志愿者调 `POST /api/orders/{id}/confirm-departure` 才进入出发流程。
+    /// 客户端把这一态显示为「已预约，等待志愿者临期确认」。
     ///
     /// 成功返回 **201 Created**（历史文档误写为 200，已更正）。
     ///
@@ -299,6 +314,12 @@ public protocol APIProtocol: Sendable {
     /// - 409 `ORDER_DISPATCH_MISMATCH` — 该订单当前未派送给你
     /// - 409 `ORDER_ALREADY_ACCEPTED` — 已被他人接单 / 状态不允许接单
     /// - 409 `ORDER_CONCURRENT_CONFLICT` — 乐观锁并发冲突，可稍后重试
+    /// - 409 `INTRO_CALL_REQUIRED` — 没聊过的一对发了 `ACCEPT`，改发 `INTERESTED`
+    /// - 409 `INTRO_CALL_NOT_REQUIRED` — 已聊成过的一对发了 `INTERESTED`，改发 `ACCEPT`。
+    ///   正常流程走不到（`requiresIntroCall` 对熟人恒为 false），撞上通常是界面状态过期 /
+    ///   弱网重试 / 旧版客户端。⚠️ 后端**刻意不「顺手当 ACCEPT 处理」**：`INTERESTED` 不构成接单、
+    ///   聊崩了对志愿者没有统计损失，`ACCEPT` 当场把他绑在这一单上，静默转换等于替他做了承诺。
+    ///   客户端收到后按 `requiresIntroCall=false` 重发 `ACCEPT` 即可
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/respond`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
@@ -326,10 +347,26 @@ public protocol APIProtocol: Sendable {
     /// 通话后表态：合适 / 不合适（BLIND / VOLUNTEER）
     ///
     /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
-    /// 订单退回 `PENDING_MATCH` 派给下一个候选人。
+    /// 订单退回派单队列派给下一个候选人。
     ///
-    /// ⚠️ **退回的是 `PENDING_MATCH` 不是 `REMATCHING`**：后者语义是「已经有过志愿者、他走了」，
-    /// 而通话没成时从来没有志愿者接过单。
+    /// ⚠️ **退回的是「进通话之前那个状态」，不是一律 `PENDING_MATCH`**（2026-08-26 修正）：
+    /// - 这一单从没被重新匹配过 → 回 `PENDING_MATCH`（通话没成时从来没有志愿者接过单，
+    ///   用 `REMATCHING` 会让盲人听到暗示「刚才有人跑了」的文案）
+    /// - 这一单进通话之前是 `REMATCHING`（志愿者接过又中途取消，我们正在给他重新找人）
+    ///   → **回 `REMATCHING`**
+    ///
+    /// 🚩 `PENDING_INTRO_CALL → REMATCHING` 这条边此前不会出现，现在会。客户端若写了
+    /// 「退出通话后一定是 `PENDING_MATCH`」这类假设，要跟着放开 —— 尤其是「继续等待」的入口：
+    /// `PENDING_MATCH` 走 `PUT /keep-waiting`，`REMATCHING` 走 `PUT /keep-rematching`
+    /// （两个端点各数各的次数，都是 10 次上限），按状态分发即可。
+    ///
+    /// 为什么必须区分（不是文案洁癖）：派单的放弃时刻在 `REMATCHING` 下锚在
+    /// `lastRematchAt + 30min`，而那条分支只在状态确实是 `REMATCHING` 时生效。
+    /// 写成 `PENDING_MATCH` 会让基准掉回 `plannedStartTime - 30min` —— 对志愿者半路取消的单
+    /// 那是个过去时刻，订单会在退回后第一次候选池耗尽时直接转 `NO_VOLUNTEER`。
+    ///
+    /// 两侧的结束通知仍是**同一条中性文案**（`INTRO_CALL_CONTINUE`），不因状态不同而改口 ——
+    /// 「无声拒绝」要求两侧都不归因、不透露对方表态。
     ///
     /// 幂等：重复提交同一个表态直接返回 200，不报错（弱网重试是常态）。
     ///
@@ -581,7 +618,9 @@ public protocol APIProtocol: Sendable {
     func getCurrentUser(_ input: Operations.getCurrentUser.Input) async throws -> Operations.getCurrentUser.Output
     /// 重连后补读离线期间错过的通知
     ///
-    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。前端按 ttsText 逐条朗读。
+    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。 前端按 ttsText 逐条朗读。
+    ///
+    /// **续读靠顶层 `hasMore`**（2026-08-29 新增）：为 `true` 时表示窗口里还有没返回完的， 客户端应当拿本次**最后一条**的 `sentAt` 当新的 `after` 再调一次，直到它为 `false`。 在此之前客户端只能靠「是不是正好 50 条」去猜，而那个上限是后端可以改的 —— 离线越久越容易超过 50 条，也就越容易漏掉最该补读的那一批。
     ///
     /// - Remark: HTTP `GET /api/notifications/since`.
     /// - Remark: Generated from `#/paths//api/notifications/since/get`.
@@ -925,9 +964,24 @@ extension APIProtocol {
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
-    /// 4. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
-    /// 5. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
-    /// 6. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    /// 4. `plannedEndTime - plannedStartTime` 不得超过 300 分钟（5 小时），否则 422 `APPOINTMENT_TOO_LONG`（N134）
+    /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
+    ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
+    ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
+    ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
+    ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
+    ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
+    /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
+    ///    这是第 7 条放开之后唯一的刷单闸门。
+    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    ///
+    /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
+    /// （默认 240 分钟）时被接单的订单进入 `SCHEDULED_CONFIRMED` 而不是 `PENDING_ACCEPT`，
+    /// 要等志愿者调 `POST /api/orders/{id}/confirm-departure` 才进入出发流程。
+    /// 客户端把这一态显示为「已预约，等待志愿者临期确认」。
     ///
     /// 成功返回 **201 Created**（历史文档误写为 200，已更正）。
     ///
@@ -1079,6 +1133,12 @@ extension APIProtocol {
     /// - 409 `ORDER_DISPATCH_MISMATCH` — 该订单当前未派送给你
     /// - 409 `ORDER_ALREADY_ACCEPTED` — 已被他人接单 / 状态不允许接单
     /// - 409 `ORDER_CONCURRENT_CONFLICT` — 乐观锁并发冲突，可稍后重试
+    /// - 409 `INTRO_CALL_REQUIRED` — 没聊过的一对发了 `ACCEPT`，改发 `INTERESTED`
+    /// - 409 `INTRO_CALL_NOT_REQUIRED` — 已聊成过的一对发了 `INTERESTED`，改发 `ACCEPT`。
+    ///   正常流程走不到（`requiresIntroCall` 对熟人恒为 false），撞上通常是界面状态过期 /
+    ///   弱网重试 / 旧版客户端。⚠️ 后端**刻意不「顺手当 ACCEPT 处理」**：`INTERESTED` 不构成接单、
+    ///   聊崩了对志愿者没有统计损失，`ACCEPT` 当场把他绑在这一单上，静默转换等于替他做了承诺。
+    ///   客户端收到后按 `requiresIntroCall=false` 重发 `ACCEPT` 即可
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/respond`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
@@ -1124,10 +1184,26 @@ extension APIProtocol {
     /// 通话后表态：合适 / 不合适（BLIND / VOLUNTEER）
     ///
     /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
-    /// 订单退回 `PENDING_MATCH` 派给下一个候选人。
+    /// 订单退回派单队列派给下一个候选人。
     ///
-    /// ⚠️ **退回的是 `PENDING_MATCH` 不是 `REMATCHING`**：后者语义是「已经有过志愿者、他走了」，
-    /// 而通话没成时从来没有志愿者接过单。
+    /// ⚠️ **退回的是「进通话之前那个状态」，不是一律 `PENDING_MATCH`**（2026-08-26 修正）：
+    /// - 这一单从没被重新匹配过 → 回 `PENDING_MATCH`（通话没成时从来没有志愿者接过单，
+    ///   用 `REMATCHING` 会让盲人听到暗示「刚才有人跑了」的文案）
+    /// - 这一单进通话之前是 `REMATCHING`（志愿者接过又中途取消，我们正在给他重新找人）
+    ///   → **回 `REMATCHING`**
+    ///
+    /// 🚩 `PENDING_INTRO_CALL → REMATCHING` 这条边此前不会出现，现在会。客户端若写了
+    /// 「退出通话后一定是 `PENDING_MATCH`」这类假设，要跟着放开 —— 尤其是「继续等待」的入口：
+    /// `PENDING_MATCH` 走 `PUT /keep-waiting`，`REMATCHING` 走 `PUT /keep-rematching`
+    /// （两个端点各数各的次数，都是 10 次上限），按状态分发即可。
+    ///
+    /// 为什么必须区分（不是文案洁癖）：派单的放弃时刻在 `REMATCHING` 下锚在
+    /// `lastRematchAt + 30min`，而那条分支只在状态确实是 `REMATCHING` 时生效。
+    /// 写成 `PENDING_MATCH` 会让基准掉回 `plannedStartTime - 30min` —— 对志愿者半路取消的单
+    /// 那是个过去时刻，订单会在退回后第一次候选池耗尽时直接转 `NO_VOLUNTEER`。
+    ///
+    /// 两侧的结束通知仍是**同一条中性文案**（`INTRO_CALL_CONTINUE`），不因状态不同而改口 ——
+    /// 「无声拒绝」要求两侧都不归因、不透露对方表态。
     ///
     /// 幂等：重复提交同一个表态直接返回 200，不报错（弱网重试是常态）。
     ///
@@ -1557,7 +1633,9 @@ extension APIProtocol {
     }
     /// 重连后补读离线期间错过的通知
     ///
-    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。前端按 ttsText 逐条朗读。
+    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。 前端按 ttsText 逐条朗读。
+    ///
+    /// **续读靠顶层 `hasMore`**（2026-08-29 新增）：为 `true` 时表示窗口里还有没返回完的， 客户端应当拿本次**最后一条**的 `sentAt` 当新的 `after` 再调一次，直到它为 `false`。 在此之前客户端只能靠「是不是正好 50 条」去猜，而那个上限是后端可以改的 —— 离线越久越容易超过 50 条，也就越容易漏掉最该补读的那一批。
     ///
     /// - Remark: HTTP `GET /api/notifications/since`.
     /// - Remark: Generated from `#/paths//api/notifications/since/get`.
@@ -2579,6 +2657,7 @@ public enum Components {
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case PENDING_MATCH = "PENDING_MATCH"
                     case PENDING_INTRO_CALL = "PENDING_INTRO_CALL"
+                    case SCHEDULED_CONFIRMED = "SCHEDULED_CONFIRMED"
                     case PENDING_ACCEPT = "PENDING_ACCEPT"
                     case IN_PROGRESS = "IN_PROGRESS"
                     case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
@@ -4460,6 +4539,7 @@ public enum Components {
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case PENDING_MATCH = "PENDING_MATCH"
                     case PENDING_INTRO_CALL = "PENDING_INTRO_CALL"
+                    case SCHEDULED_CONFIRMED = "SCHEDULED_CONFIRMED"
                     case PENDING_ACCEPT = "PENDING_ACCEPT"
                     case IN_PROGRESS = "IN_PROGRESS"
                     case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
@@ -4871,6 +4951,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerName`.
             public var volunteerName: Swift.String?
+            /// 已接单志愿者的用户 id。**未接单时为 null。** 🚨 **用途只有一个：拿去调 `PUT /api/blind/favorite-volunteers/{volunteerId}` 收藏这位志愿者。** 不要拿它拼任何展示文案，也不要拿它做拨号 —— 号码仍然只走 `volunteerPhone` 那条状态门。 ⚠️ 「只在接单后下发」是**结构上成立**的，不是额外判断：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` / `NO_VOLUNTEER` / `CANCELLED` 期 `order.volunteer` 本就是 null（通话磨合期的候选人存在 `dispatchCurrentVolunteerId` 里，**刻意不从这里漏出去** —— 接单前给出一个稳定 id 等于给每个候选人一个可长期持有的标识）。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerId`.
+            public var volunteerId: Swift.Int64?
             /// 已接单志愿者的历史平均评分（1–5）。**未接单时为 null**（三个 volunteer* 统计字段 都挂在 `order.volunteer` 上，`PENDING_MATCH`/`REMATCHING`/`NO_VOLUNTEER`/`CANCELLED` 期它本就是 null ⇒「接单前不下发可识别信息」是结构上成立的，不靠调用方判状态）。 🚨 **null 与 0 语义完全不同**：null = 这位志愿者还没有收到过评价（`volunteerTotalRatings` 为 0）， 客户端要念「这位志愿者还没有评价」；念成「0 分」是把一个新人说成了差评。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerAvgRating`.
@@ -4947,6 +5031,7 @@ public enum Components {
             ///   - tetherPreference:
             ///   - chatPreference:
             ///   - volunteerName: 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 未接单时为 null。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
+            ///   - volunteerId: 已接单志愿者的用户 id。**未接单时为 null。** 🚨 **用途只有一个：拿去调 `PUT /api/blind/favorite-volunteers/{volunteerId}` 收藏这位志愿者。** 不要拿它拼任何展示文案，也不要拿它做拨号 —— 号码仍然只走 `volunteerPhone` 那条状态门。 ⚠️ 「只在接单后下发」是**结构上成立**的，不是额外判断：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` / `NO_VOLUNTEER` / `CANCELLED` 期 `order.volunteer` 本就是 null（通话磨合期的候选人存在 `dispatchCurrentVolunteerId` 里，**刻意不从这里漏出去** —— 接单前给出一个稳定 id 等于给每个候选人一个可长期持有的标识）。
             ///   - volunteerAvgRating: 已接单志愿者的历史平均评分（1–5）。**未接单时为 null**（三个 volunteer* 统计字段 都挂在 `order.volunteer` 上，`PENDING_MATCH`/`REMATCHING`/`NO_VOLUNTEER`/`CANCELLED` 期它本就是 null ⇒「接单前不下发可识别信息」是结构上成立的，不靠调用方判状态）。 🚨 **null 与 0 语义完全不同**：null = 这位志愿者还没有收到过评价（`volunteerTotalRatings` 为 0）， 客户端要念「这位志愿者还没有评价」；念成「0 分」是把一个新人说成了差评。
             ///   - volunteerTotalRatings: 已接单志愿者收到过的评价条数。0 是真实的 0（新人），不是缺数据；未接单时为 null。
             ///   - volunteerTotalCompleted: 已接单志愿者累计完成的陪跑单数。未接单时为 null。 ⚠️ **纯展示，不进派单权重** —— 文案上别写成「完成得多更容易接到单」。
@@ -4984,6 +5069,7 @@ public enum Components {
                 tetherPreference: Components.Schemas.OrderDetailResponse.tetherPreferencePayload? = nil,
                 chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload? = nil,
                 volunteerName: Swift.String? = nil,
+                volunteerId: Swift.Int64? = nil,
                 volunteerAvgRating: Swift.Double? = nil,
                 volunteerTotalRatings: Swift.Int? = nil,
                 volunteerTotalCompleted: Swift.Int? = nil,
@@ -5021,6 +5107,7 @@ public enum Components {
                 self.tetherPreference = tetherPreference
                 self.chatPreference = chatPreference
                 self.volunteerName = volunteerName
+                self.volunteerId = volunteerId
                 self.volunteerAvgRating = volunteerAvgRating
                 self.volunteerTotalRatings = volunteerTotalRatings
                 self.volunteerTotalCompleted = volunteerTotalCompleted
@@ -5059,6 +5146,7 @@ public enum Components {
                 case tetherPreference
                 case chatPreference
                 case volunteerName
+                case volunteerId
                 case volunteerAvgRating
                 case volunteerTotalRatings
                 case volunteerTotalCompleted
@@ -5081,6 +5169,7 @@ public enum Components {
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case PENDING_MATCH = "PENDING_MATCH"
                     case PENDING_INTRO_CALL = "PENDING_INTRO_CALL"
+                    case SCHEDULED_CONFIRMED = "SCHEDULED_CONFIRMED"
                     case PENDING_ACCEPT = "PENDING_ACCEPT"
                     case DRIVER_EN_ROUTE = "DRIVER_EN_ROUTE"
                     case DRIVER_ARRIVED = "DRIVER_ARRIVED"
@@ -5812,6 +5901,26 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/IntroCallView/windowEndsAt`.
             public var windowEndsAt: Foundation.Date?
+            /// 起跑点文字地址。**双方角色都给**——它是「这一单的信息」不是「对方的信息」。 志愿者这一态读不到订单详情（`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403）， 杀掉 App 再打开就回不到通话页。与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/startAddress`.
+            public var startAddress: Swift.String?
+            /// 起跑点纬度（GCJ-02）
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/startLatitude`.
+            public var startLatitude: Swift.Double?
+            /// 起跑点经度（GCJ-02）
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/startLongitude`.
+            public var startLongitude: Swift.Double?
+            /// 计划开始时间
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/plannedStartTime`.
+            public var plannedStartTime: Foundation.Date?
+            /// 计划结束时间。⚠️ **不要往这个 DTO 里加自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
+            ///
+            /// - Remark: Generated from `#/components/schemas/IntroCallView/plannedEndTime`.
+            public var plannedEndTime: Foundation.Date?
             /// Creates a new `IntroCallView`.
             ///
             /// - Parameters:
@@ -5820,18 +5929,33 @@ public enum Components {
             ///   - counterpartPhoneMasked: 对方号码的掩码串——**仅志愿者侧有值**，用途只有一个：**认人**（他会接到陌生号码来电）。 🚨 **绝不能拿它去拼 `tel:`**，它是展示字段不是拨号字段。
             ///   - myDecision: 我自己的表态，null = 还没表态。**只有自己的，没有对方的**
             ///   - windowEndsAt: 本轮通话窗口的结束时刻。到点双方仍未表完态则本轮作废，换下一个候选人
+            ///   - startAddress: 起跑点文字地址。**双方角色都给**——它是「这一单的信息」不是「对方的信息」。 志愿者这一态读不到订单详情（`order.volunteer` 还是 null ⇒ `GET /api/orders/{id}` 恒 403）， 杀掉 App 再打开就回不到通话页。与 `NEW_ORDER` 推送的 `startAddress` 同源，暴露面为零。
+            ///   - startLatitude: 起跑点纬度（GCJ-02）
+            ///   - startLongitude: 起跑点经度（GCJ-02）
+            ///   - plannedStartTime: 计划开始时间
+            ///   - plannedEndTime: 计划结束时间。⚠️ **不要往这个 DTO 里加自由文本**（`specialNotes` / `routeNotes`）—— 通话发生在接单前，那条边界不变。
             public init(
                 counterpartName: Swift.String? = nil,
                 counterpartPhone: Swift.String? = nil,
                 counterpartPhoneMasked: Swift.String? = nil,
                 myDecision: Components.Schemas.IntroCallView.myDecisionPayload? = nil,
-                windowEndsAt: Foundation.Date? = nil
+                windowEndsAt: Foundation.Date? = nil,
+                startAddress: Swift.String? = nil,
+                startLatitude: Swift.Double? = nil,
+                startLongitude: Swift.Double? = nil,
+                plannedStartTime: Foundation.Date? = nil,
+                plannedEndTime: Foundation.Date? = nil
             ) {
                 self.counterpartName = counterpartName
                 self.counterpartPhone = counterpartPhone
                 self.counterpartPhoneMasked = counterpartPhoneMasked
                 self.myDecision = myDecision
                 self.windowEndsAt = windowEndsAt
+                self.startAddress = startAddress
+                self.startLatitude = startLatitude
+                self.startLongitude = startLongitude
+                self.plannedStartTime = plannedStartTime
+                self.plannedEndTime = plannedEndTime
             }
             public enum CodingKeys: String, CodingKey {
                 case counterpartName
@@ -5839,6 +5963,11 @@ public enum Components {
                 case counterpartPhoneMasked
                 case myDecision
                 case windowEndsAt
+                case startAddress
+                case startLatitude
+                case startLongitude
+                case plannedStartTime
+                case plannedEndTime
             }
         }
         /// 通话后的表态。⚠️ **刻意没有 reason 字段**——拒绝不需要给理由，系统也不记录理由。
@@ -6836,6 +6965,10 @@ public enum Components {
             public var activeOrders: [Components.Schemas.VolunteerDispatchActiveOrder]?
             /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/recentOrders`.
             public var recentOrders: [Components.Schemas.VolunteerDispatchRecentOrder]?
+            /// 此刻正在通话磨合的那一单（`PENDING_INTRO_CALL`），没有则 null（绝大多数时候）。 存在的唯一理由是**冷启动恢复**：这一态 `order.volunteer` 还是 null， `GET /api/orders/{id}` 恒 403、`/api/orders/mine` 也不返回 —— 志愿者杀掉 App 再打开就回不到通话页，只能等 20 分钟窗口超时，而盲人在等他。 拿到这个 id 后调 `GET /api/orders/{id}/intro-call` 取全部通话页数据。 🚨 **它不在 `activeOrders` 里，也不要合并进去**：人还没接单， 且那一态 `sharesLiveLocation()` 为 false，混进活跃订单会让位置协同在空转。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerDispatchSummaryResponse/introCallOrderId`.
+            public var introCallOrderId: Swift.Int64?
             /// Creates a new `VolunteerDispatchSummaryResponse`.
             ///
             /// - Parameters:
@@ -6859,6 +6992,7 @@ public enum Components {
             ///   - acceptanceRate: 接单率 0.0-1.0（null=无派单记录）
             ///   - activeOrders:
             ///   - recentOrders:
+            ///   - introCallOrderId: 此刻正在通话磨合的那一单（`PENDING_INTRO_CALL`），没有则 null（绝大多数时候）。 存在的唯一理由是**冷启动恢复**：这一态 `order.volunteer` 还是 null， `GET /api/orders/{id}` 恒 403、`/api/orders/mine` 也不返回 —— 志愿者杀掉 App 再打开就回不到通话页，只能等 20 分钟窗口超时，而盲人在等他。 拿到这个 id 后调 `GET /api/orders/{id}/intro-call` 取全部通话页数据。 🚨 **它不在 `activeOrders` 里，也不要合并进去**：人还没接单， 且那一态 `sharesLiveLocation()` 为 false，混进活跃订单会让位置协同在空转。
             public init(
                 canDispatch: Swift.Bool? = nil,
                 notAvailableReasons: [Components.Schemas.DispatchBlockReason]? = nil,
@@ -6879,7 +7013,8 @@ public enum Components {
                 totalTimeout: Swift.Int? = nil,
                 acceptanceRate: Swift.Double? = nil,
                 activeOrders: [Components.Schemas.VolunteerDispatchActiveOrder]? = nil,
-                recentOrders: [Components.Schemas.VolunteerDispatchRecentOrder]? = nil
+                recentOrders: [Components.Schemas.VolunteerDispatchRecentOrder]? = nil,
+                introCallOrderId: Swift.Int64? = nil
             ) {
                 self.canDispatch = canDispatch
                 self.notAvailableReasons = notAvailableReasons
@@ -6901,6 +7036,7 @@ public enum Components {
                 self.acceptanceRate = acceptanceRate
                 self.activeOrders = activeOrders
                 self.recentOrders = recentOrders
+                self.introCallOrderId = introCallOrderId
             }
             public enum CodingKeys: String, CodingKey {
                 case canDispatch
@@ -6923,6 +7059,7 @@ public enum Components {
                 case acceptanceRate
                 case activeOrders
                 case recentOrders
+                case introCallOrderId
             }
         }
         /// - Remark: Generated from `#/components/schemas/VolunteerDispatchActiveOrder`.
@@ -10589,9 +10726,24 @@ public enum Operations {
     /// 1. `plannedEndTime` 必须晚于 `plannedStartTime`，否则 400 `BAD_REQUEST`
     /// 2. `plannedStartTime` 不能早于当前时间，否则 400 `BAD_REQUEST`
     /// 3. `plannedStartTime` 距当前时间需至少 `app.order.min-lead-time-minutes`（默认 30）分钟，否则 422 `APPOINTMENT_TOO_SOON`
-    /// 4. 已有进行中订单（`PENDING_MATCH/PENDING_ACCEPT/IN_PROGRESS/DRIVER_EN_ROUTE/DRIVER_ARRIVED/REMATCHING`）时拒绝，409 `DUPLICATE_ORDER`
-    /// 5. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
-    /// 6. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    /// 4. `plannedEndTime - plannedStartTime` 不得超过 300 分钟（5 小时），否则 422 `APPOINTMENT_TOO_LONG`（N134）
+    /// 5. **整段行程**不得有任何一刻落进夜间禁跑窗口 `[22:00, 05:00)`，否则 422 `APPOINTMENT_IN_NIGHT_WINDOW`（N134）。
+    ///    判据是整段不是开始时刻：`21:00–22:30` **拒**（尾巴进了夜间），`21:00–22:00` 放行（恰好 22:00 结束不算重叠），
+    ///    `05:00–06:00` 放行（恰好 05:00 开始不算重叠）。⚠️ 顺序在 4 之后：跨多天的超长单两条都命中，返回的是 `APPOINTMENT_TOO_LONG`
+    /// 6. `plannedStartTime` 不得超出 `app.order.max-lead-days`（默认 7 天），否则 422 `APPOINTMENT_TOO_FAR`（2026-09-05 新增；此前**只有下限没有上限**）
+    /// 7. **时段冲突**：与该盲人任一未走完的订单（全部非终态）在时间上重叠时拒绝，409 `DUPLICATE_ORDER`。
+    ///    两侧各外扩 `app.order.booking-buffer-minutes`（默认 60）判区间相交。
+    ///    🚩 **2026-09-05 起从「有任何未走完的单就拒绝」改成只拦时段冲突** —— 跨天预约上线后，
+    ///    约了后天早上的单不该让人这两天里下不了任何单，而取消预约就抢不回那个志愿者了。
+    /// 8. **并发预约数**：未走完的单已达 `app.order.max-concurrent-scheduled`（默认 3）时拒绝，409 `TOO_MANY_SCHEDULED_ORDERS`。
+    ///    这是第 7 条放开之后唯一的刷单闸门。
+    /// 9. 盲人 `BlindProfile.verifyStatus != VERIFIED` 时拒绝，403 `IDENTITY_NOT_VERIFIED`（2026-07-30 新增硬门槛，此前为软引导不阻断）
+    /// 10. 无紧急联系人时拒绝，403 `EMERGENCY_CONTACT_REQUIRED`（此前复用通用 `ORDER_PERMISSION_DENIED`，前端无法程序化区分场景，2026-07-30 改为专用码）
+    ///
+    /// 📅 **跨天预约（2026-09-05）**：距开跑超过 `app.order.scheduled-ahead-threshold-minutes`
+    /// （默认 240 分钟）时被接单的订单进入 `SCHEDULED_CONFIRMED` 而不是 `PENDING_ACCEPT`，
+    /// 要等志愿者调 `POST /api/orders/{id}/confirm-departure` 才进入出发流程。
+    /// 客户端把这一态显示为「已预约，等待志愿者临期确认」。
     ///
     /// 成功返回 **201 Created**（历史文档误写为 200，已更正）。
     ///
@@ -10813,7 +10965,9 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 预约开始时间距当前时间不足最小提前量（APPOINTMENT_TOO_SOON）
+            /// 预约开始时间距当前时间不足最小提前量（`APPOINTMENT_TOO_SOON`）、
+            /// 计划时长超过 300 分钟（`APPOINTMENT_TOO_LONG`），
+            /// 或行程落进夜间禁跑窗口 `[22:00, 05:00)`（`APPOINTMENT_IN_NIGHT_WINDOW`）
             ///
             /// - Remark: Generated from `#/paths//api/orders/post(createOrder)/responses/422`.
             ///
@@ -11713,6 +11867,12 @@ public enum Operations {
     /// - 409 `ORDER_DISPATCH_MISMATCH` — 该订单当前未派送给你
     /// - 409 `ORDER_ALREADY_ACCEPTED` — 已被他人接单 / 状态不允许接单
     /// - 409 `ORDER_CONCURRENT_CONFLICT` — 乐观锁并发冲突，可稍后重试
+    /// - 409 `INTRO_CALL_REQUIRED` — 没聊过的一对发了 `ACCEPT`，改发 `INTERESTED`
+    /// - 409 `INTRO_CALL_NOT_REQUIRED` — 已聊成过的一对发了 `INTERESTED`，改发 `ACCEPT`。
+    ///   正常流程走不到（`requiresIntroCall` 对熟人恒为 false），撞上通常是界面状态过期 /
+    ///   弱网重试 / 旧版客户端。⚠️ 后端**刻意不「顺手当 ACCEPT 处理」**：`INTERESTED` 不构成接单、
+    ///   聊崩了对志愿者没有统计损失，`ACCEPT` 当场把他绑在这一单上，静默转换等于替他做了承诺。
+    ///   客户端收到后按 `requiresIntroCall=false` 重发 `ACCEPT` 即可
     ///
     /// - Remark: HTTP `POST /api/orders/{id}/respond`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
@@ -11897,7 +12057,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 未派给你（ORDER_DISPATCH_MISMATCH）/ 已被他人接单（ORDER_ALREADY_ACCEPTED）/ 并发冲突（ORDER_CONCURRENT_CONFLICT）
+            /// 未派给你（ORDER_DISPATCH_MISMATCH）/ 已被他人接单（ORDER_ALREADY_ACCEPTED）/ 并发冲突（ORDER_CONCURRENT_CONFLICT）/ 陌生人未先通话（INTRO_CALL_REQUIRED）/ 熟人不必再通话（INTRO_CALL_NOT_REQUIRED）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)/responses/409`.
             ///
@@ -12199,10 +12359,26 @@ public enum Operations {
     /// 通话后表态：合适 / 不合适（BLIND / VOLUNTEER）
     ///
     /// 双方都 `ACCEPT` 才成单（订单转 `PENDING_ACCEPT`）；任一方 `DECLINE` 立即结束本轮，
-    /// 订单退回 `PENDING_MATCH` 派给下一个候选人。
+    /// 订单退回派单队列派给下一个候选人。
     ///
-    /// ⚠️ **退回的是 `PENDING_MATCH` 不是 `REMATCHING`**：后者语义是「已经有过志愿者、他走了」，
-    /// 而通话没成时从来没有志愿者接过单。
+    /// ⚠️ **退回的是「进通话之前那个状态」，不是一律 `PENDING_MATCH`**（2026-08-26 修正）：
+    /// - 这一单从没被重新匹配过 → 回 `PENDING_MATCH`（通话没成时从来没有志愿者接过单，
+    ///   用 `REMATCHING` 会让盲人听到暗示「刚才有人跑了」的文案）
+    /// - 这一单进通话之前是 `REMATCHING`（志愿者接过又中途取消，我们正在给他重新找人）
+    ///   → **回 `REMATCHING`**
+    ///
+    /// 🚩 `PENDING_INTRO_CALL → REMATCHING` 这条边此前不会出现，现在会。客户端若写了
+    /// 「退出通话后一定是 `PENDING_MATCH`」这类假设，要跟着放开 —— 尤其是「继续等待」的入口：
+    /// `PENDING_MATCH` 走 `PUT /keep-waiting`，`REMATCHING` 走 `PUT /keep-rematching`
+    /// （两个端点各数各的次数，都是 10 次上限），按状态分发即可。
+    ///
+    /// 为什么必须区分（不是文案洁癖）：派单的放弃时刻在 `REMATCHING` 下锚在
+    /// `lastRematchAt + 30min`，而那条分支只在状态确实是 `REMATCHING` 时生效。
+    /// 写成 `PENDING_MATCH` 会让基准掉回 `plannedStartTime - 30min` —— 对志愿者半路取消的单
+    /// 那是个过去时刻，订单会在退回后第一次候选池耗尽时直接转 `NO_VOLUNTEER`。
+    ///
+    /// 两侧的结束通知仍是**同一条中性文案**（`INTRO_CALL_CONTINUE`），不因状态不同而改口 ——
+    /// 「无声拒绝」要求两侧都不归因、不透露对方表态。
     ///
     /// 幂等：重复提交同一个表态直接返回 200，不报错（弱网重试是常态）。
     ///
@@ -17037,7 +17213,9 @@ public enum Operations {
     }
     /// 重连后补读离线期间错过的通知
     ///
-    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。前端按 ttsText 逐条朗读。
+    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。 前端按 ttsText 逐条朗读。
+    ///
+    /// **续读靠顶层 `hasMore`**（2026-08-29 新增）：为 `true` 时表示窗口里还有没返回完的， 客户端应当拿本次**最后一条**的 `sentAt` 当新的 `after` 再调一次，直到它为 `false`。 在此之前客户端只能靠「是不是正好 50 条」去猜，而那个上限是后端可以改的 —— 离线越久越容易超过 50 条，也就越容易漏掉最该补读的那一批。
     ///
     /// - Remark: HTTP `GET /api/notifications/since`.
     /// - Remark: Generated from `#/paths//api/notifications/since/get`.
@@ -17151,25 +17329,33 @@ public enum Operations {
                         public typealias dataPayload = [Operations.get_sol_api_sol_notifications_sol_since.Output.Ok.Body.jsonPayload.dataPayloadPayload]
                         /// - Remark: Generated from `#/paths/api/notifications/since/GET/responses/200/content/json/data`.
                         public var data: Operations.get_sol_api_sol_notifications_sol_since.Output.Ok.Body.jsonPayload.dataPayload?
+                        /// 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
+                        ///
+                        /// - Remark: Generated from `#/paths/api/notifications/since/GET/responses/200/content/json/hasMore`.
+                        public var hasMore: Swift.Bool?
                         /// Creates a new `jsonPayload`.
                         ///
                         /// - Parameters:
                         ///   - success:
                         ///   - code:
                         ///   - data:
+                        ///   - hasMore: 窗口里是否还有未返回的通知。`true` ⇒ 拿本次最后一条的 `sentAt` 当新的 `after` 再调一次。**只有本端点会返回这个字段**，其余端点的信封里不会出现它。
                         public init(
                             success: Swift.Bool? = nil,
                             code: Swift.Int? = nil,
-                            data: Operations.get_sol_api_sol_notifications_sol_since.Output.Ok.Body.jsonPayload.dataPayload? = nil
+                            data: Operations.get_sol_api_sol_notifications_sol_since.Output.Ok.Body.jsonPayload.dataPayload? = nil,
+                            hasMore: Swift.Bool? = nil
                         ) {
                             self.success = success
                             self.code = code
                             self.data = data
+                            self.hasMore = hasMore
                         }
                         public enum CodingKeys: String, CodingKey {
                             case success
                             case code
                             case data
+                            case hasMore
                         }
                     }
                     /// - Remark: Generated from `#/paths/api/notifications/since/GET/responses/200/content/application\/json`.

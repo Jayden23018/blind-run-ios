@@ -137,6 +137,23 @@ final class LoginViewModel: ObservableObject {
         if errorMessage == nil,
            let sessionExpirationMessage = appState.consumeSessionExpirationMessage() {
             errorMessage = sessionExpirationMessage
+            // 🚨 **必须播。** 会话过期是这个文件里唯一一条只写 `errorMessage`、不播报的错误
+            // （其余五处都走 `speakError`：`:198 / :251 / :282 / :306 / :320`）——
+            // 是漏了，不是取舍。
+            //
+            // 它的到达方式与那五条都不同：用户按的是「提交预约」/「接单」，
+            // 401 之后 `AppState.expireSession()` 把整个 App 换成登录页，而三个调用点
+            // （`BlindBookingViewModel.submit` / `VolunteerHomeViewModel.respondToDispatch` /
+            // `VoiceOrderWizard.submitConfirmedBooking`）拿到 `handleAuthenticatedAPIError == true`
+            // 之后都只是 `return nil`。于是屏幕整个换掉、原因只以红色小字写在新页面上 ——
+            // 对看不见屏幕的人，一次真实发生的会话过期与「点了没反应」完全无从分辨。
+            //
+            // 修在这里而不是在那三个调用点各补一句：它们本来就不该知道「过期之后要说什么」，
+            // 而且消息的所有权在 `AppState.sessionExpirationMessage` 上。
+            //
+            // 不会重复播：`consumeSessionExpirationMessage()` 取完即置 nil，
+            // `onAppear` 再触发一次拿到的是 nil。
+            speechService.speakError(sessionExpirationMessage)
         }
     }
 
@@ -172,20 +189,13 @@ final class LoginViewModel: ObservableObject {
         // Long-lived test accounts may still use the fixed code 000000, but the
         // send-code API must return before we show the input and countdown.
         Task {
-            guard let apiClient = activeAPIClient else {
+            guard let auth = activeAuth else {
                 isSendingCode = false
                 errorMessage = "应用未初始化，请重启"
                 return
             }
-            let request = SendCodeRequest(phone: requestPhone)
             do {
-                let _: SendCodeResponse = try await apiClient.request(
-                    method: .post,
-                    path: "/api/auth/send-code",
-                    query: nil,
-                    body: request,
-                    requiresAuth: false
-                )
+                _ = try await auth.sendVerificationCode(phone: requestPhone)
                 isSendingCode = false
                 showCodeInput = true
                 startCountdown()
@@ -219,7 +229,7 @@ final class LoginViewModel: ObservableObject {
     // MARK: - Private
 
     private func performLogin() async {
-        guard let apiClient = activeAPIClient else {
+        guard let auth = activeAuth else {
             errorMessage = "应用未初始化，请重启"
             return
         }
@@ -228,14 +238,7 @@ final class LoginViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let request = VerifyCodeRequest(phone: phoneNumber, code: verificationCode)
-            let response: LoginResponse = try await apiClient.request(
-                method: .post,
-                path: "/api/auth/verify-code",
-                query: nil,
-                body: request,
-                requiresAuth: false
-            )
+            let response = try await auth.verifyCode(phone: phoneNumber, code: verificationCode)
             if let appState {
                 appState.handleLoginSuccess(response: response)
             } else {
@@ -283,8 +286,11 @@ final class LoginViewModel: ObservableObject {
         }
     }
 
-    private var activeAPIClient: (any APIClientProtocol)? {
-        apiClientOverride ?? appState?.apiClient
+    /// 注入的 `apiClient` 仍然是测试的注入口（用例都写着 `LoginViewModel(apiClient:)`），
+    /// 在这里包成 service —— 登录页只认识 `AuthServing`，不再直接拼路径。
+    private var activeAuth: (any AuthServing)? {
+        if let apiClientOverride { return AuthService(transport: apiClientOverride) }
+        return appState?.auth
     }
 
     private func handleSendCodeError(_ error: APIError) {

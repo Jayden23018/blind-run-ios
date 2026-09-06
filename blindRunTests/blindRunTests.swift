@@ -185,8 +185,11 @@ final class blindRunTests: XCTestCase {
     }
 
     func testVolunteerHomeRefreshesBackendAuthoritativeDispatchSummary() async {
-        let client = DispatchSummarySequenceAPIClient()
-        let appState = AppState(apiClient: client)
+        let client = Self.makeDispatchSummaryService(
+            first: .success(Self.dispatchSummaryUnavailable),
+            rest: Self.dispatchSummaryAvailable
+        )
+        let appState = AppState(orders: client)
         let viewModel = VolunteerHomeViewModel()
         viewModel.configure(with: appState, speechService: SpeechService())
 
@@ -197,12 +200,15 @@ final class blindRunTests: XCTestCase {
         await viewModel.refreshDispatchSummary()
         XCTAssertTrue(viewModel.dispatchSummary?.canDispatch ?? false)
         XCTAssertEqual(viewModel.statusText, "已上线，等待系统派单")
-        XCTAssertEqual(client.dispatchSummaryRequestCount, 2)
+        XCTAssertEqual(client.callCount("dispatchSummary()"), 2)
     }
 
     func testVolunteerHomeSummaryRefreshPreservesActionError() async {
-        let client = DispatchSummarySequenceAPIClient()
-        let appState = AppState(apiClient: client)
+        let client = Self.makeDispatchSummaryService(
+            first: .success(Self.dispatchSummaryUnavailable),
+            rest: Self.dispatchSummaryAvailable
+        )
+        let appState = AppState(orders: client)
         let viewModel = VolunteerHomeViewModel()
         viewModel.configure(with: appState, speechService: SpeechService())
         viewModel.errorMessage = "可服务状态更新失败，请重试"
@@ -215,8 +221,13 @@ final class blindRunTests: XCTestCase {
     }
 
     func testVolunteerHomeSummaryRefreshErrorRecoversIndependently() async {
-        let client = RecoveringDispatchSummaryAPIClient()
-        let appState = AppState(apiClient: client)
+        let client = Self.makeDispatchSummaryService(
+            first: .failure(APIError.serverError(
+                ErrorResponse(code: "DISPATCH_SUMMARY_UNAVAILABLE", message: "派单摘要暂时不可用")
+            )),
+            rest: Self.dispatchSummaryAvailable
+        )
+        let appState = AppState(orders: client)
         let viewModel = VolunteerHomeViewModel()
         viewModel.configure(with: appState, speechService: SpeechService())
 
@@ -232,8 +243,11 @@ final class blindRunTests: XCTestCase {
     }
 
     func testVolunteerReconnectImmediatelyReportsLatestLocationAndRefreshesSummary() async {
-        let client = DispatchSummarySequenceAPIClient()
-        let appState = AppState(apiClient: client)
+        let client = Self.makeDispatchSummaryService(
+            first: .success(Self.dispatchSummaryUnavailable),
+            rest: Self.dispatchSummaryAvailable
+        )
+        let appState = AppState(orders: client)
         appState.currentEnvironment = .demoCloud
         appState.activeRole = .volunteer
         let service = WebSocketService()
@@ -263,7 +277,7 @@ final class blindRunTests: XCTestCase {
         service.simulateConnectionStateForTesting(.connected)
 
         let didRecover = await waitUntil {
-            reportCount == 1 && client.dispatchSummaryRequestCount == 1
+            reportCount == 1 && client.callCount("dispatchSummary()") == 1
         }
         XCTAssertTrue(didRecover)
         XCTAssertNil(viewModel.locationDispatchWarning)
@@ -274,8 +288,11 @@ final class blindRunTests: XCTestCase {
 
     /// 单次采样为 nil 是常见瞬态，必须完全静默：横幅不能闪，也不能播报。
     func testVolunteerSingleLocationReportFailureStaysSilent() async {
-        let client = DispatchSummarySequenceAPIClient()
-        let appState = AppState(apiClient: client)
+        let client = Self.makeDispatchSummaryService(
+            first: .success(Self.dispatchSummaryUnavailable),
+            rest: Self.dispatchSummaryAvailable
+        )
+        let appState = AppState(orders: client)
         appState.currentEnvironment = .demoCloud
         let speechService = SpeechService()
         let viewModel = VolunteerHomeViewModel(
@@ -295,8 +312,11 @@ final class blindRunTests: XCTestCase {
 
     /// 连续失败达到阈值才报警，且重复失败不重复播报。
     func testVolunteerMissingLocationShowsAndSpeaksDispatchWarningAfterThreshold() async {
-        let client = DispatchSummarySequenceAPIClient()
-        let appState = AppState(apiClient: client)
+        let client = Self.makeDispatchSummaryService(
+            first: .success(Self.dispatchSummaryUnavailable),
+            rest: Self.dispatchSummaryAvailable
+        )
+        let appState = AppState(orders: client)
         appState.currentEnvironment = .demoCloud
         let speechService = SpeechService()
         let viewModel = VolunteerHomeViewModel(
@@ -332,8 +352,11 @@ final class blindRunTests: XCTestCase {
 
     /// 中途上报成功要清空横幅并复位计数，之后再来一次瞬态失败仍然不报警。
     func testVolunteerSuccessfulLocationReportResetsWarningSuppression() async {
-        let client = DispatchSummarySequenceAPIClient()
-        let appState = AppState(apiClient: client)
+        let client = Self.makeDispatchSummaryService(
+            first: .success(Self.dispatchSummaryUnavailable),
+            rest: Self.dispatchSummaryAvailable
+        )
+        let appState = AppState(orders: client)
         appState.currentEnvironment = .demoCloud
         let speechService = SpeechService()
         var shouldSucceed = false
@@ -571,8 +594,13 @@ final class blindRunTests: XCTestCase {
     }
 
     func testVolunteerDispatchSummaryDoesNotWaitForSlowProfileHydration() async {
-        let client = SummaryFirstAPIClient()
-        let appState = AppState(apiClient: client)
+        // 两个替身各管一片：慢的那半是资料水合（认证片，走 apiClient），
+        // 快的那半是派单摘要（订单片，走 orders）。
+        let client = Self.makeDispatchSummaryService(
+            first: .success(Self.dispatchSummaryAvailable),
+            rest: Self.dispatchSummaryAvailable
+        )
+        let appState = AppState(apiClient: SlowProfileHydrationAPIClient(), orders: client)
         let viewModel = VolunteerHomeViewModel(dispatchPropagationDelay: 0, loadTimeout: 2)
         viewModel.configure(with: appState, speechService: SpeechService())
 
@@ -582,7 +610,7 @@ final class blindRunTests: XCTestCase {
         }
 
         XCTAssertTrue(didLoadSummary)
-        XCTAssertEqual(client.summaryRequestCount, 1)
+        XCTAssertEqual(client.callCount("dispatchSummary()"), 1)
         loadTask.cancel()
         await loadTask.value
     }
@@ -2481,6 +2509,9 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(speechService.lastSpokenText, expected)
         XCTAssertEqual(speechService.lastVoiceOverAnnouncement, expected)
         XCTAssertFalse(viewModel.showFinalConfirmation)
+        // 拦截必须有一个**可见**的落点：两端设置页都拿这个开关驱动「无法删除账户」弹窗。
+        // 只播不显曾经就是真实行为 —— 明眼志愿者与低视力用户按下去屏幕上什么都不变。
+        XCTAssertTrue(viewModel.isShowingPreflightBlock)
     }
 
     /// 后端 `UserService.cascadeDeletePii` 刻意保留订单与评价（不存姓名手机号，留作纠纷复核审计）。
@@ -2708,20 +2739,60 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(appState.consumeSessionExpirationMessage(), "登录已过期，请重新登录。")
     }
 
-    func testLoginViewModelShowsAndConsumesSessionExpirationMessage() {
+    /// 🚨 **`lastSpokenText` 那条断言是这条用例的重点，不是顺手加的。**
+    ///
+    /// 会话过期时整个 App 被换成登录页，而下单 / 接单 / 语音确认三个调用点在
+    /// `handleAuthenticatedAPIError` 返回 true 之后都只是 `return nil`。
+    /// 光有 `errorMessage` 只修好了看得见屏幕的那一半 —— 对盲人，
+    /// 一次真实的会话过期与「点了没反应」完全无从分辨。
+    func testLoginViewModelShowsAndSpeaksAndConsumesSessionExpirationMessage() {
         let appState = AppState()
         appState.currentEnvironment = .mock
         appState.expireSession()
+        let speechService = SpeechService()
         let viewModel = LoginViewModel()
 
-        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.configure(with: appState, speechService: speechService)
 
         XCTAssertEqual(viewModel.errorMessage, "登录已过期，请重新登录。")
+        XCTAssertEqual(speechService.lastSpokenText, "登录已过期，请重新登录。")
         XCTAssertNil(appState.consumeSessionExpirationMessage())
 
         viewModel.sanitizePhoneInput("138")
 
         XCTAssertNil(viewModel.errorMessage)
+    }
+
+    /// 第二次 `onAppear` 不能再播一遍 —— 消息已经被 consume 掉了。
+    /// 这条守的是「加一句播报」不许顺带引入重复播报：读屏用户听同一句话两遍
+    /// 会以为发生了两次会话过期。
+    ///
+    /// ⚠️ 第二次用**另一个** `SpeechService` 实例来验，不是 `stop()` 之后复用同一个 ——
+    /// `stop()` 只停合成器，`lastSpokenText` 是不清的（`SpeechService.swift:150-154`），
+    /// 复用会让这条断言恒假地通过（读到的是第一次那句）。
+    func testSessionExpirationIsSpokenOnceEvenIfConfigureRunsAgain() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        appState.expireSession()
+        let firstAppearance = SpeechService()
+        let viewModel = LoginViewModel()
+
+        viewModel.configure(with: appState, speechService: firstAppearance)
+        XCTAssertEqual(firstAppearance.lastSpokenText, "登录已过期，请重新登录。")
+
+        // 先把 `errorMessage` 清掉（用户开始输手机号就会清），否则第二次 configure
+        // 会被 `errorMessage == nil` 那道 guard 挡在 consume 之前，
+        // 这条用例就变成在验 guard 而不是在验 consume。
+        viewModel.sanitizePhoneInput("138")
+        XCTAssertNil(viewModel.errorMessage)
+
+        let secondAppearance = SpeechService()
+        viewModel.configure(with: appState, speechService: secondAppearance)
+
+        XCTAssertNil(
+            secondAppearance.lastSpokenText,
+            "第二次 configure 又播了一遍 —— sessionExpirationMessage 应该已经被 consume 掉"
+        )
     }
 
     func testLoginPhoneInputKeepsOnlyFirstElevenDigits() {
@@ -3163,6 +3234,123 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(request.routeNotes, "沿公园慢跑一圈")
         XCTAssertEqual(request.hasGuideDogThisRun, true)
         XCTAssertEqual(request.specialNotes, "我会带导盲杖")
+    }
+
+    /// 🚨 **没说时长那一支此前一条测试都没有**，而它才是有代价的那一支。
+    ///
+    /// `plannedEndTime` 在契约上必填，用户没说时长时客户端补
+    /// `AppConstants.Timing.defaultBookingDurationMinutes`。这个数字不是无害的默认值：
+    /// 后端 `+15min` 推 `ORDER_OVERDUE`、`+60min` 自动把订单置成 COMPLETED，
+    /// 行程分享链接的有效期也跟着它。
+    ///
+    /// 第二条断言是这条用例真正的重点：**`expectedDurationMinutes` 必须仍是 nil**。
+    /// 顺手把兜底值一起填进去，就是把「用户没提」改写成「用户说了一小时」——
+    /// 与 `hasGuideDogThisRun` 那条三态红线同一类错误，且同样静默。
+    func testCreateOrderRequestFallsBackToTheDefaultDurationWithoutFakingUserIntent() throws {
+        let viewModel = BlindBookingViewModel()
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1",
+            title: "科技园地铁站",
+            addressText: "深圳市南山区科技园地铁站 A 口",
+            latitude: 22.5401,
+            longitude: 113.9345,
+            source: .manual
+        )
+        viewModel.appointmentTime = try XCTUnwrap(
+            DateFormatter.aidRunBackendLocalDateTime.date(from: "2026-07-06T09:30:00")
+        )
+        viewModel.duration = .none
+
+        let request = try XCTUnwrap(viewModel.makeCreateOrderRequest())
+
+        XCTAssertEqual(request.plannedStartTime, "2026-07-06T09:30:00")
+        XCTAssertEqual(
+            request.plannedEndTime,
+            "2026-07-06T10:30:00",
+            "兜底时长与 AppConstants.Timing.defaultBookingDurationMinutes 对不上"
+        )
+        XCTAssertNil(
+            request.expectedDurationMinutes,
+            "把兜底值一起填进 expectedDurationMinutes = 把「用户没提」改写成「用户说了一小时」"
+        )
+    }
+
+    /// 兜底那一支**必须说出来**。此前整条链一个字都没提：复核页那时显示的是
+    /// 「未填写选填跑步需求。」，而请求里已经装着一个具体的结束时刻。
+    func testReviewSpeechDisclosesTheDefaultedEndTime() throws {
+        let viewModel = BlindBookingViewModel()
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1",
+            title: "科技园地铁站",
+            addressText: "深圳市南山区科技园地铁站 A 口",
+            latitude: 22.5401,
+            longitude: 113.9345,
+            source: .manual
+        )
+        viewModel.appointmentTime = try XCTUnwrap(
+            DateFormatter.aidRunBackendLocalDateTime.date(from: "2026-07-06T09:30:00")
+        )
+        viewModel.duration = .none
+
+        let speech = viewModel.reviewSummarySpeech
+
+        XCTAssertTrue(speech.contains("没有说跑多久"), "没交代这个结束时刻是系统补的：\(speech)")
+        XCTAssertTrue(speech.contains("1 小时"), "没说按多久计：\(speech)")
+        XCTAssertTrue(speech.contains("10:30"), "没念出具体结束时刻：\(speech)")
+    }
+
+    /// 说了时长就只念时刻，**不能还挂着「没有说跑多久」** —— 那是在说用户没做过的事。
+    func testReviewSpeechStatesTheEndTimePlainlyWhenDurationWasGiven() throws {
+        let viewModel = BlindBookingViewModel()
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1",
+            title: "科技园地铁站",
+            addressText: "深圳市南山区科技园地铁站 A 口",
+            latitude: 22.5401,
+            longitude: 113.9345,
+            source: .manual
+        )
+        viewModel.appointmentTime = try XCTUnwrap(
+            DateFormatter.aidRunBackendLocalDateTime.date(from: "2026-07-06T09:30:00")
+        )
+        viewModel.exactDurationMinutes = 180
+
+        let speech = viewModel.reviewSummarySpeech
+
+        XCTAssertFalse(speech.contains("没有说跑多久"), "用户说了三小时，却被说成没说：\(speech)")
+        XCTAssertTrue(speech.contains("12:30"), "结束时刻没跟着精确分钟数走：\(speech)")
+    }
+
+    /// 🚨 零输入路径**没有复核屏**，按钮标题就是唯一的复核面（也是它的 accessibilityLabel）。
+    /// 而走到这条路径的用户一定没说过时长（他连语音都用不了）⇒ 结束时刻一定是补的那个。
+    /// 不念，他就会在 1 小时 15 分时收到一条无从解释的「可能失联」提示。
+    func testZeroInputSummaryStatesTheEndTimeItIsAboutToCommit() throws {
+        let viewModel = BlindBookingViewModel()
+        viewModel.selectedStartPlace = ResolvedPlace(
+            id: "poi-1",
+            title: "科技园地铁站",
+            addressText: "深圳市南山区科技园地铁站 A 口",
+            latitude: 22.5401,
+            longitude: 113.9345,
+            source: .manual
+        )
+        viewModel.appointmentTime = try XCTUnwrap(
+            DateFormatter.aidRunBackendLocalDateTime.date(from: "2026-07-06T09:30:00")
+        )
+
+        let summary = viewModel.zeroInputSummary
+
+        XCTAssertTrue(summary.contains("1 小时"), "没说按多久计：\(summary)")
+        XCTAssertTrue(summary.contains("10:30"), "没念出结束时刻：\(summary)")
+    }
+
+    /// 结束时刻**不许混进选填需求那一段** —— 它是推出来的事实不是用户填的项，
+    /// 混进去用户会以为那是自己填过的东西。这两条既有断言正好守住这条边界。
+    func testDefaultedEndTimeDoesNotLeakIntoTheOptionalNeedsSection() {
+        let viewModel = BlindBookingViewModel()
+
+        XCTAssertTrue(viewModel.optionalReviewItems.isEmpty)
+        XCTAssertEqual(viewModel.optionalNeedsSpeechSummary, "没有填写选填跑步需求。")
     }
 
     func testBlindBookingAuxiliaryMapAccessibilityLabelDoesNotExposeCoordinates() {
@@ -4795,11 +4983,11 @@ final class blindRunTests: XCTestCase {
 
     func testVolunteerEnRouteSuccessDoesNotWaitForSuspendedConfirmationAndBlocksDuplicatePost() async {
         let initialOrder = makeOrder(orderId: 95, status: .pendingAccept)
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             confirmation: .suspended,
             order: initialOrder
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         let speechService = SpeechService()
         let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
         viewModel.configure(
@@ -4826,11 +5014,11 @@ final class blindRunTests: XCTestCase {
 
     func testVolunteerEnRouteWebSocketConfirmationWinsOverSuspendedDetailQuery() async {
         let initialOrder = makeOrder(orderId: 96, status: .pendingAccept)
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             confirmation: .suspended,
             order: initialOrder
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         let speechService = SpeechService()
         let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
         viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
@@ -4864,11 +5052,11 @@ final class blindRunTests: XCTestCase {
     func testVolunteerEnRoutePollingConfirmationAppliesAuthoritativeStatus() async {
         let initialOrder = makeOrder(orderId: 97, status: .pendingAccept)
         let confirmedOrder = makeOrder(orderId: 97, status: .driverEnRoute)
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             confirmation: .response,
             order: confirmedOrder
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
         viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: initialOrder)
 
@@ -4884,11 +5072,11 @@ final class blindRunTests: XCTestCase {
 
     func testVolunteerEnRouteConfirmationDelayOffersReadOnlyRetryWithoutReposting() async {
         let initialOrder = makeOrder(orderId: 98, status: .pendingAccept)
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             confirmation: .suspended,
             order: initialOrder
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.05)
         viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: initialOrder)
 
@@ -4911,7 +5099,7 @@ final class blindRunTests: XCTestCase {
     }
 
     func testVolunteerEnRouteExplicitServerErrorRestoresRetryableAction() async {
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             postError: .serverError(ErrorResponse(
                 code: "ORDER_STATUS_NOT_ALLOWED",
                 message: "订单状态不允许该操作"
@@ -4919,7 +5107,7 @@ final class blindRunTests: XCTestCase {
             confirmation: .response,
             order: makeOrder(orderId: 99, status: .pendingAccept)
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         let viewModel = VolunteerInServiceViewModel()
         viewModel.configure(
             with: appState,
@@ -4944,12 +5132,12 @@ final class blindRunTests: XCTestCase {
     }
 
     func testVolunteerEnRouteUnauthorizedUsesSessionExpirationFlow() async {
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             postError: .unauthorized,
             confirmation: .response,
             order: makeOrder(orderId: 100, status: .pendingAccept)
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         appState.accessToken = "expired-token"
         let viewModel = VolunteerInServiceViewModel()
         viewModel.configure(
@@ -4989,11 +5177,11 @@ final class blindRunTests: XCTestCase {
 
     func testVolunteerArrivedSuccessDoesNotWaitForSuspendedConfirmationOrRepost() async {
         let initialOrder = makeOrder(orderId: 105, status: .driverEnRoute)
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             confirmation: .suspended,
             order: initialOrder
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
         viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: initialOrder)
 
@@ -5009,11 +5197,11 @@ final class blindRunTests: XCTestCase {
 
     func testVolunteerArrivedWebSocketConfirmationWinsOverLateOldREST() async {
         let initialOrder = makeOrder(orderId: 106, status: .driverEnRoute)
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             confirmation: .suspended,
             order: initialOrder
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.3)
         viewModel.configure(with: appState, speechService: SpeechService(), initialOrder: initialOrder)
 
@@ -5042,11 +5230,11 @@ final class blindRunTests: XCTestCase {
     }
 
     func testVolunteerArrivedRESTConfirmationAppliesAuthoritativeStatus() async {
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             confirmation: .response,
             order: makeOrder(orderId: 107, status: .driverArrived)
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         let viewModel = VolunteerInServiceViewModel(confirmationTimeout: 0.2)
         viewModel.configure(
             with: appState,
@@ -5065,7 +5253,7 @@ final class blindRunTests: XCTestCase {
     }
 
     func testVolunteerArrivedExplicitServerErrorRestoresRetryableAction() async {
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             postError: .serverError(ErrorResponse(
                 code: "ORDER_STATUS_NOT_ALLOWED",
                 message: "订单状态不允许该操作"
@@ -5073,7 +5261,7 @@ final class blindRunTests: XCTestCase {
             confirmation: .response,
             order: makeOrder(orderId: 108, status: .driverEnRoute)
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         let viewModel = VolunteerInServiceViewModel()
         viewModel.configure(
             with: appState,
@@ -5583,11 +5771,11 @@ final class blindRunTests: XCTestCase {
 
     func testBlindOrderStatusAppliesRealtimeEnRouteWhileDetailQueryIsSuspended() async {
         let initialOrder = makeOrder(orderId: 704, status: .pendingAccept)
-        let client = TransitionConfirmationAPIClient(
+        let client = TransitionConfirmationFixture(
             confirmation: .suspended,
             order: initialOrder
         )
-        let appState = AppState(apiClient: client)
+        let appState = AppState(orders: client.service)
         let speechService = SpeechService()
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: speechService)
@@ -5967,19 +6155,23 @@ final class blindRunTests: XCTestCase {
         }
     }
 
-    private final class TransitionConfirmationAPIClient: APIClientProtocol, @unchecked Sendable {
+    /// 志愿者状态流转 + 确认查询的**罐装值装配台**。
+    ///
+    /// 迁移前这是一个 `APIClientProtocol` 传输桩（按路径后缀 `hasSuffix("/en-route")` 分派）。
+    /// 现在它只做一件事：**在 init 里一次性把罐装值塞进 `FakeOrderService`**，
+    /// 之后每次调用都不再有任何判断 —— 判断留在这里的构造参数上，不在替身里面。
+    ///
+    /// 用法：`AppState(orders: fixture.service)`。
+    private final class TransitionConfirmationFixture: @unchecked Sendable {
         enum Confirmation {
             case response
             case suspended
             case failure(APIError)
         }
 
+        let service = FakeOrderService()
+
         private let lock = NSLock()
-        private let postError: APIError?
-        private let confirmation: Confirmation
-        private let order: OrderDetailResponse
-        private var postCount = 0
-        private var getCount = 0
         private var releaseRequested = false
         private var continuations: [UnsafeContinuation<Void, Never>] = []
 
@@ -5988,17 +6180,36 @@ final class blindRunTests: XCTestCase {
             confirmation: Confirmation,
             order: OrderDetailResponse
         ) {
-            self.postError = postError
-            self.confirmation = confirmation
-            self.order = order
+            let transitionResult: Result<Void, Error> = postError.map { .failure($0) } ?? .success(())
+            service.enRouteResult = transitionResult
+            service.arrivedResult = transitionResult
+            service.startServiceResult = transitionResult
+            service.finishResult = transitionResult
+            service.cancelResult = transitionResult
+            service.respondResult = transitionResult
+
+            switch confirmation {
+            case .response:
+                service.orderDetailResult = .success(order)
+            case .failure(let error):
+                service.orderDetailResult = .failure(error)
+            case .suspended:
+                service.orderDetailResult = .success(order)
+                service.orderDetailGate = { [weak self] in await self?.waitUntilReleased() }
+            }
         }
 
+        /// 迁移前是「打到 `/en-route` 或 `/arrived` 的 POST 次数」。现在按方法名统计，
+        /// 覆盖面更宽一点（多算了 start-service / finish / cancel / respond），
+        /// 而每条用例里只会有其中一种被调用，计数含义不变。
         var postRequestCount: Int {
-            lock.withLock { postCount }
+            ["enRoute(orderId:)", "arrived(orderId:)", "startService(orderId:)",
+             "finish(orderId:)", "cancel(orderId:)", "respond(orderId:action:)"]
+                .reduce(0) { $0 + service.callCount($1) }
         }
 
         var getRequestCount: Int {
-            lock.withLock { getCount }
+            service.callCount("orderDetail(orderId:)")
         }
 
         func releaseSuspendedRequests() {
@@ -6010,67 +6221,25 @@ final class blindRunTests: XCTestCase {
             pending.forEach { $0.resume() }
         }
 
-        func request<T: Decodable>(
-            method: HTTPMethod,
-            path: String,
-            query: [String: String]?,
-            body: (any Encodable & Sendable)?,
-            requiresAuth: Bool
-        ) async throws -> T {
-            if method == .post,
-               path.hasSuffix("/en-route") || path.hasSuffix("/arrived") {
-                lock.withLock { postCount += 1 }
-                if let postError { throw postError }
-                guard let response = EmptyResponse() as? T else {
-                    throw APIError.decodingError(TransitionTestError.typeMismatch)
+        private func waitUntilReleased() async {
+            await withUnsafeContinuation { continuation in
+                let shouldResume = lock.withLock { () -> Bool in
+                    if releaseRequested { return true }
+                    continuations.append(continuation)
+                    return false
                 }
-                return response
+                if shouldResume { continuation.resume() }
             }
-
-            if method == .get, path.hasPrefix("/api/orders/") {
-                lock.withLock { getCount += 1 }
-                switch confirmation {
-                case .response:
-                    break
-                case .failure(let error):
-                    throw error
-                case .suspended:
-                    await withUnsafeContinuation { continuation in
-                        let shouldResume = lock.withLock { () -> Bool in
-                            if releaseRequested { return true }
-                            continuations.append(continuation)
-                            return false
-                        }
-                        if shouldResume { continuation.resume() }
-                    }
-                }
-                guard let response = order as? T else {
-                    throw APIError.decodingError(TransitionTestError.typeMismatch)
-                }
-                return response
-            }
-
-            throw APIError.invalidURL
-        }
-
-        func upload<T: Decodable>(
-            path: String,
-            query: [String: String]?,
-            fields: [String: String]?,
-            files: [MultipartFile],
-            requiresAuth: Bool
-        ) async throws -> T {
-            throw APIError.invalidURL
-        }
-
-        private enum TransitionTestError: Error {
-            case typeMismatch
         }
     }
 
-    private final class SummaryFirstAPIClient: APIClientProtocol, @unchecked Sendable {
-        private(set) var summaryRequestCount = 0
-
+    /// 志愿者资料水合**慢**，而派单摘要要照常先出来。
+    ///
+    /// 它仍然是传输桩，因为它演的是**认证·会话片**那两条端点
+    /// （`AuthServing.volunteerProfile` / `.volunteerRegistrationStatus`）——
+    /// 订单片这次不动它们。派单摘要那一半已经交给 `FakeOrderService`，
+    /// 所以这里只剩「挂住 5 秒」这一件事。
+    private final class SlowProfileHydrationAPIClient: APIClientProtocol, @unchecked Sendable {
         func request<T: Decodable>(
             method: HTTPMethod,
             path: String,
@@ -6078,15 +6247,7 @@ final class blindRunTests: XCTestCase {
             body: (any Encodable & Sendable)?,
             requiresAuth: Bool
         ) async throws -> T {
-            if method == .get, path == "/api/volunteer/dispatch-summary" {
-                summaryRequestCount += 1
-                let json = #"{"canDispatch":true,"notAvailableReasons":[],"wantsDispatch":true}"#
-                return try JSONDecoder().decode(T.self, from: Data(json.utf8))
-            }
-            if method == .get,
-               path == "/api/volunteer/profile" || path == "/api/volunteer/registration/status" {
-                try await Task.sleep(nanoseconds: 5_000_000_000)
-            }
+            try await Task.sleep(nanoseconds: 5_000_000_000)
             throw APIError.invalidURL
         }
 
@@ -6140,69 +6301,32 @@ final class blindRunTests: XCTestCase {
         }
     }
 
-    private final class DispatchSummarySequenceAPIClient: APIClientProtocol, @unchecked Sendable {
-        private(set) var dispatchSummaryRequestCount = 0
-
-        func request<T: Decodable>(
-            method: HTTPMethod,
-            path: String,
-            query: [String: String]?,
-            body: (any Encodable & Sendable)?,
-            requiresAuth: Bool
-        ) async throws -> T {
-            guard method == .get, path == "/api/volunteer/dispatch-summary" else {
-                throw APIError.invalidURL
-            }
-            dispatchSummaryRequestCount += 1
-            let json = dispatchSummaryRequestCount == 1
-                ? #"{"canDispatch":false,"notAvailableReasons":[],"wantsDispatch":true}"#
-                : #"{"canDispatch":true,"notAvailableReasons":[],"wantsDispatch":true,"coverageRadiusKm":10}"#
-            return try JSONDecoder().decode(T.self, from: Data(json.utf8))
-        }
-
-        func upload<T: Decodable>(
-            path: String,
-            query: [String: String]?,
-            fields: [String: String]?,
-            files: [MultipartFile],
-            requiresAuth: Bool
-        ) async throws -> T {
-            throw APIError.invalidURL
-        }
+    /// 派单摘要的罐装序列。取代 `DispatchSummarySequenceAPIClient` /
+    /// `RecoveringDispatchSummaryAPIClient` 两个传输桩 —— 它们做的都是
+    /// 「第一次回 A，之后回 B」，那是一串罐装值，不是业务判定。
+    private static func makeDispatchSummaryService(
+        first: Result<VolunteerDispatchSummaryResponse, Error>,
+        rest: VolunteerDispatchSummaryResponse
+    ) -> FakeOrderService {
+        let service = FakeOrderService()
+        service.dispatchSummaryResults = [first]
+        service.dispatchSummaryResult = .success(rest)
+        return service
     }
 
-    private final class RecoveringDispatchSummaryAPIClient: APIClientProtocol, @unchecked Sendable {
-        private var requestCount = 0
+    private static func decodeDispatchSummary(_ json: String) -> VolunteerDispatchSummaryResponse {
+        // swiftlint:disable:next force_try
+        try! JSONDecoder().decode(VolunteerDispatchSummaryResponse.self, from: Data(json.utf8))
+    }
 
-        func request<T: Decodable>(
-            method: HTTPMethod,
-            path: String,
-            query: [String: String]?,
-            body: (any Encodable & Sendable)?,
-            requiresAuth: Bool
-        ) async throws -> T {
-            guard method == .get, path == "/api/volunteer/dispatch-summary" else {
-                throw APIError.invalidURL
-            }
-            requestCount += 1
-            if requestCount == 1 {
-                throw APIError.serverError(
-                    ErrorResponse(code: "DISPATCH_SUMMARY_UNAVAILABLE", message: "派单摘要暂时不可用")
-                )
-            }
-            let json = #"{"canDispatch":true,"notAvailableReasons":[],"wantsDispatch":true,"coverageRadiusKm":10}"#
-            return try JSONDecoder().decode(T.self, from: Data(json.utf8))
-        }
+    private static var dispatchSummaryUnavailable: VolunteerDispatchSummaryResponse {
+        decodeDispatchSummary(#"{"canDispatch":false,"notAvailableReasons":[],"wantsDispatch":true}"#)
+    }
 
-        func upload<T: Decodable>(
-            path: String,
-            query: [String: String]?,
-            fields: [String: String]?,
-            files: [MultipartFile],
-            requiresAuth: Bool
-        ) async throws -> T {
-            throw APIError.invalidURL
-        }
+    private static var dispatchSummaryAvailable: VolunteerDispatchSummaryResponse {
+        decodeDispatchSummary(
+            #"{"canDispatch":true,"notAvailableReasons":[],"wantsDispatch":true,"coverageRadiusKm":10}"#
+        )
     }
 
     private final class LoginCodeCaptureAPIClient: APIClientProtocol, @unchecked Sendable {

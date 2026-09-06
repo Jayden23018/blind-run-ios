@@ -147,7 +147,7 @@ final class VoiceOrderWizard: ObservableObject {
     private weak var bookingViewModel: BlindBookingViewModel?
     private weak var speechService: SpeechService?
     private weak var speechInputService: SpeechInputService?
-    private var apiClient: (any APIClientProtocol)?
+    private var voiceOrderService: (any VoiceOrderServing)?
     private var currentCoordinate: (() -> LocatedCoordinate?)?
     private var parseTask: Task<Void, Never>?
     /// 下一次读回前要先说的一句话（目前只有时长取整）。拼进读回而不是单独播一次，见 `moveToConfirm`。
@@ -189,13 +189,13 @@ final class VoiceOrderWizard: ObservableObject {
         bookingViewModel: BlindBookingViewModel,
         speechService: SpeechService,
         speechInputService: SpeechInputService,
-        apiClient: any APIClientProtocol,
+        voiceOrderService: any VoiceOrderServing,
         currentCoordinate: (() -> LocatedCoordinate?)? = nil
     ) {
         self.bookingViewModel = bookingViewModel
         self.speechService = speechService
         self.speechInputService = speechInputService
-        self.apiClient = apiClient
+        self.voiceOrderService = voiceOrderService
         self.currentCoordinate = currentCoordinate
     }
 
@@ -306,7 +306,16 @@ final class VoiceOrderWizard: ObservableObject {
         // 抽不出时间时，读回会念出一个用户从没说过的具体时刻，后面再补一句「需至少在 30 分钟后」。
         // 对听不见屏幕的人，那就是「它念了一张我没说过的单」（2026-08-06 用户原话：
         // 「他也没有经过我的同意」）。没说就说没说，不许编。
-        parts.append(didCaptureStartTime ? bookingViewModel.appointmentSummary : "预约时间还没说。")
+        // 结束时刻**只在真的抽到开始时间的那一支念**。
+        //
+        // 另一支里 `appointmentTime` 还是 `Date()` 初值，由它推出来的结束时刻同样是编的 ——
+        // 在「预约时间还没说。」后面接一句「预计 X 结束」，正是上面那段注释在防的事，
+        // 而且更糟：用户会以为系统听到了时间、只是没念出来。
+        parts.append(
+            didCaptureStartTime
+                ? bookingViewModel.appointmentSummary + bookingViewModel.plannedEndSummary
+                : "预约时间还没说。"
+        )
         parts.append(bookingViewModel.optionalNeedsSpeechSummary)
         parts.append(confirmOutro)
         return parts.joined()
@@ -1055,14 +1064,10 @@ final class VoiceOrderWizard: ObservableObject {
         _ transcript: String,
         current: VoiceSlotSnapshot? = nil
     ) async throws -> ParseVoiceOrderResponse {
-        guard let apiClient else { throw WizardError.notConfigured }
+        guard let voiceOrderService else { throw WizardError.notConfigured }
         let body = parseRequest(transcript: transcript, current: current)
         return try await withParseTimeout {
-            let response: ParseVoiceOrderResponse = try await apiClient.post(
-                VoiceOrderEndpoint.parseOrder,
-                body: body
-            )
-            return response
+            try await voiceOrderService.parseOrder(body)
         }
     }
 

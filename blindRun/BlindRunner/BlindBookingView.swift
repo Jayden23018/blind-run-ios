@@ -357,6 +357,34 @@ final class BlindBookingViewModel: ObservableObject {
         return Self.durationText(forMinutes: minutes)
     }
 
+    /// 这一单**实际会被提交**的结束时刻。
+    ///
+    /// 用户没说时长时它是 `开始 + AppConstants.Timing.defaultBookingDurationMinutes`。
+    /// 那个兜底不是无害的：后端 `+15min` 推 `ORDER_OVERDUE`、`+60min` 自动完成订单，
+    /// 分享链接的有效期也跟着它。所以它必须能被读出来（见 `plannedEndSummary`），
+    /// 而不是只活在 `makeCreateOrderRequest` 里。
+    var plannedEndDate: Date {
+        let minutes = resolvedDurationMinutes ?? AppConstants.Timing.defaultBookingDurationMinutes
+        return appointmentTime.addingTimeInterval(TimeInterval(minutes * 60))
+    }
+
+    /// 结束时刻的读回 / 展示文案。**两种情况说的话必须不一样。**
+    ///
+    /// 🚨 说了时长那一支只念时刻；**没说时长那一支必须交代「这个数是系统补的」** ——
+    /// 用户从没同意过它，而服务开始后他会听到「预计 X 结束」（`blindRunnerAnnouncement`），
+    /// 过了 15 分钟还会收到一条「可能失联」级别的提示。不说清来源，那条提示对他就是没来由的。
+    ///
+    /// 分钟数与实际提交用的是同一个常量，不写死 60 —— 写死会在产品调整兜底时长的那天
+    /// 变成一句骗人的话（与 `appointmentTimeHint` 那条同源）。
+    var plannedEndSummary: String {
+        let timeText = DateFormatter.aidRunDisplayDateTime.string(from: plannedEndDate)
+        guard resolvedDurationMinutes == nil else {
+            return "预计 \(timeText) 结束。"
+        }
+        let fallback = Self.durationText(forMinutes: AppConstants.Timing.defaultBookingDurationMinutes)
+        return "没有说跑多久，按 \(fallback) 计，预计 \(timeText) 结束。"
+    }
+
     static func durationText(forMinutes minutes: Int) -> String {
         let hours = minutes / 60
         let remainder = minutes % 60
@@ -444,9 +472,12 @@ final class BlindBookingViewModel: ObservableObject {
         return items.map { "\($0.title)：\($0.value)" }.joined(separator: "。") + "。"
     }
 
+    /// 结束时刻紧跟预约时间念，**不进 `optionalNeedsSpeechSummary`** ——
+    /// 它不是一项「选填需求」，是由开始时间和时长推出来的事实。塞进选填那一段，
+    /// 用户会以为它是自己填过的东西。
     var reviewSummarySpeech: String {
         let blockingText = blockingReasonForCurrentStep.map { "当前还不能提交，\($0)" } ?? ""
-        return "请确认预约。\(startPointSummary)\(endPointSummary)\(appointmentSummary)\(optionalNeedsSpeechSummary)\(blockingText)"
+        return "请确认预约。\(startPointSummary)\(endPointSummary)\(appointmentSummary)\(plannedEndSummary)\(optionalNeedsSpeechSummary)\(blockingText)"
     }
 
     /// 零输入下单那一步要复核的整单。
@@ -455,10 +486,17 @@ final class BlindBookingViewModel: ObservableObject {
     /// 「最早可约时间」是一个他无法验证的相对说法，而下单是会真实派单的不可逆动作。
     /// 表单路径靠 `reviewSection` 把整单摆在屏幕上满足 WCAG 3.3.4 的「可复核确认」，
     /// 零输入路径没有那一屏，这句话就是它的等价物 —— 它同时是确认按钮的 `accessibilityLabel`。
+    ///
+    /// 🚨 **结束时刻必须在这里念。** 这条路径上没有任何别的复核面，而走到这里的用户
+    /// 一定没说过时长（他连语音都用不了）⇒ 结束时刻**一定**是系统补的那个。
+    /// 不念它，这个盲人就会在跑到 1 小时 15 分时收到一条他无从解释的「可能失联」提示，
+    /// 而订单会在 2 小时整被自动结束。多念这半句是这条路径上唯一能让他知情的机会。
     var zeroInputSummary: String {
         let place = resolvedStartLocationDescription.nilIfBlank ?? "当前位置"
         let time = DateFormatter.aidRunDisplayDateTime.string(from: appointmentTime)
-        return "从\(place)出发，\(time) 开始，直接下单"
+        let end = DateFormatter.aidRunDisplayDateTime.string(from: plannedEndDate)
+        let fallback = Self.durationText(forMinutes: AppConstants.Timing.defaultBookingDurationMinutes)
+        return "从\(place)出发，\(time) 开始，按 \(fallback) 计到 \(end) 结束，直接下单"
     }
 
     var currentStepSpeechSummary: String {
@@ -800,14 +838,7 @@ final class BlindBookingViewModel: ObservableObject {
     func makeCreateOrderRequest() -> CreateOrderRequest? {
         guard let startPlace = resolvedStartPlace else { return nil }
         let plannedStartTime = DateFormatter.aidRunBackendLocalDateTime.string(from: appointmentTime)
-        let plannedEndTime: String
-        if let minutes = resolvedDurationMinutes {
-            let endDate = appointmentTime.addingTimeInterval(TimeInterval(minutes * 60))
-            plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
-        } else {
-            let endDate = appointmentTime.addingTimeInterval(3600)
-            plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: endDate)
-        }
+        let plannedEndTime = DateFormatter.aidRunBackendLocalDateTime.string(from: plannedEndDate)
 
         return CreateOrderRequest(
             startLatitude: startPlace.latitude,
@@ -848,7 +879,7 @@ final class BlindBookingViewModel: ObservableObject {
         }
 
         do {
-            let response: OrderResponse = try await appState.apiClient.post("/api/orders", body: request)
+            let response = try await appState.orders.createOrder(request)
             isSubmitting = false
             speechService?.resetLastStatus()
             speechService?.speak("订单提交成功，系统正在为你派单。")
@@ -963,7 +994,7 @@ struct BlindBookingView: View {
                 bookingViewModel: viewModel,
                 speechService: speechService,
                 speechInputService: speechInputService,
-                apiClient: appState.apiClient,
+                voiceOrderService: appState.voiceOrder,
                 // ⚠️ **必须放宽新鲜度门，别用默认的 15 秒**（2026-08-10，N48 的客户端那一级）。
                 //
                 // 非陪跑模式下 `distanceFilter = 10`，站着不动 Core Location 就不推新样本；
@@ -1130,26 +1161,34 @@ struct BlindBookingView: View {
     /// 而这两件事在语音流程里从来是一起需要的。
     private var voiceStatusBlock: some View {
         VStack(spacing: 12) {
-            if isRecording {
-                recordingIndicator
-            }
+            voiceStageIcon
 
             Text(voiceStageHeadline)
                 .font(AppFonts.largeTitle())
-                .foregroundColor(AppColors.textPrimary)
+                .foregroundColor(.white)
                 .multilineTextAlignment(.center)
 
             if let detail = voiceStageDetail {
                 Text(detail)
                     .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
+                    .foregroundColor(.white)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let tapHint = voiceStageTapHint {
+                Text(tapHint)
+                    .font(AppFonts.caption())
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .overlay(Capsule().stroke(.white, lineWidth: 1))
+                    .padding(.top, 4)
             }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppColors.secondaryBackground)
+        .background(AppColors.voiceStageSurface)
         .cornerRadius(16)
         .contentShape(Rectangle())
         .onTapGesture {
@@ -1162,6 +1201,41 @@ struct BlindBookingView: View {
         .accessibilityHint(voiceStageAccessibilityHint)
         .accessibilityAddTraits(voiceWizard.isParsing ? [] : .isButton)
         .accessibilityIdentifier("blindBookingFinishSpeakingSurface")
+    }
+
+    /// 三态各自的图形。**整块是同一个蓝，三态不靠颜色区分** —— 户外强光下低视力用户
+    /// 最先丢的就是色相差异，而这一屏三个状态里有两个（录音 / 识别）决定着「现在点它有没有用」。
+    /// 区别落在这里的图形、大标题和下面那句提示上，三处冗余。
+    @ViewBuilder
+    private var voiceStageIcon: some View {
+        if isRecording {
+            recordingIndicator
+        } else if voiceWizard.isParsing {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(.white)
+                .scaleEffect(1.6)
+                .frame(height: 40)
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 40))
+                .foregroundColor(.white)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// 「这块屏幕可以点」此前只写在 VoiceOver 的 label 里（「双击结束」）——
+    /// **看得见的用户没有任何线索**，一整块纯色区域看不出是控件。这行字补的是那一半。
+    ///
+    /// 它刻意不进无障碍树：整块是 `children: .ignore`，读屏那条路径上这句话已经由
+    /// `voiceStageAccessibilityLabel` 说过了，再念一遍是纯重复。
+    ///
+    /// 解析中返回 nil —— 那一刻 `onTapGesture` 被 `guard` 挡着，宣告一个按不动的动作
+    /// 比什么都不说更糟。这与 `.accessibilityAddTraits(isParsing ? [] : .isButton)` 是同一条判据。
+    private var voiceStageTapHint: String? {
+        if voiceWizard.isParsing { return nil }
+        return isRecording ? "说完轻点这里" : "轻点开始说话"
     }
 
     private var voiceStageHeadline: String {
@@ -1355,32 +1429,29 @@ struct BlindBookingView: View {
     }
 
     /// 录音中的可见状态。动画只服务低视力用户与陪同的明眼人 —— 全盲用户靠的是起止提示音和震动
-    /// （`RecordingCue`），所以这里的信息**不能**只存在于动画里，静态文字必须自带完整语义。
+    /// （`RecordingCue`），所以这里的信息**不能**只存在于动画里；承载语义的静态文字是
+    /// `voiceStageHeadline` 的「正在录音」，就在这个圆点正下方。
     ///
     /// 脉冲周期 1.2 秒（约 0.83 次/秒），远低于 WCAG 2.3.1 的每秒 3 次红线；
     /// 系统开启「减弱动态效果」时退化为静态圆点。
+    ///
+    /// 圆点此前是 `destructive` 红并自带一行「正在录音」。改蓝底之后两处都得动：红压在
+    /// `voiceStageSurface` 上只有 1.4:1（红和蓝的相对亮度太接近，这不是「深一点就好」能救的），
+    /// 而那行文字与紧挨着的大标题逐字重复 —— 灰底时代就是重复的，只是没人盯。
+    /// 现在它只剩圆点，居中摆在 `voiceStageIcon` 的录音分支上。
     private var recordingIndicator: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(AppColors.destructive)
-                .frame(width: 20, height: 20)
-                .opacity(reduceMotion ? 1 : (isPulsing ? 1 : 0.35))
-                .animation(
-                    reduceMotion ? nil : .easeInOut(duration: 1.2).repeatForever(autoreverses: true),
-                    value: isPulsing
-                )
-                .accessibilityHidden(true)
-
-            Text("正在录音")
-                .font(AppFonts.primaryButton())
-                .foregroundColor(AppColors.destructive)
-
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear { isPulsing = true }
-        .onDisappear { isPulsing = false }
-        .accessibilityHidden(true)
+        Circle()
+            .fill(.white)
+            .frame(width: 32, height: 32)
+            .opacity(reduceMotion ? 1 : (isPulsing ? 1 : 0.35))
+            .animation(
+                reduceMotion ? nil : .easeInOut(duration: 1.2).repeatForever(autoreverses: true),
+                value: isPulsing
+            )
+            .frame(height: 40)
+            .onAppear { isPulsing = true }
+            .onDisappear { isPulsing = false }
+            .accessibilityHidden(true)
     }
 
     private var header: some View {
@@ -1894,6 +1965,9 @@ struct BlindBookingView: View {
                 )
             }
             reviewRow(title: "预约时间", value: DateFormatter.aidRunDisplayDateTime.string(from: viewModel.appointmentTime))
+            // 紧跟预约时间，**不进下面那段选填需求** —— 它是推出来的事实不是用户填的项。
+            // 没说时长时这一行会自己交代「按 1 小时计」，那正是此前整条链上一个字都没说的东西。
+            reviewRow(title: "预计结束", value: viewModel.plannedEndSummary)
 
             if viewModel.optionalReviewItems.isEmpty {
                 Text("未填写选填跑步需求。")
@@ -1954,15 +2028,21 @@ struct BlindBookingView: View {
     /// 竖排，不并排。两个理由：视觉上并排等于把每个按钮的宽度砍半
     /// （`docs/research/blind-ui-visual-benchmark-20260808.md` §1 规则 3，对标产品的次级操作一律整行铺满）；
     /// 读屏上横排两个元素的遍历顺序取决于框架布局而非视觉直觉，是本项目 UI 测试假失败的常见来源。
+    ///
+    /// 两个都是**蓝描边压在白底上**，与上方那块蓝色实心大屏拉开主次：那块是「点这里说话」，
+    /// 这两条是「不想点那里的时候去哪」。同色同重量会让主操作失去优先级 ——
+    /// 而这一屏最不该被找不到的恰恰是那块大屏。
+    ///
+    /// 「改用表单」此前是 `destructive` 红。改蓝是有意的：它不是危险操作，是**逃生口**
+    /// （语音坏了，或者在地铁上不想说出自己在哪）。红色在本 App 里标的是求助与阻断，
+    /// 用在这里是把警示色用薄了。两条按钮长得一样不构成问题 —— 读屏靠 label，
+    /// 看得见的靠文字，而它们的后果都不可怕。
     private var voiceControls: some View {
         VStack(spacing: 10) {
             Button("重复一遍") {
                 voiceWizard.repeatCurrentPrompt()
             }
-            .font(AppFonts.body().weight(.semibold))
-            .foregroundColor(AppColors.primary)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 64)
+            .buttonStyle(VoiceStageSecondaryButtonStyle())
             .accessibilityLabel("重复一遍")
             .accessibilityHint("再念一次刚才的提示")
 
@@ -1970,10 +2050,7 @@ struct BlindBookingView: View {
                 voiceWizard.stop()
                 speechService.speak("已停止语音下单，你可以继续用表单填写。")
             }
-            .font(AppFonts.body().weight(.semibold))
-            .foregroundColor(AppColors.destructive)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 64)
+            .buttonStyle(VoiceStageSecondaryButtonStyle())
             .accessibilityLabel("改用表单")
             .accessibilityHint("停止语音，用屏幕上的输入框继续填写")
             .accessibilityIdentifier("blindBookingStopVoiceButton")
@@ -2046,6 +2123,30 @@ struct BlindBookingView: View {
             .font(.title3.bold())
             .foregroundColor(AppColors.textPrimary)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+// MARK: - 语音态底栏按钮样式
+
+/// 语音态那两条次级按钮。抽成 `ButtonStyle` **只因为它俩逐字相同**，不是给别处预留 ——
+/// 第三个调用点出现之前，这个类型不该离开本文件。
+///
+/// `minHeight: 64` 是本项目的触达下限（`aidrun-a11y-voice`），描边而非填充是为了
+/// 让上方那块蓝色实心大屏保持唯一的主操作地位。
+private struct VoiceStageSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(AppFonts.body().weight(.semibold))
+            .foregroundColor(AppColors.primary)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 64)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(AppColors.primary, lineWidth: 2)
+            )
+            // 按下反馈原本由 `Button` 的默认样式提供，换 `ButtonStyle` 会一并接管掉。
+            // 不补这一行，按下去屏幕上什么都不动。
+            .opacity(configuration.isPressed ? 0.55 : 1)
     }
 }
 

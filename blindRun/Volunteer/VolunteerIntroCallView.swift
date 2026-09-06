@@ -3,6 +3,35 @@ import SwiftUI
 
 // MARK: - 志愿者侧「接单前通话磨合」
 
+/// 进通话页要带的东西。**两条到达路径共用一个导航源**，区别只在 `dispatchOrder` 有没有。
+///
+/// - 推送路径（`INTERESTED` 发出去之后）：`dispatchOrder` 有值，本单信息与导盲犬提示位照常渲染。
+/// - **冷启动恢复路径**（`dispatch-summary` 的 `introCallOrderId`）：`dispatchOrder` 是 nil。
+///
+/// 恢复路径上**出发地与时间照常有** —— 它们来自 `IntroCallView`（后端为这件事专门加的
+/// `startAddress` / `plannedStartTime`，字段说明里点名了「杀掉 App 再打开就回不到通话页」）。
+///
+/// 拿不到的只有**距离**和**导盲犬**：前者要 `distanceKm`（只在派单推送里），
+/// 后者要 `escortNeeds`（同上）。这两块在恢复路径上不渲染，**这是诚实不是缺陷** ——
+/// 志愿者据此判断的是「要不要接这一单」，编一个距离比空着更糟。
+/// 不加 `Equatable`：`WSNewOrder` 是 `Codable, Sendable` 而非 `Equatable`，
+/// 为了一个导航值给整条派单载荷补 `Equatable` 是本末倒置。
+/// 断言拿 `orderId` 和 `dispatchOrder == nil` 比即可（后者对任何类型都成立）。
+struct VolunteerIntroCallRoute {
+    let orderId: Int64
+    let dispatchOrder: WSNewOrder?
+
+    init(orderId: Int64, dispatchOrder: WSNewOrder? = nil) {
+        self.orderId = orderId
+        self.dispatchOrder = dispatchOrder
+    }
+
+    init(dispatchOrder: WSNewOrder) {
+        self.orderId = dispatchOrder.orderId
+        self.dispatchOrder = dispatchOrder
+    }
+}
+
 /// 本轮通话在志愿者这边的落点。
 enum VolunteerIntroCallOutcome: Equatable {
     /// 还在通话磨合中。
@@ -64,10 +93,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
     private func load() async {
         guard let orderId, let appState else { return }
         do {
-            let view: IntroCallView = try await appState.apiClient.get(
-                IntroCallEndpoint.view.path(orderId: orderId)
-            )
-            introCall = view
+            introCall = try await appState.safety.introCall(orderId: orderId)
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return }
             // 409 `INTRO_CALL_NOT_ACTIVE`（或 403 —— 我们已经不是参与者了）都意味着本轮结束。
@@ -86,7 +112,7 @@ final class VolunteerIntroCallViewModel: ObservableObject {
     /// 这不是取巧，是这个契约下唯一存在的判据：通话端点刻意不回对方的表态。
     private func resolveFinishedRound(orderId: Int64, appState: AppState) async {
         introCall = nil
-        if let order: OrderDetailResponse = try? await appState.apiClient.get("/api/orders/\(orderId)") {
+        if let order = try? await appState.safety.matchedOrder(orderId: orderId) {
             matchedOrder = order
             outcome = .matched
             speechService?.speak(IntroCallCopy.volunteerMatched)
@@ -101,10 +127,9 @@ final class VolunteerIntroCallViewModel: ObservableObject {
     ///
     /// ⚠️ 请求体**没有 reason 字段**，这是后端刻意的：要求填理由等于要求当面说「不」。
     func submit(_ decision: IntroCallDecision) async {
-        await perform(
-            path: IntroCallEndpoint.decision.path(orderId: orderId ?? 0),
-            body: IntroCallDecisionRequest(decision: decision)
-        )
+        await perform { safety, orderId in
+            try await safety.submitIntroCallDecision(orderId: orderId, decision: decision)
+        }
     }
 
     /// 「一直没接到电话」。
@@ -113,15 +138,19 @@ final class VolunteerIntroCallViewModel: ObservableObject {
     /// dispatched + timeout，不动 declined —— 他并没有拒绝任何人，而 `acceptanceRate`
     /// 直接进派单评分。且这一对不进候选池硬过滤，没接到电话不代表两人不合适。
     func reportUnreachable() async {
-        await perform(path: IntroCallEndpoint.unreachable.path(orderId: orderId ?? 0), body: nil)
+        await perform { safety, orderId in
+            try await safety.reportIntroCallUnreachable(orderId: orderId)
+        }
     }
 
-    private func perform(path: String, body: (any Encodable & Sendable)?) async {
+    /// 两个表态端点共用的收尾。`orderId` 由这里 guard 出来再交给闭包 ——
+    /// 迁移前是先用 `orderId ?? 0` 拼好路径再在这里 guard，那条路径永远不该被构造出来。
+    private func perform(_ call: (any SafetyServing, Int64) async throws -> Void) async {
         guard let orderId, let appState else { return }
         isSubmitting = true
         errorMessage = nil
         do {
-            let _: EmptyResponse = try await appState.apiClient.post(path, body: body)
+            try await call(appState.safety, orderId)
             isSubmitting = false
             // 表态之后本轮的落点由**对方**决定（我说合适 ≠ 成单）。让下一次轮询把结果带回来，
             // 不在本地假设任何结论。
@@ -163,7 +192,10 @@ struct VolunteerIntroCallView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = VolunteerIntroCallViewModel()
 
-    let dispatchOrder: WSNewOrder
+    let route: VolunteerIntroCallRoute
+
+    /// 派单载荷。冷启动恢复路径上是 nil —— 那两块信息没有数据源，见 `VolunteerIntroCallRoute`。
+    private var dispatchOrder: WSNewOrder? { route.dispatchOrder }
 
     var body: some View {
         ScrollView {
@@ -173,7 +205,9 @@ struct VolunteerIntroCallView: View {
                 // 复用接单后那块「本单为视障跑者」提示位，不新建组件。
                 // 接单前只剩导盲犬那一行 —— 视力情况与引导方式走
                 // `disclosesBlindRunnerNotesToVolunteer` 闸，通话发生在接单之前。
-                VolunteerRunnerNeedsBanner(needs: dispatchOrder.escortNeeds)
+                //
+                // 恢复路径上是空数组，该组件对空数组本来就什么都不渲染（见它的 `body`）。
+                VolunteerRunnerNeedsBanner(needs: dispatchOrder?.escortNeeds ?? [])
 
                 counterpartCard
                 orderFactsCard
@@ -203,7 +237,7 @@ struct VolunteerIntroCallView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             viewModel.configure(
-                orderId: dispatchOrder.orderId,
+                orderId: route.orderId,
                 appState: appState,
                 speechService: speechService
             )
@@ -267,18 +301,29 @@ struct VolunteerIntroCallView: View {
         }
     }
 
+    /// 出发地与时间**优先取派单载荷，取不到回落 `IntroCallView`**。
+    ///
+    /// 两个来源同源（契约逐字：`IntroCallView.startAddress` 与 `NEW_ORDER` 的 `startAddress`
+    /// 是同一个值），所以回落不会让两条路径显示不同的地址。回落存在的理由只有冷启动恢复：
+    /// 那时派单推送已经随进程一起没了。
+    ///
+    /// 距离与配速**没有回落** —— `IntroCallView` 里没有它们，而编一个比空着更糟。
+    /// 不要在这里补「距离：暂无」之类的占位：志愿者据此判断要不要接这一单，
+    /// 一个说不出内容的占位行比没有这一行更容易被当成真的。
     private var orderFactsCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let address = dispatchOrder.startAddress?.nilIfBlank {
+            if let address = dispatchOrder?.startAddress?.nilIfBlank
+                ?? viewModel.introCall?.startAddress?.nilIfBlank {
                 Text("出发地：\(address)")
             }
-            if let plannedStart = dispatchOrder.plannedStart?.nilIfBlank {
+            if let plannedStart = dispatchOrder?.plannedStart?.nilIfBlank
+                ?? viewModel.introCall?.plannedStartTime?.nilIfBlank {
                 Text("时间：\(plannedStart.displayDateTime)")
             }
-            if let distance = dispatchOrder.distanceKm {
+            if let distance = dispatchOrder?.distanceKm {
                 Text(String(format: "距离：%.1fkm", distance))
             }
-            if let pace = dispatchOrder.pacePreference?.nilIfBlank {
+            if let pace = dispatchOrder?.pacePreference?.nilIfBlank {
                 Text("配速：\(PacePreference(rawValue: pace)?.displayName ?? pace)")
             }
         }

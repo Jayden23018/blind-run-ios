@@ -14,6 +14,11 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 | `aidrun-ship-check` | 实现完成、准备提交、准备宣称「做完了 / 测试通过」 |
 | `aidrun-contract-sync` | 后端契约变了、pre-push 报「生成代码与契约不同步」、判契约新字段要不要接入 |
 
+**`CONTEXT.md`（仓库根）—— 领域词 ↔ 模块名对照表。在写下「这个功能仓库里没有」之前必读一次，
+换一组同义词再搜。** 它是 §1.4 的语义认知归档（配套记忆 `synonym-mismatch-fakes-a-missing-feature`）：
+「注销」vs「删除账户」这一次错开，让一个功能齐全的模块被判成「需从头做」，checklist 作者与模型先后中招两次。
+抓不成静态守卫 —— 机器分不出「搜不到」和「不存在」。
+
 ## 1. 事故复盘规则（最重要的一条）
 
 任何一个**已经犯过第二次**的错误，**或单次就耗掉三次以上尝试才对**的东西，必须落到下面四者之一，**不许只写进文档**：
@@ -70,6 +75,32 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   误触本身已按 §1.2 钉成运行时断言；「怎么诊断」这半条抓不成检查，
   详见记忆 `snapshot-timeout-means-a-system-app-took-over`。
 
+- 真机跑测报 `Test crashed with signal kill` 时，**先原样复跑一次比失败用例名**，
+  两次失败集合零重叠就不可能是代码。它是所有真机故障签名里唯一「跑起来了、跑了大半、
+  中间随机死几条」的一种，`result=Failed` 但退出码 0、零执行硬失败也不触发，所以最像真回归。
+  2026-09-02 实测：单测全量 967/2 失败 → 原样复跑 960/0；`AccessibilityAuditTests`
+  16/4 失败 → 复跑 17/3 失败且与上一次**零重叠**（20 条每条都在某一次里过了）。
+  当次 `transportType: wired`、`tunnelState: connected`，不是 USB 的事。
+  连带一条计数陷阱：崩溃后 XCTest 重启会把上一次的计数并进总数
+  （日志原文 `summary will include totals from previous launches`），
+  所以崩过那一次的 `total` 比真实用例数大，不可与另一次比条数。
+  详见记忆 `ui-test-runner-needs-usb-not-wifi` 第七种。
+  这条抓不成静态守卫也抓不成测试 —— 判据是「跨两次运行的失败集合关系」，单次运行内无从判断。
+
+- **「失败时在 `List` 末尾多出一行字」等于没有反馈。** 2026-09-05 一天里抓到同一形状两处：
+  账号删除预检（PR #98）与紧急联系人（本条）。真机实测（iPhone 16 Pro，window 高 874，
+  **默认字号就够，不用 AX 档**，5 位联系人）：点完「删除张三」被本地守卫拦下之后，那一行
+  **根本不在无障碍树里**（`List` 不渲染屏幕外的行），要往下滑一屏才出现在 minY=747.7 ——
+  失败分支跑了、`speakError` 播了，而屏幕上一个字都不多。
+  两处都已按 §1.2 钉成运行时断言（`testSetPrimaryIsAtomicAndLastContactCannotBeDeleted`、
+  `testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock`），断言的是**弹窗出现**，
+  与列表有几行无关 —— 5 位联系人那版用例反而留不住：它要连做 4 次新增，而那条路径在本机
+  未改动的 main 上就会 `signal kill`（见上一条）。
+  但**抓不成守卫**：全仓有 33 处同形状的 `if let errorMessage` 内联渲染，绝大多数是对的，
+  判据是「最坏情况下这一行还在不在第一屏」—— 取决于同屏行数与字号，机器判不出来。
+  写「失败只多一行字」的分支时自己问一遍：列表最长、字号最大时这一行还看得见吗？
+  详见记忆 `claimed-fallback-may-not-exist-in-release`。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：
@@ -103,8 +134,8 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 **只允许**这些状态：
 
 ```
-PENDING_MATCH  PENDING_ACCEPT  IN_PROGRESS  DRIVER_EN_ROUTE  DRIVER_ARRIVED
-COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
+PENDING_MATCH  PENDING_INTRO_CALL  PENDING_ACCEPT  IN_PROGRESS  DRIVER_EN_ROUTE
+DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 ```
 
 **禁用的遗留词汇**（`scripts/hooks/guard.mjs` 会拦）：
@@ -114,25 +145,45 @@ COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 正常流转：
 
 ```
-PENDING_MATCH → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
+PENDING_MATCH → PENDING_INTRO_CALL → PENDING_ACCEPT → DRIVER_EN_ROUTE → DRIVER_ARRIVED → IN_PROGRESS → COMPLETED
+```
+
+通话磨合没成时**退回 `PENDING_MATCH`，不是 `REMATCHING`**：
+
+```
+PENDING_INTRO_CALL → PENDING_MATCH（本轮没成，换下一位候选人）
+PENDING_INTRO_CALL → NO_VOLUNTEER（已满 3 轮 app.intro-call.max-rounds）
 ```
 
 取消流转：
 
 ```
-PENDING_MATCH / PENDING_ACCEPT → CANCELLED（盲人 token）
+PENDING_MATCH / PENDING_INTRO_CALL / PENDING_ACCEPT → CANCELLED（盲人 token）
 PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING（志愿者 token）
 REMATCHING → CANCELLED（只能盲人 token）
 ```
 
 - 取消端点 `POST /api/orders/{orderId}/cancel`，无需请求体。
-- 盲人只能取消 `PENDING_MATCH` / `PENDING_ACCEPT` / `REMATCHING`；`IN_PROGRESS` 期间**不得**展示取消入口。
-- 志愿者只能取消 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。
+- 盲人只能取消 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `PENDING_ACCEPT` / `REMATCHING`；`IN_PROGRESS` 期间**不得**展示取消入口。
+- 志愿者只能取消 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。**`PENDING_INTRO_CALL` 不在内** —— 那一态他还没接单，退出的方式是表态「不合适」，不是取消订单。
 - `REMATCHING` 是已接单志愿者取消后进入的状态，此后只能盲人用自己的 token 取消 —— 那个志愿者已不是订单参与者。
-- 状态流转端点统一 `POST /api/orders/{orderId}/{action}`：`respond`（体带 `action = ACCEPT|DECLINE`）、`en-route`、`arrived`、`start-service`、`finish`。
+- 状态流转端点统一 `POST /api/orders/{orderId}/{action}`：`respond`（体带 `action = ACCEPT|DECLINE|INTERESTED`）、`en-route`、`arrived`、`start-service`、`finish`。
 - 下单起始时间距今不足 30 分钟必须返回 `APPOINTMENT_TOO_SOON`（`EnvironmentConfig.minimumBookingLeadMinutes = 30`）。**没有「现在就跑」。**
 - 订单列表用分页响应 `PagedOrderResponse`；盲人订单详情每 5 秒轮询作为 WebSocket 兜底。
 - WebSocket 端点：`/ws/blind?token={jwt}` 与 `/ws/volunteer?token={jwt}`。
+
+### PENDING_INTRO_CALL（接单前通话磨合，后端迁移 `0031`）
+
+志愿者对派单选「有意向，想先聊聊」后进入。订单锁给这个候选人，双方打完电话各自表态，都说合适才转 `PENDING_ACCEPT`。
+
+- **这一态还没有志愿者接单**。后端 `order.volunteer` 恒为 null，候选人只存在于 `dispatchCurrentVolunteerId`。直接后果：志愿者调 `GET /api/orders/{orderId}` 会被判 403，他这一刻**拿不到订单详情**，通话页只能吃派单推送 + `GET /api/orders/{orderId}/intro-call`。`IntroCallView` 里的 `startAddress` / `plannedStartTime` 就是为这个冷启动恢复存在的，别当冗余字段删掉。
+- 专用端点四条：`GET /intro-call`（通话页数据）、`POST /intro-call/decision`（表态 `ACCEPT|DECLINE`）、`POST /intro-call/unreachable`（志愿者报「没打通」，**盲人侧没有对应端点**）、`POST /intro-call/notify-incoming`（盲人拨号前提醒志愿者）。
+- **号码单向**：盲人拿到明文号可直拨，志愿者只拿到掩码串用于认人。掩码串**绝不能拼 `tel:`** —— `EmergencyDialer` 只取数字位，`138****1234` 会拨成空号且界面看不出异常（2026-08-11 的真实缺陷）。唯一允许拼 `tel:` 的来源是 `IntroCallView.dialableCounterpartPhone`。
+- **无声拒绝**：响应体不含对方的表态、也不含轮次进度，这不是后端漏字段。只有一方表态时后端**不通知**对方；「这是第 3 位志愿者」本身就是在告诉盲人前两位没成。客户端**也不许自己算**轮次再显示（例如按收到几次 `INTRO_CALL_CONTINUE` 计数）。
+- 盲人的自由文本在这一态**不可见**（`disclosesBlindRunnerNotesToVolunteer` 判 false，见 §8）：一单最多聊 3 位候选人，展示等于交给这一单碰到的每一个人。
+- 窗口 20 分钟（`app.intro-call.window-minutes`，**别硬编码**）；退回时轮次 +1，满 3 轮（`max-rounds`）转 `NO_VOLUNTEER`。
+- ⚠️ **客户端目前对陌生人一律发 `INTERESTED`**：判据字段 `requiresIntroCall` 只挂在 `AvailableOrderResponse` 上，而本 App 不调 `GET /api/orders/available`，唯一派单通道 `NEW_ORDER` 推送里没有它。自己算也不行（「这两人磨合成功过没有」客户端无从得知）。代价是熟人也要多聊一次。**已投 `demo/docs/handoff.md`，字段搬到推送上之前不要自作主张加 `.accept` 分支。**
+- 反过来也不能假设「陌生人必然被拦」：距开跑时间已塞不下一轮通话窗口时后端**刻意放行** `ACCEPT`（退化成直接接单）。
 
 ## 6. 求助 / SOS 红线
 
@@ -277,6 +328,20 @@ REMATCHING → CANCELLED（只能盲人 token）
 （记忆 `shared-checkout-concurrent-colleague-edits`）。同事跑一次 `git add`，
 他的改动就在你的暂存区里；随后一个 `--amend` 把它们一并吞进你的提交。
 2026-08-16 就这样把一笔编译不过的 WIP 推进了 PR，靠事后手动核对 `git show --stat` 才发现。
+
+同一道守卫还拦「改写别人的历史」（amend / reset / rebase / branch -f 落在同事的分支上），
+判据两条，2026-08-24 各修过一次误报，**改它之前先知道这两条为什么长这样**：
+
+- **先判命令作用于哪个仓库**，再取 HEAD 与暂存区 —— 按 `git -C <path>` / `cd <path> &&` /
+  钩子 payload 的 `cwd` 解析（Bash 的工作目录跨调用保留，可能早就不在本仓库了）。
+  原先一律打在 `$CLAUDE_PROJECT_DIR` 上，于是在后端仓库跑 `git reset --keep` 被拦下、
+  文案里印的却是 iOS 仓库的分支。**目标是别的仓库不等于放行** —— 后端也是共享 checkout，
+  用它自己的 HEAD 判，拦截文案要指名那个仓库。
+- **HEAD 在本会话开始之后被移动过**才拦（reflog 顶端 vs 会话起点）。原判据只有
+  「本会话没切到过这条分支 + HEAD 提交不是本会话写的」，在**跨会话继续同一条分支**时恒为真，
+  而那是本仓库最常见的干法。⚠️ 别改用「HEAD 作者 == `git config user.name`」当豁免：
+  本仓库全部提交的 author 都是同一个人，**含事故里同事那条 `dd0d795`** —— 那条判据恒成立，
+  等于把这一整条判据废掉，而且不会有任何东西提示它已经废了。
 
 自测 `scripts/validate-shared-checkout-guard.mjs`（条数当场跑，别写在这里——理由同 §9）。
 

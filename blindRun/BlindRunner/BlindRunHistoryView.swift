@@ -25,7 +25,7 @@ final class BlindRunHistoryViewModel: ObservableObject {
         isLoading = records.isEmpty
         errorMessage = nil
         do {
-            let paged: PagedOrderResponse = try await appState.apiClient.get("/api/orders/mine")
+            let paged = try await appState.orders.myOrders()
             // 留全部终态（已完成 / 已取消 / 暂无志愿者）：「上次那单为什么没跑成」和
             // 「上次是谁陪我跑的」是同一个用户的同一次回看，分成两处只会多一个入口。
             // 进行中的那单不进来 —— 首页已经在管它，列表里再出现一次是两个真相源。

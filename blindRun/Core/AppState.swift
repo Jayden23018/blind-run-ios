@@ -21,6 +21,19 @@ final class AccountDeletionViewModel: ObservableObject {
     @Published var showFinalConfirmation = false
     @Published var preflightMessage: String?
 
+    /// 预检拦截的弹窗开关。
+    ///
+    /// 拦截**必须自己弹出来**。它此前唯一的展示面是设置页 `List` 末尾的一行文字，而 `089960e`（#76）
+    /// 往两端设置页各加了三、四个入口之后，那一行落到了第二屏 —— SwiftUI 的 `List` 压根不渲染
+    /// 屏幕外的行，于是用户点完「继续删除账户」屏幕上什么都不变，只有 `speakError` 那一声。
+    /// 明眼志愿者与低视力用户拿不到任何反馈，看起来就是「点了没反应」。
+    /// `testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock` 从那天起一直红着，
+    /// 红的正是这件事，只是被当成了用例陈旧。
+    var isShowingPreflightBlock: Bool {
+        get { preflightMessage != nil }
+        set { if !newValue { preflightMessage = nil } }
+    }
+
     private static let blockingStatuses: Set<RunOrderStatus> = [
         .pendingMatch, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching
     ]
@@ -28,10 +41,7 @@ final class AccountDeletionViewModel: ObservableObject {
     func preflight(appState: AppState, speechService: SpeechService) async {
         preflightMessage = nil
         do {
-            let orders: PagedOrderResponse = try await appState.apiClient.get(
-                "/api/orders/mine",
-                query: ["page": "0", "size": "100"]
-            )
+            let orders = try await appState.auth.accountDeletionOrderPreflight()
             if orders.content.contains(where: { Self.blockingStatuses.contains($0.status) }) {
                 let message = "当前存在进行中的服务，请处理完成后再删除账户。"
                 preflightMessage = message
@@ -81,6 +91,10 @@ final class AccountDeletionViewModel: ObservableObject {
 final class AppState: ObservableObject {
     private let mockAPIClient = MockAPIClient()
     private let apiClientOverride: (any APIClientProtocol)?
+    private let authOverride: (any AuthServing)?
+    private let incentiveOverride: (any IncentiveServing)?
+    private let safetyOverride: (any SafetyServing)?
+    private let ordersOverride: (any OrderServing)?
     let persistence: AppStatePersistence
     private let tokenStore: any TokenStoring
     let realtimeCoordinator: AppRealtimeCoordinator
@@ -381,10 +395,59 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// 认证·会话片的领域 service。
+    ///
+    /// 与 `apiClient` 一样**每次取都新建**：环境可以在运行时切换（Mock / Demo Cloud），
+    /// 缓存一个实例会让切换后的调用还打在旧 transport 上。
+    var auth: any AuthServing {
+        if let authOverride { return authOverride }
+        return AuthService(transport: apiClient)
+    }
+
+    /// 激励片的领域 service。每次取都新建，理由同 `auth`。
+    var incentive: any IncentiveServing {
+        if let incentiveOverride { return incentiveOverride }
+        return IncentiveService(transport: apiClient)
+    }
+
+    /// 档案·实名·资质片的领域 service。同样**每次取都新建**，理由同上。
+    ///
+    /// 这里没有 `AppState(profile:)` 注入口 —— 本片现有用例全部通过 `AppState(apiClient:)`
+    /// 打桩，桩实现的是 `APIClientProtocol`，`ProfileService` 照样架在它上面。
+    /// 真需要一个 `FakeProfileService` 时再照 `auth` 加，不先摆一个没人用的入口。
+    var profile: any ProfileServing {
+        ProfileService(transport: apiClient)
+    }
+
+    /// 求助·通话磨合·轨迹片的领域 service。每次取都新建，理由同 `auth`。
+    var safety: any SafetyServing {
+        if let safetyOverride { return safetyOverride }
+        return SafetyService(transport: apiClient)
+    }
+
+    /// 订单片的领域 service。理由与 `auth` 相同：每次取都新建，不缓存实例。
+    var orders: any OrderServing {
+        if let ordersOverride { return ordersOverride }
+        return OrderService(transport: apiClient)
+    }
+
+    /// 语音下单解析片的领域 service。每次取都新建，理由同 `auth`。
+    ///
+    /// 这里没有注入口，理由同 `profile`：现有用例都通过给 `VoiceOrderWizard.configure`
+    /// 传一个架在 `APIClientProtocol` 桩上的 `VoiceOrderService` 打桩，够用。
+    /// 真需要 `FakeVoiceOrderService` 时再照 `auth` 加，不先摆一个没人用的入口。
+    var voiceOrder: any VoiceOrderServing {
+        VoiceOrderService(transport: apiClient)
+    }
+
     // MARK: - Init
 
     init(
         apiClient: (any APIClientProtocol)? = nil,
+        auth: (any AuthServing)? = nil,
+        incentive: (any IncentiveServing)? = nil,
+        safety: (any SafetyServing)? = nil,
+        orders: (any OrderServing)? = nil,
         persistence: AppStatePersistence? = nil,
         tokenStore: (any TokenStoring)? = nil
     ) {
@@ -395,6 +458,10 @@ final class AppState: ObservableObject {
         let emergencyCoordinator = EmergencyCoordinator()
         self.emergencyCoordinator = emergencyCoordinator
         self.apiClientOverride = apiClient
+        self.authOverride = auth
+        self.incentiveOverride = incentive
+        self.safetyOverride = safety
+        self.ordersOverride = orders
         self.persistence = persistence
         self.tokenStore = tokenStore ?? TokenStoreFactory.makeDefault()
         if let envRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
@@ -410,10 +477,10 @@ final class AppState: ObservableObject {
         self.didAcceptPrivacyConsent = AppState.resolveInitialPrivacyConsent(persistence: persistence)
 
         // 紧急事件的后续推送在触发它的界面消失后才到，订阅点必须在 App 生命周期层。
-        // provider 而不是直接传 client：环境可以在运行时切换（Mock / 生产），求助恢复必须打当下那一个。
+        // provider 而不是直接传 service：环境可以在运行时切换（Mock / 生产），求助恢复必须打当下那一个。
         emergencyCoordinator.observe(realtimeCoordinator) { [weak self] in
             guard let self, self.activeRole == .blind else { return nil }
-            return self.apiClient
+            return self.safety
         }
 
         // WS 重连成功后补读断线期间遗漏的通知，喂回 coordinator 复用去重/优先级排队。
@@ -450,10 +517,7 @@ final class AppState: ObservableObject {
             ?? persistence.string(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
         guard let after, !after.isEmpty else { return }
         do {
-            let missed: [MissedNotificationResponse] = try await apiClient.get(
-                "/api/notifications/since",
-                query: ["after": after]
-            )
+            let missed = try await auth.missedNotifications(after: after)
             realtimeCoordinator.ingestCatchUp(missed)
             if let latest = realtimeCoordinator.lastObservedNotificationTimestamp {
                 persistence.set(latest, forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
@@ -477,7 +541,7 @@ final class AppState: ObservableObject {
         guard !didAttemptLegalLinksLoad else { return }
         didAttemptLegalLinksLoad = true
         do {
-            legalLinks = try await apiClient.get("/api/misc/legal-links", requiresAuth: false)
+            legalLinks = try await auth.legalLinks()
         } catch {
             ClientFlowDiagnostics.record(event: "failed", operation: "legal-links")
         }
@@ -501,7 +565,7 @@ final class AppState: ObservableObject {
         }
         mockAPIClient.syncSessionFromAppState(token: accessToken, role: activeRole)
         do {
-            let user: CurrentUserResponse = try await apiClient.get("/api/auth/me")
+            let user = try await auth.currentUser()
             guard user.roleResolution != .invalid else {
                 performLocalSessionCleanup()
                 sessionExpirationMessage = "登录角色信息异常，请重新登录。"
@@ -573,7 +637,7 @@ final class AppState: ObservableObject {
         // 解绑失败不阻断登出：接口幂等、可安全重试。
         await pushNotificationsManager?.unregisterDeviceTokenBeforeLogout()
         do {
-            let _: LogoutResponse = try await apiClient.post("/api/auth/logout")
+            _ = try await auth.logout()
             performLocalSessionCleanup()
         } catch APIError.unauthorized {
             performLocalSessionCleanup()
@@ -602,7 +666,7 @@ final class AppState: ObservableObject {
         guard accountDeletionState != .inProgress, let userId = currentUser?.userId ?? self.userId else { return }
         accountDeletionState = .inProgress
         do {
-            let response: DeleteAccountResponse = try await apiClient.delete("/api/users/\(userId)")
+            let response = try await auth.deleteAccount(userId: userId)
             guard response.success else {
                 accountDeletionState = .revocationFailed(message: response.message ?? "账户删除未完成。")
                 return

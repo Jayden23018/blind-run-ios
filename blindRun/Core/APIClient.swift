@@ -205,6 +205,43 @@ extension APIClientProtocol {
     ) async throws -> T {
         try await upload(path: path, query: query, fields: fields, files: files, requiresAuth: requiresAuth)
     }
+
+    /// 领域 service 层的入口：方法与路径一起由 `EndpointRequest` 给出。
+    ///
+    /// 与上面几个便捷式**并列**、不替代它们 —— 迁移是一片一片走的，
+    /// 还没迁的调用点继续用 `get` / `post`。
+    /// `query` 不进 `EndpointRequest`：路径是端点的固有属性，query 是每次调用才定的。
+    func send<T: Decodable>(
+        _ endpoint: EndpointRequest,
+        body: (any Encodable & Sendable)? = nil,
+        query: [String: String]? = nil
+    ) async throws -> T {
+        try await request(
+            method: endpoint.method,
+            path: endpoint.path,
+            query: query,
+            body: body,
+            requiresAuth: endpoint.requiresAuth
+        )
+    }
+
+    /// multipart 版本的 `send`。
+    ///
+    /// `upload` 只有 POST 一种语义，所以 `endpoint.method` 在这里不参与构造 ——
+    /// 端点表里照样写 `.post`，别改成别的，否则读端点表的人会以为这条走的是另一个方法。
+    func send<T: Decodable>(
+        _ endpoint: EndpointRequest,
+        files: [MultipartFile],
+        fields: [String: String]? = nil
+    ) async throws -> T {
+        try await upload(
+            path: endpoint.path,
+            query: nil,
+            fields: fields,
+            files: files,
+            requiresAuth: endpoint.requiresAuth
+        )
+    }
 }
 
 // MARK: - URLSession API Client

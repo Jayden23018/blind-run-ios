@@ -104,7 +104,10 @@ final class IntroCallTests: XCTestCase {
             counterpartPhone: nil,
             counterpartPhoneMasked: "138****1234",
             myDecision: nil,
-            windowEndsAt: nil
+            windowEndsAt: nil,
+            startAddress: nil,
+            plannedStartTime: nil,
+            plannedEndTime: nil
         )
 
         XCTAssertNil(volunteerSide.dialableCounterpartPhone)
@@ -123,7 +126,10 @@ final class IntroCallTests: XCTestCase {
             counterpartPhone: "13800000002",
             counterpartPhoneMasked: nil,
             myDecision: nil,
-            windowEndsAt: nil
+            windowEndsAt: nil,
+            startAddress: nil,
+            plannedStartTime: nil,
+            plannedEndTime: nil
         )
 
         XCTAssertEqual(blindSide.dialableCounterpartPhone, "13800000002")
@@ -223,7 +229,7 @@ final class IntroCallTests: XCTestCase {
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: SpeechService())
         viewModel.order = Self.makeOrder(orderId: 601, status: .pendingIntroCall)
-        await viewModel.loadIntroCallForTesting()
+        await viewModel.reloadIntroCall()
 
         // 同步返回：这一行没有 await，拿到的必须已经是可拨的 URL。
         let url = viewModel.introCallDialURL()
@@ -248,7 +254,7 @@ final class IntroCallTests: XCTestCase {
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: SpeechService())
         viewModel.order = Self.makeOrder(orderId: 602, status: .pendingIntroCall)
-        await viewModel.loadIntroCallForTesting()
+        await viewModel.reloadIntroCall()
 
         XCTAssertNil(viewModel.introCallDialURL())
         XCTAssertFalse(client.paths.contains("/api/orders/602/intro-call/notify-incoming"))
@@ -334,29 +340,31 @@ final class IntroCallTests: XCTestCase {
     /// 与 `DECLINE` 合并会错误拉低这位志愿者的 `acceptanceRate` —— 他并没有拒绝任何人，
     /// 而那个数字直接进派单评分。
     func testVolunteerUnreachableUsesItsOwnEndpointNotDecline() async {
-        let client = IntroCallAPIClientStub()
-        let appState = AppState(apiClient: client)
-        appState.currentEnvironment = .mock
+        let safety = FakeSafetyService()
+        safety.introCallResult = .success(Self.volunteerSideView)
+        let appState = AppState(safety: safety)
         let viewModel = VolunteerIntroCallViewModel()
         viewModel.configure(orderId: 606, appState: appState, speechService: SpeechService())
 
         await viewModel.reportUnreachable()
 
-        XCTAssertTrue(client.paths.contains("/api/orders/606/intro-call/unreachable"))
-        XCTAssertFalse(client.paths.contains { $0.hasSuffix("/intro-call/decision") })
+        // 两条端点分别对应 service 上的两个方法（路径映射由 `SafetyServiceTests` 守），
+        // 所以「走的是不是另一条」在这里就是「调的是不是另一个方法」。
+        XCTAssertTrue(safety.calls.contains("reportIntroCallUnreachable(orderId:)"))
+        XCTAssertFalse(safety.calls.contains("submitIntroCallDecision(orderId:decision:)"))
+        XCTAssertEqual(safety.lastOrderId, 606)
     }
 
     /// 本轮结束后「这一单是不是我的」**只能**靠订单详情读不读得到来判 ——
     /// 通话端点刻意不回对方的表态，这是这个契约下唯一存在的判据。
     func testVolunteerResolvesTheRoundByWhetherOrderDetailBecameReadable() async {
         // 成了：后端 `confirmMatch` 写上 `order.volunteer`，订单详情从此读得到。
-        let matched = IntroCallAPIClientStub()
-        matched.introCallError = APIError.serverError(
-            ErrorResponse(code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了")
+        let matched = FakeSafetyService()
+        matched.introCallResult = .failure(
+            APIError.serverError(ErrorResponse(code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
         )
-        matched.order = Self.makeOrder(orderId: 607, status: .pendingAccept)
-        let matchedState = AppState(apiClient: matched)
-        matchedState.currentEnvironment = .mock
+        matched.matchedOrderResult = .success(Self.makeOrder(orderId: 607, status: .pendingAccept))
+        let matchedState = AppState(safety: matched)
         let matchedViewModel = VolunteerIntroCallViewModel()
         matchedViewModel.configure(orderId: 607, appState: matchedState, speechService: SpeechService())
 
@@ -367,13 +375,12 @@ final class IntroCallTests: XCTestCase {
         XCTAssertEqual(matchedViewModel.matchedOrder?.orderId, 607)
 
         // 没成：`order.volunteer` 仍是 null，订单详情继续 403。
-        let closed = IntroCallAPIClientStub()
-        closed.introCallError = APIError.serverError(
-            ErrorResponse(code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了")
+        let closed = FakeSafetyService()
+        closed.introCallResult = .failure(
+            APIError.serverError(ErrorResponse(code: "INTRO_CALL_NOT_ACTIVE", message: "这一轮通话已经结束了"))
         )
-        closed.order = nil
-        let closedState = AppState(apiClient: closed)
-        closedState.currentEnvironment = .mock
+        closed.matchedOrderResult = .failure(APIError.unknown(statusCode: 403))
+        let closedState = AppState(safety: closed)
         let closedViewModel = VolunteerIntroCallViewModel()
         closedViewModel.configure(orderId: 608, appState: closedState, speechService: SpeechService())
 
@@ -491,6 +498,292 @@ final class IntroCallTests: XCTestCase {
         XCTAssertEqual(order.dispatchRespondAction, .accept)
     }
 
+    // MARK: - 通话数据拉不到时的兜底
+
+    /// 🚨 **这一族用例守的是一个真实的静默失败。**
+    ///
+    /// 改动前：拉通话数据用 `try?`，失败即 `introCall = nil`，而 `introCallSection` 靠
+    /// `let introCall` 拆包 ⇒ 拨号 / 合适 / 换一位三个按钮**一个都不渲染**、没有错误文字、
+    /// 没有播报，而状态播报仍在说「有位志愿者想陪你跑，可以打个电话聊聊」。
+    /// 盲人被告知去做一件屏幕上根本没有入口的事。
+    func testIntroCallLoadFailureIsAnnouncedInsteadOfSilentlyEmptyingTheScreen() async {
+        let client = IntroCallAPIClientStub()
+        client.introCallError = .unknown(statusCode: 500)
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.order = Self.makeOrder(orderId: 701, status: .pendingIntroCall)
+
+        await viewModel.reloadIntroCall()
+
+        XCTAssertNil(viewModel.introCall, "拉失败还留着数据，会把电话打给上一位候选人")
+        XCTAssertTrue(
+            viewModel.introCallUnavailable,
+            "失败没有留下任何痕迹 —— 界面无从把它和「不在通话态」区分开"
+        )
+        XCTAssertEqual(speechService.lastSpokenText, IntroCallCopy.loadFailed)
+    }
+
+    /// 只在 `false → true` 那一跳播一次。`loadOrder` 每 5 秒重跑一遍，
+    /// 每轮都播会把读屏用户淹掉 —— 他要听的是「这次没拿到，可以重试」，
+    /// 不是同一句话每 5 秒一遍。
+    func testIntroCallLoadFailureIsAnnouncedOnceNotOnEveryPoll() async {
+        let client = IntroCallAPIClientStub()
+        client.introCallError = .unknown(statusCode: 500)
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        let firstRound = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: firstRound)
+        viewModel.order = Self.makeOrder(orderId: 702, status: .pendingIntroCall)
+
+        await viewModel.reloadIntroCall()
+        XCTAssertEqual(firstRound.lastSpokenText, IntroCallCopy.loadFailed)
+
+        // ⚠️ 换一个实例来验第二轮，不是 `stop()` 之后复用同一个：`stop()` 只停合成器，
+        // `lastSpokenText` 是不清的（`SpeechService.swift:150-154`），复用会让断言恒假地通过。
+        let secondRound = SpeechService()
+        viewModel.configure(appState: appState, speechService: secondRound)
+        await viewModel.reloadIntroCall()
+
+        XCTAssertTrue(viewModel.introCallUnavailable)
+        XCTAssertNil(secondRound.lastSpokenText, "第二轮轮询又播了一遍，读屏用户会被同一句话淹掉")
+    }
+
+    /// 失败态必须跟着订单状态一起清干净，否则下一单一进通话态就顶着上一单的错误块。
+    func testLeavingIntroCallStatusClearsTheFailureState() async {
+        let client = IntroCallAPIClientStub()
+        client.introCallError = .unknown(statusCode: 500)
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.order = Self.makeOrder(orderId: 703, status: .pendingIntroCall)
+        await viewModel.reloadIntroCall()
+        XCTAssertTrue(viewModel.introCallUnavailable)
+
+        viewModel.order = Self.makeOrder(orderId: 703, status: .pendingAccept)
+        await viewModel.reloadIntroCall()
+
+        XCTAssertNil(viewModel.introCall)
+        XCTAssertFalse(viewModel.introCallUnavailable)
+    }
+
+    /// 拉成功之后失败态要翻回去 —— 重试按下之后界面得真的能回到可拨号的样子。
+    func testSuccessfulReloadClearsTheFailureState() async {
+        let client = IntroCallAPIClientStub()
+        client.introCallError = .unknown(statusCode: 500)
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.order = Self.makeOrder(orderId: 704, status: .pendingIntroCall)
+        await viewModel.reloadIntroCall()
+        XCTAssertTrue(viewModel.introCallUnavailable)
+
+        client.introCallError = nil
+        client.introCall = Self.blindSideView
+        await viewModel.reloadIntroCall()
+
+        XCTAssertFalse(viewModel.introCallUnavailable)
+        XCTAssertEqual(viewModel.introCallDialURL()?.absoluteString, "tel://13800000002")
+    }
+
+    /// 🚨 **表过态之后，「拉不到通话数据」不算失败。**
+    ///
+    /// 这条是 2026-08-27 真机跑出来的一条真回归的钉子：`submitIntroCallDecision` 成功后
+    /// 紧接着 `loadOrder` → 会去拉通话数据，而那一步失败时最初的实现照样报错，
+    /// 于是用户刚听完「已经告诉系统你觉得合适」就被「暂时拿不到通话信息」盖掉，
+    /// **屏幕上还会冒出一个「换一位」—— 他刚说完合适**。
+    ///
+    /// 表态服务端已经记下了，拉不到 view 不改变这件事，此刻他也没有任何该做而做不了的事。
+    func testFailedRefreshAfterAcceptingIsNotReportedAsAFailure() async {
+        let client = IntroCallAPIClientStub()
+        // introCall 不设 ⇒ GET /intro-call 抛错，正是表态成功后那一次刷新会走的路。
+        client.order = Self.makeOrder(orderId: 705, status: .pendingIntroCall)
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.order = Self.makeOrder(orderId: 705, status: .pendingIntroCall)
+
+        await viewModel.submitIntroCallDecision(.accept)
+
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            IntroCallCopy.waitingForCounterpart,
+            "表态成功的确认被那次刷新失败盖掉了"
+        )
+        XCTAssertFalse(viewModel.introCallUnavailable, "表过态之后还把拉不到当成失败")
+        XCTAssertTrue(
+            viewModel.isWaitingForIntroCallCounterpart,
+            "拉不到就不知道自己在等对方了 —— 这件事本地已经知道，不该依赖再拉一次"
+        )
+    }
+
+    /// 服务端说了话就以它为准：换了候选人时 `myDecision` 回 nil，
+    /// 本地那个「我表过态」的记号必须跟着作废 —— 否则新一轮一开局就显示成「正在等对方」，
+    /// 而用户其实还没打那通电话。
+    func testServerClearsTheLocalDecisionWhenTheRoundMovesToANewCandidate() async {
+        let client = IntroCallAPIClientStub()
+        client.order = Self.makeOrder(orderId: 706, status: .pendingIntroCall)
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: SpeechService())
+        viewModel.order = Self.makeOrder(orderId: 706, status: .pendingIntroCall)
+
+        await viewModel.submitIntroCallDecision(.accept)
+        XCTAssertTrue(viewModel.isWaitingForIntroCallCounterpart)
+
+        // 换了候选人：后端这一轮回的 myDecision 是 nil。
+        client.introCall = Self.blindSideView
+        await viewModel.reloadIntroCall()
+
+        XCTAssertNil(viewModel.submittedIntroCallDecision)
+        XCTAssertFalse(
+            viewModel.isWaitingForIntroCallCounterpart,
+            "新一轮开局就显示成「正在等对方」，而用户还没打那通电话"
+        )
+    }
+
+    // MARK: - 冷启动恢复（introCallOrderId）
+
+    /// 🚨 后端为这个字段写的理由逐字：通话态 `order.volunteer` 还是 null ⇒
+    /// `GET /api/orders/{id}` 恒 403、`/api/orders/mine` 也不返回，而派单推送不会重放 ——
+    /// **志愿者杀掉 App 再打开就回不到通话页，只能等 20 分钟窗口超时，而盲人在等他。**
+    func testColdStartRecoveryOpensTheIntroCallFromDispatchSummary() {
+        let viewModel = VolunteerHomeViewModel()
+
+        viewModel.apply(summary: Self.makeSummary(introCallOrderId: 812))
+
+        XCTAssertEqual(viewModel.pendingIntroCallOrder?.orderId, 812)
+        XCTAssertNil(
+            viewModel.pendingIntroCallOrder?.dispatchOrder,
+            "恢复路径上没有派单载荷，编一个出发地比空着更糟"
+        )
+    }
+
+    /// 🚨 **这条是那个记号存在的唯一理由。** 没有它：用户手动返回 → `pendingIntroCallOrder` 被清
+    /// → 下一次摘要刷新看到 `introCallOrderId` 还在 → 又把他推回通话页，
+    /// 在 20 分钟窗口结束前出不来。
+    func testColdStartRecoveryDoesNotReopenAfterTheUserBacksOut() {
+        let viewModel = VolunteerHomeViewModel()
+        let summary = Self.makeSummary(introCallOrderId: 812)
+
+        viewModel.apply(summary: summary)
+        XCTAssertNotNil(viewModel.pendingIntroCallOrder)
+
+        viewModel.clearIntroCall()
+        viewModel.apply(summary: summary)
+
+        XCTAssertNil(viewModel.pendingIntroCallOrder, "用户返回之后又被拽回通话页了")
+    }
+
+    /// 换一单要再跳一次 —— 那是另一个人在等他。记号跟着 orderId 走，不是「跳过就再也不跳」。
+    func testColdStartRecoveryOpensAgainForADifferentOrder() {
+        let viewModel = VolunteerHomeViewModel()
+
+        viewModel.apply(summary: Self.makeSummary(introCallOrderId: 812))
+        viewModel.clearIntroCall()
+        viewModel.apply(summary: Self.makeSummary(introCallOrderId: 813))
+
+        XCTAssertEqual(viewModel.pendingIntroCallOrder?.orderId, 813)
+    }
+
+    /// 绝大多数时候它是 null，那时一步都不许动导航。
+    func testNoIntroCallOrderIdLeavesNavigationAlone() {
+        let viewModel = VolunteerHomeViewModel()
+
+        viewModel.apply(summary: Self.makeSummary(introCallOrderId: nil))
+
+        XCTAssertNil(viewModel.pendingIntroCallOrder)
+    }
+
+    /// 🚨 **恢复出来的页面不能只有一个号码。**
+    ///
+    /// 后端为这件事往 `IntroCallView` 加了 `startAddress` / `plannedStartTime`
+    /// （字段说明里点名「杀掉 App 再打开就回不到通话页」），而手写模型此前一个都没接 ——
+    /// 字段到了被 `Decodable` 静默丢弃。这条走 `JSONDecoder` 验字段名，
+    /// 因为构造器测不出「后端叫 startAddress 而我们写成别的」。
+    func testIntroCallViewCarriesTheOrderFactsNeededAfterAColdStart() throws {
+        let json = """
+        {"counterpartName":"王*","counterpartPhoneMasked":"138****1234",
+         "startAddress":"朝阳公园南门","startLatitude":39.94,"startLongitude":116.47,
+         "plannedStartTime":"2026-08-27T07:30:00","plannedEndTime":"2026-08-27T08:30:00"}
+        """
+        let decoded = try JSONDecoder().decode(IntroCallView.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.startAddress, "朝阳公园南门")
+        XCTAssertEqual(decoded.plannedStartTime, "2026-08-27T07:30:00")
+        XCTAssertEqual(decoded.plannedEndTime, "2026-08-27T08:30:00")
+        // 志愿者侧仍然只有掩码号 —— 加这三个字段不许把号码那条单向规则捎带松掉。
+        XCTAssertNil(decoded.dialableCounterpartPhone)
+    }
+
+    /// 时间形状：`IntroCallView.plannedStartTime` 契约上是 `date-time`（可带偏移），
+    /// 而派单推送那条 `plannedStart` 是无偏移的 `LocalDateTime`。
+    /// 两条路径展示走**同一个** `String.displayDateTime`，所以两种形状都得认得出来 ——
+    /// 认不出时它原样返回，界面上就会出现一串 ISO 时间戳。
+    func testBothTimestampShapesRenderAsDisplayTimeNotRawISO() {
+        for raw in ["2026-08-27T07:30:00", "2026-08-27T07:30:00+08:00", "2026-08-27T07:30:00.123Z"] {
+            XCTAssertNotEqual(raw.displayDateTime, raw, "「\(raw)」没被解析，会原样显示成 ISO 串")
+        }
+    }
+
+    /// 走 `JSONDecoder` 不走构造器：验的是**字段名对不对得上**。
+    /// 构造器测不出后端叫 `introCallOrderId` 而我们写成别的 —— 那正是这个字段
+    /// 「到了但被静默丢弃」了三天的原因。
+    func testDispatchSummaryDecodesIntroCallOrderIdFromTheWire() throws {
+        let json = #"{"canDispatch":true,"introCallOrderId":812}"#
+        let decoded = try JSONDecoder().decode(
+            VolunteerDispatchSummaryResponse.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertEqual(decoded.introCallOrderId, 812)
+    }
+
+    /// 契约逐字：**它不在 `activeOrders` 里，也不要合并进去** —— 人还没接单，
+    /// 那一态 `sharesLiveLocation()` 为 false，混进活跃订单会让位置协同空转。
+    func testIntroCallOrderIsNotTreatedAsAnActiveOrder() {
+        let viewModel = VolunteerHomeViewModel()
+
+        viewModel.apply(summary: Self.makeSummary(introCallOrderId: 812))
+
+        XCTAssertNil(viewModel.activeOrder, "通话磨合的那一单被当成在途订单了")
+    }
+
+    private static func makeSummary(introCallOrderId: Int64?) -> VolunteerDispatchSummaryResponse {
+        VolunteerDispatchSummaryResponse(
+            canDispatch: true,
+            notAvailableReasons: [],
+            wantsDispatch: true,
+            isOnline: true,
+            lastLat: nil,
+            lastLng: nil,
+            lastLocationAt: nil,
+            coverageRadiusKm: nil,
+            isWithinServiceTime: true,
+            availableTimeSlots: nil,
+            avgRating: nil,
+            totalRatings: nil,
+            totalDispatched: nil,
+            totalAccepted: nil,
+            totalDeclined: nil,
+            totalTimeout: nil,
+            totalCompleted: nil,
+            totalCancelled: nil,
+            acceptanceRate: nil,
+            activeOrders: nil,
+            recentOrders: nil,
+            introCallOrderId: introCallOrderId
+        )
+    }
+
     // MARK: - Fixtures
 
     private static let blindSideView = IntroCallView(
@@ -498,7 +791,10 @@ final class IntroCallTests: XCTestCase {
         counterpartPhone: "13800000002",
         counterpartPhoneMasked: nil,
         myDecision: nil,
-        windowEndsAt: nil
+        windowEndsAt: nil,
+        startAddress: "朝阳公园南门",
+        plannedStartTime: "2026-08-27T07:30:00",
+        plannedEndTime: "2026-08-27T08:30:00"
     )
 
     private static let volunteerSideView = IntroCallView(
@@ -506,7 +802,10 @@ final class IntroCallTests: XCTestCase {
         counterpartPhone: nil,
         counterpartPhoneMasked: "138****1234",
         myDecision: nil,
-        windowEndsAt: nil
+        windowEndsAt: nil,
+        startAddress: "朝阳公园南门",
+        plannedStartTime: "2026-08-27T07:30:00",
+        plannedEndTime: "2026-08-27T08:30:00"
     )
 
     private static func makeDispatchOrder(
@@ -570,6 +869,125 @@ final class IntroCallTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
         return condition()
+    }
+
+    // MARK: - 独立通话页：本轮剩余时间
+
+    /// 窗口还剩多久这一行，四条边界。**三条都返回 nil** —— 算不出来就不说，不猜。
+    ///
+    /// 口径与 `blindRunnerWaitedText` 相同：这一行是辅助信息，摆一个说不出内容的占位
+    /// 比没有这一行更容易被当成真的。
+    func testWindowRemainingTextOnlySpeaksWhenItHasSomethingTrueToSay() {
+        let now = Date()
+
+        // 后端形状变了 / 字段本来就是 optional。
+        XCTAssertNil(IntroCallCopy.blindWindowRemainingText(windowEndsAt: nil, now: now))
+        XCTAssertNil(IntroCallCopy.blindWindowRemainingText(windowEndsAt: "   ", now: now))
+        XCTAssertNil(IntroCallCopy.blindWindowRemainingText(windowEndsAt: "不是时间", now: now))
+
+        // 🚨 已经过期：窗口到点后订单转走有延迟，这中间**客户端不替后端宣布结果**。
+        // 显示「已超时」而后端还在等表态，会让用户以为白打了一通电话。
+        let expired = ISO8601DateFormatter.aidRunFormatter.string(from: now.addingTimeInterval(-60))
+        XCTAssertNil(IntroCallCopy.blindWindowRemainingText(windowEndsAt: expired, now: now))
+
+        // 不足 1 分钟：「还剩 0 分钟」既是噪音，又是在催一个正在打电话的人。
+        let almostUp = ISO8601DateFormatter.aidRunFormatter.string(from: now.addingTimeInterval(45))
+        XCTAssertNil(IntroCallCopy.blindWindowRemainingText(windowEndsAt: almostUp, now: now))
+
+        // 正常：向下取整到分钟。
+        let fresh = ISO8601DateFormatter.aidRunFormatter.string(from: now.addingTimeInterval(18 * 60 + 40))
+        XCTAssertEqual(
+            IntroCallCopy.blindWindowRemainingText(windowEndsAt: fresh, now: now),
+            "这一轮通话还剩 18 分钟"
+        )
+    }
+
+    /// 🚨 **这一行不许泄露轮次。** 无声拒绝要求盲人无从得知自己被谁拒过，
+    /// 而「这是第 3 位志愿者」本身就是在告诉他前两位没成。
+    func testWindowRemainingTextNeverLeaksTheRoundNumber() {
+        let text = IntroCallCopy.blindWindowRemainingText(
+            windowEndsAt: ISO8601DateFormatter.aidRunFormatter.string(from: Date().addingTimeInterval(600)),
+            now: Date()
+        )
+        let leaks = ["第", "轮次", "位志愿者", "重新", "换一位", "再找"]
+        for word in leaks {
+            XCTAssertFalse(text?.contains(word) == true, "剩余时间文案里出现了会泄露轮次的「\(word)」：\(text ?? "nil")")
+        }
+    }
+
+    // MARK: - 独立通话页：什么时候弹出来
+
+    /// 转入通话态就自动弹 —— 盲人不会知道页面上多了一个入口，这一跳是他唯一的发现路径。
+    func testIntroCallPageOpensWhenTheOrderEntersIntroCall() {
+        var presentation = BlindIntroCallPresentation()
+        XCTAssertFalse(presentation.isShowing)
+
+        presentation.apply(status: .pendingIntroCall)
+        XCTAssertTrue(presentation.isShowing)
+    }
+
+    /// 🚨 **关掉之后本轮不许再弹。** 没有这条就是一个关不掉的全屏页：
+    /// 用户按「返回订单」→ 5 秒后轮询回来 `status` 还是 `PENDING_INTRO_CALL` → 又弹出来。
+    /// 志愿者侧踩过同一个坑（`autoOpenedIntroCallOrderId`）。
+    func testIntroCallPageDoesNotReopenAfterTheUserClosesItInTheSameRound() {
+        var presentation = BlindIntroCallPresentation()
+        presentation.apply(status: .pendingIntroCall)
+        presentation.dismiss()
+        XCTAssertFalse(presentation.isShowing)
+
+        // 轮询每 5 秒把同一个状态送回来一次。三轮都不许把页面顶回用户脸上。
+        for _ in 0..<3 {
+            presentation.apply(status: .pendingIntroCall)
+            XCTAssertFalse(presentation.isShowing, "用户已经关过这一轮的通话页，不该再自动弹出来")
+        }
+    }
+
+    /// 🚩 **但「关过一次」是本轮的记号，不是这一单的。**
+    ///
+    /// 本轮没聊成会退回 `PENDING_MATCH`（`AGENTS.md` §5），下一位候选人上来又是
+    /// `PENDING_INTRO_CALL` —— 那是一件新的、必须让用户知道的事。不复位的话，
+    /// 第一次关掉之后这一单余下的每一位候选人都不再自动弹。
+    func testIntroCallPageOpensAgainForTheNextCandidate() {
+        var presentation = BlindIntroCallPresentation()
+        presentation.apply(status: .pendingIntroCall)
+        presentation.dismiss()
+
+        // 本轮没聊成，退回派单队列。
+        presentation.apply(status: .pendingMatch)
+        XCTAssertFalse(presentation.isShowing)
+
+        // 下一位候选人。
+        presentation.apply(status: .pendingIntroCall)
+        XCTAssertTrue(presentation.isShowing, "换了候选人是新的一轮，必须重新弹出来")
+    }
+
+    /// 本轮成了（或订单被取消）就把页面收起来，且**不留下「关过」的记号** ——
+    /// 那是系统收的，不是用户关的。
+    func testLeavingIntroCallClosesThePageAndClearsTheDismissMark() {
+        var presentation = BlindIntroCallPresentation()
+        presentation.apply(status: .pendingIntroCall)
+        XCTAssertTrue(presentation.isShowing)
+
+        // 双方都说合适 ⇒ PENDING_ACCEPT。
+        presentation.apply(status: .pendingAccept)
+        XCTAssertFalse(presentation.isShowing)
+
+        // 记号已复位：这一单若因志愿者取消走 REMATCHING 再回到通话态，照样会弹。
+        presentation.apply(status: .pendingIntroCall)
+        XCTAssertTrue(presentation.isShowing)
+    }
+
+    /// 每一个非通话态都要收起页面。写成遍历而不是逐条断言：后端往状态机加值时，
+    /// 新状态会自动被这条用例覆盖，不需要有人记得回来补一行。
+    func testEveryNonIntroCallStatusClosesThePage() {
+        for status in RunOrderStatus.allCases where status != .pendingIntroCall {
+            var presentation = BlindIntroCallPresentation()
+            presentation.apply(status: .pendingIntroCall)
+            XCTAssertTrue(presentation.isShowing)
+
+            presentation.apply(status: status)
+            XCTAssertFalse(presentation.isShowing, "\(status.rawValue) 不是通话态，通话页该收起来")
+        }
     }
 }
 
