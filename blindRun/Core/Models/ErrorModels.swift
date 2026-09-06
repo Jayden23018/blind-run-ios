@@ -90,8 +90,11 @@ enum ErrorCode: String, Codable, Sendable {
     // 订单已经换了下一个候选人，用户此刻才把表态发上来。所以文案说「这一轮已经结束」，
     // 不能说成「参数错误」或「操作失败」——后者会让人以为再点一次就好。
     case introCallNotActive = "INTRO_CALL_NOT_ACTIVE"
-    // 陌生人试图跳过通话直接接单。客户端一律先发 `INTERESTED`，所以正常路径下见不到它；
-    // 映射它是为了别把一个有确切含义的 409 念成「未知错误 (409)」。
+    // 陌生人试图跳过通话直接接单。客户端按推送里的 `requiresIntroCall` 决定发哪个 action，
+    // 所以正常路径下见不到它；它出现意味着**推送发出之后**这一对的磨合记录或后端开关变了。
+    // `VolunteerHomeViewModel.respondToDispatch` 对这一种会自动改发 `INTERESTED` 重试一次，
+    // 所以这句文案只在重试也失败时才会被念出来 —— 文案因此**不指任何按钮**：
+    // 这条路径下界面上的主按钮是「接单」，让他去找一个不存在的「有意向」按钮是在骗人。
     case introCallRequired = "INTRO_CALL_REQUIRED"
     // 反过来的那一头（后端 2026-08-26 新增）：**已经磨合成功过的一对**又发了 `INTERESTED`。
     //
@@ -251,9 +254,11 @@ enum ErrorCode: String, Codable, Sendable {
         case .introCallNotActive:
             return IntroCallCopy.roundAlreadyEnded
         case .introCallRequired:
-            return "还没有和这位跑者通过电话，请先选「有意向，想先聊聊」。"
-        // 只有**自动改发 `ACCEPT` 也失败**时才会被念到（正常路径下用户看不到这一句）。
-        // 所以文案说的是「再点一次」这个还能做的动作，不是解释那个码。
+            // 只有**自动改发 `INTERESTED` 也失败**时才会被念到（正常路径下用户看不到这一句）。
+            // 所以文案说的是「再试一次」这个还能做的动作，不是让用户自己去选「有意向」——
+            // 客户端已经替他选过了，再叫他选一遍只会让人以为按钮坏了。
+            return "这一单需要先和跑者通个电话，请再试一次。"
+        // 反方向同理：只有**自动改发 `ACCEPT` 也失败**时才会被念到。
         case .introCallNotRequired:
             return "你们之前已经聊过了，可以直接接单。请再点一次试试。"
         case .favoriteVolunteerNotEligible:
