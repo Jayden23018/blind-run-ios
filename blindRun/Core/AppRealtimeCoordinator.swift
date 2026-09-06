@@ -852,13 +852,41 @@ final class AppRealtimeCoordinator: ObservableObject {
     /// 同一件事在派单等待期取消走的是 `REMATCHING`(NORMAL) —— 那时人还没出门，
     /// 一起提上来只会制造噪音，而噪音会让真正紧急的那条被忽略。
     ///
-    /// 🔴 **它绝对不能进 `lifecycleStatus(forEventType:)` 那张表。**
+    /// 🔴 **本表里的每一条都绝对不能进 `lifecycleStatus(forEventType:)` 那张表。**
     /// `shouldSuppressLifecycleNotification` 的第一条就是「有活跃订单 ⇒ 抑制」，
-    /// 而这条通知发生时**必然**有活跃订单 ⇒ 一旦映射进去就是 100% 静默吞掉，
-    /// 恰好是后端拆出这一档想避免的后果。未知 `eventType` 不抑制的默认方向在这里正好是对的，
+    /// 而这些通知发生时**必然**有活跃订单 ⇒ 一旦映射进去就是 100% 静默吞掉，
+    /// 恰好是后端拆出这些档想避免的后果。未知 `eventType` 不抑制的默认方向在这里正好是对的，
     /// 所以这里只加呈现强度、不加状态映射。
+    ///
+    /// 无进展看门狗三条（后端 2026-09-04 新增，架构复核 S-2 / `ISSUES.md` N127 / 迁移 `0038`）：
+    ///
+    /// - `ORDER_DEPARTURE_STALLED` —— 志愿者接了单，但计划开始时间过了还没点「出发」⇒ 判失联。
+    ///   🚨 **不是 `REMATCHING` 的同义词，别合并分支。** 两者都以订单转入 `REMATCHING` 收场，
+    ///   但 `REMATCHING` 是志愿者**主动点了取消**（NORMAL，不补 APNs）；这一条是他**接了单之后
+    ///   再无动静**（HIGH，补 APNs），触发的那一刻盲人正站在起跑点等着。紧跟着还会来一条
+    ///   `ORDER_STATUS_CHANGED`(→`REMATCHING`)，而 `.rematching` 的本地播报是中性的
+    ///   「正在确认志愿者状态，请稍候」—— 缺了这一条，「为什么没人来」就没有任何人告诉他。
+    /// - `ORDER_ARRIVAL_STALLED` —— 志愿者标了「已到达」却迟迟没点「开始服务」，多半是没碰上头。
+    ///   **双方各收一条、文案不同**（后端按 `TargetRole` 分模板），两端都在引导打电话，
+    ///   而 `DRIVER_ARRIVED` 这一态两侧都有拨号入口，所以这条通知落地是有动作的。
+    /// - `EMERGENCY_UNATTENDED` —— SOS 触发后长时间没推进到结案。要说的是「别再干等，
+    ///   自己拨 120/110」，后端点名**不要做成普通提示**。
+    ///
+    /// ⚠️ `EMERGENCY_UNATTENDED` **刻意不走 `emergencyKind`**：那条链路会落 `latestSafetyEvent`
+    /// 并驱动 `EmergencyCoordinator.apply` 改求助状态机，而这条事件本身不改变求助的任何状态
+    /// （它是催办，不是新事实）。混进去只会让状态机按一条没有权威来源的事件跳档。
+    /// 同理它的文案照后端原样播 —— 后端刻意没写「有没有人接手」（它同时覆盖「真的没人接手」
+    /// 与「客服已接手但迟迟没结案」，写死任一种在另一种下就是假话），**客户端也不许自己补这句**。
     static func isSafetyEventType(_ eventType: String) -> Bool {
-        eventType == "REMATCHING_MID_RUN"
+        switch eventType {
+        case "REMATCHING_MID_RUN",
+             "ORDER_DEPARTURE_STALLED",
+             "ORDER_ARRIVAL_STALLED",
+             "EMERGENCY_UNATTENDED":
+            return true
+        default:
+            return false
+        }
     }
 
     static func emergencyKind(forEventType eventType: String) -> RealtimeSafetyEvent.Kind? {
