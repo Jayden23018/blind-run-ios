@@ -443,6 +443,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             if path.hasSuffix("/intro-call") && method == .get {
                 return try handleGetIntroCall(orderId: orderId)
             }
+            // ⚠️ 必须排在 `/en-route` 之前吗？不必 —— 两条后缀不相交。但它们是**不同的动作**，
+            // 别因为都通向出发流程就合并（后端契约逐字点了这一条：合并会让位置互推提前几小时打开）。
+            if path.hasSuffix("/confirm-departure") && method == .post {
+                return try handleConfirmDeparture(orderId: orderId)
+            }
             if path.hasSuffix("/en-route") && method == .post {
                 return try handleEnRoute(orderId: orderId)
             }
@@ -804,6 +809,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         switch newStatus {
         case .pendingMatch: return "创建订单"
         case .pendingIntroCall: return "志愿者表示有意向，进入通话磨合"
+        case .scheduledConfirmed: return "志愿者接单（远期预约，等临期确认）"
         case .pendingAccept: return "志愿者接单"
         case .driverEnRoute: return "志愿者已出发"
         case .driverArrived: return "志愿者已到达"

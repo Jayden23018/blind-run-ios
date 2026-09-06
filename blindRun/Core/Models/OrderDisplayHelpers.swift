@@ -10,7 +10,7 @@ import SwiftUI
 extension RunOrderStatus {
     var isActiveForBlindRunner: Bool {
         switch self {
-        case .pendingMatch, .pendingIntroCall, .pendingAccept, .inProgress, .driverEnRoute, .driverArrived, .rematching:
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .inProgress, .driverEnRoute, .driverArrived, .rematching:
             return true
         case .completed, .cancelled, .noVolunteer:
             return false
@@ -27,9 +27,18 @@ extension RunOrderStatus {
     /// 所以 `activeOrder` 永远不会是这一态，通话页吃的是派单载荷。
     /// 判 true 是取**不把订单从界面上抹掉**这个保守方向，与 `.unknown` 那条同源；
     /// 后端哪天让志愿者读得到这一态的订单详情，这里不必再改一次。
+    /// 🚩 `.scheduledConfirmed` 判 **true**：这一态他已经接了单（后端 `occupiesVolunteer()` 也判 true），
+    /// 而且有一件**必须做**的事 —— 临期确认「我还会去」。判 false 的直接后果是那张单在志愿者端
+    /// 一个入口都没有，60 分钟后被判未确认、订单转走，而他并没有拒绝过。
+    ///
+    /// ⚠️ 但**这条判 true 不等于首页就看得见它**：首页的 `activeOrder` 来自
+    /// `dispatch-summary.activeOrders`，而后端 `VolunteerService.loadActiveOrders` 的白名单只有
+    /// `IN_PROGRESS` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`。预约单的可见性由
+    /// `VolunteerHomeViewModel.scheduledOrders`（单独打 `GET /api/orders/mine`）承担，
+    /// 不要以为改了这个谓词就够了。
     var isActiveForVolunteer: Bool {
         switch self {
-        case .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+        case .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return true
         case .pendingMatch, .completed, .cancelled, .rematching, .noVolunteer:
             return false
@@ -64,9 +73,15 @@ extension RunOrderStatus {
     /// `.pendingIntroCall` 判为**不可见**：通话发生在接单**之前**，而派单是串行的 ——
     /// 一单最多聊 3 位候选人，展示等于把这段自由文本交给这一单碰到的每一个人，包括
     /// 最后没聊成的那些。通话本身就是用来替代文字沟通的，要问什么当面（电话里）问。
+    /// `.scheduledConfirmed` 判为**可见**：它在接单**之后**（后端 `order.volunteer` 已落库，
+    /// `allowsCounterpartCall()` 已经双向下发明文号），与 `.pendingAccept` 同档。
+    /// 判据是「有几个陌生人拿得到」，不是「拿到多少天」—— 这一态志愿者已**唯一确定**，
+    /// 与 `.pendingIntroCall`（一单最多聊 3 位候选人）性质不同。
+    /// **代价照说**：自由文本的暴露窗口从几小时变成 1–7 天。接受它的前提与后端下发号码同一条：
+    /// 订单一终结即失效，且盲人可随时取消把它收回。
     var disclosesBlindRunnerNotesToVolunteer: Bool {
         switch self {
-        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed, .cancelled:
+        case .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed, .cancelled:
             return true
         case .pendingMatch, .pendingIntroCall, .rematching, .noVolunteer:
             return false
@@ -93,9 +108,15 @@ extension RunOrderStatus {
     /// `GET /api/orders/{id}/intro-call` —— 只有盲人拿得到能拨通的明文号，志愿者只拿到掩码串。
     /// 混用会让两条路径的号码来源、可见方向和状态集全部搅在一起。
     /// 那一态的拨号入口在 `BlindIntroCallView`（独立页，2026-09-05 从订单状态页提出来）。
+    ///
+    /// 🚩 `.scheduledConfirmed` 判 **true**，而它并不需要「当面汇合」—— 这是本谓词唯一一处例外，
+    /// 与后端 `OrderStatus.allowsCounterpartCall()` 上那段逐字对应：跨天单在开跑前 1–7 天就定了人，
+    /// 这期间改期 / 改地点必须联系得上对方，联系不上就只能取消重派，而重派抢不回同一个人。
+    /// 泄露面与 `.pendingAccept` 相同（志愿者已唯一确定），订单一终结即失效。
+    /// ⚠️ **漏了这一行的症状是跨天单里拨号按钮不出现，且不会有任何报错。**
     var offersVolunteerCall: Bool {
         switch self {
-        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+        case .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return true
         // 还没有志愿者，或那个志愿者已经不是本单参与者（`REMATCHING` 是他取消后进入的状态）。
         case .pendingMatch, .pendingIntroCall, .rematching, .noVolunteer:
@@ -131,7 +152,9 @@ extension RunOrderStatus {
     /// 同样写成穷举 switch：后端往枚举加值时编译器在这里逼一次决策。
     var offersRunPlanShare: Bool {
         switch self {
-        case .pendingMatch, .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching:
+        // `.scheduledConfirmed` 在列：非终态，后端 `POST /share` 照常受理。
+        // 而且跨天单恰恰是最该告诉家人的一种 —— 那是一件几天后要发生、需要家里人也知道的事。
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .rematching:
             return true
         // 终态：没有还在进行的行程可分享。`NO_VOLUNTEER` 是后端明写的预留终态
         // （`OrderStatus.java:46`），归在这一组。
@@ -166,7 +189,9 @@ extension RunOrderStatus {
         // `.pendingIntroCall` 同样是 nil，但理由不同：后端 `keepWaiting` 只收 `PENDING_MATCH`、
         // `keepRematching` 只收 `REMATCHING`，通话态两条都会 409；而且通话窗口有自己的
         // 20 分钟计时，不由「继续等待」延长。
-        case .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+        // `.scheduledConfirmed` 同样 nil：那两个端点只收 `PENDING_MATCH` / `REMATCHING`，
+        // 而且这一态根本不在等人 —— 志愿者已经定了，等的是时间到。
+        case .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return nil
         // `NO_VOLUNTEER` 是**终态**（后端 `OrderStatus.java:46`「预留终态」、
         // `DispatchService.java:574`），两个端点都会拒。可恢复的窗口在走到它**之前**。
@@ -232,7 +257,10 @@ extension RunOrderStatus {
         case .driverEnRoute, .driverArrived, .inProgress:
             return true
         // 还没有志愿者（派单中 / 通话磨合 / 重新匹配），或那个人已经不是参与者，或已终态。
-        case .pendingMatch, .pendingIntroCall, .pendingAccept, .rematching, .noVolunteer, .completed, .cancelled:
+        // `.scheduledConfirmed` 有志愿者，但后端 `sharesLiveLocation()` 同样不含它 ——
+        // 距开跑 1–7 天，那一段没有位置可取，调了只会拿到 404。
+        case .pendingMatch, .pendingIntroCall, .pendingAccept, .scheduledConfirmed,
+             .rematching, .noVolunteer, .completed, .cancelled:
             return false
         case .unknown:
             return false
@@ -255,7 +283,13 @@ extension RunOrderStatus {
         switch self {
         case .driverEnRoute, .driverArrived:
             return true
-        case .pendingMatch, .pendingIntroCall, .pendingAccept, .rematching, .noVolunteer, .inProgress, .completed, .cancelled:
+        // `.pendingIntroCall` 还没有志愿者接单，后端也不会为这一态下发对方位置。
+        // `.pendingAccept` 有志愿者了，但后端 `sharesLiveLocation()` **不含这一态** ——
+        // 判 true 的那段时间里客户端每 5 秒白调一次而后端恒 404，念不出任何数字。
+        // `.scheduledConfirmed` 同理有志愿者而后端不下发位置：距开跑 1–7 天，
+        // 那个距离既无意义、也拿不到数据。判 true 只会念一个永远算不出来的数字。
+        case .pendingMatch, .pendingIntroCall, .pendingAccept, .scheduledConfirmed,
+             .rematching, .noVolunteer, .inProgress, .completed, .cancelled:
             return false
         case .unknown:
             return false
@@ -280,7 +314,9 @@ extension RunOrderStatus {
         // 已经有志愿者了，这一格的数字换成距离 / 约定结束时间。
         // `.pendingIntroCall` 也不给：那一刻用户不是在等，是有一件该做的事（打这通电话），
         // 状态卡下面紧跟的就是拨号按钮，再摆一个「已等待 N 分钟」是在催他等。
-        case .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+        // `.scheduledConfirmed` 也不给：人已经定了，「已等待 N 分钟」在这一态是纯噪音，
+        // 而且它的锚点是 `createdAt`，跨天单一开口就是「已等待 30 小时」——吓人且不能让人做任何事。
+        case .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return false
         // 终态：一个还在走的秒表只会让人以为事情还没结束。
         case .completed, .cancelled, .noVolunteer:
@@ -298,6 +334,13 @@ extension RunOrderStatus {
         // 让他看到「第 3 位志愿者拒绝了你」，这个功能就从降低求助心理成本变成制造挫败。
         case .pendingIntroCall:
             return "有位志愿者想陪你跑。先打个电话聊聊，双方都觉得合适就算约好了。"
+        // 🚨 **不提临期闸门**：「他要在出发前确认，不确认就换人」是后端的内部机制，
+        // 说出来只会让盲人在接下来的几天里替一件自己无法影响的事担心。真换了人他会收到
+        // `SCHEDULED_DEPARTURE_GATE_MISSED`，那时再说不迟。
+        // 也**不写具体提前多久确认** —— 那是后端配置（`departure-confirm-window-minutes`），
+        // 写死就是编一个数字念给盲人听，同 `KeepWaitingCopy` 那条。
+        case .scheduledConfirmed:
+            return "已经为你约好志愿者。到出发前如果计划有变，可以打电话告诉他。"
         case .pendingAccept:
             return "志愿者已接单，请按预约时间前往或等待在出发地点。"
         case .inProgress:
@@ -328,6 +371,9 @@ extension RunOrderStatus {
         // 与 `blindRunnerDescription` 同一条无声拒绝口径：不出现轮次、不出现「换」。
         case .pendingIntroCall:
             return "有位志愿者想陪你跑，可以打个电话聊聊。"
+        // 与 `blindRunnerDescription` 同一条口径：不提闸门、不写具体提前量。
+        case .scheduledConfirmed:
+            return "已经为你约好志愿者。到出发前如果计划有变，可以打电话告诉他。"
         case .pendingAccept:
             return "志愿者已接单，请前往或等待在预约出发地点。"
         case .inProgress:
@@ -357,6 +403,9 @@ extension RunOrderStatus {
             return "clock.arrow.circlepath"
         case .pendingIntroCall:
             return "phone.circle.fill"
+        // `calendar.badge.clock` 是 iOS 15.0+，部署目标 16 够用，不需要 `#available`。
+        case .scheduledConfirmed:
+            return "calendar.badge.clock"
         case .pendingAccept:
             return "person.crop.circle.badge.questionmark"
         case .inProgress:
@@ -380,7 +429,10 @@ extension RunOrderStatus {
 
     var statusColor: Color {
         switch self {
-        case .pendingMatch, .pendingAccept, .rematching:
+        // `.scheduledConfirmed` 与 `.pendingAccept` 同档：两者对盲人是同一件事 ——
+        // 人已经定了、在等一个约定的时刻到来。给 `primary`（那一档的含义是「等着用户做一件事」）
+        // 会误导盲人以为自己有待办，而这一态他什么都不用做。
+        case .pendingMatch, .scheduledConfirmed, .pendingAccept, .rematching:
             return AppColors.warning
         case .inProgress, .driverEnRoute, .completed:
             return AppColors.success
@@ -520,6 +572,13 @@ extension OrderDetailResponse {
         case .inProgress:
             guard let plannedEndForAnnouncement else { return status.blindRunnerAnnouncement }
             return "\(status.blindRunnerAnnouncement)预计\(plannedEndForAnnouncement)结束。"
+        // 🚩 单独一支而不是落 `default`：这一态对盲人的**全部内容就是「什么时候」**，
+        // 而 `status.blindRunnerAnnouncement` 里没有时刻（它是与状态无关的通用句）。
+        // 落到 default 的话，跨天单的播报从头到尾不会出现预约时间 ——
+        // 而他要在接下来几天里靠这句话安排自己的日程。
+        case .scheduledConfirmed:
+            guard let plannedStartForAnnouncement else { return status.blindRunnerAnnouncement }
+            return "已经为你约好志愿者，时间是\(plannedStartForAnnouncement)，出发地点：\(startAddressForAnnouncement)。到出发前如果计划有变，可以打电话告诉他。"
         case .pendingAccept:
             if let plannedStartForAnnouncement {
                 return "志愿者已接单。请在\(plannedStartForAnnouncement)前往或等待在出发地点：\(startAddressForAnnouncement)。\(distanceSentence)志愿者出发后会继续通知你。"

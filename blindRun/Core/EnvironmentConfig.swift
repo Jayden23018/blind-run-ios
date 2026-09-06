@@ -104,6 +104,22 @@ enum AppConstants {
         static let orderPollingInterval: TimeInterval = 5.0
         // 预约最少提前时间（分钟）
         static let minimumBookingLeadMinutes: Int = 30
+        /// 预约最远提前天数。镜像后端 `app.order.max-lead-days`（默认 7，2026-09-05 随跨天预约上线）。
+        ///
+        /// 在此之前下单**只有下限没有上限**，选择器可以选到几个月后，提交时吃一个 422。
+        /// 对盲人一次被拒 = 重走整套读回流程，所以拦在选择器上。
+        ///
+        /// ⚠️ 这是后端配置的镜像，与 `minimumBookingLeadMinutes` 同一性质（那条早就这么做了）。
+        /// 后端调整它时这里要跟；跟不上的那段时间由 `ErrorCode.appointmentTooFar` 兜底，
+        /// **所以那个错误码不能删**。
+        static let maximumBookingLeadDays: Int = 7
+        /// 夜间禁跑窗口 `[22:00, 05:00)`，镜像后端 N134（`OrderCreationService.overlapsNightWindow`）。
+        ///
+        /// 🚩 **判据是整段行程有没有交集，不是开始时刻**：`21:00–22:30` 拒、
+        /// `21:00–22:00` 放行（恰好 22:00 结束不算重叠）、`05:00–06:00` 放行、
+        /// `次日 04:00–06:00` 拒（凌晨 4 点属于前一天那扇窗口）。
+        static let nightWindowStartHour: Int = 22
+        static let nightWindowEndHour: Int = 5
         /// 用户没说时长时，给 `plannedEndTime` 的兜底。
         ///
         /// 🚨 **它不是 `expectedDurationMinutes`。** 那个字段在用户没说时长时必须保持 nil
