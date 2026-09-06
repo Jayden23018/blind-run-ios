@@ -171,29 +171,35 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     /// 响应派单。
     ///
-    /// 🚨 **`.interested` 是陌生人路径的默认动作，不是一个可选项。**
+    /// 🚨 **发 `.accept` 还是 `.interested` 由推送里的 `requiresIntroCall` 决定，不由这里推算。**
     /// 后端 `app.intro-call.enabled` 默认 true，陌生人直接发 `ACCEPT` 会 409
     /// `INTRO_CALL_REQUIRED`（`DispatchService.handleAccept` 的守卫）。后端只在两种情况放行
     /// `ACCEPT`：这一对已经磨合成功过（`IntroCallPair.outcome == MATCHED`），或者距开跑时间
-    /// 已经塞不下一轮 20 分钟的通话窗口。
+    /// 已经塞不下一轮通话窗口。两个判据客户端都拿不到 —— 前者在后端库里，后者的窗口长度是
+    /// 后端配置（`app.intro-call.window-minutes`）。
     ///
-    /// 后端**已经算好了这个判据并起了名字**：`AvailableOrderResponse.requiresIntroCall`
-    /// （`api_spec.yaml:5646`，2026-08-22 新增，逐字写着「客户端必须按它决定发哪个 action」）。
-    /// 但它只挂在 `GET /api/orders/available` 上，而**本 App 不调那条端点** ——
-    /// 公开订单池链路已删除，志愿者这边唯一的派单通道是 `NEW_ORDER` 推送，
-    /// 而那份载荷里没有这个字段（后端 `NotificationService.sendDispatchNotification`
-    /// 逐个 `msg.put` 得出来的键里没有它）。
+    /// 所以判断只有一份，在后端（`DispatchService.introCallWindowFits`），结论随派单推送下发：
+    /// `WSNewOrder.requiresIntroCall` → `WSNewOrder.dispatchRespondAction`。
+    /// 调用方按那个属性传 `action` 进来，这里不再二次判断。
     ///
-    /// 自己算也不行：「这两人磨合成功过没有」客户端无从得知；通话窗口长度是后端配置
-    /// （`app.intro-call.window-minutes`），照 20 分钟硬编码会在后端改配置那天静默错。
+    /// **两个方向的 409 都要兜，因为推送是一个快照**：它发出之后，这一对的磨合记录
+    /// 或 `app.intro-call.enabled` 都可能变，于是快照给的答案两边都可能过时。
+    /// 志愿者已经点过这个动作了，30 秒倒计时里不该让他为后端改主意再点一遍。
     ///
-    /// 所以在字段搬到推送上之前一律发 `.interested` —— 那条路径在开关关掉时也照常可用
-    /// （`DispatchService.introCallEnabled` 的注释：关掉只是不再**强制**）。
-    /// 代价是熟人也要多聊一次。**已投 `demo/docs/handoff.md`**，
-    /// 字段到了这里才该长出 `.accept` 分支。
+    /// - `.accept` → 409 `INTRO_CALL_REQUIRED`：就地改发 `.interested` 重试一次
+    ///   （下面那个内层 `do/catch`）。`.interested` 没有额外前置闸，就地重发是安全的。
+    /// - `.interested` → 409 `INTRO_CALL_NOT_REQUIRED`：**递归重走本函数**而不是就地补一个
+    ///   API 调用 —— `.accept` 有 `.interested` 没有的前置闸（定位权限判定 +
+    ///   `VolunteerLocationReporter.reportIfNeeded`），就地补调用等于绕过它们。
     ///
-    /// `allowsIntroCallUpgrade` 只给下面那条自动升级用：收到 `INTRO_CALL_NOT_REQUIRED` 时
-    /// 本函数会带 `false` 递归一次，保证最多升级一次、不会来回打。调用方不要传。
+    /// 两条各自只走一次，所以不会来回打：前者靠内层 `do` 的结构（重试不再被 catch 接住），
+    /// 后者靠 `allowsIntroCallUpgrade` —— 递归时传 `false`。**调用方不要传这个参数。**
+    ///
+    /// ⚠️ 顺带一条历史：`requiresIntroCall` 曾经只挂在 `AvailableOrderResponse` 上，
+    /// 而本 App 不调 `GET /api/orders/available`，所以那段时间客户端对陌生人一律发
+    /// `.interested`，`AGENTS.md` §5 也据此写着「字段搬到推送上之前不要加 `.accept` 分支」。
+    /// 后端已于 2026-08-22（迁移 `0031`）把它搬到 `NEW_ORDER` 上并标为**必填**
+    /// （`websocket-protocol.md`「客户端按它决定 `/respond` 发哪个 `action`」），前提已解除。
     func respondToDispatch(
         action: OrderRespondAction,
         currentLocation: CLLocationCoordinate2D?,
@@ -226,15 +232,34 @@ final class VolunteerHomeViewModel: ObservableObject {
         isRespondingToDispatch = true
         Task {
             do {
-                if accept {
-                    VolunteerLocationReporter.reportIfNeeded(
+                var effectiveAction = action
+                do {
+                    try await submitDispatchResponse(
+                        action: action,
+                        order: order,
+                        appState: appState,
+                        currentLocation: currentLocation,
+                        locationAuthorized: locationAuthorized
+                    )
+                } catch let error as APIError
+                    where action == .accept && error.errorCode == .introCallRequired {
+                    // 推送说「这一单可以直接接」，后端却说不行 —— 推送发出后这一对的磨合记录
+                    // 或 `app.intro-call.enabled` 变了。这是同一个意图的两种发法，
+                    // 不是一个需要用户重新决策的场景，所以自己改口，**只重试一次**。
+                    // 重试仍失败就落到下面的正常错误分支。
+                    effectiveAction = .interested
+                    try await submitDispatchResponse(
+                        action: .interested,
+                        order: order,
                         appState: appState,
                         currentLocation: currentLocation,
                         locationAuthorized: locationAuthorized
                     )
                 }
-                try await appState.orders.respond(orderId: order.orderId, action: action)
-                let acceptedOrderId = accept ? order.orderId : nil
+                // 请求已经在上面的 `submitDispatchResponse` 里发过了（`.accept` 撞上
+                // `INTRO_CALL_REQUIRED` 时会自己改口重发一次），这里只是记结果。
+                // 判据用 `effectiveAction` 而不是入参 `action`：改过口之后这一单没接成。
+                let acceptedOrderId = effectiveAction == .accept ? order.orderId : nil
                 let acceptedOrder = await refreshAfterDispatchResponse(
                     acceptedOrderId: acceptedOrderId,
                     appState: appState
@@ -243,10 +268,10 @@ final class VolunteerHomeViewModel: ObservableObject {
                 appState.realtimeCoordinator.clearDispatch(orderID: order.orderId)
                 acceptedDispatchInitialOrder = acceptedOrder
                 acceptedDispatchOrderId = acceptedOrderId
-                if action == .interested {
+                if effectiveAction == .interested {
                     pendingIntroCallOrder = VolunteerIntroCallRoute(dispatchOrder: order)
                 }
-                speechService?.speak(Self.dispatchResponseSpeech(for: action))
+                speechService?.speak(Self.dispatchResponseSpeech(for: effectiveAction))
             } catch let error as APIError {
                 isRespondingToDispatch = false
                 if appState.handleAuthenticatedAPIError(error) {
@@ -281,6 +306,25 @@ final class VolunteerHomeViewModel: ObservableObject {
                 speechService?.speakError("响应失败，请重试")
             }
         }
+    }
+
+    /// 只做「发出去」这一件事，成功后的刷新 / 收弹窗 / 播报都留在调用方 ——
+    /// 409 兜底会把它调两次，而那些后处理只该跑一次。
+    private func submitDispatchResponse(
+        action: OrderRespondAction,
+        order: WSNewOrder,
+        appState: AppState,
+        currentLocation: CLLocationCoordinate2D?,
+        locationAuthorized: Bool
+    ) async throws {
+        if action == .accept {
+            VolunteerLocationReporter.reportIfNeeded(
+                appState: appState,
+                currentLocation: currentLocation,
+                locationAuthorized: locationAuthorized
+            )
+        }
+        try await appState.orders.respond(orderId: order.orderId, action: action)
     }
 
     /// 三种动作各自的播报。`.interested` 刻意不说「已接单」——它不是接单，说错了志愿者
@@ -1279,12 +1323,13 @@ struct VolunteerHomeView: View {
                         currentLocation: locationService.currentLocation,
                         locationAuthorized: locationService.isAuthorized,
                         fallbackCoordinate: locationService.effectiveBackendLocation,
-                        // 🚨 「有意向」替代了「接单」：陌生人直接发 ACCEPT 会被后端 409
-                        // `INTRO_CALL_REQUIRED`，而派单推送里没带 `requiresIntroCall`，
-                        // 客户端分不出这一对是不是熟人（见 `respondToDispatch` 上那段说明）。
-                        onInterested: {
+                        // 主动作是「有意向，想先聊聊」还是「接单」，由推送里的
+                        // `requiresIntroCall` 决定（`WSNewOrder.dispatchRespondAction`）。
+                        // 🚨 这里**不做第二次判断** —— 判据在后端，客户端自己算必然漂移，
+                        // 而漂移的表现是「界面说能直接接、后端回 409」。
+                        onRespond: { action in
                             viewModel.respondToDispatch(
-                                action: .interested,
+                                action: action,
                                 currentLocation: locationService.currentLocation,
                                 locationAuthorized: locationService.isAuthorized
                             )
@@ -2153,7 +2198,7 @@ private struct VolunteerDispatchOverlay: View {
     let currentLocation: CLLocationCoordinate2D?
     let locationAuthorized: Bool
     let fallbackCoordinate: CLLocationCoordinate2D
-    let onInterested: () -> Void
+    let onRespond: (OrderRespondAction) -> Void
     let onDecline: () -> Void
 
     var body: some View {
@@ -2273,21 +2318,7 @@ private struct VolunteerDispatchOverlay: View {
                     .accessibilityLabel("拒绝订单")
                     .accessibilityHint("拒绝此次派单")
 
-                    Button(action: onInterested) {
-                        Text("有意向，想先聊聊")
-                            .font(AppFonts.body().weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(AppColors.primary)
-                            .foregroundColor(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .disabled(isResponding)
-                    .accessibilityLabel("有意向，想先聊聊")
-                    // 说清「还不是接单」：把 INTERESTED 当成接单的人会以为事情定了，
-                    // 然后错过跑者那通电话 —— 而 20 分钟窗口过了这一单就换人了。
-                    .accessibilityHint("先锁定这一单并等跑者打电话给你，聊完双方都说合适才算接单")
-                    .accessibilityIdentifier("volunteerDispatchInterestedButton")
+                    primaryActionButton
                 }
 
                 if isResponding {
@@ -2303,6 +2334,40 @@ private struct VolunteerDispatchOverlay: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("新订单派单通知，剩余\(countdown)秒")
+    }
+
+    /// 主动作按钮。「先聊聊」还是「直接接单」由 `WSNewOrder.requiresIntroCall` 决定。
+    ///
+    /// 🚩 `requiresIntroCall == false` 的三种成因（通话功能整体关闭 / 这两人已磨合成功过 /
+    /// 距开跑已不够聊一轮）客户端**分不出来**，所以「接单」这一支的文案不解释原因 ——
+    /// 写任何一种都可能是错的。措辞沿用通话磨合上线前的原实现，不新造一套说法。
+    @ViewBuilder
+    private var primaryActionButton: some View {
+        let action = order.dispatchRespondAction
+        let needsIntroCall = action == .interested
+        Button {
+            onRespond(action)
+        } label: {
+            Text(needsIntroCall ? "有意向，想先聊聊" : "接单")
+                .font(AppFonts.body().weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(AppColors.primary)
+                .foregroundColor(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .disabled(isResponding)
+        .accessibilityLabel(needsIntroCall ? "有意向，想先聊聊" : "接受订单")
+        // 「先聊聊」那一支要说清**还不是接单**：把 INTERESTED 当成接单的人会以为事情定了，
+        // 然后错过跑者那通电话 —— 而 20 分钟窗口过了这一单就换人了。
+        .accessibilityHint(
+            needsIntroCall
+                ? "先锁定这一单并等跑者打电话给你，聊完双方都说合适才算接单"
+                : "接受此次派单并进入服务流程"
+        )
+        .accessibilityIdentifier(
+            needsIntroCall ? "volunteerDispatchInterestedButton" : "volunteerDispatchAcceptButton"
+        )
     }
 
     private var dispatchMap: some View {

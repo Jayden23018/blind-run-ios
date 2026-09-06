@@ -541,7 +541,8 @@ enum OrderRespondAction: String, Codable, Sendable {
     ///
     /// 🚨 陌生人直接发 `.accept` 会被后端 409 `INTRO_CALL_REQUIRED` 拦下
     /// （`DispatchService.java:264` 的守卫）。判据（这两人磨合成功过没有、时间够不够聊一轮）
-    /// 全在后端，客户端一个都算不出来 —— 所以志愿者端一律先发 `.interested`。
+    /// 全在后端，客户端一个都算不出来 —— 结论随派单推送下发，见
+    /// `WSNewOrder.requiresIntroCall` / `.dispatchRespondAction`。**不许在客户端自己推算。**
     /// 详见 `VolunteerHomeViewModel.respondToDispatch` 上那段说明。
     case interested = "INTERESTED"
 }

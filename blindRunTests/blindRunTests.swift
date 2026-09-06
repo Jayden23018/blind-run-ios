@@ -761,6 +761,42 @@ final class blindRunTests: XCTestCase {
         XCTAssertNotNil(noLocationViewModel.incomingOrder)
     }
 
+    /// 推送说「这一单可以直接接」，后端却回 409 `INTRO_CALL_REQUIRED`。
+    ///
+    /// 成因是竞态：推送是后端判断的一个**快照**，发出之后这一对的磨合记录或
+    /// `app.intro-call.enabled` 都可能变。志愿者已经点过这个动作了，30 秒倒计时里不该让他
+    /// 再点一遍 —— 客户端自己改发 `INTERESTED`，并照常进通话页。
+    ///
+    /// 断言打在**发出去的动作序列**上，不是打在「最后成功了」上：只看结果的话，
+    /// 一个从头到尾只发 `INTERESTED` 的实现也能过。
+    func testAcceptRejectedByTheIntroCallGuardSilentlyFallsBackToInterested() async throws {
+        let client = IntroCallRequiredOnAcceptAPIClient()
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        appState.updateVolunteerProfile(makeApprovedVolunteerProfile())
+        let speechService = SpeechService()
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+        let order = makeDispatchOrder(orderId: 77, requiresIntroCall: false)
+        XCTAssertEqual(order.dispatchRespondAction, .accept)
+        viewModel.incomingOrder = order
+        viewModel.dispatchCountdown = 30
+
+        viewModel.respondToDispatch(
+            action: order.dispatchRespondAction,
+            currentLocation: CLLocationCoordinate2D(latitude: 39.905, longitude: 116.408),
+            locationAuthorized: true
+        )
+
+        let didFallBack = await waitUntil { viewModel.pendingIntroCallOrder != nil }
+        XCTAssertTrue(didFallBack)
+        XCTAssertEqual(client.respondActions, [.accept, .interested])
+        XCTAssertNil(viewModel.acceptedDispatchOrderId)
+        XCTAssertNil(viewModel.errorMessage)
+        XCTAssertNil(viewModel.incomingOrder)
+        XCTAssertEqual(speechService.lastSpokenText, "已告诉跑者你有意向，请留意他的来电")
+    }
+
     func testDecliningDispatchDoesNotPublishNavigationOrderId() async throws {
         let appState = AppState()
         appState.currentEnvironment = .mock
@@ -5857,7 +5893,10 @@ final class blindRunTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeDispatchOrder(orderId: Int64) -> WSNewOrder {
+    private func makeDispatchOrder(
+        orderId: Int64,
+        requiresIntroCall: Bool? = true
+    ) -> WSNewOrder {
         WSNewOrder(
             type: "NEW_ORDER",
             timestamp: "2026-06-25T19:30:00",
@@ -5871,7 +5910,8 @@ final class blindRunTests: XCTestCase {
             dispatchTimeoutSeconds: 30,
             priority: "HIGH",
             pacePreference: "MODERATE",
-            hasGuideDog: false
+            hasGuideDog: false,
+            requiresIntroCall: requiresIntroCall
         )
     }
 
@@ -6325,6 +6365,45 @@ final class blindRunTests: XCTestCase {
         ) async throws -> T {
             try await Task.sleep(nanoseconds: 5_000_000_000)
             throw APIError.invalidURL
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw APIError.invalidURL
+        }
+    }
+
+    /// `/respond` 收到 `ACCEPT` 就回 409 `INTRO_CALL_REQUIRED`，`INTERESTED` 照单全收 ——
+    /// 后端 `DispatchService.handleAccept` 那道守卫的最小复刻。记录动作序列，
+    /// 因为「有没有先试过 ACCEPT」只有序列看得出来。
+    private final class IntroCallRequiredOnAcceptAPIClient: APIClientProtocol, @unchecked Sendable {
+        private(set) var respondActions: [OrderRespondAction] = []
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            guard method == .post, path.hasSuffix("/respond"),
+                  let request = body as? OrderRespondRequest else {
+                throw APIError.invalidURL
+            }
+            respondActions.append(request.action)
+            if request.action == .accept {
+                throw APIError.serverError(ErrorResponse(
+                    code: "INTRO_CALL_REQUIRED",
+                    message: "需要先与跑者通话"
+                ))
+            }
+            guard let value = EmptyResponse() as? T else { throw APIError.invalidURL }
+            return value
         }
 
         func upload<T: Decodable>(
