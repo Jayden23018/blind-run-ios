@@ -16,6 +16,7 @@ final class OrderEndpointTests: XCTestCase {
         let cases: [(OrderEndpoint, HTTPMethod, String)] = [
             (.create, .post, "/api/orders"),
             (.mine, .get, "/api/orders/mine"),
+            (.active, .get, "/api/orders/active"),
             (.detail(orderId: 42), .get, "/api/orders/42"),
             (.cancel(orderId: 42), .post, "/api/orders/42/cancel"),
             (.respond(orderId: 42), .post, "/api/orders/42/respond"),

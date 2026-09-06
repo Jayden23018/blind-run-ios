@@ -134,8 +134,8 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 **只允许**这些状态：
 
 ```
-PENDING_MATCH  PENDING_INTRO_CALL  PENDING_ACCEPT  IN_PROGRESS  DRIVER_EN_ROUTE
-DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
+PENDING_MATCH  PENDING_INTRO_CALL  SCHEDULED_CONFIRMED  PENDING_ACCEPT  IN_PROGRESS
+DRIVER_EN_ROUTE  DRIVER_ARRIVED  COMPLETED  CANCELLED  REMATCHING  NO_VOLUNTEER
 ```
 
 **禁用的遗留词汇**（`scripts/hooks/guard.mjs` 会拦）：
@@ -155,20 +155,34 @@ PENDING_INTRO_CALL → PENDING_MATCH（本轮没成，换下一位候选人）
 PENDING_INTRO_CALL → NO_VOLUNTEER（已满 3 轮 app.intro-call.max-rounds）
 ```
 
+跨天预约（接单时距开跑还很远，后端迁移 `0041`）：
+
+```
+PENDING_MATCH / PENDING_INTRO_CALL / REMATCHING → SCHEDULED_CONFIRMED（接了一张远期单）
+SCHEDULED_CONFIRMED → PENDING_ACCEPT（志愿者临期确认还去，进即时链路）
+SCHEDULED_CONFIRMED → REMATCHING（闸门到点未确认 / 志愿者取消）
+SCHEDULED_CONFIRMED → CANCELLED（盲人取消）
+```
+
+**没有 `SCHEDULED_CONFIRMED → NO_VOLUNTEER`** —— 人已经定下来了，「无人接单」在这一态不是可能的结局。
+
 取消流转：
 
 ```
-PENDING_MATCH / PENDING_INTRO_CALL / PENDING_ACCEPT → CANCELLED（盲人 token）
-PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING（志愿者 token）
+PENDING_MATCH / PENDING_INTRO_CALL / SCHEDULED_CONFIRMED / PENDING_ACCEPT → CANCELLED（盲人 token）
+SCHEDULED_CONFIRMED / PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING（志愿者 token）
 REMATCHING → CANCELLED（只能盲人 token）
 ```
 
 - 取消端点 `POST /api/orders/{orderId}/cancel`，无需请求体。
-- 盲人只能取消 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `PENDING_ACCEPT` / `REMATCHING`；`IN_PROGRESS` 期间**不得**展示取消入口。
-- 志愿者只能取消 `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。**`PENDING_INTRO_CALL` 不在内** —— 那一态他还没接单，退出的方式是表态「不合适」，不是取消订单。
+- 盲人只能取消 `PENDING_MATCH` / `PENDING_INTRO_CALL` / `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `REMATCHING`；`IN_PROGRESS` 期间**不得**展示取消入口。
+- 志愿者只能取消 `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。**`PENDING_INTRO_CALL` 不在内** —— 那一态他还没接单，退出的方式是表态「不合适」，不是取消订单。
 - `REMATCHING` 是已接单志愿者取消后进入的状态，此后只能盲人用自己的 token 取消 —— 那个志愿者已不是订单参与者。
-- 状态流转端点统一 `POST /api/orders/{orderId}/{action}`：`respond`（体带 `action = ACCEPT|DECLINE|INTERESTED`）、`en-route`、`arrived`、`start-service`、`finish`。
+- 状态流转端点统一 `POST /api/orders/{orderId}/{action}`：`respond`（体带 `action = ACCEPT|DECLINE|INTERESTED`）、`confirm-departure`、`en-route`、`arrived`、`start-service`、`finish`。
+  🚩 **`confirm-departure` 与 `en-route` 不是一回事，别合并**：前者只回答「你还去吗」，人可能还在家里；后者是真的动身、开始双向推位置。合并会让位置互推提前几小时打开。
 - 下单起始时间距今不足 30 分钟必须返回 `APPOINTMENT_TOO_SOON`（`EnvironmentConfig.minimumBookingLeadMinutes = 30`）。**没有「现在就跑」。**
+- 下单还有三道**上限**（后端 N134 与迁移 `0041`，2026-09-05）：最远 7 天（`APPOINTMENT_TOO_FAR`）、单次不超过 300 分钟（`APPOINTMENT_TOO_LONG`）、整段行程不得与夜间窗口 `[22:00, 05:00)` 相交（`APPOINTMENT_IN_NIGHT_WINDOW`）。**夜间那条的判据是整段不是开始时刻**：`21:00–22:30` 拒、`21:00–22:00` 放行。同时最多 3 张未完成预约（`TOO_MANY_SCHEDULED_ORDERS`）。
+  ⚠️ `DUPLICATE_ORDER` 自 2026-09-05 起只拦**时段冲突**，不再是「有任何未走完的单」—— 文案别再写「您有进行中的订单」。
 - 订单列表用分页响应 `PagedOrderResponse`；盲人订单详情每 5 秒轮询作为 WebSocket 兜底。
 - WebSocket 端点：`/ws/blind?token={jwt}` 与 `/ws/volunteer?token={jwt}`。
 
@@ -182,7 +196,13 @@ REMATCHING → CANCELLED（只能盲人 token）
 - **无声拒绝**：响应体不含对方的表态、也不含轮次进度，这不是后端漏字段。只有一方表态时后端**不通知**对方；「这是第 3 位志愿者」本身就是在告诉盲人前两位没成。客户端**也不许自己算**轮次再显示（例如按收到几次 `INTRO_CALL_CONTINUE` 计数）。
 - 盲人的自由文本在这一态**不可见**（`disclosesBlindRunnerNotesToVolunteer` 判 false，见 §8）：一单最多聊 3 位候选人，展示等于交给这一单碰到的每一个人。
 - 窗口 20 分钟（`app.intro-call.window-minutes`，**别硬编码**）；退回时轮次 +1，满 3 轮（`max-rounds`）转 `NO_VOLUNTEER`。
-- ⚠️ **客户端目前对陌生人一律发 `INTERESTED`**：判据字段 `requiresIntroCall` 只挂在 `AvailableOrderResponse` 上，而本 App 不调 `GET /api/orders/available`，唯一派单通道 `NEW_ORDER` 推送里没有它。自己算也不行（「这两人磨合成功过没有」客户端无从得知）。代价是熟人也要多聊一次。**已投 `demo/docs/handoff.md`，字段搬到推送上之前不要自作主张加 `.accept` 分支。**
+- ⚠️ **发 `ACCEPT` 还是 `INTERESTED` 只认推送里的 `requiresIntroCall`，客户端不许自己算。** 该字段自后端迁移 `0031`（2026-08-22，commit `aea3fc9`）起挂在 `NEW_ORDER` 上并标为**必填**（`websocket-protocol.md`：「客户端按它决定 `/respond` 发哪个 `action`」）；iOS 侧走 `WSNewOrder.dispatchRespondAction`。自己算不出来 —— 「这两人磨合成功过没有」在后端库里，通话窗口长度是后端配置 `app.intro-call.window-minutes`。缺这个键时**降级发 `INTERESTED`**（两种开关状态下后端都放行），不是崩掉整条推送。
+  > 2026-09-06 改口径。原文写着「唯一派单通道 `NEW_ORDER` 推送里没有它」—— 那句自 08-22 起就不成立了，而它是一条**禁令**（「不要另起 `.accept` 分支」），过期的禁令比过期的描述更贵：照它做等于让熟人永远多打一通电话。
+- 🚩 **事先分流之外，两个方向的 409 都要兜** —— 推送是快照，发出之后磨合记录或 `app.intro-call.enabled` 都可能变，两边都会过时。`VolunteerHomeViewModel.respondToDispatch` 各自只改发一次：
+  - `ACCEPT` → 409 `INTRO_CALL_REQUIRED` → 就地改发 `INTERESTED`（`.interested` 没有额外前置闸，就地重发是安全的）
+  - `INTERESTED` → 409 `INTRO_CALL_NOT_REQUIRED` → **递归重走同一个函数**（带 `allowsIntroCallUpgrade: false`），不许就地补一个 API 调用 —— `.accept` 有 `.interested` 没有的定位权限闸与 `VolunteerLocationReporter.reportIfNeeded`，绕过去会让人在没给定位权限的情况下把单接下来
+
+  必须自动改发的理由是界面事实：派单弹窗只有「有意向」和「拒绝」两个按钮，只弹一句文案 = 志愿者卡在一个本该能接的单上。两条错误码的用户文案因此都写成「再试一次」而不是「请改选某个按钮」—— 它们只在**自动改发也失败**时才会被念到，那时叫用户去选一个客户端已经替他选过的按钮，只会让人以为按钮坏了。
 - 反过来也不能假设「陌生人必然被拦」：距开跑时间已塞不下一轮通话窗口时后端**刻意放行** `ACCEPT`（退化成直接接单）。
 
 ## 6. 求助 / SOS 红线

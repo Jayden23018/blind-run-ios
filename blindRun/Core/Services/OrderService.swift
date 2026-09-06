@@ -27,7 +27,19 @@ protocol OrderServing: Sendable {
     // 下单与查询
     func createOrder(_ request: CreateOrderRequest) async throws -> OrderResponse
     func myOrders() async throws -> PagedOrderResponse
+    /// 冷启动 / 重连时问服务端「这个盲人现在有没有一条没走完的单」。
+    /// 没有时 `data` 为 `null`（不是 404、不是空对象），所以返回信封而不是订单本体。
+    func activeOrder() async throws -> ActiveOrderEnvelope
     func orderDetail(orderId: Int64) async throws -> OrderDetailResponse
+
+    /// 志愿者手上**已确认但还没到点**的跨天预约单。
+    ///
+    /// 🚩 **为什么不复用 `dispatchSummary()`**：后端 `VolunteerService.loadActiveOrders` 的白名单只有
+    /// `IN_PROGRESS` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`，`SCHEDULED_CONFIRMED` 不在里面
+    /// ⇒ 志愿者杀掉 App 再打开，那张预约单在首页上**不存在**，而它带着一个 60 分钟到期的确认动作。
+    /// 已请后端在 dispatch-summary 上单开 `scheduledOrders` 字段（见 `demo/docs/handoff.md`），
+    /// 落地后这条可以撤掉；在那之前自己打一次列表端点。
+    func scheduledOrders() async throws -> PagedOrderResponse
 
     // 状态流转
     func cancel(orderId: Int64) async throws
@@ -36,6 +48,9 @@ protocol OrderServing: Sendable {
     func arrived(orderId: Int64) async throws
     func startService(orderId: Int64) async throws
     func finish(orderId: Int64) async throws
+
+    /// 跨天预约单的临期确认。与 `enRoute` **不是一回事**，理由见 `OrderEndpoint.confirmDeparture`。
+    func confirmDeparture(orderId: Int64) async throws
 
     /// 延长等待窗口。**端点由调用方按状态选**（`RunOrderStatus.keepWaitingEndpoint`）——
     /// 两条端点的前置状态互斥，选错得到的 409 含义是「你手上的状态已经过期了」，
@@ -84,8 +99,24 @@ struct OrderService: OrderServing {
         try await transport.send(OrderEndpoint.mine.request)
     }
 
+    func activeOrder() async throws -> ActiveOrderEnvelope {
+        try await transport.send(OrderEndpoint.active.request)
+    }
+
     func orderDetail(orderId: Int64) async throws -> OrderDetailResponse {
         try await transport.send(OrderEndpoint.detail(orderId: orderId).request)
+    }
+
+    /// 🚨 **query 必须走 `send(_:query:)`，绝不能拼进路径字面量**，两个理由各自都足以致命：
+    /// ① `APIClient.request` 用 `baseURL.appendingPathComponent(path)`，`?` 会被百分号编码成
+    ///    `%3F` —— 打出去是一条 404，而客户端只看到「请求的资源不存在」，看不出是自己拼错了。
+    /// ② `scripts/validate-spec-coverage.mjs` 扫的是引号里的整串且**不剥 query**，
+    ///    `"/api/orders/mine?role=..."` 在契约里不存在 ⇒ 当场判硬错误。
+    func scheduledOrders() async throws -> PagedOrderResponse {
+        try await transport.send(
+            OrderEndpoint.mine.request,
+            query: ["role": "VOLUNTEER", "status": RunOrderStatus.scheduledConfirmed.rawValue]
+        )
     }
 
     func cancel(orderId: Int64) async throws {
@@ -113,6 +144,12 @@ struct OrderService: OrderServing {
 
     func finish(orderId: Int64) async throws {
         let _: EmptyResponse = try await transport.send(OrderEndpoint.finish(orderId: orderId).request)
+    }
+
+    func confirmDeparture(orderId: Int64) async throws {
+        let _: EmptyResponse = try await transport.send(
+            OrderEndpoint.confirmDeparture(orderId: orderId).request
+        )
     }
 
     func keepWaiting(_ endpoint: KeepWaitingEndpoint, orderId: Int64) async throws {

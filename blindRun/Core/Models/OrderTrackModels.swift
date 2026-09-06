@@ -80,7 +80,7 @@ struct OrderTrackResponse: Codable, Sendable, Equatable {
     var emptyStateText: String? {
         guard blindTrack.count < 2 else { return nil }
         switch status {
-        case .pendingMatch, .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .rematching, .noVolunteer:
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .rematching, .noVolunteer:
             return "本次路线尚未开始。"
         case .inProgress:
             return "本次路线仍在采集，暂时没有足够的轨迹点。"

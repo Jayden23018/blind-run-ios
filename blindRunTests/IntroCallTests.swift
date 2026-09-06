@@ -1,3 +1,4 @@
+import CoreLocation
 import XCTest
 @testable import blindRun
 
@@ -63,8 +64,10 @@ final class IntroCallTests: XCTestCase {
             // REMATCHING 在后端 `isDispatchable()` 下与 PENDING_MATCH 行为一致。
             (.rematching, .pendingIntroCall),
             (.pendingIntroCall, .pendingAccept),
-            // ⚠️ 退回的是 PENDING_MATCH 而**不是** REMATCHING —— 通话没成时从来没有志愿者接过单。
+            // 退出通话回的是「**进通话之前那个状态**」（后端 2026-08-26 修 N105 时改的，
+            // 此前写死 PENDING_MATCH）。所以两个落点都要认。
             (.pendingIntroCall, .pendingMatch),
+            (.pendingIntroCall, .rematching),
             (.pendingIntroCall, .cancelled),
             (.pendingIntroCall, .noVolunteer)
         ]
@@ -757,6 +760,206 @@ final class IntroCallTests: XCTestCase {
         XCTAssertNil(viewModel.activeOrder, "通话磨合的那一单被当成在途订单了")
     }
 
+    // MARK: - 熟人误发 INTERESTED（INTRO_CALL_NOT_REQUIRED）
+
+    /// 后端 2026-08-26 给「已经磨合成功过的一对又发 `INTERESTED`」加了 409
+    /// `INTRO_CALL_NOT_REQUIRED`。**这个码对本 App 是死路**：派单弹窗只有「有意向」和「拒绝」
+    /// 两个按钮，界面上没有任何控件能发 `ACCEPT`，只弹一句文案就等于让志愿者卡在一个
+    /// 本该能接的单上，而盲人正在等这一轮。
+    ///
+    /// 所以要自动改发一次 `ACCEPT`。断言看的是**请求序列**：`INTERESTED` → `ACCEPT`。
+    func testFamiliarPairFallingIntoIntroCallNotRequiredIsUpgradedToAccept() async {
+        let client = DispatchRespondStub()
+        client.failNextInterestedWith = .introCallNotRequired
+        client.order = Self.makeOrder(orderId: 610, status: .pendingAccept)
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        appState.volunteerProfile = Self.dispatchReadyProfile
+        let speechService = SpeechService()
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+        viewModel.incomingOrder = Self.makeDispatchOrder(hasGuideDog: nil)
+
+        viewModel.respondToDispatch(
+            action: .interested,
+            currentLocation: CLLocationCoordinate2D(latitude: 39.9, longitude: 116.4),
+            locationAuthorized: true
+        )
+
+        let didUpgrade = await Self.waitUntil { client.respondActions.count >= 2 }
+        XCTAssertTrue(didUpgrade, "收到 INTRO_CALL_NOT_REQUIRED 之后没有改发 ACCEPT")
+        XCTAssertEqual(client.respondActions, ["INTERESTED", "ACCEPT"])
+        XCTAssertNil(viewModel.errorMessage, "自动改发成功了却还留着一句错误提示")
+        XCTAssertNil(
+            viewModel.pendingIntroCallOrder,
+            "熟人被升级成直接接单，不该再把他推进通话页"
+        )
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            VolunteerHomeViewModel.dispatchResponseSpeech(for: .accept)
+        )
+    }
+
+    /// 升级**最多一次**。后端若对 `ACCEPT` 也回同一个码（不该发生，但客户端不能因此打转），
+    /// 必须停下来把话说出来，而不是无限重发。
+    func testTheUpgradeHappensAtMostOnce() async {
+        let client = DispatchRespondStub()
+        client.failNextInterestedWith = .introCallNotRequired
+        client.failEveryAcceptWith = .introCallNotRequired
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        appState.volunteerProfile = Self.dispatchReadyProfile
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.incomingOrder = Self.makeDispatchOrder(hasGuideDog: nil)
+
+        viewModel.respondToDispatch(
+            action: .interested,
+            currentLocation: nil,
+            locationAuthorized: true
+        )
+
+        let didSurface = await Self.waitUntil { viewModel.errorMessage != nil }
+        XCTAssertTrue(didSurface)
+        XCTAssertEqual(client.respondActions, ["INTERESTED", "ACCEPT"], "升级不止一次")
+        XCTAssertEqual(viewModel.errorMessage, ErrorCode.introCallNotRequired.localizedMessage)
+    }
+
+    /// 升级走的是**同一个函数**，所以 `.accept` 独有的定位权限闸照常生效。
+    /// 就地补一个 API 调用会绕过它，志愿者会在没给定位权限的情况下把单接下来。
+    func testTheUpgradeStillHonoursTheAcceptOnlyLocationGate() async {
+        let client = DispatchRespondStub()
+        client.failNextInterestedWith = .introCallNotRequired
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        appState.volunteerProfile = Self.dispatchReadyProfile
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+        viewModel.incomingOrder = Self.makeDispatchOrder(hasGuideDog: nil)
+
+        viewModel.respondToDispatch(
+            action: .interested,
+            currentLocation: nil,
+            locationAuthorized: false
+        )
+
+        let didBlock = await Self.waitUntil { viewModel.errorMessage != nil }
+        XCTAssertTrue(didBlock)
+        XCTAssertEqual(client.respondActions, ["INTERESTED"], "定位权限闸被绕过了")
+        XCTAssertEqual(viewModel.errorMessage, "需要开启定位权限才能接单")
+    }
+
+    // MARK: - 通话退出到 REMATCHING（后端 2026-08-26 N105 之后才有的那条边）
+
+    /// 后端修 P0 之后，通话退出回的是「进通话之前那个状态」——
+    /// 进通话之前是 `REMATCHING` 的话，它就回 `REMATCHING`。这条边此前不会出现。
+    /// REST 轮询这一路同样不能把它当成陈旧丢掉 —— `lifecycleRank` 里
+    /// `.pendingIntroCall` 是 0、`.rematching` 是 1，这是**前进**不是倒退，
+    /// 但那条边此前不在 `isDirectlyFollowed` 里，只靠 `canReach` 多跳兜住。
+    func testFallingBackToRematchingIsAcceptedByTheReconciler() {
+        var reconciler = OrderStatusReconciler()
+        reconciler.register(orderID: 611, status: .pendingIntroCall)
+        let token = reconciler.requestToken(orderID: 611)
+
+        let result = reconciler.reconcileREST(orderID: 611, candidate: .rematching, token: token)
+
+        XCTAssertEqual(result, .applied(.rematching))
+    }
+
+    /// 落到 `REMATCHING` 时**不能**播它的常规文案「正在确认志愿者状态，请稍候」——
+    /// 这一刻没有志愿者可确认，刚才那位候选人从来就没接过单。
+    /// 与退回 `PENDING_MATCH` 一样，逐字复用后端的中性文案。
+    func testFallingBackToRematchingSpeaksTheSameNeutralContinuationCopy() async {
+        let client = IntroCallAPIClientStub()
+        client.order = Self.makeOrder(orderId: 612, status: .rematching)
+        let appState = AppState(apiClient: client)
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.order = Self.makeOrder(orderId: 612, status: .pendingIntroCall)
+
+        viewModel.startPolling(orderId: 612)
+        let didFallBack = await Self.waitUntil { viewModel.order?.status == .rematching }
+        viewModel.stopPolling()
+
+        XCTAssertTrue(didFallBack)
+        XCTAssertEqual(speechService.lastSpokenText, IntroCallCopy.continuedSearch)
+        XCTAssertNotEqual(
+            speechService.lastSpokenText,
+            RunOrderStatus.rematching.blindRunnerAnnouncement,
+            "播成了「正在确认志愿者状态」——这一刻根本没有志愿者"
+        )
+    }
+
+    // MARK: - 取位置 / 念距离拆成两个判据
+
+    /// 「取不取位置」跟后端 `sharesLiveLocation()` 走，「念不念距离」只在赶来的两态。
+    /// 合成一个判据时两头都错，后端 2026-08-24 点名要求拆开。
+    func testFetchingLocationAndAnnouncingDistanceAreSeparateGates() {
+        // 取位置：与后端 `sharesLiveLocation()` 逐态相同。
+        for status in [RunOrderStatus.driverEnRoute, .driverArrived, .inProgress] {
+            XCTAssertTrue(status.fetchesVolunteerLocation, "\(status) 应该取位置")
+        }
+        for status in [RunOrderStatus.pendingMatch, .pendingIntroCall, .pendingAccept,
+                       .rematching, .noVolunteer, .completed, .cancelled, .unknown] {
+            XCTAssertFalse(status.fetchesVolunteerLocation, "\(status) 不该取位置")
+        }
+
+        // 念距离：只有正在赶来的两态。
+        for status in [RunOrderStatus.driverEnRoute, .driverArrived] {
+            XCTAssertTrue(status.offersVolunteerDistanceToStart, "\(status) 应该念距离")
+        }
+        for status in [RunOrderStatus.pendingMatch, .pendingIntroCall, .pendingAccept,
+                       .rematching, .noVolunteer, .inProgress, .completed, .cancelled, .unknown] {
+            XCTAssertFalse(status.offersVolunteerDistanceToStart, "\(status) 不该念距离")
+        }
+
+        // ⬇️ 拦「哪天又被合回一个」：两个判据在两态上必须给出相反的答案。
+        XCTAssertNotEqual(
+            RunOrderStatus.inProgress.fetchesVolunteerLocation,
+            RunOrderStatus.inProgress.offersVolunteerDistanceToStart,
+            "IN_PROGRESS：后端给位置，但两人已经在一起了，不念距离"
+        )
+        // PENDING_ACCEPT 是**两条都 false** 的那一态，所以这里不能照抄上面的 `NotEqual`
+        // —— 那样写在期望状态下永远红。它守的是另一件事：拆开之后别有人图省事
+        // 把 `PENDING_ACCEPT` 加回任意一边（客户端曾经每 5 秒白调一次而后端恒 404）。
+        XCTAssertFalse(
+            RunOrderStatus.pendingAccept.fetchesVolunteerLocation,
+            "PENDING_ACCEPT 不在后端 sharesLiveLocation() 里，取位置只会拿到 404"
+        )
+        XCTAssertFalse(
+            RunOrderStatus.pendingAccept.offersVolunteerDistanceToStart,
+            "PENDING_ACCEPT 还没人接单，没有距离可念"
+        )
+    }
+
+    /// `PENDING_ACCEPT` 从「念距离」里去掉之后，语音查距离要给出一句**对的**理由。
+    /// 「暂时收不到志愿者位置」在这一态是错的：后端本来就不下发，不是收不到。
+    func testPendingAcceptExplainsThereIsNoLocationYetRatherThanSayingItCannotBeReceived() {
+        let order = Self.makeOrder(orderId: 613, status: .pendingAccept)
+        let speech = VoiceStatusQuery.answer(
+            intent: .distance,
+            order: order,
+            volunteerCoordinate: nil,
+            fallbackAnnouncement: order.blindRunnerAnnouncement()
+        ).speech
+        XCTAssertTrue(speech.contains("还没出发"), "没说清是「还没出发」而不是「收不到」：\(speech)")
+        XCTAssertFalse(speech.contains("收不到"), "把「后端本来就不给」说成了「收不到」：\(speech)")
+    }
+
+    private static let dispatchReadyProfile = VolunteerProfileResponse(
+        name: "测试志愿者",
+        verificationStatus: "approved",
+        adminReviewStatus: "approved",
+        registrationStep: nil,
+        canAcceptOrders: true,
+        isAvailable: true,
+        availableTimeSlots: nil,
+        acceptsGuideDog: nil,
+        paceRange: nil
+    )
+
     private static func makeSummary(introCallOrderId: Int64?) -> VolunteerDispatchSummaryResponse {
         VolunteerDispatchSummaryResponse(
             canDispatch: true,
@@ -1038,5 +1241,71 @@ private final class IntroCallAPIClientStub: APIClientProtocol, @unchecked Sendab
         requiresAuth: Bool
     ) async throws -> T {
         throw StubError.unexpectedType
+    }
+}
+
+/// 记录 `POST /api/orders/{id}/respond` 的**动作序列**。
+///
+/// 「收到 409 之后有没有改发 ACCEPT」只有靠序列才看得出来 —— 断言 `errorMessage` 为 nil
+/// 会被「什么都没做也没报错」蒙混过去。动作从请求体里解出来，不是从调用参数猜的：
+/// 这样连「改发了但发的还是 INTERESTED」也拦得住。
+private final class DispatchRespondStub: APIClientProtocol, @unchecked Sendable {
+    enum StubError: Error { case unexpectedType, notFound }
+
+    private(set) var respondActions: [String] = []
+    /// 下一条 `INTERESTED` 用这个码失败；用掉即清。
+    var failNextInterestedWith: ErrorCode?
+    /// 每一条 `ACCEPT` 都用这个码失败（用来验「升级最多一次」）。
+    var failEveryAcceptWith: ErrorCode?
+    var order: OrderDetailResponse?
+
+    func request<T: Decodable>(
+        method: HTTPMethod,
+        path: String,
+        query: [String: String]?,
+        body: (any Encodable & Sendable)?,
+        requiresAuth: Bool
+    ) async throws -> T {
+        if path.hasSuffix("/respond"), method == .post {
+            let action = Self.action(from: body)
+            respondActions.append(action)
+            if action == "INTERESTED", let code = failNextInterestedWith {
+                failNextInterestedWith = nil
+                throw Self.serverError(code)
+            }
+            if action == "ACCEPT", let code = failEveryAcceptWith {
+                throw Self.serverError(code)
+            }
+            guard let value = EmptyResponse() as? T else { throw StubError.unexpectedType }
+            return value
+        }
+        if method == .get, path.hasPrefix("/api/orders/") {
+            guard let order, let value = order as? T else { throw StubError.notFound }
+            return value
+        }
+        // `dispatch-summary` 等刷新调用在实现里都是 `try?`，抛出去不影响被测行为。
+        throw StubError.notFound
+    }
+
+    func upload<T: Decodable>(
+        path: String,
+        query: [String: String]?,
+        fields: [String: String]?,
+        files: [MultipartFile],
+        requiresAuth: Bool
+    ) async throws -> T {
+        throw StubError.unexpectedType
+    }
+
+    private static func serverError(_ code: ErrorCode) -> APIError {
+        .serverError(ErrorResponse(code: code.rawValue, message: code.localizedMessage))
+    }
+
+    private static func action(from body: (any Encodable & Sendable)?) -> String {
+        guard let body,
+              let data = try? JSONEncoder().encode(body),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let action = json["action"] as? String else { return "<无 action>" }
+        return action
     }
 }

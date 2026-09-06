@@ -22,6 +22,9 @@ enum OrderEndpoint {
     // 下单与查询
     case create
     case mine
+    /// 盲人端冷启动 / 断线重连的活跃订单恢复。**与 `.mine` 不是一回事** ——
+    /// 那条是分页历史列表，靠客户端 filter + sort 猜哪条还活着；这条由服务端判。
+    case active
     case detail(orderId: Int64)
 
     // 状态流转（`POST /api/orders/{orderId}/{action}`，见 AGENTS.md §5）
@@ -31,6 +34,13 @@ enum OrderEndpoint {
     case arrived(orderId: Int64)
     case startService(orderId: Int64)
     case finish(orderId: Int64)
+
+    /// 跨天预约单的临期闸门：志愿者表示「我还会去」，`SCHEDULED_CONFIRMED → PENDING_ACCEPT`。
+    ///
+    /// 🚩 **与 `enRoute` 不是一回事，别合并**（后端 `api_spec.yaml` 的 operation description 逐字写着）：
+    /// 这一步只回答「你还去吗」，人可能还在家里；`/en-route` 是真的动身了、开始双向推位置了。
+    /// 合并会让位置互推提前几小时打开，而那期间双方并不需要找到对方。
+    case confirmDeparture(orderId: Int64)
 
     // 评价与状态记录
     case review(orderId: Int64)
@@ -60,6 +70,8 @@ enum OrderEndpoint {
             return EndpointRequest(.post, "/api/orders")
         case .mine:
             return EndpointRequest(.get, "/api/orders/mine")
+        case .active:
+            return EndpointRequest(.get, "/api/orders/active")
         case .detail(let orderId):
             return EndpointRequest(.get, "/api/orders/\(orderId)")
         case .cancel(let orderId):
@@ -74,6 +86,8 @@ enum OrderEndpoint {
             return EndpointRequest(.post, "/api/orders/\(orderId)/start-service")
         case .finish(let orderId):
             return EndpointRequest(.post, "/api/orders/\(orderId)/finish")
+        case .confirmDeparture(let orderId):
+            return EndpointRequest(.post, "/api/orders/\(orderId)/confirm-departure")
         case .review(let orderId):
             return EndpointRequest(.post, "/api/orders/\(orderId)/review")
         case .reviews(let orderId):

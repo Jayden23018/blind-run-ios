@@ -22,6 +22,22 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     /// - `volunteerPhone` 也不会有值，所以本状态下的拨号一律走通话专用接口，
     ///   不走 `offersVolunteerCall` 那条双向下发号码的老路径。
     case pendingIntroCall = "PENDING_INTRO_CALL"
+    /// 已确认的预约单：志愿者已定，但距开跑还早（跨天预约，后端迁移 `0041`）。
+    /// 接单时距开跑超过 `app.order.scheduled-ahead-threshold-minutes`（默认 240 分钟）就落这一态，
+    /// 而不是 `PENDING_ACCEPT`；要等志愿者调 `POST /api/orders/{id}/confirm-departure` 才进出发流程。
+    ///
+    /// 🚩 **这一态双向下发明文电话**（`OrderStatus.allowsCounterpartCall()` 判 true），
+    /// 是后端那条「下发窗口 = 汇合窗口，不多一秒」原则的**唯一例外**：跨天单在开跑前 1–7 天就定了人，
+    /// 而这期间改期 / 改地点必须联系得上对方 —— 联系不上就只能取消重派，
+    /// 而重派抢不回同一个人（远期单的候选池两天后是谁在线完全未知）。
+    /// 泄露面与 `PENDING_ACCEPT` 相同（志愿者已唯一确定），订单一终结即失效。
+    ///
+    /// ⚠️ 实时位置**不推**（后端 `sharesLiveLocation()` 判 false）：距开跑还有几天，
+    /// 推位置既无意义又是持续的位置泄露。
+    ///
+    /// ⚠️ **没有 `→ NO_VOLUNTEER` 这条边**：人已经定下来了，「无人接单」在这一态不是可能的结局；
+    /// 闸门到点未确认时先退回 `REMATCHING`，再由派单窗口判（后端 `OrderStatus.canTransitionTo`）。
+    case scheduledConfirmed = "SCHEDULED_CONFIRMED"
     case pendingAccept = "PENDING_ACCEPT"
     case inProgress = "IN_PROGRESS"
     case driverEnRoute = "DRIVER_EN_ROUTE"
@@ -46,10 +62,17 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     }
 
     /// 刻意排除 `.unknown`：它不是一个真实状态，不该出现在状态机遍历（`canReach`）或任何选项列表里。
+    ///
+    /// 🚩 **这是全枚举唯一一处编译器管不到的清单。** 新增 case 时它不会红，而漏了它的症状是静默的：
+    /// `AppRealtimeCoordinator.canReach` 的图遍历只走 `allCases`，遍历不到的状态会让
+    /// REST 对账把一次**真实**迁移判成非法（`rejectedInvalid`），页面就永久停在旧状态上。
+    /// 加 case 之后请连同 `OrderEnumLeniencyDecodingTests.testUnknownIsExcludedFromAllCases`
+    /// 里那个计数一起改 —— 那条用例是这份清单唯一的看门人。
     static var allCases: [RunOrderStatus] {
         [
             .pendingMatch,
             .pendingIntroCall,
+            .scheduledConfirmed,
             .pendingAccept,
             .inProgress,
             .driverEnRoute,
@@ -65,6 +88,9 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         switch self {
         case .pendingMatch: return "系统派单中"
         case .pendingIntroCall: return "等待通话确认"
+        // 「已约好」而不是「待确认」：对盲人这一态的事实就是**人已经定了**，
+        // 待确认的是志愿者临期那一下，不是这一单成没成。说成待确认会让他以为还可能落空。
+        case .scheduledConfirmed: return "已约好"
         case .pendingAccept: return "待出发"
         case .inProgress: return "进行中"
         case .driverEnRoute: return "志愿者出发中"
@@ -89,7 +115,9 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     /// Whether blind runner should keep polling for updates
     var shouldPoll: Bool {
         switch self {
-        case .pendingMatch, .pendingIntroCall, .pendingAccept, .inProgress, .driverEnRoute, .driverArrived, .rematching:
+        // `.scheduledConfirmed` 在列：它不是终态，且会在志愿者临期确认时转 `PENDING_ACCEPT`。
+        // 代价是打开一张三天后的单也会每 5 秒轮一次 —— 只在页面打开期间，与 `.pendingMatch` 同档。
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .inProgress, .driverEnRoute, .driverArrived, .rematching:
             return true
         case .completed, .cancelled, .noVolunteer:
             return false
@@ -111,7 +139,9 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         // `.pendingIntroCall` 在列是后端明写的（`OrderLifecycleService.cancelOrder` 的盲人分支
         // 逐字写着「通话磨合期盲人随时可以放弃这一单」）：聊到一半发现今天不想跑了是正常的，
         // 漏掉会把人困在通话态直到窗口超时。
-        case .pendingMatch, .pendingIntroCall, .pendingAccept, .rematching:
+        // `.scheduledConfirmed` 在列：后端 `canTransitionTo` 明写这一态可进 `CANCELLED`，
+        // 且盲人是唯一能把它送进终态的一方。跨天单尤其需要 —— 约在三天后的事情最容易变卦。
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .rematching:
             return true
         default:
             return false
@@ -120,7 +150,9 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
 
     var canVolunteerCancel: Bool {
         switch self {
-        case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+        // `.scheduledConfirmed` 在列：这一态志愿者已经接了单（`order.volunteer` 已落库），
+        // 取消进 `REMATCHING`，与 `PENDING_ACCEPT` 同一条边。它就是入口设计里那个「去不了」。
+        case .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return true
         default:
             return false
@@ -171,7 +203,9 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
     var blindRunnerRoute: BlindRunnerOrderRoute {
         switch self {
         // `.pendingIntroCall` 归跟踪侧：通话还在接单**之前**，不是服务中。
-        case .pendingMatch, .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .rematching:
+        // `.scheduledConfirmed` 同归跟踪侧：人定了但陪跑还没开始，页面要做的是展示与拨号，
+        // 不提供开始/结束这类破坏性操作。
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .rematching:
             return .tracking
         case .inProgress:
             return .inService
@@ -677,6 +711,23 @@ struct EmergencyEventResponse: Codable, Sendable, Equatable {
 struct EmergencyActiveEnvelope: Codable, Sendable, Equatable {
     let success: Bool
     let data: EmergencyEventResponse?
+}
+
+/// `GET /api/orders/active` 的信封（盲人端冷启动 / 断线重连恢复）。
+///
+/// 写法与理由与上面的 `EmergencyActiveEnvelope` **完全相同**，不是复制粘贴的巧合：
+/// 两个端点是后端刻意做成一对的（形状一致），`success` 非可选同样是靠它逼内层解码失败，
+/// 才能同时接住「没有活跃订单」的 `data: null` 和有订单时的 `data: {...}`。
+///
+/// 存在的理由：此前盲人冷启动走 `GET /api/orders/mine`（分页历史，默认 `size=10`）再由客户端
+/// 挑出活跃那条。那条路能跑，但依赖两条**没写进契约**的性质 —— 盲人同时只能有一条活跃订单、
+/// 而且它一定落在 `createdAt` 倒序的前 10 条里。这个端点把「哪些状态算活着」交回服务端，
+/// 后端加状态时客户端不必跟。
+/// 不跟 `EmergencyActiveEnvelope` 一样加 `Equatable`：`OrderDetailResponse` 本身不是 Equatable，
+/// 而为了一个信封给那个 30 多字段的 DTO 加合成实现，代价远大于收益。
+struct ActiveOrderEnvelope: Codable, Sendable {
+    let success: Bool
+    let data: OrderDetailResponse?
 }
 
 /// `PUT /api/emergency/{eventId}/cancel` 的裸响应体（`{success, eventId, status}`）。

@@ -539,7 +539,7 @@ final class blindRunTests: XCTestCase {
 
         let lifecycleLoad = Task { await viewModel.loadActiveOrder() }
         let didStart = await waitUntil {
-            client.requestCount(for: "/api/orders/mine") == 1
+            client.requestCount(for: "/api/orders/active") == 1
         }
         let reconnectLoad = Task { await viewModel.loadActiveOrder() }
         let manualLoad = Task { await viewModel.loadActiveOrder() }
@@ -549,11 +549,69 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertTrue(didStart)
         XCTAssertLessThan(Date().timeIntervalSince(startedAt), 0.5)
-        XCTAssertEqual(client.requestCount(for: "/api/orders/mine"), 1)
+        XCTAssertEqual(client.requestCount(for: "/api/orders/active"), 1)
         XCTAssertEqual(viewModel.activeOrder?.orderId, existingOrder.orderId)
         XCTAssertEqual(viewModel.activeOrder?.status, .driverEnRoute)
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertEqual(viewModel.errorMessage, "加载超过 20 秒，请重试。")
+    }
+
+    // MARK: - 盲人冷启动恢复（GET /api/orders/active）
+
+    /// 恢复路径走 `GET /api/orders/active`，**不是**分页历史 `/api/orders/mine`。
+    ///
+    /// 换端点是为了把「哪些状态算活着」交回服务端。`mine` 那条要客户端自己 filter + sort，
+    /// 而挑得出来靠的是两条**没写进契约**的性质：盲人同时只能有一条活跃订单、
+    /// 且它一定落在 `createdAt` 倒序的前 10 条里（`size` 默认就是 10）。
+    func testBlindRunnerHomeRecoversFromTheActiveOrderEndpoint() async {
+        let order = makeOrder(orderId: 801, status: .driverEnRoute)
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: order))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        await viewModel.loadActiveOrder()
+
+        XCTAssertEqual(client.paths, ["/api/orders/active"])
+        XCTAssertFalse(client.paths.contains("/api/orders/mine"), "还在打分页历史列表")
+        XCTAssertEqual(viewModel.activeOrder?.orderId, 801)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    /// 没有活跃订单时后端给的是 `data: null`（不是 404、不是空对象）。
+    /// 解不出来的话首页会把「当前没有进行中的预约」渲染成一条加载失败。
+    func testNoActiveOrderIsAnEmptyResultNotAnError() async {
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        await viewModel.loadActiveOrder()
+
+        XCTAssertNil(viewModel.activeOrder)
+        XCTAssertNil(viewModel.errorMessage, "「没有进行中的预约」被当成了加载失败")
+        XCTAssertTrue(viewModel.canStartNewBooking)
+    }
+
+    /// 🚩 **这条是换端点换来的东西**：服务端说它还没走完，客户端就恢复得回来 ——
+    /// 哪怕这个版本的 App 根本不认识那个状态。
+    ///
+    /// 从前由客户端 `isActiveForBlindRunner` 判，后端加一个非终态就得改客户端才认得；
+    /// 现在那个判断在服务端做完了，我们只负责把它渲染成「状态未知」而不是从界面上抹掉。
+    func testAStatusThisClientDoesNotRecogniseStillRecovers() async throws {
+        let json = #"{"orderId":802,"status":"AWAITING_SOMETHING_NEW"}"#
+        let order = try JSONDecoder().decode(OrderDetailResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(order.status, .unknown, "解码宽容度本身坏了，后面的断言就没有意义")
+
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: order))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        await viewModel.loadActiveOrder()
+
+        XCTAssertEqual(viewModel.activeOrder?.orderId, 802)
+        XCTAssertEqual(viewModel.activeOrder?.status.displayName, "状态未知")
     }
 
     func testVolunteerHomeCoalescesLifecycleReconnectAndManualRefreshWhileKeepingContent() async throws {
@@ -3157,7 +3215,9 @@ final class blindRunTests: XCTestCase {
 
         XCTAssertFalse(viewModel.isAppointmentTimeValid)
 
-        viewModel.appointmentTime = Date().addingTimeInterval(31 * 60)
+        // ⚠️ 不能写 `Date() + 31 分钟`：夜间禁跑窗口上线后那个时刻在 21:29–05:00 之间不合法，
+        // 用例会白天绿、夜里红。见 `BookingTimeFixture` 的注释。
+        viewModel.appointmentTime = BookingTimeFixture.daytime()
 
         XCTAssertTrue(viewModel.isAppointmentTimeValid)
     }
@@ -3174,8 +3234,17 @@ final class blindRunTests: XCTestCase {
         viewModel.moveToNextStep()
 
         XCTAssertEqual(viewModel.currentStep, .appointmentTime)
-        XCTAssertEqual(viewModel.errorMessage, "预约时间需至少在 30 分钟后。")
-        XCTAssertEqual(speechService.lastSpokenText, "预约时间需至少在 30 分钟后。")
+        // 🚩 断言打在 `BookingTimeProblem.tooSoon.message` 上而不是抄一句字面量：
+        // 那个数字来自 `AppConstants.Timing.minimumBookingLeadMinutes`，抄进用例就等于
+        // 再造一份会漂的副本 —— 这条用例上一次红，红的正是「实现改从常量取、用例还抄着 30」。
+        XCTAssertEqual(viewModel.errorMessage, BookingTimeProblem.tooSoon.message)
+        XCTAssertEqual(speechService.lastSpokenText, BookingTimeProblem.tooSoon.message)
+        // 与常量同源这件事本身也要钉住，否则上面两条在文案退回硬编码时照样绿。
+        XCTAssertTrue(
+            BookingTimeProblem.tooSoon.message
+                .contains("\(AppConstants.Timing.minimumBookingLeadMinutes)"),
+            "提前量必须从常量取，写死会在后端调整窗口时变成假话"
+        )
         XCTAssertFalse(viewModel.canAdvanceFromCurrentStep)
     }
 
@@ -5681,12 +5750,20 @@ final class blindRunTests: XCTestCase {
         )
     }
 
-    /// 拆码后两个码各说各话：`DUPLICATE_ORDER` 只剩下单场景，文案必须重新提到「进行中的订单」；
-    /// 且不得再有「以后端 message 为准」的止血补丁——本地文案就是权威。
+    /// 拆码后两个码各说各话：`DUPLICATE_ORDER` 只剩下单场景；且不得再有
+    /// 「以后端 message 为准」的止血补丁——本地文案就是权威。
+    ///
+    /// 🚩 2026-09-05 改口径（跨天预约上线，见 `AGENTS.md` §5）：后端判据从「有任何未走完的单」
+    /// 改成**时段冲突**，所以这里断言的是「说了是时间段的事」，并**反过来钉住不许再出现
+    /// 「进行中的订单」** —— 那句话现在会让用户去取消一张完全不冲突的预约。
     func testDuplicateOrderAndReviewAlreadySubmittedCarryDistinctCopy() {
         XCTAssertTrue(
+            ErrorCode.duplicateOrder.localizedMessage.contains("时间段"),
+            "DUPLICATE_ORDER 拦的是时段冲突，文案要说清是哪一维度撞了"
+        )
+        XCTAssertFalse(
             ErrorCode.duplicateOrder.localizedMessage.contains("进行中的订单"),
-            "DUPLICATE_ORDER 已是单义码（仅下单场景），文案不应再是场景中立的兜底"
+            "旧文案自 2026-09-05 起是错的：约了后天的单之后今天临时想跑照样能下单"
         )
         XCTAssertTrue(ErrorCode.reviewAlreadySubmitted.localizedMessage.contains("评价"))
         XCTAssertNotEqual(
@@ -5739,7 +5816,7 @@ final class blindRunTests: XCTestCase {
             status: initialOrder.status
         )
         let refresh = Task { await viewModel.loadActiveOrder() }
-        _ = await waitUntil { client.requestCount(for: "/api/orders/mine") == 1 }
+        _ = await waitUntil { client.requestCount(for: "/api/orders/active") == 1 }
 
         appState.realtimeCoordinator.simulateIncomingEventForTesting(
             .orderStatusChanged(WSOrderStatusChanged(
@@ -6033,6 +6110,45 @@ final class blindRunTests: XCTestCase {
             requiresAuth: Bool
         ) async throws -> T {
             throw error
+        }
+    }
+
+    /// 只回 `GET /api/orders/active`，并**记下每一条请求路径** ——
+    /// 「换没换端点」这件事只有靠路径序列才看得出来，断言恢复结果会被「两条端点都能恢复」蒙混过去。
+    private final class ActiveOrderStubClient: APIClientProtocol, @unchecked Sendable {
+        enum StubError: Error { case unexpectedPath, unexpectedType }
+
+        private let lock = NSLock()
+        private var recorded: [String] = []
+        private let envelope: ActiveOrderEnvelope
+
+        init(envelope: ActiveOrderEnvelope) {
+            self.envelope = envelope
+        }
+
+        var paths: [String] { lock.withLock { recorded } }
+
+        func request<T: Decodable>(
+            method: HTTPMethod,
+            path: String,
+            query: [String: String]?,
+            body: (any Encodable & Sendable)?,
+            requiresAuth: Bool
+        ) async throws -> T {
+            lock.withLock { recorded.append(path) }
+            guard path == "/api/orders/active", method == .get else { throw StubError.unexpectedPath }
+            guard let typed = envelope as? T else { throw StubError.unexpectedType }
+            return typed
+        }
+
+        func upload<T: Decodable>(
+            path: String,
+            query: [String: String]?,
+            fields: [String: String]?,
+            files: [MultipartFile],
+            requiresAuth: Bool
+        ) async throws -> T {
+            throw StubError.unexpectedPath
         }
     }
 

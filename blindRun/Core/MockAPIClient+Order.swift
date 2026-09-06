@@ -97,6 +97,22 @@ extension MockAPIClient {
         )
     }
 
+    /// `GET /api/orders/active` —— 盲人端冷启动 / 断线重连恢复。
+    ///
+    /// ⚠️ **判据是后端的，不是客户端的**：`status ∉ {COMPLETED, CANCELLED, NO_VOLUNTEER}`，
+    /// 同时存在多条时取 `createdAt` 最近的一条（契约 `/api/orders/active` 的 description 逐字）。
+    /// 别"顺手"换成客户端的 `isActiveForBlindRunner` —— 那条对 `.unknown` 判 true 是为了
+    /// 不让订单从界面上消失，与这里问的「后端认不认为这一单还没走完」不是同一个问题。
+    ///
+    /// 没有活跃订单时 `data` 为 `null`（不是 404、不是空对象）。
+    func handleGetActiveOrder() -> ActiveOrderEnvelope {
+        let active = orders
+            .filter { ![.completed, .cancelled, .noVolunteer].contains($0.status) }
+            .sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
+            .first
+        return ActiveOrderEnvelope(success: true, data: active)
+    }
+
     func handleGetOrder(orderId: Int64) throws -> OrderDetailResponse {
         guard let order = orders.first(where: { $0.orderId == orderId }) else {
             throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))

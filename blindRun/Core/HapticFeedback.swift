@@ -58,7 +58,8 @@ extension RunOrderStatus {
         // 推进：每一步都是用户在等的那个消息。
         // `.pendingIntroCall` 在列：有人想陪你跑，而且**需要你去打一通电话** ——
         // 这一态既是好消息又带着一个待办，正是该打断用户的时刻。
-        case .pendingIntroCall, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed:
+        // `.scheduledConfirmed` 在列：「有人接了你那张跨天单」是纯好消息，与 `.pendingAccept` 同档。
+        case .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed:
             return .success
         // 需要注意：计划有变，用户多半要做点什么。
         case .cancelled, .noVolunteer, .rematching:
