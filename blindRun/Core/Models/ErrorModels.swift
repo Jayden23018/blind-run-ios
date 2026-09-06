@@ -77,6 +77,25 @@ enum ErrorCode: String, Codable, Sendable {
     // 所以文案只说门槛，不说「这个人不存在」。
     case favoriteVolunteerNotEligible = "FAVORITE_VOLUNTEER_NOT_ELIGIBLE"
     case favoriteVolunteerLimitExceeded = "FAVORITE_VOLUNTEER_LIMIT_EXCEEDED"
+    // 志愿者接单守卫（后端 `ErrorCode.java:109`，2026-09-04 随架构复核 N126 上线）。
+    // 在它之前没有任何守卫拦「一个人接两单」—— 接单锁按订单加，拦得住两个人抢一单。
+    //
+    // 🚨 **文案不能和 `ORDER_ALREADY_ACCEPTED` 共用，两者意思相反**：那个是「这一单被别人抢走了」
+    // （该去看别的单），这个是「你自己那个时段有事」（该换个时段的单）。
+    //
+    // ⚠️ 判据在 2026-09-05 变过一次，文案跟的是**改后**的语义：从「有没有占用中的单」
+    // 改成「有没有**时间重叠**的占用中的单」（`DispatchService.hasTimeConflict`，两侧各外扩
+    // `app.order.booking-buffer-minutes`）。所以不能说「您还有一单没有完成」——
+    // 跨天预约上线后接了后天的单照样能接今天的，照旧文案会让他去找一张根本不冲突的单。
+    case volunteerAlreadyEngaged = "VOLUNTEER_ALREADY_ENGAGED"
+    // 二要素核验（阿里云 CloudAuth Id2Meta）**服务本身**没跑通：网络/超时/鉴权/配额/返回体残缺。
+    // 后端 `AliyunIdVerifyService.verifyIdCard`，两个端点共用
+    // （`POST /api/blind/verify-identity` 与 `POST /api/volunteer/registration/step1`）。
+    //
+    // 🚨 **必须与 `ID_INFO_INVALID`(400) 分开，且绝不引导去核对证件** —— 用户的证件没有任何问题，
+    // 让他去核对是在浪费他的时间，重试才有意义。此前这两种情况返的是同一个结果，
+    // 而服务故障那次还会把他永久写成 `verifyStatus=FAILED`（只有管理员能改回来）。
+    case idVerifyUnavailable = "ID_VERIFY_UNAVAILABLE"
 
     var localizedMessage: String {
         switch self {
@@ -174,6 +193,10 @@ enum ErrorCode: String, Codable, Sendable {
             return PartnerStreakCopy.favoriteNotEligible
         case .favoriteVolunteerLimitExceeded:
             return PartnerStreakCopy.favoriteLimitExceeded
+        case .volunteerAlreadyEngaged:
+            return "这个时间段您已经答应了另一位跑者，换一个时间段的订单再试试。"
+        case .idVerifyUnavailable:
+            return "身份认证服务暂时不可用，请稍后重试。"
         }
     }
 
