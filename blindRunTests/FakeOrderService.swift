@@ -33,6 +33,7 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
 
     var createOrderResult: Result<OrderResponse, Error> = .failure(NotStubbed(method: "createOrder"))
     var myOrdersResult: Result<PagedOrderResponse, Error> = .failure(NotStubbed(method: "myOrders"))
+    var activeOrderResult: Result<ActiveOrderEnvelope, Error> = .failure(NotStubbed(method: "activeOrder"))
     /// 默认给**空页**而不是 `NotStubbed`：志愿者首页每次加载都会拉一次预约单，
     /// 让既有的一批首页用例全部为它补一行打桩是纯噪音，而「没有预约单」是最常见的真实情况。
     var scheduledOrdersResult: Result<PagedOrderResponse, Error> = .success(
@@ -100,6 +101,11 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     func myOrders() async throws -> PagedOrderResponse {
         record()
         return try myOrdersResult.get()
+    }
+
+    func activeOrder() async throws -> ActiveOrderEnvelope {
+        record()
+        return try activeOrderResult.get()
     }
 
     func scheduledOrders() async throws -> PagedOrderResponse {

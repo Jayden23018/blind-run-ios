@@ -27,6 +27,9 @@ protocol OrderServing: Sendable {
     // 下单与查询
     func createOrder(_ request: CreateOrderRequest) async throws -> OrderResponse
     func myOrders() async throws -> PagedOrderResponse
+    /// 冷启动 / 重连时问服务端「这个盲人现在有没有一条没走完的单」。
+    /// 没有时 `data` 为 `null`（不是 404、不是空对象），所以返回信封而不是订单本体。
+    func activeOrder() async throws -> ActiveOrderEnvelope
     func orderDetail(orderId: Int64) async throws -> OrderDetailResponse
 
     /// 志愿者手上**已确认但还没到点**的跨天预约单。
@@ -94,6 +97,10 @@ struct OrderService: OrderServing {
 
     func myOrders() async throws -> PagedOrderResponse {
         try await transport.send(OrderEndpoint.mine.request)
+    }
+
+    func activeOrder() async throws -> ActiveOrderEnvelope {
+        try await transport.send(OrderEndpoint.active.request)
     }
 
     func orderDetail(orderId: Int64) async throws -> OrderDetailResponse {

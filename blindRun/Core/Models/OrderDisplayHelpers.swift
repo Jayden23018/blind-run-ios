@@ -234,22 +234,62 @@ enum KeepWaitingEndpoint {
 
 extension RunOrderStatus {
 
-    /// 「志愿者离出发地点还有多远」这个数字对本状态有没有意义。
+    /// 后端**会不会**给这一态下发志愿者位置 —— 也就是「要不要去取」。
     ///
-    /// 汇合前的三态才有：`IN_PROGRESS` 时两人已经在一起，念距离是噪音；派单中 / 重新匹配时
-    /// 根本没有志愿者；终态更没有。语音查距离（`VoiceStatusQuery`）与状态页的距离刷新
-    /// （`BlindOrderStatusViewModel.refreshVolunteerDistance`）共用这一处判定 ——
-    /// 此前这个三元组在状态页里抄了两遍，再加语音入口就是第三遍。
+    /// 与后端 `RunOrderStatus.sharesLiveLocation()` 逐态对齐：`DRIVER_EN_ROUTE` /
+    /// `DRIVER_ARRIVED` / `IN_PROGRESS`。**这三态不由我们定，是后端定的**，
+    /// 所以这条属性的唯一职责就是照抄它，改动前先去看后端那个方法。
     ///
-    /// 同 `offersVolunteerCall` 写成穷举 switch：后端加状态时编译器逼一次决策。
+    /// 🚨 **和「念不念距离」是两件事，2026-08-24 后端点名要求拆开**（handoff 08-19 那条）。
+    /// 从前合成一个判据，两头都错：
+    /// - `PENDING_ACCEPT` 在我们这边判 true ⇒ 订单页每 5 秒轮询就白打一次
+    ///   `GET /api/blind/volunteer-location`，而后端在这一态恒不下发。
+    /// - `IN_PROGRESS` 在我们这边判 false ⇒ 后端明明给（契约里还有回归门
+    ///   `OrderTrackTest#volunteerLocationFallback_worksDuringInProgress`），我们**根本不调**，
+    ///   于是陪跑途中 WebSocket 一断，走散检测就没有任何兜底来源。
+    ///
+    /// 拆成两条之后，后端将来往 `sharesLiveLocation()` 加态时只有这一处要跟，
+    /// 播报口径不会被顺带改掉。
+    ///
+    /// 同族其余判定一样写成穷举 switch：后端加状态时编译器逼一次决策。
+    var fetchesVolunteerLocation: Bool {
+        switch self {
+        case .driverEnRoute, .driverArrived, .inProgress:
+            return true
+        // 还没有志愿者（派单中 / 通话磨合 / 重新匹配），或那个人已经不是参与者，或已终态。
+        // `.scheduledConfirmed` 有志愿者，但后端 `sharesLiveLocation()` 同样不含它 ——
+        // 距开跑 1–7 天，那一段没有位置可取，调了只会拿到 404。
+        case .pendingMatch, .pendingIntroCall, .pendingAccept, .scheduledConfirmed,
+             .rematching, .noVolunteer, .completed, .cancelled:
+            return false
+        case .unknown:
+            return false
+        }
+    }
+
+    /// 「志愿者离出发地点还有多远」这个数字对本状态有没有意义 —— 也就是「要不要念」。
+    ///
+    /// 只有**正在赶来**的两态才有：`IN_PROGRESS` 时两人已经在一起，念距离是噪音；
+    /// `PENDING_ACCEPT` 时志愿者接了单但还没出发，后端不下发他的位置，
+    /// 这条从前判 true 只是让那句话恒定念不出来（`volunteerDistanceToStartText` 恒为 nil）；
+    /// 派单中 / 重新匹配根本没有志愿者；终态更没有。
+    ///
+    /// 语音查距离（`VoiceStatusQuery`）与状态页的距离刷新
+    /// （`BlindOrderStatusViewModel.refreshVolunteerDistance`）共用这一处判定。
+    ///
+    /// 取位置走上面的 `fetchesVolunteerLocation`，**两条不许合回一个**，
+    /// 理由写在那条属性的注释里。
     var offersVolunteerDistanceToStart: Bool {
         switch self {
-        case .pendingAccept, .driverEnRoute, .driverArrived:
+        case .driverEnRoute, .driverArrived:
             return true
         // `.pendingIntroCall` 还没有志愿者接单，后端也不会为这一态下发对方位置。
-        // `.scheduledConfirmed` 有志愿者但**后端同样不下发位置**（`sharesLiveLocation()` 判 false）：
-        // 距开跑 1–7 天，那个距离既无意义、也拿不到数据。判 true 只会念一个永远算不出来的数字。
-        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .rematching, .noVolunteer, .inProgress, .completed, .cancelled:
+        // `.pendingAccept` 有志愿者了，但后端 `sharesLiveLocation()` **不含这一态** ——
+        // 判 true 的那段时间里客户端每 5 秒白调一次而后端恒 404，念不出任何数字。
+        // `.scheduledConfirmed` 同理有志愿者而后端不下发位置：距开跑 1–7 天，
+        // 那个距离既无意义、也拿不到数据。判 true 只会念一个永远算不出来的数字。
+        case .pendingMatch, .pendingIntroCall, .pendingAccept, .scheduledConfirmed,
+             .rematching, .noVolunteer, .inProgress, .completed, .cancelled:
             return false
         case .unknown:
             return false

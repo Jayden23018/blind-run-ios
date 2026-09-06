@@ -187,8 +187,10 @@ enum VoiceStatusQuery {
             return "还在通话确认阶段，还没有志愿者接单，所以暂时算不出距离。"
         case .rematching:
             return "正在重新匹配志愿者，暂时算不出距离。"
-        // 有志愿者，但后端在这一态不下发他的位置（`sharesLiveLocation()` 判 false）——
-        // 「本来就没有」而不是「收不到」，说清楚才不会让人以为功能坏了。
+        // 下面两态都是「有志愿者，但后端在这一态不下发他的位置」（`sharesLiveLocation()` 判 false）
+        // —— 「本来就没有」而不是「收不到」。说成收不到会让人以为再问一次就有了。
+        case .pendingAccept:
+            return "志愿者已经接单，但还没出发，所以暂时算不出距离。"
         case .scheduledConfirmed:
             return "离出发还有一段时间，志愿者还不会往这边走，所以暂时算不出距离。"
         case .inProgress:
@@ -197,8 +199,8 @@ enum VoiceStatusQuery {
             return "本次预约已经结束，没有志愿者位置。"
         case .unknown:
             return "订单状态有更新，暂时算不出距离。"
-        case .pendingAccept, .driverEnRoute, .driverArrived:
-            // `offersVolunteerDistanceToStart` 已经把这三态挡在上面，走不到这里。
+        case .driverEnRoute, .driverArrived:
+            // `offersVolunteerDistanceToStart` 已经把这两态挡在上面，走不到这里。
             return "暂时收不到志愿者位置，所以算不出距离。"
         }
     }

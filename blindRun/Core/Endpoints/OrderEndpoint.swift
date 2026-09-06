@@ -22,6 +22,9 @@ enum OrderEndpoint {
     // 下单与查询
     case create
     case mine
+    /// 盲人端冷启动 / 断线重连的活跃订单恢复。**与 `.mine` 不是一回事** ——
+    /// 那条是分页历史列表，靠客户端 filter + sort 猜哪条还活着；这条由服务端判。
+    case active
     case detail(orderId: Int64)
 
     // 状态流转（`POST /api/orders/{orderId}/{action}`，见 AGENTS.md §5）
@@ -67,6 +70,8 @@ enum OrderEndpoint {
             return EndpointRequest(.post, "/api/orders")
         case .mine:
             return EndpointRequest(.get, "/api/orders/mine")
+        case .active:
+            return EndpointRequest(.get, "/api/orders/active")
         case .detail(let orderId):
             return EndpointRequest(.get, "/api/orders/\(orderId)")
         case .cancel(let orderId):

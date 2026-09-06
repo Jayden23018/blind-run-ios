@@ -196,7 +196,8 @@ REMATCHING → CANCELLED（只能盲人 token）
 - **无声拒绝**：响应体不含对方的表态、也不含轮次进度，这不是后端漏字段。只有一方表态时后端**不通知**对方；「这是第 3 位志愿者」本身就是在告诉盲人前两位没成。客户端**也不许自己算**轮次再显示（例如按收到几次 `INTRO_CALL_CONTINUE` 计数）。
 - 盲人的自由文本在这一态**不可见**（`disclosesBlindRunnerNotesToVolunteer` 判 false，见 §8）：一单最多聊 3 位候选人，展示等于交给这一单碰到的每一个人。
 - 窗口 20 分钟（`app.intro-call.window-minutes`，**别硬编码**）；退回时轮次 +1，满 3 轮（`max-rounds`）转 `NO_VOLUNTEER`。
-- ⚠️ **客户端目前对陌生人一律发 `INTERESTED`**：判据字段 `requiresIntroCall` 只挂在 `AvailableOrderResponse` 上，而本 App 不调 `GET /api/orders/available`，唯一派单通道 `NEW_ORDER` 推送里没有它。自己算也不行（「这两人磨合成功过没有」客户端无从得知）。代价是熟人也要多聊一次。**已投 `demo/docs/handoff.md`，字段搬到推送上之前不要自作主张加 `.accept` 分支。**
+- ⚠️ **客户端目前对陌生人一律发 `INTERESTED`**：判据字段 `requiresIntroCall` 只挂在 `AvailableOrderResponse` 上，而本 App 不调 `GET /api/orders/available`，唯一派单通道 `NEW_ORDER` 推送里没有它。自己算也不行（「这两人磨合成功过没有」客户端无从得知）。代价是熟人也要多聊一次。**已投 `demo/docs/handoff.md`；后端 `aea3fc9` 已把字段补进 `NEW_ORDER` 载荷，iOS 侧接入在开放未合的 PR #77 —— 在它合入之前不要另起一条 `.accept` 分支。**
+- 🚩 **上面那条说的是「按 `requiresIntroCall` 事先分流」，不含「收到 409 之后改发」。** 熟人误发 `INTERESTED` 时后端回 `INTRO_CALL_NOT_REQUIRED`(409)，`VolunteerHomeViewModel.respondToDispatch` 会**自动改发一次 `ACCEPT`**（最多一次，走同一个函数以保留 `.accept` 独有的定位权限闸）。必须这么做的理由是界面事实：派单弹窗只有「有意向」和「拒绝」两个按钮，只弹一句文案 = 志愿者卡在一个本该能接的单上。
 - 反过来也不能假设「陌生人必然被拦」：距开跑时间已塞不下一轮通话窗口时后端**刻意放行** `ACCEPT`（退化成直接接单）。
 
 ## 6. 求助 / SOS 红线

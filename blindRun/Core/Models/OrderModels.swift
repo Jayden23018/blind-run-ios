@@ -712,6 +712,23 @@ struct EmergencyActiveEnvelope: Codable, Sendable, Equatable {
     let data: EmergencyEventResponse?
 }
 
+/// `GET /api/orders/active` 的信封（盲人端冷启动 / 断线重连恢复）。
+///
+/// 写法与理由与上面的 `EmergencyActiveEnvelope` **完全相同**，不是复制粘贴的巧合：
+/// 两个端点是后端刻意做成一对的（形状一致），`success` 非可选同样是靠它逼内层解码失败，
+/// 才能同时接住「没有活跃订单」的 `data: null` 和有订单时的 `data: {...}`。
+///
+/// 存在的理由：此前盲人冷启动走 `GET /api/orders/mine`（分页历史，默认 `size=10`）再由客户端
+/// 挑出活跃那条。那条路能跑，但依赖两条**没写进契约**的性质 —— 盲人同时只能有一条活跃订单、
+/// 而且它一定落在 `createdAt` 倒序的前 10 条里。这个端点把「哪些状态算活着」交回服务端，
+/// 后端加状态时客户端不必跟。
+/// 不跟 `EmergencyActiveEnvelope` 一样加 `Equatable`：`OrderDetailResponse` 本身不是 Equatable，
+/// 而为了一个信封给那个 30 多字段的 DTO 加合成实现，代价远大于收益。
+struct ActiveOrderEnvelope: Codable, Sendable {
+    let success: Bool
+    let data: OrderDetailResponse?
+}
+
 /// `PUT /api/emergency/{eventId}/cancel` 的裸响应体（`{success, eventId, status}`）。
 /// 受助者本人撤销误触的唯一出口；志愿者没有撤销权（403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`）。
 struct EmergencyCancelResponse: Codable, Sendable, Equatable {

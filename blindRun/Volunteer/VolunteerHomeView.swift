@@ -191,10 +191,14 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// （`DispatchService.introCallEnabled` 的注释：关掉只是不再**强制**）。
     /// 代价是熟人也要多聊一次。**已投 `demo/docs/handoff.md`**，
     /// 字段到了这里才该长出 `.accept` 分支。
+    ///
+    /// `allowsIntroCallUpgrade` 只给下面那条自动升级用：收到 `INTRO_CALL_NOT_REQUIRED` 时
+    /// 本函数会带 `false` 递归一次，保证最多升级一次、不会来回打。调用方不要传。
     func respondToDispatch(
         action: OrderRespondAction,
         currentLocation: CLLocationCoordinate2D?,
-        locationAuthorized: Bool
+        locationAuthorized: Bool,
+        allowsIntroCallUpgrade: Bool = true
     ) {
         guard let order = incomingOrder else { return }
         guard let appState else { return }
@@ -246,6 +250,26 @@ final class VolunteerHomeViewModel: ObservableObject {
             } catch let error as APIError {
                 isRespondingToDispatch = false
                 if appState.handleAuthenticatedAPIError(error) {
+                    return
+                }
+                // 熟人误发 `INTERESTED`：后端 409 `INTRO_CALL_NOT_REQUIRED`（2026-08-26 新增）。
+                //
+                // 🚩 **必须重新走一遍本函数，不能就地补一个 API 调用**：`.accept` 有 `.interested`
+                // 没有的前置闸（定位权限判定 + `VolunteerLocationReporter.reportIfNeeded`），
+                // 就地补调用等于绕过它们，志愿者会在没给定位权限的情况下把单接下来。
+                // 闸拦住时用户看到的是「需要定位权限」这类可执行的提示，也是对的。
+                //
+                // 不弹「操作失败」就停：派单弹窗只有「有意向」和「拒绝」两个按钮，
+                // 停在这里等于让志愿者卡在一个本该能接的单上（后端在那条 handoff 里点名要求别这样）。
+                if allowsIntroCallUpgrade,
+                   action == .interested,
+                   error.errorCode == .introCallNotRequired {
+                    respondToDispatch(
+                        action: .accept,
+                        currentLocation: currentLocation,
+                        locationAuthorized: locationAuthorized,
+                        allowsIntroCallUpgrade: false
+                    )
                     return
                 }
                 needsCertificateUpload = error.errorCode == .volunteerNotApproved
