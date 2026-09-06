@@ -8,14 +8,29 @@ import XCTest
 /// 于是这条守卫从来没真正执行过。改为内联字面量清单，代价是新增 throw 点要手动补进来。
 final class MockAPIClientErrorCodeTests: XCTestCase {
 
-    /// `MockAPIClient.swift` 里所有 `ErrorResponse(code: "...")` 字面量。
-    /// 用 `grep -o 'code: "[A-Z_]*"' blindRun/Core/MockAPIClient.swift | sort -u` 重新生成。
+    /// Mock 各分片里所有 `ErrorResponse(code: "...")` 字面量。**改 Mock 就重跑一次下面这条**，
+    /// 别只往下加自己那一条：
     ///
-    /// 2026-08-12 重新生成过一次：手动维护已经漂了 7 条
-    /// （`EMERGENCY_*` 三条、`KEEP_WAITING_LIMIT_REACHED`、`NOT_ORDER_PARTICIPANT` 等），
-    /// 也就是说这条守卫在那段时间对新增 throw 点是瞎的。**改 Mock 就重跑一次上面那条命令**，
-    /// 别只往下加自己那一条。
+    /// ```
+    /// python3 -c "
+    /// import re,glob
+    /// c=set()
+    /// for p in glob.glob('blindRun/Core/MockAPIClient*.swift'):
+    ///     c |= set(re.findall(r'code:\s*\"([A-Z_]+)\"', open(p).read()))
+    /// print('\n'.join(sorted(c)))"
+    /// ```
+    ///
+    /// ⚠️ 2026-09-05 把范围从 `MockAPIClient.swift` 一个文件改成 `MockAPIClient*.swift` ——
+    /// **上一版的重新生成命令本身是漏的**。Mock 早已拆成 8 个分片（`+Order` / `+IntroCall` /
+    /// `+Incentive` …），命令只扫主文件，于是 `INTRO_CALL_NOT_ACTIVE`、`SHARE_ORDER_ALREADY_FINISHED`、
+    /// `FAVORITE_VOLUNTEER_*` 两条这 4 个码照着命令重跑也补不进来。
+    /// 这是同一个漂移的第二次：2026-08-12 那次漂了 7 条（`EMERGENCY_*` 三条、
+    /// `KEEP_WAITING_LIMIT_REACHED`、`NOT_ORDER_PARTICIPANT` 等），当时只补了清单没修命令。
+    /// 用 `grep -o` 也不行 —— 本仓库 Bash 输出会被压制，多行匹配拿不到内容（见 `~/.claude/RTK.md`）。
     private static let mockWireCodes = [
+        // ⚠️ 这里没有 `APPOINTMENT_TOO_LONG` / `APPOINTMENT_IN_NIGHT_WINDOW` 不是漏了：
+        // Mock 刻意不镜像这两道，理由见 `MockAPIClient+Order.handleCreateOrder`。
+        // 它们的映射与文案由本文件下面那两条用例守。
         "ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED",
         "APPOINTMENT_TOO_SOON",
         "BAD_REQUEST",
@@ -26,8 +41,11 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
         "EMERGENCY_CONTACT_REQUIRED",
         "EMERGENCY_NOT_OWNER",
         "EMERGENCY_VOLUNTEER_CANNOT_DISMISS",
+        "FAVORITE_VOLUNTEER_LIMIT_EXCEEDED",
+        "FAVORITE_VOLUNTEER_NOT_ELIGIBLE",
         "IDENTITY_NOT_VERIFIED",
         "ID_INFO_INVALID",
+        "INTRO_CALL_NOT_ACTIVE",
         "INVALID_TIMESTAMP",
         "INVALID_VERIFICATION_CODE",
         "KEEP_WAITING_LIMIT_REACHED",
@@ -39,6 +57,7 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
         "RESOURCE_NOT_FOUND",
         "REVIEW_ALREADY_SUBMITTED",
         "SECURITY_FORBIDDEN",
+        "SHARE_ORDER_ALREADY_FINISHED",
         "VALIDATION_ERROR"
     ]
 
@@ -84,6 +103,36 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
         XCTAssertNotEqual(contacts, ErrorCode.orderPermissionDenied.localizedMessage)
         XCTAssertNotEqual(identity, ErrorCode.orderPermissionDenied.localizedMessage)
         XCTAssertNotEqual(identity, contacts)
+    }
+
+    // MARK: - 下单时间类三条（后端 N134）
+
+    func testAppointmentTimeErrorCodesDecodeFromBackendWireValues() {
+        XCTAssertEqual(ErrorCode(rawValue: "APPOINTMENT_TOO_LONG"), .appointmentTooLong)
+        XCTAssertEqual(ErrorCode(rawValue: "APPOINTMENT_IN_NIGHT_WINDOW"), .appointmentInNightWindow)
+    }
+
+    /// 盲人下单被拒后只能靠 TTS 听原因，**必须听得出该改哪个字段**。
+    /// 只说「预约失败」的话，两条 422 在耳朵里完全一样，用户唯一能做的是原样再试一次。
+    func testAppointmentRejectionMessagesTellTheUserWhatToChange() {
+        let tooLong = ErrorCode.appointmentTooLong.localizedMessage
+        XCTAssertTrue(tooLong.contains("5小时"), "要给出上限，不能只说太长")
+        XCTAssertTrue(tooLong.contains("改短"), "要说清改哪个字段")
+        XCTAssertEqual(ErrorCode.appointmentTooLong.ttsMessage, tooLong)
+
+        let night = ErrorCode.appointmentInNightWindow.localizedMessage
+        XCTAssertTrue(night.contains("10点") && night.contains("5点"), "要念出禁跑时段的两端")
+        XCTAssertTrue(night.contains("整段"), "🚨 判据是整段不是开始时刻，不说清用户会去挪开始时间")
+        XCTAssertEqual(ErrorCode.appointmentInNightWindow.ttsMessage, night)
+
+        // 两条 422 同族，但要改的东西不同，文案不能撞。
+        let tooSoon = ErrorCode.appointmentTooSoon.localizedMessage
+        XCTAssertNotEqual(tooLong, night)
+        XCTAssertNotEqual(tooLong, tooSoon)
+        XCTAssertNotEqual(night, tooSoon)
+
+        // 两条都命中时后端返回 `APPOINTMENT_TOO_LONG`，那句话就不能把人往改时段上引。
+        XCTAssertFalse(tooLong.contains("晚上"), "超长单先要改短，改时段没用")
     }
 
     // MARK: - 2026-09-04 后端新增两码（架构复核 N126）

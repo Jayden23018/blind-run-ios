@@ -23,6 +23,17 @@ extension MockAPIClient {
         // 顺序错了会让 Mock 引导用户先补一个后端根本不会先拒的项。
         // 注意：后端**不校验** `BlindProfile.name`，Mock 也不能比后端严；
         // 之前那条 `PROFILE_INCOMPLETE` 是真实后端永不返回的死码，已删除。
+        //
+        // ⚠️ 后端 N134 在提前量之后还加了两道，Mock **刻意不镜像**（2026-09-05）：
+        // `APPOINTMENT_TOO_LONG`（>300 分钟）和 `APPOINTMENT_IN_NIGHT_WINDOW`
+        // （整段落进 `[22:00, 05:00)`）。前者客户端到不了 —— 表单选择器最大 120 分钟、
+        // 语音被 `VoiceOrderWizard.acceptedDurationMinutes` 夹在 10–300，Mock 加了也是死分支。
+        // 后者会把整个测试套件变成看墙钟的：本仓多条用例按 `Date() + 45 分钟` 下单
+        // （`blindRunTests.swift:1220`、`OrderReviewAndStatusLogDecodingTests.swift:152`、
+        // `BlindIdentityAndContactModelTests.swift:347`），镜像之后它们白天全绿、
+        // 晚上 8 点后集体变红 —— 提交时验不出来的红是最贵的那种。
+        // 两个码的**客户端映射与 TTS 文案照常有**（`ErrorCode.appointmentTooLong` /
+        // `.appointmentInNightWindow`），真实后端拒绝时盲人听到的是能照着改的那句话。
 
         // Validate appointment time (30 min ahead)
         if let date = ISO8601DateFormatter().date(from: request.plannedStartTime)
