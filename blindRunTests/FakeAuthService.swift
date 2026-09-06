@@ -27,7 +27,7 @@ final class FakeAuthService: AuthServing, @unchecked Sendable {
     var logoutResult: Result<LogoutResponse, Error> = .failure(NotStubbed(method: "logout"))
     var deleteAccountResult: Result<DeleteAccountResponse, Error> = .failure(NotStubbed(method: "deleteAccount"))
     var legalLinksResult: Result<LegalLinksResponse, Error> = .failure(NotStubbed(method: "legalLinks"))
-    var missedNotificationsResult: Result<[MissedNotificationResponse], Error> = .failure(NotStubbed(method: "missedNotifications"))
+    var missedNotificationsResult: Result<MissedNotificationPage, Error> = .failure(NotStubbed(method: "missedNotifications"))
     var accountDeletionOrderPreflightResult: Result<PagedOrderResponse, Error> = .failure(NotStubbed(method: "accountDeletionOrderPreflight"))
     var registerDeviceTokenResult: Result<Void, Error> = .failure(NotStubbed(method: "registerDeviceToken"))
     var unregisterDeviceTokenResult: Result<Void, Error> = .failure(NotStubbed(method: "unregisterDeviceToken"))
@@ -77,7 +77,7 @@ final class FakeAuthService: AuthServing, @unchecked Sendable {
         return try legalLinksResult.get()
     }
 
-    func missedNotifications(after: String) async throws -> [MissedNotificationResponse] {
+    func missedNotifications(after: String) async throws -> MissedNotificationPage {
         record()
         lastAfterTimestamp = after
         return try missedNotificationsResult.get()
