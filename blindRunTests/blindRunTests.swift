@@ -3140,8 +3140,17 @@ final class blindRunTests: XCTestCase {
         viewModel.moveToNextStep()
 
         XCTAssertEqual(viewModel.currentStep, .appointmentTime)
-        XCTAssertEqual(viewModel.errorMessage, "预约时间需至少在 30 分钟后。")
-        XCTAssertEqual(speechService.lastSpokenText, "预约时间需至少在 30 分钟后。")
+        // 🚩 断言打在 `BookingTimeProblem.tooSoon.message` 上而不是抄一句字面量：
+        // 那个数字来自 `AppConstants.Timing.minimumBookingLeadMinutes`，抄进用例就等于
+        // 再造一份会漂的副本 —— 这条用例上一次红，红的正是「实现改从常量取、用例还抄着 30」。
+        XCTAssertEqual(viewModel.errorMessage, BookingTimeProblem.tooSoon.message)
+        XCTAssertEqual(speechService.lastSpokenText, BookingTimeProblem.tooSoon.message)
+        // 与常量同源这件事本身也要钉住，否则上面两条在文案退回硬编码时照样绿。
+        XCTAssertTrue(
+            BookingTimeProblem.tooSoon.message
+                .contains("\(AppConstants.Timing.minimumBookingLeadMinutes)"),
+            "提前量必须从常量取，写死会在后端调整窗口时变成假话"
+        )
         XCTAssertFalse(viewModel.canAdvanceFromCurrentStep)
     }
 
@@ -5647,12 +5656,20 @@ final class blindRunTests: XCTestCase {
         )
     }
 
-    /// 拆码后两个码各说各话：`DUPLICATE_ORDER` 只剩下单场景，文案必须重新提到「进行中的订单」；
-    /// 且不得再有「以后端 message 为准」的止血补丁——本地文案就是权威。
+    /// 拆码后两个码各说各话：`DUPLICATE_ORDER` 只剩下单场景；且不得再有
+    /// 「以后端 message 为准」的止血补丁——本地文案就是权威。
+    ///
+    /// 🚩 2026-09-05 改口径（跨天预约上线，见 `AGENTS.md` §5）：后端判据从「有任何未走完的单」
+    /// 改成**时段冲突**，所以这里断言的是「说了是时间段的事」，并**反过来钉住不许再出现
+    /// 「进行中的订单」** —— 那句话现在会让用户去取消一张完全不冲突的预约。
     func testDuplicateOrderAndReviewAlreadySubmittedCarryDistinctCopy() {
         XCTAssertTrue(
+            ErrorCode.duplicateOrder.localizedMessage.contains("时间段"),
+            "DUPLICATE_ORDER 拦的是时段冲突，文案要说清是哪一维度撞了"
+        )
+        XCTAssertFalse(
             ErrorCode.duplicateOrder.localizedMessage.contains("进行中的订单"),
-            "DUPLICATE_ORDER 已是单义码（仅下单场景），文案不应再是场景中立的兜底"
+            "旧文案自 2026-09-05 起是错的：约了后天的单之后今天临时想跑照样能下单"
         )
         XCTAssertTrue(ErrorCode.reviewAlreadySubmitted.localizedMessage.contains("评价"))
         XCTAssertNotEqual(
