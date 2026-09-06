@@ -639,10 +639,16 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     /// 状态推进时该播哪一句。除了一处例外，都是 `blindRunnerAnnouncement`。
     ///
-    /// 例外是**通话没聊成、退回派单队列**（`PENDING_INTRO_CALL` → `PENDING_MATCH`）：
-    /// `.pendingMatch` 的常规播报是「订单提交成功，系统正在为你派单」—— 订单是二十分钟前
-    /// 提交的，这句话在这一刻是**错的**。后端为这条转移专门发了 `INTRO_CALL_CONTINUE`
-    /// （正文「正在为你寻找合适的陪跑伙伴」），这里逐字复用它。
+    /// 例外是**通话没聊成、退回派单队列**。两个落点各自的常规播报在这一刻都是错的：
+    /// - `PENDING_MATCH` 念「订单提交成功，系统正在为你派单」—— 订单是二十分钟前提交的。
+    /// - `REMATCHING` 念「正在确认志愿者状态，请稍候」—— 这一刻**没有志愿者可确认**，
+    ///   刚才那位候选人从来就没接过单。
+    ///
+    /// 后端为这条转移专门发了 `INTRO_CALL_CONTINUE`（正文「正在为你寻找合适的陪跑伙伴」），
+    /// 两个落点逐字复用它 —— 后端也**刻意**对两种状态发同一条中性文案，不为 `REMATCHING` 另开一条。
+    ///
+    /// ⚠️ `REMATCHING` 这个落点是 2026-08-26 后端修 P0（N105）之后才有的：通话退出改成回
+    /// 「进通话之前那个状态」，而进通话之前它可能就是 `REMATCHING`。
     ///
     /// 🚨 措辞里不许出现「重新」「换一位」「再找一位」这类暗示前面失败过的词：
     /// 无声拒绝的全部要求就是盲人无从得知自己被谁拒过。
@@ -650,7 +656,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
         from previousStatus: RunOrderStatus?,
         to updated: OrderDetailResponse
     ) -> String {
-        if previousStatus == .pendingIntroCall, updated.status == .pendingMatch {
+        if previousStatus == .pendingIntroCall,
+           updated.status == .pendingMatch || updated.status == .rematching {
             return IntroCallCopy.continuedSearch
         }
         return updated.blindRunnerAnnouncement(distanceText: volunteerDistanceToStartText)
@@ -742,8 +749,12 @@ final class BlindOrderStatusViewModel: ObservableObject {
         volunteerDistanceToStartText = order.volunteerDistanceToStartText(from: latestVolunteerCoordinate)
     }
 
+    /// 🚩 判据是 `fetchesVolunteerLocation`（后端 `sharesLiveLocation()` 那三态），
+    /// **不是** `offersVolunteerDistanceToStart`（念不念距离那两态）。两者 2026-08-31 拆开，
+    /// 拆之前这里用后者，于是 `PENDING_ACCEPT` 每 5 秒白调一次、`IN_PROGRESS` 一次都不调 ——
+    /// 而 `IN_PROGRESS` 正是走散检测唯一需要兜底的那一段。
     private func refreshVolunteerLocationFallbackIfNeeded(for order: OrderDetailResponse, appState: AppState) async {
-        guard order.status.offersVolunteerDistanceToStart else { return }
+        guard order.status.fetchesVolunteerLocation else { return }
         let websocketSampleIsFresh = latestVolunteerWebSocketDate.map { Date().timeIntervalSince($0) <= 15 } ?? false
         guard !appState.isWebSocketConnected || !websocketSampleIsFresh else { return }
 
@@ -752,6 +763,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             guard let coordinate = Self.volunteerFallbackCoordinate(from: response.data, matching: order) else { return }
             latestVolunteerCoordinate = coordinate
             refreshVolunteerDistance()
+            feedEscortPeerLocation(from: response.data, coordinate: coordinate, order: order, appState: appState)
         } catch {
             // 订单轮询才是权威源，兜底拿不到位置不致命 —— 所以这里既不清空已知位置，也不播报。
             //
@@ -760,6 +772,39 @@ final class BlindOrderStatusViewModel: ObservableObject {
             // （`api_spec.yaml:2365-2366`）。对盲人来说，陪跑途中每隔几秒念一次
             // 「获取位置失败」既没有可执行的动作，又会占住他用来听环境和陪跑员说话的通道。
         }
+    }
+
+    /// 把兜底坐标喂给走散检测（`LiveEscortSessionCoordinator` 只读
+    /// `AppRealtimeCoordinator` 的对方样本存量，没有自己的 REST 兜底）。
+    ///
+    /// 🚩 **与上面那句 `latestVolunteerCoordinate = coordinate` 是两件事，故意分开写：**
+    ///
+    /// | | 念距离（上面那条） | 走散检测（这一条） |
+    /// |---|---|---|
+    /// | 问的是 | 屏幕上/播报里那个数字 | 两个人还在不在一起 |
+    /// | `updatedAt` 缺失 | **放行**（`volunteerFallbackCoordinate` 的既有口径，失败开放） | **不喂** |
+    /// | 新鲜度 | 30 秒（后端 Redis TTL） | 15 秒（`peerFreshness`，由 coordinator 判） |
+    ///
+    /// 缺 `updatedAt` 时不喂，是因为这一条唯一能凑的替代值是「现在」——
+    /// 那会让一个 29 秒前的坐标伪装成刚采的，把「已经走散了」演成「一切正常」。
+    /// 念距离那条允许缺失是相反方向的选择：那里拦一次的后果只是数字不出现，
+    /// 而这条链路已经因为两道失败闭合的闸各坏过一次（见 `volunteerFallbackCoordinate`）。
+    private func feedEscortPeerLocation(
+        from data: VolunteerLocationData?,
+        coordinate: CLLocationCoordinate2D,
+        order: OrderDetailResponse,
+        appState: AppState
+    ) {
+        guard let capturedAtMilliseconds = data?.updatedAt else { return }
+        appState.realtimeCoordinator.ingestFallbackPeerLocation(
+            RealtimePeerLocationSample(
+                orderId: order.orderId,
+                ownerRole: .volunteer,
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude,
+                timestampMilliseconds: capturedAtMilliseconds
+            )
+        )
     }
 
     /// 志愿者位置 REST 兜底的新鲜度阈值。与后端 Redis `vol:loc:{id}` 的 TTL
@@ -815,6 +860,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 由这一组按钮代打。
     enum MockCounterpartStep {
         case respond(OrderRespondAction)
+        /// 跨天预约单的临期确认。志愿者那半边在单设备上凑不齐，由这个按钮代打 ——
+        /// 不做的话 `SCHEDULED_CONFIRMED` 之后的整条链路在 Mock 里根本走不下去。
+        case confirmDeparture
         case enRoute
         case arrived
         case startService
@@ -835,6 +883,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
                 switch step {
                 case .respond(let action):
                     try await orders.respond(orderId: orderId, action: action)
+                case .confirmDeparture:
+                    try await orders.confirmDeparture(orderId: orderId)
                 case .enRoute:
                     try await orders.enRoute(orderId: orderId)
                 case .arrived:
@@ -1844,6 +1894,19 @@ struct BlindOrderStatusView: View {
                     }
                     .buttonStyle(.bordered)
                     .accessibilityLabel("模拟志愿者说合适")
+                }
+
+                // 跨天预约单：先让志愿者「确认出发」把它推到 `PENDING_ACCEPT`，
+                // 之后就接回既有的那几个按钮。分开一个按钮而不是并进下面那条链，
+                // 是因为这一步本身就是要验的东西 —— 合进去就跳过了它。
+                if order.status == .scheduledConfirmed {
+                    Button("模拟志愿者确认出发") {
+                        Task {
+                            await viewModel.runMockCounterpartSteps([.confirmDeparture], orderId: order.orderId)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("模拟志愿者确认出发")
                 }
 
                 if order.status == .driverEnRoute || order.status == .pendingAccept {

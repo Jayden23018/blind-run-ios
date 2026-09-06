@@ -153,7 +153,16 @@ private extension RunOrderStatus {
         // 刻意不是 `REMATCHING`）。给通话态排更高的档，那条真实迁移会被判成陈旧丢掉，
         // 盲人的页面就永远停在「等待通话确认」。
         case .pendingMatch, .pendingIntroCall: return 0
-        case .pendingAccept, .rematching: return 1
+        // 🚩 `.scheduledConfirmed` 与 `.pendingAccept` **同档 1，不能给 0**。
+        // `REMATCHING → SCHEDULED_CONFIRMED` 是真实迁移（重新派单后被一张远期单接走，
+        // 后端 `OrderStatus.canTransitionTo` 明写），而 `.rematching` 是 1 ——
+        // 给 0 会让这条真实迁移被判成「倒退的陈旧结果」丢掉，订单页永远停在「重新匹配中」。
+        // 这就是上面那段 `.pendingIntroCall` 注释说的同一个坑，换了个状态而已。
+        //
+        // 同档的已知代价（与 `.pendingAccept` / `.rematching` 之间那对完全一样，是本设计的既有边界）：
+        // 一条陈旧的 REST 结果可以把 `PENDING_ACCEPT` 拉回 `SCHEDULED_CONFIRMED`。
+        // 后果只是多显示一次确认按钮，按下去后端返 409，不是不可逆操作。
+        case .scheduledConfirmed, .pendingAccept, .rematching: return 1
         case .driverEnRoute: return 2
         case .driverArrived: return 3
         case .inProgress: return 4
@@ -166,12 +175,23 @@ private extension RunOrderStatus {
     func isDirectlyFollowed(by candidate: RunOrderStatus) -> Bool {
         switch self {
         case .pendingMatch:
-            return [.pendingIntroCall, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
+            return [.pendingIntroCall, .scheduledConfirmed, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
         // 后端 `OrderStatus.java` 的通话磨合分支：双方认可 → PENDING_ACCEPT；
-        // 任一方不认可 / 没接到 / 窗口超时 → 退回 PENDING_MATCH（**不是 REMATCHING**）；
+        // 任一方不认可 / 没接到 / 窗口超时 → **退回进通话之前那个状态**；
         // 轮次达上限 → NO_VOLUNTEER；盲人取消 → CANCELLED。
+        //
+        // ⚠️ 「退回之前那个状态」是 2026-08-26 后端修 P0（N105）时改的，此前写死 `PENDING_MATCH`。
+        // 所以 `REMATCHING`（志愿者接过单又中途取消、正在重新找人，期间又有人表示有意向）
+        // 现在也是一个合法的后继 —— 那条边此前不会出现。
         case .pendingIntroCall:
-            return [.pendingAccept, .pendingMatch, .cancelled, .noVolunteer].contains(candidate)
+            return [.scheduledConfirmed, .pendingAccept, .pendingMatch, .rematching,
+                    .cancelled, .noVolunteer].contains(candidate)
+        // 跨天预约（后端迁移 `0041`）：距开跑超过 240 分钟时被接单的订单落这一态。
+        // 出边三条，逐字取自后端 `OrderStatus.canTransitionTo`：临期确认 → `PENDING_ACCEPT`；
+        // 闸门到点未确认 / 志愿者取消 → `REMATCHING`；盲人取消 → `CANCELLED`。
+        // ⚠️ **没有 `→ NO_VOLUNTEER`** —— 人已经定了，「无人接单」在这一态不是可能的结局。
+        case .scheduledConfirmed:
+            return [.pendingAccept, .rematching, .cancelled].contains(candidate)
         case .pendingAccept:
             return [.driverEnRoute, .cancelled, .rematching].contains(candidate)
         case .driverEnRoute:
@@ -183,7 +203,7 @@ private extension RunOrderStatus {
         // `REMATCHING` 与 `PENDING_MATCH` 在后端 `isDispatchable()` 下行为一致，
         // 所以它同样能被一个候选人「有意向」拽进通话磨合。
         case .rematching:
-            return [.pendingIntroCall, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
+            return [.pendingIntroCall, .scheduledConfirmed, .pendingAccept, .cancelled, .noVolunteer].contains(candidate)
         case .completed, .cancelled, .noVolunteer:
             return false
         // 未知态没有任何可信的后继约束，一律放行，让下一个认识的状态把界面救回来。
@@ -695,15 +715,45 @@ final class AppRealtimeCoordinator: ObservableObject {
         }
     }
 
-    private func routePeerLocation(_ sample: RealtimePeerLocationSample, expectedReceiver: WSRole) {
-        guard (attachedRole == nil || attachedRole == expectedReceiver), sample.isValid else { return }
-        guard activeOrderIDs.contains(sample.orderId) else { return }
+    /// REST 兜底拿到的对方位置。**只入库，不发布。**
+    ///
+    /// 存在的理由：`LiveEscortSessionCoordinator.freshPeerCoordinate` 只读这个存量
+    /// （`latestPeerLocation`）—— 也就是说陪跑途中 WebSocket 一断，走散检测就没有输入了。
+    /// 而后端**恰好**在 `IN_PROGRESS` 提供 `GET /api/blind/volunteer-location`
+    /// （`sharesLiveLocation()` 的三态之一）：数据一直在，从前只是没人把它接过来。
+    ///
+    /// 🚩 **刻意不走 `routePeerLocation` 的发布那一半。** 发布会回流到
+    /// `BlindOrderStatusViewModel.handleVolunteerLocationUpdate`，把 `latestVolunteerWebSocketDate`
+    /// 也一并推新 —— 而那个字段正是「WebSocket 还在给我样本吗」这个判断的依据，
+    /// 拿 REST 的结果去喂它，下一轮兜底就会被自己刚写进去的值劝退。
+    /// 入库这一半共用 `retainPeerLocation`，所以「只进不退」那条守卫两条路一模一样。
+    ///
+    /// ⚠️ 调用方必须传**真实采样时刻**（后端的 `updatedAt`），不许拿「现在」凑：
+    /// 那会让一个 29 秒前的坐标伪装成刚采的，直接削弱走散检测。
+    func ingestFallbackPeerLocation(_ sample: RealtimePeerLocationSample) {
+        _ = retainPeerLocation(sample, expectedReceiver: .blind)
+    }
+
+    /// 入库并回答「这条样本是不是新的」。抽出来只为一件事：REST 兜底与 WebSocket
+    /// 共用同一条「只进不退」的守卫，不各写一份。
+    private func retainPeerLocation(
+        _ sample: RealtimePeerLocationSample,
+        expectedReceiver: WSRole
+    ) -> Bool {
+        guard (attachedRole == nil || attachedRole == expectedReceiver), sample.isValid else { return false }
+        guard activeOrderIDs.contains(sample.orderId) else { return false }
         let key = peerKey(orderID: sample.orderId, ownerRole: sample.ownerRole)
         if let previous = latestPeerSamples[key],
            previous.timestampMilliseconds >= sample.timestampMilliseconds {
-            return
+            return false
         }
         latestPeerSamples[key] = sample
+        return true
+    }
+
+    private func routePeerLocation(_ sample: RealtimePeerLocationSample, expectedReceiver: WSRole) {
+        guard retainPeerLocation(sample, expectedReceiver: expectedReceiver) else { return }
+        let key = peerKey(orderID: sample.orderId, ownerRole: sample.ownerRole)
         guard peerPublishTasks[key] == nil else {
             ClientFlowDiagnostics.record(event: "coalesced", operation: "peer-location-event")
             return
@@ -837,13 +887,41 @@ final class AppRealtimeCoordinator: ObservableObject {
     /// 同一件事在派单等待期取消走的是 `REMATCHING`(NORMAL) —— 那时人还没出门，
     /// 一起提上来只会制造噪音，而噪音会让真正紧急的那条被忽略。
     ///
-    /// 🔴 **它绝对不能进 `lifecycleStatus(forEventType:)` 那张表。**
+    /// 🔴 **本表里的每一条都绝对不能进 `lifecycleStatus(forEventType:)` 那张表。**
     /// `shouldSuppressLifecycleNotification` 的第一条就是「有活跃订单 ⇒ 抑制」，
-    /// 而这条通知发生时**必然**有活跃订单 ⇒ 一旦映射进去就是 100% 静默吞掉，
-    /// 恰好是后端拆出这一档想避免的后果。未知 `eventType` 不抑制的默认方向在这里正好是对的，
+    /// 而这些通知发生时**必然**有活跃订单 ⇒ 一旦映射进去就是 100% 静默吞掉，
+    /// 恰好是后端拆出这些档想避免的后果。未知 `eventType` 不抑制的默认方向在这里正好是对的，
     /// 所以这里只加呈现强度、不加状态映射。
+    ///
+    /// 无进展看门狗三条（后端 2026-09-04 新增，架构复核 S-2 / `ISSUES.md` N127 / 迁移 `0038`）：
+    ///
+    /// - `ORDER_DEPARTURE_STALLED` —— 志愿者接了单，但计划开始时间过了还没点「出发」⇒ 判失联。
+    ///   🚨 **不是 `REMATCHING` 的同义词，别合并分支。** 两者都以订单转入 `REMATCHING` 收场，
+    ///   但 `REMATCHING` 是志愿者**主动点了取消**（NORMAL，不补 APNs）；这一条是他**接了单之后
+    ///   再无动静**（HIGH，补 APNs），触发的那一刻盲人正站在起跑点等着。紧跟着还会来一条
+    ///   `ORDER_STATUS_CHANGED`(→`REMATCHING`)，而 `.rematching` 的本地播报是中性的
+    ///   「正在确认志愿者状态，请稍候」—— 缺了这一条，「为什么没人来」就没有任何人告诉他。
+    /// - `ORDER_ARRIVAL_STALLED` —— 志愿者标了「已到达」却迟迟没点「开始服务」，多半是没碰上头。
+    ///   **双方各收一条、文案不同**（后端按 `TargetRole` 分模板），两端都在引导打电话，
+    ///   而 `DRIVER_ARRIVED` 这一态两侧都有拨号入口，所以这条通知落地是有动作的。
+    /// - `EMERGENCY_UNATTENDED` —— SOS 触发后长时间没推进到结案。要说的是「别再干等，
+    ///   自己拨 120/110」，后端点名**不要做成普通提示**。
+    ///
+    /// ⚠️ `EMERGENCY_UNATTENDED` **刻意不走 `emergencyKind`**：那条链路会落 `latestSafetyEvent`
+    /// 并驱动 `EmergencyCoordinator.apply` 改求助状态机，而这条事件本身不改变求助的任何状态
+    /// （它是催办，不是新事实）。混进去只会让状态机按一条没有权威来源的事件跳档。
+    /// 同理它的文案照后端原样播 —— 后端刻意没写「有没有人接手」（它同时覆盖「真的没人接手」
+    /// 与「客服已接手但迟迟没结案」，写死任一种在另一种下就是假话），**客户端也不许自己补这句**。
     static func isSafetyEventType(_ eventType: String) -> Bool {
-        eventType == "REMATCHING_MID_RUN"
+        switch eventType {
+        case "REMATCHING_MID_RUN",
+             "ORDER_DEPARTURE_STALLED",
+             "ORDER_ARRIVAL_STALLED",
+             "EMERGENCY_UNATTENDED":
+            return true
+        default:
+            return false
+        }
     }
 
     static func emergencyKind(forEventType eventType: String) -> RealtimeSafetyEvent.Kind? {
@@ -1136,6 +1214,12 @@ final class AppRealtimeCoordinator: ObservableObject {
     ///   抑制它们等于让派单期（最长 30 分钟、3 轮扩圈）整段静音。
     /// - `ROUTE_CONFIRM_REQUIRED*` / `PROXIMITY_ALERT` / `CERT_*` / `ID_VERIFY_*` ——
     ///   与订单状态无关，本来就不该进这条闸。
+    /// - 🔴 **跨天预约那三条一个都不许加**（`SCHEDULED_RUN_REMINDER` / `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED` /
+    ///   `SCHEDULED_DEPARTURE_GATE_MISSED`，后端迁移 `0041`）。理由与 `REMATCHING_MID_RUN`
+    ///   那条逐字相同：`shouldSuppressLifecycleNotification` 的第一条是「有活跃订单 ⇒ 抑制」，
+    ///   而这三条**必然**在有活跃订单时触发 ⇒ 映射进去就是 100% 静默吞掉。
+    ///   其中 `SCHEDULED_DEPARTURE_CONFIRM_REQUIRED` 被吞掉的代价最重：志愿者收不到提醒 ⇒
+    ///   60 分钟后被判未确认、订单转走，而他并没有拒绝过。
     static func lifecycleStatus(forEventType eventType: String) -> RunOrderStatus? {
         switch eventType {
         case "ORDER_ACCEPTED": return .pendingAccept

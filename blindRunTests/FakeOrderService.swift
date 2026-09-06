@@ -33,6 +33,15 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
 
     var createOrderResult: Result<OrderResponse, Error> = .failure(NotStubbed(method: "createOrder"))
     var myOrdersResult: Result<PagedOrderResponse, Error> = .failure(NotStubbed(method: "myOrders"))
+    var activeOrderResult: Result<ActiveOrderEnvelope, Error> = .failure(NotStubbed(method: "activeOrder"))
+    /// 默认给**空页**而不是 `NotStubbed`：志愿者首页每次加载都会拉一次预约单，
+    /// 让既有的一批首页用例全部为它补一行打桩是纯噪音，而「没有预约单」是最常见的真实情况。
+    var scheduledOrdersResult: Result<PagedOrderResponse, Error> = .success(
+        PagedOrderResponse(
+            content: [], totalElements: 0, totalPages: 0,
+            number: 0, size: 20, first: true, last: true, empty: true
+        )
+    )
     var orderDetailResult: Result<OrderDetailResponse, Error> = .failure(NotStubbed(method: "orderDetail"))
     var cancelResult: Result<Void, Error> = .failure(NotStubbed(method: "cancel"))
     var respondResult: Result<Void, Error> = .failure(NotStubbed(method: "respond"))
@@ -40,6 +49,7 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     var arrivedResult: Result<Void, Error> = .failure(NotStubbed(method: "arrived"))
     var startServiceResult: Result<Void, Error> = .failure(NotStubbed(method: "startService"))
     var finishResult: Result<Void, Error> = .failure(NotStubbed(method: "finish"))
+    var confirmDepartureResult: Result<Void, Error> = .failure(NotStubbed(method: "confirmDeparture"))
     var keepWaitingResult: Result<Void, Error> = .failure(NotStubbed(method: "keepWaiting"))
     var submitReviewResult: Result<Void, Error> = .failure(NotStubbed(method: "submitReview"))
     var reviewsResult: Result<OrderReviewEnvelope, Error> = .failure(NotStubbed(method: "reviews"))
@@ -93,6 +103,16 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         return try myOrdersResult.get()
     }
 
+    func activeOrder() async throws -> ActiveOrderEnvelope {
+        record()
+        return try activeOrderResult.get()
+    }
+
+    func scheduledOrders() async throws -> PagedOrderResponse {
+        record()
+        return try scheduledOrdersResult.get()
+    }
+
     func orderDetail(orderId: Int64) async throws -> OrderDetailResponse {
         record()
         lastOrderId = orderId
@@ -135,6 +155,12 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         record()
         lastOrderId = orderId
         return try finishResult.get()
+    }
+
+    func confirmDeparture(orderId: Int64) async throws {
+        record()
+        lastOrderId = orderId
+        return try confirmDepartureResult.get()
     }
 
     func keepWaiting(_ endpoint: KeepWaitingEndpoint, orderId: Int64) async throws {

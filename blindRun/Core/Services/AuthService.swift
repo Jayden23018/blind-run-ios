@@ -81,7 +81,9 @@ protocol AuthServing: Sendable {
     func logout() async throws -> LogoutResponse
     func deleteAccount(userId: Int64) async throws -> DeleteAccountResponse
     func legalLinks() async throws -> LegalLinksResponse
-    func missedNotifications(after: String) async throws -> [MissedNotificationResponse]
+    /// 返回**一页**，不是全部。`hasMore` 与游标推进由调用方负责 ——
+    /// 这一层不做循环，否则「补读上限」这个产品判断就落在了 service 里。
+    func missedNotifications(after: String) async throws -> MissedNotificationPage
     func accountDeletionOrderPreflight() async throws -> PagedOrderResponse
 
     // 设备令牌
@@ -132,7 +134,7 @@ struct AuthService: AuthServing {
         try await transport.send(AuthEndpoint.legalLinks.request)
     }
 
-    func missedNotifications(after: String) async throws -> [MissedNotificationResponse] {
+    func missedNotifications(after: String) async throws -> MissedNotificationPage {
         try await transport.send(
             AuthEndpoint.missedNotifications.request,
             query: ["after": after]

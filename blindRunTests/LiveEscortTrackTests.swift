@@ -291,16 +291,167 @@ final class LiveEscortTrackTests: XCTestCase {
         XCTAssertFalse(WSConnectionState.reconnecting(attempt: 1).canSendOrQueueMessages)
         XCTAssertFalse(WSConnectionState.disconnected.canSendOrQueueMessages)
         let base = Date(timeIntervalSince1970: 100)
+        // 节流下限 0.6：距上一条 0.1 秒 ⇒ 还得再等 0.5 秒。
         XCTAssertEqual(
             WebSocketService.requiredSendDelay(lastSend: base, now: base.addingTimeInterval(0.1)),
-            0.4,
+            0.5,
             accuracy: 0.0001
+        )
+        // 真正要钉住的不是那个数，是这条关系：**客户端下限严格大于后端的静默丢弃门限**。
+        // 相等（从前就是相等）意味着每一条掐点发出的消息都压在边界上，
+        // 网络往回压一点就被后端 `return` 掉，而两边都不会有任何日志。
+        XCTAssertGreaterThan(
+            WebSocketService.requiredSendDelay(lastSend: base, now: base),
+            WebSocketService.backendMinMessageInterval
         )
         let service = WebSocketService()
         service.simulateQueuedMessagesForTesting(count: 2)
         XCTAssertEqual(service.queuedMessageCountForTesting, 2)
         service.disconnect()
         XCTAssertEqual(service.queuedMessageCountForTesting, 0)
+    }
+
+    /// 重连延迟必须带抖动。**这条用例的核心是最后那个断言**：同一个 attempt 传两个不同的随机值
+    /// 必须给出不同的延迟 —— 只断言「落在区间里」的话，一个把 `randomUnitValue` 收下却不用的
+    /// 实现（也就是回到从前那个固定阶梯）照样全绿，而那正是要拦的东西。
+    // MARK: - IN_PROGRESS 位置 REST 兜底
+
+    /// 陪跑途中 WebSocket 断了，走散检测就没有输入了 —— `freshPeerCoordinate` 只读
+    /// `AppRealtimeCoordinator` 的对方样本存量。后端**恰好**在 `IN_PROGRESS` 提供
+    /// `GET /api/blind/volunteer-location`（`sharesLiveLocation()` 三态之一），
+    /// 数据一直在，从前只是没人接过来。
+    @MainActor
+    func testRestFallbackSampleFeedsTheEscortFreshnessCheck() {
+        let coordinator = AppRealtimeCoordinator()
+        let escort = LiveEscortSessionCoordinator(realtimeCoordinator: coordinator)
+        escort.configure(identityKey: "blind-1", role: .blind, webSocketService: nil)
+        escort.updateOwnedOrder(orderID: 901, status: .inProgress)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        coordinator.ingestFallbackPeerLocation(Self.peerSample(orderID: 901, at: now.addingTimeInterval(-5)))
+
+        let coordinate = escort.freshPeerCoordinate(now: now)
+        XCTAssertNotNil(coordinate, "REST 兜底拿到的坐标没进走散检测")
+        XCTAssertEqual(coordinate?.coordinate.latitude ?? 0, 39.910226, accuracy: 0.001)
+    }
+
+    /// 新鲜度判定仍然由 `LiveEscortSessionCoordinator` 说了算（15 秒），
+    /// 不因为「是 REST 拿的」就放宽 —— 兜底的用途是补上样本，不是把标准降下来。
+    @MainActor
+    func testAStaleRestFallbackSampleDoesNotCountAsContact() {
+        let coordinator = AppRealtimeCoordinator()
+        let escort = LiveEscortSessionCoordinator(realtimeCoordinator: coordinator)
+        escort.configure(identityKey: "blind-1", role: .blind, webSocketService: nil)
+        escort.updateOwnedOrder(orderID: 902, status: .inProgress)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        coordinator.ingestFallbackPeerLocation(Self.peerSample(orderID: 902, at: now.addingTimeInterval(-20)))
+
+        XCTAssertNil(
+            escort.freshPeerCoordinate(now: now),
+            "20 秒前的样本被当成了「还在一起」——走散检测的阈值是 15 秒"
+        )
+    }
+
+    /// 「只进不退」这条守卫两条路共用：REST 兜底拿到的旧样本顶不掉刚到的 WebSocket 样本。
+    /// 顶掉的后果是把一个更旧的位置当成最新的，方向恰好与走散检测想防的事相反。
+    @MainActor
+    func testAnOlderRestFallbackSampleDoesNotOverwriteANewerOne() {
+        let coordinator = AppRealtimeCoordinator()
+        coordinator.registerActiveOrder(903, status: .inProgress)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        coordinator.ingestFallbackPeerLocation(Self.peerSample(orderID: 903, at: now.addingTimeInterval(-2)))
+        coordinator.ingestFallbackPeerLocation(
+            Self.peerSample(orderID: 903, at: now.addingTimeInterval(-25), latitude: 1)
+        )
+
+        let stored = coordinator.latestPeerLocation(orderID: 903, ownerRole: .volunteer)
+        XCTAssertEqual(stored?.latitude ?? 0, 39.910226, accuracy: 0.001, "旧样本把新样本顶掉了")
+    }
+
+    /// 🚩 **兜底样本只入库、不发布**，这是它与 WebSocket 那条路唯一的区别。
+    ///
+    /// 发布会回流到 `BlindOrderStatusViewModel.handleVolunteerLocationUpdate`，
+    /// 把「WebSocket 还在给我样本吗」那个判断的依据一并推新 ——
+    /// 下一轮兜底就会被自己刚写进去的值劝退，兜底频率从 5 秒掉到 15 秒。
+    @MainActor
+    func testTheRestFallbackDoesNotRepublishAsIfItCameFromTheSocket() {
+        let coordinator = AppRealtimeCoordinator()
+        coordinator.registerActiveOrder(904, status: .inProgress)
+        var published: [Int64] = []
+        let cancellable = coordinator.peerLocationPublisher.sink { published.append($0.orderId) }
+        defer { cancellable.cancel() }
+
+        coordinator.ingestFallbackPeerLocation(
+            Self.peerSample(orderID: 904, at: Date(timeIntervalSince1970: 1_800_000_000))
+        )
+
+        XCTAssertNotNil(
+            coordinator.latestPeerLocation(orderID: 904, ownerRole: .volunteer),
+            "入库这一半没做，走散检测还是拿不到"
+        )
+        XCTAssertTrue(published.isEmpty, "兜底样本被当成 WebSocket 样本发布出去了")
+    }
+
+    private static func peerSample(
+        orderID: Int64,
+        at capturedAt: Date,
+        latitude: Double = 39.910226,
+        longitude: Double = 116.403714
+    ) -> RealtimePeerLocationSample {
+        RealtimePeerLocationSample(
+            orderId: orderID,
+            ownerRole: .volunteer,
+            latitude: latitude,
+            longitude: longitude,
+            timestampMilliseconds: Int64(capturedAt.timeIntervalSince1970 * 1_000)
+        )
+    }
+
+    @MainActor
+    func testReconnectDelayCarriesJitterSoClientsDoNotReturnInLockstep() {
+        let ratio = WebSocketService.reconnectJitterRatio
+        // 首档 3 秒：随机值取两端与中点。
+        XCTAssertEqual(
+            WebSocketService.reconnectDelay(attempt: 0, randomUnitValue: 0),
+            3 * (1 - ratio),
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            WebSocketService.reconnectDelay(attempt: 0, randomUnitValue: 0.5),
+            3,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            WebSocketService.reconnectDelay(attempt: 0, randomUnitValue: 1),
+            3 * (1 + ratio),
+            accuracy: 0.0001
+        )
+
+        // 阶梯用完之后钳在末档（30 秒），不是越退越久，也不是越界崩。
+        XCTAssertEqual(
+            WebSocketService.reconnectDelay(attempt: 3, randomUnitValue: 0.5),
+            30,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            WebSocketService.reconnectDelay(attempt: 99, randomUnitValue: 0.5),
+            30,
+            accuracy: 0.0001
+        )
+
+        // 阶梯本身仍然递增（±20% 的抖动没把相邻两档搅成同一个区间）。
+        XCTAssertLessThan(
+            WebSocketService.reconnectDelay(attempt: 0, randomUnitValue: 1),
+            WebSocketService.reconnectDelay(attempt: 1, randomUnitValue: 0)
+        )
+
+        // ⬇️ 拦「参数收了但没用」的那一条。
+        XCTAssertNotEqual(
+            WebSocketService.reconnectDelay(attempt: 1, randomUnitValue: 0.1),
+            WebSocketService.reconnectDelay(attempt: 1, randomUnitValue: 0.9)
+        )
     }
 
     @MainActor

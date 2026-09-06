@@ -162,10 +162,24 @@ final class WebSocketService: ObservableObject {
     }
     #endif
 
-    // Reconnect configuration (exponential backoff)
+    // Reconnect configuration (退避阶梯 + 抖动)
     private static let reconnectDelays: [TimeInterval] = [3, 6, 12, 30]
+    /// 抖动幅度 ±20%，作用在阶梯值上。
+    static let reconnectJitterRatio: Double = 0.2
     private static let heartbeatInterval: TimeInterval = 30
-    private static let minSendInterval: TimeInterval = 0.5
+
+    /// 后端两个 WS handler 的硬门 `MIN_MESSAGE_INTERVAL_MS`
+    /// （`VolunteerWebSocketHandler:33` / `BlindWebSocketHandler:39`）：距上一条不足这个间隔的消息
+    /// 被**直接 return —— 不处理、不回错、不记日志**。写在这里只为让下面那个常量有个可对比的对象。
+    static let backendMinMessageInterval: TimeInterval = 0.5
+
+    /// 客户端发送节流下限。**必须严格大于** `backendMinMessageInterval`。
+    ///
+    /// 从前这个数就是 0.5，恰好压在后端门限上：心跳（30 秒）与位置（5 秒）撞在同一刻时，
+    /// 队列会把第二条**正好**隔 500ms 发出去，而后端比的是自己的收包时刻 ——
+    /// 网络往回压一点，那一条就被静默吃掉，两边各算各的账
+    /// （后端 2026-08-29 压测：按 500ms 发时每秒少 ~15% 的数据库往返，改 510ms 就对上了）。
+    private static let minSendInterval: TimeInterval = 0.6
 
     static func shouldStartHeartbeat(for role: WSRole) -> Bool {
         switch role {
@@ -175,6 +189,22 @@ final class WebSocketService: ObservableObject {
 
     static func requiredSendDelay(lastSend: Date, now: Date) -> TimeInterval {
         max(0, minSendInterval - now.timeIntervalSince(lastSend))
+    }
+
+    /// 第 `attempt` 次重连该等多久（阶梯值 ± `reconnectJitterRatio`）。
+    ///
+    /// 🚨 **抖动不是锦上添花。** 没有它，一次后端发版会让所有在线客户端同时掉线、
+    /// 然后在同一毫秒一起重连 —— 退避阶梯做得再好也没用，因为大家退避的节奏一模一样。
+    /// 后端 2026-08-29 实测这条路是真的：冷启动突发 1000 条握手，`accept-count=20` 时三轮丢两轮
+    /// （两轮的第一条失败都恰好是第 22 条 = backlog 20 + 在途 2），握手 p99 5.9 秒。
+    /// 丢的形态是**内核静默丢 SYN**：服务端日志一个字都没有，我们这边只看到「卡住然后超时」。
+    /// 他们已把队列从 20 加到 100，但**到达速率由我们决定** —— 加长队列不改变峰高，抖动才削峰。
+    ///
+    /// `randomUnitValue`（`0..<1`）由调用方传入而不是在这里摇，只为一件事：这个函数能被测试驱动。
+    static func reconnectDelay(attempt: Int, randomUnitValue: Double) -> TimeInterval {
+        let base = reconnectDelays[min(max(0, attempt), reconnectDelays.count - 1)]
+        let unit = min(max(0, randomUnitValue), 1)
+        return base * (1 - reconnectJitterRatio + 2 * reconnectJitterRatio * unit)
     }
 
     private var lastSendTime: Date = .distantPast
@@ -268,8 +298,10 @@ final class WebSocketService: ObservableObject {
 
     private func scheduleReconnect(generation: UInt64) {
         guard generation == connectionGeneration else { return }
-        let delayIndex = min(reconnectAttempt, Self.reconnectDelays.count - 1)
-        let delay = Self.reconnectDelays[delayIndex]
+        let delay = Self.reconnectDelay(
+            attempt: reconnectAttempt,
+            randomUnitValue: Double.random(in: 0..<1)
+        )
         reconnectAttempt += 1
         connectionState = .reconnecting(attempt: reconnectAttempt)
 
@@ -424,11 +456,21 @@ final class WebSocketService: ObservableObject {
             return
         }
         if let orderID = decoded.dispatchOrderID {
+            // `requiresIntroCall` 契约上必填，客户端却宽容解码（理由在 `WSNewOrder` 的字段注释：
+            // 严格必填会让志愿者静默退出派单池）。宽容 ≠ 无声：缺了就借 `failedField` 记一笔，
+            // 那条诊断渲染在志愿者首页的「派单诊断：…」上，是**屏幕上看得见**的面包屑。
+            // 借这个字段而不是新加一个 stage：stage 是 received → retained → presented 的推进链，
+            // 塞一个旁支进去会把那条链读坏。
+            var toleratedMissingField: String?
+            if case .newOrder(let order) = event, order.requiresIntroCall == nil {
+                toleratedMissingField = "requiresIntroCall"
+            }
             recordDispatchDiagnostic(
                 stage: .received,
                 generation: generation,
                 messageType: decoded.messageType,
-                orderID: orderID
+                orderID: orderID,
+                failedField: toleratedMissingField
             )
         }
         ClientFlowDiagnostics.record(event: "applied", operation: "websocket-decode")

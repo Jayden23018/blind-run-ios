@@ -68,7 +68,7 @@ final class AuthServiceTests: XCTestCase {
 
     func testMissedNotificationsPassesCursorAsQuery() async throws {
         let transport = RecordingTransport()
-        transport.nextResponse = [MissedNotificationResponse]()
+        transport.nextResponse = MissedNotificationPage(notifications: [], hasMore: false)
 
         _ = try await AuthService(transport: transport).missedNotifications(after: "2026-09-02T10:00:00")
 

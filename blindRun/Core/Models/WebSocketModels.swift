@@ -135,6 +135,26 @@ nonisolated struct MissedNotificationResponse: Codable, Sendable {
     let orderId: Int64?
 }
 
+/// `/api/notifications/since` 的一页。
+///
+/// **`hasMore` 挂在信封顶层、与 `data` 平级**（契约 `api_spec.yaml:3363`，2026-08-29 新增，
+/// 且只有这一个端点会返回它），所以这里解的是信封根对象而不是 `data` 里的东西。
+/// `APIPayloadDecoder` 先试 `APIEnvelopeResponse<T>`，而 `data` 是数组、解不出本类型，
+/// 于是退回裸解根对象，正好读到这两个键 —— 与 `EmergencyActiveEnvelope` 同一条路。
+/// `notifications` 故意**非可选**：既是那条退路的保证（缺 `data` 就整条解不出、走
+/// `decodingError` 留下诊断），也免得畸形响应被静默降级成「一条通知都没有」。
+nonisolated struct MissedNotificationPage: Codable, Sendable {
+    let notifications: [MissedNotificationResponse]
+    /// 缺失当 false：后端加这个字段之前的部署不返回它，此时退回单页行为 ——
+    /// 漏补读比整页解不出要好。
+    let hasMore: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case notifications = "data"
+        case hasMore
+    }
+}
+
 /// Order status change notification
 nonisolated struct WSOrderStatusChanged: Codable, Sendable {
     let type: String
@@ -218,6 +238,33 @@ nonisolated struct WSNewOrder: Codable, Sendable {
     let priority: String?
     let pacePreference: String?
     let hasGuideDog: Bool?
+
+    /// 这一单要不要先通电话磨合。**决定 `/respond` 发哪个 `action`**（见 `dispatchRespondAction`）。
+    ///
+    /// ⚠️ **契约把它标成「必填」，这里却是 optional —— 是刻意的，不要改成非可选。**
+    /// 非可选意味着缺这个键时 `WSNewOrder` 整条解不出来，而
+    /// `WebSocketService.decodeTextMessage` 对解不出的**消息**是丢弃：志愿者连派单弹窗都看不到，
+    /// 静默退出派单池，而盲人正在等这一轮。缺失时落回的 `INTERESTED` 后端在
+    /// `app.intro-call.enabled` 开与关两种情况下都放行（`DispatchService.introCallEnabled`
+    /// 的注释：关掉只是不再**强制**），所以降级路径本身是通的 —— 代价只是熟人多打一通电话，
+    /// 正是这个字段上线前的既有行为。
+    /// 缺失不是静默的：`WebSocketService` 会把 `failedField: "requiresIntroCall"` 记进派单诊断，
+    /// 那条诊断渲染在志愿者首页（`VolunteerHomeView` 的「派单诊断：…」）。
+    ///
+    /// 🚨 **不许在客户端自己推算这个值**（例如拿 `plannedStart - now` 跟 20 分钟比）：
+    /// 判断的另一半「这两人磨合成功过没有」客户端根本拿不到，窗口长度又是后端配置
+    /// （`app.intro-call.window-minutes`）。自己算必然与后端守卫漂移，
+    /// 而漂移的表现是「界面说能直接接、后端回 409」。
+    /// 后端已把这个判断收成一份（`DispatchService.introCallWindowFits`），三个消费者共用。
+    let requiresIntroCall: Bool?
+
+    /// 收到这条派单时该发的 `action`。「发哪个」只在这里判一次。
+    ///
+    /// `false` 的三种成因（通话功能整体关闭 / 这两人已磨合成功过 / 距开跑已不够聊一轮）
+    /// 客户端**不需要也无法区分**，所以界面上不解释原因，只把主按钮换成「接单」。
+    var dispatchRespondAction: OrderRespondAction {
+        (requiresIntroCall ?? true) ? .interested : .accept
+    }
 }
 
 /// Emergency alert for volunteer
