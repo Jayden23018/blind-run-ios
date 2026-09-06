@@ -370,6 +370,20 @@ REMATCHING → CANCELLED（只能盲人 token）
   本仓库全部提交的 author 都是同一个人，**含事故里同事那条 `dd0d795`** —— 那条判据恒成立，
   等于把这一整条判据废掉，而且不会有任何东西提示它已经废了。
 
+第三条判据 **`unguarded-checkout-chain`**（2026-09-06 立）管的是另一件事：
+`git checkout <被别的 worktree 占着的分支>` 后面用 `;` / 换行接了会改状态的 git 命令。
+**同一个仓库不允许两个 worktree 检出同一条分支**，所以那条 checkout 是必然失败的，
+而后面那条会照常执行、落在你**当前**这条分支上，零报错。
+
+判据是「这条 checkout 会不会失败」（查 `git worktree list --porcelain`），
+**不是**「有没有用 `&&`」—— 后者会把每一条 `git checkout x; git status` 都拦掉，
+守卫当天就会被习惯性无视。只读命令（status / log / diff）跟在后面照样放行：跑错分支只是看错。
+
+立此条的直接起因：2026-09-06 一天里中了两次，`git merge origin/main` 分别落到了另外两个 PR
+的分支上（两次都碰巧无害，那是运气）。根因是本仓库常年挂着十几二十个 worktree ——
+主工作区 checkout 失败是**常态**，不是意外。写法上永远用 `&&` 连，或者先
+`git -C <占着它的 worktree> checkout --detach` 腾开。
+
 自测 `scripts/validate-shared-checkout-guard.mjs`（条数当场跑，别写在这里——理由同 §9）。
 
 ## 11. 验证命令
