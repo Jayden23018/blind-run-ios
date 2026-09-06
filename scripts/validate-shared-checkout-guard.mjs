@@ -485,6 +485,51 @@ const cases = [
     },
     expect: BLOCKED,
   },
+
+  // ── ⓒ rebase 进行中的控制子命令（2026-09-06 误报三）──
+  //
+  // rebase 一开跑 HEAD 就是 detached，三条判据恒同时成立 ⇒ `--continue` 100% 被拦，
+  // 「遇冲突 → 解完继续」这条常规路径整个走不通（当天只能改用 merge 绕过）。
+  // 下面两条正例用的都是「同事分支 + 会话开始时刻在过去」这个最严格的场景 ——
+  // 判据 ① 在这里必然成立，所以放行只可能来自 rebase 自己的豁免。
+  {
+    name: '⭐ ⓒ `git rebase --continue` → 放行（决策在 `git rebase <base>` 那步已判过一次）',
+    build: () => {
+      const { dir } = foreignBranchRepo();
+      return {
+        command: 'git rebase --continue',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'] }),
+      };
+    },
+    expect: ALLOWED,
+  },
+  {
+    name: 'ⓒ `git rebase --skip` 同理 → 放行',
+    build: () => {
+      const { dir } = foreignBranchRepo();
+      return {
+        command: 'git rebase --skip',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'] }),
+      };
+    },
+    expect: ALLOWED,
+  },
+  {
+    name: '⭐ ⓒ 反向哨兵：`git rebase --onto <base> ...` 是改写入口 → 照样拦（豁免不许放宽成「带 -- 的就放行」）',
+    build: () => {
+      const { dir } = foreignBranchRepo();
+      return {
+        command: 'git rebase --onto origin/main HEAD~1',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'] }),
+        stderrIncludes: 'rewrite-foreign-history',
+      };
+    },
+    expect: BLOCKED,
+  },
+
   {
     name: '⭐ ⓑ 豁免不许漏进判据 ②：继承来的分支上 `git add -A` 照样拦住同事的文件',
     build: () => {
