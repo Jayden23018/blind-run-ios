@@ -866,10 +866,16 @@ final class IntroCallTests: XCTestCase {
             RunOrderStatus.inProgress.offersVolunteerDistanceToStart,
             "IN_PROGRESS：后端给位置，但两人已经在一起了，不念距离"
         )
-        XCTAssertNotEqual(
+        // PENDING_ACCEPT 是**两条都 false** 的那一态，所以这里不能照抄上面的 `NotEqual`
+        // —— 那样写在期望状态下永远红。它守的是另一件事：拆开之后别有人图省事
+        // 把 `PENDING_ACCEPT` 加回任意一边（客户端曾经每 5 秒白调一次而后端恒 404）。
+        XCTAssertFalse(
             RunOrderStatus.pendingAccept.fetchesVolunteerLocation,
+            "PENDING_ACCEPT 不在后端 sharesLiveLocation() 里，取位置只会拿到 404"
+        )
+        XCTAssertFalse(
             RunOrderStatus.pendingAccept.offersVolunteerDistanceToStart,
-            "PENDING_ACCEPT 两条都该是 false —— 若这条断言红了，说明有人把它加回了某一边"
+            "PENDING_ACCEPT 还没人接单，没有距离可念"
         )
     }
 
