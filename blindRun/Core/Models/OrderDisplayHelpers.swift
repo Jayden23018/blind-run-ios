@@ -92,7 +92,7 @@ extension RunOrderStatus {
     /// 接单后两边都拿得到对方明文号）。通话磨合走的是**单向**专用接口
     /// `GET /api/orders/{id}/intro-call` —— 只有盲人拿得到能拨通的明文号，志愿者只拿到掩码串。
     /// 混用会让两条路径的号码来源、可见方向和状态集全部搅在一起。
-    /// 那一态的拨号入口在 `BlindOrderStatusView.introCallSection`。
+    /// 那一态的拨号入口在 `BlindIntroCallView`（独立页，2026-09-05 从订单状态页提出来）。
     var offersVolunteerCall: Bool {
         switch self {
         case .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:

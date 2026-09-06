@@ -851,7 +851,10 @@ final class LiveEscortTrackTests: XCTestCase {
         var sent: [LocatedCoordinate] = []
         let coordinator = LiveEscortSessionCoordinator(
             realtimeCoordinator: realtime,
-            reportInterval: 0.05,
+            // 0.5s 而不是原来的 0.05s：下面两处「立刻上报」要靠**截止时间短于上报周期**来判定，
+            // 而 `waitUntil` 的轮询粒度就是 50ms —— 周期本身只有 50ms 时，
+            // 「立刻发了」和「等了一个周期才发」在轮询眼里是同一件事，判不出来。
+            reportInterval: 0.5,
             sendLocation: { _, sample in sent.append(sample) }
         )
         let service = WebSocketService()
@@ -864,9 +867,12 @@ final class LiveEscortTrackTests: XCTestCase {
         coordinator.configure(identityKey: "account:blind:token", role: .blind, webSocketService: service)
         coordinator.attachLocationService(location)
         coordinator.updateOwnedOrder(orderID: 88, status: .driverEnRoute)
-        // 这里的 10ms 窗口断言的是"立刻上报"：上报周期是 50ms，改成轮询等待会让即时性失去意义，故保留固定 sleep
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        XCTAssertGreaterThanOrEqual(sent.count, 1)
+        // 「立刻上报」= 在下一个上报周期（0.5s）到达**之前**就已经发出。断言这件事本身，
+        // 而不是「10ms 内」—— 后者在满载真机上会被调度挤掉（2026-09-05 全量跑里这条用例
+        // 因此红过一次，同一 suite 隔离重跑 28/28 全绿）。语义一点没丢：立刻上报那条路真断了，
+        // 第一个样本要到 0.5s 才出现，照样红。负载敏感性没了：余量从 10ms 变成 400ms。
+        let didSendImmediately = await waitUntil(timeout: 0.4) { sent.count >= 1 }
+        XCTAssertTrue(didSendImmediately, "订单进入进行中后应在下一个上报周期到达前就先发一次")
         XCTAssertEqual(sent.last?.system, .gcj02Backend)
         XCTAssertEqual(LiveEscortSessionCoordinator.reportInterval, 5)
 
@@ -876,32 +882,46 @@ final class LiveEscortTrackTests: XCTestCase {
         let beforeReconnect = sent.count
         service.simulateConnectionStateForTesting(.reconnecting(attempt: 1))
         service.simulateConnectionStateForTesting(.connecting)
-        // 同上：重连后的"立刻补发"必须快于 50ms 的上报周期，保留固定 sleep
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        XCTAssertGreaterThan(sent.count, beforeReconnect)
+        // 同上：重连后的「立刻补发」必须快于一个上报周期
+        let didResendAfterReconnect = await waitUntil(timeout: 0.4) { sent.count > beforeReconnect }
+        XCTAssertTrue(didResendAfterReconnect, "重连后应在下一个上报周期到达前就补发一次")
 
         coordinator.updateOwnedOrder(orderID: 88, status: .cancelled)
         let stoppedCount = sent.count
-        // 反向条件：终态订单之后在一个真实时间窗内不得再有上报，保留固定 sleep
-        try? await Task.sleep(nanoseconds: 80_000_000)
+        // 反向条件：终态订单之后**整整一个上报周期**内不得再有上报。
+        // 这个窗口必须长于上报周期（0.5s），否则「没再上报」只是还没轮到下一次 ——
+        // 原来的 80ms 配 50ms 周期只盖住 1.6 个周期，现在保持同一口径。
+        try? await Task.sleep(nanoseconds: 750_000_000)
         XCTAssertEqual(sent.count, stoppedCount)
     }
 
     @MainActor
-    func testCompletedTrackRetryRecoversWithoutRepeatingFinish() async {
-        let client = RecoveringTrackAPIClient()
-        let appState = AppState(apiClient: client)
+    func testCompletedTrackRetryRecoversWithoutRepeatingFinish() async throws {
+        let safety = FakeSafetyService()
+        safety.orderTrackResult = .failure(
+            APIError.serverError(ErrorResponse(code: "TRACK_UNAVAILABLE", message: "轨迹暂时不可用"))
+        )
+        let appState = AppState(safety: safety)
         let viewModel = CompletedTrackSummaryViewModel()
 
         await viewModel.load(orderID: 94, appState: appState)
         XCTAssertNil(viewModel.track)
         XCTAssertEqual(viewModel.errorMessage, "本次路线暂时无法加载。")
 
+        safety.orderTrackResult = .success(try Self.decodeTrack(Self.completedTrackJSON))
         await viewModel.load(orderID: 94, appState: appState)
         XCTAssertEqual(viewModel.track?.status, .completed)
         XCTAssertNil(viewModel.errorMessage)
-        XCTAssertEqual(client.requestedPaths, ["/api/orders/94/track", "/api/orders/94/track"])
-        XCTAssertEqual(client.requestedMethods, [.get, .get])
+        // 重试只该再读一次轨迹。`GET /api/orders/{id}/track` 的方法与路径由
+        // `SafetyServiceTests.testOrderTrackIsAGet` 守。
+        XCTAssertEqual(safety.calls, ["orderTrack(orderId:)", "orderTrack(orderId:)"])
+        XCTAssertEqual(safety.orderIds, [94, 94])
+    }
+
+    static let completedTrackJSON = #"{"status":"COMPLETED","volunteerTrack":[],"volunteerStats":{"distanceMeters":0,"durationSeconds":0,"avgPaceSecPerKm":null},"blindTrack":[],"blindStats":{"distanceMeters":0,"durationSeconds":0,"avgPaceSecPerKm":null}}"#
+
+    static func decodeTrack(_ json: String) throws -> OrderTrackResponse {
+        try JSONDecoder().decode(OrderTrackResponse.self, from: Data(json.utf8))
     }
 
     /// 轮询等待某个正向条件成立，替代"固定 sleep 之后直接断言"的写法。
@@ -919,38 +939,5 @@ final class LiveEscortTrackTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
         return condition()
-    }
-}
-
-private final class RecoveringTrackAPIClient: APIClientProtocol, @unchecked Sendable {
-    private(set) var requestedPaths: [String] = []
-    private(set) var requestedMethods: [HTTPMethod] = []
-
-    func request<T: Decodable>(
-        method: HTTPMethod,
-        path: String,
-        query: [String: String]?,
-        body: (any Encodable & Sendable)?,
-        requiresAuth: Bool
-    ) async throws -> T {
-        requestedMethods.append(method)
-        requestedPaths.append(path)
-        guard requestedPaths.count > 1 else {
-            throw APIError.serverError(
-                ErrorResponse(code: "TRACK_UNAVAILABLE", message: "轨迹暂时不可用")
-            )
-        }
-        let json = #"{"status":"COMPLETED","volunteerTrack":[],"volunteerStats":{"distanceMeters":0,"durationSeconds":0,"avgPaceSecPerKm":null},"blindTrack":[],"blindStats":{"distanceMeters":0,"durationSeconds":0,"avgPaceSecPerKm":null}}"#
-        return try JSONDecoder().decode(T.self, from: Data(json.utf8))
-    }
-
-    func upload<T: Decodable>(
-        path: String,
-        query: [String: String]?,
-        fields: [String: String]?,
-        files: [MultipartFile],
-        requiresAuth: Bool
-    ) async throws -> T {
-        throw APIError.invalidURL
     }
 }

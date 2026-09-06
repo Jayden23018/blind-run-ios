@@ -160,7 +160,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
     private func performActiveOrderLoad(appState: AppState, requestID: UUID) async {
         do {
-            let apiClient = appState.apiClient
+            let orders = appState.orders
             let statusRequestToken = activeOrder.map {
                 appState.realtimeCoordinator.beginOrderStatusRequest(orderID: $0.orderId)
             }
@@ -176,7 +176,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
                 timeout: loadTimeout,
                 operationName: "blind-active-order"
             ) {
-                try await apiClient.get("/api/orders/active")
+                try await orders.activeOrder()
             }
             guard activeRequestID == requestID, !Task.isCancelled else { return }
             let previousOrderID = activeOrder?.orderId
@@ -325,8 +325,8 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         isPerformingAction = true
         errorMessage = nil
         do {
-            let _: EmptyResponse = try await appState.apiClient.post("/api/orders/\(activeOrder.orderId)/cancel")
-            let updated: OrderDetailResponse = try await appState.apiClient.get("/api/orders/\(activeOrder.orderId)")
+            try await appState.orders.cancel(orderId: activeOrder.orderId)
+            let updated = try await appState.orders.orderDetail(orderId: activeOrder.orderId)
             self.activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
             if self.activeOrder == nil {
                 appState.realtimeCoordinator.unregisterActiveOrder(updated.orderId)
@@ -341,14 +341,17 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             }
             errorMessage = error.localizedMessage
             speechService?.speakError(errorMessage ?? error.localizedMessage)
-            if let updated: OrderDetailResponse = try? await appState.apiClient.get("/api/orders/\(activeOrder.orderId)") {
+            // `try?` 是迁移前就有的，且这里正确：取消失败的原因**已经播报也已经写进
+            // `errorMessage`**，这一步只是顺手把本地那份订单校准回真实状态。
+            // 再抛一次只会把用户刚听到的失败原因换成第二条报错。
+            if let updated = try? await appState.orders.orderDetail(orderId: activeOrder.orderId) {
                 self.activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
             }
         } catch {
             isPerformingAction = false
             errorMessage = "取消失败。"
             speechService?.speakError(errorMessage ?? "取消失败。")
-            if let updated: OrderDetailResponse = try? await appState.apiClient.get("/api/orders/\(activeOrder.orderId)") {
+            if let updated = try? await appState.orders.orderDetail(orderId: activeOrder.orderId) {
                 self.activeOrder = updated.status.isActiveForBlindRunner ? updated : nil
             }
         }
@@ -365,7 +368,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             order: activeOrder,
             role: appState.activeRole,
             userID: appState.userId,
-            apiClient: appState.apiClient,
+            safety: appState.safety,
             locate: { await EmergencyCoordinator.freshEmergencyCoordinate(using: locationService) },
             locationFailureReason: { locationService?.locationError }
         )

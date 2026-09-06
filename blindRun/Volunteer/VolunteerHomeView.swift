@@ -211,11 +211,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                         locationAuthorized: locationAuthorized
                     )
                 }
-                let request = OrderRespondRequest(action: action)
-                let _: EmptyResponse = try await appState.apiClient.post(
-                    "/api/orders/\(order.orderId)/respond",
-                    body: request
-                )
+                try await appState.orders.respond(orderId: order.orderId, action: action)
                 let acceptedOrderId = accept ? order.orderId : nil
                 let acceptedOrder = await refreshAfterDispatchResponse(
                     acceptedOrderId: acceptedOrderId,
@@ -301,12 +297,14 @@ final class VolunteerHomeViewModel: ObservableObject {
     ) async -> OrderDetailResponse? {
         var acceptedOrder: OrderDetailResponse?
 
+        // 两处 `try?` 是**迁移前就有的**，这里原样保留：这一步跑在「已经响应成功」之后，
+        // 播报与导航都不依赖它，拿不到只是首页少刷一次，5 秒后的下一轮会补上。
         if let acceptedOrderId {
-            acceptedOrder = try? await appState.apiClient.get("/api/orders/\(acceptedOrderId)")
+            acceptedOrder = try? await appState.orders.orderDetail(orderId: acceptedOrderId)
             activeOrder = acceptedOrder
         }
 
-        if let summary: VolunteerDispatchSummaryResponse = try? await appState.apiClient.get("/api/volunteer/dispatch-summary") {
+        if let summary = try? await appState.orders.dispatchSummary() {
             apply(summary: summary)
         }
 
@@ -464,12 +462,12 @@ final class VolunteerHomeViewModel: ObservableObject {
         updateLocationDispatchWarning(didReportLocation: didReportLocation, appState: appState)
 
         do {
-            let apiClient = appState.apiClient
+            let orders = appState.orders
             let summary: VolunteerDispatchSummaryResponse = try await HomeLoadCoordinator.run(
                 timeout: loadTimeout,
                 operationName: "volunteer-dispatch-initial"
             ) {
-                try await apiClient.get("/api/volunteer/dispatch-summary")
+                try await orders.dispatchSummary()
             }
             guard activeRequestID == requestID, !Task.isCancelled else { return }
             apply(summary: summary)
@@ -505,7 +503,13 @@ final class VolunteerHomeViewModel: ObservableObject {
         auxiliaryLoadTask?.cancel()
         let requestID = UUID()
         auxiliaryRequestID = requestID
-        let apiClient = appState.apiClient
+        // 这两条是**档案·资质片**的端点（`ProfileServing.volunteerProfile` /
+        // `.volunteerRegistrationStatus`），不在订单片里再开一条同路径 ——
+        // 同一个端点两处字面量迟早漂移。
+        //
+        // 它们原先暂放在 `AuthServing` 上（订单片就是照那个写的），档案片落 main 时
+        // 搬回了自己家。两片并行开发看不见对方的搬迁，这里跟着改指向。
+        let profile = appState.profile
         auxiliaryLoadTask = Task { [weak self, weak appState] in
             guard let self, let appState else { return }
             async let profileResult: Result<VolunteerProfileResponse, Error> = Self.fetchResult {
@@ -513,7 +517,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     timeout: self.loadTimeout,
                     operationName: "volunteer-profile"
                 ) {
-                    try await apiClient.get("/api/volunteer/profile")
+                    try await profile.volunteerProfile()
                 }
             }
             async let registrationResult: Result<VolunteerRegistrationStatus, Error> = Self.fetchResult {
@@ -521,7 +525,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                     timeout: self.loadTimeout,
                     operationName: "volunteer-registration"
                 ) {
-                    try await apiClient.get("/api/volunteer/registration/status")
+                    try await profile.volunteerRegistrationStatus()
                 }
             }
 
@@ -566,11 +570,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let request = DispatchStatusRequest(wantsDispatch: value)
-            let _: EmptyResponse = try await appState.apiClient.put(
-                "/api/volunteer/dispatch-status",
-                body: request
-            )
+            try await appState.orders.setDispatchStatus(wantsDispatch: value)
             let existingProfile = appState.volunteerProfile
                 let profile = VolunteerProfileResponse(
                     name: existingProfile?.name,
@@ -591,7 +591,9 @@ final class VolunteerHomeViewModel: ObservableObject {
                 isUpdatingAvailability = false
                 return
             }
-            if let summary: VolunteerDispatchSummaryResponse = try? await appState.apiClient.get("/api/volunteer/dispatch-summary") {
+            // `try?` 是迁移前就有的：开关本身已经切成功并播报过了，这一步只是把摘要刷新一下，
+            // 拿不到不改变「已上线 / 已下线」这个既成事实。
+            if let summary = try? await appState.orders.dispatchSummary() {
                 apply(summary: summary)
             }
             isUpdatingAvailability = false
@@ -727,7 +729,7 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     private func performDispatchSummaryRefresh(appState: AppState, refreshID: UUID) async {
         do {
-            let apiClient = appState.apiClient
+            let orders = appState.orders
             let statusRequestToken = activeOrder.map {
                 appState.realtimeCoordinator.beginOrderStatusRequest(orderID: $0.orderId)
             }
@@ -735,7 +737,7 @@ final class VolunteerHomeViewModel: ObservableObject {
                 timeout: loadTimeout,
                 operationName: "volunteer-dispatch-refresh"
             ) {
-                try await apiClient.get("/api/volunteer/dispatch-summary")
+                try await orders.dispatchSummary()
             }
             guard !Task.isCancelled, summaryRefreshID == refreshID else { return }
             apply(summary: summary, statusRequestToken: statusRequestToken)
@@ -990,6 +992,7 @@ enum VolunteerHomeTopLayout {
 
 struct VolunteerHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// 派单面板是全 App 位移幅度最大的动效（整块面板弹到另一个档位），而弹簧的回弹正是
     /// 「减弱动态效果」要压掉的那一类。开启后改成瞬时切换：落点不变，只是不弹。
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1032,7 +1035,18 @@ struct VolunteerHomeView: View {
                         .padding(.bottom, VolunteerDemandPanelDetent.bottomMargin)
                 }
                 .overlay(alignment: .top) {
-                    VStack(spacing: 8) {
+                    // 顶部状态块画在面板之上（overlay 永远盖住 ZStack），而 `reservedBottom`
+                    // 写死它只占 `safeTop + 180` —— 那个数不跟 Dynamic Type 走。真机 AX5 实测
+                    // 它从 y=149 一路长到 y=490，预留却只有 242pt，于是把 y=365–392 的面板抓手
+                    // 整个盖住：拖拽触点全被状态块吃掉，面板永远停在中等档拖不动，
+                    // 卡片内容对低视力用户彻底够不着。
+                    //
+                    // 装进 ScrollView 并限高到已经声明的预留值，让实现兑现那个声明：
+                    // 大字号下一个字都不丢（滚得到），抓手也露出来。
+                    //
+                    // 只在辅助字号下换实现：ScrollView 会贪心占满限高，默认字号下那会把
+                    // 状态块与面板之间那条地图带的手势一并吃掉，而默认字号本来就不溢出。
+                    let topStatusBlock = VStack(spacing: 8) {
                         homeStatusOverlay
 
                         if let activeOrder = viewModel.activeOrder {
@@ -1050,6 +1064,15 @@ struct VolunteerHomeView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 4)
                     .frame(maxWidth: .infinity, alignment: .top)
+
+                    if dynamicTypeSize.isAccessibilitySize {
+                        ScrollView {
+                            topStatusBlock
+                        }
+                        .frame(maxHeight: max(96, resolvedTopBottom), alignment: .top)
+                    } else {
+                        topStatusBlock
+                    }
                 }
                 .background(AppColors.background)
             }
@@ -1676,7 +1699,9 @@ private struct VolunteerDispatchSummaryCard: View {
                 Spacer(minLength: 0)
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+            // 列数跟着 `metrics` 走，不写字面量 —— `be4e030` 删掉「积分」那格时列数留在 4，
+            // 于是三格挤在左边、右边空一格挂了很久。
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: metrics.count), spacing: 8) {
                 ForEach(metrics, id: \.0) { metric in
                     VolunteerMetricTile(title: metric.0, value: metric.1)
                 }

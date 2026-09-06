@@ -188,9 +188,9 @@ struct VolunteerPointsView: View {
 
         let page = reset ? 0 : nextPage
         do {
-            let response: VolunteerPointsResponse = try await appState.apiClient.get(
-                "/api/volunteer/points",
-                query: ["page": "\(page)", "size": "\(Self.pageSize)"]
+            let response = try await appState.incentive.volunteerPoints(
+                page: page,
+                size: Self.pageSize
             )
             balance = response.resolvedBalance
             if reset {

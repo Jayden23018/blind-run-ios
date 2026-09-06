@@ -138,7 +138,7 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
     func refreshStatus() async {
         guard let appState else { return }
         do {
-            let profile: BlindProfileResponse = try await appState.apiClient.get("/api/blind/profile")
+            let profile = try await appState.profile.blindProfile()
             appState.updateBlindProfile(profile)
             status = profile.identityStatus
         } catch let error as APIError {
@@ -177,10 +177,7 @@ final class BlindIdentityVerificationViewModel: ObservableObject {
 
         do {
             // 只解 message / verifyStatus 两个白名单字段，其余回显内容（可能含身份证号）自然丢弃。
-            let submitResponse: BlindVerifySubmitResponse = try await appState.apiClient.post(
-                "/api/blind/verify-identity",
-                body: request
-            )
+            let submitResponse = try await appState.profile.verifyBlindIdentity(request)
             clearSensitiveFields()
             if let resolved = submitResponse.resolvedStatus {
                 // 新契约：响应体直接带权威状态，省一次 GET /api/blind/profile。

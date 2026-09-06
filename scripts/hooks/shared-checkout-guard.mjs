@@ -27,12 +27,31 @@
 //
 // 拿不到 transcript 时一律放行 —— 与 stop-checklist 同口径：与其每轮误报，不如少拦一次。
 //
+// 2026-08-24 修两处误报（各实测一次）：
+//
+//   ⓐ 判据全部打在 `$CLAUDE_PROJECT_DIR` 上，不看命令实际作用于哪个仓库。于是在后端仓库
+//      `../demo` 里跑 `git reset --keep` 被拦下，而文案里印的是 iOS 仓库的分支和提交。
+//      现在按 `git -C <path>` / `cd <path> &&` / 钩子 payload 的 `cwd` 解析目标仓库，
+//      **用那个仓库的 HEAD 和暂存区来判** —— 不是放行，后端仓库同样是共享 checkout。
+//
+//   ⓑ 判据 ① 的「本会话没切到过 + HEAD 提交不是本会话写的」在**跨会话继续同一条分支**时
+//      恒为真，而那是本仓库最常见的干法（上个会话建分支，这个会话继承 HEAD 接着干）。
+//      补一条豁免：**HEAD 在本会话开始之后没被移动过** —— 那就没人在你脚下换过 HEAD，
+//      现在这条分支就是会话开始时看到的那条（SessionStart 钩子会把它印出来）。
+//      事故那次 HEAD 是在会话中途被同事切走并提交的，reflog 上有痕迹，照样拦。
+//
+//      ⚠️ 不要改用「HEAD 作者 == `git config user.name`」当豁免：本仓库 200 条提交的
+//      author 全是 `Jayden23018`，**包括事故里同事那条 dd0d795**。那条判据恒成立，
+//      等于把判据 ① 整条废掉，而且没有任何东西会提示它已经废了。
+//
 // 退出码 2 = 拦下并把 stderr 反馈给 Claude；0 = 放行。
 // 任何内部异常一律放行（守卫本身不该成为阻塞源）。
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import { sessionEditedPaths, transcriptEntries } from './transcript.mjs';
+import os from 'node:os';
+import path from 'node:path';
+import { sessionEditedPaths, sessionStartedAt, transcriptEntries } from './transcript.mjs';
 
 function readStdin() {
   try {
@@ -42,15 +61,19 @@ function readStdin() {
   }
 }
 
-const REPO = process.env.AIDRUN_REPO_ROOT || repoRoot();
-
-function repoRoot() {
-  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-  return r.status === 0 ? r.stdout.trim() : process.cwd();
+// 某个目录属于哪个 git 仓库。null = 不是仓库 / 路径不存在 ⇒ 调用方放行。
+function repoRoot(dir) {
+  if (!dir) return null;
+  const r = spawnSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
+  return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : null;
 }
 
-function git(...args) {
-  const r = spawnSync('git', args, { cwd: REPO, encoding: 'utf8' });
+// 一律过一遍 `rev-parse`，路径口径才和下面解析出来的目标仓库一致
+// （macOS 上 `/var/folders/...` 与 `/private/var/folders/...` 是同一个目录的两个名字）。
+const REPO = repoRoot(process.env.AIDRUN_REPO_ROOT || process.cwd());
+
+function git(repo, ...args) {
+  const r = spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
   if (r.status !== 0) return [];
   return r.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
 }
@@ -64,13 +87,65 @@ function subCommands(command) {
     .filter(Boolean);
 }
 
+// `cd <path>` 之后的每一条子命令都换了工作目录。解析不出来（变量、通配、`cd -`、目录不存在）
+// 就返回 null，后续子命令一律放行 —— 猜错目录会把判据打到另一个仓库上，正是 ⓐ 那个 bug。
+// ponytail: 不做变量展开。真要绕过守卫，直接写 `git add -A` 也不会被拦到别处去。
+function resolveCd(cmd, cwd) {
+  const arg = cmd
+    .replace(/^cd\s*/, '')
+    .trim()
+    .replace(/^(['"])(.*)\1$/, '$2');
+  if (!arg || arg === '-' || /[$`*?]/.test(arg)) return null;
+  const dir = path.resolve(cwd || '/', arg.replace(/^~(?=\/|$)/, os.homedir()));
+  try {
+    return fs.statSync(dir).isDirectory() ? dir : null;
+  } catch {
+    return null;
+  }
+}
+
+// 剥掉 `git` 自己的全局选项，拆出 `-C <path>`（这条子命令的工作目录）和子命令及其参数。
+//
+// 两处都非剥不可：
+//   - `-C <path>` / `-c k=v` 会吃掉一个值。不剥就会把那个值当成子命令 ——
+//     `git -C /demo commit --amend` 的子命令会被认成 `/demo`，两条判据都不认得它。
+//   - `-C` 只在**子命令之前**才是「切目录」。`git commit -C <ref> --amend` 里的 `-C`
+//     是「复用那条提交的 message」，当成路径会解析失败 ⇒ 整条命令被放行。
+function parseGit(cmd) {
+  const tokens = cmd.split(/\s+/).slice(1);
+  let at = null;
+  let i = 0;
+  while (i < tokens.length && tokens[i].startsWith('-')) {
+    const t = tokens[i];
+    if (t === '-C' || t === '-c') {
+      if (t === '-C') at = tokens[i + 1];
+      i += 2;
+      continue;
+    }
+    if (t.startsWith('-C') && t.length > 2) at = t.slice(2);
+    i += 1;
+  }
+  return { at, args: tokens.slice(i) };
+}
+
+// 这条子命令实际作用于哪个仓库。null = 不是 git 命令 / 不在任何仓库里 ⇒ 放行。
+// `git -C <path>` 只影响它自己那一条，不改后续子命令的工作目录。
+function targetRepo(cmd, cwd) {
+  if (!/^git(\s|$)/.test(cmd)) return null;
+  let { at } = parseGit(cmd);
+  if (!at) return repoRoot(cwd);
+  at = at.replace(/^(['"])(.*)\1$/, '$2');
+  if (/[$`*?]/.test(at)) return null;
+  return repoRoot(path.resolve(cwd || '/', at.replace(/^~(?=\/|$)/, os.homedir())));
+}
+
 // 这条子命令会隐式暂存吗？返回 null = 不会；否则返回它会波及的文件集合的取法。
 //
 // 只认**不带显式路径**的形态。`git add path/to/file` 是本守卫鼓励的写法，永远放行。
 function implicitStagingKind(cmd) {
   if (!/^git\s/.test(cmd)) return null;
-  const args = cmd.split(/\s+/).slice(1);
-  const sub = args.find((a) => !a.startsWith('-'));
+  const { args } = parseGit(cmd);
+  const sub = args[0];
 
   if (sub === 'commit') {
     // --amend 用当前 index 重建 tree：暂存区里有什么就带走什么。
@@ -81,7 +156,7 @@ function implicitStagingKind(cmd) {
   }
 
   if (sub === 'add') {
-    const rest = args.slice(args.indexOf('add') + 1);
+    const rest = args.slice(1);
     if (rest.some((a) => a === '-A' || a === '--all' || a === '.' || a === ':/' || a === '-u')) {
       return 'add-all';
     }
@@ -90,7 +165,7 @@ function implicitStagingKind(cmd) {
 
   if (sub === 'stash') {
     // stash 会把同事未提交的改动一起卷走，而且现场没了更难发现。
-    const rest = args.slice(args.indexOf('stash') + 1);
+    const rest = args.slice(1);
     const explicit = rest.some((a) => !a.startsWith('-') && a !== 'push' && a !== 'save');
     return explicit ? null : 'stash';
   }
@@ -99,19 +174,24 @@ function implicitStagingKind(cmd) {
 }
 
 // 这条命令实际会碰到的仓库相对路径。
-function affectedPaths(kind) {
+function affectedPaths(repo, kind) {
   switch (kind) {
     case 'amend':
-      return git('diff', '--cached', '--name-only');
+      return git(repo, 'diff', '--cached', '--name-only');
     case 'commit-all':
-      return [...new Set([...git('diff', '--cached', '--name-only'), ...git('diff', '--name-only')])];
+      return [
+        ...new Set([
+          ...git(repo, 'diff', '--cached', '--name-only'),
+          ...git(repo, 'diff', '--name-only'),
+        ]),
+      ];
     case 'add-all':
     case 'stash':
       return [
         ...new Set([
-          ...git('diff', '--cached', '--name-only'),
-          ...git('diff', '--name-only'),
-          ...(kind === 'add-all' ? git('ls-files', '--others', '--exclude-standard') : []),
+          ...git(repo, 'diff', '--cached', '--name-only'),
+          ...git(repo, 'diff', '--name-only'),
+          ...(kind === 'add-all' ? git(repo, 'ls-files', '--others', '--exclude-standard') : []),
         ]),
       ];
     default:
@@ -125,8 +205,8 @@ function affectedPaths(kind) {
 // 不移动指针，放行。
 function rewritesHistory(cmd) {
   if (!/^git\s/.test(cmd)) return null;
-  const args = cmd.split(/\s+/).slice(1);
-  const sub = args.find((a) => !a.startsWith('-'));
+  const { args } = parseGit(cmd);
+  const sub = args[0];
 
   if (sub === 'commit' && args.includes('--amend')) return 'amend';
   if (sub === 'rebase' && !args.includes('--abort') && !args.includes('--quit')) return 'rebase';
@@ -174,12 +254,23 @@ function sessionBranches(commands) {
 // HEAD 这条提交是不是本会话做的 —— 用 subject 在本会话命令文本里找。
 // 我们自己的 commit message 一定出现在某条 Bash 命令里（heredoc 或 -m）；
 // 同事的不会。比对时间戳做不到这件事：同事的提交也落在本会话时间窗内。
-function headCommitIsOurs(commands) {
-  const r = spawnSync('git', ['log', '-1', '--format=%s'], { cwd: REPO, encoding: 'utf8' });
-  if (r.status !== 0) return true; // 读不到就别拦
-  const subject = r.stdout.trim();
-  if (!subject) return true;
+function headCommitIsOurs(repo, commands) {
+  const subject = git(repo, 'log', '-1', '--format=%s')[0];
+  if (!subject) return true; // 读不到就别拦
   return commands.some((c) => c.includes(subject));
+}
+
+// HEAD 在本会话开始之后被移动过吗（切分支、提交、reset —— 谁干的都算）？
+// 没动过 ⇒ 现在这条分支就是会话开始时继承的那条，没人在你脚下换过 HEAD ⇒ 判据 ① 放行。
+// 事故那次同事是在会话中途切走 HEAD 并提交的，reflog 顶端因此落在会话开始之后 ⇒ 照样拦。
+// 证不了「没动过」（没有 reflog、不知道会话何时开始）就返回 true，退回原判据。
+function headMovedDuringSession(repo, startedAt) {
+  const start = Date.parse(startedAt || '');
+  if (!Number.isFinite(start)) return true;
+  const entry = git(repo, 'reflog', 'show', '-1', '--date=unix', '--format=%gd')[0] || '';
+  const at = entry.match(/\{(\d+)\}/);
+  if (!at) return true;
+  return Number(at[1]) * 1000 >= start;
 }
 
 const ADVICE = {
@@ -206,47 +297,65 @@ function main() {
   const command = payload.tool_input?.command;
   if (typeof command !== 'string' || !command.trim()) process.exit(0);
 
-  // 本轮自己写过的文件 / 跑过的命令。null = 读不到 transcript ⇒ 放行
-  // （宁可漏拦，不要每轮误报）。
-  const mine = sessionEditedPaths(payload.transcript_path, REPO);
+  // 本轮跑过的命令。null = 读不到 transcript ⇒ 放行（宁可漏拦，不要每轮误报）。
   const commands = sessionBashCommands(payload.transcript_path);
-  if (mine === null || commands === null) process.exit(0);
-
-  // ── 判据 ①：改写历史前，先确认这条分支/提交是不是自己的 ──
-  const branch = git('rev-parse', '--abbrev-ref', 'HEAD')[0] || '';
+  if (commands === null) process.exit(0);
+  const startedAt = sessionStartedAt(payload.transcript_path);
   const known = sessionBranches(commands);
-  for (const cmd of subCommands(command)) {
-    const kind = rewritesHistory(cmd);
-    if (!kind) continue;
-    if (known.has(branch) || headCommitIsOurs(commands)) continue;
 
-    const head = git('log', '-1', '--format=%h %an: %s')[0] || '(读不到)';
-    process.stderr.write(
-      `[guard: rewrite-foreign-history] ${cmd}\n\n` +
-        `当前分支是 \`${branch}\`，**本会话从没切到过它**，HEAD 上那条提交也不是本会话做的：\n` +
-        `  ${head}\n\n` +
-        `本仓库是共享 checkout —— \`.git/HEAD\` 是共用的，同事切分支、提交，你这边跟着就换了。\n` +
-        `2026-08-16 一条 \`git commit --amend\` 就是这样把同事的提交改成了我的 message，\n` +
-        `随后的 \`git reset\` 又把它从分支上抹掉，全程零报错。\n\n` +
-        `先 \`git rev-parse --abbrev-ref HEAD\` 看清自己在哪，确认是自己的分支再改写历史。\n` +
-        `如果这条提交确实该由你改写，先切回/新建你自己的分支。`
-    );
-    process.exit(2);
-  }
+  // 起点是钩子拿到的工作目录（Bash 工具的 cwd 跨调用保留，可能早就不是仓库根了）。
+  let cwd = typeof payload.cwd === 'string' && payload.cwd.trim() ? payload.cwd : REPO;
 
-  // ── 判据 ②：不带显式路径的暂存命令会不会捎带别人的文件 ──
   for (const cmd of subCommands(command)) {
+    if (/^cd(\s|$)/.test(cmd)) {
+      cwd = resolveCd(cmd, cwd);
+      continue;
+    }
+
+    const repo = targetRepo(cmd, cwd);
+    if (!repo) continue;
+    const elsewhere = repo === REPO ? '' : `（目标仓库：${repo}）`;
+
+    // ── 判据 ①：改写历史前，先确认这条分支/提交是不是自己的 ──
+    if (rewritesHistory(cmd)) {
+      const branch = git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')[0] || '';
+      if (
+        !known.has(branch) &&
+        !headCommitIsOurs(repo, commands) &&
+        headMovedDuringSession(repo, startedAt)
+      ) {
+        const head = git(repo, 'log', '-1', '--format=%h %an: %s')[0] || '(读不到)';
+        process.stderr.write(
+          `[guard: rewrite-foreign-history] ${cmd}${elsewhere}\n\n` +
+            `当前分支是 \`${branch}\`，**本会话从没切到过它**，HEAD 上那条提交也不是本会话做的，\n` +
+            `而且 HEAD 在本会话开始之后被移动过（reflog）—— 三条同时成立：\n` +
+            `  ${head}\n\n` +
+            `这个仓库是共享 checkout —— \`.git/HEAD\` 是共用的，同事切分支、提交，你这边跟着就换了。\n` +
+            `2026-08-16 一条 \`git commit --amend\` 就是这样把同事的提交改成了我的 message，\n` +
+            `随后的 \`git reset\` 又把它从分支上抹掉，全程零报错。\n\n` +
+            `先 \`git -C ${repo} reflog -5\` 看清 HEAD 这一路是谁在动，确认是自己的分支再改写历史。\n` +
+            `如果这条提交确实该由你改写，先切回/新建你自己的分支。`
+        );
+        process.exit(2);
+      }
+    }
+
+    // ── 判据 ②：不带显式路径的暂存命令会不会捎带别人的文件 ──
     const kind = implicitStagingKind(cmd);
     if (!kind) continue;
 
-    const foreign = affectedPaths(kind).filter((p) => !mine.has(p));
+    // 本轮自己写过的文件，按**目标仓库**取相对路径 —— 换了仓库这份集合就不一样。
+    const mine = sessionEditedPaths(payload.transcript_path, repo);
+    if (mine === null) continue;
+
+    const foreign = affectedPaths(repo, kind).filter((p) => !mine.has(p));
     if (foreign.length === 0) continue;
 
     process.stderr.write(
-      `[guard: implicit-staging] ${cmd}\n\n` +
+      `[guard: implicit-staging] ${cmd}${elsewhere}\n\n` +
         `这条命令不带显式路径，会一并带走下面这些**本轮没有碰过**的文件：\n` +
         foreign.map((p) => `  - ${p}`).join('\n') +
-        `\n\n本仓库是共享 checkout —— \`.git/index\` 是共用的，同事的 \`git add\` 会进你的暂存区。\n` +
+        `\n\n这个仓库是共享 checkout —— \`.git/index\` 是共用的，同事的 \`git add\` 会进你的暂存区。\n` +
         `2026-08-16 一笔编译不过的 WIP 就是这样被 \`--amend\` 吞进 PR 并推到远端的。\n\n` +
         `${ADVICE[kind]}\n\n` +
         `确认这些文件真的该由你提交，就显式写出它们的路径。`

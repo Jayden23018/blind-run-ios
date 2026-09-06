@@ -151,10 +151,22 @@ final class BlindRunHistoryTests: XCTestCase {
         orders: [OrderDetailResponse],
         failure: APIError? = nil
     ) -> (BlindRunHistoryViewModel, AppState) {
-        let client = RunHistoryAPIClientStub(orders: orders, failure: failure)
+        let orderService = FakeOrderService()
+        orderService.myOrdersResult = failure.map { .failure($0) } ?? .success(
+            PagedOrderResponse(
+                content: orders,
+                totalElements: Int64(orders.count),
+                totalPages: 1,
+                number: 0,
+                size: max(orders.count, 1),
+                first: true,
+                last: true,
+                empty: orders.isEmpty
+            )
+        )
         // AppState 必须由调用方持有：`BlindRunHistoryViewModel.appState` 是 weak，
         // 传临时对象等于传 nil，`load()` 会在第一行 guard 直接返回，所有断言静默全绿。
-        let appState = AppState(apiClient: client, tokenStore: RunHistoryInMemoryTokenStore())
+        let appState = AppState(orders: orderService, tokenStore: RunHistoryInMemoryTokenStore())
         appState.userId = 7
         let viewModel = BlindRunHistoryViewModel()
         viewModel.configure(with: appState, speechService: SpeechService())
@@ -197,52 +209,6 @@ final class BlindRunHistoryTests: XCTestCase {
 }
 
 // MARK: - Stubs
-
-private final class RunHistoryAPIClientStub: APIClientProtocol, @unchecked Sendable {
-    private let orders: [OrderDetailResponse]
-    private let failure: APIError?
-    private(set) var requestedPaths: [String] = []
-
-    init(orders: [OrderDetailResponse], failure: APIError?) {
-        self.orders = orders
-        self.failure = failure
-    }
-
-    func request<T: Decodable>(
-        method: HTTPMethod,
-        path: String,
-        query: [String: String]?,
-        body: (any Encodable & Sendable)?,
-        requiresAuth: Bool
-    ) async throws -> T {
-        requestedPaths.append(path)
-        if let failure { throw failure }
-        let page = PagedOrderResponse(
-            content: orders,
-            totalElements: Int64(orders.count),
-            totalPages: 1,
-            number: 0,
-            size: orders.count,
-            first: true,
-            last: true,
-            empty: orders.isEmpty
-        )
-        guard let typed = page as? T else {
-            throw APIError.invalidURL
-        }
-        return typed
-    }
-
-    func upload<T: Decodable>(
-        path: String,
-        query: [String: String]?,
-        fields: [String: String]?,
-        files: [MultipartFile],
-        requiresAuth: Bool
-    ) async throws -> T {
-        throw APIError.invalidURL
-    }
-}
 
 private final class RunHistoryInMemoryTokenStore: TokenStoring, @unchecked Sendable {
     private var token: String?

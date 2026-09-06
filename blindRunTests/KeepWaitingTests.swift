@@ -59,8 +59,8 @@ final class KeepWaitingTests: XCTestCase {
     // MARK: - 请求分派
 
     func testPendingMatchSendsExactlyOnePutToKeepWaiting() async {
-        let client = KeepWaitingAPIClientStub()
-        let appState = AppState(apiClient: client)
+        let orderService = makeOrderService()
+        let appState = AppState(orders: orderService)
         appState.currentEnvironment = .mock
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: SpeechService())
@@ -68,14 +68,14 @@ final class KeepWaitingTests: XCTestCase {
 
         await viewModel.keepWaiting()
 
-        XCTAssertEqual(client.requests.count, 1)
-        XCTAssertEqual(client.requests.first?.method, .put)
-        XCTAssertEqual(client.requests.first?.path, "/api/orders/501/keep-waiting")
+        XCTAssertEqual(orderService.callCount("keepWaiting(_:orderId:)"), 1)
+        XCTAssertEqual(orderService.lastKeepWaitingEndpoint, .keepWaiting)
+        XCTAssertEqual(orderService.lastOrderId, 501)
     }
 
     func testRematchingSendsExactlyOnePutToKeepRematching() async {
-        let client = KeepWaitingAPIClientStub()
-        let appState = AppState(apiClient: client)
+        let orderService = makeOrderService()
+        let appState = AppState(orders: orderService)
         appState.currentEnvironment = .mock
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: SpeechService())
@@ -83,17 +83,17 @@ final class KeepWaitingTests: XCTestCase {
 
         await viewModel.keepWaiting()
 
-        XCTAssertEqual(client.requests.count, 1)
-        XCTAssertEqual(client.requests.first?.method, .put)
-        XCTAssertEqual(client.requests.first?.path, "/api/orders/502/keep-rematching")
+        XCTAssertEqual(orderService.callCount("keepWaiting(_:orderId:)"), 1)
+        XCTAssertEqual(orderService.lastKeepWaitingEndpoint, .keepRematching)
+        XCTAssertEqual(orderService.lastOrderId, 502)
     }
 
     /// 其余状态一个请求都不许发。没有端点却发请求，收到的一定是 409，
     /// 而盲人听到的会是一句他无法据以行动的报错。
     func testNonWaitingStatusesSendNoRequestAtAll() async {
         for status in RunOrderStatus.allCases where !status.offersKeepWaiting {
-            let client = KeepWaitingAPIClientStub()
-            let appState = AppState(apiClient: client)
+            let orderService = makeOrderService()
+            let appState = AppState(orders: orderService)
             appState.currentEnvironment = .mock
             let viewModel = BlindOrderStatusViewModel()
             viewModel.configure(appState: appState, speechService: SpeechService())
@@ -101,7 +101,7 @@ final class KeepWaitingTests: XCTestCase {
 
             await viewModel.keepWaiting()
 
-            XCTAssertTrue(client.requests.isEmpty, "\(status) 不该发出延长请求")
+            XCTAssertTrue(orderService.calls.isEmpty, "\(status) 不该发出延长请求")
         }
     }
 
@@ -111,11 +111,11 @@ final class KeepWaitingTests: XCTestCase {
     /// 该做的是刷新订单，不是换一个 URL 再打一次。两个端点的前置状态互斥，回退重试必然也失败，
     /// 而盲人听不见网络请求 —— 连打两次唯一可见的结果是等待时间翻倍。
     func testStatusRejectionRefreshesTheOrderInsteadOfRetryingTheOtherEndpoint() async {
-        let client = KeepWaitingAPIClientStub()
-        client.keepWaitingError = APIError.serverError(
+        let orderService = makeOrderService()
+        orderService.keepWaitingResult = .failure(APIError.serverError(
             ErrorResponse(code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不支持此操作")
-        )
-        let appState = AppState(apiClient: client)
+        ))
+        let appState = AppState(orders: orderService)
         appState.currentEnvironment = .mock
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: SpeechService())
@@ -123,16 +123,20 @@ final class KeepWaitingTests: XCTestCase {
 
         await viewModel.keepWaiting()
 
-        let extensionCalls = client.requests.filter { $0.method == .put }
-        XCTAssertEqual(extensionCalls.count, 1, "被拒后又打了第二个延长端点")
-        XCTAssertEqual(extensionCalls.first?.path, "/api/orders/504/keep-waiting")
-        XCTAssertFalse(
-            client.requests.contains { $0.path.hasSuffix("/keep-rematching") },
+        XCTAssertEqual(
+            orderService.callCount("keepWaiting(_:orderId:)"),
+            1,
+            "被拒后又打了第二次延长"
+        )
+        XCTAssertEqual(
+            orderService.lastKeepWaitingEndpoint,
+            .keepWaiting,
             "回退去试了另一个端点 —— 两者前置状态互斥，这一次必然也失败"
         )
         // 正确的补救动作：拉一次权威订单详情。
-        XCTAssertTrue(
-            client.requests.contains { $0.method == .get && $0.path == "/api/orders/504" },
+        XCTAssertEqual(
+            orderService.callCount("orderDetail(orderId:)"),
+            1,
             "被拒后没有刷新订单详情，页面会停在一个已经过期的状态上"
         )
     }
@@ -142,11 +146,11 @@ final class KeepWaitingTests: XCTestCase {
     /// 上限到了就把按钮收起来（design D5）。后端在延长次数用尽后也不再推送预警 ——
     /// 客户端留着一个必定失败的按钮就是与后端口径背离。
     func testLimitReachedRemovesTheActionForThisOrder() async {
-        let client = KeepWaitingAPIClientStub()
-        client.keepWaitingError = APIError.serverError(
+        let orderService = makeOrderService()
+        orderService.keepWaitingResult = .failure(APIError.serverError(
             ErrorResponse(code: "KEEP_WAITING_LIMIT_REACHED", message: "继续等待次数已达上限")
-        )
-        let appState = AppState(apiClient: client)
+        ))
+        let appState = AppState(orders: orderService)
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let viewModel = BlindOrderStatusViewModel()
@@ -166,11 +170,11 @@ final class KeepWaitingTests: XCTestCase {
 
     /// 上限是**这一单**的属性。换单不清会让新订单一进来就少一个本该有的动作。
     func testLimitFlagIsClearedWhenTheOrderChanges() async {
-        let client = KeepWaitingAPIClientStub()
-        client.keepWaitingError = APIError.serverError(
+        let orderService = makeOrderService()
+        orderService.keepWaitingResult = .failure(APIError.serverError(
             ErrorResponse(code: "KEEP_WAITING_LIMIT_REACHED", message: "继续等待次数已达上限")
-        )
-        let appState = AppState(apiClient: client)
+        ))
+        let appState = AppState(orders: orderService)
         appState.currentEnvironment = .mock
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: SpeechService())
@@ -210,8 +214,8 @@ final class KeepWaitingTests: XCTestCase {
     }
 
     func testSuccessSpeaksLocalCopyBecauseTheStatusDoesNotChange() async {
-        let client = KeepWaitingAPIClientStub()
-        let appState = AppState(apiClient: client)
+        let orderService = makeOrderService()
+        let appState = AppState(orders: orderService)
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let viewModel = BlindOrderStatusViewModel()
@@ -259,11 +263,11 @@ final class KeepWaitingTests: XCTestCase {
     }
 
     func testRepeatStatusDropsKeepWaitingOnceTheLimitIsReached() async {
-        let client = KeepWaitingAPIClientStub()
-        client.keepWaitingError = APIError.serverError(
+        let orderService = makeOrderService()
+        orderService.keepWaitingResult = .failure(APIError.serverError(
             ErrorResponse(code: "KEEP_WAITING_LIMIT_REACHED", message: "继续等待次数已达上限")
-        )
-        let appState = AppState(apiClient: client)
+        ))
+        let appState = AppState(orders: orderService)
         appState.currentEnvironment = .mock
         let speechService = SpeechService()
         let viewModel = BlindOrderStatusViewModel()
@@ -326,48 +330,19 @@ final class KeepWaitingTests: XCTestCase {
     }
 }
 
-// MARK: - Stub
+// MARK: - Fixture
 
-/// 记录**每一个**请求（不只是延长那条）——「被拒后有没有偷偷再打一次」正是要靠
-/// 完整的请求序列才看得出来。
-private final class KeepWaitingAPIClientStub: APIClientProtocol, @unchecked Sendable {
-    enum StubError: Error { case unexpectedType }
-
-    struct RecordedRequest {
-        let method: HTTPMethod
-        let path: String
-    }
-
-    private(set) var requests: [RecordedRequest] = []
-    /// 只作用在延长端点上，订单详情的 GET 不受影响 —— 否则「被拒后刷新订单」这一步也会挂，
-    /// 就看不出客户端到底刷没刷。
-    var keepWaitingError: APIError?
-
-    func request<T: Decodable>(
-        method: HTTPMethod,
-        path: String,
-        query: [String: String]?,
-        body: (any Encodable & Sendable)?,
-        requiresAuth: Bool
-    ) async throws -> T {
-        requests.append(RecordedRequest(method: method, path: path))
-
-        if path.hasSuffix("/keep-waiting") || path.hasSuffix("/keep-rematching") {
-            if let keepWaitingError { throw keepWaitingError }
-        }
-        if T.self == EmptyResponse.self {
-            return EmptyResponse() as! T
-        }
-        throw StubError.unexpectedType
-    }
-
-    func upload<T: Decodable>(
-        path: String,
-        query: [String: String]?,
-        fields: [String: String]?,
-        files: [MultipartFile],
-        requiresAuth: Bool
-    ) async throws -> T {
-        throw StubError.unexpectedType
+private extension KeepWaitingTests {
+    /// 罐装成功值一次配齐。**默认全成功**，要演失败的用例自己覆盖那一条 ——
+    /// `FakeOrderService` 的默认是 `NotStubbed`，不配就会红在「你没打这个桩」上。
+    ///
+    /// 取代了原来的 `KeepWaitingAPIClientStub`：那个桩按路径后缀分派
+    /// （`path.hasSuffix("/keep-waiting")`），而路径归属已经由
+    /// `OrderEndpointTests` 与 `testEndpointPathsAreFullyQualified` 各自钉住了。
+    func makeOrderService() -> FakeOrderService {
+        let service = FakeOrderService()
+        service.keepWaitingResult = .success(())
+        service.orderDetailResult = .success(Self.makeOrder(orderId: 504, status: .pendingMatch))
+        return service
     }
 }

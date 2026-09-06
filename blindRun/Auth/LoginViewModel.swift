@@ -189,20 +189,13 @@ final class LoginViewModel: ObservableObject {
         // Long-lived test accounts may still use the fixed code 000000, but the
         // send-code API must return before we show the input and countdown.
         Task {
-            guard let apiClient = activeAPIClient else {
+            guard let auth = activeAuth else {
                 isSendingCode = false
                 errorMessage = "应用未初始化，请重启"
                 return
             }
-            let request = SendCodeRequest(phone: requestPhone)
             do {
-                let _: SendCodeResponse = try await apiClient.request(
-                    method: .post,
-                    path: "/api/auth/send-code",
-                    query: nil,
-                    body: request,
-                    requiresAuth: false
-                )
+                _ = try await auth.sendVerificationCode(phone: requestPhone)
                 isSendingCode = false
                 showCodeInput = true
                 startCountdown()
@@ -236,7 +229,7 @@ final class LoginViewModel: ObservableObject {
     // MARK: - Private
 
     private func performLogin() async {
-        guard let apiClient = activeAPIClient else {
+        guard let auth = activeAuth else {
             errorMessage = "应用未初始化，请重启"
             return
         }
@@ -245,14 +238,7 @@ final class LoginViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let request = VerifyCodeRequest(phone: phoneNumber, code: verificationCode)
-            let response: LoginResponse = try await apiClient.request(
-                method: .post,
-                path: "/api/auth/verify-code",
-                query: nil,
-                body: request,
-                requiresAuth: false
-            )
+            let response = try await auth.verifyCode(phone: phoneNumber, code: verificationCode)
             if let appState {
                 appState.handleLoginSuccess(response: response)
             } else {
@@ -300,8 +286,11 @@ final class LoginViewModel: ObservableObject {
         }
     }
 
-    private var activeAPIClient: (any APIClientProtocol)? {
-        apiClientOverride ?? appState?.apiClient
+    /// 注入的 `apiClient` 仍然是测试的注入口（用例都写着 `LoginViewModel(apiClient:)`），
+    /// 在这里包成 service —— 登录页只认识 `AuthServing`，不再直接拼路径。
+    private var activeAuth: (any AuthServing)? {
+        if let apiClientOverride { return AuthService(transport: apiClientOverride) }
+        return appState?.auth
     }
 
     private func handleSendCodeError(_ error: APIError) {
