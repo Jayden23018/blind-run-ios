@@ -99,6 +99,18 @@ function ownBranchRepo() {
   return { dir, g };
 }
 
+// 判据 ③ 的靶子：一条分支被**另一个** worktree 检出着，所以在主工作区
+// `git checkout <它>` 必然失败。这是本仓库的日常状态（当时 19 个 worktree），不是构造出来的边角。
+function heldBranchRepo() {
+  const { dir, g } = scratchRepo();
+  g('branch', 'feat/held-elsewhere');
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-sc-guard-wt-'));
+  scratches.push(wt);
+  // `worktree add <已存在目录>` 要 --force；用一个不存在的子路径更干净。
+  g('worktree', 'add', '-q', path.join(wt, 'held'), 'feat/held-elsewhere');
+  return { dir, g };
+}
+
 const OWN_SESSION = { edited: ['mine.txt'], ran: ['git checkout -b fix/my-own-work'] };
 
 const FOREIGN_BRANCH = 'fix/api-client-missing-token-guard';
@@ -543,6 +555,76 @@ const cases = [
       };
     },
     expect: BLOCKED,
+  },
+
+  // ── 判据 ③：注定失败的 checkout 后面用 `;` 接了会改状态的命令 ──
+  //
+  // 2026-09-06 一天里中了两次：`git checkout <被 worktree 占着的分支>` 失败，
+  // 紧跟的 `git merge origin/main` 照跑，落在**当前**分支上，零报错。
+  // 本仓库当时有 19 个 worktree —— checkout 失败是常态而不是意外。
+  {
+    name: '⭐ ⓓ `git checkout <被别的 worktree 占着的分支>; git merge …` → 拦',
+    build: () => {
+      const { dir, g } = heldBranchRepo();
+      return {
+        command: 'git checkout feat/held-elsewhere\ngit merge origin/main --no-edit',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'] }),
+        stderrIncludes: 'unguarded-checkout-chain',
+      };
+    },
+    expect: BLOCKED,
+  },
+  {
+    name: 'ⓓ 同上但用 `&&` 连接 → 放行（失败即短路，正是推荐写法）',
+    build: () => {
+      const { dir } = heldBranchRepo();
+      return {
+        command: 'git checkout feat/held-elsewhere && git merge origin/main --no-edit',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'] }),
+      };
+    },
+    expect: ALLOWED,
+  },
+  {
+    name: '⭐ ⓓ 反向哨兵：分支**没被**别的 worktree 占着时，`;` 接 merge 照样放行',
+    build: () => {
+      // 判据必须是「这条 checkout 会不会失败」，不是「有没有用 &&」——
+      // 后者会把每一条 `git checkout x; git status` 都拦掉，守卫当天就会被无视。
+      const { dir, g } = scratchRepo();
+      g('branch', 'feat/free');
+      return {
+        command: 'git checkout feat/free\ngit merge origin/main --no-edit',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'] }),
+      };
+    },
+    expect: ALLOWED,
+  },
+  {
+    name: 'ⓓ 只读命令跟在后面 → 放行（跑错分支只是看错，不产生后果）',
+    build: () => {
+      const { dir } = heldBranchRepo();
+      return {
+        command: 'git checkout feat/held-elsewhere\ngit status -sb',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'] }),
+      };
+    },
+    expect: ALLOWED,
+  },
+  {
+    name: 'ⓓ `git checkout -b <占着的同名分支>` → 放行（新建不会撞 worktree，它会以别的方式失败）',
+    build: () => {
+      const { dir } = heldBranchRepo();
+      return {
+        command: 'git checkout -b feat/held-elsewhere\ngit commit -m x',
+        repo: dir,
+        transcriptPath: writeTranscript(dir, { ran: ['git status'] }),
+      };
+    },
+    expect: ALLOWED,
   },
 ];
 

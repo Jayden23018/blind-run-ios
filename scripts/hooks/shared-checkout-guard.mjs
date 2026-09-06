@@ -15,12 +15,15 @@
 //
 // 全程零报错。发现它靠的是事后手动核对 `git show --stat` 和 reflog，不是任何自动检查。
 //
-// 两条判据，对应两种失手方式：
+// 三条判据，对应三种失手方式：
 //
 //   ① rewrite-foreign-history —— 改写历史的命令（amend / reset / rebase / branch -f）
 //      落在**本会话没切过、也没在上面提交过**的分支上。这是上面那次事故的直接判据。
 //   ② implicit-staging —— 不带显式路径的暂存命令（add -A / commit -a / stash）
 //      会捎带上本轮没碰过的文件。
+//   ③ unguarded-checkout-chain —— `git checkout <被别的 worktree 占着的分支>` 后面用
+//      `;` / 换行接了会改状态的 git 命令。**同一个仓库不能在两个 worktree 里检出同一条分支**，
+//      所以那条 checkout 是**必然失败**的，而后面那条会照常执行、落在你**当前**这条分支上。
 //
 // 两条都只在「确实会波及别人的东西」时才响：在自己开的分支上 amend、暂存区里全是自己写的
 // 文件，都放行。**做成会误报的守卫等于把守卫废掉**，而且不会有任何东西提示它已经废了。
@@ -126,6 +129,64 @@ function parseGit(cmd) {
     i += 1;
   }
   return { at, args: tokens.slice(i) };
+}
+
+// ── 判据 ③ 用到的两个 helper ──
+
+// 会改仓库状态的子命令。`checkout` 失败之后它们会落在**当前**分支上，而不是你以为的那条。
+// `status` / `log` / `diff` 这类只读的不在内：跑错分支只是看错，不产生后果。
+const MUTATING_SUBCOMMANDS = new Set([
+  'merge', 'rebase', 'reset', 'commit', 'cherry-pick', 'revert',
+  'stash', 'push', 'am', 'apply', 'restore', 'switch',
+]);
+
+// 这条分支是不是被**别的** worktree 占着。占着 ⇒ 在本工作区 `git checkout <它>` 必然失败
+// （git 自己报 `fatal: '<branch>' is already used by worktree at '<path>'`）。
+// 返回占着它的那个 worktree 路径，没被占返回 null。
+function heldByOtherWorktree(repo, branch, cwd) {
+  let wt = null;
+  for (const line of git(repo, 'worktree', 'list', '--porcelain')) {
+    if (line.startsWith('worktree ')) wt = line.slice('worktree '.length).trim();
+    else if (line.startsWith('branch ') && wt) {
+      const held = line.slice('branch '.length).trim().replace(/^refs\/heads\//, '');
+      if (held === branch && path.resolve(wt) !== path.resolve(cwd || '')) return wt;
+    }
+  }
+  return null;
+}
+
+// 拆成 [子命令, 分隔符, 子命令, …]。`subCommands` 把分隔符扔了，而这条判据的全部信息
+// 就在分隔符上：`&&` 是安全的（前一条失败就不会跑后一条），`;` / 换行不是。
+function segmentsWithSeparators(command) {
+  return command
+    .split(/(\n|;|&&|\|\||\||&)/)
+    .map((s) => s.trim())
+    .filter((s, i) => s || i % 2 === 1);
+}
+
+// 这条子命令是不是「切到一条具名分支」。返回分支名，不是就返回 null。
+//
+// 刻意排掉的几种：`-b` / `-B` / `--orphan` 是**新建**（不会撞 worktree）；`--detach` detached
+// 检出同一条提交是允许的；带 `--` 的是**恢复文件**不是切分支。
+// 只认第一个非 flag 参数，且要求它是本仓库真实存在的本地分支 —— 拿路径当分支名会误报。
+function checkoutBranch(cmd, repo) {
+  const { args } = parseGit(cmd);
+  if (args[0] !== 'checkout' && args[0] !== 'switch') return null;
+  const rest = args.slice(1);
+  if (rest.includes('--') || rest.some((a) => ['-b', '-B', '--orphan', '--detach', '-d'].includes(a))) {
+    return null;
+  }
+  const name = rest.find((a) => !a.startsWith('-'));
+  if (!name) return null;
+  const exists = git(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${name}`);
+  return exists.length ? name : null;
+}
+
+// 这条子命令是不是会改状态的 git 命令。
+function mutatingGit(cmd) {
+  if (!/^git(\s|$)/.test(cmd)) return null;
+  const { args } = parseGit(cmd);
+  return MUTATING_SUBCOMMANDS.has(args[0]) ? args[0] : null;
 }
 
 // 这条子命令实际作用于哪个仓库。null = 不是 git 命令 / 不在任何仓库里 ⇒ 放行。
@@ -315,6 +376,50 @@ function main() {
 
   // 起点是钩子拿到的工作目录（Bash 工具的 cwd 跨调用保留，可能早就不是仓库根了）。
   let cwd = typeof payload.cwd === 'string' && payload.cwd.trim() ? payload.cwd : REPO;
+
+  // ── 判据 ③：注定失败的 checkout 后面跟着会改状态的命令，而分隔符不是 `&&` ──
+  // 这条要在整串上判，不能进下面那个循环：全部信息都在**分隔符**上，而 `subCommands` 把它扔了。
+  {
+    const segs = segmentsWithSeparators(command);
+    let dir = cwd;
+    for (let i = 0; i < segs.length; i += 2) {
+      const cmd = segs[i];
+      if (/^cd(\s|$)/.test(cmd)) {
+        dir = resolveCd(cmd, dir);
+        continue;
+      }
+      const repo = targetRepo(cmd, dir);
+      if (!repo) continue;
+      const branch = checkoutBranch(cmd, repo);
+      if (!branch) continue;
+      const holder = heldByOtherWorktree(repo, branch, git(repo, 'rev-parse', '--show-toplevel')[0]);
+      if (!holder) continue;
+      // 往后找第一条会改状态的 git 命令；中间只要出现过一个 `&&` 就算安全（失败即短路）。
+      for (let j = i + 1; j < segs.length; j += 2) {
+        if (segs[j] === '&&') break;
+        const next = segs[j + 1];
+        const verb = next && mutatingGit(next);
+        if (!verb) continue;
+        process.stderr.write(
+          `[guard: unguarded-checkout-chain] ${cmd}\n\n` +
+            `分支 \`${branch}\` 正被另一个 worktree 检出：\n` +
+            `  ${holder}\n\n` +
+            `同一个仓库**不允许**两个 worktree 检出同一条分支，所以上面那条 checkout\n` +
+            `**必然失败**（\`fatal: '${branch}' is already used by worktree at ...\`）。\n` +
+            `而你用 \`${segs[i + 1] === '\\n' ? '换行' : segs[i + 1]}\` 而不是 \`&&\` 连接，后面这条会照常执行：\n\n` +
+            `  ${next}\n\n` +
+            `它会落在**你当前这条分支**上，不是 \`${branch}\`，而且不会有任何报错。\n` +
+            `2026-09-06 一天里中了两次，\`git merge origin/main\` 分别落到了另外两个 PR 的分支上。\n` +
+            `本仓库有 ${git(repo, 'worktree', 'list').length} 个 worktree —— checkout 失败是常态，不是意外。\n\n` +
+            `两条出路，挑一条：\n` +
+            `  · 用 \`&&\` 连接：\`git checkout ${branch} && ${verb} …\`（失败就短路，最省事）\n` +
+            `  · 或者先腾开那个 worktree：\`git -C ${holder} checkout --detach\`\n` +
+            `  · 或者干脆在那个 worktree 里做：\`git -C ${holder} ${verb} …\``
+        );
+        process.exit(2);
+      }
+    }
+  }
 
   for (const cmd of subCommands(command)) {
     if (/^cd(\s|$)/.test(cmd)) {
