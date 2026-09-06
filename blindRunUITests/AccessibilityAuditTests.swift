@@ -725,8 +725,20 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 低版本设备上明确 skip 而不是静默通过 —— 「没跑」和「跑过了」必须可区分。
     @available(iOS 17.0, *)
     private func audit(_ app: XCUIApplication) throws {
+        // iOS 侧七个审计类型**全部**启用。少一项就少一类缺陷，而少了哪一项从测试结果上
+        // 完全看不出来 —— 用例照样报绿，绿的是剩下那几项。守卫 `a11y-audit-types`
+        // 会拦住任何缺项（`scripts/hooks/guard.mjs`）。
+        //
+        // 2026-09-02 补进 `.textClipped` 与 `.trait`：此前这两项从未启用，而本文件
+        // `:560-566` 的注释逐字宣称「审计里真正抓这件事的是 `.textClipped` 与 `.hitRegion`」，
+        // 并把三条横屏用例定为「本仓库唯一能验横屏裁切的通道」⇒ 那三条长期在验另外五项，
+        // 横屏裁切一次都没被检查过。`.trait` 同样是盲人端硬伤：按钮缺 `.button` trait 时
+        // VoiceOver 不念「按钮」，用户不知道那是个能点的东西。
         try app.performAccessibilityAudit(
-            for: [.contrast, .dynamicType, .elementDetection, .hitRegion, .sufficientElementDescription]
+            for: [
+                .contrast, .dynamicType, .elementDetection, .hitRegion,
+                .sufficientElementDescription, .textClipped, .trait
+            ]
         ) { issue in
             // 高德地图图层无法承载有意义的 label，且它已被显式降权为辅助内容
             // （视觉可以铺满，读屏遍历顺序必须操作优先）。这是唯一的白名单项 ——

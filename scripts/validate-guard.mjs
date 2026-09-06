@@ -1048,6 +1048,113 @@ const cases = [
     editPath: 'blindRun/Home.swift',
     oldString: 'Text("x").accessibilityIdentifier("sharedId")',
     newString: 'Text("x")'
+  },
+
+  // ---- a11y-audit-types（2026-09-02）----
+  //
+  // 起因：`.textClipped` 与 `.trait` 从未被启用，而同文件注释宣称
+  // 「审计里真正抓这件事的是 `.textClipped`」，并把三条横屏用例定为
+  // 「唯一能验横屏裁切的通道」。三条用例一直是绿的 —— 绿的是另外五项。
+  // 少一项不会让任何东西变红，所以只能靠静态守卫抓。
+  //
+  // 第 3 条是这里最关键的一条：它复现缺陷的**确切形状**（注释里有、参数列表里没有）。
+  // 判据一旦退回「全文包含」，第 3 条立刻变绿而缺陷原样溜过去。
+  {
+    name: 'a11y 审计类型齐全（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription, .textClipped, .trait])\n'
+  },
+  {
+    name: 'a11y 审计缺 .textClipped（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription, .trait])\n'
+  },
+  {
+    name: 'a11y 审计类型只写在注释里（仍然拦下 —— 这就是 2026-09-02 那次的形状）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      '// 审计里真正抓这件事的是 .textClipped 与 .hitRegion：矮窗口下被挤扁的文本。\n' +
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription, .trait])\n'
+  },
+  {
+    // 2026-09-02 code review 抓到的绕过，已复现：`codeOnly` 只剥**整行**注释，
+    // 于是「缺项 + 行尾一句 TODO」会让规则反向失效 —— 注释里的类型名把缺项补上了。
+    // 这是本规则要堵的那个形状的最常见写法，判据退回文本级包含时这条会立刻变绿。
+    name: 'a11y 审计缺项 + 行尾注释里提到缺的类型（仍然拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription]) // TODO: 补 .textClipped 和 .trait\n'
+  },
+  {
+    // 反方向的误伤（同轮自查发现）：不传实参时默认就是 `.all`，是完全正确、
+    // 甚至更好的写法（自动跟随 SDK 新增类型）。初版把它判成「七项全缺」。
+    name: 'performAccessibilityAudit() 不传实参即默认 .all（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift: 'try app.performAccessibilityAudit()\n'
+  },
+  {
+    name: 'a11y 审计缺项但列表内带 guard:allow（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription, .trait // guard:allow a11y-audit-types\n' +
+      '])\n'
+  },
+  {
+    // 抑制标记的作用域：必须落在**这个列表**里。写在列表外（哪怕同一行的 `])` 之后）
+    // 不算数 —— 否则在文件任意角落写一次就能让整条规则失效，这是初版的第二个洞。
+    name: 'guard:allow 写在列表外（仍然拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift:
+      'try app.performAccessibilityAudit(for: [.contrast, .dynamicType, .elementDetection,\n' +
+      '  .hitRegion, .sufficientElementDescription, .trait]) // guard:allow a11y-audit-types\n'
+  },
+  {
+    // 同名文件里还有一堆辅助代码，不该因为「文件名对上了」就要求它含审计类型。
+    name: 'AccessibilityAuditTests 里没有 audit 调用（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunUITests/AccessibilityAuditTests.swift',
+    swift: 'private static let readableContentWidth: CGFloat = 700\n'
+  },
+  {
+    // 触发面按**内容**而不是文件名：审计调用哪天拆到别的文件里，规则要照样管得住。
+    // 初版按文件名匹配，新文件不叫这个名字就完全不被检查、且没有任何提示 ——
+    // 那正是这条规则想避免的「少了什么但看不出来」，只是换了个面。
+    name: '缺项出现在别的测试文件里（同样拦下 —— 触发面按内容不按文件名）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRunUITests/SomeOtherAuditTests.swift',
+    swift: 'try app.performAccessibilityAudit(for: [.contrast])\n'
+  },
+  {
+    // 反向哨兵：确认上面那些 expect: 0 不是「规则压根没跑」造成的假通过。
+    // 无关文件里放一份缺项内容，必须**不**被这条规则碰到（它不含 audit 调用）。
+    name: '无关文件不含 audit 调用（放行 —— 证明前面的放行不是恒过）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRunUITests/UnrelatedTests.swift',
+    swift: 'let types = [".contrast", ".textClipped"]\n'
   }
 ];
 
@@ -1086,9 +1193,13 @@ function materialize(testCase) {
   if (testCase.mode !== 'post') return { input: testCase.input, cleanup: () => {} };
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-guard-'));
-  const productionDir = path.join(dir, 'blindRun', 'Shared');
-  fs.mkdirSync(productionDir, { recursive: true });
-  const filePath = path.join(productionDir, 'GuardSelfTest.swift');
+  // 默认落进生产 target —— 内容级规则只查那里（post 段有一道 `/blindRun/` 过滤）。
+  // 少数规则按**文件名**匹配且被查的文件住在测试 target（`a11y-audit-types` 只认
+  // `AccessibilityAuditTests.swift`），这类用例用 `swiftPath` 指定相对路径。
+  // 名字写错会静默变成「规则没触发」= 恒过，所以每条这样的用例都要配一条反向用例。
+  const relative = testCase.swiftPath ?? path.join('blindRun', 'Shared', 'GuardSelfTest.swift');
+  const filePath = path.join(dir, relative);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${testCase.swift}\n`, 'utf8');
 
   return {

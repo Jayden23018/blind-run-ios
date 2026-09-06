@@ -175,6 +175,26 @@ VERDICT_STATUS="${PIPESTATUS[1]}"
 say "日志：$LOG"
 say "result bundle：$BUNDLE"
 
+# ---------- 3.5 导出附件（截图 / 录像），否则拍了没人看得见 ----------
+#
+# UI 测试里有 9 处 `attachScreenshot(...)`，拍完就躺在 result bundle 里 —— 除非有人
+# 在 Xcode 里手动打开，否则**谁也看不到**，包括跑测试的 agent。视觉相关的验收
+# （布局、间距、截断、层级压盖）因此一直只能靠人肉复核。
+#
+# 一并导出的 manifest.json 记录了每个附件属于哪条用例，比文件名更可靠。
+#
+# 导出失败**不改变测试结论**：走 if/else 各自打印，两条路都不 exit。
+# 本脚本是 `set -uo pipefail`（没有 -e），所以这里不需要也没有 `|| true`。
+SHOTS="$(dirname "$BUNDLE")/attachments"
+if xcrun xcresulttool export attachments --path "$BUNDLE" --output-path "$SHOTS" >/dev/null 2>&1; then
+  SHOT_COUNT="$(find "$SHOTS" -type f ! -name manifest.json 2>/dev/null | wc -l | tr -d ' ')"
+  say "附件已导出（${SHOT_COUNT} 个）：$SHOTS"
+  say "  归属见 $SHOTS/manifest.json；只要失败截图可加 --only-failures 重跑导出。"
+else
+  say "附件导出失败（不影响上面的测试结论）。手动重试："
+  say "  xcrun xcresulttool export attachments --path \"$BUNDLE\" --output-path <目录>"
+fi
+
 if [ "$VERDICT_STATUS" -eq 1 ]; then
   # 有用例失败，失败清单已由 verdict 打印过了。
   exit 1

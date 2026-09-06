@@ -13,6 +13,12 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 | `aidrun-error-codes` | 处理 API 错误、写 TTS 错误播报、新增错误分支 |
 | `aidrun-ship-check` | 实现完成、准备提交、准备宣称「做完了 / 测试通过」 |
 | `aidrun-contract-sync` | 后端契约变了、pre-push 报「生成代码与契约不同步」、判契约新字段要不要接入 |
+| `swiftui-pro` | 写 / 审 SwiftUI 代码时。**第三方**（Paul Hudson，MIT，`.claude/skills/swiftui-pro/`），装在 2026-09-02，见 `docs/research/claude-code-setup-for-ios-a11y-20260902.md` |
+
+⚠️ `swiftui-pro` 的 `SKILL.md` 里写着「iOS 26 是新 App 的默认部署目标」「Target Swift 6.2 or later」——
+**本仓库部署目标是 iOS 16**，那两句不适用，照它建议的新 API 写会编译不过。
+它的 `references/accessibility.md` 自己是版本感知的（明确区分 iOS 18 及以前用 `@ScaledMetric`），
+可以直接用。**不要改那个第三方文件**去迁就我们 —— 改了下次更新就冲突，约束写在这里。
 
 **`CONTEXT.md`（仓库根）—— 领域词 ↔ 模块名对照表。在写下「这个功能仓库里没有」之前必读一次，
 换一组同义词再搜。** 它是 §1.4 的语义认知归档（配套记忆 `synonym-mismatch-fakes-a-missing-feature`）：
@@ -335,7 +341,8 @@ REMATCHING → CANCELLED（只能盲人 token）
 > handoff（第 8 步）**不作独立触发条件**，只在已有欠账时附带提醒 —— 纯客户端改动本就不该投递，
 > 拿「提交晚于 handoff」当触发会让每次工具链提交都误报。什么该投递见记忆 `handoff-upkeep-workflow`。
 >
-> 自测 `scripts/validate-stop-checklist.mjs`（9 条，CI 与 pre-push 都跑）。
+> 自测 `scripts/validate-stop-checklist.mjs`（CI 与 pre-push 都跑；条数当场看输出，别写在这 —— 理由同 §9，
+> 09-02 核对时这里写的 9 条实际已是 11 条）。
 >
 > 这条从「用户每轮口头提醒」升级成钩子，走的是 §1.3。
 
@@ -510,7 +517,8 @@ node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
 > 强制在 `scripts/hooks/research-log.mjs`（走 §1.1 + §1.3）：PreToolUse 在联网工具调用前把整份索引
 > 灌回给模型（第 1 条）；Stop 钩子发现本轮联网过但 `docs/research/` 一个字节没动就拦（第 3 条）。
 > 只是查一个 API 签名、不构成调研的，回一句说明再停。
-> 自测 `scripts/validate-research-log.mjs`（7 条，CI 与 pre-push 都跑）。
+> 自测 `scripts/validate-research-log.mjs`（CI 与 pre-push 都跑；条数当场看输出，别写在这 —— 理由同 §9，
+> 09-02 核对时这里写的 7 条实际已是 10 条）。
 >
 > 位置约定本来就写在 skill `tech-decision-research` 里，但 skill 不被显式调用就不生效 ——
 > 于是 `docs/research/` 建了两份报告却一直没有索引。这条是把约定接上强制。

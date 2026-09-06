@@ -120,6 +120,22 @@ const PBXPROJ_FROZEN_KEY = /DEVELOPMENT_TEAM/;
 // 键名拼出来而不是写成字面量 —— 见下面用到它的地方的说明。
 const ARCH_EXCLUSION_KEY = new RegExp(['EXCLUDED', 'ARCHS'].join('_'));
 
+// ---- 无障碍审计类型全集（规则 a11y-audit-types，见 post 分支）----
+//
+// iOS 侧 `XCUIAccessibilityAuditType` 的**全部**取值，本机 SDK 头文件实证：
+// `Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/Frameworks/`
+// `XCUIAutomation.framework/Headers/XCUIAccessibilityAuditTypes.h`
+// （action / parentChild 在 `#elif TARGET_OS_OSX || TARGET_OS_MACCATALYST` 分支里，不属于这里）。
+const A11Y_AUDIT_TYPES = [
+  'contrast',
+  'elementDetection',
+  'hitRegion',
+  'sufficientElementDescription',
+  'dynamicType',
+  'textClipped',
+  'trait'
+];
+
 // ---- accessibilityIdentifier 漂移检测（规则 8，见下面用到它的地方的完整说明）----
 
 // XCUITest 里「按 identifier 找元素」的几种写法。
@@ -723,6 +739,60 @@ function main() {
   if (tool !== 'Edit' && tool !== 'Write') process.exit(0);
   if (!filePath.endsWith('.swift')) process.exit(0);
   if (!path.isAbsolute(filePath) || !fs.existsSync(filePath)) process.exit(0);
+
+  // a11y-audit-types：审计类型集合必须是全集。
+  //
+  // 少一项**从测试结果上完全看不出来** —— 用例照跑照绿，绿的是剩下那几项。
+  // 2026-09-02 实测的形状：`.textClipped` 与 `.trait` 从未启用，而同文件的注释逐字
+  // 宣称「审计里真正抓这件事的是 `.textClipped`」，还把三条横屏用例定成
+  // 「本仓库唯一能验横屏裁切的通道」。于是「横屏裁切有覆盖」这个判断错了三周，
+  // 且比「完全没覆盖」更难发现 —— 有绿灯在替它背书。
+  //
+  // **判据走 codeOnly，注释一个字都不算数。** 这不是顺手加的：本次缺陷的形状
+  // 恰恰就是「注释里有、参数列表里没有」。拿注释当证据的检查会原样放过它。
+  //
+  // 这条必须排在下面「只查生产 target」的过滤**之前** —— 那条过滤会跳过
+  // blindRunUITests/，而审计代码就住在那里。
+  //
+  // 证据**只取 `for: [ ... ]` 列表内部**，且列表内部再剥一次行尾注释。
+  // 初版是「在整份 codeOnly 文本里找类型名」，2026-09-02 的 code review 抓出两个洞，
+  // 两个都已复现（见 validate-guard.mjs 对应用例）：
+  //   · `codeOnly` 只剥**整行**注释，剥不掉行尾注释 ⇒ 在缺项旁边写一句
+  //     `// TODO: 补 .textClipped` 就让规则反向失效 —— 而「注释里有、参数列表里没有」
+  //     正是这条规则要堵的那个形状，被它自己的判据放过去，等于没写
+  //   · `guard:allow` 当时是全文 `.includes()`，在文件任意角落写一次就能整条失效
+  //
+  // 另一个方向的误伤（同轮自查发现）：`performAccessibilityAudit()` 不传实参时默认
+  // 就是 `.all`，是完全正确、甚至更好的写法（自动跟随 SDK 新增类型），初版会把它
+  // 判成「七项全缺」拦下。⇒ **匹配不到 `for: [` 一律放行。**
+  //
+  // `.all.subtracting(.textClipped)` 这类**显式**排除同样绕得过。那是有意为之、
+  // 且在 diff 里一眼可见 —— 本规则防的是静默缺失，不是防有意规避（后者走 guard:allow）。
+  const auditSrc = codeOnly(readFileOrEmpty(filePath));
+  for (const match of auditSrc.matchAll(/performAccessibilityAudit\s*\(\s*for:\s*\[([^\]]*)\]/g)) {
+    const rawList = match[1];
+    // 抑制标记必须落在**这个列表**里（写成列表内的行尾注释），不是文件任意一处。
+    if (rawList.includes('guard:allow a11y-audit-types')) continue;
+    const list = rawList
+      .split('\n')
+      .map((l) => l.split('//')[0])
+      .join('\n');
+    const missing = A11Y_AUDIT_TYPES.filter((t) => !new RegExp(`\\.${t}\\b`).test(list));
+    if (missing.length === 0) continue;
+    fail(
+      'a11y-audit-types',
+      `${filePath}\n  缺少审计类型：${missing.map((t) => `.${t}`).join(', ')}\n\n` +
+        `\`performAccessibilityAudit(for:)\` 的集合必须覆盖 iOS 侧全部 7 个类型：\n` +
+        `  ${A11Y_AUDIT_TYPES.map((t) => `.${t}`).join(', ')}\n\n` +
+        `少一项不会让任何用例变红 —— 它只是不再检查那一类缺陷，而绿灯照常亮。\n` +
+        `盲人端的直接后果：漏 .textClipped 则文本被截断查不出，漏 .trait 则按钮\n` +
+        `缺 \`.button\` 时 VoiceOver 不念「按钮」，用户不知道那是能点的东西。\n\n` +
+        `判据只认这个 \`for: [ ... ]\` 列表里的内容，**注释一个字都不算数**（行尾注释也剥掉）——\n` +
+        `因为这条规则要堵的缺陷形状恰恰就是「注释里写了、参数列表里没有」。\n` +
+        `不想查某一项：把 \`// guard:allow a11y-audit-types\` 写进**这个列表内部**并说明理由。\n` +
+        `想用全集又不想逐个列：\`performAccessibilityAudit()\` 不传实参即默认 \`.all\`，本规则放行。`
+    );
+  }
 
   // 只查生产 target。测试里出现这些字符串是**正确**的 —— 红线用例本身就得把违规文案
   // 写成断言清单（`EmergencySOSTests.forbidden`），在那儿拦等于把守住红线的人抓起来。
