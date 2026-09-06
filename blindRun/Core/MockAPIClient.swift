@@ -148,8 +148,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         requiresAuth: Bool
     ) async throws -> T {
         #if DEBUG
+        // ⚠️ 盲人首页 2026-08-31 起走 `/api/orders/active`（不再是 `/api/orders/mine`，
+        // 那条现在只剩历史页在用）。两条都留着：漏掉 active 这一条，
+        // 「首页请求挂住」这组 UI 测试就会静默变成「首页正常加载」，用例照样绿。
         if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_HANG_HOME_REQUESTS"] == "1",
-           path == "/api/orders/mine" || path == "/api/volunteer/dispatch-summary" {
+           path == "/api/orders/active" || path == "/api/orders/mine"
+            || path == "/api/volunteer/dispatch-summary" {
             await Self.suspendForeverIgnoringCancellation()
             throw CancellationError()
         }
@@ -407,6 +411,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/orders/mine" && method == .get {
             return handleGetMyOrders(query: query)
         }
+        // 排在下面 `extractOrderId` 那一族之前只是照这一节的写法；`Int64("active")` 是 nil，
+        // 顺序其实无所谓。
+        if path == "/api/orders/active" && method == .get {
+            return handleGetActiveOrder()
+        }
         // 刻意没有 `/api/orders/available`：公开订单池那条链路已删除，App 不再请求它。
         // Mock 里保着一条 App 走不到的路由，只会在真实形状漂移时替它遮丑
         // —— 这条路径的真实响应是 `AvailableOrderResponse` 裸数组，与 `PagedOrderResponse` 不是一回事。
@@ -433,6 +442,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             }
             if path.hasSuffix("/intro-call") && method == .get {
                 return try handleGetIntroCall(orderId: orderId)
+            }
+            // ⚠️ 必须排在 `/en-route` 之前吗？不必 —— 两条后缀不相交。但它们是**不同的动作**，
+            // 别因为都通向出发流程就合并（后端契约逐字点了这一条：合并会让位置互推提前几小时打开）。
+            if path.hasSuffix("/confirm-departure") && method == .post {
+                return try handleConfirmDeparture(orderId: orderId)
             }
             if path.hasSuffix("/en-route") && method == .post {
                 return try handleEnRoute(orderId: orderId)
@@ -591,17 +605,22 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         return EmptyResponse()
     }
 
-    private func handleGetMissedNotifications(after: String?) throws -> [MissedNotificationResponse] {
+    /// 后端每页上限 50，Mock 刻意压到 3。
+    /// 照搬 50 等于把续读那条路藏起来：没人会为了开发期调试手工造 51 条离线通知，
+    /// 于是 `hasMore = true` 在 Mock 上永远不出现，多页补读只能靠上线后出事才被发现。
+    private static let mockCatchUpPageSize = 3
+
+    private func handleGetMissedNotifications(after: String?) throws -> MissedNotificationPage {
         guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
         guard let after, !after.isEmpty, !after.allSatisfy(\.isNumber) else {
             throw APIError.serverError(ErrorResponse(code: "INVALID_TIMESTAMP", message: "after 格式错误"))
         }
-        // 后端窗口：sent_at > after，24h 内，最多 50 条，按时间正序。
-        return missedNotifications
+        // 后端窗口：sent_at > after，24h 内，按时间正序，每页有上限。
+        let window = missedNotifications
             .filter { ($0.sentAt ?? "") > after }
             .sorted { ($0.sentAt ?? "") < ($1.sentAt ?? "") }
-            .prefix(50)
-            .map { $0 }
+        let page = Array(window.prefix(Self.mockCatchUpPageSize))
+        return MissedNotificationPage(notifications: page, hasMore: window.count > page.count)
     }
 
     private func handleGetOrderTrack(orderId: Int64) throws -> OrderTrackResponse {
@@ -717,16 +736,16 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 
     // MARK: - Location Handler
 
-    /// ⚠️ **这里的三态是后端的，不是客户端的，两者不是同一个三态。** 别"顺手对齐"成后者。
+    /// ⚠️ **这里的三态是后端的 `OrderStatus.sharesLiveLocation()`**：
+    /// `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`。Mock 照**后端**演，不照客户端演。
     ///
-    /// - 后端 `OrderStatus.sharesLiveLocation()`：`DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS`
-    /// - 客户端 `RunOrderStatus.offersVolunteerDistanceToStart`：`PENDING_ACCEPT` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`
-    ///
-    /// 交集只有中间两态。`PENDING_ACCEPT` 时客户端会调而后端返 404（位置 key 不存在）；
-    /// `IN_PROGRESS` 时后端有数据而客户端根本不调（那一段的对方位置走 WebSocket
-    /// `peerLocationPublisher`，没有 REST 兜底）。Mock 必须照**后端**来演，
-    /// 否则这个不对称在开发期永远看不见 —— 上一次 Mock 自作主张（造了个后端不发的
-    /// `updatedAt`）的代价是兜底对真实后端 100% 静默失效。
+    /// 客户端侧对应的是 `RunOrderStatus.fetchesVolunteerLocation`，2026-08-31 与这三态对齐了。
+    /// 在那之前客户端用的是 `offersVolunteerDistanceToStart`（`PENDING_ACCEPT` /
+    /// `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`），交集只有中间两态，两头都错：
+    /// `PENDING_ACCEPT` 时客户端每 5 秒白调一次而后端恒 404，`IN_PROGRESS` 时后端有数据
+    /// 而客户端根本不调。**Mock 一直是对的，正因为它照后端演，那个不对称才被看见** ——
+    /// 反例是上一次 Mock 自作主张（造了个后端不发的 `updatedAt`），
+    /// 代价是兜底对真实后端 100% 静默失效，开发期一次都没暴露。
     private func handleGetVolunteerLocation() -> VolunteerLocationResponse {
         let sharing = orders.first {
             [.driverEnRoute, .driverArrived, .inProgress].contains($0.status)
@@ -795,6 +814,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         switch newStatus {
         case .pendingMatch: return "创建订单"
         case .pendingIntroCall: return "志愿者表示有意向，进入通话磨合"
+        case .scheduledConfirmed: return "志愿者接单（远期预约，等临期确认）"
         case .pendingAccept: return "志愿者接单"
         case .driverEnRoute: return "志愿者已出发"
         case .driverArrived: return "志愿者已到达"

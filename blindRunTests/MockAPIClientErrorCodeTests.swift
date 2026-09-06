@@ -134,4 +134,59 @@ final class MockAPIClientErrorCodeTests: XCTestCase {
         // 两条都命中时后端返回 `APPOINTMENT_TOO_LONG`，那句话就不能把人往改时段上引。
         XCTAssertFalse(tooLong.contains("晚上"), "超长单先要改短，改时段没用")
     }
+
+    // MARK: - 2026-09-04 后端新增两码（架构复核 N126）
+
+    func testTwoThousandTwentySixNinthBatchCodesDecodeFromBackendWireValues() {
+        XCTAssertEqual(ErrorCode(rawValue: "VOLUNTEER_ALREADY_ENGAGED"), .volunteerAlreadyEngaged)
+        XCTAssertEqual(ErrorCode(rawValue: "ID_VERIFY_UNAVAILABLE"), .idVerifyUnavailable)
+    }
+
+    /// 🚨 `VOLUNTEER_ALREADY_ENGAGED` 与 `ORDER_ALREADY_ACCEPTED` **意思相反**，
+    /// 共用一句话会把志愿者指到完全错误的动作上：那个是「这一单被别人抢走了」（去看别的单），
+    /// 这个是「你自己那个时段有事」（换个时段的单）。
+    ///
+    /// 文案跟的是后端 2026-09-05 改后的语义 —— 判据已从「有没有占用中的单」改成
+    /// 「有没有**时间重叠**的占用中的单」。所以它必须说「时间段」，不能说「还有一单没有完成」：
+    /// 跨天预约上线后接了后天的单照样能接今天的，照旧文案会让他去找一张根本不冲突的单。
+    func testVolunteerAlreadyEngagedIsAboutTheTimeSlotNotAnUnfinishedOrder() {
+        let engaged = ErrorCode.volunteerAlreadyEngaged.localizedMessage
+
+        XCTAssertTrue(engaged.contains("时间段"), "判据是时段重叠，说成「有单没跑完」会指错方向")
+        XCTAssertFalse(
+            engaged.contains("没有完成"),
+            "这是 2026-09-05 之前的旧语义，跨天预约上线后它是假话"
+        )
+        XCTAssertNotEqual(
+            engaged,
+            ErrorCode.orderAlreadyAccepted.localizedMessage,
+            "两者意思相反，共用文案等于把志愿者指到相反的动作上"
+        )
+        XCTAssertEqual(ErrorCode.volunteerAlreadyEngaged.ttsMessage, engaged)
+    }
+
+    /// `ID_VERIFY_UNAVAILABLE`(503) 是核验**服务**挂了，`ID_INFO_INVALID`(400) 才是证件对不上。
+    /// 前者绝不能引导用户去核对证件 —— 他的证件没有任何问题，让他去核对是在浪费他的时间。
+    func testIdVerifyUnavailableNeverTellsTheUserToCheckTheirCredentials() {
+        let unavailable = ErrorCode.idVerifyUnavailable.localizedMessage
+
+        XCTAssertTrue(unavailable.contains("暂时不可用"))
+        XCTAssertTrue(unavailable.contains("稍后重试"), "重试是唯一有意义的动作")
+        XCTAssertFalse(unavailable.contains("核对"), "他的证件没问题，引导核对是在浪费他的时间")
+        XCTAssertNotEqual(unavailable, ErrorCode.idInfoInvalid.localizedMessage)
+
+        // 盲人提交页有自己的一层固定文案（不回显后端 message），同一条区分要在那儿也成立 ——
+        // 否则它会落到 `genericMessage`，和「提交失败」这类真·未知错误说同一句话。
+        let blindCopy = BlindIdentityVerificationFailure.message(
+            for: .serverError(ErrorResponse(code: "ID_VERIFY_UNAVAILABLE", message: "身份认证服务暂时不可用"))
+        )
+        XCTAssertNotEqual(blindCopy, BlindIdentityVerificationFailure.genericMessage)
+        XCTAssertFalse(blindCopy.contains("核对"))
+        XCTAssertNotEqual(
+            blindCopy,
+            BlindIdentityVerificationFailure.message(
+                for: .serverError(ErrorResponse(code: "ID_INFO_INVALID", message: "身份信息核验未通过"))
+            )
+        )
+    }
 }

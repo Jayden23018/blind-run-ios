@@ -164,18 +164,23 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             let statusRequestToken = activeOrder.map {
                 appState.realtimeCoordinator.beginOrderStatusRequest(orderID: $0.orderId)
             }
-            let paged: PagedOrderResponse = try await HomeLoadCoordinator.run(
+            // 🚩 走 `/api/orders/active` 而不是 `/api/orders/mine`：那条是分页历史列表
+            // （默认 `size=10`，`createdAt` 倒序），要客户端自己 filter + sort 才能挑出活跃那条。
+            // 挑得出来靠的是两条**没写进契约**的性质：盲人同时只能有一条活跃订单、
+            // 而且它一定落在最近 10 条里。这个端点由服务端判「哪些状态算活着」，
+            // 与 `GET /api/emergency/active` 是同一次冷启动恢复里刻意做成一对的两条。
+            //
+            // 没有活跃订单时后端给的是 `data: null`（不是 404、不是空对象），
+            // 所以这里解信封而不是直接解 `OrderDetailResponse` —— 见 `ActiveOrderEnvelope`。
+            let envelope: ActiveOrderEnvelope = try await HomeLoadCoordinator.run(
                 timeout: loadTimeout,
                 operationName: "blind-active-order"
             ) {
-                try await orders.myOrders()
+                try await orders.activeOrder()
             }
             guard activeRequestID == requestID, !Task.isCancelled else { return }
             let previousOrderID = activeOrder?.orderId
-            let candidate = paged.content
-                .filter { $0.status.isActiveForBlindRunner }
-                .sorted { $0.sortKey > $1.sortKey }
-                .first
+            let candidate = envelope.data
             if candidate == nil,
                let statusRequestToken,
                !appState.realtimeCoordinator.isOrderStatusRequestCurrent(statusRequestToken) {

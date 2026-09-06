@@ -104,6 +104,8 @@ final class LowVisionChannelTests: XCTestCase {
             // 有人想陪你跑，而且**需要你去打一通电话** —— 既是好消息又带着一个待办，
             // 正是该打断用户的时刻。
             .pendingIntroCall: .success,
+            // 「有人接了你那张跨天单」是纯好消息，与 `.pendingAccept` 同档。
+            .scheduledConfirmed: .success,
             .pendingAccept: .success,
             .driverEnRoute: .success,
             .driverArrived: .success,

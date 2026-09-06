@@ -17,7 +17,9 @@ final class AccessibilitySystemSettingsTests: XCTestCase {
     func testAppointmentHintChangesWordsNotJustColor() {
         let viewModel = BlindBookingViewModel()
 
-        viewModel.appointmentTime = Date().addingTimeInterval(3 * 3600)
+        // 固定白天时刻：`Date() + 3 小时` 在深夜跑会落进禁跑窗口 `[22:00, 05:00)`，
+        // 于是 hint 变成夜间那句、不含分钟数，用例白天绿夜里红（见 `BookingTimeFixture`）。
+        viewModel.appointmentTime = BookingTimeFixture.daytime()
         let valid = viewModel.appointmentTimeHint
 
         viewModel.appointmentTime = Date().addingTimeInterval(60)
@@ -42,7 +44,9 @@ final class AccessibilitySystemSettingsTests: XCTestCase {
         let viewModel = BlindBookingViewModel()
         let minutes = "\(AppConstants.Timing.minimumBookingLeadMinutes)"
 
-        viewModel.appointmentTime = Date().addingTimeInterval(3 * 3600)
+        // 固定白天时刻：`Date() + 3 小时` 在深夜跑会落进禁跑窗口 `[22:00, 05:00)`，
+        // 于是 hint 变成夜间那句、不含分钟数，用例白天绿夜里红（见 `BookingTimeFixture`）。
+        viewModel.appointmentTime = BookingTimeFixture.daytime()
         XCTAssertTrue(viewModel.appointmentTimeHint.contains(minutes))
 
         viewModel.appointmentTime = Date().addingTimeInterval(60)

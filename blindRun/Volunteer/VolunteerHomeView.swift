@@ -15,6 +15,28 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published private(set) var refreshPhase: HomeRefreshPhase = .idle
     @Published var isUpdatingAvailability = false
     @Published var activeOrder: OrderDetailResponse?
+
+    /// 已确认但还没到点的跨天预约单，按开跑时间升序（最近的排最前）。
+    ///
+    /// 🚩 **不能靠 `activeOrder` 承载它**，两条独立的理由：
+    /// ① 数据源根本给不到 —— 后端 `VolunteerService.loadActiveOrders` 的白名单只有
+    ///    `IN_PROGRESS`/`DRIVER_EN_ROUTE`/`DRIVER_ARRIVED`，`dispatch-summary.activeOrders`
+    ///    里从来不会出现 `SCHEDULED_CONFIRMED`（已投 handoff 请后端单开 `scheduledOrders`）。
+    /// ② 就算给得到也不该共用一个位 —— `activeVolunteerOrder(from:)` 按 `createdAt` 降序取第一个，
+    ///    而新接的即时单 `createdAt` 必然更晚 ⇒ 志愿者在预约日之前又接了一单即时的，
+    ///    那张跨天单就从首页消失，直到即时单跑完。而闸门不会因为他在忙就暂停。
+    ///
+    /// 对标产品同样是两个位：Uber Opportunities Center / Lyft Scheduled pickups /
+    /// Rover Upcoming inbox 都独立于「当前行程」
+    /// （`docs/research/volunteer-scheduled-order-confirm-ui-20260906.md` §二.2）。
+    @Published private(set) var scheduledOrders: [OrderDetailResponse] = []
+    /// 正在提交确认/释放的那一单。用 id 而不是 Bool：同屏可能有多张预约单，
+    /// 一个全局 Bool 会把所有卡片一起转圈。
+    @Published private(set) var submittingScheduledOrderID: Int64?
+    /// 预约区块自己的错误文案。**不复用 `errorMessage`** —— 那条挂在派单摘要的错误区上，
+    /// 预约单拉失败时弹「重试加载」会让人以为整页坏了，而其余内容完全正常。
+    @Published private(set) var scheduledOrdersMessage: String?
+
     @Published private(set) var locationDispatchWarning: String?
 
     // WebSocket dispatch state
@@ -169,10 +191,14 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// （`DispatchService.introCallEnabled` 的注释：关掉只是不再**强制**）。
     /// 代价是熟人也要多聊一次。**已投 `demo/docs/handoff.md`**，
     /// 字段到了这里才该长出 `.accept` 分支。
+    ///
+    /// `allowsIntroCallUpgrade` 只给下面那条自动升级用：收到 `INTRO_CALL_NOT_REQUIRED` 时
+    /// 本函数会带 `false` 递归一次，保证最多升级一次、不会来回打。调用方不要传。
     func respondToDispatch(
         action: OrderRespondAction,
         currentLocation: CLLocationCoordinate2D?,
-        locationAuthorized: Bool
+        locationAuthorized: Bool,
+        allowsIntroCallUpgrade: Bool = true
     ) {
         guard let order = incomingOrder else { return }
         guard let appState else { return }
@@ -224,6 +250,26 @@ final class VolunteerHomeViewModel: ObservableObject {
             } catch let error as APIError {
                 isRespondingToDispatch = false
                 if appState.handleAuthenticatedAPIError(error) {
+                    return
+                }
+                // 熟人误发 `INTERESTED`：后端 409 `INTRO_CALL_NOT_REQUIRED`（2026-08-26 新增）。
+                //
+                // 🚩 **必须重新走一遍本函数，不能就地补一个 API 调用**：`.accept` 有 `.interested`
+                // 没有的前置闸（定位权限判定 + `VolunteerLocationReporter.reportIfNeeded`），
+                // 就地补调用等于绕过它们，志愿者会在没给定位权限的情况下把单接下来。
+                // 闸拦住时用户看到的是「需要定位权限」这类可执行的提示，也是对的。
+                //
+                // 不弹「操作失败」就停：派单弹窗只有「有意向」和「拒绝」两个按钮，
+                // 停在这里等于让志愿者卡在一个本该能接的单上（后端在那条 handoff 里点名要求别这样）。
+                if allowsIntroCallUpgrade,
+                   action == .interested,
+                   error.errorCode == .introCallNotRequired {
+                    respondToDispatch(
+                        action: .accept,
+                        currentLocation: currentLocation,
+                        locationAuthorized: locationAuthorized,
+                        allowsIntroCallUpgrade: false
+                    )
                     return
                 }
                 needsCertificateUpload = error.errorCode == .volunteerNotApproved
@@ -505,7 +551,19 @@ final class VolunteerHomeViewModel: ObservableObject {
                 }
             }
 
-            let (profile, registration) = await (profileResult, registrationResult)
+            // 跨天预约单单独一条（后端 `dispatch-summary` 拿不到它，见 `scheduledOrders` 的注释）。
+            // 与另外两条并行，不串在后面 —— 首页已经有三次往返，再排一次会让面板多等一个 RTT。
+            let orders = appState.orders
+            async let scheduledResult: Result<PagedOrderResponse, Error> = Self.fetchResult {
+                try await HomeLoadCoordinator.run(
+                    timeout: self.loadTimeout,
+                    operationName: "volunteer-scheduled-orders"
+                ) {
+                    try await orders.scheduledOrders()
+                }
+            }
+
+            let (profile, registration, scheduled) = await (profileResult, registrationResult, scheduledResult)
             guard !Task.isCancelled, self.auxiliaryRequestID == requestID else { return }
             if case .success(let value) = profile {
                 appState.updateVolunteerProfile(value)
@@ -514,8 +572,37 @@ final class VolunteerHomeViewModel: ObservableObject {
             if case .success(let value) = registration {
                 appState.updateVolunteerRegistrationStatus(value)
             }
+            self.applyScheduled(scheduled)
             self.auxiliaryLoadTask = nil
             self.auxiliaryRequestID = nil
+        }
+    }
+
+    /// 拉取结果落进 `scheduledOrders`。
+    ///
+    /// 🚨 **失败时不清空已有列表**：预约区块上挂着一个 60 分钟到期的确认动作，
+    /// 一次网络抖动把整块抹掉，志愿者就会以为那张单已经没了、不必再管它 ——
+    /// 而后端那边计时照走。失败只留一句说明，列表保持上一次的内容。
+    ///
+    /// ⚠️ 服务端返回的顺序是 `createdAt` 倒序（`OrderController.getMyOrders` 写死的），
+    /// 这里按 `plannedStart` 重排成升序：这一块回答的是「下一件事什么时候」，
+    /// 不是「我什么时候接的单」。缺 `plannedStart` 的排最后而不是丢掉。
+    private func applyScheduled(_ result: Result<PagedOrderResponse, Error>) {
+        switch result {
+        case .success(let page):
+            scheduledOrders = page.content
+                .filter { $0.status == .scheduledConfirmed }
+                .sorted { ($0.plannedStart ?? "\u{FFFF}") < ($1.plannedStart ?? "\u{FFFF}") }
+            scheduledOrdersMessage = nil
+        case .failure:
+            ClientFlowDiagnostics.record(event: "failed", operation: "volunteer-scheduled-orders")
+            // 🚨 **列表空时也要说话。** 早先这里是 `guard !scheduledOrders.isEmpty else { return }`，
+            // 于是首次加载失败时既不渲染区块、也不设提示 —— 志愿者看到的与「我没有预约单」
+            // 一模一样，而他可能正有一张单在倒计时。判据是「这个失败态下屏幕上会**多**出什么」，
+            // 当时的答案是「什么都不多」，那就是静默失败。
+            scheduledOrdersMessage = scheduledOrders.isEmpty
+                ? "预约列表没能加载，如果你有还没到时间的预约，请下拉刷新再看一次。"
+                : "预约列表没能刷新，显示的是上一次的内容。"
         }
     }
 
@@ -524,6 +611,89 @@ final class VolunteerHomeViewModel: ObservableObject {
     ) async -> Result<Value, Error> {
         do { return .success(try await operation()) }
         catch { return .failure(error) }
+    }
+
+    /// 临期确认「我还会去」（`SCHEDULED_CONFIRMED → PENDING_ACCEPT`）。
+    ///
+    /// 🚩 **成功后必须把他带进服务页，不能只把卡片移除。**
+    /// 确认之后订单是 `PENDING_ACCEPT`，而那一态**既不在预约列表里**（这个列表按
+    /// `status=SCHEDULED_CONFIRMED` 拉）、**也不在「当前订单」里**（后端
+    /// `VolunteerService.loadActiveOrders` 的白名单只有陪跑中那三态）⇒ 只移除卡片的话，
+    /// 他刚确认完就在首页上再也找不到这一单，而下一步「我已出发」要靠他自己翻回去。
+    ///
+    /// 复用派单接单后那条既有的导航（`acceptedDispatchOrderId` + `navigationDestination`），
+    /// 不另起一套：两者要去的是同一个页面、同一个状态。
+    func confirmScheduledDeparture(orderID: Int64) async {
+        let order = scheduledOrders.first { $0.orderId == orderID }
+        let confirmed = await submitScheduled(
+            orderID: orderID,
+            successSpeech: "已确认，到时间请按约定前往。"
+        ) { orders in
+            try await orders.confirmDeparture(orderId: orderID)
+        }
+        guard confirmed else { return }
+        // 带上手里这份详情当初值，服务页就不必空着等第一次 GET 回来。
+        acceptedDispatchInitialOrder = order?.replacingStatus(with: .pendingAccept)
+        acceptedDispatchOrderId = orderID
+    }
+
+    /// 「我去不了」（走取消端点，订单转 `REMATCHING` 回到派单池）。
+    ///
+    /// 与确认共用同一条提交路径，**刻意不做得更难** —— 释放做得难只会把 no-show 从
+    /// 「提前告知」变成「当天失联」，那对盲人差得多（`docs/research/volunteer-scheduled-order-confirm-ui-20260906.md` §二.1）。
+    /// 二次确认在 View 上（`confirmationDialog`），因为它不可逆：抢不回同一个盲人。
+    func releaseScheduledOrder(orderID: Int64) async {
+        // 🚩 **不说「会转给其他志愿者」**：后端 `enterRematching` 在重匹次数达上限时是直接
+        // 置 `CANCELLED` 而不是重派（`OrderLifecycleService`），那时这句话就是假的。
+        // 只说他自己那一半 —— 那一半永远为真。
+        _ = await submitScheduled(orderID: orderID, successSpeech: "已经告诉系统你去不了，这一单不在你名下了。") { orders in
+            try await orders.cancel(orderId: orderID)
+        }
+    }
+
+    /// 两个动作共用的提交路径。返回**这次提交是不是真的成功了**（调用方据此决定要不要导航）。
+    ///
+    /// 成功与 409 都从列表移除：两种情况下这一单都不再是「待你确认的预约」。
+    private func submitScheduled(
+        orderID: Int64,
+        successSpeech: String,
+        operation: @escaping (any OrderServing) async throws -> Void
+    ) async -> Bool {
+        guard submittingScheduledOrderID == nil, let appState else { return false }
+        submittingScheduledOrderID = orderID
+        scheduledOrdersMessage = nil
+        defer { submittingScheduledOrderID = nil }
+        do {
+            try await operation(appState.orders)
+            scheduledOrders.removeAll { $0.orderId == orderID }
+            speechService?.speak(successSpeech)
+            return true
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) { return false }
+            // 409 `ORDER_STATUS_NOT_ALLOWED`：订单已经不在 `SCHEDULED_CONFIRMED` 上了。
+            //
+            // 🚨 **不许断言是哪一种。** 至少三种成因，客户端一个都分不出：
+            // 闸门已经把它退回重新匹配、盲人取消了、以及**上一次其实已经提交成功**
+            // （请求到了服务端、响应在回来的路上丢了，用户以为没成功又点了一次）。
+            // 早先这里写死「这一单已经转给其他志愿者了」——在第三种情况下那是句假话，
+            // 而且紧跟着把卡片删掉，他从此在首页上再也看不到一张仍在自己名下的单。
+            // 现在这句话对三种成因**都为真**，且给出的下一步（不用再确认）也都对。
+            if case .serverError(let response) = error, response.errorCode == .invalidOrderStatus {
+                scheduledOrders.removeAll { $0.orderId == orderID }
+                let message = "这一单的状态已经变了，不用再确认。可以到「近期服务」里看它现在怎么样。"
+                scheduledOrdersMessage = message
+                speechService?.speakError(message)
+                return false
+            }
+            scheduledOrdersMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+            return false
+        } catch {
+            let message = "操作没有成功，请重试。"
+            scheduledOrdersMessage = message
+            speechService?.speakError(message)
+            return false
+        }
     }
 
     private func cancelRequestIfCurrent(_ requestID: UUID) {
@@ -1302,6 +1472,24 @@ struct VolunteerHomeView: View {
 
     @ViewBuilder
     private var nearbyDemandContent: some View {
+        // 🚩 **必须在 `if let summary` 之外**，两条独立的理由：
+        // ① 数据源不同 —— 预约单来自 `GET /api/orders/mine`，与 dispatch-summary 无关。
+        //    嵌进去的话，派单摘要一失败（那是个有专门空态、被明确预期的失败），
+        //    连同确认按钮一起消失，而它带着一个 60 分钟到期的动作 —— 那正是本功能要防的后果。
+        // ② 排在最前 —— 这一块装的是**将要发生**且需要他动手的事；
+        //    派单摘要与近期服务都是状态与历史。读屏用户不该先划过三条已完成的单才听到待办。
+        VolunteerScheduledOrdersSection(
+            orders: viewModel.scheduledOrders,
+            submittingOrderID: viewModel.submittingScheduledOrderID,
+            message: viewModel.scheduledOrdersMessage,
+            onConfirm: { orderID in
+                Task { await viewModel.confirmScheduledDeparture(orderID: orderID) }
+            },
+            onRelease: { orderID in
+                Task { await viewModel.releaseScheduledOrder(orderID: orderID) }
+            }
+        )
+
         if let summary = viewModel.dispatchSummary {
             if viewModel.isLoading {
                 Label(
@@ -1725,6 +1913,116 @@ private struct VolunteerMetricTile: View {
         .padding(.vertical, 8)
         .background(AppColors.background)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// 首页的「我的预约」区块 —— 跨天预约单（`SCHEDULED_CONFIRMED`）以及它们的临期确认动作。
+///
+/// **为什么它必须独立于「当前订单」和「近期服务」两块**：
+/// - 与「当前订单」共用一个位会被即时单顶掉（见 `VolunteerHomeViewModel.scheduledOrders`）。
+/// - 「近期服务」在语义上是历史（空态文案逐字是「完成服务后会显示在这里」），
+///   而且只渲染 `prefix(3)`。把一个 60 分钟到期的待办混进历史列表，可发现性接近零。
+///
+/// 确认按钮直接摆在卡上、**不进二级页也不进溢出菜单** —— Rover 把改期藏进三点菜单、
+/// 把接受放在会话线程里，是本轮调研里唯一被点名的反面教材。
+private struct VolunteerScheduledOrdersSection: View {
+    let orders: [OrderDetailResponse]
+    let submittingOrderID: Int64?
+    let message: String?
+    let onConfirm: (Int64) -> Void
+    let onRelease: (Int64) -> Void
+
+    /// 要释放的那一单。二次确认是因为释放不可逆 —— 订单回派单池，抢不回同一个盲人。
+    @State private var pendingReleaseOrder: OrderDetailResponse?
+
+    var body: some View {
+        // `message` 非空时即使没有卡片也要渲染：加载失败而列表恰好为空是最需要说话的一刻，
+        // 只按 `orders.isEmpty` 判会让那条提示无处可去（见 `applyScheduled` 的失败分支）。
+        if !orders.isEmpty || message != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("我的预约")
+                    .font(AppFonts.body().weight(.bold))
+                    .foregroundColor(AppColors.textPrimary)
+
+                if let message {
+                    Text(message)
+                        .font(AppFonts.caption())
+                        .foregroundColor(AppColors.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(message)
+                }
+
+                ForEach(orders) { order in
+                    card(order)
+                }
+            }
+            .confirmationDialog(
+                "确认去不了？",
+                isPresented: Binding(
+                    get: { pendingReleaseOrder != nil },
+                    set: { if !$0 { pendingReleaseOrder = nil } }
+                ),
+                presenting: pendingReleaseOrder
+            ) { order in
+                Button("确认去不了", role: .destructive) { onRelease(order.orderId) }
+                Button("再想想", role: .cancel) {}
+            } message: { _ in
+                Text("这一单会转给其他志愿者，之后不一定还能接回来。")
+            }
+        }
+    }
+
+    /// 一张预约卡。整块 `children: .contain` —— 容器上的无障碍设置会向下盖掉子元素，
+    /// 而这张卡上的两个按钮必须各自可被读屏聚焦、也必须能被 UI 测试分别找到。
+    private func card(_ order: OrderDetailResponse) -> some View {
+        let isSubmitting = submittingOrderID == order.orderId
+        let anySubmitting = submittingOrderID != nil
+        return VStack(alignment: .leading, spacing: 10) {
+            // 缺 `plannedStart` 时给一句话而不是空串：这一行是整张卡最重要的内容
+            // （「什么时候」就是这一态的全部），空 `Text` 对读屏用户等于这张卡没有时间。
+            Text(order.plannedStart?.nilIfBlank?.displayDateTime ?? "开跑时间待同步")
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("\(order.blindName ?? "盲人跑者") · \(order.startAddress ?? "出发地待同步")")
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // 竖直堆叠而不是并排：对标产品无一把两个动作并排放
+            // （`blind-ui-visual-benchmark-20260808.md`「次级操作一律整行铺满竖直堆叠」），
+            // 而且并排会让每个按钮的可点宽度减半，AX5 下文字直接被压成省略号。
+            PrimaryButton(
+                VolunteerServiceActionKind.confirmDeparture.title,
+                isLoading: isSubmitting,
+                action: { onConfirm(order.orderId) }
+            )
+            .disabled(anySubmitting)
+            .accessibilityLabel(VolunteerServiceActionKind.confirmDeparture.title)
+            .accessibilityHint("告诉跑者你仍然会来。不确认这一单会转给其他志愿者")
+            .accessibilityIdentifier("volunteerScheduledConfirm-\(order.orderId)")
+
+            Button(role: .destructive) {
+                pendingReleaseOrder = order
+            } label: {
+                Text(VolunteerServiceActionKind.releaseScheduled.title)
+                    .font(AppFonts.body().weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 52)
+                    .background(AppColors.destructive.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .disabled(anySubmitting)
+            .accessibilityLabel(VolunteerServiceActionKind.releaseScheduled.title)
+            .accessibilityHint("这一单会转给其他志愿者，需要确认后释放")
+            .accessibilityIdentifier("volunteerScheduledRelease-\(order.orderId)")
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.secondaryBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .contain)
     }
 }
 
