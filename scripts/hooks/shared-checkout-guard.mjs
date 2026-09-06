@@ -209,7 +209,17 @@ function rewritesHistory(cmd) {
   const sub = args[0];
 
   if (sub === 'commit' && args.includes('--amend')) return 'amend';
-  if (sub === 'rebase' && !args.includes('--abort') && !args.includes('--quit')) return 'rebase';
+  // rebase **进行中**的控制子命令一律放行：它们不是改写历史的入口 —— 要不要改写的决策在
+  // `git rebase <base>` 那一步做过、也被本守卫判过一次了。而 rebase 进行中 HEAD 必然是
+  // detached，三条判据（没切过这条分支 / HEAD 提交不是本会话写的 / HEAD 在会话开始后动过）
+  // 恒同时成立 ⇒ 误报率 100%，还把「遇冲突 → 解完 → --continue」这条常规路径拦死
+  // （2026-09-06 一天踩到 3 次，只能改用 merge 绕过）。
+  // ⚠️ 只放行这几个具名的，别放宽成「带 -- 开头的参数就放行」：`git rebase --onto <base> ...`
+  // 是不折不扣的改写入口。
+  if (sub === 'rebase') {
+    const inProgress = ['--abort', '--quit', '--continue', '--skip'];
+    return args.some((a) => inProgress.includes(a)) ? null : 'rebase';
+  }
   if (sub === 'reset') {
     // `git reset -- <path>` / `git reset <path>` 只动 index。带 `--` 的一律当取消暂存。
     if (args.includes('--')) return null;
