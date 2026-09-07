@@ -953,7 +953,6 @@ struct BlindOrderStatusView: View {
     @EnvironmentObject private var locationService: LocationService
     @EnvironmentObject private var speechInputService: SpeechInputService
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @StateObject private var shareViewModel = RunPlanLiveShareViewModel()
@@ -1989,10 +1988,25 @@ struct BlindOrderStatusView: View {
         .readableContentColumn()
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
-        // 这条常驻底栏压在滚动内容之上，`.regularMaterial` 会把下面滑过去的文字透上来。
-        // 「降低透明度」开启时换成实色 —— 那个开关的用户正是被这种叠影干扰的人，
-        // 而底下这些按钮是这一页任何时刻都要够得着的东西。
-        .background(reduceTransparency ? AnyShapeStyle(AppColors.background) : AnyShapeStyle(.regularMaterial))
+        // 这条常驻底栏压在滚动内容之上，**恒用实色**。
+        //
+        // 原来只在系统「降低透明度」打开时才实色，默认走 `.regularMaterial` ——
+        // 于是滑过去的文字会从这几个按钮底下透上来，2026-09-07 真机报的「穿模」就是它。
+        // 材质在短底栏上没问题，问题出在这一页：它压着一条很长的滚动列表，
+        // 透上来的是**正文**，成了文字叠文字。
+        //
+        // 判据不是「好不好看」，是这一页服务谁：`VisionLevel.LOW_VISION` 的用户不开读屏，
+        // 只有「看得见的那一屏」这一条通道，而叠影恰好打掉的就是那条通道
+        // （对比度审计查不出来 —— 它查的是静态配色，不是两层内容叠在一起）。
+        // 恒实色是原来那个条件的超集，「降低透明度」的用户拿到的东西没变。
+        .background(AppColors.background)
+        // 底栏与滚动内容之间的边界原本靠材质的模糊来暗示，改实色之后要自己画一条，
+        // 否则页面看起来像在底部被切断了。
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(AppColors.textSecondary.opacity(0.25))
+                .frame(height: 1)
+        }
     }
 
     /// `IN_PROGRESS` 时「问一句」被求助顶出底部常驻条，落在这里 —— 紧跟「打电话给志愿者」。
