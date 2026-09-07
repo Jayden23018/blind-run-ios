@@ -9,6 +9,7 @@ import XCTest
 import AMapSearchKit
 import AVFAudio
 import CoreLocation
+import SwiftUI
 @testable import blindRun
 
 @MainActor
@@ -4183,6 +4184,37 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(completion?.field, .startPlaceSearch)
         XCTAssertEqual(completion?.recognizedText, "大观楼")
         XCTAssertEqual(completion?.reason, .finalResult)
+    }
+
+    /// 系统权限弹窗会让 `scenePhase` 短暂走一趟 `.inactive`。在那一刻作废掉待授权的识别会话，
+    /// 用户点完「允许」之后授权回调恢复时 `isCurrentRecognitionSession` 必然判 false，
+    /// 于是**静默 return**：没有播报、没有 errorMessage、没有完成回调，麦克风从未启动。
+    /// 再点说话按钮命中 `VoiceOrderWizard.finishSpeakingOrSkipPrompt` 那个没有 `else` 的
+    /// `if/else if`，是彻底的空操作 —— 2026-09-07 真机报的「点了没反应，要退出重进两次」。
+    ///
+    /// 下面这两行刻意照抄 `blindRunApp.swift` 的 `onChange(of: scenePhase)` 体，
+    /// 这样判定改错时这条会红，而不是只有那个纯函数的断言会红。
+    func testTransientInactivePhaseKeepsThePendingAuthorizationAlive() {
+        let service = SpeechInputService()
+        let session = service.startPendingAuthorizationForTesting(field: .startPlaceSearch)
+
+        if RecognitionLifecyclePolicy.cancelsRecognition(on: .inactive) {
+            service.cancelRecognitionForLifecycle()
+        }
+        service.simulateAuthorizationCompletionForTesting(sessionID: session, field: .startPlaceSearch)
+
+        XCTAssertTrue(
+            service.isListening,
+            "权限弹窗让 scenePhase 走了一趟 .inactive，待授权的识别会话就被作废了 —— "
+                + "用户点「允许」之后麦克风不会打开，而且一个字都不会播"
+        )
+    }
+
+    /// 真进后台仍然要取消：麦克风不能在用户切走之后继续开着。
+    func testBackgroundPhaseStillCancelsRecognition() {
+        XCTAssertTrue(RecognitionLifecyclePolicy.cancelsRecognition(on: .background))
+        XCTAssertFalse(RecognitionLifecyclePolicy.cancelsRecognition(on: .inactive))
+        XCTAssertFalse(RecognitionLifecyclePolicy.cancelsRecognition(on: .active))
     }
 
     func testSpeechInputPendingAuthorizationOwnsRecognitionSessionBeforeListening() {

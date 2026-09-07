@@ -10,6 +10,30 @@ import UIKit
 import MetricKit
 import OSLog
 
+// MARK: - Recognition Lifecycle
+
+/// 什么时候该把「待授权 / 进行中」的语音识别会话作废掉。
+///
+/// **只有真进后台才算。`.inactive` 不算。**
+///
+/// 原来这里写的是 `phase != .active`，而**系统权限弹窗（麦克风 / 语音识别）会让 scenePhase
+/// 短暂离开 `.active`** —— 于是弹窗一出现就被当成「App 进后台」，
+/// `cancelRecognitionForLifecycle()` 换掉 `recognitionSessionID` 并取消
+/// `recognitionStartTask`（`SpeechInputService.swift:543-548`）。
+/// 用户点完「允许」，授权回调恢复挂起的 `Task`，`SpeechInputService.swift:476` 的
+/// `guard isCurrentRecognitionSession(...)` 必然判 false ⇒ **静默 return，麦克风从未启动**
+/// （那条路径 `announce: false` / `notifyCompletion: false`，一个字都不播）。
+/// 表现就是 2026-09-07 真机报的：点了说话按钮**完全没反应**，要退出重进至少两次才好
+/// —— 两次是因为语音识别授权与麦克风授权是两个分开的 `await` 点，各弹一次、各毁一次会话。
+///
+/// 抽成一个纯函数只为一件事：`scenePhase` 接线挂在 `App.body` 上，
+/// 而系统权限弹窗无法在 XCTest 里复现，只有这样才留得下一条会红的检查。
+enum RecognitionLifecyclePolicy {
+    static func cancelsRecognition(on phase: ScenePhase) -> Bool {
+        phase == .background
+    }
+}
+
 @main
 struct blindRunApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -51,9 +75,9 @@ struct blindRunApp: App {
                     Task { await appState.restoreSession() }
                 }
                 .onChange(of: scenePhase) { phase in
-                    if phase != .active {
+                    if RecognitionLifecyclePolicy.cancelsRecognition(on: phase) {
                         speechInputService.cancelRecognitionForLifecycle()
-                    } else {
+                    } else if phase == .active {
                         // device token 会被 Apple 轮换：每次回前台重新注册并上报最新值。
                         pushNotificationsManager.refreshRegistrationIfReady()
                         // 补读此前只挂在 WS 重连上，而后台挂起期间的断连 App 根本观察不到：
