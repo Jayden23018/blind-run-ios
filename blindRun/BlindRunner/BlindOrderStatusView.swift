@@ -2000,12 +2000,20 @@ struct BlindOrderStatusView: View {
         // （对比度审计查不出来 —— 它查的是静态配色，不是两层内容叠在一起）。
         // 恒实色是原来那个条件的超集，「降低透明度」的用户拿到的东西没变。
         .background(AppColors.background)
-        // 底栏与滚动内容之间的边界原本靠材质的模糊来暗示，改实色之后要自己画一条，
-        // 否则页面看起来像在底部被切断了。
+        // 底栏与滚动内容之间的边界原本靠材质的模糊来暗示，改实色之后要自己画一条 ——
+        // 底栏背景与页面背景是同一个颜色（`:1037`），不画就真的看不出哪里是边界。
+        //
+        // **不透明，不要 `.opacity(0.25)`**：那样在亮色下是 `#D6D6D7` 压白底 ≈ 1.4:1、
+        // 暗色 ≈ 1.5:1，而 WCAG 1.4.11 对「用来识别控件边界」的非文本内容要求 3:1。
+        // 这条线正是这次改动为低视力用户新增的**唯一**视觉边界，做成看不见的那一档
+        // 等于白改；而且它不响应「增强对比度」，没有别的补偿。
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(AppColors.textSecondary.opacity(0.25))
+                .fill(AppColors.textSecondary)
                 .frame(height: 1)
+                // 纯装饰：不参与命中测试，也不该在无障碍树里多出一个没有 label 的元素。
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 
@@ -2031,6 +2039,16 @@ struct BlindOrderStatusView: View {
         .frame(minHeight: 64)
         .background(AppColors.secondaryBackground)
         .cornerRadius(12)
+        // 描边不是装饰。底栏改成实色之后这个按钮压的是 `AppColors.background`，
+        // 而 `secondaryBackground` 与它是**同一族系统语义色**：亮色 `#F2F2F7` 压 `#FFFFFF`
+        // ≈ 1.06:1，暗色 `#1C1C1E` 压 `#000000` ≈ 1.22:1 —— 按钮的形状实际上消失了，
+        // 只剩文字能认出这里可以点。这个组合此前只有开了「降低透明度」的人会遇到，
+        // 改成恒实色等于把它变成所有人的默认，所以必须补上边界。
+        // 用 `primary`（就是文字色）而不是灰线：它同时给出 ≈7:1 的边界对比。
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(AppColors.primary, lineWidth: 2)
+        )
         .accessibilityLabel("问一句")
         .accessibilityHint("点击后开始录音，可以问志愿者还有多远、几点开始，或者打电话给志愿者")
         .accessibilityIdentifier("blindOrderStatusAskQuestionButton")
