@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Primary Button
 
-/// 全宽大按钮，盲人端主操作按钮最小高度 64pt。
+/// 全宽大按钮，盲人端主操作按钮最小高度 `AppTouchTarget.blindPrimary`（64pt）。
 /// 支持普通和危险操作两种样式。
 struct PrimaryButton: View {
     let title: String
@@ -24,7 +24,7 @@ struct PrimaryButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: AppSpacing.small) {
                 if isLoading {
                     ProgressView()
                         .tint(.white)
@@ -34,9 +34,9 @@ struct PrimaryButton: View {
                     .foregroundColor(.white)
             }
             .frame(maxWidth: .infinity)
-            .frame(minHeight: 64)
+            .frame(minHeight: AppTouchTarget.blindPrimary)
             .background(isDestructive ? AppColors.destructive : AppColors.primary)
-            .cornerRadius(12)
+            .cornerRadius(AppCornerRadius.medium)
         }
         .disabled(isLoading)
         .accessibilityLabel(title)
@@ -46,7 +46,7 @@ struct PrimaryButton: View {
 }
 
 #Preview {
-    VStack(spacing: 16) {
+    VStack(spacing: AppSpacing.large) {
         PrimaryButton("提交预约") {}
         PrimaryButton("取消订单", isDestructive: true) {}
         PrimaryButton("加载中", isLoading: true) {}
