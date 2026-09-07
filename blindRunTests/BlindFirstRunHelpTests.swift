@@ -41,6 +41,29 @@ final class BlindFirstRunHelpTests: XCTestCase {
         XCTAssertTrue(body.contains("确认"), "没说需要二次确认，用户会以为一按就发出")
     }
 
+    /// 两指双击的说明**必须限定页面**。
+    ///
+    /// Magic Tap 沿响应链查找，而全仓只在 `BlindRunnerHomeView.swift` 与 `BlindBookingView.swift`
+    /// 注册过它。订单状态页是 push 上去的，够不到首页那个注册点 —— 陪跑进行中恰恰在那一页，
+    /// 所以「屏幕任意位置」这句话在最需要求助的时刻是错的，手势会落到系统默认动作（播放音乐）。
+    /// 那一页真正的入口是底部常驻区里的按钮。
+    func testEmergencyTopicScopesTheTwoFingerGestureToTheHomePage() {
+        let body = topic(id: "sos").body
+
+        XCTAssertFalse(
+            body.contains("任意位置"),
+            "又写回「屏幕任意位置」了。Magic Tap 只注册在首页与下单页，订单状态页够不到：\(body)"
+        )
+        XCTAssertTrue(
+            body.contains("首页"),
+            "没说清两指双击只在首页有效，用户会在陪跑中对着订单页做这个手势：\(body)"
+        )
+        XCTAssertTrue(
+            body.contains("按钮"),
+            "没告诉用户陪跑进行中该按哪里 —— 去掉手势之后那一页就没有入口可讲了：\(body)"
+        )
+    }
+
     /// 提前量必须跟着 `AppConstants` 走。
     ///
     /// 写死 30 的那一版在产品松绑提前量的当天就会变成一句骗人的话，而它错得很安静：

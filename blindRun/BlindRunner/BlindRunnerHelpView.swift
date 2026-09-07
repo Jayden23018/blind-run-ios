@@ -41,11 +41,17 @@ enum BlindFirstRunHelp {
             // 两种模式都要讲，且必须讲清哪一种什么都没发出去。
             // 只讲云端那一半，用户会在没有进行中订单时按下去，以为求助已经发出 —— 那正是
             // `EmergencySafetyCopy.homeCallDialogMessage` 在弹窗里要抢先说明的同一件事。
+            // ⚠️ 必须说清是**首页**。Magic Tap 全仓只注册在两处（`BlindRunnerHomeView.swift`
+            // 的 `.accessibilityAction(.magicTap)` 与语音下单页），而它沿响应链查找 ——
+            // 订单状态页是 push 上去的，够不到首页那个注册点，两指双击会落到系统默认动作
+            // （播放音乐）。写「屏幕任意位置」等于教一个在陪跑进行中那一页不生效的手势。
+            // 那一页的求助入口是底部常驻区里的按钮，不是手势。
             BlindHelpTopic(
                 id: "sos",
                 title: "第二，怎么求助",
                 body: """
-                陪跑进行中的时候，用两根手指双击屏幕任意位置，就能发出求助，再确认一次才会真的发出。\
+                陪跑进行中的时候，订单页面最下面一直有求助按钮，双击它就能发出求助，再确认一次才会真的发出。\
+                在首页，用两根手指双击屏幕也能求助。\
                 其他时候同样的动作只会让你选择拨打紧急联系人或者 110，App 不会代你发送求助。
                 """
             ),
@@ -87,6 +93,10 @@ struct BlindRunnerHelpView: View {
 
     private var topics: [BlindHelpTopic] { BlindFirstRunHelp.topics() }
 
+    /// `SpeechService.isSpeaking` 是 `@Published`，`speechService` 又是 `@EnvironmentObject`，
+    /// 所以按钮标题会跟着播报状态自动重绘，不需要本地 `@State` 镜像一份。
+    private var isSpeaking: Bool { speechService.isSpeaking }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -125,15 +135,27 @@ struct BlindRunnerHelpView: View {
         VStack(spacing: 16) {
             // 这一页的「重复当前状态」。名字换成「再听一遍」是因为这一页没有「状态」，
             // 只有一段说明 —— 用同一个词反而让人以为它会念订单情况。
-            Button("再听一遍") { speak() }
+            //
+            // 播报中变成「停止播报」：整段脚本 40–60 秒，而 WCAG 2.2 SC 1.4.2 Audio Control
+            // （**Level A**）要求自动播放超过 3 秒必须给出暂停或停止的手段，且系统音量键不算数。
+            // 做成同一个按钮的两态而不是新增一个控件 —— 引导页多一个焦点，读屏用户就要多滑一次，
+            // 而这两个动作互斥（在播才需要停，没播才需要重听），天然是一个开关。
+            // 标识符保持 `blindRunnerHelpRepeatButton` 不变：UI 用例按 id 找它。
+            Button(isSpeaking ? "停止播报" : "再听一遍") {
+                if isSpeaking {
+                    speechService.stop()
+                } else {
+                    speak()
+                }
+            }
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(AppColors.primary)
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 64)
                 .background(AppColors.secondaryBackground)
                 .cornerRadius(12)
-                .accessibilityLabel("再听一遍")
-                .accessibilityHint("从头重新播报这三条说明")
+                .accessibilityLabel(isSpeaking ? "停止播报" : "再听一遍")
+                .accessibilityHint(isSpeaking ? "立刻停止当前播报" : "从头重新播报这三条说明")
                 .accessibilityIdentifier("blindRunnerHelpRepeatButton")
 
             if isFirstRun {

@@ -109,7 +109,16 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    func loadActiveOrder() async {
+    /// - Parameter announcesStatus: 首启引导页正压在首页上时传 `false`。
+    ///
+    ///   两个页面共用同一个 `AVSpeechSynthesizer`，而 `SpeechService.speak` 的第一件事是
+    ///   `stopSpeaking(at: .immediate)`（`SpeechService.swift:47`）—— 谁后说谁赢。
+    ///   这一句要等一次网络往返才回来，比引导页的 `.task` 晚，于是把引导念到一半的说明当场切断。
+    ///   两句又都以「欢迎…助盲跑」开头，听感就是「只念了标题就没了」，2026-09-07 真机报的正是这个。
+    ///
+    ///   **只闸成功路径的状态播报，不闸 `speakError`** —— 出错是最不该被静默的时刻，
+    ///   而且它罕见到不值得为它多设一个开关。
+    func loadActiveOrder(announcesStatus: Bool = true) async {
         guard let appState else { return }
         if let activeLoadTask {
             ClientFlowDiagnostics.record(event: "coalesced", operation: "blind-home-refresh")
@@ -127,7 +136,11 @@ final class BlindRunnerHomeViewModel: ObservableObject {
 
         let workTask = Task { [weak self, weak appState] in
             guard let self, let appState else { return }
-            await self.performActiveOrderLoad(appState: appState, requestID: requestID)
+            await self.performActiveOrderLoad(
+                appState: appState,
+                requestID: requestID,
+                announcesStatus: announcesStatus
+            )
         }
         activeLoadTask = workTask
 
@@ -158,7 +171,11 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         if orderLoadState.isLoading { orderLoadState = .idle }
     }
 
-    private func performActiveOrderLoad(appState: AppState, requestID: UUID) async {
+    private func performActiveOrderLoad(
+        appState: AppState,
+        requestID: UUID,
+        announcesStatus: Bool = true
+    ) async {
         do {
             let orders = appState.orders
             let statusRequestToken = activeOrder.map {
@@ -217,7 +234,9 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             }
             orderLoadState = .loaded(activeOrder)
             refreshPhase = .idle
-            speakCurrentStatus()
+            if announcesStatus {
+                speakCurrentStatus()
+            }
         } catch HomeLoadCoordinatorError.timedOut {
             guard activeRequestID == requestID, !Task.isCancelled else { return }
             let message = "加载超过 20 秒，请重试。"
@@ -512,10 +531,27 @@ struct BlindRunnerHomeView: View {
                 // 再被切走。`.task` 只在根视图首次出现时跑，所以从引导页返回不会把人弹回去；
                 // 标志只在按下「知道了」时才写（`markBlindFirstRunHelpSeen`），
                 // 没看完就退出的人下次重进 App 仍会拿到引导。
-                if !appState.didSeeBlindFirstRunHelp {
+                //
+                // 🚩 但光换顺序不够：加载**回来**得比引导页的 `.task` 晚，而
+                // `SpeechService.speak` 先 `stopSpeaking(.immediate)` —— 首页这一句会把引导
+                // 念到一半的说明切断（2026-09-07 真机报障）。所以引导在场时首页静音加载，
+                // 播报推迟到用户按「知道了」（见下面的 `onChange`）。
+                let showsFirstRunHelp = !appState.didSeeBlindFirstRunHelp
+                if showsFirstRunHelp {
                     path.append(.help)
                 }
-                await viewModel.loadActiveOrder()
+                await viewModel.loadActiveOrder(announcesStatus: !showsFirstRunHelp)
+            }
+            // 引导期间首页是静音的（见上面的 `.task`），按下「知道了」时把这次播报补上。
+            // 顺带把 `SpeechService.latestRepeatableText` 从引导脚本换回首页状态 ——
+            // 不补的话回到首页按「重复当前状态」会把三条引导重念一遍。
+            //
+            // 挂 `didSeeBlindFirstRunHelp` 而不是 `path` 是刻意的：它一辈子只翻一次面
+            // （`AppState.markBlindFirstRunHelpSeen` 自带 guard），而挂 `path` 会在从设置页、
+            // 订单详情页返回时也播一次，那是本来没有的行为。
+            .onChange(of: appState.didSeeBlindFirstRunHelp) { seen in
+                guard seen else { return }
+                viewModel.speakCurrentStatus()
             }
             .confirmationDialog("取消订单", isPresented: $showCancelConfirmation) {
                 Button("确认取消", role: .destructive) {

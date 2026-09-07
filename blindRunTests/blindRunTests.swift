@@ -593,6 +593,47 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(viewModel.canStartNewBooking)
     }
 
+    /// 首启引导页在场时，首页加载完**不许播报**。
+    ///
+    /// 两个页面共用一个 `AVSpeechSynthesizer`，而 `SpeechService.speak` 的第一件事是
+    /// `stopSpeaking(at: .immediate)` —— 谁后说谁赢。首页这一句要等一次网络往返，
+    /// 比引导页的 `.task` 晚，于是把引导念到一半的三条说明当场切断。两句又都以
+    /// 「欢迎…助盲跑」开头（引导「欢迎使用助盲跑」/ 首页「欢迎来到助盲跑」），
+    /// 听感就是「只念了标题就没了」—— 2026-09-07 真机报的正是这个，而且**读代码看不出来**：
+    /// 引导页的自动播报和「再听一遍」调的是同一个函数，代码上没有任何分叉。
+    func testFirstRunHelpKeepsTheHomeStatusAnnouncementSilent() async {
+        let speechService = SpeechService()
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder(announcesStatus: false)
+
+        XCTAssertNil(
+            speechService.lastSpokenText,
+            "引导页正压在首页上，首页却播报了 —— 它会 stopSpeaking 掉引导念到一半的说明"
+        )
+        XCTAssertNil(viewModel.errorMessage, "静音只该关掉播报，不该把加载本身弄坏")
+    }
+
+    /// 上一条的对照组。少了它，把 `speakCurrentStatus()` 整个删掉也一样绿。
+    func testHomeStillAnnouncesItsStatusWhenNoHelpIsInTheWay() async {
+        let speechService = SpeechService()
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder()
+
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            "欢迎来到助盲跑。可以点击开始约跑。",
+            "常规路径的首页播报被一起关掉了"
+        )
+    }
+
     /// 🚩 **这条是换端点换来的东西**：服务端说它还没走完，客户端就恢复得回来 ——
     /// 哪怕这个版本的 App 根本不认识那个状态。
     ///
