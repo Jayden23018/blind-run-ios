@@ -4198,7 +4198,7 @@ final class blindRunTests: XCTestCase {
         let service = SpeechInputService()
         let session = service.startPendingAuthorizationForTesting(field: .startPlaceSearch)
 
-        if RecognitionLifecyclePolicy.cancelsRecognition(on: .inactive) {
+        if RecognitionLifecyclePolicy.cancelsRecognition(on: .inactive, isListening: service.isListening) {
             service.cancelRecognitionForLifecycle()
         }
         service.simulateAuthorizationCompletionForTesting(sessionID: session, field: .startPlaceSearch)
@@ -4210,11 +4210,38 @@ final class blindRunTests: XCTestCase {
         )
     }
 
-    /// 真进后台仍然要取消：麦克风不能在用户切走之后继续开着。
-    func testBackgroundPhaseStillCancelsRecognition() {
-        XCTAssertTrue(RecognitionLifecyclePolicy.cancelsRecognition(on: .background))
-        XCTAssertFalse(RecognitionLifecyclePolicy.cancelsRecognition(on: .inactive))
-        XCTAssertFalse(RecognitionLifecyclePolicy.cancelsRecognition(on: .active))
+    /// 真进后台要取消 —— 麦克风不能在用户切走之后继续开着。同样照抄 `onChange` 的函数体。
+    func testBackgroundPhaseStillCancelsAnActiveRecognition() {
+        let service = SpeechInputService()
+        service.startRecognitionForTesting(field: .startPlaceSearch)
+        XCTAssertTrue(service.isListening, "前提没成立：这条要验的是「正在听」的会话")
+
+        if RecognitionLifecyclePolicy.cancelsRecognition(on: .background, isListening: service.isListening) {
+            service.cancelRecognitionForLifecycle()
+        }
+
+        XCTAssertFalse(service.isListening, "App 进后台了，麦克风还开着")
+    }
+
+    /// 正在听的时候走 `.inactive` **仍然要停**：那是 iPad 分屏 / 来电横幅 / 控制中心，
+    /// 用户已经在看别的东西了，麦克风不该开着。
+    ///
+    /// 这条是「只写 `.background` 才取消」会带来的 iPad 回归 —— 全仓
+    /// `AVAudioSession.interruptionNotification` 零命中，scenePhase 这条线就是唯一的中断清理，
+    /// 而静音超时最长会被旁边 App 的声音续命到 `maximumRecognitionDuration = 60` 秒。
+    func testInactivePhaseStillCancelsWhileActuallyListening() {
+        let service = SpeechInputService()
+        service.startRecognitionForTesting(field: .startPlaceSearch)
+
+        if RecognitionLifecyclePolicy.cancelsRecognition(on: .inactive, isListening: service.isListening) {
+            service.cancelRecognitionForLifecycle()
+        }
+
+        XCTAssertFalse(
+            service.isListening,
+            "iPad 分屏切到旁边那个 App 之后麦克风还开着 —— 权限弹窗那一刻会话还没在听，"
+                + "两种情况靠 isListening 区分，别退回成只看 phase"
+        )
     }
 
     func testSpeechInputPendingAuthorizationOwnsRecognitionSessionBeforeListening() {

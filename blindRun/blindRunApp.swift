@@ -14,23 +14,48 @@ import OSLog
 
 /// 什么时候该把「待授权 / 进行中」的语音识别会话作废掉。
 ///
-/// **只有真进后台才算。`.inactive` 不算。**
-///
 /// 原来这里写的是 `phase != .active`，而**系统权限弹窗（麦克风 / 语音识别）会让 scenePhase
 /// 短暂离开 `.active`** —— 于是弹窗一出现就被当成「App 进后台」，
 /// `cancelRecognitionForLifecycle()` 换掉 `recognitionSessionID` 并取消
-/// `recognitionStartTask`（`SpeechInputService.swift:543-548`）。
+/// `recognitionStartTask`（`SpeechInputService.swift:544-548`）。
 /// 用户点完「允许」，授权回调恢复挂起的 `Task`，`SpeechInputService.swift:476` 的
 /// `guard isCurrentRecognitionSession(...)` 必然判 false ⇒ **静默 return，麦克风从未启动**
 /// （那条路径 `announce: false` / `notifyCompletion: false`，一个字都不播）。
 /// 表现就是 2026-09-07 真机报的：点了说话按钮**完全没反应**，要退出重进至少两次才好
 /// —— 两次是因为语音识别授权与麦克风授权是两个分开的 `await` 点，各弹一次、各毁一次会话。
 ///
-/// 抽成一个纯函数只为一件事：`scenePhase` 接线挂在 `App.body` 上，
+/// **判据不能只看 phase。** 只写「`.background` 才取消」会带来一个 iPad 回归：
+/// Split View / Stage Manager 下用户把焦点切到旁边那个 App，本 App 是 `.inactive` 而不是
+/// `.background`，正在录的音就一直录着（静音超时 2/8 秒，但旁边 App 放声音会经扬声器回到
+/// 麦克风、把 `containsAudibleSpeech` 一直续命，上界是 `maximumRecognitionDuration = 60`）。
+/// 全仓 `AVAudioSession.interruptionNotification` 零命中，也就是说原来那个 `phase != .active`
+/// 事实上就是唯一的中断清理。麦克风在用户看着别的东西时开着，对一个服务视障用户的 App
+/// 不可接受，而 `AGENTS.md` 要求发布验证必须在 iPad 上跑。
+///
+/// 所以再看一眼**会话有没有真的在听**：
+/// - 权限弹窗那一刻**必然还没在听** —— 两次授权 `await` 都排在 `beginRecognition()` 之前，
+///   而 `isListening` 要到 `markRecognitionStarted()` 才为真。
+/// - 正在听的时候走 `.inactive`，那是分屏 / 来电横幅 / 控制中心，仍然该停。
+///
+/// 抽成纯函数只为一件事：`scenePhase` 接线挂在 `App.body` 上，
 /// 而系统权限弹窗无法在 XCTest 里复现，只有这样才留得下一条会红的检查。
+/// ⚠️ 但纯函数保不住**调用点** —— 把 `blindRunApp` 里那行改回 `phase != .active`，
+/// 这里会变成没人调的死代码而用例照样全绿。那一半由守卫规则 `scenephase-not-active` 挡
+/// （`scripts/hooks/guard.mjs`）。
 enum RecognitionLifecyclePolicy {
-    static func cancelsRecognition(on phase: ScenePhase) -> Bool {
-        phase == .background
+    static func cancelsRecognition(on phase: ScenePhase, isListening: Bool) -> Bool {
+        switch phase {
+        case .background:
+            return true
+        case .inactive:
+            return isListening
+        case .active:
+            return false
+        @unknown default:
+            // 新 phase 语义未知时按「不取消」处理：多留一会儿麦克风只是耗电，
+            // 早清一次是功能彻底不可用且零反馈 —— 两侧代价不对称。
+            return false
+        }
     }
 }
 
@@ -75,7 +100,10 @@ struct blindRunApp: App {
                     Task { await appState.restoreSession() }
                 }
                 .onChange(of: scenePhase) { phase in
-                    if RecognitionLifecyclePolicy.cancelsRecognition(on: phase) {
+                    if RecognitionLifecyclePolicy.cancelsRecognition(
+                        on: phase,
+                        isListening: speechInputService.isListening
+                    ) {
                         speechInputService.cancelRecognitionForLifecycle()
                     } else if phase == .active {
                         // device token 会被 Apple 轮换：每次回前台重新注册并上报最新值。
