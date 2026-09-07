@@ -116,8 +116,16 @@ final class BlindRunnerHomeViewModel: ObservableObject {
     ///   这一句要等一次网络往返才回来，比引导页的 `.task` 晚，于是把引导念到一半的说明当场切断。
     ///   两句又都以「欢迎…助盲跑」开头，听感就是「只念了标题就没了」，2026-09-07 真机报的正是这个。
     ///
+    ///   ⚠️ 传 `false` 是**推迟**不是取消：成功路径会置 `owesStatusAnnouncement`，
+    ///   等首页重新成为最前面那一页时由 `announceStatusIfOwed()` 补上。
+    ///   写成「不播」会让从引导页按返回键退出（不按「知道了」）的用户整次启动听不到任何东西。
+    ///
     ///   **只闸成功路径的状态播报，不闸 `speakError`** —— 出错是最不该被静默的时刻，
     ///   而且它罕见到不值得为它多设一个开关。
+    ///
+    ///   请求合并（下面 `activeLoadTask` 那段）会把后到者的这个参数丢掉，先到的赢。
+    ///   不特别处理是因为「欠着」这套机制本身兜住了：先到那次若传了 `false`，
+    ///   欠账仍然在，首页一露头就补播 —— 后到者要的播报没丢，只是晚一点。
     func loadActiveOrder(announcesStatus: Bool = true) async {
         guard let appState else { return }
         if let activeLoadTask {
@@ -235,7 +243,10 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             orderLoadState = .loaded(activeOrder)
             refreshPhase = .idle
             if announcesStatus {
+                owesStatusAnnouncement = false
                 speakCurrentStatus()
+            } else {
+                owesStatusAnnouncement = true
             }
         } catch HomeLoadCoordinatorError.timedOut {
             guard activeRequestID == requestID, !Task.isCancelled else { return }
@@ -278,6 +289,22 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         if let status = response.status {
             speechService?.speakStatusChange(status)
         }
+    }
+
+    /// 首页欠着一次状态播报 —— 加载完成时引导页正压在上面，播了会把它切断。
+    ///
+    /// **必须是「欠着」而不是「进引导页时静音、出来时补播」**：用户可以在加载回来之前
+    /// 就按下「知道了」（引导脚本 40–60 秒，而超时上限是 20 秒），那一刻
+    /// `activeOrder` 还是 nil，照播就是对着一个有活跃订单的盲人念「可以点击开始约跑」。
+    /// 只在**加载成功**时才置位，所以失败/超时那条路不会欠 —— 那边由没有加闸的
+    /// `speakError` 负责，两条不会互相盖。
+    @Published private(set) var owesStatusAnnouncement = false
+
+    /// 首页重新成为最前面那一页时调用。欠着才播，播完清账。
+    func announceStatusIfOwed() {
+        guard owesStatusAnnouncement else { return }
+        owesStatusAnnouncement = false
+        speakCurrentStatus()
     }
 
     func speakCurrentStatus(locationDescription: String? = nil) {
@@ -479,6 +506,12 @@ struct BlindRunnerHomeView: View {
     /// 对 VoiceOver 用户（A 类）没有区别 —— 滑动本来就到得了；受损的一直是**低视力且不开读屏**
     /// 的 B 类，他们只有「看得见的那一屏」这一条通道。见
     /// `docs/research/blind-ui-visual-benchmark-20260808.md` 规则 5「地图是装饰，列表是界面」。
+    /// 「首页是最前面那一页了，而且它还欠着一次状态播报」。
+    /// 做成派生值是为了让下面那个 `onChange` 一条盖住两种到达顺序 —— 详见它的注释。
+    private var shouldSettleHomeAnnouncement: Bool {
+        path.isEmpty && viewModel.owesStatusAnnouncement
+    }
+
     private var mapVisualHeight: CGFloat { verticalSizeClass == .compact ? 140 : 200 }
     private var mapRevealHeight: CGFloat { verticalSizeClass == .compact ? 96 : 150 }
 
@@ -536,22 +569,28 @@ struct BlindRunnerHomeView: View {
                 // `SpeechService.speak` 先 `stopSpeaking(.immediate)` —— 首页这一句会把引导
                 // 念到一半的说明切断（2026-09-07 真机报障）。所以引导在场时首页静音加载，
                 // 播报推迟到用户按「知道了」（见下面的 `onChange`）。
+                // 传 false 是**推迟**不是取消，还账在下面的 `onChange`。
                 let showsFirstRunHelp = !appState.didSeeBlindFirstRunHelp
                 if showsFirstRunHelp {
                     path.append(.help)
                 }
                 await viewModel.loadActiveOrder(announcesStatus: !showsFirstRunHelp)
             }
-            // 引导期间首页是静音的（见上面的 `.task`），按下「知道了」时把这次播报补上。
-            // 顺带把 `SpeechService.latestRepeatableText` 从引导脚本换回首页状态 ——
-            // 不补的话回到首页按「重复当前状态」会把三条引导重念一遍。
+            // 引导期间首页只是**欠着**那次播报（见上面的 `.task`），这里还账。
             //
-            // 挂 `didSeeBlindFirstRunHelp` 而不是 `path` 是刻意的：它一辈子只翻一次面
-            // （`AppState.markBlindFirstRunHelpSeen` 自带 guard），而挂 `path` 会在从设置页、
-            // 订单详情页返回时也播一次，那是本来没有的行为。
-            .onChange(of: appState.didSeeBlindFirstRunHelp) { seen in
-                guard seen else { return }
-                viewModel.speakCurrentStatus()
+            // 判据是「首页重新成为最前面那一页 **且** 确实欠着」，两个条件缺一不可，
+            // 而且**两种到达顺序都要覆盖**：
+            //   ① 加载先回来（欠上账），用户再按「知道了」或返回键 → path 空 → 触发
+            //   ② 用户先离开引导页，加载后回来才欠上账 → path 已空 → 同一个派生值翻面 → 触发
+            // 第 ② 种是弱网下的常态：引导脚本 40–60 秒，而加载超时上限是 20 秒。
+            //
+            // ⚠️ 别改回「挂 `didSeeBlindFirstRunHelp`」：那个标志只在按下「知道了」时翻面，
+            // 用返回键退出引导的人一辈子等不到它，整次启动首页一个字都不播。
+            // 也别改成裸 `onChange(of: path)`：欠账这个条件同时挡住了从设置页 / 订单详情页
+            // 返回时的多余播报 —— 那两条路径不欠账。
+            .onChange(of: shouldSettleHomeAnnouncement) { shouldSettle in
+                guard shouldSettle else { return }
+                viewModel.announceStatusIfOwed()
             }
             .confirmationDialog("取消订单", isPresented: $showCancelConfirmation) {
                 Button("确认取消", role: .destructive) {
