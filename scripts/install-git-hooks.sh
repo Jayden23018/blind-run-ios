@@ -65,6 +65,7 @@ run_node "validate-guard（冻结文件守卫自测）" scripts/validate-guard.m
 run_node "validate-stop-checklist（收尾钩子自测）" scripts/validate-stop-checklist.mjs
 run_node "validate-session-context（开场钩子自测）" scripts/validate-session-context.mjs
 run_node "validate-research-log（调研落盘钩子自测）" scripts/validate-research-log.mjs
+run_node "validate-design-reminder（设计方向提醒钩子自测）" scripts/validate-design-reminder.mjs
 run_node "validate-shared-checkout-guard（共享 checkout 守卫自测）" scripts/validate-shared-checkout-guard.mjs
 run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
 run_node "validate-drift-fields（契约漂移字段归属自测）" scripts/validate-drift-fields.mjs

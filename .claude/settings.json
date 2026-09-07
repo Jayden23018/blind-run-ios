@@ -37,6 +37,16 @@
         ]
       },
       {
+        "$comment": "动 SwiftUI 视图前把 docs/ui/design-direction.md 的四步流程灌回来。每会话只响一次，且只在真的改视图时响（改 Service/Model/测试不响）。非阻断——设计流程走没走没有机器判据，拦不了只能提醒。",
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/design-direction-reminder.mjs\""
+          }
+        ]
+      },
+      {
         "$comment": "联网调研前把 docs/research/INDEX.md 灌回来：先查记录，缺的那段才重搜。",
         "matcher": "WebSearch|WebFetch|mcp__firecrawl__.*",
         "hooks": [

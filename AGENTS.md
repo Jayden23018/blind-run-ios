@@ -20,6 +20,21 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 它的 `references/accessibility.md` 自己是版本感知的（明确区分 iOS 18 及以前用 `@ScaledMetric`），
 可以直接用。**不要改那个第三方文件**去迁就我们 —— 改了下次更新就冲突，约束写在这里。
 
+**`docs/ui/design-direction.md` —— 改任何界面之前读一次。** 它回答「它该长什么样、为什么」
+（`ui-handoff-ios.md` 回答「这页要有什么」，`ui-review-checklist.md` 回答「改完查什么」，三份不重叠）。
+定死的几条：两端**跟随系统明暗**（盲人端不强制深色）、配色只用 `AppColors` **不新增强调色**、
+两端差异只走密度/层级/文案语气三个轴**不分叉组件**、安全相关界面（进行中 / SOS / 位置上报）
+在两端都退回最克制的一档。
+
+⚠️ 外面讲「AI 界面设计」的资料**绝大多数是 Web 语境，对本仓库有害**。最典型的一条：
+Anthropic 官方 cookbook 的 `<frontend_aesthetics>` 块逐字要求避开
+`Overused font families (Inter, Roboto, Arial, system fonts)` —— 在 iOS 上系统字体就是
+**San Francisco**，Dynamic Type 的整张字号表是为它设计的，`AppFonts` 全部基于它，
+照做等于在盲人 App 上主动破坏 Dynamic Type。判据见记忆
+`web-design-advice-is-mostly-not-for-swiftui` 与 `docs/research/ai-ui-design-workflow-for-swiftui-20260907.md`。
+提醒已落成钩子 `scripts/hooks/design-direction-reminder.mjs`（PreToolUse，动 SwiftUI 视图时每会话响一次；
+自测 `scripts/validate-design-reminder.mjs`，CI 与 pre-push 都跑），走的是 §1.3。
+
 **`CONTEXT.md`（仓库根）—— 领域词 ↔ 模块名对照表。在写下「这个功能仓库里没有」之前必读一次，
 换一组同义词再搜。** 它是 §1.4 的语义认知归档（配套记忆 `synonym-mismatch-fakes-a-missing-feature`）：
 「注销」vs「删除账户」这一次错开，让一个功能齐全的模块被判成「需从头做」，checklist 作者与模型先后中招两次。
