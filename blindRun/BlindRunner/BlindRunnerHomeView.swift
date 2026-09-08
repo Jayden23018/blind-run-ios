@@ -603,24 +603,11 @@ struct BlindRunnerHomeView: View {
             .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation) {
                 Task { await viewModel.enterEmergency(locationService: locationService) }
             }
-            .confirmationDialog(
-                EmergencySafetyCopy.homeCallTitle,
+            .emergencyCallOptionsDialog(
                 isPresented: $showCallOptions,
-                titleVisibility: .visible
-            ) {
-                if let contact = primaryEmergencyContact,
-                   let url = EmergencyDialer.telURL(for: contact.phone) {
-                    Button(EmergencySafetyCopy.homeCallContactTitle(name: contact.name)) {
-                        EmergencyDialer.dial(url)
-                    }
-                }
-                if let policeURL = EmergencyDialer.telURL(for: EmergencyDialer.policeNumber) {
-                    Button(EmergencySafetyCopy.homeCallPoliceTitle) { EmergencyDialer.dial(policeURL) }
-                }
-                Button(EmergencySafetyCopy.cancelButtonTitle, role: .cancel) {}
-            } message: {
-                Text(callDialogMessage)
-            }
+                context: callContext,
+                primaryContact: primaryEmergencyContact
+            )
         }
     }
 
@@ -809,17 +796,14 @@ struct BlindRunnerHomeView: View {
         EmergencyContactResponse.singlePrimary(in: appState.emergencyContacts)
     }
 
-    /// 同一个弹窗有两个入口，第一句不同：`.localCall` 是「当前没有进行中的陪跑」，
+    /// 同一个弹窗在首页有两个入口，第一句不同：`.localCall` 是「当前没有进行中的陪跑」，
     /// 而云端求助失败后按进来时陪跑正在进行，那句话是错的（见 `cloudFailedCallDialogMessage`）。
-    /// 没有主联系人时的补充提示两条路共用。
-    private var callDialogMessage: String {
-        let lead = sosMode == .cloudTrigger
-            ? EmergencySafetyCopy.cloudFailedCallDialogMessage
-            : EmergencySafetyCopy.homeCallDialogMessage
-        guard primaryEmergencyContact.flatMap({ EmergencyDialer.telURL(for: $0.phone) }) != nil else {
-            return "\(lead)\(EmergencySafetyCopy.homeCallNoContactHint)"
-        }
-        return lead
+    ///
+    /// 首页永远到不了 `.inProgress` 那一档：`.cloudTrigger` 模式下这个弹窗只有一个入口，
+    /// 就是 `BlindHomeSOSBar` 里 `state.isFailure` 才出现的那个兜底按钮。
+    /// 主动拨号的那一档在订单状态页。
+    private var callContext: EmergencyCallContext {
+        sosMode == .cloudTrigger ? .cloudFailed : .homeIdle
     }
 
     private func activateSOS() {

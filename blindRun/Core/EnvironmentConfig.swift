@@ -135,6 +135,19 @@ enum AppConstants {
     }
 
     enum DemoCloud {
-        static let baseURL = URL(string: "http://47.114.113.171")!
+        /// **https，不是 http。** 服务端 443 自 2026-08-14 起就绪（Let's Encrypt 的 **IP 证书**，
+        /// 不依赖域名也不依赖备案），而客户端一直停在明文，于是实时位置与 SOS 全程裸奔 ——
+        /// 这不是合规措辞问题，是这个 App 最不能明文传的两样东西。
+        ///
+        /// 改这一行会连带切三处，都不需要各自再配一次：
+        /// - WebSocket 由 scheme 推导（`WebSocketService.connectionURL`），`https` → `wss`
+        /// - `Info.plist` 的 `NSAppTransportSecurity` 例外已随之删除，别再加回来
+        /// - 证书由 Let's Encrypt 自动续期；**过期表现为全站请求失败**，
+        ///   不是某个接口坏掉，排查时先 `curl -sI https://47.114.113.171/actuator/health`
+        ///
+        /// ⚠️ 后端 80 端口目前仍明文直通（PRELAUNCH-CHECKLIST P0-1a 未做），
+        /// 所以这次切换**不会**因为后端没准备好而挂 —— 反过来，后端要关 80 之前，
+        /// 得先确认线上装机量里没有还在走 http 的旧构建。
+        static let baseURL = URL(string: "https://47.114.113.171")!
     }
 }

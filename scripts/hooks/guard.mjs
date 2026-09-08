@@ -91,13 +91,33 @@ const rules = {
     check: (_line, statement) => !/reduceMotion|accessibilityReduceMotion/.test(statement),
     why: '位移类动效必须先看「减弱动态效果」（`@Environment(\\.accessibilityReduceMotion)`）：开启时降级为淡入淡出或瞬时到位。滑入/弹簧/缩放对晕动症用户是实打实的不适，而这条没有任何运行时症状 —— 自己不开这个设置就永远发现不了，所以只能靠守卫。确实无关（例如动的是不可见的辅助层），行尾加 `// guard:allow motion-not-gated`。',
   },
+  'scenephase-not-active': {
+    // 2026-09-07 立。系统权限弹窗（麦克风 / 语音识别 / 定位 / 通知）由独立进程呈现，
+    // 宿主 App 的 `scenePhase` 会短暂离开 `.active` 变成 `.inactive` —— 把这一刻当成
+    // 「进后台」去清理状态，清掉的正是那个在等授权回调的会话。
+    //
+    // 本仓库的真实事故：`blindRunApp.swift` 的 `if phase != .active` 调
+    // `cancelRecognitionForLifecycle()`，用户点完「允许」之后授权回调恢复时
+    // `isCurrentRecognitionSession` 判 false ⇒ 静默 return，麦克风从未启动，
+    // 一个字都不播。表现是「点了说话按钮完全没反应，要退出重进两次」。
+    //
+    // ⚠️ 这条守卫存在的理由是**纯函数保不住调用点**：判定已经抽成
+    // `RecognitionLifecyclePolicy.cancelsRecognition(on:isListening:)` 并有用例钉着，
+    // 但把调用点改回 `phase != .active`，那个纯函数只会变成没人调的死代码，用例照样全绿。
+    //
+    // 真进后台用 `phase == .background`；要区分「暂时失焦」与「真的走了」时，
+    // 再看一眼业务自己的状态（我们看的是 `isListening`）。
+    pattern: /\bphase\s*!=\s*(ScenePhase\.)?\.?active\b|\bscenePhase\s*!=\s*(ScenePhase\.)?\.?active\b/,
+    check: () => true,
+    why: '不要用 `scenePhase != .active` 当「App 进后台」：系统权限弹窗只会让它走一趟 `.inactive`，在那一刻清理会把正在等授权回调的会话静默毁掉（2026-09-07 真机事故：点完「允许」按钮完全没反应，要重启两次）。真进后台用 `phase == .background`；需要区分「暂时失焦」的，再看一眼业务状态（例如 `isListening`）。确实要拦下全部非活跃态，行尾加 `// guard:allow scenephase-not-active` 并写清为什么权限弹窗那一刻清理是安全的。',
+  },
   'server-addr': {
     pattern: /https?:\/\/[a-zA-Z0-9.\-_:]+/,
     check: (line) => {
       const urls = line.match(/https?:\/\/[a-zA-Z0-9.\-_:]+/g) || [];
       return urls.some((u) => !u.includes(REAL_HOST) && !DOC_DOMAINS.test(u));
     },
-    why: `所有真实 HTTP 必须走 http://${REAL_HOST}，地址在 App 内不可配置，不得加入本地或占位的真实服务端地址（AGENTS.md 第 3 节）。`,
+    why: `所有真实 HTTP 必须走 https://${REAL_HOST}（WebSocket 对应 wss://），地址在 App 内不可配置，不得加入本地或占位的真实服务端地址（AGENTS.md 第 3 节）。`,
   },
 };
 

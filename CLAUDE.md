@@ -2,7 +2,7 @@
 
 This is the AidRun native iOS frontend repository only.
 
-The backend is external. All real HTTP requests use `http://47.114.113.171`; do not add server implementation code or another real-server address to this repository.
+The backend is external. All real HTTP requests use `https://47.114.113.171`; do not add server implementation code or another real-server address to this repository.
 
 ## 硬约束（违反会被 CI 拦或造成线上缺陷）
 

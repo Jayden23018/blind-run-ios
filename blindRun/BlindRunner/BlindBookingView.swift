@@ -149,7 +149,7 @@ struct BookingReviewItem: Identifiable, Equatable {
 ///
 /// 拿掉门槛**不等于**当作没事：定位关着会真的降级两件事（陪跑中志愿者看不到实时位置、
 /// 云端求助拿不到坐标会发不出去，见 `EmergencyCoordinator.allowsSubmissionWithoutLocation`），
-/// 所以改成**可听可见的降级告知**而不是拦截 —— `BlindBookingViewModel.locationDegradationNotice`。
+/// 所以改成**可听可见的降级告知**而不是拦截 —— `BlindBookingViewModel.locationDegradationNotice(isDenied:)`。
 /// 志愿者侧的「无定位不接单」没有动：那一侧的实时位置是服务本体，不是可替代的输入。
 enum BlindBookingGate: Equatable {
     case basicProfile
@@ -362,9 +362,17 @@ final class BlindBookingViewModel: ObservableObject {
     /// 两句话都必须留着：第一句说「还能怎么下单」（否则用户不知道有手动搜索这条路），
     /// 第二句说「关着定位会失去什么」。只说第一句是把一次安全降级说成无关紧要，
     /// 而这两件事都发生在陪跑过程中、盲人当场看不见也问不了。
-    var locationDegradationNotice: String? {
-        guard locationService?.isDenied == true else { return nil }
-        return Self.locationDeniedNotice
+    ///
+    /// **`isDenied` 是参数，不读自己那个 `weak var locationService`。** 那条 weak 引用要等
+    /// `configure(...)` 在 `.onAppear` 里赋值，而 `body` 先于 `onAppear` 求值；`configure` 写的又是
+    /// 普通存储属性，不发布变化。拿实例属性当渲染条件的话，被拒的用户在第一帧看到的是
+    /// 「当前位置」卡片，而且不保证会有第二帧来纠正。视图自己持有
+    /// `@EnvironmentObject LocationService`，这个事实在它手上永远是新鲜的。
+    ///
+    /// 2026-09-08 之前这里是个实例属性，**没有任何 View 消费**（视图自己写了一遍
+    /// `if locationService.isDenied`）—— 于是单测断的是一条不出货的分支。
+    static func locationDegradationNotice(isDenied: Bool) -> String? {
+        isDenied ? locationDeniedNotice : nil
     }
 
     static let locationDeniedNotice =
@@ -685,9 +693,13 @@ final class BlindBookingViewModel: ObservableObject {
     func refreshCurrentLocation(lockMapCenterIfNeeded: Bool = true) async {
         guard let locationService else { return }
         guard !locationService.isDenied else {
-            // 只说「自动获取当前位置」这一件事失败了。整页的降级告知由
-            // `locationDegradationNotice` 统一承担，这里再写一遍会让读屏连听两段近似的话。
-            placeMessage = "定位权限未开启，无法自动获取当前位置。请在下面搜索出发地点。"
+            // **这里什么都不写。** 降级告知由 `locationDegradationNotice` 在同一个区块的顶部
+            // 整段承担（还多说了「关着定位会失去什么」那半句安全代价）；这里再写一句
+            // 「请在下面搜索出发地点」，屏幕上就是同一段话的两个版本，短的那版还漏了后半句。
+            //
+            // 2026-09-08 之前这里写着那句短的，注释也已经写着「由降级告知统一承担」——
+            // 代码没跟上注释。
+            placeMessage = nil
             return
         }
 
@@ -1619,8 +1631,10 @@ struct BlindBookingView: View {
             // 搜索、常用地点、语音输入都不依赖定位权限（`searchPlaces` 只用 `placeSearchProvider`）。
             // 2026-08-18 之前这里是 `if/else`，被拒时整段被权限提示顶掉，等于关掉定位就没法下单，
             // 违反 Apple 5.1.1(iv)。理由全文见 `BlindBookingGate`。
-            if locationService.isDenied {
-                locationDegradationView
+            if let notice = BlindBookingViewModel.locationDegradationNotice(
+                isDenied: locationService.isDenied
+            ) {
+                locationDegradationView(notice: notice)
             } else {
                 currentLocationCard
             }
@@ -1887,15 +1901,18 @@ struct BlindBookingView: View {
 
     /// 定位被拒时的降级告知。**这不是错误态** —— 预约在这个状态下照常能提交，
     /// 所以用 `speak` 而不是 `speakError`（后者带错误震动与错误音，对一个还能继续走的流程
-    /// 是在制造「我是不是做错了」的错觉）。文案的唯一来源是 `BlindBookingViewModel.locationDeniedNotice`，
-    /// 屏幕与耳朵读的是同一份字符串。
-    private var locationDegradationView: some View {
+    /// 是在制造「我是不是做错了」的错觉）。
+    ///
+    /// 文案从 `BlindBookingViewModel.locationDegradationNotice(isDenied:)` 传进来，
+    /// 屏幕、`accessibilityLabel`、`speak` 三处读的是同一个入参 —— 三处各自去取一次常量的话，
+    /// 「屏幕与耳朵读同一份文案」就只是巧合，没有任何东西拦得住其中一处改掉。
+    private func locationDegradationView(notice: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(BlindBookingViewModel.locationDeniedNotice)
+            Text(notice)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.warning)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel(BlindBookingViewModel.locationDeniedNotice)
+                .accessibilityLabel(notice)
 
             Button("去设置开启定位") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -1913,7 +1930,7 @@ struct BlindBookingView: View {
         .cornerRadius(8)
         .accessibilityIdentifier("bookingLocationDegradationNotice")
         .onAppear {
-            speechService.speak(BlindBookingViewModel.locationDeniedNotice)
+            speechService.speak(notice)
         }
     }
 
