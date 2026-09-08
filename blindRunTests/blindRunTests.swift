@@ -593,6 +593,114 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(viewModel.canStartNewBooking)
     }
 
+    /// 首启引导页在场时，首页加载完**不许播报**。
+    ///
+    /// 两个页面共用一个 `AVSpeechSynthesizer`，而 `SpeechService.speak` 的第一件事是
+    /// `stopSpeaking(at: .immediate)` —— 谁后说谁赢。首页这一句要等一次网络往返，
+    /// 比引导页的 `.task` 晚，于是把引导念到一半的三条说明当场切断。两句又都以
+    /// 「欢迎…助盲跑」开头（引导「欢迎使用助盲跑」/ 首页「欢迎来到助盲跑」），
+    /// 听感就是「只念了标题就没了」—— 2026-09-07 真机报的正是这个，而且**读代码看不出来**：
+    /// 引导页的自动播报和「再听一遍」调的是同一个函数，代码上没有任何分叉。
+    func testFirstRunHelpKeepsTheHomeStatusAnnouncementSilent() async {
+        let speechService = SpeechService()
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder(announcesStatus: false)
+
+        XCTAssertNil(
+            speechService.lastSpokenText,
+            "引导页正压在首页上，首页却播报了 —— 它会 stopSpeaking 掉引导念到一半的说明"
+        )
+        XCTAssertNil(viewModel.errorMessage, "静音只该关掉播报，不该把加载本身弄坏")
+        XCTAssertTrue(
+            viewModel.owesStatusAnnouncement,
+            "静音了却没欠账 —— 用返回键退出引导的人整次启动一个字都听不到"
+        )
+    }
+
+    /// 还账：首页重新露头时把推迟的那次播报补上，且**只补一次**。
+    func testDeferredHomeAnnouncementIsSettledOnceWhenHomeComesBack() async {
+        let speechService = SpeechService()
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder(announcesStatus: false)
+        viewModel.announceStatusIfOwed()
+
+        XCTAssertEqual(speechService.lastSpokenText, "欢迎来到助盲跑。可以点击开始约跑。")
+        XCTAssertFalse(viewModel.owesStatusAnnouncement, "账没清，下次从设置页返回还会再播一次")
+    }
+
+    /// 加载**失败**时不许欠账。
+    ///
+    /// 欠了的话，用户按「知道了」回到首页会听见「可以点击开始约跑」，而那一刻界面上是
+    /// 守卫版按钮（`canStartNewBooking == false`），按下去只会说「订单状态尚未确认」。
+    /// 失败那条路由没有加闸的 `speakError` 负责，两条不该互相盖。
+    func testAFailedSilentLoadOwesNothingSoItCannotContradictTheErrorAnnouncement() async {
+        let speechService = SpeechService()
+        let appState = AppState(apiClient: CancellationSuspendingAPIClient())
+        let viewModel = BlindRunnerHomeViewModel(loadTimeout: 0.05)
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder(announcesStatus: false)
+
+        XCTAssertEqual(viewModel.errorMessage, "加载超过 20 秒，请重试。")
+        XCTAssertFalse(
+            viewModel.owesStatusAnnouncement,
+            "加载失败却欠下一次「可以点击开始约跑」—— 它会和界面上的守卫按钮直接矛盾"
+        )
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            "加载超过 20 秒，请重试。",
+            "错误播报被静音闸误伤了"
+        )
+    }
+
+    /// 没欠账就不许播 —— 否则从设置页 / 订单详情页返回时会多出一次本来没有的播报。
+    func testHomeDoesNotAnnounceWhenNothingIsOwed() async {
+        let speechService = SpeechService()
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder()
+        XCTAssertFalse(viewModel.owesStatusAnnouncement)
+
+        // 换一句别的当哨兵：还账若真的播了，它会被覆盖掉。
+        speechService.speak("哨兵")
+        viewModel.announceStatusIfOwed()
+        viewModel.announceStatusIfOwed()
+
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            "哨兵",
+            "没欠账也播了 —— 从设置页 / 订单详情页返回时会多出一次本来没有的播报"
+        )
+    }
+
+    /// 上一条的对照组。少了它，把 `speakCurrentStatus()` 整个删掉也一样绿。
+    func testHomeStillAnnouncesItsStatusWhenNoHelpIsInTheWay() async {
+        let speechService = SpeechService()
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder()
+
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            "欢迎来到助盲跑。可以点击开始约跑。",
+            "常规路径的首页播报被一起关掉了"
+        )
+    }
+
     /// 🚩 **这条是换端点换来的东西**：服务端说它还没走完，客户端就恢复得回来 ——
     /// 哪怕这个版本的 App 根本不认识那个状态。
     ///
