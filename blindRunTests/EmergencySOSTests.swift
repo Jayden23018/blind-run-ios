@@ -63,7 +63,11 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.homeCallContactTitle(name: nil),
             // 2026-08-20 补：云端求助失败后的本地拨号兜底（F7）。同样一个字节都没发出去。
             EmergencySafetyCopy.cloudFailedCallAccessibilityHint,
-            EmergencySafetyCopy.cloudFailedCallDialogMessage
+            EmergencySafetyCopy.cloudFailedCallDialogMessage,
+            // 2026-09-08 补：陪跑进行中页的主动拨号（120/110）与它的 120 按钮标题。
+            EmergencySafetyCopy.inProgressCallDialogMessage,
+            EmergencySafetyCopy.inProgressCallAccessibilityHint,
+            EmergencySafetyCopy.homeCallMedicalTitle
         ]
         allCopy.append(contentsOf: EmergencyEventStatus.allCases.map(EmergencySafetyCopy.submitted))
 
@@ -735,10 +739,45 @@ final class EmergencySOSTests: XCTestCase {
     /// 本地拨号分支的文案必须说清「App 不会代你发送求助」。
     /// 缺了这句，盲人按完只会听见拨号音之外的沉默，并合理地以为求助已经发出去了。
     func testLocalCallCopySaysTheAppSendsNothing() {
-        XCTAssertTrue(EmergencySafetyCopy.homeCallDialogMessage.contains("不会代你发送求助"))
-        XCTAssertTrue(EmergencySafetyCopy.homeCallAccessibilityHint.contains("不会代你发送求助"))
+        // 三种语境一条都不能漏。漏掉的那一条不会有任何运行时症状：弹窗照常弹，只是话说错了。
+        for context in [EmergencyCallContext.homeIdle, .cloudFailed, .inProgress] {
+            XCTAssertTrue(
+                context.dialogMessage.contains("不会代你发送求助"),
+                "\(context) 的弹窗正文没说清 App 什么都没发出去"
+            )
+            XCTAssertTrue(
+                context.accessibilityHint.contains("不会代你发送求助"),
+                "\(context) 的读屏提示没说清 App 什么都没发出去"
+            )
+        }
+
+        // 第一句是三种语境唯一的区别，也是盲人判断「我刚才那一下发生了什么」的唯一依据。
+        // 共用一句等于把「求助已失败」和「求助从没按过」说成同一件事。
+        let messages = Set([EmergencyCallContext.homeIdle, .cloudFailed, .inProgress].map(\.dialogMessage))
+        XCTAssertEqual(messages.count, 3, "三种语境的第一句必须各不相同")
+
         // 「一键求助」在本 App 里专指云端求助，本地拨号分支不得复用这四个字。
         XCTAssertFalse(EmergencySafetyCopy.homeCallTitle.contains(EmergencySafetyCopy.title))
+        // 陪跑进行中那条要主动把自己和正上方的「一键求助」按钮区分开 —— 两个红色按钮挨着。
+        XCTAssertTrue(EmergencySafetyCopy.inProgressCallDialogMessage.contains("不是\(EmergencySafetyCopy.title)"))
+    }
+
+    /// 120 必须是**能按的**，不能只作为文字出现在状态提示里。
+    ///
+    /// 这个 App 的用户在跑步：摔倒、扭伤、心脏不适对应的是急救而不是报警。
+    /// 2026-09-08 之前全仓只有 `policeNumber`，「110或120」只出现在播报文案里 ——
+    /// 对看不见屏幕的人，念得出来而按不到等于没有。
+    func testMedicalEmergencyNumberIsDialableNotJustSpoken() throws {
+        XCTAssertEqual(EmergencyDialer.medicalNumber, "120")
+        XCTAssertEqual(
+            EmergencyDialer.telURL(for: EmergencyDialer.medicalNumber)?.absoluteString,
+            "tel://120"
+        )
+        XCTAssertNotEqual(EmergencyDialer.medicalNumber, EmergencyDialer.policeNumber)
+
+        // 没有主联系人时的提示要把两个号都说出来，否则用户以为只剩报警一条路。
+        XCTAssertTrue(EmergencySafetyCopy.homeCallNoContactHint.contains("120"))
+        XCTAssertTrue(EmergencySafetyCopy.homeCallNoContactHint.contains("110"))
     }
 
     private static func makeOrder(status: RunOrderStatus) -> OrderDetailResponse {

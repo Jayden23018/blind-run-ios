@@ -959,6 +959,7 @@ struct BlindOrderStatusView: View {
     @StateObject private var shareViewModel = RunPlanLiveShareViewModel()
     @State private var showEmergencyConfirmation = false
     @State private var showEmergencyCancelConfirmation = false
+    @State private var showEmergencyCallOptions = false
     @State private var showCancelConfirmation = false
     @State private var showStatusLogs = false
     @State private var showRunPlanShare = false
@@ -1117,6 +1118,14 @@ struct BlindOrderStatusView: View {
                 shareViewModel.note(RunPlanLiveShareCopy.panelDismissed, isProblem: false)
             }
         }
+        // 与首页共用同一个构造点，号码集合与顺序两页一致 —— 理由见 `emergencyCallOptionsDialog`。
+        // 语境固定 `.inProgress`：这个入口只在 `canShowEmergency` 为真时才渲染，
+        // 而那正是 `IN_PROGRESS`。
+        .emergencyCallOptionsDialog(
+            isPresented: $showEmergencyCallOptions,
+            context: .inProgress,
+            primaryContact: appState.primaryEmergencyContact
+        )
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation) {
             Task {
                 await viewModel.enterEmergency()
@@ -1952,16 +1961,21 @@ struct BlindOrderStatusView: View {
         #endif
     }
 
-    /// 底部常驻区。**永远是两个版位**，第二个恒为「重复当前状态」，第一个按状态换人：
+    /// 底部常驻区。最后一个版位恒为「重复当前状态」，前面按状态换人：
     ///
-    /// - `IN_PROGRESS`：求助区块。这是这一页唯一一个「晚一秒都算代价」的动作，必须零滚动可达。
+    /// - `IN_PROGRESS`：求助区块（「一键求助」+「紧急呼叫」两个按钮）。
+    ///   这是这一页唯二「晚一秒都算代价」的动作，必须零滚动可达。
     /// - 其余状态：「问一句」。它排在「重复当前状态」之前是因为更省时间 ——
     ///   整段状态播报要 15~25 秒，而问一句只念被问的那一项。
     ///
-    /// **为什么是换而不是加**：再叠一个 64pt 就是三个按钮 220pt，在 6.1" 上吃掉 26% 屏幕，
+    /// **「问一句」是换不是加**：再叠一个 64pt 就是三个按钮 220pt，在 6.1" 上吃掉 26% 屏幕，
     /// 把滚动区压得更小 —— 治了求助够不着，换来别的都够不着。`IN_PROGRESS` 时「问一句」下沉到
     /// 滚动区「打电话给志愿者」的下一位（仍在首屏内），不是删掉：
     /// `blindOrderStatusAskQuestionButton` 这个标识符没变，按 id 找它的用例照样找得到。
+    ///
+    /// **但「紧急呼叫」是加**（2026-09-08）。同一条「够不着就等于没有」的判据，两次得出相反的结论：
+    /// 「问一句」够不着只是多听 20 秒，而急救电话够不着，代价没有上限。腾出来的空间正是
+    /// 「问一句」让出的那一格 —— `IN_PROGRESS` 时这条底栏仍是三个按钮，不是四个。
     ///
     /// 求助进行中时这一条会变高（求助 + 结果文案 + 撤销求助 + 重复当前状态）。这是有意的：
     /// 那正是这一页唯一该被求助占满的时刻，也是「撤销求助」必须跟着按钮走的理由 ——
@@ -1974,7 +1988,8 @@ struct BlindOrderStatusView: View {
                 EmergencyActionSection(
                     coordinator: appState.emergencyCoordinator,
                     onTrigger: { showEmergencyConfirmation = true },
-                    onCancelOwnEmergency: { showEmergencyCancelConfirmation = true }
+                    onCancelOwnEmergency: { showEmergencyCancelConfirmation = true },
+                    onLocalCall: { showEmergencyCallOptions = true }
                 )
             } else {
                 askQuestionButton
