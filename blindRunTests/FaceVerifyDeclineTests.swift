@@ -20,9 +20,10 @@ final class FaceVerifyDeclineTests: XCTestCase {
     /// 但**不能**顺带把人当成「已完成认证」——他还欠一次人工审核。
     func testDeclineReleasesRegistrationFlowAndMarksAlternativePath() async {
         let client = DeclineFlowAPIClient(
-            statuses: [Self.stepThreeStatus, Self.declinedStatus]
+            statuses: [Self.declinedStatus]
         )
-        let (viewModel, _) = makeViewModel(client: client)
+        let appState = makeAppState()
+        let (viewModel, _) = makeViewModel(client: client, appState: appState)
 
         await viewModel.declineFaceVerify()
 
@@ -49,10 +50,11 @@ final class FaceVerifyDeclineTests: XCTestCase {
     /// 而且听到的是错的那半句（「请返回首页开启可服务状态」，可他根本开不了）。
     func testDeclineAnnouncesTheAlternativePathAndNotTheGenericCompletionLine() async {
         let client = DeclineFlowAPIClient(
-            statuses: [Self.stepThreeStatus, Self.declinedStatus],
+            statuses: [Self.declinedStatus],
             declineMessage: "已为你改用身份证二要素核验加人工审核。"
         )
-        let (viewModel, speech) = makeViewModel(client: client)
+        let appState = makeAppState()
+        let (viewModel, speech) = makeViewModel(client: client, appState: appState)
 
         await viewModel.declineFaceVerify()
 
@@ -70,10 +72,11 @@ final class FaceVerifyDeclineTests: XCTestCase {
     /// 而这个端点是**幂等**的，用户看到「失败」只会反复点，每一次其实都成功了。
     func testDeclineSucceedsWhenBackendOmitsTheSpokenMessage() async {
         let client = DeclineFlowAPIClient(
-            statuses: [Self.stepThreeStatus, Self.declinedStatus],
+            statuses: [Self.declinedStatus],
             declineMessage: nil
         )
-        let (viewModel, speech) = makeViewModel(client: client)
+        let appState = makeAppState()
+        let (viewModel, speech) = makeViewModel(client: client, appState: appState)
 
         await viewModel.declineFaceVerify()
 
@@ -112,12 +115,13 @@ final class FaceVerifyDeclineTests: XCTestCase {
     /// 409 之一：活体**已经通过**了。这一句尤其不能说成失败 —— 他其实已经认证完了。
     func testDeclineAfterFaceApprovedSaysAlreadyVerifiedRatherThanFailed() async {
         let client = DeclineFlowAPIClient(
-            statuses: [Self.stepThreeStatus, Self.approvedStatus],
+            statuses: [Self.approvedStatus],
             declineError: APIError.serverError(
                 ErrorResponse(code: "REGISTRATION_STEP_INVALID", message: "活体认证已通过，无需使用替代认证方式")
             )
         )
-        let (viewModel, speech) = makeViewModel(client: client)
+        let appState = makeAppState()
+        let (viewModel, speech) = makeViewModel(client: client, appState: appState)
 
         await viewModel.declineFaceVerify()
 
@@ -143,12 +147,13 @@ final class FaceVerifyDeclineTests: XCTestCase {
     /// 409 之二：步骤位对不上。刷新对齐，但同样不许说「失败，请重试」。
     func testDeclineWithStaleStepRealignsInsteadOfClaimingFailure() async {
         let client = DeclineFlowAPIClient(
-            statuses: [Self.stepThreeStatus, Self.stepThreeStatus],
+            statuses: [Self.stepThreeStatus],
             declineError: APIError.serverError(
                 ErrorResponse(code: "REGISTRATION_STEP_INVALID", message: "当前步骤不允许选择替代认证方式")
             )
         )
-        let (viewModel, _) = makeViewModel(client: client)
+        let appState = makeAppState()
+        let (viewModel, _) = makeViewModel(client: client, appState: appState)
 
         await viewModel.declineFaceVerify()
 
@@ -166,12 +171,13 @@ final class FaceVerifyDeclineTests: XCTestCase {
     /// step1 是跑二要素的唯一入口，停在活体页的话他没有任何可点的东西能解决这个问题。
     func testDeclineWithoutApprovedIdVerificationReturnsToBasicInfoStep() async {
         let client = DeclineFlowAPIClient(
-            statuses: [Self.stepThreeStatus, Self.rolledBackToStepOneStatus],
+            statuses: [Self.rolledBackToStepOneStatus],
             declineError: APIError.serverError(
                 ErrorResponse(code: "ID_INFO_INVALID", message: "身份信息未通过核验，请重新提交基本信息")
             )
         )
-        let (viewModel, _) = makeViewModel(client: client)
+        let appState = makeAppState()
+        let (viewModel, _) = makeViewModel(client: client, appState: appState)
 
         await viewModel.declineFaceVerify()
 
@@ -187,8 +193,9 @@ final class FaceVerifyDeclineTests: XCTestCase {
 
     /// 后端允许「先拒绝、后来又想做人脸」（幂等、不锁死），客户端也必须给得回去。
     func testReturnToFaceVerificationReopensTheFacePath() async {
-        let client = DeclineFlowAPIClient(statuses: [Self.stepThreeStatus, Self.declinedStatus])
-        let (viewModel, _) = makeViewModel(client: client)
+        let client = DeclineFlowAPIClient(statuses: [Self.declinedStatus])
+        let appState = makeAppState()
+        let (viewModel, _) = makeViewModel(client: client, appState: appState)
         await viewModel.declineFaceVerify()
         XCTAssertFalse(
             viewModel.canStartFaceVerify,
@@ -208,7 +215,8 @@ final class FaceVerifyDeclineTests: XCTestCase {
     /// 不能比人脸那条更难够到。
     func testDeclineEntryIsExactlyAsAvailableAsTheFaceEntry() {
         let client = DeclineFlowAPIClient(statuses: [Self.stepThreeStatus])
-        let (viewModel, _) = makeViewModel(client: client)
+        let appState = makeAppState()
+        let (viewModel, _) = makeViewModel(client: client, appState: appState)
 
         viewModel.applyRegistrationStatus(Self.stepThreeStatus)
         XCTAssertTrue(viewModel.canStartFaceVerify)
@@ -337,11 +345,20 @@ final class FaceVerifyDeclineTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// ⚠️ **`appState` 必须由调用方持有并传进来，不能在这里 `let` 一个。**
+    ///
+    /// `VolunteerRegistrationViewModel.appState` 是 `weak var`
+    /// （`VolunteerRegistrationFlowView.swift:491`）。在这个 helper 里构造的话，
+    /// 函数一返回它就被释放，view model 里的属性当场变 nil，于是
+    /// `declineFaceVerify` 第一行的 `guard let appState else { return }` 直接早退 ——
+    /// **一个请求都不会发**，而断言只会告诉你「期望 1 实际 0」，看不出是这个原因。
+    /// 2026-09-08 就是这么让 7 条用例一起红的。
+    /// 守卫 `weak-temporary` 拦不到这一变体：它按「标签: 构造器(」匹配，
+    /// 而这里传的是一个变量名。
     private func makeViewModel(
-        client: DeclineFlowAPIClient
+        client: DeclineFlowAPIClient,
+        appState: AppState
     ) -> (VolunteerRegistrationViewModel, SpeechService) {
-        let appState = AppState()
-        appState.currentEnvironment = .mock
         let speech = SpeechService()
         let viewModel = VolunteerRegistrationViewModel(
             apiClient: client,
@@ -350,6 +367,13 @@ final class FaceVerifyDeclineTests: XCTestCase {
         viewModel.configure(appState: appState, speechService: speech)
         viewModel.applyRegistrationStatus(Self.stepThreeStatus)
         return (viewModel, speech)
+    }
+
+    /// 调用方作用域里的 `let` —— 活到测试方法结束，view model 的 weak 引用才不会当场断。
+    private func makeAppState() -> AppState {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        return appState
     }
 
     private static let stepThreeStatus = VolunteerRegistrationStatus(
@@ -406,6 +430,8 @@ final class FaceVerifyDeclineTests: XCTestCase {
 /// 用固定值就演不出「调完 decline 再回读拿到 DECLINED」这条唯一要验的时序。
 private final class DeclineFlowAPIClient: APIClientProtocol, @unchecked Sendable {
     private var statuses: [VolunteerRegistrationStatus]
+    /// 队列排空之后继续返回它 —— 多刷一次不该让用例红。
+    private var lastServedStatus = VolunteerRegistrationStatus()
     private let declineMessage: String?
     private let declineError: APIError?
 
@@ -442,9 +468,12 @@ private final class DeclineFlowAPIClient: APIClientProtocol, @unchecked Sendable
 
         if method == .get, path == "/api/volunteer/registration/status" {
             statusRefreshCount += 1
-            // 队列走完就一直返回最后一个，避免用例因为多刷一次而红。
-            let next = statuses.count > 1 ? statuses.removeFirst() : (statuses.first ?? .init())
-            guard let response = next as? T else { throw APIError.invalidURL }
+            // `statuses` 里放的是**每一次 GET 依次该返回什么**，不含初始状态 ——
+            // 初始状态由 `makeViewModel` 直接 `applyRegistrationStatus` 灌进去，不走 GET。
+            // 把「拒绝前」那个也排进队列的话，拒绝后那次刷新会拿到旧状态，
+            // 表现是「端点确实调了、状态却没变」，而断言只会说 hasDeclined 是 false。
+            if !statuses.isEmpty { lastServedStatus = statuses.removeFirst() }
+            guard let response = lastServedStatus as? T else { throw APIError.invalidURL }
             return response
         }
 
