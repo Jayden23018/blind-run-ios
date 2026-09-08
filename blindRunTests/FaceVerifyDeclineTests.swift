@@ -117,7 +117,7 @@ final class FaceVerifyDeclineTests: XCTestCase {
                 ErrorResponse(code: "REGISTRATION_STEP_INVALID", message: "活体认证已通过，无需使用替代认证方式")
             )
         )
-        let (viewModel, _) = makeViewModel(client: client)
+        let (viewModel, speech) = makeViewModel(client: client)
 
         await viewModel.declineFaceVerify()
 
@@ -125,6 +125,19 @@ final class FaceVerifyDeclineTests: XCTestCase {
         XCTAssertFalse(viewModel.hasDeclinedFaceVerification)
         // 409 的两个子情形共用同一个 errorCode，只能靠刷新后的状态区分——所以必须真的去刷新。
         XCTAssertEqual(client.statusRefreshCount, 1)
+
+        // 🚨 **这一支是全流程唯一会双重播报的地方**，也是最容易被漏掉的：
+        // 刷回来的状态恰好是「注册已完成」，`applyRegistrationStatus` 会先播
+        // 「注册完成，请返回首页开启可服务状态」，紧接着被这里的 speakError 从半句切断，
+        // 而那句残片本身还是错的引导 —— 他刚点的是「不同意人脸认证」。
+        //
+        // ⚠️ 只断言 `lastSpokenText` **抓不到**这个回归：`speakError` 内部也走 `speak(text:)`，
+        // 最后一句永远是对的那句。必须数**播了几次**。
+        XCTAssertEqual(
+            speech.spokenHistoryForTesting,
+            [VolunteerRegistrationViewModel.declineAlreadyVerifiedMessage],
+            "整条失败路径只许播一句。多出「注册完成…」说明 loadStatus 的播报没被压住"
+        )
     }
 
     /// 409 之二：步骤位对不上。刷新对齐，但同样不许说「失败，请重试」。
@@ -204,6 +217,56 @@ final class FaceVerifyDeclineTests: XCTestCase {
         viewModel.applyRegistrationStatus(Self.approvedStatus)
         XCTAssertFalse(viewModel.canStartFaceVerify)
         XCTAssertEqual(viewModel.canDeclineFaceVerify, viewModel.canStartFaceVerify)
+    }
+
+    // MARK: - 上传页文案的路径判定
+
+    /// 🚨 **刚 decline 完直接点「去上传身份材料」时，`AppState` 必然还是旧快照。**
+    ///
+    /// `applyRegistrationStatus` 在「注册已完成」时**刻意不立刻**把状态发布给 AppState
+    /// （发布会翻 `isVolunteerProfileApproved`，根路由当场把注册流连同那一页一起拆掉），
+    /// 要等用户点「返回志愿者首页」才发布。于是上传页的自动判定会读到拒绝前的旧值，
+    /// 把整页显示成「资质证书」—— 而他手上根本没有资质证书。
+    /// 这个错**不会自愈**：上传页的 `.task` 只刷证书审核状态，从不刷注册状态。
+    func testUploadPageEnteredStraightFromDeclineStillShowsTheIdentityMaterialCopy() async {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        // 复现那一刻的真实状态：注册状态还停在拒绝之前。
+        appState.updateVolunteerRegistrationStatus(Self.stepThreeStatus)
+        let viewModel = VolunteerCertificateUploadViewModel()
+
+        viewModel.configure(with: appState, speechService: SpeechService())
+        XCTAssertFalse(
+            viewModel.isAlternativeIdentityPath,
+            "前提：只看 AppState 的话，这一刻判出来就是错的（旧快照里还没有 DECLINED）"
+        )
+
+        let overridden = VolunteerCertificateUploadViewModel()
+        overridden.configure(
+            with: appState,
+            speechService: SpeechService(),
+            forcesAlternativeIdentityPath: true
+        )
+
+        XCTAssertTrue(overridden.isAlternativeIdentityPath)
+        XCTAssertEqual(overridden.materialNoun, "身份材料")
+        XCTAssertFalse(
+            overridden.currentGuidance.contains("资质证书"),
+            "走替代路径的人被要求去找一份自己没有的资质证书，就是这个 bug 的表现"
+        )
+    }
+
+    /// AppState 已经同步过之后，**不传** override 也必须判对 —— 首页/订单流那三个入口走的是这条。
+    func testUploadPageDerivesTheAlternativePathFromAppStateWhenItIsFresh() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        appState.updateVolunteerRegistrationStatus(Self.declinedStatus)
+        let viewModel = VolunteerCertificateUploadViewModel()
+
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        XCTAssertTrue(viewModel.isAlternativeIdentityPath)
+        XCTAssertEqual(viewModel.materialNoun, "身份材料")
     }
 
     // MARK: - 文案红线

@@ -301,14 +301,26 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
         VolunteerCertificateDisplayState.from(status: status, statusLoadFailed: statusLoadFailed)
     }
 
+    /// 调用方强制指定路径。**只有注册流程内那个直连入口会传它**，其余一律 nil。
+    /// 理由见 `isAlternativeIdentityPath`。
+    private var pathOverride: Bool?
+
     /// 这个人走的是不是「二要素 + 人工审核」替代路径。
     ///
-    /// 判据取自注册状态里的 `faceVerifyStatus`，**不是**由调用方传参数进来的 ——
-    /// 上传页有三个入口（首页两处、订单流一处），传参数就意味着漏改一处就会给
+    /// 默认判据取自注册状态里的 `faceVerifyStatus`，**不由调用方传参数** ——
+    /// 上传页有三个常规入口（首页两处、订单流一处），传参数就意味着漏改一处就会给
     /// 拒绝了人脸的人显示「上传资质证书」，而他手上根本没有资质证书。
     /// `AppState.volunteerRegistrationStatus` 是 `@Published`，状态一变这页会跟着重绘。
+    ///
+    /// 🚨 **但有一个入口 AppState 必然是陈旧的，所以留了 `pathOverride`：**
+    /// 注册流程里刚 decline 完直接点「去上传身份材料」时，
+    /// `VolunteerRegistrationViewModel.applyRegistrationStatus` **刻意还没**把完成态发布给
+    /// AppState（发布会翻 `isVolunteerProfileApproved`，根路由当场把注册流连同这一页一起拆掉，
+    /// 见那里的注释）。那一刻 AppState 里还是拒绝前的旧快照，自动判定会给出「资质证书」
+    /// 那一整套错文案，且**不会自愈** —— 本页的 `.task` 只刷证书审核状态，从不刷注册状态。
     var isAlternativeIdentityPath: Bool {
-        appState?.volunteerRegistrationStatus?.hasDeclinedFaceVerification == true
+        if let pathOverride { return pathOverride }
+        return appState?.volunteerRegistrationStatus?.hasDeclinedFaceVerification == true
     }
 
     var canUpload: Bool {
@@ -338,9 +350,16 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
         return parts.joined(separator: " ")
     }
 
-    func configure(with appState: AppState, speechService: SpeechService) {
+    func configure(
+        with appState: AppState,
+        speechService: SpeechService,
+        forcesAlternativeIdentityPath: Bool? = nil
+    ) {
         self.appState = appState
         self.speechService = speechService
+        if let forcesAlternativeIdentityPath {
+            pathOverride = forcesAlternativeIdentityPath
+        }
         if status == .unknown, !statusLoadFailed {
             status = VolunteerCertificateStatus.parse(appState.volunteerProfile?.verificationStatus)
         }
@@ -466,6 +485,11 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
 
 /// 可独立 push 的资质证书上传页。入口：志愿者设置页 + 首页「尚未通过资质认证」提示。
 struct VolunteerCertificateUploadView: View {
+    /// 强制指定认证路径。**只有注册流程内「刚 decline 完直接来传材料」那个入口传 true**，
+    /// 因为那一刻 AppState 里还是拒绝前的旧快照（理由见 ViewModel 的 `isAlternativeIdentityPath`）。
+    /// 其余入口一律不传，由页面自己从 AppState 判。
+    var forcesAlternativeIdentityPath: Bool?
+
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @StateObject private var viewModel = VolunteerCertificateUploadViewModel()
@@ -494,7 +518,11 @@ struct VolunteerCertificateUploadView: View {
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) { bottomBar }
         .task {
-            viewModel.configure(with: appState, speechService: speechService)
+            viewModel.configure(
+                with: appState,
+                speechService: speechService,
+                forcesAlternativeIdentityPath: forcesAlternativeIdentityPath
+            )
             await viewModel.refreshStatus(announce: true)
         }
         .onChange(of: photoItem) { newItem in

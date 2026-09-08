@@ -480,6 +480,14 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     /// 理由见 `declineFaceVerify` 里那段注释：两处都播会互相切断。
     private var pendingDeclineAnnouncement: String?
 
+    /// 压住 `applyRegistrationStatus` 的「注册完成」播报，因为调用方紧接着自己要播一句。
+    ///
+    /// 只有一个用处：拒绝失败后要 `loadStatus` 对齐状态，而**活体已经通过**的那一支刷回来的
+    /// 状态恰好是「注册已完成」，于是 `applyRegistrationStatus` 会播「注册完成，请返回首页
+    /// 开启可服务状态」，紧接着 `handleDeclineFailure` 再播真正该说的那句 —— 后者把前者从
+    /// 半句切断，用户先听到一句残片。而且那句残片本身还是**错的引导**：他刚才点的是拒绝人脸。
+    private var suppressesCompletionAnnouncement = false
+
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private let apiClientOverride: (any APIClientProtocol)?
@@ -654,7 +662,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         }
         if isRegistrationCompleted {
             faceVerifyMessage = nil
-            if !wasCompleted {
+            if !wasCompleted, !suppressesCompletionAnnouncement {
                 // 走替代路径的人**不能**听到「请返回首页开启可服务状态」——他 `canAcceptOrders`
                 // 还是 false，回首页那个开关他打不开，照播等于指着一条走不通的路。
                 if status.hasDeclinedFaceVerification {
@@ -1043,7 +1051,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         case .idInfoInvalid:
             // 400：二要素不是 APPROVED。后端**已经**把步骤位回退到 STEP_1_BASIC_INFO，
             // 所以刷新状态就会把界面带回基本信息页 —— 这一条必须真的跳回去，不能只播一句。
-            await loadStatus(showLoading: false)
+            await refreshStatusWithoutAnnouncing()
             activeCertifyId = nil
             canReturnToBasicInfoForIdentityEdit = false
             errorMessage = Self.declineNeedsIdVerificationMessage
@@ -1051,7 +1059,7 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
         case .registrationStepInvalid:
             // 409：两个子情形共用这一个码，靠刷新后的状态区分。
-            await loadStatus(showLoading: false)
+            await refreshStatusWithoutAnnouncing()
             let message = registrationStatus?.isFaceVerificationApproved == true
                 ? Self.declineAlreadyVerifiedMessage
                 : Self.declineStepChangedMessage
@@ -1062,6 +1070,17 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             errorMessage = error.localizedMessage
             speechService?.speakError(error.localizedMessage)
         }
+    }
+
+    /// 对齐状态但**不让它自己播报** —— 调用方紧接着要播真正该说的那句。
+    ///
+    /// 「活体已通过」那一支刷回来的正是「注册已完成」，不压住的话
+    /// `applyRegistrationStatus` 会先播一句「注册完成，请返回首页开启可服务状态」，
+    /// 随即被下一句 `speakError` 从半句切断（合成器全进程一个，`speak` 先 `stopSpeaking`）。
+    private func refreshStatusWithoutAnnouncing() async {
+        suppressesCompletionAnnouncement = true
+        await loadStatus(showLoading: false)
+        suppressesCompletionAnnouncement = false
     }
 
     func returnToBasicInfoForIdentityEdit() {
@@ -1591,7 +1610,11 @@ struct VolunteerRegistrationFlowView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             NavigationLink {
-                VolunteerCertificateUploadView()
+                // 必须显式传 true：此刻 `applyRegistrationStatus` 还没把完成态发布给 AppState
+                // （发布会翻 `isVolunteerProfileApproved`，根路由当场拆掉整个注册流），
+                // 上传页自动判定会读到拒绝前的旧快照，把整页文案显示成「资质证书」——
+                // 而他手上根本没有资质证书。这是唯一需要覆盖的入口。
+                VolunteerCertificateUploadView(forcesAlternativeIdentityPath: true)
             } label: {
                 Text("去上传身份材料")
                     .font(AppFonts.title())
