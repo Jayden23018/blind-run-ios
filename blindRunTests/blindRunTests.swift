@@ -9,6 +9,7 @@ import XCTest
 import AMapSearchKit
 import AVFAudio
 import CoreLocation
+import SwiftUI
 @testable import blindRun
 
 @MainActor
@@ -591,6 +592,114 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(viewModel.activeOrder)
         XCTAssertNil(viewModel.errorMessage, "「没有进行中的预约」被当成了加载失败")
         XCTAssertTrue(viewModel.canStartNewBooking)
+    }
+
+    /// 首启引导页在场时，首页加载完**不许播报**。
+    ///
+    /// 两个页面共用一个 `AVSpeechSynthesizer`，而 `SpeechService.speak` 的第一件事是
+    /// `stopSpeaking(at: .immediate)` —— 谁后说谁赢。首页这一句要等一次网络往返，
+    /// 比引导页的 `.task` 晚，于是把引导念到一半的三条说明当场切断。两句又都以
+    /// 「欢迎…助盲跑」开头（引导「欢迎使用助盲跑」/ 首页「欢迎来到助盲跑」），
+    /// 听感就是「只念了标题就没了」—— 2026-09-07 真机报的正是这个，而且**读代码看不出来**：
+    /// 引导页的自动播报和「再听一遍」调的是同一个函数，代码上没有任何分叉。
+    func testFirstRunHelpKeepsTheHomeStatusAnnouncementSilent() async {
+        let speechService = SpeechService()
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder(announcesStatus: false)
+
+        XCTAssertNil(
+            speechService.lastSpokenText,
+            "引导页正压在首页上，首页却播报了 —— 它会 stopSpeaking 掉引导念到一半的说明"
+        )
+        XCTAssertNil(viewModel.errorMessage, "静音只该关掉播报，不该把加载本身弄坏")
+        XCTAssertTrue(
+            viewModel.owesStatusAnnouncement,
+            "静音了却没欠账 —— 用返回键退出引导的人整次启动一个字都听不到"
+        )
+    }
+
+    /// 还账：首页重新露头时把推迟的那次播报补上，且**只补一次**。
+    func testDeferredHomeAnnouncementIsSettledOnceWhenHomeComesBack() async {
+        let speechService = SpeechService()
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder(announcesStatus: false)
+        viewModel.announceStatusIfOwed()
+
+        XCTAssertEqual(speechService.lastSpokenText, "欢迎来到助盲跑。可以点击开始约跑。")
+        XCTAssertFalse(viewModel.owesStatusAnnouncement, "账没清，下次从设置页返回还会再播一次")
+    }
+
+    /// 加载**失败**时不许欠账。
+    ///
+    /// 欠了的话，用户按「知道了」回到首页会听见「可以点击开始约跑」，而那一刻界面上是
+    /// 守卫版按钮（`canStartNewBooking == false`），按下去只会说「订单状态尚未确认」。
+    /// 失败那条路由没有加闸的 `speakError` 负责，两条不该互相盖。
+    func testAFailedSilentLoadOwesNothingSoItCannotContradictTheErrorAnnouncement() async {
+        let speechService = SpeechService()
+        let appState = AppState(apiClient: CancellationSuspendingAPIClient())
+        let viewModel = BlindRunnerHomeViewModel(loadTimeout: 0.05)
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder(announcesStatus: false)
+
+        XCTAssertEqual(viewModel.errorMessage, "加载超过 20 秒，请重试。")
+        XCTAssertFalse(
+            viewModel.owesStatusAnnouncement,
+            "加载失败却欠下一次「可以点击开始约跑」—— 它会和界面上的守卫按钮直接矛盾"
+        )
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            "加载超过 20 秒，请重试。",
+            "错误播报被静音闸误伤了"
+        )
+    }
+
+    /// 没欠账就不许播 —— 否则从设置页 / 订单详情页返回时会多出一次本来没有的播报。
+    func testHomeDoesNotAnnounceWhenNothingIsOwed() async {
+        let speechService = SpeechService()
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder()
+        XCTAssertFalse(viewModel.owesStatusAnnouncement)
+
+        // 换一句别的当哨兵：还账若真的播了，它会被覆盖掉。
+        speechService.speak("哨兵")
+        viewModel.announceStatusIfOwed()
+        viewModel.announceStatusIfOwed()
+
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            "哨兵",
+            "没欠账也播了 —— 从设置页 / 订单详情页返回时会多出一次本来没有的播报"
+        )
+    }
+
+    /// 上一条的对照组。少了它，把 `speakCurrentStatus()` 整个删掉也一样绿。
+    func testHomeStillAnnouncesItsStatusWhenNoHelpIsInTheWay() async {
+        let speechService = SpeechService()
+        let client = ActiveOrderStubClient(envelope: ActiveOrderEnvelope(success: true, data: nil))
+        let appState = AppState(apiClient: client)
+        let viewModel = BlindRunnerHomeViewModel()
+        viewModel.configure(with: appState, speechService: speechService)
+
+        await viewModel.loadActiveOrder()
+
+        XCTAssertEqual(
+            speechService.lastSpokenText,
+            "欢迎来到助盲跑。可以点击开始约跑。",
+            "常规路径的首页播报被一起关掉了"
+        )
     }
 
     /// 🚩 **这条是换端点换来的东西**：服务端说它还没走完，客户端就恢复得回来 ——
@@ -4187,6 +4296,64 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(completion?.field, .startPlaceSearch)
         XCTAssertEqual(completion?.recognizedText, "大观楼")
         XCTAssertEqual(completion?.reason, .finalResult)
+    }
+
+    /// 系统权限弹窗会让 `scenePhase` 短暂走一趟 `.inactive`。在那一刻作废掉待授权的识别会话，
+    /// 用户点完「允许」之后授权回调恢复时 `isCurrentRecognitionSession` 必然判 false，
+    /// 于是**静默 return**：没有播报、没有 errorMessage、没有完成回调，麦克风从未启动。
+    /// 再点说话按钮命中 `VoiceOrderWizard.finishSpeakingOrSkipPrompt` 那个没有 `else` 的
+    /// `if/else if`，是彻底的空操作 —— 2026-09-07 真机报的「点了没反应，要退出重进两次」。
+    ///
+    /// 下面这两行刻意照抄 `blindRunApp.swift` 的 `onChange(of: scenePhase)` 体，
+    /// 这样判定改错时这条会红，而不是只有那个纯函数的断言会红。
+    func testTransientInactivePhaseKeepsThePendingAuthorizationAlive() {
+        let service = SpeechInputService()
+        let session = service.startPendingAuthorizationForTesting(field: .startPlaceSearch)
+
+        if RecognitionLifecyclePolicy.cancelsRecognition(on: .inactive, isListening: service.isListening) {
+            service.cancelRecognitionForLifecycle()
+        }
+        service.simulateAuthorizationCompletionForTesting(sessionID: session, field: .startPlaceSearch)
+
+        XCTAssertTrue(
+            service.isListening,
+            "权限弹窗让 scenePhase 走了一趟 .inactive，待授权的识别会话就被作废了 —— "
+                + "用户点「允许」之后麦克风不会打开，而且一个字都不会播"
+        )
+    }
+
+    /// 真进后台要取消 —— 麦克风不能在用户切走之后继续开着。同样照抄 `onChange` 的函数体。
+    func testBackgroundPhaseStillCancelsAnActiveRecognition() {
+        let service = SpeechInputService()
+        service.startRecognitionForTesting(field: .startPlaceSearch)
+        XCTAssertTrue(service.isListening, "前提没成立：这条要验的是「正在听」的会话")
+
+        if RecognitionLifecyclePolicy.cancelsRecognition(on: .background, isListening: service.isListening) {
+            service.cancelRecognitionForLifecycle()
+        }
+
+        XCTAssertFalse(service.isListening, "App 进后台了，麦克风还开着")
+    }
+
+    /// 正在听的时候走 `.inactive` **仍然要停**：那是 iPad 分屏 / 来电横幅 / 控制中心，
+    /// 用户已经在看别的东西了，麦克风不该开着。
+    ///
+    /// 这条是「只写 `.background` 才取消」会带来的 iPad 回归 —— 全仓
+    /// `AVAudioSession.interruptionNotification` 零命中，scenePhase 这条线就是唯一的中断清理，
+    /// 而静音超时最长会被旁边 App 的声音续命到 `maximumRecognitionDuration = 60` 秒。
+    func testInactivePhaseStillCancelsWhileActuallyListening() {
+        let service = SpeechInputService()
+        service.startRecognitionForTesting(field: .startPlaceSearch)
+
+        if RecognitionLifecyclePolicy.cancelsRecognition(on: .inactive, isListening: service.isListening) {
+            service.cancelRecognitionForLifecycle()
+        }
+
+        XCTAssertFalse(
+            service.isListening,
+            "iPad 分屏切到旁边那个 App 之后麦克风还开着 —— 权限弹窗那一刻会话还没在听，"
+                + "两种情况靠 isListening 区分，别退回成只看 phase"
+        )
     }
 
     func testSpeechInputPendingAuthorizationOwnsRecognitionSessionBeforeListening() {
