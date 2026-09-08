@@ -94,7 +94,7 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
         self == .notSubmitted || self == .rejected
     }
 
-    /// 明确告诉志愿者「现在能不能接单、下一步做什么」。
+    /// 明确告诉志愿者「现在能不能接单、下一步做什么」。走人脸活体那条路的文案。
     var guidanceMessage: String {
         switch self {
         case .notSubmitted:
@@ -107,6 +107,31 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
             return "资质证书未通过审核，当前无法接单。请重新上传清晰完整的证书图片或 PDF。"
         case .statusUnavailable:
             return "暂时无法获取资质审核状态，因此无法确认能否接单。请检查网络后重新获取状态。"
+        }
+    }
+
+    /// 按认证路径选文案。
+    ///
+    /// 两条路径走的是**同一个端点、同一个存储槽位**（`POST /api/volunteer/verification`），
+    /// 后端不区分也无法区分上传的是什么 —— 差别只在客户端怎么称呼它：
+    /// 走活体的人传「资质证书」，拒绝人脸的人传「能证明本人身份的材料」。
+    /// 所以这里只分文案，**不分端点、不加参数**。
+    ///
+    /// 🚨 替代路径那套里**不得出现「资质证书」**（他要传的不是这个，照着找会找不到东西），
+    /// 也**不得编审核时长**：只说「审核时间较长，但结果等效」，与用户协议 `:194` 逐字一致。
+    func guidance(isAlternativeIdentityPath: Bool) -> String {
+        guard isAlternativeIdentityPath else { return guidanceMessage }
+        switch self {
+        case .notSubmitted:
+            return "尚未提交身份材料，当前无法接单。请上传能证明本人身份的材料，图片或 PDF 均可，提交后由管理员人工审核。该方式审核时间较长，但结果等效。"
+        case .pending:
+            return "身份材料已提交，正在等待管理员人工审核。该方式审核时间较长，但结果等效。审核期间暂时无法接单，也不需要重复上传。"
+        case .approved:
+            return "身份材料已通过人工审核，你现在可以接单了。请回到首页开启接单开关。"
+        case .rejected:
+            return "身份材料未通过人工审核，当前无法接单。请重新上传能清晰证明本人身份的材料。"
+        case .statusUnavailable:
+            return "暂时无法获取审核状态，因此无法确认能否接单。请检查网络后重新获取状态。"
         }
     }
 }
@@ -179,7 +204,7 @@ enum VolunteerCertificateFileError: Error, Equatable, Sendable {
     var message: String {
         switch self {
         case .emptyFile:
-            return "所选文件内容为空，请重新选择资质证书。"
+            return "所选文件内容为空，请重新选择文件。"
         case .unsupportedType:
             return "文件格式不支持。请上传 JPG、PNG、GIF、WEBP、BMP 图片或 PDF 文件。"
         case .tooLarge(let byteCount):
@@ -276,17 +301,35 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
         VolunteerCertificateDisplayState.from(status: status, statusLoadFailed: statusLoadFailed)
     }
 
+    /// 这个人走的是不是「二要素 + 人工审核」替代路径。
+    ///
+    /// 判据取自注册状态里的 `faceVerifyStatus`，**不是**由调用方传参数进来的 ——
+    /// 上传页有三个入口（首页两处、订单流一处），传参数就意味着漏改一处就会给
+    /// 拒绝了人脸的人显示「上传资质证书」，而他手上根本没有资质证书。
+    /// `AppState.volunteerRegistrationStatus` 是 `@Published`，状态一变这页会跟着重绘。
+    var isAlternativeIdentityPath: Bool {
+        appState?.volunteerRegistrationStatus?.hasDeclinedFaceVerification == true
+    }
+
     var canUpload: Bool {
         displayState.allowsUpload && selectedFile != nil && !isUploading && !isLoadingStatus
     }
 
+    var materialNoun: String {
+        isAlternativeIdentityPath ? "身份材料" : "资质证书"
+    }
+
     var uploadButtonTitle: String {
-        displayState == .rejected ? "重新提交资质证书" : "提交资质证书"
+        displayState == .rejected ? "重新提交\(materialNoun)" : "提交\(materialNoun)"
+    }
+
+    var currentGuidance: String {
+        displayState.guidance(isAlternativeIdentityPath: isAlternativeIdentityPath)
     }
 
     /// 进入页面、状态变化、「重复当前状态」共用同一句播报。
     var statusAnnouncement: String {
-        var parts = ["当前资质审核状态，\(displayState.displayName)。", displayState.guidanceMessage]
+        var parts = ["当前审核状态，\(displayState.displayName)。", currentGuidance]
         if let selectedFile {
             parts.append("已选择\(selectedFile.summaryText)。")
         }
@@ -345,7 +388,7 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
         case .success(let file):
             selectedFile = file
             errorMessage = nil
-            speechService?.speak("已选择\(file.summaryText)。点击提交资质证书上传。")
+            speechService?.speak("已选择\(file.summaryText)。点击提交\(materialNoun)上传。")
         case .failure(let failure):
             selectedFile = nil
             errorMessage = failure.message
@@ -369,14 +412,14 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
     func upload() {
         guard !isUploading else { return }
         guard let file = selectedFile else {
-            let message = "请先选择要上传的资质证书。"
+            let message = "请先选择要上传的\(materialNoun)。"
             errorMessage = message
             speechService?.speakError(message)
             return
         }
         guard displayState.allowsUpload else {
-            errorMessage = displayState.guidanceMessage
-            speechService?.speakError(displayState.guidanceMessage)
+            errorMessage = currentGuidance
+            speechService?.speakError(currentGuidance)
             return
         }
         Task { await performUpload(file: file) }
@@ -387,7 +430,7 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
         isUploading = true
         errorMessage = nil
         successMessage = nil
-        speechService?.speak("正在上传资质证书，请稍候。")
+        speechService?.speak("正在上传\(materialNoun)，请稍候。")
 
         do {
             _ = try await appState.profile.uploadVolunteerCertificate(
@@ -403,16 +446,16 @@ final class VolunteerCertificateUploadViewModel: ObservableObject {
             // 状态一律回读，不用上传响应里的值臆测。
             await refreshStatus()
             successMessage = statusLoadFailed
-                ? "资质证书已提交，但暂时没能读回审核状态，请稍后重新获取。"
-                : "资质证书已提交，等待管理员审核。"
+                ? "\(materialNoun)已提交，但暂时没能读回审核状态，请稍后重新获取。"
+                : "\(materialNoun)已提交，等待管理员审核。"
         } catch let error as APIError {
             isUploading = false
             if appState.handleAuthenticatedAPIError(error) { return }
             // 保留已选文件，用户可直接重试。
-            errorMessage = "\(error.localizedMessage) 可点击提交资质证书重试。"
+            errorMessage = "\(error.localizedMessage) 可点击提交\(materialNoun)重试。"
         } catch {
             isUploading = false
-            errorMessage = "资质证书上传失败，请重试。"
+            errorMessage = "\(materialNoun)上传失败，请重试。"
         }
 
         announceCurrentStatus()
@@ -447,7 +490,7 @@ struct VolunteerCertificateUploadView: View {
             .padding(.bottom, 40)
         }
         .background(AppColors.background)
-        .navigationTitle("资质证书")
+        .navigationTitle(viewModel.materialNoun)
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) { bottomBar }
         .task {
@@ -479,22 +522,28 @@ struct VolunteerCertificateUploadView: View {
 
     // MARK: - Sections
 
+    /// 标题与说明按认证路径分。走替代路径的人手上**没有**资质证书 ——
+    /// 照着「上传资质证书」找，他会以为自己走错了页面。
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HighContrastText("资质证书", style: .title)
+            HighContrastText(viewModel.isAlternativeIdentityPath ? "身份材料" : "资质证书", style: .title)
                 .accessibilityAddTraits(.isHeader)
 
-            Text("上传助盲陪跑相关资质或培训证书，管理员审核通过后才能接单。支持图片或 PDF，单个文件不超过 5 MB。")
+            let intro = viewModel.isAlternativeIdentityPath
+                ? "你选择了不做人脸认证。请上传能证明本人身份的材料，管理员人工审核通过后才能接单。支持图片或 PDF，单个文件不超过 5 MB。"
+                : "上传助盲陪跑相关资质或培训证书，管理员审核通过后才能接单。支持图片或 PDF，单个文件不超过 5 MB。"
+            Text(intro)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("上传助盲陪跑相关资质或培训证书，管理员审核通过后才能接单。支持图片或 PDF，单个文件不超过 5 兆")
+                // 「5 MB」读屏会念成「5 M B」，标签里写「5 兆」。
+                .accessibilityLabel(intro.replacingOccurrences(of: "5 MB", with: "5 兆"))
         }
     }
 
     private var statusCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HighContrastText(viewModel.displayState.displayName, style: .status)
-            Text(viewModel.displayState.guidanceMessage)
+            Text(viewModel.currentGuidance)
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -504,14 +553,16 @@ struct VolunteerCertificateUploadView: View {
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("当前资质审核状态，\(viewModel.displayState.displayName)")
-        .accessibilityValue(viewModel.displayState.guidanceMessage)
+        .accessibilityLabel("当前审核状态，\(viewModel.displayState.displayName)")
+        .accessibilityValue(viewModel.currentGuidance)
         .accessibilityIdentifier("volunteerCertificateStatusCard")
     }
 
     private var pickerSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("选择证书文件")
+        // 读屏用户听到的每一处都要指同一样东西，否则「拍照上传」到底拍什么是靠猜的。
+        let noun = viewModel.materialNoun
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("选择\(noun)文件")
                 .font(.headline)
                 .foregroundColor(AppColors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
@@ -520,7 +571,7 @@ struct VolunteerCertificateUploadView: View {
                 pickerButton(
                     title: "拍照上传",
                     systemImage: "camera",
-                    accessibilityHint: "打开相机拍摄资质证书照片"
+                    accessibilityHint: "打开相机拍摄\(noun)照片"
                 ) {
                     showsCamera = true
                 }
@@ -530,12 +581,12 @@ struct VolunteerCertificateUploadView: View {
                 pickerButtonLabel(title: "从相册选择", systemImage: "photo.on.rectangle")
             }
             .accessibilityLabel("从相册选择")
-            .accessibilityHint("从相册中选择一张资质证书照片")
+            .accessibilityHint("从相册中选择一张\(noun)照片")
 
             pickerButton(
                 title: "选择文件",
                 systemImage: "doc",
-                accessibilityHint: "从文件中选择资质证书图片或 PDF"
+                accessibilityHint: "从文件中选择\(noun)图片或 PDF"
             ) {
                 showsFileImporter = true
             }
@@ -568,7 +619,7 @@ struct VolunteerCertificateUploadView: View {
                 .font(AppFonts.body())
                 .frame(minHeight: 44)
                 .accessibilityLabel("移除已选文件")
-                .accessibilityHint("移除后可以重新选择资质证书")
+                .accessibilityHint("移除后可以重新选择\(viewModel.materialNoun)")
             }
             .padding()
             .background(AppColors.secondaryBackground)
@@ -582,12 +633,12 @@ struct VolunteerCertificateUploadView: View {
         if viewModel.isUploading {
             HStack(spacing: 8) {
                 ProgressView()
-                Text("正在上传资质证书...")
+                Text("正在上传\(viewModel.materialNoun)...")
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textSecondary)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("正在上传资质证书")
+            .accessibilityLabel("正在上传\(viewModel.materialNoun)")
         }
         if let successMessage = viewModel.successMessage {
             Text(successMessage)
@@ -613,7 +664,7 @@ struct VolunteerCertificateUploadView: View {
                 .disabled(!viewModel.canUpload)
                 .opacity(viewModel.canUpload ? 1 : 0.45)
                 .accessibilityLabel(viewModel.uploadButtonTitle)
-                .accessibilityHint(viewModel.canUpload ? "点击后上传所选资质证书" : "请先选择资质证书文件")
+                .accessibilityHint(viewModel.canUpload ? "点击后上传所选\(viewModel.materialNoun)" : "请先选择\(viewModel.materialNoun)文件")
                 .accessibilityIdentifier("volunteerCertificateUploadButton")
             }
 
@@ -622,14 +673,14 @@ struct VolunteerCertificateUploadView: View {
                     Task { await viewModel.refreshStatus(announce: true) }
                 }
                 .accessibilityLabel("重新获取状态")
-                .accessibilityHint("重新读取资质审核状态")
+                .accessibilityHint("重新读取审核状态")
             }
 
             PrimaryButton("重复当前状态") {
                 viewModel.announceCurrentStatus()
             }
             .accessibilityLabel("重复当前状态")
-            .accessibilityHint("点击后重新播报当前资质审核状态")
+            .accessibilityHint("点击后重新播报当前审核状态")
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
@@ -697,9 +748,29 @@ struct VolunteerCertificateUploadView: View {
 // MARK: - Certificate Entry Link
 
 /// 复用的入口行：设置页与首页「尚未通过资质认证」提示共用同一个跳转。
+///
+/// 标题**默认按认证路径推**，不由调用方硬传 —— 三个调用点里漏改一个，
+/// 拒绝了人脸的志愿者就会看到「上传资质证书」，而他手上没有资质证书，
+/// 点进去的页面又写着「身份材料」，两处对不上。想覆盖仍可显式传 `title`。
 struct VolunteerCertificateUploadEntryLink: View {
-    var title = "上传资质证书"
+    @EnvironmentObject private var appState: AppState
+
+    var title: String?
     var subtitle: String?
+
+    private var isAlternativeIdentityPath: Bool {
+        appState.volunteerRegistrationStatus?.hasDeclinedFaceVerification == true
+    }
+
+    private var resolvedTitle: String {
+        title ?? (isAlternativeIdentityPath ? "上传身份材料" : "上传资质证书")
+    }
+
+    private var resolvedSubtitle: String {
+        subtitle ?? (isAlternativeIdentityPath
+            ? "人工审核通过后才能接单，审核时间较长但结果等效"
+            : "资质审核通过后才能接单")
+    }
 
     var body: some View {
         NavigationLink {
@@ -709,15 +780,13 @@ struct VolunteerCertificateUploadEntryLink: View {
                 Image(systemName: "doc.badge.arrow.up")
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    Text(resolvedTitle)
                         .font(AppFonts.body().weight(.semibold))
                         .foregroundColor(AppColors.textPrimary)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(AppFonts.caption())
-                            .foregroundColor(AppColors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Text(resolvedSubtitle)
+                        .font(AppFonts.caption())
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
@@ -731,8 +800,8 @@ struct VolunteerCertificateUploadEntryLink: View {
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityHint(subtitle ?? "进入资质证书上传页面")
+        .accessibilityLabel(resolvedTitle)
+        .accessibilityHint(resolvedSubtitle)
         .accessibilityIdentifier("volunteerCertificateUploadEntry")
     }
 }

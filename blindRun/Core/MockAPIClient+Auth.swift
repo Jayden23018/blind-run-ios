@@ -59,12 +59,24 @@ extension MockAPIClient {
         } else {
             idStatus = "NONE"
         }
-        let faceStatus = registrationStep.hasPrefix("STEP_4") ? "APPROVED" : activeCloudAuthCertifyId == nil ? "NONE" : "PENDING"
-        let canAcceptOrders = registrationStep == "STEP_4_COMPLETED"
+        // DECLINED 优先级最高：它是终态选择，不该被「有没有 certifyId」这类过程量盖掉。
+        let faceStatus: String
+        if volunteerFaceVerifyDeclined {
+            faceStatus = "DECLINED"
+        } else if registrationStep.hasPrefix("STEP_4") {
+            faceStatus = "APPROVED"
+        } else {
+            faceStatus = activeCloudAuthCertifyId == nil ? "NONE" : "PENDING"
+        }
+        // ⚠️ 走替代路径的人**注册流程走完了但仍不能接单**（后端 api_spec.yaml:1025-1027）：
+        // 还要 POST /api/volunteer/verification 传材料 + 管理员人工审核。
+        // 所以 DECLINED 只进 registrationCompleted，不进 canAcceptOrders —— 两者在这里必须分开。
+        let canAcceptOrders = registrationStep == "STEP_4_COMPLETED" && !volunteerFaceVerifyDeclined
         // 与后端 VolunteerRegistrationService.isRegistrationCompleted 同口径：
-        // STEP_3_FACE_VERIFY 只有在活体 APPROVED 时才算走完（该步骤位在「正在做活体」时也是它）。
+        // STEP_3_FACE_VERIFY 只有在活体 APPROVED（或依法拒绝）时才算走完
+        // （该步骤位在「正在做活体」时也是它）。
         let registrationCompleted = registrationStep.hasPrefix("STEP_4")
-            || (registrationStep == "STEP_3_FACE_VERIFY" && faceStatus == "APPROVED")
+            || (registrationStep == "STEP_3_FACE_VERIFY" && (faceStatus == "APPROVED" || faceStatus == "DECLINED"))
         return VolunteerRegistrationStatus(
             currentStep: nil,
             registrationStep: registrationStep,
@@ -118,6 +130,8 @@ extension MockAPIClient {
             paceRange: volunteerProfile?.paceRange
         )
         volunteerRegistrationStepCode = "STEP_3_FACE_VERIFY"
+        // 重填基本信息 = 重新跑二要素，之前那次拒绝随之作废（被 ID_INFO_INVALID 弹回来的人走的就是这条）。
+        volunteerFaceVerifyDeclined = false
         return EmptyResponse()
     }
 
@@ -130,6 +144,9 @@ extension MockAPIClient {
         guard volunteerRegistrationStepCode == "STEP_3_FACE_VERIFY" else {
             throw APIError.serverError(ErrorResponse(code: "REGISTRATION_STEP_INVALID", message: "当前步骤不允许发起活体认证"))
         }
+        // 「先拒绝、后来又想做人脸」是后端明确允许的（api_spec.yaml:1040），
+        // 所以这里要把拒绝态清掉，否则状态回读还是 DECLINED，界面永远回不到活体那条路。
+        volunteerFaceVerifyDeclined = false
         activeCloudAuthCertifyId = "mock-certify-id"
         return FaceVerifyInitResponse(
             certifyId: "mock-certify-id",
@@ -161,6 +178,47 @@ extension MockAPIClient {
             paceRange: volunteerProfile?.paceRange
         )
         return FaceVerifyResponse(passed: true, status: "APPROVED", message: "活体认证通过")
+    }
+
+    /// 拒绝人脸，转「身份证二要素核验 + 人工审核」。
+    ///
+    /// 后端三道守卫是「步骤位 → 二要素 → 已过活体」
+    /// （`VolunteerRegistrationService.declineFaceVerify:229`），这里**故意把「已过活体」提到最前**。
+    ///
+    /// 理由是两边的步骤位模型不同，不是抄漏了：后端活体通过后 `registrationStep` **仍是**
+    /// `STEP_3_FACE_VERIFY`（见 `VolunteerRegistrationStatus.isRegistrationComplete` 那条注释），
+    /// 所以它能一路走到第三道拿到「活体认证已通过」；而 Mock 的 `handleFaceVerifyResult`
+    /// 把步骤位推进到了 `STEP_4_*`，照抄顺序的话第一道就会把这些人拦成「当前步骤不允许」，
+    /// 第三道成为死代码 —— 两个 409 子情形在 Mock 下就只剩一种，而客户端要按它们分文案。
+    func handleDeclineFaceVerify() throws -> FaceVerifyDeclineResponse {
+        if volunteerRegistrationStepCode?.hasPrefix("STEP_4") == true {
+            throw APIError.serverError(
+                ErrorResponse(code: "REGISTRATION_STEP_INVALID", message: "活体认证已通过，无需使用替代认证方式")
+            )
+        }
+
+        guard volunteerRegistrationStepCode == "STEP_3_FACE_VERIFY" else {
+            throw APIError.serverError(
+                ErrorResponse(code: "REGISTRATION_STEP_INVALID", message: "当前步骤不允许选择替代认证方式")
+            )
+        }
+
+        // 后端这一道比 initFaceVerify 严：那边只拦 REJECTED，这边必须 APPROVED ——
+        // 活体拿掉后二要素是仅剩的自动化核验。回退到 STEP_1 是因为那是跑二要素的唯一入口。
+        guard volunteerProfile?.name?.trimmed.isEmpty == false else {
+            volunteerRegistrationStepCode = "STEP_1_BASIC_INFO"
+            throw APIError.serverError(
+                ErrorResponse(code: "ID_INFO_INVALID", message: "身份信息未通过核验，请重新提交基本信息")
+            )
+        }
+
+        // 幂等：已经是 DECLINED 时重复调不报错（后端同）。
+        volunteerFaceVerifyDeclined = true
+        // certifyId 必须清掉，否则一条迟到的轮询能把 DECLINED 覆盖回 APPROVED（后端同因）。
+        activeCloudAuthCertifyId = nil
+        return FaceVerifyDeclineResponse(
+            message: "已为你改用身份证二要素核验加人工审核。请上传能证明本人身份的材料，等待管理员审核。"
+        )
     }
 
     func handleGetMe() throws -> CurrentUserResponse {

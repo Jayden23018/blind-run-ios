@@ -46,6 +46,7 @@ enum ProfileEndpoint {
     case submitVolunteerBasicInfo
     case initFaceVerify
     case faceVerifyResult
+    case declineFaceVerify
 
     var request: EndpointRequest {
         switch self {
@@ -83,6 +84,8 @@ enum ProfileEndpoint {
             return EndpointRequest(.post, "/api/volunteer/registration/step3/face-verify/init")
         case .faceVerifyResult:
             return EndpointRequest(.post, "/api/volunteer/registration/step3/face-verify/result")
+        case .declineFaceVerify:
+            return EndpointRequest(.post, "/api/volunteer/registration/step3/face-verify/decline")
         }
     }
 }
@@ -91,9 +94,9 @@ enum ProfileEndpoint {
 
 /// 档案片对外的全部能力。
 ///
-/// **每个方法都必须有生产调用点**（17 个方法 / 23 个调用点：ContentView 4 ·
+/// **每个方法都必须有生产调用点**（18 个方法 / 25 个调用点：ContentView 4 ·
 /// EmergencyContactsView 5 · BlindIdentityVerificationView 2 · ProfileModule 1 ·
-/// VolunteerModule 2 · VolunteerCertificateUploadView 2 · VolunteerRegistrationFlowView 7）。
+/// VolunteerModule 2 · VolunteerCertificateUploadView 2 · VolunteerRegistrationFlowView 9）。
 /// 没有调用点的方法当场删 —— service 层的价值是收敛调用点，不是先摆一层空壳。
 ///
 /// 错误一律 `throws` 抛出去，**这一层不吞**。谁负责渲染谁 catch：
@@ -133,6 +136,10 @@ protocol ProfileServing: Sendable {
     func submitVolunteerBasicInfo(_ request: BasicInfoRequest) async throws
     func initFaceVerify(_ request: FaceVerifyInitRequest) async throws -> FaceVerifyInitResponse
     func faceVerifyResult(_ request: FaceVerifyResultRequest) async throws -> FaceVerifyResponse
+    /// 声明不同意人脸认证，转「身份证二要素核验 + 人工审核」。无请求体、幂等。
+    /// 返回后端给的那句可直接朗读的提示；拿不到就是 nil（见 `FaceVerifyDeclineResponse`），
+    /// **nil 不代表失败**，调用方用本地兜底文案继续。
+    func declineFaceVerify() async throws -> String?
 }
 
 // MARK: - Implementation
@@ -238,5 +245,13 @@ struct ProfileService: ProfileServing {
 
     func faceVerifyResult(_ request: FaceVerifyResultRequest) async throws -> FaceVerifyResponse {
         try await transport.send(ProfileEndpoint.faceVerifyResult.request, body: request)
+    }
+
+    func declineFaceVerify() async throws -> String? {
+        // 无请求体（契约 api_spec.yaml:1042 没有 requestBody），所以不传 body。
+        let response: FaceVerifyDeclineResponse = try await transport.send(
+            ProfileEndpoint.declineFaceVerify.request
+        )
+        return response.message
     }
 }

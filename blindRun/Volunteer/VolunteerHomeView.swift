@@ -1549,10 +1549,7 @@ struct VolunteerHomeView: View {
 
             // 「尚未通过资质认证」必须能一键到达上传页，否则志愿者看到提示也无处可去。
             if summary.notAvailableReasons?.contains(.notVerified) == true {
-                VolunteerCertificateUploadEntryLink(
-                    title: "上传资质证书",
-                    subtitle: "资质审核通过后才能接单"
-                )
+                VolunteerCertificateUploadEntryLink()
             }
 
             if let activeOrder = viewModel.activeOrder {
@@ -1601,10 +1598,7 @@ struct VolunteerHomeView: View {
 
         // 接单被后端 403 VOLUNTEER_NOT_VERIFIED 拒绝时，直接给出上传入口。
         if viewModel.needsCertificateUpload {
-            VolunteerCertificateUploadEntryLink(
-                title: "去上传资质证书",
-                subtitle: "资质审核通过后才能接单"
-            )
+            VolunteerCertificateUploadEntryLink()
         }
 
         if let warning = viewModel.locationDispatchWarning {
