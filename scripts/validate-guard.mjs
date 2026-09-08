@@ -1155,6 +1155,45 @@ const cases = [
     expect: 0,
     swiftPath: 'blindRunUITests/UnrelatedTests.swift',
     swift: 'let types = [".contrast", ".textClipped"]\n'
+  },
+
+  // scenephase-not-active（2026-09-07）。系统权限弹窗只会让 scenePhase 走一趟 `.inactive`，
+  // 把它当成「进后台」去清理，毁的正是那个在等授权回调的会话。
+  // 这条守卫的存在理由是纯函数保不住调用点 —— 判定改回去的话它只会变成死代码，用例全绿。
+  {
+    name: 'scenePhase != .active 当成进后台（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/blindRunApp.swift',
+    swift: 'struct A { func f() { if phase != .active { speechInputService.cancelRecognitionForLifecycle() } } }'
+  },
+  {
+    name: '写全 ScenePhase.active 也要拦',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/App.swift',
+    swift: 'struct A { func f() { guard scenePhase != ScenePhase.active else { return } } }'
+  },
+  {
+    name: 'phase == .background（正解，放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/blindRunApp.swift',
+    swift: 'struct A { func f() { if phase == .background { speechInputService.cancelRecognitionForLifecycle() } } }'
+  },
+  {
+    name: 'else if phase == .active（回前台分支，放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/blindRunApp.swift',
+    swift: 'struct A { func f() { if x { y() } else if phase == .active { z() } } }'
+  },
+  {
+    name: 'scenephase 违规行带 guard:allow 标注（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/blindRunApp.swift',
+    swift: 'struct A { func f() { if phase != .active { dimScreen() } } } // guard:allow scenephase-not-active'
   }
 ];
 
