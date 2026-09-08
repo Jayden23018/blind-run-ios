@@ -186,6 +186,10 @@ final class BlindBookingGateTests: XCTestCase {
     ///
     /// 只说前半句会把一次真实的安全降级说成无关紧要 —— 陪跑过程中志愿者看不到位置、
     /// 云端求助可能发不出去，两件事都发生在盲人当场问不了任何人的时候。
+    ///
+    /// 断的是 `locationDegradationNotice(isDenied:)` 本身，因为**视图渲染与朗读走的就是它**
+    /// （`BlindBookingView.locationSection` 的分支条件 + `locationDegradationView(notice:)` 的入参）。
+    /// 2026-09-08 之前它是个实例属性、没有任何 View 消费，这条用例断的是一条不出货的分支。
     @MainActor
     func testLocationDeniedNoticeStatesBothTheWorkaroundAndTheSafetyCost() {
         let location = LocationService()
@@ -194,20 +198,21 @@ final class BlindBookingGateTests: XCTestCase {
             capturedAt: Date(),
             authorized: false
         )
-        let viewModel = makeBookingViewModel(locationService: location)
+        XCTAssertTrue(location.isDenied, "先确认这个替身真的处在被拒状态，否则下面断的是空气")
 
         XCTAssertEqual(
-            viewModel.locationDegradationNotice,
+            BlindBookingViewModel.locationDegradationNotice(isDenied: location.isDenied),
             BlindBookingViewModel.locationDeniedNotice,
             "屏幕与耳朵读同一份文案"
         )
         XCTAssertTrue(BlindBookingViewModel.locationDeniedNotice.contains("搜索"), "要说还能手动搜地点")
         XCTAssertTrue(BlindBookingViewModel.locationDeniedNotice.contains("求助"), "要说求助会受影响")
 
-        // 权限正常时不该出现这段告知。
+        // 权限正常时不该出现这段告知 —— 视图那边走的是 `currentLocationCard` 分支。
         let authorized = LocationService()
         authorized.simulateMissingDeviceLocationForTesting()
-        XCTAssertNil(makeBookingViewModel(locationService: authorized).locationDegradationNotice)
+        XCTAssertFalse(authorized.isDenied)
+        XCTAssertNil(BlindBookingViewModel.locationDegradationNotice(isDenied: authorized.isDenied))
     }
 
     /// 审阅步的提示语必须覆盖全部五道门槛。
