@@ -13,19 +13,6 @@
 		<string>iosamap</string>
 		<string>baidumap</string>
 	</array>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSExceptionDomains</key>
-		<dict>
-			<key>47.114.113.171</key>
-			<dict>
-				<key>NSExceptionAllowsInsecureHTTPLoads</key>
-				<true/>
-				<key>NSIncludesSubdomains</key>
-				<false/>
-			</dict>
-		</dict>
-	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>用于通过活体认证 SDK 完成志愿者实人认证。</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

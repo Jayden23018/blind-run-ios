@@ -1,6 +1,6 @@
 # AidRun iOS Frontend
 
-This repository contains only the native iOS frontend for AidRun / 助盲跑. It does not contain, maintain, build, or deploy backend code. The backend is an external service, and the only real integration endpoint is `http://47.114.113.171`.
+This repository contains only the native iOS frontend for AidRun / 助盲跑. It does not contain, maintain, build, or deploy backend code. The backend is an external service, and the only real integration endpoint is `https://47.114.113.171`.
 
 ## Requirements
 
@@ -17,7 +17,7 @@ Copy `LocalConfig.xcconfig.example` to `LocalConfig.xcconfig` and set `AMAP_API_
 Development builds can switch between:
 
 - `Mock`: in-process frontend data for offline UI and automated tests; it makes no network requests.
-- `Demo Cloud`: HTTP requests use `http://47.114.113.171` and WebSocket connections use `ws://47.114.113.171`.
+- `Demo Cloud`: HTTP requests use `https://47.114.113.171` and WebSocket connections use `wss://47.114.113.171`.
 
 Demo and Production build channels are locked to Demo Cloud. There is no configurable alternative server and no server runtime in this repository.
 

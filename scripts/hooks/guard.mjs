@@ -97,7 +97,7 @@ const rules = {
       const urls = line.match(/https?:\/\/[a-zA-Z0-9.\-_:]+/g) || [];
       return urls.some((u) => !u.includes(REAL_HOST) && !DOC_DOMAINS.test(u));
     },
-    why: `所有真实 HTTP 必须走 http://${REAL_HOST}，地址在 App 内不可配置，不得加入本地或占位的真实服务端地址（AGENTS.md 第 3 节）。`,
+    why: `所有真实 HTTP 必须走 https://${REAL_HOST}（WebSocket 对应 wss://），地址在 App 内不可配置，不得加入本地或占位的真实服务端地址（AGENTS.md 第 3 节）。`,
   },
 };
 
