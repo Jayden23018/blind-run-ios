@@ -161,13 +161,19 @@ enum EmergencySafetyCopy {
 
     static let homeCallPoliceTitle = "拨打110"
 
+    /// 120 与 110 是两回事，不能只留一个：这个 App 的用户在**跑步**，
+    /// 摔倒、扭伤、心脏不适是最可能发生的紧急情况，而它们对应的是急救不是报警。
+    /// 2026-09-08 之前全仓只有 110 的可点入口，「110或120」只作为文字出现在状态提示里 ——
+    /// 对看不见屏幕的人，念得出来而按不到，等于没有。
+    static let homeCallMedicalTitle = "拨打120"
+
     static func homeCallContactTitle(name: String?) -> String {
         "拨打\(name?.nilIfBlank ?? "紧急联系人")"
     }
 
     /// 没有唯一主联系人时的提示。`singlePrimary` 在 0 个或多个时都返回 nil，
     /// 两种情况对用户是同一件事：现在没有一个确定该拨给谁的号码。
-    static let homeCallNoContactHint = "尚未设置唯一的主紧急联系人，只能拨打110。"
+    static let homeCallNoContactHint = "尚未设置唯一的主紧急联系人，只能拨打120或110。"
 
     // MARK: 云端求助失败后的本地拨号兜底
 
@@ -183,6 +189,49 @@ enum EmergencySafetyCopy {
 
     static let cloudFailedCallDialogMessage =
         "求助没有发出去，App 不会代你发送求助。请选择要拨打的号码。"
+
+    // MARK: 陪跑进行中的主动拨号
+
+    /// 第三种语境：陪跑进行中，用户**主动**要打电话，云端求助既没按过也没失败。
+    /// 上面两句在这里都是错的（一句说「没有进行中的陪跑」，一句说「求助没有发出去」）。
+    ///
+    /// 第一句必须先把它和正上方那个「一键求助」按钮区分开 —— 两个红色按钮挨在一起，
+    /// 看不见屏幕的人靠的就是这一句判断自己按的是哪一个。
+    static let inProgressCallDialogMessage =
+        "这是直接打电话，不是一键求助。App 不会代你发送求助。请选择要拨打的号码。"
+
+    static let inProgressCallAccessibilityHint =
+        "直接打电话给紧急联系人、120 或 110。这不是一键求助，App 不会代你发送求助。"
+}
+
+/// 本地拨号弹窗的三种语境。**只差第一句**，而那一句每次都得说对：
+/// 它回答的是「我刚才那一下到底发生了什么」，说错会让盲人把「什么都没发生」当成「求助已发出」。
+///
+/// 做成枚举而不是让三个调用方各传一个字符串：三处都在安全路径上，谁漏了一句
+/// 都不会有任何运行时症状 —— 弹窗照常弹，只是话说错了。
+enum EmergencyCallContext {
+    /// 首页，当前没有进行中的陪跑。
+    case homeIdle
+    /// 云端求助刚刚失败（首页与订单状态页共用）。
+    case cloudFailed
+    /// 陪跑进行中，用户主动拨号。
+    case inProgress
+
+    var dialogMessage: String {
+        switch self {
+        case .homeIdle: return EmergencySafetyCopy.homeCallDialogMessage
+        case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallDialogMessage
+        case .inProgress: return EmergencySafetyCopy.inProgressCallDialogMessage
+        }
+    }
+
+    var accessibilityHint: String {
+        switch self {
+        case .homeIdle: return EmergencySafetyCopy.homeCallAccessibilityHint
+        case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallAccessibilityHint
+        case .inProgress: return EmergencySafetyCopy.inProgressCallAccessibilityHint
+        }
+    }
 }
 
 /// 拨号 URL 的唯一构造点。
@@ -191,6 +240,8 @@ enum EmergencySafetyCopy {
 /// 而无效 URL 的表现是「点了没反应」—— 对盲人端就是事故。
 enum EmergencyDialer {
     static let policeNumber = "110"
+    /// 医疗急救。跑步途中摔倒、扭伤、心脏不适对应的是它，不是 110。
+    static let medicalNumber = "120"
 
     static func telURL(for rawNumber: String?) -> URL? {
         guard let digits = rawNumber?.filter(\.isNumber), !digits.isEmpty else { return nil }
@@ -425,6 +476,10 @@ struct EmergencyActionSection: View {
     @ObservedObject var coordinator: EmergencyCoordinator
     let onTrigger: () -> Void
     let onCancelOwnEmergency: () -> Void
+    /// 直接拨打紧急联系人 / 120 / 110。**常驻，不等云端求助失败才出现** ——
+    /// 陪跑进行中是这个 App 里最可能需要叫救护车的时刻，而 Apple 5.1.5 要的是一个按得到的入口，
+    /// 不是状态提示里那句「若情况危急请立即拨打110」。2026-09-08 之前这一页只有文字。
+    let onLocalCall: () -> Void
 
     var body: some View {
         VStack(spacing: 14) {
@@ -433,6 +488,13 @@ struct EmergencyActionSection: View {
             if let message = coordinator.state.message {
                 EmergencyStatusNotice(message: message, isFailure: coordinator.state.isFailure)
             }
+
+            // 排在状态提示**之后**：求助失败时，读屏用户听完「未发出」下一个就是这个按钮，
+            // 与首页失败兜底的顺序一致。没有状态提示时它自然紧贴在「一键求助」下面。
+            PrimaryButton(EmergencySafetyCopy.homeCallTitle, isDestructive: true, action: onLocalCall)
+                .accessibilityLabel(EmergencySafetyCopy.homeCallAccessibilityLabel)
+                .accessibilityHint(EmergencySafetyCopy.inProgressCallAccessibilityHint)
+                .accessibilityIdentifier("blindOrderStatusEmergencyCallButton")
 
             // 只有本人发出、且还没结束的求助才谈得上撤销。判据直接读被观察的 coordinator，
             // 不再经由 view model 绕一手 —— 绕一手就又回到「值对但不刷新」。
@@ -450,6 +512,44 @@ struct EmergencyActionSection: View {
 }
 
 extension View {
+    /// 本地拨号弹窗的**唯一**构造点。首页与订单状态页共用，理由不是省代码：
+    /// 号码集合（联系人 / 120 / 110）和它们的先后顺序必须两页一致 —— 看不见屏幕的人
+    /// 靠位置记住「往下第二个是 120」，两页排得不一样，记住的那个位置就成了陷阱。
+    ///
+    /// 号码一律经 `EmergencyDialer.telURL`：它只取数字位，掩码串（`138****1234`）会被
+    /// 拼成空号，而空号在界面上看不出任何异常。
+    func emergencyCallOptionsDialog(
+        isPresented: Binding<Bool>,
+        context: EmergencyCallContext,
+        primaryContact: EmergencyContactResponse?
+    ) -> some View {
+        let contactURL = primaryContact.flatMap { EmergencyDialer.telURL(for: $0.phone) }
+        let message = contactURL == nil
+            ? "\(context.dialogMessage)\(EmergencySafetyCopy.homeCallNoContactHint)"
+            : context.dialogMessage
+
+        return confirmationDialog(
+            EmergencySafetyCopy.homeCallTitle,
+            isPresented: isPresented,
+            titleVisibility: .visible
+        ) {
+            if let contactURL {
+                Button(EmergencySafetyCopy.homeCallContactTitle(name: primaryContact?.name)) {
+                    EmergencyDialer.dial(contactURL)
+                }
+            }
+            if let medicalURL = EmergencyDialer.telURL(for: EmergencyDialer.medicalNumber) {
+                Button(EmergencySafetyCopy.homeCallMedicalTitle) { EmergencyDialer.dial(medicalURL) }
+            }
+            if let policeURL = EmergencyDialer.telURL(for: EmergencyDialer.policeNumber) {
+                Button(EmergencySafetyCopy.homeCallPoliceTitle) { EmergencyDialer.dial(policeURL) }
+            }
+            Button(EmergencySafetyCopy.cancelButtonTitle, role: .cancel) {}
+        } message: {
+            Text(message)
+        }
+    }
+
     func emergencyConfirmationAlert(
         isPresented: Binding<Bool>,
         onConfirm: @escaping () -> Void

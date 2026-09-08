@@ -3019,15 +3019,19 @@ final class blindRunTests: XCTestCase {
         XCTAssertNil(AppState.storedEnvironment(from: "unsupported"))
     }
 
+    /// **scheme 也是断言的一部分。** 退回 `http` 会让实时位置与 SOS 重新走明文，
+    /// 而那一步在界面上没有任何症状：请求照常成功，只是所有人都能看。
     func testDemoCloudBaseURLUsesCurrentDemoIPAddress() {
-        XCTAssertEqual(APIEnvironment.demoCloud.baseURL?.absoluteString, "http://47.114.113.171")
+        XCTAssertEqual(APIEnvironment.demoCloud.baseURL?.absoluteString, "https://47.114.113.171")
     }
 
     func testWebSocketUsesFixedCloudHost() throws {
         let baseURL = try XCTUnwrap(APIEnvironment.demoCloud.baseURL)
         let webSocketURL = try XCTUnwrap(WebSocketService.connectionURL(baseURL: baseURL, token: "jwt", role: .blind))
 
-        XCTAssertEqual(webSocketURL.scheme, "ws")
+        // `wss` 没有独立的配置项，它是 `baseURL` 的 scheme 推导出来的
+        // （`WebSocketService.connectionURL`）—— 所以这一条同时守着「WS 不许退回明文」。
+        XCTAssertEqual(webSocketURL.scheme, "wss")
         XCTAssertEqual(webSocketURL.host, "47.114.113.171")
         XCTAssertEqual(webSocketURL.path, "/ws/blind")
         XCTAssertTrue(webSocketURL.absoluteString.contains("token=jwt"))
