@@ -62,7 +62,13 @@
 ## 8. 收尾
 
 - [x] 8.1 openspec 四份 artifact（proposal / design / tasks / specs）
-- [ ] 8.2 handoff 通报契约新增
-- [ ] 8.3 独立 subagent code review（全报，自分 A/B 两档）
-- [ ] 8.4 两个仓库各自 commit + push + 开 PR
+- [x] 8.2 handoff 通报契约新增（后端 `docs/handoff.md`，三个口径变化 + 迁移执行顺序）
+- [x] 8.3 独立 subagent code review（全报，自分 A/B 两档）—— 4 条 A 档，逐条复核后 3 条已修：
+      契约漏 `trainingCompleted`、并发首次交卷报 500（已验红）、死方法；
+      第 4 条是真机测试未跑（不是代码问题，见 7.4）。iOS 侧另修一条：错误文案指向了
+      不存在的「我的」页面
+- [x] 8.4a 后端 commit + push + PR（`blind-run-backend#261`）
+- [ ] 8.4b iOS push + PR —— **被 8.4a 阻塞**：iOS 的 pre-push 门禁按后端 `origin/main`
+      校验错误码与契约，`TRAINING_NOT_COMPLETED` 要等 #261 合并后才在那里。
+      本地 3 个提交已就绪。⚠️ 不要用 `AIDRUN_SKIP_PREPUSH=1` 绕 —— 那会一次跳过全部 5 道门禁
 - [ ] 8.5 **提醒运维**：迁移 `0043` 必须先于新 JAR 执行，并登记进 `migrations_applied.log`
