@@ -338,6 +338,18 @@ final class VolunteerTrainingTests: XCTestCase {
             training.contains("资质证书"),
             "共用「上传资质证书」的说法会让志愿者做一件完全无效的事"
         )
+        // 🚩 指路必须指向真实存在的页面。志愿者端**没有**叫「我的」的入口 ——
+        //    `VolunteerSettingsView` 的 navigationTitle 是「设置」，首页底部那格也标「设置」。
+        //    在无障碍 App 里把人指向一个不存在的页面比不指路更糟：他会一直找下去。
+        //    （独立 review 抓到的：原文案写的是「我的 → 陪跑培训」。）
+        XCTAssertFalse(
+            training.contains("我的"),
+            "志愿者端没有叫「我的」的页面，指过去等于让他找一个不存在的东西"
+        )
+        XCTAssertTrue(
+            training.contains("设置"),
+            "要指向真实入口 —— VolunteerSettingsView 的标题就是「设置」"
+        )
     }
 
     // MARK: - Helpers
