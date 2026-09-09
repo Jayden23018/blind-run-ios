@@ -499,6 +499,13 @@ scripts/install-git-hooks.sh
 此时「生成代码与契约不同步」**不构成提交理由** —— 那份契约不是上游的，提交重新生成的结果
 等于把别人的 WIP 烘进你的 PR。钩子在这条路径上会自己说明，并给出 `git checkout --` 的还原命令。
 
+> 🔴 **推论（2026-09-09 实测）：一次同时改两端的功能，必须后端先合，iOS 才推得上去。**
+> 默认路径读后端 `origin/main`（新错误码/新端点还在你自己的分支上 → 报「前端映射了后端不存在的码」），
+> 加 `AIDRUN_ALLOW_BACKEND_DRIFT=1` 则转而撞上上面这条。**两条都不是 bug，是设计使然的顺序约束。**
+> ⛔ 不要用 `AIDRUN_SKIP_PREPUSH=1` 绕 —— 那一次跳过全部 5 道门禁。
+> 正解：合掉后端 PR → `git checkout -- Packages/AidRunAPI/Sources/AidRunAPI` 还原 drift 弄脏的工作区 →
+> iOS 直接 `git push`。详见记忆 `prepush-contract-gate-reads-backend-worktree`。
+
 > ⚠️ **这只管 pre-push。** 手动跑 `node scripts/validate-*.mjs` 仍然默认读 `../demo` 工作区 ——
 > 2026-08-12 因此把一份**正确**的语料镜像改动判成了伪造（后端当时停在特性分支，语料 96 条而
 > `origin/main` 已 101 条），差点据此删掉。手动跑之前自己导出真契约：
