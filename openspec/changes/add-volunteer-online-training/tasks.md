@@ -31,8 +31,10 @@
 - [x] 4.3 `DispatchServiceTest` +2：兜底守卫抛 `TRAINING_NOT_COMPLETED`；顺序在 `wantsDispatch` 之前
 - [x] 4.4 `VolunteerDispatchSummaryTest` +1：`TRAINING_INCOMPLETE` 下发且与 `NOT_VERIFIED` 共存
 - [x] 4.5 `AuthzMatrixTest` 登记 5 个新端点（该门禁抓出它们本会落到 `anyRequest().authenticated()`）
-- [x] 4.6 **两条核心不变式验红**：及格线放宽成 80% → 5 题用例红；`correctOption` 带进响应 → 防泄漏用例红
-- [x] 4.7 全量 1301 tests / 0 failures / 1 skipped（改动前 1282，其中 4 条 drift gate 红）
+- [x] 4.6 **三条核心不变式验红**：及格线放宽成 80% → 5 题用例红；`correctOption` 带进响应 →
+      防泄漏用例红；去掉并发约束冲突处理 → 连跑 3 次全红，装回连跑 3 次全绿（证明不是 flaky）
+- [x] 4.7 全量 **1302** tests / 0 failures / 1 skipped（改动前 1282，其中 4 条 drift gate 红。
+      1301 → 1302 是 review 后补的并发首次交卷用例）
 
 ## 5. iOS：模型与服务
 
