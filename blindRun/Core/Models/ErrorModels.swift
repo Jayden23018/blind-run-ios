@@ -13,6 +13,16 @@ enum ErrorCode: String, Codable, Sendable {
     case roleAlreadySet = "ROLE_ALREADY_SET"
     case volunteerNotAvailable = "VOLUNTEER_NOT_AVAILABLE"
     case volunteerNotApproved = "VOLUNTEER_NOT_VERIFIED"
+    // 必修线上培训未完成（后端迁移 `0043`，2026-09-09 培训模块重新上线）。
+    //
+    // ⚠️ **正常路径下客户端见不到它**：未完成必修培训的人不进后端派单候选池
+    // （`ScoringService`），根本收不到派单，派单弹窗也就不会出现 —— 按不到「接单」。
+    // 它只在**竞态**里出现：推送发出之后培训状态才变，最典型的是管理员刚上线了一门新必修课。
+    //
+    // 🚩 文案**不能与 `VOLUNTEER_NOT_VERIFIED` 共用**：那条说的是「去上传资质证件并等审核」，
+    // 共用会让志愿者去传一份根本不需要的材料。这条要说「去做培训」，
+    // 并且界面上得真有一个去得了培训页的入口（`VolunteerHomeView` 的派单卡片里那个按钮）。
+    case trainingNotCompleted = "TRAINING_NOT_COMPLETED"
     case appointmentTooSoon = "APPOINTMENT_TOO_SOON"
     // 下单时间类的另外两条（后端 `ErrorCode.java:174-190`，N134 随 `OrderCreationService` 一起上线）。
     // 校验顺序在 `APPOINTMENT_TOO_SOON` 之后：先时长、再夜间窗口。
@@ -152,6 +162,21 @@ enum ErrorCode: String, Codable, Sendable {
             // 后端 `DispatchService` 的接单守卫（403 VOLUNTEER_NOT_VERIFIED）唯一解法是上传资质证书等审核。
             // case 名与 rawValue 不一致是历史命名，不要改 rawValue。
             return "尚未通过资质认证，请先上传资质证书。"
+        case .trainingNotCompleted:
+            // 🚩 与上一条**必须说不同的事**：那条要他去传材料，这条要他去做培训。
+            //    共用文案会让他传一份根本不需要的东西，而门槛一动不动。
+            //
+            // 🚩 指路写「设置」而不是「我的」：志愿者端**没有**叫「我的」的页面 ——
+            //    入口是 `VolunteerSettingsView`，`navigationTitle` 是「设置」，
+            //    首页底部那格图标也标「设置」。全仓志愿者端零处出现「我的」。
+            //    在一个无障碍 App 里把人指向一个不存在的页面，比不指路更糟：
+            //    他会一直找下去，而屏幕上确实没有那个东西。
+            //    （⚠️ 后端 `VOLUNTEER_NOT_AVAILABLE` 的 message 至今写着「请在「我的」中开启」，
+            //    那是既有缺陷，已在 review 里记下，本轮不夹带修改别人的文案。）
+            //
+            // 指路本身不是废话：这个码只在竞态里出现，那一刻派单弹窗已经关掉了，
+            // 首页那个「去培训」按钮也可能还没刷新出来。
+            return "还有必修培训没有完成，请在「设置 → 陪跑培训」里学完后再接单。"
         case .appointmentTooSoon:
             return "预约时间需要至少30分钟之后。"
         case .appointmentTooLong:

@@ -440,6 +440,15 @@ final class AppState: ObservableObject {
         return OrderService(transport: apiClient)
     }
 
+    /// 志愿者线上培训片的领域 service。每次取都新建，理由同 `auth`。
+    ///
+    /// 没有注入口，理由同 `profile`：培训的用例都通过 `AppState(apiClient:)` 打桩，
+    /// 桩实现的是 `APIClientProtocol`，`TrainingService` 照样架在它上面。
+    /// 真需要 `FakeTrainingService` 时再照 `auth` 加，不先摆一个没人用的入口。
+    var training: any TrainingServing {
+        TrainingService(transport: apiClient)
+    }
+
     /// 语音下单解析片的领域 service。每次取都新建，理由同 `auth`。
     ///
     /// 这里没有注入口，理由同 `profile`：现有用例都通过给 `VoiceOrderWizard.configure`

@@ -9,8 +9,9 @@ struct DispatchStatusRequest: Codable, Sendable {
 /// `GET /api/volunteer/dispatch-summary` 的 `notAvailableReasons` 取值。
 ///
 /// 后端权威定义见 `demo/src/main/java/com/example/demo/entity/DispatchBlockReason.java`，
-/// **后端只有三个值**：`DISPATCH_DISABLED` / `NOT_VERIFIED` / `OFFLINE`
-/// （引导优先级：先认证 → 再开接单开关 → 最后上线定位）。
+/// **后端有四个值**：`DISPATCH_DISABLED` / `NOT_VERIFIED` / `TRAINING_INCOMPLETE` / `OFFLINE`
+/// （引导优先级：先认证 → 再完成必修培训 → 再开接单开关 → 最后上线定位）。
+/// `TRAINING_INCOMPLETE` 是 2026-09-09 随后端迁移 `0043`（线上培训重新上线）加的。
 ///
 /// 客户端刻意不再多定义后端不会下发的取值：Mock 曾造 `REGISTRATION_INCOMPLETE` /
 /// `ACTIVE_ORDER`，导致 Mock 永远不会走 `NOT_VERIFIED` 分支，「整份首页数据被静默吞成
@@ -22,6 +23,16 @@ enum VolunteerDispatchNotAvailableReason: String, Codable, CaseIterable, Sendabl
     // MARK: 后端权威取值（DispatchBlockReason）
     case dispatchDisabled = "DISPATCH_DISABLED"
     case notVerified = "NOT_VERIFIED"
+    /// 必修线上培训没做完（后端迁移 `0043`，2026-09-09）。
+    ///
+    /// 🚩 **这是「我上线了却收不到任何派单」唯一的告知通道。** 未完成必修培训的人被
+    /// 后端 `ScoringService` 挡在候选池外 —— 他把可服务开关打开、首页显示「等待系统派单」，
+    /// 然后永远等不到一张单。不认这个取值，屏幕上就只剩
+    /// `unknown` 那句「请稍后重试或更新 App」，既不真也没用。
+    ///
+    /// ⚠️ 与 `.notVerified` **可以同时出现**，两者互不依赖：资质审核是管理员看材料，
+    /// 培训是志愿者自己在 App 里做完，完全可以在等审核时把培训学完。
+    case trainingIncomplete = "TRAINING_INCOMPLETE"
     case offline = "OFFLINE"
 
     /// 后端新增原因时的兜底，避免整份响应解码失败。
@@ -32,6 +43,7 @@ enum VolunteerDispatchNotAvailableReason: String, Codable, CaseIterable, Sendabl
         [
             .dispatchDisabled,
             .notVerified,
+            .trainingIncomplete,
             .offline
         ]
     }
@@ -47,6 +59,8 @@ enum VolunteerDispatchNotAvailableReason: String, Codable, CaseIterable, Sendabl
             return "已关闭接单"
         case .notVerified:
             return "尚未通过资质认证"
+        case .trainingIncomplete:
+            return "尚未完成必修培训"
         case .offline:
             return "当前未在线"
         case .unknown:

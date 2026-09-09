@@ -1354,11 +1354,16 @@ final class blindRunTests: XCTestCase {
 
     func testMockVolunteerDispatchSummaryReflectsDispatchStatusAndActiveOrder() async throws {
         let client = MockAPIClient()
+        // 本用例考的是「派单状态 + 在途订单」，与培训无关。
+        // Mock 默认「一门必修课都没学」（那个默认是刻意的，见 MockAPIClient.trainingProgress），
+        // 不先把培训过掉的话下面每一处 notAvailableReasons 都会多一个 TRAINING_INCOMPLETE，
+        // 断言全红 —— 而红的原因与本用例要守的东西无关。
+        client.completeAllRequiredTrainingForTesting()
 
         let initialSummary: VolunteerDispatchSummaryResponse = try await client.get("/api/volunteer/dispatch-summary")
         XCTAssertFalse(initialSummary.canDispatch ?? true)
         // Mock 只在开启接单时上报位置，所以关掉接单时 DISPATCH_DISABLED 与 OFFLINE 同时命中
-        // （与后端 getDispatchSummary 的三条件独立评估一致）。
+        // （与后端 getDispatchSummary 的独立评估一致）。
         XCTAssertEqual(initialSummary.notAvailableReasons, [.dispatchDisabled, .offline])
         XCTAssertEqual(initialSummary.completedCount, 1)
         // 此前这里断言 `resolvedPointsBalance == 100`，也就是 `completedCount * 100` ——
@@ -1379,8 +1384,9 @@ final class blindRunTests: XCTestCase {
             body: OrderRespondRequest(action: .accept)
         )
         let activeSummary: VolunteerDispatchSummaryResponse = try await client.get("/api/volunteer/dispatch-summary")
-        // 后端 `VolunteerService.getDispatchSummary` 只评估三个独立条件
-        // （DISPATCH_DISABLED / NOT_VERIFIED / OFFLINE，见 `DispatchBlockReason.java`）。
+        // 后端 `VolunteerService.getDispatchSummary` 只评估**四个**独立条件
+        // （DISPATCH_DISABLED / NOT_VERIFIED / TRAINING_INCOMPLETE / OFFLINE，
+        // 见 `DispatchBlockReason.java`；TRAINING_INCOMPLETE 是 2026-09-09 随迁移 0043 加的）。
         // 在途订单**不**产生 notAvailableReason，也不影响 canDispatch —— 派单入口另行过滤。
         XCTAssertTrue(activeSummary.canDispatch ?? false)
         XCTAssertEqual(activeSummary.notAvailableReasons, [])

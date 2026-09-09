@@ -27,6 +27,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 志愿者是否已依《人脸识别技术应用安全管理办法》第十条拒绝人脸、转「二要素 + 人工审核」。
     /// 缺了它 Mock 下走完 decline 状态一点不变，替代路径整条在开发期和 UI 测试里都验不了。
     var volunteerFaceVerifyDeclined = false
+    /// 线上培训进度：courseId → 进度（后端迁移 `0043`）。
+    ///
+    /// 🚩 **初始为空 = 一门课都没学**，这是刻意的默认：Mock 环境下第一次进志愿者首页
+    /// 就应该看到 `TRAINING_INCOMPLETE`，否则「未完成培训 → 接不到单 → 去培训」
+    /// 这条主路径在开发期和 UI 测试里一次都走不到。
+    /// 想演「已完成」的用例自己先调 `completeAllRequiredTrainingForTesting()`。
+    var trainingProgress: [Int64: MockTrainingProgress] = [:]
     var emergencyContacts: [EmergencyContactResponse] = []
 
     var orders: [OrderDetailResponse] = []
@@ -341,6 +348,19 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         // SPEC-E 激励体系
         if path == "/api/volunteer/points" && method == .get {
             return handleGetVolunteerPoints(query: query)
+        }
+        // 线上培训（后端迁移 0043）。见 MockAPIClient+Training.swift
+        if path == "/api/volunteer/training/courses" && method == .get {
+            return handleGetTrainingCourses()
+        }
+        if let courseId = extractTrainingCourseId(from: path, suffix: nil), method == .get {
+            return try handleGetTrainingCourseDetail(courseId: courseId)
+        }
+        if let courseId = extractTrainingCourseId(from: path, suffix: "progress"), method == .post {
+            return try handleReportTrainingProgress(courseId: courseId, body: body)
+        }
+        if let courseId = extractTrainingCourseId(from: path, suffix: "quiz"), method == .post {
+            return try handleSubmitTrainingQuiz(courseId: courseId, body: body)
         }
         if path == "/api/blind/partners/streaks" && method == .get {
             return handleGetPartnerStreaks(asBlind: true)

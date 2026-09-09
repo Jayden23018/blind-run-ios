@@ -7204,11 +7204,24 @@ public enum Components {
                 case blindName
             }
         }
-        /// 不可接单原因（前端引导优先级 NOT_VERIFIED > DISPATCH_DISABLED > OFFLINE：
-        /// 先审核 → 再开接单开关 → 最后上线定位）。
-        /// `REGISTRATION_INCOMPLETE` 已随培训模块下线一并移除，不再返回。
+        /// 不可接单原因（前端引导优先级
+        /// NOT_VERIFIED > TRAINING_INCOMPLETE > DISPATCH_DISABLED > OFFLINE：
+        /// 先审核 → 再完成必修培训 → 再开接单开关 → 最后上线定位）。
         /// `NOT_VERIFIED` 自 2026-07-30 起是**真实阻断**（此前仅展示）：命中时既进不了派单候选池，
         /// 接单也会 403 `VOLUNTEER_NOT_VERIFIED`，前端必须给出证书上传入口。
+        ///
+        /// 📱 `TRAINING_INCOMPLETE` 自 2026-09-09 起（迁移 `0043`，线上培训重新上线）：
+        /// 必修培训没全部通过时命中，同样是**真实阻断** —— 进不了派单候选池，
+        /// 接单返回 403 `TRAINING_NOT_COMPLETED`。
+        /// 🚩 **前端必须给出「去培训」的入口**，否则志愿者会看到「已上线，等待系统派单」
+        /// （其实是这条原因）然后永远等不到任何一张单，而屏幕上没有任何东西能解释。
+        /// 课程列表见 `GET /api/volunteer/training/courses`。
+        /// ⚠️ 它与 `NOT_VERIFIED` **可以同时出现**，两者互不依赖：
+        /// 资质审核是管理员看材料，培训是志愿者自己在 App 里做完。
+        ///
+        /// ⚠️ `REGISTRATION_INCOMPLETE` 已随 2026-07-29 那次培训下线一并移除，不再返回。
+        /// **本次培训回归没有沿用它** —— 它的语义是「注册流程没走完」，
+        /// 而这次培训刻意不进 `registrationCompleted`（走完注册也可能还没培训）。
         /// 可服务时段不纳入本枚举，也不计入 canDispatch。
         ///
         /// - Remark: Generated from `#/components/schemas/DispatchBlockReason`.
@@ -7217,6 +7230,7 @@ public enum Components {
             @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                 case DISPATCH_DISABLED = "DISPATCH_DISABLED"
                 case NOT_VERIFIED = "NOT_VERIFIED"
+                case TRAINING_INCOMPLETE = "TRAINING_INCOMPLETE"
                 case OFFLINE = "OFFLINE"
             }
             /// - Remark: Generated from `#/components/schemas/DispatchBlockReason/value1`.

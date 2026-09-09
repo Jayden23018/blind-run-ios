@@ -2232,6 +2232,19 @@ struct VolunteerSettingsView: View {
                 .accessibilityLabel("我的邀请码")
                 .accessibilityHint("查看你的邀请码和已经邀请的人数")
                 .accessibilityIdentifier("volunteerInviteCodeSettingsEntry")
+
+                // 陪跑培训（后端迁移 0043）。
+                //
+                // 🚩 这里是**常驻**入口，而不是培训的唯一入口 —— 首页派单卡片在
+                // `TRAINING_INCOMPLETE` 时另给一个「去培训」按钮。两个都要有：
+                // 首页那个解决「为什么我接不到单」，这里解决「我想复习/做选修」。
+                // 只留首页那个的话，培训完之后入口就消失了，选修课再也找不到。
+                NavigationLink("陪跑培训") {
+                    VolunteerTrainingView()
+                }
+                .accessibilityLabel("陪跑培训")
+                .accessibilityHint("学习必修与选修课程，完成必修后才能接单")
+                .accessibilityIdentifier("volunteerTrainingSettingsEntry")
             }
 
             Section {

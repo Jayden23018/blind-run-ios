@@ -222,6 +222,14 @@ extension MockAPIClient {
             if !handleGetVolunteerRegistrationStatus().isRegistrationComplete {
                 values.append(.notVerified)
             }
+            // 必修培训没做完（后端迁移 0043）。
+            // 🚩 这一条**不能省**，理由与上面那句「Mock 不得造后端没有的原因值」是同一枚硬币的两面：
+            //    Mock 少造一个**真实存在**的原因，那条分支在开发期就永远跑不到 ——
+            //    「未完成培训 → 首页说清原因 → 点『去培训』」整条主路径都验不了，
+            //    只能等真机联调才暴露，正是当年 NOT_VERIFIED 解码 bug 的形状。
+            if !mockTrainingRequiredCompleted {
+                values.append(.trainingIncomplete)
+            }
             if !isOnline {
                 values.append(.offline)
             }
