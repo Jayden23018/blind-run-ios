@@ -58,8 +58,10 @@
 - [x] 7.1 `VolunteerTrainingTests` 14 条：告知 / 解码宽容 / 积分文案 / 答题闸 / Mock 全链路 / 错误码文案
 - [x] 7.2 `validate-spec-coverage`、`validate-error-codes`、`validate-guard`（105 条）全过
 - [x] 7.3 编译门禁 `build-for-testing` 通过
-- [ ] 7.4 **真机跑测** —— iPhone 16 Pro 当前 `unavailable`，iPad Air 5 需要解锁并关闭自动锁定
-- [ ] 7.5 按 `verified-on-one-device-is-not-verified`：在 PR 里写清只验了哪台
+- [x] 7.4 **真机跑测**（iPad Air 5 `00008103-001C71490E62201E`）：
+      `VolunteerTrainingTests` 16/16 全过；四个受影响 suite 合计 `passed=386 failed=0`。
+      ⚠️ 首次跑撞上「Developer App Certificate is not trusted」，需在设备上手动信任一次
+- [x] 7.5 ⚠️ **只在 iPad Air 5 上验过**，iPhone 16 Pro 全程 `unavailable`。已在 PR 里写明
 
 ## 8. 收尾
 
@@ -70,7 +72,6 @@
       第 4 条是真机测试未跑（不是代码问题，见 7.4）。iOS 侧另修一条：错误文案指向了
       不存在的「我的」页面
 - [x] 8.4a 后端 commit + push + PR（`blind-run-backend#261`）
-- [ ] 8.4b iOS push + PR —— **被 8.4a 阻塞**：iOS 的 pre-push 门禁按后端 `origin/main`
-      校验错误码与契约，`TRAINING_NOT_COMPLETED` 要等 #261 合并后才在那里。
-      本地 3 个提交已就绪。⚠️ 不要用 `AIDRUN_SKIP_PREPUSH=1` 绕 —— 那会一次跳过全部 5 道门禁
+- [x] 8.4b iOS push + PR（`blind-run-ios#119`）—— 后端 #261 合并后 5 道门禁一次通过。
+      合并那一刻契约漂移闸要求提交重新生成的客户端（因为这次读的**是** `origin/main`），已照做
 - [ ] 8.5 **提醒运维**：迁移 `0043` 必须先于新 JAR 执行，并登记进 `migrations_applied.log`
