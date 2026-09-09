@@ -1851,6 +1851,12 @@ public enum Components {
             public var canAcceptOrders: Swift.Bool
             /// 分步细节。恒含 `idVerifyStatus` / `faceVerifyStatus`；
             /// 对应状态为 `REJECTED` 时额外含 `idVerifyRejectionReason` / `faceVerifyRejectionReason`。
+            /// ⚠️ `faceVerifyStatus` 自 2026-09-08 起多一个取值 **`DECLINED`** ——
+            /// 志愿者调了 `POST /step3/face-verify/decline`，依《人脸识别技术应用安全管理办法》
+            /// 第十条拒绝人脸、改走「身份证二要素核验 + 人工审核」。**这不是失败态**：
+            /// 此时 `registrationCompleted=true`，客户端应把用户放出注册引导、引导他去
+            /// `POST /api/volunteer/verification` 上传能证明本人身份的材料等待人工审核，
+            /// **不要**显示成「人脸认证失败，请重试」。
             ///
             /// - Remark: Generated from `#/components/schemas/RegistrationStatusResponse/stepDetails`.
             public var stepDetails: OpenAPIRuntime.OpenAPIObjectContainer

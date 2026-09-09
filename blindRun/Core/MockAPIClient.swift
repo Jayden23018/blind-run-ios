@@ -24,6 +24,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     var volunteerVerificationStatus: VolunteerCertificateStatus = .approved
     var volunteerRegistrationStepCode: String?
     var activeCloudAuthCertifyId: String?
+    /// 志愿者是否已依《人脸识别技术应用安全管理办法》第十条拒绝人脸、转「二要素 + 人工审核」。
+    /// 缺了它 Mock 下走完 decline 状态一点不变，替代路径整条在开发期和 UI 测试里都验不了。
+    var volunteerFaceVerifyDeclined = false
     var emergencyContacts: [EmergencyContactResponse] = []
 
     var orders: [OrderDetailResponse] = []
@@ -383,6 +386,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         if path == "/api/volunteer/registration/step3/face-verify/result" && method == .post {
             return try handleFaceVerifyResult(body: body)
+        }
+        if path == "/api/volunteer/registration/step3/face-verify/decline" && method == .post {
+            return try handleDeclineFaceVerify()
         }
         if path == "/api/volunteer/mock-verification/approve" && method == .post {
             return handleMockVerificationApprove()
@@ -882,6 +888,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_UNREGISTERED_VOLUNTEER"] == "1" {
             volunteerProfile = nil
             volunteerRegistrationStepCode = nil
+            volunteerFaceVerifyDeclined = false
         } else {
             volunteerProfile = VolunteerProfileResponse(
                 name: "测试志愿者",

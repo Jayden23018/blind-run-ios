@@ -13,10 +13,10 @@ import XCTest
 /// 它们打桩的是 `APIClientProtocol`，`ProfileService` 迁移后照样架在那些桩上。
 final class ProfileServiceTests: XCTestCase {
 
-    /// 一次跑完 `ProfileServing` 的全部 17 个方法，逐条比对实际发出的 `方法 + 路径`。
+    /// 一次跑完 `ProfileServing` 的全部 18 个方法，逐条比对实际发出的 `方法 + 路径`。
     ///
-    /// 用一条 trace 而不是 17 个用例：端点映射错的形态永远是「打到了别人那条」，
-    /// 整条序列一起比才看得出串了；拆成 17 个用例只会让每次加端点都要抄一遍样板。
+    /// 用一条 trace 而不是 18 个用例：端点映射错的形态永远是「打到了别人那条」，
+    /// 整条序列一起比才看得出串了；拆成 18 个用例只会让每次加端点都要抄一遍样板。
     func testEveryMethodHitsItsOwnEndpoint() async throws {
         let transport = ProfileRecordingTransport()
         let service = ProfileService(transport: transport)
@@ -111,6 +111,11 @@ final class ProfileServiceTests: XCTestCase {
         transport.enqueue(FaceVerifyResponse(passed: true, status: "PASSED", message: nil))
         _ = try await service.faceVerifyResult(FaceVerifyResultRequest(certifyId: "c1"))
 
+        // 注册流程三条端点只差最后一段（init / result / decline），复制粘贴改漏不会有编译错误——
+        // 这条 trace 就是拦它的。decline 串到 init 上的表现是：用户点「不同意人脸」反而拉起了活体 SDK。
+        transport.enqueue(FaceVerifyDeclineResponse(message: "已切换认证方式"))
+        _ = try await service.declineFaceVerify()
+
         XCTAssertEqual(transport.trace, [
             "GET /api/blind/profile",
             "PUT /api/blind/profile",
@@ -129,6 +134,7 @@ final class ProfileServiceTests: XCTestCase {
             "POST /api/volunteer/registration/step1",
             "POST /api/volunteer/registration/step3/face-verify/init",
             "POST /api/volunteer/registration/step3/face-verify/result",
+            "POST /api/volunteer/registration/step3/face-verify/decline",
         ])
 
         XCTAssertTrue(

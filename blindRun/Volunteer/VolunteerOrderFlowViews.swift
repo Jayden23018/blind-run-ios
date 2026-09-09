@@ -768,10 +768,7 @@ struct VolunteerOrderDetailView: View {
 
                 // 接单被后端 403 VOLUNTEER_NOT_VERIFIED 拒绝时，直接给出上传入口。
                 if viewModel.needsCertificateUpload {
-                    VolunteerCertificateUploadEntryLink(
-                        title: "去上传资质证书",
-                        subtitle: "资质审核通过后才能接单"
-                    )
+                    VolunteerCertificateUploadEntryLink()
                 }
             }
             .padding(20)

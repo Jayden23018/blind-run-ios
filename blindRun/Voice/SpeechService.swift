@@ -30,12 +30,29 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
 
     // MARK: - Public API
 
+    #if DEBUG
+    /// 本实例播过的每一句，按顺序。**只给测试用。**
+    ///
+    /// 为什么不能拿 `lastSpokenText` 代替：它只是最后一句的快照，而本仓库反复出事的形态是
+    /// **同一流程里两处 speak，后说的把先说的从半句切断**。那种回归里最后一句往往是对的，
+    /// 于是 `lastSpokenText` 照样等于期望值 —— 断言全绿，用户却听到一句残片加一句正确的。
+    /// 要抓它只能看**调用了几次**，所以这里留一条历史。
+    private(set) var spokenHistoryForTesting: [String] = []
+
+    func resetSpokenHistoryForTesting() {
+        spokenHistoryForTesting = []
+    }
+    #endif
+
     /// 播报文本
     func speak(text: String) {
         let normalizedText = text.trimmed
         guard !normalizedText.isEmpty else { return }
         lastSpokenText = normalizedText
         latestRepeatableText = normalizedText
+        #if DEBUG
+        spokenHistoryForTesting.append(normalizedText)
+        #endif
         // ⚠️ VoiceOver 开着时这一句会同时走无障碍通告和合成器，听感上可能是念两遍。
         // 2026-08-01 曾改成「VoiceOver 运行时只留合成器」，当天回退：
         // 两条通道各有不可替代的性质 —— 通告走 VoiceOver 自己的语速与队列，而合成器不会像通告那样

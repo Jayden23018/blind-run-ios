@@ -464,6 +464,9 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     @Published var isPerformingFaceVerify = false
     @Published var isPollingFaceResult = false
     @Published var canReturnToBasicInfoForIdentityEdit = false
+    /// 正在提交「不同意人脸认证」。与 `isLoading` 分开：两个按钮同屏，
+    /// 共用一个 loading 会让点了拒绝的人看到活体按钮转圈，以为自己点错了。
+    @Published private(set) var isDecliningFaceVerify = false
 
     @Published private(set) var isAwaitingRegistrationCompletion = false
     @Published private(set) var isRegistrationCompleted = false
@@ -472,6 +475,18 @@ final class VolunteerRegistrationViewModel: ObservableObject {
 
     /// 已完成但尚未发布给 AppState 的注册状态，见 `applyRegistrationStatus`。
     private var pendingCompletedStatus: VolunteerRegistrationStatus?
+
+    /// 刚拒绝人脸时要播的那句（优先用后端返回的文案）。交给 `applyRegistrationStatus` 统一播，
+    /// 理由见 `declineFaceVerify` 里那段注释：两处都播会互相切断。
+    private var pendingDeclineAnnouncement: String?
+
+    /// 压住 `applyRegistrationStatus` 的「注册完成」播报，因为调用方紧接着自己要播一句。
+    ///
+    /// 只有一个用处：拒绝失败后要 `loadStatus` 对齐状态，而**活体已经通过**的那一支刷回来的
+    /// 状态恰好是「注册已完成」，于是 `applyRegistrationStatus` 会播「注册完成，请返回首页
+    /// 开启可服务状态」，紧接着 `handleDeclineFailure` 再播真正该说的那句 —— 后者把前者从
+    /// 半句切断，用户先听到一句残片。而且那句残片本身还是**错的引导**：他刚才点的是拒绝人脸。
+    private var suppressesCompletionAnnouncement = false
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -483,6 +498,28 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     static let idCardNumberRegex = #"^\d{17}[\dXx]$"#
     static let faceResultPollingIntervalNanoseconds: UInt64 = 3_000_000_000
     nonisolated static let maxFaceResultPollingAttempts = 240
+
+    // MARK: 替代认证路径的文案
+    //
+    // 🚨 **这几句是对外法律文本的镜像，不是产品文案。** 用户协议 `:194` 写的是
+    // 「可改用【二要素 + 人工审核】，审核较慢但等效」——所以这里只说「审核时间较长，但结果等效」，
+    // **不得**编一个「1 个工作日内」之类的 SLA：后端没有这个字段，法律文本也没承诺过，
+    // 客户端自己写一个就是对外口径不一致。
+    //
+    // 🚨 同样禁止出现「失败」「重试」——`DECLINED` 是用户依法作出的选择，不是认证没通过。
+    // 后端契约用整段文字点名禁止显示成「人脸认证失败，请重试」（api_spec.yaml:4059-4064）。
+
+    /// 后端 200 的 `data` 缺失时的兜底播报。**不是错误文案**，端点已经成功了。
+    static let declineFallbackAnnouncement =
+        "已为你改用身份证二要素核验加人工审核。请上传能证明本人身份的材料，等待管理员审核。"
+    static let declineGenericFailureMessage = "暂时没能切换认证方式，请稍后再试一次。"
+    /// 409 之一：活体已经通过了。不能说「失败」，他其实已经认证完了。
+    static let declineAlreadyVerifiedMessage = "你已完成人脸认证，无需再选择替代方式。"
+    /// 409 之二：步骤位对不上，已经替他刷新。
+    static let declineStepChangedMessage = "注册进度有变化，已为你刷新，请看当前页面的提示。"
+    /// 400：二要素不是 APPROVED，后端已回退到 step1。
+    static let declineNeedsIdVerificationMessage =
+        "请先重新填写姓名和身份证号码，通过核验后才能选择替代认证方式。"
 
     static func normalizedPhoneNumber(_ value: String) -> String {
         String(value.filter(\.isNumber).prefix(11))
@@ -541,7 +578,13 @@ final class VolunteerRegistrationViewModel: ObservableObject {
     }
 
     var isFaceVerifyBusy: Bool {
-        isLoading || isPerformingFaceVerify || isPollingFaceResult
+        isLoading || isPerformingFaceVerify || isPollingFaceResult || isDecliningFaceVerify
+    }
+
+    /// 拒绝入口的开放条件与 `canStartFaceVerify` **一致** —— 监管口径要求替代方式与人脸
+    /// 「同等便捷」，能做人脸的那一刻就必须能拒绝人脸，不能比它更难够到。
+    var canDeclineFaceVerify: Bool {
+        canStartFaceVerify
     }
 
     var faceVerifyButtonTitle: String {
@@ -619,10 +662,22 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         }
         if isRegistrationCompleted {
             faceVerifyMessage = nil
-            if !wasCompleted {
-                speechService?.speak("注册完成，请返回首页开启可服务状态")
+            if !wasCompleted, !suppressesCompletionAnnouncement {
+                // 走替代路径的人**不能**听到「请返回首页开启可服务状态」——他 `canAcceptOrders`
+                // 还是 false，回首页那个开关他打不开，照播等于指着一条走不通的路。
+                if status.hasDeclinedFaceVerification {
+                    speechService?.speak(pendingDeclineAnnouncement ?? Self.declineFallbackAnnouncement)
+                } else {
+                    speechService?.speak("注册完成，请返回首页开启可服务状态")
+                }
             }
+            pendingDeclineAnnouncement = nil
         }
+    }
+
+    /// 当前是不是走了替代认证路径。View 与文案分支都读这一个。
+    var hasDeclinedFaceVerification: Bool {
+        registrationStatus?.hasDeclinedFaceVerification == true
     }
 
     func prepareReturnToVolunteerHome() {
@@ -931,6 +986,103 @@ final class VolunteerRegistrationViewModel: ObservableObject {
             normalizedMessage.contains("IDENTITY")
     }
 
+    // MARK: - Step 3: 拒绝人脸，转替代认证路径
+
+    /// 《人脸识别技术应用安全管理办法》第十条：个人不同意人脸验证的，应当提供其他合理、便捷的方式。
+    /// 三处对外法律文本（隐私政策 `:64`、用户协议 `:62` / `:194`）都承诺了这条路径存在。
+    ///
+    /// 端点幂等、且**可逆** —— 拒绝之后再调 `/face-verify/init` 后端照常放行，
+    /// 所以这里不设二次确认：本仓库的二次确认留给不可逆操作，而监管口径明确要求
+    /// 替代通道「不得设置明显更多的步骤」。后果写在按钮上方的正文里，点之前就会被读到。
+    func declineFaceVerify() async {
+        guard let appState, !isDecliningFaceVerify else { return }
+        isDecliningFaceVerify = true
+        errorMessage = nil
+        faceVerifyMessage = nil
+        canReturnToBasicInfoForIdentityEdit = false
+
+        do {
+            let message = try await activeProfileService(appState: appState).declineFaceVerify()
+            isDecliningFaceVerify = false
+            // 🚨 **这里不能直接 speak。** 下一行的 `loadStatus` 会走到 `applyRegistrationStatus`，
+            // 那里在「注册完成」时也会播一句 —— 合成器全进程只有一个且 `speak` 先 `stopSpeaking`，
+            // 后说的会把先说的**从半句切断**。所以把文案交给那一处统一播，全流程只有一个播报点。
+            // 后端那句是给客户端直接朗读的；拿不到（data 为 null）**不是失败**，用本地兜底。
+            pendingDeclineAnnouncement =
+                message?.trimmed.isEmpty == false ? message : Self.declineFallbackAnnouncement
+            // 状态要重新拉：DECLINED + registrationCompleted=true 才会把用户放出注册引导。
+            await loadStatus(showLoading: false)
+        } catch let error as APIError {
+            isDecliningFaceVerify = false
+            if appState.handleAuthenticatedAPIError(error) {
+                return
+            }
+            if handleRegistrationRateLimit(error) {
+                return
+            }
+            await handleDeclineFailure(error)
+        } catch {
+            isDecliningFaceVerify = false
+            errorMessage = Self.declineGenericFailureMessage
+            speechService?.speakError(Self.declineGenericFailureMessage)
+        }
+    }
+
+    /// 三种情形的分流。
+    ///
+    /// ⚠️ **按 `errorCode` 分，不按 HTTP 状态码** —— `APIError.serverError` 只带 `code` + `message`，
+    /// 根本没有状态码（`APIClient.swift:74`）。契约上 `REGISTRATION_STEP_INVALID` 恒为 409、
+    /// `ID_INFO_INVALID` 恒为 400，两个码与两种状态码在本端点上是一一对应的，够用。
+    ///
+    /// ⚠️ **不要复用 `ErrorCode.localizedMessage`**：`registrationStepInvalid` 那句是
+    /// 「注册步骤不正确，请重新开始。」，对这两个子情形都是错的（用户不该重新开始），
+    /// 且那句还服务着别的端点，不能就地改。
+    ///
+    /// ⚠️ 也**不要**走 `isIdentityInfoError` —— 那个对 message 做中文模糊匹配，
+    /// decline 的两句 409 文案里没有那些词，会误判成「去改身份证」。
+    private func handleDeclineFailure(_ error: APIError) async {
+        guard case .serverError(let response) = error else {
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+            return
+        }
+
+        switch response.errorCode {
+        case .idInfoInvalid:
+            // 400：二要素不是 APPROVED。后端**已经**把步骤位回退到 STEP_1_BASIC_INFO，
+            // 所以刷新状态就会把界面带回基本信息页 —— 这一条必须真的跳回去，不能只播一句。
+            await refreshStatusWithoutAnnouncing()
+            activeCertifyId = nil
+            canReturnToBasicInfoForIdentityEdit = false
+            errorMessage = Self.declineNeedsIdVerificationMessage
+            speechService?.speakError(Self.declineNeedsIdVerificationMessage)
+
+        case .registrationStepInvalid:
+            // 409：两个子情形共用这一个码，靠刷新后的状态区分。
+            await refreshStatusWithoutAnnouncing()
+            let message = registrationStatus?.isFaceVerificationApproved == true
+                ? Self.declineAlreadyVerifiedMessage
+                : Self.declineStepChangedMessage
+            errorMessage = message
+            speechService?.speakError(message)
+
+        default:
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+        }
+    }
+
+    /// 对齐状态但**不让它自己播报** —— 调用方紧接着要播真正该说的那句。
+    ///
+    /// 「活体已通过」那一支刷回来的正是「注册已完成」，不压住的话
+    /// `applyRegistrationStatus` 会先播一句「注册完成，请返回首页开启可服务状态」，
+    /// 随即被下一句 `speakError` 从半句切断（合成器全进程一个，`speak` 先 `stopSpeaking`）。
+    private func refreshStatusWithoutAnnouncing() async {
+        suppressesCompletionAnnouncement = true
+        await loadStatus(showLoading: false)
+        suppressesCompletionAnnouncement = false
+    }
+
     func returnToBasicInfoForIdentityEdit() {
         currentStep = .basicInfo
         activeCertifyId = nil
@@ -939,8 +1091,30 @@ final class VolunteerRegistrationViewModel: ObservableObject {
         isAwaitingRegistrationCompletion = false
         isRegistrationCompleted = false
         pendingCompletedStatus = nil
+        pendingDeclineAnnouncement = nil
         canReturnToBasicInfoForIdentityEdit = false
         speechService?.speak("请修改姓名和身份证号码后重新提交")
+    }
+
+    /// 从替代路径回到人脸路径。后端明确允许（`DECLINED` 之后再调 `/init` 照常放行、不锁死）。
+    ///
+    /// **只把界面带回活体页，不自动发起认证** —— 一个叫「改用人脸认证」的按钮直接拉起
+    /// 阿里云活体 SDK 是突袭，对读屏用户尤其如此。让他到那一页读完说明再自己按「开始活体认证」。
+    ///
+    /// 这个入口是**静态可达**的，不做弹窗、不做提示角标：GB/T 41819-2022 把「频繁提示以获取
+    /// 人脸同意」列为反面做法（举例 48 小时内超过 1 次）。允许回头 ≠ 应当劝返。
+    func returnToFaceVerification() {
+        // 服务端此刻仍是 DECLINED，所以这里要就地放开完成态，否则 `canStartFaceVerify`
+        // 里那条 `!isRegistrationCompleted` 会把他挡在门外，按钮点了没反应。
+        isRegistrationCompleted = false
+        isAwaitingRegistrationCompletion = false
+        pendingCompletedStatus = nil
+        pendingDeclineAnnouncement = nil
+        currentStep = .faceVerify
+        activeCertifyId = nil
+        faceVerifyMessage = nil
+        errorMessage = nil
+        speechService?.speak("已回到人脸认证页面，你可以按开始活体认证。")
     }
 
     func pollFaceVerifyResultUntilFinished(maxAttempts: Int = maxFaceResultPollingAttempts) async {
@@ -1074,6 +1248,9 @@ struct VolunteerRegistrationFlowView: View {
     /// 只是告知内容多一条人脸活体 —— 这一步提交成功后下一屏就是活体认证，不能等到那时才说。
     @State private var showIdentityConsent = false
     @State private var consentDeclinedNotice: String?
+    /// 拒绝人脸那个按钮的高度。跟 `ConsentDisclosureView` 用同一个基准 ——
+    /// 替代通道的可点面积不能比人脸那条小，字号调大时也要一起长。
+    @ScaledMetric(relativeTo: .largeTitle) private var declineButtonHeight: CGFloat = 88
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1323,11 +1500,60 @@ struct VolunteerRegistrationFlowView: View {
                     ProgressView("正在查询活体认证结果...")
                         .accessibilityLabel("正在查询活体认证结果")
                 }
+
+                declineFaceVerifySection
             }
         }
     }
 
+    /// 「不同意人脸认证」——《人脸识别技术应用安全管理办法》第十条要求的替代通道入口。
+    ///
+    /// 三条形态约束都不是可选的（依据见
+    /// `docs/research/face-verify-decline-alternative-path-ux-20260908.md`）：
+    /// 1. **与主按钮同屏、同尺寸、整行铺满**。监管解读点名的反面做法就是
+    ///    「灰色小字 / 藏在客服二级菜单」，而对低视力用户来说做小的出口等于没有出口。
+    ///    样式与 `ConsentDisclosureView` 那对同意/拒绝按钮保持一致。
+    /// 2. **后果写在按钮上方**，点之前就会被 VoiceOver 读到 —— 替代二次确认弹窗，
+    ///    既保证知情又不给替代通道加步骤。
+    /// 3. **不编 SLA**。只说「审核时间较长，但结果等效」，与用户协议 `:194` 逐字一致。
+    private var declineFaceVerifySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Divider()
+
+            Text("不想做人脸认证？你可以改用「身份证二要素核验 + 人工审核」。选择后需要上传能证明本人身份的材料，由管理员人工审核。该方式审核时间较长，但结果等效。")
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                Task { await viewModel.declineFaceVerify() }
+            } label: {
+                Text(viewModel.isDecliningFaceVerify ? "正在切换认证方式..." : "不同意人脸认证，改用其他方式")
+                    .font(AppFonts.title())
+                    .foregroundColor(AppColors.primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: declineButtonHeight)
+                    .background(AppColors.secondaryBackground)
+                    .cornerRadius(16)
+            }
+            .disabled(!viewModel.canDeclineFaceVerify)
+            .opacity(viewModel.canDeclineFaceVerify ? 1 : 0.45)
+            .accessibilityLabel("不同意人脸认证，改用其他方式")
+            .accessibilityHint("改用身份证二要素核验加人工审核，审核时间较长但结果等效")
+            .accessibilityIdentifier("volunteerFaceVerifyDeclineButton")
+        }
+    }
+
+    @ViewBuilder
     private var completionStep: some View {
+        if viewModel.hasDeclinedFaceVerification {
+            declinedCompletionStep
+        } else {
+            faceVerifiedCompletionStep
+        }
+    }
+
+    private var faceVerifiedCompletionStep: some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 56))
@@ -1356,6 +1582,77 @@ struct VolunteerRegistrationFlowView: View {
         .padding()
         .accessibilityElement(children: .contain)
         .accessibilityLabel("注册完成，请返回首页开启可服务状态")
+    }
+
+    /// 走了替代认证路径的落地屏。
+    ///
+    /// 与上面那屏的两处硬性差别，**都不是措辞偏好**：
+    /// - 图标**不是绿勾**。绿勾在本 App 里等于「这件事办完了」，而他还差人工审核那一步。
+    /// - 一个字都不能提「返回首页开启可服务状态」。他 `canAcceptOrders` 仍是 false，
+    ///   那个开关他打不开 —— 照抄上面那屏等于指着一条走不通的路。主操作是**去传材料**。
+    private var declinedCompletionStep: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "person.text.rectangle")
+                .font(.system(size: 56))
+                .foregroundColor(AppColors.primary)
+                .accessibilityHidden(true)
+
+            Text("已选择替代认证方式")
+                .font(.title3.bold())
+                .foregroundColor(AppColors.textPrimary)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("volunteerFaceVerifyDeclined")
+
+            Text("接下来请上传能证明本人身份的材料，由管理员人工审核。该方式审核时间较长，但结果等效。")
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textPrimary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            NavigationLink {
+                // 必须显式传 true：此刻 `applyRegistrationStatus` 还没把完成态发布给 AppState
+                // （发布会翻 `isVolunteerProfileApproved`，根路由当场拆掉整个注册流），
+                // 上传页自动判定会读到拒绝前的旧快照，把整页文案显示成「资质证书」——
+                // 而他手上根本没有资质证书。这是唯一需要覆盖的入口。
+                VolunteerCertificateUploadView(forcesAlternativeIdentityPath: true)
+            } label: {
+                Text("去上传身份材料")
+                    .font(AppFonts.title())
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: declineButtonHeight)
+                    .background(AppColors.primary)
+                    .cornerRadius(16)
+            }
+            .accessibilityLabel("去上传身份材料")
+            .accessibilityHint("上传能证明本人身份的材料，等待管理员人工审核")
+            .accessibilityIdentifier("volunteerDeclinedUploadEntry")
+
+            Button("返回志愿者首页") {
+                viewModel.prepareReturnToVolunteerHome()
+                dismiss()
+            }
+            .font(AppFonts.body().weight(.semibold))
+            .foregroundColor(AppColors.primary)
+            .accessibilityLabel("返回志愿者首页")
+            .accessibilityHint("材料审核通过后才能接单")
+
+            Divider()
+
+            // 静态入口，**不是提示也不是劝返**：GB/T 41819-2022 把「频繁提示以获取人脸同意」
+            // 列为反面做法。后端允许改主意（幂等、不锁死），所以这条路要留着，但由用户自己来找。
+            Button("改用人脸认证") {
+                viewModel.returnToFaceVerification()
+            }
+            .font(AppFonts.body().weight(.semibold))
+            .foregroundColor(AppColors.primary)
+            .accessibilityLabel("改用人脸认证")
+            .accessibilityHint("回到活体认证页面，人脸认证通过后无需等待人工审核")
+            .accessibilityIdentifier("volunteerReturnToFaceVerifyButton")
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .accessibilityElement(children: .contain)
     }
 
     // MARK: - Helpers
