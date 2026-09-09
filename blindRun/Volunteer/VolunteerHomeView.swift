@@ -1865,6 +1865,7 @@ private struct VolunteerCurrentOrderCard: View {
 
 private struct VolunteerDispatchSummaryCard: View {
     let summary: VolunteerDispatchSummaryResponse
+    @State private var isTrainingSheetPresented = false
 
     /// 三格，不是四格。此前第一格是「积分」，值是 `totalCompleted * 100` ——
     /// 后端从来没有 `pointsBalance` 字段，那个数字只是「完成 N 单」换了个说法，
@@ -1881,6 +1882,9 @@ private struct VolunteerDispatchSummaryCard: View {
     }
 
     var body: some View {
+        // 外层 VStack 的存在理由：卡片本体要 `.combine` 成一个可听的整体，
+        // 而「去培训」按钮必须留在那个整体之外才点得到。两者是兄弟节点，不是父子。
+        VStack(alignment: .leading, spacing: 8) {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: summary.canDispatch == true ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
@@ -1928,6 +1932,63 @@ private struct VolunteerDispatchSummaryCard: View {
         // 「积分 N」也从这条 label 里删掉 —— 数字从视觉上消失了，但读屏用户还在听，
         // 这一处最容易漏。
         .accessibilityLabel("派单状态：\(summary.dispatchStatusText)，\(summary.coverageText)，完成 \(summary.completedCount) 次，评分 \(summary.ratingText)")
+        // 🚩 「去培训」按钮必须放在 `.accessibilityElement(children: .combine)` 的**外面**。
+        //    塞进上面那个 VStack 里的话，combine 会把它并进一个不可操作的整体，
+        //    VoiceOver 用户永远点不到它（同 `accessibility-identifier-overwrites-children`
+        //    那类容器吃掉子元素的陷阱）。这也是为什么它是 `.overlay` 之后的兄弟节点而不是子节点。
+        if needsTrainingEntry {
+            trainingEntry
+        }
+        }
+    }
+
+    /// 只有「必修培训没完成」这一条原因才给按钮。
+    ///
+    /// 🚩 其余原因**刻意不给**：`OFFLINE` / `DISPATCH_DISABLED` 在这张卡的上方就有开关和
+    /// 定位入口，再加一个按钮是噪音；`NOT_VERIFIED` 的去处是「我的 → 资质证书」，
+    /// 那条今天没有按钮 —— 补它是另一件事，不夹带进这次改动。
+    private var needsTrainingEntry: Bool {
+        (summary.notAvailableReasons ?? []).contains(.trainingIncomplete)
+    }
+
+    /// 「为什么接不到单」和「去哪解决」必须在同一处。
+    ///
+    /// 🚩 只在卡片里写一句「尚未完成必修培训」而不给去处，就是装饰性提示：
+    /// 志愿者读到了原因，却要自己猜去「我的」里翻。本仓库已经有过这个形状 ——
+    /// `NOT_VERIFIED` 那条至今只有一行字。这次不复制它。
+    private var trainingEntry: some View {
+        Button {
+            isTrainingSheetPresented = true
+        } label: {
+            HStack(spacing: 6) {
+                Text("去培训")
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .accessibilityHidden(true)
+            }
+            .font(AppFonts.body().weight(.semibold))
+            .foregroundColor(AppColors.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // 44pt 是系统触达下限。志愿者端不受盲人端 64pt 线约束
+            // （`guard.mjs` 的 `small-touch-target` 显式排除 /blindRun/Volunteer/）。
+            .frame(minHeight: 44)  // guard:allow small-touch-target
+            .padding(.horizontal, 14)
+        }
+        .accessibilityLabel("去培训")
+        .accessibilityHint("打开陪跑培训，完成必修课程后即可接单")
+        .accessibilityIdentifier("volunteerHomeTrainingEntry")
+        // 用 sheet 而不是 NavigationLink：首页不保证处在 NavigationStack 里，
+        // 而 sheet 自带一个 NavigationStack 就能让课程详情正常 push。
+        .sheet(isPresented: $isTrainingSheetPresented) {
+            NavigationStack {
+                VolunteerTrainingView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("关闭") { isTrainingSheetPresented = false }
+                        }
+                    }
+            }
+        }
     }
 }
 

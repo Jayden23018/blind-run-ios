@@ -97,6 +97,10 @@ extension PointTransactionResponse {
         case "ORDER_COMPLETED": return "完成陪跑服务"
         case "ORDER_AUTO_COMPLETED": return "服务超时自动完成"
         case "INVITE_REWARD": return "邀请奖励"
+        // 后端迁移 0043。🚩 不加这一行**不会崩也不会报错**（`reason` 是 String?，
+        // 未知值落下面的 default「其他」）—— 正因如此极容易被漏掉，
+        // 表现是志愿者做完选修课拿到分、而流水里那一行写着「其他」。
+        case "TRAINING_REWARD": return "培训奖励"
         case "REVERSAL": return "人工冲正"
         default: return "其他"
         }
