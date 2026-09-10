@@ -7,7 +7,8 @@ set -uo pipefail
 #
 #   1. 设备锁屏时 xcodebuild 会静默等在 "Run Destination Preflight: Unlock ... to Continue"，
 #      不报错、不退出，输出文件 0 字节，看着像在跑。这里改成主动检出并立刻失败。
-#   2. 从日志里数用例根本不可靠。先是大小写坑（`Test case` 小写 c，按 `Test Case` grep 全计成 0），
+#   2. 从日志里数用例根本不可靠。先是大小写坑（**两种形态都出现过**，来自不同的写入方：
+#      `Test case '...' passed` 与 `Test Case '-[...]' started`；只认一种就会全计成 0），
 #      后来发现更深的一层：三路输出并发写同一个 fd，会把统计行拦腰截断（详见第 3 节注释）。
 #      现在统计**只认 result bundle**，日志仅用于人看和 preflight 探活。
 #
@@ -132,7 +133,12 @@ XCB_PID=$!
 # 只在「还没开始跑用例」的窗口里盯锁屏。一旦有用例产出就说明 preflight 过了。
 ELAPSED=0
 while kill -0 "$XCB_PID" 2>/dev/null; do
-  if grep -q "Test case '" "$LOG" 2>/dev/null; then
+  # 大小写**两种都要认**。2026-09-10 实测这台 Xcode 只产出 `Test Case '`（大写 C），
+  # 于是这条 grep 恒为假、看门狗永远等不到「已经开始跑用例」，全量跑必然在
+  # PREFLIGHT_TIMEOUT 到点时被当成锁屏掐掉（日志里 UI 用例明明在跑，结尾是
+  # `** BUILD INTERRUPTED **`）。定向跑之所以没暴露，是因为它们在超时前整个跑完了 ——
+  # 循环是因进程结束而退出的，不是因为找到了标记。
+  if grep -qE "Test [Cc]ase '" "$LOG" 2>/dev/null; then
     break
   fi
   if grep -qi 'Unlock .* to Continue\|Preflight: Unlock\|device is locked' "$LOG" 2>/dev/null; then
