@@ -144,7 +144,9 @@ final class PrivacyConsentTests: XCTestCase {
     /// 告知里不点名，用户无从判断自己在同意什么。
     func testSensitiveItemsAreNamedInTheDisclosures() {
         let launch = PrivacyConsentPurpose.appLaunch.disclosures.joined()
-        for keyword in ["身份证号", "人脸", "位置", "手机号"] {
+        // 「视力状况」2026-09-10 加入：它是 PIPL 第二十八条的「特定身份」（残障人士身份信息），
+        // 与身份证号 / 人脸 / 行踪轨迹同档，首启就该点名。
+        for keyword in ["身份证号", "人脸", "位置", "手机号", "视力状况"] {
             XCTAssertTrue(launch.contains(keyword), "首启告知漏了「\(keyword)」")
         }
 
@@ -152,6 +154,63 @@ final class PrivacyConsentTests: XCTestCase {
         let volunteer = PrivacyConsentPurpose.volunteerIdentity.disclosures.joined()
         XCTAssertTrue(volunteer.contains("身份证号"))
         XCTAssertTrue(volunteer.contains("人脸"), "志愿者下一步就是活体认证，必须在这一屏说清")
+
+        let vision = PrivacyConsentPurpose.blindVisionProfile.disclosures.joined()
+        XCTAssertTrue(vision.contains("敏感个人信息"), "不点名「敏感」，用户无从判断自己在同意什么")
+        XCTAssertTrue(vision.contains("导盲犬"), "导盲犬与视力状况同属这道门，不能只说一半")
+    }
+
+    // MARK: - 视力状况这道门的两条红线
+
+    /// 🚩 **「志愿者接单前就能看到，包括最后没接你单的那些人」必须写在同意界面里。**
+    ///
+    /// 这是后端点名要求的（`demo/docs/research/compliance-gap-20260910.md` CG-2），
+    /// 事实本身是硬的：`AvailableOrderResponse` 在接单前就下发这两项，后端有意如此、
+    /// 不打算改（志愿者要能提前准备牵引绳）。用户有权在同意**之前**知道这件事。
+    ///
+    /// ⚠️ 强度说明，别在文档里升格：把「会被谁看到」写进同意界面是对 PIPL 第三十条
+    /// 「对个人权益的影响」的**文义推导 + 后端要求**，不是查到的官方明确条款。
+    func testBlindVisionConsentDisclosesPreAcceptVisibilityIncludingDecliners() {
+        let disclosures = PrivacyConsentPurpose.blindVisionProfile.disclosures.joined()
+
+        XCTAssertTrue(
+            disclosures.contains("接单前"),
+            "没说清是「接单前」就能看到 —— 用户会以为只有最终接单的那个人拿得到"
+        )
+        XCTAssertTrue(
+            disclosures.contains("没有接你单"),
+            "没说清「包括最后没有接你单的那些人」—— 那正是用户想不到、而后端确实会做的事"
+        )
+    }
+
+    /// 🔴 **「不填也能约跑」是本次分层设计对用户的可见承诺，删了它整套设计就退回捆绑同意。**
+    ///
+    /// 分层：敏感的（视力状况 / 导盲犬）走这道门，不敏感的引导方式（`tetherPreference`）
+    /// 在门外。拒绝的人仍然填得了引导方式、仍然约得了跑 —— 这句话就是在告诉用户这件事。
+    /// 少了它，用户面对一个「同意 / 不填」的二选一时，只能假设不填就用不了。
+    ///
+    /// 配套的行为断言在 `BlindEscortPreferencesTests`：那边验的是**真的还能填**，
+    /// 这边验的是**我们真的这么告诉了用户**。两条都要在，缺任一条都是「说到没做到」或「做到没说」。
+    func testBlindVisionConsentPromisesBookingStillWorksWithoutIt() {
+        let disclosures = PrivacyConsentPurpose.blindVisionProfile.disclosures.joined()
+
+        XCTAssertTrue(
+            disclosures.contains("不填也能约跑"),
+            "这句是分层设计对用户的承诺，不能删也不能软化"
+        )
+        XCTAssertTrue(
+            disclosures.contains("希望怎么被引导"),
+            "要把人指向那条**真的还能走**的路，否则「不填也能约跑」只是一句安慰"
+        )
+
+        // 拒绝后的反馈同样不许劝返，且要重复指路
+        // （`docs/research/face-verify-decline-alternative-path-ux-20260908.md`：
+        // GB/T 41819-2022 把「48 小时内提示 >1 次」举为反面做法）。
+        let declined = PrivacyConsentPurpose.blindVisionProfile.declinedFeedback
+        XCTAssertTrue(declined.contains("仍然可以约跑"), "拒绝后要先确认「你还能用」")
+        for nagging in ["建议", "请重新", "为了你的安全请", "再考虑"] {
+            XCTAssertFalse(declined.contains(nagging), "拒绝后不许劝返：「\(nagging)」")
+        }
     }
 
     /// 告知内容改了而 `disclosureVersion` 该 +1 却没 +1，旧同意会被当成对新内容的同意 ——
@@ -178,9 +237,16 @@ final class PrivacyConsentTests: XCTestCase {
             // 2026-08-20 指纹变了而版本号没变，是**有意的**：删除账户那句改成正面列举保留了什么、
             // 并拆成两条独立焦点，但后端 `UserService.cascadeDeletePii` 的删除行为一个字节都没改
             // （handoff 2026-08-19 逐句核过）—— 属「同一行为换个说法」，不属「行为变了」。
-            .appLaunch: (1, 787_414_606),
+            .appLaunch: (1, 126_122_478),
+            // 2026-09-10 指纹又变了而版本号仍不动，同样是**有意的**：
+            // 第 4 条里把「视力状况」加进敏感信息那一句。这两个字段的收集、用途、接收方、
+            // 保留规则一个字节都没改（iOS 侧此前压根没有采集入口，值来自后端建档默认值），
+            // 变的只是我们把它的**分类**说准了 —— PIPL 第二十八条「特定身份」，
+            // 依据链见 `docs/research/vision-level-collection-ui-20260910.md`。
+            // 属「同一行为换个说法」，不属「行为变了」。
             .blindIdentity: (1, 997_349_647),
-            .volunteerIdentity: (1, 57_319_275)
+            .volunteerIdentity: (1, 57_319_275),
+            .blindVisionProfile: (1, 237_038_544)
         ]
 
         for purpose in PrivacyConsentPurpose.allCases {

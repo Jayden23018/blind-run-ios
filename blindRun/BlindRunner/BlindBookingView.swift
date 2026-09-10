@@ -1973,6 +1973,8 @@ struct BlindBookingView: View {
         VStack(alignment: .leading, spacing: 16) {
             sectionTitle("更多选项（选填）")
 
+            escortGuidanceHint
+
             VoiceTextField(
                 title: "路线备注",
                 placeholder: "例如：沿公园慢跑一圈",
@@ -2049,6 +2051,42 @@ struct BlindBookingView: View {
                 accessibilityLabel: "特殊说明，选填",
                 accessibilityHint: "可以使用语音或键盘输入特殊说明"
             )
+        }
+    }
+
+    /// 「还没告诉志愿者你希望怎么被引导」的一次性提示。
+    ///
+    /// 这一项在档案里（`BlindRunnerProfileView`），而档案页没有任何东西会把人带过去 ——
+    /// 不提示的结果就是绝大多数人永远停在「未填」，志愿者到场前不知道该递绳还是该让人挽手臂。
+    ///
+    /// 🚩 **零持久化**：判据是「档案里填了没有」，填了这一行自然消失。
+    /// 不需要「已提示过」标志，也就不会因为换设备 / 重装而重来一次。
+    ///
+    /// 🚩 **只上屏，不进下单播报。** 语音下单是这个 App 最高频、也最不该被打断的路径，
+    /// 为一条可跳过的提示在每次下单时多念一句不划算。读屏用户遍历到这一段时才听到它，
+    /// 那时他正在看「更多选项」，恰好是这条提示有意义的时刻。
+    @ViewBuilder
+    private var escortGuidanceHint: some View {
+        if appState.blindProfile?.tetherPreference?.nilIfBlank == nil {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("还没填「希望怎么被引导」。填了之后，志愿者到场前就知道该递牵引绳、让你挽住手臂，还是只用口令。")
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                NavigationLink {
+                    BlindRunnerProfileView()
+                } label: {
+                    Text("去个人资料填写")
+                        .font(AppFonts.body().weight(.semibold))
+                        .foregroundColor(AppColors.primary)
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                }
+                .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+                .accessibilityLabel("去个人资料填写希望怎么被引导")
+                .accessibilityHint("这一项不影响本次下单，可以之后再填")
+                .accessibilityIdentifier("blindBookingEscortGuidanceHintLink")
+            }
         }
     }
 
