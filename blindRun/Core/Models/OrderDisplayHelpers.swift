@@ -326,6 +326,34 @@ extension RunOrderStatus {
         }
     }
 
+    /// 盲人端订单页该不该给出「匹配规则说明」入口。
+    ///
+    /// 《互联网信息服务算法推荐管理规定》**第十六条**要求「以显著方式告知用户其提供算法推荐服务的情况」。
+    /// 告知落在**正在被算法排序的那一刻**：用户此刻正在经历这件事，比塞进设置页深处显著得多。
+    ///
+    /// 状态集与 `offersKeepWaiting` / `offersWaitedDuration` 恰好相同，**但同样不复用它们**
+    /// （理由见上面 `offersWaitedDuration` 那段）：那两条问的是「还能不能延长窗口」「等了多久」，
+    /// 这条问的是「此刻有没有算法在替你排序」。合并会让任意一条的口径变化把另外两条一起改掉。
+    ///
+    /// 同族其余判定一样写成穷举 switch：后端往枚举加值时编译器在这里逼一次决策。
+    var offersDispatchAlgorithmNotice: Bool {
+        switch self {
+        case .pendingMatch, .rematching:
+            return true
+        // 人已经定下来了，排序在更早的时候就发生完了。此刻再给一个「匹配规则说明」，
+        // 对读屏用户是在他该打电话 / 该准备出门的时候多插一条与当下无关的信息。
+        case .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
+            return false
+        // 终态：这一单的排序已经结束或从未发生，摆着是纯噪音。
+        // ⚠️ `.noVolunteer` 也判 false —— 三轮都没人接时用户要的是「接下来怎么办」，
+        // 把算法说明摆在这一刻，读起来像在解释为什么没人来，那不是它的用途。
+        case .completed, .cancelled, .noVolunteer:
+            return false
+        case .unknown:
+            return false
+        }
+    }
+
     var blindRunnerDescription: String {
         switch self {
         case .pendingMatch:

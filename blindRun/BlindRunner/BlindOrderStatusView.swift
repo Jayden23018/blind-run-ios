@@ -1015,6 +1015,7 @@ struct BlindOrderStatusView: View {
                     keepWaitingSection(order)
                     actionSection(order)
                     runPlanShareSection(order)
+                    dispatchAlgorithmNoticeSection(order)
                     peerMapSection(order)
                     lifecycleSection(order)
                     orderInfoSection(order)
@@ -1743,6 +1744,37 @@ struct BlindOrderStatusView: View {
         }
         shareViewModel.clearNotice()
         showRunPlanShare = true
+    }
+
+    /// 「匹配规则说明」——《互联网信息服务算法推荐管理规定》第十六条的「显著方式告知」。
+    ///
+    /// **版位**：附属动作（分享）之后、地图之前。本文件开头写死的顺序原则是
+    /// 「状态 → 主动作 → 同态次级动作 → 附属动作 → 其余下沉」，而这一条是**信息性**的：
+    /// 它不该抢在「取消订单」前面（那是此刻唯一真正的决定），也不能沉到订单信息下面 ——
+    /// 看不见屏幕的人靠遍历顺序发现功能存在，沉下去等于没做，而「显著」正是这条法规要的东西。
+    ///
+    /// 🚩 **刻意不进 `repeatStatus` 播报。** 「继续等待」进播报是因为它有时限、不按订单会被自动取消；
+    /// 算法告知没有时限，为它把最高频的那条路径（每次复述状态）加长不划算。它的发现路径是遍历顺序。
+    ///
+    /// `buttonShapeOutlineIfNeeded` 不能省：纯文字行，开启「按钮形状」的低视力用户
+    /// 否则看不出它可点（与 `keepWaitingSection` / `actionSection` 同一条理由）。
+    @ViewBuilder
+    private func dispatchAlgorithmNoticeSection(_ order: OrderDetailResponse) -> some View {
+        if order.status.offersDispatchAlgorithmNotice {
+            NavigationLink {
+                DispatchAlgorithmNoticeView()
+            } label: {
+                Text(DispatchAlgorithmNoticeCopy.entryTitle)
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
+            }
+            .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+            .accessibilityLabel(DispatchAlgorithmNoticeCopy.entryTitle)
+            .accessibilityHint(DispatchAlgorithmNoticeCopy.entryAccessibilityHint)
+            .accessibilityIdentifier("blindOrderStatusDispatchAlgorithmNoticeLink")
+        }
     }
 
     /// 折叠。这 8 行在下单时已经被逐条读回确认过一遍，服务进行中它们既不可改也无需再听 ——

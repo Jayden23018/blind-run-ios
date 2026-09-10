@@ -52,13 +52,19 @@ private struct LegalDocumentRow: View {
 
 // MARK: - Built-in Fallback Document
 
-/// 正式法律文本上线前的内置文案页。内容来自 `LegalFallbackCopy`，只陈述应用当前真实行为。
-struct LegalFallbackDocumentView: View {
-    let kind: LegalDocumentKind
-
-    private var document: LegalFallbackCopy.Document {
-        LegalFallbackCopy.document(for: kind)
-    }
+/// 「标题 + 分节 + 逐条正文」这一类告知页的通用渲染。
+///
+/// 原本只服务内置法律文案（`LegalFallbackCopy`），2026-09-10 起
+/// `DispatchAlgorithmNoticeView`（算法推荐规定第十六条的显著告知）也走它。
+/// **共用一个实现是有意的**：下面那条「每条 bullet 各自成为独立 VoiceOver 焦点」
+/// 是合规约束不是排版偏好，复制一份意味着改一处时另一处静默漂移
+/// （与 `ConsentDisclosureView` 的三个调用方同一条理由）。
+///
+/// 泛型 footer 沿用 `ConsentDisclosureView` 已有的写法：默认 `EmptyView`，
+/// 需要页脚的调用方才传。
+struct LegalFallbackDocumentView<Footer: View>: View {
+    let document: LegalFallbackCopy.Document
+    @ViewBuilder let footer: () -> Footer
 
     var body: some View {
         List {
@@ -84,7 +90,16 @@ struct LegalFallbackDocumentView: View {
                         .accessibilityAddTraits(.isHeader)
                 }
             }
+
+            footer()
         }
         .navigationTitle(document.title)
+    }
+}
+
+extension LegalFallbackDocumentView where Footer == EmptyView {
+    /// 内置法律文案页的原有入口，行为与改造前逐字一致。
+    init(kind: LegalDocumentKind) {
+        self.init(document: LegalFallbackCopy.document(for: kind), footer: { EmptyView() })
     }
 }
