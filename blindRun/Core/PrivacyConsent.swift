@@ -20,6 +20,21 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     case blindIdentity
     /// 志愿者实名认证：姓名 + 身份证号，下一步还有人脸活体与证件照。
     case volunteerIdentity
+    /// 视障跑者的**视力状况**与**是否使用导盲犬**。
+    ///
+    /// 2026-09-10 确证为敏感个人信息，依据链三层：PIPL 第二十八条「特定身份」→
+    /// 网信办《个人信息保护政策法规问答（2026年1月）》点名「**残障人士身份信息**」→
+    /// 国标 GB/T 45574-2025 附录 A。完整依据在后端
+    /// `demo/docs/research/compliance-gap-20260910.md` 的 **CG-2**。
+    ///
+    /// 🔴 **只盖视力状况与导盲犬，不盖引导方式（`tetherPreference`）。**
+    /// 引导方式是偏好不是身份信息，不敏感 —— 把它一起关进这道门，用户拒绝之后
+    /// 志愿者就完全不知道该怎么带他，「拒绝」实际等于服务不可用。
+    /// 反过来说也有依据：GB/T 42574-2023 允许「多字段一次性单独同意」的前提是
+    /// 「**逐项拆分字段后无法达成处理目的**」，而我们恰恰拆得开
+    /// （拒绝视力状况，靠引导方式仍能完成引导）⇒ 打包反而不满足那条豁免。
+    /// 调研见 `docs/research/vision-level-collection-ui-20260910.md` §4.2。
+    case blindVisionProfile
 
     /// 告知内容的版本。版本号进存储 key，+1 之后旧记录自然失效、用户会被重新问一次。
     ///
@@ -42,6 +57,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         case .appLaunch: return 1
         case .blindIdentity: return 1
         case .volunteerIdentity: return 1
+        case .blindVisionProfile: return 1
         }
     }
 
@@ -53,6 +69,8 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
             return "提交实名信息前，请先确认"
         case .volunteerIdentity:
             return "提交实名信息前，请先确认"
+        case .blindVisionProfile:
+            return "填写视力状况前，请先确认"
         }
     }
 
@@ -65,7 +83,12 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
                 "登录用你的手机号。视障跑者预约前要先实名认证，会收集姓名和身份证号；志愿者还要提供证件照并做一次人脸核验。",
                 "陪跑服务进行中会持续获取你的位置，用来把双方位置显示给对方、记录这次的路线；锁屏后仍在定位。",
                 "语音下单会录下你说的话并转成文字，只用于识别这一单的内容。",
-                "身份证号、人脸和位置轨迹属于敏感个人信息。到收集它们的那一步，我们会再单独问你一次。",
+                // 2026-09-10 加入「视力状况」。**刻意不 +1 `disclosureVersion`**：
+                // 按本文件上面那条判据，+1 的触发条件是「告知的**处理行为**变没变」——
+                // 这两个字段的收集、用途、接收方、保留规则一个字节都没改，
+                // 变的只是我们把它的**分类**说准了（PIPL 第二十八条「特定身份」）。
+                // 属于「换一种说法」那一档 ⇒ 只更新指纹用例，不把老用户拦回同意页重来一次。
+                "身份证号、人脸、位置轨迹和视力状况属于敏感个人信息。到收集它们的那一步，我们会再单独问你一次。",
                 "这些信息只用于完成陪跑服务，不做广告、不卖给第三方。你随时可以在设置里删除账户：实名资料、紧急联系人和运动轨迹会被删除。",
                 "订单、评价和求助记录会保留用于纠纷复核。里面仍有每次陪跑的起终点位置、你填写的备注和求助时的位置，但没有你的姓名、身份证号和紧急联系人。"
             ]
@@ -81,6 +104,20 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
                 "身份证号和人脸属于敏感个人信息，只用于核验身份和审核接单资格，不会展示给视障跑者。",
                 "身份证号不会保存在这台手机上。删除账户时，实名资料和证件照会一并删除。"
             ]
+        case .blindVisionProfile:
+            return [
+                "视力状况和是否使用导盲犬属于敏感个人信息，填不填由你决定。",
+                "它只用来让志愿者知道该怎么准备：你能不能看见他挥手、要不要带牵引绳。它不参与排序打分。",
+                // 🚩 后端点名要求写进同意文案的事实（`compliance-gap-20260910.md` CG-2）。
+                // 强度说明：把「会被谁看到、什么阶段看到」写进同意界面，是对 PIPL 第三十条
+                // 「对个人权益的影响」的**文义推导 + 后端要求**，**不是**查到的官方明确条款要求。
+                // 但事实本身是硬的：`AvailableOrderResponse` 在接单前就下发这两项，
+                // 后端有意如此、不打算改（志愿者要能提前准备），用户有权在同意之前知道。
+                "志愿者在接单前就能看到这两项，包括最后没有接你单的那些人。这是为了让他到场前能做好准备。",
+                // 🔴 这一条是本次分层设计对用户的可见承诺，删了它整套设计就退回捆绑同意。
+                // `BlindEscortPreferencesTests` 钉住。
+                "不填也能约跑。你可以只告诉志愿者希望怎么被引导，那一项不需要单独同意。"
+            ]
         }
     }
 
@@ -88,6 +125,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         switch self {
         case .appLaunch: return "同意并开始使用"
         case .blindIdentity, .volunteerIdentity: return "同意并提交"
+        case .blindVisionProfile: return "同意并填写"
         }
     }
 
@@ -97,6 +135,7 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         switch self {
         case .appLaunch: return "先不同意"
         case .blindIdentity, .volunteerIdentity: return "先不提交"
+        case .blindVisionProfile: return "不填这一项"
         }
     }
 
@@ -108,6 +147,11 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
             return "没有同意就无法使用助盲跑的服务。你可以先看隐私政策全文，想好了再按同意。"
         case .blindIdentity, .volunteerIdentity:
             return "没有提交。你可以随时回到这一页再提交。"
+        case .blindVisionProfile:
+            // **不劝返**（`docs/research/face-verify-decline-alternative-path-ux-20260908.md`：
+            // GB/T 41819-2022 把「48 小时内提示 >1 次」举为反面做法）。这句只做两件事：
+            // 确认拒绝是一个完整的答案，以及把人指向那条**真的还能走**的路。
+            return "没有填。你仍然可以约跑，也可以在上面告诉志愿者希望怎么被引导。"
         }
     }
 
