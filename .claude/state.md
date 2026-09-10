@@ -52,7 +52,10 @@ openspec 变更：`openspec/changes/enable-one-utterance-booking/`（`validate -
   `xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,id=00008140-000161D62112801C' -allowProvisioningUpdates DEVELOPMENT_TEAM=ZW39BS8NXT`
   ⚠️ **跑之前先解锁并保持屏幕常亮**，否则会静默等在 `Run Destination Preflight: Unlock ... to Continue` 上，
   不报错也不退出（本轮先踩了一次，输出文件 0 字节看着像在跑）。
-  ⚠️ 日志里是 `Test case '...' passed`（小写 c），按 `Test Case` 去 grep 会全部计成 0。
+  ⚠️ 日志里**两种大小写都出现过**，来自不同的写入方：`Test case '...' passed` 与
+  `Test Case '-[...]' started`。2026-09-10 实测本机 Xcode **只产出大写 C 那种** ——
+  只认一种就会全部计成 0。要 grep 一律用 `Test [Cc]ase '`。
+  （原文写死了「是小写 c」，据此写的看门狗恒为假，全量跑必然被当成锁屏掐掉。）
 
 **批次 2 开始前必须先做**
 1. 真机跑批次 1 的 `tasks.md` 5.4 / 5.5，尤其 1.7（新增回调是否波及地点搜索、备注、评价等其他 `SpeechInputField` 使用方）
