@@ -201,6 +201,22 @@ final class AppState: ObservableObject {
     /// 失败也不重试 —— 回退文案页本来就是完整可读的，为它反复打请求不值得。
     private var didAttemptLegalLinksLoad = false
 
+    // MARK: - Feature Flags
+
+    /// `GET /api/config/features` 的结果。`nil` = 尚未加载 / 加载失败。
+    ///
+    /// 🔴 **拿不到时不许落成「全关」。** 消费方（目前是固定搭档两侧的空态）必须把 `nil`
+    /// 当成第三种情况处理，说一句两种开关状态下都成立的话 —— 一次网络抖动不该让用户
+    /// 听到「这个功能还没开放」这种关于产品状态的断言。
+    @Published private(set) var featureFlags: FeatureFlagsResponse?
+
+    /// 与 `didAttemptLegalLinksLoad` **刻意不同：失败会重试。**
+    ///
+    /// 那边失败的后果是回退到一份完整可读的内置文案页，代价近于零；
+    /// 这边失败的后果是空态少说一句话，而用户**下一次进这一页**很可能网络已经好了。
+    /// 所以只在成功后置位，失败保持 false。
+    private var didLoadFeatureFlags = false
+
     // MARK: - WebSocket
 
     /// WebSocket 服务实例（登录后创建，登出时销毁）
@@ -583,6 +599,20 @@ final class AppState: ObservableObject {
             legalLinks = try await auth.legalLinks()
         } catch {
             ClientFlowDiagnostics.record(event: "failed", operation: "legal-links")
+        }
+    }
+
+    /// 拉一次功能开关（`GET /api/config/features`，需登录、不限角色）。
+    ///
+    /// 失败静默，但**会在下一次调用时重试**（见 `didLoadFeatureFlags` 的注释）。
+    /// 失败时 `featureFlags` 保持 `nil`，消费方据此说一句不做承诺的话。
+    func loadFeatureFlagsIfNeeded() async {
+        guard !didLoadFeatureFlags, accessToken != nil else { return }
+        do {
+            featureFlags = try await auth.featureFlags()
+            didLoadFeatureFlags = true
+        } catch {
+            ClientFlowDiagnostics.record(event: "failed", operation: "feature-flags")
         }
     }
 
