@@ -19,13 +19,52 @@ import SwiftUI
 /// **Only the delivered branch is allowed a completed tense**; every other state stays progressive and
 /// carries the 110 reminder — a blind user decides whether to seek help another way based on exactly
 /// these words.
+/// 求助二次确认弹窗是给谁看的。
+///
+/// 分两档而不是复用 `UserRole`：这里要回答的是「按下之后撤不撤得回来」，
+/// 而不是「这个人是什么角色」。两者现在一一对应，但前者才是文案的真实依据 ——
+/// 哪天客服端也有了触发入口，它的角色是第三种，撤销权却和跑者同档。
+enum EmergencyConfirmationAudience {
+    /// 受助者本人。有「撤销求助」按钮（`PUT /api/emergency/{id}/cancel`）。
+    case runner
+    /// 同行志愿者。**没有撤销入口**，后端恒 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`。
+    case volunteer
+}
+
 enum EmergencySafetyCopy {
     static let title = "一键求助"
     static let confirmButtonTitle = "确认求助"
     static let cancelButtonTitle = "取消"
 
     /// Mandated verbatim by `AGENTS.md` section 10. Do not reword.
+    ///
+    /// ⚠️ **这个常量本身一个字都不能动**（两条用例逐字钉着它）。志愿者侧需要多说一句，
+    /// 走下面的 `confirmationMessage(for:)` **追加**，不是改写。
     static let confirmationMessage = "是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
+
+    /// 志愿者侧追加的那一句。
+    ///
+    /// 🔴 **为什么非说不可**：志愿者按下求助之后**没有任何撤销入口** —— 后端对志愿者的
+    /// `FALSE_ALARM` 恒 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`，撤销权只在跑者本人和客服手里。
+    /// 而上面那句对**盲人**是完整的（他本人有「撤销求助」按钮），对志愿者漏掉了这个动作
+    /// **最不可逆的那一半后果** —— 而那恰恰是二次确认存在的理由。
+    ///
+    /// 🚩 **不要试图把它做成「让志愿者也能撤销」**：一对一陪跑里志愿者可能就是威胁来源
+    /// （`AGENTS.md` §6），给他一个「把报警撤掉」的按钮是这条红线本身要防的事。
+    /// 后端也不会放行，前端加了只能吃 403。
+    ///
+    /// 代价照说：紧急场景下多一句会拖慢阅读。但拖慢的是**按下确认之前**，
+    /// 而这一句正是他做决定需要的那个事实。
+    static let volunteerIrreversibleSuffix = "本次求助只有跑者本人或客服能撤销。"
+
+    static func confirmationMessage(for audience: EmergencyConfirmationAudience) -> String {
+        switch audience {
+        case .runner:
+            return confirmationMessage
+        case .volunteer:
+            return "\(confirmationMessage)\n\(volunteerIrreversibleSuffix)"
+        }
+    }
 
     static let accessibilityLabel = "一键求助，遇到紧急情况时点击"
     static let accessibilityHint = "需要二次确认，确认后会向后台发送求助并上报当前位置"
@@ -550,15 +589,21 @@ extension View {
         }
     }
 
+    /// 求助的二次确认。
+    ///
+    /// 🔴 **`audience` 没有默认值是刻意的。** 两侧的后果不一样（志愿者按下去撤销不了），
+    /// 而「哪一侧」是调用点才知道的事。给了默认值，将来新增的入口会默默拿到另一侧的文案，
+    /// 而那正是这次要修的缺陷本身。
     func emergencyConfirmationAlert(
         isPresented: Binding<Bool>,
+        audience: EmergencyConfirmationAudience,
         onConfirm: @escaping () -> Void
     ) -> some View {
         alert(EmergencySafetyCopy.title, isPresented: isPresented) {
             Button(EmergencySafetyCopy.confirmButtonTitle, role: .destructive, action: onConfirm)
             Button(EmergencySafetyCopy.cancelButtonTitle, role: .cancel) {}
         } message: {
-            Text(EmergencySafetyCopy.confirmationMessage)
+            Text(EmergencySafetyCopy.confirmationMessage(for: audience))
         }
     }
 }
