@@ -381,6 +381,29 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     let tetherPreference: String?
     let chatPreference: String?
 
+    /// 已接单志愿者的用户 id。**未接单时为 nil。**
+    ///
+    /// 🚨 **用途只有一个：拿去调 `PUT /api/blind/favorite-volunteers/{volunteerId}` 收藏这位志愿者**
+    /// （契约 `api_spec.yaml` 逐字如此）。不要拿它拼展示文案，也不要拿它拨号 ——
+    /// 号码仍然只走 `volunteerPhone` 那条状态门。
+    ///
+    /// 「只在接单后下发」是**结构上成立**的，不靠客户端判状态：`PENDING_MATCH` /
+    /// `PENDING_INTRO_CALL` / `REMATCHING` / `NO_VOLUNTEER` / `CANCELLED` 期后端的
+    /// `order.volunteer` 本就是 nil（通话磨合期的候选人存在 `dispatchCurrentVolunteerId` 里，
+    /// 刻意不从这里漏出去 —— 接单前给出稳定 id 等于给每个聊崩的候选人一个可长期持有的标识）。
+    ///
+    /// ⚠️ 声明成 `var` 而非 `let`，唯一原因是让编译器合成的 memberwise init 自动给它默认值 `nil`
+    /// —— 全仓 18 个构造点（Mock 与用例）因此不必各加一行 `volunteerId: nil`。
+    /// 同理下面的 `volunteerName`。加新字段时照这条，并且**一律加在末尾**：
+    /// memberwise init 的参数顺序就是属性声明顺序，插在中间会让 18 个调用点全部编译不过。
+    var volunteerId: Int64?
+
+    /// 志愿者姓名，**后端已掩码**（`李*`），未接单时为 nil。
+    ///
+    /// 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 nil**（掩码号会被拼成
+    /// `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
+    var volunteerName: String?
+
     var id: Int64 { orderId }
 
     func replacingStatus(with status: RunOrderStatus) -> OrderDetailResponse {
@@ -412,7 +435,11 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             specialNotes: specialNotes,
             visionLevel: visionLevel,
             tetherPreference: tetherPreference,
-            chatPreference: chatPreference
+            chatPreference: chatPreference,
+            // 与终点三项同一条理由：漏掉不会报错，只会让「把他设为固定搭档」那个按钮
+            // 在每一次 5 秒轮询之后静默消失 —— 而没人会去查一个「本来就可能为空」的字段。
+            volunteerId: volunteerId,
+            volunteerName: volunteerName
         )
     }
 }
