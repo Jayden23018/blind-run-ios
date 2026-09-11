@@ -612,6 +612,25 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             )
         }
 
+        // 功能开关（`GET /api/config/features`）。需登录、不限角色。
+        //
+        // 🚩 **默认返回「全开」，与 Mock 其余激励数据保持同一个前提**（见
+        // `MockAPIClient+Incentive` 顶部：Mock 演的是三个开关都打开之后的行为）。
+        // 若这里返回生产的真实值（全关），火花种子数据与空态文案会自相矛盾：
+        // 列表里有四位搭档，空态却说「功能还没有开放」。
+        //
+        // 生产现状那一档（全关）由 `AIDRUN_MOCK_FEATURE_FLAGS_OFF=1` 覆盖 ——
+        // 「关着时空态说什么」这条分支正是本次改动要验的，没有它就只能靠单测。
+        if path == "/api/config/features" && method == .get {
+            guard mockToken != nil, !isAccountDeleted else { throw APIError.unauthorized }
+            let allOff = ProcessInfo.processInfo.environment["AIDRUN_MOCK_FEATURE_FLAGS_OFF"] == "1"
+            return FeatureFlagsResponse(
+                partnerStreakEnabled: !allOff,
+                favoriteDispatchRoundEnabled: !allOff,
+                invitationRewardEnabled: !allOff
+            )
+        }
+
         // APNs device token 上报（幂等 upsert）。后端校验 32~128 位 hex。
         if path == "/api/devices/apns" && method == .post {
             return try handleRegisterApnsToken(body: body)

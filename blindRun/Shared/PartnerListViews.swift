@@ -123,7 +123,9 @@ struct BlindFavoriteVolunteersView: View {
                     }
 
                     if rows.isEmpty {
-                        Text(PartnerStreakCopy.blindEmpty)
+                        Text(PartnerStreakCopy.blindEmpty(
+                            streakEnabled: appState.featureFlags?.partnerStreakEnabled
+                        ))
                             .font(AppFonts.body())
                             .foregroundColor(AppColors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -245,6 +247,11 @@ struct BlindFavoriteVolunteersView: View {
     private func load() async {
         isLoading = true
         defer { isLoading = false }
+        // 空态要说哪一句取决于开关，所以**在拉列表之前**先把它取到位 ——
+        // 反过来的话，列表回来得快、开关回来得慢时，用户会先看到 nil 档那句、
+        // 再被替换成另一句，而读屏已经把第一句念完了。
+        // 它自己带一次性标记与静默失败，失败只是让空态少说一句话。
+        await appState.loadFeatureFlagsIfNeeded()
         do {
             // 两个只读端点，谁先回来都行 —— 串行写法足够（这一页低频、且两条都很轻）。
             // ponytail: 不为两个请求引入 async let 的并发编排，等真慢了再说。
@@ -299,7 +306,9 @@ struct VolunteerPartnersView: View {
                     }
 
                     if rows.isEmpty {
-                        Text(PartnerStreakCopy.volunteerEmpty)
+                        Text(PartnerStreakCopy.volunteerEmpty(
+                            streakEnabled: appState.featureFlags?.partnerStreakEnabled
+                        ))
                             .font(AppFonts.body())
                             .foregroundColor(AppColors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -382,6 +391,8 @@ struct VolunteerPartnersView: View {
     private func load() async {
         isLoading = true
         defer { isLoading = false }
+        // 理由同盲人侧那份：空态说哪一句取决于开关，先取到位再拉列表。
+        await appState.loadFeatureFlagsIfNeeded()
         do {
             let favorites = try await appState.incentive.volunteerFavoritedBy()
             let streaks = try await appState.incentive.volunteerPartnerStreaks()

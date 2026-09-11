@@ -317,11 +317,62 @@ final class IncentiveAdoptionTests: XCTestCase {
         XCTAssertTrue(PartnerStreakCopy.optOutConfirmMessage.contains("重新一起跑一单"))
     }
 
-    /// 空态说的是火花怎么来的（一起跑完订单就会结算），**不是**「去点某个按钮收藏他」——
-    /// 收藏入口只在已经一起跑过的搭档那一行上，空列表时根本没有可点的对象。
+    /// 开关**开着**时，空态说的是火花怎么来的（一起跑完订单就会结算），
+    /// **不是**「去点某个按钮收藏他」—— 火花与收藏是两条独立的路。
     func testBlindEmptyStateExplainsHowStreaksAppear() {
-        XCTAssertTrue(PartnerStreakCopy.blindEmpty.contains("连续两周"))
-        XCTAssertFalse(PartnerStreakCopy.blindEmpty.contains("按钮"))
+        let copy = PartnerStreakCopy.blindEmpty(streakEnabled: true)
+        XCTAssertTrue(copy.contains("连续两周"))
+        XCTAssertFalse(copy.contains("按钮"))
+    }
+
+    /// 🔴 **开关关着时不许再说「连续两周一起跑步就会显示」** —— 那是在教用户去做一件
+    /// 做了也不会有结果的事。对读屏用户尤其糟：他会照着做两周，回来发现还是空的。
+    ///
+    /// 后端 `app.incentive.streak.enabled` 默认 `false`，也就是说这句话从上线起一直是错的。
+    ///
+    /// 断言挑的是**能区分三种实现**的取值：
+    /// - 正确实现：三档各说各的
+    /// - 「没接开关」的旧实现：三档同一句，`false` 档会撞上第一条断言
+    /// - 「`nil` 退回开着那句」的实现：会撞上最后一条断言
+    func testEmptyStateDoesNotPromiseStreaksWhileTheFeatureIsOff() {
+        let off = PartnerStreakCopy.blindEmpty(streakEnabled: false)
+        XCTAssertFalse(
+            off.contains("连续两周"),
+            "开关关着还教用户去连跑两周，等于让他白跑两周：\(off)"
+        )
+        XCTAssertTrue(off.contains("还没有开放"), "要让用户知道这不是他自己的问题：\(off)")
+
+        // 拿不到开关时**不做任何承诺**，而不是退回「开着」那一句：
+        // 一次网络抖动不该让用户听到一个关于产品状态的断言。
+        let unknown = PartnerStreakCopy.blindEmpty(streakEnabled: nil)
+        XCTAssertFalse(unknown.contains("连续两周"), "拿不到开关时不许承诺连跑两周会有结果：\(unknown)")
+        XCTAssertFalse(unknown.contains("还没有开放"), "拿不到开关时也不许断言功能没开：\(unknown)")
+
+        // 志愿者侧同构，一并钉住 —— 两侧文案分开写就一定会漂移。
+        let volunteerOff = PartnerStreakCopy.volunteerEmpty(streakEnabled: false)
+        XCTAssertTrue(volunteerOff.contains("还没有开放"))
+        let volunteerUnknown = PartnerStreakCopy.volunteerEmpty(streakEnabled: nil)
+        XCTAssertFalse(volunteerUnknown.contains("还没有开放"))
+    }
+
+    /// 🚨 `invitationRewardEnabled` 的语义与另外两个**相反**：它只关奖励、不关关系建立。
+    /// 契约 description 逐字写着「不要因为它是 false 就把邀请码输入框藏掉 —— 那会让开关
+    /// 打开之后这批用户永久拿不到奖励，而他们当时根本没机会填」。
+    ///
+    /// 本条守的是**将来**：现在邀请码输入框根本没读这个开关（这是对的）。
+    /// 哪天有人把它接上去当显示条件，这条会红。
+    func testInvitationRewardFlagIsNotWiredIntoAnyVisibilityDecision() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()   // blindRunTests/
+                .deletingLastPathComponent()   // 仓库根
+                .appendingPathComponent("blindRun/Shared/InviteCodeView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertFalse(
+            source.contains("invitationRewardEnabled"),
+            "邀请码输入框不得随奖励开关隐藏：关着时邀请关系照样落库，藏掉会让这批用户永久拿不到奖励"
+        )
     }
 
     // MARK: - 收藏固定搭档
