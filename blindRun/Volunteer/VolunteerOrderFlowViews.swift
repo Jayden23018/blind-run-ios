@@ -1619,7 +1619,8 @@ struct VolunteerInServiceView: View {
         } message: {
             Text(cancelDialogCopy.message)
         }
-        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm) {
+        // `.volunteer`：他按下去之后撤销不了（后端恒 403），文案要把这一半后果说出来。
+        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm, audience: .volunteer) {
             Task {
                 await viewModel.enterEmergency(
                     locate: { locationService.latestBackendSample() },

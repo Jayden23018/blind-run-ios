@@ -95,6 +95,11 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
     }
 
     /// 明确告诉志愿者「现在能不能接单、下一步做什么」。走人脸活体那条路的文案。
+    ///
+    /// 🚩 **「去开那个开关」这半句走 `VolunteerAvailabilityCopy.goOpenItHint`，不要自己写。**
+    /// 原文写的是「请回到首页开启**接单开关**」，而首页那个控件叫「可服务开关」——
+    /// 首页上根本没有叫「接单开关」的东西，用户照着这句话回去找，找到的是另一个名字。
+    /// 常量化之后两处不可能再各叫各的（定义与理由见 `VolunteerHomeView.swift` 顶部）。
     var guidanceMessage: String {
         switch self {
         case .notSubmitted:
@@ -102,7 +107,7 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
         case .pending:
             return "资质证书已提交，正在等待管理员审核。审核中暂时无法接单，也不需要重复上传，请耐心等待。"
         case .approved:
-            return "资质证书已通过审核，你现在可以接单了。请回到首页开启接单开关。"
+            return "资质证书已通过审核，你现在可以接单了。\(VolunteerAvailabilityCopy.goOpenItHint)"
         case .rejected:
             return "资质证书未通过审核，当前无法接单。请重新上传清晰完整的证书图片或 PDF。"
         case .statusUnavailable:
@@ -127,7 +132,7 @@ enum VolunteerCertificateDisplayState: Equatable, Sendable {
         case .pending:
             return "身份材料已提交，正在等待管理员人工审核。该方式审核时间较长，但结果等效。审核期间暂时无法接单，也不需要重复上传。"
         case .approved:
-            return "身份材料已通过人工审核，你现在可以接单了。请回到首页开启接单开关。"
+            return "身份材料已通过人工审核，你现在可以接单了。\(VolunteerAvailabilityCopy.goOpenItHint)"
         case .rejected:
             return "身份材料未通过人工审核，当前无法接单。请重新上传能清晰证明本人身份的材料。"
         case .statusUnavailable:
