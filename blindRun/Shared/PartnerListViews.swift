@@ -189,12 +189,13 @@ struct BlindFavoriteVolunteersView: View {
             } else {
                 // 只有火花、还没收藏的一对。
                 //
-                // 🚩 这里是全 App **唯一**能拿到 volunteerId 的地方：`OrderDetailResponse`
-                // 契约里根本没有这个字段（只有 volunteerName / volunteerPhone），
-                // 所以订单详情、历史订单都给不出收藏入口。已投 handoff 请后端补。
+                // 🚩 **这不再是唯一的收藏入口**：后端 2026-08-24 给 `OrderDetailResponse`
+                // 补上了 `volunteerId`（契约 PR #199），已完成订单的详情页现在也能收藏
+                // （`BlindOrderStatusView.favoriteVolunteerSection`）。
                 //
-                // 好在这条路的覆盖面正好对得上：收藏的门槛是「一起跑完过至少一单」，
-                // 而能出现在火花列表里的一对**必然**满足这个门槛。
+                // 两条路的覆盖面**不重合，且这一条更窄**：能出现在火花列表里的一对必须已经点亮火花，
+                // 而火花开关（`app.incentive.streak.enabled`）后端默认关着 ⇒ 开关打开之前，
+                // 本页这个按钮一次也不会出现。订单详情那条不依赖火花，只依赖「跑完过这一单」。
                 Button(PartnerStreakCopy.addFavoriteTitle(name)) {
                     Task { await setFavorite(true, userId: userId, name: name) }
                 }
