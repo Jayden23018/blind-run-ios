@@ -28,6 +28,10 @@ enum AuthEndpoint {
     case logout
     case deleteAccount(userId: Int64)
     case legalLinks
+    /// 功能开关。挂在这里的理由同 `legalLinks`：它是**无角色的通用配置**，
+    /// 不属于任何一片领域 service。盲人要 `partnerStreakEnabled`、志愿者要另外两个，
+    /// 放进 incentive 片会让 auth 之外的两侧都得绕道拿一个跟激励无关的配置。
+    case featureFlags
     case missedNotifications
     /// 注销账号前的进行中订单预检。挂在这里是因为它只服务账号注销这一条流程。
     case accountDeletionOrderPreflight
@@ -50,6 +54,10 @@ enum AuthEndpoint {
         case .legalLinks:
             // **必须 requiresAuth: false** —— 后端 permitAll，App Store 审核员是未登录状态。
             return EndpointRequest(.get, "/api/misc/legal-links", requiresAuth: false)
+        case .featureFlags:
+            // 与 `legalLinks` 相反：**需要登录**（后端刻意不放进 permitAll —— 未登录的人拿它没有用途），
+            // 但同样不限角色。
+            return EndpointRequest(.get, "/api/config/features")
         case .missedNotifications:
             return EndpointRequest(.get, "/api/notifications/since")
         case .accountDeletionOrderPreflight:
@@ -81,6 +89,7 @@ protocol AuthServing: Sendable {
     func logout() async throws -> LogoutResponse
     func deleteAccount(userId: Int64) async throws -> DeleteAccountResponse
     func legalLinks() async throws -> LegalLinksResponse
+    func featureFlags() async throws -> FeatureFlagsResponse
     /// 返回**一页**，不是全部。`hasMore` 与游标推进由调用方负责 ——
     /// 这一层不做循环，否则「补读上限」这个产品判断就落在了 service 里。
     func missedNotifications(after: String) async throws -> MissedNotificationPage
@@ -132,6 +141,10 @@ struct AuthService: AuthServing {
 
     func legalLinks() async throws -> LegalLinksResponse {
         try await transport.send(AuthEndpoint.legalLinks.request)
+    }
+
+    func featureFlags() async throws -> FeatureFlagsResponse {
+        try await transport.send(AuthEndpoint.featureFlags.request)
     }
 
     func missedNotifications(after: String) async throws -> MissedNotificationPage {
