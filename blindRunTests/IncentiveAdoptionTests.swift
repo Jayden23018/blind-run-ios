@@ -406,6 +406,91 @@ final class IncentiveAdoptionTests: XCTestCase {
         }
     }
 
+    // MARK: - 订单详情上的收藏入口（`volunteerId`）
+
+    /// 🔴 **这条守的是订单详情收藏入口唯一一个不会报错的失效方式。**
+    ///
+    /// `volunteerPhone` 只在需要当面汇合的四态下发，`COMPLETED` 时是 nil；
+    /// 而 `volunteerId` 在 `COMPLETED` **仍然有值** —— 收藏入口正是开在已完成订单上的。
+    /// 拿 `offersVolunteerCall`（种子订单填号码用的就是它）当 id 的判据，编译照过、
+    /// 界面照常渲染，只是那个按钮在唯一该出现的地方永远不出现。
+    ///
+    /// 所以断言必须同时钉住两件事：**id 在、而号码不在**。只断言 id 在的话，
+    /// 一个「两个字段都按 phone 的规则发」的实现也能过。
+    func testCompletedOrderKeepsVolunteerIdAfterThePhoneIsGone() throws {
+        let mock = MockAPIClient()
+        let completed = try XCTUnwrap(
+            mock.orders.first { $0.status == .completed },
+            "种子数据里应当有一单已完成 —— 它是收藏入口在开发期唯一的落点"
+        )
+
+        XCTAssertEqual(completed.volunteerId, MockAPIClient.mockOrderVolunteerId)
+        XCTAssertEqual(completed.volunteerName, MockAPIClient.mockOrderVolunteerName)
+        // 终态不给拨号，所以这一态两个字段的取值方向是**相反**的。
+        XCTAssertFalse(
+            completed.status.offersVolunteerCall,
+            "已完成的单不该再给拨号入口 —— 这正是不能拿它当 volunteerId 判据的理由"
+        )
+    }
+
+    /// 接单**之前**不许漏出稳定 id。
+    ///
+    /// `PENDING_INTRO_CALL` 是最要紧的一态：一单最多聊 3 位候选人，给出稳定 id 等于让
+    /// 每一个聊崩的人都拿到一个可长期持有的标识（后端把候选人藏在 `dispatchCurrentVolunteerId`
+    /// 里、刻意不从这里下发，守的就是这条）。
+    func testVolunteerIdIsWithheldUntilSomebodyActuallyAccepts() {
+        for status in [RunOrderStatus.pendingMatch, .pendingIntroCall, .rematching, .noVolunteer, .cancelled] {
+            XCTAssertFalse(
+                MockAPIClient.mockHasAcceptedVolunteer(status),
+                "\(status.rawValue) 期后端 order.volunteer 恒为 null，Mock 不许自己造一个"
+            )
+        }
+        for status in [RunOrderStatus.scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed] {
+            XCTAssertTrue(
+                MockAPIClient.mockHasAcceptedVolunteer(status),
+                "\(status.rawValue) 期志愿者已唯一确定，不下发 id 会让收藏入口凭空消失"
+            )
+        }
+        // 后端新增状态时的兜底方向：隐私边界一律**默认关**（同 `disclosesBlindRunnerNotesToVolunteer`）。
+        XCTAssertFalse(MockAPIClient.mockHasAcceptedVolunteer(.unknown))
+    }
+
+    /// 与终点三项同一类缺陷：`replacingStatus` 漏带字段不会报错，
+    /// 只会让「把他设为固定搭档」那个按钮在每一次 5 秒轮询之后静默消失。
+    ///
+    /// 用例走的是 `.inProgress → .completed`，也就是收藏入口**刚好开始该出现**的那一跳 ——
+    /// 漏带字段的实现会在这一跳把它弄丢。
+    func testReplacingStatusKeepsTheVolunteerIdentity() throws {
+        let mock = MockAPIClient()
+        let accepted = try XCTUnwrap(mock.orders.first { $0.volunteerId != nil })
+        XCTAssertNotNil(accepted.volunteerName)
+
+        let finished = accepted.replacingStatus(with: .completed)
+
+        XCTAssertEqual(finished.volunteerId, accepted.volunteerId)
+        XCTAssertEqual(finished.volunteerName, accepted.volunteerName)
+    }
+
+    /// Mock 的收藏门槛是「id 在不在种子表里」。种子订单那位志愿者**必须在表里**，
+    /// 否则订单详情页那个新按钮在开发期点下去必然吃 `FAVORITE_VOLUNTEER_NOT_ELIGIBLE`
+    /// —— 而真实后端此处会放行（门槛是「一起跑完过至少一单」，那一单就是这单）。
+    ///
+    /// 同时钉住「初始未收藏」：初始已收藏的话，页面只会显示「已经是你的固定搭档」，
+    /// 按钮那条主路径在开发期一次也走不到。
+    func testTheSeededOrdersVolunteerCanActuallyBeFavorited() async throws {
+        let service = IncentiveService(transport: MockAPIClient())
+        let before = try await service.blindFavoriteVolunteers()
+        XCTAssertFalse(
+            before.contains { $0.volunteerId == MockAPIClient.mockOrderVolunteerId },
+            "初始就收藏了的话，「设为固定搭档」按钮在 Mock 下永远不出现"
+        )
+
+        try await service.addBlindFavoriteVolunteer(volunteerId: MockAPIClient.mockOrderVolunteerId)
+
+        let after = try await service.blindFavoriteVolunteers()
+        XCTAssertTrue(after.contains { $0.volunteerId == MockAPIClient.mockOrderVolunteerId })
+    }
+
     // MARK: - Helpers
 
     private func makeTransaction(

@@ -20,9 +20,13 @@ extension MockAPIClient {
     ///
     /// **积分没有开关**（`PointService` 只有数值参数），它从第一天就在记 —— 这一条 Mock 与真实一致。
     ///
-    /// 搭档数据是**写死的种子**，不是从订单推的：`OrderDetailResponse` 里没有志愿者 id 与姓名，
-    /// 推不出「哪两个人是一对」。种子刻意覆盖三种真实存在、且 UI 必须分别处理的形态：
-    /// 有火花 / 没点亮火花（`streakWeeks == nil`）/ 对方已退出。
+    /// 搭档数据是**写死的种子**，不是从订单推的。种子刻意覆盖三种真实存在、
+    /// 且 UI 必须分别处理的形态：有火花 / 没点亮火花（`streakWeeks == nil`）/ 对方已退出。
+    ///
+    /// > 原注释说「`OrderDetailResponse` 里没有志愿者 id 与姓名，推不出哪两个人是一对」——
+    /// > 后端 2026-08-24 已补上 `volunteerId` / `volunteerName`（契约 PR #199），这句不再成立。
+    /// > 种子仍然写死，理由换成：那四种形态里有三种（火花周数、对方退出、收藏时间）
+    /// > 是订单里根本没有的事实，从订单推只能推出第四种。
     private enum MockIncentiveSeed {
         static let partnerWithStreakId: Int64 = 9001
         static let partnerWithoutStreakId: Int64 = 9002
@@ -142,13 +146,26 @@ extension MockAPIClient {
             // 🔴 退出的条目**仍然留在列表里**，不是从列表消失。
             partnerOptedOut: true
         ),
-        // 只有火花、初始未收藏 —— 「设为固定搭档」那个按钮在 Mock 里点的就是它。
+        // 只有火花、初始未收藏 —— 固定搭档页里「设为固定搭档」那个按钮点的就是它。
         MockIncentiveSeed.streakOnlyPartnerId: FavoriteVolunteerResponse(
             volunteerId: MockIncentiveSeed.streakOnlyPartnerId,
             volunteerName: "赵*",
             completedRunsTogether: 2,
             favoritedAt: "2026-08-23T08:00:00",
             streakWeeks: 2,
+            partnerOptedOut: false
+        ),
+        // 种子订单里那位志愿者。初始未收藏、没有火花 —— **订单详情页**那条新入口点的是它。
+        //
+        // 没有这一行的话，Mock 的门槛判定（id 在不在本表里）会让那个按钮必然报
+        // `FAVORITE_VOLUNTEER_NOT_ELIGIBLE`，而真实后端此处会放行：收藏门槛是
+        // 「一起跑完过至少一单」，而这一单**就是**已完成的那一单。
+        MockAPIClient.mockOrderVolunteerId: FavoriteVolunteerResponse(
+            volunteerId: MockAPIClient.mockOrderVolunteerId,
+            volunteerName: MockAPIClient.mockOrderVolunteerName,
+            completedRunsTogether: 1,
+            favoritedAt: nil,
+            streakWeeks: nil,
             partnerOptedOut: false
         )
     ]

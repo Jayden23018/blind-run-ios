@@ -74,6 +74,41 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 后端默认 `app.favorite-volunteer.max-per-user=10`。
     static let mockFavoriteVolunteerLimit = 10
 
+    /// Mock 订单接单之后那位志愿者是谁 —— `OrderDetailResponse.volunteerId` / `volunteerName` 的取值。
+    ///
+    /// **刻意选一个初始未收藏、但在 `blindFavoriteSeeds` 里的 id**：订单详情页的
+    /// 「把他设为固定搭档」按钮只在未收藏时出现，而 Mock 的收藏门槛是「这个 id 在不在种子表里」。
+    /// 用 9001–9003（初始已收藏）会让那个按钮在开发期永远不出现，
+    /// 用一个不在种子表里的 id 则会让它必然报 `FAVORITE_VOLUNTEER_NOT_ELIGIBLE` ——
+    /// 两种都会让新入口的主路径一次都走不到。
+    ///
+    /// 常量放这里而不放 `MockIncentiveSeed`：那个 enum 是 `private`，
+    /// 而 `updateOrderStatus` 在本文件，跨不过去。种子表反过来引用它，单一来源。
+    static let mockOrderVolunteerId: Int64 = 9005
+    /// 掩码姓名，与后端口径一致（全名一律不下发）。
+    static let mockOrderVolunteerName = "陈*"
+
+    /// 这一态后端会不会下发 `volunteerId` / `volunteerName`。
+    ///
+    /// 契约：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` / `NO_VOLUNTEER` / `CANCELLED`
+    /// 期 `order.volunteer` 恒为 null，其余状态有值。
+    ///
+    /// 🚨 **判据不能借 `offersVolunteerCall`**（种子订单填 `volunteerPhone` 用的就是它）：
+    /// 号码只在需要当面汇合的四态下发，`COMPLETED` 时为 null，而 `volunteerId` 在 `COMPLETED`
+    /// **仍然有值** —— 订单详情的收藏入口正是开在已完成订单上的。借错的直接症状是
+    /// 那个按钮在唯一该出现的地方不出现，且没有任何报错。
+    /// （同一类坑的归档：记忆 `same-name-predicate-different-sets-across-ends`。）
+    ///
+    /// 穷举 switch 而不是集合字面量：后端加状态时编译器在这里逼一次决策。
+    static func mockHasAcceptedVolunteer(_ status: RunOrderStatus) -> Bool {
+        switch status {
+        case .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed:
+            return true
+        case .pendingMatch, .pendingIntroCall, .rematching, .noVolunteer, .cancelled, .unknown:
+            return false
+        }
+    }
+
     /// 状态变更记录，`GET /api/orders/{id}/status-logs` 的回放源。
     /// **新的插在最前面**，与后端 `findByOrderIdOrderByChangedAtDesc` 同序。
     /// 种子订单刻意不带记录：它们的状态是直接摆出来的、没有经过状态机，
@@ -804,6 +839,7 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             to: newStatus,
             remark: Self.mockStatusLogRemark(to: newStatus)
         )
+        let hasAcceptedVolunteer = Self.mockHasAcceptedVolunteer(newStatus)
         return OrderDetailResponse(
             orderId: order.orderId,
             status: newStatus,
@@ -828,7 +864,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             specialNotes: order.specialNotes,
             visionLevel: order.visionLevel,
             tetherPreference: order.tetherPreference,
-            chatPreference: order.chatPreference
+            chatPreference: order.chatPreference,
+            volunteerId: hasAcceptedVolunteer ? Self.mockOrderVolunteerId : nil,
+            volunteerName: hasAcceptedVolunteer ? Self.mockOrderVolunteerName : nil
         )
     }
 
@@ -999,7 +1037,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 specialNotes: nil,
                 visionLevel: "TOTAL_BLIND",
                 tetherPreference: "TETHER_ROPE",
-                chatPreference: "PREFER_CHAT"
+                chatPreference: "PREFER_CHAT",
+                // 用 `mockHasAcceptedVolunteer` 而不是上面那个 `isPastMatching`：
+                // 被 `AIDRUN_UI_TEST_SEED_ORDER_STATUS` 钉成 `COMPLETED` 时两者结论相反。
+                volunteerId: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerId : nil,
+                volunteerName: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerName : nil
             ),
             OrderDetailResponse(
                 orderId: 2,
@@ -1025,7 +1067,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 specialNotes: nil,
                 visionLevel: "TOTAL_BLIND",
                 tetherPreference: "TETHER_ROPE",
-                chatPreference: "NO_PREFERENCE"
+                chatPreference: "NO_PREFERENCE",
+                // 这一单是开发期唯一的已完成订单，也就是「把陈*设为固定搭档」那个入口的落点。
+                volunteerId: Self.mockOrderVolunteerId,
+                volunteerName: Self.mockOrderVolunteerName
             )
         ]
         nextOrderId = 10

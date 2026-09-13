@@ -512,6 +512,72 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
+    // MARK: - 把这一单的志愿者设为固定搭档
+
+    /// 这位志愿者是不是已经在固定搭档列表里。`nil` = 还没查到（含查失败）。
+    ///
+    /// 🚩 **三态而不是 Bool。** 查失败时若落成 `false`，页面会摆出「设为固定搭档」按钮，
+    /// 而他可能早就收藏过了 —— 点下去后端幂等返 204，于是用户听到「已把陈*设为固定搭档」，
+    /// 以为自己刚做成了一件其实几周前就做过的事。整块不渲染是唯一诚实的降级。
+    @Published private(set) var isVolunteerFavorited: Bool?
+    /// 收藏成功后的那句话。与 `errorMessage` 分开：那条每轮轮询都会被 `loadOrder` 清空，
+    /// 而这一句要留到用户划到它（理由同 `statusLogsErrorMessage`）。
+    @Published private(set) var favoriteNotice: String?
+    @Published private(set) var favoriteErrorMessage: String?
+    @Published private(set) var isUpdatingFavorite = false
+
+    /// 查一次「这位志愿者收藏过没有」。**只在 `COMPLETED` 且后端给了 `volunteerId` 时调**。
+    ///
+    /// 为什么要多打一次 `/api/blind/favorite-volunteers`：`OrderDetailResponse` 只说这一单是谁陪的，
+    /// 说不出「他是不是我的固定搭档」。没有这一次查询，按钮只能恒显示「设为固定搭档」，
+    /// 对已经收藏过的搭档就是一句假话。
+    ///
+    /// 失败一律静默（同 `loadExistingReview`）：这是主路径之外的一块附属动作，
+    /// 拿不到的唯一后果是整块不出现，不值得打断服务播报。
+    func loadFavoriteStateIfNeeded() async {
+        guard let order, let appState,
+              order.status == .completed,
+              let volunteerId = order.volunteerId else { return }
+        do {
+            let favorites = try await appState.incentive.blindFavoriteVolunteers()
+            isVolunteerFavorited = favorites.contains { $0.volunteerId == volunteerId }
+        } catch {
+            isVolunteerFavorited = nil
+        }
+    }
+
+    /// `PUT /api/blind/favorite-volunteers/{volunteerId}` —— 幂等，恒 204。
+    ///
+    /// **只做添加，不做取消。** 取消收藏在设置页的固定搭档列表里，那里看得到全部搭档；
+    /// 在一张订单详情上给「取消收藏」，用户取消的是一段跨越很多次跑步的关系，
+    /// 而他眼前只有其中一次的上下文。
+    func addVolunteerToFavorites() async {
+        guard let order, let appState, let volunteerId = order.volunteerId else { return }
+        let name = order.volunteerName?.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
+        isUpdatingFavorite = true
+        favoriteErrorMessage = nil
+        defer { isUpdatingFavorite = false }
+        do {
+            try await appState.incentive.addBlindFavoriteVolunteer(volunteerId: volunteerId)
+            isVolunteerFavorited = true
+            let notice = PartnerStreakCopy.favoriteAdded(name)
+            favoriteNotice = notice
+            // 盲人端：结果必须念出来。屏幕上那行字是看得见的一半，播报是听得见的那一半。
+            speechService?.speak(notice)
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) { return }
+            // 两个收藏专属错误码（`FAVORITE_VOLUNTEER_NOT_ELIGIBLE` / `..._LIMIT_EXCEEDED`）
+            // 的文案已经挂在 `ErrorCode.localizedMessage:289-292` 上，这里不再映射一遍 ——
+            // 映射第二份的代价是两处文案迟早分叉，而分叉的那一半没有任何东西会报警。
+            let message = error.localizedMessage
+            favoriteErrorMessage = message
+            speechService?.speakError(message)
+        } catch {
+            favoriteErrorMessage = PartnerStreakCopy.favoriteFailed
+            speechService?.speakError(PartnerStreakCopy.favoriteFailed)
+        }
+    }
+
     /// 取回本单的状态变更记录（`GET /api/orders/{id}/status-logs`，订单双方均可查）。
     ///
     /// 响应是裸数组，后端已按时间**倒序**返回（`OrderStatusLogRepository:16`），这里不重排。
@@ -1171,6 +1237,9 @@ struct BlindOrderStatusView: View {
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
             await viewModel.loadExistingReview()
+            // 挂在这条已有的 COMPLETED 分支上而不是另起一个 `.task`：这一页每 5 秒轮询一次，
+            // 独立的 task 很容易变成「每轮都查一次收藏列表」。这里一单只查一次。
+            await viewModel.loadFavoriteStateIfNeeded()
             await trackViewModel.load(orderID: orderId, appState: appState)
             if let summary = trackViewModel.track?.spokenSummary { speechService.speak(summary) }
         }
@@ -1348,6 +1417,8 @@ struct BlindOrderStatusView: View {
                 .accessibilityLabel("跳过评价并返回首页")
             }
 
+            favoriteVolunteerSection(order)
+
             if viewModel.didSubmitReview {
                 PrimaryButton("返回首页") {
                     dismiss()
@@ -1359,6 +1430,72 @@ struct BlindOrderStatusView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColors.secondaryBackground)
         .cornerRadius(8)
+    }
+
+    /// 「把这一单的志愿者设为固定搭档」。
+    ///
+    /// 🚩 **这是全 App 第二个、也是覆盖面最大的收藏入口。** 另一个在设置页的固定搭档列表里，
+    /// 但那里只能收藏**已经点亮火花**的一对 —— 而火花开关（`app.incentive.streak.enabled`）
+    /// 后端默认关着，所以在它打开之前，那个入口实际上一个人也收藏不了。
+    /// 这条路不依赖火花：收藏的门槛是「一起跑完至少一单」，而这一页就站在那一单上。
+    ///
+    /// 位置在评价之后：评价是这一屏的主动作（有时限压力、后端会催），收藏没有。
+    ///
+    /// 三个渲染条件缺一不可：
+    /// - `COMPLETED` —— 门槛是跑完，跑之前点必然吃 `FAVORITE_VOLUNTEER_NOT_ELIGIBLE`
+    /// - `volunteerId != nil` —— 结构判据，不另外判状态（后端接单前本就不下发它）
+    /// - `isVolunteerFavorited != nil` —— 查不到收藏状态时整块不出现，理由见那个属性
+    @ViewBuilder
+    private func favoriteVolunteerSection(_ order: OrderDetailResponse) -> some View {
+        if order.status == .completed,
+           order.volunteerId != nil,
+           let isFavorited = viewModel.isVolunteerFavorited {
+            let name = order.volunteerName?.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
+            VStack(alignment: .leading, spacing: 8) {
+                if isFavorited {
+                    // 已经是搭档时只陈述事实，不给「取消收藏」——
+                    // 取消的是一段跨越很多次跑步的关系，而这一页只有其中一次的上下文。
+                    // 取消入口在设置页的固定搭档列表，那里看得到全部搭档。
+                    Text("\(name)已经是你的固定搭档")
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("blindOrderAlreadyFavoriteText")
+                } else {
+                    Button(PartnerStreakCopy.addFavoriteTitle(name)) {
+                        Task { await viewModel.addVolunteerToFavorites() }
+                    }
+                    .font(AppFonts.body().weight(.semibold))
+                    .foregroundColor(AppColors.primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 64)
+                    .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+                    .disabled(viewModel.isUpdatingFavorite)
+                    // 🔴 承诺只能说到「更可能」。收藏加的 15 分在满分 100 的五维加权和之外，
+                    // 附近有个不错的陌生人时固定搭档仍然会输 —— 说「优先派给他」是承诺一件系统做不到的事。
+                    .accessibilityHint(PartnerStreakCopy.favoriteExplanation)
+                    .accessibilityIdentifier("blindOrderAddFavoriteButton")
+                }
+
+                // 成功与失败都要**在屏幕上多出一行字**，不能只靠播报：
+                // 低视力用户走的是视觉那条通道（AGENTS.md §1.4）。
+                if let notice = viewModel.favoriteNotice {
+                    Text(notice)
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.success)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("blindOrderFavoriteNotice")
+                }
+                if let failure = viewModel.favoriteErrorMessage {
+                    Text(failure)
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.destructive)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("blindOrderFavoriteError")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     /// 已提交过的评价读回来。
