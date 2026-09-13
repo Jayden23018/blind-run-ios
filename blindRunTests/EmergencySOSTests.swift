@@ -218,6 +218,35 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.confirmationMessage,
             "是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
         )
+        // 盲人侧读到的仍然是**逐字**这一句 —— 志愿者那一句是追加，不是改写。
+        XCTAssertEqual(
+            EmergencySafetyCopy.confirmationMessage(for: .runner),
+            EmergencySafetyCopy.confirmationMessage
+        )
+    }
+
+    /// 🔴 志愿者按下求助**撤销不了**（后端对志愿者的 `FALSE_ALARM` 恒 403
+    /// `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`），而二次确认此前没说这件事 ——
+    /// 漏掉的正是这个动作最不可逆的那一半后果，也就是二次确认存在的理由。
+    ///
+    /// 断言挑的是**能区分三种实现**的取值：
+    /// - 正确实现：志愿者那份是「原文 + 追加句」
+    /// - 「两侧共用一句」的旧实现：撞第一条断言
+    /// - 「志愿者侧改写了原文」的实现：撞第二条（AGENTS §6 的 verbatim 会被破坏）
+    func testVolunteerConfirmationSpellsOutThatItCannotBeTakenBack() {
+        let volunteer = EmergencySafetyCopy.confirmationMessage(for: .volunteer)
+
+        XCTAssertTrue(
+            volunteer.contains("只有跑者本人或客服能撤销"),
+            "志愿者按下去撤销不了，这件事必须在按之前说：\(volunteer)"
+        )
+        // verbatim 的那一句**整句仍在**，只是后面多了一句。
+        XCTAssertTrue(
+            volunteer.hasPrefix(EmergencySafetyCopy.confirmationMessage),
+            "AGENTS.md §6 钉死的那句不得被改写，只能追加：\(volunteer)"
+        )
+        // 🚩 不许反过来把「你可以撤销」说给志愿者听 —— 那是一句他做不到的承诺。
+        XCTAssertFalse(volunteer.contains("你可以撤销"))
     }
 
     // MARK: - 求助状态的刷新机制

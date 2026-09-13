@@ -2,6 +2,23 @@ import Combine
 import CoreLocation
 import SwiftUI
 
+/// 首页那个「可服务」开关叫什么名字 —— **全 App 单一来源**。
+///
+/// 🔴 存在的理由是一个真实缺陷：资质审核通过的引导语此前写的是
+/// 「请回到首页开启**接单开关**」（`VolunteerCertificateUploadView.swift:105`、`:130`），
+/// 而首页那个控件叫「可服务开关」。**首页上根本没有叫「接单开关」的东西** ——
+/// 用户照着那句话回首页找，找到的是另一个名字，没有办法确认这是不是同一个控件。
+/// 对按控件名导航的读屏用户尤其致命，但看得见的人一样要停顿一下。
+///
+/// 抽成常量而不是写一条「两处文案要一致」的用例：常量化之后两处**不可能**再各叫各的，
+/// 而用例只能在漂移发生之后报警。
+enum VolunteerAvailabilityCopy {
+    static let toggleTitle = "可服务开关"
+
+    /// 引导用户去开这个开关的那半句。资质审核通过、身份材料通过两条路径共用。
+    static let goOpenItHint = "请回到首页开启\(toggleTitle)。"
+}
+
 // MARK: - Volunteer Home ViewModel
 
 @MainActor
@@ -1753,11 +1770,11 @@ private struct VolunteerHomeStatusOverlay: View {
                     Toggle(
                         isOn: $isAvailable
                     ) {
-                        Text("可服务开关")
+                        Text(VolunteerAvailabilityCopy.toggleTitle)
                     }
                     .labelsHidden()
                     .disabled(!isApproved || isUpdatingAvailability)
-                    .accessibilityLabel("可服务开关，\(statusText)")
+                    .accessibilityLabel("\(VolunteerAvailabilityCopy.toggleTitle)，\(statusText)")
                     .accessibilityHint("关闭后不会收到新的系统派单，但不影响当前订单")
                 }
             }

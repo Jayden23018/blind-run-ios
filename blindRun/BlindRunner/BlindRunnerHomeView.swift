@@ -600,7 +600,7 @@ struct BlindRunnerHomeView: View {
             } message: {
                 Text("确认取消本次预约？取消后将结束本次服务。")
             }
-            .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation) {
+            .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation, audience: .runner) {
                 Task { await viewModel.enterEmergency(locationService: locationService) }
             }
             .emergencyCallOptionsDialog(

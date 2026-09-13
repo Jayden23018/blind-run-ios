@@ -1192,7 +1192,7 @@ struct BlindOrderStatusView: View {
             context: .inProgress,
             primaryContact: appState.primaryEmergencyContact
         )
-        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation) {
+        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation, audience: .runner) {
             Task {
                 await viewModel.enterEmergency()
                 if let order = viewModel.order {
