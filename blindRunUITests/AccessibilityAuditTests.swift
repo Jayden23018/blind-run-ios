@@ -876,6 +876,51 @@ final class AccessibilityAuditTests: XCTestCase {
     /// - Parameter seedOrderStatus: 同 `launchBlindHome` 的同名参数。传非空值时一并置上
     ///   `PRESEEDED_VOLUNTEER_ACTIVE_ORDER`，让志愿者首页确实认这张单为「当前订单」。
     @MainActor
+    /// 🔴 **志愿者首页必须出现「我的贡献」卡。**
+    ///
+    /// 钉的是一个真机上发生过、而单测完全照不到的缺陷：卡片原来写成
+    /// `Group { if let summary = ..., summary.isRenderable { content } }`，
+    /// 条件不成立时整个 Group 解析成空，而 **`.task` 挂在空子树上不会触发** ——
+    /// 于是 `summary` 永远是 nil ⇒ 永远渲染空 ⇒ 永远不加载。
+    /// 单测直接调 `loadIfNeeded()`，绕过了视图，所以一路全绿而线上什么都没有。
+    ///
+    /// ⚠️ **不要点面板抓手**：`next()` 是循环的，点两下会转回 `.compact`，
+    /// 那一档整块 `ScrollView` 不渲染，连「接单率」「近期服务」都会消失 ——
+    /// 排查时按那样写过一版探针，得出的是完全误导的结论。默认档位本来就是 `.medium`。
+    func testVolunteerHomeShowsTheIncentiveCard() {
+        let app = launchVolunteerHome()
+
+        let panel = app.otherElements["volunteerHomeDemandPanel"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 25))
+
+        let scroll = app.scrollViews["volunteerHomeDemandScrollView"]
+        XCTAssertTrue(scroll.waitForExistence(timeout: 15), "ScrollView 没渲染说明档位不是 medium，后面的断言都不作数")
+
+        // 前提断言：面板内容确实渲染了。少了这条，下面那条失败时分不清是
+        // 「卡没渲染」还是「整个面板都没渲染」。
+        XCTAssertTrue(
+            app.staticTexts["近期服务"].waitForExistence(timeout: 20),
+            "面板内容整体没出来 —— 这不是激励卡的问题"
+        )
+
+        let card = app.descendants(matching: .any)["volunteerHomeIncentiveCard"]
+        let loading = app.descendants(matching: .any)["volunteerHomeIncentiveLoading"]
+        let failure = app.descendants(matching: .any)["volunteerHomeIncentiveFailure"]
+        let empty = app.descendants(matching: .any)["volunteerHomeIncentiveEmpty"]
+
+        // 四态**必有其一**。一个都没有 = 视图压根没渲染，就是那个 `.task` 缺陷复发了。
+        let anyState = card.waitForExistence(timeout: 20)
+            || loading.exists || failure.exists || empty.exists
+        XCTAssertTrue(anyState, "「我的贡献」四种状态一个都没出现 —— .task 没触发，卡片把自己锁死了")
+
+        // Mock 环境下数据是齐的，应该落在正式卡片那一态。
+        XCTAssertTrue(card.exists, "Mock 数据齐全时应该渲染正式卡片，实际落到了占位态")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerHomeIncentiveAchievementsLink"].exists,
+            "「查看服务成就」必须在合成元素之外，否则 VoiceOver 点不到"
+        )
+    }
+
     private func launchVolunteerHome(seedOrderStatus: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {

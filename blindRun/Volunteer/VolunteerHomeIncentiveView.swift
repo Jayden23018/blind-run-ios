@@ -26,6 +26,13 @@ import SwiftUI
 final class VolunteerHomeIncentiveViewModel: ObservableObject {
     @Published private(set) var summary: VolunteerHomeIncentiveSummary?
 
+    /// 这一轮有没有请求失败。
+    ///
+    /// 🔴 **必须发布出去，不能只记诊断。** 此前失败是完全静默的 ——
+    /// 「加载失败」「数据确实为空」「视图压根没加载」三种情况在屏幕上长得一模一样，
+    /// 2026-09-14 真机排查这张卡不出现时，正是这一点让三种假设分不开。
+    @Published private(set) var loadFailed = false
+
     /// ⚠️ `appState` 是 `weak`：传临时对象等于传 nil，用例要自己持有它
     /// （守卫规则 `weak-temporary`）。
     private weak var appState: AppState?
@@ -118,6 +125,7 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
             streak: streak,
             streakPartnerName: streakPartnerName
         )
+        loadFailed = !allSucceeded
         // 有任何一条没成时保持未置位，下次进首页重试（理由见函数头两条 🚩）。
         hasLoaded = allSucceeded
     }
@@ -137,15 +145,70 @@ struct VolunteerHomeIncentiveCard: View {
     @StateObject private var viewModel = VolunteerHomeIncentiveViewModel()
 
     var body: some View {
-        Group {
-            if let summary = viewModel.summary, summary.isRenderable {
-                content(summary)
-            }
+        // 🔴 **这个视图必须永远渲染出真实内容，哪怕只是一行占位。**
+        //
+        // 原来写的是 `Group { if let summary = ..., summary.isRenderable { content } }`
+        // —— 条件不成立时整个 Group 解析成空，而 **`.task` 挂在一棵空子树上不会触发**。
+        // 于是 `summary` 永远是 nil ⇒ 永远渲染空 ⇒ 永远不加载，自己把自己锁死。
+        // 2026-09-14 真机实测：加一个 `else` 分支之后卡片立刻出现，`volunteerHomeIncentiveCard`
+        // 从 false 变 true。回归钉子 `testVolunteerHomeShowsTheIncentiveCard`（已验红）。
+        //
+        // 顺带修掉的是同一个根因的另一半：失败此前完全静默，
+        // 「加载失败 / 数据为空 / 视图没加载」三种情况在屏幕上一模一样。
+        VStack(alignment: .leading, spacing: 8) {
+            stateContent
         }
         .task {
             viewModel.configure(appState: appState)
             await viewModel.loadIfNeeded()
         }
+    }
+
+    @ViewBuilder
+    private var stateContent: some View {
+        if let summary = viewModel.summary, summary.isRenderable {
+            content(summary)
+        } else if viewModel.summary == nil {
+            placeholder(VolunteerHomeIncentiveCopy.loading, identifier: "volunteerHomeIncentiveLoading")
+        } else if viewModel.loadFailed {
+            // 失败要给去处，不能只少一张卡 —— 见本文件顶部那条根因注释。
+            VStack(alignment: .leading, spacing: 10) {
+                placeholder(VolunteerHomeIncentiveCopy.loadFailure, identifier: "volunteerHomeIncentiveFailure")
+                Button(VolunteerHomeIncentiveCopy.retry) {
+                    Task { await viewModel.load() }
+                }
+                .font(AppFonts.body().weight(.semibold))
+                .foregroundColor(AppColors.primary)
+                .buttonShapeOutlineIfNeeded(color: AppColors.primary)
+                .frame(minHeight: 44)  // guard:allow small-touch-target
+                .accessibilityIdentifier("volunteerHomeIncentiveRetryButton")
+            }
+        } else {
+            // 真的没东西可显示（七枚勋章全解锁 + 没人收藏 + 没有火花）。
+            placeholder(VolunteerHomeIncentiveCopy.empty, identifier: "volunteerHomeIncentiveEmpty")
+        }
+    }
+
+    /// 加载中 / 失败 / 空 三态共用的外观：与正式卡片同一个容器，避免内容到位时整块跳一下。
+    private func placeholder(_ text: String, identifier: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(VolunteerHomeIncentiveCopy.sectionTitle)
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+            Text(text)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(AppColors.secondaryBackground)
+        .clipShape(
+            RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(VolunteerHomeIncentiveCopy.sectionTitle)。\(text)")
+        .accessibilityIdentifier(identifier)
     }
 
     /// 外层 `VStack` 的存在理由与 `VolunteerDispatchSummaryCard` 同：卡片本体要

@@ -123,6 +123,19 @@ enum VolunteerHomeIncentiveCopy {
     /// （理由逐字在 `VolunteerNextBadgeDto` 与 `VolunteerAchievementsCopy` 顶部）。
     static let nextBadgePrefix = "下一枚勋章"
 
+    /// 加载中。**不写「敬请期待」这类会兑现的暗示**（守卫规则 `placeholder-promise`）。
+    static let loading = "正在读取你的服务记录。"
+
+    /// 🔴 失败要说人话并给去处。此前失败是完全静默的 —— 那让「加载失败」
+    /// 与「这个功能不存在」在屏幕上完全一样，2026-09-14 真机排查因此绕了一大圈。
+    static let loadFailure = "暂时没能读到你的服务记录。"
+
+    static let retry = "重新加载"
+
+    /// 真的没东西可显示：七枚勋章全解锁 + 没人收藏 + 没有火花。
+    /// 只陈述，不催促（理由见本枚举顶部）。
+    static let empty = "完成陪跑服务后，这里会显示你的记录。"
+
     static func partnersSpoken(_ count: Int) -> String {
         "有 \(count) \(partnersCaption)"
     }
