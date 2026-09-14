@@ -542,7 +542,151 @@ final class IncentiveAdoptionTests: XCTestCase {
         XCTAssertTrue(after.contains { $0.volunteerId == MockAPIClient.mockOrderVolunteerId })
     }
 
+    // MARK: - 首页「我的贡献」卡
+
+    /// 有人收藏我时，主数字是**人数**而不是勋章进度。
+    ///
+    /// 顺序本身就是产品决策（被别人选中 > 平台进度条），断言挑的是
+    /// 「两样都有」这个取值 —— 只有把优先级排反才会红。
+    func testHomeIncentiveLeadsWithRelationshipWhenSomebodyFavoritedMe() {
+        let summary = VolunteerHomeIncentiveSummary(
+            favoritedByCount: 3,
+            nextBadge: makeNextBadge(code: "RUNS_10", current: 7, target: 10),
+            streak: nil,
+            streakPartnerName: nil
+        )
+        XCTAssertEqual(summary.hero, .partners(count: 3))
+        // 主角已经不是勋章了，勋章仍要单独画一行 —— 否则「下一步差多少」整个丢掉。
+        XCTAssertTrue(summary.showsBadgeRow)
+    }
+
+    /// 🔴 **0 位搭档时绝不能显示「0 位跑者把你设为固定搭档」。**
+    ///
+    /// 新人第一天打开 App，第一个看到的数字是 0，那是负激励。这一档让位给勋章进度
+    /// （他的第一枚是「首次陪跑」，天然就是「下一步差多少」）。
+    ///
+    /// 断言挑的取值能区分三种破法：
+    /// - 「恒取人数」的实现 → 第一条红（会拿到 `.partners(count: 0)`）
+    /// - 「勋章当主角后又重复画一行」的实现 → 最后一条红
+    /// - 单位换算写错（`HOURS_*` 的 `current`/`target` 是**分钟**，要除 60）→ 第二条红
+    func testHomeIncentiveNeverShowsZeroPartnersAndConvertsBadgeMinutesToHours() throws {
+        let newcomer = VolunteerHomeIncentiveSummary(
+            favoritedByCount: 0,
+            nextBadge: makeNextBadge(code: "HOURS_10", current: 420, target: 600),
+            streak: nil,
+            streakPartnerName: nil
+        )
+        XCTAssertNotEqual(newcomer.hero, .partners(count: 0))
+        XCTAssertEqual(
+            newcomer.hero,
+            .badgeProgress(current: 7, target: 10, suffix: "小时", badgeName: "服务 10 小时")
+        )
+        // 已经当了主角就不再重复画 —— 同一个数出现两次，读屏用户会听两遍。
+        XCTAssertFalse(newcomer.showsBadgeRow)
+    }
+
+    /// 两样都没有（七枚全解锁 + 还没人收藏）时**整张卡不渲染**，不留一个写着 0 的空壳。
+    ///
+    /// 同时钉住：未知 `code` 的勋章拿不到量词，契约要求整块进度隐藏 ——
+    /// 那就更不能拿它当主角（拼一个猜的量词是这里最容易犯的错）。
+    func testHomeIncentiveCardDisappearsInsteadOfRenderingAnEmptyShell() {
+        let veteran = VolunteerHomeIncentiveSummary(
+            favoritedByCount: 0, nextBadge: nil, streak: nil, streakPartnerName: nil
+        )
+        XCTAssertNil(veteran.hero)
+        XCTAssertFalse(veteran.isRenderable)
+
+        let unknownBadge = VolunteerHomeIncentiveSummary(
+            favoritedByCount: 0,
+            nextBadge: makeNextBadge(code: "MARATHON_2030", current: 1, target: 5),
+            streak: nil,
+            streakPartnerName: nil
+        )
+        XCTAssertNil(unknownBadge.hero)
+        XCTAssertFalse(unknownBadge.isRenderable)
+    }
+
+    /// 🔴 首页激励文案**只陈述、不催促**。
+    ///
+    /// 依据是 Motivation Crowding Theory（外在激励被感知为 controlling 时挤出内在动机），
+    /// 而我们的志愿者是无偿的、纯内在动机人群。详见
+    /// `docs/research/volunteer-home-incentive-layer-20260914.md` §3。
+    ///
+    /// 一并钉住 `HIGH_RATED` 那条：它是「均分 ≥ 4.8 **且** ≥ 10 条评价」的双条件，
+    /// 进度条满格也可能没解锁 ⇒ 一律不许写「还差 N 就解锁」。
+    func testHomeIncentiveCopyStatesProgressWithoutNaggingOrPromisingUnlock() throws {
+        let summary = VolunteerHomeIncentiveSummary(
+            favoritedByCount: 2,
+            nextBadge: makeNextBadge(code: "HIGH_RATED", current: 9, target: 10),
+            streak: try XCTUnwrap(PartnerStreakDisplay(currentWeeks: 7, bestWeeks: 9)),
+            streakPartnerName: "张*"
+        )
+        let spoken = VolunteerHomeIncentiveCopy.accessibilityLabel(summary)
+
+        XCTAssertTrue(spoken.contains("有 2 位跑者把你设为固定搭档"))
+        XCTAssertTrue(spoken.contains("张*，已经连续 7 周一起跑步"))
+        XCTAssertTrue(spoken.contains("已完成 9 / 10 条评价"))
+
+        // ⚠️ **不能拿「还差」当禁词**：火花那句「距离你们最好的 9 周还差 2 周」比的是
+        // 他们**自己的**历史最好成绩，是 supportive 那一侧（SDT 的胜任感），既有实现是对的。
+        // 要拦的是「平台设的门槛 + 催你去够」这种 controlling 句式。
+        XCTAssertTrue(spoken.contains("还差 2 周"), "前提：自比历史最好成绩的说法保留着")
+
+        for nagging in ["就解锁", "就能解锁", "再跑", "赶快", "立即", "马上", "快去"] {
+            XCTAssertFalse(spoken.contains(nagging), "首页激励文案不许催促：命中「\(nagging)」")
+        }
+    }
+
+    /// 🔴 这张卡**不许出现积分**。
+    ///
+    /// `HOURS_10` / `HOURS_50` 两个勋章展示的是**服务时长**，所以这张卡有时会显示时长；
+    /// 积分与志愿服务时长「刻意分两屏」（中央网信办 2026-06-19 通知第 2 条）。
+    /// 把积分加进来就会**随数据**与时长同屏相邻 —— 时有时无，手测很可能撞不上，
+    /// 所以这条必须由用例守着。
+    func testHomeIncentiveNeverPutsPointsNextToServiceHours() {
+        let hoursBadge = VolunteerHomeIncentiveSummary(
+            favoritedByCount: 1,
+            nextBadge: makeNextBadge(code: "HOURS_50", current: 1_200, target: 3_000),
+            streak: nil,
+            streakPartnerName: nil
+        )
+        let spoken = VolunteerHomeIncentiveCopy.accessibilityLabel(hoursBadge)
+        XCTAssertTrue(spoken.contains("小时"), "前提：这张卡确实会念出服务时长")
+        XCTAssertFalse(spoken.contains("积分"))
+        XCTAssertFalse(spoken.contains(" 分"))
+
+        let allCopy = [
+            VolunteerHomeIncentiveCopy.sectionTitle,
+            VolunteerHomeIncentiveCopy.partnersCaption,
+            VolunteerHomeIncentiveCopy.achievementsLinkTitle,
+            VolunteerHomeIncentiveCopy.achievementsLinkHint,
+            VolunteerHomeIncentiveCopy.nextBadgePrefix
+        ].joined(separator: "\n")
+        XCTAssertFalse(allCopy.contains("积分"))
+    }
+
     // MARK: - Helpers
+
+    private func makeNextBadge(
+        code: String,
+        current: Int64,
+        target: Int64
+    ) -> VolunteerNextBadgeDto {
+        VolunteerNextBadgeDto(
+            code: code,
+            name: Self.badgeNames[code],
+            current: current,
+            target: target
+        )
+    }
+
+    /// 后端下发的 `name`。未知 `code` 刻意给 `nil`，好让用例覆盖「拿不到量词」那一档。
+    private static let badgeNames: [String: String] = [
+        "RUNS_10": "陪跑 10 次",
+        "HOURS_10": "服务 10 小时",
+        "HOURS_50": "服务 50 小时",
+        "HIGH_RATED": "好评如潮"
+    ]
 
     private func makeTransaction(
         delta: Int = 10,
