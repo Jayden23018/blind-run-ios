@@ -96,6 +96,21 @@ struct BlindFavoriteVolunteersView: View {
     @State private var hasLoadedOnce = false
     @State private var actionNotice: String?
     @State private var busyUserId: Int64?
+    /// 待确认的取消收藏。只有「对方已退出」那一档会走到这里，见
+    /// `PartnerStreakCopy.removeFavoriteConfirmation`。
+    @State private var pendingRemoval: PendingFavoriteRemoval?
+
+    /// 弹窗要用的三样东西：删谁、叫什么、说什么。
+    ///
+    /// 文案在这里**存下来而不是每次重算** —— 弹窗关闭的那一帧 `row` 可能已经被
+    /// `load()` 刷掉了，重算会拿到一个空名字。
+    private struct PendingFavoriteRemoval: Identifiable {
+        let userId: Int64
+        let name: String
+        let confirmation: PartnerStreakCopy.RemoveFavoriteConfirmation
+
+        var id: Int64 { userId }
+    }
 
     var body: some View {
         ScrollView {
@@ -161,6 +176,27 @@ struct BlindFavoriteVolunteersView: View {
             guard !hasLoadedOnce else { return }
             await load()
         }
+        // 🔴 后果写进正文，不是一个「确定 / 取消」弹窗 —— 这个动作影响的是**对方**：
+        // 取消收藏会把志愿者的退出记录一起删掉，而他不会收到任何提示。
+        //
+        // 不额外调 `speechService` 播报：VoiceOver 自己会念 alert，再念一遍是重复
+        // （本仓库盲人端其余的确认弹窗 —— 注销、删除账户、实时分享同意 —— 都是这个写法）。
+        .alert(
+            pendingRemoval?.confirmation.title ?? "",
+            isPresented: Binding(
+                get: { pendingRemoval != nil },
+                set: { if !$0 { pendingRemoval = nil } }
+            ),
+            presenting: pendingRemoval
+        ) { removal in
+            Button(removal.confirmation.confirm, role: .destructive) {
+                pendingRemoval = nil
+                Task { await setFavorite(false, userId: removal.userId, name: removal.name) }
+            }
+            Button(removal.confirmation.cancel, role: .cancel) { pendingRemoval = nil }
+        } message: { removal in
+            Text(removal.confirmation.message)
+        }
     }
 
     /// 一行搭档 + 它的收藏动作。按钮在卡片**外面**：卡片是 `children: .ignore` 的单焦点，
@@ -176,11 +212,27 @@ struct BlindFavoriteVolunteersView: View {
         if let userId = row.userId {
             let name = row.name?.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
             if row.isFavorite {
-                // 取消收藏是可逆的（再收藏一次即可），所以**不做二次确认** ——
+                // 取消收藏**对没退出过的搭档**是可逆的（再收藏一次即可），那一档不做二次确认 ——
                 // AGENTS.md 的二次确认清单给的是不可逆或高代价的动作，
                 // 给每个可逆动作都加一道弹窗，读屏用户要多听一遍、多点一次。
+                //
+                // 🔴 **但对方已退出的那一档不可逆，而且不可逆的后果落在对方身上**：
+                // 后端 `remove()` 会把整行连同 `volunteer_opted_out_at` 一起硬删，
+                // 再收藏一次就建出一条 `optedOut = null` 的新行，把志愿者的退出无声撤销掉。
+                // 判据与文案在 `PartnerStreakCopy.removeFavoriteConfirmation`，那里写了全部理由。
                 Button(PartnerStreakCopy.removeFavoriteTitle(name)) {
-                    Task { await setFavorite(false, userId: userId, name: name) }
+                    if let confirmation = PartnerStreakCopy.removeFavoriteConfirmation(
+                        name: name,
+                        hasOptedOut: row.hasOptedOut
+                    ) {
+                        pendingRemoval = PendingFavoriteRemoval(
+                            userId: userId,
+                            name: name,
+                            confirmation: confirmation
+                        )
+                    } else {
+                        Task { await setFavorite(false, userId: userId, name: name) }
+                    }
                 }
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(AppColors.destructive)
