@@ -144,8 +144,13 @@
 
 ### 七、上一轮留下的两笔账（不是你造成的，但你会撞上）
 
-1. **`blindRunTests/LowVisionChannelTests.testAvailabilityOnSurfaceKeepsWhiteTextReadable`
-   这条新用例还没在真机跑过**（设备中途掉线）。你这轮第一次跑测时顺带把它跑了。
+1. **有一批改动只过了编译，真机一条没跑**（设备中途掉线）。你这轮第一次跑测时顺带把它们跑了：
+   - `blindRunTests/LowVisionChannelTests`（含新增的
+     `testAvailabilityOnSurfaceKeepsWhiteTextReadable`）
+   - `blindRunTests/VolunteerProfileFirstScreenTests`（含新增的
+     `testMissingAchievementsIsNotTheSameAsAZeroCountVeteran`）
+   - 上一轮 code review 的 5 条 A 档修复（commit `3b508e9`）也全部只过了编译，
+     其中 A3 把滑动 CTA 的高度封到了 96pt —— **那条正好要在 AX5 + 横屏上看一眼**。
 2. **`origin/main` 基线上本来就有 6 条红的**，不是本次回归，别去修也别当成自己弄坏的：
    - `AccessibilityAuditTests`：`testBlindBookingPassesAccessibilityAudit`（Text clipped）、
      `testBlindFirstRunHelpPassesAccessibilityAudit`（Text clipped）、
