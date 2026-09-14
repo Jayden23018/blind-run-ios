@@ -311,6 +311,34 @@ final class IncentiveAdoptionTests: XCTestCase {
         XCTAssertTrue(InviteCodeEntryCopy.speechHint.contains("邀请码"))
     }
 
+    /// 🔴 **取消收藏对「已退出」的搭档不可逆，而不可逆的后果落在对方身上。**
+    ///
+    /// 后端 `optOut()` 是打标记不删行（注释逐字写着防的就是「盲人重新收藏一次把退出撤销掉」），
+    /// 但同一个 service 的 `remove()` 硬删整行连同 `volunteer_opted_out_at`，
+    /// `add()` 随后建一条 `optedOut = null` 的新行 —— 那道防线被取消收藏按钮自己绕过了。
+    ///
+    /// 断言挑的取值能区分四种破法：
+    /// - 「恒不弹窗」（现状）→ 第二组红
+    /// - 「所有取消收藏都弹窗」→ 第一组红（把一个真可逆的动作做成了负担）
+    /// - 「弹了但只写确定/取消」→ 后果那几条红
+    /// - 「次要按钮写成『取消』」→ 最后一条红（在讲「取消收藏」的弹窗里有两种读法）
+    func testRemovingAnOptedOutPartnerWarnsThatItSilentlyUndoesTheirOptOut() throws {
+        // 没退出过 ⇒ 确实可逆，不该拦。
+        XCTAssertNil(PartnerStreakCopy.removeFavoriteConfirmation(name: "张*", hasOptedOut: false))
+
+        let confirmation = try XCTUnwrap(
+            PartnerStreakCopy.removeFavoriteConfirmation(name: "张*", hasOptedOut: true)
+        )
+        XCTAssertEqual(confirmation.title, "取消收藏张*？")
+        // 后果三件事，缺一件这个弹窗就退化成一次无声点击：
+        XCTAssertTrue(confirmation.message.contains("已经退出了你们的固定搭档"), "①对方退出过")
+        XCTAssertTrue(confirmation.message.contains("不作数"), "②再收藏会撤销他的退出")
+        XCTAssertTrue(confirmation.message.contains("不会收到任何提示"), "③他不会被告知")
+        // 次要按钮不许写「取消」—— 在讲「取消收藏」的弹窗里那两个字有两种读法。
+        XCTAssertNotEqual(confirmation.cancel, "取消")
+        XCTAssertEqual(confirmation.cancel, "保留收藏")
+    }
+
     /// 退出的二次确认必须把后果写进正文 —— 后端点名要求不要只做「确定 / 取消」。
     func testOptOutConfirmationSpellsOutTheConsequence() {
         XCTAssertTrue(PartnerStreakCopy.optOutConfirmMessage.contains("不再被优先派给"))
