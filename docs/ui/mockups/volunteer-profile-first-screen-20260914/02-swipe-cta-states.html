@@ -1,0 +1,43 @@
+<!doctype html><meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#2c2c2e;padding:26px;font-family:-apple-system,"SF Pro Text","PingFang SC",sans-serif;width:470px}
+h3{color:#fff;font-size:13px;font-weight:600;margin:20px 0 3px}
+h3:first-child{margin-top:0}
+p.n{color:#a0a0a5;font-size:11.5px;margin-bottom:9px;line-height:1.45}
+.w{width:390px;padding:0 20px;background:#fff;border-radius:14px;padding-top:14px;padding-bottom:14px}
+.cta{height:64px;border-radius:32px;position:relative;display:flex;align-items:center;overflow:hidden;background:#0058C7}
+.cta.done{background:#1B7F3B}
+.cta.off{background:#F2F2F7}
+.hi{position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,.16)}
+.lbl{position:absolute;left:64px;right:18px;text-align:center;font-size:17.5px;font-weight:600;color:#fff;letter-spacing:.3px}
+.lbl.d{left:18px;right:18px}
+.knob{position:absolute;top:5px;width:54px;height:54px;border-radius:27px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.22)}
+.offrow{height:52px;border-radius:26px;background:#F2F2F7;display:flex;align-items:center;justify-content:center;gap:8px;font-size:16px;font-weight:600;color:#0058C7}
+</style>
+
+<h3>① 静止 — isAvailable = false</h3>
+<p class="n">阈值取 Uber Base 的 Low (Easy)：滑过 20% 即触发。文案是邀请不是指令。</p>
+<div class="w"><div class="cta">
+  <div class="lbl">滑动开始今天的陪跑</div>
+  <div class="knob" style="left:5px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0058C7" stroke-width="2.4" stroke-linecap="round"><path d="M4 12h14M13 6l6 6-6 6"/></svg></div>
+</div></div>
+
+<h3>② 拖动中 — 过 20% 阈值，轻触觉反馈</h3>
+<p class="n">已滑过的轨道变亮给连续进度反馈；文案换成进行时。</p>
+<div class="w"><div class="cta">
+  <div class="hi" style="width:47%"></div>
+  <div class="lbl" style="left:180px;right:14px;font-size:16px">松手即开启</div>
+  <div class="knob" style="left:123px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0058C7" stroke-width="2.4" stroke-linecap="round"><path d="M4 12h14M13 6l6 6-6 6"/></svg></div>
+</div></div>
+
+<h3>③ 已开启 — isAvailable = true</h3>
+<p class="n">滑块归位消失，整条变成状态条。这一刻起才会收到派单推送。</p>
+<div class="w"><div class="cta done">
+  <div class="lbl d">已开启 · 正在等待系统派单</div>
+</div></div>
+
+<h3>④ 关闭 — 普通点按，无滑动、无挽留</h3>
+<p class="n">🔴 摩擦力只加在「答应」这一侧。关闭不得弹任何激励挽留（Motivation Crowding，
+volunteer-home-incentive-layer-20260914 §3.1–3.2；代码注释已钉在 VolunteerHomeIncentive.swift:100）。</p>
+<div class="w"><div class="offrow">今天先不跑了</div></div>

@@ -1,0 +1,134 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#3a3a3c;display:flex;gap:22px;padding:22px;font-family:-apple-system,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif}
+.ph{width:390px;height:844px;background:#fff;border-radius:44px;overflow:hidden;position:relative;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+.sb{height:59px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 28px 6px;font-size:15px;font-weight:600;color:#000;letter-spacing:.2px}
+.scroll{height:calc(844px - 59px - 112px);overflow:hidden;padding:0 20px}
+/* header */
+.hdr{display:flex;align-items:center;gap:13px;padding:4px 0 16px}
+.av{width:54px;height:54px;border-radius:27px;background:linear-gradient(160deg,#d8c3ae,#b08f70);flex:0 0 54px;position:relative;overflow:hidden}
+.av::after{content:"";position:absolute;left:50%;top:13px;transform:translateX(-50%);width:19px;height:19px;border-radius:50%;background:#fff9}
+.av::before{content:"";position:absolute;left:50%;bottom:-9px;transform:translateX(-50%);width:36px;height:29px;border-radius:18px 18px 0 0;background:#fff9}
+.nm{font-size:23px;font-weight:700;letter-spacing:-.3px;color:#000;line-height:1.15}
+.rl{font-size:13.5px;color:#5C5C61;margin-top:3px;display:flex;align-items:center;gap:5px}
+.gear{margin-left:auto;width:30px;height:30px;color:#5C5C61}
+/* section label */
+.sl{display:flex;align-items:baseline;justify-content:space-between;margin:0 0 10px}
+.sl b{font-size:12.5px;font-weight:600;letter-spacing:.6px;color:#5C5C61}
+.sl a{font-size:13px;color:#0058C7;text-decoration:none;font-weight:500}
+/* hero */
+.hero{padding:2px 0 4px}
+.hv{font-size:60px;font-weight:800;letter-spacing:-3px;color:#111;line-height:.94;font-variant-numeric:tabular-nums}
+.hv i{font-size:21px;font-weight:600;letter-spacing:0;margin-left:7px;font-style:normal;color:#111}
+.hl{font-size:13px;color:#5C5C61;margin-top:6px}
+.row3{display:flex;margin-top:14px;padding-top:13px;border-top:1px solid #E6E6EA}
+.row3 div{flex:1}
+.row3 .v{font-size:21px;font-weight:700;color:#111;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+.row3 .v s{font-size:13px;font-weight:600;text-decoration:none;margin-left:2px}
+.row3 .k{font-size:11.5px;color:#5C5C61;margin-top:3px}
+/* star */
+.card{background:#FAF6F1;border-radius:16px;padding:13px 15px;margin-top:16px}
+.strow{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px}
+.stt{font-size:15.5px;font-weight:600;color:#111}
+.stn{font-size:12.5px;color:#5C5C61;font-variant-numeric:tabular-nums}
+.bar{height:7px;border-radius:4px;background:#E4DCD1;overflow:hidden}
+.bar span{display:block;height:100%;width:62%;border-radius:4px;background:#B25000}
+.hint{font-size:11.5px;color:#5C5C61;margin-top:8px}
+/* badges */
+.bg{display:flex;gap:11px;margin-top:2px}
+.bg div{flex:1;text-align:center}
+.bd{width:48px;height:48px;border-radius:24px;background:#F1EDE7;margin:0 auto 6px;display:flex;align-items:center;justify-content:center}
+.bd.lock{background:#fff;border:1.5px dashed #C9C2B8}
+.bn{font-size:10.5px;color:#3A3A3C;line-height:1.3}
+.bn.l{color:#8A8A8E}
+/* recent */
+.ri{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #EFEFF2}
+.ri:last-child{border-bottom:none}
+.rd{width:40px;flex:0 0 40px;text-align:center}
+.rd b{display:block;font-size:17px;font-weight:700;color:#111;line-height:1;font-variant-numeric:tabular-nums}
+.rd s{display:block;font-size:10.5px;color:#8A8A8E;text-decoration:none;margin-top:2px}
+.rt{font-size:15px;color:#111;font-weight:500}
+.rs{font-size:12px;color:#5C5C61;margin-top:2px}
+.chev{margin-left:auto;color:#C7C7CC}
+/* cta */
+.ctaWrap{position:absolute;left:0;right:0;bottom:0;padding:10px 20px 0;background:linear-gradient(180deg,rgba(255,255,255,0) 0%,#fff 26%);height:112px}
+.cta{height:64px;border-radius:32px;background:#0058C7;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.cta p{font-size:17.5px;font-weight:600;color:#fff;letter-spacing:.3px;padding-left:26px}
+.knob{position:absolute;left:5px;top:5px;width:54px;height:54px;border-radius:27px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.22)}
+.track{position:absolute;left:64px;right:18px;top:0;bottom:0;display:flex;align-items:center;justify-content:center}
+.hi{position:absolute;left:0;top:0;bottom:0;width:34%;background:rgba(255,255,255,.13)}
+.homebar{position:absolute;left:50%;transform:translateX(-50%);bottom:9px;width:140px;height:5px;border-radius:3px;background:#000}
+.cap{color:#fff;font:600 13px/1.4 -apple-system;text-align:center;margin-top:10px;opacity:.85}
+</style>
+<body>
+
+<div>
+<div class="ph">
+  <div class="sb"><span>9:41</span><span>▪▪▪ ᯤ ▮</span></div>
+  <div class="scroll">
+
+    <div class="hdr">
+      <div class="av"></div>
+      <div>
+        <div class="nm">陈立</div>
+        <div class="rl">陪跑志愿者
+          <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="1.5" fill="#C7C7CC"/></svg>
+          三星</div>
+      </div>
+      <svg class="gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+    </div>
+
+    <div class="sl"><b>我的陪伴</b></div>
+    <div class="hero">
+      <div class="hv">24<i>次陪跑</i></div>
+      <div class="hl">第一次陪跑是 2025 年 11 月 8 日</div>
+      <div class="row3">
+        <div><div class="v">186<s>小时</s></div><div class="k">陪伴时长</div></div>
+        <div><div class="v">8<s>位</s></div><div class="k">固定搭档</div></div>
+        <div><div class="v">4.9</div><div class="k">评分 · 32 条</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="strow">
+        <div class="stt">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="#B25000" style="vertical-align:-1px"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg>
+          三星志愿者
+        </div>
+        <div class="stn">186 / 300 小时</div>
+      </div>
+      <div class="bar"><span></span></div>
+      <div class="hint">四星的门槛是累计 300 小时服务时长</div>
+    </div>
+
+    <div class="sl" style="margin-top:18px"><b>我的徽章</b><a>全部 7 枚 ›</a></div>
+    <div class="bg">
+      <div><div class="bd"><svg width="25" height="25" viewBox="0 0 24 24" fill="#B25000"><circle cx="12" cy="14" r="6.4"/><path d="M8 1h8l-2 6H10z" opacity=".55"/></svg></div><div class="bn">初次陪伴</div></div>
+      <div><div class="bd"><svg width="25" height="25" viewBox="0 0 24 24" fill="#1B7F3B"><path d="M12 3l7 4v6c0 4.2-2.9 7.4-7 8.5C7.9 20.4 5 17.2 5 13V7z"/></svg></div><div class="bn">10 次陪跑</div></div>
+      <div><div class="bd"><svg width="25" height="25" viewBox="0 0 24 24" fill="#0058C7"><path d="M12 21s-7.5-4.6-7.5-10A4.5 4.5 0 0 1 12 8a4.5 4.5 0 0 1 7.5 3c0 5.4-7.5 10-7.5 10z"/></svg></div><div class="bn">长久陪伴</div></div>
+      <div><div class="bd lock"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#8A8A8E" stroke-width="1.8"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg></div><div class="bn l">夜跑守护 3/5</div></div>
+    </div>
+
+    <div class="sl" style="margin-top:16px"><b>最近陪跑</b><a>全部 ›</a></div>
+    <div>
+      <div class="ri"><div class="rd"><b>13</b><s>9月</s></div><div><div class="rt">与 王** 同跑</div><div class="rs">朝阳公园东门 · 已完成</div></div><svg class="chev" width="8" height="14" viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 1l6 6-6 6"/></svg></div>
+      <div class="ri"><div class="rd"><b>11</b><s>9月</s></div><div><div class="rt">与 李** 同跑</div><div class="rs">奥森公园南门 · 已完成</div></div><svg class="chev" width="8" height="14" viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 1l6 6-6 6"/></svg></div>
+      <div class="ri"><div class="rd"><b>8</b><s>9月</s></div><div><div class="rt">与 王** 同跑</div><div class="rs">朝阳公园东门 · 已完成</div></div><svg class="chev" width="8" height="14" viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 1l6 6-6 6"/></svg></div>
+    </div>
+
+  </div>
+
+  <div class="ctaWrap">
+    <div class="cta">
+      <div class="hi"></div>
+      <div class="track"><p style="padding:0">滑动开始今天的陪跑</p></div>
+      <div class="knob"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0058C7" stroke-width="2.4" stroke-linecap="round"><path d="M4 12h14M13 6l6 6-6 6"/></svg></div>
+    </div>
+  </div>
+  <div class="homebar"></div>
+</div>
+<div class="cap">最终稿 · 志愿者「我」首屏 390×844</div>
+</div>
+
+</body></html>
