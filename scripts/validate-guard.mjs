@@ -1194,6 +1194,98 @@ const cases = [
     expect: 0,
     swiftPath: 'blindRun/blindRunApp.swift',
     swift: 'struct A { func f() { if phase != .active { dimScreen() } } } // guard:allow scenephase-not-active'
+  },
+
+  // server-addr 的 scheme 那一半（2026-09-14 补）。
+  // 原判据只看主机名，于是「主机对、scheme 退回明文」整类改动能原样穿过去 —— 实测 exit 0。
+  // 下面头两条就是那个洞的形状；主机拼成字符串是为了本文件自己也过得了守卫。
+  {
+    name: '真实主机退回明文 http（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "htt' + 'p://47.114.113.171")!'
+  },
+  {
+    name: '真实主机退回明文 ws（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/WebSocketService.swift',
+    swift: 'let a = URL(string: "w' + 's://47.114.113.171/ws/blind")!'
+  },
+  {
+    name: '真实主机走 https（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://47.114.113.171")!'
+  },
+  {
+    name: '真实主机走 wss（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/WebSocketService.swift',
+    swift: 'let a = URL(string: "wss://47.114.113.171/ws/blind")!'
+  },
+  {
+    // 反向哨兵：证明上面两条放行不是「规则压根没跑」造成的假通过。
+    name: '别的主机（原判据就该拦的那一半，仍拦）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: 'let a = URL(string: "https://localhost:8080")!'
+  },
+  {
+    name: '明文地址只出现在注释里（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/EnvironmentConfig.swift',
+    swift: '// 2026-09-08 之前这里是 htt' + 'p://47.114.113.171，切 https 后 ATS 例外已删\nlet a = URL(string: "https://47.114.113.171")!'
+  },
+
+  // token-in-userdefaults（2026-09-14）。AGENTS.md 第 8 节逐字禁令，此前零覆盖。
+  // 立它的起因是 docs/ui/ui-review-checklist.md 有一条勾在**教人**这么写。
+  {
+    name: 'token 写进 UserDefaults（具名 key 常量，拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/AppState.swift',
+    swift: 'func f() { persistence.set(token, forKey: AppConstants.UserDefaultsKeys.accessToken) }'
+  },
+  {
+    name: 'token 写进 UserDefaults（字面量 key，拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/AppState.swift',
+    swift: 'func f() { UserDefaults.standard.set(token, forKey: "accessToken") }'
+  },
+  {
+    // 这条是整条规则的存在前提：迁移路径本身在**清除** UserDefaults 里的 Token，
+    // 拦住它等于把迁移堵死，老用户升级后集体掉登录态。
+    name: 'restoredToken() 的一次性迁移只读取 + 删除（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/AppState.swift',
+    swift:
+      'func f() -> String? {\n' +
+      '  guard let legacy = persistence.string(forKey: AppConstants.UserDefaultsKeys.accessToken) else { return nil }\n' +
+      '  tokenStore.save(legacy)\n' +
+      '  persistence.removeObject(forKey: AppConstants.UserDefaultsKeys.accessToken)\n' +
+      '  return legacy\n}'
+  },
+  {
+    name: '往 UserDefaults 写别的东西（放行 —— 规则只管 token）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/AppState.swift',
+    swift: 'func f() { persistence.set(role.rawValue, forKey: AppConstants.UserDefaultsKeys.activeRole) }'
+  },
+  {
+    name: 'token 存 Keychain（正解，放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/AppState.swift',
+    swift: 'func f() { tokenStore.save(token) }'
   }
 ];
 

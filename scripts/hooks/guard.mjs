@@ -112,12 +112,45 @@ const rules = {
     why: '不要用 `scenePhase != .active` 当「App 进后台」：系统权限弹窗只会让它走一趟 `.inactive`，在那一刻清理会把正在等授权回调的会话静默毁掉（2026-09-07 真机事故：点完「允许」按钮完全没反应，要重启两次）。真进后台用 `phase == .background`；需要区分「暂时失焦」的，再看一眼业务状态（例如 `isListening`）。确实要拦下全部非活跃态，行尾加 `// guard:allow scenephase-not-active` 并写清为什么权限弹窗那一刻清理是安全的。',
   },
   'server-addr': {
-    pattern: /https?:\/\/[a-zA-Z0-9.\-_:]+/,
+    // 两件事一条规则：**主机**必须是那一个，**scheme** 必须是加密的那一种。
+    //
+    // 2026-09-14 补 scheme 这一半。原判据只有「主机名对不对」，于是
+    // 明文写法（把 https 换成 http，主机一个字没改）能原样穿过去 —— 实测 exit 0。
+    // 而 2026-09-08 切 https 之前，实时位置与 SOS 坐标全程明文，那是这个 App
+    // 最不能明文传的两样东西；`Info.plist` 的 ATS 例外也已随之删除（AGENTS.md 第 3 节：「别再加回来」）。
+    // 一条派生文档（docs/ui/ui-review-checklist.md）当时还在逐项要求「固定使用」明文地址，
+    // 照它改代码不会被任何检查拦住 —— 这条补丁就是那个洞。
+    //
+    // WebSocket 一并纳入：scheme 由 baseURL 推导（WebSocketService.connectionURL），
+    // 仓库里本来就不该出现 ws/wss 字面量，出现即是新硬编码。
+    pattern: /(?:https?|wss?):\/\/[a-zA-Z0-9.\-_:]+/,
     check: (line) => {
-      const urls = line.match(/https?:\/\/[a-zA-Z0-9.\-_:]+/g) || [];
-      return urls.some((u) => !u.includes(REAL_HOST) && !DOC_DOMAINS.test(u));
+      const urls = line.match(/(?:https?|wss?):\/\/[a-zA-Z0-9.\-_:]+/g) || [];
+      return urls.some((u) => {
+        if (!u.includes(REAL_HOST)) return !DOC_DOMAINS.test(u);
+        return /^(?:http|ws):\/\//.test(u); // 主机对了，但走的是明文
+      });
     },
-    why: `所有真实 HTTP 必须走 https://${REAL_HOST}（WebSocket 对应 wss://），地址在 App 内不可配置，不得加入本地或占位的真实服务端地址（AGENTS.md 第 3 节）。`,
+    why: `所有真实 HTTP 必须走 https://${REAL_HOST}（WebSocket 对应 wss://），地址在 App 内不可配置，不得加入本地或占位的真实服务端地址（AGENTS.md 第 3 节）。\n主机写对但 scheme 退回明文（http:// / ws://）同样拦：实时位置与 SOS 坐标是这个 App 最不能明文传的两样东西，且 Info.plist 的 ATS 例外已删除，明文请求会直接失败。`,
+  },
+  'token-in-userdefaults': {
+    // AGENTS.md 第 8 节逐字：「不要把 access token 写进 UserDefaults」。
+    // `UserDefaults` 是 App 容器里的明文 plist，会进备份；Token 只能进 Keychain
+    // （KeychainTokenStore.swift，kSecAttrAccessibleAfterFirstUnlock）。
+    //
+    // 2026-09-14 立。起因不是有人写错了，是**一份派生文档在教人写错**：
+    // docs/ui/ui-review-checklist.md 有一条勾写着「当前 token 存 UserDefaults 且有注释说明
+    // 生产需迁移 Keychain」，而迁移早就做完了。文档已订正，但订正挡不住下一份抄件。
+    //
+    // 只拦**写入**：AppState.restoredToken() 对历史值的一次性迁移是
+    // `string(forKey:)` + `removeObject(forKey:)`，不含 `.set(`，不受影响 ——
+    // 那段代码恰恰是在**清除** UserDefaults 里的 Token，拦住它等于把迁移路径堵死。
+    //
+    // ponytail: 词表只覆盖本仓库实际用过的两种拼法（具名 key 常量 / 字面量 forKey）。
+    // 上限已知：换一个不含这些词的 key 名就能绕过；真出现第二种拼法时往词表里加，
+    // 别改成「凡是 .set( 都拦」——那会把整个 UserDefaults 用法一起锁死。
+    pattern: /\.set\([^)]*(?:UserDefaultsKeys\.accessToken|forKey:\s*"[^"]*(?:accessToken|access_token|authToken|jwt)[^"]*")/i,
+    why: '不要把 access token 写进 `UserDefaults`（AGENTS.md 第 8 节）——那是 App 容器里的明文 plist，还会进备份。Token 只能经 `KeychainTokenStore`（`blindRun/Core/KeychainTokenStore.swift`，`kSecAttrAccessibleAfterFirstUnlock`，这样锁屏期间的后台陪跑仍读得到）。`AppState.restoredToken()` 里对历史值的一次性迁移只读取和删除，不写入，不会碰到这条。',
   },
 };
 
