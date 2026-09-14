@@ -107,6 +107,18 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   写「失败只多一行字」的分支时自己问一遍：列表最长、字号最大时这一行还看得见吗？
   详见记忆 `claimed-fallback-may-not-exist-in-release`。
 
+- **XCUITest 的 `tap()` 够不着 accessibility action。** 它注入的是一次**物理触摸**，
+  落在真实视图上；公开 API 里**没有**「执行默认无障碍动作」这个口子。所以一个控件如果
+  「指针路径和辅助技术路径是两套」（典型是 `.accessibilityRepresentation { Button(…) }`
+  套在只有 `DragGesture` 的视图上，见 `blindRun/Volunteer/VolunteerAvailabilitySlider.swift`），
+  写成「tap 那枚无障碍按钮 → 断言状态真的变了」会**必红、且红得毫无信息量**
+  ——按钮找得到、`isEnabled` 为真，而 tap 之后纹丝不动。
+  正解是拆两条：**形状**断无障碍树（删掉 `accessibilityRepresentation` 即红）、
+  **行为**走指针路径（`press(forDuration:thenDragTo:)`）验那个 action 闭包；
+  两条调的是同一个函数，合起来才是完整覆盖。
+  抓不成守卫 —— 机器分不出「这次 tap 的目标是不是一个 representation-only 元素」。
+  详见记忆 `xcuitest-cannot-invoke-accessibility-actions`。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：
