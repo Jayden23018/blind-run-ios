@@ -90,7 +90,12 @@ fi
 # 那才证明第 4 条点的是 LocalConfig 而不是随便撞上的什么东西。
 #
 # 两条都在设备探活之前 die，所以不碰真机；锁会照常拿到又释放。
-SANDBOX="$(mktemp -d -t aidrun-device-test-worktree)"
+# ⚠️ `mktemp -t` 两种实现语义相反：BSD（macOS）把它当**前缀**，
+# GNU（CI 跑的 Linux）把它当**模板**、必须以 XXXXXX 结尾，否则报
+# `too few X's in template` 且**不产出目录** —— 于是 $SANDBOX 为空、
+# 第 5 条写成 /LocalConfig.xcconfig（Permission denied）必挂。
+# 本机 macOS 永远跑不出来，只有 CI 会红。写全模板，两边行为一致。
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/aidrun-device-test-worktree.XXXXXX")"
 trap 'rm -rf "$LOCK" "$SANDBOX"' EXIT
 
 echo "[validate-device-lock] 4/5 缺 LocalConfig.xcconfig 时说清是工作区没初始化"
