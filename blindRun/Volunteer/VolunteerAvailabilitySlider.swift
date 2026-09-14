@@ -83,10 +83,28 @@ struct VolunteerAvailabilitySlider: View {
     /// 滑块与轨道之间的留白。滑块直径 = 轨道高 − 2×这个数。
     private static let knobInset: CGFloat = 5
 
+    /// 轨道高度的上限。
+    ///
+    /// 🔴 **`@ScaledMetric` 必须封顶，否则 AX5 下这条 CTA 会吃掉半屏。**
+    /// `.body` 在 AX5 是 53pt（默认 17pt，约 3.12×，见
+    /// `docs/research/dynamic-type-scale-20260812.md`）⇒ 不封顶算出来是 **200pt**，
+    /// 滑块跟着变成一个 190pt 的圆。iPhone 横屏视口只有约 393pt，
+    /// 首屏的「需要你处理」（带 60 分钟到期的预约确认）会被压到几乎不可见。
+    ///
+    /// 96 = 1.5 × 64：字号跟着放大的诉求仍然满足（轨道里的文字自己是
+    /// `AppFonts.body()`，两行 + `minimumScaleFactor` 兜底），而几何有界。
+    /// 封的是**容器**不是文字 —— 这与「固定磅值不跟 Dynamic Type 走」那条不冲突。
+    private static let maximumTrackHeight: CGFloat = 96
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 🔴 不写死 64pt。这一屏底部**唯一**的操作控件，低视力用户把系统字号调到 AX5 时
     /// 它必须跟着长 —— 本仓库为固定磅值栽过一次（成就页头部原本写死 48pt）。
-    @ScaledMetric(relativeTo: .body) private var trackHeight: CGFloat = 64
+    /// 但要封顶，见 `maximumTrackHeight`。
+    @ScaledMetric(relativeTo: .body) private var scaledTrackHeight: CGFloat = 64
+
+    private var trackHeight: CGFloat {
+        min(scaledTrackHeight, Self.maximumTrackHeight)
+    }
 
     let isAvailable: Bool
     let isEnabled: Bool
@@ -122,7 +140,13 @@ struct VolunteerAvailabilitySlider: View {
             ZStack(alignment: .leading) {
                 // 高对比度主色底。Uber 原文："Distinguish the swipe affordance from the
                 // surrounding UI by using a primary, high-contrast background."
-                Capsule().fill(AppColors.primary)
+                //
+                // 🔴 **不是 `AppColors.primary`。** 它的暗色取值 `#0A84FF` 压白字只有 3.65:1，
+                // 而轨道上那行字是 17pt semibold —— 够不上 WCAG large text 的豁免，要 4.5:1。
+                // 仓库里已经有一个为「白字压蓝底」而压暗的版本（`voiceStageSurfaceTone`，
+                // 暗色 `#0B4DA2` 白字 8.08:1），直接复用它，不新造第三个蓝。
+                // 检查在 `LowVisionChannelTests.testVoiceStageSurfaceKeepsWhiteTextReadable`。
+                Capsule().fill(AppColors.voiceStageSurface)
 
                 // 已滑过的轨道变亮，给连续的进度反馈。
                 Capsule()

@@ -214,8 +214,19 @@ struct VolunteerProfileFirstScreen: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionLabel(VolunteerProfileCopy.impactSectionTitle)
 
-            if let summary = incentive.summary {
-                impactContent(summary)
+            // 🔴 **判据是 `summary.achievements` 非空，不是 `summary` 非空。**
+            //
+            // `summary` 只要三条请求里**成功了任意一条**就会被赋值（收藏 / 成就 / 火花各自独立容错），
+            // 所以「成就那条失败、收藏那条成功」时 `summary != nil` 而 `achievements == nil`。
+            // 按 `summary` 判的话：第一个分支恒中 ⇒ 下面的失败 + 重试**永远走不到**，
+            // 而 `totalCompleted` 为 nil 会被 `resolve` 当成 0 ⇒ 屏幕上出现
+            // 「还没有完成的陪跑」+ 星级和 3 列统计一起消失 ——
+            // **跑过 200 次的老志愿者和真新人逐字不可区分，且没有任何出错信号。**
+            //
+            // 这一屏把 `achievements` 变成了主指标的**唯一**来源（改版前那张卡的 `hero`
+            // 还能退到 `favoritedByCount`），所以这个风险面是本次改版新造出来的。
+            if let achievements = incentive.summary?.achievements, let summary = incentive.summary {
+                impactContent(summary, achievements: achievements)
             } else if incentive.loadFailed {
                 impactPlaceholder(
                     VolunteerHomeIncentiveCopy.loadFailure,
@@ -238,17 +249,21 @@ struct VolunteerProfileFirstScreen: View {
         }
     }
 
+    /// `achievements` 作为**非可选**参数传进来，不是在这里现拆 —— 拆包失败时
+    /// `resolve(totalCompleted: nil)` 会安静地落进 `.newcomer`，那正是上面那段注释说的缺陷。
+    /// 让类型系统保证「走到这里就是真的读到了成就数据」。
     @ViewBuilder
-    private func impactContent(_ summary: VolunteerHomeIncentiveSummary) -> some View {
-        let headline = VolunteerProfileHeadline.resolve(
-            totalCompleted: summary.achievements?.totalCompleted
-        )
+    private func impactContent(
+        _ summary: VolunteerHomeIncentiveSummary,
+        achievements: VolunteerAchievementsResponse
+    ) -> some View {
+        let headline = VolunteerProfileHeadline.resolve(totalCompleted: achievements.totalCompleted)
 
         VStack(alignment: .leading, spacing: 14) {
             hero(headline)
 
             if headline.showsImpactSections {
-                statsRow(summary)
+                statsRow(summary, achievements: achievements)
             }
 
             if let streak = summary.streak {
@@ -262,8 +277,8 @@ struct VolunteerProfileFirstScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("volunteerHomeIncentiveCard")
 
-        if headline.showsImpactSections, let level = summary.achievements?.resolvedStarLevel {
-            starCard(level)
+        if headline.showsImpactSections {
+            starCard(achievements.resolvedStarLevel)
         }
     }
 
@@ -306,9 +321,12 @@ struct VolunteerProfileFirstScreen: View {
 
     /// 3 列统计。**数值在上、小标签在下** —— 中文跑步产品（悦跑圈）是这个方向，
     /// 与 Strava 的标签在上正好相反，中文语境按中文的来（调研 §1.5 C1）。
-    private func statsRow(_ summary: VolunteerHomeIncentiveSummary) -> some View {
+    private func statsRow(
+        _ summary: VolunteerHomeIncentiveSummary,
+        achievements: VolunteerAchievementsResponse
+    ) -> some View {
         let stats = VolunteerProfileStats.row(
-            achievements: summary.achievements,
+            achievements: achievements,
             favoritedByCount: summary.favoritedByCount
         )
         return HStack(alignment: .top, spacing: 8) {
@@ -402,42 +420,49 @@ struct VolunteerProfileFirstScreen: View {
     /// （Strava Overview 的 Trophies 行 + `View more`，调研 §1.2 S8）。
     @ViewBuilder
     private var badgesSection: some View {
-        let unlocked = incentive.summary?.achievements?.unlockedBadges ?? []
-        let next = incentive.summary?.nextBadge
-        let cells = VolunteerProfileBadgeRow.cells(unlocked: unlocked, next: next)
+        // 🔴 同 `impactSection`：读不到成就数据时**整块不画**，不要拿 `?? []` 顶上。
+        // 空数组会渲染成「完成第一次陪跑就会解锁第一枚徽章。」—— 对一个已经解锁 7 枚的人
+        // 那是一句假话，而失败信号已经由上面的影响力区给过了，这里再画一遍只会互相矛盾。
+        if let achievements = incentive.summary?.achievements {
+            let unlocked = achievements.unlockedBadges
+            let cells = VolunteerProfileBadgeRow.cells(
+                unlocked: unlocked,
+                next: achievements.nextBadge
+            )
 
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                sectionLabel(VolunteerProfileCopy.badgesSectionTitle)
-                Spacer(minLength: 8)
-                // 🚩 这个链接必须在任何 `.combine` 的**外面**才点得到
-                // （同 `VolunteerDispatchSummaryCard` 的「去培训」踩过的那个坑）。
-                NavigationLink {
-                    VolunteerServiceRecognitionView()
-                } label: {
-                    linkLabel(VolunteerProfileBadgeRow.allLinkTitle(unlockedCount: unlocked.count))
-                }
-                .accessibilityLabel(VolunteerHomeIncentiveCopy.achievementsLinkTitle)
-                .accessibilityHint(VolunteerProfileCopy.badgesLinkHint)
-                .accessibilityIdentifier("volunteerHomeIncentiveAchievementsLink")
-            }
-
-            if cells.isEmpty {
-                Text(VolunteerProfileCopy.badgesEmpty)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                HStack(alignment: .top, spacing: 11) {
-                    ForEach(cells) { cell in
-                        badgeCell(cell)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    sectionLabel(VolunteerProfileCopy.badgesSectionTitle)
+                    Spacer(minLength: 8)
+                    // 🚩 这个链接必须在任何 `.combine` 的**外面**才点得到
+                    // （同 `VolunteerDispatchSummaryCard` 的「去培训」踩过的那个坑）。
+                    NavigationLink {
+                        VolunteerServiceRecognitionView()
+                    } label: {
+                        linkLabel(VolunteerProfileBadgeRow.allLinkTitle(unlockedCount: unlocked.count))
                     }
-                    // 不足四格时补空位，让每格宽度稳定 —— 否则两枚徽章会被拉成半屏宽。
-                    if cells.count < VolunteerProfileBadgeRow.cellCount {
-                        ForEach(cells.count..<VolunteerProfileBadgeRow.cellCount, id: \.self) { _ in
-                            Color.clear
-                                .frame(maxWidth: .infinity)
-                                .accessibilityHidden(true)
+                    .accessibilityLabel(VolunteerHomeIncentiveCopy.achievementsLinkTitle)
+                    .accessibilityHint(VolunteerProfileCopy.badgesLinkHint)
+                    .accessibilityIdentifier("volunteerHomeIncentiveAchievementsLink")
+                }
+
+                if cells.isEmpty {
+                    Text(VolunteerProfileCopy.badgesEmpty)
+                        .font(AppFonts.caption())
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    HStack(alignment: .top, spacing: 11) {
+                        ForEach(cells) { cell in
+                            badgeCell(cell)
+                        }
+                        // 不足四格时补空位，让每格宽度稳定 —— 否则两枚徽章会被拉成半屏宽。
+                        if cells.count < VolunteerProfileBadgeRow.cellCount {
+                            ForEach(cells.count..<VolunteerProfileBadgeRow.cellCount, id: \.self) { _ in
+                                Color.clear
+                                    .frame(maxWidth: .infinity)
+                                    .accessibilityHidden(true)
+                            }
                         }
                     }
                 }
@@ -458,7 +483,10 @@ struct VolunteerProfileFirstScreen: View {
 
         case .next(let next):
             badgeCellBody(
-                symbol: "moon.stars",
+                // 🔴 不写死一个图标。图标是这一栏**区分档位的非颜色手段**（WCAG 1.4.1），
+                // 写死等于把它废掉 —— 无论下一枚是「陪跑 10 次」还是「高分好评」都画成同一个。
+                // 查的是同一张 `code → SF Symbol` 表，未知 code 落 `rosette`。
+                symbol: VolunteerBadgeSymbol.name(for: next.code),
                 caption: VolunteerProfileBadgeRow.nextBadgeCaption(next),
                 isLocked: true,
                 spoken: VolunteerAchievementsCopy.nextBadgeAccessibilityLabel(next)
@@ -656,7 +684,10 @@ struct VolunteerProfileFirstScreen: View {
             .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
+        // ⛔ 这里**不加** `.accessibilityElement(children: .combine)`。
+        // 打在 `NavigationLink` 自身上会新建一个合成元素，link/button trait 有丢失风险，
+        // 而这是通往派单统计与必修培训的唯一入口。同屏两个同形状的兄弟节点
+        // （当前订单卡、最近陪跑行）都只有 `buttonStyle(.plain)` + `accessibilityLabel`。
         .accessibilityLabel("\(VolunteerProfileCopy.workbenchTitle)，\(viewModel.statusText)")
         .accessibilityHint(VolunteerProfileCopy.workbenchHint)
         .accessibilityIdentifier("volunteerProfileWorkbenchEntry")

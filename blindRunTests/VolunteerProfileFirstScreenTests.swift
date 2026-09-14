@@ -69,6 +69,55 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         XCTAssertTrue(VolunteerProfileHeadline.completed(count: 1).showsImpactSections)
     }
 
+    /// 🔴 **成就那条请求失败时，不许把老志愿者渲染成新人。**
+    ///
+    /// 三条只读端点各自独立容错，所以「收藏成功 + 成就失败」是一条很常见的路径：
+    /// 那时 `summary != nil` 而 `summary.achievements == nil`。如果视图按 `summary` 判，
+    /// 第一个分支恒中 ⇒ 失败 + 重试那一档**永远走不到**，而 `totalCompleted` 为 nil
+    /// 会落进 `.newcomer` ⇒ 屏幕上出现「还没有完成的陪跑」+ 星级与 3 列统计一起消失。
+    /// **跑过 200 次的人和真新人逐字不可区分，且没有任何出错信号。**
+    ///
+    /// 这条钉的是「`achievements == nil` 与 `totalCompleted == 0` 是两件事」——
+    /// 视图侧的判据必须是前者，用例在这里锁住区分度。
+    func testMissingAchievementsIsNotTheSameAsAZeroCountVeteran() {
+        // 成就失败、收藏成功：`summary` 有值，但 `achievements` 是 nil。
+        let achievementsFailed = VolunteerHomeIncentiveSummary(
+            favoritedByCount: 8,
+            nextBadge: nil,
+            streak: nil,
+            streakPartnerName: nil
+        )
+        XCTAssertNotNil(achievementsFailed, "这一档确实存在：一条失败不该让另外两条也消失")
+        XCTAssertNil(
+            achievementsFailed.achievements,
+            "成就失败时 achievements 必须是 nil —— 视图就是靠它区分「读不到」和「真的是 0」"
+        )
+
+        // 真新人：成就**读到了**，只是数字是 0。
+        let realNewcomer = Self.achievements(
+            totalCompleted: 0, minutes: 0, avgRating: nil, totalRatings: 0
+        )
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: realNewcomer.totalCompleted), .newcomer)
+
+        // 老志愿者：同样读到了，数字非 0。
+        let veteran = Self.achievements(
+            totalCompleted: 200, minutes: 60_000, avgRating: 4.9, totalRatings: 180
+        )
+        XCTAssertEqual(
+            VolunteerProfileHeadline.resolve(totalCompleted: veteran.totalCompleted),
+            .completed(count: 200)
+        )
+
+        // 🚩 这一条是本用例的重点：**光看 `summary` 非空分不出上面两种人**。
+        // 视图如果按 `summary != nil` 判，`achievementsFailed` 这一档就会走进
+        // `impactContent`，然后 `resolve(totalCompleted: nil)` 把它变成新人。
+        XCTAssertEqual(
+            VolunteerProfileHeadline.resolve(totalCompleted: nil),
+            .newcomer,
+            "nil 落进 .newcomer 是 resolve 的既有行为 —— 正因如此，调用方必须先保证 achievements 非空"
+        )
+    }
+
     // MARK: - 三列统计
 
     /// 时长向下取整：51 分钟不是 1 小时。少算而不是多算，与后端口径同向。
