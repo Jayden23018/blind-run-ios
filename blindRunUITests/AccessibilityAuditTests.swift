@@ -918,6 +918,15 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 实现走 `.accessibilityRepresentation { Button(…) }`：无障碍树里是一枚普通按钮，
     /// 而指针路径仍然只有滑动。**验红方式**：删掉那个 modifier，元素退回 `.other`，
     /// `app.buttons[...]` 立刻找不到，这条必挂。
+    ///
+    /// 🔴 **这条**只**断言无障碍树的形状，不断言点它会怎样** —— 因为 XCUITest 做不到：
+    /// `XCUIElement.tap()` 注入的是一次**物理触摸**，落在真实那棵视图上（只有 `DragGesture`），
+    /// 根本不经过 accessibility action；公开 API 里也没有「执行默认无障碍动作」这个口子。
+    /// 照着写会得到一条**必红且红得毫无信息量**的用例（实测：按钮找得到、`isEnabled` 为真，
+    /// 而 tap 之后开关纹丝不动）。
+    ///
+    /// 「按下去真的会开」由下面那条拖拽用例覆盖 —— 两条路径调的是**同一个** `activate()`，
+    /// 所以「按钮在」+「`activate()` 是对的」合起来就是这条要求的完整覆盖。
     @MainActor
     func testAvailabilitySliderExposesAStandardActionToAssistiveTech() {
         // 默认 `preseedVolunteerAvailable` 为真，那会渲染成状态条而不是滑块 —— 要的是关闭态。
@@ -929,14 +938,46 @@ final class AccessibilityAuditTests: XCTestCase {
             "滑动 CTA 在无障碍树里不是按钮 —— 不触碰屏幕的用户没有任何办法开启可服务开关"
         )
         XCTAssertTrue(slider.isEnabled, "资质已通过的志愿者，这枚按钮必须是可用的")
+        // 开启态下**不许**还有第二个滑动入口：那会让读屏用户听到一枚已经没有意义的按钮。
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].exists,
+            "关闭态不该同时渲染已开启状态条"
+        )
+    }
 
-        // 开启之后底部换成状态条 + 一个普通的关闭按钮（摩擦力只加在开启那一侧）。
-        slider.tap()
+    /// 拖过 20% 阈值真的会开启，而关闭那一侧是普通点按。
+    ///
+    /// 🔴 **摩擦力只加在「答应」这一侧**（Motivation Crowding，
+    /// `docs/research/volunteer-home-incentive-layer-20260914.md` §3.1–3.2）：
+    /// 关闭不得是第二次滑动、不得二次确认、不得弹任何挽留。
+    @MainActor
+    func testSlidingPastThresholdOpensAvailabilityAndClosingIsAPlainTap() {
+        let app = launchVolunteerHome(available: false)
+
+        let slider = app.descendants(matching: .any)["volunteerAvailabilitySlider"].firstMatch
+        XCTAssertTrue(slider.waitForExistence(timeout: 25), "滑动 CTA 没渲染出来")
+
+        // 从滑块位置横着拖到轨道右端。阈值是 20%，拖到 95% 有足够余量。
+        slider.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5))
+            .press(
+                forDuration: 0.1,
+                thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5))
+            )
+
         XCTAssertTrue(
             app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].waitForExistence(timeout: 15),
-            "标准 action 触发后「可服务」没有真的打开"
+            "滑过阈值后「可服务」没有真的打开"
         )
-        XCTAssertTrue(app.buttons["今天先不跑了"].exists, "关闭必须是普通点按，不是第二次滑动")
+
+        let close = app.buttons["今天先不跑了"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5), "关闭必须是普通点按，不是第二次滑动")
+        close.tap()
+        // 关闭之后必须立刻回到滑块态，**中间不许有任何确认弹窗或挽留**。
+        XCTAssertTrue(
+            app.buttons["滑动开始今天的陪跑"].waitForExistence(timeout: 15),
+            "关闭没有生效，或者中间插了一层挽留/确认"
+        )
+        XCTAssertEqual(app.alerts.count, 0, "关闭「可服务」不得弹任何对话框")
     }
 
     /// 首屏徽章区那个「全部 N 枚 ›」入口。滚到它为止再返回。

@@ -491,9 +491,15 @@ final class blindRunUITests: XCTestCase {
         XCTAssertFalse(app.buttons["提交测验"].exists)
 
         returnHome.tap()
-        let availabilitySwitch = app.switches.firstMatch
-        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 8))
-        XCTAssertEqual(availabilitySwitch.value as? String, "0", "Legacy completion must not automatically enable availability")
+        // 2026-09-14 改版把首页那个 `Toggle` 换成了底部的滑动 CTA，`app.switches` 不再存在。
+        // 「没有被自动打开」这条约束没变，判据换成：底部渲染的是**滑块**（关闭态），
+        // 而不是「已开启」状态条。
+        let slider = app.buttons["滑动开始今天的陪跑"].firstMatch
+        XCTAssertTrue(slider.waitForExistence(timeout: 8), "回到首屏后底部应当是关闭态的滑动 CTA")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].exists,
+            "Legacy completion must not automatically enable availability"
+        )
     }
 
     @MainActor
@@ -1126,6 +1132,11 @@ final class blindRunUITests: XCTestCase {
         )
         XCTAssertFalse(volunteerApp.staticTexts["地图服务暂不可用"].exists, "Volunteer home must not fall back to the missing-key view")
         attachScreenshot(named: "real-amap-volunteer-home", app: volunteerApp)
+
+        // 🔴 **必须退回首屏**：当前订单卡在「我」首屏上，而我们现在停在推上来的工作台页。
+        // 不退的话 `openCurrentVolunteerService` 找不到「当前订单」，报出来的错
+        // （「Volunteer home should show the assigned current order」）与真因毫无关系。
+        popNavigationBar(volunteerApp, title: Self.volunteerWorkbenchTitle)
 
         openCurrentVolunteerService(volunteerApp)
         XCTAssertTrue(
@@ -1812,6 +1823,10 @@ final class blindRunUITests: XCTestCase {
     /// 加载超时后首页会重绘，撞上退栈动画时返回键的这一下有概率被吞掉，
     /// 于是「等积分商城按钮出现」白等 5 秒。这里改成先等返回键可点、点完再确认导航栏消失，
     /// 被吞掉就补一次，把时序竞争关在helper 里。
+    /// 派单工作台的导航栏标题。单一来源是 `VolunteerProfileCopy.workbenchTitle`，
+    /// XCUITest 是黑盒进不了 app 的类型，只能抄一份 —— 抄错的方向是安全的（会红不会绿）。
+    private static let volunteerWorkbenchTitle = "派单工作台"
+
     private func popNavigationBar(_ app: XCUIApplication, title: String) {
         let navigationBar = app.navigationBars[title]
         let backButton = navigationBar.buttons.firstMatch
