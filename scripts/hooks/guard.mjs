@@ -111,6 +111,34 @@ const rules = {
     check: () => true,
     why: '不要用 `scenePhase != .active` 当「App 进后台」：系统权限弹窗只会让它走一趟 `.inactive`，在那一刻清理会把正在等授权回调的会话静默毁掉（2026-09-07 真机事故：点完「允许」按钮完全没反应，要重启两次）。真进后台用 `phase == .background`；需要区分「暂时失焦」的，再看一眼业务状态（例如 `isListening`）。确实要拦下全部非活跃态，行尾加 `// guard:allow scenephase-not-active` 并写清为什么权限弹窗那一刻清理是安全的。',
   },
+  'invite-code-reward-flag': {
+    // 2026-09-14 立。契约 `FeatureFlagsResponse.invitationRewardEnabled` 的 description 逐字：
+    //
+    //   「🚨 名字里的 Reward 是刻意的，语义与上面两个不一样：它只关奖励，不关关系建立。
+    //     关着时邀请码照样要填、邀请关系照样落库，只是双方不发积分。
+    //     **不要**因为它是 false 就把邀请码输入框藏掉 —— 那会让开关打开之后这批用户
+    //     永久拿不到奖励，而他们当时根本没机会填。」
+    //
+    // 也就是说：这个开关与另外两个（streak / favorite）**不能按同一套写法接**。
+    // 那两个关着时把对应 UI 藏掉是对的，而这个关着时藏掉，损失是**不可逆**的 ——
+    // 设角色只能成功一次（`RoleSelectionView.swift:275` 的注释：没有「先设角色、再补邀请码」这条路），
+    // 那一屏没给输入框，这批用户就永远补不回来了。
+    //
+    // 盯两个文件：
+    //   · Role/RoleSelectionView.swift —— **输入框本体**（`inviteCodeSection`），契约点名的就是它
+    //   · Shared/InviteCodeView.swift —— 邀请码展示页，同一个功能的另一半
+    // 这两处都不该读这个开关。要根据它调整**文案**（例如不再承诺发积分）也别在这里读：
+    // 把判断放进 `InviteCodeCopy` / `InviteCodeEntryCopy`，那边有用例钉着文案，
+    // 而「读了开关」与「拿开关当显示条件」在 view 里长得一模一样，review 分不出来。
+    //
+    // 这条原本是 `IncentiveAdoptionTests.testInvitationRewardFlagIsNotWiredIntoAnyVisibilityDecision`
+    // （PR #127）。它用 `#filePath` 拼宿主机路径去读源码，而本仓库真机是唯一 XCTest 通道
+    // ⇒ 那个路径在手机上不存在，用例从写下那天起每次都是 Code 260，一次都没通过过。
+    // 按 AGENTS.md 第 1 节，静态检查能抓的事就该落在这里，不是 XCTest。
+    files: /\/blindRun\/(Shared\/InviteCodeView|Role\/RoleSelectionView)\.swift$/,
+    pattern: /invitationRewardEnabled/,
+    why: '邀请码的输入框与展示页不得读 `invitationRewardEnabled`（契约 FeatureFlagsResponse 逐字：「不要因为它是 false 就把邀请码输入框藏掉」）。这个开关只关**奖励**、不关关系建立：关着时邀请码照样要填、邀请关系照样落库。藏掉的损失不可逆 —— 设角色只能成功一次，没有「先设角色、再补邀请码」这条路，那一屏没给输入框的用户，开关打开后永久拿不到奖励。要按开关改**文案**（不再承诺发积分）就放进 InviteCodeCopy / InviteCodeEntryCopy，那边有用例钉着；view 里「读了开关」和「拿它当显示条件」长得一样，review 分不出来。确有别的用途，行尾加 `// guard:allow invite-code-reward-flag` 并写清它不是显示条件。',
+  },
   'server-addr': {
     // 两件事一条规则：**主机**必须是那一个，**scheme** 必须是加密的那一种。
     //
@@ -281,6 +309,9 @@ function scanSwift(filePath) {
 
   const lines = src.split('\n');
   for (const [id, rule] of Object.entries(rules)) {
+    // `files` 是可选的路径闸：多数内容规则对整个生产 target 生效，少数只在特定文件里成立
+    // （某个字段在别处读是对的，只在某一屏读是错的）。不写这个字段就是全量，行为不变。
+    if (rule.files && !rule.files.test(filePath)) continue;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       // 纯注释行跳过：守卫管的是出货代码。引用后端的坏文案来解释「为什么要覆盖它」

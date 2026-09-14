@@ -383,25 +383,16 @@ final class IncentiveAdoptionTests: XCTestCase {
         XCTAssertFalse(volunteerUnknown.contains("还没有开放"))
     }
 
-    /// 🚨 `invitationRewardEnabled` 的语义与另外两个**相反**：它只关奖励、不关关系建立。
-    /// 契约 description 逐字写着「不要因为它是 false 就把邀请码输入框藏掉 —— 那会让开关
-    /// 打开之后这批用户永久拿不到奖励，而他们当时根本没机会填」。
-    ///
-    /// 本条守的是**将来**：现在邀请码输入框根本没读这个开关（这是对的）。
-    /// 哪天有人把它接上去当显示条件，这条会红。
-    func testInvitationRewardFlagIsNotWiredIntoAnyVisibilityDecision() throws {
-        let source = try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()   // blindRunTests/
-                .deletingLastPathComponent()   // 仓库根
-                .appendingPathComponent("blindRun/Shared/InviteCodeView.swift"),
-            encoding: .utf8
-        )
-        XCTAssertFalse(
-            source.contains("invitationRewardEnabled"),
-            "邀请码输入框不得随奖励开关隐藏：关着时邀请关系照样落库，藏掉会让这批用户永久拿不到奖励"
-        )
-    }
+    // 「奖励开关不得当邀请码的显示条件」这条已迁到 `scripts/hooks/guard.mjs` 的规则
+    // `invite-code-reward-flag`（自测用例在 `scripts/validate-guard.mjs`，CI 与 pre-push 都跑）。
+    //
+    // 原用例 `testInvitationRewardFlagIsNotWiredIntoAnyVisibilityDecision`（PR #127）读源码判断，
+    // 路径是 `#filePath` 拼出来的**宿主机**路径，而本仓库真机是唯一 XCTest 通道（高德无 arm64-sim
+    // slice）⇒ 那个路径在手机上不存在，它从写下那天起每次都是 NSCocoaErrorDomain Code 260，
+    // 一次都没通过过。AGENTS.md 第 1 节：静态检查能抓的事落守卫，不落 XCTest。
+    //
+    // 顺带修正了它的靶子：契约点名的「邀请码输入框」在 `Role/RoleSelectionView.swift`
+    // （`inviteCodeSection`），原用例只盯了展示页 `Shared/InviteCodeView.swift`。守卫两个都盯。
 
     // MARK: - 收藏固定搭档
 
