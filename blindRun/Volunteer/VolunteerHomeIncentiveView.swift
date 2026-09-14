@@ -9,7 +9,10 @@ import SwiftUI
 
 // MARK: - ViewModel
 
-/// 首页激励卡自己的一次加载。
+/// 志愿者「我」首屏影响力区（主指标 / 3 列统计 / 国标星级 / 徽章一排）的一次加载。
+///
+/// > 2026-09-14 首屏改版前它喂的是派单面板里那张「我的贡献」卡。卡片没了，
+/// > 但这三条请求和它们的失败语义原样保留 —— 首屏要的正是同一套。
 ///
 /// **刻意不并进 `VolunteerHomeViewModel`**（那份已经一千行，且它带着一条 5 秒轮询）。
 /// 照 `VolunteerAchievementsViewModel` 抄，那份是范例。
@@ -66,17 +69,18 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
     /// 而此刻 `summary` 三样都空、`isRenderable` 为 false。用户看到的是「这功能没有」。
     ///
     /// 🚩 **取消不是结果，一律不置位、也不覆盖已有的 `summary`。**
-    /// 这张卡住在派单面板的 `ScrollView` 里，而那块在 `.compact` 档位**整个不渲染**
-    /// （`VolunteerHomeView.nearbyDemandPanel` 的 `if !isCompact`）——
-    /// 志愿者刚进首页就把面板拖下去是很平常的操作，`.task` 随之取消。
-    /// 不拦的话，那一拖就会把半截数据钉成「本会话的最终结果」。
+    /// 这份数据挂在「我」首屏上，而志愿者一进 App 就点进「派单工作台」或设置是很平常的操作，
+    /// `.task` 随之取消。不拦的话，那一下就会把半截数据钉成「本会话的最终结果」。
+    ///
+    /// > 2026-09-14 首屏改版前，这里的场景是「把派单面板拖到 `.compact` 档」——
+    /// > 那个叠层面板已经不存在了，但取消这件事本身没变，只是触发方式换了。
     ///
     /// ponytail: 串行三个请求，不引入 `async let` 的并发编排 —— 一次会话只跑一遍。
     func load() async {
         guard let appState else { return }
 
         var favoritedByCount = 0
-        var nextBadge: VolunteerNextBadgeDto?
+        var achievements: VolunteerAchievementsResponse?
         var streak: PartnerStreakDisplay?
         var streakPartnerName: String?
         var allSucceeded = true
@@ -90,7 +94,9 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
         if Task.isCancelled { return }
 
         do {
-            nextBadge = try await appState.incentive.volunteerAchievements().nextBadge
+            // 整份留着，不再只取 `nextBadge` —— 「我」首屏的主指标、3 列统计和国标星级
+            // 都出自这一次往返。多存几个字段不多打一次请求。
+            achievements = try await appState.incentive.volunteerAchievements()
         } catch {
             allSucceeded = false
             ClientFlowDiagnostics.record(event: "failed", operation: "home-incentive-achievements")
@@ -121,215 +127,13 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
         // 失败的那几条留空，成功的照常显示 —— 一条失败只少显示一行。
         summary = VolunteerHomeIncentiveSummary(
             favoritedByCount: favoritedByCount,
-            nextBadge: nextBadge,
+            nextBadge: achievements?.nextBadge,
             streak: streak,
-            streakPartnerName: streakPartnerName
+            streakPartnerName: streakPartnerName,
+            achievements: achievements
         )
         loadFailed = !allSucceeded
         // 有任何一条没成时保持未置位，下次进首页重试（理由见函数头两条 🚩）。
         hasLoaded = allSucceeded
-    }
-}
-
-// MARK: - View
-
-/// 首页派单面板里的「我的贡献」卡。
-///
-/// **它属于「普通信息卡片」那一档** —— 非高优、不紧急、用户关注时可见
-/// （滴滴车主端 5.0 的三档信息分级，见 `docs/research/volunteer-home-incentive-layer-20260914.md` §1）。
-/// 同屏另外两档是 `VolunteerDispatchOverlay`（模态，不可跳过）与
-/// `VolunteerScheduledOrdersSection`（非模态，带临期确认动作）。
-/// 🚩 **这张卡不许升档**：不做全屏、不做倒计时、不抢焦点、不挡住任何操作。
-struct VolunteerHomeIncentiveCard: View {
-    @EnvironmentObject private var appState: AppState
-    @StateObject private var viewModel = VolunteerHomeIncentiveViewModel()
-
-    var body: some View {
-        // 🔴 **这个视图必须永远渲染出真实内容，哪怕只是一行占位。**
-        //
-        // 原来写的是 `Group { if let summary = ..., summary.isRenderable { content } }`
-        // —— 条件不成立时整个 Group 解析成空，而 **`.task` 挂在一棵空子树上不会触发**。
-        // 于是 `summary` 永远是 nil ⇒ 永远渲染空 ⇒ 永远不加载，自己把自己锁死。
-        // 2026-09-14 真机实测：加一个 `else` 分支之后卡片立刻出现，`volunteerHomeIncentiveCard`
-        // 从 false 变 true。回归钉子 `testVolunteerHomeShowsTheIncentiveCard`（已验红）。
-        //
-        // 顺带修掉的是同一个根因的另一半：失败此前完全静默，
-        // 「加载失败 / 数据为空 / 视图没加载」三种情况在屏幕上一模一样。
-        VStack(alignment: .leading, spacing: 8) {
-            stateContent
-        }
-        .task {
-            viewModel.configure(appState: appState)
-            await viewModel.loadIfNeeded()
-        }
-    }
-
-    @ViewBuilder
-    private var stateContent: some View {
-        if let summary = viewModel.summary, summary.isRenderable {
-            content(summary)
-        } else if viewModel.summary == nil {
-            placeholder(VolunteerHomeIncentiveCopy.loading, identifier: "volunteerHomeIncentiveLoading")
-        } else if viewModel.loadFailed {
-            // 失败要给去处，不能只少一张卡 —— 见本文件顶部那条根因注释。
-            VStack(alignment: .leading, spacing: 10) {
-                placeholder(VolunteerHomeIncentiveCopy.loadFailure, identifier: "volunteerHomeIncentiveFailure")
-                Button(VolunteerHomeIncentiveCopy.retry) {
-                    Task { await viewModel.load() }
-                }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.primary)
-                .buttonShapeOutlineIfNeeded(color: AppColors.primary)
-                .frame(minHeight: 44)  // guard:allow small-touch-target
-                .accessibilityIdentifier("volunteerHomeIncentiveRetryButton")
-            }
-        } else {
-            // 真的没东西可显示（七枚勋章全解锁 + 没人收藏 + 没有火花）。
-            placeholder(VolunteerHomeIncentiveCopy.empty, identifier: "volunteerHomeIncentiveEmpty")
-        }
-    }
-
-    /// 加载中 / 失败 / 空 三态共用的外观：与正式卡片同一个容器，避免内容到位时整块跳一下。
-    private func placeholder(_ text: String, identifier: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(VolunteerHomeIncentiveCopy.sectionTitle)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-            Text(text)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(AppColors.secondaryBackground)
-        .clipShape(
-            RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(VolunteerHomeIncentiveCopy.sectionTitle)。\(text)")
-        .accessibilityIdentifier(identifier)
-    }
-
-    /// 外层 `VStack` 的存在理由与 `VolunteerDispatchSummaryCard` 同：卡片本体要
-    /// `.combine` 成一个可听的整体，而「查看服务成就」必须留在那个整体**之外**才点得到。
-    /// 两者是兄弟节点，不是父子。
-    private func content(_ summary: VolunteerHomeIncentiveSummary) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(VolunteerHomeIncentiveCopy.sectionTitle)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                hero(summary)
-
-                if let streak = summary.streak {
-                    StreakStrip(
-                        partnerName: summary.streakPartnerName?.nilIfBlank
-                            ?? PartnerStreakCopy.unknownBlindName,
-                        streak: streak
-                    )
-                }
-
-                if summary.showsBadgeRow, let next = summary.nextBadge {
-                    badgeRow(next)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(AppColors.secondaryBackground)
-            .clipShape(
-                RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous)
-            )
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(VolunteerHomeIncentiveCopy.accessibilityLabel(summary))
-            .accessibilityIdentifier("volunteerHomeIncentiveCard")
-
-            achievementsLink
-        }
-    }
-
-    @ViewBuilder
-    private func hero(_ summary: VolunteerHomeIncentiveSummary) -> some View {
-        switch summary.hero {
-        case .partners(let count):
-            VStack(alignment: .leading, spacing: 6) {
-                // 🔴 走 `AppFonts.largeTitle()` 而不是 `.system(size:)` 固定磅值 ——
-                // 这张卡最大的那个数字恰恰是低视力用户最需要放大的东西，
-                // 固定磅值不跟 Dynamic Type 走。本仓库为这条栽过一次（成就页头部原本写死 48pt）。
-                Text("\(count)")
-                    .font(AppFonts.largeTitle())
-                    .foregroundColor(AppColors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(VolunteerHomeIncentiveCopy.partnersCaption)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-        case .badgeProgress(let current, let target, let suffix, let badgeName):
-            VStack(alignment: .leading, spacing: 6) {
-                Text("\(current) / \(target) \(suffix)")
-                    .font(AppFonts.largeTitle())
-                    .foregroundColor(AppColors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("\(VolunteerHomeIncentiveCopy.nextBadgePrefix)：\(badgeName)")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-        case nil:
-            EmptyView()
-        }
-    }
-
-    private func badgeRow(_ next: VolunteerNextBadgeDto) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("\(VolunteerHomeIncentiveCopy.nextBadgePrefix)：\(next.displayName)")
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let fraction = next.progressFraction, let progressText = next.progressText {
-                ProgressView(value: fraction)
-                    .tint(AppColors.primary)
-                    .accessibilityHidden(true)
-
-                // 进度条对 VoiceOver 是空的，所以这一行不是冗余 —— 它是这一段
-                // 唯一能被念出来的进度信息。两者顺序不能倒，也不能只留进度条。
-                Text(progressText)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// 去成就页。这张卡只给一个去处，**不给积分入口** —— 理由见
-    /// `VolunteerHomeIncentiveSummary` 顶部（积分与服务时长不同屏）。
-    private var achievementsLink: some View {
-        NavigationLink {
-            VolunteerServiceRecognitionView()
-        } label: {
-            HStack(spacing: 6) {
-                Text(VolunteerHomeIncentiveCopy.achievementsLinkTitle)
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .accessibilityHidden(true)
-            }
-            .font(AppFonts.body().weight(.semibold))
-            .foregroundColor(AppColors.primary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // 44pt 是系统触达下限。志愿者端不受盲人端 64pt 线约束
-            // （`guard.mjs` 的 `small-touch-target` 显式排除 /blindRun/Volunteer/）。
-            .frame(minHeight: 44)  // guard:allow small-touch-target
-            .padding(.horizontal, 14)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(VolunteerHomeIncentiveCopy.achievementsLinkTitle)
-        .accessibilityHint(VolunteerHomeIncentiveCopy.achievementsLinkHint)
-        .accessibilityIdentifier("volunteerHomeIncentiveAchievementsLink")
     }
 }
