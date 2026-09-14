@@ -1286,6 +1286,41 @@ const cases = [
     expect: 0,
     swiftPath: 'blindRun/Core/AppState.swift',
     swift: 'func f() { tokenStore.save(token) }'
+  },
+
+  // invite-code-reward-flag（2026-09-14）。契约逐字：「不要因为它是 false 就把邀请码输入框藏掉」——
+  // 关着时邀请关系照样落库，藏掉会让这批用户在开关打开后永久拿不到奖励。
+  // 这条是本文件里第一条带 `files` 路径闸的内容规则，所以反向用例要盖两个方向：
+  // 被盯的文件里不含这个字段（规则没理由响），以及别的文件里含它（合法，声明处就在那儿）。
+  {
+    name: '邀请码输入框读 invitationRewardEnabled（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Role/RoleSelectionView.swift',
+    swift: 'struct A { var body: some View { if flags.invitationRewardEnabled == true { inviteCodeSection } } }'
+  },
+  {
+    name: '邀请码展示页读 invitationRewardEnabled（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Shared/InviteCodeView.swift',
+    swift: 'struct A { var body: some View { if appState.features?.invitationRewardEnabled ?? true { rulesCard } } }'
+  },
+  {
+    // 反向哨兵一：字段的声明处与 Mock 必须照常能写，否则这条规则会把契约模型本身锁死。
+    name: '别的文件里出现 invitationRewardEnabled（放行 —— 证明路径闸真的在生效）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/Models/FeatureFlagsModels.swift',
+    swift: 'struct FeatureFlagsResponse: Decodable { let invitationRewardEnabled: Bool? }'
+  },
+  {
+    // 反向哨兵二：被盯的文件本身不含这个字段时必须放行，否则上面两条的「拦下」说明不了什么。
+    name: '邀请码输入框不读这个开关（放行 —— 当前实现就是这样）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Role/RoleSelectionView.swift',
+    swift: 'struct A { var body: some View { if showsInviteCodeField { inviteCodeField } } }'
   }
 ];
 
