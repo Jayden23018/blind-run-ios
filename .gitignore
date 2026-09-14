@@ -79,3 +79,6 @@ LocalConfig.xcconfig
 # 对标产品截图：App Store 官方素材，31MB 二进制，不进 git 历史。
 # 要看就自己抓一次：node scripts/fetch-reference-screenshots.mjs
 docs/ui/reference-screenshots/
+
+# macOS / 系统文件：Finder 每打开一次目录就写一个，与代码无关。
+.DS_Store
