@@ -220,7 +220,10 @@ struct VolunteerAvailabilitySlider: View {
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
         .frame(minHeight: trackHeight)
-        .background(AppColors.success)
+        // 🔴 **不是 `AppColors.success`。** 那个色的暗色取值 `#30D158` 压白字只有 2.02:1，
+        // 而这是首屏底部唯一的常驻控件。理由与取值见 `AppColors.availabilityOnSurfaceTone`，
+        // 检查在 `LowVisionChannelTests.testAvailabilityOnSurfaceKeepsWhiteTextReadable`。
+        .background(AppColors.availabilityOnSurface)
         .clipShape(Capsule())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(VolunteerAvailabilityCopy.toggleTitle)\(VolunteerAvailabilityCopy.availableStatusTitle)，\(statusText)")

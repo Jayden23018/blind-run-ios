@@ -547,6 +547,16 @@ struct VolunteerProfileFirstScreen: View {
         }
     }
 
+    /// 🔴 **这一行不显示 `pointsText`，而改版前那张卡显示。这是必须的，不是漏了。**
+    ///
+    /// 积分与志愿服务时长**刻意分两屏**（中央网信办 2026-06-19 通知第 2 条，理由逐字在
+    /// `VolunteerPoints.swift` 顶部与 `VolunteerHomeIncentiveSummary` 的注释里）。
+    /// 改版前的首页**不显示累计时长**（时长只在成就页），所以那张卡上有积分是安全的；
+    /// 而这一屏的 3 列统计第一格就是「陪伴时长 186 小时」——
+    /// 再把积分放进同屏，两个数就会挨在一起，那正是两屏分法要防的事。
+    ///
+    /// 顺带一提 `pointsDelta` 后端至今没发过（恒 nil），所以删掉它在**今天**没有可见差异 ——
+    /// 但别因此把它当无关紧要的顺手改动加回来：后端哪天真发了，加回来就是违规。
     private func recentRow(
         _ order: VolunteerDispatchSummaryRecentOrder,
         showsDivider: Bool

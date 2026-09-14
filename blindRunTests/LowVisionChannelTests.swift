@@ -77,6 +77,37 @@ final class LowVisionChannelTests: XCTestCase {
         )
     }
 
+    /// 志愿者「可服务」已开启时那条绿色状态条，白字压在它上面。
+    ///
+    /// 它是首屏**底部唯一的常驻控件** —— 读不清等于「我到底开没开」这件事没有视觉答案，
+    /// 而那正是低视力志愿者最需要一眼确认的一件事。
+    ///
+    /// 暗色**不能**沿用 `success` 的 `#30D158`：白字压上去只有 2.02:1。
+    /// 这条用例就是挡住「顺手复用 success」那一步的地方 —— 那是画一条绿色状态条时
+    /// 最自然的第一反应（本轮实现时第一版就是那么写的）。
+    func testAvailabilityOnSurfaceKeepsWhiteTextReadable() {
+        let white: UInt32 = 0xFFFFFF
+        let tone = AppColors.availabilityOnSurfaceTone
+
+        let lightRatio = Self.contrastRatio(white, tone.light)
+        XCTAssertGreaterThanOrEqual(
+            lightRatio, Self.minimumContrast,
+            "亮色模式下白字压在可服务状态条上只有 \(String(format: "%.2f", lightRatio)):1"
+        )
+
+        let darkRatio = Self.contrastRatio(white, tone.dark)
+        XCTAssertGreaterThanOrEqual(
+            darkRatio, Self.minimumContrast,
+            "暗色模式下白字压在可服务状态条上只有 \(String(format: "%.2f", darkRatio)):1"
+        )
+
+        // 验红：被拒掉的那个候选值必须真的算不过，否则上面两条断言可能是在一个恒真的公式上通过。
+        XCTAssertLessThan(
+            Self.contrastRatio(white, 0x30D158), Self.minimumContrast,
+            "success 的暗色值当大面积底色时白字不达标，这条用例存在的理由就是挡住复用它"
+        )
+    }
+
     /// 这条是**验红**用的：把已知不达标的旧取值喂进同一个计算，必须算出不达标。
     ///
     /// 没有它，上面那条用例在计算公式写错时会静默全绿 —— 一个恒返回 21 的
