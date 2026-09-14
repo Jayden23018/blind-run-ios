@@ -1195,6 +1195,30 @@ enum VolunteerHomeTopLayout {
     }
 }
 
+/// 志愿者首页这一屏的圆角档位。**四档各有语义，不是四个可以互换的数。**
+///
+/// 立这个表的起因：全 App 的 `cornerRadius` 实测有 10 个取值
+/// （8×46 / 12×36 / 16×17 / 14×11 / 18×4 / 20·28·999×2 / 10·24×1），
+/// 而同一屏上派单状态卡是 16、当前订单卡是 20、卡内小格是 12 —— 没有规律可循，
+/// 下一个人加卡片时只能随手挑一个，于是取值继续发散。
+///
+/// ⛔ **作用域刻意只到这一屏。** 跨屏共用的 `IncentiveCard` / `IncentiveHeroCard` /
+/// `PartnerRowCard` 都是 14，改它们会波及盲人端的固定搭档页 —— 那不在本次范围内，
+/// 且纯视觉收敛没有任何测试守得住，改坏了不会有信号。要全 App 统一是另一件事。
+enum VolunteerHomeRadius {
+    /// 底部派单面板（sheet 形态，只有上半圆角）。
+    static let sheet: CGFloat = 28
+    /// 居中弹出的模态对话框（派单弹窗）。与 `sheet` 分开是因为它不是从边缘滑出的。
+    static let modal: CGFloat = 24
+    /// 内容流里的每一张卡片。
+    static let card: CGFloat = 16
+    /// 卡片**内部**的元素：小格子、整行按钮、内嵌地图。
+    /// 比外层小是为了套着好看，不是另一套体系。
+    static let tile: CGFloat = 12
+    /// 药丸形（抓手、回到当前位置按钮）。
+    static let pill: CGFloat = 999
+}
+
 // MARK: - Volunteer Home View
 
 struct VolunteerHomeView: View {
@@ -1466,7 +1490,7 @@ struct VolunteerHomeView: View {
         .frame(maxWidth: .infinity)
         .frame(height: height)
         .background(AppColors.background)
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.sheet, style: .continuous))
         .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: -8)
         .animation(demandPanelAnimation, value: demandPanelDetent)
         .accessibilityElement(children: .contain)
@@ -1474,7 +1498,7 @@ struct VolunteerHomeView: View {
     }
 
     private var demandPanelGrabber: some View {
-        RoundedRectangle(cornerRadius: 999)
+        RoundedRectangle(cornerRadius: VolunteerHomeRadius.pill)
             .fill(AppColors.textSecondary.opacity(0.28))
             .frame(width: 46, height: 5)
             .padding(.top, 10)
@@ -1579,6 +1603,19 @@ struct VolunteerHomeView: View {
                 .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
                 .accessibilityHint("点击进入当前订单")
             }
+
+            // 「我的贡献」排在**状态与任务之后、历史之前**。
+            //
+            // 上面几块回答的是「我现在能不能接单 / 手上有什么」，下面的近期服务是历史，
+            // 而这张卡是「我已经做到了什么」—— 读屏顺序播报，排序就是优先级，
+            // 让人先划过三条已完成的订单才听到自己的贡献是反的。
+            //
+            // ⚠️ **它确实被绑在 `dispatchSummary` 成功上**（嵌在这个 `if let` 里），
+            // 这是有意接受的：派单摘要失败时整块面板已经退化成「派单状态待同步」+ 重试，
+            // 那一刻不该再插一张报喜的卡。与 `VolunteerScheduledOrdersSection` 必须
+            // 放在 `if let` 之外的理由不冲突 —— 那一块带着一个 60 分钟到期的**动作**，
+            // 这张卡一个可操作内容都没有，丢了不产生后果。
+            VolunteerHomeIncentiveCard()
 
             VolunteerRecentOrdersSection(orders: summary.recentOrders ?? [])
         } else if viewModel.isLoading {
@@ -1817,7 +1854,7 @@ private struct VolunteerHomeStatusOverlay: View {
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
         .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 5)
         .accessibilityIdentifier("volunteerHomeTopStatusBlock")
     }
@@ -1875,7 +1912,7 @@ private struct VolunteerCurrentOrderCard: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(AppColors.background.opacity(0.94))
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
         .shadow(color: Color.black.opacity(0.12), radius: 14, x: 0, y: 5)
     }
 }
@@ -1944,7 +1981,7 @@ private struct VolunteerDispatchSummaryCard: View {
         }
         .padding(14)
         .background(AppColors.secondaryBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
         .accessibilityElement(children: .combine)
         // 「积分 N」也从这条 label 里删掉 —— 数字从视觉上消失了，但读屏用户还在听，
         // 这一处最容易漏。
@@ -2029,7 +2066,7 @@ private struct VolunteerMetricTile: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
         .background(AppColors.background)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile, style: .continuous))
     }
 }
 
@@ -2128,7 +2165,7 @@ private struct VolunteerScheduledOrdersSection: View {
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: 52)
                     .background(AppColors.destructive.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile, style: .continuous))
             }
             .disabled(anySubmitting)
             .accessibilityLabel(VolunteerServiceActionKind.releaseScheduled.title)
@@ -2138,7 +2175,7 @@ private struct VolunteerScheduledOrdersSection: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColors.secondaryBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
         .accessibilityElement(children: .contain)
     }
 }
@@ -2231,7 +2268,7 @@ private struct VolunteerRecentOrderCard: View {
         }
         .padding(12)
         .background(AppColors.secondaryBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
     }
@@ -2384,7 +2421,7 @@ private struct VolunteerDispatchOverlay: View {
                             .frame(height: 50)
                             .background(AppColors.destructive.opacity(0.12))
                             .foregroundColor(AppColors.destructive)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile))
                     }
                     .disabled(isResponding)
                     .accessibilityLabel("拒绝订单")
@@ -2400,7 +2437,7 @@ private struct VolunteerDispatchOverlay: View {
             }
             .padding(24)
             .background(AppColors.background)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.modal, style: .continuous))
             .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
             .padding(.horizontal, 24)
         }
@@ -2426,7 +2463,7 @@ private struct VolunteerDispatchOverlay: View {
                 .frame(height: 50)
                 .background(AppColors.primary)
                 .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile))
         }
         .disabled(isResponding)
         .accessibilityLabel(needsIntroCall ? "有意向，想先聊聊" : "接受订单")
@@ -2459,7 +2496,7 @@ private struct VolunteerDispatchOverlay: View {
             animatesCenterChanges: false
         )
         .frame(height: 160)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile, style: .continuous))
         .overlay(alignment: .topLeading) {
             VolunteerMapLegend(
                 showsCurrentLocation: presentation.isCurrentLocationAvailable,
