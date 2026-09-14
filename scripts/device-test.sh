@@ -98,6 +98,46 @@ if [ -n "${AIDRUN_LOCK_SELFTEST:-}" ]; then
   exit 0
 fi
 
+# ---------- 0.5 工作区完整性 ----------
+#
+# `LocalConfig.xcconfig` 与 `Pods/` 都在 .gitignore 里，**不随 git worktree / clone 过来**。
+# 缺了它们 xcodebuild 挂在构建阶段，一条用例都跑不到：
+#   error: Unable to open base configuration reference file '.../LocalConfig.xcconfig'
+#   error: Unable to load contents of file list: '/Target Support Files/Pods-blindRun/…'
+#
+# 第 3 节会正确地把它判成「零执行」并硬失败 —— 那部分没问题。问题是打出来的一屏错误
+# 全指着工程配置，读起来像 pbxproj 坏了，而真因只是「这个工作区没初始化过」。
+# 2026-09-14 实测被绊了一次，第一反应就是去查工程文件。本仓库常年挂着十几个 worktree，
+# 每开一个都要重做这两步，所以这不是偶发，是每个新工作区必然撞一次。
+#
+# 位置刻意在设备锁**之后**：上面的 selftest 分支够不到这里，而 CI 上跑设备锁自测的
+# 机器既没有 Pods/ 也没有 LocalConfig.xcconfig —— 放到锁之前会把那条自测拦死。
+# 反过来，真要跑测试的路径必经此处，且这两个 stat 比下面的 devicectl 探活便宜得多。
+if [ ! -f LocalConfig.xcconfig ]; then
+  # 在 worktree 里 --git-common-dir 指向主 checkout 的 .git，正好能算出该去哪儿抄。
+  # 不在 git 仓库里（例如自测从临时目录跑）时退回占位符，不要瞎猜一个路径。
+  GIT_COMMON="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  case "$GIT_COMMON" in
+    */.git) FROM="${GIT_COMMON%/.git}/LocalConfig.xcconfig" ;;
+    *)      FROM="<另一个 checkout>/LocalConfig.xcconfig" ;;
+  esac
+  die "缺少 LocalConfig.xcconfig —— 这个工作区没初始化过（它在 .gitignore 里，不随 worktree/clone 过来）。
+     xcodebuild 会挂在 \"Unable to open base configuration reference file\"，一条用例都跑不到，
+     而报错一律指着工程配置，看起来像 pbxproj 坏了。补齐：
+       cp $FROM .
+     没有别的 checkout 可抄，就照模板自己填高德 key：
+       cp LocalConfig.xcconfig.example LocalConfig.xcconfig"
+fi
+
+if [ ! -d Pods ]; then
+  die "缺少 Pods/ —— 这个工作区没跑过 pod install（Pods/ 同样在 .gitignore 里）。
+     缺它时 xcodebuild 报的是一串 \"Unable to load contents of file list\"，同样一条用例都跑不到。补齐：
+       LANG=en_US.UTF-8 pod install
+     LANG 不能省：裸跑会因 locale 崩在 ruby 内部帧，那个报错和 CocoaPods 本身无关。
+     Pods/ 在但和 Podfile.lock 对不上时不归这里管 —— CocoaPods 自己的
+     \"[CP] Check Pods Manifest.lock\" 构建阶段会说清楚，照它说的重跑 pod install。"
+fi
+
 # ---------- 1. 设备探活 ----------
 say "检查设备连接…"
 DEVICES="$(xcrun devicectl list devices 2>&1 || true)"
