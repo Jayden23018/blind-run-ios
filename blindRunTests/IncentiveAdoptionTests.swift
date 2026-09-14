@@ -665,6 +665,134 @@ final class IncentiveAdoptionTests: XCTestCase {
         XCTAssertFalse(allCopy.contains("积分"))
     }
 
+    /// 🔴 **只有火花回来了也要渲染。**
+    ///
+    /// 「有火花但没被收藏」是契约里明确存在的一档（火花由订单结算、与收藏无关，
+    /// 见 `PartnerRowMerge` 顶部），叠上「勋章全解锁 / 成就那条请求失败」中任意一种，
+    /// 就是 `hero == nil` 而 `streak != nil`。`isRenderable` 只看 `hero` 的话，
+    /// 一条**已经成功取回**的关系数据会被整张卡一起静默丢掉 —— 没有任何运行时信号。
+    func testHomeIncentiveStillRendersWhenOnlyTheStreakCameBack() throws {
+        let onlyStreak = VolunteerHomeIncentiveSummary(
+            favoritedByCount: 0,
+            nextBadge: nil,
+            streak: try XCTUnwrap(PartnerStreakDisplay(currentWeeks: 7, bestWeeks: 9)),
+            streakPartnerName: "张*"
+        )
+        XCTAssertNil(onlyStreak.hero, "前提：这一档确实没有主数字")
+        XCTAssertTrue(onlyStreak.isRenderable, "火花已经拿到手了，不能因为没有主数字就整张卡丢掉")
+        XCTAssertTrue(
+            VolunteerHomeIncentiveCopy.accessibilityLabel(onlyStreak).contains("连续 7 周"),
+            "渲染了却不念出来等于没渲染"
+        )
+    }
+
+    /// 后端没发 `name` 时整行不画。
+    ///
+    /// `displayName` 会退到 `code`（一串英文枚举，本仓库在积分流水上已定过「不显示原始枚举值」
+    /// 的口径）或「下一枚勋章」（与栏目标题撞车，念出来是「下一枚勋章，下一枚勋章」）。
+    func testBadgeRowIsHiddenWhenTheBackendSentNoHumanReadableName() {
+        for nameless in [
+            VolunteerNextBadgeDto(code: nil, name: nil, current: 1, target: 5),
+            VolunteerNextBadgeDto(code: "MARATHON_2030", name: nil, current: 1, target: 5),
+            VolunteerNextBadgeDto(code: "RUNS_10", name: "   ", current: 1, target: 5)
+        ] {
+            let summary = VolunteerHomeIncentiveSummary(
+                favoritedByCount: 2, nextBadge: nameless, streak: nil, streakPartnerName: nil
+            )
+            XCTAssertFalse(summary.showsBadgeRow, "code=\(nameless.code ?? "nil")")
+            let spoken = VolunteerHomeIncentiveCopy.accessibilityLabel(summary)
+            XCTAssertFalse(spoken.contains("下一枚勋章，下一枚勋章"))
+            XCTAssertFalse(spoken.contains("MARATHON_2030"), "原始英文枚举值不许上屏，也不许念")
+        }
+    }
+
+    // MARK: - 首页「我的贡献」卡的一次性加载
+
+    /// 🔴 **「这一轮算加载过了」的判据必须是「该跑的全成了」。**
+    ///
+    /// 写成「成了任意一条」会造出一条**这张卡整个会话消失且永不重试**的路径，
+    /// 而且它很常见：新人的收藏列表成功返回空数组，紧接着成就那条失败 ——
+    /// 「成功过一条」成立 ⇒ 置位 ⇒ `loadIfNeeded` 此后一直拦住重试，
+    /// 而此刻三样都空、`isRenderable` 为 false。用户看到的是「这功能没有」。
+    ///
+    /// 断言打在「第二次调用有没有再发请求」上，不打在私有的 `hasLoaded` 上。
+    @MainActor
+    func testHomeIncentiveRetriesNextTimeWhenAnythingFailed() async {
+        let service = FakeIncentiveService()
+        // 新人常态：收藏列表成功，但是空的。
+        service.volunteerFavoritedByResult = .success([])
+        service.volunteerAchievementsResult = .failure(APIError.serverError(
+            ErrorResponse(code: "INTERNAL_ERROR", message: "服务暂时不可用")
+        ))
+        service.volunteerPartnerStreaksResult = .success([])
+        let appState = AppState(incentive: service)
+        let viewModel = VolunteerHomeIncentiveViewModel()
+        viewModel.configure(appState: appState)
+
+        await viewModel.loadIfNeeded()
+        let afterFirstRound = service.calls.count
+        XCTAssertGreaterThan(afterFirstRound, 0, "第一轮就没发请求的话后面两条断言都不成立")
+
+        await viewModel.loadIfNeeded()
+        XCTAssertGreaterThan(
+            service.calls.count, afterFirstRound,
+            "有请求失败过，下次进首页必须重试 —— 否则这张卡整个会话都不会出现，且用户没有任何补救途径"
+        )
+    }
+
+    /// 反过来：全成了就别再打。
+    ///
+    /// 与上一条成对，两条一起才能区分「恒重试」「恒不重试」「按成败决定」三种实现。
+    /// 恒重试不是小事：`GET /api/volunteer/achievements` 要扫该志愿者的全部已完成订单，
+    /// 后端刻意把它与 `dispatch-summary` 分开，就是为了不让它跟着首页那条 5 秒轮询跑。
+    @MainActor
+    func testHomeIncentiveDoesNotRefetchOnceEverythingSucceeded() async throws {
+        let service = FakeIncentiveService()
+        service.volunteerFavoritedByResult = .success([])
+        service.volunteerAchievementsResult = .success(
+            try JSONDecoder().decode(
+                VolunteerAchievementsResponse.self,
+                from: Data(#"{"totalCompleted":3,"badges":[]}"#.utf8)
+            )
+        )
+        service.volunteerPartnerStreaksResult = .success([])
+        let appState = AppState(incentive: service)
+        let viewModel = VolunteerHomeIncentiveViewModel()
+        viewModel.configure(appState: appState)
+
+        await viewModel.loadIfNeeded()
+        let afterFirstRound = service.calls.count
+        XCTAssertGreaterThan(afterFirstRound, 0)
+
+        await viewModel.loadIfNeeded()
+        XCTAssertEqual(service.calls.count, afterFirstRound, "全都成功了就不该再打一轮")
+    }
+
+    /// 火花开关拿不到（`nil`）时**照常发请求**。
+    ///
+    /// 落到 false 就是替后端断言「功能没开」—— `FeatureFlagsResponse` 顶部点名不许做。
+    /// 这里 `AppState` 没有 token，`loadFeatureFlagsIfNeeded()` 直接返回，`featureFlags` 保持 nil。
+    @MainActor
+    func testStreakRequestStillGoesOutWhenTheFeatureFlagIsUnknown() async {
+        let service = FakeIncentiveService()
+        service.volunteerFavoritedByResult = .success([])
+        service.volunteerAchievementsResult = .failure(APIError.serverError(
+            ErrorResponse(code: "INTERNAL_ERROR", message: "服务暂时不可用")
+        ))
+        service.volunteerPartnerStreaksResult = .success([])
+        let appState = AppState(incentive: service)
+        XCTAssertNil(appState.featureFlags, "前提：开关确实是「不知道」而不是 false")
+        let viewModel = VolunteerHomeIncentiveViewModel()
+        viewModel.configure(appState: appState)
+
+        await viewModel.loadIfNeeded()
+
+        XCTAssertTrue(
+            service.calls.contains { $0.contains("volunteerPartnerStreaks") },
+            "开关是 nil 不是 false，不许替后端断言「功能没开」"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeNextBadge(

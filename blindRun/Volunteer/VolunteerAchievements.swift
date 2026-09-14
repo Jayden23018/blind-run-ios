@@ -104,6 +104,19 @@ struct VolunteerNextBadgeDto: Decodable, Sendable, Equatable {
 
     var displayName: String { name?.nilIfBlank ?? code?.nilIfBlank ?? "下一枚勋章" }
 
+    /// 有没有一个**给人看的**名字。
+    ///
+    /// 🚩 **只认 `name`，不认 `code`。** `displayName` 的 `?? code` 那一档是给成就页兜底的，
+    /// 但 `code` 是后端枚举（`HOURS_10` 这种），上屏就是一串英文 ——
+    /// 本仓库在积分流水上已经定过这个口径（未知 `reason` 落「其他」，
+    /// **不显示原始英文枚举值**，见 `PointTransactionResponse.reasonText`）。
+    ///
+    /// 两个字段契约里都没标 required；都空时 `displayName` 恰好等于栏目标题「下一枚勋章」，
+    /// 拼出来是「下一枚勋章，下一枚勋章」。首页那张卡据此整行不画。
+    var hasDisplayableName: Bool {
+        name?.nilIfBlank != nil
+    }
+
     /// 进度的量词与换算方式。未知 `code` 为 `nil` ——
     /// 契约要求此时**把整块进度条隐藏**，而不是拿一个猜的量词硬拼。
     enum ProgressUnit {

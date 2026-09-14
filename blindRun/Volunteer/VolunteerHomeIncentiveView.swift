@@ -51,6 +51,19 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
     /// 判据与 `AppState.loadFeatureFlagsIfNeeded()` 那条一样（「失败的后果是空态少说一句话」），
     /// 所以同样只记一条诊断、保持可重试。
     ///
+    /// 🚩 **「这一轮算加载过了」的判据是「该跑的全成了」，不是「成了任意一条」。**
+    ///
+    /// 写成后者会造出一条**这张卡整个会话消失且永不重试**的路径，而且那条路径很常见：
+    /// 新人的收藏列表成功返回空数组（`count == 0`），紧接着成就那条失败 ——
+    /// 「成功过一条」成立 ⇒ 置位 ⇒ `loadIfNeeded` 的 guard 此后一直拦住重试，
+    /// 而此刻 `summary` 三样都空、`isRenderable` 为 false。用户看到的是「这功能没有」。
+    ///
+    /// 🚩 **取消不是结果，一律不置位、也不覆盖已有的 `summary`。**
+    /// 这张卡住在派单面板的 `ScrollView` 里，而那块在 `.compact` 档位**整个不渲染**
+    /// （`VolunteerHomeView.nearbyDemandPanel` 的 `if !isCompact`）——
+    /// 志愿者刚进首页就把面板拖下去是很平常的操作，`.task` 随之取消。
+    /// 不拦的话，那一拖就会把半截数据钉成「本会话的最终结果」。
+    ///
     /// ponytail: 串行三个请求，不引入 `async let` 的并发编排 —— 一次会话只跑一遍。
     func load() async {
         guard let appState else { return }
@@ -59,21 +72,23 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
         var nextBadge: VolunteerNextBadgeDto?
         var streak: PartnerStreakDisplay?
         var streakPartnerName: String?
-        var anySucceeded = false
+        var allSucceeded = true
 
         do {
             favoritedByCount = try await appState.incentive.volunteerFavoritedBy().count
-            anySucceeded = true
         } catch {
+            allSucceeded = false
             ClientFlowDiagnostics.record(event: "failed", operation: "home-incentive-favorites")
         }
+        if Task.isCancelled { return }
 
         do {
             nextBadge = try await appState.incentive.volunteerAchievements().nextBadge
-            anySucceeded = true
         } catch {
+            allSucceeded = false
             ClientFlowDiagnostics.record(event: "failed", operation: "home-incentive-achievements")
         }
+        if Task.isCancelled { return }
 
         // 🚩 开关关着时**不发这个请求**。后端此时返空数组，打它只是白费一次往返；
         // 而 `nil`（拿不到开关）要照常发 —— 落到 false 就是替后端断言「功能没开」，
@@ -89,20 +104,22 @@ final class VolunteerHomeIncentiveViewModel: ObservableObject {
                     )
                     streakPartnerName = strongest.partnerName
                 }
-                anySucceeded = true
             } catch {
+                allSucceeded = false
                 ClientFlowDiagnostics.record(event: "failed", operation: "home-incentive-streaks")
             }
         }
+        if Task.isCancelled { return }
 
+        // 失败的那几条留空，成功的照常显示 —— 一条失败只少显示一行。
         summary = VolunteerHomeIncentiveSummary(
             favoritedByCount: favoritedByCount,
             nextBadge: nextBadge,
             streak: streak,
             streakPartnerName: streakPartnerName
         )
-        // 一条都没成功时保持未置位，下次进首页重试。
-        hasLoaded = anySucceeded
+        // 有任何一条没成时保持未置位，下次进首页重试（理由见函数头两条 🚩）。
+        hasLoaded = allSucceeded
     }
 }
 

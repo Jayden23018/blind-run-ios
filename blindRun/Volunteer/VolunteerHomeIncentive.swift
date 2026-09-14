@@ -67,16 +67,26 @@ struct VolunteerHomeIncentiveSummary: Equatable {
         return nil
     }
 
-    /// `hero` 拿不到东西时**整张卡不渲染**，不留一个写着 0 的空壳。
-    /// 发生在「七枚勋章全解锁 + 还没有人收藏我」这种组合上，那是老手，他不需要这张卡。
-    var isRenderable: Bool { hero != nil }
+    /// 三块内容一块都拿不到时才整张卡不渲染，不留一个写着 0 的空壳。
+    ///
+    /// 🚩 **判据不能只看 `hero`。** 「有火花但没被收藏」是契约里明确存在的一档
+    /// （火花由订单结算、与收藏无关，见 `PartnerRowMerge` 顶部），叠上
+    /// 「勋章全解锁 / 勋章 code 是未知值 / achievements 那条请求失败」中任意一种，
+    /// 就会出现 `hero == nil` 而 `streak != nil` —— 只看 `hero` 的话，
+    /// 一条**已经成功取回**的关系数据会被整张卡一起静默丢掉。
+    var isRenderable: Bool { hero != nil || streak != nil || showsBadgeRow }
 
     /// 勋章那一段要不要单独画一行。
     ///
     /// 主角已经是勋章进度时**不再重复画** —— 同一个数在一张卡上出现两次，
     /// 读屏用户会听两遍。
+    ///
+    /// 🚩 拿不到**给人看的名字**时整行不画（判据见 `hasDisplayableName`）：
+    /// 后端没发 `name` 时 `displayName` 会退到 `code`（一串英文枚举）或
+    /// 「下一枚勋章」（与栏目标题撞车，念出来是「下一枚勋章，下一枚勋章」）。
+    /// 两个字段契约里都没标 required，所以这不是假想情况。
     var showsBadgeRow: Bool {
-        guard nextBadge != nil else { return false }
+        guard let nextBadge, nextBadge.hasDisplayableName else { return false }
         if case .badgeProgress = hero { return false }
         return true
     }
