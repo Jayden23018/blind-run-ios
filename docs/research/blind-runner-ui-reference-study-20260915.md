@@ -1034,6 +1034,41 @@ VoiceOver 用户要触发长按得用 double-tap-and-hold。让压力下的盲�
 ⚠️ 这是**建议不是结论**：改之前要确认描边按钮在 AX5 档和户外强光下仍然够醒目，
 而这正是本仓库从没验收过的那条通道（记忆 `low-vision-visual-channel-unaudited`）。
 
+### 🔴 订正：「直接拨号必须常驻」不是 Apple 的要求，是我们自己的产品判断
+
+`SafetyModule.swift:518-520` 的注释写着：
+
+> 陪跑进行中是这个 App 里最可能需要叫救护车的时刻，而 **Apple 5.1.5** 要的是一个按得到的入口，
+> 不是状态提示里那句「若情况危急请立即拨打110」。
+
+**这是误引。** App Store Review Guidelines 5.1.5 的原文（2026-09-15 抓自
+`https://developer.apple.com/app-store/review/guidelines/`）：
+
+> **5.1.5 Location Services**
+> Use Location Services in your app only when it is directly relevant to the features and services
+> provided by the app. Location-based APIs **shouldn't be used to provide emergency services**
+> or autonomous control over vehicles, aircraft, and other devices, except for small devices
+> such as lightweight drones and toys, or remote control car alarm systems, etc. …
+
+它是**禁止**用位置 API 提供紧急服务，**不是要求**必须有可点拨号入口。整页指南里
+**只有这一处**出现 `emergency`，没有任何条款提到紧急呼叫、911 或 SOS 功能。
+
+⇒ 「直接拨号常驻」在**合规上没有依据**。它的真实依据只剩两条，都仍然成立但都是产品判断：
+
+1. 陪跑进行中是这个 App 里最可能需要叫救护车的时刻
+2. 云端求助最坏路径 20 秒（定位 5s + 超时 15s），之后再让人退出 App 盲操作找电话是最贵的一段延迟
+
+**为什么这条订正值钱**：它与 §12 的 `AGENTS.md` 订正是**同一类问题** ——
+把产品决策伪装成外部约束。危害一样：让人以为「这事不能改」，于是根本不去讨论。
+2026-09-15 的第二轮里，用户提出「陪跑进行中不需要两个求助入口同时存在」，
+而这条注释差一点被用来把这个意见挡回去。
+
+> ⚠️ **反向风险，需产品/法务确认，本篇不下结论**：5.1.5 禁的是「用 location-based APIs
+> **提供** emergency services」。我们的云端 SOS 带 GCJ-02 坐标触发求助事件并通知联系人与客服 ——
+> 它是否落在这条禁令里，取决于「通知一组人」算不算 "provide emergency services"
+> （通常理解是不能做成替代 911 的调度服务，而我们不调度救援，且 `AGENTS.md` §6 已明令
+> 不得声称救援已派出）。**倾向不落在禁令内，但这是解读不是结论**，上架前应确认。
+
 ## 17. 动静分离 —— 本轮提炼出的第 11 条原则
 
 > **一个焦点里不要同时放「会变的」和「不变的」。**
