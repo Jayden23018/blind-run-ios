@@ -551,20 +551,65 @@ final class AccessibilityAuditTests: XCTestCase {
             "盲人端主动作触达高度不得低于 64pt"
         )
 
-        // 「问一句」**没有被删掉**，只是降成了不与巨数字竞争视觉的安静文字按钮，
-        // 落在求助块正上方（`BlindActiveRunSafetyAnchor`）。产品要求它不做成大按钮，
-        // 但**必须仍然看得见**：做成纯 accessibility action 会把不开读屏的低视力用户排除在外。
-        XCTAssertTrue(
-            app.descendants(matching: .any)["blindActiveRunAskQuestionButton"].firstMatch
-                .waitForExistence(timeout: 5),
-            "「问一句」在服务进行中整个消失了 —— 降视觉权重不等于删除"
-        )
-        // 「重复当前状态」同理，WCAG 3.2.6 要求它跨页可达且位置一致。
+        // 「重复当前状态」留在执行屏上，WCAG 3.2.6 要求它跨页可达且位置一致。
+        // 它**不是**求助功能，所以没有随其余五项搬进求助中心。
         XCTAssertTrue(
             app.descendants(matching: .any)["blindActiveRunRepeatStatusButton"].firstMatch
                 .waitForExistence(timeout: 5),
             "「重复当前状态」不见了 —— 它是盲人按一下就听全当前状态与里程的唯一入口"
         )
+
+        // 「问一句」2026-09-15 搬进求助中心（屏 2）第三格。**它没有被删、也没有被降级成
+        // 纯 accessibility action** —— 后者会把不开读屏的低视力用户永久排除在外
+        // （记忆 `low-vision-visual-channel-unaudited`）。所以这里断言的是
+        // 「打开求助中心之后，那一格作为一个真实可见元素存在」，不是「某个动作名存在」。
+        emergency.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindSafetyHubAskQuestion"].firstMatch
+                .waitForExistence(timeout: 10),
+            "「问一句」在求助中心里不存在 —— 从执行屏搬走之后它没有落到任何地方"
+        )
+        // 求助中心必须能退回去，否则跑者被关在这一层里。
+        let dismiss = app.descendants(matching: .any)["blindSafetyHubDismissButton"].firstMatch
+        XCTAssertTrue(dismiss.waitForExistence(timeout: 5), "求助中心没有「收起，返回跑步」")
+        dismiss.tap()
+    }
+
+    /// 求助中心（屏 2）打开后，**读屏第一个念到的必须是「一键求助」**。
+    ///
+    /// 它在视觉上贴在最底下，遍历顺序却排第一 —— 这两件事靠的是**声明顺序**
+    /// （`BlindSafetyHubView.body` 的 `ZStack` 把它声明在最前）。
+    /// `accessibilitySortPriority` 在本仓库实测排不动叠放层，四种写法真机全废
+    /// （`docs/research/swiftui-voiceover-traversal-order-20260814.md`），
+    /// 所以这条断言是那个结构唯一的守卫：谁把 `ZStack` 里两块的顺序调回来，它就红。
+    @MainActor
+    func testSafetyHubPutsEmergencyFirstInTheAccessibilityOrder() throws {
+        let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS")
+        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+        currentOrder.tap()
+
+        let entry = app.buttons[Self.safetyHubLabel].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), "执行屏没有求助入口")
+        entry.tap()
+
+        let hub = app.descendants(matching: .any)["blindSafetyHub"].firstMatch
+        XCTAssertTrue(hub.waitForExistence(timeout: 10), "求助中心没打开")
+
+        // 只比**同一次枚举里**的元素：`allElementsBoundByAccessibilityElement` 是逐层枚举，
+        // 跨深度比下标恒不成立（记忆 `swiftui-traversal-order-follows-paint-order`）。
+        // 所以这里问的是「弹层根下第一个可访问后代是不是它」。
+        let first = hub.descendants(matching: .any).allElementsBoundByAccessibilityElement.first
+        XCTAssertEqual(
+            first?.identifier,
+            "blindSafetyHubTriggerEmergency",
+            """
+            求助中心第一个可访问元素是 \(first?.identifier ?? "（空）")，不是一键求助。\
+            读屏用户要多划过几站才摸得到这一层里唯一救命的那个动作。
+            """
+        )
+
+        app.descendants(matching: .any)["blindSafetyHubDismissButton"].firstMatch.tap()
     }
 
     /// 志愿者端服务中页，求助入口必须待在**屏幕上三分之一**，不和常规操作按钮混在一起。

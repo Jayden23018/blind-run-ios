@@ -1356,14 +1356,21 @@ struct BlindOrderStatusView: View {
             context: .cloudFailed,
             primaryContact: appState.primaryEmergencyContact
         )
-        // 求助中心。**它不是二次确认** —— 选了「一键求助」之后才弹下面那条确认，
+        // 求助中心。**它不是二次确认** —— 轻点「一键求助」之后才弹下面那条确认，
         // `AGENTS.md` §6 的逐字锁定文案与那一步都没动。
-        .blindActiveRunSafetyHubDialog(
+        //
+        // 长按 3 秒 / 自定义无障碍动作走 `onTriggerEmergencyImmediately`：跳过二次确认。
+        // 阶段 1 这条暂时也落在同一个确认上 —— 倒计时（屏 3）还没接，
+        // 而让它在没有倒计时的情况下**直接发出去**才是真的危险。
+        .blindActiveRunSafetyHubSheet(
             isPresented: $showSafetyHub,
             primaryContact: appState.primaryEmergencyContact,
             volunteerPhone: viewModel.order?.volunteerPhone,
+            locationError: locationService.locationError,
             onAnnounceLocation: { Task { await viewModel.announceCurrentLocation() } },
-            onTriggerEmergency: { showEmergencyConfirmation = true }
+            onAskQuestion: { viewModel.askVoiceQuestion() },
+            onTriggerEmergency: { showEmergencyConfirmation = true },
+            onTriggerEmergencyImmediately: { showEmergencyConfirmation = true }
         )
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation, audience: .runner) {
             Task {
@@ -2330,9 +2337,9 @@ struct BlindOrderStatusView: View {
             // （报告 §16 指出的问题，产品 2026-09-15 定了合并）。
             BlindActiveRunSafetyAnchor(
                 coordinator: appState.emergencyCoordinator,
-                onAskQuestion: { viewModel.askVoiceQuestion() },
                 onRepeatStatus: { viewModel.repeatStatus() },
                 onOpenSafetyHub: { showSafetyHub = true },
+                onTriggerEmergencyImmediately: { showEmergencyConfirmation = true },
                 onCancelOwnEmergency: { showEmergencyCancelConfirmation = true },
                 onLocalCall: { showEmergencyCallOptions = true }
             )

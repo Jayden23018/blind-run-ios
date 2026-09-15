@@ -68,11 +68,30 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.hubDialogMessage,
             EmergencySafetyCopy.hubAccessibilityHint,
             EmergencySafetyCopy.hubAccessibilityLabel,
+            EmergencySafetyCopy.hubTitle,
+            EmergencySafetyCopy.hubSubtitle,
+            EmergencySafetyCopy.hubEntrySubtitle,
+            EmergencySafetyCopy.hubDismissTitle,
+            EmergencySafetyCopy.hubTriggerSubtitle,
+            EmergencySafetyCopy.hubTriggerAccessibilityHint,
+            EmergencySafetyCopy.hubContactVolunteerTitle,
+            EmergencySafetyCopy.hubAnnounceLocationTitle,
+            EmergencySafetyCopy.hubAskQuestionTitle,
+            EmergencySafetyCopy.emergencyAccessibilityActionName,
             EmergencySafetyCopy.locationAnnouncement(nil),
             EmergencySafetyCopy.locationAnnouncement("人民公园"),
             EmergencySafetyCopy.homeCallMedicalTitle
         ]
         allCopy.append(contentsOf: EmergencyEventStatus.allCases.map(EmergencySafetyCopy.submitted))
+        // 求助中心每一格的标题与小字。**用 `allCases` 而不是手写清单** —— 手写的那份
+        // 会在新增一格时被漏掉，而这条红线最常见的破法就是「晚加进来的那条没人收进清单」
+        // （`closedFalseAlarm` 就是这么漏了半年，见上面 2026-08-04 那条注释）。
+        for option in BlindActiveRunSafetyHubOption.allCases {
+            allCopy.append(option.title(contactName: "妈妈"))
+            allCopy.append(option.title(contactName: nil))
+            allCopy.append(EmergencySafetyCopy.hubTileSubtitle(option, contactName: "妈妈"))
+            allCopy.append(EmergencySafetyCopy.hubTileSubtitle(option, contactName: nil))
+        }
 
         for copy in allCopy {
             for claim in forbidden {
@@ -809,8 +828,8 @@ final class EmergencySOSTests: XCTestCase {
     /// 求助中心的**顺序与可见性**。
     ///
     /// 这是安全路径上的位置记忆：盲人靠「往下第几个」找选项，顺序会变的菜单等于没有位置记忆。
-    /// 而 `confirmationDialog` 的内容单测够不着、UI 测试只有真机一条通道 —— 所以判据被抽成
-    /// `BlindActiveRunSafetyHubOption.options`，弹窗由它驱动，这条用例钉的就是弹窗真正用的那份。
+    /// 而弹层的内容单测够不着、UI 测试只有真机一条通道 —— 所以判据被抽成
+    /// `BlindActiveRunSafetyHubOption.options`，弹层由它驱动，这条用例钉的就是弹层真正用的那份。
     func testSafetyHubOptionOrderIsFixedAndOnlyMissingNumbersRemoveItems() {
         let contact = EmergencyContactResponse(
             id: 1,
@@ -822,25 +841,26 @@ final class EmergencySOSTests: XCTestCase {
 
         XCTAssertEqual(
             BlindActiveRunSafetyHubOption.options(volunteerPhone: "13900000000", primaryContact: contact),
-            [.contactVolunteer, .announceLocation, .callPrimaryContact, .callMedical, .callPolice, .triggerEmergency]
+            [.contactVolunteer, .announceLocation, .askQuestion,
+             .callPrimaryContact, .callMedical, .callPolice, .triggerEmergency]
         )
 
         // 没有联系人：**只少那一项**，其余各项的相对次序一个不动。
         XCTAssertEqual(
             BlindActiveRunSafetyHubOption.options(volunteerPhone: "13900000000", primaryContact: nil),
-            [.contactVolunteer, .announceLocation, .callMedical, .callPolice, .triggerEmergency]
+            [.contactVolunteer, .announceLocation, .askQuestion, .callMedical, .callPolice, .triggerEmergency]
         )
 
         // 还没有志愿者号码（或号码拼不出 tel:）同理。
         XCTAssertEqual(
             BlindActiveRunSafetyHubOption.options(volunteerPhone: nil, primaryContact: contact),
-            [.announceLocation, .callPrimaryContact, .callMedical, .callPolice, .triggerEmergency]
+            [.announceLocation, .askQuestion, .callPrimaryContact, .callMedical, .callPolice, .triggerEmergency]
         )
 
         // 空白号码等同于没有号码 —— 后端在某些状态下会把这个字段留空。
         XCTAssertEqual(
             BlindActiveRunSafetyHubOption.options(volunteerPhone: "  ", primaryContact: nil),
-            [.announceLocation, .callMedical, .callPolice, .triggerEmergency]
+            [.announceLocation, .askQuestion, .callMedical, .callPolice, .triggerEmergency]
         )
 
         // 云端求助那一项**永远在**，且永远是最后一个 —— 它是这一层唯一走后端的动作，
@@ -853,9 +873,76 @@ final class EmergencySOSTests: XCTestCase {
                 )
                 XCTAssertEqual(options.last, .triggerEmergency)
                 XCTAssertTrue(options.contains(.announceLocation))
+                XCTAssertTrue(options.contains(.askQuestion))
                 XCTAssertTrue(options.contains(.callMedical))
                 XCTAssertTrue(options.contains(.callPolice))
             }
+        }
+    }
+
+    /// 🔴 **三个拨号项没有被折进一个二级「紧急呼叫」入口。**
+    ///
+    /// 设计稿上求助中心是 2×2 四格（联系志愿者 / 播报位置 / 问一句 / 人工客服），
+    /// 照着做就得把「拨打联系人 / 120 / 110」收进第四格后面 —— 而那会让跑步途中拨 120
+    /// 从一跳变成两跳。`AGENTS.md` §6 把 120 列成与 110 并列的常驻入口，
+    /// 理由恰恰是「念得出来而按不到等于没有」；多一层菜单就是那句话的另一种写法。
+    ///
+    /// 这条用例钉的是**格子数由选项决定**，不由设计稿的行数决定：
+    /// 谁要凑 2×2，它会红，并读到上面这段理由。
+    func testDialingOptionsStayOneTapAwayInsteadOfCollapsingIntoAFourthTile() {
+        let contact = EmergencyContactResponse(
+            id: 1,
+            name: "妈妈",
+            phone: "13812345678",
+            relationship: "家人",
+            isPrimary: true
+        )
+        let tiles = BlindActiveRunSafetyHubOption.tiles(
+            volunteerPhone: "13900000000",
+            primaryContact: contact
+        )
+
+        // 拨号三项各自是一格，都在第一层。
+        XCTAssertTrue(tiles.contains(.callPrimaryContact))
+        XCTAssertTrue(tiles.contains(.callMedical))
+        XCTAssertTrue(tiles.contains(.callPolice))
+        XCTAssertGreaterThan(tiles.count, 4, "凑成 2×2 只能靠把拨号折进二级入口")
+
+        // 云端求助**不是方格**：它是弹层底部整条的红胶囊，与其余各项既不同层级也不同后果。
+        XCTAssertFalse(tiles.contains(.triggerEmergency))
+
+        // 联系人与 120 / 110 的先后与首页那套逐项一致 —— 用户记住的是「往下第二个是 120」。
+        let dialing = tiles.filter { [.callPrimaryContact, .callMedical, .callPolice].contains($0) }
+        XCTAssertEqual(dialing, [.callPrimaryContact, .callMedical, .callPolice])
+    }
+
+    /// 长按进度的震动节奏。
+    ///
+    /// **这是「用户凭什么知道自己按够了没」的唯一依据** —— 看不见屏幕的人按住一个红块时，
+    /// 屏幕上的进度动画对他不存在。手势本身单测够不着，所以把节奏抽成纯数据钉在这里。
+    ///
+    /// 两条不变式都不是形式主义：
+    /// - **必须渐强**。强度不变的话「按住中」和「已经按够」听起来一模一样。
+    /// - **每一拍都要严格早于 3 秒**。踩在 3.0 上那一拍会和触发同时发生，
+    ///   用户感到的是「一下重震」，而不是渐强到触发 —— 那正好把进度反馈变成了噪音。
+    func testLongPressHapticRampGrowsAndLandsBeforeTheTrigger() {
+        let ramp = SafetyLongPress.hapticRamp
+        XCTAssertFalse(ramp.isEmpty, "没有任何进度反馈，等于让盲人盲按 3 秒")
+        XCTAssertEqual(SafetyLongPress.duration, 3, "副标题里印的是 3 秒，常量必须是同一个")
+
+        for (previous, next) in zip(ramp, ramp.dropFirst()) {
+            XCTAssertLessThan(previous.elapsed, next.elapsed, "节奏必须按时间排序")
+            XCTAssertLessThan(previous.intensity, next.intensity, "强度必须渐强，否则听不出进度")
+        }
+        for step in ramp {
+            XCTAssertGreaterThanOrEqual(step.elapsed, 0)
+            XCTAssertLessThan(
+                step.elapsed,
+                SafetyLongPress.duration,
+                "落在 \(step.elapsed) 的这一拍不早于触发时刻，会和触发撞在一起"
+            )
+            XCTAssertGreaterThan(step.intensity, 0)
+            XCTAssertLessThanOrEqual(step.intensity, 1, "UIImpactFeedbackGenerator 的强度上限是 1")
         }
     }
 

@@ -185,9 +185,11 @@ struct BlindActiveRunView: View {
 /// 代价是 VoiceOver 遍历从产品期望的 6 站变成 8 站，求助仍然是最后一站。
 struct BlindActiveRunSafetyAnchor: View {
     @ObservedObject var coordinator: EmergencyCoordinator
-    let onAskQuestion: () -> Void
     let onRepeatStatus: () -> Void
     let onOpenSafetyHub: () -> Void
+    /// 长按 3 秒 / 自定义无障碍动作：**跳过二次确认**，直接进倒计时。
+    /// 轻点走 `onOpenSafetyHub`，云端求助在那一层里仍然要确认。
+    let onTriggerEmergencyImmediately: () -> Void
     /// 本人撤销自己刚发出的求助（`PUT /api/emergency/{id}/cancel`）。
     /// **撤销权只在受助者本人和客服手里**（`AGENTS.md` §6），所以这个入口在盲人端不能没有。
     let onCancelOwnEmergency: () -> Void
@@ -200,14 +202,17 @@ struct BlindActiveRunSafetyAnchor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                quietButton("问一句", hint: "用说的问一句，比如还有多久、跑了多少公里", action: onAskQuestion)
-                    .accessibilityIdentifier("blindActiveRunAskQuestionButton")
-                quietButton("重复当前状态", hint: "点击后重新播报当前状态和已跑里程", action: onRepeatStatus)
-                    .accessibilityIdentifier("blindActiveRunRepeatStatusButton")
-            }
-            .padding(.horizontal, 24)
-            .readableContentColumn()
+            // 「问一句」2026-09-15 搬进求助中心（`BlindSafetyHubView` 的第三格）——
+            // 它是产品说的那五个跑中求助功能之一，而这一屏的定稿是「底部只留一个入口」。
+            // **它没有被做成纯 `accessibilityAction`**：那样只有开读屏的人够得着，
+            // 而低视力用户在弹层里仍然看得见摸得到那一格（记忆 `low-vision-visual-channel-unaudited`）。
+            //
+            // 「重复当前状态」留在这里：它不是求助功能，而是系统 Speak Screen 读不到
+            // 一次性 announcement 时唯一的补救，产品要求它常驻可见。
+            quietButton("重复当前状态", hint: "点击后重新播报当前状态和已跑里程", action: onRepeatStatus)
+                .padding(.horizontal, 24)
+                .readableContentColumn()
+                .accessibilityIdentifier("blindActiveRunRepeatStatusButton")
 
             // 云端求助的进行时 / 失败文案。只有云端那条链路会产生状态，拨号不会。
             if let message = coordinator.state.message {
@@ -250,20 +255,55 @@ struct BlindActiveRunSafetyAnchor: View {
 
     /// 贴边全宽、**零圆角零边距**。不复用 `PrimaryButton`：那个是 12pt 圆角 + 内容列宽度的按钮，
     /// 而这一块的形状本身就是它的可寻址性 —— 拇指从屏幕下缘往上摸，摸到哪都是它。
+    ///
+    /// 🚩 **轻点与长按后果不同**：轻点打开求助中心（云端求助在那一层里仍要二次确认），
+    /// 长按 3 秒**跳过二次确认**直接进倒计时。副标题那行小字是长按这条路径唯一的告知途径，
+    /// 不能删 —— 不知道能长按的人不会误触，不知道长按会跳过确认的人才会。
+    ///
+    /// 形状/高度/配色一个字节没动（2026-09-15 定稿）：拇指盲摸靠的是这块的物理边界，
+    /// 而 `activeRunDestructive` 是为深灰底算过对比度的，换成设计稿上的黑胶囊会让边界糊掉。
     private var safetyHubBlock: some View {
-        Button(action: onOpenSafetyHub) {
-            Text(EmergencySafetyCopy.hubTitle)
-                .font(.system(size: 31, weight: .bold))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 100)
-                // **不是 `AppColors.destructive`。** 那个跟随系统外观，而这一屏的底色是固定深灰 ——
-                // 亮色档的深红压上去只有 2.96:1，块的边界会糊掉。详见 `activeRunDestructive`。
-                .background(AppColors.activeRunDestructive)
+        VStack(spacing: 2) {
+            HStack(spacing: 10) {
+                Image(systemName: "shield.fill")
+                    .font(.system(size: 26, weight: .semibold))
+                    .accessibilityHidden(true)
+                Text(EmergencySafetyCopy.hubTitle)
+                    .font(.system(size: 31, weight: .bold))
+            }
+            Text(EmergencySafetyCopy.hubEntrySubtitle)
+                .font(AppFonts.caption().weight(.semibold))
+                .opacity(0.9)
         }
-        .disabled(coordinator.state.isBusy)
+        .foregroundColor(.white)
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 100)
+        // **不是 `AppColors.destructive`。** 那个跟随系统外观，而这一屏的底色是固定深灰 ——
+        // 亮色档的深红压上去只有 2.96:1，块的边界会糊掉。详见 `activeRunDestructive`。
+        .background(AppColors.activeRunDestructive)
+        .contentShape(Rectangle())
+        // 不用 `Button`：`Button` 把长按当成「取消这次点击」吃掉，两个手势挂在同一个
+        // `Button` 上时长按那条永远拿不到（同 `EmergencySOSLongPressButton`）。
+        .onLongPressGesture(minimumDuration: SafetyLongPress.duration) {
+            guard !coordinator.state.isBusy else { return }
+            onTriggerEmergencyImmediately()
+        }
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                guard !coordinator.state.isBusy else { return }
+                onOpenSafetyHub()
+            }
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(EmergencySafetyCopy.hubAccessibilityLabel)
         .accessibilityHint(EmergencySafetyCopy.hubAccessibilityHint)
+        // 读屏用户不必去猜「双击并按住」按不按得住 —— 上下轻扫选这个动作即可。
+        // 它按长按算（跳过二次确认），理由见 `emergencyAccessibilityActionName`。
+        .accessibilityAction(named: Text(EmergencySafetyCopy.emergencyAccessibilityActionName)) {
+            guard !coordinator.state.isBusy else { return }
+            onTriggerEmergencyImmediately()
+        }
         .accessibilityIdentifier("blindActiveRunSafetyHubButton")
     }
 
