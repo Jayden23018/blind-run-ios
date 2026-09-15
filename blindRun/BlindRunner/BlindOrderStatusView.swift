@@ -65,9 +65,25 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 本单是否已经用完延长次数。**按单记**，换单时清空（见 `startPolling`）。
     @Published private(set) var keepWaitingLimitReached = false
 
+    /// 陪跑中那屏的三个数字（距离 / 时长 / 配速），取 `/track` 的 `blindStats`。
+    /// `nil` = 不在 `IN_PROGRESS`，或这一单还没拉到过。
+    ///
+    /// 🚩 取 `blindStats` 不是 `volunteerStats`：屏幕上那个数字是**跑者自己跑了多远**。
+    /// 两条轨迹是各自独立采集的（后端 10 秒采样窗口、起点与点数都不同），拿错就是显示别人的成绩。
+    @Published private(set) var trackStats: TrackStats?
+
+    /// `/track` 上一次拉的时刻。`nil` = 下一轮立刻拉。
+    private var lastTrackFetchAt: Date?
+    /// 每公里播报的判定。逻辑（含「首个样本只定基线」那条）在 `KilometerMilestoneTracker`。
+    private var kilometerMilestones = KilometerMilestoneTracker()
+
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private weak var locationService: LocationService?
+    /// 「播报我的位置」用。`weak` 与上面两个同理 —— ⚠️ 传进来的必须是被别处持有的实例
+    /// （`AMapGeocodingService` 由 `blindRunApp` 的 `@StateObject` 持有），
+    /// 临时构造一个传进来等于传 nil（守卫规则 `weak-temporary` 拦的就是这个）。
+    private weak var placeSearchProvider: (any PlaceSearchProviding)?
     private var pollingTask: Task<Void, Never>?
     private var currentOrderId: Int64?
     private var latestVolunteerCoordinate: CLLocationCoordinate2D?
@@ -86,6 +102,15 @@ final class BlindOrderStatusViewModel: ObservableObject {
     var effectivePollingInterval: TimeInterval {
         return AppConstants.Timing.orderPollingInterval
     }
+
+    /// `GET /api/orders/{id}/track` 的最小间隔。
+    ///
+    /// **不另起定时器**：它挂在既有那条 5 秒订单轮询上（`loadOrder` 末尾），靠这个时间戳节流到
+    /// 两轮一次。同一条循环、同一种并发模型 —— `AGENTS.md` 的「并发模型只用一种」。
+    ///
+    /// 🚩 10 秒是**我们自己定的**，不是契约值。后端对这个端点有没有频率约束尚未答复
+    /// （`demo/docs/handoff.md` 2026-09-15 那条仍是未答项）。他们给了值就按他们的改。
+    static let trackPollingInterval: TimeInterval = 10
 
     var canShowEmergency: Bool {
         order?.status.canBlindRunnerTriggerEmergency == true
@@ -111,11 +136,13 @@ final class BlindOrderStatusViewModel: ObservableObject {
         appState: AppState,
         speechService: SpeechService,
         locationService: LocationService? = nil,
-        speechInputService: SpeechInputService? = nil
+        speechInputService: SpeechInputService? = nil,
+        placeSearchProvider: (any PlaceSearchProviding)? = nil
     ) {
         self.appState = appState
         self.speechService = speechService
         self.locationService = locationService
+        self.placeSearchProvider = placeSearchProvider
         acceptsPeerLocations = true
         // 坐标取 `latestVolunteerCoordinate` 而不是重算一遍：它已经过了新鲜度闸
         // （WebSocket 那条判 `age <= peerFreshness`，过期由 `schedulePeerExpiry` 清空）。
@@ -132,6 +159,47 @@ final class BlindOrderStatusViewModel: ObservableObject {
         voiceQuerySession.ask()
     }
 
+    /// 陪跑中那屏的「定位正常 / 定位信号弱」。
+    ///
+    /// 判**本机定位新不新鲜**，复用既有的新鲜度闸（`LocationService.latestBackendSample`），
+    /// 不自己再写一套时限。
+    ///
+    /// 🚩 不绑后端的 `ESCORT_SIGNAL_LOST`：那是一次性告警事件
+    /// （`AppRealtimeCoordinator.routeNotification` 把它路由成瞬时提示），没有可持续读的状态；
+    /// 而用户看到这一行能做的事只跟本机定位有关。
+    ///
+    /// 演示坐标一律判成「信号弱」：这一行是安全信息，把 mock 坐标报成「定位正常」，
+    /// 用户就会据此认为「播报我的位置」给出的地名是真的。
+    /// 🚩 新鲜度取 `escortSampleMaxAge`（60 秒）**而不是** `latestBackendSample` 默认的 15 秒。
+    /// 15 秒是求助路径那道闸的值 —— 那一刻宁可说「拿不到位置」也不能用旧坐标。
+    /// 这一行是个**常驻指示灯**：等红灯站 20 秒就翻成「信号弱」，它就成了噪音，
+    /// 而噪音化的安全指示灯在真的失效时不会有人注意。60 秒的取法与理由见该常量自己的注释。
+    var isDeviceLocationFresh: Bool {
+        guard let locationService, !locationService.isUsingDemoFallback else { return false }
+        return locationService.latestBackendSample(freshness: LocationService.escortSampleMaxAge) != nil
+    }
+
+    /// 求助中心里的「播报我的位置」。电话那头的人问「你在哪」时，这是盲人唯一能自己回答的通道。
+    ///
+    /// 🔴 **拿不到就说拿不到，不编。** 这一句会被用户逐字转述给 110 / 120 ——
+    /// 一个猜出来的地名比没有地名危险得多。演示坐标同样一个字都不播（`isUsingDemoFallback`）。
+    func announceCurrentLocation() async {
+        guard let locationService,
+              !locationService.isUsingDemoFallback,
+              let coordinate = locationService.currentLocation else {
+            speechService?.speak(EmergencySafetyCopy.locationAnnouncement(nil))
+            return
+        }
+        // 逆地理要走一趟网络。先说一句进行时，否则按下去到出结果之间是一段静默 ——
+        // 对看不见屏幕的人，静默就是「点了没反应」。答句回来时会盖掉它，那正是想要的。
+        speechService?.speak(EmergencySafetyCopy.locating)
+        let place = await placeSearchProvider?.reverseGeocode(coordinate: coordinate)
+        // `title` 是 POI 名（「人民公园」），`addressText` 是街道级描述。优先念前者：
+        // 电话里说得清的是地标，不是一串门牌号。
+        let description = place.flatMap { $0.title.nilIfBlank ?? $0.addressText.nilIfBlank }
+        speechService?.speak(EmergencySafetyCopy.locationAnnouncement(description))
+    }
+
     func startPolling(orderId: Int64) {
         if currentOrderId != orderId {
             clearPeerLocation()
@@ -142,6 +210,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
             existingReview = nil
             statusLogs = []
             statusLogsErrorMessage = nil
+            // 轨迹统计同理，而且更要紧：它是屏幕上最大的那个数字，串单等于显示上一次的里程。
+            // 里程碑基线一起清 —— 不清的话新单一开跑就会从上一单的公里数接着算。
+            trackStats = nil
+            lastTrackFetchAt = nil
+            kilometerMilestones.reset()
         }
         currentOrderId = orderId
         acceptsPeerLocations = true
@@ -176,6 +249,19 @@ final class BlindOrderStatusViewModel: ObservableObject {
             // 而看不见屏幕的人不会知道页面上多了一个按钮。
             if canShowKeepWaiting {
                 announcement += " " + KeepWaitingCopy.repeatStatusSuffix
+            }
+            // 陪跑中屏幕上那三个数字**只有这一条通道能听到**：它们是 `Text`，
+            // 读屏要逐个滑过去才念，而「重复当前状态」是盲人此刻唯一按一下就听全的入口。
+            // 用播报口径（`distanceText` 等）而不是屏幕口径 —— `9'06"` 会被念成「九撇零六引号」。
+            if let stats = trackStats {
+                let spoken = [
+                    stats.distanceText.map { "已跑 \($0)" },
+                    stats.durationText.map { "用时 \($0)" },
+                    stats.averagePaceText.map { "配速 \($0)" }
+                ].compactMap { $0 }
+                if !spoken.isEmpty {
+                    announcement += " " + spoken.joined(separator: "，") + "。"
+                }
             }
             // Canonical order status first, emergency state appended after it — never instead of it.
             if let sos = appState?.emergencyCoordinator.repeatStatusSuffix {
@@ -642,6 +728,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
             apply(updated, speakChanges: speakChanges)
             await refreshIntroCallIfNeeded(for: updated, appState: appState)
             await refreshVolunteerLocationFallbackIfNeeded(for: updated, appState: appState)
+            await refreshTrackStatsIfNeeded(for: updated, appState: appState)
         } catch let error as APIError {
             isLoading = false
             if appState.handleAuthenticatedAPIError(error) {
@@ -840,6 +927,44 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
+    /// 拉陪跑中那屏的三个数字。跟着订单轮询走，节流到 `trackPollingInterval`。
+    ///
+    /// 离开 `IN_PROGRESS` 时把三样一起清掉（统计 / 节流时刻 / 里程碑基线）——
+    /// 少清一个，下次进同一单就会顶着上一段的数字，或者一进来就补播一次里程碑。
+    private func refreshTrackStatsIfNeeded(for order: OrderDetailResponse, appState: AppState) async {
+        guard order.status == .inProgress else {
+            trackStats = nil
+            lastTrackFetchAt = nil
+            kilometerMilestones.reset()
+            return
+        }
+        let now = Date()
+        if let last = lastTrackFetchAt, now.timeIntervalSince(last) < Self.trackPollingInterval { return }
+        lastTrackFetchAt = now
+
+        do {
+            let track = try await appState.safety.orderTrack(orderId: order.orderId)
+            trackStats = track.blindStats
+            announceKilometerMilestoneIfNeeded(track.blindStats)
+        } catch {
+            // **不清空已有的数字、不播报。** 与 `refreshVolunteerLocationFallbackIfNeeded` 同一条理由：
+            // 跑动中一次网络抖动把屏幕上的距离归零，比暂时不更新糟得多；而每 10 秒往耳朵里塞一句
+            // 「获取失败」会占住盲人用来听车流和同伴说话的那条通道，且没有任何可执行的动作。
+        }
+    }
+
+    /// 每跑满一公里播一句「已跑 N 公里」。**只播距离** —— 不播配速、心率、卡路里
+    /// （`docs/research/blind-runner-ui-reference-study-20260915.md` §7.4）。
+    /// 播不播的判定在 `KilometerMilestoneTracker`，这里只负责发声与震动。
+    private func announceKilometerMilestoneIfNeeded(_ stats: TrackStats) {
+        guard let kilometers = kilometerMilestones.milestone(forDistanceMeters: stats.distanceMeters) else {
+            return
+        }
+        speechService?.speak("已跑 \(kilometers) 公里")
+        // ponytail: 复用既有的三种系统语义之一，不为里程碑自造波形（见 `HapticFeedback`）。
+        HapticFeedback.play(.success)
+    }
+
     /// 把兜底坐标喂给走散检测（`LiveEscortSessionCoordinator` 只读
     /// `AppRealtimeCoordinator` 的对方样本存量，没有自己的 REST 兜底）。
     ///
@@ -1018,13 +1143,20 @@ struct BlindOrderStatusView: View {
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
     @EnvironmentObject private var speechInputService: SpeechInputService
+    /// 求助中心的「播报我的位置」要逆地理。取 `@EnvironmentObject` 而不是就地 new 一个：
+    /// view model 那一侧是 `weak` 持有，临时对象传进去等于传 nil（守卫 `weak-temporary`）。
+    @EnvironmentObject private var amapGeocodingService: AMapGeocodingService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @StateObject private var shareViewModel = RunPlanLiveShareViewModel()
     @State private var showEmergencyConfirmation = false
     @State private var showEmergencyCancelConfirmation = false
+    /// 云端求助失败后的一跳拨号兜底（`EmergencyCallContext.cloudFailed`）。
+    /// 常规的「陪跑中主动拨号」现在走求助中心那一层，不再单独开这个弹窗。
     @State private var showEmergencyCallOptions = false
+    /// 陪跑中那块红色安全锚点打开的求助中心。
+    @State private var showSafetyHub = false
     @State private var showCancelConfirmation = false
     @State private var showStatusLogs = false
     @State private var showRunPlanShare = false
@@ -1053,7 +1185,34 @@ struct BlindOrderStatusView: View {
     /// 已降级为 64pt 的次级按钮 —— 见 `keepWaitingSection`。
     @ScaledMetric(relativeTo: .largeTitle) private var primaryActionButtonHeight: CGFloat = 140
 
-    var body: some View {
+    /// `IN_PROGRESS` 走执行屏；**其余状态一行没改**，仍是原来那条滚动列表。
+    private var isActiveRun: Bool {
+        viewModel.order?.status == .inProgress
+    }
+
+    /// 产品定稿 2026-09-15：跑动中那一屏是执行屏不是仪表盘，整个内容区换掉。
+    /// 被移出的六组内容各自去了哪，见 `BlindActiveRunView` 的类型注释里那张表。
+    @ViewBuilder
+    private var content: some View {
+        if let order = viewModel.order, order.status == .inProgress {
+            VStack(spacing: 0) {
+                BlindActiveRunView(
+                    order: order,
+                    stats: viewModel.trackStats,
+                    isLocationFresh: viewModel.isDeviceLocationFresh
+                )
+                // 执行屏也要留着 mock 控件：`IN_PROGRESS` 这一态的「模拟服务完成」是
+                // **mock 环境走到完成/评价页的唯一通道**，砍掉它等于把演示流程钉死在跑步中。
+                // 它自己带 `#if DEBUG` + `currentEnvironment == .mock` 两道闸，
+                // Release 里是 `EmptyView`，不占一个像素，也不影响「执行屏只有四组内容」这条设计。
+                debugMockControls(order)
+            }
+        } else {
+            trackingContent
+        }
+    }
+
+    private var trackingContent: some View {
         ScrollView {
             VStack(spacing: 24) {
                 if viewModel.isLoading && viewModel.order == nil {
@@ -1077,7 +1236,6 @@ struct BlindOrderStatusView: View {
                         .accessibilityFocused($statusHeaderFocused)
                     introCallEntrySection(order)
                     volunteerCallSection(order)
-                    inlineAskQuestionSection
                     keepWaitingSection(order)
                     actionSection(order)
                     runPlanShareSection(order)
@@ -1102,7 +1260,11 @@ struct BlindOrderStatusView: View {
             // 不限宽时一行横跨 1024pt。见 `BlindLayout.readableContentWidth`。
             .readableContentColumn()
         }
-        .background(AppColors.background)
+    }
+
+    var body: some View {
+        content
+        .background(isActiveRun ? AppColors.activeRunSurface : AppColors.background)
         .navigationTitle("订单状态")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
@@ -1185,12 +1347,23 @@ struct BlindOrderStatusView: View {
             }
         }
         // 与首页共用同一个构造点，号码集合与顺序两页一致 —— 理由见 `emergencyCallOptionsDialog`。
-        // 语境固定 `.inProgress`：这个入口只在 `canShowEmergency` 为真时才渲染，
-        // 而那正是 `IN_PROGRESS`。
+        //
+        // 语境固定 `.cloudFailed`：这个弹窗现在**只剩一个入口** —— 云端求助失败后安全锚点上
+        // 冒出来的那枚「紧急呼叫」。陪跑中主动拨号那条路已经并进求助中心
+        // （`blindActiveRunSafetyHubDialog`），不再从这里走。
         .emergencyCallOptionsDialog(
             isPresented: $showEmergencyCallOptions,
-            context: .inProgress,
+            context: .cloudFailed,
             primaryContact: appState.primaryEmergencyContact
+        )
+        // 求助中心。**它不是二次确认** —— 选了「一键求助」之后才弹下面那条确认，
+        // `AGENTS.md` §6 的逐字锁定文案与那一步都没动。
+        .blindActiveRunSafetyHubDialog(
+            isPresented: $showSafetyHub,
+            primaryContact: appState.primaryEmergencyContact,
+            volunteerPhone: viewModel.order?.volunteerPhone,
+            onAnnounceLocation: { Task { await viewModel.announceCurrentLocation() } },
+            onTriggerEmergency: { showEmergencyConfirmation = true }
         )
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation, audience: .runner) {
             Task {
@@ -1210,7 +1383,8 @@ struct BlindOrderStatusView: View {
                 appState: appState,
                 speechService: speechService,
                 locationService: locationService,
-                speechInputService: speechInputService
+                speechInputService: speechInputService,
+                placeSearchProvider: amapGeocodingService
             )
             viewModel.startPolling(orderId: orderId)
         }
@@ -2148,20 +2322,34 @@ struct BlindOrderStatusView: View {
     /// 求助进行中时这一条会变高（求助 + 结果文案 + 撤销求助 + 重复当前状态）。这是有意的：
     /// 那正是这一页唯一该被求助占满的时刻，也是「撤销求助」必须跟着按钮走的理由 ——
     /// 按下去的结果不该出现在屏幕外。
+    @ViewBuilder
     private var repeatStatusArea: some View {
+        if isActiveRun {
+            // 执行屏自己的安全锚点：一整块贴边求助 + 上面一行安静的「问一句 / 重复当前状态」。
+            // 这里不再有「一键求助 + 紧急呼叫」两个红按钮挨着的形态 —— 两条路都收进求助中心那一层
+            // （报告 §16 指出的问题，产品 2026-09-15 定了合并）。
+            BlindActiveRunSafetyAnchor(
+                coordinator: appState.emergencyCoordinator,
+                onAskQuestion: { viewModel.askVoiceQuestion() },
+                onRepeatStatus: { viewModel.repeatStatus() },
+                onOpenSafetyHub: { showSafetyHub = true },
+                onCancelOwnEmergency: { showEmergencyCancelConfirmation = true },
+                onLocalCall: { showEmergencyCallOptions = true }
+            )
+        } else {
+            standardRepeatStatusArea
+        }
+    }
+
+    /// 非 `IN_PROGRESS` 的那条常驻底栏。
+    ///
+    /// 🚩 这里**不再有求助分支**。求助只在 `IN_PROGRESS` 开放（`canBlindRunnerTriggerEmergency`
+    /// 恒等于 `status == .inProgress`），而那一态现在整屏走 `BlindActiveRunSafetyAnchor` ——
+    /// 原来那个 `if viewModel.canShowEmergency` 在这里已经**恒为假**。留着一条永远走不到的
+    /// 安全分支，比删掉危险：它会继续被当成「这条路还在」而没有任何东西会说话。
+    private var standardRepeatStatusArea: some View {
         VStack(spacing: 12) {
-            if viewModel.canShowEmergency {
-                // 整块交给 `EmergencyActionSection`：它自己订阅 coordinator。
-                // 直接读 `appState.emergencyCoordinator.state` 是值对但不跟着刷新 —— 详见该类型的注释。
-                EmergencyActionSection(
-                    coordinator: appState.emergencyCoordinator,
-                    onTrigger: { showEmergencyConfirmation = true },
-                    onCancelOwnEmergency: { showEmergencyCancelConfirmation = true },
-                    onLocalCall: { showEmergencyCallOptions = true }
-                )
-            } else {
-                askQuestionButton
-            }
+            askQuestionButton
             PrimaryButton("重复当前状态") {
                 viewModel.repeatStatus()
             }
@@ -2201,18 +2389,11 @@ struct BlindOrderStatusView: View {
         }
     }
 
-    /// `IN_PROGRESS` 时「问一句」被求助顶出底部常驻条，落在这里 —— 紧跟「打电话给志愿者」。
+    /// 非 `IN_PROGRESS` 那条底栏上的「问一句」。
     ///
-    /// 选这个位置是为了让它仍在首屏内：状态卡 ≈150 + 打电话 140 + 问一句 64 + 间距 ≈ 430pt，
-    /// 而这一态下的视口约 550pt。排到 `actionSection` 那边就又掉出首屏了，
-    /// 那正是求助原先的处境。
-    @ViewBuilder
-    private var inlineAskQuestionSection: some View {
-        if viewModel.canShowEmergency {
-            askQuestionButton
-        }
-    }
-
+    /// `IN_PROGRESS` 不走这里 —— 那一态的「问一句」在 `BlindActiveRunSafetyAnchor` 上，
+    /// 做成不与巨数字竞争视觉的安静文字按钮（产品 2026-09-15 定稿）。
+    /// 两处按的是同一个 `viewModel.askVoiceQuestion()`。
     private var askQuestionButton: some View {
         Button("问一句") {
             viewModel.askVoiceQuestion()
