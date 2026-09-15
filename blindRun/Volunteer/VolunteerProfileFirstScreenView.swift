@@ -54,7 +54,13 @@ struct VolunteerProfileFirstScreen: View {
         // 手动刷新。它接替的是随「派单工作台」一起删掉的那枚工具栏刷新按钮 ——
         // 这一屏的导航栏是隐藏的（`navigationBarHidden(true)`），按钮无处可放，
         // 而删了不补就等于志愿者只能等那条 10 秒轮询。
+        //
+        // 🚩 **不只是重拉摘要，同时强制取一次定位**：非陪跑模式 `distanceFilter` 是 10 米
+        // （`LocationService.swift`），站着不动 Core Location 就不推新样本，而没有位置上报
+        // 就收不到派单。这一下取点原先由地图上那枚「回到当前位置」承担，地图删了之后
+        // 志愿者端一个 `requestOneTimeLocation()` 的调用点都不剩了。
         .refreshable {
+            locationService.requestOneTimeLocation()
             await onReload()
         }
         // 🔴 **这个 `.task` 挂在一棵永远非空的子树上。**
@@ -171,7 +177,7 @@ struct VolunteerProfileFirstScreen: View {
                 )
 
                 // 「为什么接不到单」和「去哪解决」必须在同一处 —— 所以资质入口跟着提示走，
-                // 不留一行没有去处的说明（`VolunteerDispatchSummaryCard.trainingEntry` 同一条判据）。
+                // 不留一行没有去处的说明（同下面 `trainingEntry` 与「重新定位」那两条判据）。
                 if let acceptBlockMessage = viewModel.acceptBlockMessage {
                     Text(acceptBlockMessage)
                         .font(AppFonts.body())
@@ -189,13 +195,27 @@ struct VolunteerProfileFirstScreen: View {
                 }
 
                 if let warning = viewModel.locationDispatchWarning {
-                    Label(warning, systemImage: "location.slash.fill")
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.warning)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(warning)
-                        .accessibilityHint("请检查定位权限，并等待设备获取当前位置")
-                        .accessibilityIdentifier("volunteerDispatchLocationWarning")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(warning, systemImage: "location.slash.fill")
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.warning)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityLabel(warning)
+                            .accessibilityHint("请检查定位权限，并等待设备获取当前位置")
+                            .accessibilityIdentifier("volunteerDispatchLocationWarning")
+
+                        // 「为什么接不到单」和「去哪解决」必须在同一处 —— 同 `trainingEntry`
+                        // 与资质入口那条判据。原文只有上面那行字：它告诉人出了什么事，
+                        // 却没有任何能促成一次取点的动作，而站着不动时 Core Location
+                        // 本来就不推新样本（`distanceFilter` 10 米）。
+                        Button("重新定位") {
+                            locationService.requestOneTimeLocation()
+                            Task { await onReload() }
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("立即重新获取一次当前位置，并刷新派单状态")
+                        .accessibilityIdentifier("volunteerDispatchRelocateButton")
+                    }
                 }
 
                 if let errorMessage = viewModel.displayedErrorMessage {
@@ -216,31 +236,16 @@ struct VolunteerProfileFirstScreen: View {
         }
     }
 
-    private var notAvailableReasons: [VolunteerDispatchNotAvailableReason] {
-        viewModel.dispatchSummary?.notAvailableReasons ?? []
-    }
-
-    /// 资质入口的条件是**两个来源的并集**，不是二选一：
-    /// - `viewModel.needsCertificateUpload` 只在某次 API 调用回了 `VOLUNTEER_NOT_APPROVED` 时才为真；
-    /// - `.notVerified` 是派单摘要里的常态原因，人没做任何操作时也在。
-    ///
-    /// 合成**一个** `if` 是必须的 —— 分两个 `if` 写会在两者同时成立时把同一个入口画两遍。
+    /// 判据全在 `VolunteerProfileTodoGate`（纯函数，有验红用例），这里只做转发。
     private var needsCertificateEntry: Bool {
-        viewModel.needsCertificateUpload || notAvailableReasons.contains(.notVerified)
+        VolunteerProfileTodoGate.needsCertificateEntry(
+            summary: viewModel.dispatchSummary,
+            apiRejectedAsUnapproved: viewModel.needsCertificateUpload
+        )
     }
 
-    /// 只有「必修培训没完成」这一条原因才给这张卡。
-    ///
-    /// 🚩 其余原因**刻意不给**：`OFFLINE` / `DISPATCH_DISABLED` 的去处是底部那条可服务 CTA
-    /// 和定位提示，就在同一屏上；`NOT_VERIFIED` 走上面的资质入口。
-    ///
-    /// 🚩 **摘要拉不到时不兜、不猜。** `dispatchSummary == nil` 意味着我们**不知道**
-    /// 培训做没做完，此刻画一张「尚未完成必修培训」对已经学完的人就是假话，
-    /// 而作业区末尾已经有错误文案 + 「重试加载」在说真话。学完之后的常驻入口在
-    /// 「设置 → 陪跑培训」，齿轮的 `accessibilityHint` 已把它列进去
-    /// （`VolunteerProfileCopy.settingsHint`）。
     private var needsTrainingEntry: Bool {
-        notAvailableReasons.contains(.trainingIncomplete)
+        VolunteerProfileTodoGate.needsTrainingEntry(summary: viewModel.dispatchSummary)
     }
 
     /// 必修培训入口。**整张卡可点**，不是「一行说明 + 旁边一个小链接」。
@@ -285,9 +290,11 @@ struct VolunteerProfileFirstScreen: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             // 不写死高度，只给下限：文字自己跟 Dynamic Type 长，卡片跟着长。
-            // 志愿者端不受盲人端 64pt 线约束（`guard.mjs` 的 `small-touch-target`
-            // 显式排除 /blindRun/Volunteer/），这里取 64 是因为它是「显眼」的量化形式。
-            .frame(minHeight: 64)  // guard:allow small-touch-target
+            // 64 在这里不是触达下限（志愿者端走 Apple 的 44pt），而是「显眼」的量化形式 ——
+            // 用户那句「一个贼小的去培训」说的就是这个维度。
+            // 不加 `guard:allow small-touch-target`：那条规则既排除了 /blindRun/Volunteer/，
+            // 判据又是 `< 64`，双重不触发，多余的标注只会稀释它在别处的信号。
+            .frame(minHeight: 64)
             .background(AppColors.secondaryBackground)
             .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
         }
@@ -537,7 +544,7 @@ struct VolunteerProfileFirstScreen: View {
                     sectionLabel(VolunteerProfileCopy.badgesSectionTitle)
                     Spacer(minLength: 8)
                     // 🚩 这个链接必须在任何 `.combine` 的**外面**才点得到
-                    // （同 `VolunteerDispatchSummaryCard` 的「去培训」踩过的那个坑）。
+                    // （同作业区那张培训卡为什么不套 `.combine` 的那条判据）。
                     NavigationLink {
                         VolunteerServiceRecognitionView()
                     } label: {
@@ -771,8 +778,18 @@ struct VolunteerProfileFirstScreen: View {
             } else {
                 EmptyStateView(
                     title: "派单状态待同步",
-                    message: locationService.isAuthorized ? "下拉可以重新加载。" : "开启定位后才能接收系统派单。"
+                    message: locationService.isAuthorized ? "请重新加载。" : "开启定位后才能接收系统派单。"
                 )
+                // 🔴 **文案不许写成「下拉可以重新加载」**：下拉是手势，对读屏用户和手部不便的人
+                // 不是一条可执行的指令，而这一刻屏幕上除此之外没有任何控件。
+                // identifier 沿用随工作台删掉的那枚工具栏刷新按钮，守卫会顺带把用例钉住。
+                Button("重新加载派单状态") {
+                    locationService.requestOneTimeLocation()
+                    Task { await onReload() }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("重新获取当前位置并加载派单状态")
+                .accessibilityIdentifier("volunteerHomeRefreshButton")
             }
 
             Text(locationSummaryText)

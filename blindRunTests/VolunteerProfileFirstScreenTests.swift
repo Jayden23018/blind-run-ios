@@ -229,6 +229,89 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         }
     }
 
+    // MARK: - 作业区的两道闸
+
+    /// 培训闸只认 `.trainingIncomplete` 这**一个**取值。
+    ///
+    /// 🔴 第二、三条是这条用例的全部价值：把实现打回成 `!reasons.isEmpty`
+    /// 或 `canDispatch != true` 时它们会红，而只断「有 trainingIncomplete 就为真」的用例
+    /// 在那两种错误实现下**照样通过**。已经学完培训、只是临时下线的人被告知
+    /// 「尚未完成必修培训」，屏幕上仍是一张排版正常的页面，没人会报障。
+    func testTrainingGateFiresOnlyForTheTrainingReason() {
+        XCTAssertTrue(
+            VolunteerProfileTodoGate.needsTrainingEntry(
+                summary: Self.summary(reasons: [.trainingIncomplete])
+            ),
+            "未完成必修培训时必须给入口"
+        )
+        XCTAssertFalse(
+            VolunteerProfileTodoGate.needsTrainingEntry(
+                summary: Self.summary(reasons: [.offline, .dispatchDisabled])
+            ),
+            "只是下线 / 关了开关的人已经学完培训了，不该被告知「尚未完成必修培训」"
+        )
+        XCTAssertFalse(
+            VolunteerProfileTodoGate.needsTrainingEntry(
+                summary: Self.summary(reasons: [.notVerified])
+            ),
+            "资质没过是另一条原因，它的去处是资质上传页"
+        )
+        XCTAssertTrue(
+            VolunteerProfileTodoGate.needsTrainingEntry(
+                summary: Self.summary(reasons: [.notVerified, .trainingIncomplete])
+            ),
+            "两条原因可以同时成立（资质是管理员审、培训是自己学），不能互相吃掉"
+        )
+    }
+
+    /// 摘要拉不到时**不兜、不猜**：不知道培训做没做完，就不能画「尚未完成必修培训」。
+    /// 这条钉的是一个刻意的决定，不是实现细节 —— 改成「nil 时也显示」会让它红。
+    func testTrainingGateStaysSilentWhenTheSummaryIsMissing() {
+        XCTAssertFalse(
+            VolunteerProfileTodoGate.needsTrainingEntry(summary: nil),
+            "派单摘要拉不到时，对已经学完培训的人画这张卡就是假话"
+        )
+        XCTAssertFalse(
+            VolunteerProfileTodoGate.needsCertificateEntry(summary: nil, apiRejectedAsUnapproved: false),
+            "同上：没有任何信号时不要凭空给入口"
+        )
+    }
+
+    /// 资质闸是**并集**，四种组合逐个钉住。
+    ///
+    /// 两个来源互不可替代：`apiRejectedAsUnapproved` 只在接单被 403 之后才为真，
+    /// `.notVerified` 则是摘要里的常态原因 —— 少取一个，就有一类人看不到上传入口。
+    func testCertificateGateIsTheUnionOfBothSources() {
+        XCTAssertTrue(
+            VolunteerProfileTodoGate.needsCertificateEntry(
+                summary: Self.summary(reasons: []),
+                apiRejectedAsUnapproved: true
+            ),
+            "接单被 403 VOLUNTEER_NOT_APPROVED 拒绝过，就算摘要没说也要给入口"
+        )
+        XCTAssertTrue(
+            VolunteerProfileTodoGate.needsCertificateEntry(
+                summary: Self.summary(reasons: [.notVerified]),
+                apiRejectedAsUnapproved: false
+            ),
+            "人什么都没点，摘要说资质没过，同样要给入口"
+        )
+        XCTAssertTrue(
+            VolunteerProfileTodoGate.needsCertificateEntry(
+                summary: Self.summary(reasons: [.notVerified]),
+                apiRejectedAsUnapproved: true
+            ),
+            "两者同时成立仍然只是「要给入口」—— 调用方用一个 if，不会画两遍"
+        )
+        XCTAssertFalse(
+            VolunteerProfileTodoGate.needsCertificateEntry(
+                summary: Self.summary(reasons: [.offline, .trainingIncomplete]),
+                apiRejectedAsUnapproved: false
+            ),
+            "资质没问题的人不该看到上传入口"
+        )
+    }
+
     // MARK: - 文案红线
 
     /// 🔴 民政部令第 67 号：这一屏是展示不是凭据，**不得出现「证明 / 证书 / 已认证」**。
@@ -293,6 +376,19 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
     }
 
     // MARK: - Fixtures
+
+    /// 只填闸门用得到的两个字段，其余走解码的默认 null —— 手写 24 个 `nil` 会让
+    /// 下次后端加字段时这里跟着改一遍，而它们与本用例无关。
+    private static func summary(
+        reasons: [VolunteerDispatchNotAvailableReason]
+    ) -> VolunteerDispatchSummaryResponse {
+        let list = reasons.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+        let json = """
+        { "canDispatch": \(reasons.isEmpty), "notAvailableReasons": [\(list)] }
+        """
+        // swiftlint:disable:next force_try
+        return try! JSONDecoder().decode(VolunteerDispatchSummaryResponse.self, from: Data(json.utf8))
+    }
 
     private static func achievements(
         totalCompleted: Int?,

@@ -44,6 +44,48 @@ enum VolunteerProfileHeadline: Equatable {
     }
 }
 
+// MARK: - 作业区的两道闸
+
+/// 「需要你处理」里那两个条件入口该不该出现。
+///
+/// 抽成纯函数而不是留在 View 里，理由与本文件其余部分同源：**它们出错时没有任何运行时信号**。
+/// 培训闸写成 `!reasons.isEmpty` 的话，一个已经学完培训、只是临时下线的人会看到
+/// 「尚未完成必修培训」—— 屏幕上仍然是一张排版正常的页面，没人会报障。
+/// 同屋的 `VolunteerProfileHeadline.resolve` / `BlindHomeSOSMode.resolve` 是同一个写法。
+enum VolunteerProfileTodoGate {
+    /// 资质入口的条件是**两个来源的并集**，不是二选一：
+    /// - `apiRejectedAsUnapproved`（`VolunteerHomeViewModel.needsCertificateUpload`）
+    ///   只在某次 API 调用回了 `VOLUNTEER_NOT_APPROVED` 之后才为真；
+    /// - `.notVerified` 是派单摘要里的常态原因，人没做任何操作时也在。
+    ///
+    /// 调用方必须把它用在**一个** `if` 上 —— 分两个 `if` 写会在两者同时成立时把入口画两遍。
+    static func needsCertificateEntry(
+        summary: VolunteerDispatchSummaryResponse?,
+        apiRejectedAsUnapproved: Bool
+    ) -> Bool {
+        apiRejectedAsUnapproved || reasons(summary).contains(.notVerified)
+    }
+
+    /// 只有「必修培训没完成」这一条原因才给那张卡。
+    ///
+    /// 🚩 其余原因**刻意不给**：`OFFLINE` / `DISPATCH_DISABLED` 的去处是底部那条可服务 CTA
+    /// 和定位提示，就在同一屏上；`NOT_VERIFIED` 走上面的资质入口。
+    ///
+    /// 🚩 **`summary == nil` 时返回 false，是决定不是疏漏。** 摘要拉不到意味着我们
+    /// **不知道**培训做没做完，此刻画一张「尚未完成必修培训」对已经学完的人就是假话。
+    /// 作业区末尾已经有错误文案 + 「重试加载」在说真话；学完之后的常驻入口在
+    /// 「设置 → 陪跑培训」（`VolunteerProfileCopy.settingsHint` 已把它列进齿轮的读屏提示）。
+    static func needsTrainingEntry(summary: VolunteerDispatchSummaryResponse?) -> Bool {
+        reasons(summary).contains(.trainingIncomplete)
+    }
+
+    private static func reasons(
+        _ summary: VolunteerDispatchSummaryResponse?
+    ) -> [VolunteerDispatchNotAvailableReason] {
+        summary?.notAvailableReasons ?? []
+    }
+}
+
 // MARK: - 三列统计
 
 /// 主指标下面那一行的一格。

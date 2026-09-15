@@ -552,7 +552,14 @@ final class blindRunUITests: XCTestCase {
         assertVolunteerTopStatusBlockPosition(identityRow, app: app)
         XCTAssertFalse(
             app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch.exists,
-            "Home without an active order should not render the todo section"
+            "没有在途订单时不该渲染当前订单卡"
+        )
+        // ⚠️ 上面那条**不等于**「作业区不渲染」——原文的断言消息是这么写的，而它已经不成立：
+        // Mock 的 `trainingProgress` 默认为空 ⇒ 派单摘要恒带 `TRAINING_INCOMPLETE`
+        // ⇒ `hasTodo` 恒为真 ⇒ 作业区一定在。这才是本轮改动的版式回归钉：
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerHomeTrainingEntry"].firstMatch.exists,
+            "Mock 默认未完成培训，作业区里必须有那张培训卡"
         )
         XCTAssertTrue(
             app.staticTexts["我的陪伴"].firstMatch.waitForExistence(timeout: 10),
@@ -600,6 +607,13 @@ final class blindRunUITests: XCTestCase {
         attachScreenshot(named: "volunteer-first-screen-dispatch-stats", app: app)
     }
 
+    /// 培训页导航栏标题，单一来源 `VolunteerTrainingCopy.navigationTitle`。
+    private static let volunteerTrainingTitle = "陪跑培训"
+    /// 培训卡的标题，单一来源 `VolunteerDispatchNotAvailableReason.trainingIncomplete.displayText`。
+    ///
+    /// XCUITest 是黑盒进不了 app 的类型，这两个只能抄一份 —— 抄错的方向是安全的（会红不会绿）。
+    private static let volunteerTrainingIncompleteReason = "尚未完成必修培训"
+
     /// ③ 必修培训入口：**在首屏、整卡可点、一下直达培训页**。
     ///
     /// 用户原话：「必须在派单工作台点进去再点击一个贼小的去培训，一点都不显眼」。
@@ -635,15 +649,26 @@ final class blindRunUITests: XCTestCase {
             64,
             "培训入口必须是一整张卡而不是一行小链接（height=\(trainingEntry.frame.height)）"
         )
+        // ②之二 原因本身就是入口：卡上写的是「为什么接不到单」，不是一枚「去培训」小链接。
+        // 少了这一条，上面那个 64pt 断言就只是在复读实现里的常量 —— 把标题换成「去培训」
+        // 它照样绿，而「原因本身就是入口」正是用户那句话里最实质的一半。
+        XCTAssertTrue(
+            trainingEntry.label.contains(Self.volunteerTrainingIncompleteReason),
+            "培训入口的可读名必须就是原因本身（label=\(trainingEntry.label)）"
+        )
+
         // 而且它排在影响力区之前 —— 作业区是第一档，读屏顺序播报，排序就是优先级。
+        //
+        // ⛔ **不要写成 `if impactBlock.exists { … }`**：「我的陪伴」不在树里时整条顺序断言
+        // 会静默跳过、用例照报 passed，而这正是本仓库记过的「验红假绿」形状。
+        // 同文件上面那条用例已经证明这个字面量可以无条件等到。
         let impactBlock = app.staticTexts["我的陪伴"].firstMatch
-        if impactBlock.exists {
-            XCTAssertLessThan(
-                trainingEntry.frame.minY,
-                impactBlock.frame.minY,
-                "「需要你处理」里的培训入口必须排在影响力区之前"
-            )
-        }
+        XCTAssertTrue(impactBlock.waitForExistence(timeout: 10), "影响力区应当渲染，否则下面的顺序无从判起")
+        XCTAssertLessThan(
+            trainingEntry.frame.minY,
+            impactBlock.frame.minY,
+            "「需要你处理」里的培训入口必须排在影响力区之前"
+        )
 
         attachScreenshot(named: "volunteer-training-entry-on-first-screen", app: app)
 
@@ -1876,10 +1901,6 @@ final class blindRunUITests: XCTestCase {
     /// 加载超时后首页会重绘，撞上退栈动画时返回键的这一下有概率被吞掉，
     /// 于是「等积分商城按钮出现」白等 5 秒。这里改成先等返回键可点、点完再确认导航栏消失，
     /// 被吞掉就补一次，把时序竞争关在helper 里。
-    /// 陪跑培训的导航栏标题。单一来源是 `VolunteerTrainingCopy.navigationTitle`，
-    /// XCUITest 是黑盒进不了 app 的类型，只能抄一份 —— 抄错的方向是安全的（会红不会绿）。
-    private static let volunteerTrainingTitle = "陪跑培训"
-
     private func popNavigationBar(_ app: XCUIApplication, title: String) {
         let navigationBar = app.navigationBars[title]
         let backButton = navigationBar.buttons.firstMatch
