@@ -215,7 +215,27 @@ REMATCHING → CANCELLED（只能盲人 token）
 ## 6. 求助 / SOS 红线
 
 - 求助**不是**订单状态。`POST /api/emergency/trigger` 只记录事件，订单状态不变。
-- **两端入口都只在 `IN_PROGRESS` 开放**（`EmergencyTriggerRequest` 必须带 `orderId`）。
+- **两端入口都只在 `IN_PROGRESS` 开放。这是产品决策，不是技术约束。**
+  > 2026-09-15 改口径。原文的括号里写着「`EmergencyTriggerRequest` 必须带 `orderId`」，
+  > 用它给前半句当理由 —— **那句已经不成立**。契约原文逐字是：
+  > 「三个字段**全部可选**。不传 `orderId` 即独立 SOS（无进行中订单也能求救）」
+  > （`demo/docs/api_spec.yaml:5471-5473`），participant 校验只在**传了** `orderId` 时才做。
+  >
+  > 闸门在客户端：`BlindHomeSOSMode.resolve` 的 `guard let order … else { return .localCall }`
+  > （`blindRun/Safety/SafetyModule.swift:354-359`），判据 `canBlindRunnerTriggerEmergency`
+  > / `canVolunteerTriggerEmergency` 都是 `self == .inProgress`
+  > （`blindRun/Core/Models/OrderModels.swift:176-178`、`:189-191`）。
+  >
+  > **关着的真实理由只剩一条**，写在 `canBlindRunnerTriggerEmergency` 的注释里且仍然成立：
+  > `IN_PROGRESS` 是唯一保证握着**新鲜真实 GCJ-02 坐标**的状态 —— 与下面「坐标拿不到就不发」
+  > 那条是同一件事。注释里另一条理由「the one the backend's participant check accepts」
+  > 已随契约作废。
+  >
+  > **为什么这条订正值钱**：把产品决策伪装成技术约束，会让任何读到它的人认为独立 SOS
+  > **做不了**，于是根本不会拿它去问产品。实际状态是「能做，等批准」——
+  > 与 `allowsSubmissionWithoutLocation` 完全同构，而那一条从一开始就诚实地这么写了。
+  > 要打开闸门需要先回答：无订单时坐标从哪来、误触冷却 60 秒按触发者计的代价、
+  > 以及 `enable-independent-sos-safely` 里 4 条真机验证欠账（设备长期离线，从没跑过）。
 - 盲人首页那条常驻求助条是**唯一的例外形态，且它不是例外**：`IN_PROGRESS` 时走上面这条云端链路，
   其余任何状态一律降级为**本地拨号**（主紧急联系人 / 110），**绝不调 `POST /api/emergency/trigger`**。
   降级分支的文案必须说清「App 不会代你发送求助」—— 按下去只有拨号音，不说清等同于让盲人以为求助已发出。
