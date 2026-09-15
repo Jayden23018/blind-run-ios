@@ -1,5 +1,47 @@
 import SwiftUI
 
+// MARK: - 恢复：求助还活着时把屏 3b 拉回来
+
+/// 求助**不是**只能从「按下按钮」那条路进屏 3b。至少四条路会让 App 在不知情的情况下
+/// 处在一个进行中的求助里：
+///
+/// 1. **志愿者代触发** —— 盲人自己没按过任何按钮；
+/// 2. **冷启动** —— 求助期间 App 被系统回收或用户杀掉；
+/// 3. **WS 断线重连** —— 断线那段时间里整条求助可能都发生完了；
+/// 4. **点开推送进来** —— 进程可能是刚起来的。
+///
+/// 这四条的数据侧已经有了：`AppState.catchUpMissedNotifications()` 会先调
+/// `refreshActiveEvent()`（仅盲人有该端点权限），而它是「事件 id 与当前状态的唯一权威来源」。
+/// **缺的一直是界面侧** —— 恢复出来的状态此前只体现为执行屏底部那一行小字，
+/// 而一个正在进行的求助不该只是一行小字。
+///
+/// 做成 `ViewModifier` 的理由和志愿者那边逐字相同：它能 `@ObservedObject` 持有 coordinator，
+/// 而 `AppState.emergencyCoordinator` 是 `let` 不是 `@Published` ——
+/// 在页面 body 里 `onChange(of: appState.emergencyCoordinator.activeEvent)`
+/// **根本不会触发**（记忆 `nested-observableobject-does-not-republish`）。
+struct EmergencyRecoveryPresentation: ViewModifier {
+    @ObservedObject var coordinator: EmergencyCoordinator
+    @Binding var isPresented: Bool
+
+    func body(content: Content) -> some View {
+        content.onChange(of: coordinator.activeEvent?.eventID) { eventID in
+            // 只在「冒出一个事件」时拉起来。事件消失（撤销 / 客服解除）时**不主动关闭**：
+            // 那一刻屏幕上正显示「已撤销」之类的收尾文案，自动关掉等于让用户听不完就被弹走。
+            guard eventID != nil else { return }
+            isPresented = true
+        }
+    }
+}
+
+extension View {
+    func emergencyRecoveryCover(
+        coordinator: EmergencyCoordinator,
+        isPresented: Binding<Bool>
+    ) -> some View {
+        modifier(EmergencyRecoveryPresentation(coordinator: coordinator, isPresented: isPresented))
+    }
+}
+
 // MARK: - 屏 3 / 屏 3b · 紧急倒计时与求助已发出
 
 /// 按下求助之后的那一整屏。**两态共用一个视图**：倒计时（屏 3）与求助已发出（屏 3b）。
@@ -20,6 +62,8 @@ struct EmergencyCountdownView: View {
     let onCancelCountdown: () -> Void
     /// 撤销自己已经发出的求助（`PUT /api/emergency/{id}/cancel`）。**只有本人和客服有这个权力。**
     let onCancelOwnEmergency: () async -> Void
+    /// 发送失败之后由**用户**决定要不要再发一次。
+    let onRetry: () -> Void
     let onClose: () -> Void
 
     @State private var showCancelOwnConfirmation = false
@@ -196,6 +240,21 @@ struct EmergencyCountdownView: View {
                         EmergencyDialer.dial(url)
                     }
                     .accessibilityIdentifier("blindEmergencySentCallContact")
+                }
+
+                // 🔴 **重试排在 120 / 110 后面，这个顺序本身就是要求的一半。**
+                // prompt 要的是「倒计时结束仍未发出时，显示明确提示和拨打 120 入口」——
+                // 一个摔在路边的人最该先够到的是急救电话，不是再赌一次网络。
+                //
+                // ⛔ **没有做成自动重试。** 后端 `POST /api/emergency/trigger` 没有幂等 key，
+                // 自动重发要么建出第二个事件、要么撞 60 秒冷却回 429 —— 而 429 的文案是
+                // 「请稍后再试」，会把一个**已经生效**的求助说成被拒绝。
+                // 「刚才那条到底发出去没有」改由只读的 `refreshActiveEvent()` 对账
+                // （`EmergencyCoordinator.reconcile(after:)`），不靠重发去试。
+                if coordinator.state.isFailure, coordinator.activeEvent == nil {
+                    PrimaryButton(EmergencySafetyCopy.retrySendTitle, action: onRetry)
+                        .accessibilityHint(EmergencySafetyCopy.retrySendAccessibilityHint)
+                        .accessibilityIdentifier("blindEmergencyRetrySend")
                 }
             }
         }

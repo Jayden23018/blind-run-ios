@@ -114,6 +114,15 @@ enum EmergencySafetyCopy {
     static let sentCallMedicalHint = "调起拨号界面，由你按下通话键"
     static let sentCallPoliceHint = "调起拨号界面，由你按下通话键"
 
+    /// 没发出去时的重试。**由用户按，不自动重发。**
+    ///
+    /// 后端 `POST /api/emergency/trigger` 没有幂等 key，自动重发要么建出第二个事件、
+    /// 要么撞 60 秒冷却回 429 —— 而 429 的文案是「请稍后再试」，会把一个**已经生效**
+    /// 的求助说成被拒绝。「刚才那条到底发出去没有」由只读的 `GET /api/emergency/active`
+    /// 对账（`EmergencyCoordinator.reconcile(after:)`），不靠重发去试。
+    static let retrySendTitle = "再发一次求助"
+    static let retrySendAccessibilityHint = "重新发送这次求助。如果上一次其实已经发出，系统会告诉你。"
+
     /// Not sent, because no fresh real coordinate was available. Says "未发出" first: the most
     /// important fact for someone who cannot see the screen is that nothing has been sent.
     ///

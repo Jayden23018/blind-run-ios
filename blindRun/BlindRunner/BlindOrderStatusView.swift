@@ -1436,9 +1436,23 @@ struct BlindOrderStatusView: View {
                         showEmergencyCountdown = false
                     }
                 },
+                onRetry: {
+                    // 重试走**完整的倒计时**，不是直接重发。理由有二：这一按同样可能是误触
+                    // （屏幕上刚刚才说过「未发出」，用户可能只是想确认一下）；
+                    // 而且发出求助只有一个出口，重试绕过倒计时就成了第二条路径。
+                    viewModel.beginEmergencyCountdown()
+                },
                 onClose: { showEmergencyCountdown = false }
             )
         }
+        // 求助不是只能从「按下按钮」那条路进屏 3b：志愿者代触发、冷启动、断线重连、
+        // 点开推送，四条路都会让 App 在不知情的情况下处在一个进行中的求助里。
+        // 数据侧早就有了（`AppState.catchUpMissedNotifications` → `refreshActiveEvent`），
+        // 缺的一直是界面侧 —— 恢复出来的状态此前只体现为底部一行小字。
+        .emergencyRecoveryCover(
+            coordinator: appState.emergencyCoordinator,
+            isPresented: $showEmergencyCountdown
+        )
         .onAppear {
             shareViewModel.configure(
                 appState: appState,

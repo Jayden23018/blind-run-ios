@@ -482,12 +482,33 @@ final class EmergencyCoordinator: ObservableObject {
             return finish(.acknowledged(response.eventStatus))
         } catch let error as APIError {
             if case .rateLimited(let info) = error {
-                return finish(.cooldown(retryAfterSeconds: info.retryAfterSeconds))
+                return await reconcile(after: .cooldown(retryAfterSeconds: info.retryAfterSeconds))
             }
-            return finish(.failed(error.localizedMessage))
+            return await reconcile(after: .failed(error.localizedMessage))
         } catch {
-            return finish(.failed("网络异常"))
+            return await reconcile(after: .failed("网络异常"))
         }
+    }
+
+    /// 发送失败之后**去问一句后端到底有没有收到**。
+    ///
+    /// 🔴 解决的是一个会说谎的失败：请求在服务端处理完了、响应在回程丢了（弱网、切基站、
+    /// 后台挂起），客户端只看见一个 `网络异常`。那一刻屏幕上写着「求助未发出」，
+    /// 而家属的短信其实已经在路上 —— 盲人会据此以为没人知道他出事了。
+    /// `429 冷却` 更直接：后端按触发者 SETNX 占位，命中它几乎就等于**刚才那条真的发出去了**。
+    ///
+    /// **没有做成自动重发。** 后端 `POST /api/emergency/trigger` 没有幂等 key，重发要么
+    /// 建出第二个事件、要么撞上 60 秒冷却回 429 —— 而 429 的文案是「请稍后再试」，
+    /// 会把一个**已经生效**的求助说成被拒绝。查询是只读的，没有这一类代价，
+    /// 而 `GET /api/emergency/active` 本来就是「事件 id 与当前状态的唯一权威来源」（契约原话）。
+    ///
+    /// 查不到（或这一侧根本没有查询权限，比如志愿者）就老老实实保留失败态 ——
+    /// 对账失败不许制造任何救援状态。
+    private func reconcile(after failure: EmergencySOSState) async -> TriggerOutcome {
+        _ = finish(failure)
+        await refreshActiveEvent()
+        guard activeEvent != nil else { return TriggerOutcome(state: failure) }
+        return TriggerOutcome(state: state)
     }
 
     private func finish(_ newState: EmergencySOSState) -> TriggerOutcome {
