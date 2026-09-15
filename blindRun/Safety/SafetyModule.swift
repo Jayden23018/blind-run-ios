@@ -515,9 +515,23 @@ struct EmergencyActionSection: View {
     @ObservedObject var coordinator: EmergencyCoordinator
     let onTrigger: () -> Void
     let onCancelOwnEmergency: () -> Void
-    /// 直接拨打紧急联系人 / 120 / 110。**常驻，不等云端求助失败才出现** ——
-    /// 陪跑进行中是这个 App 里最可能需要叫救护车的时刻，而 Apple 5.1.5 要的是一个按得到的入口，
-    /// 不是状态提示里那句「若情况危急请立即拨打110」。2026-09-08 之前这一页只有文字。
+    /// 直接拨打紧急联系人 / 120 / 110。**常驻，不等云端求助失败才出现。**
+    ///
+    /// 理由有两条，**都是产品判断，不是合规要求**：
+    /// 1. 陪跑进行中是这个 App 里最可能需要叫救护车的时刻；
+    /// 2. 云端求助最坏路径是等定位 5 秒 + 请求超时 15 秒 = 按下到听见「未发出」最长 20 秒，
+    ///    那之后再让人退出 App 盲操作找电话，是本仓库能自己消掉的最贵一段延迟。
+    ///
+    /// 2026-09-08 之前这一页只有文字（「若情况危急请立即拨打110」），
+    /// 对看不见屏幕的人念得出来而按不到等于没有。
+    ///
+    /// ⚠️ 2026-09-15 订正：原注释把理由挂在 **Apple 5.1.5** 上（「5.1.5 要的是一个按得到的入口」），
+    /// 那是**误引**。5.1.5 的原文是 "Location-based APIs **shouldn't** be used to provide
+    /// emergency services…"，即禁止用位置 API 提供紧急服务，**不是要求**必须有可点拨号入口；
+    /// 整页 App Store Review Guidelines 里只有这一处出现 `emergency`。
+    /// 误引的代价是真实的：它会让人以为这条设计不能改，于是根本不去讨论 ——
+    /// 2026-09-15 产品方提出「陪跑中不需要两个求助入口同时存在」时，这条注释差一点被用来挡回去。
+    /// 详见 `docs/research/blind-runner-ui-reference-study-20260915.md` §16。
     let onLocalCall: () -> Void
 
     var body: some View {
