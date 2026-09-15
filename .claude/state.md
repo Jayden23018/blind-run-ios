@@ -113,42 +113,51 @@ openspec 变更：`openspec/changes/enable-one-utterance-booking/`（`validate -
 
 ---
 
-## ⏭ 下一件：把 TrackStats 接进陪跑中那屏（2026-09-15 定，界面已定稿）
+## ⏭ 下一件：给 PR #138 补真机验证（代码已写完，一条 XCTest 都没跑）
 
-**界面设计已经定完，这里只剩数据接入。** 完整规格见
-`docs/research/blind-runner-ui-reference-study-20260915.md` §27–§29（含版式、留白、配色、
-VoiceOver 顺序），**别重新设计，照着做**。
+`feat/blind-active-run-execution-screen` → **PR #138**（stacked 在 #137 设计调研上）。
+产品 2026-09-15 定稿「Active Run is an execution screen, not a dashboard」，
+陪跑中整屏已重做、求助升成 Safety Hub、`TrackStats` 已接。CI 两项全绿。
 
-### 现状（已查清，不用重查）
+**唯一欠的是真机。** 两台设备当轮都 `unavailable`，`device-test.sh` 回 code 70。
 
-陪跑中那屏**当前不显示任何指标**。前几轮 mockup 里的「2.4 公里」在实现里并不存在。
+### 必须在真机上补的（按顺序）
 
-| 事实 | 出处 |
+1. `scripts/device-test.sh -only-testing:blindRunTests/BlindActiveRunTests`
+   `-only-testing:blindRunTests/EmergencySOSTests -only-testing:blindRunTests/LowVisionChannelTests`
+2. **3 条改过的既有 UI 测试**（标签/标识符跟着改了，不改必红；改完真不真绿只有真机说了算）：
+   `testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling`（`AccessibilityAuditTests`）、
+   `testMockBlindOrderHidesEmergencyActionInAcceptedStates`、
+   `testBlindEmergencyCopyNeverClaimsSmsDelivery`（后两条在 `blindRunUITests`）
+3. **两台都要**（`111` 与 `iPad Pro (2)`）—— 布局几何类改动
+4. **AX5 档下看 `ViewThatFits` 有没有如期落到滚动那一支**，三个数字不裁切；横屏同看
+
+### 还没做、留给有真机那一轮的
+
+- **截图调用点**：盲人端陪跑中至今没有任何 `attachScreenshot`。接缝是现成的
+  （`launchBlindHome(seedOrderStatus: "IN_PROGRESS")`，`AccessibilityAuditTests.swift:811`）。
+  本轮**刻意没写** —— 写得出来但验证不了，而本仓库吃过两次「UI 测试 launch argument 打错
+  名字静默 `passed=1`」和「合了只过编译门禁的 PR」的亏。
+- **视觉自检闭环**：跑测 → `device-test.sh:224-242` 自动导附件 → 派零上下文 subagent 看图挑毛病
+  → 分 A/B 两档只改 A。**不许拿 mockup 代替真实截图。**
+
+### 本轮已经做完、不要重做的
+
+- 陪跑中整屏（`BlindActiveRunView`）+ 底部安全锚点 + 求助中心（`blindActiveRunSafetyHubDialog`）
+- `TrackStats` 接入：挂在既有 5 秒轮询上、时间戳节流 10 秒，**不另起 Task**
+- 显示口径三个新属性（`distanceKilometersText` / `durationClockText` / `paceClockText`），
+  播报口径那三个**原样没动**
+- 每公里播报（`KilometerMilestoneTracker`，首个样本只定基线）
+- 顺带修掉一个真缺陷：亮色下 `destructive` 压固定深灰底只有 2.96:1，已加 `activeRunDestructive`
+- 删掉 `EmergencyActionSection` 与 `EmergencyCallContext.inProgress`（分流后恒不可达）
+- handoff 已投「有没有面向用户的联系客服通道」，并给体重那条补了现状
+
+### 两条仍在等后端（不阻塞合并）
+
+| 问题 | 我们先怎么做的 |
 |---|---|
-| `TrackStats` 已有 `distanceMeters` / `durationSeconds` / `avgPaceSecPerKm` | `blindRun/Core/Models/OrderTrackModels.swift:16-19` |
-| 三者都有现成格式化属性 `distanceText` / `durationText` / `averagePaceText` | 同上 `:21-40` |
-| 端点在 `IN_PROGRESS` 可调（空态文案有 `.inProgress` 分支） | 同上 `:85-86` |
-| 目前只接在回放页与完成页 | `OrderRouteReplayView.swift:143`、`CompletedTrackSummaryView.swift:47` |
-| 消耗千卡**算不出来**：后端零个体重字段（七组词全 0 命中） | 报告 §24，已投后端 handoff |
-
-### 要做的四件事
-
-1. 陪跑中页面接 `GET /api/orders/{orderId}/track`，按 §27 的左对齐版式渲染
-2. **定轮询频率** —— 订单详情已经 5 秒一轮，再加一个端点的频率没定（已在 handoff 问后端）
-3. 「设置体重」那格：后端答复前跳转到哪？还是暂时整格不显示？
-4. 每公里播报一次的触发点依赖这个数据源，一并接
-
-### 验证要求（这条别省）
-
-- 真机跑，CI 跑不了 XCTest
-- **两台**：`111` 与 `iPad Pro (2)` —— 布局几何类改动，单跑 iPhone 不算验过
-- **第一个要看的**：AX5 大字号下四组内容会不会顶掉 `Spacer()` 的留白甚至溢出
-
-### 同一轮里已经做完、不要重做的
-
-- `AGENTS.md` §6 两处订正（「必须带 orderId」的过期理由、降级分支补 120）
-- `SafetyModule.swift:518` 误引 Apple 5.1.5 的注释已改
-- 求助入口合并成一个红块 + 一层操作表的设计（报告 §23），**设计已定，实现未做**
+| `/track` 在 `IN_PROGRESS` 的频率约束 | 自定 10 秒，`BlindOrderStatusViewModel.trackPollingInterval` 一处可改 |
+| 有没有面向用户的「联系客服」端点或热线号 | 求助中心整项不显示（7 个 `cs-controller` 端点全是客服侧调的） |
 
 ## 环境事实（别重新踩）
 
