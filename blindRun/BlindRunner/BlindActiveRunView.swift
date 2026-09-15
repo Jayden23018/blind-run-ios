@@ -185,9 +185,11 @@ struct BlindActiveRunView: View {
 /// 代价是 VoiceOver 遍历从产品期望的 6 站变成 8 站，求助仍然是最后一站。
 struct BlindActiveRunSafetyAnchor: View {
     @ObservedObject var coordinator: EmergencyCoordinator
-    let onAskQuestion: () -> Void
     let onRepeatStatus: () -> Void
     let onOpenSafetyHub: () -> Void
+    /// 长按 3 秒 / 自定义无障碍动作：**跳过二次确认**，直接进倒计时。
+    /// 轻点走 `onOpenSafetyHub`，云端求助在那一层里仍然要确认。
+    let onTriggerEmergencyImmediately: () -> Void
     /// 本人撤销自己刚发出的求助（`PUT /api/emergency/{id}/cancel`）。
     /// **撤销权只在受助者本人和客服手里**（`AGENTS.md` §6），所以这个入口在盲人端不能没有。
     let onCancelOwnEmergency: () -> Void
@@ -200,14 +202,17 @@ struct BlindActiveRunSafetyAnchor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 16) {
-                quietButton("问一句", hint: "用说的问一句，比如还有多久、跑了多少公里", action: onAskQuestion)
-                    .accessibilityIdentifier("blindActiveRunAskQuestionButton")
-                quietButton("重复当前状态", hint: "点击后重新播报当前状态和已跑里程", action: onRepeatStatus)
-                    .accessibilityIdentifier("blindActiveRunRepeatStatusButton")
-            }
-            .padding(.horizontal, 24)
-            .readableContentColumn()
+            // 「问一句」2026-09-15 搬进求助中心（`BlindSafetyHubView` 的第三格）——
+            // 它是产品说的那五个跑中求助功能之一，而这一屏的定稿是「底部只留一个入口」。
+            // **它没有被做成纯 `accessibilityAction`**：那样只有开读屏的人够得着，
+            // 而低视力用户在弹层里仍然看得见摸得到那一格（记忆 `low-vision-visual-channel-unaudited`）。
+            //
+            // 「重复当前状态」留在这里：它不是求助功能，而是系统 Speak Screen 读不到
+            // 一次性 announcement 时唯一的补救，产品要求它常驻可见。
+            quietButton("重复当前状态", hint: "点击后重新播报当前状态和已跑里程", action: onRepeatStatus)
+                .padding(.horizontal, 24)
+                .readableContentColumn()
+                .accessibilityIdentifier("blindActiveRunRepeatStatusButton")
 
             // 云端求助的进行时 / 失败文案。只有云端那条链路会产生状态，拨号不会。
             if let message = coordinator.state.message {
@@ -245,25 +250,70 @@ struct BlindActiveRunSafetyAnchor: View {
             safetyHubBlock
         }
         .background(AppColors.activeRunSurface)
+        // 🔴 `children: .contain` 不能省 —— 2026-09-15 真机 UI 测试抓到这一处：
+        // 容器上的 `accessibilityIdentifier` 会**向下覆盖**每个子元素的标识符，
+        // 于是「重复当前状态」「紧急呼叫」「撤销求助」的 id 全变成了
+        // `blindActiveRunSafetyAnchor`，`testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling`
+        // 因此报「「重复当前状态」不见了」—— 而它明明就在屏幕上。
+        // 同款先例见 `OrderRouteReplayView.swift:105-110`（2026-08-12 实测）。
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("blindActiveRunSafetyAnchor")
     }
 
     /// 贴边全宽、**零圆角零边距**。不复用 `PrimaryButton`：那个是 12pt 圆角 + 内容列宽度的按钮，
     /// 而这一块的形状本身就是它的可寻址性 —— 拇指从屏幕下缘往上摸，摸到哪都是它。
+    ///
+    /// 🚩 **轻点与长按后果不同**：轻点打开求助中心（云端求助在那一层里仍要二次确认），
+    /// 长按 3 秒**跳过二次确认**直接进倒计时。副标题那行小字是长按这条路径唯一的告知途径，
+    /// 不能删 —— 不知道能长按的人不会误触，不知道长按会跳过确认的人才会。
+    ///
+    /// 形状/高度/配色一个字节没动（2026-09-15 定稿）：拇指盲摸靠的是这块的物理边界，
+    /// 而 `activeRunDestructive` 是为深灰底算过对比度的，换成设计稿上的黑胶囊会让边界糊掉。
     private var safetyHubBlock: some View {
-        Button(action: onOpenSafetyHub) {
-            Text(EmergencySafetyCopy.hubTitle)
-                .font(.system(size: 31, weight: .bold))
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 100)
-                // **不是 `AppColors.destructive`。** 那个跟随系统外观，而这一屏的底色是固定深灰 ——
-                // 亮色档的深红压上去只有 2.96:1，块的边界会糊掉。详见 `activeRunDestructive`。
-                .background(AppColors.activeRunDestructive)
+        VStack(spacing: 2) {
+            HStack(spacing: 10) {
+                Image(systemName: "shield.fill")
+                    .font(.system(size: 26, weight: .semibold))
+                    .accessibilityHidden(true)
+                Text(EmergencySafetyCopy.hubTitle)
+                    .font(.system(size: 31, weight: .bold))
+            }
+            Text(EmergencySafetyCopy.hubEntrySubtitle)
+                .font(AppFonts.caption().weight(.semibold))
+                .opacity(0.9)
         }
+        .foregroundColor(.white)
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 100)
+        // **不是 `AppColors.destructive`。** 那个跟随系统外观，而这一屏的底色是固定深灰 ——
+        // 亮色档的深红压上去只有 2.96:1，块的边界会糊掉。详见 `activeRunDestructive`。
+        .background(AppColors.activeRunDestructive)
+        // 轻点开求助中心、长按 3 秒直接进倒计时，两条路径与**按住过程中的渐强震动**
+        // 都在 `SafetyLongPressGesture` 里，与屏 2 那枚红胶囊共用一份实现。
+        //
+        // 2026-09-15 code review 抓到这块原本自己写了一份、而且**漏了渐强震动** ——
+        // 偏偏这块红块是全 App 唯一印着「长按 3 秒」四个字的地方，那 3 秒里一点触觉反馈都没有。
+        .safetyLongPress(
+            onTap: onOpenSafetyHub,
+            onLongPress: onTriggerEmergencyImmediately
+        )
+        // 🔴 **busy 时必须走 `.disabled()`，不能只在手势回调里 `guard ... return`。**
+        // `.disabled()` 同时做两件事：阻断手势，**并且**给无障碍元素打上「不可用」——
+        // VoiceOver 会念「变暗」。静默 return 只做前一件，读屏里它仍是一个完全正常的按钮，
+        // 盲人双击之后什么都不发生、什么都不念，也就是红线里那句「点了没反应就是事故」。
+        // （SwiftUI 的 `AccessibilityTraits` 没有 `.isNotEnabled`，那是 UIKit 的；
+        // 这个 trait 只能由 `.disabled()` 产出。）
         .disabled(coordinator.state.isBusy)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(EmergencySafetyCopy.hubAccessibilityLabel)
         .accessibilityHint(EmergencySafetyCopy.hubAccessibilityHint)
+        // 读屏用户不必去猜「双击并按住」按不按得住 —— 上下轻扫选这个动作即可。
+        // 它按长按算（跳过二次确认），理由见 `emergencyAccessibilityActionName`。
+        .accessibilityAction(named: Text(EmergencySafetyCopy.emergencyAccessibilityActionName)) {
+            guard !coordinator.state.isBusy else { return }
+            onTriggerEmergencyImmediately()
+        }
         .accessibilityIdentifier("blindActiveRunSafetyHubButton")
     }
 

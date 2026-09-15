@@ -1884,7 +1884,8 @@ final class blindRunUITests: XCTestCase {
     /// 通知同行志愿者与客服），而按开这一层菜单一个字节都没发出去。两者用同一个词，
     /// 看不见屏幕的人会以为求助已经发出。
     private func blindSafetyHub(_ app: XCUIApplication) -> XCUIElement {
-        app.buttons["求助，打开求助选项"].firstMatch
+        // 逐字对应 `EmergencySafetyCopy.hubAccessibilityLabel`。
+        app.buttons["求助与安全，打开求助选项"].firstMatch
     }
 
     private func dismissKeyboardIfPresent(app: XCUIApplication) {
