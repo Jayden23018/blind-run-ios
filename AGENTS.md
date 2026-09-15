@@ -237,7 +237,14 @@ REMATCHING → CANCELLED（只能盲人 token）
   > 要打开闸门需要先回答：无订单时坐标从哪来、误触冷却 60 秒按触发者计的代价、
   > 以及 `enable-independent-sos-safely` 里 4 条真机验证欠账（设备长期离线，从没跑过）。
 - 盲人首页那条常驻求助条是**唯一的例外形态，且它不是例外**：`IN_PROGRESS` 时走上面这条云端链路，
-  其余任何状态一律降级为**本地拨号**（主紧急联系人 / 110），**绝不调 `POST /api/emergency/trigger`**。
+  其余任何状态一律降级为**本地拨号**（主紧急联系人 / **120** / 110），**绝不调 `POST /api/emergency/trigger`**。
+  > 2026-09-15 补 `120`。原文只写了「主紧急联系人 / 110」，而 2026-09-08 起 `120` 已是
+  > 并列的可点入口（`EmergencySafetyCopy.homeCallMedicalTitle`）。理由写在 `SafetyModule.swift:203-206`：
+  > 用户在**跑步**，摔倒、扭伤、心脏不适是最可能发生的紧急情况，而它们对应的是急救不是报警；
+  > 那次改动之前「110或120」只作为文字出现在状态提示里 ——
+  > **对看不见屏幕的人，念得出来而按不到等于没有。**
+  > 降级分支那个弹窗的标题也不叫「求助」，叫 **「紧急呼叫」**（`homeCallTitle`）：
+  > 「一键求助」在本 App 里专指云端链路，两者共用一个词会让人以为求助已经发出。
   降级分支的文案必须说清「App 不会代你发送求助」—— 按下去只有拨号音，不说清等同于让盲人以为求助已发出。
   判定在 `BlindHomeSOSMode.resolve`（`blindRun/Safety/SafetyModule.swift`），
   用例 `EmergencySOSTests.testHomeSOSBarOnlyUsesTheCloudPathDuringInProgress` 逐状态钉住。
