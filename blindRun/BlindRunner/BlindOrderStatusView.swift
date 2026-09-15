@@ -507,6 +507,33 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
+    /// 进发出前的 3 秒反悔窗口（屏 3）。
+    ///
+    /// **两条路径都落到这里**：长按 3 秒 / 自定义无障碍动作直接进来，轻点则先过
+    /// `AGENTS.md` §6 那句逐字锁定的二次确认再进来。合成一条不是为了省代码 ——
+    /// 发出求助只有一个出口，「两条路的行为哪里不一样」这个问题就不存在，
+    /// 而屏 3b 也只需要从一个地方到达。
+    ///
+    /// 播报交给 `announce` 回调而不是在 coordinator 里播：coordinator 不该知道
+    /// 有没有 TTS 这回事（它在志愿者端也跑）。
+    func beginEmergencyCountdown() {
+        guard let order, let appState else { return }
+        appState.emergencyCoordinator.beginCountdown(
+            order: order,
+            role: appState.activeRole,
+            userID: appState.userId,
+            safety: appState.safety,
+            locate: { await self.freshEmergencyCoordinate() },
+            locationFailureReason: { self.locationService?.locationError },
+            announce: { [weak self] message in
+                // 倒计时每一秒都要盖掉上一秒那句 —— 合成器全进程只有一个、
+                // `speak` 自带 `stopSpeaking`，所以「谁后说谁赢」正是这里想要的行为
+                // （记忆 `later-speak-silently-cuts-the-earlier-one`）。
+                self?.speechService?.speak(message)
+            }
+        )
+    }
+
     /// Withdraws one's own false alarm. The only user-side exit that exists: the escorting volunteer
     /// is refused this action server-side on purpose.
     func cancelEmergency() async {
@@ -1157,6 +1184,9 @@ struct BlindOrderStatusView: View {
     @State private var showEmergencyCallOptions = false
     /// 陪跑中那块红色安全锚点打开的求助中心。
     @State private var showSafetyHub = false
+    /// 屏 3 / 屏 3b 的全屏呈现。**由显式动作打开，不由 coordinator 状态推导** ——
+    /// 推导的话首页 SOS 条触发的求助也会在订单页上弹出这一屏，而那条路径有它自己的界面。
+    @State private var showEmergencyCountdown = false
     @State private var showCancelConfirmation = false
     @State private var showStatusLogs = false
     @State private var showRunPlanShare = false
@@ -1188,6 +1218,17 @@ struct BlindOrderStatusView: View {
     /// `IN_PROGRESS` 走执行屏；**其余状态一行没改**，仍是原来那条滚动列表。
     private var isActiveRun: Bool {
         viewModel.order?.status == .inProgress
+    }
+
+    /// 进倒计时并把屏 3 呈上来。**两条触发路径共用这一个函数** —— 长按直接调，
+    /// 轻点经二次确认后调。两处各写一遍的话，迟早只有一处记得打开那个全屏。
+    private func startEmergencyCountdown() {
+        viewModel.beginEmergencyCountdown()
+        // 资格判定失败时 coordinator 落到 `.failed` 而不进倒计时。那一刻不该弹全屏：
+        // 屏幕上该出现的是安全锚点上那条「当前订单状态不能发起求助」，而不是一个
+        // 标题写着「即将发出」的空倒计时。
+        guard appState.emergencyCoordinator.state.isCountingDown else { return }
+        showEmergencyCountdown = true
     }
 
     /// 产品定稿 2026-09-15：跑动中那一屏是执行屏不是仪表盘，整个内容区换掉。
@@ -1359,9 +1400,9 @@ struct BlindOrderStatusView: View {
         // 求助中心。**它不是二次确认** —— 轻点「一键求助」之后才弹下面那条确认，
         // `AGENTS.md` §6 的逐字锁定文案与那一步都没动。
         //
-        // 长按 3 秒 / 自定义无障碍动作走 `onTriggerEmergencyImmediately`：跳过二次确认。
-        // 阶段 1 这条暂时也落在同一个确认上 —— 倒计时（屏 3）还没接，
-        // 而让它在没有倒计时的情况下**直接发出去**才是真的危险。
+        // 长按 3 秒 / 自定义无障碍动作走 `onTriggerEmergencyImmediately`：跳过二次确认，
+        // 直接进倒计时。轻点那条先过二次确认，确认之后**也进同一个倒计时** ——
+        // 发出求助只有一个出口，「两条路的行为哪里不一样」这个问题就不存在。
         .blindActiveRunSafetyHubSheet(
             isPresented: $showSafetyHub,
             primaryContact: appState.primaryEmergencyContact,
@@ -1370,15 +1411,33 @@ struct BlindOrderStatusView: View {
             onAnnounceLocation: { Task { await viewModel.announceCurrentLocation() } },
             onAskQuestion: { viewModel.askVoiceQuestion() },
             onTriggerEmergency: { showEmergencyConfirmation = true },
-            onTriggerEmergencyImmediately: { showEmergencyConfirmation = true }
+            onTriggerEmergencyImmediately: startEmergencyCountdown
         )
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation, audience: .runner) {
-            Task {
-                await viewModel.enterEmergency()
-                if let order = viewModel.order {
-                    onOrderUpdated(order)
-                }
-            }
+            startEmergencyCountdown()
+        }
+        // 屏 3 / 屏 3b。**全屏而不是 sheet**：这一刻盲人只有一件该做的事，
+        // 而 sheet 会把订单页留在下缘可见、可被 VoiceOver 滑到。
+        // 关闭只走屏内的按钮（`fullScreenCover` 本来就不能下滑关掉）。
+        .fullScreenCover(isPresented: $showEmergencyCountdown) {
+            EmergencyCountdownView(
+                coordinator: appState.emergencyCoordinator,
+                primaryContact: appState.primaryEmergencyContact,
+                onCancelCountdown: {
+                    guard appState.emergencyCoordinator.cancelCountdown() else { return }
+                    speechService.speak(EmergencySafetyCopy.countdownCancelled)
+                    showEmergencyCountdown = false
+                },
+                onCancelOwnEmergency: {
+                    await viewModel.cancelEmergency()
+                    // 撤销成功就退出这一屏；失败**留在原地** —— 求助仍然有效，
+                    // 而把人送回跑步页会让他以为已经撤掉了（`cancelOwnerFailed` 那句正是这个意思）。
+                    if appState.emergencyCoordinator.activeEvent == nil {
+                        showEmergencyCountdown = false
+                    }
+                },
+                onClose: { showEmergencyCountdown = false }
+            )
         }
         .onAppear {
             shareViewModel.configure(

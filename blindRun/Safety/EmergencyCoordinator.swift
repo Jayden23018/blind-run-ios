@@ -29,6 +29,15 @@ struct VolunteerEmergencyAlert: Equatable, Sendable {
 
 enum EmergencySOSState: Equatable {
     case idle
+    /// 发出前的反悔窗口（屏 3）。**这三秒里一个字节都还没发给后端。**
+    ///
+    /// 🔴 为什么不照 Apple 紧急 SOS 那样「进倒计时就发、取消再撤」：后端
+    /// `POST /api/emergency/trigger` 是**触发即升级** —— 紧急联系人在那一个请求里就被通知
+    /// （异步发短信），撤销会给他再补一条解除短信，而冷却 60 秒是**按触发者计**的
+    /// （`demo/docs/api_spec.yaml:2242`）。也就是说「先发再撤」的代价是：每一次误触都真的
+    /// 惊动家人两次，并且**在随后的 60 秒里锁死真正的求助**（429）。
+    /// 换来的只是「手机恰好在这三秒内没电或崩溃」这一种情形。
+    case countingDown(secondsRemaining: Int)
     case locating
     case submitting
     case acknowledged(EmergencyEventStatus)
@@ -51,6 +60,8 @@ enum EmergencySOSState: Equatable {
         switch self {
         case .idle:
             return nil
+        case .countingDown(let seconds):
+            return EmergencySafetyCopy.countdown(secondsRemaining: seconds)
         case .locating:
             return EmergencySafetyCopy.locating
         case .submitting:
@@ -80,13 +91,29 @@ enum EmergencySOSState: Equatable {
         // one fact a blind user must hear in the error register so they call 110 themselves.
         case .unsentNoLocation, .failed, .cooldown, .contactNotifyFailed:
             return true
-        case .idle, .locating, .submitting, .acknowledged, .contactSmsDelivered, .cancelledByOwner:
+        case .idle, .countingDown, .locating, .submitting, .acknowledged,
+             .contactSmsDelivered, .cancelledByOwner:
             return false
         }
     }
 
+    /// 「这一刻不该再接受一次新的求助触发」。倒计时在列 —— 倒计时期间再按一下不该
+    /// 叠出第二个倒计时，而这正是重复提交保护要防的事（`trigger` 开头那道 guard 读的就是它）。
     var isBusy: Bool {
-        self == .locating || self == .submitting
+        switch self {
+        case .countingDown, .locating, .submitting:
+            return true
+        case .idle, .acknowledged, .unsentNoLocation, .failed, .cooldown,
+             .contactSmsDelivered, .contactNotifyFailed, .cancelledByOwner:
+            return false
+        }
+    }
+
+    /// 倒计时那一屏该不该占满整屏。做成属性而不是让每个 view 各写一遍
+    /// `if case .countingDown` —— 屏 3 与屏 3b 的呈现条件必须只有一处。
+    var isCountingDown: Bool {
+        if case .countingDown = self { return true }
+        return false
     }
 }
 
@@ -167,6 +194,11 @@ final class EmergencyCoordinator: ObservableObject {
     /// to someone who cannot see the screen. Recovery goes through `refreshActiveEvent()` instead,
     /// which re-reads the authoritative state from the backend.
     func reset() {
+        // 倒计时必须跟着会话一起结束。漏掉它的后果很具体：上一个账号退出登录之后，
+        // 三秒前按下的那个求助**照样会发出去**，而且带着新账号的 token。
+        countdownTask?.cancel()
+        countdownTask = nil
+        EmergencyAlarm.stopAll()
         state = .idle
         activeEvent = nil
         volunteerAlert = nil
@@ -258,6 +290,81 @@ final class EmergencyCoordinator: ObservableObject {
         } catch {
             return false
         }
+    }
+
+    // MARK: Countdown（屏 3）
+
+    /// 倒计时秒数。3 秒取自 Apple 紧急 SOS，也与长按时长一致 —— 两个 3 秒不是巧合：
+    /// 「按住 3 秒 → 再给你 3 秒反悔」是一条完整的、可预期的节奏。
+    static let countdownSeconds = 3
+
+    /// 正在跑的那个倒计时。**挂在 coordinator 上而不是 view 上**，理由与整个类的存在理由同源：
+    /// 这段时间里用户可能锁屏、切后台、或被系统弹窗打断，而倒计时不能因为某个 view 消失就停摆。
+    private var countdownTask: Task<Void, Never>?
+
+    /// 开始发出前的倒计时。**长按 3 秒 / 自定义无障碍动作**这两条刻意路径走它，
+    /// 轻点那条仍然先过 `AGENTS.md` §6 的二次确认（确认之后也落到这里）。
+    ///
+    /// 每一秒播一次声音 + 震动 + 交给调用方播报 —— 屏幕上那个圆环对跑步中的盲人不存在。
+    func beginCountdown(
+        order: OrderDetailResponse,
+        role: UserRole?,
+        userID: Int64?,
+        safety: any SafetyServing,
+        locate: @escaping () async -> LocatedCoordinate?,
+        locationFailureReason: @escaping () -> LocationError? = { nil },
+        announce: @escaping (String) -> Void = { _ in }
+    ) {
+        // 与 `trigger` 同一道重复提交保护：倒计时期间再按一下不该叠出第二个倒计时。
+        guard !state.isBusy else { return }
+        // 发起资格在这里先判一次，倒数完 `trigger` 还会再判一次（订单状态可能在这三秒里变）。
+        // 先判是为了不让一个根本发不出去的求助白白数三秒 —— 那三秒里用户以为求助在路上。
+        guard let role, order.status.canTriggerEmergency(as: role) else {
+            state = .failed("当前订单状态不能发起求助")
+            return
+        }
+
+        countdownTask?.cancel()
+        state = .countingDown(secondsRemaining: Self.countdownSeconds)
+        announce(EmergencySafetyCopy.countdownTitle)
+
+        countdownTask = Task { [weak self] in
+            for remaining in stride(from: Self.countdownSeconds, through: 1, by: -1) {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self?.state = .countingDown(secondsRemaining: remaining)
+                    EmergencyAlarm.countdownTick()
+                    EmergencyHaptics.countdownTick()
+                    announce(EmergencySafetyCopy.countdown(secondsRemaining: remaining))
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            // 归零才发。`trigger` 开头那道 `guard !state.isBusy` 会被 `.countingDown` 挡住，
+            // 所以先回到 `.idle` —— 这一步不是形式：漏掉它的表现是倒数完什么都没发生。
+            self.state = .idle
+            let outcome = await self.trigger(
+                order: order,
+                role: role,
+                userID: userID,
+                safety: safety,
+                locate: locate,
+                locationFailureReason: locationFailureReason
+            )
+            announce(outcome.message)
+        }
+    }
+
+    /// 用户在倒计时里按了取消。**一个字节都没发出去过**，所以这里没有任何后端调用。
+    @discardableResult
+    func cancelCountdown() -> Bool {
+        guard state.isCountingDown else { return false }
+        countdownTask?.cancel()
+        countdownTask = nil
+        EmergencyAlarm.stopAll()
+        state = .idle
+        return true
     }
 
     // MARK: Trigger

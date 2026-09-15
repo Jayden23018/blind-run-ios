@@ -75,6 +75,45 @@ enum EmergencySafetyCopy {
     static let locating = "正在获取当前位置，请稍候。"
     static let submitting = "正在发送求助，请稍候。"
 
+    // MARK: 紧急倒计时（屏 3）
+
+    /// 倒计时那一屏的标题。**用「即将发出」不用「正在发出」** ——
+    /// 这三秒里一个字节都还没发出去，而说成进行时会让人以为取消已经来不及。
+    static let countdownTitle = "紧急求助即将发出"
+
+    /// 每一秒念一次。**「可以取消」必须每秒都在** —— 看不见屏幕的人不会知道
+    /// 屏幕下方有一个取消按钮，除非有人一直在告诉他。
+    static func countdown(secondsRemaining: Int) -> String {
+        "紧急求助将在 \(max(secondsRemaining, 0)) 秒后发出，现在取消还来得及。"
+    }
+
+    /// 进倒计时那一刻念一次的「即将发生什么」。
+    ///
+    /// 🔴 **三条都是进行时或将来时，一条完成时都没有。** 这不是文风选择：
+    /// 短信是在触发事务提交之后异步发的、失败也从不回告盲人（`AGENTS.md` §6），
+    /// 所以 App 永远不能说「已经通知了谁」。这里说的是**我们会去做什么**，不是做成了什么。
+    static let countdownPendingEffects = [
+        "通知你的陪跑志愿者",
+        "转给客服并回拨你",
+        "把你的实时位置一起发出",
+    ]
+
+    static let countdownCancelTitle = "取消"
+    static let countdownCancelAccessibilityHint = "立刻停止倒计时，不会发出任何求助"
+
+    /// 倒计时被取消。**第一句先说「没有发出」**，与 `locationUnavailable` / `homeCallDialogMessage`
+    /// 同源：看不见屏幕的人最需要先知道的是什么都没发生。
+    static let countdownCancelled = "已取消，没有发出求助。"
+
+    // MARK: 求助已发出（屏 3b）
+
+    static let sentTitle = "求助已发出"
+
+    /// 屏 3b 上那两个号码。**只调起系统拨号，不自动拨出** —— 自动拨号会把一个
+    /// 还在判断情况的人直接接进 110 接警台。
+    static let sentCallMedicalHint = "调起拨号界面，由你按下通话键"
+    static let sentCallPoliceHint = "调起拨号界面，由你按下通话键"
+
     /// Not sent, because no fresh real coordinate was available. Says "未发出" first: the most
     /// important fact for someone who cannot see the screen is that nothing has been sent.
     ///
