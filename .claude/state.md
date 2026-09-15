@@ -113,6 +113,43 @@ openspec 变更：`openspec/changes/enable-one-utterance-booking/`（`validate -
 
 ---
 
+## ⏭ 下一件：把 TrackStats 接进陪跑中那屏（2026-09-15 定，界面已定稿）
+
+**界面设计已经定完，这里只剩数据接入。** 完整规格见
+`docs/research/blind-runner-ui-reference-study-20260915.md` §27–§29（含版式、留白、配色、
+VoiceOver 顺序），**别重新设计，照着做**。
+
+### 现状（已查清，不用重查）
+
+陪跑中那屏**当前不显示任何指标**。前几轮 mockup 里的「2.4 公里」在实现里并不存在。
+
+| 事实 | 出处 |
+|---|---|
+| `TrackStats` 已有 `distanceMeters` / `durationSeconds` / `avgPaceSecPerKm` | `blindRun/Core/Models/OrderTrackModels.swift:16-19` |
+| 三者都有现成格式化属性 `distanceText` / `durationText` / `averagePaceText` | 同上 `:21-40` |
+| 端点在 `IN_PROGRESS` 可调（空态文案有 `.inProgress` 分支） | 同上 `:85-86` |
+| 目前只接在回放页与完成页 | `OrderRouteReplayView.swift:143`、`CompletedTrackSummaryView.swift:47` |
+| 消耗千卡**算不出来**：后端零个体重字段（七组词全 0 命中） | 报告 §24，已投后端 handoff |
+
+### 要做的四件事
+
+1. 陪跑中页面接 `GET /api/orders/{orderId}/track`，按 §27 的左对齐版式渲染
+2. **定轮询频率** —— 订单详情已经 5 秒一轮，再加一个端点的频率没定（已在 handoff 问后端）
+3. 「设置体重」那格：后端答复前跳转到哪？还是暂时整格不显示？
+4. 每公里播报一次的触发点依赖这个数据源，一并接
+
+### 验证要求（这条别省）
+
+- 真机跑，CI 跑不了 XCTest
+- **两台**：`111` 与 `iPad Pro (2)` —— 布局几何类改动，单跑 iPhone 不算验过
+- **第一个要看的**：AX5 大字号下四组内容会不会顶掉 `Spacer()` 的留白甚至溢出
+
+### 同一轮里已经做完、不要重做的
+
+- `AGENTS.md` §6 两处订正（「必须带 orderId」的过期理由、降级分支补 120）
+- `SafetyModule.swift:518` 误引 Apple 5.1.5 的注释已改
+- 求助入口合并成一个红块 + 一层操作表的设计（报告 §23），**设计已定，实现未做**
+
 ## 环境事实（别重新踩）
 
 - **真机是唯一 XCTest 通道**，模拟器因高德无 arm64-sim slice 永久不可用。**不要改 Podfile / EXCLUDED_ARCHS。**
