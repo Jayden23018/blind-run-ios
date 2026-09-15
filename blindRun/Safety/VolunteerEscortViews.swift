@@ -30,8 +30,26 @@ struct VolunteerEscortStatsCard: View {
     @ScaledMetric(relativeTo: .largeTitle) private var primaryNumberSize: CGFloat = 46
     @ScaledMetric(relativeTo: .title3) private var secondaryNumberSize: CGFloat = 24
 
-    /// 对方是否正处在求助中。已确认的告警不再算「求助中」——
-    /// 志愿者按下「我在他身边」之后，这一行该回到正常，否则整段陪跑都顶着红字。
+    /// 对方的状态。**三档，不是两档。**
+    ///
+    /// 2026-09-15 code review 抓到的：原实现只有「求助中 / 正常」，志愿者按完
+    /// 「我在他身边，去处理」之后这一行立刻变回**「正常」**、圆点变绿 ——
+    /// 而他按的那一下只是告诉客服「现场有人了」，求助本身仍然是开的
+    /// （同屏另一句话写着「这条求助只有他本人或客服能撤销」）。
+    /// 那与屏 5 刻意不写「客服已接入」是同一条红线：**不知道的事不许说**，
+    /// 「已经结束」同样是一件我们不知道的事。
+    private var peerStatus: (text: String, isAlarming: Bool) {
+        guard let alert = coordinator.volunteerAlert else {
+            return (EmergencySafetyCopy.volunteerPeerStatusNormal, false)
+        }
+        // 已确认：不再报警（否则一个**新的**求助会在视觉上被淹没），但也不宣称结束。
+        if alert.isAcknowledged {
+            return (EmergencySafetyCopy.volunteerPeerStatusAcknowledged, false)
+        }
+        return (EmergencySafetyCopy.volunteerPeerStatusEmergency, true)
+    }
+
+    /// 只给顶部那个小圆点用 —— 它表达的是「现在要不要立刻看一眼」，已确认之后就不要了。
     private var isPeerInEmergency: Bool {
         guard let alert = coordinator.volunteerAlert else { return false }
         return !alert.isAcknowledged
@@ -52,6 +70,7 @@ struct VolunteerEscortStatsCard: View {
             RoundedRectangle(cornerRadius: 14)
                 .strokeBorder(AppColors.textPrimary.opacity(0.85), lineWidth: 1.5)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerEscortStatsCard")
     }
 
@@ -125,10 +144,8 @@ struct VolunteerEscortStatsCard: View {
         VStack(spacing: 0) {
             statusRow(
                 label: EmergencySafetyCopy.volunteerPeerStatusLabel,
-                value: isPeerInEmergency
-                    ? EmergencySafetyCopy.volunteerPeerStatusEmergency
-                    : EmergencySafetyCopy.volunteerPeerStatusNormal,
-                isAlarming: isPeerInEmergency
+                value: peerStatus.text,
+                isAlarming: peerStatus.isAlarming
             )
             Divider()
             statusRow(
@@ -263,6 +280,9 @@ struct VolunteerEmergencyAlertView: View {
     @State private var didResolvePlace = false
     @State private var elapsedSeconds = 0
 
+    /// 警报最长响这么久。够把人从导航 / 口袋里叫出来，又不至于盖掉他随后要打的电话。
+    static let sirenDuration: TimeInterval = 15
+
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -286,14 +306,27 @@ struct VolunteerEmergencyAlertView: View {
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerEmergencyAlert")
         .onReceive(ticker) { _ in
             elapsedSeconds = Int(Date().timeIntervalSince(alert.receivedAt))
         }
         .task {
             // 警报音 + 震动。志愿者多半没在看屏幕，全屏本身传达不了任何东西。
+            // 先把「多久之前」算准再说。只靠 ticker 每秒更新的话，这一屏出现的第一秒
+            // 恒显示「0 秒前」—— 而冷启动恢复时那条告警可能是几十秒前的，
+            // 「刚刚发生」和「我漏看了很久」对志愿者是两种完全不同的判断。
+            elapsedSeconds = Int(Date().timeIntervalSince(alert.receivedAt))
             EmergencyAlarm.startSiren()
             EmergencyHaptics.countdownTick()
+            // 🔴 **响够就停，不无限循环。** 这一屏刻意没有关闭按钮（撤销权不在志愿者手里），
+            // 而 `acknowledgeEmergency` 连续失败时告警不会消失 —— 无限循环的警报会把
+            // 志愿者困在一段**关不掉也静不了**的声音里，而他此刻多半正需要打电话。
+            // 警报的作用是「叫住他」，叫到了就该让位。
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(Self.sirenDuration * 1_000_000_000))
+                EmergencyAlarm.stopSiren()
+            }
             await resolvePlaceIfPossible()
         }
         .onDisappear { EmergencyAlarm.stopSiren() }

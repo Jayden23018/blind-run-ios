@@ -206,6 +206,36 @@ final class VolunteerEscortAlertTests: XCTestCase {
         XCTAssertEqual(coordinator.volunteerAlert?.isAcknowledged, true)
     }
 
+    /// 🔴 **志愿者按完「我在他身边」之后，那一行不许写「正常」。**
+    ///
+    /// code review 抓到的：原实现只有两档，确认之后这一行立刻变回「正常」、圆点变绿，
+    /// 志愿者扫一眼得到的结论是「这事过去了」。而他按的那一下只是告诉客服
+    /// 「现场有人了」——求助本身仍然是开的，同一屏上另一句话就写着
+    /// 「这条求助只有他本人或客服能撤销」。
+    ///
+    /// 这与屏 5 刻意不写「客服已接入」是同一条红线：**不知道的事不许说**，
+    /// 「已经结束」同样是一件我们不知道的事。
+    ///
+    /// 也不能继续顶着红色的「求助中」—— 那会让一个**新的**求助在视觉上完全淹没掉。
+    /// 所以必须是三档。
+    func testAcknowledgedStatusSaysNeitherNormalNorStillAlarming() {
+        let normal = EmergencySafetyCopy.volunteerPeerStatusNormal
+        let alarming = EmergencySafetyCopy.volunteerPeerStatusEmergency
+        let acknowledged = EmergencySafetyCopy.volunteerPeerStatusAcknowledged
+
+        XCTAssertEqual(Set([normal, alarming, acknowledged]).count, 3, "三档必须互不相同")
+        XCTAssertNotEqual(acknowledged, normal, "确认之后写「正常」= 宣称求助已经结束")
+        XCTAssertNotEqual(acknowledged, alarming)
+
+        // 而且这一档也不许宣称客服已经在处理到什么程度 —— 志愿者端读不到那个状态。
+        for claim in ["已接入", "已受理", "已解决", "已结束"] {
+            XCTAssertFalse(
+                acknowledged.contains(claim),
+                "「\(acknowledged)」宣称了一件志愿者端无从知道的事：\(claim)"
+            )
+        }
+    }
+
     // MARK: - Fixtures
 
     private static func alert(lat: Double?, lng: Double?) -> WSEmergencyVolunteerAlert {

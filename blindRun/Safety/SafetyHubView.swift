@@ -117,6 +117,12 @@ struct BlindSafetyHubView: View {
         // 弹层打开后焦点落在求助上、且被限制在弹层内。`.isModal` 让 VoiceOver 不再往下面的
         // 订单页滑 —— 那一屏此刻在视觉上已经被盖住，能滑到就是「念得到但看不见」。
         .accessibilityAddTraits(.isModal)
+        // 🔴 `children: .contain` 不能省。`accessibilityIdentifier` 加在容器上会**向下覆盖**
+        // 每个子元素的标识符 —— 本仓库 2026-08-12 在 `OrderRouteReplayView` 上真机实测过：
+        // 那一页的按钮和三个统计格全部变成了容器的 id，按子元素 id 的查询永远落空。
+        // `guard.mjs` 的 `stale-ui-test-identifier` 查的是「App 侧有没有这个字面量」，
+        // 字面量确实在，**那条守卫挡不住这一层**。
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("blindSafetyHub")
         .onAppear { emergencyFocused = true }
     }
@@ -345,6 +351,100 @@ enum SafetyLongPress {
     ]
 }
 
+/// 「轻点走一条路、长按 3 秒走另一条」这套手势的**唯一实现**。
+///
+/// 屏 1 的贴边红块和屏 2 的红胶囊都用它。2026-09-15 code review 抓到这两处原本各写一份，
+/// 于是屏 1 那块 —— **全 App 唯一印着「长按 3 秒」四个字的地方** —— 反而没有接上渐强震动，
+/// 而那是「用户凭什么知道自己按够了没」的唯一依据。
+///
+/// 🔴 **`didFireLongPress` 这个标志位不是防御性代码。** `.onLongPressGesture` 与
+/// `.simultaneousGesture(TapGesture())` 并存时，长按满 3 秒抬手会不会**再**触发一次 tap，
+/// SwiftUI 没有任何公开约定（`TapGesture` 对按压时长没有文档化的上限）。真会触发的话后果是静默的：
+/// 屏 1 上 alert 与 sheet 会在同一次交互里都要求呈现、iOS 丢掉其中一个；屏 2 上后到的 tap
+/// 会把长按刚设好的待执行动作覆盖掉，于是**长按 3 秒完全等价于轻点**，倒计时那条路径消失。
+/// 与其去真机上验一个没有约定的行为，不如让实现不依赖它。
+///
+/// ⛔ 不用 `Button`：`Button` 把长按当成「取消这次点击」吃掉，两个手势挂在同一个
+/// `Button` 上时长按那条永远拿不到。
+struct SafetyLongPressGesture: ViewModifier {
+    let onTap: () -> Void
+    let onLongPress: () -> Void
+    /// 按住过程中的视觉反馈。屏 2 的胶囊用它变淡，屏 1 的贴边红块不需要（它没有形状变化的余地）。
+    var onPressingChanged: (Bool) -> Void = { _ in }
+
+    @State private var didFireLongPress = false
+    @State private var rampTasks: [DispatchWorkItem] = []
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .onLongPressGesture(
+                minimumDuration: SafetyLongPress.duration,
+                perform: {
+                    cancelRamp()
+                    didFireLongPress = true
+                    onPressingChanged(false)
+                    onLongPress()
+                },
+                onPressingChanged: { pressing in
+                    onPressingChanged(pressing)
+                    if pressing {
+                        // **只在按下那一刻清标志**，不在抬手时清 —— 抬手与 tap 的先后
+                        // 同样没有约定，在抬手时清等于把这道保险抹掉。
+                        didFireLongPress = false
+                        startRamp()
+                    } else {
+                        cancelRamp()
+                    }
+                }
+            )
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    guard !didFireLongPress else { return }
+                    onTap()
+                }
+            )
+            .onDisappear(perform: cancelRamp)
+    }
+
+    private func startRamp() {
+        cancelRamp()
+        rampTasks = SafetyLongPress.hapticRamp.map { step in
+            let work = DispatchWorkItem {
+                // 不 `prepare()` 的话首次触发常被系统丢掉 —— 而首次正是最要紧的那次：
+                // 用户刚按下去，还不知道这块红的认不认长按。
+                let generator = UIImpactFeedbackGenerator(style: .heavy)
+                generator.prepare()
+                generator.impactOccurred(intensity: step.intensity)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + step.elapsed, execute: work)
+            return work
+        }
+    }
+
+    private func cancelRamp() {
+        rampTasks.forEach { $0.cancel() }
+        rampTasks = []
+    }
+}
+
+extension View {
+    /// 轻点与长按后果不同的那套手势。见 `SafetyLongPressGesture`。
+    func safetyLongPress(
+        onTap: @escaping () -> Void,
+        onLongPress: @escaping () -> Void,
+        onPressingChanged: @escaping (Bool) -> Void = { _ in }
+    ) -> some View {
+        modifier(
+            SafetyLongPressGesture(
+                onTap: onTap,
+                onLongPress: onLongPress,
+                onPressingChanged: onPressingChanged
+            )
+        )
+    }
+}
+
 /// 红胶囊。**轻点 = 走二次确认，长按 3 秒 = 跳过确认直接进倒计时。**
 ///
 /// 🔴 两条路径后果不同，所以副标题必须把长按说出来 —— 见 `EmergencySafetyCopy.hubEntrySubtitle`
@@ -353,13 +453,12 @@ enum SafetyLongPress {
 struct EmergencySOSLongPressButton: View {
     let onTap: () -> Void
     let onLongPress: () -> Void
+    /// 求助正在路上（定位中 / 发送中）时不接受新的触发。
+    var isEnabled = true
 
     @State private var isPressing = false
-    @State private var rampTasks: [DispatchWorkItem] = []
 
     var body: some View {
-        // 用 `Text` 而不是 `Button`：`Button` 自己会吃掉长按（它把长按当成「取消这次点击」），
-        // 两个手势挂在同一个 `Button` 上时长按那条永远拿不到。
         VStack(spacing: 4) {
             HStack(spacing: 8) {
                 // `sos` 那个符号要 iOS 16.1，部署目标是 16.0 —— 见
@@ -380,23 +479,17 @@ struct EmergencySOSLongPressButton: View {
         .background(
             Capsule().fill(AppColors.destructive.opacity(isPressing ? 0.75 : 1))
         )
-        .contentShape(Capsule())
-        .onLongPressGesture(
-            minimumDuration: SafetyLongPress.duration,
-            perform: {
-                cancelRamp()
-                isPressing = false
-                onLongPress()
-            },
-            onPressingChanged: { pressing in
-                isPressing = pressing
-                if pressing { startRamp() } else { cancelRamp() }
-            }
+        .clipShape(Capsule())
+        // 轻点走二次确认、长按 3 秒跳过它。两条路径与渐强震动的实现都在
+        // `SafetyLongPressGesture` 里 —— 屏 1 那块贴边红块用的是同一份。
+        .safetyLongPress(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            onPressingChanged: { isPressing = $0 }
         )
-        // 轻点那条单独挂一个 `TapGesture`。`onLongPressGesture` 不会替我们报「按了但没够时长」，
-        // 而「没够 3 秒就松手 = 什么都不发生」正是这枚按钮的防误触设计（prompt §屏 1）——
-        // 所以短按必须落到有二次确认的那条路上，不能什么都不做。
-        .simultaneousGesture(TapGesture().onEnded { onTap() })
+        // 见屏 1 那块红块上的同一段注释：`.disabled()` 是 SwiftUI 里唯一能让读屏
+        // 念出「不可用」的写法，静默 `guard` 做不到。
+        .disabled(!isEnabled)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(EmergencySafetyCopy.title)
@@ -407,24 +500,5 @@ struct EmergencySOSLongPressButton: View {
             onLongPress()
         }
         .accessibilityIdentifier("blindSafetyHubTriggerEmergency")
-        .onDisappear(perform: cancelRamp)
-    }
-
-    private func startRamp() {
-        cancelRamp()
-        rampTasks = SafetyLongPress.hapticRamp.map { step in
-            let work = DispatchWorkItem {
-                let generator = UIImpactFeedbackGenerator(style: .heavy)
-                generator.prepare()
-                generator.impactOccurred(intensity: step.intensity)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + step.elapsed, execute: work)
-            return work
-        }
-    }
-
-    private func cancelRamp() {
-        rampTasks.forEach { $0.cancel() }
-        rampTasks = []
     }
 }

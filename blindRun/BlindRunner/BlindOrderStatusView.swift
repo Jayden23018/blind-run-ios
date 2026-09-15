@@ -2412,7 +2412,11 @@ struct BlindOrderStatusView: View {
                 coordinator: appState.emergencyCoordinator,
                 onRepeatStatus: { viewModel.repeatStatus() },
                 onOpenSafetyHub: { showSafetyHub = true },
-                onTriggerEmergencyImmediately: { showEmergencyConfirmation = true },
+                // 长按 3 秒 / 自定义无障碍动作 → **跳过二次确认直接进倒计时**。
+                // 2026-09-15 code review 抓到这里原本指向确认弹窗（阶段 1 的临时接线，
+                // 阶段 2 接倒计时时漏了这一处）—— 而按钮副标题逐字印着「长按 3 秒紧急求助」，
+                // 四处代码注释也都声称这条路径跳过确认。屏 2 那一处（:1414）一直是对的。
+                onTriggerEmergencyImmediately: startEmergencyCountdown,
                 onCancelOwnEmergency: { showEmergencyCancelConfirmation = true },
                 onLocalCall: { showEmergencyCallOptions = true }
             )

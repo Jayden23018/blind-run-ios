@@ -91,6 +91,10 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.sentCallPoliceHint,
             EmergencySafetyCopy.retrySendTitle,
             EmergencySafetyCopy.retrySendAccessibilityHint,
+            EmergencySafetyCopy.sendingTitle,
+            EmergencySafetyCopy.unsentTitle,
+            EmergencySafetyCopy.cancelledTitle,
+            EmergencySafetyCopy.volunteerPeerStatusAcknowledged,
             EmergencySafetyCopy.locationAnnouncement(nil),
             EmergencySafetyCopy.locationAnnouncement("人民公园"),
             EmergencySafetyCopy.homeCallMedicalTitle
@@ -528,28 +532,183 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertEqual(spoken.first, EmergencySafetyCopy.countdownTitle, "进倒计时那一刻没有播报")
     }
 
-    /// 倒计时期间再按一下**不该叠出第二个倒计时**，更不该发两条求助。
+    /// 倒计时期间再按一下**不该叠出第二个倒计时，也不该把倒计时重新计到 3**。
+    ///
+    /// ⚠️ 2026-09-15 code review 指出这条用例原本**分辨不出**它宣称守的东西：
+    /// 三次调用挤在同一瞬间，而 `beginCountdown` 开头有一句 `countdownTask?.cancel()`——
+    /// 于是把 `.countingDown` 从 `isBusy` 里拿掉（也就是「第二次按重启倒计时」这个
+    /// 被打回的实现）之后，最后仍然只剩一个任务在跑，`safety.calls.count` 照样是 1。
+    ///
+    /// 现在把三次按下**拉开 1.2 秒**，并数「还有 3 秒」这句播报出现了几次：
+    /// 正确实现只念一次（后两次被 `isBusy` 挡掉），重启实现会念三次。
     @MainActor
-    func testSecondPressDuringCountdownIsIgnored() async {
+    func testSecondPressDuringCountdownNeitherResendsNorRestartsTheCountdown() async {
         let (coordinator, safety) = Self.makeCountdownFixture()
         defer { Self.teardownAlarmObservers() }
         safety.triggerEmergencyResult = .success(
             EmergencyTriggerResponse(success: true, eventId: 901, status: "CONTACT_NOTIFIED")
         )
         let order = Self.makeOrder(status: .inProgress)
-
-        for _ in 0..<3 {
+        var spoken: [String] = []
+        let press = {
             coordinator.beginCountdown(
                 order: order,
                 role: .blind,
                 userID: 7,
                 safety: safety,
-                locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+                locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) },
+                announce: { spoken.append($0) }
             )
         }
 
-        try? await Task.sleep(nanoseconds: 4_500_000_000)
+        press()
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        press()
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        press()
+
+        try? await Task.sleep(nanoseconds: 3_500_000_000)
+
         XCTAssertEqual(safety.calls.count, 1, "连按三下发出了 \(safety.calls.count) 条求助")
+        let restarts = spoken.filter { $0 == EmergencySafetyCopy.countdown(secondsRemaining: 3) }
+        XCTAssertEqual(
+            restarts.count,
+            1,
+            "倒计时被重新计到 3 了 \(restarts.count) 次 —— 每按一下就多拖 3 秒，而这三秒里没人来救"
+        )
+    }
+
+    // MARK: - 屏 3 / 3b 的标题（code review A2 / A3）
+
+    /// 🔴 **顶部那句大标题必须与此刻的真实状态一致。**
+    ///
+    /// code review 抓到的原缺陷：`.locating` / `.submitting` 落进 `else` 分支，
+    /// 于是在**一个字节都还没发出去**的那最长约 20 秒里（等定位 5 秒 + 请求超时 15 秒），
+    /// 屏幕顶部 44pt 的红色大标题写着「求助已发出」，正文写着「正在获取当前位置」。
+    /// 标题带 `.isHeader`，VoiceOver 滑到页首听到的就是这句。
+    ///
+    /// 这条用例**逐状态穷举**，而不是只挑两三个 —— `testNoEmergencyCopyClaimsAnSMSWasDelivered`
+    /// 扫的是字符串常量，扫不到一个 `if/else` 的取值，那正是它漏掉这个缺陷的原因。
+    func testScreenTitleNeverClaimsSentBeforeAnythingWasSent() {
+        let notSentYet: [EmergencySOSState] = [
+            .countingDown(secondsRemaining: 3),
+            .locating,
+            .submitting,
+            .unsentNoLocation(nil),
+            .unsentNoLocation(.permissionDenied),
+            .failed("网络异常"),
+            .cooldown(retryAfterSeconds: 42),
+        ]
+        for state in notSentYet {
+            let title = EmergencySafetyCopy.screenTitle(for: state, hasActiveEvent: false)
+            XCTAssertNotEqual(
+                title,
+                EmergencySafetyCopy.sentTitle,
+                "\(state) 时一个字节都还没发出去，标题却写着「\(title)」"
+            )
+        }
+
+        // 还在路上的两态：**进行时**，不能是将来时的承诺、也不能是完成时。
+        XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: .locating, hasActiveEvent: false), EmergencySafetyCopy.sendingTitle)
+        XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: .submitting, hasActiveEvent: false), EmergencySafetyCopy.sendingTitle)
+
+        // 失败三态：**不许回落成「即将发出」**。那是一句将来时的承诺，而这条求助已经死了，
+        // 必须靠用户自己按「再发一次求助」。
+        for state in [EmergencySOSState.unsentNoLocation(nil), .failed("网络异常"), .cooldown(retryAfterSeconds: 1)] {
+            XCTAssertEqual(
+                EmergencySafetyCopy.screenTitle(for: state, hasActiveEvent: false),
+                EmergencySafetyCopy.unsentTitle,
+                "\(state) 的标题应当直说没发出去"
+            )
+        }
+
+        // 真的发出去了的才准用完成时。`contactNotifyFailed` 也在内：
+        // 失败的是**通知联系人**，求助本身已经发出去了。
+        for state in [EmergencySOSState.acknowledged(.contactNotified), .contactSmsDelivered, .contactNotifyFailed] {
+            XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: state, hasActiveEvent: true), EmergencySafetyCopy.sentTitle)
+        }
+
+        XCTAssertEqual(
+            EmergencySafetyCopy.screenTitle(for: .cancelledByOwner, hasActiveEvent: false),
+            EmergencySafetyCopy.cancelledTitle
+        )
+        // `.idle` 只由「有没有事件」决定，不猜。
+        XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: .idle, hasActiveEvent: true), EmergencySafetyCopy.sentTitle)
+        XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: .idle, hasActiveEvent: false), EmergencySafetyCopy.unsentTitle)
+    }
+
+    // MARK: - 警报音与震动（code review A10）
+
+    /// 倒计时每一秒**恰好**响一次、震一次。
+    ///
+    /// ⚠️ code review 指出 `EmergencyAlarm.observerForTesting` / `playerForTesting` 此前
+    /// 只被装成 no-op、一条断言都没有，而它们的存在理由被逐字写在实现里：
+    /// 「没有断言的实现，和不存在的实现在下一个人眼里是一样的 ——
+    /// 而这是盲人判断「倒计时开始了没有」的唯一非视觉信号」。
+    ///
+    /// 屏幕上那个圆环对一个戴着骨传导耳机、手机绑在腰上的跑者不存在；
+    /// 声音和震动**就是**倒计时本身。
+    @MainActor
+    func testCountdownSoundsAndVibratesOncePerSecond() async {
+        var ticks: [EmergencyAlarm.Kind] = []
+        var vibrations = 0
+        EmergencyAlarm.observerForTesting = { ticks.append($0) }
+        EmergencyHaptics.observerForTesting = { _ in vibrations += 1 }
+        defer { Self.teardownAlarmObservers() }
+
+        let coordinator = EmergencyCoordinator()
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 903, status: "CONTACT_NOTIFIED")
+        )
+        coordinator.beginCountdown(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+        try? await Task.sleep(nanoseconds: 4_500_000_000)
+
+        XCTAssertEqual(
+            ticks.count,
+            EmergencyCoordinator.countdownSeconds,
+            "倒计时响了 \(ticks.count) 声，应当是每秒一声共 \(EmergencyCoordinator.countdownSeconds) 声"
+        )
+        XCTAssertEqual(vibrations, EmergencyCoordinator.countdownSeconds, "震动次数和声音对不上")
+        // 用的是倒计时那一声，不是连续警报 —— 后者是志愿者端强提醒用的，会一直循环。
+        XCTAssertTrue(ticks.allSatisfy { $0 == .countdownTick })
+    }
+
+    /// 🔴 **同一种警报音始终是同一个播放器对象。**
+    ///
+    /// 这条不是优化，是防崩：2026-08-16 `RecordingCue` 曾经「每次发声 new 一个播放器、
+    /// 覆盖同一个静态槽」，于是上一声还在播时就被释放，音频队列随后把
+    /// `-[AVAudioPlayer finishedPlaying:]` 派回主线程、打在已被复用的内存上 ——
+    /// 真机表现是**崩在任意一条与音频无关的用例上**
+    /// （记忆 `finishedplaying-crash-means-player-freed-not-delegate`）。
+    ///
+    /// 倒计时这一声每秒触发一次、而一声只有 0.17 秒，**正是同一个形状**。
+    @MainActor
+    func testEmergencyAlarmReusesOnePlayerPerKind() throws {
+        // 这条要真的建播放器，所以不能装 observer（装了就被接管、一个播放器都不会创建）。
+        EmergencyAlarm.observerForTesting = nil
+        EmergencyHaptics.observerForTesting = { _ in }
+        defer { Self.teardownAlarmObservers() }
+
+        EmergencyAlarm.countdownTick()
+        let first = try XCTUnwrap(
+            EmergencyAlarm.playerForTesting(.countdownTick),
+            "第一次触发之后没有留下播放器 —— 出了作用域就停，提示音等于没响"
+        )
+        EmergencyAlarm.countdownTick()
+        let second = try XCTUnwrap(EmergencyAlarm.playerForTesting(.countdownTick))
+
+        XCTAssertTrue(
+            first === second,
+            "同一种警报音换了播放器对象 —— 上一声还在播时被释放，就是那次 use-after-free 的形状"
+        )
+        EmergencyAlarm.stopAll()
     }
 
     /// 🔴 **会话边界必须掐掉在飞的倒计时。**

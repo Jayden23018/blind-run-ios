@@ -109,6 +109,48 @@ enum EmergencySafetyCopy {
 
     static let sentTitle = "求助已发出"
 
+    /// 🔴 **这一屏顶部那句大标题，必须与此刻的真实状态一致。**
+    ///
+    /// 2026-09-15 code review 抓到的缺陷长这样：原实现是三行 `if`，`.locating` 与
+    /// `.submitting` 两态既不是倒计时、又没有 `activeEvent`、又不是失败，于是落进最后那个
+    /// `else` —— 屏幕顶部 44pt 的红色大标题写着**「求助已发出」**，而正文写着
+    /// 「正在获取当前位置，请稍候」，此刻**一个字节都还没发出去**。
+    /// 那段窗口最长约 20 秒（等定位 5 秒 + 请求超时 15 秒），而标题带 `.isHeader`，
+    /// VoiceOver 用户滑到页首听到的就是这句。这是 `AGENTS.md` §6
+    /// 「App 永远不得宣称求助已发出」的同一形状。
+    ///
+    /// 失败时它又会回落成「紧急求助即将发出」—— 一句将来时的**承诺**，
+    /// 而事实是这条求助已经死了、必须手动再发一次。
+    ///
+    /// 改成**穷举 switch 的纯函数**：新增状态时编译器逼一次决策，而且能被单测直接钉住
+    /// （`if/else` 的取值 `testNoEmergencyCopyClaimsAnSMSWasDelivered` 那种扫常量的用例够不着）。
+    static let sendingTitle = "正在发出求助"
+    static let unsentTitle = "求助未发出"
+    static let cancelledTitle = "求助已撤销"
+
+    static func screenTitle(for state: EmergencySOSState, hasActiveEvent: Bool) -> String {
+        switch state {
+        case .countingDown:
+            return countdownTitle
+        // 还在路上。**进行时**，因为此刻确实什么都还没发出去。
+        case .locating, .submitting:
+            return sendingTitle
+        // 后端受理了。`contactNotifyFailed` 也在这里：失败的是**通知联系人**，
+        // 求助本身已经发出去了（正文会把「对方没收到短信」说清楚）。
+        case .acknowledged, .contactSmsDelivered, .contactNotifyFailed:
+            return sentTitle
+        case .cancelledByOwner:
+            return cancelledTitle
+        // 一个字节都没发出去的三种。
+        case .unsentNoLocation, .failed, .cooldown:
+            return unsentTitle
+        // `.idle` 在这一屏只可能来自恢复（`activeEvent` 先到、状态还没跟上）
+        // 或对账把陈旧事件清掉之后。有事件就是已发出，没有就是没发出 —— 不猜。
+        case .idle:
+            return hasActiveEvent ? sentTitle : unsentTitle
+        }
+    }
+
     /// 屏 3b 上那两个号码。**只调起系统拨号，不自动拨出** —— 自动拨号会把一个
     /// 还在判断情况的人直接接进 110 接警台。
     static let sentCallMedicalHint = "调起拨号界面，由你按下通话键"
@@ -234,6 +276,18 @@ enum EmergencySafetyCopy {
     static let volunteerPeerStatusLabel = "他的状态"
     static let volunteerPeerStatusNormal = "正常"
     static let volunteerPeerStatusEmergency = "求助中"
+
+    /// 志愿者按过「我在他身边，去处理」之后。
+    ///
+    /// 🔴 **不能回落成「正常」。** 他按的那一下只是告诉客服「现场有人了」，求助本身
+    /// 仍然是开的 —— 同一屏上另一句话写着「这条求助只有他本人或客服能撤销」
+    /// （`volunteerAlertNoDismissNotice`）。写「正常」会让志愿者扫一眼就得出
+    /// 「这事过去了」，而那与屏 5 刻意不写「客服已接入」是同一条红线：
+    /// **不知道的事不许说**，已经结束同样是一件我们不知道的事。
+    ///
+    /// 也不能继续顶着红色的「求助中」—— 那会让一个**新的**求助在视觉上完全淹没掉。
+    /// 所以是第三档：既不宣称结束，也不再报警。
+    static let volunteerPeerStatusAcknowledged = "已确认，客服处理中"
     static let volunteerPeerLocationLabel = "位置共享"
     static let volunteerPeerLocationOn = "已开启"
 

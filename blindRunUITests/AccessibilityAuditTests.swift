@@ -781,7 +781,11 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 盲人端陪跑中那块贴底的求助中心。**与上面那条是两个东西**：
     /// `emergencyActionLabel` 是云端一键求助按钮（志愿者端仍在用），这条是打开求助菜单的入口
     /// —— 按下去什么都还没发出去，所以刻意不叫「一键求助」。
-    private static let safetyHubLabel = "求助，打开求助选项"
+    // ⚠️ 与 `EmergencySafetyCopy.hubAccessibilityLabel` 逐字一致。中文文案漂移
+    // `guard.mjs` **抓不到**（实测误报 93%，那条守卫只判 identifier 形状的键），
+    // 而本仓库 CI 跑不了 XCTest —— 漂了不会有任何信号，只会在真机上红成
+    // 「执行屏没有求助入口」这种指向完全错误的失败信息。
+    private static let safetyHubLabel = "求助与安全，打开求助选项"
     private static let minimumBlindPrimaryButtonScreenShare: CGFloat = 0.25
 
     /// 低版本设备上明确 skip 而不是静默通过 —— 「没跑」和「跑过了」必须可区分。

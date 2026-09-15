@@ -76,6 +76,7 @@ struct EmergencyCountdownView: View {
 
             ScrollView {
                 VStack(spacing: 20) {
+                    dismissButton
                     header
                     if coordinator.state.isCountingDown {
                         countdownRing
@@ -104,6 +105,8 @@ struct EmergencyCountdownView: View {
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
         )
+        // `children: .contain` 不能省，理由见 `BlindSafetyHubView.body` 上那段注释。
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("blindEmergencyCountdown")
         .confirmationDialog(
             EmergencySafetyCopy.cancelButtonTitleForOwner,
@@ -127,6 +130,40 @@ struct EmergencyCountdownView: View {
 
     // MARK: 顶部
 
+    /// 🔴 **求助发出之后必须还能离开这一屏。**
+    ///
+    /// 2026-09-15 code review 抓到的：`activeEvent != nil` 时底部那一格是「撤销求助」，
+    /// 而这是 `fullScreenCover`（下滑关不掉）—— 于是唯一的退出路径变成
+    /// **撤销一条真实的求助**。事件在 `CS_HANDLING` 期间可以持续很久，
+    /// 而盲人这段时间里完全可能想回去听「重复当前状态」、或者打给身边的陪跑志愿者。
+    ///
+    /// 位置与形态照抄屏 2 的收起按钮：顶部居中的文字按钮，**不是角落 ✕** ——
+    /// 管状视力用户的可视范围是屏幕中间一小块，角落里的小图标对他们等于不存在。
+    ///
+    /// 倒计时那三秒里不给这个口子：那一刻屏幕上只该有一个动作（取消），
+    /// 多一个「返回」会让「往下摸到底就是取消」这条位置记忆失效。
+    @ViewBuilder
+    private var dismissButton: some View {
+        if !coordinator.state.isCountingDown {
+            Button(action: onClose) {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.down")
+                        .font(.footnote.weight(.semibold))
+                        .accessibilityHidden(true)
+                    Text("返回跑步")
+                        .font(AppFonts.body().weight(.semibold))
+                }
+                .foregroundColor(AppColors.textPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 64)
+                .buttonShapeOutlineIfNeeded(color: AppColors.textPrimary)
+            }
+            .accessibilityLabel("返回跑步")
+            .accessibilityHint("回到跑步页面。求助仍然有效，不会被撤销。")
+            .accessibilityIdentifier("blindEmergencyCountdownClose")
+        }
+    }
+
     private var header: some View {
         VStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -145,12 +182,13 @@ struct EmergencyCountdownView: View {
         .accessibilityLabel(title)
     }
 
+    /// 判定在 `EmergencySafetyCopy.screenTitle(for:hasActiveEvent:)` —— 穷举 switch 的纯函数，
+    /// 被 `EmergencySOSTests` 逐状态钉住。这里只负责把它显示出来。
     private var title: String {
-        if coordinator.state.isCountingDown { return EmergencySafetyCopy.countdownTitle }
-        if coordinator.activeEvent != nil { return EmergencySafetyCopy.sentTitle }
-        // 倒数完了、也没有活动事件 —— 这一屏此刻在说的是「没发出去」。标题必须跟着改，
-        // 否则屏幕顶上写着「求助已发出」、正文写着「求助未发出」，两句话互相打架。
-        return coordinator.state.isFailure ? EmergencySafetyCopy.countdownTitle : EmergencySafetyCopy.sentTitle
+        EmergencySafetyCopy.screenTitle(
+            for: coordinator.state,
+            hasActiveEvent: coordinator.activeEvent != nil
+        )
     }
 
     // MARK: 倒计时圆环
@@ -279,9 +317,9 @@ struct EmergencyCountdownView: View {
             }
             .accessibilityHint("误触时撤销本次求助，需要确认")
             .accessibilityIdentifier("blindEmergencyCancelOwn")
-        } else {
-            PrimaryButton("返回跑步", action: onClose)
-                .accessibilityIdentifier("blindEmergencyCountdownClose")
         }
+        // 没有倒计时、也没有活动事件时**底部不放任何东西** —— 退出走顶部那个
+        // 「返回跑步」（`dismissButton`）。此前这里再放一个同名按钮，
+        // 等于同一个动作在一屏上有两个位置，而位置记忆恰恰经不起这个。
     }
 }

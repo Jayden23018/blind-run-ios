@@ -184,7 +184,24 @@ final class EmergencyCoordinator: ObservableObject {
         return nil
     }
 
-    @Published private(set) var state: EmergencySOSState = .idle
+    /// 🔴 **离开 `.countingDown` 与「掐掉倒计时任务」绑成同一件事，不靠调用方各自记得。**
+    ///
+    /// 2026-09-15 code review 抓到的洞：取消倒计时的唯一入口 `cancelCountdown()` 以
+    /// `guard state.isCountingDown` 为前置条件，而这三秒里**别的路径也会改写 `state`** ——
+    /// 任一条 `impliesLiveEmergency` 的 WS 通知、或 WS 重连触发的
+    /// `catchUpMissedNotifications()`，都会走到 `refreshActiveEvent()`；只要后端存在任何一条
+    /// 未终态事件（哪怕是客服还没关掉的旧的），`state` 就被写成 `.acknowledged`。
+    /// 户外跑步途中断线重连是常态。
+    ///
+    /// 此后：圆环消失、底部按钮从「取消」变成「撤销求助」、`cancelCountdown()` 即使被调用
+    /// 也会在 guard 处返回 false —— 而那个任务照样在跑，3 秒到点**发出一条用户已经无从阻止的求助**。
+    @Published private(set) var state: EmergencySOSState = .idle {
+        didSet {
+            guard oldValue.isCountingDown, !state.isCountingDown else { return }
+            countdownTask?.cancel()
+            countdownTask = nil
+        }
+    }
     @Published private(set) var activeEvent: ActiveEmergencyEvent?
     /// Set only on the escorting volunteer's device, from `EMERGENCY_VOLUNTEER_ALERT`.
     @Published private(set) var volunteerAlert: VolunteerEmergencyAlert?
@@ -366,6 +383,12 @@ final class EmergencyCoordinator: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             guard let self else { return }
+            // 🚩 **先松开句柄，再改状态。** 顺序反了会自杀：`state` 的 `didSet` 在离开
+            // `.countingDown` 时会 `countdownTask?.cancel()`，而此刻 `countdownTask` 正是
+            // 我们自己 —— 取消之后下面 `trigger` 里的 `Task.sleep` 会立刻抛，
+            // `freshEmergencyCoordinate` 那个 `while Date() < deadline { try? await ... }`
+            // 就变成 5 秒空转，然后报「拿不到定位」。
+            self.countdownTask = nil
             // 归零才发。`trigger` 开头那道 `guard !state.isBusy` 会被 `.countingDown` 挡住，
             // 所以先回到 `.idle` —— 这一步不是形式：漏掉它的表现是倒数完什么都没发生。
             self.state = .idle

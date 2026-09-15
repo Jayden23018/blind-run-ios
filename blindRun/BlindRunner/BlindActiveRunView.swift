@@ -250,6 +250,13 @@ struct BlindActiveRunSafetyAnchor: View {
             safetyHubBlock
         }
         .background(AppColors.activeRunSurface)
+        // 🔴 `children: .contain` 不能省 —— 2026-09-15 真机 UI 测试抓到这一处：
+        // 容器上的 `accessibilityIdentifier` 会**向下覆盖**每个子元素的标识符，
+        // 于是「重复当前状态」「紧急呼叫」「撤销求助」的 id 全变成了
+        // `blindActiveRunSafetyAnchor`，`testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling`
+        // 因此报「「重复当前状态」不见了」—— 而它明明就在屏幕上。
+        // 同款先例见 `OrderRouteReplayView.swift:105-110`（2026-08-12 实测）。
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("blindActiveRunSafetyAnchor")
     }
 
@@ -281,19 +288,22 @@ struct BlindActiveRunSafetyAnchor: View {
         // **不是 `AppColors.destructive`。** 那个跟随系统外观，而这一屏的底色是固定深灰 ——
         // 亮色档的深红压上去只有 2.96:1，块的边界会糊掉。详见 `activeRunDestructive`。
         .background(AppColors.activeRunDestructive)
-        .contentShape(Rectangle())
-        // 不用 `Button`：`Button` 把长按当成「取消这次点击」吃掉，两个手势挂在同一个
-        // `Button` 上时长按那条永远拿不到（同 `EmergencySOSLongPressButton`）。
-        .onLongPressGesture(minimumDuration: SafetyLongPress.duration) {
-            guard !coordinator.state.isBusy else { return }
-            onTriggerEmergencyImmediately()
-        }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                guard !coordinator.state.isBusy else { return }
-                onOpenSafetyHub()
-            }
+        // 轻点开求助中心、长按 3 秒直接进倒计时，两条路径与**按住过程中的渐强震动**
+        // 都在 `SafetyLongPressGesture` 里，与屏 2 那枚红胶囊共用一份实现。
+        //
+        // 2026-09-15 code review 抓到这块原本自己写了一份、而且**漏了渐强震动** ——
+        // 偏偏这块红块是全 App 唯一印着「长按 3 秒」四个字的地方，那 3 秒里一点触觉反馈都没有。
+        .safetyLongPress(
+            onTap: onOpenSafetyHub,
+            onLongPress: onTriggerEmergencyImmediately
         )
+        // 🔴 **busy 时必须走 `.disabled()`，不能只在手势回调里 `guard ... return`。**
+        // `.disabled()` 同时做两件事：阻断手势，**并且**给无障碍元素打上「不可用」——
+        // VoiceOver 会念「变暗」。静默 return 只做前一件，读屏里它仍是一个完全正常的按钮，
+        // 盲人双击之后什么都不发生、什么都不念，也就是红线里那句「点了没反应就是事故」。
+        // （SwiftUI 的 `AccessibilityTraits` 没有 `.isNotEnabled`，那是 UIKit 的；
+        // 这个 trait 只能由 `.disabled()` 产出。）
+        .disabled(coordinator.state.isBusy)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(EmergencySafetyCopy.hubAccessibilityLabel)
