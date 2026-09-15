@@ -237,7 +237,12 @@ enum VolunteerProfileCopy {
     // 身份行
     static let roleTitle = "陪跑志愿者"
     static let settingsTitle = "设置"
-    static let settingsHint = "昵称、资质、积分、固定搭档、邀请码和账号"
+    /// 🔴 **这句必须把设置里真有的东西列全。** 它是「陪跑培训」的**常驻**入口
+    /// （`VolunteerOrderFlowViews.swift` 的设置列表里）唯一的可发现性来源 ——
+    /// 首屏那个显眼的培训卡只在 `TRAINING_INCOMPLETE` 时出现，学完就消失，
+    /// 而选修课和复习要靠这一条进。2026-09-15 补上「培训」二字：在此之前它逐条列了
+    /// 六样却独独漏了培训，读屏用户按 hint 根本不知道能从这儿进去。
+    static let settingsHint = "昵称、资质、培训、积分、固定搭档、邀请码和账号"
 
     static func roleSubtitle(starLevel: Int?) -> String {
         let current = max(0, starLevel ?? 0)
@@ -288,10 +293,16 @@ enum VolunteerProfileCopy {
         "与 \(blindName?.nilIfBlank ?? "跑者") 同跑"
     }
 
-    // 派单工作台入口
-    static let workbenchTitle = "派单工作台"
-    static let workbenchHint = "查看覆盖范围、派单统计和必修培训"
-
     // 作业区
     static let todoSectionTitle = "需要你处理"
+
+    // 必修培训入口
+    //
+    // 🔴 **标题不在这里定义。** 它复用
+    // `VolunteerDispatchNotAvailableReason.trainingIncomplete.displayText`（「尚未完成必修培训」）
+    // —— 那是「为什么接不到单」的权威说法，在这里抄第二份就会和派单卡里的原因列表漂移。
+
+    /// 说明句。陈述规则 + 说清点下去会发生什么，**不催**（激励层红线，见类型注释）。
+    static let trainingEntryDetail = "完成必修课程后才会收到系统派单。点这里开始学，学完即可接单。"
+    static let trainingEntryHint = "打开陪跑培训，完成必修课程后即可接单"
 }

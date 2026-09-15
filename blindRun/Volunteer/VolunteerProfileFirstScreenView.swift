@@ -20,6 +20,9 @@ import SwiftUI
 /// 让人先听完 24 次陪跑和 7 枚勋章才听到「你有一张单要确认」是反的。
 struct VolunteerProfileFirstScreen: View {
     @EnvironmentObject private var appState: AppState
+    /// 只用来读「定位摘要」那一行（`dispatchSection` 末尾）。
+    /// 请求权限与开始更新在 `VolunteerHomeView.onAppear`，不在这一层。
+    @EnvironmentObject private var locationService: LocationService
     @ObservedObject var viewModel: VolunteerHomeViewModel
 
     /// 成就 / 固定搭档 / 火花三条只读端点。**刻意不并进 `VolunteerHomeViewModel`** ——
@@ -37,7 +40,7 @@ struct VolunteerProfileFirstScreen: View {
                 impactSection
                 badgesSection
                 recentSection
-                workbenchRow
+                dispatchSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
@@ -48,6 +51,12 @@ struct VolunteerProfileFirstScreen: View {
         }
         .background(AppColors.background)
         .accessibilityIdentifier("volunteerProfileFirstScreen")
+        // 手动刷新。它接替的是随「派单工作台」一起删掉的那枚工具栏刷新按钮 ——
+        // 这一屏的导航栏是隐藏的（`navigationBarHidden(true)`），按钮无处可放，
+        // 而删了不补就等于志愿者只能等那条 10 秒轮询。
+        .refreshable {
+            await onReload()
+        }
         // 🔴 **这个 `.task` 挂在一棵永远非空的子树上。**
         //
         // 身份行无条件渲染，所以 `ScrollView` 的内容永远不为空。写成
@@ -128,7 +137,8 @@ struct VolunteerProfileFirstScreen: View {
             || !viewModel.scheduledOrders.isEmpty
             || viewModel.scheduledOrdersMessage != nil
             || viewModel.acceptBlockMessage != nil
-            || viewModel.needsCertificateUpload
+            || needsCertificateEntry
+            || needsTrainingEntry
             || viewModel.locationDispatchWarning != nil
             || viewModel.displayedErrorMessage != nil
 
@@ -170,8 +180,12 @@ struct VolunteerProfileFirstScreen: View {
                         .accessibilityLabel(acceptBlockMessage)
                 }
 
-                if viewModel.needsCertificateUpload {
+                if needsCertificateEntry {
                     VolunteerCertificateUploadEntryLink()
+                }
+
+                if needsTrainingEntry {
+                    trainingEntry
                 }
 
                 if let warning = viewModel.locationDispatchWarning {
@@ -200,6 +214,94 @@ struct VolunteerProfileFirstScreen: View {
                 }
             }
         }
+    }
+
+    private var notAvailableReasons: [VolunteerDispatchNotAvailableReason] {
+        viewModel.dispatchSummary?.notAvailableReasons ?? []
+    }
+
+    /// 资质入口的条件是**两个来源的并集**，不是二选一：
+    /// - `viewModel.needsCertificateUpload` 只在某次 API 调用回了 `VOLUNTEER_NOT_APPROVED` 时才为真；
+    /// - `.notVerified` 是派单摘要里的常态原因，人没做任何操作时也在。
+    ///
+    /// 合成**一个** `if` 是必须的 —— 分两个 `if` 写会在两者同时成立时把同一个入口画两遍。
+    private var needsCertificateEntry: Bool {
+        viewModel.needsCertificateUpload || notAvailableReasons.contains(.notVerified)
+    }
+
+    /// 只有「必修培训没完成」这一条原因才给这张卡。
+    ///
+    /// 🚩 其余原因**刻意不给**：`OFFLINE` / `DISPATCH_DISABLED` 的去处是底部那条可服务 CTA
+    /// 和定位提示，就在同一屏上；`NOT_VERIFIED` 走上面的资质入口。
+    ///
+    /// 🚩 **摘要拉不到时不兜、不猜。** `dispatchSummary == nil` 意味着我们**不知道**
+    /// 培训做没做完，此刻画一张「尚未完成必修培训」对已经学完的人就是假话，
+    /// 而作业区末尾已经有错误文案 + 「重试加载」在说真话。学完之后的常驻入口在
+    /// 「设置 → 陪跑培训」，齿轮的 `accessibilityHint` 已把它列进去
+    /// （`VolunteerProfileCopy.settingsHint`）。
+    private var needsTrainingEntry: Bool {
+        notAvailableReasons.contains(.trainingIncomplete)
+    }
+
+    /// 必修培训入口。**整张卡可点**，不是「一行说明 + 旁边一个小链接」。
+    ///
+    /// 用户原话：「必须在派单工作台点进去再点击一个贼小的去培训，一点都不显眼」。
+    /// 所以三件事同时成立才算修好：① 在首屏、不在任何二级页；② 原因本身就是入口，
+    /// 不需要先读懂一句话再去找按钮；③ 点一下直达培训页，中间没有别的页。
+    ///
+    /// 🚩 **`NavigationLink` 而不是 `.sheet`**（旧实现是 sheet）。两条理由：
+    /// 这一屏确定在 `NavigationStack` 里（`VolunteerHomeView.body`），旧注释说的
+    /// 「首页不保证处在 NavigationStack 里」已经不成立；而 sheet 会盖住刻意挂在
+    /// `NavigationStack` **外面**的派单弹窗（AGENTS §5：模态最高优先级），push 不会。
+    private var trainingEntry: some View {
+        NavigationLink {
+            VolunteerTrainingView()
+        } label: {
+            HStack(spacing: 12) {
+                // 图标只是装饰：档位与原因全在文字里，不靠颜色也不靠图标传达（WCAG 1.4.1）。
+                Image(systemName: "graduationcap.fill")
+                    .font(.title2)
+                    .foregroundColor(AppColors.warning)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(VolunteerDispatchNotAvailableReason.trainingIncomplete.displayText)
+                        .font(AppFonts.body().weight(.bold))
+                        .foregroundColor(AppColors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(VolunteerProfileCopy.trainingEntryDetail)
+                        .font(AppFonts.caption())
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(AppColors.textSecondary.opacity(0.6))
+                    .accessibilityHidden(true)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // 不写死高度，只给下限：文字自己跟 Dynamic Type 长，卡片跟着长。
+            // 志愿者端不受盲人端 64pt 线约束（`guard.mjs` 的 `small-touch-target`
+            // 显式排除 /blindRun/Volunteer/），这里取 64 是因为它是「显眼」的量化形式。
+            .frame(minHeight: 64)  // guard:allow small-touch-target
+            .background(AppColors.secondaryBackground)
+            .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        // ⛔ **不加** `.accessibilityElement(children: .combine)`。打在 `NavigationLink` 自身上
+        // 会新建一个合成元素，link/button trait 有丢失风险，而这是必修培训唯一的显眼入口。
+        // 同屏两个同形状的兄弟节点（当前订单卡、最近陪跑行）也都只有
+        // `buttonStyle(.plain)` + `accessibilityLabel`，这里保持一致。
+        .accessibilityLabel(
+            "\(VolunteerDispatchNotAvailableReason.trainingIncomplete.displayText)。"
+                + VolunteerProfileCopy.trainingEntryDetail
+        )
+        .accessibilityHint(VolunteerProfileCopy.trainingEntryHint)
+        .accessibilityIdentifier("volunteerHomeTrainingEntry")
     }
 
     // MARK: - 影响力区
@@ -645,52 +747,60 @@ struct VolunteerProfileFirstScreen: View {
         )
     }
 
-    // MARK: - 派单工作台入口
+    // MARK: - 派单状态
 
-    /// 地图、覆盖范围、派单统计和必修培训都在这后面。
+    /// 派单摘要 + 定位摘要。**这一块刻意在最底部、刻意没有分区标题。**
     ///
-    /// 这一行**永远显示**（不跟 `dispatchSummary` 走）：派单摘要拉失败时正是最需要
-    /// 让人点进去看一眼的时候，而那一页里有重试和「去培训」。
-    private var workbenchRow: some View {
-        NavigationLink {
-            VolunteerDispatchWorkbenchView(viewModel: viewModel, onReload: onReload)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.body.weight(.semibold))
-                    .foregroundColor(viewModel.statusColor)
-                    .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(VolunteerProfileCopy.workbenchTitle)
-                        .font(AppFonts.body().weight(.semibold))
-                        .foregroundColor(AppColors.textPrimary)
-                    Text(viewModel.statusText)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(AppColors.textSecondary.opacity(0.6))
-                    .accessibilityHidden(true)
+    /// 它是调研 §1 三档分类里的第三档「普通信息卡片」（关注时可见），不该占中段。
+    /// 真正可操作的那几条原因 —— 资质、培训、定位权限 —— 都在顶部的作业区里，
+    /// 而当前状态文字在底部那条常驻 CTA 上也有一份，所以沉底不埋信息。
+    ///
+    /// > 2026-09-15 由二级页「派单工作台」整块搬过来（那一页已删）。摆在这个位置是为了
+    /// > 将来「等待派单」页出来时搬走的代价最小：删 `body` 里的一行 +
+    /// > 把 `VolunteerDispatchSummaryCard` 整个 struct 挪过去，上下两块不用动。
+    @ViewBuilder
+    private var dispatchSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let summary = viewModel.dispatchSummary {
+                VolunteerDispatchSummaryCard(summary: summary)
+            } else if viewModel.isLoading {
+                EmptyStateView(
+                    title: "派单状态待同步",
+                    message: "正在后台同步；上面的记录、成就和设置仍可使用。"
+                )
+            } else {
+                EmptyStateView(
+                    title: "派单状态待同步",
+                    message: locationService.isAuthorized ? "下拉可以重新加载。" : "开启定位后才能接收系统派单。"
+                )
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppColors.secondaryBackground)
-            .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
+
+            Text(locationSummaryText)
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(locationSummaryText)
+
+            #if DEBUG
+            if let diagnostic = appState.realtimeCoordinator.dispatchDiagnostic {
+                Text("派单诊断：\(diagnostic.debugSummary)")
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+                    .textSelection(.enabled)
+                    .accessibilityLabel("派单诊断，\(diagnostic.debugSummary)")
+                    .accessibilityIdentifier("volunteerDispatchDiagnostic")
+            }
+            DebugTestingPanel()
+                .environmentObject(appState)
+            #endif
         }
-        .buttonStyle(.plain)
-        // ⛔ 这里**不加** `.accessibilityElement(children: .combine)`。
-        // 打在 `NavigationLink` 自身上会新建一个合成元素，link/button trait 有丢失风险，
-        // 而这是通往派单统计与必修培训的唯一入口。同屏两个同形状的兄弟节点
-        // （当前订单卡、最近陪跑行）都只有 `buttonStyle(.plain)` + `accessibilityLabel`。
-        .accessibilityLabel("\(VolunteerProfileCopy.workbenchTitle)，\(viewModel.statusText)")
-        .accessibilityHint(VolunteerProfileCopy.workbenchHint)
-        .accessibilityIdentifier("volunteerProfileWorkbenchEntry")
+    }
+
+    private var locationSummaryText: String {
+        if locationService.isAuthorized {
+            return "\(locationService.readableCurrentLocationSummary)\(viewModel.dispatchSummary?.coverageText ?? "派单覆盖范围待同步")"
+        }
+        return "需要开启定位权限才能接收系统派单"
     }
 
     // MARK: - 共用零件

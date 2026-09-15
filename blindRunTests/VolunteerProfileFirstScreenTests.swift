@@ -255,9 +255,11 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerProfileCopy.recentSectionTitle,
             VolunteerProfileCopy.recentEmpty,
             VolunteerProfileCopy.recentLinkHint,
-            VolunteerProfileCopy.workbenchTitle,
-            VolunteerProfileCopy.workbenchHint,
             VolunteerProfileCopy.todoSectionTitle,
+            // 必修培训入口：标题不是自己的字符串，复用派单原因的 displayText（单一来源）。
+            VolunteerDispatchNotAvailableReason.trainingIncomplete.displayText,
+            VolunteerProfileCopy.trainingEntryDetail,
+            VolunteerProfileCopy.trainingEntryHint,
             VolunteerProfileCopy.settingsTitle,
             VolunteerProfileCopy.settingsHint,
             VolunteerAvailabilityCopy.slideToOpenTitle,
