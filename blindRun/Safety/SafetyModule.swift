@@ -229,38 +229,108 @@ enum EmergencySafetyCopy {
     static let cloudFailedCallDialogMessage =
         "求助没有发出去，App 不会代你发送求助。请选择要拨打的号码。"
 
-    // MARK: 陪跑进行中的主动拨号
+    // 2026-09-15 删掉了第三种语境 `inProgress`（「这是直接打电话，不是一键求助…」）。
+    //
+    // 它存在的理由是「两个红色按钮挨在一起，用户要靠第一句判断自己按的是哪一个」——
+    // 而产品定稿把陪跑中那一屏改成执行屏之后，**屏幕上只剩一个红块**，那个歧义源头没有了。
+    // 现在从求助中心进拨号，第一句由 `hubDialogMessage` 承担（「还没有发送求助」）。
+    //
+    // 连同那个 case 一起删，而不是留着不调用：留一份没有调用点的安全文案，
+    // 下一次改红线时没有任何东西会提醒它也要跟着改。
 
-    /// 第三种语境：陪跑进行中，用户**主动**要打电话，云端求助既没按过也没失败。
-    /// 上面两句在这里都是错的（一句说「没有进行中的陪跑」，一句说「求助没有发出去」）。
+    // MARK: 陪跑中的求助中心（Safety Hub）
+
+    /// 陪跑中那屏底部**唯一**的红块。产品定稿 2026-09-15：Active Run 是执行屏不是仪表盘 ——
+    /// 「打电话给志愿者」不再常驻主屏，它和拨号、播位置、云端求助一起收进这一层。
     ///
-    /// 第一句必须先把它和正上方那个「一键求助」按钮区分开 —— 两个红色按钮挨在一起，
-    /// 看不见屏幕的人靠的就是这一句判断自己按的是哪一个。
-    static let inProgressCallDialogMessage =
-        "这是直接打电话，不是一键求助。App 不会代你发送求助。请选择要拨打的号码。"
+    /// 🚩 **标题是「求助」不是「一键求助」。** 后者在本 App 里专指云端那条链路（会记录事件、
+    /// 通知同行志愿者与客服）。这一层只是个菜单，打开它什么都还没发生 ——
+    /// 用同一个词会让看不见屏幕的人以为求助已经发出。云端那一项在菜单里仍叫「一键求助」。
+    static let hubTitle = "求助"
+    static let hubAccessibilityLabel = "求助，打开求助选项"
+    static let hubAccessibilityHint =
+        "打开后可以联系志愿者、播报你的位置、拨打120或110，或者发出一键求助。打开这个菜单不会发送求助。"
 
-    static let inProgressCallAccessibilityHint =
-        "直接打电话给紧急联系人、120 或 110。这不是一键求助，App 不会代你发送求助。"
+    /// 🔴 第一句必须是「还没有发送求助」。理由与 `locationUnavailable` / `homeCallDialogMessage`
+    /// 同源：看不见屏幕的人按下一个红色大块之后，最需要先知道的是**什么都还没发生**。
+    ///
+    /// ⛔ **不得把 `confirmationMessage` 挪到这里。** 那句逐字锁定的话是**二次确认**的文案，
+    /// 而这一层的第一项是「联系志愿者」这种无害动作 —— 把「是否确认进入求助状态？」
+    /// 印在这份菜单上面，等于告诉用户选任何一项都会发出求助。
+    /// 云端那一项选中后照常走 `emergencyConfirmationAlert`，`AGENTS.md` §6 的二次确认不减一步。
+    static let hubDialogMessage = "还没有发送求助。请选择你现在要做的事。"
+
+    static let hubContactVolunteerTitle = "联系志愿者"
+    static let hubAnnounceLocationTitle = "播报我的位置"
+
+    /// 「播报我的位置」的答句。
+    ///
+    /// 拿不到就说拿不到，**不编**。陪跑中报错的位置会被当成真位置转述给 110 —— 这一句是
+    /// 「盲人端给假数据的代价高于视觉端」那条原则里最贵的一处。
+    static func locationAnnouncement(_ place: String?) -> String {
+        guard let place, let name = place.nilIfBlank else {
+            return "暂时定位不到你的位置。如果情况紧急，请直接拨打110或120说明你周围的情况。"
+        }
+        return "你现在在\(name)附近。"
+    }
 }
 
-/// 本地拨号弹窗的三种语境。**只差第一句**，而那一句每次都得说对：
+/// 陪跑中求助中心里的那几项。
+///
+/// **做成可单测的纯数据**，理由与 `BlindHomeSOSMode.resolve` 同源：这是安全路径上的
+/// 顺序与可见性，而 `confirmationDialog` 的内容在单测里够不着、在 UI 测试里又只有真机一条通道。
+/// 漏掉一项或顺序漂了，不会有任何东西变红。
+///
+/// 🚩 弹窗**由这个列表驱动**（见 `blindActiveRunSafetyHubDialog`），不是并排维护第二份 ——
+/// 并排两份的下场是测试钉住了一份、用户看到的是另一份。
+enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
+    case contactVolunteer
+    case announceLocation
+    case callPrimaryContact
+    case callMedical
+    case callPolice
+    case triggerEmergency
+
+    /// 顺序固定、不随状态变 —— 盲人靠位置记忆，顺序会变的菜单等于没有位置记忆。
+    /// 只有「有没有那个号码」决定某一项在不在，**不改其余各项的相对次序**。
+    ///
+    /// 拨号三项的集合与先后（联系人 → 120 → 110）与首页那套**逐项一致**，
+    /// 理由见 `emergencyCallOptionsDialog`：用户记住的是「往下第二个是 120」。
+    static func options(
+        volunteerPhone: String?,
+        primaryContact: EmergencyContactResponse?
+    ) -> [BlindActiveRunSafetyHubOption] {
+        var options: [BlindActiveRunSafetyHubOption] = []
+        // 判据是「拼不拼得出 tel: URL」而不是「字符串非空」：掩码串 `138****1234`
+        // 只取数字位会拼成空号，而空号在界面上看不出任何异常（`EmergencyDialer.telURL`）。
+        if EmergencyDialer.telURL(for: volunteerPhone) != nil { options.append(.contactVolunteer) }
+        options.append(.announceLocation)
+        if EmergencyDialer.telURL(for: primaryContact?.phone) != nil { options.append(.callPrimaryContact) }
+        options.append(.callMedical)
+        options.append(.callPolice)
+        options.append(.triggerEmergency)
+        return options
+    }
+}
+
+/// 本地拨号弹窗的两种语境。**只差第一句**，而那一句每次都得说对：
 /// 它回答的是「我刚才那一下到底发生了什么」，说错会让盲人把「什么都没发生」当成「求助已发出」。
 ///
-/// 做成枚举而不是让三个调用方各传一个字符串：三处都在安全路径上，谁漏了一句
+/// 做成枚举而不是让调用方各传一个字符串：两处都在安全路径上，谁漏了一句
 /// 都不会有任何运行时症状 —— 弹窗照常弹，只是话说错了。
+///
+/// 2026-09-15 由三种减为两种：`inProgress`（陪跑中主动拨号）的调用点已并入求助中心
+/// `blindActiveRunSafetyHubDialog`，它的第一句由 `hubDialogMessage` 承担。
 enum EmergencyCallContext {
     /// 首页，当前没有进行中的陪跑。
     case homeIdle
     /// 云端求助刚刚失败（首页与订单状态页共用）。
     case cloudFailed
-    /// 陪跑进行中，用户主动拨号。
-    case inProgress
 
     var dialogMessage: String {
         switch self {
         case .homeIdle: return EmergencySafetyCopy.homeCallDialogMessage
         case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallDialogMessage
-        case .inProgress: return EmergencySafetyCopy.inProgressCallDialogMessage
         }
     }
 
@@ -268,7 +338,6 @@ enum EmergencyCallContext {
         switch self {
         case .homeIdle: return EmergencySafetyCopy.homeCallAccessibilityHint
         case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallAccessibilityHint
-        case .inProgress: return EmergencySafetyCopy.inProgressCallAccessibilityHint
         }
     }
 }
@@ -430,9 +499,9 @@ struct BlindHomeSOSBar: View {
 /// （`EmergencySOSTests.swift` 里有断言钉着这个词的归属）。读屏听到的仍是完整的
 /// `EmergencySafetyCopy.accessibilityLabel`，两者不冲突。
 ///
-/// 和 `BlindHomeSOSBar` 同样自己 `@ObservedObject` 持有 coordinator，理由见
-/// `EmergencyActionSection` 的注释：`AppState.emergencyCoordinator` 是 `let` 不是 `@Published`，
-/// 在页面 body 里读它的属性是**读得到值、但不跟着更新**。
+/// 和 `BlindHomeSOSBar` / `BlindActiveRunSafetyAnchor` 同样自己 `@ObservedObject` 持有
+/// coordinator：`AppState.emergencyCoordinator` 是 `let` 不是 `@Published`，
+/// 在页面 body 里读它的属性是**读得到值、但不跟着更新**（详见 `BlindHomeSOSBar` 的注释）。
 struct VolunteerSOSFloatingButton: View {
     @ObservedObject var coordinator: EmergencyCoordinator
     let action: () -> Void
@@ -496,74 +565,6 @@ struct EmergencyStatusNotice: View {
     }
 }
 
-/// 求助按钮 + 状态提示 + 撤销入口的组合，**自己 `@ObservedObject` 持有 coordinator**。
-///
-/// 为什么必须持有而不能由页面直接读 `appState.emergencyCoordinator.state`：
-/// `AppState.emergencyCoordinator` 是 `let`，不是 `@Published`（`AppState.swift:63`），
-/// 而 `AppState` 没有把子对象的 `objectWillChange` 转发上来。SwiftUI 只订阅 `AppState`
-/// 自己的变化，所以在页面 body 里读嵌套 ObservableObject 的属性是**读得到值、但不跟着更新**。
-///
-/// 这不是理论问题：`BlindOrderStatusView` 原先就是那么写的，它看起来能刷新，靠的是本页
-/// view model 恰好在 5 秒轮询里持续发布、把整个 body 重算了 —— 巧合而非设计。而这里显示的是
-/// **盲人端求助状态**：停在旧值意味着用户听到的是过期结论（比如仍念「正在发送」而其实已经失败），
-/// 直接违反「每一种结果都必须可见且可听地如实告知」（`AGENTS.md` §6）。
-///
-/// 反过来**不要**在 `AppState` 里转发所有子对象的 `objectWillChange`：那会让每次定位采样、
-/// 每条 WebSocket 消息都重绘所有订阅 `AppState` 的视图（盲人首页、地图、志愿者首页都在内）。
-/// 由需要跟随的那个视图自己订阅，代价才是局部的。
-struct EmergencyActionSection: View {
-    @ObservedObject var coordinator: EmergencyCoordinator
-    let onTrigger: () -> Void
-    let onCancelOwnEmergency: () -> Void
-    /// 直接拨打紧急联系人 / 120 / 110。**常驻，不等云端求助失败才出现。**
-    ///
-    /// 理由有两条，**都是产品判断，不是合规要求**：
-    /// 1. 陪跑进行中是这个 App 里最可能需要叫救护车的时刻；
-    /// 2. 云端求助最坏路径是等定位 5 秒 + 请求超时 15 秒 = 按下到听见「未发出」最长 20 秒，
-    ///    那之后再让人退出 App 盲操作找电话，是本仓库能自己消掉的最贵一段延迟。
-    ///
-    /// 2026-09-08 之前这一页只有文字（「若情况危急请立即拨打110」），
-    /// 对看不见屏幕的人念得出来而按不到等于没有。
-    ///
-    /// ⚠️ 2026-09-15 订正：原注释把理由挂在 **Apple 5.1.5** 上（「5.1.5 要的是一个按得到的入口」），
-    /// 那是**误引**。5.1.5 的原文是 "Location-based APIs **shouldn't** be used to provide
-    /// emergency services…"，即禁止用位置 API 提供紧急服务，**不是要求**必须有可点拨号入口；
-    /// 整页 App Store Review Guidelines 里只有这一处出现 `emergency`。
-    /// 误引的代价是真实的：它会让人以为这条设计不能改，于是根本不去讨论 ——
-    /// 2026-09-15 产品方提出「陪跑中不需要两个求助入口同时存在」时，这条注释差一点被用来挡回去。
-    /// 详见 `docs/research/blind-runner-ui-reference-study-20260915.md` §16。
-    let onLocalCall: () -> Void
-
-    var body: some View {
-        VStack(spacing: 14) {
-            EmergencyActionButton(isLoading: coordinator.state.isBusy, action: onTrigger)
-
-            if let message = coordinator.state.message {
-                EmergencyStatusNotice(message: message, isFailure: coordinator.state.isFailure)
-            }
-
-            // 排在状态提示**之后**：求助失败时，读屏用户听完「未发出」下一个就是这个按钮，
-            // 与首页失败兜底的顺序一致。没有状态提示时它自然紧贴在「一键求助」下面。
-            PrimaryButton(EmergencySafetyCopy.homeCallTitle, isDestructive: true, action: onLocalCall)
-                .accessibilityLabel(EmergencySafetyCopy.homeCallAccessibilityLabel)
-                .accessibilityHint(EmergencySafetyCopy.inProgressCallAccessibilityHint)
-                .accessibilityIdentifier("blindOrderStatusEmergencyCallButton")
-
-            // 只有本人发出、且还没结束的求助才谈得上撤销。判据直接读被观察的 coordinator，
-            // 不再经由 view model 绕一手 —— 绕一手就又回到「值对但不刷新」。
-            if coordinator.activeEvent != nil {
-                Button(EmergencySafetyCopy.cancelButtonTitleForOwner, action: onCancelOwnEmergency)
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                    .accessibilityLabel(EmergencySafetyCopy.cancelButtonTitleForOwner)
-                    .accessibilityHint("误触时撤销本次求助，需要确认")
-            }
-        }
-    }
-}
-
 extension View {
     /// 本地拨号弹窗的**唯一**构造点。首页与订单状态页共用，理由不是省代码：
     /// 号码集合（联系人 / 120 / 110）和它们的先后顺序必须两页一致 —— 看不见屏幕的人
@@ -596,6 +597,65 @@ extension View {
             }
             if let policeURL = EmergencyDialer.telURL(for: EmergencyDialer.policeNumber) {
                 Button(EmergencySafetyCopy.homeCallPoliceTitle) { EmergencyDialer.dial(policeURL) }
+            }
+            Button(EmergencySafetyCopy.cancelButtonTitle, role: .cancel) {}
+        } message: {
+            Text(message)
+        }
+    }
+
+    /// 陪跑中那屏的求助中心。一层操作表，把「联系志愿者 / 播报位置 / 拨号 / 云端求助」收在一起。
+    ///
+    /// 🔴 **云端求助仍然走二次确认** —— 选了「一键求助」之后弹 `emergencyConfirmationAlert`，
+    /// `AGENTS.md` §6 那句逐字锁定的文案留在它该在的地方，一个字不动，一步不减。
+    ///
+    /// 各项由 `BlindActiveRunSafetyHubOption.options` 驱动，这里只负责把每一项画成按钮 ——
+    /// 顺序与可见性的判据在那个枚举上，能被单测直接钉住。
+    func blindActiveRunSafetyHubDialog(
+        isPresented: Binding<Bool>,
+        primaryContact: EmergencyContactResponse?,
+        volunteerPhone: String?,
+        onAnnounceLocation: @escaping () -> Void,
+        onTriggerEmergency: @escaping () -> Void
+    ) -> some View {
+        let options = BlindActiveRunSafetyHubOption.options(
+            volunteerPhone: volunteerPhone,
+            primaryContact: primaryContact
+        )
+        // 没有唯一主联系人时把原因说出来，与首页那套同一句 —— 不说的话菜单只是「少一项」，
+        // 而看不见屏幕的人数不出少了哪一项。
+        let message = options.contains(.callPrimaryContact)
+            ? EmergencySafetyCopy.hubDialogMessage
+            : "\(EmergencySafetyCopy.hubDialogMessage)\(EmergencySafetyCopy.homeCallNoContactHint)"
+
+        return confirmationDialog(
+            EmergencySafetyCopy.hubTitle,
+            isPresented: isPresented,
+            titleVisibility: .visible
+        ) {
+            ForEach(options, id: \.self) { option in
+                switch option {
+                case .contactVolunteer:
+                    Button(EmergencySafetyCopy.hubContactVolunteerTitle) {
+                        EmergencyDialer.telURL(for: volunteerPhone).map { EmergencyDialer.dial($0) }
+                    }
+                case .announceLocation:
+                    Button(EmergencySafetyCopy.hubAnnounceLocationTitle, action: onAnnounceLocation)
+                case .callPrimaryContact:
+                    Button(EmergencySafetyCopy.homeCallContactTitle(name: primaryContact?.name)) {
+                        EmergencyDialer.telURL(for: primaryContact?.phone).map { EmergencyDialer.dial($0) }
+                    }
+                case .callMedical:
+                    Button(EmergencySafetyCopy.homeCallMedicalTitle) {
+                        EmergencyDialer.telURL(for: EmergencyDialer.medicalNumber).map { EmergencyDialer.dial($0) }
+                    }
+                case .callPolice:
+                    Button(EmergencySafetyCopy.homeCallPoliceTitle) {
+                        EmergencyDialer.telURL(for: EmergencyDialer.policeNumber).map { EmergencyDialer.dial($0) }
+                    }
+                case .triggerEmergency:
+                    Button(EmergencySafetyCopy.title, role: .destructive, action: onTriggerEmergency)
+                }
             }
             Button(EmergencySafetyCopy.cancelButtonTitle, role: .cancel) {}
         } message: {

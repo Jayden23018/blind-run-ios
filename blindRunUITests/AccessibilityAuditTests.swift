@@ -512,6 +512,10 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 判据用 `frame` 边界而不是 `isHittable`：后者只判中心点，一个上半截被盖住的按钮照样是 true
     /// （与 `testBlindHomeWithoutAnOrderHidesAskQuestionAndKeepsRepeatStatusReachable` 同源）。
     /// 全程**一次滚动都不做** —— 这条断言的全部意义就是「不滚也在」。
+    ///
+    /// 2026-09-15：`IN_PROGRESS` 改走执行屏（`BlindActiveRunView`）之后，这一页的求助从
+    /// 「一键求助」按钮变成了贴底的**求助中心**红块，标签随之改成 `hubAccessibilityLabel`。
+    /// 断言的**不变式一个字没变**：不滚就在、≥64pt、上下沿都在屏内。
     @MainActor
     func testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling() throws {
         let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS")
@@ -522,7 +526,7 @@ final class AccessibilityAuditTests: XCTestCase {
         )
         currentOrder.tap()
 
-        let emergency = app.buttons[Self.emergencyActionLabel].firstMatch
+        let emergency = app.buttons[Self.safetyHubLabel].firstMatch
         XCTAssertTrue(
             emergency.waitForExistence(timeout: 15),
             "服务进行中的订单状态页没有求助入口 —— 这一页最要紧的动作不在了"
@@ -547,11 +551,19 @@ final class AccessibilityAuditTests: XCTestCase {
             "盲人端主动作触达高度不得低于 64pt"
         )
 
-        // 「问一句」是被求助顶出常驻条的那一个，它下沉进滚动区、不是被删掉。
+        // 「问一句」**没有被删掉**，只是降成了不与巨数字竞争视觉的安静文字按钮，
+        // 落在求助块正上方（`BlindActiveRunSafetyAnchor`）。产品要求它不做成大按钮，
+        // 但**必须仍然看得见**：做成纯 accessibility action 会把不开读屏的低视力用户排除在外。
         XCTAssertTrue(
-            app.descendants(matching: .any)["blindOrderStatusAskQuestionButton"].firstMatch
+            app.descendants(matching: .any)["blindActiveRunAskQuestionButton"].firstMatch
                 .waitForExistence(timeout: 5),
-            "「问一句」在服务进行中整个消失了 —— 让位是移到滚动区，不是删除"
+            "「问一句」在服务进行中整个消失了 —— 降视觉权重不等于删除"
+        )
+        // 「重复当前状态」同理，WCAG 3.2.6 要求它跨页可达且位置一致。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindActiveRunRepeatStatusButton"].firstMatch
+                .waitForExistence(timeout: 5),
+            "「重复当前状态」不见了 —— 它是盲人按一下就听全当前状态与里程的唯一入口"
         )
     }
 
@@ -720,6 +732,11 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 必须是同一句。字面量与 `EmergencySafetyCopy.accessibilityLabel` 对齐；
     /// UI 测试 target 拿不到 App 的类型，只能抄一份，改文案时两处一起改。
     private static let emergencyActionLabel = "一键求助，遇到紧急情况时点击"
+
+    /// 盲人端陪跑中那块贴底的求助中心。**与上面那条是两个东西**：
+    /// `emergencyActionLabel` 是云端一键求助按钮（志愿者端仍在用），这条是打开求助菜单的入口
+    /// —— 按下去什么都还没发出去，所以刻意不叫「一键求助」。
+    private static let safetyHubLabel = "求助，打开求助选项"
     private static let minimumBlindPrimaryButtonScreenShare: CGFloat = 0.25
 
     /// 低版本设备上明确 skip 而不是静默通过 —— 「没跑」和「跑过了」必须可区分。
