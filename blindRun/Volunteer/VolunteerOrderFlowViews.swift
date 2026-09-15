@@ -2236,10 +2236,12 @@ struct VolunteerSettingsView: View {
 
                 // 陪跑培训（后端迁移 0043）。
                 //
-                // 🚩 这里是**常驻**入口，而不是培训的唯一入口 —— 首页派单卡片在
-                // `TRAINING_INCOMPLETE` 时另给一个「去培训」按钮。两个都要有：
-                // 首页那个解决「为什么我接不到单」，这里解决「我想复习/做选修」。
-                // 只留首页那个的话，培训完之后入口就消失了，选修课再也找不到。
+                // 🚩 这里是**常驻**入口，而不是培训的唯一入口 —— 首页作业区在
+                // `TRAINING_INCOMPLETE` 时另给一张整卡可点的大入口
+                // （`VolunteerProfileFirstScreen.trainingEntry`）。两个都要有：
+                // 首页那张解决「为什么我接不到单」，这里解决「我想复习/做选修」。
+                // 只留首页那张的话，培训完之后入口就消失了，选修课再也找不到 ——
+                // 所以 `VolunteerProfileCopy.settingsHint` 必须把「培训」列进齿轮的读屏提示。
                 NavigationLink("陪跑培训") {
                     VolunteerTrainingView()
                 }

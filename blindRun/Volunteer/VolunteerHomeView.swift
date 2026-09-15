@@ -1047,154 +1047,6 @@ final class VolunteerHomeViewModel: ObservableObject {
 
 // MARK: - Volunteer Home Layout Helpers
 
-enum VolunteerDemandPanelDetent: CaseIterable, Equatable {
-    case compact
-    case medium
-    case expanded
-
-    static let bottomMargin: CGFloat = 8
-
-    /// 档位的可读名。调整动作必须有它 —— 没有当前值的可调整控件，
-    /// 读屏用户调完听不到自己调到了哪一档，等于在盲调。
-    var accessibilityValue: String {
-        switch self {
-        case .compact:
-            return "收起"
-        case .medium:
-            return "中等"
-        case .expanded:
-            return "展开"
-        }
-    }
-
-    func height(viewportHeight: CGFloat, topContentBottom: CGFloat) -> CGFloat {
-        let viewportHeight = Self.safeViewportHeight(viewportHeight)
-        let topContentBottom = Self.safeTopContentBottom(topContentBottom)
-        switch self {
-        case .compact:
-            return Self.compactHeight(viewportHeight: viewportHeight)
-        case .medium:
-            let proposed = viewportHeight * 0.42
-            let maximum = max(Self.compactHeight(viewportHeight: viewportHeight), viewportHeight * 0.56)
-            return min(max(proposed, 300), maximum)
-        case .expanded:
-            let topLimit = max(topContentBottom + 8, 96)
-            let proposed = viewportHeight - topLimit - Self.bottomMargin
-            return max(Self.compactHeight(viewportHeight: viewportHeight), proposed)
-        }
-    }
-
-    func next() -> VolunteerDemandPanelDetent {
-        switch self {
-        case .compact:
-            return .medium
-        case .medium:
-            return .expanded
-        case .expanded:
-            return .compact
-        }
-    }
-
-    /// 相邻档位，**不循环**。
-    ///
-    /// 与 `next()` 的区别是刻意的：`next()` 给点抓手用，点到最大再点回最小是一个手指
-    /// 在同一个位置反复点时想要的行为。而 VoiceOver 的「向上轻扫增大」和 Switch Control
-    /// 的「调整」都有方向语义 —— 增大到顶应该停住，循环回最小会让人以为自己滑反了。
-    func adjusted(by delta: Int) -> VolunteerDemandPanelDetent {
-        let all = Self.allCases
-        guard let index = all.firstIndex(of: self) else { return self }
-        return all[min(max(index + delta, 0), all.count - 1)]
-    }
-
-    static func compactHeight(viewportHeight: CGFloat) -> CGFloat {
-        let viewportHeight = safeViewportHeight(viewportHeight)
-        return min(max(viewportHeight * 0.12, 104), 136)
-    }
-
-    static func clampedHeight(
-        _ height: CGFloat,
-        viewportHeight: CGFloat,
-        topContentBottom: CGFloat
-    ) -> CGFloat {
-        let viewportHeight = safeViewportHeight(viewportHeight)
-        let topContentBottom = safeTopContentBottom(topContentBottom)
-        let minimum = compact.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom)
-        let maximum = max(minimum, expanded.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom))
-        let safeHeight = height.isFinite ? height : minimum
-        return min(max(safeHeight, minimum), maximum)
-    }
-
-    static func nearest(
-        to height: CGFloat,
-        viewportHeight: CGFloat,
-        topContentBottom: CGFloat
-    ) -> VolunteerDemandPanelDetent {
-        let safeHeight = height.isFinite ? height : compactHeight(viewportHeight: viewportHeight)
-        return allCases.min { lhs, rhs in
-            abs(lhs.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom) - safeHeight) <
-                abs(rhs.height(viewportHeight: viewportHeight, topContentBottom: topContentBottom) - safeHeight)
-        } ?? .medium
-    }
-
-    private static func safeViewportHeight(_ value: CGFloat) -> CGFloat {
-        guard value.isFinite, value > 0 else { return 0 }
-        return value
-    }
-
-    private static func safeTopContentBottom(_ value: CGFloat) -> CGFloat {
-        guard value.isFinite, value > 0 else { return 0 }
-        return value
-    }
-}
-
-struct VolunteerHomeMapLayout {
-    static func screenAnchorY(
-        viewportHeight: CGFloat,
-        topContentBottom: CGFloat,
-        demandPanelTop: CGFloat
-    ) -> CGFloat {
-        guard viewportHeight.isFinite, viewportHeight > 1 else { return 0.5 }
-        let safeTopContentBottom = topContentBottom.isFinite ? topContentBottom : 0
-        let safeDemandPanelTop = demandPanelTop.isFinite ? demandPanelTop : safeTopContentBottom + 1
-        let upper = max(safeTopContentBottom, 0)
-        let lower = max(safeDemandPanelTop, upper + 1)
-        let visibleCenterY = (upper + lower) / 2
-        return min(max(visibleCenterY / viewportHeight, 0.18), 0.82)
-    }
-}
-
-enum VolunteerHomeTopLayout {
-    /// 顶部保留高度占视口的上限。
-    ///
-    /// 定这个数的是 `.expanded` 档位的算式：它 = `viewport − (reservedBottom + 8) − bottomMargin`。
-    /// 保留高度不封顶时，iPhone 横屏（视口约 390pt）+ 有进行中订单会算出
-    /// `390 − 308 − 8 = 74`，被 `max(compactHeight, …)` 抬回 104 —— **与 `.compact` 相等**。
-    /// 于是 `clampedHeight` 的上下界重合，面板卡死在最小高度：展开点了没反应，也拖不动。
-    ///
-    /// 0.55 是从「展开档至少要占视口 45%」倒推的：`reserved ≤ viewport × 0.55 − 16`。
-    /// iPhone 竖屏（844pt → 448）与 iPad（≥1024pt → ≥547）都够不着这条线，行为不变；
-    /// 只有矮窗口会被压。压小后面板可能盖住顶部状态块 —— 但面板是可拖的，
-    /// 拖下来就能看到；卡死则是无解。
-    static let maximumReservedFraction: CGFloat = 0.55
-    private static let expandedDetentInset: CGFloat = 16
-
-    static func reservedBottom(
-        safeAreaTop: CGFloat,
-        hasActiveOrder: Bool,
-        viewportHeight: CGFloat
-    ) -> CGFloat {
-        let safeTop = safeAreaTop.isFinite ? max(safeAreaTop, 0) : 0
-        // Keep the panel below the material status block without feeding a measured
-        // child frame back into the same layout graph.
-        let desired = safeTop + (hasActiveOrder ? 300 : 180)
-        guard viewportHeight.isFinite, viewportHeight > 0 else { return desired }
-        let ceiling = viewportHeight * maximumReservedFraction - expandedDetentInset
-        // `ceiling` 在极矮的视口下会算成负数，那时保留 0 —— 让面板拿走整屏，
-        // 总好过返回一个负的保留高度把地图锚点算到屏幕外。
-        return min(desired, max(ceiling, 0))
-    }
-}
-
 /// 志愿者首页这一屏的圆角档位。**四档各有语义，不是四个可以互换的数。**
 ///
 /// 立这个表的起因：全 App 的 `cornerRadius` 实测有 10 个取值
@@ -1206,536 +1058,144 @@ enum VolunteerHomeTopLayout {
 /// `PartnerRowCard` 都是 14，改它们会波及盲人端的固定搭档页 —— 那不在本次范围内，
 /// 且纯视觉收敛没有任何测试守得住，改坏了不会有信号。要全 App 统一是另一件事。
 enum VolunteerHomeRadius {
-    /// 底部派单面板（sheet 形态，只有上半圆角）。
-    static let sheet: CGFloat = 28
-    /// 居中弹出的模态对话框（派单弹窗）。与 `sheet` 分开是因为它不是从边缘滑出的。
+    /// 居中弹出的模态对话框（派单弹窗）。
     static let modal: CGFloat = 24
     /// 内容流里的每一张卡片。
     static let card: CGFloat = 16
     /// 卡片**内部**的元素：小格子、整行按钮、内嵌地图。
     /// 比外层小是为了套着好看，不是另一套体系。
     static let tile: CGFloat = 12
-    /// 药丸形（抓手、回到当前位置按钮）。
-    static let pill: CGFloat = 999
 }
 
 // MARK: - Volunteer Home View
 
+/// 志愿者端的根视图。**它本身只剩三件事**：装第一屏、把可服务开关挂在底部、
+/// 让派单弹窗盖住一切。内容**全部**在 `VolunteerProfileFirstScreen` 里，志愿者端主屏
+/// 现在只有这一屏，没有任何二级的「工作台」。
+///
+/// > 2026-09-14 从「地图铺满 + 底部可拖面板」的叠层结构改成这样。原结构有两个硬伤：
+/// > ① 那张底图 `annotations` 恒为 `[]`，只画「我在哪」，却占着整屏；
+/// > ② 面板拖到 `.compact` 档时**整块内容不渲染**，志愿者的服务量、勋章、最近陪跑
+/// >   随手一拖就全没了。设计稿与依据见
+/// >   `docs/ui/mockups/volunteer-profile-first-screen-20260914/`。
+/// >
+/// > 2026-09-15 又删掉了那一轮引入的二级页 `VolunteerDispatchWorkbenchView`（用户原话
+/// > 「好像是没什么用的」）。连带删掉那张辅助地图：它的 `annotations` 仍恒为 `[]`，
+/// > 唯一信息「我在哪」在派单卡的覆盖范围文字里已经有一份。**删地图 ≠ 停定位** ——
+/// > 下面 `onAppear` 里那两行是派单的前提，不许跟着删。
 struct VolunteerHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    /// 派单面板是全 App 位移幅度最大的动效（整块面板弹到另一个档位），而弹簧的回弹正是
-    /// 「减弱动态效果」要压掉的那一类。开启后改成瞬时切换：落点不变，只是不弹。
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .title) private var nearbyHeaderLargeSize: CGFloat = 30
-    @ScaledMetric(relativeTo: .title) private var nearbyHeaderCompactSize: CGFloat = 24
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
     @StateObject private var viewModel = VolunteerHomeViewModel()
-    @State private var recenterToken = 0
-    @State private var demandPanelDetent: VolunteerDemandPanelDetent = .medium
-    @State private var demandPanelDragTranslation: CGFloat = 0
 
     var body: some View {
         NavigationStack {
-            GeometryReader { proxy in
-                let resolvedTopBottom = resolvedTopContentBottom(in: proxy)
-                let panelHeight = demandPanelHeight(in: proxy, topContentBottom: resolvedTopBottom)
-                let panelTop = proxy.size.height - panelHeight - VolunteerDemandPanelDetent.bottomMargin
-                let mapAnchorY = VolunteerHomeMapLayout.screenAnchorY(
-                    viewportHeight: proxy.size.height,
-                    topContentBottom: resolvedTopBottom,
-                    demandPanelTop: panelTop
-                )
-
-                ZStack(alignment: .bottom) {
-                    homeMap(screenAnchor: CGPoint(x: 0.5, y: mapAnchorY))
-
-                    VStack(spacing: 0) {
-                        Spacer()
-
-                        recenterButton
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, panelHeight + 16)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-
-                    nearbyDemandPanel(height: panelHeight, isCompact: demandPanelDetent == .compact, proxy: proxy)
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, VolunteerDemandPanelDetent.bottomMargin)
-                }
-                .overlay(alignment: .top) {
-                    // 顶部状态块画在面板之上（overlay 永远盖住 ZStack），而 `reservedBottom`
-                    // 写死它只占 `safeTop + 180` —— 那个数不跟 Dynamic Type 走。真机 AX5 实测
-                    // 它从 y=149 一路长到 y=490，预留却只有 242pt，于是把 y=365–392 的面板抓手
-                    // 整个盖住：拖拽触点全被状态块吃掉，面板永远停在中等档拖不动，
-                    // 卡片内容对低视力用户彻底够不着。
-                    //
-                    // 装进 ScrollView 并限高到已经声明的预留值，让实现兑现那个声明：
-                    // 大字号下一个字都不丢（滚得到），抓手也露出来。
-                    //
-                    // 只在辅助字号下换实现：ScrollView 会贪心占满限高，默认字号下那会把
-                    // 状态块与面板之间那条地图带的手势一并吃掉，而默认字号本来就不溢出。
-                    let topStatusBlock = VStack(spacing: 8) {
-                        homeStatusOverlay
-
-                        if let activeOrder = viewModel.activeOrder {
-                            NavigationLink {
-                                currentOrderDestination(activeOrder)
-                            } label: {
-                                VolunteerCurrentOrderCard(order: activeOrder)
+            VolunteerProfileFirstScreen(viewModel: viewModel, onReload: loadHome)
+                .navigationTitle("")
+                .navigationBarHidden(true)
+                // 一个 destination 分两种落点，不是两个 `navigationDestination(isPresented:)` ——
+                // 同一个视图上挂两条 `isPresented` 版本在 iOS 16 上会互相顶掉。
+                .navigationDestination(
+                    isPresented: Binding(
+                        get: { viewModel.acceptedDispatchOrderId != nil || viewModel.pendingIntroCallOrder != nil },
+                        set: { isPresented in
+                            if !isPresented {
+                                viewModel.acceptedDispatchOrderId = nil
+                                viewModel.acceptedDispatchInitialOrder = nil
+                                viewModel.clearIntroCall()
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
-                            .accessibilityHint("点击进入当前订单")
-                            .accessibilityIdentifier("volunteerHomeCurrentOrderCard")
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 4)
-                    .frame(maxWidth: .infinity, alignment: .top)
-
-                    if dynamicTypeSize.isAccessibilitySize {
-                        ScrollView {
-                            topStatusBlock
-                        }
-                        .frame(maxHeight: max(96, resolvedTopBottom), alignment: .top)
-                    } else {
-                        topStatusBlock
-                    }
-                }
-                .background(AppColors.background)
-            }
-            .navigationTitle("")
-            .navigationBarHidden(true)
-            // 一个 destination 分两种落点，不是两个 `navigationDestination(isPresented:)` ——
-            // 同一个视图上挂两条 `isPresented` 版本在 iOS 16 上会互相顶掉。
-            .navigationDestination(
-                isPresented: Binding(
-                    get: { viewModel.acceptedDispatchOrderId != nil || viewModel.pendingIntroCallOrder != nil },
-                    set: { isPresented in
-                        if !isPresented {
-                            viewModel.acceptedDispatchOrderId = nil
-                            viewModel.acceptedDispatchInitialOrder = nil
-                            viewModel.clearIntroCall()
-                        }
-                    }
-                )
-            ) {
-                if let introCallRoute = viewModel.pendingIntroCallOrder {
-                    VolunteerIntroCallView(route: introCallRoute)
-                } else if let orderId = viewModel.acceptedDispatchOrderId {
-                    VolunteerInServiceView(
-                        orderId: orderId,
-                        initialOrder: viewModel.acceptedDispatchInitialOrder
-                    )
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                bottomEntries
-            }
-            .onAppear {
-                locationService.requestPermission()
-                locationService.startUpdating()
-            }
-            .onDisappear {
-                viewModel.setSceneActive(false)
-            }
-            .task(id: scenePhase) {
-                viewModel.configure(
-                    with: appState,
-                    speechService: speechService,
-                    currentLocationProvider: { locationService.currentLocation },
-                    locationAuthorizedProvider: { locationService.isAuthorized }
-                )
-                let isActive = scenePhase == .active
-                viewModel.setSceneActive(isActive)
-                guard isActive else { return }
-                await loadHome()
-                viewModel.startRefreshLoop()
-            }
-            .overlay {
-                if viewModel.incomingOrder != nil {
-                    VolunteerDispatchOverlay(
-                        order: viewModel.incomingOrder!,
-                        countdown: viewModel.dispatchCountdown,
-                        isResponding: viewModel.isRespondingToDispatch,
-                        currentLocation: locationService.currentLocation,
-                        locationAuthorized: locationService.isAuthorized,
-                        fallbackCoordinate: locationService.effectiveBackendLocation,
-                        // 主动作是「有意向，想先聊聊」还是「接单」，由推送里的
-                        // `requiresIntroCall` 决定（`WSNewOrder.dispatchRespondAction`）。
-                        // 🚨 这里**不做第二次判断** —— 判据在后端，客户端自己算必然漂移，
-                        // 而漂移的表现是「界面说能直接接、后端回 409」。
-                        onRespond: { action in
-                            viewModel.respondToDispatch(
-                                action: action,
-                                currentLocation: locationService.currentLocation,
-                                locationAuthorized: locationService.isAuthorized
-                            )
-                        },
-                        onDecline: {
-                            viewModel.respondToDispatch(
-                                action: .decline,
-                                currentLocation: nil,
-                                locationAuthorized: false
-                            )
                         }
                     )
+                ) {
+                    if let introCallRoute = viewModel.pendingIntroCallOrder {
+                        VolunteerIntroCallView(route: introCallRoute)
+                    } else if let orderId = viewModel.acceptedDispatchOrderId {
+                        VolunteerInServiceView(
+                            orderId: orderId,
+                            initialOrder: viewModel.acceptedDispatchInitialOrder
+                        )
+                    }
                 }
+                .safeAreaInset(edge: .bottom) {
+                    availabilityCTA
+                }
+                .onAppear {
+                    locationService.requestPermission()
+                    locationService.startUpdating()
+                }
+                .onDisappear {
+                    viewModel.setSceneActive(false)
+                }
+                .task(id: scenePhase) {
+                    viewModel.configure(
+                        with: appState,
+                        speechService: speechService,
+                        currentLocationProvider: { locationService.currentLocation },
+                        locationAuthorizedProvider: { locationService.isAuthorized }
+                    )
+                    let isActive = scenePhase == .active
+                    viewModel.setSceneActive(isActive)
+                    guard isActive else { return }
+                    await loadHome()
+                    viewModel.startRefreshLoop()
+                }
+        }
+        // 🚩 **派单弹窗挂在 `NavigationStack` 外面。**
+        //
+        // 挂在栈内根视图上时，push 出任何二级页（陪跑培训、服务记录、成就、设置）之后
+        // 弹窗会被那一页盖住。模态是最高优先级：不管他在哪一页，30 秒倒计时都必须看得见。
+        //
+        // 🚩 同一条理由决定了首屏那些入口一律用 `NavigationLink` 而不是 `.sheet`：
+        // sheet 是盖在整个 `NavigationStack` 之上的，会反过来把这个 overlay 挡住。
+        .overlay {
+            if let incomingOrder = viewModel.incomingOrder {
+                VolunteerDispatchOverlay(
+                    order: incomingOrder,
+                    countdown: viewModel.dispatchCountdown,
+                    isResponding: viewModel.isRespondingToDispatch,
+                    currentLocation: locationService.currentLocation,
+                    locationAuthorized: locationService.isAuthorized,
+                    fallbackCoordinate: locationService.effectiveBackendLocation,
+                    // 主动作是「有意向，想先聊聊」还是「接单」，由推送里的
+                    // `requiresIntroCall` 决定（`WSNewOrder.dispatchRespondAction`）。
+                    // 🚨 这里**不做第二次判断** —— 判据在后端，客户端自己算必然漂移，
+                    // 而漂移的表现是「界面说能直接接、后端回 409」。
+                    onRespond: { action in
+                        viewModel.respondToDispatch(
+                            action: action,
+                            currentLocation: locationService.currentLocation,
+                            locationAuthorized: locationService.isAuthorized
+                        )
+                    },
+                    onDecline: {
+                        viewModel.respondToDispatch(
+                            action: .decline,
+                            currentLocation: nil,
+                            locationAuthorized: false
+                        )
+                    }
+                )
             }
         }
     }
 
-    private func homeMap(screenAnchor: CGPoint) -> some View {
-        MapViewWrapper(
-            centerCoordinate: locationService.effectiveBackendLocation,
-            showsUserLocation: locationService.isAuthorized,
-            // 志愿者首页走系统派单，不再展示公开订单池，所以底图上没有订单标注。
-            // 派单来的那一单有自己的地图（`VolunteerOrderMap`），不在这张底图上。
-            annotations: [],
-            zoomLevel: 13,
-            recenterToken: recenterToken,
-            showsCompass: false,
-            screenAnchor: screenAnchor
-        )
-        .ignoresSafeArea()
-        .overlay(alignment: .bottom) {
-            LinearGradient(
-                colors: [.clear, Color.black.opacity(0.16)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 260)
-            .allowsHitTesting(false)
-        }
-        // 位置和派单摘要已由顶部状态块完整朗读；地图使用稳定语义，
-        // 避免 MAMapView 帧更新反复求值动态时间/覆盖文案。
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("志愿者首页辅助地图")
-        .accessibilityHint("地图用于视觉查看当前位置覆盖范围；派单状态面板会读出当前位置和覆盖摘要")
-        .accessibilityIdentifier("volunteerHomeMap")
-    }
-
-    private var homeStatusOverlay: some View {
-        VolunteerHomeStatusOverlay(
-            nickname: viewModel.nickname.isEmpty ? "志愿者" : viewModel.nickname,
-            detailText: viewModel.dispatchSummary?.coverageText ?? "派单状态待同步",
+    /// 底部的可服务开关。**它替代了原来那个 `Toggle`** —— 依据是 Uber Base
+    /// Sliding button 的用途判据「引入摩擦以确认意图」，而「从这一刻起开始收派单」
+    /// 正是一个有后果的动作（`docs/research/volunteer-profile-first-screen-20260914.md` §3）。
+    private var availabilityCTA: some View {
+        VolunteerAvailabilitySlider(
+            isAvailable: viewModel.isAvailable,
+            isEnabled: appState.isVolunteerProfileApproved,
+            isUpdating: viewModel.isUpdatingAvailability,
             statusText: viewModel.statusText,
-            statusColor: viewModel.statusColor,
-            isUpdatingAvailability: viewModel.isUpdatingAvailability,
-            isApproved: appState.isVolunteerProfileApproved,
-            isAvailable: Binding(
-                get: { viewModel.isAvailable },
-                set: { viewModel.setAvailability($0) }
-            ),
-            locationText: locationSummaryText,
-            acceptBlockMessage: viewModel.acceptBlockMessage
+            onChange: { viewModel.setAvailability($0) }
         )
-    }
-
-    private var recenterButton: some View {
-        Button {
-            locationService.requestOneTimeLocation()
-            recenterToken += 1
-        } label: {
-            Label("回到当前位置", systemImage: "location.fill")
-                .font(AppFonts.body().weight(.semibold))
-                .padding(.horizontal, 16)
-                .frame(minHeight: 48)
-                .background(AppColors.background)
-                .clipShape(Capsule())
-                .shadow(color: Color.black.opacity(0.16), radius: 12, x: 0, y: 4)
-        }
-        .accessibilityLabel("回到当前位置")
-        .accessibilityHint("将地图中心移动到当前定位，不提供路线导航")
-    }
-
-    /// 面板换档的动效。三处（点抓手 / 拖拽结束 / 高度变化）必须是同一条曲线，
-    /// 否则同一个动作会有两种回弹。`nil` = 瞬时到位，这是「减弱动态效果」下的正解。
-    private var demandPanelAnimation: Animation? {
-        reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86)
-    }
-
-    private func nearbyDemandPanel(height: CGFloat, isCompact: Bool, proxy: GeometryProxy) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            demandPanelGrabber
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(demandPanelAnimation) {
-                        demandPanelDetent = demandPanelDetent.next()
-                    }
-                }
-                .gesture(demandPanelDragGesture(proxy: proxy))
-
-            nearbyOrdersHeader(showsSubtitle: !isCompact)
-                .padding(.horizontal, 20)
-                .padding(.bottom, isCompact ? 12 : 10)
-                .contentShape(Rectangle())
-                .gesture(demandPanelDragGesture(proxy: proxy))
-
-            if !isCompact {
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        nearbyDemandContent
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 18)
-                }
-                .accessibilityIdentifier("volunteerHomeDemandScrollView")
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: height)
-        .background(AppColors.background)
-        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.sheet, style: .continuous))
-        .shadow(color: Color.black.opacity(0.18), radius: 20, x: 0, y: -8)
-        .animation(demandPanelAnimation, value: demandPanelDetent)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("volunteerHomeDemandPanel")
-    }
-
-    private var demandPanelGrabber: some View {
-        RoundedRectangle(cornerRadius: VolunteerHomeRadius.pill)
-            .fill(AppColors.textSecondary.opacity(0.28))
-            .frame(width: 46, height: 5)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
-            .accessibilityLabel("派单面板高度，当前\(demandPanelDetent.accessibilityValue)")
-            // 原文案是「上滑展开，下滑收起」—— 那是给**手指**说的。开着 VoiceOver 或
-            // Switch Control 时，上滑下滑早被辅助技术接管，照做没有任何反应，
-            // 而这块面板是志愿者接单的唯一入口。换成这两条通道真正能执行的动作。
-            .accessibilityHint("双击切换到下一档；用调整手势逐档展开或收起")
-            .accessibilityAdjustableAction { direction in
-                withAnimation(demandPanelAnimation) {
-                    switch direction {
-                    case .increment:
-                        demandPanelDetent = demandPanelDetent.adjusted(by: 1)
-                    case .decrement:
-                        demandPanelDetent = demandPanelDetent.adjusted(by: -1)
-                    @unknown default:
-                        break
-                    }
-                }
-            }
-            .accessibilityIdentifier("volunteerHomeDemandPanelGrabber")
-    }
-
-    private func nearbyOrdersHeader(showsSubtitle: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("系统派单")
-                    // 写死 pt 的字号不跟 Dynamic Type 走：把系统字号调到 AX5 之后，
-                    // 整屏都变大而这个标题纹丝不动 —— 它是这一屏的入口标题，不该是唯一不变的那个。
-                    // `@ScaledMetric` 保住原来的视觉尺寸，同时跟着用户设置缩放。
-                    .font(.system(size: showsSubtitle ? nearbyHeaderLargeSize : nearbyHeaderCompactSize, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-
-                Button {
-                    Task { await loadHome() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 36, height: 36)
-                }
-                .accessibilityLabel("刷新派单状态")
-                .accessibilityHint("重新加载系统派单工作台")
-                .accessibilityIdentifier("volunteerHomeRefreshButton")
-            }
-
-            if showsSubtitle {
-                Text(viewModel.dispatchSummary?.dispatchStatusText ?? (locationService.isAuthorized ? "正在同步派单状态。" : "定位未开启，系统派单不可用。"))
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var nearbyDemandContent: some View {
-        // 🚩 **必须在 `if let summary` 之外**，两条独立的理由：
-        // ① 数据源不同 —— 预约单来自 `GET /api/orders/mine`，与 dispatch-summary 无关。
-        //    嵌进去的话，派单摘要一失败（那是个有专门空态、被明确预期的失败），
-        //    连同确认按钮一起消失，而它带着一个 60 分钟到期的动作 —— 那正是本功能要防的后果。
-        // ② 排在最前 —— 这一块装的是**将要发生**且需要他动手的事；
-        //    派单摘要与近期服务都是状态与历史。读屏用户不该先划过三条已完成的单才听到待办。
-        VolunteerScheduledOrdersSection(
-            orders: viewModel.scheduledOrders,
-            submittingOrderID: viewModel.submittingScheduledOrderID,
-            message: viewModel.scheduledOrdersMessage,
-            onConfirm: { orderID in
-                Task { await viewModel.confirmScheduledDeparture(orderID: orderID) }
-            },
-            onRelease: { orderID in
-                Task { await viewModel.releaseScheduledOrder(orderID: orderID) }
-            }
-        )
-
-        if let summary = viewModel.dispatchSummary {
-            if viewModel.isLoading {
-                Label(
-                    "正在后台刷新派单状态，当前内容仍可使用",
-                    systemImage: "arrow.triangle.2.circlepath"
-                )
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("正在后台刷新派单状态，当前内容仍可使用")
-            }
-            VolunteerDispatchSummaryCard(summary: summary)
-
-            // 「尚未通过资质认证」必须能一键到达上传页，否则志愿者看到提示也无处可去。
-            if summary.notAvailableReasons?.contains(.notVerified) == true {
-                VolunteerCertificateUploadEntryLink()
-            }
-
-            if let activeOrder = viewModel.activeOrder {
-                NavigationLink {
-                    currentOrderDestination(activeOrder)
-                } label: {
-                    VolunteerCurrentOrderCard(order: activeOrder)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
-                .accessibilityHint("点击进入当前订单")
-            }
-
-            // 「我的贡献」排在**状态与任务之后、历史之前**。
-            //
-            // 上面几块回答的是「我现在能不能接单 / 手上有什么」，下面的近期服务是历史，
-            // 而这张卡是「我已经做到了什么」—— 读屏顺序播报，排序就是优先级，
-            // 让人先划过三条已完成的订单才听到自己的贡献是反的。
-            //
-            // ⚠️ **它确实被绑在 `dispatchSummary` 成功上**（嵌在这个 `if let` 里），
-            // 这是有意接受的：派单摘要失败时整块面板已经退化成「派单状态待同步」+ 重试，
-            // 那一刻不该再插一张报喜的卡。与 `VolunteerScheduledOrdersSection` 必须
-            // 放在 `if let` 之外的理由不冲突 —— 那一块带着一个 60 分钟到期的**动作**，
-            // 这张卡一个可操作内容都没有，丢了不产生后果。
-            VolunteerHomeIncentiveCard()
-
-            VolunteerRecentOrdersSection(orders: summary.recentOrders ?? [])
-        } else if viewModel.isLoading {
-            VStack(alignment: .leading, spacing: 10) {
-                EmptyStateView(
-                    title: "派单状态待同步",
-                    message: "正在后台同步；记录、积分、设置和面板操作仍可使用。"
-                )
-                Label("正在后台同步派单状态", systemImage: "arrow.triangle.2.circlepath")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityLabel("正在后台同步派单状态，页面仍可使用")
-            }
-        } else {
-            EmptyStateView(
-                title: "派单状态待同步",
-                message: locationService.isAuthorized ? "请稍后刷新。" : "开启定位后才能接收系统派单。"
-            )
-        }
-
-        if let errorMessage = viewModel.displayedErrorMessage {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(errorMessage)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.destructive)
-                    .accessibilityLabel(errorMessage)
-                Button("重试加载") {
-                    Task { await loadHome() }
-                }
-                .buttonStyle(.bordered)
-                .accessibilityHint("重新加载派单和当前订单状态")
-            }
-        }
-
-        // 接单被后端 403 VOLUNTEER_NOT_VERIFIED 拒绝时，直接给出上传入口。
-        if viewModel.needsCertificateUpload {
-            VolunteerCertificateUploadEntryLink()
-        }
-
-        if let warning = viewModel.locationDispatchWarning {
-            Label(warning, systemImage: "location.slash.fill")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.warning)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel(warning)
-                .accessibilityHint("请检查定位权限，并等待设备获取当前位置")
-                .accessibilityIdentifier("volunteerDispatchLocationWarning")
-        }
-
-        #if DEBUG
-        if let diagnostic = appState.realtimeCoordinator.dispatchDiagnostic {
-            Text("派单诊断：\(diagnostic.debugSummary)")
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .textSelection(.enabled)
-                .accessibilityLabel("派单诊断，\(diagnostic.debugSummary)")
-                .accessibilityIdentifier("volunteerDispatchDiagnostic")
-        }
-        DebugTestingPanel()
-            .environmentObject(appState)
-        #endif
-    }
-
-    private func currentOrderDestination(_ order: OrderDetailResponse) -> some View {
-        VolunteerInServiceView(orderId: order.orderId, initialOrder: order)
-    }
-
-    private func demandPanelDragGesture(proxy: GeometryProxy) -> some Gesture {
-        DragGesture(minimumDistance: 10)
-            .onChanged { value in
-                demandPanelDragTranslation = value.translation.height
-            }
-            .onEnded { value in
-                let resolvedTopBottom = resolvedTopContentBottom(in: proxy)
-                let baseHeight = demandPanelDetent.height(
-                    viewportHeight: proxy.size.height,
-                    topContentBottom: resolvedTopBottom
-                )
-                let proposedHeight = VolunteerDemandPanelDetent.clampedHeight(
-                    baseHeight - value.translation.height,
-                    viewportHeight: proxy.size.height,
-                    topContentBottom: resolvedTopBottom
-                )
-                let target = VolunteerDemandPanelDetent.nearest(
-                    to: proposedHeight,
-                    viewportHeight: proxy.size.height,
-                    topContentBottom: resolvedTopBottom
-                )
-                withAnimation(demandPanelAnimation) {
-                    demandPanelDetent = target
-                    demandPanelDragTranslation = 0
-                }
-            }
-    }
-
-    private func demandPanelHeight(in proxy: GeometryProxy, topContentBottom: CGFloat) -> CGFloat {
-        let baseHeight = demandPanelDetent.height(
-            viewportHeight: proxy.size.height,
-            topContentBottom: topContentBottom
-        )
-        return VolunteerDemandPanelDetent.clampedHeight(
-            baseHeight - demandPanelDragTranslation,
-            viewportHeight: proxy.size.height,
-            topContentBottom: topContentBottom
-        )
-    }
-
-    private func resolvedTopContentBottom(in proxy: GeometryProxy) -> CGFloat {
-        VolunteerHomeTopLayout.reservedBottom(
-            safeAreaTop: proxy.safeAreaInsets.top,
-            hasActiveOrder: viewModel.activeOrder != nil,
-            viewportHeight: proxy.size.height
-        )
-    }
-
-    private var locationSummaryText: String {
-        if locationService.isAuthorized {
-            return "\(locationService.readableCurrentLocationSummary)\(viewModel.dispatchSummary?.coverageText ?? "派单覆盖范围待同步")"
-        }
-        return "需要开启定位权限才能接收系统派单"
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.regularMaterial)
     }
 
     private func loadHome() async {
@@ -1744,123 +1204,9 @@ struct VolunteerHomeView: View {
             locationAuthorized: locationService.isAuthorized
         )
     }
-
-    private var bottomEntries: some View {
-        HStack(spacing: 10) {
-            NavigationLink {
-                VolunteerServiceRecordsView()
-            } label: {
-                VolunteerEntryItem(icon: "clock.arrow.circlepath", title: "记录")
-            }
-            .accessibilityLabel("我的服务记录")
-
-            NavigationLink {
-                VolunteerServiceRecognitionView()
-            } label: {
-                VolunteerEntryItem(icon: "rosette", title: "成就")
-            }
-            .accessibilityLabel("服务成就")
-            .accessibilityHint("查看已完成的服务次数、评分和称号")
-
-            NavigationLink {
-                VolunteerSettingsView()
-            } label: {
-                VolunteerEntryItem(icon: "gearshape", title: "设置")
-            }
-            .accessibilityLabel("设置")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.regularMaterial)
-    }
 }
 
-private struct VolunteerHomeStatusOverlay: View {
-    let nickname: String
-    let detailText: String
-    let statusText: String
-    let statusColor: Color
-    let isUpdatingAvailability: Bool
-    let isApproved: Bool
-    @Binding var isAvailable: Bool
-    let locationText: String
-    let acceptBlockMessage: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 12) {
-                Text(nickname)
-                    .font(.headline.weight(.bold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                    .accessibilityAddTraits(.isHeader)
-
-                Spacer()
-
-                HStack(spacing: 8) {
-                    if isUpdatingAvailability {
-                        ProgressView()
-                            .accessibilityLabel("正在更新可服务状态")
-                    }
-
-                    Toggle(
-                        isOn: $isAvailable
-                    ) {
-                        Text(VolunteerAvailabilityCopy.toggleTitle)
-                    }
-                    .labelsHidden()
-                    .disabled(!isApproved || isUpdatingAvailability)
-                    .accessibilityLabel("\(VolunteerAvailabilityCopy.toggleTitle)，\(statusText)")
-                    .accessibilityHint("关闭后不会收到新的系统派单，但不影响当前订单")
-                }
-            }
-
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 10, height: 10)
-                    .accessibilityHidden(true)
-                Text(statusText)
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(statusColor)
-                Text("·")
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityHidden(true)
-                Text(detailText)
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textPrimary)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("当前状态：\(statusText)，\(detailText)")
-
-            Text(locationText)
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.82)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel(locationText)
-
-            if let acceptBlockMessage {
-                Text(acceptBlockMessage)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(acceptBlockMessage)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
-        .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 5)
-        .accessibilityIdentifier("volunteerHomeTopStatusBlock")
-    }
-}
-
-private struct VolunteerCurrentOrderCard: View {
+struct VolunteerCurrentOrderCard: View {
     let order: OrderDetailResponse
 
     var body: some View {
@@ -1917,9 +1263,17 @@ private struct VolunteerCurrentOrderCard: View {
     }
 }
 
-private struct VolunteerDispatchSummaryCard: View {
+/// 派单状态卡：覆盖范围 + 完成·评分·接单率 + 派单·接受·拒绝·超时。
+///
+/// 🚩 **internal 而不是 private**：唯一的渲染点在 `VolunteerProfileFirstScreen.dispatchSection`
+/// （另一个文件）。它被刻意摆在首屏**最底部**、接替 2026-09-15 删掉的那行工作台入口 ——
+/// 「等待派单」页出来时搬走它 = 删首屏 `VStack` 里的一行 + 整个 struct 挪过去，不用重构。
+/// 调研 §1 的三档分类里它是第三档「普通信息卡片」，不该占中段。
+///
+/// 🔴 **卡里不再有「去培训」按钮。** 那个入口以前是这张卡的兄弟节点，小得用户找不到
+/// （原话「一个贼小的去培训，一点都不显眼」），已整体升级成首屏作业区里的整卡入口。
+struct VolunteerDispatchSummaryCard: View {
     let summary: VolunteerDispatchSummaryResponse
-    @State private var isTrainingSheetPresented = false
 
     /// 三格，不是四格。此前第一格是「积分」，值是 `totalCompleted * 100` ——
     /// 后端从来没有 `pointsBalance` 字段，那个数字只是「完成 N 单」换了个说法，
@@ -1936,9 +1290,6 @@ private struct VolunteerDispatchSummaryCard: View {
     }
 
     var body: some View {
-        // 外层 VStack 的存在理由：卡片本体要 `.combine` 成一个可听的整体，
-        // 而「去培训」按钮必须留在那个整体之外才点得到。两者是兄弟节点，不是父子。
-        VStack(alignment: .leading, spacing: 8) {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: summary.canDispatch == true ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
@@ -1986,67 +1337,11 @@ private struct VolunteerDispatchSummaryCard: View {
         // 「积分 N」也从这条 label 里删掉 —— 数字从视觉上消失了，但读屏用户还在听，
         // 这一处最容易漏。
         .accessibilityLabel("派单状态：\(summary.dispatchStatusText)，\(summary.coverageText)，完成 \(summary.completedCount) 次，评分 \(summary.ratingText)")
-        // 🚩 「去培训」按钮必须放在 `.accessibilityElement(children: .combine)` 的**外面**。
-        //    塞进上面那个 VStack 里的话，combine 会把它并进一个不可操作的整体，
-        //    VoiceOver 用户永远点不到它（同 `accessibility-identifier-overwrites-children`
-        //    那类容器吃掉子元素的陷阱）。这也是为什么它是 `.overlay` 之后的兄弟节点而不是子节点。
-        if needsTrainingEntry {
-            trainingEntry
-        }
-        }
-    }
-
-    /// 只有「必修培训没完成」这一条原因才给按钮。
-    ///
-    /// 🚩 其余原因**刻意不给**：`OFFLINE` / `DISPATCH_DISABLED` 在这张卡的上方就有开关和
-    /// 定位入口，再加一个按钮是噪音；`NOT_VERIFIED` 的去处是「我的 → 资质证书」，
-    /// 那条今天没有按钮 —— 补它是另一件事，不夹带进这次改动。
-    private var needsTrainingEntry: Bool {
-        (summary.notAvailableReasons ?? []).contains(.trainingIncomplete)
-    }
-
-    /// 「为什么接不到单」和「去哪解决」必须在同一处。
-    ///
-    /// 🚩 只在卡片里写一句「尚未完成必修培训」而不给去处，就是装饰性提示：
-    /// 志愿者读到了原因，却要自己猜去「我的」里翻。本仓库已经有过这个形状 ——
-    /// `NOT_VERIFIED` 那条至今只有一行字。这次不复制它。
-    private var trainingEntry: some View {
-        Button {
-            isTrainingSheetPresented = true
-        } label: {
-            HStack(spacing: 6) {
-                Text("去培训")
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .accessibilityHidden(true)
-            }
-            .font(AppFonts.body().weight(.semibold))
-            .foregroundColor(AppColors.primary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // 44pt 是系统触达下限。志愿者端不受盲人端 64pt 线约束
-            // （`guard.mjs` 的 `small-touch-target` 显式排除 /blindRun/Volunteer/）。
-            .frame(minHeight: 44)  // guard:allow small-touch-target
-            .padding(.horizontal, 14)
-        }
-        .accessibilityLabel("去培训")
-        .accessibilityHint("打开陪跑培训，完成必修课程后即可接单")
-        .accessibilityIdentifier("volunteerHomeTrainingEntry")
-        // 用 sheet 而不是 NavigationLink：首页不保证处在 NavigationStack 里，
-        // 而 sheet 自带一个 NavigationStack 就能让课程详情正常 push。
-        .sheet(isPresented: $isTrainingSheetPresented) {
-            NavigationStack {
-                VolunteerTrainingView()
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("关闭") { isTrainingSheetPresented = false }
-                        }
-                    }
-            }
-        }
     }
 }
 
-private struct VolunteerMetricTile: View {
+/// internal 与 `VolunteerDispatchSummaryCard` 同理：它只被那张卡用，而那张卡已经跨文件了。
+struct VolunteerMetricTile: View {
     let title: String
     let value: String
 
@@ -2079,7 +1374,7 @@ private struct VolunteerMetricTile: View {
 ///
 /// 确认按钮直接摆在卡上、**不进二级页也不进溢出菜单** —— Rover 把改期藏进三点菜单、
 /// 把接受放在会话线程里，是本轮调研里唯一被点名的反面教材。
-private struct VolunteerScheduledOrdersSection: View {
+struct VolunteerScheduledOrdersSection: View {
     let orders: [OrderDetailResponse]
     let submittingOrderID: Int64?
     let message: String?
@@ -2177,117 +1472,6 @@ private struct VolunteerScheduledOrdersSection: View {
         .background(AppColors.secondaryBackground)
         .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
         .accessibilityElement(children: .contain)
-    }
-}
-
-private struct VolunteerRecentOrdersSection: View {
-    let orders: [VolunteerDispatchSummaryRecentOrder]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("近期服务")
-                .font(AppFonts.body().weight(.bold))
-                .foregroundColor(AppColors.textPrimary)
-
-            if orders.isEmpty {
-                EmptyStateView(title: "暂无服务记录", message: "完成服务后会显示在这里。")
-            } else {
-                VStack(spacing: 10) {
-                    ForEach(orders.prefix(3)) { order in
-                        NavigationLink {
-                            VolunteerOrderDetailView(orderId: order.orderId)
-                        } label: {
-                            VolunteerRecentOrderCard(order: order)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("点击查看订单详情")
-                    }
-                }
-            }
-        }
-    }
-}
-
-private struct VolunteerRecentOrderCard: View {
-    let order: VolunteerDispatchSummaryRecentOrder
-
-    /// 抽成独立属性而不是在 `.accessibilityLabel(...)` 里现拼：
-    /// 把这段带可选拆包的拼接塞回 `body` 会让 Swift 类型检查器超时
-    /// （`unable to type-check this expression in reasonable time`）。
-    ///
-    /// `pointsText` 现在是 `String?`，只在后端真的发了 `pointsDelta` 时才有值 ——
-    /// 没有就整段不念，而不是念一个编出来的「+100」。
-    private var accessibilityDescription: String {
-        var parts = [
-            "盲人：\(order.blindName ?? "")",
-            "地点：\(order.startAddress ?? "")",
-            "状态：\(order.status.displayName)"
-        ]
-        if let points = order.pointsText {
-            parts.append("积分：\(points)")
-        }
-        return parts.joined(separator: "，")
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: order.status.statusSymbolName)
-                .font(.body.weight(.semibold))
-                .foregroundColor(order.status.statusColor)
-                .frame(width: 28, height: 28)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(order.blindName ?? "盲人跑者")
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .lineLimit(1)
-
-                Text(order.startAddress ?? "地点待同步")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-            }
-
-            Spacer(minLength: 8)
-
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(order.status.displayName)
-                    .font(AppFonts.caption().weight(.semibold))
-                    .foregroundColor(order.status.statusColor)
-
-                // 只在后端真的发了 `pointsDelta` 时才显示这一行。此前它恒显示 `+100`
-                // （`resolvedPointsDelta` 在 nil 时返回 100），而后端从来没有这个字段。
-                if let points = order.pointsText {
-                    Text(points)
-                        .font(AppFonts.caption())
-                        .foregroundColor(AppColors.success)
-                }
-            }
-        }
-        .padding(12)
-        .background(AppColors.secondaryBackground)
-        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityDescription)
-    }
-}
-
-private struct VolunteerEntryItem: View {
-    let icon: String
-    let title: String
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.title3)
-            Text(title)
-                .font(.caption)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .foregroundColor(AppColors.primary)
     }
 }
 

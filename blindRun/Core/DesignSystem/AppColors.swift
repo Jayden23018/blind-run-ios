@@ -61,6 +61,25 @@ enum AppColors {
     /// `Color` 要解析成 RGB 得先过 `UITraitCollection`，那在单测里是个不稳定的依赖。
     static let voiceStageSurfaceTone = Tone(light: 0x0058C7, dark: 0x0B4DA2)
 
+    /// 志愿者「可服务」已开启时那条状态条的绿底（`VolunteerAvailabilitySlider`）。
+    ///
+    /// **和 `voiceStageSurface` 完全同一个形状，所以同样不进 `tones`**：它是背景，
+    /// 白字压在它上面，而那张表验的是「这个色当前景压在两种背景上」。
+    ///
+    /// 🔴 **暗色不能沿用 `success` 的 `#30D158`：白字压上去只有 2.02:1**，
+    /// 正文阈值是 4.5:1（WCAG 1.4.3）—— 那是本文件顶部点名的同一类缺陷
+    /// （`systemGreen` 压白底 2.22:1）换了个方向又来一次。而这条状态条是志愿者首屏
+    /// **底部唯一的常驻控件**，它读不清等于「我到底开没开」这件事没有视觉答案。
+    /// 亮色 `#1B7F3B` 白字 5.07:1，暗色 `#0F5C2E` 白字 8.11:1。
+    ///
+    /// 自己的检查在 `LowVisionChannelTests.testAvailabilityOnSurfaceKeepsWhiteTextReadable`。
+    static let availabilityOnSurfaceTone = Tone(light: 0x1B7F3B, dark: 0x0F5C2E)
+
+    static let availabilityOnSurface = dynamic(
+        availabilityOnSurfaceTone.light,
+        availabilityOnSurfaceTone.dark
+    )
+
     // 这三个继续用系统语义色：`label` 已经是 21:1，两个背景色本来就是对比的**基准**而非前景。
     static let background = Color(uiColor: .systemBackground)
     static let secondaryBackground = Color(uiColor: .secondarySystemBackground)

@@ -77,13 +77,10 @@ final class AccessibilityAuditTests: XCTestCase {
         }
         let app = launchVolunteerHome()
 
-        // 入口在首页底部那排（记录 / 成就 / 设置）。SwiftUI 不渲染屏幕外的内容，
-        // 直接断言会假失败 —— 先滚到底（commit 4cee939 的同一个坑）。
-        let entry = app.descendants(matching: .any)["服务成就"].firstMatch
-        if !entry.waitForExistence(timeout: 20) {
-            app.swipeUp()
-        }
-        XCTAssertTrue(entry.waitForExistence(timeout: 10), "志愿者首页没有「成就」入口，后面的审计没有意义")
+        // 入口在首屏徽章区的「全部 N 枚 ›」（2026-09-14 改版前是底部那排「记录 / 成就 / 设置」）。
+        // SwiftUI 不渲染屏幕外的内容，直接断言会假失败 —— 先往下滚（commit 4cee939 的同一个坑）。
+        let entry = achievementsEntry(app)
+        XCTAssertTrue(entry.exists, "志愿者首屏没有「成就」入口，后面的审计没有意义")
         entry.tap()
 
         let page = app.descendants(matching: .any)["volunteerServiceRecognitionView"].firstMatch
@@ -106,11 +103,8 @@ final class AccessibilityAuditTests: XCTestCase {
     func testVolunteerStarLevelExposesRemainingHoursAsText() throws {
         let app = launchVolunteerHome()
 
-        let entry = app.descendants(matching: .any)["服务成就"].firstMatch
-        if !entry.waitForExistence(timeout: 20) {
-            app.swipeUp()
-        }
-        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        let entry = achievementsEntry(app)
+        XCTAssertTrue(entry.exists)
         entry.tap()
 
         let starSection = app.descendants(matching: .any)["volunteerStarLevelSection"].firstMatch
@@ -875,53 +869,138 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 然后审计的是错的那一页（与 `launchBlindHome` 上那条注释同一个坑）。
     /// - Parameter seedOrderStatus: 同 `launchBlindHome` 的同名参数。传非空值时一并置上
     ///   `PRESEEDED_VOLUNTEER_ACTIVE_ORDER`，让志愿者首页确实认这张单为「当前订单」。
-    @MainActor
-    /// 🔴 **志愿者首页必须出现「我的贡献」卡。**
+
+    /// 🔴 **志愿者首屏的影响力区必须渲染出东西来。**
     ///
-    /// 钉的是一个真机上发生过、而单测完全照不到的缺陷：卡片原来写成
+    /// 钉的是一个真机上发生过、而单测完全照不到的缺陷：那一块原来写成
     /// `Group { if let summary = ..., summary.isRenderable { content } }`，
     /// 条件不成立时整个 Group 解析成空，而 **`.task` 挂在空子树上不会触发** ——
     /// 于是 `summary` 永远是 nil ⇒ 永远渲染空 ⇒ 永远不加载。
     /// 单测直接调 `loadIfNeeded()`，绕过了视图，所以一路全绿而线上什么都没有。
     ///
-    /// ⚠️ **不要点面板抓手**：`next()` 是循环的，点两下会转回 `.compact`，
-    /// 那一档整块 `ScrollView` 不渲染，连「接单率」「近期服务」都会消失 ——
-    /// 排查时按那样写过一版探针，得出的是完全误导的结论。默认档位本来就是 `.medium`。
+    /// 2026-09-14 首屏改版后这条缺陷的复发面**更大**了（新首屏全是条件卡片），
+    /// 所以用例跟着搬到新结构上，而不是随旧结构一起删掉。
+    @MainActor
     func testVolunteerHomeShowsTheIncentiveCard() {
         let app = launchVolunteerHome()
 
-        let panel = app.otherElements["volunteerHomeDemandPanel"]
-        XCTAssertTrue(panel.waitForExistence(timeout: 25))
-
-        let scroll = app.scrollViews["volunteerHomeDemandScrollView"]
-        XCTAssertTrue(scroll.waitForExistence(timeout: 15), "ScrollView 没渲染说明档位不是 medium，后面的断言都不作数")
-
-        // 前提断言：面板内容确实渲染了。少了这条，下面那条失败时分不清是
-        // 「卡没渲染」还是「整个面板都没渲染」。
+        // 前提断言：首屏本身确实渲染了。少了这条，下面那条失败时分不清是
+        // 「影响力区没渲染」还是「整屏都没渲染」。
+        let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"]
+        XCTAssertTrue(identityRow.waitForExistence(timeout: 25), "首屏整体没出来 —— 这不是影响力区的问题")
         XCTAssertTrue(
-            app.staticTexts["近期服务"].waitForExistence(timeout: 20),
-            "面板内容整体没出来 —— 这不是激励卡的问题"
+            app.staticTexts["我的陪伴"].waitForExistence(timeout: 20),
+            "分区标题都没有 —— 这不是影响力区的问题"
         )
 
         let card = app.descendants(matching: .any)["volunteerHomeIncentiveCard"]
         let loading = app.descendants(matching: .any)["volunteerHomeIncentiveLoading"]
         let failure = app.descendants(matching: .any)["volunteerHomeIncentiveFailure"]
-        let empty = app.descendants(matching: .any)["volunteerHomeIncentiveEmpty"]
 
-        // 四态**必有其一**。一个都没有 = 视图压根没渲染，就是那个 `.task` 缺陷复发了。
-        let anyState = card.waitForExistence(timeout: 20)
-            || loading.exists || failure.exists || empty.exists
-        XCTAssertTrue(anyState, "「我的贡献」四种状态一个都没出现 —— .task 没触发，卡片把自己锁死了")
+        // 三态**必有其一**。一个都没有 = 视图压根没渲染，就是那个 `.task` 缺陷复发了。
+        let anyState = card.waitForExistence(timeout: 20) || loading.exists || failure.exists
+        XCTAssertTrue(anyState, "「我的陪伴」三种状态一个都没出现 —— .task 没触发，影响力区把自己锁死了")
 
-        // Mock 环境下数据是齐的，应该落在正式卡片那一态。
-        XCTAssertTrue(card.exists, "Mock 数据齐全时应该渲染正式卡片，实际落到了占位态")
+        // Mock 环境下数据是齐的，应该落在正式内容那一态。
+        XCTAssertTrue(card.exists, "Mock 数据齐全时应该渲染正式内容，实际落到了占位态")
         XCTAssertTrue(
             app.descendants(matching: .any)["volunteerHomeIncentiveAchievementsLink"].exists,
             "「查看服务成就」必须在合成元素之外，否则 VoiceOver 点不到"
         )
     }
 
-    private func launchVolunteerHome(seedOrderStatus: String? = nil) -> XCUIApplication {
+    /// 🔴 **滑动开启「可服务」必须给辅助技术留一个标准 action。**
+    ///
+    /// VoiceOver / Switch Control / Voice Control 会彻底改变用户的物理交互方式，
+    /// 很多人根本不触碰屏幕（Apple Developer Forums 线程 729098）——
+    /// 只有裸拖拽手势的话，这一屏唯一的主操作对他们等于不存在。
+    ///
+    /// 实现走 `.accessibilityRepresentation { Button(…) }`：无障碍树里是一枚普通按钮，
+    /// 而指针路径仍然只有滑动。**验红方式**：删掉那个 modifier，元素退回 `.other`，
+    /// `app.buttons[...]` 立刻找不到，这条必挂。
+    ///
+    /// 🔴 **这条**只**断言无障碍树的形状，不断言点它会怎样** —— 因为 XCUITest 做不到：
+    /// `XCUIElement.tap()` 注入的是一次**物理触摸**，落在真实那棵视图上（只有 `DragGesture`），
+    /// 根本不经过 accessibility action；公开 API 里也没有「执行默认无障碍动作」这个口子。
+    /// 照着写会得到一条**必红且红得毫无信息量**的用例（实测：按钮找得到、`isEnabled` 为真，
+    /// 而 tap 之后开关纹丝不动）。
+    ///
+    /// 「按下去真的会开」由下面那条拖拽用例覆盖 —— 两条路径调的是**同一个** `activate()`，
+    /// 所以「按钮在」+「`activate()` 是对的」合起来就是这条要求的完整覆盖。
+    @MainActor
+    func testAvailabilitySliderExposesAStandardActionToAssistiveTech() {
+        // 默认 `preseedVolunteerAvailable` 为真，那会渲染成状态条而不是滑块 —— 要的是关闭态。
+        let app = launchVolunteerHome(available: false)
+
+        let slider = app.buttons["滑动开始今天的陪跑"]
+        XCTAssertTrue(
+            slider.waitForExistence(timeout: 25),
+            "滑动 CTA 在无障碍树里不是按钮 —— 不触碰屏幕的用户没有任何办法开启可服务开关"
+        )
+        XCTAssertTrue(slider.isEnabled, "资质已通过的志愿者，这枚按钮必须是可用的")
+        // 开启态下**不许**还有第二个滑动入口：那会让读屏用户听到一枚已经没有意义的按钮。
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].exists,
+            "关闭态不该同时渲染已开启状态条"
+        )
+    }
+
+    /// 拖过 20% 阈值真的会开启，而关闭那一侧是普通点按。
+    ///
+    /// 🔴 **摩擦力只加在「答应」这一侧**（Motivation Crowding，
+    /// `docs/research/volunteer-home-incentive-layer-20260914.md` §3.1–3.2）：
+    /// 关闭不得是第二次滑动、不得二次确认、不得弹任何挽留。
+    @MainActor
+    func testSlidingPastThresholdOpensAvailabilityAndClosingIsAPlainTap() {
+        let app = launchVolunteerHome(available: false)
+
+        let slider = app.descendants(matching: .any)["volunteerAvailabilitySlider"].firstMatch
+        XCTAssertTrue(slider.waitForExistence(timeout: 25), "滑动 CTA 没渲染出来")
+
+        // 从滑块位置横着拖到轨道右端。阈值是 20%，拖到 95% 有足够余量。
+        slider.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5))
+            .press(
+                forDuration: 0.1,
+                thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5))
+            )
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].waitForExistence(timeout: 15),
+            "滑过阈值后「可服务」没有真的打开"
+        )
+
+        let close = app.buttons["今天先不跑了"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5), "关闭必须是普通点按，不是第二次滑动")
+        close.tap()
+        // 关闭之后必须立刻回到滑块态，**中间不许有任何确认弹窗或挽留**。
+        XCTAssertTrue(
+            app.buttons["滑动开始今天的陪跑"].waitForExistence(timeout: 15),
+            "关闭没有生效，或者中间插了一层挽留/确认"
+        )
+        XCTAssertEqual(app.alerts.count, 0, "关闭「可服务」不得弹任何对话框")
+    }
+
+    /// 首屏徽章区那个「全部 N 枚 ›」入口。滚到它为止再返回。
+    ///
+    /// ⚠️ 标题里带**枚数**（`全部 3 枚`），所以只能按 `accessibilityLabel` 找，不能按可见文字找。
+    /// 那个 label 的单一来源是 `VolunteerHomeIncentiveCopy.achievementsLinkTitle`。
+    @MainActor
+    private func achievementsEntry(_ app: XCUIApplication) -> XCUIElement {
+        let entry = app.descendants(matching: .any)["查看服务成就"].firstMatch
+        if entry.waitForExistence(timeout: 20) { return entry }
+        var drags = 0
+        while !entry.exists && drags < 8 {
+            app.swipeUp()
+            drags += 1
+        }
+        return entry
+    }
+
+    @MainActor
+    private func launchVolunteerHome(
+        seedOrderStatus: String? = nil,
+        available: Bool = true
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
             await MainActor.run { app.terminate() }
@@ -933,7 +1012,9 @@ final class AccessibilityAuditTests: XCTestCase {
         app.launchEnvironment["AIDRUN_UI_TEST_ACTIVE_ROLE"] = "volunteer"
         app.launchEnvironment["AIDRUN_UI_TEST_ACCESS_TOKEN"] = "mock_jwt_token_for_testing"
         app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_PROFILE"] = "1"
-        app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] = "1"
+        if available {
+            app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] = "1"
+        }
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_WEBSOCKET"] = "1"
         app.launchEnvironment["AIDRUN_UI_TEST_DISABLE_MAP"] = "1"
         if let seedOrderStatus {

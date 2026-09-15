@@ -34,6 +34,33 @@ struct VolunteerHomeIncentiveSummary: Equatable {
     /// 火花那一对的对方姓名（后端已掩码）。
     let streakPartnerName: String?
 
+    /// `GET /api/volunteer/achievements` 的整份响应。
+    ///
+    /// 🚩 **它和上面的 `nextBadge` 不是重复字段。** `nextBadge` 是这份口径类型原本就有的
+    /// 勋章判定输入（`hero` / `showsBadgeRow` 都读它）；`achievements` 是「我」首屏
+    /// 新要的那几个数（`totalCompleted` / `totalServiceMinutes` / `avgRating` /
+    /// `totalRatings` / `badges` / `starLevel`）。
+    ///
+    /// 可选且默认 nil：这一条失败时首屏只是少画影响力区，固定搭档和火花照常显示 ——
+    /// 与本类型「一条失败只少显示一行」的既有语义一致。
+    let achievements: VolunteerAchievementsResponse?
+
+    /// 手写 init 而不是用合成的 memberwise：把 `achievements` 放在最后并给默认值，
+    /// 让只关心勋章/搭档/火花的既有调用点（`IncentiveAdoptionTests` 里 8 处）一个字都不用改。
+    init(
+        favoritedByCount: Int,
+        nextBadge: VolunteerNextBadgeDto?,
+        streak: PartnerStreakDisplay?,
+        streakPartnerName: String?,
+        achievements: VolunteerAchievementsResponse? = nil
+    ) {
+        self.favoritedByCount = favoritedByCount
+        self.nextBadge = nextBadge
+        self.streak = streak
+        self.streakPartnerName = streakPartnerName
+        self.achievements = achievements
+    }
+
     /// 卡上那个最大的数字。
     ///
     /// 🚩 **顺序是「关系优先于进度」，不是随手排的**：被别人选中是他人给的正反馈，

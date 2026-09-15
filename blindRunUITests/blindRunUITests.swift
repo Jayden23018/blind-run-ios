@@ -229,18 +229,29 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerActiveOrder: true
         )
 
-        let topStatusBlock = app.descendants(matching: .any)["volunteerHomeTopStatusBlock"].firstMatch
-        XCTAssertTrue(topStatusBlock.waitForExistence(timeout: 12), "Volunteer status block should be visible below the system status area")
-        assertVolunteerTopStatusBlockPosition(topStatusBlock, app: app)
-        let homeMaps = app.descendants(matching: .any).matching(identifier: "volunteerHomeMap")
-        XCTAssertTrue(homeMaps.firstMatch.waitForExistence(timeout: 5), "Volunteer home should mount its map container")
-        XCTAssertEqual(homeMaps.count, 1, "Committed volunteer home should mount exactly one home map")
-        // 同上：`volunteerHomeMapPlaceholderBackground` 这个 identifier App 侧从来没有过，
-        // 断言恒真。真 key 路径的对应断言在 `testRealAMapEnabledSmoke`。
+        let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
+        XCTAssertTrue(identityRow.waitForExistence(timeout: 12), "Volunteer identity row should be visible below the system status area")
+        assertVolunteerTopStatusBlockPosition(identityRow, app: app)
+        // 🔴 志愿者端**整个 App 里已经没有这张辅助地图了**（2026-09-15 删，它的
+        // `annotations` 恒为 `[]`，唯一信息「我在哪」在派单卡的覆盖范围文字里已有一份）。
+        // 这条负断言留着当门卫：谁把它加回首屏，这里会红。
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerHomeMap"].firstMatch.exists,  // guard:allow stale-ui-test-identifier
+            "志愿者辅助地图已删除，不该出现在「我」首屏"
+        )
 
         let currentOrderCard = app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch
-        XCTAssertTrue(currentOrderCard.waitForExistence(timeout: 5), "Preseeded active order should appear below the status block")
-        XCTAssertGreaterThanOrEqual(currentOrderCard.frame.minY, topStatusBlock.frame.maxY, "Current order should remain directly below the top status block")
+        XCTAssertTrue(currentOrderCard.waitForExistence(timeout: 5), "Preseeded active order should appear on the first screen")
+        // 🔴 作业区排在影响力区**之前**：带到期动作的东西必须先于「24 次陪跑」被念到。
+        XCTAssertGreaterThanOrEqual(currentOrderCard.frame.minY, identityRow.frame.maxY, "Current order should sit directly below the identity row")
+        let impactBlock = app.descendants(matching: .any)["volunteerHomeIncentiveCard"].firstMatch
+        if impactBlock.waitForExistence(timeout: 10) {
+            XCTAssertLessThan(
+                currentOrderCard.frame.minY,
+                impactBlock.frame.minY,
+                "「需要你处理」必须排在影响力区之前 —— 读屏顺序播报，排序就是优先级"
+            )
+        }
 
         openCurrentVolunteerService(app)
         assertNoEmergencyAction(app)
@@ -481,9 +492,15 @@ final class blindRunUITests: XCTestCase {
         XCTAssertFalse(app.buttons["提交测验"].exists)
 
         returnHome.tap()
-        let availabilitySwitch = app.switches.firstMatch
-        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 8))
-        XCTAssertEqual(availabilitySwitch.value as? String, "0", "Legacy completion must not automatically enable availability")
+        // 2026-09-14 改版把首页那个 `Toggle` 换成了底部的滑动 CTA，`app.switches` 不再存在。
+        // 「没有被自动打开」这条约束没变，判据换成：底部渲染的是**滑块**（关闭态），
+        // 而不是「已开启」状态条。
+        let slider = app.buttons["滑动开始今天的陪跑"].firstMatch
+        XCTAssertTrue(slider.waitForExistence(timeout: 8), "回到首屏后底部应当是关闭态的滑动 CTA")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].exists,
+            "Legacy completion must not automatically enable availability"
+        )
     }
 
     @MainActor
@@ -514,8 +531,14 @@ final class blindRunUITests: XCTestCase {
         attachScreenshot(named: "volunteer-service-in-progress", app: app)
     }
 
+    /// 志愿者端**只有一屏**：身份 → 作业区 → 影响力 → 徽章 → 最近陪跑 → 派单状态。
+    /// 没有地图，也没有任何二级的「工作台」。
+    ///
+    /// > 2026-09-14 改版前这一条断的是「地图铺满 + 底部面板」那套，改版后改成「首屏 + 工作台」两段。
+    /// > 2026-09-15 工作台被删（用户原话「好像是没什么用的」），于是又并回一段：
+    /// > 派单统计现在就在首屏最底部，地图整个不存在了。
     @MainActor
-    func testMockVolunteerHomeMapAndControlsScreenshot() throws {
+    func testMockVolunteerFirstScreenKeepsDispatchStatsWithoutAMapOrWorkbench() throws {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
@@ -524,32 +547,137 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerAvailable: true
         )
 
-        let homeMaps = app.descendants(matching: .any).matching(identifier: "volunteerHomeMap")
-        let homeMap = homeMaps.firstMatch
-        XCTAssertTrue(
-            homeMap.waitForExistence(timeout: 15),
-            "Volunteer home should expose its map container"
+        let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
+        XCTAssertTrue(identityRow.waitForExistence(timeout: 15), "Volunteer first screen should expose its identity row")
+        assertVolunteerTopStatusBlockPosition(identityRow, app: app)
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch.exists,
+            "没有在途订单时不该渲染当前订单卡"
         )
-        XCTAssertEqual(homeMaps.count, 1, "Volunteer home must not duplicate its map during refresh")
-        // 此前这里断的是 `volunteerHomeMapPlaceholderBackground` 不存在 —— 那个 identifier
-        // **App 侧从来没有过**，断言恒真。同上：本用例 `disableMap` 默认 `true`，占位图是预期产物，
-        // 换成真实的 `mapPlaceholder` 会必红；真 key 路径的断言在 `testRealAMapEnabledSmoke`。
-
-        let availabilitySwitch = app.switches.firstMatch
-        XCTAssertTrue(availabilitySwitch.waitForExistence(timeout: 5), "Availability switch should remain visible above the map")
-        let topStatusBlock = app.descendants(matching: .any)["volunteerHomeTopStatusBlock"].firstMatch
-        XCTAssertTrue(topStatusBlock.waitForExistence(timeout: 5), "Volunteer status block should be visible below the system status area")
-        assertVolunteerTopStatusBlockPosition(topStatusBlock, app: app)
-        XCTAssertFalse(app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch.exists, "Home without an active order should only show the top status block")
-        XCTAssertTrue(app.buttons["回到当前位置"].firstMatch.waitForExistence(timeout: 5), "Home should keep the local recenter control")
-        XCTAssertTrue(app.staticTexts["系统派单"].firstMatch.waitForExistence(timeout: 5), "Volunteer home should show the system dispatch workbench")
-        XCTAssertTrue(app.staticTexts["近期服务"].firstMatch.waitForExistence(timeout: 5), "Dispatch workbench should show recent service history")
-        // 三格：完成 / 评分 / 接单率。此前这里断的是「积分」，而 `be4e030` 已经把那一格删了
-        // —— 它的值是 `totalCompleted * 100`，后端从来没有积分字段（见 VolunteerHomeView 的注释）。
-        XCTAssertTrue(app.staticTexts["接单率"].firstMatch.waitForExistence(timeout: 5), "Dispatch summary should show the acceptance rate")
+        // ⚠️ 上面那条**不等于**「作业区不渲染」——原文的断言消息是这么写的，而它已经不成立：
+        // Mock 的 `trainingProgress` 默认为空 ⇒ 派单摘要恒带 `TRAINING_INCOMPLETE`
+        // ⇒ `hasTodo` 恒为真 ⇒ 作业区一定在。这才是本轮改动的版式回归钉：
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerHomeTrainingEntry"].firstMatch.exists,
+            "Mock 默认未完成培训，作业区里必须有那张培训卡"
+        )
+        XCTAssertTrue(
+            app.staticTexts["我的陪伴"].firstMatch.waitForExistence(timeout: 10),
+            "First screen should lead with the impact section"
+        )
+        XCTAssertTrue(app.staticTexts["最近陪跑"].firstMatch.exists, "First screen should show the recent-run stream")
         XCTAssertFalse(app.buttons["查看全部订单"].firstMatch.exists, "Primary volunteer home must not expose the public order list")
+        // 预置「已开启」时底部是绿色状态条而不是滑块 —— 摩擦力只加在开启那一侧。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].firstMatch.waitForExistence(timeout: 5),
+            "Available volunteer should see the status bar, not the slider"
+        )
+        XCTAssertTrue(
+            app.buttons["今天先不跑了"].firstMatch.exists,
+            "关闭必须是一个普通按钮 —— 关这一侧不许有摩擦力"
+        )
+        attachScreenshot(named: "volunteer-profile-first-screen", app: app)
 
-        attachScreenshot(named: "volunteer-home-map-and-controls", app: app)
+        // 工作台入口整行已删，没有任何二级页可进。
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerProfileWorkbenchEntry"].firstMatch.exists,  // guard:allow stale-ui-test-identifier
+            "派单工作台已删除，首屏不该再有它的入口"
+        )
+        // 「回到当前位置」随地图一起删了 —— 它是 identifier 守卫管不到的中文文案，只能在这儿断。
+        XCTAssertFalse(app.buttons["回到当前位置"].firstMatch.exists, "地图删除后「回到当前位置」不该还在")
+
+        // 三格：完成 / 评分 / 接单率，现在就在首屏最底部。此前这里断的是「积分」，
+        // 而 `be4e030` 已经把那一格删了 —— 它的值是 `totalCompleted * 100`，后端从来没有积分字段。
+        //
+        // 🔴 `ScrollView` 屏幕外的子视图 `isHittable` 照样为真，但 `LazyVGrid` 的格子屏幕外
+        // **不实例化**，所以必须先滚到它再断言存在（同 `testVolunteerDispatchSummaryTilesSurviveAX5`）。
+        let rate = app.staticTexts["接单率"].firstMatch
+        var drags = 0
+        while !rate.exists && drags < 16 {
+            app.swipeUp(velocity: .slow)
+            drags += 1
+        }
+        XCTAssertTrue(rate.exists, "派单统计必须留在首屏（drags=\(drags)）\n\(app.debugDescription)")
+
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerHomeMap"].firstMatch.exists,  // guard:allow stale-ui-test-identifier
+            "志愿者辅助地图已删除，全 App 不该再有它"
+        )
+
+        attachScreenshot(named: "volunteer-first-screen-dispatch-stats", app: app)
+    }
+
+    /// 培训页导航栏标题，单一来源 `VolunteerTrainingCopy.navigationTitle`。
+    private static let volunteerTrainingTitle = "陪跑培训"
+    /// 培训卡的标题，单一来源 `VolunteerDispatchNotAvailableReason.trainingIncomplete.displayText`。
+    ///
+    /// XCUITest 是黑盒进不了 app 的类型，这两个只能抄一份 —— 抄错的方向是安全的（会红不会绿）。
+    private static let volunteerTrainingIncompleteReason = "尚未完成必修培训"
+
+    /// ③ 必修培训入口：**在首屏、整卡可点、一下直达培训页**。
+    ///
+    /// 用户原话：「必须在派单工作台点进去再点击一个贼小的去培训，一点都不显眼」。
+    /// 三条断言逐条对应那句话的三个毛病：不在首屏 / 不显眼 / 不直达。
+    ///
+    /// Mock 默认「一门课都没学」（`MockAPIClient.trainingProgress` 初始为空），
+    /// 所以派单摘要默认就带 `TRAINING_INCOMPLETE`，这张卡默认可见 —— 不用额外预置。
+    ///
+    /// 点的是真 `NavigationLink`（指针路径），不是 `accessibilityRepresentation`，
+    /// 所以不踩「XCUITest 的 tap() 够不着 accessibility action」那条坑。
+    @MainActor
+    func testVolunteerTrainingEntryIsOnTheFirstScreenAndOpensTraining() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true
+        )
+
+        let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
+        XCTAssertTrue(identityRow.waitForExistence(timeout: 15), "Volunteer first screen should render")
+
+        let trainingEntry = app.descendants(matching: .any)["volunteerHomeTrainingEntry"].firstMatch
+        // ① 在首屏：不 tap 任何东西就能滚到它。滚动本身不改变「它属于这一屏」这个事实。
+        XCTAssertTrue(
+            scrollElementIntoView(trainingEntry, app: app),
+            "必修培训入口必须直接在首屏上，不能藏在二级页里\n\(app.debugDescription)"
+        )
+        // ② 显眼：整卡可点的一大块，不是一枚小链接。64pt 是这条意见的量化形式。
+        XCTAssertGreaterThanOrEqual(
+            trainingEntry.frame.height,
+            64,
+            "培训入口必须是一整张卡而不是一行小链接（height=\(trainingEntry.frame.height)）"
+        )
+        // ②之二 原因本身就是入口：卡上写的是「为什么接不到单」，不是一枚「去培训」小链接。
+        // 少了这一条，上面那个 64pt 断言就只是在复读实现里的常量 —— 把标题换成「去培训」
+        // 它照样绿，而「原因本身就是入口」正是用户那句话里最实质的一半。
+        XCTAssertTrue(
+            trainingEntry.label.contains(Self.volunteerTrainingIncompleteReason),
+            "培训入口的可读名必须就是原因本身（label=\(trainingEntry.label)）"
+        )
+
+        // 而且它排在影响力区之前 —— 作业区是第一档，读屏顺序播报，排序就是优先级。
+        //
+        // ⛔ **不要写成 `if impactBlock.exists { … }`**：「我的陪伴」不在树里时整条顺序断言
+        // 会静默跳过、用例照报 passed，而这正是本仓库记过的「验红假绿」形状。
+        // 同文件上面那条用例已经证明这个字面量可以无条件等到。
+        let impactBlock = app.staticTexts["我的陪伴"].firstMatch
+        XCTAssertTrue(impactBlock.waitForExistence(timeout: 10), "影响力区应当渲染，否则下面的顺序无从判起")
+        XCTAssertLessThan(
+            trainingEntry.frame.minY,
+            impactBlock.frame.minY,
+            "「需要你处理」里的培训入口必须排在影响力区之前"
+        )
+
+        attachScreenshot(named: "volunteer-training-entry-on-first-screen", app: app)
+
+        // ③ 直达：点一下就是培训页，中间没有别的页。
+        trainingEntry.tap()
+        XCTAssertTrue(
+            app.navigationBars[Self.volunteerTrainingTitle].waitForExistence(timeout: 8),
+            "培训入口应当一步打开「\(Self.volunteerTrainingTitle)」\n\(app.debugDescription)"
+        )
     }
 
     /// 派单卡片在 AX5 下仍然三格成行 —— 这是本仓库第一条 Dynamic Type 用例，
@@ -564,30 +692,20 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerAvailable: true,
             contentSizeCategory: "UICTContentSizeCategoryAccessibilityXXXL"
         )
-        let panel = app.descendants(matching: .any)["volunteerHomeDemandPanel"].firstMatch
-        let grabber = app.descendants(matching: .any)["volunteerHomeDemandPanelGrabber"].firstMatch
-        XCTAssertTrue(panel.waitForExistence(timeout: 20), "Dispatch panel should load at AX5")
-        XCTAssertTrue(grabber.waitForExistence(timeout: 5))
-
-        // 这一条就是「顶部状态块盖住抓手」的回归守卫：修之前顶部状态块从 y=149 长到 y=490，
-        // 把 y=365–392 的抓手整个盖住，拖拽触点全被吃掉，面板高度拖完仍是 299.999…。
-        // 用显式长按拖拽而不是 `grabber.swipeUp()`：后者在这种遮挡下同样无效，
-        // 但失败时看不出是「拖不动」还是「手势没识别」。
-        let panelHeightBefore = panel.frame.height
-        grabber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.2,
-                   thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)))
-        XCTAssertGreaterThan(panel.frame.height, panelHeightBefore, "Dispatch panel must be expandable at AX5")
+        // 三格统计自 2026-09-15 起就在首屏最底部（工作台那一跳已随二级页一起删掉）。
+        let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
+        XCTAssertTrue(identityRow.waitForExistence(timeout: 15), "AX5 下首屏也要先渲染出来")
 
         // 三格在 `LazyVGrid` 里，屏幕外**不实例化**（无障碍树里是 `Other {{0,0},{0,0}}`），
         // 所以必须先滚到它再断言存在 —— `waitForExistence` 等不到，
         // `scrollElementIntoView` 第一行的 `guard element.exists` 也过不去。
         // 慢速滚：AX5 下滚动视口很浅而默认速度一次跨度远大于它，采样点会整段跳过格子区。
-        let scrollView = app.scrollViews["volunteerHomeDemandScrollView"].firstMatch
+        // 上限从 10 提到 24：三格现在住在**整张首屏的最底部**（身份 → 作业区 → 影响力 →
+        // 徽章 → 最近陪跑 → 派单状态），AX5 下这条路比原先那个短短的工作台页长得多。
         let rate = app.staticTexts["接单率"].firstMatch
         var drags = 0
-        while !rate.exists && drags < 10 {
-            scrollView.swipeUp(velocity: .slow)
+        while !rate.exists && drags < 24 {
+            app.swipeUp(velocity: .slow)
             drags += 1
         }
         XCTAssertTrue(rate.exists, "Acceptance-rate tile must still render at AX5 (drags=\(drags))\n\(app.debugDescription)")
@@ -609,45 +727,37 @@ final class blindRunUITests: XCTestCase {
             homeLoadTimeout: 8
         )
 
-        let panel = app.descendants(matching: .any)["volunteerHomeDemandPanel"].firstMatch
-        let grabber = app.descendants(matching: .any)["volunteerHomeDemandPanelGrabber"].firstMatch
-        XCTAssertTrue(panel.waitForExistence(timeout: 12))
-        XCTAssertTrue(grabber.waitForExistence(timeout: 3))
-        let initialPanelTop = panel.frame.minY
-        grabber.swipeUp()
-        XCTAssertLessThan(panel.frame.minY, initialPanelTop, "Dispatch panel must remain draggable while loading")
+        // 首屏与派单摘要是两条独立的加载：摘要挂住时，身份行、影响力区和三个去处
+        // 都必须照常可用 —— 改版前守的是「面板仍可拖动」，同一条约束换了个载体。
+        let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
+        XCTAssertTrue(identityRow.waitForExistence(timeout: 12), "First screen must render while the dispatch request hangs")
 
-        let refreshButton = app.buttons["刷新派单状态"].firstMatch
-        XCTAssertTrue(refreshButton.isHittable)
-        refreshButton.tap()
-
-        let recordsButton = app.buttons["我的服务记录"].firstMatch
-        // 「积分商城」是被撤掉的那个假占位页（积分写死 `--`、商品全是「敬请期待」），
-        // 已由 `VolunteerServiceRecognitionView` 取代。用例没跟着改，于是这一条从那次
-        // 改动起就一直红 —— 而红着的用例会把后来引入的失败一起吃掉（`continueAfterFailure`），
-        // 志愿者首页因此有一段时间没有任何有效的 UI 覆盖。
+        // 底部那排「记录 / 成就 / 设置」在 2026-09-14 改版里被吸收进首屏：
+        // 记录 = 最近陪跑「全部 ›」，成就 = 徽章「全部 N 枚 ›」，设置 = 右上角齿轮。
+        // 三个去处一个没少，所以这条用例守的东西没变，只是入口换了位置。
         //
-        // XCUITest 是黑盒，进不了 app 的类型 —— `VolunteerAchievementsCopy.navigationTitle`
-        // 只能抄一份。抄错的方向是安全的：生产改了文案而这里没跟，断言会红不会绿。
-        let recognitionTitle = "服务成就"
-        let recognitionButton = app.buttons[recognitionTitle].firstMatch
+        // XCUITest 是黑盒，进不了 app 的类型 —— 导航栏标题只能抄一份。
+        // 抄错的方向是安全的：生产改了文案而这里没跟，断言会红不会绿。
+        let recordsButton = app.buttons["我的服务记录"].firstMatch
+        let recognitionButton = app.buttons["查看服务成就"].firstMatch
         let settingsButton = app.buttons["设置"].firstMatch
-        XCTAssertTrue(recordsButton.isHittable)
-        XCTAssertTrue(recognitionButton.isHittable)
-        XCTAssertTrue(settingsButton.isHittable)
 
-        recordsButton.tap()
-        XCTAssertTrue(app.navigationBars["服务记录"].waitForExistence(timeout: 5))
-        popNavigationBar(app, title: "服务记录")
-
-        XCTAssertTrue(waitForElementToBeHittable(recognitionButton, timeout: 5))
-        recognitionButton.tap()
-        XCTAssertTrue(app.navigationBars[recognitionTitle].waitForExistence(timeout: 5))
-        popNavigationBar(app, title: recognitionTitle)
-
-        XCTAssertTrue(waitForElementToBeHittable(settingsButton, timeout: 5))
+        // 🔴 `ScrollView` 屏幕外的子视图**照样** `isHittable == true`，而触点会被钳到
+        // 最上层的控件上（`List` 是压根不渲染，两种坑不一样）。所以点之前必须
+        // `scrollElementIntoView`，不能只判 `isHittable`（记忆 `snapshot-timeout-means-a-system-app-took-over`）。
+        XCTAssertTrue(scrollElementIntoView(settingsButton, app: app), "齿轮入口应当可达")
         settingsButton.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+        popNavigationBar(app, title: "设置")
+
+        XCTAssertTrue(scrollElementIntoView(recognitionButton, app: app), "徽章区「全部 ›」应当可达")
+        recognitionButton.tap()
+        XCTAssertTrue(app.navigationBars["服务成就"].waitForExistence(timeout: 5))
+        popNavigationBar(app, title: "服务成就")
+
+        XCTAssertTrue(scrollElementIntoView(recordsButton, app: app), "最近陪跑「全部 ›」应当可达")
+        recordsButton.tap()
+        XCTAssertTrue(app.navigationBars["服务记录"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -1092,15 +1202,18 @@ final class blindRunUITests: XCTestCase {
             disableMap: false
         )
 
+        // 🔴 志愿者首页**没有任何地图了**（2026-09-15 随「派单工作台」一起删）。
+        // 真 key 构建下唯一该出现的志愿者地图在「服务中」页，即下面 `volunteerServiceMapBackdrop`
+        // 那条。这里只断言首页确实一张都没有 —— 配了真 key 也不该冒出来。
         XCTAssertTrue(
-            volunteerApp.descendants(matching: .any)["volunteerHomeMap"].firstMatch.waitForExistence(timeout: 20),
-            "Real AMap run should expose the volunteer home map container"
+            volunteerApp.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch.waitForExistence(timeout: 20),
+            "Real AMap run should render the volunteer first screen"
         )
-        XCTAssertFalse(
-            volunteerApp.descendants(matching: .any)["mapPlaceholder"].firstMatch.exists,
-            "配了真 key 的构建不该回落到缺 key 占位图"
+        XCTAssertEqual(
+            volunteerApp.descendants(matching: .any).matching(identifier: "volunteerHomeMap").count,  // guard:allow stale-ui-test-identifier
+            0,
+            "配了真 key 的构建同样不该让已删除的志愿者辅助地图回到首屏"
         )
-        XCTAssertFalse(volunteerApp.staticTexts["地图服务暂不可用"].exists, "Volunteer home must not fall back to the missing-key view")
         attachScreenshot(named: "real-amap-volunteer-home", app: volunteerApp)
 
         openCurrentVolunteerService(volunteerApp)
@@ -1447,7 +1560,10 @@ final class blindRunUITests: XCTestCase {
         let appFrame = app.frame
         guard !appFrame.isNull, !appFrame.isEmpty else { return false }
         let top = appFrame.minY + 44
-        let bottom = appFrame.maxY - Self.persistentBottomBarInset
+        let bottom = min(
+            appFrame.maxY - Self.persistentBottomBarInset,
+            measuredBottomBarTop(app) ?? .greatestFiniteMagnitude
+        )
         guard bottom > top else { return false }
         let visibleArea = CGRect(x: appFrame.minX, y: top, width: appFrame.width, height: bottom - top)
 
@@ -1465,6 +1581,26 @@ final class blindRunUITests: XCTestCase {
             scrollableSurface(app).swipeUp()
         }
         return isUncovered()
+    }
+
+    /// 量得到真实高度的底栏，返回它的顶边；量不到返回 `nil`（退回固定的 112pt）。
+    ///
+    /// 🔴 **为什么这个不能只靠上面那个常量**：112 是照盲人首页的底栏（实测 102pt）定的，
+    /// 而志愿者「我」首屏底部那条可服务 CTA 在**已开启**时是「状态条 + 关闭按钮」两行，
+    /// AX5 下更高 —— 实测远超 112。常量偏小的后果不是「多滚一下」，
+    /// 而是 helper 认为控件已经露出来了、直接返回 true，接着 `tap()` 打在底栏上。
+    /// 那正是 2026-08-14 差点拨出 110 的同一个形状。
+    ///
+    /// ponytail: 只登记**已知会超过 112pt 的**那两个，不做全量登记表 ——
+    /// 上面那条注释说得对，登记表必然漏掉下一个。这里漏掉的会退回旧行为，不会变得更糟。
+    private func measuredBottomBarTop(_ app: XCUIApplication) -> CGFloat? {
+        ["volunteerAvailabilityStatusBar", "volunteerAvailabilitySlider"]
+            .map { app.descendants(matching: .any)[$0].firstMatch }
+            .filter { $0.exists }
+            .map(\.frame)
+            .filter { !$0.isNull && !$0.isEmpty }
+            .map(\.minY)
+            .min()
     }
 
     private func scrollableSurface(_ app: XCUIApplication) -> XCUIElement {
