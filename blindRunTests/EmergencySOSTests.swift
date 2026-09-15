@@ -883,7 +883,8 @@ final class EmergencySOSTests: XCTestCase {
 
     private static func safetyEvent(
         kind: RealtimeSafetyEvent.Kind,
-        orderID: Int64? = nil
+        orderID: Int64? = nil,
+        coordinate: LocatedCoordinate? = nil
     ) -> RealtimeSafetyEvent {
         RealtimeSafetyEvent(
             eventID: "msg-1",
@@ -891,7 +892,8 @@ final class EmergencySOSTests: XCTestCase {
             kind: kind,
             displayText: "ignored",
             speechText: "ignored",
-            timestamp: nil
+            timestamp: nil,
+            coordinate: coordinate
         )
     }
 

@@ -339,6 +339,14 @@ struct RealtimeSafetyEvent: Sendable {
     let displayText: String
     let speechText: String
     let timestamp: String?
+    /// 受助者触发求助那一刻的位置。**只有 `EMERGENCY_VOLUNTEER_ALERT` 带得出来**
+    /// （`websocket-protocol.md:546` 的 `gpsLat`/`gpsLng`，可为 null），其余
+    /// `EMERGENCY_*` 走 `APP_NOTIFICATION` 信封，连 `eventId` 都没有。
+    ///
+    /// 已经过 `BackendCoordinateNormalizer` 归一 —— 后端给的是 GCJ-02，
+    /// 而本仓库只允许坐标在**单一边界**上转换一次（`AGENTS.md` §3）。
+    /// 这里不转的话，志愿者端算出来的「距他多远」会带上几百米的坐标系偏移。
+    let coordinate: LocatedCoordinate?
 }
 
 struct RealtimeRecoverySignal: Sendable {
@@ -678,7 +686,12 @@ final class AppRealtimeCoordinator: ObservableObject {
                 kind: .emergencyVolunteerAlert,
                 displayText: message.message ?? "关联服务出现安全事件",
                 speechText: message.ttsText ?? message.message ?? "关联服务出现安全事件",
-                timestamp: message.timestamp
+                timestamp: message.timestamp,
+                // 两个字段任一为 null 就整体没有坐标 —— 只有纬度的「位置」是个陷阱，
+                // 而这条链路的下游会拿它算「距你多远」。契约里它们各自可空。
+                coordinate: message.gpsLat.flatMap { lat in
+                    message.gpsLng.flatMap { BackendCoordinateNormalizer.backend(latitude: lat, longitude: $0) }
+                }
             )
         case .pong, .unknown:
             break
@@ -1065,7 +1078,8 @@ final class AppRealtimeCoordinator: ObservableObject {
         kind: RealtimeSafetyEvent.Kind,
         displayText: String,
         speechText: String,
-        timestamp: String?
+        timestamp: String?,
+        coordinate: LocatedCoordinate? = nil
     ) {
         let event = RealtimeSafetyEvent(
             eventID: eventID,
@@ -1073,7 +1087,8 @@ final class AppRealtimeCoordinator: ObservableObject {
             kind: kind,
             displayText: displayText,
             speechText: speechText,
-            timestamp: timestamp
+            timestamp: timestamp,
+            coordinate: coordinate
         )
         latestSafetyEvent = event
         enqueue(

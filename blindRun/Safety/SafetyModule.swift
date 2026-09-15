@@ -216,6 +216,73 @@ enum EmergencySafetyCopy {
     static let volunteerNeedHelpButtonTitle = "确认需要帮助"
     static let volunteerAlertNotice = "被陪同者发出了紧急求助，请确认对方情况。"
 
+    // MARK: 志愿者端·陪跑中（屏 4）
+
+    static func volunteerEscortHeadline(name: String?) -> String {
+        "你正在陪跑 · \(name?.nilIfBlank ?? "被陪同者")"
+    }
+
+    static let volunteerPeerStatusLabel = "他的状态"
+    static let volunteerPeerStatusNormal = "正常"
+    static let volunteerPeerStatusEmergency = "求助中"
+    static let volunteerPeerLocationLabel = "位置共享"
+    static let volunteerPeerLocationOn = "已开启"
+
+    /// 🚩 措辞是「暂时收不到」不是「已断开」。
+    ///
+    /// 客户端判的只是「最近一条 `BLIND_LOCATION_UPDATE` 还新不新鲜」
+    /// （`VolunteerServiceViewModel.latestBlindSample` 过期即置 nil）——
+    /// 那可能是对方进了地下通道、也可能是他关了权限，**两者我们分不出来**。
+    /// 说成「已断开」像是在陈述一个已经查明的事实，会让志愿者据此做判断
+    /// （比如认为对方故意关了共享）。
+    static let volunteerPeerLocationStale = "暂时收不到"
+
+    /// ⛔ **没有「他的电量」这一行。** 设计稿上有，但后端没有这个字段
+    /// （`api_spec.yaml` 的订单与轨迹响应里都没有电量），编一个数字出来比不显示危险得多 ——
+    /// 志愿者会据此判断「他手机还能撑多久」。缺口已投递后端，回来了再加这一行。
+    static let volunteerSafetyHubTitle = "求助与安全"
+
+    // MARK: 志愿者端·收到紧急求助（屏 5）
+
+    static func volunteerAlertTitle(name: String?) -> String {
+        "\(name?.nilIfBlank ?? "被陪同者")发起紧急求助"
+    }
+
+    /// 「X 秒前」。**读的是本机收到的时刻**，不是后端时间戳 —— 两端时钟差几秒到几分钟时，
+    /// 屏幕上会出现「-40 秒前」或凭空多出的「3 分钟前」，而志愿者正据此判断
+    /// 「这事刚发生，还是我漏看了很久」。
+    static func volunteerAlertElapsed(seconds: Int) -> String {
+        let seconds = max(0, seconds)
+        if seconds < 60 { return "\(seconds) 秒前" }
+        return "\(seconds / 60) 分钟前"
+    }
+
+    /// ⛔ **不写「客服已接入」。** 设计稿上有这一句，但志愿者端**无从知道** ——
+    /// `EMERGENCY_VOLUNTEER_ALERT` 的字段里没有客服状态（`websocket-protocol.md:546`），
+    /// 而 `GET /api/emergency/active` 角色限 `BLIND`，志愿者调不了。
+    /// 写上去就是编造一个「已经有人在处理了」的安心感，而它可能是假的。
+    static let volunteerAlertLocationUnknown = "暂时收不到他的位置"
+    static let volunteerAlertLocationResolving = "正在确定他的位置…"
+
+    static func volunteerAlertCallTitle(name: String?) -> String {
+        "呼叫\(name?.nilIfBlank ?? "被陪同者")"
+    }
+
+    /// 底部主动作。**这句话是一个承诺**：按下去等于告诉客服「现场有人了」，
+    /// 所以它说的必须是志愿者真的做得到的事 —— 人在旁边、正在处理。
+    static let volunteerAlertAcknowledgeTitle = "我在他身边，去处理"
+
+    /// 按钮下面那行小字。**只说「同步给客服」，不说客服会做什么** ——
+    /// 后端拿到 `NEED_HELP` 之后怎么调度不在客户端的知识范围里。
+    static let volunteerAlertAcknowledgeFootnote = "确认后同步给客服"
+    static let volunteerAlertAcknowledgeHint = "确认被陪同者确实需要帮助，客服会介入"
+
+    /// 🔴 **志愿者端没有「误触 / 关掉」。** 后端对 `action=FALSE_ALARM` 恒 403
+    /// `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`：一对一陪跑里志愿者可能就是威胁来源，
+    /// 撤销权只在受助者本人和客服手里。这一屏因此**没有关闭按钮** ——
+    /// 它只会在志愿者确认之后、或求助被本人/客服结束之后消失。
+    static let volunteerAlertNoDismissNotice = "这条求助只有他本人或客服能撤销。"
+
     /// Backend `EMERGENCY_NO_CONTACT`: no primary contact exists, so nobody will be texted at all.
     static let noContact = "未找到你的紧急联系人，求助已转客服处理。\(emergencyCallReminder)"
 

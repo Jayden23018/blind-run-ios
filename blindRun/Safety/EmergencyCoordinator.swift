@@ -24,7 +24,32 @@ struct VolunteerEmergencyAlert: Equatable, Sendable {
     let eventID: Int64
     let orderID: Int64?
     let message: String
+    /// 受助者触发那一刻的位置（已归一到 GCJ-02）。可为 nil —— 契约里那两个字段各自可空，
+    /// 而「盲人当时拿不到定位」在室内 / 高楼间是常态，不是异常。
+    var coordinate: LocatedCoordinate?
+    /// 收到这条告警的本机时刻。屏 5 上那句「X 秒前」读的是它。
+    ///
+    /// **不用后端的 `timestamp`**：那是服务端时钟，而两端时钟可能差几秒到几分钟，
+    /// 差出来的结果是屏幕上写着「-40 秒前」或者「3 分钟前」——
+    /// 而志愿者正据此判断「这事刚发生还是我漏看了很久」。
+    let receivedAt: Date
     var isAcknowledged = false
+
+    init(
+        eventID: Int64,
+        orderID: Int64?,
+        message: String,
+        coordinate: LocatedCoordinate? = nil,
+        receivedAt: Date = Date(),
+        isAcknowledged: Bool = false
+    ) {
+        self.eventID = eventID
+        self.orderID = orderID
+        self.message = message
+        self.coordinate = coordinate
+        self.receivedAt = receivedAt
+        self.isAcknowledged = isAcknowledged
+    }
 }
 
 enum EmergencySOSState: Equatable {
@@ -488,7 +513,8 @@ final class EmergencyCoordinator: ObservableObject {
                 volunteerAlert = VolunteerEmergencyAlert(
                     eventID: eventID,
                     orderID: event.orderID,
-                    message: event.displayText
+                    message: event.displayText,
+                    coordinate: event.coordinate
                 )
             }
             return

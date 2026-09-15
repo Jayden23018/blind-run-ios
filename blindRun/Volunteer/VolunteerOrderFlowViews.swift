@@ -936,8 +936,16 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published var dispatchSummary: VolunteerDispatchSummaryResponse?
     @Published var didCancelOrder = false
     @Published private(set) var latestBlindSample: LocatedCoordinate?
+    /// 与盲人同步的里程 / 时长 / 配速。只在 `IN_PROGRESS` 有值。
+    @Published private(set) var blindStats: TrackStats?
     @Published private(set) var transitionState: VolunteerOrderTransitionState = .idle
     @Published private(set) var isAcknowledgingEmergency = false
+
+    /// 轨迹节流。订单每 5 秒轮一次，而三个数字没必要跟得那么紧 ——
+    /// 与盲人端 `BlindOrderStatusViewModel.trackPollingInterval` 取同一个值，
+    /// 两端刷新频率不同会让「他那边已经 3.2 公里，我这边还是 3.1」变成常态。
+    static let trackPollingInterval: TimeInterval = 10
+    private var lastTrackFetchAt: Date?
 
     private weak var appState: AppState?
     private var speechService: SpeechService?
@@ -1073,11 +1081,39 @@ final class VolunteerInServiceViewModel: ObservableObject {
             refreshedAuthoritativeOrder = true
             apply(loaded, speakChanges: speakChanges)
             isLoading = false
+            await refreshBlindStatsIfNeeded(for: loaded, appState: appState)
         } catch {
             isLoading = false
             if order == nil {
                 errorMessage = "获取订单状态失败"
             }
+        }
+    }
+
+    /// 陪跑中那屏上跟盲人同步的三个数字。
+    ///
+    /// 走的是**和盲人端同一个端点** `GET /api/orders/{id}/track`，取的也是同一份
+    /// `blindStats` —— 后端按订单参与方鉴权，志愿者读得到。两端各算一份的话，
+    /// 「你俩看到的公里数不一样」会变成一个没人能复现的投诉。
+    ///
+    /// 🚩 **张梦蝶（2023）点名的助跑者痛点就是「无法了解视障跑者的状态」**，
+    /// 而在此之前志愿者端这一态只有一张地图和几个流转按钮。
+    ///
+    /// 失败时**不清空已有数字、不播报**，理由与盲人端 `refreshTrackStatsIfNeeded` 逐字相同：
+    /// 跑动中一次网络抖动把屏幕上的距离归零，比暂时不更新糟得多。
+    private func refreshBlindStatsIfNeeded(for order: OrderDetailResponse, appState: AppState) async {
+        guard order.status == .inProgress else {
+            blindStats = nil
+            lastTrackFetchAt = nil
+            return
+        }
+        let now = Date()
+        if let last = lastTrackFetchAt, now.timeIntervalSince(last) < Self.trackPollingInterval { return }
+        lastTrackFetchAt = now
+        do {
+            blindStats = try await appState.safety.orderTrack(orderId: order.orderId).blindStats
+        } catch {
+            return
         }
     }
 
@@ -1485,6 +1521,7 @@ struct VolunteerInServiceView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
+    @EnvironmentObject private var amapGeocodingService: AMapGeocodingService
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = VolunteerInServiceViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
@@ -1550,6 +1587,17 @@ struct VolunteerInServiceView: View {
                         completedTrackContent
                     } else {
                         VStack(spacing: 10) {
+                            // 屏 4：与盲人同步的三个数字 + 他的状态 / 位置共享。
+                            // 只在 `IN_PROGRESS` —— 其余状态那三个数字要么还没开始、要么已经结束，
+                            // 而一张写着 `--` 的卡片只会占掉本来该给流转按钮的空间。
+                            if order.status == .inProgress {
+                                VolunteerEscortStatsCard(
+                                    coordinator: appState.emergencyCoordinator,
+                                    peerName: order.blindName,
+                                    stats: viewModel.blindStats,
+                                    isPeerLocationFresh: viewModel.latestBlindSample != nil
+                                )
+                            }
                             emergencySection(for: order)
                             VolunteerServiceBottomPanel(
                             order: order,
@@ -1639,6 +1687,23 @@ struct VolunteerInServiceView: View {
                 ExternalMapNavigationSheet(request: request)
             }
         }
+        // 屏 5：被陪同者发起求助时盖满整屏 + 警报音 + 震动。
+        //
+        // 在此之前它只是底部面板上方一条和其他提示长得一样的横幅（`emergencySection`），
+        // 而那一刻志愿者多半正看着地图导航、或者根本没在看屏幕。
+        // 那条横幅**保留**：确认之后它仍然承载求助结果文案（`AGENTS.md` §6 要求每一种结果
+        // 都可见可听），只是不再独自承担「叫住志愿者」这件事。
+        .volunteerEmergencyAlertCover(
+            coordinator: appState.emergencyCoordinator,
+            peerName: viewModel.order?.blindName,
+            peerPhone: viewModel.order?.blindPhone,
+            deviceCoordinate: locationService.currentLocation,
+            isAcknowledging: viewModel.isAcknowledgingEmergency,
+            reverseGeocode: { await amapGeocodingService.reverseGeocode(coordinate: $0)?.title },
+            onAcknowledge: { eventID in
+                Task { await viewModel.acknowledgeEmergency(eventID: eventID) }
+            }
+        )
     }
 
     /// 取消对话框的四句话。**按状态换，不是一句通用文案。**
