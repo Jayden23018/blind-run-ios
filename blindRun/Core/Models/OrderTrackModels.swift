@@ -38,6 +38,76 @@ struct TrackStats: Codable, Sendable, Equatable {
         let totalSeconds = Int(avgPaceSecPerKm.rounded())
         return "\(totalSeconds / 60) 分 \(totalSeconds % 60) 秒每公里"
     }
+
+    // MARK: - 显示用格式化
+    //
+    // 上面那三个是**播报**格式（值与单位同串、口语化的「分 / 秒」），它们是 VoiceOver 与 TTS 的
+    // 口径，一个字都不要改。下面三个是**视觉**格式：值与标签分离、等宽跑表体例，
+    // 给陪跑中那屏的巨数字用（设计规格见 `docs/research/blind-runner-ui-reference-study-20260915.md`
+    // §27）。两套并存不是重复 —— 屏幕要 `9'06"`，耳朵要「9 分 6 秒每公里」。
+
+    /// 主数字：只有值，没有单位。单位在下面那行标签里（「总距离（公里）」）。
+    ///
+    /// **不足 1 公里也按公里给两位小数**，不像 `distanceText` 那样切成「米」——
+    /// 跑动中单位跳变会让主数字的量级在同一屏里前后不可比，而这是唯一那个大数字。
+    var distanceKilometersText: String? {
+        guard let distanceMeters else { return nil }
+        return String(format: "%.2f", distanceMeters / 1_000)
+    }
+
+    /// 跑表体例：一小时以内 `01:54`，超过一小时 `1:02:33`。
+    var durationClockText: String? {
+        guard let durationSeconds, durationSeconds >= 0 else { return nil }
+        let hours = durationSeconds / 3_600
+        let minutes = (durationSeconds % 3_600) / 60
+        let seconds = durationSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+
+    /// 配速：`9'06"`。分钟不补零（跑表惯例），秒补零。
+    var paceClockText: String? {
+        guard let avgPaceSecPerKm, avgPaceSecPerKm > 0 else { return nil }
+        let totalSeconds = Int(avgPaceSecPerKm.rounded())
+        return String(format: "%d'%02d\"", totalSeconds / 60, totalSeconds % 60)
+    }
+}
+
+/// 每公里播报的判定。「已跑 3 公里」播不播，只由它说了算。
+///
+/// **抽成纯逻辑而不是写在 view model 里**：挂在那边的话，测一次「跨公里」得先造
+/// `AppState` + 语音服务 + 跑一轮轮询，而这里要验的只是三条算术分支。
+/// 同 `VoiceStatusQuery` 的理由（本仓库 XCTest 只能真机跑）。
+struct KilometerMilestoneTracker {
+    private var lastAnnounced: Int?
+
+    /// 这一轮该播报的整公里数；`nil` = 不播。
+    ///
+    /// 🚩 **第一个样本只定基线，恒返回 `nil`。** 进页面那一刻状态播报刚开口，
+    /// 而合成器全进程只有一个、`speak` 先 `stopSpeaking` —— 紧接着再播一句会**静默切断**
+    /// 它，表现是「只念了开头」。代价是 App 被杀后重进会漏掉一次里程碑，比吞掉状态播报便宜。
+    ///
+    /// 判据是**整公里数变大**而不是「距离变了」：`/track` 每 10 秒回一次，
+    /// 按变化播等于每 10 秒往耳朵里塞一遍数字，而跑动中那条听觉通道是留给环境和同伴的。
+    mutating func milestone(forDistanceMeters meters: Double?) -> Int? {
+        guard let meters, meters >= 0 else { return nil }
+        let kilometers = Int(meters / 1_000)
+        guard let previous = lastAnnounced else {
+            lastAnnounced = kilometers
+            return nil
+        }
+        guard kilometers > previous else { return nil }
+        lastAnnounced = kilometers
+        return kilometers
+    }
+
+    /// 换单时清空。不清的话新订单一开跑就会从上一单的公里数接着算 —— 直接后果是
+    /// 新的一单跑到 1 公里时**不播**（因为上一单已经到过 5 公里）。
+    mutating func reset() {
+        lastAnnounced = nil
+    }
 }
 
 struct OrderTrackResponse: Codable, Sendable, Equatable {

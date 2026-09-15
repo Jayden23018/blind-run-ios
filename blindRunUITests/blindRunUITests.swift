@@ -677,12 +677,30 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Mock controls should allow starting the service")
         startButton.tap()
 
-        let sos = emergencyAction(app)
-        XCTAssertTrue(sos.waitForExistence(timeout: 8), "IN_PROGRESS should expose the blind SOS action")
-        XCTAssertGreaterThanOrEqual(sos.frame.height, 64, "Blind primary actions must be at least 64pt high")
+        let hub = blindSafetyHub(app)
+        XCTAssertTrue(hub.waitForExistence(timeout: 8), "IN_PROGRESS should expose the blind safety hub")
+        XCTAssertGreaterThanOrEqual(hub.frame.height, 64, "Blind primary actions must be at least 64pt high")
 
-        // Exact second-confirmation copy, and cancel must send nothing.
-        sos.tap()
+        // 2026-09-15：求助中心是**一层菜单**，不是那个二次确认。
+        // 🔴 打开它必须什么都还没发生 —— 菜单里第一项是「联系志愿者」这种无害动作，
+        // 所以这一层的正文绝不能是那句逐字锁定的确认文案。
+        hub.tap()
+        let hubSheet = app.sheets["求助"].firstMatch
+        XCTAssertTrue(hubSheet.waitForExistence(timeout: 5), "求助块没有打开求助中心")
+        XCTAssertTrue(
+            hubSheet.staticTexts.containing(
+                NSPredicate(format: "label CONTAINS %@", "还没有发送求助")
+            ).firstMatch.exists,
+            "求助中心的第一句必须先说清什么都还没发出去"
+        )
+        XCTAssertFalse(
+            hubSheet.staticTexts["是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"]
+                .firstMatch.exists,
+            "逐字锁定的二次确认文案不许被挪用成菜单正文"
+        )
+
+        // 云端那条走的仍是「一键求助」，且二次确认一步不减。
+        hubSheet.buttons["一键求助"].firstMatch.tap()
         let confirmation = app.alerts["一键求助"].firstMatch
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5), "SOS must require a second confirmation")
         XCTAssertTrue(
@@ -724,7 +742,7 @@ final class blindRunUITests: XCTestCase {
             button.tap()
         }
 
-        XCTAssertTrue(emergencyAction(app).waitForExistence(timeout: 8))
+        XCTAssertTrue(blindSafetyHub(app).waitForExistence(timeout: 8))
         for claim in ["联系人已收到短信", "已收到短信", "已通知家属", "已通知你的联系人"] {
             XCTAssertFalse(
                 app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", claim))
@@ -1853,8 +1871,20 @@ final class blindRunUITests: XCTestCase {
     }
 
     /// The SOS button, located by its accessibility label so the assertion also covers VoiceOver.
+    ///
+    /// 志愿者端仍然是这一个。**盲人端陪跑中已不是** —— 那一屏 2026-09-15 起是求助中心，
+    /// 见下面 `blindSafetyHub`。
     private func emergencyAction(_ app: XCUIApplication) -> XCUIElement {
         app.buttons["一键求助，遇到紧急情况时点击"].firstMatch
+    }
+
+    /// 盲人端陪跑中贴底的那块求助中心。
+    ///
+    /// 🚩 它的标签**刻意不含「一键求助」** —— 那四个字在本 App 里专指云端链路（记事件、
+    /// 通知同行志愿者与客服），而按开这一层菜单一个字节都没发出去。两者用同一个词，
+    /// 看不见屏幕的人会以为求助已经发出。
+    private func blindSafetyHub(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons["求助，打开求助选项"].firstMatch
     }
 
     private func dismissKeyboardIfPresent(app: XCUIApplication) {

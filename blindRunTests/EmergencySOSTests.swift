@@ -64,9 +64,12 @@ final class EmergencySOSTests: XCTestCase {
             // 2026-08-20 补：云端求助失败后的本地拨号兜底（F7）。同样一个字节都没发出去。
             EmergencySafetyCopy.cloudFailedCallAccessibilityHint,
             EmergencySafetyCopy.cloudFailedCallDialogMessage,
-            // 2026-09-08 补：陪跑进行中页的主动拨号（120/110）与它的 120 按钮标题。
-            EmergencySafetyCopy.inProgressCallDialogMessage,
-            EmergencySafetyCopy.inProgressCallAccessibilityHint,
+            // 2026-09-15 补：陪跑中的求助中心（取代了原来的 `inProgressCall*` 那一组）。
+            EmergencySafetyCopy.hubDialogMessage,
+            EmergencySafetyCopy.hubAccessibilityHint,
+            EmergencySafetyCopy.hubAccessibilityLabel,
+            EmergencySafetyCopy.locationAnnouncement(nil),
+            EmergencySafetyCopy.locationAnnouncement("人民公园"),
             EmergencySafetyCopy.homeCallMedicalTitle
         ]
         allCopy.append(contentsOf: EmergencyEventStatus.allCases.map(EmergencySafetyCopy.submitted))
@@ -768,8 +771,8 @@ final class EmergencySOSTests: XCTestCase {
     /// 本地拨号分支的文案必须说清「App 不会代你发送求助」。
     /// 缺了这句，盲人按完只会听见拨号音之外的沉默，并合理地以为求助已经发出去了。
     func testLocalCallCopySaysTheAppSendsNothing() {
-        // 三种语境一条都不能漏。漏掉的那一条不会有任何运行时症状：弹窗照常弹，只是话说错了。
-        for context in [EmergencyCallContext.homeIdle, .cloudFailed, .inProgress] {
+        // 两种语境一条都不能漏。漏掉的那一条不会有任何运行时症状：弹窗照常弹，只是话说错了。
+        for context in [EmergencyCallContext.homeIdle, .cloudFailed] {
             XCTAssertTrue(
                 context.dialogMessage.contains("不会代你发送求助"),
                 "\(context) 的弹窗正文没说清 App 什么都没发出去"
@@ -780,15 +783,95 @@ final class EmergencySOSTests: XCTestCase {
             )
         }
 
-        // 第一句是三种语境唯一的区别，也是盲人判断「我刚才那一下发生了什么」的唯一依据。
+        // 第一句是两种语境唯一的区别，也是盲人判断「我刚才那一下发生了什么」的唯一依据。
         // 共用一句等于把「求助已失败」和「求助从没按过」说成同一件事。
-        let messages = Set([EmergencyCallContext.homeIdle, .cloudFailed, .inProgress].map(\.dialogMessage))
-        XCTAssertEqual(messages.count, 3, "三种语境的第一句必须各不相同")
+        let messages = Set([EmergencyCallContext.homeIdle, .cloudFailed].map(\.dialogMessage))
+        XCTAssertEqual(messages.count, 2, "两种语境的第一句必须各不相同")
 
         // 「一键求助」在本 App 里专指云端求助，本地拨号分支不得复用这四个字。
         XCTAssertFalse(EmergencySafetyCopy.homeCallTitle.contains(EmergencySafetyCopy.title))
-        // 陪跑进行中那条要主动把自己和正上方的「一键求助」按钮区分开 —— 两个红色按钮挨着。
-        XCTAssertTrue(EmergencySafetyCopy.inProgressCallDialogMessage.contains("不是\(EmergencySafetyCopy.title)"))
+
+        // 原来第三种语境 `inProgress` 扛的那条不变式 —— 「这不是一键求助，什么都还没发出去」——
+        // 现在由求助中心的第一句扛。它比原来更要紧：那一层的第一项是「联系志愿者」这种无害动作，
+        // 用户按下红块之后最需要先知道的就是**什么都还没发生**。
+        XCTAssertTrue(
+            EmergencySafetyCopy.hubDialogMessage.contains("还没有发送求助"),
+            "求助中心的第一句必须先说清什么都还没发出去"
+        )
+        // 求助中心的标题不得叫「一键求助」—— 那四个字专指云端那条链路，
+        // 而打开这个菜单一个字节都没发出去。
+        XCTAssertFalse(EmergencySafetyCopy.hubTitle.contains(EmergencySafetyCopy.title))
+        // ⛔ 逐字锁定的二次确认文案不许被挪用成菜单正文（`AGENTS.md` §6 的二次确认不减一步）。
+        XCTAssertNotEqual(EmergencySafetyCopy.hubDialogMessage, EmergencySafetyCopy.confirmationMessage)
+        XCTAssertFalse(EmergencySafetyCopy.hubDialogMessage.contains("确认进入求助状态"))
+    }
+
+    /// 求助中心的**顺序与可见性**。
+    ///
+    /// 这是安全路径上的位置记忆：盲人靠「往下第几个」找选项，顺序会变的菜单等于没有位置记忆。
+    /// 而 `confirmationDialog` 的内容单测够不着、UI 测试只有真机一条通道 —— 所以判据被抽成
+    /// `BlindActiveRunSafetyHubOption.options`，弹窗由它驱动，这条用例钉的就是弹窗真正用的那份。
+    func testSafetyHubOptionOrderIsFixedAndOnlyMissingNumbersRemoveItems() {
+        let contact = EmergencyContactResponse(
+            id: 1,
+            name: "妈妈",
+            phone: "13812345678",
+            relationship: "家人",
+            isPrimary: true
+        )
+
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.options(volunteerPhone: "13900000000", primaryContact: contact),
+            [.contactVolunteer, .announceLocation, .callPrimaryContact, .callMedical, .callPolice, .triggerEmergency]
+        )
+
+        // 没有联系人：**只少那一项**，其余各项的相对次序一个不动。
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.options(volunteerPhone: "13900000000", primaryContact: nil),
+            [.contactVolunteer, .announceLocation, .callMedical, .callPolice, .triggerEmergency]
+        )
+
+        // 还没有志愿者号码（或号码拼不出 tel:）同理。
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.options(volunteerPhone: nil, primaryContact: contact),
+            [.announceLocation, .callPrimaryContact, .callMedical, .callPolice, .triggerEmergency]
+        )
+
+        // 空白号码等同于没有号码 —— 后端在某些状态下会把这个字段留空。
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.options(volunteerPhone: "  ", primaryContact: nil),
+            [.announceLocation, .callMedical, .callPolice, .triggerEmergency]
+        )
+
+        // 云端求助那一项**永远在**，且永远是最后一个 —— 它是这一层唯一走后端的动作，
+        // 位置固定才谈得上位置记忆。
+        for volunteerPhone in [nil, "13900000000"] {
+            for primaryContact in [nil, contact] {
+                let options = BlindActiveRunSafetyHubOption.options(
+                    volunteerPhone: volunteerPhone,
+                    primaryContact: primaryContact
+                )
+                XCTAssertEqual(options.last, .triggerEmergency)
+                XCTAssertTrue(options.contains(.announceLocation))
+                XCTAssertTrue(options.contains(.callMedical))
+                XCTAssertTrue(options.contains(.callPolice))
+            }
+        }
+    }
+
+    /// 「播报我的位置」拿不到位置时**说拿不到，不编**。
+    ///
+    /// 这一句会被用户逐字转述给 110 / 120 —— 一个猜出来的地名比没有地名危险得多。
+    func testLocationAnnouncementNeverInventsAPlace() {
+        let unknown = EmergencySafetyCopy.locationAnnouncement(nil)
+        XCTAssertTrue(unknown.contains("定位不到"))
+        // 拿不到位置时必须给出**下一步**，否则盲人听完只知道失败、不知道该做什么。
+        XCTAssertTrue(unknown.contains("110") || unknown.contains("120"))
+
+        // 空白字符串等同于没有 —— 逆地理返回空 `title` 时不能念出「你现在在附近」。
+        XCTAssertEqual(EmergencySafetyCopy.locationAnnouncement("   "), unknown)
+
+        XCTAssertEqual(EmergencySafetyCopy.locationAnnouncement("人民公园"), "你现在在人民公园附近。")
     }
 
     /// 120 必须是**能按的**，不能只作为文字出现在状态提示里。
