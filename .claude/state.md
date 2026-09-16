@@ -36,17 +36,21 @@
    > 「先做按钮 + 403 兜底」变成「每次按都失败」。已投 handoff 请后端放开；
    > 放开后只需在 ① 加一枚按钮调 `orders.startService`，倒计时那条链路一行不用改。
 
-## 二、还没拍板（到对应阶段**先问**，别自己选）
+## 二、待拍板项 —— **2026-09-16 已全部拍板，照下表落，不要再停下来问**
 
-| 编号 | 问题 | 我给的默认解法（**要先问过才能落**） |
+> 七条里 H 当日查清后单独答（见 §1-4），其余六条项目负责人当日一次性批准
+> **全部按默认解法落**。表格保留原样是为了留住「为什么是这个默认解法」——
+> 只留结论不留理由，下一轮就会有人把它当成可以随手改的选择。
+
+| 编号 | 问题 | 落法（**已批准，直接做**） |
 |---|---|---|
-| C | 求助中心五项砍掉了 120 / 110 / 主紧急联系人三格（`AGENTS.md` §6 红线），且新增了仓库与契约里都不存在的「人工客服」 | 保留拨号三格且顺序不动，把设计的五项当「排序要求」而非「清单要求」，改单列；「人工客服」不做，投 handoff |
-| D | 设计禁止五星，后端 `CreateReviewRequest.rating` 是 `minimum:1 maximum:5` **必填**且无枚举取值 | ⑤ 这一屏**推迟**，先投 handoff 请后端加枚举 |
-| E | 深色档 7 个 token 与仓库现值不一致（页面底 `#000000` vs `#121417`、正文 `#FFFFFF` vs `#F2F3F5`、品牌蓝 `#0A84FF` vs `#7EA2FF`、求助字 `#FF453A` vs `#FFB4AB` …） | **不改 `FlowPalette`**（会改每一个已验收界面的深色外观，且对比度用例钉着现值）。E 组按仓库现有深色档做，交付说明里写清偏离 |
-| F | 走散/离线的数值后端不下发；阈值也对不上 | 警示条不写具体数值（用契约的 `ttsText`）；「我们在一起」做成**纯本地**消警；投 handoff |
-| G | 电量后端 0 命中 | 跑者端用本机 `UIDevice.batteryLevel` 自播；陪跑员端那一行不做，投 handoff |
+| C | 求助中心五项砍掉了 120 / 110 / 主紧急联系人三格（`AGENTS.md` §6 红线），且新增了仓库与契约里都不存在的「人工客服」 | ✅ 保留拨号三格且顺序不动，把设计的五项当「排序要求」而非「清单要求」，改单列；「人工客服」不做，投 handoff |
+| D | 设计禁止五星，后端 `CreateReviewRequest.rating` 是 `minimum:1 maximum:5` **必填**且无枚举取值 | ✅ ⑤ 这一屏**推迟**，先投 handoff 请后端加枚举 |
+| E | 深色档 7 个 token 与仓库现值不一致（页面底 `#000000` vs `#121417`、正文 `#FFFFFF` vs `#F2F3F5`、品牌蓝 `#0A84FF` vs `#7EA2FF`、求助字 `#FF453A` vs `#FFB4AB` …） | ✅ **不改 `FlowPalette`**（会改每一个已验收界面的深色外观，且对比度用例钉着现值）。E 组按仓库现有深色档做，交付说明里写清偏离 |
+| F | 走散/离线的数值后端不下发；阈值也对不上 | ✅ 警示条不写具体数值（用契约的 `ttsText`）；「我们在一起」做成**纯本地**消警；投 handoff |
+| G | 电量后端 0 命中 | ✅ 跑者端用本机 `UIDevice.batteryLevel` 自播；陪跑员端那一行不做，投 handoff |
 | ~~H~~ | ~~`/start-service` 盲人 token 能不能调不明~~ | **2026-09-16 已答，见 §1-4。** 查清是确定调不通（后端 `loadForVolunteer`），已投 handoff |
-| I | 「本次志愿服务时长」只有累计值 `totalServiceMinutes` | 投 handoff 要单次值 |
+| I | 「本次志愿服务时长」只有累计值 `totalServiceMinutes` | ✅ 投 handoff 要单次值 |
 
 ## 三、摸底结论（已核实，**别重查**）
 
@@ -54,7 +58,7 @@
 |---|---|
 | 盲人端订单页**已经是原地变形**，不是跳页 | `BlindOrderStatusView.swift:1281` 的 `content` 三选一；`:1485` 的 `body` 就是它 |
 | 四步骨架已落地 | `BlindOrderFlowView.swift:15` + `FlowStepper`（`FlowComponents.swift:99`）+ `BlindOrderFlowPresentation`（`BlindOrderFlowStep.swift:85`） |
-| `IN_PROGRESS` 目前**不进骨架** | `BlindOrderFlowStep.swift:56` 返回 `nil`，走 `BlindActiveRunView` |
+| ~~`IN_PROGRESS` 不进骨架~~ | **2026-09-16 阶段 1 已改**：`blindOrderFlowStep` 对 `.inProgress` 返回 `.metUp`，与汇合同一格。`BlindActiveRunView` 现在是那张卡的**内容区**，不再是一整屏 |
 | 设计稿**浅色档与仓库逐值吻合** | `FlowPalette.swift:139-167`：`cta #F6C343` / `onCTA #111A2E` / `help` 三色 / `avatar` / `successBadge` / `nodeStroke` / `progressTrack` / `booking` 三色全中 |
 | 字号唯一落点是 `FlowFonts` + `flowFont(size:weight:relativeTo:monospacedDigit:)` | `FlowMetrics.swift:162-217`。**新字号加进 `FlowFonts`，不在视图里写字面量** |
 | 跑表体例格式化已有 | `TrackStats.distanceKilometersText / durationClockText / paceClockText`（`OrderTrackModels.swift:53-75`） |
@@ -99,6 +103,23 @@
 - [ ] 阶段 4 · B 组异常警示条 + 求助中心单列重排（先答 C）
 - [ ] 阶段 5 · D 组锁屏实时活动（**要新建 Widget Extension target，得动 pbxproj**）
 - [ ] 阶段 6 · E 深色 + F AX5 布局
+
+### 并行性（2026-09-16 实查文件重叠面得出，别按阶段编号猜）
+
+**能并行的三条线**（文件基本不交叉，且都不卡待拍板项）：
+
+| 线 | 内容 | 主要动的文件 |
+|---|---|---|
+| A | 阶段 2 · 播报队列 + 四种提示音 | `Voice/SpeechService.swift`、`Voice/SpeechInputService.swift`（`ToneSynthesizer`）、`BlindOrderStatusView` 约 15 处加优先级 |
+| B | 阶段 5 · 锁屏实时活动 | 新 Widget Extension target + `pbxproj` + 新文件；`BlindOrderStatusView` 只加起停钩子 |
+| C | 阶段 3 的**志愿者那一半**（长按 2 秒结束） | `Volunteer/VolunteerOrderFlowViews.swift` |
+
+🔴 **线 A 必须给 `speak` 加带默认值的优先级参数，不改既有调用点。**
+全仓 `speak`/`speakError`/`announce` 共 **230 个调用点、分布在 31 个文件**，
+改签名会把整个仓库碰一遍 —— 那三条线当场全撞。
+
+**必须串行的三件**：阶段 3 的盲人端（④ 已完成）· 阶段 4 · 阶段 6。
+三者**都改 `BlindOrderFlowView.swift`**，同一个文件三个人改必撞。
 
 ### 阶段 1 要动的文件
 
