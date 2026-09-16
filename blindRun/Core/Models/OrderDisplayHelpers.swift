@@ -19,6 +19,40 @@ extension RunOrderStatus {
         }
     }
 
+    /// 这一单**已经动起来了**吗 —— 也就是「计划开始时刻还有没有参考价值」。
+    ///
+    /// 用途是首页深蓝卡的两处文案（`BlindHomeOrderCard`）：
+    /// - 判 false ⇒ 小字念「下一次陪跑，{状态}」，大字念相对日期时间
+    /// - 判 true  ⇒ 小字只念状态，大字也只念状态
+    ///
+    /// **为什么需要这条**：设计稿只画了 `SCHEDULED_CONFIRMED` 一态，而首页那张卡要覆盖
+    /// `isActiveForBlindRunner` 的全部 8 个状态。陪跑进行中时念「下一次陪跑，进行中」
+    /// 是把正在发生的事说成未来，而 52pt 的大字会显示一个**已经过去**的计划开始时刻
+    /// —— 那是这一屏最大的位置，给了一个用户此刻完全不需要的数字。
+    ///
+    /// 穷举 switch 而不是集合字面量：后端加状态时编译器逼一次决策。
+    /// 集合字面量会把新状态默默判成 false，而那正是「把进行中的单说成下一次」的来源。
+    var isUnderwayForBlindRunner: Bool {
+        switch self {
+        // 志愿者真的动身了（`/en-route`，与只回答「你还去吗」的 `/confirm-departure`
+        // 不是一回事）之后，这一单就不再是「下一次」了。
+        case .driverEnRoute, .driverArrived, .inProgress:
+            return true
+        // 这几态人还没出发，计划开始时刻仍然是用户最想知道的那个数。
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .rematching:
+            return false
+        // 终态永远到不了这张卡（`isActiveForBlindRunner` 已经把它们排除），
+        // 判 false 只是为了让 switch 穷举。
+        case .completed, .cancelled, .noVolunteer:
+            return false
+        // 判 **false**：不知道它是哪一档时，宁可保留时间那一行。
+        // 时间是确定有的信息，而「下一次」这个措辞最坏情况只是不精确；
+        // 反过来判 true 会把一个还没开始的单的时间从屏幕上抹掉，那是丢信息。
+        case .unknown:
+            return false
+        }
+    }
+
     /// `.pendingIntroCall` 判 true 而 `.pendingMatch` 判 false：这一态订单**已经锁给了
     /// 这一位志愿者**（后端 `dispatchCurrentVolunteerId`），他有一件必须做的事（表态）。
     ///

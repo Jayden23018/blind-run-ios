@@ -93,7 +93,8 @@ struct BlindHomeOrderCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if let experience = order.volunteerExperienceText {
                     Text(experience)
-                        .flowFont(FlowFonts.homeCardRowDetail())
+                        // 等宽数字：与上面 52pt 大字同一套口径，需求第 8 条要求全部数字等宽。
+                        .flowFont(FlowFonts.homeCardRowDetail(), monospacedDigit: true)
                         .foregroundColor(AppColors.Flow.onNavySecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -138,14 +139,31 @@ struct BlindHomeOrderCard: View {
 
     // MARK: 文案
 
+    /// 状态小字。
+    ///
+    /// 🔴 **「下一次陪跑」只对还没开始的那几态成立。** 设计稿只画了 `SCHEDULED_CONFIRMED`
+    /// 一态，而 `isActiveForBlindRunner` 还包含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` /
+    /// `IN_PROGRESS` —— 陪跑进行中时念「下一次陪跑，进行中」，是把正在发生的事说成未来。
+    /// 读屏用户听到的是这一屏的第一句话，说错了整屏的语义就错了。
     private var statusCaption: String {
-        "下一次陪跑，\(order.status.displayName)"
+        order.status.isUnderwayForBlindRunner
+            ? order.status.displayName
+            : "下一次陪跑，\(order.status.displayName)"
     }
 
-    /// 时间拿不到时**不显示占位时间**，改说这一态在等什么。
-    /// 摆一个「--:--」出来，52pt 大字的位置就被一个没有信息的东西占住了。
+    /// 52pt 的那行大字。
+    ///
+    /// 🔴 **已经出发之后不再显示计划开始时刻。** 那个时间已经过去了，而它占的是这一屏
+    /// 最大的位置 —— 走绝对日期分支念出「9月16日 7:00」，等于把黄金位置给了一个
+    /// 用户此刻完全不需要的数字。改成念这一态本身（「志愿者已到达」/「进行中」）。
+    ///
+    /// 时间拿不到时同理**不显示占位时间**：摆一个「--:--」出来，位置就被一个
+    /// 没有信息的东西占住了。
     private var timeText: String {
-        order.blindRunnerShortStartText() ?? order.status.displayName
+        if order.status.isUnderwayForBlindRunner {
+            return order.status.displayName
+        }
+        return order.blindRunnerShortStartText() ?? order.status.displayName
     }
 
     private var placeText: String {
@@ -165,8 +183,9 @@ struct BlindHomeOrderCard: View {
     /// 听的人没有屏幕可以回看，含糊的相对日期反而要他自己换算。见
     /// `blindRunnerShortStartText` 的注释。
     private var accessibilityLabel: String {
-        var parts = ["下一次陪跑，\(order.status.displayName)。"]
-        if let spoken = order.plannedStartForAnnouncement {
+        var parts = ["\(statusCaption)。"]
+        // 已经出发之后不念计划开始时刻 —— 与大字同一条理由（那个时间已经过去了）。
+        if !order.status.isUnderwayForBlindRunner, let spoken = order.plannedStartForAnnouncement {
             parts.append("\(spoken)，")
         }
         parts.append("\(placeText)。")

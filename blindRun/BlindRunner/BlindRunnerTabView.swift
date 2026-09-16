@@ -128,7 +128,25 @@ struct BlindRunnerTabView: View {
         sosMode == .cloudTrigger ? .cloudFailed : .homeIdle
     }
 
+    /// 求助入口的统一分流。magic tap 与「我的」tab 底部那条求助条走同一个入口。
+    ///
+    /// 🔴 **先切到「我的」tab，再弹确认。** 这一行不是为了好看，是为了满足
+    /// `AGENTS.md` §6 的「拿不到坐标就不发，并且**可见且可听**地告知用户」：
+    ///
+    /// 云端求助的**可见面**（`EmergencyStatusNotice`，以及失败时那枚「求助没发出去时
+    /// 屏幕上必须有个能按的东西」的兜底拨号按钮）整块长在 `BlindHomeSOSBar` 里，
+    /// 而这条 bar 只在「我的」tab。`BlindRunnerHomeViewModel.enterEmergency` 当初
+    /// **刻意不写 `errorMessage`**，理由是「可见面就在同一屏，写了会让同一句话被念两遍」
+    /// —— 那个前提在求助条搬走之后不再成立。
+    ///
+    /// 不切 tab 的后果：在首页做两指双击 → 确认 → 坐标拿不到（`allowsSubmissionWithoutLocation`
+    /// 恒 false，这是**设计上会发生**的失败）→ 只有一句 TTS，屏幕零变化，
+    /// 而那枚兜底拨号按钮在另一个 tab 上够不到。命中记忆
+    /// `claimed-fallback-may-not-exist-in-release` 的第二种吃法。
+    ///
+    /// 紧急手势把用户带到安全面本身也是对的：他此刻要的就是这一屏。
     private func activateSOS() {
+        selection = .profile
         switch sosMode {
         case .cloudTrigger:
             showEmergencyConfirmation = true
@@ -150,7 +168,26 @@ struct BlindRunnerTabView: View {
     /// `AppColors.Flow.tabUnselectedTone`。
     private static func applyTabBarAppearance() {
         let appearance = UITabBarAppearance()
-        appearance.configureWithDefaultBackground()
+        // 🔴 **必须是不透明的实色底，不能用 `configureWithDefaultBackground()`。**
+        //
+        // 那个给的是**半透明材质**，于是内容滚到标签栏之下时，标签文字的有效背景会被
+        // 下面的内容压暗 —— 而首页滚到底下压着的正是深蓝卡 `#15224A`。
+        // 未选中标签 `#6B7385` 压白底是 4.76:1，但材质有效不透明度 0.9/0.8/0.7 时分别
+        // 只有约 3.71 / 3.02 / 2.40，全部低于亮色正文 4.5:1 的硬线，
+        // 而那是全屏最小的 13pt 文字。
+        //
+        // 连带：`FlowDesignSystemTests.testTabBarLabelsClearTheBodyThresholdOnTheTabBarSurface`
+        // 的前提就是「标签栏底与卡片同一个表面色」。用半透明材质的话那条断言算的是一个
+        // 真机上不成立的数 —— 绿灯替一个不存在的保证背书。
+        //
+        // 设计稿本来也是实色：`home.html:14` 的 `.tab{...background:#fff;...}`。
+        // 与 `docs/05-page-specs.md` 对订单页底栏那条「背景恒为实色，不用 `.regularMaterial`」
+        // 是同一条理由（那次是滚动时正文从按钮底下透上来，2026-09-07 真机报的「穿模」）。
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor { traits in
+            let tone = AppColors.Flow.surfaceTone
+            return UIColor(rgb: traits.userInterfaceStyle == .dark ? tone.dark : tone.light)
+        }
 
         let unselected = UIColor { traits in
             let tone = AppColors.Flow.tabUnselectedTone

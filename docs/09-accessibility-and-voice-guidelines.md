@@ -87,7 +87,7 @@ Implementation guidance:
 - ViewModels decide what to speak when state changes.
 - Avoid repeated speech spam during polling by remembering the last spoken order status.
 - Guided booking may speak on explicit step changes, submission, blocking errors, and "重复当前状态"; it must not speak long summaries after every text edit or every `DatePicker` adjustment.
-- Provide a “重复当前状态” button on each key blind runner page.
+- Provide a “重复当前状态” button on each key blind runner page. It must be a **visible button**, not an accessibility custom action — the latter is unreachable for low-vision users who do not run VoiceOver, and `XCUIElement.tap()` injects physical touches that bypass accessibility actions, so the rule would have no machine guard. On the blind runner home it sits at the right of the greeting row (2026-09-16).
 
 ## 3. VoiceOver Requirements
 
@@ -135,7 +135,7 @@ Required coverage:
 | 页面 | 什么变化 | 焦点落到 | 实现 |
 |---|---|---|---|
 | 订单状态 | `status` 推进（5 秒轮询 / WebSocket） | 状态卡 | `BlindOrderStatusView.statusHeaderFocused` |
-| 盲人首页 | 订单出现 / 消失 | 有订单→当前订单卡；无订单→「开始约跑」 | `BlindRunnerHomeView.focusedSection` |
+| 盲人首页 | 订单出现 / 消失 | 有订单→深蓝订单卡；无订单→「预约新的陪跑」 | `BlindRunnerHomeView.focusedSection` |
 | 历史订单 | 加载态消失 | 第一条记录 | `BlindRunHistoryView.focusedRecordID` |
 | 下单向导 | 步骤推进、错误出现 | 当前步骤 / 错误文本 | `BlindBookingView` |
 
@@ -169,7 +169,7 @@ Switch Control 的扫描与 VoiceOver 转子。写在这里的是「代码这一
 **Switch Control**（设置 → 辅助功能 → 开关控制，用「屏幕」当开关）：
 
 1. 登录 → 输入手机号 → 收验证码 → 登录：每一步都能扫到并激活。
-2. 盲人首页：「开始约跑」「重复当前状态」「求助」三个控件都在扫描序列里。
+2. 盲人首页：「重复当前状态」「预约新的陪跑」，以及有订单时的深蓝订单卡，都在扫描序列里。⚠️ **「求助」自 2026-09-16 起不在首页**（在「我的」tab 底部）；首页只剩 magic tap 这条通道，而**开关控制扫描扫不到手势** —— 这是首页改版留下的已知缺口。
 3. 志愿者首页：派单面板能展开、能收起（这一条 2026-08-16 之前必然失败）。
 4. 全程不出现「扫到了但激活没反应」的元素。
 
@@ -189,7 +189,7 @@ Switch Control 的扫描与 VoiceOver 转子。写在这里的是「代码这一
 - Use confirmation dialogs for dangerous actions.
 - Status pages must state current order state in plain language.
 - Error messages must be shown visually and spoken with TTS.
-- Blind-runner maps are auxiliary: current state, next action, and "重复当前状态" must appear before map content in visual and VoiceOver traversal order.
+- Blind-runner maps are auxiliary: current state, next action, and "重复当前状态" must appear before map content in visual and VoiceOver traversal order. The blind runner **home has carried no map since 2026-09-16**; the order status page still does, and there the decorative map is `accessibilityHidden` rather than reordered (`accessibilitySortPriority` is a no-op across stacking layers — see `docs/research/swiftui-voiceover-traversal-order-20260814.md`).
 - Map-equivalent text must be available outside the map. If a demo fallback coordinate is used or the address cannot be resolved, the UI and speech must say so plainly.
 - Raw latitude and longitude must not be normal user-facing text or normal VoiceOver output on blind-runner home, booking, or order status screens.
 

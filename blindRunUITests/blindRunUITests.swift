@@ -661,7 +661,10 @@ final class blindRunUITests: XCTestCase {
             preseedBlindProfile: true
         )
 
-        let currentOrderButton = app.buttons["查看当前订单"].firstMatch
+        // 2026-09-16 起首页的入口是整张深蓝订单卡，不再是「查看当前订单」按钮。
+        // 这两条是 SOS 红线用例，入口挂掉会让它们在第一行就 waitForExistence 失败 ——
+        // 表现是「求助入口不存在」这种指向完全错误的失败信息，而红线其实没被验过。
+        let currentOrderButton = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(currentOrderButton.waitForExistence(timeout: 12), "Blind runner home should expose current order")
         currentOrderButton.tap()
 
@@ -734,7 +737,10 @@ final class blindRunUITests: XCTestCase {
             preseedBlindProfile: true
         )
 
-        let currentOrderButton = app.buttons["查看当前订单"].firstMatch
+        // 2026-09-16 起首页的入口是整张深蓝订单卡，不再是「查看当前订单」按钮。
+        // 这两条是 SOS 红线用例，入口挂掉会让它们在第一行就 waitForExistence 失败 ——
+        // 表现是「求助入口不存在」这种指向完全错误的失败信息，而红线其实没被验过。
+        let currentOrderButton = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(currentOrderButton.waitForExistence(timeout: 12))
         currentOrderButton.tap()
 
@@ -1647,7 +1653,10 @@ final class blindRunUITests: XCTestCase {
     /// 原来写死「第 1 步 → 第 2 步 → 第 3 步 → 提交」的走法在前一种设备上必挂，
     /// 而挂的原因和下单链路无关。所以改成：先退出语音，然后一路按主操作走到「提交预约」。
     private func createBookingAndAssertMatching(_ app: XCUIApplication) {
-        let startButton = app.buttons["开始约跑"].firstMatch
+        // 2026-09-16 起首页的下单入口是浅蓝「预约新的陪跑」块。identifier 与改版前逐字相同，
+        // 所以按 identifier 找而不是按中文标签 —— 标签这一轮就改了，而 guard 的
+        // `stale-ui-test-identifier` 只对 identifier 做双向校验，抓不到中文文案漂移。
+        let startButton = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 12), "Blind runner home should show start booking")
         startButton.tap()
 
@@ -1711,7 +1720,10 @@ final class blindRunUITests: XCTestCase {
         let role = app.buttons["我是盲人跑者，预约志愿者陪我跑步"].firstMatch
         let profile = app.staticTexts["完善信息"].firstMatch
         let editProfile = app.staticTexts["编辑资料"].firstMatch
-        let home = app.buttons["开始约跑"].firstMatch
+        // 同上：按 identifier，不按已改的中文标签。此前这里是 `buttons["开始约跑"]`，
+        // 改版后恒为 false —— 同一个 OR 里有 `rootRoute.blindHome` 兜着，所以不会让用例变红，
+        // 但下次有人据它判断「首页起来了」会拿到一个永远不成立的探针。
+        let home = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
         let homeRoute = app.descendants(matching: .any)["rootRoute.blindHome"].firstMatch
         let error = app.staticTexts["网络错误，请重试。"].firstMatch
         let loginFailed = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "登录失败")).firstMatch

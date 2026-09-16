@@ -195,6 +195,16 @@ final class AccessibilityAuditTests: XCTestCase {
     /// `AGENTS.md`：每个关键盲人页面必须有「重复当前状态」。
     /// 它不冗余 —— 系统 Speak Screen 读不到一次性的 announcement，没有这个按钮，
     /// 盲人错过一次播报就再也拿不回来。
+    ///
+    /// 🔄 **2026-09-16 起它是问候行右侧的一枚图标按钮**（项目负责人拍板），
+    /// 不再是内容列里的全宽次级按钮。用例因此加了两条断言：
+    ///
+    /// 1. **必须是可见的按钮，而不是 accessibility custom action。** 后者是这次改版里
+    ///    被否掉的候选方案，而它的两条硬伤恰好都逃得过一条只查「存不存在」的断言：
+    ///    不开读屏的低视力用户够不到，且 `XCUIElement.tap()` 注入的是物理触摸、
+    ///    **不经过 accessibility action**（记忆 `xcuitest-cannot-invoke-accessibility-actions`）
+    ///    —— 真做成 custom action，`waitForExistence` 会通过而 `isHittable` 不会。
+    /// 2. **64pt 触达 + 不滚动即可达。** 它在问候行上，本就该在首屏。
     @MainActor
     func testBlindRunnerHomeOffersRepeatCurrentStatus() throws {
         let app = launchBlindHome()
@@ -209,6 +219,27 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(
             repeatControl.waitForExistence(timeout: 10),
             "盲人首页缺少「重复当前状态」。可以降视觉权重，但不能删。"
+        )
+
+        // 见上面第 1 条：这一句是「可见按钮」与「custom action」的分界线。
+        XCTAssertTrue(
+            repeatControl.isHittable,
+            "「重复当前状态」在无障碍树里但按不到 —— 做成 accessibility custom action 了？"
+                + "那样不开读屏的低视力用户够不到它。"
+        )
+        XCTAssertGreaterThanOrEqual(
+            repeatControl.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            "「重复当前状态」只有 \(repeatControl.frame.height)pt，低于盲人端 64pt 触达下限"
+        )
+
+        // 不滚动即可达：它在问候行上，落在首屏之外只可能是布局出了问题。
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在，遮挡判据没有参照物")
+        XCTAssertLessThanOrEqual(
+            repeatControl.frame.maxY,
+            tabBar.frame.minY,
+            "「重复当前状态」下沿 \(repeatControl.frame.maxY) 越过了标签栏上沿 \(tabBar.frame.minY)"
         )
     }
 

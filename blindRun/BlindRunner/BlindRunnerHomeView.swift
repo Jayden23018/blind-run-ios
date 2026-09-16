@@ -53,8 +53,26 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         activeOrder?.status.canBlindRunnerCancel == true
     }
 
+    /// 能不能开始一次新的预约。
+    ///
+    /// 🔄 **2026-09-16 去掉了 `activeOrder == nil` 这个闸 —— 它是跨天预约上线前的遗留。**
+    ///
+    /// 后端现在允许同时握着多张未走完的单：`DUPLICATE_ORDER` 只拦**时段冲突**
+    /// （`api_spec.yaml:1485` 逐字「与该盲人任一未走完的订单在时间上重叠时拒绝」），
+    /// 并发上限是 `TOO_MANY_SCHEDULED_ORDERS` 的 3 张（`:1489`，配置
+    /// `app.order.max-concurrent-scheduled`）。`AGENTS.md` §5 也写着
+    /// 「`DUPLICATE_ORDER` 自 2026-09-05 起只拦时段冲突，文案别再写「您有进行中的订单」」。
+    ///
+    /// 留着那个闸的后果不是「少一个入口」，而是**设计稿要求常驻的预约块在有订单时
+    /// 变成一个按不动、且解释错误的入口**：按下去播「订单状态尚未确认，请先重试加载」，
+    /// 而真实原因是「你已经有一张单了」—— 用户会当成网络问题反复重试，而重试多少次都不会变。
+    /// 真机实测由 `testBlindHomeWithAnActiveOrderKeepsBothBlocksReachable` 抓到
+    /// （`passed=18 failed=6`，2026-09-16 iPhone 16 Pro）。
+    ///
+    /// 仍然要求加载已落定：那道闸防的是「状态还没确认就下单」，与有没有活跃订单无关。
+    /// 时段冲突与并发上限交给后端判 —— 客户端拿不到「未走完的单有几张」，
+    /// 自己算就是第二个源。被拒时按错误码播报（skill `aidrun-error-codes`）。
     var canStartNewBooking: Bool {
-        guard activeOrder == nil else { return false }
         if case .loaded = orderLoadState { return true }
         return false
     }
@@ -308,6 +326,15 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         speakCurrentStatus()
     }
 
+    /// 🔴 **播报里提到的控件名必须与它的 `accessibilityLabel` 逐字一致。**
+    ///
+    /// 读屏用户是**按标签找控件**的：播报说「可以点击开始约跑」而屏幕上那个按钮叫
+    /// 「预约新的陪跑」时，用户会逐个划过去找一个不存在的名字 —— 导航指令当场失效，
+    /// 而界面上看不出任何异常。2026-09-16 首页改版时这两句就漏改了一轮。
+    ///
+    /// 这条抓不成守卫：中文文案漂移的静态匹配实测误报 93%
+    /// （`AccessibilityAuditTests` 里 `safetyHubLabel` 那段注释记着同一件事）。
+    /// 改按钮标签时自己搜一遍播报文案。
     func speakCurrentStatus(locationDescription: String? = nil) {
         if let activeOrder {
             speechService?.speakStatusChange(
@@ -316,7 +343,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             )
         } else {
             let locationText = locationDescription.map { "当前位置：\($0)。" } ?? ""
-            speechService?.speak("欢迎来到助盲跑。\(locationText)可以点击开始约跑。")
+            speechService?.speak("欢迎来到助盲跑。\(locationText)可以点击预约新的陪跑。")
         }
     }
 
@@ -351,7 +378,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         if let activeOrder {
             speechService?.speak(homeAnnouncement(for: activeOrder, locationDescription: locationDescription))
         } else {
-            speechService?.speak("当前没有进行中的预约。\(locationDescription)可以点击开始约跑。")
+            speechService?.speak("当前没有进行中的预约。\(locationDescription)可以点击预约新的陪跑。")
         }
     }
 
@@ -479,6 +506,13 @@ struct BlindRunnerHomeView: View {
     @ObservedObject var viewModel: BlindRunnerHomeViewModel
 
     @State private var path: [BlindRunnerRoute] = []
+
+    /// `.task` 只跑一次的闸。见 `.task` 里的说明 —— 它在 `TabView` 里会随每次切回本 tab
+    /// 重跑，而重跑会重推引导页、重播一整段 15~25 秒的状态播报。
+    ///
+    /// 用 `@State` 而不是 view model 上的属性：它描述的是**这个视图实例**跑过没有，
+    /// 而 view model 现在由 `BlindRunnerTabView` 持有、生命周期比这一页长。
+    @State private var didRunInitialLoad = false
     /// 订单出现或消失后，这一屏换掉的正是主内容块，焦点会被系统收走且落点不确定。
     /// 已经有 `speakStatusChange` 在播报变化，焦点不跟过来就是「听到了，但滑不到」。
     ///
@@ -534,16 +568,26 @@ struct BlindRunnerHomeView: View {
                 }
                 locationService.startUpdating()
             }
-            .onDisappear {
-                viewModel.cancelLoading()
-            }
+            // 🔴 **`onDisappear` 不再取消加载。** 2026-09-16 起这一页在 `TabView` 里，
+            // 切到「记录」/「我的」就会走 `onDisappear` —— 而「我的」那条兜底求助条的
+            // 模式判据（`BlindHomeSOSMode.resolve`）读的正是同一个 `activeOrder`。
+            //
+            // 取消的后果是一场**决定求助走不走云端的竞态**：`IN_PROGRESS` 中冷启动、
+            // 用户在 20 秒加载上限内切到「我的」找求助 ⇒ 加载被这一行取消 ⇒ `activeOrder`
+            // 恒 nil ⇒ 求助条落 `.localCall` 本地拨号档，云端 SOS（记录事件 + 通知平台）
+            // 这一轮不会发生，而用户**无从得知模式被降级了**。而「我的」tab 自己没有加载入口，
+            // WebSocket 那条也救不了（`applyRealtimeStatus` 首行 `guard let current = activeOrder`）。
+            // `AGENTS.md` §6 写的是「模式由订单状态决定，用户不可选」—— 不是由一场竞态决定。
+            //
+            // 原来那行存在的理由是「页面走了就别占着网络」，而现在这一页**并没有走**，
+            // 只是不在最前面。真正离开盲人端（切角色 / 退出登录）时 view model 随
+            // `BlindRunnerTabView` 一起释放，`Task` 自然取消。
             .onChange(of: viewModel.activeOrder?.status) { status in
                 focusedSection = status == nil ? .newBooking : .activeOrder
             }
             .task {
                 // 引导先于订单加载推入：它不依赖订单，而等加载完再跳会让用户先听半句首页播报
-                // 再被切走。`.task` 只在根视图首次出现时跑，所以从引导页返回不会把人弹回去；
-                // 标志只在按下「知道了」时才写（`markBlindFirstRunHelpSeen`），
+                // 再被切走。标志只在按下「知道了」时才写（`markBlindFirstRunHelpSeen`），
                 // 没看完就退出的人下次重进 App 仍会拿到引导。
                 //
                 // 🚩 但光换顺序不够：加载**回来**得比引导页的 `.task` 晚，而
@@ -551,6 +595,19 @@ struct BlindRunnerHomeView: View {
                 // 念到一半的说明切断（2026-09-07 真机报障）。所以引导在场时首页静音加载，
                 // 播报推迟到用户按「知道了」（见下面的 `onChange`）。
                 // 传 false 是**推迟**不是取消，还账在下面的 `onChange`。
+                //
+                // 🔴 **`.task` 在 TabView 里会随每次切回本 tab 重跑**（SwiftUI 把它绑在
+                // 视图出现/消失上，不是「根视图首次出现」—— 改成 tab 容器之后那句旧注释
+                // 不再成立）。两个后果都要挡住，所以下面有 `didRunInitialLoad` 这道闸：
+                //   ① 用返回键（不是「知道了」）退出引导的人，`didSeeBlindFirstRunHelp`
+                //      仍为 false ⇒ 每次切回首页都会被再 push 一次引导页
+                //   ② 每次切回首页都重跑一遍 `loadActiveOrder` 并**重播一整段状态**
+                //      （15~25 秒）—— 对读屏用户是每次切 tab 都被打断
+                // 刷新仍然有：WebSocket 推进走 `applyRealtimeStatus`，手动走「重试加载」，
+                // 订单详情页返回时由它自己的回调写回。这道闸只挡「切 tab 引起的重跑」。
+                guard !didRunInitialLoad else { return }
+                didRunInitialLoad = true
+
                 let showsFirstRunHelp = !appState.didSeeBlindFirstRunHelp
                 if showsFirstRunHelp {
                     path.append(.help)
@@ -596,8 +653,8 @@ struct BlindRunnerHomeView: View {
     private var contentLayer: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                greeting
-                    .padding(.horizontal, 4)
+                greetingRow
+                    .padding(.leading, 4)
                     .padding(.top, 18)
 
                 if viewModel.isLoading {
@@ -638,23 +695,86 @@ struct BlindRunnerHomeView: View {
         .accessibilityIdentifier("blindRunnerHomeScrollView")
     }
 
-    /// 「你好，{姓名}」。**这一屏的标题**，读屏带 header 特征。
+    /// 问候行：「你好，{姓名}」+ 右侧「重复当前状态」图标。
     ///
     /// 姓名取 `blindProfile?.name`，没填就只说「你好」—— 不摆「未填写」这种占位，
     /// 也不改用手机号（那会在读屏外放时把号码念出来）。
-    private var greeting: some View {
-        Text(greetingText)
-            .flowFont(FlowFonts.homeGreeting())
-            .foregroundColor(AppColors.Flow.primaryText)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier("blindRunnerHomeGreeting")
+    private var greetingRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(greetingText)
+                .flowFont(FlowFonts.homeGreeting())
+                .foregroundColor(AppColors.Flow.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("blindRunnerHomeGreeting")
+
+            repeatStatusButton
+        }
     }
 
     private var greetingText: String {
         guard let name = appState.blindProfile?.name?.nilIfBlank else { return "你好" }
         return "你好，\(name)"
+    }
+
+    /// 「重复当前状态」。**项目硬规则要求每个关键盲人页面都有它**
+    /// （skill `aidrun-a11y-voice`：可以降视觉权重，但不能删），理由是系统的 Speak Screen
+    /// 读不到一次性的 `announcement` —— 没有它，盲人错过一次自动播报就再也拿不回来。
+    ///
+    /// 🔄 **2026-09-16 的落点：问候行右侧一枚 64pt 图标按钮（项目负责人拍板）。**
+    ///
+    /// 走过的三个位置，写下来是因为每一步都被否掉过：
+    /// 1. 改版前是内容列里一个全宽的次级按钮 —— 设计稿的首页只有两块，没有它的位置。
+    /// 2. 拍板「移进求助与安全中心弹层」，但同一轮首页那条求助条也被移到了「我的」tab
+    ///    ⇒ 它在首页的实际路径变成「切 tab → 按求助条 → 开弹层」**三层深**。
+    /// 3. 候选过「挂成订单卡的 accessibilityCustomAction」：**否掉**，两条硬伤 ——
+    ///    不开读屏的低视力用户够不到，且 `XCUIElement.tap()` 注入的是物理触摸、
+    ///    不经过 accessibility action（记忆 `xcuitest-cannot-invoke-accessibility-actions`），
+    ///    等于这条硬规则没有任何机器守卫。
+    ///
+    /// 所以是一枚**可见**的图标按钮：两类用户都够得到，且 UI 测试按得到。
+    ///
+    /// ⚠️ 它让读屏顺序从「问候 → 订单卡」变成「问候 → 重复当前状态 → 订单卡」，
+    /// 比设计稿多一次划动。这一次划动是值得的：首页进入时已经自动播报过一遍，
+    /// 会来找这个按钮的人恰恰是**没听清**的人，把它放在第二个位置是最快的。
+    /// `docs/05-page-specs.md` 的读屏顺序已同步。
+    private var repeatStatusButton: some View {
+        Button {
+            viewModel.repeatCurrentStatus(locationDescription: announcementLocationDescription)
+        } label: {
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(AppColors.Flow.accent)
+                // 64pt 触达 + 圆形底：不描边的话一枚彩色图标在页面底上看不出是按钮
+                // （同 `buttonShapeOutlineIfNeeded` 的判据 ——「不靠颜色还看得出是按钮吗」）。
+                .frame(width: 64, height: 64)
+                .background(AppColors.Flow.surface, in: Circle())
+                .flowCardShadow()
+        }
+        .buttonStyle(.plain)
+        // 逐字「重复当前状态」—— `docs/05-page-specs.md` 钉住这五个字，
+        // 且 `AccessibilityAuditTests` 按 label 找它（identifier 另给一份更稳的）。
+        .accessibilityLabel("重复当前状态")
+        .accessibilityHint("点击后重新播报当前页面信息")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("blindRunnerHomeRepeatStatusButton")
+    }
+
+    /// 播报里那段位置描述。**只进播报，不上屏** —— 设计稿的首页没有位置摘要那一行
+    /// （位置信息在订单卡的地点行里），但播报里保留它是净收益：看不见屏幕的人靠这一句
+    /// 知道「系统认为我在哪」，而定位被拒时这一句还是唯一说明「少了什么、下一步做什么」的地方。
+    ///
+    /// 与改版前那个同名的 `locationDescription` 取值逐字相同，只是不再有渲染点。
+    private var announcementLocationDescription: String {
+        if locationService.isDenied {
+            // 不说「不能预约」——现在能（见 `BlindBookingGate`）。只说少了什么、下一步做什么。
+            return "定位权限未开启。预约时可以手动搜索出发地点，开启定位会更省事。"
+        }
+        if let address = viewModel.activeOrder?.startAddress, !address.trimmed.isEmpty {
+            return "订单出发点：\(address)。\(locationService.readableCurrentLocationSummary)"
+        }
+        return locationService.readableCurrentLocationSummary
     }
 
     private var syncNotice: some View {

@@ -9,11 +9,45 @@ final class BlindHomeCardCopyTests: XCTestCase {
 
     /// 固定时区的日历。**不能用 `.current`**：CI 与两台真机的时区一旦不同，
     /// 「明天 7:00」会在其中一处变成「今天 7:00」，而那种红看着完全像代码错了。
+    ///
+    /// ⚠️ **只注入 `Calendar` 是不够的，时区隔离要做两头。** 被测函数里的**解析**
+    /// （`DateFormatter.aidRunBackendLocalDateTime`）与**渲染**（`aidRunDisplayClock`）
+    /// 都走进程默认时区。所以 `setUp` 里另外钉住这两个 formatter 的 `timeZone` ——
+    /// 只做一半的后果正是这段注释声称已经排除的那种红：在 UTC 设备上
+    /// `2026-09-16T23:50` 被解析成 UTC 23:50，按 Shanghai 日初算落到次日，
+    /// 得「明天 23:50」而期望「今天 23:50」。
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
         calendar.locale = Locale(identifier: "zh_CN")
         return calendar
+    }
+
+    /// 把两个共享 formatter 钉在与 `calendar` 同一个时区上，跑完还原。
+    ///
+    /// 它们是 `static let`（进程内共享），所以必须在 `tearDown` 里还原 ——
+    /// 不还原会让同一次运行里**后面的**用例拿到被本文件改过的时区，
+    /// 而那种串扰只在特定的用例执行顺序下出现，是最难查的一类假红/假绿。
+    private static let fixedTimeZone = TimeZone(identifier: "Asia/Shanghai")!
+    private var savedParseZone: TimeZone?
+    private var savedClockZone: TimeZone?
+    private var savedMonthDayZone: TimeZone?
+
+    override func setUp() {
+        super.setUp()
+        savedParseZone = DateFormatter.aidRunBackendLocalDateTime.timeZone
+        savedClockZone = DateFormatter.aidRunDisplayClock.timeZone
+        savedMonthDayZone = DateFormatter.aidRunDisplayMonthDay.timeZone
+        DateFormatter.aidRunBackendLocalDateTime.timeZone = Self.fixedTimeZone
+        DateFormatter.aidRunDisplayClock.timeZone = Self.fixedTimeZone
+        DateFormatter.aidRunDisplayMonthDay.timeZone = Self.fixedTimeZone
+    }
+
+    override func tearDown() {
+        DateFormatter.aidRunBackendLocalDateTime.timeZone = savedParseZone
+        DateFormatter.aidRunDisplayClock.timeZone = savedClockZone
+        DateFormatter.aidRunDisplayMonthDay.timeZone = savedMonthDayZone
+        super.tearDown()
     }
 
     private func date(_ string: String) -> Date {
@@ -159,6 +193,41 @@ final class BlindHomeCardCopyTests: XCTestCase {
             .volunteerExperienceText ?? ""
         XCTAssertFalse(text.contains("引导绳"), "引导绳经验年数后端没有这个字段，不许凭空显示")
         XCTAssertFalse(text.contains("认证"), "陪跑员认证状态不在订单详情里，不许凭空显示")
+    }
+
+    // MARK: - 「下一次陪跑」只对还没开始的那几态成立
+
+    /// 已经出发之后，首页那张卡不许再把这一单说成「下一次」，也不许在 52pt 的大字位置
+    /// 显示一个**已经过去**的计划开始时刻。
+    ///
+    /// 这条抓的是「设计稿只画了一态，而实现要覆盖 8 态」这一类漏洞。
+    /// 穷举全部 `isActiveForBlindRunner` 的状态，所以后端加状态时这里也会逼一次决策。
+    func testUnderwayOrdersAreNotDescribedAsTheNextRun() {
+        let notYet: [RunOrderStatus] = [
+            .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .rematching,
+        ]
+        let underway: [RunOrderStatus] = [.driverEnRoute, .driverArrived, .inProgress]
+
+        for status in notYet {
+            XCTAssertFalse(
+                status.isUnderwayForBlindRunner,
+                "\(status) 人还没出发，计划开始时刻仍是用户最想知道的那个数"
+            )
+        }
+        for status in underway {
+            XCTAssertTrue(
+                status.isUnderwayForBlindRunner,
+                "\(status) 已经动起来了，说成「下一次陪跑」是把正在发生的事说成未来"
+            )
+        }
+
+        // 覆盖面自检：上面两个集合加起来必须正好是首页那张卡会遇到的全部状态。
+        // 漏一个状态不会让任何断言变红 —— 它只是不再被检查，而绿灯照常亮。
+        let coveredByCard = Set(RunOrderStatus.allCases.filter(\.isActiveForBlindRunner))
+        XCTAssertEqual(
+            Set(notYet + underway), coveredByCard,
+            "预期表与首页卡片会遇到的状态集合不一致：漏掉的不会被断言，多出来的说明表过期了"
+        )
     }
 
     // MARK: - 状态轮询不许弄丢新字段
