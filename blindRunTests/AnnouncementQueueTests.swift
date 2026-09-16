@@ -337,4 +337,39 @@ final class AnnouncementQueueTests: XCTestCase {
         )
         service.stop()
     }
+
+    /// 🔴 **兜底放开卡住的那条时，排着的高档必须先播，不能被随后来的低档插队。**
+    ///
+    /// 上一条用例分辨不出这个缺陷：它的卡死档与新来档**都是每公里**，队列里没有第三档做对照，
+    /// 于是「续播了」和「只是让位」两种实现都能让它变绿。这正是「验红也会假绿」那一类
+    /// —— 断言挑的输入落不到两种实现之间。
+    ///
+    /// 这一条挑的取值能分辨：卡住的是警示、排着的是对方操作、新来的是每公里。
+    /// 只让位不续播的实现会让每公里那句抢在对方操作前面播出去。
+    func testFreeingAStuckUtterancePromotesTheQueueBeforeANewerLowerPriorityOne() {
+        let service = VoiceService()
+        service.isCallActive = { false }
+        service.resetSpokenHistoryForTesting()
+
+        service.speak("你们可能走散了", priority: .alert)
+        service.speak("志愿者已到达", priority: .counterpartAction)
+        XCTAssertEqual(service.spokenHistoryForTesting, ["你们可能走散了"], "对方操作那条该在排队")
+
+        // 警示那条的代理没回来。放开它的同时，排着的对方操作必须接上。
+        service.clearStaleUtteranceIfNeeded(now: .distantFuture)
+        XCTAssertEqual(
+            service.spokenHistoryForTesting,
+            ["你们可能走散了", "志愿者已到达"],
+            "卡住的那条一放开，排最久的高档该立刻接上"
+        )
+
+        // 此刻正在播「对方操作」，每公里只能排队，不许插到它前面。
+        service.speak("已跑 2 公里", priority: .perKilometer)
+        XCTAssertEqual(
+            service.spokenHistoryForTesting,
+            ["你们可能走散了", "志愿者已到达"],
+            "每公里播报抢在一条排了更久的对方操作前面播 —— 低档插队，正是这套队列要防的事"
+        )
+        service.stop()
+    }
 }

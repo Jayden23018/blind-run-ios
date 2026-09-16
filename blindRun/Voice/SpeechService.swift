@@ -235,9 +235,16 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
 
     /// 代理没回来、而这条按字数算怎么也该念完了：当成没在播。
     ///
-    /// **只清「正在播的那条」，不清队列。** 排着的那条随下一次 `finish` 正常出队；
-    /// 每公里那档若已经排过 10 秒会在出队时自己丢掉。在这里顺手清空队列会让一次
-    /// 迟到的代理回调变成「静默吞掉一条本该念的播报」，方向正好是这道兜底要防的那一种。
+    /// **不清队列，而是当场把排着的那条接上。**
+    ///
+    /// 🔴 清掉卡住的那条之后必须立刻续播，不能只是「让位」：调用方
+    /// （`speak`）紧接着就会 `queue.submit(..., speaking: currentPriority)`，
+    /// 而 `currentPriority` 此刻是 `nil` ⇒ **无论来者多低都判 `.speakNow`**。
+    /// 于是一条每公里播报会从一条排了半天的警示前面插过去 —— 低档抢在高档前面播，
+    /// 正是这整套队列要防的那件事。续播之后 `currentPriority` 重新有值，来者照常排队。
+    ///
+    /// 清空队列也不行，方向相反但一样糟：那会让一次迟到的代理回调变成
+    /// 「静默吞掉一条本该念的播报」。
     ///
     /// `now` 带默认值只为**可测**：真机上等 8 秒看队列会不会自愈是测不了的，
     /// 而「这道兜底根本没接上」和「它工作正常」在耳朵里同样是一片安静。不是给生产调用的。
@@ -246,6 +253,9 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         currentUtterance = nil
         currentPriority = nil
         self.currentDeadline = nil
+        if let next = queue.next(now: now, isCallActive: isCallActive()) {
+            play(next)
+        }
     }
 
     /// 停止播报

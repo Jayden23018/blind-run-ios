@@ -374,11 +374,21 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         )?.coordinate
     }
 
+    /// 首页那枚「重复当前状态」。与订单页的 `BlindOrderStatusViewModel.repeatStatus()` 同一档
+    /// （`.onDemand`，`状态清单.md` 的「按需播报」）—— 两处是同一个用户动作的两个入口，
+    /// 档位分叉的直接后果是：状态推进（`.counterpartAction`）正在播时，首页这一枚会把它
+    /// 从半句切断，而订单页那一枚会规规矩矩排队。用户不可能知道自己按的是哪一种。
     func repeatCurrentStatus(locationDescription: String) {
         if let activeOrder {
-            speechService?.speak(homeAnnouncement(for: activeOrder, locationDescription: locationDescription))
+            speechService?.speak(
+                homeAnnouncement(for: activeOrder, locationDescription: locationDescription),
+                priority: .onDemand
+            )
         } else {
-            speechService?.speak("当前没有进行中的预约。\(locationDescription)可以点击预约新的陪跑。")
+            speechService?.speak(
+                "当前没有进行中的预约。\(locationDescription)可以点击预约新的陪跑。",
+                priority: .onDemand
+            )
         }
     }
 

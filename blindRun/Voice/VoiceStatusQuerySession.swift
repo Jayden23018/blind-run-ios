@@ -81,7 +81,7 @@ final class VoiceStatusQuerySession {
         guard case .confirmDialVolunteer(let phone) = answer.pendingAction else { return }
         Task { [weak self] in
             // 号码没念完就开麦，用户听到的是被自己截断的号码 —— 而他要靠这串数字判断拨给谁。
-            await self?.waitForSpeechToSettle(characterCount: answer.speech.count)
+            await self?.waitForSpeechToSettle(answer.speech)
             guard let self, let speechInputService, self.currentRound == round else { return }
             self.listen(field: .voiceStatusConfirmCall, round: round, service: speechInputService) { [weak self] reply in
                 self?.handleDialConfirmation(reply, phone: phone)
@@ -142,10 +142,29 @@ final class VoiceStatusQuerySession {
     }
 
     /// 与 `VoiceOrderWizard.waitForSpeechToSettle` 同一套：上限按字数走，播完就立刻放行。
-    private func waitForSpeechToSettle(characterCount: Int) async {
+    ///
+    /// 🔴 **但这里要分两段等，因为这一轮是 `.onDemand`（第二低档），会被排队。**
+    ///
+    /// 只等 `isSpeaking` 是不够的：排队期间它为真说的是**别人**那条还在播，
+    /// 而上限只按我们这句号码的字数算。于是「状态推进那句 4 秒 + 号码这句 5 秒」
+    /// 会在 8 秒的上限处放行 —— 号码才念到一半，麦克风已经开了，
+    /// 用户被要求确认一个他根本没听全的号码。这是整条语音链路上最不能出错的一句。
+    ///
+    /// 第一段等它**真的开口**（`lastSpokenText` 只在 `VoiceService.play` 里写，
+    /// 即实际送进合成器那一刻），第二段才是原来那个按字数算的上限。
+    /// 两段各自有上限，任何一段卡住都不会把人吊死。
+    private func waitForSpeechToSettle(_ text: String) async {
         guard let speechService else { return }
+        let startDeadline = Date().addingTimeInterval(
+            VoiceOrderWizard.settleTimeout(forCharacterCount: 0)
+        )
+        while speechService.lastSpokenText != text,
+              speechService.isSpeaking,
+              Date() < startDeadline {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+        }
         let deadline = Date().addingTimeInterval(
-            VoiceOrderWizard.settleTimeout(forCharacterCount: characterCount)
+            VoiceOrderWizard.settleTimeout(forCharacterCount: text.count)
         )
         while speechService.isSpeaking && Date() < deadline {
             try? await Task.sleep(nanoseconds: 150_000_000)
