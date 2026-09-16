@@ -889,9 +889,11 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let finish = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
         XCTAssertTrue(finish.waitForExistence(timeout: 10), "服务进行中必须给陪跑员结束入口")
+        // 63.5 而不是 64：真机量出来是 63.999999999999886 —— `minHeight: 64` 经过一轮
+        // 布局取整后的浮点噪声，不是真的矮了。留半点余量仍然分得出 44pt 与 64pt 两档。
         XCTAssertGreaterThanOrEqual(
             finish.frame.height,
-            64,
+            63.5,
             "结束陪跑的触达高度只有 \(finish.frame.height)pt，不足 64"
         )
         XCTAssertFalse(
