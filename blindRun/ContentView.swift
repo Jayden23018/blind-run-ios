@@ -306,7 +306,10 @@ struct ContentView: View {
                 )
                 .accessibilityIdentifier("rootRoute.blindProfile")
             case .blindHome:
-                BlindRunnerHomeView()
+                // 2026-09-16 起这里是标签栏容器（首页 / 记录 / 我的），不再是裸的首页。
+                // identifier 逐字不变：`testRootHydrationMountsOnlyBlindHomeWithoutLoginOrProfileGhosts`
+                // 按它断言「只挂载了盲人首页」，而那条断言的语义没有变。
+                BlindRunnerTabView()
                     .accessibilityIdentifier("rootRoute.blindHome")
             case .volunteerProfile:
                 NavigationStack {

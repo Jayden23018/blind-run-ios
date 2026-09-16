@@ -537,6 +537,71 @@ extension OrderDetailResponse {
         plannedStart?.nilIfBlank?.displayDateTime
     }
 
+    /// 陪跑员姓名的**朗读版**：去掉掩码星号。
+    ///
+    /// 后端的 `volunteerName` 是**始终掩码**的（`张*`，`NameMaskUtils.mask()`，
+    /// 契约里逐字写明「姓名一律掩码，不存在明文版本」）。原样交给 VoiceOver 会念成
+    /// **「张星号」** —— 而这个 App 的读屏是外放的，念出来的东西周围的人都听得到。
+    ///
+    /// 去掉星号**不泄露任何信息**：掩码之后剩下的本来就只有姓氏，星号只是个占位符号。
+    /// 首页那枚头像早就只显示姓氏了（`FlowAvatar`），两处现在口径一致。
+    ///
+    /// ⚠️ **只用于朗读与读屏标签，视觉上仍然原样显示 `张*`。** 屏幕上去掉星号会让人
+    /// 以为拿到了全名，而拨号那条路从来不经过姓名 —— 号码只走 `volunteerPhone`。
+    ///
+    /// 空名字回退到既有常量「这位志愿者」，不另造第二个占位词。
+    var volunteerNameForSpeech: String {
+        let stripped = (volunteerName ?? "")
+            .replacingOccurrences(of: "*", with: "")
+            .replacingOccurrences(of: "＊", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripped.isEmpty ? PartnerStreakCopy.unknownVolunteerName : stripped
+    }
+
+    /// 陪跑员的经验凭据，**只说后端真的发了的那一项**。
+    ///
+    /// 设计稿要的是「陪跑 32 次，引导绳经验 2 年」，而后端只有前半句
+    /// （`volunteerTotalCompleted`）。引导绳经验年数与「已认证」这两个字段在契约里
+    /// 0 命中 ⇒ **不显示**，不填默认值。给盲人印一个凭空生成的经验数字或认证标记，
+    /// 正是他在决定要不要把自己交给一个陌生人时唯一能依据的东西。
+    var volunteerExperienceText: String? {
+        guard let completed = volunteerTotalCompleted, completed > 0 else { return nil }
+        return "陪跑 \(completed) 次"
+    }
+
+    /// 首页深蓝卡和订单页状态标题上那个大字：「今天 7:00」「明天 7:00」「9月20日 7:00」。
+    ///
+    /// **与 `plannedStartForAnnouncement` 是两个东西，不要合并。** 那个给**播报**用，
+    /// 念的是完整日期（「2026年9月17日 07:00」）—— 听的人没有屏幕可以回看，含糊的相对日期
+    /// 反而要他自己换算。这个给**看**用：52pt 的大字放不下完整日期，而看得见屏幕的人
+    /// 需要的是「是不是明天」这一个判断。
+    ///
+    /// 相对日期只做到后天。再往后「第三天」相对哪一天不清楚（同 Mock 语音解析里
+    /// 「第三天」被拒的理由），所以退回绝对日期。
+    ///
+    /// `now` 与 `calendar` 走参数是为了能被单测钉住 —— 跨午夜、跨月、跨年这三个边界
+    /// 全都只在特定时刻才走得到，靠真机碰运气验不了。
+    func blindRunnerShortStartText(now: Date = Date(), calendar: Calendar = .current) -> String? {
+        guard let date = plannedStart?.nilIfBlank?.backendTimestamp else { return nil }
+        let clock = DateFormatter.aidRunDisplayClock.string(from: date)
+        // `dateComponents(_:from:to:)` 传两个**日初**而不是两个时刻：直接算时刻差会让
+        // 「今天 23:00 → 明天 01:00」只差 2 小时而被判成同一天。
+        let today = calendar.startOfDay(for: now)
+        let target = calendar.startOfDay(for: date)
+        guard let dayOffset = calendar.dateComponents([.day], from: today, to: target).day else {
+            return "\(DateFormatter.aidRunDisplayMonthDay.string(from: date)) \(clock)"
+        }
+        switch dayOffset {
+        case 0: return "今天 \(clock)"
+        case 1: return "明天 \(clock)"
+        case 2: return "后天 \(clock)"
+        default:
+            // 负数（已过去的预约）也走这里。**不说「昨天」** —— 那一态只会出现在
+            // 已结束或异常的单上，而相对日期会让人以为还有事要做。
+            return "\(DateFormatter.aidRunDisplayMonthDay.string(from: date)) \(clock)"
+        }
+    }
+
     /// 约定的结束时间。
     ///
     /// **取 `plannedEnd`，不许用 `plannedStart + expectedDurationMinutes` 自己推。**
@@ -829,6 +894,27 @@ extension DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "yyyy年M月d日 HH:mm"
+        return formatter
+    }()
+
+    /// 只有钟点，配 `blindRunnerShortStartText` 的相对日期用。
+    ///
+    /// `H:mm` 而不是 `HH:mm`：设计稿的大字是「明天 7:00」不是「明天 07:00」。
+    /// 补零在 52pt 上多出一个字符宽度，而那一行本来就要和地点行对齐。
+    static let aidRunDisplayClock: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "H:mm"
+        return formatter
+    }()
+
+    /// 相对日期做不到时的退路（三天以后 / 已过去）。不含年份 —— 预约最远 7 天
+    /// （后端 `APPOINTMENT_TOO_FAR`），跨年只在 12 月末那几天成立，而那时「1月2日」
+    /// 也不会被误读成去年。
+    static let aidRunDisplayMonthDay: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日"
         return formatter
     }()
 

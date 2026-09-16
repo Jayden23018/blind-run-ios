@@ -404,6 +404,17 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     /// `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
     var volunteerName: String?
 
+    /// 这位志愿者累计完成过多少单陪跑。**后端一直在发，客户端此前漏解码**
+    /// （`api_spec.yaml` 的 `OrderDetailResponse` 有它，本结构体只取了 26 个字段中的 26/37）。
+    ///
+    /// 用途：首页深蓝卡与订单页陪跑员行的「陪跑 N 次」。这是盲人在见到人之前唯一能拿到的
+    /// 经验凭据，而设计稿要的另外两项（引导绳经验年数、认证状态）后端根本没有这个字段 ——
+    /// **没有就不显示，绝不填一个默认值**。印一个凭空生成的「已认证」是伪造信任标识，
+    /// 与 `pointsDelta` 那个「nil 就返回 100」的兜底是同一类缺陷（commit `be4e030`）。
+    ///
+    /// 未接单时为 nil，与 `volunteerId` / `volunteerName` 同一个下发窗口。
+    var volunteerTotalCompleted: Int?
+
     var id: Int64 { orderId }
 
     func replacingStatus(with status: RunOrderStatus) -> OrderDetailResponse {
@@ -439,7 +450,11 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             // 与终点三项同一条理由：漏掉不会报错，只会让「把他设为固定搭档」那个按钮
             // 在每一次 5 秒轮询之后静默消失 —— 而没人会去查一个「本来就可能为空」的字段。
             volunteerId: volunteerId,
-            volunteerName: volunteerName
+            volunteerName: volunteerName,
+            // 同一条理由，而这一个的消失更难看出来：漏掉会让「陪跑 32 次」在每次 5 秒轮询
+            // 之后静默变成不显示，卡片上少一行字而已 —— 没有任何报错，也没有空位。
+            // 回归用例 `blindRunTests.testReplacingStatusKeepsTheVolunteerExperience`。
+            volunteerTotalCompleted: volunteerTotalCompleted
         )
     }
 }

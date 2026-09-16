@@ -248,42 +248,81 @@ final class AccessibilityAuditTests: XCTestCase {
     ///
     /// 两笔改动叠在一起造出过这个缺陷：`925e78c` 把「开始约跑」放大到 280pt，
     /// 当天晚些的 `03f3e40` 又在它后面无条件追加了「问一句」，于是 64 + 24 的一行把
-    /// 「重复当前状态」整个顶进底部 SOS 条后面（那条用 `.ultraThinMaterial`，看着就是被挡住）。
+    /// 「重复当前状态」整个顶进底部 SOS 条后面。
     ///
-    /// 后半句断言才是真正拦根因的那一条 —— 它对「谁又往这一列追加了一行」一律报警，
-    /// 不只认「问一句」这一个名字。`blindRunUITests.swift:97` 有一条同源断言，
-    /// 但那条只在「请求挂起」的加载态里跑，正常首页没人守。
+    /// 🔄 **2026-09-16 改版后这条用例换了被守的对象，但守的是同一件事。**
+    /// 首页收成「问候 + 订单卡 + 预约块」三块：「问一句」「重复当前状态」都不在首页了
+    /// （前者进求助与安全中心，后者按项目负责人拍板也进那个弹层），底部常驻求助条移到
+    /// 「我的」tab。于是屏幕底部的固定条从求助条变成了**标签栏**，而不变式没变：
+    /// **这一屏唯一的主操作不许被底部那条固定条永久盖住。**
+    ///
+    /// 判据仍用 `frame` 边界而不是 `isHittable` —— 后者只判中心点，
+    /// 上半截被盖住时它照样是 `true`（同 `testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling`）。
     @MainActor
-    func testBlindHomeWithoutAnOrderHidesAskQuestionAndKeepsRepeatStatusReachable() throws {
+    func testBlindHomeWithoutAnOrderKeepsTheBookingEntryClearOfTheTabBar() throws {
+        let app = launchBlindHome()
+        let booking = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(
+            booking.waitForExistence(timeout: 20),
+            "盲人首页没起来，后面的断言没有意义"
+        )
+
+        // 无订单时深蓝订单卡整块不渲染，预约块自然落到它的位置 —— 这条断言钉的是
+        // 「不渲染」而不是「渲染成一张空卡」：空卡对读屏用户是一个念不出内容的元素。
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch.exists,
+            "无订单首页出现了深蓝订单卡 —— 它没有内容可展示，只会多一次划动"
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            booking.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            "预约入口只有 \(booking.frame.height)pt，低于盲人端 64pt 触达下限"
+        )
+
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在，遮挡判据没有参照物")
+        XCTAssertLessThanOrEqual(
+            booking.frame.maxY,
+            tabBar.frame.minY,
+            """
+            预约入口下沿 \(booking.frame.maxY) 越过了标签栏上沿 \(tabBar.frame.minY)，\
+            被盖住了 \(booking.frame.maxY - tabBar.frame.minY)pt。\
+            首页在问候和它之间又多了一块的话，先想清楚这一块值不值得把主操作顶下去。
+            """
+        )
+    }
+
+    /// 三个 tab 都必须在，且标签可读。
+    ///
+    /// 单独一条而不是并进上面：**这是本仓库第一个 `TabView`**（改版前全仓命中 0 处），
+    /// 而根导航换掉之后「有没有起来」和「起来了但少一个 tab」是两种不同的失败。
+    @MainActor
+    func testBlindRunnerTabBarOffersHomeHistoryAndProfile() throws {
         let app = launchBlindHome()
         XCTAssertTrue(
             app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
                 .waitForExistence(timeout: 20),
-            "盲人首页没起来，后面的断言没有意义"
+            "盲人首页没起来"
         )
 
-        XCTAssertFalse(
-            app.descendants(matching: .any)["blindRunnerHomeAskQuestionButton"].firstMatch.exists,
-            """
-            无订单首页出现了「问一句」。它在这一态下对四个意图统一回「当前没有进行中的预约」\
-            （VoiceStatusQuery.swift:109），按下去只换来 header 已经念过的同一句话。
-            """
-        )
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在")
+        for title in ["首页", "记录", "我的"] {
+            XCTAssertTrue(
+                tabBar.buttons[title].exists,
+                "标签栏缺少「\(title)」—— 改版后历史订单与设置只有这一条路可走"
+            )
+        }
 
-        let repeatControl = app.buttons["重复当前状态"].firstMatch
-        XCTAssertTrue(repeatControl.waitForExistence(timeout: 10), "盲人首页缺少「重复当前状态」")
-
-        // 判据与有订单态那条同源：`isHittable` 只判中心点，盖住上半截时它照样是 true。
+        // 紧急入口从首页移到了「我的」tab（项目负责人 2026-09-16 拍板）。
+        // **这条断言是那个决定的唯一机器守卫**：求助条在任何一个 tab 上都摸不到时，
+        // 表现只是「首页干净了」，没有任何东西会报警。
+        tabBar.buttons["我的"].tap()
         let sosBar = app.descendants(matching: .any)["blindRunnerHomeSOSBar"].firstMatch
-        XCTAssertTrue(sosBar.waitForExistence(timeout: 10), "首页底部求助条不在，遮挡判据没有参照物")
-        XCTAssertLessThanOrEqual(
-            repeatControl.frame.maxY,
-            sosBar.frame.minY,
-            """
-            「重复当前状态」下沿 \(repeatControl.frame.maxY) 越过了底部 SOS 条上沿 \(sosBar.frame.minY)，\
-            被盖住了 \(repeatControl.frame.maxY - sosBar.frame.minY)pt。\
-            首页在「开始约跑」和它之间又多了一行的话，先想清楚这一行值不值得把它顶下去。
-            """
+        XCTAssertTrue(
+            sosBar.waitForExistence(timeout: 10),
+            "「我的」tab 底部没有兜底的紧急入口 —— 首页那条已经移除，这里是它现在唯一的落点"
         )
     }
 
@@ -372,65 +411,83 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
-    /// 反向断言：有进行中订单时「问一句」必须在。
-    /// 防止把上一条用「整个删掉」来满足 —— 那是这个能力真正有用的唯一状态。
+    /// 有订单时首页那张深蓝卡必须是**一个**无障碍元素，而且念出来是一句完整的话。
+    ///
+    /// 🔄 这条取代了改版前的 `testBlindHomeWithAnActiveOrderOffersAskQuestion`
+    /// （「问一句」已从首页移入求助与安全中心，那个入口的用例在
+    /// `testSafetyHubPutsEmergencyFirstInTheAccessibilityOrder` 一带）。
+    ///
+    /// 换过来的这条守的是设计里最要紧的那一点：**视障用户打开 App 第一句听到的就该是
+    /// 最重要的信息，而且是一句完整的话** —— 不是被拆成时间、地点、姓名、小按钮各滑一次。
+    /// 所以断言分两半：① 卡片本身是一个 button 元素；② 时间、地点、陪跑员三样都在它的
+    /// label 里，而不是散成同层的兄弟元素。
+    ///
+    /// ⚠️ 不断言 label 的**逐字内容**：中文文案漂移在 UI 测试里误报率极高
+    /// （记忆 `merged-prs-whose-tests-never-ran`）。断的是「这三样信息在不在同一个元素里」。
     @MainActor
-    func testBlindHomeWithAnActiveOrderOffersAskQuestion() throws {
+    func testBlindHomeOrderCardIsOneElementThatReadsAsAFullSentence() throws {
         let app = launchBlindHome(emptyOrders: false)
+        let card = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(
-            app.buttons["查看当前订单"].firstMatch.waitForExistence(timeout: 20),
+            card.waitForExistence(timeout: 20),
             "有订单的盲人首页没起来，后面的断言没有意义"
         )
+        XCTAssertTrue(card.isHittable, "订单卡存在但够不着，等于没有")
 
-        let ask = app.descendants(matching: .any)["blindRunnerHomeAskQuestionButton"].firstMatch
+        // 种子订单的出发地点（`MockAPIClient.seedDemoData`）。地点是这张卡上唯一
+        // 「不在别处重复」的信息，拿它当「三样都进了同一个 label」的探针。
         XCTAssertTrue(
-            ask.waitForExistence(timeout: 10),
-            "有进行中订单时首页必须能「问一句」—— 这是它唯一有答案可给的状态"
+            card.label.contains("公园"),
+            "订单卡的读屏标签里没有出发地点。当前 label：\(card.label)"
         )
-        XCTAssertTrue(ask.isHittable, "「问一句」存在但够不着，等于没有")
+        XCTAssertTrue(
+            card.label.contains("下一次陪跑"),
+            "订单卡的读屏标签没有以「下一次陪跑」开头 —— 那是它回答的第一个问题。当前 label：\(card.label)"
+        )
+
+        // 卡片内部的元素不许自己冒出来：底部那条「打开订单 ›」是给看得见的人的视觉线索，
+        // 整张卡已经是按钮了，再冒一个同名元素就是同一个动作在读屏里出现两次。
+        XCTAssertFalse(
+            app.buttons["打开订单"].firstMatch.exists,
+            "「打开订单」冒成了独立元素 —— 它应当对读屏隐藏，动作由卡片自己的 hint 说明"
+        )
     }
 
-    /// 有订单态也要能不滚动够到「重复当前状态」。
+    /// 有订单时首页两块内容都要够得着，且不被标签栏永久盖住。
     ///
-    /// 上面那条无订单版守了半年，而**有订单态一直没人守** —— 偏偏这一态的内容更长：
-    /// 状态卡 + 「查看当前订单」+ 可能的「取消订单」+ 「问一句」全排在它前面。
-    /// 2026-08-14 用户在真机上看到的就是这个：默认进来「重复当前状态」被底部 SOS 条切掉一截。
+    /// 🔄 取代改版前的 `testBlindHomeWithAnActiveOrderKeepsRepeatStatusReachable`：
+    /// 「重复当前状态」已不在首页，而**「有订单态内容更长、更容易被底部固定条吃掉」这个
+    /// 风险没有消失** —— 现在排在一起的是订单卡（含 52pt 大字，AX 档还会长）和预约块。
     ///
-    /// 断言写在这一态而不是把上面那条改成参数化：两态的前置数据（`emptyOrders`）不同，
-    /// 合成一条要么共用一个 launch 参数、要么在用例里分支，都比多一条用例难读。
+    /// 抓的是「滚到底也够不着」，不是「首屏内全露出来」—— 后者在这一态本就不合理，
+    /// 真那么排会牺牲别的东西。
     @MainActor
-    func testBlindHomeWithAnActiveOrderKeepsRepeatStatusReachable() throws {
+    func testBlindHomeWithAnActiveOrderKeepsBothBlocksReachable() throws {
         let app = launchBlindHome(emptyOrders: false)
+        let card = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+
+        let booking = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
         XCTAssertTrue(
-            app.buttons["查看当前订单"].firstMatch.waitForExistence(timeout: 20),
-            "有订单的盲人首页没起来，后面的断言没有意义"
+            booking.waitForExistence(timeout: 10),
+            "有订单时预约入口不见了 —— 盲人同时最多能有 3 张未完成预约，这个入口不该消失"
         )
 
-        let repeatControl = app.buttons["重复当前状态"].firstMatch
-        XCTAssertTrue(repeatControl.waitForExistence(timeout: 10), "有订单的盲人首页缺少「重复当前状态」")
-
-        // 这一态的内容天然超一屏（状态卡 + 「查看当前订单」+ 「取消订单」+ 「问一句」+ 它自己，
-        // 四个 64pt 起跳的块），**要求不滚动就全露出来是不合理的** —— 真那么排，被牺牲的
-        // 会是别的东西。2026-08-14 实测：地图 300pt 时它下沿 922、SOS 条上沿 772。
-        //
-        // 所以这一态抓的是另一件事：**滚到底也够不着**。那才是永久被固定条盖住，
-        // 与「在折叠线以下、滑一下就有」是两回事。
-        let sosBar = app.descendants(matching: .any)["blindRunnerHomeSOSBar"].firstMatch
-        XCTAssertTrue(sosBar.waitForExistence(timeout: 10), "首页底部求助条不在，遮挡判据没有参照物")
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在，遮挡判据没有参照物")
 
         var swipes = 0
-        while repeatControl.frame.maxY > sosBar.frame.minY && swipes < 4 {
+        while booking.frame.maxY > tabBar.frame.minY && swipes < 4 {
             app.swipeUp()
             swipes += 1
         }
 
         XCTAssertLessThanOrEqual(
-            repeatControl.frame.maxY,
-            sosBar.frame.minY,
+            booking.frame.maxY,
+            tabBar.frame.minY,
             """
-            滚了 \(swipes) 次，「重复当前状态」下沿仍是 \(repeatControl.frame.maxY)，\
-            压在底部 SOS 条上沿 \(sosBar.frame.minY) 之下 —— 它被那条常驻条永久盖住了，\
-            滚动也救不回来。底部 `safeAreaInset` 的高度变了、或者这一列又多了一块时会撞到这条。
+            滚了 \(swipes) 次，预约入口下沿仍是 \(booking.frame.maxY)，\
+            压在标签栏上沿 \(tabBar.frame.minY) 之下 —— 它被永久盖住了，滚动也救不回来。
             """
         )
     }
@@ -446,7 +503,7 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     func testBlindOrderStatusOffersKeepWaitingWhileWaitingForAMatch() throws {
         let app = launchBlindHome(emptyOrders: false)
-        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(
             currentOrder.waitForExistence(timeout: 20),
             "有订单的盲人首页没起来，后面的断言没有意义"
@@ -519,7 +576,7 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     func testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling() throws {
         let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS")
-        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(
             currentOrder.waitForExistence(timeout: 20),
             "有订单的盲人首页没起来，后面的断言没有意义"
@@ -585,7 +642,7 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     func testSafetyHubPutsEmergencyFirstInTheAccessibilityOrder() throws {
         let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS")
-        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
         currentOrder.tap()
 
@@ -703,7 +760,7 @@ final class AccessibilityAuditTests: XCTestCase {
             throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
         }
         let app = launchBlindHome(emptyOrders: false)
-        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
         currentOrder.tap()
         XCTAssertTrue(
@@ -739,7 +796,7 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertLessThanOrEqual(
             start.frame.width,
             Self.readableContentWidth,
-            "「开始约跑」宽 \(start.frame.width)pt，超过可读列宽 —— 内容列没有收窄"
+            "「预约新的陪跑」宽 \(start.frame.width)pt，超过可读列宽 —— 内容列没有收窄"
         )
         // 反向锚一下：收窄不等于收没了。触达下限仍是 64pt（`AGENTS.md` §8，
         // 且 `scripts/hooks/guard.mjs` 的 small-touch-target 在静态面上守同一条）。
@@ -748,7 +805,7 @@ final class AccessibilityAuditTests: XCTestCase {
             Self.minimumBlindPrimaryButtonHeight,
             "横屏收窄之后主按钮被压到 64pt 以下"
         )
-        XCTAssertTrue(start.isHittable, "横屏下「开始约跑」够不着")
+        XCTAssertTrue(start.isHittable, "横屏下「预约新的陪跑」够不着")
     }
 
     // MARK: - Helpers

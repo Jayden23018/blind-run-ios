@@ -236,8 +236,21 @@ REMATCHING → CANCELLED（只能盲人 token）
   > 与 `allowsSubmissionWithoutLocation` 完全同构，而那一条从一开始就诚实地这么写了。
   > 要打开闸门需要先回答：无订单时坐标从哪来、误触冷却 60 秒按触发者计的代价、
   > 以及 `enable-independent-sos-safely` 里 4 条真机验证欠账（设备长期离线，从没跑过）。
-- 盲人首页那条常驻求助条是**唯一的例外形态，且它不是例外**：`IN_PROGRESS` 时走上面这条云端链路，
+- 盲人端那条常驻求助条是**唯一的例外形态，且它不是例外**：`IN_PROGRESS` 时走上面这条云端链路，
   其余任何状态一律降级为**本地拨号**（主紧急联系人 / **120** / 110），**绝不调 `POST /api/emergency/trigger`**。
+  > 🔄 **2026-09-16 改口径：它现在挂在「我的」tab 的底部，不在首页。**
+  > 首页按设计稿 `design-reference/order-flow/screens/01-home.png` 收成「问候 + 订单卡 + 预约块」
+  > 三块，那张稿上没有求助条；项目负责人当日拍板删除首页那条、由「我的」tab 兜底。
+  > 组件（`BlindHomeSOSBar`）、判据（`BlindHomeSOSMode.resolve`）、`safeAreaInset` 的挂法
+  > 与「不滚动即可达」这条性质**全部未变**，变的只是它在哪个 tab 上。落点 `BlindRunnerTabView`。
+  >
+  > ⚠️ **代价必须写在这里而不是只写在代码里**：紧急入口从「打开 App 就在眼前」变成
+  > 「先切到第三个 tab」。VoiceOver 用户仍有 magic tap 兜住（手势挂在 tab 容器上，三个 tab
+  > 都能用），而**不开读屏的低视力用户在首页确实够不到它** —— 这是已知的产品取舍，不是疏漏。
+  > 要翻回去只需把 `BlindRunnerTabView.sosBar` 挂回首页，判据一行不用改。
+  > 机器守卫：`AccessibilityAuditTests.testBlindRunnerTabBarOffersHomeHistoryAndProfile`
+  > 断言切到「我的」之后求助条真的在 —— 没有它，「三个 tab 上都摸不到求助」的表现
+  > 只是「首页干净了」，不会有任何东西报警。
   > 2026-09-15 补 `120`。原文只写了「主紧急联系人 / 110」，而 2026-09-08 起 `120` 已是
   > 并列的可点入口（`EmergencySafetyCopy.homeCallMedicalTitle`）。理由写在 `SafetyModule.swift:203-206`：
   > 用户在**跑步**，摔倒、扭伤、心脏不适是最可能发生的紧急情况，而它们对应的是急救不是报警；

@@ -106,6 +106,37 @@ final class FlowDesignSystemTests: XCTestCase {
         )
     }
 
+    /// 底部标签栏的两档标签文字，压在标签栏底上。
+    ///
+    /// 🔴 这条同时修掉一个**系统默认值带来的**缺陷：iOS 未选中态的灰是 `#8E8E93`，
+    /// 压白底只有 **3.26:1** —— 而标签栏是 13pt 的小字，对低视力用户是全屏最难认的一处。
+    /// 设计稿的 `#6B7385` 是 4.76:1。所以「照设计稿做」在这里同时是「修一个缺陷」。
+    ///
+    /// 暗色档**不能沿用** `#6B7385`（压标签栏底 `#1C1C1E` 只有 3.58:1）。
+    func testTabBarLabelsClearTheBodyThresholdOnTheTabBarSurface() {
+        // 标签栏底与卡片同一个表面色（`configureWithDefaultBackground` 给的就是这一档）。
+        let surface = AppColors.Flow.surfaceTone
+        for (name, tone) in [
+            ("选中", AppColors.Flow.tabSelectedTone),
+            ("未选中", AppColors.Flow.tabUnselectedTone),
+        ] {
+            assertContrast(tone.light, surface.light, Self.textMinimum, "亮色", "标签栏\(name)标签")
+            assertContrast(tone.dark, surface.dark, Self.textMinimum, "暗色", "标签栏\(name)标签")
+        }
+
+        // 🔴 验红两条，缺一条这个用例就可能跑在恒真的公式上：
+        // ① 系统默认的未选中灰压白底算不过 —— 这是本条用例存在的理由。
+        XCTAssertLessThan(
+            Self.contrastRatio(0x8E8E93, surface.light), Self.textMinimum,
+            "iOS 默认的未选中灰压白底不达标，所以未选中态必须自己接管取色"
+        )
+        // ② 亮色那个取值直接搬到暗色也算不过 —— 挡住「两档共用一个值」。
+        XCTAssertLessThan(
+            Self.contrastRatio(AppColors.Flow.tabUnselectedTone.light, surface.dark), Self.textMinimum,
+            "未选中态的亮色档压在暗色标签栏底上不达标，两档必须分开取值"
+        )
+    }
+
     // MARK: - 挡住三条「顺手复用」
 
     /// 设计稿的 `textTertiary #8C93A3` 给的是未到达步骤的文字，而它压在白卡上只有 3.08:1。

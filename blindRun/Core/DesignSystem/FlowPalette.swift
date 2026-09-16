@@ -169,6 +169,26 @@ extension AppColors {
         // MARK: 描边按钮（次级）
 
         static let ghostStroke = flowDynamic(Tone(light: 0xD5DAE3, dark: 0x48484A))
+
+        // MARK: 底部标签栏
+
+        /// 选中的标签。走 SwiftUI 的 `.tint()`，所以要 `Color`。
+        static let tabSelectedTone = Tone(light: 0x15224A, dark: 0xFFFFFF)
+        static let tabSelected = flowDynamic(tabSelectedTone)
+
+        // 未选中态**没有** `Color` 版本：SwiftUI 到 iOS 16 没有对应的修饰符，
+        // 只能走 `UITabBarAppearance`，而那里要的是 `UIColor`。
+        // 构造在 `BlindRunnerTabView.applyTabBarAppearance()`，直接读下面那个 `Tone`。
+
+        /// 未选中的标签。
+        ///
+        /// 照设计稿取 `#6B7385`（压白底 **4.76:1**）顺手修掉一个真实缺陷：
+        /// **iOS 默认的未选中灰 `#8E8E93` 压白底只有 3.26:1**，够不到正文阈值 4.5。
+        /// 标签栏文字是 13pt 的小字，对低视力用户是全屏最难认的一处。
+        ///
+        /// 暗色**不能沿用** `#6B7385`：压在标签栏底 `#1C1C1E` 上只有 3.58:1。
+        /// 改用已在 `AppColors.tones` 里验过的 `textSecondary` 暗色档 `#AEAEB2`（7.69:1）。
+        static let tabUnselectedTone = Tone(light: 0x6B7385, dark: 0xAEAEB2)
     }
 
     /// `Tone` → 跟随外观（并可选跟随「增强对比度」）的 `Color`。

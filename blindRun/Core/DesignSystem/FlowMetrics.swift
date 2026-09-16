@@ -185,6 +185,10 @@ enum FlowFonts {
     static func homeCardCaption() -> (CGFloat, Font.Weight, Font.TextStyle) { (16, .regular, .callout) }
     /// 首页卡片地点 18 / Regular。
     static func homeCardPlace() -> (CGFloat, Font.Weight, Font.TextStyle) { (18, .regular, .body) }
+    /// 首页卡片陪跑员姓名 17 / Semibold，以及底部「打开订单」条。
+    static func homeCardRowTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (17, .semibold, .body) }
+    /// 首页卡片陪跑员经验行 14 / Regular。
+    static func homeCardRowDetail() -> (CGFloat, Font.Weight, Font.TextStyle) { (14, .regular, .subheadline) }
     /// 首页预约块标题 24 / Semibold。
     static func bookingTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (24, .semibold, .title2) }
     /// 首页预约块副标题 15 / Regular。
