@@ -30,13 +30,60 @@
 - [x] review 修复 11 条 A 档 — `5f4557d`
 - [x] 引导页 fixedSize + 三跑实测记录 — `12f41ca`
 - [x] **阶段 3a** 订单页四态骨架（静态布局）— `5e404e3`，**真机零执行**
-- [x] **阶段 3b** — `7c726dc` + review 修复 `676ebdb`，**真机零执行**（见下）
+- [x] **阶段 3b** — `7c726dc` + review 修复 `676ebdb` + 真机首跑修复 `a9c7cc6`，
+      **真机已验**：单测 `1204/0`、UI `21/4`（4 条里 3 条既有 + 1 条待查，见下）
 - [ ] 阶段 4 过渡动画
 - [ ] 阶段 5 VoiceOver / 动态字体 / 减弱动态效果 / 触感
 
 ---
 
-## ⏭ 下一件：把 3a + 3b 的真机验证一次跑掉（累计两轮零执行）
+## ✅ 真机验证已跑（2026-09-16，iPhone 16 Pro 有线）
+
+**全量单测 `passed=1204 failed=0`**（`scripts/device-test.sh -only-testing:blindRunTests`）。
+按 AGENTS §11 走全量而不是按符号收窄 —— 本轮改了 `EmergencyDialer.telURL`，
+那是全 App 唯一的拨号出口。
+
+**UI 套件 `passed=21 failed=4`**（`-only-testing:blindRunUITests/AccessibilityAuditTests`）。
+本轮新增的两条 UI 用例全绿。4 条失败里 **3 条签名与下面「已知既有 3 条红」逐条吻合**。
+
+跑出来的三件都是真缺陷，已修（`a9c7cc6`）：
+
+1. **`EmergencyDialer.telURL` 拦不住掩码串** —— `138****1234` 拼得出 `tel://1381234`，
+   一个七位的、可能真打给别人的号码。**AGENTS.md §8 与 `ui-review-checklist.md` 原来写的
+   「会拨成空号」是错的**，而那句错话正是这道闸一直没加的原因（让人以为「只取数字位」
+   已经兜住了）。现在显式拦 `*` / `＊`，15 个调用点一次覆盖；误报面（带空格横线的明文号、
+   110/120 三位号）双向钉住。
+2. **横屏订单页布局塌了**（3a 无意引入）：`debugMockControls` 挂成了
+   `BlindOrderFlowView` 的兄弟节点而不是放在 ScrollView 里 ⇒ 横屏 390pt 高度下
+   状态标题、副标题、四行信息一个字都看不到。放回 footer 即恢复。
+3. **`Button(role: .cancel)` 不在元素树里**（iOS 26 实测）：`confirmationDialog` 渲染成
+   `Popover`，`不取消` 被系统换成 `identifier: 'PopoverDismissRegion', label: 'dismiss popup'`
+   —— **英文 label**，而那是一个中文破坏性二次确认唯一的退出口。系统给的，已记进交接。
+
+### ⏭ 唯一还红的一条：`testBlindOrderStatusInLandscapePassesAccessibilityAudit`
+
+2 条 `Contrast failed`。布局修复前后都红，但内容已从「看不到」变成「要滚动」。
+**逐个量过声明值，全部过线**：
+
+| 配对 | 实测 | 需要 |
+|---|---|---|
+| `helpText #B42318` 压 `helpBackground #FDECEC` | 5.76:1 | 4.5 ✅ |
+| `helpStroke #C25A4E` 压 `helpBackground` | 3.78:1 | 3.0 ✅ |
+| `helpStroke` 压页面底 `#F4F4F8` | 3.93:1 | 3.0 ✅ |
+| 标签栏未选中 `#212121` 压 `#FDFDFD` | 15.83:1 | 4.5 ✅ |
+| 标签栏选中 `#0B2251` 压药丸 `#EFEFEF` | 13.41:1 | 4.5 ✅ |
+| **实测抗锯齿混合色 `#CD6F5F` 压 `#FDEFEF`** | **3.11:1** | 4.5 ❌ |
+
+⇒ 唯一不过线的是 **1.5pt 描边的抗锯齿边缘像素**，不是调色板里任何一个值。
+取色方法（可复现）：从 result bundle 的 `Element Screenshot` 直方图取主色，
+`swift /tmp/px.swift <png>`（脚本见该 commit 的提交信息）。
+**已分出独立任务**，不在阶段 3b 里改调色板 —— 要么把描边加粗/换色让边缘像素也过线，
+要么确认是 audit 对细描边的系统性行为后按 `auditIgnoredIdentifiers` 显式豁免。
+⛔ 别直接加豁免了事：那等于用绿灯替一个没查清的问题背书。
+
+---
+
+## 历史：跑之前的那轮零执行清单（留档，已作废）
 
 **必须插 USB 线。** 2026-09-16 两次尝试都是 `devicectl` 报
 `State: unavailable` / `transportType: None`（paired 但没连上）——
