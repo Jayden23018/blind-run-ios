@@ -3226,6 +3226,22 @@ enum VolunteerFinishLongPress {
         min(1, max(0, elapsed / duration))
     }
 
+    /// 环形**该显示**多少。🔴 **不是直接读 `elapsed`。**
+    ///
+    /// 触发之后 `elapsed` 停在满格，而结束请求失败时按钮会回到可按状态
+    /// （`VolunteerOrderTransitionState.failed.blocksDuplicateSubmission == false`，
+    /// `isPerformingAction` 也经 `defer` 归回 false），于是屏幕上会留下
+    /// **「环形满格 + 副标题说『长按 2 秒』」** 这种自相矛盾的样子，且会一直留着。
+    ///
+    /// 对不开读屏的低视力志愿者，满格环形是「已经结束了」唯一的视觉读数 ——
+    /// 而那一刻订单其实还在跑。所以：没按住、也没在提交，就必须是 0。
+    static func ringProgress(elapsed: TimeInterval, isHolding: Bool, hasFired: Bool) -> Double {
+        if isHolding { return progress(elapsed: elapsed) }
+        // 触发到 `isPerformingAction` 变 true 之间有一两帧空当，`hasFired` 只为填住它，
+        // 请求一落地（成功或失败）就会被清掉。
+        return hasFired ? 1 : 0
+    }
+
     /// 从 `previous` 走到 `current` 这一拍里跨过的那一档强度；没跨过返回 nil。
     /// 一拍里跨过两档时取靠后那档 —— 掉一下总比一次震两下好。
     static func hapticIntensity(from previous: TimeInterval, to current: TimeInterval) -> CGFloat? {
@@ -3252,6 +3268,10 @@ struct VolunteerFinishLongPressButton: View {
     @ScaledMetric(relativeTo: .body) private var ringLineWidth: CGFloat = VolunteerFinishLongPress.ringLineWidth
     @State private var elapsed: TimeInterval = 0
     @State private var holdTask: Task<Void, Never>?
+    /// 渐强那一路用的生成器。**存下来是为了给 `fire()` 复用同一个已 `prepare()` 的实例** ——
+    /// 新建一个再立刻 `impactOccurred` 常被系统丢掉（理由见 `startHold` 里那段注释），
+    /// 而触发那一记正是「成了，可以松手」唯一的触觉信号，最不能丢的就是它。
+    @State private var generator: UIImpactFeedbackGenerator?
     /// 走满 2 秒那一刻 SwiftUI 也会送来一次「松手了」。没有这个标志位，
     /// 松手那条分支会把环形立刻归零 —— 用户按到底看到的是进度条弹回去。
     @State private var didFire = false
@@ -3285,6 +3305,13 @@ struct VolunteerFinishLongPressButton: View {
         )
         // `.disabled()` 同时阻断手势并给读屏打上「不可用」，不是在回调里静默 return。
         .disabled(!isEnabled || isPerformingAction)
+        // 请求落地就把「已触发」清掉。成功时这一屏会被换掉，所以这行实际管的是**失败**：
+        // 失败后按钮回到可按状态，环形必须跟着回到 0，否则它在说一件没发生的事。
+        .onChange(of: isPerformingAction) { performing in
+            guard !performing else { return }
+            didFire = false
+            elapsed = 0
+        }
         .onDisappear(perform: cancelHold)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(VolunteerFinishLongPress.accessibilityLabel)
@@ -3313,7 +3340,14 @@ struct VolunteerFinishLongPressButton: View {
                 Circle()
                     .stroke(AppColors.Flow.onCTA.opacity(0.3), lineWidth: ringLineWidth)
                 Circle()
-                    .trim(from: 0, to: VolunteerFinishLongPress.progress(elapsed: elapsed))
+                    .trim(
+                        from: 0,
+                        to: VolunteerFinishLongPress.ringProgress(
+                            elapsed: elapsed,
+                            isHolding: holdTask != nil,
+                            hasFired: didFire
+                        )
+                    )
                     .stroke(
                         AppColors.Flow.onCTA,
                         style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .round)
@@ -3344,9 +3378,9 @@ struct VolunteerFinishLongPressButton: View {
         elapsed = 0
         // 不 `prepare()` 的话第一下常被系统丢掉，而第一下正是最要紧的那次：
         // 用户刚按下去，还不知道这枚按钮认不认长按。
-        // 生成器由下面那个 Task 持有：松手 = 取消 Task = 一起释放，不用另存一份状态。
         let generator = UIImpactFeedbackGenerator(style: .heavy)
         generator.prepare()
+        self.generator = generator
         let start = Date()
         holdTask = Task { @MainActor in
             var previous: TimeInterval = -1
@@ -3368,13 +3402,19 @@ struct VolunteerFinishLongPressButton: View {
     private func cancelHold() {
         holdTask?.cancel()
         holdTask = nil
+        generator = nil
     }
 
     private func fire() {
+        // **先震再 `cancelHold()`**：复用渐强那一路已经 `prepare()` 过的生成器，
+        // 现造一个再立刻触发常被系统丢掉，而这一记是「按够了」唯一的触觉信号。
+        // 读屏那条自定义动作进来时 `generator` 是 nil（没按过），只能现造 —— 那条路径上
+        // 用户拿到的反馈是随后的状态播报，不指望这一下。
+        let impact = generator ?? UIImpactFeedbackGenerator(style: .heavy)
+        impact.impactOccurred(intensity: VolunteerFinishLongPress.triggerIntensity)
         cancelHold()
         didFire = true
         elapsed = VolunteerFinishLongPress.duration
-        UIImpactFeedbackGenerator(style: .heavy).impactOccurred(intensity: VolunteerFinishLongPress.triggerIntensity)
         onFinish()
     }
 }

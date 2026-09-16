@@ -51,7 +51,7 @@
 | 视觉 | 浅色/标准主题，信息密度可高于盲人端，但关键按钮仍需清晰 |
 | 地图 | 全屏或半屏高德地图，显示当前位置和订单 marker |
 | 隐私 | 接单前**隐藏**盲人联系电话、紧急联系人；接单后显示完整电话 |
-| 危险操作 | 取消订单、结束服务、退出登录必须**二次确认**；求助入口在 `IN_PROGRESS` 显示（地图右上角悬浮盾牌，远离拇指区），二次确认文案与盲人端逐字一致。~~当前 release 不显示求助入口~~ 自 2026-07-31 起失效 |
+| 危险操作 | 取消订单、退出登录必须**二次确认**；**结束陪跑自 2026-09-16 起改为长按 2 秒、没有轻点路径**（设计包 `状态清单.md` §11，落点 `VolunteerFinishLongPress`）；求助入口在 `IN_PROGRESS` 显示（地图右上角悬浮盾牌，远离拇指区），二次确认文案与盲人端逐字一致。~~当前 release 不显示求助入口~~ 自 2026-07-31 起失效 |
 | 积分 | 完成服务 `+100` 积分（不是旧版 `+50`） |
 
 ### 双端共享
@@ -1397,7 +1397,7 @@ ScrollView {
   - PENDING_ACCEPT："我已出发" + "取消订单"
   - DRIVER_EN_ROUTE："我已到达" + "取消订单"
   - DRIVER_ARRIVED："开始服务" + "取消订单"
-  - IN_PROGRESS："结束服务" + "取消订单"
+  - IN_PROGRESS："结束陪跑"（长按 2 秒）+ "取消订单"
   - 当前 release 不显示"一键求助"或"紧急求助"入口
 
 ### 主要按钮
@@ -1406,11 +1406,11 @@ ScrollView {
 | "我已到达" | DRIVER_EN_ROUTE | `POST /api/orders/{id}/arrived` → DRIVER_ARRIVED |
 | "开始服务" | DRIVER_ARRIVED | `POST /api/orders/{id}/start-service` → IN_PROGRESS |
 | "取消订单" | PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS | 二次确认 → REMATCHING |
-| "结束服务" | IN_PROGRESS | DangerConfirmDialog（可选服务总结） → COMPLETED |
+| "结束陪跑" | IN_PROGRESS | 长按 2 秒（⌀40 环形进度走满 + 渐强震动，松手即取消）→ `POST /api/orders/{id}/finish` → COMPLETED。**无轻点、无确认弹窗** |
 | 盲人电话 | 始终（接单后） | 系统拨号 |
 
 ### 表单字段
-服务总结输入框（选填，结束服务时弹出，多行文本）
+~~服务总结输入框（选填，结束服务时弹出，多行文本）~~ **2026-09-16 删除**：`/finish` 没有请求体，那段文字从来没离开过手机。要恢复得先让后端加字段
 
 ### 状态展示
 - PENDING_ACCEPT：显示 "我已出发" 按钮
@@ -1436,7 +1436,7 @@ ScrollView {
 |------|--------------------|-------------------|
 | "我已到达" | "我已到达约定地点" | — |
 | "开始服务" | "开始服务" | "确认已与盲人跑者会合后开始服务" |
-| "结束服务" | "结束服务" | "需要使用二次确认" |
+| "结束陪跑" | "结束陪跑，长按 2 秒" | 提示读屏用户可用自定义动作「结束陪跑」代替长按 |
 | "取消订单" | "取消订单" | "需要确认后取消当前服务，系统将为盲人重新匹配" |
 | 盲人电话 | "拨打盲人电话 " + 号码 | — |
 
@@ -1473,7 +1473,7 @@ VStack(spacing: 0) {
             LargePrimaryButton("开始服务") { startService() }
             Button("取消订单", role: .destructive) { showCancelConfirmation = true }
         } else if order.status == .inProgress {
-            LargePrimaryButton("结束服务") { showCompleteConfirm = true }
+            VolunteerFinishLongPressButton(...)   // 长按 2 秒，见 VolunteerFinishLongPress
             Button("取消订单", role: .destructive) { showCancelConfirmation = true }
         }
     }
@@ -1492,7 +1492,7 @@ VStack(spacing: 0) {
 - 旧动作链 `inProgress -> driverEnRoute -> driverArrived -> completed` → 替换为 `PENDING_ACCEPT -> DRIVER_EN_ROUTE -> DRIVER_ARRIVED -> IN_PROGRESS -> COMPLETED`
 - 保留 DRIVER_ARRIVED 状态展示，服务开始由志愿者端触发
 - 保留"我已出发"动作，对应 `DRIVER_EN_ROUTE`
-- 旧版结束服务缺少二次确认和可选服务总结 → 补齐
+- ~~旧版结束服务缺少二次确认和可选服务总结 → 补齐~~ **2026-09-16 反向：确认弹窗与服务总结一并撤下，改为长按 2 秒**
 - 旧版结算积分 `+50` → 改为 `+100`
 
 ---
@@ -1811,7 +1811,6 @@ List {
 // 使用 .alert 或自定义 sheet
 // 取消订单："确认取消订单？取消后无法恢复。"
 // 紧急求助：固定文案 "是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"
-// 结束服务："确认结束本次服务？"
 // 退出登录："确认退出登录？退出后需要重新登录。"
 // 必须有两个按钮："取消"（取消操作）和 "确认"（执行操作）
 ```

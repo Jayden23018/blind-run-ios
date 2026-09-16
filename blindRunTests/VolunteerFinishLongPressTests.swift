@@ -127,6 +127,32 @@ final class VolunteerFinishLongPressTests: XCTestCase {
         XCTAssertEqual(fired, VolunteerFinishLongPress.hapticRamp.map(\.intensity))
     }
 
+    /// 🔴 结束失败之后，环形必须回到 0。
+    ///
+    /// `elapsed` 在触发那一刻被钉在满格，而 `/finish` 失败时按钮会回到可按状态
+    /// （`.failed` 不阻断重试，`isPerformingAction` 也归回 false）。若环形照读 `elapsed`，
+    /// 屏幕上会长期留着「环形满格 + 副标题说『长按 2 秒』」—— 对不开读屏的低视力志愿者，
+    /// 满格环形是「已经结束了」唯一的视觉读数，而那一刻订单还在跑。
+    ///
+    /// 最后那条断言（`hasFired: false` + `elapsed: 2` → 0）就是失败之后的样子，
+    /// 也是这条用例唯一分辨得出「直接读 elapsed」与正确实现的一行。
+    func testRingReturnsToZeroOnceTheHoldIsOverOrTheRequestFailed() {
+        let full = VolunteerFinishLongPress.duration
+
+        XCTAssertEqual(VolunteerFinishLongPress.ringProgress(elapsed: 0, isHolding: false, hasFired: false), 0)
+        XCTAssertEqual(
+            VolunteerFinishLongPress.ringProgress(elapsed: 1, isHolding: true, hasFired: false),
+            0.5,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(VolunteerFinishLongPress.ringProgress(elapsed: full, isHolding: false, hasFired: true), 1)
+        XCTAssertEqual(
+            VolunteerFinishLongPress.ringProgress(elapsed: full, isHolding: false, hasFired: false),
+            0,
+            "结束请求失败后环形还停在满格 —— 屏幕在说一件没发生的事"
+        )
+    }
+
     /// 松手即取消：没跨过下一档就不许震，否则会在同一档上连震一片。
     func testHapticDoesNotRepeatWithinTheSameStep() {
         XCTAssertNil(VolunteerFinishLongPress.hapticIntensity(from: 0, to: 0.05))
