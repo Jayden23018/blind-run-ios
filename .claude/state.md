@@ -98,7 +98,29 @@
       ⚠️ 那两条 UI 用例**第三次才过**：前两次都是 `Timed out while enabling automation mode`，
       中间一个字没改。记忆 `ui-test-runner-needs-usb-not-wifi` 原先写「复跑即过」已订正为
       「同一签名最多复跑三次再开始查别的」。
-- [ ] 阶段 2 · 播报队列 + 四种提示音 ← 下一件
+- [x] **阶段 2 · 播报队列 + 四种提示音**（2026-09-16 完成，PR #147，真机已验）
+
+      ```
+      全量  passed=1288  failed=10  skipped=1  (total=1299)
+      新增  AnnouncementQueueTests  22/22 全绿
+      ```
+      落点：`blindRun/Voice/AnnouncementQueue.swift`（新）+ `SpeechService` 接队列 +
+      `configurePlaybackCategory` 加 `.duckOthers`。三个签名都是**带默认值的新参数**，
+      230 个既有调用点零改动；显式传优先级的只有求助 / 倒计时 / 按需播报 / 每公里那几处。
+      🔴 **同档刻意保留「打断」而不是排队** —— 求助倒计时靠它盖掉上一秒，改成排队会念成
+      「3」「3」「2」。用例 `testSamePriorityStillInterruptsSoTheCountdownStaysCurrent` 钉住。
+      阶段 1 留的两笔账（倒计时绕开 funnel / 「开始跑步」stopSpeaking 掉别人）都结了。
+      ⚠️ **两件只能人耳验、还没验**：① 放着音乐时播报该压低不该暂停；
+      ② 静音拨杆打到静音时播报仍要出声。改的是音频会话分类，读代码判不了。
+
+      **既有红灯清单要补 6 条**（`state.md` 此前只记了 audit 那 3+2）：
+      `testAuthLifecycleBlindAccountDeletionIsTwoStageAndCompletesOnce` ·
+      `testAuthLifecycleEveryLogoutSurfaceRequiresConfirmation` ·
+      `testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock` ·
+      `testMockBlindOrderHidesEmergencyActionInAcceptedStates` ·
+      `testMockBlindRunnerBookingSmoke` · `testMockVolunteerOrderFlowSmoke`。
+      **已在同一台设备上把 worktree 回退到 `fdc6579`(main) 跑同一组对照**：
+      `passed=0 failed=6`，失败集合与断言文案逐条相同 ⇒ 是存量不是回归。建议单开任务查。
 - [ ] 阶段 3 · ④ 已完成 + 陪跑员端长按 2 秒结束
 - [ ] 阶段 4 · B 组异常警示条 + 求助中心单列重排（先答 C）
 - [ ] 阶段 5 · D 组锁屏实时活动（**要新建 Widget Extension target，得动 pbxproj**）
