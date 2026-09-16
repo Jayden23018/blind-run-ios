@@ -1220,6 +1220,15 @@ struct BlindOrderStatusView: View {
         viewModel.order?.status == .inProgress
     }
 
+    /// 这一刻渲染的是设计稿的四步骨架吗。
+    ///
+    /// 派生自 `flowPresentation` 而不是另写一套状态判断 —— 两处各判一次的下场是
+    /// 骨架渲染出来了而底栏还挂着旧的两个按钮（或者反过来），而那种错位在真机上
+    /// 表现为「底部四个按钮」，不会有任何东西报错。
+    private var usesFlowSkeleton: Bool {
+        flowPresentation != nil
+    }
+
     /// 进倒计时并把屏 3 呈上来。**两条触发路径共用这一个函数** —— 长按直接调，
     /// 轻点经二次确认后调。两处各写一遍的话，迟早只有一处记得打开那个全屏。
     private func startEmergencyCountdown() {
@@ -1233,6 +1242,33 @@ struct BlindOrderStatusView: View {
 
     /// 产品定稿 2026-09-15：跑动中那一屏是执行屏不是仪表盘，整个内容区换掉。
     /// 被移出的六组内容各自去了哪，见 `BlindActiveRunView` 的类型注释里那张表。
+    /// 订单落在四步骨架的哪一格，以及那一格要显示什么。`nil` = 不走骨架。
+    ///
+    /// 走不走骨架由 `RunOrderStatus.blindOrderFlowStep` 判：`.unknown` 与终态落 `nil`，
+    /// 退回改版前那条只读滚动列表（`trackingContent`）。**刻意保留那条退路** ——
+    /// 后端加了状态时，未知态要么有一个只读落点，要么整屏空白，而后者对盲人端是事故。
+    private var flowPresentation: BlindOrderFlowPresentation? {
+        guard let order = viewModel.order else { return nil }
+        return BlindOrderFlowPresentation.make(
+            order: order,
+            distanceText: viewModel.volunteerDistanceToStartText,
+            canKeepWaiting: viewModel.canShowKeepWaiting,
+            locationWarning: flowLocationWarning
+        )
+    }
+
+    /// 副标题下方那行警示。**只在异常时非 nil。**
+    ///
+    /// 目前只有一种：需要对端位置的状态下拿不到它（设计稿 §3.4 的「同行位置暂不可用」，
+    /// 改版前是顶部一条浮层提醒）。正常状态恒 `nil` —— 设计稿明确不要「定位正常」
+    /// 这类反向提示，那对读屏用户是每次进页面都要滑过去的一条无信息内容。
+    private var flowLocationWarning: String? {
+        guard let order = viewModel.order,
+              order.status.offersVolunteerDistanceToStart,
+              viewModel.volunteerDistanceToStartText == nil else { return nil }
+        return "同行位置暂不可用，稍后会自动恢复。"
+    }
+
     @ViewBuilder
     private var content: some View {
         if let order = viewModel.order, order.status == .inProgress {
@@ -1248,8 +1284,57 @@ struct BlindOrderStatusView: View {
                 // Release 里是 `EmptyView`，不占一个像素，也不影响「执行屏只有四组内容」这条设计。
                 debugMockControls(order)
             }
+        } else if let presentation = flowPresentation, let order = viewModel.order {
+            // 设计稿的四步骨架。**四态共用同一套布局**，只换内容 —— 改版前每态一个
+            // 独立页面，而 iOS 切页时 VoiceOver 会把焦点移回第一个元素，读屏用户每次
+            // 都要从头找。单页原地更新让焦点保持不动，只播报变化。
+            VStack(spacing: 0) {
+                BlindOrderFlowView(
+                    presentation: presentation,
+                    order: order,
+                    onOpenStartPlace: nil,
+                    onLastRowTapped: { handleFlowLastRow(order) },
+                    onPrimaryAction: { handleFlowPrimaryAction(presentation, order: order) },
+                    onOpenSafetyHub: { showSafetyHub = true }
+                )
+                debugMockControls(order)
+                    .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
+            }
         } else {
+            // 只读退路：`.unknown` 与终态（完成 / 取消 / 无人接单）。
+            // 这一条**不许删** —— 后端加状态时它是未知态唯一的落点。
             trackingContent
+        }
+    }
+
+    /// 信息列表最后一行。能取消的态弹取消确认，不能取消的态开求助中心。
+    ///
+    /// 「遇到问题」落到求助中心而不是新开一页：联系陪跑员 / 播报位置 / 问一句 /
+    /// 拨紧急联系人与 120、110 全都已经在那一层里，是这一刻用户可能要做的事的完整集合。
+    private func handleFlowLastRow(_ order: OrderDetailResponse) {
+        if order.status.canBlindRunnerCancel {
+            showCancelConfirmation = true
+        } else {
+            showSafetyHub = true
+        }
+    }
+
+    private func handleFlowPrimaryAction(
+        _ presentation: BlindOrderFlowPresentation,
+        order: OrderDetailResponse
+    ) {
+        switch presentation.primaryAction {
+        case .callVolunteer:
+            // 拨号一律经 `EmergencyDialer`：它只取数字位，掩码串会被拼成空号，
+            // 而空号在界面上看不出任何异常（守卫 `raw-open-url` 拦绕开它的写法）。
+            guard let url = EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) else { return }
+            EmergencyDialer.dial(url)
+        case .openIntroCall:
+            introCallPresentation.isShowing = true
+        case .keepWaiting:
+            Task { await viewModel.keepWaiting() }
+        case nil:
+            break
         }
     }
 
@@ -1306,10 +1391,50 @@ struct BlindOrderStatusView: View {
     var body: some View {
         content
         .background(isActiveRun ? AppColors.activeRunSurface : AppColors.background)
-        .navigationTitle("订单状态")
+        .navigationTitle(usesFlowSkeleton ? "陪跑订单" : "订单状态")
         .navigationBarTitleDisplayMode(.inline)
+        // 🔴 走四步骨架时**不挂这条底栏** —— 骨架自带设计稿的两个版位
+        // （主按钮 + 求助与安全），再挂一条会变成四个按钮，而
+        // `docs/05-page-specs.md` 那条「不要往常驻区加第三个版位」的理由是
+        // 「三个 64pt 按钮在 6.1" 上吃掉约 26% 屏幕，治了求助够不着换来别的都够不着」。
         .safeAreaInset(edge: .bottom) {
-            repeatStatusArea
+            if !usesFlowSkeleton {
+                repeatStatusArea
+            }
+        }
+        // 「重复当前状态」在骨架态放**导航栏右侧**。
+        //
+        // 设计稿的导航栏只规定了返回 + 标题，右侧是空的 —— 所以这枚图标零设计冲突，
+        // 且与首页那枚（问候行右侧）是同一个模式，两页位置可类比。
+        //
+        // 🔴 它不是可选项：skill `aidrun-a11y-voice` 要求每个关键盲人页面都有它，
+        // 理由是系统的 Speak Screen 读不到一次性的 `announcement` —— 没有它，
+        // 盲人错过一次状态播报就再也拿不回来。**可以降视觉权重，但不能删。**
+        //
+        // ⚠️ 必须是**可见按钮**，不许做成 accessibility custom action：后者不开读屏的
+        // 低视力用户够不到，且 `XCUIElement.tap()` 注入物理触摸、不经过 accessibility
+        // action，等于这条硬规则没有任何机器守卫（记忆
+        // `xcuitest-cannot-invoke-accessibility-actions`）。
+        .toolbar {
+            if usesFlowSkeleton {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        viewModel.repeatStatus()
+                    } label: {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(AppColors.Flow.accent)
+                            // 工具栏按钮的系统触达区约 44pt，低于盲人端 64pt 下限。
+                            // `contentShape` 把命中区撑到 64 而不改变视觉尺寸 ——
+                            // 直接 `.frame(width:64)` 会把图标顶出导航栏。
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle().size(width: 64, height: 64))
+                    }
+                    .accessibilityLabel("重复当前状态")
+                    .accessibilityHint("点击后重新播报当前订单状态")
+                    .accessibilityIdentifier("blindOrderFlowRepeatStatusButton")
+                }
+            }
         }
         .confirmationDialog("取消订单", isPresented: $showCancelConfirmation) {
             Button("确认取消", role: .destructive) {
