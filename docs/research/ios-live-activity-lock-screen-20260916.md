@@ -14,7 +14,8 @@ arm64-sim slice，本仓库的模拟器通道永久不可用，而实时活动�
 ## 一句话结论
 
 **能。** 锁屏卡上的按钮按下之后，系统在 **app 进程**里执行意图、App 不打开、屏幕不亮，
-音频会话激活成功，`AVSpeechSynthesizer` 真的念出来了。**不需要** `UIBackgroundModes: audio`。
+音频会话激活成功，`AVSpeechSynthesizer` 真的念出来了。模拟器上**不需要**
+`UIBackgroundModes: audio`（真机未验，强度见 §2.1）。
 
 ---
 
@@ -66,12 +67,20 @@ arm64-sim slice，本仓库的模拟器通道永久不可用，而实时活动�
    > 🚩 `speak()` **之后立刻**读 `isSpeaking` 恒为 `false`（异步起播）。只看那一行会得出
    > 「没念」的反结论 —— 判「有没有真的出声」必须挂 delegate 或延后再读。
 
-### 2.1 `UIBackgroundModes: audio` 不需要
+### 2.1 `UIBackgroundModes: audio` 在模拟器上不需要（真机未验）
 
 做了 A/B：把 demo 的 `Info.plist` 里 `UIBackgroundModes` 整个键删掉、重装、重跑同一条路径，
 上面那份日志是**删掉之后**跑出来的 —— `didStart` / `didFinish` 照常。
 
-⇒ **不要给主 App 加 `audio` 后台模式。** 那是一条会被审核问到、且这里用不上的后台模式。
+⇒ 暂时**不给主 App 加 `audio` 后台模式**（那是一条会被审核问到的后台模式）。
+
+🔴 **但这条结论的强度要写清楚：它只在模拟器上成立过。** 模拟器不做真机的进程挂起，
+而 `synthesizer.speak` 是即发即返的（调用完就返回，不等念完）。真机上这条路径**大概率是被
+`location` 后台模式吊着进程**才成立的 —— `IN_PROGRESS` 期间它一直开着。
+也就是说真实依据可能是「有定位后台模式」，而不是「不需要 audio」。
+
+真机上若出现「念半句被切断」或「按了一声不响」，第一个要试的就是加 `audio`。
+本仓库硬规则：Mock / 模拟器永远不足以作为发布签核依据（`AGENTS.md` §3 / §11）。
 
 ### 2.2 后台震动
 
@@ -79,16 +88,25 @@ demo 里 `UINotificationFeedbackGenerator` 调用没有崩、没有报错，但*
 日志只能证明「没崩」，证明不了「响了」**。这一条留给真机人工确认（见「未决」）。
 D 组两屏的规格里没有任何震动要求，所以它不阻塞本阶段。
 
-### 2.3 顺带撞到的四条（都会浪费下一个人的时间）
+### 2.3 顺带撞到的五条（都会浪费下一个人的时间）
 
 1. **重装 App 会把正在进行的实时活动杀掉。** 开发期改一行代码重装，锁屏卡就没了，
    看起来像「代码把它弄坏了」。要重新从 App 里起一次。
-2. **系统会问两次授权**：第一次「Allow Live Activities from X?」，下一次变成
+   ⚠️ **反过来不成立：杀进程 / 上滑退出 / 崩溃都不会杀掉卡片。** 卡活在系统进程里。
+   2026-09-16 真机上因此出过一张清不掉的卡 —— `end()` 只结束「自己手上那个 `Activity`」，
+   而新进程手上是 nil ⇒ 什么都没发生。必须每次去 `Activity.activities` 里对一遍。
+2. 🔴 **跑单测会在真机上留下真的实时活动。** 本仓库 `LiveEscortTrackTests` 有 33 处
+   `updateOwnedOrder(orderID:status: .inProgress)`，起卡钩子挂在那条链路上之后，
+   跑一次单测就在手机上留下几张**没有数字**（用例不带 stats）、**又清不掉**的卡。
+   闸在 `RunLiveActivityController.isRunningUnderXCTest`（判 `XCTestConfigurationFilePath`）。
+   凡是「App 生命周期内唯一所有者」那一类对象上挂系统级副作用，都要先问一句
+   「单测会不会把它跑起来」。
+3. **系统会问两次授权**：第一次「Allow Live Activities from X?」，下一次变成
    「Do you want to continue to allow…? / **Always Allow**」。两次都弹在锁屏上、盖住卡片下半。
-3. **卡片主体是深链接**：点在按钮以外的任何地方 = 打开 App。按钮只占卡片下半，
+4. **卡片主体是深链接**：点在按钮以外的任何地方 = 打开 App。按钮只占卡片下半，
    手指没对准就会把 App 打开 —— 对看不见屏幕的人这是高频误触面。VoiceOver 用户按元素
    逐个划过去不受影响。
-4. **卡片高度上限约 175pt**（iPhone 17 Pro 实测）。把按钮从 52pt 拉到 110pt 时，
+5. **卡片高度上限约 175pt**（iPhone 17 Pro 实测）。把按钮从 52pt 拉到 110pt 时，
    顶行「陪跑中 · 张伟」当场被裁掉且没有任何警告。全屏那套 82/36 的字号放不进来。
 
 ## 3. 落到本仓库的结论
@@ -97,16 +115,18 @@ D 组两屏的规格里没有任何震动要求，所以它不阻塞本阶段。
 - 意图类型必须**同时**在 app target 与 widget target 里编译（app 侧是执行处，
   widget 侧是 `Button(intent:)` 的编译依赖）。
 - 卡片尺寸用状态清单 §16 那套缩小值（56 / 24 / 15 / 13，按钮 52），不用全屏那套。
-- `Info.plist` 只加 `NSSupportsLiveActivities`，**不加** `UIBackgroundModes: audio`。
+- `Info.plist` 只加 `NSSupportsLiveActivities`，暂不加 `UIBackgroundModes: audio`（真机验过再定，见 §2.1）。
 - widget target 部署目标 16.2（`ActivityContent` 起点），按钮 `#available(iOS 17.0, *)`。
 
-## 4. 未决（本轮没能验的两件，都要真机人工做）
+## 4. 未决（本轮没能验的三件，都要真机人工做）
 
 1. **「已锁且未认证」时按钮到底响不响。** 官方文档说不响；模拟器没有密码锁，复现不了那个状态。
    这决定了「手机在臂带里、盲人伸手按一下就能听到数据」这个设计承诺成不成立。
    👉 真机验法：设好密码锁 → 起一单 `IN_PROGRESS` → 锁屏 → **用手遮住原深感摄像头**
    （避免 Face ID 认证）→ 按「播报当前数据」→ 听有没有声音。
 2. **后台震动到底响不响。**（本阶段不依赖，阶段 2 的四种提示音会依赖。）
+3. **真机上到底需不需要 `UIBackgroundModes: audio`。** 见 §2.1：模拟器不做进程挂起，
+   现有结论可能是被 `location` 后台模式吊着才成立的。
 
 ---
 

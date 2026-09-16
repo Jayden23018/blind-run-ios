@@ -21,11 +21,17 @@
 	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>
-	<!-- 锁屏实时活动（陪跑中那张卡）。2026-09-16 模拟器 demo 实测：锁屏按钮背后的
-	     AudioPlaybackIntent 在 **app 进程**里执行并且能出声，**不需要**给下面的
-	     UIBackgroundModes 加 audio —— 删掉该键的对照组同样念出来了（didStart/didFinish 都回调）。
-	     所以下面那个数组不要顺手加 audio，那是一条会影响审核的多余后台模式。
-	     依据见 docs/research/ios-live-activity-lock-screen-20260916.md -->
+	<!-- 锁屏实时活动（陪跑中那张卡）。
+	     2026-09-16 **模拟器** demo 实测：锁屏按钮背后的 AudioPlaybackIntent 在 app 进程里
+	     执行并且能出声，删掉 UIBackgroundModes 的 audio 项也照样念（didStart/didFinish 都回调）。
+
+	     ⚠️ **这是模拟器结论，真机未验**，别把它当成「已经确定不需要 audio」。
+	     模拟器不做真机的进程挂起，而 synthesizer.speak 是即发即返的；真机上这条路径大概率
+	     是被 location 后台模式吊着进程才成立的（IN_PROGRESS 期间一直开着）——
+	     也就是说真实依据可能是「有定位后台模式」而不是「不需要 audio」。
+	     真机上若出现「念半句被切断」或「一声不响」，第一个要试的就是加 audio。
+	     在真机验过之前，**也不要因为这段注释就去加** —— 那是一条会被审核问到的后台模式。
+	     依据与未决项见 docs/research/ios-live-activity-lock-screen-20260916.md -->
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>
