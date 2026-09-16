@@ -33,6 +33,32 @@ final class RunLiveActivityTests: XCTestCase {
         XCTAssertEqual(RunLiveActivityPalette.numberInk, AppColors.Flow.primaryTextTone.dark)
         XCTAssertEqual(RunLiveActivityPalette.labelInk, AppColors.Flow.secondaryTextTone.dark)
         XCTAssertEqual(RunLiveActivityPalette.avatarBackground, AppColors.Flow.avatarBackgroundTone.dark)
+        XCTAssertEqual(RunLiveActivityPalette.avatarInitial, AppColors.Flow.avatarInitialTone.dark)
+    }
+
+    /// 🔴 **单测绝不能在真机上留下实时活动。**
+    ///
+    /// 2026-09-16 的真机事故：`LiveEscortTrackTests` 里 33 处
+    /// `updateOwnedOrder(orderID:status: .inProgress)` 把起卡钩子一路走到了
+    /// `Activity.request`，于是跑一次单测就在用户手机上留下好几张没有数字、
+    /// 又清不掉的卡（测试宿主退出后没有任何进程认识它们）。
+    ///
+    /// 这条用例**跑在它要防的那个环境里**，所以它是真的闸而不是提醒。
+    func testUnitTestsNeverStartARealLiveActivity() {
+        XCTAssertTrue(
+            RunLiveActivityController.isRunningUnderXCTest,
+            "这条用例本身就在 XCTest 里跑，判据却说不在 —— 说明判据坏了，起卡闸随之失效"
+        )
+
+        let controller = RunLiveActivityController.shared
+        controller.resetEventsForTesting()
+        controller.sync(orderID: 901, side: .runner, partnerName: "张伟", stats: nil)
+
+        XCTAssertTrue(
+            controller.eventsForTesting.contains("skipped:xctest"),
+            "单测里 sync 必须走到跳过分支，实际走了：\(controller.eventsForTesting)"
+        )
+        XCTAssertNil(controller.activeOrderID, "跳过之后不该记下任何订单号")
     }
 
     /// 锁屏播报也必须跟随用户的 VoiceOver 语速（设计包：「合成语音沿用用户 VoiceOver 的
@@ -67,7 +93,7 @@ final class RunLiveActivityTests: XCTestCase {
     func testWatchFormatsGoToTheScreenAndSpokenFormsGoToVoiceOver() {
         // 3200 米 / 1264 秒（21 分 4 秒）/ 390 秒每公里（6 分 30 秒）
         let stats = TrackStats(distanceMeters: 3_200, durationSeconds: 1_264, avgPaceSecPerKm: 390)
-        let content = RunLiveActivityContentBuilder.contentState(from: stats)
+        let content = RunLiveActivityContentBuilder.contentState(from: stats, partnerName: "张伟")
 
         XCTAssertEqual(content.distanceText, "3.20")
         XCTAssertEqual(content.durationText, "21:04")
@@ -83,7 +109,7 @@ final class RunLiveActivityTests: XCTestCase {
     /// 「跑了 0 公里」和「还没拿到数据」在锁屏上没有第二处能区分，而这张卡在刚进
     /// `IN_PROGRESS` 的头几秒必然处于后者 —— 那正是跑者最可能低头看一眼的时刻。
     func testPendingStatsShowPlaceholdersInsteadOfZero() {
-        let content = RunLiveActivityContentBuilder.contentState(from: nil)
+        let content = RunLiveActivityContentBuilder.contentState(from: nil, partnerName: "张伟")
 
         XCTAssertEqual(content.distanceText, "--")
         XCTAssertEqual(content.durationText, "--")
@@ -96,7 +122,7 @@ final class RunLiveActivityTests: XCTestCase {
     /// 另外两项照常显示 —— 整张卡一起退化等于把已有的信息也扔了。
     func testOnlyTheMissingMetricFallsBackToAPlaceholder() {
         let stats = TrackStats(distanceMeters: 120, durationSeconds: 45, avgPaceSecPerKm: nil)
-        let content = RunLiveActivityContentBuilder.contentState(from: stats)
+        let content = RunLiveActivityContentBuilder.contentState(from: stats, partnerName: "张伟")
 
         XCTAssertEqual(content.distanceText, "0.12")
         XCTAssertEqual(content.durationText, "00:45")
@@ -105,7 +131,7 @@ final class RunLiveActivityTests: XCTestCase {
 
     func testAnnouncementReadsTheThreeNumbersInTheDesignedOrder() {
         let stats = TrackStats(distanceMeters: 3_200, durationSeconds: 1_264, avgPaceSecPerKm: 390)
-        let content = RunLiveActivityContentBuilder.contentState(from: stats)
+        let content = RunLiveActivityContentBuilder.contentState(from: stats, partnerName: "张伟")
 
         let sentence = RunLiveActivityCopy.announcement(
             distance: content.spokenDistance,
@@ -114,6 +140,42 @@ final class RunLiveActivityTests: XCTestCase {
         )
 
         XCTAssertEqual(sentence, "3.20 公里，用时 21 分 4 秒，配速 6 分 30 秒每公里")
+    }
+
+    /// 三个数字一个都没到时，不许把占位串拼成句子念出去。
+    ///
+    /// 逐项占位在屏幕上是对的，拼成一句话就成了「暂无数据，用时 暂无数据，配速 暂无数据」——
+    /// 对着看不见屏幕的人念这种话，比不念更糟。窗口是「进 `IN_PROGRESS` 到第一次
+    /// `/track` 回来」之间，而那正好是卡刚出现、最可能被按的时刻。
+    func testAnnouncementDegradesToOneSentenceWhenNoNumbersHaveArrived() {
+        let content = RunLiveActivityContentBuilder.contentState(from: nil, partnerName: "张伟")
+
+        let sentence = RunLiveActivityCopy.announcement(
+            distance: content.spokenDistance,
+            duration: content.spokenDuration,
+            pace: content.spokenPace
+        )
+
+        XCTAssertEqual(sentence, "还没有数据，刚开始跑")
+        XCTAssertFalse(sentence.contains("用时 暂无数据"))
+    }
+
+    /// 🔴 **陪跑员姓名必须住在 `ContentState` 里，不能回到 `attributes`。**
+    ///
+    /// `attributes` 在 `Activity.request` 之后永远改不了，而姓名是异步到的：
+    /// `BlindRunnerHomeView` 有两处起卡点（`:118` / `:255`）只传订单号与状态、拿不到姓名。
+    /// 放错地方的后果是「从首页起的那张卡一辈子没有顶行」，而顶行是这张卡上唯一渲染
+    /// App 名的地方 —— VoiceOver 焦点落上去只剩三个裸数字。
+    ///
+    /// 这条用例靠**类型**说话：`ContentState` 上没有 `partnerName` 就编译不过。
+    func testPartnerNameLivesInTheUpdatableHalfOfTheActivity() {
+        let withName = RunLiveActivityContentBuilder.contentState(from: nil, partnerName: "张伟")
+        let withoutName = RunLiveActivityContentBuilder.contentState(from: nil, partnerName: nil)
+
+        XCTAssertEqual(withName.partnerName, "张伟")
+        XCTAssertNil(withoutName.partnerName)
+        // 同一张卡先后拿到这两份内容 —— 起卡时没名字、拿到名字后补上，正是真实时序。
+        XCTAssertNotEqual(withName, withoutName)
     }
 
     // MARK: - 什么时候该有这张卡

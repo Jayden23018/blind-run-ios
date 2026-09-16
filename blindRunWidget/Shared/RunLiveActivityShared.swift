@@ -40,6 +40,17 @@ struct RunLiveActivityAttributes: ActivityAttributes, Hashable {
     /// 而 `TrackStats` 所在的文件依赖 `RunOrderStatus` 与 `BackendCoordinateNormalizer`，
     /// 整份搬进 widget target 会把半个 App 拖进来。传字符串是这里最便宜的正确做法。
     struct ContentState: Codable, Hashable {
+        /// 跑者端顶行的陪跑员姓名；陪跑员端恒为 `nil`。
+        ///
+        /// 🔴 **这个字段必须待在 `ContentState` 里，不能挪回 `attributes`。**
+        /// `attributes` 在 `Activity.request` 之后**永远改不了**（`activity.update(_:)`
+        /// 只收 `ContentState`），而姓名是**异步到的**：起卡点不止一个，
+        /// `BlindRunnerHomeView` 那两处（`:118` / `:255`）只传订单号与状态、拿不到姓名。
+        /// 放 `attributes` 的后果是「从首页起的卡一辈子没有顶行」，而顶行是这张卡上
+        /// 唯一渲染 App 名的地方 —— VoiceOver 焦点落上去只剩三个裸数字，
+        /// 状态清单 §16 要求的「助盲跑 → 陪跑中 · 张伟 → 里程…」首站整个消失。
+        /// 2026-09-16 code review A1。
+        var partnerName: String?
         var distanceText: String
         var durationText: String
         var paceText: String
@@ -48,9 +59,14 @@ struct RunLiveActivityAttributes: ActivityAttributes, Hashable {
         var spokenPace: String
     }
 
+    /// 这张卡属于哪一单。
+    ///
+    /// 放在 `attributes` 里是因为它**真的不变**，而且这是进程重启后认回旧卡的唯一线索：
+    /// 实时活动活在系统进程里，App 被杀/崩溃/上滑退出之后卡片照样留在锁屏上，
+    /// 重启后只能靠 `Activity.activities` 找回来，再靠这个字段判断是不是同一单。
+    /// 2026-09-16 code review A2。
+    var orderID: Int64
     var side: RunLiveActivitySide
-    /// 跑者端顶行的陪跑员姓名；陪跑员端恒为 `nil`。
-    var partnerName: String?
 }
 
 // MARK: - 文案
@@ -72,9 +88,19 @@ enum RunLiveActivityCopy {
         "陪跑中 · \(name)"
     }
 
+    /// 三个数字**一个都还没到**时念的那一句。
+    ///
+    /// 逐项占位在**屏幕**上是对的（缺哪个哪个显示 `--`），但拼成一句话就成了
+    /// 「暂无数据，用时 暂无数据，配速 暂无数据」—— 一句语法不通、对盲人毫无信息的话。
+    /// 窗口虽窄（进 `IN_PROGRESS` 到第一次 `/track` 回来之间），但那一刻卡刚出现，
+    /// 正是最可能被按的时候。2026-09-16 code review B4。
+    static let announcementWhenNothingYet = "还没有数据，刚开始跑"
+
     /// 按下「播报当前数据」念的那一句（状态清单 §16：「X.X 公里，用时 X 分钟，配速 X 分 X」）。
     static func announcement(distance: String, duration: String, pace: String) -> String {
-        "\(distance)，用时 \(duration)，配速 \(pace)"
+        let missing = [distance, duration, pace].allSatisfy { $0 == pendingSpokenValue }
+        guard !missing else { return announcementWhenNothingYet }
+        return "\(distance)，用时 \(duration)，配速 \(pace)"
     }
 
     static func distanceAccessibilityLabel(_ spokenDistance: String) -> String {
@@ -105,8 +131,11 @@ enum RunLiveActivityMetrics {
     static let headlineSize: CGFloat = 15
     /// 三个数字各自的标签。
     static let labelSize: CGFloat = 13
-    /// 顶行左侧那枚小头像。
+    /// 顶行左侧那枚小头像，以及里面那个姓氏的字号。
     static let avatarDiameter: CGFloat = 20
+    static let avatarInitialSize: CGFloat = 10
+    /// 「播报当前数据」四个字。
+    static let announceButtonTitleSize: CGFloat = 17
 
     /// 「播报当前数据」的高度。
     ///
@@ -140,6 +169,12 @@ enum RunLiveActivityPalette {
     static let labelInk: UInt32 = 0xAEAEB2
     /// `AppColors.Flow.avatarBackgroundTone.dark`
     static let avatarBackground: UInt32 = 0x2A3C78
+    /// `AppColors.Flow.avatarInitialTone.dark`。
+    ///
+    /// **不要就地写 `.white`**：今天这个取值恰好是白，所以写死看不出问题；
+    /// 而 `avatarInitialTone` 的暗色档一旦被改（`FlowPaletteContrastTests` 会跟着走），
+    /// 锁屏上的姓氏仍是白色，且没有任何东西会红。2026-09-16 code review A4。
+    static let avatarInitial: UInt32 = 0xFFFFFF
 
     /// `0xRRGGBB` → `Color`。
     ///
@@ -169,12 +204,29 @@ enum RunLiveActivityPalette {
 /// 那一条线正在改 `SpeechService.swift`，本阶段不动它。
 @available(iOS 16.2, *)
 @MainActor
-final class RunLiveActivitySpeaker {
+final class RunLiveActivitySpeaker: NSObject {
     static let shared = RunLiveActivitySpeaker()
+
+    /// 锁屏播报的音频会话配置。
+    ///
+    /// 🚩 **`AVAudioSession` 是全进程共用的一个对象**，而 App 里本来已经有一个所有者
+    /// （`SystemSpeechAudioSession`，`SpeechInputService.swift:86-92`，它用 `options: []`）。
+    /// 这里多一个 `.duckOthers` 是**有意的**：设计稿要求「音乐只压低不暂停」，
+    /// 而 `.playback + []` 在激活时会直接打断用户正在听的音乐。
+    ///
+    /// 🔴 **代价必须一起付掉：念完要 `setActive(false)`。** 只激活不释放的话，
+    /// ducking 会一直生效 —— 用户按一次播报，音乐就被压低到跑完为止。
+    /// 见下面 `speechSynthesizer(_:didFinish:)`。2026-09-16 code review A3。
+    static let announceCategory: AVAudioSession.Category = .playback
+    static let announceMode: AVAudioSession.Mode = .spokenAudio
+    static let announceOptions: AVAudioSession.CategoryOptions = [.duckOthers]
 
     private let synthesizer = AVSpeechSynthesizer()
 
-    private init() {}
+    private override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
 
     func speak(_ text: String) {
         let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -190,11 +242,20 @@ final class RunLiveActivitySpeaker {
     private func activateAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            // `.duckOthers` 对应设计稿「音乐只压低不暂停」。
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try session.setCategory(Self.announceCategory, mode: Self.announceMode, options: Self.announceOptions)
             try session.setActive(true)
         } catch {
             NSLog("[AidRun] 锁屏播报激活音频会话失败：%@", error.localizedDescription)
+        }
+    }
+
+    /// 念完就把会话让出去，音乐随之恢复原音量。
+    /// `.notifyOthersOnDeactivation` 是让对方知道可以恢复的那个开关，漏了它音乐不会自己回来。
+    private func releaseAudioSession() {
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            NSLog("[AidRun] 锁屏播报释放音频会话失败：%@", error.localizedDescription)
         }
     }
 
@@ -211,6 +272,19 @@ final class RunLiveActivitySpeaker {
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utterance.pitchMultiplier = 1.0
         return utterance
+    }
+}
+
+@available(iOS 16.2, *)
+extension RunLiveActivitySpeaker: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in self.releaseAudioSession() }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        // 只有「后一次播报打断前一次」会走到这里，而那时新的一句马上要念 ——
+        // 立刻释放会把自己刚要用的会话关掉，所以这里**什么都不做**，
+        // 交给新那句的 `didFinish`。
     }
 }
 

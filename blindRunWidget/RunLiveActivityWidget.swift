@@ -17,7 +17,6 @@ struct RunLiveActivityWidget: Widget {
         ActivityConfiguration(for: RunLiveActivityAttributes.self) { context in
             RunLiveActivityLockScreenView(
                 side: context.attributes.side,
-                partnerName: context.attributes.partnerName,
                 state: context.state
             )
             .activityBackgroundTint(RunLiveActivityPalette.color(RunLiveActivityPalette.cardSurface))
@@ -46,12 +45,11 @@ struct RunLiveActivityWidget: Widget {
 @available(iOS 16.2, *)
 struct RunLiveActivityLockScreenView: View {
     let side: RunLiveActivitySide
-    let partnerName: String?
     let state: RunLiveActivityAttributes.ContentState
 
     var body: some View {
         VStack(alignment: .leading, spacing: RunLiveActivityMetrics.rowSpacing) {
-            if let partnerName, side == .runner {
+            if let partnerName = state.partnerName, side == .runner {
                 headline(partnerName)
             }
             RunLiveActivityMetricsRow(state: state)
@@ -94,8 +92,8 @@ struct RunLiveActivityLockScreenView: View {
             )
             .overlay(
                 Text(String(name.prefix(1)))
-                    .font(.system(size: RunLiveActivityMetrics.labelSize - 3, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: RunLiveActivityMetrics.avatarInitialSize, weight: .semibold))
+                    .foregroundStyle(RunLiveActivityPalette.color(RunLiveActivityPalette.avatarInitial))
             )
             .accessibilityHidden(true)
     }
@@ -105,7 +103,7 @@ struct RunLiveActivityLockScreenView: View {
             if #available(iOS 17.0, *) {
                 Button(intent: AnnounceRunStatsIntent(spokenText: spokenAnnouncement)) {
                     Text(RunLiveActivityCopy.announceButtonTitle)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: RunLiveActivityMetrics.announceButtonTitleSize, weight: .semibold))
                         // 高度低于仓库的 64pt 触达线是一次有意偏离，理由写在
                         // `RunLiveActivityMetrics.announceButtonHeight` 上。
                         .frame(maxWidth: .infinity, minHeight: RunLiveActivityMetrics.announceButtonHeight)
