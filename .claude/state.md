@@ -81,8 +81,19 @@
 
 ## 四、阶段计划（一个阶段一个 session，别在一个 session 里连做两个）
 
-- [x] **阶段 1 · A 组 ①②③ 原地变形 + 主按钮位置不动**（2026-09-16，编译门禁 + 规格校验过，
-      **真机 XCTest 未跑** —— 当时 iPhone 走 `localNetwork`，没插 USB）
+- [x] **阶段 1 · A 组 ①②③ 原地变形 + 主按钮位置不动**（2026-09-16 完成，真机已验）
+
+      ```
+      BlindRunPhaseTests + BlindOrderFlowPresentationTests
+        + FlowDesignSystemTests + BlindActiveRunTests   passed=58 failed=0
+      EmergencySOSTests + KeepWaitingTests               passed=77 failed=0
+      testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling  passed=1 failed=0
+      testSafetyHubPutsEmergencyFirstInTheAccessibilityOrder       passed=1 failed=0
+      ```
+      设备 iPhone 16 Pro，`transportType: wired`。既有红灯 3+2 条不在本次范围内，未触及。
+      ⚠️ 那两条 UI 用例**第三次才过**：前两次都是 `Timed out while enabling automation mode`，
+      中间一个字没改。记忆 `ui-test-runner-needs-usb-not-wifi` 原先写「复跑即过」已订正为
+      「同一签名最多复跑三次再开始查别的」。
 - [ ] 阶段 2 · 播报队列 + 四种提示音 ← 下一件
 - [ ] 阶段 3 · ④ 已完成 + 陪跑员端长按 2 秒结束
 - [ ] 阶段 4 · B 组异常警示条 + 求助中心单列重排（先答 C）
