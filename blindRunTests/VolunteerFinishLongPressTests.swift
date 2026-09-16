@@ -54,13 +54,19 @@ final class VolunteerFinishLongPressTests: XCTestCase {
         XCTAssertEqual(VolunteerFinishLongPress.progress(elapsed: -1), 0)
     }
 
-    /// 读秒只许单调下降，且**永不回跳**。
+    /// 读秒印出来的必须是**真实剩余**的那一格，且只许单调下降。
     ///
-    /// `elapsed: 0.3` 是这条用例的真正目标：`2 - 0.3` 在二进制里是 1.7000000000000002，
-    /// 不做那个 1e-6 的修正就会印成「1.8 秒」—— 比上一拍还多，用户看到的是读秒倒着走。
+    /// 🔴 `1.7` 与 `1.9` 是这条用例的真正目标，换成别的值就白写：
+    /// 二进制里 `2 - 1.7 == 0.30000000000000004`、`2 - 1.9 == 0.10000000000000009`，
+    /// 少了那个 1e-6 的修正就会向上取整成「0.4」「0.2」—— 比真实剩余多整整一格。
+    ///
+    /// ⚠️ 2026-09-16 这条用例第一版取的是 `elapsed: 0.3`，而 `2 - 0.3` 恰好是**精确的**
+    /// 1.7 —— 把修正打回去它照样绿。挑不出两种实现之差的用例，绿灯是在替一个没验过的
+    /// 实现背书；下面这两行是实测打回后**真的变红**的那两行。
     func testRemainingSecondsNeverTicksBackwards() {
         XCTAssertEqual(VolunteerFinishLongPress.remainingText(elapsed: 0), "2.0")
-        XCTAssertEqual(VolunteerFinishLongPress.remainingText(elapsed: 0.3), "1.7")
+        XCTAssertEqual(VolunteerFinishLongPress.remainingText(elapsed: 1.7), "0.3")
+        XCTAssertEqual(VolunteerFinishLongPress.remainingText(elapsed: 1.9), "0.1")
         XCTAssertEqual(VolunteerFinishLongPress.remainingText(elapsed: 1.2), "0.8")
 
         var previous = Double.greatestFiniteMagnitude
