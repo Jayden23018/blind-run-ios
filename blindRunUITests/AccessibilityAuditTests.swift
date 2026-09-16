@@ -212,31 +212,53 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
-    /// 主按钮必须**看起来**就是主按钮，不只是够得着。
+    /// 首页最大的那一块必须是**即将开始的那一单**，没有订单时才轮到预约入口。
     ///
-    /// 上一条只查 64pt，而 64pt 正是它此前和「重复当前状态」同高时的值 —— 那一版全绿，
-    /// 用户看到的却是「约跑的按钮还是小」。对标 Be My Eyes 的 `Call a volunteer` 占内容区约 75%
-    /// （`docs/research/blind-ui-visual-benchmark-20260808.md` §1）。
+    /// 🔄 **2026-09-16 换了被守的对象，守的是同一个用户需求。** 原用例叫
+    /// `testBlindRunnerPrimaryButtonDominatesTheScreen`，断言「开始约跑」占屏 ≥25%
+    /// （`docs/research/blind-ui-visual-benchmark-20260808.md` §1，对标 Be My Eyes 的
+    /// `Call a volunteer` 占内容区约 75%）。那个 280pt 按钮已按设计稿
+    /// `design-reference/order-flow/screens/01-home.png` 删除。
     ///
-    /// 阈值取窗口高度的 25% 而不是 55%：内容区在窗口里还要扣掉地图、SOS 条与次级按钮，
-    /// 这里要抓的是「有没有被缩回次级按钮那一档」，不是精确复刻某个比例。
+    /// **设计稿反转的不是「主操作要大」，是「谁才是主操作」**：视障用户打开 App 第一句
+    /// 该听到、第一眼该看到的是最重要的**信息**（下一次陪跑），不是下单这个**动作**。
+    /// 所以阈值从「按钮占屏 ≥25%」改成「有订单时订单卡比预约块高」+「预约块本身不许
+    /// 被缩回次级按钮那一档」。后半句保留了原用例真正防的东西 ——
+    /// 它此前和「重复当前状态」同高时全绿，而用户看到的是「约跑的按钮还是小」。
+    ///
+    /// ⚠️ 阈值刻意不写成固定的占屏比：这一屏在 iPad 上高 820、在 iPhone SE 上高 667，
+    /// 而订单卡的高度由内容（52pt 大字 + 几行文字）决定、随 Dynamic Type 长。
+    /// 比**两块之间的相对大小**在所有设备与所有字号下都成立，比固定比例稳。
+    /// 记忆 `verified-on-one-device-is-not-verified` 记着原用例在 iPad 上长红
+    /// （23.7% < 25%）—— 固定占屏比就是那条长红的来源。
     @MainActor
-    func testBlindRunnerPrimaryButtonDominatesTheScreen() throws {
-        let app = launchBlindHome()
-        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
-        XCTAssertTrue(start.waitForExistence(timeout: 20))
+    func testBlindRunnerHomeGivesTheLargestBlockToTheUpcomingOrder() throws {
+        let app = launchBlindHome(emptyOrders: false)
+        let card = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
 
-        let windowHeight = app.windows.firstMatch.frame.height
-        XCTAssertGreaterThan(windowHeight, 0, "拿不到窗口高度，这条断言等于没跑")
+        let booking = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(booking.waitForExistence(timeout: 10), "首页缺少预约入口")
 
-        let share = start.frame.height / windowHeight
-        XCTAssertGreaterThanOrEqual(
-            share,
-            Self.minimumBlindPrimaryButtonScreenShare,
+        XCTAssertGreaterThan(
+            card.frame.height,
+            booking.frame.height,
             """
-            主按钮实测 \(start.frame.height)pt，只占屏高 \(Int(share * 100))%，\
-            低于 \(Int(Self.minimumBlindPrimaryButtonScreenShare * 100))%。\
-            低视力用户找不到它。要改这个阈值先看对标文档 §1。
+            订单卡实测 \(card.frame.height)pt，不高于预约块 \(booking.frame.height)pt。
+            首页最大的位置必须留给即将开始的那一单 —— 打开 App 第一眼该看到的是最重要的
+            信息，不是下单这个动作。要改这条先看 design-reference/order-flow/screens/01-home.png。
+            """
+        )
+
+        // 预约块自己也不许被缩回次级按钮那一档（原用例真正防的就是这件事）。
+        // 判据用「明显高于 64pt 触达下限」而不是占屏比：它在设计稿里是 56pt 加号圆 +
+        // 两行文字 + 上下各 22pt 内边距，默认字号下约 100pt。
+        XCTAssertGreaterThan(
+            booking.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            """
+            预约块只有 \(booking.frame.height)pt，等于缩回了 64pt 触达下限那一档。
+            它是无订单时这一屏唯一的主操作，低视力用户要能一眼看到。
             """
         )
     }
@@ -843,7 +865,16 @@ final class AccessibilityAuditTests: XCTestCase {
     // 而本仓库 CI 跑不了 XCTest —— 漂了不会有任何信号，只会在真机上红成
     // 「执行屏没有求助入口」这种指向完全错误的失败信息。
     private static let safetyHubLabel = "求助与安全，打开求助选项"
-    private static let minimumBlindPrimaryButtonScreenShare: CGFloat = 0.25
+
+    // 🗑 `minimumBlindPrimaryButtonScreenShare = 0.25` 已删除（零引用）。
+    //
+    // 它服务的是 `testBlindRunnerPrimaryButtonDominatesTheScreen`，而那条用例在
+    // 2026-09-16 换成了 `testBlindRunnerHomeGivesTheLargestBlockToTheUpcomingOrder`
+    // —— 比两块之间的相对大小，不再比固定占屏比。
+    //
+    // 顺带解决一条长红：固定占屏比在 iPad Air 5（窗口高 820）上永远是 23.7% < 25%，
+    // 记忆 `verified-on-one-device-is-not-verified` 记着它连续三次复测一字未变。
+    // 那条红的根因不是按钮太小，是**阈值写成了与屏高绑定的固定比例**。
 
     /// 低版本设备上明确 skip 而不是静默通过 —— 「没跑」和「跑过了」必须可区分。
     @available(iOS 17.0, *)
