@@ -23,6 +23,29 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     /// 也就是 2026-08-06 报障的那个现象，只不过变成偶发。
     private nonisolated(unsafe) var currentUtterance: AVSpeechUtterance?
 
+    /// 正在播的那条是哪一档。`nil` = 此刻没在播。与 `currentUtterance` 同生同灭。
+    private nonisolated(unsafe) var currentPriority: AnnouncementPriority?
+
+    /// 正在播的那条最晚算到什么时候。
+    ///
+    /// 🔴 **合成器代理丢事件在这个仓库是见过的真实故障**，不是假想的
+    /// —— `VoiceOrderWizard.speechSettleDeadline` 存在的理由逐字就是这一条。
+    /// 没有这道兜底的话，一次丢失的 `didFinish` 会让 `currentPriority` 永远停在某一档，
+    /// 此后每一条更低档的播报都被静默排队或丢弃，表现是「App 从某一刻起就不说话了」，
+    /// 而屏幕上一个字都不会变 —— 正是本仓库反复出事的那种静默降级。
+    private nonisolated(unsafe) var currentDeadline: Date?
+
+    /// 排队中的播报。规则全在 `AnnouncementQueue`（纯结构，单测钉着）。
+    ///
+    /// 与 `currentUtterance` 用同一套 `nonisolated(unsafe)`：`speak` 的调用点散在轮询回调、
+    /// WebSocket 回调和 `Task` 里，线程不确定，而合成器代理回调回主线程。
+    /// 这是本类既有的做法，不在这一轮里另起一套加锁方案。
+    private nonisolated(unsafe) var queue = AnnouncementQueue()
+
+    /// 「此刻是不是在通话中」。默认走 CallKit，**测试可以替换**——
+    /// 单测里真的去打一通电话是做不到的，而「通话中只保留警示」是一条必须能回归的规则。
+    nonisolated(unsafe) var isCallActive: () -> Bool = { CallStateMonitor.shared.hasActiveCall }
+
     override init() {
         super.init()
         synthesizer.delegate = self
@@ -44,14 +67,41 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     }
     #endif
 
-    /// 播报文本
-    func speak(text: String) {
+    /// 播报文本。
+    ///
+    /// `priority` **带默认值，既有调用点一行都不用改**：全仓 230 个 `speak` / `speakError` /
+    /// `announce` 分布在 31 个文件里，改签名会把整个仓库碰一遍。默认档与同档打断的取法
+    /// 见 `AnnouncementPriority` —— 不传优先级时的行为与本次改动之前**逐字相同**。
+    func speak(text: String, priority: AnnouncementPriority = .counterpartAction) {
         let normalizedText = text.trimmed
         guard !normalizedText.isEmpty else { return }
-        lastSpokenText = normalizedText
-        latestRepeatableText = normalizedText
+        clearStaleUtteranceIfNeeded()
+        let announcement = PendingAnnouncement(
+            text: normalizedText, priority: priority, enqueuedAt: Date()
+        )
+        switch queue.submit(announcement, speaking: currentPriority, isCallActive: isCallActive()) {
+        case .speakNow:
+            play(announcement)
+        case .enqueued, .dropped:
+            break
+        }
+    }
+
+    /// 兼容既有调用点的短方法名。
+    func speak(_ text: String, priority: AnnouncementPriority = .counterpartAction) {
+        speak(text: text, priority: priority)
+    }
+
+    /// 真正把一条送进合成器。**只有这里能写 `lastSpokenText` / `latestRepeatableText`。**
+    ///
+    /// 🔴 写在这里而不是 `speak` 里：排队中的那条**可能永远不会播**
+    /// （每公里档排够 10 秒就丢）。在入队时就记成「说过了」，会让「重复当前状态」
+    /// 念出一句用户从来没听到过的话 —— 而那个按钮存在的全部意义就是复述刚才那句。
+    private func play(_ announcement: PendingAnnouncement) {
+        lastSpokenText = announcement.text
+        latestRepeatableText = announcement.text
         #if DEBUG
-        spokenHistoryForTesting.append(normalizedText)
+        spokenHistoryForTesting.append(announcement.text)
         #endif
         // ⚠️ VoiceOver 开着时这一句会同时走无障碍通告和合成器，听感上可能是念两遍。
         // 2026-08-01 曾改成「VoiceOver 运行时只留合成器」，当天回退：
@@ -60,21 +110,27 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         //
         // 两条通道**语速不一致**那一半已由 `makeUtterance` 修掉（见那里）。剩下的
         // 「同一句听感上念两遍」仍未在真机上确认过，要改先听，不靠读代码拍板。
-        postVoiceOverAnnouncement(normalizedText)
+        postVoiceOverAnnouncement(announcement.text)
         synthesizer.stopSpeaking(at: .immediate)
-        let utterance = Self.makeUtterance(normalizedText)
+        let cue = AnnouncementCue.leadIn(for: announcement.priority)
+        if let cue {
+            AnnouncementCue.play(cue)
+        }
+        let utterance = Self.makeUtterance(
+            announcement.text,
+            leadInDelay: cue.map(AnnouncementCue.duration) ?? 0
+        )
         currentUtterance = utterance
+        currentPriority = announcement.priority
+        currentDeadline = Date().addingTimeInterval(
+            VoiceOrderWizard.settleTimeout(forCharacterCount: announcement.text.count)
+        )
         synthesizer.speak(utterance)
         // 入队即置位，**不等 `didStart` 代理**。代理是 `DispatchQueue.main.async` 派发的，
         // 而 `VoiceOrderWizard.listen` 紧接着 `speak` 就开始轮询 `isSpeaking`：等代理的话，
         // 第一次检查读到的还是 false，等待循环当场放行，麦克风在一个字都没念出来时就打开了。
         // `stop()` 那端本来就是同步置 false，两端对称。
         markSpeaking(true)
-    }
-
-    /// 兼容既有调用点的短方法名。
-    func speak(_ text: String) {
-        speak(text: text)
     }
 
     /// 播报用的 utterance。**语速跟随用户，不写死默认值。**
@@ -97,17 +153,31 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     /// ⚠️ 头文件同段还写了 `querying the properties will not reflect the user's settings` ——
     /// 读 `utterance.rate` 永远读回我们写进去的值，**测不出实际语速**。所以下面那条用例只能断言
     /// 开关本身，真实听感必须真机开 VoiceOver 人耳验（见记忆 `audio-correctness-needs-real-ears-not-code-reading`）。
-    static func makeUtterance(_ text: String) -> AVSpeechUtterance {
+    ///
+    /// `leadInDelay` 让提示音先响完再开口，交给系统的 `preUtteranceDelay` 执行 ——
+    /// 自己起一个 `Task.sleep` 会多一条取消路径，而提示音和第一个字叠在一起是确定的可用性损失。
+    static func makeUtterance(_ text: String, leadInDelay: TimeInterval = 0) -> AVSpeechUtterance {
         let utterance = AVSpeechUtterance(string: text)
         utterance.prefersAssistiveTechnologySettings = true
         utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utterance.pitchMultiplier = 1.0
+        utterance.preUtteranceDelay = leadInDelay
         return utterance
     }
 
     /// VoiceOver-only announcement for transient UI state such as search results.
-    func announce(_ text: String) {
+    ///
+    /// **通告进不了队列**（它没有「播完了」这个回调，排进去就出不来），但它认优先级：
+    /// 比正在播的那条低就不发。判据在 `AnnouncementQueue.allowsAnnouncement`。
+    ///
+    /// 开跑倒计时那三拍走的就是这条路 —— `状态清单.md` §2 逐字要求数字走 announcement 通道
+    /// 「不插入遍历顺序、不移动焦点」，所以它不能改走合成器；这一道闸是它认优先级的唯一方式。
+    func announce(_ text: String, priority: AnnouncementPriority = .counterpartAction) {
+        clearStaleUtteranceIfNeeded()
+        guard AnnouncementQueue.allowsAnnouncement(
+            priority, speaking: currentPriority, isCallActive: isCallActive()
+        ) else { return }
         postVoiceOverAnnouncement(text)
     }
 
@@ -158,14 +228,34 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     /// 换成这里**不是**因为那样有错 —— 当时误判了一条 flaky 用例的归因，
     /// 复跑后证明与 `didSet` 无关。改用方法 funnel 纯粹因为它更简单：
     /// 不碰属性观察器，且语义正好落在「刚念出一条错误」上，顺带覆盖了求助之外的全部错误播报。
-    func speakError(_ message: String) {
-        speak(text: message)
+    func speakError(_ message: String, priority: AnnouncementPriority = .counterpartAction) {
+        speak(text: message, priority: priority)
         HapticFeedback.play(.error)
+    }
+
+    /// 代理没回来、而这条按字数算怎么也该念完了：当成没在播。
+    ///
+    /// **只清「正在播的那条」，不清队列。** 排着的那条随下一次 `finish` 正常出队；
+    /// 每公里那档若已经排过 10 秒会在出队时自己丢掉。在这里顺手清空队列会让一次
+    /// 迟到的代理回调变成「静默吞掉一条本该念的播报」，方向正好是这道兜底要防的那一种。
+    ///
+    /// `now` 带默认值只为**可测**：真机上等 8 秒看队列会不会自愈是测不了的，
+    /// 而「这道兜底根本没接上」和「它工作正常」在耳朵里同样是一片安静。不是给生产调用的。
+    func clearStaleUtteranceIfNeeded(now: Date = Date()) {
+        guard currentPriority != nil, let currentDeadline, now >= currentDeadline else { return }
+        currentUtterance = nil
+        currentPriority = nil
+        self.currentDeadline = nil
     }
 
     /// 停止播报
     func stop() {
         currentUtterance = nil
+        currentPriority = nil
+        currentDeadline = nil
+        // 排着的也一起清掉。留着的后果是「按了停止，三秒后又自己念起来」——
+        // 对看不见屏幕的人，那看起来像 App 不听指挥。
+        queue.removeAll()
         synthesizer.stopSpeaking(at: .immediate)
         markSpeaking(false)
     }
@@ -256,10 +346,19 @@ final class VoiceService: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
     }
 
     /// 只有「正在播的那一条」结束了才算播完 —— 见 `currentUtterance` 的说明。
+    ///
+    /// 🚩 **有下一条时不置 `isSpeaking = false`。** `VoiceOrderWizard.waitForSpeechToSettle`
+    /// 靠这个标志决定什么时候开麦；中间闪一次 false 会让它在队列还没排干时就把麦克风打开。
     private func finish(_ utterance: AVSpeechUtterance) {
         guard utterance === currentUtterance else { return }
         currentUtterance = nil
-        markSpeaking(false)
+        currentPriority = nil
+        currentDeadline = nil
+        if let next = queue.next(now: Date(), isCallActive: isCallActive()) {
+            play(next)
+        } else {
+            markSpeaking(false)
+        }
     }
 }
 

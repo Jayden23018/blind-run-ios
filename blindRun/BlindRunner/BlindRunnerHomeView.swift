@@ -448,10 +448,12 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         )
         // 可见面是 SOS 条里的 `EmergencyStatusNotice`，这里只负责播报。
         // 刻意不再写 `errorMessage`：那会让同一句话在屏幕上出现两次、被读屏念两遍。
+        // 优先级与 `BlindOrderStatusViewModel.enterEmergency` 一致 —— 同一条链路，
+        // 只有入口不同，两处的档位分叉会让「求助未发出」在首页被别的播报压住。
         if outcome.isFailure {
-            speechService?.speakError(outcome.message)
+            speechService?.speakError(outcome.message, priority: .emergency)
         } else {
-            speechService?.speak(outcome.message)
+            speechService?.speak(outcome.message, priority: .emergency)
         }
     }
 

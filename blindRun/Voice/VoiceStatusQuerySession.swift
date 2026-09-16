@@ -8,6 +8,10 @@ import UIKit
 ///
 /// 判定逻辑在 `VoiceStatusQuery`（纯函数、可单测）；这里只做硬件那一半：开麦、播报、拨号。
 ///
+/// 这一整轮的播报都是 `.onDemand`（`状态清单.md` 的「按需播报」）：用户自己按了「问一句」。
+/// 直接后果有两条 —— 每一句前面会有 0.3 秒前置音，而它整体让位于状态推进与警示那两档。
+/// 前置音带来的 0.3 秒延迟落在 `settleTimeout` 的 6 秒余量里，不会提前开麦。
+///
 /// **两个页面共用一个实现，不各写一份。** 首页与订单状态页的差别只有「订单和志愿者坐标从哪来」，
 /// 用 `context` 闭包收掉；拨号确认那一段是安全逻辑，抄两遍迟早漂移（`AGENTS.md` §1）。
 @MainActor
@@ -72,7 +76,7 @@ final class VoiceStatusQuerySession {
             volunteerCoordinate: coordinate,
             fallbackAnnouncement: fallbackAnnouncement(order: order, coordinate: coordinate)
         )
-        speechService?.speak(answer.speech)
+        speechService?.speak(answer.speech, priority: .onDemand)
 
         guard case .confirmDialVolunteer(let phone) = answer.pendingAction else { return }
         Task { [weak self] in
@@ -87,7 +91,7 @@ final class VoiceStatusQuerySession {
 
     private func handleDialConfirmation(_ transcript: String, phone: String) {
         guard VoiceStatusQuery.isDialConfirmed(transcript) else {
-            speechService?.speak(VoiceStatusQuery.dialCancelledSpeech)
+            speechService?.speak(VoiceStatusQuery.dialCancelledSpeech, priority: .onDemand)
             return
         }
         // 复述号码到用户说完「确认」之间隔了好几秒，订单可能已经变了（志愿者取消 → REMATCHING）。
@@ -96,10 +100,10 @@ final class VoiceStatusQuerySession {
         let (order, _) = context?() ?? (nil, nil)
         guard order?.status.offersVolunteerCall == true,
               let telURL = EmergencyDialer.telURL(for: phone) else {
-            speechService?.speak("订单状态已经变了，现在不能打电话给志愿者。")
+            speechService?.speak("订单状态已经变了，现在不能打电话给志愿者。", priority: .onDemand)
             return
         }
-        speechService?.speak("正在拨号。")
+        speechService?.speak("正在拨号。", priority: .onDemand)
         EmergencyDialer.dial(telURL)
     }
 
@@ -129,7 +133,7 @@ final class VoiceStatusQuerySession {
                     // 确认那一轮没听到声音 = 没确认。必须说出「没拨」，不能静默收场。
                     let tail = field == .voiceStatusConfirmCall ? VoiceStatusQuery.dialCancelledSpeech : nil
                     let spoken = [announcement, tail].compactMap { $0 }.joined(separator: " ")
-                    if !spoken.isEmpty { self.speechService?.speak(spoken) }
+                    if !spoken.isEmpty { self.speechService?.speak(spoken, priority: .onDemand) }
                     return
                 }
                 onTranscript(completion.recognizedText.trimmed)

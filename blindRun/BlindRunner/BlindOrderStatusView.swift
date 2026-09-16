@@ -201,17 +201,18 @@ final class BlindOrderStatusViewModel: ObservableObject {
         guard let locationService,
               !locationService.isUsingDemoFallback,
               let coordinate = locationService.currentLocation else {
-            speechService?.speak(EmergencySafetyCopy.locationAnnouncement(nil))
+            speechService?.speak(EmergencySafetyCopy.locationAnnouncement(nil), priority: .onDemand)
             return
         }
         // 逆地理要走一趟网络。先说一句进行时，否则按下去到出结果之间是一段静默 ——
-        // 对看不见屏幕的人，静默就是「点了没反应」。答句回来时会盖掉它，那正是想要的。
-        speechService?.speak(EmergencySafetyCopy.locating)
+        // 对看不见屏幕的人，静默就是「点了没反应」。答句回来时会盖掉它，那正是想要的
+        // （`.onDemand` 同档相互打断，见 `AnnouncementPriority`）。
+        speechService?.speak(EmergencySafetyCopy.locating, priority: .onDemand)
         let place = await placeSearchProvider?.reverseGeocode(coordinate: coordinate)
         // `title` 是 POI 名（「人民公园」），`addressText` 是街道级描述。优先念前者：
         // 电话里说得清的是地标，不是一串门牌号。
         let description = place.flatMap { $0.title.nilIfBlank ?? $0.addressText.nilIfBlank }
-        speechService?.speak(EmergencySafetyCopy.locationAnnouncement(description))
+        speechService?.speak(EmergencySafetyCopy.locationAnnouncement(description), priority: .onDemand)
     }
 
     func startPolling(orderId: Int64) {
@@ -284,9 +285,12 @@ final class BlindOrderStatusViewModel: ObservableObject {
             if let sos = appState?.emergencyCoordinator.repeatStatusSuffix {
                 announcement += " " + sos
             }
-            speechService?.speak(announcement)
+            // 按需档：用户刚按了「重复当前状态」/「播报当前数据」。它低于「对方操作」——
+            // 状态刚推进时那一句比复述更要紧，复述会排在它后面而不是把它切断。
+            // 前置音（单声 0.3 秒）由 `AnnouncementCue.leadIn(for:)` 按档自动加。
+            speechService?.speak(announcement, priority: .onDemand)
         } else {
-            speechService?.speak("正在获取订单状态。")
+            speechService?.speak("正在获取订单状态。", priority: .onDemand)
         }
     }
 
@@ -518,9 +522,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
         // Deliberately not also setting `errorMessage`: that would render the same sentence twice
         // and make VoiceOver read the failure twice over.
         if outcome.isFailure {
-            speechService?.speakError(outcome.message)
+            speechService?.speakError(outcome.message, priority: .emergency)
         } else {
-            speechService?.speak(outcome.message)
+            speechService?.speak(outcome.message, priority: .emergency)
         }
     }
 
@@ -546,7 +550,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
                 // 倒计时每一秒都要盖掉上一秒那句 —— 合成器全进程只有一个、
                 // `speak` 自带 `stopSpeaking`，所以「谁后说谁赢」正是这里想要的行为
                 // （记忆 `later-speak-silently-cuts-the-earlier-one`）。
-                self?.speechService?.speak(message)
+                // 🔴 播报队列**刻意保留了同档打断**，这条链路就是它必须保留的理由之一：
+                // 同档改成排队的话，三秒倒计时会念成「3」「3」「2」这样的一串旧数字。
+                self?.speechService?.speak(message, priority: .emergency)
             }
         )
     }
@@ -557,9 +563,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
         guard let appState else { return }
         let outcome = await appState.emergencyCoordinator.cancelByOwner(safety: appState.safety)
         if outcome.isFailure {
-            speechService?.speakError(outcome.message)
+            speechService?.speakError(outcome.message, priority: .emergency)
         } else {
-            speechService?.speak(outcome.message)
+            speechService?.speak(outcome.message, priority: .emergency)
         }
     }
 
@@ -855,6 +861,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 同一刻正在播的「陪跑服务已开始」整句切断，表现是「只念了开头」
     /// （记忆 `later-speak-silently-cuts-the-earlier-one`）。announcement 不抢合成器、
     /// 也不移动读屏焦点 —— 焦点在这三秒里必须待在原处，那正是原地变形要保住的东西。
+    /// `状态清单.md` §2 也是逐字这么要求的：「数字走 announcement 通道播报，
+    /// 不插入遍历顺序、不移动焦点」。
     /// 判据抽成**纯静态函数**，理由同 `FlowStepper.accessibilityLabel`：三秒倒计时本身
     /// 只有真机能看，但「什么时候该倒数」是两个布尔判断，不该也要开一次真机才知道对不对。
     /// 上面那两条边界（冷启动不倒数 / 同态刷新不重放）各有一条用例钉着。
@@ -898,7 +906,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
                 // 后者是通知波形，紧接着 `speakStatusChange(.inProgress)` 也会震一次，
                 // 三秒里四次同样的波形等于把触觉这条通道的语义洗掉。见 `HapticFeedback.Kind.tick`。
                 HapticFeedback.play(.tick)
-                self.speechService?.announce("\(beat)")
+                // 阶段 1 留下的账①已结：这三拍**不再绕开播报 funnel**。
+                // 通告仍然是通告（合成器一个字都不抢），但现在要过一道优先级闸 ——
+                // 此刻若正在播求助或警示，这三个数字不会盖掉它
+                // （`AnnouncementQueue.allowsAnnouncement`）。档位按 `状态清单.md` §2 取「对方操作」。
+                self.speechService?.announce("\(beat)", priority: .counterpartAction)
                 try? await Task.sleep(
                     nanoseconds: UInt64(BlindRunCountdown.beatInterval * 1_000_000_000)
                 )
@@ -913,9 +925,13 @@ final class BlindOrderStatusViewModel: ObservableObject {
             //
             // 走 `speak` 而**不是** `announce`：VoiceOver 关着时 announcement 是 no-op，
             // 而低视力用户同样需要听到这一句。
-            // ⚠️ `speak` 会先 `stopSpeaking(.immediate)` —— 此刻若还有别的播报在跑会被切断。
-            // 三秒后状态播报通常已经念完，真正的解法是阶段 2 的播报队列（把这一句排进「对方操作」档）。
-            self.speechService?.speak(BlindRunCopy.runStartedAnnouncement)
+            //
+            // 阶段 1 留下的账②已结：排进「对方操作」档之后，此刻若正在播求助或警示，
+            // 这一句会**排队等它说完**而不是把它切断（`AnnouncementQueue.submit`）；
+            // 正在播的若是每公里或按需那两档，它照旧抢过来 —— 起跑这一刻比复述里程要紧。
+            self.speechService?.speak(
+                BlindRunCopy.runStartedAnnouncement, priority: .counterpartAction
+            )
             HapticFeedback.play(.success)
         }
     }
@@ -1100,7 +1116,10 @@ final class BlindOrderStatusViewModel: ObservableObject {
         guard let kilometers = kilometerMilestones.milestone(forDistanceMeters: stats.distanceMeters) else {
             return
         }
-        speechService?.speak("已跑 \(kilometers) 公里")
+        // 最低档：正在播的任何别的东西都比它要紧，而它排队超过 10 秒就自己丢掉
+        // （`AnnouncementQueue.perKilometerMaxQueueAge`）—— 一句迟到的「已跑 2 公里」
+        // 会让跑者按一个过期的数字去判断还能跑多久。前置音（单声 0.3 秒）按档自动加。
+        speechService?.speak("已跑 \(kilometers) 公里", priority: .perKilometer)
         // ponytail: 复用既有的三种系统语义之一，不为里程碑自造波形（见 `HapticFeedback`）。
         HapticFeedback.play(.success)
     }
@@ -1828,7 +1847,7 @@ struct BlindOrderStatusView: View {
                 primaryContact: appState.primaryEmergencyContact,
                 onCancelCountdown: {
                     guard appState.emergencyCoordinator.cancelCountdown() else { return }
-                    speechService.speak(EmergencySafetyCopy.countdownCancelled)
+                    speechService.speak(EmergencySafetyCopy.countdownCancelled, priority: .emergency)
                     showEmergencyCountdown = false
                 },
                 onCancelOwnEmergency: {
