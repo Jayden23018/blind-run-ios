@@ -9,6 +9,11 @@
 /* Begin PBXBuildFile section */
 		0A0E0A0100000000000000C3 /* AidRunAPI in Frameworks */ = {isa = PBXBuildFile; productRef = 0A0E0A0100000000000000B3 /* AidRunAPI */; };
 		1C059396A3E75AD40C512BE9 /* Pods_blindRun.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 069303316284F792AF3C8631 /* Pods_blindRun.framework */; };
+		C490E3102FC1000000807A54 /* AidRunWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E30C2FC1000000807A54 /* AidRunWidgetBundle.swift */; };
+		C490E3112FC1000000807A54 /* RunLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E30D2FC1000000807A54 /* RunLiveActivityWidget.swift */; };
+		C490E3122FC1000000807A54 /* RunLiveActivityShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */; };
+		C490E3132FC1000000807A54 /* RunLiveActivityShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */; };
+		C490E3142FC1000000807A54 /* blindRunWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C490E3022FC1000000807A54 /* blindRunWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D097D1DCC74C3A89C47863B7 /* Pods_blindRunTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */; };
 /* End PBXBuildFile section */
 
@@ -27,7 +32,28 @@
 			remoteGlobalIDString = C490E0762FBB552800807A54;
 			remoteInfo = blindRun;
 		};
+		C490E3172FC1000000807A54 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C490E06F2FBB552800807A54 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C490E3012FC1000000807A54;
+			remoteInfo = blindRunWidget;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		C490E3152FC1000000807A54 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				C490E3142FC1000000807A54 /* blindRunWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		069303316284F792AF3C8631 /* Pods_blindRun.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_blindRun.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -40,6 +66,11 @@
 		C490E08E2FBB552A00807A54 /* blindRunUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = blindRunUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C490E24D2FC0924D00807A54 /* LocalConfig.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalConfig.xcconfig; sourceTree = "<group>"; };
 		C490E2512FC0955300807A54 /* BeijingDemo.gpx */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = BeijingDemo.gpx; sourceTree = "<group>"; };
+		C490E3022FC1000000807A54 /* blindRunWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = blindRunWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C490E30C2FC1000000807A54 /* AidRunWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AidRunWidgetBundle.swift; sourceTree = "<group>"; };
+		C490E30D2FC1000000807A54 /* RunLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLiveActivityWidget.swift; sourceTree = "<group>"; };
+		C490E30E2FC1000000807A54 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLiveActivityShared.swift; sourceTree = "<group>"; };
 		CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_blindRunTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F31690AA2891E27444E91434 /* Pods-blindRunTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRunTests.release.xcconfig"; path = "Target Support Files/Pods-blindRunTests/Pods-blindRunTests.release.xcconfig"; sourceTree = "<group>"; };
 		FCD854F16EA9710ADA4DCE3A /* Pods-blindRun.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRun.debug.xcconfig"; path = "Target Support Files/Pods-blindRun/Pods-blindRun.debug.xcconfig"; sourceTree = "<group>"; };
@@ -105,6 +136,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C490E3042FC1000000807A54 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -135,6 +173,7 @@
 			children = (
 				C490E2512FC0955300807A54 /* BeijingDemo.gpx */,
 				C490E0792FBB552800807A54 /* blindRun */,
+				C490E30A2FC1000000807A54 /* blindRunWidget */,
 				C490E0872FBB552A00807A54 /* blindRunTests */,
 				C490E0912FBB552A00807A54 /* blindRunUITests */,
 				C490E0782FBB552800807A54 /* Products */,
@@ -150,8 +189,28 @@
 				C490E0772FBB552800807A54 /* blindRun.app */,
 				C490E0842FBB552A00807A54 /* blindRunTests.xctest */,
 				C490E08E2FBB552A00807A54 /* blindRunUITests.xctest */,
+				C490E3022FC1000000807A54 /* blindRunWidget.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C490E30A2FC1000000807A54 /* blindRunWidget */ = {
+			isa = PBXGroup;
+			children = (
+				C490E30B2FC1000000807A54 /* Shared */,
+				C490E30C2FC1000000807A54 /* AidRunWidgetBundle.swift */,
+				C490E30D2FC1000000807A54 /* RunLiveActivityWidget.swift */,
+				C490E30E2FC1000000807A54 /* Info.plist */,
+			);
+			path = blindRunWidget;
+			sourceTree = "<group>";
+		};
+		C490E30B2FC1000000807A54 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */,
+			);
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -166,10 +225,12 @@
 				C490E0742FBB552800807A54 /* Frameworks */,
 				C490E0752FBB552800807A54 /* Resources */,
 				C7EC16900E29E55F0FAA33F7 /* [CP] Copy Pods Resources */,
+				C490E3152FC1000000807A54 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C490E3162FC1000000807A54 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				C490E0792FBB552800807A54 /* blindRun */,
@@ -225,6 +286,23 @@
 			productReference = C490E08E2FBB552A00807A54 /* blindRunUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		C490E3012FC1000000807A54 /* blindRunWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C490E3062FC1000000807A54 /* Build configuration list for PBXNativeTarget "blindRunWidget" */;
+			buildPhases = (
+				C490E3032FC1000000807A54 /* Sources */,
+				C490E3042FC1000000807A54 /* Frameworks */,
+				C490E3052FC1000000807A54 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = blindRunWidget;
+			productName = blindRunWidget;
+			productReference = C490E3022FC1000000807A54 /* blindRunWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -246,6 +324,9 @@
 						CreatedOnToolsVersion = 26.5;
 						TestTargetID = C490E0762FBB552800807A54;
 					};
+					C490E3012FC1000000807A54 = {
+						CreatedOnToolsVersion = 26.2;
+					};
 				};
 			};
 			buildConfigurationList = C490E0722FBB552800807A54 /* Build configuration list for PBXProject "blindRun" */;
@@ -266,6 +347,7 @@
 			projectRoot = "";
 			targets = (
 				C490E0762FBB552800807A54 /* blindRun */,
+				C490E3012FC1000000807A54 /* blindRunWidget */,
 				C490E0832FBB552A00807A54 /* blindRunTests */,
 				C490E08D2FBB552A00807A54 /* blindRunUITests */,
 			);
@@ -288,6 +370,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C490E08C2FBB552A00807A54 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C490E3052FC1000000807A54 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -365,6 +454,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C490E3132FC1000000807A54 /* RunLiveActivityShared.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -382,6 +472,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C490E3032FC1000000807A54 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C490E3102FC1000000807A54 /* AidRunWidgetBundle.swift in Sources */,
+				C490E3112FC1000000807A54 /* RunLiveActivityWidget.swift in Sources */,
+				C490E3122FC1000000807A54 /* RunLiveActivityShared.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -394,6 +494,11 @@
 			isa = PBXTargetDependency;
 			target = C490E0762FBB552800807A54 /* blindRun */;
 			targetProxy = C490E08F2FBB552A00807A54 /* PBXContainerItemProxy */;
+		};
+		C490E3162FC1000000807A54 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C490E3012FC1000000807A54 /* blindRunWidget */;
+			targetProxy = C490E3172FC1000000807A54 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -820,6 +925,88 @@
 			};
 			name = DemoRelease;
 		};
+		C490E3072FC1000000807A54 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = blindRunWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "助盲跑";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C490E3082FC1000000807A54 /* DemoRelease */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = blindRunWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "助盲跑";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEMO $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = DemoRelease;
+		};
+		C490E3092FC1000000807A54 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = blindRunWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "助盲跑";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jerry.aidrun.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -849,6 +1036,16 @@
 				C490E09C2FBB552A00807A54 /* Debug */,
 				C490E2622FC0D000000807A54 /* DemoRelease */,
 				C490E09D2FBB552A00807A54 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C490E3062FC1000000807A54 /* Build configuration list for PBXNativeTarget "blindRunWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C490E3072FC1000000807A54 /* Debug */,
+				C490E3082FC1000000807A54 /* DemoRelease */,
+				C490E3092FC1000000807A54 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

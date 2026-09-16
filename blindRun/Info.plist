@@ -21,6 +21,13 @@
 	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>
+	<!-- 锁屏实时活动（陪跑中那张卡）。2026-09-16 模拟器 demo 实测：锁屏按钮背后的
+	     AudioPlaybackIntent 在 **app 进程**里执行并且能出声，**不需要**给下面的
+	     UIBackgroundModes 加 audio —— 删掉该键的对照组同样念出来了（didStart/didFinish 都回调）。
+	     所以下面那个数组不要顺手加 audio，那是一条会影响审核的多余后台模式。
+	     依据见 docs/research/ios-live-activity-lock-screen-20260916.md -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

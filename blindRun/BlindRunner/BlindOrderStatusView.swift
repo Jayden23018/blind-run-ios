@@ -814,6 +814,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
     private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
         let previousStatus = order?.status
         order = updated
+        // 锁屏卡顶行那句「陪跑中 · 张伟」。名字只有这一端拿得到，**先于** `updateOwnedOrder`
+        // 送进去 —— 反过来的话进 `IN_PROGRESS` 那一刻起的卡会先顶着一行没有名字的顶行。
+        appState?.liveEscortCoordinator.updateLiveActivityPartnerName(updated.volunteerName?.nilIfBlank)
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         refreshVolunteerDistance()
         updateRunCountdown(from: previousStatus, to: updated.status)
@@ -1085,6 +1088,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
         do {
             let track = try await appState.safety.orderTrack(orderId: order.orderId)
             trackStats = track.blindStats
+            // 推给锁屏卡，顺带复位它自己的节流器 —— 不推的话协调器会为同一单再拉一次
+            // 同一个 `/track`，跑动中每 10 秒多发一个请求。
+            appState.liveEscortCoordinator.submitTrackStats(track.blindStats, orderID: order.orderId)
             announceKilometerMilestoneIfNeeded(track.blindStats)
         } catch {
             // **不清空已有的数字、不播报。** 与 `refreshVolunteerLocationFallbackIfNeeded` 同一条理由：
