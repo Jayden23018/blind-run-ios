@@ -113,13 +113,46 @@ struct BlindRunnerHelpView: View {
                 Text(BlindFirstRunHelp.intro)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textSecondary)
+                    // 见下面 `ForEach` 里那段注释：这一条在 2026-09-16 之前就被审计点名了。
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(BlindFirstRunHelp.intro)
 
                 ForEach(topics) { topic in
                     VStack(alignment: .leading, spacing: 8) {
+                        // `fixedSize` 保留（防真实截断，对的方向），但**它清不掉
+                        // `.textClipped` 审计在这两条 topic 上的点名** —— 2026-09-16 真机
+                        // 三跑实测，别再往这个方向试：
+                        //
+                        //   基线（改文案前）      clipped=1，点名的是上面那条 intro
+                        //   改长文案后            clipped=3（intro + booking + sos）
+                        //   intro 加 fixedSize    clipped=2 ✅ 直接加在 `Text` 上有效
+                        //   这两行加 fixedSize    clipped=2 ❌ 没有变化
+                        //
+                        // 真因是下面那个 `.accessibilityElement(children: .combine)`：
+                        // 审计量的是**合成元素**的几何对它那条很长的 label（`title。body`），
+                        // 而 `fixedSize` 改不了合成元素的报告几何。
+                        //
+                        // 🔑 决定性证据：booking 那条本轮只把「开始约跑」换成
+                        // 「预约新的陪跑」（**+2 个字**），它就从通过翻成失败 ——
+                        // 这个启发式正好卡在阈值上，不是「文案写太长」这种可以调的问题。
+                        //
+                        // 真正的出路只有两条，都不属于首页改版这一轮：
+                        //   ① 拆掉 `.combine` ⇒ 每条 topic 变两个元素，读屏用户从 3 次划动
+                        //      变 6 次，而标题单独一条本身不带信息（见下面那段注释）
+                        //   ② 在 AX5 上实测这一页到底有没有真的裁 —— 它是 `ScrollView`
+                        //      且无高度约束，大字号下只会变高再滚动，所以很可能是误报。
+                        //      测法：`launchApp(contentSizeCategory:)` 已有这个参数。
+                        // 已作为独立任务分出去。
                         HighContrastText(topic.title, style: .status)
+                            .fixedSize(horizontal: false, vertical: true)
                         HighContrastText(topic.body, style: .body)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    // `performAccessibilityAudit` 的 `.textClipped` 报的是
+                    // 「Text of this element **may be clipped at larger Dynamic Type sizes**」
+                    // —— **预测性**检查，不是当前真的裁了（真机截图里文字完整）。
+                    // 加 `fixedSize` 防的是真实截断，与那条审计是两件事，见上面的实测记录。
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     // 标题与正文合成一个焦点：拆开只是让读屏用户多滑三次，
                     // 而标题单独一条（「第一，怎么约跑」）本身不带任何信息。
