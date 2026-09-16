@@ -15,7 +15,12 @@ private struct PartnerRowCard: View {
     let optedOutText: String
 
     private var displayName: String {
-        row.name?.nilIfBlank ?? fallbackName
+        row.displayName(fallback: fallbackName)
+    }
+
+    /// 读屏那一份。屏幕上保留 `张*`，念出来去掉星号 —— 见 `PartnerRow.spokenName`。
+    private var spokenName: String {
+        row.spokenName(fallback: fallbackName)
     }
 
     private var subtitleParts: [String] {
@@ -34,7 +39,7 @@ private struct PartnerRowCard: View {
     /// 🔴 `row.streak == nil` 时**整段不出现**，不念「连续 0 周」——
     /// 契约里「未点亮」是 `null` 而不是 0，两者含义不同。
     private var spokenLabel: String {
-        var parts = [displayName]
+        var parts = [spokenName]
         if let streak = row.streak {
             parts.append("已经连续 \(streak.currentWeeks) 周一起跑步")
             parts.append(streak.progressText)
@@ -54,7 +59,9 @@ private struct PartnerRowCard: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if let streak = row.streak {
-                StreakStrip(partnerName: displayName, streak: streak)
+                // `partnerName` 只进 `StreakStrip` 的 accessibilityLabel（那块的可见文字里没有名字），
+                // 所以传朗读那一份。
+                StreakStrip(partnerName: spokenName, streak: streak)
             }
 
             if !subtitleParts.isEmpty {
@@ -107,6 +114,8 @@ struct BlindFavoriteVolunteersView: View {
     private struct PendingFavoriteRemoval: Identifiable {
         let userId: Int64
         let name: String
+        /// 播报用的同一个名字，去掉掩码星号。存两份的理由同上：关闭那一帧重算会拿到空名字。
+        let spokenName: String
         let confirmation: PartnerStreakCopy.RemoveFavoriteConfirmation
 
         var id: Int64 { userId }
@@ -191,7 +200,14 @@ struct BlindFavoriteVolunteersView: View {
         ) { removal in
             Button(removal.confirmation.confirm, role: .destructive) {
                 pendingRemoval = nil
-                Task { await setFavorite(false, userId: removal.userId, name: removal.name) }
+                Task {
+                    await setFavorite(
+                        false,
+                        userId: removal.userId,
+                        name: removal.name,
+                        spokenName: removal.spokenName
+                    )
+                }
             }
             Button(removal.confirmation.cancel, role: .cancel) { pendingRemoval = nil }
         } message: { removal in
@@ -210,7 +226,10 @@ struct BlindFavoriteVolunteersView: View {
         )
 
         if let userId = row.userId {
-            let name = row.name?.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
+            let name = row.displayName(fallback: PartnerStreakCopy.unknownVolunteerName)
+            // 按钮标题**既是可见文字又是读屏标签**，两者取值不同：屏幕上留 `张*`，
+            // 念出来去掉星号（`PartnerRow.spokenName`），否则读屏念「张星号」。
+            let spokenName = row.spokenName(fallback: PartnerStreakCopy.unknownVolunteerName)
             if row.isFavorite {
                 // 取消收藏**对没退出过的搭档**是可逆的（再收藏一次即可），那一档不做二次确认 ——
                 // AGENTS.md 的二次确认清单给的是不可逆或高代价的动作，
@@ -228,10 +247,11 @@ struct BlindFavoriteVolunteersView: View {
                         pendingRemoval = PendingFavoriteRemoval(
                             userId: userId,
                             name: name,
+                            spokenName: spokenName,
                             confirmation: confirmation
                         )
                     } else {
-                        Task { await setFavorite(false, userId: userId, name: name) }
+                        Task { await setFavorite(false, userId: userId, name: name, spokenName: spokenName) }
                     }
                 }
                 .font(AppFonts.body().weight(.semibold))
@@ -239,6 +259,7 @@ struct BlindFavoriteVolunteersView: View {
                 .buttonShapeOutlineIfNeeded(color: AppColors.destructive)
                 .disabled(busyUserId == userId)
                 .padding(.bottom, 6)
+                .accessibilityLabel(PartnerStreakCopy.removeFavoriteTitle(spokenName))
                 .accessibilityIdentifier("blindRemoveFavoriteButton")
             } else {
                 // 只有火花、还没收藏的一对。
@@ -251,12 +272,13 @@ struct BlindFavoriteVolunteersView: View {
                 // 而火花开关（`app.incentive.streak.enabled`）后端默认关着 ⇒ 开关打开之前，
                 // 本页这个按钮一次也不会出现。订单详情那条不依赖火花，只依赖「跑完过这一单」。
                 Button(PartnerStreakCopy.addFavoriteTitle(name)) {
-                    Task { await setFavorite(true, userId: userId, name: name) }
+                    Task { await setFavorite(true, userId: userId, name: name, spokenName: spokenName) }
                 }
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(AppColors.primary)
                 .buttonShapeOutlineIfNeeded(color: AppColors.primary)
                 .disabled(busyUserId == userId)
+                .accessibilityLabel(PartnerStreakCopy.addFavoriteTitle(spokenName))
                 .accessibilityHint(PartnerStreakCopy.favoriteExplanation)
                 .padding(.bottom, 6)
                 .accessibilityIdentifier("blindAddFavoriteButton")
@@ -267,7 +289,12 @@ struct BlindFavoriteVolunteersView: View {
     /// `PUT` / `DELETE /api/blind/favorite-volunteers/{volunteerId}` —— 两个都**幂等、恒 204**，
     /// 所以不看响应体、也不做本地乐观更新（本地改一份状态就有了第二个真相源），
     /// 改完直接重新拉一次列表。
-    private func setFavorite(_ isFavorite: Bool, userId: Int64, name: String) async {
+    private func setFavorite(
+        _ isFavorite: Bool,
+        userId: Int64,
+        name: String,
+        spokenName: String
+    ) async {
         busyUserId = userId
         defer { busyUserId = nil }
         do {
@@ -276,13 +303,12 @@ struct BlindFavoriteVolunteersView: View {
             } else {
                 try await appState.incentive.removeBlindFavoriteVolunteer(volunteerId: userId)
             }
-            let notice = isFavorite
-                ? PartnerStreakCopy.favoriteAdded(name)
-                : PartnerStreakCopy.favoriteRemoved(name)
-            actionNotice = notice
+            let copy = isFavorite ? PartnerStreakCopy.favoriteAdded : PartnerStreakCopy.favoriteRemoved
+            actionNotice = copy(name)
             errorMessage = nil
             // 盲人端：结果必须念出来。列表刷新是看得见的反馈，播报是听得见的那一半。
-            speechService.announce(notice)
+            // 念的那一句**不是**屏幕上那一句：姓名去掉掩码星号，否则念成「已把张星号设为固定搭档」。
+            speechService.announce(copy(spokenName))
             await load()
         } catch let error as APIError {
             actionNotice = nil
@@ -428,7 +454,7 @@ struct VolunteerPartnersView: View {
         // 只有火花没有收藏关系的一对，本来就不在优先轮里，没有可退的东西。
         if row.isFavorite, !row.hasOptedOut, row.userId != nil {
             Button(PartnerStreakCopy.optOutButtonTitle(
-                row.name?.nilIfBlank ?? PartnerStreakCopy.unknownBlindName
+                row.displayName(fallback: PartnerStreakCopy.unknownBlindName)
             )) {
                 pendingOptOut = row
             }
@@ -436,6 +462,10 @@ struct VolunteerPartnersView: View {
             .foregroundColor(AppColors.destructive)
             .buttonShapeOutlineIfNeeded(color: AppColors.destructive)
             .padding(.bottom, 6)
+            // 可见文字保留 `李*`，念出来去掉星号 —— 见 `PartnerRow.spokenName`。
+            .accessibilityLabel(PartnerStreakCopy.optOutButtonTitle(
+                row.spokenName(fallback: PartnerStreakCopy.unknownBlindName)
+            ))
             .accessibilityIdentifier("volunteerPartnerOptOutButton")
         }
     }
@@ -467,7 +497,8 @@ struct VolunteerPartnersView: View {
     private func optOut(_ row: PartnerRow) async {
         pendingOptOut = nil
         guard let userId = row.userId else { return }
-        let name = row.name?.nilIfBlank ?? PartnerStreakCopy.unknownBlindName
+        // 这一句只上屏、不播报（志愿者侧没有 TTS），所以取掩码原样那一份。
+        let name = row.displayName(fallback: PartnerStreakCopy.unknownBlindName)
         do {
             try await appState.incentive.volunteerOptOutOfFavorite(blindUserId: userId)
             optOutNotice = PartnerStreakCopy.optOutSucceeded(name)

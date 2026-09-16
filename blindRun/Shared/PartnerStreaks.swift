@@ -162,6 +162,22 @@ struct PartnerRow: Equatable {
     let isFavorite: Bool
 }
 
+extension PartnerRow {
+    /// 屏幕上那一份：后端掩码**原样**（`张*`）。
+    func displayName(fallback: String) -> String {
+        name?.nilIfBlank ?? fallback
+    }
+
+    /// 念出来那一份：去掉掩码星号，否则读屏把 `张*` 念成「张星号」——
+    /// 而这块读屏是外放的。理由见 `String.unmaskedForSpeech`。
+    ///
+    /// 🚩 **两份必须分开取。** 本页的搭档姓名同时是按钮可见文字与读屏标签，
+    /// 只留一份就必然有一条通道是错的。
+    func spokenName(fallback: String) -> String {
+        name?.unmaskedForSpeech.nilIfBlank ?? fallback
+    }
+}
+
 enum PartnerRowMerge {
     /// 盲人侧：`GET /api/blind/favorite-volunteers` ⋈ `GET /api/blind/partners/streaks`。
     ///

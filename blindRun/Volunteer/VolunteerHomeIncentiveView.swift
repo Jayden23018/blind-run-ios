@@ -226,7 +226,8 @@ struct VolunteerHomeIncentiveCard: View {
 
                 if let streak = summary.streak {
                     StreakStrip(
-                        partnerName: summary.streakPartnerName?.nilIfBlank
+                        // 只念不显示，所以去掉掩码星号（见 `StreakStrip.partnerName`）。
+                        partnerName: summary.streakPartnerName?.unmaskedForSpeech.nilIfBlank
                             ?? PartnerStreakCopy.unknownBlindName,
                         streak: streak
                     )

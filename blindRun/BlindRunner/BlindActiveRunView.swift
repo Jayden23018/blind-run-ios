@@ -105,7 +105,7 @@ struct BlindActiveRunView: View {
             Text(partnerHeadline)
                 .font(.subheadline.weight(.semibold))
                 .foregroundColor(.white)
-                .accessibilityLabel(partnerHeadline)
+                .accessibilityLabel(spokenPartnerHeadline)
 
             Spacer(minLength: 8)
 
@@ -125,8 +125,19 @@ struct BlindActiveRunView: View {
         }
     }
 
-    private var partnerHeadline: String {
+    /// 屏幕上那一份：姓名是后端掩码原样（`张*`）。
+    ///
+    /// 与 `spokenPartnerHeadline` 都**不是 `private`**：它们是这一屏唯一的姓名出口，
+    /// 而「可见留星号、念出来不留」这条要有一条跑得起来的用例守着
+    /// （`MaskedNameSpeechTests`）。视图本身在单测里构造不渲染，取属性是安全的。
+    var partnerHeadline: String {
         "\(order.status.displayName) · \(order.volunteerName?.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName)"
+    }
+
+    /// 念出来那一份：去掉掩码星号，否则读屏念「陪跑中 · 张星号」。
+    /// 这一屏跑动中长时间开着，这句话是搭档身份的唯一听觉出口。见 `String.unmaskedForSpeech`。
+    var spokenPartnerHeadline: String {
+        "\(order.status.displayName) · \(order.volunteerNameForSpeech)"
     }
 
     /// 🚩 判的是**本机定位新不新鲜**，不是后端的 `ESCORT_SIGNAL_LOST`。

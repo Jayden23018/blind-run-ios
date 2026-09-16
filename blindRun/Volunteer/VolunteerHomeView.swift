@@ -1287,7 +1287,8 @@ struct VolunteerHomeView: View {
                                 VolunteerCurrentOrderCard(order: activeOrder)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
+                            // 姓名去掩码星号：这条只念不显示，原样念是「盲人 李星号」（`String.unmaskedForSpeech`）。
+                            .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName?.unmaskedForSpeech ?? "")，地点 \(activeOrder.startAddress ?? "")")
                             .accessibilityHint("点击进入当前订单")
                             .accessibilityIdentifier("volunteerHomeCurrentOrderCard")
                         }
@@ -1600,7 +1601,8 @@ struct VolunteerHomeView: View {
                     VolunteerCurrentOrderCard(order: activeOrder)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
+                // 姓名去掩码星号：这条只念不显示，原样念是「盲人 李星号」（`String.unmaskedForSpeech`）。
+                .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName?.unmaskedForSpeech ?? "")，地点 \(activeOrder.startAddress ?? "")")
                 .accessibilityHint("点击进入当前订单")
             }
 
@@ -2219,7 +2221,9 @@ private struct VolunteerRecentOrderCard: View {
     /// 没有就整段不念，而不是念一个编出来的「+100」。
     private var accessibilityDescription: String {
         var parts = [
-            "盲人：\(order.blindName ?? "")",
+            // 只念不显示 ⇒ 去掉掩码星号（见 `String.unmaskedForSpeech`）。
+            // 上面卡片里那行可见的 `Text(order.blindName ...)` 保持原样。
+            "盲人：\(order.blindName?.unmaskedForSpeech ?? "")",
             "地点：\(order.startAddress ?? "")",
             "状态：\(order.status.displayName)"
         ]

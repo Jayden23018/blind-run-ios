@@ -537,6 +537,19 @@ extension OrderDetailResponse {
         plannedStart?.nilIfBlank?.displayDateTime
     }
 
+    /// 志愿者姓名的**朗读**形态（去掉掩码星号）。屏幕上仍然渲染 `volunteerName` 原样。
+    ///
+    /// 兜底常量与屏幕上那份共用（`PartnerStreakCopy.unknownVolunteerName`）——
+    /// 两份兜底文案迟早分叉，而分叉的那一半没有任何东西会报警。
+    /// 理由与整条口径见 `String.unmaskedForSpeech`。
+    ///
+    /// ponytail: 刻意**没有**对称的 `blindNameForSpeech`。志愿者端念盲人姓名的那几处没有兜底名
+    /// （拿不到就整段不念），直接写 `blindName?.unmaskedForSpeech ?? ""`；
+    /// 为对称多留一个没人调的属性，只会让下一个人以为两边口径不同。
+    var volunteerNameForSpeech: String {
+        volunteerName?.unmaskedForSpeech.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
+    }
+
     /// 约定的结束时间。
     ///
     /// **取 `plannedEnd`，不许用 `plannedStart + expectedDurationMinutes` 自己推。**
@@ -772,6 +785,20 @@ extension String {
     var nilIfBlank: String? {
         let value = trimmed
         return value.isEmpty ? nil : value
+    }
+
+    /// 去掉后端掩码星号后的**朗读**形态。**屏幕上仍然原样显示 `张*`，只有念出来的那一份去星号。**
+    ///
+    /// 后端下发的姓名一律经 `NameMaskUtils.mask()` 脱敏，契约里 `volunteerName` / `blindName`
+    /// 都逐字写着「始终脱敏」。原样交给 VoiceOver 与 TTS，读屏会把 `张*` 念成「张星号」——
+    /// 而本 App 的读屏是**外放**的，那三个字周围的人都听得见，且「星号」还会被当成名字的一部分。
+    ///
+    /// 去星号不泄露任何信息：掩码之后剩下的本来就只有姓氏。
+    ///
+    /// 半角 `*` 与全角 `＊` 都去 —— 后端哪天换掩码字符，这里至少不会静默退回念星号。
+    /// 返回值可能是空串（整个名字就是一个星号），所以取名字的调用点接 `.nilIfBlank ?? 兜底`。
+    var unmaskedForSpeech: String {
+        filter { $0 != "*" && $0 != "＊" }
     }
 
     /// 后端 `LocalDateTime` 的无时区时间串（`2026-08-04T11:40:42`），**可能带小数秒**

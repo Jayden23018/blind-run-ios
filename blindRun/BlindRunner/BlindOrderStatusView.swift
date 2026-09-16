@@ -673,10 +673,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
         do {
             try await appState.incentive.addBlindFavoriteVolunteer(volunteerId: volunteerId)
             isVolunteerFavorited = true
-            let notice = PartnerStreakCopy.favoriteAdded(name)
-            favoriteNotice = notice
+            favoriteNotice = PartnerStreakCopy.favoriteAdded(name)
             // 盲人端：结果必须念出来。屏幕上那行字是看得见的一半，播报是听得见的那一半。
-            speechService?.speak(notice)
+            // 两半**不是同一个字符串**：屏幕上保留后端的掩码 `张*`，念出来去掉星号，
+            // 否则读屏说的是「已把张星号设为固定搭档」（见 `String.unmaskedForSpeech`）。
+            speechService?.speak(PartnerStreakCopy.favoriteAdded(order.volunteerNameForSpeech))
         } catch let error as APIError {
             if appState.handleAuthenticatedAPIError(error) { return }
             // 两个收藏专属错误码（`FAVORITE_VOLUNTEER_NOT_ELIGIBLE` / `..._LIMIT_EXCEEDED`）
@@ -1705,6 +1706,9 @@ struct BlindOrderStatusView: View {
            order.volunteerId != nil,
            let isFavorited = viewModel.isVolunteerFavorited {
             let name = order.volunteerName?.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
+            // 屏幕上保留后端的掩码（`张*`），念出来去掉星号 —— 同一个名字两份取值，
+            // 理由见 `String.unmaskedForSpeech`。
+            let spokenName = order.volunteerNameForSpeech
             VStack(alignment: .leading, spacing: 8) {
                 if isFavorited {
                     // 已经是搭档时只陈述事实，不给「取消收藏」——
@@ -1714,6 +1718,7 @@ struct BlindOrderStatusView: View {
                         .font(AppFonts.body())
                         .foregroundColor(AppColors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("\(spokenName)已经是你的固定搭档")
                         .accessibilityIdentifier("blindOrderAlreadyFavoriteText")
                 } else {
                     Button(PartnerStreakCopy.addFavoriteTitle(name)) {
@@ -1725,6 +1730,8 @@ struct BlindOrderStatusView: View {
                     .frame(minHeight: 64)
                     .buttonShapeOutlineIfNeeded(color: AppColors.primary)
                     .disabled(viewModel.isUpdatingFavorite)
+                    // 按钮标题既是可见文字又是读屏标签，两者取值不同（见上面 `spokenName`）。
+                    .accessibilityLabel(PartnerStreakCopy.addFavoriteTitle(spokenName))
                     // 🔴 承诺只能说到「更可能」。收藏加的 15 分在满分 100 的五维加权和之外，
                     // 附近有个不错的陌生人时固定搭档仍然会输 —— 说「优先派给他」是承诺一件系统做不到的事。
                     .accessibilityHint(PartnerStreakCopy.favoriteExplanation)
@@ -1738,6 +1745,9 @@ struct BlindOrderStatusView: View {
                         .font(AppFonts.body())
                         .foregroundColor(AppColors.success)
                         .fixedSize(horizontal: false, vertical: true)
+                        // 这一行里嵌着掩码姓名，划到它时 VoiceOver 会再念一遍整句 ——
+                        // 不去星号的话，刚刚播报过的那句在这里又变回「张星号」。
+                        .accessibilityLabel(notice.unmaskedForSpeech)
                         .accessibilityIdentifier("blindOrderFavoriteNotice")
                 }
                 if let failure = viewModel.favoriteErrorMessage {
