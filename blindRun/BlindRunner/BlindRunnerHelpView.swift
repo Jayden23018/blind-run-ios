@@ -33,7 +33,7 @@ enum BlindFirstRunHelp {
                 id: "booking",
                 title: "第一，怎么约跑",
                 body: """
-                在首页双击「开始约跑」，然后说一句话，比如：明天早上七点，跑四十分钟。\
+                在首页双击「预约新的陪跑」，然后说一句话，比如：明天早上七点，跑四十分钟。\
                 系统会把整单念一遍，你说「确认」就下单成功。\
                 预约的开始时间要比现在晚 \(leadMinutes) 分钟以上。
                 """
@@ -41,27 +41,36 @@ enum BlindFirstRunHelp {
             // 两种模式都要讲，且必须讲清哪一种什么都没发出去。
             // 只讲云端那一半，用户会在没有进行中订单时按下去，以为求助已经发出 —— 那正是
             // `EmergencySafetyCopy.homeCallDialogMessage` 在弹窗里要抢先说明的同一件事。
-            // ⚠️ 必须说清是**首页**。Magic Tap 全仓只注册在两处（`BlindRunnerHomeView.swift`
-            // 的 `.accessibilityAction(.magicTap)` 与语音下单页），而它沿响应链查找 ——
-            // 订单状态页是 push 上去的，够不到首页那个注册点，两指双击会落到系统默认动作
-            // （播放音乐）。写「屏幕任意位置」等于教一个在陪跑进行中那一页不生效的手势。
-            // 那一页的求助入口是底部常驻区里的按钮，不是手势。
+            //
+            // 🔴 **2026-09-16 必须改：这一条此前教的是一个已经不存在的按钮。**
+            // 原文逐字是「首页最下面也一直有求助按钮」，而首页那条常驻求助条同一轮被移到了
+            // 「我的」tab。教错紧急入口的位置，代价是**盲人在最坏的时刻按空** ——
+            // 而这是 App 亲口教出来的肌肉记忆，比界面上少一个按钮严重得多。
+            //
+            // ⚠️ Magic Tap 现在注册在 `BlindRunnerTabView.swift` 的 TabView 上（本轮从首页上移），
+            // 它沿响应链查找 ⇒ **三个 tab 都生效**，但**订单状态页是 push 上去的、够不到**
+            // （那一页的求助入口是底部常驻区里的按钮，不是手势）。所以这里说「在首页、记录、
+            // 我的这三页」而不是「屏幕任意位置」—— 后者等于教一个在陪跑进行中那一页不生效的手势。
             BlindHelpTopic(
                 id: "sos",
                 title: "第二，怎么求助",
                 body: """
                 陪跑进行中的时候，订单页面最下面一直有求助按钮，双击它就能发出求助，再确认一次才会真的发出。\
-                首页最下面也一直有求助按钮，在首页还可以用两根手指双击屏幕。\
-                但只有陪跑进行中按下去才会真的发出求助；其他时候它只让你选择拨打紧急联系人或者 110，\
+                平时求助入口在最下面一排的「我的」里，打开「我的」就能在最下面看到它。\
+                在首页、记录、我的这三页，都还可以用两根手指双击屏幕直接叫出它。\
+                但只有陪跑进行中按下去才会真的发出求助；其他时候它只让你选择拨打紧急联系人、120 或者 110，\
                 App 不会代你发送求助。
                 """
             ),
+            // 🔴 同上：这一条原文写「每个页面都有」，而首页那个按钮本轮换了位置。
+            // 说清它在哪比说「每个页面都有」有用 —— 后者听起来像「到处都是」，
+            // 实际是「你得先找到它」。
             BlindHelpTopic(
                 id: "repeat",
                 title: "第三，怎么重听",
                 body: """
                 每个页面都有「重复当前状态」按钮，双击它就会把当前的情况重新念一遍。\
-                错过播报的时候用它。
+                首页那个在「你好」这一行的右边。错过播报的时候用它。
                 """
             )
         ]
@@ -104,13 +113,46 @@ struct BlindRunnerHelpView: View {
                 Text(BlindFirstRunHelp.intro)
                     .font(AppFonts.body())
                     .foregroundColor(AppColors.textSecondary)
+                    // 见下面 `ForEach` 里那段注释：这一条在 2026-09-16 之前就被审计点名了。
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(BlindFirstRunHelp.intro)
 
                 ForEach(topics) { topic in
                     VStack(alignment: .leading, spacing: 8) {
+                        // `fixedSize` 保留（防真实截断，对的方向），但**它清不掉
+                        // `.textClipped` 审计在这两条 topic 上的点名** —— 2026-09-16 真机
+                        // 三跑实测，别再往这个方向试：
+                        //
+                        //   基线（改文案前）      clipped=1，点名的是上面那条 intro
+                        //   改长文案后            clipped=3（intro + booking + sos）
+                        //   intro 加 fixedSize    clipped=2 ✅ 直接加在 `Text` 上有效
+                        //   这两行加 fixedSize    clipped=2 ❌ 没有变化
+                        //
+                        // 真因是下面那个 `.accessibilityElement(children: .combine)`：
+                        // 审计量的是**合成元素**的几何对它那条很长的 label（`title。body`），
+                        // 而 `fixedSize` 改不了合成元素的报告几何。
+                        //
+                        // 🔑 决定性证据：booking 那条本轮只把「开始约跑」换成
+                        // 「预约新的陪跑」（**+2 个字**），它就从通过翻成失败 ——
+                        // 这个启发式正好卡在阈值上，不是「文案写太长」这种可以调的问题。
+                        //
+                        // 真正的出路只有两条，都不属于首页改版这一轮：
+                        //   ① 拆掉 `.combine` ⇒ 每条 topic 变两个元素，读屏用户从 3 次划动
+                        //      变 6 次，而标题单独一条本身不带信息（见下面那段注释）
+                        //   ② 在 AX5 上实测这一页到底有没有真的裁 —— 它是 `ScrollView`
+                        //      且无高度约束，大字号下只会变高再滚动，所以很可能是误报。
+                        //      测法：`launchApp(contentSizeCategory:)` 已有这个参数。
+                        // 已作为独立任务分出去。
                         HighContrastText(topic.title, style: .status)
+                            .fixedSize(horizontal: false, vertical: true)
                         HighContrastText(topic.body, style: .body)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    // `performAccessibilityAudit` 的 `.textClipped` 报的是
+                    // 「Text of this element **may be clipped at larger Dynamic Type sizes**」
+                    // —— **预测性**检查，不是当前真的裁了（真机截图里文字完整）。
+                    // 加 `fixedSize` 防的是真实截断，与那条审计是两件事，见上面的实测记录。
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     // 标题与正文合成一个焦点：拆开只是让读屏用户多滑三次，
                     // 而标题单独一条（「第一，怎么约跑」）本身不带任何信息。

@@ -431,8 +431,44 @@ enum EmergencySafetyCopy {
     /// 有人会为了确认而退出弹层，而那正是他打开它时最不该做的事。
     static let hubSubtitle = "跑步仍在记录"
 
+    /// 🔴 **非 `IN_PROGRESS` 时那句话是假的，必须换。**
+    ///
+    /// 2026-09-16 起求助中心也从订单页四步骨架打开，而那四态（匹配 / 约好 / 出发 / 汇合）
+    /// **没有任何跑步在记录** —— 念「跑步仍在记录」不只是多余，它和同一段里紧接着的
+    /// 「陪跑还没开始」直接打架。而这一段是 `.combine` 合成**一个**无障碍元素的，
+    /// 读屏用户听到的是一句自相矛盾的话，中间没有停顿可以让他判断哪半句算数。
+    ///
+    /// 这一档要回答的是同一个问题的另一个答案：他刚离开的那一页还在不在。
+    static let hubSubtitleBeforeTheRun = "这一单还没开始陪跑"
+
+    static func hubSubtitle(for mode: BlindHomeSOSMode) -> String {
+        switch mode {
+        case .cloudTrigger: return hubSubtitle
+        case .localCall: return hubSubtitleBeforeTheRun
+        }
+    }
+
     /// 收起弹层。**不是右上角的 ✕** —— 管状视力用户看不到角落，可操作元素一律走中间一列。
     static let hubDismissTitle = "收起，返回跑步"
+
+    /// 同上：非 `IN_PROGRESS` 时「返回跑步」指向一个不存在的页面。
+    /// 骨架那四态退回去看到的是订单页，不是跑步执行屏。
+    static let hubDismissTitleBeforeTheRun = "收起，返回订单"
+
+    static func hubDismissTitle(for mode: BlindHomeSOSMode) -> String {
+        switch mode {
+        case .cloudTrigger: return hubDismissTitle
+        case .localCall: return hubDismissTitleBeforeTheRun
+        }
+    }
+
+    /// 收起按钮的 hint。与标题同理，两档指向的页面不是同一个。
+    static func hubDismissHint(for mode: BlindHomeSOSMode) -> String {
+        switch mode {
+        case .cloudTrigger: return "收起求助中心，回到跑步页面"
+        case .localCall: return "收起求助中心，回到订单页面"
+        }
+    }
 
     /// 🔴 第一句必须是「还没有发送求助」。理由与 `locationUnavailable` / `homeCallDialogMessage`
     /// 同源：看不见屏幕的人按下一个红色大块之后，最需要先知道的是**什么都还没发生**。
@@ -447,6 +483,29 @@ enum EmergencySafetyCopy {
     static let hubAnnounceLocationTitle = "播报我的位置"
     static let hubAskQuestionTitle = "问一句"
 
+    /// 🔴 **非 `IN_PROGRESS` 打开求助中心时，底部那条必须说这句话。**
+    ///
+    /// 2026-09-16 起求助中心不再只从陪跑执行屏进入 —— 订单页四步骨架的底部也有一枚
+    /// 「求助与安全」，而那四个状态（匹配 / 约好 / 出发 / 汇合）**一个都不是 `IN_PROGRESS`**。
+    /// 云端求助两端都只在 `IN_PROGRESS` 开放（`AGENTS.md` §6），所以在那四态按下云端那条
+    /// 红胶囊的真实结果是：`EmergencyCoordinator.beginCountdown` 在资格 guard 处落
+    /// `.failed("当前订单状态不能发起求助")`、`startEmergencyCountdown` 因此不弹全屏，
+    /// 而骨架那一屏**没有 `EmergencyStatusNotice` 的渲染点** ——
+    /// 于是长按 3 秒或轻点确认之后，屏幕零变化、一个字也不播。
+    /// 那正是记忆 `claimed-fallback-may-not-exist-in-release` 说的第二种吃法，
+    /// 而它长在这个 App 唯一救命的那条路径上。
+    ///
+    /// 所以那四态的底部整条降级为**本地拨号**，与首页/「我的」tab 那条求助条同一条判据
+    /// （`BlindHomeSOSMode.resolve`）、同一套弹窗（`emergencyCallOptionsDialog`）。
+    static let hubLocalCallNotice = "陪跑还没开始，下方的紧急呼叫只会直接拨号，App 不会代你发送求助。"
+
+    /// 「把这次行程告诉家人」那一格。
+    ///
+    /// 标题不在这里 —— 它随「分享中 / 未分享」变，取自 `RunPlanLiveShareCopy.buttonTitle`
+    /// 与 `stopButtonTitle`（那两串上记着不许宣称送达的约束，不复制第二份）。
+    static let hubShareLiveLocationSubtitle = "家人能看到你的位置"
+    static let hubStopShareLiveLocationSubtitle = "链接立刻失效"
+
     /// 每一格标题下面那行小字。**说的是「按下去会发生什么」，不是同义词复述** ——
     /// 「联系志愿者 / 陪跑员」对看不见的人等于把同一个词说两遍。
     ///
@@ -454,7 +513,8 @@ enum EmergencySafetyCopy {
     /// 漏写一格的表现是「屏幕上少一行字」，而那种缺陷不会有任何东西变红。
     static func hubTileSubtitle(
         _ option: BlindActiveRunSafetyHubOption,
-        contactName: String?
+        contactName: String?,
+        isLiveSharing: Bool = false
     ) -> String {
         switch option {
         case .contactVolunteer: return "直接拨给陪跑员"
@@ -463,6 +523,8 @@ enum EmergencySafetyCopy {
         case .callPrimaryContact: return contactName?.nilIfBlank ?? "紧急联系人"
         case .callMedical: return "摔倒、受伤、身体不适"
         case .callPolice: return "报警"
+        case .shareLiveLocation:
+            return isLiveSharing ? hubStopShareLiveLocationSubtitle : hubShareLiveLocationSubtitle
         case .triggerEmergency: return hubTriggerSubtitle
         }
     }
@@ -509,6 +571,17 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
     case callPrimaryContact
     case callMedical
     case callPolice
+    /// 把这次行程告诉家人（实时分享链接）。
+    ///
+    /// 🚩 **它是迁移进来的，不是新功能**（设计稿 §3.5 的迁移表：「分享实时位置给家人 →
+    /// 求助与安全中心」）。改版前它是订单页那条滚动列表里的一个 64pt 次级按钮
+    /// （`BlindOrderStatusView.runPlanShareSection`），而四步骨架替换了那条列表 ——
+    /// 不迁进来的话，`PENDING_MATCH` → `DRIVER_ARRIVED` 这四态**一个入口都没有**，
+    /// 而 `offersRunPlanShare` 恰好覆盖的就是这四态。
+    ///
+    /// ⚠️ 排在**最后一格**，不是插在中间：拨号三项的位置一格都不许动
+    /// （见 `options` 的注释）。
+    case shareLiveLocation
     case triggerEmergency
 
     /// 顺序固定、不随状态变 —— 盲人靠位置记忆，顺序会变的菜单等于没有位置记忆。
@@ -520,20 +593,26 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
     /// 🚩 **三个拨号项没有被折进一个「紧急呼叫」二级入口。** 那样确实能凑成设计稿上的
     /// 2×2，但代价是跑步途中拨 120 从一跳变成两跳 —— 而 `AGENTS.md` §6 把 120 列成
     /// 与 110 并列的常驻入口，理由恰恰是「念得出来而按不到等于没有」。
-    /// 格子数由这个列表决定（最多 6 格 = 2×3），不由设计稿的行数决定。
+    /// 格子数由这个列表决定（最多 7 格），不由设计稿的行数决定。
+    ///
+    /// - Parameter offersLiveShare: 这一单此刻能不能开分享链接。由调用方按
+    ///   `RunOrderStatus.offersRunPlanShare` 传进来 —— 终态后端返 409，摆一个
+    ///   按下去必然报错的格子对读屏用户是纯噪音。
     static func options(
         volunteerPhone: String?,
-        primaryContact: EmergencyContactResponse?
+        primaryContact: EmergencyContactResponse?,
+        offersLiveShare: Bool = false
     ) -> [BlindActiveRunSafetyHubOption] {
         var options: [BlindActiveRunSafetyHubOption] = []
         // 判据是「拼不拼得出 tel: URL」而不是「字符串非空」：掩码串 `138****1234`
-        // 只取数字位会拼成空号，而空号在界面上看不出任何异常（`EmergencyDialer.telURL`）。
+        // 会被 `telURL` 的掩码闸拦掉（不拦则拼成 `tel://1381234`，一个可能真打给别人的号码）。
         if EmergencyDialer.telURL(for: volunteerPhone) != nil { options.append(.contactVolunteer) }
         options.append(.announceLocation)
         options.append(.askQuestion)
         if EmergencyDialer.telURL(for: primaryContact?.phone) != nil { options.append(.callPrimaryContact) }
         options.append(.callMedical)
         options.append(.callPolice)
+        if offersLiveShare { options.append(.shareLiveLocation) }
         options.append(.triggerEmergency)
         return options
     }
@@ -542,10 +621,15 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
     /// 与其余各项不是同一个视觉层级，也不是同一种后果。
     static func tiles(
         volunteerPhone: String?,
-        primaryContact: EmergencyContactResponse?
+        primaryContact: EmergencyContactResponse?,
+        offersLiveShare: Bool = false
     ) -> [BlindActiveRunSafetyHubOption] {
-        options(volunteerPhone: volunteerPhone, primaryContact: primaryContact)
-            .filter { $0 != .triggerEmergency }
+        options(
+            volunteerPhone: volunteerPhone,
+            primaryContact: primaryContact,
+            offersLiveShare: offersLiveShare
+        )
+        .filter { $0 != .triggerEmergency }
     }
 
     /// SF Symbol。图标是**冗余通道**：色盲用户与低视力用户靠形状区分，
@@ -558,6 +642,8 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
         case .callPrimaryContact: return "person.crop.circle.fill"
         case .callMedical: return "cross.case.fill"
         case .callPolice: return "shield.lefthalf.filled"
+        // `person.2.wave.2.fill` 要 iOS 16.1 —— 同下面 `sos` 那条的坑。这个从 iOS 13 就有。
+        case .shareLiveLocation: return "square.and.arrow.up.fill"
         // ⛔ **不用 `sos`。** 那个符号是 iOS **16.1** 才有的（SF Symbols 4，
         // `name_availability.plist` 里写着 2022.1 → iOS 16.1），而本仓库部署目标是 iOS 16.0 ——
         // 在 16.0 上它渲染成空白，而且不报错、不崩，只是这一格没有图标。
@@ -565,7 +651,11 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
         }
     }
 
-    func title(contactName: String?) -> String {
+    /// - Parameter isLiveSharing: 分享中时这一格的标题换成「停止分享实时位置」。
+    ///   `RunPlanLiveShareStore` 的注释里写着为什么这个状态只能来自本地记录
+    ///   （后端没有查询分享状态的端点），而告知页逐字承诺了「你可以随时停止分享」——
+    ///   所以这一格必须能变成「停止」，否则那句承诺在这一层里就不成立。
+    func title(contactName: String?, isLiveSharing: Bool = false) -> String {
         switch self {
         case .contactVolunteer: return EmergencySafetyCopy.hubContactVolunteerTitle
         case .announceLocation: return EmergencySafetyCopy.hubAnnounceLocationTitle
@@ -573,6 +663,10 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
         case .callPrimaryContact: return EmergencySafetyCopy.homeCallContactTitle(name: contactName)
         case .callMedical: return EmergencySafetyCopy.homeCallMedicalTitle
         case .callPolice: return EmergencySafetyCopy.homeCallPoliceTitle
+        case .shareLiveLocation:
+            return isLiveSharing
+                ? RunPlanLiveShareCopy.stopButtonTitle
+                : RunPlanLiveShareCopy.buttonTitle
         case .triggerEmergency: return EmergencySafetyCopy.title
         }
     }
@@ -616,8 +710,36 @@ enum EmergencyDialer {
     /// 医疗急救。跑步途中摔倒、扭伤、心脏不适对应的是它，不是 110。
     static let medicalNumber = "120"
 
+    /// 掩码标记。`EmergencyContactResponse.maskPhone` 与后端下发的掩码串都用半角 `*`
+    /// （契约里的样例逐字是 `138****1234`）；全角一并拦住，成本为零。
+    ///
+    /// **没有一个可拨号码含 `*`**，所以这条判据没有误报面。`*67` 那类电信功能码
+    /// 本 App 从不拨（唯一的号码来源是后端明文号 + 写死的 110/120）。
+    private static let redactionMarkers: Set<Character> = ["*", "＊"]
+
+    /// 拼 `tel:` URL。**两道闸，缺一条都会拨错号。**
+    ///
+    /// ① 只取数字位 —— 后端明文号可能带空格或横线，直接拼会拼出无效 URL，
+    ///    而无效 URL 的表现是「点了没反应」。
+    ///
+    /// ② 🚨 **带掩码标记的一律拒掉。** 这一条是 2026-08-11 那个真实缺陷的机器守卫。
+    ///    在它之前，判据只有「取完数字位还剩不剩」，于是掩码串 `138****1234`
+    ///    **拼得出** `tel://1381234` —— 不是空号，是一个**七位的、可能真打给别人**的号码，
+    ///    而界面上看不出任何异常。
+    ///
+    ///    `IntroCallTests.testVolunteerSideViewHasNothingDialable` 原先逐字写着
+    ///    「类型上拦不住（两个字段都是 String?），只能靠『拨号入口只读另一个字段』」——
+    ///    **类型上拦不住，值上拦得住。** 靠「记得读对字段」的规则已经失效过一次，
+    ///    而它有 15 个调用点；按 `AGENTS.md` §1，这种事该落成检查而不是留在注释里。
+    ///
+    /// 🚩 provenance 那道防线（`IntroCallView.dialableCounterpartPhone` 恒 nil）
+    /// **保留不动**。两道互不替代：那道管「这个字段该不该用来拨号」（语义），
+    /// 这道管「这个值长得能不能拨」（形状）。后端某天真下发了掩码串时只有这道拦得住。
     static func telURL(for rawNumber: String?) -> URL? {
-        guard let digits = rawNumber?.filter(\.isNumber), !digits.isEmpty else { return nil }
+        guard let rawNumber else { return nil }
+        guard !rawNumber.contains(where: redactionMarkers.contains) else { return nil }
+        let digits = rawNumber.filter(\.isNumber)
+        guard !digits.isEmpty else { return nil }
         return URL(string: "tel://\(digits)")
     }
 
@@ -836,7 +958,7 @@ extension View {
     /// 靠位置记住「往下第二个是 120」，两页排得不一样，记住的那个位置就成了陷阱。
     ///
     /// 号码一律经 `EmergencyDialer.telURL`：它只取数字位，掩码串（`138****1234`）会被
-    /// 拼成空号，而空号在界面上看不出任何异常。
+    /// 拼成 `tel://1381234` —— 不是空号，是个可能真打给别人的七位号码，而界面上看不出任何异常。
     func emergencyCallOptionsDialog(
         isPresented: Binding<Bool>,
         context: EmergencyCallContext,
@@ -877,24 +999,38 @@ extension View {
     ///
     /// 🔴 **轻点「一键求助」仍然走二次确认** —— `AGENTS.md` §6 那句逐字锁定的文案一个字不动、
     /// 一步不减。只有**长按 3 秒**和**自定义无障碍动作**这两条刻意路径跳过它（换成倒计时）。
+    ///
+    /// - Parameter mode: 底部整条走云端求助还是本地拨号。判据复用
+    ///   `BlindHomeSOSMode.resolve` —— 与首页/「我的」tab 那条求助条同一条，
+    ///   理由见 `EmergencySafetyCopy.hubLocalCallNotice`。
     func blindActiveRunSafetyHubSheet(
         isPresented: Binding<Bool>,
+        mode: BlindHomeSOSMode,
         primaryContact: EmergencyContactResponse?,
         volunteerPhone: String?,
         locationError: LocationError?,
+        offersLiveShare: Bool = false,
+        isLiveSharing: Bool = false,
         onAnnounceLocation: @escaping () -> Void,
         onAskQuestion: @escaping () -> Void,
+        onToggleLiveShare: @escaping () -> Void = {},
+        onLocalCall: @escaping () -> Void,
         onTriggerEmergency: @escaping () -> Void,
         onTriggerEmergencyImmediately: @escaping () -> Void
     ) -> some View {
         modifier(
             SafetyHubPresentation(
                 isPresented: isPresented,
+                mode: mode,
                 primaryContact: primaryContact,
                 volunteerPhone: volunteerPhone,
                 locationError: locationError,
+                offersLiveShare: offersLiveShare,
+                isLiveSharing: isLiveSharing,
                 onAnnounceLocation: onAnnounceLocation,
                 onAskQuestion: onAskQuestion,
+                onToggleLiveShare: onToggleLiveShare,
+                onLocalCall: onLocalCall,
                 onTriggerEmergency: onTriggerEmergency,
                 onTriggerEmergencyImmediately: onTriggerEmergencyImmediately
             )

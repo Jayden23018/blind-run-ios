@@ -104,7 +104,7 @@
 
 - [ ] 志愿者接单前：完全隐藏盲人联系电话、紧急联系人、敏感健康信息；自由文本备注一律接单后才可见（枚举 / 布尔字段可以提前给，判据是取值空间封不封闭，见 `AGENTS.md` §8）
 - [ ] 志愿者接单后：显示**掩码**手机号（`EmergencyContactResponse.maskPhone`，`blindRun/Core/Models/ProfileModels.swift:384`）。全号**只进 `tel:`**，不上屏、不进 `accessibilityLabel`；拨号统一走 `EmergencyDialer.telURL/dial`
-  - `PENDING_INTRO_CALL` 是单向的：盲人拿明文号可直拨，志愿者只拿掩码串用于认人。**掩码串绝不能拼 `tel:`**（`138****1234` 会拨成空号且界面看不出异常）
+  - `PENDING_INTRO_CALL` 是单向的：盲人拿明文号可直拨，志愿者只拿掩码串用于认人。**掩码串绝不能拼 `tel:`**（`138****1234` 会被拼成 `tel://1381234` —— 不是空号，是个可能真打给别人的七位号码，而界面看不出异常；`EmergencyDialer.telURL` 自 2026-09-16 起显式拦掩码标记）
 
 > 🔴 2026-09-14 订正。原文写的是「显示盲人**完整**电话号码」——照做就是隐私回退。
 > `AGENTS.md` §8 已于 2026-08-22 改口径：VoiceOver 是外放的，念全号等于把盲人的号码广播给周围所有人

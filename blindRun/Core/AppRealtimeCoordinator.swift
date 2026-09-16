@@ -793,19 +793,66 @@ final class AppRealtimeCoordinator: ObservableObject {
             routeEmergencyNotification(message, kind: kind)
             return
         }
-        let speechText = message.ttsText?.nilIfBlank ?? message.body
         guard !message.body.trimmed.isEmpty else { return }
         if shouldSuppressLifecycleNotification(eventType: eventType) { return }
+        let body = overriddenBody(forEventType: eventType) ?? message.body
+        // 覆盖时**两条通道一起换**。只换屏幕上那行、让 `ttsText` 照念后端原文，
+        // 等于让读屏用户听到的仍是「点击继续等待」——而这条覆盖存在的全部理由就是那句话。
+        let speechText = overriddenBody(forEventType: eventType)
+            ?? message.ttsText?.nilIfBlank
+            ?? message.body
         let notification = RealtimeForegroundNotification(
             stableEventID: message.messageId ?? message.eventId.map(String.init),
             title: message.title,
-            displayText: message.body,
+            displayText: body,
             speechText: speechText,
             priority: Self.clientPriority(forEventType: eventType, serverPriority: message.priority),
             timestamp: message.timestamp,
             isSafetyEvent: Self.isSafetyEventType(eventType)
         )
         enqueue(notification, type: message.type)
+    }
+
+    /// 后端正文指向一个**客户端已经没有的控件**时的替代正文；`nil` = 照播后端原文。
+    ///
+    /// 目前只有一条：`ORDER_CANCELLATION_WARNING` 的模板正文逐字带着「点击继续等待可延长」，
+    /// 而同一个 eventType 覆盖 `PENDING_MATCH` 与 `REMATCHING` 两态，前者那个按钮已删
+    /// （`RunOrderStatus.offersBlindRunnerKeepWaitingControl`）。
+    ///
+    /// 🔴 **判据是「此刻有没有那个按钮」，不是 eventType 本身。** `REMATCHING` 那一侧按钮
+    /// 还在，而且那一按是真延长 —— 在那一态改文案会把一条准确且可执行的提示，换成一句
+    /// 「去取消订单重新预约」，而重新下单要求 ≥30 分钟提前量。两个方向各有代价，
+    /// 所以必须看状态。
+    ///
+    /// 🚩 **`WSAppNotification` 里没有 `orderId`**（`WebSocketModels.swift` 的字段只有
+    /// type / eventId / messageId / eventType / title / body / ttsText / priority / timestamp），
+    /// 所以判不出这条预警说的是哪一张单 —— 这是契约的盲区，不是这里的疏漏。
+    ///
+    /// 已登记的订单可能**同时有两张**：首页登记它那一张、订单详情页登记它那一张，
+    /// 而详情页的 `onDisappear` 只 `stopPolling()`、**不 unregister**，所以退出之后那张还在。
+    ///
+    /// ⇒ 判据取**保守的那一侧**：候选单（`offersKeepWaiting`，也就是这个 eventType 唯一
+    /// 可能指向的两态）**全都**有按钮才照播原文；只要有一张没有、或者一张候选都看不到，
+    /// 就换成不提按钮的说法。
+    ///
+    /// **两个方向的代价不对称，所以不能取 `contains`**：多覆盖一次，`REMATCHING` 的用户
+    /// 少听到一句「可以点继续等待」（按钮还在屏幕上，他能看见/摸到）；少覆盖一次，
+    /// `PENDING_MATCH` 的盲人被明确指去按一个不存在的控件，而他无从判断是自己没找到
+    /// 还是它根本不在。后者更贵。
+    ///
+    /// ⛔ **不许改成匹配正文里的中文片段。** 那正是
+    /// `testSuppressionFollowsEventTypeNotBodyText` 钉住的旧实现：后端改一个字，
+    /// iOS 的播报行为就静默变一次。
+    private func overriddenBody(forEventType eventType: String) -> String? {
+        guard eventType == "ORDER_CANCELLATION_WARNING" else { return nil }
+        // 只看这条预警可能指向的那两态，别把 `DRIVER_EN_ROUTE` 这类无关订单算进来 ——
+        // 它们既不是候选，也永远没有那个按钮，算进来等于恒定覆盖。
+        let candidates = activeOrderStatuses.values.filter(\.offersKeepWaiting)
+        let everyCandidateHasTheControl = !candidates.isEmpty
+            && candidates.allSatisfy(\.offersBlindRunnerKeepWaitingControl)
+        return everyCandidateHasTheControl
+            ? nil
+            : KeepWaitingCopy.cancellationWarningWithoutControl
     }
 
     /// 展示优先级。默认照后端模板给的 `priority`，**只有一条例外**。
@@ -1049,23 +1096,28 @@ final class AppRealtimeCoordinator: ObservableObject {
         for missed in sorted {
             recordObservedNotificationTimestamp(missed.sentAt)
             guard !missed.body.trimmed.isEmpty else { continue }
-            let speechText = missed.ttsText?.nilIfBlank ?? missed.body
+            // 补读走**同一条**正文覆盖。漏掉这里的后果只在断线重连那条路径上出现
+            // （最容易漏测、也最难在真机上复现）：屏幕上那行字是替代文案、补读念的却是
+            // 后端原文「点击继续等待可延长」。
+            let eventType = (missed.eventType ?? "").uppercased()
+            let override = overriddenBody(forEventType: eventType)
+            let speechText = override ?? missed.ttsText?.nilIfBlank ?? missed.body
             enqueue(
                 RealtimeForegroundNotification(
                     stableEventID: "missed:\(missed.id)",
                     title: nil,
-                    displayText: missed.body,
+                    displayText: override ?? missed.body,
                     speechText: speechText,
                     // 补读走同一条抬优先级的规则。断线期间错过的 `ORDER_OVERDUE` 恰恰是最该
                     // 被听见的那条 —— 重连时它已经迟了，再排在派单进度后面就更迟。
                     priority: Self.clientPriority(
-                        forEventType: (missed.eventType ?? "").uppercased(),
+                        forEventType: eventType,
                         serverPriority: missed.priority
                     ),
                     timestamp: missed.sentAt,
                     // 补读同样按类型判呈现强度。断线期间错过的 `REMATCHING_MID_RUN` 是这批里
                     // 最该被听见的一条 —— 它意味着盲人当时已经独自在户外，而他到现在都不知道。
-                    isSafetyEvent: Self.isSafetyEventType((missed.eventType ?? "").uppercased())
+                    isSafetyEvent: Self.isSafetyEventType(eventType)
                 ),
                 type: WSMessageType.appNotification.rawValue
             )

@@ -199,7 +199,21 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 - **这一态还没有志愿者接单**。后端 `order.volunteer` 恒为 null，候选人只存在于 `dispatchCurrentVolunteerId`。直接后果：志愿者调 `GET /api/orders/{orderId}` 会被判 403，他这一刻**拿不到订单详情**，通话页只能吃派单推送 + `GET /api/orders/{orderId}/intro-call`。`IntroCallView` 里的 `startAddress` / `plannedStartTime` 就是为这个冷启动恢复存在的，别当冗余字段删掉。
 - 专用端点四条：`GET /intro-call`（通话页数据）、`POST /intro-call/decision`（表态 `ACCEPT|DECLINE`）、`POST /intro-call/unreachable`（志愿者报「没打通」，**盲人侧没有对应端点**）、`POST /intro-call/notify-incoming`（盲人拨号前提醒志愿者）。
-- **号码单向**：盲人拿到明文号可直拨，志愿者只拿到掩码串用于认人。掩码串**绝不能拼 `tel:`** —— `EmergencyDialer` 只取数字位，`138****1234` 会拨成空号且界面看不出异常（2026-08-11 的真实缺陷）。唯一允许拼 `tel:` 的来源是 `IntroCallView.dialableCounterpartPhone`。
+- **号码单向**：盲人拿到明文号可直拨，志愿者只拿到掩码串用于认人。掩码串**绝不能拼 `tel:`**（2026-08-11 的真实缺陷）。唯一允许拼 `tel:` 的来源是 `IntroCallView.dialableCounterpartPhone`。
+  > 🔄 **2026-09-16 订正一处事实 + 补上机器守卫。** 原文写着「`138****1234` 会拨成**空号**」——
+  > **那句话是错的**，而错得有代价：它让人以为 `telURL` 只取数字位就已经兜住了这件事。
+  > 实际拼出来的是 `tel://1381234`，一个**七位的、可能真打给别人**的号码。
+  > 现在 `EmergencyDialer.telURL` 显式拦掩码标记（`*` / `＊`，见 `redactionMarkers`），
+  > 用例 `EmergencySOSTests.testDialerRefusesMaskedNumbersButKeepsFormattedPlainOnes` 双向钉住
+  > （拒掩码 / 放行带空格横线的明文号与三位急救号 —— 后者是这道闸唯一的误报面）。
+  > provenance 那道防线保留：两道管的不是一件事，一道管「该不该用这个字段拨号」、
+  > 一道管「这个值长得能不能拨」。
+  > **这条是第一次真机执行 `BlindOrderFlowPresentationTests` 时红出来的** ——
+  > 那条用例照着上面那句错话写注释，于是断言靠一个不成立的理由碰巧成立了三周。
+
+  > 契约侧的对应不变量（`demo/docs/api_spec.yaml:6421`，逐字）：
+  > 「要么是能直接拨通的号码，要么是 `null`，永远不会是掩码串」——
+  > 所以 `OrderDetailResponse.volunteerPhone` 上那道闸是**纵深防御**，不是日常路径。
 - **无声拒绝**：响应体不含对方的表态、也不含轮次进度，这不是后端漏字段。只有一方表态时后端**不通知**对方；「这是第 3 位志愿者」本身就是在告诉盲人前两位没成。客户端**也不许自己算**轮次再显示（例如按收到几次 `INTRO_CALL_CONTINUE` 计数）。
 - 盲人的自由文本在这一态**不可见**（`disclosesBlindRunnerNotesToVolunteer` 判 false，见 §8）：一单最多聊 3 位候选人，展示等于交给这一单碰到的每一个人。
 - 窗口 20 分钟（`app.intro-call.window-minutes`，**别硬编码**）；退回时轮次 +1，满 3 轮（`max-rounds`）转 `NO_VOLUNTEER`。
@@ -236,8 +250,34 @@ REMATCHING → CANCELLED（只能盲人 token）
   > 与 `allowsSubmissionWithoutLocation` 完全同构，而那一条从一开始就诚实地这么写了。
   > 要打开闸门需要先回答：无订单时坐标从哪来、误触冷却 60 秒按触发者计的代价、
   > 以及 `enable-independent-sos-safely` 里 4 条真机验证欠账（设备长期离线，从没跑过）。
-- 盲人首页那条常驻求助条是**唯一的例外形态，且它不是例外**：`IN_PROGRESS` 时走上面这条云端链路，
+- **有两处求助入口在非 `IN_PROGRESS` 也开着，它们都不是例外**：`IN_PROGRESS` 时走上面这条云端链路，
   其余任何状态一律降级为**本地拨号**（主紧急联系人 / **120** / 110），**绝不调 `POST /api/emergency/trigger`**。
+  判定两处共用 `BlindHomeSOSMode.resolve`，**新增任何求助入口都必须读它，不许自己判状态**：
+  1. 「我的」tab 底部那条常驻求助条（`BlindHomeSOSBar`）；
+  2. **求助与安全中心底部那条**（`BlindSafetyHubView.emergencyButton`，2026-09-16 起）——
+     订单页四步骨架的底部有一枚「求助与安全」，而它覆盖的四态（匹配 / 约好 / 出发 / 汇合）
+     一个都不是 `IN_PROGRESS`。
+     > 🔴 这一条是**修出来的**，不是设计出来的。骨架刚落地时那一层的底部写死走云端，
+     > 真实后果是：`beginCountdown` 在资格 guard 落 `.failed`、全屏倒计时不弹，
+     > 而骨架那一屏没有 `EmergencyStatusNotice` 的渲染点 ⇒ **长按 3 秒之后屏幕零变化、
+     > 一个字也不播**。用例 `AccessibilityAuditTests`
+     > `testSafetyHubOutsideTheActiveRunOffersLocalDialInsteadOfCloudSOS` +
+     > `EmergencySOSTests.testSafetyHubDowngradesToLocalCallOutsideOfTheActiveRun` 钉住。
+     > 教训是可复用的：**给一个原本只在某一态可达的入口开放新的到达路径时，
+     > 先问那一层里每个动作在新的状态下还成不成立** —— 加的是入口，坏的是别人。
+  > 🔄 **2026-09-16 改口径：它现在挂在「我的」tab 的底部，不在首页。**
+  > 首页按设计稿 `design-reference/order-flow/screens/01-home.png` 收成「问候 + 订单卡 + 预约块」
+  > 三块，那张稿上没有求助条；项目负责人当日拍板删除首页那条、由「我的」tab 兜底。
+  > 组件（`BlindHomeSOSBar`）、判据（`BlindHomeSOSMode.resolve`）、`safeAreaInset` 的挂法
+  > 与「不滚动即可达」这条性质**全部未变**，变的只是它在哪个 tab 上。落点 `BlindRunnerTabView`。
+  >
+  > ⚠️ **代价必须写在这里而不是只写在代码里**：紧急入口从「打开 App 就在眼前」变成
+  > 「先切到第三个 tab」。VoiceOver 用户仍有 magic tap 兜住（手势挂在 tab 容器上，三个 tab
+  > 都能用），而**不开读屏的低视力用户在首页确实够不到它** —— 这是已知的产品取舍，不是疏漏。
+  > 要翻回去只需把 `BlindRunnerTabView.sosBar` 挂回首页，判据一行不用改。
+  > 机器守卫：`AccessibilityAuditTests.testBlindRunnerTabBarOffersHomeHistoryAndProfile`
+  > 断言切到「我的」之后求助条真的在 —— 没有它，「三个 tab 上都摸不到求助」的表现
+  > 只是「首页干净了」，不会有任何东西报警。
   > 2026-09-15 补 `120`。原文只写了「主紧急联系人 / 110」，而 2026-09-08 起 `120` 已是
   > 并列的可点入口（`EmergencySafetyCopy.homeCallMedicalTitle`）。理由写在 `SafetyModule.swift:203-206`：
   > 用户在**跑步**，摔倒、扭伤、心脏不适是最可能发生的紧急情况，而它们对应的是急救不是报警；

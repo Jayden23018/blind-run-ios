@@ -10,9 +10,10 @@ private enum BlindRunnerRoute: Hashable {
     /// 表单没有消失，在预约页里按「改用表单」即可。
     case voiceBooking
     case orderStatus(Int64)
-    case settings
-    /// 首次使用引导。首次进首页自动推入一次，也可从设置进入。
+    /// 首次使用引导。首次进首页自动推入一次，也可从「我的」进入。
     case help
+    // `.settings` 已移除：设置改成底部标签栏的「我的」，不再是首页右上角的悬浮齿轮，
+    // 所以首页这条导航栈里没有它的落点了。入口本身没有消失，见 `BlindRunnerTabView`。
 }
 
 // MARK: - Blind Runner Home ViewModel
@@ -52,8 +53,26 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         activeOrder?.status.canBlindRunnerCancel == true
     }
 
+    /// 能不能开始一次新的预约。
+    ///
+    /// 🔄 **2026-09-16 去掉了 `activeOrder == nil` 这个闸 —— 它是跨天预约上线前的遗留。**
+    ///
+    /// 后端现在允许同时握着多张未走完的单：`DUPLICATE_ORDER` 只拦**时段冲突**
+    /// （`api_spec.yaml:1485` 逐字「与该盲人任一未走完的订单在时间上重叠时拒绝」），
+    /// 并发上限是 `TOO_MANY_SCHEDULED_ORDERS` 的 3 张（`:1489`，配置
+    /// `app.order.max-concurrent-scheduled`）。`AGENTS.md` §5 也写着
+    /// 「`DUPLICATE_ORDER` 自 2026-09-05 起只拦时段冲突，文案别再写「您有进行中的订单」」。
+    ///
+    /// 留着那个闸的后果不是「少一个入口」，而是**设计稿要求常驻的预约块在有订单时
+    /// 变成一个按不动、且解释错误的入口**：按下去播「订单状态尚未确认，请先重试加载」，
+    /// 而真实原因是「你已经有一张单了」—— 用户会当成网络问题反复重试，而重试多少次都不会变。
+    /// 真机实测由 `testBlindHomeWithAnActiveOrderKeepsBothBlocksReachable` 抓到
+    /// （`passed=18 failed=6`，2026-09-16 iPhone 16 Pro）。
+    ///
+    /// 仍然要求加载已落定：那道闸防的是「状态还没确认就下单」，与有没有活跃订单无关。
+    /// 时段冲突与并发上限交给后端判 —— 客户端拿不到「未走完的单有几张」，
+    /// 自己算就是第二个源。被拒时按错误码播报（skill `aidrun-error-codes`）。
     var canStartNewBooking: Bool {
-        guard activeOrder == nil else { return false }
         if case .loaded = orderLoadState { return true }
         return false
     }
@@ -307,6 +326,15 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         speakCurrentStatus()
     }
 
+    /// 🔴 **播报里提到的控件名必须与它的 `accessibilityLabel` 逐字一致。**
+    ///
+    /// 读屏用户是**按标签找控件**的：播报说「可以点击开始约跑」而屏幕上那个按钮叫
+    /// 「预约新的陪跑」时，用户会逐个划过去找一个不存在的名字 —— 导航指令当场失效，
+    /// 而界面上看不出任何异常。2026-09-16 首页改版时这两句就漏改了一轮。
+    ///
+    /// 这条抓不成守卫：中文文案漂移的静态匹配实测误报 93%
+    /// （`AccessibilityAuditTests` 里 `safetyHubLabel` 那段注释记着同一件事）。
+    /// 改按钮标签时自己搜一遍播报文案。
     func speakCurrentStatus(locationDescription: String? = nil) {
         if let activeOrder {
             speechService?.speakStatusChange(
@@ -315,7 +343,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
             )
         } else {
             let locationText = locationDescription.map { "当前位置：\($0)。" } ?? ""
-            speechService?.speak("欢迎来到助盲跑。\(locationText)可以点击开始约跑。")
+            speechService?.speak("欢迎来到助盲跑。\(locationText)可以点击预约新的陪跑。")
         }
     }
 
@@ -350,7 +378,7 @@ final class BlindRunnerHomeViewModel: ObservableObject {
         if let activeOrder {
             speechService?.speak(homeAnnouncement(for: activeOrder, locationDescription: locationDescription))
         } else {
-            speechService?.speak("当前没有进行中的预约。\(locationDescription)可以点击开始约跑。")
+            speechService?.speak("当前没有进行中的预约。\(locationDescription)可以点击预约新的陪跑。")
         }
     }
 
@@ -469,13 +497,22 @@ struct BlindRunnerHomeView: View {
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
     @EnvironmentObject private var speechInputService: SpeechInputService
-    @StateObject private var viewModel = BlindRunnerHomeViewModel()
+
+    /// **由 `BlindRunnerTabView` 注入，不再自己 `@StateObject` 持有。**
+    ///
+    /// 理由是安全的：「我的」tab 底部那条兜底求助条要用同一个 `activeOrder` 判走云端还是走
+    /// 本地拨号（`BlindHomeSOSMode.resolve`）。两个 tab 各持一个 view model 会让两处看到
+    /// 不同的订单，而其中一处决定的是求助发不发得出去。所有权因此上移一层。
+    @ObservedObject var viewModel: BlindRunnerHomeViewModel
+
     @State private var path: [BlindRunnerRoute] = []
-    @State private var showCancelConfirmation = false
-    @State private var showEmergencyConfirmation = false
-    @State private var showCallOptions = false
-    /// 横屏（含 iPhone 横置、iPad 分屏的矮窗口）判定。
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// `.task` 只跑一次的闸。见 `.task` 里的说明 —— 它在 `TabView` 里会随每次切回本 tab
+    /// 重跑，而重跑会重推引导页、重播一整段 15~25 秒的状态播报。
+    ///
+    /// 用 `@State` 而不是 view model 上的属性：它描述的是**这个视图实例**跑过没有，
+    /// 而 view model 现在由 `BlindRunnerTabView` 持有、生命周期比这一页长。
+    @State private var didRunInitialLoad = false
     /// 订单出现或消失后，这一屏换掉的正是主内容块，焦点会被系统收走且落点不确定。
     /// 已经有 `speakStatusChange` 在播报变化，焦点不跟过来就是「听到了，但滑不到」。
     ///
@@ -483,60 +520,38 @@ struct BlindRunnerHomeView: View {
     /// 没订单的用户进首页不会被抢焦点。
     @AccessibilityFocusState private var focusedSection: BlindHomeFocusTarget?
 
-    /// 地图在视觉上占据的高度，`mapRevealHeight` 是内容层为它让出的部分 ——
-    /// 两者相差的一段就是内容盖住地图下沿的量，做出「面板压在地图上」的层次。
-    ///
-    /// **横屏必须压扁**：这两个值原本是写死的 300 / 236。iPhone 横屏可用高度约 390pt，
-    /// 300pt 的装饰性地图会吃掉 77% 的屏幕，把「开始约跑」整个挤到折叠线以下 ——
-    /// 而地图在这个 App 里是 `allowsHitTesting(false)` 的纯装饰层
-    /// （不承载任何必要信息，文字版在 `locationSummarySection`）。
-    /// 让一个不可交互的装饰把唯一的主操作挤出屏幕，是本末倒置。
-    ///
-    /// 用 `verticalSizeClass` 而不是 `GeometryReader`：只需要区分「横屏/竖屏」这一个二值，
-    /// 引 `GeometryReader` 要重排整个内容层，不值这个复杂度。
-    ///
-    /// **竖屏也压过一次（300/236 → 200/150）**：横屏那轮只修了横屏，同一个本末倒置在竖屏上
-    /// 仍然成立，只是程度轻到没被当成 bug。按 iPhone 15（852pt）默认字号排一遍无订单态：
-    /// 让位 236 + 内边距 28 + 标题区约 64 + 间距 24 + 「开始约跑」280 + 间距 24 = 656pt，
-    /// 而底部 SOS 条（64pt 按钮 + 上下 16 + 安全区 34）之上只剩到 738pt ——
-    /// 「重复当前状态」落在 656–720，**首屏只露得出小半截**。
-    /// 它是 `AGENTS.md` 要求每个盲人页面都有的 M 档入口，却要先滚动才看得全。
-    ///
-    /// 这一刀切掉的 86pt 全给内容：同样排法下按钮落到 570–634，默认字号首屏整条可见。
-    /// 对 VoiceOver 用户（A 类）没有区别 —— 滑动本来就到得了；受损的一直是**低视力且不开读屏**
-    /// 的 B 类，他们只有「看得见的那一屏」这一条通道。见
-    /// `docs/research/blind-ui-visual-benchmark-20260808.md` 规则 5「地图是装饰，列表是界面」。
     /// 「首页是最前面那一页了，而且它还欠着一次状态播报」。
     /// 做成派生值是为了让下面那个 `onChange` 一条盖住两种到达顺序 —— 详见它的注释。
     private var shouldSettleHomeAnnouncement: Bool {
         path.isEmpty && viewModel.owesStatusAnnouncement
     }
 
-    private var mapVisualHeight: CGFloat { verticalSizeClass == .compact ? 140 : 200 }
-    private var mapRevealHeight: CGFloat { verticalSizeClass == .compact ? 96 : 150 }
-
-    /// 「开始约跑」吃掉内容区的大半。此前它是 `minHeight: 64` —— 和「重复当前状态」一样高，
-    /// 视觉上根本不像主按钮。对标 Be My Eyes 的 `Call a volunteer`（占内容区约 75%，
-    /// 见 `docs/research/blind-ui-visual-benchmark-20260808.md` §1）。
-    ///
-    /// 这块面积对全盲用户没有点击收益 —— VoiceOver 选中后在屏幕任意位置双击都能激活，
-    /// 物理面积不参与激活。它服务的是低视力用户和没开读屏的用户。
-    ///
-    /// ponytail: 固定高度而不是按屏高算比例。小屏（SE）上会滚动，而 ScrollView 本来就在；
-    /// 要按比例得引 GeometryReader 重排整个内容层，不值这个复杂度。
-    @ScaledMetric(relativeTo: .largeTitle) private var primaryBookingHeight: CGFloat = 280
+    // 🗑 **装饰地图已从首页移除**（`mapBackgroundLayer` / `mapVisualHeight` / `mapRevealHeight`
+    // 三者一并删除）。它是 `allowsHitTesting(false)` + `isDecorative` 的纯装饰层，
+    // 信息在 `locationSummarySection` 里有文字版 —— 而设计稿把首页收成「问候 + 订单卡 +
+    // 预约块」三块，地图没有位置，文字版那一行也随之删除（位置信息在订单卡的地点行里）。
+    //
+    // 连带失效的一整段历史：为压扁它做过两轮（300/236 → 200/150 → 横屏 140/96），
+    // 理由都是「不可交互的装饰不该把唯一的主操作挤出屏幕」。删掉地图之后这个矛盾不再存在。
+    // 详见 `docs/research/blind-ui-visual-benchmark-20260808.md` 规则 5「地图是装饰，列表是界面」。
+    //
+    // 🗑 **280pt 的「开始约跑」巨按钮也随之删除**（`primaryBookingHeight`）。设计稿改成
+    // 「深蓝订单卡占最大位置、浅蓝预约块在其下」的两块结构：最大的位置留给**即将开始的那一单**
+    // 而不是留给下单动作 —— 打开 App 第一句该听到的是最重要的信息。无订单时预约块上移到
+    // 订单卡的位置，仍然是这一屏唯一的主操作。
 
     var body: some View {
         NavigationStack(path: $path) {
-            ZStack(alignment: .top) {
-                mapBackgroundLayer
-                contentLayer
-                settingsOverlay
-            }
-            .background(AppColors.background)
-            .safeAreaInset(edge: .bottom) { sosBar }
-            // 全屏手势：读屏用户不必先找到按钮。两种模式都走同一个入口。
-            .accessibilityAction(.magicTap) { activateSOS() }
+            contentLayer
+            .background(AppColors.Flow.page)
+            // 🗑 底部常驻求助条已从首页移除（项目负责人 2026-09-16 拍板），改由「我的」tab
+            // 底部兜底 —— 同一个 `BlindHomeSOSBar`、同一条 `BlindHomeSOSMode.resolve` 判据，
+            // 见 `BlindRunnerTabView`。`AGENTS.md` §6 与 `docs/05-page-specs.md` 已同步改口径。
+            //
+            // 🔴 **magic tap 手势刻意保留，并上移到了 `BlindRunnerTabView`。**
+            // 它不占任何像素，所以与设计稿不冲突；而删掉它是纯损失 ——
+            // 对 VoiceOver 用户，它是首页上唯一还能直达紧急入口的通道。
+            // 挂在 tab 容器上而不是这一页，是为了三个 tab 上都能用，且弹窗只需接一处。
             .navigationTitle("")
             .navigationBarHidden(true)
             .navigationDestination(for: BlindRunnerRoute.self) { route in
@@ -553,16 +568,26 @@ struct BlindRunnerHomeView: View {
                 }
                 locationService.startUpdating()
             }
-            .onDisappear {
-                viewModel.cancelLoading()
-            }
+            // 🔴 **`onDisappear` 不再取消加载。** 2026-09-16 起这一页在 `TabView` 里，
+            // 切到「记录」/「我的」就会走 `onDisappear` —— 而「我的」那条兜底求助条的
+            // 模式判据（`BlindHomeSOSMode.resolve`）读的正是同一个 `activeOrder`。
+            //
+            // 取消的后果是一场**决定求助走不走云端的竞态**：`IN_PROGRESS` 中冷启动、
+            // 用户在 20 秒加载上限内切到「我的」找求助 ⇒ 加载被这一行取消 ⇒ `activeOrder`
+            // 恒 nil ⇒ 求助条落 `.localCall` 本地拨号档，云端 SOS（记录事件 + 通知平台）
+            // 这一轮不会发生，而用户**无从得知模式被降级了**。而「我的」tab 自己没有加载入口，
+            // WebSocket 那条也救不了（`applyRealtimeStatus` 首行 `guard let current = activeOrder`）。
+            // `AGENTS.md` §6 写的是「模式由订单状态决定，用户不可选」—— 不是由一场竞态决定。
+            //
+            // 原来那行存在的理由是「页面走了就别占着网络」，而现在这一页**并没有走**，
+            // 只是不在最前面。真正离开盲人端（切角色 / 退出登录）时 view model 随
+            // `BlindRunnerTabView` 一起释放，`Task` 自然取消。
             .onChange(of: viewModel.activeOrder?.status) { status in
                 focusedSection = status == nil ? .newBooking : .activeOrder
             }
             .task {
                 // 引导先于订单加载推入：它不依赖订单，而等加载完再跳会让用户先听半句首页播报
-                // 再被切走。`.task` 只在根视图首次出现时跑，所以从引导页返回不会把人弹回去；
-                // 标志只在按下「知道了」时才写（`markBlindFirstRunHelpSeen`），
+                // 再被切走。标志只在按下「知道了」时才写（`markBlindFirstRunHelpSeen`），
                 // 没看完就退出的人下次重进 App 仍会拿到引导。
                 //
                 // 🚩 但光换顺序不够：加载**回来**得比引导页的 `.task` 晚，而
@@ -570,6 +595,19 @@ struct BlindRunnerHomeView: View {
                 // 念到一半的说明切断（2026-09-07 真机报障）。所以引导在场时首页静音加载，
                 // 播报推迟到用户按「知道了」（见下面的 `onChange`）。
                 // 传 false 是**推迟**不是取消，还账在下面的 `onChange`。
+                //
+                // 🔴 **`.task` 在 TabView 里会随每次切回本 tab 重跑**（SwiftUI 把它绑在
+                // 视图出现/消失上，不是「根视图首次出现」—— 改成 tab 容器之后那句旧注释
+                // 不再成立）。两个后果都要挡住，所以下面有 `didRunInitialLoad` 这道闸：
+                //   ① 用返回键（不是「知道了」）退出引导的人，`didSeeBlindFirstRunHelp`
+                //      仍为 false ⇒ 每次切回首页都会被再 push 一次引导页
+                //   ② 每次切回首页都重跑一遍 `loadActiveOrder` 并**重播一整段状态**
+                //      （15~25 秒）—— 对读屏用户是每次切 tab 都被打断
+                // 刷新仍然有：WebSocket 推进走 `applyRealtimeStatus`，手动走「重试加载」，
+                // 订单详情页返回时由它自己的回调写回。这道闸只挡「切 tab 引起的重跑」。
+                guard !didRunInitialLoad else { return }
+                didRunInitialLoad = true
+
                 let showsFirstRunHelp = !appState.didSeeBlindFirstRunHelp
                 if showsFirstRunHelp {
                     path.append(.help)
@@ -592,176 +630,175 @@ struct BlindRunnerHomeView: View {
                 guard shouldSettle else { return }
                 viewModel.announceStatusIfOwed()
             }
-            .confirmationDialog("取消订单", isPresented: $showCancelConfirmation) {
-                Button("确认取消", role: .destructive) {
-                    Task { await viewModel.cancelActiveOrder() }
-                }
-                Button("不取消", role: .cancel) {}
-            } message: {
-                Text("确认取消本次预约？取消后将结束本次服务。")
-            }
-            .emergencyConfirmationAlert(isPresented: $showEmergencyConfirmation, audience: .runner) {
-                Task { await viewModel.enterEmergency(locationService: locationService) }
-            }
-            .emergencyCallOptionsDialog(
-                isPresented: $showCallOptions,
-                context: callContext,
-                primaryContact: primaryEmergencyContact
-            )
+            // 🗑「取消订单」的确认弹窗已从首页移除。设计稿把首页收成两块，取消属于低频的
+            // 破坏性操作，归宿是订单页信息列表的最后一行（`AGENTS.md` §5 的可取消状态不变，
+            // `BlindRunnerHomeViewModel.cancelActiveOrder` 保留未动 —— 只是首页不再有入口）。
+            //
+            // 🗑 两个紧急弹窗随求助条一并上移到 `BlindRunnerTabView`：magic tap 可以在任意
+            // tab 触发，弹窗挂在 tab 容器上才呈现得出来。挂在这一页的话，从「记录」或
+            // 「我的」触发时弹窗所在的视图不在屏上，用户按了没有任何反应。
         }
     }
 
-    // MARK: - Layers
+    // MARK: - Content
 
-    /// 背景层：地图铺满上半屏，**对读屏完全隐藏**。
+    /// 首页只有三块：问候 → 深蓝订单卡 → 浅蓝预约块。
     ///
-    /// 这一层是纯装饰：不可交互（`allowsHitTesting(false)`），且不承载任何必要信息
-    /// （同样的内容在 `locationSummarySection` 里有文字版）。装饰性内容的标准处理就是
-    /// 对辅助技术隐藏 —— 读屏用户进首页 0 次多余划动就够到唯一的主操作，比「排到内容后面」
-    /// 还好一档。低视力用户看到的画面完全不变。
+    /// **没有待进行订单时深蓝卡整块不渲染，预约块自然上移到它的位置** —— 不是靠 Spacer
+    /// 顶上去，而是它本来就是 `VStack` 里的下一个元素。
     ///
-    /// **为什么不是「排到内容后面」**：SwiftUI 把 VoiceOver 遍历顺序绑死在**绘制顺序**上，
-    /// 而地图必须画在最底层。2026-08-14 在真机上逐个实测了四种排法 —— 裸
-    /// `accessibilitySortPriority`、换声明顺序 + `zIndex` 维持视觉、三层都加
-    /// `accessibilityElement(children: .contain)` 再排、把地图改成内容层的 `.background`
-    /// —— 地图**一律**排在内容前面。`accessibilitySortPriority` 在这个结构里是空操作，
-    /// 别再往回加。详见 `docs/research/swiftui-voiceover-traversal-order-20260814.md`。
-    ///
-    private var mapBackgroundLayer: some View {
-        // 隐藏必须由 `isDecorative` 在 `MapViewWrapper` **内部**完成。
-        //
-        // 2026-08-22 之前这里写的是在外层加 `.accessibilityHidden(true)`，而它**盖不住** ——
-        // `MapViewWrapper` 内部的 `.accessibilityElement(children: .ignore)` + `.accessibilityLabel`
-        // 会合成一个新元素，真机上（真 key 构建）`Other 402x200 «地图，显示当前位置和订单地点»`
-        // 照样排在 `blindRunnerHomeScrollView` 前面。`30b0770` 当时只验了占位图路径，
-        // 而生产构建走的是真 key 那条，所以这个洞一直开着。
-        // 现在的修法是根本不合成那个元素 —— 藏不住一个不存在的元素。
-        // 回归钉子：`testRealAMapEnabledSmoke`（已验红）。
-        MapViewWrapper(
-            centerCoordinate: viewModel.activeOrder?.startCoordinate ?? locationService.effectiveBackendLocation,
-            showsUserLocation: locationService.isAuthorized,
-            annotations: activeOrderMapAnnotations,
-            isDecorative: true
-        )
-        .frame(maxWidth: .infinity)
-        .frame(height: mapVisualHeight)
-        .allowsHitTesting(false)
-        .ignoresSafeArea(edges: .top)
-    }
-
+    /// **多个待进行订单时只显示最近的一个。** 这不是客户端挑的：数据源
+    /// `GET /api/orders/active` 由服务端判「哪一条算活着」并只返回一条
+    /// （见 `performActiveOrderLoad` 的注释）。其余在「记录」tab 里。
     private var contentLayer: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                // 纯视觉留白，把地图让出来。读屏里不存在这一段。
-                Color.clear
-                    .frame(height: mapRevealHeight)
-                    .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 16) {
+                greetingRow
+                    .padding(.leading, 4)
+                    .padding(.top, 18)
 
-                VStack(spacing: 24) {
-                    homeSections
+                if viewModel.isLoading {
+                    syncNotice
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 28)
-                // 先限宽再居中：内容列在 iPad / 横屏上不铺满整屏，见 `BlindLayout.readableContentWidth`。
-                // 背景仍然铺满，所以视觉上还是一整块面板压在地图上，只是文字不横跨全宽。
-                .readableContentColumn()
-                // ponytail: 直角。只圆上面两角要 iOS 16.4 的 UnevenRoundedRectangle 或自定义 Path，
-                // 而本工程下限是 iOS 16 —— 视觉收益不值这个兼容成本。
-                .background(AppColors.background)
+
+                if let errorMessage = viewModel.errorMessage {
+                    errorSection(errorMessage)
+                }
+
+                if let order = viewModel.activeOrder {
+                    BlindHomeOrderCard(order: order) {
+                        path.append(.orderStatus(order.orderId))
+                    }
+                    .accessibilityFocused($focusedSection, equals: .activeOrder)
+                    .padding(.top, 6)
+                }
+
+                BlindHomeBookingBlock(isEnabled: viewModel.canStartNewBooking) {
+                    if viewModel.canStartNewBooking {
+                        path.append(.voiceBooking)
+                    } else {
+                        viewModel.explainBookingUnavailable()
+                    }
+                }
+                .accessibilityFocused($focusedSection, equals: .newBooking)
+
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
+            .padding(.bottom, 28)
+            // 内容列在 iPad / 横屏上不铺满整屏，见 `BlindLayout.readableContentWidth`。
+            .readableContentColumn()
         }
+        .background(AppColors.Flow.page)
+        // identifier 与改版前逐字相同：UI 测试拿它当「不吃点击的安全落点」敲屏幕
+        // （守卫 `blind-tap-center` 的存在理由）。改名会让那几条用例找不到落点。
         .accessibilityIdentifier("blindRunnerHomeScrollView")
     }
 
-    /// 设置齿轮悬浮在地图右上角：视觉上还在老位置，但读屏遍历排到最后 ——
-    /// 它此前在 header 的 `HStack` 里，于是每次进首页都是遍历到的第 2 个元素。
+    /// 问候行：「你好，{姓名}」+ 右侧「重复当前状态」图标。
     ///
-    /// 「排到最后」靠的是它在 `body` 的 ZStack 里**最后声明**（遍历顺序 = 绘制顺序），
-    /// 不是 `accessibilitySortPriority` —— 那个修饰符在这个结构里实测无效，已移除。
-    private var settingsOverlay: some View {
-        HStack {
-            Spacer()
-            Button {
-                path.append(.settings)
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.title2)
-                    .foregroundColor(AppColors.textPrimary)
-                    .frame(width: 64, height: 64)
-                    .background(AppColors.background.opacity(0.9), in: Circle())
-            }
-            .accessibilityLabel("设置")
-            .accessibilityHint("进入设置页面，可以编辑资料、实名认证或退出登录")
-        }
-        .padding(.horizontal, 12)
-    }
+    /// 姓名取 `blindProfile?.name`，没填就只说「你好」—— 不摆「未填写」这种占位，
+    /// 也不改用手机号（那会在读屏外放时把号码念出来）。
+    private var greetingRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(greetingText)
+                .flowFont(FlowFonts.homeGreeting())
+                .foregroundColor(AppColors.Flow.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("blindRunnerHomeGreeting")
 
-    private var sosBar: some View {
-        BlindHomeSOSBar(
-            coordinator: appState.emergencyCoordinator,
-            mode: sosMode,
-            action: activateSOS,
-            onLocalCall: { showCallOptions = true }
-        )
-        // 与内容列同宽：不限的话 SOS 条在 iPad 上是一条 1024pt 宽的红杠，
-        // 和上面 700pt 的内容列左右都对不齐。材质背景仍铺满整宽。
-        .readableContentColumn()
-        .padding(.horizontal, 24)
-        .padding(.top, 12)
-        .padding(.bottom, 4)
-        .background(.ultraThinMaterial)
-    }
-
-    @ViewBuilder
-    private var homeSections: some View {
-        Group {
-            header
-
-            if viewModel.isLoading {
-                Label(
-                    "正在后台同步当前状态，页面仍可使用",
-                    systemImage: "arrow.triangle.2.circlepath"
-                )
-                .font(AppFonts.caption())
-                .foregroundColor(AppColors.textSecondary)
-                .accessibilityLabel("正在后台同步当前状态，页面仍可使用")
-            }
-
-            if let errorMessage = viewModel.errorMessage {
-                VStack(spacing: 10) {
-                    Text(errorMessage)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.destructive)
-                        .accessibilityLabel(errorMessage)
-                    // 错误态下这是唯一的出路，按项目 64pt 硬规则给足触达 ——
-                    // `.bordered` 的系统默认高度约 34pt，达不到。
-                    Button("重试加载") {
-                        Task { await viewModel.loadActiveOrder() }
-                    }
-                    .font(AppFonts.body().weight(.semibold))
-                    .foregroundColor(AppColors.primary)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: 64)
-                    .background(AppColors.secondaryBackground)
-                    .cornerRadius(12)
-                    .accessibilityHint("重新加载当前订单状态")
-                }
-            }
-
-            if let order = viewModel.activeOrder {
-                activeOrderSection(order)
-                    .accessibilityFocused($focusedSection, equals: .activeOrder)
-            } else {
-                newBookingSection
-                    .accessibilityFocused($focusedSection, equals: .newBooking)
-            }
-
-            // 无订单时不给这个按钮 —— 它在那个状态下没有答案可给，见 `askQuestionButton` 的注释。
-            if viewModel.activeOrder != nil {
-                askQuestionButton
-            }
             repeatStatusButton
-            locationSummarySection
+        }
+    }
+
+    private var greetingText: String {
+        guard let name = appState.blindProfile?.name?.nilIfBlank else { return "你好" }
+        return "你好，\(name)"
+    }
+
+    /// 「重复当前状态」。**项目硬规则要求每个关键盲人页面都有它**
+    /// （skill `aidrun-a11y-voice`：可以降视觉权重，但不能删），理由是系统的 Speak Screen
+    /// 读不到一次性的 `announcement` —— 没有它，盲人错过一次自动播报就再也拿不回来。
+    ///
+    /// 🔄 **2026-09-16 的落点：问候行右侧一枚 64pt 图标按钮（项目负责人拍板）。**
+    ///
+    /// 走过的三个位置，写下来是因为每一步都被否掉过：
+    /// 1. 改版前是内容列里一个全宽的次级按钮 —— 设计稿的首页只有两块，没有它的位置。
+    /// 2. 拍板「移进求助与安全中心弹层」，但同一轮首页那条求助条也被移到了「我的」tab
+    ///    ⇒ 它在首页的实际路径变成「切 tab → 按求助条 → 开弹层」**三层深**。
+    /// 3. 候选过「挂成订单卡的 accessibilityCustomAction」：**否掉**，两条硬伤 ——
+    ///    不开读屏的低视力用户够不到，且 `XCUIElement.tap()` 注入的是物理触摸、
+    ///    不经过 accessibility action（记忆 `xcuitest-cannot-invoke-accessibility-actions`），
+    ///    等于这条硬规则没有任何机器守卫。
+    ///
+    /// 所以是一枚**可见**的图标按钮：两类用户都够得到，且 UI 测试按得到。
+    ///
+    /// ⚠️ 它让读屏顺序从「问候 → 订单卡」变成「问候 → 重复当前状态 → 订单卡」，
+    /// 比设计稿多一次划动。这一次划动是值得的：首页进入时已经自动播报过一遍，
+    /// 会来找这个按钮的人恰恰是**没听清**的人，把它放在第二个位置是最快的。
+    /// `docs/05-page-specs.md` 的读屏顺序已同步。
+    private var repeatStatusButton: some View {
+        Button {
+            viewModel.repeatCurrentStatus(locationDescription: announcementLocationDescription)
+        } label: {
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(AppColors.Flow.accent)
+                // 64pt 触达 + 圆形底：不描边的话一枚彩色图标在页面底上看不出是按钮
+                // （同 `buttonShapeOutlineIfNeeded` 的判据 ——「不靠颜色还看得出是按钮吗」）。
+                .frame(width: 64, height: 64)
+                .background(AppColors.Flow.surface, in: Circle())
+                .flowCardShadow()
+        }
+        .buttonStyle(.plain)
+        // 逐字「重复当前状态」—— `docs/05-page-specs.md` 钉住这五个字，
+        // 且 `AccessibilityAuditTests` 按 label 找它（identifier 另给一份更稳的）。
+        .accessibilityLabel("重复当前状态")
+        .accessibilityHint("点击后重新播报当前页面信息")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("blindRunnerHomeRepeatStatusButton")
+    }
+
+    /// 播报里那段位置描述。**只进播报，不上屏** —— 设计稿的首页没有位置摘要那一行
+    /// （位置信息在订单卡的地点行里），但播报里保留它是净收益：看不见屏幕的人靠这一句
+    /// 知道「系统认为我在哪」，而定位被拒时这一句还是唯一说明「少了什么、下一步做什么」的地方。
+    ///
+    /// 与改版前那个同名的 `locationDescription` 取值逐字相同，只是不再有渲染点。
+    private var announcementLocationDescription: String {
+        if locationService.isDenied {
+            // 不说「不能预约」——现在能（见 `BlindBookingGate`）。只说少了什么、下一步做什么。
+            return "定位权限未开启。预约时可以手动搜索出发地点，开启定位会更省事。"
+        }
+        if let address = viewModel.activeOrder?.startAddress, !address.trimmed.isEmpty {
+            return "订单出发点：\(address)。\(locationService.readableCurrentLocationSummary)"
+        }
+        return locationService.readableCurrentLocationSummary
+    }
+
+    private var syncNotice: some View {
+        Label("正在后台同步当前状态，页面仍可使用", systemImage: "arrow.triangle.2.circlepath")
+            .flowFont(FlowFonts.rowDetail())
+            .foregroundColor(AppColors.Flow.secondaryText)
+            .accessibilityLabel("正在后台同步当前状态，页面仍可使用")
+    }
+
+    private func errorSection(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(message)
+                .flowFont(FlowFonts.statusSubtitle())
+                .foregroundColor(AppColors.destructive)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(message)
+            // 错误态下这是唯一的出路，按项目 64pt 硬规则给足触达。
+            FlowActionButton(
+                "重试加载",
+                style: .ghost,
+                accessibilityHint: "重新加载当前订单状态"
+            ) {
+                Task { await viewModel.loadActiveOrder() }
+            }
         }
     }
 
@@ -779,257 +816,40 @@ struct BlindRunnerHomeView: View {
             BlindOrderStatusView(orderId: orderId) { updatedOrder in
                 viewModel.activeOrder = updatedOrder.status.isActiveForBlindRunner ? updatedOrder : nil
             }
-        case .settings:
-            BlindRunnerSettingsView()
         case .help:
             BlindRunnerHelpView(isFirstRun: true)
         }
     }
 
-    // MARK: - SOS
-
-    private var sosMode: BlindHomeSOSMode {
-        BlindHomeSOSMode.resolve(order: viewModel.activeOrder, role: appState.activeRole)
-    }
-
-    private var primaryEmergencyContact: EmergencyContactResponse? {
-        EmergencyContactResponse.singlePrimary(in: appState.emergencyContacts)
-    }
-
-    /// 同一个弹窗在首页有两个入口，第一句不同：`.localCall` 是「当前没有进行中的陪跑」，
-    /// 而云端求助失败后按进来时陪跑正在进行，那句话是错的（见 `cloudFailedCallDialogMessage`）。
-    ///
-    /// 首页永远到不了 `.inProgress` 那一档：`.cloudTrigger` 模式下这个弹窗只有一个入口，
-    /// 就是 `BlindHomeSOSBar` 里 `state.isFailure` 才出现的那个兜底按钮。
-    /// 主动拨号的那一档在订单状态页。
-    private var callContext: EmergencyCallContext {
-        sosMode == .cloudTrigger ? .cloudFailed : .homeIdle
-    }
-
-    private func activateSOS() {
-        switch sosMode {
-        case .cloudTrigger:
-            showEmergencyConfirmation = true
-        case .localCall:
-            showCallOptions = true
-        }
-    }
-
-    /// 标题与状态摘要合成**一个**焦点。它们语义相同（GB/T 37668 3.3.2.2 一级：
-    /// 语义相同的部件应设联合单一聚焦框），拆成两个只是让读屏用户多滑一次。
-    /// 合并后的朗读文本这里写死，不交给 `.combine` 自己拼 —— 自动拼接容易糊成一长串。
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HighContrastText("盲人跑者首页", style: .title)
-
-            Text(viewModel.currentStatusText)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityLabel("盲人跑者首页。\(viewModel.currentStatusText)")
-    }
-
-    /// 地图的文字等价物 —— `docs/09-accessibility-and-voice-guidelines.md:78` 硬性要求它必须
-    /// 在地图之外可用，所以不能删。但「位置摘要」这个标题可以：下面那行本身就自解释，
-    /// 标题只对视觉扫读有用，而这一页没有扫读。降成一行 caption，不再是一张卡片。
-    private var locationSummarySection: some View {
-        Text(locationDescription)
-            .font(AppFonts.caption())
-            .foregroundColor(locationService.isDenied ? AppColors.warning : AppColors.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel(locationDescription)
-            .accessibilityHint(locationService.isDenied ? "定位权限未开启，预约时需要手动搜索出发地点" : "当前位置摘要")
-    }
-
-    private var activeOrderMapAnnotations: [MapAnnotationItem] {
-        guard let order = viewModel.activeOrder, let coordinate = order.startCoordinate else { return [] }
-        return [
-            MapAnnotationItem(
-                id: "active-order-start",
-                coordinate: coordinate,
-                title: "订单出发点",
-                subtitle: order.startAddressForAnnouncement
-            )
-        ]
-    }
-
-    private var locationDescription: String {
-        if locationService.isDenied {
-            // 不说「不能预约」——现在能（见 `BlindBookingGate`）。只说少了什么、下一步做什么。
-            return "定位权限未开启。预约时可以手动搜索出发地点，开启定位会更省事。"
-        }
-        if let address = viewModel.activeOrder?.startAddress, !address.trimmed.isEmpty {
-            return "订单出发点：\(address)。\(locationService.readableCurrentLocationSummary)"
-        }
-        return locationService.readableCurrentLocationSummary
-    }
-
-    private func activeOrderSection(_ order: OrderDetailResponse) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            BlindStatusCard(order: order)
-
-            PrimaryButton("查看当前订单") {
-                path.append(.orderStatus(order.orderId))
-            }
-            .accessibilityLabel("查看当前订单")
-            .accessibilityHint("点击后查看订单状态详情")
-
-            if viewModel.canCancelActiveOrder {
-                Button("取消订单") {
-                    showCancelConfirmation = true
-                }
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.destructive)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-                .disabled(viewModel.isPerformingAction)
-                .accessibilityLabel("取消订单")
-                .accessibilityHint("需要确认后取消当前订单")
-            }
-        }
-    }
-
-    /// 无订单态的唯一动作。此前上面还有一句「准备好后，可以创建一次新的陪跑预约。」——
-    /// 那是在解释按钮要干什么，正好是 `accessibilityHint` 的定义，读屏用户听 hint、
-    /// 低视力用户看按钮本身就够，屏幕上不需要第三份。
-    private var newBookingSection: some View {
-        Group {
-            if viewModel.canStartNewBooking {
-                // 只留一个入口。原来「开始约跑」和「语音下单」并列，等于每次下单前都要先做一次
-                // 「我该点哪个」的判断，而两者进的本来就是同一个页面。现在统一进语音：进去就录音，
-                // 说完读回整单再确认；不想说话就按「改用表单」，那张表一直都在。
-                NavigationLink(value: BlindRunnerRoute.voiceBooking) {
-                    bookingButtonLabel
-                }
-                .accessibilityLabel("开始约跑")
-                .accessibilityHint("点击后进入语音下单：说一句想什么时候跑、跑多久，听完复述再确认。也可以改用表单填写")
-                .accessibilityIdentifier("blindRunnerHomeStartBookingButton")
-            } else {
-                Button {
-                    viewModel.explainBookingUnavailable()
-                } label: {
-                    bookingButtonLabel
-                }
-                .accessibilityLabel("开始约跑，订单状态尚未确认")
-                .accessibilityHint("点击后说明如何先确认当前订单状态")
-                .accessibilityIdentifier("blindRunnerHomeStartBookingGuardButton")
-            }
-        }
-    }
-
-    /// 按钮内部只有四个字：无图标、无副标题。对标产品的主按钮里一律没有第二样东西 ——
-    /// 图标对读屏是噪音，对低视力是在跟文字抢字号。
-    private var bookingButtonLabel: some View {
-        Text("开始约跑")
-            .font(AppFonts.largeTitle())
-            .foregroundColor(.white)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: primaryBookingHeight)
-            .background(AppColors.primary)
-            .cornerRadius(16)
-    }
-
-    /// 排在「重复当前状态」之前：整段状态播报要 15~25 秒，问一句只念被问的那一项，
-    /// 是这两个「听」入口里更省时间的那个，所以先遍历到它。
-    ///
-    /// 与「重复当前状态」同一套次要按钮样式和 64pt 触达 —— 主按钮位置留给「开始约跑」。
-    ///
-    /// **只在有进行中订单时出现。** 两条理由，第二条才是根因：
-    ///
-    /// 1. 无订单态的上方是 280pt 的「开始约跑」（`primaryBookingHeight`，还会随字号长），
-    ///    它排在后面正好落进底部 SOS 条那一截，把「重复当前状态」一起顶出可见区。
-    /// 2. 更要紧的是**那个状态下它没有答案可给**：`VoiceStatusQuery.answer` 在
-    ///    `order == nil` 时短路，四个意图统一回「当前没有进行中的预约」
-    ///    （`VoiceStatusQuery.swift:109`）。按下去要走一趟麦克风授权 + 录音 + 等待，
-    ///    换来的是 header 已经念过的同一句话 —— 对全盲用户这就是一次白等。
-    ///
-    /// 订单详情页那个「问一句」（`blindOrderStatusAskQuestionButton`）不受此限，它天然只在有订单时存在。
-    private var askQuestionButton: some View {
-        Button("问一句") {
-            viewModel.askVoiceQuestion()
-        }
-        .font(AppFonts.body().weight(.semibold))
-        .foregroundColor(AppColors.primary)
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: 64)
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(12)
-        .accessibilityLabel("问一句")
-        .accessibilityHint("点击后开始录音，可以问志愿者还有多远、几点开始，或者打电话给志愿者")
-        .accessibilityIdentifier("blindRunnerHomeAskQuestionButton")
-    }
-
-    /// 视觉权重降为次要按钮，但**保留**：`AGENTS.md` 要求每个关键盲人页面都有它，
-    /// 而且系统的 Speak Screen 读不到一次性 announcement，这是唯一能重听当前状态的入口。
-    /// 降权只是为了不与「开始约跑」抢主按钮的位置，触达区仍是 64pt。
-    private var repeatStatusButton: some View {
-        Button("重复当前状态") {
-            viewModel.repeatCurrentStatus(locationDescription: locationDescription)
-        }
-        .font(AppFonts.body().weight(.semibold))
-        .foregroundColor(AppColors.primary)
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: 64)
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(12)
-        .accessibilityLabel("重复当前状态")
-        .accessibilityHint("点击后重新播报当前页面信息")
-    }
+    // 🗑 `bookingButtonLabel` / `askQuestionButton` 两者已删除。
+    //
+    // - `bookingButtonLabel`：280pt 的「开始约跑」巨按钮，被设计稿的浅蓝预约块取代。
+    // - `askQuestionButton`：「问一句」。它已经在求助与安全中心弹层里（PR #139 的
+    //   `BlindSafetyHubView` 就带这个入口），首页再留一个是同一个动作的第二个入口。
+    //
+    // ⚠️ **2026-09-16 订正：`repeatStatusButton` 没有被删，它就在上面（`greetingRow` 里）。**
+    // 原文写着「移进求助与安全中心弹层，阶段 3 接入弹层入口时落地」—— 那个方案当轮就被
+    // 否掉了（首页的实际路径会变成「切 tab → 按求助条 → 开弹层」三层深），改成了
+    // 问候行右侧一枚 64pt 图标，理由写在 `repeatStatusButton` 自己的注释里。
+    //
+    // 这条注释过期了一整轮，代价是具体的：它让下一轮的任务书写着「求助中心要加
+    // 「重复当前状态」格子」，而那个动作在首页、订单页导航栏、执行屏上**各已有一枚可见按钮**
+    // —— 照着做会在求助中心添第七格，把拨 120 往下推一行。
+    // **写「等 X 来接」的注释时，X 落地那一轮必须回来改它**，否则它会被当成待办清单读。
+    //
+    // ⚠️ `docs/05-page-specs.md` 的「底部常驻条恒为两个版位」一节已随之改口径。
 }
 
 // MARK: - Shared Blind Runner Components
 
-struct BlindStatusCard: View {
-    let order: OrderDetailResponse
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Image(systemName: order.status.statusSymbolName)
-                    .font(.title)
-                    .foregroundColor(order.status.statusColor)
-                    .accessibilityHidden(true)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(order.status.displayName)
-                        .font(.title2.bold())
-                        .foregroundColor(AppColors.textPrimary)
-                    Text(order.status.blindRunnerDescription)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.textSecondary)
-                }
-            }
-
-            Divider()
-                .background(AppColors.textSecondary.opacity(0.4))
-
-            Text("预约时间：\((order.plannedStart ?? "").displayDateTime)")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-            Text("出发地点：\(order.startAddress ?? "")")
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textPrimary)
-            // 掩码，理由与订单状态页那条拨号按钮「刻意不念号码」同源
-            // （`BlindOrderStatusView.swift:1196-1199`）：读屏是**外放**的，念全号等于把
-            // 志愿者的手机号广播给周围所有人。要真号去订单详情页按拨号键，那条路不经过朗读。
-            if let volunteerPhone = order.volunteerPhone, !volunteerPhone.trimmed.isEmpty {
-                Text("志愿者电话：\(EmergencyContactResponse.maskPhone(volunteerPhone) ?? volunteerPhone)")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppColors.secondaryBackground)
-        .cornerRadius(8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("当前订单：\(order.status.displayName)，预约时间 \((order.plannedStart ?? "").displayDateTime)，出发地点 \(order.startAddress ?? "")")
-        .accessibilityHint("订单状态摘要")
-    }
-}
+// 🗑 `BlindStatusCard` 已删除（改版后零调用点）。
+//
+// 它是改版前首页那张「状态图标 + 状态名 + 预约时间 + 出发地点 + 掩码电话」的浅灰小卡，
+// 唯一调用点是同样已删的 `activeOrderSection`。同一批信息现在由 `BlindHomeOrderCard`
+// 承载，且合成**一个**无障碍元素（原来那张卡也是 `.combine`，但标签里不含陪跑员信息）。
+//
+// 它的掩码电话那一行没有丢失语义：号码全程只走 `tel:`，屏幕上与读屏里都不出现全号 ——
+// 这条规则现在钉在 `AGENTS.md` §8 与 `volunteerNameForSpeech` 一带，不再依赖某个视图的注释。
 
 #if DEBUG
 struct DebugTestingPanel: View {
@@ -1086,8 +906,8 @@ struct DebugTestingPanel: View {
 #endif
 
 #if DEBUG
-#Preview {
-    BlindRunnerHomeView()
+#Preview("首页 · 有订单") {
+    BlindRunnerTabView()
         .environmentObject(AppState())
         .environmentObject(SpeechService())
         .environmentObject(LocationService())
