@@ -98,9 +98,18 @@ final class IntroCallTests: XCTestCase {
 
     /// 🚨 **本仓库 2026-08-11 报过的真实缺陷的回归。**
     ///
-    /// 掩码串 `138****1234` 被 `EmergencyDialer.telURL` 取数字位后变成 `1381234`，
-    /// 拨出去是空号，而界面上看不出任何异常。所以拨号入口只认 `dialableCounterpartPhone`，
-    /// 而志愿者侧那个字段恒为 nil。
+    /// 掩码串 `138****1234` 被 `EmergencyDialer.telURL` 取数字位后变成 `1381234` ——
+    /// **不是空号，是个七位的、可能真打给别人的号码**，而界面上看不出任何异常。
+    /// 所以拨号入口只认 `dialableCounterpartPhone`，而志愿者侧那个字段恒为 nil。
+    ///
+    /// 🔄 **2026-09-16：这条用例原来的第二个断言已经反过来了。** 它当时逐字写着
+    /// 「类型上拦不住（两个字段都是 String?），只能靠『拨号入口只读另一个字段』」——
+    /// **类型上拦不住，值上拦得住**：掩码串带 `*`，而可拨号码永远不带。
+    /// `telURL` 现在拦它（`EmergencyDialer.redactionMarkers`），所以那一行改断 nil。
+    ///
+    /// **provenance 那道防线（第一个断言）保留不动**，两道互不替代：
+    /// 那道管「这个字段该不该用来拨号」（语义），新加的管「这个值长得能不能拨」（形状）。
+    /// 后端某天真下发了掩码串时，只有形状那道拦得住。
     func testVolunteerSideViewHasNothingDialable() {
         let volunteerSide = IntroCallView(
             counterpartName: "王*",
@@ -115,11 +124,10 @@ final class IntroCallTests: XCTestCase {
 
         XCTAssertNil(volunteerSide.dialableCounterpartPhone)
 
-        // 这一行是上面那条断言存在的全部理由：掩码串**拼得出**一个合法但错误的 tel URL。
-        // 类型上拦不住（两个字段都是 String?），只能靠「拨号入口只读另一个字段」。
-        XCTAssertEqual(
-            EmergencyDialer.telURL(for: volunteerSide.counterpartPhoneMasked)?.absoluteString,
-            "tel://1381234"
+        // 掩码串现在**拼不出**任何 tel URL —— 见上面那段订正。
+        XCTAssertNil(
+            EmergencyDialer.telURL(for: volunteerSide.counterpartPhoneMasked),
+            "掩码串又拼得出 tel URL 了 —— 它会拨成 tel://1381234，一个可能真打给别人的号码"
         )
     }
 

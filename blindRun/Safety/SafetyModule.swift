@@ -605,7 +605,7 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
     ) -> [BlindActiveRunSafetyHubOption] {
         var options: [BlindActiveRunSafetyHubOption] = []
         // 判据是「拼不拼得出 tel: URL」而不是「字符串非空」：掩码串 `138****1234`
-        // 只取数字位会拼成空号，而空号在界面上看不出任何异常（`EmergencyDialer.telURL`）。
+        // 会被 `telURL` 的掩码闸拦掉（不拦则拼成 `tel://1381234`，一个可能真打给别人的号码）。
         if EmergencyDialer.telURL(for: volunteerPhone) != nil { options.append(.contactVolunteer) }
         options.append(.announceLocation)
         options.append(.askQuestion)
@@ -710,8 +710,36 @@ enum EmergencyDialer {
     /// 医疗急救。跑步途中摔倒、扭伤、心脏不适对应的是它，不是 110。
     static let medicalNumber = "120"
 
+    /// 掩码标记。`EmergencyContactResponse.maskPhone` 与后端下发的掩码串都用半角 `*`
+    /// （契约里的样例逐字是 `138****1234`）；全角一并拦住，成本为零。
+    ///
+    /// **没有一个可拨号码含 `*`**，所以这条判据没有误报面。`*67` 那类电信功能码
+    /// 本 App 从不拨（唯一的号码来源是后端明文号 + 写死的 110/120）。
+    private static let redactionMarkers: Set<Character> = ["*", "＊"]
+
+    /// 拼 `tel:` URL。**两道闸，缺一条都会拨错号。**
+    ///
+    /// ① 只取数字位 —— 后端明文号可能带空格或横线，直接拼会拼出无效 URL，
+    ///    而无效 URL 的表现是「点了没反应」。
+    ///
+    /// ② 🚨 **带掩码标记的一律拒掉。** 这一条是 2026-08-11 那个真实缺陷的机器守卫。
+    ///    在它之前，判据只有「取完数字位还剩不剩」，于是掩码串 `138****1234`
+    ///    **拼得出** `tel://1381234` —— 不是空号，是一个**七位的、可能真打给别人**的号码，
+    ///    而界面上看不出任何异常。
+    ///
+    ///    `IntroCallTests.testVolunteerSideViewHasNothingDialable` 原先逐字写着
+    ///    「类型上拦不住（两个字段都是 String?），只能靠『拨号入口只读另一个字段』」——
+    ///    **类型上拦不住，值上拦得住。** 靠「记得读对字段」的规则已经失效过一次，
+    ///    而它有 15 个调用点；按 `AGENTS.md` §1，这种事该落成检查而不是留在注释里。
+    ///
+    /// 🚩 provenance 那道防线（`IntroCallView.dialableCounterpartPhone` 恒 nil）
+    /// **保留不动**。两道互不替代：那道管「这个字段该不该用来拨号」（语义），
+    /// 这道管「这个值长得能不能拨」（形状）。后端某天真下发了掩码串时只有这道拦得住。
     static func telURL(for rawNumber: String?) -> URL? {
-        guard let digits = rawNumber?.filter(\.isNumber), !digits.isEmpty else { return nil }
+        guard let rawNumber else { return nil }
+        guard !rawNumber.contains(where: redactionMarkers.contains) else { return nil }
+        let digits = rawNumber.filter(\.isNumber)
+        guard !digits.isEmpty else { return nil }
         return URL(string: "tel://\(digits)")
     }
 
@@ -930,7 +958,7 @@ extension View {
     /// 靠位置记住「往下第二个是 120」，两页排得不一样，记住的那个位置就成了陷阱。
     ///
     /// 号码一律经 `EmergencyDialer.telURL`：它只取数字位，掩码串（`138****1234`）会被
-    /// 拼成空号，而空号在界面上看不出任何异常。
+    /// 拼成 `tel://1381234` —— 不是空号，是个可能真打给别人的七位号码，而界面上看不出任何异常。
     func emergencyCallOptionsDialog(
         isPresented: Binding<Bool>,
         context: EmergencyCallContext,

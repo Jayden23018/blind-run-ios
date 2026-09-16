@@ -401,7 +401,7 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     /// 志愿者姓名，**后端已掩码**（`李*`），未接单时为 nil。
     ///
     /// 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 nil**（掩码号会被拼成
-    /// `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
+    /// `tel:` 拨成 `1381234` 这种可能真打给别人的号码），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
     var volunteerName: String?
 
     /// 这位志愿者累计完成过多少单陪跑。**后端一直在发，客户端此前漏解码**

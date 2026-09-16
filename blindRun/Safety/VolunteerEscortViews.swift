@@ -429,7 +429,7 @@ struct VolunteerEmergencyAlertView: View {
 
     /// 次要动作：直接打给他。
     ///
-    /// 号码经 `EmergencyDialer.telURL`（只取数字位）—— 掩码串会被拼成空号，
+    /// 号码经 `EmergencyDialer.telURL`（拦掩码串 + 只取数字位）—— 掩码串若不拦会拼成 `tel://1381234`，
     /// 而空号在界面上看不出任何异常（2026-08-11 的真实缺陷）。
     @ViewBuilder
     private var callButton: some View {

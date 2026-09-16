@@ -618,7 +618,27 @@ final class AccessibilityAuditTests: XCTestCase {
             """
         )
         // 不点「确认取消」：那会把种子订单毁掉，后面重跑这条用例就没有订单可用了。
-        app.buttons["不取消"].firstMatch.tap()
+        //
+        // 🔴 **`.cancel` 那个按钮在这台机器上根本不在元素树里。**
+        // 2026-09-16 真机实测（iPhone 16 Pro / iOS 26.6.1）：`confirmationDialog` 被渲染成
+        // `Popover`，里面只有消息 `StaticText` + 我们声明的两个非 cancel 按钮，
+        // 而 `Button("不取消", role: .cancel)` 被系统换成了
+        // `identifier: 'PopoverDismissRegion', label: 'dismiss popup'`。
+        // 按 `app.buttons["不取消"]` 找它必然落空 —— 这不是文案漂移，是呈现形态变了。
+        //
+        // ⚠️ **顺带一条产品事实，已记进交接**：那个唯一的退出口 label 是**英文**
+        // 「dismiss popup」。读屏用户在一个中文的破坏性二次确认上，
+        // 听到的退出方式是一句英文 —— 这是系统给的，不是我们的文案。
+        //
+        // 两条路都留着：旧系统把它渲染成操作表时 `不取消` 是真按钮。
+        // `PopoverDismissRegion` 是**系统**的 identifier，App 侧不会产出它，
+        // 所以这里对 `stale-ui-test-identifier` 显式豁免。
+        let dismissRegion = app.descendants(matching: .any)["PopoverDismissRegion"].firstMatch  // guard:allow stale-ui-test-identifier
+        if dismissRegion.exists {
+            dismissRegion.tap()
+        } else {
+            app.buttons["不取消"].firstMatch.tap()
+        }
     }
 
     /// 🔴 **非 `IN_PROGRESS` 的求助中心，底部必须是本地拨号，不是云端求助。**

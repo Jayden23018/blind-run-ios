@@ -199,7 +199,21 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 - **这一态还没有志愿者接单**。后端 `order.volunteer` 恒为 null，候选人只存在于 `dispatchCurrentVolunteerId`。直接后果：志愿者调 `GET /api/orders/{orderId}` 会被判 403，他这一刻**拿不到订单详情**，通话页只能吃派单推送 + `GET /api/orders/{orderId}/intro-call`。`IntroCallView` 里的 `startAddress` / `plannedStartTime` 就是为这个冷启动恢复存在的，别当冗余字段删掉。
 - 专用端点四条：`GET /intro-call`（通话页数据）、`POST /intro-call/decision`（表态 `ACCEPT|DECLINE`）、`POST /intro-call/unreachable`（志愿者报「没打通」，**盲人侧没有对应端点**）、`POST /intro-call/notify-incoming`（盲人拨号前提醒志愿者）。
-- **号码单向**：盲人拿到明文号可直拨，志愿者只拿到掩码串用于认人。掩码串**绝不能拼 `tel:`** —— `EmergencyDialer` 只取数字位，`138****1234` 会拨成空号且界面看不出异常（2026-08-11 的真实缺陷）。唯一允许拼 `tel:` 的来源是 `IntroCallView.dialableCounterpartPhone`。
+- **号码单向**：盲人拿到明文号可直拨，志愿者只拿到掩码串用于认人。掩码串**绝不能拼 `tel:`**（2026-08-11 的真实缺陷）。唯一允许拼 `tel:` 的来源是 `IntroCallView.dialableCounterpartPhone`。
+  > 🔄 **2026-09-16 订正一处事实 + 补上机器守卫。** 原文写着「`138****1234` 会拨成**空号**」——
+  > **那句话是错的**，而错得有代价：它让人以为 `telURL` 只取数字位就已经兜住了这件事。
+  > 实际拼出来的是 `tel://1381234`，一个**七位的、可能真打给别人**的号码。
+  > 现在 `EmergencyDialer.telURL` 显式拦掩码标记（`*` / `＊`，见 `redactionMarkers`），
+  > 用例 `EmergencySOSTests.testDialerRefusesMaskedNumbersButKeepsFormattedPlainOnes` 双向钉住
+  > （拒掩码 / 放行带空格横线的明文号与三位急救号 —— 后者是这道闸唯一的误报面）。
+  > provenance 那道防线保留：两道管的不是一件事，一道管「该不该用这个字段拨号」、
+  > 一道管「这个值长得能不能拨」。
+  > **这条是第一次真机执行 `BlindOrderFlowPresentationTests` 时红出来的** ——
+  > 那条用例照着上面那句错话写注释，于是断言靠一个不成立的理由碰巧成立了三周。
+
+  > 契约侧的对应不变量（`demo/docs/api_spec.yaml:6421`，逐字）：
+  > 「要么是能直接拨通的号码，要么是 `null`，永远不会是掩码串」——
+  > 所以 `OrderDetailResponse.volunteerPhone` 上那道闸是**纵深防御**，不是日常路径。
 - **无声拒绝**：响应体不含对方的表态、也不含轮次进度，这不是后端漏字段。只有一方表态时后端**不通知**对方；「这是第 3 位志愿者」本身就是在告诉盲人前两位没成。客户端**也不许自己算**轮次再显示（例如按收到几次 `INTRO_CALL_CONTINUE` 计数）。
 - 盲人的自由文本在这一态**不可见**（`disclosesBlindRunnerNotesToVolunteer` 判 false，见 §8）：一单最多聊 3 位候选人，展示等于交给这一单碰到的每一个人。
 - 窗口 20 分钟（`app.intro-call.window-minutes`，**别硬编码**）；退回时轮次 +1，满 3 轮（`max-rounds`）转 `NO_VOLUNTEER`。

@@ -238,13 +238,29 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
         XCTAssertNotEqual(action?.title, "打电话给张")
     }
 
-    /// 拿不到可拨的号码时不给拨号按钮。判据是「拼不拼得出 `tel:` URL」而不是
-    /// 「字符串非空」—— 掩码串 `138****1234` 只取数字位会拼成空号，
-    /// 而空号在界面上看不出任何异常。
+    /// 拿不到可拨的号码时不给拨号按钮。判据是「拼不拼得出 `tel:` URL」而不是「字符串非空」。
+    ///
+    /// 🔴 **2026-09-16 第一次真机执行时这条是红的，而红的是它自己。** 原注释写着
+    /// 「掩码串 `138****1234` 只取数字位会拼成空号」—— 那句话**是错的**：
+    /// `telURL` 当时只判「取完数字位还剩不剩」，于是它拼得出 `tel://1381234`，
+    /// 一个七位的、可能真打给别人的号码。`IntroCallTests` 里早就逐字记着这件事
+    /// （「掩码串**拼得出**一个合法但错误的 tel URL」），而这里的注释和它对不上。
+    ///
+    /// 修的是实现不是断言：`EmergencyDialer.telURL` 现在拦掩码标记（`*`），
+    /// 所以第二行断言从「靠一个不成立的理由碰巧成立」变成真的成立。
+    ///
+    /// ⚠️ 顺带记一条口径：`OrderDetailResponse.volunteerPhone` **按契约永远不是掩码串**
+    /// （`api_spec.yaml:6421` 逐字「要么是能直接拨通的号码，要么是 `null`，永远不会是掩码串」）。
+    /// 所以第二行喂的是一个后端保证不会下发的值 —— 留着它是**纵深防御**，
+    /// 防的是哪天有人把 `counterpartPhoneMasked` 之类的字段接到这里来。
     func testCallButtonDisappearsWhenThereIsNoDialableNumber() {
         XCTAssertNil(make(.driverArrived, volunteerPhone: nil).primaryAction)
         XCTAssertNil(make(.driverArrived, volunteerPhone: "138****1234").primaryAction)
+        // 一个数字都没有的串同样不给按钮 —— 这是 `telURL` 原本就有的那道闸。
+        XCTAssertNil(make(.driverArrived, volunteerPhone: "未填写").primaryAction)
         XCTAssertNotNil(make(.driverArrived, volunteerPhone: "13800000001").primaryAction)
+        // 带空格/横线的明文号**必须照样能拨** —— 掩码闸不能顺手把格式化字符也拦掉。
+        XCTAssertNotNil(make(.driverArrived, volunteerPhone: "138 0000 0001").primaryAction)
     }
 
     // MARK: - 警示行

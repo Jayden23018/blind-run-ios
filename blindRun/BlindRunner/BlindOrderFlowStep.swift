@@ -253,7 +253,7 @@ struct BlindOrderFlowPresentation: Equatable {
             return .openIntroCall(title: IntroCallCopy.blindEntryButtonTitle)
         }
         // 判据是「拼不拼得出 tel: URL」而不是「字符串非空」：掩码串 `138****1234`
-        // 只取数字位会拼成空号，而空号在界面上看不出任何异常。
+        // 会被 `telURL` 的掩码闸拦掉（不拦则拼成 `tel://1381234`，一个可能真打给别人的号码）。
         if order.status.offersVolunteerCall,
            EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) != nil {
             return .callVolunteer(title: "打电话给\(name)")

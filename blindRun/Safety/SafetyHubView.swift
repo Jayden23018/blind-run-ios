@@ -330,7 +330,8 @@ struct BlindSafetyHubView: View {
         .accessibilityHint(subtitle)
     }
 
-    /// 拨号一律经 `EmergencyDialer`：它只取数字位，掩码串（`138****1234`）会被拼成空号，
+    /// 拨号一律经 `EmergencyDialer`：它拦掩码串、并只取数字位（掩码串 `138****1234` 若不拦会拼成
+/// `tel://1381234` —— 不是空号，是个可能真打给别人的七位号码，
     /// 而空号在界面上看不出任何异常。`guard.mjs` 的 `raw-open-url` 会拦住绕开它的写法。
     private func perform(_ option: BlindActiveRunSafetyHubOption) {
         switch option {

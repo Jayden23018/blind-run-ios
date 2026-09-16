@@ -1307,6 +1307,31 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertNil(EmergencyDialer.telURL(for: "未填写"))
     }
 
+    /// 🚨 **掩码串一律拼不出 `tel:` URL。** 2026-08-11 那个真实缺陷的机器守卫。
+    ///
+    /// 在这道闸之前，判据只有「取完数字位还剩不剩」，于是 `138****1234` **拼得出**
+    /// `tel://1381234` —— 不是空号，是一个七位的、可能真打给别人的号码，
+    /// 而界面上看不出任何异常。此前唯一的防线是「拨号入口只读明文那个字段」，
+    /// 靠人记，而它有 15 个调用点、已经失效过一次。
+    ///
+    /// **两个方向都要断**，否则这条闸随时会被写成「凡是含非数字就拒」而悄悄拦掉明文号：
+    /// 后端下发的明文号可能带空格或横线（上一条用例正断着这个），
+    /// 而 110 / 120 只有三位 —— 任何按长度判的闸都会把它们一起拦掉。
+    func testDialerRefusesMaskedNumbersButKeepsFormattedPlainOnes() {
+        // 拒：掩码串（半角与全角）。
+        XCTAssertNil(EmergencyDialer.telURL(for: "138****1234"))
+        XCTAssertNil(EmergencyDialer.telURL(for: "139＊＊＊＊9001"))
+        // 掩码那一半也可能出现在带前后缀的串里。
+        XCTAssertNil(EmergencyDialer.telURL(for: "王* 138****1234"))
+        // 真实来源对撞：`maskPhone` 出来的东西一律拨不出去。
+        XCTAssertNil(EmergencyDialer.telURL(for: EmergencyContactResponse.maskPhone("13900139001")))
+
+        // 放行：带格式化字符的明文号，以及三位急救号 —— 这两条是这道闸的误报面。
+        XCTAssertEqual(EmergencyDialer.telURL(for: "138 0000 0001")?.absoluteString, "tel://13800000001")
+        XCTAssertEqual(EmergencyDialer.telURL(for: "+86 138-0000-0001")?.absoluteString, "tel://8613800000001")
+        XCTAssertEqual(EmergencyDialer.telURL(for: EmergencyDialer.medicalNumber)?.absoluteString, "tel://120")
+    }
+
     /// 测试期拦截：开着时不真的拨、但要留痕；关掉时必须照常拨出去。
     ///
     /// **后半条和前半条一样重要。** 这道拦截如果把生产路径也吞了，盲人按下「拨打110」

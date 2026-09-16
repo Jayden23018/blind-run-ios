@@ -1296,19 +1296,34 @@ struct BlindOrderStatusView: View {
             // 设计稿的四步骨架。**四态共用同一套布局**，只换内容 —— 改版前每态一个
             // 独立页面，而 iOS 切页时 VoiceOver 会把焦点移回第一个元素，读屏用户每次
             // 都要从头找。单页原地更新让焦点保持不动，只播报变化。
-            VStack(spacing: 0) {
-                BlindOrderFlowView(
-                    presentation: presentation,
-                    order: order,
-                    onOpenStartPlace: nil,
-                    onLastRowTapped: { handleFlowLastRow(order) },
-                    onPrimaryAction: { handleFlowPrimaryAction(presentation, order: order) },
-                    onOpenSafetyHub: { showSafetyHub = true },
-                    footer: { flowFooter(order) }
-                )
-                debugMockControls(order)
-                    .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
-            }
+            // 🔴 **`debugMockControls` 必须在骨架的 ScrollView 里面（走 footer），
+            // 不能当 `BlindOrderFlowView` 的兄弟节点。**
+            //
+            // 它原先挂在外层 `VStack` 上，于是在**横屏**（可用高度约 390pt）里：
+            // 那三个 mock 按钮按自然高度占掉一大片、底部两个版位再占一片，
+            // 留给状态卡与信息列表的空间被压到几乎为零 —— 真机横屏截图上状态标题、
+            // 副标题、四行信息**一个字都看不到**，而「求助与安全」被拉成一个巨块。
+            // 这是 2026-09-16 第一次真机跑 `testBlindOrderStatusInLandscapePassesAccessibilityAudit`
+            // 时暴露的：那两条 `Contrast failed` 的元素是**没有任何文字的近白色区域**，
+            // 也就是被压扁的卡片本身，不是配色问题。
+            //
+            // 改版前它就在 `trackingContent` 的 ScrollView 里（跟着内容滚），
+            // 阶段 3a 把它提到外面是无意的 —— 放回去即恢复。
+            // `#if DEBUG` + `currentEnvironment == .mock` 两道闸没动，Release 里仍是 `EmptyView`。
+            BlindOrderFlowView(
+                presentation: presentation,
+                order: order,
+                onOpenStartPlace: nil,
+                onLastRowTapped: { handleFlowLastRow(order) },
+                onPrimaryAction: { handleFlowPrimaryAction(presentation, order: order) },
+                onOpenSafetyHub: { showSafetyHub = true },
+                footer: {
+                    VStack(spacing: 16) {
+                        flowFooter(order)
+                        debugMockControls(order)
+                    }
+                }
+            )
         } else {
             // 只读退路：`.unknown` 与终态（完成 / 取消 / 无人接单）。
             // 这一条**不许删** —— 后端加状态时它是未知态唯一的落点。
@@ -1404,7 +1419,7 @@ struct BlindOrderStatusView: View {
     ) {
         switch presentation.primaryAction {
         case .callVolunteer:
-            // 拨号一律经 `EmergencyDialer`：它只取数字位，掩码串会被拼成空号，
+            // 拨号一律经 `EmergencyDialer`：它拦掩码串、并只取数字位；掩码串若不拦会拼成 `tel://1381234`，
             // 而空号在界面上看不出任何异常（守卫 `raw-open-url` 拦绕开它的写法）。
             guard let url = EmergencyDialer.telURL(for: order.volunteerPhone?.nilIfBlank) else { return }
             EmergencyDialer.dial(url)
