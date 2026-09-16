@@ -89,6 +89,22 @@ enum FlowMetrics {
     /// 状态标题距视觉区的间距。
     static let statusTitleTopSpacing: CGFloat = 10
 
+    // MARK: 跑步中（③）
+
+    /// 顶行「陪跑中 · 张伟」左侧那枚小头像。**与视觉区那枚 ⌀92 是同一个视图**
+    /// （`matchedGeometryEffect`），所以两个直径必须都在这里，不能一个写死在视图里。
+    static let partnerAvatarDiameter: CGFloat = 28
+    /// 顶行的内边距（设计稿 `padding 14/18`）。
+    static let partnerRowVerticalPadding: CGFloat = 14
+    static let partnerRowHorizontalPadding: CGFloat = 18
+    /// 里程那个巨数字的字距（设计稿 `letter-spacing: -2`）。
+    ///
+    /// **负字距只给这一个数字。** 82pt 的等宽数字默认间距在 390pt 宽的屏幕上会让
+    /// 「10.00」顶到两边留白，而这一屏的全部意义就是这个数字一眼可读。
+    static let runDistanceTracking: CGFloat = -2
+    /// 时长 / 配速两格之间那条 1pt 竖分隔线的高度。
+    static let runMetricDividerHeight: CGFloat = 44
+
     // MARK: 信息列表
 
     /// 纯展示行的最小高度（设计稿 52）。
@@ -211,10 +227,34 @@ enum FlowFonts {
     }
     /// 按钮文字 18 / Semibold。
     static func actionButton() -> (CGFloat, Font.Weight, Font.TextStyle) { (18, .semibold, .body) }
-    /// 头像里的姓氏。视觉区那枚 38，首页深蓝卡那枚 18。
+    /// 头像里的姓氏。视觉区那枚 38，首页深蓝卡那枚 18，跑步中顶行那枚 ⌀28 用 13。
+    ///
+    /// 三档按**直径**分，不按调用点：同一个 `FlowAvatar` 在三个地方用，
+    /// 让调用点各传一个字号必然会漂 —— 而「小头像里的字挤成一坨」不会有任何东西报警。
     static func avatarInitial(diameter: CGFloat) -> (CGFloat, Font.Weight, Font.TextStyle) {
-        (diameter >= FlowMetrics.avatarDiameter ? 38 : 18, .semibold, .title)
+        if diameter >= FlowMetrics.avatarDiameter { return (38, .semibold, .title) }
+        if diameter >= FlowMetrics.homeVolunteerAvatarDiameter { return (18, .semibold, .title) }
+        return (13, .semibold, .footnote)
     }
+
+    // MARK: 跑步中（③）与倒计时（②）
+
+    /// 里程。**全屏最大字号**，等宽数字。
+    ///
+    /// 🔴 基准取 **82 不是 70**。设计包里这个数字自相矛盾：README 写「82（基准 70）」，
+    /// 清单 §22 写「70×1.76＝123」，§23 写「123→101（`minimumScaleFactor(0.7)`）」。
+    /// 123×0.7＝86 ≠ 101，而 **82×1.76＝144、144×0.7＝101** —— 只有 82 能同时满足
+    /// §23 给的两个数，所以 §22 那句是旧值。
+    static func runDistance() -> (CGFloat, Font.Weight, Font.TextStyle) { (82, .semibold, .largeTitle) }
+    /// 里程下方的时长 / 配速。
+    static func runMetric() -> (CGFloat, Font.Weight, Font.TextStyle) { (36, .semibold, .title) }
+    /// 三个数字各自的标签。里程的标签 16、时长配速的标签 15（设计稿两档不同）。
+    static func runPrimaryLabel() -> (CGFloat, Font.Weight, Font.TextStyle) { (16, .regular, .callout) }
+    static func runSecondaryLabel() -> (CGFloat, Font.Weight, Font.TextStyle) { (15, .regular, .subheadline) }
+    /// 顶行「陪跑中 · 张伟」。
+    static func partnerHeadline() -> (CGFloat, Font.Weight, Font.TextStyle) { (15, .semibold, .subheadline) }
+    /// 倒计时那三个数字，压在 ⌀92 的品牌蓝实心圆上。
+    static func countdownNumber() -> (CGFloat, Font.Weight, Font.TextStyle) { (52, .semibold, .largeTitle) }
 }
 
 extension View {

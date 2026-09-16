@@ -26,6 +26,15 @@
    「必须是可见按钮，不许做成 accessibility custom action」，理由是低视力通道。
 3. **PR 策略**：#141 已合，本轮从 `main` 新开分支。后续每个阶段一个 commit，
    阶段 1–2 合成一个 PR 还是分开，做完阶段 1 再定。
+4. **（2026-09-16，答的是原 §2-H）盲人端不做「开始跑步」按钮。**
+   ① 汇合的主按钮保留现有的「打电话给张伟」；三秒倒计时改由**订单状态被推到
+   `IN_PROGRESS`** 触发（`BlindOrderStatusViewModel.shouldStartRunCountdown`）。
+   冷启动时已是 `IN_PROGRESS` 则跳过倒计时 —— 中途进页面的人不该听一遍「准备开始」。
+   > 依据：后端 `OrderLifecycleService.java:156` 走 `loadForVolunteer(...)`，
+   > `:1025-1026` 对非接单志愿者直接抛 `NOT_ORDER_PARTICIPANT`（403）。
+   > 所以原 §2-H 记的「不明」已查清 —— 是**确定调不通**，而那让默认解法
+   > 「先做按钮 + 403 兜底」变成「每次按都失败」。已投 handoff 请后端放开；
+   > 放开后只需在 ① 加一枚按钮调 `orders.startService`，倒计时那条链路一行不用改。
 
 ## 二、还没拍板（到对应阶段**先问**，别自己选）
 
@@ -36,7 +45,7 @@
 | E | 深色档 7 个 token 与仓库现值不一致（页面底 `#000000` vs `#121417`、正文 `#FFFFFF` vs `#F2F3F5`、品牌蓝 `#0A84FF` vs `#7EA2FF`、求助字 `#FF453A` vs `#FFB4AB` …） | **不改 `FlowPalette`**（会改每一个已验收界面的深色外观，且对比度用例钉着现值）。E 组按仓库现有深色档做，交付说明里写清偏离 |
 | F | 走散/离线的数值后端不下发；阈值也对不上 | 警示条不写具体数值（用契约的 `ttsText`）；「我们在一起」做成**纯本地**消警；投 handoff |
 | G | 电量后端 0 命中 | 跑者端用本机 `UIDevice.batteryLevel` 自播；陪跑员端那一行不做，投 handoff |
-| H | `/start-service` 盲人 token 能不能调不明 | 先做按钮 + 403 兜底，同时投 handoff |
+| ~~H~~ | ~~`/start-service` 盲人 token 能不能调不明~~ | **2026-09-16 已答，见 §1-4。** 查清是确定调不通（后端 `loadForVolunteer`），已投 handoff |
 | I | 「本次志愿服务时长」只有累计值 `totalServiceMinutes` | 投 handoff 要单次值 |
 
 ## 三、摸底结论（已核实，**别重查**）
@@ -72,8 +81,9 @@
 
 ## 四、阶段计划（一个阶段一个 session，别在一个 session 里连做两个）
 
-- [ ] **阶段 1 · A 组 ①②③ 原地变形 + 主按钮位置不动** ← 下一件
-- [ ] 阶段 2 · 播报队列 + 四种提示音
+- [x] **阶段 1 · A 组 ①②③ 原地变形 + 主按钮位置不动**（2026-09-16，编译门禁 + 规格校验过，
+      **真机 XCTest 未跑** —— 当时 iPhone 走 `localNetwork`，没插 USB）
+- [ ] 阶段 2 · 播报队列 + 四种提示音 ← 下一件
 - [ ] 阶段 3 · ④ 已完成 + 陪跑员端长按 2 秒结束
 - [ ] 阶段 4 · B 组异常警示条 + 求助中心单列重排（先答 C）
 - [ ] 阶段 5 · D 组锁屏实时活动（**要新建 Widget Extension target，得动 pbxproj**）
@@ -81,15 +91,24 @@
 
 ### 阶段 1 要动的文件
 
-| 文件 | 改什么 |
+**实际落地如下（与开工前的预估表有两处出入，已订正）：**
+
+| 文件 | 改了什么 |
 |---|---|
-| `blindRun/BlindRunner/BlindOrderFlowStep.swift` | `PrimaryAction` 加 `.startRun` / `.countdown` / `.announceStats`；决定 `IN_PROGRESS` 怎么进骨架 |
-| `blindRun/BlindRunner/BlindOrderFlowView.swift` | 进度条上折、「陪跑中 · 张伟」展开、头像**同一个视图**从 ⌀92 缩到 ⌀28、信息卡下沉淡出；`reduceMotion` 走 300ms 纯淡入淡出但**保留倒计时** |
-| `blindRun/BlindRunner/BlindActiveRunView.swift` | 内容区重写成白卡三数字（里程 82 居中 / 时长 / 配速），按决策 1 保留三件 |
-| `blindRun/BlindRunner/BlindOrderStatusView.swift` | 分支合并、倒计时状态机、真实调 `startService` |
-| `blindRun/Core/DesignSystem/FlowMetrics.swift` | `FlowFonts` 加：里程 82 / 次级 36 / 顶行 15；`FlowMetrics` 加小头像 ⌀28 |
-| `blindRun/Core/DesignSystem/FlowPalette.swift` | 加 `ctaDisabled`（`#FBE6AE`，浅深同值） |
-| `blindRunTests/BlindRunPhaseTests.swift`（新） | 相位机 + presentation 穷举 |
+| `BlindOrderFlowStep.swift` | `.inProgress` → `.metUp`（进骨架）；新增 `BlindRunPhase` / `BlindRunCountdown` / `BlindRunTransition` / `BlindRunCopy`；`Visual` 加 `.countdown(Int)` / `.runMetrics`；`PrimaryAction` 加 `.preparing` / `.announceStats`（**没有 `.startRun`**，见 §1-4）；`make` 加 `countdown:` 入参、相位在内部派生 |
+| `BlindOrderFlowView.swift` | 进度条 ↔「陪跑中 · 张伟」顶行互换、头像 `matchedGeometryEffect` ⌀92 ↔ ⌀28、信息卡在跑步中不渲染；`transitionAnimation` 按 `reduceMotion` 分档；倒计时圆 + 每拍回弹 |
+| `BlindActiveRunView.swift` | **整文件重写**：从一屏深底执行屏变成白卡内容区（里程 82 居中 + 时长/配速两格）。`BlindActiveRunSafetyAnchor` 删除，其中的求助结果面抽成 `BlindRunSafetyResultSection` |
+| `BlindOrderStatusView.swift` | `content` 三分支合并成两分支；`runCountdown` 状态机 + `shouldStartRunCountdown` 纯函数；`flowFooter` 接回求助结果面；`isActiveRun` / `repeatStatusArea` 删除；导航栏「重复当前状态」在 ③ 收起 |
+| `FlowMetrics.swift` | `FlowFonts` 加 `runDistance()` 82 / `runMetric()` 36 / `runPrimaryLabel()` 16 / `runSecondaryLabel()` 15 / `partnerHeadline()` 15 / `countdownNumber()` 52；`avatarInitial(diameter:)` 加 13 这一档；`FlowMetrics` 加 ⌀28 小头像与顶行内边距 |
+| `FlowPalette.swift` | 加 `ctaDisabled` / `ctaDisabledTone`（`#FBE6AE`，浅深同值） |
+| `FlowComponents.swift` | `FlowActionButton` 加 `isEnabled`（→ `.disabled()` + `ctaDisabled` 底） |
+| `blindRunTests/BlindRunPhaseTests.swift`（新） | 相位派生、倒计时四条边界（含穷举）、主按钮版位不空、顶行去掩码 |
+
+**遗留在原地没动的东西**（下一轮别当成缺陷去查）：
+`AppColors.activeRunSurface` / `activeRunSecondaryText` / `activeRunDestructive` 三个取值
+现在**盲人端没有渲染点了**，但 `LowVisionChannelTests` 还在验它们的对比度。
+刻意不删：陪跑员端跑步中那屏（C 组，阶段 3）大概率还要用同一套深底。
+到阶段 3 若确认不用，连同那 3 条用例一起删。
 
 ---
 

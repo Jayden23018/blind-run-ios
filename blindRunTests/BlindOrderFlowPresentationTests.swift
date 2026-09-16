@@ -22,8 +22,10 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
             .pendingAccept: .booked,
             .driverEnRoute: .departed,
             .driverArrived: .metUp,
-            // 走执行屏，不走骨架。
-            .inProgress: nil,
+            // 🔴 与汇合**同一格**。跑起来之后进度条整条折叠收起，所以屏幕上并不显示
+            // 「第 4 步」—— 但它必须走同一个骨架：跳页会让 VoiceOver 焦点回到屏幕顶部。
+            // 2026-09-16 之前这里是 `nil`（独立执行屏），那正是这次消掉的跳页。
+            .inProgress: .metUp,
             // 终态：完成/评价页与只读终态卡。
             .completed: nil,
             .cancelled: nil,
@@ -279,7 +281,7 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
     // MARK: - 不走骨架的那些态
 
     func testStatusesOutsideTheSkeletonProduceNoPresentation() {
-        for status in [RunOrderStatus.inProgress, .completed, .cancelled, .noVolunteer, .unknown] {
+        for status in [RunOrderStatus.completed, .cancelled, .noVolunteer, .unknown] {
             XCTAssertNil(
                 BlindOrderFlowPresentation.make(
                     order: .preview(status: status),
@@ -301,6 +303,7 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
         canKeepWaiting: Bool = false,
         locationWarning: String? = nil,
         createdAt: String? = nil,
+        countdown: Int? = nil,
         now: Date = Date()
     ) -> BlindOrderFlowPresentation {
         let order = OrderDetailResponse.preview(
@@ -315,12 +318,13 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
             distanceText: distanceText,
             canKeepWaiting: canKeepWaiting,
             locationWarning: locationWarning,
+            countdown: countdown,
             now: now
         ) else {
-            XCTFail("\(status) 应该落在四步骨架里")
+            XCTFail("\(status) 应该落在骨架里")
             // 这条路走不到（上面已 fail），给一个不会被断言的值让签名闭合。
             return BlindOrderFlowPresentation(
-                step: .matching, visual: .radar, title: "", subtitle: "",
+                step: .matching, phase: .beforeRun, visual: .radar, title: "", subtitle: "",
                 lastRowTitle: "", primaryAction: nil, warning: nil
             )
         }

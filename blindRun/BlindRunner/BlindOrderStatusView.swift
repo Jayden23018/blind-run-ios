@@ -72,6 +72,15 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 两条轨迹是各自独立采集的（后端 10 秒采样窗口、起点与点数都不同），拿错就是显示别人的成绩。
     @Published private(set) var trackStats: TrackStats?
 
+    /// 汇合 → 跑步中那三秒倒计时还剩第几拍。`nil` = 不在倒计时。
+    ///
+    /// **纯本地状态，后端没有对应字段。** 它只是把「状态已经变成 `IN_PROGRESS` 了」
+    /// 这件事在屏幕上演三秒再上数据 —— 相位的派生在
+    /// `BlindOrderFlowPresentation.phase(order:countdown:)`。
+    @Published private(set) var runCountdown: Int?
+
+    private var runCountdownTask: Task<Void, Never>?
+
     /// `/track` 上一次拉的时刻。`nil` = 下一轮立刻拉。
     private var lastTrackFetchAt: Date?
     /// 每公里播报的判定。逻辑（含「首个样本只定基线」那条）在 `KilometerMilestoneTracker`。
@@ -220,6 +229,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
             trackStats = nil
             lastTrackFetchAt = nil
             kilometerMilestones.reset()
+            // 换单时倒计时同样按单清。上一单遗留的任务会往新一单的屏幕上写数字。
+            cancelRunCountdown()
         }
         currentOrderId = orderId
         acceptsPeerLocations = true
@@ -245,6 +256,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         pollingTask = nil
         acceptsPeerLocations = false
         clearPeerLocation()
+        cancelRunCountdown()
     }
 
     func repeatStatus() {
@@ -804,6 +816,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         order = updated
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         refreshVolunteerDistance()
+        startRunCountdownIfNeeded(from: previousStatus, to: updated.status)
         if speakChanges, previousStatus != updated.status {
             speechService?.speakStatusChange(
                 updated.status,
@@ -820,6 +833,67 @@ final class BlindOrderStatusViewModel: ObservableObject {
             }
             stopPolling()
         }
+    }
+
+    /// 汇合 → 跑步中那三秒倒计时。
+    ///
+    /// 🔴 **触发点是「志愿者把状态推到了 `IN_PROGRESS`」，不是盲人按了什么。**
+    /// 设计稿写的是「任一端按下开始跑步（双方都能按，先按的生效）」，而后端
+    /// `OrderLifecycleService.startService` 走的是 `loadForVolunteer(...)`，盲人 token
+    /// 一律被判 `NOT_ORDER_PARTICIPANT`（403）—— 盲人端根本调不动 `/start-service`。
+    /// 所以这一端没有「开始跑步」按钮（① 汇合的主按钮仍是「打电话给张伟」），
+    /// 倒计时改挂在状态推进上。**已投 handoff 请后端放开盲人 token**；放开之后
+    /// 只需在 ① 加一枚按钮调 `orders.startService`，这里一行都不用改。
+    ///
+    /// 两条边界都要守住，而且方向相反：
+    /// - `previousStatus == nil` ⇒ **冷启动进来时已经在跑了**，不倒数。中途进页面的人
+    ///   听一遍「准备开始」是在说一件三公里以前发生过的事。
+    /// - `previousStatus == .inProgress` ⇒ 同一态的重复刷新（每 5 秒一轮），不重放。
+    ///
+    /// 播报走 `announce`（VoiceOver announcement 通道）而**不是** `speak`：
+    /// `SpeechService.speak` 会先 `stopSpeaking(.immediate)`，紧接着三拍数字会把
+    /// 同一刻正在播的「陪跑服务已开始」整句切断，表现是「只念了开头」
+    /// （记忆 `later-speak-silently-cuts-the-earlier-one`）。announcement 不抢合成器、
+    /// 也不移动读屏焦点 —— 焦点在这三秒里必须待在原处，那正是原地变形要保住的东西。
+    /// 判据抽成**纯静态函数**，理由同 `FlowStepper.accessibilityLabel`：三秒倒计时本身
+    /// 只有真机能看，但「什么时候该倒数」是两个布尔判断，不该也要开一次真机才知道对不对。
+    /// 上面那两条边界（冷启动不倒数 / 同态刷新不重放）各有一条用例钉着。
+    nonisolated static func shouldStartRunCountdown(
+        from previousStatus: RunOrderStatus?,
+        to status: RunOrderStatus
+    ) -> Bool {
+        guard status == .inProgress, let previousStatus else { return false }
+        return previousStatus != .inProgress
+    }
+
+    private func startRunCountdownIfNeeded(from previousStatus: RunOrderStatus?, to status: RunOrderStatus) {
+        guard Self.shouldStartRunCountdown(from: previousStatus, to: status) else { return }
+        runCountdownTask?.cancel()
+        runCountdownTask = Task { @MainActor [weak self] in
+            for beat in BlindRunCountdown.beats {
+                guard let self, !Task.isCancelled else { return }
+                self.runCountdown = beat
+                // 触觉是冗余通道：VoiceOver 关着的低视力用户听不到 announcement，
+                // 但摸得到这三拍。每拍一下，与数字同生同灭。
+                HapticFeedback.play(.success)
+                self.speechService?.announce("\(beat)")
+                try? await Task.sleep(
+                    nanoseconds: UInt64(BlindRunCountdown.beatInterval * 1_000_000_000)
+                )
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.runCountdown = nil
+        }
+    }
+
+    /// 换单 / 离开页面时收掉倒计时。
+    ///
+    /// 不收的后果不是「多演三秒」而是**状态错乱**：任务还在往 `runCountdown` 写值，
+    /// 而订单可能已经换成另一单了 —— 那一单的屏幕上会凭空倒数一次。
+    private func cancelRunCountdown() {
+        runCountdownTask?.cancel()
+        runCountdownTask = nil
+        runCountdown = nil
     }
 
     /// 状态推进时该播哪一句。除了一处例外，都是 `blindRunnerAnnouncement`。
@@ -1223,12 +1297,7 @@ struct BlindOrderStatusView: View {
     /// 已降级为 64pt 的次级按钮 —— 见 `keepWaitingSection`。
     @ScaledMetric(relativeTo: .largeTitle) private var primaryActionButtonHeight: CGFloat = 140
 
-    /// `IN_PROGRESS` 走执行屏；**其余状态一行没改**，仍是原来那条滚动列表。
-    private var isActiveRun: Bool {
-        viewModel.order?.status == .inProgress
-    }
-
-    /// 这一刻渲染的是设计稿的四步骨架吗。
+    /// 这一刻渲染的是设计稿的骨架吗。
     ///
     /// 派生自 `flowPresentation` 而不是另写一套状态判断 —— 两处各判一次的下场是
     /// 骨架渲染出来了而底栏还挂着旧的两个按钮（或者反过来），而那种错位在真机上
@@ -1248,9 +1317,7 @@ struct BlindOrderStatusView: View {
         showEmergencyCountdown = true
     }
 
-    /// 产品定稿 2026-09-15：跑动中那一屏是执行屏不是仪表盘，整个内容区换掉。
-    /// 被移出的六组内容各自去了哪，见 `BlindActiveRunView` 的类型注释里那张表。
-    /// 订单落在四步骨架的哪一格，以及那一格要显示什么。`nil` = 不走骨架。
+    /// 订单落在骨架的哪一格、哪一幕，以及那一幕要显示什么。`nil` = 不走骨架。
     ///
     /// 走不走骨架由 `RunOrderStatus.blindOrderFlowStep` 判：`.unknown` 与终态落 `nil`，
     /// 退回改版前那条只读滚动列表（`trackingContent`）。**刻意保留那条退路** ——
@@ -1261,8 +1328,14 @@ struct BlindOrderStatusView: View {
             order: order,
             distanceText: viewModel.volunteerDistanceToStartText,
             canKeepWaiting: viewModel.canShowKeepWaiting,
-            locationWarning: flowLocationWarning
+            locationWarning: flowLocationWarning,
+            countdown: viewModel.runCountdown
         )
+    }
+
+    /// 这一刻是不是跑步中那一幕。底栏、导航栏与求助中心的三处分流都读它。
+    private var isRunningPhase: Bool {
+        flowPresentation?.phase.isRunning == true
     }
 
     /// 副标题下方那行警示。**只在异常时非 nil。**
@@ -1279,23 +1352,15 @@ struct BlindOrderStatusView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let order = viewModel.order, order.status == .inProgress {
-            VStack(spacing: 0) {
-                BlindActiveRunView(
-                    order: order,
-                    stats: viewModel.trackStats,
-                    isLocationFresh: viewModel.isDeviceLocationFresh
-                )
-                // 执行屏也要留着 mock 控件：`IN_PROGRESS` 这一态的「模拟服务完成」是
-                // **mock 环境走到完成/评价页的唯一通道**，砍掉它等于把演示流程钉死在跑步中。
-                // 它自己带 `#if DEBUG` + `currentEnvironment == .mock` 两道闸，
-                // Release 里是 `EmptyView`，不占一个像素，也不影响「执行屏只有四组内容」这条设计。
-                debugMockControls(order)
-            }
-        } else if let presentation = flowPresentation, let order = viewModel.order {
-            // 设计稿的四步骨架。**四态共用同一套布局**，只换内容 —— 改版前每态一个
+        if let presentation = flowPresentation, let order = viewModel.order {
+            // 设计稿的骨架。**六幕共用同一套布局**，只换内容 —— 改版前每态一个
             // 独立页面，而 iOS 切页时 VoiceOver 会把焦点移回第一个元素，读屏用户每次
             // 都要从头找。单页原地更新让焦点保持不动，只播报变化。
+            //
+            // 🔴 `IN_PROGRESS` 2026-09-16 起也走这里（原先是一整屏独立的深底执行屏）。
+            // 那一屏被移出的东西**一件都没删**，只是换了落点：三个数字进
+            // `BlindActiveRunView`（现在是这张卡的内容区）、定位新鲜度进顶行、
+            // 求助失败与撤销进 `flowFooter`、「重复当前状态」由主按钮「播报当前数据」承担。
             // 🔴 **`debugMockControls` 必须在骨架的 ScrollView 里面（走 footer），
             // 不能当 `BlindOrderFlowView` 的兄弟节点。**
             //
@@ -1313,6 +1378,8 @@ struct BlindOrderStatusView: View {
             BlindOrderFlowView(
                 presentation: presentation,
                 order: order,
+                stats: viewModel.trackStats,
+                isLocationFresh: viewModel.isDeviceLocationFresh,
                 onOpenStartPlace: nil,
                 onLastRowTapped: { handleFlowLastRow(order) },
                 onPrimaryAction: { handleFlowPrimaryAction(presentation, order: order) },
@@ -1342,6 +1409,15 @@ struct BlindOrderStatusView: View {
     @ViewBuilder
     private func flowFooter(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 10) {
+            // 求助的结果面。**不额外判相位** —— 云端求助只在 `IN_PROGRESS` 可发
+            // （`canBlindRunnerTriggerEmergency`），所以这三块在别的幕里本来就恒为空；
+            // 多一道相位闸只会多一个能判错的地方，而判错的方向是「求助失败了却没有兜底按钮」。
+            BlindRunSafetyResultSection(
+                coordinator: appState.emergencyCoordinator,
+                onLocalCall: { showEmergencyCallOptions = true },
+                onCancelOwnEmergency: { showEmergencyCancelConfirmation = true }
+            )
+
             if let notice = shareViewModel.notice {
                 Text(notice.text)
                     .font(AppFonts.body())
@@ -1427,6 +1503,15 @@ struct BlindOrderStatusView: View {
             introCallPresentation.isShowing = true
         case .keepWaiting:
             Task { await viewModel.keepWaiting() }
+        case .announceStats:
+            // 与导航栏那枚「重复当前状态」是**同一个函数**：`repeatStatus` 播的就是
+            // 状态 + 里程 / 时长 / 配速（用播报口径，不是屏幕上那个 `9'06"`）。
+            // 两处各写一份的下场是跑步中那屏播的和别处不一样，而没有人会发现。
+            viewModel.repeatStatus()
+        case .preparing:
+            // 倒计时那三秒按钮是 `.disabled()` 的，走不到这里。留一个显式分支而不是
+            // 并进 `nil`：`PrimaryAction` 加档时编译器会逼一次决策。
+            break
         case nil:
             break
         }
@@ -1484,7 +1569,8 @@ struct BlindOrderStatusView: View {
 
     var body: some View {
         content
-        .background(isActiveRun ? AppColors.activeRunSurface : AppColors.background)
+        // 骨架自己铺 `AppColors.Flow.page`，这一层只兜住只读退路那条分支。
+        .background(AppColors.background)
         .navigationTitle(usesFlowSkeleton ? "陪跑订单" : "订单状态")
         .navigationBarTitleDisplayMode(.inline)
         // 🔴 走四步骨架时**不挂这条底栏** —— 骨架自带设计稿的两个版位
@@ -1493,7 +1579,7 @@ struct BlindOrderStatusView: View {
         // 「三个 64pt 按钮在 6.1" 上吃掉约 26% 屏幕，治了求助够不着换来别的都够不着」。
         .safeAreaInset(edge: .bottom) {
             if !usesFlowSkeleton {
-                repeatStatusArea
+                standardRepeatStatusArea
             }
         }
         // 「重复当前状态」在骨架态放**导航栏右侧**。
@@ -1509,8 +1595,13 @@ struct BlindOrderStatusView: View {
         // 低视力用户够不到，且 `XCUIElement.tap()` 注入物理触摸、不经过 accessibility
         // action，等于这条硬规则没有任何机器守卫（记忆
         // `xcuitest-cannot-invoke-accessibility-actions`）。
+        //
+        // 🚩 **跑步中那一幕它收起**（项目负责人 2026-09-16 决策 2）：那一屏的主按钮就是
+        // 「播报当前数据」，按下去调的是同一个 `repeatStatus()`。两枚按钮播同一段话，
+        // 对看不见屏幕的人只是多一次误触面 —— 而这一条不违反上面那句「不能删」：
+        // 功能没有消失，只是换了一个**更大、位置固定**的载体。
         .toolbar {
-            if usesFlowSkeleton {
+            if usesFlowSkeleton && !isRunningPhase {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         viewModel.repeatStatus()
@@ -1664,12 +1755,14 @@ struct BlindOrderStatusView: View {
             // 设计稿 §3.5 的迁移：「分享实时位置给家人 → 求助与安全中心」。
             // 骨架替换掉了 `runPlanShareSection` 那条列表，不迁进来这四态就一个入口都没有。
             //
-            // 🔴 **判据是 `usesFlowSkeleton` 而不只是 `offersRunPlanShare`** ——
-            // 后者含 `.inProgress`，而那一态整屏走 `BlindActiveRunView`，**没有 `flowFooter`**
-            // ⇒ 分享失败时 `showSMSFallback` 立起来了却没有按钮可渲染、`notice` 也无处显示，
-            // 只剩一句 TTS。那正好是这一轮在修的形状，不能顺手在另一个分支上新开一个。
-            // 入口只出现在**它的结果看得见**的地方；`IN_PROGRESS` 要不要有分享是独立的一次决定。
-            offersLiveShare: usesFlowSkeleton && viewModel.order?.status.offersRunPlanShare == true,
+            // 🔴 **跑步中那一幕刻意仍然没有分享入口**，尽管它现在也有 `flowFooter` 了
+            // （结果看得见这条前提已经成立）。理由换了一个：`IN_PROGRESS` 要不要给
+            // 「把行程告诉家人」是一次**独立的产品决定** —— 那一屏的设计只有一个黄按钮 +
+            // 求助与安全，而求助中心的格子数上限是 7（`BlindActiveRunSafetyHubOption.tiles`），
+            // 跑中那一版的五项还在等 §2-C 拍板。顺手打开等于在一个没人拍过板的位置加功能。
+            offersLiveShare: usesFlowSkeleton
+                && !isRunningPhase
+                && viewModel.order?.status.offersRunPlanShare == true,
             isLiveSharing: shareViewModel.isLiveSharing,
             onAnnounceLocation: { Task { await viewModel.announceCurrentLocation() } },
             onAskQuestion: { viewModel.askVoiceQuestion() },
@@ -2500,7 +2593,8 @@ struct BlindOrderStatusView: View {
         .accessibilityLabel("\(title)：\(value)")
     }
 
-    /// 求助区块**不在这里** —— 它在底部常驻的 `repeatStatusArea` 里（`IN_PROGRESS` 时）。
+    /// 求助区块**不在这里** —— `IN_PROGRESS` 时它在骨架底部那两个固定版位里
+    /// （`BlindOrderFlowView.bottomActions` 的「求助与安全」）。
     ///
     /// 2026-08-19 搬走：这个 section 排在滚动内容第 7 位，`IN_PROGRESS` 时上面压着状态卡、
     /// 140pt 的「打电话给志愿者」、行程分享、180pt 装饰地图 —— 内容顶到求助按钮约 700pt，
@@ -2648,54 +2742,16 @@ struct BlindOrderStatusView: View {
         #endif
     }
 
-    /// 底部常驻区。最后一个版位恒为「重复当前状态」，前面按状态换人：
+    /// **只读退路**（`.unknown` 与终态）那条常驻底栏：「问一句」+「重复当前状态」。
     ///
-    /// - `IN_PROGRESS`：求助区块（「一键求助」+「紧急呼叫」两个按钮）。
-    ///   这是这一页唯二「晚一秒都算代价」的动作，必须零滚动可达。
-    /// - 其余状态：「问一句」。它排在「重复当前状态」之前是因为更省时间 ——
-    ///   整段状态播报要 15~25 秒，而问一句只念被问的那一项。
+    /// 「问一句」排在前面是因为更省时间 —— 整段状态播报要 15~25 秒，而问一句只念被问的那一项。
     ///
-    /// **「问一句」是换不是加**：再叠一个 64pt 就是三个按钮 220pt，在 6.1" 上吃掉 26% 屏幕，
-    /// 把滚动区压得更小 —— 治了求助够不着，换来别的都够不着。`IN_PROGRESS` 时「问一句」下沉到
-    /// 滚动区「打电话给志愿者」的下一位（仍在首屏内），不是删掉：
-    /// `blindOrderStatusAskQuestionButton` 这个标识符没变，按 id 找它的用例照样找得到。
-    ///
-    /// **但「紧急呼叫」是加**（2026-09-08）。同一条「够不着就等于没有」的判据，两次得出相反的结论：
-    /// 「问一句」够不着只是多听 20 秒，而急救电话够不着，代价没有上限。腾出来的空间正是
-    /// 「问一句」让出的那一格 —— `IN_PROGRESS` 时这条底栏仍是三个按钮，不是四个。
-    ///
-    /// 求助进行中时这一条会变高（求助 + 结果文案 + 撤销求助 + 重复当前状态）。这是有意的：
-    /// 那正是这一页唯一该被求助占满的时刻，也是「撤销求助」必须跟着按钮走的理由 ——
-    /// 按下去的结果不该出现在屏幕外。
-    @ViewBuilder
-    private var repeatStatusArea: some View {
-        if isActiveRun {
-            // 执行屏自己的安全锚点：一整块贴边求助 + 上面一行安静的「问一句 / 重复当前状态」。
-            // 这里不再有「一键求助 + 紧急呼叫」两个红按钮挨着的形态 —— 两条路都收进求助中心那一层
-            // （报告 §16 指出的问题，产品 2026-09-15 定了合并）。
-            BlindActiveRunSafetyAnchor(
-                coordinator: appState.emergencyCoordinator,
-                onRepeatStatus: { viewModel.repeatStatus() },
-                onOpenSafetyHub: { showSafetyHub = true },
-                // 长按 3 秒 / 自定义无障碍动作 → **跳过二次确认直接进倒计时**。
-                // 2026-09-15 code review 抓到这里原本指向确认弹窗（阶段 1 的临时接线，
-                // 阶段 2 接倒计时时漏了这一处）—— 而按钮副标题逐字印着「长按 3 秒紧急求助」，
-                // 四处代码注释也都声称这条路径跳过确认。屏 2 那一处（:1414）一直是对的。
-                onTriggerEmergencyImmediately: startEmergencyCountdown,
-                onCancelOwnEmergency: { showEmergencyCancelConfirmation = true },
-                onLocalCall: { showEmergencyCallOptions = true }
-            )
-        } else {
-            standardRepeatStatusArea
-        }
-    }
-
-    /// 非 `IN_PROGRESS` 的那条常驻底栏。
-    ///
-    /// 🚩 这里**不再有求助分支**。求助只在 `IN_PROGRESS` 开放（`canBlindRunnerTriggerEmergency`
-    /// 恒等于 `status == .inProgress`），而那一态现在整屏走 `BlindActiveRunSafetyAnchor` ——
-    /// 原来那个 `if viewModel.canShowEmergency` 在这里已经**恒为假**。留着一条永远走不到的
-    /// 安全分支，比删掉危险：它会继续被当成「这条路还在」而没有任何东西会说话。
+    /// 🚩 这里**没有求助分支**，而且不该有。求助只在 `IN_PROGRESS` 开放
+    /// （`canBlindRunnerTriggerEmergency` 恒等于 `status == .inProgress`），
+    /// 而那一态 2026-09-16 起走骨架、由骨架自带的「求助与安全」版位承担 ——
+    /// 这条底栏根本不会被挂上去（`usesFlowSkeleton` 为真时 `safeAreaInset` 里是空的）。
+    /// 留着一条永远走不到的安全分支比删掉危险：它会继续被当成「这条路还在」，
+    /// 而没有任何东西会说话。
     private var standardRepeatStatusArea: some View {
         VStack(spacing: 12) {
             askQuestionButton
@@ -2738,11 +2794,12 @@ struct BlindOrderStatusView: View {
         }
     }
 
-    /// 非 `IN_PROGRESS` 那条底栏上的「问一句」。
+    /// 只读退路那条底栏上的「问一句」。
     ///
-    /// `IN_PROGRESS` 不走这里 —— 那一态的「问一句」在 `BlindActiveRunSafetyAnchor` 上，
-    /// 做成不与巨数字竞争视觉的安静文字按钮（产品 2026-09-15 定稿）。
-    /// 两处按的是同一个 `viewModel.askVoiceQuestion()`。
+    /// 走骨架的那六幕不经过这里 —— 它们的「问一句」在求助中心弹层的第三格
+    /// （`BlindActiveRunSafetyHubOption.askQuestion`）。两处按的是同一个
+    /// `viewModel.askVoiceQuestion()`，且**都不是**纯 `accessibilityAction`：
+    /// 那样只有开读屏的人够得着（记忆 `low-vision-visual-channel-unaudited`）。
     private var askQuestionButton: some View {
         Button("问一句") {
             viewModel.askVoiceQuestion()

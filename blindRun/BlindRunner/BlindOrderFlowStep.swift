@@ -29,10 +29,9 @@ extension RunOrderStatus {
     /// 这一态落在四步骨架的哪一格。`nil` = **不走这个骨架**。
     ///
     /// 走不走骨架的判据与 `blindRunnerRoute` 对齐：`.tracking` 那七态走，其余不走
-    /// （`IN_PROGRESS` 走执行屏 `BlindActiveRunView`，`COMPLETED` 走完成/评价页，
-    /// 其余终态走只读终态卡）。**刻意不复用 `blindRunnerRoute` 直接派生** ——
-    /// 那个枚举回答的是「去哪一页」，这个回答的是「在这一页的第几格」，
-    /// 两个问题同源但不同步：后端加状态时两处都要各做一次决策。
+    /// （`COMPLETED` 走完成/评价页，其余终态走只读终态卡）。**刻意不复用
+    /// `blindRunnerRoute` 直接派生** —— 那个枚举回答的是「去哪一页」，这个回答的是
+    /// 「在这一页的第几格」，两个问题同源但不同步：后端加状态时两处都要各做一次决策。
     ///
     /// 穷举 switch 而不是集合字面量：集合会把新状态默默判成 `nil`，
     /// 而那表现为「订单页整屏空白」—— 对盲人端「点了没反应」就是事故（`AGENTS.md` §硬约束）。
@@ -50,11 +49,15 @@ extension RunOrderStatus {
             return .booked
         case .driverEnRoute:
             return .departed
-        case .driverArrived:
+        // `IN_PROGRESS` 与 `DRIVER_ARRIVED` **同一格**。跑起来之后进度条整条折叠收起
+        // （换成一行「陪跑中 · 张伟」），所以这一态在屏幕上并不显示「第 4 步」——
+        // 但它仍然要走这个骨架：设计的核心结论就是「跑步中不是新页面，而是订单页原地变形」。
+        //
+        // 🔴 **跳页会让 VoiceOver 焦点回到屏幕顶部**，视障跑者每次都要从头找；
+        // 原地变形让焦点留在原处，只播报变化。2026-09-16 之前这里返回 `nil`、
+        // 由一个独立的深底执行屏接管，那正是这次要消掉的跳页。
+        case .driverArrived, .inProgress:
             return .metUp
-        // 走执行屏，不走这个骨架。
-        case .inProgress:
-            return nil
         // 终态：完成/评价页与只读终态卡，都不是四步骨架。
         case .completed, .cancelled, .noVolunteer:
             return nil
@@ -66,6 +69,71 @@ extension RunOrderStatus {
             return nil
         }
     }
+}
+
+// MARK: - A 组三屏的相位
+
+/// ① 汇合 → ② 倒计时 → ③ 跑步中，**同一页面原地变形**。
+///
+/// 它不是订单状态的别名，也不与 `BlindOrderFlowStep` 重合：
+/// - `step` 回答「四格进度条走到第几格」，匹配 / 约好 / 出发三态只有这一个维度；
+/// - `phase` 回答「这一格里正在演哪一幕」，只有汇合那一格有三幕。
+///
+/// 倒计时是**纯本地**的三秒，后端没有对应状态 —— 所以它只能是一个额外维度，
+/// 不能塞进 `RunOrderStatus`。
+enum BlindRunPhase: Equatable {
+    /// 还没开跑：四步骨架原样（含 ① 汇合）。
+    case beforeRun
+    /// 倒计时那三秒。进度条、信息卡、按钮位置**全部不动**，只换视觉区与文案。
+    case countdown(Int)
+    /// 跑步中：进度条折叠成一行，信息卡移除，主体换成三个数字。
+    case running
+
+    var isRunning: Bool { self == .running }
+}
+
+/// 倒计时的节拍参数。**一个字面量都不许写进视图** —— 「几拍、每拍多久」是行为规格，
+/// 散进视图之后就只能靠真机秒表才能核对。
+enum BlindRunCountdown {
+    /// 三拍，每拍一秒（设计稿 §2）。倒着念，所以顺序就是播报顺序。
+    static let beats = [3, 2, 1]
+    static let beatInterval: TimeInterval = 1
+    /// 每拍数字从 1.25 倍回弹到 1 倍。
+    static let bounceScale: CGFloat = 1.25
+    static let bounceResponse: Double = 0.26
+
+    /// 三拍走完的总时长。给用例与 `.task` 的超时用，别在别处再乘一遍。
+    static var totalDuration: TimeInterval { beatInterval * Double(beats.count) }
+}
+
+/// 汇合 → 跑步中那次变形的动效参数。
+///
+/// 「减弱动态效果」打开时改 300ms 纯淡入淡出、不做位移与缩放，**但倒计时保留** ——
+/// 它是信息不是装饰（设计稿 §Interactions 第 4 条）。
+enum BlindRunTransition {
+    static let duration: Double = 0.4
+    static let reducedMotionDuration: Double = 0.3
+}
+
+/// 这三屏上的文案。**不在视图里写中文字面量** —— 同一句话散在视图与用例两处必然漂开，
+/// 而「按钮上的字改了而播报没改」在屏幕上没有任何症状。
+enum BlindRunCopy {
+    /// 顶行不用 `RunOrderStatus.displayName`（那是「进行中」）。设计稿要的是「陪跑中」，
+    /// 而 `displayName` 被订单列表、首页卡片、历史页共用，为这一处改它会波及全仓。
+    static let partnerHeadlinePrefix = "陪跑中"
+    static func partnerHeadline(name: String) -> String { "\(partnerHeadlinePrefix) · \(name)" }
+
+    static let countdownTitle = "准备开始"
+    static let countdownSubtitle = "握好引导绳"
+    static let countdownButtonTitle = "准备中"
+
+    static let announceStatsButtonTitle = "播报当前数据"
+    static let announceStatsHint = "播报里程、时长和配速"
+
+    static let distanceLabel = "里程（公里）"
+    static let distanceSpokenLabel = "里程"
+    static let durationLabel = "时长"
+    static let paceLabel = "配速"
 }
 
 // MARK: - 一屏的全部可渲染内容
@@ -84,11 +152,13 @@ extension RunOrderStatus {
 ///    设计稿的副标题恰好违反最后一条（它写「请提前 10 分钟到达」），所以这里用既有文案。
 struct BlindOrderFlowPresentation: Equatable {
     let step: BlindOrderFlowStep
+    /// ①②③ 里的哪一幕。四格骨架的前三格恒为 `.beforeRun`。
+    let phase: BlindRunPhase
     /// 视觉区画什么。纯装饰，对读屏隐藏。
     let visual: Visual
-    /// 34pt 的状态标题。
+    /// 34pt 的状态标题。跑步中这一幕它是顶行那句「陪跑中 · 张伟」。
     let title: String
-    /// 状态副标题。
+    /// 状态副标题。跑步中这一幕**是空串** —— 那一屏的信息全在三个数字里。
     let subtitle: String
     /// 信息列表最后一行的文案。
     let lastRowTitle: String
@@ -107,6 +177,11 @@ struct BlindOrderFlowPresentation: Equatable {
         case avatarWithProgressRing
         /// 汇合态：头像 + 右下角绿色对勾。
         case avatarWithSuccessBadge
+        /// 倒计时：头像圆**原位**变品牌蓝实心底 + 白色数字。对勾徽标同时消失
+        /// （设计稿 ② 那一屏没有徽标）—— 它说的是「已汇合」，而这一刻已经在说下一件事了。
+        case countdown(Int)
+        /// 跑步中：视觉区整个让位给三个数字，只留顶行那枚 ⌀28 小头像。
+        case runMetrics
     }
 
     enum PrimaryAction: Equatable {
@@ -122,21 +197,43 @@ struct BlindOrderFlowPresentation: Equatable {
         /// （后端 N62 把 `rematchNotifyAt` 计进了 `dispatchDeadline`），删了只剩一个
         /// 30 分钟窗口就转 `NO_VOLUNTEER` 终态，而重新下单又要求 ≥30 分钟提前量。
         case keepWaiting(title: String)
+        /// 倒计时那三秒。**位置不动、只换文字**，且不可点。
+        case preparing
+        /// 跑步中的主按钮。按下去播里程 / 时长 / 配速。
+        ///
+        /// 🚩 它同时**承担了「重复当前状态」**（项目负责人 2026-09-16 决策 2）：
+        /// 那枚导航栏图标在这一屏收起，因为按下这个按钮播的就是状态 + 三个数字
+        /// （`BlindOrderStatusViewModel.repeatStatus`，一个函数两处入口）。
+        /// 两枚按钮播同一段话，对看不见屏幕的人只是多一次误触面。
+        case announceStats
 
         var title: String {
             switch self {
             case .callVolunteer(let title), .openIntroCall(let title), .keepWaiting(let title):
                 return title
+            case .preparing: return BlindRunCopy.countdownButtonTitle
+            case .announceStats: return BlindRunCopy.announceStatsButtonTitle
             }
         }
 
-        /// SF Symbol。设计稿的主按钮带图标（电话 / 跑步）。
+        /// SF Symbol。设计稿的主按钮带图标（电话 / 跑步 / 喇叭）。
+        /// **一律 SF Symbols**，不移植 HTML 原型里那些手绘 SVG 占位图。
         var systemImage: String? {
             switch self {
             case .callVolunteer: return "phone.fill"
             case .openIntroCall: return "phone.bubble.left.fill"
             case .keepWaiting: return nil
+            // 倒计时那三秒刻意**不给图标**：换图标会让按钮内容宽度变一次，
+            // 而这一屏的全部承诺是「主按钮位置一格不动」。
+            case .preparing: return nil
+            case .announceStats: return "speaker.wave.2.fill"
             }
+        }
+
+        /// `false` ⇒ 视图走 `.disabled()`，读屏会念「变暗」。
+        var isEnabled: Bool {
+            if case .preparing = self { return false }
+            return true
         }
     }
 
@@ -148,28 +245,78 @@ struct BlindOrderFlowPresentation: Equatable {
     ///     **刻意从外面传进来而不是在这里算** —— 它依赖 WebSocket 推来的对端坐标与
     ///     新鲜度判定，那是 view model 的活；在这里算会让这个纯类型需要一个时钟和一条网络。
     ///   - canKeepWaiting: 延长次数还没用尽。同样来自 view model（上限由后端 409 告知）。
+    ///   - countdown: 本地倒计时还剩第几拍；`nil` = 不在倒计时。
+    ///     **相位由它 + 订单状态共同派生，不从外面整个传进来** —— 传一个完整的 `phase`
+    ///     等于允许调用方传出「订单还在 `DRIVER_ARRIVED` 而相位已经是 `.running`」这种
+    ///     不存在的组合，而那会渲染出一屏没有数据来源的三个数字。
     ///   - now: 算「已等待」用。走参数是为了让跨小时那条边界能被单测钉住。
     static func make(
         order: OrderDetailResponse,
         distanceText: String?,
         canKeepWaiting: Bool,
         locationWarning: String? = nil,
+        countdown: Int? = nil,
         now: Date = Date()
     ) -> BlindOrderFlowPresentation? {
         guard let step = order.status.blindOrderFlowStep else { return nil }
 
         let name = order.volunteerNameForSpeech
         let hasVolunteerName = order.volunteerName?.nilIfBlank != nil
+        let phase = phase(order: order, countdown: countdown)
 
-        return BlindOrderFlowPresentation(
-            step: step,
-            visual: visual(for: step),
-            title: title(order: order, step: step, name: name, hasVolunteerName: hasVolunteerName),
-            subtitle: subtitle(order: order, distanceText: distanceText, now: now),
-            lastRowTitle: lastRowTitle(order: order),
-            primaryAction: primaryAction(order: order, name: name, canKeepWaiting: canKeepWaiting),
-            warning: locationWarning
-        )
+        switch phase {
+        case .countdown(let beat):
+            // 进度条、信息卡、按钮位置全部不动 —— 所以除了这四项，其余一律沿用汇合那一屏。
+            return BlindOrderFlowPresentation(
+                step: step,
+                phase: phase,
+                visual: .countdown(beat),
+                title: BlindRunCopy.countdownTitle,
+                subtitle: BlindRunCopy.countdownSubtitle,
+                lastRowTitle: lastRowTitle(order: order),
+                primaryAction: .preparing,
+                warning: locationWarning
+            )
+        case .running:
+            return BlindOrderFlowPresentation(
+                step: step,
+                phase: phase,
+                visual: .runMetrics,
+                title: BlindRunCopy.partnerHeadline(name: name),
+                // 副标题空串：这一屏没有第二行状态文字。合成读屏标签时会跳过空串
+                // （`BlindOrderFlowView.statusAccessibilityLabel`），不会念出一个多余的句号。
+                subtitle: "",
+                // 信息卡整块不渲染，所以这一项在这一幕没有落点；给汇合那一态同样的值，
+                // 让「倒计时中途被打断退回去」时不会闪一下别的字。
+                lastRowTitle: lastRowTitle(order: order),
+                primaryAction: .announceStats,
+                warning: locationWarning
+            )
+        case .beforeRun:
+            return BlindOrderFlowPresentation(
+                step: step,
+                phase: phase,
+                visual: visual(for: step),
+                title: title(order: order, step: step, name: name, hasVolunteerName: hasVolunteerName),
+                subtitle: subtitle(order: order, distanceText: distanceText, now: now),
+                lastRowTitle: lastRowTitle(order: order),
+                primaryAction: primaryAction(order: order, name: name, canKeepWaiting: canKeepWaiting),
+                warning: locationWarning
+            )
+        }
+    }
+
+    /// 相位 = 订单状态 + 本地倒计时。
+    ///
+    /// 倒计时只在 `IN_PROGRESS` 有意义：它是**志愿者按下开始之后**那三秒
+    /// （盲人 token 调不了 `/start-service`，见 `BlindOrderStatusViewModel.startRunCountdown`），
+    /// 所以状态已经推过来了、三个数字也已经开始有值了，只是还没上屏。
+    /// 别的状态下即使外面传了 `countdown` 也一律忽略 —— 在「正在匹配」那一屏上倒数三秒
+    /// 是在向盲人承诺一件不会发生的事。
+    private static func phase(order: OrderDetailResponse, countdown: Int?) -> BlindRunPhase {
+        guard order.status == .inProgress else { return .beforeRun }
+        if let countdown { return .countdown(countdown) }
+        return .running
     }
 
     private static func visual(for step: BlindOrderFlowStep) -> Visual {

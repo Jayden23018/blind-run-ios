@@ -31,6 +31,10 @@ final class FlowDesignSystemTests: XCTestCase {
             (AppColors.Flow.accentTone, AppColors.Flow.surfaceTone, "卡片上的强调文字"),
             (AppColors.Flow.avatarInitialTone, AppColors.Flow.avatarBackgroundTone, "白卡上的头像姓氏"),
             (AppColors.Flow.onCTATone, AppColors.Flow.ctaTone, "主按钮文字"),
+            // 倒计时那三秒的「准备中」。它压在浅黄上 14.06:1 —— 留这么多余量是有用的：
+            // `.disabled()` 自带的系统减淡我们控制不了，而这四个字是那三秒里
+            // 按钮唯一的语义载体。取具名色而不是 `.opacity` 的理由见 `Flow.ctaDisabled`。
+            (AppColors.Flow.onCTATone, AppColors.Flow.ctaDisabledTone, "倒计时主按钮文字"),
             (AppColors.Flow.bookingTitleTone, AppColors.Flow.bookingBackgroundTone, "预约块标题"),
             (AppColors.Flow.bookingSubtitleTone, AppColors.Flow.bookingBackgroundTone, "预约块副标题"),
             (AppColors.Flow.helpTextTone, AppColors.Flow.helpBackgroundTone, "求助与安全按钮文字"),
