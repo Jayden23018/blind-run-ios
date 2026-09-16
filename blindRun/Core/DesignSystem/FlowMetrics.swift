@@ -229,6 +229,12 @@ enum FlowFonts {
     }
     /// 按钮文字 18 / Semibold。
     static func actionButton() -> (CGFloat, Font.Weight, Font.TextStyle) { (18, .semibold, .body) }
+    /// 按钮标题下面那行小字 13 / Regular。目前只有陪跑员端「长按 2 秒 · 松手取消」用。
+    ///
+    /// **和 `rowDetail()` 取值相同但不复用它**：那一档的语义是「列表行的次要信息」，
+    /// 而这一档是「这枚按钮该怎么按」—— 两者哪天要分开调（比如这行字要更醒目），
+    /// 复用会让改一处伤到另一处，而按钮上那行字调没调对没人会发现。
+    static func actionButtonHint() -> (CGFloat, Font.Weight, Font.TextStyle) { (13, .regular, .footnote) }
     /// 头像里的姓氏。视觉区那枚 38，首页深蓝卡那枚 18，跑步中顶行那枚 ⌀28 用 13。
     ///
     /// 三档按**直径**分，不按调用点：同一个 `FlowAvatar` 在三个地方用，

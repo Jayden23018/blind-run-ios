@@ -259,23 +259,30 @@ final class blindRunUITests: XCTestCase {
 
         let startButton = app.buttons["开始服务"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should allow the volunteer to start service")
-        let completeButton = app.buttons["结束服务"].firstMatch
-        XCTAssertFalse(completeButton.waitForExistence(timeout: 1), "Arrived order must not allow completing service before IN_PROGRESS")
+        // 按 identifier 取，不按文案：这枚按钮不带 `.isButton` trait（它没有轻点路径，
+        // 读屏走自定义动作），`app.buttons[...]` 取不到它。
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertFalse(finishControl.waitForExistence(timeout: 1), "Arrived order must not allow completing service before IN_PROGRESS")
         startButton.tap()
-        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should allow completing service")
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 8), "In-progress order should expose the long-press finish control")
         // 2026-08-01 起志愿者可以代盲人发起求助（后端已按订单参与方归属事件，不再回推给按按钮的人）。
         // 这里原本断言「志愿者永远看不到求助入口」，那是后端送错人时期的止血，现在反过来验它必须可用。
         assertEmergencyActionIsUsable(app)
 
-        completeButton.tap()
-        let confirmComplete = app.buttons["确认完成服务"].firstMatch
-        XCTAssertTrue(
-            confirmComplete.waitForExistence(timeout: 5),
-            "Completing service should require an explicit confirmation action"
+        let completedSummary = app.descendants(matching: .any)["completedTrackSummary"].firstMatch
+        // 松手即取消。两个时长都写死在这里而不是引用 App 侧常量（UI 测试是另一个进程，
+        // `@testable import` 够不着）：阈值本身由 `VolunteerFinishLongPressTests` 钉住，
+        // 这里只需要一个明显不足、一个明显足够。
+        finishControl.press(forDuration: 0.6)
+        XCTAssertFalse(
+            completedSummary.waitForExistence(timeout: 3),
+            "Releasing before the 2s threshold must not end the escort"
         )
-        confirmComplete.tap()
+        XCTAssertTrue(finishControl.exists, "A cancelled hold must leave the finish control in place")
 
-        let summary = app.descendants(matching: .any)["completedTrackSummary"].firstMatch
+        finishControl.press(forDuration: 2.6)
+
+        let summary = completedSummary
         XCTAssertTrue(summary.waitForExistence(timeout: 10), "Completed service should show the reusable track summary")
         XCTAssertTrue(app.staticTexts["本次路线"].firstMatch.exists)
         XCTAssertTrue(app.staticTexts["里程"].firstMatch.exists)
@@ -508,11 +515,11 @@ final class blindRunUITests: XCTestCase {
 
         let startButton = app.buttons["开始服务"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should show start-service action")
-        let completeButton = app.buttons["结束服务"].firstMatch
-        XCTAssertFalse(completeButton.waitForExistence(timeout: 1), "Arrived order should hide complete button")
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertFalse(finishControl.waitForExistence(timeout: 1), "Arrived order should hide the finish control")
         attachScreenshot(named: "volunteer-service-arrived", app: app)
         startButton.tap()
-        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "Started service should show complete action")
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 8), "Started service should show the long-press finish control")
         attachScreenshot(named: "volunteer-service-in-progress", app: app)
     }
 
