@@ -30,7 +30,7 @@
 - [x] review 修复 11 条 A 档 — `5f4557d`
 - [x] 引导页 fixedSize + 三跑实测记录 — `12f41ca`
 - [x] **阶段 3a** 订单页四态骨架（静态布局）— `5e404e3`，**真机零执行**
-- [x] **阶段 3b** — `7c726dc`，**真机零执行**（见下）
+- [x] **阶段 3b** — `7c726dc` + review 修复 `676ebdb`，**真机零执行**（见下）
 - [ ] 阶段 4 过渡动画
 - [ ] 阶段 5 VoiceOver / 动态字体 / 减弱动态效果 / 触感
 
@@ -69,7 +69,11 @@ scripts/device-test.sh \
 | `KeepWaitingTests.testOnlyRematchingActuallyRendersTheKeepWaitingControl` | 两条判定刻意不同步 |
 | `KeepWaitingTests.testRepeatStatusStaysSilentAboutKeepWaitingWhilePendingMatch` | 播报不许指向已删按钮 |
 | `AccessibilityAuditTests.testBlindOrderStatusMatchingStateOffersCancelAndRuleNoticeInsteadOfKeepWaiting` | **整条改向**（原名 `...OffersKeepWaitingWhileWaitingForAMatch`） |
-| `AccessibilityAuditTests.testSafetyHubOutsideTheActiveRunOffersLocalDialInsteadOfCloudSOS` | 本地拨号 + 无云端键 + 分享格在 |
+| `AccessibilityAuditTests.testSafetyHubOutsideTheActiveRunOffersLocalDialInsteadOfCloudSOS` | 本地拨号 + 无云端键 + 分享格在。**本轮唯一能钉住「订单页真的把 `resolve` 传进求助中心」的用例** —— 单测那条只测纯函数 |
+| `EmergencySOSTests.testSafetyHubCopyDoesNotClaimARunIsUnderwayBeforeItStarts` | 两档文案分开（含反向断言） |
+| `AppRealtimeCoordinatorTests.testCancellationWarningTakesTheSaferSideWhenTwoOrdersAreRegistered` | 两张单在册时取保守侧 |
+| `...testCancellationWarningIgnoresOrdersThisEventCannotBeAbout` | 反向：无关状态不算候选，防判据恒覆盖 |
+| `...testCancellationWarningReplacementIsTrueInBothWaitingStates` | 替代正文在两态下都得是真话 |
 
 **改向 / 修探针的既有用例 4 条**：上表最后两行之外，
 `KeepWaitingTests` 的 `testLimitReachedRemovesTheActionForThisOrder`、
@@ -116,6 +120,26 @@ xcrun xcresulttool export attachments --path <bundle> --output-path /tmp/att
 4. **骨架新增 footer** —— `viewModel.errorMessage` 与分享结果提示原先只在
    `trackingContent` 渲染，骨架换掉那条列表后失败只剩一句 TTS。
 5. **后端 handoff 已投**（见下）。
+
+### review 修掉的 4 条 A 档（`676ebdb`）—— 全是同一个形状
+
+新鲜上下文只看 diff 跑的 review。四条都真，且**与本轮要修的东西同源**：
+「新开了一条到达路径，而那一层里的内容没跟着重判一次」。
+
+1. 求助中心副标题/收起按钮在非 `IN_PROGRESS` 是假话 —— 上一轮只**加**了新提示、
+   没**换**旧的两句。header 是 `.combine` 的 ⇒ 读屏听到一句自相矛盾的话。
+2. 分享那一格在 `IN_PROGRESS` 也开着，而那一屏没有 `flowFooter` ⇒ 失败只剩 TTS。
+   **本轮在修的形状，在另一个分支上新开了一个。** 判据改成
+   `usesFlowSkeleton && offersRunPlanShare`：入口只出现在结果看得见的地方。
+3. 正文覆盖判据 `contains` → 「候选单全都有按钮」。两张单同时在册可达
+   （详情页 `onDisappear` 只 `stopPolling()`、**不 unregister**），
+   否则 PENDING_MATCH 的预警会被 REMATCHING 那张「担保」着照播原文。
+4. 替代正文在 `REMATCHING` 下是假话（「还没有人接单」= 其实接过又取消了）。
+
+**B 档未动**（下次同类问题可搜）：弹层开着时 `mode` / `emergencyCallContext` 中途翻面、
+`emergencyButtonReservedHeight` 仍按 84pt 胶囊算（localCall 档约 52pt 死区）、
+`errorMessage` 活不过一轮轮询（5s）、`offersKeepWaiting` 现在只剩用例在读、
+`AGENTS.md` 新立的「新增求助入口必须读 `resolve`」还没有机器守卫。
 
 ---
 
