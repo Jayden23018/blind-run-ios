@@ -816,7 +816,7 @@ final class BlindOrderStatusViewModel: ObservableObject {
         order = updated
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         refreshVolunteerDistance()
-        startRunCountdownIfNeeded(from: previousStatus, to: updated.status)
+        updateRunCountdown(from: previousStatus, to: updated.status)
         if speakChanges, previousStatus != updated.status {
             speechService?.speakStatusChange(
                 updated.status,
@@ -866,16 +866,38 @@ final class BlindOrderStatusViewModel: ObservableObject {
         return previousStatus != .inProgress
     }
 
-    private func startRunCountdownIfNeeded(from previousStatus: RunOrderStatus?, to status: RunOrderStatus) {
-        guard Self.shouldStartRunCountdown(from: previousStatus, to: status) else { return }
+    /// 🔴 **不是「不该倒数就 return」，是「不该倒数就取消」。**
+    ///
+    /// 志愿者在开跑后三秒内取消（`IN_PROGRESS → REMATCHING`，走 WebSocket 的
+    /// `statusUpdatePublisher`）时，只 return 的写法会让旧 Task 照常跑完剩下两拍：
+    /// 屏幕是对的（相位已经落回 `.beforeRun`），而耳朵和手指是错的 —— 刚听完
+    /// 「陪跑员取消了，正在重新为你匹配」，紧接着念「2」「1」并震两下。
+    /// 同一形状也适用于 `IN_PROGRESS → COMPLETED`。
+    private func updateRunCountdown(from previousStatus: RunOrderStatus?, to status: RunOrderStatus) {
+        if Self.shouldStartRunCountdown(from: previousStatus, to: status) {
+            startRunCountdown()
+        } else if Self.shouldCancelRunCountdown(on: status) {
+            cancelRunCountdown()
+        }
+    }
+
+    /// 与 `shouldStartRunCountdown` 一样抽成纯函数：这两条**不是互补的**
+    /// （「不该启动」≠「该取消」—— 同一态的每 5 秒轮询既不该启动也不该取消），
+    /// 所以各需要一条自己的用例，写成一个函数的取反会把那个区别抹掉。
+    nonisolated static func shouldCancelRunCountdown(on status: RunOrderStatus) -> Bool {
+        status != .inProgress
+    }
+
+    private func startRunCountdown() {
         runCountdownTask?.cancel()
         runCountdownTask = Task { @MainActor [weak self] in
             for beat in BlindRunCountdown.beats {
                 guard let self, !Task.isCancelled else { return }
                 self.runCountdown = beat
-                // 触觉是冗余通道：VoiceOver 关着的低视力用户听不到 announcement，
-                // 但摸得到这三拍。每拍一下，与数字同生同灭。
-                HapticFeedback.play(.success)
+                // 每拍**轻震**（设计稿逐字）。用 `.tick` 而不是 `.success`：
+                // 后者是通知波形，紧接着 `speakStatusChange(.inProgress)` 也会震一次，
+                // 三秒里四次同样的波形等于把触觉这条通道的语义洗掉。见 `HapticFeedback.Kind.tick`。
+                HapticFeedback.play(.tick)
                 self.speechService?.announce("\(beat)")
                 try? await Task.sleep(
                     nanoseconds: UInt64(BlindRunCountdown.beatInterval * 1_000_000_000)
@@ -883,6 +905,18 @@ final class BlindOrderStatusViewModel: ObservableObject {
             }
             guard let self, !Task.isCancelled else { return }
             self.runCountdown = nil
+            // 🔴 **「现在可以跑了」这一刻必须有信号。**
+            //
+            // 唯一那句「陪跑服务已开始」是三秒**之前**播的（状态刚推过来时），
+            // 而变形完成这一刻此前什么都不发生 —— 对看不见屏幕的人，
+            // 起跑这个动作没有任何起点。设计稿 §3 逐字：「开始时『开始跑步』+ 强震一次」。
+            //
+            // 走 `speak` 而**不是** `announce`：VoiceOver 关着时 announcement 是 no-op，
+            // 而低视力用户同样需要听到这一句。
+            // ⚠️ `speak` 会先 `stopSpeaking(.immediate)` —— 此刻若还有别的播报在跑会被切断。
+            // 三秒后状态播报通常已经念完，真正的解法是阶段 2 的播报队列（把这一句排进「对方操作」档）。
+            self.speechService?.speak(BlindRunCopy.runStartedAnnouncement)
+            HapticFeedback.play(.success)
         }
     }
 
@@ -1573,6 +1607,17 @@ struct BlindOrderStatusView: View {
         .background(AppColors.background)
         .navigationTitle(usesFlowSkeleton ? "陪跑订单" : "订单状态")
         .navigationBarTitleDisplayMode(.inline)
+        // 跑步中隐藏返回箭头（设计稿 ③「界面元素」逐字）。
+        //
+        // 不藏的后果是具体的：读屏遍历第一站就是「返回」，两次右滑 + 双击就退出了这一屏，
+        // 而它是盲人跑动中唯一能听到里程 / 时长 / 配速、也是唯一能按到求助的地方。
+        //
+        // 🔴 **藏它不会把人关在这一屏里，这一点是核过的**：订单页是在首页 tab 的
+        // `NavigationStack` 里 push 的（`BlindRunnerHomeView` 的 `navigationDestination`），
+        // 而全仓 `.toolbar(.hidden, for: .tabBar)` 命中 0 ⇒ 标签栏照常在，
+        // 切到「记录」或「我的」就离开了。**若将来有人隐藏标签栏，这一行必须同时撤销**，
+        // 否则跑步中就没有任何出口（结束权只在陪跑员手上）。
+        .navigationBarBackButtonHidden(isRunningPhase)
         // 🔴 走四步骨架时**不挂这条底栏** —— 骨架自带设计稿的两个版位
         // （主按钮 + 求助与安全），再挂一条会变成四个按钮，而
         // `docs/05-page-specs.md` 那条「不要往常驻区加第三个版位」的理由是

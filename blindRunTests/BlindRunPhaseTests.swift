@@ -173,6 +173,33 @@ final class BlindRunPhaseTests: XCTestCase {
         )
     }
 
+    /// 🔴 **离开 `IN_PROGRESS` 时必须取消还没走完的那几拍，不能只是「不启动新的」。**
+    ///
+    /// 这条钉的是 `updateRunCountdown` 里那个 `else if`。写成「不该倒数就 return」时：
+    /// 志愿者在开跑后三秒内取消（`IN_PROGRESS → REMATCHING`，走 WebSocket 推送），
+    /// 屏幕是对的（相位落回 `.beforeRun`），而旧 Task 照常跑完剩下两拍 ——
+    /// 刚听完「陪跑员取消了，正在重新为你匹配」，紧接着念「2」「1」并震两下。
+    ///
+    /// ⚠️ 断言分两半是有意的：`shouldStartRunCountdown` 判 false **不等于**「什么都不做」。
+    /// 只验前半句的用例在两种实现下都通过，分辨不出这个缺陷。
+    func testLeavingTheRunMustCancelInsteadOfMerelyNotStarting() {
+        for to in [RunOrderStatus.rematching, .completed, .cancelled] {
+            XCTAssertFalse(
+                BlindOrderStatusViewModel.shouldStartRunCountdown(from: .inProgress, to: to),
+                "\(to) 不该启动新的倒计时"
+            )
+            XCTAssertTrue(
+                BlindOrderStatusViewModel.shouldCancelRunCountdown(on: to),
+                "IN_PROGRESS → \(to) 必须取消在跑的倒计时，否则剩下两拍会在状态已经变了之后继续念"
+            )
+        }
+        // 反向：还在 IN_PROGRESS 的重复刷新不许取消，否则每 5 秒轮询一次就把倒计时掐断。
+        XCTAssertFalse(
+            BlindOrderStatusViewModel.shouldCancelRunCountdown(on: .inProgress),
+            "同一态刷新把倒计时掐了 —— 那三拍一拍都播不出来"
+        )
+    }
+
     /// 别的状态推进一律不倒数。**穷举而不是只挑两个** —— 漏掉的那个不会让任何断言变红，
     /// 它只是不再被检查，而绿灯照常亮。
     func testNoOtherTransitionEverStartsTheCountdown() {

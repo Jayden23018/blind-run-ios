@@ -175,6 +175,15 @@ extension AppColors {
         static let successBadgeTone = Tone(light: 0x1F8A4C, dark: 0x1F8A4C)
         static let successBadge = flowDynamic(successBadgeTone)
 
+        // 跑步中顶行那颗定位状态点**刻意没有 Flow 版本**，直接用 `AppColors.success`
+        // / `.warning`。这里记一笔，免得下一个人照「颜色一律走 Flow」的字面意思又加一对：
+        //
+        // ① 那两个是**语义色**（好 / 需注意），不是表面色，正是这颗点要表达的东西；
+        //    本色板存在的理由恰恰是「它装的是表面色」（见类型注释首段）。
+        // ② 它们压白卡是 **5.07:1 / 5.20:1**，压深卡是 8.42 / 8.28，四个方向都过线；
+        //    2026-09-16 试过另造一对（`#1F8A4C` / `#B45309`），暗色档反而从 8.42 掉到 3.89。
+        //    配对断言在 `FlowDesignSystemTests.testLocationDotStaysVisibleOnTheWhiteCard`。
+
         // MARK: 描边按钮（次级）
 
         static let ghostStroke = flowDynamic(Tone(light: 0xD5DAE3, dark: 0x48484A))

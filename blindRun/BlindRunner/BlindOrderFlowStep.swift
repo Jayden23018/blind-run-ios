@@ -108,11 +108,15 @@ enum BlindRunCountdown {
 
 /// 汇合 → 跑步中那次变形的动效参数。
 ///
-/// 「减弱动态效果」打开时改 300ms 纯淡入淡出、不做位移与缩放，**但倒计时保留** ——
+/// 「减弱动态效果」打开时不做位移与缩放，**但倒计时保留** ——
 /// 它是信息不是装饰（设计稿 §Interactions 第 4 条）。
+///
+/// ⚠️ 设计稿那句「改为 300ms 淡入淡出」**故意没有对应常量**：SwiftUI 里挂任何非 nil
+/// 动画都会把分支切换带来的布局塌缩一起插值，拿不到「只淡不动」——
+/// 换一条更短的同类动画只是把违规做得不那么明显。降级走瞬时切换，
+/// 完整理由写在 `BlindOrderFlowView.transitionAnimation` 上。
 enum BlindRunTransition {
     static let duration: Double = 0.4
-    static let reducedMotionDuration: Double = 0.3
 }
 
 /// 这三屏上的文案。**不在视图里写中文字面量** —— 同一句话散在视图与用例两处必然漂开，
@@ -126,6 +130,15 @@ enum BlindRunCopy {
     static let countdownTitle = "准备开始"
     static let countdownSubtitle = "握好引导绳"
     static let countdownButtonTitle = "准备中"
+    /// 倒计时走完那一刻播的那一句（设计稿 §3「播报文案」第一条）。
+    /// 它与状态推进时那句「陪跑服务已开始」**不是重复**：那句说的是「后端已经开始计时」，
+    /// 这句说的是「你现在可以迈腿了」，中间隔着三秒。
+    static let runStartedAnnouncement = "开始跑步"
+
+    /// 顶行右侧的定位新鲜度。措辞是「信号弱」不是「定位失败」：权限正常但在室内 /
+    /// 高楼间拿不到定位是常态，说成失败会把人支去翻设置解决一个不存在的问题。
+    static let locationFresh = "定位正常"
+    static let locationStale = "定位信号弱"
 
     static let announceStatsButtonTitle = "播报当前数据"
     static let announceStatsHint = "播报里程、时长和配速"

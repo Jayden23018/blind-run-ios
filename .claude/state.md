@@ -104,6 +104,25 @@
 | `FlowComponents.swift` | `FlowActionButton` 加 `isEnabled`（→ `.disabled()` + `ctaDisabled` 底） |
 | `blindRunTests/BlindRunPhaseTests.swift`（新） | 相位派生、倒计时四条边界（含穷举）、主按钮版位不空、顶行去掩码 |
 
+**阶段 1 的 code review 结论（2026-09-16，A 档 7 条）：**
+
+修了 6 条 —— 倒计时触觉换 `.tick`（原来 `.success` 与状态变化那次撞车，3 秒 4 下同波形）·
+倒计时补「离开 `IN_PROGRESS` 就取消」（原来只 return，志愿者 3 秒内取消会继续念「2」「1」）·
+倒计时走完补「开始跑步」+ 强震（原来变形完成那一刻零信号）· 定位行文案进 `BlindRunCopy` ·
+跑步中藏返回箭头（核过：`.toolbar(.hidden, for: .tabBar)` 全仓 0 命中 ⇒ 切 tab 仍可离开，
+**将来谁隐藏标签栏，这一行必须同时撤销**）· reduceMotion 改**瞬时切换**。
+
+**没修 1 条（项目负责人当轮决定）**：求助结果面（`BlindRunSafetyResultSection`）从常驻底栏
+挪进了滚动区。默认字号下仍在第一屏，字号往上调一两档会被推出去，而**没有任何检查会说话**
+—— 就是记忆 `claimed-fallback-may-not-exist-in-release` 那个形状。
+最急那条路径落在 `EmergencyCountdownView` 全屏里，这一块是关掉全屏后回到跑步页的残留面。
+要治两条路：挂回 `bottomActions` 上方固定位，或在 UI 测试里补一条
+「失败态下 `blindActiveRunFailureCallButton.frame.maxY <= app.frame.maxY`」并在 AX 档跑一次。
+
+⚠️ **review 的 A-7 有一条数字是错的，别照抄**：它说 `AppColors.success/.warning` 压白卡
+只有 2.20:1，实测是 **5.07 / 5.20**（`#1B7F3B` / `#B25000`，它拿的是猜的 `#FF9500`）。
+照它另造的一对 `Flow` 色反而把暗色档从 8.42 拉到 3.89，已撤回。
+
 **遗留在原地没动的东西**（下一轮别当成缺陷去查）：
 `AppColors.activeRunSurface` / `activeRunSecondaryText` / `activeRunDestructive` 三个取值
 现在**盲人端没有渲染点了**，但 `LowVisionChannelTests` 还在验它们的对比度。

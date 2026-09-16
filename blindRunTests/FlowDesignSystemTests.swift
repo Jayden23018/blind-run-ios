@@ -94,6 +94,29 @@ final class FlowDesignSystemTests: XCTestCase {
 
     /// 对勾徽标是**纯图形**（没有文字标签），所以 1.4.11 对它是真适用的：
     /// 它压在卡片底上必须看得出是一枚独立的徽标。
+    /// 跑步中顶行那颗定位状态点。
+    ///
+    /// 🔴 这一对是 2026-09-16 **新出现**的组合，此前没有任何断言覆盖它：改版前这一行压在
+    /// `AppColors.activeRunSurface`（深灰）上、由 `LowVisionChannelTests` 守着，
+    /// 搬到白卡之后那套断言就守不到了。取值本身没换（仍是 `AppColors` 的两个语义色），
+    /// **换的是它压在什么上面** —— 而对比度是一对值的属性，不是单个值的属性。
+    ///
+    /// 按非文本 3:1 卡而不是正文 4.5：状态由旁边的**文字**承担，点是纯装饰的扫读锚点
+    /// （`accessibilityHidden(true)`）。实测四个方向都在 5 以上，留了足够余量。
+    func testLocationDotStaysVisibleOnTheWhiteCard() throws {
+        // 取值与 `AppColors.tones` 同源（:33-34）。这里按名字取而不是抄一份字面量 ——
+        // 抄一份的话那边改了色，这边照样绿。
+        let table = Dictionary(uniqueKeysWithValues: AppColors.tones.map { ($0.name, $0.tone) })
+        let pairs: [(AppColors.Tone, String)] = [
+            (try XCTUnwrap(table["success"], "AppColors.tones 里没有 success"), "定位正常那颗点"),
+            (try XCTUnwrap(table["warning"], "AppColors.tones 里没有 warning"), "定位信号弱那颗点"),
+        ]
+        for (dot, usage) in pairs {
+            assertContrast(dot.light, AppColors.Flow.surfaceTone.light, Self.nonTextMinimum, "亮色", usage)
+            assertContrast(dot.dark, AppColors.Flow.surfaceTone.dark, Self.nonTextMinimum, "暗色", usage)
+        }
+    }
+
     func testSuccessBadgeStaysDistinguishableFromTheCardSurface() {
         let badge = AppColors.Flow.successBadgeTone
         let surface = AppColors.Flow.surfaceTone
@@ -224,6 +247,27 @@ final class FlowDesignSystemTests: XCTestCase {
     ///
     /// 这条看着琐碎，但直接填 2 / 16 会得到两倍模糊、卡片像浮在半空 ——
     /// 而卡片阴影是「填充对页面底」对比度**刻意不设断言**时那条边界的唯一承担者。
+    /// 🔴 里程字号基准是 **82，不是 70**。
+    ///
+    /// 设计包自己在这个数上自相矛盾：README 写「82（基准 70）」，清单 §22 写「70×1.76＝123」，
+    /// §23 写「123→101（`minimumScaleFactor(0.7)`）」。123×0.7＝86 ≠ 101，
+    /// 而 **82×1.76＝144、144×0.7＝101** —— 只有 82 能同时满足 §23 给的两个数。
+    /// 没有这条断言，下一个人照 README 那半句改回 70 不会有任何东西变红。
+    func testRunDistanceKeepsTheEightyTwoBaselineNotSeventy() {
+        XCTAssertEqual(FlowFonts.runDistance().0, 82, "里程基准被改了 —— 82 的推导见本用例注释")
+        XCTAssertNotEqual(FlowFonts.runDistance().0, 70, "70 是设计包里的旧值，算不出 §23 的 101")
+        // AX5 缩放约 1.76 倍，再乘 minimumScaleFactor(0.7)，落点应当是 §23 写的 101。
+        XCTAssertEqual(Int((82 * 1.76 * 0.7).rounded()), 101)
+        // 它是全屏最大字号：任何一个别的字号追上它，这一屏的视觉层级就塌了。
+        let others = [
+            FlowFonts.runMetric().0, FlowFonts.countdownNumber().0,
+            FlowFonts.statusTitle().0, FlowFonts.homeCardTime().0,
+        ]
+        for size in others {
+            XCTAssertLessThan(size, FlowFonts.runDistance().0, "里程不再是全屏最大字号")
+        }
+    }
+
     func testCardShadowConvertsCSSBlurToSwiftUIRadius() {
         XCTAssertEqual(FlowMetrics.cardShadowNear.radius, 1, "CSS blur 2px → SwiftUI radius 1")
         XCTAssertEqual(FlowMetrics.cardShadowNear.y, 1)

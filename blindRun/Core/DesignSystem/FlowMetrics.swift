@@ -104,6 +104,8 @@ enum FlowMetrics {
     static let runDistanceTracking: CGFloat = -2
     /// 时长 / 配速两格之间那条 1pt 竖分隔线的高度。
     static let runMetricDividerHeight: CGFloat = 44
+    /// 顶行右侧那颗定位状态点。纯装饰、对读屏隐藏，所以不受 64pt 触达线约束。
+    static let locationDotDiameter: CGFloat = 8
 
     // MARK: 信息列表
 

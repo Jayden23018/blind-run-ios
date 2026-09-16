@@ -77,15 +77,19 @@ struct BlindOrderFlowView<Footer: View>: View {
         .animation(transitionAnimation, value: presentation.phase)
     }
 
-    /// 变形动效。
+    /// 变形动效。「减弱动态效果」打开时**返回 `nil`，整段瞬时切换**。
     ///
-    /// 「减弱动态效果」打开时改 300ms 纯淡入淡出、**不做位移与缩放**
-    /// （头像那条 `matchedGeometryEffect` 也一并不挂，见 `matchedAvatarGeometry`）。
-    /// **但倒计时保留** —— 它是信息不是装饰，去掉等于让这三秒在屏幕上什么都不发生。
-    private var transitionAnimation: Animation {
-        reduceMotion
-            ? .easeInOut(duration: BlindRunTransition.reducedMotionDuration)
-            : .easeOut(duration: BlindRunTransition.duration)
+    /// 🔴 这里刻意**没有**照设计稿写「300ms 淡入淡出」，因为在 SwiftUI 里做不到它真正的意思。
+    /// 挂上任何一条非 nil 动画，`if phase.isRunning` 那两处分支切换与信息卡整块移除带来的
+    /// **高度塌缩**就会跟着插值：进度条那一格会撑开/收起，footer 会在 300ms 里往上滑约 240pt。
+    /// 也就是说「淡入淡出」到不了，只能得到一次更短的位移 —— 而晕动症用户要躲的正是位移。
+    /// 换更短的时长是在把违规做得不那么明显，不是在修它。
+    ///
+    /// 头像那条 `matchedGeometryEffect` 同样一并不挂（见 `matchedAvatarGeometry`）。
+    /// **但倒计时保留** —— 它是信息不是装饰：三个数字仍然一拍一拍出现（由那 1 秒的
+    /// 节拍驱动，不由动画驱动），只是不再回弹。
+    private var transitionAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: BlindRunTransition.duration)
     }
 
     // MARK: - 状态卡
@@ -153,11 +157,16 @@ struct BlindOrderFlowView<Footer: View>: View {
         HStack(spacing: 5) {
             // 圆点纯装饰：「几格信号」这种纯视觉编码读屏念不出来，状态由**文字**承担。
             // 圆点只是给看得见的人一个扫读锚点。
+            //
+            // 用 `AppColors.success/.warning` 而不是新造一对 `Flow` 色：它们是**语义色**
+            // （好 / 需注意），正是这颗点要表达的东西，而 `Flow` 装的是表面色。
+            // 压白卡 5.07 / 5.20，压深卡 8.42 / 8.28，四个方向都过线 —— 理由与量过的数
+            // 记在 `AppColors.Flow` 里那段注释上。
             Circle()
                 .fill(isLocationFresh ? AppColors.success : AppColors.warning)
-                .frame(width: 8, height: 8)
+                .frame(width: FlowMetrics.locationDotDiameter, height: FlowMetrics.locationDotDiameter)
                 .accessibilityHidden(true)
-            Text(isLocationFresh ? "定位正常" : "定位信号弱")
+            Text(isLocationFresh ? BlindRunCopy.locationFresh : BlindRunCopy.locationStale)
                 .flowFont(FlowFonts.rowDetail())
                 .foregroundColor(AppColors.Flow.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
