@@ -143,6 +143,15 @@ extension AppColors {
         static let onCTATone = Tone(light: 0x111A2E, dark: 0x111A2E)
         static let onCTA = flowDynamic(onCTATone)
 
+        /// 倒计时那三秒里主按钮的底色（设计稿 `#FBE6AE`）。亮暗同值，理由同 `cta`。
+        ///
+        /// 🔴 **不是 `cta.opacity(...)`。** 透明度会把 `onCTA` 一起淡掉，而「准备中」
+        /// 那四个字是这三秒里按钮唯一的语义载体 —— 淡成多少、压在页面底上还剩多少对比度，
+        /// 都不可控。取具名色之后 `onCTA` 压在它上面是 **14.06:1**，`.disabled()`
+        /// 自带的系统减淡怎么算都还在 4.5 以上（`FlowPaletteContrastTests` 钉住这一条）。
+        static let ctaDisabledTone = Tone(light: 0xFBE6AE, dark: 0xFBE6AE)
+        static let ctaDisabled = flowDynamic(ctaDisabledTone)
+
         // MARK: 「求助与安全」按钮（浅红）
 
         /// 浅红填充。**实心红只留给求助中心里的「紧急求助」**（AGENTS.md §6 / 设计意图
@@ -165,6 +174,15 @@ extension AppColors {
         /// 2.02:1，不能复用。
         static let successBadgeTone = Tone(light: 0x1F8A4C, dark: 0x1F8A4C)
         static let successBadge = flowDynamic(successBadgeTone)
+
+        // 跑步中顶行那颗定位状态点**刻意没有 Flow 版本**，直接用 `AppColors.success`
+        // / `.warning`。这里记一笔，免得下一个人照「颜色一律走 Flow」的字面意思又加一对：
+        //
+        // ① 那两个是**语义色**（好 / 需注意），不是表面色，正是这颗点要表达的东西；
+        //    本色板存在的理由恰恰是「它装的是表面色」（见类型注释首段）。
+        // ② 它们压白卡是 **5.07:1 / 5.20:1**，压深卡是 8.42 / 8.28，四个方向都过线；
+        //    2026-09-16 试过另造一对（`#1F8A4C` / `#B45309`），暗色档反而从 8.42 掉到 3.89。
+        //    配对断言在 `FlowDesignSystemTests.testLocationDotStaysVisibleOnTheWhiteCard`。
 
         // MARK: 描边按钮（次级）
 

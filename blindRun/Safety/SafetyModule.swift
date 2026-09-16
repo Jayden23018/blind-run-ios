@@ -886,7 +886,7 @@ struct BlindHomeSOSBar: View {
 /// （`EmergencySOSTests.swift` 里有断言钉着这个词的归属）。读屏听到的仍是完整的
 /// `EmergencySafetyCopy.accessibilityLabel`，两者不冲突。
 ///
-/// 和 `BlindHomeSOSBar` / `BlindActiveRunSafetyAnchor` 同样自己 `@ObservedObject` 持有
+/// 和 `BlindHomeSOSBar` / `BlindRunSafetyResultSection` 同样自己 `@ObservedObject` 持有
 /// coordinator：`AppState.emergencyCoordinator` 是 `let` 不是 `@Published`，
 /// 在页面 body 里读它的属性是**读得到值、但不跟着更新**（详见 `BlindHomeSOSBar` 的注释）。
 struct VolunteerSOSFloatingButton: View {

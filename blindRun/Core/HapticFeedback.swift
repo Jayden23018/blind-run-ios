@@ -15,8 +15,9 @@ import UIKit
 /// 所以接线点选在播报的 funnel 里（`VoiceService.speakStatusChange`、
 /// `EmergencyCoordinator.state` 的 `didSet`），而不是散落在各个业务分支上。
 ///
-/// 只用系统定义的 `UINotificationFeedbackGenerator` 三种语义，不自造波形：Apple 明确要求
-/// 保持系统一致性，自造的模式对用户是需要重新学习的噪音。
+/// 只用系统定义的波形，不自造：Apple 明确要求保持系统一致性，自造的模式对用户是需要
+/// 重新学习的噪音。三种**通知**语义走 `UINotificationFeedbackGenerator`，
+/// 唯一一种**节拍**走 `UIImpactFeedbackGenerator(.light)`（见 `Kind.tick`）。
 enum HapticFeedback {
     enum Kind {
         /// 事情按预期推进了：接单、到达、服务开始、订单完成、求助已受理。
@@ -25,6 +26,20 @@ enum HapticFeedback {
         case warning
         /// 明确的坏消息：求助**未发出**。
         case error
+        /// 一次**轻**节拍。目前只有开跑倒计时的三拍用它（设计稿逐字写的是「每拍轻震」）。
+        ///
+        /// 🚩 **它是上面「触觉必须伴随一句话」那条不变量的唯一破例，破得有理由：**
+        /// 倒计时那三下不是三条独立消息，而是**同一个信息的三个节拍**，
+        /// 而那条信息（还有几秒开跑）此刻正以 52pt 的数字显示在屏幕正中。
+        /// 也就是说它旁边确实有别的通道在说同一件事，只不过是视觉不是听觉 ——
+        /// 对不开读屏的低视力用户，这恰恰是唯一还能对上的两条通道。
+        ///
+        /// 🔴 **不能复用 `.success`。** 那是通知波形，接单 / 到达 / 服务开始 / 订单完成
+        /// 用的都是它；倒数三下若也用它，一是跑者分不出这三下是什么意思，
+        /// 二是紧接着 `speakStatusChange(.inProgress)` 也震一次 `.success`
+        /// （`RunOrderStatus.haptic` 判 `.success`）—— 三秒里四次同样的波形，
+        /// 等于把这条通道的语义洗掉。换成 impact 之后是「1 次通知 + 3 次轻拍」，可分辨。
+        case tick
     }
 
     /// 真机以外（模拟器、单测）静默无副作用，所以不需要测试替身。
@@ -32,14 +47,23 @@ enum HapticFeedback {
     /// 主线程派发的理由与 `VoiceService.markSpeaking` 一致：调用点分布在轮询回调、
     /// WebSocket 回调和 `didSet` 里，线程不确定，而 `UIFeedbackGenerator` 要求主线程。
     static func play(_ kind: Kind) {
-        let type: UINotificationFeedbackGenerator.FeedbackType = {
+        let fire: () -> Void = {
             switch kind {
-            case .success: return .success
-            case .warning: return .warning
-            case .error: return .error
+            case .tick:
+                return { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+            case .success, .warning, .error:
+                let type: UINotificationFeedbackGenerator.FeedbackType = {
+                    switch kind {
+                    case .success: return .success
+                    case .warning: return .warning
+                    case .error: return .error
+                    // 上面的外层 switch 已经把 `.tick` 分走了。
+                    case .tick: return .success
+                    }
+                }()
+                return { UINotificationFeedbackGenerator().notificationOccurred(type) }
             }
         }()
-        let fire = { UINotificationFeedbackGenerator().notificationOccurred(type) }
         if Thread.isMainThread {
             fire()
         } else {

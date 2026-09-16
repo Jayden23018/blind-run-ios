@@ -1,20 +1,35 @@
 import SwiftUI
 
-// MARK: - 订单页四态的共用骨架
+/// 头像那一路变形的 geometry id。
+///
+/// 放在文件作用域而不是 `BlindOrderFlowView` 里：那个类型对 `Footer` 泛型，
+/// 而 Swift 不允许泛型类型有 static 存储属性。
+private let blindOrderFlowAvatarGeometryID = "blindOrderFlowVolunteerAvatar"
 
-/// 匹配 / 约好 / 出发 / 汇合共用的**同一个**骨架：进度条 → 视觉区 → 状态标题副标题
-/// → 信息列表 → 底部两个按钮。
+// MARK: - 订单页五幕的共用骨架
+
+/// 匹配 / 约好 / 出发 / 汇合 / 倒计时 / 跑步中共用的**同一个**骨架：
+/// 进度条（跑步中折叠成一行）→ 视觉区 → 状态标题副标题（跑步中换成三个数字）
+/// → 信息列表（跑步中移除）→ 底部两个按钮。
 ///
-/// **四个状态下每一块的位置都不变**，只换内容。这是设计稿最核心的一条：视障用户靠位置
-/// 记忆操作，而改版前每个状态是独立页面 —— iOS 切页时 VoiceOver 会把焦点移回第一个元素，
-/// 读屏用户每次都要从头找。单页原地更新让焦点保持不动，只播报变化。
+/// **每一块的位置都不变**，只换内容；而**主按钮的位置一格不动，只换文字与图标**。
+/// 这是设计稿最核心的一条：视障用户靠位置记忆操作，而改版前每个状态是独立页面 ——
+/// iOS 切页时 VoiceOver 会把焦点移回第一个元素，读屏用户每次都要从头找。
+/// 单页原地更新让焦点保持不动，只播报变化。
 ///
-/// 本轮（阶段 3）只做**静态布局**，不含过渡动画（阶段 4）。所以这里没有任何
-/// `withAnimation` / `.transition` —— 守卫 `motion-not-gated` 要求位移类动效先判
-/// 「减弱动态效果」，那一并在阶段 4 做。
+/// 2026-09-16 把 `IN_PROGRESS` 也收进来（原先是一整屏独立的深底执行屏）。
+/// 变形的三条动效都在这里：进度条上折 / 头像 ⌀92 →  ⌀28 同一个视图在动 / 信息卡下沉淡出。
 struct BlindOrderFlowView<Footer: View>: View {
     let presentation: BlindOrderFlowPresentation
     let order: OrderDetailResponse
+    /// 跑步中那三个数字。其余相位用不到，传 `nil` 即可。
+    var stats: TrackStats?
+    /// 顶行右侧的定位新鲜度。
+    ///
+    /// 🔴 **这一行是刻意保留的偏离。** 设计稿只给了「按播报时追加一句」，而那条通道对
+    /// 不开读屏的低视力用户等于不存在 —— 他们唯一能**看见** GPS 状态的地方就是这里
+    /// （项目负责人 2026-09-16 决策 1 ①，记忆 `low-vision-visual-channel-unaudited`）。
+    var isLocationFresh: Bool = true
     /// 集合地点那一行点下去做什么。`nil` = 不可点（拿不到地点时）。
     let onOpenStartPlace: (() -> Void)?
     let onLastRowTapped: () -> Void
@@ -32,16 +47,21 @@ struct BlindOrderFlowView<Footer: View>: View {
     /// 这里是「我刚按的那一下怎么样」，两件事混进一个合成元素会让读屏念不清是哪个。
     @ViewBuilder let footer: () -> Footer
 
-    /// 「减弱动态效果」。阶段 3 只有雷达那圈弧线在转，所以现在只用它判这一处；
-    /// 阶段 4 接过渡动画时这个环境值会被更多地方读到。
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// 头像那一路变形的 geometry 命名空间。⌀92 与 ⌀28 是**同一个视图在动**。
+    @Namespace private var avatarTransition
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 16) {
                     statusCard
-                    infoCard
+                    // 信息卡整块下沉淡出并收到 0 —— 跑起来之后「陪跑员是谁、几点、在哪集合」
+                    // 全部已经是过去时，留在屏幕上只是读屏要多滑四次的内容。
+                    if !presentation.phase.isRunning {
+                        infoCard
+                    }
                     footer()
                 }
                 .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
@@ -52,6 +72,24 @@ struct BlindOrderFlowView<Footer: View>: View {
             bottomActions
         }
         .background(AppColors.Flow.page)
+        // 整段变形由同一条动画驱动：进度条上折、头像缩移、信息卡下沉、主体拉高
+        // 必须同时发生（设计稿 §Interactions 第 2 条），各自挂各自的动画会散成四拍。
+        .animation(transitionAnimation, value: presentation.phase)
+    }
+
+    /// 变形动效。「减弱动态效果」打开时**返回 `nil`，整段瞬时切换**。
+    ///
+    /// 🔴 这里刻意**没有**照设计稿写「300ms 淡入淡出」，因为在 SwiftUI 里做不到它真正的意思。
+    /// 挂上任何一条非 nil 动画，`if phase.isRunning` 那两处分支切换与信息卡整块移除带来的
+    /// **高度塌缩**就会跟着插值：进度条那一格会撑开/收起，footer 会在 300ms 里往上滑约 240pt。
+    /// 也就是说「淡入淡出」到不了，只能得到一次更短的位移 —— 而晕动症用户要躲的正是位移。
+    /// 换更短的时长是在把违规做得不那么明显，不是在修它。
+    ///
+    /// 头像那条 `matchedGeometryEffect` 同样一并不挂（见 `matchedAvatarGeometry`）。
+    /// **但倒计时保留** —— 它是信息不是装饰：三个数字仍然一拍一拍出现（由那 1 秒的
+    /// 节拍驱动，不由动画驱动），只是不再回弹。
+    private var transitionAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: BlindRunTransition.duration)
     }
 
     // MARK: - 状态卡
@@ -59,13 +97,94 @@ struct BlindOrderFlowView<Footer: View>: View {
     private var statusCard: some View {
         FlowCard {
             VStack(spacing: 0) {
-                FlowStepper(
-                    currentStep: presentation.step.rawValue,
-                    titles: BlindOrderFlowStep.allTitles
-                )
+                // 进度条向上折叠（高度 → 0、透明度 → 0），「陪跑中 · 张伟」在原位展开。
+                if presentation.phase.isRunning {
+                    partnerRow
+                } else {
+                    FlowStepper(
+                        currentStep: presentation.step.rawValue,
+                        titles: BlindOrderFlowStep.allTitles
+                    )
+                }
                 FlowSeparator()
-                heroSection
+                if presentation.phase.isRunning {
+                    BlindActiveRunView(stats: stats)
+                } else {
+                    heroSection
+                }
             }
+        }
+    }
+
+    // MARK: - 跑步中的顶行
+
+    /// 小头像 ⌀28 + 「陪跑中 · 张伟」 + 定位新鲜度。
+    ///
+    /// 两条信息是**两个独立的无障碍元素**：读屏用户第一站听搭档是谁，第二站听定位好不好，
+    /// 合成一个会让「定位信号弱」被埋在一句长话的尾巴上。
+    private var partnerRow: some View {
+        HStack(spacing: 10) {
+            matchedAvatarGeometry(
+                FlowAvatar(
+                    name: order.volunteerName,
+                    diameter: FlowMetrics.partnerAvatarDiameter,
+                    background: AppColors.Flow.avatarBackground,
+                    foreground: AppColors.Flow.avatarInitial
+                )
+            )
+            Text(presentation.title)
+                .flowFont(FlowFonts.partnerHeadline())
+                .foregroundColor(AppColors.Flow.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("blindOrderFlowPartnerHeadline")
+
+            Spacer(minLength: 8)
+
+            locationFreshnessBadge
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, FlowMetrics.partnerRowHorizontalPadding)
+        .padding(.vertical, FlowMetrics.partnerRowVerticalPadding)
+    }
+
+    /// 🚩 判的是**本机定位新不新鲜**，不是后端的 `ESCORT_SIGNAL_LOST`。那条事件是一次性
+    /// 告警（`AppRealtimeCoordinator.routeEscortAlert`），没有可以持续读的状态；
+    /// 而用户看到这一行能做的事（换个开阔地方、检查权限）恰恰只跟本机定位有关。
+    ///
+    /// 措辞是「信号弱」不是「定位失败」：权限正常但在室内 / 高楼间拿不到定位是常态，
+    /// 说成失败会把人支去翻设置解决一个不存在的问题。
+    private var locationFreshnessBadge: some View {
+        HStack(spacing: 5) {
+            // 圆点纯装饰：「几格信号」这种纯视觉编码读屏念不出来，状态由**文字**承担。
+            // 圆点只是给看得见的人一个扫读锚点。
+            //
+            // 用 `AppColors.success/.warning` 而不是新造一对 `Flow` 色：它们是**语义色**
+            // （好 / 需注意），正是这颗点要表达的东西，而 `Flow` 装的是表面色。
+            // 压白卡 5.07 / 5.20，压深卡 8.42 / 8.28，四个方向都过线 —— 理由与量过的数
+            // 记在 `AppColors.Flow` 里那段注释上。
+            Circle()
+                .fill(isLocationFresh ? AppColors.success : AppColors.warning)
+                .frame(width: FlowMetrics.locationDotDiameter, height: FlowMetrics.locationDotDiameter)
+                .accessibilityHidden(true)
+            Text(isLocationFresh ? BlindRunCopy.locationFresh : BlindRunCopy.locationStale)
+                .flowFont(FlowFonts.rowDetail())
+                .foregroundColor(AppColors.Flow.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("blindOrderFlowLocationFreshness")
+    }
+
+    /// 头像从视觉区中央 ⌀92 缩小移到顶行左上 ⌀28 —— **同一个视图在动**，不是交叉淡入淡出。
+    ///
+    /// 「减弱动态效果」打开时**不挂这个修饰符**：挂着它就必然产生位移与缩放，
+    /// 而那正是这个设置要消掉的东西。此时两枚头像各自淡入淡出，位置照常正确。
+    @ViewBuilder
+    private func matchedAvatarGeometry<V: View>(_ view: V) -> some View {
+        if reduceMotion {
+            view
+        } else {
+            view.matchedGeometryEffect(id: blindOrderFlowAvatarGeometryID, in: avatarTransition)
         }
     }
 
@@ -111,10 +230,12 @@ struct BlindOrderFlowView<Footer: View>: View {
         .accessibilityIdentifier("blindOrderFlowStatusCard")
     }
 
+    /// 跑步中那一幕 `subtitle` 是空串，`joined` 会拼出一个多余的句号让读屏念一次停顿，
+    /// 所以先滤空。**不要写成 `title + "。" + subtitle`** —— 那正是漏掉这一步的写法。
     private var statusAccessibilityLabel: String {
         var parts = [presentation.title, presentation.subtitle]
         if let warning = presentation.warning { parts.append(warning) }
-        return parts.joined(separator: "。")
+        return parts.filter { !$0.isEmpty }.joined(separator: "。")
     }
 
     // MARK: - 视觉区（纯装饰，对读屏隐藏）
@@ -134,6 +255,13 @@ struct BlindOrderFlowView<Footer: View>: View {
             case .avatarWithSuccessBadge:
                 avatar
                 successBadge
+            case .countdown(let beat):
+                countdownCircle(beat)
+            // 跑步中这一幕整个 `heroSection` 都不渲染（`statusCard` 直接换成三个数字），
+            // 所以这里走不到。**留一个显式分支而不是 `default`** —— 加 `Visual` 时
+            // 编译器会逼一次决策，而 `default` 会把新形态默默画成空白。
+            case .runMetrics:
+                EmptyView()
             }
         }
         .frame(width: FlowMetrics.visualSide, height: FlowMetrics.visualSide)
@@ -168,12 +296,41 @@ struct BlindOrderFlowView<Footer: View>: View {
     }
 
     private var avatar: some View {
-        FlowAvatar(
-            name: order.volunteerName,
-            diameter: FlowMetrics.avatarDiameter,
-            background: AppColors.Flow.avatarBackground,
-            foreground: AppColors.Flow.avatarInitial
+        matchedAvatarGeometry(
+            FlowAvatar(
+                name: order.volunteerName,
+                diameter: FlowMetrics.avatarDiameter,
+                background: AppColors.Flow.avatarBackground,
+                foreground: AppColors.Flow.avatarInitial
+            )
         )
+    }
+
+    /// 倒计时：头像圆**原位**变品牌蓝实心底 + 白色数字，每拍从 1.25 倍回弹到 1 倍。
+    ///
+    /// 挂同一个 geometry id，所以说「开始」那一刻在动的仍然是这一个圆 —— 它缩到顶行
+    /// 变成 ⌀28 的小头像，中间没有任何交叉淡入淡出。
+    ///
+    /// 🚩 **对读屏隐藏**（整个 `visualArea` 是隐藏的）。数字走 announcement 通道播报，
+    /// 不插入遍历顺序、不移动焦点 —— 焦点在这三秒里必须待在原处，
+    /// 这正是「原地变形而不是跳页」要保住的东西。
+    private func countdownCircle(_ beat: Int) -> some View {
+        matchedAvatarGeometry(
+            Text("\(beat)")
+                .flowFont(FlowFonts.countdownNumber(), monospacedDigit: true)
+                .foregroundColor(.white)
+                .frame(width: FlowMetrics.avatarDiameter, height: FlowMetrics.avatarDiameter)
+                .background(AppColors.Flow.accent, in: Circle())
+        )
+        // 每拍换一个数字 ⇒ `id` 变 ⇒ 这个视图被换掉一次 ⇒ `transition` 重新播一次回弹。
+        // 「减弱动态效果」下换成纯淡入淡出：不缩放、不位移，**但三个数字照样一拍一拍出现**
+        // （倒计时是信息不是装饰，见 `transitionAnimation` 的注释）。
+        .id(beat)
+        .animation(
+            reduceMotion ? nil : .spring(response: BlindRunCountdown.bounceResponse, dampingFraction: 0.55),
+            value: beat
+        )
+        .transition(reduceMotion ? .opacity : .scale(scale: BlindRunCountdown.bounceScale).combined(with: .opacity))
     }
 
     /// 出发态头像外圈那道进度环。
@@ -344,6 +501,7 @@ struct BlindOrderFlowView<Footer: View>: View {
                     action.title,
                     systemImage: action.systemImage,
                     style: .primary,
+                    isEnabled: action.isEnabled,
                     accessibilityHint: primaryActionHint(action),
                     action: onPrimaryAction
                 )
@@ -380,7 +538,9 @@ struct BlindOrderFlowView<Footer: View>: View {
         }
     }
 
-    private func primaryActionHint(_ action: BlindOrderFlowPresentation.PrimaryAction) -> String {
+    /// `nil` = 这一档不加提示。`FlowActionButton` 走 `accessibilityHintIfPresent`，
+    /// 传空串会**覆盖**掉自动合成的提示，所以不能拿 `""` 当「没有」。
+    private func primaryActionHint(_ action: BlindOrderFlowPresentation.PrimaryAction) -> String? {
         switch action {
         case .callVolunteer:
             // 刻意**不念号码**：VoiceOver 每次焦点落到按钮上就把 11 位号码整个念出来，
@@ -391,6 +551,12 @@ struct BlindOrderFlowView<Footer: View>: View {
             return IntroCallCopy.blindEntryAccessibilityHint
         case .keepWaiting:
             return KeepWaitingCopy.accessibilityHint
+        case .preparing:
+            // 刻意不给提示。`.disabled()` 已经让读屏念「变暗」，再补一句「马上就可以按了」
+            // 是在这三秒里往耳朵里多塞一条没有动作可做的信息。
+            return nil
+        case .announceStats:
+            return BlindRunCopy.announceStatsHint
         }
     }
 }
@@ -414,6 +580,23 @@ struct BlindOrderFlowView<Footer: View>: View {
     BlindOrderFlowPreview(status: .driverArrived)
 }
 
+#Preview("订单页 · 倒计时") {
+    BlindOrderFlowPreview(status: .inProgress, countdown: 3)
+}
+
+#Preview("订单页 · 跑步中") {
+    BlindOrderFlowPreview(status: .inProgress, stats: .previewRunning)
+}
+
+#Preview("订单页 · 跑步中 · 定位信号弱") {
+    BlindOrderFlowPreview(status: .inProgress, stats: .previewRunning, isLocationFresh: false)
+}
+
+#Preview("订单页 · 跑步中 · AX5") {
+    BlindOrderFlowPreview(status: .inProgress, stats: .previewRunning)
+        .environment(\.dynamicTypeSize, .accessibility5)
+}
+
 #Preview("订单页 · 已约好 · AX5") {
     BlindOrderFlowPreview(status: .scheduledConfirmed)
         .environment(\.dynamicTypeSize, .accessibility5)
@@ -424,12 +607,15 @@ struct BlindOrderFlowView<Footer: View>: View {
         .preferredColorScheme(.dark)
 }
 
-/// 六个 Preview 共用的装配。抽成具名类型而不是抄六遍 —— 抄六遍改一处会漏五处，
+/// Preview 共用的装配。抽成具名类型而不是抄十遍 —— 抄十遍改一处会漏九处，
 /// 而 Preview 的漂移没有任何东西会报警。
 private struct BlindOrderFlowPreview: View {
     let status: RunOrderStatus
     var volunteerName: String? = "张*"
     var distanceText: String?
+    var countdown: Int?
+    var stats: TrackStats?
+    var isLocationFresh = true
 
     var body: some View {
         let order = OrderDetailResponse.preview(
@@ -441,11 +627,14 @@ private struct BlindOrderFlowPreview: View {
         if let presentation = BlindOrderFlowPresentation.make(
             order: order,
             distanceText: distanceText,
-            canKeepWaiting: false
+            canKeepWaiting: false,
+            countdown: countdown
         ) {
             BlindOrderFlowView(
                 presentation: presentation,
                 order: order,
+                stats: stats,
+                isLocationFresh: isLocationFresh,
                 onOpenStartPlace: {},
                 onLastRowTapped: {},
                 onPrimaryAction: {},

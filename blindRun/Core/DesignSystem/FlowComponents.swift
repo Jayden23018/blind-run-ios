@@ -290,6 +290,14 @@ struct FlowActionButton: View {
     let systemImage: String?
     let style: Style
     let isLoading: Bool
+    /// 倒计时那三秒的「准备中」。
+    ///
+    /// 🔴 **走 `.disabled()`，不是在 `action` 里 `guard ... return`。** `.disabled()`
+    /// 同时做两件事：阻断点击，**并且**给无障碍元素打上「不可用」—— VoiceOver 会念「变暗」。
+    /// 静默 return 只做前一件，读屏里它仍是一个完全正常的按钮，盲人双击之后什么都不发生、
+    /// 什么都不念，也就是红线里那句「点了没反应就是事故」。同一条理由见
+    /// `BlindActiveRunView` 里那块红块的 `.disabled(coordinator.state.isBusy)`。
+    let isEnabled: Bool
     let accessibilityLabel: String?
     let accessibilityHint: String?
     let action: () -> Void
@@ -299,6 +307,7 @@ struct FlowActionButton: View {
         systemImage: String? = nil,
         style: Style = .primary,
         isLoading: Bool = false,
+        isEnabled: Bool = true,
         accessibilityLabel: String? = nil,
         accessibilityHint: String? = nil,
         action: @escaping () -> Void
@@ -307,6 +316,7 @@ struct FlowActionButton: View {
         self.systemImage = systemImage
         self.style = style
         self.isLoading = isLoading
+        self.isEnabled = isEnabled
         self.accessibilityLabel = accessibilityLabel
         self.accessibilityHint = accessibilityHint
         self.action = action
@@ -340,7 +350,7 @@ struct FlowActionButton: View {
             .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(isLoading)
+        .disabled(isLoading || !isEnabled)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(accessibilityLabel ?? title)
@@ -357,7 +367,9 @@ struct FlowActionButton: View {
 
     private var background: Color {
         switch style {
-        case .primary: return AppColors.Flow.cta
+        // 不可用的黄按钮换**具名浅黄**而不是降透明度：那三秒里这枚按钮的颜色
+        // 是「现在还不能按」唯一的视觉状态，见 `AppColors.Flow.ctaDisabled`。
+        case .primary: return isEnabled ? AppColors.Flow.cta : AppColors.Flow.ctaDisabled
         case .help: return AppColors.Flow.helpBackground
         case .ghost: return AppColors.Flow.surface
         }

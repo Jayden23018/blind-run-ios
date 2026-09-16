@@ -743,12 +743,29 @@ final class AccessibilityAuditTests: XCTestCase {
             "盲人端主动作触达高度不得低于 64pt"
         )
 
-        // 「重复当前状态」留在执行屏上，WCAG 3.2.6 要求它跨页可达且位置一致。
-        // 它**不是**求助功能，所以没有随其余五项搬进求助中心。
+        // 「重复当前状态」这个**功能**必须跨页可达且位置一致（WCAG 3.2.6）。
+        //
+        // 2026-09-16 它在这一屏换了载体：跑步中的主按钮就是「播报当前数据」，
+        // 按下去调的是同一个 `viewModel.repeatStatus()`（播状态 + 里程 / 时长 / 配速）。
+        // 导航栏那枚小图标在这一幕收起 —— 两枚按钮播同一段话，对看不见屏幕的人
+        // 只是多一次误触面。所以断言换成主按钮，**不变式没变**：不滚就在、≥64pt。
+        let announce = app.descendants(matching: .any)["blindOrderFlowPrimaryButton"].firstMatch
         XCTAssertTrue(
-            app.descendants(matching: .any)["blindActiveRunRepeatStatusButton"].firstMatch
-                .waitForExistence(timeout: 5),
-            "「重复当前状态」不见了 —— 它是盲人按一下就听全当前状态与里程的唯一入口"
+            announce.waitForExistence(timeout: 5),
+            "跑步中没有主按钮 —— 它是盲人按一下就听全当前状态与三个数字的唯一入口"
+        )
+        XCTAssertEqual(
+            announce.label, "播报当前数据",
+            "跑步中的主按钮换了文案 —— 位置可以不动，但这一格承担的是「重复当前状态」"
+        )
+        XCTAssertGreaterThanOrEqual(
+            announce.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            "盲人端主动作触达高度不得低于 64pt"
+        )
+        XCTAssertLessThanOrEqual(
+            announce.frame.maxY, app.frame.maxY,
+            "主按钮下沿超出屏幕底，要下滑才够得到"
         )
 
         // 「问一句」2026-09-15 搬进求助中心（屏 2）第三格。**它没有被删、也没有被降级成
