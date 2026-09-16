@@ -793,19 +793,49 @@ final class AppRealtimeCoordinator: ObservableObject {
             routeEmergencyNotification(message, kind: kind)
             return
         }
-        let speechText = message.ttsText?.nilIfBlank ?? message.body
         guard !message.body.trimmed.isEmpty else { return }
         if shouldSuppressLifecycleNotification(eventType: eventType) { return }
+        let body = overriddenBody(forEventType: eventType) ?? message.body
+        // 覆盖时**两条通道一起换**。只换屏幕上那行、让 `ttsText` 照念后端原文，
+        // 等于让读屏用户听到的仍是「点击继续等待」——而这条覆盖存在的全部理由就是那句话。
+        let speechText = overriddenBody(forEventType: eventType)
+            ?? message.ttsText?.nilIfBlank
+            ?? message.body
         let notification = RealtimeForegroundNotification(
             stableEventID: message.messageId ?? message.eventId.map(String.init),
             title: message.title,
-            displayText: message.body,
+            displayText: body,
             speechText: speechText,
             priority: Self.clientPriority(forEventType: eventType, serverPriority: message.priority),
             timestamp: message.timestamp,
             isSafetyEvent: Self.isSafetyEventType(eventType)
         )
         enqueue(notification, type: message.type)
+    }
+
+    /// 后端正文指向一个**客户端已经没有的控件**时的替代正文；`nil` = 照播后端原文。
+    ///
+    /// 目前只有一条：`ORDER_CANCELLATION_WARNING` 的模板正文逐字带着「点击继续等待可延长」，
+    /// 而同一个 eventType 覆盖 `PENDING_MATCH` 与 `REMATCHING` 两态，前者那个按钮已删
+    /// （`RunOrderStatus.offersBlindRunnerKeepWaitingControl`）。
+    ///
+    /// 🔴 **判据是「此刻有没有那个按钮」，不是 eventType 本身。** `REMATCHING` 那一侧按钮
+    /// 还在，而且那一按是真延长 —— 在那一态改文案会把一条准确且可执行的提示，换成一句
+    /// 「去取消订单重新预约」，而重新下单要求 ≥30 分钟提前量。两个方向各有代价，
+    /// 所以必须看状态。
+    ///
+    /// ⚠️ **看不到任何订单时按「没有按钮」处理**（`contains(where:)` 对空集合为 false）。
+    /// 那是 App 刚启动、订单还没加载完就收到推送的那一瞬：替代正文在两态下都是真话，
+    /// 而原文在其中一态下是假的 —— 不确定时说那句两边都成立的。
+    ///
+    /// ⛔ **不许改成匹配正文里的中文片段。** 那正是
+    /// `testSuppressionFollowsEventTypeNotBodyText` 钉住的旧实现：后端改一个字，
+    /// iOS 的播报行为就静默变一次。
+    private func overriddenBody(forEventType eventType: String) -> String? {
+        guard eventType == "ORDER_CANCELLATION_WARNING" else { return nil }
+        let hasControl = activeOrderStatuses.values
+            .contains(where: \.offersBlindRunnerKeepWaitingControl)
+        return hasControl ? nil : KeepWaitingCopy.cancellationWarningWithoutControl
     }
 
     /// 展示优先级。默认照后端模板给的 `priority`，**只有一条例外**。
@@ -1049,23 +1079,28 @@ final class AppRealtimeCoordinator: ObservableObject {
         for missed in sorted {
             recordObservedNotificationTimestamp(missed.sentAt)
             guard !missed.body.trimmed.isEmpty else { continue }
-            let speechText = missed.ttsText?.nilIfBlank ?? missed.body
+            // 补读走**同一条**正文覆盖。漏掉这里的后果只在断线重连那条路径上出现
+            // （最容易漏测、也最难在真机上复现）：屏幕上那行字是替代文案、补读念的却是
+            // 后端原文「点击继续等待可延长」。
+            let eventType = (missed.eventType ?? "").uppercased()
+            let override = overriddenBody(forEventType: eventType)
+            let speechText = override ?? missed.ttsText?.nilIfBlank ?? missed.body
             enqueue(
                 RealtimeForegroundNotification(
                     stableEventID: "missed:\(missed.id)",
                     title: nil,
-                    displayText: missed.body,
+                    displayText: override ?? missed.body,
                     speechText: speechText,
                     // 补读走同一条抬优先级的规则。断线期间错过的 `ORDER_OVERDUE` 恰恰是最该
                     // 被听见的那条 —— 重连时它已经迟了，再排在派单进度后面就更迟。
                     priority: Self.clientPriority(
-                        forEventType: (missed.eventType ?? "").uppercased(),
+                        forEventType: eventType,
                         serverPriority: missed.priority
                     ),
                     timestamp: missed.sentAt,
                     // 补读同样按类型判呈现强度。断线期间错过的 `REMATCHING_MID_RUN` 是这批里
                     // 最该被听见的一条 —— 它意味着盲人当时已经独自在户外，而他到现在都不知道。
-                    isSafetyEvent: Self.isSafetyEventType((missed.eventType ?? "").uppercased())
+                    isSafetyEvent: Self.isSafetyEventType(eventType)
                 ),
                 type: WSMessageType.appNotification.rawValue
             )

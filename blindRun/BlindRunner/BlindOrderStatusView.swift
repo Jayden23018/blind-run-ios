@@ -122,8 +122,13 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     /// 上限到了就把按钮收起来，不留一个必定失败的控件 —— 对盲人来说
     /// 「按了、听到报错、再按、还是报错」比没有按钮更糟。
+    ///
+    /// 🔴 读 `offersBlindRunnerKeepWaitingControl` 而**不是** `offersKeepWaiting`：后者含
+    /// `PENDING_MATCH`（后端确实受理），而那个按钮已按 2026-09-16 的决策删除。用后者的话
+    /// `repeatStatus` 会在 `PENDING_MATCH` 照旧念「可以点继续等待」—— 念一个屏幕上没有的
+    /// 按钮，对看不见屏幕的人是最贵的一种错误提示。
     var canShowKeepWaiting: Bool {
-        order?.status.offersKeepWaiting == true && !keepWaitingLimitReached
+        order?.status.offersBlindRunnerKeepWaitingControl == true && !keepWaitingLimitReached
     }
 
     var shouldPoll: Bool {
@@ -1184,6 +1189,9 @@ struct BlindOrderStatusView: View {
     @State private var showEmergencyCallOptions = false
     /// 陪跑中那块红色安全锚点打开的求助中心。
     @State private var showSafetyHub = false
+    /// 「匹配规则说明」。骨架态从取消确认弹窗里进（设计稿 §3.5），
+    /// 只读退路那条列表仍走自己的 `NavigationLink`。
+    @State private var showDispatchAlgorithmNotice = false
     /// 屏 3 / 屏 3b 的全屏呈现。**由显式动作打开，不由 coordinator 状态推导** ——
     /// 推导的话首页 SOS 条触发的求助也会在订单页上弹出这一屏，而那条路径有它自己的界面。
     @State private var showEmergencyCountdown = false
@@ -1295,7 +1303,8 @@ struct BlindOrderStatusView: View {
                     onOpenStartPlace: nil,
                     onLastRowTapped: { handleFlowLastRow(order) },
                     onPrimaryAction: { handleFlowPrimaryAction(presentation, order: order) },
-                    onOpenSafetyHub: { showSafetyHub = true }
+                    onOpenSafetyHub: { showSafetyHub = true },
+                    footer: { flowFooter(order) }
                 )
                 debugMockControls(order)
                     .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
@@ -1304,6 +1313,51 @@ struct BlindOrderStatusView: View {
             // 只读退路：`.unknown` 与终态（完成 / 取消 / 无人接单）。
             // 这一条**不许删** —— 后端加状态时它是未知态唯一的落点。
             trackingContent
+        }
+    }
+
+    /// 骨架信息列表之后那块「刚才那一下的结果」。**三态正常时整块为空。**
+    ///
+    /// 这不是补充装饰，是把改版前那条滚动列表末尾的**可见失败面**接回来：骨架换掉
+    /// `trackingContent` 的同时也换掉了 `viewModel.errorMessage` 与实时分享结果提示
+    /// 唯一的渲染点。少了它，失败只剩一句 TTS，而不开读屏的低视力用户屏幕上零变化。
+    ///
+    /// 短信降级按钮同样在这里：`showSMSFallback` 只在实时分享失败后为真，
+    /// 而那一刻「把行程告诉家人」这件事仍然做得到 —— 收走入口等于把人支上死路。
+    @ViewBuilder
+    private func flowFooter(_ order: OrderDetailResponse) -> some View {
+        VStack(spacing: 10) {
+            if let notice = shareViewModel.notice {
+                Text(notice.text)
+                    .flowFont(FlowFonts.rowDetail())
+                    .foregroundColor(notice.isProblem ? AppColors.destructive : AppColors.Flow.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(notice.text)
+                    .accessibilityIdentifier("blindOrderStatusShareRunPlanNotice")
+            }
+
+            // 只在实时分享走不通时露出来。`canSendText` 一并判掉：这台设备本来就发不了
+            // 短信时摆出降级入口，等于把用户支上一条同样走不通的路。
+            if shareViewModel.showSMSFallback, MessageComposeSheet.canSendText {
+                runPlanShareButton(
+                    title: RunPlanLiveShareCopy.smsFallbackButtonTitle,
+                    hint: RunPlanLiveShareCopy.smsFallbackHint,
+                    identifier: "blindOrderStatusShareRunPlanButton",
+                    tint: AppColors.primary,
+                    action: { shareRunPlanBySMS(order) }
+                )
+            }
+
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .flowFont(FlowFonts.rowDetail())
+                    .foregroundColor(AppColors.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(errorMessage)
+                    .accessibilityIdentifier("blindOrderFlowErrorMessage")
+            }
         }
     }
 
@@ -1316,6 +1370,27 @@ struct BlindOrderStatusView: View {
             showCancelConfirmation = true
         } else {
             showSafetyHub = true
+        }
+    }
+
+    /// 本地拨号弹窗的第一句该说哪一种。判据与 `BlindRunnerTabView.callContext` 逐字相同：
+    /// 云端那条路此刻通不通，就决定了「刚才那一下到底发生了什么」是哪个答案。
+    private var emergencyCallContext: EmergencyCallContext {
+        BlindHomeSOSMode.resolve(order: viewModel.order, role: appState.activeRole) == .cloudTrigger
+            ? .cloudFailed
+            : .homeIdle
+    }
+
+    /// 求助中心那一格按下去：起分享还是停分享。
+    ///
+    /// **分流放在这里而不是弹层里**：起分享要先过明示同意那道门
+    /// （`RunPlanShareConsentStep.next`，判定见 `requestLiveShare`），
+    /// 而「同意过没有」是按用户存的本地状态，弹层拿不到也不该拿到。
+    private func toggleLiveShare() {
+        if shareViewModel.isLiveSharing {
+            Task { await shareViewModel.stopLiveShare() }
+        } else {
+            requestLiveShare()
         }
     }
 
@@ -1445,9 +1520,33 @@ struct BlindOrderStatusView: View {
                     }
                 }
             }
+            // 设计稿 §3.5 的迁移：「匹配规则说明 → 「取消匹配」二次确认弹窗中附带说明链接」。
+            //
+            // 🔴 **为什么必须迁，不能就这么丢掉**：《互联网信息服务算法推荐管理规定》
+            // 第十六条要求「以显著方式告知」，而骨架替换掉的那条滚动列表里就挂着它
+            // （`dispatchAlgorithmNoticeSection`）。四步骨架的两个固定版位与四行信息列表
+            // 都排满了，这个二次确认弹窗是唯一一个**恰好只在被算法排序的那两态弹出**的
+            // 落点（`offersDispatchAlgorithmNotice` = `PENDING_MATCH` + `REMATCHING`，
+            // 与 `lastRowTitle` 说「取消匹配」的那两态逐字重合）。
+            //
+            // ⚠️ 排在破坏性按钮**之后**：读屏从上往下念，把一条信息性链接放在
+            // 「确认取消」前面会让要看说明的人先滑过那枚红字。
+            if viewModel.order?.status.offersDispatchAlgorithmNotice == true {
+                Button(DispatchAlgorithmNoticeCopy.entryTitle) {
+                    showDispatchAlgorithmNotice = true
+                }
+            }
             Button("不取消", role: .cancel) {}
         } message: {
             Text("确认取消本次预约？取消后将结束本次服务。")
+        }
+        // 不是 `NavigationLink`：`confirmationDialog` 的按钮只能跑闭包，塞不进导航。
+        // 用 sheet 而不是 push 还有一个好处 —— 看完说明关掉就回到原地，
+        // 而 push 会把用户留在一页深处，返回键在左上角（管状视力用户的盲区）。
+        .sheet(isPresented: $showDispatchAlgorithmNotice) {
+            NavigationStack {
+                DispatchAlgorithmNoticeView()
+            }
         }
         .confirmationDialog(
             EmergencySafetyCopy.cancelButtonTitleForOwner,
@@ -1514,12 +1613,16 @@ struct BlindOrderStatusView: View {
         }
         // 与首页共用同一个构造点，号码集合与顺序两页一致 —— 理由见 `emergencyCallOptionsDialog`。
         //
-        // 语境固定 `.cloudFailed`：这个弹窗现在**只剩一个入口** —— 云端求助失败后安全锚点上
-        // 冒出来的那枚「紧急呼叫」。陪跑中主动拨号那条路已经并进求助中心
-        // （`blindActiveRunSafetyHubDialog`），不再从这里走。
+        // 🔴 **语境不能写死。** 两个入口，第一句必须分开说对：
+        // ① 云端求助失败后安全锚点上冒出来的那枚「紧急呼叫」→ `.cloudFailed`
+        //    （「求助没有发出去」）；
+        // ② 非 `IN_PROGRESS` 时求助中心底部那条降级按钮 → `.homeIdle`
+        //    （「当前没有进行中的陪跑」）。
+        // 写死 `.cloudFailed` 会在②里对一个从没按过求助的人说「求助没有发出去」——
+        // 那句话会让他以为自己刚才按错了什么，而他什么都没按错。
         .emergencyCallOptionsDialog(
             isPresented: $showEmergencyCallOptions,
-            context: .cloudFailed,
+            context: emergencyCallContext,
             primaryContact: appState.primaryEmergencyContact
         )
         // 求助中心。**它不是二次确认** —— 轻点「一键求助」之后才弹下面那条确认，
@@ -1528,13 +1631,25 @@ struct BlindOrderStatusView: View {
         // 长按 3 秒 / 自定义无障碍动作走 `onTriggerEmergencyImmediately`：跳过二次确认，
         // 直接进倒计时。轻点那条先过二次确认，确认之后**也进同一个倒计时** ——
         // 发出求助只有一个出口，「两条路的行为哪里不一样」这个问题就不存在。
+        //
+        // 🔴 `mode` 不能写死 `.cloudTrigger`。这一层 2026-09-16 起也从四步骨架的底部
+        // 打开，而那四态（匹配 / 约好 / 出发 / 汇合）一个都不是 `IN_PROGRESS` ——
+        // 云端求助在那里根本不可调，照走云端的后果是**屏幕零变化、一个字也不播**
+        // （详见 `EmergencySafetyCopy.hubLocalCallNotice`）。
         .blindActiveRunSafetyHubSheet(
             isPresented: $showSafetyHub,
+            mode: BlindHomeSOSMode.resolve(order: viewModel.order, role: appState.activeRole),
             primaryContact: appState.primaryEmergencyContact,
             volunteerPhone: viewModel.order?.volunteerPhone,
             locationError: locationService.locationError,
+            // 设计稿 §3.5 的迁移：「分享实时位置给家人 → 求助与安全中心」。
+            // 骨架替换掉了 `runPlanShareSection` 那条列表，不迁进来这四态就一个入口都没有。
+            offersLiveShare: viewModel.order?.status.offersRunPlanShare == true,
+            isLiveSharing: shareViewModel.isLiveSharing,
             onAnnounceLocation: { Task { await viewModel.announceCurrentLocation() } },
             onAskQuestion: { viewModel.askVoiceQuestion() },
+            onToggleLiveShare: toggleLiveShare,
+            onLocalCall: { showEmergencyCallOptions = true },
             onTriggerEmergency: { showEmergencyConfirmation = true },
             onTriggerEmergencyImmediately: startEmergencyCountdown
         )

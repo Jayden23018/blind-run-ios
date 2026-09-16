@@ -240,6 +240,25 @@ extension RunOrderStatus {
     var offersKeepWaiting: Bool {
         keepWaitingEndpoint != nil
     }
+
+    /// 屏幕上**真的有**「继续等待」这个控件吗。
+    ///
+    /// 🔴 **它与 `offersKeepWaiting` 刻意不同，差的就是 `PENDING_MATCH`。**
+    /// 后端两个端点都还在、`PENDING_MATCH` 照样受理 `keepWaiting`（所以
+    /// `keepWaitingEndpoint` 一行没改，那条回答的是契约事实）；但项目负责人 2026-09-16
+    /// 拍板**删掉 `PENDING_MATCH` 的按钮**：后端 `handleMatchTimeout:578` 每轮超时自己就把
+    /// 窗口往后推，客户端一次不调订单寿命相同 —— 一个按了等于没按的按钮，对看不见屏幕的人
+    /// 是一次白跑的操作。`REMATCHING` 那一侧保留，它是**真延长**（后端 N62 把
+    /// `rematchNotifyAt` 计进 `dispatchDeadline`）。
+    ///
+    /// 🚩 **凡是「要不要提到这个按钮」的地方都必须读这一条，不许各写一个 `== .rematching`。**
+    /// 三处读它：骨架的主按钮、`repeatStatus` 那句附带播报、以及后端
+    /// `ORDER_CANCELLATION_WARNING` 正文的客户端覆盖判据。散成三个字面量的下场是
+    /// 记忆 `same-name-predicate-different-sets-across-ends`：某一处改了口径，
+    /// 另外两处继续念一个不存在的按钮，而那不会有任何东西报错。
+    var offersBlindRunnerKeepWaitingControl: Bool {
+        keepWaitingEndpoint == .keepRematching
+    }
 }
 
 /// 两条延长端点。存在的理由是 `scripts/validate-spec-coverage.mjs`：
@@ -528,11 +547,30 @@ enum KeepWaitingCopy {
     ///    `KeepWaitingCopyTests` 断言本串不含任何阿拉伯数字。
     static let success = "已经告诉系统继续等待，正在继续为你寻找志愿者。"
 
+    /// 「没有可按的按钮时，还能做什么」。三处共用一句，**不许各写一份**：
+    /// 三处说的是同一件事，分开写就会慢慢漂成三种说法，而它们只在等待期被念到，
+    /// 谁漂了都没有任何东西会报错。
+    static let stillMatchingAdvice = "系统还会继续为你匹配；如果不想再等，可以取消订单后重新预约。"
+
     /// 上限文案。后端在延长次数用尽后**不再推送** `ORDER_CANCELLATION_WARNING`
     /// （`websocket-protocol.md`：那时文案里的「点击继续等待可延长」已经不成立）。
     /// 客户端对齐同一口径：说清没得延长了，并说明**还能做什么** —— 只说「不能延长」
     /// 会把盲人留在一个没有下一步的地方。
-    static let limitReached = "已经到了可以延长的次数上限，不能再延长了。系统还会继续为你匹配；如果不想再等，可以取消订单后重新预约。"
+    static let limitReached = "已经到了可以延长的次数上限，不能再延长了。" + stillMatchingAdvice
+
+    /// 后端 `ORDER_CANCELLATION_WARNING` 正文的**客户端替代**。
+    ///
+    /// 后端模板逐字是「您的订单即将因长时间无人接单被取消，**点击继续等待可延长**」
+    /// （`demo/src/main/resources/data.sql:146`）。同一个 eventType 在后端有三个推送点
+    /// （`DispatchService:1265` 派单窗口将到、`OrderLifecycleService:573` 匹配超时、
+    /// `:526` 重匹超时），覆盖 `PENDING_MATCH` 与 `REMATCHING` 两态 —— 而
+    /// `PENDING_MATCH` 那个按钮已按 2026-09-16 的决策删除
+    /// （`offersBlindRunnerKeepWaitingControl`）。照播就是让盲人去找一个不存在的控件。
+    ///
+    /// 🔴 **这一句不提任何按钮。** 它只在「按钮确实不在屏幕上」时替换正文；
+    /// `REMATCHING` 那一侧按钮还在，原文准确，一个字不改。
+    static let cancellationWarningWithoutControl =
+        "你的订单还没有人接单，可能会被系统取消。" + stillMatchingAdvice
 
     /// 「重复当前状态」里附带的一句。看不见屏幕的人靠这句发现这个动作存在。
     static let repeatStatusSuffix = "如果还想继续等，可以点继续等待。"

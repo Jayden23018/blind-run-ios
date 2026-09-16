@@ -447,6 +447,29 @@ enum EmergencySafetyCopy {
     static let hubAnnounceLocationTitle = "播报我的位置"
     static let hubAskQuestionTitle = "问一句"
 
+    /// 🔴 **非 `IN_PROGRESS` 打开求助中心时，底部那条必须说这句话。**
+    ///
+    /// 2026-09-16 起求助中心不再只从陪跑执行屏进入 —— 订单页四步骨架的底部也有一枚
+    /// 「求助与安全」，而那四个状态（匹配 / 约好 / 出发 / 汇合）**一个都不是 `IN_PROGRESS`**。
+    /// 云端求助两端都只在 `IN_PROGRESS` 开放（`AGENTS.md` §6），所以在那四态按下云端那条
+    /// 红胶囊的真实结果是：`EmergencyCoordinator.beginCountdown` 在资格 guard 处落
+    /// `.failed("当前订单状态不能发起求助")`、`startEmergencyCountdown` 因此不弹全屏，
+    /// 而骨架那一屏**没有 `EmergencyStatusNotice` 的渲染点** ——
+    /// 于是长按 3 秒或轻点确认之后，屏幕零变化、一个字也不播。
+    /// 那正是记忆 `claimed-fallback-may-not-exist-in-release` 说的第二种吃法，
+    /// 而它长在这个 App 唯一救命的那条路径上。
+    ///
+    /// 所以那四态的底部整条降级为**本地拨号**，与首页/「我的」tab 那条求助条同一条判据
+    /// （`BlindHomeSOSMode.resolve`）、同一套弹窗（`emergencyCallOptionsDialog`）。
+    static let hubLocalCallNotice = "陪跑还没开始，下方的紧急呼叫只会直接拨号，App 不会代你发送求助。"
+
+    /// 「把这次行程告诉家人」那一格。
+    ///
+    /// 标题不在这里 —— 它随「分享中 / 未分享」变，取自 `RunPlanLiveShareCopy.buttonTitle`
+    /// 与 `stopButtonTitle`（那两串上记着不许宣称送达的约束，不复制第二份）。
+    static let hubShareLiveLocationSubtitle = "家人能看到你的位置"
+    static let hubStopShareLiveLocationSubtitle = "链接立刻失效"
+
     /// 每一格标题下面那行小字。**说的是「按下去会发生什么」，不是同义词复述** ——
     /// 「联系志愿者 / 陪跑员」对看不见的人等于把同一个词说两遍。
     ///
@@ -454,7 +477,8 @@ enum EmergencySafetyCopy {
     /// 漏写一格的表现是「屏幕上少一行字」，而那种缺陷不会有任何东西变红。
     static func hubTileSubtitle(
         _ option: BlindActiveRunSafetyHubOption,
-        contactName: String?
+        contactName: String?,
+        isLiveSharing: Bool = false
     ) -> String {
         switch option {
         case .contactVolunteer: return "直接拨给陪跑员"
@@ -463,6 +487,8 @@ enum EmergencySafetyCopy {
         case .callPrimaryContact: return contactName?.nilIfBlank ?? "紧急联系人"
         case .callMedical: return "摔倒、受伤、身体不适"
         case .callPolice: return "报警"
+        case .shareLiveLocation:
+            return isLiveSharing ? hubStopShareLiveLocationSubtitle : hubShareLiveLocationSubtitle
         case .triggerEmergency: return hubTriggerSubtitle
         }
     }
@@ -509,6 +535,17 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
     case callPrimaryContact
     case callMedical
     case callPolice
+    /// 把这次行程告诉家人（实时分享链接）。
+    ///
+    /// 🚩 **它是迁移进来的，不是新功能**（设计稿 §3.5 的迁移表：「分享实时位置给家人 →
+    /// 求助与安全中心」）。改版前它是订单页那条滚动列表里的一个 64pt 次级按钮
+    /// （`BlindOrderStatusView.runPlanShareSection`），而四步骨架替换了那条列表 ——
+    /// 不迁进来的话，`PENDING_MATCH` → `DRIVER_ARRIVED` 这四态**一个入口都没有**，
+    /// 而 `offersRunPlanShare` 恰好覆盖的就是这四态。
+    ///
+    /// ⚠️ 排在**最后一格**，不是插在中间：拨号三项的位置一格都不许动
+    /// （见 `options` 的注释）。
+    case shareLiveLocation
     case triggerEmergency
 
     /// 顺序固定、不随状态变 —— 盲人靠位置记忆，顺序会变的菜单等于没有位置记忆。
@@ -520,10 +557,15 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
     /// 🚩 **三个拨号项没有被折进一个「紧急呼叫」二级入口。** 那样确实能凑成设计稿上的
     /// 2×2，但代价是跑步途中拨 120 从一跳变成两跳 —— 而 `AGENTS.md` §6 把 120 列成
     /// 与 110 并列的常驻入口，理由恰恰是「念得出来而按不到等于没有」。
-    /// 格子数由这个列表决定（最多 6 格 = 2×3），不由设计稿的行数决定。
+    /// 格子数由这个列表决定（最多 7 格），不由设计稿的行数决定。
+    ///
+    /// - Parameter offersLiveShare: 这一单此刻能不能开分享链接。由调用方按
+    ///   `RunOrderStatus.offersRunPlanShare` 传进来 —— 终态后端返 409，摆一个
+    ///   按下去必然报错的格子对读屏用户是纯噪音。
     static func options(
         volunteerPhone: String?,
-        primaryContact: EmergencyContactResponse?
+        primaryContact: EmergencyContactResponse?,
+        offersLiveShare: Bool = false
     ) -> [BlindActiveRunSafetyHubOption] {
         var options: [BlindActiveRunSafetyHubOption] = []
         // 判据是「拼不拼得出 tel: URL」而不是「字符串非空」：掩码串 `138****1234`
@@ -534,6 +576,7 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
         if EmergencyDialer.telURL(for: primaryContact?.phone) != nil { options.append(.callPrimaryContact) }
         options.append(.callMedical)
         options.append(.callPolice)
+        if offersLiveShare { options.append(.shareLiveLocation) }
         options.append(.triggerEmergency)
         return options
     }
@@ -542,10 +585,15 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
     /// 与其余各项不是同一个视觉层级，也不是同一种后果。
     static func tiles(
         volunteerPhone: String?,
-        primaryContact: EmergencyContactResponse?
+        primaryContact: EmergencyContactResponse?,
+        offersLiveShare: Bool = false
     ) -> [BlindActiveRunSafetyHubOption] {
-        options(volunteerPhone: volunteerPhone, primaryContact: primaryContact)
-            .filter { $0 != .triggerEmergency }
+        options(
+            volunteerPhone: volunteerPhone,
+            primaryContact: primaryContact,
+            offersLiveShare: offersLiveShare
+        )
+        .filter { $0 != .triggerEmergency }
     }
 
     /// SF Symbol。图标是**冗余通道**：色盲用户与低视力用户靠形状区分，
@@ -558,6 +606,8 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
         case .callPrimaryContact: return "person.crop.circle.fill"
         case .callMedical: return "cross.case.fill"
         case .callPolice: return "shield.lefthalf.filled"
+        // `person.2.wave.2.fill` 要 iOS 16.1 —— 同下面 `sos` 那条的坑。这个从 iOS 13 就有。
+        case .shareLiveLocation: return "square.and.arrow.up.fill"
         // ⛔ **不用 `sos`。** 那个符号是 iOS **16.1** 才有的（SF Symbols 4，
         // `name_availability.plist` 里写着 2022.1 → iOS 16.1），而本仓库部署目标是 iOS 16.0 ——
         // 在 16.0 上它渲染成空白，而且不报错、不崩，只是这一格没有图标。
@@ -565,7 +615,11 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
         }
     }
 
-    func title(contactName: String?) -> String {
+    /// - Parameter isLiveSharing: 分享中时这一格的标题换成「停止分享实时位置」。
+    ///   `RunPlanLiveShareStore` 的注释里写着为什么这个状态只能来自本地记录
+    ///   （后端没有查询分享状态的端点），而告知页逐字承诺了「你可以随时停止分享」——
+    ///   所以这一格必须能变成「停止」，否则那句承诺在这一层里就不成立。
+    func title(contactName: String?, isLiveSharing: Bool = false) -> String {
         switch self {
         case .contactVolunteer: return EmergencySafetyCopy.hubContactVolunteerTitle
         case .announceLocation: return EmergencySafetyCopy.hubAnnounceLocationTitle
@@ -573,6 +627,10 @@ enum BlindActiveRunSafetyHubOption: Equatable, CaseIterable {
         case .callPrimaryContact: return EmergencySafetyCopy.homeCallContactTitle(name: contactName)
         case .callMedical: return EmergencySafetyCopy.homeCallMedicalTitle
         case .callPolice: return EmergencySafetyCopy.homeCallPoliceTitle
+        case .shareLiveLocation:
+            return isLiveSharing
+                ? RunPlanLiveShareCopy.stopButtonTitle
+                : RunPlanLiveShareCopy.buttonTitle
         case .triggerEmergency: return EmergencySafetyCopy.title
         }
     }
@@ -877,24 +935,38 @@ extension View {
     ///
     /// 🔴 **轻点「一键求助」仍然走二次确认** —— `AGENTS.md` §6 那句逐字锁定的文案一个字不动、
     /// 一步不减。只有**长按 3 秒**和**自定义无障碍动作**这两条刻意路径跳过它（换成倒计时）。
+    ///
+    /// - Parameter mode: 底部整条走云端求助还是本地拨号。判据复用
+    ///   `BlindHomeSOSMode.resolve` —— 与首页/「我的」tab 那条求助条同一条，
+    ///   理由见 `EmergencySafetyCopy.hubLocalCallNotice`。
     func blindActiveRunSafetyHubSheet(
         isPresented: Binding<Bool>,
+        mode: BlindHomeSOSMode,
         primaryContact: EmergencyContactResponse?,
         volunteerPhone: String?,
         locationError: LocationError?,
+        offersLiveShare: Bool = false,
+        isLiveSharing: Bool = false,
         onAnnounceLocation: @escaping () -> Void,
         onAskQuestion: @escaping () -> Void,
+        onToggleLiveShare: @escaping () -> Void = {},
+        onLocalCall: @escaping () -> Void,
         onTriggerEmergency: @escaping () -> Void,
         onTriggerEmergencyImmediately: @escaping () -> Void
     ) -> some View {
         modifier(
             SafetyHubPresentation(
                 isPresented: isPresented,
+                mode: mode,
                 primaryContact: primaryContact,
                 volunteerPhone: volunteerPhone,
                 locationError: locationError,
+                offersLiveShare: offersLiveShare,
+                isLiveSharing: isLiveSharing,
                 onAnnounceLocation: onAnnounceLocation,
                 onAskQuestion: onAskQuestion,
+                onToggleLiveShare: onToggleLiveShare,
+                onLocalCall: onLocalCall,
                 onTriggerEmergency: onTriggerEmergency,
                 onTriggerEmergencyImmediately: onTriggerEmergencyImmediately
             )

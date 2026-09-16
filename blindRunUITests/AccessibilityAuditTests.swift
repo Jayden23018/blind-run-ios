@@ -545,16 +545,25 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
-    /// 后端的 `ORDER_CANCELLATION_WARNING` 正文逐字是「您的订单即将因长时间无人接单被取消，
-    /// **点击继续等待可延长**」。这条用例钉的就是那句话响起时，屏幕上真的有这个控件、
-    /// 而且**不用滚动**就够得着 —— 播报里让人点一个只存在于后端文案里的按钮，
-    /// 对看不见屏幕的人是纯粹的死路。
+    /// 匹配态（`PENDING_MATCH`）这一屏**没有**「继续等待」，而它该有的三样东西都在。
     ///
-    /// 播报内容本身（「重复当前状态」要念到这个动作）由单测
-    /// `KeepWaitingTests.testRepeatStatusMentionsKeepWaitingWhileWaiting` 断言 ——
-    /// UI 测试是黑盒，读不到 TTS 文本，在这里断言只能断言个寂寞。
+    /// 🔄 **2026-09-16 整条改向。** 原来它断言的是「后端 `ORDER_CANCELLATION_WARNING`
+    /// 正文让用户点的那个控件真的在屏幕上」。项目负责人当日拍板删掉 `PENDING_MATCH` 那个
+    /// 按钮（后端 `handleMatchTimeout` 每轮超时自己就把窗口往后推，客户端一次不调订单寿命
+    /// 相同），于是原断言成了反向守卫：它会逼人把一个按了等于没按的按钮加回来。
+    ///
+    /// 那句后端文案的问题改由**客户端覆盖正文**解决，钉在
+    /// `AppRealtimeCoordinatorTests.testCancellationWarningDropsTheDeletedButtonHintWhilePendingMatch`
+    /// —— UI 测试是黑盒，读不到通知正文，只能在这里断言「控件确实不在」这一半。
+    ///
+    /// 剩下三样必须在，一样都不能少：
+    /// 1. **「取消匹配」不滚动就够得着** —— 删掉「继续等待」之后它是这一态唯一的决定；
+    /// 2. **二次确认里带「匹配规则说明」** —— 《互联网信息服务算法推荐管理规定》第十六条的
+    ///    「显著方式告知」，改版把它原来的落点（那条滚动列表）整段换掉了（设计稿 §3.5）；
+    /// 3. **「重复当前状态」在导航栏右侧** —— skill `aidrun-a11y-voice` 的硬规则，
+    ///    系统 Speak Screen 读不到一次性 `announcement`，没有它盲人错过一次播报就拿不回来。
     @MainActor
-    func testBlindOrderStatusOffersKeepWaitingWhileWaitingForAMatch() throws {
+    func testBlindOrderStatusMatchingStateOffersCancelAndRuleNoticeInsteadOfKeepWaiting() throws {
         let app = launchBlindHome(emptyOrders: false)
         let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(
@@ -563,50 +572,103 @@ final class AccessibilityAuditTests: XCTestCase {
         )
         currentOrder.tap()
 
-        // 种子订单是 PENDING_MATCH（`MockAPIClient.seedDemoData`），正是可延长的状态。
-        let keepWaiting = app.descendants(matching: .any)["blindOrderStatusKeepWaitingButton"].firstMatch
-        XCTAssertTrue(
-            keepWaiting.waitForExistence(timeout: 15),
-            "PENDING_MATCH 的订单状态页没有「继续等待」—— 后端预警文案让用户点的正是它"
-        )
-        XCTAssertTrue(keepWaiting.isHittable, "「继续等待」存在但够不着，等于没有")
-        // 2026-09-05 起它是 **64pt 的次级按钮**，不再是 140pt 的主按钮 —— 它是一条保险
-        // （不按订单会被自动取消），不是等待期用户**该做**的事。这条断言的下限没变：
-        // 64pt 是盲人端任何可点控件的触达底线，不因为降级成次级就放宽。
-        XCTAssertGreaterThanOrEqual(
-            keepWaiting.frame.height,
-            Self.minimumBlindPrimaryButtonHeight,
-            "盲人端可点控件触达高度不得低于 64pt"
-        )
-        XCTAssertEqual(keepWaiting.label, "继续等待", "读屏念出来的必须就是这四个字")
+        // 种子订单是 PENDING_MATCH（`MockAPIClient.seedDemoData`），落在骨架的「匹配」格。
+        let statusCard = app.descendants(matching: .any)["blindOrderFlowStatusCard"].firstMatch
+        XCTAssertTrue(statusCard.waitForExistence(timeout: 15), "订单页四步骨架没起来")
 
-        // 「取消订单」是这一态的另一个状态机动作，必须**不滚动**就够得着。
-        //
-        // 2026-08-19 之前 `actionSection` 排在滚动内容第 8 位，上面压着「继续等待」140pt、
-        // 行程分享 64pt、地图与生命周期卡 —— 而等待期用户唯一的两个决定就是「再等」和
-        // 「不等了」。把其中一个放在首屏外，等于只给了一半。
-        // （「继续等待」2026-09-05 降级为 64pt，这条断言因此只会更宽松，不会更紧。）
-        // 判据用 `frame` 边界不用 `isHittable`：后者只判中心点，与
-        // `testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling` 同源。
-        // 全程不滚动。
-        let cancel = app.buttons["取消订单"].firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "PENDING_MATCH 的订单状态页没有「取消订单」")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindOrderStatusKeepWaitingButton"].firstMatch.exists,
+            "PENDING_MATCH 又出现了「继续等待」—— 按了等于没按，而盲人无从发现这件事"
+        )
+
+        // ① 「取消匹配」。判据用 `frame` 边界不用 `isHittable`：后者只判中心点，
+        // 一个上半截被底栏盖住的按钮照样是 true（与
+        // `testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling` 同源）。全程不滚动。
+        let lastRow = app.descendants(matching: .any)["blindOrderFlowLastRowButton"].firstMatch
+        XCTAssertTrue(lastRow.waitForExistence(timeout: 5), "信息列表最后一行不见了")
+        XCTAssertEqual(lastRow.label, "取消匹配", "匹配态这一行的文案是设计稿原文")
         XCTAssertLessThanOrEqual(
-            cancel.frame.maxY,
+            lastRow.frame.maxY,
             app.frame.maxY,
             """
-            「取消订单」下沿 \(cancel.frame.maxY) 超出屏幕底 \(app.frame.maxY)，要下滑才够得到。\
-            它属于「此刻能对这一单做的事」，得跟主动作连在一起，中间不隔分享和地图。
+            「取消匹配」下沿 \(lastRow.frame.maxY) 超出屏幕底 \(app.frame.maxY)，要下滑才够得到。\
+            删掉「继续等待」之后它是这一态唯一的决定，放在首屏外等于这一态什么都做不了。
             """
         )
 
-        // 幂等且方向是保住订单，所以**不弹二次确认**（取消订单那条才弹）。
-        keepWaiting.tap()
-        let confirmation = app.alerts.firstMatch
-        XCTAssertFalse(
-            confirmation.waitForExistence(timeout: 3),
-            "「继续等待」不该有二次确认：多一轮确认对读屏用户是实打实的十几秒"
+        // ③ 「重复当前状态」—— 先断言它在，再去点取消（弹窗会盖住导航栏）。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindOrderFlowRepeatStatusButton"].firstMatch.exists,
+            "导航栏右侧没有「重复当前状态」—— 盲人错过一次状态播报就再也拿不回来"
         )
+
+        // ② 二次确认 + 里面那条「匹配规则说明」。
+        lastRow.tap()
+        let confirmCancel = app.buttons["确认取消"].firstMatch
+        XCTAssertTrue(
+            confirmCancel.waitForExistence(timeout: 5),
+            "「取消匹配」没有二次确认 —— 这是不可逆动作"
+        )
+        let ruleNotice = app.buttons["匹配规则说明"].firstMatch
+        XCTAssertTrue(
+            ruleNotice.exists,
+            """
+            取消确认弹窗里没有「匹配规则说明」。改版把它原来的落点整段换掉了，\
+            而算法告知是法规要求的「显著方式」—— 沉到设置页深处不算显著。
+            """
+        )
+        // 不点「确认取消」：那会把种子订单毁掉，后面重跑这条用例就没有订单可用了。
+        app.buttons["不取消"].firstMatch.tap()
+    }
+
+    /// 🔴 **非 `IN_PROGRESS` 的求助中心，底部必须是本地拨号，不是云端求助。**
+    ///
+    /// 这是 2026-09-16 引入四步骨架时新开的一个洞：骨架底部那枚「求助与安全」让求助中心
+    /// 第一次可以在 `PENDING_MATCH` / `SCHEDULED_CONFIRMED` / `DRIVER_EN_ROUTE` /
+    /// `DRIVER_ARRIVED` 打开，而云端求助两端都只在 `IN_PROGRESS` 开放（`AGENTS.md` §6）。
+    /// 照走云端的真实后果：`beginCountdown` 在资格 guard 落 `.failed`、全屏倒计时不弹，
+    /// 而骨架这一屏没有 `EmergencyStatusNotice` 的渲染点 ——
+    /// **长按 3 秒之后屏幕零变化、一个字也不播。**
+    ///
+    /// 判据是**哪一个控件在底部**，不是点下去发生了什么：后者会真的走到拨号
+    /// （DEBUG 下有 `EmergencyDialer` 的拦截，但不值得在这里赌）。
+    @MainActor
+    func testSafetyHubOutsideTheActiveRunOffersLocalDialInsteadOfCloudSOS() throws {
+        let app = launchBlindHome(emptyOrders: false)
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+        currentOrder.tap()
+
+        let entry = app.descendants(matching: .any)["blindOrderFlowSafetyHubButton"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), "骨架底部没有「求助与安全」")
+        entry.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindSafetyHub"].firstMatch.waitForExistence(timeout: 10),
+            "求助中心没打开"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindSafetyHubLocalCall"].firstMatch.exists,
+            "PENDING_MATCH 的求助中心底部不是「紧急呼叫」—— 云端那条在这一态发不出去"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindSafetyHubTriggerEmergency"].firstMatch.exists,
+            """
+            PENDING_MATCH 的求助中心还挂着云端「一键求助」。\
+            按下去会静默失败：不弹倒计时、屏幕零变化、一个字不播。
+            """
+        )
+
+        // 设计稿 §3.5 的迁移落点：「分享实时位置给家人 → 求助与安全中心」。
+        // 只断存在、不断 `isHittable` —— 方格在 ScrollView 里，最后一格可能在首屏之外，
+        // 而 SwiftUI 的 `ScrollView` 屏幕外子视图照样在无障碍树里
+        //（`List` 才是压根不渲染，两种坑不一样）。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindSafetyHubShareLiveLocation"].firstMatch.exists,
+            "「分享实时位置给家人」没落到求助中心 —— 骨架换掉了它原来那条列表，功能就丢了"
+        )
+
+        app.descendants(matching: .any)["blindSafetyHubDismissButton"].firstMatch.tap()
     }
 
     // MARK: - 求助入口的位置
@@ -816,8 +878,12 @@ final class AccessibilityAuditTests: XCTestCase {
         let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
         currentOrder.tap()
+        // 探针换成骨架的状态卡（2026-09-16）。原来等的是
+        // `blindOrderStatusKeepWaitingButton` —— 那个按钮在 `PENDING_MATCH` 已经删掉，
+        // 继续等它的话这一页**永远等不到**，而失败信息会写着「订单状态页没起来」，
+        // 指向一个根本不存在的故障。状态卡在四步骨架的四态里都有，是更稳的探针。
         XCTAssertTrue(
-            app.descendants(matching: .any)["blindOrderStatusKeepWaitingButton"].firstMatch
+            app.descendants(matching: .any)["blindOrderFlowStatusCard"].firstMatch
                 .waitForExistence(timeout: 15),
             "订单状态页没起来"
         )

@@ -416,6 +416,12 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
     /// 旧实现匹配一张中文片段表，于是后端改任何一条模板正文都会静默改变 iOS 的播报行为。
     /// 两个方向各钉一条：正文长得像生命周期但 `eventType` 不是 → 照播；
     /// 正文毫无线索但 `eventType` 是 → 抑制。
+    ///
+    /// ⚠️ 取样用 `REMATCH_TIMEOUT` 而不是 `ORDER_CANCELLATION_WARNING`（2026-09-16 换的）。
+    /// 后者现在有一条**按状态**的正文覆盖（`testCancellationWarningDropsTheDeletedButtonHint`），
+    /// 于是它的 `displayText` 不再恒等于 `body` —— 拿它当「照播」的样本会让这条用例
+    /// 红在一件它根本不关心的事上。换样本不削弱它的保证：它要的只是一个
+    /// **不在生命周期表里**的 eventType。
     func testSuppressionFollowsEventTypeNotBodyText() async {
         let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
         let service = WebSocketService()
@@ -426,7 +432,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
             eventID: 40,
             body: "志愿者已取消，正在重新匹配，订单已完成",
             priority: "NORMAL",
-            eventType: "ORDER_CANCELLATION_WARNING"
+            eventType: "REMATCH_TIMEOUT"
         )))
         await Task.yield()
         XCTAssertEqual(
@@ -470,6 +476,125 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             coordinator.currentNotification?.speechText,
             "已为您重新匹配志愿者张三，服务即将开始"
+        )
+    }
+
+    // MARK: - ORDER_CANCELLATION_WARNING 的正文覆盖
+
+    /// 🔴 **`PENDING_MATCH` 时不许照播后端那句「点击继续等待可延长」。**
+    ///
+    /// 后端模板正文逐字带着那半句（`demo/src/main/resources/data.sql:146`），而
+    /// `PENDING_MATCH` 那个按钮已按 2026-09-16 的决策删除。照播的后果是最坏的一种：
+    /// 盲人听见一句明确的操作指引，然后在屏幕上找不到那个控件 ——
+    /// 而他无从判断是自己没找到，还是它根本不在。
+    ///
+    /// **两条通道一起断。** `makeNotification` 把 `ttsText` 设成后端原文，所以只换
+    /// `displayText` 的实现会让第二个断言红 —— 而读屏用户听到的正是 `speechText`。
+    func testCancellationWarningDropsTheDeletedButtonHintWhilePendingMatch() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+        coordinator.registerActiveOrder(9, status: .pendingMatch)
+
+        service.simulateIncomingEventForTesting(.notification(makeNotification(
+            eventID: 60,
+            body: "您的订单即将因长时间无人接单被取消，点击继续等待可延长",
+            priority: "HIGH",
+            eventType: "ORDER_CANCELLATION_WARNING"
+        )))
+        await Task.yield()
+
+        XCTAssertEqual(
+            coordinator.currentNotification?.displayText,
+            KeepWaitingCopy.cancellationWarningWithoutControl
+        )
+        XCTAssertEqual(
+            coordinator.currentNotification?.speechText,
+            KeepWaitingCopy.cancellationWarningWithoutControl,
+            "只换了屏幕上那行、播报照念后端原文 —— 而这条覆盖存在的全部理由就是那句话"
+        )
+        XCTAssertFalse(
+            coordinator.currentNotification?.speechText.contains("继续等待") == true,
+            "替代文案里还提到了那个已删的按钮"
+        )
+    }
+
+    /// 反向：`REMATCHING` 那一侧按钮还在，**一个字都不许改**。
+    ///
+    /// 同一个 eventType 在后端有三个推送点，覆盖两态（`OrderLifecycleService:526` 就是
+    /// 重匹这一侧）。在这一态换文案的代价是具体的：把一条准确且此刻真能延长订单寿命的提示，
+    /// 换成「去取消订单重新预约」—— 而重新下单要求 ≥30 分钟提前量。
+    ///
+    /// 这条同时是覆盖逻辑的**验红面**：把判据从「此刻有没有那个按钮」改成
+    /// 「eventType 是不是它」（也就是无条件覆盖），这一条立刻红。
+    func testCancellationWarningIsLeftIntactWhileRematchingBecauseTheButtonExists() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+        coordinator.registerActiveOrder(9, status: .rematching)
+
+        let backendBody = "您的订单即将因长时间无人接单被取消，点击继续等待可延长"
+        service.simulateIncomingEventForTesting(.notification(makeNotification(
+            eventID: 61,
+            body: backendBody,
+            priority: "HIGH",
+            eventType: "ORDER_CANCELLATION_WARNING"
+        )))
+        await Task.yield()
+
+        XCTAssertEqual(coordinator.currentNotification?.displayText, backendBody)
+        XCTAssertEqual(coordinator.currentNotification?.speechText, backendBody)
+    }
+
+    /// 看不到任何订单时（App 刚起来、订单还没加载完就收到推送）按「没有按钮」处理。
+    ///
+    /// 替代文案在两态下都是真话，而后端原文在其中一态下是假的 ——
+    /// 不确定时说那句两边都成立的。
+    func testCancellationWarningFallsBackToTheSafeCopyWhenNoOrderIsKnown() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+
+        service.simulateIncomingEventForTesting(.notification(makeNotification(
+            eventID: 62,
+            body: "您的订单即将因长时间无人接单被取消，点击继续等待可延长",
+            priority: "HIGH",
+            eventType: "ORDER_CANCELLATION_WARNING"
+        )))
+        await Task.yield()
+
+        XCTAssertEqual(
+            coordinator.currentNotification?.displayText,
+            KeepWaitingCopy.cancellationWarningWithoutControl
+        )
+    }
+
+    /// 断线重连的补读走**同一条**覆盖。
+    ///
+    /// 漏掉 `ingestCatchUp` 的后果只在这条路径上出现，最难在真机上复现：
+    /// 横幅上是替代文案、补读念的却是后端原文。
+    func testCatchUpAppliesTheSameCancellationWarningOverride() async {
+        let coordinator = AppRealtimeCoordinator(notificationDuration: 60)
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .blind)
+        coordinator.registerActiveOrder(9, status: .pendingMatch)
+
+        coordinator.ingestCatchUp([
+            MissedNotificationResponse(
+                id: 900,
+                eventType: "ORDER_CANCELLATION_WARNING",
+                body: "您的订单即将因长时间无人接单被取消，点击继续等待可延长",
+                ttsText: "您的订单即将因长时间无人接单被取消，点击继续等待可延长",
+                priority: "HIGH",
+                sentAt: "2026-09-16T08:00:00Z",
+                orderId: 9
+            ),
+        ])
+        await Task.yield()
+
+        XCTAssertEqual(
+            coordinator.currentNotification?.speechText,
+            KeepWaitingCopy.cancellationWarningWithoutControl
         )
     }
 

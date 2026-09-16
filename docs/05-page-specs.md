@@ -427,7 +427,17 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
   - DRIVER_ARRIVED：志愿者卡片 + "志愿者已到达约定地点，等待志愿者开始服务"
 - 订单信息卡片（出发地点、预约时间、可选项）
 - 志愿者距离（收到位置且订单有出发坐标时）：显示"志愿者距出发地点约 X"，来源为志愿者最新 WebSocket 位置到订单出发坐标
-- "继续等待"主按钮（PENDING_MATCH / REMATCHING 状态显示）：与"打电话给志愿者"共用状态卡下方的主动作版位，两者状态集互斥
+- "继续等待"主按钮（**只在 REMATCHING 显示**）：与"打电话给志愿者"共用状态卡下方的主动作版位，两者状态集互斥
+  > 🔄 **2026-09-16 改口径：PENDING_MATCH 那个按钮已删除**（项目负责人拍板）。
+  > 后端 `OrderLifecycleService.handleMatchTimeout` 每轮超时自己就把窗口往后推，客户端一次不调
+  > 订单寿命相同 —— 一个按了等于没按的按钮，对看不见屏幕的人是一次白跑的操作。
+  > REMATCHING 保留：N62 之后 `rematchNotifyAt` 计进 `dispatchDeadline`，那边是真延长。
+  >
+  > 判据是 `RunOrderStatus.offersBlindRunnerKeepWaitingControl`（**不是** `offersKeepWaiting`，
+  > 后者仍含 PENDING_MATCH，它回答的是「后端受不受理」这个契约事实）。
+  > 三处读它：骨架主按钮、"重复当前状态"的附带播报、以及后端 `ORDER_CANCELLATION_WARNING`
+  > 正文的客户端覆盖判据 —— 那条模板正文逐字带着「点击继续等待可延长」，
+  > 在 PENDING_MATCH 照播就是让盲人去找一个不存在的控件。
 - "取消订单"按钮（PENDING_MATCH / PENDING_ACCEPT / REMATCHING 状态显示，灰色/危险色）
 
 **状态卡恒定只给一个数字**（`RunOrderStatus.offersWaitedDuration` / `offersVolunteerDistanceToStart` /
@@ -451,9 +461,16 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 → 附属动作（把行程告诉家人）→ 装饰地图 → 折叠的预约信息与状态变更记录。
 "取消订单"必须与主动作连在一起、不滚动即可达：等待期用户只有"再等"和"不等了"两个决定，
 把其中一个放到首屏外等于只给了一半。由
-`AccessibilityAuditTests.testBlindOrderStatusOffersKeepWaitingWhileWaitingForAMatch` 钉住。
-- 本页覆盖的状态均不显示"一键求助"入口（求助仅在 IN_PROGRESS 对盲人显示，见页面 7）
-- "重复当前状态"按钮
+`AccessibilityAuditTests.testBlindOrderStatusMatchingStateOffersCancelAndRuleNoticeInsteadOfKeepWaiting`
+钉住（2026-09-16 前叫 `...OffersKeepWaitingWhileWaitingForAMatch`，随 PENDING_MATCH 那个按钮一起改向）。
+- 本页覆盖的状态**不显示"一键求助"**（云端求助两端都只在 IN_PROGRESS 开放，见页面 7），
+  但底部第二个版位固定是**"求助与安全"**，打开求助与安全中心。
+  > 🔴 **那一层的底部在本页这些状态下是"紧急呼叫"（本地拨号），不是"一键求助"。**
+  > 判据 `BlindHomeSOSMode.resolve`，与"我的"tab 那条求助条共用。
+  > 写死走云端的后果是静默的：资格 guard 落 `.failed`、倒计时不弹，而本页没有
+  > `EmergencyStatusNotice` 的渲染点 ⇒ 长按 3 秒之后屏幕零变化、一个字也不播。
+- "重复当前状态"按钮。**四步骨架下它在导航栏右侧**（设计稿的导航栏右侧本来是空的，零冲突），
+  identifier `blindOrderFlowRepeatStatusButton`；只读退路那条列表仍在底部常驻条里。
 
 **主要操作**：
 - PENDING_MATCH / REMATCHING：点击"继续等待" → 按状态分派到 `PUT /api/orders/{id}/keep-waiting`（PENDING_MATCH）或 `PUT /api/orders/{id}/keep-rematching`（REMATCHING），刷新后端超时窗口
@@ -494,7 +511,12 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 - "已等待"**不进** `blindRunnerAnnouncement`（即不进"重复当前状态"与状态变化自动播报）：
   那条播报同时被状态变化、语音问答复用，而这个数每分钟都变，会让同一个按钮每次念出不同的话；
   它的归宿是状态卡的合成标签。与"预计 X 结束"不同——那个数只存在于折叠区，不进播报等于没有
-- "重复当前状态"按钮：accessibilityLabel = "重复当前状态"；先播报订单状态，若存在最新求助状态则追加在后，不替代订单状态；PENDING_MATCH / REMATCHING 且延长次数未用尽时，播报内容必须提到"继续等待"——看不见屏幕的人只能靠这句发现该动作存在
+- "重复当前状态"按钮：accessibilityLabel = "重复当前状态"；先播报订单状态，若存在最新求助状态则追加在后，不替代订单状态；**REMATCHING 且延长次数未用尽时**，播报内容必须提到"继续等待"——看不见屏幕的人只能靠这句发现该动作存在
+  > ⚠️ **PENDING_MATCH 反过来：一个字都不许提。** 那个按钮已删（见上文"继续等待"那条），
+  > 而这句附带播报原先与 REMATCHING 共用 `offersKeepWaiting` 判据 ⇒ 按钮删了、播报照旧，
+  > 念一个屏幕上不存在的控件。两个方向各有一条用例钉住：
+  > `KeepWaitingTests.testRepeatStatusMentionsKeepWaitingWhileWaiting`（REMATCHING 要念）
+  > 与 `...StaysSilentAboutKeepWaitingWhilePendingMatch`（PENDING_MATCH 不许念）。
 
 ---
 

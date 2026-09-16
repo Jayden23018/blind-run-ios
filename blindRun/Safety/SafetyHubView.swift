@@ -17,11 +17,16 @@ import UIKit
 /// 而「等 `onDismiss` 回来再执行」必须有个地方记住待执行的是哪一个。
 struct SafetyHubPresentation: ViewModifier {
     @Binding var isPresented: Bool
+    let mode: BlindHomeSOSMode
     let primaryContact: EmergencyContactResponse?
     let volunteerPhone: String?
     let locationError: LocationError?
+    let offersLiveShare: Bool
+    let isLiveSharing: Bool
     let onAnnounceLocation: () -> Void
     let onAskQuestion: () -> Void
+    let onToggleLiveShare: () -> Void
+    let onLocalCall: () -> Void
     let onTriggerEmergency: () -> Void
     let onTriggerEmergencyImmediately: () -> Void
 
@@ -30,11 +35,19 @@ struct SafetyHubPresentation: ViewModifier {
     func body(content: Content) -> some View {
         content.sheet(isPresented: $isPresented, onDismiss: runPendingAction) {
             BlindSafetyHubView(
+                mode: mode,
                 primaryContact: primaryContact,
                 volunteerPhone: volunteerPhone,
                 locationError: locationError,
+                offersLiveShare: offersLiveShare,
+                isLiveSharing: isLiveSharing,
                 onAnnounceLocation: { dismiss(then: onAnnounceLocation) },
                 onAskQuestion: { dismiss(then: onAskQuestion) },
+                // 分享也要先关弹层：起分享要先过明示同意那道全屏告知
+                // （`RunPlanShareConsentView`），而全屏盖在 sheet 上是 iOS 不报错、
+                // 屏幕上什么都不发生的那一类 —— 与「一键求助」同一个坑。
+                onToggleLiveShare: { dismiss(then: onToggleLiveShare) },
+                onLocalCall: { dismiss(then: onLocalCall) },
                 onTriggerEmergency: { dismiss(then: onTriggerEmergency) },
                 onTriggerEmergencyImmediately: { dismiss(then: onTriggerEmergencyImmediately) },
                 onDismiss: { dismiss(then: nil) }
@@ -70,14 +83,27 @@ struct SafetyHubPresentation: ViewModifier {
 ///
 /// 换来的代价是焦点要自己管（`@AccessibilityFocusState` + `.isModal`），见 `body`。
 struct BlindSafetyHubView: View {
+    /// 底部整条走云端求助还是本地拨号。**由订单状态决定，不由用户选择** ——
+    /// 判据与首页/「我的」tab 那条求助条逐字相同（`BlindHomeSOSMode.resolve`），
+    /// 理由见 `EmergencySafetyCopy.hubLocalCallNotice`。
+    let mode: BlindHomeSOSMode
     let primaryContact: EmergencyContactResponse?
     let volunteerPhone: String?
     /// 定位权限/信号的当前问题。**在这一层顶部说出来，不是等按下求助才说** ——
     /// 云端求助没有新鲜坐标就一个字节都不会发（`EmergencyCoordinator.allowsSubmissionWithoutLocation`），
     /// 而那一刻才告知已经晚了：用户是在「现在要不要按这个红键」这个决定里需要这条事实的。
     let locationError: LocationError?
+    /// 这一单此刻能不能开分享链接（`RunOrderStatus.offersRunPlanShare`）。
+    let offersLiveShare: Bool
+    /// 已经在分享中。那一格的标题随之变成「停止分享实时位置」。
+    let isLiveSharing: Bool
     let onAnnounceLocation: () -> Void
     let onAskQuestion: () -> Void
+    /// 起 / 停实时分享。**起 / 停由调用方按 `isLiveSharing` 分流**，不在这一层判 ——
+    /// 起分享要先过明示同意（`RunPlanShareConsentStep.next`），那是 view 的活。
+    let onToggleLiveShare: () -> Void
+    /// `.localCall` 档底部那条按下去走的路：本地拨号弹窗，与首页共用同一个构造点。
+    let onLocalCall: () -> Void
     /// 轻点「一键求助」：照旧弹 `AGENTS.md` §6 那句逐字锁定的二次确认。
     let onTriggerEmergency: () -> Void
     /// 长按 3 秒 / 自定义无障碍动作：**跳过二次确认**，直接进倒计时。
@@ -90,7 +116,8 @@ struct BlindSafetyHubView: View {
     private var tiles: [BlindActiveRunSafetyHubOption] {
         BlindActiveRunSafetyHubOption.tiles(
             volunteerPhone: volunteerPhone,
-            primaryContact: primaryContact
+            primaryContact: primaryContact,
+            offersLiveShare: offersLiveShare
         )
     }
 
@@ -173,6 +200,14 @@ struct BlindSafetyHubView: View {
             Text(EmergencySafetyCopy.hubDialogMessage)
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.textSecondary)
+            // 🔴 本地拨号档必须在这里说清底部那条只是拨号。不说的话，一个刚在
+            // 「出发」态打开这一层的盲人会以为按下去求助就发出去了 ——
+            // 而云端求助在那一态根本不可调（`AGENTS.md` §6）。
+            if mode == .localCall {
+                Text(EmergencySafetyCopy.hubLocalCallNotice)
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.textSecondary)
+            }
             if let notice = locationNotice {
                 Text(notice)
                     .font(AppFonts.caption())
@@ -232,6 +267,11 @@ struct BlindSafetyHubView: View {
                         tile(option).accessibilityIdentifier("blindSafetyHubCallMedical")
                     case .callPolice:
                         tile(option).accessibilityIdentifier("blindSafetyHubCallPolice")
+                    case .shareLiveLocation:
+                        // 一个 id 管起 / 停两种标题。UI 测试断的是「这一格在不在」，
+                        // 而中文文案漂移在本仓库拦不住（误报 93%，见记忆
+                        // `merged-prs-whose-tests-never-ran`）—— 别在用例里抄标题字面量。
+                        tile(option).accessibilityIdentifier("blindSafetyHubShareLiveLocation")
                     case .triggerEmergency:
                         // `tiles` 已经把它滤掉了，这里只为穷举完整。
                         EmptyView()
@@ -251,8 +291,12 @@ struct BlindSafetyHubView: View {
     }
 
     private func tile(_ option: BlindActiveRunSafetyHubOption) -> some View {
-        let title = option.title(contactName: primaryContact?.name)
-        let subtitle = EmergencySafetyCopy.hubTileSubtitle(option, contactName: primaryContact?.name)
+        let title = option.title(contactName: primaryContact?.name, isLiveSharing: isLiveSharing)
+        let subtitle = EmergencySafetyCopy.hubTileSubtitle(
+            option,
+            contactName: primaryContact?.name,
+            isLiveSharing: isLiveSharing
+        )
         return Button {
             perform(option)
         } label: {
@@ -299,6 +343,8 @@ struct BlindSafetyHubView: View {
             dial(EmergencyDialer.medicalNumber)
         case .callPolice:
             dial(EmergencyDialer.policeNumber)
+        case .shareLiveLocation:
+            onToggleLiveShare()
         case .triggerEmergency:
             // 方格里没有这一项（`tiles` 已经滤掉），留着只为穷举完整 —— 真进来了也不该
             // 静默吞掉，走轻点那条（有二次确认）比什么都不做安全。
@@ -314,15 +360,41 @@ struct BlindSafetyHubView: View {
 
     // MARK: 底部求助
 
+    /// 底部整条。**两档不是同一个组件，也不该是** ——
+    ///
+    /// - `.cloudTrigger`：`EmergencySOSLongPressButton`，轻点走二次确认、长按 3 秒进倒计时。
+    /// - `.localCall`：一枚普通按钮，按下去只弹本地拨号弹窗。**刻意不接长按手势** ——
+    ///   长按那条路的全部意义是「跳过二次确认直接发出求助」，而这一档发不出任何东西。
+    ///   留着它等于让一个按住 3 秒的人以为自己发出了求助。
+    ///
+    /// 标题「紧急呼叫」不是「一键求助」：后四个字在本 App 里专指云端那条链路
+    /// （`EmergencySafetyCopy.homeCallTitle` 的注释里写着为什么这两个词不能混）。
+    @ViewBuilder
     private var emergencyButton: some View {
-        EmergencySOSLongPressButton(
-            onTap: onTriggerEmergency,
-            onLongPress: onTriggerEmergencyImmediately
-        )
-        .accessibilityFocused($emergencyFocused)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 16)
-        .readableContentColumn()
+        switch mode {
+        case .cloudTrigger:
+            EmergencySOSLongPressButton(
+                onTap: onTriggerEmergency,
+                onLongPress: onTriggerEmergencyImmediately
+            )
+            .accessibilityFocused($emergencyFocused)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 16)
+            .readableContentColumn()
+        case .localCall:
+            PrimaryButton(
+                EmergencySafetyCopy.homeCallTitle,
+                isDestructive: true,
+                action: onLocalCall
+            )
+            .accessibilityLabel(EmergencySafetyCopy.homeCallAccessibilityLabel)
+            .accessibilityHint(EmergencySafetyCopy.homeCallAccessibilityHint)
+            .accessibilityIdentifier("blindSafetyHubLocalCall")
+            .accessibilityFocused($emergencyFocused)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 16)
+            .readableContentColumn()
+        }
     }
 }
 

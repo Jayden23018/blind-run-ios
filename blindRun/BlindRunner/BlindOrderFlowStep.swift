@@ -259,7 +259,10 @@ struct BlindOrderFlowPresentation: Equatable {
             return .callVolunteer(title: "打电话给\(name)")
         }
         // `REMATCHING` 保留延长入口，`PENDING_MATCH` 不保留（见 `PrimaryAction.keepWaiting`）。
-        if order.status == .rematching, canKeepWaiting {
+        // 判据走 `offersBlindRunnerKeepWaitingControl` 而不是就地写 `== .rematching`：
+        // 「哪些态有这个按钮」有三处要问（这里、`repeatStatus` 的附带播报、
+        // `ORDER_CANCELLATION_WARNING` 的正文覆盖），各写一份必然漂开。
+        if order.status.offersBlindRunnerKeepWaitingControl, canKeepWaiting {
             return .keepWaiting(title: KeepWaitingCopy.buttonTitle)
         }
         // 设计稿的匹配态主按钮位是空的 —— 那一态用户没有该做的事，摆一个按钮

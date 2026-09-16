@@ -821,17 +821,21 @@ struct BlindRunnerHomeView: View {
         }
     }
 
-    // 🗑 `bookingButtonLabel` / `askQuestionButton` / `repeatStatusButton` 三者已删除。
+    // 🗑 `bookingButtonLabel` / `askQuestionButton` 两者已删除。
     //
     // - `bookingButtonLabel`：280pt 的「开始约跑」巨按钮，被设计稿的浅蓝预约块取代。
     // - `askQuestionButton`：「问一句」。它已经在求助与安全中心弹层里（PR #139 的
     //   `BlindSafetyHubView` 就带这个入口），首页再留一个是同一个动作的第二个入口。
-    // - `repeatStatusButton`：「重复当前状态」。**这一条是项目硬规则**
-    //   （skill `aidrun-a11y-voice`：「可以降视觉权重，但不能删」，理由是系统的
-    //   Speak Screen 读不到一次性的 `announcement`）。项目负责人 2026-09-16 拍板把它
-    //   移进求助与安全中心弹层 —— **动作没有消失，位置变了**。阶段 3 接入弹层入口时落地；
-    //   在那之前首页仍然会在进入时自动播报一次（`speakCurrentStatus`，未动），
-    //   而 `viewModel.repeatCurrentStatus(locationDescription:)` 保留未删，等弹层来调。
+    //
+    // ⚠️ **2026-09-16 订正：`repeatStatusButton` 没有被删，它就在上面（`greetingRow` 里）。**
+    // 原文写着「移进求助与安全中心弹层，阶段 3 接入弹层入口时落地」—— 那个方案当轮就被
+    // 否掉了（首页的实际路径会变成「切 tab → 按求助条 → 开弹层」三层深），改成了
+    // 问候行右侧一枚 64pt 图标，理由写在 `repeatStatusButton` 自己的注释里。
+    //
+    // 这条注释过期了一整轮，代价是具体的：它让下一轮的任务书写着「求助中心要加
+    // 「重复当前状态」格子」，而那个动作在首页、订单页导航栏、执行屏上**各已有一枚可见按钮**
+    // —— 照着做会在求助中心添第七格，把拨 120 往下推一行。
+    // **写「等 X 来接」的注释时，X 落地那一轮必须回来改它**，否则它会被当成待办清单读。
     //
     // ⚠️ `docs/05-page-specs.md` 的「底部常驻条恒为两个版位」一节已随之改口径。
 }

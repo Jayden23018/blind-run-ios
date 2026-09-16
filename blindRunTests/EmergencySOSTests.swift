@@ -106,11 +106,23 @@ final class EmergencySOSTests: XCTestCase {
         // 倒计时列的那三条「即将发生的事」。**全部必须是进行时或将来时** ——
         // 短信是事务提交后异步发的、失败也从不回告盲人，所以 App 永远不能说「已经通知了谁」。
         allCopy.append(contentsOf: EmergencySafetyCopy.countdownPendingEffects)
+        // `isLiveSharing` 两档都要过：分享那一格的标题与小字随它变，只查一档会漏掉
+        // 「停止分享」那半边 —— 而它同样是对外文案。
         for option in BlindActiveRunSafetyHubOption.allCases {
-            allCopy.append(option.title(contactName: "妈妈"))
-            allCopy.append(option.title(contactName: nil))
-            allCopy.append(EmergencySafetyCopy.hubTileSubtitle(option, contactName: "妈妈"))
-            allCopy.append(EmergencySafetyCopy.hubTileSubtitle(option, contactName: nil))
+            for isLiveSharing in [false, true] {
+                allCopy.append(option.title(contactName: "妈妈", isLiveSharing: isLiveSharing))
+                allCopy.append(option.title(contactName: nil, isLiveSharing: isLiveSharing))
+                allCopy.append(EmergencySafetyCopy.hubTileSubtitle(
+                    option,
+                    contactName: "妈妈",
+                    isLiveSharing: isLiveSharing
+                ))
+                allCopy.append(EmergencySafetyCopy.hubTileSubtitle(
+                    option,
+                    contactName: nil,
+                    isLiveSharing: isLiveSharing
+                ))
+            }
         }
 
         for copy in allCopy {
@@ -1465,6 +1477,98 @@ final class EmergencySOSTests: XCTestCase {
         // 联系人与 120 / 110 的先后与首页那套逐项一致 —— 用户记住的是「往下第二个是 120」。
         let dialing = tiles.filter { [.callPrimaryContact, .callMedical, .callPolice].contains($0) }
         XCTAssertEqual(dialing, [.callPrimaryContact, .callMedical, .callPolice])
+    }
+
+    /// 「分享实时位置给家人」迁进求助中心（设计稿 §3.5），且**排在最后一格**。
+    ///
+    /// 迁移的理由是功能丢失，不是布局偏好：四步骨架换掉了
+    /// `BlindOrderStatusView.trackingContent`，而那条列表里挂着这个功能唯一的入口
+    /// （`runPlanShareSection`）—— `offersRunPlanShare` 恰好覆盖骨架那四态。
+    ///
+    /// 🔴 **排最后**是位置记忆那条硬约束的延续：拨号三项的下标一个都不许动。
+    /// 插在中间的表现不会有任何东西报错 —— 只是某天用户按「往下第五个」拨 110，
+    /// 按到的是分享。
+    func testLiveShareTileIsAppendedLastAndNeverDisplacesTheDialingTiles() {
+        let contact = EmergencyContactResponse(
+            id: 1,
+            name: "妈妈",
+            phone: "13812345678",
+            relationship: "家人",
+            isPrimary: true
+        )
+
+        let withoutShare = BlindActiveRunSafetyHubOption.tiles(
+            volunteerPhone: "13900000000",
+            primaryContact: contact,
+            offersLiveShare: false
+        )
+        let withShare = BlindActiveRunSafetyHubOption.tiles(
+            volunteerPhone: "13900000000",
+            primaryContact: contact,
+            offersLiveShare: true
+        )
+
+        XCTAssertFalse(withoutShare.contains(.shareLiveLocation), "终态不该摆一个必然 409 的格子")
+        XCTAssertEqual(withShare.last, .shareLiveLocation)
+        // 逐项相同的前缀 = 既有各格的下标一个都没动。
+        XCTAssertEqual(Array(withShare.dropLast()), withoutShare)
+
+        // 云端求助仍然不是方格，也仍然是 `options` 的最后一项 —— 分享插在它之前。
+        let options = BlindActiveRunSafetyHubOption.options(
+            volunteerPhone: "13900000000",
+            primaryContact: contact,
+            offersLiveShare: true
+        )
+        XCTAssertEqual(options.last, .triggerEmergency)
+        XCTAssertFalse(withShare.contains(.triggerEmergency))
+
+        // 标题随「分享中」翻面 —— 告知页逐字承诺了「你可以随时停止分享」，
+        // 这一格必须能变成「停止」，否则那句承诺在这一层里不成立。
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.shareLiveLocation.title(contactName: nil, isLiveSharing: false),
+            RunPlanLiveShareCopy.buttonTitle
+        )
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.shareLiveLocation.title(contactName: nil, isLiveSharing: true),
+            RunPlanLiveShareCopy.stopButtonTitle
+        )
+    }
+
+    /// 🔴 **求助中心底部那条在非 `IN_PROGRESS` 必须降级为本地拨号。**
+    ///
+    /// 2026-09-16 起这一层不再只从陪跑执行屏进入 —— 四步骨架的底部也有一枚「求助与安全」，
+    /// 而那四态（匹配 / 约好 / 出发 / 汇合）**一个都不是 `IN_PROGRESS`**。
+    /// 云端求助两端都只在 `IN_PROGRESS` 开放（`AGENTS.md` §6），所以在那四态走云端的
+    /// 真实结果是：`beginCountdown` 在资格 guard 落 `.failed`、`startEmergencyCountdown`
+    /// 因此不弹全屏，而骨架那一屏没有 `EmergencyStatusNotice` 的渲染点 ——
+    /// **屏幕零变化、一个字也不播**。
+    ///
+    /// 判据复用 `BlindHomeSOSMode.resolve`（首页那条求助条用的同一个），所以这条用例
+    /// 钉的是「订单页也走它」这件事：逐个骨架态过一遍，任何一态判成 `.cloudTrigger` 就红。
+    func testSafetyHubDowngradesToLocalCallOutsideOfTheActiveRun() {
+        let skeletonStatuses: [RunOrderStatus] = [
+            .pendingMatch, .pendingIntroCall, .rematching,
+            .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived,
+        ]
+
+        for status in skeletonStatuses {
+            let order = OrderDetailResponse.preview(status: status)
+            XCTAssertEqual(
+                BlindHomeSOSMode.resolve(order: order, role: .blind),
+                .localCall,
+                "\(status) 不是 IN_PROGRESS，云端求助发不出去；底部那条必须是本地拨号"
+            )
+        }
+
+        // 反向：陪跑进行中才是云端那条。少了这一半，把 `resolve` 改成恒 `.localCall`
+        // 也能让上面全绿 —— 而那会把唯一真能发出求助的状态一起降级掉。
+        XCTAssertEqual(
+            BlindHomeSOSMode.resolve(
+                order: OrderDetailResponse.preview(status: .inProgress),
+                role: .blind
+            ),
+            .cloudTrigger
+        )
     }
 
     /// 长按进度的震动节奏。

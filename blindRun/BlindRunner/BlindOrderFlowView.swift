@@ -12,7 +12,7 @@ import SwiftUI
 /// 本轮（阶段 3）只做**静态布局**，不含过渡动画（阶段 4）。所以这里没有任何
 /// `withAnimation` / `.transition` —— 守卫 `motion-not-gated` 要求位移类动效先判
 /// 「减弱动态效果」，那一并在阶段 4 做。
-struct BlindOrderFlowView: View {
+struct BlindOrderFlowView<Footer: View>: View {
     let presentation: BlindOrderFlowPresentation
     let order: OrderDetailResponse
     /// 集合地点那一行点下去做什么。`nil` = 不可点（拿不到地点时）。
@@ -20,6 +20,17 @@ struct BlindOrderFlowView: View {
     let onLastRowTapped: () -> Void
     let onPrimaryAction: () -> Void
     let onOpenSafetyHub: () -> Void
+    /// 信息列表之后那块**「刚才那一下的结果」**。正常状态下是空的。
+    ///
+    /// 🔴 **它不是可选装饰。** 骨架把改版前那条滚动列表整段换掉了，而那条列表末尾挂着
+    /// 这一页唯一的**可见**失败面（`viewModel.errorMessage`）与实时分享的结果提示。
+    /// 少了它，「继续等待失败」「分享链接没生成」这类事只剩一句 TTS ——
+    /// 不开读屏的低视力用户屏幕上零变化，而这正是记忆
+    /// `claimed-fallback-may-not-exist-in-release` 里最常见的一种吃法。
+    ///
+    /// 放在信息列表**之后**而不是状态卡里：状态卡是「这一单现在怎么样」，
+    /// 这里是「我刚按的那一下怎么样」，两件事混进一个合成元素会让读屏念不清是哪个。
+    @ViewBuilder let footer: () -> Footer
 
     /// 「减弱动态效果」。阶段 3 只有雷达那圈弧线在转，所以现在只用它判这一处；
     /// 阶段 4 接过渡动画时这个环境值会被更多地方读到。
@@ -31,6 +42,7 @@ struct BlindOrderFlowView: View {
                 VStack(spacing: 16) {
                     statusCard
                     infoCard
+                    footer()
                 }
                 .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
                 .padding(.top, 8)
@@ -437,7 +449,8 @@ private struct BlindOrderFlowPreview: View {
                 onOpenStartPlace: {},
                 onLastRowTapped: {},
                 onPrimaryAction: {},
-                onOpenSafetyHub: {}
+                onOpenSafetyHub: {},
+                footer: { EmptyView() }
             )
         } else {
             Text("这一态不走四步骨架：\(status.rawValue)")
