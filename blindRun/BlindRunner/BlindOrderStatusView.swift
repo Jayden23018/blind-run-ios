@@ -1329,7 +1329,7 @@ struct BlindOrderStatusView: View {
         VStack(spacing: 10) {
             if let notice = shareViewModel.notice {
                 Text(notice.text)
-                    .flowFont(FlowFonts.rowDetail())
+                    .font(AppFonts.body())
                     .foregroundColor(notice.isProblem ? AppColors.destructive : AppColors.Flow.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1349,9 +1349,13 @@ struct BlindOrderStatusView: View {
                 )
             }
 
+            // 字号用 `AppFonts.body()`，**不用骨架的 13pt `rowDetail`** ——
+            // 这是这一页唯一的可见失败面，而它替代的那处（`trackingContent` 末尾）
+            // 就是 body。为了跟骨架的视觉调性一致而把它调小一档，等于专门在
+            // 「不开读屏的低视力用户唯一能读到失败原因的地方」减字号。
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage)
-                    .flowFont(FlowFonts.rowDetail())
+                    .font(AppFonts.body())
                     .foregroundColor(AppColors.destructive)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1644,7 +1648,13 @@ struct BlindOrderStatusView: View {
             locationError: locationService.locationError,
             // 设计稿 §3.5 的迁移：「分享实时位置给家人 → 求助与安全中心」。
             // 骨架替换掉了 `runPlanShareSection` 那条列表，不迁进来这四态就一个入口都没有。
-            offersLiveShare: viewModel.order?.status.offersRunPlanShare == true,
+            //
+            // 🔴 **判据是 `usesFlowSkeleton` 而不只是 `offersRunPlanShare`** ——
+            // 后者含 `.inProgress`，而那一态整屏走 `BlindActiveRunView`，**没有 `flowFooter`**
+            // ⇒ 分享失败时 `showSMSFallback` 立起来了却没有按钮可渲染、`notice` 也无处显示，
+            // 只剩一句 TTS。那正好是这一轮在修的形状，不能顺手在另一个分支上新开一个。
+            // 入口只出现在**它的结果看得见**的地方；`IN_PROGRESS` 要不要有分享是独立的一次决定。
+            offersLiveShare: usesFlowSkeleton && viewModel.order?.status.offersRunPlanShare == true,
             isLiveSharing: shareViewModel.isLiveSharing,
             onAnnounceLocation: { Task { await viewModel.announceCurrentLocation() } },
             onAskQuestion: { viewModel.askVoiceQuestion() },

@@ -431,8 +431,44 @@ enum EmergencySafetyCopy {
     /// 有人会为了确认而退出弹层，而那正是他打开它时最不该做的事。
     static let hubSubtitle = "跑步仍在记录"
 
+    /// 🔴 **非 `IN_PROGRESS` 时那句话是假的，必须换。**
+    ///
+    /// 2026-09-16 起求助中心也从订单页四步骨架打开，而那四态（匹配 / 约好 / 出发 / 汇合）
+    /// **没有任何跑步在记录** —— 念「跑步仍在记录」不只是多余，它和同一段里紧接着的
+    /// 「陪跑还没开始」直接打架。而这一段是 `.combine` 合成**一个**无障碍元素的，
+    /// 读屏用户听到的是一句自相矛盾的话，中间没有停顿可以让他判断哪半句算数。
+    ///
+    /// 这一档要回答的是同一个问题的另一个答案：他刚离开的那一页还在不在。
+    static let hubSubtitleBeforeTheRun = "这一单还没开始陪跑"
+
+    static func hubSubtitle(for mode: BlindHomeSOSMode) -> String {
+        switch mode {
+        case .cloudTrigger: return hubSubtitle
+        case .localCall: return hubSubtitleBeforeTheRun
+        }
+    }
+
     /// 收起弹层。**不是右上角的 ✕** —— 管状视力用户看不到角落，可操作元素一律走中间一列。
     static let hubDismissTitle = "收起，返回跑步"
+
+    /// 同上：非 `IN_PROGRESS` 时「返回跑步」指向一个不存在的页面。
+    /// 骨架那四态退回去看到的是订单页，不是跑步执行屏。
+    static let hubDismissTitleBeforeTheRun = "收起，返回订单"
+
+    static func hubDismissTitle(for mode: BlindHomeSOSMode) -> String {
+        switch mode {
+        case .cloudTrigger: return hubDismissTitle
+        case .localCall: return hubDismissTitleBeforeTheRun
+        }
+    }
+
+    /// 收起按钮的 hint。与标题同理，两档指向的页面不是同一个。
+    static func hubDismissHint(for mode: BlindHomeSOSMode) -> String {
+        switch mode {
+        case .cloudTrigger: return "收起求助中心，回到跑步页面"
+        case .localCall: return "收起求助中心，回到订单页面"
+        }
+    }
 
     /// 🔴 第一句必须是「还没有发送求助」。理由与 `locationUnavailable` / `homeCallDialogMessage`
     /// 同源：看不见屏幕的人按下一个红色大块之后，最需要先知道的是**什么都还没发生**。

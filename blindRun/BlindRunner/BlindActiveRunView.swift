@@ -16,7 +16,7 @@ import SwiftUI
 /// |---|---|---|
 /// | 打电话给志愿者 | 求助中心第一项（`BlindActiveRunSafetyHubOption.contactVolunteer`） | 语音「打电话给志愿者」那条路照旧（`VoiceStatusQuery.callAnswer` 读的是 `offersVolunteerCall`，没动） |
 /// | 问一句 | 本屏底部安静文字按钮 | 同一个 `viewModel.askVoiceQuestion()` |
-/// | 把行程告诉家人 | 求助中心最后一格（`BlindActiveRunSafetyHubOption.shareLiveLocation`） | 判定一行没改，仍是 `offersRunPlanShare` |
+/// | 把行程告诉家人 | 骨架那四态的求助中心最后一格（`BlindActiveRunSafetyHubOption.shareLiveLocation`）；**`IN_PROGRESS` 仍然没有** | 判定一行没改，仍是 `offersRunPlanShare`，只是入口挂在骨架上 |
 /// | 装饰地图 | 去掉。位置改成「播报我的位置」按需播 | 读屏念不出地图，低视力用户在跑动中也看不清 |
 /// | 预约信息 / 状态变更记录 | 其余所有状态的订单页仍在原处 | 同上 |
 ///
@@ -27,8 +27,10 @@ import SwiftUI
 /// > 读起来像「`IN_PROGRESS` 刻意没有这个入口」—— 而真实原因只是当时**它还没有落点**：
 /// > 那个功能唯一的渲染点在 `BlindOrderStatusView.trackingContent` 里，
 /// > 而四步骨架（2026-09-16）把那条列表整段换掉，于是连出发前那四态也一起丢了。
-/// > 现在它按设计稿 §3.5 迁进求助中心，`IN_PROGRESS` 因此也有了 —— 这不是范围扩大，
-/// > 是那一行原本描述的状态从来就不是一个决定。
+/// > 现在它按设计稿 §3.5 迁进求助中心 —— 但**只在骨架那四态**，`IN_PROGRESS` 依旧没有。
+/// > 理由不是「保持原样」而是**结果看不见**：分享失败会立起短信降级入口与一行结果提示，
+/// > 而这一屏没有它们的渲染点（`flowFooter` 只在骨架分支），
+/// > 于是失败只剩一句 TTS。要在这一态给分享，得先给它一个能显示结果的地方。
 struct BlindActiveRunView: View {
     let order: OrderDetailResponse
     let stats: TrackStats?

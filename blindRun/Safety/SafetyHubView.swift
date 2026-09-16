@@ -168,7 +168,7 @@ struct BlindSafetyHubView: View {
                 Image(systemName: "chevron.down")
                     .font(.footnote.weight(.semibold))
                     .accessibilityHidden(true)
-                Text(EmergencySafetyCopy.hubDismissTitle)
+                Text(EmergencySafetyCopy.hubDismissTitle(for: mode))
                     .font(AppFonts.body().weight(.semibold))
             }
             .foregroundColor(AppColors.textPrimary)
@@ -178,8 +178,8 @@ struct BlindSafetyHubView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
-        .accessibilityLabel(EmergencySafetyCopy.hubDismissTitle)
-        .accessibilityHint("收起求助中心，回到跑步页面")
+        .accessibilityLabel(EmergencySafetyCopy.hubDismissTitle(for: mode))
+        .accessibilityHint(EmergencySafetyCopy.hubDismissHint(for: mode))
         .accessibilityIdentifier("blindSafetyHubDismissButton")
     }
 
@@ -194,7 +194,10 @@ struct BlindSafetyHubView: View {
             Text(EmergencySafetyCopy.hubTitle)
                 .font(.title2.weight(.bold))
                 .foregroundColor(AppColors.textPrimary)
-            Text(EmergencySafetyCopy.hubSubtitle)
+            // 🔴 随 `mode` 变。`.localCall` 那四态没有任何跑步在记录，
+            // 而这一段是 `.combine` 合成**一个**元素的 —— 念错这半句，
+            // 读屏用户听到的是一句和下面「陪跑还没开始」自相矛盾的话。
+            Text(EmergencySafetyCopy.hubSubtitle(for: mode))
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textSecondary)
             Text(EmergencySafetyCopy.hubDialogMessage)

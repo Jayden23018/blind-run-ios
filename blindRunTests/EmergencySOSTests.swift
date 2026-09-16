@@ -1534,6 +1534,43 @@ final class EmergencySOSTests: XCTestCase {
         )
     }
 
+    /// 🔴 **非 `IN_PROGRESS` 那一档的副标题与收起按钮必须换掉，不能只加一句提示。**
+    ///
+    /// 「跑步仍在记录」「收起，返回跑步」是为陪跑执行屏写的。骨架那四态
+    /// **没有任何跑步在记录**，退回去看到的也是订单页而不是跑步屏 ——
+    /// 而 header 是 `.combine` 合成**一个**无障碍元素的，那半句错话会和同一段里的
+    /// 「陪跑还没开始」连成一句自相矛盾的播报，中间没有停顿让人判断哪半句算数。
+    ///
+    /// 这条是 2026-09-16 code review 抓到的：当轮只加了新提示、没换旧的两句。
+    func testSafetyHubCopyDoesNotClaimARunIsUnderwayBeforeItStarts() {
+        XCTAssertEqual(
+            EmergencySafetyCopy.hubSubtitle(for: .cloudTrigger),
+            EmergencySafetyCopy.hubSubtitle
+        )
+        XCTAssertEqual(
+            EmergencySafetyCopy.hubDismissTitle(for: .cloudTrigger),
+            EmergencySafetyCopy.hubDismissTitle
+        )
+
+        // `.localCall` 那一档：三处都不许出现「跑步」。
+        let beforeTheRun = [
+            EmergencySafetyCopy.hubSubtitle(for: .localCall),
+            EmergencySafetyCopy.hubDismissTitle(for: .localCall),
+            EmergencySafetyCopy.hubDismissHint(for: .localCall),
+        ]
+        for copy in beforeTheRun {
+            XCTAssertFalse(
+                copy.contains("跑步"),
+                "陪跑还没开始，这句话却在说跑步：\(copy)"
+            )
+            XCTAssertFalse(copy.isEmpty)
+        }
+
+        // 反向：云端那一档**必须**保留「跑步仍在记录」。把两档都改成中性文案也能让上面全绿，
+        // 而那会丢掉执行屏上那句话唯一要回答的问题（「我的跑步是不是停了」）。
+        XCTAssertTrue(EmergencySafetyCopy.hubSubtitle(for: .cloudTrigger).contains("跑步"))
+    }
+
     /// 🔴 **求助中心底部那条在非 `IN_PROGRESS` 必须降级为本地拨号。**
     ///
     /// 2026-09-16 起这一层不再只从陪跑执行屏进入 —— 四步骨架的底部也有一枚「求助与安全」，
@@ -1543,8 +1580,19 @@ final class EmergencySOSTests: XCTestCase {
     /// 因此不弹全屏，而骨架那一屏没有 `EmergencyStatusNotice` 的渲染点 ——
     /// **屏幕零变化、一个字也不播**。
     ///
-    /// 判据复用 `BlindHomeSOSMode.resolve`（首页那条求助条用的同一个），所以这条用例
-    /// 钉的是「订单页也走它」这件事：逐个骨架态过一遍，任何一态判成 `.cloudTrigger` 就红。
+    /// ⚠️ **这条用例钉的是判据本身，不是「订单页真的走了它」。**
+    /// `BlindHomeSOSMode.resolve` 是纯函数，本轮一行未改 —— 把
+    /// `BlindOrderStatusView` 的 `mode:` 改回写死 `.cloudTrigger`，这条**照样全绿**。
+    /// 接线那一半只有 UI 用例
+    /// `AccessibilityAuditTests.testSafetyHubOutsideTheActiveRunOffersLocalDialInsteadOfCloudSOS`
+    /// 能看见（真机唯一通道）。
+    ///
+    /// 留着它的价值是**穷举**：逐个骨架态过一遍，谁把某一态放进云端就红 ——
+    /// 而 UI 用例只走得到种子订单那一态。两条互补，都不可省。
+    ///
+    /// 写清这件事是因为初稿的注释声称它钉住了「订单页也走它」，那是假的 ——
+    /// 而一条**声称自己守住了某件事、实际守不住**的用例，比没有用例更糟：
+    /// 它的绿灯会替一个不存在的保证背书（记忆 `claimed-fallback-may-not-exist-in-release`）。
     func testSafetyHubDowngradesToLocalCallOutsideOfTheActiveRun() {
         let skeletonStatuses: [RunOrderStatus] = [
             .pendingMatch, .pendingIntroCall, .rematching,

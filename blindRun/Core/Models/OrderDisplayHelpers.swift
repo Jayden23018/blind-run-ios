@@ -569,8 +569,13 @@ enum KeepWaitingCopy {
     ///
     /// 🔴 **这一句不提任何按钮。** 它只在「按钮确实不在屏幕上」时替换正文；
     /// `REMATCHING` 那一侧按钮还在，原文准确，一个字不改。
+    ///
+    /// 🔴 **它必须在 `PENDING_MATCH` 与 `REMATCHING` 两态下都是真话。** 判不出这条预警
+    /// 说的是哪一张单（`WSAppNotification` 没有 `orderId`），所以它也会落到
+    /// `REMATCHING` 上 —— 而那一态是「有人接过、又取消了，正在重新找」。
+    /// 初稿写的「你的订单还没有人接单」在那一态是假的，已改成只说结局不说经过。
     static let cancellationWarningWithoutControl =
-        "你的订单还没有人接单，可能会被系统取消。" + stillMatchingAdvice
+        "你的订单可能会因为长时间没有人接单被系统取消。" + stillMatchingAdvice
 
     /// 「重复当前状态」里附带的一句。看不见屏幕的人靠这句发现这个动作存在。
     static let repeatStatusSuffix = "如果还想继续等，可以点继续等待。"

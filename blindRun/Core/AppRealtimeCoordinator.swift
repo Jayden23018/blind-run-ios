@@ -824,18 +824,35 @@ final class AppRealtimeCoordinator: ObservableObject {
     /// 「去取消订单重新预约」，而重新下单要求 ≥30 分钟提前量。两个方向各有代价，
     /// 所以必须看状态。
     ///
-    /// ⚠️ **看不到任何订单时按「没有按钮」处理**（`contains(where:)` 对空集合为 false）。
-    /// 那是 App 刚启动、订单还没加载完就收到推送的那一瞬：替代正文在两态下都是真话，
-    /// 而原文在其中一态下是假的 —— 不确定时说那句两边都成立的。
+    /// 🚩 **`WSAppNotification` 里没有 `orderId`**（`WebSocketModels.swift` 的字段只有
+    /// type / eventId / messageId / eventType / title / body / ttsText / priority / timestamp），
+    /// 所以判不出这条预警说的是哪一张单 —— 这是契约的盲区，不是这里的疏漏。
+    ///
+    /// 已登记的订单可能**同时有两张**：首页登记它那一张、订单详情页登记它那一张，
+    /// 而详情页的 `onDisappear` 只 `stopPolling()`、**不 unregister**，所以退出之后那张还在。
+    ///
+    /// ⇒ 判据取**保守的那一侧**：候选单（`offersKeepWaiting`，也就是这个 eventType 唯一
+    /// 可能指向的两态）**全都**有按钮才照播原文；只要有一张没有、或者一张候选都看不到，
+    /// 就换成不提按钮的说法。
+    ///
+    /// **两个方向的代价不对称，所以不能取 `contains`**：多覆盖一次，`REMATCHING` 的用户
+    /// 少听到一句「可以点继续等待」（按钮还在屏幕上，他能看见/摸到）；少覆盖一次，
+    /// `PENDING_MATCH` 的盲人被明确指去按一个不存在的控件，而他无从判断是自己没找到
+    /// 还是它根本不在。后者更贵。
     ///
     /// ⛔ **不许改成匹配正文里的中文片段。** 那正是
     /// `testSuppressionFollowsEventTypeNotBodyText` 钉住的旧实现：后端改一个字，
     /// iOS 的播报行为就静默变一次。
     private func overriddenBody(forEventType eventType: String) -> String? {
         guard eventType == "ORDER_CANCELLATION_WARNING" else { return nil }
-        let hasControl = activeOrderStatuses.values
-            .contains(where: \.offersBlindRunnerKeepWaitingControl)
-        return hasControl ? nil : KeepWaitingCopy.cancellationWarningWithoutControl
+        // 只看这条预警可能指向的那两态，别把 `DRIVER_EN_ROUTE` 这类无关订单算进来 ——
+        // 它们既不是候选，也永远没有那个按钮，算进来等于恒定覆盖。
+        let candidates = activeOrderStatuses.values.filter(\.offersKeepWaiting)
+        let everyCandidateHasTheControl = !candidates.isEmpty
+            && candidates.allSatisfy(\.offersBlindRunnerKeepWaitingControl)
+        return everyCandidateHasTheControl
+            ? nil
+            : KeepWaitingCopy.cancellationWarningWithoutControl
     }
 
     /// 展示优先级。默认照后端模板给的 `priority`，**只有一条例外**。
