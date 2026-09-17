@@ -634,6 +634,22 @@ extension OrderDetailResponse {
         volunteerName?.unmaskedForSpeech.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
     }
 
+    /// 跑者姓名的**朗读版**。与 `volunteerNameForSpeech` 完全对称，理由一字不差：
+    /// 契约里 `blindName` 也是**始终脱敏**的（`api_spec.yaml` 逐字「姓名没有『拨得通』
+    /// 这回事，所以这里就是展示值，不存在明文版本」），原样交给 VoiceOver 念成「张星号」，
+    /// 而志愿者端的读屏同样是外放的。
+    ///
+    /// 空名字回退到既有常量「这位跑者」（`PartnerStreakCopy.unknownBlindName`），
+    /// 不另造第二个占位词。
+    ///
+    /// ⚠️ **与 PR #153 重复的 11 行**：那条分支（`feat/volunteer-dispatch-hub`）里已经加过
+    /// 一份一模一样的。两边先合谁，另一边 rebase 时会在这里撞一次 —— 内容逐字相同，
+    /// 留任意一份即可。刻意不去依赖那条未合分支：本轮只需要这一个属性，
+    /// 而从未合分支上切会把接单主页那一整摊改动也拖进这个 PR。
+    var blindNameForSpeech: String {
+        blindName?.unmaskedForSpeech.nilIfBlank ?? PartnerStreakCopy.unknownBlindName
+    }
+
     /// 陪跑员的经验凭据，**只说后端真的发了的那一项**。
     ///
     /// 设计稿要的是「陪跑 32 次，引导绳经验 2 年」，而后端只有前半句
@@ -658,24 +674,7 @@ extension OrderDetailResponse {
     /// `now` 与 `calendar` 走参数是为了能被单测钉住 —— 跨午夜、跨月、跨年这三个边界
     /// 全都只在特定时刻才走得到，靠真机碰运气验不了。
     func blindRunnerShortStartText(now: Date = Date(), calendar: Calendar = .current) -> String? {
-        guard let date = plannedStart?.nilIfBlank?.backendTimestamp else { return nil }
-        let clock = DateFormatter.aidRunDisplayClock.string(from: date)
-        // `dateComponents(_:from:to:)` 传两个**日初**而不是两个时刻：直接算时刻差会让
-        // 「今天 23:00 → 明天 01:00」只差 2 小时而被判成同一天。
-        let today = calendar.startOfDay(for: now)
-        let target = calendar.startOfDay(for: date)
-        guard let dayOffset = calendar.dateComponents([.day], from: today, to: target).day else {
-            return "\(DateFormatter.aidRunDisplayMonthDay.string(from: date)) \(clock)"
-        }
-        switch dayOffset {
-        case 0: return "今天 \(clock)"
-        case 1: return "明天 \(clock)"
-        case 2: return "后天 \(clock)"
-        default:
-            // 负数（已过去的预约）也走这里。**不说「昨天」** —— 那一态只会出现在
-            // 已结束或异常的单上，而相对日期会让人以为还有事要做。
-            return "\(DateFormatter.aidRunDisplayMonthDay.string(from: date)) \(clock)"
-        }
+        RunPlanFormat.shortStart(plannedStart, now: now, calendar: calendar)
     }
 
     /// 约定的结束时间。
@@ -900,6 +899,107 @@ extension WSNewOrder {
     /// （后端 `OrderQueryService.getOrder` 只认 `order.volunteer`，通话期恒为 null → 403）。
     var escortNeeds: [EscortNeed] {
         hasGuideDog == true ? [.guideDogThisRun] : []
+    }
+}
+
+// MARK: - 这一单要跑多远 / 什么配速
+
+/// 「跑多远」与「配速」两行的文字。**一份实现给两个数据源共用** ——
+/// 接单前吃派单载荷 `WSNewOrder`，接单后吃 `OrderDetailResponse`，而两边的字段名与语义
+/// 逐字相同。各写一份的表现是「邀请屏说 5 公里、订单页说 5.0 公里」，没有任何东西会报警。
+///
+/// 🔴 **屏幕上和读屏里是同一句中文，不做两套。** 设计稿三格数据里的 `7'00"` 是视觉写法，
+/// 而 VoiceOver 念 `'` 和 `"` 只会念出「撇」「引号」—— 对一个可能有低视力志愿者的界面，
+/// 用一句两边都成立的中文比省两个字重要。
+enum RunPlanFormat {
+    /// 那行大字时间：「今天 7:00」「明天 7:00」「9月20日 7:00」。
+    ///
+    /// 从 `OrderDetailResponse.blindRunnerShortStartText` 提出来，理由与本枚举的其余成员相同：
+    /// 陪跑员端的「邀请」屏吃的是派单载荷 `WSNewOrder`（那一刻拿不到 `OrderDetailResponse`，
+    /// 后端对未接单的志愿者 `GET /api/orders/{id}` 恒 403），而两处要显示的是同一句话。
+    /// 抄第二份的表现是「弹窗说明天 7:00、详情页说 9月18日 07:00」。
+    ///
+    /// 相对日期只做到后天 —— 再往后「第三天」相对哪一天不清楚，所以退回绝对日期。
+    /// `now` 与 `calendar` 走参数是为了能被单测钉住跨午夜 / 跨月 / 跨年三个边界。
+    static func shortStart(_ plannedStart: String?, now: Date = Date(), calendar: Calendar = .current) -> String? {
+        guard let date = plannedStart?.nilIfBlank?.backendTimestamp else { return nil }
+        let clock = DateFormatter.aidRunDisplayClock.string(from: date)
+        // `dateComponents(_:from:to:)` 传两个**日初**而不是两个时刻：直接算时刻差会让
+        // 「今天 23:00 → 明天 01:00」只差 2 小时而被判成同一天。
+        let today = calendar.startOfDay(for: now)
+        let target = calendar.startOfDay(for: date)
+        guard let dayOffset = calendar.dateComponents([.day], from: today, to: target).day else {
+            return "\(DateFormatter.aidRunDisplayMonthDay.string(from: date)) \(clock)"
+        }
+        switch dayOffset {
+        case 0: return "今天 \(clock)"
+        case 1: return "明天 \(clock)"
+        case 2: return "后天 \(clock)"
+        default:
+            // 负数（已过去的预约）也走这里。**不说「昨天」** —— 那一态只会出现在
+            // 已结束或异常的单上，而相对日期会让人以为还有事要做。
+            return "\(DateFormatter.aidRunDisplayMonthDay.string(from: date)) \(clock)"
+        }
+    }
+
+    /// 「5 公里」/「800 米」。`nil` = 用户没填 ⇒ **整行不渲染**，不写「未填写」。
+    static func plannedDistance(meters: Int?) -> String? {
+        guard let meters, meters > 0 else { return nil }
+        guard meters >= 1000 else { return "\(meters) 米" }
+        let km = Double(meters) / 1000
+        // 整公里不拖一个 `.0`：「5 公里」而不是「5.0 公里」。
+        let rounded = (km * 10).rounded() / 10
+        return rounded == rounded.rounded()
+            ? "\(Int(rounded)) 公里"
+            : String(format: "%.1f 公里", rounded)
+    }
+
+    /// 「每公里 6 分 30 秒」/「每公里 5 分 30 秒 到 6 分 30 秒」。
+    ///
+    /// 区间两端**成对出现或成对缺席**（契约逐字），所以只有两端都在才算数 ——
+    /// 只拿到一端时退回定性档位，而不是把一端当成整个区间。
+    /// 两者都没有时返回 `nil`：**不拿 `pacePreference` 反推一个秒数区间**，那是编数字。
+    static func pace(minSecondsPerKm: Int?, maxSecondsPerKm: Int?, preference: PacePreference?) -> String? {
+        if let minSecondsPerKm, let maxSecondsPerKm, minSecondsPerKm > 0, maxSecondsPerKm > 0 {
+            let low = clock(seconds: min(minSecondsPerKm, maxSecondsPerKm))
+            let high = clock(seconds: max(minSecondsPerKm, maxSecondsPerKm))
+            return low == high ? "每公里 \(low)" : "每公里 \(low) 到 \(high)"
+        }
+        // `.unknown` 与 `.noPreference` 的 `displayName` 都是「无偏好」，而那不是信息 ——
+        // 一行「配速：无偏好」只会占掉读屏用户一次划动。
+        guard let preference, preference != .noPreference, preference != .unknown else { return nil }
+        return preference.displayName
+    }
+
+    /// `390` → 「6 分 30 秒」；整分钟不念秒。
+    private static func clock(seconds: Int) -> String {
+        let minutes = seconds / 60
+        let remainder = seconds % 60
+        return remainder == 0 ? "\(minutes) 分" : "\(minutes) 分 \(remainder) 秒"
+    }
+}
+
+extension OrderDetailResponse {
+    var plannedDistanceText: String? { RunPlanFormat.plannedDistance(meters: plannedDistanceMeters) }
+
+    var plannedPaceText: String? {
+        RunPlanFormat.pace(
+            minSecondsPerKm: paceMinSecondsPerKm,
+            maxSecondsPerKm: paceMaxSecondsPerKm,
+            preference: pacePreference
+        )
+    }
+}
+
+extension WSNewOrder {
+    var plannedDistanceText: String? { RunPlanFormat.plannedDistance(meters: plannedDistanceMeters) }
+
+    var plannedPaceText: String? {
+        RunPlanFormat.pace(
+            minSecondsPerKm: paceMinSecondsPerKm,
+            maxSecondsPerKm: paceMaxSecondsPerKm,
+            preference: pacePreference.flatMap(PacePreference.init(rawValue:))
+        )
     }
 }
 

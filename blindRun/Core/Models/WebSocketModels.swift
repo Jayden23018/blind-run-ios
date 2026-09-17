@@ -258,6 +258,21 @@ nonisolated struct WSNewOrder: Codable, Sendable {
     /// 后端已把这个判断收成一份（`DispatchService.introCallWindowFits`），三个消费者共用。
     let requiresIntroCall: Bool?
 
+    /// 配速区间与本次计划里程。契约里从 2026-08-09 就在 `NEW_ORDER` 上
+    /// （`websocket-protocol.md` 的 NEW_ORDER 字段表），客户端此前没解码。
+    ///
+    /// 接进来的理由：设计交付文档 v3 §5 的「邀请」屏要显示「跑多远 / 配速」——
+    /// 那是志愿者判断「我跟不跟得下来」的两个量，而定性档位（`pacePreference`）答不了。
+    /// 三项**接单前可见**的判据与 `pacePreference` / `hasGuideDog` 一致：取值空间封闭
+    /// （数值区间可以逐个判定给陌生人看行不行），自由文本才一律推迟到接单后（`AGENTS.md` §8）。
+    ///
+    /// ⚠️ 用户没填时后端**整个键不出现**（不发 `null`），所以缺值 = 那一行不渲染，
+    /// 不是显示「未填写」。三项声明成 `var` 只为让 memberwise init 自动给 nil 默认值 ——
+    /// 用例里的构造点因此不必各加三行，同 `OrderDetailResponse.volunteerId` 那条。
+    var paceMinSecondsPerKm: Int?
+    var paceMaxSecondsPerKm: Int?
+    var plannedDistanceMeters: Int?
+
     /// 收到这条派单时该发的 `action`。「发哪个」只在这里判一次。
     ///
     /// `false` 的三种成因（通话功能整体关闭 / 这两人已磨合成功过 / 距开跑已不够聊一轮）

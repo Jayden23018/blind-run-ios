@@ -5431,6 +5431,13 @@ final class blindRunTests: XCTestCase {
         )
     }
 
+    /// ⚠️ **前四个断言覆盖的是旧的地图 + 底部面板那条路。**
+    ///
+    /// 2026-09-17 起 `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` / `DRIVER_EN_ROUTE` 三态
+    /// 走的是四步骨架（`VolunteerOrderFlowPage`），屏幕上**不再渲染** `VolunteerServiceActions`
+    /// —— 那三态在这里的分支已经走不到了。留着是因为汇合 / 跑步中 / 已完成还在旧路径上，
+    /// 下一轮搬完之后连同整条旧路径一起删。
+    /// 新路径上那几枚按钮由 `VolunteerOrderFlowPresentationTests` 钉住。
     func testVolunteerServiceActionKindsMatchFormalStateMachine() {
         XCTAssertEqual(
             VolunteerServiceActions.actionKinds(for: .pendingAccept).map(\.title),
