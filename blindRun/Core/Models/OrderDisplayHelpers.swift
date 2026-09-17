@@ -634,6 +634,17 @@ extension OrderDetailResponse {
         volunteerName?.unmaskedForSpeech.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
     }
 
+    /// 跑者姓名的**朗读版**。与 `volunteerNameForSpeech` 完全对称，理由一字不差：
+    /// 契约里 `blindName` 也是**始终脱敏**的（`api_spec.yaml` 逐字「姓名没有『拨得通』
+    /// 这回事，所以这里就是展示值，不存在明文版本」），原样交给 VoiceOver 念成「张星号」，
+    /// 而志愿者端的读屏同样是外放的。
+    ///
+    /// 空名字回退到既有常量「这位跑者」（`PartnerStreakCopy.unknownBlindName`），
+    /// 不另造第二个占位词。
+    var blindNameForSpeech: String {
+        blindName?.unmaskedForSpeech.nilIfBlank ?? PartnerStreakCopy.unknownBlindName
+    }
+
     /// 陪跑员的经验凭据，**只说后端真的发了的那一项**。
     ///
     /// 设计稿要的是「陪跑 32 次，引导绳经验 2 年」，而后端只有前半句
