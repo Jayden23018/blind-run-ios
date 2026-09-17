@@ -1108,9 +1108,11 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         let coordinator = AppRealtimeCoordinator()
         let service = WebSocketService()
         coordinator.attach(to: service, role: .volunteer)
-        var deliveredOrderIDs: [Int64] = []
-        let cancellable = coordinator.$pendingDispatch
-            .compactMap { $0?.order.orderId }
+        var deliveredOrderIDs: [[Int64]] = []
+        // 队列化之后 `pendingDispatch` 是 computed（没有 projected value），订阅整队。
+        // 断言的东西没变：同一单重发不该在队列里变成第二条。
+        let cancellable = coordinator.$pendingDispatches
+            .map { $0.map(\.order.orderId) }
             .sink { deliveredOrderIDs.append($0) }
         defer { cancellable.cancel() }
 
@@ -1119,7 +1121,8 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         service.simulateIncomingEventForTesting(.newOrder(message))
         await Task.yield()
 
-        XCTAssertEqual(deliveredOrderIDs, [44])
+        XCTAssertEqual(deliveredOrderIDs.last, [44])
+        XCTAssertEqual(coordinator.pendingDispatches.count, 1)
     }
 
     private func makeNotification(
