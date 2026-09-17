@@ -77,6 +77,37 @@ final class LowVisionChannelTests: XCTestCase {
         )
     }
 
+    /// 志愿者「可服务」已开启时那条绿色状态条，白字压在它上面。
+    ///
+    /// 它是首屏**底部唯一的常驻控件** —— 读不清等于「我到底开没开」这件事没有视觉答案，
+    /// 而那正是低视力志愿者最需要一眼确认的一件事。
+    ///
+    /// 暗色**不能**沿用 `success` 的 `#30D158`：白字压上去只有 2.02:1。
+    /// 这条用例就是挡住「顺手复用 success」那一步的地方 —— 那是画一条绿色状态条时
+    /// 最自然的第一反应（本轮实现时第一版就是那么写的）。
+    func testAvailabilityOnSurfaceKeepsWhiteTextReadable() {
+        let white: UInt32 = 0xFFFFFF
+        let tone = AppColors.availabilityOnSurfaceTone
+
+        let lightRatio = Self.contrastRatio(white, tone.light)
+        XCTAssertGreaterThanOrEqual(
+            lightRatio, Self.minimumContrast,
+            "亮色模式下白字压在可服务状态条上只有 \(String(format: "%.2f", lightRatio)):1"
+        )
+
+        let darkRatio = Self.contrastRatio(white, tone.dark)
+        XCTAssertGreaterThanOrEqual(
+            darkRatio, Self.minimumContrast,
+            "暗色模式下白字压在可服务状态条上只有 \(String(format: "%.2f", darkRatio)):1"
+        )
+
+        // 验红：被拒掉的那个候选值必须真的算不过，否则上面两条断言可能是在一个恒真的公式上通过。
+        XCTAssertLessThan(
+            Self.contrastRatio(white, 0x30D158), Self.minimumContrast,
+            "success 的暗色值当大面积底色时白字不达标，这条用例存在的理由就是挡住复用它"
+        )
+    }
+
     /// 陪跑进行中那一屏铺满的深灰底。方向同上：它是背景，白字与次级灰字压在它上面。
     ///
     /// 🔴 **它亮暗两套同值**（全 App 唯一一处不跟随系统外观），所以「亮色模式下它仍然是深灰」

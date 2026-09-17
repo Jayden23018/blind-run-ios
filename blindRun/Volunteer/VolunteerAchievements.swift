@@ -50,6 +50,29 @@ struct VolunteerAchievementsResponse: Decodable, Sendable, Equatable {
     }
 }
 
+/// 勋章 `code` → SF Symbol 的**唯一一张表**。
+///
+/// 抽出来是因为它有**两个**消费者：已解锁的 `VolunteerBadgeDto`，以及「下一枚」
+/// `VolunteerNextBadgeDto`（后者契约里没有 `symbolName`，但 `code` 的取值空间是同一个）。
+/// 各写一份必然漂移，而漂移的表现是「同一枚勋章解锁前后换了个图标」。
+///
+/// 🔴 **未知 `code` 落 `rosette`，不许落空白、更不许在调用点写死一个** ——
+/// 图标是这一栏区分档位的**非颜色手段**（WCAG 1.4.1）。
+enum VolunteerBadgeSymbol {
+    static func name(for code: String?) -> String {
+        switch code {
+        case "FIRST_RUN": return "figure.run"
+        case "RUNS_10": return "star.fill"
+        case "RUNS_50": return "trophy.fill"
+        case "RUNS_100": return "crown.fill"
+        case "HOURS_10": return "clock.fill"
+        case "HOURS_50": return "clock.badge.checkmark.fill"
+        case "HIGH_RATED": return "heart.fill"
+        default: return "rosette"
+        }
+    }
+}
+
 /// 一枚已解锁的勋章。`code` 是**开放枚举** —— 遇到不认识的值照常显示 `name`，
 /// 只是图标退回默认，绝不因此让整条响应解析失败（AGENTS.md「未知枚举值不许整条崩」）。
 struct VolunteerBadgeDto: Decodable, Sendable, Equatable, Identifiable {
@@ -67,18 +90,7 @@ struct VolunteerBadgeDto: Decodable, Sendable, Equatable, Identifiable {
 
     /// SF Symbol。未知 `code` 落到通用图标而不是空白 —— 图标是这一栏区分档位的
     /// 非颜色手段之一（WCAG 1.4.1），缺了它低视力用户只剩一片同色文字。
-    var symbolName: String {
-        switch code {
-        case "FIRST_RUN": return "figure.run"
-        case "RUNS_10": return "star.fill"
-        case "RUNS_50": return "trophy.fill"
-        case "RUNS_100": return "crown.fill"
-        case "HOURS_10": return "clock.fill"
-        case "HOURS_50": return "clock.badge.checkmark.fill"
-        case "HIGH_RATED": return "heart.fill"
-        default: return "rosette"
-        }
-    }
+    var symbolName: String { VolunteerBadgeSymbol.name(for: code) }
 }
 
 /// 下一枚未解锁的勋章及其进度。
