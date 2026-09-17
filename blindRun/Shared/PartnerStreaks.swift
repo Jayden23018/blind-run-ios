@@ -160,6 +160,20 @@ struct PartnerRow: Equatable {
     let streak: PartnerStreakDisplay?
     /// 这一行是不是来自固定搭档列表（`false` = 只有火花，没有收藏关系）。
     let isFavorite: Bool
+
+    /// 屏幕上那一份：后端掩码原样（`张*`）。
+    ///
+    /// 与 `spokenName(fallback:)` 放在模型上而不是视图里，是为了让「可见留星号、
+    /// 念出来不留」这条有一个**单测够得着**的落点 —— 视图里那份是 `private`，
+    /// 而这条规则错了屏幕上完全看不出来（读屏念的东西不上屏）。
+    func displayName(fallback: String) -> String {
+        name?.nilIfBlank ?? fallback
+    }
+
+    /// 念出来那一份：去掉掩码星号，否则读屏念「张星号」。见 `String.unmaskedForSpeech`。
+    func spokenName(fallback: String) -> String {
+        name?.unmaskedForSpeech.nilIfBlank ?? fallback
+    }
 }
 
 enum PartnerRowMerge {

@@ -85,7 +85,10 @@ struct VolunteerEscortStatsCard: View {
                 .foregroundColor(AppColors.textPrimary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(EmergencySafetyCopy.volunteerEscortHeadline(name: peerName))
+        // 上屏那份留掩码星号，念出来这份去掉（见 `String.unmaskedForSpeech`）。
+        .accessibilityLabel(
+            EmergencySafetyCopy.volunteerEscortHeadline(name: peerName?.unmaskedForSpeech)
+        )
     }
 
     /// 屏幕用跑表体例（`5.26` / `32:18` / `6'08"`），读屏念口语体例。
@@ -450,7 +453,10 @@ struct VolunteerEmergencyAlertView: View {
                 )
             }
             // 号码本身**不进这里**：VoiceOver 外放，念全号等于把盲人的号码广播出去。
-            .accessibilityLabel(EmergencySafetyCopy.volunteerAlertCallTitle(name: peerName))
+            // 姓名去掉掩码星号，否则念成「张星号」。
+            .accessibilityLabel(
+                EmergencySafetyCopy.volunteerAlertCallTitle(name: peerName?.unmaskedForSpeech)
+            )
             .accessibilityIdentifier("volunteerEmergencyAlertCall")
         }
     }

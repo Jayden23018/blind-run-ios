@@ -159,7 +159,8 @@ struct VolunteerProfileFirstScreen: View {
                         VolunteerCurrentOrderCard(order: activeOrder)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName ?? "")，地点 \(activeOrder.startAddress ?? "")")
+                    // 姓名去掉掩码星号 —— 只念不显示，见 `String.unmaskedForSpeech`。
+                    .accessibilityLabel("当前订单：\(activeOrder.status.displayName)，盲人 \(activeOrder.blindName?.unmaskedForSpeech ?? "")，地点 \(activeOrder.startAddress ?? "")")
                     .accessibilityHint("点击进入当前订单")
                     .accessibilityIdentifier("volunteerHomeCurrentOrderCard")
                 }
@@ -377,7 +378,8 @@ struct VolunteerProfileFirstScreen: View {
 
             if let streak = summary.streak {
                 StreakStrip(
-                    partnerName: summary.streakPartnerName?.nilIfBlank
+                    // 只念不显示，所以去掉掩码星号（见 `StreakStrip.partnerName`）。
+                    partnerName: summary.streakPartnerName?.unmaskedForSpeech.nilIfBlank
                         ?? PartnerStreakCopy.unknownBlindName,
                     streak: streak
                 )
@@ -745,7 +747,8 @@ struct VolunteerProfileFirstScreen: View {
         .accessibilityLabel(
             [
                 date.map { "\($0.month)\($0.day)日" },
-                VolunteerProfileCopy.recentRowTitle(blindName: order.blindName),
+                // 上面那行 `Text` 用原样（带星号），这一份是念出来的，去掉星号。
+                VolunteerProfileCopy.recentRowTitle(blindName: order.blindName?.unmaskedForSpeech),
                 "地点：\(order.startAddress ?? "")",
                 "状态：\(order.status.displayName)"
             ]
