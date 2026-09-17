@@ -107,7 +107,10 @@ final class VoiceOrderWizard: ObservableObject {
     ///
     /// 系数 0.35 秒/字：中文合成在 `AVSpeechUtteranceDefaultSpeechRate` 下约 3~5 字/秒，取慢的那端
     /// 再加 6 秒起步余量。下限 8 秒保持不变（短提示的行为不变），上限 45 秒防止异常长文本把人吊死。
-    static func settleTimeout(forCharacterCount count: Int) -> TimeInterval {
+    /// `nonisolated`：`VoiceService` 不是 `@MainActor`，而它要用同一个上限判「这条是不是卡住了」
+    /// （见 `VoiceService.clearStaleUtteranceIfNeeded`）。纯函数，没有可竞争的状态。
+    /// 抄一份公式过去是更差的选择 —— 两处上限迟早分叉，而分叉的那一天没有任何东西会报警。
+    nonisolated static func settleTimeout(forCharacterCount count: Int) -> TimeInterval {
         min(45, max(8, Double(count) * 0.35 + 6))
     }
     /// 单次解析的等待上限。**这是防网络卡死的，不是防解析慢的。**
