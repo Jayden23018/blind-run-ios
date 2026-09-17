@@ -268,6 +268,20 @@ function readFileOrEmpty(file) {
     return '';
   }
 }
+// Edit 改完之后的整份文件文本（PreToolUse 时磁盘上还是改前的内容，自己算一遍）。
+// 读不到文件、或 old_string 在文件里对不上时退回 body —— 宁可拦，不可漏。
+// 用下标切片而不是 String.replace：new_string 里的 `$&` / `$1` 会被当成替换模式展开。
+function postEditText(tool, filePath, input, body) {
+  if (tool !== 'Edit') return body;
+  const current = readFileOrEmpty(filePath);
+  const oldStr = input.old_string || '';
+  if (!current || !oldStr || !current.includes(oldStr)) return body;
+  const newStr = input.new_string || '';
+  if (input.replace_all) return current.split(oldStr).join(newStr);
+  const at = current.indexOf(oldStr);
+  return current.slice(0, at) + newStr + current.slice(at + oldStr.length);
+}
+
 // 纯注释行不参与扫描 —— 守卫管的是出货代码。
 //
 // 2026-08-22：`blind-tap-center` 拦住了 `AccessibilityAuditTests.swift` 的整份 Write，
@@ -786,10 +800,18 @@ function main() {
     // B：App 侧删掉 identifier，而 UI 测试还在用它。
     // 只对 Edit 生效（要有 old_string 才知道删了什么）。Write 整文件重写查不到，
     // 那种改法本来就会被方向 A 在改测试时拦下。
+    //
+    // **「还在不在」要对改完之后的整份文件判，不是对 new_string 那一段判**（2026-09-17）。
+    // Edit 的 new_string 只是被替换的那一小块，于是「把 identifier 从一个调用点搬到同文件
+    // 另一处」（搬进 `@ViewBuilder` 分支或 ViewModifier —— `BookingBlockIdentifier` 就是这写法）
+    // 必然被当成删除拦下。给 `BlindHomeCards.swift` 的 `BlindHomeOrderCard` 加 `Role` 参数时
+    // 连撞 5 次，最后只能改用 Write 绕开 —— 而 Write 压根不走方向 B，等于把规则关掉了。
+    // 误报逼人绕过规则，比规则本身漏一次还贵。
+    const postEditBody = postEditText(tool, filePath, input, body);
     const removedIdentifiers = canCrossCheck && /\.swift$/.test(filePath) && appDir && filePath.startsWith(`${appDir}/`)
       ? [...codeOnly(input.old_string || '').matchAll(ACCESSIBILITY_IDENTIFIER)]
           .map((m) => m[1])
-          .filter((lit) => !lit.includes('\\(') && !codeOnly(body).includes(`accessibilityIdentifier("${lit}")`))
+          .filter((lit) => !lit.includes('\\(') && !codeOnly(postEditBody).includes(`accessibilityIdentifier("${lit}")`))
       : [];
     for (const removed of removedIdentifiers) {
       // 同一个 id 可能在别处还挂着（挪了位置而不是删了），那不算删除。

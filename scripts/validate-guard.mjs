@@ -963,6 +963,44 @@ const cases = [
     oldString: 'Text("x").accessibilityIdentifier("nobodyQueriesThis")',
     newString: 'Text("x")'
   },
+  {
+    // 方向 B 的误报面（2026-09-17）：identifier 被搬到**同一个文件的另一处**，
+    // 改完之后照样产出得出来。判据原先看的是 new_string 那一小段，于是这种搬动必然被拦，
+    // 逼人改用 Write（Write 不走方向 B）绕过去 —— 等于把规则关掉。
+    name: 'identifier 搬到同文件另一处（放行）',
+    mode: 'repo',
+    expect: 0,
+    repoFiles: {
+      'blindRun/Home.swift':
+        'struct Card: View {\n' +
+        '  var body: some View { Text("x").accessibilityIdentifier("blindHomeOrderCard") }\n' +
+        '  @ViewBuilder var compact: some View { Text("y").accessibilityIdentifier("blindHomeOrderCard") }\n' +
+        '}\n',
+      'blindRunUITests/T.swift': 'app.buttons["blindHomeOrderCard"].tap()\n'
+    },
+    editPath: 'blindRun/Home.swift',
+    oldString: '  var body: some View { Text("x").accessibilityIdentifier("blindHomeOrderCard") }\n',
+    newString: '  var body: some View { compact }\n'
+  },
+  {
+    // 上一条的回归钉：真的删干净（replace_all 把同文件里两处一起抹掉）时仍然要拦。
+    // 少了它，「对整份文件判」很容易被改成「只要文件里出现过就放行」。
+    name: 'replace_all 删光同文件里的两处 identifier（拦）',
+    mode: 'repo',
+    expect: 2,
+    repoFiles: {
+      'blindRun/Home.swift':
+        'struct Card: View {\n' +
+        '  var body: some View { Text("x").accessibilityIdentifier("blindHomeOrderCard") }\n' +
+        '  @ViewBuilder var compact: some View { Text("y").accessibilityIdentifier("blindHomeOrderCard") }\n' +
+        '}\n',
+      'blindRunUITests/T.swift': 'app.buttons["blindHomeOrderCard"].tap()\n'
+    },
+    editPath: 'blindRun/Home.swift',
+    oldString: '.accessibilityIdentifier("blindHomeOrderCard")',
+    newString: '',
+    replaceAll: true
+  },
 
   // ---- 规则 8 的注释判定（2026-08-22，与本文件上面那批同一个洞）----
   //
@@ -1347,7 +1385,8 @@ function materializeRepo(testCase) {
       tool_input: {
         file_path: path.join(dir, testCase.editPath),
         old_string: testCase.oldString ?? 'PLACEHOLDER_OLD',
-        new_string: testCase.newString ?? ''
+        new_string: testCase.newString ?? '',
+        replace_all: testCase.replaceAll === true
       }
     },
     cleanup: () => fs.rmSync(dir, { recursive: true, force: true })
