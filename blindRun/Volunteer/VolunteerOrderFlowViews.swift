@@ -16,8 +16,10 @@ struct VolunteerServiceRecord: Identifiable {
     // 那个数字是客户端凭 `status == .completed` 现编的，还被念进了下面这条 label。
     // 真实的服务量在「服务成就」页（`VolunteerServiceRecognitionView`），
     // 来自 `GET /api/volunteer/achievements`。
+    ///
+    /// 姓名走 `unmaskedForSpeech`：这条字符串**只进读屏**，可见那份在行里另有一份。
     var accessibilityLabel: String {
-        "时间：\(sortKey.displayDateTime)，盲人：\(order.blindName ?? "")，地点：\(order.startAddress ?? "")，状态：\(order.status.displayName)"
+        "时间：\(sortKey.displayDateTime)，盲人：\(order.blindName?.unmaskedForSpeech ?? "")，地点：\(order.startAddress ?? "")，状态：\(order.status.displayName)"
     }
 }
 
@@ -3434,7 +3436,8 @@ struct VolunteerBlindRunnerInfoCard: View {
             Text(order.blindName ?? "盲人跑者")
                 .font(AppFonts.body())
                 .foregroundColor(AppColors.textPrimary)
-                .accessibilityLabel("盲人：\(order.blindName ?? "")")
+                // 上屏那份留掩码星号，念出来这份去掉。
+                .accessibilityLabel("盲人：\(order.blindName?.unmaskedForSpeech ?? "")")
 
             if showPhone, let phone = order.blindPhone {
                 Button {

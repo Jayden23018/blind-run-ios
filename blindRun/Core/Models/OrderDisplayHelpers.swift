@@ -627,12 +627,11 @@ extension OrderDetailResponse {
     /// 以为拿到了全名，而拨号那条路从来不经过姓名 —— 号码只走 `volunteerPhone`。
     ///
     /// 空名字回退到既有常量「这位志愿者」，不另造第二个占位词。
+    ///
+    /// 去星号那一步走共享的 `String.unmaskedForSpeech` —— 这条口径在固定搭档列表、
+    /// 连续周数条、志愿者端念盲人姓名的那几处都要用，各写一份迟早分叉。
     var volunteerNameForSpeech: String {
-        let stripped = (volunteerName ?? "")
-            .replacingOccurrences(of: "*", with: "")
-            .replacingOccurrences(of: "＊", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return stripped.isEmpty ? PartnerStreakCopy.unknownVolunteerName : stripped
+        volunteerName?.unmaskedForSpeech.nilIfBlank ?? PartnerStreakCopy.unknownVolunteerName
     }
 
     /// 陪跑员的经验凭据，**只说后端真的发了的那一项**。
@@ -914,6 +913,24 @@ extension String {
     var nilIfBlank: String? {
         let value = trimmed
         return value.isEmpty ? nil : value
+    }
+
+    /// 掩码姓名的**朗读**形态：去掉占位星号。
+    ///
+    /// 后端下发的姓名一律掩码（`张*`，`NameMaskUtils.mask()`）。原样交给 VoiceOver 或 TTS
+    /// 会念成**「张星号」**，而本 App 的读屏是外放的 —— 「星号」还会被听的人当成名字的一部分。
+    /// 去掉星号**不泄露任何信息**：掩码之后剩下的本来就只有姓氏，星号只是个占位符号。
+    ///
+    /// ⚠️ **只用于朗读通道（`accessibilityLabel` / `speak`），屏幕上仍然原样显示 `张*`。**
+    /// 可见文字去掉星号会让人以为拿到了全名。同一个字符串既上屏又被念时，要拆成两份
+    /// 而不是就地去星号 —— `PartnerRowCard` 与 `BlindFavoriteVolunteersView` 的收藏播报
+    /// 都是这么拆的。
+    ///
+    /// 全角 `＊` 一并去：后端换一次掩码实现就可能换符号，而漏掉的那一半不会有任何东西报警。
+    var unmaskedForSpeech: String {
+        replacingOccurrences(of: "*", with: "")
+            .replacingOccurrences(of: "＊", with: "")
+            .trimmed
     }
 
     /// 后端 `LocalDateTime` 的无时区时间串（`2026-08-04T11:40:42`），**可能带小数秒**

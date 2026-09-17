@@ -108,6 +108,9 @@ struct IncentiveHeroCard: View {
 /// 2. 进度条对 VoiceOver 是空的，所以下面那行 `progressText` 不是冗余，是唯一的进度信息。
 /// 3. 整块合成一个焦点，念一句完整的话。
 struct StreakStrip: View {
+    /// ⚠️ **这个值只进 `accessibilityLabel`，可见文字里没有名字。**
+    /// 所以调用方必须传**朗读那一份**（`String.unmaskedForSpeech`，去掉掩码星号），
+    /// 否则读屏会念「张星号」。传屏幕上那份不会有任何东西报警 —— 屏幕看不出区别。
     let partnerName: String
     let streak: PartnerStreakDisplay
 
