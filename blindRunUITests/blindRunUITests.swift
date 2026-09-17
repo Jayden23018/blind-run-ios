@@ -632,6 +632,30 @@ final class blindRunUITests: XCTestCase {
             app.descendants(matching: .any)["离你，3.2 公里"].firstMatch.exists,
             "三格数据的读屏标签要先说这是什么\n\(app.debugDescription)"
         )
+
+        // 🔴 **「查看详情」是这条用例唯一会点的东西，而它必须点。**
+        // 邀请卡是 `.sheet`，而这一跳是从 sheet 里再弹一个 `.fullScreenCover`
+        // （设计交付 v3 §4.4.2 第 10 项 → §5 的「邀请」订单页）。
+        // 两层模态叠在一起在 iOS 16 上行不行**读代码验不了**，而本仓库模拟器通道永久不可用
+        // ⇒ 只有真机点一下才知道。点它不会发出任何派单响应，所以不像另外两枚那样
+        // 会把这条用例变成在验别的东西。
+        app.descendants(matching: .any)["volunteerDispatchDetailButton"].firstMatch.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["陪跑订单"].firstMatch.waitForExistence(timeout: 10),
+            "从邀请卡（sheet）里应当能再弹出完整订单页（fullScreenCover）\n\(app.debugDescription)"
+        )
+        // 四步骨架的第 1 步高亮 —— 这一跳去的是「邀请」态，不是别的订单页。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["进度，第 1 步，共 4 步，邀请"].firstMatch.exists,
+            "详情页应当停在四步骨架的第 1 步\n\(app.debugDescription)"
+        )
+
+        app.buttons["返回"].firstMatch.tap()
+        XCTAssertTrue(
+            accept.waitForExistence(timeout: 10),
+            "从详情页返回之后邀请卡还在，倒计时没有停"
+        )
     }
 
     /// 志愿者端**只有一屏**：身份 → 作业区 → 影响力 → 徽章 → 最近陪跑 → 派单状态。
