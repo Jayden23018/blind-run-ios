@@ -137,12 +137,24 @@
 - [x] **阶段 3 · ④ 已完成**（2026-09-17 完成，PR #150，真机已验）
 
       ```
-      BlindRunPhaseTests + BlindOrderFlowPresentationTests
-        + BlindActiveRunTests + LowVisionChannelTests     passed=61 failed=0 (total=61)
+      BlindRunFinishAnnouncementTests + BlindRunPhaseTests
+        + BlindOrderFlowPresentationTests + BlindActiveRunTests
+        + LowVisionChannelTests                           passed=65 failed=0 (total=65)
       EmergencySOSTests + KeepWaitingTests                passed=77 failed=0 (total=77)
       ```
-      61 = 24+19+10+8，与四个文件里 `func test` 的条数逐个对上 ⇒ 没有静默跳过。
-      验红两条（打回后 `passed=22 failed=2`，且只有这两条红）：里程子句、完成态终值拉取。
+      验红三轮：里程子句 / 完成态终值拉取（打回后 `passed=22 failed=2`，只有这两条红）·
+      播报改回 `speakStatusChange` funnel（只有「两张单都要出声」那条红）。
+
+      🔴 **code review 抓到两条 A 档，都属实、都是「纯函数全绿而功能是坏的」那一形状：**
+      ① `apply` 看到终态时 `stopPolling()` 取消的是**当前正在跑的这个任务**（自我取消），
+         于是终值 `/track` 必然抛 cancelled ⇒ 那一句里永远没有里程、屏幕三个 `--`。
+         修法：完成收尾挪进不继承取消的独立任务；`didFetchFinalTrack` 只在成功时置位。
+      ② `speakStatusChange` 的去重键 `lastSpokenStatus` 是**全 App 一份**的 ⇒ 连着点开
+         两张已完成的单，第二张一个字不播。而改版前那一场景由被我删掉的那句轨迹总结兜着
+         ⇒ **是本次引入的静默回退**。修法：这条播报不走那个 funnel，去重留在按单记的 VM 层。
+      新增 `BlindRunFinishAnnouncementTests`（4 条链路用例）—— 没有它，上面两条都不会被发现。
+      ⚠️ 同一个自我取消也让 `refreshIntroCallIfNeeded` / `refreshVolunteerLocationFallbackIfNeeded`
+      在**任何**终态的最后一轮里空跑。既有缺陷、无可见症状，本轮没动。
 
       ⚠️ **原先这一行写着「卡在待拍板项 D 五星评价」—— 那是记错了。** D 的决定是
       **⑤ 首页评价卡推迟**，④ 本身不含任何评分控件。这条错记让阶段 3 的盲人端
