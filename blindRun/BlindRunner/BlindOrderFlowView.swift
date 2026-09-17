@@ -19,6 +19,10 @@ private let blindOrderFlowAvatarGeometryID = "blindOrderFlowVolunteerAvatar"
 ///
 /// 2026-09-16 把 `IN_PROGRESS` 也收进来（原先是一整屏独立的深底执行屏）。
 /// 变形的三条动效都在这里：进度条上折 / 头像 ⌀92 →  ⌀28 同一个视图在动 / 信息卡下沉淡出。
+///
+/// 2026-09-17 外壳（可滚动卡片列 + 贴底操作区）搬进 `OrderFlowScaffold`，与陪跑员端共用 ——
+/// 两端的四步进度条只有第 1 步文案不同，底部版位完全一致（设计交付文档 v3 §9）。
+/// 这一页保留的是**跑者端独有**的部分：头像变形、倒计时、跑步中那三个数字、定位新鲜度行。
 struct BlindOrderFlowView<Footer: View>: View {
     let presentation: BlindOrderFlowPresentation
     let order: OrderDetailResponse
@@ -53,27 +57,20 @@ struct BlindOrderFlowView<Footer: View>: View {
     @Namespace private var avatarTransition
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 16) {
-                    statusCard
-                    // 信息卡整块下沉淡出并收到 0 —— 跑起来之后「陪跑员是谁、几点、在哪集合」
-                    // 全部已经是过去时，留在屏幕上只是读屏要多滑四次的内容。
-                    if !presentation.phase.isRunning {
-                        infoCard
-                    }
-                    footer()
-                }
-                .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
-                .readableContentColumn()
+        OrderFlowScaffold(bottom: bottomActions) {
+            statusCard
+            // 信息卡整块下沉淡出并收到 0 —— 跑起来之后「陪跑员是谁、几点、在哪集合」
+            // 全部已经是过去时，留在屏幕上只是读屏要多滑四次的内容。
+            if !presentation.phase.isRunning {
+                infoCard
             }
-            bottomActions
+            footer()
         }
-        .background(AppColors.Flow.page)
         // 整段变形由同一条动画驱动：进度条上折、头像缩移、信息卡下沉、主体拉高
         // 必须同时发生（设计稿 §Interactions 第 2 条），各自挂各自的动画会散成四拍。
+        //
+        // 挂在骨架外面与挂在它内部的 `VStack` 上等价（修饰符向下传播），
+        // 而 `phase` 是跑者端独有的维度，不该进共用骨架的参数表。
         .animation(transitionAnimation, value: presentation.phase)
     }
 
@@ -494,48 +491,23 @@ struct BlindOrderFlowView<Footer: View>: View {
     ///
     /// 设计意图第 3 条：旧版把打电话、修改取消、求助三个按钮并排，重点不清。
     /// 这里只有两个版位，且第二个的文案与位置**永不变化** —— 视障用户靠位置记忆操作。
-    private var bottomActions: some View {
-        VStack(spacing: FlowMetrics.actionButtonSpacing) {
-            if let action = presentation.primaryAction {
-                FlowActionButton(
-                    action.title,
+    ///
+    /// 🔴 跑者端这一枚「求助与安全」**在每一态都给**（所以这里恒非 nil）。
+    /// 陪跑员端不同，判据与理由见 `VolunteerOrderFlowPresentation.showsSafetyHub`。
+    private var bottomActions: OrderFlowBottomActions {
+        OrderFlowBottomActions(
+            owner: .blindRunner,
+            primary: presentation.primaryAction.map { action in
+                OrderFlowPrimaryAction(
+                    title: action.title,
                     systemImage: action.systemImage,
-                    style: .primary,
                     isEnabled: action.isEnabled,
                     accessibilityHint: primaryActionHint(action),
                     action: onPrimaryAction
                 )
-                .accessibilityIdentifier("blindOrderFlowPrimaryButton")
-            }
-
-            FlowActionButton(
-                EmergencySafetyCopy.hubTitle,
-                systemImage: "shield",
-                style: .help,
-                accessibilityLabel: EmergencySafetyCopy.hubAccessibilityLabel,
-                accessibilityHint: EmergencySafetyCopy.hubAccessibilityHint,
-                action: onOpenSafetyHub
-            )
-            .accessibilityIdentifier("blindOrderFlowSafetyHubButton")
-        }
-        .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
-        .readableContentColumn()
-        // 恒实色，不用材质。理由与订单页那条旧底栏同源（`docs/05-page-specs.md`）：
-        // 这一条压着滚动内容，材质会让正文从按钮底下透上来，成了文字叠文字 ——
-        // 而那正好打掉低视力用户唯一的通道，且对比度审计查不出来
-        // （它查静态配色，不查两层内容叠在一起）。
-        .background(AppColors.Flow.surface)
-        .overlay(alignment: .top) {
-            // 底栏与内容之间唯一的边界。**不调透明度** —— 25% 下只有约 1.4:1，
-            // 够不到 WCAG 1.4.11 对控件边界要求的 3:1。
-            Rectangle()
-                .fill(AppColors.Flow.separator)
-                .frame(height: 1)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+            },
+            safetyHub: OrderFlowSafetyHubAction(action: onOpenSafetyHub)
+        )
     }
 
     /// `nil` = 这一档不加提示。`FlowActionButton` 走 `accessibilityHintIfPresent`，

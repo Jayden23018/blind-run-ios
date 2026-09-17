@@ -1528,6 +1528,7 @@ struct VolunteerInServiceView: View {
     @EnvironmentObject private var locationService: LocationService
     @EnvironmentObject private var amapGeocodingService: AMapGeocodingService
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @StateObject private var viewModel = VolunteerInServiceViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @State private var showCancelConfirm = false
@@ -1541,7 +1542,206 @@ struct VolunteerInServiceView: View {
         self.initialOrder = initialOrder
     }
 
+    /// 这一态走不走四步骨架。`nil` = 还是旧的地图 + 底部面板那条路。
+    ///
+    /// 🚩 **本轮只搬了邀请 / 约好 / 出发三态**（设计交付文档 v3 §5 的前三格）。
+    /// 汇合 / 跑步中 / 已完成仍走旧路径，下一轮搬完之后连同 `VolunteerServiceBottomPanel`
+    /// 与 `VolunteerServiceActions` 一起删。**现在就删会让回退没有退路。**
+    private var flowPresentation: VolunteerOrderFlowPresentation? {
+        guard let order = viewModel.order else { return nil }
+        return .make(order: order, distanceText: distanceText(for: order))
+    }
+
     var body: some View {
+        Group {
+            if let order = viewModel.order, let presentation = flowPresentation {
+                flowPage(order: order, presentation: presentation)
+            } else {
+                legacyMapContent
+            }
+        }
+        .navigationTitle(flowPresentation == nil ? "服务中" : VolunteerOrderFlowCopy.pageTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        // 骨架那条路是普通的滚动页，导航栏要有自己的底 —— 藏起来是为了让地图透上去，
+        // 而骨架下面没有地图，藏着只会让标题浮在正文上。
+        .toolbarBackground(flowPresentation == nil ? .hidden : .visible, for: .navigationBar)
+        // 订单页**不带标签栏**（设计交付 v3 §4.2 总表：S1/S2/S3/S4 的底部是「标签栏」，
+        // 而 S6 是「求助与安全」；`03-订单页全流程.png` 五屏也都没有标签栏）。
+        // 多一条 49pt 的标签栏会把底部操作区顶上去，而标签栏在这一刻能去的地方
+        // （记录 / 我的）没有一个是陪跑中该去的。**两条路径都要藏**：地图那条是面板被顶，
+        // 骨架那条是最后一行被盖掉半行（同一个形状已在 `VolunteerServiceRecognitionView` 上红过一次）。
+        //
+        // 🔴 **前提是返回箭头一直在。** 盲人端的订单页刻意保留了标签栏，理由在
+        // `BlindOrderStatusView.swift:1642-1646`：那一页跑步中会藏返回箭头，
+        // 标签栏是唯一出口。这一页从头到尾没有 `navigationBarBackButtonHidden`，
+        // 所以藏标签栏不会把人关在里面 —— **谁将来给这一页藏返回箭头，这一行必须同时撤销。**
+        //
+        // ⚠️ 2026-09-17 合并时搬过一次位置：它原本挂在旧 body 的末尾，而那一段被
+        // 四步骨架重构删掉了。取任一边都会让这一行静默消失，所以是手动搬进来的。
+        .toolbar(.hidden, for: .tabBar)
+        .task {
+            viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
+            locationService.startUpdating()
+            viewModel.startPolling(orderId: orderId)
+        }
+        .onDisappear {
+            viewModel.stopPolling()
+        }
+        .task(id: viewModel.order?.status) {
+            guard viewModel.order?.status == .completed else { return }
+            await trackViewModel.load(orderID: orderId, appState: appState)
+            if let summary = trackViewModel.track?.spokenSummary { speechService.speak(summary) }
+        }
+        .confirmationDialog(cancelDialogCopy.title, isPresented: $showCancelConfirm) {
+            Button(cancelDialogCopy.confirm, role: .destructive) {
+                Task {
+                    await viewModel.cancel()
+                    if viewModel.didCancelOrder {
+                        dismiss()
+                    }
+                }
+            }
+            Button(cancelDialogCopy.dismiss, role: .cancel) {}
+        } message: {
+            Text(cancelDialogCopy.message)
+        }
+        // `.volunteer`：他按下去之后撤销不了（后端恒 403），文案要把这一半后果说出来。
+        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm, audience: .volunteer) {
+            Task {
+                await viewModel.enterEmergency(
+                    locate: { locationService.latestBackendSample() },
+                    locationFailureReason: { locationService.locationError }
+                )
+            }
+        }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .navigation(let request):
+                ExternalMapNavigationSheet(request: request)
+            }
+        }
+        // 屏 5：被陪同者发起求助时盖满整屏 + 警报音 + 震动。
+        //
+        // 在此之前它只是底部面板上方一条和其他提示长得一样的横幅（`emergencySection`），
+        // 而那一刻志愿者多半正看着地图导航、或者根本没在看屏幕。
+        // 那条横幅**保留**：确认之后它仍然承载求助结果文案（`AGENTS.md` §6 要求每一种结果
+        // 都可见可听），只是不再独自承担「叫住志愿者」这件事。
+        .volunteerEmergencyAlertCover(
+            coordinator: appState.emergencyCoordinator,
+            peerName: viewModel.order?.blindName,
+            peerPhone: viewModel.order?.blindPhone,
+            deviceCoordinate: locationService.currentLocation,
+            isAcknowledging: viewModel.isAcknowledgingEmergency,
+            reverseGeocode: { await amapGeocodingService.reverseGeocode(coordinate: $0)?.title },
+            onAcknowledge: { eventID in
+                Task { await viewModel.acknowledgeEmergency(eventID: eventID) }
+            }
+        )
+    }
+
+    // MARK: - 四步骨架（邀请 / 约好 / 出发）
+
+    private func flowPage(
+        order: OrderDetailResponse,
+        presentation: VolunteerOrderFlowPresentation
+    ) -> some View {
+        VolunteerOrderFlowPage(
+            presentation: presentation,
+            runnerName: order.blindName,
+            onRowAction: { handleFlowRowAction($0, order: order) },
+            onPrimaryAction: { performFlowPrimaryAction(presentation.primaryAction) },
+            // POST 回来了但确认那条 GET 还挂着的那几秒里，同一次流转不许被提交第二次。
+            isPrimaryLoading: viewModel.isPerformingAction,
+            isPrimaryEnabled: !viewModel.isTransitionPending,
+            footer: { flowFooter }
+        )
+    }
+
+    private func handleFlowRowAction(
+        _ action: VolunteerOrderFlowPresentation.Action,
+        order: OrderDetailResponse
+    ) {
+        switch action {
+        case .openMeetingPoint:
+            openExternalNavigation(for: order)
+        case .callRunner:
+            // 号码只在这里出现一次，且只进 `tel:`。掩码串会被 `telURL` 的掩码闸拦掉。
+            if let phone = order.blindPhone?.nilIfBlank, let url = EmergencyDialer.telURL(for: phone) {
+                EmergencyDialer.dial(url, open: { openURL($0) })
+            }
+        case .releaseOrder:
+            showCancelConfirm = true
+        case .declineInvite:
+            // 这一行只在邀请态出现，而邀请态不走这个页面（它没有 `OrderDetailResponse`）。
+            // 留一个显式分支而不是 `default`：加 `Action` 时编译器会逼一次决策。
+            break
+        }
+    }
+
+    private func performFlowPrimaryAction(_ action: VolunteerOrderFlowPresentation.PrimaryAction?) {
+        switch action {
+        case .confirmDeparture:
+            Task { await viewModel.confirmDeparture() }
+        case .enRoute:
+            Task { await viewModel.enRoute() }
+        case .arrived:
+            Task { await viewModel.arrive() }
+        // 接单发生在派单弹层 / 邀请页上，那条路没有订单详情，不经过这里。
+        case .acceptInvite, .none:
+            break
+        }
+    }
+
+    /// 骨架那一页的**可见**失败面。
+    ///
+    /// 旧面板把 `errorMessage` / `transitionMessage` 夹在信息区和按钮之间；骨架里它挂在
+    /// 信息卡之后、底部操作条之前，位置对应。**少了它，「接单失败」「状态没确认上」
+    /// 只剩一句 TTS**，不开读屏的低视力志愿者屏幕上零变化。
+    @ViewBuilder
+    private var flowFooter: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .flowFont(FlowFonts.rowValue())
+                    .foregroundColor(AppColors.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(errorMessage)
+            }
+            if let transitionMessage = viewModel.transitionMessage {
+                Label(transitionMessage, systemImage: "clock.arrow.circlepath")
+                    .flowFont(FlowFonts.rowValue())
+                    .foregroundColor(AppColors.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(transitionMessage)
+                if viewModel.canRetryTransitionConfirmation {
+                    FlowActionButton("重新确认状态", style: .ghost) {
+                        viewModel.retryTransitionConfirmation()
+                    }
+                    .accessibilityHint("只重新查询订单状态，不会重复提交当前操作")
+                }
+            }
+        }
+    }
+
+    private func openExternalNavigation(for order: OrderDetailResponse) {
+        if let request = externalNavigationRequest(
+            for: order,
+            currentLocation: locationService.currentLocation,
+            locationAuthorized: locationService.isAuthorized
+        ) {
+            activeSheet = .navigation(request)
+        } else {
+            let message = "不支持导航，等待后端补齐坐标"
+            viewModel.errorMessage = message
+            speechService.speakError(message)
+        }
+    }
+
+    // MARK: - 旧路径（汇合 / 跑步中 / 已完成）
+
+    private var legacyMapContent: some View {
         GeometryReader { proxy in
             let bottomPanelMaxHeight = proxy.size.height * 0.62
             let mapAnchor = CGPoint(
@@ -1613,19 +1813,7 @@ struct VolunteerInServiceView: View {
                             transitionsDisabled: viewModel.isTransitionPending,
                             canRetryTransitionConfirmation: viewModel.canRetryTransitionConfirmation,
                             maxHeight: bottomPanelMaxHeight,
-                            onNavigate: {
-                                if let request = externalNavigationRequest(
-                                    for: order,
-                                    currentLocation: locationService.currentLocation,
-                                    locationAuthorized: locationService.isAuthorized
-                                ) {
-                                    activeSheet = .navigation(request)
-                                } else {
-                                    let message = "不支持导航，等待后端补齐坐标"
-                                    viewModel.errorMessage = message
-                                    speechService.speakError(message)
-                                }
-                            },
+                            onNavigate: { openExternalNavigation(for: order) },
                             onEnRoute: { Task { await viewModel.enRoute() } },
                             onArrive: { Task { await viewModel.arrive() } },
                             onStartService: { Task { await viewModel.startService() } },
@@ -1645,77 +1833,6 @@ struct VolunteerInServiceView: View {
                 }
             }
         }
-        .navigationTitle("服务中")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        // 订单页**不带标签栏**（设计交付 v3 §4.2 总表：S1/S2/S3/S4 的底部是「标签栏」，
-        // 而 S6 是「求助与安全」；`03-订单页全流程.png` 五屏也都没有标签栏）。
-        // 这一页是地图铺满 + 底部面板，多一条 49pt 的标签栏会把面板顶上去，
-        // 而标签栏在这一刻能去的地方（记录 / 我的）没有一个是陪跑中该去的。
-        //
-        // 🔴 **前提是返回箭头一直在。** 盲人端的订单页刻意保留了标签栏，理由在
-        // `BlindOrderStatusView.swift:1642-1646`：那一页跑步中会藏返回箭头，
-        // 标签栏是唯一出口。这一页从头到尾没有 `navigationBarBackButtonHidden`，
-        // 所以藏标签栏不会把人关在里面 —— **谁将来给这一页藏返回箭头，这一行必须同时撤销。**
-        .toolbar(.hidden, for: .tabBar)
-        .task {
-            viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
-            locationService.startUpdating()
-            viewModel.startPolling(orderId: orderId)
-        }
-        .onDisappear {
-            viewModel.stopPolling()
-        }
-        .task(id: viewModel.order?.status) {
-            guard viewModel.order?.status == .completed else { return }
-            await trackViewModel.load(orderID: orderId, appState: appState)
-            if let summary = trackViewModel.track?.spokenSummary { speechService.speak(summary) }
-        }
-        .confirmationDialog(cancelDialogCopy.title, isPresented: $showCancelConfirm) {
-            Button(cancelDialogCopy.confirm, role: .destructive) {
-                Task {
-                    await viewModel.cancel()
-                    if viewModel.didCancelOrder {
-                        dismiss()
-                    }
-                }
-            }
-            Button(cancelDialogCopy.dismiss, role: .cancel) {}
-        } message: {
-            Text(cancelDialogCopy.message)
-        }
-        // `.volunteer`：他按下去之后撤销不了（后端恒 403），文案要把这一半后果说出来。
-        .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm, audience: .volunteer) {
-            Task {
-                await viewModel.enterEmergency(
-                    locate: { locationService.latestBackendSample() },
-                    locationFailureReason: { locationService.locationError }
-                )
-            }
-        }
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .navigation(let request):
-                ExternalMapNavigationSheet(request: request)
-            }
-        }
-        // 屏 5：被陪同者发起求助时盖满整屏 + 警报音 + 震动。
-        //
-        // 在此之前它只是底部面板上方一条和其他提示长得一样的横幅（`emergencySection`），
-        // 而那一刻志愿者多半正看着地图导航、或者根本没在看屏幕。
-        // 那条横幅**保留**：确认之后它仍然承载求助结果文案（`AGENTS.md` §6 要求每一种结果
-        // 都可见可听），只是不再独自承担「叫住志愿者」这件事。
-        .volunteerEmergencyAlertCover(
-            coordinator: appState.emergencyCoordinator,
-            peerName: viewModel.order?.blindName,
-            peerPhone: viewModel.order?.blindPhone,
-            deviceCoordinate: locationService.currentLocation,
-            isAcknowledging: viewModel.isAcknowledgingEmergency,
-            reverseGeocode: { await amapGeocodingService.reverseGeocode(coordinate: $0)?.title },
-            onAcknowledge: { eventID in
-                Task { await viewModel.acknowledgeEmergency(eventID: eventID) }
-            }
-        )
     }
 
     /// 取消对话框的四句话。**按状态换，不是一句通用文案。**
@@ -1727,16 +1844,11 @@ struct VolunteerInServiceView: View {
     ///
     /// 抽成一个元组而不是在 `confirmationDialog` 里写四个三元表达式：那样写在 SwiftUI 里
     /// 会把类型检查器拖到超时（本文件 `VolunteerRecentOrderCard` 上有同一个坑的记录）。
+    /// 2026-09-17 搬到 `VolunteerOrderFlowCopy.cancelDialog(for:)`：它此前是 View 的
+    /// private 计算属性，**测试够不着**，而 `ScheduledOrderTests.testReleaseAndCancelDoNotShareCopy`
+    /// 的注释逐字记着这个洞（「这条只覆盖按钮标题，覆盖不到确认对话框」）。走 `AGENTS.md` §1.2。
     private var cancelDialogCopy: (title: String, confirm: String, dismiss: String, message: String) {
-        guard viewModel.order?.status == .scheduledConfirmed else {
-            return ("取消订单", "确认取消", "不取消", "确认取消本次预约？")
-        }
-        return (
-            "确认去不了？",
-            "确认去不了",
-            "再想想",
-            "这一单会转给其他志愿者，之后不一定还能接回来。"
-        )
+        VolunteerOrderFlowCopy.cancelDialog(for: viewModel.order?.status)
     }
 
     /// 面板上方那条紧急信息区。**「代盲人发起求助」的按钮不在这里** —— 它是地图右上角的

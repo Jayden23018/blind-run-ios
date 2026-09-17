@@ -27,7 +27,20 @@ extension OrderDetailResponse {
         volunteerName: String? = nil,
         volunteerTotalCompleted: Int? = nil,
         volunteerPhone: String? = nil,
-        createdAt: String? = nil
+        createdAt: String? = nil,
+        blindName: String? = "李*",
+        blindPhone: String? = nil,
+        routeNotes: String? = nil,
+        specialNotes: String? = nil,
+        // ⚠️ `TOTAL_BLIND`，不是 `TOTALLY_BLIND`。原值打错过，而症状是静默的：
+        // `VisionLevel(rawValue:)` 认不出来 ⇒ 每个 Preview 的「视力情况」都显示
+        // `EscortNeed.confirmInPerson`（「请当面与跑者确认」），看起来像一条正常的兜底。
+        visionLevel: String? = "TOTAL_BLIND",
+        tetherPreference: String? = nil,
+        pacePreference: PacePreference = .noPreference,
+        paceMinSecondsPerKm: Int? = nil,
+        paceMaxSecondsPerKm: Int? = nil,
+        plannedDistanceMeters: Int? = nil
     ) -> OrderDetailResponse {
         var order = OrderDetailResponse(
             orderId: orderId,
@@ -40,25 +53,61 @@ extension OrderDetailResponse {
             endLongitude: nil,
             plannedStart: plannedStart ?? Self.previewTimestamp(daysFromNow: 1, hour: 7),
             plannedEnd: Self.previewTimestamp(daysFromNow: 1, hour: 8),
-            blindName: "李*",
-            blindPhone: nil,
+            blindName: blindName,
+            blindPhone: blindPhone,
             volunteerPhone: volunteerPhone,
             acceptedAt: nil,
             createdAt: createdAt ?? Self.previewTimestamp(daysFromNow: 0, hour: 9),
             expectedDurationMinutes: 40,
-            pacePreference: .noPreference,
+            pacePreference: pacePreference,
             routePreference: .parkTrail,
-            routeNotes: nil,
+            routeNotes: routeNotes,
             hasGuideDogThisRun: false,
-            specialNotes: nil,
-            visionLevel: "TOTALLY_BLIND",
-            tetherPreference: nil,
+            specialNotes: specialNotes,
+            visionLevel: visionLevel,
+            tetherPreference: tetherPreference,
             chatPreference: nil
         )
         order.volunteerName = volunteerName
         order.volunteerTotalCompleted = volunteerTotalCompleted
         order.volunteerId = volunteerName == nil ? nil : 9005
+        order.paceMinSecondsPerKm = paceMinSecondsPerKm
+        order.paceMaxSecondsPerKm = paceMaxSecondsPerKm
+        order.plannedDistanceMeters = plannedDistanceMeters
         return order
+    }
+
+    /// 派单推送的样本。**和上面那个工厂放在一起**，因为陪跑员端同一屏有两个数据源
+    /// （接单前吃派单载荷，接单后吃订单详情），分开放必然只更新其中一份。
+    static func previewDispatch(
+        orderId: Int64 = 1,
+        plannedStart: String? = nil,
+        requiresIntroCall: Bool = true,
+        hasGuideDog: Bool = true,
+        distanceKm: Double? = 3.2,
+        paceMinSecondsPerKm: Int? = 390,
+        paceMaxSecondsPerKm: Int? = 450,
+        plannedDistanceMeters: Int? = 5000
+    ) -> WSNewOrder {
+        WSNewOrder(
+            type: "NEW_ORDER",
+            timestamp: nil,
+            orderId: orderId,
+            startAddress: "深圳湾公园 3 号入口",
+            startLatitude: 22.5210,
+            startLongitude: 113.9350,
+            distanceKm: distanceKm,
+            plannedStart: plannedStart ?? Self.previewTimestamp(daysFromNow: 1, hour: 7),
+            plannedEnd: Self.previewTimestamp(daysFromNow: 1, hour: 8),
+            dispatchTimeoutSeconds: 30,
+            priority: "HIGH",
+            pacePreference: PacePreference.moderate.rawValue,
+            hasGuideDog: hasGuideDog,
+            requiresIntroCall: requiresIntroCall,
+            paceMinSecondsPerKm: paceMinSecondsPerKm,
+            paceMaxSecondsPerKm: paceMaxSecondsPerKm,
+            plannedDistanceMeters: plannedDistanceMeters
+        )
     }
 
     /// 后端 `LocalDateTime` 的形状（`yyyy-MM-dd'T'HH:mm:ss`，无时区偏移）。

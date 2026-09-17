@@ -268,14 +268,10 @@ final class blindRunUITests: XCTestCase {
         openCurrentVolunteerService(app, alreadyOpenTimeout: 0)
         assertNoEmergencyAction(app)
 
-        let enRouteButton = app.buttons["我已出发"].firstMatch
-        XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5), "Accepted order should show en-route button")
-        enRouteButton.tap()
+        let enRouteLabel = tapVolunteerFlowPrimary(app)
         assertNoEmergencyAction(app)
 
-        let arriveButton = app.buttons["我已到达约定地点"].firstMatch
-        XCTAssertTrue(arriveButton.waitForExistence(timeout: 8), "En-route order should show arrive button")
-        arriveButton.tap()
+        tapVolunteerFlowPrimary(app, after: enRouteLabel)
         assertNoEmergencyAction(app)
 
         let startButton = app.buttons["开始服务"].firstMatch
@@ -385,24 +381,26 @@ final class blindRunUITests: XCTestCase {
         )
 
         openCurrentVolunteerService(app, requirePhone: false)
-        let enRouteButton = app.buttons["我已出发"].firstMatch
-        XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5))
-        enRouteButton.tap()
+        tapVolunteerFlowPrimary(app)
 
         XCTAssertTrue(
             app.staticTexts["操作已提交，状态待确认。页面其他功能仍可使用。"].waitForExistence(timeout: 3),
             "POST completion must release the action spinner before confirmation GET completes"
         )
-        XCTAssertFalse(enRouteButton.isEnabled, "The same transition must not be submitted twice")
-
-        let cancelButton = app.buttons["取消订单"].firstMatch
-        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(cancelButton.isHittable, "Cancellation entry must remain locally interactive")
-        XCTAssertTrue(
-            app.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.exists,
-            "The service map layer must remain mounted while confirmation is pending"
+        // 🔴 这一条是本用例的核心：同一次流转不许被提交两次。
+        // 2026-09-17 换成四步骨架时它**第一版就漏了** —— 骨架的主按钮没有接上
+        // `transitionsDisabled`，志愿者可以连点两下「我出发了」。是这行编译不过才暴露的。
+        XCTAssertFalse(
+            app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch.isEnabled,
+            "The same transition must not be submitted twice"
         )
-        XCTAssertTrue(app.buttons["导航到出发地点"].firstMatch.isHittable)
+
+        // 🚩 `PENDING_ACCEPT` 已从地图 + 底部面板换成四步骨架，所以这里不再断言地图底图、
+        // 「取消订单」与「导航到出发地点」那三个旧控件。**被测行为没变**：确认挂住时界面
+        // 不能变成模态，其余入口照样点得到。骨架上对应的是「我去不了」那一行与返回键。
+        let releaseRow = app.descendants(matching: .any)["volunteerOrderFlowRow-release"].firstMatch
+        XCTAssertTrue(releaseRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(releaseRow.isHittable, "Cancellation entry must remain locally interactive")
         XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable, "Back navigation must remain usable")
 
         XCTAssertTrue(
@@ -430,26 +428,23 @@ final class blindRunUITests: XCTestCase {
         )
 
         openCurrentVolunteerService(app, requirePhone: false)
-        let enRouteButton = app.buttons["我已出发"].firstMatch
-        XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5))
-        enRouteButton.tap()
+        let enRouteLabel = tapVolunteerFlowPrimary(app)
 
-        let arriveButton = app.buttons["我已到达约定地点"].firstMatch
-        XCTAssertTrue(
-            arriveButton.waitForExistence(timeout: 5),
-            "The ordered realtime event must advance UI before location sending completes"
-        )
-        let panel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
-        XCTAssertTrue(panel.exists)
-        panel.swipeUp()
-        panel.swipeDown()
+        // 实时事件必须在「上报位置」那条请求挂住的情况下就把界面推进到下一态 ——
+        // 判据是主按钮的文案换了（`我出发了` → `我已到达集合点`），位置一格没动。
+        let primary = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
+        expectation(for: NSPredicate(format: "label != %@", enRouteLabel), evaluatedWith: primary)
+        waitForExpectations(timeout: 5)
+
+        // 🚩 2026-09-17：这一态（`DRIVER_EN_ROUTE`）已从地图 + 底部面板换成四步骨架，
+        // 所以这里不再断言 `volunteerServicePanel` 与地图底图。**被测行为没变** ——
+        // 「挂住的详情/上报没有冻住界面，控件滚一下仍然可达」在新页面上同样要成立。
+        let releaseRow = app.descendants(matching: .any)["volunteerOrderFlowRow-release"].firstMatch
+        XCTAssertTrue(releaseRow.waitForExistence(timeout: 5), "骨架里没有「我去不了」那一行")
+        app.swipeUp()
+        app.swipeDown()
         XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable)
-        // 面板内容高于可视区：回到顶部后「取消订单」落在折叠区以下，本来就点不到。
-        // 这条测试要证明的是「卡住的详情/上报没有冻住面板，控件滚一下仍然可达」，
-        // 不是「任意滚动位置都能看见底部按钮」，所以先滚到底再断言可点。
-        panel.swipeUp()
-        XCTAssertTrue(waitForElementToBeHittable(app.buttons["取消订单"].firstMatch, timeout: 3))
-        XCTAssertTrue(app.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.exists)
+        XCTAssertTrue(waitForElementToBeHittable(primary, timeout: 3), "主按钮贴底常驻，任何滚动位置都该点得到")
     }
 
     @MainActor
@@ -469,13 +464,10 @@ final class blindRunUITests: XCTestCase {
         )
 
         openCurrentVolunteerService(app, requirePhone: false)
-        let enRouteButton = app.buttons["我已出发"].firstMatch
-        XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5))
-        enRouteButton.tap()
-        let arriveButton = app.buttons["我已到达约定地点"].firstMatch
-        XCTAssertTrue(arriveButton.waitForExistence(timeout: 5))
-        arriveButton.tap()
+        let enRouteLabel = tapVolunteerFlowPrimary(app)
+        tapVolunteerFlowPrimary(app, after: enRouteLabel)
 
+        // 到了 `DRIVER_ARRIVED` 就回到旧的地图 + 底部面板（本轮只搬了前三态）。
         XCTAssertTrue(app.buttons["开始服务"].firstMatch.waitForExistence(timeout: 5))
         let panel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
         XCTAssertTrue(panel.exists)
@@ -573,12 +565,10 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerActiveOrder: true
         )
 
-        openAcceptedVolunteerService(app)
+        let enRouteLabel = openAcceptedVolunteerService(app)
         attachScreenshot(named: "volunteer-service-accepted", app: app)
 
-        let arriveButton = app.buttons["我已到达约定地点"].firstMatch
-        XCTAssertTrue(arriveButton.waitForExistence(timeout: 5), "Accepted service page should show arrive action")
-        arriveButton.tap()
+        tapVolunteerFlowPrimary(app, after: enRouteLabel)
 
         let startButton = app.buttons["开始服务"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should show start-service action")
@@ -1756,12 +1746,39 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.buttons["取消"].exists)
     }
 
-    private func openAcceptedVolunteerService(_ app: XCUIApplication) {
+    /// 进到「出发」那一态，返回刚点过的那枚主按钮的文案（给下一次流转当去重依据）。
+    @discardableResult
+    private func openAcceptedVolunteerService(_ app: XCUIApplication) -> String {
         openCurrentVolunteerService(app)
+        return tapVolunteerFlowPrimary(app)
+    }
 
-        let enRouteButton = app.buttons["我已出发"].firstMatch
-        XCTAssertTrue(enRouteButton.waitForExistence(timeout: 5), "Accepted service page should show en-route action")
-        enRouteButton.tap()
+    /// 点陪跑员订单页的主按钮，返回它当时的文案。
+    ///
+    /// 四步骨架里这枚按钮**位置一格不动、只换文字**（`我出发了` → `我已到达集合点`），
+    /// 所以两次流转取的是同一个 identifier。按中文文案取会在每次文案微调时全线飘红，
+    /// 而那种红没有任何信息量（记忆 `merged-prs-whose-tests-never-ran`）。
+    ///
+    /// `after` 不为空时先等文案真的换过 —— 否则连点两次会落在同一个状态上，
+    /// 而第二次点击会被后端拒绝，用例红在一个与被测行为无关的地方。
+    @discardableResult
+    private func tapVolunteerFlowPrimary(
+        _ app: XCUIApplication,
+        after previousLabel: String? = nil,
+        timeout: TimeInterval = 8
+    ) -> String {
+        let button = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
+        XCTAssertTrue(button.waitForExistence(timeout: timeout), "陪跑员订单页没有主按钮")
+        if let previousLabel {
+            expectation(
+                for: NSPredicate(format: "label != %@", previousLabel),
+                evaluatedWith: button
+            )
+            waitForExpectations(timeout: timeout)
+        }
+        let label = button.label
+        button.tap()
+        return label
     }
 
     /// 走到志愿者的服务中页。
@@ -1798,11 +1815,22 @@ final class blindRunUITests: XCTestCase {
                 "全号不得作为可见文本出现"
             )
             XCTAssertTrue(
-                app.buttons["拨打盲人电话"].firstMatch.exists,
-                "掩码之后，拨号按钮是志愿者够到真号的唯一出口"
+                app.descendants(matching: .any)["volunteerOrderFlowRow-phone"].firstMatch.exists,
+                "掩码之后，拨号那一行是志愿者够到真号的唯一出口"
             )
         } else {
-            XCTAssertTrue(app.navigationBars["服务中"].waitForExistence(timeout: 8))
+            // 2026-09-17：**两条路都算「进到订单页了」**。邀请 / 约好 / 出发三态是四步骨架
+            // （导航栏「陪跑订单」），汇合 / 跑步中 / 已完成仍是旧的地图 + 底部面板
+            // （「服务中」）—— 调用方各自 seed 不同状态，这个 helper 两边都要认。
+            //
+            // 断 identifier 而不是断导航栏标题：标题是用户可见文案，抄进 UI 测试的
+            // 误报率见记忆 `merged-prs-whose-tests-never-ran`。
+            let skeleton = app.descendants(matching: .any)["volunteerOrderFlowStatusCard"].firstMatch
+            let legacyPanel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
+            XCTAssertTrue(
+                skeleton.waitForExistence(timeout: 8) || legacyPanel.waitForExistence(timeout: 8),
+                "没进到订单页：四步骨架与旧面板都没出现"
+            )
         }
     }
 

@@ -415,6 +415,22 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     /// 未接单时为 nil，与 `volunteerId` / `volunteerName` 同一个下发窗口。
     var volunteerTotalCompleted: Int?
 
+    /// 配速区间（秒/公里），**与 `paceMaxSecondsPerKm` 成对出现或成对缺席**。
+    ///
+    /// 后端一直在发（`api_spec.yaml` 的 `OrderDetailResponse` 有这三项），客户端此前没解码。
+    /// 接进来的理由是设计交付文档 v3 §5 的陪跑员端订单页要显示「跑多远 / 配速」——
+    /// 而「中等」对一个人是 5'30"、对另一个是 7'00"，定性档位答不了「我跟不跟得下来」。
+    ///
+    /// `nil` = 用户没填。**不拿 `pacePreference` 反推一个区间**：那是编数字。
+    /// 一律加在末尾，理由见上面 `volunteerId` 那段。
+    var paceMinSecondsPerKm: Int?
+    var paceMaxSecondsPerKm: Int?
+    /// 本次计划里程（米）。`nil` = 用户没填 ⇒ 那一行整行不渲染。
+    ///
+    /// ⚠️ 与「志愿者到起点的距离」不是一回事，也与起终点直线距离不是一回事
+    /// （后者绕圈跑时为 0）。这是「这一单要跑多远」。
+    var plannedDistanceMeters: Int?
+
     var id: Int64 { orderId }
 
     func replacingStatus(with status: RunOrderStatus) -> OrderDetailResponse {

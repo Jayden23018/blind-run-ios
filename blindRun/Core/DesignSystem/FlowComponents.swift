@@ -65,11 +65,16 @@ struct FlowAvatar: View {
     let diameter: CGFloat
     let background: Color
     let foreground: Color
+    /// 拿不到姓名时圆里那个字。默认「陪」是跑者端在看陪跑员；陪跑员端在看跑者，传「跑」。
+    ///
+    /// 做成参数而不是在两端各画一枚头像：这个圆的尺寸、字号、底色、对读屏隐藏
+    /// 四件事两端完全一样，不同的只有这一个字。
+    var placeholder: String = "陪"
 
     /// 取姓氏。`nil` / 空名字给一个中性占位，**不给「?」** —— 问号在读屏被隐藏的前提下
     /// 只对视觉用户可见，而它传达的是「出错了」而不是「还没匹配到人」。
     private var initial: String {
-        guard let first = name?.trimmingCharacters(in: .whitespacesAndNewlines).first else { return "陪" }
+        guard let first = name?.trimmingCharacters(in: .whitespacesAndNewlines).first else { return placeholder }
         return String(first)
     }
 
@@ -350,11 +355,23 @@ struct FlowActionButton: View {
             .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(isLoading || !isEnabled)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(accessibilityLabel ?? title)
         .accessibilityHintIfPresent(accessibilityHint)
+        // 🔴 **`.disabled()` 必须挂在 `.accessibilityElement(children: .ignore)` 之后。**
+        //
+        // 反过来（原先就是反的）时，`.disabled` 打在**里面那个 `Button`** 上，而
+        // `children: .ignore` 紧接着合成了一个**新的**无障碍元素并丢掉子元素的全部特征 ——
+        // 「不可用」跟着一起丢。表现是：按钮真的点不动（`.disabled` 的交互那一半照常生效），
+        // 但读屏里它仍是一个完全正常的按钮，**不念「变暗」**，盲人双击之后什么都不发生、
+        // 什么都不念。而那正是这个组件的注释里承诺不会发生的事。
+        //
+        // 2026-09-17 由 `testVolunteerServiceRemainsInteractiveWhenTransitionConfirmationNeverReturns`
+        // 红出来（`isEnabled` 恒为真）。在此之前全仓没有任何用例断言过某枚
+        // `FlowActionButton` 是禁用的，所以这条承诺**三周里一次都没被验过** ——
+        // 跑者端倒计时那三秒的「准备中」同样中招。
+        .disabled(isLoading || !isEnabled)
     }
 
     private var foreground: Color {

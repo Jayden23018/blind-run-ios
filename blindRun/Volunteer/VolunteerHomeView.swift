@@ -1538,6 +1538,13 @@ struct VolunteerDispatchOverlay: View {
     let onRespond: (OrderRespondAction) -> Void
     let onDecline: () -> Void
 
+    /// 「查看详情」打开的那一层：设计交付文档 v3 §5 的「邀请」订单页（四步骨架）。
+    ///
+    /// 🚩 **弹层刻意保持紧凑，不在这里画四步进度条。** 它是一次打断 —— 30 秒内必须让人
+    /// 一眼看完并做决定；完整订单页是给「我想再看看」的人的第二跳。两屏共用同一份纯函数
+    /// （`VolunteerOrderFlowPresentation.make(dispatch:)`），所以不会说出两套话。
+    @State private var showsInviteDetail = false
+
     var body: some View {
         ZStack {
             // 半透明遮罩在「降低透明度」开启时换成不透明：那个开关的用户正是被
@@ -1547,7 +1554,9 @@ struct VolunteerDispatchOverlay: View {
                 .accessibilityHidden(true)
 
             VStack(spacing: 20) {
-                Text("新订单派单")
+                // 逐字取自设计交付文档 v3 §6 的推送文案，与系统推送标题保持同一个词 ——
+                // 用户是被那条推送叫过来的，两处不同名会让人以为点开的是别的东西。
+                Text("新的陪跑邀请")
                     .font(.title2.bold())
                     .foregroundColor(AppColors.textPrimary)
                     .accessibilityAddTraits(.isHeader)
@@ -1643,7 +1652,7 @@ struct VolunteerDispatchOverlay: View {
                 // Action buttons
                 HStack(spacing: 16) {
                     Button(action: onDecline) {
-                        Text("拒绝")
+                        Text(VolunteerOrderFlowCopy.declineInvite)
                             .font(AppFonts.body().weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
@@ -1652,11 +1661,18 @@ struct VolunteerDispatchOverlay: View {
                             .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile))
                     }
                     .disabled(isResponding)
-                    .accessibilityLabel("拒绝订单")
-                    .accessibilityHint("拒绝此次派单")
+                    .accessibilityLabel(VolunteerOrderFlowCopy.declineInvite)
+                    .accessibilityHint("直接回复去不了，不问原因、不计任何记录")
 
                     primaryActionButton
                 }
+
+                Button("查看详情") { showsInviteDetail = true }
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.primary)
+                    .frame(minHeight: 44)
+                    .accessibilityHint("打开完整的陪跑订单页，倒计时继续走")
+                    .accessibilityIdentifier("volunteerDispatchDetailButton")
 
                 if isResponding {
                     ProgressView("正在响应...")
@@ -1670,14 +1686,57 @@ struct VolunteerDispatchOverlay: View {
             .padding(.horizontal, 24)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("新订单派单通知，剩余\(countdown)秒")
+        .accessibilityLabel("新的陪跑邀请，剩余\(countdown)秒")
+        .fullScreenCover(isPresented: $showsInviteDetail) { inviteDetail }
     }
 
-    /// 主动作按钮。「先聊聊」还是「直接接单」由 `WSNewOrder.requiresIntroCall` 决定。
+    /// 完整的「邀请」订单页。与「约好」「出发」同一个骨架，进度条第 1 步高亮。
     ///
-    /// 🚩 `requiresIntroCall == false` 的三种成因（通话功能整体关闭 / 这两人已磨合成功过 /
-    /// 距开跑已不够聊一轮）客户端**分不出来**，所以「接单」这一支的文案不解释原因 ——
-    /// 写任何一种都可能是错的。措辞沿用通话磨合上线前的原实现，不新造一套说法。
+    /// 倒计时照常走：这一层是**同一次派单的另一种看法**，不是一个可以慢慢看的副本。
+    /// 30 秒到点时 `viewModel.incomingOrder` 置空 ⇒ 弹层连同这一层一起消失。
+    private var inviteDetail: some View {
+        NavigationStack {
+            VolunteerOrderFlowPage(
+                presentation: .make(dispatch: order, remainingSeconds: countdown),
+                // 派单载荷里没有跑者姓名（`AGENTS.md` §8：接单前只给取值空间封闭的字段），
+                // 所以头像圆里是「跑」。**不编一个名字**。已投 handoff 请后端补掩码姓名。
+                runnerName: nil,
+                onRowAction: { action in
+                    guard case .declineInvite = action else { return }
+                    showsInviteDetail = false
+                    onDecline()
+                },
+                onPrimaryAction: {
+                    showsInviteDetail = false
+                    // 发 ACCEPT 还是 INTERESTED **只认推送里的 `requiresIntroCall`**，
+                    // 与弹层上那枚按钮走同一条路。客户端不许自己算。
+                    onRespond(order.dispatchRespondAction)
+                },
+                isPrimaryLoading: isResponding,
+                isPrimaryEnabled: !isResponding,
+                footer: { EmptyView() }
+            )
+            .navigationTitle(VolunteerOrderFlowCopy.pageTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("返回") { showsInviteDetail = false }
+                        .accessibilityHint("回到邀请弹窗，倒计时没有停")
+                }
+            }
+        }
+    }
+
+    /// 主动作按钮。
+    ///
+    /// 🚩 **两种 `OrderRespondAction` 下文案相同**（设计交付文档 v3 §5：主按钮就叫
+    /// 「接下这次陪跑」）。志愿者要做的决定是同一个 —— 把这一单接下来；
+    /// 「先聊聊还是直接接」是后端的机制（`requiresIntroCall`），不该变成他要理解的两个按钮。
+    /// 而 `requiresIntroCall == false` 的三种成因（通话功能整体关闭 / 这两人已磨合成功过 /
+    /// 距开跑已不够聊一轮）客户端**分不出来**，写任何一种解释都可能是错的。
+    ///
+    /// **两个 identifier 保留**：它们编码的是「这一下会发哪个 action」，
+    /// 而那正是用例该断言的东西 —— 文案一样了，读屏提示与 identifier 仍然分得出来。
     @ViewBuilder
     private var primaryActionButton: some View {
         let action = order.dispatchRespondAction
@@ -1685,7 +1744,7 @@ struct VolunteerDispatchOverlay: View {
         Button {
             onRespond(action)
         } label: {
-            Text(needsIntroCall ? "有意向，想先聊聊" : "接单")
+            Text(VolunteerOrderFlowCopy.acceptInvite)
                 .font(AppFonts.body().weight(.semibold))
                 .frame(maxWidth: .infinity)
                 .frame(height: 50)
@@ -1694,13 +1753,13 @@ struct VolunteerDispatchOverlay: View {
                 .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile))
         }
         .disabled(isResponding)
-        .accessibilityLabel(needsIntroCall ? "有意向，想先聊聊" : "接受订单")
+        .accessibilityLabel(VolunteerOrderFlowCopy.acceptInvite)
         // 「先聊聊」那一支要说清**还不是接单**：把 INTERESTED 当成接单的人会以为事情定了，
         // 然后错过跑者那通电话 —— 而 20 分钟窗口过了这一单就换人了。
         .accessibilityHint(
             needsIntroCall
                 ? "先锁定这一单并等跑者打电话给你，聊完双方都说合适才算接单"
-                : "接受此次派单并进入服务流程"
+                : "接下这一单并进入服务流程"
         )
         .accessibilityIdentifier(
             needsIntroCall ? "volunteerDispatchInterestedButton" : "volunteerDispatchAcceptButton"
