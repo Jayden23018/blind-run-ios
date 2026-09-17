@@ -806,7 +806,12 @@ final class blindRunTests: XCTestCase {
             locationAuthorized: true
         )
 
-        let didBook = await waitUntil { viewModel.currentInvite?.outcome == .accepted }
+        // 等到**整条链路跑完**（`isRespondingToDispatch` 在最后一次刷新之后才落回 false）。
+        // 只等 `outcome == .accepted` 是不够的：结果先落在卡上、刷新在后面，
+        // 那一刻 `acceptedDispatchInitialOrder` 还没回来。
+        let didBook = await waitUntil {
+            viewModel.currentInvite?.outcome == .accepted && !viewModel.isRespondingToDispatch
+        }
         XCTAssertTrue(didBook)
         XCTAssertNil(
             viewModel.acceptedDispatchOrderId,
@@ -817,7 +822,6 @@ final class blindRunTests: XCTestCase {
         XCTAssertEqual(viewModel.activeOrder?.orderId, 1)
         XCTAssertEqual(viewModel.activeOrder?.status, .pendingAccept)
         XCTAssertNotNil(viewModel.incomingOrder, "结果卡还在，邀请不该从队列里消失")
-        XCTAssertFalse(viewModel.isRespondingToDispatch)
         XCTAssertEqual(speechService.lastSpokenText, "已接受订单")
 
         viewModel.openAcceptedOrder(orderID: 1)
@@ -1153,7 +1157,10 @@ final class blindRunTests: XCTestCase {
             locationAuthorized: true
         )
 
-        let didAccept = await waitUntil { viewModel.acceptedDispatchOrderId == 1 }
+        // 等的是「接下来了」而不是「导航出去了」—— 接单之后卡片原地变「已约好」，
+        // 要等用户点「查看订单」才导航（设计交付 v3 §4.4.3）。这一步只是同步点，
+        // 这条用例真正要验的是下面那次 `load` 之后 `activeOrder` 是不是那一单。
+        let didAccept = await waitUntil { viewModel.currentInvite?.outcome == .accepted }
         XCTAssertTrue(didAccept)
 
         await viewModel.load(currentLocation: nil, locationAuthorized: false)

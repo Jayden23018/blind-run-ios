@@ -427,13 +427,16 @@ final class VolunteerHomeViewModel: ObservableObject {
                 // `INTRO_CALL_REQUIRED` 时会自己改口重发一次），这里只是记结果。
                 // 判据用 `effectiveAction` 而不是入参 `action`：改过口之后这一单没接成。
                 let acceptedOrderId = effectiveAction == .accept ? order.orderId : nil
-                let acceptedOrder = await refreshAfterDispatchResponse(
-                    acceptedOrderId: acceptedOrderId,
-                    appState: appState
-                )
-                isRespondingToDispatch = false
                 appState.realtimeCoordinator.clearDispatch(orderID: order.orderId)
-                acceptedDispatchInitialOrder = acceptedOrder
+
+                // 🔴 **结果先落在卡上，再去刷新 —— 顺序不能反。**
+                // `refreshAfterDispatchResponse` 里会走一遍 `apply(summary:)`，而那里面有
+                // 冷启动三岔路 `resolveLaunchRouteIfNeeded()`。先刷新的话，那一刻这条邀请
+                // 还是「待回复」状态，三岔路的 guard 放行 ⇒ 它直接把人推进订单页，
+                // 「已约好」那张卡一闪而过。由
+                // `testAcceptingDispatchShowsTheBookedCardAndOnlyNavigatesOnTap` 红出来
+                // （第一版修在 guard 上，没用 —— 问题不在判据，在这两步的先后）。
+                //
                 // 穷举 switch：`OrderRespondAction` 将来加值时编译器会逼一次决策。
                 // 此前这里是 `if .interested { … } else { … }`，而那个 `else` 把 `.decline`
                 // 也当成了「已接下」。
@@ -454,6 +457,13 @@ final class VolunteerHomeViewModel: ObservableObject {
                     removeInvite(orderID: order.orderId)
                 }
                 speechService?.speak(Self.dispatchResponseSpeech(for: effectiveAction))
+
+                let acceptedOrder = await refreshAfterDispatchResponse(
+                    acceptedOrderId: acceptedOrderId,
+                    appState: appState
+                )
+                isRespondingToDispatch = false
+                acceptedDispatchInitialOrder = acceptedOrder
             } catch let error as APIError {
                 isRespondingToDispatch = false
                 if appState.handleAuthenticatedAPIError(error) {
@@ -1261,10 +1271,18 @@ final class VolunteerHomeViewModel: ObservableObject {
     ///
     /// 🚩 通话磨合让路：`pendingIntroCallOrder` 在场时一律不动。那一态有 20 分钟窗口、
     /// 对面有人在等电话，而订单页随时可以再进（`navigationDestination` 里的顺序也是这个优先级）。
+    ///
+    /// 🚩 **邀请卡的结果卡同样让路，理由一模一样。** 刚接下那一刻屏幕上是「已约好」，
+    /// 而它是唯一一处告诉陪跑员「跑者的全名和电话已经放进订单」的地方（设计交付 v3 §4.4.3）。
+    /// 这一岔会在**首次加载还没跑完时收到派单**的情况下真的撞上：首次加载的窗口还开着，
+    /// 而接单后的 `refreshAfterDispatchResponse` 会再走一遍 `apply(summary:)` ——
+    /// 于是这条路由把那张确认卡一闪而过。由
+    /// `testAcceptingDispatchShowsTheBookedCardAndOnlyNavigatesOnTap` 红出来。
     private func resolveLaunchRouteIfNeeded() {
         guard !didResolveLaunchRoute,
               pendingIntroCallOrder == nil,
               acceptedDispatchOrderId == nil,
+              invites.allSatisfy(\.isAwaitingReply),
               let order = Self.launchOrderToOpen(
                   activeOrder: activeOrder,
                   scheduledOrders: scheduledOrders
