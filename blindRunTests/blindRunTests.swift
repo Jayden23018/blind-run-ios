@@ -5167,7 +5167,7 @@ final class blindRunTests: XCTestCase {
             initialOrder: makeOrder(orderId: 1, status: .driverArrived)
         )
 
-        await viewModel.complete(summary: "")
+        await viewModel.complete()
 
         XCTAssertEqual(viewModel.errorMessage, RunOrderStatus.driverArrived.arrivedWaitingCopy)
         XCTAssertEqual(speechService.lastSpokenText, RunOrderStatus.driverArrived.arrivedWaitingCopy)
@@ -5588,7 +5588,7 @@ final class blindRunTests: XCTestCase {
         let viewModel = VolunteerInServiceViewModel()
         viewModel.configure(with: appState, speechService: speechService, initialOrder: detail)
 
-        await viewModel.complete(summary: "已完成")
+        await viewModel.complete()
 
         let didConfirmCompletion = await waitUntil {
             viewModel.order?.status == .completed
@@ -5652,7 +5652,7 @@ final class blindRunTests: XCTestCase {
         )
         XCTAssertEqual(
             VolunteerServiceActions.actionKinds(for: .inProgress).map(\.title),
-            ["结束服务", "取消订单"]
+            ["结束陪跑", "取消订单"]
         )
     }
 

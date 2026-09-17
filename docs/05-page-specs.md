@@ -863,8 +863,8 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 - 操作按钮：
   - PENDING_ACCEPT：显示"前往出发地点"，提供"导航到出发地点"、"我已出发"和"取消订单"按钮
   - DRIVER_EN_ROUTE：显示"前往出发地点"，提供"导航到出发地点"、"我已到达"和"取消订单"按钮
-  - DRIVER_ARRIVED：显示已到达状态、"开始服务"按钮和"取消订单"按钮，不显示"结束服务"按钮
-  - IN_PROGRESS："结束服务"按钮（最小 64pt）和"取消订单"按钮
+  - DRIVER_ARRIVED：显示已到达状态、"开始服务"按钮和"取消订单"按钮，不显示"结束陪跑"按钮
+  - IN_PROGRESS："结束陪跑"按钮（最小 64pt，**长按 2 秒**，左侧 ⌀40 环形进度）和"取消订单"按钮
   - PENDING_ACCEPT："取消订单"按钮
 - 志愿者端仅在 `IN_PROGRESS` 显示"一键求助"入口（`RunOrderStatus.canVolunteerTriggerEmergency == (self == .inProgress)`），**自 2026-07-31 起已开放**。~~此前全状态隐藏，因为后端按触发人建事件~~ —— 后端 commit `a5ba523`（SOS-1）已把 `event.userId` 改为取订单的盲人方，用 `TriggerType.VOLUNTEER_BUTTON` 区分来源。志愿者**没有撤销按钮**（后端 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`）：一对一陪跑里志愿者可能就是威胁来源
 - **求助入口的形态与位置（2026-08-19 定）**：地图**右上角的 64pt 圆形悬浮盾牌**（`VolunteerSOSFloatingButton`），**不得放回底部操作按钮堆**。此前它是底部面板上方的全宽 64pt 红色 `PrimaryButton`：与"结束服务""取消订单"同一个组件、同一个宽度、同样落在拇指自然区，而面板高度按内容自适应，导致它的垂直位置会上下漂移。对标产品（Uber Driver 左下盾牌 / Lyft Driver 右上图标 / 滴滴左下"安全中心"）无一例外把安全入口做成地图角落的悬浮图标 + 二级确认，没有一款混排进常规操作列表 —— 见 `docs/research/volunteer-sos-button-placement-20260819.md`。误触在这一侧撤不回来（后端对志愿者 `FALSE_ALARM` 恒 403），所以"远离拇指区"是安全要求不是观感偏好。由 `AccessibilityAuditTests.testVolunteerInServiceSOSStaysOutOfTheActionButtonCluster` 钉住。面板上方那条只保留"确认需要帮助"（响应盲人求助）与求助结果文案，两者都不成立时渲染为空、面板贴底
@@ -881,7 +881,7 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 - DRIVER_EN_ROUTE：点击"我已到达" → 订单变为 DRIVER_ARRIVED
 - DRIVER_ARRIVED：点击"开始服务" → 调用 `POST /api/orders/{id}/start-service` → 订单变为 IN_PROGRESS
 - PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS：点击"取消订单" → 二次确认 → REMATCHING，志愿者端退出当前服务流程
-- IN_PROGRESS：点击"结束服务" → 确认弹窗 → 服务完成
+- IN_PROGRESS：长按"结束陪跑"满 2 秒 → 服务完成。**没有轻点路径**，中途松手即取消（环形归零、不播报、无提示）
 - 点击盲人电话 → 系统拨号
 
 **状态变化**：
@@ -890,21 +890,21 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 - DRIVER_EN_ROUTE → DRIVER_ARRIVED（志愿者点击已到达）：UI 更新
 - PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS → REMATCHING：跳转首页并提示系统将为盲人重新匹配
 - 志愿者取消成功后不再用志愿者 token 拉取已解除参与关系的订单详情，直接退出服务流并清空本地当前订单
-- DRIVER_ARRIVED → IN_PROGRESS（志愿者点击开始服务）：UI 更新；只有进入 IN_PROGRESS 后才显示"结束服务"
+- DRIVER_ARRIVED → IN_PROGRESS（志愿者点击开始服务）：UI 更新；只有进入 IN_PROGRESS 后才显示"结束陪跑"
 - IN_PROGRESS → COMPLETED：跳转首页 + 显示"服务完成，获得 +100 积分"
 - DRIVER_EN_ROUTE / DRIVER_ARRIVED：志愿者端不显示求助入口（入口只在 IN_PROGRESS 开放，见上文"主要内容"）；IN_PROGRESS 时无论哪一方发起求助，**订单状态都不变**（求助是独立事件，不是订单状态）
 - `REMATCHING` 作为真实后端状态保留，表示志愿者接单后主动取消；盲人端提示"正在确认志愿者状态，请稍候；如需更换志愿者，系统会继续处理。"，并显示"取消订单"逃生按钮，取消请求使用盲人 token
 
 **错误状态**：
 - 网络错误 → 保留当前 UI，静默重试
-- "我已出发"、"我已到达"、"开始服务"、"结束服务"和取消的状态变更 POST 最多等待 12 秒，并与后续详情确认分离；POST 返回后立即释放操作 spinner，不等待 GET 才恢复页面
+- "我已出发"、"我已到达"、"开始服务"、"结束陪跑"和取消的状态变更 POST 最多等待 12 秒，并与后续详情确认分离；POST 返回后立即释放操作 spinner，不等待 GET 才恢复页面
 - POST 成功或传输结果不确定时显示"操作已提交，状态待确认"，禁止重复提交同一状态转换；地图、导航、返回、取消入口和服务信息滚动保持可用
 - "我已到达"只能禁用其对应的状态提交按钮；POST 或 20 秒确认查询悬挂时不得禁用服务面板滚动、返回和外部导航，也不得通过地图或同行位置过期刷新维持 spinner
 - WebSocket 状态事件或带 20 秒硬截止的详情查询负责确认正式状态；仍未确认时显示"状态确认延迟"和只读"重新确认状态"，不得恢复操作 spinner，也不得重复 POST
 - 明确 4xx/5xx 时恢复原状态按钮并允许重试；401 使用现有登录失效流程。迟到响应不得直接覆盖已确认的新状态
 - 合法 WebSocket 状态先提交页面、按钮与播报；定位准备、位置发送、地图更新和详情刷新随后独立执行。地图渲染、地图配置故障降级和位置上报不得参与订单按钮或详情确认状态机
 - 点击状态按钮时只禁用对应转换操作；ScrollView、返回、外部导航、取消入口和根视图命中始终保持可用
-- 结束服务失败 → "操作失败，请重试"；若仍处于 DRIVER_ARRIVED，显示"开始服务"按钮并阻止调用 `/api/orders/{id}/finish`
+- 结束陪跑失败 → "操作失败，请重试"；若仍处于 DRIVER_ARRIVED，显示"开始服务"按钮并阻止调用 `/api/orders/{id}/finish`。**失败后环形进度必须归零** —— 满格环形是"已经结束了"唯一的视觉读数，而此刻订单还在跑
 
 **空状态**：不适用。
 
@@ -912,7 +912,7 @@ Magic Tap（双指双击）挂在**标签栏容器**上，所以**三个 tab 都
 - "我已到达"按钮：最小高度 64pt，accessibilityLabel = "我已到达约定地点"
 - "开始服务"按钮：最小高度 64pt，accessibilityLabel = "开始服务"，accessibilityHint = "点击后通知盲人服务已开始"
 - "取消订单"按钮：PENDING_ACCEPT / DRIVER_EN_ROUTE / DRIVER_ARRIVED / IN_PROGRESS 显示，需二次确认，accessibilityHint = "需要确认后取消当前订单"
-- "结束服务"按钮：最小高度 64pt，需二次确认
+- "结束陪跑"按钮：最小高度 64pt，**长按 2 秒**（不是二次确认弹窗）。accessibilityLabel = "结束陪跑，长按 2 秒"，并提供自定义无障碍动作「结束陪跑」供读屏用户免长按触发；双击不结束，改为念出该怎么做
 - 求助盾牌：64×64pt，accessibilityLabel = "一键求助，遇到紧急情况时点击"（与盲人端**逐字相同** —— 可见文字是圆里的"求助"两字，读屏念出来的必须仍是完整那句），accessibilityHint 说明需要二次确认并会上报当前位置。志愿者端其余触达走 Apple 的 44pt 线（`guard.mjs` 的 `small-touch-target` 显式排除 `/blindRun/Volunteer/`），64pt 是选出来的余量、不是被强制的
 - TTS：进入 DRIVER_ARRIVED 状态不自动播报（由盲人端播报）
 - TTS：进入 IN_PROGRESS 状态播报"服务已开始"

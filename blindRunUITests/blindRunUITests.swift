@@ -259,21 +259,20 @@ final class blindRunUITests: XCTestCase {
 
         let startButton = app.buttons["开始服务"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should allow the volunteer to start service")
-        let completeButton = app.buttons["结束服务"].firstMatch
-        XCTAssertFalse(completeButton.waitForExistence(timeout: 1), "Arrived order must not allow completing service before IN_PROGRESS")
+        // 按 identifier 取，不按文案：这枚按钮不带 `.isButton` trait（它没有轻点路径，
+        // 读屏走自定义动作），`app.buttons[...]` 取不到它。
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertFalse(finishControl.waitForExistence(timeout: 1), "Arrived order must not allow completing service before IN_PROGRESS")
         startButton.tap()
-        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should allow completing service")
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 8), "In-progress order should expose the long-press finish control")
         // 2026-08-01 起志愿者可以代盲人发起求助（后端已按订单参与方归属事件，不再回推给按按钮的人）。
         // 这里原本断言「志愿者永远看不到求助入口」，那是后端送错人时期的止血，现在反过来验它必须可用。
         assertEmergencyActionIsUsable(app)
 
-        completeButton.tap()
-        let confirmComplete = app.buttons["确认完成服务"].firstMatch
-        XCTAssertTrue(
-            confirmComplete.waitForExistence(timeout: 5),
-            "Completing service should require an explicit confirmation action"
-        )
-        confirmComplete.tap()
+        // 结束要按满 2 秒（没有轻点路径）。松手即取消那一半在
+        // `testVolunteerFinishesEscortOnlyAfterHoldingLongEnough` 里单独验 ——
+        // 这条烟囱用例要先走完出发 / 到达 / 开始三步，沿途任何一条红灯都会把它挡在这之前。
+        finishControl.press(forDuration: 2.6)
 
         let summary = app.descendants(matching: .any)["completedTrackSummary"].firstMatch
         XCTAssertTrue(summary.waitForExistence(timeout: 10), "Completed service should show the reusable track summary")
@@ -302,6 +301,52 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(
             app.descendants(matching: .any)["routeReplayRepeatStatus"].firstMatch.waitForExistence(timeout: 5),
             "The replay page must stay usable without inspecting the map"
+        )
+    }
+
+    /// 长按 2 秒结束陪跑的**行为**那一半：松手即取消 / 按满才结束。
+    ///
+    /// 走**指针路径**（`press(forDuration:)` 注入的是物理触摸），形状那一半在
+    /// `AccessibilityAuditTests.testVolunteerFinishEscortControlIsReachableAndBigEnough`。
+    /// 两条路最终调的是同一个 `VolunteerFinishLongPressButton.fire()`。
+    /// ⛔ 不要在这里改成「tap 一下再断言结束了」：`tap()` 不经过 accessibility action，
+    /// 而这枚控件没有轻点路径 —— 那样写必红，且红得毫无信息量。
+    ///
+    /// 直接把订单预置在 `IN_PROGRESS`，不走烟囱用例那条出发 → 到达 → 开始的长路：
+    /// 那条路上有一条与本功能无关的既有红灯（求助悬浮键 `isHittable == false`，
+    /// 2026-09-16 在 `main@fdc6579` 上复现过同一签名），挂在它后面等于这一条永远跑不到。
+    @MainActor
+    func testVolunteerFinishesEscortOnlyAfterHoldingLongEnough() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true,
+            seedOrderStatus: "IN_PROGRESS"
+        )
+
+        openCurrentVolunteerService(app, requirePhone: false)
+
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 15), "服务进行中必须有结束入口")
+
+        let completedSummary = app.descendants(matching: .any)["completedTrackSummary"].firstMatch
+        // 两个时长写死在这里而不是引用 App 侧常量（UI 测试是另一个进程，`@testable import`
+        // 够不着）：阈值本身由 `VolunteerFinishLongPressTests` 钉住，这里只要一个明显不足、
+        // 一个明显足够。
+        finishControl.press(forDuration: 0.6)
+        XCTAssertFalse(
+            completedSummary.waitForExistence(timeout: 3),
+            "松手即取消：不足 2 秒就结束了陪跑，等于误触一次不可撤销的操作"
+        )
+        XCTAssertTrue(finishControl.exists, "取消一次长按之后，结束入口必须还在原地")
+
+        finishControl.press(forDuration: 2.6)
+        XCTAssertTrue(
+            completedSummary.waitForExistence(timeout: 10),
+            "按满 2 秒必须真的结束 —— 否则这枚按钮对不开读屏的人就是个按不动的东西"
         )
     }
 
@@ -508,11 +553,11 @@ final class blindRunUITests: XCTestCase {
 
         let startButton = app.buttons["开始服务"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should show start-service action")
-        let completeButton = app.buttons["结束服务"].firstMatch
-        XCTAssertFalse(completeButton.waitForExistence(timeout: 1), "Arrived order should hide complete button")
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertFalse(finishControl.waitForExistence(timeout: 1), "Arrived order should hide the finish control")
         attachScreenshot(named: "volunteer-service-arrived", app: app)
         startButton.tap()
-        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "Started service should show complete action")
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 8), "Started service should show the long-press finish control")
         attachScreenshot(named: "volunteer-service-in-progress", app: app)
     }
 
@@ -1216,6 +1261,10 @@ final class blindRunUITests: XCTestCase {
         preseedVolunteerProfile: Bool = false,
         preseedVolunteerAvailable: Bool = false,
         preseedVolunteerActiveOrder: Bool = false,
+        /// 直接把预置订单落在某个状态上（`AIDRUN_UI_TEST_SEED_ORDER_STATUS`），
+        /// 免得为了验一个 `IN_PROGRESS` 的行为先走完出发 / 到达 / 开始三步。
+        /// 走那三步的用例会连带吃掉沿途每一条断言的红灯，验的东西就不是自己那一条了。
+        seedOrderStatus: String? = nil,
         forceRealVolunteerRegistration: Bool = false,
         unregisteredVolunteer: Bool = false,
         legacyTrainingStatusAfterFaceVerify: Bool = false,
@@ -1287,6 +1336,9 @@ final class blindRunUITests: XCTestCase {
         }
         if preseedVolunteerActiveOrder {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"
+        }
+        if let seedOrderStatus {
+            app.launchEnvironment["AIDRUN_UI_TEST_SEED_ORDER_STATUS"] = seedOrderStatus
         }
         if forceRealVolunteerRegistration {
             app.launchEnvironment["AIDRUN_UI_TEST_FORCE_REAL_REGISTRATION"] = "1"

@@ -64,7 +64,7 @@ Acceptance:
 Acceptance:
 
 - 不可服务、未认证、管理员未通过或无定位权限时不能接单。
-- `DRIVER_ARRIVED` 必须显示志愿者端"开始服务"动作并调用 `/api/orders/{id}/start-service`；结束服务必须二次确认，并且只能在 `IN_PROGRESS` 调用 `/api/orders/{id}/finish`。
+- `DRIVER_ARRIVED` 必须显示志愿者端"开始服务"动作并调用 `/api/orders/{id}/start-service`；结束陪跑必须长按 2 秒（无轻点路径，松手即取消），并且只能在 `IN_PROGRESS` 调用 `/api/orders/{id}/finish`。
 
 ### PR-IOS-05 Map, Voice and Accessibility
 

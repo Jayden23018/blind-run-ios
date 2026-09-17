@@ -517,6 +517,16 @@ final class AppState: ObservableObject {
             return self.safety
         }
 
+        // 锁屏实时活动要的三个数字。同样是 provider 而不是直接传 service：环境可以在运行时
+        // 切换（Mock / 生产），锁屏卡必须跟着当下那一个走。
+        //
+        // 只有陪跑员端会真的走到它 —— 盲人端订单页本来就每 10 秒拉一次 `/track`，
+        // 拉到后通过 `submitTrackStats` 推过去并复位节流器。
+        liveEscortCoordinator.trackStatsProvider = { [weak self] orderID in
+            guard let self else { throw CancellationError() }
+            return try await self.safety.orderTrack(orderId: orderID).blindStats
+        }
+
         // WS 重连成功后补读断线期间遗漏的通知，喂回 coordinator 复用去重/优先级排队。
         realtimeCoordinator.recoveryPublisher
             .receive(on: DispatchQueue.main)
