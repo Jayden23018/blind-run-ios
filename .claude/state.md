@@ -111,7 +111,19 @@
       ⚠️ **渐强震动没有自动化能验**，需要人上手按一次。
       ⚠️ 顺带确认一条**既有**红灯（见下方第五节）。
 - [ ] 阶段 4 · B 组异常警示条 + 求助中心单列重排（先答 C）
-- [ ] 阶段 5 · D 组锁屏实时活动（**要新建 Widget Extension target，得动 pbxproj**）
+- [x] **阶段 5 · D 组锁屏实时活动**（2026-09-16 完成，PR #146）
+
+      ```
+      RunLiveActivityTests + LiveEscortTrackTests + KeychainTokenStoreTests
+        passed=54 failed=0   （新用例 11 条，已验红）
+      ```
+      设备 iPhone 16 Pro，`transportType: wired`。既有红灯 3+2 条不在本次范围内，未触及。
+      🔴 **锁屏卡本身还没人工看过真机** —— 实时活动不在 App 进程里渲染，XCUITest 够不着，
+      PR 的测试计划里列了 4 条待人工验，其中最要紧的是「已锁且未认证时按钮响不响」。
+      新建了 `blindRunWidget` target（本仓库第一个 `.appex`），pbxproj 手写，
+      diff 里 `DEVELOPMENT_TEAM` 出现 0 次。
+      **零接触 `blindRun/Volunteer/**`**：起停挂在两端共用的 `LiveEscortSessionCoordinator`，
+      陪跑员端按 §2 的决定不显示对方姓名 ⇒ 卡片不需要任何身份信息。
 - [ ] 阶段 6 · E 深色 + F AX5 布局
 
 ### 并行性（2026-09-16 实查文件重叠面得出，别按阶段编号猜）
@@ -121,7 +133,7 @@
 | 线 | 内容 | 主要动的文件 |
 |---|---|---|
 | A | 阶段 2 · 播报队列 + 四种提示音 | `Voice/SpeechService.swift`、`Voice/SpeechInputService.swift`（`ToneSynthesizer`）、`BlindOrderStatusView` 约 15 处加优先级 |
-| B | 阶段 5 · 锁屏实时活动 | 新 Widget Extension target + `pbxproj` + 新文件；`BlindOrderStatusView` 只加起停钩子 |
+| ~~B~~ | ~~阶段 5 · 锁屏实时活动~~ | **已完成（PR #146）。** 实际落点与预估有一处出入：起停钩子没放在 `BlindOrderStatusView`，放在 `LiveEscortSessionCoordinator`（两端共用漏斗），那边只加了两行推姓名与数字 |
 | C | 阶段 3 的**志愿者那一半**（长按 2 秒结束） | `Volunteer/VolunteerOrderFlowViews.swift` |
 
 🔴 **线 A 必须给 `speak` 加带默认值的优先级参数，不改既有调用点。**
