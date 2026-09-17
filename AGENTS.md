@@ -45,79 +45,26 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 就地把它写进本文件或对应 skill，带上 `文件路径:行号`。上面 §1.1 那条 `guard.sh` → `guard.mjs`
 就是例子 —— 文件早改名了，规则里没跟，于是每次都要重查一遍才发现引用是错的。
 
-**已归档的语义认知（§1.4）索引：**
+**已归档的语义认知（§1.4）—— 查找表，正文在项目记忆里。**
 
-- 单测里构造硬件服务当「缺失状态」的前提是竞态：真机 CoreLocation 几毫秒就回调，
-  用 `LocationService.simulateMissingDeviceLocationForTesting()`（`blindRun/Map/LocationService.swift:169`）钉死。
-  详见记忆 `location-service-test-seam-and-weak-viewmodel-deps`。
-  另一半陷阱（view model 依赖是 `weak`，传临时对象等于传 nil）已按 §1.1 落成守卫规则
-  `weak-temporary`，不再靠人记。
+正文**不在这里留第二份**（§9 的教训：写「以 X 为准」再抄一份 X = 制造必然过期的第二源）。
+记忆索引 `MEMORY.md` 每个会话自动注入，下表只负责「症状 → 该查哪条」：
 
-- 本仓库有**两条**无障碍通道，只有 VoiceOver 那条被验收过。低视力用户的视觉通道
-  （对比度 / 横屏与 iPad / Dynamic Type 上限）从没被系统性检查过，三块空白打的是同一群人 ——
-  而 `VisionLevel.LOW_VISION` 在数据模型里是一等公民。改盲人端 UI 时要**问两遍**：
-  VoiceOver 用户怎么样？不开读屏、字调到 AX5、横屏、户外的低视力用户怎么样？
-  详见记忆 `low-vision-visual-channel-unaudited` 与 `docs/review/frontend-backend-alignment-review-20260812.md` §D。
-  这条抓不成静态守卫：对比度要看颜色**用在什么语义的文本上**（装饰图标不算），机器分不出来。
+| 遇到这个症状 | 查这条记忆 |
+|---|---|
+| 单测里构造硬件服务当「无定位」，真机上是竞态 | `location-service-test-seam-and-weak-viewmodel-deps` |
+| 改盲人端 UI —— 低视力的视觉通道（对比度/横屏/AX5）从没验收过 | `low-vision-visual-channel-unaudited` |
+| 崩在 `finishedPlaying:` `unrecognized selector`（接收者类名随机） | `finishedplaying-crash-means-player-freed-not-delegate` |
+| XCUITest `Failed to get matching snapshots: Timed out` | `snapshot-timeout-means-a-system-app-took-over` |
+| 真机跑测 `Test crashed with signal kill`，跑了大半随机死几条 | `ui-test-runner-needs-usb-not-wifi`（第七种） |
+| 写了「失败时在 `List` 末尾多一行字」的分支 | `claimed-fallback-may-not-exist-in-release` |
+| 想用 `tap()` 触发 `accessibilityRepresentation` 里的按钮 | `xcuitest-cannot-invoke-accessibility-actions` |
 
-- 崩在 `-[__NSDictionaryM finishedPlaying:]: unrecognized selector` 时，**接收者的类名是随机的**
-  （只是那块内存恰好被复用成了字典），要看 **selector 属于谁**：`finishedPlaying:` 是
-  `AVAudioPlayer` **自己的**内部完成回调，代理那条叫 `audioPlayerDidFinishPlaying:successfully:`。
-  所以它意味着「播放器在**还在播**的时候被释放了」，**不是** delegate 没置 nil / 没声明 `weak`
-  —— 本仓库从没给任何 `AVAudioPlayer` 设过 delegate，照 delegate 那条查会一无所获。
-  连带一条：**崩溃落在哪条用例上完全无关**（那次是限流 / 验证码 / 志愿者途中确认三条，都不碰音频），
-  互不相关的用例随机崩要往进程级野指针想。
-  具体那次的根因与修法已按 §1.2 钉成 `testRecordingCueReusesOnePlayerPerKind`（已验红），
-  「怎么判读这个崩溃签名」这半条抓不成检查，详见记忆
-  `finishedplaying-crash-means-player-freed-not-delegate`。
-
-- XCUITest 报 `Failed to get matching snapshots: Timed out while evaluating UI query` 时，
-  **先看 result bundle 里的屏幕录像找误触，不要去 grep 重绘循环**。2026-08-14 那次的真因是
-  「重复当前状态」在首屏外、不滚就 `tap()`，触点被钳到底部常驻求助条上，一路误触到
-  `tel://110`，超时的是对系统 `com.apple.BusinessActionSheet` 的查询。
-  连带一条反直觉的事实：SwiftUI `ScrollView` 屏幕外的子视图**照样** `isHittable == true`
-  （`List` 是压根不渲染，两种坑不一样），所以 `scrollUntilExists` 对它无效，要用
-  `scrollElementIntoView`（`blindRunUITests/blindRunUITests.swift:1225`）。
-  误触本身已按 §1.2 钉成运行时断言；「怎么诊断」这半条抓不成检查，
-  详见记忆 `snapshot-timeout-means-a-system-app-took-over`。
-
-- 真机跑测报 `Test crashed with signal kill` 时，**先原样复跑一次比失败用例名**，
-  两次失败集合零重叠就不可能是代码。它是所有真机故障签名里唯一「跑起来了、跑了大半、
-  中间随机死几条」的一种，`result=Failed` 但退出码 0、零执行硬失败也不触发，所以最像真回归。
-  2026-09-02 实测：单测全量 967/2 失败 → 原样复跑 960/0；`AccessibilityAuditTests`
-  16/4 失败 → 复跑 17/3 失败且与上一次**零重叠**（20 条每条都在某一次里过了）。
-  当次 `transportType: wired`、`tunnelState: connected`，不是 USB 的事。
-  连带一条计数陷阱：崩溃后 XCTest 重启会把上一次的计数并进总数
-  （日志原文 `summary will include totals from previous launches`），
-  所以崩过那一次的 `total` 比真实用例数大，不可与另一次比条数。
-  详见记忆 `ui-test-runner-needs-usb-not-wifi` 第七种。
-  这条抓不成静态守卫也抓不成测试 —— 判据是「跨两次运行的失败集合关系」，单次运行内无从判断。
-
-- **「失败时在 `List` 末尾多出一行字」等于没有反馈。** 2026-09-05 一天里抓到同一形状两处：
-  账号删除预检（PR #98）与紧急联系人（本条）。真机实测（iPhone 16 Pro，window 高 874，
-  **默认字号就够，不用 AX 档**，5 位联系人）：点完「删除张三」被本地守卫拦下之后，那一行
-  **根本不在无障碍树里**（`List` 不渲染屏幕外的行），要往下滑一屏才出现在 minY=747.7 ——
-  失败分支跑了、`speakError` 播了，而屏幕上一个字都不多。
-  两处都已按 §1.2 钉成运行时断言（`testSetPrimaryIsAtomicAndLastContactCannotBeDeleted`、
-  `testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock`），断言的是**弹窗出现**，
-  与列表有几行无关 —— 5 位联系人那版用例反而留不住：它要连做 4 次新增，而那条路径在本机
-  未改动的 main 上就会 `signal kill`（见上一条）。
-  但**抓不成守卫**：全仓有 33 处同形状的 `if let errorMessage` 内联渲染，绝大多数是对的，
-  判据是「最坏情况下这一行还在不在第一屏」—— 取决于同屏行数与字号，机器判不出来。
-  写「失败只多一行字」的分支时自己问一遍：列表最长、字号最大时这一行还看得见吗？
-  详见记忆 `claimed-fallback-may-not-exist-in-release`。
-
-- **XCUITest 的 `tap()` 够不着 accessibility action。** 它注入的是一次**物理触摸**，
-  落在真实视图上；公开 API 里**没有**「执行默认无障碍动作」这个口子。所以一个控件如果
-  「指针路径和辅助技术路径是两套」（典型是 `.accessibilityRepresentation { Button(…) }`
-  套在只有 `DragGesture` 的视图上，见 `blindRun/Volunteer/VolunteerAvailabilitySlider.swift`），
-  写成「tap 那枚无障碍按钮 → 断言状态真的变了」会**必红、且红得毫无信息量**
-  ——按钮找得到、`isEnabled` 为真，而 tap 之后纹丝不动。
-  正解是拆两条：**形状**断无障碍树（删掉 `accessibilityRepresentation` 即红）、
-  **行为**走指针路径（`press(forDuration:thenDragTo:)`）验那个 action 闭包；
-  两条调的是同一个函数，合起来才是完整覆盖。
-  抓不成守卫 —— 机器分不出「这次 tap 的目标是不是一个 representation-only 元素」。
-  详见记忆 `xcuitest-cannot-invoke-accessibility-actions`。
+> 2026-09-17 从长条目压成表。原因：这 7 条各自**存了三份**（本文件长版 + `MEMORY.md` 一行版 +
+> 记忆文件全文），而本文件每个会话常驻、每一轮按 cache read 价重读一遍。
+> 官方 context engineering 指南对这种形态的原话是
+> "A common myth is that CLAUDE.md should be a central repository for every practice"。
+> 依据与实测见 `docs/research/claude-code-token-optimization-20260917.md`。
 
 ## 2. 源真相优先级
 
@@ -491,116 +438,26 @@ scripts/dual-device-validation.sh
 装一次本地 pre-push 钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
 CI（`.github/workflows/verify.yml`）跑编译门禁 + 规格校验，但**跑不了真机 XCTest**。
 
-### 跑多大范围：默认只跑覆盖本次改动的 suite，不是全量
+**默认只跑覆盖本次改动的 suite，不是全量。** 判据只有一条：改的东西是不是**全 App 唯一的出口 /
+共享单例 / 全局配置**（`SystemSpeechAudioSession`、`APIClient`、`AppState`）—— 是才全量。
+怎么按符号定范围、`-only-testing` 怎么写，见 skill `aidrun-ship-check` §六。
 
-全量约 10 分钟、会超 Bash 600s 上限、还会撞上脚本的 preflight watchdog 反复被掐。
-**默认做法**：先查哪些用例真的碰了你改的东西，只跑那几个 suite。
-
-```bash
-# ① 先定范围（把改动涉及的类型/方法名列进去）
-python3 - <<'EOF'
-import os, re
-PATTERN = r'(BookingDurationOption|expectedDurationMinutes|makeCreateOrderRequest)'  # 换成你改的符号
-for root, _, fs in os.walk('blindRunTests'):
-    for f in (x for x in fs if x.endswith('.swift')):
-        p = os.path.join(root, f)
-        n = sum(1 for l in open(p).read().split('\n') if re.search(PATTERN, l))
-        if n: print(f'{f}: {n} 处')
-EOF
-
-# ② 只跑命中的 suite
-scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
-                       -only-testing:blindRunTests/blindRunTests
-```
-
-**什么时候才必须全量**——只有一条判据：**改的东西是全 App 唯一的出口 / 共享单例 / 全局配置**，
-所有调用方都从它身上过。例如 `SystemSpeechAudioSession`（每个用麦克风的地方都走它）、
-`APIClient`、`AppState`。这类改动的影响面按符号搜不出来，必须全量。
-
-反过来，「改了一个 view model 的一个字段」「加了一条解析规则」不属于这类，按符号搜到的 suite
-就是完整覆盖面。**命中数只有 1 且是无关字面量的文件要看一眼再决定跳过**，别只看数字。
-
-> 2026-08-06 立此条：同一天里全量被反复跑了 5 次，其中 4 次的结论在第 1 次就已经拿到，
-> 后面纯粹是在跟脚本的 watchdog 较劲。用户两次指出这件事，走 §1.4。
->
 > **零执行不是通过。** `passed=0 failed=0` 一律当失败查——设备锁屏、`-only-testing` 名字打错、
 > 测试目标没编出来都会长这样：命令回来了、看起来一切正常，但一条断言都没跑。
 > 脚本对这种情况有硬失败，别绕过它。
 
-### 读后端仓库的那 5 条门禁在哪跑（2026-08-12 改口径，别再按旧的双推推导）
+### 读后端仓库的那 5 条门禁
 
-契约覆盖 / 生成代码比对 / 错误码对撞 / 黄金语料 / 确认轮词表这 5 条需要读后端私有仓库，
-跑在**两个地方**：
+中间四条（spec-coverage / golden-corpus / error-codes / voice-intent-words）加生成代码比对，
+要读后端私有仓库。每台机器装一次钩子把它们钉在 push 前：`scripts/install-git-hooks.sh`。
 
-| 位置 | 这 5 条 | 说明 |
-|---|---|---|
-| `Jayden23018/blind-run-ios`（`origin`，**主线**）| ✅ 真跑 | 配了 `BACKEND_REPO_TOKEN`（fine-grained PAT，只读 `blind-run-backend`） |
-| 本地 pre-push | ✅ 真跑 | 读 `../demo` 的 `origin/main`，装钩子后每次 push 自动 |
+三条**必须常驻**的事实（其余细节见 skill `aidrun-ship-check` §七）：
 
-**`JerryZhao-1/blind-run-ios` 自 2026-08-12 起只是 `upstream`，不再是投递目标。** 分支不往那边推、
-PR 也不往那边开。它的 CI 配不上 secret（我们不是 admin），这 5 条在那边是 warning 空过 ——
-**上游 CI 绿 ≠ 契约对过了**。要取上游的新提交：`git fetch upstream`。
-
-**主线仓库的既定配置**（改动前先知道，别当成异常）：
-
-- 默认分支是 `main`（2026-08-21 从 `integrate/swift-migration` 改过来，该分支同日已删除）。
-  `workflow_dispatch` 和 `schedule` 都只认默认分支，而 `verify.yml` 就在 `main` 上，
-  且比原 integrate 上那份更新（多一个 `validate-shared-checkout-guard` job）。手动触发：
-  `gh workflow run verify.yml --repo Jayden23018/blind-run-ios --ref main`
-
-  > 改动前这里写着「默认分支是 integrate，而 `main` 上没有 `verify.yml`」—— **后半句早就不成立了**，
-  > `main` 上一直有。这句过时描述的代价是真的：2026-08-21 据它推导出「要删 integrate 得先把
-  > `verify.yml` 落到 main」这个根本不存在的前置步骤。清理时 integrate 已落后 main 62 个提交、
-  > 独有提交 0，唯一活着的理由就是被默认分支设置钉住。
-  > **教训**：这一节标题写着「既定配置」，最容易被当成不用核的背景事实照抄。
-  > 引用本节任何一条之前，用一条命令当场核，别转述：
-  > `git ls-tree -r origin/main --name-only | grep .github`
-- `schedule` 每天 09:17（北京）跑一次。它抓的是 **push 触发天生抓不到的那类：你 push 之后
-  后端才改契约**。
-- **CI 红在 `Checkout backend contract`（403）= PAT 过期了**，不是代码坏了。
-  重建 PAT 后 `gh secret set BACKEND_REPO_TOKEN --repo Jayden23018/blind-run-ios`。
-- GitHub 会把连续 60 天无活动仓库的定时任务停掉。长期没推东西时留意一下。
-
-每台机器装一次钩子即可，不再需要配双推（旧机器重跑本脚本会清掉遗留的双推配置）：
-
-```bash
-scripts/install-git-hooks.sh
-```
-
-这 5 条读的契约**取自后端仓库的 `origin/main`**（`git show origin/main:docs/api_spec.yaml`
-落到临时文件），不是 `../demo` 的工作区文件 —— 工作区是共享 checkout，随时停在特性分支
-或带着同事未提交的 WIP，而 CI 是从后端默认分支拉契约的。所以 `../demo` 当前在哪个分支、
-脏不脏，都不影响门禁结论。
-
-确实要拿未合并的后端改动验证 iOS 侧：`AIDRUN_ALLOW_BACKEND_DRIFT=1 git push` 改读工作区文件
-（或用 `AIDRUN_API_SPEC=` / `AIDRUN_GOLDEN_CORPUS=` / `AIDRUN_BACKEND_ERROR_CODES=` /
-`AIDRUN_BACKEND_VOICE_PARSER=` / `AIDRUN_BACKEND_VOICE_SERVICE=` 逐个指定）。
-此时「生成代码与契约不同步」**不构成提交理由** —— 那份契约不是上游的，提交重新生成的结果
-等于把别人的 WIP 烘进你的 PR。钩子在这条路径上会自己说明，并给出 `git checkout --` 的还原命令。
-
-> 🔴 **推论（2026-09-09 实测）：一次同时改两端的功能，必须后端先合，iOS 才推得上去。**
-> 默认路径读后端 `origin/main`（新错误码/新端点还在你自己的分支上 → 报「前端映射了后端不存在的码」），
-> 加 `AIDRUN_ALLOW_BACKEND_DRIFT=1` 则转而撞上上面这条。**两条都不是 bug，是设计使然的顺序约束。**
-> ⛔ 不要用 `AIDRUN_SKIP_PREPUSH=1` 绕 —— 那一次跳过全部 5 道门禁。
-> 正解：合掉后端 PR → `git checkout -- Packages/AidRunAPI/Sources/AidRunAPI` 还原 drift 弄脏的工作区 →
-> iOS 直接 `git push`。详见记忆 `prepush-contract-gate-reads-backend-worktree`。
-
-> ⚠️ **这只管 pre-push。** 手动跑 `node scripts/validate-*.mjs` 仍然默认读 `../demo` 工作区 ——
-> 2026-08-12 因此把一份**正确**的语料镜像改动判成了伪造（后端当时停在特性分支，语料 96 条而
-> `origin/main` 已 101 条），差点据此删掉。手动跑之前自己导出真契约：
-> `git -C ../demo show origin/main:docs/voice-golden-corpus.json > /tmp/c.json` 再传进去。
-> 详见 `docs/review/frontend-backend-alignment-review-20260812.md` §B1。
-
-> 第 5 条 `validate-voice-intent-words.mjs` 是 2026-08-10 加的：确认轮改成「本地直通 + 后端兜底」
-> 之后，同一句话由两处判定，本地表里出现一个后端判成**别的**意图的词就会让有网/断网行为分叉。
-> 加它的直接起因是「再说一次」——前端判「重说」（清空整句）、后端判 `REPEAT`（只重念）。
-
-契约 fixture（真实响应回归，见 `blindRunTests/ContractFixtureTests.swift`）：
-
-```bash
-node scripts/capture-fixtures.mjs            # dry-run，只列要打的只读端点
-node scripts/capture-fixtures.mjs --write    # 真实采集并脱敏落盘
-```
+- 读的契约取自后端 **`origin/main`**，不是 `../demo` 工作区 ⇒ `../demo` 停在哪个分支、脏不脏都不影响结论。
+- 🔴 **一次同时改两端的功能，必须后端先合，iOS 才推得上去**（两条路径分别撞不同的墙，都不是 bug，
+  是设计使然的顺序约束）。⛔ 别用 `AIDRUN_SKIP_PREPUSH=1` 绕 —— 那一次跳过全部 5 道门禁。
+- **`JerryZhao-1/blind-run-ios` 只是 `upstream`，不是投递目标**；它配不上 secret，
+  **上游 CI 绿 ≠ 契约对过了**。
 
 **编译通过不等于测试通过。永远不许把没执行过的测试写成通过。**
 

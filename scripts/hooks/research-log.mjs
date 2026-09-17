@@ -112,24 +112,83 @@ export function researchTodo(payload) {
   );
 }
 
+// 「查过再搜」这条规则每次都要说，索引正文只需要说一次 —— 见下方 indexAlreadyInjected。
+const RULES_TAIL =
+  `\n\n调研完必须落盘 \`${RESEARCH_DIR}/{topic}-{YYYYMMDD}.md\` 并回写索引一行，否则不算完成。` +
+  `\n\n⚠️ 写下「本仓库还没有 X / 建议引入 X」之前，先在仓库里搜一次 X，并换一组近义词再搜一次。` +
+  `调研在回答「外面有什么」时会默认「我们没有」：2026-09-02 一路搜到「该给这个项目引入 iOS 无障碍` +
+  `自动审计」，而 \`blindRunUITests/AccessibilityAuditTests.swift\` 已经在那儿躺了 859 行。` +
+  `同类还犯过两次（记忆 \`synonym-mismatch-fakes-a-missing-feature\`）。成本一次 grep。`;
+
+// 同一会话内第 2…N 次联网调用时，索引正文已经在上下文里了，再灌一遍是纯重复。
+//
+// ⚠️ 这不是省小钱。2026-09-17 实测：一次调研会话触发 4 次，每次注入 12.1KB（约 4k tok）
+// ≈ 16k 纯重复；而注入进的是**对话层**，此后每一轮都会把它按 cache read 价重读一遍
+// （官方 prompt-caching 文档：cache read 按标准输入价 10% 计）⇒ 成本随轮数累积，
+// 不是一次性的。详见 docs/research/claude-code-token-optimization-20260917.md §6。
+//
+// 判据只用 session_id，不用「索引文件有没有变」—— 会话中途回写索引是常态（落盘那一步就在改它），
+// 拿内容哈希判会在最该省的那一刻失效。拿不到 session_id 就照常全量注入：
+// 宁可多灌一次，也不要因为标识符缺失而静默跳过第一次（那等于整个钩子失效）。
+export function indexAlreadyInjected(sessionId, cwd = root) {
+  if (!sessionId) return false;
+  const seenFile = path.join(cwd, '.git', 'aidrun-research-index-seen');
+  try {
+    if (fs.readFileSync(seenFile, 'utf8') === sessionId) return true;
+  } catch {
+    /* 没有标记文件 = 本会话还没注入过 */
+  }
+  try {
+    fs.writeFileSync(seenFile, sessionId);
+  } catch {
+    /* 写不进去就每次都注入，退化成旧行为，不影响正确性 */
+  }
+  return false;
+}
+
+export function buildPreContext(index, repeated) {
+  if (index === null) {
+    return (
+      `\`${INDEX_PATH}\` 不存在。本仓库所有调研只落 \`${RESEARCH_DIR}/\`，` +
+      `开搜前先建索引（表头：日期 | 问题 | 一句话结论 | 复核触发条件 | 报告）。`
+    );
+  }
+  if (repeated) {
+    return (
+      `本会话已经注入过 \`${INDEX_PATH}\` 全文，不再重复 —— 往上翻即可，别重新读文件。` +
+      `表里已有且「复核触发条件」没触发的，直接用结论，不要重搜。` +
+      RULES_TAIL
+    );
+  }
+  return (
+    `开搜前先读已有调研（唯一位置 \`${RESEARCH_DIR}/\`）。表里已有且「复核触发条件」没触发的，` +
+    `直接用结论，不要重搜；缺的那一段才是本次该搜的范围。\n\n` +
+    (index.length > MAX_INDEX_CHARS
+      ? `${index.slice(0, MAX_INDEX_CHARS)}\n\n（索引已截断，完整内容见 ${INDEX_PATH}）`
+      : index) +
+    RULES_TAIL
+  );
+}
+
 // ── CLI：PreToolUse ────────────────────────────────────────────────────────
 // matcher 已经把非联网工具滤掉了，这里不再判一次工具名 —— 两处判定会漂移。
 if (process.argv[2] === 'pre') {
-  const index = readIndex();
-  const body =
-    index === null
-      ? `\`${INDEX_PATH}\` 不存在。本仓库所有调研只落 \`${RESEARCH_DIR}/\`，` +
-        `开搜前先建索引（表头：日期 | 问题 | 一句话结论 | 复核触发条件 | 报告）。`
-      : `开搜前先读已有调研（唯一位置 \`${RESEARCH_DIR}/\`）。表里已有且「复核触发条件」没触发的，` +
-        `直接用结论，不要重搜；缺的那一段才是本次该搜的范围。\n\n` +
-        (index.length > MAX_INDEX_CHARS
-          ? `${index.slice(0, MAX_INDEX_CHARS)}\n\n（索引已截断，完整内容见 ${INDEX_PATH}）`
-          : index) +
-        `\n\n调研完必须落盘 \`${RESEARCH_DIR}/{topic}-{YYYYMMDD}.md\` 并回写索引一行，否则不算完成。` +
-        `\n\n⚠️ 写下「本仓库还没有 X / 建议引入 X」之前，先在仓库里搜一次 X，并换一组近义词再搜一次。` +
-        `调研在回答「外面有什么」时会默认「我们没有」：2026-09-02 一路搜到「该给这个项目引入 iOS 无障碍` +
-        `自动审计」，而 \`blindRunUITests/AccessibilityAuditTests.swift\` 已经在那儿躺了 859 行。` +
-        `同类还犯过两次（记忆 \`synonym-mismatch-fakes-a-missing-feature\`）。成本一次 grep。`;
+  const input = await new Promise((resolve) => {
+    let buf = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (c) => (buf += c));
+    process.stdin.on('end', () => resolve(buf));
+    process.stdin.on('error', () => resolve(''));
+  });
+  let sessionId = '';
+  try {
+    const payload = JSON.parse(input || '{}');
+    if (typeof payload.session_id === 'string') sessionId = payload.session_id;
+  } catch {
+    /* 拿不到 payload 就当新会话，全量注入 */
+  }
+
+  const body = buildPreContext(readIndex(), indexAlreadyInjected(sessionId));
 
   process.stdout.write(
     JSON.stringify({

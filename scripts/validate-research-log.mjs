@@ -11,7 +11,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { isResearchTool, researchLanded, researchToolsUsed, researchTodo } from './hooks/research-log.mjs';
+import {
+  buildPreContext,
+  indexAlreadyInjected,
+  isResearchTool,
+  researchLanded,
+  researchToolsUsed,
+  researchTodo,
+} from './hooks/research-log.mjs';
 // 会话起点在 #8 的重构里搬去了 transcript.mjs（stop-checklist 也用它），研究钩子只是消费方。
 import { sessionStartedAt } from './hooks/transcript.mjs';
 
@@ -204,6 +211,45 @@ const cases = [
       return researchLanded(since, repo)
         ? null
         : '调研在另一条分支上就误判成「没落盘」（git log 缺 --all）';
+    },
+  },
+  {
+    // 2026-09-17：一次调研会话触发 4 次 pre，每次注入 12.1KB 同一份索引。
+    // 注入落在对话层 ⇒ 此后每一轮都按 cache read 价重读，成本随轮数累积。
+    name: '同一会话第二次联网不再重灌索引正文，换会话与拿不到 session_id 时照常全量',
+    check: () => {
+      const repo = fs.mkdtempSync(path.join(tmp, 'dedupe-'));
+      fs.mkdirSync(path.join(repo, '.git'));
+
+      if (indexAlreadyInjected('sess-a', repo)) return '同一会话的第一次就被判成「已注入」，钩子等于失效';
+      if (!indexAlreadyInjected('sess-a', repo)) return '同一会话的第二次仍判「未注入」，去重没生效';
+      if (indexAlreadyInjected('sess-b', repo)) return '换了会话却被上一个会话的标记吞掉，新会话拿不到索引';
+
+      // 拿不到 session_id 必须退化成旧行为（每次全量），不能静默跳过
+      if (indexAlreadyInjected('', repo)) return 'session_id 缺失时判成「已注入」，会静默跳过第一次';
+      if (indexAlreadyInjected('', repo)) return 'session_id 缺失时判成「已注入」，会静默跳过第一次';
+      return null;
+    },
+  },
+  {
+    name: '重复注入时只省正文、不省规则：仍要带落盘要求与「先搜仓库」那条',
+    check: () => {
+      // ⚠️ 判「正文在不在」只能用表格行，不能用「复核触发条件」这个词 ——
+      // 重复注入的那句提示自己就在复述这条规则，用词做标记会恒为真、断言永远失败。
+      const row = '| 2026-01-01 | 某问题 | 某结论 | 某触发条件 | [x.md](./x.md) |';
+      const index = `| 日期 | 问题 | 一句话结论 | 复核触发条件 | 报告 |\n${row}\n`;
+      const first = buildPreContext(index, false);
+      const again = buildPreContext(index, true);
+
+      if (!first.includes(row)) return '首次注入里没有索引正文';
+      if (again.includes(row)) return '重复注入仍带着索引正文，没省下来';
+      // 省掉正文不等于省掉规则 —— 这两句是每次都要说的，省了就等于这次联网没被约束
+      for (const must of ['落盘', '近义词']) {
+        if (!again.includes(must)) return `重复注入把「${must}」那条规则一起省掉了`;
+        if (!first.includes(must)) return `首次注入缺少「${must}」那条规则`;
+      }
+      if (buildPreContext(null, true).includes('不再重复')) return '索引不存在时不该声称正文已注入';
+      return null;
     },
   },
 ];
