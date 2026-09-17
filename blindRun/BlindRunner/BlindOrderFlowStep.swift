@@ -28,8 +28,8 @@ enum BlindOrderFlowStep: Int, CaseIterable, Equatable {
 extension RunOrderStatus {
     /// 这一态落在四步骨架的哪一格。`nil` = **不走这个骨架**。
     ///
-    /// 走不走骨架的判据与 `blindRunnerRoute` 对齐：`.tracking` 那七态走，其余不走
-    /// （`COMPLETED` 走完成/评价页，其余终态走只读终态卡）。**刻意不复用
+    /// 走不走骨架的判据与 `blindRunnerRoute` 对齐：`.tracking` 那七态走，`COMPLETED`
+    /// 自 2026-09-17 起也走（设计稿 ④ 是同一张卡的第四幕），其余终态走只读终态卡。**刻意不复用
     /// `blindRunnerRoute` 直接派生** —— 那个枚举回答的是「去哪一页」，这个回答的是
     /// 「在这一页的第几格」，两个问题同源但不同步：后端加状态时两处都要各做一次决策。
     ///
@@ -75,7 +75,7 @@ extension RunOrderStatus {
     }
 }
 
-// MARK: - A 组三屏的相位
+// MARK: - A 组四屏的相位
 
 /// ① 汇合 → ② 倒计时 → ③ 跑步中 → ④ 已完成，**同一页面原地变形**。
 ///
@@ -136,7 +136,7 @@ enum BlindRunTransition {
     static let duration: Double = 0.4
 }
 
-/// 这三屏上的文案。**不在视图里写中文字面量** —— 同一句话散在视图与用例两处必然漂开，
+/// 这四屏上的文案。**不在视图里写中文字面量** —— 同一句话散在视图与用例两处必然漂开，
 /// 而「按钮上的字改了而播报没改」在屏幕上没有任何症状。
 enum BlindRunCopy {
     /// 顶行不用 `RunOrderStatus.displayName`（那是「进行中」）。设计稿要的是「陪跑中」，
