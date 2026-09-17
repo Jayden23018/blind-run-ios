@@ -57,11 +57,14 @@ struct BlindOrderFlowView<Footer: View>: View {
     @Namespace private var avatarTransition
 
     var body: some View {
+        // 布局骨架取 main 上抽出来的 `OrderFlowScaffold`（陪跑员端 PR #155 起与跑者端共用），
+        // 判据取本轮的 `showsRunCard` —— 两边改的不是同一件事，合并时两个都要留。
         OrderFlowScaffold(bottom: bottomActions) {
             statusCard
             // 信息卡整块下沉淡出并收到 0 —— 跑起来之后「陪跑员是谁、几点、在哪集合」
             // 全部已经是过去时，留在屏幕上只是读屏要多滑四次的内容。
-            if !presentation.phase.isRunning {
+            // 已完成同理，且它把「陪跑员是谁」以一行的形式留在了状态卡里。
+            if !presentation.phase.showsRunCard {
                 infoCard
             }
             footer()
@@ -95,7 +98,7 @@ struct BlindOrderFlowView<Footer: View>: View {
         FlowCard {
             VStack(spacing: 0) {
                 // 进度条向上折叠（高度 → 0、透明度 → 0），「陪跑中 · 张伟」在原位展开。
-                if presentation.phase.isRunning {
+                if presentation.phase.showsRunCard {
                     partnerRow
                 } else {
                     FlowStepper(
@@ -104,8 +107,14 @@ struct BlindOrderFlowView<Footer: View>: View {
                     )
                 }
                 FlowSeparator()
-                if presentation.phase.isRunning {
-                    BlindActiveRunView(stats: stats)
+                if presentation.phase.showsRunCard {
+                    BlindActiveRunView(stats: stats, paceLabel: paceLabel)
+                    // ④ 比 ③ 多这一行「陪跑员 张伟」（设计稿 §4）。跑动中不显示 ——
+                    // 那一刻人就在身边，而这一行会把三个数字往上挤。
+                    if presentation.phase == .finished {
+                        FlowSeparator()
+                        partnerSummaryRow
+                    }
                 } else {
                     heroSection
                 }
@@ -113,9 +122,33 @@ struct BlindOrderFlowView<Footer: View>: View {
         }
     }
 
-    // MARK: - 跑步中的顶行
+    /// ③「配速」/ ④「平均配速」。两处的数其实是同一个均值，差别是跑完之后
+    /// 「平均」才有信息（跑动中说「平均」会让人找一个不存在的「当前配速」）。
+    private var paceLabel: String {
+        BlindRunCopy.metricPaceLabel(isFinished: presentation.phase == .finished)
+    }
 
-    /// 小头像 ⌀28 + 「陪跑中 · 张伟」 + 定位新鲜度。
+    /// ④ 卡片底部那一行。姓名**视觉上保留掩码、朗读去掩码**（同 `volunteerRow`）。
+    ///
+    /// 不显示陪跑经验：稿上这一行只有姓名，而跑完之后「陪跑 32 次」回答的是
+    /// 「要不要把自己交给他」—— 那个决定已经做完了。
+    private var partnerSummaryRow: some View {
+        FlowInfoRow(
+            label: BlindRunCopy.partnerSummaryLabel,
+            accessibilityLabel: "\(BlindRunCopy.partnerSummaryLabel)\(order.volunteerNameForSpeech)"
+        ) {
+            Text(volunteerDisplayName)
+                .flowFont(FlowFonts.rowValueEmphasized())
+                .foregroundColor(AppColors.Flow.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.trailing)
+        }
+        .accessibilityIdentifier("blindOrderFlowFinishedPartnerRow")
+    }
+
+    // MARK: - 跑步中 / 已完成的顶行
+
+    /// 小头像 ⌀28 + 「陪跑中 · 张伟」/「已完成 · 张伟」 + 定位新鲜度。
     ///
     /// 两条信息是**两个独立的无障碍元素**：读屏用户第一站听搭档是谁，第二站听定位好不好，
     /// 合成一个会让「定位信号弱」被埋在一句长话的尾巴上。
@@ -137,7 +170,12 @@ struct BlindOrderFlowView<Footer: View>: View {
 
             Spacer(minLength: 8)
 
-            locationFreshnessBadge
+            // 🔴 **跑完之后这枚徽标不出现。** 「定位信号弱」在 ④ 没有任何可执行的动作
+            // （跑都跑完了），而它会占掉读屏一站、也占掉顶行右侧那块给姓名换行的宽度。
+            // 跑步中保留的理由反过来说明了这一点：那一刻用户能换个开阔地方站一站。
+            if presentation.phase != .finished {
+                locationFreshnessBadge
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, FlowMetrics.partnerRowHorizontalPadding)
@@ -529,6 +567,10 @@ struct BlindOrderFlowView<Footer: View>: View {
             return nil
         case .announceStats:
             return BlindRunCopy.announceStatsHint
+        case .done:
+            // 「完成」两个字不说明按下去会发生什么 —— 而这一刻它是这一屏唯一的出口
+            //（返回箭头按稿藏掉了）。
+            return BlindRunCopy.finishedButtonHint
         }
     }
 }
@@ -562,6 +604,20 @@ struct BlindOrderFlowView<Footer: View>: View {
 
 #Preview("订单页 · 跑步中 · 定位信号弱") {
     BlindOrderFlowPreview(status: .inProgress, stats: .previewRunning, isLocationFresh: false)
+}
+
+#Preview("订单页 · 已完成") {
+    BlindOrderFlowPreview(status: .completed, stats: .previewFinished)
+}
+
+#Preview("订单页 · 已完成 · AX5") {
+    BlindOrderFlowPreview(status: .completed, stats: .previewFinished)
+        .environment(\.dynamicTypeSize, .accessibility5)
+}
+
+#Preview("订单页 · 已完成 · 深色") {
+    BlindOrderFlowPreview(status: .completed, stats: .previewFinished)
+        .preferredColorScheme(.dark)
 }
 
 #Preview("订单页 · 跑步中 · AX5") {

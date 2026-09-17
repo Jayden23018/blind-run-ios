@@ -211,7 +211,10 @@ final class LowVisionChannelTests: XCTestCase {
             .driverEnRoute: .success,
             .driverArrived: .success,
             .inProgress: .success,
-            .completed: .success,
+            // 🔴 2026-09-17 从 `.success` 换成 `.strong`（设计稿 ④「+ 强震一次」）。
+            // 前面每一次推进都在说「下一步来了」，这一次说的是「结束了」——
+            // 同一个波形分不出这层差别，而对看不见屏幕的人这是他确认跑完了的那条通道。
+            .completed: .strong,
             .cancelled: .warning,
             .noVolunteer: .warning,
             .rematching: .warning,

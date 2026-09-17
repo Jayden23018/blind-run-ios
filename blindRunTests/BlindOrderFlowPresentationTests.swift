@@ -26,8 +26,11 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
             // 「第 4 步」—— 但它必须走同一个骨架：跳页会让 VoiceOver 焦点回到屏幕顶部。
             // 2026-09-16 之前这里是 `nil`（独立执行屏），那正是这次消掉的跳页。
             .inProgress: .metUp,
-            // 终态：完成/评价页与只读终态卡。
-            .completed: nil,
+            // 🔴 `COMPLETED` 2026-09-17 起也落这一格（设计稿 ④）：陪跑员结束之后同一张卡
+            // 原地换成总结状态。落 `nil` 的写法会在那一刻整屏重建成只读列表，
+            // 而 iOS 切页会把 VoiceOver 焦点打回顶部 —— 阶段 1 消掉的那次跳页又发生一次。
+            .completed: .metUp,
+            // 其余终态：只读终态卡。
             .cancelled: nil,
             .noVolunteer: nil,
             // 🔴 **落 nil，不许落进 `.matching`**：「我不认识后端给的状态」和
@@ -280,8 +283,12 @@ final class BlindOrderFlowPresentationTests: XCTestCase {
 
     // MARK: - 不走骨架的那些态
 
+    /// `COMPLETED` **不在这里** —— 它自 2026-09-17 起走骨架的第四幕（见
+    /// `BlindRunPhaseTests.testFinishedStaysOnTheSameSkeletonStepAsTheRun`）。
+    /// 剩下这三态仍然落只读退路，而 `.unknown` 那一条**不许删**：
+    /// 后端加了状态时它是未知态唯一的落点，否则整屏空白。
     func testStatusesOutsideTheSkeletonProduceNoPresentation() {
-        for status in [RunOrderStatus.completed, .cancelled, .noVolunteer, .unknown] {
+        for status in [RunOrderStatus.cancelled, .noVolunteer, .unknown] {
             XCTAssertNil(
                 BlindOrderFlowPresentation.make(
                     order: .preview(status: status),

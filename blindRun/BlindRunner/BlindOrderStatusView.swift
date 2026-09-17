@@ -65,8 +65,8 @@ final class BlindOrderStatusViewModel: ObservableObject {
     /// 本单是否已经用完延长次数。**按单记**，换单时清空（见 `startPolling`）。
     @Published private(set) var keepWaitingLimitReached = false
 
-    /// 陪跑中那屏的三个数字（距离 / 时长 / 配速），取 `/track` 的 `blindStats`。
-    /// `nil` = 不在 `IN_PROGRESS`，或这一单还没拉到过。
+    /// 陪跑中那屏与已完成那屏的三个数字（距离 / 时长 / 配速），取 `/track` 的 `blindStats`。
+    /// `nil` = 既不在 `IN_PROGRESS` 也不在 `COMPLETED`，或这一单还没拉到过。
     ///
     /// 🚩 取 `blindStats` 不是 `volunteerStats`：屏幕上那个数字是**跑者自己跑了多远**。
     /// 两条轨迹是各自独立采集的（后端 10 秒采样窗口、起点与点数都不同），拿错就是显示别人的成绩。
@@ -83,6 +83,43 @@ final class BlindOrderStatusViewModel: ObservableObject {
 
     /// `/track` 上一次拉的时刻。`nil` = 下一轮立刻拉。
     private var lastTrackFetchAt: Date?
+    /// 本单进 `COMPLETED` 之后那**一次**终值拉取做过没有。
+    ///
+    /// 🚩 它存在只为一件事：**绕过 10 秒节流拉最后一次**。完成那一刻上一次跑动中的拉取
+    /// 往往还在节流窗内，照节流跳过的话屏幕上会停在最后一个中途值（5.18 而不是 5.20），
+    /// 而这一屏的全部内容就是那三个终值。拉过一次就不再拉 —— 已完成的轨迹不会再变。
+    private var didFetchFinalTrack = false
+
+    /// 完成那一刻要播的那句话，等 `/track` 回来再播（里程在它里面）。
+    ///
+    /// 🔴 **完成播报刻意不走 `apply` 里那条通用路径**：那一刻 `trackStats` 还是上一个中途值
+    /// 或 `nil`，而设计稿要求「一次只播一条、变形为总结状态时不再播第二遍」
+    /// （状态清单 §4 与 README §播报队列）。改版前这一刻有两句：`apply` 的状态句 +
+    /// `.task` 里那句轨迹总结，而后者**同档打断**前者 —— 用户听到的是半句加一句。
+    private var pendingCompletionAnnouncement: CompletionAnnouncement?
+
+    /// 完成播报的两种语境。分开是因为两句话说的不是一件事。
+    enum CompletionAnnouncement: Equatable {
+        /// 陪跑员刚刚长按结束（本次会话见过转移前的状态）。设计稿那句 + 强震。
+        case justFinished
+        /// 冷启动直接进一张已完成的单（从历史记录点进来）。沿用既有的状态句 + 三个数字，
+        /// **不说「刚刚结束」**——那件事可能是三天前发生的。
+        case coldStart
+    }
+
+    /// 这次状态推进要不要播完成那句、播哪一句。`nil` = 不播。
+    ///
+    /// 判据抽成**纯静态函数**，理由同 `shouldStartRunCountdown`：这条链路的两个错误形态
+    /// 都是静默的 —— 每 5 秒轮询一次却重播一遍（`previousStatus == .completed` 漏判），
+    /// 或者从历史记录点进一张三天前的单、被告知「张伟刚刚结束了本次陪跑」。
+    /// 两者在屏幕上都没有任何症状。
+    nonisolated static func completionAnnouncement(
+        from previousStatus: RunOrderStatus?,
+        to status: RunOrderStatus
+    ) -> CompletionAnnouncement? {
+        guard status == .completed, previousStatus != .completed else { return nil }
+        return previousStatus == nil ? .coldStart : .justFinished
+    }
     /// 每公里播报的判定。逻辑（含「首个样本只定基线」那条）在 `KilometerMilestoneTracker`。
     private var kilometerMilestones = KilometerMilestoneTracker()
 
@@ -229,7 +266,11 @@ final class BlindOrderStatusViewModel: ObservableObject {
             // 里程碑基线一起清 —— 不清的话新单一开跑就会从上一单的公里数接着算。
             trackStats = nil
             lastTrackFetchAt = nil
+            didFetchFinalTrack = false
             kilometerMilestones.reset()
+            // 上一单没来得及播的那句完成播报不许跟到新一单上 —— 那会在一张刚下的单上
+            // 念「结束了本次陪跑」。
+            pendingCompletionAnnouncement = nil
             // 换单时倒计时同样按单清。上一单遗留的任务会往新一单的屏幕上写数字。
             cancelRunCountdown()
         }
@@ -268,18 +309,12 @@ final class BlindOrderStatusViewModel: ObservableObject {
             if canShowKeepWaiting {
                 announcement += " " + KeepWaitingCopy.repeatStatusSuffix
             }
-            // 陪跑中屏幕上那三个数字**只有这一条通道能听到**：它们是 `Text`，
-            // 读屏要逐个滑过去才念，而「重复当前状态」是盲人此刻唯一按一下就听全的入口。
+            // 陪跑中与已完成屏幕上那三个数字**只有这一条通道能听全**：它们是 `Text`，
+            // 读屏要逐个滑过去才念，而「重复当前状态」/「播报当前数据」是盲人按一下就听全的入口。
             // 用播报口径（`distanceText` 等）而不是屏幕口径 —— `9'06"` 会被念成「九撇零六引号」。
-            if let stats = trackStats {
-                let spoken = [
-                    stats.distanceText.map { "已跑 \($0)" },
-                    stats.durationText.map { "用时 \($0)" },
-                    stats.averagePaceText.map { "配速 \($0)" }
-                ].compactMap { $0 }
-                if !spoken.isEmpty {
-                    announcement += " " + spoken.joined(separator: "，") + "。"
-                }
+            if let stats = trackStats,
+               let clause = Self.spokenStatsClause(stats, isFinished: order.status == .completed) {
+                announcement += " " + clause
             }
             // Canonical order status first, emergency state appended after it — never instead of it.
             if let sos = appState?.emergencyCoordinator.repeatStatusSuffix {
@@ -779,6 +814,9 @@ final class BlindOrderStatusViewModel: ObservableObject {
             await refreshIntroCallIfNeeded(for: updated, appState: appState)
             await refreshVolunteerLocationFallbackIfNeeded(for: updated, appState: appState)
             await refreshTrackStatsIfNeeded(for: updated, appState: appState)
+            // **必须在拉完 `/track` 之后**：完成那一句里的里程取的就是刚才那次终值。
+            // 放到 `apply` 里（状态刚变的那一刻）只会念出上一个中途值或者干脆没有里程。
+            announceCompletionIfNeeded()
         } catch let error as APIError {
             isLoading = false
             if appState.handleAuthenticatedAPIError(error) {
@@ -829,10 +867,15 @@ final class BlindOrderStatusViewModel: ObservableObject {
         refreshVolunteerDistance()
         updateRunCountdown(from: previousStatus, to: updated.status)
         if speakChanges, previousStatus != updated.status {
-            speechService?.speakStatusChange(
-                updated.status,
-                text: statusChangeAnnouncement(from: previousStatus, to: updated)
-            )
+            if let completion = Self.completionAnnouncement(from: previousStatus, to: updated.status) {
+                // 只记账，不播 —— 里程要等 `/track` 的终值回来（`announceCompletionIfNeeded`）。
+                pendingCompletionAnnouncement = completion
+            } else {
+                speechService?.speakStatusChange(
+                    updated.status,
+                    text: statusChangeAnnouncement(from: previousStatus, to: updated)
+                )
+            }
         }
         if updated.status != .pendingIntroCall {
             clearIntroCallState()
@@ -1088,33 +1131,149 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
-    /// 拉陪跑中那屏的三个数字。跟着订单轮询走，节流到 `trackPollingInterval`。
+    /// 拉陪跑中与已完成那两屏的三个数字。跟着订单轮询走，节流到 `trackPollingInterval`。
     ///
-    /// 离开 `IN_PROGRESS` 时把三样一起清掉（统计 / 节流时刻 / 里程碑基线）——
-    /// 少清一个，下次进同一单就会顶着上一段的数字，或者一进来就补播一次里程碑。
+    /// 三种走法，别合并：
+    /// - `IN_PROGRESS` —— 按 10 秒节流反复拉，顺带判每公里里程碑。
+    /// - `COMPLETED` —— **绕过节流拉最后一次终值**，之后不再拉；里程碑基线清掉
+    ///   （再进同一单不该补播一次「已跑 5 公里」）。数字**不清空**：它就是 ④ 那一屏的内容。
+    /// - 其余状态 —— 三样一起清掉（统计 / 节流时刻 / 里程碑基线）。少清一个，
+    ///   下次进同一单就会顶着上一段的数字，或者一进来就补播一次里程碑。
     private func refreshTrackStatsIfNeeded(for order: OrderDetailResponse, appState: AppState) async {
-        guard order.status == .inProgress else {
+        // 里程碑基线：只要不在跑动中就清。完成态也清 —— 否则再进同一单会补播一次
+        // 「已跑 5 公里」。放在决策之外是因为它对 `.skip` 与 `.fetch` 两条路都要做。
+        if order.status != .inProgress { kilometerMilestones.reset() }
+
+        switch Self.trackFetchDecision(
+            status: order.status,
+            didFetchFinalTrack: didFetchFinalTrack,
+            lastFetchAt: lastTrackFetchAt,
+            now: Date()
+        ) {
+        case .clear:
             trackStats = nil
             lastTrackFetchAt = nil
-            kilometerMilestones.reset()
+            didFetchFinalTrack = false
             return
+        case .skip:
+            return
+        case .fetch(let isFinal):
+            lastTrackFetchAt = Date()
+            if isFinal { didFetchFinalTrack = true }
         }
-        let now = Date()
-        if let last = lastTrackFetchAt, now.timeIntervalSince(last) < Self.trackPollingInterval { return }
-        lastTrackFetchAt = now
 
         do {
             let track = try await appState.safety.orderTrack(orderId: order.orderId)
             trackStats = track.blindStats
-            // 推给锁屏卡，顺带复位它自己的节流器 —— 不推的话协调器会为同一单再拉一次
-            // 同一个 `/track`，跑动中每 10 秒多发一个请求。
-            appState.liveEscortCoordinator.submitTrackStats(track.blindStats, orderID: order.orderId)
-            announceKilometerMilestoneIfNeeded(track.blindStats)
+            // 下面两件事**只在跑动中做**，已完成那一次终值拉取不做：
+            // ① 锁屏卡在 `COMPLETED` 已经该结束了（`liveActivityPlan` 判 nil），
+            //    往一张正在收起的卡上推数字只会多一次同步；
+            // ② 里程碑基线刚在上面被 reset，这一次调用必然只定基线、不播 ——
+            //    靠那个隐式事实等于把「跑完之后不补播已跑 N 公里」寄托在另一个函数的内部行为上。
+            if order.status == .inProgress {
+                // 推给锁屏卡，顺带复位它自己的节流器 —— 不推的话协调器会为同一单再拉一次
+                // 同一个 `/track`，跑动中每 10 秒多发一个请求。
+                appState.liveEscortCoordinator.submitTrackStats(track.blindStats, orderID: order.orderId)
+                announceKilometerMilestoneIfNeeded(track.blindStats)
+            }
         } catch {
             // **不清空已有的数字、不播报。** 与 `refreshVolunteerLocationFallbackIfNeeded` 同一条理由：
             // 跑动中一次网络抖动把屏幕上的距离归零，比暂时不更新糟得多；而每 10 秒往耳朵里塞一句
             // 「获取失败」会占住盲人用来听车流和同伴说话的那条通道，且没有任何可执行的动作。
         }
+    }
+
+    /// 这一轮要不要拉 `/track`。
+    enum TrackFetchDecision: Equatable {
+        /// 拉。`isFinal` = 这是完成态那唯一一次终值拉取。
+        case fetch(isFinal: Bool)
+        /// 不拉，但屏幕上已有的数字**留着**。
+        case skip
+        /// 不拉，并且把数字清掉（这一态不该有数字）。
+        case clear
+    }
+
+    /// 判据抽成纯函数，理由同 `shouldStartRunCountdown`：这里三条分支的错误形态全是静默的
+    /// —— 完成态误落 `.clear` ⇒ ④ 那一屏三个数字变 `--`（而它的全部内容就是那三个数）；
+    /// 完成态照节流走 ⇒ 屏幕停在最后一个中途值；跑动中漏了节流 ⇒ 每 5 秒多发一个请求。
+    nonisolated static func trackFetchDecision(
+        status: RunOrderStatus,
+        didFetchFinalTrack: Bool,
+        lastFetchAt: Date?,
+        now: Date
+    ) -> TrackFetchDecision {
+        switch status {
+        case .inProgress:
+            if let lastFetchAt, now.timeIntervalSince(lastFetchAt) < trackPollingInterval {
+                return .skip
+            }
+            return .fetch(isFinal: false)
+        case .completed:
+            // 🔴 **刻意不看节流。** 完成那一刻上一次跑动中的拉取往往还在 10 秒窗内，
+            // 照节流跳过就把中途值（5.18）留在了 ④ 那一屏上。拉过一次就不再拉 ——
+            // 已完成的轨迹不会再变。
+            return didFetchFinalTrack ? .skip : .fetch(isFinal: true)
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept,
+             .driverEnRoute, .driverArrived, .rematching, .cancelled, .noVolunteer, .unknown:
+            return .clear
+        }
+    }
+
+    /// 完成那一刻**唯一**那一句。`/track` 的终值拉过之后才调（`loadOrder` 末尾）。
+    ///
+    /// 走 `speakStatusChange` 这个 funnel 而不是直接 `speak`，是为了拿它那两件东西：
+    /// 「同一状态只播一次」的 guard（跨轮询、跨重进页面）与 `RunOrderStatus.haptic`
+    /// —— 强震一次就挂在那张表上（`.completed` → `.strong`），
+    /// 在这里另外补一次 `HapticFeedback.play` 会变成两下。
+    ///
+    /// 🔴 **不在这里判「里程为空就不播」**：这件事（陪跑结束了）比那个数字要紧得多，
+    /// `runFinishedAnnouncement` 自己会在拿不到里程时把那半句去掉。
+    private func announceCompletionIfNeeded() {
+        guard let kind = pendingCompletionAnnouncement, let order else { return }
+        pendingCompletionAnnouncement = nil
+        speechService?.speakStatusChange(
+            .completed,
+            text: Self.completionAnnouncementText(kind, order: order, stats: trackStats)
+        )
+    }
+
+    /// 完成那一句的正文。纯函数，两种语境各一句。
+    nonisolated static func completionAnnouncementText(
+        _ kind: CompletionAnnouncement,
+        order: OrderDetailResponse,
+        stats: TrackStats?
+    ) -> String {
+        switch kind {
+        case .justFinished:
+            return BlindRunCopy.runFinishedAnnouncement(
+                name: order.volunteerNameForSpeech,
+                distanceText: stats?.distanceText
+            )
+        case .coldStart:
+            // 既有的状态句 + 三个数字。数字这一半原先由 `.task` 里那句轨迹总结承担，
+            // 而它**同档打断**了状态句（记忆 `later-speak-silently-cuts-the-earlier-one`）——
+            // 合成一句之后两半都能听全。
+            var parts = [order.blindRunnerAnnouncement(distanceText: nil)]
+            if let stats, let clause = spokenStatsClause(stats, isFinished: true) {
+                parts.append(clause)
+            }
+            return parts.joined(separator: " ")
+        }
+    }
+
+    /// 三个数字的**播报**口径（`9'06"` 会被念成「九撇零六引号」，所以不能用屏幕口径）。
+    ///
+    /// 抽出来是因为它有两个调用点 —— 「重复当前状态」与完成播报。两处各拼一份的下场是
+    /// 同一组数字在两个入口念得不一样，而屏幕上不会有任何症状。
+    nonisolated static func spokenStatsClause(_ stats: TrackStats, isFinished: Bool) -> String? {
+        let spoken = [
+            stats.distanceText.map { "已跑 \($0)" },
+            stats.durationText.map { "用时 \($0)" },
+            // 标签与那一屏上写的那格一致（③「配速」/ ④「平均配速」，判据在 `BlindRunCopy`）。
+            stats.averagePaceText.map { "\(BlindRunCopy.metricPaceLabel(isFinished: isFinished)) \($0)" }
+        ].compactMap { $0 }
+        guard !spoken.isEmpty else { return nil }
+        return spoken.joined(separator: "，") + "。"
     }
 
     /// 每跑满一公里播一句「已跑 N 公里」。**只播距离** —— 不播配速、心率、卡路里
@@ -1399,6 +1558,15 @@ struct BlindOrderStatusView: View {
         flowPresentation?.phase.isRunning == true
     }
 
+    /// 这一刻是不是已完成那一幕（设计稿 ④）。
+    ///
+    /// **与 `isRunningPhase` 分开而不是合成一个「骨架折叠态」**：两者在导航栏上的结论
+    /// 正好相反 —— ④ 要有那枚「重复当前状态」（项目负责人 2026-09-16 决策 2 指明 ①②④），
+    /// ③ 收起。合成一个的直接后果是 ④ 丢掉它。
+    private var isFinishedPhase: Bool {
+        flowPresentation?.phase == .finished
+    }
+
     /// 副标题下方那行警示。**只在异常时非 nil。**
     ///
     /// 目前只有一种：需要对端位置的状态下拿不到它（设计稿 §3.4 的「同行位置暂不可用」，
@@ -1448,6 +1616,20 @@ struct BlindOrderStatusView: View {
                 footer: {
                     VStack(spacing: 16) {
                         flowFooter(order)
+                        // 🔴 已完成那一幕**把改版前那一页的三块原样接回来**（项目负责人
+                        // 2026-09-17 决策）：轨迹总结 + 大图回放 + 评价表单 + 收藏固定搭档
+                        // （`lifecycleSection` → `completionRatingSection`）、本单信息、状态流水。
+                        //
+                        // 设计稿 ④ 的第一屏之下是空白，而那三块是**已经上线的功能**：
+                        // 评价还有后端在催、收藏这条路是全 App 唯一不依赖火花开关的收藏入口
+                        // （另一个在设置页，只能收藏已点亮火花的一对，而那个开关后端默认关着）。
+                        // 照稿删掉等于让两个功能都没有入口 —— ⑤ 首页评价卡还卡在
+                        // 「后端 rating 是 1–5 必填、没有三档枚举」上（待拍板项 D 的决定是推迟）。
+                        if order.status == .completed {
+                            lifecycleSection(order)
+                            orderInfoSection(order)
+                            statusLogSection
+                        }
                         debugMockControls(order)
                     }
                 }
@@ -1569,6 +1751,13 @@ struct BlindOrderStatusView: View {
             // 状态 + 里程 / 时长 / 配速（用播报口径，不是屏幕上那个 `9'06"`）。
             // 两处各写一份的下场是跑步中那屏播的和别处不一样，而没有人会发现。
             viewModel.repeatStatus()
+        case .done:
+            // 「完成」只是离开这一页（订单早已是 `COMPLETED`，结束权在陪跑员手上）。
+            //
+            // 🚩 **刻意不调 `viewModel.skipReview()`** —— 那个函数的语义是「我不评了」，
+            // 而评价表单还在这一页的滚动区里。把「离开」当成「放弃评价」会让用户
+            // 下次从历史点进来时看到一张已经被自己关掉的表。
+            dismiss()
         case .preparing:
             // 倒计时那三秒按钮是 `.disabled()` 的，走不到这里。留一个显式分支而不是
             // 并进 `nil`：`PrimaryAction` 加档时编译器会逼一次决策。
@@ -1634,7 +1823,7 @@ struct BlindOrderStatusView: View {
         .background(AppColors.background)
         .navigationTitle(usesFlowSkeleton ? "陪跑订单" : "订单状态")
         .navigationBarTitleDisplayMode(.inline)
-        // 跑步中隐藏返回箭头（设计稿 ③「界面元素」逐字）。
+        // 跑步中与已完成隐藏返回箭头（设计稿 ③④ 两屏的导航栏都没有它）。
         //
         // 不藏的后果是具体的：读屏遍历第一站就是「返回」，两次右滑 + 双击就退出了这一屏，
         // 而它是盲人跑动中唯一能听到里程 / 时长 / 配速、也是唯一能按到求助的地方。
@@ -1644,7 +1833,8 @@ struct BlindOrderStatusView: View {
         // 而全仓 `.toolbar(.hidden, for: .tabBar)` 命中 0 ⇒ 标签栏照常在，
         // 切到「记录」或「我的」就离开了。**若将来有人隐藏标签栏，这一行必须同时撤销**，
         // 否则跑步中就没有任何出口（结束权只在陪跑员手上）。
-        .navigationBarBackButtonHidden(isRunningPhase)
+        // 已完成那一幕另有一个显式出口 —— 主按钮就是「完成」（`PrimaryAction.done`）。
+        .navigationBarBackButtonHidden(isRunningPhase || isFinishedPhase)
         // 🔴 走四步骨架时**不挂这条底栏** —— 骨架自带设计稿的两个版位
         // （主按钮 + 求助与安全），再挂一条会变成四个按钮，而
         // `docs/05-page-specs.md` 那条「不要往常驻区加第三个版位」的理由是
@@ -1925,7 +2115,12 @@ struct BlindOrderStatusView: View {
             // 独立的 task 很容易变成「每轮都查一次收藏列表」。这里一单只查一次。
             await viewModel.loadFavoriteStateIfNeeded()
             await trackViewModel.load(orderID: orderId, appState: appState)
-            if let summary = trackViewModel.track?.spokenSummary { speechService.speak(summary) }
+            // 🔴 **这里刻意不再播轨迹总结。** 它曾经是完成那一刻的**第二句**，而两句同档 ⇒
+            // 后到的把先到的从半句切断（记忆 `later-speak-silently-cuts-the-earlier-one`），
+            // 用户听到的是「服务已完」+「本次路线 5.20 公里…」。
+            // 设计稿要求「一次只播一条、变形为总结状态时不再播第二遍」（状态清单 §4），
+            // 那三个数字已经并进 `announceCompletionIfNeeded` 那唯一一句里。
+            // 想再听一遍走「重复当前状态」—— 导航栏那枚与轨迹卡里那枚都是它。
         }
         // 展开时拉一次，之后每次状态推进再拉一次 —— 服务进行中新增的那条转移会自己出现。
         // 折叠状态下不请求：这是一块用户主动来找的辅助信息，不该给主路径加一次 5 秒一轮的开销。
@@ -2049,8 +2244,12 @@ struct BlindOrderStatusView: View {
                 .accessibilityAddTraits(.isHeader)
 
             if let track = trackViewModel.track {
+                // 🚩 这枚「重复当前状态」与导航栏那枚走**同一个函数**（`repeatStatus`）——
+                // 同一页上两个入口念出不同的话，对看不见屏幕的人是两个矛盾的事实。
+                // 原先它念 `track.spokenSummary`（只有三个数字，没有状态），
+                // 而 `repeatStatus` 念的是「状态 + 三个数字 + 求助状态」，是它的严格超集。
                 CompletedTrackSummaryView(track: track) {
-                    speechService.speak(track.spokenSummary)
+                    viewModel.repeatStatus()
                 }
             } else if trackViewModel.isLoading {
                 ProgressView("正在加载本次路线")
