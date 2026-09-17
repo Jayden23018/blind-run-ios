@@ -27,6 +27,10 @@ enum OrderEndpoint {
     case active
     case detail(orderId: Int64)
 
+    /// 附近可接订单摘要。**本 App 只用它给邀请卡补三项**（视力 / 引导方式 / 跑多久），
+    /// 不做「附近还没人接的」列表 —— 见 `AvailableOrderResponse` 的说明。
+    case available
+
     // 状态流转（`POST /api/orders/{orderId}/{action}`，见 AGENTS.md §5）
     case cancel(orderId: Int64)
     case respond(orderId: Int64)
@@ -74,6 +78,8 @@ enum OrderEndpoint {
             return EndpointRequest(.get, "/api/orders/active")
         case .detail(let orderId):
             return EndpointRequest(.get, "/api/orders/\(orderId)")
+        case .available:
+            return EndpointRequest(.get, "/api/orders/available")
         case .cancel(let orderId):
             return EndpointRequest(.post, "/api/orders/\(orderId)/cancel")
         case .respond(let orderId):

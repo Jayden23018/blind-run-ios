@@ -663,17 +663,37 @@ final class blindRunUITests: XCTestCase {
             "三格数据的读屏标签要先说这是什么\n\(app.debugDescription)"
         )
 
+        // 跑者行（§4.4.2 第 7 项）。种子里塞了 `TOTAL_BLIND` + `TETHER_ROPE`
+        // —— 真实路径上这两项由 `GET /api/orders/available` 补，而 mock 对那条路径恒返空数组。
+        // 断的是「这一行在无障碍树里长什么样」，数据怎么来的由 `VolunteerInviteState.merge` 的单测验。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["跑者，全盲，牵引绳"].firstMatch.exists,
+            "跑者行要合成一个焦点念全，不能让读屏用户分三次划过\n\(app.debugDescription)"
+        )
+
+        // 🔴 **邀请卡弹出时，下面那一屏必须从无障碍树里消失。**
+        //
+        // 这一条 2026-09-18 才有意义：卡片从 `.sheet` 换成了自定义 overlay，而系统 sheet
+        // 白送的「背景变成 inert」overlay 不送。少了那道屏蔽的表现是 VoiceOver 用户
+        // 一路右划就滑到了被压暗层盖住的首页上 —— 念得到、按得动，而屏幕上它在一块黑布底下。
+        // 屏幕上看不出任何异常，所以只能靠这条断言。
+        XCTAssertFalse(
+            app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch.exists,
+            "邀请卡盖住的那一屏不该还留在无障碍树里\n\(app.debugDescription)"
+        )
+
         // 🔴 **「查看详情」是这条用例唯一会点的东西，而它必须点。**
-        // 邀请卡是 `.sheet`，而这一跳是从 sheet 里再弹一个 `.fullScreenCover`
+        // 这一跳是从**自定义 overlay** 里再弹一个 `fullScreenCover`
         // （设计交付 v3 §4.4.2 第 10 项 → §5 的「邀请」订单页）。
-        // 两层模态叠在一起在 iOS 16 上行不行**读代码验不了**，而本仓库模拟器通道永久不可用
+        // 2026-09-17 验过的是「从 sheet 里弹」，换成 overlay 之后那条结论**不自动成立** ——
+        // 两层模态叠在一起在 iOS 16 上行不行读代码验不了，而本仓库模拟器通道永久不可用
         // ⇒ 只有真机点一下才知道。点它不会发出任何派单响应，所以不像另外两枚那样
         // 会把这条用例变成在验别的东西。
         app.descendants(matching: .any)["volunteerDispatchDetailButton"].firstMatch.tap()
 
         XCTAssertTrue(
             app.staticTexts["陪跑订单"].firstMatch.waitForExistence(timeout: 10),
-            "从邀请卡（sheet）里应当能再弹出完整订单页（fullScreenCover）\n\(app.debugDescription)"
+            "从邀请卡（自定义 overlay）里应当能再弹出完整订单页（fullScreenCover）\n\(app.debugDescription)"
         )
         // 四步骨架的第 1 步高亮 —— 这一跳去的是「邀请」态，不是别的订单页。
         XCTAssertTrue(

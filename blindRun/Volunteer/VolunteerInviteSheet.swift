@@ -9,114 +9,199 @@ import SwiftUI
 /// 「卡片说明天 7:00、详情页说 9月18日 07:00」—— 那是 `RunPlanFormat.shortStart`
 /// 注释里逐字记着的坑。
 ///
-/// 🚩 **这一层不画四步进度条。** 它是一次打断：30 秒窗口内要让人一眼看完并决定；
+/// 🚩 **这一层不画四步进度条。** 它是一次打断：回复窗口内要让人一眼看完并决定；
 /// 完整订单页是给「我想再看看」的人的第二跳。
+///
+/// 🔴 **2026-09-18 从 `.sheet` 改成自定义 overlay**（设计 §4.4.1「从底部升起」要 spring 回弹，
+/// 而 `presentationDetents` 给不了）。改完之后**四件事变成这一层自己的责任**，
+/// 一件都不能漏 —— 系统 sheet 原本白送这四样：
+///
+/// 1. 压暗层（`AppColors.Flow.scrim`，`.dim` 逐字）与点背景收起；
+/// 2. 下滑收起；
+/// 3. 高度由内容决定（`.presentationDetents([.fraction(0.67), .large])` 钉死的 0.67 正是
+///    项目负责人在真机上看到的「底部一大片空白」）；
+/// 4. **背景对读屏屏蔽** —— 见 `VolunteerTabView` 里那行 `.accessibilityHidden`。
+///    overlay 不是真的模态容器，光靠 `.isModal` 兜不住，而「读屏能滑到看不见的东西」
+///    在盲人端是实打实的缺陷。
 struct VolunteerInviteSheet: View {
     @ObservedObject var viewModel: VolunteerHomeViewModel
     let onRespond: (Int64, OrderRespondAction) -> Void
     let onDecline: (Int64) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// 打开时焦点落在标题行（§4.4.2「读屏：打开时焦点在标题行」）。
     @AccessibilityFocusState private var titleFocused: Bool
 
+    /// 拖动中的位移。竖向只取正值（往上拖没有语义），横向只在多条邀请时跟手。
+    @State private var dragOffset: CGSize = .zero
+    /// 本次拖动锁定的方向。**按首次位移的主轴一次性锁死** —— 不锁的话斜着一划
+    /// 会同时翻页又收起，而这两个动作的结果完全不同。
+    @State private var dragAxis: DragAxis?
+
+    private enum DragAxis { case vertical, horizontal }
+
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            // 一张卡一页。`selection` 绑 orderId 而不是下标 —— 队列会在翻页期间增删
-            // （新邀请进来、旧邀请过期），下标会指到另一个人身上，而这一屏的动作是替他回复。
-            TabView(selection: currentIDBinding) {
-                ForEach(viewModel.invites) { invite in
-                    ScrollView {
-                        VolunteerInviteCard(
-                            invite: invite,
-                            isResponding: viewModel.isRespondingToDispatch,
-                            onAccept: { onRespond(invite.id, invite.order.dispatchRespondAction) },
-                            onDecline: { onDecline(invite.id) },
-                            onOpenOrder: { viewModel.openAcceptedOrder(orderID: invite.id) },
-                            onDismiss: { viewModel.dismissInvite(orderID: invite.id) }
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                if viewModel.isInviteSheetPresented {
+                    // 压暗层与卡片是**两个并列的 `if`**，各自带各自的转场：
+                    // 压暗层淡入、卡片从底部升起。合成一个 `if` 的话整块只会用一种转场，
+                    // 于是压暗层也跟着从屏幕下缘滑上来。
+                    AppColors.Flow.scrim
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { dismissWithoutReplying() }
+                        // 设计稿的「点空白处收起」在读屏里没有对应动作 ——
+                        // VoiceOver 用户走的是转子里的「关闭」或直接两指擦除。
+                        .accessibilityHidden(true)
+                        .transition(.opacity)
+
+                    card
+                        .frame(
+                            maxHeight: geometry.size.height * FlowMetrics.inviteSheetMaxHeightFraction,
+                            alignment: .bottom
                         )
-                        .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
-                        .padding(.bottom, 24)
-                    }
-                    .tag(Optional(invite.id))
+                        .offset(x: dragOffset.width, y: dragOffset.height)
+                        .gesture(dragGesture)
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom))
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
-        .background(AppColors.Flow.page)
-        .onAppear { titleFocused = true }
+        .ignoresSafeArea()
+        // 开了「减弱动态效果」就瞬时到位（`nil` = 不动画），不做弹簧位移。
+        .animation(
+            reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.82),
+            value: viewModel.isInviteSheetPresented
+        )
+        .onChange(of: viewModel.isInviteSheetPresented) { presented in
+            guard presented else { return }
+            dragOffset = .zero
+            dragAxis = nil
+            titleFocused = true
+        }
         // 队列翻到下一张时把焦点带过去。没有这一行的表现是：回复完一条之后卡片换了，
         // 而读屏焦点还停在已经不存在的那张卡上 —— VoiceOver 会跳回屏幕顶端从头念。
         .onChange(of: viewModel.currentInviteID) { _ in titleFocused = true }
     }
 
-    private var currentIDBinding: Binding<Int64?> {
-        Binding(
-            get: { viewModel.currentInviteID ?? viewModel.invites.first?.id },
-            set: { viewModel.currentInviteID = $0 }
-        )
+    // MARK: 白卡本体
+
+    /// `.offer{background:#fff;border-radius:22px 22px 0 0;padding:14px 16px 24px;gap:8px}`。
+    ///
+    /// **贴底**：下两角不圆、背景一直铺到屏幕最下缘。`padding-bottom:24` 就是稿子给
+    /// Home Indicator 留的那段距离，不要再叠一份安全区内边距。
+    private var card: some View {
+        // 装得下就按内容高度（第一个分支），装不下才滚（第二个分支）。
+        // AX5 下一张完整的卡装不进一屏，而这一屏的每个字都要能看见 ——
+        // 这正是原先 `.presentationDetents` 里 `.large` 那一档干的事。
+        ViewThatFits(in: .vertical) {
+            cardContent
+            ScrollView { cardContent }
+        }
+        .background(sheetBackground)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .accessibilityIdentifier("volunteerInviteSheet")
     }
 
-    // MARK: 标题行 + 进度条
+    private var sheetBackground: some View {
+        // 只圆上面两角。iOS 16 没有 `UnevenRoundedRectangle`（那是 17+），
+        // 所以把整个圆角矩形往下多画两个半径、让下两角落到屏幕外面去。
+        RoundedRectangle(cornerRadius: FlowMetrics.inviteSheetRadius, style: .continuous)
+            .fill(AppColors.Flow.surface)
+            .padding(.bottom, -FlowMetrics.inviteSheetRadius * 2)
+            .ignoresSafeArea(edges: .bottom)
+    }
 
+    @ViewBuilder
+    private var cardContent: some View {
+        VStack(alignment: .leading, spacing: FlowMetrics.inviteRowSpacing) {
+            grabber
+            header
+
+            if let invite = viewModel.currentInvite {
+                VolunteerInviteCard(
+                    invite: invite,
+                    isResponding: viewModel.isRespondingToDispatch,
+                    onAccept: { onRespond(invite.id, invite.order.dispatchRespondAction) },
+                    onDecline: { onDecline(invite.id) },
+                    onOpenOrder: { viewModel.openAcceptedOrder(orderID: invite.id) },
+                    onDismiss: { viewModel.dismissInvite(orderID: invite.id) }
+                )
+            }
+        }
+        .padding(.top, FlowMetrics.inviteSheetTopPadding)
+        .padding(.horizontal, FlowMetrics.inviteSheetHorizontalPadding)
+        .padding(.bottom, FlowMetrics.inviteSheetBottomPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// `.offer .grab` —— 自定义 overlay 没有系统那枚 `presentationDragIndicator`，自己画。
+    private var grabber: some View {
+        Capsule()
+            .fill(AppColors.Flow.nodeStroke)
+            .frame(width: FlowMetrics.inviteGrabWidth, height: FlowMetrics.inviteGrabHeight)
+            .frame(maxWidth: .infinity)
+            .accessibilityHidden(true)
+    }
+
+    // MARK: 标题行 → 进度条 → 剩余时间
+
+    /// 顺序是项目负责人 2026-09-18 当面定的：分页点**恒**占标题行右侧，
+    /// 「还剩 X 秒回复」挪到进度条**下方**右对齐。
+    ///
+    /// 🔴 **那行字不许删。** 看不见屏幕的人靠它知道还剩多久 —— 进度条是纯视觉的
+    /// （对读屏隐藏），删掉这行等于把倒计时从读屏用户手里拿走。
     @ViewBuilder
     private var header: some View {
         let invite = viewModel.currentInvite
-        VStack(spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(VolunteerInviteCopy.sheetTitle(count: viewModel.invites.count))
-                    .flowFont(FlowFonts.homeCardRowTitle())
-                    .foregroundColor(AppColors.Flow.primaryText)
-                    .accessibilityAddTraits(.isHeader)
-                    .accessibilityFocused($titleFocused)
 
-                if viewModel.invites.count > 1 {
-                    pageDots
-                }
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(VolunteerInviteCopy.sheetTitle(count: viewModel.invites.count))
+                .flowFont(FlowFonts.inviteHeader())
+                .foregroundColor(AppColors.Flow.primaryText)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($titleFocused)
 
-                Spacer(minLength: 0)
+            Spacer(minLength: 0)
 
-                if let invite, invite.isAwaitingReply {
-                    Text(VolunteerOrderFlowCopy.replyCountdown(seconds: invite.remainingSeconds))
-                        .flowFont(
-                            invite.isUrgent ? FlowFonts.rowValueEmphasized() : FlowFonts.rowLabel(),
-                            monospacedDigit: true
-                        )
-                        .foregroundColor(
-                            invite.isUrgent ? AppColors.Flow.replyUrgentText : AppColors.Flow.secondaryText
-                        )
-                }
-            }
-
-            if let invite, invite.isAwaitingReply {
-                replyProgress(invite)
-            }
+            pageDots
         }
-        .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
-        .padding(.top, 8)
-        .padding(.bottom, 14)
-        // 多张卡时给读屏一条**确定**能用的翻页路径。`TabView(.page)` 本身要三指滑动，
-        // 而这个动作在 VoiceOver 新手里几乎没人知道。
+        // 多张卡时给读屏一条**确定**能用的翻页路径。手势翻页对 VoiceOver 用户不可用：
+        // 开了读屏之后单指拖动是「探索」，到不了下面那个 `DragGesture`。
         //
         // ⚠️ 用例只能断言这两个动作**存在**（无障碍树的形状）：`XCUIElement.tap()` 注入的是
         // 物理触摸，走不到 accessibility action —— 见记忆 `xcuitest-cannot-invoke-accessibility-actions`。
         // 行为那一半由 `VolunteerInviteQueue` 的单测直接调 view model 验。
         .accessibilityAction(named: "下一个邀请") { step(by: 1) }
         .accessibilityAction(named: "上一个邀请") { step(by: -1) }
+
+        if let invite, invite.isAwaitingReply {
+            replyProgress(invite)
+
+            Text(VolunteerOrderFlowCopy.replyCountdown(seconds: invite.remainingSeconds))
+                .flowFont(FlowFonts.inviteCountdown(), monospacedDigit: true)
+                .foregroundColor(
+                    invite.isUrgent ? AppColors.Flow.replyUrgentText : AppColors.Flow.secondaryText
+                )
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
     }
 
-    /// 分页点。**纯装饰** —— 「第几个 / 共几个」已经在标题行的「N 个新邀请」里说过了，
-    /// 再念一遍六个圆点是纯噪音。
+    /// 分页点。**恒显示**，数量 = 邀请条数（项目负责人拍板；HTML 稿单条那屏没有点，不照它）。
+    ///
+    /// **纯装饰** —— 「第几个 / 共几个」已经在标题行的「N 个新邀请」里说过了，
+    /// 再念一遍 N 个圆点是纯噪音。
     private var pageDots: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             ForEach(viewModel.invites) { invite in
-                Circle()
-                    .fill(
-                        invite.id == viewModel.currentInvite?.id
-                            ? AppColors.Flow.accent
-                            : AppColors.Flow.progressTrack
-                    )
-                    .frame(width: 6, height: 6)
+                let isCurrent = invite.id == viewModel.currentInvite?.id
+                Capsule()
+                    .fill(isCurrent ? AppColors.Flow.accent : AppColors.Flow.progressTrack)
+                    // `.dots b{width:14px}` / `.dots i{width:6px}`，高度都是 6。
+                    .frame(width: isCurrent ? 14 : 6, height: 6)
             }
         }
         .accessibilityHidden(true)
@@ -124,7 +209,7 @@ struct VolunteerInviteSheet: View {
 
     /// 回复进度条（§4.4.2 第 3 项，3pt，剩余时间占比）。
     ///
-    /// **对读屏隐藏**：它和上面那行「还剩 X 秒回复」说的是同一件事，而那行是文字。
+    /// **对读屏隐藏**：它和下面那行「还剩 X 秒回复」说的是同一件事，而那行是文字。
     /// 取值 ≥3:1 的理由与断言在 `FlowDesignSystemTests` 里 ——
     /// 设计稿给的 `#D99A00` 压这条底只有 1.96，照抄等于让它在低视力眼里消失。
     private func replyProgress(_ invite: VolunteerInviteState) -> some View {
@@ -140,6 +225,54 @@ struct VolunteerInviteSheet: View {
         .accessibilityHidden(true)
     }
 
+    // MARK: 拖动
+
+    /// 一条手势管两件事，**按主轴分流**：竖着拖是收起，横着拖是翻页。
+    ///
+    /// 🚩 **收起不算回复**（§4.4.2）：邀请留在队列里，接单主页那张「N 个新邀请」卡还能点回来。
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                if dragAxis == nil {
+                    dragAxis = abs(value.translation.width) > abs(value.translation.height)
+                        ? .horizontal
+                        : .vertical
+                }
+                switch dragAxis {
+                case .horizontal:
+                    // 只有一条邀请时横滑不跟手 —— 跟了手又翻不了页，反馈是错的。
+                    guard viewModel.invites.count > 1 else { return }
+                    dragOffset = CGSize(width: value.translation.width, height: 0)
+                case .vertical:
+                    // 往上拖没有语义（卡已经贴底了），所以只取正值。
+                    dragOffset = CGSize(width: 0, height: max(0, value.translation.height))
+                case .none:
+                    break
+                }
+            }
+            .onEnded { value in
+                let axis = dragAxis
+                dragAxis = nil
+                withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.85)) {
+                    dragOffset = .zero
+                }
+                switch axis {
+                case .vertical where value.translation.height > FlowMetrics.inviteDismissDragDistance:
+                    dismissWithoutReplying()
+                case .horizontal where value.translation.width <= -FlowMetrics.invitePageDragDistance:
+                    step(by: 1)
+                case .horizontal where value.translation.width >= FlowMetrics.invitePageDragDistance:
+                    step(by: -1)
+                default:
+                    break
+                }
+            }
+    }
+
+    private func dismissWithoutReplying() {
+        viewModel.isInviteSheetPresented = false
+    }
+
     private func step(by offset: Int) {
         guard let current = viewModel.currentInvite?.id,
               let index = viewModel.invites.firstIndex(where: { $0.id == current }) else { return }
@@ -149,14 +282,14 @@ struct VolunteerInviteSheet: View {
     }
 }
 
-// MARK: - 一张卡
+// MARK: - 一张卡的内容
 
 /// 单张邀请卡。三种形态在**同一张卡上原地切换**（§4.4.3「不关闭再弹新弹层」）：
 /// 待回复 / 已约好 / 已失效。
 ///
 /// 🚩 **「被别人接」那一种不做。** 它只在从「附近还没人接的」列表进入时才可能发生，
-/// 而那条链路当前是关的（`MockAPIClient.swift` 里被刻意删掉，后端
-/// `GET /api/orders/available` 也没有「等了多久」这个维度）。
+/// 而那条链路当前是关的（`MockAPIClient.swift` 对 `/api/orders/available` 恒返空数组，
+/// 本 App 调它只为给这张卡补三项，不做列表 UI）。
 /// 定向派单的失败只有一种：过期。
 struct VolunteerInviteCard: View {
     let invite: VolunteerInviteState
@@ -169,23 +302,25 @@ struct VolunteerInviteCard: View {
     @State private var showsDetail = false
 
     private var presentation: VolunteerOrderFlowPresentation {
-        .make(dispatch: invite.order, remainingSeconds: invite.remainingSeconds)
+        .make(
+            dispatch: invite.order,
+            remainingSeconds: invite.remainingSeconds,
+            supplement: invite.supplement
+        )
     }
 
     var body: some View {
-        FlowCard {
-            VStack(alignment: .leading, spacing: 16) {
-                switch invite.outcome {
-                case .none:
-                    awaitingContent
-                case .accepted:
-                    acceptedContent
-                case .expired:
-                    expiredContent
-                }
+        VStack(alignment: .leading, spacing: FlowMetrics.inviteRowSpacing) {
+            switch invite.outcome {
+            case .none:
+                awaitingContent
+            case .accepted:
+                acceptedContent
+            case .expired:
+                expiredContent
             }
-            .padding(FlowMetrics.homeCardPadding)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .fullScreenCover(isPresented: $showsDetail) { detailPage }
     }
 
@@ -200,21 +335,21 @@ struct VolunteerInviteCard: View {
 
         if let meetingPoint = invite.order.startAddress?.nilIfBlank {
             Text(meetingPoint)
-                .flowFont(FlowFonts.homeCardPlace())
+                .flowFont(FlowFonts.invitePlace())
                 .foregroundColor(AppColors.Flow.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
+                // `.op{margin-top:-4px}` —— 地点贴住时间，两者是一组。
+                .padding(.top, FlowMetrics.invitePlaceOverlap)
         }
 
         metrics
+        runnerRow
 
-        // 🔴 设计稿这里还有一行「李先生 / 全盲，用引导绳」和一条「赶路时间不足」的浅黄提示条。
-        // **两条都不渲染，不是漏了：**
-        // ① 跑者姓名 / 视力 / 引导方式：`NEW_ORDER` 推送里没有这三项（已投 handoff）。
-        //    给还没见面的陪跑员印一个猜的视力程度，见面第一下就会抓错人。
-        // ② 「赶过来约 25 分钟」要路程估算，本 App 不做路线导航；而真正能预测「接下会失败」
-        //    的判据是后端配置 `app.order.booking-buffer-minutes`（当前 60 分钟，接单那一刻
-        //    冲突直接回 `VOLUNTEER_ALREADY_ENGAGED`），客户端拿不到。照设计稿写 30 分钟
-        //    会让 30–60 分钟那一档连提示都没有就撞 409。已投 handoff。
+        // 🔴 设计稿这里还有一条「赶路时间不足 30 分钟」的浅黄提示条，**不渲染，不是漏了**：
+        // 「赶过来约 25 分钟」要路程估算，本 App 不做路线导航；而真正能预测「接下会失败」
+        // 的判据是后端配置 `app.order.booking-buffer-minutes`（当前 60 分钟，接单那一刻
+        // 冲突直接回 `VOLUNTEER_ALREADY_ENGAGED`），客户端拿不到。照设计稿写 30 分钟
+        // 会让 30–60 分钟那一档连提示都没有就撞 409。已投 handoff。
 
         FlowActionButton(
             VolunteerOrderFlowCopy.acceptInvite,
@@ -240,8 +375,11 @@ struct VolunteerInviteCard: View {
                 .accessibilityHint("打开完整的陪跑订单页，倒计时继续走")
                 .accessibilityIdentifier("volunteerDispatchDetailButton")
         }
-        .flowFont(FlowFonts.rowValue())
+        .flowFont(FlowFonts.inviteSecondaryAction())
         .foregroundColor(AppColors.Flow.accent)
+        // `.two{padding:0 18px}`。**高度仍是 44** —— 稿子只给了字号，没给触达区，
+        // 而这两枚是真的要按的。
+        .padding(.horizontal, FlowMetrics.inviteSecondaryActionInset)
         .frame(minHeight: 44)
         .disabled(isResponding)
     }
@@ -259,44 +397,116 @@ struct VolunteerInviteCard: View {
 
     /// 三格数据（§4.4.2 第 6 项）。**缺哪格就不画哪格**，不摆「--」——
     /// 用户没填时后端整个键不出现，写「未填写」是把「不知道」显示成一个值。
+    ///
+    /// 🔴 **不画竖分隔线，底色是页面灰不是浅蓝**（`.m3{background:var(--ui-bg)}`）。
+    /// 竖线把一块柔和的底切成了表格，而这三格不是表格，是三个并排的数。
     @ViewBuilder
     private var metrics: some View {
-        let tiles: [(String, String)] = [
+        let tiles: [MetricTile] = [
             invite.order.distanceKm.map {
-                (VolunteerInviteCopy.distanceToStartLabel, String(format: "%.1f 公里", $0))
+                MetricTile(
+                    label: VolunteerInviteCopy.distanceToStartLabel,
+                    value: String(format: "%.1f", $0),
+                    unit: "公里"
+                )
             },
-            invite.order.plannedDistanceText.map { (VolunteerOrderFlowCopy.plannedDistanceLabel, $0) },
-            invite.order.plannedPaceText.map { (VolunteerOrderFlowCopy.paceLabel, $0) }
+            RunPlanFormat.plannedDistanceParts(meters: invite.order.plannedDistanceMeters).map {
+                MetricTile(
+                    label: VolunteerOrderFlowCopy.plannedDistanceLabel,
+                    value: $0.value,
+                    unit: $0.unit
+                )
+            },
+            invite.order.plannedPaceText.map {
+                MetricTile(label: VolunteerOrderFlowCopy.paceLabel, value: $0, unit: nil)
+            }
         ].compactMap { $0 }
 
         if !tiles.isEmpty {
             HStack(spacing: 0) {
-                ForEach(Array(tiles.enumerated()), id: \.offset) { index, tile in
-                    if index > 0 {
-                        Rectangle()
-                            .fill(AppColors.Flow.separator)
-                            .frame(width: 1, height: 30)
-                            .accessibilityHidden(true)
-                    }
-                    VStack(spacing: 4) {
-                        Text(tile.1)
-                            .flowFont(FlowFonts.rowValueEmphasized())
-                            .foregroundColor(AppColors.Flow.primaryText)
-                        Text(tile.0)
-                            .flowFont(FlowFonts.rowDetail())
+                ForEach(tiles) { tile in
+                    VStack(spacing: 2) {
+                        HStack(alignment: .firstTextBaseline, spacing: 2) {
+                            Text(tile.value)
+                                .flowFont(FlowFonts.inviteMetricValue())
+                                .foregroundColor(AppColors.Flow.primaryText)
+                            if let unit = tile.unit {
+                                Text(unit)
+                                    .flowFont(FlowFonts.inviteMetricUnit())
+                                    .foregroundColor(AppColors.Flow.primaryText)
+                            }
+                        }
+                        .multilineTextAlignment(.center)
+
+                        Text(tile.label)
+                            .flowFont(FlowFonts.inviteMetricLabel())
                             .foregroundColor(AppColors.Flow.secondaryText)
                     }
                     .frame(maxWidth: .infinity)
                     .accessibilityElement(children: .ignore)
                     // 读屏念「离你，3.2 公里」而不是屏幕上的「3.2 公里 / 离你」——
                     // 屏幕上值在上是为了扫读，念出来必须先说这是什么。
-                    .accessibilityLabel("\(tile.0)，\(tile.1)")
+                    .accessibilityLabel(tile.spokenLabel)
                 }
             }
-            .padding(.vertical, 12)
+            .padding(.vertical, FlowMetrics.inviteMetricTileVerticalPadding)
+            .padding(.horizontal, FlowMetrics.inviteMetricTileHorizontalPadding)
             .frame(maxWidth: .infinity)
-            .background(AppColors.Flow.bookingBackground)
-            .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
+            .background(AppColors.Flow.page)
+            .clipShape(
+                RoundedRectangle(cornerRadius: FlowMetrics.inviteMetricTileRadius, style: .continuous)
+            )
+        }
+    }
+
+    /// 三格里的一格。值与单位分开存，是因为它们在稿子里是两个字号（`.m3 b` / `.m3 b small`）。
+    private struct MetricTile: Identifiable {
+        let label: String
+        let value: String
+        let unit: String?
+
+        var id: String { label }
+        var spokenLabel: String { "\(label)，\(value)\(unit.map { " \($0)" } ?? "")" }
+    }
+
+    /// 跑者行（§4.4.2 第 7 项）。**拿不到就整行不渲染。**
+    ///
+    /// 内容来自 `GET /api/orders/available`（`VolunteerInviteSupplement`）——
+    /// 派单推送里没有视力与引导方式这两项。补不到时不占位、不编：
+    /// 给还没见面的陪跑员印一个猜的视力程度，见面第一下就会抓错人。
+    ///
+    /// 🚩 **头像圆里是「跑」不是姓氏，右边也没有「一起跑过 N 次」标签**，两样都不是漏了：
+    /// - 掩码姓名：`AvailableOrderResponse` 没有 `blindName`（`IntroCallView.counterpartName`
+    ///   里有，但那要表态「有意向」之后才可读）；
+    /// - 一起跑过 N 次：后端按 `(blindUserId, volunteerId, COMPLETED)` 现算，只挂在盲人侧端点，
+    ///   而接单前客户端连 `blindUserId` 都拿不到。
+    /// 两条都已投 handoff。
+    @ViewBuilder
+    private var runnerRow: some View {
+        if let summary = invite.supplement?.runnerSummary {
+            HStack(spacing: 9) {
+                FlowAvatar(
+                    name: nil,
+                    diameter: FlowMetrics.inviteAvatarDiameter,
+                    background: AppColors.Flow.avatarBackground,
+                    foreground: AppColors.Flow.avatarInitial,
+                    placeholder: "跑"
+                )
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(VolunteerOrderFlowCopy.runnerLabel)
+                        .flowFont(FlowFonts.inviteRunnerName())
+                        .foregroundColor(AppColors.Flow.primaryText)
+                    Text(summary)
+                        .flowFont(FlowFonts.inviteRunnerDetail())
+                        .foregroundColor(AppColors.Flow.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(VolunteerOrderFlowCopy.runnerLabel)，\(summary)")
         }
     }
 
@@ -307,27 +517,33 @@ struct VolunteerInviteCard: View {
         outcomeBadge(systemImage: "checkmark", tint: AppColors.Flow.successBadge)
 
         Text(VolunteerInviteCopy.acceptedTitle)
-            .flowFont(FlowFonts.bookingTitle())
+            .flowFont(FlowFonts.inviteTime())
             .foregroundColor(AppColors.Flow.primaryText)
+            .frame(maxWidth: .infinity, alignment: .center)
             .accessibilityAddTraits(.isHeader)
 
         Text(acceptedDetailLine)
-            .flowFont(FlowFonts.statusSubtitle())
+            .flowFont(FlowFonts.invitePlace())
             .foregroundColor(AppColors.Flow.secondaryText)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
 
         // 设计稿原话是「李明的全名和电话已放进订单」。**名字这一刻拿不到**
-        //（`NEW_ORDER` 没有 `blindName`），换成「跑者」而不是留一个空位。
+        //（`NEW_ORDER` 与 `AvailableOrderResponse` 都没有 `blindName`），
+        // 换成「跑者」而不是留一个空位。
         Text(VolunteerInviteCopy.acceptedDetail)
-            .flowFont(FlowFonts.statusSubtitle())
+            .flowFont(FlowFonts.invitePlace())
             .foregroundColor(AppColors.Flow.secondaryText)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
 
         FlowActionButton(VolunteerInviteCopy.acceptedPrimary, action: onOpenOrder)
             .accessibilityIdentifier("volunteerInviteOpenOrderButton")
 
         Button(VolunteerInviteCopy.acceptedSecondary) { onDismiss() }
-            .flowFont(FlowFonts.rowValue())
+            .flowFont(FlowFonts.inviteSecondaryAction())
             .foregroundColor(AppColors.Flow.accent)
             .frame(maxWidth: .infinity, minHeight: 44)
             .accessibilityIdentifier("volunteerInviteBackToDispatchButton")
@@ -346,13 +562,16 @@ struct VolunteerInviteCard: View {
         outcomeBadge(systemImage: "clock", tint: AppColors.Flow.secondaryText)
 
         Text(VolunteerInviteCopy.expiredTitle)
-            .flowFont(FlowFonts.bookingTitle())
+            .flowFont(FlowFonts.inviteTime())
             .foregroundColor(AppColors.Flow.secondaryText)
+            .frame(maxWidth: .infinity, alignment: .center)
             .accessibilityAddTraits(.isHeader)
 
         Text(VolunteerInviteCopy.expiredDetail)
-            .flowFont(FlowFonts.statusSubtitle())
+            .flowFont(FlowFonts.invitePlace())
             .foregroundColor(AppColors.Flow.secondaryText)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
 
         FlowActionButton(VolunteerInviteCopy.expiredPrimary, action: onDismiss)
@@ -363,9 +582,9 @@ struct VolunteerInviteCard: View {
     /// 靠**形状**区分成功与失效（对勾 / 时钟），不只靠颜色（WCAG 1.4.1）。
     private func outcomeBadge(systemImage: String, tint: Color) -> some View {
         Image(systemName: systemImage)
-            .font(.system(size: 28, weight: .semibold))
+            .font(.system(size: 26, weight: .semibold))
             .foregroundColor(.white)
-            .frame(width: 64, height: 64)
+            .frame(width: 58, height: 58)
             .background(tint, in: Circle())
             .frame(maxWidth: .infinity)
             .accessibilityHidden(true)
@@ -376,12 +595,16 @@ struct VolunteerInviteCard: View {
     /// 完整的「邀请」订单页。与「约好」「出发」同一个骨架，进度条第 1 步高亮。
     ///
     /// 倒计时照常走：这一层是**同一次派单的另一种看法**，不是一个可以慢慢看的副本。
+    ///
+    /// ⚠️ 这是**从自定义 overlay 里再弹一层 `fullScreenCover`**。上一轮真机验过的是
+    /// 「从 sheet 里弹」，换成 overlay 之后那条结论不自动成立 ——
+    /// `blindRunUITests` 里那条点「查看详情」的用例必须在 overlay 版下重新跑通。
     private var detailPage: some View {
         NavigationStack {
             VolunteerOrderFlowPage(
                 presentation: presentation,
-                // 派单载荷里没有跑者姓名（`AGENTS.md` §8：接单前只给取值空间封闭的字段），
-                // 所以头像圆里是「跑」。**不编一个名字**。已投 handoff 请后端补掩码姓名。
+                // 派单载荷与 `AvailableOrderResponse` 都没有跑者姓名（`AGENTS.md` §8：
+                // 接单前只给取值空间封闭的字段），所以头像圆里是「跑」。**不编一个名字**。
                 runnerName: nil,
                 onRowAction: { action in
                     guard case .declineInvite = action else { return }

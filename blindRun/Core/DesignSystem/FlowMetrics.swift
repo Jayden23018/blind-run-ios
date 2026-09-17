@@ -126,6 +126,39 @@ enum FlowMetrics {
 
     // MARK: 首页
 
+    // MARK: 邀请卡（设计交付 v3 §4.4.2，取值来自 storyboard-v3.html 的 `.offer` 一族 CSS）
+
+    /// `.offer{border-radius:22px 22px 0 0}` —— **只上两角**，卡本身就是 sheet、贴底。
+    static let inviteSheetRadius: CGFloat = 22
+    /// `.offer{padding:14px 16px 24px}`。
+    static let inviteSheetTopPadding: CGFloat = 14
+    static let inviteSheetHorizontalPadding: CGFloat = 16
+    static let inviteSheetBottomPadding: CGFloat = 24
+    /// `.offer{gap:8px}`。**不是 16** —— 均匀的 16 是这张卡此前读起来像一堵墙的主因之一。
+    static let inviteRowSpacing: CGFloat = 8
+    /// `.op{margin-top:-4px}`：地点贴住时间，两者成一组。
+    static let invitePlaceOverlap: CGFloat = -4
+    /// `.offer .grab{width:36px;height:4px}`。自己画，取代 `presentationDragIndicator`
+    /// —— 自定义 overlay 没有系统那一枚。
+    static let inviteGrabWidth: CGFloat = 36
+    static let inviteGrabHeight: CGFloat = 4
+    /// `.m3{border-radius:12px;padding:9px 4px}`。
+    static let inviteMetricTileRadius: CGFloat = 12
+    static let inviteMetricTileVerticalPadding: CGFloat = 9
+    static let inviteMetricTileHorizontalPadding: CGFloat = 4
+    /// `.orun .av{width:32px;height:32px}`。
+    static let inviteAvatarDiameter: CGFloat = 32
+    /// `.two{padding:0 18px}`。
+    static let inviteSecondaryActionInset: CGFloat = 18
+    /// 卡最多占容器多高。超过就内部滚动 —— AX5 下一张完整的卡装不进一屏，
+    /// 而这一屏的每个字都要能看见（`.presentationDetents` 的 `.large` 那一档原本干的就是这件事）。
+    static let inviteSheetMaxHeightFraction: CGFloat = 0.92
+    /// 拖动收起的阈值（竖向）。
+    static let inviteDismissDragDistance: CGFloat = 100
+    /// 拖动翻页的阈值（横向）。比收起小 —— 翻页是可逆的，收起也不算回复，两者都不危险，
+    /// 但横滑的自然幅度比竖滑小。
+    static let invitePageDragDistance: CGFloat = 60
+
     static let homeCardPadding: CGFloat = 22
     /// 深蓝卡底部内边距（设计稿 `padding:22px 22px 18px`）。
     static let homeCardBottomPadding: CGFloat = 18
@@ -210,9 +243,40 @@ enum FlowFonts {
     /// 首页预约块标题 24 / Semibold。
     static func bookingTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (24, .semibold, .title2) }
 
-    /// 邀请卡上那行大字时间（设计交付 v3 §4.4.2 第 4 项「28pt 粗体」）。
-    /// 比订单页的 `statusTitle()`（34）小 —— 那是一整页的主角，这是一张 2/3 高的卡。
-    static func inviteTime() -> (CGFloat, Font.Weight, Font.TextStyle) { (28, .semibold, .title) }
+    // MARK: 邀请卡（`.offer` 一族 CSS 的逐条落点）
+
+    /// 🔴 **这一组是邀请卡专用，不要拿去别处，也不要用 `homeCardXxx` 顶替。**
+    ///
+    /// 2026-09-18 之前这张卡借用 `homeCardRowTitle()`(17) / `homeCardPlace()`(18)，
+    /// 于是时间 : 地点 = 28 : 18 ≈ **1.55×**，而稿子是 28 : 12.5 ≈ **2.24×** ——
+    /// 每一行字号都差不多，读起来是一堵墙而不是「一个大字 + 一堆安静的小字」。
+    /// 项目负责人的原话是「看着非常僵硬」。
+    ///
+    /// 那两个 token **不能改**：`BlindHomeCards.swift:89/112/145` 也在用，
+    /// 改一处会把盲人端首页卡一起改掉。所以另开一组。
+    ///
+    /// 字号仍然全走 `@ScaledMetric`：12.5 是**默认档**的基准值，用户调大字号照常长大。
+    /// 基准偏小带来的 AX5 截断风险由 `AccessibilityAuditTests` 的 `.textClipped` 审计守门。
+
+    /// `.oh b` —— 标题行「N 个新邀请」。
+    static func inviteHeader() -> (CGFloat, Font.Weight, Font.TextStyle) { (12.5, .bold, .footnote) }
+    /// `.oh span` —— 「还剩 X 秒回复」。
+    static func inviteCountdown() -> (CGFloat, Font.Weight, Font.TextStyle) { (11.5, .regular, .caption) }
+    /// `.ot` —— 那行大字时间。**800 不是 600**：稿子写的就是 `font-weight:800`，
+    /// 而 SF 在 28pt 上 heavy 与 semibold 的差别是这张卡层级感的一半。
+    /// 比订单页的 `statusTitle()`（34）小 —— 那是一整页的主角，这是一张贴底的卡。
+    static func inviteTime() -> (CGFloat, Font.Weight, Font.TextStyle) { (28, .heavy, .title) }
+    /// `.op` —— 集合点名称。
+    static func invitePlace() -> (CGFloat, Font.Weight, Font.TextStyle) { (12.5, .regular, .footnote) }
+    /// `.m3 b` / `.m3 b small` / `.m3 span` —— 三格的值、单位、标签。
+    static func inviteMetricValue() -> (CGFloat, Font.Weight, Font.TextStyle) { (17, .bold, .body) }
+    static func inviteMetricUnit() -> (CGFloat, Font.Weight, Font.TextStyle) { (10.5, .regular, .caption2) }
+    static func inviteMetricLabel() -> (CGFloat, Font.Weight, Font.TextStyle) { (10, .regular, .caption2) }
+    /// `.orun b` / `.orun span` —— 跑者行。
+    static func inviteRunnerName() -> (CGFloat, Font.Weight, Font.TextStyle) { (13, .bold, .footnote) }
+    static func inviteRunnerDetail() -> (CGFloat, Font.Weight, Font.TextStyle) { (10.5, .regular, .caption2) }
+    /// `.two` —— 底部两个文字按钮。
+    static func inviteSecondaryAction() -> (CGFloat, Font.Weight, Font.TextStyle) { (13, .semibold, .footnote) }
     /// 首页预约块副标题 15 / Regular。
     static func bookingSubtitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (15, .regular, .subheadline) }
     /// 订单页状态标题 34 / Semibold / 等宽数字。

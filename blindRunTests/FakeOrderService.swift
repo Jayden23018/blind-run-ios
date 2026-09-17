@@ -43,6 +43,10 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         )
     )
     var orderDetailResult: Result<OrderDetailResponse, Error> = .failure(NotStubbed(method: "orderDetail"))
+    /// 默认给**空数组**而不是 `NotStubbed`，理由同 `scheduledOrdersResult`：
+    /// 每收到一条邀请都会拉一次，让既有的一批派单用例各补一行打桩是纯噪音，
+    /// 而「补不到」本来就是这条路径的合法降级（志愿者没上报位置 / 资质未审核都返空数组）。
+    var availableOrdersResult: Result<[AvailableOrderResponse], Error> = .success([])
     var cancelResult: Result<Void, Error> = .failure(NotStubbed(method: "cancel"))
     var respondResult: Result<Void, Error> = .failure(NotStubbed(method: "respond"))
     var enRouteResult: Result<Void, Error> = .failure(NotStubbed(method: "enRoute"))
@@ -118,6 +122,11 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         lastOrderId = orderId
         if let orderDetailGate { await orderDetailGate() }
         return try next(&orderDetailResults, fallback: orderDetailResult).get()
+    }
+
+    func availableOrders() async throws -> [AvailableOrderResponse] {
+        record()
+        return try availableOrdersResult.get()
     }
 
     func cancel(orderId: Int64) async throws {

@@ -32,6 +32,13 @@ protocol OrderServing: Sendable {
     func activeOrder() async throws -> ActiveOrderEnvelope
     func orderDetail(orderId: Int64) async throws -> OrderDetailResponse
 
+    /// 附近可接订单摘要（裸数组）。**调用方只有邀请卡的补数逻辑**，
+    /// 用途与「为什么正在等我回复的那一单也在里面」见 `AvailableOrderResponse`。
+    ///
+    /// 两种合法的空数组（都不是错误）：志愿者还没上报过位置、资质未通过审核。
+    /// 两者都落在同一条降级上 —— 补不到就那一行不渲染。
+    func availableOrders() async throws -> [AvailableOrderResponse]
+
     /// 志愿者手上**已确认但还没到点**的跨天预约单。
     ///
     /// 🚩 **为什么不复用 `dispatchSummary()`**：后端 `VolunteerService.loadActiveOrders` 的白名单只有
@@ -105,6 +112,10 @@ struct OrderService: OrderServing {
 
     func orderDetail(orderId: Int64) async throws -> OrderDetailResponse {
         try await transport.send(OrderEndpoint.detail(orderId: orderId).request)
+    }
+
+    func availableOrders() async throws -> [AvailableOrderResponse] {
+        try await transport.send(OrderEndpoint.available.request)
     }
 
     /// 🚨 **query 必须走 `send(_:query:)`，绝不能拼进路径字面量**，两个理由各自都足以致命：

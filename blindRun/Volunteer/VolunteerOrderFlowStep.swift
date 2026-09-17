@@ -94,6 +94,9 @@ enum VolunteerOrderFlowCopy {
     // 信息行标签。
     static let runnerLabel = "跑者"
     static let plannedDistanceLabel = "跑多远"
+    /// 「跑多久」。**与它并排的是「跑多远」，所以不叫「预计时长」**（盲人端订单信息卡里那一行
+    /// 用的是后者，两页不相邻，各自读得顺比字面统一重要）。项目负责人 2026-09-18 指定。
+    static let plannedDurationLabel = "跑多久"
     static let paceLabel = "配速"
     static let phoneLabel = "电话"
     /// 拨号那一行的读屏标签。**不带号码**，理由见 `phoneRow`。
@@ -450,11 +453,20 @@ struct VolunteerOrderFlowPresentation: Equatable {
     /// 这一态他拿不到 `OrderDetailResponse`：后端 `OrderQueryService.getOrder` 只认
     /// `order.volunteer`，而接单前（含通话磨合期）它恒为 null ⇒ `GET /api/orders/{id}` 恒 403。
     ///
-    /// 🔴 **姓氏、视力情况、引导方式三项这里拿不到**（`NEW_ORDER` 载荷没有它们，
-    /// 而 `AvailableOrderResponse` 有）。设计稿的「李先生 / 全盲，用引导绳」因此整行不渲染 ——
-    /// **不编、不占位**：给还没见面的志愿者印一个猜的视力程度，见面第一下就会抓错人。
-    /// 已投 handoff 请后端在派单载荷里补齐。
-    static func make(dispatch: WSNewOrder, remainingSeconds: Int, now: Date = Date()) -> Self {
+    /// 🔴 **姓氏这里仍然拿不到**（`NEW_ORDER` 与 `AvailableOrderResponse` 都没有 `blindName`），
+    /// 所以头像圆里是「跑」，**不编一个名字**。已投 handoff。
+    ///
+    /// 视力情况与引导方式从 2026-09-18 起有了：`supplement` 由 `GET /api/orders/available`
+    /// 补进来（见 `VolunteerInviteSupplement`）。**`nil` = 补不到 ⇒ 那两行不渲染** ——
+    /// 给还没见面的志愿者印一个猜的视力程度，见面第一下就会抓错人。
+    ///
+    /// 参数放在末尾且有默认值：既有调用点（用例）因此不必各补一行。
+    static func make(
+        dispatch: WSNewOrder,
+        remainingSeconds: Int,
+        now: Date = Date(),
+        supplement: VolunteerInviteSupplement? = nil
+    ) -> Self {
         var rows: [Row] = []
 
         if let distance = dispatch.plannedDistanceText {
@@ -486,7 +498,24 @@ struct VolunteerOrderFlowPresentation: Equatable {
             )
         }
 
-        rows.append(contentsOf: escortRows(dispatch.escortNeeds))
+        // 「跑多久」。项目负责人 2026-09-18 点名要，且**只放这一页**：
+        // 邀请卡那三格是稿子写死的 3 列（离你 / 跑多远 / 配速），塞第四格会把 grid 改成两行。
+        if let duration = supplement?.durationText {
+            rows.append(
+                Row(
+                    id: "duration",
+                    label: VolunteerOrderFlowCopy.plannedDurationLabel,
+                    value: duration,
+                    detail: nil,
+                    action: nil,
+                    accessibilityLabel: "\(VolunteerOrderFlowCopy.plannedDurationLabel)，\(duration)",
+                    accessibilityHint: nil
+                )
+            )
+        }
+
+        // 导盲犬来自派单载荷，视力 / 引导方式来自 `available` 补数 —— **两个数据源，一份渲染**。
+        rows.append(contentsOf: escortRows(dispatch.escortNeeds + (supplement?.escortNeeds ?? [])))
         rows.append(
             Row(
                 id: "decline",
