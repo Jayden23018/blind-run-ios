@@ -76,6 +76,11 @@ enum VolunteerOrderFlowCopy {
     static let confirmDeparture = "确认我还会去"
     static let enRoute = "我出发了"
     static let arrived = "我已到达集合点"
+    static let startRun = "开始跑步"
+    /// 主按钮上方那行小字。**逐字取自设计交付文档 v3 §5 的「陪跑员主按钮」列。**
+    static let startRunCaption = "见面并握好引导绳后再按"
+    static let doneReviewing = "完成"
+    static let backToHome = "回到首页"
 
     /// 「这次去不了」（邀请态）与「我去不了」（已接单三态）。
     ///
@@ -93,7 +98,15 @@ enum VolunteerOrderFlowCopy {
     static let phoneLabel = "电话"
     /// 拨号那一行的读屏标签。**不带号码**，理由见 `phoneRow`。
     static let callRunner = "拨打跑者电话"
+    /// 汇合那一屏的拨号行标题。
+    ///
+    /// ⚠️ 设计稿写的是「打电话给**李明**」，而后端的姓名**一律带掩码**（`李*`，契约逐字
+    /// 「不存在明文版本」）。「打电话给李\*」在屏幕上是个错字，去掉星号的「打电话给李」
+    /// 在中文里也不成句 —— 所以这一行用角色词。跑者是谁在同屏的状态卡里已经说过了。
+    static let callRunnerRow = "打电话给跑者"
+    static let cannotFindRunner = "找不到对方"
     static let meetingPointLabel = "集合点"
+    static let plannedTimeLabel = "时间"
     static let navigateLabel = "导航去集合点"
     static let routeNotesLabel = "路线备注"
     static let specialNotesLabel = "特殊说明"
@@ -116,6 +129,75 @@ enum VolunteerOrderFlowCopy {
     static func distanceToStart(kilometers: Double) -> String {
         String(format: "离你约 %.1f 公里", kilometers)
     }
+
+    // MARK: 汇合
+
+    /// 「李在约 40 米外」。`distance` 已经格式化好（`DistanceCalculator.formattedDistance`）。
+    static func metUpTitle(name: String, distance: String) -> String { "\(name)在约 \(distance)外" }
+
+    /// 收不到跑者位置时的降级句。**不摆一个上次的距离** —— 那会让陪跑员朝着一个
+    /// 几分钟前的方向走。
+    ///
+    /// 设计交付文档 v3 §5 的实现要点逐字：「跑者位置超过 60 秒未更新时，改为显示
+    /// 『李明的位置暂时没有更新』」。60 秒这个阈值不在这里重写 ——
+    /// 客户端只认 `LiveEscortSessionCoordinator.peerFreshness` 那一个新鲜度判据。
+    static func metUpStaleTitle(name: String) -> String { "\(name)的位置暂时没有更新" }
+    static let metUpStaleSubtitle = "到集合点附近后，先打个电话"
+
+    // MARK: 已完成
+
+    static let completedTitle = "陪跑完成"
+    static let viewRunRecord = "查看跑步记录"
+    static let reportIssue = "上报问题"
+
+    /// 「和李跑了 5.12 公里，用时 39 分 20 秒」。两个数**各自可缺**，缺的那半句整段不出现。
+    ///
+    /// 🔴 **这不是「本次志愿服务时长」。** 设计稿在这一屏还要一张
+    /// 「本次志愿服务时长 0.7 小时 · 待认证」的卡，本轮**整块不做**：后端没有按单的服务时长
+    /// （只有累计的 `totalServiceMinutes`，口径是「点开始服务 → 订单完成」），
+    /// 而这里这个 `actualDurationSeconds` 是**轨迹首末点的时间差** —— 两者在集合点多站
+    /// 五分钟就分叉。拿跑步耗时冒充服务时长，志愿者拿去对组织的记录时会发现对不上。已投 handoff。
+    static func completedSummary(name: String, distanceMeters: Int?, durationSeconds: Int?) -> String? {
+        let distance = (distanceMeters ?? 0) > 0
+            ? String(format: "%.2f 公里", Double(distanceMeters ?? 0) / 1000)
+            : nil
+        let duration = (durationSeconds ?? 0) > 0
+            ? spokenDuration(seconds: durationSeconds ?? 0)
+            : nil
+        switch (distance, duration) {
+        case let (.some(distance), .some(duration)):
+            return "和\(name)跑了 \(distance)，用时 \(duration)"
+        case let (.some(distance), .none):
+            return "和\(name)跑了 \(distance)"
+        // 只有耗时那一档也要带人名 —— 否则读屏念出来是一句没有主语的「用时 39 分」。
+        case let (.none, .some(duration)):
+            return "和\(name)跑了 \(duration)"
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    /// 「39 分 20 秒」/「1 小时 2 分 3 秒」。零的那一位不出现 ——
+    /// 「0 小时 39 分」会让读屏用户多听一个没有信息量的词。
+    static func spokenDuration(seconds: Int) -> String {
+        let total = max(0, seconds)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let secs = total % 60
+        var parts: [String] = []
+        if hours > 0 { parts.append("\(hours) 小时") }
+        if minutes > 0 { parts.append("\(minutes) 分") }
+        // 分和秒都是 0 时保留「0 秒」，否则整句变成空串。
+        if secs > 0 || parts.isEmpty { parts.append("\(secs) 秒") }
+        return parts.joined(separator: " ")
+    }
+
+    // MARK: 跑者已取消
+
+    static func runnerCancelledTitle(name: String) -> String { "\(name)取消了这次陪跑" }
+    /// 逐字取自设计交付文档 v3 §5。**「不算你的取消」是这一屏唯一重要的一句话** ——
+    /// 志愿者第一反应是「这会不会记在我头上」。
+    static let runnerCancelledSubtitle = "不算你的取消，不需要做什么"
 
     /// 「还剩 25 秒回复」。
     ///
@@ -143,22 +225,61 @@ enum VolunteerOrderFlowCopy {
     /// 「去不了」：这三态志愿者退出的后果完全相同 —— 转 `REMATCHING`，换个人。
     /// 汇合与跑步中仍走旧面板的「取消订单」，那两态搬过来时一并收口。
     ///
-    /// 返回元组而不是在 `confirmationDialog` 里写四个三元表达式：那样写会把 SwiftUI 的
+    /// 返回结构体而不是在 `confirmationDialog` 里写四个三元表达式：那样写会把 SwiftUI 的
     /// 类型检查器拖到超时。
-    static func cancelDialog(
-        for status: RunOrderStatus?
-    ) -> (title: String, confirm: String, dismiss: String, message: String) {
-        switch status {
-        case .scheduledConfirmed, .pendingAccept, .driverEnRoute:
-            return (
-                "确认去不了？",
-                "确认去不了",
-                "再想想",
-                "这一单会转给其他志愿者，之后不一定还能接回来。"
-            )
-        default:
-            return ("取消订单", "确认取消", "不取消", "确认取消本次预约？")
-        }
+    ///
+    /// 🚩 2026-09-17 第二次改这段：确认层从 `confirmationDialog` 换成设计交付文档 v3 的
+    /// **底部弹层**，措辞随之换成设计稿原词（「取消这次陪跑？/ 保留这次陪跑 / 仍然取消」）。
+    /// 上一版刻意避开「取消」二字，理由是它读起来像在替盲人销单 —— 那个理由没错，
+    /// 但弹层里那句「系统会马上为李明重新找人」已经把真实后果说清楚了，
+    /// 再造一套只有本 App 用的词反而让人猜。项目负责人 2026-09-17 拍板按设计稿。
+    ///
+    /// 🔴 **12 小时那一段只说「会马上重新找人」，不提任何取消记录。**
+    /// 设计稿原文还有「会记一次临时取消」「30 天内满 3 次，接下来 14 天不会收到邀请」——
+    /// 后端**零实现**：`api_spec.yaml` 与 `websocket-protocol.md` 里
+    /// `lateCancel` / `cancellationCount` / 临时取消 / cancelPolicy 全部命中 0，
+    /// 取消端点本身连请求体都没有。向志愿者宣布一套不存在的处罚规则，
+    /// 而他正要据此决定去不去，比不说更糟。已投 handoff。
+    static func cancelSheet(
+        for status: RunOrderStatus?,
+        plannedStart: Date?,
+        now: Date = Date()
+    ) -> CancelSheetCopy {
+        CancelSheetCopy(
+            title: "取消这次陪跑？",
+            lateNotice: isWithinLateCancelWindow(plannedStart: plannedStart, now: now)
+                ? "离开始不到 \(lateCancelWindowHours) 小时。现在取消，系统会马上为跑者重新找人。"
+                : nil,
+            message: status == .scheduledConfirmed || status == .pendingAccept || status == .driverEnRoute
+                ? "这一单会转给其他志愿者，之后不一定还能接回来。"
+                : "这一单会转给其他志愿者。",
+            keep: "保留这次陪跑",
+            cancel: "仍然取消"
+        )
+    }
+
+    /// ⚠️ **这个 12 是客户端的，不是后端配置。** 设计交付文档 v3 §10 明写「规则参数后端可配置，
+    /// 前端不写死」，而后端至今没有这个参数 —— 契约里搜不到任何取消政策。
+    /// 它只决定「多不多显示一句话」，不参与任何判罚，所以暂时留在客户端是安全的；
+    /// 后端一旦给出配置就改读配置。已投 handoff。
+    static let lateCancelWindowHours = 12
+
+    private static func isWithinLateCancelWindow(plannedStart: Date?, now: Date) -> Bool {
+        guard let plannedStart else { return false }
+        let remaining = plannedStart.timeIntervalSince(now)
+        // 已经过了开跑时间也算「不足 12 小时」—— 那一刻盲人多半已经在集合点了。
+        return remaining < Double(lateCancelWindowHours) * 3600
+    }
+
+    struct CancelSheetCopy: Equatable {
+        let title: String
+        /// 距开跑不足 12 小时时多出来的那一段。`nil` = 不显示。
+        let lateNotice: String?
+        let message: String
+        /// 黄色主按钮**是「保留」**：这一屏的默认动作是不取消。
+        let keep: String
+        /// 灰色文字按钮。**不用红色** —— 红在本 App 里只给紧急求助（设计交付文档 v3 §1.2）。
+        let cancel: String
     }
 }
 
@@ -174,10 +295,19 @@ enum VolunteerOrderFlowCopy {
 /// 3. 🔴 **这一屏的错误形态全是静默的**：文案说错一态、按钮在不该出现的态出现、
 ///    接单前漏出盲人的自由文本 —— 屏幕上都不会报错。
 struct VolunteerOrderFlowPresentation: Equatable {
-    let step: VolunteerOrderFlowStep
+    /// `nil` = **这一屏不画进度条**。设计交付文档 v3 的「已完成」与「跑者取消」两屏上
+    /// 本来就没有那四格 —— 四步讲的是「这一单走到哪了」，而这两屏讲的是「它结束了」，
+    /// 再画一条进度条只会让人以为还有下一步。
+    let step: VolunteerOrderFlowStep?
     let visual: Visual
     /// 那行大字。
     let title: String
+    /// 读屏念的那行大字。`nil` = 与 `title` 相同。
+    ///
+    /// 🔴 **存在的唯一理由是掩码姓名**：后端的姓名一律带掩码（`李*`），原样交给 VoiceOver
+    /// 会念成「李星号在约 40 米外」。屏幕上必须保留星号（那是隐私口径），读屏必须去掉
+    /// —— 两个要求方向相反，所以只能是两个字符串。去星走 `blindNameForSpeech`。
+    let titleSpoken: String?
     /// 状态副标题。可能是空串。
     let subtitle: String
     /// 回复期限那一行。**只有邀请态有**，而且**刻意不并进 `subtitle`** ——
@@ -203,6 +333,14 @@ struct VolunteerOrderFlowPresentation: Equatable {
         case avatar
         /// 头像 + 外圈进度环（出发态）。
         case avatarWithProgressRing
+        /// 绿色对勾（已完成）。这一屏没有「谁」可展示了，展示的是「这件事成了」。
+        case successCheck
+        /// 中性灰头像（跑者已取消）。
+        ///
+        /// ⚠️ 设计稿用的是**整块信息卡压淡**来表达「结束了」。这里只把头像转灰、
+        /// 正文对比度一个字都不降 —— 压淡打的正好是低视力志愿者，
+        /// 而「这单没了」这件事用一句话说清就够，不需要靠看不清来表达。
+        case mutedAvatar
     }
 
     /// 信息卡里的一行。
@@ -233,6 +371,13 @@ struct VolunteerOrderFlowPresentation: Equatable {
         /// 拨号给跑者。**号码不在这个值里** —— 掩码串绝不能拼 `tel:`，
         /// 拨号统一走 `EmergencyDialer.telURL`，由视图从订单上取明文号。
         case callRunner
+        /// 汇合态的「找不到对方」。打开一层本地说明 + 拨号入口。
+        /// **不调任何端点** —— 契约里没有「我找不到他」这个动作。
+        case cannotFindRunner
+        /// 已完成态的「查看跑步记录」：进既有的轨迹回放页。
+        case viewRunRecord
+        /// 已完成态与「找不到对方」层里的「上报问题」：`POST /api/support/tickets`。
+        case reportIssue
         /// 邀请态的「这次去不了」：直接发 `DECLINE`，不问原因、不计任何记录。
         case declineInvite
         /// 已接单三态的「我去不了」：走取消端点，转 `REMATCHING`。先二次确认。
@@ -251,6 +396,13 @@ struct VolunteerOrderFlowPresentation: Equatable {
         case confirmDeparture
         case enRoute
         case arrived
+        /// 「开始跑步」。**两端都能按，先按的生效**（设计交付文档 v3 §5），
+        /// 客户端不判谁先 —— 后端以先到的请求为准，后到的一方由轮询/推送切到跑步中。
+        case startRun
+        /// 已完成那一屏的「完成」。**纯粹是关掉这一页**，不发任何请求。
+        case doneReviewing
+        /// 跑者已取消那一屏的「回到首页」。同样只是关掉这一页。
+        case backToHome
 
         var title: String {
             switch self {
@@ -258,6 +410,21 @@ struct VolunteerOrderFlowPresentation: Equatable {
             case .confirmDeparture: return VolunteerOrderFlowCopy.confirmDeparture
             case .enRoute: return VolunteerOrderFlowCopy.enRoute
             case .arrived: return VolunteerOrderFlowCopy.arrived
+            case .startRun: return VolunteerOrderFlowCopy.startRun
+            case .doneReviewing: return VolunteerOrderFlowCopy.doneReviewing
+            case .backToHome: return VolunteerOrderFlowCopy.backToHome
+            }
+        }
+
+        /// 按钮**上方**那行小字。走 `OrderFlowPrimaryAction.caption`：它同时进
+        /// `accessibilityHint`，不另做一个读屏元素（否则 VoiceOver 会念两遍）。
+        var caption: String? {
+            switch self {
+            // 「握好引导绳再按」是这一句话唯一能起作用的时刻 —— 按下去之后计时就开始了，
+            // 而对盲人来说「跑步已开始」意味着他可以迈步。
+            case .startRun: return VolunteerOrderFlowCopy.startRunCaption
+            case .acceptInvite, .confirmDeparture, .enRoute, .arrived, .doneReviewing, .backToHome:
+                return nil
             }
         }
 
@@ -269,6 +436,9 @@ struct VolunteerOrderFlowPresentation: Equatable {
             case .acceptInvite, .confirmDeparture: return nil
             case .enRoute: return "arrow.up.right"
             case .arrived: return "mappin.and.ellipse"
+            case .startRun: return "figure.run"
+            // 「完成」与「回到首页」只是关掉页面，给图标会让它看起来像还要做点什么。
+            case .doneReviewing, .backToHome: return nil
             }
         }
     }
@@ -340,6 +510,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
             visual: .avatar,
             title: RunPlanFormat.shortStart(dispatch.plannedStart, now: now)
                 ?? VolunteerOrderFlowCopy.inviteTitleFallback,
+            titleSpoken: nil,
             subtitle: subtitleParts.joined(separator: "　"),
             replyNotice: VolunteerOrderFlowCopy.replyCountdown(seconds: remainingSeconds),
             isReplyUrgent: remainingSeconds <= VolunteerOrderFlowCopy.urgentCountdownSeconds,
@@ -349,17 +520,38 @@ struct VolunteerOrderFlowPresentation: Equatable {
         )
     }
 
-    // MARK: 从订单详情算这一屏（约好 / 出发）
+    // MARK: 从订单详情算这一屏
 
-    /// `nil` = 这一态不走四步骨架前三格（终态、未知态，以及本轮还没搬过来的汇合与跑步中）。
+    /// `nil` = 这一态**不走这个页面**。当前只剩两类：跑步中（`IN_PROGRESS` 仍是旧的
+    /// 深蓝数据卡 + 长按结束那条路）与认不出的状态。
     ///
-    /// - Parameter distanceText: 本机到出发地点的距离文案，由视图从 `LocationService` 算好传进来。
-    ///   **刻意不在这里算** —— 它要一个坐标和一次权限判定，那是视图的活；
+    /// - Parameter distanceText: 本机到**出发地点**的距离文案（出发态用）。
+    /// - Parameter peerDistanceText: 本机到**跑者**的距离文案（汇合态用，来自
+    ///   `BLIND_LOCATION_UPDATE` 的最新样本）。两个都由视图算好传进来 ——
+    ///   **刻意不在这里算**：它们各要一个坐标和一次权限判定，那是视图的活；
     ///   在这里算会让这个纯类型需要一条定位。
-    static func make(order: OrderDetailResponse, distanceText: String?, now: Date = Date()) -> Self? {
+    static func make(
+        order: OrderDetailResponse,
+        distanceText: String?,
+        peerDistanceText: String? = nil,
+        now: Date = Date()
+    ) -> Self? {
+        // 两个终态先分流：它们不落进四步里的任何一格（`volunteerOrderFlowStep` 判 nil），
+        // 而设计稿给了它们各自一整屏。
+        switch order.status {
+        case .completed: return completed(order: order)
+        case .cancelled: return cancelledByRunner(order: order, now: now)
+        default: break
+        }
+
         guard let step = order.status.volunteerOrderFlowStep else { return nil }
-        // 汇合与跑步中本轮仍走旧的地图面板路径。**显式挡在这里而不是让它渲染半页** ——
-        // 调用方据此回退，见 `VolunteerInServiceView`。
+        if step == .metUp {
+            // `IN_PROGRESS` 与 `DRIVER_ARRIVED` 同属「汇合」格，但跑起来之后这一页让位给
+            // 旧的跑中页（深蓝三数字 + 长按 2 秒结束 + 悬浮求助）。**显式挡在这里**，
+            // 调用方据此回退，见 `VolunteerInServiceView`。
+            guard order.status == .driverArrived else { return nil }
+            return metUp(order: order, peerDistanceText: peerDistanceText)
+        }
         guard step == .booked || step == .departed else { return nil }
 
         var rows: [Row] = [runnerRow(order: order)]
@@ -423,6 +615,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
             step: step,
             visual: step == .departed ? .avatarWithProgressRing : .avatar,
             title: title(order: order, step: step, now: now),
+            titleSpoken: nil,
             subtitle: subtitle(order: order, step: step, distanceText: distanceText),
             replyNotice: nil,
             isReplyUrgent: false,
@@ -505,14 +698,20 @@ struct VolunteerOrderFlowPresentation: Equatable {
     ///   （`f404de2` / 审计 F10）。号码对「要不要打这通电话」没有任何帮助；
     /// - 全号只进 `tel:`，而且判据是「拼不拼得出 URL」不是「字符串非空」——
     ///   掩码串会被 `telURL` 的掩码闸拦掉（不拦则拼成 `tel://1381001`，一个可能真打给别人的号码）。
-    private static func phoneRow(order: OrderDetailResponse) -> Row? {
+    ///
+    /// - Parameter asAction: 汇合那一屏把它渲染成一行动作（「打电话给跑者」，掩码号退到下面那行
+    ///   小字）——设计稿在那一屏要的是「现在就打给他」，而不是一条查阅用的资料行。
+    ///   两种形态共用这一个函数，是因为上面那三条约束**一条都不能漏**，
+    ///   而抄第二份的代价正好是漏掉其中一条。
+    static func phoneRow(order: OrderDetailResponse, asAction: Bool = false) -> Row? {
         guard let phone = order.blindPhone?.nilIfBlank,
               EmergencyDialer.telURL(for: phone) != nil else { return nil }
+        let masked = EmergencyContactResponse.maskPhone(phone) ?? phone
         return Row(
             id: "phone",
-            label: VolunteerOrderFlowCopy.phoneLabel,
-            value: EmergencyContactResponse.maskPhone(phone) ?? phone,
-            detail: nil,
+            label: asAction ? nil : VolunteerOrderFlowCopy.phoneLabel,
+            value: asAction ? VolunteerOrderFlowCopy.callRunnerRow : masked,
+            detail: asAction ? masked : nil,
             action: .callRunner,
             accessibilityLabel: VolunteerOrderFlowCopy.callRunner,
             accessibilityHint: "系统会先弹出拨号确认，确认后才会拨出"

@@ -597,6 +597,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             return try handleVolunteerEmergencyResponse(eventId: eventId, action: query?["action"])
         }
 
+        // 事后工单。Mock 只回「收到了」——后端也只回一个客户端用不上的工单对象，
+        // 而这一屏唯一要的事实就是「提交成没成」。
+        if path == "/api/support/tickets" && method == .post {
+            return EmptyResponse()
+        }
+
         // Location
         if path == "/api/blind/location" && method == .post {
             return ApiSuccessResponse(success: true, message: "位置已更新")
@@ -1073,7 +1079,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 volunteerId: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerId : nil,
                 volunteerName: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerName : nil,
                 volunteerTotalCompleted: Self.mockHasAcceptedVolunteer(activeOrderStatus)
-                    ? Self.mockOrderVolunteerCompletedRuns : nil
+                    ? Self.mockOrderVolunteerCompletedRuns : nil,
+                // 完赛三项**只在 `COMPLETED` 有值**，与后端一致（进终态时算一次落库）。
+                // 其余状态留 nil，正好也覆盖「后端没算出来时这一行整段消失」那条分支 ——
+                // 造一份所有状态都有里程的假数据，等于让已完成屏的降级路径永远走不到。
+                actualDistanceMeters: activeOrderStatus == .completed ? 5120 : nil,
+                actualDurationSeconds: activeOrderStatus == .completed ? 2360 : nil,
+                actualAvgPaceSecPerKm: activeOrderStatus == .completed ? 461 : nil
             ),
             OrderDetailResponse(
                 orderId: 2,

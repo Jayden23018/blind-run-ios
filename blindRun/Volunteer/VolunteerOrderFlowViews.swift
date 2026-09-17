@@ -25,11 +25,23 @@ struct VolunteerServiceRecord: Identifiable {
 
 private enum VolunteerSheet: Identifiable {
     case navigation(ExternalMapNavigationRequest)
+    /// 汇合态的「找不到对方」。**纯本地**：契约里没有「我找不到他」这个动作。
+    case cannotFindRunner
+    /// 「上报问题」→ `POST /api/support/tickets`。
+    case supportTicket
+    /// 取消这次陪跑的确认层。
+    case cancelOrder
 
     var id: String {
         switch self {
         case .navigation(let request):
             return "navigation-\(request.id.uuidString)"
+        case .cannotFindRunner:
+            return "cannotFindRunner"
+        case .supportTicket:
+            return "supportTicket"
+        case .cancelOrder:
+            return "cancelOrder"
         }
     }
 }
@@ -1462,9 +1474,17 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 refreshDispatchSummary(using: appState)
             }
             if updated.status == .cancelled {
-                didCancelOrder = true
-                order = nil
-                speechService?.speak("订单已取消，系统将为盲人重新匹配。")
+                // 🔴 **`order` 留着，不再置 nil。** 此前这里一置 nil，两个渲染分支就都取不到
+                // 订单 ⇒ 屏幕退化成一片空白背景，只播一句 TTS，志愿者得自己按返回才能离开。
+                // 现在它落在骨架的「跑者已取消」那一屏（`cancelledByRunner`）。
+                //
+                // `didCancelOrder` 也**不在这里置位**：它的含义是「这一单是我自己退掉的，
+                // 关页面吧」（`REMATCHING` 那条分支），而这一次是盲人取消的，
+                // 要留在页面上把「不算你的取消」说清楚。
+                speechService?.speak(
+                    "\(VolunteerOrderFlowCopy.runnerCancelledTitle(name: updated.blindNameForSpeech))。"
+                    + VolunteerOrderFlowCopy.runnerCancelledSubtitle
+                )
             }
         }
     }
@@ -1531,8 +1551,8 @@ struct VolunteerInServiceView: View {
     @Environment(\.openURL) private var openURL
     @StateObject private var viewModel = VolunteerInServiceViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
-    @State private var showCancelConfirm = false
     @State private var showEmergencyConfirm = false
+    @State private var showsRunRecord = false
     @State private var activeSheet: VolunteerSheet?
     let orderId: Int64
     let initialOrder: OrderDetailResponse?
@@ -1542,14 +1562,36 @@ struct VolunteerInServiceView: View {
         self.initialOrder = initialOrder
     }
 
-    /// 这一态走不走四步骨架。`nil` = 还是旧的地图 + 底部面板那条路。
+    /// 这一态走不走这个页面。`nil` = 还是旧的地图 + 底部面板那条路。
     ///
-    /// 🚩 **本轮只搬了邀请 / 约好 / 出发三态**（设计交付文档 v3 §5 的前三格）。
-    /// 汇合 / 跑步中 / 已完成仍走旧路径，下一轮搬完之后连同 `VolunteerServiceBottomPanel`
-    /// 与 `VolunteerServiceActions` 一起删。**现在就删会让回退没有退路。**
+    /// 🚩 **现在只剩跑步中走旧路径**（深蓝三数字 + 长按 2 秒结束 + 悬浮求助，已拍板不动）。
+    /// 邀请 / 约好 / 出发 / 汇合 / 已完成 / 跑者已取消都在骨架上。
+    /// `VolunteerServiceBottomPanel` 与 `VolunteerServiceActions` 因此只剩跑步中一个调用方，
+    /// 跑中页改造那一轮可以连它们一起删 —— **现在就删会让回退没有退路。**
     private var flowPresentation: VolunteerOrderFlowPresentation? {
         guard let order = viewModel.order else { return nil }
-        return .make(order: order, distanceText: distanceText(for: order))
+        return .make(
+            order: order,
+            distanceText: distanceText(for: order),
+            peerDistanceText: peerDistanceText
+        )
+    }
+
+    /// 本机到**跑者**的距离，汇合那一屏的 hero 就靠它。
+    ///
+    /// `nil` 的三种成因（没授权 / 没收到过 / 收到的已经过期）在这里**合成同一种**：
+    /// 对陪跑员来说它们的后果一样 —— 现在不知道他在哪。过期由 view model 的
+    /// `peerExpiryTask` 把 `latestBlindSample` 清掉（阈值 `LiveEscortSessionCoordinator.peerFreshness`），
+    /// 所以这里不需要再判一次时间戳，**也不许判** —— 两处各有一个新鲜度阈值必然漂。
+    private var peerDistanceText: String? {
+        guard locationService.isAuthorized,
+              let deviceCoordinate = locationService.currentLocation,
+              let peer = viewModel.latestBlindSample else { return nil }
+        let meters = DistanceCalculator.distanceFromDeviceToBackend(
+            deviceCoordinate: deviceCoordinate,
+            backendCoordinate: peer.coordinate
+        )
+        return DistanceCalculator.formattedDistance(meters)
     }
 
     var body: some View {
@@ -1592,19 +1634,6 @@ struct VolunteerInServiceView: View {
             await trackViewModel.load(orderID: orderId, appState: appState)
             if let summary = trackViewModel.track?.spokenSummary { speechService.speak(summary) }
         }
-        .confirmationDialog(cancelDialogCopy.title, isPresented: $showCancelConfirm) {
-            Button(cancelDialogCopy.confirm, role: .destructive) {
-                Task {
-                    await viewModel.cancel()
-                    if viewModel.didCancelOrder {
-                        dismiss()
-                    }
-                }
-            }
-            Button(cancelDialogCopy.dismiss, role: .cancel) {}
-        } message: {
-            Text(cancelDialogCopy.message)
-        }
         // `.volunteer`：他按下去之后撤销不了（后端恒 403），文案要把这一半后果说出来。
         .emergencyConfirmationAlert(isPresented: $showEmergencyConfirm, audience: .volunteer) {
             Task {
@@ -1618,7 +1647,38 @@ struct VolunteerInServiceView: View {
             switch sheet {
             case .navigation(let request):
                 ExternalMapNavigationSheet(request: request)
+            case .cannotFindRunner:
+                VolunteerCannotFindRunnerSheet(
+                    canCall: dialableRunnerPhone != nil,
+                    onCall: { callRunner() },
+                    ticket: { supportTicketSheet }
+                )
+                .presentationDetents([.medium, .large])
+            case .supportTicket:
+                supportTicketSheet
+            case .cancelOrder:
+                VolunteerCancelSheet(
+                    copy: cancelSheetCopy,
+                    isSubmitting: viewModel.isPerformingAction,
+                    onKeep: { activeSheet = nil },
+                    onCancelOrder: {
+                        Task {
+                            await viewModel.cancel()
+                            activeSheet = nil
+                            if viewModel.didCancelOrder { dismiss() }
+                        }
+                    }
+                )
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
             }
+        }
+        // 「查看跑步记录」。已完成那一屏只留一行入口，轨迹本身推到下一页 ——
+        // 设计交付文档 v3 的已完成屏是「结果 + 两个去处」，不是把轨迹图直接铺在上面。
+        .navigationDestination(isPresented: $showsRunRecord) {
+            completedTrackContent
+                .navigationTitle(VolunteerOrderFlowCopy.viewRunRecord)
+                .navigationBarTitleDisplayMode(.inline)
         }
         // 屏 5：被陪同者发起求助时盖满整屏 + 警报音 + 震动。
         //
@@ -1665,17 +1725,43 @@ struct VolunteerInServiceView: View {
         case .openMeetingPoint:
             openExternalNavigation(for: order)
         case .callRunner:
-            // 号码只在这里出现一次，且只进 `tel:`。掩码串会被 `telURL` 的掩码闸拦掉。
-            if let phone = order.blindPhone?.nilIfBlank, let url = EmergencyDialer.telURL(for: phone) {
-                EmergencyDialer.dial(url, open: { openURL($0) })
-            }
+            callRunner()
         case .releaseOrder:
-            showCancelConfirm = true
+            activeSheet = .cancelOrder
+        case .cannotFindRunner:
+            activeSheet = .cannotFindRunner
+        case .viewRunRecord:
+            showsRunRecord = true
+        case .reportIssue:
+            activeSheet = .supportTicket
         case .declineInvite:
             // 这一行只在邀请态出现，而邀请态不走这个页面（它没有 `OrderDetailResponse`）。
             // 留一个显式分支而不是 `default`：加 `Action` 时编译器会逼一次决策。
             break
         }
+    }
+
+    /// 号码只在这里出现一次，且只进 `tel:`。掩码串会被 `telURL` 的掩码闸拦掉
+    /// （不拦则拼成 `tel://1381001`，一个可能真打给别人的号码）。
+    private func callRunner() {
+        guard let url = dialableRunnerPhone else { return }
+        EmergencyDialer.dial(url, open: { openURL($0) })
+    }
+
+    /// `nil` = 这一单没有能拨通的号码 ⇒ 任何拨号入口都不该出现。
+    private var dialableRunnerPhone: URL? {
+        guard let phone = viewModel.order?.blindPhone?.nilIfBlank else { return nil }
+        return EmergencyDialer.telURL(for: phone)
+    }
+
+    /// 两处入口共用同一份装配（已完成页的「上报问题」、汇合页「找不到对方」里的那一枚）。
+    private var supportTicketSheet: some View {
+        SupportTicketView(
+            orderID: viewModel.order?.orderId,
+            appState: appState,
+            speak: { speechService.speak($0) },
+            speakError: { speechService.speakError($0) }
+        )
     }
 
     private func performFlowPrimaryAction(_ action: VolunteerOrderFlowPresentation.PrimaryAction?) {
@@ -1686,6 +1772,13 @@ struct VolunteerInServiceView: View {
             Task { await viewModel.enRoute() }
         case .arrived:
             Task { await viewModel.arrive() }
+        case .startRun:
+            // 「开始跑步」两端都能按，服务端以先到的为准 —— 客户端不判谁先。
+            // 成功之后这一页自己就落回旧的跑中页（`flowPresentation` 对 `IN_PROGRESS` 判 nil）。
+            Task { await viewModel.startService() }
+        // 这两枚按钮只是关掉当前页，不发任何请求。
+        case .doneReviewing, .backToHome:
+            dismiss()
         // 接单发生在派单弹层 / 邀请页上，那条路没有订单详情，不经过这里。
         case .acceptInvite, .none:
             break
@@ -1739,7 +1832,7 @@ struct VolunteerInServiceView: View {
         }
     }
 
-    // MARK: - 旧路径（汇合 / 跑步中 / 已完成）
+    // MARK: - 旧路径（只剩跑步中，以及订单还没拉到的那一瞬）
 
     private var legacyMapContent: some View {
         GeometryReader { proxy in
@@ -1787,11 +1880,10 @@ struct VolunteerInServiceView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 }
 
+                // 已完成不再走这里 —— 它现在是骨架上的一屏，轨迹由「查看跑步记录」
+                // 推到下一页（`completedTrackContent` 仍然是那一页的内容）。
                 if let order = viewModel.order {
-                    if order.status == .completed {
-                        completedTrackContent
-                    } else {
-                        VStack(spacing: 10) {
+                    VStack(spacing: 10) {
                             // 屏 4：与盲人同步的三个数字 + 他的状态 / 位置共享。
                             // 只在 `IN_PROGRESS` —— 其余状态那三个数字要么还没开始、要么已经结束，
                             // 而一张写着 `--` 的卡片只会占掉本来该给流转按钮的空间。
@@ -1817,7 +1909,7 @@ struct VolunteerInServiceView: View {
                             onEnRoute: { Task { await viewModel.enRoute() } },
                             onArrive: { Task { await viewModel.arrive() } },
                             onStartService: { Task { await viewModel.startService() } },
-                            onCancel: { showCancelConfirm = true },
+                            onCancel: { activeSheet = .cancelOrder },
                             // 按满 2 秒直接结束，中间没有确认框：长按本身就是那道确认
                             // （设计包 `状态清单.md` §11：「结束跑步即结束服务，不可撤销 —— 因此不做轻点」）。
                             onComplete: { Task { await viewModel.complete() } },
@@ -1826,10 +1918,9 @@ struct VolunteerInServiceView: View {
                                 viewModel.retryTransitionConfirmation()
                             },
                             )
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 8)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 8)
                 }
             }
         }
@@ -1847,8 +1938,11 @@ struct VolunteerInServiceView: View {
     /// 2026-09-17 搬到 `VolunteerOrderFlowCopy.cancelDialog(for:)`：它此前是 View 的
     /// private 计算属性，**测试够不着**，而 `ScheduledOrderTests.testReleaseAndCancelDoNotShareCopy`
     /// 的注释逐字记着这个洞（「这条只覆盖按钮标题，覆盖不到确认对话框」）。走 `AGENTS.md` §1.2。
-    private var cancelDialogCopy: (title: String, confirm: String, dismiss: String, message: String) {
-        VolunteerOrderFlowCopy.cancelDialog(for: viewModel.order?.status)
+    private var cancelSheetCopy: VolunteerOrderFlowCopy.CancelSheetCopy {
+        VolunteerOrderFlowCopy.cancelSheet(
+            for: viewModel.order?.status,
+            plannedStart: viewModel.order?.plannedStart?.nilIfBlank?.backendTimestamp
+        )
     }
 
     /// 面板上方那条紧急信息区。**「代盲人发起求助」的按钮不在这里** —— 它是地图右上角的

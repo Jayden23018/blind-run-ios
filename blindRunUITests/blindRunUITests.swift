@@ -274,8 +274,14 @@ final class blindRunUITests: XCTestCase {
         tapVolunteerFlowPrimary(app, after: enRouteLabel)
         assertNoEmergencyAction(app)
 
-        let startButton = app.buttons["开始服务"].firstMatch
-        XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should allow the volunteer to start service")
+        // 汇合那一屏（2026-09-17 起也是骨架）：主按钮换成「开始跑步」，且必须给出
+        // 「找不到对方」这条出口 —— 到了集合点看不见人，是这一态唯一会发生的麻烦。
+        let startButton = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
+        XCTAssertTrue(startButton.waitForExistence(timeout: 8), "汇合态没有主按钮，志愿者无法开始跑步")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerOrderFlowRow-cannotFind"].firstMatch.exists,
+            "汇合态必须有「找不到对方」"
+        )
         // 按 identifier 取，不按文案：这枚按钮不带 `.isButton` trait（它没有轻点路径，
         // 读屏走自定义动作），`app.buttons[...]` 取不到它。
         let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
@@ -290,6 +296,22 @@ final class blindRunUITests: XCTestCase {
         // `testVolunteerFinishesEscortOnlyAfterHoldingLongEnough` 里单独验 ——
         // 这条烟囱用例要先走完出发 / 到达 / 开始三步，沿途任何一条红灯都会把它挡在这之前。
         finishControl.press(forDuration: 2.6)
+
+        // 2026-09-17：结束之后**先落在「已完成」那一屏**（结果 + 两个去处），
+        // 轨迹在「查看跑步记录」后面。此前轨迹是直接铺在这里的。
+        let runRecordRow = app.descendants(matching: .any)["volunteerOrderFlowRow-runRecord"].firstMatch
+        XCTAssertTrue(runRecordRow.waitForExistence(timeout: 10), "结束陪跑后应落在已完成屏")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerOrderFlowRow-reportIssue"].firstMatch.exists,
+            "已完成屏必须留一条「上报问题」—— 陪跑员对这一单的异议只有这一个出口"
+        )
+        // 🔴 志愿服务时长**不在这一屏**：后端没有按单口径（只有累计的 `totalServiceMinutes`）。
+        // 这条负断言是那个决定的看门狗 —— 谁把轨迹耗时换算成「0.7 小时」摆上去，这里会红。
+        XCTAssertFalse(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "志愿服务时长")).firstMatch.exists,
+            "已完成屏不得出现「志愿服务时长」"
+        )
+        runRecordRow.tap()
 
         let summary = app.descendants(matching: .any)["completedTrackSummary"].firstMatch
         XCTAssertTrue(summary.waitForExistence(timeout: 10), "Completed service should show the reusable track summary")
@@ -349,20 +371,22 @@ final class blindRunUITests: XCTestCase {
         let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
         XCTAssertTrue(finishControl.waitForExistence(timeout: 15), "服务进行中必须有结束入口")
 
-        let completedSummary = app.descendants(matching: .any)["completedTrackSummary"].firstMatch
+        // 「结束了没有」的判据换成已完成屏那一行（2026-09-17 起轨迹不再直接铺在结束后那一屏，
+        // 而是退到「查看跑步记录」后面）。这一行只在 `COMPLETED` 出现，仍然是个干净的信号。
+        let completedScreen = app.descendants(matching: .any)["volunteerOrderFlowRow-runRecord"].firstMatch
         // 两个时长写死在这里而不是引用 App 侧常量（UI 测试是另一个进程，`@testable import`
         // 够不着）：阈值本身由 `VolunteerFinishLongPressTests` 钉住，这里只要一个明显不足、
         // 一个明显足够。
         finishControl.press(forDuration: 0.6)
         XCTAssertFalse(
-            completedSummary.waitForExistence(timeout: 3),
+            completedScreen.waitForExistence(timeout: 3),
             "松手即取消：不足 2 秒就结束了陪跑，等于误触一次不可撤销的操作"
         )
         XCTAssertTrue(finishControl.exists, "取消一次长按之后，结束入口必须还在原地")
 
         finishControl.press(forDuration: 2.6)
         XCTAssertTrue(
-            completedSummary.waitForExistence(timeout: 10),
+            completedScreen.waitForExistence(timeout: 10),
             "按满 2 秒必须真的结束 —— 否则这枚按钮对不开读屏的人就是个按不动的东西"
         )
     }
@@ -465,11 +489,15 @@ final class blindRunUITests: XCTestCase {
 
         openCurrentVolunteerService(app, requirePhone: false)
         let enRouteLabel = tapVolunteerFlowPrimary(app)
-        tapVolunteerFlowPrimary(app, after: enRouteLabel)
+        // 🚩 2026-09-17：`DRIVER_ARRIVED` 也搬进骨架了，**地图只剩跑步中那一屏**。
+        // 这条用例要验的是「真地图 + 挂住的请求会不会把 SwiftUI 拖进重绘循环」，
+        // 所以多按一次主按钮（汇合那一屏的「开始跑步」）进到 `IN_PROGRESS` ——
+        // 被测对象没变，只是它现在住在下一态。
+        let arrivedLabel = tapVolunteerFlowPrimary(app, after: enRouteLabel)
+        tapVolunteerFlowPrimary(app, after: arrivedLabel)
 
-        // 到了 `DRIVER_ARRIVED` 就回到旧的地图 + 底部面板（本轮只搬了前三态）。
-        XCTAssertTrue(app.buttons["开始服务"].firstMatch.waitForExistence(timeout: 5))
         let panel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 8), "跑步中仍是旧的地图 + 底部面板")
         XCTAssertTrue(panel.exists)
         let deadline = Date().addingTimeInterval(30)
         while Date() < deadline {
@@ -570,7 +598,9 @@ final class blindRunUITests: XCTestCase {
 
         tapVolunteerFlowPrimary(app, after: enRouteLabel)
 
-        let startButton = app.buttons["开始服务"].firstMatch
+        // 汇合那一屏 2026-09-17 起也是骨架，主按钮从「开始服务」换成「开始跑步」
+        // —— 按 identifier 取，不按文案。
+        let startButton = app.buttons["volunteerOrderFlowPrimaryButton"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should show start-service action")
         let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
         XCTAssertFalse(finishControl.waitForExistence(timeout: 1), "Arrived order should hide the finish control")
@@ -1819,9 +1849,9 @@ final class blindRunUITests: XCTestCase {
                 "掩码之后，拨号那一行是志愿者够到真号的唯一出口"
             )
         } else {
-            // 2026-09-17：**两条路都算「进到订单页了」**。邀请 / 约好 / 出发三态是四步骨架
-            // （导航栏「陪跑订单」），汇合 / 跑步中 / 已完成仍是旧的地图 + 底部面板
-            // （「服务中」）—— 调用方各自 seed 不同状态，这个 helper 两边都要认。
+            // 2026-09-17：**两条路都算「进到订单页了」**。邀请 / 约好 / 出发 / 汇合 /
+            // 已完成 / 跑者已取消都是骨架（导航栏「陪跑订单」），**只剩跑步中**是旧的
+            // 地图 + 底部面板（「服务中」）—— 调用方各自 seed 不同状态，这个 helper 两边都要认。
             //
             // 断 identifier 而不是断导航栏标题：标题是用户可见文案，抄进 UI 测试的
             // 误报率见记忆 `merged-prs-whose-tests-never-ran`。

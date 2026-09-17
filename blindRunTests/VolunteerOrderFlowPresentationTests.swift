@@ -47,20 +47,161 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
         }
     }
 
-    /// 汇合与跑步中**本轮还没搬过来**，`make(order:)` 必须回 `nil` 让调用方退回旧面板。
+    /// 跑步中**仍然**走旧的深蓝数据卡那条路，`make(order:)` 必须回 `nil` 让调用方退回去。
     ///
     /// 不回 `nil` 的后果不是编译错，是渲染出半页没有结束按钮的骨架 ——
     /// 而志愿者是唯一能结束服务的人。
-    func testMetUpAndTerminalStatusesDoNotRenderTheFirstThreeSteps() {
-        for status in [RunOrderStatus.driverArrived, .inProgress, .completed, .cancelled, .noVolunteer, .unknown] {
+    ///
+    /// 🚩 `IN_PROGRESS` 与 `DRIVER_ARRIVED` **落在同一格**（汇合），所以这条判据不能写成
+    /// 「按格子分流」——它必须按状态分。2026-09-17 汇合搬进骨架时，这条用例是唯一
+    /// 会在写错时红掉的东西。
+    func testOnlyTheRunningScreenStillFallsBackToTheLegacyPanel() {
+        for status in [RunOrderStatus.inProgress, .noVolunteer, .unknown] {
             XCTAssertNil(
                 VolunteerOrderFlowPresentation.make(
                     order: .preview(status: status),
                     distanceText: nil
                 ),
-                "\(status.rawValue) 本轮不该走四步骨架"
+                "\(status.rawValue) 不该走这个页面"
             )
         }
+        for status in [RunOrderStatus.driverArrived, .completed, .cancelled] {
+            XCTAssertNotNil(
+                VolunteerOrderFlowPresentation.make(
+                    order: .preview(status: status),
+                    distanceText: nil
+                ),
+                "\(status.rawValue) 现在有自己的一屏，回 nil 会让屏幕变空白"
+            )
+        }
+    }
+
+    // MARK: - 汇合
+
+    /// 距离来自 `BLIND_LOCATION_UPDATE`（后端在 `DRIVER_ARRIVED` 确实推），
+    /// 拿不到就**只说拿不到**，不摆上一次的数字 —— 那会让陪跑员朝着几分钟前的方向走。
+    func testMetUpFallsBackToAPlainSentenceWhenTheRunnerLocationIsStale() {
+        let fresh = VolunteerOrderFlowPresentation.make(
+            order: .preview(status: .driverArrived, blindName: "李*"),
+            distanceText: nil,
+            peerDistanceText: "40 米"
+        )
+        XCTAssertEqual(fresh?.title, "李在约 40 米外")
+
+        let stale = VolunteerOrderFlowPresentation.make(
+            order: .preview(status: .driverArrived, blindName: "李*"),
+            distanceText: nil,
+            peerDistanceText: nil
+        )
+        XCTAssertEqual(stale?.title, "李的位置暂时没有更新")
+        // 降级句里**一个数字都不能有**：出现数字就说明某处兜了一个旧值。
+        XCTAssertNil(stale?.title.rangeOfCharacter(from: .decimalDigits), "降级标题里不该有数字")
+    }
+
+    /// 主按钮是「开始跑步」，且那行小字必须在 —— 它是这一屏唯一一处安全提示。
+    func testMetUpAsksThemToHoldTheTetherBeforeStarting() {
+        let presentation = VolunteerOrderFlowPresentation.make(
+            order: .preview(status: .driverArrived),
+            distanceText: nil,
+            peerDistanceText: "40 米"
+        )
+        XCTAssertEqual(presentation?.primaryAction, .startRun)
+        XCTAssertEqual(presentation?.primaryAction?.title, "开始跑步")
+        XCTAssertEqual(presentation?.primaryAction?.caption, "见面并握好引导绳后再按")
+        XCTAssertEqual(presentation?.step, .metUp)
+    }
+
+    // MARK: - 已完成 / 跑者已取消
+
+    /// 这两屏**不画进度条**（`step == nil`），也不给求助与安全。
+    func testOutcomeScreensDropTheStepperAndTheSafetyHub() {
+        for status in [RunOrderStatus.completed, .cancelled] {
+            let presentation = VolunteerOrderFlowPresentation.make(
+                order: .preview(status: status),
+                distanceText: nil
+            )
+            XCTAssertNil(presentation?.step, "\(status.rawValue) 这一屏不该有四步进度条")
+            XCTAssertFalse(presentation?.showsSafetyHub ?? true, "\(status.rawValue) 不显示求助与安全")
+        }
+    }
+
+    /// 里程与用时**各自可缺**。缺的那半句整段不出现 —— 一个占位符都不留。
+    func testCompletedSaysOnlyTheNumbersTheBackendActuallySent() {
+        func summary(distance: Int?, duration: Int?) -> String {
+            VolunteerOrderFlowCopy.completedSummary(
+                name: "李",
+                distanceMeters: distance,
+                durationSeconds: duration
+            ) ?? ""
+        }
+        XCTAssertEqual(summary(distance: 5120, duration: 2360), "和李跑了 5.12 公里，用时 39 分 20 秒")
+        XCTAssertEqual(summary(distance: 5120, duration: nil), "和李跑了 5.12 公里")
+        XCTAssertEqual(summary(distance: nil, duration: 2360), "和李跑了 39 分 20 秒")
+        XCTAssertEqual(summary(distance: nil, duration: nil), "")
+        // 里程为 0 时后端把配速发成 null（除以 0 得不出配速）；里程本身也不该被说成「0.00 公里」。
+        XCTAssertEqual(summary(distance: 0, duration: 2360), "和李跑了 39 分 20 秒")
+    }
+
+    /// 三个 `actual*` 字段**此前客户端根本没解码**（后端从 2026-08-14 就在发）。
+    /// 这条钉的是「模型上有了 → 屏幕上真的用上了」这一段接线：
+    /// 只测 `completedSummary` 那个纯函数的话，把字段接错了也照样全绿。
+    func testCompletedScreenReadsTheActualNumbersOffTheOrder() {
+        var order = OrderDetailResponse.preview(status: .completed, blindName: "李*")
+        order.actualDistanceMeters = 5120
+        order.actualDurationSeconds = 2360
+        let presentation = VolunteerOrderFlowPresentation.make(order: order, distanceText: nil)
+        XCTAssertEqual(presentation?.title, "陪跑完成")
+        XCTAssertEqual(presentation?.subtitle, "和李跑了 5.12 公里，用时 39 分 20 秒")
+
+        // 后端没算出来（轨迹为空的历史单）时，这一行整段消失，不留「-- 公里」。
+        var empty = OrderDetailResponse.preview(status: .completed, blindName: "李*")
+        empty.actualDistanceMeters = nil
+        empty.actualDurationSeconds = nil
+        XCTAssertEqual(VolunteerOrderFlowPresentation.make(order: empty, distanceText: nil)?.subtitle, "")
+    }
+
+    /// 轮询每 5 秒把订单换一份，`replacingStatus` 漏带字段的表现是
+    /// 「刚跑完那一行字过几秒自己没了」——没有任何报错，也没有空位。
+    func testReplacingStatusKeepsTheCompletedNumbers() {
+        var order = OrderDetailResponse.preview(status: .inProgress)
+        order.actualDistanceMeters = 5120
+        order.actualDurationSeconds = 2360
+        let replaced = order.replacingStatus(with: .completed)
+        XCTAssertEqual(replaced.actualDistanceMeters, 5120)
+        XCTAssertEqual(replaced.actualDurationSeconds, 2360)
+    }
+
+    /// 🔴 **这一屏不许出现「志愿服务时长」。** 后端没有按单口径（只有累计的
+    /// `totalServiceMinutes`，算的是「点开始服务 → 订单完成」），而这里手上只有轨迹首末
+    /// 时间差。拿它冒充服务时长，志愿者拿去对组织的记录时会发现对不上。
+    /// 设计稿上那张「0.7 小时 · 待认证」的卡因此整块不做 ——
+    /// 「待认证」还会撞 `volunteer-hours-credential` 守卫。
+    func testCompletedScreenNeverClaimsVolunteerServiceHours() {
+        let presentation = VolunteerOrderFlowPresentation.make(
+            order: .preview(status: .completed),
+            distanceText: nil
+        )
+        let text = ([presentation?.title, presentation?.subtitle].compactMap { $0 }
+            + (presentation?.rows.map(\.value) ?? []))
+            .joined(separator: " ")
+        for forbidden in ["志愿服务时长", "待认证", "已认证", "小时"] {
+            XCTAssertFalse(text.contains(forbidden), "已完成屏不该出现「\(forbidden)」：\(text)")
+        }
+    }
+
+    /// 跑者取消那一屏**不能说「重新匹配」** —— 那是 `REMATCHING`（志愿者自己退出）的后果。
+    /// 对被取消的这位陪跑员，真实情况是「这一单没了，你不用做什么」。
+    func testRunnerCancelledScreenSaysItIsNotTheirCancellation() {
+        let presentation = VolunteerOrderFlowPresentation.make(
+            order: .preview(status: .cancelled, blindName: "李*"),
+            distanceText: nil
+        )
+        XCTAssertEqual(presentation?.title, "李取消了这次陪跑")
+        XCTAssertEqual(presentation?.subtitle, "不算你的取消，不需要做什么")
+        XCTAssertEqual(presentation?.primaryAction, .backToHome)
+        XCTAssertFalse(presentation?.subtitle.contains("重新匹配") ?? true)
+        // 这一屏没有任何「还能做点什么」的动作行 —— 时间与集合点都是只读的。
+        XCTAssertTrue(presentation?.rows.allSatisfy { !$0.isTappable } ?? false)
     }
 
     // MARK: - 主按钮
@@ -346,13 +487,17 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
         XCTAssertFalse(urgent(11), "阈值上面一秒还不算")
     }
 
-    // MARK: - 「我去不了」的按钮与对话框必须同词
+    // MARK: - 退出这一单：行 + 确认层
 
-    /// 按钮上换了词、对话框里没换，等于那次改名没做 —— 而对话框才是他真正下决心的那一屏。
+    /// 行上说「我去不了」，确认层里把**后果**说清楚（这一单转给别人）。
+    ///
+    /// 2026-09-17 确认层换成设计稿的底部弹层之后，两处不再是同一个词 ——
+    /// 于是这条改为断言**后果**同源，而不是断言字面相同：那句「会转给其他志愿者」
+    /// 才是志愿者在两处都必须读到的东西。
     ///
     /// 这条补的是 `ScheduledOrderTests.testReleaseAndCancelDoNotShareCopy` 注释里逐字记着的洞：
-    /// 那条用例只覆盖按钮标题，覆盖不到对话框（它当时是 View 的 private 属性，测试够不着）。
-    func testReleaseRowAndItsConfirmationDialogUseTheSameWord() {
+    /// 那条用例只覆盖按钮标题，覆盖不到确认层（它当时是 View 的 private 属性，测试够不着）。
+    func testReleaseRowAndItsConfirmationSheetShareTheConsequence() {
         for status in [RunOrderStatus.scheduledConfirmed, .pendingAccept, .driverEnRoute] {
             let presentation = VolunteerOrderFlowPresentation.make(
                 order: .preview(status: status),
@@ -362,16 +507,39 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
             XCTAssertEqual(row?.value, VolunteerOrderFlowCopy.releaseOrder, "\(status.rawValue) 的退出行文案不对")
             XCTAssertEqual(row?.action, .releaseOrder)
 
-            let dialog = VolunteerOrderFlowCopy.cancelDialog(for: status)
+            let sheet = VolunteerOrderFlowCopy.cancelSheet(for: status, plannedStart: nil)
             XCTAssertTrue(
-                dialog.title.contains("去不了"),
-                "\(status.rawValue)：按钮说「去不了」而对话框说「\(dialog.title)」"
+                sheet.message.contains("转给其他志愿者"),
+                "\(status.rawValue)：确认层要说清后果 —— 这一单换个人，不是替盲人取消"
             )
-            XCTAssertTrue(dialog.message.contains("转给其他志愿者"), "对话框要说清后果：这一单换个人，不是替盲人取消")
+            XCTAssertEqual(sheet.keep, "保留这次陪跑")
+            XCTAssertEqual(sheet.cancel, "仍然取消")
         }
+    }
 
-        // 反向：还没搬过来的两态仍走旧词，说明这条判据真的在按状态分流。
-        XCTAssertFalse(VolunteerOrderFlowCopy.cancelDialog(for: .inProgress).title.contains("去不了"))
+    /// 🔴 **确认层不许宣布一套后端不存在的处罚规则。**
+    ///
+    /// 设计稿原文里还有「会记一次临时取消」「30 天内满 3 次，接下来 14 天不会收到邀请」，
+    /// 而契约两份文件里 `lateCancel` / `cancellationCount` / 临时取消 / cancelPolicy
+    /// **全部命中 0**，取消端点连请求体都没有。志愿者正要据此决定去不去 —— 说了就是骗他。
+    func testCancelSheetNeverAnnouncesAPenaltyTheBackendDoesNotHave() {
+        let soon = VolunteerOrderFlowCopy.cancelSheet(
+            for: .pendingAccept,
+            plannedStart: Date().addingTimeInterval(3 * 3600)
+        )
+        let later = VolunteerOrderFlowCopy.cancelSheet(
+            for: .pendingAccept,
+            plannedStart: Date().addingTimeInterval(72 * 3600)
+        )
+
+        XCTAssertNotNil(soon.lateNotice, "距开跑不足 12 小时要多说一句「会马上重新找人」")
+        XCTAssertNil(later.lateNotice, "还有三天的单不该摆一条催促")
+
+        let everything = [soon.title, soon.lateNotice ?? "", soon.message, soon.keep, soon.cancel]
+            .joined(separator: " ")
+        for forbidden in ["临时取消", "3 次", "14 天", "不会收到邀请"] {
+            XCTAssertFalse(everything.contains(forbidden), "后端没有这条规则，不许写：\(forbidden)")
+        }
     }
 
     // MARK: - 「跑多远 / 配速」的格式化

@@ -431,6 +431,26 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     /// （后者绕圈跑时为 0）。这是「这一单要跑多远」。
     var plannedDistanceMeters: Int?
 
+    /// 完赛实际里程（米）/ 实际耗时（秒）/ 实际平均配速（秒每公里）。
+    /// 订单进 `COMPLETED` 时后端算一次落库（契约 `api_spec.yaml` 的 `OrderDetailResponse`，
+    /// 迁移 `0022`），此前恒 `nil`。客户端此前没解码这三项。
+    ///
+    /// 🔴 **它们描述的是「这趟跑步」，不是「志愿服务时长」。** 后端算法是轨迹点首末时间差，
+    /// 而志愿服务时长的口径是「志愿者点开始服务 → 订单完成」（`totalServiceMinutes` 的
+    /// description 逐字如此），两者在集合点多站五分钟就会分叉。所以已完成页只拿它们说
+    /// 「和李明跑了 X 公里，用时 Y」，**不换算成本次服务时长** —— 按单的服务时长后端没有，
+    /// 已投 handoff。
+    ///
+    /// 三项各自可空且**不成组**：里程为 0 时配速为 null（除以 0 得不出配速，给 0 是假的）。
+    /// 所以渲染要逐项判，不许「有一个就当三个都有」。
+    ///
+    /// 📌 `actualAvgPaceSecPerKm` 当前**没有渲染点**：已完成屏只说里程与用时，配速在
+    /// 「查看跑步记录」那一页由轨迹统计自己算（`TrackStatsDto.avgPaceSecPerKm`）。
+    /// 留着解码是为了它与另两项同源、下一个用到它的人不必再回来补 —— 不是漏接。
+    var actualDistanceMeters: Int?
+    var actualDurationSeconds: Int?
+    var actualAvgPaceSecPerKm: Int?
+
     var id: Int64 { orderId }
 
     func replacingStatus(with status: RunOrderStatus) -> OrderDetailResponse {
@@ -470,7 +490,15 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             // 同一条理由，而这一个的消失更难看出来：漏掉会让「陪跑 32 次」在每次 5 秒轮询
             // 之后静默变成不显示，卡片上少一行字而已 —— 没有任何报错，也没有空位。
             // 回归用例 `blindRunTests.testReplacingStatusKeepsTheVolunteerExperience`。
-            volunteerTotalCompleted: volunteerTotalCompleted
+            volunteerTotalCompleted: volunteerTotalCompleted,
+            paceMinSecondsPerKm: paceMinSecondsPerKm,
+            paceMaxSecondsPerKm: paceMaxSecondsPerKm,
+            plannedDistanceMeters: plannedDistanceMeters,
+            // 同一条理由，而这三项的消失只在**已完成**那一屏可见：漏掉会让
+            // 「和李明跑了 5.12 公里，用时 39 分 20 秒」在下一次轮询后退化成只剩「陪跑完成」。
+            actualDistanceMeters: actualDistanceMeters,
+            actualDurationSeconds: actualDurationSeconds,
+            actualAvgPaceSecPerKm: actualAvgPaceSecPerKm
         )
     }
 }
