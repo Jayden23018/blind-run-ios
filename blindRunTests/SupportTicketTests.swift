@@ -25,6 +25,31 @@ final class SupportTicketTests: XCTestCase {
         XCTAssertNil(SupportTicketRequest(category: .orderService, content: overLimit, orderId: nil))
     }
 
+    /// 🔴 计数口径必须是 **UTF-16**，与后端 `@Size` 数的东西一致。
+    ///
+    /// 这条用例挑的输入是**能区分两种实现的那一个**：500 个 emoji 在 Swift 的
+    /// `String.count`（字素簇）下是 500 —— 按那个口径会放行；而 Java 的
+    /// `String.length()` 数到 1000，正好卡在上限上。再多一个就该拦住了。
+    /// 随手取一个「明显超长」的纯中文串是分辨不出这两种实现的。
+    func testLengthIsCountedTheWayTheBackendCountsIt() {
+        let emoji = "🏃"  // 一个字素簇，两个 UTF-16 code unit
+        XCTAssertEqual(emoji.count, 1)
+        XCTAssertEqual(SupportTicketRequest.length(of: emoji), 2, "口径应为 UTF-16")
+
+        let exactly1000 = String(repeating: emoji, count: 500)
+        XCTAssertEqual(exactly1000.count, 500, "按字素簇数只有 500 —— 用它当闸就是这里放空的")
+        XCTAssertNotNil(
+            SupportTicketRequest(category: .orderService, content: exactly1000, orderId: nil),
+            "正好 1000 个 UTF-16 单元，后端收得下"
+        )
+
+        let over = exactly1000 + emoji
+        XCTAssertNil(
+            SupportTicketRequest(category: .orderService, content: over, orderId: nil),
+            "1002 个 UTF-16 单元后端会 400 —— 客户端必须在这里就拦住，别让他白打一遍"
+        )
+    }
+
     /// 首尾空白要去掉再发：用户按完回车再提交是常事，而后端那 1000 字的上限
     /// 不该被一串换行吃掉。
     func testContentIsTrimmedBeforeItIsSent() {

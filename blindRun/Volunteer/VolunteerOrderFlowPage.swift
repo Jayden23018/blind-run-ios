@@ -61,8 +61,10 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     action: onPrimaryAction
                 )
             },
-            // 前三态一律不给 —— 理由写在 `VolunteerOrderFlowPresentation.showsSafetyHub` 上。
-            // 这里仍按值分流而不是写死 `nil`：汇合那一态搬过来时判据已经在位。
+            // 目前**每一态都是 `false`** —— 理由写在 `VolunteerOrderFlowPresentation.showsSafetyHub` 上
+            // （陪跑员端没有可降级的安全中心，而云端 SOS 只在 `IN_PROGRESS` 开放，
+            // 那一态又不走这个页面）。这里仍按值分流而不是写死 `nil`：
+            // 陪跑员版求助层立项之后，判据已经在位。
             safetyHub: presentation.showsSafetyHub ? OrderFlowSafetyHubAction(action: {}) : nil
         )
     }

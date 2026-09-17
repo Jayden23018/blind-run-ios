@@ -443,6 +443,10 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     ///
     /// 三项各自可空且**不成组**：里程为 0 时配速为 null（除以 0 得不出配速，给 0 是假的）。
     /// 所以渲染要逐项判，不许「有一个就当三个都有」。
+    ///
+    /// 📌 `actualAvgPaceSecPerKm` 当前**没有渲染点**：已完成屏只说里程与用时，配速在
+    /// 「查看跑步记录」那一页由轨迹统计自己算（`TrackStatsDto.avgPaceSecPerKm`）。
+    /// 留着解码是为了它与另两项同源、下一个用到它的人不必再回来补 —— 不是漏接。
     var actualDistanceMeters: Int?
     var actualDurationSeconds: Int?
     var actualAvgPaceSecPerKm: Int?

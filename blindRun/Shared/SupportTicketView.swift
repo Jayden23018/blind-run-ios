@@ -11,7 +11,8 @@ final class SupportTicketViewModel: ObservableObject {
     @Published private(set) var didSubmit = false
 
     var remainingCharacters: Int {
-        SupportTicketRequest.maxContentLength - content.count
+        // 与校验闸同一个计数口径（UTF-16），否则会出现「提示还剩 3 个字、提交却被拦」。
+        SupportTicketRequest.maxContentLength - SupportTicketRequest.length(of: content)
     }
 
     /// 返回是否提交成功。**失败一律留在这一屏** —— 关掉页面等于把用户刚写的那段字扔了。

@@ -30,7 +30,17 @@ struct SupportTicketRequest: Codable, Sendable, Equatable {
     ///
     /// 客户端在**提交前**就把它拦住，而不是等后端 400：这一屏多半是在路边写的，
     /// 打了一千多字再被退回来，那些字就没了。
+    ///
+    /// ⚠️ **按 UTF-16 计，不是按 `String.count`。** 后端那个 `maxLength` 由 Bean Validation
+    /// 的 `@Size` 判，数的是 Java `String.length()` = UTF-16 code unit；而 Swift 的 `count`
+    /// 数的是字素簇 —— 一个 emoji 在 Swift 里是 1，在 Java 里是 2。用 `count` 拦，
+    /// 正好在「用户打了一堆表情」这一种输入上把闸放空，而那时后端仍会 400，
+    /// 这道闸存在的理由（别让他白打一遍）就没了。
     static let maxContentLength = 1000
+
+    /// 按后端口径数这段文字有多长。计数口径只在这里写一次 ——
+    /// 校验与「还能写几个字」用同一个函数，否则会出现「提示还剩 3 个字、提交却被拦」。
+    static func length(of text: String) -> Int { text.utf16.count }
 
     /// `nil` = 这条工单不该被发出去（正文只有空白）。
     ///
@@ -39,7 +49,7 @@ struct SupportTicketRequest: Codable, Sendable, Equatable {
     init?(category: SupportTicketCategory, content: String, orderId: Int64?) {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        guard trimmed.count <= Self.maxContentLength else { return nil }
+        guard Self.length(of: trimmed) <= Self.maxContentLength else { return nil }
         self.category = category
         self.content = trimmed
         self.orderId = orderId
