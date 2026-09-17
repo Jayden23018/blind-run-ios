@@ -265,7 +265,56 @@ final class VolunteerHomeViewModel: ObservableObject {
         self.locationAuthorizedProvider = locationAuthorizedProvider
         apply(profile: appState.volunteerProfile)
         subscribeToRealtimeCoordinator(appState)
+        seedInvitesForUITestsIfNeeded()
     }
+
+    /// UI 测试用的「预置几条待回复邀请」。与 `AIDRUN_UI_TEST_SEED_ORDER_STATUS` 同一套做法。
+    ///
+    /// 🚩 **必须有这个种子，否则邀请卡在 UI 测试里根本到不了。** 派单只从 WebSocket 来，
+    /// 而 UI 测试默认 `disableWebSocket` —— 没有种子的话这一屏的无障碍形状永远没人验。
+    ///
+    /// `#if DEBUG` 包住：Release 产物里不存在这条路径，一个环境变量骗不出一张假邀请。
+    private func seedInvitesForUITestsIfNeeded() {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["AIDRUN_UI_TEST_RESET_STATE"] == "1",
+              let raw = environment["AIDRUN_UI_TEST_SEED_INVITES"],
+              let count = Int(raw), count > 0 else { return }
+        let now = Date()
+        for index in 0..<count {
+            enqueue(
+                order: Self.uiTestSeedInvite(orderId: Int64(9_000 + index)),
+                receivedAt: now,
+                // 每条差 30 秒，好让「按回复期限升序」和分页点在 UI 上真的分得开。
+                expiresAt: now.addingTimeInterval(TimeInterval(120 + index * 30))
+            )
+        }
+        #endif
+    }
+
+    #if DEBUG
+    private static func uiTestSeedInvite(orderId: Int64) -> WSNewOrder {
+        WSNewOrder(
+            type: "NEW_ORDER",
+            timestamp: nil,
+            orderId: orderId,
+            startAddress: "深圳湾公园 3 号入口",
+            startLatitude: nil,
+            startLongitude: nil,
+            distanceKm: 3.2,
+            plannedStart: nil,
+            plannedEnd: nil,
+            dispatchTimeoutSeconds: 120,
+            priority: "HIGH",
+            pacePreference: "MODERATE",
+            hasGuideDog: false,
+            requiresIntroCall: true,
+            paceMinSecondsPerKm: 390,
+            paceMaxSecondsPerKm: 450,
+            plannedDistanceMeters: 5_000
+        )
+    }
+    #endif
 
     func setSceneActive(_ isActive: Bool) {
         isSceneActive = isActive
@@ -385,18 +434,24 @@ final class VolunteerHomeViewModel: ObservableObject {
                 isRespondingToDispatch = false
                 appState.realtimeCoordinator.clearDispatch(orderID: order.orderId)
                 acceptedDispatchInitialOrder = acceptedOrder
-                if effectiveAction == .interested {
+                // 穷举 switch：`OrderRespondAction` 将来加值时编译器会逼一次决策。
+                // 此前这里是 `if .interested { … } else { … }`，而那个 `else` 把 `.decline`
+                // 也当成了「已接下」。
+                switch effectiveAction {
+                case .interested:
                     // 通话磨合那一支**照旧直接跳走**，不停在结果卡上。
                     // 设计稿 §4.4.3 的成功态只有「已约好」一种，而 `INTERESTED` 不是接单：
                     // 那边 20 分钟的通话窗口已经在走，多一次「查看订单」的点击是在烧他的窗口。
                     removeInvite(orderID: order.orderId)
                     pendingIntroCallOrder = VolunteerIntroCallRoute(dispatchOrder: order)
-                } else {
+                case .accept:
                     // 🚩 **接下之后不再自动 push 订单页。** §4.4.3：卡片**原地**变成「已约好」，
                     // 由用户点「查看订单」才走。自动跳等于把那张确认卡一闪而过 ——
                     // 而它是这一刻唯一一处告诉他「全名和电话已经放进订单」的地方。
                     markInvite(orderID: order.orderId, outcome: .accepted)
                     declineStreak.reset()
+                case .decline:
+                    removeInvite(orderID: order.orderId)
                 }
                 speechService?.speak(Self.dispatchResponseSpeech(for: effectiveAction))
             } catch let error as APIError {
@@ -476,7 +531,9 @@ final class VolunteerHomeViewModel: ObservableObject {
     func dismissDispatch() {
         countdownTask?.cancel()
         countdownTask = nil
-        invites.removeAll()
+        // 走 `removeInvite` 而不是 `invites.removeAll()`：协调器那一份也要清，
+        // 不然下一条推送会把这些邀请整队灌回来。
+        for id in invites.map(\.id) { removeInvite(orderID: id) }
         currentInviteID = nil
         isRespondingToDispatch = false
     }
@@ -539,7 +596,15 @@ final class VolunteerHomeViewModel: ObservableObject {
         currentInviteID = orderID
     }
 
+    /// 从队列移走一条。
+    ///
+    /// 🔴 **同时把协调器那一份也清掉，这一行不能挪到调用方。** `syncInvites` 是「只增不减」的
+    /// （结果卡要留在屏幕上，而协调器一出结果就把它移走了），所以只删本地的话，
+    /// **下一条推送到达时它会被重新灌回来** —— 表现是已经回复过 / 已经收掉的邀请又弹出来。
+    /// 收成一处是因为调用点有五个（回复成功、结果卡收起、去不了、过期、登出），
+    /// 而「忘了清协调器」在任何一处都是同一个 bug。
     private func removeInvite(orderID: Int64) {
+        appState?.realtimeCoordinator.clearDispatch(orderID: orderID)
         invites.removeAll { $0.id == orderID }
         if currentInviteID == orderID { currentInviteID = invites.first?.id }
         if invites.isEmpty {
@@ -552,7 +617,6 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 用户在结果卡上点「知道了 / 回到接单」：把这一条收掉，自动翻到下一条；
     /// 全部回复完就收起整张 sheet（§4.4.2「回复一个后自动切到下一个，全部回复完自动收起」）。
     func dismissInvite(orderID: Int64) {
-        appState?.realtimeCoordinator.clearDispatch(orderID: orderID)
         removeInvite(orderID: orderID)
     }
 
@@ -595,7 +659,9 @@ final class VolunteerHomeViewModel: ObservableObject {
             .filter { $0.outcome == .expired && $0.id != currentInviteID }
             .map(\.id)
         for id in staleIDs { removeInvite(orderID: id) }
-        if invites.isEmpty {
+        // 队列里只剩结果卡（已约好 / 已失效）时也停：它们没有任何还在走的数字，
+        // 而用户可能就把那张卡开着不动。让一条每秒醒一次的任务在那儿空转是白烧电。
+        if invites.allSatisfy({ !$0.isAwaitingReply }) {
             countdownTask = nil
             return false
         }
@@ -618,6 +684,9 @@ final class VolunteerHomeViewModel: ObservableObject {
         flushPendingDecline()
         removeInvite(orderID: orderID)
         pendingDecline = invite
+        // 卡片收起那一刻屏幕上只剩一条 toast，而看不见屏幕的人需要知道两件事：
+        // 回复出去了、还能反悔。秒数取配置值，不写字面量 —— 两处各写一个 5 必然分叉。
+        speechService?.speak("\(VolunteerInviteCopy.declineToastText)，\(Int(declineUndoWindow))秒内可以撤销")
         pendingDeclineTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(max(0, self?.declineUndoWindow ?? 0) * 1_000_000_000))
             guard !Task.isCancelled else { return }
@@ -642,6 +711,13 @@ final class VolunteerHomeViewModel: ObservableObject {
         currentInviteID = restored.id
         isInviteSheetPresented = true
         startInviteTicker()
+        // 撤销窗口里倒计时没停，所以「放回来了」和「放回来但已经过期了」是两句不同的话。
+        // 只说「已撤销」而屏幕上是一张灰卡，对看不见屏幕的人就是一次白跑。
+        speechService?.speak(
+            restored.outcome == .expired
+                ? "已撤销，不过这个邀请已经过期了"
+                : "已撤销，邀请回来了"
+        )
     }
 
     /// 窗口到点（或被下一次「去不了」挤掉）：真的把 `DECLINE` 发出去。
