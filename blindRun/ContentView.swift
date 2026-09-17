@@ -317,7 +317,9 @@ struct ContentView: View {
                 }
                 .accessibilityIdentifier("rootRoute.volunteerProfile")
             case .volunteerHome:
-                VolunteerHomeView()
+                // 2026-09-17 起这里是标签栏容器（首页 / 记录 / 我的），不再是裸的首页。
+                // identifier 逐字不变：按它断言的用例语义没有变（盲人端 09-16 同样处理）。
+                VolunteerTabView()
                     .accessibilityIdentifier("rootRoute.volunteerHome")
             }
         }

@@ -1648,6 +1648,16 @@ struct VolunteerInServiceView: View {
         .navigationTitle("服务中")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        // 订单页**不带标签栏**（设计交付 v3 §4.2 总表：S1/S2/S3/S4 的底部是「标签栏」，
+        // 而 S6 是「求助与安全」；`03-订单页全流程.png` 五屏也都没有标签栏）。
+        // 这一页是地图铺满 + 底部面板，多一条 49pt 的标签栏会把面板顶上去，
+        // 而标签栏在这一刻能去的地方（记录 / 我的）没有一个是陪跑中该去的。
+        //
+        // 🔴 **前提是返回箭头一直在。** 盲人端的订单页刻意保留了标签栏，理由在
+        // `BlindOrderStatusView.swift:1642-1646`：那一页跑步中会藏返回箭头，
+        // 标签栏是唯一出口。这一页从头到尾没有 `navigationBarBackButtonHidden`，
+        // 所以藏标签栏不会把人关在里面 —— **谁将来给这一页藏返回箭头，这一行必须同时撤销。**
+        .toolbar(.hidden, for: .tabBar)
         .task {
             viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
             locationService.startUpdating()
@@ -2008,6 +2018,18 @@ struct VolunteerServiceRecognitionView: View {
         }
         .background(AppColors.background)
         .navigationTitle(VolunteerAchievementsCopy.navigationTitle)
+        // 🔴 **这一行是修出来的，不是抄体例。** 2026-09-17 给志愿者端加标签栏之后，
+        // `testVolunteerAchievementsPassesAccessibilityAudit` 当场红在
+        // `volunteerAchievementsDisclaimer` 上（Contrast failed），失败截图里那句
+        // 「向学校或单位申报星级需要通过全国志愿服务信息系统办理」**第二行被标签栏盖掉了半行**。
+        //
+        // 光靠给内容加底部留白救不回来：`ScrollView` 静止在顶部时那一行的 y 只由它上面的内容决定，
+        // 加多少 padding 它都还在 775.7–806，而标签栏（iOS 26 的悬浮胶囊）从 793 起 ——
+        // 唯一的解法是这一页不要那条栏。
+        //
+        // 设计交付 v3 也是这么分的：§4.2 总表里带标签栏的只有 S1/S2/S3/S4 那几屏根页面，
+        // S7「空闲时间与出发地」那类二级页的底部是空的。
+        .toolbar(.hidden, for: .tabBar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerServiceRecognitionView")
         .task {

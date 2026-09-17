@@ -235,6 +235,9 @@ struct VolunteerIntroCallView: View {
         .background(AppColors.background)
         .navigationTitle("通话确认")
         .navigationBarTitleDisplayMode(.inline)
+        // 与服务页同一条：订单页那一族不带标签栏（设计交付 v3 §4.2 总表，S5 邀请
+        // 就是 S6 的一个状态）。返回箭头在，不会把人关在这一页里。
+        .toolbar(.hidden, for: .tabBar)
         .onAppear {
             viewModel.configure(
                 orderId: route.orderId,

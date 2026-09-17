@@ -83,6 +83,18 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 只记 id 不记「跳过几次」：换了一单就该再跳一次，那是另一个人在等他。
     private var autoOpenedIntroCallOrderId: Int64?
 
+    /// 冷启动三岔路已经判过了（设计交付 v3 §4.1）。
+    ///
+    /// 🚨 **这道闸不是优化，没有它就是一个出不来的导航循环。** 判据读的是
+    /// `activeOrder` / `scheduledOrders`，而这两样每 10 秒刷新一次都还在 ——
+    /// 志愿者从订单页返回首页，下一次刷新立刻把他推回去。和
+    /// `autoOpenedIntroCallOrderId` 防的是同一件事，只是这一条的窗口更严：
+    /// **只判首次加载那一轮**（「打开 App 时」，§4.1 的原话），之后一律不再自动导航。
+    ///
+    /// 窗口在辅助加载收尾时关上（预约单那一岔要等它）。首次加载**失败或被取消**时窗口
+    /// 留着，由下一次真正跑完的加载来判 —— 那一次仍然是「他打开 App 之后第一次看到的结果」。
+    private var didResolveLaunchRoute = false
+
     private weak var appState: AppState?
     private var speechService: SpeechService?
     private var realtimeDispatchCancellable: AnyCancellable?
@@ -154,6 +166,35 @@ final class VolunteerHomeViewModel: ObservableObject {
             .filter { $0.status.isActiveForVolunteer }
             .sorted { $0.sortKey > $1.sortKey }
             .first
+    }
+
+    /// 打开 App 时该不该跳过主页、直接进订单页 —— 设计交付 v3 §4.1 三岔路的第二岔。
+    ///
+    /// 「有进行中订单（已出发 / 汇合 / 跑步中）**或 2 小时内开始的陪跑**」。两个来源各管一半，
+    /// 不能合并成一个列表：`activeOrder` 来自 `dispatch-summary.activeOrders`，后端
+    /// `VolunteerService.loadActiveOrders` 的白名单**只有**那三态；跨天预约单只在
+    /// `scheduledOrders`（单独打 `GET /api/orders/mine`）里。
+    ///
+    /// 🚩 **已经过点还没走的算在内**（差值为负）—— 那种情况比「还有 1 小时」更该打开，
+    /// 而写成 `0..<lead` 会把它漏掉。判据因此是「距开跑不足 lead」，不是「在 [0, lead] 区间内」。
+    ///
+    /// 纯函数是为了有可以验红的测试面：这条判据整个长在网络回调里，
+    /// 挂在视图上就只能靠 UI 测试隔着三次请求去断言一个时间阈值。
+    nonisolated static func launchOrderToOpen(
+        activeOrder: OrderDetailResponse?,
+        scheduledOrders: [OrderDetailResponse],
+        now: Date = Date(),
+        leadMinutes: Int = AppConstants.Timing.volunteerOrderAutoOpenLeadMinutes
+    ) -> OrderDetailResponse? {
+        if let activeOrder { return activeOrder }
+        let lead = TimeInterval(leadMinutes * 60)
+        // `scheduledOrders` 已按 `plannedStart` 升序（`applyScheduled`），最近的排最前。
+        // 解析不出时间的不猜 —— 宁可让他自己从首页点进去，也不要凭空把人推进一张
+        // 可能几天后才开始的单。
+        return scheduledOrders.first { order in
+            guard let start = order.plannedStart?.backendTimestamp else { return false }
+            return start.timeIntervalSince(now) < lead
+        }
     }
 
     func configure(
@@ -634,6 +675,10 @@ final class VolunteerHomeViewModel: ObservableObject {
                 appState.updateVolunteerRegistrationStatus(value)
             }
             self.applyScheduled(scheduled)
+            // 三岔路的另一岔（2 小时内开始的陪跑）只有等这条请求回来才判得了 —— 跨天预约单
+            // 不在 `dispatch-summary` 里。判完这一轮就关窗，之后每 10 秒的刷新不再自动导航。
+            self.resolveLaunchRouteIfNeeded()
+            self.didResolveLaunchRoute = true
             self.auxiliaryLoadTask = nil
             self.auxiliaryRequestID = nil
         }
@@ -874,6 +919,9 @@ final class VolunteerHomeViewModel: ObservableObject {
             appState?.liveEscortCoordinator.clearOwnedOrder()
         }
         recoverIntroCallIfNeeded(summary: summary)
+        // 三岔路的「有进行中订单」那一岔在这里就判得了，不必等预约单那条请求回来。
+        // 另一岔（2 小时内开始的陪跑）在 `startAuxiliaryLoad` 的收尾里。
+        resolveLaunchRouteIfNeeded()
     }
 
     /// 冷启动恢复：App 被杀之后回到那一通没打完的电话。
@@ -897,6 +945,32 @@ final class VolunteerHomeViewModel: ObservableObject {
               autoOpenedIntroCallOrderId != introCallOrderId else { return }
         autoOpenedIntroCallOrderId = introCallOrderId
         pendingIntroCallOrder = VolunteerIntroCallRoute(orderId: introCallOrderId)
+    }
+
+    /// 冷启动三岔路（设计交付 v3 §4.1）：有进行中订单或 2 小时内开始的陪跑就直接进订单页。
+    ///
+    /// 调用点有两个，都在**首次加载**这一轮上：`apply(summary:)` 末尾（在途订单那一岔，
+    /// 不必等预约单那条请求回来）、`applyScheduled(_:)` 之后（预约单那一岔）。
+    /// 窗口由 `didResolveLaunchRoute` 关上 —— 见它的注释，那不是优化。
+    ///
+    /// 🚩 **复用派单接单后那条既有导航**（`acceptedDispatchOrderId` + 首页 tab 的
+    /// `navigationDestination`），不另起一条路由：要去的是同一个页面。
+    /// `confirmScheduledDeparture` 也是这么做的。
+    ///
+    /// 🚩 通话磨合让路：`pendingIntroCallOrder` 在场时一律不动。那一态有 20 分钟窗口、
+    /// 对面有人在等电话，而订单页随时可以再进（`navigationDestination` 里的顺序也是这个优先级）。
+    private func resolveLaunchRouteIfNeeded() {
+        guard !didResolveLaunchRoute,
+              pendingIntroCallOrder == nil,
+              acceptedDispatchOrderId == nil,
+              let order = Self.launchOrderToOpen(
+                  activeOrder: activeOrder,
+                  scheduledOrders: scheduledOrders
+              ) else { return }
+        didResolveLaunchRoute = true
+        // 带上手里这份详情当初值，订单页就不必空着等第一次 GET 回来。
+        acceptedDispatchInitialOrder = order
+        acceptedDispatchOrderId = order.orderId
     }
 
     func refreshDispatchSummary() async {
@@ -1069,9 +1143,9 @@ enum VolunteerHomeRadius {
 
 // MARK: - Volunteer Home View
 
-/// 志愿者端的根视图。**它本身只剩三件事**：装第一屏、把可服务开关挂在底部、
-/// 让派单弹窗盖住一切。内容**全部**在 `VolunteerProfileFirstScreen` 里，志愿者端主屏
-/// 现在只有这一屏，没有任何二级的「工作台」。
+/// 志愿者端「首页」tab 的内容。**它本身只剩三件事**：装第一屏、把可服务开关挂在底部、
+/// 管这一条 `NavigationStack` 上的三个落点。内容**全部**在 `VolunteerProfileFirstScreen` 里，
+/// 志愿者端主屏现在只有这一屏，没有任何二级的「工作台」。
 ///
 /// > 2026-09-14 从「地图铺满 + 底部可拖面板」的叠层结构改成这样。原结构有两个硬伤：
 /// > ① 那张底图 `annotations` 恒为 `[]`，只画「我在哪」，却占着整屏；
@@ -1082,13 +1156,17 @@ enum VolunteerHomeRadius {
 /// > 2026-09-15 又删掉了那一轮引入的二级页 `VolunteerDispatchWorkbenchView`（用户原话
 /// > 「好像是没什么用的」）。连带删掉那张辅助地图：它的 `annotations` 仍恒为 `[]`，
 /// > 唯一信息「我在哪」在派单卡的覆盖范围文字里已经有一份。**删地图 ≠ 停定位** ——
-/// > 下面 `onAppear` 里那两行是派单的前提，不许跟着删。
+/// > 那两行现在在 `VolunteerTabView` 上，不许跟着删。
+/// >
+/// > 2026-09-17 它**不再是志愿者端的根**（设计交付 v3 §4.1 的底部三标签）。
+/// > 根是 `VolunteerTabView`，view model 的所有权、生命周期与派单弹窗都在那一层 ——
+/// > 搬上去的理由见那个文件，不是为了好看，是 `TabView` 的硬约束。
 struct VolunteerHomeView: View {
-    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var appState: AppState
-    @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
-    @StateObject private var viewModel = VolunteerHomeViewModel()
+    /// **由 `VolunteerTabView` 注入，不再自己 `@StateObject` 持有。**
+    /// 派单弹窗挂在 tab 容器上，而它和这一屏必须读同一份派单状态。
+    @ObservedObject var viewModel: VolunteerHomeViewModel
     /// 接单主页（设计交付 v3 的 S3/S4）。滑块向右滑过阈值时置位。
     @State private var showsDispatchHub = false
 
@@ -1130,66 +1208,13 @@ struct VolunteerHomeView: View {
                         VolunteerDispatchHubView(viewModel: viewModel, onReload: loadHome)
                     }
                 }
+                // 🚩 **挂在栈内的根视图上，不是挂在 `NavigationStack` 或 `TabView` 上。**
+                // 挂高一层的话 push 出去的接单主页 / 订单页底部也会长出一个滑块，
+                // 与那一页自己的「暂停接单」直接打架；而设计交付 v3 §4.2 总表里
+                // S3/S4 的主按钮一栏写的就是「无」。
                 .safeAreaInset(edge: .bottom) {
                     availabilityCTA
                 }
-                .onAppear {
-                    locationService.requestPermission()
-                    locationService.startUpdating()
-                }
-                .onDisappear {
-                    viewModel.setSceneActive(false)
-                }
-                .task(id: scenePhase) {
-                    viewModel.configure(
-                        with: appState,
-                        speechService: speechService,
-                        currentLocationProvider: { locationService.currentLocation },
-                        locationAuthorizedProvider: { locationService.isAuthorized }
-                    )
-                    let isActive = scenePhase == .active
-                    viewModel.setSceneActive(isActive)
-                    guard isActive else { return }
-                    await loadHome()
-                    viewModel.startRefreshLoop()
-                }
-        }
-        // 🚩 **派单弹窗挂在 `NavigationStack` 外面。**
-        //
-        // 挂在栈内根视图上时，push 出任何二级页（陪跑培训、服务记录、成就、设置）之后
-        // 弹窗会被那一页盖住。模态是最高优先级：不管他在哪一页，30 秒倒计时都必须看得见。
-        //
-        // 🚩 同一条理由决定了首屏那些入口一律用 `NavigationLink` 而不是 `.sheet`：
-        // sheet 是盖在整个 `NavigationStack` 之上的，会反过来把这个 overlay 挡住。
-        .overlay {
-            if let incomingOrder = viewModel.incomingOrder {
-                VolunteerDispatchOverlay(
-                    order: incomingOrder,
-                    countdown: viewModel.dispatchCountdown,
-                    isResponding: viewModel.isRespondingToDispatch,
-                    currentLocation: locationService.currentLocation,
-                    locationAuthorized: locationService.isAuthorized,
-                    fallbackCoordinate: locationService.effectiveBackendLocation,
-                    // 主动作是「有意向，想先聊聊」还是「接单」，由推送里的
-                    // `requiresIntroCall` 决定（`WSNewOrder.dispatchRespondAction`）。
-                    // 🚨 这里**不做第二次判断** —— 判据在后端，客户端自己算必然漂移，
-                    // 而漂移的表现是「界面说能直接接、后端回 409」。
-                    onRespond: { action in
-                        viewModel.respondToDispatch(
-                            action: action,
-                            currentLocation: locationService.currentLocation,
-                            locationAuthorized: locationService.isAuthorized
-                        )
-                    },
-                    onDecline: {
-                        viewModel.respondToDispatch(
-                            action: .decline,
-                            currentLocation: nil,
-                            locationAuthorized: false
-                        )
-                    }
-                )
-            }
         }
     }
 
@@ -1494,7 +1519,9 @@ struct VolunteerScheduledOrdersSection: View {
 
 // MARK: - Dispatch Overlay
 
-private struct VolunteerDispatchOverlay: View {
+/// 2026-09-17 从 `private` 放开：唯一的挂点从这一屏搬到了 `VolunteerTabView`
+/// （见那个文件里「派单弹窗挂在 `TabView` 外面」那段）。它仍然只有那一个调用方。
+struct VolunteerDispatchOverlay: View {
     @ScaledMetric(relativeTo: .largeTitle) private var countdownSize: CGFloat = 48
     /// 倒计时转入「紧迫」的阈值。具名是因为它同时决定颜色和那个感叹号 ——
     /// 两处各写一个 10，改一处漏一处的表现是「图标出现了但字还是蓝的」。
@@ -1716,7 +1743,7 @@ private struct VolunteerDispatchOverlay: View {
 
 #if DEBUG
 #Preview {
-    VolunteerHomeView()
+    VolunteerTabView()
         .environmentObject(AppState())
         .environmentObject(SpeechService())
         .environmentObject(LocationService())

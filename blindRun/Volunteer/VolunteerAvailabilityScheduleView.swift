@@ -224,6 +224,10 @@ struct VolunteerAvailabilityScheduleView: View {
         }
         .navigationTitle("空闲时间")
         .navigationBarTitleDisplayMode(.inline)
+        // 设计交付 v3 §4.2 总表：S7「空闲时间与出发地」的底部是空的，只有 S1–S4 那几屏
+        // 根页面带标签栏。二级页不带栏还顺带避开一类真实缺陷 —— 见
+        // `VolunteerServiceRecognitionView` 上那段（那一页的末行曾被标签栏盖掉半行）。
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if viewModel.isSaving {
