@@ -43,6 +43,23 @@ enum VolunteerAvailabilitySlide {
         guard trackWidth > 0 else { return 0 }
         return travel(dragX: dragX, trackWidth: trackWidth) / trackWidth
     }
+
+    /// 这一刻的手势该不该被接受。
+    ///
+    /// 🔴 **关闭方向不看 `isEnabled`（= 资质审核是否通过），这是刻意的不对称。**
+    ///
+    /// 改版前两个方向是两个控件，闸也是两套：开启侧四处 `guard isEnabled, !isUpdating`，
+    /// 关闭侧只有 `guard !isUpdating`（main 的 `closeButton:264` / `:275`）。
+    /// 2026-09-17 合并成一条轨道时我一度把 `isEnabled` 也加到了关闭侧 —— 那是回归：
+    /// **「开始接单」有后果，要审核通过才准；「不跑了」没有后果，任何时候都必须能退出。**
+    /// 资质在开着的时候被撤销，人却退不出「已开启」，是把用户锁在一个他不该待的状态里。
+    ///
+    /// 抽成纯函数而不是写成视图里的三元表达式，与本类型其余部分同一个理由：
+    /// 这种闸改错了屏幕上没有任何信号 —— 控件照常渲染，只是某个状态下按不动。
+    static func acceptsGesture(isAvailable: Bool, isEnabled: Bool, isUpdating: Bool) -> Bool {
+        guard !isUpdating else { return false }
+        return isAvailable || isEnabled
+    }
 }
 
 // MARK: - 文案
@@ -204,11 +221,11 @@ struct VolunteerAvailabilitySlider: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        guard isEnabled, !isUpdating else { return }
+                        guard acceptsGesture else { return }
                         dragX = normalizedTravel(value.translation.width)
                     }
                     .onEnded { value in
-                        guard isEnabled, !isUpdating else { return }
+                        guard acceptsGesture else { return }
                         let activates = VolunteerAvailabilitySlide.activates(
                             dragX: normalizedTravel(value.translation.width),
                             trackWidth: travelWidth
@@ -225,7 +242,7 @@ struct VolunteerAvailabilitySlider: View {
         // ponytail: 更新中只降透明度，不再叠一枚 `ProgressView`。
         // `setAvailability` 是乐观更新（`VolunteerHomeView.swift:768`，失败才回滚），
         // 轨道此刻已经翻成目标态了 —— 在一个「看起来已经开了」的控件上转圈只会让人以为没开。
-        .opacity(isEnabled && !isUpdating ? 1 : 0.5)
+        .opacity(acceptsGesture ? 1 : 0.5)
         // 🔴 **辅助技术两态都拿到一枚普通按钮。**
         //
         // VoiceOver / Switch Control / Voice Control 会彻底改变用户的物理交互方式，
@@ -242,7 +259,7 @@ struct VolunteerAvailabilitySlider: View {
             Button(isAvailable
                    ? VolunteerAvailabilityCopy.closeTitle
                    : VolunteerAvailabilityCopy.slideToOpenTitle) { toggle() }
-                .disabled(!isEnabled || isUpdating)
+                .disabled(!acceptsGesture)
                 .accessibilityValue(isAvailable
                                     ? "\(VolunteerAvailabilityCopy.availableStatusTitle)，\(statusText)"
                                     : statusText)
@@ -279,8 +296,17 @@ struct VolunteerAvailabilitySlider: View {
         isAvailable ? -translationWidth : translationWidth
     }
 
+    /// 见 `VolunteerAvailabilitySlide.acceptsGesture` —— 关闭方向刻意不看 `isEnabled`。
+    private var acceptsGesture: Bool {
+        VolunteerAvailabilitySlide.acceptsGesture(
+            isAvailable: isAvailable,
+            isEnabled: isEnabled,
+            isUpdating: isUpdating
+        )
+    }
+
     private func toggle() {
-        guard isEnabled, !isUpdating else { return }
+        guard acceptsGesture else { return }
         // ponytail: 复用既有的 `HapticFeedback.play(.success)`，不为这一处新加一种 impact 波形。
         // 语义也对得上 —— 那条注释写的是「事情按预期推进了」，关闭同样是按预期推进。
         //

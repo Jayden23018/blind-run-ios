@@ -48,6 +48,40 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         XCTAssertTrue(VolunteerAvailabilitySlide.progress(dragX: 100, trackWidth: 200).isFinite)
     }
 
+    /// 🔴 **资质没通过时开不了，但任何时候都必须能关。**
+    ///
+    /// 改版前这是两个控件、两套闸：开启侧 `guard isEnabled, !isUpdating`，关闭侧只有
+    /// `guard !isUpdating`。2026-09-17 合并成一条轨道时，两个方向一度共用了开启侧那套闸，
+    /// 于是「资质在开着的时候被撤销」会把人锁死在「已开启」里退不出来。
+    ///
+    /// 🚩 **关键的那一行是 `isAvailable: true, isEnabled: false` ⇒ `true`。**
+    /// 少了它，把实现写回对称的 `isEnabled && !isUpdating` 时本用例**照样全绿** ——
+    /// 其余三组输入在两种实现下结果完全相同，分辨不出闸被悄悄加严。
+    func testClosingIsNeverGatedByApprovalButOpeningAlwaysIs() {
+        // 关闭方向（已开启）：资质没通过也必须放行。
+        XCTAssertTrue(
+            VolunteerAvailabilitySlide.acceptsGesture(isAvailable: true, isEnabled: false, isUpdating: false),
+            "资质被撤销后关不掉「可服务」—— 人被锁在一个他不该待的状态里"
+        )
+        // 开启方向（已关闭）：资质没通过一律不准开。
+        XCTAssertFalse(
+            VolunteerAvailabilitySlide.acceptsGesture(isAvailable: false, isEnabled: false, isUpdating: false),
+            "资质没通过却能开启接单"
+        )
+        XCTAssertTrue(
+            VolunteerAvailabilitySlide.acceptsGesture(isAvailable: false, isEnabled: true, isUpdating: false)
+        )
+        // 请求在途时两个方向都停手，否则会连发两次 setAvailability。
+        for isAvailable in [true, false] {
+            XCTAssertFalse(
+                VolunteerAvailabilitySlide.acceptsGesture(
+                    isAvailable: isAvailable, isEnabled: true, isUpdating: true
+                ),
+                "isAvailable=\(isAvailable) 时请求在途仍接受手势"
+            )
+        }
+    }
+
     // MARK: - 主指标
 
     /// 🔴 新人不显示「0 次陪跑」——一屏上最大最粗的那个数字是 0，那是负激励。

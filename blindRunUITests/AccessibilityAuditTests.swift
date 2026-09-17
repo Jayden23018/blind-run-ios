@@ -1253,8 +1253,9 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 照着写会得到一条**必红且红得毫无信息量**的用例（实测：按钮找得到、`isEnabled` 为真，
     /// 而 tap 之后开关纹丝不动）。
     ///
-    /// 「按下去真的会开」由下面那条拖拽用例覆盖 —— 两条路径调的是**同一个** `activate()`，
-    /// 所以「按钮在」+「`activate()` 是对的」合起来就是这条要求的完整覆盖。
+    /// 「按下去真的会开」由下面那条拖拽用例覆盖 —— 两条路径调的是**同一个** `toggle()`
+    /// （2026-09-17 由 `activate()` 改名，因为它现在两个方向都管），
+    /// 所以「按钮在」+「`toggle()` 是对的」合起来就是这条要求的完整覆盖。
     @MainActor
     func testAvailabilitySliderExposesAStandardActionToAssistiveTech() {
         // 默认 `preseedVolunteerAvailable` 为真，那会渲染成状态条而不是滑块 —— 要的是关闭态。
