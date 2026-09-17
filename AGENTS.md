@@ -343,7 +343,21 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 4. 一次只实现一个内聚模块
 5. 行为有变时，实现前先确认对应 spec
-6. **改任何文件前，自己完整读一遍那个文件** —— 探索可以外包，编辑不行
+6. **改任何文件前，自己把要改的那部分读一遍** —— 探索可以外包，编辑不行。
+   「读一遍」按文件大小分两种，别对 3000 行的 View 整读：
+
+   | 文件 | 怎么读 |
+   |---|---|
+   | < 500 行 | 直接 `Read` 整读 |
+   | ≥ 500 行 | `codegraph node <符号>` 取那个函数体（带 `路径:行号` 的原文，可直接 Edit），再 `Read` 该行号前后一屏 |
+   | 不知道符号叫什么 | 先 `codegraph explore "<问题>"` 或 `rg -n`，拿到符号名再 `node` |
+
+   > 2026-09-17 实测 `BlindOrderStatusView.swift`（2912 行）：整读 **53712 tok** /
+   > `explore` 8905 / `node` **1669** —— **32×**。而读进来的内容此后每一轮都按 cache read
+   > 价重读，所以整读一次大文件的代价随会话长度累积，不是一次性的。
+   > `node` 还会一次列出全部同名定义（实测 `keepWaiting` 6 处跨 4 文件），比 grep 更全。
+   > ⚠️ 索引会在 codegraph 升级后**静默失效**（`status` 照显 ✓ 而 `Nodes: 0`）——
+   > 怀疑时用一个真实 Swift 符号验收，别只看那行绿字。
 
 **收尾：三件事，缺一件都不算做完**
 
@@ -357,61 +371,26 @@ REMATCHING → CANCELLED（只能盲人 token）
 10. **push**
 
 > 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**本轮写过的文件没提交**或
-> **领先 origin** 时拦住本次停止并列出欠账。三条约束让它不至于变成噪音：
-> - `stop_hook_active` 兜底，一次停止只拦一次 —— 用户说「先不提交」时回一句说明再停即可，不会死循环
-> - 同一份欠账（相同路径集合 + 相同领先数）只提醒一次，签名存 `.git/aidrun-stop-checklist-seen`。
->   别人没写完的脏文件长期躺着时不会每轮都叫；欠账内容变了才重新叫
-> - **欠账只算本轮 Edit/Write 写过的路径**（从 transcript 取，`scripts/hooks/transcript.mjs`）。
->   并行会话或同事在改的脏文件降级为提示；调研落盘同理，会去**本轮会话内的所有分支**找提交，
->   不只看工作树和 HEAD —— 单开 docs 分支提交调研是常态，只看 HEAD 会每轮误报一次
->
-> handoff（第 8 步）**不作独立触发条件**，只在已有欠账时附带提醒 —— 纯客户端改动本就不该投递，
-> 拿「提交晚于 handoff」当触发会让每次工具链提交都误报。什么该投递见记忆 `handoff-upkeep-workflow`。
->
-> 自测 `scripts/validate-stop-checklist.mjs`（CI 与 pre-push 都跑；条数当场看输出，别写在这 —— 理由同 §9，
-> 09-02 核对时这里写的 9 条实际已是 11 条）。
->
-> 这条从「用户每轮口头提醒」升级成钩子，走的是 §1.3。
+> **领先 origin** 时拦住本次停止并列出欠账。一次停止只拦一次，用户说「先不提交」时
+> 回一句说明再停即可，不会死循环。
 
-**暂存这一步另有一道守卫**：`scripts/hooks/shared-checkout-guard.mjs`（PreToolUse / Bash）拦住
-不带显式路径的 `git commit --amend` / `git add -A` / `git commit -a` / `git stash` ——
-**当且仅当**它们会捎带上本轮没碰过的文件。判据不是「命令危不危险」，
-所以暂存区里全是自己写的东西时不会响。
+**这个仓库是共享 checkout**：前后端两个工作区都可能有同事在同时编辑，而 `.git` 整个是共用的
+（**index 和 HEAD 都是**，记忆 `shared-checkout-concurrent-colleague-edits`）。
+2026-08-16 因此把一笔编译不过的 WIP 推进了 PR，还改写掉了同事的一条提交，全程零报错。
+`scripts/hooks/shared-checkout-guard.mjs`（PreToolUse / Bash）拦三类，
+**当且仅当**它们会波及别人的东西 —— 自己分支上 amend、暂存区里全是自己写的文件，都放行。
 
-理由是这个仓库的物理事实：**前后端两个工作区都可能有同事在同时编辑，而 `.git/index` 是共用的**
-（记忆 `shared-checkout-concurrent-colleague-edits`）。同事跑一次 `git add`，
-他的改动就在你的暂存区里；随后一个 `--amend` 把它们一并吞进你的提交。
-2026-08-16 就这样把一笔编译不过的 WIP 推进了 PR，靠事后手动核对 `git show --stat` 才发现。
+落到日常写法上只有两条，记住这两条就不会撞它：
 
-同一道守卫还拦「改写别人的历史」（amend / reset / rebase / branch -f 落在同事的分支上），
-判据两条，2026-08-24 各修过一次误报，**改它之前先知道这两条为什么长这样**：
+1. **暂存永远带显式路径** —— 不写 `git add -A` / `git commit -a` / `git commit --amend` / `git stash`。
+2. **串联 git 命令永远用 `&&`，不用 `;`** —— 本仓库常年挂着十几二十个 worktree，
+   `git checkout <被占着的分支>` **必然失败**，用 `;` 接的下一条会照常落在你当前分支上、零报错。
+   腾开的办法：`git -C <占着它的 worktree> checkout --detach`。
 
-- **先判命令作用于哪个仓库**，再取 HEAD 与暂存区 —— 按 `git -C <path>` / `cd <path> &&` /
-  钩子 payload 的 `cwd` 解析（Bash 的工作目录跨调用保留，可能早就不在本仓库了）。
-  原先一律打在 `$CLAUDE_PROJECT_DIR` 上，于是在后端仓库跑 `git reset --keep` 被拦下、
-  文案里印的却是 iOS 仓库的分支。**目标是别的仓库不等于放行** —— 后端也是共享 checkout，
-  用它自己的 HEAD 判，拦截文案要指名那个仓库。
-- **HEAD 在本会话开始之后被移动过**才拦（reflog 顶端 vs 会话起点）。原判据只有
-  「本会话没切到过这条分支 + HEAD 提交不是本会话写的」，在**跨会话继续同一条分支**时恒为真，
-  而那是本仓库最常见的干法。⚠️ 别改用「HEAD 作者 == `git config user.name`」当豁免：
-  本仓库全部提交的 author 都是同一个人，**含事故里同事那条 `dd0d795`** —— 那条判据恒成立，
-  等于把这一整条判据废掉，而且不会有任何东西提示它已经废了。
-
-第三条判据 **`unguarded-checkout-chain`**（2026-09-06 立）管的是另一件事：
-`git checkout <被别的 worktree 占着的分支>` 后面用 `;` / 换行接了会改状态的 git 命令。
-**同一个仓库不允许两个 worktree 检出同一条分支**，所以那条 checkout 是必然失败的，
-而后面那条会照常执行、落在你**当前**这条分支上，零报错。
-
-判据是「这条 checkout 会不会失败」（查 `git worktree list --porcelain`），
-**不是**「有没有用 `&&`」—— 后者会把每一条 `git checkout x; git status` 都拦掉，
-守卫当天就会被习惯性无视。只读命令（status / log / diff）跟在后面照样放行：跑错分支只是看错。
-
-立此条的直接起因：2026-09-06 一天里中了两次，`git merge origin/main` 分别落到了另外两个 PR
-的分支上（两次都碰巧无害，那是运气）。根因是本仓库常年挂着十几二十个 worktree ——
-主工作区 checkout 失败是**常态**，不是意外。写法上永远用 `&&` 连，或者先
-`git -C <占着它的 worktree> checkout --detach` 腾开。
-
-自测 `scripts/validate-shared-checkout-guard.mjs`（条数当场跑，别写在这里——理由同 §9）。
+> 三条判据各自为什么长这样、两次误报怎么修的，写在两个钩子文件自己的头注释里
+> （改它们的人才需要）。自测 `scripts/validate-stop-checklist.mjs` 与
+> `scripts/validate-shared-checkout-guard.mjs`，CI 与 pre-push 都跑；**条数当场看输出，
+> 别写在这**（理由同 §9：09-02 核对时这里写的 9 条实际已是 11 条）。
 
 ## 11. 验证命令
 
