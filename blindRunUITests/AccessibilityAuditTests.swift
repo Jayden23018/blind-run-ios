@@ -94,6 +94,53 @@ final class AccessibilityAuditTests: XCTestCase {
         try audit(app)
     }
 
+    /// 陪跑员端的底部三标签（设计交付 v3 §4.1）。
+    ///
+    /// 改版前这三样只有一条路：「记录」在首屏「最近一次」旁的「全部 ›」里、「我的」是首屏
+    /// 右上角一枚齿轮。**那两个旧入口刻意保留着**，所以「首屏还能进到设置」不足以证明
+    /// 标签栏还在 —— 这条断的是标签栏本身，以及切过去之后目标页真的渲染出来了。
+    ///
+    /// 🚩 顺手钉住「订单页不带标签栏」的反面：那一族页面藏标签栏的前提是返回箭头一直在
+    /// （见 `VolunteerInServiceView` 上那段注释），这里不重复验，由服务页自己的用例覆盖。
+    @MainActor
+    func testVolunteerTabBarOffersHomeRecordsAndProfile() throws {
+        let app = launchVolunteerHome()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
+                .waitForExistence(timeout: 20),
+            "陪跑员首页没起来"
+        )
+
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在")
+        for title in ["首页", "记录", "我的"] {
+            XCTAssertTrue(
+                tabBar.buttons[title].exists,
+                "标签栏缺少「\(title)」—— 设计交付 v3 §4.1 要的就是这三个"
+            )
+        }
+
+        tabBar.buttons["记录"].tap()
+        XCTAssertTrue(
+            app.navigationBars["服务记录"].waitForExistence(timeout: 15),
+            "「记录」tab 没到服务记录页"
+        )
+
+        tabBar.buttons["我的"].tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerScheduleSettingsEntry"].firstMatch
+                .waitForExistence(timeout: 15),
+            "「我的」tab 没到设置页 —— 空闲时间是那一页的第一组，它不在就说明挂错了页面"
+        )
+
+        tabBar.buttons["首页"].tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
+                .waitForExistence(timeout: 15),
+            "切不回首页"
+        )
+    }
+
     /// 进度条对 VoiceOver 是空的 —— 「还差多少小时」必须作为**可读文本**存在。
     ///
     /// 审计查不出这一条：它只查「有没有 label」，查不出「这一栏丢了唯一一条有信息量的内容」。
@@ -829,16 +876,12 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 那条防它被挤出可视区，这条防它被挪回操作按钮堆里。
     @MainActor
     func testVolunteerInServiceSOSStaysOutOfTheActionButtonCluster() throws {
+        // 有在途订单时**打开 App 就直接进服务页**（设计交付 v3 §4.1 三岔路的第二岔），
+        // 不再经过首页那张当前订单卡 —— 那张卡仍然在，只是这条路径上碰不到它了。
         let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
-        let currentOrderCard = app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch
         XCTAssertTrue(
-            currentOrderCard.waitForExistence(timeout: 20),
-            "志愿者首页没有当前订单卡，进不去服务中页"
-        )
-        currentOrderCard.tap()
-        XCTAssertTrue(
-            app.navigationBars["服务中"].waitForExistence(timeout: 15),
-            "没进到服务中页"
+            app.navigationBars["服务中"].waitForExistence(timeout: 25),
+            "冷启动没有直接进服务页"
         )
 
         let sos = app.buttons["volunteerServiceSOSButton"].firstMatch
@@ -872,14 +915,10 @@ final class AccessibilityAuditTests: XCTestCase {
     /// UI 用例里抄中文文案的误报率见记忆 `merged-prs-whose-tests-never-ran`。
     @MainActor
     func testVolunteerFinishEscortControlIsReachableAndBigEnough() throws {
+        // 有在途订单时**打开 App 就直接进服务页**（设计交付 v3 §4.1 三岔路的第二岔），
+        // 不再经过首页那张当前订单卡 —— 那张卡仍然在，只是这条路径上碰不到它了。
         let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
-        let currentOrderCard = app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch
-        XCTAssertTrue(
-            currentOrderCard.waitForExistence(timeout: 20),
-            "志愿者首页没有当前订单卡，进不去服务中页"
-        )
-        currentOrderCard.tap()
-        XCTAssertTrue(app.navigationBars["服务中"].waitForExistence(timeout: 15), "没进到服务中页")
+        XCTAssertTrue(app.navigationBars["服务中"].waitForExistence(timeout: 25), "冷启动没有直接进服务页")
 
         let finish = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
         XCTAssertTrue(finish.waitForExistence(timeout: 10), "服务进行中必须给陪跑员结束入口")

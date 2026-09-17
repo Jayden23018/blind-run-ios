@@ -231,6 +231,15 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerActiveOrder: true
         )
 
+        // 有在途订单 ⇒ 打开 App 直接进服务页（设计交付 v3 §4.1 三岔路的第二岔）。
+        // 首屏的版式断言要先退回来才做得了 —— 而「退得回来」本身也是那条自动导航的前提：
+        // 推进去出不来的话，志愿者在订单走完之前碰不到主页（钉在 `ScheduledOrderTests`）。
+        XCTAssertTrue(
+            app.navigationBars["服务中"].waitForExistence(timeout: 25),
+            "有在途订单时冷启动没有直接进服务页"
+        )
+        app.navigationBars["服务中"].buttons.firstMatch.tap()
+
         let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
         XCTAssertTrue(identityRow.waitForExistence(timeout: 12), "Volunteer identity row should be visible below the system status area")
         assertVolunteerTopStatusBlockPosition(identityRow, app: app)
@@ -255,7 +264,8 @@ final class blindRunUITests: XCTestCase {
             )
         }
 
-        openCurrentVolunteerService(app)
+        // 已经退回首页了，这次是真的从卡片点进去 —— 传 0 省掉那 25 秒的等待。
+        openCurrentVolunteerService(app, alreadyOpenTimeout: 0)
         assertNoEmergencyAction(app)
 
         let enRouteButton = app.buttons["我已出发"].firstMatch
@@ -1201,8 +1211,27 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerProfile: true,
             preseedVolunteerActiveOrder: true
         )
+        // 预置了在途订单 ⇒ 冷启动直接进服务页（§4.1），而那一页藏了标签栏（设计交付 v3 §4.2
+        // 总表：订单页底部是「求助与安全」不是标签栏）。要走「我的」tab 得先退回来。
+        XCTAssertTrue(
+            app.navigationBars["服务中"].waitForExistence(timeout: 25),
+            "有在途订单时冷启动没有直接进服务页"
+        )
+        app.navigationBars["服务中"].buttons.firstMatch.tap()
+
+        // ⚠️ 这一条自 2026-09-16（`d8b6307`，盲人端加标签栏）起一直是红的：`openSettings`
+        // 那次改成走「我的」tab，而**志愿者端当时根本没有标签栏**，于是它卡在第一句断言上。
+        // 本轮给志愿者端补上标签栏之后它才重新跑得通 —— 命中记忆
+        // `merged-prs-whose-tests-never-ran`（CI 跑不了 XCTest，编译绿不代表用例跑过）。
         openSettings(app)
-        app.buttons["删除账户"].tap()
+        // 陪跑员的设置页比盲人的长（多了积分 / 固定搭档 / 邀请码 / 培训四组），「删除账户」
+        // 在最后一组 —— `List` 不渲染屏幕外的行，不滚它连无障碍树里都没有。
+        let deleteAccount = app.buttons["删除账户"].firstMatch
+        XCTAssertTrue(
+            scrollUntilExists(deleteAccount, app: app),
+            "设置页滚到底也没有「删除账户」"
+        )
+        deleteAccount.tap()
         XCTAssertTrue(app.alerts["确认删除账户"].firstMatch.waitForExistence(timeout: 5))
         app.buttons["继续删除账户"].tap()
 
@@ -1275,6 +1304,13 @@ final class blindRunUITests: XCTestCase {
             disableMap: false
         )
 
+        // 预置了在途订单 ⇒ 冷启动直接进服务页（§4.1），要看首屏得先退回来。
+        XCTAssertTrue(
+            volunteerApp.navigationBars["服务中"].waitForExistence(timeout: 25),
+            "有在途订单时冷启动没有直接进服务页"
+        )
+        volunteerApp.navigationBars["服务中"].buttons.firstMatch.tap()
+
         // 🔴 志愿者首页**没有任何地图了**（2026-09-15 随「派单工作台」一起删）。
         // 真 key 构建下唯一该出现的志愿者地图在「服务中」页，即下面 `volunteerServiceMapBackdrop`
         // 那条。这里只断言首页确实一张都没有 —— 配了真 key 也不该冒出来。
@@ -1289,7 +1325,7 @@ final class blindRunUITests: XCTestCase {
         )
         attachScreenshot(named: "real-amap-volunteer-home", app: volunteerApp)
 
-        openCurrentVolunteerService(volunteerApp)
+        openCurrentVolunteerService(volunteerApp, alreadyOpenTimeout: 0)
         XCTAssertTrue(
             volunteerApp.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.waitForExistence(timeout: 20),
             "Real AMap run should expose the volunteer service map container"
@@ -1484,14 +1520,16 @@ final class blindRunUITests: XCTestCase {
         return app
     }
 
-    /// 打开盲人端的设置。
+    /// 打开设置。**两端通用** —— 陪跑员端 2026-09-17 也有了标签栏（设计交付 v3 §4.1），
+    /// 两边的第三个标签都叫「我的」、里面都是一页 `navigationTitle("设置")`。
     ///
     /// 🔄 **2026-09-16 起走「我的」tab，不再是首页右上角的悬浮齿轮。**
-    /// 齿轮已随首页改版删除（设计稿的首页只有问候 + 订单卡 + 预约块）。
-    /// 抽成 helper 的价值就在这里：入口换了一次，三个调用点一起跟上。
+    /// 盲人端的齿轮已随首页改版删除（设计稿的首页只有问候 + 订单卡 + 预约块）；
+    /// 陪跑员首屏那枚齿轮还在，但这里一律走标签栏那条 —— 它是两端唯一都有的入口。
+    /// 抽成 helper 的价值就在这里：入口换了一次，所有调用点一起跟上。
     private func openSettings(_ app: XCUIApplication) {
         let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 12), "盲人端标签栏没起来，够不到设置")
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 12), "标签栏没起来，够不到设置")
         let profileTab = tabBar.buttons["我的"]
         XCTAssertTrue(profileTab.waitForExistence(timeout: 5), "标签栏缺少「我的」")
         profileTab.tap()
@@ -1707,6 +1745,10 @@ final class blindRunUITests: XCTestCase {
 
     private func assertLogoutRequiresConfirmation(_ app: XCUIApplication) {
         let logoutButton = app.buttons["退出登录"].firstMatch
+        // 陪跑员的设置页比盲人的长（多了积分 / 固定搭档 / 邀请码 / 培训四组），退出登录在最后
+        // —— `List` 不渲染屏幕外的行，不滚它连无障碍树里都没有，`waitForExistence` 永远等不到。
+        // 已经在屏上时 `scrollUntilExists` 第一行就返回，对盲人端那两档是零开销。
+        XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
         XCTAssertTrue(logoutButton.waitForExistence(timeout: 10))
         logoutButton.tap()
         XCTAssertTrue(app.alerts["确认退出"].firstMatch.waitForExistence(timeout: 5))
@@ -1722,16 +1764,24 @@ final class blindRunUITests: XCTestCase {
         enRouteButton.tap()
     }
 
+    /// 走到志愿者的服务中页。
+    ///
+    /// 🚩 **有在途订单时它本来就已经在那一页了**：设计交付 v3 §4.1 的三岔路让打开 App
+    /// 直接进订单页，不再经过首页那张当前订单卡。所以这里先看服务页在不在，不在才回落到
+    /// 「从首页点卡片进去」那条路 —— 两条路径都是真实的（后者是用户返回首页之后再点进来）。
     private func openCurrentVolunteerService(
         _ app: XCUIApplication,
-        requirePhone: Bool = true
+        requirePhone: Bool = true,
+        alreadyOpenTimeout: TimeInterval = 25
     ) {
-        let currentOrderLabel = app.staticTexts["当前订单"].firstMatch
-        XCTAssertTrue(currentOrderLabel.waitForExistence(timeout: 15), "Volunteer home should show the assigned current order")
+        if !app.navigationBars["服务中"].waitForExistence(timeout: alreadyOpenTimeout) {
+            let currentOrderLabel = app.staticTexts["当前订单"].firstMatch
+            XCTAssertTrue(currentOrderLabel.waitForExistence(timeout: 15), "Volunteer home should show the assigned current order")
 
-        let firstOrder = app.staticTexts["李明"].firstMatch
-        XCTAssertTrue(firstOrder.waitForExistence(timeout: 5), "Current order card should show the assigned blind runner")
-        tapWhenHittableOrByCoordinate(firstOrder, app: app)
+            let firstOrder = app.staticTexts["李明"].firstMatch
+            XCTAssertTrue(firstOrder.waitForExistence(timeout: 5), "Current order card should show the assigned blind runner")
+            tapWhenHittableOrByCoordinate(firstOrder, app: app)
+        }
 
         if requirePhone {
             // 号码上屏是**掩码**的（`VolunteerOrderFlowViews.swift` 走 `EmergencyContactResponse.maskPhone`）：

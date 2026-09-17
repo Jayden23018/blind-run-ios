@@ -132,6 +132,18 @@ enum AppConstants {
         /// `max(plannedEndTime, now) + 2h`。所以它必须被**说出来**，
         /// 见 `BlindBookingViewModel.plannedEndSummary`。
         static let defaultBookingDurationMinutes: Int = 60
+        /// 陪跑员打开 App 时「直接打开订单页」的提前量（分钟）。
+        ///
+        /// 设计交付 v3 §4.1 的三岔路：有进行中订单**或 2 小时内开始的陪跑**就跳过主页，
+        /// 直接进订单页。§10「规则参数」把它列为后端可配置。
+        ///
+        /// ⚠️ **后端目前给不了，所以这里是客户端的具名常量而不是镜像。**
+        /// 唯一的配置端点 `GET /api/config/features` 的 schema 逐字写着
+        /// 「只放『功能开没开』，**不放任何阈值、分值、名单**」（`FeatureFlagsResponse`），
+        /// 理由是下发阈值等于让客户端也算一遍，两边算不一样时用户听到哪一份取决于时序。
+        /// 要不要为规则参数另开一个端点已投 handoff（2026-09-17）。
+        /// 在那之前**不许编一个不存在的字段**，改这个数就是改这一行。
+        static let volunteerOrderAutoOpenLeadMinutes: Int = 120
     }
 
     enum DemoCloud {
