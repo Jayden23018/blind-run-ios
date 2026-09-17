@@ -83,8 +83,22 @@ final class SystemSpeechAudioSession: SpeechAudioSessionManaging {
         try session.setActive(false, options: .notifyOthersOnDeactivation)
     }
 
+    /// 播报期间的音频分类。**`.duckOthers` 不能省。**
+    ///
+    /// `状态清单.md` §全局规则逐字：「音乐只压低不暂停」。此前是 `options: []` ——
+    /// `.playback` 不带混音选项会**打断**其它音频，表现是每念一句话就把用户的音乐掐停一次，
+    /// 而跑步的人几乎都在放东西听。`.duckOthers` 会隐式带上 `mixWithOthers`
+    /// （Apple 文档原话），于是变成压低音量、播完自动恢复。
+    ///
+    /// 仍然是 `.playback` 而不是 `.ambient`：`.playback` **静音档照常出声**，
+    /// 而侧面静音拨杆是个盲人看不见、也想不到要去检查的物理开关
+    /// （`RecordingCue` / `EmergencyAlarm` 都记着这条）。
+    ///
+    /// 与录音分类的 `.duckOthers` 是同一个选项，两边口径从此一致。
+    static let playbackCategoryOptions: AVAudioSession.CategoryOptions = [.duckOthers]
+
     func configurePlaybackCategory() throws {
-        try session.setCategory(.playback, mode: .spokenAudio, options: [])
+        try session.setCategory(.playback, mode: .spokenAudio, options: Self.playbackCategoryOptions)
     }
 
     func activatePlayback() throws {

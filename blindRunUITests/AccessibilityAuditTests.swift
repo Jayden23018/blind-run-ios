@@ -189,6 +189,16 @@ final class AccessibilityAuditTests: XCTestCase {
     /// `AGENTS.md`：每个关键盲人页面必须有「重复当前状态」。
     /// 它不冗余 —— 系统 Speak Screen 读不到一次性的 announcement，没有这个按钮，
     /// 盲人错过一次播报就再也拿不回来。
+    ///
+    /// 🔄 **2026-09-16 起它是问候行右侧的一枚图标按钮**（项目负责人拍板），
+    /// 不再是内容列里的全宽次级按钮。用例因此加了两条断言：
+    ///
+    /// 1. **必须是可见的按钮，而不是 accessibility custom action。** 后者是这次改版里
+    ///    被否掉的候选方案，而它的两条硬伤恰好都逃得过一条只查「存不存在」的断言：
+    ///    不开读屏的低视力用户够不到，且 `XCUIElement.tap()` 注入的是物理触摸、
+    ///    **不经过 accessibility action**（记忆 `xcuitest-cannot-invoke-accessibility-actions`）
+    ///    —— 真做成 custom action，`waitForExistence` 会通过而 `isHittable` 不会。
+    /// 2. **64pt 触达 + 不滚动即可达。** 它在问候行上，本就该在首屏。
     @MainActor
     func testBlindRunnerHomeOffersRepeatCurrentStatus() throws {
         let app = launchBlindHome()
@@ -204,33 +214,76 @@ final class AccessibilityAuditTests: XCTestCase {
             repeatControl.waitForExistence(timeout: 10),
             "盲人首页缺少「重复当前状态」。可以降视觉权重，但不能删。"
         )
+
+        // 见上面第 1 条：这一句是「可见按钮」与「custom action」的分界线。
+        XCTAssertTrue(
+            repeatControl.isHittable,
+            "「重复当前状态」在无障碍树里但按不到 —— 做成 accessibility custom action 了？"
+                + "那样不开读屏的低视力用户够不到它。"
+        )
+        XCTAssertGreaterThanOrEqual(
+            repeatControl.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            "「重复当前状态」只有 \(repeatControl.frame.height)pt，低于盲人端 64pt 触达下限"
+        )
+
+        // 不滚动即可达：它在问候行上，落在首屏之外只可能是布局出了问题。
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在，遮挡判据没有参照物")
+        XCTAssertLessThanOrEqual(
+            repeatControl.frame.maxY,
+            tabBar.frame.minY,
+            "「重复当前状态」下沿 \(repeatControl.frame.maxY) 越过了标签栏上沿 \(tabBar.frame.minY)"
+        )
     }
 
-    /// 主按钮必须**看起来**就是主按钮，不只是够得着。
+    /// 首页最大的那一块必须是**即将开始的那一单**，没有订单时才轮到预约入口。
     ///
-    /// 上一条只查 64pt，而 64pt 正是它此前和「重复当前状态」同高时的值 —— 那一版全绿，
-    /// 用户看到的却是「约跑的按钮还是小」。对标 Be My Eyes 的 `Call a volunteer` 占内容区约 75%
-    /// （`docs/research/blind-ui-visual-benchmark-20260808.md` §1）。
+    /// 🔄 **2026-09-16 换了被守的对象，守的是同一个用户需求。** 原用例叫
+    /// `testBlindRunnerPrimaryButtonDominatesTheScreen`，断言「开始约跑」占屏 ≥25%
+    /// （`docs/research/blind-ui-visual-benchmark-20260808.md` §1，对标 Be My Eyes 的
+    /// `Call a volunteer` 占内容区约 75%）。那个 280pt 按钮已按设计稿
+    /// `design-reference/order-flow/screens/01-home.png` 删除。
     ///
-    /// 阈值取窗口高度的 25% 而不是 55%：内容区在窗口里还要扣掉地图、SOS 条与次级按钮，
-    /// 这里要抓的是「有没有被缩回次级按钮那一档」，不是精确复刻某个比例。
+    /// **设计稿反转的不是「主操作要大」，是「谁才是主操作」**：视障用户打开 App 第一句
+    /// 该听到、第一眼该看到的是最重要的**信息**（下一次陪跑），不是下单这个**动作**。
+    /// 所以阈值从「按钮占屏 ≥25%」改成「有订单时订单卡比预约块高」+「预约块本身不许
+    /// 被缩回次级按钮那一档」。后半句保留了原用例真正防的东西 ——
+    /// 它此前和「重复当前状态」同高时全绿，而用户看到的是「约跑的按钮还是小」。
+    ///
+    /// ⚠️ 阈值刻意不写成固定的占屏比：这一屏在 iPad 上高 820、在 iPhone SE 上高 667，
+    /// 而订单卡的高度由内容（52pt 大字 + 几行文字）决定、随 Dynamic Type 长。
+    /// 比**两块之间的相对大小**在所有设备与所有字号下都成立，比固定比例稳。
+    /// 记忆 `verified-on-one-device-is-not-verified` 记着原用例在 iPad 上长红
+    /// （23.7% < 25%）—— 固定占屏比就是那条长红的来源。
     @MainActor
-    func testBlindRunnerPrimaryButtonDominatesTheScreen() throws {
-        let app = launchBlindHome()
-        let start = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
-        XCTAssertTrue(start.waitForExistence(timeout: 20))
+    func testBlindRunnerHomeGivesTheLargestBlockToTheUpcomingOrder() throws {
+        let app = launchBlindHome(emptyOrders: false)
+        let card = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
 
-        let windowHeight = app.windows.firstMatch.frame.height
-        XCTAssertGreaterThan(windowHeight, 0, "拿不到窗口高度，这条断言等于没跑")
+        let booking = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(booking.waitForExistence(timeout: 10), "首页缺少预约入口")
 
-        let share = start.frame.height / windowHeight
-        XCTAssertGreaterThanOrEqual(
-            share,
-            Self.minimumBlindPrimaryButtonScreenShare,
+        XCTAssertGreaterThan(
+            card.frame.height,
+            booking.frame.height,
             """
-            主按钮实测 \(start.frame.height)pt，只占屏高 \(Int(share * 100))%，\
-            低于 \(Int(Self.minimumBlindPrimaryButtonScreenShare * 100))%。\
-            低视力用户找不到它。要改这个阈值先看对标文档 §1。
+            订单卡实测 \(card.frame.height)pt，不高于预约块 \(booking.frame.height)pt。
+            首页最大的位置必须留给即将开始的那一单 —— 打开 App 第一眼该看到的是最重要的
+            信息，不是下单这个动作。要改这条先看 design-reference/order-flow/screens/01-home.png。
+            """
+        )
+
+        // 预约块自己也不许被缩回次级按钮那一档（原用例真正防的就是这件事）。
+        // 判据用「明显高于 64pt 触达下限」而不是占屏比：它在设计稿里是 56pt 加号圆 +
+        // 两行文字 + 上下各 22pt 内边距，默认字号下约 100pt。
+        XCTAssertGreaterThan(
+            booking.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            """
+            预约块只有 \(booking.frame.height)pt，等于缩回了 64pt 触达下限那一档。
+            它是无订单时这一屏唯一的主操作，低视力用户要能一眼看到。
             """
         )
     }
@@ -242,42 +295,81 @@ final class AccessibilityAuditTests: XCTestCase {
     ///
     /// 两笔改动叠在一起造出过这个缺陷：`925e78c` 把「开始约跑」放大到 280pt，
     /// 当天晚些的 `03f3e40` 又在它后面无条件追加了「问一句」，于是 64 + 24 的一行把
-    /// 「重复当前状态」整个顶进底部 SOS 条后面（那条用 `.ultraThinMaterial`，看着就是被挡住）。
+    /// 「重复当前状态」整个顶进底部 SOS 条后面。
     ///
-    /// 后半句断言才是真正拦根因的那一条 —— 它对「谁又往这一列追加了一行」一律报警，
-    /// 不只认「问一句」这一个名字。`blindRunUITests.swift:97` 有一条同源断言，
-    /// 但那条只在「请求挂起」的加载态里跑，正常首页没人守。
+    /// 🔄 **2026-09-16 改版后这条用例换了被守的对象，但守的是同一件事。**
+    /// 首页收成「问候 + 订单卡 + 预约块」三块：「问一句」「重复当前状态」都不在首页了
+    /// （前者进求助与安全中心，后者按项目负责人拍板也进那个弹层），底部常驻求助条移到
+    /// 「我的」tab。于是屏幕底部的固定条从求助条变成了**标签栏**，而不变式没变：
+    /// **这一屏唯一的主操作不许被底部那条固定条永久盖住。**
+    ///
+    /// 判据仍用 `frame` 边界而不是 `isHittable` —— 后者只判中心点，
+    /// 上半截被盖住时它照样是 `true`（同 `testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling`）。
     @MainActor
-    func testBlindHomeWithoutAnOrderHidesAskQuestionAndKeepsRepeatStatusReachable() throws {
+    func testBlindHomeWithoutAnOrderKeepsTheBookingEntryClearOfTheTabBar() throws {
+        let app = launchBlindHome()
+        let booking = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(
+            booking.waitForExistence(timeout: 20),
+            "盲人首页没起来，后面的断言没有意义"
+        )
+
+        // 无订单时深蓝订单卡整块不渲染，预约块自然落到它的位置 —— 这条断言钉的是
+        // 「不渲染」而不是「渲染成一张空卡」：空卡对读屏用户是一个念不出内容的元素。
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch.exists,
+            "无订单首页出现了深蓝订单卡 —— 它没有内容可展示，只会多一次划动"
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            booking.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            "预约入口只有 \(booking.frame.height)pt，低于盲人端 64pt 触达下限"
+        )
+
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在，遮挡判据没有参照物")
+        XCTAssertLessThanOrEqual(
+            booking.frame.maxY,
+            tabBar.frame.minY,
+            """
+            预约入口下沿 \(booking.frame.maxY) 越过了标签栏上沿 \(tabBar.frame.minY)，\
+            被盖住了 \(booking.frame.maxY - tabBar.frame.minY)pt。\
+            首页在问候和它之间又多了一块的话，先想清楚这一块值不值得把主操作顶下去。
+            """
+        )
+    }
+
+    /// 三个 tab 都必须在，且标签可读。
+    ///
+    /// 单独一条而不是并进上面：**这是本仓库第一个 `TabView`**（改版前全仓命中 0 处），
+    /// 而根导航换掉之后「有没有起来」和「起来了但少一个 tab」是两种不同的失败。
+    @MainActor
+    func testBlindRunnerTabBarOffersHomeHistoryAndProfile() throws {
         let app = launchBlindHome()
         XCTAssertTrue(
             app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
                 .waitForExistence(timeout: 20),
-            "盲人首页没起来，后面的断言没有意义"
+            "盲人首页没起来"
         )
 
-        XCTAssertFalse(
-            app.descendants(matching: .any)["blindRunnerHomeAskQuestionButton"].firstMatch.exists,
-            """
-            无订单首页出现了「问一句」。它在这一态下对四个意图统一回「当前没有进行中的预约」\
-            （VoiceStatusQuery.swift:109），按下去只换来 header 已经念过的同一句话。
-            """
-        )
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在")
+        for title in ["首页", "记录", "我的"] {
+            XCTAssertTrue(
+                tabBar.buttons[title].exists,
+                "标签栏缺少「\(title)」—— 改版后历史订单与设置只有这一条路可走"
+            )
+        }
 
-        let repeatControl = app.buttons["重复当前状态"].firstMatch
-        XCTAssertTrue(repeatControl.waitForExistence(timeout: 10), "盲人首页缺少「重复当前状态」")
-
-        // 判据与有订单态那条同源：`isHittable` 只判中心点，盖住上半截时它照样是 true。
+        // 紧急入口从首页移到了「我的」tab（项目负责人 2026-09-16 拍板）。
+        // **这条断言是那个决定的唯一机器守卫**：求助条在任何一个 tab 上都摸不到时，
+        // 表现只是「首页干净了」，没有任何东西会报警。
+        tabBar.buttons["我的"].tap()
         let sosBar = app.descendants(matching: .any)["blindRunnerHomeSOSBar"].firstMatch
-        XCTAssertTrue(sosBar.waitForExistence(timeout: 10), "首页底部求助条不在，遮挡判据没有参照物")
-        XCTAssertLessThanOrEqual(
-            repeatControl.frame.maxY,
-            sosBar.frame.minY,
-            """
-            「重复当前状态」下沿 \(repeatControl.frame.maxY) 越过了底部 SOS 条上沿 \(sosBar.frame.minY)，\
-            被盖住了 \(repeatControl.frame.maxY - sosBar.frame.minY)pt。\
-            首页在「开始约跑」和它之间又多了一行的话，先想清楚这一行值不值得把它顶下去。
-            """
+        XCTAssertTrue(
+            sosBar.waitForExistence(timeout: 10),
+            "「我的」tab 底部没有兜底的紧急入口 —— 首页那条已经移除，这里是它现在唯一的落点"
         )
     }
 
@@ -366,131 +458,231 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
-    /// 反向断言：有进行中订单时「问一句」必须在。
-    /// 防止把上一条用「整个删掉」来满足 —— 那是这个能力真正有用的唯一状态。
+    /// 有订单时首页那张深蓝卡必须是**一个**无障碍元素，而且念出来是一句完整的话。
+    ///
+    /// 🔄 这条取代了改版前的 `testBlindHomeWithAnActiveOrderOffersAskQuestion`
+    /// （「问一句」已从首页移入求助与安全中心，那个入口的用例在
+    /// `testSafetyHubPutsEmergencyFirstInTheAccessibilityOrder` 一带）。
+    ///
+    /// 换过来的这条守的是设计里最要紧的那一点：**视障用户打开 App 第一句听到的就该是
+    /// 最重要的信息，而且是一句完整的话** —— 不是被拆成时间、地点、姓名、小按钮各滑一次。
+    /// 所以断言分两半：① 卡片本身是一个 button 元素；② 时间、地点、陪跑员三样都在它的
+    /// label 里，而不是散成同层的兄弟元素。
+    ///
+    /// ⚠️ 不断言 label 的**逐字内容**：中文文案漂移在 UI 测试里误报率极高
+    /// （记忆 `merged-prs-whose-tests-never-ran`）。断的是「这三样信息在不在同一个元素里」。
     @MainActor
-    func testBlindHomeWithAnActiveOrderOffersAskQuestion() throws {
+    func testBlindHomeOrderCardIsOneElementThatReadsAsAFullSentence() throws {
         let app = launchBlindHome(emptyOrders: false)
+        let card = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(
-            app.buttons["查看当前订单"].firstMatch.waitForExistence(timeout: 20),
+            card.waitForExistence(timeout: 20),
             "有订单的盲人首页没起来，后面的断言没有意义"
         )
+        XCTAssertTrue(card.isHittable, "订单卡存在但够不着，等于没有")
 
-        let ask = app.descendants(matching: .any)["blindRunnerHomeAskQuestionButton"].firstMatch
+        // 种子订单的出发地点（`MockAPIClient.seedDemoData`）。地点是这张卡上唯一
+        // 「不在别处重复」的信息，拿它当「三样都进了同一个 label」的探针。
         XCTAssertTrue(
-            ask.waitForExistence(timeout: 10),
-            "有进行中订单时首页必须能「问一句」—— 这是它唯一有答案可给的状态"
+            card.label.contains("公园"),
+            "订单卡的读屏标签里没有出发地点。当前 label：\(card.label)"
         )
-        XCTAssertTrue(ask.isHittable, "「问一句」存在但够不着，等于没有")
+        XCTAssertTrue(
+            card.label.contains("下一次陪跑"),
+            "订单卡的读屏标签没有以「下一次陪跑」开头 —— 那是它回答的第一个问题。当前 label：\(card.label)"
+        )
+
+        // 卡片内部的元素不许自己冒出来：底部那条「打开订单 ›」是给看得见的人的视觉线索，
+        // 整张卡已经是按钮了，再冒一个同名元素就是同一个动作在读屏里出现两次。
+        XCTAssertFalse(
+            app.buttons["打开订单"].firstMatch.exists,
+            "「打开订单」冒成了独立元素 —— 它应当对读屏隐藏，动作由卡片自己的 hint 说明"
+        )
     }
 
-    /// 有订单态也要能不滚动够到「重复当前状态」。
+    /// 有订单时首页两块内容都要够得着，且不被标签栏永久盖住。
     ///
-    /// 上面那条无订单版守了半年，而**有订单态一直没人守** —— 偏偏这一态的内容更长：
-    /// 状态卡 + 「查看当前订单」+ 可能的「取消订单」+ 「问一句」全排在它前面。
-    /// 2026-08-14 用户在真机上看到的就是这个：默认进来「重复当前状态」被底部 SOS 条切掉一截。
+    /// 🔄 取代改版前的 `testBlindHomeWithAnActiveOrderKeepsRepeatStatusReachable`：
+    /// 「重复当前状态」已不在首页，而**「有订单态内容更长、更容易被底部固定条吃掉」这个
+    /// 风险没有消失** —— 现在排在一起的是订单卡（含 52pt 大字，AX 档还会长）和预约块。
     ///
-    /// 断言写在这一态而不是把上面那条改成参数化：两态的前置数据（`emptyOrders`）不同，
-    /// 合成一条要么共用一个 launch 参数、要么在用例里分支，都比多一条用例难读。
+    /// 抓的是「滚到底也够不着」，不是「首屏内全露出来」—— 后者在这一态本就不合理，
+    /// 真那么排会牺牲别的东西。
     @MainActor
-    func testBlindHomeWithAnActiveOrderKeepsRepeatStatusReachable() throws {
+    func testBlindHomeWithAnActiveOrderKeepsBothBlocksReachable() throws {
         let app = launchBlindHome(emptyOrders: false)
+        let card = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+
+        let booking = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
         XCTAssertTrue(
-            app.buttons["查看当前订单"].firstMatch.waitForExistence(timeout: 20),
-            "有订单的盲人首页没起来，后面的断言没有意义"
+            booking.waitForExistence(timeout: 10),
+            "有订单时预约入口不见了 —— 盲人同时最多能有 3 张未完成预约，这个入口不该消失"
         )
 
-        let repeatControl = app.buttons["重复当前状态"].firstMatch
-        XCTAssertTrue(repeatControl.waitForExistence(timeout: 10), "有订单的盲人首页缺少「重复当前状态」")
-
-        // 这一态的内容天然超一屏（状态卡 + 「查看当前订单」+ 「取消订单」+ 「问一句」+ 它自己，
-        // 四个 64pt 起跳的块），**要求不滚动就全露出来是不合理的** —— 真那么排，被牺牲的
-        // 会是别的东西。2026-08-14 实测：地图 300pt 时它下沿 922、SOS 条上沿 772。
-        //
-        // 所以这一态抓的是另一件事：**滚到底也够不着**。那才是永久被固定条盖住，
-        // 与「在折叠线以下、滑一下就有」是两回事。
-        let sosBar = app.descendants(matching: .any)["blindRunnerHomeSOSBar"].firstMatch
-        XCTAssertTrue(sosBar.waitForExistence(timeout: 10), "首页底部求助条不在，遮挡判据没有参照物")
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在，遮挡判据没有参照物")
 
         var swipes = 0
-        while repeatControl.frame.maxY > sosBar.frame.minY && swipes < 4 {
+        while booking.frame.maxY > tabBar.frame.minY && swipes < 4 {
             app.swipeUp()
             swipes += 1
         }
 
         XCTAssertLessThanOrEqual(
-            repeatControl.frame.maxY,
-            sosBar.frame.minY,
+            booking.frame.maxY,
+            tabBar.frame.minY,
             """
-            滚了 \(swipes) 次，「重复当前状态」下沿仍是 \(repeatControl.frame.maxY)，\
-            压在底部 SOS 条上沿 \(sosBar.frame.minY) 之下 —— 它被那条常驻条永久盖住了，\
-            滚动也救不回来。底部 `safeAreaInset` 的高度变了、或者这一列又多了一块时会撞到这条。
+            滚了 \(swipes) 次，预约入口下沿仍是 \(booking.frame.maxY)，\
+            压在标签栏上沿 \(tabBar.frame.minY) 之下 —— 它被永久盖住了，滚动也救不回来。
             """
         )
     }
 
-    /// 后端的 `ORDER_CANCELLATION_WARNING` 正文逐字是「您的订单即将因长时间无人接单被取消，
-    /// **点击继续等待可延长**」。这条用例钉的就是那句话响起时，屏幕上真的有这个控件、
-    /// 而且**不用滚动**就够得着 —— 播报里让人点一个只存在于后端文案里的按钮，
-    /// 对看不见屏幕的人是纯粹的死路。
+    /// 匹配态（`PENDING_MATCH`）这一屏**没有**「继续等待」，而它该有的三样东西都在。
     ///
-    /// 播报内容本身（「重复当前状态」要念到这个动作）由单测
-    /// `KeepWaitingTests.testRepeatStatusMentionsKeepWaitingWhileWaiting` 断言 ——
-    /// UI 测试是黑盒，读不到 TTS 文本，在这里断言只能断言个寂寞。
+    /// 🔄 **2026-09-16 整条改向。** 原来它断言的是「后端 `ORDER_CANCELLATION_WARNING`
+    /// 正文让用户点的那个控件真的在屏幕上」。项目负责人当日拍板删掉 `PENDING_MATCH` 那个
+    /// 按钮（后端 `handleMatchTimeout` 每轮超时自己就把窗口往后推，客户端一次不调订单寿命
+    /// 相同），于是原断言成了反向守卫：它会逼人把一个按了等于没按的按钮加回来。
+    ///
+    /// 那句后端文案的问题改由**客户端覆盖正文**解决，钉在
+    /// `AppRealtimeCoordinatorTests.testCancellationWarningDropsTheDeletedButtonHintWhilePendingMatch`
+    /// —— UI 测试是黑盒，读不到通知正文，只能在这里断言「控件确实不在」这一半。
+    ///
+    /// 剩下三样必须在，一样都不能少：
+    /// 1. **「取消匹配」不滚动就够得着** —— 删掉「继续等待」之后它是这一态唯一的决定；
+    /// 2. **二次确认里带「匹配规则说明」** —— 《互联网信息服务算法推荐管理规定》第十六条的
+    ///    「显著方式告知」，改版把它原来的落点（那条滚动列表）整段换掉了（设计稿 §3.5）；
+    /// 3. **「重复当前状态」在导航栏右侧** —— skill `aidrun-a11y-voice` 的硬规则，
+    ///    系统 Speak Screen 读不到一次性 `announcement`，没有它盲人错过一次播报就拿不回来。
     @MainActor
-    func testBlindOrderStatusOffersKeepWaitingWhileWaitingForAMatch() throws {
+    func testBlindOrderStatusMatchingStateOffersCancelAndRuleNoticeInsteadOfKeepWaiting() throws {
         let app = launchBlindHome(emptyOrders: false)
-        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(
             currentOrder.waitForExistence(timeout: 20),
             "有订单的盲人首页没起来，后面的断言没有意义"
         )
         currentOrder.tap()
 
-        // 种子订单是 PENDING_MATCH（`MockAPIClient.seedDemoData`），正是可延长的状态。
-        let keepWaiting = app.descendants(matching: .any)["blindOrderStatusKeepWaitingButton"].firstMatch
-        XCTAssertTrue(
-            keepWaiting.waitForExistence(timeout: 15),
-            "PENDING_MATCH 的订单状态页没有「继续等待」—— 后端预警文案让用户点的正是它"
-        )
-        XCTAssertTrue(keepWaiting.isHittable, "「继续等待」存在但够不着，等于没有")
-        // 2026-09-05 起它是 **64pt 的次级按钮**，不再是 140pt 的主按钮 —— 它是一条保险
-        // （不按订单会被自动取消），不是等待期用户**该做**的事。这条断言的下限没变：
-        // 64pt 是盲人端任何可点控件的触达底线，不因为降级成次级就放宽。
-        XCTAssertGreaterThanOrEqual(
-            keepWaiting.frame.height,
-            Self.minimumBlindPrimaryButtonHeight,
-            "盲人端可点控件触达高度不得低于 64pt"
-        )
-        XCTAssertEqual(keepWaiting.label, "继续等待", "读屏念出来的必须就是这四个字")
+        // 种子订单是 PENDING_MATCH（`MockAPIClient.seedDemoData`），落在骨架的「匹配」格。
+        let statusCard = app.descendants(matching: .any)["blindOrderFlowStatusCard"].firstMatch
+        XCTAssertTrue(statusCard.waitForExistence(timeout: 15), "订单页四步骨架没起来")
 
-        // 「取消订单」是这一态的另一个状态机动作，必须**不滚动**就够得着。
-        //
-        // 2026-08-19 之前 `actionSection` 排在滚动内容第 8 位，上面压着「继续等待」140pt、
-        // 行程分享 64pt、地图与生命周期卡 —— 而等待期用户唯一的两个决定就是「再等」和
-        // 「不等了」。把其中一个放在首屏外，等于只给了一半。
-        // （「继续等待」2026-09-05 降级为 64pt，这条断言因此只会更宽松，不会更紧。）
-        // 判据用 `frame` 边界不用 `isHittable`：后者只判中心点，与
-        // `testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling` 同源。
-        // 全程不滚动。
-        let cancel = app.buttons["取消订单"].firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "PENDING_MATCH 的订单状态页没有「取消订单」")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindOrderStatusKeepWaitingButton"].firstMatch.exists,
+            "PENDING_MATCH 又出现了「继续等待」—— 按了等于没按，而盲人无从发现这件事"
+        )
+
+        // ① 「取消匹配」。判据用 `frame` 边界不用 `isHittable`：后者只判中心点，
+        // 一个上半截被底栏盖住的按钮照样是 true（与
+        // `testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling` 同源）。全程不滚动。
+        let lastRow = app.descendants(matching: .any)["blindOrderFlowLastRowButton"].firstMatch
+        XCTAssertTrue(lastRow.waitForExistence(timeout: 5), "信息列表最后一行不见了")
+        XCTAssertEqual(lastRow.label, "取消匹配", "匹配态这一行的文案是设计稿原文")
         XCTAssertLessThanOrEqual(
-            cancel.frame.maxY,
+            lastRow.frame.maxY,
             app.frame.maxY,
             """
-            「取消订单」下沿 \(cancel.frame.maxY) 超出屏幕底 \(app.frame.maxY)，要下滑才够得到。\
-            它属于「此刻能对这一单做的事」，得跟主动作连在一起，中间不隔分享和地图。
+            「取消匹配」下沿 \(lastRow.frame.maxY) 超出屏幕底 \(app.frame.maxY)，要下滑才够得到。\
+            删掉「继续等待」之后它是这一态唯一的决定，放在首屏外等于这一态什么都做不了。
             """
         )
 
-        // 幂等且方向是保住订单，所以**不弹二次确认**（取消订单那条才弹）。
-        keepWaiting.tap()
-        let confirmation = app.alerts.firstMatch
-        XCTAssertFalse(
-            confirmation.waitForExistence(timeout: 3),
-            "「继续等待」不该有二次确认：多一轮确认对读屏用户是实打实的十几秒"
+        // ③ 「重复当前状态」—— 先断言它在，再去点取消（弹窗会盖住导航栏）。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindOrderFlowRepeatStatusButton"].firstMatch.exists,
+            "导航栏右侧没有「重复当前状态」—— 盲人错过一次状态播报就再也拿不回来"
         )
+
+        // ② 二次确认 + 里面那条「匹配规则说明」。
+        lastRow.tap()
+        let confirmCancel = app.buttons["确认取消"].firstMatch
+        XCTAssertTrue(
+            confirmCancel.waitForExistence(timeout: 5),
+            "「取消匹配」没有二次确认 —— 这是不可逆动作"
+        )
+        let ruleNotice = app.buttons["匹配规则说明"].firstMatch
+        XCTAssertTrue(
+            ruleNotice.exists,
+            """
+            取消确认弹窗里没有「匹配规则说明」。改版把它原来的落点整段换掉了，\
+            而算法告知是法规要求的「显著方式」—— 沉到设置页深处不算显著。
+            """
+        )
+        // 不点「确认取消」：那会把种子订单毁掉，后面重跑这条用例就没有订单可用了。
+        //
+        // 🔴 **`.cancel` 那个按钮在这台机器上根本不在元素树里。**
+        // 2026-09-16 真机实测（iPhone 16 Pro / iOS 26.6.1）：`confirmationDialog` 被渲染成
+        // `Popover`，里面只有消息 `StaticText` + 我们声明的两个非 cancel 按钮，
+        // 而 `Button("不取消", role: .cancel)` 被系统换成了
+        // `identifier: 'PopoverDismissRegion', label: 'dismiss popup'`。
+        // 按 `app.buttons["不取消"]` 找它必然落空 —— 这不是文案漂移，是呈现形态变了。
+        //
+        // ⚠️ **顺带一条产品事实，已记进交接**：那个唯一的退出口 label 是**英文**
+        // 「dismiss popup」。读屏用户在一个中文的破坏性二次确认上，
+        // 听到的退出方式是一句英文 —— 这是系统给的，不是我们的文案。
+        //
+        // 两条路都留着：旧系统把它渲染成操作表时 `不取消` 是真按钮。
+        // `PopoverDismissRegion` 是**系统**的 identifier，App 侧不会产出它，
+        // 所以这里对 `stale-ui-test-identifier` 显式豁免。
+        let dismissRegion = app.descendants(matching: .any)["PopoverDismissRegion"].firstMatch  // guard:allow stale-ui-test-identifier
+        if dismissRegion.exists {
+            dismissRegion.tap()
+        } else {
+            app.buttons["不取消"].firstMatch.tap()
+        }
+    }
+
+    /// 🔴 **非 `IN_PROGRESS` 的求助中心，底部必须是本地拨号，不是云端求助。**
+    ///
+    /// 这是 2026-09-16 引入四步骨架时新开的一个洞：骨架底部那枚「求助与安全」让求助中心
+    /// 第一次可以在 `PENDING_MATCH` / `SCHEDULED_CONFIRMED` / `DRIVER_EN_ROUTE` /
+    /// `DRIVER_ARRIVED` 打开，而云端求助两端都只在 `IN_PROGRESS` 开放（`AGENTS.md` §6）。
+    /// 照走云端的真实后果：`beginCountdown` 在资格 guard 落 `.failed`、全屏倒计时不弹，
+    /// 而骨架这一屏没有 `EmergencyStatusNotice` 的渲染点 ——
+    /// **长按 3 秒之后屏幕零变化、一个字也不播。**
+    ///
+    /// 判据是**哪一个控件在底部**，不是点下去发生了什么：后者会真的走到拨号
+    /// （DEBUG 下有 `EmergencyDialer` 的拦截，但不值得在这里赌）。
+    @MainActor
+    func testSafetyHubOutsideTheActiveRunOffersLocalDialInsteadOfCloudSOS() throws {
+        let app = launchBlindHome(emptyOrders: false)
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+        currentOrder.tap()
+
+        let entry = app.descendants(matching: .any)["blindOrderFlowSafetyHubButton"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), "骨架底部没有「求助与安全」")
+        entry.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindSafetyHub"].firstMatch.waitForExistence(timeout: 10),
+            "求助中心没打开"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindSafetyHubLocalCall"].firstMatch.exists,
+            "PENDING_MATCH 的求助中心底部不是「紧急呼叫」—— 云端那条在这一态发不出去"
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["blindSafetyHubTriggerEmergency"].firstMatch.exists,
+            """
+            PENDING_MATCH 的求助中心还挂着云端「一键求助」。\
+            按下去会静默失败：不弹倒计时、屏幕零变化、一个字不播。
+            """
+        )
+
+        // 设计稿 §3.5 的迁移落点：「分享实时位置给家人 → 求助与安全中心」。
+        // 只断存在、不断 `isHittable` —— 方格在 ScrollView 里，最后一格可能在首屏之外，
+        // 而 SwiftUI 的 `ScrollView` 屏幕外子视图照样在无障碍树里
+        //（`List` 才是压根不渲染，两种坑不一样）。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindSafetyHubShareLiveLocation"].firstMatch.exists,
+            "「分享实时位置给家人」没落到求助中心 —— 骨架换掉了它原来那条列表，功能就丢了"
+        )
+
+        app.descendants(matching: .any)["blindSafetyHubDismissButton"].firstMatch.tap()
     }
 
     // MARK: - 求助入口的位置
@@ -506,17 +698,21 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 判据用 `frame` 边界而不是 `isHittable`：后者只判中心点，一个上半截被盖住的按钮照样是 true
     /// （与 `testBlindHomeWithoutAnOrderHidesAskQuestionAndKeepsRepeatStatusReachable` 同源）。
     /// 全程**一次滚动都不做** —— 这条断言的全部意义就是「不滚也在」。
+    ///
+    /// 2026-09-15：`IN_PROGRESS` 改走执行屏（`BlindActiveRunView`）之后，这一页的求助从
+    /// 「一键求助」按钮变成了贴底的**求助中心**红块，标签随之改成 `hubAccessibilityLabel`。
+    /// 断言的**不变式一个字没变**：不滚就在、≥64pt、上下沿都在屏内。
     @MainActor
     func testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling() throws {
         let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS")
-        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(
             currentOrder.waitForExistence(timeout: 20),
             "有订单的盲人首页没起来，后面的断言没有意义"
         )
         currentOrder.tap()
 
-        let emergency = app.buttons[Self.emergencyActionLabel].firstMatch
+        let emergency = app.buttons[Self.safetyHubLabel].firstMatch
         XCTAssertTrue(
             emergency.waitForExistence(timeout: 15),
             "服务进行中的订单状态页没有求助入口 —— 这一页最要紧的动作不在了"
@@ -541,12 +737,82 @@ final class AccessibilityAuditTests: XCTestCase {
             "盲人端主动作触达高度不得低于 64pt"
         )
 
-        // 「问一句」是被求助顶出常驻条的那一个，它下沉进滚动区、不是被删掉。
+        // 「重复当前状态」这个**功能**必须跨页可达且位置一致（WCAG 3.2.6）。
+        //
+        // 2026-09-16 它在这一屏换了载体：跑步中的主按钮就是「播报当前数据」，
+        // 按下去调的是同一个 `viewModel.repeatStatus()`（播状态 + 里程 / 时长 / 配速）。
+        // 导航栏那枚小图标在这一幕收起 —— 两枚按钮播同一段话，对看不见屏幕的人
+        // 只是多一次误触面。所以断言换成主按钮，**不变式没变**：不滚就在、≥64pt。
+        let announce = app.descendants(matching: .any)["blindOrderFlowPrimaryButton"].firstMatch
         XCTAssertTrue(
-            app.descendants(matching: .any)["blindOrderStatusAskQuestionButton"].firstMatch
-                .waitForExistence(timeout: 5),
-            "「问一句」在服务进行中整个消失了 —— 让位是移到滚动区，不是删除"
+            announce.waitForExistence(timeout: 5),
+            "跑步中没有主按钮 —— 它是盲人按一下就听全当前状态与三个数字的唯一入口"
         )
+        XCTAssertEqual(
+            announce.label, "播报当前数据",
+            "跑步中的主按钮换了文案 —— 位置可以不动，但这一格承担的是「重复当前状态」"
+        )
+        XCTAssertGreaterThanOrEqual(
+            announce.frame.height,
+            Self.minimumBlindPrimaryButtonHeight,
+            "盲人端主动作触达高度不得低于 64pt"
+        )
+        XCTAssertLessThanOrEqual(
+            announce.frame.maxY, app.frame.maxY,
+            "主按钮下沿超出屏幕底，要下滑才够得到"
+        )
+
+        // 「问一句」2026-09-15 搬进求助中心（屏 2）第三格。**它没有被删、也没有被降级成
+        // 纯 accessibility action** —— 后者会把不开读屏的低视力用户永久排除在外
+        // （记忆 `low-vision-visual-channel-unaudited`）。所以这里断言的是
+        // 「打开求助中心之后，那一格作为一个真实可见元素存在」，不是「某个动作名存在」。
+        emergency.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindSafetyHubAskQuestion"].firstMatch
+                .waitForExistence(timeout: 10),
+            "「问一句」在求助中心里不存在 —— 从执行屏搬走之后它没有落到任何地方"
+        )
+        // 求助中心必须能退回去，否则跑者被关在这一层里。
+        let dismiss = app.descendants(matching: .any)["blindSafetyHubDismissButton"].firstMatch
+        XCTAssertTrue(dismiss.waitForExistence(timeout: 5), "求助中心没有「收起，返回跑步」")
+        dismiss.tap()
+    }
+
+    /// 求助中心（屏 2）打开后，**读屏第一个念到的必须是「一键求助」**。
+    ///
+    /// 它在视觉上贴在最底下，遍历顺序却排第一 —— 这两件事靠的是**声明顺序**
+    /// （`BlindSafetyHubView.body` 的 `ZStack` 把它声明在最前）。
+    /// `accessibilitySortPriority` 在本仓库实测排不动叠放层，四种写法真机全废
+    /// （`docs/research/swiftui-voiceover-traversal-order-20260814.md`），
+    /// 所以这条断言是那个结构唯一的守卫：谁把 `ZStack` 里两块的顺序调回来，它就红。
+    @MainActor
+    func testSafetyHubPutsEmergencyFirstInTheAccessibilityOrder() throws {
+        let app = launchBlindHome(emptyOrders: false, seedOrderStatus: "IN_PROGRESS")
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
+        XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
+        currentOrder.tap()
+
+        let entry = app.buttons[Self.safetyHubLabel].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), "执行屏没有求助入口")
+        entry.tap()
+
+        let hub = app.descendants(matching: .any)["blindSafetyHub"].firstMatch
+        XCTAssertTrue(hub.waitForExistence(timeout: 10), "求助中心没打开")
+
+        // 只比**同一次枚举里**的元素：`allElementsBoundByAccessibilityElement` 是逐层枚举，
+        // 跨深度比下标恒不成立（记忆 `swiftui-traversal-order-follows-paint-order`）。
+        // 所以这里问的是「弹层根下第一个可访问后代是不是它」。
+        let first = hub.descendants(matching: .any).allElementsBoundByAccessibilityElement.first
+        XCTAssertEqual(
+            first?.identifier,
+            "blindSafetyHubTriggerEmergency",
+            """
+            求助中心第一个可访问元素是 \(first?.identifier ?? "（空）")，不是一键求助。\
+            读屏用户要多划过几站才摸得到这一层里唯一救命的那个动作。
+            """
+        )
+
+        app.descendants(matching: .any)["blindSafetyHubDismissButton"].firstMatch.tap()
     }
 
     /// 志愿者端服务中页，求助入口必须待在**屏幕上三分之一**，不和常规操作按钮混在一起。
@@ -592,6 +858,46 @@ final class AccessibilityAuditTests: XCTestCase {
 
         // 换了形态不等于换了语义：读屏念出来的必须还是那句完整的。
         XCTAssertEqual(sos.label, Self.emergencyActionLabel)
+    }
+
+    /// 长按 2 秒结束陪跑 —— 这一条只量**形状**：读屏取得到、触达够大、标签带着「要按多久」。
+    ///
+    /// 行为那一半在 `blindRunUITests.testMockVolunteerOrderFlowSmoke` 里走指针路径
+    /// （`press(forDuration:)`），两条路最终调的是同一个 `VolunteerFinishLongPressButton.fire()`。
+    /// **不在这里 `tap()` 再断言订单结束了**：`XCUIElement.tap()` 注入的是物理触摸，
+    /// 不经过 accessibility action，而公开 API 里没有「执行默认无障碍动作」的口子 ——
+    /// 那样写必红，且红得毫无信息量（元素找得到、`isEnabled` 为真、点完纹丝不动）。
+    ///
+    /// 文案逐字是什么由 `VolunteerFinishLongPressTests` 钉住，这里不抄 ——
+    /// UI 用例里抄中文文案的误报率见记忆 `merged-prs-whose-tests-never-ran`。
+    @MainActor
+    func testVolunteerFinishEscortControlIsReachableAndBigEnough() throws {
+        let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
+        let currentOrderCard = app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch
+        XCTAssertTrue(
+            currentOrderCard.waitForExistence(timeout: 20),
+            "志愿者首页没有当前订单卡，进不去服务中页"
+        )
+        currentOrderCard.tap()
+        XCTAssertTrue(app.navigationBars["服务中"].waitForExistence(timeout: 15), "没进到服务中页")
+
+        let finish = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertTrue(finish.waitForExistence(timeout: 10), "服务进行中必须给陪跑员结束入口")
+        // 63.5 而不是 64：真机量出来是 63.999999999999886 —— `minHeight: 64` 经过一轮
+        // 布局取整后的浮点噪声，不是真的矮了。留半点余量仍然分得出 44pt 与 64pt 两档。
+        XCTAssertGreaterThanOrEqual(
+            finish.frame.height,
+            63.5,
+            "结束陪跑的触达高度只有 \(finish.frame.height)pt，不足 64"
+        )
+        XCTAssertFalse(
+            finish.label.isEmpty,
+            "结束陪跑在无障碍树里没有标签 —— 容器上的 identifier 盖掉子元素时就是这个样子"
+        )
+        XCTAssertTrue(
+            finish.label.contains("2"),
+            "标签里没有「按多久」这个数字：\(finish.label)。读屏用户没别的地方能知道要按 2 秒"
+        )
     }
 
     // MARK: - 横屏与宽窗口
@@ -640,11 +946,15 @@ final class AccessibilityAuditTests: XCTestCase {
             throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
         }
         let app = launchBlindHome(emptyOrders: false)
-        let currentOrder = app.buttons["查看当前订单"].firstMatch
+        let currentOrder = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(currentOrder.waitForExistence(timeout: 20), "有订单的盲人首页没起来")
         currentOrder.tap()
+        // 探针换成骨架的状态卡（2026-09-16）。原来等的是
+        // `blindOrderStatusKeepWaitingButton` —— 那个按钮在 `PENDING_MATCH` 已经删掉，
+        // 继续等它的话这一页**永远等不到**，而失败信息会写着「订单状态页没起来」，
+        // 指向一个根本不存在的故障。状态卡在四步骨架的四态里都有，是更稳的探针。
         XCTAssertTrue(
-            app.descendants(matching: .any)["blindOrderStatusKeepWaitingButton"].firstMatch
+            app.descendants(matching: .any)["blindOrderFlowStatusCard"].firstMatch
                 .waitForExistence(timeout: 15),
             "订单状态页没起来"
         )
@@ -676,7 +986,7 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertLessThanOrEqual(
             start.frame.width,
             Self.readableContentWidth,
-            "「开始约跑」宽 \(start.frame.width)pt，超过可读列宽 —— 内容列没有收窄"
+            "「预约新的陪跑」宽 \(start.frame.width)pt，超过可读列宽 —— 内容列没有收窄"
         )
         // 反向锚一下：收窄不等于收没了。触达下限仍是 64pt（`AGENTS.md` §8，
         // 且 `scripts/hooks/guard.mjs` 的 small-touch-target 在静态面上守同一条）。
@@ -685,7 +995,7 @@ final class AccessibilityAuditTests: XCTestCase {
             Self.minimumBlindPrimaryButtonHeight,
             "横屏收窄之后主按钮被压到 64pt 以下"
         )
-        XCTAssertTrue(start.isHittable, "横屏下「开始约跑」够不着")
+        XCTAssertTrue(start.isHittable, "横屏下「预约新的陪跑」够不着")
     }
 
     // MARK: - Helpers
@@ -714,7 +1024,25 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 必须是同一句。字面量与 `EmergencySafetyCopy.accessibilityLabel` 对齐；
     /// UI 测试 target 拿不到 App 的类型，只能抄一份，改文案时两处一起改。
     private static let emergencyActionLabel = "一键求助，遇到紧急情况时点击"
-    private static let minimumBlindPrimaryButtonScreenShare: CGFloat = 0.25
+
+    /// 盲人端陪跑中那块贴底的求助中心。**与上面那条是两个东西**：
+    /// `emergencyActionLabel` 是云端一键求助按钮（志愿者端仍在用），这条是打开求助菜单的入口
+    /// —— 按下去什么都还没发出去，所以刻意不叫「一键求助」。
+    // ⚠️ 与 `EmergencySafetyCopy.hubAccessibilityLabel` 逐字一致。中文文案漂移
+    // `guard.mjs` **抓不到**（实测误报 93%，那条守卫只判 identifier 形状的键），
+    // 而本仓库 CI 跑不了 XCTest —— 漂了不会有任何信号，只会在真机上红成
+    // 「执行屏没有求助入口」这种指向完全错误的失败信息。
+    private static let safetyHubLabel = "求助与安全，打开求助选项"
+
+    // 🗑 `minimumBlindPrimaryButtonScreenShare = 0.25` 已删除（零引用）。
+    //
+    // 它服务的是 `testBlindRunnerPrimaryButtonDominatesTheScreen`，而那条用例在
+    // 2026-09-16 换成了 `testBlindRunnerHomeGivesTheLargestBlockToTheUpcomingOrder`
+    // —— 比两块之间的相对大小，不再比固定占屏比。
+    //
+    // 顺带解决一条长红：固定占屏比在 iPad Air 5（窗口高 820）上永远是 23.7% < 25%，
+    // 记忆 `verified-on-one-device-is-not-verified` 记着它连续三次复测一字未变。
+    // 那条红的根因不是按钮太小，是**阈值写成了与屏高绑定的固定比例**。
 
     /// 低版本设备上明确 skip 而不是静默通过 —— 「没跑」和「跑过了」必须可区分。
     @available(iOS 17.0, *)

@@ -24,11 +24,45 @@ struct VolunteerEmergencyAlert: Equatable, Sendable {
     let eventID: Int64
     let orderID: Int64?
     let message: String
+    /// 受助者触发那一刻的位置（已归一到 GCJ-02）。可为 nil —— 契约里那两个字段各自可空，
+    /// 而「盲人当时拿不到定位」在室内 / 高楼间是常态，不是异常。
+    var coordinate: LocatedCoordinate?
+    /// 收到这条告警的本机时刻。屏 5 上那句「X 秒前」读的是它。
+    ///
+    /// **不用后端的 `timestamp`**：那是服务端时钟，而两端时钟可能差几秒到几分钟，
+    /// 差出来的结果是屏幕上写着「-40 秒前」或者「3 分钟前」——
+    /// 而志愿者正据此判断「这事刚发生还是我漏看了很久」。
+    let receivedAt: Date
     var isAcknowledged = false
+
+    init(
+        eventID: Int64,
+        orderID: Int64?,
+        message: String,
+        coordinate: LocatedCoordinate? = nil,
+        receivedAt: Date = Date(),
+        isAcknowledged: Bool = false
+    ) {
+        self.eventID = eventID
+        self.orderID = orderID
+        self.message = message
+        self.coordinate = coordinate
+        self.receivedAt = receivedAt
+        self.isAcknowledged = isAcknowledged
+    }
 }
 
 enum EmergencySOSState: Equatable {
     case idle
+    /// 发出前的反悔窗口（屏 3）。**这三秒里一个字节都还没发给后端。**
+    ///
+    /// 🔴 为什么不照 Apple 紧急 SOS 那样「进倒计时就发、取消再撤」：后端
+    /// `POST /api/emergency/trigger` 是**触发即升级** —— 紧急联系人在那一个请求里就被通知
+    /// （异步发短信），撤销会给他再补一条解除短信，而冷却 60 秒是**按触发者计**的
+    /// （`demo/docs/api_spec.yaml:2242`）。也就是说「先发再撤」的代价是：每一次误触都真的
+    /// 惊动家人两次，并且**在随后的 60 秒里锁死真正的求助**（429）。
+    /// 换来的只是「手机恰好在这三秒内没电或崩溃」这一种情形。
+    case countingDown(secondsRemaining: Int)
     case locating
     case submitting
     case acknowledged(EmergencyEventStatus)
@@ -51,6 +85,8 @@ enum EmergencySOSState: Equatable {
         switch self {
         case .idle:
             return nil
+        case .countingDown(let seconds):
+            return EmergencySafetyCopy.countdown(secondsRemaining: seconds)
         case .locating:
             return EmergencySafetyCopy.locating
         case .submitting:
@@ -80,13 +116,29 @@ enum EmergencySOSState: Equatable {
         // one fact a blind user must hear in the error register so they call 110 themselves.
         case .unsentNoLocation, .failed, .cooldown, .contactNotifyFailed:
             return true
-        case .idle, .locating, .submitting, .acknowledged, .contactSmsDelivered, .cancelledByOwner:
+        case .idle, .countingDown, .locating, .submitting, .acknowledged,
+             .contactSmsDelivered, .cancelledByOwner:
             return false
         }
     }
 
+    /// 「这一刻不该再接受一次新的求助触发」。倒计时在列 —— 倒计时期间再按一下不该
+    /// 叠出第二个倒计时，而这正是重复提交保护要防的事（`trigger` 开头那道 guard 读的就是它）。
     var isBusy: Bool {
-        self == .locating || self == .submitting
+        switch self {
+        case .countingDown, .locating, .submitting:
+            return true
+        case .idle, .acknowledged, .unsentNoLocation, .failed, .cooldown,
+             .contactSmsDelivered, .contactNotifyFailed, .cancelledByOwner:
+            return false
+        }
+    }
+
+    /// 倒计时那一屏该不该占满整屏。做成属性而不是让每个 view 各写一遍
+    /// `if case .countingDown` —— 屏 3 与屏 3b 的呈现条件必须只有一处。
+    var isCountingDown: Bool {
+        if case .countingDown = self { return true }
+        return false
     }
 }
 
@@ -132,7 +184,24 @@ final class EmergencyCoordinator: ObservableObject {
         return nil
     }
 
-    @Published private(set) var state: EmergencySOSState = .idle
+    /// 🔴 **离开 `.countingDown` 与「掐掉倒计时任务」绑成同一件事，不靠调用方各自记得。**
+    ///
+    /// 2026-09-15 code review 抓到的洞：取消倒计时的唯一入口 `cancelCountdown()` 以
+    /// `guard state.isCountingDown` 为前置条件，而这三秒里**别的路径也会改写 `state`** ——
+    /// 任一条 `impliesLiveEmergency` 的 WS 通知、或 WS 重连触发的
+    /// `catchUpMissedNotifications()`，都会走到 `refreshActiveEvent()`；只要后端存在任何一条
+    /// 未终态事件（哪怕是客服还没关掉的旧的），`state` 就被写成 `.acknowledged`。
+    /// 户外跑步途中断线重连是常态。
+    ///
+    /// 此后：圆环消失、底部按钮从「取消」变成「撤销求助」、`cancelCountdown()` 即使被调用
+    /// 也会在 guard 处返回 false —— 而那个任务照样在跑，3 秒到点**发出一条用户已经无从阻止的求助**。
+    @Published private(set) var state: EmergencySOSState = .idle {
+        didSet {
+            guard oldValue.isCountingDown, !state.isCountingDown else { return }
+            countdownTask?.cancel()
+            countdownTask = nil
+        }
+    }
     @Published private(set) var activeEvent: ActiveEmergencyEvent?
     /// Set only on the escorting volunteer's device, from `EMERGENCY_VOLUNTEER_ALERT`.
     @Published private(set) var volunteerAlert: VolunteerEmergencyAlert?
@@ -167,6 +236,11 @@ final class EmergencyCoordinator: ObservableObject {
     /// to someone who cannot see the screen. Recovery goes through `refreshActiveEvent()` instead,
     /// which re-reads the authoritative state from the backend.
     func reset() {
+        // 倒计时必须跟着会话一起结束。漏掉它的后果很具体：上一个账号退出登录之后，
+        // 三秒前按下的那个求助**照样会发出去**，而且带着新账号的 token。
+        countdownTask?.cancel()
+        countdownTask = nil
+        EmergencyAlarm.stopAll()
         state = .idle
         activeEvent = nil
         volunteerAlert = nil
@@ -260,6 +334,87 @@ final class EmergencyCoordinator: ObservableObject {
         }
     }
 
+    // MARK: Countdown（屏 3）
+
+    /// 倒计时秒数。3 秒取自 Apple 紧急 SOS，也与长按时长一致 —— 两个 3 秒不是巧合：
+    /// 「按住 3 秒 → 再给你 3 秒反悔」是一条完整的、可预期的节奏。
+    static let countdownSeconds = 3
+
+    /// 正在跑的那个倒计时。**挂在 coordinator 上而不是 view 上**，理由与整个类的存在理由同源：
+    /// 这段时间里用户可能锁屏、切后台、或被系统弹窗打断，而倒计时不能因为某个 view 消失就停摆。
+    private var countdownTask: Task<Void, Never>?
+
+    /// 开始发出前的倒计时。**长按 3 秒 / 自定义无障碍动作**这两条刻意路径走它，
+    /// 轻点那条仍然先过 `AGENTS.md` §6 的二次确认（确认之后也落到这里）。
+    ///
+    /// 每一秒播一次声音 + 震动 + 交给调用方播报 —— 屏幕上那个圆环对跑步中的盲人不存在。
+    func beginCountdown(
+        order: OrderDetailResponse,
+        role: UserRole?,
+        userID: Int64?,
+        safety: any SafetyServing,
+        locate: @escaping () async -> LocatedCoordinate?,
+        locationFailureReason: @escaping () -> LocationError? = { nil },
+        announce: @escaping (String) -> Void = { _ in }
+    ) {
+        // 与 `trigger` 同一道重复提交保护：倒计时期间再按一下不该叠出第二个倒计时。
+        guard !state.isBusy else { return }
+        // 发起资格在这里先判一次，倒数完 `trigger` 还会再判一次（订单状态可能在这三秒里变）。
+        // 先判是为了不让一个根本发不出去的求助白白数三秒 —— 那三秒里用户以为求助在路上。
+        guard let role, order.status.canTriggerEmergency(as: role) else {
+            state = .failed("当前订单状态不能发起求助")
+            return
+        }
+
+        countdownTask?.cancel()
+        state = .countingDown(secondsRemaining: Self.countdownSeconds)
+        announce(EmergencySafetyCopy.countdownTitle)
+
+        countdownTask = Task { [weak self] in
+            for remaining in stride(from: Self.countdownSeconds, through: 1, by: -1) {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self?.state = .countingDown(secondsRemaining: remaining)
+                    EmergencyAlarm.countdownTick()
+                    EmergencyHaptics.countdownTick()
+                    announce(EmergencySafetyCopy.countdown(secondsRemaining: remaining))
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            guard let self else { return }
+            // 🚩 **先松开句柄，再改状态。** 顺序反了会自杀：`state` 的 `didSet` 在离开
+            // `.countingDown` 时会 `countdownTask?.cancel()`，而此刻 `countdownTask` 正是
+            // 我们自己 —— 取消之后下面 `trigger` 里的 `Task.sleep` 会立刻抛，
+            // `freshEmergencyCoordinate` 那个 `while Date() < deadline { try? await ... }`
+            // 就变成 5 秒空转，然后报「拿不到定位」。
+            self.countdownTask = nil
+            // 归零才发。`trigger` 开头那道 `guard !state.isBusy` 会被 `.countingDown` 挡住，
+            // 所以先回到 `.idle` —— 这一步不是形式：漏掉它的表现是倒数完什么都没发生。
+            self.state = .idle
+            let outcome = await self.trigger(
+                order: order,
+                role: role,
+                userID: userID,
+                safety: safety,
+                locate: locate,
+                locationFailureReason: locationFailureReason
+            )
+            announce(outcome.message)
+        }
+    }
+
+    /// 用户在倒计时里按了取消。**一个字节都没发出去过**，所以这里没有任何后端调用。
+    @discardableResult
+    func cancelCountdown() -> Bool {
+        guard state.isCountingDown else { return false }
+        countdownTask?.cancel()
+        countdownTask = nil
+        EmergencyAlarm.stopAll()
+        state = .idle
+        return true
+    }
+
     // MARK: Trigger
 
     /// Result of a trigger attempt, so callers can announce without re-deriving the state.
@@ -350,12 +505,33 @@ final class EmergencyCoordinator: ObservableObject {
             return finish(.acknowledged(response.eventStatus))
         } catch let error as APIError {
             if case .rateLimited(let info) = error {
-                return finish(.cooldown(retryAfterSeconds: info.retryAfterSeconds))
+                return await reconcile(after: .cooldown(retryAfterSeconds: info.retryAfterSeconds))
             }
-            return finish(.failed(error.localizedMessage))
+            return await reconcile(after: .failed(error.localizedMessage))
         } catch {
-            return finish(.failed("网络异常"))
+            return await reconcile(after: .failed("网络异常"))
         }
+    }
+
+    /// 发送失败之后**去问一句后端到底有没有收到**。
+    ///
+    /// 🔴 解决的是一个会说谎的失败：请求在服务端处理完了、响应在回程丢了（弱网、切基站、
+    /// 后台挂起），客户端只看见一个 `网络异常`。那一刻屏幕上写着「求助未发出」，
+    /// 而家属的短信其实已经在路上 —— 盲人会据此以为没人知道他出事了。
+    /// `429 冷却` 更直接：后端按触发者 SETNX 占位，命中它几乎就等于**刚才那条真的发出去了**。
+    ///
+    /// **没有做成自动重发。** 后端 `POST /api/emergency/trigger` 没有幂等 key，重发要么
+    /// 建出第二个事件、要么撞上 60 秒冷却回 429 —— 而 429 的文案是「请稍后再试」，
+    /// 会把一个**已经生效**的求助说成被拒绝。查询是只读的，没有这一类代价，
+    /// 而 `GET /api/emergency/active` 本来就是「事件 id 与当前状态的唯一权威来源」（契约原话）。
+    ///
+    /// 查不到（或这一侧根本没有查询权限，比如志愿者）就老老实实保留失败态 ——
+    /// 对账失败不许制造任何救援状态。
+    private func reconcile(after failure: EmergencySOSState) async -> TriggerOutcome {
+        _ = finish(failure)
+        await refreshActiveEvent()
+        guard activeEvent != nil else { return TriggerOutcome(state: failure) }
+        return TriggerOutcome(state: state)
     }
 
     private func finish(_ newState: EmergencySOSState) -> TriggerOutcome {
@@ -381,7 +557,8 @@ final class EmergencyCoordinator: ObservableObject {
                 volunteerAlert = VolunteerEmergencyAlert(
                     eventID: eventID,
                     orderID: event.orderID,
-                    message: event.displayText
+                    message: event.displayText,
+                    coordinate: event.coordinate
                 )
             }
             return

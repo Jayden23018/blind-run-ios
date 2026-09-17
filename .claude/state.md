@@ -1,245 +1,233 @@
-# STATE — 盲人跑者首页重构（2026-08-03）
+# STATE — 跑步中与跑后（汇合 → 跑步中 → 跑后）2026-09-16
 
-## 总体决策（已与产品负责人逐条确认，不要重新讨论）
+分支 `feat/blind-run-running-state`（从 `main@d8b6307` 开出，**上一轮的 PR #141 已 squash 合入**）
 
-原始诉求是「首页做成滴滴那样：地图在上、中间一个大按钮、右下角小红 SOS 连点三次」。调研与读码后调整为四条，**用户已确认**：
+设计交接包在 `/Users/mac/Downloads/design_handoff_running_state 2/`：
 
-1. **地图**：视觉上铺满上半屏（像滴滴），但读屏遍历顺序仍是操作优先。技术支点是 `accessibilitySortPriority` —— 视觉顺序与 VoiceOver 顺序解耦。
-2. **SOS**：底部全宽 ≥64pt 红按钮 + VoiceOver Magic Tap（双指双击，全屏生效）。**不做**右下角小按钮，**不做**连点三次，**保留**现有二次确认。
-3. **无活跃订单时的 SOS**：降级为本地拨号（110 / 主紧急联系人），不走后端。后端 `EmergencyTriggerRequest` 必须带 `orderId` 且仅 `IN_PROGRESS`。
-4. **一键约跑**：语音复述默认值 → 说「确认」即提交。
-
-调研结论摘要（不必重查）：Aira / Be My Eyes / Seeing AI / Soundscape / BlindSquare / RunGo 无一把地图放首屏顶部；滴滴的「一键报警」实为 4 次点击、官方称刻意折叠防误报；「重复当前状态」不冗余（系统 Speak Screen 读不到一次性 announcement），但可降视觉权重。
-
-完整方案：`/Users/mac/.claude/plans/snazzy-wobbling-floyd.md`
+- `状态清单.md` —— **唯一权威的逐屏规格**，23 个画面 × 5 项（界面元素 / VoiceOver 标签 / 播报文案 / 触发条件 / 播报优先级）
+- `README.md` —— 总规格、动效参数、token 表、**映射到本仓库哪个现成实现**的表
+- `screens/*.png` —— 六组位图，**像素基准**（A 组前三屏要逐像素一致）
+- `助盲跑 · 跑步中故事板与原型.dc.html` —— 浏览器打开可点，**验播报队列规则用它比读文字快**
 
 ---
 
-## 批次 1（已完成代码，未跑真机）
+## 一、已拍板（项目负责人 2026-09-16 确认，**不要重新讨论**）
 
-openspec 变更：`openspec/changes/enable-one-utterance-booking/`（`validate --strict` 通过）
+1. **跑步中那屏按新设计重写，但保留三件**。
+   现有 `BlindActiveRunView`（2026-09-15 产品定稿）是深底白字执行屏，与新设计（浅底白卡、
+   居中 82pt、黄色主按钮 + 浅红求助）正面冲突，差一天。按**新设计**做，保留：
+   - ① 顶行的定位新鲜度那一行 —— 不开读屏的低视力用户唯一能**看见**的 GPS 提示。
+     新设计只给「按播报时追加一句」，那条通道对他们等于不存在。
+   - ② 求助失败 / 撤销求助那几个条件按钮（`BlindActiveRunSafetyAnchor:236-257`）——
+     删了就等于「云端求助失败后屏幕上没有任何能按的东西」，只剩一句 TTS。
+   - ③ 「重复当前状态」—— 见下一条。
+2. **「重复当前状态」保留导航栏右侧那枚图标**（①②④ 三屏），③ 由「播报当前数据」承担。
+   新设计稿这三屏的导航栏右侧是空的，**这是刻意偏离**：上一轮决策 2 已定
+   「必须是可见按钮，不许做成 accessibility custom action」，理由是低视力通道。
+3. **PR 策略**：#141 已合，本轮从 `main` 新开分支。后续每个阶段一个 commit，
+   阶段 1–2 合成一个 PR 还是分开，做完阶段 1 再定。
+4. **（2026-09-16，答的是原 §2-H）盲人端不做「开始跑步」按钮。**
+   ① 汇合的主按钮保留现有的「打电话给张伟」；三秒倒计时改由**订单状态被推到
+   `IN_PROGRESS`** 触发（`BlindOrderStatusViewModel.shouldStartRunCountdown`）。
+   冷启动时已是 `IN_PROGRESS` 则跳过倒计时 —— 中途进页面的人不该听一遍「准备开始」。
+   > 依据：后端 `OrderLifecycleService.java:156` 走 `loadForVolunteer(...)`，
+   > `:1025-1026` 对非接单志愿者直接抛 `NOT_ORDER_PARTICIPANT`（403）。
+   > 所以原 §2-H 记的「不明」已查清 —— 是**确定调不通**，而那让默认解法
+   > 「先做按钮 + 403 兜底」变成「每次按都失败」。已投 handoff 请后端放开；
+   > 放开后只需在 ① 加一枚按钮调 `orders.startService`，倒计时那条链路一行不用改。
 
-**改了什么**
-- `SpeechInputService.clearRecognitionStartState` 缺陷修复：原本清空 `completionHandler` 而不调用它，导致授权被拒时 `VoiceOrderWizard` 无限静默等待。已改为清空前送出一次 `.error` 终局完成。
-- 新增 `SpeechInputService.isSpeechPathUnavailable`，让向导跳过无意义的三轮重问。
-- `VoiceOrderWizard` 的首步是 **`.freeform`（整句说完 → 读回整单 → 说「确认」）**，不是 `.confirmDefaults`。
-  ⚠️ 本文件此前写的是 `.confirmDefaults`（先念默认值再逐项追问），**那个形态从未落地**；
-  2026-08-04 已同步订正 `openspec/.../tasks.md` 第 2 节与 `proposal.md`/`design.md`。
-  默认值对首次下单的用户几乎总是错的（起点=当前位置、时间=系统默认），先听一遍必错的默认值比直接说一句慢。
-- `isAffirmative(_:)` 本地保守白名单（整串匹配，19 条肯定词，刻意不收「嗯」）保留，用在 `.confirm` 轮。
-- `BlindBookingView`：向导步骤 → 表单段落的映射；`onReceive(voiceWizard.$createdOrder)` 复用既有 `onOrderCreated` 出口。
-- 文档：`docs/05-page-specs.md`、`docs/09-accessibility-and-voice-guidelines.md`。
+## 二、待拍板项 —— **2026-09-16 已全部拍板，照下表落，不要再停下来问**
 
-**2026-08-04 追加（批次 1 的延伸，见 openspec tasks 第 2A 节）**
-- 整句解析改走 `POST /api/orders/voice/parse`：两路并发 `parse-slot` → 一次请求，删除常闭开关
-  `resolvesPlaceFromFullUtterance`，**整句里说的出发地点第一次可用**。
-- `String.backendLocalDate`：后端 `LocalDateTime` 取自 `now()` 时带小数秒（`2026-08-04T11:40:42.644571`），
-  原解析器解不出、`displayDateTime` 会把 ISO 串原样念给盲人。带时区偏移的串不截，退回 ISO8601 分支。
-- 整句轮补上时长取整播报，与定点修改轮共用一个函数。
-- 删除 `WSEmergencyContactNotified` 顶层通道 5 处死代码（后端从未实现，与 `SEPARATION_ALERT` 同类）。
-- 紧急联系人表单短信文案按 `isEditing` 分支（编辑换号后端不发短信，原文案是假承诺）。
-- 新增 `scripts/validate-spec-coverage.mjs`。
+> 七条里 H 当日查清后单独答（见 §1-4），其余六条项目负责人当日一次性批准
+> **全部按默认解法落**。表格保留原样是为了留住「为什么是这个默认解法」——
+> 只留结论不留理由，下一轮就会有人把它当成可以随手改的选择。
 
-**验证到哪一步**
-- `TEST BUILD SUCCEEDED`（`CODE_SIGNING_ALLOWED=NO`）
-- 独立 Swift 脚本实跑：`/tmp/clearstate_check.swift`、`/tmp/affirmative_check.swift`、
-  `/tmp/fracsec_check.swift`、`/tmp/voiceparse_check.swift` 全 PASS
-- `node scripts/validate-docs.mjs`、`node scripts/validate-spec-coverage.mjs` 通过
-- **✅ 真机 XCTest 已跑（2026-08-04 14:36，iPhone 16 Pro）：`TEST SUCCEEDED`，
-  483 单测 + 33 UI 用例、0 失败、首跑零陈旧断言**（1 条 skip 是 `testCloudBackendBlindRunnerBookingSmoke`，
-  需 Demo 构建通道）。本轮新增/改写的 14 条用例逐条核过，都真的执行并通过，不是「套件绿就算跑了」。
-  命令（设备名会变，用 id）：
-  `xcodebuild test -workspace blindRun.xcworkspace -scheme blindRun -destination 'platform=iOS,id=00008140-000161D62112801C' -allowProvisioningUpdates DEVELOPMENT_TEAM=ZW39BS8NXT`
-  ⚠️ **跑之前先解锁并保持屏幕常亮**，否则会静默等在 `Run Destination Preflight: Unlock ... to Continue` 上，
-  不报错也不退出（本轮先踩了一次，输出文件 0 字节看着像在跑）。
-  ⚠️ 日志里**两种大小写都出现过**，来自不同的写入方：`Test case '...' passed` 与
-  `Test Case '-[...]' started`。2026-09-10 实测本机 Xcode **只产出大写 C 那种** ——
-  只认一种就会全部计成 0。要 grep 一律用 `Test [Cc]ase '`。
-  （原文写死了「是小写 c」，据此写的看门狗恒为假，全量跑必然被当成锁屏掐掉。）
+| 编号 | 问题 | 落法（**已批准，直接做**） |
+|---|---|---|
+| C | 求助中心五项砍掉了 120 / 110 / 主紧急联系人三格（`AGENTS.md` §6 红线），且新增了仓库与契约里都不存在的「人工客服」 | ✅ 保留拨号三格且顺序不动，把设计的五项当「排序要求」而非「清单要求」，改单列；「人工客服」不做，投 handoff |
+| D | 设计禁止五星，后端 `CreateReviewRequest.rating` 是 `minimum:1 maximum:5` **必填**且无枚举取值 | ✅ ⑤ 这一屏**推迟**，先投 handoff 请后端加枚举 |
+| E | 深色档 7 个 token 与仓库现值不一致（页面底 `#000000` vs `#121417`、正文 `#FFFFFF` vs `#F2F3F5`、品牌蓝 `#0A84FF` vs `#7EA2FF`、求助字 `#FF453A` vs `#FFB4AB` …） | ✅ **不改 `FlowPalette`**（会改每一个已验收界面的深色外观，且对比度用例钉着现值）。E 组按仓库现有深色档做，交付说明里写清偏离 |
+| F | 走散/离线的数值后端不下发；阈值也对不上 | ✅ 警示条不写具体数值（用契约的 `ttsText`）；「我们在一起」做成**纯本地**消警；投 handoff |
+| G | 电量后端 0 命中 | ✅ 跑者端用本机 `UIDevice.batteryLevel` 自播；陪跑员端那一行不做，投 handoff |
+| ~~H~~ | ~~`/start-service` 盲人 token 能不能调不明~~ | **2026-09-16 已答，见 §1-4。** 查清是确定调不通（后端 `loadForVolunteer`），已投 handoff |
+| I | 「本次志愿服务时长」只有累计值 `totalServiceMinutes` | ✅ 投 handoff 要单次值 |
 
-**批次 2 开始前必须先做**
-1. 真机跑批次 1 的 `tasks.md` 5.4 / 5.5，尤其 1.7（新增回调是否波及地点搜索、备注、评价等其他 `SpeechInputField` 使用方）
-2. 补 `tasks.md` 3.4 / 3.5 两条未写的用例
-3. ~~`GET /api/misc/legal-links` 前端从未请求过~~ **已修（2026-08-04）**：实情比记录的更糟 ——
-   不只是没发请求，**设置页那两个入口本身也不存在**，整个功能只有 model 层。
-   现已补齐：`AppState.loadLegalLinksIfNeeded()`（免鉴权、只拉一次、失败静默）+
-   `LegalDocumentsSection` / `LegalFallbackDocumentView`（新文件 `blindRun/Core/LegalDocumentsView.swift`）
-   挂在 `AboutAidRunView` 上，盲人端与志愿者端共用。顺带修掉内置用户协议里
-   「一个手机号可以同时拥有两个身份」那句 —— 与「角色一经设定不可更改」相反，且会被审核员读到。
+## 三、摸底结论（已核实，**别重查**）
 
----
-
-## 批次 2（未开始）
-
-### openspec 的前置障碍（重要）
-
-`in-run-dual-role-sos` **不在 `openspec/specs/` 里** —— 它只存在于未归档的变更 `enable-independent-sos-safely`。两个未归档变更 delta 同一个能力会打架。开始前先决定：
-
-- (a) 先归档 `enable-independent-sos-safely`（它有 6 条未完成任务，其中 6.4 云端探针、6.6 真机批跑是真的没做），再新建变更；或
-- (b) 把首页 SOS 条的 delta 直接加进 `enable-independent-sos-safely`
-
-~~另：该变更的 spec `:11-13` 仍写「志愿者 SOS 恒隐藏」~~ **✅ 2026-08-04 已修**（见文末「工作流加固」一节）。
-现在 (a) 只剩「6 条未完成任务里 6.6 真机批跑是真的没做」这一个前置。
-
-### 要动的规格
-
-- `openspec/specs/blind-runner-voice-first-experience/spec.md:9` 现文 **「in both visual order and VoiceOver traversal order」直接禁止本方案的视觉布局**，必须改为「读屏遍历顺序操作优先；视觉顺序不受此限，但地图不得可交互、不得承载任何必要信息」。
-- `docs/05-page-specs.md:181,194,226` 首页布局
-- `AGENTS.md` 第 8 节 / `:237`：补「首页 SOS 条在非 `IN_PROGRESS` 时是本地拨号，不调 `POST /api/emergency/trigger`」
-
-### 要动的代码
-
-`blindRun/BlindRunner/BlindRunnerHomeView.swift`（741 行）
-- `ZStack`：地图背景层 `.accessibilitySortPriority(-1)` + 内容层 `.accessibilitySortPriority(100)`
-- 内容层 ScrollView **必须保留 `blindRunnerHomeScrollView` 标识符**（UI 测试 `:85` 依赖）
-- 删除「语音下单」按钮与 `BlindRunnerRoute.booking`（`:575-603`、`:403-409`），首页收敛为一个主按钮，走 `.voiceBooking`
-- 「重复当前状态」保留但降视觉权重（`AGENTS.md:222` 硬性要求每个关键盲人页面都有它）
-- 设置齿轮从 header 的 `HStack` 移出，别再排在遍历第 2 位
-- `.safeAreaInset(edge: .bottom)` 挂 SOS 条；`.accessibilityAction(.magicTap)`
-
-`blindRun/Safety/SafetyModule.swift`
-- 新增首页 SOS 条：`IN_PROGRESS` 复用现有 `EmergencyActionButton` + `emergencyConfirmationAlert`（确认文案 `AGENTS.md` 第 10 节逐字锁定，不改）；其余状态走 `confirmationDialog` → `UIApplication.shared.open(URL(string:"tel://110")!)`
-- 主联系人取 `appState.emergencyContacts` + `EmergencyContactResponse.singlePrimary(in:)`。**后端自 v1.5.0 返回明文手机号**（`ProfileModels.swift:369`），`maskedPhone` 只是展示层，`phone` 可直接拨
-- 新文案一律加进 `EmergencySafetyCopy` —— 既有的 `EmergencySOSTests.testNoEmergencyCopyClaimsAnSMSWasDelivered` 会自动守住「不得宣称已送达」红线
-- 文案必须说清这是**打电话**，不是 App 求助
-
-`blindRun/BlindRunner/BlindOrderStatusView.swift`：加 Magic Tap（`IN_PROGRESS` 期间 SOS 真正生效的地方，价值最高）
-
-### 要改的既有测试
-
-`blindRunUITests/blindRunUITests.swift:44-48` `testMockBlindRunnerHomePlacesPrimaryActionBeforeAuxiliaryMap` 现在断言 `startButton.frame.minY < auxiliaryMap.frame.minY`，即**视觉**顺序。新方案下这个前提反转。改为断言**无障碍遍历顺序**：在 `app.descendants(matching: .any).allElementsBoundByAccessibilityElement` 里主按钮下标 < 地图下标。测试名也要改。
-
-其余引用：`:37,65,1338,1399`（「开始约跑」label 不变）、`:85`（scrollView 标识符）、`:88,228,896`（地图标识符）。
-
----
-
-## 环境事实（别重新踩）
-
-- **真机是唯一 XCTest 通道**，模拟器因高德无 arm64-sim slice 永久不可用。**不要改 Podfile / EXCLUDED_ARCHS。**
-- 无真机时的编译上限：`xcodebuild -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build-for-testing`
-- 真机命令需 `-allowProvisioningUpdates DEVELOPMENT_TEAM=ZW39BS8NXT`（工程里写死的 `R6PH2TFB3Q` 是原开发者的团队，命令行覆盖，**不要改 pbxproj**）
-- 设备 `mac's iPhone` 会掉线，`xcrun devicectl list devices` 显示 `unavailable` 时先查设备状态
-- 纯逻辑改动先用独立 Swift 脚本实跑，秒级出结果
-- **编译通过不等于测试通过。永远不许把没执行过的测试写成通过。**
-
-## 两个硬约束（产品已知悉）
-
-- **没有「现在就跑」**：`minimumBookingLeadMinutes = 30`（`EnvironmentConfig.swift:99`），后端回 `APPOINTMENT_TOO_SOON`。滴滴式即时叫车属派单模型变更。
-- **SOS 必须带 orderId 且仅 `IN_PROGRESS`**（`OrderModels.swift:125`）。
-
----
-
-## 工作流加固（2026-08-04，本轮全部落地）
-
-起因：审计发现「规范层写得好，但执行层零机器强制」—— AGENTS.md/OpenSpec/handoff 都靠自觉遵守，
-7 起契约事故里 6 起是字段/语义级，而唯一的漂移检测只查路径级。
-
-### 新增的机器强制点（7 个）
-
-| 文件 | 拦什么 |
+| 事实 | 出处 |
 |---|---|
-| `scripts/hooks/guard.mjs` | 订单禁用词、SOS 完成时态文案、非法服务端地址、高德 key 硬编码、读归档契约、改冻结文件 |
-| `scripts/validate-error-codes.mjs` | 前端 `ErrorCode` 枚举 vs 后端 `ErrorCode.java`，抓「映射了不存在的码」 |
-| `scripts/validate-golden-corpus.mjs` | 语音黄金语料 vs `VoiceOrderWizardTests` 里的人工抄件 |
-| `blindRunTests/ContractFixtureTests.swift` | 真实响应字节跑生产解码路径（fixture 待采集） |
-| `blindRunUITests/AccessibilityAuditTests.swift` | `performAccessibilityAudit` + 64pt + 「重复当前状态」 |
-| `.github/workflows/verify.yml` | 编译门禁 + 全部规格校验（此前**零 CI**） |
-| `scripts/install-git-hooks.sh` → pre-push | 五条 node/openspec 校验钉在 push 前 |
+| 盲人端订单页**已经是原地变形**，不是跳页 | `BlindOrderStatusView.swift:1281` 的 `content` 三选一；`:1485` 的 `body` 就是它 |
+| 四步骨架已落地 | `BlindOrderFlowView.swift:15` + `FlowStepper`（`FlowComponents.swift:99`）+ `BlindOrderFlowPresentation`（`BlindOrderFlowStep.swift:85`） |
+| ~~`IN_PROGRESS` 不进骨架~~ | **2026-09-16 阶段 1 已改**：`blindOrderFlowStep` 对 `.inProgress` 返回 `.metUp`，与汇合同一格。`BlindActiveRunView` 现在是那张卡的**内容区**，不再是一整屏 |
+| 设计稿**浅色档与仓库逐值吻合** | `FlowPalette.swift:139-167`：`cta #F6C343` / `onCTA #111A2E` / `help` 三色 / `avatar` / `successBadge` / `nodeStroke` / `progressTrack` / `booking` 三色全中 |
+| 字号唯一落点是 `FlowFonts` + `flowFont(size:weight:relativeTo:monospacedDigit:)` | `FlowMetrics.swift:162-217`。**新字号加进 `FlowFonts`，不在视图里写字面量** |
+| 跑表体例格式化已有 | `TrackStats.distanceKilometersText / durationClockText / paceClockText`（`OrderTrackModels.swift:53-75`） |
+| 每公里里程碑已有且已接线 | `KilometerMilestoneTracker`（`OrderTrackModels.swift:83`）→ `BlindOrderStatusView.swift:991` |
+| 提示音有现成合成器 | `ToneSynthesizer.wav(frequencies:segmentDuration:)`，已用于录音起止（`SpeechInputService.swift:152`）与紧急倒计时（`EmergencyAlarm.swift:111`） |
+| 🔴 **没有播报队列** | `SpeechService.swift:63-72` 是 `stopSpeaking(.immediate)` —— 后来者打断前者，无优先级、无排队、无丢弃 |
+| 🔴 **没有 ActivityKit / Widget target** | pbxproj 只有 3 个 target；`import ActivityKit` / `NSSupportsLiveActivities` / `.appex` 全 0 命中 |
+| 震动只有三档语义 | `HapticFeedback.play(.success/.warning/.error)`；渐强震动只有 `EmergencyAlarm` 里的 `CHHapticEngine`（`EmergencyAlarm.swift:154`） |
+| 求助中心是 `LazyVGrid` 两列（AX 档降一列） | `SafetyHubView.swift:250-294`；格子清单在 `BlindActiveRunSafetyHubOption.tiles`（`SafetyModule.swift:622`），最多 7 格 |
+| 后端确实有 `GET /api/orders/{id}/track` 且 `blindStats` 单位是**米 / 秒 / 秒每公里** | `api_spec.yaml:3014` 与 `TrackStatsDto`（`:6966`）。路径参数名是 `id` 不是 `orderId` |
 
-`scripts/device-test.sh`：把真机跑测的两个陷阱固化 —— 锁屏静默挂起会主动检出并失败；
-用例统计**只认 `-resultBundlePath` 产出的 result bundle，不再 grep 日志**。
-（日志不可信：xcodebuild 进度、XCTest runner stdout、设备 os_log 三路并发写同一 fd，
-统计行会被拦腰截断。2026-08-07 实测真实 539 条只数出 530、535 只数出 528。
-判定逻辑在 `scripts/xcresult-verdict.mjs`，自测 `scripts/validate-xcresult-verdict.mjs`。）
+### 设计包自身的三个缺口（已确认，不是没找到）
 
-### Claude Code 配置
-
-- `CLAUDE.md` 改成 `@AGENTS.md` —— **此前 AGENTS.md 328 行硬约束根本没被自动加载**，
-  Claude Code 只自动读 CLAUDE.md，原来那句「Read and follow AGENTS.md」只是自然语言请求。
-- `AGENTS.md` 328 → 148 行，§5/§9/§7错误码/§11-13 拆进 `.claude/skills/aidrun-{auth,a11y-voice,error-codes,ship-check}/`
-- `.mcp.json` 装 XcodeBuildMCP，`XCODEBUILDMCP_ENABLED_WORKFLOWS=device,project-discovery`
-  （**注意**：博客上常见的 `XCODEBUILDMCP_DYNAMIC_TOOLS` 在当前版本里不存在；workflow 名是
-  `ui-automation` 不是 `ui-testing`；simulator workflow 对本项目永久无用）
-- `.claude/settings.json`（团队层，入库）挂 guard + session-context hook
-
-### 顺带抓出的两个真实问题
-
-1. **`EmergencySafetyCopy.closedFalseAlarm` 违反 SOS 红线** —— 写着「紧急联系人已收到解除通知」，
-   但解除短信走的是和求助短信同一条异步路径，**没有运营商回执**。它比触发路径晚加，
-   一直没被收进 `testNoEmergencyCopyClaimsAnSMSWasDelivered` 的清单。已改进行时 + 补进清单。
-   （唯一允许完成时的是 `contactSmsDelivered`，有 `EMERGENCY_CONTACT_SMS_DELIVERED` 回执支撑。）
-2. **AGENTS.md 错误码表里三个码名是错的** —— 真名是 `ORDER_STATUS_NOT_ALLOWED`（非 `INVALID_ORDER_STATUS`）、
-   `VOLUNTEER_NOT_VERIFIED`（非 `VOLUNTEER_NOT_APPROVED`）；`LOCATION_PERMISSION_REQUIRED` 后端根本没有。
-   代码里映射的是对的，只有文档错 —— 「文档不是真相源」的标本。
-
-### 仓库卫生
-
-`.CLAUDE.md.swp` 曾被 git 跟踪（已 `git rm --cached`）；两个 28MB 僵尸 worktree 已移除（释放 56MB）；
-`.gitignore` 补 `*.swp` / `.claude/worktrees/` / `.claude/settings.local.json`。
-
-### 验证到哪一步
-
-- ✅ `xcodebuild build-for-testing -destination 'generic/platform=iOS'` → `TEST BUILD SUCCEEDED`
-- ✅ guard.mjs 全仓库 82 个 Swift 文件零误报；6 条违规逐个实测被拦
-- ✅ 五条 node/openspec 校验全通过（pre-push 实跑）
-- ✅ golden-corpus / error-codes 两个新脚本做过反向自测（故意改错必须报错）
-- ⬜ **真机 XCTest 未跑** —— 设备锁屏，`device-test.sh` 秒级检出并失败（日志原文
-  `Unlock mac's iPhone to Continue`）。**这本身验证了脚本有效**：以前会在这里无限静默挂起。
-  解锁常亮后重跑：`scripts/device-test.sh`
-- ⬜ **fixture 未采集** —— 卡在后端短信限流。`/api/auth/send-code` 先回 429 `TOO_MANY_REQUESTS`
-  （`retryAfterSeconds: 60`，脚本已自动重试 2 次），重试后升级为 429 `SMS_SEND_LIMIT_EXCEEDED`
-  （**按手机号的更长窗口**）。说明这条链路真的会消耗短信配额。
-  绕开方式（已内置）：拿到 token 后
-  `AIDRUN_FIXTURE_BLIND_TOKEN=<jwt> AIDRUN_FIXTURE_VOLUNTEER_TOKEN=<jwt> node scripts/capture-fixtures.mjs --write`
-  —— 复用 token 直接跳过 send-code，不烧配额。
-  在 fixture 到位前 `ContractFixtureTests` 会 XCTSkip 并打印指引，**不会假绿**。
+1. README 的映射表指向「下方**与现有实现的差异**」一节 —— **README 里没有这一节**。
+   跑步中那屏保留现有实现的哪些部分是空白的，这正是决策 1 回答的问题。
+2. **里程字号自相矛盾**：README 写「82（基准 70）」；清单 §22 写「70×1.76＝123」；
+   §23 写「123→101（`minimumScaleFactor(0.7)`）」。123×0.7＝86 ≠ 101，
+   而 **82×1.76＝144，144×0.7＝101** ⇒ **基准取 82**，§22 那句是旧值。
+3. `#FBE6AE`（倒计时禁用态浅黄）不在仓库调色板、也不在 README 的 token 表里。
+   ⇒ 新增具名 token `ctaDisabled`（浅深同值），**不要用 `.opacity`** —— 那会把文字一起淡掉，
+   对比度不可控，而这是「准备中」那三秒唯一的视觉状态。
 
 ---
 
-## UI 测试通道故障（2026-08-06，未解决，别重新诊断）
+## 四、阶段计划（一个阶段一个 session，别在一个 session 里连做两个）
 
-**现象**：真机单测 489 条全过，**UI test runner 起不来**，零执行，稳定复现：
-`blindRunUITests-Runner encountered an error (Early unexpected exit ... exited with code 74 before establishing connection)`
+- [x] **阶段 1 · A 组 ①②③ 原地变形 + 主按钮位置不动**（2026-09-16 完成，真机已验）
 
-**失败点已定位到握手，不是编译/签名/链接/测试代码**：runner 正常安装、正常启动、打印
-`Running tests...`，恰好 30.8 秒后它申请的控制通道被对端拒绝：
+      ```
+      BlindRunPhaseTests + BlindOrderFlowPresentationTests
+        + FlowDesignSystemTests + BlindActiveRunTests   passed=58 failed=0
+      EmergencySOSTests + KeepWaitingTests               passed=77 failed=0
+      testBlindOrderStatusKeepsEmergencyReachableWithoutScrolling  passed=1 failed=0
+      testSafetyHubPutsEmergencyFirstInTheAccessibilityOrder       passed=1 failed=0
+      ```
+      设备 iPhone 16 Pro，`transportType: wired`。既有红灯 3+2 条不在本次范围内，未触及。
+      ⚠️ 那两条 UI 用例**第三次才过**：前两次都是 `Timed out while enabling automation mode`，
+      中间一个字没改。记忆 `ui-test-runner-needs-usb-not-wifi` 原先写「复跑即过」已订正为
+      「同一签名最多复跑三次再开始查别的」。
+- [x] **阶段 2 · 播报队列 + 四种提示音**（2026-09-16 完成，PR #147，真机已验）
 
-```
-[DTXConnection] Connection peer refused channel request for
-"dtxproxy:XCTestDriverInterface:XCTestManager_IDEInterface"; channel canceled
-[Default] Exiting due to IDE disconnection.
-```
-IDE 侧日志显示已在 listen、会话 id 匹配，**从头到尾没收到 test bundle 的 proxy 连接请求**。
+      ```
+      全量  passed=1288  failed=10  skipped=1  (total=1299)
+      新增  AnnouncementQueueTests  22/22 全绿
+      ```
+      落点：`blindRun/Voice/AnnouncementQueue.swift`（新）+ `SpeechService` 接队列 +
+      `configurePlaybackCategory` 加 `.duckOthers`。三个签名都是**带默认值的新参数**，
+      230 个既有调用点零改动；显式传优先级的只有求助 / 倒计时 / 按需播报 / 每公里那几处。
+      🔴 **同档刻意保留「打断」而不是排队** —— 求助倒计时靠它盖掉上一秒，改成排队会念成
+      「3」「3」「2」。用例 `testSamePriorityStillInterruptsSoTheCountdownStaysCurrent` 钉住。
+      阶段 1 留的两笔账（倒计时绕开 funnel / 「开始跑步」stopSpeaking 掉别人）都结了。
+      ⚠️ **两件只能人耳验、还没验**：① 放着音乐时播报该压低不该暂停；
+      ② 静音拨杆打到静音时播报仍要出声。改的是音频会话分类，读代码判不了。
 
-**已用证据排除的（别再查）**：
-- `e83cf61`（接入 Swift OpenAPI Generator）—— pbxproj 的 22 行改动全部落在 `blindRun` app target，
-  `blindRunUITests` 一个字没动；UI bundle 的 `otool -L` 里没有任何 AidRunAPI/OpenAPIRuntime；
-  `PackageFrameworks/` 为空（静态链接，无动态库要 embed）；失败时 `blindRun.app` 进程根本没起
-- 签名/entitlements/provisioning —— `TeamIdentifier=ZW39BS8NXT`、`get-task-allow=true`、
-  日志明确 `Successfully installed` + `Successfully launched`
-- 缺动态库 / dyld / crash —— 框架齐全，无 crash log
-- Developer Mode / DDI —— `developerModeStatus: enabled`、`ddiServicesAvailable: true`
-- 新增的 `AccessibilityAuditTests.swift` —— 符号确实在 bundle 里，但失败发生在任何用例被枚举之前；
-  且 08-04 那次「33 条 UI 全过」= 29 + 4，说明它当时已经在里面且是过的
+      **既有红灯清单要补 6 条**（`state.md` 此前只记了 audit 那 3+2）：
+      `testAuthLifecycleBlindAccountDeletionIsTwoStageAndCompletesOnce` ·
+      `testAuthLifecycleEveryLogoutSurfaceRequiresConfirmation` ·
+      `testAuthLifecycleVolunteerDeletionRouteAndActiveOrderBlock` ·
+      `testMockBlindOrderHidesEmergencyActionInAcceptedStates` ·
+      `testMockBlindRunnerBookingSmoke` · `testMockVolunteerOrderFlowSmoke`。
+      **已在同一台设备上把 worktree 回退到 `fdc6579`(main) 跑同一组对照**：
+      `passed=0 failed=6`，失败集合与断言文案逐条相同 ⇒ 是存量不是回归。建议单开任务查。
+- [ ] 阶段 3 · ④ 已完成（**仍未做**，卡在待拍板项 D 五星评价）
+- [x] 阶段 3 的**志愿者一半** · 陪跑员端长按 2 秒结束（2026-09-16，PR #145，真机已验）
 
-**两个未证实的嫌疑（缺对照实验，因为设备中途锁屏）**：
-1. **设备上有一个陈旧的 `DTServiceHub`（pid 22262）**，pid 小于所有失败的 runner，且在 Mac 上
-   零 Xcode/xcodebuild 进程的情况下存活半小时以上。一个悬挂的会话占着 testmanagerd 的自动化槽位，
-   正好能解释「新 runner 申请 IDE 通道被拒」。尝试 `devicectl device process terminate` 失败
-   （设备锁屏 + 链路抖动）。
-2. **真机只走 Wi-Fi，没插 USB**（`transportType: localNetwork`，`ioreg -p IOUSB` 查不到 iPhone）。
-   UI 测试要双向 DTX 握手，单测只需单向下发 —— 这正好解释「489 单测全过、UI runner 起不来」的分裂。
-   同一条链路半小时内还抖出另两种故障：`Lost pending connection to the test runner before launch`、
-   `Device is busy (Connecting to mac's iPhone)`。
+      ```
+      VolunteerFinishLongPressTests(9) + 3 条志愿者流转用例   passed=12 failed=0
+      长按行为用例 + 无障碍形状用例                            passed=2  failed=0
+      ```
+      验红两次：读秒那条第一版取 `elapsed: 0.3` 打回修正照样绿（`2 - 0.3` 在 IEEE754 下
+      恰好精确），换 1.7 / 1.9 才真的红；`ringProgress` 打回后红在「结束失败后环形还停在满格」。
+      ⚠️ **渐强震动没有自动化能验**，需要人上手按一次。
+      ⚠️ 顺带确认一条**既有**红灯（见下方第五节）。
+- [ ] 阶段 4 · B 组异常警示条 + 求助中心单列重排（先答 C）
+- [x] **阶段 5 · D 组锁屏实时活动**（2026-09-16 完成，PR #146）
 
-**下次要做的（按顺序，每步看实际输出）**：
-1. **重启 iPhone**（一次同时清掉残留 DTServiceHub 和锁屏状态），解锁 + 自动锁定设「永不」
-2. **插 USB 线**，确认 `xcrun devicectl device info details` 的 `transportType` 不再是 `localNetwork`
-3. `scripts/device-test.sh -only-testing:blindRunUITests/blindRunUITestsLaunchTests` 先跑 1 条
-4. 仍是 code 74 → 上面两个嫌疑都不对，需要：① hello-world 工程在同一设备跑一条 UI 测试做对照
-   （唯一能分开「本仓库问题」与「这台 Mac+设备问题」的实验）；② 失败那 30 秒窗口内的
-   `xcrun devicectl device sysdiagnose`（本次 `devicectl diagnose` 全程失败，拿不到设备侧日志，
-   这是最大的信息缺口）
+      ```
+      RunLiveActivityTests + LiveEscortTrackTests + KeychainTokenStoreTests
+        passed=54 failed=0   （新用例 11 条，已验红）
+      ```
+      设备 iPhone 16 Pro，`transportType: wired`。既有红灯 3+2 条不在本次范围内，未触及。
+      🔴 **锁屏卡本身还没人工看过真机** —— 实时活动不在 App 进程里渲染，XCUITest 够不着，
+      PR 的测试计划里列了 4 条待人工验，其中最要紧的是「已锁且未认证时按钮响不响」。
+      新建了 `blindRunWidget` target（本仓库第一个 `.appex`），pbxproj 手写，
+      diff 里 `DEVELOPMENT_TEAM` 出现 0 次。
+      **零接触 `blindRun/Volunteer/**`**：起停挂在两端共用的 `LiveEscortSessionCoordinator`，
+      陪跑员端按 §2 的决定不显示对方姓名 ⇒ 卡片不需要任何身份信息。
+- [ ] 阶段 6 · E 深色 + F AX5 布局
 
-**`scripts/device-test.sh` 对这两种故障的处理是正确的**：锁屏被 `grep 'Unlock .* to Continue'` 抓到
-立即失败；code 74 走 `TOTAL -eq 0` 分支报「一条用例都没执行」。没有假装通过的漏洞。
+### 并行性（2026-09-16 实查文件重叠面得出，别按阶段编号猜）
+
+**能并行的三条线**（文件基本不交叉，且都不卡待拍板项）：
+
+| 线 | 内容 | 主要动的文件 |
+|---|---|---|
+| A | 阶段 2 · 播报队列 + 四种提示音 | `Voice/SpeechService.swift`、`Voice/SpeechInputService.swift`（`ToneSynthesizer`）、`BlindOrderStatusView` 约 15 处加优先级 |
+| ~~B~~ | ~~阶段 5 · 锁屏实时活动~~ | **已完成（PR #146）。** 实际落点与预估有一处出入：起停钩子没放在 `BlindOrderStatusView`，放在 `LiveEscortSessionCoordinator`（两端共用漏斗），那边只加了两行推姓名与数字 |
+| C | 阶段 3 的**志愿者那一半**（长按 2 秒结束） | `Volunteer/VolunteerOrderFlowViews.swift` |
+
+🔴 **线 A 必须给 `speak` 加带默认值的优先级参数，不改既有调用点。**
+全仓 `speak`/`speakError`/`announce` 共 **230 个调用点、分布在 31 个文件**，
+改签名会把整个仓库碰一遍 —— 那三条线当场全撞。
+
+**必须串行的三件**：阶段 3 的盲人端（④ 已完成）· 阶段 4 · 阶段 6。
+三者**都改 `BlindOrderFlowView.swift`**，同一个文件三个人改必撞。
+
+### 阶段 1 要动的文件
+
+**实际落地如下（与开工前的预估表有两处出入，已订正）：**
+
+| 文件 | 改了什么 |
+|---|---|
+| `BlindOrderFlowStep.swift` | `.inProgress` → `.metUp`（进骨架）；新增 `BlindRunPhase` / `BlindRunCountdown` / `BlindRunTransition` / `BlindRunCopy`；`Visual` 加 `.countdown(Int)` / `.runMetrics`；`PrimaryAction` 加 `.preparing` / `.announceStats`（**没有 `.startRun`**，见 §1-4）；`make` 加 `countdown:` 入参、相位在内部派生 |
+| `BlindOrderFlowView.swift` | 进度条 ↔「陪跑中 · 张伟」顶行互换、头像 `matchedGeometryEffect` ⌀92 ↔ ⌀28、信息卡在跑步中不渲染；`transitionAnimation` 按 `reduceMotion` 分档；倒计时圆 + 每拍回弹 |
+| `BlindActiveRunView.swift` | **整文件重写**：从一屏深底执行屏变成白卡内容区（里程 82 居中 + 时长/配速两格）。`BlindActiveRunSafetyAnchor` 删除，其中的求助结果面抽成 `BlindRunSafetyResultSection` |
+| `BlindOrderStatusView.swift` | `content` 三分支合并成两分支；`runCountdown` 状态机 + `shouldStartRunCountdown` 纯函数；`flowFooter` 接回求助结果面；`isActiveRun` / `repeatStatusArea` 删除；导航栏「重复当前状态」在 ③ 收起 |
+| `FlowMetrics.swift` | `FlowFonts` 加 `runDistance()` 82 / `runMetric()` 36 / `runPrimaryLabel()` 16 / `runSecondaryLabel()` 15 / `partnerHeadline()` 15 / `countdownNumber()` 52；`avatarInitial(diameter:)` 加 13 这一档；`FlowMetrics` 加 ⌀28 小头像与顶行内边距 |
+| `FlowPalette.swift` | 加 `ctaDisabled` / `ctaDisabledTone`（`#FBE6AE`，浅深同值） |
+| `FlowComponents.swift` | `FlowActionButton` 加 `isEnabled`（→ `.disabled()` + `ctaDisabled` 底） |
+| `blindRunTests/BlindRunPhaseTests.swift`（新） | 相位派生、倒计时四条边界（含穷举）、主按钮版位不空、顶行去掩码 |
+
+**阶段 1 的 code review 结论（2026-09-16，A 档 7 条）：**
+
+修了 6 条 —— 倒计时触觉换 `.tick`（原来 `.success` 与状态变化那次撞车，3 秒 4 下同波形）·
+倒计时补「离开 `IN_PROGRESS` 就取消」（原来只 return，志愿者 3 秒内取消会继续念「2」「1」）·
+倒计时走完补「开始跑步」+ 强震（原来变形完成那一刻零信号）· 定位行文案进 `BlindRunCopy` ·
+跑步中藏返回箭头（核过：`.toolbar(.hidden, for: .tabBar)` 全仓 0 命中 ⇒ 切 tab 仍可离开，
+**将来谁隐藏标签栏，这一行必须同时撤销**）· reduceMotion 改**瞬时切换**。
+
+**没修 1 条（项目负责人当轮决定）**：求助结果面（`BlindRunSafetyResultSection`）从常驻底栏
+挪进了滚动区。默认字号下仍在第一屏，字号往上调一两档会被推出去，而**没有任何检查会说话**
+—— 就是记忆 `claimed-fallback-may-not-exist-in-release` 那个形状。
+最急那条路径落在 `EmergencyCountdownView` 全屏里，这一块是关掉全屏后回到跑步页的残留面。
+要治两条路：挂回 `bottomActions` 上方固定位，或在 UI 测试里补一条
+「失败态下 `blindActiveRunFailureCallButton.frame.maxY <= app.frame.maxY`」并在 AX 档跑一次。
+
+⚠️ **review 的 A-7 有一条数字是错的，别照抄**：它说 `AppColors.success/.warning` 压白卡
+只有 2.20:1，实测是 **5.07 / 5.20**（`#1B7F3B` / `#B25000`，它拿的是猜的 `#FF9500`）。
+照它另造的一对 `Flow` 色反而把暗色档从 8.42 拉到 3.89，已撤回。
+
+**遗留在原地没动的东西**（下一轮别当成缺陷去查）：
+`AppColors.activeRunSurface` / `activeRunSecondaryText` / `activeRunDestructive` 三个取值
+现在**盲人端没有渲染点了**，但 `LowVisionChannelTests` 还在验它们的对比度。
+刻意不删：陪跑员端跑步中那屏（C 组，阶段 3）大概率还要用同一套深底。
+到阶段 3 若确认不用，连同那 3 条用例一起删。
+
+---
+
+## 五、验证纪律（**一个字都不要跳过**）
+
+- **CI 跑不了任何 XCTest**（高德无 arm64-sim slice）。CI 绿只等于编译门禁 + 规格校验过了。
+- 真机是唯一 XCTest 通道：`scripts/device-test.sh`，命令行必须带 `DEVELOPMENT_TEAM=ZW39BS8NXT`。
+- **默认只跑覆盖本次改动的 suite**，不要裸跑全量（约 10 分钟，会超 Bash 600s 上限）。
+  全量只留给「全 App 唯一出口 / 共享单例 / 全局配置」类改动。
+- **`passed=0` 一律当失败查。** 零执行不是通过。
+- 设备：iPhone 16 Pro `00008140-000161D62112801C`（脚本默认）。
+  iPad Air 5 `00008103-001C71490E62201E` **还没点过「信任证书」**，跑不了。
+- **要插 USB**。判有线只看 `devicectl list devices --json-output` 的
+  `connectionProperties.transportType`；`ioreg -p IOUSB | grep -i iPhone` 会给假阳性。
+
+### 已知既有红灯（**不是你改出来的**，判回归时要扣掉）
+
+- `AccessibilityAuditTests` 3 条长期红。
+- `blindRunUITests.testMockVolunteerOrderFlowSmoke` —— `IN_PROGRESS` 之后断求助悬浮键
+  `isHittable` 失败（「求助按钮存在但点不到」）。**2026-09-16 在 `main@fdc6579` 上原样复跑，
+  同一条断言、同一句话失败**，不是哪条特性分支引入的。后果是该用例后半段（结束 → 轨迹总结 →
+  全屏回放）的断言实际一条都没在跑 —— 别把它的绿/红当成那些功能的信号。已单独开任务跟进；
+  要验长按结束走 `testVolunteerFinishesEscortOnlyAfterHoldingLongEnough`（不依赖它）。
+- `testBlindOrderStatusInLandscapePassesAccessibilityAudit` 2 条 `Contrast failed` ——
+  逐个量过调色板声明值全部过线，**唯一不过线的是 1.5pt 描边的抗锯齿边缘像素**
+  （实测混合色 `#CD6F5F` 压 `#FDEFEF` ＝ 3.11:1）。**已分出独立任务**，本轮不碰调色板。
+  ⛔ 别直接加 `auditIgnoredIdentifiers` 豁免了事 —— 那等于用绿灯替一个没查清的问题背书。

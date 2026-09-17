@@ -80,6 +80,50 @@ enum AppColors {
         availabilityOnSurfaceTone.dark
     )
 
+    /// 陪跑进行中那一屏铺满的深灰底（`BlindActiveRunView`）。
+    ///
+    /// **亮暗两套取同一个值，是全 App 唯一一处不跟随系统外观的表面。** 理由不是审美：
+    /// 这一屏是跑动中**户外**看的，内容只有几个巨数字 —— 深底白字在阳光下的可读性
+    /// 远好于白底黑字（大面积白在户外会整片泛光，低视力用户尤其受影响）。
+    /// 设计规格 `docs/research/blind-runner-ui-reference-study-20260915.md` §27 也把它锁成
+    /// 「深灰而非纯黑」：纯黑会让 OLED 上的字出现拖影，`#1C1C1E` 正是系统在暗色下用的那一档。
+    ///
+    /// **它是背景色，所以不进 `tones`**（同 `voiceStageSurface` 的理由：那张表验的是
+    /// 「这个色当前景压在两种背景上」，而它从不当前景）。它自己的检查在
+    /// `LowVisionChannelTests` —— 白字与次级灰字压上去都要过 4.5:1。
+    ///
+    /// ⛔ **这里不会出现柠檬绿 `#D7FF3E`。** 那个色到今天为止**只存在于调研文档的提议里**，
+    /// 代码中零处使用。就算将来引入，它也只属于「能按的东西」，而这一屏能按的是红色求助块
+    /// —— 主数字用白（§28.1：行动色不与语义色混用，用它做主数字会稀释「哪里能按」这条线索）。
+    static let activeRunSurface = dynamic(activeRunSurfaceTone.light, activeRunSurfaceTone.dark)
+
+    /// `activeRunSurface` 的取值，单独暴露给对比度用例，理由同上。
+    static let activeRunSurfaceTone = Tone(light: 0x1C1C1E, dark: 0x1C1C1E)
+
+    /// 压在 `activeRunSurface` 上的次级文字（指标标签、顶部状态行）。
+    ///
+    /// **不能用 `textSecondary`**：那个色是为系统的亮/暗两种背景调的，亮色那一档 `#5C5C61`
+    /// 压在 `#1C1C1E` 上只有 **2.56:1** —— 而这一屏在亮色模式下**底色仍然是深灰**，
+    /// 于是整排标签会在亮色模式下糊掉。规格里那个 `#8A8A8F` 压 `#1C1C1E` 是 **4.95:1**。
+    /// （两个数都按 WCAG 相对亮度公式手算，`LowVisionChannelTests` 会重算一遍钉住。）
+    static let activeRunSecondaryText = dynamic(activeRunSecondaryTextTone.light, activeRunSecondaryTextTone.dark)
+
+    static let activeRunSecondaryTextTone = Tone(light: 0x8A8A8F, dark: 0x8A8A8F)
+
+    /// 陪跑中那块贴底的求助红块。同样亮暗同值，理由和上面那条是同一个，只是更隐蔽：
+    ///
+    /// 🔴 `destructive` 的**亮色档** `#C81E14` 压在 `#1C1C1E` 上只有 **2.96:1** ——
+    /// 卡在 WCAG 1.4.11（用来识别控件边界的非文本内容要 3:1）线**下面**。
+    /// 底色固定成深灰之后，跟随系统外观的红在亮色模式下就成了「深红压深灰」，
+    /// 块的边界对低视力用户糊掉。暗色档 `#FF453A` 压同一个底是 4.99:1。
+    ///
+    /// 这不是理论问题：这块是陪跑中屏幕上**唯一**的控件，边界看不见等于这一屏没有可按的东西。
+    /// 白色 31pt 粗体压在 `#FF453A` 上是 3.41:1 —— 按 WCAG 大字阈值（3:1）达标，
+    /// 且与全 App 暗色模式下每一个 `PrimaryButton(isDestructive:)` 完全一致，不是新引入的取值。
+    static let activeRunDestructive = dynamic(activeRunDestructiveTone.light, activeRunDestructiveTone.dark)
+
+    static let activeRunDestructiveTone = Tone(light: 0xFF453A, dark: 0xFF453A)
+
     // 这三个继续用系统语义色：`label` 已经是 21:1，两个背景色本来就是对比的**基准**而非前景。
     static let background = Color(uiColor: .systemBackground)
     static let secondaryBackground = Color(uiColor: .secondarySystemBackground)

@@ -108,6 +108,76 @@ final class LowVisionChannelTests: XCTestCase {
         )
     }
 
+    /// 陪跑进行中那一屏铺满的深灰底。方向同上：它是背景，白字与次级灰字压在它上面。
+    ///
+    /// 🔴 **它亮暗两套同值**（全 App 唯一一处不跟随系统外观），所以「亮色模式下它仍然是深灰」
+    /// 这件事必须被钉住 —— 一旦有人把它改成跟随系统，亮色模式下白字就压在白底上，
+    /// 而那一屏只有三个数字，等于整屏空白。对低视力用户，那条通道就是全部。
+    func testActiveRunSurfaceKeepsItsTextReadableInBothAppearances() {
+        let tone = AppColors.activeRunSurfaceTone
+        XCTAssertEqual(tone.light, tone.dark, "这块底色刻意不跟随系统外观，两套必须同值")
+
+        let white: UInt32 = 0xFFFFFF
+        let primaryRatio = Self.contrastRatio(white, tone.light)
+        XCTAssertGreaterThanOrEqual(
+            primaryRatio, Self.minimumContrast,
+            "白色主数字压在陪跑中底色上只有 \(String(format: "%.2f", primaryRatio)):1"
+        )
+
+        // 指标标签用的是专门调过的次级灰，不是 `textSecondary`。
+        let secondary = AppColors.activeRunSecondaryTextTone
+        XCTAssertEqual(secondary.light, secondary.dark, "同底色，次级文字也不跟随系统外观")
+        let secondaryRatio = Self.contrastRatio(secondary.light, tone.light)
+        XCTAssertGreaterThanOrEqual(
+            secondaryRatio, Self.minimumContrast,
+            "指标标签压在陪跑中底色上只有 \(String(format: "%.2f", secondaryRatio)):1"
+        )
+
+        // 验红：`textSecondary` 的亮色档正是这里最自然的「顺手复用」，而它算不过。
+        // 没有这条，上面两条断言可能是在一条恒真的公式上通过。
+        XCTAssertLessThan(
+            Self.contrastRatio(AppColors.tones.first { $0.name == "textSecondary" }!.tone.light, tone.light),
+            Self.minimumContrast,
+            "textSecondary 的亮色档压在这块深灰底上不达标，这条用例存在的理由就是挡住复用它"
+        )
+    }
+
+    /// 陪跑中那块贴底的求助红块，验的是**块的边界**而不是块里的字。
+    ///
+    /// WCAG 1.4.11：用来识别控件边界的非文本内容要 3:1。这一块是那一屏**唯一**的控件，
+    /// 边界看不见等于这屏没有可按的东西 —— 而这恰恰是对比度审计查不出来的那一类
+    /// （它查的是文字对背景，不是色块对色块）。
+    func testActiveRunSafetyBlockStaysDistinguishableFromItsSurface() {
+        /// WCAG 1.4.11 的非文本阈值。
+        let nonTextMinimum: Double = 3.0
+        let surface = AppColors.activeRunSurfaceTone
+        let block = AppColors.activeRunDestructiveTone
+
+        XCTAssertEqual(block.light, block.dark, "底色固定，红块也不能跟随系统外观")
+
+        let boundary = Self.contrastRatio(block.light, surface.light)
+        XCTAssertGreaterThanOrEqual(
+            boundary, nonTextMinimum,
+            "求助红块与陪跑中底色只差 \(String(format: "%.2f", boundary)):1，块的边界会糊掉"
+        )
+
+        // 块里的白字按**大字**阈值（31pt 粗体）卡 3:1，不是正文的 4.5。
+        let label = Self.contrastRatio(0xFFFFFF, block.light)
+        XCTAssertGreaterThanOrEqual(
+            label, nonTextMinimum,
+            "求助两个字压在红块上只有 \(String(format: "%.2f", label)):1"
+        )
+
+        // 🔴 验红，也是这条用例被写下来的原因：`destructive` 的**亮色档**压在这块深灰底上
+        // 只有 2.96:1 —— 就在 3:1 线下面一点。「顺手用 AppColors.destructive」是这里最自然的
+        // 第一反应，而它差的那 0.04 用肉眼一定看不出来。
+        XCTAssertLessThan(
+            Self.contrastRatio(AppColors.tones.first { $0.name == "destructive" }!.tone.light, surface.light),
+            nonTextMinimum,
+            "destructive 的亮色档压在这块深灰底上不达标，这条用例存在的理由就是挡住复用它"
+        )
+    }
+
     /// 这条是**验红**用的：把已知不达标的旧取值喂进同一个计算，必须算出不达标。
     ///
     /// 没有它，上面那条用例在计算公式写错时会静默全绿 —— 一个恒返回 21 的

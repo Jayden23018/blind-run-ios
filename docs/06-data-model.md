@@ -290,12 +290,12 @@ Rules:
 | `id` | UUID/String | Yes | 主键 |
 | `orderId` | UUID/String | Yes | 关联 RunOrder，一对一 |
 | `volunteerUserId` | UUID/String | Yes | 志愿者 |
-| `summaryText` | String | No | 志愿者结束服务时选填 |
+| `summaryText` | String | No | ~~志愿者结束服务时选填~~ **客户端自 2026-09-16 起不再采集**：`POST /api/orders/{id}/finish` 没有请求体，这个字段没有任何写入通道 |
 | `createdAt` | Instant | Yes | 创建时间 |
 
 Rules:
 
-- 当前由志愿者点击“开始服务”进入 `IN_PROGRESS` 后，再点击“结束服务”并可选填服务总结。
+- 当前由志愿者点击“开始服务”进入 `IN_PROGRESS` 后，再**长按“结束陪跑”满 2 秒**结束。服务总结的输入入口已随之删除（`/finish` 无请求体）。
 - 服务总结只能在订单状态为 `IN_PROGRESS` 时提交；`DRIVER_ARRIVED` 不是可结束状态。
 
 ### Rating

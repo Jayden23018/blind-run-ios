@@ -64,12 +64,66 @@ final class EmergencySOSTests: XCTestCase {
             // 2026-08-20 补：云端求助失败后的本地拨号兜底（F7）。同样一个字节都没发出去。
             EmergencySafetyCopy.cloudFailedCallAccessibilityHint,
             EmergencySafetyCopy.cloudFailedCallDialogMessage,
-            // 2026-09-08 补：陪跑进行中页的主动拨号（120/110）与它的 120 按钮标题。
-            EmergencySafetyCopy.inProgressCallDialogMessage,
-            EmergencySafetyCopy.inProgressCallAccessibilityHint,
+            // 2026-09-15 补：陪跑中的求助中心（取代了原来的 `inProgressCall*` 那一组）。
+            EmergencySafetyCopy.hubDialogMessage,
+            EmergencySafetyCopy.hubAccessibilityHint,
+            EmergencySafetyCopy.hubAccessibilityLabel,
+            EmergencySafetyCopy.hubTitle,
+            EmergencySafetyCopy.hubSubtitle,
+            EmergencySafetyCopy.hubEntrySubtitle,
+            EmergencySafetyCopy.hubDismissTitle,
+            EmergencySafetyCopy.hubTriggerSubtitle,
+            EmergencySafetyCopy.hubTriggerAccessibilityHint,
+            EmergencySafetyCopy.hubContactVolunteerTitle,
+            EmergencySafetyCopy.hubAnnounceLocationTitle,
+            EmergencySafetyCopy.hubAskQuestionTitle,
+            EmergencySafetyCopy.emergencyAccessibilityActionName,
+            // 倒计时（屏 3）与求助已发出（屏 3b）。倒计时那三秒**什么都还没发生**，
+            // 所以它比任何一条都更不能有「已通知」的味道。
+            EmergencySafetyCopy.countdownTitle,
+            EmergencySafetyCopy.countdownCancelTitle,
+            EmergencySafetyCopy.countdownCancelAccessibilityHint,
+            EmergencySafetyCopy.countdownCancelled,
+            EmergencySafetyCopy.countdown(secondsRemaining: 3),
+            EmergencySafetyCopy.countdown(secondsRemaining: 0),
+            EmergencySafetyCopy.sentTitle,
+            EmergencySafetyCopy.sentCallMedicalHint,
+            EmergencySafetyCopy.sentCallPoliceHint,
+            EmergencySafetyCopy.retrySendTitle,
+            EmergencySafetyCopy.retrySendAccessibilityHint,
+            EmergencySafetyCopy.sendingTitle,
+            EmergencySafetyCopy.unsentTitle,
+            EmergencySafetyCopy.cancelledTitle,
+            EmergencySafetyCopy.volunteerPeerStatusAcknowledged,
+            EmergencySafetyCopy.locationAnnouncement(nil),
+            EmergencySafetyCopy.locationAnnouncement("人民公园"),
             EmergencySafetyCopy.homeCallMedicalTitle
         ]
         allCopy.append(contentsOf: EmergencyEventStatus.allCases.map(EmergencySafetyCopy.submitted))
+        // 求助中心每一格的标题与小字。**用 `allCases` 而不是手写清单** —— 手写的那份
+        // 会在新增一格时被漏掉，而这条红线最常见的破法就是「晚加进来的那条没人收进清单」
+        // （`closedFalseAlarm` 就是这么漏了半年，见上面 2026-08-04 那条注释）。
+        // 倒计时列的那三条「即将发生的事」。**全部必须是进行时或将来时** ——
+        // 短信是事务提交后异步发的、失败也从不回告盲人，所以 App 永远不能说「已经通知了谁」。
+        allCopy.append(contentsOf: EmergencySafetyCopy.countdownPendingEffects)
+        // `isLiveSharing` 两档都要过：分享那一格的标题与小字随它变，只查一档会漏掉
+        // 「停止分享」那半边 —— 而它同样是对外文案。
+        for option in BlindActiveRunSafetyHubOption.allCases {
+            for isLiveSharing in [false, true] {
+                allCopy.append(option.title(contactName: "妈妈", isLiveSharing: isLiveSharing))
+                allCopy.append(option.title(contactName: nil, isLiveSharing: isLiveSharing))
+                allCopy.append(EmergencySafetyCopy.hubTileSubtitle(
+                    option,
+                    contactName: "妈妈",
+                    isLiveSharing: isLiveSharing
+                ))
+                allCopy.append(EmergencySafetyCopy.hubTileSubtitle(
+                    option,
+                    contactName: nil,
+                    isLiveSharing: isLiveSharing
+                ))
+            }
+        }
 
         for copy in allCopy {
             for claim in forbidden {
@@ -410,6 +464,535 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertTrue(safety.calls.isEmpty)
     }
 
+    // MARK: - 倒计时（屏 3）
+
+    /// 🔴 **倒计时这三秒里，一个字节都不许发给后端。**
+    ///
+    /// 这不是性能取舍，是安全取舍。后端 `POST /api/emergency/trigger` 是**触发即升级**：
+    /// 紧急联系人在那一个请求里就被通知（异步发短信），撤销会再补一条解除短信，
+    /// 而冷却 60 秒是**按触发者计**的（`demo/docs/api_spec.yaml:2242`）。
+    /// 所以「先发再撤」的真实代价是：每一次误触都惊动家人两次，
+    /// **并在随后的 60 秒里锁死真正的求助**（429）。
+    ///
+    /// 这条用例读的是 `safety.calls` 的长度 —— 它是「到底有没有发出去」的唯一客观判据。
+    @MainActor
+    func testCountdownSendsNothingBeforeItReachesZero() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+
+        coordinator.beginCountdown(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+
+        XCTAssertTrue(coordinator.state.isCountingDown, "按下之后没有进倒计时")
+        XCTAssertTrue(coordinator.state.isBusy, "倒计时期间必须挡住重复触发")
+        XCTAssertFalse(coordinator.state.isFailure, "倒计时不是失败态，不该被染成错误色")
+
+        // 数一秒，仍然什么都没发。
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        XCTAssertTrue(safety.calls.isEmpty, "倒计时还没结束就把求助发出去了：\(safety.calls)")
+
+        XCTAssertTrue(coordinator.cancelCountdown(), "取消倒计时应当返回成功")
+        XCTAssertEqual(coordinator.state, .idle)
+
+        // 取消之后再等过原本的归零时刻 —— 任务真的停了，而不是只把状态改了。
+        try? await Task.sleep(nanoseconds: 2_600_000_000)
+        XCTAssertTrue(safety.calls.isEmpty, "取消之后求助仍然发出去了：\(safety.calls)")
+        XCTAssertNil(coordinator.activeEvent)
+    }
+
+    /// 归零之后必须真的发出去。
+    ///
+    /// **和上一条是一对，缺一条另一条就没意义**：只验「倒计时中不发」的话，
+    /// 一个永远不发的实现照样通过。
+    @MainActor
+    func testCountdownFiresTheTriggerOnceItReachesZero() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 900, status: "CONTACT_NOTIFIED")
+        )
+
+        var spoken: [String] = []
+        coordinator.beginCountdown(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) },
+            announce: { spoken.append($0) }
+        )
+
+        // 3 秒倒计时 + 一点余量给归零后那一次 await。
+        try? await Task.sleep(nanoseconds: 4_500_000_000)
+
+        XCTAssertEqual(safety.calls.count, 1, "归零之后没有恰好发一次：\(safety.calls)")
+        XCTAssertEqual(coordinator.activeEvent?.eventID, 900)
+        XCTAssertEqual(coordinator.state, .acknowledged(.contactNotified))
+
+        // 每一秒都得说一次，而且每一句都要带「可以取消」——
+        // 看不见屏幕的人不会知道屏幕下方有个取消按钮，除非有人一直在告诉他。
+        let countdownLines = spoken.filter { $0.contains("秒后发出") }
+        XCTAssertEqual(countdownLines.count, EmergencyCoordinator.countdownSeconds)
+        for line in countdownLines {
+            XCTAssertTrue(line.contains("取消"), "这一句没告诉用户还能取消：\(line)")
+        }
+        XCTAssertEqual(spoken.first, EmergencySafetyCopy.countdownTitle, "进倒计时那一刻没有播报")
+    }
+
+    /// 倒计时期间再按一下**不该叠出第二个倒计时，也不该把倒计时重新计到 3**。
+    ///
+    /// ⚠️ 2026-09-15 code review 指出这条用例原本**分辨不出**它宣称守的东西：
+    /// 三次调用挤在同一瞬间，而 `beginCountdown` 开头有一句 `countdownTask?.cancel()`——
+    /// 于是把 `.countingDown` 从 `isBusy` 里拿掉（也就是「第二次按重启倒计时」这个
+    /// 被打回的实现）之后，最后仍然只剩一个任务在跑，`safety.calls.count` 照样是 1。
+    ///
+    /// 现在把三次按下**拉开 1.2 秒**，并数「还有 3 秒」这句播报出现了几次：
+    /// 正确实现只念一次（后两次被 `isBusy` 挡掉），重启实现会念三次。
+    @MainActor
+    func testSecondPressDuringCountdownNeitherResendsNorRestartsTheCountdown() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 901, status: "CONTACT_NOTIFIED")
+        )
+        let order = Self.makeOrder(status: .inProgress)
+        var spoken: [String] = []
+        let press = {
+            coordinator.beginCountdown(
+                order: order,
+                role: .blind,
+                userID: 7,
+                safety: safety,
+                locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) },
+                announce: { spoken.append($0) }
+            )
+        }
+
+        press()
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        press()
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        press()
+
+        try? await Task.sleep(nanoseconds: 3_500_000_000)
+
+        XCTAssertEqual(safety.calls.count, 1, "连按三下发出了 \(safety.calls.count) 条求助")
+        let restarts = spoken.filter { $0 == EmergencySafetyCopy.countdown(secondsRemaining: 3) }
+        XCTAssertEqual(
+            restarts.count,
+            1,
+            "倒计时被重新计到 3 了 \(restarts.count) 次 —— 每按一下就多拖 3 秒，而这三秒里没人来救"
+        )
+    }
+
+    // MARK: - 屏 3 / 3b 的标题（code review A2 / A3）
+
+    /// 🔴 **顶部那句大标题必须与此刻的真实状态一致。**
+    ///
+    /// code review 抓到的原缺陷：`.locating` / `.submitting` 落进 `else` 分支，
+    /// 于是在**一个字节都还没发出去**的那最长约 20 秒里（等定位 5 秒 + 请求超时 15 秒），
+    /// 屏幕顶部 44pt 的红色大标题写着「求助已发出」，正文写着「正在获取当前位置」。
+    /// 标题带 `.isHeader`，VoiceOver 滑到页首听到的就是这句。
+    ///
+    /// 这条用例**逐状态穷举**，而不是只挑两三个 —— `testNoEmergencyCopyClaimsAnSMSWasDelivered`
+    /// 扫的是字符串常量，扫不到一个 `if/else` 的取值，那正是它漏掉这个缺陷的原因。
+    func testScreenTitleNeverClaimsSentBeforeAnythingWasSent() {
+        let notSentYet: [EmergencySOSState] = [
+            .countingDown(secondsRemaining: 3),
+            .locating,
+            .submitting,
+            .unsentNoLocation(nil),
+            .unsentNoLocation(.permissionDenied),
+            .failed("网络异常"),
+            .cooldown(retryAfterSeconds: 42),
+        ]
+        for state in notSentYet {
+            let title = EmergencySafetyCopy.screenTitle(for: state, hasActiveEvent: false)
+            XCTAssertNotEqual(
+                title,
+                EmergencySafetyCopy.sentTitle,
+                "\(state) 时一个字节都还没发出去，标题却写着「\(title)」"
+            )
+        }
+
+        // 还在路上的两态：**进行时**，不能是将来时的承诺、也不能是完成时。
+        XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: .locating, hasActiveEvent: false), EmergencySafetyCopy.sendingTitle)
+        XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: .submitting, hasActiveEvent: false), EmergencySafetyCopy.sendingTitle)
+
+        // 失败三态：**不许回落成「即将发出」**。那是一句将来时的承诺，而这条求助已经死了，
+        // 必须靠用户自己按「再发一次求助」。
+        for state in [EmergencySOSState.unsentNoLocation(nil), .failed("网络异常"), .cooldown(retryAfterSeconds: 1)] {
+            XCTAssertEqual(
+                EmergencySafetyCopy.screenTitle(for: state, hasActiveEvent: false),
+                EmergencySafetyCopy.unsentTitle,
+                "\(state) 的标题应当直说没发出去"
+            )
+        }
+
+        // 真的发出去了的才准用完成时。`contactNotifyFailed` 也在内：
+        // 失败的是**通知联系人**，求助本身已经发出去了。
+        for state in [EmergencySOSState.acknowledged(.contactNotified), .contactSmsDelivered, .contactNotifyFailed] {
+            XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: state, hasActiveEvent: true), EmergencySafetyCopy.sentTitle)
+        }
+
+        XCTAssertEqual(
+            EmergencySafetyCopy.screenTitle(for: .cancelledByOwner, hasActiveEvent: false),
+            EmergencySafetyCopy.cancelledTitle
+        )
+        // `.idle` 只由「有没有事件」决定，不猜。
+        XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: .idle, hasActiveEvent: true), EmergencySafetyCopy.sentTitle)
+        XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: .idle, hasActiveEvent: false), EmergencySafetyCopy.unsentTitle)
+    }
+
+    // MARK: - 警报音与震动（code review A10）
+
+    /// 倒计时每一秒**恰好**响一次、震一次。
+    ///
+    /// ⚠️ code review 指出 `EmergencyAlarm.observerForTesting` / `playerForTesting` 此前
+    /// 只被装成 no-op、一条断言都没有，而它们的存在理由被逐字写在实现里：
+    /// 「没有断言的实现，和不存在的实现在下一个人眼里是一样的 ——
+    /// 而这是盲人判断「倒计时开始了没有」的唯一非视觉信号」。
+    ///
+    /// 屏幕上那个圆环对一个戴着骨传导耳机、手机绑在腰上的跑者不存在；
+    /// 声音和震动**就是**倒计时本身。
+    @MainActor
+    func testCountdownSoundsAndVibratesOncePerSecond() async {
+        var ticks: [EmergencyAlarm.Kind] = []
+        var vibrations = 0
+        EmergencyAlarm.observerForTesting = { ticks.append($0) }
+        EmergencyHaptics.observerForTesting = { _ in vibrations += 1 }
+        defer { Self.teardownAlarmObservers() }
+
+        let coordinator = EmergencyCoordinator()
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 903, status: "CONTACT_NOTIFIED")
+        )
+        coordinator.beginCountdown(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+        try? await Task.sleep(nanoseconds: 4_500_000_000)
+
+        XCTAssertEqual(
+            ticks.count,
+            EmergencyCoordinator.countdownSeconds,
+            "倒计时响了 \(ticks.count) 声，应当是每秒一声共 \(EmergencyCoordinator.countdownSeconds) 声"
+        )
+        XCTAssertEqual(vibrations, EmergencyCoordinator.countdownSeconds, "震动次数和声音对不上")
+        // 用的是倒计时那一声，不是连续警报 —— 后者是志愿者端强提醒用的，会一直循环。
+        XCTAssertTrue(ticks.allSatisfy { $0 == .countdownTick })
+    }
+
+    /// 🔴 **同一种警报音始终是同一个播放器对象。**
+    ///
+    /// 这条不是优化，是防崩：2026-08-16 `RecordingCue` 曾经「每次发声 new 一个播放器、
+    /// 覆盖同一个静态槽」，于是上一声还在播时就被释放，音频队列随后把
+    /// `-[AVAudioPlayer finishedPlaying:]` 派回主线程、打在已被复用的内存上 ——
+    /// 真机表现是**崩在任意一条与音频无关的用例上**
+    /// （记忆 `finishedplaying-crash-means-player-freed-not-delegate`）。
+    ///
+    /// 倒计时这一声每秒触发一次、而一声只有 0.17 秒，**正是同一个形状**。
+    @MainActor
+    func testEmergencyAlarmReusesOnePlayerPerKind() throws {
+        // 这条要真的建播放器，所以不能装 observer（装了就被接管、一个播放器都不会创建）。
+        EmergencyAlarm.observerForTesting = nil
+        EmergencyHaptics.observerForTesting = { _ in }
+        defer { Self.teardownAlarmObservers() }
+
+        EmergencyAlarm.countdownTick()
+        let first = try XCTUnwrap(
+            EmergencyAlarm.playerForTesting(.countdownTick),
+            "第一次触发之后没有留下播放器 —— 出了作用域就停，提示音等于没响"
+        )
+        EmergencyAlarm.countdownTick()
+        let second = try XCTUnwrap(EmergencyAlarm.playerForTesting(.countdownTick))
+
+        XCTAssertTrue(
+            first === second,
+            "同一种警报音换了播放器对象 —— 上一声还在播时被释放，就是那次 use-after-free 的形状"
+        )
+        EmergencyAlarm.stopAll()
+    }
+
+    /// 🔴 **会话边界必须掐掉在飞的倒计时。**
+    ///
+    /// 漏掉这一条的后果很具体：上一个账号退出登录三秒之后，那个求助**照样发出去**，
+    /// 而且带的是新登录账号的 token —— 事件会挂在错误的人身上，短信发给错误的家属。
+    @MainActor
+    func testResetCancelsAnInFlightCountdown() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 902, status: "CONTACT_NOTIFIED")
+        )
+
+        coordinator.beginCountdown(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+        XCTAssertTrue(coordinator.state.isCountingDown)
+
+        coordinator.reset()
+        XCTAssertEqual(coordinator.state, .idle)
+
+        try? await Task.sleep(nanoseconds: 4_500_000_000)
+        XCTAssertTrue(safety.calls.isEmpty, "退出登录之后那个倒计时仍然把求助发了出去：\(safety.calls)")
+    }
+
+    /// 发不出去的状态**不该白数三秒**。那三秒里用户以为求助在路上。
+    @MainActor
+    func testCountdownIsRefusedOutsideInProgress() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+
+        for status in RunOrderStatus.allCases where status != .inProgress {
+            coordinator.reset()
+            coordinator.beginCountdown(
+                order: Self.makeOrder(status: status),
+                role: .blind,
+                userID: 7,
+                safety: safety,
+                locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+            )
+            XCTAssertFalse(
+                coordinator.state.isCountingDown,
+                "\(status) 不能发起求助，却进了倒计时"
+            )
+            XCTAssertTrue(coordinator.state.isFailure, "\(status) 下按求助没有给出任何失败反馈")
+        }
+        XCTAssertTrue(safety.calls.isEmpty)
+    }
+
+    /// 没在倒计时的时候取消是**空操作**，不是「撤销已经发出的求助」。
+    ///
+    /// 两个动作打的是完全不同的后端：取消倒计时零请求，撤销求助走
+    /// `PUT /api/emergency/{id}/cancel` 并给联系人补发解除短信。混掉的表现是
+    /// 「我只是想收起这一屏，结果把一个真的求助撤了」。
+    @MainActor
+    func testCancellingWhenNotCountingDownDoesNothing() {
+        let coordinator = EmergencyCoordinator()
+        XCTAssertFalse(coordinator.cancelCountdown())
+        XCTAssertEqual(coordinator.state, .idle)
+    }
+
+    // MARK: - 发送失败后的对账（阶段 4）
+
+    /// 🔴 **一个会说谎的失败**：请求在服务端处理完了、响应在回程丢了（弱网、切基站、
+    /// 后台挂起），客户端只看见 `网络异常`。那一刻屏幕上写着「求助未发出」，
+    /// 而家属的短信其实已经在路上 —— 盲人会据此以为没人知道他出事了。
+    ///
+    /// 修法是**去问一句**，不是重发：`GET /api/emergency/active` 按契约原文是
+    /// 「事件 id 与当前状态的唯一权威来源」，而且是只读的。
+    @MainActor
+    func testFailedSendAsksTheBackendWhetherItActuallyLanded() async {
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .failure(URLError(.networkConnectionLost))
+        // 后端其实收到了：事件真的存在。
+        safety.activeEmergencyResult = .success(Self.openEventEnvelope(id: 808))
+        let coordinator = Self.makeRecoverableCoordinator(safety: safety)
+
+        let outcome = await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+
+        XCTAssertEqual(coordinator.activeEvent?.eventID, 808)
+        XCTAssertFalse(outcome.isFailure, "求助其实已经生效，界面却还在说「未发出」")
+        XCTAssertFalse(outcome.message.contains("未发出"))
+    }
+
+    /// 429 冷却是**最强的一条「刚才那条真的发出去了」的证据**：后端按触发者 SETNX 占位，
+    /// 命中它几乎只可能是我们自己刚刚那一条占的。
+    ///
+    /// 不对账的话用户听到的是「刚刚已经发送过求助，请 42 秒后再试」——
+    /// 那句话听起来像被拒绝，而实际上求助正在生效。
+    @MainActor
+    func testCooldownIsReconciledIntoAnActiveEmergencyNotARejection() async {
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .failure(
+            APIError.rateLimited(RateLimitInfo(message: "刚刚已经发送过求助", retryAfterSeconds: 42))
+        )
+        safety.activeEmergencyResult = .success(Self.openEventEnvelope(id: 809))
+        let coordinator = Self.makeRecoverableCoordinator(safety: safety)
+
+        let outcome = await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+
+        XCTAssertEqual(coordinator.activeEvent?.eventID, 809)
+        XCTAssertFalse(outcome.isFailure)
+        XCTAssertFalse(outcome.message.contains("秒后再试"))
+    }
+
+    /// 反向锁：**对账不许制造救援状态**。
+    ///
+    /// 后端说没有未结束的事件（或这一侧压根没有查询权限，比如志愿者），
+    /// 失败就还是失败 —— 屏幕上必须留着「未发出」和那个拨 120 的入口。
+    /// 这条比上面两条更要紧：上面两条错了是少说一句，这条错了是**把没发出的求助说成发出了**。
+    @MainActor
+    func testReconciliationNeverInventsRescueStateWhenNothingIsOpen() async {
+        for activeResult in [
+            Result<EmergencyActiveEnvelope, Error>.success(
+                EmergencyActiveEnvelope(success: true, data: nil)
+            ),
+            // 查询本身也失败（断网时这才是最常见的情形）。
+            .failure(URLError(.notConnectedToInternet)),
+        ] {
+            let safety = FakeSafetyService()
+            safety.triggerEmergencyResult = .failure(URLError(.networkConnectionLost))
+            safety.activeEmergencyResult = activeResult
+            let coordinator = Self.makeRecoverableCoordinator(safety: safety)
+
+            let outcome = await coordinator.trigger(
+                order: Self.makeOrder(status: .inProgress),
+                role: .blind,
+                userID: 7,
+                safety: safety,
+                locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+            )
+
+            XCTAssertNil(coordinator.activeEvent, "后端没有未结束的事件，却造出了一个")
+            XCTAssertTrue(outcome.isFailure, "求助没发出去，界面却不再说「未发出」")
+            XCTAssertTrue(coordinator.state.isFailure, "失败态没保住，拨 120 的入口会跟着消失")
+        }
+    }
+
+    /// 🔴 **手里还攥着一个旧事件、而新的这次发送失败了。**
+    ///
+    /// 这是本组里唯一一条真正会出事的路径，也是上面那条用例**盖不住**的：
+    /// 对账发现后端其实已经没有未结束的事件（旧的被客服解除了），于是它会
+    /// 顺手把本地那个陈旧事件清掉、状态归 `.idle` —— 而 `.idle` 的 `message` 是 `nil`。
+    ///
+    /// 如果这时候直接把「对账之后的状态」当成结果返回，用户按下求助之后
+    /// **屏幕上什么都不会多出来、耳朵里也一个字都听不到**：既没有「未发出」，
+    /// 也没有那个拨 120 的入口。对看不见屏幕的人，这与「按了没反应」不可区分。
+    ///
+    /// 2026-09-15 验红时发现：把 `reconcile` 里那道 `guard activeEvent != nil` 去掉，
+    /// 上面那条用例照样绿 —— 它从一个干净的 coordinator 出发，走不到这条分支。
+    /// 这条用例就是为补那个洞写的。
+    @MainActor
+    func testFailureIsStillAnnouncedEvenWhenReconciliationClearsAStaleEvent() async {
+        let safety = FakeSafetyService()
+        let coordinator = Self.makeRecoverableCoordinator(safety: safety)
+
+        // 先制造一个「手里攥着旧事件」的现实状态：上一次求助成功过。
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 700, status: "CONTACT_NOTIFIED")
+        )
+        _ = await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+        XCTAssertEqual(coordinator.activeEvent?.eventID, 700)
+
+        // 现在：旧事件已被客服解除（后端说没有未结束的），而新的这次发送失败了。
+        safety.triggerEmergencyResult = .failure(URLError(.networkConnectionLost))
+        safety.activeEmergencyResult = .success(EmergencyActiveEnvelope(success: true, data: nil))
+
+        let outcome = await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+
+        XCTAssertNil(coordinator.activeEvent, "陈旧事件没被清掉，界面会顶着一个早就结束的求助")
+        XCTAssertTrue(outcome.isFailure, "新的这次发送失败了，却没有作为失败播报出去")
+        XCTAssertFalse(
+            outcome.message.isEmpty,
+            "按下求助之后一个字都没说 —— 对看不见屏幕的人，这与「按了没反应」不可区分"
+        )
+        XCTAssertTrue(outcome.message.contains("未发出"))
+    }
+
+    /// 对账**只在失败路径上发生**。成功那条不许多打一次查询 ——
+    /// 触发响应里已经带了 `eventId` 和状态，再查一次是纯浪费，而这条链路上每一次
+    /// 往返都发生在一个人正在出事的时候。
+    @MainActor
+    func testSuccessfulSendDoesNotPayForAnExtraQuery() async {
+        let safety = FakeSafetyService()
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 810, status: "CONTACT_NOTIFIED")
+        )
+        let coordinator = Self.makeRecoverableCoordinator(safety: safety)
+
+        _ = await coordinator.trigger(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+
+        XCTAssertEqual(safety.calls, ["triggerEmergency(_:)"])
+    }
+
+    @MainActor
+    private static func makeRecoverableCoordinator(safety: FakeSafetyService) -> EmergencyCoordinator {
+        let coordinator = EmergencyCoordinator()
+        // `refreshActiveEvent` 只在装了 provider 时才会去问 —— 志愿者那一侧刻意装不上
+        // （`GET /api/emergency/active` 角色限 BLIND），所以对账在那一侧天然是空操作。
+        coordinator.observe(AppRealtimeCoordinator(notificationDuration: 60)) { safety }
+        return coordinator
+    }
+
+    /// 用**解码**造 fixture，不用逐字段构造。
+    ///
+    /// 这个类型的字段是后端契约的形状（`status` 还刻意是 `String` 而不是枚举，
+    /// 见它自己的注释），逐字段写死会在后端加字段时全线红 ——
+    /// 而那种红说明不了任何事，只会让下一个人把用例改成将就。
+    private static func openEventEnvelope(id: Int64) -> EmergencyActiveEnvelope {
+        let json = """
+        {"success":true,"code":200,"data":{
+          "id":\(id),"orderId":4242,"userId":7,
+          "triggeredAt":"2026-09-15T14:30:00","triggerType":"BUTTON",
+          "status":"CONTACT_NOTIFIED","hasGpsLocation":true}}
+        """
+        // swiftlint:disable:next force_try 桩数据解不出说明这条用例本身写坏了，该当场炸。
+        return try! APIPayloadDecoder.decodePayload(
+            EmergencyActiveEnvelope.self,
+            from: Data(json.utf8),
+            decoder: JSONDecoder()
+        )
+    }
+
+    /// 倒计时的替身接缝：跑测时不该真的在办公室里拉响警报，也不该真的震。
+    @MainActor
+    private static func makeCountdownFixture() -> (EmergencyCoordinator, FakeSafetyService) {
+        EmergencyAlarm.observerForTesting = { _ in }
+        EmergencyHaptics.observerForTesting = { _ in }
+        return (EmergencyCoordinator(), FakeSafetyService())
+    }
+
+    @MainActor
+    private static func teardownAlarmObservers() {
+        EmergencyAlarm.observerForTesting = nil
+        EmergencyHaptics.observerForTesting = nil
+    }
+
     func testSuccessfulTriggerSendsOrderAndGcj02Coordinate() async {
         let coordinator = EmergencyCoordinator()
         let safety = FakeSafetyService()
@@ -665,7 +1248,8 @@ final class EmergencySOSTests: XCTestCase {
 
     private static func safetyEvent(
         kind: RealtimeSafetyEvent.Kind,
-        orderID: Int64? = nil
+        orderID: Int64? = nil,
+        coordinate: LocatedCoordinate? = nil
     ) -> RealtimeSafetyEvent {
         RealtimeSafetyEvent(
             eventID: "msg-1",
@@ -673,7 +1257,8 @@ final class EmergencySOSTests: XCTestCase {
             kind: kind,
             displayText: "ignored",
             speechText: "ignored",
-            timestamp: nil
+            timestamp: nil,
+            coordinate: coordinate
         )
     }
 
@@ -722,6 +1307,31 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertNil(EmergencyDialer.telURL(for: "未填写"))
     }
 
+    /// 🚨 **掩码串一律拼不出 `tel:` URL。** 2026-08-11 那个真实缺陷的机器守卫。
+    ///
+    /// 在这道闸之前，判据只有「取完数字位还剩不剩」，于是 `138****1234` **拼得出**
+    /// `tel://1381234` —— 不是空号，是一个七位的、可能真打给别人的号码，
+    /// 而界面上看不出任何异常。此前唯一的防线是「拨号入口只读明文那个字段」，
+    /// 靠人记，而它有 15 个调用点、已经失效过一次。
+    ///
+    /// **两个方向都要断**，否则这条闸随时会被写成「凡是含非数字就拒」而悄悄拦掉明文号：
+    /// 后端下发的明文号可能带空格或横线（上一条用例正断着这个），
+    /// 而 110 / 120 只有三位 —— 任何按长度判的闸都会把它们一起拦掉。
+    func testDialerRefusesMaskedNumbersButKeepsFormattedPlainOnes() {
+        // 拒：掩码串（半角与全角）。
+        XCTAssertNil(EmergencyDialer.telURL(for: "138****1234"))
+        XCTAssertNil(EmergencyDialer.telURL(for: "139＊＊＊＊9001"))
+        // 掩码那一半也可能出现在带前后缀的串里。
+        XCTAssertNil(EmergencyDialer.telURL(for: "王* 138****1234"))
+        // 真实来源对撞：`maskPhone` 出来的东西一律拨不出去。
+        XCTAssertNil(EmergencyDialer.telURL(for: EmergencyContactResponse.maskPhone("13900139001")))
+
+        // 放行：带格式化字符的明文号，以及三位急救号 —— 这两条是这道闸的误报面。
+        XCTAssertEqual(EmergencyDialer.telURL(for: "138 0000 0001")?.absoluteString, "tel://13800000001")
+        XCTAssertEqual(EmergencyDialer.telURL(for: "+86 138-0000-0001")?.absoluteString, "tel://8613800000001")
+        XCTAssertEqual(EmergencyDialer.telURL(for: EmergencyDialer.medicalNumber)?.absoluteString, "tel://120")
+    }
+
     /// 测试期拦截：开着时不真的拨、但要留痕；关掉时必须照常拨出去。
     ///
     /// **后半条和前半条一样重要。** 这道拦截如果把生产路径也吞了，盲人按下「拨打110」
@@ -768,8 +1378,8 @@ final class EmergencySOSTests: XCTestCase {
     /// 本地拨号分支的文案必须说清「App 不会代你发送求助」。
     /// 缺了这句，盲人按完只会听见拨号音之外的沉默，并合理地以为求助已经发出去了。
     func testLocalCallCopySaysTheAppSendsNothing() {
-        // 三种语境一条都不能漏。漏掉的那一条不会有任何运行时症状：弹窗照常弹，只是话说错了。
-        for context in [EmergencyCallContext.homeIdle, .cloudFailed, .inProgress] {
+        // 两种语境一条都不能漏。漏掉的那一条不会有任何运行时症状：弹窗照常弹，只是话说错了。
+        for context in [EmergencyCallContext.homeIdle, .cloudFailed] {
             XCTAssertTrue(
                 context.dialogMessage.contains("不会代你发送求助"),
                 "\(context) 的弹窗正文没说清 App 什么都没发出去"
@@ -780,15 +1390,303 @@ final class EmergencySOSTests: XCTestCase {
             )
         }
 
-        // 第一句是三种语境唯一的区别，也是盲人判断「我刚才那一下发生了什么」的唯一依据。
+        // 第一句是两种语境唯一的区别，也是盲人判断「我刚才那一下发生了什么」的唯一依据。
         // 共用一句等于把「求助已失败」和「求助从没按过」说成同一件事。
-        let messages = Set([EmergencyCallContext.homeIdle, .cloudFailed, .inProgress].map(\.dialogMessage))
-        XCTAssertEqual(messages.count, 3, "三种语境的第一句必须各不相同")
+        let messages = Set([EmergencyCallContext.homeIdle, .cloudFailed].map(\.dialogMessage))
+        XCTAssertEqual(messages.count, 2, "两种语境的第一句必须各不相同")
 
         // 「一键求助」在本 App 里专指云端求助，本地拨号分支不得复用这四个字。
         XCTAssertFalse(EmergencySafetyCopy.homeCallTitle.contains(EmergencySafetyCopy.title))
-        // 陪跑进行中那条要主动把自己和正上方的「一键求助」按钮区分开 —— 两个红色按钮挨着。
-        XCTAssertTrue(EmergencySafetyCopy.inProgressCallDialogMessage.contains("不是\(EmergencySafetyCopy.title)"))
+
+        // 原来第三种语境 `inProgress` 扛的那条不变式 —— 「这不是一键求助，什么都还没发出去」——
+        // 现在由求助中心的第一句扛。它比原来更要紧：那一层的第一项是「联系志愿者」这种无害动作，
+        // 用户按下红块之后最需要先知道的就是**什么都还没发生**。
+        XCTAssertTrue(
+            EmergencySafetyCopy.hubDialogMessage.contains("还没有发送求助"),
+            "求助中心的第一句必须先说清什么都还没发出去"
+        )
+        // 求助中心的标题不得叫「一键求助」—— 那四个字专指云端那条链路，
+        // 而打开这个菜单一个字节都没发出去。
+        XCTAssertFalse(EmergencySafetyCopy.hubTitle.contains(EmergencySafetyCopy.title))
+        // ⛔ 逐字锁定的二次确认文案不许被挪用成菜单正文（`AGENTS.md` §6 的二次确认不减一步）。
+        XCTAssertNotEqual(EmergencySafetyCopy.hubDialogMessage, EmergencySafetyCopy.confirmationMessage)
+        XCTAssertFalse(EmergencySafetyCopy.hubDialogMessage.contains("确认进入求助状态"))
+    }
+
+    /// 求助中心的**顺序与可见性**。
+    ///
+    /// 这是安全路径上的位置记忆：盲人靠「往下第几个」找选项，顺序会变的菜单等于没有位置记忆。
+    /// 而弹层的内容单测够不着、UI 测试只有真机一条通道 —— 所以判据被抽成
+    /// `BlindActiveRunSafetyHubOption.options`，弹层由它驱动，这条用例钉的就是弹层真正用的那份。
+    func testSafetyHubOptionOrderIsFixedAndOnlyMissingNumbersRemoveItems() {
+        let contact = EmergencyContactResponse(
+            id: 1,
+            name: "妈妈",
+            phone: "13812345678",
+            relationship: "家人",
+            isPrimary: true
+        )
+
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.options(volunteerPhone: "13900000000", primaryContact: contact),
+            [.contactVolunteer, .announceLocation, .askQuestion,
+             .callPrimaryContact, .callMedical, .callPolice, .triggerEmergency]
+        )
+
+        // 没有联系人：**只少那一项**，其余各项的相对次序一个不动。
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.options(volunteerPhone: "13900000000", primaryContact: nil),
+            [.contactVolunteer, .announceLocation, .askQuestion, .callMedical, .callPolice, .triggerEmergency]
+        )
+
+        // 还没有志愿者号码（或号码拼不出 tel:）同理。
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.options(volunteerPhone: nil, primaryContact: contact),
+            [.announceLocation, .askQuestion, .callPrimaryContact, .callMedical, .callPolice, .triggerEmergency]
+        )
+
+        // 空白号码等同于没有号码 —— 后端在某些状态下会把这个字段留空。
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.options(volunteerPhone: "  ", primaryContact: nil),
+            [.announceLocation, .askQuestion, .callMedical, .callPolice, .triggerEmergency]
+        )
+
+        // 云端求助那一项**永远在**，且永远是最后一个 —— 它是这一层唯一走后端的动作，
+        // 位置固定才谈得上位置记忆。
+        for volunteerPhone in [nil, "13900000000"] {
+            for primaryContact in [nil, contact] {
+                let options = BlindActiveRunSafetyHubOption.options(
+                    volunteerPhone: volunteerPhone,
+                    primaryContact: primaryContact
+                )
+                XCTAssertEqual(options.last, .triggerEmergency)
+                XCTAssertTrue(options.contains(.announceLocation))
+                XCTAssertTrue(options.contains(.askQuestion))
+                XCTAssertTrue(options.contains(.callMedical))
+                XCTAssertTrue(options.contains(.callPolice))
+            }
+        }
+    }
+
+    /// 🔴 **三个拨号项没有被折进一个二级「紧急呼叫」入口。**
+    ///
+    /// 设计稿上求助中心是 2×2 四格（联系志愿者 / 播报位置 / 问一句 / 人工客服），
+    /// 照着做就得把「拨打联系人 / 120 / 110」收进第四格后面 —— 而那会让跑步途中拨 120
+    /// 从一跳变成两跳。`AGENTS.md` §6 把 120 列成与 110 并列的常驻入口，
+    /// 理由恰恰是「念得出来而按不到等于没有」；多一层菜单就是那句话的另一种写法。
+    ///
+    /// 这条用例钉的是**格子数由选项决定**，不由设计稿的行数决定：
+    /// 谁要凑 2×2，它会红，并读到上面这段理由。
+    func testDialingOptionsStayOneTapAwayInsteadOfCollapsingIntoAFourthTile() {
+        let contact = EmergencyContactResponse(
+            id: 1,
+            name: "妈妈",
+            phone: "13812345678",
+            relationship: "家人",
+            isPrimary: true
+        )
+        let tiles = BlindActiveRunSafetyHubOption.tiles(
+            volunteerPhone: "13900000000",
+            primaryContact: contact
+        )
+
+        // 拨号三项各自是一格，都在第一层。
+        XCTAssertTrue(tiles.contains(.callPrimaryContact))
+        XCTAssertTrue(tiles.contains(.callMedical))
+        XCTAssertTrue(tiles.contains(.callPolice))
+        XCTAssertGreaterThan(tiles.count, 4, "凑成 2×2 只能靠把拨号折进二级入口")
+
+        // 云端求助**不是方格**：它是弹层底部整条的红胶囊，与其余各项既不同层级也不同后果。
+        XCTAssertFalse(tiles.contains(.triggerEmergency))
+
+        // 联系人与 120 / 110 的先后与首页那套逐项一致 —— 用户记住的是「往下第二个是 120」。
+        let dialing = tiles.filter { [.callPrimaryContact, .callMedical, .callPolice].contains($0) }
+        XCTAssertEqual(dialing, [.callPrimaryContact, .callMedical, .callPolice])
+    }
+
+    /// 「分享实时位置给家人」迁进求助中心（设计稿 §3.5），且**排在最后一格**。
+    ///
+    /// 迁移的理由是功能丢失，不是布局偏好：四步骨架换掉了
+    /// `BlindOrderStatusView.trackingContent`，而那条列表里挂着这个功能唯一的入口
+    /// （`runPlanShareSection`）—— `offersRunPlanShare` 恰好覆盖骨架那四态。
+    ///
+    /// 🔴 **排最后**是位置记忆那条硬约束的延续：拨号三项的下标一个都不许动。
+    /// 插在中间的表现不会有任何东西报错 —— 只是某天用户按「往下第五个」拨 110，
+    /// 按到的是分享。
+    func testLiveShareTileIsAppendedLastAndNeverDisplacesTheDialingTiles() {
+        let contact = EmergencyContactResponse(
+            id: 1,
+            name: "妈妈",
+            phone: "13812345678",
+            relationship: "家人",
+            isPrimary: true
+        )
+
+        let withoutShare = BlindActiveRunSafetyHubOption.tiles(
+            volunteerPhone: "13900000000",
+            primaryContact: contact,
+            offersLiveShare: false
+        )
+        let withShare = BlindActiveRunSafetyHubOption.tiles(
+            volunteerPhone: "13900000000",
+            primaryContact: contact,
+            offersLiveShare: true
+        )
+
+        XCTAssertFalse(withoutShare.contains(.shareLiveLocation), "终态不该摆一个必然 409 的格子")
+        XCTAssertEqual(withShare.last, .shareLiveLocation)
+        // 逐项相同的前缀 = 既有各格的下标一个都没动。
+        XCTAssertEqual(Array(withShare.dropLast()), withoutShare)
+
+        // 云端求助仍然不是方格，也仍然是 `options` 的最后一项 —— 分享插在它之前。
+        let options = BlindActiveRunSafetyHubOption.options(
+            volunteerPhone: "13900000000",
+            primaryContact: contact,
+            offersLiveShare: true
+        )
+        XCTAssertEqual(options.last, .triggerEmergency)
+        XCTAssertFalse(withShare.contains(.triggerEmergency))
+
+        // 标题随「分享中」翻面 —— 告知页逐字承诺了「你可以随时停止分享」，
+        // 这一格必须能变成「停止」，否则那句承诺在这一层里不成立。
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.shareLiveLocation.title(contactName: nil, isLiveSharing: false),
+            RunPlanLiveShareCopy.buttonTitle
+        )
+        XCTAssertEqual(
+            BlindActiveRunSafetyHubOption.shareLiveLocation.title(contactName: nil, isLiveSharing: true),
+            RunPlanLiveShareCopy.stopButtonTitle
+        )
+    }
+
+    /// 🔴 **非 `IN_PROGRESS` 那一档的副标题与收起按钮必须换掉，不能只加一句提示。**
+    ///
+    /// 「跑步仍在记录」「收起，返回跑步」是为陪跑执行屏写的。骨架那四态
+    /// **没有任何跑步在记录**，退回去看到的也是订单页而不是跑步屏 ——
+    /// 而 header 是 `.combine` 合成**一个**无障碍元素的，那半句错话会和同一段里的
+    /// 「陪跑还没开始」连成一句自相矛盾的播报，中间没有停顿让人判断哪半句算数。
+    ///
+    /// 这条是 2026-09-16 code review 抓到的：当轮只加了新提示、没换旧的两句。
+    func testSafetyHubCopyDoesNotClaimARunIsUnderwayBeforeItStarts() {
+        XCTAssertEqual(
+            EmergencySafetyCopy.hubSubtitle(for: .cloudTrigger),
+            EmergencySafetyCopy.hubSubtitle
+        )
+        XCTAssertEqual(
+            EmergencySafetyCopy.hubDismissTitle(for: .cloudTrigger),
+            EmergencySafetyCopy.hubDismissTitle
+        )
+
+        // `.localCall` 那一档：三处都不许出现「跑步」。
+        let beforeTheRun = [
+            EmergencySafetyCopy.hubSubtitle(for: .localCall),
+            EmergencySafetyCopy.hubDismissTitle(for: .localCall),
+            EmergencySafetyCopy.hubDismissHint(for: .localCall),
+        ]
+        for copy in beforeTheRun {
+            XCTAssertFalse(
+                copy.contains("跑步"),
+                "陪跑还没开始，这句话却在说跑步：\(copy)"
+            )
+            XCTAssertFalse(copy.isEmpty)
+        }
+
+        // 反向：云端那一档**必须**保留「跑步仍在记录」。把两档都改成中性文案也能让上面全绿，
+        // 而那会丢掉执行屏上那句话唯一要回答的问题（「我的跑步是不是停了」）。
+        XCTAssertTrue(EmergencySafetyCopy.hubSubtitle(for: .cloudTrigger).contains("跑步"))
+    }
+
+    /// 🔴 **求助中心底部那条在非 `IN_PROGRESS` 必须降级为本地拨号。**
+    ///
+    /// 2026-09-16 起这一层不再只从陪跑执行屏进入 —— 四步骨架的底部也有一枚「求助与安全」，
+    /// 而那四态（匹配 / 约好 / 出发 / 汇合）**一个都不是 `IN_PROGRESS`**。
+    /// 云端求助两端都只在 `IN_PROGRESS` 开放（`AGENTS.md` §6），所以在那四态走云端的
+    /// 真实结果是：`beginCountdown` 在资格 guard 落 `.failed`、`startEmergencyCountdown`
+    /// 因此不弹全屏，而骨架那一屏没有 `EmergencyStatusNotice` 的渲染点 ——
+    /// **屏幕零变化、一个字也不播**。
+    ///
+    /// ⚠️ **这条用例钉的是判据本身，不是「订单页真的走了它」。**
+    /// `BlindHomeSOSMode.resolve` 是纯函数，本轮一行未改 —— 把
+    /// `BlindOrderStatusView` 的 `mode:` 改回写死 `.cloudTrigger`，这条**照样全绿**。
+    /// 接线那一半只有 UI 用例
+    /// `AccessibilityAuditTests.testSafetyHubOutsideTheActiveRunOffersLocalDialInsteadOfCloudSOS`
+    /// 能看见（真机唯一通道）。
+    ///
+    /// 留着它的价值是**穷举**：逐个骨架态过一遍，谁把某一态放进云端就红 ——
+    /// 而 UI 用例只走得到种子订单那一态。两条互补，都不可省。
+    ///
+    /// 写清这件事是因为初稿的注释声称它钉住了「订单页也走它」，那是假的 ——
+    /// 而一条**声称自己守住了某件事、实际守不住**的用例，比没有用例更糟：
+    /// 它的绿灯会替一个不存在的保证背书（记忆 `claimed-fallback-may-not-exist-in-release`）。
+    func testSafetyHubDowngradesToLocalCallOutsideOfTheActiveRun() {
+        let skeletonStatuses: [RunOrderStatus] = [
+            .pendingMatch, .pendingIntroCall, .rematching,
+            .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived,
+        ]
+
+        for status in skeletonStatuses {
+            let order = OrderDetailResponse.preview(status: status)
+            XCTAssertEqual(
+                BlindHomeSOSMode.resolve(order: order, role: .blind),
+                .localCall,
+                "\(status) 不是 IN_PROGRESS，云端求助发不出去；底部那条必须是本地拨号"
+            )
+        }
+
+        // 反向：陪跑进行中才是云端那条。少了这一半，把 `resolve` 改成恒 `.localCall`
+        // 也能让上面全绿 —— 而那会把唯一真能发出求助的状态一起降级掉。
+        XCTAssertEqual(
+            BlindHomeSOSMode.resolve(
+                order: OrderDetailResponse.preview(status: .inProgress),
+                role: .blind
+            ),
+            .cloudTrigger
+        )
+    }
+
+    /// 长按进度的震动节奏。
+    ///
+    /// **这是「用户凭什么知道自己按够了没」的唯一依据** —— 看不见屏幕的人按住一个红块时，
+    /// 屏幕上的进度动画对他不存在。手势本身单测够不着，所以把节奏抽成纯数据钉在这里。
+    ///
+    /// 两条不变式都不是形式主义：
+    /// - **必须渐强**。强度不变的话「按住中」和「已经按够」听起来一模一样。
+    /// - **每一拍都要严格早于 3 秒**。踩在 3.0 上那一拍会和触发同时发生，
+    ///   用户感到的是「一下重震」，而不是渐强到触发 —— 那正好把进度反馈变成了噪音。
+    func testLongPressHapticRampGrowsAndLandsBeforeTheTrigger() {
+        let ramp = SafetyLongPress.hapticRamp
+        XCTAssertFalse(ramp.isEmpty, "没有任何进度反馈，等于让盲人盲按 3 秒")
+        XCTAssertEqual(SafetyLongPress.duration, 3, "副标题里印的是 3 秒，常量必须是同一个")
+
+        for (previous, next) in zip(ramp, ramp.dropFirst()) {
+            XCTAssertLessThan(previous.elapsed, next.elapsed, "节奏必须按时间排序")
+            XCTAssertLessThan(previous.intensity, next.intensity, "强度必须渐强，否则听不出进度")
+        }
+        for step in ramp {
+            XCTAssertGreaterThanOrEqual(step.elapsed, 0)
+            XCTAssertLessThan(
+                step.elapsed,
+                SafetyLongPress.duration,
+                "落在 \(step.elapsed) 的这一拍不早于触发时刻，会和触发撞在一起"
+            )
+            XCTAssertGreaterThan(step.intensity, 0)
+            XCTAssertLessThanOrEqual(step.intensity, 1, "UIImpactFeedbackGenerator 的强度上限是 1")
+        }
+    }
+
+    /// 「播报我的位置」拿不到位置时**说拿不到，不编**。
+    ///
+    /// 这一句会被用户逐字转述给 110 / 120 —— 一个猜出来的地名比没有地名危险得多。
+    func testLocationAnnouncementNeverInventsAPlace() {
+        let unknown = EmergencySafetyCopy.locationAnnouncement(nil)
+        XCTAssertTrue(unknown.contains("定位不到"))
+        // 拿不到位置时必须给出**下一步**，否则盲人听完只知道失败、不知道该做什么。
+        XCTAssertTrue(unknown.contains("110") || unknown.contains("120"))
+
+        // 空白字符串等同于没有 —— 逆地理返回空 `title` 时不能念出「你现在在附近」。
+        XCTAssertEqual(EmergencySafetyCopy.locationAnnouncement("   "), unknown)
+
+        XCTAssertEqual(EmergencySafetyCopy.locationAnnouncement("人民公园"), "你现在在人民公园附近。")
     }
 
     /// 120 必须是**能按的**，不能只作为文字出现在状态提示里。

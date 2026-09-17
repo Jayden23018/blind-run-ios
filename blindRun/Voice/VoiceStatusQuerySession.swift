@@ -8,6 +8,10 @@ import UIKit
 ///
 /// 判定逻辑在 `VoiceStatusQuery`（纯函数、可单测）；这里只做硬件那一半：开麦、播报、拨号。
 ///
+/// 这一整轮的播报都是 `.onDemand`（`状态清单.md` 的「按需播报」）：用户自己按了「问一句」。
+/// 直接后果有两条 —— 每一句前面会有 0.3 秒前置音，而它整体让位于状态推进与警示那两档。
+/// 前置音带来的 0.3 秒延迟落在 `settleTimeout` 的 6 秒余量里，不会提前开麦。
+///
 /// **两个页面共用一个实现，不各写一份。** 首页与订单状态页的差别只有「订单和志愿者坐标从哪来」，
 /// 用 `context` 闭包收掉；拨号确认那一段是安全逻辑，抄两遍迟早漂移（`AGENTS.md` §1）。
 @MainActor
@@ -72,12 +76,12 @@ final class VoiceStatusQuerySession {
             volunteerCoordinate: coordinate,
             fallbackAnnouncement: fallbackAnnouncement(order: order, coordinate: coordinate)
         )
-        speechService?.speak(answer.speech)
+        speechService?.speak(answer.speech, priority: .onDemand)
 
         guard case .confirmDialVolunteer(let phone) = answer.pendingAction else { return }
         Task { [weak self] in
             // 号码没念完就开麦，用户听到的是被自己截断的号码 —— 而他要靠这串数字判断拨给谁。
-            await self?.waitForSpeechToSettle(characterCount: answer.speech.count)
+            await self?.waitForSpeechToSettle(answer.speech)
             guard let self, let speechInputService, self.currentRound == round else { return }
             self.listen(field: .voiceStatusConfirmCall, round: round, service: speechInputService) { [weak self] reply in
                 self?.handleDialConfirmation(reply, phone: phone)
@@ -87,7 +91,7 @@ final class VoiceStatusQuerySession {
 
     private func handleDialConfirmation(_ transcript: String, phone: String) {
         guard VoiceStatusQuery.isDialConfirmed(transcript) else {
-            speechService?.speak(VoiceStatusQuery.dialCancelledSpeech)
+            speechService?.speak(VoiceStatusQuery.dialCancelledSpeech, priority: .onDemand)
             return
         }
         // 复述号码到用户说完「确认」之间隔了好几秒，订单可能已经变了（志愿者取消 → REMATCHING）。
@@ -96,10 +100,10 @@ final class VoiceStatusQuerySession {
         let (order, _) = context?() ?? (nil, nil)
         guard order?.status.offersVolunteerCall == true,
               let telURL = EmergencyDialer.telURL(for: phone) else {
-            speechService?.speak("订单状态已经变了，现在不能打电话给志愿者。")
+            speechService?.speak("订单状态已经变了，现在不能打电话给志愿者。", priority: .onDemand)
             return
         }
-        speechService?.speak("正在拨号。")
+        speechService?.speak("正在拨号。", priority: .onDemand)
         EmergencyDialer.dial(telURL)
     }
 
@@ -129,7 +133,7 @@ final class VoiceStatusQuerySession {
                     // 确认那一轮没听到声音 = 没确认。必须说出「没拨」，不能静默收场。
                     let tail = field == .voiceStatusConfirmCall ? VoiceStatusQuery.dialCancelledSpeech : nil
                     let spoken = [announcement, tail].compactMap { $0 }.joined(separator: " ")
-                    if !spoken.isEmpty { self.speechService?.speak(spoken) }
+                    if !spoken.isEmpty { self.speechService?.speak(spoken, priority: .onDemand) }
                     return
                 }
                 onTranscript(completion.recognizedText.trimmed)
@@ -138,10 +142,29 @@ final class VoiceStatusQuerySession {
     }
 
     /// 与 `VoiceOrderWizard.waitForSpeechToSettle` 同一套：上限按字数走，播完就立刻放行。
-    private func waitForSpeechToSettle(characterCount: Int) async {
+    ///
+    /// 🔴 **但这里要分两段等，因为这一轮是 `.onDemand`（第二低档），会被排队。**
+    ///
+    /// 只等 `isSpeaking` 是不够的：排队期间它为真说的是**别人**那条还在播，
+    /// 而上限只按我们这句号码的字数算。于是「状态推进那句 4 秒 + 号码这句 5 秒」
+    /// 会在 8 秒的上限处放行 —— 号码才念到一半，麦克风已经开了，
+    /// 用户被要求确认一个他根本没听全的号码。这是整条语音链路上最不能出错的一句。
+    ///
+    /// 第一段等它**真的开口**（`lastSpokenText` 只在 `VoiceService.play` 里写，
+    /// 即实际送进合成器那一刻），第二段才是原来那个按字数算的上限。
+    /// 两段各自有上限，任何一段卡住都不会把人吊死。
+    private func waitForSpeechToSettle(_ text: String) async {
         guard let speechService else { return }
+        let startDeadline = Date().addingTimeInterval(
+            VoiceOrderWizard.settleTimeout(forCharacterCount: 0)
+        )
+        while speechService.lastSpokenText != text,
+              speechService.isSpeaking,
+              Date() < startDeadline {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+        }
         let deadline = Date().addingTimeInterval(
-            VoiceOrderWizard.settleTimeout(forCharacterCount: characterCount)
+            VoiceOrderWizard.settleTimeout(forCharacterCount: text.count)
         )
         while speechService.isSpeaking && Date() < deadline {
             try? await Task.sleep(nanoseconds: 150_000_000)

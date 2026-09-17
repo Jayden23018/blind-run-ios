@@ -18,13 +18,13 @@ struct BlindRunnerSettingsView: View {
             }
 
             Section {
-                // 入口放设置而不是首页：首页刚按 `blind-ui-visual-benchmark-20260808.md`
-                // 做过减法（主按钮吃掉内容区七成），再塞一个列表入口会把那次结论推翻。
-                NavigationLink("我的历史订单") {
-                    BlindRunHistoryView()
-                }
-                .accessibilityLabel("我的历史订单")
-                .accessibilityHint("查看已结束的每一单：路线、里程和用时，也可以在这里补评价")
+                // 🗑「我的历史订单」这条入口已删除：2026-09-16 起它是底部标签栏的「记录」tab
+                // （`BlindRunnerTabView`），一个顶级 tab 加一条列表行等于同一个页面两条路。
+                // 对靠位置记忆操作的读屏用户，两条路比一条路更难记 —— 而 tab 那条永远在。
+                //
+                // 原注释「入口放设置而不是首页，因为首页刚做过减法」已作废：那次减法减掉的是
+                // 280pt 主按钮那一版的首页，而现在首页是「问候 + 订单卡 + 预约块」三块，
+                // 历史订单也不在首页上，它在自己的 tab 里。
 
                 NavigationLink("个人资料") {
                     BlindRunnerProfileView()

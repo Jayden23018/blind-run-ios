@@ -33,6 +33,34 @@ final class KeepWaitingTests: XCTestCase {
         )
     }
 
+    /// 🔴 **「后端受理」与「屏幕上有按钮」是两条判定，差的就是 `PENDING_MATCH`。**
+    ///
+    /// 项目负责人 2026-09-16 拍板删掉 `PENDING_MATCH` 那个按钮：后端 `handleMatchTimeout`
+    /// 每轮超时自己就把窗口往后推，客户端一次不调订单寿命相同。`REMATCHING` 保留 ——
+    /// 后端 N62 把 `rematchNotifyAt` 计进 `dispatchDeadline`，那一按是真延长。
+    ///
+    /// 这条同时是**验红面**：把 `offersBlindRunnerKeepWaitingControl` 改回派生自
+    /// `offersKeepWaiting`（两态都给），第一个断言立刻红。挑 `PENDING_MATCH` 而不是随手
+    /// 取一个终态，正是因为终态在两种实现下都是 false —— 分辨不出门槛有没有被放宽。
+    func testOnlyRematchingActuallyRendersTheKeepWaitingControl() {
+        XCTAssertFalse(
+            RunOrderStatus.pendingMatch.offersBlindRunnerKeepWaitingControl,
+            "PENDING_MATCH 那个按钮已删；判 true 会让 repeatStatus 念一个屏幕上没有的按钮"
+        )
+        XCTAssertTrue(RunOrderStatus.rematching.offersBlindRunnerKeepWaitingControl)
+
+        // 后端那一侧一行没改：`keepWaitingEndpoint` 回答的是契约事实（`PENDING_MATCH`
+        // 照样受理 `keepWaiting`），两条判定刻意不同步。
+        XCTAssertTrue(RunOrderStatus.pendingMatch.offersKeepWaiting)
+
+        for status in RunOrderStatus.allCases where !status.offersKeepWaiting {
+            XCTAssertFalse(
+                status.offersBlindRunnerKeepWaitingControl,
+                "\(status) 后端都不受理，更不该有按钮"
+            )
+        }
+    }
+
     /// 端点按状态分派，且两个端点的前置状态互斥。
     func testEachWaitingStatusMapsToItsOwnEndpoint() {
         XCTAssertEqual(RunOrderStatus.pendingMatch.keepWaitingEndpoint, .keepWaiting)
@@ -155,7 +183,9 @@ final class KeepWaitingTests: XCTestCase {
         let speechService = SpeechService()
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: speechService)
-        viewModel.order = Self.makeOrder(orderId: 505, status: .pendingMatch)
+        // `REMATCHING` 而不是 `PENDING_MATCH`：后者的按钮已按 2026-09-16 的决策删除，
+        // 用它的话第一个断言从一开始就不成立，这条用例会红在自己的前提上。
+        viewModel.order = Self.makeOrder(orderId: 505, status: .rematching)
 
         XCTAssertTrue(viewModel.canShowKeepWaiting)
 
@@ -164,7 +194,7 @@ final class KeepWaitingTests: XCTestCase {
         XCTAssertTrue(viewModel.keepWaitingLimitReached)
         XCTAssertFalse(viewModel.canShowKeepWaiting, "上限已到，按钮还留在页面上")
         // 状态没变，所以「不可见」只能来自上限标记，不能来自状态判定。
-        XCTAssertTrue(viewModel.order?.status.offersKeepWaiting == true)
+        XCTAssertTrue(viewModel.order?.status.offersBlindRunnerKeepWaitingControl == true)
         XCTAssertEqual(speechService.lastSpokenText, KeepWaitingCopy.limitReached)
     }
 
@@ -252,13 +282,41 @@ final class KeepWaitingTests: XCTestCase {
         let speechService = SpeechService()
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: speechService)
-        viewModel.order = Self.makeOrder(orderId: 509, status: .pendingMatch)
+        viewModel.order = Self.makeOrder(orderId: 509, status: .rematching)
 
         viewModel.repeatStatus()
 
         let spoken = speechService.lastSpokenText ?? ""
         XCTAssertTrue(spoken.contains(KeepWaitingCopy.repeatStatusSuffix), "播报里没有提到继续等待")
         // 状态本身仍排在最前面，动作是附加而非替代。
+        XCTAssertTrue(spoken.hasPrefix(RunOrderStatus.rematching.blindRunnerAnnouncement))
+    }
+
+    /// 🔴 **`PENDING_MATCH` 不许念「可以点继续等待」—— 那个按钮已经不在屏幕上了。**
+    ///
+    /// 这一条与上面那条是一对，方向相反。原来这两态共用同一个断言
+    /// （`offersKeepWaiting` 两态都 true），于是删掉 `PENDING_MATCH` 的按钮之后
+    /// **播报照旧**：念一个屏幕上不存在的控件，而看不见屏幕的人无从发现自己在被误导。
+    ///
+    /// 它同时钉住同一条判据的第三个读者（另两个是骨架主按钮与
+    /// `ORDER_CANCELLATION_WARNING` 正文覆盖）——
+    /// 把 `canShowKeepWaiting` 改回读 `offersKeepWaiting`，这一条立刻红。
+    func testRepeatStatusStaysSilentAboutKeepWaitingWhilePendingMatch() {
+        let appState = AppState()
+        appState.currentEnvironment = .mock
+        let speechService = SpeechService()
+        let viewModel = BlindOrderStatusViewModel()
+        viewModel.configure(appState: appState, speechService: speechService)
+        viewModel.order = Self.makeOrder(orderId: 512, status: .pendingMatch)
+
+        viewModel.repeatStatus()
+
+        let spoken = speechService.lastSpokenText ?? ""
+        XCTAssertFalse(
+            spoken.contains(KeepWaitingCopy.repeatStatusSuffix),
+            "PENDING_MATCH 已经没有「继续等待」按钮，播报还在指路"
+        )
+        // 状态本身照旧播 —— 收走的只是那句指向不存在控件的附带提示。
         XCTAssertTrue(spoken.hasPrefix(RunOrderStatus.pendingMatch.blindRunnerAnnouncement))
     }
 
@@ -272,7 +330,9 @@ final class KeepWaitingTests: XCTestCase {
         let speechService = SpeechService()
         let viewModel = BlindOrderStatusViewModel()
         viewModel.configure(appState: appState, speechService: speechService)
-        viewModel.order = Self.makeOrder(orderId: 510, status: .pendingMatch)
+        // `REMATCHING`：`PENDING_MATCH` 在任何情况下都不再念那句（见上一条），
+        // 用它会让这条用例在「上限逻辑坏了」时照样绿 —— 分辨不出它守的是哪件事。
+        viewModel.order = Self.makeOrder(orderId: 510, status: .rematching)
 
         await viewModel.keepWaiting()
         viewModel.repeatStatus()

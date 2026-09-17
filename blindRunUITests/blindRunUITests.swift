@@ -25,8 +25,23 @@ final class blindRunUITests: XCTestCase {
         createBookingAndAssertMatching(app)
     }
 
+    /// 首页的读屏遍历顺序：问候（标题）→ 主内容 → 标签栏。
+    ///
+    /// 🔄 **2026-09-16 改版后这条换了守的对象。** 原用例叫
+    /// `testMockBlindRunnerHomeKeepsAuxiliaryMapOutOfVoiceOverSoPrimaryActionComesFirst`，
+    /// 断的是「铺满上半屏的装饰地图不在无障碍树里」+「内容层排在设置齿轮之前」。
+    /// 改版把装饰地图和悬浮齿轮**双双删除**（设计稿的首页只有问候 + 订单卡 + 预约块，
+    /// 设置进了「我的」tab），那两条断言的对象都不存在了 ——
+    /// 留着会变成恒真断言，也就是「写了等于没写」。
+    ///
+    /// 接手的不变式是设计稿第 5.1 节的读屏顺序：**问候 → 订单卡 → 预约块 → 标签栏**。
+    /// 这里能比的是前两者：它们同在滚动视图内部、同一深度，下标可比。
+    ///
+    /// ⚠️ 不拿标签栏进下标比较：`allElementsBoundByAccessibilityElement` 是**逐层枚举**的
+    /// （同深度的兄弟全排完才轮到子元素），标签栏与滚动视图内容差的是深度不是顺序 ——
+    /// 2026-08-07 那条红了半年的断言就是这么来的。
     @MainActor
-    func testMockBlindRunnerHomeKeepsAuxiliaryMapOutOfVoiceOverSoPrimaryActionComesFirst() throws {
+    func testBlindRunnerHomeReadsGreetingBeforeTheMainAction() throws {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
@@ -34,48 +49,33 @@ final class blindRunUITests: XCTestCase {
             emptyMockOrders: true
         )
 
-        let startButton = app.buttons["开始约跑"].firstMatch
-        XCTAssertTrue(startButton.waitForExistence(timeout: 12), "Blind runner home should show start booking")
-        // 删掉了一条断 `homeMapPlaceholder` 不存在的断言：那个 identifier App 侧从来没有过
-        // （占位图真实的 id 是 `mapPlaceholder`），所以它恒真、等于没写。
-        // 也不能直接改成 `mapPlaceholder`：UI 测试默认 `disableMap: true`，占位图是被强制渲染的。
+        let booking = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
+        XCTAssertTrue(booking.waitForExistence(timeout: 12), "盲人首页没起来")
 
-        // 2026-08-07 这条用例断言的是「主操作排在地图之前」，从那天起就一直红着（27 vs 16），
-        // 而且**改不动**：`allElementsBoundByAccessibilityElement` 是逐层枚举的（同深度的兄弟
-        // 全排完才轮到它们的子元素），地图是 ZStack 的直接子层、按钮在滚动视图里面，两个下标
-        // 差的是深度不是顺序，怎么排都填不平。
-        //
-        // 2026-08-14 在真机上实测了四种排法（裸 `accessibilitySortPriority`、换声明顺序 +
-        // `zIndex`、三层都加 `children: .contain` 再排、地图改成内容层的 `.background`），
-        // 地图一律排在内容前面 —— SwiftUI 把遍历顺序绑死在绘制顺序上，而地图必须画在最底层。
-        // 详见 `docs/research/swiftui-voiceover-traversal-order-20260814.md`。
-        //
-        // 结论：地图改为对读屏**完全隐藏**（纯装饰、不可交互、信息在 `locationSummarySection`
-        // 有文字版），读屏用户 0 次多余划动就够到主操作。所以这里断言的是「不在树里」。
+        let greeting = app.descendants(matching: .any)["blindRunnerHomeGreeting"].firstMatch
+        XCTAssertTrue(greeting.waitForExistence(timeout: 5), "首页缺少问候 —— 它是这一屏的标题")
+
+        let elements = app.descendants(matching: .any).allElementsBoundByAccessibilityElement
+        let greetingIndex = elements.firstIndex { $0.identifier == "blindRunnerHomeGreeting" }
+        let bookingIndex = elements.firstIndex { $0.identifier == "blindRunnerHomeStartBookingButton" }
+        XCTAssertNotNil(greetingIndex, "问候必须在无障碍元素树里")
+        XCTAssertNotNil(bookingIndex, "预约入口必须在无障碍元素树里")
+        if let greetingIndex, let bookingIndex {
+            XCTAssertLessThan(
+                greetingIndex,
+                bookingIndex,
+                "问候必须排在主操作之前 —— 打开 App 第一句该先知道「这是谁的首页」"
+            )
+        }
+
+        // 装饰地图已整块删除。断「不在树里」而不是「不存在」：它此前的洞恰恰是
+        // 外层 `accessibilityHidden` 盖不住内部合成的元素（真 key 构建上实测），
+        // 所以判据必须落在无障碍树上。
         XCTAssertEqual(
             app.descendants(matching: .any).matching(identifier: "blindRunnerHomeAuxiliaryMap").count, // guard:allow stale-ui-test-identifier
             0,
             "装饰性地图不得出现在无障碍元素树里"
         )
-
-        // 仍然钉住一条真实的遍历顺序：内容层排在设置齿轮之前（齿轮曾经是进首页遍历到的第 2 个
-        // 元素）。这两个是 ZStack 的直接子层，**同一深度**，下标可比。
-        let elements = app.descendants(matching: .any).allElementsBoundByAccessibilityElement
-        let contentIndex = elements.firstIndex { $0.identifier == "blindRunnerHomeScrollView" }
-        let settingsIndex = elements.firstIndex { $0.label == "设置" }
-        XCTAssertNotNil(contentIndex, "内容层必须在无障碍元素树里")
-        XCTAssertNotNil(settingsIndex, "设置入口必须在无障碍元素树里")
-        XCTAssertTrue(
-            app.scrollViews["blindRunnerHomeScrollView"].buttons["开始约跑"].firstMatch.exists,
-            "主操作必须在内容层内部，否则上面的下标比较证明不了主操作的位置"
-        )
-        if let contentIndex, let settingsIndex {
-            XCTAssertLessThan(
-                contentIndex,
-                settingsIndex,
-                "Voice-first home must place the primary action before auxiliary controls in VoiceOver traversal"
-            )
-        }
     }
 
     @MainActor
@@ -92,7 +92,10 @@ final class blindRunUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["rootRoute.unauthenticated"].firstMatch.exists)
         XCTAssertFalse(app.descendants(matching: .any)["rootRoute.blindProfile"].firstMatch.exists)
         XCTAssertFalse(app.descendants(matching: .any)["rootRoute.restoringAccount"].firstMatch.exists)
-        XCTAssertTrue(app.buttons["开始约跑"].firstMatch.isHittable, "Committed home must remain interactive")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch.isHittable,
+            "Committed home must remain interactive"
+        )
     }
 
     @MainActor
@@ -125,30 +128,29 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(retryButton.waitForExistence(timeout: 5), "A non-cooperative request must release loading at the deadline")
         XCTAssertTrue(retryButton.isHittable)
 
-        // 「重复当前状态」排在 280pt 的「开始约跑」下面，无订单态里整段落在首屏之外
-        // （`BlindRunnerHomeView.askQuestionButton` 的注释记着同一件事）。**必须先滚过去再点。**
-        // 不滚也照样 `isHittable == true`，但触点落在屏幕底部常驻的「紧急呼叫」条上：
-        // 2026-08-14 因此弹出本地拨号确认单，紧接着的 swipe 又在确认单上拖拽选中「拨打110」，
-        // iOS 弹出 `com.apple.BusinessActionSheet` 选号单，对它的快照查询超时 ——
-        // 报出来是 "Failed to get matching snapshots"，看着完全不像误触。
-        let repeatButton = app.buttons["重复当前状态"].firstMatch
-        // 断言滚动**真的成功了**：滚不动时 helper 会静默放弃，随后的 tap 打在求助条上，
-        // 报出来的错（拨号确认单 / 系统选号单超时）和真因隔了三层，2026-08-14 因此查了半天。
-        XCTAssertTrue(
-            scrollElementIntoView(repeatButton, app: app),
-            "没能把「重复当前状态」滚出底部常驻求助条的遮挡，接下来的 tap 必然误触"
-        )
-        XCTAssertTrue(repeatButton.isHittable, "Local TTS action must not wait for the backend")
-        repeatButton.tap()
-        // 误触求助条的回归钉子。真机上这条路径会真的拨出去，当时只有双卡选号单挡了一下。
+        // 🔄 **2026-09-16 改版后这一段换了对象。** 原来点的是首页的「重复当前状态」，
+        // 并且必须先 `scrollElementIntoView` 把它滚出底部常驻求助条的遮挡 —— 不滚也
+        // `isHittable == true`，但触点会落在求助条上，2026-08-14 因此真的走到了拨号确认单，
+        // 再被后续 swipe 拖到「拨打110」，最后报成一个完全不像误触的快照超时。
+        //
+        // 改版后首页既没有「重复当前状态」也没有求助条（前者进求助与安全中心、
+        // 后者进「我的」tab），底部的固定条是标签栏。所以这里改成验**加载挂起时
+        // 标签栏仍然可用**：那是这一屏此刻唯一还能带用户离开的东西。
+        //
+        // 误触那条回归钉子保留 —— 判据从「求助条」换成「标签栏」，但要防的事情没变：
+        // 本地操作的触点不许落到底部固定条上。
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 5), "加载挂起时底部标签栏消失了")
+
+        let profileTab = tabBar.buttons["我的"]
+        XCTAssertTrue(profileTab.isHittable, "Tab bar must remain independent from home loading")
+        profileTab.tap()
+        // 误触求助条的回归钉子。真机上那条路径会真的拨出去，当时只有双卡选号单挡了一下。
         XCTAssertFalse(
             app.buttons["拨打110"].firstMatch.exists,
-            "本地操作的触点落到了常驻求助条上，弹出了本地拨号确认单"
+            "切 tab 的触点落到了「我的」底部那条求助条上，弹出了本地拨号确认单"
         )
 
-        let settingsButton = app.buttons["设置"].firstMatch
-        XCTAssertTrue(settingsButton.isHittable, "Settings must remain independent from home loading")
-        settingsButton.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
     }
 
@@ -268,21 +270,20 @@ final class blindRunUITests: XCTestCase {
 
         let startButton = app.buttons["开始服务"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should allow the volunteer to start service")
-        let completeButton = app.buttons["结束服务"].firstMatch
-        XCTAssertFalse(completeButton.waitForExistence(timeout: 1), "Arrived order must not allow completing service before IN_PROGRESS")
+        // 按 identifier 取，不按文案：这枚按钮不带 `.isButton` trait（它没有轻点路径，
+        // 读屏走自定义动作），`app.buttons[...]` 取不到它。
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertFalse(finishControl.waitForExistence(timeout: 1), "Arrived order must not allow completing service before IN_PROGRESS")
         startButton.tap()
-        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "In-progress order should allow completing service")
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 8), "In-progress order should expose the long-press finish control")
         // 2026-08-01 起志愿者可以代盲人发起求助（后端已按订单参与方归属事件，不再回推给按按钮的人）。
         // 这里原本断言「志愿者永远看不到求助入口」，那是后端送错人时期的止血，现在反过来验它必须可用。
         assertEmergencyActionIsUsable(app)
 
-        completeButton.tap()
-        let confirmComplete = app.buttons["确认完成服务"].firstMatch
-        XCTAssertTrue(
-            confirmComplete.waitForExistence(timeout: 5),
-            "Completing service should require an explicit confirmation action"
-        )
-        confirmComplete.tap()
+        // 结束要按满 2 秒（没有轻点路径）。松手即取消那一半在
+        // `testVolunteerFinishesEscortOnlyAfterHoldingLongEnough` 里单独验 ——
+        // 这条烟囱用例要先走完出发 / 到达 / 开始三步，沿途任何一条红灯都会把它挡在这之前。
+        finishControl.press(forDuration: 2.6)
 
         let summary = app.descendants(matching: .any)["completedTrackSummary"].firstMatch
         XCTAssertTrue(summary.waitForExistence(timeout: 10), "Completed service should show the reusable track summary")
@@ -311,6 +312,52 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(
             app.descendants(matching: .any)["routeReplayRepeatStatus"].firstMatch.waitForExistence(timeout: 5),
             "The replay page must stay usable without inspecting the map"
+        )
+    }
+
+    /// 长按 2 秒结束陪跑的**行为**那一半：松手即取消 / 按满才结束。
+    ///
+    /// 走**指针路径**（`press(forDuration:)` 注入的是物理触摸），形状那一半在
+    /// `AccessibilityAuditTests.testVolunteerFinishEscortControlIsReachableAndBigEnough`。
+    /// 两条路最终调的是同一个 `VolunteerFinishLongPressButton.fire()`。
+    /// ⛔ 不要在这里改成「tap 一下再断言结束了」：`tap()` 不经过 accessibility action，
+    /// 而这枚控件没有轻点路径 —— 那样写必红，且红得毫无信息量。
+    ///
+    /// 直接把订单预置在 `IN_PROGRESS`，不走烟囱用例那条出发 → 到达 → 开始的长路：
+    /// 那条路上有一条与本功能无关的既有红灯（求助悬浮键 `isHittable == false`，
+    /// 2026-09-16 在 `main@fdc6579` 上复现过同一签名），挂在它后面等于这一条永远跑不到。
+    @MainActor
+    func testVolunteerFinishesEscortOnlyAfterHoldingLongEnough() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true,
+            seedOrderStatus: "IN_PROGRESS"
+        )
+
+        openCurrentVolunteerService(app, requirePhone: false)
+
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 15), "服务进行中必须有结束入口")
+
+        let completedSummary = app.descendants(matching: .any)["completedTrackSummary"].firstMatch
+        // 两个时长写死在这里而不是引用 App 侧常量（UI 测试是另一个进程，`@testable import`
+        // 够不着）：阈值本身由 `VolunteerFinishLongPressTests` 钉住，这里只要一个明显不足、
+        // 一个明显足够。
+        finishControl.press(forDuration: 0.6)
+        XCTAssertFalse(
+            completedSummary.waitForExistence(timeout: 3),
+            "松手即取消：不足 2 秒就结束了陪跑，等于误触一次不可撤销的操作"
+        )
+        XCTAssertTrue(finishControl.exists, "取消一次长按之后，结束入口必须还在原地")
+
+        finishControl.press(forDuration: 2.6)
+        XCTAssertTrue(
+            completedSummary.waitForExistence(timeout: 10),
+            "按满 2 秒必须真的结束 —— 否则这枚按钮对不开读屏的人就是个按不动的东西"
         )
     }
 
@@ -523,11 +570,11 @@ final class blindRunUITests: XCTestCase {
 
         let startButton = app.buttons["开始服务"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Arrived order should show start-service action")
-        let completeButton = app.buttons["结束服务"].firstMatch
-        XCTAssertFalse(completeButton.waitForExistence(timeout: 1), "Arrived order should hide complete button")
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertFalse(finishControl.waitForExistence(timeout: 1), "Arrived order should hide the finish control")
         attachScreenshot(named: "volunteer-service-arrived", app: app)
         startButton.tap()
-        XCTAssertTrue(completeButton.waitForExistence(timeout: 8), "Started service should show complete action")
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 8), "Started service should show the long-press finish control")
         attachScreenshot(named: "volunteer-service-in-progress", app: app)
     }
 
@@ -769,7 +816,10 @@ final class blindRunUITests: XCTestCase {
             preseedBlindProfile: true
         )
 
-        let currentOrderButton = app.buttons["查看当前订单"].firstMatch
+        // 2026-09-16 起首页的入口是整张深蓝订单卡，不再是「查看当前订单」按钮。
+        // 这两条是 SOS 红线用例，入口挂掉会让它们在第一行就 waitForExistence 失败 ——
+        // 表现是「求助入口不存在」这种指向完全错误的失败信息，而红线其实没被验过。
+        let currentOrderButton = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(currentOrderButton.waitForExistence(timeout: 12), "Blind runner home should expose current order")
         currentOrderButton.tap()
 
@@ -787,12 +837,30 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(startButton.waitForExistence(timeout: 8), "Mock controls should allow starting the service")
         startButton.tap()
 
-        let sos = emergencyAction(app)
-        XCTAssertTrue(sos.waitForExistence(timeout: 8), "IN_PROGRESS should expose the blind SOS action")
-        XCTAssertGreaterThanOrEqual(sos.frame.height, 64, "Blind primary actions must be at least 64pt high")
+        let hub = blindSafetyHub(app)
+        XCTAssertTrue(hub.waitForExistence(timeout: 8), "IN_PROGRESS should expose the blind safety hub")
+        XCTAssertGreaterThanOrEqual(hub.frame.height, 64, "Blind primary actions must be at least 64pt high")
 
-        // Exact second-confirmation copy, and cancel must send nothing.
-        sos.tap()
+        // 2026-09-15：求助中心是**一层菜单**，不是那个二次确认。
+        // 🔴 打开它必须什么都还没发生 —— 菜单里第一项是「联系志愿者」这种无害动作，
+        // 所以这一层的正文绝不能是那句逐字锁定的确认文案。
+        hub.tap()
+        let hubSheet = app.sheets["求助"].firstMatch
+        XCTAssertTrue(hubSheet.waitForExistence(timeout: 5), "求助块没有打开求助中心")
+        XCTAssertTrue(
+            hubSheet.staticTexts.containing(
+                NSPredicate(format: "label CONTAINS %@", "还没有发送求助")
+            ).firstMatch.exists,
+            "求助中心的第一句必须先说清什么都还没发出去"
+        )
+        XCTAssertFalse(
+            hubSheet.staticTexts["是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"]
+                .firstMatch.exists,
+            "逐字锁定的二次确认文案不许被挪用成菜单正文"
+        )
+
+        // 云端那条走的仍是「一键求助」，且二次确认一步不减。
+        hubSheet.buttons["一键求助"].firstMatch.tap()
         let confirmation = app.alerts["一键求助"].firstMatch
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5), "SOS must require a second confirmation")
         XCTAssertTrue(
@@ -824,7 +892,10 @@ final class blindRunUITests: XCTestCase {
             preseedBlindProfile: true
         )
 
-        let currentOrderButton = app.buttons["查看当前订单"].firstMatch
+        // 2026-09-16 起首页的入口是整张深蓝订单卡，不再是「查看当前订单」按钮。
+        // 这两条是 SOS 红线用例，入口挂掉会让它们在第一行就 waitForExistence 失败 ——
+        // 表现是「求助入口不存在」这种指向完全错误的失败信息，而红线其实没被验过。
+        let currentOrderButton = app.descendants(matching: .any)["blindRunnerHomeOrderCard"].firstMatch
         XCTAssertTrue(currentOrderButton.waitForExistence(timeout: 12))
         currentOrderButton.tap()
 
@@ -834,7 +905,7 @@ final class blindRunUITests: XCTestCase {
             button.tap()
         }
 
-        XCTAssertTrue(emergencyAction(app).waitForExistence(timeout: 8))
+        XCTAssertTrue(blindSafetyHub(app).waitForExistence(timeout: 8))
         for claim in ["联系人已收到短信", "已收到短信", "已通知家属", "已通知你的联系人"] {
             XCTAssertFalse(
                 app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", claim))
@@ -854,9 +925,8 @@ final class blindRunUITests: XCTestCase {
             emptyMockOrders: true
         )
 
-        let settingsButton = app.buttons["设置"].firstMatch
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10), "Blind runner home should expose settings")
-        settingsButton.tap()
+        // 入口走「我的」tab（齿轮已随首页改版删除），与紧急联系人那批用例共用同一个 helper。
+        openSettings(app)
 
         let logoutButton = app.buttons["退出登录"].firstMatch
         XCTAssertTrue(logoutButton.waitForExistence(timeout: 5), "Settings should expose logout")
@@ -1304,6 +1374,10 @@ final class blindRunUITests: XCTestCase {
         preseedVolunteerProfile: Bool = false,
         preseedVolunteerAvailable: Bool = false,
         preseedVolunteerActiveOrder: Bool = false,
+        /// 直接把预置订单落在某个状态上（`AIDRUN_UI_TEST_SEED_ORDER_STATUS`），
+        /// 免得为了验一个 `IN_PROGRESS` 的行为先走完出发 / 到达 / 开始三步。
+        /// 走那三步的用例会连带吃掉沿途每一条断言的红灯，验的东西就不是自己那一条了。
+        seedOrderStatus: String? = nil,
         forceRealVolunteerRegistration: Bool = false,
         unregisteredVolunteer: Bool = false,
         legacyTrainingStatusAfterFaceVerify: Bool = false,
@@ -1376,6 +1450,9 @@ final class blindRunUITests: XCTestCase {
         if preseedVolunteerActiveOrder {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"
         }
+        if let seedOrderStatus {
+            app.launchEnvironment["AIDRUN_UI_TEST_SEED_ORDER_STATUS"] = seedOrderStatus
+        }
         if forceRealVolunteerRegistration {
             app.launchEnvironment["AIDRUN_UI_TEST_FORCE_REAL_REGISTRATION"] = "1"
         }
@@ -1404,10 +1481,21 @@ final class blindRunUITests: XCTestCase {
         return app
     }
 
+    /// 打开盲人端的设置。
+    ///
+    /// 🔄 **2026-09-16 起走「我的」tab，不再是首页右上角的悬浮齿轮。**
+    /// 齿轮已随首页改版删除（设计稿的首页只有问候 + 订单卡 + 预约块）。
+    /// 抽成 helper 的价值就在这里：入口换了一次，三个调用点一起跟上。
     private func openSettings(_ app: XCUIApplication) {
-        let settingsButton = app.buttons["设置"].firstMatch
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 12))
-        settingsButton.tap()
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 12), "盲人端标签栏没起来，够不到设置")
+        let profileTab = tabBar.buttons["我的"]
+        XCTAssertTrue(profileTab.waitForExistence(timeout: 5), "标签栏缺少「我的」")
+        profileTab.tap()
+        XCTAssertTrue(
+            app.navigationBars["设置"].waitForExistence(timeout: 10),
+            "「我的」tab 里没有设置页"
+        )
     }
 
     // MARK: - 紧急联系人 helpers
@@ -1753,7 +1841,10 @@ final class blindRunUITests: XCTestCase {
     /// 原来写死「第 1 步 → 第 2 步 → 第 3 步 → 提交」的走法在前一种设备上必挂，
     /// 而挂的原因和下单链路无关。所以改成：先退出语音，然后一路按主操作走到「提交预约」。
     private func createBookingAndAssertMatching(_ app: XCUIApplication) {
-        let startButton = app.buttons["开始约跑"].firstMatch
+        // 2026-09-16 起首页的下单入口是浅蓝「预约新的陪跑」块。identifier 与改版前逐字相同，
+        // 所以按 identifier 找而不是按中文标签 —— 标签这一轮就改了，而 guard 的
+        // `stale-ui-test-identifier` 只对 identifier 做双向校验，抓不到中文文案漂移。
+        let startButton = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
         XCTAssertTrue(startButton.waitForExistence(timeout: 12), "Blind runner home should show start booking")
         startButton.tap()
 
@@ -1817,7 +1908,10 @@ final class blindRunUITests: XCTestCase {
         let role = app.buttons["我是盲人跑者，预约志愿者陪我跑步"].firstMatch
         let profile = app.staticTexts["完善信息"].firstMatch
         let editProfile = app.staticTexts["编辑资料"].firstMatch
-        let home = app.buttons["开始约跑"].firstMatch
+        // 同上：按 identifier，不按已改的中文标签。此前这里是 `buttons["开始约跑"]`，
+        // 改版后恒为 false —— 同一个 OR 里有 `rootRoute.blindHome` 兜着，所以不会让用例变红，
+        // 但下次有人据它判断「首页起来了」会拿到一个永远不成立的探针。
+        let home = app.descendants(matching: .any)["blindRunnerHomeStartBookingButton"].firstMatch
         let homeRoute = app.descendants(matching: .any)["rootRoute.blindHome"].firstMatch
         let error = app.staticTexts["网络错误，请重试。"].firstMatch
         let loginFailed = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "登录失败")).firstMatch
@@ -1989,8 +2083,21 @@ final class blindRunUITests: XCTestCase {
     }
 
     /// The SOS button, located by its accessibility label so the assertion also covers VoiceOver.
+    ///
+    /// 志愿者端仍然是这一个。**盲人端陪跑中已不是** —— 那一屏 2026-09-15 起是求助中心，
+    /// 见下面 `blindSafetyHub`。
     private func emergencyAction(_ app: XCUIApplication) -> XCUIElement {
         app.buttons["一键求助，遇到紧急情况时点击"].firstMatch
+    }
+
+    /// 盲人端陪跑中贴底的那块求助中心。
+    ///
+    /// 🚩 它的标签**刻意不含「一键求助」** —— 那四个字在本 App 里专指云端链路（记事件、
+    /// 通知同行志愿者与客服），而按开这一层菜单一个字节都没发出去。两者用同一个词，
+    /// 看不见屏幕的人会以为求助已经发出。
+    private func blindSafetyHub(_ app: XCUIApplication) -> XCUIElement {
+        // 逐字对应 `EmergencySafetyCopy.hubAccessibilityLabel`。
+        app.buttons["求助与安全，打开求助选项"].firstMatch
     }
 
     private func dismissKeyboardIfPresent(app: XCUIApplication) {

@@ -19,6 +19,40 @@ extension RunOrderStatus {
         }
     }
 
+    /// 这一单**已经动起来了**吗 —— 也就是「计划开始时刻还有没有参考价值」。
+    ///
+    /// 用途是首页深蓝卡的两处文案（`BlindHomeOrderCard`）：
+    /// - 判 false ⇒ 小字念「下一次陪跑，{状态}」，大字念相对日期时间
+    /// - 判 true  ⇒ 小字只念状态，大字也只念状态
+    ///
+    /// **为什么需要这条**：设计稿只画了 `SCHEDULED_CONFIRMED` 一态，而首页那张卡要覆盖
+    /// `isActiveForBlindRunner` 的全部 8 个状态。陪跑进行中时念「下一次陪跑，进行中」
+    /// 是把正在发生的事说成未来，而 52pt 的大字会显示一个**已经过去**的计划开始时刻
+    /// —— 那是这一屏最大的位置，给了一个用户此刻完全不需要的数字。
+    ///
+    /// 穷举 switch 而不是集合字面量：后端加状态时编译器逼一次决策。
+    /// 集合字面量会把新状态默默判成 false，而那正是「把进行中的单说成下一次」的来源。
+    var isUnderwayForBlindRunner: Bool {
+        switch self {
+        // 志愿者真的动身了（`/en-route`，与只回答「你还去吗」的 `/confirm-departure`
+        // 不是一回事）之后，这一单就不再是「下一次」了。
+        case .driverEnRoute, .driverArrived, .inProgress:
+            return true
+        // 这几态人还没出发，计划开始时刻仍然是用户最想知道的那个数。
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .rematching:
+            return false
+        // 终态永远到不了这张卡（`isActiveForBlindRunner` 已经把它们排除），
+        // 判 false 只是为了让 switch 穷举。
+        case .completed, .cancelled, .noVolunteer:
+            return false
+        // 判 **false**：不知道它是哪一档时，宁可保留时间那一行。
+        // 时间是确定有的信息，而「下一次」这个措辞最坏情况只是不精确；
+        // 反过来判 true 会把一个还没开始的单的时间从屏幕上抹掉，那是丢信息。
+        case .unknown:
+            return false
+        }
+    }
+
     /// `.pendingIntroCall` 判 true 而 `.pendingMatch` 判 false：这一态订单**已经锁给了
     /// 这一位志愿者**（后端 `dispatchCurrentVolunteerId`），他有一件必须做的事（表态）。
     ///
@@ -205,6 +239,25 @@ extension RunOrderStatus {
     /// 盲人端订单页该不该给出「继续等待」。派生自 `keepWaitingEndpoint`，不另写一遍 switch。
     var offersKeepWaiting: Bool {
         keepWaitingEndpoint != nil
+    }
+
+    /// 屏幕上**真的有**「继续等待」这个控件吗。
+    ///
+    /// 🔴 **它与 `offersKeepWaiting` 刻意不同，差的就是 `PENDING_MATCH`。**
+    /// 后端两个端点都还在、`PENDING_MATCH` 照样受理 `keepWaiting`（所以
+    /// `keepWaitingEndpoint` 一行没改，那条回答的是契约事实）；但项目负责人 2026-09-16
+    /// 拍板**删掉 `PENDING_MATCH` 的按钮**：后端 `handleMatchTimeout:578` 每轮超时自己就把
+    /// 窗口往后推，客户端一次不调订单寿命相同 —— 一个按了等于没按的按钮，对看不见屏幕的人
+    /// 是一次白跑的操作。`REMATCHING` 那一侧保留，它是**真延长**（后端 N62 把
+    /// `rematchNotifyAt` 计进 `dispatchDeadline`）。
+    ///
+    /// 🚩 **凡是「要不要提到这个按钮」的地方都必须读这一条，不许各写一个 `== .rematching`。**
+    /// 三处读它：骨架的主按钮、`repeatStatus` 那句附带播报、以及后端
+    /// `ORDER_CANCELLATION_WARNING` 正文的客户端覆盖判据。散成三个字面量的下场是
+    /// 记忆 `same-name-predicate-different-sets-across-ends`：某一处改了口径，
+    /// 另外两处继续念一个不存在的按钮，而那不会有任何东西报错。
+    var offersBlindRunnerKeepWaitingControl: Bool {
+        keepWaitingEndpoint == .keepRematching
     }
 }
 
@@ -494,11 +547,35 @@ enum KeepWaitingCopy {
     ///    `KeepWaitingCopyTests` 断言本串不含任何阿拉伯数字。
     static let success = "已经告诉系统继续等待，正在继续为你寻找志愿者。"
 
+    /// 「没有可按的按钮时，还能做什么」。三处共用一句，**不许各写一份**：
+    /// 三处说的是同一件事，分开写就会慢慢漂成三种说法，而它们只在等待期被念到，
+    /// 谁漂了都没有任何东西会报错。
+    static let stillMatchingAdvice = "系统还会继续为你匹配；如果不想再等，可以取消订单后重新预约。"
+
     /// 上限文案。后端在延长次数用尽后**不再推送** `ORDER_CANCELLATION_WARNING`
     /// （`websocket-protocol.md`：那时文案里的「点击继续等待可延长」已经不成立）。
     /// 客户端对齐同一口径：说清没得延长了，并说明**还能做什么** —— 只说「不能延长」
     /// 会把盲人留在一个没有下一步的地方。
-    static let limitReached = "已经到了可以延长的次数上限，不能再延长了。系统还会继续为你匹配；如果不想再等，可以取消订单后重新预约。"
+    static let limitReached = "已经到了可以延长的次数上限，不能再延长了。" + stillMatchingAdvice
+
+    /// 后端 `ORDER_CANCELLATION_WARNING` 正文的**客户端替代**。
+    ///
+    /// 后端模板逐字是「您的订单即将因长时间无人接单被取消，**点击继续等待可延长**」
+    /// （`demo/src/main/resources/data.sql:146`）。同一个 eventType 在后端有三个推送点
+    /// （`DispatchService:1265` 派单窗口将到、`OrderLifecycleService:573` 匹配超时、
+    /// `:526` 重匹超时），覆盖 `PENDING_MATCH` 与 `REMATCHING` 两态 —— 而
+    /// `PENDING_MATCH` 那个按钮已按 2026-09-16 的决策删除
+    /// （`offersBlindRunnerKeepWaitingControl`）。照播就是让盲人去找一个不存在的控件。
+    ///
+    /// 🔴 **这一句不提任何按钮。** 它只在「按钮确实不在屏幕上」时替换正文；
+    /// `REMATCHING` 那一侧按钮还在，原文准确，一个字不改。
+    ///
+    /// 🔴 **它必须在 `PENDING_MATCH` 与 `REMATCHING` 两态下都是真话。** 判不出这条预警
+    /// 说的是哪一张单（`WSAppNotification` 没有 `orderId`），所以它也会落到
+    /// `REMATCHING` 上 —— 而那一态是「有人接过、又取消了，正在重新找」。
+    /// 初稿写的「你的订单还没有人接单」在那一态是假的，已改成只说结局不说经过。
+    static let cancellationWarningWithoutControl =
+        "你的订单可能会因为长时间没有人接单被系统取消。" + stillMatchingAdvice
 
     /// 「重复当前状态」里附带的一句。看不见屏幕的人靠这句发现这个动作存在。
     static let repeatStatusSuffix = "如果还想继续等，可以点继续等待。"
@@ -535,6 +612,71 @@ extension OrderDetailResponse {
 
     var plannedStartForAnnouncement: String? {
         plannedStart?.nilIfBlank?.displayDateTime
+    }
+
+    /// 陪跑员姓名的**朗读版**：去掉掩码星号。
+    ///
+    /// 后端的 `volunteerName` 是**始终掩码**的（`张*`，`NameMaskUtils.mask()`，
+    /// 契约里逐字写明「姓名一律掩码，不存在明文版本」）。原样交给 VoiceOver 会念成
+    /// **「张星号」** —— 而这个 App 的读屏是外放的，念出来的东西周围的人都听得到。
+    ///
+    /// 去掉星号**不泄露任何信息**：掩码之后剩下的本来就只有姓氏，星号只是个占位符号。
+    /// 首页那枚头像早就只显示姓氏了（`FlowAvatar`），两处现在口径一致。
+    ///
+    /// ⚠️ **只用于朗读与读屏标签，视觉上仍然原样显示 `张*`。** 屏幕上去掉星号会让人
+    /// 以为拿到了全名，而拨号那条路从来不经过姓名 —— 号码只走 `volunteerPhone`。
+    ///
+    /// 空名字回退到既有常量「这位志愿者」，不另造第二个占位词。
+    var volunteerNameForSpeech: String {
+        let stripped = (volunteerName ?? "")
+            .replacingOccurrences(of: "*", with: "")
+            .replacingOccurrences(of: "＊", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripped.isEmpty ? PartnerStreakCopy.unknownVolunteerName : stripped
+    }
+
+    /// 陪跑员的经验凭据，**只说后端真的发了的那一项**。
+    ///
+    /// 设计稿要的是「陪跑 32 次，引导绳经验 2 年」，而后端只有前半句
+    /// （`volunteerTotalCompleted`）。引导绳经验年数与「已认证」这两个字段在契约里
+    /// 0 命中 ⇒ **不显示**，不填默认值。给盲人印一个凭空生成的经验数字或认证标记，
+    /// 正是他在决定要不要把自己交给一个陌生人时唯一能依据的东西。
+    var volunteerExperienceText: String? {
+        guard let completed = volunteerTotalCompleted, completed > 0 else { return nil }
+        return "陪跑 \(completed) 次"
+    }
+
+    /// 首页深蓝卡和订单页状态标题上那个大字：「今天 7:00」「明天 7:00」「9月20日 7:00」。
+    ///
+    /// **与 `plannedStartForAnnouncement` 是两个东西，不要合并。** 那个给**播报**用，
+    /// 念的是完整日期（「2026年9月17日 07:00」）—— 听的人没有屏幕可以回看，含糊的相对日期
+    /// 反而要他自己换算。这个给**看**用：52pt 的大字放不下完整日期，而看得见屏幕的人
+    /// 需要的是「是不是明天」这一个判断。
+    ///
+    /// 相对日期只做到后天。再往后「第三天」相对哪一天不清楚（同 Mock 语音解析里
+    /// 「第三天」被拒的理由），所以退回绝对日期。
+    ///
+    /// `now` 与 `calendar` 走参数是为了能被单测钉住 —— 跨午夜、跨月、跨年这三个边界
+    /// 全都只在特定时刻才走得到，靠真机碰运气验不了。
+    func blindRunnerShortStartText(now: Date = Date(), calendar: Calendar = .current) -> String? {
+        guard let date = plannedStart?.nilIfBlank?.backendTimestamp else { return nil }
+        let clock = DateFormatter.aidRunDisplayClock.string(from: date)
+        // `dateComponents(_:from:to:)` 传两个**日初**而不是两个时刻：直接算时刻差会让
+        // 「今天 23:00 → 明天 01:00」只差 2 小时而被判成同一天。
+        let today = calendar.startOfDay(for: now)
+        let target = calendar.startOfDay(for: date)
+        guard let dayOffset = calendar.dateComponents([.day], from: today, to: target).day else {
+            return "\(DateFormatter.aidRunDisplayMonthDay.string(from: date)) \(clock)"
+        }
+        switch dayOffset {
+        case 0: return "今天 \(clock)"
+        case 1: return "明天 \(clock)"
+        case 2: return "后天 \(clock)"
+        default:
+            // 负数（已过去的预约）也走这里。**不说「昨天」** —— 那一态只会出现在
+            // 已结束或异常的单上，而相对日期会让人以为还有事要做。
+            return "\(DateFormatter.aidRunDisplayMonthDay.string(from: date)) \(clock)"
+        }
     }
 
     /// 约定的结束时间。
@@ -829,6 +971,27 @@ extension DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "yyyy年M月d日 HH:mm"
+        return formatter
+    }()
+
+    /// 只有钟点，配 `blindRunnerShortStartText` 的相对日期用。
+    ///
+    /// `H:mm` 而不是 `HH:mm`：设计稿的大字是「明天 7:00」不是「明天 07:00」。
+    /// 补零在 52pt 上多出一个字符宽度，而那一行本来就要和地点行对齐。
+    static let aidRunDisplayClock: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "H:mm"
+        return formatter
+    }()
+
+    /// 相对日期做不到时的退路（三天以后 / 已过去）。不含年份 —— 预约最远 7 天
+    /// （后端 `APPOINTMENT_TOO_FAR`），跨年只在 12 月末那几天成立，而那时「1月2日」
+    /// 也不会被误读成去年。
+    static let aidRunDisplayMonthDay: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日"
         return formatter
     }()
 

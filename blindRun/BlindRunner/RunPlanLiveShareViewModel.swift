@@ -71,8 +71,19 @@ final class RunPlanLiveShareViewModel: ObservableObject {
         }
     }
 
+    /// 上一次操作还在飞。**出声，不静默** —— 原先这两处的 `guard !isWorking` 直接 `return`，
+    /// 而旧入口靠按钮上的 `.disabled(isWorking)` 兜着，没人看得见这条静默分支。
+    /// 2026-09-16 求助中心那一格没有那层 `disabled`（弹层按下即收起，禁用状态无从呈现）
+    /// ⇒ 重按一次就是「点了没反应」，而那对盲人端是事故。修在这一层而不是新入口上：
+    /// 两个方法、三个调用方都从这里过。
+    static let alreadyWorking = "上一次操作还在进行，请稍等一下。"
+
     func startLiveShare() async {
-        guard !isWorking, let appState, let orderId else { return }
+        guard !isWorking else {
+            note(Self.alreadyWorking, isProblem: false)
+            return
+        }
+        guard let appState, let orderId else { return }
         isWorking = true
         defer { isWorking = false }
 
@@ -98,7 +109,11 @@ final class RunPlanLiveShareViewModel: ObservableObject {
     }
 
     func stopLiveShare() async {
-        guard !isWorking, let appState, let orderId else { return }
+        guard !isWorking else {
+            note(Self.alreadyWorking, isProblem: false)
+            return
+        }
+        guard let appState, let orderId else { return }
         isWorking = true
         defer { isWorking = false }
 

@@ -88,6 +88,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 掩码姓名，与后端口径一致（全名一律不下发）。
     static let mockOrderVolunteerName = "陈*"
 
+    /// 这位志愿者累计完成过多少单。首页深蓝卡与订单页陪跑员行的「陪跑 N 次」用它。
+    ///
+    /// 取 32 是为了和设计稿 `design-reference/order-flow/` 的截图对得上 ——
+    /// 截图对照时 Mock 与参考图显示同一个数，差异就只剩排版本身。
+    static let mockOrderVolunteerCompletedRuns = 32
+
     /// 这一态后端会不会下发 `volunteerId` / `volunteerName`。
     ///
     /// 契约：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` / `NO_VOLUNTEER` / `CANCELLED`
@@ -885,7 +891,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             tetherPreference: order.tetherPreference,
             chatPreference: order.chatPreference,
             volunteerId: hasAcceptedVolunteer ? Self.mockOrderVolunteerId : nil,
-            volunteerName: hasAcceptedVolunteer ? Self.mockOrderVolunteerName : nil
+            volunteerName: hasAcceptedVolunteer ? Self.mockOrderVolunteerName : nil,
+            // 与 `volunteerName` 同一个下发窗口。后端**确实在发这个字段**
+            // （`api_spec.yaml` 的 `OrderDetailResponse`），所以 Mock 给它一个值是在
+            // 镜像现实 —— 不是 `updatedAt` 那种 Mock 自己造、后端从来没发过的字段
+            // （记忆 `mock-fabricates-fields-the-backend-never-sends`，PR #48）。
+            volunteerTotalCompleted: hasAcceptedVolunteer ? Self.mockOrderVolunteerCompletedRuns : nil
         )
     }
 
@@ -1060,7 +1071,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 // 用 `mockHasAcceptedVolunteer` 而不是上面那个 `isPastMatching`：
                 // 被 `AIDRUN_UI_TEST_SEED_ORDER_STATUS` 钉成 `COMPLETED` 时两者结论相反。
                 volunteerId: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerId : nil,
-                volunteerName: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerName : nil
+                volunteerName: Self.mockHasAcceptedVolunteer(activeOrderStatus) ? Self.mockOrderVolunteerName : nil,
+                volunteerTotalCompleted: Self.mockHasAcceptedVolunteer(activeOrderStatus)
+                    ? Self.mockOrderVolunteerCompletedRuns : nil
             ),
             OrderDetailResponse(
                 orderId: 2,
@@ -1089,7 +1102,8 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 chatPreference: "NO_PREFERENCE",
                 // 这一单是开发期唯一的已完成订单，也就是「把陈*设为固定搭档」那个入口的落点。
                 volunteerId: Self.mockOrderVolunteerId,
-                volunteerName: Self.mockOrderVolunteerName
+                volunteerName: Self.mockOrderVolunteerName,
+                volunteerTotalCompleted: Self.mockOrderVolunteerCompletedRuns
             )
         ]
         nextOrderId = 10
