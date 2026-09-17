@@ -1266,24 +1266,43 @@ final class AccessibilityAuditTests: XCTestCase {
             "滑动 CTA 在无障碍树里不是按钮 —— 不触碰屏幕的用户没有任何办法开启可服务开关"
         )
         XCTAssertTrue(slider.isEnabled, "资质已通过的志愿者，这枚按钮必须是可用的")
-        // 开启态下**不许**还有第二个滑动入口：那会让读屏用户听到一枚已经没有意义的按钮。
+        // 两态**不许同时**暴露两个动作：那会让读屏用户听到一枚已经没有意义的按钮。
+        // 🔄 2026-09-17 两态合并成一条轨道后 identifier 相同，判据换成按 label 找关闭动作。
         XCTAssertFalse(
-            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].exists,
-            "关闭态不该同时渲染已开启状态条"
+            app.buttons["今天先不跑了"].exists,
+            "关闭态不该同时暴露「结束」动作"
         )
     }
 
-    /// 拖过 20% 阈值真的会开启，而关闭那一侧是普通点按。
+    /// 右滑开启、左滑结束，两个方向都真的生效，且底栏高度全程不变。
     ///
-    /// 🔴 **摩擦力只加在「答应」这一侧**（Motivation Crowding，
-    /// `docs/research/volunteer-home-incentive-layer-20260914.md` §3.1–3.2）：
-    /// 关闭不得是第二次滑动、不得二次确认、不得弹任何挽留。
+    /// 🔄 **2026-09-17 由项目负责人推翻了「关闭是普通点按」那条红线的前半句。**
+    /// 原用例叫 `...AndClosingIsAPlainTap`，断言的是 `close.tap()`。
+    ///
+    /// 🔴 **红线的后半句仍然有效，就是下面那条 `app.alerts.count == 0`**
+    /// （Motivation Crowding，`docs/research/volunteer-home-incentive-layer-20260914.md`
+    /// §3.1–3.2）：关闭不得二次确认、不得弹任何挽留。左滑不是挽留 —— 它不问「确定吗」、
+    /// 不摆成绩，只是把两个方向做成同一种手势。**这条断言删不得。**
+    ///
+    /// 🚩 拖拽走的是**指针路径**而不是那枚无障碍按钮：`XCUIElement.tap()` 注入的是物理触摸，
+    /// 根本不经过 accessibility action（记忆 `xcuitest-cannot-invoke-accessibility-actions`）。
+    /// 按钮存不存在由上面那条用例管，这条管「拖过阈值真的会切换」。
     @MainActor
-    func testSlidingPastThresholdOpensAvailabilityAndClosingIsAPlainTap() {
+    func testSlidingPastThresholdOpensAvailabilityAndSlidingBackClosesIt() {
         let app = launchVolunteerHome(available: false)
 
         let slider = app.descendants(matching: .any)["volunteerAvailabilitySlider"].firstMatch
         XCTAssertTrue(slider.waitForExistence(timeout: 25), "滑动 CTA 没渲染出来")
+
+        // 🔴 **底栏高度必须与状态无关。** 改版前开启态是「状态条 + 关闭按钮」两行
+        // （约 126pt），关闭态一行（约 64pt）。这个控件挂在 `safeAreaInset` 上，而 iOS 16
+        // 对 inset 视图的运行时高度突变更新滞后 —— 2026-09-17 的现场报告是「底栏浮在离
+        // 屏幕底部一段距离的位置、盖住了内容」。合并成一条轨道就是为了消掉这个触发条件。
+        //
+        // 断言放在**同一次运行**里量两次，而不是起两个 App 比：跨进程比高度会把
+        // 「两台设备 / 两种字号」的差异也算进来，而这里要抓的恰恰是「同一屏内切换状态」。
+        let heightWhenOff = slider.frame.height
+        XCTAssertGreaterThan(heightWhenOff, 0, "量不到底栏高度，后面那条断言会恒真")
 
         // 从滑块位置横着拖到轨道右端。阈值是 20%，拖到 95% 有足够余量。
         slider.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5))
@@ -1292,18 +1311,26 @@ final class AccessibilityAuditTests: XCTestCase {
                 thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5))
             )
 
-        XCTAssertTrue(
-            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].waitForExistence(timeout: 15),
-            "滑过阈值后「可服务」没有真的打开"
+        let close = app.buttons["今天先不跑了"]
+        XCTAssertTrue(close.waitForExistence(timeout: 15), "滑过阈值后「可服务」没有真的打开")
+
+        XCTAssertEqual(
+            slider.frame.height,
+            heightWhenOff,
+            accuracy: 1,
+            "底栏高度随开关状态变了 —— safeAreaInset 会因此算错，底栏会浮起来盖住内容"
         )
 
-        let close = app.buttons["今天先不跑了"]
-        XCTAssertTrue(close.waitForExistence(timeout: 5), "关闭必须是普通点按，不是第二次滑动")
-        close.tap()
-        // 关闭之后必须立刻回到滑块态，**中间不许有任何确认弹窗或挽留**。
+        // 反方向拖回去。开启态滑块在右端，所以起点取 0.92、终点取 0.05。
+        slider.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5))
+            .press(
+                forDuration: 0.1,
+                thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5))
+            )
+
         XCTAssertTrue(
             app.buttons["滑动开始今天的陪跑"].waitForExistence(timeout: 15),
-            "关闭没有生效，或者中间插了一层挽留/确认"
+            "左滑没有关掉「可服务」"
         )
         XCTAssertEqual(app.alerts.count, 0, "关闭「可服务」不得弹任何对话框")
     }

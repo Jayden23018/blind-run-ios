@@ -540,12 +540,14 @@ final class blindRunUITests: XCTestCase {
 
         returnHome.tap()
         // 2026-09-14 改版把首页那个 `Toggle` 换成了底部的滑动 CTA，`app.switches` 不再存在。
-        // 「没有被自动打开」这条约束没变，判据换成：底部渲染的是**滑块**（关闭态），
-        // 而不是「已开启」状态条。
+        // 「没有被自动打开」这条约束没变，判据换成：底部那条轨道处在**关闭态**。
+        //
+        // 🔄 2026-09-17 两态合并成一条轨道后，identifier 两态相同，**状态只能按无障碍
+        // label 区分**（开启态是「今天先不跑了」，关闭态是「滑动开始今天的陪跑」）。
         let slider = app.buttons["滑动开始今天的陪跑"].firstMatch
         XCTAssertTrue(slider.waitForExistence(timeout: 8), "回到首屏后底部应当是关闭态的滑动 CTA")
         XCTAssertFalse(
-            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].exists,
+            app.buttons["今天先不跑了"].exists,
             "Legacy completion must not automatically enable availability"
         )
     }
@@ -614,14 +616,20 @@ final class blindRunUITests: XCTestCase {
         )
         XCTAssertTrue(app.staticTexts["最近陪跑"].firstMatch.exists, "First screen should show the recent-run stream")
         XCTAssertFalse(app.buttons["查看全部订单"].firstMatch.exists, "Primary volunteer home must not expose the public order list")
-        // 预置「已开启」时底部是绿色状态条而不是滑块 —— 摩擦力只加在开启那一侧。
+        // 预置「已开启」时底部那条轨道处在开启态：同一个 identifier，label 换成关闭动作。
+        // 🔄 2026-09-17 起关闭也是滑动（向左），不再是普通按钮 —— 但无障碍树里仍然是
+        // 一枚按钮，读屏用户双击即可，不必也无法模拟滑动。
         XCTAssertTrue(
-            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].firstMatch.waitForExistence(timeout: 5),
-            "Available volunteer should see the status bar, not the slider"
+            app.descendants(matching: .any)["volunteerAvailabilitySlider"].firstMatch.waitForExistence(timeout: 5),
+            "Available volunteer should still see the availability track"
         )
         XCTAssertTrue(
             app.buttons["今天先不跑了"].firstMatch.exists,
-            "关闭必须是一个普通按钮 —— 关这一侧不许有摩擦力"
+            "开启态那条轨道要把「结束」作为无障碍动作暴露出来"
+        )
+        XCTAssertFalse(
+            app.buttons["滑动开始今天的陪跑"].exists,
+            "已开启时不该还摆着开启动作 —— 读屏用户会听到一枚没有意义的按钮"
         )
         attachScreenshot(named: "volunteer-profile-first-screen", app: app)
 
@@ -1674,15 +1682,20 @@ final class blindRunUITests: XCTestCase {
     /// 量得到真实高度的底栏，返回它的顶边；量不到返回 `nil`（退回固定的 112pt）。
     ///
     /// 🔴 **为什么这个不能只靠上面那个常量**：112 是照盲人首页的底栏（实测 102pt）定的，
-    /// 而志愿者「我」首屏底部那条可服务 CTA 在**已开启**时是「状态条 + 关闭按钮」两行，
-    /// AX5 下更高 —— 实测远超 112。常量偏小的后果不是「多滚一下」，
+    /// 而志愿者「我」首屏底部那条可服务 CTA 在 AX5 下会长到轨道封顶的 96pt，加上下内边距
+    /// （10 + 8）是 114pt —— 已经越过 112。常量偏小的后果不是「多滚一下」，
     /// 而是 helper 认为控件已经露出来了、直接返回 true，接着 `tap()` 打在底栏上。
     /// 那正是 2026-08-14 差点拨出 110 的同一个形状。
     ///
-    /// ponytail: 只登记**已知会超过 112pt 的**那两个，不做全量登记表 ——
+    /// 🔄 2026-09-17 由两个 identifier 收成一个：两态合并成同一条轨道之后，
+    /// `volunteerAvailabilityStatusBar` 不复存在。**余量也随之变薄** —— 改版前开启态是
+    /// 「状态条 + 关闭按钮」两行、实测远超 112，现在两态都是一行，最坏只多 2pt。
+    /// 封顶值改动（`VolunteerAvailabilitySlider.maximumTrackHeight`）会直接吃掉这点余量。
+    ///
+    /// ponytail: 只登记**已知会超过 112pt 的**那一个，不做全量登记表 ——
     /// 上面那条注释说得对，登记表必然漏掉下一个。这里漏掉的会退回旧行为，不会变得更糟。
     private func measuredBottomBarTop(_ app: XCUIApplication) -> CGFloat? {
-        ["volunteerAvailabilityStatusBar", "volunteerAvailabilitySlider"]
+        ["volunteerAvailabilitySlider"]
             .map { app.descendants(matching: .any)[$0].firstMatch }
             .filter { $0.exists }
             .map(\.frame)

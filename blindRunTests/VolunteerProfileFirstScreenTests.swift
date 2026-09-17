@@ -349,6 +349,7 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerAvailabilityCopy.slideReleaseToOpenTitle,
             VolunteerAvailabilityCopy.availableStatusTitle,
             VolunteerAvailabilityCopy.closeTitle,
+            VolunteerAvailabilityCopy.slideReleaseToCloseTitle,
             VolunteerAvailabilityCopy.slideHint,
             VolunteerAvailabilityCopy.closeHint
         ]
@@ -367,9 +368,14 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
     }
 
     /// 关闭侧的文案里**没有任何挽留**：不提已完成多少、不提别人在等、不带疑问句。
-    /// Motivation Crowding —— 摩擦力只加在「答应」这一侧。
+    ///
+    /// 🔄 2026-09-17 关闭从普通点按改成向左滑（项目负责人推翻了「摩擦力只加在答应那一侧」
+    /// 的前半句），**这条约束是后半句，没变**：加手势摩擦 ≠ 讨价还价。
+    /// 拖过阈值那句 `slideReleaseToCloseTitle` 是这次新增的关闭侧文案，一并纳入。
     func testCloseCopyDoesNotBargain() {
-        let close = VolunteerAvailabilityCopy.closeTitle + VolunteerAvailabilityCopy.closeHint
+        let close = VolunteerAvailabilityCopy.closeTitle
+            + VolunteerAvailabilityCopy.closeHint
+            + VolunteerAvailabilityCopy.slideReleaseToCloseTitle
         for word in ["确定要", "真的", "再想想", "坚持", "已经完成", "有人在等", "？"] {
             XCTAssertFalse(close.contains(word), "关闭侧出现挽留话术「\(word)」：\(close)")
         }

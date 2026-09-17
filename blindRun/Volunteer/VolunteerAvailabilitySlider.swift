@@ -57,15 +57,27 @@ extension VolunteerAvailabilityCopy {
     /// 拖过阈值之后。
     static let slideReleaseToOpenTitle = "松手即开启"
 
-    /// 已开启的状态条。这一刻起才会收到派单推送，所以说的是「等待」而不是「已完成」。
+    /// 已开启时轨道上那半句。这一刻起才会收到派单推送，所以说的是「等待」而不是「已完成」。
     static let availableStatusTitle = "已开启"
 
-    /// 🔴 关闭是**普通点按**，且**不得弹任何激励挽留**。
+    /// 关闭侧的动作名。**不得带任何激励挽留**。
+    ///
+    /// 🔄 **2026-09-17 由项目负责人推翻了这条红线的前半句。** 原文是「关闭是**普通点按**，
+    /// 且**不得弹任何激励挽留**……摩擦力只加在「答应」这一侧」，现在关闭改成**向左滑**，
+    /// 与开启对称。**后半句仍然有效且是硬约束**：
     ///
     /// Uber 在司机点下线时弹当日收入目标劝其继续，被 NYT 点名、在 gig 平台设计分类法里
-    /// 归入 dark pattern。摩擦力只加在「答应」这一侧 —— 这条已经以注释钉在
-    /// `VolunteerHomeIncentive.swift:99-107`，改 UI 时别把它绕过去。
+    /// 归入 dark pattern。**左滑不是挽留** —— 它不问「确定吗」、不摆成绩、不弹任何对话框，
+    /// 只是把两个方向做成同一种手势。同一条红线仍以注释钉在
+    /// `VolunteerHomeIncentive.swift:99-107`，那一侧别绕过去。
+    ///
+    /// 机器守卫两条：`VolunteerProfileFirstScreenTests.testCloseCopyDoesNotBargain`
+    /// （文案里不许出现挽留话术）、`AccessibilityAuditTests` 那条拖拽用例里的
+    /// `XCTAssertEqual(app.alerts.count, 0)`（关闭路径上不许有任何对话框）。
     static let closeTitle = "今天先不跑了"
+
+    /// 关闭方向拖过阈值之后。与 `slideReleaseToOpenTitle` 对称。
+    static let slideReleaseToCloseTitle = "松手即结束"
 
     static let slideHint = "向右滑动开启，开启后才会收到系统派单。开启不影响你当前的订单"
     static let closeHint = "关闭后不会收到新的系统派单，但不影响当前订单"
@@ -109,25 +121,33 @@ struct VolunteerAvailabilitySlider: View {
     let isAvailable: Bool
     let isEnabled: Bool
     let isUpdating: Bool
-    /// 已开启时状态条上那半句（「正在等待系统派单」），来自 `VolunteerHomeViewModel.statusText`。
+    /// 轨道上状态那半句（「等待系统派单」/「已关闭接单」），来自 `VolunteerHomeViewModel.statusText`。
     let statusText: String
     let onChange: (Bool) -> Void
 
     @State private var dragX: CGFloat = 0
 
+    /// 🔴 **两态渲染同一个 `slideTrack`，高度恒为 `trackHeight`。**
+    ///
+    /// 改版前这里是 `if isAvailable { 状态条; 关闭按钮 } else { 滑轨 }`，两态高度分别是
+    /// 约 64pt 和约 126pt（64 + 10 + 52）。这个控件挂在 `VolunteerHomeView` 的
+    /// `.safeAreaInset(edge: .bottom)` 上，而 iOS 16 对 inset 视图的**运行时高度突变**
+    /// 更新滞后 —— 2026-09-17 收到的现场报告是「底栏浮在离屏幕底部一段距离的位置、
+    /// 盖住了内容，重启后消失」，高度突变是最可能的触发条件。
+    ///
+    /// 合并成一条之后触发条件消失。守卫在 `AccessibilityAuditTests` 那条拖拽用例里：
+    /// 同一次运行中量拖开前后的 `frame.height`，不等就红。
     var body: some View {
-        VStack(spacing: 10) {
-            if isAvailable {
-                availableStatusBar
-                closeButton
-            } else {
-                slideTrack
-            }
-        }
+        slideTrack
     }
 
-    // MARK: 开启侧（有摩擦力）
+    // MARK: 轨道（两个方向共用）
 
+    /// 关闭态向右滑开启，开启态向左滑关闭。
+    ///
+    /// 🔴 **方向靠在视图层给 `dragX` 取反实现，`VolunteerAvailabilitySlide` 一行不改。**
+    /// 阈值 0.2、NaN 守卫、`0...trackWidth` 钳位因此只有一份，两个方向不可能漂移出
+    /// 两个阈值 —— 而「关闭比开启难一点」这种漂移在屏幕上没有任何信号。
     private var slideTrack: some View {
         GeometryReader { proxy in
             let knobSize = max(28, trackHeight - Self.knobInset * 2)
@@ -137,144 +157,137 @@ struct VolunteerAvailabilitySlider: View {
             let progress = VolunteerAvailabilitySlide.progress(dragX: dragX, trackWidth: travelWidth)
             let isPastThreshold = progress >= VolunteerAvailabilitySlide.activationFraction
 
-            ZStack(alignment: .leading) {
+            // 开启态从右往左滑，所以进度、滑块、文字留白全部靠右对齐。
+            ZStack(alignment: isAvailable ? .trailing : .leading) {
                 // 高对比度主色底。Uber 原文："Distinguish the swipe affordance from the
                 // surrounding UI by using a primary, high-contrast background."
                 //
-                // 🔴 **不是 `AppColors.primary`。** 它的暗色取值 `#0A84FF` 压白字只有 3.65:1，
-                // 而轨道上那行字是 17pt semibold —— 够不上 WCAG large text 的豁免，要 4.5:1。
-                // 仓库里已经有一个为「白字压蓝底」而压暗的版本（`voiceStageSurfaceTone`，
-                // 暗色 `#0B4DA2` 白字 8.08:1），直接复用它，不新造第三个蓝。
-                // 检查在 `LowVisionChannelTests.testVoiceStageSurfaceKeepsWhiteTextReadable`。
-                Capsule().fill(AppColors.voiceStageSurface)
+                // 🔴 **两个都不是 `AppColors.primary` / `AppColors.success`。** 前者的暗色取值
+                // `#0A84FF` 压白字只有 3.65:1、后者 `#30D158` 只有 2.02:1，而轨道上那行字是
+                // 17pt semibold —— 够不上 WCAG large text 的豁免，要 4.5:1。仓库里已有两个
+                // 为「白字压色底」压暗过的版本，直接复用，不新造第三个。检查在
+                // `LowVisionChannelTests` 的 `testVoiceStageSurfaceKeepsWhiteTextReadable`
+                // 与 `testAvailabilityOnSurfaceKeepsWhiteTextReadable`。
+                Capsule().fill(isAvailable ? AppColors.availabilityOnSurface : AppColors.voiceStageSurface)
 
                 // 已滑过的轨道变亮，给连续的进度反馈。
                 Capsule()
                     .fill(Color.white.opacity(0.16))
                     .frame(width: travel + knobSize + Self.knobInset * 2)
 
-                Text(isPastThreshold
-                     ? VolunteerAvailabilityCopy.slideReleaseToOpenTitle
-                     : VolunteerAvailabilityCopy.slideToOpenTitle)
+                Text(trackTitle(isPastThreshold: isPastThreshold))
                     .font(AppFonts.body().weight(.semibold))
                     .foregroundColor(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.62)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                    .padding(.leading, knobSize)
-                    .padding(.trailing, 12)
+                    // 给滑块让出它那一侧的位置，另一侧只留常规内边距。
+                    .padding(isAvailable ? .trailing : .leading, knobSize)
+                    .padding(isAvailable ? .leading : .trailing, 12)
 
                 // 单个箭头。Uber 原文："The component does not support any other icons."
+                // 箭头方向就是该往哪滑 —— 开启态指左。
                 Circle()
                     .fill(Color.white)
                     .frame(width: knobSize, height: knobSize)
                     .overlay {
-                        Image(systemName: "arrow.right")
+                        Image(systemName: isAvailable ? "arrow.left" : "arrow.right")
                             .font(.body.weight(.bold))
                             .foregroundColor(AppColors.primary)
                     }
                     .shadow(color: .black.opacity(0.22), radius: 3, x: 0, y: 2)
-                    .padding(.leading, Self.knobInset)
-                    .offset(x: travel)
+                    .padding(isAvailable ? .trailing : .leading, Self.knobInset)
+                    .offset(x: isAvailable ? -travel : travel)
             }
             .contentShape(Capsule())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         guard isEnabled, !isUpdating else { return }
-                        dragX = value.translation.width
+                        dragX = normalizedTravel(value.translation.width)
                     }
                     .onEnded { value in
                         guard isEnabled, !isUpdating else { return }
                         let activates = VolunteerAvailabilitySlide.activates(
-                            dragX: value.translation.width,
+                            dragX: normalizedTravel(value.translation.width),
                             trackWidth: travelWidth
                         )
                         // 回弹是位移类动效，必须让「减弱动态效果」关掉它（守卫 `motion-not-gated`）。
                         withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82)) {
                             dragX = 0
                         }
-                        if activates { activate() }
+                        if activates { toggle() }
                     }
             )
         }
         .frame(height: trackHeight)
+        // ponytail: 更新中只降透明度，不再叠一枚 `ProgressView`。
+        // `setAvailability` 是乐观更新（`VolunteerHomeView.swift:768`，失败才回滚），
+        // 轨道此刻已经翻成目标态了 —— 在一个「看起来已经开了」的控件上转圈只会让人以为没开。
         .opacity(isEnabled && !isUpdating ? 1 : 0.5)
-        // 🔴 **辅助技术拿到的是一枚普通按钮。**
+        // 🔴 **辅助技术两态都拿到一枚普通按钮。**
         //
         // VoiceOver / Switch Control / Voice Control 会彻底改变用户的物理交互方式，
         // 很多人根本不触碰屏幕（Apple Developer Forums 线程 729098）—— 只有裸拖拽手势的话，
-        // 这一屏**唯一**的主操作对他们等于不存在。
+        // 这一屏**唯一**的主操作对他们等于不存在。开启态同理：左滑对他们也是做不到的动作。
         //
         // 用 `accessibilityRepresentation` 而不是把整个控件做成 `Button`：前者只换掉
         // 无障碍树，指针路径仍然只有滑动（不会被误点开），两边各自拿到对的那一套。
+        //
+        // label 放**动作名**而不是状态，是为了 Voice Control：那类用户得能把控件名念出来
+        // （「点击 今天先不跑了」）。状态走 `accessibilityValue`，VoiceOver 会接在 label
+        // 后面念，两件事都不丢。
         .accessibilityRepresentation {
-            Button(VolunteerAvailabilityCopy.slideToOpenTitle) { activate() }
+            Button(isAvailable
+                   ? VolunteerAvailabilityCopy.closeTitle
+                   : VolunteerAvailabilityCopy.slideToOpenTitle) { toggle() }
                 .disabled(!isEnabled || isUpdating)
-                .accessibilityHint(VolunteerAvailabilityCopy.slideHint)
+                .accessibilityValue(isAvailable
+                                    ? "\(VolunteerAvailabilityCopy.availableStatusTitle)，\(statusText)"
+                                    : statusText)
+                .accessibilityHint(isAvailable
+                                   ? VolunteerAvailabilityCopy.closeHint
+                                   : VolunteerAvailabilityCopy.slideHint)
         }
+        // 🚩 **两态共用一个 identifier，状态由上面那枚按钮的 label 区分。**
+        //
+        // `scripts/hooks/guard.mjs` 的 identifier 漂移检测只认**字面量**
+        // （`ACCESSIBILITY_IDENTIFIER` 正则），写成 `isAvailable ? "a" : "b"` 会让它
+        // 两个都认不出来，于是 UI 测试引用的那个反被判成 stale —— 守卫从保护变成噪音。
         .accessibilityIdentifier("volunteerAvailabilitySlider")
     }
 
-    private func activate() {
+    /// 轨道上那行字。静止时说现在是什么状态 / 该做什么，拖过阈值时说松手会发生什么。
+    private func trackTitle(isPastThreshold: Bool) -> String {
+        if isAvailable {
+            return isPastThreshold
+                ? VolunteerAvailabilityCopy.slideReleaseToCloseTitle
+                : "\(VolunteerAvailabilityCopy.availableStatusTitle) · \(statusText)"
+        }
+        return isPastThreshold
+            ? VolunteerAvailabilityCopy.slideReleaseToOpenTitle
+            : VolunteerAvailabilityCopy.slideToOpenTitle
+    }
+
+    /// 把手指位移折算成「朝生效方向走了多远」，**恒以正数表示前进**。
+    ///
+    /// 开启态要往左滑，`translation.width` 是负数，取反之后 `VolunteerAvailabilitySlide`
+    /// 那三个纯函数原样可用 —— 包括 `travel(dragX: -80) == 0` 那条「不许拖出轨道」的钳位，
+    /// 于是「反向乱拖」在两个方向上都是同一个行为，不必写第二遍。
+    private func normalizedTravel(_ translationWidth: CGFloat) -> CGFloat {
+        isAvailable ? -translationWidth : translationWidth
+    }
+
+    private func toggle() {
         guard isEnabled, !isUpdating else { return }
         // ponytail: 复用既有的 `HapticFeedback.play(.success)`，不为这一处新加一种 impact 波形。
-        // 语义也对得上 —— 那条注释写的是「事情按预期推进了」。
+        // 语义也对得上 —— 那条注释写的是「事情按预期推进了」，关闭同样是按预期推进。
+        //
+        // 🚩 关闭那一侧**新增**了触感（改版前是普通按钮，没有）。这不是顺手加的：
+        // 点按能靠手指感觉到自己按下去了，而「拖过阈值了没有」纯靠猜 —— 阈值类手势必须
+        // 有一次确认反馈，否则只能盯着屏幕看结果，而这一屏的用户不一定看得清。
         HapticFeedback.play(.success)
-        onChange(true)
-    }
-
-    // MARK: 关闭侧（无摩擦力）
-
-    private var availableStatusBar: some View {
-        HStack(spacing: 8) {
-            if isUpdating {
-                ProgressView()
-                    .tint(.white)
-                    .accessibilityHidden(true)
-            }
-            Text("\(VolunteerAvailabilityCopy.availableStatusTitle) · \(statusText)")
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(.white)
-                .lineLimit(2)
-                .minimumScaleFactor(0.62)
-                .multilineTextAlignment(.center)
-        }
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity)
-        .frame(minHeight: trackHeight)
-        // 🔴 **不是 `AppColors.success`。** 那个色的暗色取值 `#30D158` 压白字只有 2.02:1，
-        // 而这是首屏底部唯一的常驻控件。理由与取值见 `AppColors.availabilityOnSurfaceTone`，
-        // 检查在 `LowVisionChannelTests.testAvailabilityOnSurfaceKeepsWhiteTextReadable`。
-        .background(AppColors.availabilityOnSurface)
-        .clipShape(Capsule())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(VolunteerAvailabilityCopy.toggleTitle)\(VolunteerAvailabilityCopy.availableStatusTitle)，\(statusText)")
-        .accessibilityIdentifier("volunteerAvailabilityStatusBar")
-    }
-
-    /// 🔴 普通点按，**没有二次确认、没有挽留**。
-    ///
-    /// 关掉开关不影响当前订单（后端行为），所以它不是不可逆动作 —— 给它加确认，
-    /// 或者顺势弹一句「你今天已经跑了 2 单，再坚持一下？」，就是 Uber 那条被点名的
-    /// 下线挽留。摩擦力只加在「答应」这一侧。
-    private var closeButton: some View {
-        Button {
-            guard !isUpdating else { return }
-            onChange(false)
-        } label: {
-            Text(VolunteerAvailabilityCopy.closeTitle)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.primary)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 52)  // guard:allow small-touch-target
-                .background(AppColors.secondaryBackground)
-                .clipShape(Capsule())
-        }
-        .disabled(isUpdating)
-        .accessibilityLabel(VolunteerAvailabilityCopy.closeTitle)
-        .accessibilityHint(VolunteerAvailabilityCopy.closeHint)
-        .accessibilityIdentifier("volunteerAvailabilityCloseButton")
+        onChange(!isAvailable)
     }
 }
