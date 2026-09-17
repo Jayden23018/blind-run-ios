@@ -56,6 +56,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     systemImage: action.systemImage,
                     isLoading: isPrimaryLoading,
                     isEnabled: isPrimaryEnabled,
+                    caption: action.caption,
                     accessibilityHint: primaryActionHint(action),
                     action: onPrimaryAction
                 )
@@ -79,6 +80,14 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
             return "点击后通知跑者你正在前往"
         case .arrived:
             return "点击后通知跑者你已到达集合点"
+        case .startRun:
+            // caption「见面并握好引导绳后再按」已经由 `OrderFlowPrimaryAction` 拼进 hint，
+            // 这里只补它没说的那一半：按下之后会发生什么。
+            return "开始计时，跑者那边也会同步开始"
+        case .doneReviewing, .backToHome:
+            // 「完成」「回到首页」按下去只是关掉这一页。写一句「返回上一页」是废话 ——
+            // VoiceOver 本来就会念按钮标题，而这两个标题自己已经说清楚了。
+            return nil
         }
     }
 
@@ -87,11 +96,14 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     private var statusCard: some View {
         FlowCard {
             VStack(spacing: 0) {
-                FlowStepper(
-                    currentStep: presentation.step.rawValue,
-                    titles: VolunteerOrderFlowStep.allTitles
-                )
-                FlowSeparator()
+                // 已完成 / 跑者已取消两屏没有进度条（设计稿上就没有）。
+                if let step = presentation.step {
+                    FlowStepper(
+                        currentStep: step.rawValue,
+                        titles: VolunteerOrderFlowStep.allTitles
+                    )
+                    FlowSeparator()
+                }
                 heroSection
                 // 倒计时是状态卡里的**独立无障碍元素**，不并进上面那个合成元素 ——
                 // 它每秒都变，合进去会让读屏每秒把整条状态重念一遍。
@@ -132,7 +144,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
     }
 
     private var statusAccessibilityLabel: String {
-        [presentation.title, presentation.subtitle]
+        // `titleSpoken` 存在的唯一理由是掩码姓名：屏幕上要留星号，读屏必须去掉。
+        [presentation.titleSpoken ?? presentation.title, presentation.subtitle]
             .filter { !$0.isEmpty }
             .joined(separator: "。")
     }
@@ -165,11 +178,19 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
 
     // MARK: 视觉区（纯装饰，对读屏隐藏）
 
+    @ViewBuilder
     private var visualArea: some View {
         ZStack {
-            avatar
-            if presentation.visual == .avatarWithProgressRing {
+            switch presentation.visual {
+            case .avatar:
+                avatar
+            case .avatarWithProgressRing:
+                avatar
                 progressRing
+            case .successCheck:
+                successCheck
+            case .mutedAvatar:
+                mutedAvatar
             }
         }
         .frame(width: FlowMetrics.visualSide, height: FlowMetrics.visualSide)
@@ -183,6 +204,38 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
             diameter: FlowMetrics.avatarDiameter,
             background: AppColors.Flow.avatarBackground,
             foreground: AppColors.Flow.avatarInitial,
+            placeholder: "跑"
+        )
+    }
+
+    /// 已完成那一屏的绿色对勾。用 SF Symbol，不移植原型里那条手绘 SVG 路径。
+    ///
+    /// 设计稿画的是**浅绿底 + 绿色勾**（#E3F4EA 配 #1C7C45，实测只有 2.8:1）。
+    /// 这里改用已有的 `successBadge` 实心绿 + 白勾 —— 与跑者端汇合那枚徽标同一对颜色，
+    /// 4.38:1（见 `FlowPalette` 上那段实测），且不用为一屏新造一对色。
+    private var successCheck: some View {
+        Circle()
+            .fill(AppColors.Flow.successBadge)
+            .frame(width: FlowMetrics.avatarDiameter, height: FlowMetrics.avatarDiameter)
+            .overlay(
+                Image(systemName: "checkmark")
+                    .font(.system(size: FlowMetrics.avatarDiameter * 0.42, weight: .semibold))
+                    .foregroundColor(.white)
+            )
+    }
+
+    /// 跑者已取消那一屏的中性灰头像。
+    ///
+    /// 用的是**正文的次要色配进度条的底色**（亮 4.59:1 / 暗 5.05:1），
+    /// 而不是设计稿那组更淡的灰：圆里那个字是文字，而设计稿那一对
+    /// （#8A90A0 配 #EDEFF3）实测只有 2.77:1，连大号文本要的 3:1 都够不到。
+    /// 表达「这件事结束了」不需要以看不清为代价。
+    private var mutedAvatar: some View {
+        FlowAvatar(
+            name: runnerName,
+            diameter: FlowMetrics.avatarDiameter,
+            background: AppColors.Flow.progressTrack,
+            foreground: AppColors.Flow.secondaryText,
             placeholder: "跑"
         )
     }

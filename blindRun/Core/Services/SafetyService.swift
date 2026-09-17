@@ -22,6 +22,12 @@ enum SafetyEndpoint {
     case volunteerEmergencyResponse(eventId: Int64)
     /// 结束后的轨迹回放。**盲人与志愿者共用**，权限由后端按订单参与方判。
     case orderTrack(orderId: Int64)
+    /// 事后工单。**两端都能提**（契约逐字：「只让盲人提，等于让志愿者的问题永远没有出口」）。
+    ///
+    /// 🚨 它**不是**紧急求助入口，契约的 description 里专门写了这一句：
+    /// 「现在有危险」走 `/api/emergency/*`，两条路的时效差着一个数量级。
+    /// 所以任何引导文案都不许把人从求助引到这里。
+    case supportTicket
     /// 通话磨合期「这一单到底是不是我的」的唯一判据，见 `SafetyServing.matchedOrder`。
     case orderDetail(orderId: Int64)
 
@@ -39,6 +45,8 @@ enum SafetyEndpoint {
             return EndpointRequest(.get, "/api/orders/\(orderId)/track")
         case .orderDetail(let orderId):
             return EndpointRequest(.get, "/api/orders/\(orderId)")
+        case .supportTicket:
+            return EndpointRequest(.post, "/api/support/tickets")
         }
     }
 }
@@ -70,6 +78,9 @@ protocol SafetyServing: Sendable {
 
     // 轨迹
     func orderTrack(orderId: Int64) async throws -> OrderTrackResponse
+
+    // 事后工单
+    func submitSupportTicket(_ request: SupportTicketRequest) async throws
 }
 
 // MARK: - Implementation
@@ -135,5 +146,14 @@ struct SafetyService: SafetyServing {
 
     func orderTrack(orderId: Int64) async throws -> OrderTrackResponse {
         try await transport.send(SafetyEndpoint.orderTrack(orderId: orderId).request)
+    }
+
+    /// 后端回 201 + 工单对象，客户端**一个字段都用不上**（没有工单列表页，也不做进度查询）
+    /// ⇒ 丢给 `EmptyResponse`。要的只有「提交成没成」这一个事实。
+    func submitSupportTicket(_ request: SupportTicketRequest) async throws {
+        let _: EmptyResponse = try await transport.send(
+            SafetyEndpoint.supportTicket.request,
+            body: request
+        )
     }
 }

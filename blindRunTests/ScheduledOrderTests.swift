@@ -150,10 +150,12 @@ final class ScheduledOrderTests: XCTestCase {
     ///
     /// 对志愿者，「取消订单」读起来像在替盲人取消这一单，而实际后果是「回派单池换个人」。
     ///
-    /// ⚠️ **这条只覆盖按钮标题，覆盖不到确认对话框。** 对话框那四句在
-    /// `VolunteerInServiceView.cancelDialogCopy`（View 的 private 计算属性，测试够不着），
-    /// 而它才是志愿者真正下决心的那一屏 —— 那里曾经仍写着「确认取消本次预约？」，
-    /// 让这次改名等于没做，而本条用例当时是绿的。改按钮文案时请连着人眼看一遍对话框。
+    /// ⚠️ **这条只覆盖按钮标题。** 确认层那几句已经搬到
+    /// `VolunteerOrderFlowCopy.cancelSheet(for:plannedStart:)`，由
+    /// `VolunteerOrderFlowPresentationTests.testReleaseRowAndItsConfirmationSheetShareTheConsequence`
+    /// 与 `testCancelSheetNeverAnnouncesAPenaltyTheBackendDoesNotHave` 两条钉住 ——
+    /// 它此前是 View 的 private 计算属性、测试够不着，于是按钮改了词而弹层里
+    /// 仍写着「确认取消本次预约？」，本条用例当时是绿的。
     func testReleaseAndCancelDoNotShareCopy() {
         XCTAssertNotEqual(
             VolunteerServiceActionKind.releaseScheduled.title,
