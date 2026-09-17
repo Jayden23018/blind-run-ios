@@ -77,7 +77,30 @@ extension AppColors {
         /// **一个**无障碍元素并把「第 N 步，共 4 步」写进标签。所以这两个取值保留设计稿原值
         /// （1.40 / 1.25），不进任何断言 —— 把它们提到 3:1 会让「没走到」看起来像「走到了」。
         static let nodeStroke = flowDynamic(Tone(light: 0xD5DAE3, dark: 0x48484A))
-        static let progressTrack = flowDynamic(Tone(light: 0xE2E6EE, dark: 0x3A3A3C))
+        /// 暴露成 `Tone` 是因为下面那条「回复进度条」的断言要按名字取它当背景 ——
+        /// 抄一份字面量的话这里改了色，那条断言照样绿。
+        static let progressTrackTone = Tone(light: 0xE2E6EE, dark: 0x3A3A3C)
+        static let progressTrack = flowDynamic(progressTrackTone)
+
+        // MARK: 邀请卡的回复进度条（设计交付 v3 §4.4.2 第 3 项）
+
+        /// 剩余时间不多时，进度条从品牌蓝转「深黄」。
+        ///
+        /// ⚠️ **设计稿给的 `#D99A00` 没有原样采用** —— 它压在进度条底 `#E2E6EE` 上只有
+        /// **1.96:1**（WCAG 1.4.11 非文本门槛 3:1），而同一条进度条平时用的蓝 `#2A5BD7`
+        /// 是 4.69。也就是说照设计稿改色之后，「时间快到了」这个转折在低视力用户眼里
+        /// 是**进度条消失**，不是变黄。改 `#9C6F00`（3.58）。
+        /// 这是 FlowPalette 类型注释里那份「设计稿取值没有原样采用」清单的第 4 条。
+        ///
+        /// 暗色档设计稿没给（§1.2 只要求给提示条和「接单中」补暗色值，进度条这一处是
+        /// §4.4.2 独有的）。`#F0B429` 压暗轨 `#3A3A3C` 是 6.09。
+        static let replyProgressUrgentTone = Tone(light: 0x9C6F00, dark: 0xF0B429)
+        static let replyProgressUrgent = flowDynamic(replyProgressUrgentTone)
+
+        /// 同一时刻那行「还剩 X 秒回复」的文字色（设计稿 `#8A5A00`，压白卡 5.93 ⇒ 原样采用）。
+        /// 暗色档同样要自己补：`#8A5A00` 压暗卡 `#1C1C1E` 只有 2.87。
+        static let replyUrgentTextTone = Tone(light: 0x8A5A00, dark: 0xF0B429)
+        static let replyUrgentText = flowDynamic(replyUrgentTextTone)
 
         // MARK: 雷达（匹配态视觉区，纯装饰）
 
