@@ -12,7 +12,8 @@
     "deny": [
       "Read(./docs/_archive-*.bak)",
       "Edit(./Podfile)",
-      "Edit(./LocalConfig.xcconfig)"
+      "Edit(./LocalConfig.xcconfig)",
+      "Read(./Packages/AidRunAPI/Sources/AidRunAPI/Types.swift)"
     ]
   },
   "hooks": {
