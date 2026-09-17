@@ -866,6 +866,46 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertEqual(sos.label, Self.emergencyActionLabel)
     }
 
+    /// 长按 2 秒结束陪跑 —— 这一条只量**形状**：读屏取得到、触达够大、标签带着「要按多久」。
+    ///
+    /// 行为那一半在 `blindRunUITests.testMockVolunteerOrderFlowSmoke` 里走指针路径
+    /// （`press(forDuration:)`），两条路最终调的是同一个 `VolunteerFinishLongPressButton.fire()`。
+    /// **不在这里 `tap()` 再断言订单结束了**：`XCUIElement.tap()` 注入的是物理触摸，
+    /// 不经过 accessibility action，而公开 API 里没有「执行默认无障碍动作」的口子 ——
+    /// 那样写必红，且红得毫无信息量（元素找得到、`isEnabled` 为真、点完纹丝不动）。
+    ///
+    /// 文案逐字是什么由 `VolunteerFinishLongPressTests` 钉住，这里不抄 ——
+    /// UI 用例里抄中文文案的误报率见记忆 `merged-prs-whose-tests-never-ran`。
+    @MainActor
+    func testVolunteerFinishEscortControlIsReachableAndBigEnough() throws {
+        let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
+        let currentOrderCard = app.descendants(matching: .any)["volunteerHomeCurrentOrderCard"].firstMatch
+        XCTAssertTrue(
+            currentOrderCard.waitForExistence(timeout: 20),
+            "志愿者首页没有当前订单卡，进不去服务中页"
+        )
+        currentOrderCard.tap()
+        XCTAssertTrue(app.navigationBars["服务中"].waitForExistence(timeout: 15), "没进到服务中页")
+
+        let finish = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertTrue(finish.waitForExistence(timeout: 10), "服务进行中必须给陪跑员结束入口")
+        // 63.5 而不是 64：真机量出来是 63.999999999999886 —— `minHeight: 64` 经过一轮
+        // 布局取整后的浮点噪声，不是真的矮了。留半点余量仍然分得出 44pt 与 64pt 两档。
+        XCTAssertGreaterThanOrEqual(
+            finish.frame.height,
+            63.5,
+            "结束陪跑的触达高度只有 \(finish.frame.height)pt，不足 64"
+        )
+        XCTAssertFalse(
+            finish.label.isEmpty,
+            "结束陪跑在无障碍树里没有标签 —— 容器上的 identifier 盖掉子元素时就是这个样子"
+        )
+        XCTAssertTrue(
+            finish.label.contains("2"),
+            "标签里没有「按多久」这个数字：\(finish.label)。读屏用户没别的地方能知道要按 2 秒"
+        )
+    }
+
     // MARK: - 横屏与宽窗口
 
     /// 横屏审计。**这是本仓库唯一能验「横屏裁切」的通道** ——

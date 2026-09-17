@@ -99,7 +99,17 @@
       中间一个字没改。记忆 `ui-test-runner-needs-usb-not-wifi` 原先写「复跑即过」已订正为
       「同一签名最多复跑三次再开始查别的」。
 - [ ] 阶段 2 · 播报队列 + 四种提示音 ← 下一件
-- [ ] 阶段 3 · ④ 已完成 + 陪跑员端长按 2 秒结束
+- [ ] 阶段 3 · ④ 已完成（**仍未做**，卡在待拍板项 D 五星评价）
+- [x] 阶段 3 的**志愿者一半** · 陪跑员端长按 2 秒结束（2026-09-16，PR #145，真机已验）
+
+      ```
+      VolunteerFinishLongPressTests(9) + 3 条志愿者流转用例   passed=12 failed=0
+      长按行为用例 + 无障碍形状用例                            passed=2  failed=0
+      ```
+      验红两次：读秒那条第一版取 `elapsed: 0.3` 打回修正照样绿（`2 - 0.3` 在 IEEE754 下
+      恰好精确），换 1.7 / 1.9 才真的红；`ringProgress` 打回后红在「结束失败后环形还停在满格」。
+      ⚠️ **渐强震动没有自动化能验**，需要人上手按一次。
+      ⚠️ 顺带确认一条**既有**红灯（见下方第五节）。
 - [ ] 阶段 4 · B 组异常警示条 + 求助中心单列重排（先答 C）
 - [ ] 阶段 5 · D 组锁屏实时活动（**要新建 Widget Extension target，得动 pbxproj**）
 - [ ] 阶段 6 · E 深色 + F AX5 布局
@@ -178,6 +188,11 @@
 ### 已知既有红灯（**不是你改出来的**，判回归时要扣掉）
 
 - `AccessibilityAuditTests` 3 条长期红。
+- `blindRunUITests.testMockVolunteerOrderFlowSmoke` —— `IN_PROGRESS` 之后断求助悬浮键
+  `isHittable` 失败（「求助按钮存在但点不到」）。**2026-09-16 在 `main@fdc6579` 上原样复跑，
+  同一条断言、同一句话失败**，不是哪条特性分支引入的。后果是该用例后半段（结束 → 轨迹总结 →
+  全屏回放）的断言实际一条都没在跑 —— 别把它的绿/红当成那些功能的信号。已单独开任务跟进；
+  要验长按结束走 `testVolunteerFinishesEscortOnlyAfterHoldingLongEnough`（不依赖它）。
 - `testBlindOrderStatusInLandscapePassesAccessibilityAudit` 2 条 `Contrast failed` ——
   逐个量过调色板声明值全部过线，**唯一不过线的是 1.5pt 描边的抗锯齿边缘像素**
   （实测混合色 `#CD6F5F` 压 `#FDEFEF` ＝ 3.11:1）。**已分出独立任务**，本轮不碰调色板。
