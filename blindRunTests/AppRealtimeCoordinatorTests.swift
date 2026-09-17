@@ -82,6 +82,40 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pendingDispatch?.order.orderId, 2)
     }
 
+    /// 同一个陪跑员**同时**收到两条派单时，两条都要留住。
+    ///
+    /// 🔴 **这条修的是一个静默丢单缺陷，不是为了设计稿的分页点。** 后端对同一个陪跑员的派单
+    /// 跨订单零互斥 —— `DispatchService.java:403-406` 的注释自己写着「接单锁是 per-order 的…
+    /// 拦不到同一个陪跑员接两单」「候选池过滤…拦不住两条派单链路同时把他选中」。
+    /// 此前这里一句 `guard pendingDispatch == nil else { return }` 把第二条丢掉：
+    /// 陪跑员少接一单、正在等的跑者白等一轮 30 秒，**而没有任何东西会报警**。
+    ///
+    /// 顺带钉住排序：设计交付 v3 §4.4.2「多个邀请：按回复期限升序」。
+    /// 断言用**后到但更早到期**的那一条，只按到达顺序排的实现过不了。
+    func testConcurrentDispatchesAreAllRetainedAndSortedByDeadline() async {
+        let coordinator = AppRealtimeCoordinator()
+        let service = WebSocketService()
+        coordinator.attach(to: service, role: .volunteer)
+
+        service.simulateIncomingEventForTesting(
+            .newOrder(makeDispatch(orderID: 51, timeoutSeconds: 120))
+        )
+        service.simulateIncomingEventForTesting(
+            .newOrder(makeDispatch(orderID: 52, timeoutSeconds: 30))
+        )
+        await Task.yield()
+
+        XCTAssertEqual(
+            coordinator.pendingDispatches.map(\.order.orderId), [52, 51],
+            "两条都要留住，且按回复期限升序 —— 先到期的排前面"
+        )
+        XCTAssertEqual(coordinator.pendingDispatch?.order.orderId, 52)
+
+        // 回复掉一条只影响那一条。
+        coordinator.clearDispatch(orderID: 52)
+        XCTAssertEqual(coordinator.pendingDispatches.map(\.order.orderId), [51])
+    }
+
     func testStatusRefreshIsRetainedAndCoalescedUntilCompleted() async {
         let coordinator = AppRealtimeCoordinator()
         let service = WebSocketService()
@@ -1108,9 +1142,11 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         let coordinator = AppRealtimeCoordinator()
         let service = WebSocketService()
         coordinator.attach(to: service, role: .volunteer)
-        var deliveredOrderIDs: [Int64] = []
-        let cancellable = coordinator.$pendingDispatch
-            .compactMap { $0?.order.orderId }
+        var deliveredOrderIDs: [[Int64]] = []
+        // 队列化之后 `pendingDispatch` 是 computed（没有 projected value），订阅整队。
+        // 断言的东西没变：同一单重发不该在队列里变成第二条。
+        let cancellable = coordinator.$pendingDispatches
+            .map { $0.map(\.order.orderId) }
             .sink { deliveredOrderIDs.append($0) }
         defer { cancellable.cancel() }
 
@@ -1119,7 +1155,8 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         service.simulateIncomingEventForTesting(.newOrder(message))
         await Task.yield()
 
-        XCTAssertEqual(deliveredOrderIDs, [44])
+        XCTAssertEqual(deliveredOrderIDs.last, [44])
+        XCTAssertEqual(coordinator.pendingDispatches.count, 1)
     }
 
     private func makeNotification(
@@ -1200,7 +1237,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.currentNotification?.stableEventID, "emergencyContactNotified:77")
     }
 
-    private func makeDispatch(orderID: Int64) -> WSNewOrder {
+    private func makeDispatch(orderID: Int64, timeoutSeconds: Int = 30) -> WSNewOrder {
         WSNewOrder(
             type: WSMessageType.newOrder.rawValue,
             timestamp: nil,
@@ -1211,7 +1248,7 @@ final class AppRealtimeCoordinatorTests: XCTestCase {
             distanceKm: nil,
             plannedStart: nil,
             plannedEnd: nil,
-            dispatchTimeoutSeconds: 30,
+            dispatchTimeoutSeconds: timeoutSeconds,
             priority: "HIGH",
             pacePreference: nil,
             hasGuideDog: nil,

@@ -610,6 +610,84 @@ final class blindRunUITests: XCTestCase {
         attachScreenshot(named: "volunteer-service-in-progress", app: app)
     }
 
+    /// 邀请卡（设计交付 v3 §4.4.2）打开时，三个动作都真的在无障碍树里。
+    ///
+    /// 🚩 **断的是形状，不是行为。** 三枚都是真 `Button`，`tap()` 走得通；但这条用例**不点**
+    /// 它们 —— 点下去要么发出一次真实的派单响应、要么进一条五秒延时链路，两者都会让这条用例
+    /// 在验别的东西。行为那一半由 `blindRunTests` 里直接调 view model 的四条用例验
+    /// （延时发送、撤销、过期、接下）。
+    ///
+    /// 🔴 **这一屏没有种子就到不了。** 派单只从 WebSocket 来，而 UI 测试默认
+    /// `disableWebSocket` —— 所以走 `seedInvites`。种子名字打错时的表现是**卡片压根不出现**、
+    /// 下面第一条断言当场红，不是静默通过。
+    ///
+    /// ⚠️ 主按钮按**文案**断而不是按 identifier：App 侧那个 id 是三元表达式
+    /// （`? "volunteerDispatchInterestedButton" : "volunteerDispatchAcceptButton"`），
+    /// 而 `stale-ui-test-identifier` 守卫的正则只认直接写在 `accessibilityIdentifier(...)`
+    /// 里的字面量，看不见三元的两支 ⇒ 引用它们会被误拦。**不为讨好守卫去改 App 的代码形状**
+    /// （记忆 `identifier-guard-blocks-any-edit-that-moves-a-literal`）；
+    /// 「这一下会发哪个 action」本来就由单测断。
+    @MainActor
+    func testMockVolunteerInviteSheetExposesItsThreeActions() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            seedInvites: 2
+        )
+
+        let accept = app.buttons["接下这次陪跑"].firstMatch
+        XCTAssertTrue(
+            accept.waitForExistence(timeout: 20),
+            "邀请卡应当自动弹出并带主按钮\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerInviteDeclineButton"].firstMatch.exists,
+            "「这次去不了」必须在无障碍树里 —— 它是这张卡上唯一的退出方式"
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerDispatchDetailButton"].firstMatch.exists,
+            "「查看详情」必须在无障碍树里"
+        )
+        // 标题行按「N 个新邀请」报数（种子给了 2 条）。只留一条的实现会念成「新的陪跑邀请」。
+        XCTAssertTrue(
+            app.staticTexts["2 个新邀请"].firstMatch.exists,
+            "多条邀请时标题行要报数\n\(app.debugDescription)"
+        )
+        // 三格数据按「标签，值」念，而不是屏幕上的上下顺序（值在上是为了扫读）。
+        // 缺值不画格子，所以它的存在同时证明 `distanceKm` 那条路是通的。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["离你，3.2 公里"].firstMatch.exists,
+            "三格数据的读屏标签要先说这是什么\n\(app.debugDescription)"
+        )
+
+        // 🔴 **「查看详情」是这条用例唯一会点的东西，而它必须点。**
+        // 邀请卡是 `.sheet`，而这一跳是从 sheet 里再弹一个 `.fullScreenCover`
+        // （设计交付 v3 §4.4.2 第 10 项 → §5 的「邀请」订单页）。
+        // 两层模态叠在一起在 iOS 16 上行不行**读代码验不了**，而本仓库模拟器通道永久不可用
+        // ⇒ 只有真机点一下才知道。点它不会发出任何派单响应，所以不像另外两枚那样
+        // 会把这条用例变成在验别的东西。
+        app.descendants(matching: .any)["volunteerDispatchDetailButton"].firstMatch.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["陪跑订单"].firstMatch.waitForExistence(timeout: 10),
+            "从邀请卡（sheet）里应当能再弹出完整订单页（fullScreenCover）\n\(app.debugDescription)"
+        )
+        // 四步骨架的第 1 步高亮 —— 这一跳去的是「邀请」态，不是别的订单页。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["进度，第 1 步，共 4 步，邀请"].firstMatch.exists,
+            "详情页应当停在四步骨架的第 1 步\n\(app.debugDescription)"
+        )
+
+        app.buttons["返回"].firstMatch.tap()
+        XCTAssertTrue(
+            accept.waitForExistence(timeout: 10),
+            "从详情页返回之后邀请卡还在，倒计时没有停"
+        )
+    }
+
     /// 志愿者端**只有一屏**：身份 → 作业区 → 影响力 → 徽章 → 最近陪跑 → 派单状态。
     /// 没有地图，也没有任何二级的「工作台」。
     ///
@@ -1437,6 +1515,9 @@ final class blindRunUITests: XCTestCase {
         /// 免得为了验一个 `IN_PROGRESS` 的行为先走完出发 / 到达 / 开始三步。
         /// 走那三步的用例会连带吃掉沿途每一条断言的红灯，验的东西就不是自己那一条了。
         seedOrderStatus: String? = nil,
+        /// 预置几条待回复邀请（`AIDRUN_UI_TEST_SEED_INVITES`）。派单只从 WebSocket 来，
+        /// 而这里默认 `disableWebSocket` —— 没有这个种子，邀请卡在 UI 测试里根本到不了。
+        seedInvites: Int? = nil,
         forceRealVolunteerRegistration: Bool = false,
         unregisteredVolunteer: Bool = false,
         legacyTrainingStatusAfterFaceVerify: Bool = false,
@@ -1505,6 +1586,9 @@ final class blindRunUITests: XCTestCase {
         }
         if preseedVolunteerAvailable {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_AVAILABLE"] = "1"
+        }
+        if let seedInvites {
+            app.launchEnvironment["AIDRUN_UI_TEST_SEED_INVITES"] = String(seedInvites)
         }
         if preseedVolunteerActiveOrder {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"

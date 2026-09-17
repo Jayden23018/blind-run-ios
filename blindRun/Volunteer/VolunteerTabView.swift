@@ -26,6 +26,7 @@ import SwiftUI
 ///    志愿者端（切角色 / 退出登录）时才触发，那正是它原本的语义。
 struct VolunteerTabView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
@@ -106,43 +107,53 @@ struct VolunteerTabView: View {
             )
             viewModel.startRefreshLoop()
         }
-        // 🚩 **派单弹窗挂在 `TabView` 外面。**
+        // 🚩 **邀请卡挂在 `TabView` 外面。**
         //
         // 挂在某个 tab 的栈内根视图上时，push 出任何二级页（陪跑培训、服务记录、成就、设置）
-        // 之后弹窗会被那一页盖住；挂在某一个 tab 上时，他切到别的 tab 就看不见。
-        // 模态是最高优先级：不管他在哪一页、哪一个 tab，30 秒倒计时都必须看得见。
+        // 之后它会被那一页盖住；挂在某一个 tab 上时，他切到别的 tab 就看不见。
+        // 不管他在哪一页、哪一个 tab，那个回复窗口都必须看得见。
         //
-        // 🚩 同一条理由决定了首屏那些入口一律用 `NavigationLink` 而不是 `.sheet`：
-        // sheet 是盖在整个容器之上的，会反过来把这个 overlay 挡住。
-        .overlay {
-            if let incomingOrder = viewModel.incomingOrder {
-                VolunteerDispatchOverlay(
-                    order: incomingOrder,
-                    countdown: viewModel.dispatchCountdown,
-                    isResponding: viewModel.isRespondingToDispatch,
-                    currentLocation: locationService.currentLocation,
-                    locationAuthorized: locationService.isAuthorized,
-                    fallbackCoordinate: locationService.effectiveBackendLocation,
-                    // 主动作是「有意向，想先聊聊」还是「接单」，由推送里的
-                    // `requiresIntroCall` 决定（`WSNewOrder.dispatchRespondAction`）。
-                    // 🚨 这里**不做第二次判断** —— 判据在后端，客户端自己算必然漂移，
-                    // 而漂移的表现是「界面说能直接接、后端回 409」。
-                    onRespond: { action in
-                        viewModel.respondToDispatch(
-                            action: action,
-                            currentLocation: locationService.currentLocation,
-                            locationAuthorized: locationService.isAuthorized
-                        )
-                    },
-                    onDecline: {
-                        viewModel.respondToDispatch(
-                            action: .decline,
-                            currentLocation: nil,
-                            locationAuthorized: false
-                        )
-                    }
-                )
+        // 🔴 **2026-09-17 从 `.overlay` 改成 `.sheet`，约束方向跟着反过来了。**
+        // 这里原本写着「首屏那些入口一律用 `NavigationLink` 而不是 `.sheet`，因为 sheet
+        // 会盖住这个 overlay」。现在邀请本身就是 sheet ⇒ **这一层不能再挂第二个 sheet**，
+        // 否则两者互相顶掉。栈内的 `NavigationLink` 不受影响（它们在 sheet 底下）。
+        //
+        // 高度约 2/3（设计交付 v3 §4.4.2），背景由系统压暗。`.large` 那一档留着是给
+        // AX 大字号的：2/3 高在 AX5 下装不下一张完整的卡，而这一屏的每个字都要能看见。
+        .sheet(isPresented: $viewModel.isInviteSheetPresented) {
+            VolunteerInviteSheet(
+                viewModel: viewModel,
+                // 发 ACCEPT 还是 INTERESTED 由推送里的 `requiresIntroCall` 决定
+                // （`WSNewOrder.dispatchRespondAction`，调用方算好传进来）。
+                // 🚨 这里**不做第二次判断** —— 判据在后端，客户端自己算必然漂移，
+                // 而漂移的表现是「界面说能直接接、后端回 409」。
+                onRespond: { orderId, action in
+                    viewModel.respondToDispatch(
+                        action: action,
+                        currentLocation: locationService.currentLocation,
+                        locationAuthorized: locationService.isAuthorized,
+                        orderId: orderId
+                    )
+                },
+                onDecline: { viewModel.declineInvite(orderID: $0) }
+            )
+            .presentationDetents([.fraction(0.67), .large])
+            .presentationDragIndicator(.visible)
+        }
+        // 撤销 toast 挂在 sheet **外面**：点完「这次去不了」卡片就收起了，
+        // 而 toast 正是那一刻唯一还在屏幕上的东西（§4.4.3）。
+        .overlay(alignment: .bottom) {
+            if viewModel.pendingDecline != nil {
+                VolunteerDeclineUndoToast { viewModel.undoPendingDecline() }
+                    .padding(.bottom, 8)
+                    // 开了「减弱动态效果」就只淡入淡出，不从屏幕下缘滑上来。
+                    .transition(
+                        reduceMotion
+                            ? .opacity
+                            : .move(edge: .bottom).combined(with: .opacity)
+                    )
             }
         }
+        .animation(.easeOut(duration: 0.2), value: viewModel.pendingDecline?.id)
     }
 }

@@ -198,7 +198,11 @@ struct VolunteerDispatchHubView: View {
                     emptyState
                 }
 
+                pendingInvitesCard
+
                 introCallCard
+
+                adjustAvailabilityCard
 
                 entryRows
             }
@@ -309,61 +313,129 @@ struct VolunteerDispatchHubView: View {
         .accessibilityIdentifier("volunteerDispatchHubEmptyState")
     }
 
-    // MARK: 待回复的邀请
+    // MARK: 新邀请（下滑收起之后回来的唯一一条路）
 
-    /// 🚩 **只有通话磨合中的那一单会出现在这里，不是设计稿里的「N 个新邀请」。**
+    /// 设计交付 v3 §4.4.2：「下滑或点背景：收起，**不算回复**，邀请留在接单主页的新邀请卡里。」
     ///
-    /// 后端没有「待回复邀请列表」这种持久态：派单是 WS 瞬时推送 + `dispatchTimeoutSeconds`
-    /// （默认 30 秒）超时自动转下一位，已经由全屏的 `VolunteerDispatchOverlay` 接管。
-    /// 唯一**持久、且确实等着志愿者表态**的是 `dispatch-summary.introCallOrderId`。
-    /// 其余情况整块不画 —— 摆一个「0 个新邀请」的空壳，只会每次提醒志愿者他没单。
+    /// 🔴 **这一队只在内存里。** 后端没有「待回复邀请列表」这种持久端点 ——
+    /// 派单是 WebSocket 瞬时推送 + `app.dispatch.per-volunteer-timeout-seconds`（30 秒）
+    /// 超时自动转下一位。所以杀掉 App 这张卡就没了，而那和邀请本身过期的结局一样
+    /// （后端照样会把这一单推给下一个人）。已投 handoff 问后端要不要给一个持久列表。
+    ///
+    /// 倒计时走完这张卡自己消失 —— `VolunteerHomeViewModel` 的 ticker 会把过期的移出队列。
+    @ViewBuilder
+    private var pendingInvitesCard: some View {
+        let pending = viewModel.invitesAwaitingReply
+        if let soonest = pending.first {
+            hubCard(
+                systemImage: "bell.badge.fill",
+                title: VolunteerInviteCopy.pendingInvitesTitle(count: pending.count),
+                subtitle: VolunteerOrderFlowCopy.replyCountdown(seconds: soonest.remainingSeconds),
+                hint: "双击重新打开邀请卡",
+                identifier: "volunteerDispatchHubPendingInvitesCard"
+            ) {
+                viewModel.currentInviteID = soonest.id
+                viewModel.isInviteSheetPresented = true
+            }
+        }
+    }
+
+    // MARK: 连续去不了之后的那句询问
+
+    /// 设计交付 v3 §4.4.3：「连续 3 次去不了后，下次打开接单主页询问『要不要调整空闲时间』，
+    /// **不做任何惩罚**。」
+    ///
+    /// 🚩 **点进去和不点进去都清零** —— 问一次就够。反复问本身就是一种惩罚，
+    /// 而设计稿把「不做任何惩罚」写死了。
+    @ViewBuilder
+    private var adjustAvailabilityCard: some View {
+        if viewModel.shouldAskAboutAvailability {
+            hubCard(
+                systemImage: "calendar.badge.clock",
+                title: VolunteerInviteCopy.adjustAvailabilityTitle,
+                subtitle: VolunteerInviteCopy.adjustAvailabilitySubtitle,
+                hint: "双击去改空闲时间",
+                identifier: "volunteerDispatchHubAdjustAvailabilityCard"
+            ) {
+                viewModel.acknowledgeAvailabilityPrompt()
+                route = .schedule
+            }
+        }
+    }
+
+    // MARK: 待回复的通话磨合
+
+    /// 🚩 **只有通话磨合中的那一单会出现在这里。** 新邀请那一队在上面
+    /// `pendingInvitesCard`，两者是不同的东西：这一条是**持久**的
+    /// （`dispatch-summary.introCallOrderId`，后端记着），那一条只在内存里。
+    /// 没有磨合单时整块不画 —— 摆一个空壳只会每次提醒志愿者他没单。
     /// 「预约单该有 1 小时回复期限」已投 handoff。
     @ViewBuilder
     private var introCallCard: some View {
         if let orderId = viewModel.dispatchSummary?.introCallOrderId {
-            Button {
+            hubCard(
+                systemImage: "phone.badge.waveform.fill",
+                title: VolunteerDispatchHubCopy.introCallCardTitle,
+                subtitle: VolunteerDispatchHubCopy.introCallCardSubtitle,
+                hint: "双击打开通话页，给跑者打电话并表态",
+                identifier: "volunteerDispatchHubIntroCallCard"
+            ) {
                 route = .introCall(orderId: orderId)
-            } label: {
-                HStack(spacing: 16) {
-                    Image(systemName: "bell.badge.fill")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: FlowMetrics.bookingPlusDiameter, height: FlowMetrics.bookingPlusDiameter)
-                        .background(AppColors.Flow.accent, in: Circle())
-                        .accessibilityHidden(true)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(VolunteerDispatchHubCopy.introCallCardTitle)
-                            .flowFont(FlowFonts.homeCardRowTitle())
-                            .foregroundColor(AppColors.Flow.bookingTitle)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(VolunteerDispatchHubCopy.introCallCardSubtitle)
-                            .flowFont(FlowFonts.bookingSubtitle())
-                            .foregroundColor(AppColors.Flow.bookingSubtitle)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(AppColors.Flow.bookingTitle)
-                        .accessibilityHidden(true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, FlowMetrics.bookingBlockHorizontalPadding)
-                .padding(.vertical, 18)
-                .background(AppColors.Flow.bookingBackground)
-                .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.homeCardRadius, style: .continuous))
             }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(
-                "\(VolunteerDispatchHubCopy.introCallCardTitle)，\(VolunteerDispatchHubCopy.introCallCardSubtitle)"
-            )
-            .accessibilityHint("双击打开通话页，给跑者打电话并表态")
-            .accessibilityIdentifier("volunteerDispatchHubIntroCallCard")
         }
+    }
+
+    /// 这一屏上三张形状相同的浅蓝卡（新邀请 / 通话磨合 / 调整空闲时间）共用的壳。
+    ///
+    /// 抽出来是因为它们**必须长得一样** —— 三者都是「这里有件事等着你」，
+    /// 而三份各自维护的副本会在下一次改圆角或改间距时分叉。
+    /// 图标各不相同：靠形状区分，不靠颜色（三张卡底色相同）。
+    private func hubCard(
+        systemImage: String,
+        title: String,
+        subtitle: String,
+        hint: String,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: FlowMetrics.bookingPlusDiameter, height: FlowMetrics.bookingPlusDiameter)
+                    .background(AppColors.Flow.accent, in: Circle())
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .flowFont(FlowFonts.homeCardRowTitle())
+                        .foregroundColor(AppColors.Flow.bookingTitle)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(subtitle)
+                        .flowFont(FlowFonts.bookingSubtitle())
+                        .foregroundColor(AppColors.Flow.bookingSubtitle)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(AppColors.Flow.bookingTitle)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, FlowMetrics.bookingBlockHorizontalPadding)
+            .padding(.vertical, 18)
+            .background(AppColors.Flow.bookingBackground)
+            .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.homeCardRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("\(title)，\(subtitle)")
+        .accessibilityHint(hint)
+        .accessibilityIdentifier(identifier)
     }
 
     // MARK: 入口行

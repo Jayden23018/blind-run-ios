@@ -209,6 +209,10 @@ enum FlowFonts {
     static func homeCardRowDetail() -> (CGFloat, Font.Weight, Font.TextStyle) { (14, .regular, .subheadline) }
     /// 首页预约块标题 24 / Semibold。
     static func bookingTitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (24, .semibold, .title2) }
+
+    /// 邀请卡上那行大字时间（设计交付 v3 §4.4.2 第 4 项「28pt 粗体」）。
+    /// 比订单页的 `statusTitle()`（34）小 —— 那是一整页的主角，这是一张 2/3 高的卡。
+    static func inviteTime() -> (CGFloat, Font.Weight, Font.TextStyle) { (28, .semibold, .title) }
     /// 首页预约块副标题 15 / Regular。
     static func bookingSubtitle() -> (CGFloat, Font.Weight, Font.TextStyle) { (15, .regular, .subheadline) }
     /// 订单页状态标题 34 / Semibold / 等宽数字。

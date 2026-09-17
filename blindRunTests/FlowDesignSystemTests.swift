@@ -135,6 +135,49 @@ final class FlowDesignSystemTests: XCTestCase {
         )
     }
 
+    /// 邀请卡那条回复进度条转「深黄」之后，还看不看得见（设计交付 v3 §4.4.2 第 3 项）。
+    ///
+    /// 🔴 **这条挡的是「照设计稿抄色」。** 设计稿给的 `#D99A00` 压在进度条底 `#E2E6EE` 上
+    /// 只有 1.96:1 —— 低视力用户看到的不是「变黄了」，而是**进度条不见了**，
+    /// 而这条进度条要传达的正是「时间快到了」。
+    func testUrgentReplyProgressStaysVisibleAgainstItsOwnTrack() {
+        let fill = AppColors.Flow.replyProgressUrgentTone
+        let track = AppColors.Flow.progressTrackTone
+
+        assertContrast(fill.light, track.light, Self.nonTextMinimum, "亮色", "紧迫进度条 vs 进度条底")
+        assertContrast(fill.dark, track.dark, Self.nonTextMinimum, "暗色", "紧迫进度条 vs 进度条底")
+
+        // 平时那一档走品牌蓝，同一条断言也要过 —— 不然「变色」会从一个达标态掉进不达标态。
+        assertContrast(
+            AppColors.Flow.accentTone.light, track.light, Self.nonTextMinimum, "亮色", "常态进度条 vs 进度条底"
+        )
+        assertContrast(
+            AppColors.Flow.accentTone.dark, track.dark, Self.nonTextMinimum, "暗色", "常态进度条 vs 进度条底"
+        )
+
+        XCTAssertLessThan(
+            Self.contrastRatio(0xD99A00, track.light), Self.nonTextMinimum,
+            "设计稿的 #D99A00 压亮轨不达标，这条用例存在的理由就是挡住照抄它"
+        )
+    }
+
+    /// 同一时刻那行「还剩 X 秒回复」的文字。
+    ///
+    /// 🔴 验红挡的是**只给亮色档**：设计稿的 `#8A5A00` 压白卡 5.93 达标，
+    /// 而同一个值压暗卡只有 2.87 —— 亮暗同值是这里最自然的偷懒写法。
+    func testUrgentReplyLabelClearsTheBodyThresholdInBothAppearances() {
+        let text = AppColors.Flow.replyUrgentTextTone
+        let surface = AppColors.Flow.surfaceTone
+
+        assertContrast(text.light, surface.light, Self.textMinimum, "亮色", "「还剩 X 秒回复」")
+        assertContrast(text.dark, surface.dark, Self.textMinimum, "暗色", "「还剩 X 秒回复」")
+
+        XCTAssertLessThan(
+            Self.contrastRatio(0x8A5A00, surface.dark), Self.textMinimum,
+            "设计稿那个值压暗卡不达标，暗色档必须自己补，不能亮暗同值"
+        )
+    }
+
     /// 底部标签栏的两档标签文字，压在标签栏底上。
     ///
     /// 🔴 这条同时修掉一个**系统默认值带来的**缺陷：iOS 未选中态的灰是 `#8E8E93`，

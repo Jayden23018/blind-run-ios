@@ -377,7 +377,19 @@ final class AppRealtimeCoordinator: ObservableObject {
     @Published private(set) var connectionState: WSConnectionState = .disconnected
     @Published private(set) var pendingOrderRefreshIDs: Set<Int64> = []
     @Published private(set) var pendingOrderRefreshRequests: [Int64: RealtimeOrderRefreshRequest] = [:]
-    @Published private(set) var pendingDispatch: RealtimeDispatchPrompt?
+    /// 当前还没被回复、也还没过期的派单，**按回复期限升序**（设计交付 v3 §4.4.2）。
+    ///
+    /// 🔴 **这里从「一条」改成「一队」是在修一个真缺陷，不是为了设计稿的分页点。**
+    /// 后端对同一个志愿者的派单**跨订单零互斥** —— `DispatchService.java:403-406` 的注释
+    /// 自己写着「接单锁是 per-order 的…拦不到同一个志愿者接两单」「候选池过滤是尽力而为的优化，
+    /// 拦不住两条派单链路同时把他选中」。而这里原先一句 `guard pendingDispatch == nil`
+    /// 把第二条**静默丢掉**：志愿者丢单、盲人白等一轮 30 秒，而没有任何东西会报警。
+    @Published private(set) var pendingDispatches: [RealtimeDispatchPrompt] = []
+
+    /// 队列里最靠前的那一条。保留它是因为「只有一条派单」仍然是绝大多数情况，
+    /// 而六处既有断言读的就是这个语义。
+    var pendingDispatch: RealtimeDispatchPrompt? { pendingDispatches.first }
+
     @Published private(set) var dispatchDiagnostic: WSDispatchDiagnostic?
     @Published private(set) var currentNotification: RealtimeForegroundNotification?
     @Published private(set) var latestSeparationAlert: RealtimeSeparationAlert?
@@ -402,7 +414,9 @@ final class AppRealtimeCoordinator: ObservableObject {
     private var connectionCancellable: AnyCancellable?
     private var dispatchDiagnosticCancellable: AnyCancellable?
     private var notificationTask: Task<Void, Never>?
-    private var dispatchExpiryTask: Task<Void, Never>?
+    /// 每条派单各自的到期任务。**按 orderId 分开存**：一个共享的 task 只能跟住最后一条，
+    /// 其余的到期之后会永远留在队列里（而它们已经被后端转给别人了）。
+    private var dispatchExpiryTasks: [Int64: Task<Void, Never>] = [:]
     private var orderRefreshRetryTasks: [Int64: Task<Void, Never>] = [:]
     private var orderRefreshRetryCounts: [Int64: Int] = [:]
     private var queuedNotifications: [RealtimeForegroundNotification] = []
@@ -579,10 +593,8 @@ final class AppRealtimeCoordinator: ObservableObject {
     }
 
     func clearDispatch(orderID: Int64) {
-        guard pendingDispatch?.order.orderId == orderID else { return }
-        dispatchExpiryTask?.cancel()
-        dispatchExpiryTask = nil
-        pendingDispatch = nil
+        dispatchExpiryTasks.removeValue(forKey: orderID)?.cancel()
+        pendingDispatches.removeAll { $0.order.orderId == orderID }
     }
 
     func markDispatchPresented(orderID: Int64) {
@@ -705,26 +717,40 @@ final class AppRealtimeCoordinator: ObservableObject {
         pendingOrderRefreshRequests[orderID] = RealtimeOrderRefreshRequest(orderId: orderID, reason: reason)
     }
 
+    /// 队列上限。**防的是异常堆积，不是产品规则** —— 后端没有「一次最多派几单给一个人」这回事。
+    /// 超了就丢最新的那条：队列按期限升序，先到期的更紧急，留着它们比留一条刚来的更有用。
+    private static let maxPendingDispatches = 5
+
     private func retainDispatch(_ message: WSNewOrder) {
         guard attachedRole == nil || attachedRole == .volunteer else { return }
-        guard pendingDispatch == nil else { return }
+        // 同一单重发（后端重试 / 断线重连补推）不进第二条。判据是 orderId 而不是整条消息相等：
+        // 重发的 `timestamp` 会变，按值去重等于去不掉。
+        guard !pendingDispatches.contains(where: { $0.order.orderId == message.orderId }) else { return }
+        guard pendingDispatches.count < Self.maxPendingDispatches else { return }
         let receivedAt = now()
         let timeout = max(0, message.dispatchTimeoutSeconds ?? 30)
         let sentAt = Self.parseISO8601(message.timestamp) ?? receivedAt
         let expiresAt = sentAt.addingTimeInterval(TimeInterval(timeout))
         guard expiresAt > receivedAt else { return }
-        pendingDispatch = RealtimeDispatchPrompt(order: message, receivedAt: receivedAt, expiresAt: expiresAt)
+        pendingDispatches.append(
+            RealtimeDispatchPrompt(order: message, receivedAt: receivedAt, expiresAt: expiresAt)
+        )
+        // 按回复期限升序（设计交付 v3 §4.4.2「多个邀请：按回复期限升序」）。
+        // 设计稿还有一句「同等期限下一起跑过的跑者优先」—— `NEW_ORDER` 里没有这个字段，
+        // **不编一个出来**，已投 handoff。
+        pendingDispatches.sort { $0.expiresAt < $1.expiresAt }
         if let diagnostic = dispatchDiagnostic,
            diagnostic.orderID == message.orderId,
            diagnostic.stage == .received {
             dispatchDiagnostic = diagnostic.advancing(to: .retained, recordedAt: receivedAt)
         }
-        dispatchExpiryTask?.cancel()
-        dispatchExpiryTask = Task { [weak self] in
+        dispatchExpiryTasks.removeValue(forKey: message.orderId)?.cancel()
+        dispatchExpiryTasks[message.orderId] = Task { [weak self] in
             let nanos = UInt64(max(0, expiresAt.timeIntervalSince(receivedAt)) * 1_000_000_000)
             try? await Task.sleep(nanoseconds: nanos)
-            guard !Task.isCancelled, let self, self.pendingDispatch?.order.orderId == message.orderId else { return }
-            self.pendingDispatch = nil
+            guard !Task.isCancelled, let self else { return }
+            self.dispatchExpiryTasks.removeValue(forKey: message.orderId)
+            self.pendingDispatches.removeAll { $0.order.orderId == message.orderId }
         }
     }
 
@@ -1235,16 +1261,16 @@ final class AppRealtimeCoordinator: ObservableObject {
 
     private func clearInMemoryState() {
         notificationTask?.cancel()
-        dispatchExpiryTask?.cancel()
+        for task in dispatchExpiryTasks.values { task.cancel() }
         for task in orderRefreshRetryTasks.values { task.cancel() }
         for task in peerPublishTasks.values { task.cancel() }
         notificationTask = nil
-        dispatchExpiryTask = nil
+        dispatchExpiryTasks = [:]
         orderRefreshRetryTasks = [:]
         orderRefreshRetryCounts = [:]
         pendingOrderRefreshIDs = []
         pendingOrderRefreshRequests = [:]
-        pendingDispatch = nil
+        pendingDispatches = []
         dispatchDiagnostic = nil
         currentNotification = nil
         latestSeparationAlert = nil

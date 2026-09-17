@@ -57,8 +57,53 @@ final class VolunteerHomeViewModel: ObservableObject {
     @Published private(set) var locationDispatchWarning: String?
 
     // WebSocket dispatch state
-    @Published var incomingOrder: WSNewOrder?
-    @Published var dispatchCountdown: Int = 0
+
+    /// 待回复 / 刚出结果的邀请，按回复期限升序（由 `AppRealtimeCoordinator` 排好）。
+    ///
+    /// 🔴 **一队而不是一条**：后端对同一个志愿者的派单跨订单零互斥
+    /// （`DispatchService.java:403-406` 的注释自认），并发推两条是真会发生的。
+    @Published private(set) var invites: [VolunteerInviteState] = []
+    /// 邀请卡当前翻到第几张。**用 orderId 而不是下标**：下标会在队列增删时指到另一个人身上，
+    /// 而这一屏的动作是「接下 / 拒绝」——指错了就是替别人回复。
+    @Published var currentInviteID: Int64?
+    /// 刚点了「这次去不了」、还在 5 秒撤销窗口里的那条（§4.4.3）。
+    @Published private(set) var pendingDecline: VolunteerInviteState?
+
+    /// 队列里当前这一张。
+    var currentInvite: VolunteerInviteState? {
+        guard let currentInviteID else { return invites.first }
+        return invites.first { $0.id == currentInviteID } ?? invites.first
+    }
+
+    /// 还等着回复的那几条（结果态的不算）—— 接单主页那个入口的计数用它。
+    var invitesAwaitingReply: [VolunteerInviteState] { invites.filter(\.isAwaitingReply) }
+
+    /// 当前这一张的派单载荷。
+    ///
+    /// ⚠️ **setter 只服务于测试**（两个测试文件里共 38 处 `viewModel.incomingOrder = …`）。
+    /// 生产代码一律走 `syncInvites(with:)` 入队 —— 那条路才会建立倒计时与到期归宿。
+    var incomingOrder: WSNewOrder? {
+        get { currentInvite?.order }
+        set {
+            guard let newValue else {
+                invites.removeAll()
+                currentInviteID = nil
+                return
+            }
+            enqueue(order: newValue, receivedAt: Date(), expiresAt: Date().addingTimeInterval(30))
+        }
+    }
+
+    /// 当前这一张剩几秒。setter 同上，只给测试用。
+    var dispatchCountdown: Int {
+        get { currentInvite?.remainingSeconds ?? 0 }
+        set {
+            guard let id = currentInvite?.id,
+                  let index = invites.firstIndex(where: { $0.id == id }) else { return }
+            invites[index].remainingSeconds = newValue
+        }
+    }
+
     @Published var isRespondingToDispatch = false
     /// 接单被后端 403 `VOLUNTEER_NOT_VERIFIED` 拒绝后，错误区要长出「去上传资质证书」入口。
     @Published var needsCertificateUpload = false
@@ -100,8 +145,15 @@ final class VolunteerHomeViewModel: ObservableObject {
     private var realtimeDispatchCancellable: AnyCancellable?
     private var realtimeRecoveryCancellable: AnyCancellable?
     private var realtimeStatusCancellable: AnyCancellable?
+    /// 一条 ticker 刷**整队**邀请的剩余秒数。**不是每条一个** —— 每条一个的话
+    /// 队列增删时要各自建/撤，而它们刷新的是同一个时钟。
     private var countdownTask: Task<Void, Never>?
+    /// 「这次去不了」的 5 秒延时发送（§4.4.3 的撤销窗口）。
+    private var pendingDeclineTask: Task<Void, Never>?
     private var delayedSummaryRefreshTask: Task<Void, Never>?
+    private let declineStreak: VolunteerDeclineStreak
+    /// 撤销窗口的长度（设计交付 v3 §10「撤销『去不了』时长 = 5 秒」）。
+    private let declineUndoWindow: TimeInterval
     private var isSceneActive = false
     /// 定位单次采样为 nil 是真机上的常见瞬态，报警必须等「连续失败」才算数。
     /// 取 3：刷新循环每 10 秒上报一次，连续 3 次约等于持续 20 秒都拿不到定位，
@@ -124,6 +176,8 @@ final class VolunteerHomeViewModel: ObservableObject {
     init(
         dispatchPropagationDelay: TimeInterval = 1,
         loadTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout,
+        declineStreak: VolunteerDeclineStreak = VolunteerDeclineStreak(),
+        declineUndoWindow: TimeInterval = 5,
         reportVolunteerLocation: @escaping @MainActor (AppState, CLLocationCoordinate2D?, Bool) -> Bool = {
             VolunteerLocationReporter.reportIfNeeded(
                 appState: $0,
@@ -134,6 +188,8 @@ final class VolunteerHomeViewModel: ObservableObject {
     ) {
         self.dispatchPropagationDelay = max(0, dispatchPropagationDelay)
         self.loadTimeout = max(0.05, loadTimeout)
+        self.declineStreak = declineStreak
+        self.declineUndoWindow = max(0, declineUndoWindow)
         self.reportVolunteerLocation = reportVolunteerLocation
     }
 
@@ -209,7 +265,56 @@ final class VolunteerHomeViewModel: ObservableObject {
         self.locationAuthorizedProvider = locationAuthorizedProvider
         apply(profile: appState.volunteerProfile)
         subscribeToRealtimeCoordinator(appState)
+        seedInvitesForUITestsIfNeeded()
     }
+
+    /// UI 测试用的「预置几条待回复邀请」。与 `AIDRUN_UI_TEST_SEED_ORDER_STATUS` 同一套做法。
+    ///
+    /// 🚩 **必须有这个种子，否则邀请卡在 UI 测试里根本到不了。** 派单只从 WebSocket 来，
+    /// 而 UI 测试默认 `disableWebSocket` —— 没有种子的话这一屏的无障碍形状永远没人验。
+    ///
+    /// `#if DEBUG` 包住：Release 产物里不存在这条路径，一个环境变量骗不出一张假邀请。
+    private func seedInvitesForUITestsIfNeeded() {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["AIDRUN_UI_TEST_RESET_STATE"] == "1",
+              let raw = environment["AIDRUN_UI_TEST_SEED_INVITES"],
+              let count = Int(raw), count > 0 else { return }
+        let now = Date()
+        for index in 0..<count {
+            enqueue(
+                order: Self.uiTestSeedInvite(orderId: Int64(9_000 + index)),
+                receivedAt: now,
+                // 每条差 30 秒，好让「按回复期限升序」和分页点在 UI 上真的分得开。
+                expiresAt: now.addingTimeInterval(TimeInterval(120 + index * 30))
+            )
+        }
+        #endif
+    }
+
+    #if DEBUG
+    private static func uiTestSeedInvite(orderId: Int64) -> WSNewOrder {
+        WSNewOrder(
+            type: "NEW_ORDER",
+            timestamp: nil,
+            orderId: orderId,
+            startAddress: "深圳湾公园 3 号入口",
+            startLatitude: nil,
+            startLongitude: nil,
+            distanceKm: 3.2,
+            plannedStart: nil,
+            plannedEnd: nil,
+            dispatchTimeoutSeconds: 120,
+            priority: "HIGH",
+            pacePreference: "MODERATE",
+            hasGuideDog: false,
+            requiresIntroCall: true,
+            paceMinSecondsPerKm: 390,
+            paceMaxSecondsPerKm: 450,
+            plannedDistanceMeters: 5_000
+        )
+    }
+    #endif
 
     func setSceneActive(_ isActive: Bool) {
         isSceneActive = isActive
@@ -262,9 +367,13 @@ final class VolunteerHomeViewModel: ObservableObject {
         action: OrderRespondAction,
         currentLocation: CLLocationCoordinate2D?,
         locationAuthorized: Bool,
+        orderId: Int64? = nil,
         allowsIntroCallUpgrade: Bool = true
     ) {
-        guard let order = incomingOrder else { return }
+        // 队列里可能同时有几条邀请（后端并发派单），所以**必须钉死是哪一条** ——
+        // 不传就是「当前翻到的那张」，递归兜底那一支会把它原样传回来。
+        let targetID = orderId ?? currentInvite?.id
+        guard let order = invites.first(where: { $0.id == targetID })?.order else { return }
         guard let appState else { return }
         let accept = action == .accept
         if accept || action == .interested {
@@ -318,18 +427,43 @@ final class VolunteerHomeViewModel: ObservableObject {
                 // `INTRO_CALL_REQUIRED` 时会自己改口重发一次），这里只是记结果。
                 // 判据用 `effectiveAction` 而不是入参 `action`：改过口之后这一单没接成。
                 let acceptedOrderId = effectiveAction == .accept ? order.orderId : nil
+                appState.realtimeCoordinator.clearDispatch(orderID: order.orderId)
+
+                // 🔴 **结果先落在卡上，再去刷新 —— 顺序不能反。**
+                // `refreshAfterDispatchResponse` 里会走一遍 `apply(summary:)`，而那里面有
+                // 冷启动三岔路 `resolveLaunchRouteIfNeeded()`。先刷新的话，那一刻这条邀请
+                // 还是「待回复」状态，三岔路的 guard 放行 ⇒ 它直接把人推进订单页，
+                // 「已约好」那张卡一闪而过。由
+                // `testAcceptingDispatchShowsTheBookedCardAndOnlyNavigatesOnTap` 红出来
+                // （第一版修在 guard 上，没用 —— 问题不在判据，在这两步的先后）。
+                //
+                // 穷举 switch：`OrderRespondAction` 将来加值时编译器会逼一次决策。
+                // 此前这里是 `if .interested { … } else { … }`，而那个 `else` 把 `.decline`
+                // 也当成了「已接下」。
+                switch effectiveAction {
+                case .interested:
+                    // 通话磨合那一支**照旧直接跳走**，不停在结果卡上。
+                    // 设计稿 §4.4.3 的成功态只有「已约好」一种，而 `INTERESTED` 不是接单：
+                    // 那边 20 分钟的通话窗口已经在走，多一次「查看订单」的点击是在烧他的窗口。
+                    removeInvite(orderID: order.orderId)
+                    pendingIntroCallOrder = VolunteerIntroCallRoute(dispatchOrder: order)
+                case .accept:
+                    // 🚩 **接下之后不再自动 push 订单页。** §4.4.3：卡片**原地**变成「已约好」，
+                    // 由用户点「查看订单」才走。自动跳等于把那张确认卡一闪而过 ——
+                    // 而它是这一刻唯一一处告诉他「全名和电话已经放进订单」的地方。
+                    markInvite(orderID: order.orderId, outcome: .accepted)
+                    declineStreak.reset()
+                case .decline:
+                    removeInvite(orderID: order.orderId)
+                }
+                speechService?.speak(Self.dispatchResponseSpeech(for: effectiveAction))
+
                 let acceptedOrder = await refreshAfterDispatchResponse(
                     acceptedOrderId: acceptedOrderId,
                     appState: appState
                 )
-                dismissDispatch()
-                appState.realtimeCoordinator.clearDispatch(orderID: order.orderId)
+                isRespondingToDispatch = false
                 acceptedDispatchInitialOrder = acceptedOrder
-                acceptedDispatchOrderId = acceptedOrderId
-                if effectiveAction == .interested {
-                    pendingIntroCallOrder = VolunteerIntroCallRoute(dispatchOrder: order)
-                }
-                speechService?.speak(Self.dispatchResponseSpeech(for: effectiveAction))
             } catch let error as APIError {
                 isRespondingToDispatch = false
                 if appState.handleAuthenticatedAPIError(error) {
@@ -351,6 +485,9 @@ final class VolunteerHomeViewModel: ObservableObject {
                         action: .accept,
                         currentLocation: currentLocation,
                         locationAuthorized: locationAuthorized,
+                        // 队列化之后必须显式带上 orderId：递归这一跳发生在 `await` 之后，
+                        // 期间用户可能已经翻到了下一张卡，`currentInvite` 会指到另一个人身上。
+                        orderId: order.orderId,
                         allowsIntroCallUpgrade: false
                     )
                     return
@@ -398,12 +535,216 @@ final class VolunteerHomeViewModel: ObservableObject {
         }
     }
 
+    /// 清空整队邀请。**这不是「下滑收起」** —— 收起走 `isInviteSheetPresented = false`，
+    /// 邀请留在队列里、倒计时继续走，接单主页上还有回来的入口（§4.4.2「不算回复」）。
+    /// 这个函数只在登出 / 换角色 / 测试收尾这类「整个上下文没了」的时候用。
     func dismissDispatch() {
         countdownTask?.cancel()
         countdownTask = nil
-        incomingOrder = nil
-        dispatchCountdown = 0
+        // 走 `removeInvite` 而不是 `invites.removeAll()`：协调器那一份也要清，
+        // 不然下一条推送会把这些邀请整队灌回来。
+        for id in invites.map(\.id) { removeInvite(orderID: id) }
+        currentInviteID = nil
         isRespondingToDispatch = false
+    }
+
+    // MARK: - 邀请队列
+
+    /// 邀请卡开着没有。**收起不等于回复**：这一位只控制那张 sheet 的可见性，
+    /// 队列与倒计时都不受它影响（设计交付 v3 §4.4.2「下滑或点背景：收起，不算回复」）。
+    @Published var isInviteSheetPresented = false
+
+    /// 连续 3 次「去不了」之后，接单主页上那句不带惩罚的询问该不该出现（§4.4.3）。
+    var shouldAskAboutAvailability: Bool { declineStreak.shouldAskAboutAvailability }
+
+    /// 问过一次就够。反复问就成了惩罚，而设计稿写死了「不做任何惩罚」。
+    func acknowledgeAvailabilityPrompt() {
+        declineStreak.reset()
+        objectWillChange.send()
+    }
+
+    /// 与 `AppRealtimeCoordinator` 的队列对账。
+    ///
+    /// 🚩 **是对账不是覆盖**：本地这一队里可能有已经出结果的（`.accepted` / `.expired`），
+    /// 而协调器那边一出结果就把它移走了。直接赋值会让「已约好」那张卡当场消失，
+    /// 正是 §4.4.3 点名不要的「关掉再弹一个新的」。
+    private func syncInvites(with prompts: [RealtimeDispatchPrompt]) {
+        let known = Set(invites.map(\.id))
+        for prompt in prompts where !known.contains(prompt.order.orderId) {
+            enqueue(
+                order: prompt.order,
+                receivedAt: prompt.receivedAt,
+                expiresAt: prompt.expiresAt
+            )
+        }
+    }
+
+    private func enqueue(order: WSNewOrder, receivedAt: Date, expiresAt: Date) {
+        guard !invites.contains(where: { $0.id == order.orderId }) else { return }
+        let remaining = max(0, Int(ceil(expiresAt.timeIntervalSinceNow)))
+        guard remaining > 0 else { return }
+        invites.append(
+            VolunteerInviteState(
+                order: order,
+                receivedAt: receivedAt,
+                expiresAt: expiresAt,
+                remainingSeconds: remaining,
+                outcome: nil
+            )
+        )
+        invites.sort { $0.expiresAt < $1.expiresAt }
+        if currentInviteID == nil { currentInviteID = invites.first?.id }
+        isInviteSheetPresented = true
+        appState?.realtimeCoordinator.markDispatchPresented(orderID: order.orderId)
+        speechService?.speak("新的陪跑邀请，请在\(remaining)秒内回复")
+        startInviteTicker()
+    }
+
+    private func markInvite(orderID: Int64, outcome: VolunteerInviteState.Outcome) {
+        guard let index = invites.firstIndex(where: { $0.id == orderID }) else { return }
+        invites[index].outcome = outcome
+        currentInviteID = orderID
+    }
+
+    /// 从队列移走一条。
+    ///
+    /// 🔴 **同时把协调器那一份也清掉，这一行不能挪到调用方。** `syncInvites` 是「只增不减」的
+    /// （结果卡要留在屏幕上，而协调器一出结果就把它移走了），所以只删本地的话，
+    /// **下一条推送到达时它会被重新灌回来** —— 表现是已经回复过 / 已经收掉的邀请又弹出来。
+    /// 收成一处是因为调用点有五个（回复成功、结果卡收起、去不了、过期、登出），
+    /// 而「忘了清协调器」在任何一处都是同一个 bug。
+    private func removeInvite(orderID: Int64) {
+        appState?.realtimeCoordinator.clearDispatch(orderID: orderID)
+        invites.removeAll { $0.id == orderID }
+        if currentInviteID == orderID { currentInviteID = invites.first?.id }
+        if invites.isEmpty {
+            isInviteSheetPresented = false
+            countdownTask?.cancel()
+            countdownTask = nil
+        }
+    }
+
+    /// 用户在结果卡上点「知道了 / 回到接单」：把这一条收掉，自动翻到下一条；
+    /// 全部回复完就收起整张 sheet（§4.4.2「回复一个后自动切到下一个，全部回复完自动收起」）。
+    func dismissInvite(orderID: Int64) {
+        removeInvite(orderID: orderID)
+    }
+
+    /// 结果卡上的「查看订单」。**这是接下之后唯一进订单页的路**（不再自动 push）。
+    func openAcceptedOrder(orderID: Int64) {
+        removeInvite(orderID: orderID)
+        acceptedDispatchOrderId = orderID
+    }
+
+    /// 一条 ticker 刷整队。归零那一刻**不发 `DECLINE`** ——
+    /// 后端 `app.dispatch.per-volunteer-timeout-seconds` 到点自己 `dispatchToNext`
+    /// （`DispatchScheduler.java:140-143`），客户端再发一条只会撞上「这一单已经不归他了」的 409，
+    /// 而那个错误既没法处理也不该弹给用户。
+    private func startInviteTicker() {
+        guard countdownTask == nil else { return }
+        countdownTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                guard self.tickInvites() else { return }
+            }
+        }
+    }
+
+    /// 返回「还要不要继续跑 ticker」。
+    private func tickInvites() -> Bool {
+        guard !invites.isEmpty else {
+            countdownTask = nil
+            return false
+        }
+        for index in invites.indices where invites[index].isAwaitingReply {
+            invites[index].remainingSeconds = max(0, Int(ceil(invites[index].expiresAt.timeIntervalSinceNow)))
+            if invites[index].remainingSeconds == 0 {
+                invites[index].outcome = .expired
+            }
+        }
+        // 正在看的那一条过期了就留在原地变「已失效」（§4.4.3 最后一行）；
+        // 其余过期的静默移除 —— 给一张他从没看过的卡再弹一次「已失效」是纯噪音。
+        let staleIDs = invites
+            .filter { $0.outcome == .expired && $0.id != currentInviteID }
+            .map(\.id)
+        for id in staleIDs { removeInvite(orderID: id) }
+        // 队列里只剩结果卡（已约好 / 已失效）时也停：它们没有任何还在走的数字，
+        // 而用户可能就把那张卡开着不动。让一条每秒醒一次的任务在那儿空转是白烧电。
+        if invites.allSatisfy({ !$0.isAwaitingReply }) {
+            countdownTask = nil
+            return false
+        }
+        return true
+    }
+
+    // MARK: 这次去不了（5 秒撤销窗口）
+
+    /// §4.4.3：卡片立刻收起、底部 toast 给 5 秒撤销，**到点才真的发 `DECLINE`**。
+    ///
+    /// 🔴 **只能这么做。** 后端 `POST /{id}/respond` 只有三个 action，`handleDecline` 一进去就
+    /// `dispatchToNext`（`DispatchService.java:602-623`），**没有任何撤销入口**。
+    /// 先发再撤是撤不回来的，所以「撤销」只能实现成「还没发」。
+    ///
+    /// 代价写在这里：这一单的拒绝晚 5 秒到后端，正在等的跑者多等 5 秒；用户在 5 秒内杀掉 App
+    /// 则这条 `DECLINE` 不会发出 —— 但后端 30 秒超时会兜住，结局一样。
+    func declineInvite(orderID: Int64) {
+        guard let invite = invites.first(where: { $0.id == orderID }) else { return }
+        // 上一条还在窗口里就先把它落地，不然两条会互相顶掉。
+        flushPendingDecline()
+        removeInvite(orderID: orderID)
+        pendingDecline = invite
+        // 卡片收起那一刻屏幕上只剩一条 toast，而看不见屏幕的人需要知道两件事：
+        // 回复出去了、还能反悔。秒数取配置值，不写字面量 —— 两处各写一个 5 必然分叉。
+        speechService?.speak("\(VolunteerInviteCopy.declineToastText)，\(Int(declineUndoWindow))秒内可以撤销")
+        pendingDeclineTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(0, self?.declineUndoWindow ?? 0) * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.flushPendingDecline()
+        }
+    }
+
+    /// toast 上的「撤销」：请求还没发，把这条邀请放回队列。
+    func undoPendingDecline() {
+        pendingDeclineTask?.cancel()
+        pendingDeclineTask = nil
+        guard let invite = pendingDecline else { return }
+        pendingDecline = nil
+        // 撤销窗口里倒计时**没有停**，所以放回去的可能已经是一张过期卡。
+        // 那就让它以「已失效」出现 —— 假装它还能接才是骗人。
+        let remaining = max(0, Int(ceil(invite.expiresAt.timeIntervalSinceNow)))
+        var restored = invite
+        restored.remainingSeconds = remaining
+        restored.outcome = remaining == 0 ? .expired : nil
+        invites.append(restored)
+        invites.sort { $0.expiresAt < $1.expiresAt }
+        currentInviteID = restored.id
+        isInviteSheetPresented = true
+        startInviteTicker()
+        // 撤销窗口里倒计时没停，所以「放回来了」和「放回来但已经过期了」是两句不同的话。
+        // 只说「已撤销」而屏幕上是一张灰卡，对看不见屏幕的人就是一次白跑。
+        speechService?.speak(
+            restored.outcome == .expired
+                ? "已撤销，不过这个邀请已经过期了"
+                : "已撤销，邀请回来了"
+        )
+    }
+
+    /// 窗口到点（或被下一次「去不了」挤掉）：真的把 `DECLINE` 发出去。
+    private func flushPendingDecline() {
+        pendingDeclineTask?.cancel()
+        pendingDeclineTask = nil
+        guard let invite = pendingDecline else { return }
+        pendingDecline = nil
+        declineStreak.recordDecline()
+        objectWillChange.send()
+        guard let appState else { return }
+        appState.realtimeCoordinator.clearDispatch(orderID: invite.id)
+        Task {
+            // 失败**不弹给用户**：他已经表达完意图、卡片早就收起了，而后端超时会兜住同一个结果。
+            // 这一刻弹「操作失败」只会让他以为自己还得再点一次。
+            try? await appState.orders.respond(orderId: invite.id, action: .decline)
+        }
     }
 
     /// 通话磨合结束（成单 / 换人 / 超时）后把入口收掉。
@@ -441,11 +782,10 @@ final class VolunteerHomeViewModel: ObservableObject {
 
     private func subscribeToRealtimeCoordinator(_ appState: AppState) {
         guard realtimeDispatchCancellable == nil else { return }
-        realtimeDispatchCancellable = appState.realtimeCoordinator.$pendingDispatch
+        realtimeDispatchCancellable = appState.realtimeCoordinator.$pendingDispatches
             .receive(on: DispatchQueue.main)
-            .compactMap { $0 }
-            .sink { [weak self] prompt in
-                self?.handleNewOrder(prompt)
+            .sink { [weak self] prompts in
+                self?.syncInvites(with: prompts)
             }
         realtimeRecoveryCancellable = appState.realtimeCoordinator.recoveryPublisher
             .receive(on: DispatchQueue.main)
@@ -477,34 +817,6 @@ final class VolunteerHomeViewModel: ObservableObject {
                     self.dispatchLoadState = .loaded(summary)
                 }
             }
-    }
-
-    private func handleNewOrder(_ prompt: RealtimeDispatchPrompt) {
-        let order = prompt.order
-        // 如果已经有一个正在展示的 dispatch，忽略新的
-        guard incomingOrder == nil else { return }
-
-        incomingOrder = order
-        appState?.realtimeCoordinator.markDispatchPresented(orderID: order.orderId)
-        dispatchCountdown = prompt.remainingSeconds()
-        guard dispatchCountdown > 0 else {
-            dismissDispatch()
-            return
-        }
-        speechService?.speak("新订单到达，请在\(dispatchCountdown)秒内响应")
-
-        countdownTask?.cancel()
-        countdownTask = Task {
-            while dispatchCountdown > 0, !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled else { return }
-                dispatchCountdown -= 1
-            }
-            if !Task.isCancelled {
-                // 超时自动拒绝
-                respondToDispatch(action: .decline, currentLocation: nil, locationAuthorized: false)
-            }
-        }
     }
 
     func load(currentLocation: CLLocationCoordinate2D?, locationAuthorized: Bool) async {
@@ -959,10 +1271,18 @@ final class VolunteerHomeViewModel: ObservableObject {
     ///
     /// 🚩 通话磨合让路：`pendingIntroCallOrder` 在场时一律不动。那一态有 20 分钟窗口、
     /// 对面有人在等电话，而订单页随时可以再进（`navigationDestination` 里的顺序也是这个优先级）。
+    ///
+    /// 🚩 **邀请卡的结果卡同样让路，理由一模一样。** 刚接下那一刻屏幕上是「已约好」，
+    /// 而它是唯一一处告诉陪跑员「跑者的全名和电话已经放进订单」的地方（设计交付 v3 §4.4.3）。
+    /// 这一岔会在**首次加载还没跑完时收到派单**的情况下真的撞上：首次加载的窗口还开着，
+    /// 而接单后的 `refreshAfterDispatchResponse` 会再走一遍 `apply(summary:)` ——
+    /// 于是这条路由把那张确认卡一闪而过。由
+    /// `testAcceptingDispatchShowsTheBookedCardAndOnlyNavigatesOnTap` 红出来。
     private func resolveLaunchRouteIfNeeded() {
         guard !didResolveLaunchRoute,
               pendingIntroCallOrder == nil,
               acceptedDispatchOrderId == nil,
+              invites.allSatisfy(\.isAwaitingReply),
               let order = Self.launchOrderToOpen(
                   activeOrder: activeOrder,
                   scheduledOrders: scheduledOrders
@@ -1514,289 +1834,6 @@ struct VolunteerScheduledOrdersSection: View {
         .background(AppColors.secondaryBackground)
         .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
         .accessibilityElement(children: .contain)
-    }
-}
-
-// MARK: - Dispatch Overlay
-
-/// 2026-09-17 从 `private` 放开：唯一的挂点从这一屏搬到了 `VolunteerTabView`
-/// （见那个文件里「派单弹窗挂在 `TabView` 外面」那段）。它仍然只有那一个调用方。
-struct VolunteerDispatchOverlay: View {
-    @ScaledMetric(relativeTo: .largeTitle) private var countdownSize: CGFloat = 48
-    /// 倒计时转入「紧迫」的阈值。具名是因为它同时决定颜色和那个感叹号 ——
-    /// 两处各写一个 10，改一处漏一处的表现是「图标出现了但字还是蓝的」。
-    private static let urgentCountdownSeconds = 10
-
-    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    let order: WSNewOrder
-    let countdown: Int
-    let isResponding: Bool
-    let currentLocation: CLLocationCoordinate2D?
-    let locationAuthorized: Bool
-    let fallbackCoordinate: CLLocationCoordinate2D
-    let onRespond: (OrderRespondAction) -> Void
-    let onDecline: () -> Void
-
-    /// 「查看详情」打开的那一层：设计交付文档 v3 §5 的「邀请」订单页（四步骨架）。
-    ///
-    /// 🚩 **弹层刻意保持紧凑，不在这里画四步进度条。** 它是一次打断 —— 30 秒内必须让人
-    /// 一眼看完并做决定；完整订单页是给「我想再看看」的人的第二跳。两屏共用同一份纯函数
-    /// （`VolunteerOrderFlowPresentation.make(dispatch:)`），所以不会说出两套话。
-    @State private var showsInviteDetail = false
-
-    var body: some View {
-        ZStack {
-            // 半透明遮罩在「降低透明度」开启时换成不透明：那个开关的用户正是被
-            // 底层内容透上来的杂色干扰的人，而这一层底下是地图（高对比度的彩色纹理）。
-            Color.black.opacity(reduceTransparency ? 1 : 0.5)
-                .ignoresSafeArea()
-                .accessibilityHidden(true)
-
-            VStack(spacing: 20) {
-                // 逐字取自设计交付文档 v3 §6 的推送文案，与系统推送标题保持同一个词 ——
-                // 用户是被那条推送叫过来的，两处不同名会让人以为点开的是别的东西。
-                Text("新的陪跑邀请")
-                    .font(.title2.bold())
-                    .foregroundColor(AppColors.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-
-                dispatchMap
-
-                VStack(alignment: .leading, spacing: 10) {
-                    if let address = order.startAddress {
-                        HStack {
-                            Text("出发地：")
-                                .foregroundColor(AppColors.textSecondary)
-                            Text(address)
-                                .foregroundColor(AppColors.textPrimary)
-                        }
-                        .font(AppFonts.body())
-                    }
-
-                    if let distance = order.distanceKm {
-                        HStack {
-                            Text("距离：")
-                                .foregroundColor(AppColors.textSecondary)
-                            Text(String(format: "%.1fkm", distance))
-                                .foregroundColor(AppColors.textPrimary)
-                        }
-                        .font(AppFonts.body())
-                    }
-
-                    if let plannedStart = order.plannedStart {
-                        HStack {
-                            Text("时间：")
-                                .foregroundColor(AppColors.textSecondary)
-                            Text(plannedStart.displayDateTime)
-                                .foregroundColor(AppColors.textPrimary)
-                        }
-                        .font(AppFonts.body())
-                    }
-
-                    if let priority = order.priority {
-                        HStack {
-                            Text("优先级：")
-                                .foregroundColor(AppColors.textSecondary)
-                            Text(priority)
-                                .foregroundColor(AppColors.textPrimary)
-                        }
-                        .font(AppFonts.body())
-                    }
-
-                    if let pace = order.pacePreference {
-                        HStack {
-                            Text("配速：")
-                                .foregroundColor(AppColors.textSecondary)
-                            Text(PacePreference(rawValue: pace)?.displayName ?? pace)
-                                .foregroundColor(AppColors.textPrimary)
-                        }
-                        .font(AppFonts.body())
-                    }
-
-                    if order.hasGuideDog == true {
-                        HStack {
-                            Text("导盲犬：")
-                                .foregroundColor(AppColors.textSecondary)
-                            Text("本次携带")
-                                .foregroundColor(AppColors.textPrimary)
-                        }
-                        .font(AppFonts.body())
-                    }
-
-                    // 这里**不展示**盲人的自由文本备注：这是接单前（下面就是倒计时和接单/拒绝按钮），
-                    // 而 AGENTS.md §8 要求接单前隐藏敏感健康信息。字段已从 `WSNewOrder` 整个删掉，
-                    // 所以这不是一条靠人遵守的约定 —— 见 WebSocketModels.swift 上那段说明。
-                    // 接单后的完整备注在 `VolunteerServiceOrderEssentials`。
-                }
-
-                // Countdown
-                //
-                // 进入最后 10 秒此前**只有颜色变化**（蓝 → 红）。红绿色觉障碍看不出这个转折，
-                // 而这个转折决定的是「还要不要再想想」——超时算拒单，代价落回正在等的盲人身上。
-                // 开启「不使用颜色区分」时补一个感叹号：形状差异不依赖色觉。
-                HStack(spacing: 6) {
-                    if differentiateWithoutColor && countdown <= Self.urgentCountdownSeconds {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 32, weight: .bold))
-                            .accessibilityHidden(true)
-                    }
-                    Text("\(countdown)s")
-                        // 同上：倒计时是这张卡上最要紧的数字，调大系统字号时它必须跟着变。
-                        .font(.system(size: countdownSize, weight: .bold, design: .rounded))
-                }
-                .foregroundColor(countdown <= Self.urgentCountdownSeconds ? AppColors.destructive : AppColors.primary)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("剩余\(countdown)秒")
-
-                // Action buttons
-                HStack(spacing: 16) {
-                    Button(action: onDecline) {
-                        Text(VolunteerOrderFlowCopy.declineInvite)
-                            .font(AppFonts.body().weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(AppColors.destructive.opacity(0.12))
-                            .foregroundColor(AppColors.destructive)
-                            .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile))
-                    }
-                    .disabled(isResponding)
-                    .accessibilityLabel(VolunteerOrderFlowCopy.declineInvite)
-                    .accessibilityHint("直接回复去不了，不问原因、不计任何记录")
-
-                    primaryActionButton
-                }
-
-                Button("查看详情") { showsInviteDetail = true }
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.primary)
-                    .frame(minHeight: 44)
-                    .accessibilityHint("打开完整的陪跑订单页，倒计时继续走")
-                    .accessibilityIdentifier("volunteerDispatchDetailButton")
-
-                if isResponding {
-                    ProgressView("正在响应...")
-                        .accessibilityLabel("正在提交响应")
-                }
-            }
-            .padding(24)
-            .background(AppColors.background)
-            .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.modal, style: .continuous))
-            .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
-            .padding(.horizontal, 24)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("新的陪跑邀请，剩余\(countdown)秒")
-        .fullScreenCover(isPresented: $showsInviteDetail) { inviteDetail }
-    }
-
-    /// 完整的「邀请」订单页。与「约好」「出发」同一个骨架，进度条第 1 步高亮。
-    ///
-    /// 倒计时照常走：这一层是**同一次派单的另一种看法**，不是一个可以慢慢看的副本。
-    /// 30 秒到点时 `viewModel.incomingOrder` 置空 ⇒ 弹层连同这一层一起消失。
-    private var inviteDetail: some View {
-        NavigationStack {
-            VolunteerOrderFlowPage(
-                presentation: .make(dispatch: order, remainingSeconds: countdown),
-                // 派单载荷里没有跑者姓名（`AGENTS.md` §8：接单前只给取值空间封闭的字段），
-                // 所以头像圆里是「跑」。**不编一个名字**。已投 handoff 请后端补掩码姓名。
-                runnerName: nil,
-                onRowAction: { action in
-                    guard case .declineInvite = action else { return }
-                    showsInviteDetail = false
-                    onDecline()
-                },
-                onPrimaryAction: {
-                    showsInviteDetail = false
-                    // 发 ACCEPT 还是 INTERESTED **只认推送里的 `requiresIntroCall`**，
-                    // 与弹层上那枚按钮走同一条路。客户端不许自己算。
-                    onRespond(order.dispatchRespondAction)
-                },
-                isPrimaryLoading: isResponding,
-                isPrimaryEnabled: !isResponding,
-                footer: { EmptyView() }
-            )
-            .navigationTitle(VolunteerOrderFlowCopy.pageTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("返回") { showsInviteDetail = false }
-                        .accessibilityHint("回到邀请弹窗，倒计时没有停")
-                }
-            }
-        }
-    }
-
-    /// 主动作按钮。
-    ///
-    /// 🚩 **两种 `OrderRespondAction` 下文案相同**（设计交付文档 v3 §5：主按钮就叫
-    /// 「接下这次陪跑」）。志愿者要做的决定是同一个 —— 把这一单接下来；
-    /// 「先聊聊还是直接接」是后端的机制（`requiresIntroCall`），不该变成他要理解的两个按钮。
-    /// 而 `requiresIntroCall == false` 的三种成因（通话功能整体关闭 / 这两人已磨合成功过 /
-    /// 距开跑已不够聊一轮）客户端**分不出来**，写任何一种解释都可能是错的。
-    ///
-    /// **两个 identifier 保留**：它们编码的是「这一下会发哪个 action」，
-    /// 而那正是用例该断言的东西 —— 文案一样了，读屏提示与 identifier 仍然分得出来。
-    @ViewBuilder
-    private var primaryActionButton: some View {
-        let action = order.dispatchRespondAction
-        let needsIntroCall = action == .interested
-        Button {
-            onRespond(action)
-        } label: {
-            Text(VolunteerOrderFlowCopy.acceptInvite)
-                .font(AppFonts.body().weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(AppColors.primary)
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile))
-        }
-        .disabled(isResponding)
-        .accessibilityLabel(VolunteerOrderFlowCopy.acceptInvite)
-        // 「先聊聊」那一支要说清**还不是接单**：把 INTERESTED 当成接单的人会以为事情定了，
-        // 然后错过跑者那通电话 —— 而 20 分钟窗口过了这一单就换人了。
-        .accessibilityHint(
-            needsIntroCall
-                ? "先锁定这一单并等跑者打电话给你，聊完双方都说合适才算接单"
-                : "接下这一单并进入服务流程"
-        )
-        .accessibilityIdentifier(
-            needsIntroCall ? "volunteerDispatchInterestedButton" : "volunteerDispatchAcceptButton"
-        )
-    }
-
-    private var dispatchMap: some View {
-        let presentation = VolunteerServiceMapPresentation(
-            dispatchOrder: order,
-            currentLocation: currentLocation,
-            locationAuthorized: locationAuthorized,
-            fallbackCoordinate: fallbackCoordinate
-        )
-        return MapViewWrapper(
-            centerCoordinate: presentation.centerCoordinate,
-            showsUserLocation: locationAuthorized,
-            annotations: presentation.annotations,
-            zoomLevel: 15,
-            showsCompass: false,
-            tracksUserLocation: false,
-            animatesCenterChanges: false
-        )
-        .frame(height: 160)
-        .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.tile, style: .continuous))
-        .overlay(alignment: .topLeading) {
-            VolunteerMapLegend(
-                showsCurrentLocation: presentation.isCurrentLocationAvailable,
-                showsMissingLocationNotice: !presentation.isCurrentLocationAvailable
-            )
-            .padding(8)
-        }
-        .accessibilityLabel(
-            presentation.isCurrentLocationAvailable
-                ? "派单地图，显示我的位置和出发地点"
-                : "派单地图，红色标记显示出发地点"
-        )
-        .accessibilityHint("地图用于确认接单距离和出发地点")
     }
 }
 
