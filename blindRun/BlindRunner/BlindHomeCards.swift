@@ -14,8 +14,28 @@ import SwiftUI
 /// 卡片内容**跟随订单实时状态变化**（状态小字、大字时间、陪跑员段三处），
 /// 数据源就是首页 view model 的 `activeOrder`，WebSocket 推进时它自己会变。
 struct BlindHomeOrderCard: View {
+    /// 谁在看这张卡。**只切「人物行」那一块**：取哪一方的姓名、前缀词、读屏标识符。
+    ///
+    /// 陪跑员端的接单主页要的就是同一张深蓝卡（设计交付 v3 §9「用角色参数化共用组件，
+    /// 不要复制粘贴出第二套」）。复制一份的代价不是多一个文件，而是 52pt 大字的 AX5 换行、
+    /// 深蓝底上的分隔线、`isUnderwayForBlindRunner` 那两处文案判据——这些**各自都是修出来的**，
+    /// 抄走之后只会有一边继续被修。
+    enum Role {
+        /// 盲人看陪跑员。
+        case blindRunner
+        /// 陪跑员看盲人跑者。
+        case volunteer
+    }
+
     let order: OrderDetailResponse
+    let role: Role
     let action: () -> Void
+
+    init(order: OrderDetailResponse, role: Role = .blindRunner, action: @escaping () -> Void) {
+        self.order = order
+        self.role = role
+        self.action = action
+    }
 
     var body: some View {
         Button(action: action) {
@@ -36,7 +56,7 @@ struct BlindHomeOrderCard: View {
                 placeRow
                     .padding(.top, 10)
 
-                volunteerRow
+                partnerRow
                     .padding(.top, 18)
 
                 openOrderFooter
@@ -54,8 +74,8 @@ struct BlindHomeOrderCard: View {
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityHint("双击打开订单，查看进度并联系陪跑员")
-        .accessibilityIdentifier("blindRunnerHomeOrderCard")
+        .accessibilityHint(accessibilityHint)
+        .blindHomeOrderCardIdentifier(role)
     }
 
     // MARK: 视觉
@@ -73,26 +93,27 @@ struct BlindHomeOrderCard: View {
         .foregroundColor(AppColors.Flow.onNavyTertiary)
     }
 
-    private var volunteerRow: some View {
+    /// 对方那一行。盲人端显示陪跑员，陪跑员端显示跑者。
+    private var partnerRow: some View {
         HStack(spacing: 12) {
-            if order.volunteerName?.nilIfBlank != nil {
+            if partnerName != nil {
                 // 传掩码原串而不是朗读版：`FlowAvatar` 只取首字，`张*` 与 `张` 得到同一个
                 // 「张」，而朗读版在空名字时会回退成「这位志愿者」——首字是「这」。
-                // 这里有 `volunteerName != nil` 的外层守卫，但别依赖调用方的守卫来保证取值合法。
+                // 这里有 `partnerName != nil` 的外层守卫，但别依赖调用方的守卫来保证取值合法。
                 FlowAvatar(
-                    name: order.volunteerName,
+                    name: partnerName,
                     diameter: FlowMetrics.homeVolunteerAvatarDiameter,
                     background: AppColors.Flow.navyAvatar,
                     foreground: .white
                 )
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(volunteerTitle)
+                Text(partnerTitle)
                     .flowFont(FlowFonts.homeCardRowTitle())
                     .foregroundColor(.white)
                     .fixedSize(horizontal: false, vertical: true)
-                if let experience = order.volunteerExperienceText {
-                    Text(experience)
+                if let detail = partnerDetail {
+                    Text(detail)
                         // 等宽数字：与上面 52pt 大字同一套口径，需求第 8 条要求全部数字等宽。
                         .flowFont(FlowFonts.homeCardRowDetail(), monospacedDigit: true)
                         .foregroundColor(AppColors.Flow.onNavySecondary)
@@ -145,6 +166,9 @@ struct BlindHomeOrderCard: View {
     /// 一态，而 `isActiveForBlindRunner` 还包含 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` /
     /// `IN_PROGRESS` —— 陪跑进行中时念「下一次陪跑，进行中」，是把正在发生的事说成未来。
     /// 读屏用户听到的是这一屏的第一句话，说错了整屏的语义就错了。
+    ///
+    /// 两个角色共用 `isUnderwayForBlindRunner`：这个谓词问的是「这一单动起来没有」，
+    /// 答案与谁在看无关（名字里的 `BlindRunner` 说的是它当初为哪一屏写的）。
     private var statusCaption: String {
         order.status.isUnderwayForBlindRunner
             ? order.status.displayName
@@ -170,11 +194,51 @@ struct BlindHomeOrderCard: View {
         order.startAddress?.nilIfBlank ?? "出发地点待确认"
     }
 
+    /// 对方的**掩码原串**（`张*`），只用于头像取首字与屏幕显示。朗读走 `*NameForSpeech`。
+    private var partnerName: String? {
+        switch role {
+        case .blindRunner: return order.volunteerName?.nilIfBlank
+        case .volunteer: return order.blindName?.nilIfBlank
+        }
+    }
+
     /// 还没有陪跑员时说「正在匹配陪跑员」，而不是留空或摆一个灰头像 ——
     /// 这一行在等待期是用户最想知道的那件事。
-    private var volunteerTitle: String {
-        guard order.volunteerName?.nilIfBlank != nil else { return "正在匹配陪跑员" }
-        return "陪跑员 \(order.volunteerName ?? "")"
+    ///
+    /// 陪跑员端没有对称的等待态：这张卡只在他**已经接下**的单上出现，所以取不到姓名
+    /// 只有一种成因 —— 盲人注销后 `cascadeDeletePii()` 清空了姓名（契约里写明会变 null）。
+    /// 那时不编一个「正在匹配」，回退到既有常量「这位跑者」。
+    private var partnerTitle: String {
+        switch role {
+        case .blindRunner:
+            guard let name = partnerName else { return "正在匹配陪跑员" }
+            return "陪跑员 \(name)"
+        case .volunteer:
+            guard let name = partnerName else { return PartnerStreakCopy.unknownBlindName }
+            return "跑者 \(name)"
+        }
+    }
+
+    /// 人物行的第二行。
+    ///
+    /// 🔴 **陪跑员端恒为 nil，这不是漏做。** 设计稿要的是「你们一起跑过 N 次」，而契约里
+    /// `completedRunsTogether` 只挂在盲人端的收藏列表上（`FavoriteVolunteerResponse`），
+    /// 志愿者视角的 `VolunteerFavoritedByResponse` 与 `OrderDetailResponse` 都没有这个字段
+    /// ⇒ 不显示，不填默认值。同 `volunteerExperienceText` 的既定口径：
+    /// 给一个凭空生成的数字，正是对方在决定信不信任你时唯一能依据的东西。
+    /// 已投 handoff 问后端要不要补。
+    private var partnerDetail: String? {
+        switch role {
+        case .blindRunner: return order.volunteerExperienceText
+        case .volunteer: return nil
+        }
+    }
+
+    private var accessibilityHint: String {
+        switch role {
+        case .blindRunner: return "双击打开订单，查看进度并联系陪跑员"
+        case .volunteer: return "双击打开订单，查看进度并联系跑者"
+        }
     }
 
     /// 合并后的那一句话。顺序 = 用户关心的顺序：这是什么 → 什么时候 → 在哪 → 和谁。
@@ -189,16 +253,43 @@ struct BlindHomeOrderCard: View {
             parts.append("\(spoken)，")
         }
         parts.append("\(placeText)。")
-        if order.volunteerName?.nilIfBlank != nil {
+        parts.append(partnerAnnouncement)
+        return parts.joined()
+    }
+
+    /// 人物那一句的**朗读版**。姓名一律去星号（`*NameForSpeech`）——
+    /// 两端的读屏都是外放的，`张*` 原样念出来是「张星号」，周围的人都听得到。
+    private var partnerAnnouncement: String {
+        switch role {
+        case .blindRunner:
+            guard partnerName != nil else { return "正在匹配陪跑员。" }
             var volunteer = "陪跑员\(order.volunteerNameForSpeech)"
             if let experience = order.volunteerExperienceText {
                 volunteer += "，\(experience)"
             }
-            parts.append("\(volunteer)。")
-        } else {
-            parts.append("正在匹配陪跑员。")
+            return "\(volunteer)。"
+        case .volunteer:
+            return "跑者\(order.blindNameForSpeech)。"
         }
-        return parts.joined()
+    }
+}
+
+private extension View {
+    /// 按角色挂读屏标识符。
+    ///
+    /// 🔴 **写成 switch 里两条字面量调用，不是 `accessibilityIdentifier(role == ... ? a : b)`。**
+    /// 理由与同文件的 `BookingBlockIdentifier` 一字不差：守卫 `stale-ui-test-identifier`
+    /// 扫的是 `accessibilityIdentifier("字面量")` 这个形状，三元表达式它一个都抓不到，
+    /// 于是「UI 测试引用的 id 在 App 侧存不存在」这道双向校验对这两个 id 直接失效。
+    /// 而本仓库 CI 跑不了 XCTest，失效的表现是**没有表现**。
+    @ViewBuilder
+    func blindHomeOrderCardIdentifier(_ role: BlindHomeOrderCard.Role) -> some View {
+        switch role {
+        case .blindRunner:
+            accessibilityIdentifier("blindRunnerHomeOrderCard")
+        case .volunteer:
+            accessibilityIdentifier("volunteerDispatchHubOrderCard")
+        }
     }
 }
 

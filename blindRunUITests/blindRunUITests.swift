@@ -540,12 +540,14 @@ final class blindRunUITests: XCTestCase {
 
         returnHome.tap()
         // 2026-09-14 改版把首页那个 `Toggle` 换成了底部的滑动 CTA，`app.switches` 不再存在。
-        // 「没有被自动打开」这条约束没变，判据换成：底部渲染的是**滑块**（关闭态），
-        // 而不是「已开启」状态条。
-        let slider = app.buttons["滑动开始今天的陪跑"].firstMatch
+        // 「没有被自动打开」这条约束没变，判据换成：滑块的无障碍按钮名是**关闭态**那一个。
+        //
+        // 2026-09-17 滑块改成双向（右开 / 左关）之后状态条也不存在了，两态都是同一条轨道，
+        // 只有无障碍表示的按钮名不同：关闭态「向右滑动，开始接单」/ 开启态「进入接单」。
+        let slider = app.buttons["向右滑动，开始接单"].firstMatch
         XCTAssertTrue(slider.waitForExistence(timeout: 8), "回到首屏后底部应当是关闭态的滑动 CTA")
         XCTAssertFalse(
-            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].exists,
+            app.buttons["进入接单"].exists,
             "Legacy completion must not automatically enable availability"
         )
     }
@@ -614,14 +616,15 @@ final class blindRunUITests: XCTestCase {
         )
         XCTAssertTrue(app.staticTexts["最近陪跑"].firstMatch.exists, "First screen should show the recent-run stream")
         XCTAssertFalse(app.buttons["查看全部订单"].firstMatch.exists, "Primary volunteer home must not expose the public order list")
-        // 预置「已开启」时底部是绿色状态条而不是滑块 —— 摩擦力只加在开启那一侧。
+        // 预置「已开启」时轨道还在（双向滑块两态同一条轨道），但无障碍表示换成
+        // 「进入接单」那一枚按钮 —— 已开启之后向右滑做的是导航，不是再开一次。
         XCTAssertTrue(
-            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].firstMatch.waitForExistence(timeout: 5),
-            "Available volunteer should see the status bar, not the slider"
+            app.buttons["进入接单"].firstMatch.waitForExistence(timeout: 5),
+            "已开启时滑块的无障碍按钮应当是「进入接单」"
         )
-        XCTAssertTrue(
-            app.buttons["今天先不跑了"].firstMatch.exists,
-            "关闭必须是一个普通按钮 —— 关这一侧不许有摩擦力"
+        XCTAssertFalse(
+            app.buttons["向右滑动，开始接单"].firstMatch.exists,
+            "已经开启了还提示「开始接单」，等于告诉志愿者他没开"
         )
         attachScreenshot(named: "volunteer-profile-first-screen", app: app)
 
@@ -1674,15 +1677,15 @@ final class blindRunUITests: XCTestCase {
     /// 量得到真实高度的底栏，返回它的顶边；量不到返回 `nil`（退回固定的 112pt）。
     ///
     /// 🔴 **为什么这个不能只靠上面那个常量**：112 是照盲人首页的底栏（实测 102pt）定的，
-    /// 而志愿者「我」首屏底部那条可服务 CTA 在**已开启**时是「状态条 + 关闭按钮」两行，
+    /// 而志愿者「我」首屏底部那条可服务 CTA 在**已开启**时轨道里是两行字（主文案 + 副提示），
     /// AX5 下更高 —— 实测远超 112。常量偏小的后果不是「多滚一下」，
     /// 而是 helper 认为控件已经露出来了、直接返回 true，接着 `tap()` 打在底栏上。
     /// 那正是 2026-08-14 差点拨出 110 的同一个形状。
     ///
-    /// ponytail: 只登记**已知会超过 112pt 的**那两个，不做全量登记表 ——
+    /// ponytail: 只登记**已知会超过 112pt 的**那一个，不做全量登记表 ——
     /// 上面那条注释说得对，登记表必然漏掉下一个。这里漏掉的会退回旧行为，不会变得更糟。
     private func measuredBottomBarTop(_ app: XCUIApplication) -> CGFloat? {
-        ["volunteerAvailabilityStatusBar", "volunteerAvailabilitySlider"]
+        ["volunteerAvailabilitySlider"]
             .map { app.descendants(matching: .any)[$0].firstMatch }
             .filter { $0.exists }
             .map(\.frame)

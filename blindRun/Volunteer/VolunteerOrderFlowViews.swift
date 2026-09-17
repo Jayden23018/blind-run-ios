@@ -2269,6 +2269,15 @@ struct VolunteerSettingsView: View {
                 settingsRow("昵称", value: appState.volunteerProfile?.name ?? "未填写")
                 settingsRow("当前角色", value: "志愿者")
                 settingsRow("资质审核", value: certificateState.displayName)
+
+                // 空闲时间是**匹配前提**而不是普通偏好：空闲时间以外后端不发邀请，
+                // 所以「我为什么收不到单」的第一个答案就在这里。放第一组，与资质并列。
+                NavigationLink("空闲时间") {
+                    VolunteerAvailabilityScheduleView()
+                }
+                .accessibilityLabel("空闲时间")
+                .accessibilityHint("设置你每周哪些时间有空，这些时间之外不会给你发邀请")
+                .accessibilityIdentifier("volunteerScheduleSettingsEntry")
             }
 
             // SPEC-E 激励体系的三个入口。

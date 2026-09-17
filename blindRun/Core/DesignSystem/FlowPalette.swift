@@ -166,6 +166,24 @@ extension AppColors {
         static let helpStrokeTone = Tone(light: 0xC25A4E, dark: 0xFF453A)
         static let helpStroke = flowDynamic(helpStrokeTone)
 
+        // MARK: 「接单中」胶囊（志愿者接单主页）
+
+        /// 设计交付 v3 §1.2 新增的那一对（底 `#E3F4EA` / 字 `#1C7C45`）。
+        ///
+        /// 亮色按设计稿原值：`#1C7C45` 压 `#E3F4EA` 实测 **4.58:1** —— 过 4.5，
+        /// 但余量只有 0.08，**改动其中任何一个值之前先跑一遍对比度用例**。
+        ///
+        /// 暗色设计稿没给，按本色板既有做法自己定：底 `#10381F` / 字 `#7BD99E`，**7.63:1**。
+        /// **不能沿用亮色那一对** —— `#E3F4EA` 在暗色下是一块几乎纯白的色块，
+        /// 而它挂在导航栏右上角，整块会比页面还亮。
+        ///
+        /// 配对断言在 `FlowDesignSystemTests.testEveryTextPairingClearsTheBodyThresholdInBothAppearances`。
+        static let acceptingBackgroundTone = Tone(light: 0xE3F4EA, dark: 0x10381F)
+        static let acceptingBackground = flowDynamic(acceptingBackgroundTone)
+
+        static let acceptingTextTone = Tone(light: 0x1C7C45, dark: 0x7BD99E)
+        static let acceptingText = flowDynamic(acceptingTextTone)
+
         // MARK: 已汇合对勾徽标
 
         /// 亮暗同值：它是一枚**纯图形**（白色对勾，没有文字标签），所以 WCAG 1.4.11 的

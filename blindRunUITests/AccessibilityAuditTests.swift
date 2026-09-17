@@ -1257,55 +1257,63 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 所以「按钮在」+「`activate()` 是对的」合起来就是这条要求的完整覆盖。
     @MainActor
     func testAvailabilitySliderExposesAStandardActionToAssistiveTech() {
-        // 默认 `preseedVolunteerAvailable` 为真，那会渲染成状态条而不是滑块 —— 要的是关闭态。
+        // 默认 `preseedVolunteerAvailable` 为真，那会渲染成「进入接单」那一枚 —— 要的是关闭态。
         let app = launchVolunteerHome(available: false)
 
-        let slider = app.buttons["滑动开始今天的陪跑"]
+        let slider = app.buttons["向右滑动，开始接单"]
         XCTAssertTrue(
             slider.waitForExistence(timeout: 25),
             "滑动 CTA 在无障碍树里不是按钮 —— 不触碰屏幕的用户没有任何办法开启可服务开关"
         )
         XCTAssertTrue(slider.isEnabled, "资质已通过的志愿者，这枚按钮必须是可用的")
-        // 开启态下**不许**还有第二个滑动入口：那会让读屏用户听到一枚已经没有意义的按钮。
-        XCTAssertFalse(
-            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].exists,
-            "关闭态不该同时渲染已开启状态条"
-        )
+        // 关闭态下**不许**出现开启态那枚按钮：那会让读屏用户听到一枚此刻没有意义的按钮。
+        XCTAssertFalse(app.buttons["进入接单"].exists, "关闭态不该同时暴露开启态的按钮")
     }
 
-    /// 拖过 20% 阈值真的会开启，而关闭那一侧是普通点按。
+    /// 向右拖过 20% 真的会开启并进入接单主页；向左拖过 35% 真的会停止接单。
     ///
-    /// 🔴 **摩擦力只加在「答应」这一侧**（Motivation Crowding，
-    /// `docs/research/volunteer-home-incentive-layer-20260914.md` §3.1–3.2）：
-    /// 关闭不得是第二次滑动、不得二次确认、不得弹任何挽留。
+    /// 🔴 **双向滑块是 2026-09-17 产品拍板的结果**，它推翻了此前「关闭是普通点按」那一条
+    /// （依据是 Uber 司机下线挽留被 NYT 点名的 dark pattern）。被推翻的只有**手势**：
+    /// 关闭路径上仍然不许有任何挽留或确认弹窗，所以下面那条 `alerts.count == 0` 保留。
+    ///
+    /// 🔴 **这条只能走指针路径**：`XCUIElement.tap()` 注入的是物理触摸，不经过
+    /// accessibility action，所以「停止接单」那个自定义动作在 XCUITest 里调不到
+    /// （记忆 `xcuitest-cannot-invoke-accessibility-actions`）。形状由上一条断，行为由这条断。
     @MainActor
-    func testSlidingPastThresholdOpensAvailabilityAndClosingIsAPlainTap() {
+    func testSlidingRightOpensAvailabilityAndSlidingLeftStopsIt() {
         let app = launchVolunteerHome(available: false)
 
         let slider = app.descendants(matching: .any)["volunteerAvailabilitySlider"].firstMatch
         XCTAssertTrue(slider.waitForExistence(timeout: 25), "滑动 CTA 没渲染出来")
 
-        // 从滑块位置横着拖到轨道右端。阈值是 20%，拖到 95% 有足够余量。
+        // 从滑块位置横着拖到轨道右端。开启阈值是 20%，拖到 95% 有足够余量。
         slider.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5))
             .press(
                 forDuration: 0.1,
                 thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5))
             )
 
-        XCTAssertTrue(
-            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].waitForExistence(timeout: 15),
-            "滑过阈值后「可服务」没有真的打开"
-        )
+        // 开启那一下同时进入接单主页（设计交付 v3 的流程）。返回之后才看得到滑块的开启态。
+        let hubPill = app.descendants(matching: .any)["volunteerDispatchHubAcceptingPill"].firstMatch
+        XCTAssertTrue(hubPill.waitForExistence(timeout: 20), "滑过阈值后没有开启，或者没有进入接单主页")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
 
-        let close = app.buttons["今天先不跑了"]
-        XCTAssertTrue(close.waitForExistence(timeout: 5), "关闭必须是普通点按，不是第二次滑动")
-        close.tap()
-        // 关闭之后必须立刻回到滑块态，**中间不许有任何确认弹窗或挽留**。
+        let enterHub = app.buttons["进入接单"]
+        XCTAssertTrue(enterHub.waitForExistence(timeout: 15), "回到首页后滑块应当是开启态")
+
+        // 反方向：从右端拖到左端。停止阈值是 35%，拖到 5% 有足够余量。
+        let openSlider = app.descendants(matching: .any)["volunteerAvailabilitySlider"].firstMatch
+        openSlider.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5))
+            .press(
+                forDuration: 0.1,
+                thenDragTo: openSlider.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5))
+            )
+
         XCTAssertTrue(
-            app.buttons["滑动开始今天的陪跑"].waitForExistence(timeout: 15),
-            "关闭没有生效，或者中间插了一层挽留/确认"
+            app.buttons["向右滑动，开始接单"].waitForExistence(timeout: 15),
+            "向左滑没有停止接单"
         )
-        XCTAssertEqual(app.alerts.count, 0, "关闭「可服务」不得弹任何对话框")
+        XCTAssertEqual(app.alerts.count, 0, "停止接单不得弹任何挽留对话框")
     }
 
     /// 首屏徽章区那个「全部 N 枚 ›」入口。滚到它为止再返回。

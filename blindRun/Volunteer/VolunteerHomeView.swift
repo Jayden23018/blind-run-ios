@@ -1089,22 +1089,32 @@ struct VolunteerHomeView: View {
     @EnvironmentObject private var speechService: SpeechService
     @EnvironmentObject private var locationService: LocationService
     @StateObject private var viewModel = VolunteerHomeViewModel()
+    /// 接单主页（设计交付 v3 的 S3/S4）。滑块向右滑过阈值时置位。
+    @State private var showsDispatchHub = false
 
     var body: some View {
         NavigationStack {
             VolunteerProfileFirstScreen(viewModel: viewModel, onReload: loadHome)
                 .navigationTitle("")
                 .navigationBarHidden(true)
-                // 一个 destination 分两种落点，不是两个 `navigationDestination(isPresented:)` ——
-                // 同一个视图上挂两条 `isPresented` 版本在 iOS 16 上会互相顶掉。
+                // 一个 destination 分三种落点，不是三个 `navigationDestination(isPresented:)` ——
+                // 同一个视图上挂多条 `isPresented` 版本在 iOS 16 上会互相顶掉。
+                //
+                // 🚩 顺序即优先级：通话磨合 > 已接下的单 > 接单主页。前两者是**有时限**的
+                // （通话窗口 20 分钟、订单在走），接单主页随时可以再进。
                 .navigationDestination(
                     isPresented: Binding(
-                        get: { viewModel.acceptedDispatchOrderId != nil || viewModel.pendingIntroCallOrder != nil },
+                        get: {
+                            viewModel.acceptedDispatchOrderId != nil
+                                || viewModel.pendingIntroCallOrder != nil
+                                || showsDispatchHub
+                        },
                         set: { isPresented in
                             if !isPresented {
                                 viewModel.acceptedDispatchOrderId = nil
                                 viewModel.acceptedDispatchInitialOrder = nil
                                 viewModel.clearIntroCall()
+                                showsDispatchHub = false
                             }
                         }
                     )
@@ -1116,6 +1126,8 @@ struct VolunteerHomeView: View {
                             orderId: orderId,
                             initialOrder: viewModel.acceptedDispatchInitialOrder
                         )
+                    } else if showsDispatchHub {
+                        VolunteerDispatchHubView(viewModel: viewModel, onReload: loadHome)
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
@@ -1184,13 +1196,18 @@ struct VolunteerHomeView: View {
     /// 底部的可服务开关。**它替代了原来那个 `Toggle`** —— 依据是 Uber Base
     /// Sliding button 的用途判据「引入摩擦以确认意图」，而「从这一刻起开始收派单」
     /// 正是一个有后果的动作（`docs/research/volunteer-profile-first-screen-20260914.md` §3）。
+    ///
+    /// 🚩 **向右滑同时做两件事：开启接单 + 进入接单主页。** 设计交付 v3 的流程就是这一条
+    /// （主页 → 滑动 → 接单主页），理由是开启之后志愿者要看的「下一次陪跑 / 待回复的邀请」
+    /// 都不在首页上。已经开启时向右滑只做后一件。
     private var availabilityCTA: some View {
         VolunteerAvailabilitySlider(
             isAvailable: viewModel.isAvailable,
             isEnabled: appState.isVolunteerProfileApproved,
             isUpdating: viewModel.isUpdatingAvailability,
             statusText: viewModel.statusText,
-            onChange: { viewModel.setAvailability($0) }
+            onChange: { viewModel.setAvailability($0) },
+            onEnterHub: { showsDispatchHub = true }
         )
         .padding(.horizontal, 20)
         .padding(.top, 10)
