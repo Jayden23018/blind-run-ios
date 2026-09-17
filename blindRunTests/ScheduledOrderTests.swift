@@ -187,4 +187,171 @@ final class ScheduledOrderTests: XCTestCase {
         XCTAssertFalse(BlindBookingViewModel.overlapsNightWindow(start: at(10, 9), end: at(10, 10)))
     }
 
+    // MARK: - 打开 App 的三岔路（设计交付 v3 §4.1）
+
+    /// 在途订单优先于任何预约单。
+    ///
+    /// 两个来源各管一半、**不能合并成一个列表**：`activeOrder` 来自
+    /// `dispatch-summary.activeOrders`（后端白名单只有陪跑中那三态），跨天预约单只在
+    /// `GET /api/orders/mine` 里。合并的话，志愿者正在陪跑、而三天后还有一张预约单时，
+    /// 打开 App 进的是哪一张就取决于两条请求谁先回来。
+    func testLaunchOpensTheActiveOrderBeforeAnyScheduledOne() {
+        let now = Date()
+        let picked = VolunteerHomeViewModel.launchOrderToOpen(
+            activeOrder: Self.makeOrder(id: 1, status: .inProgress, startingIn: nil, now: now),
+            scheduledOrders: [Self.makeOrder(id: 2, status: .scheduledConfirmed, startingIn: 30 * 60, now: now)],
+            now: now
+        )
+
+        XCTAssertEqual(picked?.orderId, 1, "人正在陪跑，打开 App 该回到那一单")
+    }
+
+    /// 2 小时这条线的**两侧各一条**。
+    ///
+    /// 🚩 少了任何一条，这组用例都分辨不出阈值被改成了别的数：只验 1 小时 59 分的话，
+    /// 把提前量偷偷放宽到一整天照样全绿。所以取的是恰好落在两种实现之间的那对值。
+    func testLaunchOpensAScheduledRunJustInsideTheLeadWindowButNotJustOutside() {
+        let now = Date()
+        let inside = Self.makeOrder(id: 11, status: .scheduledConfirmed, startingIn: 119 * 60, now: now)
+        let outside = Self.makeOrder(id: 12, status: .scheduledConfirmed, startingIn: 121 * 60, now: now)
+
+        XCTAssertEqual(
+            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [inside], now: now)?.orderId,
+            11,
+            "距开跑 1 小时 59 分，打开 App 该直接进订单页"
+        )
+        XCTAssertNil(
+            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [outside], now: now),
+            "距开跑 2 小时 01 分还早，把人直接推进订单页等于抢走了主页"
+        )
+    }
+
+    /// 已经过点还没走的**算在内**。
+    ///
+    /// 写成 `0..<lead` 的区间判定会把它漏掉，而那正是最该打开订单页的一刻 ——
+    /// 盲人已经在集合点等着了。
+    func testLaunchStillOpensAScheduledRunThatShouldHaveStartedAlready() {
+        let now = Date()
+        let overdue = Self.makeOrder(id: 13, status: .scheduledConfirmed, startingIn: -20 * 60, now: now)
+
+        XCTAssertEqual(
+            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [overdue], now: now)?.orderId,
+            13,
+            "开跑时间已经过了 20 分钟，这一单比任何还没到点的都更该打开"
+        )
+    }
+
+    /// 解析不出开跑时间的不猜。
+    ///
+    /// 宁可让他自己从首页点进去，也不要凭空把人推进一张可能几天后才开始的单 ——
+    /// 而「时间串解析不了」时两种可能都存在，客户端分不出是哪一种。
+    func testLaunchSkipsAScheduledRunWhoseStartTimeCannotBeParsed() {
+        let broken = Self.makeOrder(id: 14, status: .scheduledConfirmed, startingIn: nil, now: Date())
+
+        XCTAssertNil(
+            VolunteerHomeViewModel.launchOrderToOpen(activeOrder: nil, scheduledOrders: [broken]),
+            "开跑时间是 nil 还照样打开，等于凭时间以外的东西猜"
+        )
+    }
+
+    /// 🚨 **这道闸不是优化，没有它就是一个出不来的导航循环。**
+    ///
+    /// 判据读的 `activeOrder` 每 10 秒刷新一次都还在 —— 志愿者从订单页返回首页，
+    /// 下一次刷新立刻把他推回去。和 `autoOpenedIntroCallOrderId` 防的是同一件事。
+    @MainActor
+    func testLaunchRouteIsResolvedOnlyOnceSoBackingOutOfTheOrderPageSticks() {
+        let viewModel = VolunteerHomeViewModel()
+        let summary = Self.makeSummaryWithActiveOrder(orderId: 21)
+
+        viewModel.apply(summary: summary)
+        XCTAssertEqual(viewModel.acceptedDispatchOrderId, 21, "冷启动没有直接打开在途订单")
+
+        // 用户按返回键退出订单页 —— 首页那条 `navigationDestination` 的 setter 做的就是这个。
+        viewModel.acceptedDispatchOrderId = nil
+        viewModel.acceptedDispatchInitialOrder = nil
+
+        viewModel.apply(summary: summary)
+        XCTAssertNil(
+            viewModel.acceptedDispatchOrderId,
+            "第二次刷新又把他推回订单页了 —— 这样他在订单走完之前回不到主页"
+        )
+    }
+
+    // MARK: - Fixtures
+
+    private static func makeOrder(
+        id: Int64,
+        status: RunOrderStatus,
+        startingIn: TimeInterval?,
+        now: Date = Date()
+    ) -> OrderDetailResponse {
+        OrderDetailResponse(
+            orderId: id,
+            status: status,
+            startAddress: "深圳湾公园 3 号入口",
+            startLatitude: nil,
+            startLongitude: nil,
+            endAddress: nil,
+            endLatitude: nil,
+            endLongitude: nil,
+            plannedStart: startingIn.map {
+                DateFormatter.aidRunBackendLocalDateTime.string(from: now.addingTimeInterval($0))
+            },
+            plannedEnd: nil,
+            blindName: nil,
+            blindPhone: nil,
+            volunteerPhone: nil,
+            acceptedAt: nil,
+            createdAt: nil,
+            expectedDurationMinutes: nil,
+            pacePreference: nil,
+            routePreference: nil,
+            routeNotes: nil,
+            hasGuideDogThisRun: nil,
+            specialNotes: nil,
+            visionLevel: nil,
+            tetherPreference: nil,
+            chatPreference: nil
+        )
+    }
+
+    private static func makeSummaryWithActiveOrder(orderId: Int64) -> VolunteerDispatchSummaryResponse {
+        VolunteerDispatchSummaryResponse(
+            canDispatch: true,
+            notAvailableReasons: [],
+            wantsDispatch: true,
+            isOnline: true,
+            lastLat: nil,
+            lastLng: nil,
+            lastLocationAt: nil,
+            coverageRadiusKm: nil,
+            isWithinServiceTime: true,
+            availableTimeSlots: nil,
+            avgRating: nil,
+            totalRatings: nil,
+            totalDispatched: nil,
+            totalAccepted: nil,
+            totalDeclined: nil,
+            totalTimeout: nil,
+            totalCompleted: nil,
+            totalCancelled: nil,
+            acceptanceRate: nil,
+            activeOrders: [
+                VolunteerDispatchSummaryActiveOrder(
+                    orderId: orderId,
+                    status: .inProgress,
+                    plannedStartTime: nil,
+                    plannedEndTime: nil,
+                    startAddress: "深圳湾公园 3 号入口",
+                    startLatitude: nil,
+                    startLongitude: nil,
+                    blindName: nil,
+                    blindPhoneMasked: nil,
+                    acceptedAt: nil
+                )
+            ],
+            recentOrders: nil,
+            introCallOrderId: nil
+        )
+    }
 }

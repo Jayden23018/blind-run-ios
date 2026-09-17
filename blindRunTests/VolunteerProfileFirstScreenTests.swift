@@ -350,7 +350,23 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerAvailabilityCopy.availableStatusTitle,
             VolunteerAvailabilityCopy.closeTitle,
             VolunteerAvailabilityCopy.slideHint,
-            VolunteerAvailabilityCopy.closeHint
+            VolunteerAvailabilityCopy.closeHint,
+            // 双向滑块（2026-09-17）新增的四条，以及接单主页那一屏。
+            VolunteerAvailabilityCopy.availableActionHint,
+            VolunteerAvailabilityCopy.slideReleaseToCloseTitle,
+            VolunteerAvailabilityCopy.enterHubTitle,
+            VolunteerAvailabilityCopy.enterHubHint,
+            VolunteerDispatchHubCopy.acceptingPill,
+            VolunteerDispatchHubCopy.emptyTitle,
+            VolunteerDispatchHubCopy.emptySubtitle,
+            VolunteerDispatchHubCopy.scheduleRowLabel,
+            VolunteerDispatchHubCopy.scheduleRowEmptyValue,
+            VolunteerDispatchHubCopy.pauseTitle,
+            VolunteerDispatchHubCopy.pauseConfirmMessage,
+            VolunteerDispatchHubCopy.pauseConfirmPrimary,
+            VolunteerDispatchHubCopy.introCallCardTitle,
+            VolunteerDispatchHubCopy.introCallCardSubtitle,
+            VolunteerDispatchHubCopy.laterRowTitle(2)
         ]
 
         // 「证明 / 证书」：民政部令第 67 号。

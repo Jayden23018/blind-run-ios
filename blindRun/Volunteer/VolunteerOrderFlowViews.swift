@@ -1565,6 +1565,20 @@ struct VolunteerInServiceView: View {
         // 骨架那条路是普通的滚动页，导航栏要有自己的底 —— 藏起来是为了让地图透上去，
         // 而骨架下面没有地图，藏着只会让标题浮在正文上。
         .toolbarBackground(flowPresentation == nil ? .hidden : .visible, for: .navigationBar)
+        // 订单页**不带标签栏**（设计交付 v3 §4.2 总表：S1/S2/S3/S4 的底部是「标签栏」，
+        // 而 S6 是「求助与安全」；`03-订单页全流程.png` 五屏也都没有标签栏）。
+        // 多一条 49pt 的标签栏会把底部操作区顶上去，而标签栏在这一刻能去的地方
+        // （记录 / 我的）没有一个是陪跑中该去的。**两条路径都要藏**：地图那条是面板被顶，
+        // 骨架那条是最后一行被盖掉半行（同一个形状已在 `VolunteerServiceRecognitionView` 上红过一次）。
+        //
+        // 🔴 **前提是返回箭头一直在。** 盲人端的订单页刻意保留了标签栏，理由在
+        // `BlindOrderStatusView.swift:1642-1646`：那一页跑步中会藏返回箭头，
+        // 标签栏是唯一出口。这一页从头到尾没有 `navigationBarBackButtonHidden`，
+        // 所以藏标签栏不会把人关在里面 —— **谁将来给这一页藏返回箭头，这一行必须同时撤销。**
+        //
+        // ⚠️ 2026-09-17 合并时搬过一次位置：它原本挂在旧 body 的末尾，而那一段被
+        // 四步骨架重构删掉了。取任一边都会让这一行静默消失，所以是手动搬进来的。
+        .toolbar(.hidden, for: .tabBar)
         .task {
             viewModel.configure(with: appState, speechService: speechService, initialOrder: initialOrder)
             locationService.startUpdating()
@@ -2116,6 +2130,18 @@ struct VolunteerServiceRecognitionView: View {
         }
         .background(AppColors.background)
         .navigationTitle(VolunteerAchievementsCopy.navigationTitle)
+        // 🔴 **这一行是修出来的，不是抄体例。** 2026-09-17 给志愿者端加标签栏之后，
+        // `testVolunteerAchievementsPassesAccessibilityAudit` 当场红在
+        // `volunteerAchievementsDisclaimer` 上（Contrast failed），失败截图里那句
+        // 「向学校或单位申报星级需要通过全国志愿服务信息系统办理」**第二行被标签栏盖掉了半行**。
+        //
+        // 光靠给内容加底部留白救不回来：`ScrollView` 静止在顶部时那一行的 y 只由它上面的内容决定，
+        // 加多少 padding 它都还在 775.7–806，而标签栏（iOS 26 的悬浮胶囊）从 793 起 ——
+        // 唯一的解法是这一页不要那条栏。
+        //
+        // 设计交付 v3 也是这么分的：§4.2 总表里带标签栏的只有 S1/S2/S3/S4 那几屏根页面，
+        // S7「空闲时间与出发地」那类二级页的底部是空的。
+        .toolbar(.hidden, for: .tabBar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("volunteerServiceRecognitionView")
         .task {
@@ -2377,6 +2403,15 @@ struct VolunteerSettingsView: View {
                 settingsRow("昵称", value: appState.volunteerProfile?.name ?? "未填写")
                 settingsRow("当前角色", value: "志愿者")
                 settingsRow("资质审核", value: certificateState.displayName)
+
+                // 空闲时间是**匹配前提**而不是普通偏好：空闲时间以外后端不发邀请，
+                // 所以「我为什么收不到单」的第一个答案就在这里。放第一组，与资质并列。
+                NavigationLink("空闲时间") {
+                    VolunteerAvailabilityScheduleView()
+                }
+                .accessibilityLabel("空闲时间")
+                .accessibilityHint("设置你每周哪些时间有空，这些时间之外不会给你发邀请")
+                .accessibilityIdentifier("volunteerScheduleSettingsEntry")
             }
 
             // SPEC-E 激励体系的三个入口。

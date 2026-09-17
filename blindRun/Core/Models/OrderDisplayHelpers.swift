@@ -641,11 +641,6 @@ extension OrderDetailResponse {
     ///
     /// 空名字回退到既有常量「这位跑者」（`PartnerStreakCopy.unknownBlindName`），
     /// 不另造第二个占位词。
-    ///
-    /// ⚠️ **与 PR #153 重复的 11 行**：那条分支（`feat/volunteer-dispatch-hub`）里已经加过
-    /// 一份一模一样的。两边先合谁，另一边 rebase 时会在这里撞一次 —— 内容逐字相同，
-    /// 留任意一份即可。刻意不去依赖那条未合分支：本轮只需要这一个属性，
-    /// 而从未合分支上切会把接单主页那一整摊改动也拖进这个 PR。
     var blindNameForSpeech: String {
         blindName?.unmaskedForSpeech.nilIfBlank ?? PartnerStreakCopy.unknownBlindName
     }

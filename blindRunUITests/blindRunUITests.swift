@@ -231,6 +231,15 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerActiveOrder: true
         )
 
+        // 有在途订单 ⇒ 打开 App 直接进服务页（设计交付 v3 §4.1 三岔路的第二岔）。
+        // 首屏的版式断言要先退回来才做得了 —— 而「退得回来」本身也是那条自动导航的前提：
+        // 推进去出不来的话，志愿者在订单走完之前碰不到主页（钉在 `ScheduledOrderTests`）。
+        XCTAssertTrue(
+            app.navigationBars["服务中"].waitForExistence(timeout: 25),
+            "有在途订单时冷启动没有直接进服务页"
+        )
+        app.navigationBars["服务中"].buttons.firstMatch.tap()
+
         let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
         XCTAssertTrue(identityRow.waitForExistence(timeout: 12), "Volunteer identity row should be visible below the system status area")
         assertVolunteerTopStatusBlockPosition(identityRow, app: app)
@@ -255,7 +264,8 @@ final class blindRunUITests: XCTestCase {
             )
         }
 
-        openCurrentVolunteerService(app)
+        // 已经退回首页了，这次是真的从卡片点进去 —— 传 0 省掉那 25 秒的等待。
+        openCurrentVolunteerService(app, alreadyOpenTimeout: 0)
         assertNoEmergencyAction(app)
 
         let enRouteLabel = tapVolunteerFlowPrimary(app)
@@ -532,12 +542,14 @@ final class blindRunUITests: XCTestCase {
 
         returnHome.tap()
         // 2026-09-14 改版把首页那个 `Toggle` 换成了底部的滑动 CTA，`app.switches` 不再存在。
-        // 「没有被自动打开」这条约束没变，判据换成：底部渲染的是**滑块**（关闭态），
-        // 而不是「已开启」状态条。
-        let slider = app.buttons["滑动开始今天的陪跑"].firstMatch
+        // 「没有被自动打开」这条约束没变，判据换成：滑块的无障碍按钮名是**关闭态**那一个。
+        //
+        // 2026-09-17 滑块改成双向（右开 / 左关）之后状态条也不存在了，两态都是同一条轨道，
+        // 只有无障碍表示的按钮名不同：关闭态「向右滑动，开始接单」/ 开启态「进入接单」。
+        let slider = app.buttons["向右滑动，开始接单"].firstMatch
         XCTAssertTrue(slider.waitForExistence(timeout: 8), "回到首屏后底部应当是关闭态的滑动 CTA")
         XCTAssertFalse(
-            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].exists,
+            app.buttons["进入接单"].exists,
             "Legacy completion must not automatically enable availability"
         )
     }
@@ -604,14 +616,15 @@ final class blindRunUITests: XCTestCase {
         )
         XCTAssertTrue(app.staticTexts["最近陪跑"].firstMatch.exists, "First screen should show the recent-run stream")
         XCTAssertFalse(app.buttons["查看全部订单"].firstMatch.exists, "Primary volunteer home must not expose the public order list")
-        // 预置「已开启」时底部是绿色状态条而不是滑块 —— 摩擦力只加在开启那一侧。
+        // 预置「已开启」时轨道还在（双向滑块两态同一条轨道），但无障碍表示换成
+        // 「进入接单」那一枚按钮 —— 已开启之后向右滑做的是导航，不是再开一次。
         XCTAssertTrue(
-            app.descendants(matching: .any)["volunteerAvailabilityStatusBar"].firstMatch.waitForExistence(timeout: 5),
-            "Available volunteer should see the status bar, not the slider"
+            app.buttons["进入接单"].firstMatch.waitForExistence(timeout: 5),
+            "已开启时滑块的无障碍按钮应当是「进入接单」"
         )
-        XCTAssertTrue(
-            app.buttons["今天先不跑了"].firstMatch.exists,
-            "关闭必须是一个普通按钮 —— 关这一侧不许有摩擦力"
+        XCTAssertFalse(
+            app.buttons["向右滑动，开始接单"].firstMatch.exists,
+            "已经开启了还提示「开始接单」，等于告诉志愿者他没开"
         )
         attachScreenshot(named: "volunteer-profile-first-screen", app: app)
 
@@ -1188,8 +1201,27 @@ final class blindRunUITests: XCTestCase {
             preseedVolunteerProfile: true,
             preseedVolunteerActiveOrder: true
         )
+        // 预置了在途订单 ⇒ 冷启动直接进服务页（§4.1），而那一页藏了标签栏（设计交付 v3 §4.2
+        // 总表：订单页底部是「求助与安全」不是标签栏）。要走「我的」tab 得先退回来。
+        XCTAssertTrue(
+            app.navigationBars["服务中"].waitForExistence(timeout: 25),
+            "有在途订单时冷启动没有直接进服务页"
+        )
+        app.navigationBars["服务中"].buttons.firstMatch.tap()
+
+        // ⚠️ 这一条自 2026-09-16（`d8b6307`，盲人端加标签栏）起一直是红的：`openSettings`
+        // 那次改成走「我的」tab，而**志愿者端当时根本没有标签栏**，于是它卡在第一句断言上。
+        // 本轮给志愿者端补上标签栏之后它才重新跑得通 —— 命中记忆
+        // `merged-prs-whose-tests-never-ran`（CI 跑不了 XCTest，编译绿不代表用例跑过）。
         openSettings(app)
-        app.buttons["删除账户"].tap()
+        // 陪跑员的设置页比盲人的长（多了积分 / 固定搭档 / 邀请码 / 培训四组），「删除账户」
+        // 在最后一组 —— `List` 不渲染屏幕外的行，不滚它连无障碍树里都没有。
+        let deleteAccount = app.buttons["删除账户"].firstMatch
+        XCTAssertTrue(
+            scrollUntilExists(deleteAccount, app: app),
+            "设置页滚到底也没有「删除账户」"
+        )
+        deleteAccount.tap()
         XCTAssertTrue(app.alerts["确认删除账户"].firstMatch.waitForExistence(timeout: 5))
         app.buttons["继续删除账户"].tap()
 
@@ -1262,6 +1294,13 @@ final class blindRunUITests: XCTestCase {
             disableMap: false
         )
 
+        // 预置了在途订单 ⇒ 冷启动直接进服务页（§4.1），要看首屏得先退回来。
+        XCTAssertTrue(
+            volunteerApp.navigationBars["服务中"].waitForExistence(timeout: 25),
+            "有在途订单时冷启动没有直接进服务页"
+        )
+        volunteerApp.navigationBars["服务中"].buttons.firstMatch.tap()
+
         // 🔴 志愿者首页**没有任何地图了**（2026-09-15 随「派单工作台」一起删）。
         // 真 key 构建下唯一该出现的志愿者地图在「服务中」页，即下面 `volunteerServiceMapBackdrop`
         // 那条。这里只断言首页确实一张都没有 —— 配了真 key 也不该冒出来。
@@ -1276,7 +1315,7 @@ final class blindRunUITests: XCTestCase {
         )
         attachScreenshot(named: "real-amap-volunteer-home", app: volunteerApp)
 
-        openCurrentVolunteerService(volunteerApp)
+        openCurrentVolunteerService(volunteerApp, alreadyOpenTimeout: 0)
         XCTAssertTrue(
             volunteerApp.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.waitForExistence(timeout: 20),
             "Real AMap run should expose the volunteer service map container"
@@ -1471,14 +1510,16 @@ final class blindRunUITests: XCTestCase {
         return app
     }
 
-    /// 打开盲人端的设置。
+    /// 打开设置。**两端通用** —— 陪跑员端 2026-09-17 也有了标签栏（设计交付 v3 §4.1），
+    /// 两边的第三个标签都叫「我的」、里面都是一页 `navigationTitle("设置")`。
     ///
     /// 🔄 **2026-09-16 起走「我的」tab，不再是首页右上角的悬浮齿轮。**
-    /// 齿轮已随首页改版删除（设计稿的首页只有问候 + 订单卡 + 预约块）。
-    /// 抽成 helper 的价值就在这里：入口换了一次，三个调用点一起跟上。
+    /// 盲人端的齿轮已随首页改版删除（设计稿的首页只有问候 + 订单卡 + 预约块）；
+    /// 陪跑员首屏那枚齿轮还在，但这里一律走标签栏那条 —— 它是两端唯一都有的入口。
+    /// 抽成 helper 的价值就在这里：入口换了一次，所有调用点一起跟上。
     private func openSettings(_ app: XCUIApplication) {
         let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 12), "盲人端标签栏没起来，够不到设置")
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 12), "标签栏没起来，够不到设置")
         let profileTab = tabBar.buttons["我的"]
         XCTAssertTrue(profileTab.waitForExistence(timeout: 5), "标签栏缺少「我的」")
         profileTab.tap()
@@ -1664,15 +1705,15 @@ final class blindRunUITests: XCTestCase {
     /// 量得到真实高度的底栏，返回它的顶边；量不到返回 `nil`（退回固定的 112pt）。
     ///
     /// 🔴 **为什么这个不能只靠上面那个常量**：112 是照盲人首页的底栏（实测 102pt）定的，
-    /// 而志愿者「我」首屏底部那条可服务 CTA 在**已开启**时是「状态条 + 关闭按钮」两行，
+    /// 而志愿者「我」首屏底部那条可服务 CTA 在**已开启**时轨道里是两行字（主文案 + 副提示），
     /// AX5 下更高 —— 实测远超 112。常量偏小的后果不是「多滚一下」，
     /// 而是 helper 认为控件已经露出来了、直接返回 true，接着 `tap()` 打在底栏上。
     /// 那正是 2026-08-14 差点拨出 110 的同一个形状。
     ///
-    /// ponytail: 只登记**已知会超过 112pt 的**那两个，不做全量登记表 ——
+    /// ponytail: 只登记**已知会超过 112pt 的**那一个，不做全量登记表 ——
     /// 上面那条注释说得对，登记表必然漏掉下一个。这里漏掉的会退回旧行为，不会变得更糟。
     private func measuredBottomBarTop(_ app: XCUIApplication) -> CGFloat? {
-        ["volunteerAvailabilityStatusBar", "volunteerAvailabilitySlider"]
+        ["volunteerAvailabilitySlider"]
             .map { app.descendants(matching: .any)[$0].firstMatch }
             .filter { $0.exists }
             .map(\.frame)
@@ -1694,6 +1735,10 @@ final class blindRunUITests: XCTestCase {
 
     private func assertLogoutRequiresConfirmation(_ app: XCUIApplication) {
         let logoutButton = app.buttons["退出登录"].firstMatch
+        // 陪跑员的设置页比盲人的长（多了积分 / 固定搭档 / 邀请码 / 培训四组），退出登录在最后
+        // —— `List` 不渲染屏幕外的行，不滚它连无障碍树里都没有，`waitForExistence` 永远等不到。
+        // 已经在屏上时 `scrollUntilExists` 第一行就返回，对盲人端那两档是零开销。
+        XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
         XCTAssertTrue(logoutButton.waitForExistence(timeout: 10))
         logoutButton.tap()
         XCTAssertTrue(app.alerts["确认退出"].firstMatch.waitForExistence(timeout: 5))
@@ -1736,16 +1781,24 @@ final class blindRunUITests: XCTestCase {
         return label
     }
 
+    /// 走到志愿者的服务中页。
+    ///
+    /// 🚩 **有在途订单时它本来就已经在那一页了**：设计交付 v3 §4.1 的三岔路让打开 App
+    /// 直接进订单页，不再经过首页那张当前订单卡。所以这里先看服务页在不在，不在才回落到
+    /// 「从首页点卡片进去」那条路 —— 两条路径都是真实的（后者是用户返回首页之后再点进来）。
     private func openCurrentVolunteerService(
         _ app: XCUIApplication,
-        requirePhone: Bool = true
+        requirePhone: Bool = true,
+        alreadyOpenTimeout: TimeInterval = 25
     ) {
-        let currentOrderLabel = app.staticTexts["当前订单"].firstMatch
-        XCTAssertTrue(currentOrderLabel.waitForExistence(timeout: 15), "Volunteer home should show the assigned current order")
+        if !app.navigationBars["服务中"].waitForExistence(timeout: alreadyOpenTimeout) {
+            let currentOrderLabel = app.staticTexts["当前订单"].firstMatch
+            XCTAssertTrue(currentOrderLabel.waitForExistence(timeout: 15), "Volunteer home should show the assigned current order")
 
-        let firstOrder = app.staticTexts["李明"].firstMatch
-        XCTAssertTrue(firstOrder.waitForExistence(timeout: 5), "Current order card should show the assigned blind runner")
-        tapWhenHittableOrByCoordinate(firstOrder, app: app)
+            let firstOrder = app.staticTexts["李明"].firstMatch
+            XCTAssertTrue(firstOrder.waitForExistence(timeout: 5), "Current order card should show the assigned blind runner")
+            tapWhenHittableOrByCoordinate(firstOrder, app: app)
+        }
 
         if requirePhone {
             // 号码上屏是**掩码**的（`VolunteerOrderFlowViews.swift` 走 `EmergencyContactResponse.maskPhone`）：

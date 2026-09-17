@@ -40,6 +40,8 @@ final class FlowDesignSystemTests: XCTestCase {
             (AppColors.Flow.helpTextTone, AppColors.Flow.helpBackgroundTone, "求助与安全按钮文字"),
             (AppColors.Flow.onNavySecondaryTone, AppColors.Flow.navyTone, "深蓝卡次要文字"),
             (AppColors.Flow.onNavyTertiaryTone, AppColors.Flow.navyTone, "深蓝卡地点文字"),
+            // 亮色只有 4.58:1（余量 0.08），所以这一条必须在表里 —— 设计稿原值就踩着线。
+            (AppColors.Flow.acceptingTextTone, AppColors.Flow.acceptingBackgroundTone, "「接单中」胶囊"),
         ]
 
         for (foreground, background, usage) in pairings {
