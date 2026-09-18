@@ -105,19 +105,28 @@ final class VolunteerAvailabilityScheduleViewModel: ObservableObject {
         slots = (appState.volunteerProfile?.availableTimeSlots ?? []).compactMap(VolunteerAvailabilityDraftSlot.init)
     }
 
-    func add() {
-        slots.append(.makeDefault())
-        Task { await save() }
-    }
-
     func remove(at offsets: IndexSet) {
         slots.remove(atOffsets: offsets)
         Task { await save() }
     }
 
-    func update(_ slot: VolunteerAvailabilityDraftSlot) {
-        guard let index = slots.firstIndex(where: { $0.id == slot.id }) else { return }
-        slots[index] = slot
+    /// 新增与修改共用一条路径：`id` 在列表里找得到就替换，找不到就当新增。
+    ///
+    /// 🔴 **「添加」按钮不再直接落一条默认值。** 它原先是 `slots.append(.makeDefault())` +
+    /// 立刻 `save()`，编辑器不弹 —— 界面上的事实于是变成「点添加 = 凭空多出一条
+    /// 周六 07:00–09:00 且已经上传」，志愿者只有回头点那一行才知道能改。
+    /// 真机上被判成「这页做不了添加，只能是周六 7 点到 9 点」。
+    ///
+    /// 它不只是难用。后端对**填了**时段的人做硬过滤（`ScoringService.java:238`，
+    /// 重叠率低于阈值直接滤掉，第 1 轮 0.8 / 第 2、3 轮 0.6），而一条记录都没有的人
+    /// **整条过滤被跳过**。所以这枚按钮每被误点一次，就把一个此前「随时可接单」的志愿者
+    /// 变成「只有周六早上那两小时的单能命中，且还得占满 80%」。
+    func upsert(_ slot: VolunteerAvailabilityDraftSlot) {
+        if let index = slots.firstIndex(where: { $0.id == slot.id }) {
+            slots[index] = slot
+        } else {
+            slots.append(slot)
+        }
         Task { await save() }
     }
 
@@ -197,14 +206,15 @@ struct VolunteerAvailabilityScheduleView: View {
                 .onDelete(perform: viewModel.remove)
 
                 Button {
-                    viewModel.add()
+                    // 只是打开编辑器，列表这一刻不变、也不上传 —— 用户点「完成」才落盘。
+                    editingSlot = .makeDefault()
                 } label: {
                     Label("添加空闲时间", systemImage: "plus")
                         .frame(minHeight: 64) // guard:allow small-touch-target
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                 }
-                .accessibilityHint("新增一段每周重复的空闲时间，默认周六早上 7 点到 9 点，加完可以再改")
+                .accessibilityHint("打开时间选择，挑星期几和起止时间，点完成才会保存")
                 .accessibilityIdentifier("volunteerScheduleAddButton")
             } header: {
                 Text("这些时间里有合适的陪跑，会邀请你")
@@ -240,7 +250,7 @@ struct VolunteerAvailabilityScheduleView: View {
         .sheet(item: $editingSlot) { slot in
             NavigationStack {
                 VolunteerAvailabilitySlotEditor(slot: slot) { updated in
-                    viewModel.update(updated)
+                    viewModel.upsert(updated)
                     editingSlot = nil
                 }
             }
@@ -262,6 +272,7 @@ struct VolunteerAvailabilityScheduleView: View {
 // MARK: - 单段编辑
 
 private struct VolunteerAvailabilitySlotEditor: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var draft: VolunteerAvailabilityDraftSlot
     private let onDone: (VolunteerAvailabilityDraftSlot) -> Void
 
@@ -289,6 +300,12 @@ private struct VolunteerAvailabilitySlotEditor: View {
         .navigationTitle("空闲时段")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // 「添加」现在是先开这张表、点完成才落盘 ⇒ 必须有一条**看得见**的退路，
+            // 否则退出只剩下划手势。读屏与低视力用户摸不到手势，那就是个死胡同。
+            ToolbarItem(placement: .cancellationAction) {
+                Button("取消") { dismiss() }
+                    .accessibilityIdentifier("volunteerScheduleEditorCancel")
+            }
             ToolbarItem(placement: .confirmationAction) {
                 Button("完成") { onDone(draft) }
                     // 非法区间不许保存：`isValid` 为假时后端会收到一个永不命中的窗口，

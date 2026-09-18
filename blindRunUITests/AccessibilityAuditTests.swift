@@ -1355,6 +1355,48 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertEqual(app.alerts.count, 0, "停止接单不得弹任何挽留对话框")
     }
 
+    /// 「添加空闲时间」**只开选择器，不落盘**。
+    ///
+    /// 这条钉的是一个已经发生过的缺陷：那枚按钮原先是 `slots.append(.makeDefault())` 之后
+    /// 立刻 `save()`，编辑器根本不弹 —— 真机上点一下就凭空多出一条周六 07:00–09:00
+    /// 并且已经上传，而界面上找不到任何「选星期和时间」的入口，被判成「这页做不了添加」。
+    ///
+    /// 代价不止难用。后端对**填了**时段的人做硬过滤（`ScoringService.java:238`，
+    /// 重叠率第 1 轮 0.8 / 第 2、3 轮 0.6），而一条记录都没有的人**整条过滤被跳过**
+    /// ⇒ 每误点一次，就把一个原本「随时可接单」的志愿者变成「只有周六早上那两小时、
+    /// 且要占满行程 80% 的单」才命中。真人测试就是这么卡住的。
+    ///
+    /// 两条断言缺一不可：只断「选择器弹出来了」挡不住「弹的同时也顺手 append 了一条」。
+    @MainActor
+    func testAddingAvailabilityOpensThePickerAndSavesNothingUntilDone() throws {
+        let app = launchVolunteerHome()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
+                .waitForExistence(timeout: 20),
+            "陪跑员首页没起来"
+        )
+
+        app.tabBars.firstMatch.buttons["我的"].tap()
+        let entry = app.descendants(matching: .any)["volunteerScheduleSettingsEntry"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), "「我的」tab 没到设置页")
+        entry.tap()
+
+        let addButton = app.descendants(matching: .any)["volunteerScheduleAddButton"].firstMatch
+        XCTAssertTrue(addButton.waitForExistence(timeout: 15), "空闲时间页没打开")
+        let rowsBefore = app.cells.count
+
+        addButton.tap()
+
+        // ① 选择器真的开了。老代码走到这里屏幕上什么都不会发生。
+        let done = app.descendants(matching: .any)["volunteerScheduleEditorDone"].firstMatch
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "点「添加空闲时间」没有打开时间选择")
+
+        // ② 退出来，列表一行都不该多 —— 没点「完成」就不该落盘。
+        app.descendants(matching: .any)["volunteerScheduleEditorCancel"].firstMatch.tap()
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "取消之后没回到空闲时间页")
+        XCTAssertEqual(app.cells.count, rowsBefore, "没点「完成」列表就多了一行 —— 添加按钮在偷偷落盘")
+    }
+
     /// 首屏徽章区那个「全部 N 枚 ›」入口。滚到它为止再返回。
     ///
     /// ⚠️ 标题里带**枚数**（`全部 3 枚`），所以只能按 `accessibilityLabel` 找，不能按可见文字找。

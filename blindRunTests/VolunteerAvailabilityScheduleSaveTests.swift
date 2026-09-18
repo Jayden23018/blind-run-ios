@@ -58,6 +58,41 @@ final class VolunteerAvailabilityScheduleSaveTests: XCTestCase {
         XCTAssertNil(client.lastProfileUpdate, "非法区间不该被发到后端")
         XCTAssertEqual(viewModel.errorMessage, VolunteerAvailabilityScheduleEditing.invalidRangeMessage)
     }
+
+    /// 编辑器交回来的草稿：`id` 在列表里就替换，不在就当新增。
+    ///
+    /// 新增那一半是这条用例的重点。「添加空闲时间」现在先弹编辑器、手上拿的是一个
+    /// **还没进列表**的 `makeDefault()` 草稿，点「完成」才交回来；而本函数的前身 `update`
+    /// 是 `guard let index … else { return }` —— 照那条路走新增会什么都不发生，
+    /// 界面上看是「点了完成没反应」，且没有任何报错。
+    func testUpsertReplacesInPlaceAndAppendsDraftsNotInTheListYet() async throws {
+        let client = ProfileUpdateSpy()
+        client.response = VolunteerProfileResponse(name: "张伟")
+        let appState = AppState(apiClient: client, tokenStore: ScheduleInMemoryTokenStore())
+        appState.updateVolunteerProfile(
+            VolunteerProfileResponse(
+                name: "张伟",
+                availableTimeSlots: [
+                    VolunteerAvailableTimeSlot(dayOfWeek: "SATURDAY", startTime: "09:00:00", endTime: "12:00:00")
+                ]
+            )
+        )
+
+        let viewModel = VolunteerAvailabilityScheduleViewModel()
+        viewModel.configure(with: appState)
+        XCTAssertEqual(viewModel.slots.count, 1)
+
+        // 改已有那一条 → 原地替换
+        var edited = try XCTUnwrap(viewModel.slots.first)
+        edited.weekday = "MONDAY"
+        viewModel.upsert(edited)
+        XCTAssertEqual(viewModel.slots.count, 1, "改一条已有时段不该变成两条")
+        XCTAssertEqual(viewModel.slots.first?.weekday, "MONDAY")
+
+        // 编辑器交回一个列表里没有的草稿 → 新增
+        viewModel.upsert(.makeDefault())
+        XCTAssertEqual(viewModel.slots.count, 2, "「添加」交回的草稿被静默丢掉了")
+    }
 }
 
 // MARK: - 替身
