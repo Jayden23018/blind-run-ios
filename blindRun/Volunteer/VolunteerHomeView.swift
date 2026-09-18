@@ -247,7 +247,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     ) -> OrderDetailResponse? {
         if let activeOrder { return activeOrder }
         let lead = TimeInterval(leadMinutes * 60)
-        // `scheduledOrders` 已按 `plannedStart` 升序（`applyScheduled`），最近的排最前。
+        // `scheduledOrders` 已按 `plannedStart` 升序（`applyUpcoming`），最近的排最前。
         // 解析不出时间的不猜 —— 宁可让他自己从首页点进去，也不要凭空把人推进一张
         // 可能几天后才开始的单。
         return scheduledOrders.first { order in
@@ -1125,19 +1125,38 @@ final class VolunteerHomeViewModel: ObservableObject {
                 }
             }
 
-            // 跨天预约单单独一条（后端 `dispatch-summary` 拿不到它，见 `scheduledOrders` 的注释）。
-            // 与另外两条并行，不串在后面 —— 首页已经有三次往返，再排一次会让面板多等一个 RTT。
+            // 「接下来要去的单」两条（后端 `dispatch-summary` 两态都拿不到，
+            // 见 `OrderServing.volunteerOrders(status:)` 的注释）。一次只能问一个状态，
+            // 所以是两条请求而不是一条带两个值的。
+            //
+            // 与档案那两条**并行**，也彼此并行，不串在后面 —— 首页已经有三次往返，
+            // 每多排一条就让面板多等一个 RTT。
             let orders = appState.orders
             async let scheduledResult: Result<PagedOrderResponse, Error> = Self.fetchResult {
                 try await HomeLoadCoordinator.run(
                     timeout: self.loadTimeout,
                     operationName: "volunteer-scheduled-orders"
                 ) {
-                    try await orders.scheduledOrders()
+                    try await orders.volunteerOrders(status: .scheduledConfirmed)
+                }
+            }
+            // 🔴 **`PENDING_ACCEPT` 这一条是 2026-09-18 补的，它此前是个黑洞。**
+            // 陪跑员谈成之后点「确认我还会去」，订单 `SCHEDULED_CONFIRMED → PENDING_ACCEPT`，
+            // 而那一态**两个数据源都不含它**：预约列表按 `SCHEDULED_CONFIRMED` 拉，
+            // `dispatch-summary.activeOrders` 的后端白名单也没有它。
+            // 真机表现是「刚接下的那一单，一退出订单页就从自己的 App 里消失了」。
+            async let pendingAcceptResult: Result<PagedOrderResponse, Error> = Self.fetchResult {
+                try await HomeLoadCoordinator.run(
+                    timeout: self.loadTimeout,
+                    operationName: "volunteer-pending-accept-orders"
+                ) {
+                    try await orders.volunteerOrders(status: .pendingAccept)
                 }
             }
 
-            let (profile, registration, scheduled) = await (profileResult, registrationResult, scheduledResult)
+            let (profile, registration, scheduled, pendingAccept) = await (
+                profileResult, registrationResult, scheduledResult, pendingAcceptResult
+            )
             guard !Task.isCancelled, self.auxiliaryRequestID == requestID else { return }
             if case .success(let value) = profile {
                 appState.updateVolunteerProfile(value)
@@ -1146,7 +1165,7 @@ final class VolunteerHomeViewModel: ObservableObject {
             if case .success(let value) = registration {
                 appState.updateVolunteerRegistrationStatus(value)
             }
-            self.applyScheduled(scheduled)
+            self.applyUpcoming(scheduled: scheduled, pendingAccept: pendingAccept)
             // 三岔路的另一岔（2 小时内开始的陪跑）只有等这条请求回来才判得了 —— 跨天预约单
             // 不在 `dispatch-summary` 里。判完这一轮就关窗，之后每 10 秒的刷新不再自动导航。
             self.resolveLaunchRouteIfNeeded()
@@ -1156,23 +1175,47 @@ final class VolunteerHomeViewModel: ObservableObject {
         }
     }
 
-    /// 拉取结果落进 `scheduledOrders`。
+    /// 客户端这一侧认哪几个状态算「接下来要去的单」。
+    ///
+    /// 🚩 **两态都要，缺一个就是一个黑洞。** `SCHEDULED_CONFIRMED` 是还没临期确认的跨天单，
+    /// `PENDING_ACCEPT` 是确认完、等着按「我出发了」的那一单 —— 后者此前两个数据源都取不到。
+    ///
+    /// ⚠️ 这里**不是**「志愿者眼里的活跃订单」那个更宽的白名单
+    /// （`RunOrderStatus.isActiveForVolunteer`，含 `DRIVER_EN_ROUTE` 等三态）：
+    /// 那三态由后端 `dispatch-summary.activeOrders` 承担，两边重复取会让同一单
+    /// 既出现在深蓝卡又出现在「之后还有 N 次」里。
+    static let upcomingVolunteerStatuses: Set<RunOrderStatus> = [.scheduledConfirmed, .pendingAccept]
+
+    /// 两条请求的结果合并后落进 `scheduledOrders`。
     ///
     /// 🚨 **失败时不清空已有列表**：预约区块上挂着一个 60 分钟到期的确认动作，
     /// 一次网络抖动把整块抹掉，志愿者就会以为那张单已经没了、不必再管它 ——
     /// 而后端那边计时照走。失败只留一句说明，列表保持上一次的内容。
     ///
+    /// 🚩 **两条都失败才算失败。** 一条回来了就按回来的那部分渲染 —— 半份列表
+    /// 也比「暂时没有约好的陪跑」诚实，后者是一句**关于事实的断言**。
+    ///
     /// ⚠️ 服务端返回的顺序是 `createdAt` 倒序（`OrderController.getMyOrders` 写死的），
     /// 这里按 `plannedStart` 重排成升序：这一块回答的是「下一件事什么时候」，
     /// 不是「我什么时候接的单」。缺 `plannedStart` 的排最后而不是丢掉。
-    private func applyScheduled(_ result: Result<PagedOrderResponse, Error>) {
-        switch result {
-        case .success(let page):
-            scheduledOrders = page.content
-                .filter { $0.status == .scheduledConfirmed }
+    private func applyUpcoming(
+        scheduled: Result<PagedOrderResponse, Error>,
+        pendingAccept: Result<PagedOrderResponse, Error>
+    ) {
+        let pages = [scheduled, pendingAccept].compactMap { try? $0.get() }
+        if !pages.isEmpty {
+            // 同一单**不可能**同时出现在两条响应里（一个订单只有一个状态），
+            // 但按 orderId 去一次重是防后端某天放宽 status 语义时悄悄出现两张卡。
+            var seen = Set<Int64>()
+            scheduledOrders = pages
+                .flatMap(\.content)
+                .filter { Self.upcomingVolunteerStatuses.contains($0.status) && seen.insert($0.orderId).inserted }
                 .sorted { ($0.plannedStart ?? "\u{FFFF}") < ($1.plannedStart ?? "\u{FFFF}") }
+        }
+        switch (scheduled, pendingAccept) {
+        case (.success, _), (_, .success):
             scheduledOrdersMessage = nil
-        case .failure:
+        case (.failure, .failure):
             ClientFlowDiagnostics.record(event: "failed", operation: "volunteer-scheduled-orders")
             // 🚨 **列表空时也要说话。** 早先这里是 `guard !scheduledOrders.isEmpty else { return }`，
             // 于是首次加载失败时既不渲染区块、也不设提示 —— 志愿者看到的与「我没有预约单」
@@ -1422,7 +1465,7 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 冷启动三岔路（设计交付 v3 §4.1）：有进行中订单或 2 小时内开始的陪跑就直接进订单页。
     ///
     /// 调用点有两个，都在**首次加载**这一轮上：`apply(summary:)` 末尾（在途订单那一岔，
-    /// 不必等预约单那条请求回来）、`applyScheduled(_:)` 之后（预约单那一岔）。
+    /// 不必等预约单那条请求回来）、`applyUpcoming(scheduled:pendingAccept:)` 之后（预约单那一岔）。
     /// 窗口由 `didResolveLaunchRoute` 关上 —— 见它的注释，那不是优化。
     ///
     /// 🚩 **复用派单接单后那条既有导航**（`acceptedDispatchOrderId` + 首页 tab 的
@@ -1908,7 +1951,7 @@ struct VolunteerScheduledOrdersSection: View {
 
     var body: some View {
         // `message` 非空时即使没有卡片也要渲染：加载失败而列表恰好为空是最需要说话的一刻，
-        // 只按 `orders.isEmpty` 判会让那条提示无处可去（见 `applyScheduled` 的失败分支）。
+        // 只按 `orders.isEmpty` 判会让那条提示无处可去（见 `applyUpcoming` 的失败分支）。
         if !orders.isEmpty || message != nil {
             VStack(alignment: .leading, spacing: 10) {
                 Text("我的预约")

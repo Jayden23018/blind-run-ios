@@ -42,6 +42,16 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
             number: 0, size: 20, first: true, last: true, empty: true
         )
     )
+    /// `status=PENDING_ACCEPT` 那一次调用的返回。与上面那条**分开打桩**，理由见
+    /// `volunteerOrders(status:)`：共用一个桩会让「漏拉一条」变得无法断言。
+    var pendingAcceptOrdersResult: Result<PagedOrderResponse, Error> = .success(
+        PagedOrderResponse(
+            content: [], totalElements: 0, totalPages: 0,
+            number: 0, size: 20, first: true, last: true, empty: true
+        )
+    )
+    /// 按调用顺序记下每一次问的是哪个状态 —— 「两条都发了」这件事只能这么断言。
+    var lastVolunteerOrdersStatuses: [RunOrderStatus] = []
     var orderDetailResult: Result<OrderDetailResponse, Error> = .failure(NotStubbed(method: "orderDetail"))
     /// 默认给**空数组**而不是 `NotStubbed`，理由同 `scheduledOrdersResult`：
     /// 每收到一条邀请都会拉一次，让既有的一批派单用例各补一行打桩是纯噪音，
@@ -112,9 +122,16 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         return try activeOrderResult.get()
     }
 
-    func scheduledOrders() async throws -> PagedOrderResponse {
+    /// 🚩 **按状态分流**：调用方（`startAuxiliaryLoad`）对这两态各打一次，
+    /// 而它们要能返回**不同**的内容 —— 否则「`PENDING_ACCEPT` 那一条被漏掉」
+    /// 与「两条都拉了」在替身这边长得一模一样，用例分辨不出来。
+    func volunteerOrders(status: RunOrderStatus) async throws -> PagedOrderResponse {
         record()
-        return try scheduledOrdersResult.get()
+        lastVolunteerOrdersStatuses.append(status)
+        switch status {
+        case .pendingAccept: return try pendingAcceptOrdersResult.get()
+        default: return try scheduledOrdersResult.get()
+        }
     }
 
     func orderDetail(orderId: Int64) async throws -> OrderDetailResponse {

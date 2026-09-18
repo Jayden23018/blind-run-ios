@@ -37,7 +37,7 @@ final class ScheduledOrderTests: XCTestCase {
         )
         let service = OrderService(transport: transport)
 
-        _ = try await service.scheduledOrders()
+        _ = try await service.volunteerOrders(status: .scheduledConfirmed)
 
         let recorded = try XCTUnwrap(transport.requests.first)
         XCTAssertEqual(recorded.method, .get)
@@ -45,6 +45,13 @@ final class ScheduledOrderTests: XCTestCase {
         XCTAssertFalse(recorded.path.contains("?"), "拼进 path 的 `?` 会被编码成 %3F，打出一条静默 404")
         XCTAssertEqual(recorded.query?["role"], "VOLUNTEER")
         XCTAssertEqual(recorded.query?["status"], "SCHEDULED_CONFIRMED")
+
+        // 第二档走的是**同一条路径、同一组 query 键**，只有 status 取值不同 ——
+        // 这正是「一次只能问一个状态」（后端 `parseOrderStatus` 只收单值）的形状。
+        _ = try await service.volunteerOrders(status: .pendingAccept)
+        let second = try XCTUnwrap(transport.requests.last)
+        XCTAssertEqual(second.path, "/api/orders/mine")
+        XCTAssertEqual(second.query?["status"], "PENDING_ACCEPT")
     }
 
     // MARK: - 状态机
