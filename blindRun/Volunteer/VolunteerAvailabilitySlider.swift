@@ -67,6 +67,25 @@ enum VolunteerAvailabilitySlide {
         guard trackWidth > 0 else { return 0 }
         return travel(dragX: dragX, trackWidth: trackWidth) / trackWidth
     }
+
+    /// 这一刻的手势该不该被接受。
+    ///
+    /// 🔴 **停止接单不看 `isEnabled`（= 资质审核是否通过），这是刻意的不对称。**
+    ///
+    /// 「开始接单」有后果 —— 没通过审核的人不该进候选池，所以那一侧必须看 `isEnabled`。
+    /// 「停止接单」没有后果，**任何时候都必须能退出**。资质在接单期间被撤销（后台审核状态
+    /// 变化 + 回前台重新拉取），人却停不下来，是把用户锁在一个他已经不该待的状态里。
+    ///
+    /// 双向滑块改版前这里是两个控件、两套闸，所以不会撞上：那时关闭侧只有 `guard !isUpdating`。
+    /// 合并成一条轨道之后两个方向共用同一批 `guard`，`isEnabled` 就顺势把关闭也堵上了 ——
+    /// 三条路一起堵死（拖拽 `onEnded`、无障碍动作所在按钮的 `.disabled`、以及 `close()` 自己）。
+    ///
+    /// 抽成纯函数而不是写成散在视图里的三元表达式，与本类型其余部分同一个理由：
+    /// 这种闸改错了屏幕上没有任何信号 —— 控件照常渲染，只是某个状态下按不动。
+    static func acceptsGesture(isAvailable: Bool, isEnabled: Bool, isUpdating: Bool) -> Bool {
+        guard !isUpdating else { return false }
+        return isAvailable || isEnabled
+    }
 }
 
 // MARK: - 文案
@@ -211,11 +230,11 @@ struct VolunteerAvailabilitySlider: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        guard isEnabled, !isUpdating else { return }
+                        guard acceptsGesture else { return }
                         dragX = value.translation.width
                     }
                     .onEnded { value in
-                        guard isEnabled, !isUpdating else { return }
+                        guard acceptsGesture else { return }
                         let opens = !isAvailable && VolunteerAvailabilitySlide.activates(
                             dragX: value.translation.width,
                             trackWidth: travelWidth
@@ -234,7 +253,7 @@ struct VolunteerAvailabilitySlider: View {
             )
         }
         .frame(height: trackHeight)
-        .opacity(isEnabled && !isUpdating ? 1 : 0.5)
+        .opacity(acceptsGesture ? 1 : 0.5)
         // 🔴 **辅助技术拿到的是普通控件。**
         //
         // VoiceOver / Switch Control / Voice Control 会彻底改变用户的物理交互方式，
@@ -249,7 +268,9 @@ struct VolunteerAvailabilitySlider: View {
         .accessibilityRepresentation {
             if isAvailable {
                 Button(VolunteerAvailabilityCopy.enterHubTitle) { onEnterHub() }
-                    .disabled(!isEnabled || isUpdating)
+                    // 🔴 不是 `!isEnabled || isUpdating` —— 停止接单那个 action 挂在这枚
+                    // 按钮上，按 `isEnabled` 停用会把它一起掐掉（见 `acceptsGesture`）。
+                    .disabled(!acceptsGesture)
                     .accessibilityHint(VolunteerAvailabilityCopy.enterHubHint)
                     .accessibilityValue("\(VolunteerAvailabilityCopy.availableStatusTitle)，\(statusText)")
                     .accessibilityAction(named: VolunteerAvailabilityCopy.closeTitle) { close() }
@@ -297,6 +318,15 @@ struct VolunteerAvailabilitySlider: View {
     ///
     /// **两件事一起做**是设计交付 v3 的流程（主页滑动 → 接单主页）：开启之后志愿者要看的
     /// 是「下一次陪跑 / 有没有待回复的邀请」，而那些都不在首页上。
+    /// 见 `VolunteerAvailabilitySlide.acceptsGesture` —— 停止接单那侧刻意不看 `isEnabled`。
+    private var acceptsGesture: Bool {
+        VolunteerAvailabilitySlide.acceptsGesture(
+            isAvailable: isAvailable,
+            isEnabled: isEnabled,
+            isUpdating: isUpdating
+        )
+    }
+
     private func open() {
         guard isEnabled, !isUpdating else { return }
         // ponytail: 复用既有的 `HapticFeedback.play(.success)`，不为这一处新加一种 impact 波形。
@@ -312,7 +342,7 @@ struct VolunteerAvailabilitySlider: View {
     /// 「你今天已经跑了 2 单，再坚持一下？」，就是 Uber 那条被 NYT 点名的下线挽留。
     /// 双向滑块改的是**手势**，不是这条。
     private func close() {
-        guard isEnabled, !isUpdating else { return }
+        guard acceptsGesture else { return }
         HapticFeedback.play(.success)
         onChange(false)
     }
