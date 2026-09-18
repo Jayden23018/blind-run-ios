@@ -209,6 +209,37 @@ final class FlowDesignSystemTests: XCTestCase {
         )
     }
 
+    /// 邀请卡那块三格数据（`离你 / 跑多远 / 配速`）。
+    ///
+    /// 2026-09-18 底色从浅蓝 `bookingBackground` 换成**页面灰** `page`，照 storyboard 的
+    /// `.m3{background:var(--ui-bg)}`。换底色就得重新算一遍压在它上面的两档文字 ——
+    /// 标签那一档只有 10pt，是这张卡上最小的字，走的是正文阈值 4.5 而不是大字的 3.0。
+    ///
+    /// 🔴 **验红挡的正是「照抄稿子的灰」**：稿子自己那一对（`--ui-sub #6B7180` 压
+    /// `--ui-bg #F2F3F7`）只有 **4.38:1**，差一点点。本仓库的 `secondaryText #5E6679`
+    /// 压 `page #F4F5F8` 是 5.28，所以这里要用我们自己的取值，不是把 CSS 变量整组搬过来。
+    func testInviteMetricTileTextClearsTheBodyThresholdOnThePageGray() {
+        let tile = AppColors.Flow.pageTone
+
+        assertContrast(
+            AppColors.Flow.primaryTextTone.light, tile.light, Self.textMinimum, "亮色", "三格数值"
+        )
+        assertContrast(
+            AppColors.Flow.primaryTextTone.dark, tile.dark, Self.textMinimum, "暗色", "三格数值"
+        )
+        assertContrast(
+            AppColors.Flow.secondaryTextTone.light, tile.light, Self.textMinimum, "亮色", "三格标签"
+        )
+        assertContrast(
+            AppColors.Flow.secondaryTextTone.dark, tile.dark, Self.textMinimum, "暗色", "三格标签"
+        )
+
+        XCTAssertLessThan(
+            Self.contrastRatio(0x6B7180, 0xF2F3F7), Self.textMinimum,
+            "storyboard 的 --ui-sub 压 --ui-bg 只有 4.38:1，整组照搬 CSS 变量会把 10pt 的标签推到阈值以下"
+        )
+    }
+
     // MARK: - 挡住三条「顺手复用」
 
     /// 设计稿的 `textTertiary #8C93A3` 给的是未到达步骤的文字，而它压在白卡上只有 3.08:1。

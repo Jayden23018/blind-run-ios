@@ -24,6 +24,15 @@ struct VolunteerInviteState: Identifiable {
     /// `nil` = 还等着回复。
     var outcome: Outcome?
 
+    /// 派单载荷给不了、要另外去 `GET /api/orders/available` 取的那三项。
+    ///
+    /// `nil` = 还没拉到 / 拉到了但这一单不在列表里 ⇒ **跑者那一行整行不渲染**。
+    /// 不占位、不编 —— 给还没见面的陪跑员印一个猜的视力程度，见面第一下就会抓错人。
+    ///
+    /// 声明成带默认值的 `var`，好让 memberwise init 的既有构造点不必各补一行
+    /// （同 `OrderDetailResponse.volunteerId` 那条）。
+    var supplement: VolunteerInviteSupplement?
+
     var id: Int64 { order.orderId }
     var isAwaitingReply: Bool { outcome == nil }
 
@@ -48,6 +57,104 @@ struct VolunteerInviteState: Identifiable {
     /// 与「查看详情」那一页说同一句话。预约单的分钟级回复期限已投 handoff。
     var isUrgent: Bool {
         remainingSeconds <= VolunteerOrderFlowCopy.urgentCountdownSeconds
+    }
+}
+
+// MARK: - 派单载荷之外的那三项
+
+/// 设计交付 v3 §4.4.2 第 7 项的跑者行（视力 + 引导方式），以及项目负责人点名要的「跑多久」。
+///
+/// 🔴 **三项都不在 `NEW_ORDER` 推送里**，只能另外去 `GET /api/orders/available` 取
+/// （见 `AvailableOrderResponse` 对「为什么正在等我回复的那一单也在那个列表里」的说明）。
+///
+/// 两个枚举字段存 `rawValue` 而不是枚举：后端往枚举加值时不许整条崩（AGENTS.md 硬约束），
+/// 认不出的取值落 `EscortNeed.confirmInPerson`，而不是丢掉这一行 ——
+/// 丢掉等于告诉陪跑员「跑者没有偏好」，而真实情况是「跑者填了，只是这个版本不认识」。
+struct VolunteerInviteSupplement: Equatable, Sendable {
+    let visionLevel: String?
+    let tetherPreference: String?
+    let expectedDurationMinutes: Int?
+
+    init(visionLevel: String?, tetherPreference: String?, expectedDurationMinutes: Int?) {
+        self.visionLevel = visionLevel
+        self.tetherPreference = tetherPreference
+        self.expectedDurationMinutes = expectedDurationMinutes
+    }
+
+    init(_ order: AvailableOrderResponse) {
+        self.init(
+            visionLevel: order.visionLevel,
+            tetherPreference: order.tetherPreference,
+            expectedDurationMinutes: order.expectedDurationMinutes
+        )
+    }
+
+    /// 「视力情况 / 引导方式」两行，**空数组 = 那一行不渲染**。
+    ///
+    /// 与 `OrderDetailResponse.escortNeeds` 共用 `EscortNeed` 的形状与兜底文案，
+    /// 但**刻意不带那条「跑者没有填写」的兜底行**：接单后那一屏是志愿者出发前的清单，
+    /// 少一条要提醒他去问；邀请卡是一次 30 秒的打断，多一行「没填」只是噪音。
+    /// 导盲犬那一行也不在这里 —— 它的源是 `WSNewOrder.hasGuideDog`，另一个数据源。
+    var escortNeeds: [EscortNeed] {
+        var needs: [EscortNeed] = []
+        if let raw = visionLevel?.nilIfBlank {
+            needs.append(EscortNeed(
+                kind: .vision,
+                symbolName: "eye.slash",
+                title: "视力情况",
+                value: VisionLevel(rawValue: raw)?.displayName ?? EscortNeed.confirmInPerson
+            ))
+        }
+        if let raw = tetherPreference?.nilIfBlank {
+            needs.append(EscortNeed(
+                kind: .tether,
+                symbolName: "link",
+                title: "引导方式",
+                value: TetherPreference(rawValue: raw)?.displayName ?? EscortNeed.confirmInPerson
+            ))
+        }
+        return needs
+    }
+
+    /// 邀请卡跑者行那句小字（「全盲，牵引绳」）。`nil` = 整行不渲染。
+    ///
+    /// ⚠️ 措辞取 `VisionLevel` / `TetherPreference` 的 `displayName`（盲人端也在用的单一源），
+    /// **不照设计稿写「用引导绳」** —— 为一处措辞抄第二份必然漂移，而「引导方式说法不一致」
+    /// 不会有任何东西报警。
+    var runnerSummary: String? {
+        escortNeeds.map(\.value).joined(separator: "，").nilIfBlank
+    }
+
+    /// 「跑多久」那一行的值。`nil` = 后端没这个数，那一行不渲染。
+    /// 写法与订单详情页既有的「预计时长」一致（`VolunteerOrderFlowViews.swift` 与
+    /// `BlindOrderStatusView.swift` 都是 `"\(minutes) 分钟"`）。
+    var durationText: String? {
+        guard let minutes = expectedDurationMinutes, minutes > 0 else { return nil }
+        return "\(minutes) 分钟"
+    }
+}
+
+extension VolunteerInviteState {
+    /// 把一次 `GET /api/orders/available` 的结果按 `orderId` 灌进队列。
+    ///
+    /// 🔴 **必须按 id 匹配，不许「取第一条」。** 那个列表是「附近可接的单」，
+    /// 按距离升序、最多 20 条，正在等我回复的那一单可能排在任何位置 ——
+    /// 取第一条的表现是把别人那一单的视力情况印在这张卡上，而屏幕上完全看不出来。
+    ///
+    /// 已经有 supplement 的不覆盖：这条路径会被每一条新邀请触发一次，
+    /// 而列表可能在两次之间少掉已被别人接走的单。
+    static func merge(
+        _ orders: [AvailableOrderResponse],
+        into invites: [VolunteerInviteState]
+    ) -> [VolunteerInviteState] {
+        guard !orders.isEmpty else { return invites }
+        let byID = Dictionary(orders.map { ($0.orderId, $0) }, uniquingKeysWith: { first, _ in first })
+        return invites.map { invite in
+            guard invite.supplement == nil, let match = byID[invite.id] else { return invite }
+            var updated = invite
+            updated.supplement = VolunteerInviteSupplement(match)
+            return updated
+        }
     }
 }
 
@@ -94,9 +201,13 @@ struct VolunteerDeclineStreak {
 /// 与订单页共用的那几句（「接下这次陪跑」「这次去不了」「还剩 X 秒回复」）
 /// **不在这里重写一遍**，直接用 `VolunteerOrderFlowCopy` —— 两份必然漂移。
 enum VolunteerInviteCopy {
-    static let sheetTitle = "新的陪跑邀请"
+    /// 标题行**恒报数**，只有 1 条时也写「1 个新邀请」（项目负责人 2026-09-18 当面拍板）。
+    ///
+    /// HTML 稿单条那一屏写的是「新的陪跑邀请」，**不照它**：标题右边现在恒挂分页点，
+    /// 一条时是一枚孤零零的长条，配「新的陪跑邀请」会让人以为还有别的没显示出来；
+    /// 而「1 个新邀请」和那一枚点说的是同一件事。
     static func sheetTitle(count: Int) -> String {
-        count > 1 ? "\(count) 个新邀请" : sheetTitle
+        "\(max(1, count)) 个新邀请"
     }
 
     static let distanceToStartLabel = "离你"

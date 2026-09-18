@@ -483,9 +483,19 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/orders/active" && method == .get {
             return handleGetActiveOrder()
         }
-        // 刻意没有 `/api/orders/available`：公开订单池那条链路已删除，App 不再请求它。
-        // Mock 里保着一条 App 走不到的路由，只会在真实形状漂移时替它遮丑
-        // —— 这条路径的真实响应是 `AvailableOrderResponse` 裸数组，与 `PagedOrderResponse` 不是一回事。
+        // `/api/orders/available` 恒返**空数组**。
+        //
+        // App 从 2026-09-18 起真的会打它（邀请卡拿视力 / 引导方式 / 跑多久），所以不能再不路由
+        // —— 不路由会走到下面的 `unsupported`，表现成每收一条邀请就记一笔假的网络错误。
+        //
+        // 🚩 **刻意不在这里编几条可接订单。** Mock 造得出来的只有「附近订单池」那条链路，
+        // 而 App 此刻用它的方式是「按 orderId 匹配正在等我回复的那一单」——
+        // 派单是客户端种子注入的，mock 这边根本没有对应的 id，编出来的条目只会替真实形状遮丑。
+        // 邀请卡跑者行在 UI 测试里的可达性由 `uiTestSeedInvite` 直接塞 supplement 保证，
+        // 匹配逻辑本身由 `VolunteerInviteState.merge` 的单测验。
+        if path == "/api/orders/available" && method == .get {
+            return [AvailableOrderResponse]()
+        }
 
         // Order actions
         if let orderId = extractOrderId(from: path) {

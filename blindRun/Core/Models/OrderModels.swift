@@ -544,6 +544,33 @@ struct PagedOrderResponse: Codable, Sendable {
     }
 }
 
+// MARK: - Available Orders
+
+/// `GET /api/orders/available` 的元素。响应是**裸数组**，不是信封
+/// （契约 `api_spec.yaml:3294-3315`）。
+///
+/// 🚩 **本 App 只为一件事调它：给邀请卡补齐「视力情况 / 引导方式 / 跑多久」。**
+/// 「附近还没人接的」那条列表 UI 不在这一轮。
+///
+/// 为什么正在等我回复的那一单会出现在这个列表里（核实过，别重新推导）：
+/// 派单期间订单状态**仍是 `PENDING_MATCH`**（后端 `DispatchService.java:1044-1052`
+/// 只写 Redis 与 `dispatchCurrentVolunteerId`，不推进状态），而
+/// `OrderQueryService.java:88-89` 的 `findByStatusIn(PENDING_MATCH, PENDING_ACCEPT, REMATCHING)`
+/// **没有任何按 `dispatchCurrentVolunteerId` 排除的条件**。这一条已进 handoff 请后端确认成契约。
+///
+/// 🔴 **只解本轮真的要用的四项。** 多解一个字段就是多一处要跟着契约走的东西，
+/// 而没有渲染点的字段坏了不会有任何东西报警。要用别的再加。
+///
+/// 两个枚举接成 `String?` 而不是枚举，与 `OrderDetailResponse.visionLevel` 同款：
+/// 后端往枚举加值时整条不许崩（AGENTS.md 硬约束），展示层按 `rawValue` 转、认不出就
+/// 落 `EscortNeed.confirmInPerson`。
+struct AvailableOrderResponse: Codable, Sendable {
+    let orderId: Int64
+    let visionLevel: String?
+    let tetherPreference: String?
+    let expectedDurationMinutes: Int?
+}
+
 // MARK: - Order Create
 
 /// 终点三元组打成一个值，**不许拆成三个平铺属性**。

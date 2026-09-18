@@ -54,6 +54,15 @@ extension AppColors {
         /// 分隔线。纯装饰，不承载状态，所以不设对比度门槛。
         static let separator = flowDynamic(Tone(light: 0xEEF0F4, dark: 0x38383A))
 
+        /// 邀请卡背后那层压暗（storyboard-v3.html `.dim{background:rgba(15,20,35,.42)}` 逐字）。
+        ///
+        /// 亮暗同值：它压的是 App 自己的界面，而「背景压暗但仍可见」是设计稿点名要的效果
+        /// （`png/02-新邀请进来.png` 的注解：「从底部升起，背景压暗但仍可见」）。
+        /// 暗色档再加深会变成一块看不出后面还有东西的黑布。
+        ///
+        /// 2026-09-18 起由自定义 overlay 自己画 —— 此前是 `.sheet` 的系统压暗。
+        static let scrim = Color(red: 15 / 255, green: 20 / 255, blue: 35 / 255).opacity(0.42)
+
         // MARK: 文字
 
         static let primaryTextTone = Tone(light: 0x111A2E, dark: 0xFFFFFF)

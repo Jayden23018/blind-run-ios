@@ -172,6 +172,9 @@ final class VolunteerHomeViewModel: ObservableObject {
     private var summaryRefreshTask: Task<Void, Never>?
     private var summaryRefreshID: UUID?
     private var refreshLoopTask: Task<Void, Never>?
+    /// 去 `GET /api/orders/available` 给邀请补三项的那条任务。
+    /// **只留一条**：每条新邀请都会触发一次，而它们要的是同一份列表。
+    private var inviteSupplementTask: Task<Void, Never>?
 
     init(
         dispatchPropagationDelay: TimeInterval = 1,
@@ -283,17 +286,28 @@ final class VolunteerHomeViewModel: ObservableObject {
         let now = Date()
         for index in 0..<count {
             enqueue(
-                order: Self.uiTestSeedInvite(orderId: Int64(9_000 + index)),
+                order: Self.uiTestSeedInvite(orderId: Int64(9_000 + index), now: now),
                 receivedAt: now,
                 // 每条差 30 秒，好让「按回复期限升序」和分页点在 UI 上真的分得开。
-                expiresAt: now.addingTimeInterval(TimeInterval(120 + index * 30))
+                expiresAt: now.addingTimeInterval(TimeInterval(120 + index * 30)),
+                // 🚩 真实路径上这三项由 `GET /api/orders/available` 补，而 mock 对那条路径恒返空数组
+                // （它没有这些客户端注入的 id）。直接种进来，否则跑者行在 UI 测试里永远不可达 ——
+                // 而「整行不渲染」恰恰是它出问题时的样子，没人分得出是渲染坏了还是数据没来。
+                // 匹配逻辑本身由 `VolunteerInviteState.merge` 的单测验。
+                supplement: VolunteerInviteSupplement(
+                    visionLevel: VisionLevel.totalBlind.rawValue,
+                    tetherPreference: TetherPreference.tetherRope.rawValue,
+                    expectedDurationMinutes: 60
+                ),
+                // 种下 N 条就响 N 声，而那台真机正拿在跑测的人手里。
+                announces: false
             )
         }
         #endif
     }
 
     #if DEBUG
-    private static func uiTestSeedInvite(orderId: Int64) -> WSNewOrder {
+    private static func uiTestSeedInvite(orderId: Int64, now: Date) -> WSNewOrder {
         WSNewOrder(
             type: "NEW_ORDER",
             timestamp: nil,
@@ -302,7 +316,10 @@ final class VolunteerHomeViewModel: ObservableObject {
             startLatitude: nil,
             startLongitude: nil,
             distanceKm: 3.2,
-            plannedStart: nil,
+            // 🔴 **不能是 nil。** `RunPlanFormat.shortStart(nil)` 返回 nil ⇒ 那行大字退回
+            // fallback「新的陪跑邀请」，于是调试预置永远看不到真实版式（28pt 的「明天 7:00」），
+            // 而那正是这张卡的主角。2026-09-18 项目负责人的截图就是这么来的。
+            plannedStart: Self.uiTestSeedPlannedStart(now: now),
             plannedEnd: nil,
             dispatchTimeoutSeconds: 120,
             priority: "HIGH",
@@ -313,6 +330,17 @@ final class VolunteerHomeViewModel: ObservableObject {
             paceMaxSecondsPerKm: 450,
             plannedDistanceMeters: 5_000
         )
+    }
+
+    /// 明天 07:00，写成后端那种**无时区的 `LocalDateTime`** 串（`String.backendLocalDate` 认的形状）。
+    ///
+    /// 用「明天」而不是写死某一天：`RunPlanFormat.shortStart` 只对今天 / 明天 / 后天给相对日期，
+    /// 写死的日期过几天就退化成「9月18日 7:00」，而调试预置要看的恰恰是「明天 7:00」那一版。
+    private static func uiTestSeedPlannedStart(now: Date) -> String {
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)) ?? now
+        let at7 = calendar.date(bySettingHour: 7, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+        return DateFormatter.aidRunBackendLocalDateTime.string(from: at7)
     }
     #endif
 
@@ -579,7 +607,15 @@ final class VolunteerHomeViewModel: ObservableObject {
         }
     }
 
-    private func enqueue(order: WSNewOrder, receivedAt: Date, expiresAt: Date) {
+    /// - Parameter announces: 震动 / 提示音 / 播报。UI 测试的种子那条路传 `false` ——
+    ///   种下 N 条就响 N 声，而那台真机正拿在跑测的人手里。
+    private func enqueue(
+        order: WSNewOrder,
+        receivedAt: Date,
+        expiresAt: Date,
+        supplement: VolunteerInviteSupplement? = nil,
+        announces: Bool = true
+    ) {
         guard !invites.contains(where: { $0.id == order.orderId }) else { return }
         let remaining = max(0, Int(ceil(expiresAt.timeIntervalSinceNow)))
         guard remaining > 0 else { return }
@@ -589,15 +625,46 @@ final class VolunteerHomeViewModel: ObservableObject {
                 receivedAt: receivedAt,
                 expiresAt: expiresAt,
                 remainingSeconds: remaining,
-                outcome: nil
+                outcome: nil,
+                supplement: supplement
             )
         )
         invites.sort { $0.expiresAt < $1.expiresAt }
         if currentInviteID == nil { currentInviteID = invites.first?.id }
         isInviteSheetPresented = true
         appState?.realtimeCoordinator.markDispatchPresented(orderID: order.orderId)
-        speechService?.speak("新的陪跑邀请，请在\(remaining)秒内回复")
+        if announces {
+            // 设计交付 v3 §4.4.1：「轻震一次 + 短提示音一次（跟随静音开关），从底部升起」。
+            // 三条通道各说一遍同一件事 —— 震动对听觉被占用的人、提示音对没看屏幕的人、
+            // 播报对读屏用户。
+            HapticFeedback.play(.tick)
+            VolunteerInviteCue.play()
+            speechService?.speak("新的陪跑邀请，请在\(remaining)秒内回复")
+        }
         startInviteTicker()
+        loadInviteSupplements()
+    }
+
+    /// 去 `GET /api/orders/available` 给队列里还缺三项的邀请补上视力 / 引导方式 / 跑多久。
+    ///
+    /// 🚩 **补不到就那一行不渲染，不占位、不编、不报错。** 后端有两种合法的空数组
+    /// （志愿者还没上报过位置、资质未通过审核），而这一条对志愿者是纯增益 ——
+    /// 为它弹一句错误提示只会盖住正在走的回复窗口。
+    ///
+    /// 已经在飞的那条不重开：一条派单进来时队列里往往还有别的，它们要的是同一份列表。
+    private func loadInviteSupplements() {
+        guard inviteSupplementTask == nil,
+              invites.contains(where: { $0.supplement == nil }),
+              let appState else { return }
+        inviteSupplementTask = Task { [weak self] in
+            let orders = try? await appState.orders.availableOrders()
+            guard let self else { return }
+            // **先清再判**：清晚了的话一次取消就把这条路永久堵死，
+            // 而症状只是「跑者那一行再也不出现」—— 没有任何东西会报警。
+            self.inviteSupplementTask = nil
+            guard !Task.isCancelled, let orders else { return }
+            self.invites = VolunteerInviteState.merge(orders, into: self.invites)
+        }
     }
 
     private func markInvite(orderID: Int64, outcome: VolunteerInviteState.Outcome) {

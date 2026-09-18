@@ -939,14 +939,23 @@ enum RunPlanFormat {
 
     /// 「5 公里」/「800 米」。`nil` = 用户没填 ⇒ **整行不渲染**，不写「未填写」。
     static func plannedDistance(meters: Int?) -> String? {
+        plannedDistanceParts(meters: meters).map { "\($0.value) \($0.unit)" }
+    }
+
+    /// 同一个数的**拆分形态**，给邀请卡三格用：值 17pt、单位 10.5pt
+    /// （storyboard-v3.html `.m3 b` 与 `.m3 b small` 是两个字号）。
+    ///
+    /// 🚩 **不是第二份实现** —— `plannedDistance(meters:)` 现在就是它拼起来的，
+    /// 所以「邀请卡说 5 公里、详情页说 5.0 公里」这种漂移在结构上不可能发生。
+    static func plannedDistanceParts(meters: Int?) -> (value: String, unit: String)? {
         guard let meters, meters > 0 else { return nil }
-        guard meters >= 1000 else { return "\(meters) 米" }
+        guard meters >= 1000 else { return ("\(meters)", "米") }
         let km = Double(meters) / 1000
         // 整公里不拖一个 `.0`：「5 公里」而不是「5.0 公里」。
         let rounded = (km * 10).rounded() / 10
         return rounded == rounded.rounded()
-            ? "\(Int(rounded)) 公里"
-            : String(format: "%.1f 公里", rounded)
+            ? ("\(Int(rounded))", "公里")
+            : (String(format: "%.1f", rounded), "公里")
     }
 
     /// 「每公里 6 分 30 秒」/「每公里 5 分 30 秒 到 6 分 30 秒」。

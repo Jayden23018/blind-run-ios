@@ -107,20 +107,51 @@ struct VolunteerTabView: View {
             )
             viewModel.startRefreshLoop()
         }
+        // 撤销 toast 挂在邀请卡**下面一层**：点完「这次去不了」卡片就收起了，
+        // 而 toast 正是那一刻唯一还在屏幕上的东西（§4.4.3）。
+        //
+        // 🚩 **顺序不能和下面那个 overlay 对调。** 队列里还有下一条时卡片不收起，
+        // 那一刻 toast 应当被卡片盖住（`.sheet` 时代就是这个行为）——
+        // 放到上面去会让它正好压在「这次去不了 / 查看详情」那两枚按钮上。
+        .overlay(alignment: .bottom) {
+            if viewModel.pendingDecline != nil {
+                VolunteerDeclineUndoToast { viewModel.undoPendingDecline() }
+                    .padding(.bottom, 8)
+                    // 开了「减弱动态效果」就只淡入淡出，不从屏幕下缘滑上来。
+                    .transition(
+                        reduceMotion
+                            ? .opacity
+                            : .move(edge: .bottom).combined(with: .opacity)
+                    )
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: viewModel.pendingDecline?.id)
+        // 🔴 **邀请卡弹出时把下面整棵树对读屏屏蔽。**
+        //
+        // `.sheet` 白送这件事，自定义 overlay 不送。少了它的表现是：VoiceOver 用户
+        // 一路右划就滑到了被压暗层盖住的首页、标签栏和「开始接单」滑轨上 ——
+        // 念得到、按得动，而屏幕上它们在一块半透明黑布底下。
+        //
+        // 卡片自己那层 `.isModal` 保留（见 `VolunteerInviteSheet.card`），两道管的不是一件事：
+        // 一道拦「焦点跑到下面去」，一道告诉 VoiceOver「这是一层模态」。
+        // overlay 不是真的模态容器，只靠 `.isModal` 在 iOS 16 上兜不住。
+        .accessibilityHidden(viewModel.isInviteSheetPresented)
         // 🚩 **邀请卡挂在 `TabView` 外面。**
         //
         // 挂在某个 tab 的栈内根视图上时，push 出任何二级页（陪跑培训、服务记录、成就、设置）
         // 之后它会被那一页盖住；挂在某一个 tab 上时，他切到别的 tab 就看不见。
         // 不管他在哪一页、哪一个 tab，那个回复窗口都必须看得见。
         //
-        // 🔴 **2026-09-17 从 `.overlay` 改成 `.sheet`，约束方向跟着反过来了。**
-        // 这里原本写着「首屏那些入口一律用 `NavigationLink` 而不是 `.sheet`，因为 sheet
-        // 会盖住这个 overlay」。现在邀请本身就是 sheet ⇒ **这一层不能再挂第二个 sheet**，
-        // 否则两者互相顶掉。栈内的 `NavigationLink` 不受影响（它们在 sheet 底下）。
+        // 🔴 **2026-09-18 从 `.sheet` 改回自定义 overlay。** 三条理由，`presentationDetents`
+        // 一条都给不了：① §4.4.1 要 spring 从底部升起；② 高度必须由内容决定
+        //（钉死的 `.fraction(0.67)` 就是真机截图里底部那一大片空白）；③ 横滑翻页被
+        // sheet 自己的拖拽吃掉。**因此「这一层不能再挂第二个 sheet」那条约束随之作废** ——
+        // 但也别急着往回加：栈内的 `NavigationLink` 本来就够用。
         //
-        // 高度约 2/3（设计交付 v3 §4.4.2），背景由系统压暗。`.large` 那一档留着是给
-        // AX 大字号的：2/3 高在 AX5 下装不下一张完整的卡，而这一屏的每个字都要能看见。
-        .sheet(isPresented: $viewModel.isInviteSheetPresented) {
+        // 视图**无条件挂载**、由它内部按 `isInviteSheetPresented` 决定渲染什么：
+        // 压暗层与卡片要各自带各自的转场（淡入 / 升起），而在这里写 `if` 会让整块
+        // 只能共用一种转场。没有邀请时它渲染出来是空的，不拦手势。
+        .overlay {
             VolunteerInviteSheet(
                 viewModel: viewModel,
                 // 发 ACCEPT 还是 INTERESTED 由推送里的 `requiresIntroCall` 决定
@@ -137,23 +168,9 @@ struct VolunteerTabView: View {
                 },
                 onDecline: { viewModel.declineInvite(orderID: $0) }
             )
-            .presentationDetents([.fraction(0.67), .large])
-            .presentationDragIndicator(.visible)
+            // 没有邀请时这一层什么都不画，但它铺满全屏 —— 关掉命中测试，
+            // 免得哪天有人在里面加一个带背景色的容器就把整个标签栏点不动了。
+            .allowsHitTesting(viewModel.isInviteSheetPresented)
         }
-        // 撤销 toast 挂在 sheet **外面**：点完「这次去不了」卡片就收起了，
-        // 而 toast 正是那一刻唯一还在屏幕上的东西（§4.4.3）。
-        .overlay(alignment: .bottom) {
-            if viewModel.pendingDecline != nil {
-                VolunteerDeclineUndoToast { viewModel.undoPendingDecline() }
-                    .padding(.bottom, 8)
-                    // 开了「减弱动态效果」就只淡入淡出，不从屏幕下缘滑上来。
-                    .transition(
-                        reduceMotion
-                            ? .opacity
-                            : .move(edge: .bottom).combined(with: .opacity)
-                    )
-            }
-        }
-        .animation(.easeOut(duration: 0.2), value: viewModel.pendingDecline?.id)
     }
 }
