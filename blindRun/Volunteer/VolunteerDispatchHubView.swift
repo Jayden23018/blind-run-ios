@@ -224,6 +224,13 @@ struct VolunteerDispatchHubView: View {
         .task {
             await onReload()
         }
+        // §4.4.1：「在接单主页 → 邀请卡」与「在其他页面 → 横幅」的判据就是这一位。
+        //
+        // 🚩 **push 二级页（订单页 / 通话磨合 / 空闲时间）也会走 `onDisappear`，那正是要的**：
+        // 设计稿把「订单页『约好』状态」明确列在横幅那一行。切 tab 同理。
+        // 对称地，从二级页返回会重新 `onAppear`，位重新置上。
+        .onAppear { viewModel.isDispatchHubVisible = true }
+        .onDisappear { viewModel.isDispatchHubVisible = false }
         .navigationDestination(
             isPresented: Binding(
                 get: { route != nil },
@@ -329,7 +336,13 @@ struct VolunteerDispatchHubView: View {
         if let soonest = pending.first {
             hubCard(
                 systemImage: "bell.badge.fill",
-                title: VolunteerInviteCopy.pendingInvitesTitle(count: pending.count),
+                // §4.4.1 最后一行：陪跑期间来的那几条**当时一点表现都没有**（不推不震不弹），
+                // 所以标题要说清它们是什么时候到的，否则看起来像是自己漏了。
+                // 判据是「待回复的**全部**来自陪跑期间」—— 混了一条跑完之后到的，
+                // 这句话对那一条就是假的，退回中性说法。
+                title: pending.allSatisfy(\.arrivedDuringEscort)
+                    ? VolunteerInviteCopy.pendingInvitesDuringRunTitle(count: pending.count)
+                    : VolunteerInviteCopy.pendingInvitesTitle(count: pending.count),
                 subtitle: VolunteerOrderFlowCopy.replyCountdown(seconds: soonest.remainingSeconds),
                 hint: "双击重新打开邀请卡",
                 identifier: "volunteerDispatchHubPendingInvitesCard"

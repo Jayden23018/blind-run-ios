@@ -33,6 +33,14 @@ struct VolunteerInviteState: Identifiable {
     /// （同 `OrderDetailResponse.volunteerId` 那条）。
     var supplement: VolunteerInviteSupplement?
 
+    /// 这一条是在他**正陪着人跑**的时候到的（设计交付 v3 §4.4.1 最后一行）。
+    ///
+    /// 只影响接单主页那张卡的标题（「陪跑时收到 N 个新邀请」而不是「N 个新邀请」）——
+    /// 那句话在解释「为什么我当时一点感觉都没有」，没有它，静默暂存看起来就像丢了邀请。
+    ///
+    /// 声明成带默认值的 `var`，理由同 `supplement`：memberwise init 的既有构造点不必各补一行。
+    var arrivedDuringEscort = false
+
     var id: Int64 { order.orderId }
     var isAwaitingReply: Bool { outcome == nil }
 
@@ -236,4 +244,19 @@ enum VolunteerInviteCopy {
     static func pendingInvitesTitle(count: Int) -> String {
         count > 1 ? "\(count) 个新邀请" : "1 个新邀请"
     }
+
+    /// 同一个入口，但这几条是他陪跑期间静默攒下的（§4.4.1 最后一行逐字）。
+    ///
+    /// 换这句话的理由不是文风：静默暂存**在当时没有任何表现**（不推不震不弹），
+    /// 所以回到接单主页看到几条邀请时，他唯一的解释只能是「我刚才漏了」。
+    /// 这句话是那段静默的收据。
+    static func pendingInvitesDuringRunTitle(count: Int) -> String {
+        "陪跑时收到 \(max(1, count)) 个新邀请"
+    }
+
+    // §4.4.1「App 在前台，位于其他页面」那一行的顶部横幅
+    static let bannerTitle = "新的陪跑邀请"
+    static let bannerAction = "查看"
+    /// 横幅停留时长（§10 规则参数表「横幅停留时间 4 秒」）。
+    static let bannerDisplaySeconds: TimeInterval = 4
 }

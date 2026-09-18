@@ -299,6 +299,10 @@ final class VolunteerHomeViewModel: ObservableObject {
                     tetherPreference: TetherPreference.tetherRope.rawValue,
                     expectedDurationMinutes: 60
                 ),
+                // 🚩 **显式钉死 `.inviteCard`，不许现算。** 种子在 `configure` 里跑，
+                // 那一刻接单主页还没打开 ⇒ `resolve` 会落到 `.banner`，而这一整组 UI 用例
+                // （`blindRunUITests` 的邀请卡无障碍形状）验的就是那张卡自动弹出来。
+                presentation: .inviteCard,
                 // 种下 N 条就响 N 声，而那台真机正拿在跑测的人手里。
                 announces: false
             )
@@ -573,6 +577,7 @@ final class VolunteerHomeViewModel: ObservableObject {
         // 不然下一条推送会把这些邀请整队灌回来。
         for id in invites.map(\.id) { removeInvite(orderID: id) }
         currentInviteID = nil
+        bannerInvite = nil
         isRespondingToDispatch = false
     }
 
@@ -581,6 +586,47 @@ final class VolunteerHomeViewModel: ObservableObject {
     /// 邀请卡开着没有。**收起不等于回复**：这一位只控制那张 sheet 的可见性，
     /// 队列与倒计时都不受它影响（设计交付 v3 §4.4.2「下滑或点背景：收起，不算回复」）。
     @Published var isInviteSheetPresented = false
+
+    /// 接单主页（S3/S4）此刻在不在屏上。**由那一页自己的 `onAppear`/`onDisappear` 写。**
+    ///
+    /// 它是 §4.4.1 判定的另一半输入：坐在接单主页上等单的人，邀请该直接顶到脸上；
+    /// 在别的页面（主页 / 记录 / 我的 / 订单页「约好」）只该收一条横幅。
+    /// view model 自己看不到这件事 —— 接单主页是 push 出来的一页，
+    /// 而 view model 挂在 `VolunteerTabView` 上。
+    @Published var isDispatchHubVisible = false
+
+    /// 正在顶部显示的那条横幅。`nil` = 不显示。4 秒后由视图侧的计时收起（§10「横幅停留 4 秒」）。
+    @Published private(set) var bannerInvite: VolunteerInviteState?
+
+    /// 首页标签上的数字角标（§4.4.1「首页标签加数字角标」）。
+    ///
+    /// 陪跑进行中恒 0：那一档设计稿要求「不推送、不横幅、不震动」，
+    /// 而一枚红点同样是打断。它们会在他跑完回到接单主页时以卡片出现。
+    var inviteBadgeCount: Int {
+        guard !isEscortUnderway else { return 0 }
+        return invitesAwaitingReply.count
+    }
+
+    /// 他此刻正走在某一单里（§4.4.1 那行「已出发 / 汇合 / 跑步中 / 等待中」）。
+    ///
+    /// 取 `activeOrder` 的状态而不是 `activeOrder != nil`：后端
+    /// `VolunteerService.loadActiveOrders` 的白名单今天恰好就是这三态，
+    /// 而「恰好相等」不是契约 —— 白名单一旦放宽，`!= nil` 会静默把「约好」也算成陪跑中，
+    /// 表现是人还在家里就再也收不到邀请提示。
+    var isEscortUnderway: Bool {
+        activeOrder?.status.isEscortUnderway ?? false
+    }
+
+    /// 横幅到时间收起，或者用户点了「查看」。**不动队列**：收起横幅不等于回复。
+    func dismissInviteBanner() {
+        bannerInvite = nil
+    }
+
+    /// 横幅上的「查看」：顶出邀请卡，横幅让位。
+    func presentInviteSheetFromBanner() {
+        bannerInvite = nil
+        isInviteSheetPresented = true
+    }
 
     /// 连续 3 次「去不了」之后，接单主页上那句不带惩罚的询问该不该出现（§4.4.3）。
     var shouldAskAboutAvailability: Bool { declineStreak.shouldAskAboutAvailability }
@@ -607,39 +653,59 @@ final class VolunteerHomeViewModel: ObservableObject {
         }
     }
 
-    /// - Parameter announces: 震动 / 提示音 / 播报。UI 测试的种子那条路传 `false` ——
-    ///   种下 N 条就响 N 声，而那台真机正拿在跑测的人手里。
+    /// - Parameters:
+    ///   - presentation: 这一条该怎么出现（设计交付 v3 §4.4.1）。默认按当下状态现算；
+    ///     UI 测试的种子那条路**显式传 `.inviteCard`** —— 它验的就是邀请卡的无障碍形状，
+    ///     而种子是在 `configure` 里跑的，那一刻接单主页还没打开，现算会落到 `.banner`。
+    ///   - announces: 震动 / 提示音 / 播报的总闸。UI 测试的种子那条路传 `false` ——
+    ///     种下 N 条就响 N 声，而那台真机正拿在跑测的人手里。
     private func enqueue(
         order: WSNewOrder,
         receivedAt: Date,
         expiresAt: Date,
         supplement: VolunteerInviteSupplement? = nil,
+        presentation: VolunteerInvitePresentation? = nil,
         announces: Bool = true
     ) {
         guard !invites.contains(where: { $0.id == order.orderId }) else { return }
         let remaining = max(0, Int(ceil(expiresAt.timeIntervalSinceNow)))
         guard remaining > 0 else { return }
-        invites.append(
-            VolunteerInviteState(
-                order: order,
-                receivedAt: receivedAt,
-                expiresAt: expiresAt,
-                remainingSeconds: remaining,
-                outcome: nil,
-                supplement: supplement
-            )
+        let mode = presentation ?? VolunteerInvitePresentation.resolve(
+            isEscortUnderway: isEscortUnderway,
+            isOnDispatchHub: isDispatchHubVisible
         )
+        let invite = VolunteerInviteState(
+            order: order,
+            receivedAt: receivedAt,
+            expiresAt: expiresAt,
+            remainingSeconds: remaining,
+            outcome: nil,
+            supplement: supplement,
+            arrivedDuringEscort: mode == .stashedDuringRun
+        )
+        invites.append(invite)
         invites.sort { $0.expiresAt < $1.expiresAt }
         if currentInviteID == nil { currentInviteID = invites.first?.id }
-        isInviteSheetPresented = true
+        if mode.presentsInviteSheet { isInviteSheetPresented = true }
+        // 🚩 横幅只在**没有**邀请卡开着时顶出来。他已经在看卡了，再在头顶压一条
+        // 「新的陪跑邀请 · 查看」是在请他打开他正看着的那个东西。
+        if mode.showsBanner, !isInviteSheetPresented { bannerInvite = invite }
         appState?.realtimeCoordinator.markDispatchPresented(orderID: order.orderId)
         if announces {
-            // 设计交付 v3 §4.4.1：「轻震一次 + 短提示音一次（跟随静音开关），从底部升起」。
-            // 三条通道各说一遍同一件事 —— 震动对听觉被占用的人、提示音对没看屏幕的人、
-            // 播报对读屏用户。
-            HapticFeedback.play(.tick)
-            VolunteerInviteCue.play()
-            speechService?.speak("新的陪跑邀请，请在\(remaining)秒内回复")
+            // 设计交付 v3 §4.4.1：邀请卡那一档「轻震一次 + 短提示音一次（跟随静音开关）」，
+            // 横幅那一档「轻震一次，**无声音**」，陪跑中那一档三样都不要。
+            if mode.vibrates { HapticFeedback.play(.tick) }
+            if mode.makesSound {
+                // 三条通道各说一遍同一件事 —— 震动对听觉被占用的人、
+                // 提示音对没看屏幕的人、播报对读屏用户。
+                VolunteerInviteCue.play()
+                speechService?.speak("新的陪跑邀请，请在\(remaining)秒内回复")
+            } else if mode.showsBanner {
+                // 走 `announce` 而不是 `speak`：`announce` 在 VoiceOver 关着时是 no-op，
+                // 正好满足「无声音」；开着时读屏用户仍然知道头顶多了一条东西
+                // —— SwiftUI 不会为凭空出现的 overlay 自己发通告。
+                speechService?.announce(VolunteerInviteCopy.bannerTitle)
+            }
         }
         startInviteTicker()
         loadInviteSupplements()
@@ -684,6 +750,9 @@ final class VolunteerHomeViewModel: ObservableObject {
         appState?.realtimeCoordinator.clearDispatch(orderID: orderID)
         invites.removeAll { $0.id == orderID }
         if currentInviteID == orderID { currentInviteID = invites.first?.id }
+        // 横幅指的就是这一条时一起收掉 —— 留着的话它会在这条邀请已经过期 / 已经回复之后
+        // 继续挂 4 秒，点「查看」弹出的是一张别人的卡。
+        if bannerInvite?.id == orderID { bannerInvite = nil }
         if invites.isEmpty {
             isInviteSheetPresented = false
             countdownTask?.cancel()

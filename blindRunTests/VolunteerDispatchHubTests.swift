@@ -247,4 +247,152 @@ final class VolunteerDispatchHubTests: XCTestCase {
             XCTAssertFalse(copy.contains(word), "暂停确认里出现挽留话术「\(word)」：\(copy)")
         }
     }
+
+    // MARK: - 新邀请该怎么出现（设计交付 v3 §4.4.1）
+
+    /// 🔴 **关键的是「陪跑中 **且** 在接单主页」这一组输入。**
+    ///
+    /// 只测「陪跑中 + 不在接单主页」的话，把两个判断的顺序写反的实现**照样通过**
+    /// （那种输入下两种实现都落 `.stashedDuringRun`）。而顺序写反的真实后果是：
+    /// 他跑完上一单还没退出订单页、人却已经站在接单主页上时，屏幕会在跑步途中
+    /// 弹出一张压暗全屏的卡 —— 那一刻他一只手牵着引导绳。
+    func testEscortUnderwayOutranksBeingOnTheDispatchHub() {
+        XCTAssertEqual(
+            VolunteerInvitePresentation.resolve(isEscortUnderway: true, isOnDispatchHub: true),
+            .stashedDuringRun,
+            "陪跑中必须压过「在接单主页」—— 两个判断的先后被写反了"
+        )
+        XCTAssertEqual(
+            VolunteerInvitePresentation.resolve(isEscortUnderway: true, isOnDispatchHub: false),
+            .stashedDuringRun
+        )
+    }
+
+    /// 不在陪跑里时，只有接单主页那一档顶卡片，其余一律横幅。
+    func testTheCardOnlyPopsOnTheDispatchHub() {
+        XCTAssertEqual(
+            VolunteerInvitePresentation.resolve(isEscortUnderway: false, isOnDispatchHub: true),
+            .inviteCard
+        )
+        XCTAssertEqual(
+            VolunteerInvitePresentation.resolve(isEscortUnderway: false, isOnDispatchHub: false),
+            .banner,
+            "不在接单主页就该只给横幅 —— 弹卡会盖住他正在做的事"
+        )
+    }
+
+    /// 三档各自的副作用。**横幅那一档震但不响**（设计稿逐字「轻震一次，无声音」），
+    /// 陪跑中那一档三样都不要。
+    ///
+    /// 这三条断言分别能打回一种偷懒实现：把 `makesSound` 写成 `!= .stashedDuringRun`
+    /// 会让他在开会 / 在图书馆时被一声提示音出卖；把 `vibrates` 写成 `== .inviteCard`
+    /// 会让横幅那一档在他没看屏幕时完全无感。
+    func testOnlyTheInviteCardMakesASound() {
+        XCTAssertTrue(VolunteerInvitePresentation.inviteCard.makesSound)
+        XCTAssertFalse(VolunteerInvitePresentation.banner.makesSound, "横幅那一行写的是「轻震一次，无声音」")
+        XCTAssertFalse(VolunteerInvitePresentation.stashedDuringRun.makesSound)
+
+        XCTAssertTrue(VolunteerInvitePresentation.inviteCard.vibrates)
+        XCTAssertTrue(VolunteerInvitePresentation.banner.vibrates, "横幅那一档要轻震一次")
+        XCTAssertFalse(VolunteerInvitePresentation.stashedDuringRun.vibrates, "陪跑中不震动")
+
+        XCTAssertTrue(VolunteerInvitePresentation.inviteCard.presentsInviteSheet)
+        XCTAssertFalse(VolunteerInvitePresentation.banner.presentsInviteSheet)
+        XCTAssertFalse(VolunteerInvitePresentation.stashedDuringRun.presentsInviteSheet)
+    }
+
+    /// 「陪跑中」只包含路上的三态。
+    ///
+    /// 🔴 **`SCHEDULED_CONFIRMED` 与 `PENDING_ACCEPT` 必须为 false** —— 设计稿把
+    /// 「订单页『约好』状态」明确列在**横幅**那一行。判成 true 的后果是：接了一张下周六的单
+    /// 之后，这一整周里所有新邀请都被静默暂存，他会以为自己再也收不到单了。
+    func testEscortUnderwayCoversTheThreeOnTheMoveStatusesOnly() {
+        for status: RunOrderStatus in [.driverEnRoute, .driverArrived, .inProgress] {
+            XCTAssertTrue(status.isEscortUnderway, "\(status.rawValue) 应当算「陪跑中」")
+        }
+        for status: RunOrderStatus in [
+            .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept,
+            .completed, .cancelled, .rematching, .noVolunteer, .unknown
+        ] {
+            XCTAssertFalse(status.isEscortUnderway, "\(status.rawValue) 不该算「陪跑中」")
+        }
+    }
+
+    /// 陪跑期间来的邀请：不弹卡、不上角标，而且在接单主页上换一句标题。
+    ///
+    /// 角标那半条是真会坏的：`inviteBadgeCount` 写成 `invitesAwaitingReply.count` 就够了
+    /// 看起来也对 —— 直到他跑步时手机在臂带上亮起一枚红点，而设计稿那一行写的是
+    /// 「不推送、不横幅、不震动」。
+    @MainActor
+    func testInvitesArrivingMidRunStayQuietAndSayWhenTheyCame() {
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: AppState(), speechService: SpeechService())
+        viewModel.activeOrder = .preview(orderId: 77, status: .inProgress)
+
+        viewModel.incomingOrder = Self.makeDispatch(orderId: 900)
+
+        XCTAssertFalse(viewModel.isInviteSheetPresented, "陪跑中不该弹邀请卡")
+        XCTAssertNil(viewModel.bannerInvite, "陪跑中不该有横幅")
+        XCTAssertEqual(viewModel.inviteBadgeCount, 0, "陪跑中标签角标必须是 0")
+        XCTAssertEqual(viewModel.invitesAwaitingReply.count, 1, "邀请本身要留在队列里，不是丢掉")
+        XCTAssertTrue(viewModel.invitesAwaitingReply.allSatisfy(\.arrivedDuringEscort))
+        XCTAssertEqual(
+            VolunteerInviteCopy.pendingInvitesDuringRunTitle(count: 1),
+            "陪跑时收到 1 个新邀请"
+        )
+    }
+
+    /// 反向哨兵：不在陪跑里、也不在接单主页时，横幅与角标都要出来。
+    ///
+    /// 没有这一条，上一条用「什么都不做」的实现也能过。
+    @MainActor
+    func testInvitesArrivingElsewhereRaiseTheBannerAndTheBadge() {
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: AppState(), speechService: SpeechService())
+
+        viewModel.incomingOrder = Self.makeDispatch(orderId: 901)
+
+        XCTAssertFalse(viewModel.isInviteSheetPresented, "不在接单主页就不该自动弹卡")
+        XCTAssertEqual(viewModel.bannerInvite?.id, 901)
+        XCTAssertEqual(viewModel.inviteBadgeCount, 1)
+        XCTAssertFalse(viewModel.invitesAwaitingReply[0].arrivedDuringEscort)
+
+        // 点「查看」：横幅让位，卡片顶上来。收起横幅不动队列。
+        viewModel.presentInviteSheetFromBanner()
+        XCTAssertNil(viewModel.bannerInvite)
+        XCTAssertTrue(viewModel.isInviteSheetPresented)
+        XCTAssertEqual(viewModel.invitesAwaitingReply.count, 1)
+    }
+
+    /// 坐在接单主页上等单时，邀请直接顶到脸上 —— 这是这一整套判定存在的理由。
+    @MainActor
+    func testInvitesArrivingOnTheDispatchHubPopTheCardStraightAway() {
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: AppState(), speechService: SpeechService())
+        viewModel.isDispatchHubVisible = true
+
+        viewModel.incomingOrder = Self.makeDispatch(orderId: 902)
+
+        XCTAssertTrue(viewModel.isInviteSheetPresented)
+        XCTAssertNil(viewModel.bannerInvite, "卡片已经开着，头顶不该再压一条「查看」")
+    }
+
+    private static func makeDispatch(orderId: Int64) -> WSNewOrder {
+        WSNewOrder(
+            type: "NEW_ORDER",
+            timestamp: nil,
+            orderId: orderId,
+            startAddress: "深圳湾公园 3 号入口",
+            startLatitude: nil,
+            startLongitude: nil,
+            distanceKm: 3.2,
+            plannedStart: nil,
+            plannedEnd: nil,
+            dispatchTimeoutSeconds: 30,
+            priority: "HIGH",
+            pacePreference: nil,
+            hasGuideDog: false,
+            requiresIntroCall: false
+        )
+    }
 }
