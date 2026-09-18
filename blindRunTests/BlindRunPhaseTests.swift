@@ -118,9 +118,203 @@ final class BlindRunPhaseTests: XCTestCase {
         XCTAssertEqual(parts.joined(separator: "。"), "陪跑中 · 张")
     }
 
+    // MARK: - ④ 已完成
+
+    /// 已完成与跑步中**同一张卡**：进度条仍然折叠、内容区仍然是三个数字，
+    /// 换的只有顶行那句话、配速标签、多出来的陪跑员行与主按钮（设计稿 §4）。
+    func testFinishedKeepsTheRunCardAndOnlySwapsTheHeaderAndTheButton() {
+        let finished = make(.completed)
+
+        XCTAssertEqual(finished.phase, .finished)
+        XCTAssertEqual(finished.visual, .runMetrics)
+        XCTAssertEqual(finished.title, "已完成 · 张")
+        XCTAssertFalse(finished.title.contains("*"), "顶行留着掩码星号")
+        XCTAssertEqual(finished.subtitle, "", "这一屏的信息全在三个数字里，没有第二行状态文字")
+        XCTAssertEqual(finished.primaryAction, .done)
+        XCTAssertEqual(finished.primaryAction?.title, "完成")
+        // 稿上这一枚是纯文字。换图标会让按钮内容宽度再变一次，而从 ① 到 ④ 的承诺是
+        // 「主按钮位置一格不动」。
+        XCTAssertNil(finished.primaryAction?.systemImage)
+        XCTAssertTrue(finished.primaryAction?.isEnabled == true)
+        // 跑完之后不再显示定位新鲜度：那一刻「定位信号弱」没有任何可执行的动作。
+        XCTAssertNil(finished.warning)
+    }
+
+    /// `COMPLETED` 与汇合 / 跑步中**同一格**，走同一个骨架。
+    ///
+    /// 2026-09-17 之前它落 `nil`、由改版前那条只读滚动列表接管 —— 也就是说
+    /// 陪跑员结束那一刻整屏重建一次，VoiceOver 焦点被打回顶部。
+    /// 这条是那次跳页被消掉的守卫。
+    func testFinishedStaysOnTheSameSkeletonStepAsTheRun() {
+        XCTAssertEqual(RunOrderStatus.completed.blindOrderFlowStep, .metUp)
+        XCTAssertEqual(make(.completed).step, make(.inProgress).step)
+        XCTAssertEqual(make(.completed).step, make(.driverArrived).step)
+    }
+
+    /// 🔴 **`isRunning` 与 `showsRunCard` 不是一回事，合并会让 ④ 丢掉导航栏那枚图标。**
+    ///
+    /// 「重复当前状态」按项目负责人 2026-09-16 决策 2 出现在 ①②④、只在 ③ 收起
+    /// （③ 由主按钮「播报当前数据」承担），而视图那一处的判据就是 `isRunning`。
+    /// 把已完成并进 `isRunning` 的写法在别的断言下全绿 —— 只有这条分辨得出来。
+    func testFinishedUsesTheRunCardButIsNotTheRunItself() {
+        XCTAssertTrue(BlindRunPhase.finished.showsRunCard)
+        XCTAssertTrue(BlindRunPhase.running.showsRunCard)
+        XCTAssertFalse(BlindRunPhase.beforeRun.showsRunCard)
+        XCTAssertFalse(BlindRunPhase.countdown(3).showsRunCard)
+
+        XCTAssertFalse(
+            BlindRunPhase.finished.isRunning,
+            "已完成被当成了跑步中 —— 导航栏那枚「重复当前状态」会在 ④ 被收起，而它是那一屏唯一能听全数据的入口"
+        )
+    }
+
+    /// 已完成那一屏配速标签是「平均配速」，跑步中仍是「配速」（设计稿 §4 逐字）。
+    ///
+    /// 判据只有一份（`BlindRunCopy.metricPaceLabel`），因为屏幕上写「配速」而
+    /// 「重复当前状态」念「平均配速」这种漂移只有拿耳朵对着屏幕才听得出来。
+    func testFinishedRenamesThePaceLabelToAveragePace() {
+        XCTAssertEqual(BlindRunCopy.metricPaceLabel(isFinished: true), "平均配速")
+        XCTAssertEqual(BlindRunCopy.metricPaceLabel(isFinished: false), "配速")
+    }
+
+    /// 已完成不倒数，**即使外面还攥着一个没清掉的 `countdown`**。
+    ///
+    /// 时序上真会撞：志愿者点开始、三秒内就长按结束，此时倒计时 Task 还没走完。
+    /// 对一件已经结束的事倒数，在屏幕上看着只是「数字闪了一下」。
+    func testFinishedIgnoresALeftoverCountdown() {
+        XCTAssertEqual(make(.completed, countdown: 2).phase, .finished)
+    }
+
+    // MARK: - ④ 完成那一句播报
+
+    /// 一次状态推进只播一句，且**冷启动与「刚刚结束」不是同一句**。
+    func testCompletionAnnouncementFiresOncePerTransition() {
+        XCTAssertEqual(
+            BlindOrderStatusViewModel.completionAnnouncement(from: .inProgress, to: .completed),
+            .justFinished
+        )
+        // 每 5 秒轮询一次。漏掉这条的症状是每 5 秒念一遍「张伟结束了本次陪跑」。
+        XCTAssertNil(
+            BlindOrderStatusViewModel.completionAnnouncement(from: .completed, to: .completed),
+            "同一态的重复刷新又播了一遍"
+        )
+        // 从历史记录点进一张三天前的单。
+        XCTAssertEqual(
+            BlindOrderStatusViewModel.completionAnnouncement(from: nil, to: .completed),
+            .coldStart
+        )
+        // 别的状态一律不走这条路（它们照旧走 `speakStatusChange` 那条通用路径）。
+        for status in RunOrderStatus.allCases + [.unknown] where status != .completed {
+            XCTAssertNil(
+                BlindOrderStatusViewModel.completionAnnouncement(from: .inProgress, to: status),
+                "\(status) 不该播完成那一句"
+            )
+        }
+    }
+
+    /// 「刚刚结束」那句 = 设计稿文案 + 里程；**拿不到里程就把那半句整个去掉**。
+    ///
+    /// ⚠️ 里程这一半是这条用例的全部价值：不带它的实现（只念「张伟结束了本次陪跑」）
+    /// 在屏幕上、在别的断言里都看不出区别，而设计稿 §4 的文案逐字带着它。
+    func testJustFinishedAnnouncementCarriesTheDistanceAndNeverInventsIt() {
+        let order = OrderDetailResponse.preview(status: .completed, volunteerName: "张*")
+
+        XCTAssertEqual(
+            BlindOrderStatusViewModel.completionAnnouncementText(
+                .justFinished, order: order, stats: .previewFinished
+            ),
+            "张结束了本次陪跑，共跑 5.20 公里。"
+        )
+        XCTAssertEqual(
+            BlindOrderStatusViewModel.completionAnnouncementText(
+                .justFinished, order: order, stats: nil
+            ),
+            "张结束了本次陪跑。",
+            "拿不到里程时不许留「共跑 -- 公里」，也不许念「正在获取」—— 这一句是通知，不是数据面"
+        )
+    }
+
+    /// 冷启动那句 = 既有状态句 + 三个数字，**合成一句**。
+    ///
+    /// 改版前这里是两句（状态句 + 轨迹总结），而两句同档 ⇒ 后到的把先到的从半句切断
+    /// （记忆 `later-speak-silently-cuts-the-earlier-one`）。所以这条断言的关键是
+    /// **一个字符串里同时有状态和三个数字**。
+    func testColdStartAnnouncementMergesTheStatusAndTheNumbersIntoOneUtterance() {
+        let order = OrderDetailResponse.preview(status: .completed, volunteerName: "张*")
+        let text = BlindOrderStatusViewModel.completionAnnouncementText(
+            .coldStart, order: order, stats: .previewFinished
+        )
+
+        XCTAssertTrue(text.contains("服务已完成"), "状态那一半丢了")
+        XCTAssertTrue(text.contains("已跑 5.20 公里"), "数字那一半丢了 —— 它原先由被删掉的那句轨迹总结承担")
+        XCTAssertTrue(text.contains("用时 33 分 41 秒"))
+        XCTAssertTrue(text.contains("平均配速 6 分 28 秒每公里"))
+        XCTAssertFalse(text.contains("张结束了本次陪跑"), "三天前的事不该说成刚刚发生")
+    }
+
+    // MARK: - ④ 那三个数字的来源
+
+    /// 🔴 **完成态必须拉一次终值、并且把数字留在屏幕上。**
+    ///
+    /// 2026-09-17 之前这里对任何非 `IN_PROGRESS` 一律清空 —— 而 ④ 那一屏的全部内容
+    /// 就是那三个数字，清空之后它们是 `--`。
+    func testFinalTrackIsFetchedOnceAndTheNumbersSurviveCompletion() {
+        let now = Date()
+        // 完成那一刻：上一次跑动中的拉取往往还在 10 秒节流窗内，但终值必须拉。
+        XCTAssertEqual(
+            BlindOrderStatusViewModel.trackFetchDecision(
+                status: .completed,
+                didFetchFinalTrack: false,
+                lastFetchAt: now.addingTimeInterval(-1),
+                now: now
+            ),
+            .fetch(isFinal: true),
+            "完成那一次被节流挡掉了 —— 屏幕会停在最后一个中途值"
+        )
+        // 拉过就不再拉，但**不清空**：已完成的轨迹不会再变。
+        XCTAssertEqual(
+            BlindOrderStatusViewModel.trackFetchDecision(
+                status: .completed, didFetchFinalTrack: true, lastFetchAt: now, now: now
+            ),
+            .skip,
+            "完成态第二轮把数字清了 —— ④ 那一屏会变成三个杠"
+        )
+    }
+
+    /// 跑动中照旧按 10 秒节流，其余状态照旧清空。
+    func testTrackFetchStillThrottlesDuringTheRunAndClearsElsewhere() {
+        let now = Date()
+        XCTAssertEqual(
+            BlindOrderStatusViewModel.trackFetchDecision(
+                status: .inProgress, didFetchFinalTrack: false, lastFetchAt: nil, now: now
+            ),
+            .fetch(isFinal: false)
+        )
+        XCTAssertEqual(
+            BlindOrderStatusViewModel.trackFetchDecision(
+                status: .inProgress,
+                didFetchFinalTrack: false,
+                lastFetchAt: now.addingTimeInterval(-3),
+                now: now
+            ),
+            .skip,
+            "跑动中漏了节流 —— 每 5 秒多发一个 /track"
+        )
+        for status in RunOrderStatus.allCases + [.unknown]
+        where status != .inProgress && status != .completed {
+            XCTAssertEqual(
+                BlindOrderStatusViewModel.trackFetchDecision(
+                    status: status, didFetchFinalTrack: false, lastFetchAt: nil, now: now
+                ),
+                .clear,
+                "\(status) 不该留着上一段的数字"
+            )
+        }
+    }
+
     // MARK: - 不变量：主按钮位置永不变化
 
-    /// ①②③ 三幕的主按钮版位**都是满的**。
+    /// ①②③④ 四幕的主按钮版位**都是满的**。
     ///
     /// 位置本身只有真机能量，但「版位空不空」正是它唯一会出错的方式：任何一幕落 `nil`，
     /// 那一幕的底部就从两个按钮变成一个，「求助与安全」整块上移约 76pt ——
@@ -137,6 +331,7 @@ final class BlindRunPhaseTests: XCTestCase {
             ("① 汇合", make(.driverArrived)),
             ("② 倒计时", make(.inProgress, countdown: 3)),
             ("③ 跑步中", make(.inProgress)),
+            ("④ 已完成", make(.completed)),
         ]
         for (name, presentation) in scenes {
             XCTAssertNotNil(

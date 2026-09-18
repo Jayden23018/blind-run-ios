@@ -18,6 +18,13 @@ import SwiftUI
 /// > 三件都没有被删，只是换了落点。
 struct BlindActiveRunView: View {
     let stats: TrackStats?
+    /// ③ 传「配速」（默认），④ 传「平均配速」（设计稿 §4）。
+    ///
+    /// 走参数而不是在这里判相位：这个视图只会画三个数字，给它一个 `phase` 等于让它
+    /// 有资格知道别的幕的事。可见标签与读屏标签共用同一个值 ——
+    /// `TrackStats.averagePaceText` 本身是「6 分 28 秒每公里」不带前缀，
+    /// 所以 ④ 念出来正好是稿上那句「平均配速 6 分 28 秒每公里」。
+    var paceLabel: String = BlindRunCopy.paceLabel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,11 +75,11 @@ struct BlindActiveRunView: View {
                     .fill(AppColors.Flow.separator)
                     .frame(width: 1, height: FlowMetrics.runMetricDividerHeight)
                     .accessibilityHidden(true)
-                metric(BlindRunCopy.paceLabel, stats?.paceClockText, spoken: stats?.averagePaceText)
+                metric(paceLabel, stats?.paceClockText, spoken: stats?.averagePaceText)
             }
             VStack(spacing: 18) {
                 metric(BlindRunCopy.durationLabel, stats?.durationClockText, spoken: stats?.durationText)
-                metric(BlindRunCopy.paceLabel, stats?.paceClockText, spoken: stats?.averagePaceText)
+                metric(paceLabel, stats?.paceClockText, spoken: stats?.averagePaceText)
             }
         }
         .padding(.horizontal, 16)
@@ -165,6 +172,13 @@ extension TrackStats {
         distanceMeters: 3_204,
         durationSeconds: 1_264,
         avgPaceSecPerKm: 390
+    )
+
+    /// 设计稿 ④ 那一屏的取值：5.20 公里 / 33:41 / 6'28"。
+    static let previewFinished = TrackStats(
+        distanceMeters: 5_204,
+        durationSeconds: 2_021,
+        avgPaceSecPerKm: 388
     )
 }
 

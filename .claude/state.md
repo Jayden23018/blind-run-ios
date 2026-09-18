@@ -33,14 +33,27 @@
    > 依据：后端 `OrderLifecycleService.java:156` 走 `loadForVolunteer(...)`，
    > `:1025-1026` 对非接单志愿者直接抛 `NOT_ORDER_PARTICIPANT`（403）。
    > 所以原 §2-H 记的「不明」已查清 —— 是**确定调不通**，而那让默认解法
-   > 「先做按钮 + 403 兜底」变成「每次按都失败」。已投 handoff 请后端放开；
+   > 「先做按钮 + 403 兜底」变成「每次按都失败」。
    > 放开后只需在 ① 加一枚按钮调 `orders.startService`，倒计时那条链路一行不用改。
+   > ⚠️ **2026-09-17 订正：这里原先写「已投 handoff 请后端放开」，其实没投。**
+   > 真正投出去是 09-17 做 ④ 时（后端 `6757c0e`），连同同一形状的 `/finish`
+   > （陪跑员离线超 5 分钟后跑者自行结束，设计稿 ④ 的第二条触发条件）一起问。
 
 ## 二、待拍板项 —— **2026-09-16 已全部拍板，照下表落，不要再停下来问**
 
 > 七条里 H 当日查清后单独答（见 §1-4），其余六条项目负责人当日一次性批准
 > **全部按默认解法落**。表格保留原样是为了留住「为什么是这个默认解法」——
 > 只留结论不留理由，下一轮就会有人把它当成可以随手改的选择。
+>
+> 🔴 **2026-09-17 订正：下表里那五处「投 handoff」，当时一条都没真的投。**
+> 后端 `docs/handoff.md` 09-16 那一节只有 PR #141 的四个字段（引导绳年数 / 已认证 /
+> 附近人数 / ETA），D·F·G·H·I 五条关键词在整份文件里命中 0。
+> 本轮（做 ④ 时）补投了与它相关的两条 —— **D（评价三档枚举）**与
+> **H（放开盲人 token 调 `/start-service`，连同同形状的 `/finish`）**，
+> 落在后端 `6757c0e`。**F（走散数值）· G（电量）· I（单次服务时长）仍未投**，
+> 它们分别属于阶段 4 与陪跑员端，做到那一步时一并投。
+> 教训：「投 handoff」写在计划里但没有任何机器检查会说话，而它看上去和已完成的
+> 条目长得一模一样 —— 下一轮谁引用这张表都会以为后端已经在看了。
 
 | 编号 | 问题 | 落法（**已批准，直接做**） |
 |---|---|---|
@@ -121,7 +134,41 @@
       `testMockBlindRunnerBookingSmoke` · `testMockVolunteerOrderFlowSmoke`。
       **已在同一台设备上把 worktree 回退到 `fdc6579`(main) 跑同一组对照**：
       `passed=0 failed=6`，失败集合与断言文案逐条相同 ⇒ 是存量不是回归。建议单开任务查。
-- [ ] 阶段 3 · ④ 已完成（**仍未做**，卡在待拍板项 D 五星评价）
+- [x] **阶段 3 · ④ 已完成**（2026-09-17 完成，PR #150，真机已验）
+
+      ```
+      BlindRunFinishAnnouncementTests + BlindRunPhaseTests
+        + BlindOrderFlowPresentationTests + BlindActiveRunTests
+        + LowVisionChannelTests                           passed=65 failed=0 (total=65)
+      EmergencySOSTests + KeepWaitingTests                passed=77 failed=0 (total=77)
+      ```
+      验红三轮：里程子句 / 完成态终值拉取（打回后 `passed=22 failed=2`，只有这两条红）·
+      播报改回 `speakStatusChange` funnel（只有「两张单都要出声」那条红）。
+
+      🔴 **code review 抓到两条 A 档，都属实、都是「纯函数全绿而功能是坏的」那一形状：**
+      ① `apply` 看到终态时 `stopPolling()` 取消的是**当前正在跑的这个任务**（自我取消），
+         于是终值 `/track` 必然抛 cancelled ⇒ 那一句里永远没有里程、屏幕三个 `--`。
+         修法：完成收尾挪进不继承取消的独立任务；`didFetchFinalTrack` 只在成功时置位。
+      ② `speakStatusChange` 的去重键 `lastSpokenStatus` 是**全 App 一份**的 ⇒ 连着点开
+         两张已完成的单，第二张一个字不播。而改版前那一场景由被我删掉的那句轨迹总结兜着
+         ⇒ **是本次引入的静默回退**。修法：这条播报不走那个 funnel，去重留在按单记的 VM 层。
+      新增 `BlindRunFinishAnnouncementTests`（4 条链路用例）—— 没有它，上面两条都不会被发现。
+      ⚠️ 同一个自我取消也让 `refreshIntroCallIfNeeded` / `refreshVolunteerLocationFallbackIfNeeded`
+      在**任何**终态的最后一轮里空跑。既有缺陷、无可见症状，本轮没动。
+
+      ⚠️ **原先这一行写着「卡在待拍板项 D 五星评价」—— 那是记错了。** D 的决定是
+      **⑤ 首页评价卡推迟**，④ 本身不含任何评分控件。这条错记让阶段 3 的盲人端
+      空等了一天，而它从头到尾没有阻塞项。
+      落点：`.completed` 进骨架第四格 + 相位 `.finished` + 谓词 `showsRunCard`
+      （`isRunning` 一个字没动 —— 导航栏那枚图标按决策 2 要在 ①②④ 在、只在 ③ 收起）。
+      播报合成一句（延后到 `/track` 终值回来再播，删掉 `.task` 里那句轨迹总结）；
+      `COMPLETED` 的触觉换成新增的 `HapticFeedback.Kind.strong`。
+      既有的评价表单 / 收藏搭档 / 轨迹总结 / 本单信息 / 状态流水**原样搬进 footer 滚动区**
+      （项目负责人 2026-09-17 决策：功能零回退）。
+      范围外：设计稿 ④ 第二条触发条件「陪跑员离线超 5 分钟后跑者自行结束」——
+      后端 `finishOrder` 走 `loadForVolunteer`，盲人 token 必然 403。已投 handoff。
+      ⚠️ 两件只能人耳验、还没验：① 结束那一刻是不是只念一句；② 是不是只震一次。
+      另：本轮只跑了 iPhone，④ 在 iPad 上的布局没看过。
 - [x] 阶段 3 的**志愿者一半** · 陪跑员端长按 2 秒结束（2026-09-16，PR #145，真机已验）
 
       ```
@@ -162,8 +209,13 @@
 全仓 `speak`/`speakError`/`announce` 共 **230 个调用点、分布在 31 个文件**，
 改签名会把整个仓库碰一遍 —— 那三条线当场全撞。
 
-**必须串行的三件**：阶段 3 的盲人端（④ 已完成）· 阶段 4 · 阶段 6。
-三者**都改 `BlindOrderFlowView.swift`**，同一个文件三个人改必撞。
+**必须串行的三件**：~~阶段 3 的盲人端（④ 已完成）~~（2026-09-17 已合，PR #150）·
+阶段 4 · 阶段 6。三者**都改 `BlindOrderFlowView.swift`**，同一个文件三个人改必撞。
+
+⚠️ 阶段 4 / 阶段 6 动手前先看 ④ 落下来的三样东西，别重新发明：相位谓词
+`BlindRunPhase.showsRunCard`（跑步中与已完成共用那张卡）· 配速标签的唯一判据
+`BlindRunCopy.metricPaceLabel(isFinished:)` · 完成播报那条「延后到 `/track` 回来再播」
+的时序（`announceCompletionIfNeeded` 在 `loadOrder` 末尾，不在 `apply` 里）。
 
 ### 阶段 1 要动的文件
 

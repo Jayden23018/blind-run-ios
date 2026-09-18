@@ -17,7 +17,7 @@ import UIKit
 ///
 /// 只用系统定义的波形，不自造：Apple 明确要求保持系统一致性，自造的模式对用户是需要
 /// 重新学习的噪音。三种**通知**语义走 `UINotificationFeedbackGenerator`，
-/// 唯一一种**节拍**走 `UIImpactFeedbackGenerator(.light)`（见 `Kind.tick`）。
+/// 两种**撞击**走 `UIImpactFeedbackGenerator`（`.tick` 用 `.light`、`.strong` 用 `.heavy`）。
 enum HapticFeedback {
     enum Kind {
         /// 事情按预期推进了：接单、到达、服务开始、订单完成、求助已受理。
@@ -40,6 +40,15 @@ enum HapticFeedback {
         /// （`RunOrderStatus.haptic` 判 `.success`）—— 三秒里四次同样的波形，
         /// 等于把这条通道的语义洗掉。换成 impact 之后是「1 次通知 + 3 次轻拍」，可分辨。
         case tick
+        /// 一次**强**撞击。设计稿里写作「强震一次」，目前只有「陪跑员结束了本次陪跑」用它
+        /// （状态清单 §4）。
+        ///
+        /// 🔴 **不能用 `.warning` 顶替**：那是通知波形里的「双下」，而且语义是
+        /// 「需要注意但不是失败」（订单被取消、暂无志愿者都在用它）——
+        /// 把「跑完了」震成跟「订单被取消」同一个波形，是在告诉跑者出事了。
+        /// 也不能用 `.success`：接单 / 到达 / 服务开始全是它，而这一下要表达的是
+        /// 「整件事到此结束」，是这条链路上最后也最重的一下。
+        case strong
     }
 
     /// 真机以外（模拟器、单测）静默无副作用，所以不需要测试替身。
@@ -51,14 +60,16 @@ enum HapticFeedback {
             switch kind {
             case .tick:
                 return { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+            case .strong:
+                return { UIImpactFeedbackGenerator(style: .heavy).impactOccurred() }
             case .success, .warning, .error:
                 let type: UINotificationFeedbackGenerator.FeedbackType = {
                     switch kind {
                     case .success: return .success
                     case .warning: return .warning
                     case .error: return .error
-                    // 上面的外层 switch 已经把 `.tick` 分走了。
-                    case .tick: return .success
+                    // 上面的外层 switch 已经把两种撞击分走了。
+                    case .tick, .strong: return .success
                     }
                 }()
                 return { UINotificationFeedbackGenerator().notificationOccurred(type) }
@@ -83,8 +94,14 @@ extension RunOrderStatus {
         // `.pendingIntroCall` 在列：有人想陪你跑，而且**需要你去打一通电话** ——
         // 这一态既是好消息又带着一个待办，正是该打断用户的时刻。
         // `.scheduledConfirmed` 在列：「有人接了你那张跨天单」是纯好消息，与 `.pendingAccept` 同档。
-        case .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress, .completed:
+        case .pendingIntroCall, .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .inProgress:
             return .success
+        // 🚩 `COMPLETED` 2026-09-17 从 `.success` 换成 `.strong`（设计稿 §4「+ 强震一次」）。
+        // 它与上面那一串的区别是**这一下是最后一下**：前面每一次推进都在说「下一步来了」，
+        // 而这一次说的是「结束了，你可以摘下引导绳」。同一个波形分不出这层差别，
+        // 而对看不见屏幕的人，这恰恰是他唯一能立刻确认「跑完了」的通道。
+        case .completed:
+            return .strong
         // 需要注意：计划有变，用户多半要做点什么。
         case .cancelled, .noVolunteer, .rematching:
             return .warning
