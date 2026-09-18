@@ -214,8 +214,23 @@ struct VolunteerDispatchHubView: View {
         .navigationTitle(VolunteerDispatchHubCopy.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                acceptingPill
+            // 🔴 **iOS 26 会自己给每个 toolbar item 套一层 liquid glass 胶囊底。**
+            // 这枚胶囊自己已经画了绿底圆角（见 `acceptingPill`），于是真机上是**两层框**
+            // —— 绿胶囊外面再箍一圈玻璃。工程用 iOS 26 SDK 编译，所以这件事与部署目标
+            // （iOS 16）无关：只要 SDK 是 26，跑在 26 上的设备就会这样。
+            //
+            // `sharedBackgroundVisibility` 是 iOS 26 才有的 `ToolbarContent` 方法
+            // （`iPhoneOS26.2.sdk/.../SwiftUI.swiftinterface:5810-5817`），
+            // 所以要分两支写。iOS 16–25 上系统本来就不画那层底，原样即可。
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    acceptingPill
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    acceptingPill
+                }
             }
         }
         // 🔴 挂在**恒渲染**的 `ScrollView` 上，不是挂在「有约才显示」的那张卡上。

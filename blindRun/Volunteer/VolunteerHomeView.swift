@@ -694,17 +694,36 @@ final class VolunteerHomeViewModel: ObservableObject {
         if announces {
             // 设计交付 v3 §4.4.1：邀请卡那一档「轻震一次 + 短提示音一次（跟随静音开关）」，
             // 横幅那一档「轻震一次，**无声音**」，陪跑中那一档三样都不要。
+            //
+            // 震动留在同步路径上：`HapticFeedback` 只是往 `UIImpactFeedbackGenerator` 递一下，
+            // 不碰音频会话，也不做 IO。
             if mode.vibrates { HapticFeedback.play(.tick) }
+
+            // 🔴 **提示音与播报必须让出这一拍。** 上面那行 `isInviteSheetPresented = true`
+            // 已经把 spring 起跑了，而这两样都是**同步占住主线程**的重活：
+            // `VolunteerInviteCue` 首次要合成 WAV、写盘、`AudioServicesCreateSystemSoundID`；
+            // `speak` 要激活音频会话。跟动画挤在同一拍里，掉的就是卡片升起的头几帧
+            // —— 表现是「弹出来一顿一顿的」，而没有任何东西会报错。
+            //
+            // 挪到下一个 runloop：动画的第一帧先画出去，声音晚十几毫秒没人听得出来。
+            var vocalization: (() -> Void)?
             if mode.makesSound {
-                // 三条通道各说一遍同一件事 —— 震动对听觉被占用的人、
-                // 提示音对没看屏幕的人、播报对读屏用户。
-                VolunteerInviteCue.play()
-                speechService?.speak("新的陪跑邀请，请在\(remaining)秒内回复")
+                vocalization = { [weak self] in
+                    // 三条通道各说一遍同一件事 —— 震动对听觉被占用的人、
+                    // 提示音对没看屏幕的人、播报对读屏用户。
+                    VolunteerInviteCue.play()
+                    self?.speechService?.speak("新的陪跑邀请，请在\(remaining)秒内回复")
+                }
             } else if mode.showsBanner {
-                // 走 `announce` 而不是 `speak`：`announce` 在 VoiceOver 关着时是 no-op，
-                // 正好满足「无声音」；开着时读屏用户仍然知道头顶多了一条东西
-                // —— SwiftUI 不会为凭空出现的 overlay 自己发通告。
-                speechService?.announce(VolunteerInviteCopy.bannerTitle)
+                vocalization = { [weak self] in
+                    // 走 `announce` 而不是 `speak`：`announce` 在 VoiceOver 关着时是 no-op，
+                    // 正好满足「无声音」；开着时读屏用户仍然知道头顶多了一条东西
+                    // —— SwiftUI 不会为凭空出现的 overlay 自己发通告。
+                    self?.speechService?.announce(VolunteerInviteCopy.bannerTitle)
+                }
+            }
+            if let vocalization {
+                DispatchQueue.main.async(execute: vocalization)
             }
         }
         startInviteTicker()
@@ -729,6 +748,11 @@ final class VolunteerHomeViewModel: ObservableObject {
             // 而症状只是「跑者那一行再也不出现」—— 没有任何东西会报警。
             self.inviteSupplementTask = nil
             guard !Task.isCancelled, let orders else { return }
+            // 🚩 补上来的是跑者那一行（视力 / 引导方式 / 跑多久），它一落地卡片就长高一截。
+            // 这条请求常常正好在弹卡的 spring 还没走完时回来，于是卡片在升起途中「跳」一下。
+            // **过渡动画挂在视图那一侧**（`VolunteerInviteSheet.cardContent` 上的
+            // `.animation(…, value: hasRunnerSupplement)`）—— 它才拿得到
+            // `accessibilityReduceMotion`，view model 里写 `withAnimation` 会绕过那道降级。
             self.invites = VolunteerInviteState.merge(orders, into: self.invites)
         }
     }

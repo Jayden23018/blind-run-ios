@@ -1033,6 +1033,13 @@ final class blindRunTests: XCTestCase {
         let viewModel = VolunteerHomeViewModel()
 
         viewModel.configure(with: appState, speechService: speechService)
+        // 🔴 **这一位是 2026-09-18 §4.4.1 落地（PR #161）之后才成为前提的，当时漏了这条用例。**
+        // 呈现档由 `VolunteerInvitePresentation.resolve` 按「他此刻在哪一页」决定：
+        // 不在接单主页就是**横幅**档，而横幅档 `makesSound == false`、
+        // `isInviteSheetPresented` 也不置位 ⇒ 下面两条断言必挂。
+        // 本条用例验的是**时序**（WebSocket 在 `configure` 之后才挂上也能收到派单），
+        // 呈现档只是它的舞台，所以把舞台钉成邀请卡那一档，而不是改断言去将就。
+        viewModel.isDispatchHubVisible = true
 
         let webSocketService = WebSocketService()
         appState.webSocketService = webSocketService
@@ -1044,7 +1051,13 @@ final class blindRunTests: XCTestCase {
         XCTAssertTrue(viewModel.isInviteSheetPresented)
         // 与推送标题、弹层标题同一个词（设计交付 v3 §6）——
         // 用户是被那条推送叫过来的，三处不同名会让人以为点开的是别的东西。
-        XCTAssertEqual(speechService.lastSpokenText, "新的陪跑邀请，请在30秒内回复")
+        //
+        // 🚩 **等一拍再断言**：提示音与播报刻意让出了弹卡那一帧（见 `enqueue` 里那段注释），
+        // 所以它们落在下一个 runloop 上。同步断言会偶发地读到还没写进去的值。
+        let didSpeak = await waitUntil {
+            speechService.lastSpokenText == "新的陪跑邀请，请在30秒内回复"
+        }
+        XCTAssertTrue(didSpeak, "播报没发出来，实际是 \(speechService.lastSpokenText ?? "nil")")
     }
 
     /// 回复窗口走完：卡片**原地**变「这个邀请已失效」，而**一条 `/respond` 都不发**

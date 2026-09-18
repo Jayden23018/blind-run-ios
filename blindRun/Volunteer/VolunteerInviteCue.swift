@@ -46,6 +46,26 @@ enum VolunteerInviteCue {
         }
     }
 
+    /// 提前把 WAV 合成好、写盘、注册成 `SystemSoundID`。**进志愿者端时调一次。**
+    ///
+    /// 🔴 **不预热的表现是「第一条派单弹得一顿一顿的」。** `makeSoundID()` 要合成正弦波、
+    /// 写一个文件、再进 `AudioServicesCreateSystemSoundID` —— 第一次派单进来时这些全发生在
+    /// 主线程上，而同一拍里邀请卡的 spring 正要画第一帧。第二条之后就顺了，
+    /// 所以这个缺陷**只在每次冷启动后的第一条派单上出现**，最容易被当成偶发。
+    ///
+    /// 合成与落盘放后台，只有最后写 `soundID` 那一下回主线程 —— 那个静态量的既有约定是
+    /// 「只在主线程上碰」（见 `play()`），预热不能把它破掉。
+    static func prewarm() {
+        guard soundID == nil else { return }
+        DispatchQueue.global(qos: .utility).async {
+            guard let url = try? writeWaveFileIfNeeded() else { return }
+            DispatchQueue.main.async {
+                guard soundID == nil else { return }
+                _ = registerSoundID(at: url)
+            }
+        }
+    }
+
     /// 建一次、永不 `AudioServicesDisposeSystemSoundID`。
     /// 与 `AnnouncementCue.players` 同一条理由：播放中被释放会让系统回调打在已被复用的内存上。
     private nonisolated(unsafe) static var soundID: SystemSoundID?
@@ -68,24 +88,35 @@ enum VolunteerInviteCue {
     }
 
     private static func makeSoundID() -> SystemSoundID? {
-        // `AudioServicesCreateSystemSoundID` 只收文件 URL，所以合成完要落一次盘。
-        // 放 caches 而不是 temporary：后者系统随时可以清，而我们持有的 sound id
-        // 在文件消失之后会静默不出声。caches 在进程活着时不会被清。
+        guard let url = try? writeWaveFileIfNeeded() else { return nil }
+        return registerSoundID(at: url)
+    }
+
+    /// 合成 + 落盘。**没有共享可变状态，可以在任意线程跑**（`prewarm` 就在后台跑它）。
+    ///
+    /// `AudioServicesCreateSystemSoundID` 只收文件 URL，所以合成完要落一次盘。
+    /// 放 caches 而不是 temporary：后者系统随时可以清，而我们持有的 sound id
+    /// 在文件消失之后会静默不出声。caches 在进程活着时不会被清。
+    private static func writeWaveFileIfNeeded() throws -> URL {
         let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         let url = directory.appendingPathComponent("aidrun-volunteer-invite-cue.wav")
+        guard !FileManager.default.fileExists(atPath: url.path) else { return url }
         do {
-            if !FileManager.default.fileExists(atPath: url.path) {
-                let data = ToneSynthesizer.wav(
-                    frequencies: frequencies,
-                    segmentDuration: segmentDuration
-                )
-                try data.write(to: url, options: .atomic)
-            }
+            let data = ToneSynthesizer.wav(
+                frequencies: frequencies,
+                segmentDuration: segmentDuration
+            )
+            try data.write(to: url, options: .atomic)
         } catch {
             logger.error("邀请提示音落盘失败：\(error.localizedDescription, privacy: .public)")
-            return nil
+            throw error
         }
+        return url
+    }
+
+    /// 写 `soundID` 的唯一入口。**只在主线程调**（`play` 与 `prewarm` 都保证了这一点）。
+    private static func registerSoundID(at url: URL) -> SystemSoundID? {
         var created: SystemSoundID = 0
         let status = AudioServicesCreateSystemSoundID(url as CFURL, &created)
         guard status == kAudioServicesNoError else {

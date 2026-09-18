@@ -90,6 +90,10 @@ struct VolunteerTabView: View {
             // **删地图 ≠ 停定位**：这两行是派单的前提，没有位置上报就收不到单。
             locationService.requestPermission()
             locationService.startUpdating()
+            // 第一条派单进来时，邀请卡的 spring 和「合成 WAV + 写盘 + 注册 SystemSoundID」
+            // 会挤在同一拍主线程上 —— 表现是冷启动后的**第一条**派单弹得一顿一顿的。
+            // 提前在后台把它做掉，理由见 `VolunteerInviteCue.prewarm()`。
+            VolunteerInviteCue.prewarm()
         }
         .onDisappear {
             viewModel.setSceneActive(false)
