@@ -631,6 +631,72 @@ struct VolunteerInviteCard: View {
     }
 }
 
+// MARK: - 顶部横幅（§4.4.1「App 在前台，位于其他页面」）
+
+/// 他不在接单主页时，新邀请只在头顶停 4 秒。
+///
+/// 🚩 **整条就是一枚按钮，不是「一块文字 + 一枚查看按钮」。** 两种写法在视觉上一样，
+/// 但读屏下差别很大：拆开的话 VoiceOver 要右划两次才摸到那个动作，而它只活 4 秒。
+/// 「查看」那两个字留在视觉上是因为不读屏的人需要看出这里可以点。
+///
+/// 🔴 **没有关闭按钮，也不该有。** 收起不等于回复 —— 邀请还在队列里、倒计时照常走，
+/// 接单主页那张「N 个新邀请」卡是回来的路（§4.4.2「下滑或点背景：收起，不算回复」）。
+/// 多一枚「×」会让人以为按下去就是拒绝了。
+struct VolunteerInviteBanner: View {
+    let invite: VolunteerInviteState
+    let onView: () -> Void
+
+    private var subtitle: String {
+        let time = VolunteerOrderFlowPresentation.make(
+            dispatch: invite.order,
+            remainingSeconds: invite.remainingSeconds,
+            supplement: invite.supplement
+        ).title
+        // 地点拿不到就只说时间 —— 不占位、不编一个集合点。
+        guard let place = invite.order.startAddress?.nilIfBlank else { return time }
+        return "\(time) · \(place)"
+    }
+
+    var body: some View {
+        Button(action: onView) {
+            HStack(spacing: 12) {
+                Image(systemName: "bell.fill")
+                    .foregroundColor(AppColors.Flow.cta)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(VolunteerInviteCopy.bannerTitle)
+                        .flowFont(FlowFonts.rowValueEmphasized())
+                        .foregroundColor(AppColors.Flow.primaryText)
+                    Text(subtitle)
+                        .flowFont(FlowFonts.rowValue())
+                        .foregroundColor(AppColors.Flow.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                Text(VolunteerInviteCopy.bannerAction)
+                    .flowFont(FlowFonts.rowValueEmphasized())
+                    .foregroundColor(AppColors.Flow.cta)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(minHeight: 64)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppColors.Flow.surface)
+            .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.inviteSheetRadius, style: .continuous))
+            .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(VolunteerInviteCopy.bannerTitle)，\(subtitle)")
+        .accessibilityHint("双击查看这个邀请")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("volunteerInviteBanner")
+    }
+}
+
 // MARK: - 「这次去不了」的撤销 toast（§4.4.3）
 
 /// 底部那条 5 秒可撤销的提示。

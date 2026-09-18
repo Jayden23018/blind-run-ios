@@ -219,6 +219,27 @@ enum RunOrderStatus: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// 陪跑员此刻正走在这一单里（设计交付 v3 §4.4.1 那一行的「已出发 / 汇合 / 跑步中 / 等待中」）。
+    ///
+    /// 用途只有一个：新邀请进来时**不推不震不弹**，暂存到陪跑结束
+    /// （`VolunteerInvitePresentation.resolve`）。
+    ///
+    /// 🚩 **`.scheduledConfirmed` 与 `.pendingAccept` 刻意为 false。** 设计稿把
+    /// 「订单页『约好』状态」明确列在**横幅**那一行 —— 人还没出门，打断他一下是对的；
+    /// 而「等待中」不是独立状态，它是 `.driverArrived` 等满 15 分钟的样子，已经包含在内。
+    ///
+    /// 穷举 switch：后端加状态时编译器逼一次决策（同 `disclosesBlindRunnerNotesToVolunteer`）。
+    /// `.unknown` 归 false —— 认不出的状态下宁可多弹一张卡，也好过把邀请静默吞掉。
+    var isEscortUnderway: Bool {
+        switch self {
+        case .driverEnRoute, .driverArrived, .inProgress:
+            return true
+        case .pendingMatch, .pendingIntroCall, .scheduledConfirmed, .pendingAccept,
+             .completed, .cancelled, .rematching, .noVolunteer, .unknown:
+            return false
+        }
+    }
+
     var canFinishService: Bool {
         self == .inProgress
     }

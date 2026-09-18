@@ -51,6 +51,9 @@ struct VolunteerTabView: View {
                 .tabItem {
                     Label("首页", systemImage: "house")
                 }
+                // §4.4.1「App 在前台，位于其他页面 → 顶部横幅 + **首页标签加数字角标**」。
+                // 横幅只活 4 秒，角标是它散掉之后唯一还留在屏幕上的痕迹。
+                .badge(viewModel.inviteBadgeCount)
                 .tag(Tab.home)
 
             NavigationStack {
@@ -107,6 +110,35 @@ struct VolunteerTabView: View {
             )
             viewModel.startRefreshLoop()
         }
+        // §4.4.1 的顶部横幅。**挂在 `TabView` 外面**，理由与邀请卡同一条：
+        // 它出现的前提正是「他不在接单主页」，也就是可能在任何一个 tab、任何一层栈上。
+        //
+        // 🚩 计时放在视图侧而不是 view model：`.task(id:)` 随横幅换人自动重起、
+        // 随视图消失自动取消，而 view model 里要自己管一个 `Task` 的生命周期。
+        .overlay(alignment: .top) {
+            if let banner = viewModel.bannerInvite {
+                VolunteerInviteBanner(invite: banner) {
+                    viewModel.presentInviteSheetFromBanner()
+                }
+                .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
+                .padding(.top, 8)
+                // 开了「减弱动态效果」就只淡入淡出，不从屏幕顶端滑下来。
+                .transition(
+                    reduceMotion
+                        ? .opacity
+                        : .move(edge: .top).combined(with: .opacity)
+                )
+                .zIndex(99)
+                .task(id: banner.id) {
+                    try? await Task.sleep(
+                        nanoseconds: UInt64(VolunteerInviteCopy.bannerDisplaySeconds * 1_000_000_000)
+                    )
+                    guard !Task.isCancelled else { return }
+                    viewModel.dismissInviteBanner()
+                }
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: viewModel.bannerInvite?.id)
         // 撤销 toast 挂在邀请卡**下面一层**：点完「这次去不了」卡片就收起了，
         // 而 toast 正是那一刻唯一还在屏幕上的东西（§4.4.3）。
         //
