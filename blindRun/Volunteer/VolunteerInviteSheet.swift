@@ -136,6 +136,14 @@ struct VolunteerInviteSheet: View {
         .padding(.horizontal, FlowMetrics.inviteSheetHorizontalPadding)
         .padding(.bottom, FlowMetrics.inviteSheetBottomPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // 跑者那一行是 `GET /api/orders/available` 补回来的（`loadInviteSupplements`），
+        // 而那条请求常常正好落在弹卡的 spring 还没走完的时候 —— 不加这一行的表现是
+        // 卡片在升起途中**瞬间长高一截**，看着像动画卡了，其实是布局瞬移。
+        // 开了「减弱动态效果」就瞬时到位，与本文件其余几处同一口径。
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.18),
+            value: viewModel.currentInvite?.supplement != nil
+        )
     }
 
     /// `.offer .grab` —— 自定义 overlay 没有系统那枚 `presentationDragIndicator`，自己画。

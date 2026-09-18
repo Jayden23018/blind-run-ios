@@ -254,6 +254,19 @@ struct FlowInfoRow<Value: View>: View {
         }
     }
 
+    /// 🔴 **`label == nil` 时不许有 `Spacer`。**
+    ///
+    /// 那一支的 value 是整行文字（「暂停接单」「修改或取消」「之后还有 N 次陪跑」），
+    /// 它自己带 `.frame(maxWidth: .infinity, alignment: .leading)`。`Spacer` 和它**都是
+    /// 无限可伸缩的**，于是 `HStack` 把剩余宽度对半分 —— 文字落在一个既不居中、
+    /// 也不与上一行 label 左对齐的位置。真机上就是「看着怪，也说不出哪儿怪」。
+    ///
+    /// 设计稿 `png/01-首页-准入-主页-接单.png` 与 `png/03-订单页全流程.png` 上，
+    /// 这类整行文字与带 label 的行**左边缘齐平**。
+    ///
+    /// ⚠️ **抓不成守卫也抓不成用例**：`.navigable` 行是 `.accessibilityElement(children: .ignore)`，
+    /// 内部 `Text` 不进无障碍树，XCUITest 只能拿到整行 `Button` 的 frame（两种行都是满宽、
+    /// 完全相同）。判据是"文字的左边缘在哪"，而那是一个渲染几何，无障碍树里看不见。
     private func rowContent(showsChevron: Bool) -> some View {
         HStack(alignment: .center, spacing: 10) {
             if let label {
@@ -261,9 +274,12 @@ struct FlowInfoRow<Value: View>: View {
                     .flowFont(FlowFonts.rowLabel())
                     .foregroundColor(AppColors.Flow.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                value
+            } else {
+                value
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Spacer(minLength: 8)
-            value
             if showsChevron {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 15, weight: .semibold))
