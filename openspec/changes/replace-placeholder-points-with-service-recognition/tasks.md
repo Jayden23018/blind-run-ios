@@ -48,10 +48,14 @@
 
 ## 4. 规格
 
-- [ ] 4.1 MODIFIED `openspec/specs/system-dispatch-flow/spec.md` 的
+- [x] 4.1 MODIFIED `openspec/specs/system-dispatch-flow/spec.md` 的
       **Requirement: Volunteer statistics and temporary points are displayed**——
       本变更的 spec delta 已写好，归档时生效。确认无其它未归档变更改同一条
       （2026-08-13 已核：零命中）。
+      <br>✅ 2026-09-19 重核后打勾：delta 文件 `specs/system-dispatch-flow/spec.md` 真实存在且完整（61 行，
+      `## MODIFIED Requirements` + `### Requirement: Volunteer statistics and service recognition are displayed`）；
+      跨全部 14 个未归档变更重新搜同一条 Requirement 名，仍是**零命中**（唯一命中是本文件自己这行描述）。
+      「归档时生效」是归档动作的事（6.x），不是本条的剩余动作。
 
 ## 5. 测试
 
