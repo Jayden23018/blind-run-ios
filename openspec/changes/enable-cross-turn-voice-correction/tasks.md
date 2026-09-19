@@ -52,7 +52,7 @@
 - [x] 7.1 `xcodebuild … build-for-testing` → `TEST BUILD SUCCEEDED`（无签名）。
 - [x] 7.2 `node scripts/validate-voice-intent-words.mjs` 通过；故意造错的副本 exit=1。
 - [x] 7.3 `node scripts/validate-docs.mjs`、`node scripts/validate-guard.mjs`（28 条）通过。
-- [ ] 7.4 `openspec validate --all --strict --no-interactive`。
+- [x] 7.4 `openspec validate --all --strict --no-interactive` —— 2026-09-19 真跑，`Totals: 24 passed, 0 failed (24 items)`，rc=0。
 - [ ] 7.5 真机单测（见 5.4）。
 - [ ] 7.6 **真机手测（唯一能验的一条）**：开 VoiceOver → 说一整句 → 听完读回 → 说「把时间改成明天早上九点」→ 确认只有时间变、其余没被清空 → 说「确认」下单。再验「我想改终点」（定向追问）与「算了不下了」（取消）。这三条走的是真实大模型，单测与 Mock 证明不了。
 - [ ] 7.7 **先验生产是否已部署 08-09 那批**：08-09 后端代码确认全在 `origin/main`，但生产水位线最后一次核实是 08-06。上真机第一件事就是说一句「时间改成九点」看它是不是真的只改了时间。

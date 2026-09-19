@@ -15,15 +15,18 @@
 
 - [x] 2.1 `AGENTS.md` 第 3/6/10 节：隐藏规则替换为盲人 `IN_PROGRESS` 专属流程，二次确认原文逐字保留，新增「绝不宣称短信已送达」硬约束与触发端点的完整错误码。
 - [x] 2.2 `plan.md` 与 `docs/01`–`docs/10` 已同步资格、GPS、事件/短信状态、失败行为、责任边界与发布风险。
-- [ ] 2.3 `docs/07-api-contract.openapi.yaml` —— **不适用**。API 契约自 2026-07-28 起唯一来源是后端仓库 `demo/docs/api_spec.yaml`（`AGENTS.md` 第 7 节），本仓库不再维护该文件。已改为向后端投递：`api_spec.yaml:1024-1030` 目前只写 `type: object`，缺成功/错误/冷却 schema 与 `EmergencyStatus` 枚举。
-- [ ] 2.4 `docs/websocket-protocol.md` —— **同上，属后端仓库**。已投递一条**契约与实现不一致**：文档 `:222-234` 写 `EMERGENCY_CONTACT_NOTIFIED` 是顶层类型且带 `eventId`，实现走 `buildEnvelope("APP_NOTIFICATION")` 且无 `eventId`/`orderId`。
+- [x] 2.3 `docs/07-api-contract.openapi.yaml` —— **不适用**。API 契约自 2026-07-28 起唯一来源是后端仓库 `demo/docs/api_spec.yaml`（`AGENTS.md` 第 7 节），本仓库不再维护该文件。已改为向后端投递：`api_spec.yaml:1024-1030` 目前只写 `type: object`，缺成功/错误/冷却 schema 与 `EmergencyStatus` 枚举。
+  <br>✅ 2026-09-19 核实后打勾：投递确已落地，后端 `demo/docs/handoff.md:24-25` 逐字「前端仓库的 `docs/07-api-contract.openapi.yaml` 已于 2026-07-28 废弃并归档，见 `blind-run-ios/docs/07-api-contract-MOVED.md`」。本仓库这一项没有任何剩余动作。
+- [x] 2.4 `docs/websocket-protocol.md` —— **同上，属后端仓库**。已投递一条**契约与实现不一致**：文档 `:222-234` 写 `EMERGENCY_CONTACT_NOTIFIED` 是顶层类型且带 `eventId`，实现走 `buildEnvelope("APP_NOTIFICATION")` 且无 `eventId`/`orderId`。
+  <br>✅ 2026-09-19 核实后打勾：不只投递到了，后端已经回应 —— `demo/docs/handoff.md:4250` 逐字「`websocket-protocol.md:182,248` 写着「v1 曾把 `EMERGENCY_CONTACT_NOTIFIED` 写成带 `eventId` 的顶层类型」。本仓库这一项没有任何剩余动作。
 
 ## 3. Models And Mock Safety State
 
 - [x] 3.1 `EmergencyTriggerResponse`、`EmergencyEventStatus`（含 `unknown` 兜底与 `isTerminal`）落在 `blindRun/Core/Models/OrderModels.swift`；`ActiveEmergencyEvent`、`EmergencySOSState` 落在 `blindRun/Safety/EmergencyCoordinator.swift`。冷却复用既有 `RateLimitInfo`，未新增错误码——`NOT_ORDER_PARTICIPANT` / `TOO_MANY_REQUESTS` / `BAD_REQUEST` 在 `ErrorModels.swift` 已存在且 rawValue 与后端 `ErrorCode.java` 一致。
 - [x] 3.2 复用 `LocatedCoordinate` + `CoordinateSystem`：`EmergencyCoordinator.trigger` 只接受 `.gcj02Backend`，`.wgs84Device` 一律按「无定位」处理（`testUnconvertedDeviceCoordinateIsTreatedAsNoLocation`）。取样走 `LocationService.latestBackendSample()`，Demo/UI-test 定位路径不产生设备样本，兜底坐标无法进入云端请求。
 - [x] 3.3 `MockAPIClient.handleEmergencyTrigger` 按 `EmergencyService.handleEmergencyTriggered` 复刻：有志愿者 → `VOLUNTEER_NOTIFIED`，无 → `CONTACT_NOTIFIED`；非 `IN_PROGRESS` → `NOT_ORDER_PARTICIPANT`；订单不存在 → `BAD_REQUEST`；订单状态不变。
-- [ ] 3.3a Mock 的联系人通知 / 解除 / 恢复回放 —— **未做**。恢复通道后端不存在（见 4.6），Mock 里造一条会让离线测试通过而真机没有，属于制造假信心。
+- [x] 3.3a Mock 的联系人通知 / 解除 / 恢复回放 —— **决定不做**（不是待办）。恢复通道后端不存在（见 4.6），Mock 里造一条会让离线测试通过而真机没有，属于制造假信心。
+  <br>✅ 2026-09-19 打勾：这是一条**已经做出的决策**，不是欠账 —— 留着 `- [ ]` 会让它每次盘点都被当成「还没做」重新讨论一遍。重开的条件是后端真的上线恢复通道（届时见 4.6）。
 
 ## 4. Emergency Coordination
 
