@@ -36,6 +36,9 @@ LOG="$(mktemp -t aidrun-device-test)"
 # xcodebuild 要求 -resultBundlePath 指向一个**还不存在**的路径，所以只建父目录。
 BUNDLE="$(mktemp -d -t aidrun-device-test-bundle)/result.xcresult"
 PREFLIGHT_TIMEOUT="${AIDRUN_PREFLIGHT_TIMEOUT:-180}"
+# 用例级停滞时限。见第 2.5 节 —— 没有它，一条挂死的用例就能让**整个全量永远跑不到
+# 终点**，而且不留下任何失败记录。与 PREFLIGHT_TIMEOUT 管的是两个互不重叠的窗口。
+STALL_TIMEOUT="${AIDRUN_STALL_TIMEOUT:-420}"
 
 say() { printf '[device-test] %s\n' "$*"; }
 die() { printf '[device-test] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -195,6 +198,57 @@ while kill -0 "$XCB_PID" 2>/dev/null; do
     die "${PREFLIGHT_TIMEOUT}s 内一条用例都没开始跑，判定为 preflight 卡住（多半是锁屏或设备掉线）。
      完整日志：$LOG"
   fi
+done
+
+# ---------- 2.5 用例级停滞看门狗 ----------
+#
+# 🔴 上面那个 preflight 看门狗**只盯第一条用例出现之前**的窗口（见它自己的注释：
+# 一旦有用例产出就 break）。用例跑到一半挂死时它已经不看了，而 xcodebuild 默认
+# 也没有单条用例时限 —— 两边都不管，进程就那么挂着，直到有人发现并手动 kill。
+#
+# 2026-09-19 实测：`blindRunTests.swift:467` 的
+# `testHomeLoadCoordinatorReturnsAtDeadlineWhenRequestIgnoresCancellation`
+# 在 iPhone 16 Pro 上跑全量时挂死 **19 分钟零输出**（日志最后时间戳 12:24:43，
+# 观测到 12:43 仍无新行）。后果比「一条用例红了」严重得多：
+#   · 它后面的用例**一条都没跑**，而终止时的计数（passed=1217）看着像一份正常结果；
+#   · result bundle 没写完，`xcresulttool` 报 `Info.plist ... does not exist`，
+#     看起来像 bundle 损坏，会把人支去查磁盘和 xcodebuild 本身。
+# 同一条用例**单独跑 0.158 秒通过**，iPad 上跑全量也通过 —— 不是必现的代码错误，
+# 只在特定累积条件下触发。这类东西未必修得干净，但可以保证它**不再拖垮整轮**。
+#
+# ⛔ **不要改用 xcodebuild 的 `-test-timeouts-enabled YES`** —— 本仓库的 scheme 是
+# `shouldAutocreateTestPlan = "YES"`（没有显式 `.xctestplan`），该参数连同
+# `-default-test-execution-time-allowance` 会被**静默忽略**。2026-09-19 实测：
+# 给一条实测 6.5 秒的用例设 2 秒时限，它照样 `passed (6.545 seconds)`。
+# 留一个不生效的开关比没有更糟 —— 它会让人以为挂死已经有人管了。
+#
+# 判据是「**有没有新用例产出**」，不是「日志有没有变大」：设备侧 os_log 转发会持续
+# 写入，文件大小和 mtime 在挂死期间照样会动。
+STALL_LAST=-1
+STALL_ELAPSED=0
+while kill -0 "$XCB_PID" 2>/dev/null; do
+  sleep 10
+  STALL_NOW="$(grep -cE "Test [Cc]ase '" "$LOG" 2>/dev/null || true)"
+  STALL_NOW="${STALL_NOW:-0}"
+  if [ "$STALL_NOW" != "$STALL_LAST" ]; then
+    STALL_LAST="$STALL_NOW"
+    STALL_ELAPSED=0
+    continue
+  fi
+  STALL_ELAPSED=$((STALL_ELAPSED + 10))
+  [ "$STALL_ELAPSED" -lt "$STALL_TIMEOUT" ] && continue
+
+  # 卡住的那条 = 日志里最后一条 `started` 却没有对应结果的用例。这个名字是整件事里
+  # 最贵的信息：没有它就只能靠人去翻几千行日志找断点（本条注释的来历就是那样翻出来的）。
+  STALLED="$(grep -E "Test [Cc]ase '" "$LOG" 2>/dev/null | tail -n 1 || true)"
+  kill "$XCB_PID" 2>/dev/null
+  wait "$XCB_PID" 2>/dev/null
+  die "${STALL_TIMEOUT}s 内没有任何新用例产出，判定为用例挂死（不是锁屏 —— 锁屏在
+     preflight 阶段就被拦了，跑到这里说明用例已经在跑）。
+     卡住的位置（日志里最后一条用例行）：
+       ${STALLED:-（日志里没有用例行，异常）}
+     这一轮的结果**不可用**：后面的用例一条都没跑，result bundle 也没写完。
+     下一步：单独跑那条用例确认是不是必现（很可能不是），完整日志：$LOG"
 done
 
 wait "$XCB_PID"
