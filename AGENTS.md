@@ -79,6 +79,19 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
   判据是「文字左边缘在哪」，那是渲染几何。只能真机目视，**且要在有对比行的那一屏上看**。
   修复见 PR #162。详见记忆 `flexible-spacer-steals-half-the-row`。
 
+- **「看着怪但说不出哪儿怪」= 同一个 `HStack` 里有两个无限可伸缩的子视图在对半分剩余宽度。**
+  2026-09-18 项目负责人报的是接单主页「暂停接单」那一行，根因在共用组件
+  `FlowInfoRow.rowContent`：它无条件先放 `Spacer(minLength: 8)` 再放 value，
+  而 `label == nil` 那一支的调用方自己写了 `.frame(maxWidth: .infinity, alignment: .leading)`
+  —— 两边都想要那块空间，于是文字停在一个**不是任何一种对齐**的位置。
+  判据：一行「改 padding 也修不动」时，**数这一层有几个弹性子视图，超过一个就是它**。
+  **报上来一处就去数调用点** —— 那次实际有 5 处，另外 4 处他根本没路过，
+  其中陪跑员端订单页那处自己写着「label 为 nil 就左对齐」、意图被共用组件抵消。
+  抓不成守卫也抓不成用例：可点行是 `accessibilityElement(children: .ignore)`，
+  内部 `Text` 不进无障碍树，两种行的 `Button` frame 完全相同 ——
+  判据是「文字左边缘在哪」，那是渲染几何。只能真机目视，**且要在有对比行的那一屏上看**。
+  修复见 PR #162。详见记忆 `flexible-spacer-steals-half-the-row`。
+
 ## 2. 源真相优先级
 
 冲突时按此顺序：
