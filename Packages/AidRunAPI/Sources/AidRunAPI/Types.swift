@@ -413,12 +413,44 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/notify-incoming`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)`.
     func notifyIntroCallIncoming(_ input: Operations.notifyIntroCallIncoming.Input) async throws -> Operations.notifyIntroCallIncoming.Output
+    /// 陪跑员确认开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）
+    ///
+    /// ⚠️ **有两道闸，返回的 409 要分开处理**：
+    ///
+    /// | errorCode | 含义 | 客户端该怎么做 |
+    /// |---|---|---|
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
+    ///
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
+    /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
+    ///
+    /// 盲人点头时陪跑员会收到 `BLIND_START_CONFIRMED` 通知 —— 客户端接上它，
+    /// 否则志愿者只能反复点按钮试探。
+    ///
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
     func startService(_ input: Operations.startService.Input) async throws -> Operations.startService.Output
     /// - Remark: HTTP `POST /api/orders/{id}/finish`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/finish/post(finishOrder)`.
     func finishOrder(_ input: Operations.finishOrder.Input) async throws -> Operations.finishOrder.Output
+    /// 陪跑员已动身（真的出门了，开始双向推位置）
+    ///
+    /// ⚠️ **与 `/confirm-departure` 不是一回事，别弄混**：那一步只回答「你还去吗」，人可能还在家里；
+    /// 这一步是真的动身了、开始双向推位置了。两者各有自己的时间闸，阈值也不同（120 / 60）。
+    ///
+    /// ⚠️ **有时间闸**：最早只能在 `plannedStartTime` 前 `app.order.en-route-earliest-minutes`
+    /// （默认 60 分钟）操作，早于此一律 409 `DEPARTURE_TOO_EARLY`。
+    ///
+    /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
+    /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
+    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
+    /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
+    ///
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/en-route`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/en-route/post(driverEnRoute)`.
     func driverEnRoute(_ input: Operations.driverEnRoute.Input) async throws -> Operations.driverEnRoute.Output
@@ -1276,6 +1308,23 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 陪跑员确认开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）
+    ///
+    /// ⚠️ **有两道闸，返回的 409 要分开处理**：
+    ///
+    /// | errorCode | 含义 | 客户端该怎么做 |
+    /// |---|---|---|
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
+    ///
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
+    /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
+    ///
+    /// 盲人点头时陪跑员会收到 `BLIND_START_CONFIRMED` 通知 —— 客户端接上它，
+    /// 否则志愿者只能反复点按钮试探。
+    ///
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
     public func startService(
@@ -1298,6 +1347,21 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 陪跑员已动身（真的出门了，开始双向推位置）
+    ///
+    /// ⚠️ **与 `/confirm-departure` 不是一回事，别弄混**：那一步只回答「你还去吗」，人可能还在家里；
+    /// 这一步是真的动身了、开始双向推位置了。两者各有自己的时间闸，阈值也不同（120 / 60）。
+    ///
+    /// ⚠️ **有时间闸**：最早只能在 `plannedStartTime` 前 `app.order.en-route-earliest-minutes`
+    /// （默认 60 分钟）操作，早于此一律 409 `DEPARTURE_TOO_EARLY`。
+    ///
+    /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
+    /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
+    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
+    /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
+    ///
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/en-route`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/en-route/post(driverEnRoute)`.
     public func driverEnRoute(
@@ -6261,6 +6325,168 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/tetherPreference`.
             public var tetherPreference: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload?
+            /// 路上想不想聊天（盲人**档案级**的长期偏好）。**2026-09-18 新增，接单前即下发**，
+            /// 判据同 `visionLevel` / `tetherPreference`：取值空间封闭的枚举可以逐个判定给陌生人看。
+            ///
+            /// 不给的话，志愿者只能在跑起来之后靠试探判断对方想不想说话 ——
+            /// 而对一个看不见表情的人，「被试探」这件事本身就是负担。
+            ///
+            /// `null` = 盲人档案缺失，客户端不渲染该提示位，**不要脑补默认值**。
+            /// 同样**不进派单过滤或排序**（进了打分就变成「按性格挑单」）。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/chatPreference`.
+            public struct chatPreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/chatPreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PREFER_CHAT = "PREFER_CHAT"
+                    case PREFER_QUIET = "PREFER_QUIET"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/chatPreference/value1`.
+                public var value1: Components.Schemas.AvailableOrderResponse.chatPreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/chatPreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `chatPreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.AvailableOrderResponse.chatPreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 路上想不想聊天（盲人**档案级**的长期偏好）。**2026-09-18 新增，接单前即下发**，
+            /// 判据同 `visionLevel` / `tetherPreference`：取值空间封闭的枚举可以逐个判定给陌生人看。
+            ///
+            /// 不给的话，志愿者只能在跑起来之后靠试探判断对方想不想说话 ——
+            /// 而对一个看不见表情的人，「被试探」这件事本身就是负担。
+            ///
+            /// `null` = 盲人档案缺失，客户端不渲染该提示位，**不要脑补默认值**。
+            /// 同样**不进派单过滤或排序**（进了打分就变成「按性格挑单」）。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/chatPreference`.
+            public var chatPreference: Components.Schemas.AvailableOrderResponse.chatPreferencePayload?
+            /// 想跑什么样的路（**本单**的偏好，存在订单上，不是档案上）。**2026-09-18 新增**。
+            /// ⚠️ 与 `chatPreference` 的来源刻意不同：那个是档案级长期偏好，这个每单可变。
+            ///
+            /// `null` = 未指定。**不进派单过滤或排序。**
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/routePreference`.
+            public struct routePreferencePayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/routePreference/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case PARK_TRAIL = "PARK_TRAIL"
+                    case STREET = "STREET"
+                    case TRACK = "TRACK"
+                    case NO_PREFERENCE = "NO_PREFERENCE"
+                }
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/routePreference/value1`.
+                public var value1: Components.Schemas.AvailableOrderResponse.routePreferencePayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/routePreference/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `routePreferencePayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.AvailableOrderResponse.routePreferencePayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 想跑什么样的路（**本单**的偏好，存在订单上，不是档案上）。**2026-09-18 新增**。
+            /// ⚠️ 与 `chatPreference` 的来源刻意不同：那个是档案级长期偏好，这个每单可变。
+            ///
+            /// `null` = 未指定。**不进派单过滤或排序。**
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/routePreference`.
+            public var routePreference: Components.Schemas.AvailableOrderResponse.routePreferencePayload?
+            /// **你和这一单的盲人一起跑完过几单**（`status = COMPLETED`）。`0` = 从没一起跑过。
+            /// 2026-09-18 新增。
+            ///
+            /// 为什么下发：陪跑是把自己交给一个陌生人，而「以前一起跑过 3 次」是志愿者判断
+            /// 「这一单我接得下来吗」时最有信息量的一条 —— 熟悉的搭档不用重新磨合路线、口令、节奏。
+            ///
+            /// ⚠️ 口径是**一起跑完的单数**，不是「认识多久」也不是「一起接过几单」——
+            /// 接了又取消的单不算数，那正是「合作经验」要排除的东西。
+            /// 与固定搭档的准入判据（迁移 `0030`）用的是同一个口径。
+            ///
+            /// ⚠️ **非空，0 也照常下发**（不像 `hasGuideDogThisRun` 那样可以缺省）：
+            /// 缺值时客户端分不清「没一起跑过」和「后端没给」，而这两件事在卡片上要说完全不同的话。
+            ///
+            /// ⚠️ **不进派单过滤或排序**：熟人优先已经由收藏 / 固定搭档那条链路在候选池阶段做掉了，
+            /// 在这里再加一层会变成「陌生人永远排在后面」。
+            ///
+            ///
+            /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/completedTogetherCount`.
+            public var completedTogetherCount: Swift.Int64?
             /// **这一单要不要先通电话磨合**（迁移 `0031`，2026-08-22 新增）。
             ///
             /// 🚨 **客户端必须按它决定 `POST /api/orders/{id}/respond` 发哪个 `action`**：
@@ -6295,6 +6521,9 @@ public enum Components {
             ///   - hasGuideDogThisRun:
             ///   - visionLevel: 盲人的视障程度。**2026-08-14 新增，接单前即下发**（此前只在接单后的 `OrderDetailResponse` 里）。
             ///   - tetherPreference: 牵引方式偏好。**2026-08-14 新增，接单前即下发**，理由同 `visionLevel` ——
+            ///   - chatPreference: 路上想不想聊天（盲人**档案级**的长期偏好）。**2026-09-18 新增，接单前即下发**，
+            ///   - routePreference: 想跑什么样的路（**本单**的偏好，存在订单上，不是档案上）。**2026-09-18 新增**。
+            ///   - completedTogetherCount: **你和这一单的盲人一起跑完过几单**（`status = COMPLETED`）。`0` = 从没一起跑过。
             ///   - requiresIntroCall: **这一单要不要先通电话磨合**（迁移 `0031`，2026-08-22 新增）。
             public init(
                 orderId: Swift.Int64? = nil,
@@ -6312,6 +6541,9 @@ public enum Components {
                 hasGuideDogThisRun: Swift.Bool? = nil,
                 visionLevel: Components.Schemas.AvailableOrderResponse.visionLevelPayload? = nil,
                 tetherPreference: Components.Schemas.AvailableOrderResponse.tetherPreferencePayload? = nil,
+                chatPreference: Components.Schemas.AvailableOrderResponse.chatPreferencePayload? = nil,
+                routePreference: Components.Schemas.AvailableOrderResponse.routePreferencePayload? = nil,
+                completedTogetherCount: Swift.Int64? = nil,
                 requiresIntroCall: Swift.Bool? = nil
             ) {
                 self.orderId = orderId
@@ -6329,6 +6561,9 @@ public enum Components {
                 self.hasGuideDogThisRun = hasGuideDogThisRun
                 self.visionLevel = visionLevel
                 self.tetherPreference = tetherPreference
+                self.chatPreference = chatPreference
+                self.routePreference = routePreference
+                self.completedTogetherCount = completedTogetherCount
                 self.requiresIntroCall = requiresIntroCall
             }
             public enum CodingKeys: String, CodingKey {
@@ -6347,6 +6582,9 @@ public enum Components {
                 case hasGuideDogThisRun
                 case visionLevel
                 case tetherPreference
+                case chatPreference
+                case routePreference
+                case completedTogetherCount
                 case requiresIntroCall
             }
         }
@@ -13129,6 +13367,23 @@ public enum Operations {
             }
         }
     }
+    /// 陪跑员确认开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）
+    ///
+    /// ⚠️ **有两道闸，返回的 409 要分开处理**：
+    ///
+    /// | errorCode | 含义 | 客户端该怎么做 |
+    /// |---|---|---|
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
+    ///
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
+    /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
+    ///
+    /// 盲人点头时陪跑员会收到 `BLIND_START_CONFIRMED` 通知 —— 客户端接上它，
+    /// 否则志愿者只能反复点按钮试探。
+    ///
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
     public enum startService {
@@ -13219,6 +13474,59 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/start-service/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/start-service/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.startService.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.startService.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// `SERVICE_START_TOO_EARLY`（还没到时间）/ `BLIND_CONFIRMATION_PENDING`（等对方确认）
+            /// / `ORDER_STATUS_NOT_ALLOWED`（状态不允许）
+            ///
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.startService.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.startService.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
                             response: self
                         )
                     }
@@ -13381,6 +13689,21 @@ public enum Operations {
             }
         }
     }
+    /// 陪跑员已动身（真的出门了，开始双向推位置）
+    ///
+    /// ⚠️ **与 `/confirm-departure` 不是一回事，别弄混**：那一步只回答「你还去吗」，人可能还在家里；
+    /// 这一步是真的动身了、开始双向推位置了。两者各有自己的时间闸，阈值也不同（120 / 60）。
+    ///
+    /// ⚠️ **有时间闸**：最早只能在 `plannedStartTime` 前 `app.order.en-route-earliest-minutes`
+    /// （默认 60 分钟）操作，早于此一律 409 `DEPARTURE_TOO_EARLY`。
+    ///
+    /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
+    /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
+    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
+    /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
+    ///
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/en-route`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/en-route/post(driverEnRoute)`.
     public enum driverEnRoute {
@@ -13471,6 +13794,57 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/en-route/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/en-route/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.driverEnRoute.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.driverEnRoute.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 距计划开跑还太早（`DEPARTURE_TOO_EARLY`），或状态不允许（`ORDER_STATUS_NOT_ALLOWED`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/en-route/post(driverEnRoute)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.driverEnRoute.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.driverEnRoute.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
                             response: self
                         )
                     }
