@@ -377,6 +377,110 @@ final class VolunteerDispatchHubTests: XCTestCase {
         XCTAssertNil(viewModel.bannerInvite, "卡片已经开着，头顶不该再压一条「查看」")
     }
 
+    // MARK: - 「确认我还会去」之后那一单不许从屏幕上消失
+
+    /// 🔴 **`PENDING_ACCEPT` 曾经是这一屏上的黑洞。**
+    ///
+    /// 陪跑员通话磨合谈成、点完「确认我还会去」，订单 `SCHEDULED_CONFIRMED → PENDING_ACCEPT`。
+    /// 而这一屏的两个数据源当时**都不含那一态**：预约列表按 `status=SCHEDULED_CONFIRMED` 拉，
+    /// `dispatch-summary.activeOrders` 的后端白名单只有陪跑中那三态。
+    /// 真机表现：他一退出订单页，刚接下的那一单就从自己的 App 里消失，屏幕上写着
+    /// **「暂时没有约好的陪跑」** —— 一句关于事实的断言，而且是假的。
+    ///
+    /// **验红**：把 `startAuxiliaryLoad` 里 `PENDING_ACCEPT` 那条请求删掉，
+    /// 或把 `upcomingVolunteerStatuses` 改回只剩 `.scheduledConfirmed` —— 这条立刻挂。
+    ///
+    /// 🚩 断言走**真实加载路径**（`load()` → `startAuxiliaryLoad` → `applyUpcoming`）
+    /// 而不是直接喂 `VolunteerDispatchHubContent.resolve` ——
+    /// 那个纯函数从来就是对的，坏的是喂给它的东西。只验纯函数的用例会全绿。
+    @MainActor
+    func testTheOrderStaysOnTheHubAfterConfirmingDeparture() async throws {
+        let orders = FakeOrderService()
+        // 跨天预约列表**空的**：他手上只有刚确认完的这一单，这正是真机上那次的现场。
+        orders.scheduledOrdersResult = .success(Self.page([]))
+        orders.pendingAcceptOrdersResult = .success(Self.page([
+            OrderDetailResponse.preview(orderId: 88, status: .pendingAccept)
+        ]))
+
+        let appState = AppState(orders: orders)
+        appState.currentEnvironment = .mock
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        await viewModel.load(currentLocation: nil, locationAuthorized: false)
+        // `startAuxiliaryLoad` 开的是独立 `Task`，`load()` 不等它。
+        let arrived = await Self.waitUntil { !viewModel.scheduledOrders.isEmpty }
+
+        XCTAssertTrue(arrived, "确认完出发之后那一单没有出现在接单主页上")
+        XCTAssertEqual(viewModel.scheduledOrders.map(\.orderId), [88])
+        XCTAssertEqual(
+            orders.lastVolunteerOrdersStatuses.sorted { $0.rawValue < $1.rawValue },
+            [.pendingAccept, .scheduledConfirmed],
+            "两档要各打一次 —— 后端 status 参数只收单值，合成一条拿不到两态"
+        )
+
+        // 屏幕上真的会显示它，而不是空状态。
+        let content = VolunteerDispatchHubContent.resolve(
+            activeOrder: viewModel.activeOrder,
+            scheduledOrders: viewModel.scheduledOrders
+        )
+        XCTAssertEqual(content.next?.orderId, 88)
+        XCTAssertEqual(content.laterCount, 0)
+    }
+
+    /// 一条回来了、另一条挂了 ⇒ 按回来的那部分渲染，**不报错也不清空**。
+    ///
+    /// 半份列表比「暂时没有约好的陪跑」诚实：后者是断言「你没有单」，
+    /// 而真相是「有一条请求没回来」。两条都挂才配那句提示。
+    @MainActor
+    func testOneFailingHalfStillRendersTheOtherHalf() async throws {
+        let orders = FakeOrderService()
+        orders.scheduledOrdersResult = .failure(APIError.unknown(statusCode: 503))
+        orders.pendingAcceptOrdersResult = .success(Self.page([
+            OrderDetailResponse.preview(orderId: 91, status: .pendingAccept)
+        ]))
+
+        let appState = AppState(orders: orders)
+        appState.currentEnvironment = .mock
+        let viewModel = VolunteerHomeViewModel()
+        viewModel.configure(with: appState, speechService: SpeechService())
+
+        await viewModel.load(currentLocation: nil, locationAuthorized: false)
+        let arrived = await Self.waitUntil { !viewModel.scheduledOrders.isEmpty }
+
+        XCTAssertTrue(arrived)
+        XCTAssertEqual(viewModel.scheduledOrders.map(\.orderId), [91])
+        XCTAssertNil(
+            viewModel.scheduledOrdersMessage,
+            "还有一条回来了就别说「列表没能加载」—— 那句话在屏幕上有内容时是自相矛盾的"
+        )
+    }
+
+    private static func page(_ orders: [OrderDetailResponse]) -> PagedOrderResponse {
+        PagedOrderResponse(
+            content: orders,
+            totalElements: Int64(orders.count),
+            totalPages: orders.isEmpty ? 0 : 1,
+            number: 0,
+            size: 20,
+            first: true,
+            last: true,
+            empty: orders.isEmpty
+        )
+    }
+
+    private static func waitUntil(
+        timeout: TimeInterval = 3,
+        condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await condition() { return true }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return await condition()
+    }
+
     private static func makeDispatch(orderId: Int64) -> WSNewOrder {
         WSNewOrder(
             type: "NEW_ORDER",

@@ -19,7 +19,7 @@ struct VolunteerDispatchHubContent {
     /// `IN_PROGRESS` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` —— 都是「人已经动起来了」。
     /// 那一刻把一张三天后的预约单顶在最上面，是把此刻唯一要紧的事推到列表里。
     ///
-    /// `scheduledOrders` 已经由 `VolunteerHomeViewModel.applyScheduled` 按 `plannedStart`
+    /// `scheduledOrders` 已经由 `VolunteerHomeViewModel.applyUpcoming` 按 `plannedStart`
     /// 升序排好且只含 `SCHEDULED_CONFIRMED`，这里**不再排一次** —— 两处各排一次迟早分叉。
     static func resolve(
         activeOrder: OrderDetailResponse?,
@@ -246,10 +246,24 @@ struct VolunteerDispatchHubView: View {
         // 对称地，从二级页返回会重新 `onAppear`，位重新置上。
         .onAppear { viewModel.isDispatchHubVisible = true }
         .onDisappear { viewModel.isDispatchHubVisible = false }
+        // 🔴 **从二级页返回时必须重新拉一次。**
+        //
+        // `.task` 绑的是视图**身份**，而 push 出订单页时这一屏仍留在导航栈里、身份没变
+        // ⇒ pop 回来 `.task` 不重跑。背景里那条 10 秒刷新只打 `dispatch-summary`，
+        // **不打**「接下来要去的单」那两条。于是他在订单页上刚把状态推进一格
+        //（确认我还会去 / 我出发了），返回这一屏看到的还是进去之前那份列表。
+        //
+        // 挂在这里而不是 `.onAppear`：`.onAppear` 在每次切 tab 时也会跑，
+        // 而那一刻并没有任何东西变过。判据是「他刚在二级页上做过事」。
         .navigationDestination(
             isPresented: Binding(
                 get: { route != nil },
-                set: { if !$0 { route = nil } }
+                set: {
+                    if !$0 {
+                        route = nil
+                        Task { await onReload() }
+                    }
+                }
             )
         ) {
             switch route {

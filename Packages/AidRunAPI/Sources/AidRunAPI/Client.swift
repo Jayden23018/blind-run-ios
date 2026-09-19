@@ -2813,6 +2813,23 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 陪跑员确认开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）
+    ///
+    /// ⚠️ **有两道闸，返回的 409 要分开处理**：
+    ///
+    /// | errorCode | 含义 | 客户端该怎么做 |
+    /// |---|---|---|
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
+    ///
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
+    /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
+    ///
+    /// 盲人点头时陪跑员会收到 `BLIND_START_CONFIRMED` 通知 —— 客户端接上它，
+    /// 否则志愿者只能反复点按钮试探。
+    ///
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
     public func startService(_ input: Operations.startService.Input) async throws -> Operations.startService.Output {
@@ -2861,6 +2878,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.startService.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -2933,6 +2972,21 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 陪跑员已动身（真的出门了，开始双向推位置）
+    ///
+    /// ⚠️ **与 `/confirm-departure` 不是一回事，别弄混**：那一步只回答「你还去吗」，人可能还在家里；
+    /// 这一步是真的动身了、开始双向推位置了。两者各有自己的时间闸，阈值也不同（120 / 60）。
+    ///
+    /// ⚠️ **有时间闸**：最早只能在 `plannedStartTime` 前 `app.order.en-route-earliest-minutes`
+    /// （默认 60 分钟）操作，早于此一律 409 `DEPARTURE_TOO_EARLY`。
+    ///
+    /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
+    /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
+    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
+    /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
+    ///
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/en-route`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/en-route/post(driverEnRoute)`.
     public func driverEnRoute(_ input: Operations.driverEnRoute.Input) async throws -> Operations.driverEnRoute.Output {
@@ -2981,6 +3035,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.driverEnRoute.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,

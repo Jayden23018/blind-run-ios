@@ -39,14 +39,20 @@ protocol OrderServing: Sendable {
     /// 两者都落在同一条降级上 —— 补不到就那一行不渲染。
     func availableOrders() async throws -> [AvailableOrderResponse]
 
-    /// 志愿者手上**已确认但还没到点**的跨天预约单。
+    /// 志愿者手上**接下来要去的**那几单，按状态取一档。
     ///
     /// 🚩 **为什么不复用 `dispatchSummary()`**：后端 `VolunteerService.loadActiveOrders` 的白名单只有
-    /// `IN_PROGRESS` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`，`SCHEDULED_CONFIRMED` 不在里面
-    /// ⇒ 志愿者杀掉 App 再打开，那张预约单在首页上**不存在**，而它带着一个 60 分钟到期的确认动作。
-    /// 已请后端在 dispatch-summary 上单开 `scheduledOrders` 字段（见 `demo/docs/handoff.md`），
-    /// 落地后这条可以撤掉；在那之前自己打一次列表端点。
-    func scheduledOrders() async throws -> PagedOrderResponse
+    /// `IN_PROGRESS` / `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED`。`SCHEDULED_CONFIRMED` 与
+    /// `PENDING_ACCEPT` 都不在里面 ⇒ 这两态的单在首页与接单主页上**根本不存在**，
+    /// 而它们各自带着一个有时限的动作（临期确认 60 分钟到期 / 该出发了）。
+    /// 已请后端把 `PENDING_ACCEPT` 加进白名单（见 `demo/docs/handoff.md` 2026-09-18 那条），
+    /// 落地后 `PENDING_ACCEPT` 这一次调用可以撤掉；在那之前自己打列表端点。
+    ///
+    /// 🔴 **一次只能问一个状态。** 后端 `OrderController.getMyOrders` 是
+    /// `parseOrderStatus(status)` → `List.of(orderStatus)`，契约里 `status` 也是
+    /// `type: string`（`api_spec.yaml:3265-3269`）—— 传 `"A,B"` 只会解析失败，
+    /// 不要试图把两个状态拼进一个参数。要两档就调两次。
+    func volunteerOrders(status: RunOrderStatus) async throws -> PagedOrderResponse
 
     // 状态流转
     func cancel(orderId: Int64) async throws
@@ -123,10 +129,10 @@ struct OrderService: OrderServing {
     ///    `%3F` —— 打出去是一条 404，而客户端只看到「请求的资源不存在」，看不出是自己拼错了。
     /// ② `scripts/validate-spec-coverage.mjs` 扫的是引号里的整串且**不剥 query**，
     ///    `"/api/orders/mine?role=..."` 在契约里不存在 ⇒ 当场判硬错误。
-    func scheduledOrders() async throws -> PagedOrderResponse {
+    func volunteerOrders(status: RunOrderStatus) async throws -> PagedOrderResponse {
         try await transport.send(
             OrderEndpoint.mine.request,
-            query: ["role": "VOLUNTEER", "status": RunOrderStatus.scheduledConfirmed.rawValue]
+            query: ["role": "VOLUNTEER", "status": status.rawValue]
         )
     }
 
