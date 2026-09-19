@@ -92,7 +92,33 @@ GitHub Issues 在 `Jayden23018/blind-run-ios` 是**关闭**的，没有 issue �
 
 ---
 
-## 5. 未解决 / 未做
+## 5. 🔴 本轮顺带挖出的缺口：「盲人点头才能开跑」这条链路前端零接入
+
+推这份报告时被 pre-push 的生成代码漂移闸拦下（本轮只加了两个 md，不可能引入漂移 ⇒ 是主线既有状态）。重新生成的 diff 是 **450 行纯新增、0 删除**，内容不是样板，是后端 `start-service` 新加的两道闸：
+
+| errorCode | 含义 | 契约逐字要求客户端怎么做 |
+|---|---|---|
+| `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 「按钮置灰，到点再亮」 |
+| `BLIND_CONFIRMATION_PENDING` | 盲人还没调 `POST /api/orders/{id}/confirm-start` | 「提示『等待对方确认』，**不要**置灰 —— 对方随时可能点」 |
+
+契约另有逐字一句：「盲人点头时陪跑员会收到 `BLIND_START_CONFIRMED` 通知 —— **客户端接上它**，否则志愿者只能反复点按钮试探。」
+
+**核实结果（2026-09-19，排除 `Packages/AidRunAPI/` 生成代码目录）**：
+
+| 符号 | 后端 `origin/main` | iOS 前端 |
+|---|---|---|
+| `BLIND_CONFIRMATION_PENDING` | 16 处（CHANGELOG + api_spec + handoff） | **0 处** |
+| `SERVICE_START_TOO_EARLY` | 14 处 | **0 处** |
+| `BLIND_START_CONFIRMED` | 14 处 | **0 处** |
+| `confirmStart` / `confirm-start` 调用点 | 端点已上线 | **0 处**（13 处 `confirm-start` 全在 worktree 里一份遗留 Flutter 审计文档引用旧 OpenAPI，不是实现） |
+
+**后果链**：志愿者到现场点「开始陪跑」→ 后端 409 `BLIND_CONFIRMATION_PENDING` → 前端不认识这个码，落未知错误分支 → 而盲人端**根本没有点头的地方** ⇒ 两个人站在一起，只能干等到 `plannedStartTime + 15 分钟` 宽限自动放行。对盲人端「点了没反应」就是事故（`AGENTS.md` 既有红线）。
+
+按 skill `aidrun-contract-sync` 的分流判据，这条**触及盲人端红线（未知错误码 + 主流程卡死），应单独开变更并带测试**，不并入其他 PR。本轮只做记账，不实现 —— 盲人端按钮放在哪一态、VoiceOver 怎么念、`DRIVER_ARRIVED` 那屏的信息架构，都需要设计决策。
+
+⚠️ 这条同时是 §4 结论的一个反例补充：**它不需要真机就能发现**（两条 grep + 一次 pre-push），属于 §4.3 里「值得派」的第 3 类（跨仓库契约对撞）。也就是说 agent view 在这个项目上真正的价值，是把这类**只读、可机器核对**的缺口挖出来，而不是替人去验真机。
+
+## 6. 未解决 / 未做
 
 - Agent View 分发的背景会话**能不能跑 `scripts/device-test.sh`** 并正确处理「设备锁屏立即失败」—— 未实测，本轮设备未连接
 - Workflows 的 1000 agents / 并发 16 是官方数字，**本机未压测**
