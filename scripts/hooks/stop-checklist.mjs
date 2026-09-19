@@ -8,6 +8,21 @@
 // 行为：有活没干完 → exit 2 + stderr（Claude Code 会把 stderr 回灌给模型，阻止本次停止）。
 // 每轮只拦一次：第二次停止时 stop_hook_active === true，直接放行。
 // 所以「用户说了先不提交」不会死循环 —— 说明一句再停即可。
+//
+// ── 三条让它不至于变成噪音的约束（2026-09-17 从 AGENTS.md §10 搬来）──
+// 改这个文件的人需要它们，每个会话常驻不需要。**做成会误报的钩子等于把钩子废掉。**
+//
+//   · `stop_hook_active` 兜底，一次停止只拦一次（见上）。
+//   · 同一份欠账（相同路径集合 + 相同领先数）只提醒一次，签名存
+//     `.git/aidrun-stop-checklist-seen`。别人没写完的脏文件长期躺着时不会每轮都叫；
+//     欠账内容变了才重新叫。
+//   · **欠账只算本轮 Edit/Write 写过的路径**（从 transcript 取，`./transcript.mjs`）。
+//     并行会话或同事在改的脏文件降级为提示；调研落盘同理，会去**本轮会话内的所有分支**
+//     找提交，不只看工作树和 HEAD —— 单开 docs 分支提交调研是常态，只看 HEAD 会每轮误报一次。
+//
+// handoff（收尾第 8 步）**不作独立触发条件**，只在已有欠账时附带提醒 —— 纯客户端改动本就不该
+// 投递，拿「提交晚于 handoff」当触发会让每次工具链提交都误报。什么该投递见记忆
+// `handoff-upkeep-workflow`。
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
