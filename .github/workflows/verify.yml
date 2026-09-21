@@ -89,6 +89,12 @@ jobs:
       - name: validate research-log hook
         run: node scripts/validate-research-log.mjs
 
+      # 设计方向提醒钩子。同样两个方向静默失效：判据放宽就变成每次编辑都响的噪音
+      # （然后被无视 = 等于没有），判据太窄或吐非法 JSON 就完全不响 ——
+      # 而「没提醒」和「不需要提醒」在日志里长得一模一样。
+      - name: validate design-direction reminder hook
+        run: node scripts/validate-design-reminder.mjs
+
       # 共享 checkout 守卫。它两个方向都会静默失效：判据太松放过真事故（2026-08-16
       # 那条 --amend 改掉了同事的提交），太紧就每次 amend 都报一次然后被无视。
       - name: validate shared-checkout guard
