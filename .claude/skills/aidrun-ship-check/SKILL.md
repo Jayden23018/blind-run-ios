@@ -141,6 +141,48 @@ scripts/device-test.sh -only-testing:blindRunTests/VoiceOrderWizardTests \
 > 2026-08-06 立此条：同一天里全量被反复跑了 5 次，其中 4 次的结论在第 1 次就已经拿到，
 > 后面纯粹是在跟脚本的 watchdog 较劲。用户两次指出这件事，走 §1.4。
 
+### 用 `/goal` 把「跑到绿」交给评估器（可选，但条件的写法不可选）
+
+真机测试是「终态可验证」的典型，适合 `/goal`。⚠️ 评估器**不跑命令、不读文件**
+（官方逐字 *"It doesn't run commands or read files independently"*），只看 Claude 在对话里贴出来的东西
+—— 所以条件必须写成**脚本输出里真的会出现的字样**，而且**必须带 turn 上限**：
+
+```text
+/goal scripts/device-test.sh 的输出里 failed=0 且 passed>0，且我没有改动 blindRunTests/ 以外的文件，or stop after 12 turns
+```
+
+写「测试通过」这种模糊条件没用，评估器判不了。三段各有各的作用：
+**一个可测终态**（`failed=0 且 passed>0` —— `passed>0` 那半是本仓库的「零执行不是通过」，
+少了它设备锁屏会被判成达成）+ **不许动的边界**（防止它改测试来凑绿）+ **turn 上限**。
+
+🔴 **turn 上限在本仓库是必需项，不是保险。** 官方唯一的失控保护是
+「**连续几轮没有工具调用**就停下」——而真机测试失败时**每一轮都真的跑了命令**，
+那条保护**不会触发**。`device-test.sh` 在设备离线/锁屏时是快速失败（它先探活），
+于是「快速失败 → 评估器判 not yet met → 再跑一轮」可以转得很快。
+两台真机长期离线是本仓库的常态（见记忆 `ui-test-runner-needs-usb-not-wifi`：
+11 种失败签名里大多数不是代码问题、要人去插线或点按），所以这条一定会撞上。
+
+**三条本机前提，用前各看一眼**：
+
+| 前提 | 现状（2026-09-21 实测） | 影响 |
+|---|---|---|
+| Claude Code 版本 | **2.1.224** | 官方 check-in 需 **2.1.234+**、idle check-in 需 2.1.236+、自动重试提示需 2.1.269+ ⇒ **本机都还没有**。后台任务卡住时不会有 30 分钟 check-in 来救，只能自己看 |
+| 后台任务 | 有后台任务在跑时**跳过该轮评估** | 真机测试动辄几分钟，`run_in_background` 跑时评估会推迟 —— 属正常不是卡住 |
+| 本仓库 Stop 钩子 | `stop-checklist.mjs`（exit 2 + stderr，`stop_hook_active` 兜底一轮只拦一次） | ⚠️ **与 `/goal` 的叠加行为未实测。** 官方说 `/goal` 自己就是 session 级的 prompt-based Stop hook，且「a hook that ended the turn」会让 goal **pause**。两者方向一致（都是「别停，继续」），推断不冲突，**但这是推断** |
+
+`/goal`（无参数）看状态，`/goal clear` 清掉。`disableAllHooks: true` 或 `allowManagedHooksOnly`
+时 `/goal` 整个不可用（评估器属 hooks 系统）——本仓库与本机 settings 都没设这两项，实测确认。
+
+⚠️ **社区评价不一致，别当银弹**：HN 上 `mohsen1`（2026-05-28，[48313546](https://news.ycombinator.com/item?id=48313546)）
+逐字说 *"Claude Code /goal or even /loop does not work hard enough and gives up. I have observed it
+just claiming it's 'iterating' in a broken loop or simply giving up."* ——
+那是 Claude Code 刚跟上这个功能时的评价（`/goal` 是 Codex 先有的），但**它描述的失效形态
+正好是「假绿」**，与本仓库最怕的那类错误同型 ⇒ **`/goal` 报达成之后，仍然要自己看
+result bundle 的 `passed=N failed=0`**，别把它当成验证本身。
+
+完整依据、官方逐字原文与三条待实测项见
+[`docs/research/goal-command-for-device-tests-20260921.md`](../../../docs/research/goal-command-for-device-tests-20260921.md)。
+
 ## 七、读后端仓库的那 5 条门禁在哪跑
 
 > 同上，2026-09-17 从 `AGENTS.md` §11 搬来。只在 push 或排查门禁报错时需要。
