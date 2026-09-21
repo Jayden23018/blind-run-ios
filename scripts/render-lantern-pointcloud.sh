@@ -226,20 +226,48 @@ let totalH = (cellH + labelH) * rows
 
 var canvas = [Float](repeating: 0, count: totalW * totalH * 3)
 
-// 一盏灯的能量核：σ≈0.75px 的小高斯。**不随人数变大** ——
-// 方向 A 的前提就是「一个人一盏灯」，灯的大小是常数，画面的丰满度只由人数决定。
+// 一盏灯的能量核。**不随人数变大** —— 方向 A 的前提就是「一个人一盏灯」，
+// 灯的大小是常数，画面的丰满度只由人数决定。
+//
+// `LANTERN_SHAPE=star`（默认）在高斯芯之外加四道衍射尖峰，让单点在小规模下
+// 真的像一颗星而不是一个光斑。🔑 **这只在几百人以下看得出来** ——
+// 两万人以上点会互相重叠，星芒糊成一片，那时 `dot` 和 `star` 没有区别。
+// 而几百人正是 AidRun 现在的量级，所以这个细节在当下比在未来重要。
+let shape = ProcessInfo.processInfo.environment["LANTERN_SHAPE"] ?? "star"
+
 let kernel: [(Int, Int, Float)] = {
     var k: [(Int, Int, Float)] = []
     let sigma: Float = 0.9
-    for dy in -2...2 {
-        for dx in -2...2 {
+    let reach = shape == "star" ? 5 : 2
+    for dy in -reach...reach {
+        for dx in -reach...reach {
             let d2 = Float(dx * dx + dy * dy)
-            let w = exp(-d2 / (2 * sigma * sigma))
-            if w > 0.01 { k.append((dx, dy, w)) }
+            var w = exp(-d2 / (2 * sigma * sigma))
+            if shape == "star" {
+                // 四道尖峰（上下左右）+ 弱一些的对角 —— 相机拍星点的衍射十字。
+                // 纯十字太像"加号"，配上对角线才像星。
+                if dx == 0 || dy == 0 {
+                    w += 0.42 * exp(-Float(abs(dx) + abs(dy)) / 1.9)
+                }
+                if abs(dx) == abs(dy) {
+                    w += 0.16 * exp(-Float(abs(dx)) / 1.5)
+                }
+            }
+            if w > 0.012 { k.append((dx, dy, w)) }
         }
     }
     return k
 }()
+
+// 调色板。`LANTERN_PALETTE=cyan` 切回报告 §3 维度 6 定的冷青。
+//
+// 🔑 **默认改成暖金，因为定冷青的那个理由在方向 A 下不成立了。**
+// 报告要冷青是为了「与底层暖橙灯火形成最大对比」—— 而方向 A 没有底图，
+// 没有要对比的东西。「万家灯火」本来就是暖的，冷青反而是数据大屏的语气。
+let warmPalette = (ProcessInfo.processInfo.environment["LANTERN_PALETTE"] ?? "gold") != "cyan"
+//                        孤灯的色                     灯海的色（叠加后趋近）
+let glowRGB: (Float, Float, Float) = warmPalette ? (1.00, 0.72, 0.28) : (0.25, 0.83, 0.78)
+let coreRGB: (Float, Float, Float) = warmPalette ? (1.00, 0.97, 0.86) : (0.75, 1.00, 0.98)
 
 for (index, total) in scales.enumerated() {
     let col = index % cols, row = index / cols
@@ -277,9 +305,9 @@ for (index, total) in scales.enumerated() {
         let v = 1 - exp(-0.55 * e)
         // 芯变白比整体变亮慢得多 —— 一盏孤灯是冷青的，一片灯海才发白
         let warmth = 1 - exp(-0.12 * e)
-        let r = v * (0.25 + 0.75 * warmth)
-        let g = v * (0.83 + 0.17 * warmth)
-        let b = v * (0.78 + 0.22 * warmth)
+        let r = v * (glowRGB.0 + (coreRGB.0 - glowRGB.0) * warmth)
+        let g = v * (glowRGB.1 + (coreRGB.1 - glowRGB.1) * warmth)
+        let b = v * (glowRGB.2 + (coreRGB.2 - glowRGB.2) * warmth)
         let cx = ox + i % cellW
         let cy = oy + labelH + i / cellW
         let o = (cy * totalW + cx) * 3
