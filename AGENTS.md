@@ -13,6 +13,8 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 | `aidrun-error-codes` | 处理 API 错误、写 TTS 错误播报、新增错误分支 |
 | `aidrun-ship-check` | 实现完成、准备提交、准备宣称「做完了 / 测试通过」 |
 | `aidrun-contract-sync` | 后端契约变了、pre-push 报「生成代码与契约不同步」、判契约新字段要不要接入 |
+| `openspec-propose` | 要动的功能**行为会变**，而 `openspec/changes/` 下还没有对应变更时 |
+| `openspec-archive-change` | 某个变更的 `tasks.md` 全打勾了 —— 归档是闭环终点，**别停在最后一步** |
 | `swiftui-pro` | 写 / 审 SwiftUI 代码时。**第三方**（Paul Hudson，MIT，`.claude/skills/swiftui-pro/`），装在 2026-09-02，见 `docs/research/claude-code-setup-for-ios-a11y-20260902.md` |
 
 ⚠️ `swiftui-pro` 的 `SKILL.md` 里写着「iOS 26 是新 App 的默认部署目标」「Target Swift 6.2 or later」——
