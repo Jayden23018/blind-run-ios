@@ -98,7 +98,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
 
     var isSessionEligible: Bool {
         guard let activeStatus else { return false }
-        return [.driverEnRoute, .driverArrived, .inProgress].contains(activeStatus)
+        return activeStatus.runsLiveEscortSession
     }
 
     func configure(
@@ -137,7 +137,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         activeStatus = status
         realtimeCoordinator.registerActiveOrder(orderID, status: status)
 
-        if [.completed, .cancelled, .rematching, .noVolunteer].contains(status) {
+        if status.endsLiveEscortSession {
             clearOwnedOrder()
             return
         }
