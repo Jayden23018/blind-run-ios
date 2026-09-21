@@ -35,21 +35,54 @@
 
 ⚠️ 与 `AGENTS.md` 不冲突：仓库写的是**不用 Agent Teams**（teammate 不继承 cwd），那条依然成立。Agent View 是另一个东西 —— 它分发的是完整会话，`--add-dir` 明确可重复。
 
-## 3. 🔴 `/goal` 不存在 —— 全局 `CLAUDE.md:16` 是死引用
+## 3. ~~🔴 `/goal` 不存在 —— 全局 `CLAUDE.md:16` 是死引用~~
 
-全局配置第 16 行写着：
-
-> 终态可验证的长任务用 `/goal <条件>` —— 每轮由独立 checker 验，满足才收工
-
-三处核实全部落空（2026-09-19）：
-
-- `claude --help` 中 `grep -iE "goal|loop"` → **零命中**
-- `/Applications/Claude.app`、`~/.claude`、`~/Library/Application Support/Claude` 下 `find -iname "*goal*"` → **零命中**
-- 本 session 注入的可用 skill 列表里有 `loop`，**没有 `goal`**
-
-联网侧同样只有社区博客（MindStudio 等）在讲 `/goal`，官方 `code.claude.com` 查不到。
-
-**这条的代价不是措辞不精确，是它会被照抄。** 与记忆 `web-design-advice-is-mostly-not-for-swiftui` 记的同一形状：那次死引用的 `design-direction.md` 被任务书照抄了出去。真要「给定条件迭代到满足」，现成的写法是 `/loop` + 在 prompt 里写死验收判据，或者 Workflows 脚本里自己写 checker 循环。
+> # ⛔ 本节整节作废。`/goal` 存在，全局 `CLAUDE.md:16` **不是**死引用。
+>
+> **2026-09-21 订正**（项目负责人当场指出「`/goal` 在 Claude 的 coding session 可以用」，随即核实）：
+>
+> ```
+> curl -sL -o /dev/null -w '%{http_code}' https://code.claude.com/docs/en/goal   → 200
+> curl -sL https://code.claude.com/docs/en/goal.md                               → 16,657 字节
+> ```
+>
+> 官方文档页标题逐字 **"Keep Claude working toward a goal"**，在官方导航的 **Automation** 分类下，
+> 开篇逐字：*"The `/goal` command sets a completion condition and Claude keeps working toward it
+> without you prompting each step. After each turn, a small fast model checks whether the condition holds."*
+> 文档还给了 `/goal` vs `/loop` vs Stop hook 的三方对照表、`/goal clear`、`◎ /goal active` 指示器、
+> 4,000 字符上限、`or stop after 20 turns` 的兜底写法。
+>
+> ### 🔑 为什么「三处核实」会全部落空：三处都打不到目标类别
+>
+> `/goal` 是**内置斜杠命令**。它既不是 skill、也不以 `goal` 为文件名落在磁盘上、
+> 也不出现在 `claude --help`（那里列的是 CLI flag 与子命令）——`/clear`、`/compact`、`/effort`
+> 同样都不在。**三个打不到的地方零命中 = 零信息，但看起来像三重确认。**
+>
+> **而本节自己的数据就自证了方法无效**：第一条写 `claude --help` 里 `grep -iE "goal|loop"` 零命中，
+> 第三条却写「skill 列表里**有** `loop`」——**同一份报告里，`loop` 确实存在却也被那个 grep 判成零命中。**
+> 那一刻就该推翻方法而不是推翻结论。
+>
+> ### 🔴 「官方 code.claude.com 查不到」这句是本节最严重的错
+>
+> 那个 URL 一直返回 200。它应该是走搜索引擎没搜到就下了结论，**没有直接 fetch**。
+> 而那个确切 URL **当时就在仓库里躺着**——`docs/opus5-workflow-and-effort-20260906.md` §C.3
+> 的「来源」行写的就是它。
+>
+> **为什么没看见它**：那份报告在 **PR #108 的分支上，而 #108 已被关闭**，所以它既不在 `origin/main`、
+> 也不在 `docs/research/INDEX.md` 里 ⇒ 本轮调研按 `AGENTS.md` §12 第 1 条「开搜前整份读索引」
+> 读了索引，索引里没有它，于是重做了一遍同一个问题**并得出了相反的错误结论**。
+>
+> ⇒ **这是「PR 被关掉 / 分支孤儿化」造成的第一例可量化损害**：不是「那份工作白做了」，
+> 而是**它的正确结论缺席之后，后来的人会填进一个错的**。逐条判定见
+> [`../review/orphan-branch-triage-20260921.md`](../review/orphan-branch-triage-20260921.md)。
+> 该报告已随 09-21 一并合入索引。
+>
+> ### 仍然成立的那一半
+>
+> 本节说「要给定条件迭代到满足，`/loop` + prompt 里写死判据」——**那个写法本身没错，
+> 只是不再是「唯一现成的办法」**。官方对照表给了选择判据：`/goal` 按**上一轮结束**触发、
+> 由独立评估器判条件；`/loop` 按**时间间隔**触发。终态可验证的长任务用 `/goal` 更贴，
+> 也就是全局 `CLAUDE.md:16` 原本写的那句话。
 
 ## 4. 本项目能不能用：分两半
 
