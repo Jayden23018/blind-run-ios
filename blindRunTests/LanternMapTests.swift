@@ -140,4 +140,34 @@ final class LanternMapTests: XCTestCase {
         XCTAssertLessThan(large / small, 3.0, "半径增长过快，密集区会糊成一团")
         XCTAssertGreaterThan(large, small)
     }
+
+    /// 🔑 半径必须封顶，否则规模一大整张图糊成白团、底层灯火完全消失 ——
+    /// 而「底层灯火撑着画面」正是方向 C 被选中的**全部理由**。
+    ///
+    /// 这条能区分正确实现与被打回的实现：去掉 `min` 之后，5000 人的半径是 51.5pt、
+    /// 光晕直径 432pt，比整个 iPhone 屏幕还宽，而第一条断言会直接红。
+    /// 取 4000 而不是「一个大数」是因为它落在**真实可能达到的规模**上
+    /// （2026-09-21 渲染实测：省级聚合下 5000 人分到 43 处 ≈ 116 人/处）。
+    func testRadiusIsCappedSoDenseClustersDoNotWashOutTheBasemap() {
+        XCTAssertEqual(
+            LanternMapView.radius(forCount: 4000),
+            LanternMapView.maximumRadius,
+            accuracy: 0.0001,
+            "大簇的半径没有封顶"
+        )
+
+        let uncapped = 2.0 + Double(4000).squareRoot() * 0.7
+        XCTAssertLessThan(
+            LanternMapView.radius(forCount: 4000),
+            uncapped,
+            "封顶没有真的在起作用（不封顶时是 \(uncapped)pt）"
+        )
+
+        // 封顶不能把小簇一起压平 —— 那样人数就完全看不出来了。
+        XCTAssertLessThan(
+            LanternMapView.radius(forCount: 1),
+            LanternMapView.radius(forCount: 20),
+            "封顶压到了常见规模上，光点失去层次"
+        )
+    }
 }

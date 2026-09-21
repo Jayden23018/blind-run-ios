@@ -325,10 +325,26 @@ struct LanternMapView: View {
         return CGSize(width: container.width, height: container.width / aspect)
     }
 
+    /// 光晕半径的上限。
+    ///
+    /// 🔑 **没有这个上限时，规模一大整张图就糊成白团，底层灯火完全看不见** ——
+    /// 而「底层灯火撑着画面」正是方向 C 被选中的**全部理由**。也就是说：不封顶的话，
+    /// 这个功能会在用户变多之后亲手毁掉自己成立的前提。
+    ///
+    /// 2026-09-21 用 `scripts/render-lantern-scale-preview.sh` 渲 40/200/1000/5000 四档
+    /// 目视确认：省级聚合下 5000 人分到 43 处 ≈ 116 人/处，不封顶时半径 9.5pt、
+    /// 光晕直径 80pt，长三角连成一坨白；封到 6pt（光晕直径 50pt）之后底图重新看得见，
+    /// 光点仍有层次。
+    ///
+    /// 这也正是报告 §4.3 引用 Stellarium 的教训原话：
+    /// 「密集处靠叠加自然变亮，而不是把单点调亮」—— 而光晕半径 = 4.2r、r 又随人数一路涨，
+    /// 等于恰好在做它反对的事。封顶之后密集处仍然更亮（多个光晕叠加），只是不再更大。
+    static let maximumRadius: Double = 6.0
+
     /// 光点半径。开方而不是线性 —— 人数差 10 倍时面积差 10 倍，半径只差 3 倍，
-    /// 否则上海那一簇会把半个长三角盖住。
+    /// 否则上海那一簇会把半个长三角盖住。开方之上还要封顶，理由见 `maximumRadius`。
     static func radius(forCount count: Int) -> Double {
-        2.0 + Double(count).squareRoot() * 0.7
+        min(2.0 + Double(count).squareRoot() * 0.7, maximumRadius)
     }
 }
 
