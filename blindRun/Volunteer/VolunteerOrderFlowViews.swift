@@ -2577,6 +2577,19 @@ struct VolunteerSettingsView: View {
                     }
                     .accessibilityLabel("API 环境，\(appState.currentEnvironment.displayName)")
                 }
+
+                // 「一束光地图」原型的唯一入口。
+                //
+                // 🚩 **刻意留在 `#if DEBUG` 里，且刻意放在设置页最不起眼的一段。**
+                // 它是一个用假数据跑的视觉/交互原型：既没送审（可缩放中国地图要审图号），
+                // 也没做 k≥20 聚合，两条都是真实数据接进来才生效的红线。
+                // 详见 `LanternMap` 的文件头注释。走进 Release 就是一个合规事故，不是一个 bug。
+                NavigationLink("一束光地图（原型）") {
+                    LanternMapView()
+                }
+                .accessibilityLabel("一束光地图，原型")
+                .accessibilityHint("用假数据预览全国志愿者分布的视觉方案，不是真实数据")
+                .accessibilityIdentifier("lanternMapPrototypeEntry")
                 #endif
 
                 NavigationLink("关于") {

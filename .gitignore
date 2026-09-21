@@ -82,3 +82,8 @@ docs/ui/reference-screenshots/
 
 # macOS / 系统文件：Finder 每打开一次目录就写一个，与代码无关。
 .DS_Store
+
+# 「一束光地图」原型的夜光底图素材（约 1–2MB，NASA 公共领域，随时可重新生成）。
+# 不进 git 的理由只有体积一条 —— 版权没问题。
+# 重新生成：scripts/crop-lantern-basemap.sh
+blindRun/LanternMap/LanternBasemapChina.jpg
