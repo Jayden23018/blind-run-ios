@@ -43,16 +43,21 @@ mkdir -p "$(dirname "$OUT")"
 # 用 CoreGraphics 裁 —— macOS 自带，零依赖。
 # 不用 sips：它的 --cropOffset 语义在不同 macOS 版本上不一致，而裁错一个像素
 # 就是光点整体偏移，偏移本身不会报错。
-xcrun swift - "$CACHE" "$OUT" "$CROP_X" "$CROP_Y" "$CROP_W" "$CROP_H" <<'SWIFT'
+# 经纬度也传进去（校验图要用）——**不在 Swift 段里再写一份**，
+# 那就成了第三份常量源（另两份：本文件上面那四行、LanternMap.GeoBounds.china）。
+xcrun swift - "$CACHE" "$OUT" "$CROP_X" "$CROP_Y" "$CROP_W" "$CROP_H" \
+    "$WEST" "$EAST" "$SOUTH" "$NORTH" <<'SWIFT'
 import Foundation
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 
 let args = CommandLine.arguments
-guard args.count == 7,
+guard args.count == 11,
       let x = Int(args[3]), let y = Int(args[4]),
-      let w = Int(args[5]), let h = Int(args[6]) else {
+      let w = Int(args[5]), let h = Int(args[6]),
+      let west = Double(args[7]), let east = Double(args[8]),
+      let south = Double(args[9]), let north = Double(args[10]) else {
     FileHandle.standardError.write("参数不对\n".data(using: .utf8)!)
     exit(1)
 }
@@ -90,6 +95,55 @@ guard CGImageDestinationFinalize(dest) else {
     exit(1)
 }
 print("已裁出 \(cropped.width)×\(cropped.height) → \(outURL.path)")
+
+// MARK: - 对齐校验图
+//
+// 裁剪偏移算错时，光点会整体离开灯火 —— 而那在画面上**不像 bug，像「数据不准」**，
+// 没人会去怀疑这两处常量不同步。单测钉不住这一层：它验的是代码内部一致性
+// （`LanternMapTests.testProjectionPinsTheFourCornersOfTheBasemap`），
+// 而这里要验的是**这个脚本裁出来的像素**和那些常量对不对得上。
+//
+// 所以每次重裁都自动产出一张证据图：八个已知城市的圈应当各自落在对应的灯火亮斑上。
+// 校验点是独立选的（不读 `sampleSites`）—— 它们验的是投影，不是那份假数据。
+
+let probes: [(String, Double, Double)] = [
+    ("北京", 116.5, 39.9), ("上海", 121.5, 31.2), ("广州", 113.4, 23.1),
+    ("成都", 104.1, 30.7), ("哈尔滨", 126.6, 45.8), ("乌鲁木齐", 87.6, 43.8),
+    ("拉萨", 91.1, 29.7), ("西宁", 101.8, 36.6),
+]
+
+let checkW = 1000
+let checkH = Int(Double(checkW) / Double(cropped.width) * Double(cropped.height))
+if let ctx = CGContext(
+    data: nil, width: checkW, height: checkH, bitsPerComponent: 8, bytesPerRow: 0,
+    space: CGColorSpaceCreateDeviceRGB(),
+    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+) {
+    ctx.draw(cropped, in: CGRect(x: 0, y: 0, width: checkW, height: checkH))
+    ctx.setStrokeColor(CGColor(red: 1, green: 0.2, blue: 0.2, alpha: 1))
+    ctx.setLineWidth(2)
+    for (_, lon, lat) in probes {
+        // 归一化用的是左上原点（同 `LanternMap.normalizedPoint`），
+        // 而 CoreGraphics 原点在左下 ⇒ y 要翻回来。写反了图上一切正常、只是南北颠倒。
+        let nx = (lon - west) / (east - west)
+        let ny = (north - lat) / (north - south)
+        let px = nx * Double(checkW)
+        let py = (1 - ny) * Double(checkH)
+        ctx.strokeEllipse(in: CGRect(x: px - 9, y: py - 9, width: 18, height: 18))
+    }
+    let checkURL = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("lantern-projection-check.png")
+    if let checkImage = ctx.makeImage(),
+       let checkDest = CGImageDestinationCreateWithURL(
+        checkURL as CFURL, UTType.png.identifier as CFString, 1, nil) {
+        CGImageDestinationAddImage(checkDest, checkImage, nil)
+        if CGImageDestinationFinalize(checkDest) {
+            print("对齐校验图 → \(checkURL.path)")
+            print("  打开看一眼：八个红圈应当各自落在一团灯火上。拉萨那个圈里没有光是**预期的**")
+            print("  —— 夜光图上西藏几乎全黑，这正是 09-11 报告 §5 第 1 条要产品方回答的问题。")
+        }
+    }
+}
 SWIFT
 
 ls -lh "$OUT"
