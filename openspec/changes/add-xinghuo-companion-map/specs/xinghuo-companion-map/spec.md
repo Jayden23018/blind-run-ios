@@ -29,7 +29,7 @@ The first accessibility element SHALL be a one-sentence summary of the aggregate
 - **THEN** the summary SHALL say that no volunteer is currently online rather than presenting a fabricated number
 
 ### Requirement: Today's footprints come from the user's own completed runs
-The footprint layer SHALL draw only routes of the user's own orders that completed today, using the existing order track endpoint.
+The footprint layer SHALL draw only routes of the user's own orders that completed today, using the existing order track endpoint. Footprints SHALL always be shown; there SHALL be no switch to hide them.
 
 #### Scenario: Track loading fails
 - **WHEN** loading the order list or a track fails for a reason other than task cancellation
@@ -61,7 +61,7 @@ The page overlay SHALL leave the area between the top statistics and the bottom 
 - **THEN** the map SHALL stay where the user left it
 
 ### Requirement: The bottom card can be collapsed to leave more of the map visible
-The bottom card SHALL have two resting heights, expanded and collapsed, switched by dragging or tapping a handle at the top of the card. The drag gesture SHALL be attached to the handle only. The collapsed card SHALL still show the online volunteer count, the "hear the stars" control, the footprint switch and the demo-data label. The chosen height SHALL persist across launches, and SHALL default to expanded.
+The bottom card SHALL have two resting heights, expanded and collapsed, switched by dragging or tapping a handle at the top of the card. The drag gesture SHALL be attached to the handle only. The collapsed card SHALL be a single row showing the online volunteer count and the "hear the stars" control; the demo-data label SHALL stay visible in the page header in both states. The chosen height SHALL persist across launches, and SHALL default to expanded.
 
 #### Scenario: The user collapses the card
 - **WHEN** the user drags the handle down past the threshold or taps it
@@ -69,7 +69,7 @@ The bottom card SHALL have two resting heights, expanded and collapsed, switched
 
 #### Scenario: A VoiceOver user reads the collapsed card
 - **WHEN** the card is collapsed and VoiceOver reads the page
-- **THEN** the first element SHALL still be the full summary sentence, followed by the "hear the stars" control and the footprint switch
+- **THEN** the first element SHALL still be the full summary sentence, followed by the "hear the stars" control
 - **AND** the handle SHALL be read after the card content, as a button whose value states expanded or collapsed and which can be adjusted by swiping up or down
 
 #### Scenario: Reduce Motion is on

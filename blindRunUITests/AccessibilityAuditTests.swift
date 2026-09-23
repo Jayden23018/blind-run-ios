@@ -433,15 +433,19 @@ final class AccessibilityAuditTests: XCTestCase {
             throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
         }
         let app = launchBlindHome()
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "底部标签栏不在")
-        tabBar.buttons["星火"].tap()
+        // iPad（iPadOS 18 起）的 `TabView` 是顶部浮动标签栏，XCUITest 里不是 `TabBar` —— 退回按名字找按钮。
+        let xinghuoTab = app.tabBars.firstMatch.waitForExistence(timeout: 20)
+            ? app.tabBars.firstMatch.buttons["星火"]
+            : app.buttons["星火"].firstMatch
+        XCTAssertTrue(xinghuoTab.waitForExistence(timeout: 5), "「星火」标签不在")
+        xinghuoTab.tap()
 
         let summary = app.descendants(matching: .any)["xinghuoSummary"].firstMatch
         XCTAssertTrue(summary.waitForExistence(timeout: 15), "星火页没起来，后面的审计结果没有意义")
         XCTAssertTrue(summary.label.contains("志愿者"), "摘要句该念志愿者人数，实际：\(summary.label)")
         XCTAssertFalse(summary.label.contains("视障跑者在等待"), "盲人端摘要不该念别的盲人")
-        XCTAssertTrue(app.switches["xinghuoFootprintToggle"].exists, "今日足迹开关不在")
+        // 足迹一律显示，开关已去掉（负责人 2026-09-24）。
+        XCTAssertFalse(app.switches["xinghuoFootprintToggle"].exists, "今日足迹开关又回来了 —— 负责人要的是默认显示、没有开关")
 
         // 卡片的滚动容器只能贴底、按内容定高。它一旦铺满全屏，就会吃掉所有拖动手势，
         // 地图拖不动（负责人 2026-09-23 真机反馈）—— 占位图构建里看不出地图拖没拖动，
@@ -472,14 +476,20 @@ final class AccessibilityAuditTests: XCTestCase {
             contentIndex ?? .max, handleIndex ?? -1,
             "把手排到了卡片内容前面，读屏第一下听到的不再是人数。第一层：\(topLevel.map { "\($0.elementType.rawValue):\($0.identifier)" })"
         )
+        // 面板要让地图占主导（负责人 2026-09-24「再压缩短一点」）。上限按默认字号定，
+        // 上一版实测展开 377 / 收起 292，两条都会红。
+        XCTAssertLessThanOrEqual(
+            cardScroll.frame.height, 280,
+            "展开的卡片有 \(Int(cardScroll.frame.height)) pt 高，地图又被压小了"
+        )
         try audit(app)
 
-        // 收起：面板上沿下移，读屏要用的三样一个不少。
+        // 收起：面板上沿下移，读屏要用的一个不少。
         let summaryLabel = summary.label
         handle.tap()
         XCTAssertEqual(handle.value as? String, "已收起", "点把手没换档")
         let collapsedTop = settledMinY(of: cardScroll)
-        print("[xinghuo] card top expanded=\(expandedTop) collapsed=\(collapsedTop) screen=\(screenHeight)")
+        print("[xinghuo] card top expanded=\(expandedTop) collapsed=\(collapsedTop) height=\(cardScroll.frame.height) screen=\(screenHeight)")
         XCTAssertGreaterThan(
             collapsedTop, expandedTop + 60,
             "收起后面板上沿只从 \(Int(expandedTop)) 移到 \(Int(collapsedTop))，地图没多出来"
@@ -489,7 +499,10 @@ final class AccessibilityAuditTests: XCTestCase {
         // `.firstMatch` 不能省：`FlowActionButton` 在 XCUITest 的树里是 `Button > Button` 两层同名同框
         // （外层是 `accessibilityElement(children: .ignore)` 合成的），不带它 `isHittable` 撞上多重匹配恒为 false。
         XCTAssertTrue(app.buttons["听见星光"].firstMatch.isHittable, "收起后「听见星光」不在了")
-        XCTAssertTrue(app.switches["xinghuoFootprintToggle"].isHittable, "收起后今日足迹开关不在了")
+        XCTAssertLessThanOrEqual(
+            cardScroll.frame.height, 160,
+            "收起的卡片还有 \(Int(cardScroll.frame.height)) pt 高 —— 收起该是一行"
+        )
         try audit(app)
 
         // 复原，不给下一次运行留下收起档。
