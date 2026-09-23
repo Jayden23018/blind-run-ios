@@ -327,11 +327,11 @@ enum FlowFonts {
     static func invitePlace() -> (CGFloat, Font.Weight, Font.TextStyle) { (12.5, .regular, .footnote) }
     /// `.m3 b` / `.m3 b small` / `.m3 span` —— 三格的值、单位、标签。
     static func inviteMetricValue() -> (CGFloat, Font.Weight, Font.TextStyle) { (17, .bold, .body) }
-    static func inviteMetricUnit() -> (CGFloat, Font.Weight, Font.TextStyle) { (10.5, .regular, .caption2) }
-    static func inviteMetricLabel() -> (CGFloat, Font.Weight, Font.TextStyle) { (10, .regular, .caption2) }
+    static func inviteMetricUnit() -> (CGFloat, Font.Weight, Font.TextStyle) { (10.5, .regular, .caption) } // 三处 .caption 非 .caption2，见 #181
+    static func inviteMetricLabel() -> (CGFloat, Font.Weight, Font.TextStyle) { (10, .regular, .caption) }
     /// `.orun b` / `.orun span` —— 跑者行。
     static func inviteRunnerName() -> (CGFloat, Font.Weight, Font.TextStyle) { (13, .bold, .footnote) }
-    static func inviteRunnerDetail() -> (CGFloat, Font.Weight, Font.TextStyle) { (10.5, .regular, .caption2) }
+    static func inviteRunnerDetail() -> (CGFloat, Font.Weight, Font.TextStyle) { (10.5, .regular, .caption) }
     /// `.two` —— 底部两个文字按钮。
     static func inviteSecondaryAction() -> (CGFloat, Font.Weight, Font.TextStyle) { (13, .semibold, .footnote) }
     /// 首页预约块副标题 15 / Regular。

@@ -94,13 +94,11 @@ struct VolunteerInviteSheet: View {
     /// **贴底**：下两角不圆、背景一直铺到屏幕最下缘。`padding-bottom:24` 就是稿子给
     /// Home Indicator 留的那段距离，不要再叠一份安全区内边距。
     private var card: some View {
-        // 装得下就按内容高度（第一个分支），装不下才滚（第二个分支）。
-        // AX5 下一张完整的卡装不进一屏，而这一屏的每个字都要能看见 ——
-        // 这正是原先 `.presentationDetents` 里 `.large` 那一档干的事。
-        // ⚠️ 同样的写法在星火页上被真机无障碍审计判成「整页改不了字号」（2026-09-23，已验红），
-        // 而这张卡没有审计用例覆盖 —— 很可能有同一个问题，见 `XinghuoMapView.overlay` 的改法。
-        ViewThatFits(in: .vertical) {
-            cardContent
+        // 常驻滚动容器，高度取「内容高度」与上限中较小的那个：装得下贴合内容，AX5 下装不进一屏才滚。
+        // 不用 `ViewThatFits { cardContent; ScrollView { cardContent } }`：字号一变它就换一棵子树，真机审计把卡上
+        // 每个字都判成「改不了字号」（2026-09-23 验红 18 条，`testVolunteerInviteSheetPassesAccessibilityAudit`）。
+        // 也不照搬星火页的 `GeometryReader + minHeight`：那会把卡撑到上限高度，压暗层几乎点不到。
+        HugContentHeight {
             ScrollView { cardContent }
         }
         .background(sheetBackground)
@@ -376,22 +374,21 @@ struct VolunteerInviteCard: View {
         )
 
         HStack {
-            Button(VolunteerOrderFlowCopy.declineInvite) { onDecline() }
+            Button { onDecline() } label: { Text(VolunteerOrderFlowCopy.declineInvite).frame(minHeight: 44).contentShape(Rectangle()) }
                 .accessibilityHint("直接回复去不了，不问原因、不计任何记录。5 秒内可以撤销")
                 .accessibilityIdentifier("volunteerInviteDeclineButton")
 
             Spacer(minLength: 0)
 
-            Button(VolunteerInviteCopy.detail) { showsDetail = true }
+            Button { showsDetail = true } label: { Text(VolunteerInviteCopy.detail).frame(minHeight: 44).contentShape(Rectangle()) }
                 .accessibilityHint("打开完整的陪跑订单页，倒计时继续走")
                 .accessibilityIdentifier("volunteerDispatchDetailButton")
         }
         .flowFont(FlowFonts.inviteSecondaryAction())
         .foregroundColor(AppColors.Flow.accent)
-        // `.two{padding:0 18px}`。**高度仍是 44** —— 稿子只给了字号，没给触达区，
-        // 而这两枚是真的要按的。
+        // `.two{padding:0 18px}`。**触达高 44 挂在 label 里** —— 挂在外面的 frame 只撑行高，
+        // 真机审计量到按钮本身只有 15.7pt（#181；同类见记忆 `button-frame-outside-label-does-not-grow-hit-area`）。
         .padding(.horizontal, FlowMetrics.inviteSecondaryActionInset)
-        .frame(minHeight: 44)
         .disabled(isResponding)
     }
 
