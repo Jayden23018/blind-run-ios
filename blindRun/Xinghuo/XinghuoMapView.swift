@@ -71,20 +71,27 @@ struct XinghuoMapView: View {
 
     // MARK: - 浮层
 
+    /// 放大字号时卡片可能比屏幕高，所以整层始终放在滚动容器里；`minHeight` 撑满一屏，
+    /// 装得下时卡片照样贴底。
+    ///
+    /// 不用 `ViewThatFits { 原样; ScrollView { 原样 } }`：那种写法在字号变化时会换一棵
+    /// 视图子树，真机无障碍审计因此把这一页每个文字元素都判成「用户改不了字号」
+    /// （2026-09-23，`testBlindXinghuoPageShowsSummaryAndPassesAudit`）。
     private var overlay: some View {
-        VStack(spacing: 12) {
-            if let snapshot {
-                stats(snapshot)
-            }
-            Spacer(minLength: 0)
-            // 放大字号时卡片可能比屏幕高：先试原样，放不下再套滚动。
-            ViewThatFits(in: .vertical) {
-                bottomCard
-                ScrollView { bottomCard }
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 12) {
+                    if let snapshot {
+                        stats(snapshot)
+                    }
+                    Spacer(minLength: 0)
+                    bottomCard
+                }
+                .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
+                .padding(.vertical, 12)
+                .frame(minHeight: proxy.size.height)
             }
         }
-        .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
-        .padding(.vertical, 12)
     }
 
     /// 顶部四个数。对读屏隐藏：同样的数在摘要句里念过，这里再念一遍是纯重复。
@@ -145,6 +152,7 @@ struct XinghuoMapView: View {
                     if let note = footprintNote {
                         Text(note)
                             .font(AppFonts.caption())
+                            .fixedSize(horizontal: false, vertical: true)
                             .foregroundColor(footprintState == .failed ? AppColors.warning : AppColors.Flow.secondaryText)
                     }
                 }
