@@ -105,6 +105,11 @@ jobs:
       - name: validate shared-checkout guard
         run: node scripts/validate-shared-checkout-guard.mjs
 
+      # 新 worktree 自动带上 LocalConfig.xcconfig 的 post-checkout 钩子。它坏掉的样子是什么都不发生 ——
+      # 下一个会话照样编译不过，还得让人手动 cp。这里真跑 install + git worktree add。
+      - name: validate worktree LocalConfig hook
+        run: node scripts/validate-worktree-localconfig.mjs
+
       # 真机测试的「算不算通过」判定。CI 跑不了真机 XCTest，但这段纯逻辑跑得了 ——
       # 而它错过两次，两次都是「看起来全绿，其实没数到」。
       - name: validate xcresult verdict
