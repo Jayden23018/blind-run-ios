@@ -20,7 +20,8 @@ import SwiftUI
 /// 2. 下滑收起；
 /// 3. 高度由内容决定（`.presentationDetents([.fraction(0.67), .large])` 钉死的 0.67 正是
 ///    项目负责人在真机上看到的「底部一大片空白」）；
-/// 4. **背景对读屏屏蔽** —— 见 `VolunteerTabView` 里那行 `.accessibilityHidden`。
+/// 4. **背景对读屏屏蔽** —— 见 `VolunteerTabView` 里的 `TabBarAccessibilityHider`
+///    （SwiftUI 的 `.accessibilityHidden` 进不了 `TabView` 底下那棵 UIKit 树）。
 ///    overlay 不是真的模态容器，光靠 `.isModal` 兜不住，而「读屏能滑到看不见的东西」
 ///    在盲人端是实打实的缺陷。
 struct VolunteerInviteSheet: View {

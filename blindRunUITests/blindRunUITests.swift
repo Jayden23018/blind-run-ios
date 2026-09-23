@@ -681,6 +681,11 @@ final class blindRunUITests: XCTestCase {
             app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch.exists,
             "邀请卡盖住的那一屏不该还留在无障碍树里\n\(app.debugDescription)"
         )
+        // 标签栏是 UIKit 的，和首页不是同一条屏蔽路径能不能盖住的问题 —— 单独断。
+        XCTAssertFalse(
+            app.tabBars.firstMatch.exists,
+            "邀请卡盖住的标签栏也不该还留在无障碍树里\n\(app.debugDescription)"
+        )
 
         // 🔴 **「查看详情」是这条用例唯一会点的东西，而它必须点。**
         // 这一跳是从**自定义 overlay** 里再弹一个 `fullScreenCover`
@@ -706,6 +711,39 @@ final class blindRunUITests: XCTestCase {
             accept.waitForExistence(timeout: 10),
             "从详情页返回之后邀请卡还在，倒计时没有停"
         )
+    }
+
+    /// 上一条的另一半：屏蔽是**跟着卡片走**的，卡片收起后被盖住的那一屏必须回到无障碍树里。
+    ///
+    /// 屏蔽在 UIKit 侧置空了 tab bar controller 的子元素列表（`TabBarAccessibilityHider`），
+    /// 没有这一条的话「忘了恢复」的表现是：卡片收起、屏幕上一切正常，而读屏用户整个首页和
+    /// 标签栏都摸不到 —— 比没屏蔽更糟。收起走的是点压暗层（「不回复，先收起来」），
+    /// 不发任何派单响应，所以这条不会变成在验别的东西。
+    @MainActor
+    func testMockVolunteerInviteSheetGivesTheScreenBehindBackOnceDismissed() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            seedInvites: 1
+        )
+
+        let accept = app.buttons["接下这次陪跑"].firstMatch
+        XCTAssertTrue(accept.waitForExistence(timeout: 20), "邀请卡应当自动弹出\n\(app.debugDescription)")
+        let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
+        XCTAssertFalse(identityRow.exists, "前提：卡片在的时候首页不在树里\n\(app.debugDescription)")
+
+        // 压暗层本身对读屏隐藏，只能点坐标：屏幕上沿那一截是压暗层，卡片从底部升起够不到。
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+
+        XCTAssertTrue(
+            identityRow.waitForExistence(timeout: 10),
+            "卡片收起后首页必须回到无障碍树里\n\(app.debugDescription)"
+        )
+        XCTAssertFalse(accept.exists, "点压暗层应当收起卡片")
+        XCTAssertTrue(app.tabBars.firstMatch.exists, "卡片收起后标签栏必须回到无障碍树里")
     }
 
     /// 志愿者端**只有一屏**：身份 → 作业区 → 影响力 → 徽章 → 最近陪跑 → 派单状态。
