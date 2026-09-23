@@ -28,6 +28,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { completedUnarchivedChanges, isOpenSpecChange, isProductionSwift } from './openspec-reminder.mjs';
 import { researchTodo } from './research-log.mjs';
 import { sessionEditedPaths } from './transcript.mjs';
 
@@ -97,6 +98,28 @@ const ownDirty = mine === null ? dirty : dirty.filter((p) => mine.has(p));
 const otherDirty = mine === null ? [] : dirty.filter((p) => !mine.has(p));
 if (ownDirty.length) {
   todo.push(`**未提交**：${ownDirty.length} 个文件（${sample(ownDirty)}）`);
+}
+
+// OpenSpec 闭环（项目负责人 2026-09-23）。判据在 `openspec-reminder.mjs`，与开工前提醒共用一份。
+// 归档是硬欠账：任务全打勾就该在同一个 PR 里归档，否则变更越积越多、规格互相打架。
+const toArchive = completedUnarchivedChanges(root);
+if (toArchive.length) {
+  todo.push(
+    `**待归档**：${toArchive.join('、')} 的任务已全部打勾 —— 在同一个 PR 里 ` +
+      toArchive.map((n) => `\`openspec archive ${n} -y\``).join('、')
+  );
+}
+// 改了 App 源码却没有变更记录：机器分不出新功能和修 bug，所以只拦一次（`stop_hook_active` 兜底）。
+// 拿不到 transcript 时不判 —— 这条是核对不是欠账，宁可漏不可吵。
+if (mine !== null) {
+  const edited = [...mine];
+  const swift = edited.filter(isProductionSwift);
+  if (swift.length && !edited.some(isOpenSpecChange)) {
+    todo.push(
+      `**无变更记录**：本轮改了 ${swift.length} 个 App 源文件（${sample(swift)}），` +
+        '但没碰 `openspec/changes/` —— 行为有变就补提议或勾任务；不改变行为（修 bug / 文案 / 重构）回一句说明再停'
+    );
+  }
 }
 
 // `@{u}` 解析失败有两种成因，只有第一种是欠账：
@@ -222,8 +245,9 @@ process.stderr.write(
     otherNote +
     handoffNote +
     archiveNote +
-    '\n顺序固定：① 需要投递时先同步 handoff（`- [ ]` → `- [x]`，答写在 `答：` 后面，' +
-    '并追加本轮产生的新问题）② commit（`type: 描述`，不带 co-author）③ push。\n' +
+    '\n顺序固定：① OpenSpec 勾掉做完的任务，全部打勾就归档 ② 需要投递时同步 handoff' +
+    '（`- [ ]` → `- [x]`，答写在 `答：` 后面，并追加本轮产生的新问题）' +
+    '③ commit（`type: 描述`，不带 co-author）④ push。\n' +
     '用户明确说过「先不提交」的，回一句说明再停 —— 本钩子每轮只拦一次，不会死循环。\n'
 );
 process.exit(2);

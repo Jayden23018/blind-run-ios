@@ -385,7 +385,9 @@ REMATCHING → CANCELLED（只能盲人 token）
 **实现中**
 
 4. 一次只实现一个内聚模块
-5. 行为有变时，实现前先确认对应 spec
+5. **行为有变时，实现前 `openspec/changes/` 下必须有对应变更** —— `openspec list` 找现成的，没有就用
+   skill `openspec-propose` 建；实现中做完一项勾一项。不改变行为（修 bug / 文案 / 重构）不需要提议。
+   第一次改 App 源码时 `scripts/hooks/openspec-reminder.mjs` 会自动提醒一次（非阻断）。
 6. **改任何文件前，自己把要改的那部分读一遍** —— 探索可以外包，编辑不行。
    「读一遍」按文件大小分两种，别对 3000 行的 View 整读：
 
@@ -404,7 +406,8 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 **收尾：三件事，缺一件都不算做完**
 
-7. 跑测试、更新必要文档，按 skill `aidrun-ship-check` 的格式输出
+7. 跑测试、更新必要文档，按 skill `aidrun-ship-check` 的格式输出；**变更的任务全打勾就在同一个 PR 里
+   `openspec archive <name> -y`**（skill `openspec-archive-change`）—— 归档才是闭环终点
 8. **同步 handoff**（`demo/docs/handoff.md`）：
    - 全文近 3000 行，**只读末尾最新几条**（`tail -80`）或用 `grep -n "^- \[ \]"` 定位未答项，**不要整读**
    - 本轮答掉的问题：`- [ ]` 改 `- [x]`，答案写在 `答：` 后面；**不删除已答条目**，历史是决策记录
@@ -413,6 +416,10 @@ REMATCHING → CANCELLED（只能盲人 token）
 9. **commit**：`type: 描述`（type 取 feat/fix/refactor/docs/test/chore/perf/ci）。**不带 `Co-Authored-By`**（`~/.claude/settings.json` 的 `includeCoAuthoredBy: false` 已全局关闭，不要手动加回来）
 10. **push**
 
+> OpenSpec 闭环（2026-09-23 立，项目负责人要求「提议 → 实现 → 归档」每次自动走完）也在同一个钩子里：
+> 任务全打勾却没归档 → 硬拦；本轮改了 App 源码却没碰 `openspec/changes/` → 拦一次，
+> 回一句「不改变行为」即可放行。判据只在 `openspec-reminder.mjs` 一处，本文件不抄。
+>
 > 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**本轮写过的文件没提交**或
 > **领先 origin** 时拦住本次停止并列出欠账。一次停止只拦一次，用户说「先不提交」时
 > 回一句说明再停即可，不会死循环。

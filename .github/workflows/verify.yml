@@ -95,6 +95,11 @@ jobs:
       - name: validate design-direction reminder hook
         run: node scripts/validate-design-reminder.mjs
 
+      # OpenSpec 闭环钩子（开工前提醒 + 收尾核对的判据）。判据写错时两个方向都静默：
+      # 太宽每次改源码都拦（被无视），太窄做完的变更永远没人归档。
+      - name: validate openspec lifecycle reminder hook
+        run: node scripts/validate-openspec-reminder.mjs
+
       # 共享 checkout 守卫。它两个方向都会静默失效：判据太松放过真事故（2026-08-16
       # 那条 --amend 改掉了同事的提交），太紧就每次 amend 都报一次然后被无视。
       - name: validate shared-checkout guard
