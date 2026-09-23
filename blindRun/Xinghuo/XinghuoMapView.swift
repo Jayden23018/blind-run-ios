@@ -30,6 +30,19 @@ struct XinghuoMapView: View {
     @State private var footprints: [MapPolylineItem] = []
     @State private var footprintState: FootprintState = .loading
     @State private var recenterToken = 0
+    /// 卡片收起 / 展开。想多看地图的人把它划下去（负责人 2026-09-23）；跨启动记住，默认展开。
+    @AppStorage("xinghuo.cardCollapsed") private var isCardCollapsed = false
+    /// 把手拖动中的竖向位移。松手归零时按弹簧回位（减弱动态效果时 `handleOffset` 恒为 0，不跟手也就无所谓回位）。
+    @GestureState(resetTransaction: Transaction(animation: XinghuoMapView.cardSnapAnimation))
+    private var handleDrag: CGFloat = 0
+
+    private static let cardSnapAnimation = Animation.spring(response: 0.35, dampingFraction: 0.85)
+    /// 松手时（按惯性预测的）位移超过它就换档，否则回弹。
+    private static let cardSnapDistance: CGFloat = 60
+    /// 展开态往下拖时跟手的上限。再往下就压到标签栏上了。
+    private static let cardMaxPull: CGFloat = 120
+    /// 收起态往上拖只给一点橡皮筋反馈：面板贴底，往上平移会在下面露出一道缝。
+    private static let cardRubberBand: CGFloat = 40
 
     private enum FootprintState: Equatable {
         case loading
@@ -135,13 +148,90 @@ struct XinghuoMapView: View {
                 Spacer()
                 recenterButton
             }
-            HugContentHeight {
-                ScrollView { bottomCard }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("xinghuoCardScroll")
+            cardPanel
         }
         .padding(12)
+        // 往下拖卡片时别让它画到标签栏上。
+        .clipped()
+    }
+
+    /// 把手 + 卡片，共用一块玻璃。标识符沿用 `xinghuoCardScroll`：审计用例靠它量面板的上沿。
+    ///
+    /// 把手在 `ZStack` 里**后画**、内容顶部让出同样高度，而不是放进 `VStack` 第一个：
+    /// 读屏遍历顺序跟**绘制顺序**走，`accessibilitySortPriority` 在这里真机实测排不动
+    /// （2026-09-23，把手照样排在摘要句前面；记忆 `swiftui-traversal-order-follows-paint-order`）。
+    private var cardPanel: some View {
+        ZStack(alignment: .top) {
+            HugContentHeight {
+                ScrollView {
+                    bottomCard.padding(.top, handleHeight)
+                }
+            }
+            cardHandle
+        }
+        .xinghuoGlass(cornerRadius: 22)
+        .offset(y: handleOffset)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("xinghuoCardScroll")
+    }
+
+    /// 拖动**只挂在把手上**：挂在整张卡上会和卡片里的 `ScrollView`（AX5 时要滚）抢手势。
+    /// 轻点也能换档 —— 拖不动的人（手抖、单手牵绳）照样用得上。
+    ///
+    /// 读屏：一个按钮，value 念当前档位，双击换档、上下轻扫也能换档（可调节）；
+    /// 排在卡片内容**之后**（见 `cardPanel`），第一个读屏元素仍是摘要句。
+    private var cardHandle: some View {
+        Capsule()
+            .fill(AppColors.Xinghuo.muted)
+            .frame(width: 36, height: 5)
+            .frame(maxWidth: .infinity)
+            .frame(height: handleHeight)
+            .contentShape(Rectangle())
+            .onTapGesture { setCardCollapsed(!isCardCollapsed) }
+            .gesture(
+                DragGesture(minimumDistance: 10)
+                    .updating($handleDrag) { value, state, _ in state = value.translation.height }
+                    .onEnded { value in
+                        let travel = value.predictedEndTranslation.height
+                        if !isCardCollapsed, travel > Self.cardSnapDistance {
+                            setCardCollapsed(true)
+                        } else if isCardCollapsed, travel < -Self.cardSnapDistance {
+                            setCardCollapsed(false)
+                        }
+                    }
+            )
+            .accessibilityElement()
+            .accessibilityLabel("星火卡片")
+            .accessibilityValue(isCardCollapsed ? "已收起" : "已展开")
+            .accessibilityHint(isCardCollapsed ? "轻点两下展开，看图例" : "轻点两下收起，多看地图")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { setCardCollapsed(!isCardCollapsed) }
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: setCardCollapsed(false)
+                case .decrement: setCardCollapsed(true)
+                @unknown default: break
+                }
+            }
+            .accessibilityIdentifier("xinghuoCardHandle")
+    }
+
+    /// 把手的命中区高度：盲人端 64pt，志愿者端 44pt。
+    private var handleHeight: CGFloat { isBlind ? 64 : 44 }
+
+    /// 展开态只许往下拖（跟手），收起态只许往上拖（橡皮筋）。减弱动态效果时不跟手。
+    private var handleOffset: CGFloat {
+        guard !reduceMotion else { return 0 }
+        return isCardCollapsed
+            ? max(min(handleDrag, 0) / 3, -Self.cardRubberBand)
+            : min(max(handleDrag, 0), Self.cardMaxPull)
+    }
+
+    private func setCardCollapsed(_ collapsed: Bool) {
+        guard collapsed != isCardCollapsed else { return }
+        withAnimation(reduceMotion ? nil : Self.cardSnapAnimation) {
+            isCardCollapsed = collapsed
+        }
     }
 
     /// 字标 + 四个数。对读屏隐藏：同样的数在摘要句里念过，这里再念一遍是纯重复。
@@ -228,48 +318,83 @@ struct XinghuoMapView: View {
         snapshot?.summaryText(for: role) ?? "正在点亮附近的星光"
     }
 
+    /// 展开 / 收起是同一棵视图：收起只换摘要的写法、藏图例、把两个控件排成一行（志愿者端）。
+    /// 两档里读屏元素一个不少 —— 摘要句、「听见星光」、足迹开关、演示角标。
     private var bottomCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            headline
+            (isCardCollapsed ? compactHeadline : headline)
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel(summary)
                 .accessibilityIdentifier("xinghuoSummary")
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            FlowActionButton(
-                "听见星光",
-                systemImage: "waveform",
-                accessibilityHint: "朗读身边有多少人在线"
-            ) {
-                speechService.speak(summary, priority: .onDemand)
-            }
+            // 盲人端次级操作整行竖排、绝不并排（design-direction §4）；志愿者端收起时并排省高度，
+            // 大字号放不下时也竖排。用 `AnyLayout` 换排法，子视图身份不变，字号审计不会判成换了一棵树。
+            let controlsLayout = controlsSideBySide
+                ? AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+                : AnyLayout(VStackLayout(alignment: .leading, spacing: 14))
+            controlsLayout {
+                FlowActionButton(
+                    "听见星光",
+                    systemImage: "waveform",
+                    accessibilityHint: "朗读身边有多少人在线"
+                ) {
+                    speechService.speak(summary, priority: .onDemand)
+                }
 
-            Toggle(isOn: $showsFootprints) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("今日足迹")
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.Xinghuo.ink)
-                    if let note = footprintNote {
-                        Text(note)
-                            .font(AppFonts.caption())
-                            .fixedSize(horizontal: false, vertical: true)
-                            .foregroundColor(footprintState == .failed ? AppColors.Xinghuo.ember : AppColors.Xinghuo.muted)
+                Toggle(isOn: $showsFootprints) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("今日足迹")
+                            .font(AppFonts.body())
+                            .foregroundColor(AppColors.Xinghuo.ink)
+                        if let note = visibleFootprintNote {
+                            Text(note)
+                                .font(AppFonts.caption())
+                                .fixedSize(horizontal: false, vertical: true)
+                                .foregroundColor(footprintState == .failed ? AppColors.Xinghuo.ember : AppColors.Xinghuo.muted)
+                        }
                     }
                 }
+                .tint(AppColors.Xinghuo.ember)
+                .frame(minHeight: isBlind ? 64 : 44)
+                .accessibilityIdentifier("xinghuoFootprintToggle")
             }
-            .tint(AppColors.Xinghuo.ember)
-            .frame(minHeight: isBlind ? 64 : 44)
-            .accessibilityIdentifier("xinghuoFootprintToggle")
 
-            legend
+            if !isCardCollapsed {
+                legend
+            }
 
             Text("演示数据 · 仅调试版可见")
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.Xinghuo.muted)
         }
-        .padding(16)
-        .xinghuoGlass(cornerRadius: 22)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 16)
+    }
+
+    private var controlsSideBySide: Bool {
+        isCardCollapsed && !isBlind && !dynamicTypeSize.isAccessibilitySize
+    }
+
+    /// 收起时足迹说明只留「加载失败」那一条 —— 失败是必须看得见的（spec），其余两条是锦上添花。
+    private var visibleFootprintNote: String? {
+        isCardCollapsed && footprintState != .failed ? nil : footprintNote
+    }
+
+    /// 收起态的摘要：一行「N 位志愿者在线」。读屏念的仍是完整摘要句（`accessibilityLabel(summary)`）。
+    private var compactHeadline: Text {
+        guard let snapshot, snapshot.volunteersOnline > 0 else {
+            return Text(snapshot == nil ? "正在点亮附近的星光" : "暂时没有志愿者在线")
+                .font(AppFonts.title())
+                .foregroundColor(AppColors.Xinghuo.ink)
+        }
+        return Text("\(snapshot.volunteersOnline)")
+            .font(Self.numberFont(.title2))
+            .foregroundColor(AppColors.Xinghuo.ember)
+            + Text(" 位志愿者在线")
+                .font(AppFonts.title())
+                .foregroundColor(AppColors.Xinghuo.ink)
     }
 
     /// 卡片头：「本市 · 此刻」/ **金色大数字** + 位志愿者在线 / 一两行明细。

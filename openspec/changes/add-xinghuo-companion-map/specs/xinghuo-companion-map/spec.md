@@ -60,6 +60,22 @@ The page overlay SHALL leave the area between the top statistics and the bottom 
 - **WHEN** the user has dragged the map away and the page state then changes
 - **THEN** the map SHALL stay where the user left it
 
+### Requirement: The bottom card can be collapsed to leave more of the map visible
+The bottom card SHALL have two resting heights, expanded and collapsed, switched by dragging or tapping a handle at the top of the card. The drag gesture SHALL be attached to the handle only. The collapsed card SHALL still show the online volunteer count, the "hear the stars" control, the footprint switch and the demo-data label. The chosen height SHALL persist across launches, and SHALL default to expanded.
+
+#### Scenario: The user collapses the card
+- **WHEN** the user drags the handle down past the threshold or taps it
+- **THEN** the card SHALL settle at the collapsed height and its top edge SHALL move down
+
+#### Scenario: A VoiceOver user reads the collapsed card
+- **WHEN** the card is collapsed and VoiceOver reads the page
+- **THEN** the first element SHALL still be the full summary sentence, followed by the "hear the stars" control and the footprint switch
+- **AND** the handle SHALL be read after the card content, as a button whose value states expanded or collapsed and which can be adjusted by swiping up or down
+
+#### Scenario: Reduce Motion is on
+- **WHEN** Reduce Motion is on and the card changes height
+- **THEN** the card SHALL NOT follow the finger or spring, and SHALL jump directly to the target height
+
 ### Requirement: Xinghuo animations honour Reduce Motion
 Stars SHALL light up outward from the user and twinkle, the user marker SHALL pulse, and footprints SHALL carry a moving light, unless the system Reduce Motion setting is on, in which case none of these animations SHALL run and every star SHALL appear immediately at a steady brightness.
 
