@@ -61,7 +61,7 @@ The page overlay SHALL leave the area between the top statistics and the bottom 
 - **THEN** the map SHALL stay where the user left it
 
 ### Requirement: The bottom card can be collapsed to leave more of the map visible
-The bottom card SHALL have two resting heights, expanded and collapsed, switched by dragging or tapping a handle at the top of the card. The drag gesture SHALL be attached to the handle only. The collapsed card SHALL be a single row showing the online volunteer count and the "hear the stars" control; the demo-data label SHALL stay visible in the page header in both states. The chosen height SHALL persist across launches, and SHALL default to expanded.
+The bottom card SHALL have two resting heights, expanded and collapsed, switched by dragging or tapping a handle at the top of the card. The drag gesture SHALL be attached to the handle only. The collapsed card SHALL be a single row showing the online volunteer count and the "hear the stars" control, plus the footprint-loading failure notice only when loading has failed (a visible failure outranks the single-row goal); the demo-data label SHALL stay visible in the page header in both states. The chosen height SHALL persist across launches, and SHALL default to expanded.
 
 #### Scenario: The user collapses the card
 - **WHEN** the user drags the handle down past the threshold or taps it
