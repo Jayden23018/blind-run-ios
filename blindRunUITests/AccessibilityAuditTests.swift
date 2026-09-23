@@ -113,12 +113,18 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在")
-        for title in ["首页", "记录", "我的"] {
+        for title in ["首页", "星火", "记录", "我的"] {
             XCTAssertTrue(
                 tabBar.buttons[title].exists,
-                "标签栏缺少「\(title)」—— 设计交付 v3 §4.1 要的就是这三个"
+                "标签栏缺少「\(title)」—— 设计交付 v3 §4.1 的三个 + 调试版的星火页"
             )
         }
+
+        tabBar.buttons["星火"].tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["xinghuoSummary"].firstMatch.waitForExistence(timeout: 15),
+            "「星火」tab 没到星火页"
+        )
 
         tabBar.buttons["记录"].tap()
         XCTAssertTrue(
@@ -402,7 +408,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在")
-        for title in ["首页", "记录", "我的"] {
+        for title in ["首页", "星火", "记录", "我的"] {
             XCTAssertTrue(
                 tabBar.buttons[title].exists,
                 "标签栏缺少「\(title)」—— 改版后历史订单与设置只有这一条路可走"
@@ -418,6 +424,25 @@ final class AccessibilityAuditTests: XCTestCase {
             sosBar.waitForExistence(timeout: 10),
             "「我的」tab 底部没有兜底的紧急入口 —— 首页那条已经移除，这里是它现在唯一的落点"
         )
+    }
+
+    /// 星火页（调试版）：摘要句与今日足迹开关在，盲人端摘要不念别的盲人；整页过审计。
+    @MainActor
+    func testBlindXinghuoPageShowsSummaryAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome()
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "底部标签栏不在")
+        tabBar.buttons["星火"].tap()
+
+        let summary = app.descendants(matching: .any)["xinghuoSummary"].firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 15), "星火页没起来，后面的审计结果没有意义")
+        XCTAssertTrue(summary.label.contains("志愿者"), "摘要句该念志愿者人数，实际：\(summary.label)")
+        XCTAssertFalse(summary.label.contains("视障跑者在等待"), "盲人端摘要不该念别的盲人")
+        XCTAssertTrue(app.switches["xinghuoFootprintToggle"].exists, "今日足迹开关不在")
+        try audit(app)
     }
 
     // MARK: - 首次使用引导

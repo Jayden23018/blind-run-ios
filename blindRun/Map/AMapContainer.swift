@@ -15,6 +15,10 @@ enum MapAnnotationKind: Equatable, Sendable {
     /// 这两个标的是实际**跑出来**的第一个和最后一个轨迹点，两者可以差出几百米。
     case routeStart
     case routeEnd
+    /// 星火页的聚合片区。坐标是**片区中心**不是任何人的位置；`tier` 1…3 只决定画多大。
+    /// 两种靠形状区分（四角星 / 带光环的圆点），不依赖颜色 —— 低视力与色弱用户同样分得开。
+    case volunteerStar(tier: Int)
+    case runnerCluster(tier: Int)
 }
 
 struct MapAnnotationItem: Identifiable {
@@ -29,6 +33,8 @@ struct MapPolylineItem: Identifiable {
     let id: String
     let coordinates: [CLLocationCoordinate2D]
     var isPrimary = false
+    /// 星火页「我的足迹」：用 `warning` 那枚暖色半透明画，与订单轨迹的蓝色主线区分。
+    var isFootprint = false
 
     var signature: String {
         coordinates.map { String(format: "%.6f,%.6f", $0.latitude, $0.longitude) }.joined(separator: ";")
@@ -62,6 +68,10 @@ struct AMapContainer: UIViewRepresentable {
         mapView.setCenter(centerCoordinate, animated: false)
         mapView.showsCompass = showsCompass
         mapView.showsScale = true
+        // 跟随系统明暗（design-direction §2 的裁决），全 App 的地图都走这里。
+        let isDark = context.environment.colorScheme == .dark
+        context.coordinator.isDark = isDark
+        mapView.mapType = Self.mapType(isDark: isDark)
         // AidRun updates peer/order markers at multi-second cadence and does not
         // perform in-app turn-by-turn navigation. A 10 fps ceiling is sufficient
         // for panning while preventing an idle home map from driving the main
@@ -91,6 +101,11 @@ struct AMapContainer: UIViewRepresentable {
 
         if mapView.showsCompass != showsCompass {
             mapView.showsCompass = showsCompass
+        }
+
+        let isDark = context.environment.colorScheme == .dark
+        if context.coordinator.isDark != isDark {
+            applyColorScheme(isDark: isDark, on: mapView, coordinator: context.coordinator)
         }
 
         let screenAnchorDidChange =
@@ -138,6 +153,27 @@ struct AMapContainer: UIViewRepresentable {
         showsUserLocation && tracksUserLocation ? .follow : .none
     }
 
+    static func mapType(isDark: Bool) -> MAMapType {
+        isDark ? .standardNight : .standard
+    }
+
+    /// 明暗切换时底图、星形标注与足迹线要一起换：标注图片和线的颜色是在创建时按当时的
+    /// 明暗画死的，不重画就会出现「底图变黑了、星星还是亮色那一档」。
+    private func applyColorScheme(isDark: Bool, on mapView: MAMapView, coordinator: Coordinator) {
+        coordinator.isDark = isDark
+        mapView.mapType = Self.mapType(isDark: isDark)
+        for annotation in coordinator.styledAnnotationsByID.values {
+            if let image = XinghuoGlyph.image(for: annotation.kind, isDark: isDark) {
+                mapView.view(for: annotation)?.image = image
+            }
+        }
+        for (id, entry) in coordinator.polylinesByID where entry.isFootprint {
+            // 删掉后由下面的 syncPolylines 按新配色重新加回来。
+            mapView.remove(entry.overlay)
+            coordinator.polylinesByID.removeValue(forKey: id)
+        }
+    }
+
     private func syncAnnotations(on mapView: MAMapView, coordinator: Coordinator) -> Bool {
         var didChange = false
         let incomingIDs = Set(annotations.map(\.id))
@@ -183,7 +219,7 @@ struct AMapContainer: UIViewRepresentable {
             guard let overlay = MAPolyline(coordinates: &coordinates, count: UInt(coordinates.count)) else {
                 continue
             }
-            coordinator.polylinesByID[item.id] = (overlay, item.signature, item.isPrimary)
+            coordinator.polylinesByID[item.id] = (overlay, item.signature, item.isPrimary, item.isFootprint)
             mapView.add(overlay)
 
             if item.isPrimary, coordinator.lastFittedPrimarySignature != item.signature {
@@ -231,8 +267,9 @@ struct AMapContainer: UIViewRepresentable {
         var lastRecenterToken = 0
         var lastScreenAnchor = CGPoint(x: 0.5, y: 0.5)
         var styledAnnotationsByID: [String: StyledMapPointAnnotation] = [:]
-        var polylinesByID: [String: (overlay: MAPolyline, signature: String, isPrimary: Bool)] = [:]
+        var polylinesByID: [String: (overlay: MAPolyline, signature: String, isPrimary: Bool, isFootprint: Bool)] = [:]
         var lastFittedPrimarySignature: String?
+        var isDark = false
 
         func mapView(_ mapView: MAMapView!, viewFor annotation: MAAnnotation!) -> MAAnnotationView! {
             // 用户位置使用默认蓝点
@@ -241,6 +278,17 @@ struct AMapContainer: UIViewRepresentable {
             }
 
             let kind = (annotation as? StyledMapPointAnnotation)?.kind ?? .generic
+            if let image = XinghuoGlyph.image(for: kind, isDark: isDark) {
+                let reuseID = "Xinghuo-\(kind)"
+                var view: MAAnnotationView? = mapView.dequeueReusableAnnotationView(withIdentifier: reuseID)
+                if view == nil {
+                    view = MAAnnotationView(annotation: annotation, reuseIdentifier: reuseID)
+                }
+                view?.annotation = annotation
+                view?.image = image
+                view?.canShowCallout = false
+                return view
+            }
             let reuseID = "OrderPin-\(kind)"
             var annotationView = mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MAPinAnnotationView
             if annotationView == nil {
@@ -257,7 +305,13 @@ struct AMapContainer: UIViewRepresentable {
         func mapView(_ mapView: MAMapView!, rendererFor overlay: MAOverlay!) -> MAOverlayRenderer! {
             guard let polyline = overlay as? MAPolyline else { return nil }
             let renderer = MAPolylineRenderer(polyline: polyline)
-            let isPrimary = polylinesByID.values.first(where: { $0.overlay === polyline })?.isPrimary == true
+            let entry = polylinesByID.values.first(where: { $0.overlay === polyline })
+            if entry?.isFootprint == true {
+                renderer?.lineWidth = 5
+                renderer?.strokeColor = XinghuoGlyph.tone("warning", isDark: isDark).withAlphaComponent(0.75)
+                return renderer
+            }
+            let isPrimary = entry?.isPrimary == true
             renderer?.lineWidth = isPrimary ? 7 : 4
             renderer?.strokeColor = isPrimary ? UIColor.systemBlue : UIColor.systemGray
             return renderer
@@ -312,6 +366,87 @@ private extension MapAnnotationKind {
             return .green
         case .routeEnd:
             return .red
+        // 这两种走 `XinghuoGlyph` 的自绘图片，不会落到大头针上。
+        case .volunteerStar, .runnerCluster:
+            return .purple
+        }
+    }
+}
+
+// MARK: - 星火页标注图形
+
+/// 星火页两种片区标注的自绘图片。光晕照 09-11 调研的双层结构：宽而淡的底 + 窄而亮的芯，
+/// 精致来自克制 —— 不叠第三层、不加动画。
+enum XinghuoGlyph {
+    /// 取 `AppColors.tones` 里那一行，不另抄一份色值（两份必然漂移）。
+    static func tone(_ name: String, isDark: Bool) -> UIColor {
+        guard let tone = AppColors.tones.first(where: { $0.name == name })?.tone else {
+            return .systemOrange
+        }
+        return UIColor(rgb: isDark ? tone.dark : tone.light)
+    }
+
+    /// 芯的半径（pt）。档位越高越大，但封顶 —— 09-11 调研：光晕不封顶时规模一大就糊成一片。
+    static func coreRadius(tier: Int) -> CGFloat {
+        switch min(max(tier, 1), 3) {
+        case 1: return 5
+        case 2: return 7
+        default: return 9
+        }
+    }
+
+    static func image(for kind: MapAnnotationKind, isDark: Bool) -> UIImage? {
+        switch kind {
+        case .volunteerStar(let tier):
+            return star(radius: coreRadius(tier: tier), color: tone("warning", isDark: isDark))
+        case .runnerCluster(let tier):
+            return haloDot(radius: coreRadius(tier: tier), color: tone("primary", isDark: isDark))
+        default:
+            return nil
+        }
+    }
+
+    private static func star(radius r: CGFloat, color: UIColor) -> UIImage {
+        let side = r * 5
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            let c = CGPoint(x: side / 2, y: side / 2)
+            color.withAlphaComponent(0.22).setFill()
+            UIBezierPath(ovalIn: CGRect(x: c.x - r * 1.8, y: c.y - r * 1.8, width: r * 3.6, height: r * 3.6)).fill()
+            // 四角星：四个尖点在上下左右，腰点收到 0.32r。
+            let path = UIBezierPath()
+            let inner = r * 0.32
+            for i in 0..<8 {
+                let angle = CGFloat(i) * .pi / 4 - .pi / 2
+                let length = i.isMultiple(of: 2) ? r * 2 : inner
+                let point = CGPoint(x: c.x + cos(angle) * length, y: c.y + sin(angle) * length)
+                if i == 0 {
+                    path.move(to: point)
+                } else {
+                    path.addLine(to: point)
+                }
+            }
+            path.close()
+            color.setFill()
+            path.fill()
+            // 描一圈深色细边：浅色底图上暖色星形的边界同样看得清。
+            UIColor.black.withAlphaComponent(0.35).setStroke()
+            path.lineWidth = 0.75
+            path.stroke()
+        }
+    }
+
+    private static func haloDot(radius r: CGFloat, color: UIColor) -> UIImage {
+        let side = r * 5
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            let c = CGPoint(x: side / 2, y: side / 2)
+            color.withAlphaComponent(0.18).setFill()
+            UIBezierPath(ovalIn: CGRect(x: c.x - r * 2.2, y: c.y - r * 2.2, width: r * 4.4, height: r * 4.4)).fill()
+            let ring = UIBezierPath(ovalIn: CGRect(x: c.x - r * 1.7, y: c.y - r * 1.7, width: r * 3.4, height: r * 3.4))
+            ring.lineWidth = 1.5
+            color.setStroke()
+            ring.stroke()
+            color.setFill()
+            UIBezierPath(ovalIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)).fill()
         }
     }
 }

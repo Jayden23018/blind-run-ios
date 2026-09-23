@@ -37,6 +37,7 @@ struct VolunteerTabView: View {
 
     private enum Tab: Hashable {
         case home
+        case xinghuo
         case records
         case profile
     }
@@ -55,6 +56,15 @@ struct VolunteerTabView: View {
                 // 横幅只活 4 秒，角标是它散掉之后唯一还留在屏幕上的痕迹。
                 .badge(viewModel.inviteBadgeCount)
                 .tag(Tab.home)
+
+            #if DEBUG
+            // 星火页一期只有演示数据，正式版不编译这个 tab（二期接上聚合端点后放开）。
+            XinghuoMapView(role: .volunteer)
+                .tabItem {
+                    Label("星火", systemImage: "sparkles")
+                }
+                .tag(Tab.xinghuo)
+            #endif
 
             NavigationStack {
                 VolunteerServiceRecordsView()
