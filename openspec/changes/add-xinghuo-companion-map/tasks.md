@@ -15,6 +15,28 @@
       **专门盯明暗切换那一刻**：星形标注重画、足迹线删掉重加（`AMapContainer.applyColorScheme`，单测够不着）；
       以及既有轨迹主线的 `systemBlue` 在高德渲染里是否跟着切换（既有路径，未验证过）。
 - [ ] 1.7 低视力对比度：夜间与标准底图上金星、蓝点的图标对比度（≥3:1），`LowVisionChannelTests` 不覆盖，人工量。
+      （1.8 之后星火页固定夜空：星芯压夜空底 ≥3:1 已由 `testXinghuoPaletteKeepsTextReadableOnGlass` 钉住；
+      剩下的是叠在高德 `standardNight` 真实底图上的观感，仍要人工看。）
+
+### 1.8–1.13 照原型重做（2026-09-23 负责人真机反馈 5 条）
+
+原型：`~/Downloads/星火同行 · 助盲跑陪伴地图 MVP.html`。负责人当日拍板：星火页**固定夜空**、
+原型配色进 `AppColors.Xinghuo`、底图先用 SDK 开关（控制台样式以后再接）、调试版补演示足迹。
+
+- [x] 1.8 地图拖不动：浮层去掉全屏 `ScrollView`，改成「顶栏 + 空白 + 贴底卡片」，卡片常驻滚动容器按内容定高
+      （`HugContentHeight`，照搬 PR #181）；`AMapContainer.snapsBackToCenter` 开关（星火关掉，刷新不再把地图拽回去）；
+      中心锁在首次位置；「回到我的位置」按钮；星火页 `maxRenderFrame` 30。
+- [x] 1.9 星星像棋盘：`XinghuoSnapshot.sparks` 按 `cell.id`（FNV-1a）把片区确定性散成一小簇（≤12 颗、半径 180 m 不出片区），
+      大小 / 亮度 / 旋转 / 闪烁节奏各不同；演示数据改为热点撒点。数据契约不变。
+- [x] 1.10 动效：`XinghuoSparkView`（Core Animation）从「你」向外按距离点亮 + 白色闪光、光晕闪烁；
+      `XinghuoSelfView` 三圈扩散环 + 「你」气泡；足迹光带双层线 + `MAAnimatedAnnotation` 流动光点。
+      「减弱动态效果」时一个动画都不加，运行中切换当场生效。
+- [x] 1.11 底图像夜空：`AMapContainer.nightSky`（关路名 / 店铺 / 楼块 / 比例尺 + 道路之上一层深蓝压淡）+ SwiftUI 四周压暗；
+      整页锁 `.dark`（design-direction §2 记为例外）。
+- [x] 1.12 卡片与数字：`AppColors.Xinghuo` 深色玻璃、金色衬线大数字、字标、图例；「听见星光」用 `FlowActionButton` 金色主按钮。
+- [ ] 1.13 验证：编译门禁；真机跑 `XinghuoSnapshotTests` / `LowVisionChannelTests` / 星火审计用例（新增「卡片滚动容器不盖住上半屏」断言）；
+      带真 key 的调试版由负责人目视（拖动跟手、点亮顺序、闪烁、光点、压淡程度、减弱动态效果、iPhone + iPad）。
+      可调参数：压淡层 α0.5、`maxRenderFrame` 30、光点 400 m/s。控制台自定义样式另起一项。
 
 ## 2. 二期（需要后端）
 

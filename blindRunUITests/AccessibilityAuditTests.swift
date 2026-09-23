@@ -442,6 +442,17 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(summary.label.contains("志愿者"), "摘要句该念志愿者人数，实际：\(summary.label)")
         XCTAssertFalse(summary.label.contains("视障跑者在等待"), "盲人端摘要不该念别的盲人")
         XCTAssertTrue(app.switches["xinghuoFootprintToggle"].exists, "今日足迹开关不在")
+
+        // 卡片的滚动容器只能贴底、按内容定高。它一旦铺满全屏，就会吃掉所有拖动手势，
+        // 地图拖不动（负责人 2026-09-23 真机反馈）—— 占位图构建里看不出地图拖没拖动，
+        // 但看得出这个容器占了多大。
+        let cardScroll = app.descendants(matching: .any)["xinghuoCardScroll"].firstMatch
+        XCTAssertTrue(cardScroll.exists, "卡片滚动容器不在")
+        let screenHeight = app.windows.firstMatch.frame.height
+        XCTAssertGreaterThan(
+            cardScroll.frame.minY, screenHeight * 0.4,
+            "卡片滚动容器从 \(Int(cardScroll.frame.minY)) pt 开始，盖住了上半屏的地图"
+        )
         try audit(app)
     }
 

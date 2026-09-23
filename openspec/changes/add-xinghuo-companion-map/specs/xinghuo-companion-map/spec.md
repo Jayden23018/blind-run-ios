@@ -5,8 +5,9 @@ The Xinghuo page SHALL render only aggregated cells (a grid-cell center plus a h
 
 #### Scenario: Cells are drawn on the map
 - **WHEN** the page renders the map
-- **THEN** each marker SHALL be placed at a cell center, sized by the cell's headcount tier
-- **AND** volunteer cells SHALL be four-point stars and runner cells SHALL be dots with a halo, so the two are distinguishable by shape without relying on color
+- **THEN** each cell SHALL be drawn as a small cluster of at most 12 stars scattered within 180 m of the cell center, so no star is drawn inside a neighbouring cell
+- **AND** the scatter, size, brightness and twinkle rhythm SHALL be derived deterministically from the cell id alone, so the same cell looks the same on every render and no position beyond the cell center is implied
+- **AND** volunteer cells SHALL be four-point stars and runner cells SHALL be dots with a ring, so the two are distinguishable by shape without relying on color
 
 #### Scenario: A blind runner opens the page
 - **WHEN** the active role is the blind runner
@@ -41,9 +42,27 @@ Until the backend aggregation endpoint exists, the Xinghuo tab SHALL be compiled
 - **WHEN** the app is built in the Release configuration
 - **THEN** neither role's tab bar SHALL contain the Xinghuo tab
 
-### Requirement: Maps follow the system appearance
-Every map in the app SHALL use the night base map style in dark appearance and the standard style in light appearance, and custom markers and footprint lines SHALL be redrawn when the appearance changes.
+### Requirement: Maps follow the system appearance, except the Xinghuo page
+Every map in the app other than the Xinghuo page SHALL use the night base map style in dark appearance and the standard style in light appearance. The Xinghuo page SHALL always render as a night sky regardless of the system appearance, because glowing stars are not visible on a light base map; the tab bar and every other page SHALL keep following the system.
 
 #### Scenario: The user switches appearance while a map is on screen
 - **WHEN** the system appearance changes between light and dark
-- **THEN** the base map style, Xinghuo markers, and footprint lines SHALL all switch to the matching palette
+- **THEN** every map other than the Xinghuo page SHALL switch its base map style to match
+
+#### Scenario: The Xinghuo page in light appearance
+- **WHEN** the system appearance is light and the Xinghuo page is shown
+- **THEN** the page SHALL render with the night base map, hidden place labels, and the Xinghuo night palette
+
+### Requirement: The map on the Xinghuo page can be dragged freely
+The page overlay SHALL leave the area between the top statistics and the bottom card free of touch-receiving views, and the map SHALL NOT be pulled back to its center by unrelated view updates; it SHALL return to the user only when the user asks for it.
+
+#### Scenario: The user drags the map, then footprints finish loading
+- **WHEN** the user has dragged the map away and the page state then changes
+- **THEN** the map SHALL stay where the user left it
+
+### Requirement: Xinghuo animations honour Reduce Motion
+Stars SHALL light up outward from the user and twinkle, the user marker SHALL pulse, and footprints SHALL carry a moving light, unless the system Reduce Motion setting is on, in which case none of these animations SHALL run and every star SHALL appear immediately at a steady brightness.
+
+#### Scenario: Reduce Motion is turned on while the page is open
+- **WHEN** the user turns on Reduce Motion with the Xinghuo page on screen
+- **THEN** every running star, ring and footprint animation SHALL stop

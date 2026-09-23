@@ -138,6 +138,36 @@ enum AppColors {
             UIColor(rgb: traits.userInterfaceStyle == .dark ? dark : light)
         })
     }
+
+    /// 星火页的夜空色板 —— **只给星火页用**，不进 `tones`、不当全局语义色。
+    ///
+    /// 两条例外（`docs/ui/design-direction.md` §2，项目负责人 2026-09-23 拍板）：
+    /// 星火页**固定夜空**，不跟随系统明暗；颜色取自负责人给的 HTML 原型
+    /// （`--ember` / `--moon` / `--glass` …），不从 5 个语义色里凑 —— `warning` 暗色档
+    /// `#FF9F0A` 是橙，原型的星是暖金。所以这里只有一套取值，没有亮色档。
+    ///
+    /// 对比度由 `LowVisionChannelTests.testXinghuoPaletteKeepsTextReadableOnGlass` 钉住：
+    /// 文字色压在「玻璃叠在**白底**上」的最坏合成色上也要 ≥ 4.5:1 ——
+    /// 玻璃是半透明的，底下偶尔会是一颗亮星。`glassAlpha` 比原型的 0.74 高，就是为了这一条。
+    enum Xinghuo {
+        static let emberRGB: UInt32 = 0xFFC45C
+        static let moonRGB: UInt32 = 0x8EC5FF
+        static let nightRGB: UInt32 = 0x0B1430
+        static let glassRGB: UInt32 = 0x0D1630
+        static let inkRGB: UInt32 = 0xF2F4FA
+        static let mutedRGB: UInt32 = 0xA3ADC8
+        static let starCoreRGB: UInt32 = 0xFFF1CF
+        static let runnerCoreRGB: UInt32 = 0xE3F0FF
+        static let glassAlpha: CGFloat = 0.86
+
+        static let ember = Color(uiColor: UIColor(rgb: emberRGB))
+        static let moon = Color(uiColor: UIColor(rgb: moonRGB))
+        static let night = Color(uiColor: UIColor(rgb: nightRGB))
+        static let glass = Color(uiColor: UIColor(rgb: glassRGB)).opacity(glassAlpha)
+        static let ink = Color(uiColor: UIColor(rgb: inkRGB))
+        static let muted = Color(uiColor: UIColor(rgb: mutedRGB))
+        static let hairline = Color.white.opacity(0.09)
+    }
 }
 
 extension UIColor {
