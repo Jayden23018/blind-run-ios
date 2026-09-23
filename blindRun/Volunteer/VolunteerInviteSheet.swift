@@ -96,6 +96,8 @@ struct VolunteerInviteSheet: View {
         // 装得下就按内容高度（第一个分支），装不下才滚（第二个分支）。
         // AX5 下一张完整的卡装不进一屏，而这一屏的每个字都要能看见 ——
         // 这正是原先 `.presentationDetents` 里 `.large` 那一档干的事。
+        // ⚠️ 同样的写法在星火页上被真机无障碍审计判成「整页改不了字号」（2026-09-23，已验红），
+        // 而这张卡没有审计用例覆盖 —— 很可能有同一个问题，见 `XinghuoMapView.overlay` 的改法。
         ViewThatFits(in: .vertical) {
             cardContent
             ScrollView { cardContent }
