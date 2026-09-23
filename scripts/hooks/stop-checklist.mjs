@@ -143,10 +143,18 @@ function branchLandedOnMain(branch) {
   return git('diff', 'origin/main..HEAD', '--', ...files.split('\n')) === '';
 }
 
+// ① 里还有一种不是欠账：从没设过 upstream，但也没有 origin/main 之外的提交。
+// 新开 worktree 的默认分支、本轮只改了仓库外文件（如 ~/.claude 下的记忆与钩子）时就是这样。
+// 2026-09-23 一个会话里连报两次「push 要带 -u」—— 照做只会推一个空分支上去。
+// 拿不到 origin/main 时 git() 返回 null，照旧报：宁可多拦，不要静默失效。
+function nothingToPush() {
+  return git('rev-list', '--count', 'origin/main..HEAD') === '0';
+}
+
 const upstream = git('rev-parse', '--abbrev-ref', '@{u}');
 if (upstream === null) {
   const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
-  if (!branchLandedOnMain(branch)) {
+  if (!nothingToPush() && !branchLandedOnMain(branch)) {
     todo.push(`**无 upstream**：\`${branch}\` 还没跟远端，push 要带 \`-u\``);
   }
 } else {
