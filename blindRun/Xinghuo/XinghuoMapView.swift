@@ -20,6 +20,7 @@ struct XinghuoMapView: View {
     @EnvironmentObject private var locationService: LocationService
     @EnvironmentObject private var speechService: SpeechService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// 页面第一次出现时的位置。星围绕它生成，地图中心也锁在它上面 ——
     /// 走动时 GPS 一更新就把地图拽回来，用户就没法拖了。
@@ -144,7 +145,9 @@ struct XinghuoMapView: View {
     }
 
     /// 字标 + 四个数。对读屏隐藏：同样的数在摘要句里念过，这里再念一遍是纯重复。
-    /// 字号封顶：它只是装饰，放到 AX5 会把地图整个挤掉，而完整信息在摘要句里随字号放大。
+    ///
+    /// ⚠️ **不要给它封字号**（`.dynamicTypeSize(...)`）。对读屏隐藏的元素照样会被真机审计检查，
+    /// 2026-09-23 加了封顶之后，这一排九个文字全部被判成「用户改不了字号」。
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("✦ 星火同行")
@@ -156,31 +159,30 @@ struct XinghuoMapView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .accessibilityHidden(true)
     }
 
+    /// 大字号时四列改两列：四列平分宽度，「86.5」这种不能折行的数字会被截断
+    /// （2026-09-23 真机审计 `Text clipped`）。改版前的写法就是这样，审计验绿过。
     private func stats(_ snapshot: XinghuoSnapshot) -> some View {
-        HStack(spacing: 0) {
-            statCell("\(snapshot.volunteersOnline)", "志愿者在线", AppColors.Xinghuo.ember)
-            divider
-            statCell("\(snapshot.runnersWaiting)", "视障跑者", AppColors.Xinghuo.moon)
-            divider
-            statCell("\(snapshot.pairsRunning)", "正在同行", AppColors.Xinghuo.ink)
-            divider
-            statCell(XinghuoSnapshot.kmText(snapshot.todayKm), "今日公里", AppColors.Xinghuo.ink)
+        let columns = dynamicTypeSize.isAccessibilitySize ? 2 : 4
+        let cells: [(String, String, Color)] = [
+            ("\(snapshot.volunteersOnline)", "志愿者在线", AppColors.Xinghuo.ember),
+            ("\(snapshot.runnersWaiting)", "视障跑者", AppColors.Xinghuo.moon),
+            ("\(snapshot.pairsRunning)", "正在同行", AppColors.Xinghuo.ink),
+            (XinghuoSnapshot.kmText(snapshot.todayKm), "今日公里", AppColors.Xinghuo.ink),
+        ]
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: columns), spacing: 0) {
+            ForEach(cells.indices, id: \.self) { index in
+                statCell(cells[index].0, cells[index].1, cells[index].2, divided: index % columns != 0)
+            }
         }
         .xinghuoGlass(cornerRadius: 18)
     }
 
-    private var divider: some View {
-        Rectangle()
-            .fill(AppColors.Xinghuo.hairline)
-            .frame(width: 1)
-            .padding(.vertical, 12)
-    }
-
-    private func statCell(_ value: String, _ label: String, _ color: Color) -> some View {
+    /// 分隔线挂在格子左边的 overlay 上，高度跟格子走。单独放一个 `Rectangle` 进 `HStack`
+    /// 会在竖直方向无限伸展，把整排统计撑满剩余的屏幕（2026-09-23 真机截图实见）。
+    private func statCell(_ value: String, _ label: String, _ color: Color, divided: Bool) -> some View {
         VStack(spacing: 2) {
             Text(value)
                 .font(Self.numberFont(.title3))
@@ -189,10 +191,17 @@ struct XinghuoMapView: View {
                 .font(AppFonts.caption())
                 .foregroundColor(AppColors.Xinghuo.muted)
         }
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
+        .multilineTextAlignment(.center)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity)
+        .overlay(alignment: .leading) {
+            if divided {
+                Rectangle()
+                    .fill(AppColors.Xinghuo.hairline)
+                    .frame(width: 1)
+                    .padding(.vertical, 12)
+            }
+        }
     }
 
     /// 数字用系统衬线（New York）：最接近原型的 Fraunces，且和 SF 一样吃 Dynamic Type。
@@ -317,7 +326,6 @@ struct XinghuoMapView: View {
             legendItem("⌒", "今日足迹", AppColors.Xinghuo.ember)
         }
         .font(AppFonts.caption())
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .accessibilityHidden(true)
     }
 
