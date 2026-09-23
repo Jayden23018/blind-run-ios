@@ -463,6 +463,10 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let screenHeight = app.windows.firstMatch.frame.height
         let expandedTop = settledMinY(of: cardScroll)
+        // 高度量卡片本体（里面的 ScrollView）：容器的 frame 是子元素的并集，
+        // 会把往卡片上方伸出去的把手命中区也算进去。
+        let cardBody = cardScroll.scrollViews.firstMatch
+        let expandedHeight = cardBody.frame.height
         XCTAssertGreaterThan(
             expandedTop, screenHeight * 0.4,
             "卡片滚动容器从 \(Int(expandedTop)) pt 开始，盖住了上半屏的地图"
@@ -479,8 +483,8 @@ final class AccessibilityAuditTests: XCTestCase {
         // 面板要让地图占主导（负责人 2026-09-24「再压缩短一点」）。上限按默认字号定，
         // 上一版实测展开 377 / 收起 292，两条都会红。
         XCTAssertLessThanOrEqual(
-            cardScroll.frame.height, 280,
-            "展开的卡片有 \(Int(cardScroll.frame.height)) pt 高，地图又被压小了"
+            expandedHeight, 280,
+            "展开的卡片有 \(Int(expandedHeight)) pt 高，地图又被压小了"
         )
         try audit(app)
 
@@ -489,7 +493,7 @@ final class AccessibilityAuditTests: XCTestCase {
         handle.tap()
         XCTAssertEqual(handle.value as? String, "已收起", "点把手没换档")
         let collapsedTop = settledMinY(of: cardScroll)
-        print("[xinghuo] card top expanded=\(expandedTop) collapsed=\(collapsedTop) height=\(cardScroll.frame.height) screen=\(screenHeight)")
+        print("[xinghuo] card top expanded=\(expandedTop) collapsed=\(collapsedTop) collapsedHeight=\(cardBody.frame.height) screen=\(screenHeight)")
         XCTAssertGreaterThan(
             collapsedTop, expandedTop + 60,
             "收起后面板上沿只从 \(Int(expandedTop)) 移到 \(Int(collapsedTop))，地图没多出来"
@@ -500,14 +504,31 @@ final class AccessibilityAuditTests: XCTestCase {
         // （外层是 `accessibilityElement(children: .ignore)` 合成的），不带它 `isHittable` 撞上多重匹配恒为 false。
         XCTAssertTrue(app.buttons["听见星光"].firstMatch.isHittable, "收起后「听见星光」不在了")
         XCTAssertLessThanOrEqual(
-            cardScroll.frame.height, 160,
-            "收起的卡片还有 \(Int(cardScroll.frame.height)) pt 高 —— 收起该是一行"
+            cardBody.frame.height, 120,
+            "收起的卡片还有 \(Int(cardBody.frame.height)) pt 高 —— 收起该是一行"
         )
         try audit(app)
 
         // 复原，不给下一次运行留下收起档。
         handle.tap()
         XCTAssertEqual(handle.value as? String, "已展开")
+
+        // 真拖（前面都是轻点）。2026-09-24 负责人报「拖的时候上下抽搐」：把手随卡片移动、位移按自身坐标算，
+        // 位移在拖动中反复被减回 0，松手时的惯性预测甚至会反向 —— 拖了不换档。慢拖再停住，预测≈实际位移。
+        dragHandle(handle, by: 150)
+        XCTAssertEqual(handle.value as? String, "已收起", "往下拖 150pt 没收起")
+        dragHandle(handle, by: -150)
+        XCTAssertEqual(handle.value as? String, "已展开", "往上拖 150pt 没展开")
+    }
+
+    private func dragHandle(_ handle: XCUIElement, by dy: CGFloat) {
+        let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0.1,
+            thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.3
+        )
     }
 
     /// 等弹簧动画停下再量（连续两次读数相同才算停）。

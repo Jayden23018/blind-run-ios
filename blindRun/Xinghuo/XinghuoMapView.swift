@@ -145,7 +145,15 @@ struct XinghuoMapView: View {
         VStack(spacing: 10) {
             header
             Spacer(minLength: 0)
-            HStack {
+            // 演示标记放在定位按钮那一行的左边空位上（spec：一期必须看得见「演示数据」），不另占高度。
+            // 放在标题后面时真机审计判标题「大字号下会被截断」（2026-09-24，并排、拼成一个 Text 都试过）。
+            // 读屏那一侧由摘要句的 hint 念。
+            HStack(alignment: .bottom) {
+                Text("演示数据 · 仅调试版可见")
+                    .font(AppFonts.caption())
+                    .foregroundColor(AppColors.Xinghuo.muted)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 Spacer()
                 recenterButton
             }
@@ -161,11 +169,14 @@ struct XinghuoMapView: View {
     /// 把手在 `ZStack` 里**后画**、内容顶部让出同样高度，而不是放进 `VStack` 第一个：
     /// 读屏遍历顺序跟**绘制顺序**走，`accessibilitySortPriority` 在这里真机实测排不动
     /// （2026-09-23，把手照样排在摘要句前面；记忆 `swiftui-traversal-order-follows-paint-order`）。
+    ///
+    /// 卡片顶上只让出 `handleStrip` 那么高的一条（负责人 2026-09-24：「把手上面空白太多」）；
+    /// 把手的命中区更高，多出来的部分往卡片**上方**伸，见 `cardHandle`。
     private var cardPanel: some View {
         ZStack(alignment: .top) {
             HugContentHeight {
                 ScrollView {
-                    bottomCard.padding(.top, handleHeight)
+                    bottomCard.padding(.top, Self.handleStrip)
                 }
             }
             cardHandle
@@ -181,16 +192,25 @@ struct XinghuoMapView: View {
     ///
     /// 读屏：一个按钮，value 念当前档位，双击换档、上下轻扫也能换档（可调节）；
     /// 排在卡片内容**之后**（见 `cardPanel`），第一个读屏元素仍是摘要句。
+    ///
+    /// 命中区 `handleHitWidth` × `handleHeight`（盲人端 64pt 高），胶囊画在它底部、落在卡片顶上那条
+    /// `handleStrip` 里，其余部分用 `offset` 抬到卡片上方的地图上 —— 看得见的空白只有一条，能按的仍够大。
+    /// 只占中间一段宽度：右上方是定位按钮，全宽会把它的下半截盖住。
+    ///
+    /// 🔴 拖动位移必须按 `.global` 坐标算。把手随卡片一起 `offset`，按自己的坐标算的话，
+    /// 卡片一动坐标系跟着动、位移又被减回去，卡片就在手指下「上下抽搐」
+    /// （2026-09-24 真机日志：一次拖动里位移归零 4–7 次，惯性预测一度算出反方向 -2662pt）。
     private var cardHandle: some View {
         Capsule()
             .fill(AppColors.Xinghuo.muted)
             .frame(width: 36, height: 5)
-            .frame(maxWidth: .infinity)
-            .frame(height: handleHeight)
+            .padding(.bottom, (Self.handleStrip - 5) / 2)
+            .frame(width: Self.handleHitWidth, height: handleHeight, alignment: .bottom)
             .contentShape(Rectangle())
+            .offset(y: Self.handleStrip - handleHeight)
             .onTapGesture { setCardCollapsed(!isCardCollapsed) }
             .gesture(
-                DragGesture(minimumDistance: 10)
+                DragGesture(minimumDistance: 10, coordinateSpace: .global)
                     .updating($handleDrag) { value, state, _ in state = value.translation.height }
                     .onEnded { value in
                         let travel = value.predictedEndTranslation.height
@@ -219,6 +239,9 @@ struct XinghuoMapView: View {
 
     /// 把手的命中区高度：盲人端 64pt，志愿者端 44pt。
     private var handleHeight: CGFloat { isBlind ? 64 : 44 }
+    /// 卡片顶上为胶囊让出的那一条。
+    private static let handleStrip: CGFloat = 20
+    private static let handleHitWidth: CGFloat = 160
 
     /// 展开态只许往下拖（跟手），收起态只许往上拖（橡皮筋）。减弱动态效果时不跟手。
     private var handleOffset: CGFloat {
@@ -241,17 +264,10 @@ struct XinghuoMapView: View {
     /// 2026-09-23 加了封顶之后，这一排九个文字全部被判成「用户改不了字号」。
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // 演示标记挂在顶栏（spec：一期必须看得见「演示数据」），不占卡片的高度。
-            // 读屏那一侧由摘要句的 hint 念。
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("✦ 星火同行")
-                    .font(.system(.title3, design: .serif).weight(.medium))
-                    .foregroundColor(AppColors.Xinghuo.ink)
-                    .shadow(color: AppColors.Xinghuo.ember.opacity(0.35), radius: 9)
-                Text("演示数据")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.Xinghuo.muted)
-            }
+            Text("✦ 星火同行")
+                .font(.system(.title3, design: .serif).weight(.medium))
+                .foregroundColor(AppColors.Xinghuo.ink)
+                .shadow(color: AppColors.Xinghuo.ember.opacity(0.35), radius: 9)
             if let snapshot {
                 stats(snapshot)
             }
