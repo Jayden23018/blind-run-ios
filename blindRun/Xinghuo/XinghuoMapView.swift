@@ -201,6 +201,7 @@ struct XinghuoMapView: View {
     }
 
     /// 回到「你」。对读屏隐藏：地图本身对读屏隐藏，读屏用户拖不动地图，也就用不着回来。
+    /// 盲人端仍按 64pt：看得见但点不准的低视力用户是用手指点它的。
     private var recenterButton: some View {
         Button {
             recenterToken += 1
@@ -208,7 +209,7 @@ struct XinghuoMapView: View {
             Image(systemName: "location.fill")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(AppColors.Xinghuo.muted)
-                .frame(width: 44, height: 44)
+                .frame(width: isBlind ? 64 : 44, height: isBlind ? 64 : 44)
                 .xinghuoGlass(cornerRadius: 14)
         }
         .accessibilityHidden(true)
