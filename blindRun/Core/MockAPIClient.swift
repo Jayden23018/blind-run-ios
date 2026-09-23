@@ -214,11 +214,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             await Self.suspendForeverIgnoringCancellation()
             throw CancellationError()
         }
-        // 让退出登录在 `.inProgress` 停够几秒，UI 测试才断得到进度遮罩那一刻的无障碍树。
-        // 限时而不是永久挂起：配 `AIDRUN_MOCK_LOGOUT_FAILURE` 就能走到「失败 → 取消 → 回到 idle」，
+        // 让退出登录 / 删除账户在 `.inProgress` 停够几秒，UI 测试才断得到进度遮罩那一刻的无障碍树。
+        // 限时而不是永久挂起：退出登录配 `AIDRUN_MOCK_LOGOUT_FAILURE` 就能走到「失败 → 取消 → 回到 idle」，
         // 同一条用例顺带验遮罩收起后背景回到树里。
-        if path == "/api/auth/logout",
-           let seconds = Double(ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SLOW_LOGOUT_SECONDS"] ?? "") {
+        if path == "/api/auth/logout" || (method == .delete && path.hasPrefix("/api/users/")),
+           let seconds = Double(ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SLOW_SESSION_END_SECONDS"] ?? "") {
             try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         }
         #endif
