@@ -250,6 +250,63 @@ const cases = [
         ? null
         : '缺 session_id 时没问归档',
   },
+  {
+    // OpenSpec 闭环（2026-09-23）。四个靶子各自区分一种错误判据：
+    //   done    —— 全打勾：必须报
+    //   partial —— 有 [x] 也有 [ ]：「只看有没有 [x]」的实现会误报它
+    //   empty   —— 一个勾都没有：「只看没有 [ ]」的实现会误报它
+    //   archive/old —— 已归档：不看目录层级的实现会误报它
+    name: 'OpenSpec：只有任务全打勾且未归档的变更才报「待归档」',
+    stdin: '{}',
+    check: () => {
+      const { dir } = scratchRepo();
+      const tasks = {
+        'done': '- [x] 1.1 a\n- [X] 1.2 b\n',
+        'partial': '- [x] 1.1 a\n- [ ] 1.2 b\n',
+        'empty': '# Tasks\n',
+        'archive/old': '- [x] 1.1 a\n',
+      };
+      for (const [name, text] of Object.entries(tasks)) {
+        const d = path.join(dir, 'openspec/changes', name);
+        fs.mkdirSync(d, { recursive: true });
+        fs.writeFileSync(path.join(d, 'tasks.md'), text);
+      }
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      const line = r.stderr.split('\n').find((l) => l.includes('**待归档**'));
+      if (!line) return '全打勾的 done 没被报成待归档';
+      if (!line.includes('openspec archive done -y')) return `没给出归档命令：${line}`;
+      const wrong = ['partial', 'empty', 'old'].filter((n) => line.includes(n));
+      return wrong.length ? `不该报的也报了：${wrong.join('、')}` : null;
+    },
+  },
+  {
+    // 三个场景对应三条出路：只改源码 → 报；同时碰了变更 → 不报；只改测试 → 不报。
+    name: 'OpenSpec：改了 App 源码却没碰 openspec/changes/ 才报「无变更记录」',
+    stdin: '{}',
+    check: () => {
+      const { dir } = scratchRepo();
+      // 目录要真的存在（realish 只解析目录，否则 /var 与 /private/var 对不上，路径被当成仓库外）。
+      for (const d of ['blindRun/Feature', 'blindRunTests', 'openspec/changes/x']) {
+        fs.mkdirSync(path.join(dir, d), { recursive: true });
+      }
+      const edits = (...files) =>
+        run(
+          JSON.stringify({
+            transcript_path: writeTranscript(
+              dir,
+              `t-${files.length}-${files[0].replace(/\W/g, '')}.jsonl`,
+              files.map((f) => ({ name: 'Edit', input: { file_path: path.join(dir, f) } })),
+              new Date().toISOString()
+            ),
+          }),
+          { AIDRUN_REPO_ROOT: dir }
+        ).stderr.includes('**无变更记录**');
+      if (!edits('blindRun/Feature/A.swift')) return '只改了 App 源码却没报';
+      if (edits('blindRun/Feature/A.swift', 'openspec/changes/x/tasks.md')) return '已经碰了变更记录仍在报';
+      if (edits('blindRunTests/ATests.swift')) return '只改测试也被报了';
+      return null;
+    },
+  },
 ];
 
 let failed = 0;

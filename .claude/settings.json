@@ -56,6 +56,16 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/research-log.mjs\" pre"
           }
         ]
+      },
+      {
+        "$comment": "OpenSpec 开工前提醒：本会话第一次改 App 源码、且还没碰 openspec/changes/ 时响一次。非阻断 —— 修 bug 不需要提议，机器分不出。收尾核对在 stop-checklist.mjs。",
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/openspec-reminder.mjs\""
+          }
+        ]
       }
     ],
     "PostToolUse": [
