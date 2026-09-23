@@ -76,6 +76,7 @@ Anthropic 官方 cookbook 的 `<frontend_aesthetics>` 块逐字要求避开
 | 真机跑测 `Test crashed with signal kill`，跑了大半随机死几条 | `ui-test-runner-needs-usb-not-wifi`（第七种） |
 | 写了「失败时在 `List` 末尾多一行字」的分支 | `claimed-fallback-may-not-exist-in-release` |
 | 想用 `tap()` 触发 `accessibilityRepresentation` 里的按钮 | `xcuitest-cannot-invoke-accessibility-actions` |
+| 自定义 overlay 弹出时背后的 `TabView` / `NavigationStack` 仍在无障碍树里 | `hide-uikit-hosted-tree-from-accessibility` |
 
 > 2026-09-17 从长条目压成表。原因：这 7 条各自**存了三份**（本文件长版 + `MEMORY.md` 一行版 +
 > 记忆文件全文），而本文件每个会话常驻、每一轮按 cache read 价重读一遍。
