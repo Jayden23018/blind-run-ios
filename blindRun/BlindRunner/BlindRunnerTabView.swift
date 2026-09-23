@@ -38,6 +38,7 @@ struct BlindRunnerTabView: View {
 
     private enum Tab: Hashable {
         case home
+        case xinghuo
         case history
         case profile
     }
@@ -55,6 +56,15 @@ struct BlindRunnerTabView: View {
                     Label("首页", systemImage: "house")
                 }
                 .tag(Tab.home)
+
+            #if DEBUG
+            // 星火页一期只有演示数据，正式版不编译这个 tab（二期接上聚合端点后放开）。
+            XinghuoMapView(role: .blind)
+                .tabItem {
+                    Label("星火", systemImage: "sparkles")
+                }
+                .tag(Tab.xinghuo)
+            #endif
 
             NavigationStack {
                 BlindRunHistoryView()
