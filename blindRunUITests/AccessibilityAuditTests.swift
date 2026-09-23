@@ -94,6 +94,24 @@ final class AccessibilityAuditTests: XCTestCase {
         try audit(app)
     }
 
+    /// 邀请卡（派单弹出的底部卡）整张过审计。
+    ///
+    /// 2026-09-23 补：星火页用 `ViewThatFits { 原样; ScrollView { 原样 } }` 时，真机审计把整页
+    /// 每个文字都判成「改不了字号」，而邀请卡是同一种写法、此前没有任何审计用例覆盖。
+    /// 卡片靠 `seedInvites` 弹出（UI 测试关着 WebSocket，派单推送到不了）。
+    @MainActor
+    func testVolunteerInviteSheetPassesAccessibilityAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchVolunteerHome(seedInvites: 1)
+        XCTAssertTrue(
+            app.buttons["接下这次陪跑"].firstMatch.waitForExistence(timeout: 20),
+            "邀请卡没弹出来，后面的审计结果没有意义"
+        )
+        try audit(app)
+    }
+
     /// 陪跑员端的底部三标签（设计交付 v3 §4.1）。
     ///
     /// 改版前这三样只有一条路：「记录」在首屏「最近一次」旁的「全部 ›」里、「我的」是首屏
@@ -1374,7 +1392,8 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     private func launchVolunteerHome(
         seedOrderStatus: String? = nil,
-        available: Bool = true
+        available: Bool = true,
+        seedInvites: Int? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1396,6 +1415,9 @@ final class AccessibilityAuditTests: XCTestCase {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"
             app.launchEnvironment["AIDRUN_UI_TEST_SEED_ORDER_STATUS"] = seedOrderStatus
         }
+        if let seedInvites {
+            app.launchEnvironment["AIDRUN_UI_TEST_SEED_INVITES"] = String(seedInvites)
+        }
 
         addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in
             for title in ["允许", "好", "使用App时允许", "OK", "Allow"] {
@@ -1411,7 +1433,10 @@ final class AccessibilityAuditTests: XCTestCase {
         app.launch()
         // 触发一次 interruption monitor。敲顶部地图区 —— 志愿者首页那一层同样不接受点击，
         // 是这一页唯一保证不触发任何动作的地方。
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+        // 有邀请卡时不敲：那个位置落在压暗层上，一敲就把卡收起了。
+        if seedInvites == nil {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+        }
         return app
     }
 }

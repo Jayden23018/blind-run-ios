@@ -93,11 +93,15 @@ struct VolunteerInviteSheet: View {
     /// **贴底**：下两角不圆、背景一直铺到屏幕最下缘。`padding-bottom:24` 就是稿子给
     /// Home Indicator 留的那段距离，不要再叠一份安全区内边距。
     private var card: some View {
-        // 装得下就按内容高度（第一个分支），装不下才滚（第二个分支）。
-        // AX5 下一张完整的卡装不进一屏，而这一屏的每个字都要能看见 ——
-        // 这正是原先 `.presentationDetents` 里 `.large` 那一档干的事。
-        ViewThatFits(in: .vertical) {
-            cardContent
+        // 始终在滚动容器里，高度取「内容高度」与上限中较小的那个：装得下就贴合内容，
+        // AX5 下装不进一屏才滚 —— 这正是原先 `.presentationDetents` 里 `.large` 那一档干的事。
+        //
+        // 不用 `ViewThatFits { cardContent; ScrollView { cardContent } }`：字号变化时它会换一棵
+        // 视图子树，真机无障碍审计因此把卡上每个文字都判成「用户改不了字号」
+        // （2026-09-23 验红 18 条，`testVolunteerInviteSheetPassesAccessibilityAudit`；
+        // 星火页同一问题见 `XinghuoMapView.overlay`）。也不照搬星火页的
+        // `GeometryReader + minHeight`：那会把卡片撑到上限高度，压暗层几乎点不到。
+        HugContentHeight {
             ScrollView { cardContent }
         }
         .background(sheetBackground)
@@ -738,5 +742,22 @@ struct VolunteerDeclineUndoToast: View {
         .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
         .padding(.horizontal, FlowMetrics.pageHorizontalPadding)
         .accessibilityElement(children: .contain)
+    }
+}
+
+/// 高度 = min(子视图的理想高度, 父视图给的高度)。用来让常驻的 `ScrollView` 按内容定高：
+/// 纵向 `ScrollView` 在不限高的提议下报的是内容高度，限高时照常滚。
+private struct HugContentHeight: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let ideal = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(
+            width: proposal.width ?? ideal.width,
+            height: min(ideal.height, proposal.height ?? .infinity)
+        )
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
     }
 }
