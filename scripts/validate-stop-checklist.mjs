@@ -242,6 +242,45 @@ const cases = [
     },
   },
   {
+    // 2026-09-23 真实误报：新开 worktree 的分支从没推过、也没有任何提交，
+    // 本轮只改了仓库外的文件，却连报两次「push 要带 -u」。
+    // 靶子让 HEAD 落后 origin/main 一个提交 —— worktree 从旧点切出来是常态，
+    // 「比内容」的实现会把 main 领先的那部分当成本分支的改动而误报。
+    name: '从没设过 upstream、也没有 origin/main 之外的提交 → 不报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      const seed = g('rev-parse', 'HEAD').stdout.trim();
+      fs.writeFileSync(path.join(dir, 'main-moved-on.txt'), 'main 领先的提交\n');
+      g('add', '-A');
+      g('commit', '-qm', 'main 又往前走了一步');
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'claude/fresh-worktree', seed);
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? '分支上没有任何 origin/main 之外的提交，却仍报「无 upstream」'
+        : null;
+    },
+  },
+  {
+    // 反例：同样从没设过 upstream，但有了自己的提交 —— 这是真欠账，必须照报。
+    // 挡的是「没有 upstream 配置就一律放行」这种修过头的实现。
+    name: '从没设过 upstream、有自己的提交 → 仍要报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'feat/never-pushed');
+      fs.writeFileSync(path.join(dir, 'new-work.txt'), '从没推过的活\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 从没推过');
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? null
+        : '从没推过的分支有自己的提交，却没报「无 upstream」—— 真欠账被放过了';
+    },
+  },
+  {
     // 拿不到 session_id 时宁可多问一次，也不要静默不问 —— 静默失效是这类提醒最常见的死法。
     name: '没有 session_id 时照问（不静默失效）',
     stdin: '{}',
