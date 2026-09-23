@@ -1246,6 +1246,53 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch.waitForExistence(timeout: 8))
     }
 
+    /// 🔴 退出登录 / 删除账户进行中那层进度遮罩盖住的整个根视图，必须退出无障碍树；
+    /// 状态结束后必须回来。
+    ///
+    /// 遮罩是自定义 overlay（`SessionLifecycleStatusModifier`），不像系统 sheet 白送 inert。
+    /// 背后是 `TabView`（UIKit 侧 `UITabBarController`）加 push 出来的设置页 ——
+    /// SwiftUI 的 `.accessibilityHidden` 跨不过那道平台边界（记忆
+    /// `hide-uikit-hosted-tree-from-accessibility`），所以断言要同时打在
+    /// push 页里的按钮和 UIKit 标签栏上，只查一个会放过半个修复。
+    @MainActor
+    func testSessionLifecycleOverlayHidesTheScreenBehindItFromAccessibility() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "logout-failure-token",
+            activeRole: "blind_runner",
+            preseedBlindProfile: true,
+            emptyMockOrders: true,
+            mockLogoutFailure: true,
+            slowLogoutSeconds: 8
+        )
+        openSettings(app)
+        let logoutButton = app.buttons["退出登录"].firstMatch
+        let tabBar = app.tabBars.firstMatch
+        logoutButton.tap()
+        app.buttons["确认退出"].tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["请求正在处理中，请稍候"].firstMatch.waitForExistence(timeout: 3),
+            "进度提示应当在树里\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(
+            waitForElementToDisappear(logoutButton, timeout: 2),
+            "遮罩盖住的设置页不该还留在无障碍树里\n\(app.debugDescription)"
+        )
+        XCTAssertFalse(tabBar.exists, "遮罩盖住的标签栏不该还留在无障碍树里\n\(app.debugDescription)")
+
+        // 慢退出到点后走失败分支（`mockLogoutFailure`）→ 取消 → 回到 idle，遮罩收起。
+        let failure = app.alerts["服务端退出失败"].firstMatch
+        XCTAssertTrue(failure.waitForExistence(timeout: 12))
+        failure.buttons["取消"].tap()
+
+        XCTAssertTrue(
+            logoutButton.waitForExistence(timeout: 3),
+            "遮罩收起后设置页要回到无障碍树里\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(tabBar.exists, "遮罩收起后标签栏要回到无障碍树里\n\(app.debugDescription)")
+    }
+
     @MainActor
     func testAuthLifecycleEveryLogoutSurfaceRequiresConfirmation() throws {
         let blindProfile = launchApp(
@@ -1545,6 +1592,8 @@ final class blindRunUITests: XCTestCase {
         disableMap: Bool = true,
         disableWebSocket: Bool = true,
         mockLogoutFailure: Bool = false,
+        /// 退出登录请求先等这么多秒（`AIDRUN_UI_TEST_SLOW_LOGOUT_SECONDS`），让进度遮罩停得住。
+        slowLogoutSeconds: Int? = nil,
         realtimePriorityTest: Bool = false,
         hangHomeRequests: Bool = false,
         hangTransitionConfirmation: Bool = false,
@@ -1630,6 +1679,9 @@ final class blindRunUITests: XCTestCase {
         }
         if mockLogoutFailure {
             app.launchEnvironment["AIDRUN_MOCK_LOGOUT_FAILURE"] = "1"
+        }
+        if let slowLogoutSeconds {
+            app.launchEnvironment["AIDRUN_UI_TEST_SLOW_LOGOUT_SECONDS"] = String(slowLogoutSeconds)
         }
         // 同意门默认跳过（判定在 `AppState.resolveInitialPrivacyConsent`）：UI 用例一律
         // `RESET_STATE`，不跳过的话每一条都会被挡在告知页，断言全红。只有专测它的用例打开这一条。
