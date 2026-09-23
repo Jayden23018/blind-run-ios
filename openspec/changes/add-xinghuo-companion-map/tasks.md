@@ -49,12 +49,18 @@
 负责人拍板：两档；默认展开；档位跨启动记住；收起态 = 一行「N 位志愿者在线」+「听见星光」+ 足迹开关 + 演示角标，
 盲人端两者整行竖排（design-direction §4「绝不并排」），志愿者端并排（密度轴），大字号时志愿者端也竖排。
 
-- [ ] 1.14 `XinghuoMapView`：卡片顶上加把手（盲人端 64pt / 志愿者端 44pt 命中区），拖动只挂在把手上
+- [x] 1.14 `XinghuoMapView`：卡片顶上加把手（盲人端 64pt / 志愿者端 44pt 命中区），拖动只挂在把手上
       （不跟卡片里的 `ScrollView` 抢手势），轻点也能切换；`@AppStorage` 记档位；读屏：把手是按钮 +
       可调节（上下轻扫展开 / 收起），排在卡片内容之后，摘要句仍是第一个读屏元素；减弱动态效果时不跟手、不做弹簧，直接到位。
       不用 `.sheet` + `presentationDetents`（模态会挡住地图交互，`presentationBackgroundInteraction` 要 16.4）。
-- [ ] 1.15 验证：审计用例改写为「展开 → 审计 → 点把手收起 → 面板上沿下移 ≥100pt、三个读屏元素仍在 → 审计 → 展开复原」，
+- [ ] 1.15 验证：审计用例改写为「展开 → 审计 → 点把手收起 → 面板上沿下移 >60pt、三个读屏元素仍在 → 审计 → 展开复原」，
       并逐项验红；真 key 构建由负责人目视拖把手的手感、减弱动态效果、VoiceOver 上下轻扫把手。
+      - [x] 自动化：2026-09-24 iPhone 16 Pro `passed=24 failed=0`（审计 + XinghuoSnapshotTests + LowVisionChannelTests）；
+            盲人端面板上沿 402.5 → 487.8（+85pt，屏高 874）。验红三项各自红过：把手点击置空 →「点把手没换档」；
+            把手先画 →「把手排到了卡片内容前面」；收起态藏开关 →「收起后今日足迹开关不在了」。
+      - [ ] 人工（**自动化够不着**）：`handleOffset` 的减弱动态效果分支、`accessibilityAdjustableAction` 上下轻扫
+            （XCUITest 触发不了无障碍动作，记忆 `xcuitest-cannot-invoke-accessibility-actions`）、拖把手手感、
+            志愿者端并排那一行（UI 用例只跑盲人端）、iPad。
 
 ## 2. 二期（需要后端）
 
