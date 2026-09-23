@@ -183,12 +183,15 @@ struct VolunteerTabView: View {
         // overlay 不是真的模态容器，只靠 `.isModal` 在 iOS 16 上兜不住。
         //
         // 🔴 **光有下面这行 `.accessibilityHidden` 不够，真正起作用的是 `.background` 那一行。**
-        // `TabView` 在 UIKit 侧是一个 `UITabBarController`：SwiftUI 的 hidden 只标在包它的那个
-        // 节点上，底下那棵 UIKit 树（首页 ScrollView、标签栏）照样暴露 —— 2026-09-23 真机
-        // UI hierarchy 实测，`volunteerProfileIdentityRow` 与 `TabBar` 在卡片弹出时都还在。
-        // 与 `AMapContainer.makeUIView` 直接设 `accessibilityElementsHidden` 是同一个原因。
-        // 这行留着管的是横幅与撤销 toast 那两层纯 SwiftUI 的 overlay。
-        // 用例：`testMockVolunteerInviteSheetExposesItsThreeActions`（断言首页那一行不在树里）。
+        // `TabView` 在 UIKit 侧是一个 `UITabBarController`：SwiftUI 的 hidden 跨不过这道边界，
+        // 底下那棵树（首页 ScrollView、「开始接单」滑轨、标签栏）照样暴露。
+        // 2026-09-23 iPhone 16 Pro 真机逐个试过（诊断把结果写进探针自己的 label，读失败消息里的树）：
+        //   · 这行 SwiftUI hidden 单独用                                → 首页那一行、TabBar 都还在
+        //   · tab bar controller 根视图 / 子视图设 `accessibilityElementsHidden` → 标志读回是 true，树里照样都在
+        //   · tab bar controller 根视图设 `accessibilityElements = []`    → 两者都消失 ✅
+        // 这行留着管的是横幅与撤销 toast 那两层纯 SwiftUI 的 overlay（与 TabView 同一个宿主，hidden 管得到）。
+        // 用例：`testMockVolunteerInviteSheetExposesItsThreeActions`（弹出时首页与标签栏都不在树里）
+        // + `testMockVolunteerInviteSheetGivesTheScreenBehindBackOnceDismissed`（收起后回来）。
         .background(TabBarAccessibilityHider(isHidden: viewModel.isInviteSheetPresented))
         .accessibilityHidden(viewModel.isInviteSheetPresented)
         // 🚩 **邀请卡挂在 `TabView` 外面。**
@@ -234,8 +237,12 @@ struct VolunteerTabView: View {
 /// 为什么要下到 UIKit，见 `VolunteerTabView.body` 里 `.accessibilityHidden` 上方那段注释。
 ///
 /// 从自己往上找到第一个 view controller（托管 `TabView` 的那个 hosting controller），
-/// 再往下找它的 `UITabBarController` 子控制器。标志挂在 tab bar controller 的根视图上，
-/// 所以三个 tab、每个 tab 里 push 出去的二级页和标签栏本身一次全盖住。
+/// 再往下找它的 `UITabBarController` 子控制器，把它根视图的 `accessibilityElements` 置空。
+/// 一处就盖住所有 tab、每个 tab 里 push 出去的二级页和标签栏本身；
+/// 从卡片里弹出的 `fullScreenCover` 不在这棵树里，不受影响（同一条用例点「查看详情」验过）。
+///
+/// ⚠️ 用的是「子元素列表置空」而不是 `accessibilityElementsHidden` —— 后者在这里真机实测无效，
+/// 理由见 `VolunteerTabView.body` 里那段注释。
 private struct TabBarAccessibilityHider: UIViewRepresentable {
     let isHidden: Bool
 
@@ -250,7 +257,7 @@ private struct TabBarAccessibilityHider: UIViewRepresentable {
         let isHidden = isHidden
         // 第一次 update 时这个 view 还没进窗口、responder 链是断的 —— 推到下一拍再找。
         DispatchQueue.main.async {
-            Self.tabBarController(near: uiView)?.view.accessibilityElementsHidden = isHidden
+            Self.tabBarController(near: uiView)?.view.accessibilityElements = isHidden ? [] : nil
         }
     }
 
