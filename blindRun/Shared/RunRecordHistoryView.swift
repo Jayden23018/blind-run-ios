@@ -440,7 +440,7 @@ struct RunRecordHistoryView: View {
         .accessibilityIdentifier("runRecordHistoryLoading")
     }
 
-    /// 本阶段仍落到现有的订单详情页；新的跑后详情是阶段 4（陪跑员）/ 阶段 5（跑者）。
+    /// 陪跑员进跑后详情（阶段 4）；跑者仍落到订单详情，跑者跑后详情是阶段 5。
     @ViewBuilder
     private func completedDestination(orderId: Int64) -> some View {
         switch role {
@@ -448,7 +448,7 @@ struct RunRecordHistoryView: View {
             // 跑者详情页是补评价唯一的入口，也内嵌轨迹摘要。
             BlindOrderStatusView(orderId: orderId) { _ in }
         case .volunteer:
-            VolunteerOrderDetailLoader(orderId: orderId)
+            VolunteerRunRecordView(orderId: orderId)
         }
     }
 
@@ -617,48 +617,6 @@ nonisolated struct RunRouteShape: Shape {
         let midY = (minY + maxY) / 2
         return zip(xs, ys).map { x, y in
             CGPoint(x: centre.x + CGFloat((x - midX) * scale), y: centre.y - CGFloat((y - midY) * scale))
-        }
-    }
-}
-
-// MARK: - Volunteer destination
-
-/// 陪跑员已完成记录点进去：月度列表只给 `orderId`，而 `VolunteerReadOnlyOrderView` 要整张订单。
-/// 早于 `/api/orders/mine` 第一页的单在本地没有，所以一律按单号取一次。阶段 4 换成新详情页。
-private struct VolunteerOrderDetailLoader: View {
-    @EnvironmentObject private var appState: AppState
-    let orderId: Int64
-    @State private var order: OrderDetailResponse?
-    @State private var errorMessage: String?
-
-    var body: some View {
-        Group {
-            if let order {
-                VolunteerReadOnlyOrderView(order: order)
-            } else if let errorMessage {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(errorMessage)
-                        .foregroundColor(AppColors.destructive)
-                    Button("重试") { Task { await load() } }
-                        .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-                }
-                .padding(20)
-            } else {
-                ProgressView("正在加载订单详情")
-            }
-        }
-        .task { await load() }
-    }
-
-    private func load() async {
-        errorMessage = nil
-        do {
-            order = try await appState.orders.orderDetail(orderId: orderId)
-        } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return }
-            errorMessage = "订单详情没能加载。\(error.localizedMessage)"
-        } catch {
-            errorMessage = "订单详情没能加载，请检查网络后重试"
         }
     }
 }

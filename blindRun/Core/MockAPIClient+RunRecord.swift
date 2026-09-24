@@ -14,59 +14,89 @@ extension MockAPIClient {
     func handleGetRunRecord(orderId: Int64) throws -> RunRecordResponse {
         let order = try completedOrderForRunRecord(orderId: orderId)
         let isBlind = mockRole == .blind
-        let startedAt = order.acceptedAt ?? "2026-07-21T08:00:00"
-        let points: [RunTrackPoint] = {
-            guard let lat = order.startLatitude, let lng = order.startLongitude else { return [] }
-            return [
-                RunTrackPoint(t: 0, lat: lat, lng: lng, d: 0),
-                RunTrackPoint(t: 360, lat: lat + 0.004, lng: lng + 0.003, d: 520),
-                RunTrackPoint(t: 720, lat: lat + 0.008, lng: lng + 0.006, d: 1_040)
-            ]
-        }()
+        // 所有时刻都从同一个起点往后推，时间轴才不会前后错乱。
+        let base = order.acceptedAt?.backendTimestamp ?? Date(timeIntervalSince1970: 1_784_592_000)
+        let at: (TimeInterval) -> String = { DateFormatter.aidRunBackendLocalDateTime.string(from: base.addingTimeInterval($0)) }
+        let startedAt = at(0)
+        let points = order.startLatitude.flatMap { lat in
+            order.startLongitude.map { Self.mockLoop(startLatitude: lat, startLongitude: $0) }
+        } ?? []
+        let hasTrack = points.count >= 2
+        // 一圈 3.2 公里：三段满公里 + 最后 200 米，第 1.5 公里处歇了 100 秒。
+        // 分段够 3 段才演得出「最快」，有休息点才验得出地图上的休息标注和时间轴那一行。
+        let splitPaces = [372, 348, 395, 410]
+        let splits = splitPaces.enumerated().map { offset, pace in
+            let distance = offset < 3 ? 1_000 : 200
+            return RunSplit(
+                index: offset + 1, distanceM: distance, durationSec: pace * distance / 1_000, paceSecPerKm: pace,
+                avgCadence: isBlind ? 168 - offset : 162 - offset
+            )
+        }
+        let restPoint = points.first { $0.d >= 1_500 }
         return RunRecordResponse(
             orderId: orderId,
-            status: points.count >= 2 ? .ready : .insufficientTrack,
+            status: hasTrack ? .ready : .insufficientTrack,
             viewerRole: isBlind ? .blind : .volunteer,
             place: order.startAddress,
             blindName: order.blindName,
             volunteerName: order.volunteerName,
-            runStartedAt: points.isEmpty ? nil : startedAt,
-            runEndedAt: points.isEmpty ? nil : "2026-07-21T08:12:00",
-            summary: points.isEmpty ? nil : RunSummary(
-                distanceM: 1_040, movingSec: 690, elapsedSec: 720, restSec: 30,
-                avgPaceSecPerKm: 663,
+            runStartedAt: hasTrack ? startedAt : nil,
+            runEndedAt: hasTrack ? at(1_297) : nil,
+            summary: hasTrack ? RunSummary(
+                distanceM: 3_200, movingSec: 1_197, elapsedSec: 1_297, restSec: 100,
+                avgPaceSecPerKm: 374,
                 // 两台手机各自的数据（D3）：Mock 让两端看到不同的数，界面阶段才验得出「没挑错人」。
-                steps: isBlind ? 1_320 : 1_180,
+                steps: isBlind ? 3_320 : 3_180,
                 avgCadence: isBlind ? 168 : 162,
-                elevationGainM: isBlind ? 4 : 3
-            ),
-            splits: points.isEmpty ? [] : [
-                RunSplit(index: 1, distanceM: 1_000, durationSec: 663, paceSecPerKm: 663, avgCadence: isBlind ? 168 : 162),
-                RunSplit(index: 2, distanceM: 40, durationSec: 27, paceSecPerKm: 675, avgCadence: nil)
-            ],
-            fastestSplitIndex: nil,
-            paceSamples: points.isEmpty ? [] : [
-                RunPaceSample(distanceM: 0, paceSecPerKm: 690),
-                RunPaceSample(distanceM: 500, paceSecPerKm: 650),
-                RunPaceSample(distanceM: 1_000, paceSecPerKm: 660)
-            ],
-            stops: [],
+                elevationGainM: isBlind ? 14 : 12
+            ) : nil,
+            splits: hasTrack ? splits : [],
+            fastestSplitIndex: hasTrack ? 2 : nil,
+            paceSamples: hasTrack ? stride(from: 0, through: 3_200, by: 50).map { distance in
+                // 前段稳、中段提速、休息后变慢：着色能看出三档。
+                let wave = sin(Double(distance) / 3_200 * .pi * 2) * 30
+                return RunPaceSample(distanceM: distance, paceSecPerKm: 372 - Int(wave) + (distance > 2_000 ? 30 : 0))
+            } : [],
+            stops: restPoint.map {
+                [RunStop(startedAt: at(558), durationSec: 100, atDistanceM: 1_500, lat: $0.lat, lng: $0.lng, placeName: nil)]
+            } ?? [],
             events: [
+                RunEvent(type: .arrived, at: at(-300), inferred: false, durationSec: nil, lat: nil, lng: nil),
                 RunEvent(type: .runStarted, at: startedAt, inferred: false, durationSec: nil, lat: nil, lng: nil),
-                RunEvent(type: .orderCompleted, at: "2026-07-21T08:13:00", inferred: false, durationSec: nil, lat: nil, lng: nil)
+                RunEvent(type: .rest, at: at(558), inferred: true, durationSec: 100, lat: restPoint?.lat, lng: restPoint?.lng),
+                RunEvent(type: .runEnded, at: at(1_297), inferred: true, durationSec: nil, lat: nil, lng: nil),
+                RunEvent(type: .orderCompleted, at: at(1_380), inferred: false, durationSec: nil, lat: nil, lng: nil)
             ],
             sosTriggered: false,
             service: RunService(
                 startedAt: startedAt,
-                completedAt: "2026-07-21T08:13:00",
-                durationMin: 13,
+                completedAt: at(1_380),
+                durationMin: 23,
                 volunteerTotalServiceMinutes: 1_260
             ),
             // 只给跑者（D6）。
-            comparison: isBlind ? RunComparison(previousOrderId: orderId - 1, previousDistanceM: 900, deltaDistanceM: 140) : nil,
+            comparison: isBlind ? RunComparison(previousOrderId: orderId - 1, previousDistanceM: 2_900, deltaDistanceM: 300) : nil,
             messages: runRecordMessages[orderId] ?? [],
-            track: points.count >= 2 ? RunTrack(coordSystem: "GCJ02", startedAt: startedAt, points: points) : nil
+            track: hasTrack ? RunTrack(coordSystem: "GCJ02", startedAt: startedAt, points: points) : nil
         )
+    }
+
+    /// 从起点出发绕一个半径约 509 米的圈回到起点（周长 ≈ 3.2 公里），每 100 米一个点。
+    /// 起终点重合，演的是「起终点」合并那一支。
+    static func mockLoop(startLatitude lat: Double, startLongitude lng: Double) -> [RunTrackPoint] {
+        let radius = 3_200 / (2 * Double.pi)
+        let metresPerDegreeLat = 111_000.0
+        let metresPerDegreeLng = metresPerDegreeLat * cos(lat * .pi / 180)
+        return stride(from: 0, through: 3_200, by: 100).map { distance in
+            let theta = Double(distance) / 3_200 * 2 * .pi
+            let restSeconds = distance > 1_500 ? 100.0 : 0
+            return RunTrackPoint(
+                t: Double(distance) * 0.374 + restSeconds,
+                lat: lat + radius * sin(theta) / metresPerDegreeLat,
+                lng: lng + radius * (1 - cos(theta)) / metresPerDegreeLng,
+                d: distance
+            )
+        }
     }
 
     /// 后端按 `finishedAt` 归月；`OrderDetailResponse` 没有这个字段，Mock 用 `createdAt` 近似。

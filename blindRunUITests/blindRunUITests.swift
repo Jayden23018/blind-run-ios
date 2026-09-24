@@ -335,11 +335,13 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(fullScreenLink.waitForExistence(timeout: 5), "Track summary must offer a full-screen route entry")
         fullScreenLink.tap()
 
-        let replay = app.descendants(matching: .any)["orderRouteReplay"].firstMatch
-        XCTAssertTrue(replay.waitForExistence(timeout: 10), "Tapping the entry should open the full-screen route replay")
+        // D13：陪跑员这条链接进跑后详情，不再进 `OrderRouteReplayView`。
+        let detail = app.descendants(matching: .any)["volunteerRunRecordDetail"].firstMatch
+        XCTAssertTrue(detail.waitForExistence(timeout: 10), "陪跑员点「查看跑后详情」应进新的跑后详情页")
+        XCTAssertFalse(app.descendants(matching: .any)["orderRouteReplay"].firstMatch.exists)
         XCTAssertTrue(
-            app.descendants(matching: .any)["routeReplayRepeatStatus"].firstMatch.waitForExistence(timeout: 5),
-            "The replay page must stay usable without inspecting the map"
+            app.descendants(matching: .any)["runRecordDistance"].firstMatch.waitForExistence(timeout: 10),
+            "跑后详情要有距离，不能只有地图"
         )
     }
 
