@@ -128,8 +128,8 @@ final class AccessibilityAuditTests: XCTestCase {
 
         tabBar.buttons["记录"].tap()
         XCTAssertTrue(
-            app.navigationBars["服务记录"].waitForExistence(timeout: 15),
-            "「记录」tab 没到服务记录页"
+            app.navigationBars["陪跑记录"].waitForExistence(timeout: 15),
+            "「记录」tab 没到陪跑记录页"
         )
 
         tabBar.buttons["我的"].tap()
@@ -424,6 +424,93 @@ final class AccessibilityAuditTests: XCTestCase {
             sosBar.waitForExistence(timeout: 10),
             "「我的」tab 底部没有兜底的紧急入口 —— 首页那条已经移除，这里是它现在唯一的落点"
         )
+    }
+
+    // MARK: - 记录 tab（OpenSpec `add-run-record-history-tab`）
+
+    /// 记录页要拍的数据：Mock 的已完成单 #2（本月）+ 一张已取消单（`AIDRUN_UI_TEST_SEED_HISTORY`）。
+    private static let recordsSeed = ["AIDRUN_UI_TEST_SEED_HISTORY": "1"]
+
+    @MainActor
+    private func openRecordsTab(_ app: XCUIApplication, title: String) {
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "底部标签栏不在")
+        tabBar.buttons["记录"].tap()
+        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 15), "「记录」tab 没到\(title)")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["runRecordHistorySummary"].firstMatch.waitForExistence(timeout: 15),
+            "月度汇总没出来 —— monthlyRecords 没接上，或本月没有数据"
+        )
+    }
+
+    @MainActor
+    func testRunnerRecordsTabShowsMonthAndUnfinishedGroupAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
+        openRecordsTab(app, title: "跑步记录")
+
+        let summary = app.descendants(matching: .any)["runRecordHistorySummary"].firstMatch
+        XCTAssertTrue(summary.label.contains("跑了 1 次"), "跑者汇总句：\(summary.label)")
+        XCTAssertTrue(app.buttons["runRecordHistoryPreviousMonth"].exists, "上个月入口不在")
+        XCTAssertFalse(app.buttons["runRecordHistoryNextMonth"].exists, "当月不该有下个月")
+        // `List` 不渲染屏幕外的行（AGENTS.md：断言前先滚动）。
+        let unfinished = app.staticTexts["未完成的预约"]
+        for _ in 0..<3 where !unfinished.exists { app.swipeUp() }
+        XCTAssertTrue(unfinished.exists, "已取消的单没收进「未完成的预约」")
+        try audit(app)
+    }
+
+    @MainActor
+    func testVolunteerRecordsTabShowsMonthAndUnfinishedGroupAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchVolunteerHome(extraEnvironment: Self.recordsSeed)
+        openRecordsTab(app, title: "陪跑记录")
+
+        let summary = app.descendants(matching: .any)["runRecordHistorySummary"].firstMatch
+        XCTAssertTrue(summary.label.contains("陪跑 1 次"), "陪跑员汇总句：\(summary.label)")
+        XCTAssertFalse(summary.label.contains("*"), "读屏不该念掩码星号：\(summary.label)")
+        // `List` 不渲染屏幕外的行（AGENTS.md：断言前先滚动）。
+        let unfinished = app.staticTexts["未完成的预约"]
+        for _ in 0..<3 where !unfinished.exists { app.swipeUp() }
+        XCTAssertTrue(unfinished.exists, "已取消的单没收进「未完成的预约」")
+        try audit(app)
+    }
+
+    /// 阶段收尾的三组截图（浅色 / 深色 / 最大字号 × 两个角色），附件在 result bundle 里。
+    /// 不做像素断言：截图是给人看的证据，断言由上面两条用例负责。
+    @MainActor
+    func testRecordsTabScreenshotsInLightDarkAndLargestText() throws {
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax-xxxl", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        for variant in variants {
+            let environment = Self.recordsSeed.merging(variant.environment) { _, new in new }
+            for role in ["runner", "volunteer"] {
+                let app = role == "runner"
+                    ? launchBlindHome(emptyOrders: false, extraEnvironment: environment, extraArguments: variant.arguments)
+                    : launchVolunteerHome(extraEnvironment: environment, extraArguments: variant.arguments)
+                openRecordsTab(app, title: role == "runner" ? "跑步记录" : "陪跑记录")
+                attachScreenshot(app, name: "records-\(role)-\(variant.name)-top")
+                app.swipeUp()
+                attachScreenshot(app, name: "records-\(role)-\(variant.name)-bottom")
+                app.terminate()
+            }
+        }
+    }
+
+    @MainActor
+    private func attachScreenshot(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     /// 星火页（调试版）：摘要句与今日足迹开关在，盲人端摘要不念别的盲人；整页过审计。
@@ -1198,7 +1285,9 @@ final class AccessibilityAuditTests: XCTestCase {
         forcingVoiceStage: Bool = false,
         emptyOrders: Bool = true,
         forcingFirstRunHelp: Bool = false,
-        seedOrderStatus: String? = nil
+        seedOrderStatus: String? = nil,
+        extraEnvironment: [String: String] = [:],
+        extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1230,6 +1319,10 @@ final class AccessibilityAuditTests: XCTestCase {
         if forcingFirstRunHelp {
             app.launchEnvironment["AIDRUN_UI_TEST_FORCE_FIRST_RUN_HELP"] = "1"
         }
+
+        // 记录页截图 / 审计用（深色、最大字号、历史种子），只加不覆盖上面的基线。
+        app.launchEnvironment.merge(extraEnvironment) { _, new in new }
+        app.launchArguments += extraArguments
 
         addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in
             for title in ["允许", "好", "使用App时允许", "OK", "Allow"] {
@@ -1399,7 +1492,9 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     private func launchVolunteerHome(
         seedOrderStatus: String? = nil,
-        available: Bool = true
+        available: Bool = true,
+        extraEnvironment: [String: String] = [:],
+        extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1421,6 +1516,10 @@ final class AccessibilityAuditTests: XCTestCase {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"
             app.launchEnvironment["AIDRUN_UI_TEST_SEED_ORDER_STATUS"] = seedOrderStatus
         }
+
+        // 记录页截图 / 审计用（深色、最大字号、历史种子），只加不覆盖上面的基线。
+        app.launchEnvironment.merge(extraEnvironment) { _, new in new }
+        app.launchArguments += extraArguments
 
         addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in
             for title in ["允许", "好", "使用App时允许", "OK", "Allow"] {

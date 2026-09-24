@@ -84,9 +84,14 @@ extension MockAPIClient {
                 place: order.startAddress,
                 partnerName: isBlind ? order.volunteerName : order.blindName,
                 distanceM: 1_040,
-                // 缩略图只给陪跑员。
+                // 缩略图只给陪跑员。一圈 8 个点绕回起点：只给一个点的话，列表里的路线形状
+                // 在 Mock 下永远是一个圆点，界面阶段验不出折线画没画对。
                 thumbnail: isBlind ? nil : order.startLatitude.flatMap { lat in
-                    order.startLongitude.map { [RunLatLng(lat: lat, lng: $0)] }
+                    order.startLongitude.map { lng in
+                        [(0, 0), (4, 1), (7, 4), (8, 8), (6, 11), (2, 10), (-1, 6), (0, 0)].map {
+                            RunLatLng(lat: lat + Double($0.0) * 0.0005, lng: lng + Double($0.1) * 0.0005)
+                        }
+                    }
                 }
             )
         }

@@ -328,7 +328,7 @@ enum VolunteerProfileCopy {
     // 最近陪跑
     static let recentSectionTitle = "最近陪跑"
     static let recentLinkTitle = "全部"
-    static let recentLinkHint = "打开服务记录，查看全部已完成和已取消的陪跑"
+    static let recentLinkHint = "打开陪跑记录，按月查看已完成的陪跑和未完成的预约"
     static let recentEmpty = "完成陪跑后会显示在这里。"
 
     static func recentRowTitle(blindName: String?) -> String {

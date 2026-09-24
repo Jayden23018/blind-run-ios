@@ -8,7 +8,7 @@ import SwiftUI
 /// 「最近一次」旁的「全部 ›」进去、「我的」只能从首屏右上角一枚齿轮进去。
 ///
 /// **三个 tab 挂的都是已经存在的页面**，不是新写的：
-/// `VolunteerHomeView` / `VolunteerServiceRecordsView` / `VolunteerSettingsView`。
+/// `VolunteerHomeView` / `RunRecordHistoryView(role: .volunteer)` / `VolunteerSettingsView`。
 /// 首屏那两个旧入口**刻意保留**（项目负责人 2026-09-17 拍板）：两条路通同一页，
 /// 功能上无害，而首屏那一版信息架构要不要跟设计稿重排是另一件事。
 ///
@@ -67,7 +67,7 @@ struct VolunteerTabView: View {
             #endif
 
             NavigationStack {
-                VolunteerServiceRecordsView()
+                RunRecordHistoryView(role: .volunteer)
             }
             .tabItem {
                 Label("记录", systemImage: "list.bullet")

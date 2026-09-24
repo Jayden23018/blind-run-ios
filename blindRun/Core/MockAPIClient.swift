@@ -1147,6 +1147,36 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 volunteerTotalCompleted: Self.mockOrderVolunteerCompletedRuns
             )
         ]
+        // 记录页截图用：给「未完成的预约」那一组一条可拍的数据。**只在显式要求时加** ——
+        // 其余 UI 用例按现有行数断言，凭空多一条会假失败（同上面「刻意不带终点」那条理由）。
+        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SEED_HISTORY"] == "1" {
+            orders.append(OrderDetailResponse(
+                orderId: 3,
+                status: .cancelled,
+                startAddress: "朝阳公园南门",
+                startLatitude: 39.9342,
+                startLongitude: 116.4740,
+                endAddress: nil,
+                endLatitude: nil,
+                endLongitude: nil,
+                plannedStart: formatter.string(from: Date().addingTimeInterval(-3 * 86400)),
+                plannedEnd: formatter.string(from: Date().addingTimeInterval(-3 * 86400 + 3600)),
+                blindName: "李明",
+                blindPhone: "13800001001",
+                volunteerPhone: nil,
+                acceptedAt: nil,
+                createdAt: formatter.string(from: Date().addingTimeInterval(-4 * 86400)),
+                expectedDurationMinutes: 60,
+                pacePreference: .moderate,
+                routePreference: .parkTrail,
+                routeNotes: nil,
+                hasGuideDogThisRun: false,
+                specialNotes: nil,
+                visionLevel: "TOTAL_BLIND",
+                tetherPreference: "TETHER_ROPE",
+                chatPreference: "PREFER_CHAT"
+            ))
+        }
         nextOrderId = 10
     }
 }
