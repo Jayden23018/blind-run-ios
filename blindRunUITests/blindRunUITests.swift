@@ -1809,14 +1809,18 @@ final class blindRunUITests: XCTestCase {
     /// 盲人端的齿轮已随首页改版删除（设计稿的首页只有问候 + 订单卡 + 预约块）；
     /// 陪跑员首屏那枚齿轮还在，但这里一律走标签栏那条 —— 它是两端唯一都有的入口。
     /// 抽成 helper 的价值就在这里：入口换了一次，所有调用点一起跟上。
+    /// 每处先 `.exists` 再 `waitForExistence`：后者即使元素早已在树里，首次判定也要约 1 秒
+    /// （真机 result bundle 时间线实测 1.0–1.1s）。本函数和 `assertLogoutRequiresConfirmation`
+    /// 被多条用例共用，每次调用都付这笔底价。元素真不在时照样走满超时，失败判据不变。
     private func openSettings(_ app: XCUIApplication) {
         let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 12), "标签栏没起来，够不到设置")
+        XCTAssertTrue(tabBar.exists || tabBar.waitForExistence(timeout: 12), "标签栏没起来，够不到设置")
         let profileTab = tabBar.buttons["我的"]
-        XCTAssertTrue(profileTab.waitForExistence(timeout: 5), "标签栏缺少「我的」")
+        XCTAssertTrue(profileTab.exists || profileTab.waitForExistence(timeout: 5), "标签栏缺少「我的」")
         profileTab.tap()
+        let settingsBar = app.navigationBars["设置"]
         XCTAssertTrue(
-            app.navigationBars["设置"].waitForExistence(timeout: 10),
+            settingsBar.exists || settingsBar.waitForExistence(timeout: 10),
             "「我的」tab 里没有设置页"
         )
     }
@@ -2030,10 +2034,11 @@ final class blindRunUITests: XCTestCase {
         // 陪跑员的设置页比盲人的长（多了积分 / 固定搭档 / 邀请码 / 培训四组），退出登录在最后
         // —— `List` 不渲染屏幕外的行，不滚它连无障碍树里都没有，`waitForExistence` 永远等不到。
         // 已经在屏上时 `scrollUntilExists` 第一行就返回，对盲人端那两档是零开销。
+        // 这里原本还跟一句 `waitForExistence(timeout: 10)`：上一行已断言存在，它只会白等约 1 秒。
         XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
-        XCTAssertTrue(logoutButton.waitForExistence(timeout: 10))
         logoutButton.tap()
-        XCTAssertTrue(app.alerts["确认退出"].firstMatch.waitForExistence(timeout: 5))
+        let confirmAlert = app.alerts["确认退出"].firstMatch
+        XCTAssertTrue(confirmAlert.exists || confirmAlert.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["确认退出"].exists)
         XCTAssertTrue(app.buttons["取消"].exists)
     }
