@@ -10,7 +10,7 @@ set -euo pipefail
 # `JerryZhao-1/blind-run-ios` 那边配不上 secret（不是 admin），这 5 条是 warning 空过。
 #
 # 正因为是唯一一道，它读的必须是契约本身 —— 所以是从后端仓库的 origin/main 取，
-# 而不是读 ../demo 的工作区文件（那是共享 checkout，随时带着别人的 WIP）。见下面 backend_file。
+# 而不是读 ../demo 的工作区文件（那是共享 checkout，随时带着别人的 WIP）。见 scripts/hooks/pre-push.sh 的 backend_file。
 
 # 用 --git-path 而不是写死 .git/hooks/：在 worktree 里 .git 是个文件，写死会报
 # 「Not a directory」装不上。--git-path 在普通 clone 里就回显 .git/hooks/pre-push，行为不变。

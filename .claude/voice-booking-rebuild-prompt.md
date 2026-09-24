@@ -117,7 +117,7 @@ node scripts/fetch-reference-screenshots.mjs
   而陪跑场景志愿者就在旁边说话。依据见 IA 调研 §6.4。
 - **枚举解码遇未知值不许整条崩**，要降级到「未知」。对盲人端「点了没反应」就是事故。
 - **契约唯一源在后端仓库** `/Users/mac/Downloads/demo/docs/api_spec.yaml`。本仓库的
-  `docs/_archive-*.bak` **不得读取**。要后端改动就写进 `demo/docs/handoff.md` 的「待后端确认」。
+  `docs/_archive-*.bak` **不得读取**。要后端改动就开后端仓库 issue（`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff`；`demo/docs/handoff.md` 已冻结）。
 - **并发模型只用一种**：新代码一律 async/await，不要在同一条数据流里既订阅 Combine 又 await。
 - **不得写入 `EXCLUDED_ARCHS`**；不得改 `project.pbxproj` 里的 `DEVELOPMENT_TEAM`；`Podfile` 整文件冻结。
 - 守卫在 `scripts/hooks/guard.mjs`，自测 `node scripts/validate-guard.mjs`（28 条）。

@@ -122,8 +122,9 @@ if (mine !== null) {
   }
 }
 
-// `@{u}` 解析失败有两种成因，只有第一种是欠账：
-//   ① 从没设过 upstream —— 真的没推过，该拦
+// `@{u}` 解析失败有两种成因：
+//   ① 从没设过 upstream —— **不等于没推过**（可能推了没带 -u、可能是游离 HEAD），
+//      只有本地有提交不在任何远端分支上才是欠账，判据见下面 everyCommitOnSomeRemote
 //   ② 设过，但远端分支已经没了 —— 本仓库一律 squash 合并 + `--delete-branch`，
 //      所以这是每个合完的分支的**终局状态**，不是欠账
 // 分不出这两种，②就会每轮都被报成「还没跟远端」，而分支内容其实早在 main 里。
@@ -157,7 +158,11 @@ const upstream = git('rev-parse', '--abbrev-ref', '@{u}');
 if (upstream === null) {
   const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
   if (!everyCommitOnSomeRemote() && !branchLandedOnMain(branch)) {
-    todo.push(`**无 upstream**：\`${branch}\` 还没跟远端，push 要带 \`-u\``);
+    todo.push(
+      branch === 'HEAD'
+        ? '**无 upstream**：游离 HEAD 上有提交不在任何远端分支上 —— 先 `git switch -c <分支名>` 再 `push -u`，不然丢了找不回来'
+        : `**无 upstream**：\`${branch}\` 上有提交不在任何远端分支上，push 要带 \`-u\``
+    );
   }
 } else {
   const ahead = Number(git('rev-list', '--count', '@{u}..HEAD') || 0);
