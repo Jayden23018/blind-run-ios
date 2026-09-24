@@ -10,16 +10,52 @@
 // 2026-08-15 删掉 fork / 双推那四条用例 —— 被测的告警本身已删（口径见 AGENTS.md §11），
 // 留着测一个不该存在的行为，等于把过期口径钉死。
 
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import {
+  backendContractReadable,
   localGuardrailWarnings,
   staleUnmergedBranches,
   STALE_BEHIND_THRESHOLD,
 } from './hooks/session-context.mjs';
 
 const T = STALE_BEHIND_THRESHOLD;
+
+// 后端契约源靶子：一个临时 git 仓库，origin/main 上有没有 docs/api_spec.yaml 由参数决定。
+// 目录存在但读不到契约的两种形状都要能判出来 —— 旧写法只看目录在不在（复核 A-1）。
+function scratchBackend({ git = true, withSpec = true } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aidrun-sctx-backend-'));
+  if (!git) return dir;
+  const g = (...a) => spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: dir });
+  g('init', '-q');
+  fs.mkdirSync(path.join(dir, 'docs'));
+  fs.writeFileSync(path.join(dir, withSpec ? 'docs/api_spec.yaml' : 'docs/other.md'), 'x\n');
+  g('add', '-A');
+  g('commit', '-qm', 'seed');
+  g('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  return dir;
+}
 const ref = (name, ahead, behind) => ({ name, ahead, behind });
 
 const cases = [
+  {
+    name: '后端目录存在但不是 git 仓库 → 契约源不可读',
+    run: () => backendContractReadable(scratchBackend({ git: false })),
+    check: (ok) => (ok === false ? null : '非 git 目录被判成「可读」'),
+  },
+  {
+    name: '后端 origin/main 上没有 docs/api_spec.yaml → 契约源不可读',
+    run: () => backendContractReadable(scratchBackend({ withSpec: false })),
+    check: (ok) => (ok === false ? null : 'origin/main 上没有契约却被判成「可读」'),
+  },
+  {
+    name: '后端 origin/main 上有 docs/api_spec.yaml → 可读',
+    run: () => backendContractReadable(scratchBackend()),
+    check: (ok) => (ok === true ? null : '契约明明在 origin/main 上，却被判成不可读'),
+  },
   {
     name: 'pre-push 已装 → 不输出（全绿时保持安静）',
     run: () => localGuardrailWarnings({ prePushInstalled: true }),

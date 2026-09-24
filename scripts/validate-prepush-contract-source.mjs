@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// scripts/install-git-hooks.sh 生成的 pre-push 里「后端契约取自哪份文件」的回归测试。
+// scripts/hooks/pre-push.sh（pre-push 正文，由 install-git-hooks.sh 装的壳 exec）里「后端契约取自哪份文件」的回归测试。
 //
 // 为什么需要它：那 5 道契约门禁是本地唯一一道（CI 配不上 BACKEND_REPO_TOKEN，见
 // AGENTS.md §11），而 ../demo 是共享 checkout。一旦门禁改回读工作区文件，症状不是报错，
@@ -12,24 +12,21 @@
 // 照它做，就是把同事未合并的契约烘进自己的 PR；而 CI 从后端默认分支拉契约，两边必然对不上。
 // 2026-08-09 实测踩到。AGENTS.md §1.3 要求这类事落到机器归宿，这就是那个归宿。
 //
-// 做法：把安装脚本里真正会被写进 .git/hooks 的那段 body 抠出来跑，而不是另抄一份逻辑 ——
-// 抄一份的话，改了钩子却没改测试时它照样绿。
+// 做法：直接读真正会被执行的正文 scripts/hooks/pre-push.sh 抠段落跑，而不是另抄一份逻辑 ——
+// 抄一份的话，改了钩子却没改测试时它照样绿。（2026-09-24 前正文是安装脚本里的 heredoc，那时从 heredoc 抠。）
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const installer = path.resolve(import.meta.dirname, 'install-git-hooks.sh');
+const hookBody = path.resolve(import.meta.dirname, 'hooks/pre-push.sh');
 const GEN_DIR = 'Packages/AidRunAPI/Sources/AidRunAPI';
 
 // ── 从安装脚本里取出契约来源那一段 ──────────────────────────────────────────
-const body = fs
-  .readFileSync(installer, 'utf8')
-  .split(/^cat > "\$HOOK" <<'HOOK_BODY'$/m)[1]
-  ?.split(/^HOOK_BODY$/m)[0];
+const body = fs.existsSync(hookBody) ? fs.readFileSync(hookBody, 'utf8') : '';
 if (!body) {
-  console.error('✗ 抠不出 pre-push body —— 安装脚本的 heredoc 结构变了，先修这个测试再说。');
+  console.error('✗ 读不到 scripts/hooks/pre-push.sh —— 正文挪地方了，先修这个测试再说。');
   process.exit(1);
 }
 const start = body.indexOf('BACKEND_DIR="${AIDRUN_BACKEND_DIR');
@@ -111,8 +108,11 @@ git(app, 'add', '-A');
 git(app, 'commit', '-qm', 'baseline');
 
 // 桩 run()：只回显每道门禁**实际拿到的文件内容**，这才是本测试要断言的东西。
+// 前三行对应正文开头那段公共变量（契约段落之前定义，截取时拿不到）。
 const harness = `set -uo pipefail
 fail=0
+SKIPPED_GATES=0
+PREPUSH_TMP="$(mktemp -d)"; LOG="$PREPUSH_TMP/gate.log"
 run() { label="$1"; shift; echo "GATE $label :: $(head -1 "\${@: -1}")"; }
 ${section}
 echo "FAIL=$fail"
@@ -177,6 +177,26 @@ const cases = [
       if (!/被跳过/.test(out)) return `跳过时的收尾没说清有多少道没跑：\n${out}`;
       // 跳过不是失败：不能因为读不到后端就拦住 push（离线、没 checkout 都合理）。
       return /FAIL=0/.test(out) ? null : `跳过被当成了失败：\n${out}`;
+    },
+  },
+  {
+    // 2026-09-24（workflow-review A3）：run_node 跳过「本分支没有这个校验脚本」时以前不计数，
+    // 末行照样「全部通过」—— 与上一条是同一种谎，只是换了个入口。
+    name: 'run_node 跳过缺失的校验脚本也要计数，末行不许说「全部通过」',
+    check: () => {
+      const s = body.indexOf('run_node() {');
+      const fn = s < 0 ? '' : body.slice(s, body.indexOf('\n}\n', s) + 3);
+      if (!fn) return '抠不出 run_node() —— 正文结构变了，先修这个测试';
+      const script = path.join(app, 'harness-run-node.sh');
+      fs.writeFileSync(
+        script,
+        `set -uo pipefail\nfail=0\nSKIPPED_GATES=0\nBACKEND_DIR=x\nrun() { :; }\n${fn}\n` +
+          `run_node "不存在的校验" scripts/does-not-exist.mjs\n${tail}`
+      );
+      const r = spawnSync('bash', [script], { cwd: app, encoding: 'utf8', env: cleanEnv() });
+      const out = `${r.stdout}${r.stderr}`;
+      if (!out.includes('这不算通过')) return `run_node 没明说跳过：\n${out}`;
+      return out.includes('全部通过') ? `run_node 跳过了，末行仍说「全部通过」：\n${out}` : null;
     },
   },
   {

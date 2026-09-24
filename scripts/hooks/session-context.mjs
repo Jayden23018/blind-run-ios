@@ -52,13 +52,37 @@ if (fs.existsSync(changesDir)) {
   }
 }
 
-// 后端契约源是否挂载 —— 没挂就说清楚，别让 Agent 去猜契约。
-const specPath = process.env.AIDRUN_API_SPEC || path.resolve(root, '../demo/docs/api_spec.yaml');
-lines.push(
-  fs.existsSync(specPath)
-    ? `后端契约源可读：${specPath}`
-    : `⚠️ 后端契约源不可读（找过 ${specPath}）。需要契约时用 \`claude --add-dir /Users/mac/Downloads/demo\` 挂载，不要猜，也不要在本仓库建副本。`
-);
+// 后端契约源在哪、读哪一份 —— 没有就说清楚，别让 Agent 去猜契约。
+// ⚠️ 后端目录按**主 worktree** 的兄弟目录找，不按 root：在 .claude/worktrees/<x> 里 `root/../demo`
+// 是个不存在的路径，于是每个桌面 App 会话开场都报「契约源不可读」（workflow-review-20260924 A7）。
+// pre-push 2026-08-14 就这么修过一次，这里当时没跟上。
+// ⚠️ 读 origin/main，不读它的工作区：那是共享 checkout，常停在别人的特性分支上（pre-push 注释里 08-09/08-12 两次事故）。
+export function backendDir(repoRoot, env = process.env) {
+  if (env.AIDRUN_BACKEND_DIR) return env.AIDRUN_BACKEND_DIR;
+  const common = git('-C', repoRoot, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+  return path.join(path.dirname(path.dirname(common || path.join(repoRoot, '.git'))), 'demo');
+}
+// 能不能从后端的 origin/main 读到契约。⚠️ 别用上面的 git()：它失败时也返回 ''，而 `cat-file -e`
+// 成功时本来就没有输出 ⇒ 用 `=== ''` 判断永远成立，只剩「目录在不在」在起作用（复核 A-1 抓到）。
+export function backendContractReadable(backend) {
+  try {
+    execFileSync('git', ['-C', backend, 'cat-file', '-e', 'origin/main:docs/api_spec.yaml'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+if (process.env.AIDRUN_API_SPEC) {
+  lines.push(`后端契约源（AIDRUN_API_SPEC 指定）：${process.env.AIDRUN_API_SPEC}`);
+} else {
+  const backend = backendDir(root);
+  const onMain = backendContractReadable(backend);
+  lines.push(
+    onMain
+      ? `后端契约源：${backend} 的 origin/main —— 读 \`git -C ${backend} show origin/main:docs/api_spec.yaml\`，别读它的工作区（常停在别人的分支上）。交接走 \`gh issue list --repo Jayden23018/blind-run-backend --label 待前端确认\`。`
+      : `⚠️ 后端契约源不可读（找过 ${backend} 的 origin/main）。需要契约时用 \`claude --add-dir /Users/mac/Downloads/demo\` 挂载，或设 AIDRUN_BACKEND_DIR，不要猜，也不要在本仓库建副本。`
+  );
+}
 
 // state.md 里「开始前必须先做」那类阻塞项
 const state = path.join(root, '.claude/state.md');
@@ -74,7 +98,7 @@ if (fs.existsSync(state)) {
 //
 // 2026-08-15：这里原本还报「没有 `fork` remote」「双推未生效」两条，已删。
 // AGENTS.md §11 在 08-12 就改了口径（主线即 origin，不再需要双推），而
-// `install-git-hooks.sh:233-237` 现在会**主动清掉**遗留的双推配置 —— 于是这两条告警
+// `install-git-hooks.sh` 末尾「推送目标：只推 origin」那段现在会**主动清掉**遗留的双推配置 —— 于是这两条告警
 // 每次开场都响、照它做又会被安装脚本撤销，成了本文件自己警告过的那种「每轮都响就被无视」。
 export function localGuardrailWarnings({ prePushInstalled }) {
   const out = [];
@@ -112,7 +136,8 @@ export function staleUnmergedBranches({ refs, currentBranch }) {
 
 lines.push(
   ...localGuardrailWarnings({
-    prePushInstalled: fs.existsSync(path.join(root, '.git/hooks/pre-push')),
+    // --git-path：worktree 里 `.git` 是个文件，拼 `.git/hooks/pre-push` 永远不存在 ⇒ 每个 worktree 会话都误报「未装」。
+    prePushInstalled: fs.existsSync(path.resolve(root, git('rev-parse', '--git-path', 'hooks/pre-push') || '.git/hooks/pre-push')),
   }),
   ...staleUnmergedBranches({
     refs: git('for-each-ref', '--format=%(refname:short) %(ahead-behind:origin/main)', 'refs/remotes/origin')

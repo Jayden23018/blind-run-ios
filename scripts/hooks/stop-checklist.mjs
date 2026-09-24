@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Stop hook：拦住「改完就跑」。收尾三件事 —— handoff 打勾/提问 → commit → push。
+// Stop hook：拦住「改完就跑」。收尾三件事 —— 交接（后端仓库 Issues）→ commit → push。
 //
 // 存在理由：这三件事此前每轮都靠用户手动提醒，属于 AGENTS.md §1 里说的
 // 「已经犯过第二次」。文档挡不住，所以落成钩子。
@@ -14,20 +14,21 @@
 //
 //   · `stop_hook_active` 兜底，一次停止只拦一次（见上）。
 //   · 同一份欠账（相同路径集合 + 相同领先数）只提醒一次，签名存
-//     `.git/aidrun-stop-checklist-seen`。别人没写完的脏文件长期躺着时不会每轮都叫；
+//     `$(git rev-parse --git-path aidrun-stop-checklist-seen)`（worktree 里 `.git` 是文件，不能拼路径）。别人没写完的脏文件长期躺着时不会每轮都叫；
 //     欠账内容变了才重新叫。
 //   · **欠账只算本轮 Edit/Write 写过的路径**（从 transcript 取，`./transcript.mjs`）。
 //     并行会话或同事在改的脏文件降级为提示；调研落盘同理，会去**本轮会话内的所有分支**
 //     找提交，不只看工作树和 HEAD —— 单开 docs 分支提交调研是常态，只看 HEAD 会每轮误报一次。
 //
-// handoff（收尾第 8 步）**不作独立触发条件**，只在已有欠账时附带提醒 —— 纯客户端改动本就不该
-// 投递，拿「提交晚于 handoff」当触发会让每次工具链提交都误报。什么该投递见记忆
-// `handoff-upkeep-workflow`。
+// 交接（收尾第 8 步）**不作独立触发条件**，只写进下面「顺序固定」那句里 —— 纯客户端改动本就不该
+// 投递。2026-09-24 起后端 `docs/handoff.md` 冻结，交接改走后端仓库 GitHub Issues，
+// 原来那段「handoff.md 比最后一次提交旧」的 mtime 提醒随之删掉（workflow-review-20260924 A6/A7）。
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { completedUnarchivedChanges, isOpenSpecChange, isProductionSwift } from './openspec-reminder.mjs';
 import { researchTodo } from './research-log.mjs';
 import { sessionEditedPaths } from './transcript.mjs';
 
@@ -99,8 +100,31 @@ if (ownDirty.length) {
   todo.push(`**未提交**：${ownDirty.length} 个文件（${sample(ownDirty)}）`);
 }
 
-// `@{u}` 解析失败有两种成因，只有第一种是欠账：
-//   ① 从没设过 upstream —— 真的没推过，该拦
+// OpenSpec 闭环（项目负责人 2026-09-23）。判据在 `openspec-reminder.mjs`，与开工前提醒共用一份。
+// 归档是硬欠账：任务全打勾就该在同一个 PR 里归档，否则变更越积越多、规格互相打架。
+const toArchive = completedUnarchivedChanges(root);
+if (toArchive.length) {
+  todo.push(
+    `**待归档**：${toArchive.join('、')} 的任务已全部打勾 —— 在同一个 PR 里 ` +
+      toArchive.map((n) => `\`openspec archive ${n} -y\``).join('、')
+  );
+}
+// 改了 App 源码却没有变更记录：机器分不出新功能和修 bug，所以只拦一次（`stop_hook_active` 兜底）。
+// 拿不到 transcript 时不判 —— 这条是核对不是欠账，宁可漏不可吵。
+if (mine !== null) {
+  const edited = [...mine];
+  const swift = edited.filter(isProductionSwift);
+  if (swift.length && !edited.some(isOpenSpecChange)) {
+    todo.push(
+      `**无变更记录**：本轮改了 ${swift.length} 个 App 源文件（${sample(swift)}），` +
+        '但没碰 `openspec/changes/` —— 行为有变就补提议或勾任务；不改变行为（修 bug / 文案 / 重构）回一句说明再停'
+    );
+  }
+}
+
+// `@{u}` 解析失败有两种成因：
+//   ① 从没设过 upstream —— **不等于没推过**（可能推了没带 -u、可能是游离 HEAD），
+//      只有本地有提交不在任何远端分支上才是欠账，判据见下面 everyCommitOnSomeRemote
 //   ② 设过，但远端分支已经没了 —— 本仓库一律 squash 合并 + `--delete-branch`，
 //      所以这是每个合完的分支的**终局状态**，不是欠账
 // 分不出这两种，②就会每轮都被报成「还没跟远端」，而分支内容其实早在 main 里。
@@ -120,29 +144,43 @@ function branchLandedOnMain(branch) {
   return git('diff', 'origin/main..HEAD', '--', ...files.split('\n')) === '';
 }
 
+// ① 里真正要问的只有一句：**本地有没有哪个提交不在任何远端分支上**（丢了就找不回来）。
+// 以前按形状一个个补特例，补了三次：新分支没提交（09-23）、游离 HEAD 已推送（09-23，#186）、
+// 以及更早的 squash 已合（下面 branchLandedOnMain，那个仍需要单独判）。
+// 这一个判断同时覆盖前两种，外加「推到远端了但没带 -u」（workflow-review-20260924 A8）。
+// 判据是「HEAD 可从任一远端分支到达」，不是「有远端分支」：游离后新做的提交照报。
+// 没有任何远端 ref 时 `--not --remotes` 什么都不排除，计数 > 0 照报：宁可多拦，不要静默失效。
+function everyCommitOnSomeRemote() {
+  return git('rev-list', '--count', 'HEAD', '--not', '--remotes') === '0';
+}
+
 const upstream = git('rev-parse', '--abbrev-ref', '@{u}');
 if (upstream === null) {
   const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
-  if (!branchLandedOnMain(branch)) {
-    todo.push(`**无 upstream**：\`${branch}\` 还没跟远端，push 要带 \`-u\``);
+  if (!everyCommitOnSomeRemote() && !branchLandedOnMain(branch)) {
+    todo.push(
+      branch === 'HEAD'
+        ? '**无 upstream**：游离 HEAD 上有提交不在任何远端分支上 —— 先 `git switch -c <分支名>` 再 `push -u`，不然丢了找不回来'
+        : `**无 upstream**：\`${branch}\` 上有提交不在任何远端分支上，push 要带 \`-u\``
+    );
   }
 } else {
   const ahead = Number(git('rev-list', '--count', '@{u}..HEAD') || 0);
   if (ahead > 0) todo.push(`**未推送**：领先 \`${upstream}\` ${ahead} 个提交`);
 }
 
-// 没有欠账就放行。handoff 只在有欠账时**附带**提醒，不做独立触发条件 ——
-// 纯客户端改动（UI 时序、测试 helper、本仓库自己的工具链）本来就不该投递 handoff，
-// 拿「提交晚于 handoff」当触发条件会让每次工具类提交都误报，而天天误报的钩子等于没有钩子。
+// 没有欠账就放行。交接只写在有欠账时的那段收尾提示里，不做独立触发条件 ——
+// 纯客户端改动（UI 时序、测试 helper、本仓库自己的工具链）本来就不该投递，
+// 拿「提交晚于某个时间」当触发条件会让每次工具类提交都误报，而天天误报的钩子等于没有钩子。
 if (!todo.length) process.exit(0);
 
 // 同一份欠账只叫一次。长期存在的脏文件（别人没写完的活）会让钩子每轮都响，
 // 而每轮都响的提醒会被无视 —— 那等于把这个钩子废掉。欠账内容变了才重新叫。
 // 签名落在 .git/ 里：天然不入库、天然每个 clone 独立。
 // 上限：只比对「路径集合 + 领先数」，同一批文件内容再改也不会重新提醒。
-const seenFile =
-  process.env.AIDRUN_STOP_CHECKLIST_SEEN ||
-  path.join(root, '.git', 'aidrun-stop-checklist-seen');
+// 用 --git-path：worktree 里 `.git` 是个文件，拼 `.git/xxx` 会写失败，去重与「只问一次」就静默失效。
+const gitPath = (name) => path.resolve(root, git('rev-parse', '--git-path', name) || path.join('.git', name));
+const seenFile = process.env.AIDRUN_STOP_CHECKLIST_SEEN || gitPath('aidrun-stop-checklist-seen');
 const signature = JSON.stringify(todo);
 if (process.env.AIDRUN_STOP_CHECKLIST_NO_SNOOZE !== '1') {
   try {
@@ -169,20 +207,6 @@ if (otherDirty.length) {
     '\n参考：拿不到本轮 transcript，上面的「未提交」里可能混着并行会话的改动，提交前自己认一眼。\n';
 }
 
-// handoff 是后端仓库的文件，前端 session 未必挂载了 —— 挂了才看。
-const handoff =
-  process.env.AIDRUN_HANDOFF || path.resolve(root, '../demo/docs/handoff.md');
-let handoffNote = '';
-if (fs.existsSync(handoff)) {
-  const lastCommitAt = Number(git('log', '-1', '--format=%ct') || 0);
-  const handoffAt = Math.floor(fs.statSync(handoff).mtimeMs / 1000);
-  if (lastCommitAt > 0 && handoffAt < lastCommitAt) {
-    handoffNote =
-      '\n参考：`demo/docs/handoff.md` 比最后一次提交旧。本轮若动了契约用法、错误码语义、' +
-      '字段依赖或新增端点调用，要同步过去；纯客户端改动不投递。\n';
-  }
-}
-
 // 归档提问。AGENTS.md §1 的触发条件本来只有「犯过第二次」—— 于是第一次就卡了两小时、
 // 试了六遍才对的东西没人管，下次换个人（或换个会话）从头再踩一遍。
 // 「反复查」和「反复错」同等对待，「一次卡很久」也是同一类：代价已经付了，不落地就是白付。
@@ -190,9 +214,7 @@ if (fs.existsSync(handoff)) {
 // 每会话只问一次，且与欠账去重分开算：欠账在一轮里可能变好几次（提交了一半、又改了一个文件），
 // 而这个问题问一次就够，跟着欠账重复问会变成噪声，那就等于废掉它。
 // 拿不到 session_id 时照问 —— 宁可多问一次，也不要静默失效。
-const askedFile =
-  process.env.AIDRUN_STOP_ARCHIVE_ASKED ||
-  path.join(root, '.git', 'aidrun-stop-archive-asked');
+const askedFile = process.env.AIDRUN_STOP_ARCHIVE_ASKED || gitPath('aidrun-stop-archive-asked');
 const sessionId = typeof payload.session_id === 'string' ? payload.session_id : '';
 let archiveNote = '';
 let alreadyAsked = false;
@@ -220,10 +242,11 @@ if (!alreadyAsked) {
 process.stderr.write(
   `收尾没做完（scripts/hooks/stop-checklist.mjs）：\n- ${todo.join('\n- ')}\n` +
     otherNote +
-    handoffNote +
     archiveNote +
-    '\n顺序固定：① 需要投递时先同步 handoff（`- [ ]` → `- [x]`，答写在 `答：` 后面，' +
-    '并追加本轮产生的新问题）② commit（`type: 描述`，不带 co-author）③ push。\n' +
+    '\n顺序固定：① OpenSpec 勾掉做完的任务，全部打勾就归档 ② 动了契约用法、错误码语义、字段依赖或新增端点调用时' +
+    '交接给后端：`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff`；' +
+    '答完的 `待前端确认` issue 评论后 close（纯客户端改动不投递）' +
+    '③ commit（`type: 描述`，不带 co-author）④ push。\n' +
     '用户明确说过「先不提交」的，回一句说明再停 —— 本钩子每轮只拦一次，不会死循环。\n'
 );
 process.exit(2);

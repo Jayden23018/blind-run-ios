@@ -178,6 +178,47 @@ final class LowVisionChannelTests: XCTestCase {
         )
     }
 
+    /// 跑后记录的 D8 色板（`AppColors.runRecordTones`）。按**各自的用途**验，不按正文 4.5:1：
+    /// 盲道黄只当底色压黑字；其余是图形，按 WCAG 1.4.11 的 3:1。
+    ///
+    /// 浅色下的橙 / 中 / 慢压白底不到 3:1 是 D8 的已知事实（取值见 `AppColors` 那段注释），
+    /// 这里不假装它们合格 —— 浅色只验本阶段真的压在白底上画的那一个：`paceFast`（列表缩略图）。
+    func testRunRecordPaletteClearsTheThresholdForHowEachColorIsUsed() {
+        let nonTextMinimum: Double = 3.0
+        let black: UInt32 = 0x000000
+
+        let yellow = AppColors.tactileYellowTone
+        for (mode, value) in [("亮色", yellow.light), ("暗色", yellow.dark)] {
+            let ratio = Self.contrastRatio(black, value)
+            XCTAssertGreaterThanOrEqual(ratio, Self.minimumContrast, "\(mode)盲道黄上的黑字只有 \(String(format: "%.2f", ratio)):1")
+        }
+
+        // 深色模式下五个颜色都会当图形压在黑底 / 次级底上。
+        XCTAssertEqual(AppColors.runRecordTones.count, 5, "D8 定了五个颜色")
+        for (name, tone) in AppColors.runRecordTones where name != "tactileYellow" {
+            for background in Self.backgrounds {
+                let ratio = Self.contrastRatio(tone.dark, background.dark)
+                XCTAssertGreaterThanOrEqual(
+                    ratio, nonTextMinimum,
+                    "暗色 \(name) 压在 \(background.name) 上只有 \(String(format: "%.2f", ratio)):1"
+                )
+            }
+        }
+
+        for background in Self.backgrounds {
+            let ratio = Self.contrastRatio(AppColors.paceFastTone.light, background.light)
+            XCTAssertGreaterThanOrEqual(ratio, nonTextMinimum, "亮色缩略图路线压在 \(background.name) 上只有 \(String(format: "%.2f", ratio)):1")
+        }
+
+        // 验红：`paceFast` 的深色档之所以单独换值，是因为 D8 原值压暗色次级底只有 3.08 ——
+        // 刚过线，而列表行在暗色下正是这个底。这条挡住「深色沿用浅色值就行」。
+        XCTAssertLessThan(Self.contrastRatio(AppColors.paceFastTone.light, 0x2C2C2E), nonTextMinimum)
+        XCTAssertGreaterThan(
+            Self.contrastRatio(AppColors.paceFastTone.dark, 0x1C1C1E),
+            Self.contrastRatio(AppColors.paceFastTone.light, 0x1C1C1E)
+        )
+    }
+
     /// 这条是**验红**用的：把已知不达标的旧取值喂进同一个计算，必须算出不达标。
     ///
     /// 没有它，上面那条用例在计算公式写错时会静默全绿 —— 一个恒返回 21 的
@@ -259,6 +300,40 @@ final class LowVisionChannelTests: XCTestCase {
             return raw <= 0.03928 ? raw / 12.92 : pow((raw + 0.055) / 1.055, 2.4)
         }
         return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+    }
+
+    /// 星火页的夜空色板（`AppColors.Xinghuo`，固定夜空、不跟随系统明暗）。
+    ///
+    /// 文字都压在**半透明**玻璃上，最坏情况是玻璃底下正好一颗亮星 —— 所以按「玻璃叠在纯白上」算。
+    /// 这条能区分玻璃透明度：照原型的 0.74，`muted` 只有 3.44:1、`moon` 4.25:1，都过不了；
+    /// 0.86 时最低的 `muted` 是 5.30:1。
+    func testXinghuoPaletteKeepsTextReadableOnGlass() {
+        let palette = AppColors.Xinghuo.self
+        let worstGlass = Self.composite(palette.glassRGB, alpha: Double(palette.glassAlpha), over: 0xFFFFFF)
+        let texts: [(String, UInt32)] = [
+            ("ink", palette.inkRGB), ("muted", palette.mutedRGB), ("ember", palette.emberRGB), ("moon", palette.moonRGB),
+        ]
+        for (name, rgb) in texts {
+            let ratio = Self.contrastRatio(rgb, worstGlass)
+            XCTAssertGreaterThanOrEqual(
+                ratio, Self.minimumContrast,
+                "星火 \(name) 压在最坏情况的玻璃上只有 \(String(format: "%.2f", ratio)):1"
+            )
+        }
+        // 星芯压在夜空底上：图形部件按 WCAG 1.4.11 的 3:1。
+        for (name, rgb) in [("starCore", palette.starCoreRGB), ("runnerCore", palette.runnerCoreRGB)] {
+            XCTAssertGreaterThanOrEqual(Self.contrastRatio(rgb, palette.nightRGB), 3, "星火 \(name) 在夜空上看不清")
+        }
+    }
+
+    /// `rgb` 以 `alpha` 叠在 `background` 上的合成色。
+    private static func composite(_ rgb: UInt32, alpha: Double, over background: UInt32) -> UInt32 {
+        func channel(_ shift: UInt32) -> UInt32 {
+            let top = Double((rgb >> shift) & 0xFF)
+            let bottom = Double((background >> shift) & 0xFF)
+            return UInt32((alpha * top + (1 - alpha) * bottom).rounded()) << shift
+        }
+        return channel(16) | channel(8) | channel(0)
     }
 
     private static func contrastRatio(_ a: UInt32, _ b: UInt32) -> Double {

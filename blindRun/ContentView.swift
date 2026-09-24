@@ -518,10 +518,20 @@ private struct SessionLifecycleStatusModifier: ViewModifier {
         )
     }
 
+    private var isBusy: Bool {
+        appState.logoutState == .inProgress || appState.accountDeletionState == .inProgress
+    }
+
     func body(content: Content) -> some View {
         content
+            // 遮罩盖住的整个根要退出无障碍树，否则读屏用户在请求进行中还能滑到并操作背后的页面。
+            // SwiftUI hidden 管纯 SwiftUI 的部分（如恢复失败页）；背后的 TabView / NavigationStack
+            // 在 UIKit 侧，得靠 hider（理由见它的注释）。用例
+            // `testSessionLifecycleOverlayHidesTheScreenBehindItFromAccessibility`。
+            .accessibilityHidden(isBusy)
+            .background(HostedContainersAccessibilityHider(isHidden: isBusy))
             .overlay {
-                if appState.logoutState == .inProgress || appState.accountDeletionState == .inProgress {
+                if isBusy {
                     ZStack {
                         Color.black.opacity(0.25).ignoresSafeArea()
                         ProgressView("正在处理，请稍候")

@@ -59,6 +59,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 对应后端的 200 + `data: null`。
     var orderReviews: [Int64: OrderReview] = [:]
 
+    /// 跑后留言，`GET /api/orders/{id}/run-record` 的 `messages` 回放源。
+    var runRecordMessages: [Int64: [RunRecordMessageResponse]] = [:]
+
     /// 志愿者已单方面退出的固定搭档（`DELETE /api/volunteer/favorites/{blindUserId}`）。
     ///
     /// 只记 userId、不删行 —— 与后端一致：退出是**打标记不是删行**，
@@ -213,6 +216,13 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
            path.matches(of: try! Regex("/api/orders/\\d+$")).count > 0 {
             await Self.suspendForeverIgnoringCancellation()
             throw CancellationError()
+        }
+        // 让退出登录 / 删除账户在 `.inProgress` 停够几秒，UI 测试才断得到进度遮罩那一刻的无障碍树。
+        // 限时而不是永久挂起：退出登录配 `AIDRUN_MOCK_LOGOUT_FAILURE` 就能走到「失败 → 取消 → 回到 idle」，
+        // 同一条用例顺带验遮罩收起后背景回到树里。
+        if path == "/api/auth/logout" || (method == .delete && path.hasPrefix("/api/users/")),
+           let seconds = Double(ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SLOW_SESSION_END_SECONDS"] ?? "") {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
         }
         #endif
 
@@ -478,6 +488,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/orders/mine" && method == .get {
             return handleGetMyOrders(query: query)
         }
+        if path == "/api/orders/mine/run-records" && method == .get {
+            return try handleGetMyRunRecords(query: query)
+        }
         // 排在下面 `extractOrderId` 那一族之前只是照这一节的写法；`Int64("active")` 是 nil，
         // 顺序其实无所谓。
         if path == "/api/orders/active" && method == .get {
@@ -501,6 +514,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if let orderId = extractOrderId(from: path) {
             if path.hasSuffix("/track") && method == .get {
                 return try handleGetOrderTrack(orderId: orderId)
+            }
+            if path.hasSuffix("/run-record/messages") && method == .post {
+                return try handlePostRunRecordMessage(orderId: orderId, body: body)
+            }
+            if path.hasSuffix("/run-record") && method == .get {
+                return try handleGetRunRecord(orderId: orderId)
             }
             if path.hasSuffix("/respond") && method == .post {
                 return try handleRespondOrder(orderId: orderId, body: body)
@@ -1128,6 +1147,36 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 volunteerTotalCompleted: Self.mockOrderVolunteerCompletedRuns
             )
         ]
+        // 记录页截图用：给「未完成的预约」那一组一条可拍的数据。**只在显式要求时加** ——
+        // 其余 UI 用例按现有行数断言，凭空多一条会假失败（同上面「刻意不带终点」那条理由）。
+        if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_SEED_HISTORY"] == "1" {
+            orders.append(OrderDetailResponse(
+                orderId: 3,
+                status: .cancelled,
+                startAddress: "朝阳公园南门",
+                startLatitude: 39.9342,
+                startLongitude: 116.4740,
+                endAddress: nil,
+                endLatitude: nil,
+                endLongitude: nil,
+                plannedStart: formatter.string(from: Date().addingTimeInterval(-3 * 86400)),
+                plannedEnd: formatter.string(from: Date().addingTimeInterval(-3 * 86400 + 3600)),
+                blindName: "李明",
+                blindPhone: "13800001001",
+                volunteerPhone: nil,
+                acceptedAt: nil,
+                createdAt: formatter.string(from: Date().addingTimeInterval(-4 * 86400)),
+                expectedDurationMinutes: 60,
+                pacePreference: .moderate,
+                routePreference: .parkTrail,
+                routeNotes: nil,
+                hasGuideDogThisRun: false,
+                specialNotes: nil,
+                visionLevel: "TOTAL_BLIND",
+                tetherPreference: "TETHER_ROPE",
+                chatPreference: "PREFER_CHAT"
+            ))
+        }
         nextOrderId = 10
     }
 }

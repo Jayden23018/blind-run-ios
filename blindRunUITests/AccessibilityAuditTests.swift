@@ -113,17 +113,23 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在")
-        for title in ["首页", "记录", "我的"] {
+        for title in ["首页", "星火", "记录", "我的"] {
             XCTAssertTrue(
                 tabBar.buttons[title].exists,
-                "标签栏缺少「\(title)」—— 设计交付 v3 §4.1 要的就是这三个"
+                "标签栏缺少「\(title)」—— 设计交付 v3 §4.1 的三个 + 调试版的星火页"
             )
         }
 
+        tabBar.buttons["星火"].tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["xinghuoSummary"].firstMatch.waitForExistence(timeout: 15),
+            "「星火」tab 没到星火页"
+        )
+
         tabBar.buttons["记录"].tap()
         XCTAssertTrue(
-            app.navigationBars["服务记录"].waitForExistence(timeout: 15),
-            "「记录」tab 没到服务记录页"
+            app.navigationBars["陪跑记录"].waitForExistence(timeout: 15),
+            "「记录」tab 没到陪跑记录页"
         )
 
         tabBar.buttons["我的"].tap()
@@ -402,7 +408,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在")
-        for title in ["首页", "记录", "我的"] {
+        for title in ["首页", "星火", "记录", "我的"] {
             XCTAssertTrue(
                 tabBar.buttons[title].exists,
                 "标签栏缺少「\(title)」—— 改版后历史订单与设置只有这一条路可走"
@@ -418,6 +424,211 @@ final class AccessibilityAuditTests: XCTestCase {
             sosBar.waitForExistence(timeout: 10),
             "「我的」tab 底部没有兜底的紧急入口 —— 首页那条已经移除，这里是它现在唯一的落点"
         )
+    }
+
+    // MARK: - 记录 tab（OpenSpec `add-run-record-history-tab`）
+
+    /// 记录页要拍的数据：Mock 的已完成单 #2（本月）+ 一张已取消单（`AIDRUN_UI_TEST_SEED_HISTORY`）。
+    private static let recordsSeed = ["AIDRUN_UI_TEST_SEED_HISTORY": "1"]
+
+    @MainActor
+    private func openRecordsTab(_ app: XCUIApplication, title: String) {
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "底部标签栏不在")
+        tabBar.buttons["记录"].tap()
+        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 15), "「记录」tab 没到\(title)")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["runRecordHistorySummary"].firstMatch.waitForExistence(timeout: 15),
+            "月度汇总没出来 —— monthlyRecords 没接上，或本月没有数据"
+        )
+    }
+
+    @MainActor
+    func testRunnerRecordsTabShowsMonthAndUnfinishedGroupAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
+        openRecordsTab(app, title: "跑步记录")
+
+        let summary = app.descendants(matching: .any)["runRecordHistorySummary"].firstMatch
+        XCTAssertTrue(summary.label.contains("跑了 1 次"), "跑者汇总句：\(summary.label)")
+        XCTAssertTrue(app.buttons["runRecordHistoryPreviousMonth"].exists, "上个月入口不在")
+        XCTAssertFalse(app.buttons["runRecordHistoryNextMonth"].exists, "当月不该有下个月")
+        // `List` 不渲染屏幕外的行（AGENTS.md：断言前先滚动）。
+        let unfinished = app.staticTexts["未完成的预约"]
+        for _ in 0..<3 where !unfinished.exists { app.swipeUp() }
+        XCTAssertTrue(unfinished.exists, "已取消的单没收进「未完成的预约」")
+        try audit(app)
+    }
+
+    @MainActor
+    func testVolunteerRecordsTabShowsMonthAndUnfinishedGroupAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchVolunteerHome(extraEnvironment: Self.recordsSeed)
+        openRecordsTab(app, title: "陪跑记录")
+
+        let summary = app.descendants(matching: .any)["runRecordHistorySummary"].firstMatch
+        XCTAssertTrue(summary.label.contains("陪跑 1 次"), "陪跑员汇总句：\(summary.label)")
+        XCTAssertFalse(summary.label.contains("*"), "读屏不该念掩码星号：\(summary.label)")
+        // `List` 不渲染屏幕外的行（AGENTS.md：断言前先滚动）。
+        let unfinished = app.staticTexts["未完成的预约"]
+        for _ in 0..<3 where !unfinished.exists { app.swipeUp() }
+        XCTAssertTrue(unfinished.exists, "已取消的单没收进「未完成的预约」")
+        try audit(app)
+    }
+
+    /// 阶段收尾的三组截图（浅色 / 深色 / 最大字号 × 两个角色），附件在 result bundle 里。
+    /// 不做像素断言：截图是给人看的证据，断言由上面两条用例负责。
+    @MainActor
+    func testRecordsTabScreenshotsInLightDarkAndLargestText() throws {
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax-xxxl", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        for variant in variants {
+            let environment = Self.recordsSeed.merging(variant.environment) { _, new in new }
+            for role in ["runner", "volunteer"] {
+                let app = role == "runner"
+                    ? launchBlindHome(emptyOrders: false, extraEnvironment: environment, extraArguments: variant.arguments)
+                    : launchVolunteerHome(extraEnvironment: environment, extraArguments: variant.arguments)
+                openRecordsTab(app, title: role == "runner" ? "跑步记录" : "陪跑记录")
+                attachScreenshot(app, name: "records-\(role)-\(variant.name)-top")
+                app.swipeUp()
+                attachScreenshot(app, name: "records-\(role)-\(variant.name)-bottom")
+                app.terminate()
+            }
+        }
+    }
+
+    @MainActor
+    private func attachScreenshot(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// 星火页（调试版）：摘要句与今日足迹开关在，盲人端摘要不念别的盲人；整页过审计。
+    @MainActor
+    func testBlindXinghuoPageShowsSummaryAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome()
+        // iPad（iPadOS 18 起）的 `TabView` 是顶部浮动标签栏，XCUITest 里不是 `TabBar` —— 退回按名字找按钮。
+        let xinghuoTab = app.tabBars.firstMatch.waitForExistence(timeout: 20)
+            ? app.tabBars.firstMatch.buttons["星火"]
+            : app.buttons["星火"].firstMatch
+        XCTAssertTrue(xinghuoTab.waitForExistence(timeout: 5), "「星火」标签不在")
+        xinghuoTab.tap()
+
+        let summary = app.descendants(matching: .any)["xinghuoSummary"].firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 15), "星火页没起来，后面的审计结果没有意义")
+        XCTAssertTrue(summary.label.contains("志愿者"), "摘要句该念志愿者人数，实际：\(summary.label)")
+        XCTAssertFalse(summary.label.contains("视障跑者在等待"), "盲人端摘要不该念别的盲人")
+        // 足迹一律显示，开关已去掉（负责人 2026-09-24）。
+        XCTAssertFalse(app.switches["xinghuoFootprintToggle"].exists, "今日足迹开关又回来了 —— 负责人要的是默认显示、没有开关")
+
+        // 卡片的滚动容器只能贴底、按内容定高。它一旦铺满全屏，就会吃掉所有拖动手势，
+        // 地图拖不动（负责人 2026-09-23 真机反馈）—— 占位图构建里看不出地图拖没拖动，
+        // 但看得出这个容器占了多大。
+        let cardScroll = app.descendants(matching: .any)["xinghuoCardScroll"].firstMatch
+        XCTAssertTrue(cardScroll.exists, "卡片滚动容器不在")
+
+        // 卡片两档（负责人 2026-09-23）。档位跨启动记在 `@AppStorage` 里，上一次运行可能停在收起档 —— 先复原。
+        let handle = app.buttons["xinghuoCardHandle"]
+        XCTAssertTrue(handle.exists, "卡片把手不在，或者不是按钮 —— 读屏用户拖不了，只能靠它是个按钮来换档")
+        if (handle.value as? String) == "已收起" {
+            handle.tap()
+        }
+        XCTAssertEqual(handle.value as? String, "已展开")
+
+        let screenHeight = app.windows.firstMatch.frame.height
+        let expandedTop = settledMinY(of: cardScroll)
+        // 高度量卡片本体（里面的 ScrollView）：容器的 frame 是子元素的并集，
+        // 会把往卡片上方伸出去的把手命中区也算进去。
+        let cardBody = cardScroll.scrollViews.firstMatch
+        let expandedHeight = cardBody.frame.height
+        XCTAssertGreaterThan(
+            expandedTop, screenHeight * 0.4,
+            "卡片滚动容器从 \(Int(expandedTop)) pt 开始，盖住了上半屏的地图"
+        )
+        // 只比**同一层**：`descendants` 逐层枚举，拿第 1 层的把手和更深的摘要句比下标，比的是深度
+        // （记忆 `swiftui-traversal-order-follows-paint-order`）。
+        let topLevel = cardScroll.children(matching: .any).allElementsBoundByIndex
+        let handleIndex = topLevel.firstIndex { $0.identifier == "xinghuoCardHandle" }
+        let contentIndex = topLevel.firstIndex { $0.descendants(matching: .any)["xinghuoSummary"].exists }
+        XCTAssertLessThan(
+            contentIndex ?? .max, handleIndex ?? -1,
+            "把手排到了卡片内容前面，读屏第一下听到的不再是人数。第一层：\(topLevel.map { "\($0.elementType.rawValue):\($0.identifier)" })"
+        )
+        // 面板要让地图占主导（负责人 2026-09-24「再压缩短一点」）。上限按默认字号定，
+        // 上一版实测展开 377 / 收起 292，两条都会红。
+        XCTAssertLessThanOrEqual(
+            expandedHeight, 280,
+            "展开的卡片有 \(Int(expandedHeight)) pt 高，地图又被压小了"
+        )
+        try audit(app)
+
+        // 收起：面板上沿下移，读屏要用的一个不少。
+        let summaryLabel = summary.label
+        handle.tap()
+        XCTAssertEqual(handle.value as? String, "已收起", "点把手没换档")
+        let collapsedTop = settledMinY(of: cardScroll)
+        print("[xinghuo] card top expanded=\(expandedTop) collapsed=\(collapsedTop) collapsedHeight=\(cardBody.frame.height) screen=\(screenHeight)")
+        XCTAssertGreaterThan(
+            collapsedTop, expandedTop + 60,
+            "收起后面板上沿只从 \(Int(expandedTop)) 移到 \(Int(collapsedTop))，地图没多出来"
+        )
+        XCTAssertTrue(summary.isHittable, "收起后摘要句不在了")
+        XCTAssertEqual(summary.label, summaryLabel, "收起后读屏念的摘要句变了 —— 收起只该换视觉")
+        // `.firstMatch` 不能省：`FlowActionButton` 在 XCUITest 的树里是 `Button > Button` 两层同名同框
+        // （外层是 `accessibilityElement(children: .ignore)` 合成的），不带它 `isHittable` 撞上多重匹配恒为 false。
+        XCTAssertTrue(app.buttons["听见星光"].firstMatch.isHittable, "收起后「听见星光」不在了")
+        XCTAssertLessThanOrEqual(
+            cardBody.frame.height, 120,
+            "收起的卡片还有 \(Int(cardBody.frame.height)) pt 高 —— 收起该是一行"
+        )
+        try audit(app)
+
+        // 复原，不给下一次运行留下收起档。
+        handle.tap()
+        XCTAssertEqual(handle.value as? String, "已展开")
+
+        // 真拖（前面都是轻点）。2026-09-24 负责人报「拖的时候上下抽搐」：把手随卡片移动、位移按自身坐标算，
+        // 位移在拖动中反复被减回 0，松手时的惯性预测甚至会反向 —— 拖了不换档。慢拖再停住，预测≈实际位移。
+        dragHandle(handle, by: 150)
+        XCTAssertEqual(handle.value as? String, "已收起", "往下拖 150pt 没收起")
+        dragHandle(handle, by: -150)
+        XCTAssertEqual(handle.value as? String, "已展开", "往上拖 150pt 没展开")
+    }
+
+    private func dragHandle(_ handle: XCUIElement, by dy: CGFloat) {
+        let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0.1,
+            thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.3
+        )
+    }
+
+    /// 等弹簧动画停下再量（连续两次读数相同才算停）。
+    private func settledMinY(of element: XCUIElement, timeout: TimeInterval = 3) -> CGFloat {
+        var last = element.frame.minY
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            let current = element.frame.minY
+            if abs(current - last) < 0.5 { return current }
+            last = current
+        }
+        return last
     }
 
     // MARK: - 首次使用引导
@@ -1173,7 +1384,9 @@ final class AccessibilityAuditTests: XCTestCase {
         forcingVoiceStage: Bool = false,
         emptyOrders: Bool = true,
         forcingFirstRunHelp: Bool = false,
-        seedOrderStatus: String? = nil
+        seedOrderStatus: String? = nil,
+        extraEnvironment: [String: String] = [:],
+        extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1205,6 +1418,10 @@ final class AccessibilityAuditTests: XCTestCase {
         if forcingFirstRunHelp {
             app.launchEnvironment["AIDRUN_UI_TEST_FORCE_FIRST_RUN_HELP"] = "1"
         }
+
+        // 记录页截图 / 审计用（深色、最大字号、历史种子），只加不覆盖上面的基线。
+        app.launchEnvironment.merge(extraEnvironment) { _, new in new }
+        app.launchArguments += extraArguments
 
         addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in
             for title in ["允许", "好", "使用App时允许", "OK", "Allow"] {
@@ -1374,7 +1591,9 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     private func launchVolunteerHome(
         seedOrderStatus: String? = nil,
-        available: Bool = true
+        available: Bool = true,
+        extraEnvironment: [String: String] = [:],
+        extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1396,6 +1615,10 @@ final class AccessibilityAuditTests: XCTestCase {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"
             app.launchEnvironment["AIDRUN_UI_TEST_SEED_ORDER_STATUS"] = seedOrderStatus
         }
+
+        // 记录页截图 / 审计用（深色、最大字号、历史种子），只加不覆盖上面的基线。
+        app.launchEnvironment.merge(extraEnvironment) { _, new in new }
+        app.launchArguments += extraArguments
 
         addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in
             for title in ["允许", "好", "使用App时允许", "OK", "Allow"] {

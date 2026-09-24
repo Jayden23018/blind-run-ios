@@ -87,6 +87,7 @@ struct blindRunApp: App {
                 .environmentObject(amapGeocodingService)
                 .scrollDismissesKeyboard(.interactively)
                 .background(KeyboardDismissTapInstaller().allowsHitTesting(false))
+                .preferredColorScheme(Self.uiTestColorScheme)
                 .onAppear {
                     #if DEBUG || DEMO
                     applyUITestLaunchConfigurationIfNeeded()
@@ -117,6 +118,22 @@ struct blindRunApp: App {
                     }
                 }
         }
+    }
+
+    /// UI 测试截深色图用（`AIDRUN_UI_TEST_COLOR_SCHEME` = `light` / `dark`）。
+    ///
+    /// **只在 DEBUG 构建生效**：两端跟随系统明暗是定死的（`docs/ui/design-direction.md` §2），
+    /// 发布构建里这里恒为 `nil` = 不覆盖。没有它，真机截深色图就得先手动去系统设置里切。
+    static var uiTestColorScheme: ColorScheme? {
+        #if DEBUG
+        switch ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_COLOR_SCHEME"] {
+        case "dark": return .dark
+        case "light": return .light
+        default: return nil
+        }
+        #else
+        return nil
+        #endif
     }
 
     /// APNs 只是 WS 离线时的 HIGH 优先级兜底通道，注册失败不影响任何主流程。

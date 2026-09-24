@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-08-05T01:11:38.995Z",
+  "capturedAt": "2026-09-24T06:49:10.907Z",
   "baseURL": "http://47.114.113.171",
   "note": "原始字节，未 pretty-print。手机号/token/身份证已脱敏但保持格式合法。",
   "files": {
@@ -42,6 +42,31 @@
       "model": "PagedOrderResponse",
       "label": "volunteer-history",
       "bytes": 2501
+    },
+    "RunRecordResponse__blind-ready.json": {
+      "model": "RunRecordResponse",
+      "label": "blind-ready",
+      "bytes": 11173
+    },
+    "RunRecordResponse__volunteer-ready.json": {
+      "model": "RunRecordResponse",
+      "label": "volunteer-ready",
+      "bytes": 11112
+    },
+    "RunRecordResponse__blind-insufficient-track.json": {
+      "model": "RunRecordResponse",
+      "label": "blind-insufficient-track",
+      "bytes": 1025
+    },
+    "RunRecordHistoryResponse__blind.json": {
+      "model": "RunRecordHistoryResponse",
+      "label": "blind",
+      "bytes": 1112
+    },
+    "RunRecordHistoryResponse__volunteer.json": {
+      "model": "RunRecordHistoryResponse",
+      "label": "volunteer",
+      "bytes": 1059
     }
   }
 }

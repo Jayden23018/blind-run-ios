@@ -40,7 +40,9 @@ final class LiveEscortSessionCoordinator: ObservableObject {
 
     private let realtimeCoordinator: AppRealtimeCoordinator
     private let reportInterval: TimeInterval
-    private let sendLocation: @MainActor @Sendable (WebSocketService, LocatedCoordinate) async -> Void
+    private let sendLocation: @MainActor @Sendable (WebSocketService, LocatedCoordinate, RunMotionSnapshot?) async -> Void
+    /// 本机步数 / 步频 / 相对海拔（跑后运动记录，D3）。只在 `IN_PROGRESS` 且连着云端 WS 时采。
+    private let motionRecorder: any RunMotionRecording
     private weak var webSocketService: WebSocketService?
     private weak var locationService: LocationService?
     private var role: UserRole?
@@ -78,22 +80,35 @@ final class LiveEscortSessionCoordinator: ObservableObject {
     init(
         realtimeCoordinator: AppRealtimeCoordinator,
         reportInterval: TimeInterval = LiveEscortSessionCoordinator.reportInterval,
-        sendLocation: @escaping @MainActor @Sendable (WebSocketService, LocatedCoordinate) async -> Void = { service, sample in
+        motionRecorder: any RunMotionRecording = CoreMotionRunRecorder(),
+        sendLocation: @escaping @MainActor @Sendable (WebSocketService, LocatedCoordinate, RunMotionSnapshot?) async -> Void = { service, sample, motion in
             #if DEBUG
             if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_HANG_ESCORT_SEND"] == "1" {
                 await withUnsafeContinuation { (_: UnsafeContinuation<Void, Never>) in }
                 return
             }
             #endif
-            service.sendLocationUpdate(
-                lat: sample.coordinate.latitude,
-                lng: sample.coordinate.longitude
-            )
+            service.sendLocationUpdate(LiveEscortSessionCoordinator.locationMessage(sample: sample, motion: motion))
         }
     ) {
         self.realtimeCoordinator = realtimeCoordinator
         self.reportInterval = reportInterval
+        self.motionRecorder = motionRecorder
         self.sendLocation = sendLocation
+    }
+
+    /// 同行会话的上行报文。`sample` 必须已是 GCJ-02（`latestEscortBackendSample` 保证）。
+    /// 纯函数，只为可测：拿不到的字段一律不传，这是契约的硬要求。
+    static func locationMessage(sample: LocatedCoordinate, motion: RunMotionSnapshot?) -> WSLocationUpdateMessage {
+        WSLocationUpdateMessage(
+            lat: sample.coordinate.latitude,
+            lng: sample.coordinate.longitude,
+            hAcc: sample.horizontalAccuracy,
+            speed: sample.speed,
+            alt: motion?.altitude,
+            steps: motion?.steps,
+            cadence: motion?.cadence
+        )
     }
 
     var isSessionEligible: Bool {
@@ -233,6 +248,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         }
         let needsBackground = activeStatus == .inProgress
         locationService?.setEscortBackgroundMode(enabled: needsBackground)
+        syncMotionRecording()
         if reportTask == nil {
             reportTask = Task { [weak self] in
                 while !Task.isCancelled {
@@ -277,7 +293,9 @@ final class LiveEscortSessionCoordinator: ObservableObject {
               let sample = locationService?.latestEscortBackendSample(now: now) else { return }
         guard let webSocketService else { return }
         ClientFlowDiagnostics.record(event: "started", operation: "escort-location-send")
-        await sendLocation(webSocketService, sample)
+        // 步数 / 海拔只有 `IN_PROGRESS` 才有意义（后端只在这一态落库）；去会合的路上一律不带。
+        let motion = activeStatus == .inProgress ? motionRecorder.latestSnapshot : nil
+        await sendLocation(webSocketService, sample, motion)
         guard !Task.isCancelled, isSessionEligible else { return }
         lastSentAt = now
         ClientFlowDiagnostics.record(event: "finished", operation: "escort-location-send")
@@ -413,6 +431,24 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         shouldSendLatestAfterCurrent = false
         lastSentAt = nil
         locationService?.setEscortBackgroundMode(enabled: false)
+        motionRecorder.stop()
         setHealthState(.idle)
+    }
+
+    /// 两台手机都在**出发去会合时**就申请「运动与健身」（项目负责人 2026-09-24 拍板）：
+    /// 那时离起跑还远，系统框不会在起跑那一刻抢走 VoiceOver 焦点。
+    ///
+    /// 只在连着云端 WS 时做 —— Mock 环境没有 WS，UI 测试因此永远不会冒出系统权限框。
+    private func syncMotionRecording() {
+        guard webSocketService != nil else {
+            motionRecorder.stop()
+            return
+        }
+        motionRecorder.requestAuthorizationIfNeeded()
+        if activeStatus == .inProgress, let activeOrderID {
+            motionRecorder.start(orderID: activeOrderID)
+        } else {
+            motionRecorder.stop()
+        }
     }
 }

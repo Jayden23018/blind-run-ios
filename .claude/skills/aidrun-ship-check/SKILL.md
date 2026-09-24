@@ -65,7 +65,7 @@ scripts/dual-device-validation.sh
 1. 创建/修改的文件清单
 2. 若改了 `AGENTS.md`，摘要说明改了哪些节
 3. 是否发现 docs / OpenSpec 与 `AGENTS.md` 冲突
-4. 需要人工确认的问题（需要后端拍板的写进后端仓库 `demo/docs/handoff.md` 的「待后端确认」）
+4. 需要人工确认的问题（需要后端拍板的开后端仓库 issue：`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff`）
 5. 测试结果：**真跑过的写结果，没跑的明说没跑**
 6. 未完成项及原因
 7. 文档任务时，确认没有动业务代码

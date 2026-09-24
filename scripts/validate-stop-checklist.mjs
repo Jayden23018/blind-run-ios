@@ -242,6 +242,125 @@ const cases = [
     },
   },
   {
+    // 2026-09-23 真实误报：新开 worktree 的分支从没推过、也没有任何提交，
+    // 本轮只改了仓库外的文件，却连报两次「push 要带 -u」。
+    // 靶子让 HEAD 落后 origin/main 一个提交 —— worktree 从旧点切出来是常态，
+    // 「比内容」的实现会把 main 领先的那部分当成本分支的改动而误报。
+    name: '从没设过 upstream、也没有 origin/main 之外的提交 → 不报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      const seed = g('rev-parse', 'HEAD').stdout.trim();
+      fs.writeFileSync(path.join(dir, 'main-moved-on.txt'), 'main 领先的提交\n');
+      g('add', '-A');
+      g('commit', '-qm', 'main 又往前走了一步');
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'claude/fresh-worktree', seed);
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? '分支上没有任何 origin/main 之外的提交，却仍报「无 upstream」'
+        : null;
+    },
+  },
+  {
+    // 反例：同样从没设过 upstream，但有了自己的提交 —— 这是真欠账，必须照报。
+    // 挡的是「没有 upstream 配置就一律放行」这种修过头的实现。
+    name: '从没设过 upstream、有自己的提交 → 仍要报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'feat/never-pushed');
+      fs.writeFileSync(path.join(dir, 'new-work.txt'), '从没推过的活\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 从没推过');
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? null
+        : '从没推过的分支有自己的提交，却没报「无 upstream」—— 真欠账被放过了';
+    },
+  },
+  {
+    // 2026-09-23 真实误报：分支已推完（HEAD == origin/feat/...），为了把分支腾给新 worktree
+    // 故意 `checkout --detach`（AGENTS §10 教的正是这个），钩子报「`HEAD` 还没跟远端」。
+    // 提交不在 main 上 —— 靶子要让「origin/main..HEAD 为 0」那条判据兜不住它。
+    name: '游离 HEAD、提交已在某条远端分支上 → 不报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'feat/pushed');
+      fs.writeFileSync(path.join(dir, 'pushed.txt'), '已推上去的活\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 已推送');
+      g('update-ref', 'refs/remotes/origin/feat/pushed', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-q', '--detach');
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? '游离 HEAD 的提交已在 origin/feat/pushed 上，却仍报「无 upstream」'
+        : null;
+    },
+  },
+  {
+    // 反例：游离后又提交了一个 —— 它不在任何远端分支上，丢了就找不回来，必须照报。
+    // 远端分支停在上一个提交：挡「有远端分支就放行」和「游离一律放行」两种修过头的实现。
+    name: '游离 HEAD、有提交不在任何远端分支上 → 仍要报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'feat/pushed');
+      fs.writeFileSync(path.join(dir, 'pushed.txt'), '已推上去的活\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 已推送');
+      g('update-ref', 'refs/remotes/origin/feat/pushed', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-q', '--detach');
+      fs.writeFileSync(path.join(dir, 'detached.txt'), '游离之后才写的\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 游离后的提交');
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? null
+        : '游离 HEAD 上有没推过的提交，却没报「无 upstream」—— 真欠账被放过了';
+    },
+  },
+  {
+    // workflow-review-20260924 A8：把三个特例收成「HEAD 可从任一远端分支到达」之后新覆盖的形状。
+    // 旧实现三条特例都兜不住它（有 origin/main 之外的提交、没设过 upstream、不是游离 HEAD）。
+    name: '推到了同名远端分支但没带 -u → 不报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'feat/pushed-no-u');
+      fs.writeFileSync(path.join(dir, 'x.txt'), 'x\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 推了但没 -u');
+      g('update-ref', 'refs/remotes/origin/feat/pushed-no-u', g('rev-parse', 'HEAD').stdout.trim());
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? '提交已在 origin/feat/pushed-no-u 上，却仍报「无 upstream」'
+        : null;
+    },
+  },
+  {
+    // workflow-review-20260924：worktree 里 `.git` 是个文件，旧实现拼 `.git/aidrun-stop-checklist-seen`
+    // 写不进去（ENOTDIR 被吞掉），去重静默失效 —— 桌面 App 每个会话都是 worktree，于是每轮都叫。
+    name: 'worktree 里同一份欠账也只叫一次（签名不能写到 .git/ 这个「文件」下面）',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      const wt = path.join(dir, 'wt');
+      g('worktree', 'add', '-q', '-b', 'wt-branch', wt);
+      fs.writeFileSync(path.join(wt, 'dirty.txt'), 'dirty\n');
+      const env = { AIDRUN_REPO_ROOT: wt, AIDRUN_STOP_CHECKLIST_NO_SNOOZE: '0' };
+      const first = run('{}', env);
+      if (first.status !== 2) return `靶子没造出欠账（exit ${first.status}）`;
+      const second = run('{}', env);
+      return second.status === 0 ? null : `worktree 里同样的欠账第二次仍在拦（exit ${second.status}），去重没生效`;
+    },
+  },
+  {
     // 拿不到 session_id 时宁可多问一次，也不要静默不问 —— 静默失效是这类提醒最常见的死法。
     name: '没有 session_id 时照问（不静默失效）',
     stdin: '{}',
@@ -249,6 +368,63 @@ const cases = [
       r.status === 0 || r.stderr.includes('试了三次以上才对')
         ? null
         : '缺 session_id 时没问归档',
+  },
+  {
+    // OpenSpec 闭环（2026-09-23）。四个靶子各自区分一种错误判据：
+    //   done    —— 全打勾：必须报
+    //   partial —— 有 [x] 也有 [ ]：「只看有没有 [x]」的实现会误报它
+    //   empty   —— 一个勾都没有：「只看没有 [ ]」的实现会误报它
+    //   archive/old —— 已归档：不看目录层级的实现会误报它
+    name: 'OpenSpec：只有任务全打勾且未归档的变更才报「待归档」',
+    stdin: '{}',
+    check: () => {
+      const { dir } = scratchRepo();
+      const tasks = {
+        'done': '- [x] 1.1 a\n- [X] 1.2 b\n',
+        'partial': '- [x] 1.1 a\n- [ ] 1.2 b\n',
+        'empty': '# Tasks\n',
+        'archive/old': '- [x] 1.1 a\n',
+      };
+      for (const [name, text] of Object.entries(tasks)) {
+        const d = path.join(dir, 'openspec/changes', name);
+        fs.mkdirSync(d, { recursive: true });
+        fs.writeFileSync(path.join(d, 'tasks.md'), text);
+      }
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      const line = r.stderr.split('\n').find((l) => l.includes('**待归档**'));
+      if (!line) return '全打勾的 done 没被报成待归档';
+      if (!line.includes('openspec archive done -y')) return `没给出归档命令：${line}`;
+      const wrong = ['partial', 'empty', 'old'].filter((n) => line.includes(n));
+      return wrong.length ? `不该报的也报了：${wrong.join('、')}` : null;
+    },
+  },
+  {
+    // 三个场景对应三条出路：只改源码 → 报；同时碰了变更 → 不报；只改测试 → 不报。
+    name: 'OpenSpec：改了 App 源码却没碰 openspec/changes/ 才报「无变更记录」',
+    stdin: '{}',
+    check: () => {
+      const { dir } = scratchRepo();
+      // 目录要真的存在（realish 只解析目录，否则 /var 与 /private/var 对不上，路径被当成仓库外）。
+      for (const d of ['blindRun/Feature', 'blindRunTests', 'openspec/changes/x']) {
+        fs.mkdirSync(path.join(dir, d), { recursive: true });
+      }
+      const edits = (...files) =>
+        run(
+          JSON.stringify({
+            transcript_path: writeTranscript(
+              dir,
+              `t-${files.length}-${files[0].replace(/\W/g, '')}.jsonl`,
+              files.map((f) => ({ name: 'Edit', input: { file_path: path.join(dir, f) } })),
+              new Date().toISOString()
+            ),
+          }),
+          { AIDRUN_REPO_ROOT: dir }
+        ).stderr.includes('**无变更记录**');
+      if (!edits('blindRun/Feature/A.swift')) return '只改了 App 源码却没报';
+      if (edits('blindRun/Feature/A.swift', 'openspec/changes/x/tasks.md')) return '已经碰了变更记录仍在报';
+      if (edits('blindRunTests/ATests.swift')) return '只改测试也被报了';
+      return null;
+    },
   },
 ];
 
