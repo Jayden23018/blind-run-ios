@@ -15,10 +15,12 @@ enum MapAnnotationKind: Equatable, Sendable {
     /// 这两个标的是实际**跑出来**的第一个和最后一个轨迹点，两者可以差出几百米。
     case routeStart
     case routeEnd
-    /// 星火页的聚合片区。坐标是**片区中心**不是任何人的位置；`tier` 1…3 只决定画多大。
-    /// 两种靠形状区分（四角星 / 带光环的圆点），不依赖颜色 —— 低视力与色弱用户同样分得开。
-    case volunteerStar(tier: Int)
-    case runnerCluster(tier: Int)
+    /// 星火页的一颗星。坐标是片区内按 `cell.id` 确定性散开的**视觉位置**，不是任何人的位置
+    /// （`XinghuoSnapshot.sparks`）。志愿者 / 跑者靠形状区分（四角星 / 带环的圆点），
+    /// 不依赖颜色 —— 低视力与色弱用户同样分得开。
+    case xinghuoSpark(XinghuoSpark)
+    /// 星火页的「你」：三圈扩散环 + 「你」气泡。
+    case xinghuoSelf(isVolunteer: Bool)
 }
 
 struct MapAnnotationItem: Identifiable {
@@ -33,7 +35,7 @@ struct MapPolylineItem: Identifiable {
     let id: String
     let coordinates: [CLLocationCoordinate2D]
     var isPrimary = false
-    /// 星火页「我的足迹」：用 `warning` 那枚暖色半透明画，与订单轨迹的蓝色主线区分。
+    /// 星火页「我的足迹」：画成暖金光带（光晕 + 亮芯 + 流动光点），与订单轨迹的蓝色主线区分。
     var isFootprint = false
 
     var signature: String {
@@ -57,6 +59,12 @@ struct AMapContainer: UIViewRepresentable {
     var screenAnchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
     var tracksUserLocation: Bool = true
     var animatesCenterChanges: Bool = true
+    /// 星火页的夜空底图：关掉路名 / 店铺 / 楼块，再压一层深蓝把路压淡。只有星火页打开。
+    var nightSky: Bool = false
+    /// `true`（默认）：每次刷新都把地图拉回 `centerCoordinate`，用户拖开也会被拽回来。
+    /// `false`：只有传入的坐标本身变了、或 `recenterToken` 变了才回中心 —— 星火页要让人自由拖动，
+    /// 否则足迹加载完、开关一拨，地图就「弹」回原处，拖了等于白拖。
+    var snapsBackToCenter: Bool = true
 
     func makeUIView(context: Context) -> AMapHostView {
         let mapView = MAMapView(frame: .zero)
@@ -66,20 +74,28 @@ struct AMapContainer: UIViewRepresentable {
         mapView.setZoomLevel(zoomLevel, animated: false)
         mapView.screenAnchor = screenAnchor
         mapView.setCenter(centerCoordinate, animated: false)
+        context.coordinator.lastRequestedCenter = centerCoordinate
         mapView.showsCompass = showsCompass
-        mapView.showsScale = true
+        mapView.showsScale = !nightSky
         // 跟随系统明暗（design-direction §2 的裁决），全 App 的地图都走这里。
+        // 星火页在外面把环境锁成 `.dark`，于是同一条路径给它 `standardNight`。
         let isDark = context.environment.colorScheme == .dark
         context.coordinator.isDark = isDark
         mapView.mapType = Self.mapType(isDark: isDark)
+        context.coordinator.animates = !context.environment.accessibilityReduceMotion
         // AidRun updates peer/order markers at multi-second cadence and does not
         // perform in-app turn-by-turn navigation. A 10 fps ceiling is sufficient
         // for panning while preventing an idle home map from driving the main
         // run loop at 60 fps. Default mode also yields rendering while a parent
         // ScrollView is actively tracking a vertical gesture.
-        mapView.maxRenderFrame = 10
+        // 星火页例外：拖地图是那一页的主要交互，10 fps 拖起来一顿一顿的。
+        // ponytail: 30 是真机前的起始值，跟手程度不够再往上调。
+        mapView.maxRenderFrame = nightSky ? 30 : 10
         mapView.isAllowDecreaseFrame = true
         mapView.runLoopMode = .default
+        if nightSky {
+            applyNightSky(on: mapView, coordinator: context.coordinator)
+        }
         // MAMapView continuously mutates a large UIKit subview/accessibility tree
         // while rendering. Exposing those implementation details through a
         // UIViewRepresentable makes SwiftUI rebuild accessibility attributes on
@@ -105,7 +121,15 @@ struct AMapContainer: UIViewRepresentable {
 
         let isDark = context.environment.colorScheme == .dark
         if context.coordinator.isDark != isDark {
-            applyColorScheme(isDark: isDark, on: mapView, coordinator: context.coordinator)
+            context.coordinator.isDark = isDark
+            mapView.mapType = Self.mapType(isDark: isDark)
+        }
+
+        // 「减弱动态效果」可以在页面开着的时候切换：屏幕上的星、「你」和足迹光点当场跟着换。
+        let animates = !context.environment.accessibilityReduceMotion
+        if context.coordinator.animates != animates {
+            context.coordinator.animates = animates
+            context.coordinator.reconfigureXinghuoViews(on: mapView)
         }
 
         let screenAnchorDidChange =
@@ -118,15 +142,26 @@ struct AMapContainer: UIViewRepresentable {
 
         // 更新地图中心（仅在坐标变化超过阈值时移动，避免频繁跳动）。
         // recenterToken 变化时强制回到传入坐标，用于“回到当前位置”。
+        // `snapsBackToCenter == false` 时比的是「上次要求的中心」而不是「地图现在的中心」——
+        // 后者在用户拖动之后必然对不上，于是每次刷新都会把人拽回去。
         let currentCenter = mapView.centerCoordinate
+        let lastRequested = context.coordinator.lastRequestedCenter
         let threshold: Double = 0.0001
+        let requestMoved =
+            abs(lastRequested.latitude - centerCoordinate.latitude) > threshold ||
+            abs(lastRequested.longitude - centerCoordinate.longitude) > threshold
+        let drifted = snapsBackToCenter && (
+            abs(currentCenter.latitude - centerCoordinate.latitude) > threshold ||
+            abs(currentCenter.longitude - centerCoordinate.longitude) > threshold
+        )
         if context.coordinator.lastRecenterToken != recenterToken ||
            screenAnchorDidChange ||
-           abs(currentCenter.latitude - centerCoordinate.latitude) > threshold ||
-           abs(currentCenter.longitude - centerCoordinate.longitude) > threshold {
+           requestMoved ||
+           drifted {
             mapView.setCenter(centerCoordinate, animated: animatesCenterChanges)
             context.coordinator.lastRecenterToken = recenterToken
         }
+        context.coordinator.lastRequestedCenter = centerCoordinate
 
         // 同步标注
         if syncAnnotations(on: mapView, coordinator: context.coordinator) {
@@ -139,6 +174,9 @@ struct AMapContainer: UIViewRepresentable {
         hostView.mapView.delegate = nil
         hostView.mapView.showsUserLocation = false
         coordinator.styledAnnotationsByID.removeAll()
+        for entry in coordinator.polylinesByID.values {
+            coordinator.remove(entry, from: hostView.mapView)
+        }
         coordinator.polylinesByID.removeAll()
         coordinator.lastFittedPrimarySignature = nil
     }
@@ -157,24 +195,34 @@ struct AMapContainer: UIViewRepresentable {
         isDark ? .standardNight : .standard
     }
 
-    /// 明暗切换时底图、星形标注与足迹线要一起换：标注图片和线的颜色是在创建时按当时的
-    /// 明暗画死的，不重画就会出现「底图变黑了、星星还是亮色那一档」。
-    private func applyColorScheme(isDark: Bool, on mapView: MAMapView, coordinator: Coordinator) {
-        coordinator.isDark = isDark
-        mapView.mapType = Self.mapType(isDark: isDark)
-        for annotation in coordinator.styledAnnotationsByID.values {
-            if let image = XinghuoGlyph.image(for: annotation.kind, isDark: isDark) {
-                mapView.view(for: annotation)?.image = image
-            }
-        }
-        for (id, entry) in coordinator.polylinesByID where entry.isFootprint {
-            // 删掉后由下面的 syncPolylines 按新配色重新加回来。
-            mapView.remove(entry.overlay)
-            coordinator.polylinesByID.removeValue(forKey: id)
-        }
+    /// 星火页的夜空底图。原型是 canvas 画的假城市（深蓝底、极淡的路、没有一个字），
+    /// 高德只能逼近：关掉底图文字与楼块，再在道路之上、星星之下铺一层深蓝把路压淡。
+    /// 标注是 GL 之上的 UIView，所以这层压不到星星。
+    // ponytail: 控制台自定义样式（`MAMapCustomStyleOptions`）能做得更干净，要负责人去高德控制台建，
+    // 拿到 styleId 或样式文件后在这里接；在那之前不编造 styleId。
+    private func applyNightSky(on mapView: MAMapView, coordinator: Coordinator) {
+        mapView.isShowsLabels = false
+        mapView.isShowsBuildings = false
+        mapView.touchPOIEnabled = false
+        mapView.isRotateCameraEnabled = false
+        // 覆盖中心 ±1°（约 100 km）：城市级页面拖不出这个范围。
+        let c = centerCoordinate
+        var corners = [
+            CLLocationCoordinate2D(latitude: c.latitude - 1, longitude: c.longitude - 1),
+            CLLocationCoordinate2D(latitude: c.latitude - 1, longitude: c.longitude + 1),
+            CLLocationCoordinate2D(latitude: c.latitude + 1, longitude: c.longitude + 1),
+            CLLocationCoordinate2D(latitude: c.latitude + 1, longitude: c.longitude - 1),
+        ]
+        guard let wash = MAPolygon(coordinates: &corners, count: UInt(corners.count)) else { return }
+        coordinator.nightWash = wash
+        mapView.add(wash, level: .aboveRoads)
     }
 
     private func syncAnnotations(on mapView: MAMapView, coordinator: Coordinator) -> Bool {
+        if coordinator.sparkEpoch == nil, annotations.contains(where: \.kind.isXinghuoSpark) {
+            // 点亮顺序从这一刻起算。拖动后新进屏幕的星按这个时刻判断「早就亮过了」，不会再闪一次。
+            coordinator.sparkEpoch = CACurrentMediaTime()
+        }
         var didChange = false
         let incomingIDs = Set(annotations.map(\.id))
         let removedIDs = coordinator.styledAnnotationsByID.keys.filter { !incomingIDs.contains($0) }
@@ -203,7 +251,7 @@ struct AMapContainer: UIViewRepresentable {
         let incomingIDs = Set(drawablePolylines.map(\.id))
         for id in coordinator.polylinesByID.keys.filter({ !incomingIDs.contains($0) }) {
             if let removed = coordinator.polylinesByID.removeValue(forKey: id) {
-                mapView.remove(removed.overlay)
+                coordinator.remove(removed, from: mapView)
                 if removed.isPrimary {
                     coordinator.lastFittedPrimarySignature = nil
                 }
@@ -213,14 +261,30 @@ struct AMapContainer: UIViewRepresentable {
         for item in drawablePolylines {
             if coordinator.polylinesByID[item.id]?.signature == item.signature { continue }
             if let previous = coordinator.polylinesByID.removeValue(forKey: item.id) {
-                mapView.remove(previous.overlay)
+                coordinator.remove(previous, from: mapView)
             }
             var coordinates = item.coordinates
             guard let overlay = MAPolyline(coordinates: &coordinates, count: UInt(coordinates.count)) else {
                 continue
             }
-            coordinator.polylinesByID[item.id] = (overlay, item.signature, item.isPrimary, item.isFootprint)
+            let entry = PolylineEntry(
+                overlay: overlay,
+                coordinates: item.coordinates,
+                signature: item.signature,
+                isPrimary: item.isPrimary,
+                isFootprint: item.isFootprint
+            )
+            coordinator.polylinesByID[item.id] = entry
+            if item.isFootprint {
+                // 光带 = 宽而淡的光晕压在下面 + 窄而亮的芯（原型「mine」那一档）。
+                // 高德一条线只有一种描边，所以画两条。
+                entry.glow = MAPolyline(coordinates: &coordinates, count: UInt(coordinates.count))
+                entry.glow.map { mapView.add($0) }
+            }
             mapView.add(overlay)
+            if item.isFootprint, coordinator.animates {
+                coordinator.startComet(on: entry, mapView: mapView)
+            }
 
             if item.isPrimary, coordinator.lastFittedPrimarySignature != item.signature {
                 mapView.setVisibleMapRect(
@@ -263,31 +327,148 @@ struct AMapContainer: UIViewRepresentable {
 
     // MARK: - Coordinator
 
+    /// 一条线在地图上的全部东西。足迹多一条光晕线和一颗沿线流动的光点。
+    final class PolylineEntry {
+        let overlay: MAPolyline
+        let coordinates: [CLLocationCoordinate2D]
+        let signature: String
+        let isPrimary: Bool
+        let isFootprint: Bool
+        var glow: MAPolyline?
+        var comet: XinghuoCometAnnotation?
+
+        init(
+            overlay: MAPolyline,
+            coordinates: [CLLocationCoordinate2D],
+            signature: String,
+            isPrimary: Bool,
+            isFootprint: Bool
+        ) {
+            self.overlay = overlay
+            self.coordinates = coordinates
+            self.signature = signature
+            self.isPrimary = isPrimary
+            self.isFootprint = isFootprint
+        }
+    }
+
     final class Coordinator: NSObject, MAMapViewDelegate {
         var lastRecenterToken = 0
+        var lastRequestedCenter = CLLocationCoordinate2D()
         var lastScreenAnchor = CGPoint(x: 0.5, y: 0.5)
         var styledAnnotationsByID: [String: StyledMapPointAnnotation] = [:]
-        var polylinesByID: [String: (overlay: MAPolyline, signature: String, isPrimary: Bool, isFootprint: Bool)] = [:]
+        var polylinesByID: [String: PolylineEntry] = [:]
         var lastFittedPrimarySignature: String?
         var isDark = false
+        /// `false` = 系统「减弱动态效果」打开：星不闪、不按距离点亮、足迹上没有流动光点。
+        var animates = true
+        /// 星火页第一批星加进地图的时刻，点亮延迟从这里起算。
+        var sparkEpoch: CFTimeInterval?
+        var nightWash: MAPolygon?
+
+        func remove(_ entry: PolylineEntry, from mapView: MAMapView) {
+            mapView.remove(entry.overlay)
+            entry.glow.map { mapView.remove($0) }
+            stopComet(on: entry, mapView: mapView)
+        }
+
+        // MARK: 足迹上的流动光点
+
+        /// 一颗光点沿足迹从头走到尾，走完再从头开始。速度按长度定，长短路线看上去一样快。
+        func startComet(on entry: PolylineEntry, mapView: MAMapView) {
+            guard entry.comet == nil, entry.coordinates.count >= 2 else { return }
+            let comet = XinghuoCometAnnotation()
+            comet.coordinate = entry.coordinates[0]
+            entry.comet = comet
+            mapView.addAnnotation(comet)
+            runComet(comet, on: entry)
+        }
+
+        func stopComet(on entry: PolylineEntry, mapView: MAMapView) {
+            guard let comet = entry.comet else { return }
+            entry.comet = nil
+            comet.allMoveAnimations()?.forEach { $0.cancel() }
+            mapView.removeAnnotation(comet)
+        }
+
+        private func runComet(_ comet: XinghuoCometAnnotation, on entry: PolylineEntry) {
+            var coordinates = entry.coordinates
+            comet.coordinate = coordinates[0]
+            let meters = zip(coordinates, coordinates.dropFirst()).reduce(0.0) { sum, pair in
+                sum + MAMetersBetweenMapPoints(MAMapPointForCoordinate(pair.0), MAMapPointForCoordinate(pair.1))
+            }
+            // ponytail: 400 m/s ≈ 2.6 km 的环线 6.5 秒走一圈，真机看着太快 / 太慢就改这个数。
+            let duration = CGFloat(max(3, meters / 400))
+            coordinates.withUnsafeMutableBufferPointer { buffer in
+                _ = comet.addMoveAnimation(
+                    withKeyCoordinates: buffer.baseAddress,
+                    count: UInt(buffer.count),
+                    withDuration: duration,
+                    withName: nil
+                ) { [weak self, weak comet, weak entry] finished in
+                    // 被取消（关开关、减弱动态效果、离开页面）时 finished 为 false，不再续。
+                    guard finished, let self, let comet, let entry, entry.comet === comet else { return }
+                    self.runComet(comet, on: entry)
+                }
+            }
+        }
+
+        /// 「减弱动态效果」切换时：屏幕上的星与「你」重新配置，光点加上或撤掉。
+        func reconfigureXinghuoViews(on mapView: MAMapView) {
+            for annotation in styledAnnotationsByID.values {
+                guard let view = mapView.view(for: annotation) else { continue }
+                configure(view, for: annotation.kind)
+            }
+            for entry in polylinesByID.values where entry.isFootprint {
+                if animates {
+                    startComet(on: entry, mapView: mapView)
+                } else {
+                    stopComet(on: entry, mapView: mapView)
+                }
+            }
+        }
+
+        private func configure(_ view: MAAnnotationView, for kind: MapAnnotationKind) {
+            switch kind {
+            case .xinghuoSpark(let spark):
+                (view as? XinghuoSparkView)?.configure(spark: spark, animates: animates, epoch: sparkEpoch)
+            case .xinghuoSelf(let isVolunteer):
+                (view as? XinghuoSelfView)?.configure(isVolunteer: isVolunteer, animates: animates)
+            default:
+                break
+            }
+        }
 
         func mapView(_ mapView: MAMapView!, viewFor annotation: MAAnnotation!) -> MAAnnotationView! {
             // 用户位置使用默认蓝点
             if annotation is MAUserLocation {
                 return nil
             }
-
-            let kind = (annotation as? StyledMapPointAnnotation)?.kind ?? .generic
-            if let image = XinghuoGlyph.image(for: kind, isDark: isDark) {
-                let reuseID = "Xinghuo-\(kind)"
-                var view: MAAnnotationView? = mapView.dequeueReusableAnnotationView(withIdentifier: reuseID)
-                if view == nil {
-                    view = MAAnnotationView(annotation: annotation, reuseIdentifier: reuseID)
-                }
+            if annotation is XinghuoCometAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: XinghuoCometView.reuseID)
+                    ?? XinghuoCometView(annotation: annotation, reuseIdentifier: XinghuoCometView.reuseID)
                 view?.annotation = annotation
-                view?.image = image
                 view?.canShowCallout = false
                 return view
+            }
+
+            let kind = (annotation as? StyledMapPointAnnotation)?.kind ?? .generic
+            let xinghuoView: MAAnnotationView?
+            switch kind {
+            case .xinghuoSpark:
+                xinghuoView = mapView.dequeueReusableAnnotationView(withIdentifier: XinghuoSparkView.reuseID)
+                    ?? XinghuoSparkView(annotation: annotation, reuseIdentifier: XinghuoSparkView.reuseID)
+            case .xinghuoSelf:
+                xinghuoView = mapView.dequeueReusableAnnotationView(withIdentifier: XinghuoSelfView.reuseID)
+                    ?? XinghuoSelfView(annotation: annotation, reuseIdentifier: XinghuoSelfView.reuseID)
+            default:
+                xinghuoView = nil
+            }
+            if let xinghuoView {
+                xinghuoView.annotation = annotation
+                xinghuoView.canShowCallout = false
+                configure(xinghuoView, for: kind)
+                return xinghuoView
             }
             let reuseID = "OrderPin-\(kind)"
             var annotationView = mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MAPinAnnotationView
@@ -303,12 +484,25 @@ struct AMapContainer: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MAMapView!, rendererFor overlay: MAOverlay!) -> MAOverlayRenderer! {
+            if let wash = overlay as? MAPolygon, wash === nightWash {
+                let renderer = MAPolygonRenderer(polygon: wash)
+                // ponytail: 0.5 是真机前的起始值 —— 路还太显眼就往上调，底图糊成一片就往下调。
+                renderer?.fillColor = UIColor(rgb: AppColors.Xinghuo.nightRGB).withAlphaComponent(0.5)
+                renderer?.strokeColor = .clear
+                renderer?.lineWidth = 0
+                return renderer
+            }
             guard let polyline = overlay as? MAPolyline else { return nil }
             let renderer = MAPolylineRenderer(polyline: polyline)
+            if polylinesByID.values.contains(where: { $0.glow === polyline }) {
+                renderer?.lineWidth = 9
+                renderer?.strokeColor = UIColor(rgb: AppColors.Xinghuo.emberRGB).withAlphaComponent(0.18)
+                return renderer
+            }
             let entry = polylinesByID.values.first(where: { $0.overlay === polyline })
             if entry?.isFootprint == true {
-                renderer?.lineWidth = 5
-                renderer?.strokeColor = XinghuoGlyph.tone("warning", isDark: isDark).withAlphaComponent(0.75)
+                renderer?.lineWidth = 2.4
+                renderer?.strokeColor = UIColor(rgb: AppColors.Xinghuo.starCoreRGB).withAlphaComponent(0.8)
                 return renderer
             }
             let isPrimary = entry?.isPrimary == true
@@ -366,88 +560,334 @@ private extension MapAnnotationKind {
             return .green
         case .routeEnd:
             return .red
-        // 这两种走 `XinghuoGlyph` 的自绘图片，不会落到大头针上。
-        case .volunteerStar, .runnerCluster:
+        // 星火页的标注走自己的视图（`XinghuoSparkView` / `XinghuoSelfView`），不会落到大头针上。
+        case .xinghuoSpark, .xinghuoSelf:
             return .purple
         }
     }
 }
 
-// MARK: - 星火页标注图形
+extension MapAnnotationKind {
+    var isXinghuoSpark: Bool {
+        if case .xinghuoSpark = self { return true }
+        return false
+    }
+}
 
-/// 星火页两种片区标注的自绘图片。光晕照 09-11 调研的双层结构：宽而淡的底 + 窄而亮的芯，
-/// 精致来自克制 —— 不叠第三层、不加动画。
+// MARK: - 星火页标注
+
+/// 星火页标注共用的画材。形状与光晕照负责人给的 HTML 原型（`glow()` / `sparkle()` / `drawAgent()`），
+/// 颜色取 `AppColors.Xinghuo`，不另抄色值。
 enum XinghuoGlyph {
-    /// 取 `AppColors.tones` 里那一行，不另抄一份色值（两份必然漂移）。
-    static func tone(_ name: String, isDark: Bool) -> UIColor {
-        guard let tone = AppColors.tones.first(where: { $0.name == name })?.tone else {
-            return .systemOrange
-        }
-        return UIColor(rgb: isDark ? tone.dark : tone.light)
+    /// 星的基准半径（pt），约等于原型 `starSize()` 在初始缩放下的值；每颗再乘自己的 `scale`。
+    static let baseRadius: CGFloat = 5
+
+    static let volunteerGlow = glow(AppColors.Xinghuo.emberRGB)
+    static let runnerGlow = glow(AppColors.Xinghuo.moonRGB)
+    /// 点亮那一下的白色闪光（原型 `GL.white`）。
+    static let flareGlow = glow(0xFFF4E2)
+
+    /// 放射状光晕，渐变停点照原型 `glow()`：芯 1 → 10% 处 0.65 → 32% 处 0.18 → 边缘 0。
+    static func glow(_ rgb: UInt32) -> CGImage? {
+        let side: CGFloat = 128
+        let color = UIColor(rgb: rgb)
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { context in
+            let colors = [1, 0.65, 0.18, 0].map { color.withAlphaComponent($0).cgColor } as CFArray
+            guard let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: colors,
+                locations: [0, 0.1, 0.32, 1]
+            ) else { return }
+            let center = CGPoint(x: side / 2, y: side / 2)
+            context.cgContext.drawRadialGradient(
+                gradient, startCenter: center, startRadius: 0, endCenter: center, endRadius: side / 2, options: []
+            )
+        }.cgImage
     }
 
-    /// 芯的半径（pt）。档位越高越大，但封顶 —— 09-11 调研：光晕不封顶时规模一大就糊成一片。
-    static func coreRadius(tier: Int) -> CGFloat {
-        switch min(max(tier, 1), 3) {
-        case 1: return 5
-        case 2: return 7
-        default: return 9
+    /// 四角星：四个尖，腰用二次曲线收进去（原型 `sparkle()`）。
+    static func sparklePath(radius: CGFloat, rotation: CGFloat, center: CGPoint) -> UIBezierPath {
+        let path = UIBezierPath()
+        path.move(to: point(center, radius, rotation))
+        for i in 1...4 {
+            let angle = rotation + CGFloat(i) * .pi / 2
+            path.addQuadCurve(to: point(center, radius, angle), controlPoint: point(center, radius * 0.2, angle - .pi / 4))
         }
+        path.close()
+        return path
     }
 
-    static func image(for kind: MapAnnotationKind, isDark: Bool) -> UIImage? {
-        switch kind {
-        case .volunteerStar(let tier):
-            return star(radius: coreRadius(tier: tier), color: tone("warning", isDark: isDark))
-        case .runnerCluster(let tier):
-            return haloDot(radius: coreRadius(tier: tier), color: tone("primary", isDark: isDark))
-        default:
-            return nil
-        }
+    /// 跑者：实心小圆点 + 一圈细环（原型 `drawAgent` 的 else 分支）。
+    static func runnerDotPath(radius: CGFloat, center: CGPoint) -> UIBezierPath {
+        UIBezierPath(ovalIn: CGRect(x: center.x - radius * 0.5, y: center.y - radius * 0.5, width: radius, height: radius))
     }
 
-    private static func star(radius r: CGFloat, color: UIColor) -> UIImage {
-        let side = r * 5
-        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
-            let c = CGPoint(x: side / 2, y: side / 2)
-            color.withAlphaComponent(0.22).setFill()
-            UIBezierPath(ovalIn: CGRect(x: c.x - r * 1.8, y: c.y - r * 1.8, width: r * 3.6, height: r * 3.6)).fill()
-            // 四角星：四个尖点在上下左右，腰点收到 0.32r。
-            let path = UIBezierPath()
-            let inner = r * 0.32
-            for i in 0..<8 {
-                let angle = CGFloat(i) * .pi / 4 - .pi / 2
-                let length = i.isMultiple(of: 2) ? r * 2 : inner
-                let point = CGPoint(x: c.x + cos(angle) * length, y: c.y + sin(angle) * length)
-                if i == 0 {
-                    path.move(to: point)
-                } else {
-                    path.addLine(to: point)
-                }
-            }
-            path.close()
-            color.setFill()
-            path.fill()
-            // 描一圈深色细边：浅色底图上暖色星形的边界同样看得清。
-            UIColor.black.withAlphaComponent(0.35).setStroke()
-            path.lineWidth = 0.75
-            path.stroke()
-        }
+    static func runnerRingPath(radius: CGFloat, center: CGPoint) -> UIBezierPath {
+        UIBezierPath(ovalIn: CGRect(x: center.x - radius * 1.05, y: center.y - radius * 1.05, width: radius * 2.1, height: radius * 2.1))
     }
 
-    private static func haloDot(radius r: CGFloat, color: UIColor) -> UIImage {
-        let side = r * 5
-        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
-            let c = CGPoint(x: side / 2, y: side / 2)
-            color.withAlphaComponent(0.18).setFill()
-            UIBezierPath(ovalIn: CGRect(x: c.x - r * 2.2, y: c.y - r * 2.2, width: r * 4.4, height: r * 4.4)).fill()
-            let ring = UIBezierPath(ovalIn: CGRect(x: c.x - r * 1.7, y: c.y - r * 1.7, width: r * 3.4, height: r * 3.4))
+    private static func point(_ center: CGPoint, _ radius: CGFloat, _ angle: CGFloat) -> CGPoint {
+        CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
+    }
+
+    /// 画一颗星的芯（光晕另算）：志愿者是四角星，跑者是圆点 + 环。
+    static func drawCore(isVolunteer: Bool, radius: CGFloat, rotation: CGFloat, center: CGPoint,
+                         core: CAShapeLayer, ring: CAShapeLayer) {
+        if isVolunteer {
+            core.path = sparklePath(radius: radius * 1.1, rotation: rotation, center: center).cgPath
+            core.fillColor = UIColor(rgb: AppColors.Xinghuo.starCoreRGB).cgColor
+            ring.path = nil
+        } else {
+            core.path = runnerDotPath(radius: radius, center: center).cgPath
+            core.fillColor = UIColor(rgb: AppColors.Xinghuo.runnerCoreRGB).cgColor
+            ring.path = runnerRingPath(radius: radius, center: center).cgPath
+            ring.fillColor = nil
+            ring.lineWidth = 1.3
+            ring.strokeColor = UIColor(rgb: AppColors.Xinghuo.moonRGB).withAlphaComponent(0.8).cgColor
+        }
+    }
+}
+
+/// 星火页的一颗星。动效全走 Core Animation —— 在渲染服务里跑，不占主线程，
+/// 也不受地图 `maxRenderFrame` 的限制。
+///
+/// 「减弱动态效果」打开时（`animates == false`）一个动画都不加：星直接以静止的亮度出现，
+/// 与原型 `prefers-reduced-motion` 分支一致。
+final class XinghuoSparkView: MAAnnotationView {
+    static let reuseID = "XinghuoSpark"
+    private static let side: CGFloat = 64
+
+    /// 光晕和芯装在同一层里，点亮时整层一起淡入。
+    private let body = CALayer()
+    private let glowLayer = CALayer()
+    private let coreLayer = CAShapeLayer()
+    private let ringLayer = CAShapeLayer()
+    private let flareLayer = CALayer()
+
+    override init!(annotation: MAAnnotation!, reuseIdentifier: String!) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        bounds = CGRect(x: 0, y: 0, width: Self.side, height: Self.side)
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+        body.frame = bounds
+        coreLayer.frame = bounds
+        ringLayer.frame = bounds
+        layer.addSublayer(body)
+        body.addSublayer(glowLayer)
+        body.addSublayer(ringLayer)
+        body.addSublayer(coreLayer)
+        flareLayer.contents = XinghuoGlyph.flareGlow
+        flareLayer.opacity = 0
+        layer.addSublayer(flareLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        stopAnimations()
+    }
+
+    /// 现在挂着的动画 key。只给单测看「减弱动态效果时真的一个都没有」。
+    var activeAnimationKeys: [String] {
+        [body, glowLayer, flareLayer].flatMap { $0.animationKeys() ?? [] }
+    }
+
+    func configure(spark: XinghuoSpark, animates: Bool, epoch: CFTimeInterval?) {
+        stopAnimations()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        let center = CGPoint(x: Self.side / 2, y: Self.side / 2)
+        let radius = XinghuoGlyph.baseRadius * CGFloat(spark.scale)
+        let isVolunteer = spark.kind == .volunteer
+        let glowSide = radius * (isVolunteer ? 7.5 : 6.5)
+        glowLayer.frame = CGRect(x: center.x - glowSide / 2, y: center.y - glowSide / 2, width: glowSide, height: glowSide)
+        glowLayer.contents = isVolunteer ? XinghuoGlyph.volunteerGlow : XinghuoGlyph.runnerGlow
+        glowLayer.opacity = Float(0.9 * spark.brightness)
+        XinghuoGlyph.drawCore(
+            isVolunteer: isVolunteer, radius: radius, rotation: CGFloat(spark.rotation),
+            center: center, core: coreLayer, ring: ringLayer
+        )
+        let flareSide = radius * 26
+        flareLayer.frame = CGRect(x: center.x - flareSide / 2, y: center.y - flareSide / 2, width: flareSide, height: flareSide)
+
+        guard animates else { return }
+
+        // 闪烁：光晕的明暗与大小随正弦起伏（原型 `tw = .72 + .28·sin(…)`），各颗错开相位。
+        let period = spark.twinklePeriod
+        for (keyPath, from, to) in [
+            ("opacity", 0.45 * spark.brightness, 0.9 * spark.brightness),
+            ("transform.scale", 0.85, 1.15),
+        ] {
+            let twinkle = CABasicAnimation(keyPath: keyPath)
+            twinkle.fromValue = from
+            twinkle.toValue = to
+            twinkle.duration = period / 2
+            twinkle.autoreverses = true
+            twinkle.repeatCount = .infinity
+            twinkle.timeOffset = spark.phase * period
+            twinkle.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            glowLayer.add(twinkle, forKey: "twinkle-\(keyPath)")
+        }
+
+        // 点亮：从「你」开始一圈圈向外。已经过了点亮时刻的（拖动后才进屏幕的）直接显示，不再闪一次。
+        guard let epoch else { return }
+        let start = epoch + spark.igniteDelay
+        guard CACurrentMediaTime() < start + 1.3 else { return }
+        let begin = layer.convertTime(start, from: nil)
+
+        let fadeIn = CABasicAnimation(keyPath: "opacity")
+        fadeIn.fromValue = 0
+        fadeIn.toValue = 1
+        fadeIn.duration = 0.5
+        fadeIn.beginTime = begin
+        fadeIn.fillMode = .backwards
+        body.add(fadeIn, forKey: "ignite")
+
+        // 白色闪光：一下放大到很大再迅速收缩淡出，1.3 秒（原型 `ignition flare`）。
+        let flareOpacity = CAKeyframeAnimation(keyPath: "opacity")
+        flareOpacity.values = [0, 0.9, 0]
+        flareOpacity.keyTimes = [0, 0.02, 1]
+        let flareScale = CABasicAnimation(keyPath: "transform.scale")
+        flareScale.fromValue = 1
+        flareScale.toValue = 0.25
+        let flare = CAAnimationGroup()
+        flare.animations = [flareOpacity, flareScale]
+        flare.duration = 1.3
+        flare.beginTime = begin
+        flare.fillMode = .backwards
+        flare.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        flareLayer.add(flare, forKey: "ignite-flare")
+    }
+
+    private func stopAnimations() {
+        body.removeAllAnimations()
+        glowLayer.removeAllAnimations()
+        flareLayer.removeAllAnimations()
+    }
+}
+
+/// 星火页的「你」：三圈错开的扩散环 + 一颗稍大的星 + 「你」气泡（原型 `drawMe`）。
+/// 「减弱动态效果」时只留一圈静止的环。
+final class XinghuoSelfView: MAAnnotationView {
+    static let reuseID = "XinghuoSelf"
+    private static let side: CGFloat = 132
+    private static let ringPeriod: CFTimeInterval = 2.5
+
+    private let rings = (0..<3).map { _ in CAShapeLayer() }
+    private let glowLayer = CALayer()
+    private let coreLayer = CAShapeLayer()
+    private let ringLayer = CAShapeLayer()
+    private let bubble = UILabel()
+
+    override init!(annotation: MAAnnotation!, reuseIdentifier: String!) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        bounds = CGRect(x: 0, y: 0, width: Self.side, height: Self.side)
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+        zIndex = 10
+        let center = CGPoint(x: Self.side / 2, y: Self.side / 2)
+        for ring in rings {
+            ring.frame = bounds
+            ring.path = UIBezierPath(arcCenter: center, radius: 60, startAngle: 0, endAngle: 2 * .pi, clockwise: true).cgPath
+            ring.fillColor = nil
             ring.lineWidth = 1.5
-            color.setStroke()
-            ring.stroke()
-            color.setFill()
-            UIBezierPath(ovalIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)).fill()
+            layer.addSublayer(ring)
         }
+        coreLayer.frame = bounds
+        ringLayer.frame = bounds
+        layer.addSublayer(glowLayer)
+        layer.addSublayer(ringLayer)
+        layer.addSublayer(coreLayer)
+
+        bubble.text = "你"
+        bubble.font = .systemFont(ofSize: 12, weight: .semibold)
+        bubble.textColor = UIColor(rgb: AppColors.Xinghuo.nightRGB)
+        bubble.textAlignment = .center
+        bubble.backgroundColor = UIColor.white.withAlphaComponent(0.94)
+        bubble.layer.cornerRadius = 9
+        bubble.layer.masksToBounds = true
+        bubble.frame = CGRect(x: center.x - 13, y: center.y - 42, width: 26, height: 19)
+        addSubview(bubble)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(isVolunteer: Bool, animates: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        let center = CGPoint(x: Self.side / 2, y: Self.side / 2)
+        let radius = XinghuoGlyph.baseRadius * 1.45
+        let glowSide = radius * 7.5
+        glowLayer.frame = CGRect(x: center.x - glowSide / 2, y: center.y - glowSide / 2, width: glowSide, height: glowSide)
+        glowLayer.contents = isVolunteer ? XinghuoGlyph.volunteerGlow : XinghuoGlyph.runnerGlow
+        XinghuoGlyph.drawCore(
+            isVolunteer: isVolunteer, radius: radius, rotation: 0, center: center, core: coreLayer, ring: ringLayer
+        )
+
+        let color = UIColor(rgb: isVolunteer ? AppColors.Xinghuo.emberRGB : AppColors.Xinghuo.moonRGB)
+        for (index, ring) in rings.enumerated() {
+            ring.removeAllAnimations()
+            ring.strokeColor = color.cgColor
+            if animates {
+                ring.transform = CATransform3DIdentity
+                ring.opacity = 0
+                let scale = CABasicAnimation(keyPath: "transform.scale")
+                scale.fromValue = 0.2
+                scale.toValue = 1
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = 0.55
+                fade.toValue = 0
+                let pulse = CAAnimationGroup()
+                pulse.animations = [scale, fade]
+                pulse.duration = Self.ringPeriod
+                pulse.repeatCount = .infinity
+                pulse.timeOffset = Self.ringPeriod * Double(index) / Double(rings.count)
+                ring.add(pulse, forKey: "pulse")
+            } else {
+                ring.transform = CATransform3DMakeScale(0.4, 0.4, 1)
+                ring.opacity = index == 0 ? 0.4 : 0
+            }
+        }
+    }
+}
+
+/// 足迹上的流动光点（「光带流动」）。只给 `AMapContainer.Coordinator.startComet` 用。
+final class XinghuoCometAnnotation: MAAnimatedAnnotation {}
+
+final class XinghuoCometView: MAAnnotationView {
+    static let reuseID = "XinghuoComet"
+
+    override init!(annotation: MAAnnotation!, reuseIdentifier: String!) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        let side: CGFloat = 26
+        bounds = CGRect(x: 0, y: 0, width: side, height: side)
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+        zIndex = 5
+        let glow = CALayer()
+        glow.frame = bounds
+        glow.contents = XinghuoGlyph.volunteerGlow
+        layer.addSublayer(glow)
+        let core = CAShapeLayer()
+        core.path = UIBezierPath(ovalIn: CGRect(x: side / 2 - 2, y: side / 2 - 2, width: 4, height: 4)).cgPath
+        core.fillColor = UIColor(rgb: AppColors.Xinghuo.starCoreRGB).cgColor
+        layer.addSublayer(core)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 
@@ -501,6 +941,9 @@ struct MapViewWrapper: View {
     ///
     /// 只影响无障碍树，视觉完全不变。
     var isDecorative: Bool = false
+    /// 见 `AMapContainer.nightSky` / `snapsBackToCenter`。只有星火页打开 / 关掉。
+    var nightSky: Bool = false
+    var snapsBackToCenter: Bool = true
 
     var body: some View {
         #if DEBUG || DEMO
@@ -518,7 +961,9 @@ struct MapViewWrapper: View {
                 showsCompass: showsCompass,
                 screenAnchor: screenAnchor,
                 tracksUserLocation: tracksUserLocation,
-                animatesCenterChanges: animatesCenterChanges
+                animatesCenterChanges: animatesCenterChanges,
+                nightSky: nightSky,
+                snapsBackToCenter: snapsBackToCenter
             )
             .mapAccessibility(isDecorative: isDecorative)
         } else {
@@ -537,7 +982,9 @@ struct MapViewWrapper: View {
                 showsCompass: showsCompass,
                 screenAnchor: screenAnchor,
                 tracksUserLocation: tracksUserLocation,
-                animatesCenterChanges: animatesCenterChanges
+                animatesCenterChanges: animatesCenterChanges,
+                nightSky: nightSky,
+                snapsBackToCenter: snapsBackToCenter
             )
             .mapAccessibility(isDecorative: isDecorative)
         } else {

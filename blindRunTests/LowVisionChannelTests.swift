@@ -302,6 +302,40 @@ final class LowVisionChannelTests: XCTestCase {
         return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
     }
 
+    /// 星火页的夜空色板（`AppColors.Xinghuo`，固定夜空、不跟随系统明暗）。
+    ///
+    /// 文字都压在**半透明**玻璃上，最坏情况是玻璃底下正好一颗亮星 —— 所以按「玻璃叠在纯白上」算。
+    /// 这条能区分玻璃透明度：照原型的 0.74，`muted` 只有 3.44:1、`moon` 4.25:1，都过不了；
+    /// 0.86 时最低的 `muted` 是 5.30:1。
+    func testXinghuoPaletteKeepsTextReadableOnGlass() {
+        let palette = AppColors.Xinghuo.self
+        let worstGlass = Self.composite(palette.glassRGB, alpha: Double(palette.glassAlpha), over: 0xFFFFFF)
+        let texts: [(String, UInt32)] = [
+            ("ink", palette.inkRGB), ("muted", palette.mutedRGB), ("ember", palette.emberRGB), ("moon", palette.moonRGB),
+        ]
+        for (name, rgb) in texts {
+            let ratio = Self.contrastRatio(rgb, worstGlass)
+            XCTAssertGreaterThanOrEqual(
+                ratio, Self.minimumContrast,
+                "星火 \(name) 压在最坏情况的玻璃上只有 \(String(format: "%.2f", ratio)):1"
+            )
+        }
+        // 星芯压在夜空底上：图形部件按 WCAG 1.4.11 的 3:1。
+        for (name, rgb) in [("starCore", palette.starCoreRGB), ("runnerCore", palette.runnerCoreRGB)] {
+            XCTAssertGreaterThanOrEqual(Self.contrastRatio(rgb, palette.nightRGB), 3, "星火 \(name) 在夜空上看不清")
+        }
+    }
+
+    /// `rgb` 以 `alpha` 叠在 `background` 上的合成色。
+    private static func composite(_ rgb: UInt32, alpha: Double, over background: UInt32) -> UInt32 {
+        func channel(_ shift: UInt32) -> UInt32 {
+            let top = Double((rgb >> shift) & 0xFF)
+            let bottom = Double((background >> shift) & 0xFF)
+            return UInt32((alpha * top + (1 - alpha) * bottom).rounded()) << shift
+        }
+        return channel(16) | channel(8) | channel(0)
+    }
+
     private static func contrastRatio(_ a: UInt32, _ b: UInt32) -> Double {
         let la = relativeLuminance(a)
         let lb = relativeLuminance(b)

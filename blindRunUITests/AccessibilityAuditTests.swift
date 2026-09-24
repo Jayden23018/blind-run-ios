@@ -520,16 +520,115 @@ final class AccessibilityAuditTests: XCTestCase {
             throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
         }
         let app = launchBlindHome()
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "底部标签栏不在")
-        tabBar.buttons["星火"].tap()
+        // iPad（iPadOS 18 起）的 `TabView` 是顶部浮动标签栏，XCUITest 里不是 `TabBar` —— 退回按名字找按钮。
+        let xinghuoTab = app.tabBars.firstMatch.waitForExistence(timeout: 20)
+            ? app.tabBars.firstMatch.buttons["星火"]
+            : app.buttons["星火"].firstMatch
+        XCTAssertTrue(xinghuoTab.waitForExistence(timeout: 5), "「星火」标签不在")
+        xinghuoTab.tap()
 
         let summary = app.descendants(matching: .any)["xinghuoSummary"].firstMatch
         XCTAssertTrue(summary.waitForExistence(timeout: 15), "星火页没起来，后面的审计结果没有意义")
         XCTAssertTrue(summary.label.contains("志愿者"), "摘要句该念志愿者人数，实际：\(summary.label)")
         XCTAssertFalse(summary.label.contains("视障跑者在等待"), "盲人端摘要不该念别的盲人")
-        XCTAssertTrue(app.switches["xinghuoFootprintToggle"].exists, "今日足迹开关不在")
+        // 足迹一律显示，开关已去掉（负责人 2026-09-24）。
+        XCTAssertFalse(app.switches["xinghuoFootprintToggle"].exists, "今日足迹开关又回来了 —— 负责人要的是默认显示、没有开关")
+
+        // 卡片的滚动容器只能贴底、按内容定高。它一旦铺满全屏，就会吃掉所有拖动手势，
+        // 地图拖不动（负责人 2026-09-23 真机反馈）—— 占位图构建里看不出地图拖没拖动，
+        // 但看得出这个容器占了多大。
+        let cardScroll = app.descendants(matching: .any)["xinghuoCardScroll"].firstMatch
+        XCTAssertTrue(cardScroll.exists, "卡片滚动容器不在")
+
+        // 卡片两档（负责人 2026-09-23）。档位跨启动记在 `@AppStorage` 里，上一次运行可能停在收起档 —— 先复原。
+        let handle = app.buttons["xinghuoCardHandle"]
+        XCTAssertTrue(handle.exists, "卡片把手不在，或者不是按钮 —— 读屏用户拖不了，只能靠它是个按钮来换档")
+        if (handle.value as? String) == "已收起" {
+            handle.tap()
+        }
+        XCTAssertEqual(handle.value as? String, "已展开")
+
+        let screenHeight = app.windows.firstMatch.frame.height
+        let expandedTop = settledMinY(of: cardScroll)
+        // 高度量卡片本体（里面的 ScrollView）：容器的 frame 是子元素的并集，
+        // 会把往卡片上方伸出去的把手命中区也算进去。
+        let cardBody = cardScroll.scrollViews.firstMatch
+        let expandedHeight = cardBody.frame.height
+        XCTAssertGreaterThan(
+            expandedTop, screenHeight * 0.4,
+            "卡片滚动容器从 \(Int(expandedTop)) pt 开始，盖住了上半屏的地图"
+        )
+        // 只比**同一层**：`descendants` 逐层枚举，拿第 1 层的把手和更深的摘要句比下标，比的是深度
+        // （记忆 `swiftui-traversal-order-follows-paint-order`）。
+        let topLevel = cardScroll.children(matching: .any).allElementsBoundByIndex
+        let handleIndex = topLevel.firstIndex { $0.identifier == "xinghuoCardHandle" }
+        let contentIndex = topLevel.firstIndex { $0.descendants(matching: .any)["xinghuoSummary"].exists }
+        XCTAssertLessThan(
+            contentIndex ?? .max, handleIndex ?? -1,
+            "把手排到了卡片内容前面，读屏第一下听到的不再是人数。第一层：\(topLevel.map { "\($0.elementType.rawValue):\($0.identifier)" })"
+        )
+        // 面板要让地图占主导（负责人 2026-09-24「再压缩短一点」）。上限按默认字号定，
+        // 上一版实测展开 377 / 收起 292，两条都会红。
+        XCTAssertLessThanOrEqual(
+            expandedHeight, 280,
+            "展开的卡片有 \(Int(expandedHeight)) pt 高，地图又被压小了"
+        )
         try audit(app)
+
+        // 收起：面板上沿下移，读屏要用的一个不少。
+        let summaryLabel = summary.label
+        handle.tap()
+        XCTAssertEqual(handle.value as? String, "已收起", "点把手没换档")
+        let collapsedTop = settledMinY(of: cardScroll)
+        print("[xinghuo] card top expanded=\(expandedTop) collapsed=\(collapsedTop) collapsedHeight=\(cardBody.frame.height) screen=\(screenHeight)")
+        XCTAssertGreaterThan(
+            collapsedTop, expandedTop + 60,
+            "收起后面板上沿只从 \(Int(expandedTop)) 移到 \(Int(collapsedTop))，地图没多出来"
+        )
+        XCTAssertTrue(summary.isHittable, "收起后摘要句不在了")
+        XCTAssertEqual(summary.label, summaryLabel, "收起后读屏念的摘要句变了 —— 收起只该换视觉")
+        // `.firstMatch` 不能省：`FlowActionButton` 在 XCUITest 的树里是 `Button > Button` 两层同名同框
+        // （外层是 `accessibilityElement(children: .ignore)` 合成的），不带它 `isHittable` 撞上多重匹配恒为 false。
+        XCTAssertTrue(app.buttons["听见星光"].firstMatch.isHittable, "收起后「听见星光」不在了")
+        XCTAssertLessThanOrEqual(
+            cardBody.frame.height, 120,
+            "收起的卡片还有 \(Int(cardBody.frame.height)) pt 高 —— 收起该是一行"
+        )
+        try audit(app)
+
+        // 复原，不给下一次运行留下收起档。
+        handle.tap()
+        XCTAssertEqual(handle.value as? String, "已展开")
+
+        // 真拖（前面都是轻点）。2026-09-24 负责人报「拖的时候上下抽搐」：把手随卡片移动、位移按自身坐标算，
+        // 位移在拖动中反复被减回 0，松手时的惯性预测甚至会反向 —— 拖了不换档。慢拖再停住，预测≈实际位移。
+        dragHandle(handle, by: 150)
+        XCTAssertEqual(handle.value as? String, "已收起", "往下拖 150pt 没收起")
+        dragHandle(handle, by: -150)
+        XCTAssertEqual(handle.value as? String, "已展开", "往上拖 150pt 没展开")
+    }
+
+    private func dragHandle(_ handle: XCUIElement, by dy: CGFloat) {
+        let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0.1,
+            thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.3
+        )
+    }
+
+    /// 等弹簧动画停下再量（连续两次读数相同才算停）。
+    private func settledMinY(of element: XCUIElement, timeout: TimeInterval = 3) -> CGFloat {
+        var last = element.frame.minY
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            let current = element.frame.minY
+            if abs(current - last) < 0.5 { return current }
+            last = current
+        }
+        return last
     }
 
     // MARK: - 首次使用引导

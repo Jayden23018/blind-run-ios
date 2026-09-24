@@ -75,6 +75,16 @@
 > 而系统明暗设置正是用户**已经为自己调好**的那个偏好。`AppColors` 的亮暗两套取值都已验过 ≥4.5:1，
 > 两条路都是安全的。
 
+> **例外：星火页（调试版「星火」tab）固定夜空，并有一组专用色（项目负责人 2026-09-23 拍板）。**
+>
+> 负责人给的 HTML 原型从头到尾是夜空，真机反馈「底图不像夜空」。发光的星只在深底上成立，
+> 浅色底图上它们根本看不见 —— 所以这一页整页 `.environment(\.colorScheme, .dark)`，
+> 标签栏和其余页面照常跟随系统。颜色取原型的暖金 / 月光蓝 / 深蓝玻璃，放在
+> `AppColors.Xinghuo`：**只给星火页用，不进 `tones`、不当全局语义色**（`warning` 暗色档
+> `#FF9F0A` 是橙，原型的星是暖金 `#FFC45C`，现有 5 个语义色表达不了）。对比度由
+> `LowVisionChannelTests.testXinghuoPaletteKeepsTextReadableOnGlass` 按「玻璃叠在白底上」的最坏情况钉住。
+> 这一条**不外推**：别的页面想要深色或新颜色，仍按下面「新增强调色的门槛」走。
+
 - 语义色 5 个：`primary` / `destructive` / `warning` / `success` / `textSecondary`，各带亮暗两套。
 - 亮色模式**不用 iOS 系统语义色**（上面那组实测数字就是理由），暗色模式用系统色。
 - 改任何取值先跑 **`LowVisionChannelTests`** —— `testEverySemanticColorClearsTheBodyTextContrastThreshold…`
