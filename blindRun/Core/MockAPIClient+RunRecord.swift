@@ -76,7 +76,11 @@ extension MockAPIClient {
             ),
             // 只给跑者（D6）。
             comparison: isBlind ? RunComparison(previousOrderId: orderId - 1, previousDistanceM: 2_900, deltaDistanceM: 300) : nil,
-            messages: runRecordMessages[orderId] ?? [],
+            // 跑者那一侧默认带一条陪跑员留言：讲述的最后一句要读它（HANDOFF 6.3 第 2 条）。
+            // 谁发过一条（阶段 6）就换成真实发出的那些。
+            messages: runRecordMessages[orderId] ?? (isBlind ? [RunRecordMessageResponse(
+                id: 1, fromRole: .volunteer, type: .text, text: "今天节奏很稳，第二公里你跑得特别好，下周六还一起跑。", createdAt: at(1_500)
+            )] : []),
             track: hasTrack ? RunTrack(coordSystem: "GCJ02", startedAt: startedAt, points: points) : nil
         )
     }

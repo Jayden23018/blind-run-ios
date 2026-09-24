@@ -565,6 +565,115 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
+    // MARK: 视障跑者跑后详情（阶段 5）
+
+    @MainActor
+    private func openRunnerRunRecordDetail(_ app: XCUIApplication) -> XCUIElement {
+        openRecordsTab(app, title: "跑步记录")
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "和", "公里")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "本月没有可点的跑步记录")
+        row.tap()
+        let header = app.descendants(matching: .any)["runnerRunRecordHeader"].firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 15), "跑者跑后详情没加载出来 —— 记录 tab 的行没接到新页")
+        return header
+    }
+
+    /// 头部一句话、紧接着「听这次跑步」、不出现 `6'15"`、分段一行一句、D6 累计陪跑；
+    /// 审计只在页顶做（理由同陪跑员页）；最后一行进订单页（补评价在那里），订单页的链接再回到本页。
+    @MainActor
+    func testRunnerRunRecordDetailPutsListenRightAfterTheHeaderAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
+        let header = openRunnerRunRecordDetail(app)
+        try audit(app)
+
+        XCTAssertTrue(header.label.contains("3.2 公里"), "头部：\(header.label)")
+        XCTAssertTrue(header.label.contains("平均每公里6分14秒"), "配速要念成「每公里…」：\(header.label)")
+        XCTAssertTrue(header.label.contains("比上次多跑 0.3 公里"), "comparison 只给跑者：\(header.label)")
+        XCTAssertFalse(header.label.contains("*"), "读屏不念掩码星号：\(header.label)")
+
+        // 往右划一次就到「听这次跑步」：中间不能夹任何元素（VoiceOver 关着时地图在头部上面，不在中间）。
+        let listen = app.buttons["runnerRunRecordListen"]
+        XCTAssertTrue(listen.exists, "「听这次跑步」不在")
+        XCTAssertGreaterThanOrEqual(listen.frame.height, 96, "HANDOFF 6.3：至少 96pt")
+        let between = app.descendants(matching: .any).allElementsBoundByIndex.filter {
+            $0.frame.minY >= header.frame.maxY - 1 && $0.frame.maxY <= listen.frame.minY + 1 && !$0.label.isEmpty
+        }
+        XCTAssertTrue(between.isEmpty, "头部与「听这次跑步」之间夹了元素：\(between.map(\.label))")
+
+        listen.tap()
+        let transcript = app.descendants(matching: .any)["runnerRunRecordTranscript"].firstMatch
+        XCTAssertTrue(transcript.waitForExistence(timeout: 5), "点了之后要显示文字稿")
+        XCTAssertTrue(transcript.label.contains("给你留了一句话"), "讲述最后读陪跑员留言：\(transcript.label)")
+        XCTAssertEqual(listen.label, "停止讲述")
+        listen.tap()
+        XCTAssertEqual(listen.label, "听这次跑步", "再点一次停止")
+
+        let split = app.descendants(matching: .any)["runnerRunRecordSplit-2"].firstMatch
+        for _ in 0..<6 where !split.isHittable { app.swipeUp() }
+        XCTAssertEqual(split.label, "第2公里，5分48秒，本次最快，步频每分钟167步。")
+
+        let orderLink = app.buttons["runnerRunRecordOrderLink"]
+        for _ in 0..<8 where !orderLink.isHittable { app.swipeUp() }
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "累计陪跑")).firstMatch.exists,
+            "D6：陪跑员累计服务时长那一行不在"
+        )
+        orderLink.tap()
+        XCTAssertTrue(app.staticTexts["服务已完成"].waitForExistence(timeout: 15), "「订单详情与评价」没进订单页")
+        let back = app.descendants(matching: .any)["completedTrackFullScreenLink"].firstMatch
+        for _ in 0..<6 where !back.isHittable { app.swipeUp() }
+        XCTAssertTrue(back.isHittable, "订单页里「查看跑后详情」不在")
+        back.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["runnerRunRecordHeader"].firstMatch.waitForExistence(timeout: 15),
+            "订单页的链接要进跑者跑后详情，不是旧的轨迹回放"
+        )
+    }
+
+    @MainActor
+    func testRunnerRunRecordDetailScreenshotsInLightDarkAndLargestText() throws {
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax-xxxl", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        // 真地图（理由同陪跑员页）。UI 测试里 VoiceOver 关着 ⇒ 地图在页顶，这正是低视力用户看到的那一版。
+        let realMap = ["AIDRUN_UI_TEST_DISABLE_MAP": "0"]
+        for variant in variants {
+            let app = launchBlindHome(
+                emptyOrders: false,
+                extraEnvironment: Self.recordsSeed.merging(variant.environment) { _, new in new }.merging(realMap) { _, new in new },
+                extraArguments: variant.arguments
+            )
+            _ = openRunnerRunRecordDetail(app)
+            sleep(3) // 等底图瓦片下完。
+            attachScreenshot(app, name: "runner-run-record-\(variant.name)-0-top")
+            // 讲述点一次（截文字稿），声音路线放 3 秒（截「第 N 公里」和点亮的竖条），截完都停掉。
+            let listen = app.buttons["runnerRunRecordListen"]
+            for _ in 0..<3 where !listen.isHittable { app.swipeUp() }
+            if listen.isHittable { listen.tap() }
+            let play = app.buttons["runnerRunRecordSoundRoute"]
+            for _ in 0..<6 where !play.isHittable { app.swipeUp() }
+            if play.isHittable {
+                play.tap()
+                sleep(3)
+                attachScreenshot(app, name: "runner-run-record-\(variant.name)-sound")
+                play.tap()
+            }
+            if listen.exists, listen.label == "停止讲述" { listen.tap() }
+            let pages = variant.name == "ax-xxxl" ? 12 : 5
+            for page in 1...pages {
+                app.swipeUp()
+                attachScreenshot(app, name: "runner-run-record-\(variant.name)-\(page)")
+            }
+            app.terminate()
+        }
+    }
+
     /// 阶段收尾的三组截图（浅色 / 深色 / 最大字号 × 两个角色），附件在 result bundle 里。
     /// 不做像素断言：截图是给人看的证据，断言由上面两条用例负责。
     @MainActor
