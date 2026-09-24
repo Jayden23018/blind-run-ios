@@ -219,6 +219,26 @@ final class LowVisionChannelTests: XCTestCase {
         )
     }
 
+    /// 跑后详情地图（阶段 4）：配速线压在描边上。每一档插值色（不只三个端点）压描边都要 ≥ 3:1。
+    /// 描边是近黑不是 HANDOFF 写的白色（负责人 2026-09-24）—— 下面的验红说明为什么。
+    func testRunRoutePaceLineClearsItsOutlineInBothAppearances() {
+        let nonTextMinimum: Double = 3.0
+        let outline = RunRouteGlyph.outlineRGB
+        for isDark in [false, true] {
+            for step in 0...20 {
+                let fraction = Double(step) / 20
+                let colour = RunPacePalette.rgb(fraction: fraction, isDark: isDark)
+                let ratio = Self.contrastRatio(colour, outline)
+                XCTAssertGreaterThanOrEqual(
+                    ratio, nonTextMinimum,
+                    "\(isDark ? "暗色" : "亮色")配速 \(fraction) 压描边只有 \(String(format: "%.2f", ratio)):1"
+                )
+            }
+        }
+        // 验红：换回白色描边，「慢」那一档必须不过 —— 否则这条用例守的不是描边颜色。
+        XCTAssertLessThan(Self.contrastRatio(RunPacePalette.rgb(fraction: 1, isDark: false), 0xFFFFFF), nonTextMinimum)
+    }
+
     /// 这条是**验红**用的：把已知不达标的旧取值喂进同一个计算，必须算出不达标。
     ///
     /// 没有它，上面那条用例在计算公式写错时会静默全绿 —— 一个恒返回 21 的

@@ -21,6 +21,11 @@ enum MapAnnotationKind: Equatable, Sendable {
     case xinghuoSpark(XinghuoSpark)
     /// 星火页的「你」：三圈扩散环 + 「你」气泡。
     case xinghuoSelf(isVolunteer: Bool)
+    /// 跑后详情（阶段 4）的自绘标注，图形在 `RunRouteGlyph`。文字就是画在图上的那几个字。
+    case runKilometre(Int)
+    case runLabel(String)
+    case runRest(String)
+    case runBubble(String)
 }
 
 struct MapAnnotationItem: Identifiable {
@@ -37,10 +42,24 @@ struct MapPolylineItem: Identifiable {
     var isPrimary = false
     /// 星火页「我的足迹」：画成暖金光带（光晕 + 亮芯 + 流动光点），与订单轨迹的蓝色主线区分。
     var isFootprint = false
+    /// 跑后详情的路线分层；nil 走上面两个旧开关。
+    var routeStyle: RouteLineStyle?
 
     var signature: String {
         coordinates.map { String(format: "%.6f,%.6f", $0.latitude, $0.longitude) }.joined(separator: ";")
+            + (routeStyle.map { "|\($0)" } ?? "")
     }
+}
+
+/// 跑后详情的三层路线（`docs/research/amap-gradient-polyline-and-outline-20260924.md`）。
+/// 高德折线**没有描边属性**，描边就是垫在下面的一条更宽的线。
+enum RouteLineStyle: Equatable {
+    /// 近黑 `#1C1C1E`，亮暗同值：D8 三档配速色压它都 ≥ 3.81:1，压白色的「中」「慢」只有 2.61 / 1.88（负责人 2026-09-24 拍板）。
+    case outline
+    /// `indexes` 即 `MAMultiPolyline.drawStyleIndexes`；`fractions` 比它多一个，0 = 快、1 = 慢。
+    case pace(indexes: [Int], fractions: [Double])
+    /// 点分段行时那一公里底下的一条宽黄带，夹在描边和配速线之间。
+    case highlight
 }
 
 // MARK: - AMap Container
@@ -65,6 +84,8 @@ struct AMapContainer: UIViewRepresentable {
     /// `false`：只有传入的坐标本身变了、或 `recenterToken` 变了才回中心 —— 星火页要让人自由拖动，
     /// 否则足迹加载完、开关一拨，地图就「弹」回原处，拖了等于白拖。
     var snapsBackToCenter: Bool = true
+    /// 主路线适配视野时四周留的边。跑后详情用它把路线挤到底部卡片上方。
+    var fitEdgePadding = UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24)
 
     func makeUIView(context: Context) -> AMapHostView {
         let mapView = MAMapView(frame: .zero)
@@ -123,6 +144,12 @@ struct AMapContainer: UIViewRepresentable {
         if context.coordinator.isDark != isDark {
             context.coordinator.isDark = isDark
             mapView.mapType = Self.mapType(isDark: isDark)
+            // 跑后路线的配速色亮暗不同值：三层一起删，由下面的 syncPolylines 按数组顺序、按新配色加回，
+            // 叠放顺序才不会乱。
+            for (id, entry) in context.coordinator.polylinesByID where entry.routeStyle != nil {
+                context.coordinator.remove(entry, from: mapView)
+                context.coordinator.polylinesByID.removeValue(forKey: id)
+            }
         }
 
         // 「减弱动态效果」可以在页面开着的时候切换：屏幕上的星、「你」和足迹光点当场跟着换。
@@ -264,15 +291,24 @@ struct AMapContainer: UIViewRepresentable {
                 coordinator.remove(previous, from: mapView)
             }
             var coordinates = item.coordinates
-            guard let overlay = MAPolyline(coordinates: &coordinates, count: UInt(coordinates.count)) else {
-                continue
+            let built: MAPolyline?
+            if case .pace(let indexes, _) = item.routeStyle {
+                built = MAMultiPolyline(
+                    coordinates: &coordinates,
+                    count: UInt(coordinates.count),
+                    drawStyleIndexes: indexes.map { NSNumber(value: $0) }
+                )
+            } else {
+                built = MAPolyline(coordinates: &coordinates, count: UInt(coordinates.count))
             }
+            guard let overlay = built else { continue }
             let entry = PolylineEntry(
                 overlay: overlay,
                 coordinates: item.coordinates,
                 signature: item.signature,
                 isPrimary: item.isPrimary,
-                isFootprint: item.isFootprint
+                isFootprint: item.isFootprint,
+                routeStyle: item.routeStyle
             )
             coordinator.polylinesByID[item.id] = entry
             if item.isFootprint {
@@ -281,7 +317,13 @@ struct AMapContainer: UIViewRepresentable {
                 entry.glow = MAPolyline(coordinates: &coordinates, count: UInt(coordinates.count))
                 entry.glow.map { mapView.add($0) }
             }
-            mapView.add(overlay)
+            // 高亮带是点分段行时才加的，那时配速线早已在图上 —— 直接 add 会盖住它。
+            if item.routeStyle == .highlight,
+               let pace = coordinator.polylinesByID.values.first(where: { $0.routeStyle?.isPace == true })?.overlay {
+                mapView.insert(overlay, below: pace)
+            } else {
+                mapView.add(overlay)
+            }
             if item.isFootprint, coordinator.animates {
                 coordinator.startComet(on: entry, mapView: mapView)
             }
@@ -289,7 +331,7 @@ struct AMapContainer: UIViewRepresentable {
             if item.isPrimary, coordinator.lastFittedPrimarySignature != item.signature {
                 mapView.setVisibleMapRect(
                     overlay.boundingMapRect,
-                    edgePadding: UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24),
+                    edgePadding: fitEdgePadding,
                     animated: false
                 )
                 coordinator.lastFittedPrimarySignature = item.signature
@@ -334,6 +376,7 @@ struct AMapContainer: UIViewRepresentable {
         let signature: String
         let isPrimary: Bool
         let isFootprint: Bool
+        let routeStyle: RouteLineStyle?
         var glow: MAPolyline?
         var comet: XinghuoCometAnnotation?
 
@@ -342,13 +385,15 @@ struct AMapContainer: UIViewRepresentable {
             coordinates: [CLLocationCoordinate2D],
             signature: String,
             isPrimary: Bool,
-            isFootprint: Bool
+            isFootprint: Bool,
+            routeStyle: RouteLineStyle? = nil
         ) {
             self.overlay = overlay
             self.coordinates = coordinates
             self.signature = signature
             self.isPrimary = isPrimary
             self.isFootprint = isFootprint
+            self.routeStyle = routeStyle
         }
     }
 
@@ -453,6 +498,16 @@ struct AMapContainer: UIViewRepresentable {
             }
 
             let kind = (annotation as? StyledMapPointAnnotation)?.kind ?? .generic
+            if let glyph = RunRouteGlyph.image(for: kind) {
+                let reuseID = "RunRoute-\(kind)"
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: reuseID)
+                    ?? MAAnnotationView(annotation: annotation, reuseIdentifier: reuseID)
+                view?.annotation = annotation
+                view?.image = glyph.image
+                view?.zIndex = glyph.zIndex
+                view?.canShowCallout = false
+                return view
+            }
             let xinghuoView: MAAnnotationView?
             switch kind {
             case .xinghuoSpark:
@@ -493,6 +548,9 @@ struct AMapContainer: UIViewRepresentable {
                 return renderer
             }
             guard let polyline = overlay as? MAPolyline else { return nil }
+            if let style = polylinesByID.values.first(where: { $0.overlay === polyline })?.routeStyle {
+                return RunRouteGlyph.renderer(for: polyline, style: style, isDark: isDark)
+            }
             let renderer = MAPolylineRenderer(polyline: polyline)
             if polylinesByID.values.contains(where: { $0.glow === polyline }) {
                 renderer?.lineWidth = 9
@@ -562,6 +620,9 @@ private extension MapAnnotationKind {
             return .red
         // 星火页的标注走自己的视图（`XinghuoSparkView` / `XinghuoSelfView`），不会落到大头针上。
         case .xinghuoSpark, .xinghuoSelf:
+            return .purple
+        // 跑后详情的标注走 `RunRouteGlyph` 的自绘图片。
+        case .runKilometre, .runLabel, .runRest, .runBubble:
             return .purple
         }
     }
@@ -922,6 +983,7 @@ struct MapViewWrapper: View {
     var screenAnchor: CGPoint = CGPoint(x: 0.5, y: 0.5)
     var tracksUserLocation: Bool = true
     var animatesCenterChanges: Bool = true
+    var fitEdgePadding = UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24)
 
     /// 装饰用法：地图是纯背景（不可交互，且同样的信息在别处有文字版），
     /// 读屏用户不该在遍历里碰到它。
@@ -963,7 +1025,8 @@ struct MapViewWrapper: View {
                 tracksUserLocation: tracksUserLocation,
                 animatesCenterChanges: animatesCenterChanges,
                 nightSky: nightSky,
-                snapsBackToCenter: snapsBackToCenter
+                snapsBackToCenter: snapsBackToCenter,
+                fitEdgePadding: fitEdgePadding
             )
             .mapAccessibility(isDecorative: isDecorative)
         } else {
@@ -984,7 +1047,8 @@ struct MapViewWrapper: View {
                 tracksUserLocation: tracksUserLocation,
                 animatesCenterChanges: animatesCenterChanges,
                 nightSky: nightSky,
-                snapsBackToCenter: snapsBackToCenter
+                snapsBackToCenter: snapsBackToCenter,
+                fitEdgePadding: fitEdgePadding
             )
             .mapAccessibility(isDecorative: isDecorative)
         } else {

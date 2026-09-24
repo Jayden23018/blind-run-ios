@@ -24,9 +24,11 @@ final class CompletedTrackSummaryViewModel: ObservableObject {
 }
 
 /// 订单详情里内嵌的轨迹摘要 —— 对标 Strava 列表页那个压缩版式（窄地图 + 一行统计），
-/// 大屏回放在 `OrderRouteReplayView`，由下面那条链接进入。
+/// 大屏在下面那条链接后面：陪跑员进跑后详情，跑者进 `OrderRouteReplayView`。
 struct CompletedTrackSummaryView: View {
     let track: OrderTrackResponse
+    /// 陪跑员传订单号：「查看大图路线」换成跑后详情（D13）。跑者不传，仍进 `OrderRouteReplayView`，阶段 5 再换。
+    var volunteerRecordOrderId: Int64?
     let repeatSummary: () -> Void
 
     var body: some View {
@@ -49,13 +51,17 @@ struct CompletedTrackSummaryView: View {
                 // 独立成行而不是把地图本身做成链接：`MAMapView` 自己吃掉平移手势，
                 // 包在 NavigationLink 里点不动。这一行同时也是读屏用户唯一能对上的入口。
                 NavigationLink {
-                    OrderRouteReplayView(track: track)
+                    if let volunteerRecordOrderId {
+                        VolunteerRunRecordView(orderId: volunteerRecordOrderId)
+                    } else {
+                        OrderRouteReplayView(track: track)
+                    }
                 } label: {
-                    Label("查看大图路线", systemImage: "map")
+                    Label(volunteerRecordOrderId == nil ? "查看大图路线" : "查看跑后详情", systemImage: "map")
                         .font(AppFonts.body())
                 }
                 .frame(minHeight: 64)
-                .accessibilityHint("全屏查看本次跑步轨迹")
+                .accessibilityHint(volunteerRecordOrderId == nil ? "全屏查看本次跑步轨迹" : "查看路线、配速、分段和途中记录")
                 .accessibilityIdentifier("completedTrackFullScreenLink")
             }
 

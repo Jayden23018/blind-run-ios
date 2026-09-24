@@ -480,6 +480,91 @@ final class AccessibilityAuditTests: XCTestCase {
         try audit(app)
     }
 
+    // MARK: 陪跑员跑后详情（阶段 4）
+
+    @MainActor
+    private func openVolunteerRunRecordDetail(_ app: XCUIApplication) {
+        openRecordsTab(app, title: "陪跑记录")
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "陪", "公里")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "本月没有可点的陪跑记录")
+        row.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["runRecordDistance"].firstMatch.waitForExistence(timeout: 15),
+            "跑后详情没加载出来 —— record(orderId:) 没接上"
+        )
+    }
+
+    /// 地图一段整体描述、距离、志愿服务行（D5 无「待确认」）、分段可点、时间轴末尾的求助行；整页过审计。
+    @MainActor
+    func testVolunteerRunRecordDetailShowsTheCardAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchVolunteerHome(extraEnvironment: Self.recordsSeed)
+        openVolunteerRunRecordDetail(app)
+
+        // 审计只在页顶做（七项全开）。滚动之后总有一行压在半透明导航栏 / Home 条下面，
+        // 2026-09-24 两轮真机都被判 Contrast failed（「配速」y=38、「23:15–23:38」y≈0）——
+        // 那是采样区被栏盖住，不是配色（textPrimary / textSecondary 压白 ≥ 7:1）。
+        // 守卫 a11y-audit-types 不许减审计项，所以下半页靠最大字号截图目检。
+        try audit(app)
+        let map = app.descendants(matching: .any)["runRecordMapDescription"].firstMatch
+        XCTAssertTrue(map.exists, "地图的整体描述不在")
+        XCTAssertTrue(map.label.contains("路线地图"), "地图描述：\(map.label)")
+        XCTAssertTrue(app.descendants(matching: .any)["runRecordDistance"].firstMatch.label.contains("3.2 公里"))
+        let service = app.descendants(matching: .any)["runRecordServiceRow"].firstMatch
+        XCTAssertTrue(service.exists, "志愿服务行不在")
+        XCTAssertFalse(service.label.contains("确认"), "D5：不出现「待确认」，实际：\(service.label)")
+
+        let split = app.buttons["runRecordSplit-2"]
+        for _ in 0..<4 where !split.isHittable { app.swipeUp() }
+        XCTAssertTrue(split.label.contains("每公里5分48秒"), "分段读屏要念成「每公里…」：\(split.label)")
+        XCTAssertTrue(split.label.contains("最快"))
+        split.tap()
+        XCTAssertTrue(map.waitForExistence(timeout: 5) && map.isHittable, "点分段后应滚回顶部的地图")
+
+        let sos = app.descendants(matching: .any)["runRecordSOSLine"].firstMatch
+        for _ in 0..<8 where !sos.isHittable { app.swipeUp() }
+        XCTAssertTrue(sos.label.contains("全程没有触发紧急求助"), "求助行：\(sos.label)")
+    }
+
+    @MainActor
+    func testVolunteerRunRecordDetailScreenshotsInLightDarkAndLargestText() throws {
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax-xxxl", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        // 截图要看的正是本阶段改的高德桥接层（渐变、描边、标注），所以打开真地图 ——
+        // 本机 `LocalConfig.xcconfig` 带 key，`launchVolunteerHome` 默认的占位图在这里要覆盖掉。
+        // 审计用例仍用占位图（记忆 ui-test-defaults-verify-the-degraded-path）。
+        let realMap = ["AIDRUN_UI_TEST_DISABLE_MAP": "0"]
+        for variant in variants {
+            let app = launchVolunteerHome(
+                extraEnvironment: Self.recordsSeed.merging(variant.environment) { _, new in new }.merging(realMap) { _, new in new },
+                extraArguments: variant.arguments
+            )
+            openVolunteerRunRecordDetail(app)
+            sleep(3) // 等底图瓦片下完，不然截到的是灰底。
+            // 大字号下一屏装得少，多截几张才看得到分段和时间轴。
+            let pages = variant.name == "ax-xxxl" ? 8 : 4
+            for page in 1...pages {
+                attachScreenshot(app, name: "run-record-detail-\(variant.name)-\(page)")
+                app.swipeUp()
+            }
+            // 点一行分段：地图上那一公里加黄带和气泡，页面滚回顶部（高亮带要压在配速线下面）。
+            let split = app.buttons["runRecordSplit-2"]
+            for _ in 0..<4 where !split.isHittable { app.swipeDown() }
+            if split.isHittable {
+                split.tap()
+                sleep(2)
+                attachScreenshot(app, name: "run-record-detail-\(variant.name)-highlight")
+            }
+            app.terminate()
+        }
+    }
+
     /// 阶段收尾的三组截图（浅色 / 深色 / 最大字号 × 两个角色），附件在 result bundle 里。
     /// 不做像素断言：截图是给人看的证据，断言由上面两条用例负责。
     @MainActor
