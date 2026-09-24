@@ -162,6 +162,25 @@ final class RunRecordHistoryTests: XCTestCase {
         XCTAssertFalse(viewModel.isLoading, "失败后不能卡在加载态")
     }
 
+    /// 订单那一路失败后切月份：不能只清掉错误提示而不重试 —— 否则「未完成的预约」
+    /// 看起来像是「没有」，其实请求从没成功过（阶段 3 复核抓到的）。
+    func testSwitchingMonthRetriesTheOrdersThatFailedBefore() async {
+        let (viewModel, appState, _, orders) = makeViewModel(ordersFailure: APIError.invalidURL)
+        _ = appState
+        await viewModel.load()
+        XCTAssertNotNil(viewModel.errorMessage)
+
+        orders.myOrdersResult = .success(PagedOrderResponse(
+            content: [makeOrder(orderId: 2, status: .cancelled, createdAt: "2026-08-02T10:00:00")],
+            totalElements: 1, totalPages: 1, number: 0, size: 1, first: true, last: true, empty: false
+        ))
+        await viewModel.showPreviousMonth()
+
+        XCTAssertEqual(orders.callCount("myOrders()"), 2, "上次失败了，切月份要顺手重试")
+        XCTAssertEqual(viewModel.unfinished.map(\.orderId), [2])
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
     func testRunnerAnnouncementCountsUnfinishedBookings() async {
         let (viewModel, appState, _, _) = makeViewModel(
             now: date(2026, 9, 24),

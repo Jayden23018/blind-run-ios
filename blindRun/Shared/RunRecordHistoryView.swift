@@ -114,7 +114,15 @@ final class RunRecordHistoryViewModel: ObservableObject {
         month = target
         history = nil
         errorMessage = nil
-        await loadMonth(target)
+        // 订单那一路之前失败过（`hasAnyCompletedOrder` 还是 nil）就一起重试：
+        // 上面刚把错误提示清掉，不重试的话「未完成的预约」会静默显示成「没有」。
+        if hasAnyCompletedOrder == nil {
+            async let monthly: Void = loadMonth(target)
+            async let orders: Void = loadUnfinished()
+            _ = await (monthly, orders)
+        } else {
+            await loadMonth(target)
+        }
         announceLoaded()
     }
 
