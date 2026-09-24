@@ -521,6 +521,8 @@ public protocol APIProtocol: Sendable {
     ///
     /// 原始 GPS 坐标不返回（只给 `hasGpsLocation` 布尔）。
     ///
+    /// `csAcceptedAt`（#320）：客服接手时刻，两端都填；没人接手时为 null， 客户端据此决定是否显示「客服已接入」，**别用 status 推断**。
+    ///
     /// - Remark: HTTP `GET /api/emergency/active`.
     /// - Remark: Generated from `#/paths//api/emergency/active/get(activeEmergencyEvent)`.
     func activeEmergencyEvent(_ input: Operations.activeEmergencyEvent.Input) async throws -> Operations.activeEmergencyEvent.Output
@@ -1492,6 +1494,8 @@ extension APIProtocol {
     /// **这是拿事件 id 和当前状态的唯一权威来源** —— WS 的 `EMERGENCY_*` 通知走 `APP_NOTIFICATION` 信封，不带 `eventId`，不要试图从通知流反推事件状态。
     ///
     /// 原始 GPS 坐标不返回（只给 `hasGpsLocation` 布尔）。
+    ///
+    /// `csAcceptedAt`（#320）：客服接手时刻，两端都填；没人接手时为 null， 客户端据此决定是否显示「客服已接入」，**别用 status 推断**。
     ///
     /// - Remark: HTTP `GET /api/emergency/active`.
     /// - Remark: Generated from `#/paths//api/emergency/active/get(activeEmergencyEvent)`.
@@ -4315,6 +4319,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/csNotes`.
             public var csNotes: Swift.String?
+            /// 客服**首次**接手本事件的时刻（#320）。🔴 **没有客服接手过时必为 null** —— 客户端只能在它非 null 时显示「客服已接入」，**不要**用 `status == CS_HANDLING` 推断 （客服接手后再「通知家属」会把 status 改回 `CONTACT_NOTIFIED`，而接手这件事仍然发生过）。 只给时间不给客服身份。⚠️ 目前只有 `GET /api/emergency/active` 填它，其余端点恒为 null。 实时推送见 WS `EMERGENCY_CS_ACCEPTED`。
+            ///
+            /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/csAcceptedAt`.
+            public var csAcceptedAt: Swift.String?
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/hasGpsLocation`.
             public var hasGpsLocation: Swift.Bool?
             /// 原始坐标**仅 CS_ADMIN 可见**；`/api/emergency/active` 一律返回 null
@@ -4408,6 +4416,7 @@ public enum Components {
             ///   - status:
             ///   - csUserId: ⚠️ **志愿者调 `/api/emergency/active` 时恒为 null**（见 csNotes）
             ///   - csNotes: 客服的内部处置记录。⚠️ **志愿者调 `/api/emergency/active` 时恒为 null** —— 他读到的是**别人的**事件，而这是可能含健康状况、家属沟通内容、纠纷描述的自由文本。 判据与「自由文本一律接单后」同源：取值空间不封闭的字段不给第三方看。
+            ///   - csAcceptedAt: 客服**首次**接手本事件的时刻（#320）。🔴 **没有客服接手过时必为 null** —— 客户端只能在它非 null 时显示「客服已接入」，**不要**用 `status == CS_HANDLING` 推断 （客服接手后再「通知家属」会把 status 改回 `CONTACT_NOTIFIED`，而接手这件事仍然发生过）。 只给时间不给客服身份。⚠️ 目前只有 `GET /api/emergency/active` 填它，其余端点恒为 null。 实时推送见 WS `EMERGENCY_CS_ACCEPTED`。
             ///   - hasGpsLocation:
             ///   - gpsLat: 原始坐标**仅 CS_ADMIN 可见**；`/api/emergency/active` 一律返回 null
             ///   - gpsLng:
@@ -4426,6 +4435,7 @@ public enum Components {
                 status: Components.Schemas.EmergencyStatus? = nil,
                 csUserId: Swift.Int64? = nil,
                 csNotes: Swift.String? = nil,
+                csAcceptedAt: Swift.String? = nil,
                 hasGpsLocation: Swift.Bool? = nil,
                 gpsLat: Swift.Double? = nil,
                 gpsLng: Swift.Double? = nil,
@@ -4444,6 +4454,7 @@ public enum Components {
                 self.status = status
                 self.csUserId = csUserId
                 self.csNotes = csNotes
+                self.csAcceptedAt = csAcceptedAt
                 self.hasGpsLocation = hasGpsLocation
                 self.gpsLat = gpsLat
                 self.gpsLng = gpsLng
@@ -4463,6 +4474,7 @@ public enum Components {
                 case status
                 case csUserId
                 case csNotes
+                case csAcceptedAt
                 case hasGpsLocation
                 case gpsLat
                 case gpsLng
@@ -14711,6 +14723,8 @@ public enum Operations {
     /// **这是拿事件 id 和当前状态的唯一权威来源** —— WS 的 `EMERGENCY_*` 通知走 `APP_NOTIFICATION` 信封，不带 `eventId`，不要试图从通知流反推事件状态。
     ///
     /// 原始 GPS 坐标不返回（只给 `hasGpsLocation` 布尔）。
+    ///
+    /// `csAcceptedAt`（#320）：客服接手时刻，两端都填；没人接手时为 null， 客户端据此决定是否显示「客服已接入」，**别用 status 推断**。
     ///
     /// - Remark: HTTP `GET /api/emergency/active`.
     /// - Remark: Generated from `#/paths//api/emergency/active/get(activeEmergencyEvent)`.

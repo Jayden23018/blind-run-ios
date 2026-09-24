@@ -3379,6 +3379,8 @@ public struct Client: APIProtocol {
     ///
     /// 原始 GPS 坐标不返回（只给 `hasGpsLocation` 布尔）。
     ///
+    /// `csAcceptedAt`（#320）：客服接手时刻，两端都填；没人接手时为 null， 客户端据此决定是否显示「客服已接入」，**别用 status 推断**。
+    ///
     /// - Remark: HTTP `GET /api/emergency/active`.
     /// - Remark: Generated from `#/paths//api/emergency/active/get(activeEmergencyEvent)`.
     public func activeEmergencyEvent(_ input: Operations.activeEmergencyEvent.Input) async throws -> Operations.activeEmergencyEvent.Output {
