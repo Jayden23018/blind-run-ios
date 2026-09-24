@@ -2912,6 +2912,14 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 角色：`VOLUNTEER`，且必须是该订单已接单的志愿者。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    ///
+    /// ⚠️ **这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`**（2026-09-15 新增）。 `COMPLETED` 是终态，一旦落下去：位置互推停掉（`sharesLiveLocation()` 不含它）、 `GET /{id}/location/address` 返回空、志愿者端 `GET /api/emergency/active` 的恢复入口也查不到了 —— 而求助未结案恰恰意味着现场可能还有人需要帮助。
+    ///
+    /// ⚠️ **`POST /api/orders/{id}/cancel`（志愿者取消转 `REMATCHING`）同样被这道闸拦住。** 只堵 finish 的话，被 409 拦下的志愿者改点「取消订单」就能达到完全一样的效果， 而那是一次点击就能到的地方。`autoCompleteOrder`（预定结束时间到了自动完成） 也会在求助未结案时跳过本轮。
+    ///
+    /// 出口有两个，都不需要志愿者有撤销权（他本来也不该有）： 受助者本人 `PUT /api/emergency/{id}/cancel`，或客服 `PUT /api/cs/emergency-events/{id}/resolve` / `/false-alarm`。 **客户端文案不要引导志愿者去「撤销求助」** —— 那个按钮对他恒 403。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/finish`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/finish/post(finishOrder)`.
     public func finishOrder(_ input: Operations.finishOrder.Input) async throws -> Operations.finishOrder.Output {
@@ -2960,6 +2968,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.finishOrder.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -3199,6 +3229,10 @@ public struct Client: APIProtocol {
     ///
     /// **坐标可选**：`gpsLat`/`gpsLng` 无 `@NotNull`，缺省时短信位置走三级降级 （无坐标 → "位置获取失败，请尽快拨打其电话或报警110"）。
     ///
+    /// **倒计时（2026-09-15 新增）**：传 `useCountdown: true` 时事件先落 `COUNTDOWN`， 窗口内**什么都不发**，到点由服务端推成正式求助并走完全同一条升级链路。 长按求助键走这条；菜单里点选仍是立即触发 + 客户端二次确认。 倒计时**由服务端计**，手机在这几秒里崩溃/没电/被杀掉时求助照样发出。 ⚠️ 客户端照响应里的 `countdownEndsAt` 倒数，不要自己数（志愿者代触发时它是 null）。
+    ///
+    /// **幂等（2026-09-15 新增）**：传 `idempotencyKey` 时重复请求返回同一条事件。 ⚠️ 幂等判定排在冷却检查**之前** —— 弱网重试的是同一次求助， 走到冷却那步会回 429「操作太频繁」，而按下 SOS 后听到这句的人会以为求助失败、要重按。
+    ///
     /// **冷却**：Redis `emergency:cooldown:{triggerUserId}`，SETNX 原子占位， TTL = `app.emergency.cooldown-seconds`（默认 60s），**按触发者计不按事件计**。 命中返回 429，`retryAfterSeconds` 为读取 Redis 得到的**真实剩余秒数**（读不到才退回配置值）。
     ///
     /// - Remark: HTTP `POST /api/emergency/trigger`.
@@ -3274,11 +3308,22 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 受助者本人撤销自己的紧急求助
+    /// 受助者本人撤销自己的紧急求助（倒计时内撤回也走这条）
     ///
     /// 角色：`BLIND`，且只能撤销 `userId` 等于自己的事件。
     ///
-    /// 事件置 `FALSE_ALARM` + `resolvedAt`，并给主要紧急联系人补发一条解除短信、 向客服推 `EMERGENCY_CANCELLED_BY_OWNER`。
+    /// 🚩 **响应的 `status` 有两个值，客户端的播报文案必须分开**：
+    /// - `CANCELLED` —— 事件还在 `COUNTDOWN`，求助**从未发出**。
+    ///   不发解除短信、不推客服（一条求救短信都没发过，发「解除」等于凭空吓家属一次），
+    ///   并且**释放冷却位**：误触后 3 秒内取消、10 秒后真的出事再按，不该被 429 挡下。
+    ///   客户端播「已取消，没有发出求助」。
+    ///
+    /// - `FALSE_ALARM` —— 求助**已经发出去过**。事件置 `FALSE_ALARM` + `resolvedAt`，
+    ///   给主要紧急联系人补发一条解除短信、向客服推 `EMERGENCY_CANCELLED_BY_OWNER`。
+    ///   客户端播成「没有发出求助」是假话 —— 家属手机上那条求救短信是真的。
+    ///
+    ///
+    /// ⚠️ **倒计时到点与用户取消是竞争关系**，谁先拿到行锁谁赢。 用户在宽限窗口末尾按取消而调度器刚好先一步，结果就是 `FALSE_ALARM`（发出后立即撤销）—— 这不是 bug，是 `countdown-grace-ms` 存在的理由，它把这个窗口压到最小。 所以**不要按自己发过什么去猜结果，按返回的 `status` 播**。
     ///
     /// 这是误触的唯一用户侧出口 —— 志愿者**没有**撤销权（见 volunteer-response 的 403）。
     ///
@@ -3324,7 +3369,11 @@ public struct Client: APIProtocol {
     }
     /// 当前未终态的紧急事件（断线重连 / App 重启恢复用）
     ///
-    /// 角色：`BLIND`。返回该用户 `status ∉ {RESOLVED, FALSE_ALARM}` 的最近一条事件， 没有则 `data` 为 `null`。
+    /// 角色：`BLIND` 或 `VOLUNTEER`（2026-09-15 开放给志愿者）。 返回 `status` 不在终态（`RESOLVED` / `FALSE_ALARM` / `CANCELLED`）的最近一条事件， 没有则 `data` 为 `null`。
+    ///
+    /// 🚩 **两端语义不同，别照抄成一句话**：盲人拿的是**自己**的事件； 志愿者拿的是**他正在陪的那位盲人**的事件（事件永远挂在受助者身上， 按志愿者自己的 id 查恒为空）。志愿者侧只看 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 三态的订单 —— 一张下周的预约单上那位盲人此刻的求助与他无关。
+    ///
+    /// 开放给志愿者的理由：此前是 BLIND 专属，于是志愿者端 App 被杀掉再打开， 「对方正在求助」那条强提醒**再也回不来了**，而 WS 的 `EMERGENCY_*` 走 `APP_NOTIFICATION` 信封、不带 `eventId`，从通知流里也反推不出来。
     ///
     /// **这是拿事件 id 和当前状态的唯一权威来源** —— WS 的 `EMERGENCY_*` 通知走 `APP_NOTIFICATION` 信封，不带 `eventId`，不要试图从通知流反推事件状态。
     ///

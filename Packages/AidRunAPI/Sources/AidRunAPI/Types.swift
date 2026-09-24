@@ -433,6 +433,14 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
     func startService(_ input: Operations.startService.Input) async throws -> Operations.startService.Output
+    /// 角色：`VOLUNTEER`，且必须是该订单已接单的志愿者。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    ///
+    /// ⚠️ **这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`**（2026-09-15 新增）。 `COMPLETED` 是终态，一旦落下去：位置互推停掉（`sharesLiveLocation()` 不含它）、 `GET /{id}/location/address` 返回空、志愿者端 `GET /api/emergency/active` 的恢复入口也查不到了 —— 而求助未结案恰恰意味着现场可能还有人需要帮助。
+    ///
+    /// ⚠️ **`POST /api/orders/{id}/cancel`（志愿者取消转 `REMATCHING`）同样被这道闸拦住。** 只堵 finish 的话，被 409 拦下的志愿者改点「取消订单」就能达到完全一样的效果， 而那是一次点击就能到的地方。`autoCompleteOrder`（预定结束时间到了自动完成） 也会在求助未结案时跳过本轮。
+    ///
+    /// 出口有两个，都不需要志愿者有撤销权（他本来也不该有）： 受助者本人 `PUT /api/emergency/{id}/cancel`，或客服 `PUT /api/cs/emergency-events/{id}/resolve` / `/false-alarm`。 **客户端文案不要引导志愿者去「撤销求助」** —— 那个按钮对他恒 403。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/finish`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/finish/post(finishOrder)`.
     func finishOrder(_ input: Operations.finishOrder.Input) async throws -> Operations.finishOrder.Output
@@ -470,16 +478,31 @@ public protocol APIProtocol: Sendable {
     ///
     /// **坐标可选**：`gpsLat`/`gpsLng` 无 `@NotNull`，缺省时短信位置走三级降级 （无坐标 → "位置获取失败，请尽快拨打其电话或报警110"）。
     ///
+    /// **倒计时（2026-09-15 新增）**：传 `useCountdown: true` 时事件先落 `COUNTDOWN`， 窗口内**什么都不发**，到点由服务端推成正式求助并走完全同一条升级链路。 长按求助键走这条；菜单里点选仍是立即触发 + 客户端二次确认。 倒计时**由服务端计**，手机在这几秒里崩溃/没电/被杀掉时求助照样发出。 ⚠️ 客户端照响应里的 `countdownEndsAt` 倒数，不要自己数（志愿者代触发时它是 null）。
+    ///
+    /// **幂等（2026-09-15 新增）**：传 `idempotencyKey` 时重复请求返回同一条事件。 ⚠️ 幂等判定排在冷却检查**之前** —— 弱网重试的是同一次求助， 走到冷却那步会回 429「操作太频繁」，而按下 SOS 后听到这句的人会以为求助失败、要重按。
+    ///
     /// **冷却**：Redis `emergency:cooldown:{triggerUserId}`，SETNX 原子占位， TTL = `app.emergency.cooldown-seconds`（默认 60s），**按触发者计不按事件计**。 命中返回 429，`retryAfterSeconds` 为读取 Redis 得到的**真实剩余秒数**（读不到才退回配置值）。
     ///
     /// - Remark: HTTP `POST /api/emergency/trigger`.
     /// - Remark: Generated from `#/paths//api/emergency/trigger/post(triggerEmergency)`.
     func triggerEmergency(_ input: Operations.triggerEmergency.Input) async throws -> Operations.triggerEmergency.Output
-    /// 受助者本人撤销自己的紧急求助
+    /// 受助者本人撤销自己的紧急求助（倒计时内撤回也走这条）
     ///
     /// 角色：`BLIND`，且只能撤销 `userId` 等于自己的事件。
     ///
-    /// 事件置 `FALSE_ALARM` + `resolvedAt`，并给主要紧急联系人补发一条解除短信、 向客服推 `EMERGENCY_CANCELLED_BY_OWNER`。
+    /// 🚩 **响应的 `status` 有两个值，客户端的播报文案必须分开**：
+    /// - `CANCELLED` —— 事件还在 `COUNTDOWN`，求助**从未发出**。
+    ///   不发解除短信、不推客服（一条求救短信都没发过，发「解除」等于凭空吓家属一次），
+    ///   并且**释放冷却位**：误触后 3 秒内取消、10 秒后真的出事再按，不该被 429 挡下。
+    ///   客户端播「已取消，没有发出求助」。
+    ///
+    /// - `FALSE_ALARM` —— 求助**已经发出去过**。事件置 `FALSE_ALARM` + `resolvedAt`，
+    ///   给主要紧急联系人补发一条解除短信、向客服推 `EMERGENCY_CANCELLED_BY_OWNER`。
+    ///   客户端播成「没有发出求助」是假话 —— 家属手机上那条求救短信是真的。
+    ///
+    ///
+    /// ⚠️ **倒计时到点与用户取消是竞争关系**，谁先拿到行锁谁赢。 用户在宽限窗口末尾按取消而调度器刚好先一步，结果就是 `FALSE_ALARM`（发出后立即撤销）—— 这不是 bug，是 `countdown-grace-ms` 存在的理由，它把这个窗口压到最小。 所以**不要按自己发过什么去猜结果，按返回的 `status` 播**。
     ///
     /// 这是误触的唯一用户侧出口 —— 志愿者**没有**撤销权（见 volunteer-response 的 403）。
     ///
@@ -488,7 +511,11 @@ public protocol APIProtocol: Sendable {
     func cancelEmergency(_ input: Operations.cancelEmergency.Input) async throws -> Operations.cancelEmergency.Output
     /// 当前未终态的紧急事件（断线重连 / App 重启恢复用）
     ///
-    /// 角色：`BLIND`。返回该用户 `status ∉ {RESOLVED, FALSE_ALARM}` 的最近一条事件， 没有则 `data` 为 `null`。
+    /// 角色：`BLIND` 或 `VOLUNTEER`（2026-09-15 开放给志愿者）。 返回 `status` 不在终态（`RESOLVED` / `FALSE_ALARM` / `CANCELLED`）的最近一条事件， 没有则 `data` 为 `null`。
+    ///
+    /// 🚩 **两端语义不同，别照抄成一句话**：盲人拿的是**自己**的事件； 志愿者拿的是**他正在陪的那位盲人**的事件（事件永远挂在受助者身上， 按志愿者自己的 id 查恒为空）。志愿者侧只看 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 三态的订单 —— 一张下周的预约单上那位盲人此刻的求助与他无关。
+    ///
+    /// 开放给志愿者的理由：此前是 BLIND 专属，于是志愿者端 App 被杀掉再打开， 「对方正在求助」那条强提醒**再也回不来了**，而 WS 的 `EMERGENCY_*` 走 `APP_NOTIFICATION` 信封、不带 `eventId`，从通知流里也反推不出来。
     ///
     /// **这是拿事件 id 和当前状态的唯一权威来源** —— WS 的 `EMERGENCY_*` 通知走 `APP_NOTIFICATION` 信封，不带 `eventId`，不要试图从通知流反推事件状态。
     ///
@@ -1336,6 +1363,14 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// 角色：`VOLUNTEER`，且必须是该订单已接单的志愿者。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    ///
+    /// ⚠️ **这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`**（2026-09-15 新增）。 `COMPLETED` 是终态，一旦落下去：位置互推停掉（`sharesLiveLocation()` 不含它）、 `GET /{id}/location/address` 返回空、志愿者端 `GET /api/emergency/active` 的恢复入口也查不到了 —— 而求助未结案恰恰意味着现场可能还有人需要帮助。
+    ///
+    /// ⚠️ **`POST /api/orders/{id}/cancel`（志愿者取消转 `REMATCHING`）同样被这道闸拦住。** 只堵 finish 的话，被 409 拦下的志愿者改点「取消订单」就能达到完全一样的效果， 而那是一次点击就能到的地方。`autoCompleteOrder`（预定结束时间到了自动完成） 也会在求助未结案时跳过本轮。
+    ///
+    /// 出口有两个，都不需要志愿者有撤销权（他本来也不该有）： 受助者本人 `PUT /api/emergency/{id}/cancel`，或客服 `PUT /api/cs/emergency-events/{id}/resolve` / `/false-alarm`。 **客户端文案不要引导志愿者去「撤销求助」** —— 那个按钮对他恒 403。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/finish`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/finish/post(finishOrder)`.
     public func finishOrder(
@@ -1405,6 +1440,10 @@ extension APIProtocol {
     ///
     /// **坐标可选**：`gpsLat`/`gpsLng` 无 `@NotNull`，缺省时短信位置走三级降级 （无坐标 → "位置获取失败，请尽快拨打其电话或报警110"）。
     ///
+    /// **倒计时（2026-09-15 新增）**：传 `useCountdown: true` 时事件先落 `COUNTDOWN`， 窗口内**什么都不发**，到点由服务端推成正式求助并走完全同一条升级链路。 长按求助键走这条；菜单里点选仍是立即触发 + 客户端二次确认。 倒计时**由服务端计**，手机在这几秒里崩溃/没电/被杀掉时求助照样发出。 ⚠️ 客户端照响应里的 `countdownEndsAt` 倒数，不要自己数（志愿者代触发时它是 null）。
+    ///
+    /// **幂等（2026-09-15 新增）**：传 `idempotencyKey` 时重复请求返回同一条事件。 ⚠️ 幂等判定排在冷却检查**之前** —— 弱网重试的是同一次求助， 走到冷却那步会回 429「操作太频繁」，而按下 SOS 后听到这句的人会以为求助失败、要重按。
+    ///
     /// **冷却**：Redis `emergency:cooldown:{triggerUserId}`，SETNX 原子占位， TTL = `app.emergency.cooldown-seconds`（默认 60s），**按触发者计不按事件计**。 命中返回 429，`retryAfterSeconds` 为读取 Redis 得到的**真实剩余秒数**（读不到才退回配置值）。
     ///
     /// - Remark: HTTP `POST /api/emergency/trigger`.
@@ -1418,11 +1457,22 @@ extension APIProtocol {
             body: body
         ))
     }
-    /// 受助者本人撤销自己的紧急求助
+    /// 受助者本人撤销自己的紧急求助（倒计时内撤回也走这条）
     ///
     /// 角色：`BLIND`，且只能撤销 `userId` 等于自己的事件。
     ///
-    /// 事件置 `FALSE_ALARM` + `resolvedAt`，并给主要紧急联系人补发一条解除短信、 向客服推 `EMERGENCY_CANCELLED_BY_OWNER`。
+    /// 🚩 **响应的 `status` 有两个值，客户端的播报文案必须分开**：
+    /// - `CANCELLED` —— 事件还在 `COUNTDOWN`，求助**从未发出**。
+    ///   不发解除短信、不推客服（一条求救短信都没发过，发「解除」等于凭空吓家属一次），
+    ///   并且**释放冷却位**：误触后 3 秒内取消、10 秒后真的出事再按，不该被 429 挡下。
+    ///   客户端播「已取消，没有发出求助」。
+    ///
+    /// - `FALSE_ALARM` —— 求助**已经发出去过**。事件置 `FALSE_ALARM` + `resolvedAt`，
+    ///   给主要紧急联系人补发一条解除短信、向客服推 `EMERGENCY_CANCELLED_BY_OWNER`。
+    ///   客户端播成「没有发出求助」是假话 —— 家属手机上那条求救短信是真的。
+    ///
+    ///
+    /// ⚠️ **倒计时到点与用户取消是竞争关系**，谁先拿到行锁谁赢。 用户在宽限窗口末尾按取消而调度器刚好先一步，结果就是 `FALSE_ALARM`（发出后立即撤销）—— 这不是 bug，是 `countdown-grace-ms` 存在的理由，它把这个窗口压到最小。 所以**不要按自己发过什么去猜结果，按返回的 `status` 播**。
     ///
     /// 这是误触的唯一用户侧出口 —— 志愿者**没有**撤销权（见 volunteer-response 的 403）。
     ///
@@ -1433,7 +1483,11 @@ extension APIProtocol {
     }
     /// 当前未终态的紧急事件（断线重连 / App 重启恢复用）
     ///
-    /// 角色：`BLIND`。返回该用户 `status ∉ {RESOLVED, FALSE_ALARM}` 的最近一条事件， 没有则 `data` 为 `null`。
+    /// 角色：`BLIND` 或 `VOLUNTEER`（2026-09-15 开放给志愿者）。 返回 `status` 不在终态（`RESOLVED` / `FALSE_ALARM` / `CANCELLED`）的最近一条事件， 没有则 `data` 为 `null`。
+    ///
+    /// 🚩 **两端语义不同，别照抄成一句话**：盲人拿的是**自己**的事件； 志愿者拿的是**他正在陪的那位盲人**的事件（事件永远挂在受助者身上， 按志愿者自己的 id 查恒为空）。志愿者侧只看 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 三态的订单 —— 一张下周的预约单上那位盲人此刻的求助与他无关。
+    ///
+    /// 开放给志愿者的理由：此前是 BLIND 专属，于是志愿者端 App 被杀掉再打开， 「对方正在求助」那条强提醒**再也回不来了**，而 WS 的 `EMERGENCY_*` 走 `APP_NOTIFICATION` 信封、不带 `eventId`，从通知流里也反推不出来。
     ///
     /// **这是拿事件 id 和当前状态的唯一权威来源** —— WS 的 `EMERGENCY_*` 通知走 `APP_NOTIFICATION` 信封，不带 `eventId`，不要试图从通知流反推事件状态。
     ///
@@ -3953,7 +4007,7 @@ public enum Components {
                 case action
             }
         }
-        /// 三个字段**全部可选**。不传 `orderId` 即独立 SOS（无进行中订单也能求救）； 不传坐标后端照常建事件，短信位置走三级降级。
+        /// 五个字段**全部可选**。不传 `orderId` 即独立 SOS（无进行中订单也能求救）； 不传坐标后端照常建事件，短信位置走三级降级。
         ///
         /// - Remark: Generated from `#/components/schemas/EmergencyTriggerRequest`.
         public struct EmergencyTriggerRequest: Codable, Hashable, Sendable {
@@ -3969,25 +4023,51 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyTriggerRequest/gpsLng`.
             public var gpsLng: Swift.Double?
+            /// 要不要走服务端倒计时。不传 / `false` = **立即触发**（本字段存在之前的行为，逐字节不变）。
+            ///
+            /// `true` 时事件先落 `COUNTDOWN`，窗口内**什么都不发**（不发家属短信、不推志愿者、 不推客服），到点由服务端推成正式求助。长按求助键走这条，菜单里点选走立即触发 + 二次确认。
+            ///
+            /// 🚩 **是布尔不是秒数，刻意的。** 时长是服务端配置 `app.emergency.countdown-seconds`， 客户端不需要也不应该知道 —— **照响应里的 `countdownEndsAt` 倒数**。 让客户端传秒数会让两端各存一份必然漂移：客户端播 3 秒、服务端算 5 秒时， 用户按下取消那一刻求助早就发出去了。
+            ///
+            /// ⚠️ **志愿者代触发时本字段被忽略**（响应里 `countdownEndsAt` 为 null，立即发出）。 原因是撤销权：事件永远挂在盲人身上，而 `PUT /{id}/cancel` 只认受助者本人， 给志愿者一个他自己撤不掉的倒计时等于让他眼看着一条误触发出去。
+            ///
+            /// - Remark: Generated from `#/components/schemas/EmergencyTriggerRequest/useCountdown`.
+            public var useCountdown: Swift.Bool?
+            /// 客户端生成的幂等键（建议 UUID）。相同键的重复请求返回**同一条**事件，不产生第二条。
+            ///
+            /// 弱网下客户端重试的是**同一次**求助，而冷却（60 秒）回的是 429「操作太频繁」—— 让用户在按下 SOS 之后听到这句，等于告诉他求助失败了。 两者职责不同：幂等键去重同一次操作，冷却去重不同次操作。
+            ///
+            /// ⚠️ 幂等窗口 = `app.emergency.cooldown-seconds`（默认 60 秒）。 超出窗口后同一个键会被当成**一次新的求助**放行（并且那条新事件不落幂等键）—— 客户端把键写死成常量时，认了老行等于此人第一次之后再也求救不出去。
+            ///
+            /// - Remark: Generated from `#/components/schemas/EmergencyTriggerRequest/idempotencyKey`.
+            public var idempotencyKey: Swift.String?
             /// Creates a new `EmergencyTriggerRequest`.
             ///
             /// - Parameters:
             ///   - orderId: 进行中订单 ID。传了会校验调用者是该订单参与者（盲人或志愿者），否则 403。
             ///   - gpsLat: GCJ-02 纬度
             ///   - gpsLng: GCJ-02 经度
+            ///   - useCountdown: 要不要走服务端倒计时。不传 / `false` = **立即触发**（本字段存在之前的行为，逐字节不变）。
+            ///   - idempotencyKey: 客户端生成的幂等键（建议 UUID）。相同键的重复请求返回**同一条**事件，不产生第二条。
             public init(
                 orderId: Swift.Int64? = nil,
                 gpsLat: Swift.Double? = nil,
-                gpsLng: Swift.Double? = nil
+                gpsLng: Swift.Double? = nil,
+                useCountdown: Swift.Bool? = nil,
+                idempotencyKey: Swift.String? = nil
             ) {
                 self.orderId = orderId
                 self.gpsLat = gpsLat
                 self.gpsLng = gpsLng
+                self.useCountdown = useCountdown
+                self.idempotencyKey = idempotencyKey
             }
             public enum CodingKeys: String, CodingKey {
                 case orderId
                 case gpsLat
                 case gpsLng
+                case useCountdown
+                case idempotencyKey
             }
         }
         /// ⚠️ **裸 `Map`，不走 `ApiResponse` 信封**。 `status` 是触发那一刻升级完成后的快照，**不是事件的实时状态**， 之后的推进（客服接手、解除）不会回写到这里 —— 要实时状态请调 `GET /api/emergency/active`。
@@ -3998,12 +4078,13 @@ public enum Components {
             public var success: Swift.Bool
             /// - Remark: Generated from `#/components/schemas/EmergencyTriggerResponse/eventId`.
             public var eventId: Swift.Int64
-            /// 实际只会是两个值之一：`CONTACT_NOTIFIED`（找到主要紧急联系人，已发起通知）、 `PENDING`（未设置紧急联系人，已转客服待处理）。 **`VOLUNTEER_NOTIFIED` 不会出现在这里** —— 通知志愿者是并行旁路，不改 status。
+            /// 实际只会是三个值之一：`COUNTDOWN`（传了 `useCountdown`，求助**还没发出**）、 `CONTACT_NOTIFIED`（找到主要紧急联系人，已发起通知）、 `PENDING`（未设置紧急联系人，已转客服待处理）。 **`VOLUNTEER_NOTIFIED` 不会出现在这里** —— 通知志愿者是并行旁路，不改 status。
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyTriggerResponse/status`.
             public struct statusPayload: Codable, Hashable, Sendable {
                 /// - Remark: Generated from `#/components/schemas/EmergencyTriggerResponse/status/value1`.
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case COUNTDOWN = "COUNTDOWN"
                     case CONTACT_NOTIFIED = "CONTACT_NOTIFIED"
                     case PENDING = "PENDING"
                 }
@@ -4052,29 +4133,43 @@ public enum Components {
                     ])
                 }
             }
-            /// 实际只会是两个值之一：`CONTACT_NOTIFIED`（找到主要紧急联系人，已发起通知）、 `PENDING`（未设置紧急联系人，已转客服待处理）。 **`VOLUNTEER_NOTIFIED` 不会出现在这里** —— 通知志愿者是并行旁路，不改 status。
+            /// 实际只会是三个值之一：`COUNTDOWN`（传了 `useCountdown`，求助**还没发出**）、 `CONTACT_NOTIFIED`（找到主要紧急联系人，已发起通知）、 `PENDING`（未设置紧急联系人，已转客服待处理）。 **`VOLUNTEER_NOTIFIED` 不会出现在这里** —— 通知志愿者是并行旁路，不改 status。
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyTriggerResponse/status`.
             public var status: Components.Schemas.EmergencyTriggerResponse.statusPayload
+            /// 倒计时截止时刻（服务器时钟）。**这个键恒存在**，值为 null 表示这次没有倒计时 —— 让客户端能区分「老服务端没有这个字段」与「这次是立即触发」。
+            ///
+            /// 🚩 **客户端要照它倒数，不要自己从 N 开始数。**
+            ///
+            /// 🚩 **它是「用户看到的」截止时刻，不含服务端宽限。** 服务端实际开火在它之后再 `app.emergency.countdown-grace-ms`（默认 1500ms）， 那段是留给「取消」请求在路上的 —— 所以你在屏幕显示 0 的那一刻按取消，**仍然来得及**。 ⚠️ 别把宽限理解成「可以慢慢按」：它只有一个 RTT 的量级。
+            ///
+            /// ⚠️ 传了 `useCountdown` 也可能拿到 null（志愿者代触发时倒计时被忽略）。 **按这个字段判断，别按自己传了什么判断。**
+            ///
+            /// - Remark: Generated from `#/components/schemas/EmergencyTriggerResponse/countdownEndsAt`.
+            public var countdownEndsAt: Swift.String?
             /// Creates a new `EmergencyTriggerResponse`.
             ///
             /// - Parameters:
             ///   - success:
             ///   - eventId:
-            ///   - status: 实际只会是两个值之一：`CONTACT_NOTIFIED`（找到主要紧急联系人，已发起通知）、 `PENDING`（未设置紧急联系人，已转客服待处理）。 **`VOLUNTEER_NOTIFIED` 不会出现在这里** —— 通知志愿者是并行旁路，不改 status。
+            ///   - status: 实际只会是三个值之一：`COUNTDOWN`（传了 `useCountdown`，求助**还没发出**）、 `CONTACT_NOTIFIED`（找到主要紧急联系人，已发起通知）、 `PENDING`（未设置紧急联系人，已转客服待处理）。 **`VOLUNTEER_NOTIFIED` 不会出现在这里** —— 通知志愿者是并行旁路，不改 status。
+            ///   - countdownEndsAt: 倒计时截止时刻（服务器时钟）。**这个键恒存在**，值为 null 表示这次没有倒计时 —— 让客户端能区分「老服务端没有这个字段」与「这次是立即触发」。
             public init(
                 success: Swift.Bool,
                 eventId: Swift.Int64,
-                status: Components.Schemas.EmergencyTriggerResponse.statusPayload
+                status: Components.Schemas.EmergencyTriggerResponse.statusPayload,
+                countdownEndsAt: Swift.String? = nil
             ) {
                 self.success = success
                 self.eventId = eventId
                 self.status = status
+                self.countdownEndsAt = countdownEndsAt
             }
             public enum CodingKeys: String, CodingKey {
                 case success
                 case eventId
                 case status
+                case countdownEndsAt
             }
         }
         /// 紧急事件的**升级进度**。志愿者那条线不在 status 里，用 `volunteerNotifiedAt` / `volunteerConfirmedAt` / `volunteerAction` 三个字段表达，两者正交。
@@ -4083,6 +4178,7 @@ public enum Components {
         public struct EmergencyStatus: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/EmergencyStatus/value1`.
             @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                case COUNTDOWN = "COUNTDOWN"
                 case PENDING = "PENDING"
                 case VOLUNTEER_NOTIFIED = "VOLUNTEER_NOTIFIED"
                 case VOLUNTEER_CONFIRMED = "VOLUNTEER_CONFIRMED"
@@ -4090,6 +4186,7 @@ public enum Components {
                 case CONTACT_NOTIFIED = "CONTACT_NOTIFIED"
                 case RESOLVED = "RESOLVED"
                 case FALSE_ALARM = "FALSE_ALARM"
+                case CANCELLED = "CANCELLED"
             }
             /// - Remark: Generated from `#/components/schemas/EmergencyStatus/value1`.
             public var value1: Components.Schemas.EmergencyStatus.Value1Payload?
@@ -4210,6 +4307,14 @@ public enum Components {
             public var triggerType: Components.Schemas.EmergencyEventResponse.triggerTypePayload?
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/status`.
             public var status: Components.Schemas.EmergencyStatus?
+            /// ⚠️ **志愿者调 `/api/emergency/active` 时恒为 null**（见 csNotes）
+            ///
+            /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/csUserId`.
+            public var csUserId: Swift.Int64?
+            /// 客服的内部处置记录。⚠️ **志愿者调 `/api/emergency/active` 时恒为 null** —— 他读到的是**别人的**事件，而这是可能含健康状况、家属沟通内容、纠纷描述的自由文本。 判据与「自由文本一律接单后」同源：取值空间不封闭的字段不给第三方看。
+            ///
+            /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/csNotes`.
+            public var csNotes: Swift.String?
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/hasGpsLocation`.
             public var hasGpsLocation: Swift.Bool?
             /// 原始坐标**仅 CS_ADMIN 可见**；`/api/emergency/active` 一律返回 null
@@ -4218,6 +4323,12 @@ public enum Components {
             public var gpsLat: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/gpsLng`.
             public var gpsLng: Swift.Double?
+            /// 倒计时截止时刻（用户看到的那个，不含服务端宽限）；非 `COUNTDOWN` 状态时为 null。
+            ///
+            /// 🔴 **断线重连恢复必须用它。** `status=COUNTDOWN` 却没有截止时刻时， 客户端只能自己从 N 开始数（会产生「屏幕还在倒数、求助已经发出」）， 或者显示一个没有进度的「正在求助中」—— 而 `COUNTDOWN` 恰恰是唯一还能反悔的状态。
+            ///
+            /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/countdownEndsAt`.
+            public var countdownEndsAt: Swift.String?
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/volunteerNotifiedAt`.
             public var volunteerNotifiedAt: Swift.String?
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/volunteerConfirmedAt`.
@@ -4284,10 +4395,6 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/volunteerTimeoutAt`.
             public var volunteerTimeoutAt: Swift.String?
-            /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/csUserId`.
-            public var csUserId: Swift.Int64?
-            /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/csNotes`.
-            public var csNotes: Swift.String?
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/resolvedAt`.
             public var resolvedAt: Swift.String?
             /// Creates a new `EmergencyEventResponse`.
@@ -4299,15 +4406,16 @@ public enum Components {
             ///   - triggeredAt:
             ///   - triggerType: `VOLUNTEER_BUTTON` = 陪跑志愿者代触发；`AI_DETECTED` = 走散/信号缺失自动触发
             ///   - status:
+            ///   - csUserId: ⚠️ **志愿者调 `/api/emergency/active` 时恒为 null**（见 csNotes）
+            ///   - csNotes: 客服的内部处置记录。⚠️ **志愿者调 `/api/emergency/active` 时恒为 null** —— 他读到的是**别人的**事件，而这是可能含健康状况、家属沟通内容、纠纷描述的自由文本。 判据与「自由文本一律接单后」同源：取值空间不封闭的字段不给第三方看。
             ///   - hasGpsLocation:
             ///   - gpsLat: 原始坐标**仅 CS_ADMIN 可见**；`/api/emergency/active` 一律返回 null
             ///   - gpsLng:
+            ///   - countdownEndsAt: 倒计时截止时刻（用户看到的那个，不含服务端宽限）；非 `COUNTDOWN` 状态时为 null。
             ///   - volunteerNotifiedAt:
             ///   - volunteerConfirmedAt:
             ///   - volunteerAction: 实际只会是 `NEED_HELP`（志愿者无权标误触）
             ///   - volunteerTimeoutAt: 置 null 表示该超时已处理过或志愿者已响应
-            ///   - csUserId:
-            ///   - csNotes:
             ///   - resolvedAt:
             public init(
                 id: Swift.Int64? = nil,
@@ -4316,15 +4424,16 @@ public enum Components {
                 triggeredAt: Swift.String? = nil,
                 triggerType: Components.Schemas.EmergencyEventResponse.triggerTypePayload? = nil,
                 status: Components.Schemas.EmergencyStatus? = nil,
+                csUserId: Swift.Int64? = nil,
+                csNotes: Swift.String? = nil,
                 hasGpsLocation: Swift.Bool? = nil,
                 gpsLat: Swift.Double? = nil,
                 gpsLng: Swift.Double? = nil,
+                countdownEndsAt: Swift.String? = nil,
                 volunteerNotifiedAt: Swift.String? = nil,
                 volunteerConfirmedAt: Swift.String? = nil,
                 volunteerAction: Components.Schemas.EmergencyEventResponse.volunteerActionPayload? = nil,
                 volunteerTimeoutAt: Swift.String? = nil,
-                csUserId: Swift.Int64? = nil,
-                csNotes: Swift.String? = nil,
                 resolvedAt: Swift.String? = nil
             ) {
                 self.id = id
@@ -4333,15 +4442,16 @@ public enum Components {
                 self.triggeredAt = triggeredAt
                 self.triggerType = triggerType
                 self.status = status
+                self.csUserId = csUserId
+                self.csNotes = csNotes
                 self.hasGpsLocation = hasGpsLocation
                 self.gpsLat = gpsLat
                 self.gpsLng = gpsLng
+                self.countdownEndsAt = countdownEndsAt
                 self.volunteerNotifiedAt = volunteerNotifiedAt
                 self.volunteerConfirmedAt = volunteerConfirmedAt
                 self.volunteerAction = volunteerAction
                 self.volunteerTimeoutAt = volunteerTimeoutAt
-                self.csUserId = csUserId
-                self.csNotes = csNotes
                 self.resolvedAt = resolvedAt
             }
             public enum CodingKeys: String, CodingKey {
@@ -4351,15 +4461,16 @@ public enum Components {
                 case triggeredAt
                 case triggerType
                 case status
+                case csUserId
+                case csNotes
                 case hasGpsLocation
                 case gpsLat
                 case gpsLng
+                case countdownEndsAt
                 case volunteerNotifiedAt
                 case volunteerConfirmedAt
                 case volunteerAction
                 case volunteerTimeoutAt
-                case csUserId
-                case csNotes
                 case resolvedAt
             }
         }
@@ -13563,6 +13674,14 @@ public enum Operations {
             }
         }
     }
+    /// 角色：`VOLUNTEER`，且必须是该订单已接单的志愿者。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    ///
+    /// ⚠️ **这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`**（2026-09-15 新增）。 `COMPLETED` 是终态，一旦落下去：位置互推停掉（`sharesLiveLocation()` 不含它）、 `GET /{id}/location/address` 返回空、志愿者端 `GET /api/emergency/active` 的恢复入口也查不到了 —— 而求助未结案恰恰意味着现场可能还有人需要帮助。
+    ///
+    /// ⚠️ **`POST /api/orders/{id}/cancel`（志愿者取消转 `REMATCHING`）同样被这道闸拦住。** 只堵 finish 的话，被 409 拦下的志愿者改点「取消订单」就能达到完全一样的效果， 而那是一次点击就能到的地方。`autoCompleteOrder`（预定结束时间到了自动完成） 也会在求助未结案时跳过本轮。
+    ///
+    /// 出口有两个，都不需要志愿者有撤销权（他本来也不该有）： 受助者本人 `PUT /api/emergency/{id}/cancel`，或客服 `PUT /api/cs/emergency-events/{id}/resolve` / `/false-alarm`。 **客户端文案不要引导志愿者去「撤销求助」** —— 那个按钮对他恒 403。
+    ///
     /// - Remark: HTTP `POST /api/orders/{id}/finish`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/finish/post(finishOrder)`.
     public enum finishOrder {
@@ -13653,6 +13772,57 @@ public enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "ok",
+                            response: self
+                        )
+                    }
+                }
+            }
+            public struct Conflict: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/api/orders/{id}/finish/POST/responses/409/content`.
+                @frozen public enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/api/orders/{id}/finish/POST/responses/409/content/application\/json`.
+                    case json(Components.Schemas.ApiErrorResponse)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    public var json: Components.Schemas.ApiErrorResponse {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                public var body: Operations.finishOrder.Output.Conflict.Body
+                /// Creates a new `Conflict`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                public init(body: Operations.finishOrder.Output.Conflict.Body) {
+                    self.body = body
+                }
+            }
+            /// 订单不在 `IN_PROGRESS`；或这一单还有未结束的紧急求助 （errorCode `ORDER_HAS_ACTIVE_EMERGENCY`）
+            ///
+            /// - Remark: Generated from `#/paths//api/orders/{id}/finish/post(finishOrder)/responses/409`.
+            ///
+            /// HTTP response code: `409 conflict`.
+            case conflict(Operations.finishOrder.Output.Conflict)
+            /// The associated value of the enum case if `self` is `.conflict`.
+            ///
+            /// - Throws: An error if `self` is not `.conflict`.
+            /// - SeeAlso: `.conflict`.
+            public var conflict: Operations.finishOrder.Output.Conflict {
+                get throws {
+                    switch self {
+                    case let .conflict(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "conflict",
                             response: self
                         )
                     }
@@ -14143,6 +14313,10 @@ public enum Operations {
     ///
     /// **坐标可选**：`gpsLat`/`gpsLng` 无 `@NotNull`，缺省时短信位置走三级降级 （无坐标 → "位置获取失败，请尽快拨打其电话或报警110"）。
     ///
+    /// **倒计时（2026-09-15 新增）**：传 `useCountdown: true` 时事件先落 `COUNTDOWN`， 窗口内**什么都不发**，到点由服务端推成正式求助并走完全同一条升级链路。 长按求助键走这条；菜单里点选仍是立即触发 + 客户端二次确认。 倒计时**由服务端计**，手机在这几秒里崩溃/没电/被杀掉时求助照样发出。 ⚠️ 客户端照响应里的 `countdownEndsAt` 倒数，不要自己数（志愿者代触发时它是 null）。
+    ///
+    /// **幂等（2026-09-15 新增）**：传 `idempotencyKey` 时重复请求返回同一条事件。 ⚠️ 幂等判定排在冷却检查**之前** —— 弱网重试的是同一次求助， 走到冷却那步会回 429「操作太频繁」，而按下 SOS 后听到这句的人会以为求助失败、要重按。
+    ///
     /// **冷却**：Redis `emergency:cooldown:{triggerUserId}`，SETNX 原子占位， TTL = `app.emergency.cooldown-seconds`（默认 60s），**按触发者计不按事件计**。 命中返回 429，`retryAfterSeconds` 为读取 Redis 得到的**真实剩余秒数**（读不到才退回配置值）。
     ///
     /// - Remark: HTTP `POST /api/emergency/trigger`.
@@ -14369,11 +14543,22 @@ public enum Operations {
             }
         }
     }
-    /// 受助者本人撤销自己的紧急求助
+    /// 受助者本人撤销自己的紧急求助（倒计时内撤回也走这条）
     ///
     /// 角色：`BLIND`，且只能撤销 `userId` 等于自己的事件。
     ///
-    /// 事件置 `FALSE_ALARM` + `resolvedAt`，并给主要紧急联系人补发一条解除短信、 向客服推 `EMERGENCY_CANCELLED_BY_OWNER`。
+    /// 🚩 **响应的 `status` 有两个值，客户端的播报文案必须分开**：
+    /// - `CANCELLED` —— 事件还在 `COUNTDOWN`，求助**从未发出**。
+    ///   不发解除短信、不推客服（一条求救短信都没发过，发「解除」等于凭空吓家属一次），
+    ///   并且**释放冷却位**：误触后 3 秒内取消、10 秒后真的出事再按，不该被 429 挡下。
+    ///   客户端播「已取消，没有发出求助」。
+    ///
+    /// - `FALSE_ALARM` —— 求助**已经发出去过**。事件置 `FALSE_ALARM` + `resolvedAt`，
+    ///   给主要紧急联系人补发一条解除短信、向客服推 `EMERGENCY_CANCELLED_BY_OWNER`。
+    ///   客户端播成「没有发出求助」是假话 —— 家属手机上那条求救短信是真的。
+    ///
+    ///
+    /// ⚠️ **倒计时到点与用户取消是竞争关系**，谁先拿到行锁谁赢。 用户在宽限窗口末尾按取消而调度器刚好先一步，结果就是 `FALSE_ALARM`（发出后立即撤销）—— 这不是 bug，是 `countdown-grace-ms` 存在的理由，它把这个窗口压到最小。 所以**不要按自己发过什么去猜结果，按返回的 `status` 播**。
     ///
     /// 这是误触的唯一用户侧出口 —— 志愿者**没有**撤销权（见 volunteer-response 的 403）。
     ///
@@ -14408,13 +14593,13 @@ public enum Operations {
                 /// Creates a new `Ok`.
                 public init() {}
             }
-            /// `{success:true, eventId, status:"FALSE_ALARM"}`
+            /// `{success:true, eventId, status:"CANCELLED"|"FALSE_ALARM"}` —— 两者语义不同，见上
             ///
             /// - Remark: Generated from `#/paths//api/emergency/{eventId}/cancel/put(cancelEmergency)/responses/200`.
             ///
             /// HTTP response code: `200 ok`.
             case ok(Operations.cancelEmergency.Output.Ok)
-            /// `{success:true, eventId, status:"FALSE_ALARM"}`
+            /// `{success:true, eventId, status:"CANCELLED"|"FALSE_ALARM"}` —— 两者语义不同，见上
             ///
             /// - Remark: Generated from `#/paths//api/emergency/{eventId}/cancel/put(cancelEmergency)/responses/200`.
             ///
@@ -14478,13 +14663,13 @@ public enum Operations {
                 /// Creates a new `Conflict`.
                 public init() {}
             }
-            /// `EMERGENCY_ALREADY_CLOSED` —— 事件已是 RESOLVED/FALSE_ALARM
+            /// `EMERGENCY_ALREADY_CLOSED` —— 事件已是终态（RESOLVED / FALSE_ALARM / CANCELLED）
             ///
             /// - Remark: Generated from `#/paths//api/emergency/{eventId}/cancel/put(cancelEmergency)/responses/409`.
             ///
             /// HTTP response code: `409 conflict`.
             case conflict(Operations.cancelEmergency.Output.Conflict)
-            /// `EMERGENCY_ALREADY_CLOSED` —— 事件已是 RESOLVED/FALSE_ALARM
+            /// `EMERGENCY_ALREADY_CLOSED` —— 事件已是终态（RESOLVED / FALSE_ALARM / CANCELLED）
             ///
             /// - Remark: Generated from `#/paths//api/emergency/{eventId}/cancel/put(cancelEmergency)/responses/409`.
             ///
@@ -14517,7 +14702,11 @@ public enum Operations {
     }
     /// 当前未终态的紧急事件（断线重连 / App 重启恢复用）
     ///
-    /// 角色：`BLIND`。返回该用户 `status ∉ {RESOLVED, FALSE_ALARM}` 的最近一条事件， 没有则 `data` 为 `null`。
+    /// 角色：`BLIND` 或 `VOLUNTEER`（2026-09-15 开放给志愿者）。 返回 `status` 不在终态（`RESOLVED` / `FALSE_ALARM` / `CANCELLED`）的最近一条事件， 没有则 `data` 为 `null`。
+    ///
+    /// 🚩 **两端语义不同，别照抄成一句话**：盲人拿的是**自己**的事件； 志愿者拿的是**他正在陪的那位盲人**的事件（事件永远挂在受助者身上， 按志愿者自己的 id 查恒为空）。志愿者侧只看 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 三态的订单 —— 一张下周的预约单上那位盲人此刻的求助与他无关。
+    ///
+    /// 开放给志愿者的理由：此前是 BLIND 专属，于是志愿者端 App 被杀掉再打开， 「对方正在求助」那条强提醒**再也回不来了**，而 WS 的 `EMERGENCY_*` 走 `APP_NOTIFICATION` 信封、不带 `eventId`，从通知流里也反推不出来。
     ///
     /// **这是拿事件 id 和当前状态的唯一权威来源** —— WS 的 `EMERGENCY_*` 通知走 `APP_NOTIFICATION` 信封，不带 `eventId`，不要试图从通知流反推事件状态。
     ///
