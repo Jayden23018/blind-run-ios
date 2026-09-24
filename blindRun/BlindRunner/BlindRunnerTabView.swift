@@ -9,7 +9,7 @@ import UIKit
 /// 设置是悬浮在地图右上角的一枚齿轮。全仓 `TabView` 此前命中 **0 处**。
 ///
 /// **三个 tab 都挂的是已经存在的页面**，不是新写的：
-/// `BlindRunnerHomeView` / `BlindRunHistoryView` / `BlindRunnerSettingsView`。
+/// `BlindRunnerHomeView` / `RunRecordHistoryView(role: .runner)` / `BlindRunnerSettingsView`。
 ///
 /// 🔴 **这一层还承担一件安全职责。** 改版前盲人首页底部有一条常驻求助条
 /// （`.safeAreaInset(edge: .bottom)`，`IN_PROGRESS` 走云端、其余状态降级为本地拨号），
@@ -67,7 +67,7 @@ struct BlindRunnerTabView: View {
             #endif
 
             NavigationStack {
-                BlindRunHistoryView()
+                RunRecordHistoryView(role: .runner)
             }
             .tabItem {
                 Label("记录", systemImage: "list.bullet")

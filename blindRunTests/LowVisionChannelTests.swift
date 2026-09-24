@@ -178,6 +178,47 @@ final class LowVisionChannelTests: XCTestCase {
         )
     }
 
+    /// 跑后记录的 D8 色板（`AppColors.runRecordTones`）。按**各自的用途**验，不按正文 4.5:1：
+    /// 盲道黄只当底色压黑字；其余是图形，按 WCAG 1.4.11 的 3:1。
+    ///
+    /// 浅色下的橙 / 中 / 慢压白底不到 3:1 是 D8 的已知事实（取值见 `AppColors` 那段注释），
+    /// 这里不假装它们合格 —— 浅色只验本阶段真的压在白底上画的那一个：`paceFast`（列表缩略图）。
+    func testRunRecordPaletteClearsTheThresholdForHowEachColorIsUsed() {
+        let nonTextMinimum: Double = 3.0
+        let black: UInt32 = 0x000000
+
+        let yellow = AppColors.tactileYellowTone
+        for (mode, value) in [("亮色", yellow.light), ("暗色", yellow.dark)] {
+            let ratio = Self.contrastRatio(black, value)
+            XCTAssertGreaterThanOrEqual(ratio, Self.minimumContrast, "\(mode)盲道黄上的黑字只有 \(String(format: "%.2f", ratio)):1")
+        }
+
+        // 深色模式下五个颜色都会当图形压在黑底 / 次级底上。
+        XCTAssertEqual(AppColors.runRecordTones.count, 5, "D8 定了五个颜色")
+        for (name, tone) in AppColors.runRecordTones where name != "tactileYellow" {
+            for background in Self.backgrounds {
+                let ratio = Self.contrastRatio(tone.dark, background.dark)
+                XCTAssertGreaterThanOrEqual(
+                    ratio, nonTextMinimum,
+                    "暗色 \(name) 压在 \(background.name) 上只有 \(String(format: "%.2f", ratio)):1"
+                )
+            }
+        }
+
+        for background in Self.backgrounds {
+            let ratio = Self.contrastRatio(AppColors.paceFastTone.light, background.light)
+            XCTAssertGreaterThanOrEqual(ratio, nonTextMinimum, "亮色缩略图路线压在 \(background.name) 上只有 \(String(format: "%.2f", ratio)):1")
+        }
+
+        // 验红：`paceFast` 的深色档之所以单独换值，是因为 D8 原值压暗色次级底只有 3.08 ——
+        // 刚过线，而列表行在暗色下正是这个底。这条挡住「深色沿用浅色值就行」。
+        XCTAssertLessThan(Self.contrastRatio(AppColors.paceFastTone.light, 0x2C2C2E), nonTextMinimum)
+        XCTAssertGreaterThan(
+            Self.contrastRatio(AppColors.paceFastTone.dark, 0x1C1C1E),
+            Self.contrastRatio(AppColors.paceFastTone.light, 0x1C1C1E)
+        )
+    }
+
     /// 这条是**验红**用的：把已知不达标的旧取值喂进同一个计算，必须算出不达标。
     ///
     /// 没有它，上面那条用例在计算公式写错时会静默全绿 —— 一个恒返回 21 的

@@ -954,7 +954,7 @@ final class blindRunUITests: XCTestCase {
         //
         // XCUITest 是黑盒，进不了 app 的类型 —— 导航栏标题只能抄一份。
         // 抄错的方向是安全的：生产改了文案而这里没跟，断言会红不会绿。
-        let recordsButton = app.buttons["我的服务记录"].firstMatch
+        let recordsButton = app.buttons["我的陪跑记录"].firstMatch
         let recognitionButton = app.buttons["查看服务成就"].firstMatch
         let settingsButton = app.buttons["设置"].firstMatch
 
@@ -973,7 +973,7 @@ final class blindRunUITests: XCTestCase {
 
         XCTAssertTrue(scrollElementIntoView(recordsButton, app: app), "最近陪跑「全部 ›」应当可达")
         recordsButton.tap()
-        XCTAssertTrue(app.navigationBars["服务记录"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["陪跑记录"].waitForExistence(timeout: 5))
     }
 
     @MainActor
