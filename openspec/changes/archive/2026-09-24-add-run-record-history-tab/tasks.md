@@ -15,6 +15,6 @@
 
 - [x] 3.1 Unit tests for the view model, labels, null handling, month arithmetic, thumbnail normalisation (replace `BlindRunHistoryTests`)
 - [x] 3.2 Update UI tests that assert the old titles; add a screenshot test for both roles
-- [ ] 3.3 Real-device run of the suites covering the change, real pass/fail counts
-- [ ] 3.4 Real-device screenshots: light, dark, largest text size, both roles
+- [x] 3.3 Real-device run of the suites covering the change, real pass/fail counts
+- [x] 3.4 Real-device screenshots: light, dark, largest text size, both roles
 - [x] 3.5 Append stage-3 decisions to `DECISIONS.md` change log
