@@ -151,10 +151,17 @@ function nothingToPush() {
   return git('rev-list', '--count', 'origin/main..HEAD') === '0';
 }
 
+// 游离 HEAD 天生没有 upstream。AGENTS §10 教的就是用 `checkout --detach` 把分支腾给别的
+// worktree，那时提交早推上去了，却被报成「`HEAD` 还没跟远端」（2026-09-23）。
+// 判据是「HEAD 可从任一远端分支到达」，不是「有远端分支」：游离后新做的提交照报 —— 它丢了找不回来。
+function detachedAndOnRemote(branch) {
+  return branch === 'HEAD' && git('rev-list', '--count', 'HEAD', '--not', '--remotes') === '0';
+}
+
 const upstream = git('rev-parse', '--abbrev-ref', '@{u}');
 if (upstream === null) {
   const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
-  if (!nothingToPush() && !branchLandedOnMain(branch)) {
+  if (!nothingToPush() && !branchLandedOnMain(branch) && !detachedAndOnRemote(branch)) {
     todo.push(`**无 upstream**：\`${branch}\` 还没跟远端，push 要带 \`-u\``);
   }
 } else {
