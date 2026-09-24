@@ -2550,7 +2550,7 @@ struct BlindOrderStatusView: View {
 
     @ViewBuilder
     private func peerMapSection(_ order: OrderDetailResponse) -> some View {
-        if [.driverEnRoute, .driverArrived, .inProgress].contains(order.status) {
+        if order.status.fetchesVolunteerLocation {
             let peer = viewModel.latestVolunteerSample?.coordinate
             if let peer {
                 // 与首页同一条规则：地图是装饰，列表才是界面。它不可交互、不承载任何必要信息

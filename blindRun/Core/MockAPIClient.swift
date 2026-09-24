@@ -856,8 +856,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 反例是上一次 Mock 自作主张（造了个后端不发的 `updatedAt`），
     /// 代价是兜底对真实后端 100% 静默失效，开发期一次都没暴露。
     private func handleGetVolunteerLocation() -> VolunteerLocationResponse {
+        // 同上：这里演的是后端 `sharesLiveLocation()`，**不是**客户端的
+        // `fetchesVolunteerLocation`。两边今天恰好同集，换成客户端判定就再也撞不出
+        // 后端哪天单方面改了。
         let sharing = orders.first {
-            [.driverEnRoute, .driverArrived, .inProgress].contains($0.status)
+            [.driverEnRoute, .driverArrived, .inProgress].contains($0.status) // guard:allow status-set-literal
         }
         return VolunteerLocationResponse(
             success: true,

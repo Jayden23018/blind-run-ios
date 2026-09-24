@@ -2075,7 +2075,7 @@ final class VolunteerServiceRecordsViewModel: ObservableObject {
         do {
             let paged = try await appState.orders.myOrders()
             records = paged.content
-                .filter { [.completed, .cancelled].contains($0.status) }
+                .filter { $0.status.appearsInVolunteerServiceRecord }
                 .map(VolunteerServiceRecord.init(order:))
                 .sorted { $0.sortKey > $1.sortKey }
             isLoading = false

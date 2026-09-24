@@ -1321,6 +1321,124 @@ const cases = [
     expect: 0,
     swiftPath: 'blindRun/Role/RoleSelectionView.swift',
     swift: 'struct A { var body: some View { if showsInviteCodeField { inviteCodeField } } }'
+  },
+
+  // status-set-literal（2026-09-21）。全仓量出来 69 处订单状态判定有三种写法，
+  // 只有穷举 switch 那一种会在后端加状态时说话，另两种静默答 false。
+  //
+  // 这一组用例的**分辨力**在于：不能只证明「含状态名的字面量会红」——
+  // 那样把 `withinSwitchBlock` 整个删掉，用例照样全绿。所以必须有第 3、4 条
+  // （迁移表放行）和第 5 条（别的枚举放行）来钉住判据本身。
+  {
+    name: '陪跑会话资格写成状态数组字面量（拦下 —— 这一处答 false = 跑步中不推位置）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/LiveEscortSessionCoordinator.swift',
+    swift:
+      'final class C {\n' +
+      '  var isSessionEligible: Bool {\n' +
+      '    guard let activeStatus else { return false }\n' +
+      '    return [.driverEnRoute, .driverArrived, .inProgress].contains(activeStatus)\n' +
+      '  }\n}'
+  },
+  {
+    name: '视图里按状态集合决定显不显示（拦下）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/BlindRunner/BlindOrderStatusView.swift',
+    swift:
+      'struct V {\n' +
+      '  func peerMapSection(_ order: OrderDetailResponse) -> some View {\n' +
+      '    if [.driverEnRoute, .driverArrived, .inProgress].contains(order.status) { map }\n' +
+      '  }\n}'
+  },
+  {
+    // 这条与上一条的唯一差别就是外面多了一层 switch —— 它是 withinSwitchBlock 的验红点。
+    // 把那个函数改成恒 false，这条立刻变红。
+    name: '迁移表逐态列出后继状态（放行 —— 每一行已被外层 switch 穷举过）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/AppRealtimeCoordinator.swift',
+    swift:
+      'extension RunOrderStatus {\n' +
+      '  func isDirectlyFollowed(by candidate: RunOrderStatus) -> Bool {\n' +
+      '    switch self {\n' +
+      '    case .pendingMatch:\n' +
+      '      return [.pendingIntroCall, .pendingAccept, .cancelled].contains(candidate)\n' +
+      '    case .pendingAccept:\n' +
+      '      return [.driverEnRoute, .cancelled, .rematching].contains(candidate)\n' +
+      '    default:\n' +
+      '      return false\n' +
+      '    }\n' +
+      '  }\n}'
+  },
+  {
+    // 迁移表可以很长：真实的 isDirectlyFollowed 里最后一个 case 距 `switch` 30 行开外。
+    // 这条钉住「前向窗口必须走到函数声明为止」，把窗口改成固定 N 行就会红。
+    name: '很长的迁移表，最后一行离 switch 30 行开外（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/AppRealtimeCoordinator.swift',
+    swift:
+      'extension RunOrderStatus {\n' +
+      '  func f(_ candidate: RunOrderStatus) -> Bool {\n' +
+      '    switch self {\n' +
+      '    case .pendingMatch:\n' +
+      '      return true\n' +
+      Array.from({ length: 30 }, (_, i) => `    // 填充注释行 ${i}`).join('\n') +
+      '\n    case .inProgress:\n' +
+      '      return [.completed, .rematching].contains(candidate)\n' +
+      '    default:\n' +
+      '      return false\n' +
+      '    }\n' +
+      '  }\n}'
+  },
+  {
+    // 分辨力哨兵：规则只认订单状态。去掉 ORDER_STATUS_CASES 那道判断，这条会红。
+    name: '别的枚举的集合字面量（放行 —— 这条规则只管订单状态）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/Models/OrderModels.swift',
+    swift: 'func f() -> Bool { return [.totalBlind, .lowVision].contains(level) }'
+  },
+  {
+    name: '改成具名的穷举 switch 判定（正解，放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/LiveEscortSessionCoordinator.swift',
+    swift:
+      'final class C {\n' +
+      '  var isSessionEligible: Bool {\n' +
+      '    guard let activeStatus else { return false }\n' +
+      '    return activeStatus.runsLiveEscortSession\n' +
+      '  }\n}'
+  },
+  {
+    // Mock 照后端演，字面量在那儿是对的 —— 但必须显式标注，不能靠路径白名单。
+    name: 'Mock 侧带行尾标注的状态字面量（放行）',
+    mode: 'post',
+    expect: 0,
+    swiftPath: 'blindRun/Core/MockAPIClient.swift',
+    swift:
+      'final class M {\n' +
+      '  func f() {\n' +
+      '    let s = orders.first {\n' +
+      '      [.driverEnRoute, .driverArrived, .inProgress].contains($0.status) // guard:allow status-set-literal\n' +
+      '    }\n' +
+      '  }\n}'
+  },
+  {
+    // 反向哨兵：同一个 Mock 文件里**没有**标注的那一处照样要拦 ——
+    // 否则「Mock 可以用字面量」就退化成「MockAPIClient.swift 整个文件豁免」。
+    name: 'Mock 侧没标注的状态字面量（拦下 —— 豁免跟标注走，不跟文件走）',
+    mode: 'post',
+    expect: 2,
+    swiftPath: 'blindRun/Core/MockAPIClient.swift',
+    swift:
+      'final class M {\n' +
+      '  func f() {\n' +
+      '    let s = orders.first { [.driverEnRoute, .inProgress].contains($0.status) }\n' +
+      '  }\n}'
   }
 ];
 

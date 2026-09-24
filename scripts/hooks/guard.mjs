@@ -180,7 +180,87 @@ const rules = {
     pattern: /\.set\([^)]*(?:UserDefaultsKeys\.accessToken|forKey:\s*"[^"]*(?:accessToken|access_token|authToken|jwt)[^"]*")/i,
     why: '不要把 access token 写进 `UserDefaults`（AGENTS.md 第 8 节）——那是 App 容器里的明文 plist，还会进备份。Token 只能经 `KeychainTokenStore`（`blindRun/Core/KeychainTokenStore.swift`，`kSecAttrAccessibleAfterFirstUnlock`，这样锁屏期间的后台陪跑仍读得到）。`AppState.restoredToken()` 里对历史值的一次性迁移只读取和删除，不写入，不会碰到这条。',
   },
+  'status-set-literal': {
+    // 2026-09-21 立。起因是量出来的：全仓 69 处订单状态判定有三种写法，
+    // 而**只有一种**会在后端加状态时说话 ——
+    //   穷举 switch  39 处 → 加 case 时编译失败，逼一次决策
+    //   default: 兜底 13 处 → 静默答 false
+    //   数组字面量   17 处 → 静默答 false
+    //
+    // `OrderDisplayHelpers.swift` 自己把理由写死了：「同族其余判定一样写成穷举 switch：
+    // 后端加状态时编译器逼一次决策」。后端已经加过两次状态（迁移 `0031` 通话磨合、
+    // `0041` 跨天预约），这不是假想的风险。
+    //
+    // 代价最高的那一处是 `LiveEscortSessionCoordinator.isSessionEligible`：
+    // 它答 false = 陪跑途中不推实时位置，而实时位置是走散告警与求助定位的唯一来源。
+    //
+    // **迁移表不拦**：`switch self { case .a: return [.b, .c].contains(target) }` 这种
+    // 「逐态列出后继状态」的表，字面量在那里就是对的形状 —— 判据是字面量在不在一个
+    // `switch` 块里（见 withinSwitchBlock）。这不是宽松，是这两件事本来就不同：
+    // 表的每一行已经被外层 switch 穷举过了，加状态时照样编译失败。
+    //
+    // ponytail: 只拦数组字面量这一种形状，**不拦 `default:`**。
+    // 判「这个 switch 是不是在 switch 订单状态」需要类型信息，正则做不到；
+    // 而存量 13 处 `default:` 逐个改成穷举 = 13 × 11 格产品决策，那是另一件事。
+    //
+    // 不写 `files`：`scanSwift` 本来就只在生产 target 上跑到（见 main() 末尾那道
+    // `/blindRun(Tests|UITests)/` 闸），再加一道路径闸只会多一个会漂的判据。
+    pattern: /\[\s*\.[A-Za-z]\w*\s*(?:,\s*\.[A-Za-z]\w*\s*)+\]\s*\.contains\b/,
+    check: (line, _window, before) => {
+      const set = line.match(/\[\s*\.[A-Za-z]\w*\s*(?:,\s*\.[A-Za-z]\w*\s*)+\]/);
+      if (!set) return false;
+      const names = (set[0].match(/\.([A-Za-z]\w*)/g) || []).map((s) => s.slice(1));
+      // 别的枚举的集合字面量不归这条管 —— 只认订单状态
+      if (!names.some((n) => ORDER_STATUS_CASES.has(n))) return false;
+      return !withinSwitchBlock(before);
+    },
+    why:
+      '订单状态的判定不要写成数组字面量（`[.driverEnRoute, .inProgress].contains(…)`）——' +
+      '后端往状态机加值时它会**静默答 false**，没有任何东西会说一句话。\n' +
+      '改成 `RunOrderStatus` 上一个具名的**穷举 switch** 判定（放 `Core/Models/OrderDisplayHelpers.swift`，' +
+      '照 `fetchesVolunteerLocation` 的写法），这样加 case 时编译器会在那一处逼一次决策。\n' +
+      '⚠️ 状态集恰好相同**不等于**可以复用同一条判定：`offersWaitedDuration` 与 `offersKeepWaiting` ' +
+      '集合完全一样却刻意分开，理由写在它们自己的注释里。先问「这两处问的是不是同一个问题」。\n' +
+      'Mock 侧照后端演（`handleGetActiveOrder` / `handleGetVolunteerLocation`）**本就该**用字面量：' +
+      '耦合到客户端判定会毁掉「两边不对称才被看见」这个价值，那几处行尾加 `// guard:allow status-set-literal`。',
+  },
 };
+
+// `RunOrderStatus` 的全部 case（`blindRun/Core/Models/OrderModels.swift:12`）。
+// 与 AGENTS.md 第 5 节的状态清单一一对应，外加解码兜底用的 `unknown`。
+const ORDER_STATUS_CASES = new Set([
+  'pendingMatch',
+  'pendingIntroCall',
+  'scheduledConfirmed',
+  'pendingAccept',
+  'inProgress',
+  'driverEnRoute',
+  'driverArrived',
+  'completed',
+  'cancelled',
+  'rematching',
+  'noVolunteer',
+  'unknown',
+]);
+
+// 触发行是不是落在一个 `switch` 块里 —— 从它往回走到最近的函数/属性声明，
+// 中途遇到 `switch` 就算是迁移表的一行。
+//
+// 为什么以「函数声明」为边界而不是数花括号：数括号要处理字符串、注释、闭包里的
+// 括号，写对了也没人看得懂；而「同一个函数体内出现过 switch」对这条规则已经够用 ——
+// 迁移表恒定是 `switch self { case …: return [...] }` 这一种形状。
+// 上限已知：同一个函数里先写了个无关的 switch、再写一个裸字面量，会被放行。
+// 真遇到了再收紧，别现在就为它把判据做复杂。
+function withinSwitchBlock(before) {
+  for (let i = before.length - 1; i >= 0; i--) {
+    const line = before[i];
+    if (/^\s*(?:@\w+\s+)?(?:(?:public|private|internal|fileprivate|static|final|override)\s+)*(?:func|var|init|subscript)\b/.test(line)) {
+      return false;
+    }
+    if (/\bswitch\s+\S/.test(line)) return true;
+  }
+  return false;
+}
 
 // Podfile 保持整文件冻结：架构排除设置与 pod 列表都在里面，没有安全的局部改法。
 const FROZEN = [/(^|\/)Podfile$/];
@@ -324,7 +404,11 @@ function scanSwift(filePath) {
       if (!rule.pattern.test(line)) continue;
       // check 拿得到后续几行：SwiftUI 经常把动画曲线折到 `.animation(` 的下一行，
       // 只看当前行会把已经做了降级的写法误判成违规。
-      if (rule.check && !rule.check(line, lines.slice(i, i + 4).join('\n'))) continue;
+      //
+      // 第三个参数是**前向**窗口（本行之前的全部行）：有的判据只能往回看 ——
+      // `status-set-literal` 要判「这个字面量在不在一个 switch 块里」，
+      // 而那个 `switch` 可能在 30 行以上的地方（迁移表逐态列完很长）。
+      if (rule.check && !rule.check(line, lines.slice(i, i + 4).join('\n'), lines.slice(0, i))) continue;
       fail(id, `${filePath}:${i + 1}\n  ${line.trim()}\n\n${rule.why}`);
     }
   }
