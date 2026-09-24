@@ -68,6 +68,7 @@ run_node "validate-research-log（调研落盘钩子自测）" scripts/validate-
 run_node "validate-design-reminder（设计方向提醒钩子自测）" scripts/validate-design-reminder.mjs
 run_node "validate-openspec-reminder（OpenSpec 闭环钩子自测）" scripts/validate-openspec-reminder.mjs
 run_node "validate-shared-checkout-guard（共享 checkout 守卫自测）" scripts/validate-shared-checkout-guard.mjs
+run_node "validate-worktree-localconfig（新 worktree 带 LocalConfig 钩子自测）" scripts/validate-worktree-localconfig.mjs
 run_node "validate-xcresult-verdict（真机测试判定自测）" scripts/validate-xcresult-verdict.mjs
 run_node "validate-drift-fields（契约漂移字段归属自测）" scripts/validate-drift-fields.mjs
 run_node "validate-prepush-contract-source（契约来源自测）" scripts/validate-prepush-contract-source.mjs
@@ -232,6 +233,22 @@ HOOK_BODY
 
 chmod +x "$HOOK"
 echo "已安装 $HOOK"
+
+# ── post-checkout：新 worktree 自动带上 LocalConfig.xcconfig ─────────────────────
+#
+# 2026-09-23 立：桌面 App 每个会话一个新 worktree，LocalConfig.xcconfig 不入库 ⇒ 每次都缺，
+# 而 Claude 被 deny 规则挡着建不了它（那条规则是对的），于是每次都要用户手动 cp。
+# 钩子本体入库在 scripts/hooks/，理由与说明写在它自己的头注释里；自测 scripts/validate-worktree-localconfig.mjs。
+# 已有别的 post-checkout 钩子时不覆盖，明说没装。
+POST_CHECKOUT="$(git rev-parse --git-path hooks/post-checkout)"
+POST_CHECKOUT_SRC="$(dirname "$0")/hooks/post-checkout-localconfig.sh"
+if [ -f "$POST_CHECKOUT" ] && ! cmp -s "$POST_CHECKOUT" "$POST_CHECKOUT_SRC"; then
+  echo "⚠ 没装 post-checkout：$POST_CHECKOUT 已有别的内容。新 worktree 需要手动复制 LocalConfig.xcconfig。"
+else
+  cp "$POST_CHECKOUT_SRC" "$POST_CHECKOUT"
+  chmod +x "$POST_CHECKOUT"
+  echo "已安装 $POST_CHECKOUT（新 worktree 自动复制 LocalConfig.xcconfig）"
+fi
 
 # ── 推送目标：只推 origin ───────────────────────────────────────────────────
 #
