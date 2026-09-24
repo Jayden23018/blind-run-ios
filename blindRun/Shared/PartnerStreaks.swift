@@ -354,6 +354,9 @@ enum PartnerStreakCopy {
 
     static let favoriteLimitExceeded = "固定搭档的数量已经到上限了，先取消一位再添加。"
 
+    /// 对方退出过这一对。只说事实，不说「请稍后再试」—— 再试结果一样。
+    static let favoriteOptedOut = "对方已退出和你的固定搭档，暂时不能再加回来。"
+
     static let favoriteFailed = "操作没有成功，请稍后重试。"
 
     static func addFavoriteTitle(_ name: String) -> String { "把\(name)设为固定搭档" }

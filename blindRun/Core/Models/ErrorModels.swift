@@ -124,6 +124,12 @@ enum ErrorCode: String, Codable, Sendable {
     // 所以文案只说门槛，不说「这个人不存在」。
     case favoriteVolunteerNotEligible = "FAVORITE_VOLUNTEER_NOT_ELIGIBLE"
     case favoriteVolunteerLimitExceeded = "FAVORITE_VOLUNTEER_LIMIT_EXCEEDED"
+    // 陪跑员单方面退出过这一对（后端迁移 `0044`，handoff issue #309）。**不能复用上面那句**：
+    // 这一对恰恰一起跑完过，念「需要先一起跑完」是假话；也不引导重试，重试结果一模一样。
+    case favoriteVolunteerOptedOut = "FAVORITE_VOLUNTEER_OPTED_OUT"
+    // 求助没结案时志愿者结束不了服务（`POST /api/orders/{id}/finish` 409，handoff issue #387 ③）。
+    // 🔴 文案**不许引导志愿者去点「撤销求助」**—— 那个动作对他恒 403，出口在跑者本人或客服。
+    case orderHasActiveEmergency = "ORDER_HAS_ACTIVE_EMERGENCY"
     // 志愿者接单守卫（后端 `ErrorCode.java:109`，2026-09-04 随架构复核 N126 上线）。
     // 在它之前没有任何守卫拦「一个人接两单」—— 接单锁按订单加，拦得住两个人抢一单。
     //
@@ -290,6 +296,10 @@ enum ErrorCode: String, Codable, Sendable {
             return PartnerStreakCopy.favoriteNotEligible
         case .favoriteVolunteerLimitExceeded:
             return PartnerStreakCopy.favoriteLimitExceeded
+        case .favoriteVolunteerOptedOut:
+            return PartnerStreakCopy.favoriteOptedOut
+        case .orderHasActiveEmergency:
+            return "这一单还有没结束的求助，现在还不能结束服务。需要跑者本人撤销，或者等客服处理完。"
         case .volunteerAlreadyEngaged:
             return "这个时间段您已经答应了另一位跑者，换一个时间段的订单再试试。"
         case .idVerifyUnavailable:

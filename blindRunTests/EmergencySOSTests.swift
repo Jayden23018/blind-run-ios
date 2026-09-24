@@ -184,6 +184,17 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertTrue(EmergencySafetyCopy.cancelOwnerConfirmation.contains("解除短信"))
     }
 
+    /// 求助没结案时结束服务被 409（后端 issue #387 ③）。志愿者点「撤销」恒 403，
+    /// 所以文案只能指向跑者本人或客服，绝不能叫他自己去撤销。
+    func testFinishBlockedByActiveEmergencyPointsAwayFromTheVolunteer() throws {
+        let code = try XCTUnwrap(ErrorCode(rawValue: "ORDER_HAS_ACTIVE_EMERGENCY"))
+        let copy = code.localizedMessage
+        XCTAssertTrue(copy.contains("跑者本人"), copy)
+        XCTAssertTrue(copy.contains("客服"), copy)
+        XCTAssertFalse(copy.contains("撤销求助"), copy)
+        XCTAssertFalse(copy.contains("再试"), copy)
+    }
+
     /// `POST /api/emergency/trigger` 的回执 status 自 2026-07-31 收敛为两个值；
     /// `VOLUNTEER_NOTIFIED` 不再出现。枚举值保留只为兼容历史数据与未知值兜底。
     func testTriggerReceiptStatusesStillDecodeIncludingRetiredValues() {
