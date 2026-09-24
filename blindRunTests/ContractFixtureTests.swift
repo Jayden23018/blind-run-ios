@@ -122,6 +122,46 @@ final class ContractFixtureTests: XCTestCase {
         "ParseVoiceOrderResponse": { [self] data in
             _ = try decode(ParseVoiceOrderResponse.self, data)
         },
+        "RunRecordResponse": { [self] data in
+            let record = try decode(RunRecordResponse.self, data)
+            XCTAssertGreaterThan(record.orderId, 0)
+            XCTAssertNotEqual(record.status, .unknown, "status 解成了 unknown —— 后端加了新生成状态而前端没跟上")
+            XCTAssertNotEqual(record.viewerRole, .unknown)
+            // `events` / `messages` 会静默跳过解不出来的元素。真实数据里一条都不许丢 ——
+            // 否则日期格式之类的回归会让整列事件消失，而解码照样「成功」。
+            XCTAssertEqual(record.events.count, try rawDataArrayCount(data, key: "events"), "有途中事件被跳过了")
+            XCTAssertEqual(record.messages.count, try rawDataArrayCount(data, key: "messages"), "有留言被跳过了")
+            switch record.status {
+            case .ready:
+                XCTAssertNotNil(record.summary, "READY 必须有 summary")
+            case .insufficientTrack:
+                XCTAssertNil(record.track, "INSUFFICIENT_TRACK 不该有路线")
+            case .generating, .failed, .unknown:
+                break
+            }
+            if let track = record.track {
+                XCTAssertEqual(track.coordSystem, "GCJ02", "D1：坐标沿用 GCJ-02")
+            }
+            if record.viewerRole == .volunteer {
+                XCTAssertNil(record.comparison, "D6：陪跑员看不到跑者的历史，comparison 必须为 null")
+            }
+        },
+        "RunRecordHistoryResponse": { [self] data in
+            let history = try decode(RunRecordHistoryResponse.self, data)
+            XCTAssertNotEqual(history.role, .unknown)
+            XCTAssertFalse(history.items.isEmpty, "月度列表 fixture 是空的，本条什么都没验证。换一个有已完成订单的月份重采。")
+            switch history.role {
+            case .blind:
+                XCTAssertTrue(history.items.allSatisfy { $0.thumbnail == nil }, "缩略图只给陪跑员")
+                XCTAssertNil(history.monthSummary.serviceMin, "服务分钟数只给陪跑员")
+            case .volunteer:
+                // 反方向也要钉：字段名写错时陪跑员这边会被静默解成 nil，而上面那条照样绿。
+                XCTAssertNotNil(history.monthSummary.serviceMin, "陪跑员应拿到本月服务分钟数")
+                XCTAssertTrue(history.items.contains { $0.thumbnail != nil }, "陪跑员至少有一行应带缩略图")
+            case .unknown:
+                break
+            }
+        },
     ]
 
     // MARK: - 用例
@@ -154,6 +194,13 @@ final class ContractFixtureTests: XCTestCase {
     private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
         // 走生产的信封优先逻辑，不是裸 decoder.decode —— 信封与裸解的顺序本身就是契约的一部分。
         try APIPayloadDecoder.decodePayload(type, from: data, decoder: decoder)
+    }
+
+    /// 信封 `data` 下某个数组在原始字节里的长度，用来对账「解码时有没有静默丢元素」。
+    private func rawDataArrayCount(_ data: Data, key: String) throws -> Int {
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let payload = try XCTUnwrap(root["data"] as? [String: Any], "fixture 没有 ApiResponse 信封")
+        return try XCTUnwrap(payload[key] as? [Any], "data.\(key) 不是数组").count
     }
 
     private func loadFixtures() throws -> [String: Data] {

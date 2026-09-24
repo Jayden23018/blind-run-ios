@@ -59,6 +59,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
     /// 对应后端的 200 + `data: null`。
     var orderReviews: [Int64: OrderReview] = [:]
 
+    /// 跑后留言，`GET /api/orders/{id}/run-record` 的 `messages` 回放源。
+    var runRecordMessages: [Int64: [RunRecordMessageResponse]] = [:]
+
     /// 志愿者已单方面退出的固定搭档（`DELETE /api/volunteer/favorites/{blindUserId}`）。
     ///
     /// 只记 userId、不删行 —— 与后端一致：退出是**打标记不是删行**，
@@ -485,6 +488,9 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if path == "/api/orders/mine" && method == .get {
             return handleGetMyOrders(query: query)
         }
+        if path == "/api/orders/mine/run-records" && method == .get {
+            return try handleGetMyRunRecords(query: query)
+        }
         // 排在下面 `extractOrderId` 那一族之前只是照这一节的写法；`Int64("active")` 是 nil，
         // 顺序其实无所谓。
         if path == "/api/orders/active" && method == .get {
@@ -508,6 +514,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         if let orderId = extractOrderId(from: path) {
             if path.hasSuffix("/track") && method == .get {
                 return try handleGetOrderTrack(orderId: orderId)
+            }
+            if path.hasSuffix("/run-record/messages") && method == .post {
+                return try handlePostRunRecordMessage(orderId: orderId, body: body)
+            }
+            if path.hasSuffix("/run-record") && method == .get {
+                return try handleGetRunRecord(orderId: orderId)
             }
             if path.hasSuffix("/respond") && method == .post {
                 return try handleRespondOrder(orderId: orderId, body: body)

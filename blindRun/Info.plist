@@ -19,6 +19,8 @@
 	<string>助盲跑在同行服务中需要持续定位，用于共享双方位置并记录本次路线；锁屏后仍会继续定位，可能增加电量消耗。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>
+	<key>NSMotionUsageDescription</key>
+	<string>用于在陪跑时记录这台手机的步数、步频和爬升高度，跑完后显示在跑步记录里。不开启也能正常陪跑。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>用于将地点描述、路线说明和备注语音转换为文字。</string>
 	<!-- 锁屏实时活动（陪跑中那张卡）。
