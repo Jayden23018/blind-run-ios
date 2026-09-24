@@ -27,7 +27,10 @@ on:
 
 concurrency:
   group: verify-${{ github.ref }}
-  cancel-in-progress: true
+  # 只在 PR 上取消，main 上不取消（workflow-review-20260924 A5，与后端 ci.yml 同口径）：
+  # main 那条是唯一验证「实际落地的那个 commit」的机会，取消它等于那个 commit 的门禁一次没跑。
+  # 改之前最近 200 个 run 里有 14 个 main 上的 push 被取消（如 35837892755）。
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # 便宜的先跑。macOS runner 是 Linux 的 10 倍价，别让它替语法错误买单。

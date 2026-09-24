@@ -325,6 +325,42 @@ const cases = [
     },
   },
   {
+    // workflow-review-20260924 A8：把三个特例收成「HEAD 可从任一远端分支到达」之后新覆盖的形状。
+    // 旧实现三条特例都兜不住它（有 origin/main 之外的提交、没设过 upstream、不是游离 HEAD）。
+    name: '推到了同名远端分支但没带 -u → 不报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'feat/pushed-no-u');
+      fs.writeFileSync(path.join(dir, 'x.txt'), 'x\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 推了但没 -u');
+      g('update-ref', 'refs/remotes/origin/feat/pushed-no-u', g('rev-parse', 'HEAD').stdout.trim());
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? '提交已在 origin/feat/pushed-no-u 上，却仍报「无 upstream」'
+        : null;
+    },
+  },
+  {
+    // workflow-review-20260924：worktree 里 `.git` 是个文件，旧实现拼 `.git/aidrun-stop-checklist-seen`
+    // 写不进去（ENOTDIR 被吞掉），去重静默失效 —— 桌面 App 每个会话都是 worktree，于是每轮都叫。
+    name: 'worktree 里同一份欠账也只叫一次（签名不能写到 .git/ 这个「文件」下面）',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      const wt = path.join(dir, 'wt');
+      g('worktree', 'add', '-q', '-b', 'wt-branch', wt);
+      fs.writeFileSync(path.join(wt, 'dirty.txt'), 'dirty\n');
+      const env = { AIDRUN_REPO_ROOT: wt, AIDRUN_STOP_CHECKLIST_NO_SNOOZE: '0' };
+      const first = run('{}', env);
+      if (first.status !== 2) return `靶子没造出欠账（exit ${first.status}）`;
+      const second = run('{}', env);
+      return second.status === 0 ? null : `worktree 里同样的欠账第二次仍在拦（exit ${second.status}），去重没生效`;
+    },
+  },
+  {
     // 拿不到 session_id 时宁可多问一次，也不要静默不问 —— 静默失效是这类提醒最常见的死法。
     name: '没有 session_id 时照问（不静默失效）',
     stdin: '{}',
