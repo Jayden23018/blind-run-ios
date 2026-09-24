@@ -183,11 +183,12 @@ final class RunRecordHistoryTests: XCTestCase {
             item: makeItem(orderId: 1, finishedAt: "2026-09-20T07:15:00", place: "深圳湾公园", partner: "林*", distanceM: 5_210),
             role: .runner
         )
-        XCTAssertEqual(full.dateText, "9月20日 周六")
+        // 2026-09-20 是周日。原型里的「周六」对应的是 2025 年的样例日期，别照抄。
+        XCTAssertEqual(full.dateText, "9月20日 周日")
         XCTAssertEqual(full.detailText, "深圳湾公园，和林*", "屏幕上保留掩码，免得被当成全名")
         XCTAssertEqual(full.distanceText, "5.21 公里")
-        XCTAssertEqual(full.accessibilityLabel, "9月20日周六，深圳湾公园，和林，5.21公里")
-        XCTAssertEqual(full.rotorLabel, "9月20日周六")
+        XCTAssertEqual(full.accessibilityLabel, "9月20日 周日，深圳湾公园，和林，5.21 公里")
+        XCTAssertEqual(full.rotorLabel, "9月20日 周日")
 
         let sparse = RunHistoryRowContent(
             item: makeItem(orderId: 1, finishedAt: "2026-09-20T07:15:00.5", place: nil, partner: nil, distanceM: nil),
@@ -195,7 +196,7 @@ final class RunRecordHistoryTests: XCTestCase {
         )
         XCTAssertNil(sparse.detailText)
         XCTAssertNil(sparse.distanceText, "没有距离就不显示，不是「0.00 公里」")
-        XCTAssertEqual(sparse.accessibilityLabel, "9月20日周六")
+        XCTAssertEqual(sparse.accessibilityLabel, "9月20日 周日")
     }
 
     func testVolunteerRowPutsThePartnerFirst() {
@@ -205,7 +206,7 @@ final class RunRecordHistoryTests: XCTestCase {
         )
         XCTAssertEqual(content.detailText, "陪陈*，深圳湾公园")
         XCTAssertEqual(content.distanceText, "5.00 公里")
-        XCTAssertEqual(content.accessibilityLabel, "9月6日周六，陪陈，深圳湾公园，5公里")
+        XCTAssertEqual(content.accessibilityLabel, "9月6日 周日，陪陈，深圳湾公园，5 公里")
     }
 
     func testNumberFormatting() {

@@ -262,7 +262,7 @@ struct RunHistoryRowContent: Equatable {
     init(item: RunHistoryItem, role: RunRecordHistoryRole) {
         let date = item.finishedAt.backendTimestamp
         dateText = date.map { Self.dateFormatter.string(from: $0) } ?? item.finishedAt
-        let spokenDate = dateText.replacingOccurrences(of: " ", with: "")
+        let spokenDate = dateText
 
         func detail(spoken: Bool) -> String? {
             let name = item.partnerName.map { spoken ? $0.unmaskedForSpeech : $0 }
@@ -277,7 +277,7 @@ struct RunHistoryRowContent: Equatable {
         detailText = detail(spoken: false)
         distanceText = item.distanceM.map { "\(RunRecordHistoryViewModel.kilometres($0)) 公里" }
 
-        let spokenDistance = item.distanceM.map { "\(RunRecordHistoryViewModel.kilometres($0, spoken: true))公里" }
+        let spokenDistance = item.distanceM.map { "\(RunRecordHistoryViewModel.kilometres($0, spoken: true)) 公里" }
         accessibilityLabel = [spokenDate, detail(spoken: true), spokenDistance]
             .compactMap { $0 }
             .joined(separator: "，")
@@ -372,7 +372,10 @@ struct RunRecordHistoryView: View {
                         }
                     }
                 } header: {
+                    // 系统组标题色是 `secondaryLabel`，浅色下只有 3.26:1（`AppColors.textSecondary` 那段注释），
+                    // 真机审计报了 Contrast nearly passed。
                     Text("未完成的预约")
+                        .foregroundColor(AppColors.textSecondary)
                         .accessibilityAddTraits(.isHeader)
                 }
             }
