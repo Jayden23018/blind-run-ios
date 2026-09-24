@@ -62,12 +62,21 @@ export function backendDir(repoRoot, env = process.env) {
   const common = git('-C', repoRoot, 'rev-parse', '--path-format=absolute', '--git-common-dir');
   return path.join(path.dirname(path.dirname(common || path.join(repoRoot, '.git'))), 'demo');
 }
+// 能不能从后端的 origin/main 读到契约。⚠️ 别用上面的 git()：它失败时也返回 ''，而 `cat-file -e`
+// 成功时本来就没有输出 ⇒ 用 `=== ''` 判断永远成立，只剩「目录在不在」在起作用（复核 A-1 抓到）。
+export function backendContractReadable(backend) {
+  try {
+    execFileSync('git', ['-C', backend, 'cat-file', '-e', 'origin/main:docs/api_spec.yaml'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 if (process.env.AIDRUN_API_SPEC) {
   lines.push(`后端契约源（AIDRUN_API_SPEC 指定）：${process.env.AIDRUN_API_SPEC}`);
 } else {
   const backend = backendDir(root);
-  const onMain = git('-C', backend, 'cat-file', '-e', 'origin/main:docs/api_spec.yaml') === '' &&
-    fs.existsSync(backend);
+  const onMain = backendContractReadable(backend);
   lines.push(
     onMain
       ? `后端契约源：${backend} 的 origin/main —— 读 \`git -C ${backend} show origin/main:docs/api_spec.yaml\`，别读它的工作区（常停在别人的分支上）。交接走 \`gh issue list --repo Jayden23018/blind-run-backend --label 待前端确认\`。`
