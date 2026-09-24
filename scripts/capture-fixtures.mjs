@@ -25,6 +25,8 @@
 //   AIDRUN_FIXTURE_CODE              默认 000000
 //   AIDRUN_FIXTURE_BLIND_TOKEN       给了就跳过 send-code/verify-code（零写入、零短信）
 //   AIDRUN_FIXTURE_VOLUNTEER_TOKEN   同上
+//   AIDRUN_FIXTURE_ONLY              逗号分隔的模型名，只采这几个（例：RunRecordResponse,RunRecordHistoryResponse）
+//   AIDRUN_FIXTURE_RUN_RECORD_*      跑后记录用的订单号 / 月份，默认值见下方常量
 //
 // ⚠️ 号码分配跟直觉相反：**138 是志愿者、186 是盲人**。
 //    原因见 docs/test-accounts.md —— 13823594196 在生产上早就是 verified=1 的现成志愿者，
@@ -48,6 +50,15 @@ const OUT_DIR = path.resolve(import.meta.dirname, '../blindRunTests/Fixtures');
 const BLIND_PHONE = process.env.AIDRUN_FIXTURE_BLIND_PHONE ?? '18664945138';
 const VOLUNTEER_PHONE = process.env.AIDRUN_FIXTURE_VOLUNTEER_PHONE ?? '13823594196';
 const CODE = process.env.AIDRUN_FIXTURE_CODE ?? '000000';
+
+const RUN_RECORD_ORDER_ID = process.env.AIDRUN_FIXTURE_RUN_RECORD_ORDER_ID ?? '131';
+const RUN_RECORD_INSUFFICIENT_ORDER_ID = process.env.AIDRUN_FIXTURE_RUN_RECORD_INSUFFICIENT_ORDER_ID ?? '139';
+const RUN_RECORD_MONTH = process.env.AIDRUN_FIXTURE_RUN_RECORD_MONTH ?? '2026-08';
+
+/// `AIDRUN_FIXTURE_ONLY=RunRecordResponse,RunRecordHistoryResponse`：只采这几个模型，
+/// 其余 fixture 与 manifest 条目原样保留。新增端点时用它，免得顺手把别的 fixture 换成新数据、
+/// 多出一堆要人工复核脱敏的 diff。
+const ONLY = process.env.AIDRUN_FIXTURE_ONLY?.split(',').map((s) => s.trim()).filter(Boolean);
 
 const WRITE = process.argv.includes('--write');
 const DRY = !WRITE;
@@ -74,7 +85,18 @@ const ENDPOINTS = [
   // 曾错写成 /api/volunteer/orders（不存在）。志愿者历史订单走同一个 /mine + role 参数；
   // 刻意不用 /api/orders/available —— 那条依赖 Redis 里有该志愿者的位置，否则返空数组。
   { model: 'PagedOrderResponse', label: 'volunteer-history', method: 'GET', path: '/api/orders/mine?role=VOLUNTEER&page=0&size=5', as: 'volunteer' },
-];
+
+  // 跑后运动记录（后端迁移 0047，2026-09-24 上线）。订单号与月份按生产数据写死，2026-09-24 核实：
+  // #131 是两个测试号共同的、数据最全的一单（10176 米 / 11 段 / 2 个休息点 / 跑者侧有 comparison），
+  // #139 是 INSUFFICIENT_TRACK（track 为 null、计算类字段全空）。两边都采 #131，才能钉住
+  // 「comparison 只给跑者」这类按角色裁剪的差异。
+  // ⚠️ 读取时记录缺失会当场补算并写缓存 —— 与 App 打开详情页是同一件事，仍算只读。
+  { model: 'RunRecordResponse', label: 'blind-ready', method: 'GET', path: `/api/orders/${RUN_RECORD_ORDER_ID}/run-record`, as: 'blind' },
+  { model: 'RunRecordResponse', label: 'volunteer-ready', method: 'GET', path: `/api/orders/${RUN_RECORD_ORDER_ID}/run-record`, as: 'volunteer' },
+  { model: 'RunRecordResponse', label: 'blind-insufficient-track', method: 'GET', path: `/api/orders/${RUN_RECORD_INSUFFICIENT_ORDER_ID}/run-record`, as: 'blind' },
+  { model: 'RunRecordHistoryResponse', label: 'blind', method: 'GET', path: `/api/orders/mine/run-records?month=${RUN_RECORD_MONTH}`, as: 'blind' },
+  { model: 'RunRecordHistoryResponse', label: 'volunteer', method: 'GET', path: `/api/orders/mine/run-records?month=${RUN_RECORD_MONTH}`, as: 'volunteer' },
+].filter((e) => !ONLY || ONLY.includes(e.model));
 
 // ---------------------------------------------------------------- 脱敏
 
@@ -92,6 +114,10 @@ const REDACTIONS = [
   [/(?<![0-9])1[3-9]\d{9}(?![0-9])/g, PHONE_PLACEHOLDER],
   // 身份证
   [/(?<![0-9])\d{17}[\dXx](?![0-9Xx])/g, '110101199001011234'],
+  // 地址：整串换成占位。坐标粗化到两位小数之后，「小区名 + 门牌号」比坐标更能定位到人
+  // （2026-09-24 跑后记录 fixture 首采时带出了「阳光棕榈园东门」这种小区门口）。
+  // 只换字符串值，`null` 原样保留 —— 「地址可空」本身是契约事实。
+  [/"(startAddress|endAddress|place|address)"\s*:\s*"[^"]*"/g, '"$1":"脱敏地址"'],
 ];
 
 /// 坐标：保留城市级前 2 位小数，其余补 0，**长度与原值一致**。
@@ -218,11 +244,18 @@ async function main() {
     note: '原始字节，未 pretty-print。手机号/token/身份证已脱敏但保持格式合法。',
     files: {},
   };
+  // 只采部分模型时，别的条目沿用旧 manifest —— 否则 manifest 会以为那些 fixture 不存在了。
+  if (ONLY) {
+    const manifestPath = path.join(OUT_DIR, '_manifest.json');
+    if (fs.existsSync(manifestPath)) {
+      manifest.files = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).files ?? {};
+    }
+  }
 
   console.log('\n[capture-fixtures] 登录…');
   const blind = await login(BLIND_PHONE);
   tokens.blind = blind.token;
-  if (blind.loginRaw) writeFixture('LoginResponse', 'blind', blind.loginRaw, manifest);
+  if (blind.loginRaw && (!ONLY || ONLY.includes('LoginResponse'))) writeFixture('LoginResponse', 'blind', blind.loginRaw, manifest);
 
   try {
     const volunteer = await login(VOLUNTEER_PHONE);

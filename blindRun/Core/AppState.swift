@@ -444,6 +444,11 @@ final class AppState: ObservableObject {
         ProfileService(transport: apiClient)
     }
 
+    /// 跑后运动记录片的领域 service。每次取都新建，理由同 `auth`；注入口等真需要 fake 时再加，理由同 `profile`。
+    var runRecord: any RunRecordServing {
+        RunRecordService(transport: apiClient)
+    }
+
     /// 求助·通话磨合·轨迹片的领域 service。每次取都新建，理由同 `auth`。
     var safety: any SafetyServing {
         if let safetyOverride { return safetyOverride }

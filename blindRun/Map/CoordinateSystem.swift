@@ -11,15 +11,24 @@ struct LocatedCoordinate: Sendable, Equatable {
     let coordinate: CLLocationCoordinate2D
     let system: CoordinateSystem
     let capturedAt: Date
+    /// 水平精度（米）与瞬时速度（m/s），随 `LOCATION_UPDATE` 上报为 `hAcc` / `speed`。
+    /// 不是坐标，坐标系转换时原样带过去。Core Location 给负数表示无效，在这里就变成 nil ——
+    /// 契约要求拿不到就不传，不能传 0。
+    let horizontalAccuracy: Double?
+    let speed: Double?
 
     init(
         coordinate: CLLocationCoordinate2D,
         system: CoordinateSystem,
-        capturedAt: Date = Date()
+        capturedAt: Date = Date(),
+        horizontalAccuracy: Double? = nil,
+        speed: Double? = nil
     ) {
         self.coordinate = coordinate
         self.system = system
         self.capturedAt = capturedAt
+        self.horizontalAccuracy = horizontalAccuracy.flatMap { $0 >= 0 ? $0 : nil }
+        self.speed = speed.flatMap { $0 >= 0 ? $0 : nil }
     }
 
     var isValid: Bool {
@@ -43,7 +52,9 @@ enum BackendCoordinateNormalizer {
             return LocatedCoordinate(
                 coordinate: wgs84ToGCJ02(sample.coordinate),
                 system: .gcj02Backend,
-                capturedAt: sample.capturedAt
+                capturedAt: sample.capturedAt,
+                horizontalAccuracy: sample.horizontalAccuracy,
+                speed: sample.speed
             )
         }
     }
