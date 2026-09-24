@@ -26,8 +26,13 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: verify-${{ github.ref }}
-  cancel-in-progress: true
+  # ⚠️ 光靠 cancel-in-progress: false 保护不了 main：官方文档「any existing pending job in a concurrency
+  # group is canceled when a new one is queued」—— 排队中的 run 照样被顶掉。非 PR 事件按 commit 分组（同后端 ci.yml）。
+  group: verify-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  # 只在 PR 上取消，main 上不取消（workflow-review-20260924 A5，与后端 ci.yml 同口径）：
+  # main 那条是唯一验证「实际落地的那个 commit」的机会，取消它等于那个 commit 的门禁一次没跑。
+  # 改之前最近 200 个 run 里有 14 个 main 上的 push 被取消（如 35837892755）。
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # 便宜的先跑。macOS runner 是 Linux 的 10 倍价，别让它替语法错误买单。
@@ -104,6 +109,11 @@ jobs:
       # 那条 --amend 改掉了同事的提交），太紧就每次 amend 都报一次然后被无视。
       - name: validate shared-checkout guard
         run: node scripts/validate-shared-checkout-guard.mjs
+
+      # 新 worktree 自动带上 LocalConfig.xcconfig 的 post-checkout 钩子。它坏掉的样子是什么都不发生 ——
+      # 下一个会话照样编译不过，还得让人手动 cp。这里真跑 install + git worktree add。
+      - name: validate worktree LocalConfig hook
+        run: node scripts/validate-worktree-localconfig.mjs
 
       # 真机测试的「算不算通过」判定。CI 跑不了真机 XCTest，但这段纯逻辑跑得了 ——
       # 而它错过两次，两次都是「看起来全绿，其实没数到」。

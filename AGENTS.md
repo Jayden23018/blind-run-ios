@@ -305,8 +305,8 @@ REMATCHING → CANCELLED（只能盲人 token）
 ## 7. 外部 API 契约
 
 - **契约唯一源在后端仓库** `/Users/mac/Downloads/demo`：REST 看 `docs/api_spec.yaml`，WebSocket 看 `docs/websocket-protocol.md`。本仓库**不留副本**。
-- 契约工作用 `claude --add-dir /Users/mac/Downloads/demo` 挂载。契约文档本身错了就去后端仓库改，不要在这里存第二份。
-- 需要后端拍板的问题写进 `demo/docs/handoff.md` 的「待后端确认」。
+- 契约工作用 `claude --add-dir /Users/mac/Downloads/demo` 挂载。**读它的 origin/main**（`git -C /Users/mac/Downloads/demo show origin/main:docs/api_spec.yaml`），别读工作区 —— 那是共享 checkout，常停在别人的分支上。契约文档本身错了就去后端仓库改，不要在这里存第二份。
+- 需要后端拍板的问题开后端仓库的 issue：`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff`。后端问我们的在 `gh issue list --repo Jayden23018/blind-run-backend --label 待前端确认`。（`demo/docs/handoff.md` 2026-09-24 起冻结只读，只当历史决策记录查）
 - 错误码语义见 skill `aidrun-error-codes`；机器可读版本是 `docs/error-codes.json`。
 
 ## 8. iOS 硬规则
@@ -381,7 +381,7 @@ REMATCHING → CANCELLED（只能盲人 token）
 > 而没人会发现：`BlindRunHistoryView` 因此在 review 里挂着「已实现」三天，
 > 连上线前检查单都把它列进了演示视频「可以放心拍」。判活口径见 PR #27。
 > 同一次删掉了这里原有的 `fork` remote / 双推两条告警 —— §11 在 08-12 已改口径，
-> 而 `install-git-hooks.sh:233-237` 现在会主动清掉双推配置：照着那两条做会被安装脚本撤销。
+> 而 `install-git-hooks.sh` 末尾「推送目标：只推 origin」那段现在会主动清掉双推配置：照着那两条做会被安装脚本撤销。
 
 **实现中**
 
@@ -409,11 +409,14 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 7. 跑测试、更新必要文档，按 skill `aidrun-ship-check` 的格式输出；**变更的任务全打勾就在同一个 PR 里
    `openspec archive <name> -y`**（skill `openspec-archive-change`）—— 归档才是闭环终点
-8. **同步 handoff**（`demo/docs/handoff.md`）：
-   - 全文近 3000 行，**只读末尾最新几条**（`tail -80`）或用 `grep -n "^- \[ \]"` 定位未答项，**不要整读**
-   - 本轮答掉的问题：`- [ ]` 改 `- [x]`，答案写在 `答：` 后面；**不删除已答条目**，历史是决策记录
-   - 本轮新产生的、需要后端拍板的问题：追加到「待后端确认」，每条带日期 / 提问方 / 具体到文件行号或端点的上下文 / 明确的问题
+8. **交接**（后端仓库 GitHub Issues，2026-09-24 起替代 `demo/docs/handoff.md`）：
+   - 本轮答掉的 `待前端确认` issue：`gh issue comment <n> --repo Jayden23018/blind-run-backend --body-file a.md` 写答复，再 `gh issue close`
+   - 本轮新产生的、需要后端拍板的问题：`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff --body-file q.md`，
+     一个问题一个 issue，正文带具体到文件行号或端点的上下文 + 明确的问题
    - 契约本身的变更不写这里 —— 直接改后端 `docs/api_spec.yaml`
+   > 为什么换：handoff.md 涨到 15,630 行，6 个后端 PR 因「同一批答复做了两遍、要解 1000+ 行冲突」被关掉，
+   > 09-16 后的 44 条待答项还落在「已归档」之后没人看见。冻结时 74 条未答项已迁成 issue #306–#379。
+   > 详见后端 `docs/research/workflow-review-20260924.md` A6
 9. **commit**：`type: 描述`（type 取 feat/fix/refactor/docs/test/chore/perf/ci）。**不带 `Co-Authored-By`**（`~/.claude/settings.json` 的 `includeCoAuthoredBy: false` 已全局关闭，不要手动加回来）
 10. **push**
 

@@ -281,6 +281,86 @@ const cases = [
     },
   },
   {
+    // 2026-09-23 真实误报：分支已推完（HEAD == origin/feat/...），为了把分支腾给新 worktree
+    // 故意 `checkout --detach`（AGENTS §10 教的正是这个），钩子报「`HEAD` 还没跟远端」。
+    // 提交不在 main 上 —— 靶子要让「origin/main..HEAD 为 0」那条判据兜不住它。
+    name: '游离 HEAD、提交已在某条远端分支上 → 不报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'feat/pushed');
+      fs.writeFileSync(path.join(dir, 'pushed.txt'), '已推上去的活\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 已推送');
+      g('update-ref', 'refs/remotes/origin/feat/pushed', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-q', '--detach');
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? '游离 HEAD 的提交已在 origin/feat/pushed 上，却仍报「无 upstream」'
+        : null;
+    },
+  },
+  {
+    // 反例：游离后又提交了一个 —— 它不在任何远端分支上，丢了就找不回来，必须照报。
+    // 远端分支停在上一个提交：挡「有远端分支就放行」和「游离一律放行」两种修过头的实现。
+    name: '游离 HEAD、有提交不在任何远端分支上 → 仍要报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'feat/pushed');
+      fs.writeFileSync(path.join(dir, 'pushed.txt'), '已推上去的活\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 已推送');
+      g('update-ref', 'refs/remotes/origin/feat/pushed', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-q', '--detach');
+      fs.writeFileSync(path.join(dir, 'detached.txt'), '游离之后才写的\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 游离后的提交');
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? null
+        : '游离 HEAD 上有没推过的提交，却没报「无 upstream」—— 真欠账被放过了';
+    },
+  },
+  {
+    // workflow-review-20260924 A8：把三个特例收成「HEAD 可从任一远端分支到达」之后新覆盖的形状。
+    // 旧实现三条特例都兜不住它（有 origin/main 之外的提交、没设过 upstream、不是游离 HEAD）。
+    name: '推到了同名远端分支但没带 -u → 不报「无 upstream」',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      g('update-ref', 'refs/remotes/origin/main', g('rev-parse', 'HEAD').stdout.trim());
+      g('checkout', '-qb', 'feat/pushed-no-u');
+      fs.writeFileSync(path.join(dir, 'x.txt'), 'x\n');
+      g('add', '-A');
+      g('commit', '-qm', 'feat: 推了但没 -u');
+      g('update-ref', 'refs/remotes/origin/feat/pushed-no-u', g('rev-parse', 'HEAD').stdout.trim());
+      const r = run('{}', { AIDRUN_REPO_ROOT: dir });
+      return r.stderr.includes('无 upstream')
+        ? '提交已在 origin/feat/pushed-no-u 上，却仍报「无 upstream」'
+        : null;
+    },
+  },
+  {
+    // workflow-review-20260924：worktree 里 `.git` 是个文件，旧实现拼 `.git/aidrun-stop-checklist-seen`
+    // 写不进去（ENOTDIR 被吞掉），去重静默失效 —— 桌面 App 每个会话都是 worktree，于是每轮都叫。
+    name: 'worktree 里同一份欠账也只叫一次（签名不能写到 .git/ 这个「文件」下面）',
+    stdin: '{}',
+    check: () => {
+      const { dir, g } = scratchRepo();
+      const wt = path.join(dir, 'wt');
+      g('worktree', 'add', '-q', '-b', 'wt-branch', wt);
+      fs.writeFileSync(path.join(wt, 'dirty.txt'), 'dirty\n');
+      const env = { AIDRUN_REPO_ROOT: wt, AIDRUN_STOP_CHECKLIST_NO_SNOOZE: '0' };
+      const first = run('{}', env);
+      if (first.status !== 2) return `靶子没造出欠账（exit ${first.status}）`;
+      const second = run('{}', env);
+      return second.status === 0 ? null : `worktree 里同样的欠账第二次仍在拦（exit ${second.status}），去重没生效`;
+    },
+  },
+  {
     // 拿不到 session_id 时宁可多问一次，也不要静默不问 —— 静默失效是这类提醒最常见的死法。
     name: '没有 session_id 时照问（不静默失效）',
     stdin: '{}',
