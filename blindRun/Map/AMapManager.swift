@@ -37,6 +37,19 @@ enum AMapManager {
         #endif
     }
 
+    private static var cachedApprovalNumber: String?
+
+    /// 高德底图的审图号（后端 issue #382）。地图页从自己的 `mapView` 取；「关于」页没有地图实例，
+    /// 传 nil 时用缓存，没打开过地图就临时建一个取值。SDK 未配置时返回 nil（那时也没有地图可标）。
+    @MainActor
+    static func mapContentApprovalNumber(from mapView: MAMapView? = nil) -> String? {
+        if let cachedApprovalNumber { return cachedApprovalNumber }
+        guard isConfigured else { return nil }
+        let value: String? = (mapView ?? MAMapView(frame: .zero)).mapContentApprovalNumber()
+        cachedApprovalNumber = value?.nilIfBlank
+        return cachedApprovalNumber
+    }
+
     // MARK: - Private
 
     private static func configurePrivacyCompliance() {
