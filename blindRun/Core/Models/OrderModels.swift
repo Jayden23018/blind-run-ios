@@ -833,10 +833,18 @@ struct EmergencyEventResponse: Codable, Sendable, Equatable {
     let status: String?
     let triggerType: String?
     let hasGpsLocation: Bool?
+    /// 志愿者端冷启动恢复用：强提醒上那句「X 秒前」从这里起算，而不是从「刚打开 App」起算。
+    var triggeredAt: String? = nil
+    /// 非 null = 志愿者已经点过「我在他身边」。恢复时据此不再弹全屏。
+    var volunteerConfirmedAt: String? = nil
 
     var eventStatus: EmergencyEventStatus {
         status.flatMap(EmergencyEventStatus.init(rawValue:)) ?? .unknown
     }
+
+    /// 倒计时中，求助**还没发出**（后端 PR #279）。志愿者此时还没收到告警，恢复也不能替它弹。
+    /// ponytail: 只比原始字符串，没加进 `EmergencyEventStatus` —— 那要连带定文案，归服务端倒计时那次变更。
+    var isCountingDown: Bool { status == "COUNTDOWN" }
 }
 
 /// `GET /api/emergency/active` 的信封。**`success` 故意是非可选的**：`URLSessionAPIClient` 先试信封

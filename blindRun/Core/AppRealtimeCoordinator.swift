@@ -347,6 +347,9 @@ struct RealtimeSafetyEvent: Sendable {
     /// 而本仓库只允许坐标在**单一边界**上转换一次（`AGENTS.md` §3）。
     /// 这里不转的话，志愿者端算出来的「距他多远」会带上几百米的坐标系偏移。
     let coordinate: LocatedCoordinate?
+    /// 服务端算的两人距离，只在档位可用时才有（`WSEmergencyVolunteerAlert.fallbackDistanceMeters`）。
+    /// 本机 GPS 还冷着时的兜底，见 `VolunteerEmergencyAlert.distanceText(from:)`。
+    var serverDistanceMeters: Double? = nil
 }
 
 struct RealtimeRecoverySignal: Sendable {
@@ -703,7 +706,8 @@ final class AppRealtimeCoordinator: ObservableObject {
                 // 而这条链路的下游会拿它算「距你多远」。契约里它们各自可空。
                 coordinate: message.gpsLat.flatMap { lat in
                     message.gpsLng.flatMap { BackendCoordinateNormalizer.backend(latitude: lat, longitude: $0) }
-                }
+                },
+                serverDistanceMeters: message.fallbackDistanceMeters
             )
         case .pong, .unknown:
             break
@@ -1157,7 +1161,8 @@ final class AppRealtimeCoordinator: ObservableObject {
         displayText: String,
         speechText: String,
         timestamp: String?,
-        coordinate: LocatedCoordinate? = nil
+        coordinate: LocatedCoordinate? = nil,
+        serverDistanceMeters: Double? = nil
     ) {
         let event = RealtimeSafetyEvent(
             eventID: eventID,
@@ -1166,7 +1171,8 @@ final class AppRealtimeCoordinator: ObservableObject {
             displayText: displayText,
             speechText: speechText,
             timestamp: timestamp,
-            coordinate: coordinate
+            coordinate: coordinate,
+            serverDistanceMeters: serverDistanceMeters
         )
         latestSafetyEvent = event
         enqueue(

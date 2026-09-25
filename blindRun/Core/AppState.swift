@@ -567,10 +567,8 @@ final class AppState: ObservableObject {
         guard isLoggedIn else { return }
         // 断线期间可能整条求助都发生完了（志愿者代触发、家属短信回执、客服解除），而通知信封不带
         // eventId，补读文本无法还原事件状态。恢复只能问 `GET /api/emergency/active`，且必须先于补读，
-        // 免得补读把已解除的旧文案念成当前状态。仅盲人有该端点权限。
-        if activeRole == .blind {
-            await emergencyCoordinator.refreshActiveEvent(userID: userId)
-        }
+        // 免得补读把已解除的旧文案念成当前状态。
+        await recoverActiveEmergency()
         let after = realtimeCoordinator.lastObservedNotificationTimestamp
             ?? persistence.string(forKey: AppConstants.UserDefaultsKeys.lastSeenNotificationTimestamp)
         guard let after, !after.isEmpty else { return }
@@ -595,6 +593,20 @@ final class AppState: ObservableObject {
         } catch {
             // 补读是 best-effort：失败不阻断实时链路，下次重连自然重试。
             ClientFlowDiagnostics.record(event: "failed", operation: "notification-catch-up")
+        }
+    }
+
+    /// 向 `GET /api/emergency/active` 要回当前未结束的求助。两个角色都调，但问的不是一件事：
+    /// 盲人拿自己的事件（屏 3b），志愿者拿他正在陪的那位盲人的事件（强提醒，后端 #387 ②，
+    /// 2026-09-15 起对志愿者开放）。
+    func recoverActiveEmergency() async {
+        switch activeRole {
+        case .blind:
+            await emergencyCoordinator.refreshActiveEvent(userID: userId)
+        case .volunteer:
+            await emergencyCoordinator.refreshVolunteerAlert(safety: safety)
+        case .unset, nil:
+            return
         }
     }
 
@@ -665,6 +677,9 @@ final class AppState: ObservableObject {
             } else {
                 sessionRestorationState = .authenticated
                 connectWebSocketIfNeeded()
+                // 冷启动：WS 首次连上不发恢复信号（只有重连才发），回前台那条补读又可能跑在
+                // 会话恢复之前被 `isLoggedIn` 挡掉 —— 求助恢复不能押在这两者的先后上。
+                Task { await recoverActiveEmergency() }
             }
         } catch let error as APIError {
             switch error {
