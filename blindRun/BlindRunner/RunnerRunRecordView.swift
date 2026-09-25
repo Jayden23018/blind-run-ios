@@ -39,6 +39,16 @@ struct RunnerRunRecordContent {
     let moreData: [Row]
     /// nil = 没有路线。
     let routeDescription: String?
+    /// 「X的留言」一节（阶段 6）。nil = 陪跑员没留过言，整节不出现。
+    let messages: Messages?
+
+    struct Messages: Equatable {
+        let title: String
+        let spokenTitle: String
+        let texts: [String]
+        /// 「朗读留言」念的：「X的留言：」+ 全部陪跑员留言，按先后。
+        let readAloud: String
+    }
 
     init(record: RunRecordResponse, geometry: RunRouteGeometry? = nil) {
         let partner = record.volunteerName?.trimmingCharacters(in: .whitespaces).nonEmpty
@@ -132,6 +142,19 @@ struct RunnerRunRecordContent {
         moreData = rows
 
         routeDescription = geometry.map { Self.routeDescription($0, stops: record.stops.count) }
+
+        let notes = record.messages.filter { $0.fromRole == .volunteer }.compactMap { $0.text?.nonEmpty }
+        if notes.isEmpty {
+            messages = nil
+        } else {
+            let spokenTitle = "\(spokenPartner ?? "陪跑员")的留言"
+            messages = Messages(
+                title: "\(partner ?? "陪跑员")的留言",
+                spokenTitle: spokenTitle,
+                texts: notes,
+                readAloud: spokenTitle + "：" + notes.map { "。！？!?.…".contains($0.last!) ? $0 : $0 + "。" }.joined()
+            )
+        }
 
         guard let summary, record.status == .ready || record.status == .insufficientTrack else {
             narration = nil
@@ -315,6 +338,7 @@ struct RunnerRunRecordView: View {
     /// 与两个按钮的 `accessibilityIdentifier` 字面量一致（焦点移开就暂停靠它认按钮）。
     static let listenID = "runnerRunRecordListen"
     static let soundRouteID = "runnerRunRecordSoundRoute"
+    static let readMessagesID = "runnerRunRecordReadMessages"
 
     init(orderId: Int64) {
         _viewModel = StateObject(wrappedValue: RunRecordViewModel(orderId: orderId))
@@ -387,6 +411,9 @@ struct RunnerRunRecordView: View {
                             ForEach(content.splits, id: \.index) { RunnerSplitRow(row: $0) }
                         }
                     }
+                }
+                if let messages = content.messages {
+                    messagesBlock(messages)
                 }
                 if let geometry, let description = content.routeDescription {
                     section("路线") {
@@ -468,7 +495,7 @@ struct RunnerRunRecordView: View {
             Button {
                 showsTranscript = true
                 audio.activeControlIdentifier = Self.listenID
-                audio.toggleNarration(narration)
+                audio.toggleSpeech(narration)
             } label: {
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -560,6 +587,42 @@ struct RunnerRunRecordView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(AppColors.secondaryBackground))
+    }
+
+    // MARK: X的留言（阶段 6）
+
+    /// P0 没有「回复」：语音回复是 P1，文字回复没人要（负责人 2026-09-25）。
+    private func messagesBlock(_ messages: RunnerRunRecordContent.Messages) -> some View {
+        let reading = audio.state == .playing(.message)
+        let title = reading ? "停止朗读" : (audio.state == .paused(.message) ? "继续朗读" : "朗读留言")
+        return VStack(alignment: .leading, spacing: 12) {
+            Text(messages.title)
+                .font(AppFonts.title())
+                .foregroundColor(AppColors.textPrimary)
+                .accessibilityLabel(messages.spokenTitle)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(Array(messages.texts.enumerated()), id: \.offset) { _, text in
+                Text(text)
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Button {
+                audio.activeControlIdentifier = Self.readMessagesID
+                audio.toggleSpeech(messages.readAloud, as: .message)
+            } label: {
+                Label(title, systemImage: reading ? "stop.fill" : "play.fill")
+                    .font(AppFonts.body().weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel(title)
+            .accessibilityIdentifier("runnerRunRecordReadMessages")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("runnerRunRecordMessages")
     }
 
     static let soundRouteExplanation = "音调越高，跑得越快。声音在左右耳之间移动，跟着路线往东或往西走。每过一公里会响几声，响几声就是第几公里；中途休息时会响一声低音。建议戴耳机。"

@@ -674,6 +674,107 @@ final class AccessibilityAuditTests: XCTestCase {
         }
     }
 
+    // MARK: 跑后留言（阶段 6）
+
+    @MainActor
+    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication, swipes: Int = 10) {
+        for _ in 0..<swipes where !element.isHittable { app.swipeUp() }
+    }
+
+    /// 陪跑员：空白不发（看得见原因）→ 快捷短语填进输入框 → 发出去、出现在列表、确认句不说「打开时会听到」。
+    /// 跑者（Mock 默认带一条陪跑员留言）：「X的留言」一节在，「朗读留言」能开能停，没有回复按钮。
+    @MainActor
+    func testVolunteerSendsAMessageAndRunnerCanReadMessagesAloud() throws {
+        let app = launchVolunteerHome(extraEnvironment: Self.recordsSeed)
+        openVolunteerRunRecordDetail(app)
+        let send = app.buttons["runRecordMessageSend"]
+        scrollTo(send, in: app)
+        XCTAssertTrue(send.isHittable, "发送按钮不在")
+        send.tap()
+        let failed = app.descendants(matching: .any)["runRecordMessageFailed"].firstMatch
+        XCTAssertTrue(failed.waitForExistence(timeout: 5), "空白留言要说明原因")
+        XCTAssertEqual(failed.label, "先写一句话再发送。")
+
+        let phrase = app.buttons["快捷短语：节奏很稳"]
+        scrollTo(phrase, in: app)
+        phrase.tap()
+        let field = app.descendants(matching: .any)["runRecordMessageField"].firstMatch
+        XCTAssertEqual(field.value as? String, "节奏很稳。", "快捷短语要填进输入框")
+        scrollTo(send, in: app)
+        send.tap()
+        let sent = app.descendants(matching: .any)["runRecordMessageSent"].firstMatch
+        XCTAssertTrue(sent.waitForExistence(timeout: 10), "发送成功要有确认句")
+        // 姓名随 Mock 数据走，这里只钉句式和「读屏不念星号」。
+        XCTAssertTrue(sent.label.hasPrefix("已发送。") && sent.label.hasSuffix("在这条跑步记录里可以听到这句话。"), sent.label)
+        XCTAssertFalse(sent.label.contains("*"), sent.label)
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "我说：节奏很稳。")).firstMatch.exists,
+            "发出去的留言要出现在列表里"
+        )
+        app.terminate()
+
+        let runner = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
+        _ = openRunnerRunRecordDetail(runner)
+        let read = runner.buttons["runnerRunRecordReadMessages"]
+        scrollTo(read, in: runner)
+        XCTAssertTrue(read.isHittable, "「朗读留言」不在")
+        let title = runner.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "的留言")).firstMatch
+        XCTAssertTrue(title.exists, "留言一节的标题不在")
+        XCTAssertFalse(title.label.contains("*"), "读屏不念星号：\(title.label)")
+        XCTAssertFalse(
+            runner.buttons.matching(NSPredicate(format: "label CONTAINS %@", "回复")).firstMatch.exists,
+            "P0 没有回复按钮（负责人 2026-09-25）"
+        )
+        read.tap()
+        XCTAssertEqual(read.label, "停止朗读")
+        read.tap()
+        XCTAssertEqual(read.label, "朗读留言", "再点一次停止")
+    }
+
+    @MainActor
+    func testRunRecordMessagesScreenshotsInLightDarkAndLargestText() throws {
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax-xxxl", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        let realMap = ["AIDRUN_UI_TEST_DISABLE_MAP": "0"]
+        for variant in variants {
+            let environment = Self.recordsSeed.merging(variant.environment) { _, new in new }.merging(realMap) { _, new in new }
+            let app = launchVolunteerHome(extraEnvironment: environment, extraArguments: variant.arguments)
+            openVolunteerRunRecordDetail(app)
+            let send = app.buttons["runRecordMessageSend"]
+            scrollTo(send, in: app, swipes: 16)
+            attachScreenshot(app, name: "messages-volunteer-\(variant.name)-1-empty")
+            send.tap()
+            sleep(1)
+            attachScreenshot(app, name: "messages-volunteer-\(variant.name)-2-blank")
+            let phrase = app.buttons["快捷短语：下次试试再快一点"]
+            for _ in 0..<4 where !phrase.isHittable { app.swipeDown() }
+            if phrase.isHittable { phrase.tap() }
+            scrollTo(send, in: app)
+            send.tap()
+            sleep(1)
+            app.swipeUp()
+            attachScreenshot(app, name: "messages-volunteer-\(variant.name)-3-sent")
+            app.terminate()
+
+            let runner = launchBlindHome(emptyOrders: false, extraEnvironment: environment, extraArguments: variant.arguments)
+            _ = openRunnerRunRecordDetail(runner)
+            let read = runner.buttons["runnerRunRecordReadMessages"]
+            scrollTo(read, in: runner, swipes: 16)
+            attachScreenshot(runner, name: "messages-runner-\(variant.name)-1")
+            if read.isHittable {
+                read.tap()
+                sleep(1)
+                attachScreenshot(runner, name: "messages-runner-\(variant.name)-2-reading")
+                read.tap()
+            }
+            runner.terminate()
+        }
+    }
+
     /// 阶段收尾的三组截图（浅色 / 深色 / 最大字号 × 两个角色），附件在 result bundle 里。
     /// 不做像素断言：截图是给人看的证据，断言由上面两条用例负责。
     @MainActor

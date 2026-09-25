@@ -193,7 +193,11 @@ nonisolated struct RunRouteSonification: Equatable, Sendable {
 /// 开始一个就停掉另一个和 App 自己的播报；VoiceOver 焦点移开就暂停，回到按钮再点从暂停处继续。
 @MainActor
 final class RunRecordAudioController: NSObject, ObservableObject {
-    enum Source: Equatable { case narration, route }
+    /// `narration` 与 `message`（「朗读留言」）共用一个合成器，规则一样。
+    enum Source: Equatable {
+        case narration, message, route
+        var isSpeech: Bool { self != .route }
+    }
     enum State: Equatable {
         case idle
         case preparing(Source)
@@ -244,21 +248,22 @@ final class RunRecordAudioController: NSObject, ObservableObject {
         self.voice = voice
     }
 
-    // MARK: 讲述
+    // MARK: 讲述 / 朗读留言
 
-    func toggleNarration(_ text: String) {
+    func toggleSpeech(_ text: String, as source: Source = .narration) {
+        precondition(source.isSpeech)
         switch state {
-        case .playing(.narration):
+        case .playing(source):
             stop()
-        case .paused(.narration):
+        case .paused(source):
             synthesizer.continueSpeaking()
-            state = .playing(.narration)
+            state = .playing(source)
         default:
             stop()
             voice?.stop()
             let utterance = VoiceService.makeUtterance(text)
             self.utterance = utterance
-            state = .playing(.narration)
+            state = .playing(source)
             synthesizer.speak(utterance)
         }
     }
@@ -325,9 +330,9 @@ final class RunRecordAudioController: NSObject, ObservableObject {
 
     func pause() {
         switch state {
-        case .playing(.narration):
+        case .playing(let source) where source.isSpeech:
             synthesizer.pauseSpeaking(at: .word)
-            state = .paused(.narration)
+            state = .paused(source)
         case .playing(.route):
             player?.pause()
             ticker?.cancel()
@@ -355,7 +360,12 @@ final class RunRecordAudioController: NSObject, ObservableObject {
     fileprivate func narrationEnded(_ ended: AVSpeechUtterance) {
         guard ended === utterance else { return }
         utterance = nil
-        if state == .playing(.narration) || state == .paused(.narration) { state = .idle }
+        switch state {
+        case .playing(let source), .paused(let source):
+            if source.isSpeech { state = .idle }
+        default:
+            break
+        }
     }
 
     fileprivate func routeEnded() {

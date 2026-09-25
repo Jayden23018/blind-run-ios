@@ -151,8 +151,9 @@ extension MockAPIClient {
         guard request.type == RunRecordMessageType.text.rawValue else {
             throw APIError.serverError(ErrorResponse(code: "BAD_REQUEST", message: "本期只支持文字留言"))
         }
+        // 与后端同口径：`@NotBlank` + `@Size(max = 200)` 校验的是**原串**（Java `length()` = UTF-16 码元），存之前才去空白。
         let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (1...200).contains(text.count) else {
+        guard !text.isEmpty, request.text.utf16.count <= 200 else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "留言需为 1–200 字"))
         }
         let existing = runRecordMessages[orderId] ?? []

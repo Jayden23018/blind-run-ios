@@ -18,11 +18,26 @@ final class RunRecordViewModel: ObservableObject {
     /// 契约 `getRunRecord`：`GENERATING` 时「客户端 1–2 秒后重试」。
     static let generatingRetryNanoseconds: UInt64 = 2_000_000_000
 
+    /// 留言发送（OpenSpec `add-run-record-messages`）。草稿是视图状态，不在这里。
+    enum SendState: Equatable {
+        case idle
+        case sending
+        case sent
+        case failed(String)
+    }
+
+    /// 与后端 `@Size(max = 200)` 同口径：Java `String.length()` = UTF-16 码元。
+    static let messageMaxLength = 200
+
     @Published private(set) var phase: Phase = .loading
+    @Published private(set) var sendState: SendState = .idle
+    /// 本页发出去的留言。记录重读（GENERATING）后按 `id` 去重合并，不会出现两遍。
+    @Published private(set) var sentMessages: [RunRecordMessageResponse] = []
 
     let orderId: Int64
     private let retryNanoseconds: UInt64
     private weak var appState: AppState?
+    private weak var speech: SpeechService?
     private var runRecordOverride: (any RunRecordServing)?
 
     init(orderId: Int64, retryNanoseconds: UInt64 = generatingRetryNanoseconds) {
@@ -30,10 +45,87 @@ final class RunRecordViewModel: ObservableObject {
         self.retryNanoseconds = retryNanoseconds
     }
 
-    /// ⚠️ `appState` 是 weak：用例要自己持有它。`runRecord` 只给用例换替身。
-    func configure(with appState: AppState, runRecord: (any RunRecordServing)? = nil) {
+    /// ⚠️ `appState` / `speech` 是 weak：用例要自己持有。`runRecord` 只给用例换替身。
+    func configure(with appState: AppState, speech: SpeechService? = nil, runRecord: (any RunRecordServing)? = nil) {
         self.appState = appState
+        self.speech = speech
         self.runRecordOverride = runRecord
+    }
+
+    // MARK: 留言
+
+    /// 记录里的留言 + 本页发出的，按时间先后。
+    func messages(of record: RunRecordResponse) -> [RunRecordMessageResponse] {
+        let known = Set(record.messages.map(\.id))
+        return record.messages + sentMessages.filter { !known.contains($0.id) }
+    }
+
+    /// 去掉首尾空白后 1–200 个字才发；不合格返回要显示并念出来的原因。
+    static func draftProblem(_ draft: String) -> String? {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { return "先写一句话再发送。" }
+        if text.utf16.count > messageMaxLength {
+            return "留言最多 \(messageMaxLength) 个字，现在是 \(text.utf16.count) 个字。"
+        }
+        return nil
+    }
+
+    /// 发成功返回 true（调用方据此清空草稿）；失败时草稿留着，原因显示并念出来。
+    @discardableResult
+    func send(_ draft: String) async -> Bool {
+        guard sendState != .sending, let appState else { return false }
+        if let problem = Self.draftProblem(draft) {
+            fail(problem)
+            return false
+        }
+        sendState = .sending
+        let service = runRecordOverride ?? appState.runRecord
+        do {
+            let message = try await service.postMessage(
+                orderId: orderId,
+                text: draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            sentMessages.append(message)
+            sendState = .sent
+            return true
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) {
+                sendState = .idle
+                return false
+            }
+            fail("留言没有发出。" + Self.sendFailureReason(error))
+        } catch is CancellationError {
+            sendState = .idle
+        } catch {
+            fail("留言没有发出。请检查网络后再发一次。")
+        }
+        return false
+    }
+
+    /// 用户开始改草稿时，把上一次的「已发送 / 没发出」收起来。
+    func clearSendOutcome() {
+        if sendState != .sending { sendState = .idle }
+    }
+
+    static func sendFailureReason(_ error: APIError) -> String {
+        switch error {
+        case .networkError:
+            return "请检查网络后再发一次。"
+        case .serverError(let response):
+            switch response.errorCode {
+            case .invalidOrderStatus: return "这一单还没完成，暂时不能留言。"
+            case .notOrderParticipant: return "你不是这一单的参与者。"
+            case .orderNotFound: return "这一单已经不存在了。"
+            default: return error.localizedMessage
+            }
+        default:
+            return error.localizedMessage
+        }
+    }
+
+    private func fail(_ reason: String) {
+        sendState = .failed(reason)
+        speech?.speakError(reason)
     }
 
     /// 读到不是 `GENERATING` 为止；页面关掉（任务取消）就停。
