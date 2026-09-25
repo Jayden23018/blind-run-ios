@@ -139,6 +139,36 @@ final class SafetyServiceTests: XCTestCase {
         XCTAssertEqual(transport.requests.first?.path, "/api/orders/94/track")
     }
 
+    // MARK: - 播报位置
+
+    func testLocationAddressIsAGetOnTheOrdersOwnPath() async throws {
+        let transport = RecordingTransport()
+        transport.nextResponse = OrderLocationAddressResponse(degraded: true)
+
+        _ = try await SafetyService(transport: transport).orderLocationAddress(orderId: 95)
+
+        XCTAssertEqual(transport.requests.first?.method, .get)
+        XCTAssertEqual(transport.requests.first?.path, "/api/orders/95/location/address")
+    }
+
+    /// 裸对象，不走信封（契约原话）。`APIPayloadDecoder` 先试信封再退裸解，两种都要接得住。
+    func testLocationAddressDecodesTheBareObjectShape() throws {
+        let json = #"{"formattedAddress":"浙江省杭州市西湖区北山街","latitude":30.2593,"longitude":120.1480,"ageSeconds":28,"degraded":false}"#
+        let decoded = try APIPayloadDecoder.decodePayload(
+            OrderLocationAddressResponse.self, from: Data(json.utf8), decoder: JSONDecoder()
+        )
+        XCTAssertEqual(decoded.formattedAddress, "浙江省杭州市西湖区北山街")
+        XCTAssertEqual(decoded.ageSeconds, 28)
+
+        let nothing = try APIPayloadDecoder.decodePayload(
+            OrderLocationAddressResponse.self,
+            from: Data(#"{"formattedAddress":null,"latitude":null,"longitude":null,"ageSeconds":null,"degraded":true}"#.utf8),
+            decoder: JSONDecoder()
+        )
+        XCTAssertNil(nothing.latitude)
+        XCTAssertNil(nothing.ageSeconds, "读不到就是 nil，不许变成 0")
+    }
+
     // MARK: - Helpers
 
     static let emptyTrackJSON = #"{"status":"COMPLETED","volunteerTrack":[],"volunteerStats":{"distanceMeters":0,"durationSeconds":0,"avgPaceSecPerKm":null},"blindTrack":[],"blindStats":{"distanceMeters":0,"durationSeconds":0,"avgPaceSecPerKm":null}}"#

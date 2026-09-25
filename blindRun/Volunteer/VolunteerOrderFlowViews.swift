@@ -1693,6 +1693,7 @@ struct VolunteerInServiceView: View {
             deviceCoordinate: locationService.currentLocation,
             isAcknowledging: viewModel.isAcknowledgingEmergency,
             reverseGeocode: { await amapGeocodingService.reverseGeocode(coordinate: $0)?.title },
+            serverAddress: { try? await appState.safety.orderLocationAddress(orderId: $0) },
             onAcknowledge: { eventID in
                 Task { await viewModel.acknowledgeEmergency(eventID: eventID) }
             }

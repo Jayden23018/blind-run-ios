@@ -552,6 +552,47 @@ enum EmergencySafetyCopy {
         }
         return "你现在在\(name)附近。"
     }
+
+    /// 服务端坐标超过这个秒数就要说出它有多旧（`demo/docs/safety-hub-ui-spec.md` 屏 2）。
+    /// 跑步时 28 秒前和 1 秒前差着几百米，而从地址字符串上听不出来。
+    static let locationStaleAfterSeconds = 15
+
+    /// 「这是 N 秒前的位置。」`ageSeconds` 为 null 时不提 —— 不知道就不说，不编一个 0。
+    static func locationAgeNotice(_ ageSeconds: Int?) -> String? {
+        guard let ageSeconds, ageSeconds > locationStaleAfterSeconds else { return nil }
+        return "这是\(ageSeconds)秒前的位置。"
+    }
+
+    static func coordinateText(latitude: Double, longitude: Double) -> String {
+        String(format: "北纬%.4f、东经%.4f", latitude, longitude)
+    }
+
+    /// 盲人端「播报我的位置」走 `GET /api/orders/{id}/location/address` 时的答句（三种结果，恒 200）。
+    static func locationAnnouncement(server response: OrderLocationAddressResponse) -> String {
+        let age = locationAgeNotice(response.ageSeconds) ?? ""
+        if let address = response.formattedAddress?.nilIfBlank {
+            return locationAnnouncement(address) + age
+        }
+        if let latitude = response.latitude, let longitude = response.longitude {
+            return "暂时查不到地址。你的坐标是\(coordinateText(latitude: latitude, longitude: longitude))。" + age
+        }
+        return locationAnnouncement(nil)
+    }
+
+    /// 志愿者强提醒地址卡上「他在哪」那一行（拿到的是盲人的位置，不是自己的）。
+    /// nil = 连坐标都没有，调用方显示 `volunteerAlertLocationUnknown`。
+    static func volunteerAlertPlace(server response: OrderLocationAddressResponse) -> String? {
+        let place: String
+        if let address = response.formattedAddress?.nilIfBlank {
+            place = address
+        } else if let latitude = response.latitude, let longitude = response.longitude {
+            place = coordinateText(latitude: latitude, longitude: longitude)
+        } else {
+            return nil
+        }
+        guard let age = locationAgeNotice(response.ageSeconds) else { return place }
+        return "\(place)。\(age)"
+    }
 }
 
 /// 陪跑中求助中心里的那几项。

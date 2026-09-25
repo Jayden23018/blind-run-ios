@@ -253,22 +253,32 @@ final class BlindOrderStatusViewModel: ObservableObject {
     ///
     /// 🔴 **拿不到就说拿不到，不编。** 这一句会被用户逐字转述给 110 / 120 ——
     /// 一个猜出来的地名比没有地名危险得多。演示坐标同样一个字都不播（`isUsingDemoFallback`）。
+    ///
+    /// 两条来源，本机优先：本机定位是此刻的，服务端那份最旧 30 秒，而且只在出发 / 汇合 /
+    /// 陪跑中三态才有（匹配中、约好时求助中心同样开着）。本机拿不到或逆地理失败时才问
+    /// `GET /api/orders/{id}/location/address`（后端 #387 ①），并照它的 `ageSeconds` 说清新鲜度。
     func announceCurrentLocation() async {
-        guard let locationService,
-              !locationService.isUsingDemoFallback,
-              let coordinate = locationService.currentLocation else {
-            speechService?.speak(EmergencySafetyCopy.locationAnnouncement(nil), priority: .onDemand)
-            return
-        }
         // 逆地理要走一趟网络。先说一句进行时，否则按下去到出结果之间是一段静默 ——
         // 对看不见屏幕的人，静默就是「点了没反应」。答句回来时会盖掉它，那正是想要的
         // （`.onDemand` 同档相互打断，见 `AnnouncementPriority`）。
         speechService?.speak(EmergencySafetyCopy.locating, priority: .onDemand)
-        let place = await placeSearchProvider?.reverseGeocode(coordinate: coordinate)
-        // `title` 是 POI 名（「人民公园」），`addressText` 是街道级描述。优先念前者：
-        // 电话里说得清的是地标，不是一串门牌号。
-        let description = place.flatMap { $0.title.nilIfBlank ?? $0.addressText.nilIfBlank }
-        speechService?.speak(EmergencySafetyCopy.locationAnnouncement(description), priority: .onDemand)
+        if let locationService,
+           !locationService.isUsingDemoFallback,
+           let coordinate = locationService.currentLocation {
+            let place = await placeSearchProvider?.reverseGeocode(coordinate: coordinate)
+            // `title` 是 POI 名（「人民公园」），`addressText` 是街道级描述。优先念前者：
+            // 电话里说得清的是地标，不是一串门牌号。
+            if let description = place.flatMap({ $0.title.nilIfBlank ?? $0.addressText.nilIfBlank }) {
+                speechService?.speak(EmergencySafetyCopy.locationAnnouncement(description), priority: .onDemand)
+                return
+            }
+        }
+        guard let orderId = currentOrderId,
+              let response = try? await appState?.safety.orderLocationAddress(orderId: orderId) else {
+            speechService?.speak(EmergencySafetyCopy.locationAnnouncement(nil), priority: .onDemand)
+            return
+        }
+        speechService?.speak(EmergencySafetyCopy.locationAnnouncement(server: response), priority: .onDemand)
     }
 
     func startPolling(orderId: Int64) {

@@ -515,6 +515,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             if path.hasSuffix("/track") && method == .get {
                 return try handleGetOrderTrack(orderId: orderId)
             }
+            // Mock 进程里没有真实设备坐标，也不许编一个：一律走「定位不到」那一支（`AGENTS.md` §3）。
+            if path.hasSuffix("/location/address") && method == .get {
+                return OrderLocationAddressResponse(degraded: true)
+            }
             if path.hasSuffix("/run-record/messages") && method == .post {
                 return try handlePostRunRecordMessage(orderId: orderId, body: body)
             }

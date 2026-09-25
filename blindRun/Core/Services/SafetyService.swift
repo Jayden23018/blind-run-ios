@@ -22,6 +22,8 @@ enum SafetyEndpoint {
     case volunteerEmergencyResponse(eventId: Int64)
     /// 结束后的轨迹回放。**盲人与志愿者共用**，权限由后端按订单参与方判。
     case orderTrack(orderId: Int64)
+    /// 「播报位置」。两端拿到的**都是盲人**的位置；恒返 200，降级走 `degraded`。
+    case orderLocationAddress(orderId: Int64)
     /// 事后工单。**两端都能提**（契约逐字：「只让盲人提，等于让志愿者的问题永远没有出口」）。
     ///
     /// 🚨 它**不是**紧急求助入口，契约的 description 里专门写了这一句：
@@ -43,6 +45,8 @@ enum SafetyEndpoint {
             return EndpointRequest(.put, "/api/emergency/\(eventId)/volunteer-response")
         case .orderTrack(let orderId):
             return EndpointRequest(.get, "/api/orders/\(orderId)/track")
+        case .orderLocationAddress(let orderId):
+            return EndpointRequest(.get, "/api/orders/\(orderId)/location/address")
         case .orderDetail(let orderId):
             return EndpointRequest(.get, "/api/orders/\(orderId)")
         case .supportTicket:
@@ -78,6 +82,9 @@ protocol SafetyServing: Sendable {
 
     // 轨迹
     func orderTrack(orderId: Int64) async throws -> OrderTrackResponse
+
+    // 播报位置（盲人的位置，两端都能调）
+    func orderLocationAddress(orderId: Int64) async throws -> OrderLocationAddressResponse
 
     // 事后工单
     func submitSupportTicket(_ request: SupportTicketRequest) async throws
@@ -146,6 +153,10 @@ struct SafetyService: SafetyServing {
 
     func orderTrack(orderId: Int64) async throws -> OrderTrackResponse {
         try await transport.send(SafetyEndpoint.orderTrack(orderId: orderId).request)
+    }
+
+    func orderLocationAddress(orderId: Int64) async throws -> OrderLocationAddressResponse {
+        try await transport.send(SafetyEndpoint.orderLocationAddress(orderId: orderId).request)
     }
 
     /// 后端回 201 + 工单对象，客户端**一个字段都用不上**（没有工单列表页，也不做进度查询）

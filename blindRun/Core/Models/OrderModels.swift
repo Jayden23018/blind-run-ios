@@ -872,6 +872,20 @@ struct ActiveOrderEnvelope: Codable, Sendable {
     let data: OrderDetailResponse?
 }
 
+/// `GET /api/orders/{id}/location/address` 的裸响应体（不走 `ApiResponse` 信封）。
+///
+/// 两端拿到的**都是盲人**的位置。后端恒返 200，三种结果共用这一个形状：
+/// 有地址 / 只有坐标 / 什么都没有（`latitude == nil`）。坐标是 GCJ-02，只拿来念，不参与任何计算。
+/// `degraded` 非可选：它是契约里唯一的 required 字段，缺了说明响应不是这个端点的。
+struct OrderLocationAddressResponse: Codable, Sendable, Equatable {
+    var formattedAddress: String? = nil
+    var latitude: Double? = nil
+    var longitude: Double? = nil
+    /// 坐标是几秒前上报的（0–30）。null = 不知道，**不当成 0**。
+    var ageSeconds: Int? = nil
+    let degraded: Bool
+}
+
 /// `PUT /api/emergency/{eventId}/cancel` 的裸响应体（`{success, eventId, status}`）。
 /// 受助者本人撤销误触的唯一出口；志愿者没有撤销权（403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`）。
 struct EmergencyCancelResponse: Codable, Sendable, Equatable {
