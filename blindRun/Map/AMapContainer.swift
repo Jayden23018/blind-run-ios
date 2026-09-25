@@ -577,6 +577,11 @@ struct AMapContainer: UIViewRepresentable {
 /// and can keep AttributeGraph evaluating the entire home page.
 final class AMapHostView: UIView {
     let mapView: MAMapView
+    /// 审图号（后端 issue #382）。《地图审核管理规定》第二十七条要求标在地图左下角，
+    /// 取值是高德 SDK 自带的底图审图号 —— 开了自定义样式（`customMapStyleEnabled`）SDK 会返回 nil，
+    /// `AMapApprovalNumberTests` 钉着我们没开。叠在高德 logo 正上方，不和它重叠。
+    /// 读屏隐藏：这是给看屏幕的人的合规标注，「关于」页有一份能念的。
+    let approvalNumberLabel = UILabel()
 
     init(mapView: MAMapView) {
         self.mapView = mapView
@@ -590,6 +595,32 @@ final class AMapHostView: UIView {
             mapView.topAnchor.constraint(equalTo: topAnchor),
             mapView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+        approvalNumberLabel.font = .preferredFont(forTextStyle: .caption2)
+        approvalNumberLabel.adjustsFontForContentSizeCategory = true
+        approvalNumberLabel.textColor = UIColor(AppColors.textSecondary)
+        approvalNumberLabel.isAccessibilityElement = false
+        addSubview(approvalNumberLabel)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // 开了自定义样式，SDK 的审图号就是 nil，左下角会悄悄变空。真要开，得先拿到自定义样式自己的审图号。
+        assert(!mapView.customMapStyleEnabled, "自定义地图样式会让审图号变空（issue #382）")
+        if approvalNumberLabel.text == nil {
+            approvalNumberLabel.text = AMapManager.mapContentApprovalNumber(from: mapView)
+        }
+        mapView.layoutIfNeeded()
+        let logoSize = mapView.logoSize
+        // logo 还没摆好时按左下角 8pt 兜底。
+        let logoTop = logoSize == .zero ? bounds.maxY - 4 : mapView.logoCenter.y - logoSize.height / 2
+        let logoLeft = logoSize == .zero ? 8 : mapView.logoCenter.x - logoSize.width / 2
+        let size = approvalNumberLabel.sizeThatFits(bounds.size)
+        approvalNumberLabel.frame = CGRect(
+            x: logoLeft,
+            y: logoTop - size.height - 2,
+            width: min(size.width, max(bounds.width - logoLeft, 0)),
+            height: size.height
+        )
     }
 
     @available(*, unavailable)

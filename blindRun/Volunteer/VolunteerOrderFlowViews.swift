@@ -2588,6 +2588,14 @@ struct AboutAidRunView: View {
                     .foregroundColor(AppColors.textSecondary)
             }
 
+            // 地图左下角那行读屏是隐藏的，这里给一份能念的（后端 issue #382）。
+            if let approvalNumber = AMapManager.mapContentApprovalNumber() {
+                Section {
+                    LabeledContent("地图审图号", value: approvalNumber)
+                        .accessibilityIdentifier("aboutMapApprovalNumber")
+                }
+            }
+
             LegalDocumentsSection(links: appState.legalLinks)
         }
         .navigationTitle("关于")

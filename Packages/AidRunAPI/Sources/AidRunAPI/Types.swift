@@ -2244,11 +2244,16 @@ public enum Components {
             public var runningPace: Swift.String?
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/specialNeeds`.
             public var specialNeeds: Swift.String?
+            /// 可显式传 `NOT_SPECIFIED`（未提供，#326）；不带这个键则保留原值
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/visionLevel`.
             @frozen public enum visionLevelPayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case TOTAL_BLIND = "TOTAL_BLIND"
                 case LOW_VISION = "LOW_VISION"
+                case NOT_SPECIFIED = "NOT_SPECIFIED"
             }
+            /// 可显式传 `NOT_SPECIFIED`（未提供，#326）；不带这个键则保留原值
+            ///
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/visionLevel`.
             public var visionLevel: Components.Schemas.BlindProfileUpdateRequest.visionLevelPayload?
             /// - Remark: Generated from `#/components/schemas/BlindProfileUpdateRequest/hasGuideDog`.
@@ -2285,7 +2290,7 @@ public enum Components {
             ///   - name:
             ///   - runningPace:
             ///   - specialNeeds:
-            ///   - visionLevel:
+            ///   - visionLevel: 可显式传 `NOT_SPECIFIED`（未提供，#326）；不带这个键则保留原值
             ///   - hasGuideDog:
             ///   - tetherPreference:
             ///   - chatPreference:
@@ -3983,26 +3988,42 @@ public enum Components {
                 case specialNotes
             }
         }
+        /// `rating`（旧五星）与 `level`（三档，#347）**二选一必填**：都不传、都传均返回 400。 三档口径：`GOOD` 按 5 分、`OK` 按 4 分进志愿者均分；`PROBLEM` **不进均分**、 志愿者看不到，进客服复核（`GET /api/cs/reviews?level=PROBLEM`）。
+        ///
         /// - Remark: Generated from `#/components/schemas/CreateReviewRequest`.
         public struct CreateReviewRequest: Codable, Hashable, Sendable {
+            /// 旧五星入参，保留兼容已发版客户端
+            ///
             /// - Remark: Generated from `#/components/schemas/CreateReviewRequest/rating`.
-            public var rating: Swift.Int32
+            public var rating: Swift.Int32?
+            /// - Remark: Generated from `#/components/schemas/CreateReviewRequest/level`.
+            @frozen public enum levelPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case GOOD = "GOOD"
+                case OK = "OK"
+                case PROBLEM = "PROBLEM"
+            }
+            /// - Remark: Generated from `#/components/schemas/CreateReviewRequest/level`.
+            public var level: Components.Schemas.CreateReviewRequest.levelPayload?
             /// - Remark: Generated from `#/components/schemas/CreateReviewRequest/comment`.
             public var comment: Swift.String?
             /// Creates a new `CreateReviewRequest`.
             ///
             /// - Parameters:
-            ///   - rating:
+            ///   - rating: 旧五星入参，保留兼容已发版客户端
+            ///   - level:
             ///   - comment:
             public init(
-                rating: Swift.Int32,
+                rating: Swift.Int32? = nil,
+                level: Components.Schemas.CreateReviewRequest.levelPayload? = nil,
                 comment: Swift.String? = nil
             ) {
                 self.rating = rating
+                self.level = level
                 self.comment = comment
             }
             public enum CodingKeys: String, CodingKey {
                 case rating
+                case level
                 case comment
             }
         }
@@ -4998,6 +5019,7 @@ public enum Components {
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case TOTAL_BLIND = "TOTAL_BLIND"
                     case LOW_VISION = "LOW_VISION"
+                    case NOT_SPECIFIED = "NOT_SPECIFIED"
                 }
                 /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/visionLevel/value1`.
                 public var value1: Components.Schemas.OrderDetailResponse.visionLevelPayload.Value1Payload?
@@ -5482,8 +5504,7 @@ public enum Components {
                 case blindStats
             }
         }
-        /// 志愿者成就页数据。**刻意没有**：累计里程（要先在订单上落完成时的统计快照，
-        /// 否则跨订单求和会把 OOM 风险搬进成就页）、积分/兑换（运营决策）、
+        /// 志愿者成就页数据。**刻意没有**：积分/兑换（运营决策）、
         /// 勋章解锁时间（库里没有痕迹，宁可不给也不编）。
         ///
         /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse`.
@@ -5567,6 +5588,12 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/starLevel`.
             public var starLevel: Components.Schemas.VolunteerAchievementsResponse.starLevelPayload?
+            /// 累计里程（**米**，与 `actualDistanceMeters` 同单位，取整成公里由客户端做）。**恒非 null**，无数据为 0。
+            /// 口径：这位志愿者全部 `COMPLETED` 订单的完赛快照 `actualDistanceMeters` 之和，快照为 null 的按 0 算
+            /// （2026-08-14 之前完成的订单没有快照，会少算）。#348 新增。
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/totalDistanceMeters`.
+            public var totalDistanceMeters: Swift.Int64?
             /// Creates a new `VolunteerAchievementsResponse`.
             ///
             /// - Parameters:
@@ -5577,6 +5604,7 @@ public enum Components {
             ///   - badges: 已解锁的勋章（未解锁的不出现在列表里）。
             ///   - nextBadge: 下一枚未解锁的勋章及进度，**全部解锁时为 null**
             ///   - starLevel: 国标星级（GB/T 40143—2021）。**恒非 null**，未达一星时 `current = 0`
+            ///   - totalDistanceMeters: 累计里程（**米**，与 `actualDistanceMeters` 同单位，取整成公里由客户端做）。**恒非 null**，无数据为 0。
             public init(
                 totalCompleted: Swift.Int32? = nil,
                 totalServiceMinutes: Swift.Int64? = nil,
@@ -5584,7 +5612,8 @@ public enum Components {
                 totalRatings: Swift.Int32? = nil,
                 badges: [Components.Schemas.VolunteerBadgeDto]? = nil,
                 nextBadge: Components.Schemas.VolunteerAchievementsResponse.nextBadgePayload? = nil,
-                starLevel: Components.Schemas.VolunteerAchievementsResponse.starLevelPayload? = nil
+                starLevel: Components.Schemas.VolunteerAchievementsResponse.starLevelPayload? = nil,
+                totalDistanceMeters: Swift.Int64? = nil
             ) {
                 self.totalCompleted = totalCompleted
                 self.totalServiceMinutes = totalServiceMinutes
@@ -5593,6 +5622,7 @@ public enum Components {
                 self.badges = badges
                 self.nextBadge = nextBadge
                 self.starLevel = starLevel
+                self.totalDistanceMeters = totalDistanceMeters
             }
             public enum CodingKeys: String, CodingKey {
                 case totalCompleted
@@ -5602,6 +5632,7 @@ public enum Components {
                 case badges
                 case nextBadge
                 case starLevel
+                case totalDistanceMeters
             }
         }
         /// 下一枚未解锁的勋章 —— 画进度条用。
@@ -6331,6 +6362,7 @@ public enum Components {
             /// 与 `pacePreference` / `hasGuideDogThisRun` 同类；自由文本仍推迟到接单后。
             ///
             /// `null` = 盲人档案缺失。**客户端不要脑补默认值** —— 把「不知道」显示成「全盲」同样是错的。
+            /// `NOT_SPECIFIED` = 档案在但盲人没提供（#326，新建档的默认值），同样别显示成「全盲」。
             ///
             /// 🚨 **不进派单过滤或排序**，与 pace 三项同一条红线：它是给人看的行动提示，
             /// 一旦进了打分就变成「按残障程度挑单」。
@@ -6342,6 +6374,7 @@ public enum Components {
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case TOTAL_BLIND = "TOTAL_BLIND"
                     case LOW_VISION = "LOW_VISION"
+                    case NOT_SPECIFIED = "NOT_SPECIFIED"
                 }
                 /// - Remark: Generated from `#/components/schemas/AvailableOrderResponse/visionLevel/value1`.
                 public var value1: Components.Schemas.AvailableOrderResponse.visionLevelPayload.Value1Payload?
@@ -6398,6 +6431,7 @@ public enum Components {
             /// 与 `pacePreference` / `hasGuideDogThisRun` 同类；自由文本仍推迟到接单后。
             ///
             /// `null` = 盲人档案缺失。**客户端不要脑补默认值** —— 把「不知道」显示成「全盲」同样是错的。
+            /// `NOT_SPECIFIED` = 档案在但盲人没提供（#326，新建档的默认值），同样别显示成「全盲」。
             ///
             /// 🚨 **不进派单过滤或排序**，与 pace 三项同一条红线：它是给人看的行动提示，
             /// 一旦进了打分就变成「按残障程度挑单」。
@@ -7020,6 +7054,7 @@ public enum Components {
                 @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
                     case TOTAL_BLIND = "TOTAL_BLIND"
                     case LOW_VISION = "LOW_VISION"
+                    case NOT_SPECIFIED = "NOT_SPECIFIED"
                 }
                 /// - Remark: Generated from `#/components/schemas/BlindProfileResponse/visionLevel/value1`.
                 public var value1: Components.Schemas.BlindProfileResponse.visionLevelPayload.Value1Payload?
@@ -12003,9 +12038,10 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 评分缺失或越界，errorCode `VALIDATION_ERROR`。
-            /// `rating` 上有 `@NotNull @Min(1) @Max(5)`，Bean Validation 先于 service 层校验执行，
-            /// 所以越界永远是 `VALIDATION_ERROR`，**不会**是 `BAD_REQUEST`。
+            /// `rating` 与 `level` 都没传 / 都传了 / `rating` 越界，errorCode `VALIDATION_ERROR`。
+            /// `rating` 上有 `@Min(1) @Max(5)`、二选一由 `@AssertTrue` 校验，Bean Validation 先于
+            /// service 层执行，所以这几种永远是 `VALIDATION_ERROR`，**不会**是 `BAD_REQUEST`。
+            /// `level` 不是 `GOOD/OK/PROBLEM` 之一时 JSON 反序列化就失败，errorCode `INVALID_REQUEST_BODY`。
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/review/post(createReview)/responses/400`.
             ///
