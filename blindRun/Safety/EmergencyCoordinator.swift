@@ -34,6 +34,9 @@ struct VolunteerEmergencyAlert: Equatable, Sendable {
     /// 而志愿者正据此判断「这事刚发生还是我漏看了很久」。
     let receivedAt: Date
     var isAcknowledged = false
+    /// 服务端算的两人距离（只在档位可用时才有）。本机定位拿不到时的兜底 ——
+    /// 锁屏推送刚把手机唤醒、GPS 还冷着的那几秒，恰恰是这条告警最常见的到达场景。
+    var serverDistanceMeters: Double?
 
     init(
         eventID: Int64,
@@ -41,7 +44,8 @@ struct VolunteerEmergencyAlert: Equatable, Sendable {
         message: String,
         coordinate: LocatedCoordinate? = nil,
         receivedAt: Date = Date(),
-        isAcknowledged: Bool = false
+        isAcknowledged: Bool = false,
+        serverDistanceMeters: Double? = nil
     ) {
         self.eventID = eventID
         self.orderID = orderID
@@ -49,6 +53,26 @@ struct VolunteerEmergencyAlert: Equatable, Sendable {
         self.coordinate = coordinate
         self.receivedAt = receivedAt
         self.isAcknowledged = isAcknowledged
+        self.serverDistanceMeters = serverDistanceMeters
+    }
+
+    /// 「距你多远」，只给分档（`DistanceCalculator.proximityBand`），不给精确数字。
+    ///
+    /// 本机实时定位优先 —— 服务端那份用的是志愿者最近一次上报，最旧可能 30 秒。
+    /// 两份都没有就返回 nil、整行不显示，**不猜**：「就在附近」会让他以为人就在脚边。
+    func distanceText(from device: CLLocationCoordinate2D?) -> String? {
+        let meters: CLLocationDistance
+        if let peer = coordinate, let device {
+            meters = DistanceCalculator.distanceFromDeviceToBackend(
+                deviceCoordinate: device,
+                backendCoordinate: peer.coordinate
+            )
+        } else if let serverDistanceMeters {
+            meters = serverDistanceMeters
+        } else {
+            return nil
+        }
+        return "距你\(DistanceCalculator.proximityBand(meters))"
     }
 }
 
@@ -208,8 +232,9 @@ final class EmergencyCoordinator: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     /// Supplied by `AppState` so the coordinator can recover an event it never saw the trigger for
-    /// (volunteer-initiated SOS, cold start, reconnect). Returns `nil` when recovery does not apply —
-    /// `GET /api/emergency/active` is `BLIND`-only, so a volunteer session must not call it at all.
+    /// (volunteer-initiated SOS, cold start, reconnect). Returns `nil` outside the blind role:
+    /// on a volunteer session the same endpoint answers a different question (the *runner's*
+    /// event), which `refreshVolunteerAlert(safety:)` handles — it must not land in `activeEvent`.
     private var recoverySafetyProvider: (() -> (any SafetyServing)?)?
 
     // MARK: Wiring
@@ -278,6 +303,44 @@ final class EmergencyCoordinator: ObservableObject {
         } catch {
             return
         }
+    }
+
+    /// 志愿者端的冷启动 / 重连恢复：把「对方正在求助」那条强提醒找回来（后端 #387 ②）。
+    ///
+    /// 此前只有盲人调 `GET /api/emergency/active`，于是志愿者 App 被杀掉再打开，
+    /// 强提醒再也回不来 —— WS 的 `EMERGENCY_*` 不带 `eventId`，补读反推不出来。
+    /// 2026-09-15 起后端对志愿者开放，返回的是**他正在陪的那位盲人**的事件。
+    ///
+    /// - 没有未结束事件 → 收起本地告警（断线期间已被本人 / 客服结束）。
+    /// - `COUNTDOWN` → 同样当没有：求助还没发出，在线的志愿者此刻也收不到告警。
+    /// - `volunteerConfirmedAt` 非空 → 他已经确认过，只恢复状态，不再弹全屏。
+    ///
+    /// 恢复出来的告警没有坐标（契约：这个端点一律不给原始坐标），地址行会如实说拿不到。
+    /// 失败静默，理由同 `refreshActiveEvent`。
+    func refreshVolunteerAlert(safety: any SafetyServing, now: Date = Date()) async {
+        guard let envelope = try? await safety.activeEmergency() else { return }
+        guard let event = envelope.data, !event.eventStatus.isTerminal, !event.isCountingDown else {
+            volunteerAlert = nil
+            return
+        }
+        let acknowledged = event.volunteerConfirmedAt != nil
+        if var existing = volunteerAlert, existing.eventID == event.id {
+            // 同一条已经在屏上（WS 先到了）：别换掉它 —— WS 那份带坐标和距离。
+            if acknowledged, !existing.isAcknowledged {
+                existing.isAcknowledged = true
+                volunteerAlert = existing
+            }
+            return
+        }
+        volunteerAlert = VolunteerEmergencyAlert(
+            eventID: event.id,
+            orderID: event.orderId,
+            message: EmergencySafetyCopy.volunteerAlertNotice,
+            // 从触发时刻起算，「刚刚」和「已经过去几分钟」对他是两种判断。
+            // 夹到不晚于本机此刻：两端时钟差出来的「-3 秒前」比「0 秒前」更糟。
+            receivedAt: min(event.triggeredAt?.backendTimestamp ?? now, now),
+            isAcknowledged: acknowledged
+        )
     }
 
     // MARK: Cancel (owner only)
@@ -525,7 +588,7 @@ final class EmergencyCoordinator: ObservableObject {
     /// 会把一个**已经生效**的求助说成被拒绝。查询是只读的，没有这一类代价，
     /// 而 `GET /api/emergency/active` 本来就是「事件 id 与当前状态的唯一权威来源」（契约原话）。
     ///
-    /// 查不到（或这一侧根本没有查询权限，比如志愿者）就老老实实保留失败态 ——
+    /// 查不到（或这一侧没装恢复入口，比如志愿者 —— 他问到的是对方的事件，不是自己这一条）就老老实实保留失败态 ——
     /// 对账失败不许制造任何救援状态。
     private func reconcile(after failure: EmergencySOSState) async -> TriggerOutcome {
         _ = finish(failure)
@@ -558,7 +621,8 @@ final class EmergencyCoordinator: ObservableObject {
                     eventID: eventID,
                     orderID: event.orderID,
                     message: event.displayText,
-                    coordinate: event.coordinate
+                    coordinate: event.coordinate,
+                    serverDistanceMeters: event.serverDistanceMeters
                 )
             }
             return

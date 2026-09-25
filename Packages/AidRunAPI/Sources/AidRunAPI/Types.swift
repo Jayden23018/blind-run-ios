@@ -2106,14 +2106,37 @@ public enum Components {
                 case endTime
             }
         }
+        /// 混合语义：`name` 必填，其余字段都是 PATCH 语义（`null` / 不传 = 保留原值）。
+        ///
+        /// | 字段 | 不传 / `null` | 传值 |
+        /// |---|---|---|
+        /// | `name` | **400**（必填） | 覆盖 |
+        /// | `availableTimeSlots` | 保留原值 | 整体替换；`[]` = 清空全部时段 |
+        /// | `acceptsGuideDog` / `paceRange` / `wantsDispatch` | 保留原值 | 覆盖 |
+        ///
+        /// ⚠️ 2026-09-25 起（#350）`availableTimeSlots` 不传不再清空。此前不传也会删掉全部时段、照样返回 200，
+        /// 而时间重叠是派单的硬过滤 ⇒ 志愿者会静默收不到派单。
+        ///
+        /// ⚠️ `name` 必填（DTO `@NotBlank`，不传返回 400），但**刻意不写进 `required` 数组**：
+        /// oasdiff 契约门把「请求字段变必填」判为破坏性变更（`request-property-became-required`），
+        /// 而服务端行为从来就是必填，改的只是文档 —— 为此绕门不值得，也免得 iOS 生成代码的签名跟着变。
+        ///
         /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest`.
         public struct VolunteerProfileUpdateRequest: Codable, Hashable, Sendable {
+            /// 必填（不传或空白返回 400），见 schema 描述里的说明
+            ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/name`.
             public var name: Swift.String?
+            /// 不传 / `null` = 保留原值；传数组 = 整体替换（`[]` = 清空）。时段不许跨零点（`startTime` 必须早于 `endTime`，否则 400）
+            ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/availableTimeSlots`.
             public var availableTimeSlots: [Components.Schemas.VolunteerAvailableTimeSlot]?
+            /// 是否接受携带导盲犬的订单。不传 = 保留原值
+            ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/acceptsGuideDog`.
             public var acceptsGuideDog: Swift.Bool?
+            /// 可适应的配速档位。不传 = 保留原值
+            ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/paceRange`.
             @frozen public enum paceRangePayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case WALK_RUN = "WALK_RUN"
@@ -2122,31 +2145,41 @@ public enum Components {
                 case FAST = "FAST"
                 case NO_PREFERENCE = "NO_PREFERENCE"
             }
+            /// 可适应的配速档位。不传 = 保留原值
+            ///
             /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/paceRange`.
             public var paceRange: Components.Schemas.VolunteerProfileUpdateRequest.paceRangePayload?
+            /// 是否开启接单。不传 = 保留原值；`false` 时仍可浏览订单，但不能接单
+            ///
+            /// - Remark: Generated from `#/components/schemas/VolunteerProfileUpdateRequest/wantsDispatch`.
+            public var wantsDispatch: Swift.Bool?
             /// Creates a new `VolunteerProfileUpdateRequest`.
             ///
             /// - Parameters:
-            ///   - name:
-            ///   - availableTimeSlots:
-            ///   - acceptsGuideDog:
-            ///   - paceRange:
+            ///   - name: 必填（不传或空白返回 400），见 schema 描述里的说明
+            ///   - availableTimeSlots: 不传 / `null` = 保留原值；传数组 = 整体替换（`[]` = 清空）。时段不许跨零点（`startTime` 必须早于 `endTime`，否则 400）
+            ///   - acceptsGuideDog: 是否接受携带导盲犬的订单。不传 = 保留原值
+            ///   - paceRange: 可适应的配速档位。不传 = 保留原值
+            ///   - wantsDispatch: 是否开启接单。不传 = 保留原值；`false` 时仍可浏览订单，但不能接单
             public init(
                 name: Swift.String? = nil,
                 availableTimeSlots: [Components.Schemas.VolunteerAvailableTimeSlot]? = nil,
                 acceptsGuideDog: Swift.Bool? = nil,
-                paceRange: Components.Schemas.VolunteerProfileUpdateRequest.paceRangePayload? = nil
+                paceRange: Components.Schemas.VolunteerProfileUpdateRequest.paceRangePayload? = nil,
+                wantsDispatch: Swift.Bool? = nil
             ) {
                 self.name = name
                 self.availableTimeSlots = availableTimeSlots
                 self.acceptsGuideDog = acceptsGuideDog
                 self.paceRange = paceRange
+                self.wantsDispatch = wantsDispatch
             }
             public enum CodingKeys: String, CodingKey {
                 case name
                 case availableTimeSlots
                 case acceptsGuideDog
                 case paceRange
+                case wantsDispatch
             }
         }
         /// POST 新增：`name` 与 `phone` 必填（由服务端手动校验，缺失返回 400）。
@@ -5198,6 +5231,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerTotalCompleted`.
             public var volunteerTotalCompleted: Swift.Int?
+            /// 已接单志愿者的资质审核是否已通过（2026-09-25 新增，#337）。取 `VolunteerProfile.verified`。 **与志愿者自己看到的 `verificationStatus == APPROVED` 是同一件事**：两者在管理员审核时同时置位、 在志愿者重新上传证件时同时重置。⚠️ 例外：迁移 `0007` 把资质门槛恢复前已注册完成的存量志愿者 **未经人工审核**直接置成了 `true`，所以 `true` 不严格等于「被人审过」。它也是接单硬门槛，所以接单那一刻恒为 `true`； 之后被管理员驳回会变成 `false`。 🚨 **`null` = 不知道**（未接单，或档案查不到），**不是**「未认证」。 客户端在 `null` 时不显示认证标识，也不要给默认值 —— 默认印「已认证」就是伪造信任标识。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerVerified`.
+            public var volunteerVerified: Swift.Bool?
             /// 这一单当前是否有生效中的行程分享链接。 🚨 **只对下单的盲人本人下发；志愿者视角恒为 `null`**（不是 `false`）。 客户端据此渲染「停止分享」入口 —— 此前该状态只记在客户端本地， App 被杀 / 换设备 / 重装后，告知页承诺的「你可以随时停止分享」就静默失效。 为什么志愿者拿不到：本仓库的威胁模型是「陪跑中志愿者可能就是威胁来源」， 下发这个字段等于告诉一个潜在的坏人**这趟有没有人在看**，`false` 比 `true` 危险得多。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/shareActive`.
@@ -5270,6 +5307,7 @@ public enum Components {
             ///   - volunteerAvgRating: 已接单志愿者的历史平均评分（1–5）。**未接单时为 null**（三个 volunteer* 统计字段 都挂在 `order.volunteer` 上，`PENDING_MATCH`/`REMATCHING`/`NO_VOLUNTEER`/`CANCELLED` 期它本就是 null ⇒「接单前不下发可识别信息」是结构上成立的，不靠调用方判状态）。 🚨 **null 与 0 语义完全不同**：null = 这位志愿者还没有收到过评价（`volunteerTotalRatings` 为 0）， 客户端要念「这位志愿者还没有评价」；念成「0 分」是把一个新人说成了差评。
             ///   - volunteerTotalRatings: 已接单志愿者收到过的评价条数。0 是真实的 0（新人），不是缺数据；未接单时为 null。
             ///   - volunteerTotalCompleted: 已接单志愿者累计完成的陪跑单数。未接单时为 null。 ⚠️ **纯展示，不进派单权重** —— 文案上别写成「完成得多更容易接到单」。
+            ///   - volunteerVerified: 已接单志愿者的资质审核是否已通过（2026-09-25 新增，#337）。取 `VolunteerProfile.verified`。 **与志愿者自己看到的 `verificationStatus == APPROVED` 是同一件事**：两者在管理员审核时同时置位、 在志愿者重新上传证件时同时重置。⚠️ 例外：迁移 `0007` 把资质门槛恢复前已注册完成的存量志愿者 **未经人工审核**直接置成了 `true`，所以 `true` 不严格等于「被人审过」。它也是接单硬门槛，所以接单那一刻恒为 `true`； 之后被管理员驳回会变成 `false`。 🚨 **`null` = 不知道**（未接单，或档案查不到），**不是**「未认证」。 客户端在 `null` 时不显示认证标识，也不要给默认值 —— 默认印「已认证」就是伪造信任标识。
             ///   - shareActive: 这一单当前是否有生效中的行程分享链接。 🚨 **只对下单的盲人本人下发；志愿者视角恒为 `null`**（不是 `false`）。 客户端据此渲染「停止分享」入口 —— 此前该状态只记在客户端本地， App 被杀 / 换设备 / 重装后，告知页承诺的「你可以随时停止分享」就静默失效。 为什么志愿者拿不到：本仓库的威胁模型是「陪跑中志愿者可能就是威胁来源」， 下发这个字段等于告诉一个潜在的坏人**这趟有没有人在看**，`false` 比 `true` 危险得多。
             ///   - shareExpiresAt: 生效中分享链接的到期时刻；`shareActive` 为 true 时才有值，同样只对盲人本人下发。 ⚠️ 该值在**建立令牌时一次算定**（`max(plannedEndTime, now) + app.share.ttl-after-end-hours`）， **不随订单被 keep-waiting 反复延长而重算** —— 跑得比计划久很多时链接会先到期， 盲人重新生成一个即可。客户端可据此做到期前提示，但不要假设它会自己往后延。
             ///   - actualDistanceMeters: **完赛实际里程（米）**，订单进 `COMPLETED` 时算一次落库（迁移 `0022`）。2026-08-14 新增。
@@ -5309,6 +5347,7 @@ public enum Components {
                 volunteerAvgRating: Swift.Double? = nil,
                 volunteerTotalRatings: Swift.Int? = nil,
                 volunteerTotalCompleted: Swift.Int? = nil,
+                volunteerVerified: Swift.Bool? = nil,
                 shareActive: Swift.Bool? = nil,
                 shareExpiresAt: Foundation.Date? = nil,
                 actualDistanceMeters: Swift.Int32? = nil,
@@ -5348,6 +5387,7 @@ public enum Components {
                 self.volunteerAvgRating = volunteerAvgRating
                 self.volunteerTotalRatings = volunteerTotalRatings
                 self.volunteerTotalCompleted = volunteerTotalCompleted
+                self.volunteerVerified = volunteerVerified
                 self.shareActive = shareActive
                 self.shareExpiresAt = shareExpiresAt
                 self.actualDistanceMeters = actualDistanceMeters
@@ -5388,6 +5428,7 @@ public enum Components {
                 case volunteerAvgRating
                 case volunteerTotalRatings
                 case volunteerTotalCompleted
+                case volunteerVerified
                 case shareActive
                 case shareExpiresAt
                 case actualDistanceMeters

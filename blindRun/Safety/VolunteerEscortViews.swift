@@ -411,12 +411,7 @@ struct VolunteerEmergencyAlertView: View {
     }
 
     private var distanceText: String? {
-        guard let peer = alert.coordinate, let deviceCoordinate else { return nil }
-        let meters = DistanceCalculator.distanceFromDeviceToBackend(
-            deviceCoordinate: deviceCoordinate,
-            backendCoordinate: peer.coordinate
-        )
-        return "距你\(DistanceCalculator.proximityBand(meters))"
+        alert.distanceText(from: deviceCoordinate)
     }
 
     private func resolvePlaceIfPossible() async {

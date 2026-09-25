@@ -11,7 +11,7 @@ import SwiftUI
 /// 4. **点开推送进来** —— 进程可能是刚起来的。
 ///
 /// 这四条的数据侧已经有了：`AppState.catchUpMissedNotifications()` 会先调
-/// `refreshActiveEvent()`（仅盲人有该端点权限），而它是「事件 id 与当前状态的唯一权威来源」。
+/// `refreshActiveEvent()`（盲人侧；志愿者侧走 `refreshVolunteerAlert`），而它是「事件 id 与当前状态的唯一权威来源」。
 /// **缺的一直是界面侧** —— 恢复出来的状态此前只体现为执行屏底部那一行小字，
 /// 而一个正在进行的求助不该只是一行小字。
 ///

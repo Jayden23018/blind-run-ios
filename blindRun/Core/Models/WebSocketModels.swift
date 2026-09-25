@@ -319,6 +319,17 @@ nonisolated struct WSEmergencyVolunteerAlert: Codable, Sendable {
     let gpsLat: Double?
     let gpsLng: Double?
     let timestamp: String?
+    /// 服务端算的两人距离（`websocket-protocol.md` EMERGENCY_VOLUNTEER_ALERT）。只拿来分档，不上屏。
+    var distanceMeters: Double? = nil
+    /// `NEARBY` / `CLOSE` / `FAR` / `UNKNOWN`，开放枚举，所以是 `String`。
+    var distanceBand: String? = nil
+
+    /// 能当兜底用的服务端距离。`UNKNOWN` 与不认识的档位一律当没有 ——
+    /// 契约原话：UNKNOWN 时不要显示「0 米」或「就在附近」，整行不显示。
+    var fallbackDistanceMeters: Double? {
+        guard let distanceBand, ["NEARBY", "CLOSE", "FAR"].contains(distanceBand) else { return nil }
+        return distanceMeters
+    }
 }
 
 // MARK: - Parsed WebSocket Event
