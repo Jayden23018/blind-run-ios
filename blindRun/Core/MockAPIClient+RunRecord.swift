@@ -76,7 +76,11 @@ extension MockAPIClient {
             ),
             // 只给跑者（D6）。
             comparison: isBlind ? RunComparison(previousOrderId: orderId - 1, previousDistanceM: 2_900, deltaDistanceM: 300) : nil,
-            messages: runRecordMessages[orderId] ?? [],
+            // 跑者那一侧默认带一条陪跑员留言：讲述的最后一句要读它（HANDOFF 6.3 第 2 条）。
+            // 谁发过一条（阶段 6）就换成真实发出的那些。
+            messages: runRecordMessages[orderId] ?? (isBlind ? [RunRecordMessageResponse(
+                id: 1, fromRole: .volunteer, type: .text, text: "今天节奏很稳，第二公里你跑得特别好，下周六还一起跑。", createdAt: at(1_500)
+            )] : []),
             track: hasTrack ? RunTrack(coordSystem: "GCJ02", startedAt: startedAt, points: points) : nil
         )
     }
@@ -147,8 +151,9 @@ extension MockAPIClient {
         guard request.type == RunRecordMessageType.text.rawValue else {
             throw APIError.serverError(ErrorResponse(code: "BAD_REQUEST", message: "本期只支持文字留言"))
         }
+        // 与后端同口径：`@NotBlank` + `@Size(max = 200)` 校验的是**原串**（Java `length()` = UTF-16 码元），存之前才去空白。
         let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (1...200).contains(text.count) else {
+        guard !text.isEmpty, request.text.utf16.count <= 200 else {
             throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "留言需为 1–200 字"))
         }
         let existing = runRecordMessages[orderId] ?? []
