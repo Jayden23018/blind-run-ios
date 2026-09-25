@@ -82,18 +82,51 @@ struct VolunteerInviteSupplement: Equatable, Sendable {
     let visionLevel: String?
     let tetherPreference: String?
     let expectedDurationMinutes: Int?
+    var chatPreference: String? = nil
+    var routePreference: String? = nil
+    /// nil = 后端没给，**什么都不显示**；0 = 第一次一起跑。见 `togetherText`。
+    var completedTogetherCount: Int? = nil
 
-    init(visionLevel: String?, tetherPreference: String?, expectedDurationMinutes: Int?) {
+    init(
+        visionLevel: String?,
+        tetherPreference: String?,
+        expectedDurationMinutes: Int?,
+        chatPreference: String? = nil,
+        routePreference: String? = nil,
+        completedTogetherCount: Int? = nil
+    ) {
         self.visionLevel = visionLevel
         self.tetherPreference = tetherPreference
         self.expectedDurationMinutes = expectedDurationMinutes
+        self.chatPreference = chatPreference
+        self.routePreference = routePreference
+        self.completedTogetherCount = completedTogetherCount
     }
 
     init(_ order: AvailableOrderResponse) {
         self.init(
             visionLevel: order.visionLevel,
             tetherPreference: order.tetherPreference,
-            expectedDurationMinutes: order.expectedDurationMinutes
+            expectedDurationMinutes: order.expectedDurationMinutes,
+            chatPreference: order.chatPreference,
+            routePreference: order.routePreference,
+            completedTogetherCount: order.completedTogetherCount
+        )
+    }
+
+    /// 直接从派单推送取（后端 #306 起 `NEW_ORDER` 自带这几项）。推送里一项都没有（老服务端）时
+    /// 返回 nil，由 `merge` 照旧从 `GET /api/orders/available` 补。
+    init?(_ order: WSNewOrder) {
+        guard order.visionLevel != nil || order.tetherPreference != nil || order.chatPreference != nil
+            || order.routePreference != nil || order.completedTogetherCount != nil
+            || order.expectedDurationMinutes != nil else { return nil }
+        self.init(
+            visionLevel: order.visionLevel,
+            tetherPreference: order.tetherPreference,
+            expectedDurationMinutes: order.expectedDurationMinutes,
+            chatPreference: order.chatPreference,
+            routePreference: order.routePreference,
+            completedTogetherCount: order.completedTogetherCount
         )
     }
 
@@ -130,7 +163,29 @@ struct VolunteerInviteSupplement: Equatable, Sendable {
     /// **不照设计稿写「用引导绳」** —— 为一处措辞抄第二份必然漂移，而「引导方式说法不一致」
     /// 不会有任何东西报警。
     var runnerSummary: String? {
-        escortNeeds.map(\.value).joined(separator: "，").nilIfBlank
+        (escortNeeds.map(\.value) + preferenceTexts).joined(separator: "，").nilIfBlank
+    }
+
+    /// 「路上想不想聊 / 想跑什么路」。`NO_PREFERENCE` 与认不出的取值**不占字** ——
+    /// 这两项不像视力与牵引那样决定见面那一刻做什么，一句「无偏好」在 30 秒的打断里只是噪音。
+    var preferenceTexts: [String] {
+        var texts: [String] = []
+        if let chat = chatPreference.flatMap(ChatPreference.init(rawValue:)), chat != .noPreference {
+            texts.append(chat.displayName)
+        }
+        if let route = routePreference.flatMap(RoutePreference.init(rawValue:)),
+           route != .noPreference, route != .unknown {
+            texts.append("想跑\(route.displayName)")
+        }
+        return texts
+    }
+
+    /// 跑者行右边那个标签（「有合作经验，已经一起跑过几次」那条需求，后端 #306）。
+    /// nil = 后端没给 → 不显示；0 → 「第一次一起跑」；N → 「一起跑过 N 次」。
+    /// 口径是一起**跑完**的单，接了又取消的不算。
+    var togetherText: String? {
+        guard let count = completedTogetherCount, count >= 0 else { return nil }
+        return count == 0 ? "第一次一起跑" : "一起跑过 \(count) 次"
     }
 
     /// 「跑多久」那一行的值。`nil` = 后端没这个数，那一行不渲染。

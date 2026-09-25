@@ -298,6 +298,19 @@ nonisolated struct WSNewOrder: Codable, Sendable {
     var paceMaxSecondsPerKm: Int?
     var plannedDistanceMeters: Int?
 
+    /// 邀请卡跑者行那几项（后端 #306，2026-09-18 起两个入口都有）。前四项档案缺失时**整键不出现**，
+    /// 缺 = 那一项不渲染，**不脑补默认值**（把「不知道」显示成「全盲」同样是错的）。
+    /// 全部接成 `String?`：开放枚举，认不出的取值由展示层兜底，不许整条派单解不出来。
+    var visionLevel: String?
+    var tetherPreference: String?
+    var chatPreference: String?
+    var routePreference: String?
+    /// 你和这位盲人一起跑完过几单。契约里**必填、0 也下发**；可选只为缺键时不崩 ——
+    /// 缺键 = 什么都不显示，`0` = 「第一次一起跑」，两者在卡片上说的话不同。
+    var completedTogetherCount: Int?
+    /// 预计时长（#357，2026-09-25 起在推送里）。与 `AvailableOrderResponse` 同名同值。
+    var expectedDurationMinutes: Int?
+
     /// 收到这条派单时该发的 `action`。「发哪个」只在这里判一次。
     ///
     /// `false` 的三种成因（通话功能整体关闭 / 这两人已磨合成功过 / 距开跑已不够聊一轮）
