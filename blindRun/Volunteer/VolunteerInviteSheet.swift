@@ -482,19 +482,17 @@ struct VolunteerInviteCard: View {
 
     /// 跑者行（§4.4.2 第 7 项）。**拿不到就整行不渲染。**
     ///
-    /// 内容来自 `GET /api/orders/available`（`VolunteerInviteSupplement`）——
-    /// 派单推送里没有视力与引导方式这两项。补不到时不占位、不编：
+    /// 内容来自 `VolunteerInviteSupplement`：优先取派单推送自带的几项（后端 #306 起），
+    /// 老服务端再由 `GET /api/orders/available` 补。补不到时不占位、不编：
     /// 给还没见面的陪跑员印一个猜的视力程度，见面第一下就会抓错人。
     ///
-    /// 🚩 **头像圆里是「跑」不是姓氏，右边也没有「一起跑过 N 次」标签**，两样都不是漏了：
-    /// - 掩码姓名：`AvailableOrderResponse` 没有 `blindName`（`IntroCallView.counterpartName`
-    ///   里有，但那要表态「有意向」之后才可读）；
-    /// - 一起跑过 N 次：后端按 `(blindUserId, volunteerId, COMPLETED)` 现算，只挂在盲人侧端点，
-    ///   而接单前客户端连 `blindUserId` 都拿不到。
-    /// 两条都已投 handoff。
+    /// 右边的「一起跑过 N 次 / 第一次一起跑」标签来自 `completedTogetherCount`（后端 #306），
+    /// 后端没给时不显示。头像圆里仍是「跑」不是姓氏 —— 掩码姓名 `blindName` 是 #357 那一条，另做。
     @ViewBuilder
     private var runnerRow: some View {
-        if let summary = invite.supplement?.runnerSummary {
+        let summary = invite.supplement?.runnerSummary
+        let together = invite.supplement?.togetherText
+        if summary != nil || together != nil {
             HStack(spacing: 9) {
                 FlowAvatar(
                     name: nil,
@@ -508,16 +506,29 @@ struct VolunteerInviteCard: View {
                     Text(VolunteerOrderFlowCopy.runnerLabel)
                         .flowFont(FlowFonts.inviteRunnerName())
                         .foregroundColor(AppColors.Flow.primaryText)
-                    Text(summary)
-                        .flowFont(FlowFonts.inviteRunnerDetail())
-                        .foregroundColor(AppColors.Flow.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let summary {
+                        Text(summary)
+                            .flowFont(FlowFonts.inviteRunnerDetail())
+                            .foregroundColor(AppColors.Flow.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 Spacer(minLength: 0)
+
+                if let together {
+                    Text(together)
+                        .flowFont(FlowFonts.inviteRunnerDetail())
+                        .foregroundColor(AppColors.Flow.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.trailing)
+                }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(VolunteerOrderFlowCopy.runnerLabel)，\(summary)")
+            .accessibilityLabel(
+                ([VolunteerOrderFlowCopy.runnerLabel, summary, together].compactMap { $0 })
+                    .joined(separator: "，")
+            )
         }
     }
 

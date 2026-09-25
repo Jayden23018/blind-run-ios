@@ -590,6 +590,10 @@ struct AvailableOrderResponse: Codable, Sendable {
     let visionLevel: String?
     let tetherPreference: String?
     let expectedDurationMinutes: Int?
+    /// 与 `WSNewOrder` 同口径的三项（后端 #306）。`var` 只为 memberwise init 给 nil 默认值。
+    var chatPreference: String? = nil
+    var routePreference: String? = nil
+    var completedTogetherCount: Int? = nil
 }
 
 // MARK: - Order Create

@@ -680,7 +680,8 @@ final class VolunteerHomeViewModel: ObservableObject {
             expiresAt: expiresAt,
             remainingSeconds: remaining,
             outcome: nil,
-            supplement: supplement,
+            // 推送自带就用推送的（后端 #306 / #357 起全都有）；老服务端才等 `/available` 来补。
+            supplement: supplement ?? VolunteerInviteSupplement(order),
             arrivedDuringEscort: mode == .stashedDuringRun
         )
         invites.append(invite)
