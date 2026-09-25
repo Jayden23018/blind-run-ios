@@ -852,7 +852,7 @@ struct VolunteerOrderDetailView: View {
     private func completedTrackSection(_ order: OrderDetailResponse) -> some View {
         if order.status == .completed {
             if let track = trackViewModel.track {
-                CompletedTrackSummaryView(track: track) {
+                CompletedTrackSummaryView(track: track, recordOrderId: order.orderId, role: .volunteer) {
                     speechService.speak(track.spokenSummary)
                 }
             } else if trackViewModel.isLoading {
@@ -2002,7 +2002,7 @@ struct VolunteerInServiceView: View {
     private var completedTrackContent: some View {
         ScrollView {
             if let track = trackViewModel.track {
-                CompletedTrackSummaryView(track: track) {
+                CompletedTrackSummaryView(track: track, recordOrderId: orderId, role: .volunteer) {
                     speechService.speak(track.spokenSummary)
                 }
                 .padding(20)
@@ -2049,88 +2049,6 @@ struct VolunteerInServiceView: View {
             }
         }
         .background(AppColors.background)
-    }
-}
-
-// MARK: - Service Records
-
-@MainActor
-final class VolunteerServiceRecordsViewModel: ObservableObject {
-    @Published var records: [VolunteerServiceRecord] = []
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-
-    private weak var appState: AppState?
-    private var speechService: SpeechService?
-
-    func configure(with appState: AppState, speechService: SpeechService) {
-        self.appState = appState
-        self.speechService = speechService
-    }
-
-    func load() async {
-        guard let appState else { return }
-        isLoading = records.isEmpty
-        errorMessage = nil
-        do {
-            let paged = try await appState.orders.myOrders()
-            records = paged.content
-                .filter { [.completed, .cancelled].contains($0.status) }
-                .map(VolunteerServiceRecord.init(order:))
-                .sorted { $0.sortKey > $1.sortKey }
-            isLoading = false
-        } catch let error as APIError {
-            isLoading = false
-            if appState.handleAuthenticatedAPIError(error) {
-                return
-            }
-            errorMessage = error.localizedMessage
-            speechService?.speakError(error.localizedMessage)
-        } catch {
-            isLoading = false
-            errorMessage = "加载失败，下拉重试"
-            speechService?.speakError("加载失败，下拉重试")
-        }
-    }
-}
-
-struct VolunteerServiceRecordsView: View {
-    @EnvironmentObject private var appState: AppState
-    @EnvironmentObject private var speechService: SpeechService
-    @StateObject private var viewModel = VolunteerServiceRecordsViewModel()
-
-    var body: some View {
-        List {
-            if viewModel.isLoading {
-                ProgressView("正在加载服务记录...")
-                    .accessibilityLabel("正在加载服务记录")
-            } else if viewModel.records.isEmpty {
-                EmptyStateView(title: "暂无服务记录", message: "完成服务后记录将显示在这里。开启可服务状态后，系统会自动派单。")
-            } else {
-                ForEach(viewModel.records) { record in
-                    NavigationLink {
-                        VolunteerReadOnlyOrderView(order: record.order)
-                    } label: {
-                        VolunteerServiceRecordRow(record: record)
-                    }
-                    .accessibilityLabel(record.accessibilityLabel)
-                }
-            }
-
-            if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .foregroundColor(AppColors.destructive)
-                    .accessibilityLabel(errorMessage)
-            }
-        }
-        .navigationTitle("服务记录")
-        .task {
-            viewModel.configure(with: appState, speechService: speechService)
-            await viewModel.load()
-        }
-        .refreshable {
-            await viewModel.load()
-        }
     }
 }
 
@@ -3811,7 +3729,7 @@ struct VolunteerReadOnlyOrderView: View {
                 VolunteerBlindRunnerInfoCard(order: order, showPhone: order.status != .pendingMatch && order.blindPhone?.trimmed.isEmpty == false)
                 VolunteerOrderInfoSection(order: order, distanceText: nil)
                 if order.status == .completed, let track = trackViewModel.track {
-                    CompletedTrackSummaryView(track: track) {
+                    CompletedTrackSummaryView(track: track, recordOrderId: order.orderId, role: .volunteer) {
                         speechService.speak(track.spokenSummary)
                     }
                 } else if trackViewModel.isLoading {

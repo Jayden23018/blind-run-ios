@@ -518,7 +518,7 @@ final class LiveEscortTrackTests: XCTestCase {
         let coordinator = LiveEscortSessionCoordinator(
             realtimeCoordinator: realtime,
             reportInterval: 60,
-            sendLocation: { _, _ in
+            sendLocation: { _, _, _ in
                 await withUnsafeContinuation { (_: UnsafeContinuation<Void, Never>) in }
             }
         )
@@ -622,7 +622,7 @@ final class LiveEscortTrackTests: XCTestCase {
         let coordinator = LiveEscortSessionCoordinator(
             realtimeCoordinator: realtime,
             reportInterval: 60,
-            sendLocation: { _, sample in
+            sendLocation: { _, sample, _ in
                 sent.append(sample)
                 if sent.count == 1 {
                     await withCheckedContinuation { continuation in
@@ -699,7 +699,7 @@ final class LiveEscortTrackTests: XCTestCase {
         let coordinator = LiveEscortSessionCoordinator(
             realtimeCoordinator: realtime,
             reportInterval: 0.05,
-            sendLocation: { _, sample in sent.append(sample) }
+            sendLocation: { _, sample, _ in sent.append(sample) }
         )
         let service = WebSocketService()
         service.simulateConnectionStateForTesting(.connected)
@@ -784,7 +784,7 @@ final class LiveEscortTrackTests: XCTestCase {
         let coordinator = LiveEscortSessionCoordinator(
             realtimeCoordinator: realtime,
             reportInterval: 0.05,
-            sendLocation: { _, sample in sent.append(sample) }
+            sendLocation: { _, sample, _ in sent.append(sample) }
         )
         let service = WebSocketService()
         service.simulateConnectionStateForTesting(.connecting)
@@ -855,7 +855,7 @@ final class LiveEscortTrackTests: XCTestCase {
             // 而 `waitUntil` 的轮询粒度就是 50ms —— 周期本身只有 50ms 时，
             // 「立刻发了」和「等了一个周期才发」在轮询眼里是同一件事，判不出来。
             reportInterval: 0.5,
-            sendLocation: { _, sample in sent.append(sample) }
+            sendLocation: { _, sample, _ in sent.append(sample) }
         )
         let service = WebSocketService()
         service.simulateConnectionStateForTesting(.connected)

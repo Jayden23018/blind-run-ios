@@ -13,6 +13,8 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 | `aidrun-error-codes` | 处理 API 错误、写 TTS 错误播报、新增错误分支 |
 | `aidrun-ship-check` | 实现完成、准备提交、准备宣称「做完了 / 测试通过」 |
 | `aidrun-contract-sync` | 后端契约变了、pre-push 报「生成代码与契约不同步」、判契约新字段要不要接入 |
+| `openspec-propose` | 要动的功能**行为会变**，而 `openspec/changes/` 下还没有对应变更时 |
+| `openspec-archive-change` | 某个变更的 `tasks.md` 全打勾了 —— 归档是闭环终点，**别停在最后一步** |
 | `swiftui-pro` | 写 / 审 SwiftUI 代码时。**第三方**（Paul Hudson，MIT，`.claude/skills/swiftui-pro/`），装在 2026-09-02，见 `docs/research/claude-code-setup-for-ios-a11y-20260902.md` |
 
 ⚠️ `swiftui-pro` 的 `SKILL.md` 里写着「iOS 26 是新 App 的默认部署目标」「Target Swift 6.2 or later」——
@@ -74,6 +76,8 @@ Anthropic 官方 cookbook 的 `<frontend_aesthetics>` 块逐字要求避开
 | 真机跑测 `Test crashed with signal kill`，跑了大半随机死几条 | `ui-test-runner-needs-usb-not-wifi`（第七种） |
 | 写了「失败时在 `List` 末尾多一行字」的分支 | `claimed-fallback-may-not-exist-in-release` |
 | 想用 `tap()` 触发 `accessibilityRepresentation` 里的按钮 | `xcuitest-cannot-invoke-accessibility-actions` |
+| 自定义 overlay 弹出时背后的 `TabView` / `NavigationStack` 仍在无障碍树里 | `hide-uikit-hosted-tree-from-accessibility` |
+| `List` 里的行被审计判「改不了字号」，但最大字号截图里字明明放大了 | `list-rows-false-dynamic-type-audit` |
 
 > 2026-09-17 从长条目压成表。原因：这 7 条各自**存了三份**（本文件长版 + `MEMORY.md` 一行版 +
 > 记忆文件全文），而本文件每个会话常驻、每一轮按 cache read 价重读一遍。
@@ -302,8 +306,8 @@ REMATCHING → CANCELLED（只能盲人 token）
 ## 7. 外部 API 契约
 
 - **契约唯一源在后端仓库** `/Users/mac/Downloads/demo`：REST 看 `docs/api_spec.yaml`，WebSocket 看 `docs/websocket-protocol.md`。本仓库**不留副本**。
-- 契约工作用 `claude --add-dir /Users/mac/Downloads/demo` 挂载。契约文档本身错了就去后端仓库改，不要在这里存第二份。
-- 需要后端拍板的问题写进 `demo/docs/handoff.md` 的「待后端确认」。
+- 契约工作用 `claude --add-dir /Users/mac/Downloads/demo` 挂载。**读它的 origin/main**（`git -C /Users/mac/Downloads/demo show origin/main:docs/api_spec.yaml`），别读工作区 —— 那是共享 checkout，常停在别人的分支上。契约文档本身错了就去后端仓库改，不要在这里存第二份。
+- 需要后端拍板的问题开后端仓库的 issue：`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff`。后端问我们的在 `gh issue list --repo Jayden23018/blind-run-backend --label 待前端确认`。（`demo/docs/handoff.md` 2026-09-24 起冻结只读，只当历史决策记录查）
 - 错误码语义见 skill `aidrun-error-codes`；机器可读版本是 `docs/error-codes.json`。
 
 ## 8. iOS 硬规则
@@ -378,12 +382,14 @@ REMATCHING → CANCELLED（只能盲人 token）
 > 而没人会发现：`BlindRunHistoryView` 因此在 review 里挂着「已实现」三天，
 > 连上线前检查单都把它列进了演示视频「可以放心拍」。判活口径见 PR #27。
 > 同一次删掉了这里原有的 `fork` remote / 双推两条告警 —— §11 在 08-12 已改口径，
-> 而 `install-git-hooks.sh:233-237` 现在会主动清掉双推配置：照着那两条做会被安装脚本撤销。
+> 而 `install-git-hooks.sh` 末尾「推送目标：只推 origin」那段现在会主动清掉双推配置：照着那两条做会被安装脚本撤销。
 
 **实现中**
 
 4. 一次只实现一个内聚模块
-5. 行为有变时，实现前先确认对应 spec
+5. **行为有变时，实现前 `openspec/changes/` 下必须有对应变更** —— `openspec list` 找现成的，没有就用
+   skill `openspec-propose` 建；实现中做完一项勾一项。不改变行为（修 bug / 文案 / 重构）不需要提议。
+   第一次改 App 源码时 `scripts/hooks/openspec-reminder.mjs` 会自动提醒一次（非阻断）。
 6. **改任何文件前，自己把要改的那部分读一遍** —— 探索可以外包，编辑不行。
    「读一遍」按文件大小分两种，别对 3000 行的 View 整读：
 
@@ -402,15 +408,23 @@ REMATCHING → CANCELLED（只能盲人 token）
 
 **收尾：三件事，缺一件都不算做完**
 
-7. 跑测试、更新必要文档，按 skill `aidrun-ship-check` 的格式输出
-8. **同步 handoff**（`demo/docs/handoff.md`）：
-   - 全文近 3000 行，**只读末尾最新几条**（`tail -80`）或用 `grep -n "^- \[ \]"` 定位未答项，**不要整读**
-   - 本轮答掉的问题：`- [ ]` 改 `- [x]`，答案写在 `答：` 后面；**不删除已答条目**，历史是决策记录
-   - 本轮新产生的、需要后端拍板的问题：追加到「待后端确认」，每条带日期 / 提问方 / 具体到文件行号或端点的上下文 / 明确的问题
+7. 跑测试、更新必要文档，按 skill `aidrun-ship-check` 的格式输出；**变更的任务全打勾就在同一个 PR 里
+   `openspec archive <name> -y`**（skill `openspec-archive-change`）—— 归档才是闭环终点
+8. **交接**（后端仓库 GitHub Issues，2026-09-24 起替代 `demo/docs/handoff.md`）：
+   - 本轮答掉的 `待前端确认` issue：`gh issue comment <n> --repo Jayden23018/blind-run-backend --body-file a.md` 写答复，再 `gh issue close`
+   - 本轮新产生的、需要后端拍板的问题：`gh issue create --repo Jayden23018/blind-run-backend --label 待后端确认 --label handoff --body-file q.md`，
+     一个问题一个 issue，正文带具体到文件行号或端点的上下文 + 明确的问题
    - 契约本身的变更不写这里 —— 直接改后端 `docs/api_spec.yaml`
+   > 为什么换：handoff.md 涨到 15,630 行，6 个后端 PR 因「同一批答复做了两遍、要解 1000+ 行冲突」被关掉，
+   > 09-16 后的 44 条待答项还落在「已归档」之后没人看见。冻结时 74 条未答项已迁成 issue #306–#379。
+   > 详见后端 `docs/research/workflow-review-20260924.md` A6
 9. **commit**：`type: 描述`（type 取 feat/fix/refactor/docs/test/chore/perf/ci）。**不带 `Co-Authored-By`**（`~/.claude/settings.json` 的 `includeCoAuthoredBy: false` 已全局关闭，不要手动加回来）
 10. **push**
 
+> OpenSpec 闭环（2026-09-23 立，项目负责人要求「提议 → 实现 → 归档」每次自动走完）也在同一个钩子里：
+> 任务全打勾却没归档 → 硬拦；本轮改了 App 源码却没碰 `openspec/changes/` → 拦一次，
+> 回一句「不改变行为」即可放行。判据只在 `openspec-reminder.mjs` 一处，本文件不抄。
+>
 > 第 9–10 步由 Stop 钩子 `scripts/hooks/stop-checklist.mjs` 强制：**本轮写过的文件没提交**或
 > **领先 origin** 时拦住本次停止并列出欠账。一次停止只拦一次，用户说「先不提交」时
 > 回一句说明再停即可，不会死循环。

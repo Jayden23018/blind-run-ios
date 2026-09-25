@@ -335,11 +335,13 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(fullScreenLink.waitForExistence(timeout: 5), "Track summary must offer a full-screen route entry")
         fullScreenLink.tap()
 
-        let replay = app.descendants(matching: .any)["orderRouteReplay"].firstMatch
-        XCTAssertTrue(replay.waitForExistence(timeout: 10), "Tapping the entry should open the full-screen route replay")
+        // D13：陪跑员这条链接进跑后详情，不再进 `OrderRouteReplayView`。
+        let detail = app.descendants(matching: .any)["volunteerRunRecordDetail"].firstMatch
+        XCTAssertTrue(detail.waitForExistence(timeout: 10), "陪跑员点「查看跑后详情」应进新的跑后详情页")
+        XCTAssertFalse(app.descendants(matching: .any)["orderRouteReplay"].firstMatch.exists)
         XCTAssertTrue(
-            app.descendants(matching: .any)["routeReplayRepeatStatus"].firstMatch.waitForExistence(timeout: 5),
-            "The replay page must stay usable without inspecting the map"
+            app.descendants(matching: .any)["runRecordDistance"].firstMatch.waitForExistence(timeout: 10),
+            "跑后详情要有距离，不能只有地图"
         )
     }
 
@@ -681,6 +683,11 @@ final class blindRunUITests: XCTestCase {
             app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch.exists,
             "邀请卡盖住的那一屏不该还留在无障碍树里\n\(app.debugDescription)"
         )
+        // 标签栏是 UIKit 的，和首页不是同一条屏蔽路径能不能盖住的问题 —— 单独断。
+        XCTAssertFalse(
+            app.tabBars.firstMatch.exists,
+            "邀请卡盖住的标签栏也不该还留在无障碍树里\n\(app.debugDescription)"
+        )
 
         // 🔴 **「查看详情」是这条用例唯一会点的东西，而它必须点。**
         // 这一跳是从**自定义 overlay** 里再弹一个 `fullScreenCover`
@@ -706,6 +713,39 @@ final class blindRunUITests: XCTestCase {
             accept.waitForExistence(timeout: 10),
             "从详情页返回之后邀请卡还在，倒计时没有停"
         )
+    }
+
+    /// 上一条的另一半：屏蔽是**跟着卡片走**的，卡片收起后被盖住的那一屏必须回到无障碍树里。
+    ///
+    /// 屏蔽在 UIKit 侧置空了 tab bar controller 的子元素列表（`TabBarAccessibilityHider`），
+    /// 没有这一条的话「忘了恢复」的表现是：卡片收起、屏幕上一切正常，而读屏用户整个首页和
+    /// 标签栏都摸不到 —— 比没屏蔽更糟。收起走的是点压暗层（「不回复，先收起来」），
+    /// 不发任何派单响应，所以这条不会变成在验别的东西。
+    @MainActor
+    func testMockVolunteerInviteSheetGivesTheScreenBehindBackOnceDismissed() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            seedInvites: 1
+        )
+
+        let accept = app.buttons["接下这次陪跑"].firstMatch
+        XCTAssertTrue(accept.waitForExistence(timeout: 20), "邀请卡应当自动弹出\n\(app.debugDescription)")
+        let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
+        XCTAssertFalse(identityRow.exists, "前提：卡片在的时候首页不在树里\n\(app.debugDescription)")
+
+        // 压暗层本身对读屏隐藏，只能点坐标：屏幕上沿那一截是压暗层，卡片从底部升起够不到。
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+
+        XCTAssertTrue(
+            identityRow.waitForExistence(timeout: 10),
+            "卡片收起后首页必须回到无障碍树里\n\(app.debugDescription)"
+        )
+        XCTAssertFalse(accept.exists, "点压暗层应当收起卡片")
+        XCTAssertTrue(app.tabBars.firstMatch.exists, "卡片收起后标签栏必须回到无障碍树里")
     }
 
     /// 志愿者端**只有一屏**：身份 → 作业区 → 影响力 → 徽章 → 最近陪跑 → 派单状态。
@@ -916,7 +956,7 @@ final class blindRunUITests: XCTestCase {
         //
         // XCUITest 是黑盒，进不了 app 的类型 —— 导航栏标题只能抄一份。
         // 抄错的方向是安全的：生产改了文案而这里没跟，断言会红不会绿。
-        let recordsButton = app.buttons["我的服务记录"].firstMatch
+        let recordsButton = app.buttons["我的陪跑记录"].firstMatch
         let recognitionButton = app.buttons["查看服务成就"].firstMatch
         let settingsButton = app.buttons["设置"].firstMatch
 
@@ -935,7 +975,7 @@ final class blindRunUITests: XCTestCase {
 
         XCTAssertTrue(scrollElementIntoView(recordsButton, app: app), "最近陪跑「全部 ›」应当可达")
         recordsButton.tap()
-        XCTAssertTrue(app.navigationBars["服务记录"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["陪跑记录"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -1246,6 +1286,121 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch.waitForExistence(timeout: 8))
     }
 
+    /// 🔴 退出登录 / 删除账户进行中那层进度遮罩盖住的整个根视图，必须退出无障碍树；
+    /// 状态结束后必须回来。
+    ///
+    /// 遮罩是自定义 overlay（`SessionLifecycleStatusModifier`），不像系统 sheet 白送 inert。
+    /// 背后是 `TabView`（UIKit 侧 `UITabBarController`）加 push 出来的设置页 ——
+    /// SwiftUI 的 `.accessibilityHidden` 跨不过那道平台边界（记忆
+    /// `hide-uikit-hosted-tree-from-accessibility`），所以断言要同时打在
+    /// push 页里的按钮和 UIKit 标签栏上，只查一个会放过半个修复。
+    @MainActor
+    func testSessionLifecycleOverlayHidesTheScreenBehindItFromAccessibility() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "logout-failure-token",
+            activeRole: "blind_runner",
+            preseedBlindProfile: true,
+            emptyMockOrders: true,
+            mockLogoutFailure: true,
+            slowSessionEndSeconds: 8
+        )
+        assertLogoutOverlayHidesTheScreenBehindIt(app)
+    }
+
+    /// 同一个 modifier 挂在根上，但志愿者端的设置页是另一份视图（`VolunteerOrderFlowViews`），
+    /// 背后的标签栏容器也是另一个（`VolunteerTabView`）—— 不单独跑一遍就只是「推断」两端一样。
+    @MainActor
+    func testSessionLifecycleOverlayHidesTheVolunteerScreenBehindItFromAccessibility() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "logout-failure-token",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            emptyMockOrders: true,
+            mockLogoutFailure: true,
+            slowSessionEndSeconds: 8
+        )
+        assertLogoutOverlayHidesTheScreenBehindIt(app)
+    }
+
+    /// 删除账户走同一层遮罩（`accountDeletionState == .inProgress`）。mock 删除成功后直接回登录页，
+    /// 所以「收起后」断的是登录页的手机号输入框在树里 —— 遮罩收起时 hider 必须放开新挂上的容器。
+    @MainActor
+    func testSessionLifecycleOverlayHidesTheScreenBehindItDuringAccountDeletion() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "blind_runner",
+            preseedBlindProfile: true,
+            emptyMockOrders: true,
+            slowSessionEndSeconds: 8
+        )
+        openSettings(app)
+        let deleteButton = app.buttons["删除账户"].firstMatch
+        // 它是设置页最后一行，默认一半压在标签栏底下，点中心会被标签栏吃掉 —— 要滚到完全露出。
+        XCTAssertTrue(scrollElementIntoView(deleteButton, app: app), "「删除账户」滚不出标签栏\n\(app.debugDescription)")
+        deleteButton.tap()
+        let proceed = app.buttons["继续删除账户"].firstMatch
+        XCTAssertTrue(proceed.waitForExistence(timeout: 5), "删除账户应当先弹一次确认\n\(app.debugDescription)")
+        proceed.tap()
+        let finalConfirm = app.buttons["永久删除账户"].firstMatch
+        XCTAssertTrue(finalConfirm.waitForExistence(timeout: 8), "预检通过后应当弹最终确认\n\(app.debugDescription)")
+        finalConfirm.tap()
+
+        assertSessionOverlayIsUpAndHidesTheScreenBehindIt(app, backgroundProbe: deleteButton)
+
+        XCTAssertTrue(
+            app.textFields["手机号输入框，请输入 11 位手机号"].firstMatch.waitForExistence(timeout: 15),
+            "删除完成回到登录页后，登录页必须在无障碍树里\n\(app.debugDescription)"
+        )
+    }
+
+    /// 从设置页触发退出登录（慢退出 + 失败），断言遮罩期间背景不在树里、失败后点取消背景回来。
+    private func assertLogoutOverlayHidesTheScreenBehindIt(_ app: XCUIApplication) {
+        openSettings(app)
+        let logoutButton = app.buttons["退出登录"].firstMatch
+        let tabBar = app.tabBars.firstMatch
+        // 志愿者设置页更长，`List` 不渲染屏幕外的行 —— 不滚就不在树里（同 `assertLogoutRequiresConfirmation`）。
+        XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
+        logoutButton.tap()
+        let confirm = app.buttons["确认退出"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+
+        assertSessionOverlayIsUpAndHidesTheScreenBehindIt(app, backgroundProbe: logoutButton)
+
+        // 慢退出到点后走失败分支（`mockLogoutFailure`）→ 取消 → 回到 idle，遮罩收起。
+        let failure = app.alerts["服务端退出失败"].firstMatch
+        XCTAssertTrue(failure.waitForExistence(timeout: 12))
+        failure.buttons["取消"].tap()
+
+        XCTAssertTrue(
+            logoutButton.waitForExistence(timeout: 3),
+            "遮罩收起后设置页要回到无障碍树里\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(tabBar.exists, "遮罩收起后标签栏要回到无障碍树里\n\(app.debugDescription)")
+    }
+
+    /// 进度提示在树里，设置页上的某个按钮（push 页，在 NavigationStack 里）与 UIKit 标签栏都不在。
+    private func assertSessionOverlayIsUpAndHidesTheScreenBehindIt(
+        _ app: XCUIApplication,
+        backgroundProbe: XCUIElement
+    ) {
+        XCTAssertTrue(
+            app.descendants(matching: .any)["请求正在处理中，请稍候"].firstMatch.waitForExistence(timeout: 3),
+            "进度提示应当在树里\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(
+            waitForElementToDisappear(backgroundProbe, timeout: 2),
+            "遮罩盖住的设置页不该还留在无障碍树里\n\(app.debugDescription)"
+        )
+        XCTAssertFalse(
+            app.tabBars.firstMatch.exists,
+            "遮罩盖住的标签栏不该还留在无障碍树里\n\(app.debugDescription)"
+        )
+    }
+
     @MainActor
     func testAuthLifecycleEveryLogoutSurfaceRequiresConfirmation() throws {
         let blindProfile = launchApp(
@@ -1545,6 +1700,8 @@ final class blindRunUITests: XCTestCase {
         disableMap: Bool = true,
         disableWebSocket: Bool = true,
         mockLogoutFailure: Bool = false,
+        /// 退出登录 / 删除账户请求先等这么多秒（`AIDRUN_UI_TEST_SLOW_SESSION_END_SECONDS`），让进度遮罩停得住。
+        slowSessionEndSeconds: Int? = nil,
         realtimePriorityTest: Bool = false,
         hangHomeRequests: Bool = false,
         hangTransitionConfirmation: Bool = false,
@@ -1631,6 +1788,9 @@ final class blindRunUITests: XCTestCase {
         if mockLogoutFailure {
             app.launchEnvironment["AIDRUN_MOCK_LOGOUT_FAILURE"] = "1"
         }
+        if let slowSessionEndSeconds {
+            app.launchEnvironment["AIDRUN_UI_TEST_SLOW_SESSION_END_SECONDS"] = String(slowSessionEndSeconds)
+        }
         // 同意门默认跳过（判定在 `AppState.resolveInitialPrivacyConsent`）：UI 用例一律
         // `RESET_STATE`，不跳过的话每一条都会被挡在告知页，断言全红。只有专测它的用例打开这一条。
         if forcePrivacyConsent {
@@ -1651,14 +1811,18 @@ final class blindRunUITests: XCTestCase {
     /// 盲人端的齿轮已随首页改版删除（设计稿的首页只有问候 + 订单卡 + 预约块）；
     /// 陪跑员首屏那枚齿轮还在，但这里一律走标签栏那条 —— 它是两端唯一都有的入口。
     /// 抽成 helper 的价值就在这里：入口换了一次，所有调用点一起跟上。
+    /// 每处先 `.exists` 再 `waitForExistence`：后者即使元素早已在树里，首次判定也要约 1 秒
+    /// （真机 result bundle 时间线实测 1.0–1.1s）。本函数和 `assertLogoutRequiresConfirmation`
+    /// 被多条用例共用，每次调用都付这笔底价。元素真不在时照样走满超时，失败判据不变。
     private func openSettings(_ app: XCUIApplication) {
         let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 12), "标签栏没起来，够不到设置")
+        XCTAssertTrue(tabBar.exists || tabBar.waitForExistence(timeout: 12), "标签栏没起来，够不到设置")
         let profileTab = tabBar.buttons["我的"]
-        XCTAssertTrue(profileTab.waitForExistence(timeout: 5), "标签栏缺少「我的」")
+        XCTAssertTrue(profileTab.exists || profileTab.waitForExistence(timeout: 5), "标签栏缺少「我的」")
         profileTab.tap()
+        let settingsBar = app.navigationBars["设置"]
         XCTAssertTrue(
-            app.navigationBars["设置"].waitForExistence(timeout: 10),
+            settingsBar.exists || settingsBar.waitForExistence(timeout: 10),
             "「我的」tab 里没有设置页"
         )
     }
@@ -1872,10 +2036,11 @@ final class blindRunUITests: XCTestCase {
         // 陪跑员的设置页比盲人的长（多了积分 / 固定搭档 / 邀请码 / 培训四组），退出登录在最后
         // —— `List` 不渲染屏幕外的行，不滚它连无障碍树里都没有，`waitForExistence` 永远等不到。
         // 已经在屏上时 `scrollUntilExists` 第一行就返回，对盲人端那两档是零开销。
+        // 这里原本还跟一句 `waitForExistence(timeout: 10)`：上一行已断言存在，它只会白等约 1 秒。
         XCTAssertTrue(scrollUntilExists(logoutButton, app: app), "设置页滚到底也没有「退出登录」")
-        XCTAssertTrue(logoutButton.waitForExistence(timeout: 10))
         logoutButton.tap()
-        XCTAssertTrue(app.alerts["确认退出"].firstMatch.waitForExistence(timeout: 5))
+        let confirmAlert = app.alerts["确认退出"].firstMatch
+        XCTAssertTrue(confirmAlert.exists || confirmAlert.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["确认退出"].exists)
         XCTAssertTrue(app.buttons["取消"].exists)
     }

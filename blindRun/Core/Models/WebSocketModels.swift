@@ -25,15 +25,40 @@ nonisolated enum WSMessageType: String, Codable, Sendable {
 
 // MARK: - Outgoing Messages (Client -> Server)
 
-nonisolated struct WSLocationUpdateMessage: Codable, Sendable {
+nonisolated struct WSLocationUpdateMessage: Codable, Sendable, Equatable {
     let type: String
     let lat: Double
     let lng: Double
+    // 以下五个可选（`websocket-protocol.md` v1.2.0，DECISIONS D10）。合成编码对 Optional 走
+    // `encodeIfPresent`，nil 时整个键不出现 —— 契约要求「拿不到就不传，别传 0」。
+    /// 水平精度（米）。
+    let hAcc: Double?
+    /// 瞬时速度（m/s）。后端只存不算。
+    let speed: Double?
+    /// 气压计相对海拔（米）。
+    let alt: Double?
+    /// 本次跑步起的**累计**步数（后端 10 秒抽稀会丢中间的条，增量会丢步）。
+    let steps: Int?
+    /// 步/分钟（`CMPedometer.currentCadence` 是步/秒，已 ×60）。
+    let cadence: Int?
 
-    init(lat: Double, lng: Double) {
+    init(
+        lat: Double,
+        lng: Double,
+        hAcc: Double? = nil,
+        speed: Double? = nil,
+        alt: Double? = nil,
+        steps: Int? = nil,
+        cadence: Int? = nil
+    ) {
         self.type = WSMessageType.locationUpdate.rawValue
         self.lat = lat
         self.lng = lng
+        self.hAcc = hAcc
+        self.speed = speed
+        self.alt = alt
+        self.steps = steps
+        self.cadence = cadence
     }
 }
 

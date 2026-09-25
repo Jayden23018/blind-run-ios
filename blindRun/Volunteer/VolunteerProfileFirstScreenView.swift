@@ -646,7 +646,7 @@ struct VolunteerProfileFirstScreen: View {
     /// 日期 + 一行主语 + 一行副信息，行高压得很紧，靠分隔线不靠卡片（调研 §2.5）。
     ///
     /// 数据用**已经在手的** `dispatchSummary.recentOrders`，不新开一条请求 ——
-    /// 「全部 ›」进 `VolunteerServiceRecordsView`，那一页自己会拉完整的 `GET /api/orders/mine`。
+    /// 「全部 ›」进 `RunRecordHistoryView(role: .volunteer)`，那一页自己拉月度记录与 `GET /api/orders/mine`。
     @ViewBuilder
     private var recentSection: some View {
         let orders = viewModel.dispatchSummary?.recentOrders ?? []
@@ -656,11 +656,11 @@ struct VolunteerProfileFirstScreen: View {
                 sectionLabel(VolunteerProfileCopy.recentSectionTitle)
                 Spacer(minLength: 8)
                 NavigationLink {
-                    VolunteerServiceRecordsView()
+                    RunRecordHistoryView(role: .volunteer)
                 } label: {
                     linkLabel(VolunteerProfileCopy.recentLinkTitle)
                 }
-                .accessibilityLabel("我的服务记录")
+                .accessibilityLabel("我的陪跑记录")
                 .accessibilityHint(VolunteerProfileCopy.recentLinkHint)
                 .accessibilityIdentifier("volunteerProfileRecentAllLink")
             }

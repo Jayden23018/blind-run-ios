@@ -113,17 +113,23 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在")
-        for title in ["首页", "记录", "我的"] {
+        for title in ["首页", "星火", "记录", "我的"] {
             XCTAssertTrue(
                 tabBar.buttons[title].exists,
-                "标签栏缺少「\(title)」—— 设计交付 v3 §4.1 要的就是这三个"
+                "标签栏缺少「\(title)」—— 设计交付 v3 §4.1 的三个 + 调试版的星火页"
             )
         }
 
+        tabBar.buttons["星火"].tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["xinghuoSummary"].firstMatch.waitForExistence(timeout: 15),
+            "「星火」tab 没到星火页"
+        )
+
         tabBar.buttons["记录"].tap()
         XCTAssertTrue(
-            app.navigationBars["服务记录"].waitForExistence(timeout: 15),
-            "「记录」tab 没到服务记录页"
+            app.navigationBars["陪跑记录"].waitForExistence(timeout: 15),
+            "「记录」tab 没到陪跑记录页"
         )
 
         tabBar.buttons["我的"].tap()
@@ -402,7 +408,7 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "底部标签栏不在")
-        for title in ["首页", "记录", "我的"] {
+        for title in ["首页", "星火", "记录", "我的"] {
             XCTAssertTrue(
                 tabBar.buttons[title].exists,
                 "标签栏缺少「\(title)」—— 改版后历史订单与设置只有这一条路可走"
@@ -418,6 +424,506 @@ final class AccessibilityAuditTests: XCTestCase {
             sosBar.waitForExistence(timeout: 10),
             "「我的」tab 底部没有兜底的紧急入口 —— 首页那条已经移除，这里是它现在唯一的落点"
         )
+    }
+
+    // MARK: - 记录 tab（OpenSpec `add-run-record-history-tab`）
+
+    /// 记录页要拍的数据：Mock 的已完成单 #2（本月）+ 一张已取消单（`AIDRUN_UI_TEST_SEED_HISTORY`）。
+    private static let recordsSeed = ["AIDRUN_UI_TEST_SEED_HISTORY": "1"]
+
+    @MainActor
+    private func openRecordsTab(_ app: XCUIApplication, title: String) {
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "底部标签栏不在")
+        tabBar.buttons["记录"].tap()
+        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 15), "「记录」tab 没到\(title)")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["runRecordHistorySummary"].firstMatch.waitForExistence(timeout: 15),
+            "月度汇总没出来 —— monthlyRecords 没接上，或本月没有数据"
+        )
+    }
+
+    @MainActor
+    func testRunnerRecordsTabShowsMonthAndUnfinishedGroupAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
+        openRecordsTab(app, title: "跑步记录")
+
+        let summary = app.descendants(matching: .any)["runRecordHistorySummary"].firstMatch
+        XCTAssertTrue(summary.label.contains("跑了 1 次"), "跑者汇总句：\(summary.label)")
+        XCTAssertTrue(app.buttons["runRecordHistoryPreviousMonth"].exists, "上个月入口不在")
+        XCTAssertFalse(app.buttons["runRecordHistoryNextMonth"].exists, "当月不该有下个月")
+        // `List` 不渲染屏幕外的行（AGENTS.md：断言前先滚动）。
+        let unfinished = app.staticTexts["未完成的预约"]
+        for _ in 0..<3 where !unfinished.exists { app.swipeUp() }
+        XCTAssertTrue(unfinished.exists, "已取消的单没收进「未完成的预约」")
+        try audit(app)
+    }
+
+    @MainActor
+    func testVolunteerRecordsTabShowsMonthAndUnfinishedGroupAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchVolunteerHome(extraEnvironment: Self.recordsSeed)
+        openRecordsTab(app, title: "陪跑记录")
+
+        let summary = app.descendants(matching: .any)["runRecordHistorySummary"].firstMatch
+        XCTAssertTrue(summary.label.contains("陪跑 1 次"), "陪跑员汇总句：\(summary.label)")
+        XCTAssertFalse(summary.label.contains("*"), "读屏不该念掩码星号：\(summary.label)")
+        // `List` 不渲染屏幕外的行（AGENTS.md：断言前先滚动）。
+        let unfinished = app.staticTexts["未完成的预约"]
+        for _ in 0..<3 where !unfinished.exists { app.swipeUp() }
+        XCTAssertTrue(unfinished.exists, "已取消的单没收进「未完成的预约」")
+        try audit(app)
+    }
+
+    // MARK: 陪跑员跑后详情（阶段 4）
+
+    @MainActor
+    private func openVolunteerRunRecordDetail(_ app: XCUIApplication) {
+        openRecordsTab(app, title: "陪跑记录")
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "陪", "公里")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "本月没有可点的陪跑记录")
+        row.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["runRecordDistance"].firstMatch.waitForExistence(timeout: 15),
+            "跑后详情没加载出来 —— record(orderId:) 没接上"
+        )
+    }
+
+    /// 地图一段整体描述、距离、志愿服务行（D5 无「待确认」）、分段可点、时间轴末尾的求助行；整页过审计。
+    @MainActor
+    func testVolunteerRunRecordDetailShowsTheCardAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchVolunteerHome(extraEnvironment: Self.recordsSeed)
+        openVolunteerRunRecordDetail(app)
+
+        // 审计只在页顶做（七项全开）。滚动之后总有一行压在半透明导航栏 / Home 条下面，
+        // 2026-09-24 两轮真机都被判 Contrast failed（「配速」y=38、「23:15–23:38」y≈0）——
+        // 那是采样区被栏盖住，不是配色（textPrimary / textSecondary 压白 ≥ 7:1）。
+        // 守卫 a11y-audit-types 不许减审计项，所以下半页靠最大字号截图目检。
+        try audit(app)
+        let map = app.descendants(matching: .any)["runRecordMapDescription"].firstMatch
+        XCTAssertTrue(map.exists, "地图的整体描述不在")
+        XCTAssertTrue(map.label.contains("路线地图"), "地图描述：\(map.label)")
+        XCTAssertTrue(app.descendants(matching: .any)["runRecordDistance"].firstMatch.label.contains("3.2 公里"))
+        let service = app.descendants(matching: .any)["runRecordServiceRow"].firstMatch
+        XCTAssertTrue(service.exists, "志愿服务行不在")
+        XCTAssertFalse(service.label.contains("确认"), "D5：不出现「待确认」，实际：\(service.label)")
+
+        let split = app.buttons["runRecordSplit-2"]
+        for _ in 0..<4 where !split.isHittable { app.swipeUp() }
+        XCTAssertTrue(split.label.contains("每公里5分48秒"), "分段读屏要念成「每公里…」：\(split.label)")
+        XCTAssertTrue(split.label.contains("最快"))
+        split.tap()
+        XCTAssertTrue(map.waitForExistence(timeout: 5) && map.isHittable, "点分段后应滚回顶部的地图")
+
+        let sos = app.descendants(matching: .any)["runRecordSOSLine"].firstMatch
+        for _ in 0..<8 where !sos.isHittable { app.swipeUp() }
+        XCTAssertTrue(sos.label.contains("全程没有触发紧急求助"), "求助行：\(sos.label)")
+    }
+
+    @MainActor
+    func testVolunteerRunRecordDetailScreenshotsInLightDarkAndLargestText() throws {
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax-xxxl", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        // 截图要看的正是本阶段改的高德桥接层（渐变、描边、标注），所以打开真地图 ——
+        // 本机 `LocalConfig.xcconfig` 带 key，`launchVolunteerHome` 默认的占位图在这里要覆盖掉。
+        // 审计用例仍用占位图（记忆 ui-test-defaults-verify-the-degraded-path）。
+        let realMap = ["AIDRUN_UI_TEST_DISABLE_MAP": "0"]
+        for variant in variants {
+            let app = launchVolunteerHome(
+                extraEnvironment: Self.recordsSeed.merging(variant.environment) { _, new in new }.merging(realMap) { _, new in new },
+                extraArguments: variant.arguments
+            )
+            openVolunteerRunRecordDetail(app)
+            sleep(3) // 等底图瓦片下完，不然截到的是灰底。
+            // 大字号下一屏装得少，多截几张才看得到分段和时间轴。
+            let pages = variant.name == "ax-xxxl" ? 8 : 4
+            for page in 1...pages {
+                attachScreenshot(app, name: "run-record-detail-\(variant.name)-\(page)")
+                app.swipeUp()
+            }
+            // 点一行分段：地图上那一公里加黄带和气泡，页面滚回顶部（高亮带要压在配速线下面）。
+            let split = app.buttons["runRecordSplit-2"]
+            for _ in 0..<4 where !split.isHittable { app.swipeDown() }
+            if split.isHittable {
+                split.tap()
+                sleep(2)
+                attachScreenshot(app, name: "run-record-detail-\(variant.name)-highlight")
+            }
+            app.terminate()
+        }
+    }
+
+    // MARK: 视障跑者跑后详情（阶段 5）
+
+    @MainActor
+    private func openRunnerRunRecordDetail(_ app: XCUIApplication) -> XCUIElement {
+        openRecordsTab(app, title: "跑步记录")
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "和", "公里")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "本月没有可点的跑步记录")
+        row.tap()
+        let header = app.descendants(matching: .any)["runnerRunRecordHeader"].firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 15), "跑者跑后详情没加载出来 —— 记录 tab 的行没接到新页")
+        return header
+    }
+
+    /// 头部一句话、紧接着「听这次跑步」、不出现 `6'15"`、分段一行一句、D6 累计陪跑；
+    /// 审计只在页顶做（理由同陪跑员页）；最后一行进订单页（补评价在那里），订单页的链接再回到本页。
+    @MainActor
+    func testRunnerRunRecordDetailPutsListenRightAfterTheHeaderAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
+        let header = openRunnerRunRecordDetail(app)
+        try audit(app)
+
+        XCTAssertTrue(header.label.contains("3.2 公里"), "头部：\(header.label)")
+        XCTAssertTrue(header.label.contains("平均每公里6分14秒"), "配速要念成「每公里…」：\(header.label)")
+        XCTAssertTrue(header.label.contains("比上次多跑 0.3 公里"), "comparison 只给跑者：\(header.label)")
+        XCTAssertFalse(header.label.contains("*"), "读屏不念掩码星号：\(header.label)")
+
+        // 往右划一次就到「听这次跑步」：中间不能夹任何元素（VoiceOver 关着时地图在头部上面，不在中间）。
+        let listen = app.buttons["runnerRunRecordListen"]
+        XCTAssertTrue(listen.exists, "「听这次跑步」不在")
+        XCTAssertGreaterThanOrEqual(listen.frame.height, 96, "HANDOFF 6.3：至少 96pt")
+        let between = app.descendants(matching: .any).allElementsBoundByIndex.filter {
+            $0.frame.minY >= header.frame.maxY - 1 && $0.frame.maxY <= listen.frame.minY + 1 && !$0.label.isEmpty
+        }
+        XCTAssertTrue(between.isEmpty, "头部与「听这次跑步」之间夹了元素：\(between.map(\.label))")
+
+        listen.tap()
+        let transcript = app.descendants(matching: .any)["runnerRunRecordTranscript"].firstMatch
+        XCTAssertTrue(transcript.waitForExistence(timeout: 5), "点了之后要显示文字稿")
+        XCTAssertTrue(transcript.label.contains("给你留了一句话"), "讲述最后读陪跑员留言：\(transcript.label)")
+        XCTAssertEqual(listen.label, "停止讲述")
+        listen.tap()
+        XCTAssertEqual(listen.label, "听这次跑步", "再点一次停止")
+
+        let split = app.descendants(matching: .any)["runnerRunRecordSplit-2"].firstMatch
+        for _ in 0..<6 where !split.isHittable { app.swipeUp() }
+        XCTAssertEqual(split.label, "第2公里，5分48秒，本次最快，步频每分钟167步。")
+
+        let orderLink = app.buttons["runnerRunRecordOrderLink"]
+        for _ in 0..<8 where !orderLink.isHittable { app.swipeUp() }
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "累计陪跑")).firstMatch.exists,
+            "D6：陪跑员累计服务时长那一行不在"
+        )
+        orderLink.tap()
+        XCTAssertTrue(app.staticTexts["服务已完成"].waitForExistence(timeout: 15), "「订单详情与评价」没进订单页")
+        let back = app.descendants(matching: .any)["completedTrackFullScreenLink"].firstMatch
+        for _ in 0..<6 where !back.isHittable { app.swipeUp() }
+        XCTAssertTrue(back.isHittable, "订单页里「查看跑后详情」不在")
+        back.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["runnerRunRecordHeader"].firstMatch.waitForExistence(timeout: 15),
+            "订单页的链接要进跑者跑后详情，不是旧的轨迹回放"
+        )
+    }
+
+    @MainActor
+    func testRunnerRunRecordDetailScreenshotsInLightDarkAndLargestText() throws {
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax-xxxl", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        // 真地图（理由同陪跑员页）。UI 测试里 VoiceOver 关着 ⇒ 地图在页顶，这正是低视力用户看到的那一版。
+        let realMap = ["AIDRUN_UI_TEST_DISABLE_MAP": "0"]
+        for variant in variants {
+            let app = launchBlindHome(
+                emptyOrders: false,
+                extraEnvironment: Self.recordsSeed.merging(variant.environment) { _, new in new }.merging(realMap) { _, new in new },
+                extraArguments: variant.arguments
+            )
+            _ = openRunnerRunRecordDetail(app)
+            sleep(3) // 等底图瓦片下完。
+            attachScreenshot(app, name: "runner-run-record-\(variant.name)-0-top")
+            // 讲述点一次（截文字稿），声音路线放 3 秒（截「第 N 公里」和点亮的竖条），截完都停掉。
+            let listen = app.buttons["runnerRunRecordListen"]
+            for _ in 0..<3 where !listen.isHittable { app.swipeUp() }
+            if listen.isHittable { listen.tap() }
+            let play = app.buttons["runnerRunRecordSoundRoute"]
+            for _ in 0..<6 where !play.isHittable { app.swipeUp() }
+            if play.isHittable {
+                play.tap()
+                sleep(3)
+                attachScreenshot(app, name: "runner-run-record-\(variant.name)-sound")
+                play.tap()
+            }
+            if listen.exists, listen.label == "停止讲述" { listen.tap() }
+            let pages = variant.name == "ax-xxxl" ? 12 : 5
+            for page in 1...pages {
+                app.swipeUp()
+                attachScreenshot(app, name: "runner-run-record-\(variant.name)-\(page)")
+            }
+            app.terminate()
+        }
+    }
+
+    // MARK: 跑后留言（阶段 6）
+
+    @MainActor
+    private func scrollTo(_ element: XCUIElement, in app: XCUIApplication, swipes: Int = 10) {
+        for _ in 0..<swipes where !element.isHittable { app.swipeUp() }
+    }
+
+    /// 陪跑员：空白不发（看得见原因）→ 快捷短语填进输入框 → 发出去、出现在列表、确认句不说「打开时会听到」。
+    /// 跑者（Mock 默认带一条陪跑员留言）：「X的留言」一节在，「朗读留言」能开能停，没有回复按钮。
+    @MainActor
+    func testVolunteerSendsAMessageAndRunnerCanReadMessagesAloud() throws {
+        let app = launchVolunteerHome(extraEnvironment: Self.recordsSeed)
+        openVolunteerRunRecordDetail(app)
+        let send = app.buttons["runRecordMessageSend"]
+        scrollTo(send, in: app)
+        XCTAssertTrue(send.isHittable, "发送按钮不在")
+        send.tap()
+        let failed = app.descendants(matching: .any)["runRecordMessageFailed"].firstMatch
+        XCTAssertTrue(failed.waitForExistence(timeout: 5), "空白留言要说明原因")
+        XCTAssertEqual(failed.label, "先写一句话再发送。")
+
+        let phrase = app.buttons["快捷短语：节奏很稳"]
+        scrollTo(phrase, in: app)
+        phrase.tap()
+        let field = app.descendants(matching: .any)["runRecordMessageField"].firstMatch
+        XCTAssertEqual(field.value as? String, "节奏很稳。", "快捷短语要填进输入框")
+        scrollTo(send, in: app)
+        send.tap()
+        let sent = app.descendants(matching: .any)["runRecordMessageSent"].firstMatch
+        XCTAssertTrue(sent.waitForExistence(timeout: 10), "发送成功要有确认句")
+        // 姓名随 Mock 数据走，这里只钉句式和「读屏不念星号」。
+        XCTAssertTrue(sent.label.hasPrefix("已发送。") && sent.label.hasSuffix("在这条跑步记录里可以听到这句话。"), sent.label)
+        XCTAssertFalse(sent.label.contains("*"), sent.label)
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "我说：节奏很稳。")).firstMatch.exists,
+            "发出去的留言要出现在列表里"
+        )
+        app.terminate()
+
+        let runner = launchBlindHome(emptyOrders: false, extraEnvironment: Self.recordsSeed)
+        _ = openRunnerRunRecordDetail(runner)
+        let read = runner.buttons["runnerRunRecordReadMessages"]
+        scrollTo(read, in: runner)
+        XCTAssertTrue(read.isHittable, "「朗读留言」不在")
+        let title = runner.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "的留言")).firstMatch
+        XCTAssertTrue(title.exists, "留言一节的标题不在")
+        XCTAssertFalse(title.label.contains("*"), "读屏不念星号：\(title.label)")
+        XCTAssertFalse(
+            runner.buttons.matching(NSPredicate(format: "label CONTAINS %@", "回复")).firstMatch.exists,
+            "P0 没有回复按钮（负责人 2026-09-25）"
+        )
+        read.tap()
+        XCTAssertEqual(read.label, "停止朗读")
+        read.tap()
+        XCTAssertEqual(read.label, "朗读留言", "再点一次停止")
+    }
+
+    @MainActor
+    func testRunRecordMessagesScreenshotsInLightDarkAndLargestText() throws {
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax-xxxl", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        let realMap = ["AIDRUN_UI_TEST_DISABLE_MAP": "0"]
+        for variant in variants {
+            let environment = Self.recordsSeed.merging(variant.environment) { _, new in new }.merging(realMap) { _, new in new }
+            let app = launchVolunteerHome(extraEnvironment: environment, extraArguments: variant.arguments)
+            openVolunteerRunRecordDetail(app)
+            let send = app.buttons["runRecordMessageSend"]
+            scrollTo(send, in: app, swipes: 16)
+            attachScreenshot(app, name: "messages-volunteer-\(variant.name)-1-empty")
+            send.tap()
+            sleep(1)
+            attachScreenshot(app, name: "messages-volunteer-\(variant.name)-2-blank")
+            let phrase = app.buttons["快捷短语：下次试试再快一点"]
+            for _ in 0..<4 where !phrase.isHittable { app.swipeDown() }
+            if phrase.isHittable { phrase.tap() }
+            scrollTo(send, in: app)
+            send.tap()
+            sleep(1)
+            app.swipeUp()
+            attachScreenshot(app, name: "messages-volunteer-\(variant.name)-3-sent")
+            app.terminate()
+
+            let runner = launchBlindHome(emptyOrders: false, extraEnvironment: environment, extraArguments: variant.arguments)
+            _ = openRunnerRunRecordDetail(runner)
+            let read = runner.buttons["runnerRunRecordReadMessages"]
+            scrollTo(read, in: runner, swipes: 16)
+            attachScreenshot(runner, name: "messages-runner-\(variant.name)-1")
+            if read.isHittable {
+                read.tap()
+                sleep(1)
+                attachScreenshot(runner, name: "messages-runner-\(variant.name)-2-reading")
+                read.tap()
+            }
+            runner.terminate()
+        }
+    }
+
+    /// 阶段收尾的三组截图（浅色 / 深色 / 最大字号 × 两个角色），附件在 result bundle 里。
+    /// 不做像素断言：截图是给人看的证据，断言由上面两条用例负责。
+    @MainActor
+    func testRecordsTabScreenshotsInLightDarkAndLargestText() throws {
+        let variants: [(name: String, environment: [String: String], arguments: [String])] = [
+            ("light", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"], []),
+            ("dark", ["AIDRUN_UI_TEST_COLOR_SCHEME": "dark"], []),
+            ("ax-xxxl", ["AIDRUN_UI_TEST_COLOR_SCHEME": "light"],
+             ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]),
+        ]
+        for variant in variants {
+            let environment = Self.recordsSeed.merging(variant.environment) { _, new in new }
+            for role in ["runner", "volunteer"] {
+                let app = role == "runner"
+                    ? launchBlindHome(emptyOrders: false, extraEnvironment: environment, extraArguments: variant.arguments)
+                    : launchVolunteerHome(extraEnvironment: environment, extraArguments: variant.arguments)
+                openRecordsTab(app, title: role == "runner" ? "跑步记录" : "陪跑记录")
+                attachScreenshot(app, name: "records-\(role)-\(variant.name)-top")
+                app.swipeUp()
+                attachScreenshot(app, name: "records-\(role)-\(variant.name)-bottom")
+                app.terminate()
+            }
+        }
+    }
+
+    @MainActor
+    private func attachScreenshot(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// 星火页（调试版）：摘要句与今日足迹开关在，盲人端摘要不念别的盲人；整页过审计。
+    @MainActor
+    func testBlindXinghuoPageShowsSummaryAndPassesAudit() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let app = launchBlindHome()
+        // iPad（iPadOS 18 起）的 `TabView` 是顶部浮动标签栏，XCUITest 里不是 `TabBar` —— 退回按名字找按钮。
+        let xinghuoTab = app.tabBars.firstMatch.waitForExistence(timeout: 20)
+            ? app.tabBars.firstMatch.buttons["星火"]
+            : app.buttons["星火"].firstMatch
+        XCTAssertTrue(xinghuoTab.waitForExistence(timeout: 5), "「星火」标签不在")
+        xinghuoTab.tap()
+
+        let summary = app.descendants(matching: .any)["xinghuoSummary"].firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 15), "星火页没起来，后面的审计结果没有意义")
+        XCTAssertTrue(summary.label.contains("志愿者"), "摘要句该念志愿者人数，实际：\(summary.label)")
+        XCTAssertFalse(summary.label.contains("视障跑者在等待"), "盲人端摘要不该念别的盲人")
+        // 足迹一律显示，开关已去掉（负责人 2026-09-24）。
+        XCTAssertFalse(app.switches["xinghuoFootprintToggle"].exists, "今日足迹开关又回来了 —— 负责人要的是默认显示、没有开关")
+
+        // 卡片的滚动容器只能贴底、按内容定高。它一旦铺满全屏，就会吃掉所有拖动手势，
+        // 地图拖不动（负责人 2026-09-23 真机反馈）—— 占位图构建里看不出地图拖没拖动，
+        // 但看得出这个容器占了多大。
+        let cardScroll = app.descendants(matching: .any)["xinghuoCardScroll"].firstMatch
+        XCTAssertTrue(cardScroll.exists, "卡片滚动容器不在")
+
+        // 卡片两档（负责人 2026-09-23）。档位跨启动记在 `@AppStorage` 里，上一次运行可能停在收起档 —— 先复原。
+        let handle = app.buttons["xinghuoCardHandle"]
+        XCTAssertTrue(handle.exists, "卡片把手不在，或者不是按钮 —— 读屏用户拖不了，只能靠它是个按钮来换档")
+        if (handle.value as? String) == "已收起" {
+            handle.tap()
+        }
+        XCTAssertEqual(handle.value as? String, "已展开")
+
+        let screenHeight = app.windows.firstMatch.frame.height
+        let expandedTop = settledMinY(of: cardScroll)
+        // 高度量卡片本体（里面的 ScrollView）：容器的 frame 是子元素的并集，
+        // 会把往卡片上方伸出去的把手命中区也算进去。
+        let cardBody = cardScroll.scrollViews.firstMatch
+        let expandedHeight = cardBody.frame.height
+        XCTAssertGreaterThan(
+            expandedTop, screenHeight * 0.4,
+            "卡片滚动容器从 \(Int(expandedTop)) pt 开始，盖住了上半屏的地图"
+        )
+        // 只比**同一层**：`descendants` 逐层枚举，拿第 1 层的把手和更深的摘要句比下标，比的是深度
+        // （记忆 `swiftui-traversal-order-follows-paint-order`）。
+        let topLevel = cardScroll.children(matching: .any).allElementsBoundByIndex
+        let handleIndex = topLevel.firstIndex { $0.identifier == "xinghuoCardHandle" }
+        let contentIndex = topLevel.firstIndex { $0.descendants(matching: .any)["xinghuoSummary"].exists }
+        XCTAssertLessThan(
+            contentIndex ?? .max, handleIndex ?? -1,
+            "把手排到了卡片内容前面，读屏第一下听到的不再是人数。第一层：\(topLevel.map { "\($0.elementType.rawValue):\($0.identifier)" })"
+        )
+        // 面板要让地图占主导（负责人 2026-09-24「再压缩短一点」）。上限按默认字号定，
+        // 上一版实测展开 377 / 收起 292，两条都会红。
+        XCTAssertLessThanOrEqual(
+            expandedHeight, 280,
+            "展开的卡片有 \(Int(expandedHeight)) pt 高，地图又被压小了"
+        )
+        try audit(app)
+
+        // 收起：面板上沿下移，读屏要用的一个不少。
+        let summaryLabel = summary.label
+        handle.tap()
+        XCTAssertEqual(handle.value as? String, "已收起", "点把手没换档")
+        let collapsedTop = settledMinY(of: cardScroll)
+        print("[xinghuo] card top expanded=\(expandedTop) collapsed=\(collapsedTop) collapsedHeight=\(cardBody.frame.height) screen=\(screenHeight)")
+        XCTAssertGreaterThan(
+            collapsedTop, expandedTop + 60,
+            "收起后面板上沿只从 \(Int(expandedTop)) 移到 \(Int(collapsedTop))，地图没多出来"
+        )
+        XCTAssertTrue(summary.isHittable, "收起后摘要句不在了")
+        XCTAssertEqual(summary.label, summaryLabel, "收起后读屏念的摘要句变了 —— 收起只该换视觉")
+        // `.firstMatch` 不能省：`FlowActionButton` 在 XCUITest 的树里是 `Button > Button` 两层同名同框
+        // （外层是 `accessibilityElement(children: .ignore)` 合成的），不带它 `isHittable` 撞上多重匹配恒为 false。
+        XCTAssertTrue(app.buttons["听见星光"].firstMatch.isHittable, "收起后「听见星光」不在了")
+        XCTAssertLessThanOrEqual(
+            cardBody.frame.height, 120,
+            "收起的卡片还有 \(Int(cardBody.frame.height)) pt 高 —— 收起该是一行"
+        )
+        try audit(app)
+
+        // 复原，不给下一次运行留下收起档。
+        handle.tap()
+        XCTAssertEqual(handle.value as? String, "已展开")
+
+        // 真拖（前面都是轻点）。2026-09-24 负责人报「拖的时候上下抽搐」：把手随卡片移动、位移按自身坐标算，
+        // 位移在拖动中反复被减回 0，松手时的惯性预测甚至会反向 —— 拖了不换档。慢拖再停住，预测≈实际位移。
+        dragHandle(handle, by: 150)
+        XCTAssertEqual(handle.value as? String, "已收起", "往下拖 150pt 没收起")
+        dragHandle(handle, by: -150)
+        XCTAssertEqual(handle.value as? String, "已展开", "往上拖 150pt 没展开")
+    }
+
+    private func dragHandle(_ handle: XCUIElement, by dy: CGFloat) {
+        let start = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(
+            forDuration: 0.1,
+            thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.3
+        )
+    }
+
+    /// 等弹簧动画停下再量（连续两次读数相同才算停）。
+    private func settledMinY(of element: XCUIElement, timeout: TimeInterval = 3) -> CGFloat {
+        var last = element.frame.minY
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            let current = element.frame.minY
+            if abs(current - last) < 0.5 { return current }
+            last = current
+        }
+        return last
     }
 
     // MARK: - 首次使用引导
@@ -1173,7 +1679,9 @@ final class AccessibilityAuditTests: XCTestCase {
         forcingVoiceStage: Bool = false,
         emptyOrders: Bool = true,
         forcingFirstRunHelp: Bool = false,
-        seedOrderStatus: String? = nil
+        seedOrderStatus: String? = nil,
+        extraEnvironment: [String: String] = [:],
+        extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1205,6 +1713,10 @@ final class AccessibilityAuditTests: XCTestCase {
         if forcingFirstRunHelp {
             app.launchEnvironment["AIDRUN_UI_TEST_FORCE_FIRST_RUN_HELP"] = "1"
         }
+
+        // 记录页截图 / 审计用（深色、最大字号、历史种子），只加不覆盖上面的基线。
+        app.launchEnvironment.merge(extraEnvironment) { _, new in new }
+        app.launchArguments += extraArguments
 
         addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in
             for title in ["允许", "好", "使用App时允许", "OK", "Allow"] {
@@ -1374,7 +1886,9 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     private func launchVolunteerHome(
         seedOrderStatus: String? = nil,
-        available: Bool = true
+        available: Bool = true,
+        extraEnvironment: [String: String] = [:],
+        extraArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1396,6 +1910,10 @@ final class AccessibilityAuditTests: XCTestCase {
             app.launchEnvironment["AIDRUN_UI_TEST_PRESEEDED_VOLUNTEER_ACTIVE_ORDER"] = "1"
             app.launchEnvironment["AIDRUN_UI_TEST_SEED_ORDER_STATUS"] = seedOrderStatus
         }
+
+        // 记录页截图 / 审计用（深色、最大字号、历史种子），只加不覆盖上面的基线。
+        app.launchEnvironment.merge(extraEnvironment) { _, new in new }
+        app.launchArguments += extraArguments
 
         addUIInterruptionMonitor(withDescription: "系统权限弹窗") { alert in
             for title in ["允许", "好", "使用App时允许", "OK", "Allow"] {

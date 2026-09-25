@@ -128,6 +128,42 @@ enum AppColors {
 
     static let activeRunDestructiveTone = Tone(light: 0xFF453A, dark: 0xFF453A)
 
+    // MARK: 跑后运动记录（DECISIONS D8）
+
+    /// 跑后记录的五个颜色。浅色取值是项目负责人定的（D8），深色取值按对比度补。
+    ///
+    /// **它们都不是正文色，所以不进 `tones`**（那张表按正文 4.5:1 卡，这里一个都过不了，也不该过）。
+    /// 各自的用途决定了该用哪条线来验，检查在 `LowVisionChannelTests.testRunRecordPalette…`：
+    /// - `tactileYellow`：**只当底色**，上面压黑字（12.32:1，亮暗同值）。
+    /// - 其余四个：图形（路线、配速条、图标底），按 WCAG 1.4.11 的 3:1。
+    ///
+    /// ⚠️ 浅色下 `ropeOrange` 2.87、`paceMid` 2.61、`paceSlow` 1.88 压白底**都不到 3:1** ——
+    /// 不能单独压在白底上当唯一的信息载体。阶段 4 的地图路线有白色描边，它们要对着描边与底图判，
+    /// 且配速信息另有数字冗余（HANDOFF §7）。这是 D8 的取值，不在这里改。
+    /// `paceFast` 的深色原值 `#3558F0` 压 `#1C1C1E` 只有 3.08，贴线，换成 `#5B7CFA`（4.63）。
+    /// 盲道黄。视障跑者视图的主按钮底色（文字用黑色）、「最快」标签。
+    static let tactileYellowTone = Tone(light: 0xF7BE00, dark: 0xF7BE00)
+    /// 陪跑绳橙。回放里两点之间的连线、志愿时长图标底色。
+    static let ropeOrangeTone = Tone(light: 0xFF6A13, dark: 0xFF6A13)
+    /// 配速三档（快→中→慢），故意避开红绿（HANDOFF §5.1）。列表缩略图的路线用 `paceFast`。
+    static let paceFastTone = Tone(light: 0x3558F0, dark: 0x5B7CFA)
+    static let paceMidTone = Tone(light: 0x19B3A6, dark: 0x19B3A6)
+    static let paceSlowTone = Tone(light: 0xF5B100, dark: 0xF5B100)
+
+    static let runRecordTones: [(name: String, tone: Tone)] = [
+        ("tactileYellow", tactileYellowTone),
+        ("ropeOrange", ropeOrangeTone),
+        ("paceFast", paceFastTone),
+        ("paceMid", paceMidTone),
+        ("paceSlow", paceSlowTone),
+    ]
+
+    static let tactileYellow = dynamic(tactileYellowTone.light, tactileYellowTone.dark)
+    static let ropeOrange = dynamic(ropeOrangeTone.light, ropeOrangeTone.dark)
+    static let paceFast = dynamic(paceFastTone.light, paceFastTone.dark)
+    static let paceMid = dynamic(paceMidTone.light, paceMidTone.dark)
+    static let paceSlow = dynamic(paceSlowTone.light, paceSlowTone.dark)
+
     // 这三个继续用系统语义色：`label` 已经是 21:1，两个背景色本来就是对比的**基准**而非前景。
     static let background = Color(uiColor: .systemBackground)
     static let secondaryBackground = Color(uiColor: .secondarySystemBackground)
@@ -137,6 +173,36 @@ enum AppColors {
         Color(uiColor: UIColor { traits in
             UIColor(rgb: traits.userInterfaceStyle == .dark ? dark : light)
         })
+    }
+
+    /// 星火页的夜空色板 —— **只给星火页用**，不进 `tones`、不当全局语义色。
+    ///
+    /// 两条例外（`docs/ui/design-direction.md` §2，项目负责人 2026-09-23 拍板）：
+    /// 星火页**固定夜空**，不跟随系统明暗；颜色取自负责人给的 HTML 原型
+    /// （`--ember` / `--moon` / `--glass` …），不从 5 个语义色里凑 —— `warning` 暗色档
+    /// `#FF9F0A` 是橙，原型的星是暖金。所以这里只有一套取值，没有亮色档。
+    ///
+    /// 对比度由 `LowVisionChannelTests.testXinghuoPaletteKeepsTextReadableOnGlass` 钉住：
+    /// 文字色压在「玻璃叠在**白底**上」的最坏合成色上也要 ≥ 4.5:1 ——
+    /// 玻璃是半透明的，底下偶尔会是一颗亮星。`glassAlpha` 比原型的 0.74 高，就是为了这一条。
+    enum Xinghuo {
+        static let emberRGB: UInt32 = 0xFFC45C
+        static let moonRGB: UInt32 = 0x8EC5FF
+        static let nightRGB: UInt32 = 0x0B1430
+        static let glassRGB: UInt32 = 0x0D1630
+        static let inkRGB: UInt32 = 0xF2F4FA
+        static let mutedRGB: UInt32 = 0xA3ADC8
+        static let starCoreRGB: UInt32 = 0xFFF1CF
+        static let runnerCoreRGB: UInt32 = 0xE3F0FF
+        static let glassAlpha: CGFloat = 0.86
+
+        static let ember = Color(uiColor: UIColor(rgb: emberRGB))
+        static let moon = Color(uiColor: UIColor(rgb: moonRGB))
+        static let night = Color(uiColor: UIColor(rgb: nightRGB))
+        static let glass = Color(uiColor: UIColor(rgb: glassRGB)).opacity(glassAlpha)
+        static let ink = Color(uiColor: UIColor(rgb: inkRGB))
+        static let muted = Color(uiColor: UIColor(rgb: mutedRGB))
+        static let hairline = Color.white.opacity(0.09)
     }
 }
 

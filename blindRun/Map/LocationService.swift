@@ -153,12 +153,14 @@ final class LocationService: NSObject, ObservableObject {
     func simulateDeviceLocationForTesting(
         _ coordinate: CLLocationCoordinate2D,
         capturedAt: Date,
-        authorized: Bool = true
+        authorized: Bool = true,
+        horizontalAccuracy: Double? = nil,
+        speed: Double? = nil
     ) {
         suppressHardwareUpdatesForTesting = true
         authorizationOverrideForTesting = authorized
         if authorized {
-            applyDeviceLocation(coordinate, capturedAt: capturedAt)
+            applyDeviceLocation(coordinate, capturedAt: capturedAt, horizontalAccuracy: horizontalAccuracy, speed: speed)
             setLocationError(nil)
         } else {
             clearDeviceLocation()
@@ -358,12 +360,16 @@ final class LocationService: NSObject, ObservableObject {
 
     private func applyDeviceLocation(
         _ coordinate: CLLocationCoordinate2D,
-        capturedAt: Date
+        capturedAt: Date,
+        horizontalAccuracy: Double? = nil,
+        speed: Double? = nil
     ) {
         let sample = LocatedCoordinate(
             coordinate: coordinate,
             system: .wgs84Device,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            horizontalAccuracy: horizontalAccuracy,
+            speed: speed
         )
         latestDeviceSample = sample
         lastLocationUpdatedAt = capturedAt
@@ -407,7 +413,12 @@ extension LocationService: CLLocationManagerDelegate {
             #if DEBUG
             if self.suppressHardwareUpdatesForTesting { return }
             #endif
-            self.applyDeviceLocation(location.coordinate, capturedAt: location.timestamp)
+            self.applyDeviceLocation(
+                location.coordinate,
+                capturedAt: location.timestamp,
+                horizontalAccuracy: location.horizontalAccuracy,
+                speed: location.speed
+            )
             self.setLocationError(nil)
         }
     }

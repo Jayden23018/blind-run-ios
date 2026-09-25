@@ -20,7 +20,8 @@ import SwiftUI
 /// 2. 下滑收起；
 /// 3. 高度由内容决定（`.presentationDetents([.fraction(0.67), .large])` 钉死的 0.67 正是
 ///    项目负责人在真机上看到的「底部一大片空白」）；
-/// 4. **背景对读屏屏蔽** —— 见 `VolunteerTabView` 里那行 `.accessibilityHidden`。
+/// 4. **背景对读屏屏蔽** —— 见 `VolunteerTabView` 里的 `TabBarAccessibilityHider`
+///    （SwiftUI 的 `.accessibilityHidden` 进不了 `TabView` 底下那棵 UIKit 树）。
 ///    overlay 不是真的模态容器，光靠 `.isModal` 兜不住，而「读屏能滑到看不见的东西」
 ///    在盲人端是实打实的缺陷。
 struct VolunteerInviteSheet: View {
@@ -96,6 +97,8 @@ struct VolunteerInviteSheet: View {
         // 装得下就按内容高度（第一个分支），装不下才滚（第二个分支）。
         // AX5 下一张完整的卡装不进一屏，而这一屏的每个字都要能看见 ——
         // 这正是原先 `.presentationDetents` 里 `.large` 那一档干的事。
+        // ⚠️ 同样的写法在星火页上被真机无障碍审计判成「整页改不了字号」（2026-09-23，已验红），
+        // 而这张卡没有审计用例覆盖 —— 很可能有同一个问题，见 `XinghuoMapView.overlay` 的改法。
         ViewThatFits(in: .vertical) {
             cardContent
             ScrollView { cardContent }

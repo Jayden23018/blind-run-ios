@@ -242,8 +242,12 @@ final class WebSocketService: ObservableObject {
 
     /// Send a GCJ-02 location update. Device WGS-84 coordinates must be normalized first.
     func sendLocationUpdate(lat: Double, lng: Double) {
-        let msg = WSLocationUpdateMessage(lat: lat, lng: lng)
-        sendMessage(msg, coalescesAsLatestLocation: true)
+        sendLocationUpdate(WSLocationUpdateMessage(lat: lat, lng: lng))
+    }
+
+    /// 同行会话用：带跑后记录的可选字段。`lat`/`lng` 同样必须已是 GCJ-02。
+    func sendLocationUpdate(_ message: WSLocationUpdateMessage) {
+        sendMessage(message, coalescesAsLatestLocation: true)
     }
 
     /// Send application heartbeat for either role.
