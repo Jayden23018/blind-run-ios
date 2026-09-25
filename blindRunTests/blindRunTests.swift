@@ -5170,6 +5170,26 @@ final class blindRunTests: XCTestCase {
         )
     }
 
+    /// 首屏「需要你处理」：自己关了可服务状态不算待办，但别的拦截原因照常出现。
+    func testHomeTodoBlockMessageSkipsOptInButKeepsOtherReasons() {
+        let completed = VolunteerRegistrationStatus(currentStepCode: "STEP_4_COMPLETED", canAcceptOrders: true)
+        XCTAssertNil(
+            VolunteerOrderActionGuard.acceptBlockMessage(
+                profile: makeApprovedVolunteerProfile(isAvailable: false),
+                registrationStatus: completed,
+                requiresDispatchOptIn: false
+            )
+        )
+        XCTAssertEqual(
+            VolunteerOrderActionGuard.acceptBlockMessage(
+                profile: makeVolunteerProfile(name: "", isAvailable: false),
+                registrationStatus: completed,
+                requiresDispatchOptIn: false
+            ),
+            "请先完善志愿者资料"
+        )
+    }
+
     func testVolunteerAcceptGuardTreatsLegacyTrainingAsCompleteButStillRequiresAvailability() {
         let legacyStatus = VolunteerRegistrationStatus(
             currentStepCode: "STEP_4_TRAINING",
