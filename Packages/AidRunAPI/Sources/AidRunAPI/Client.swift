@@ -2813,7 +2813,13 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 陪跑员确认开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）
+    /// 开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）—— 陪跑员或盲人
+    ///
+    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人）。**任一端按下，先按的生效**（#346）。
+    ///
+    /// **盲人按下 = 同意 + 开始**：不过同意闸，同时写入 `blindStartConfirmedAt`；时间闸与陪跑员相同。
+    /// 调用时订单已是 `IN_PROGRESS`（另一端先按了）→ 两端都返回 200，不报错。
+    /// 陪跑员调用时下面的两道闸照旧：
     ///
     /// ⚠️ **有两道闸，返回的 409 要分开处理**：
     ///
@@ -2912,7 +2918,9 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 角色：`VOLUNTEER`，且必须是该订单已接单的志愿者。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人，#346）。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    ///
+    /// **盲人结束**只在陪跑员掉线时放行：陪跑员已超过 `app.order.blind-finish-volunteer-offline-minutes` （默认 5 分钟）没有上报位置。判据由后端算，客户端不用自己判，按下去看返回即可： 陪跑员还在线时返回 409 `VOLUNTEER_STILL_ONLINE`，message 里带最早可以结束的时刻（可直接朗读）。 盲人结束的单对陪跑员照常算完成、积分和服务时长，与陪跑员结束走同一条逻辑， 只在订单状态日志里记下是盲人结束的。
     ///
     /// ⚠️ **这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`**（2026-09-15 新增）。 `COMPLETED` 是终态，一旦落下去：位置互推停掉（`sharesLiveLocation()` 不含它）、 `GET /{id}/location/address` 返回空、志愿者端 `GET /api/emergency/active` 的恢复入口也查不到了 —— 而求助未结案恰恰意味着现场可能还有人需要帮助。
     ///

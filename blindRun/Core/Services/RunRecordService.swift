@@ -31,9 +31,8 @@ enum RunRecordEndpoint {
 
 /// 跑后记录片对外的全部能力。
 ///
-/// ⚠️ 与 `IncentiveServing` 的「每个方法都必须有生产调用点」不同：阶段 2 刻意先交数据层，
-/// 调用点在后续阶段落地 —— `monthlyRecords` 是阶段 3（记录 tab），`record` 是阶段 4/5（两端详情），
-/// `postMessage` 是阶段 6（留言）。哪个阶段做完还没接上，就当场删掉那个方法。
+/// 调用点：`monthlyRecords` 在记录 tab（阶段 3），`record` 在两端详情（阶段 4/5），
+/// `postMessage` 在陪跑员详情的留言输入（阶段 6，`RunRecordViewModel.send`）。
 ///
 /// 错误一律 `throws`，这一层不吞，也不重试 `GENERATING`（1–2 秒后重读由界面层决定）。
 protocol RunRecordServing: Sendable {
@@ -41,7 +40,7 @@ protocol RunRecordServing: Sendable {
     func record(orderId: Int64) async throws -> RunRecordResponse
     /// `month` 取 1–12。按当前登录角色返回。
     func monthlyRecords(year: Int, month: Int) async throws -> RunRecordHistoryResponse
-    /// 1–200 字、去首尾空白由**后端**校验；这一层原样发送。
+    /// 1–200 字、去首尾空白由**后端**校验；这一层原样发送（界面层先按同口径拦一遍，见 `RunRecordViewModel.draftProblem`）。
     func postMessage(orderId: Int64, text: String) async throws -> RunRecordMessageResponse
 }
 

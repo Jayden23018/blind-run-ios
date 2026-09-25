@@ -413,7 +413,13 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/intro-call/notify-incoming`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)`.
     func notifyIntroCallIncoming(_ input: Operations.notifyIntroCallIncoming.Input) async throws -> Operations.notifyIntroCallIncoming.Output
-    /// 陪跑员确认开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）
+    /// 开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）—— 陪跑员或盲人
+    ///
+    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人）。**任一端按下，先按的生效**（#346）。
+    ///
+    /// **盲人按下 = 同意 + 开始**：不过同意闸，同时写入 `blindStartConfirmedAt`；时间闸与陪跑员相同。
+    /// 调用时订单已是 `IN_PROGRESS`（另一端先按了）→ 两端都返回 200，不报错。
+    /// 陪跑员调用时下面的两道闸照旧：
     ///
     /// ⚠️ **有两道闸，返回的 409 要分开处理**：
     ///
@@ -433,7 +439,9 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
     /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
     func startService(_ input: Operations.startService.Input) async throws -> Operations.startService.Output
-    /// 角色：`VOLUNTEER`，且必须是该订单已接单的志愿者。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人，#346）。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    ///
+    /// **盲人结束**只在陪跑员掉线时放行：陪跑员已超过 `app.order.blind-finish-volunteer-offline-minutes` （默认 5 分钟）没有上报位置。判据由后端算，客户端不用自己判，按下去看返回即可： 陪跑员还在线时返回 409 `VOLUNTEER_STILL_ONLINE`，message 里带最早可以结束的时刻（可直接朗读）。 盲人结束的单对陪跑员照常算完成、积分和服务时长，与陪跑员结束走同一条逻辑， 只在订单状态日志里记下是盲人结束的。
     ///
     /// ⚠️ **这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`**（2026-09-15 新增）。 `COMPLETED` 是终态，一旦落下去：位置互推停掉（`sharesLiveLocation()` 不含它）、 `GET /{id}/location/address` 返回空、志愿者端 `GET /api/emergency/active` 的恢复入口也查不到了 —— 而求助未结案恰恰意味着现场可能还有人需要帮助。
     ///
@@ -1337,7 +1345,13 @@ extension APIProtocol {
             headers: headers
         ))
     }
-    /// 陪跑员确认开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）
+    /// 开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）—— 陪跑员或盲人
+    ///
+    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人）。**任一端按下，先按的生效**（#346）。
+    ///
+    /// **盲人按下 = 同意 + 开始**：不过同意闸，同时写入 `blindStartConfirmedAt`；时间闸与陪跑员相同。
+    /// 调用时订单已是 `IN_PROGRESS`（另一端先按了）→ 两端都返回 200，不报错。
+    /// 陪跑员调用时下面的两道闸照旧：
     ///
     /// ⚠️ **有两道闸，返回的 409 要分开处理**：
     ///
@@ -1365,7 +1379,9 @@ extension APIProtocol {
             headers: headers
         ))
     }
-    /// 角色：`VOLUNTEER`，且必须是该订单已接单的志愿者。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人，#346）。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    ///
+    /// **盲人结束**只在陪跑员掉线时放行：陪跑员已超过 `app.order.blind-finish-volunteer-offline-minutes` （默认 5 分钟）没有上报位置。判据由后端算，客户端不用自己判，按下去看返回即可： 陪跑员还在线时返回 409 `VOLUNTEER_STILL_ONLINE`，message 里带最早可以结束的时刻（可直接朗读）。 盲人结束的单对陪跑员照常算完成、积分和服务时长，与陪跑员结束走同一条逻辑， 只在订单状态日志里记下是盲人结束的。
     ///
     /// ⚠️ **这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`**（2026-09-15 新增）。 `COMPLETED` 是终态，一旦落下去：位置互推停掉（`sharesLiveLocation()` 不含它）、 `GET /{id}/location/address` 返回空、志愿者端 `GET /api/emergency/active` 的恢复入口也查不到了 —— 而求助未结案恰恰意味着现场可能还有人需要帮助。
     ///
@@ -5193,6 +5209,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/actualAvgPaceSecPerKm`.
             public var actualAvgPaceSecPerKm: Swift.Int32?
+            /// 盲人跑者是否已到出发点（#358，服务端判定，客户端不用拿坐标自己推）。**三态**： `true` / `false` 只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 两态、且盲人 30 秒内上报过位置时给出； 其他状态、没有盲人位置、或位置已过期一律 `null` —— 客户端按 null 隐藏这一行，不要当 `false` 念。 判据是盲人最新位置到 `startLatitude/startLongitude` 的直线距离 ≤ `app.meeting-point.arrival-radius-meters` （默认 100 米，与志愿者↔盲人的 `PROXIMITY_ALERT` 阈值是两个独立配置）。 从 false 变成 true 的那一刻，志愿者会另收到一条 WS `APP_NOTIFICATION`（eventType `RUNNER_AT_MEETING_POINT`），每单每位志愿者只推一次。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/runnerAtMeetingPoint`.
+            public var runnerAtMeetingPoint: Swift.Bool?
             /// Creates a new `OrderDetailResponse`.
             ///
             /// - Parameters:
@@ -5233,6 +5253,7 @@ public enum Components {
             ///   - actualDistanceMeters: **完赛实际里程（米）**，订单进 `COMPLETED` 时算一次落库（迁移 `0022`）。2026-08-14 新增。
             ///   - actualDurationSeconds: 完赛实际耗时（秒），取轨迹点首末时间之差。null 语义同 `actualDistanceMeters`。
             ///   - actualAvgPaceSecPerKm: 完赛平均配速（秒/公里）。里程为 0 时为 null —— 除以 0 得不出配速，给 0 是假的。 null 语义同 `actualDistanceMeters`。
+            ///   - runnerAtMeetingPoint: 盲人跑者是否已到出发点（#358，服务端判定，客户端不用拿坐标自己推）。**三态**： `true` / `false` 只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 两态、且盲人 30 秒内上报过位置时给出； 其他状态、没有盲人位置、或位置已过期一律 `null` —— 客户端按 null 隐藏这一行，不要当 `false` 念。 判据是盲人最新位置到 `startLatitude/startLongitude` 的直线距离 ≤ `app.meeting-point.arrival-radius-meters` （默认 100 米，与志愿者↔盲人的 `PROXIMITY_ALERT` 阈值是两个独立配置）。 从 false 变成 true 的那一刻，志愿者会另收到一条 WS `APP_NOTIFICATION`（eventType `RUNNER_AT_MEETING_POINT`），每单每位志愿者只推一次。
             public init(
                 orderId: Swift.Int64,
                 status: Components.Schemas.OrderDetailResponse.statusPayload,
@@ -5270,7 +5291,8 @@ public enum Components {
                 shareExpiresAt: Foundation.Date? = nil,
                 actualDistanceMeters: Swift.Int32? = nil,
                 actualDurationSeconds: Swift.Int32? = nil,
-                actualAvgPaceSecPerKm: Swift.Int32? = nil
+                actualAvgPaceSecPerKm: Swift.Int32? = nil,
+                runnerAtMeetingPoint: Swift.Bool? = nil
             ) {
                 self.orderId = orderId
                 self.status = status
@@ -5309,6 +5331,7 @@ public enum Components {
                 self.actualDistanceMeters = actualDistanceMeters
                 self.actualDurationSeconds = actualDurationSeconds
                 self.actualAvgPaceSecPerKm = actualAvgPaceSecPerKm
+                self.runnerAtMeetingPoint = runnerAtMeetingPoint
             }
             public enum CodingKeys: String, CodingKey {
                 case orderId
@@ -5348,6 +5371,7 @@ public enum Components {
                 case actualDistanceMeters
                 case actualDurationSeconds
                 case actualAvgPaceSecPerKm
+                case runnerAtMeetingPoint
             }
         }
         /// 订单轨迹回放：双方各一条轨迹 + 各自统计
@@ -13490,7 +13514,13 @@ public enum Operations {
             }
         }
     }
-    /// 陪跑员确认开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）
+    /// 开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）—— 陪跑员或盲人
+    ///
+    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人）。**任一端按下，先按的生效**（#346）。
+    ///
+    /// **盲人按下 = 同意 + 开始**：不过同意闸，同时写入 `blindStartConfirmedAt`；时间闸与陪跑员相同。
+    /// 调用时订单已是 `IN_PROGRESS`（另一端先按了）→ 两端都返回 200，不报错。
+    /// 陪跑员调用时下面的两道闸照旧：
     ///
     /// ⚠️ **有两道闸，返回的 409 要分开处理**：
     ///
@@ -13630,7 +13660,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// `SERVICE_START_TOO_EARLY`（还没到时间）/ `BLIND_CONFIRMATION_PENDING`（等对方确认）
+            /// `SERVICE_START_TOO_EARLY`（还没到时间，两端都有）/ `BLIND_CONFIRMATION_PENDING`（等对方确认，仅陪跑员）
             /// / `ORDER_STATUS_NOT_ALLOWED`（状态不允许）
             ///
             ///
@@ -13686,7 +13716,9 @@ public enum Operations {
             }
         }
     }
-    /// 角色：`VOLUNTEER`，且必须是该订单已接单的志愿者。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人，#346）。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
+    ///
+    /// **盲人结束**只在陪跑员掉线时放行：陪跑员已超过 `app.order.blind-finish-volunteer-offline-minutes` （默认 5 分钟）没有上报位置。判据由后端算，客户端不用自己判，按下去看返回即可： 陪跑员还在线时返回 409 `VOLUNTEER_STILL_ONLINE`，message 里带最早可以结束的时刻（可直接朗读）。 盲人结束的单对陪跑员照常算完成、积分和服务时长，与陪跑员结束走同一条逻辑， 只在订单状态日志里记下是盲人结束的。
     ///
     /// ⚠️ **这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`**（2026-09-15 新增）。 `COMPLETED` 是终态，一旦落下去：位置互推停掉（`sharesLiveLocation()` 不含它）、 `GET /{id}/location/address` 返回空、志愿者端 `GET /api/emergency/active` 的恢复入口也查不到了 —— 而求助未结案恰恰意味着现场可能还有人需要帮助。
     ///
@@ -13817,7 +13849,7 @@ public enum Operations {
                     self.body = body
                 }
             }
-            /// 订单不在 `IN_PROGRESS`；或这一单还有未结束的紧急求助 （errorCode `ORDER_HAS_ACTIVE_EMERGENCY`）
+            /// 订单不在 `IN_PROGRESS`；或这一单还有未结束的紧急求助 （errorCode `ORDER_HAS_ACTIVE_EMERGENCY`，两端都拦）；或盲人调用时陪跑员仍在上报位置 （errorCode `VOLUNTEER_STILL_ONLINE`）
             ///
             /// - Remark: Generated from `#/paths//api/orders/{id}/finish/post(finishOrder)/responses/409`.
             ///

@@ -205,13 +205,88 @@ final class VolunteerRunRecordTests: XCTestCase {
         _ = appState
     }
 
+    // MARK: - 留言（阶段 6）
+
+    /// 与后端 `@Size(max = 200)` 同口径：先去首尾空白，再按 UTF-16 码元数。
+    /// 101 个 emoji 是 101 个字形但 202 个码元 —— 按字形数就会放行一条后端必拒的留言。
+    func testDraftIsTrimmedAndCountedInUTF16UnitsLikeTheBackend() {
+        XCTAssertEqual(RunRecordViewModel.draftProblem("  \n "), "先写一句话再发送。")
+        XCTAssertNil(RunRecordViewModel.draftProblem(String(repeating: "好", count: 200)))
+        XCTAssertNotNil(RunRecordViewModel.draftProblem(String(repeating: "好", count: 201)))
+        XCTAssertNil(RunRecordViewModel.draftProblem(String(repeating: "😀", count: 100)))
+        XCTAssertNotNil(RunRecordViewModel.draftProblem(String(repeating: "😀", count: 101)))
+        XCTAssertNil(RunRecordViewModel.draftProblem("   " + String(repeating: "好", count: 200) + "  "), "首尾空白不计数")
+    }
+
+    func testBlankDraftIsNeverSent() async {
+        let (viewModel, appState, service) = makeViewModel()
+        let sent = await viewModel.send("   ")
+        XCTAssertFalse(sent)
+        XCTAssertEqual(service.postedTexts, [])
+        XCTAssertEqual(viewModel.sendState, .failed("先写一句话再发送。"))
+        _ = appState
+    }
+
+    /// 发的是去过空白的；发出去的留言并进列表，记录重读后带回同一条也不会出现两遍。
+    func testSentMessageIsTrimmedAndMergedOnce() async {
+        let (viewModel, appState, service) = makeViewModel()
+        let reply = RunRecordMessageResponse(id: 9, fromRole: .volunteer, type: .text, text: "节奏很稳。", createdAt: "2026-09-20T09:00:00")
+        service.postResults = [.success(reply)]
+        let sent = await viewModel.send("  节奏很稳。 \n")
+        XCTAssertTrue(sent)
+        XCTAssertEqual(service.postedTexts, ["节奏很稳。"])
+        XCTAssertEqual(viewModel.sendState, .sent)
+        XCTAssertEqual(viewModel.messages(of: record()).map(\.id), [9])
+        XCTAssertEqual(viewModel.messages(of: record(messages: [reply])).map(\.id), [9], "重读带回来的不再追加")
+
+        // 同一单可以发多条（负责人 2026-09-25）。
+        service.postResults.append(.success(RunRecordMessageResponse(id: 10, fromRole: .volunteer, type: .text, text: "下周见。", createdAt: "2026-09-20T09:01:00")))
+        let second = await viewModel.send("下周见。")
+        XCTAssertTrue(second)
+        XCTAssertEqual(viewModel.messages(of: record(messages: [reply])).map(\.id), [9, 10])
+        _ = appState
+    }
+
+    func testSendFailureSaysItWasNotSentAndWhy() async {
+        let cases: [(Error, String)] = [
+            (APIError.networkError(URLError(.notConnectedToInternet)), "留言没有发出。请检查网络后再发一次。"),
+            (APIError.serverError(ErrorResponse(code: "ORDER_STATUS_NOT_ALLOWED", message: "订单完成后才能留言")), "留言没有发出。这一单还没完成，暂时不能留言。"),
+            (APIError.serverError(ErrorResponse(code: "NOT_ORDER_PARTICIPANT", message: "x")), "留言没有发出。你不是这一单的参与者。"),
+            (APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "x")), "留言没有发出。这一单已经不存在了。")
+        ]
+        for (error, expected) in cases {
+            let (viewModel, appState, service) = makeViewModel()
+            service.postResults = [.failure(error)]
+            let sent = await viewModel.send("节奏很稳。")
+            XCTAssertFalse(sent)
+            XCTAssertEqual(viewModel.sendState, .failed(expected))
+            XCTAssertTrue(viewModel.sentMessages.isEmpty)
+            _ = appState
+        }
+    }
+
+    /// 跑者注销（`blindName` 为 null）就不给输入框；确认句不承诺自动念、不承诺保存多久。
+    func testComposerCopyAndDeregisteredPartner() {
+        let content = VolunteerRunRecordContent(record: record())
+        XCTAssertEqual(content.composerTitle, "给陈*留句话")
+        XCTAssertEqual(content.spokenComposerTitle, "给陈留句话")
+        XCTAssertEqual(content.sentConfirmation, "已发送。陈*在这条跑步记录里可以听到这句话。")
+        XCTAssertEqual(content.spokenSentConfirmation, "已发送。陈在这条跑步记录里可以听到这句话。")
+        for banned in ["打开这条记录时", "永久", "保存", "已通知", "已送达"] {
+            XCTAssertFalse(content.sentConfirmation.contains(banned), banned)
+        }
+        let gone = VolunteerRunRecordContent(record: record(blindName: nil))
+        XCTAssertNil(gone.composerTitle)
+        XCTAssertNil(gone.spokenComposerTitle)
+    }
+
     // MARK: - Helpers
 
-    private func makeViewModel() -> (VolunteerRunRecordViewModel, AppState, FakeRecordService) {
+    private func makeViewModel() -> (RunRecordViewModel, AppState, FakeRecordService) {
         let service = FakeRecordService()
         // AppState 由调用方持有：view model 对它是 weak。
         let appState = AppState(tokenStore: RecordInMemoryTokenStore())
-        let viewModel = VolunteerRunRecordViewModel(orderId: 7, retryNanoseconds: 1_000_000)
+        let viewModel = RunRecordViewModel(orderId: 7, retryNanoseconds: 1_000_000)
         viewModel.configure(with: appState, runRecord: service)
         return (viewModel, appState, service)
     }
@@ -231,16 +306,18 @@ final class VolunteerRunRecordTests: XCTestCase {
         splits: [RunSplit] = [],
         fastest: Int? = nil,
         events: [RunEvent] = [],
-        sosTriggered: Bool = false
+        sosTriggered: Bool = false,
+        blindName: String? = "陈*",
+        messages: [RunRecordMessageResponse] = []
     ) -> RunRecordResponse {
         RunRecordResponse(
             orderId: 7, status: status, viewerRole: .volunteer, place: "深圳湾公园",
-            blindName: "陈*", volunteerName: "林*",
+            blindName: blindName, volunteerName: "林*",
             runStartedAt: "2026-09-20T08:00:00", runEndedAt: "2026-09-20T08:40:00",
             summary: summary, splits: splits, fastestSplitIndex: fastest, paceSamples: [], stops: [],
             events: events, sosTriggered: sosTriggered,
             service: RunService(startedAt: "2026-09-20T08:00:00", completedAt: "2026-09-20T08:45:00", durationMin: 45, volunteerTotalServiceMinutes: 300),
-            comparison: nil, messages: [], track: nil
+            comparison: nil, messages: messages, track: nil
         )
     }
 
@@ -265,7 +342,14 @@ private final class FakeRecordService: RunRecordServing, @unchecked Sendable {
     }
 
     func monthlyRecords(year: Int, month: Int) async throws -> RunRecordHistoryResponse { throw Exhausted() }
-    func postMessage(orderId: Int64, text: String) async throws -> RunRecordMessageResponse { throw Exhausted() }
+    var postResults: [Result<RunRecordMessageResponse, Error>] = []
+    private(set) var postedTexts: [String] = []
+
+    func postMessage(orderId: Int64, text: String) async throws -> RunRecordMessageResponse {
+        defer { postedTexts.append(text) }
+        guard postedTexts.count < postResults.count else { throw Exhausted() }
+        return try postResults[postedTexts.count].get()
+    }
 }
 
 private final class RecordInMemoryTokenStore: TokenStoring, @unchecked Sendable {

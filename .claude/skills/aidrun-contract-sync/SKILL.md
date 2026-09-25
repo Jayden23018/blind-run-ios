@@ -104,6 +104,26 @@ node scripts/report-drift-fields.mjs  # 只报告，不生成（读工作区已�
 
 接入任何一个后回来划掉它，四个都划掉就删掉本节。
 
+### 2026-09-25 随后端 #279（求助与安全中心）探测到
+
+- `EmergencyTriggerRequest.useCountdown` / `EmergencyTriggerResponse.countdownEndsAt` / `EmergencyEventResponse.countdownEndsAt`
+  —— 服务端倒计时。**属上表第一行（SOS 红线），接入必须单独开变更、带测试**：客户端现有的全屏倒计时是自己数的，
+  契约明确要求「照 `countdownEndsAt` 倒数、别自己从 N 开始数」，两套倒计时并存会出现「屏幕还在倒数、求助已经发出」。
+  不传 `useCountdown` = 立即触发，与现在的行为逐字节相同，所以不接是安全的。
+- `EmergencyTriggerRequest.idempotencyKey` —— 弱网重试去重。同属 SOS 链路，随上一条一起单独做；
+  不传时行为不变（重试可能撞 60 秒冷却回 429「操作太频繁」，这是现状，不是这次引入的）。
+- `EmergencyEventResponse.csUserId` / `csNotes` —— 客服内部处置记录，志愿者侧恒为 null（隐私）。**前端用不上，不接。**
+- 409 `ORDER_HAS_ACTIVE_EMERGENCY`（`/finish` 与志愿者 `/cancel`）—— `ErrorCode` 没映射，
+  运行时回落到后端 `message`（「这一单还有未结束的紧急求助，需由对方本人撤销或客服结案后…」），不是静默失败；
+  要给专门的读屏文案时再补映射。
+
+### 2026-09-25 随后端 #358 探测到
+
+- `OrderDetailResponse.runnerAtMeetingPoint: Bool?` —— 盲人是否已到出发点（服务端判定）。🚨 **三态**：
+  只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 且盲人 30 秒内报过位置时才是 true/false，其余一律 null，
+  契约原话「按 null 隐藏这一行，不要当 `false` 念」—— 属上表第一行（null 与 false 语义不同），接入要单独开变更、带测试。
+  配套的 WS `APP_NOTIFICATION`（`RUNNER_AT_MEETING_POINT`）同理。
+
 ## 两个会让人误判的细节
 
 - **`git push --delete` 也触发 pre-push**，于是删分支会被代码漂移拦住，理由与分支毫无关系。
