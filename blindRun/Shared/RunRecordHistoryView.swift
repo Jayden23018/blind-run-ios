@@ -440,13 +440,12 @@ struct RunRecordHistoryView: View {
         .accessibilityIdentifier("runRecordHistoryLoading")
     }
 
-    /// 陪跑员进跑后详情（阶段 4）；跑者仍落到订单详情，跑者跑后详情是阶段 5。
+    /// 两个角色都进各自的跑后详情（阶段 4、5）。跑者的补评价仍在订单页，从跑后详情最后一行进。
     @ViewBuilder
     private func completedDestination(orderId: Int64) -> some View {
         switch role {
         case .runner:
-            // 跑者详情页是补评价唯一的入口，也内嵌轨迹摘要。
-            BlindOrderStatusView(orderId: orderId) { _ in }
+            RunnerRunRecordView(orderId: orderId)
         case .volunteer:
             VolunteerRunRecordView(orderId: orderId)
         }

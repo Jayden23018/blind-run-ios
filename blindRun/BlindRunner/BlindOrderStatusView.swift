@@ -2331,7 +2331,7 @@ struct BlindOrderStatusView: View {
                 // 同一页上两个入口念出不同的话，对看不见屏幕的人是两个矛盾的事实。
                 // 原先它念 `track.spokenSummary`（只有三个数字，没有状态），
                 // 而 `repeatStatus` 念的是「状态 + 三个数字 + 求助状态」，是它的严格超集。
-                CompletedTrackSummaryView(track: track) {
+                CompletedTrackSummaryView(track: track, recordOrderId: order.orderId, role: .runner) {
                     viewModel.repeatStatus()
                 }
             } else if trackViewModel.isLoading {
