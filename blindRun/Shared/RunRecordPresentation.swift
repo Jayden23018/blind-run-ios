@@ -1,8 +1,70 @@
+import Combine
 import CoreLocation
 import UIKit
 
 // 跑后详情的纯计算（OpenSpec `add-volunteer-run-record-detail`）：配速着色、路线几何、文案。
 // 与视图分开，好让用例直接钉；阶段 5（跑者详情）也从这里取。
+
+// MARK: - View Model（两个角色的详情页共用）
+
+@MainActor
+final class RunRecordViewModel: ObservableObject {
+    enum Phase: Equatable {
+        case loading
+        case loaded(RunRecordResponse)
+        case failed(String)
+    }
+
+    /// 契约 `getRunRecord`：`GENERATING` 时「客户端 1–2 秒后重试」。
+    static let generatingRetryNanoseconds: UInt64 = 2_000_000_000
+
+    @Published private(set) var phase: Phase = .loading
+
+    let orderId: Int64
+    private let retryNanoseconds: UInt64
+    private weak var appState: AppState?
+    private var runRecordOverride: (any RunRecordServing)?
+
+    init(orderId: Int64, retryNanoseconds: UInt64 = generatingRetryNanoseconds) {
+        self.orderId = orderId
+        self.retryNanoseconds = retryNanoseconds
+    }
+
+    /// ⚠️ `appState` 是 weak：用例要自己持有它。`runRecord` 只给用例换替身。
+    func configure(with appState: AppState, runRecord: (any RunRecordServing)? = nil) {
+        self.appState = appState
+        self.runRecordOverride = runRecord
+    }
+
+    /// 读到不是 `GENERATING` 为止；页面关掉（任务取消）就停。
+    func loadUntilSettled() async {
+        while !Task.isCancelled {
+            await loadOnce()
+            guard case .loaded(let record) = phase, record.status == .generating else { return }
+            try? await Task.sleep(nanoseconds: retryNanoseconds)
+        }
+    }
+
+    func retry() async {
+        phase = .loading
+        await loadUntilSettled()
+    }
+
+    private func loadOnce() async {
+        guard let appState else { return }
+        let service = runRecordOverride ?? appState.runRecord
+        do {
+            phase = .loaded(try await service.record(orderId: orderId))
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) { return }
+            phase = .failed("跑后记录没能加载。\(error.localizedMessage)")
+        } catch is CancellationError {
+            return
+        } catch {
+            phase = .failed("跑后记录没能加载，请检查网络后重试。")
+        }
+    }
+}
 
 // MARK: - 数字文案
 

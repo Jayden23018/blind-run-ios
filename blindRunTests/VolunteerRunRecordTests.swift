@@ -207,11 +207,11 @@ final class VolunteerRunRecordTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func makeViewModel() -> (VolunteerRunRecordViewModel, AppState, FakeRecordService) {
+    private func makeViewModel() -> (RunRecordViewModel, AppState, FakeRecordService) {
         let service = FakeRecordService()
         // AppState 由调用方持有：view model 对它是 weak。
         let appState = AppState(tokenStore: RecordInMemoryTokenStore())
-        let viewModel = VolunteerRunRecordViewModel(orderId: 7, retryNanoseconds: 1_000_000)
+        let viewModel = RunRecordViewModel(orderId: 7, retryNanoseconds: 1_000_000)
         viewModel.configure(with: appState, runRecord: service)
         return (viewModel, appState, service)
     }

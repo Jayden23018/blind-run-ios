@@ -9,67 +9,6 @@ import SwiftUI
 // 没做（P1 / 后续阶段）：轨迹回放、夜跑样式、配速图拖动与地图联动、地图视差与导航栏渐变、
 // 留言输入（阶段 6）。
 
-// MARK: - View Model
-
-@MainActor
-final class VolunteerRunRecordViewModel: ObservableObject {
-    enum Phase: Equatable {
-        case loading
-        case loaded(RunRecordResponse)
-        case failed(String)
-    }
-
-    /// 契约 `getRunRecord`：`GENERATING` 时「客户端 1–2 秒后重试」。
-    static let generatingRetryNanoseconds: UInt64 = 2_000_000_000
-
-    @Published private(set) var phase: Phase = .loading
-
-    let orderId: Int64
-    private let retryNanoseconds: UInt64
-    private weak var appState: AppState?
-    private var runRecordOverride: (any RunRecordServing)?
-
-    init(orderId: Int64, retryNanoseconds: UInt64 = generatingRetryNanoseconds) {
-        self.orderId = orderId
-        self.retryNanoseconds = retryNanoseconds
-    }
-
-    /// ⚠️ `appState` 是 weak：用例要自己持有它。`runRecord` 只给用例换替身。
-    func configure(with appState: AppState, runRecord: (any RunRecordServing)? = nil) {
-        self.appState = appState
-        self.runRecordOverride = runRecord
-    }
-
-    /// 读到不是 `GENERATING` 为止；页面关掉（任务取消）就停。
-    func loadUntilSettled() async {
-        while !Task.isCancelled {
-            await loadOnce()
-            guard case .loaded(let record) = phase, record.status == .generating else { return }
-            try? await Task.sleep(nanoseconds: retryNanoseconds)
-        }
-    }
-
-    func retry() async {
-        phase = .loading
-        await loadUntilSettled()
-    }
-
-    private func loadOnce() async {
-        guard let appState else { return }
-        let service = runRecordOverride ?? appState.runRecord
-        do {
-            phase = .loaded(try await service.record(orderId: orderId))
-        } catch let error as APIError {
-            if appState.handleAuthenticatedAPIError(error) { return }
-            phase = .failed("跑后记录没能加载。\(error.localizedMessage)")
-        } catch is CancellationError {
-            return
-        } catch {
-            phase = .failed("跑后记录没能加载，请检查网络后重试。")
-        }
-    }
-}
-
 // MARK: - Content（纯计算，用例直接钉）
 
 struct VolunteerRunRecordContent {
@@ -260,7 +199,7 @@ private extension String {
 
 struct VolunteerRunRecordView: View {
     @EnvironmentObject private var appState: AppState
-    @StateObject private var viewModel: VolunteerRunRecordViewModel
+    @StateObject private var viewModel: RunRecordViewModel
     @State private var highlightedSplit: Int?
     /// 「重试」起的任务。`.task` 那条随页面取消，这条要自己管：离开页面时还在 GENERATING 就会一直轮询，
     /// 连点两下会起两个并行的轮询。
@@ -272,7 +211,7 @@ struct VolunteerRunRecordView: View {
     private static let cardOverlap: CGFloat = 28
 
     init(orderId: Int64) {
-        _viewModel = StateObject(wrappedValue: VolunteerRunRecordViewModel(orderId: orderId))
+        _viewModel = StateObject(wrappedValue: RunRecordViewModel(orderId: orderId))
     }
 
     var body: some View {
@@ -304,17 +243,9 @@ struct VolunteerRunRecordView: View {
     private var content: some View {
         switch viewModel.phase {
         case .loading:
-            loadingPlaceholder
+            RunRecordLoadingPlaceholder(title: "和陈*一起跑")
         case .failed(let message):
-            VStack(alignment: .leading, spacing: 16) {
-                Text(message)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.destructive)
-                retryButton
-                Spacer(minLength: 0)
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            RunRecordFailedView(message: message, retry: retry)
         case .loaded(let record):
             loaded(record)
         }
@@ -381,7 +312,7 @@ struct VolunteerRunRecordView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 24) {
             RunRecordHeader(content: content)
-            statusNotice(record, hasMap: onSelectSplit != nil)
+            RunRecordStatusNotice(status: record.status, hasMap: onSelectSplit != nil, retry: retry)
             if let distance = content.distanceText, let spoken = content.spokenDistance {
                 RunRecordBigDistance(text: distance, spoken: spoken)
             }
@@ -437,47 +368,9 @@ struct VolunteerRunRecordView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private func statusNotice(_ record: RunRecordResponse, hasMap: Bool) -> some View {
-        switch record.status {
-        case .generating:
-            HStack(spacing: 12) {
-                ProgressView()
-                Text("记录正在生成，大约 1 分钟后可以查看")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("runRecordGenerating")
-        case .failed, .unknown:
-            VStack(alignment: .leading, spacing: 12) {
-                Text(record.status == .failed ? "这条记录没能生成。" : "这条记录暂时无法显示。")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.destructive)
-                retryButton
-            }
-        case .ready, .insufficientTrack:
-            if !hasMap {
-                Text("这次没有记录到完整路线")
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityIdentifier("runRecordNoRoute")
-            }
-        }
-    }
-
-    private var retryButton: some View {
-        Button {
-            retryTask?.cancel()
-            retryTask = Task { await viewModel.retry() }
-        } label: {
-            Text("重试")
-                .font(AppFonts.body())
-                .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .accessibilityHint("重新加载跑后记录")
-        .accessibilityIdentifier("runRecordRetry")
+    private func retry() {
+        retryTask?.cancel()
+        retryTask = Task { await viewModel.retry() }
     }
 
     private func serviceRow(_ text: String, range: String?) -> some View {
@@ -510,11 +403,19 @@ struct VolunteerRunRecordView: View {
             content()
         }
     }
+}
 
-    /// 骨架屏，读屏只读一句（HANDOFF 6.4）。
-    private var loadingPlaceholder: some View {
+// MARK: - Pieces
+
+// MARK: 状态（两个角色的详情页共用，HANDOFF 6.4）
+
+/// 骨架屏，读屏只读一句。
+struct RunRecordLoadingPlaceholder: View {
+    let title: String
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("和陈*一起跑").font(AppFonts.title())
+            Text(title).font(AppFonts.title())
             Text("5.21 公里").font(.largeTitle.weight(.heavy))
             Text("运动时间 平均配速 步频")
             Spacer(minLength: 0)
@@ -528,7 +429,72 @@ struct VolunteerRunRecordView: View {
     }
 }
 
-// MARK: - Pieces
+struct RunRecordFailedView: View {
+    let message: String
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(message)
+                .font(AppFonts.body())
+                .foregroundColor(AppColors.destructive)
+            RunRecordRetryButton(action: retry)
+            Spacer(minLength: 0)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+/// 生成中 / 失败 / 不认识的状态 / 没有路线。READY 且有地图时什么都不画。
+struct RunRecordStatusNotice: View {
+    let status: RunRecordStatus
+    let hasMap: Bool
+    let retry: () -> Void
+
+    var body: some View {
+        switch status {
+        case .generating:
+            HStack(spacing: 12) {
+                ProgressView()
+                Text("记录正在生成，大约 1 分钟后可以查看")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textPrimary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("runRecordGenerating")
+        case .failed, .unknown:
+            VStack(alignment: .leading, spacing: 12) {
+                Text(status == .failed ? "这条记录没能生成。" : "这条记录暂时无法显示。")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.destructive)
+                RunRecordRetryButton(action: retry)
+            }
+        case .ready, .insufficientTrack:
+            if !hasMap {
+                Text("这次没有记录到完整路线")
+                    .font(AppFonts.body())
+                    .foregroundColor(AppColors.textSecondary)
+                    .accessibilityIdentifier("runRecordNoRoute")
+            }
+        }
+    }
+}
+
+struct RunRecordRetryButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text("重试")
+                .font(AppFonts.body())
+                .frame(maxWidth: .infinity, minHeight: FlowMetrics.actionButtonMinHeight, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .accessibilityHint("重新加载跑后记录")
+        .accessibilityIdentifier("runRecordRetry")
+    }
+}
 
 private struct RunRecordHeader: View {
     let content: VolunteerRunRecordContent
@@ -907,7 +873,8 @@ struct RunPaceChartDescriptor: AXChartDescriptorRepresentable {
 // MARK: - Route Map
 
 /// 描边 + 配速线 + 公里标记 + 起终点 + 休息点 + 高亮那一公里。整张图对读屏是装饰（描述挂在页面上）。
-private struct RunRecordRouteMap: View {
+/// 跑者详情（阶段 5）也用它，`highlight` 传 nil。
+struct RunRecordRouteMap: View {
     let geometry: RunRouteGeometry
     let record: RunRecordResponse
     let highlight: VolunteerRunRecordContent.SplitRow?

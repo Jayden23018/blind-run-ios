@@ -279,7 +279,9 @@ enum ToneSynthesizer {
         return pcm
     }
 
-    private static func container(pcm: Data, channels: Int = 1, bitsPerSample: Int = 16) -> Data {
+    /// 声音路线（`RunRouteSonification`）也用它包双声道 PCM，所以不是 private。
+    /// `nonisolated`：声音路线在后台任务里合成。
+    nonisolated static func container(pcm: Data, channels: Int = 1, bitsPerSample: Int = 16, sampleRate: Int = 44_100) -> Data {
         var data = Data()
         func append<T: FixedWidthInteger>(_ value: T) {
             var littleEndian = value.littleEndian

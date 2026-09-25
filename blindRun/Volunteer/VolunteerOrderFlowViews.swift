@@ -852,7 +852,7 @@ struct VolunteerOrderDetailView: View {
     private func completedTrackSection(_ order: OrderDetailResponse) -> some View {
         if order.status == .completed {
             if let track = trackViewModel.track {
-                CompletedTrackSummaryView(track: track, volunteerRecordOrderId: order.orderId) {
+                CompletedTrackSummaryView(track: track, recordOrderId: order.orderId, role: .volunteer) {
                     speechService.speak(track.spokenSummary)
                 }
             } else if trackViewModel.isLoading {
@@ -2002,7 +2002,7 @@ struct VolunteerInServiceView: View {
     private var completedTrackContent: some View {
         ScrollView {
             if let track = trackViewModel.track {
-                CompletedTrackSummaryView(track: track, volunteerRecordOrderId: orderId) {
+                CompletedTrackSummaryView(track: track, recordOrderId: orderId, role: .volunteer) {
                     speechService.speak(track.spokenSummary)
                 }
                 .padding(20)
@@ -3729,7 +3729,7 @@ struct VolunteerReadOnlyOrderView: View {
                 VolunteerBlindRunnerInfoCard(order: order, showPhone: order.status != .pendingMatch && order.blindPhone?.trimmed.isEmpty == false)
                 VolunteerOrderInfoSection(order: order, distanceText: nil)
                 if order.status == .completed, let track = trackViewModel.track {
-                    CompletedTrackSummaryView(track: track, volunteerRecordOrderId: order.orderId) {
+                    CompletedTrackSummaryView(track: track, recordOrderId: order.orderId, role: .volunteer) {
                         speechService.speak(track.spokenSummary)
                     }
                 } else if trackViewModel.isLoading {
