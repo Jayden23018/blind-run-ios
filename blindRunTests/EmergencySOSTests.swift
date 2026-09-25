@@ -672,7 +672,9 @@ final class EmergencySOSTests: XCTestCase {
     func testSecondPressDuringCountdownNeitherResendsNorRestartsTheCountdown() async {
         let (coordinator, safety) = Self.makeCountdownFixture()
         defer { Self.teardownAlarmObservers() }
-        safety.triggerEmergencyResult = .success(Self.countdownResponse(eventId: 901))
+        // 截止时刻按整秒截断，写 3 秒实际只有 2.x 秒 —— 第三下（2.4 秒）会落在倒计时**之后**，
+        // 那时再按本来就该发起新的一次。给 4 秒，三下都落在倒计时里。
+        safety.triggerEmergencyResult = .success(Self.countdownResponse(eventId: 901, secondsFromNow: 4))
         let order = Self.makeOrder(status: .inProgress)
         var spoken: [String] = []
         let press = {

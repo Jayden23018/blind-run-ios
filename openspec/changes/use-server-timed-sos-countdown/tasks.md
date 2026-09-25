@@ -8,5 +8,5 @@
 ## 2. Tests and validation
 
 - [x] 2.1 `EmergencySOSTests` rewritten for the server countdown
-- [ ] 2.2 Real-device run of the covering suites with real pass/fail counts
+- [x] 2.2 Real-device run of the covering suites with real pass/fail counts
 - [ ] 2.3 Real-device listening check: long press → countdown → cancel, and let it run out (needs a person, see PR)
