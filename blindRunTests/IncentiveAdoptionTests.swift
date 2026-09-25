@@ -433,6 +433,14 @@ final class IncentiveAdoptionTests: XCTestCase {
 
         // TTS 与屏幕上是同一句，不另写一套。
         XCTAssertEqual(notEligible.ttsMessage, notEligible.localizedMessage)
+
+        // 对方退出过（handoff issue #309）：这一对恰恰一起跑完过，不许借「需要先一起跑完」那句；
+        // 重试结果一模一样，也不许叫他再试。
+        let optedOut = try XCTUnwrap(ErrorCode(rawValue: "FAVORITE_VOLUNTEER_OPTED_OUT"))
+        XCTAssertEqual(optedOut.localizedMessage, PartnerStreakCopy.favoriteOptedOut)
+        XCTAssertNotEqual(optedOut.localizedMessage, notEligible.localizedMessage)
+        XCTAssertFalse(optedOut.localizedMessage.contains("一起跑完"))
+        XCTAssertFalse(optedOut.localizedMessage.contains("再试"))
     }
 
     /// 收藏 / 取消收藏两个端点都幂等且恒 204，Mock 必须照这个演：
