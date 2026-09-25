@@ -204,6 +204,7 @@ struct VolunteerEmergencyAlertPresentation: ViewModifier {
     let deviceCoordinate: CLLocationCoordinate2D?
     let isAcknowledging: Bool
     let reverseGeocode: (CLLocationCoordinate2D) async -> String?
+    let serverAddress: (Int64) async -> OrderLocationAddressResponse?
     let onAcknowledge: (Int64) -> Void
 
     func body(content: Content) -> some View {
@@ -221,7 +222,8 @@ struct VolunteerEmergencyAlertPresentation: ViewModifier {
                     deviceCoordinate: deviceCoordinate,
                     isAcknowledging: isAcknowledging,
                     onAcknowledge: { onAcknowledge(alert.eventID) },
-                    reverseGeocode: reverseGeocode
+                    reverseGeocode: reverseGeocode,
+                    serverAddress: serverAddress
                 )
             }
         }
@@ -236,6 +238,7 @@ extension View {
         deviceCoordinate: CLLocationCoordinate2D?,
         isAcknowledging: Bool,
         reverseGeocode: @escaping (CLLocationCoordinate2D) async -> String?,
+        serverAddress: @escaping (Int64) async -> OrderLocationAddressResponse?,
         onAcknowledge: @escaping (Int64) -> Void
     ) -> some View {
         modifier(
@@ -246,6 +249,7 @@ extension View {
                 deviceCoordinate: deviceCoordinate,
                 isAcknowledging: isAcknowledging,
                 reverseGeocode: reverseGeocode,
+                serverAddress: serverAddress,
                 onAcknowledge: onAcknowledge
             )
         )
@@ -277,6 +281,9 @@ struct VolunteerEmergencyAlertView: View {
     /// 逆地理。传进来而不是从环境里取 —— 这个视图在两处被呈现，
     /// 而环境值漏注入的表现是「地址永远解析不出来」，不报错。
     let reverseGeocode: (CLLocationCoordinate2D) async -> String?
+    /// `GET /api/orders/{id}/location/address`（盲人的位置）。告警没带坐标（冷启动恢复出来的
+    /// 那条恒没有）或本机逆地理失败时的兜底，后端 #387 ①。
+    let serverAddress: (Int64) async -> OrderLocationAddressResponse?
 
     /// 逆地理解析出来的地名。nil = 还没解析出来或解析失败。
     @State private var resolvedPlace: String?
@@ -404,7 +411,6 @@ struct VolunteerEmergencyAlertView: View {
     /// 比没有地名危险得多（与 `EmergencySafetyCopy.locationAnnouncement` 同一条理由）。
     private var placeText: String {
         if let resolvedPlace { return resolvedPlace }
-        if alert.coordinate == nil { return EmergencySafetyCopy.volunteerAlertLocationUnknown }
         return didResolvePlace
             ? EmergencySafetyCopy.volunteerAlertLocationUnknown
             : EmergencySafetyCopy.volunteerAlertLocationResolving
@@ -415,11 +421,12 @@ struct VolunteerEmergencyAlertView: View {
     }
 
     private func resolvePlaceIfPossible() async {
-        guard let peer = alert.coordinate else {
-            didResolvePlace = true
-            return
+        if let peer = alert.coordinate {
+            resolvedPlace = await reverseGeocode(peer.coordinate)
         }
-        resolvedPlace = await reverseGeocode(peer.coordinate)
+        if resolvedPlace == nil, let orderID = alert.orderID, let response = await serverAddress(orderID) {
+            resolvedPlace = EmergencySafetyCopy.volunteerAlertPlace(server: response)
+        }
         didResolvePlace = true
     }
 

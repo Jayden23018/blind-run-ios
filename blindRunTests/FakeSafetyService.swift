@@ -31,6 +31,7 @@ final class FakeSafetyService: SafetyServing, @unchecked Sendable {
     /// `.failure` = 订单详情读不到（通话磨合期后端对志愿者就是 403）。
     var matchedOrderResult: Result<OrderDetailResponse, Error> = .failure(NotStubbed(method: "matchedOrder"))
     var orderTrackResult: Result<OrderTrackResponse, Error> = .failure(NotStubbed(method: "orderTrack"))
+    var orderLocationAddressResult: Result<OrderLocationAddressResponse, Error> = .failure(NotStubbed(method: "orderLocationAddress"))
     var submitSupportTicketResult: Result<Void, Error> = .success(())
 
     /// 每次 `triggerEmergency` 之前多睡这么久。制造「请求在飞、第二次点击进来了」的窗口用。
@@ -109,6 +110,13 @@ final class FakeSafetyService: SafetyServing, @unchecked Sendable {
         lastOrderId = orderId
         orderIds.append(orderId)
         return try orderTrackResult.get()
+    }
+
+    func orderLocationAddress(orderId: Int64) async throws -> OrderLocationAddressResponse {
+        record()
+        lastOrderId = orderId
+        orderIds.append(orderId)
+        return try orderLocationAddressResult.get()
     }
 
     func submitSupportTicket(_ request: SupportTicketRequest) async throws {
