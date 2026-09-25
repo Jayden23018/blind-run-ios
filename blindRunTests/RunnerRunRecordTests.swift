@@ -167,14 +167,54 @@ final class RunnerRunRecordTests: XCTestCase {
     func testNarrationPausesWhenVoiceOverFocusMovesAwayAndResumes() {
         let audio = RunRecordAudioController()
         audio.activeControlIdentifier = "listen"
-        audio.toggleNarration("一")
+        audio.toggleSpeech("一")
         XCTAssertEqual(audio.state, .playing(.narration))
         audio.focusMoved(to: "listen")
         XCTAssertEqual(audio.state, .playing(.narration), "焦点还在按钮上，不该暂停")
         audio.focusMoved(to: "runnerRunRecordSplit-1")
         XCTAssertEqual(audio.state, .paused(.narration))
-        audio.toggleNarration("一")
+        audio.toggleSpeech("一")
         XCTAssertEqual(audio.state, .playing(.narration))
+        audio.stop()
+        XCTAssertEqual(audio.state, .idle)
+    }
+
+    // MARK: - 留言（阶段 6）
+
+    /// 只收陪跑员的；全部按先后念；没带句末标点的补一个句号，免得两条粘成一句。
+    func testMessagesSectionReadsEveryVolunteerMessageInOrder() throws {
+        let messages = [
+            RunRecordMessageResponse(id: 1, fromRole: .volunteer, type: .text, text: "今天节奏很稳。", createdAt: "2026-09-20T08:01:00"),
+            RunRecordMessageResponse(id: 2, fromRole: .blind, type: .text, text: "谢谢", createdAt: "2026-09-20T08:02:00"),
+            RunRecordMessageResponse(id: 3, fromRole: .volunteer, type: .text, text: "下周六见", createdAt: "2026-09-20T08:03:00")
+        ]
+        let section = try XCTUnwrap(RunnerRunRecordContent(record: record(messages: messages)).messages)
+        XCTAssertEqual(section.title, "林*的留言")
+        XCTAssertEqual(section.spokenTitle, "林的留言", "读屏不念星号")
+        XCTAssertEqual(section.texts, ["今天节奏很稳。", "下周六见"])
+        XCTAssertEqual(section.readAloud, "林的留言：今天节奏很稳。下周六见。")
+    }
+
+    func testNoVolunteerMessageMeansNoSection() {
+        let onlyMine = [RunRecordMessageResponse(id: 1, fromRole: .blind, type: .text, text: "谢谢", createdAt: "2026-09-20T08:02:00")]
+        XCTAssertNil(RunnerRunRecordContent(record: record(messages: onlyMine)).messages)
+        XCTAssertNil(RunnerRunRecordContent(record: record(messages: [])).messages)
+    }
+
+    /// 「朗读留言」与讲述共用一个播放者：开始它就停掉讲述；焦点移开同样暂停。
+    /// ⚠️ 真机上会念出一两个字：这是合成器本身，不是替身。
+    func testReadingMessagesStopsTheNarrationAndPausesOnFocusMove() {
+        let audio = RunRecordAudioController()
+        audio.activeControlIdentifier = "listen"
+        audio.toggleSpeech("一")
+        XCTAssertEqual(audio.state, .playing(.narration))
+        audio.activeControlIdentifier = RunnerRunRecordView.readMessagesID
+        audio.toggleSpeech("二", as: .message)
+        XCTAssertEqual(audio.state, .playing(.message), "讲述让位给朗读留言")
+        audio.focusMoved(to: "runnerRunRecordListen")
+        XCTAssertEqual(audio.state, .paused(.message))
+        audio.toggleSpeech("一")
+        XCTAssertEqual(audio.state, .playing(.narration), "暂停着的留言不会被讲述「继续」")
         audio.stop()
         XCTAssertEqual(audio.state, .idle)
     }
@@ -195,7 +235,11 @@ final class RunnerRunRecordTests: XCTestCase {
         summary: RunSummary? = RunSummary(distanceM: 5210, movingSec: 1954, elapsedSec: 2054, restSec: 100, avgPaceSecPerKm: 375, steps: 5474, avgCadence: 168, elevationGainM: 6),
         splits: [RunSplit] = RunnerRunRecordTests.splits,
         comparison: RunComparison? = RunComparison(previousOrderId: 6, previousDistanceM: 4_800, deltaDistanceM: 410),
-        totalServiceMinutes: Int64? = 1_260
+        totalServiceMinutes: Int64? = 1_260,
+        messages: [RunRecordMessageResponse] = [
+            RunRecordMessageResponse(id: 1, fromRole: .blind, type: .text, text: "谢谢", createdAt: "2026-09-20T08:00:00"),
+            RunRecordMessageResponse(id: 2, fromRole: .volunteer, type: .text, text: "今天节奏很稳。", createdAt: "2026-09-20T08:01:00")
+        ]
     ) -> RunRecordResponse {
         RunRecordResponse(
             orderId: 7, status: status, viewerRole: .blind, place: "深圳湾公园",
@@ -206,10 +250,7 @@ final class RunnerRunRecordTests: XCTestCase {
             events: [], sosTriggered: false,
             service: RunService(startedAt: "2026-09-20T06:42:00", completedAt: "2026-09-20T07:20:00", durationMin: 38, volunteerTotalServiceMinutes: totalServiceMinutes),
             comparison: comparison,
-            messages: [
-                RunRecordMessageResponse(id: 1, fromRole: .blind, type: .text, text: "谢谢", createdAt: "2026-09-20T08:00:00"),
-                RunRecordMessageResponse(id: 2, fromRole: .volunteer, type: .text, text: "今天节奏很稳。", createdAt: "2026-09-20T08:01:00")
-            ],
+            messages: messages,
             track: nil
         )
     }
