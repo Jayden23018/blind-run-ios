@@ -1339,14 +1339,18 @@ final class EmergencySOSTests: XCTestCase {
 
     /// Guards against drift from backend `entity/EmergencyStatus.java`.
     func testEmergencyStatusMirrorsTheBackendEnum() {
+        // 2026-09-15 后端 PR #279 加了 COUNTDOWN / CANCELLED（9 个值）。
         let backendNames: Set<String> = [
-            "PENDING", "VOLUNTEER_NOTIFIED", "VOLUNTEER_CONFIRMED",
-            "CS_HANDLING", "CONTACT_NOTIFIED", "RESOLVED", "FALSE_ALARM"
+            "COUNTDOWN", "PENDING", "VOLUNTEER_NOTIFIED", "VOLUNTEER_CONFIRMED",
+            "CS_HANDLING", "CONTACT_NOTIFIED", "RESOLVED", "FALSE_ALARM", "CANCELLED"
         ]
         let clientNames = Set(EmergencyEventStatus.allCases.map(\.rawValue)).subtracting(["UNKNOWN"])
         XCTAssertEqual(clientNames, backendNames)
+        // 终态与后端 `EmergencyStatus.terminalStatuses()` 一致：RESOLVED / FALSE_ALARM / CANCELLED。
         XCTAssertTrue(EmergencyEventStatus.resolved.isTerminal)
         XCTAssertTrue(EmergencyEventStatus.falseAlarm.isTerminal)
+        XCTAssertTrue(EmergencyEventStatus.cancelled.isTerminal)
+        XCTAssertFalse(EmergencyEventStatus.countdown.isTerminal)
         XCTAssertFalse(EmergencyEventStatus.contactNotified.isTerminal)
     }
 
