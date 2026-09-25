@@ -105,6 +105,20 @@ enum EmergencySafetyCopy {
     /// 同源：看不见屏幕的人最需要先知道的是什么都没发生。
     static let countdownCancelled = "已取消，没有发出求助。"
 
+    /// 服务端倒计时内撤回成功（`PUT /cancel` 回 `CANCELLED`）。iOS 定稿文案，后端 #388 ②。
+    ///
+    /// 🔴 **一个字都不提家属和短信** —— 那一路是 `cancelOwnerSucceeded`（`FALSE_ALARM`，发出过、
+    /// 要补解除短信）。这一态外面一个人都不知道，说「已更正」等于告诉他刚才有人被惊动了。
+    static let withdrawnBeforeSending = "已撤回。求助没有发出，没有通知任何人。"
+
+    /// 倒计时里按了取消，但撤回请求没成功。**服务端的倒计时不会因此停下**，
+    /// 所以必须说「可能已经发出」，而不是「已取消」。
+    static let withdrawFailedTitle = "撤回没有成功"
+    static func withdrawFailed(_ reason: String?) -> String {
+        let detail = reason?.trimmed.isEmpty == false ? reason!.trimmed : "网络异常"
+        return "撤回没有成功：\(detail)。求助可能已经发出，不要当作已经取消。\(emergencyCallReminder)"
+    }
+
     // MARK: 求助已发出（屏 3b）
 
     static let sentTitle = "求助已发出"
@@ -141,9 +155,12 @@ enum EmergencySafetyCopy {
             return sentTitle
         case .cancelledByOwner:
             return cancelledTitle
-        // 一个字节都没发出去的三种。
-        case .unsentNoLocation, .failed, .cooldown:
+        // 一个字节都没发出去的三种，加上倒计时内撤回（事件落过库，但求助从未发出）。
+        case .unsentNoLocation, .failed, .cooldown, .withdrawnBeforeSending:
             return unsentTitle
+        // 撤回失败：服务端倒计时还在走，发没发出不知道 —— 两个完成时都不许用。
+        case .withdrawFailed:
+            return withdrawFailedTitle
         // `.idle` 在这一屏只可能来自恢复（`activeEvent` 先到、状态还没跟上）
         // 或对账把陈旧事件清掉之后。有事件就是已发出，没有就是没发出 —— 不猜。
         case .idle:
@@ -208,6 +225,11 @@ enum EmergencySafetyCopy {
             return "求助已记录，志愿者已确认，正在联系你的紧急联系人。\(emergencyCallReminder)"
         case .resolved, .falseAlarm:
             return "求助已记录并已结束。\(emergencyCallReminder)"
+        // 恢复时可能读到（截止已过、服务端还没来得及推成正式求助）。不说「已发出」。
+        case .countdown:
+            return "求助正在倒计时，马上就会发出。\(emergencyCallReminder)"
+        case .cancelled:
+            return withdrawnBeforeSending
         case .pending, .unknown:
             return "求助已记录，系统正在处理。\(emergencyCallReminder)"
         }

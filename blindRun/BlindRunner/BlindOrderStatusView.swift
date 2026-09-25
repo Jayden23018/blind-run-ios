@@ -2133,9 +2133,19 @@ struct BlindOrderStatusView: View {
                 coordinator: appState.emergencyCoordinator,
                 primaryContact: appState.primaryEmergencyContact,
                 onCancelCountdown: {
-                    guard appState.emergencyCoordinator.cancelCountdown() else { return }
-                    speechService.speak(EmergencySafetyCopy.countdownCancelled, priority: .emergency)
-                    showEmergencyCountdown = false
+                    guard let outcome = await appState.emergencyCoordinator.cancelCountdown(
+                        safety: appState.safety
+                    ) else { return }
+                    if outcome.isFailure {
+                        speechService.speakError(outcome.message, priority: .emergency)
+                    } else {
+                        speechService.speak(outcome.message, priority: .emergency)
+                    }
+                    // 撤回失败时**留在这一屏**：服务端倒计时照走，求助可能已经发出，
+                    // 这一屏上有 120 / 110 和「撤销求助」，送回跑步页会让他以为已经取消了。
+                    if appState.emergencyCoordinator.activeEvent == nil {
+                        showEmergencyCountdown = false
+                    }
                 },
                 onCancelOwnEmergency: {
                     await viewModel.cancelEmergency()

@@ -781,6 +781,9 @@ struct EmergencyTriggerRequest: Codable, Sendable {
     let orderId: Int64
     let gpsLat: Double?
     let gpsLng: Double?
+    /// `true` = 走服务端倒计时：事件先落 `COUNTDOWN`，窗口内什么都不发，到点由服务端推成正式求助。
+    /// nil / false = 立即触发。**时长不由客户端给**，照响应的 `countdownEndsAt` 播（后端 #388 ③）。
+    var useCountdown: Bool? = nil
 }
 
 /// Structured success body of `POST /api/emergency/trigger`.
@@ -791,6 +794,8 @@ struct EmergencyTriggerResponse: Codable, Sendable, Equatable {
     let success: Bool
     let eventId: Int64
     let status: String
+    /// 服务端倒计时的截止时刻（用户看到的那个，不含服务端宽限）。null = 这次没有倒计时，已经发出。
+    var countdownEndsAt: String? = nil
 
     var eventStatus: EmergencyEventStatus {
         EmergencyEventStatus(rawValue: status) ?? .unknown
@@ -807,10 +812,14 @@ enum EmergencyEventStatus: String, Codable, Sendable, CaseIterable {
     case contactNotified = "CONTACT_NOTIFIED"
     case resolved = "RESOLVED"
     case falseAlarm = "FALSE_ALARM"
+    /// 服务端倒计时中，求助**还没发出**（后端 PR #279）。
+    case countdown = "COUNTDOWN"
+    /// 倒计时内撤回，**从未发出**。与 `falseAlarm`（发出过、事后撤销）是两件事，文案必须分开。
+    case cancelled = "CANCELLED"
     case unknown = "UNKNOWN"
 
     var isTerminal: Bool {
-        self == .resolved || self == .falseAlarm
+        self == .resolved || self == .falseAlarm || self == .cancelled
     }
 }
 
@@ -837,14 +846,15 @@ struct EmergencyEventResponse: Codable, Sendable, Equatable {
     var triggeredAt: String? = nil
     /// 非 null = 志愿者已经点过「我在他身边」。恢复时据此不再弹全屏。
     var volunteerConfirmedAt: String? = nil
+    /// 倒计时截止时刻。重连 / 冷启动时恢复倒计时靠它（契约：`COUNTDOWN` 恢复必须用它）。
+    var countdownEndsAt: String? = nil
 
     var eventStatus: EmergencyEventStatus {
         status.flatMap(EmergencyEventStatus.init(rawValue:)) ?? .unknown
     }
 
     /// 倒计时中，求助**还没发出**（后端 PR #279）。志愿者此时还没收到告警，恢复也不能替它弹。
-    /// ponytail: 只比原始字符串，没加进 `EmergencyEventStatus` —— 那要连带定文案，归服务端倒计时那次变更。
-    var isCountingDown: Bool { status == "COUNTDOWN" }
+    var isCountingDown: Bool { eventStatus == .countdown }
 }
 
 /// `GET /api/emergency/active` 的信封。**`success` 故意是非可选的**：`URLSessionAPIClient` 先试信封

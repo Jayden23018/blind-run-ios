@@ -801,25 +801,54 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         }
         emergencyEventSequence += 1
         let hasPrimaryContact = emergencyContacts.contains { $0.isPrimary == true }
-        let status: EmergencyEventStatus = hasPrimaryContact ? .contactNotified : .pending
+        let firedStatus: EmergencyEventStatus = hasPrimaryContact ? .contactNotified : .pending
+        // 照后端演服务端倒计时：`useCountdown` 时先落 COUNTDOWN，截止时刻取后端默认 3 秒。
+        // 「到点推成正式求助」在下面 `handleActiveEmergency` 里按读取时刻判，Mock 没有调度器。
+        let countdownEndsAt = request.useCountdown == true
+            ? DateFormatter.aidRunBackendLocalDateTime.string(
+                from: Date().addingTimeInterval(TimeInterval(EmergencyCoordinator.countdownSeconds))
+            )
+            : nil
+        let status: EmergencyEventStatus = countdownEndsAt == nil ? firedStatus : .countdown
+        mockFiredEmergencyStatus = firedStatus
         activeEmergencyEvent = EmergencyEventResponse(
             id: emergencyEventSequence,
             orderId: order.orderId,
             userId: nil,
             status: status.rawValue,
             triggerType: "BUTTON",
-            hasGpsLocation: request.gpsLat != nil && request.gpsLng != nil
+            hasGpsLocation: request.gpsLat != nil && request.gpsLng != nil,
+            countdownEndsAt: countdownEndsAt
         )
         return EmergencyTriggerResponse(
             success: true,
             eventId: emergencyEventSequence,
-            status: status.rawValue
+            status: status.rawValue,
+            countdownEndsAt: countdownEndsAt
+        )
+    }
+
+    /// 倒计时到点后这条事件该变成什么（有没有主紧急联系人决定），见 `handleEmergencyTrigger`。
+    private var mockFiredEmergencyStatus: EmergencyEventStatus = .pending
+
+    /// 截止已过的 COUNTDOWN 视为服务端已开火。
+    private func fireDueMockCountdown() {
+        guard let event = activeEmergencyEvent, event.eventStatus == .countdown,
+              let endsAt = event.countdownEndsAt?.backendTimestamp, endsAt <= Date() else { return }
+        activeEmergencyEvent = EmergencyEventResponse(
+            id: event.id,
+            orderId: event.orderId,
+            userId: event.userId,
+            status: mockFiredEmergencyStatus.rawValue,
+            triggerType: event.triggerType,
+            hasGpsLocation: event.hasGpsLocation
         )
     }
 
     /// `GET /api/emergency/active` —— 冷启动/重连恢复。没有未终态事件时 `data` 为 null。
     private func handleActiveEmergency() -> EmergencyActiveEnvelope {
-        EmergencyActiveEnvelope(success: true, data: activeEmergencyEvent)
+        fireDueMockCountdown()
+        return EmergencyActiveEnvelope(success: true, data: activeEmergencyEvent)
     }
 
     /// `PUT /api/emergency/{eventId}/cancel` —— 受助者本人撤销误触。
@@ -834,11 +863,14 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
                 ErrorResponse(code: "EMERGENCY_NOT_OWNER", message: "只能撤销自己的紧急求助")
             )
         }
+        fireDueMockCountdown()
+        // 倒计时内撤回 = CANCELLED（从未发出）；已开火后撤销 = FALSE_ALARM。与后端 `cancelByOwner` 同。
+        let wasCountingDown = event.id == eventId && activeEmergencyEvent?.eventStatus == .countdown
         activeEmergencyEvent = nil
         return EmergencyCancelResponse(
             success: true,
             eventId: eventId,
-            status: EmergencyEventStatus.falseAlarm.rawValue
+            status: (wasCountingDown ? EmergencyEventStatus.cancelled : .falseAlarm).rawValue
         )
     }
 

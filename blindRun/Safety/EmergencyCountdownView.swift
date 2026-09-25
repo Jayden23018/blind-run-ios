@@ -59,7 +59,8 @@ struct EmergencyCountdownView: View {
     @ObservedObject var coordinator: EmergencyCoordinator
     /// 主紧急联系人。屏 3b 的拨号项与首页那套同一个来源。
     let primaryContact: EmergencyContactResponse?
-    let onCancelCountdown: () -> Void
+    /// 倒计时里的「取消」。要走一趟后端（`PUT /api/emergency/{id}/cancel`）—— 倒计时是服务端在数。
+    let onCancelCountdown: () async -> Void
     /// 撤销自己已经发出的求助（`PUT /api/emergency/{id}/cancel`）。**只有本人和客服有这个权力。**
     let onCancelOwnEmergency: () async -> Void
     /// 发送失败之后由**用户**决定要不要再发一次。
@@ -68,6 +69,7 @@ struct EmergencyCountdownView: View {
 
     @State private var showCancelOwnConfirmation = false
     @State private var isCancelling = false
+    @State private var isWithdrawing = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -305,7 +307,13 @@ struct EmergencyCountdownView: View {
     @ViewBuilder
     private var bottomAction: some View {
         if coordinator.state.isCountingDown {
-            PrimaryButton(EmergencySafetyCopy.countdownCancelTitle, action: onCancelCountdown)
+            PrimaryButton(EmergencySafetyCopy.countdownCancelTitle, isLoading: isWithdrawing) {
+                Task {
+                    isWithdrawing = true
+                    await onCancelCountdown()
+                    isWithdrawing = false
+                }
+            }
                 .accessibilityHint(EmergencySafetyCopy.countdownCancelAccessibilityHint)
                 .accessibilityIdentifier("blindEmergencyCountdownCancel")
         } else if coordinator.activeEvent != nil {
