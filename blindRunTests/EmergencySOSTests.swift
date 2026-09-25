@@ -475,21 +475,32 @@ final class EmergencySOSTests: XCTestCase {
         XCTAssertTrue(safety.calls.isEmpty)
     }
 
-    // MARK: - 倒计时（屏 3）
+    // MARK: - 倒计时（屏 3）· 服务端计时（后端 #388 ③）
 
-    /// 🔴 **倒计时这三秒里，一个字节都不许发给后端。**
+    /// 服务端倒计时的响应形状：`COUNTDOWN` + 截止时刻（无时区 LocalDateTime，整秒）。
+    private static func countdownResponse(eventId: Int64, secondsFromNow: TimeInterval = 3) -> EmergencyTriggerResponse {
+        EmergencyTriggerResponse(
+            success: true,
+            eventId: eventId,
+            status: "COUNTDOWN",
+            countdownEndsAt: backendTime(secondsFromNow: secondsFromNow)
+        )
+    }
+
+    private static func backendTime(secondsFromNow: TimeInterval) -> String {
+        DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(secondsFromNow))
+    }
+
+    /// 🔴 **按下之后立刻登记一条服务端倒计时，而且必须带 `useCountdown`。**
     ///
-    /// 这不是性能取舍，是安全取舍。后端 `POST /api/emergency/trigger` 是**触发即升级**：
-    /// 紧急联系人在那一个请求里就被通知（异步发短信），撤销会再补一条解除短信，
-    /// 而冷却 60 秒是**按触发者计**的（`demo/docs/api_spec.yaml:2242`）。
-    /// 所以「先发再撤」的真实代价是：每一次误触都惊动家人两次，
-    /// **并在随后的 60 秒里锁死真正的求助**（429）。
-    ///
-    /// 这条用例读的是 `safety.calls` 的长度 —— 它是「到底有没有发出去」的唯一客观判据。
+    /// 不带的话后端是**立即触发**：家属短信当场发出，而屏幕上还在数「3、2、1，现在取消还来得及」。
+    /// 取消走 `PUT /cancel`，服务端回 `CANCELLED` 时文案只说「没有发出、没有通知任何人」。
     @MainActor
-    func testCountdownSendsNothingBeforeItReachesZero() async {
+    func testCountdownRegistersAServerCountdownAndCancelWithdrawsIt() async {
         let (coordinator, safety) = Self.makeCountdownFixture()
         defer { Self.teardownAlarmObservers() }
+        safety.triggerEmergencyResult = .success(Self.countdownResponse(eventId: 950))
+        safety.cancelEmergencyResult = .success(EmergencyCancelResponse(success: true, eventId: 950, status: "CANCELLED"))
 
         coordinator.beginCountdown(
             order: Self.makeOrder(status: .inProgress),
@@ -498,35 +509,37 @@ final class EmergencySOSTests: XCTestCase {
             safety: safety,
             locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
         )
+        try? await Task.sleep(nanoseconds: 300_000_000)
 
-        XCTAssertTrue(coordinator.state.isCountingDown, "按下之后没有进倒计时")
+        XCTAssertEqual(safety.calls, ["triggerEmergency(_:)"])
+        XCTAssertEqual(safety.lastTriggerRequest?.useCountdown, true, "没带 useCountdown = 立即发出，倒计时成了摆设")
+        XCTAssertTrue(coordinator.state.isCountingDown, "服务端回了 COUNTDOWN，却没进倒计时")
         XCTAssertTrue(coordinator.state.isBusy, "倒计时期间必须挡住重复触发")
-        XCTAssertFalse(coordinator.state.isFailure, "倒计时不是失败态，不该被染成错误色")
+        XCTAssertFalse(coordinator.state.isFailure)
+        XCTAssertEqual(coordinator.activeEvent?.status, .countdown)
 
-        // 数一秒，仍然什么都没发。
-        try? await Task.sleep(nanoseconds: 1_200_000_000)
-        XCTAssertTrue(safety.calls.isEmpty, "倒计时还没结束就把求助发出去了：\(safety.calls)")
+        let outcome = await coordinator.cancelCountdown(safety: safety)
 
-        XCTAssertTrue(coordinator.cancelCountdown(), "取消倒计时应当返回成功")
-        XCTAssertEqual(coordinator.state, .idle)
-
-        // 取消之后再等过原本的归零时刻 —— 任务真的停了，而不是只把状态改了。
-        try? await Task.sleep(nanoseconds: 2_600_000_000)
-        XCTAssertTrue(safety.calls.isEmpty, "取消之后求助仍然发出去了：\(safety.calls)")
+        XCTAssertEqual(safety.lastEventId, 950, "撤的不是这一条")
+        XCTAssertEqual(outcome?.state, .withdrawnBeforeSending)
+        XCTAssertEqual(outcome?.message, "已撤回。求助没有发出，没有通知任何人。")
+        for word in ["短信", "联系人", "家属", "解除"] {
+            XCTAssertFalse(outcome?.message.contains(word) ?? true, "从未发出的求助却提到了「\(word)」")
+        }
         XCTAssertNil(coordinator.activeEvent)
+
+        // 撤回之后再等过原截止时刻 —— 本机倒数真的停了，不会再到点去念「已记录」。
+        try? await Task.sleep(nanoseconds: 3_500_000_000)
+        XCTAssertEqual(coordinator.state, .withdrawnBeforeSending)
+        XCTAssertEqual(safety.calls, ["triggerEmergency(_:)", "cancelEmergencyByOwner(eventId:)"])
     }
 
-    /// 归零之后必须真的发出去。
-    ///
-    /// **和上一条是一对，缺一条另一条就没意义**：只验「倒计时中不发」的话，
-    /// 一个永远不发的实现照样通过。
+    /// 照服务端的截止时刻倒数，每秒一句且句句带「可以取消」；到点**只说已记录**，不说送达。
     @MainActor
-    func testCountdownFiresTheTriggerOnceItReachesZero() async {
+    func testCountdownFollowsTheServerDeadlineThenReportsRecordedNotDelivered() async {
         let (coordinator, safety) = Self.makeCountdownFixture()
         defer { Self.teardownAlarmObservers() }
-        safety.triggerEmergencyResult = .success(
-            EmergencyTriggerResponse(success: true, eventId: 900, status: "CONTACT_NOTIFIED")
-        )
+        safety.triggerEmergencyResult = .success(Self.countdownResponse(eventId: 900))
 
         var spoken: [String] = []
         coordinator.beginCountdown(
@@ -537,40 +550,131 @@ final class EmergencySOSTests: XCTestCase {
             locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) },
             announce: { spoken.append($0) }
         )
+        try? await Task.sleep(nanoseconds: 3_700_000_000)
 
-        // 3 秒倒计时 + 一点余量给归零后那一次 await。
-        try? await Task.sleep(nanoseconds: 4_500_000_000)
-
-        XCTAssertEqual(safety.calls.count, 1, "归零之后没有恰好发一次：\(safety.calls)")
+        XCTAssertEqual(safety.calls.count, 1, "倒数期间客户端又发了请求：\(safety.calls)")
         XCTAssertEqual(coordinator.activeEvent?.eventID, 900)
-        XCTAssertEqual(coordinator.state, .acknowledged(.contactNotified))
-
-        // 每一秒都得说一次，而且每一句都要带「可以取消」——
-        // 看不见屏幕的人不会知道屏幕下方有个取消按钮，除非有人一直在告诉他。
+        XCTAssertEqual(coordinator.state, .acknowledged(.pending))
         let countdownLines = spoken.filter { $0.contains("秒后发出") }
         XCTAssertEqual(countdownLines.count, EmergencyCoordinator.countdownSeconds)
         for line in countdownLines {
             XCTAssertTrue(line.contains("取消"), "这一句没告诉用户还能取消：\(line)")
         }
         XCTAssertEqual(spoken.first, EmergencySafetyCopy.countdownTitle, "进倒计时那一刻没有播报")
+        XCTAssertEqual(spoken.last, EmergencySafetyCopy.submitted(.pending))
+    }
+
+    /// 服务端没采纳倒计时（`countdownEndsAt` 为 null）= 已经立即发出。**不许再自己数三秒** ——
+    /// 那就是后端注释里说的「屏幕还在倒数，求助其实已经发出去了」。
+    @MainActor
+    func testUnacceptedCountdownIsReportedAsSentImmediately() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+        safety.triggerEmergencyResult = .success(
+            EmergencyTriggerResponse(success: true, eventId: 904, status: "CONTACT_NOTIFIED", countdownEndsAt: nil)
+        )
+        var spoken: [String] = []
+        coordinator.beginCountdown(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) },
+            announce: { spoken.append($0) }
+        )
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertEqual(coordinator.state, .acknowledged(.contactNotified))
+        XCTAssertFalse(spoken.contains { $0.contains("秒后发出") }, "已经发出去了还在念倒计时：\(spoken)")
+    }
+
+    /// 撤回请求在路上时服务端已经开火：回的是 `FALSE_ALARM`，这是一次**撤销已发出的求助**，
+    /// 文案必须提解除通知，不能说「没有发出」。
+    @MainActor
+    func testWithdrawThatArrivesAfterTheServerFiredIsReportedAsCancellation() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+        safety.triggerEmergencyResult = .success(Self.countdownResponse(eventId: 951))
+        safety.cancelEmergencyResult = .success(EmergencyCancelResponse(success: true, eventId: 951, status: "FALSE_ALARM"))
+        coordinator.beginCountdown(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        let outcome = await coordinator.cancelCountdown(safety: safety)
+
+        XCTAssertEqual(outcome?.state, .cancelledByOwner)
+        XCTAssertFalse(outcome?.message.contains("没有发出") ?? true)
+    }
+
+    /// 🔴 撤回没成功：服务端倒计时照走。**必须说可能已经发出**，事件留着以便再撤、并露出 120/110。
+    @MainActor
+    func testFailedWithdrawSaysTheRequestMayStillGoOut() async {
+        let (coordinator, safety) = Self.makeCountdownFixture()
+        defer { Self.teardownAlarmObservers() }
+        safety.triggerEmergencyResult = .success(Self.countdownResponse(eventId: 952))
+        safety.cancelEmergencyResult = .failure(URLError(.notConnectedToInternet))
+        coordinator.beginCountdown(
+            order: Self.makeOrder(status: .inProgress),
+            role: .blind,
+            userID: 7,
+            safety: safety,
+            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+        )
+        try? await Task.sleep(nanoseconds: 300_000_000)
+
+        let outcome = await coordinator.cancelCountdown(safety: safety)
+
+        XCTAssertEqual(outcome?.state, .withdrawFailed(nil))
+        XCTAssertTrue(outcome?.isFailure ?? false)
+        XCTAssertTrue(outcome?.message.contains("可能已经发出") ?? false)
+        XCTAssertFalse(outcome?.message.contains("已取消") ?? true)
+        XCTAssertEqual(coordinator.activeEvent?.eventID, 952, "事件丢了，「撤销求助」就没了")
+        XCTAssertNotEqual(
+            EmergencySafetyCopy.screenTitle(for: coordinator.state, hasActiveEvent: true),
+            EmergencySafetyCopy.unsentTitle,
+            "撤回失败时标题不许说「求助未发出」"
+        )
+    }
+
+    /// 🔴 重连 / 冷启动读到自己的 `COUNTDOWN` 事件：**接着倒数，不许写成「已发出」**。
+    /// 写成 `.acknowledged` 的话取消按钮会变成「撤销求助」、圆环消失 —— 而这是唯一还能反悔的状态。
+    @MainActor
+    func testRecoveredCountdownResumesInsteadOfClaimingSent() async throws {
+        EmergencyAlarm.observerForTesting = { _ in }
+        EmergencyHaptics.observerForTesting = { _ in }
+        defer { Self.teardownAlarmObservers() }
+        let safety = FakeSafetyService()
+        let json = """
+        {"success":true,"code":200,"data":{"id":953,"orderId":4242,"userId":7,
+         "triggeredAt":"2026-09-25T10:00:00","triggerType":"BUTTON","status":"COUNTDOWN",
+         "hasGpsLocation":true,"countdownEndsAt":"\(Self.backendTime(secondsFromNow: 3))"}}
+        """
+        safety.activeEmergencyResult = .success(
+            try APIPayloadDecoder.decodePayload(EmergencyActiveEnvelope.self, from: Data(json.utf8), decoder: JSONDecoder())
+        )
+        let coordinator = Self.makeRecoverableCoordinator(safety: safety)
+
+        await coordinator.refreshActiveEvent(userID: 7)
+
+        XCTAssertTrue(coordinator.state.isCountingDown, "恢复出来的倒计时被写成了 \(coordinator.state)")
+        XCTAssertEqual(coordinator.activeEvent?.eventID, 953)
+        coordinator.reset()
     }
 
     /// 倒计时期间再按一下**不该叠出第二个倒计时，也不该把倒计时重新计到 3**。
-    ///
-    /// ⚠️ 2026-09-15 code review 指出这条用例原本**分辨不出**它宣称守的东西：
-    /// 三次调用挤在同一瞬间，而 `beginCountdown` 开头有一句 `countdownTask?.cancel()`——
-    /// 于是把 `.countingDown` 从 `isBusy` 里拿掉（也就是「第二次按重启倒计时」这个
-    /// 被打回的实现）之后，最后仍然只剩一个任务在跑，`safety.calls.count` 照样是 1。
-    ///
-    /// 现在把三次按下**拉开 1.2 秒**，并数「还有 3 秒」这句播报出现了几次：
-    /// 正确实现只念一次（后两次被 `isBusy` 挡掉），重启实现会念三次。
+    /// 三次按下拉开 1.2 秒，数「3 秒后发出」念了几次：正确实现一次，重启实现三次。
     @MainActor
     func testSecondPressDuringCountdownNeitherResendsNorRestartsTheCountdown() async {
         let (coordinator, safety) = Self.makeCountdownFixture()
         defer { Self.teardownAlarmObservers() }
-        safety.triggerEmergencyResult = .success(
-            EmergencyTriggerResponse(success: true, eventId: 901, status: "CONTACT_NOTIFIED")
-        )
+        // 截止时刻按整秒截断，写 3 秒实际只有 2.x 秒 —— 第三下（2.4 秒）会落在倒计时**之后**，
+        // 那时再按本来就该发起新的一次。给 4 秒，三下都落在倒计时里。
+        safety.triggerEmergencyResult = .success(Self.countdownResponse(eventId: 901, secondsFromNow: 4))
         let order = Self.makeOrder(status: .inProgress)
         var spoken: [String] = []
         let press = {
@@ -590,15 +694,11 @@ final class EmergencySOSTests: XCTestCase {
         try? await Task.sleep(nanoseconds: 1_200_000_000)
         press()
 
-        try? await Task.sleep(nanoseconds: 3_500_000_000)
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
 
         XCTAssertEqual(safety.calls.count, 1, "连按三下发出了 \(safety.calls.count) 条求助")
         let restarts = spoken.filter { $0 == EmergencySafetyCopy.countdown(secondsRemaining: 3) }
-        XCTAssertEqual(
-            restarts.count,
-            1,
-            "倒计时被重新计到 3 了 \(restarts.count) 次 —— 每按一下就多拖 3 秒，而这三秒里没人来救"
-        )
+        XCTAssertEqual(restarts.count, 1, "倒计时被重新计到 3 了 \(restarts.count) 次")
     }
 
     // MARK: - 屏 3 / 3b 的标题（code review A2 / A3）
@@ -655,6 +755,14 @@ final class EmergencySOSTests: XCTestCase {
             EmergencySafetyCopy.screenTitle(for: .cancelledByOwner, hasActiveEvent: false),
             EmergencySafetyCopy.cancelledTitle
         )
+        // 倒计时内撤回：求助从未发出。撤回失败：发没发出不知道，两个完成时都不许用。
+        XCTAssertEqual(
+            EmergencySafetyCopy.screenTitle(for: .withdrawnBeforeSending, hasActiveEvent: false),
+            EmergencySafetyCopy.unsentTitle
+        )
+        let withdrawFailedTitle = EmergencySafetyCopy.screenTitle(for: .withdrawFailed(nil), hasActiveEvent: true)
+        XCTAssertNotEqual(withdrawFailedTitle, EmergencySafetyCopy.sentTitle)
+        XCTAssertNotEqual(withdrawFailedTitle, EmergencySafetyCopy.unsentTitle)
         // `.idle` 只由「有没有事件」决定，不猜。
         XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: .idle, hasActiveEvent: true), EmergencySafetyCopy.sentTitle)
         XCTAssertEqual(EmergencySafetyCopy.screenTitle(for: .idle, hasActiveEvent: false), EmergencySafetyCopy.unsentTitle)
@@ -681,9 +789,7 @@ final class EmergencySOSTests: XCTestCase {
 
         let coordinator = EmergencyCoordinator()
         let safety = FakeSafetyService()
-        safety.triggerEmergencyResult = .success(
-            EmergencyTriggerResponse(success: true, eventId: 903, status: "CONTACT_NOTIFIED")
-        )
+        safety.triggerEmergencyResult = .success(Self.countdownResponse(eventId: 903))
         coordinator.beginCountdown(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
@@ -734,32 +840,32 @@ final class EmergencySOSTests: XCTestCase {
         EmergencyAlarm.stopAll()
     }
 
-    /// 🔴 **会话边界必须掐掉在飞的倒计时。**
+    /// 🔴 **还在等定位时会话结束，一个字节都不许发。**
     ///
-    /// 漏掉这一条的后果很具体：上一个账号退出登录三秒之后，那个求助**照样发出去**，
-    /// 而且带的是新登录账号的 token —— 事件会挂在错误的人身上，短信发给错误的家属。
+    /// 漏掉的后果：上一个账号退出登录之后，那条求助带着新登录账号的 token 发出去 ——
+    /// 事件挂在错误的人身上，短信发给错误的家属。
     @MainActor
-    func testResetCancelsAnInFlightCountdown() async {
+    func testResetWhileLocatingSendsNothing() async {
         let (coordinator, safety) = Self.makeCountdownFixture()
         defer { Self.teardownAlarmObservers() }
-        safety.triggerEmergencyResult = .success(
-            EmergencyTriggerResponse(success: true, eventId: 902, status: "CONTACT_NOTIFIED")
-        )
+        safety.triggerEmergencyResult = .success(Self.countdownResponse(eventId: 902))
 
         coordinator.beginCountdown(
             order: Self.makeOrder(status: .inProgress),
             role: .blind,
             userID: 7,
             safety: safety,
-            locate: { Self.coordinate(latitude: 39.915, longitude: 116.404) }
+            locate: {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                return Self.coordinate(latitude: 39.915, longitude: 116.404)
+            }
         )
-        XCTAssertTrue(coordinator.state.isCountingDown)
-
+        try? await Task.sleep(nanoseconds: 100_000_000)
         coordinator.reset()
         XCTAssertEqual(coordinator.state, .idle)
 
-        try? await Task.sleep(nanoseconds: 4_500_000_000)
-        XCTAssertTrue(safety.calls.isEmpty, "退出登录之后那个倒计时仍然把求助发了出去：\(safety.calls)")
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertTrue(safety.calls.isEmpty, "退出登录之后那条求助仍然发了出去：\(safety.calls)")
     }
 
     /// 发不出去的状态**不该白数三秒**。那三秒里用户以为求助在路上。
@@ -792,10 +898,13 @@ final class EmergencySOSTests: XCTestCase {
     /// `PUT /api/emergency/{id}/cancel` 并给联系人补发解除短信。混掉的表现是
     /// 「我只是想收起这一屏，结果把一个真的求助撤了」。
     @MainActor
-    func testCancellingWhenNotCountingDownDoesNothing() {
+    func testCancellingWhenNotCountingDownDoesNothing() async {
         let coordinator = EmergencyCoordinator()
-        XCTAssertFalse(coordinator.cancelCountdown())
+        let safety = FakeSafetyService()
+        let outcome = await coordinator.cancelCountdown(safety: safety)
+        XCTAssertNil(outcome)
         XCTAssertEqual(coordinator.state, .idle)
+        XCTAssertTrue(safety.calls.isEmpty)
     }
 
     // MARK: - 发送失败后的对账（阶段 4）
@@ -1232,14 +1341,18 @@ final class EmergencySOSTests: XCTestCase {
 
     /// Guards against drift from backend `entity/EmergencyStatus.java`.
     func testEmergencyStatusMirrorsTheBackendEnum() {
+        // 2026-09-15 后端 PR #279 加了 COUNTDOWN / CANCELLED（9 个值）。
         let backendNames: Set<String> = [
-            "PENDING", "VOLUNTEER_NOTIFIED", "VOLUNTEER_CONFIRMED",
-            "CS_HANDLING", "CONTACT_NOTIFIED", "RESOLVED", "FALSE_ALARM"
+            "COUNTDOWN", "PENDING", "VOLUNTEER_NOTIFIED", "VOLUNTEER_CONFIRMED",
+            "CS_HANDLING", "CONTACT_NOTIFIED", "RESOLVED", "FALSE_ALARM", "CANCELLED"
         ]
         let clientNames = Set(EmergencyEventStatus.allCases.map(\.rawValue)).subtracting(["UNKNOWN"])
         XCTAssertEqual(clientNames, backendNames)
+        // 终态与后端 `EmergencyStatus.terminalStatuses()` 一致：RESOLVED / FALSE_ALARM / CANCELLED。
         XCTAssertTrue(EmergencyEventStatus.resolved.isTerminal)
         XCTAssertTrue(EmergencyEventStatus.falseAlarm.isTerminal)
+        XCTAssertTrue(EmergencyEventStatus.cancelled.isTerminal)
+        XCTAssertFalse(EmergencyEventStatus.countdown.isTerminal)
         XCTAssertFalse(EmergencyEventStatus.contactNotified.isTerminal)
     }
 

@@ -5272,6 +5272,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/runnerAtMeetingPoint`.
             public var runnerAtMeetingPoint: Swift.Bool?
+            /// 查看者（本单陪跑员）和这位盲人**一起跑完过**几单（2026-09-25 新增，#352），口径同 NEW_ORDER / `AvailableOrderResponse` 的同名字段：`status = COMPLETED` 的单数，接了又取消的不算；本单已完成则包含本单。 🚨 **只对本单陪跑员下发，其他查看者（含盲人）恒为 `null`**。陪跑员视角下 `0` 照常下发： `0` = 第一次一起跑，`null` = 没给，两者在卡片上要说不同的话。
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/completedTogetherCount`.
+            public var completedTogetherCount: Swift.Int64?
             /// Creates a new `OrderDetailResponse`.
             ///
             /// - Parameters:
@@ -5314,6 +5318,7 @@ public enum Components {
             ///   - actualDurationSeconds: 完赛实际耗时（秒），取轨迹点首末时间之差。null 语义同 `actualDistanceMeters`。
             ///   - actualAvgPaceSecPerKm: 完赛平均配速（秒/公里）。里程为 0 时为 null —— 除以 0 得不出配速，给 0 是假的。 null 语义同 `actualDistanceMeters`。
             ///   - runnerAtMeetingPoint: 盲人跑者是否已到出发点（#358，服务端判定，客户端不用拿坐标自己推）。**三态**： `true` / `false` 只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 两态、且盲人 30 秒内上报过位置时给出； 其他状态、没有盲人位置、或位置已过期一律 `null` —— 客户端按 null 隐藏这一行，不要当 `false` 念。 判据是盲人最新位置到 `startLatitude/startLongitude` 的直线距离 ≤ `app.meeting-point.arrival-radius-meters` （默认 100 米，与志愿者↔盲人的 `PROXIMITY_ALERT` 阈值是两个独立配置）。 从 false 变成 true 的那一刻，志愿者会另收到一条 WS `APP_NOTIFICATION`（eventType `RUNNER_AT_MEETING_POINT`），每单每位志愿者只推一次。
+            ///   - completedTogetherCount: 查看者（本单陪跑员）和这位盲人**一起跑完过**几单（2026-09-25 新增，#352），口径同 NEW_ORDER / `AvailableOrderResponse` 的同名字段：`status = COMPLETED` 的单数，接了又取消的不算；本单已完成则包含本单。 🚨 **只对本单陪跑员下发，其他查看者（含盲人）恒为 `null`**。陪跑员视角下 `0` 照常下发： `0` = 第一次一起跑，`null` = 没给，两者在卡片上要说不同的话。
             public init(
                 orderId: Swift.Int64,
                 status: Components.Schemas.OrderDetailResponse.statusPayload,
@@ -5353,7 +5358,8 @@ public enum Components {
                 actualDistanceMeters: Swift.Int32? = nil,
                 actualDurationSeconds: Swift.Int32? = nil,
                 actualAvgPaceSecPerKm: Swift.Int32? = nil,
-                runnerAtMeetingPoint: Swift.Bool? = nil
+                runnerAtMeetingPoint: Swift.Bool? = nil,
+                completedTogetherCount: Swift.Int64? = nil
             ) {
                 self.orderId = orderId
                 self.status = status
@@ -5394,6 +5400,7 @@ public enum Components {
                 self.actualDurationSeconds = actualDurationSeconds
                 self.actualAvgPaceSecPerKm = actualAvgPaceSecPerKm
                 self.runnerAtMeetingPoint = runnerAtMeetingPoint
+                self.completedTogetherCount = completedTogetherCount
             }
             public enum CodingKeys: String, CodingKey {
                 case orderId
@@ -5435,6 +5442,7 @@ public enum Components {
                 case actualDurationSeconds
                 case actualAvgPaceSecPerKm
                 case runnerAtMeetingPoint
+                case completedTogetherCount
             }
         }
         /// 订单轨迹回放：双方各一条轨迹 + 各自统计
