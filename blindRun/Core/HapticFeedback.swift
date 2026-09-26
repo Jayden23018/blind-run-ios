@@ -49,6 +49,12 @@ enum HapticFeedback {
         /// 也不能用 `.success`：接单 / 到达 / 服务开始全是它，而这一下要表达的是
         /// 「整件事到此结束」，是这条链路上最后也最重的一下。
         case strong
+        /// 一次**中等**撞击。陪跑员订单页 v2 的「我出发了」「我已到达集合点」（交付包 03 触感总表）。
+        ///
+        /// 不用 `.success`：状态推进到 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 时
+        /// `RunOrderStatus.haptic` 已经会震一次 `.success`，按钮这一下要表达的是「按下去生效了」，
+        /// 同一个波形叠两次分不出来。
+        case medium
     }
 
     /// 真机以外（模拟器、单测）静默无副作用，所以不需要测试替身。
@@ -62,6 +68,8 @@ enum HapticFeedback {
                 return { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
             case .strong:
                 return { UIImpactFeedbackGenerator(style: .heavy).impactOccurred() }
+            case .medium:
+                return { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
             case .success, .warning, .error:
                 let type: UINotificationFeedbackGenerator.FeedbackType = {
                     switch kind {
@@ -69,7 +77,7 @@ enum HapticFeedback {
                     case .warning: return .warning
                     case .error: return .error
                     // 上面的外层 switch 已经把两种撞击分走了。
-                    case .tick, .strong: return .success
+                    case .tick, .strong, .medium: return .success
                     }
                 }()
                 return { UINotificationFeedbackGenerator().notificationOccurred(type) }

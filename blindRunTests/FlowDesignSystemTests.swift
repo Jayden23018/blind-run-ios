@@ -293,6 +293,67 @@ final class FlowDesignSystemTests: XCTestCase {
         assertContrast(textSecondary.light, 0xFFFFFF, Self.textMinimum, "亮色", "AppColors.textSecondary 压白底")
     }
 
+    // MARK: - 陪跑员订单页 v2（交付包 zhumangpao-handoff/01）
+
+    func testVolunteerOrderV2PairingsClearTheirThresholds() {
+        let F = AppColors.Flow.self
+        let text: [(AppColors.Tone, AppColors.Tone, String)] = [
+            (F.onNavyEyebrowTone, F.navyTone, "头卡小标题"),
+            (F.onNavyBodyTone, F.navyTone, "头卡副文"),
+            (F.onNavyStrongTone, F.navyTone, "锁屏 / 头卡强调行"),
+            (F.goldTone, F.navyTone, "快迟到时的主角数字"),
+            (F.bluePressedTone, F.blueTintTone, "「待认证」标签"),
+            (F.onBlueTintTone, F.blueTintTone, "快捷回复按钮"),
+            (F.onBlueTintTone, F.surfaceSubtleTone, "「一起跑过 N 次」标签"),
+            (F.primaryTextTone, F.surfaceSubtleTone, "留言气泡"),
+            (F.secondaryTextTone, F.surfaceSubtleTone, "三宫格标签"),
+            (F.warmCardTitleTone, F.warmCardTone, "留言卡标题 / 快迟到提醒条"),
+            (F.warmCardBodyTone, F.warmCardTone, "留言卡正文"),
+            (F.onCTATone, F.ctaTone, "v2 主按钮文字"),
+        ]
+        for (foreground, background, usage) in text {
+            assertContrast(foreground.light, background.light, Self.textMinimum, "亮色", usage)
+            assertContrast(foreground.dark, background.dark, Self.textMinimum, "暗色", usage)
+        }
+
+        let white: UInt32 = 0xFFFFFF
+        for (surface, usage) in [(F.volunteerDotTone, "陪跑员头像姓氏"), (F.runnerDotTone, "跑者头像姓氏")] {
+            assertContrast(white, surface.light, Self.textMinimum, "亮色", usage)
+            assertContrast(white, surface.dark, Self.textMinimum, "暗色", usage)
+        }
+
+        // 纯图形：引导绳、图标（WCAG 1.4.11，3:1）。
+        //
+        // **头像轮廓压藏青刻意不验**：暗色档构造上不可达 —— 白字压头像 ≥4.5 要求头像
+        // 相对亮度 ≤0.183，而压暗色 navy `#203570` ≥3 要求 ≥0.223，两个方向相反
+        // （2026-09-26 真机红出来：2.48:1）。头像自带 4.69:1 的姓氏标签，按 1.4.11 豁免，
+        // 与类型注释里「填充对页面底」不设断言同一个理由。
+        let graphics: [(AppColors.Tone, AppColors.Tone, String)] = [
+            (F.ropeOnNavyTone, F.navyTone, "引导绳"),
+            (F.accentTone, F.blueTintTone, "地点行图标"),
+        ]
+        for (foreground, background, usage) in graphics {
+            assertContrast(foreground.light, background.light, Self.nonTextMinimum, "亮色", usage)
+            assertContrast(foreground.dark, background.dark, Self.nonTextMinimum, "暗色", usage)
+        }
+    }
+
+    /// 验红：交付包原值 `#4A76E8` 压白色姓氏 4.16:1。这条断言保证上面那条真的会拒 ——
+    /// 有人以「恢复设计一致性」为理由改回去时，上面那条会红，而这条说明为什么。
+    func testDesignVolunteerDotIsRejectedForAvatarInitials() {
+        XCTAssertLessThan(Self.contrastRatio(0xFFFFFF, 0x4A76E8), Self.textMinimum)
+        XCTAssertNotEqual(AppColors.Flow.volunteerDotTone.light, 0x4A76E8)
+    }
+
+    /// 触达：主 / 次按钮 64（沿用 `actionButtonMinHeight`），辅助动作 ≥44（项目负责人 2026-09-26）。
+    func testVolunteerOrderV2AuxiliaryTargetsKeepTheFortyFourFloor() {
+        let hig: CGFloat = 44
+        XCTAssertGreaterThanOrEqual(FlowMetrics.v2TextButtonMinHeight, hig, "文字按钮 / 求助胶囊")
+        XCTAssertGreaterThanOrEqual(FlowMetrics.v2TertiaryMinHeight, hig, "汇合页两列按钮")
+        XCTAssertGreaterThanOrEqual(FlowMetrics.v2NavHeight, hig, "导航栏")
+        XCTAssertGreaterThanOrEqual(FlowMetrics.v2PlaceRowMinHeight, 64, "地点行是整行按钮，按 64 卡")
+    }
+
     // MARK: - 尺寸
 
     /// 触达下限。**这条是机器守卫，不是描述** —— 设计稿给的是 58 / 52，实现里刻意提到 64。
