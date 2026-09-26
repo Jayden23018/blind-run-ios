@@ -289,6 +289,8 @@ extension AppColors {
         static let ropeOnNavyTone = Tone(light: 0x7C9CF2, dark: 0x7C9CF2)
         static let ropeOnNavy = flowDynamic(ropeOnNavyTone)
         static let mutedOnNavy = flowDynamic(Tone(light: 0x4B587F, dark: 0x4B587F))
+        /// 邀请态跑者空心头像的虚线描边、出发地小圈（`Rope.dc.html` 取值 `#6A77A3`，纯装饰）。
+        static let mutedStrokeOnNavy = flowDynamic(Tone(light: 0x6A77A3, dark: 0x6A77A3))
         /// 「跑者已到入口附近」胶囊里的圆点。胶囊有文字，圆点是冗余线索。
         static let presenceGreen = flowDynamic(Tone(light: 0x6BE79C, dark: 0x6BE79C))
 
