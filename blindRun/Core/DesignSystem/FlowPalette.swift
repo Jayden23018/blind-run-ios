@@ -253,9 +253,8 @@ extension AppColors {
         // 交付包给的是只有亮色的 `ZColor`；按 design-direction §2「不另起第二套色板」并进这里，
         // 暗色档自己补。配对断言在 `FlowDesignSystemTests.testVolunteerOrderV2PairingsClearTheirThresholds`。
         //
-        // 设计稿取值没有原样采用的第 5 条：陪跑员头像底 `#4A76E8` 压白色姓氏只有 **4.16:1**，
-        // 改 `#3C6CE6`（4.69）。它压亮色藏青 3.07、压暗色藏青只有 2.48 —— 暗色档两个要求
-        // 方向相反、构造上不可达，轮廓比按「自带达标文字标签」豁免（见 `FlowDesignSystemTests`）。
+        // 设计稿取值没有原样采用的第 5 条（v1 陪跑员头像底 `#4A76E8`）随 v2 删除：
+        // v2 陪跑员头像是白色实心、姓氏用状态色，见下方「彩色头卡上的字与引导绳」。
 
         /// 卡片里的浅块：三宫格底、留言气泡、「一起跑过 N 次」标签。
         static let surfaceSubtleTone = Tone(light: 0xF4F6FA, dark: 0x2C2C2E)
@@ -271,37 +270,69 @@ extension AppColors {
         static let onBlueTintTone = Tone(light: 0x1B2657, dark: 0xFFFFFF)
         static let onBlueTint = flowDynamic(onBlueTintTone)
 
-        /// 藏青头卡上的三档字。亮暗同值 —— 底是品牌深色表面，理由同 `onNavySecondary`。
-        /// 压亮 / 暗两档 navy：小标题 7.30 / 5.91，副文 9.45 / 7.66，强调 11.31 / 9.16。
-        static let onNavyEyebrowTone = Tone(light: 0xAEB8DA, dark: 0xAEB8DA)
-        static let onNavyEyebrow = flowDynamic(onNavyEyebrowTone, highContrast: Tone(light: 0xFFFFFF, dark: 0xFFFFFF))
-        static let onNavyBodyTone = Tone(light: 0xC9D1EC, dark: 0xC9D1EC)
-        static let onNavyBody = flowDynamic(onNavyBodyTone, highContrast: Tone(light: 0xFFFFFF, dark: 0xFFFFFF))
-        static let onNavyStrongTone = Tone(light: 0xDCE4FB, dark: 0xDCE4FB)
-        static let onNavyStrong = flowDynamic(onNavyStrongTone)
+        // MARK: 头卡状态色（交付包 v2 C01，DECISIONS-v2 V13）
+        //
+        // **只用于头卡**（和汇合页方位盘 / 响铃 / ④b 打电话，见 C06）。页面底、其他卡片、按钮不随状态变色。
+        // 亮暗同值（约好沿用 `navyTone` 的暗色档）：底是品牌深色表面，理由同 `onNavySecondary`。
+        // 跑步中青绿 / 暂停灰本 PR 不加 —— 只有锁屏卡（FE-2）用得到，谁用谁加。
 
-        /// 引导绳上的两枚头像（深色主题）。白色姓氏压在上面：4.69 / 8.29。
-        static let volunteerDotTone = Tone(light: 0x3C6CE6, dark: 0x3C6CE6)
-        static let volunteerDot = flowDynamic(volunteerDotTone)
-        static let runnerDotTone = Tone(light: 0x3B4A8A, dark: 0x3B4A8A)
-        static let runnerDot = flowDynamic(runnerDotTone)
-        /// 深色主题的绳子（压藏青 5.40）与虚线 / 出发地小圈（纯装饰，2.05）。
-        static let ropeOnNavyTone = Tone(light: 0x7C9CF2, dark: 0x7C9CF2)
-        static let ropeOnNavy = flowDynamic(ropeOnNavyTone)
-        static let mutedOnNavy = flowDynamic(Tone(light: 0x4B587F, dark: 0x4B587F))
-        /// 邀请态跑者空心头像的虚线描边、出发地小圈（`Rope.dc.html` 取值 `#6A77A3`，纯装饰）。
-        static let mutedStrokeOnNavy = flowDynamic(Tone(light: 0x6A77A3, dark: 0x6A77A3))
+        static let stateAgreedTone = navyTone
+        static let stateAgreed = navy
+        static let stateDepartedTone = Tone(light: 0x2A5BD7, dark: 0x2A5BD7)
+        static let stateDeparted = flowDynamic(stateDepartedTone)
+        /// 暗色 `#AD5210`：`#A04B0C` 当方位盘箭头压暗色卡面 `#1C1C1E` 只有 2.84（图形门槛 3），
+        /// 调亮一档到 3.23，白字仍有 5.26。
+        static let stateArrivedTone = Tone(light: 0xA04B0C, dark: 0xAD5210)
+        static let stateArrived = flowDynamic(stateArrivedTone)
+        static let stateDoneTone = Tone(light: 0x1C7C45, dark: 0x1C7C45)
+        static let stateDone = flowDynamic(stateDoneTone)
+
+        // MARK: 彩色头卡上的字与引导绳（C02 / C03，替代 v1 的 onNavy* / volunteerDot / runnerDot / ropeOnNavy）
+        //
+        // 设计稿取值没有原样采用的第 6 条：交付包写「`onHero*` 在五种状态色上 ≥4.5:1」，**实测不成立** ——
+        // 小标题白 80% 压完成绿 3.97、压出发主蓝 4.36，副文白 86% 压完成绿 4.33；
+        // 跑者头像 18% 白填充上的白色姓氏压完成绿 3.70、压出发主蓝 4.09。
+        // 改成小标题 90% / 副文 94% / 跑者填充 8%，四种状态色上最低 4.51（`FlowDesignSystemTests` 逐色验）。
+        // 小标题仍比副文暗一档，层级不变；跑者头像的形状由 2pt 白描边承担。
+
+        static let onHeroEyebrowOpacity: Double = 0.90
+        static let onHeroBodyOpacity: Double = 0.94
+        static let runnerFillOpacity: Double = 0.08
+        static let onHeroStrong = Color.white
+        /// 「增强对比度」时提到纯白，与 `onNavySecondary` 同一个办法。
+        static let onHeroEyebrow = translucentWhite(onHeroEyebrowOpacity)
+        static let onHeroBody = translucentWhite(onHeroBodyOpacity)
+        /// 引导绳（压四种状态色最低 3.67，图形门槛 3）。
+        static let ropeLineOpacity: Double = 0.75
+        static let ropeLine = Color.white.opacity(ropeLineOpacity)
+        /// 出发地小圈、断开的绳子。纯装饰（2.50～4.67）。
+        static let ropeMuted = Color.white.opacity(0.50)
+        /// 跑者头像填充，外加 2pt 白描边。
+        static let runnerFill = Color.white.opacity(runnerFillOpacity)
         /// 「跑者已到入口附近」胶囊里的圆点。胶囊有文字，圆点是冗余线索。
         static let presenceGreen = flowDynamic(Tone(light: 0x6BE79C, dark: 0x6BE79C))
+
+        // MARK: 汇合页暖色控件（C08）
+
+        /// 响铃按钮。深琥珀字压暖底 7.69 / 9.23。暗色档交付包没给，按 `warmCard` 同一个做法补。
+        static let arrivedTintTone = Tone(light: 0xFBEEE3, dark: 0x3A2210)
+        static let arrivedTint = flowDynamic(arrivedTintTone)
+        /// 描边。带达标文字标签的控件，边界比按 W3C 1.4.11 豁免，理由同 `ctaStroke`。
+        static let arrivedTintBorder = flowDynamic(Tone(light: 0xEBC9AD, dark: 0x6B3A1A))
+        static let arrivedInkTone = Tone(light: 0x7A3808, dark: 0xF5C29A)
+        static let arrivedInk = flowDynamic(arrivedInkTone)
 
         /// v2 主按钮的 1.5pt 描边与暖色阴影（交付包 D14）。压页面底 2.07 ——
         /// 按钮自带 10.6:1 的文字标签，边界比按 W3C 1.4.11 豁免；描边的作用是强光下的形状线索。
         static let ctaStrokeTone = Tone(light: 0xD9A21E, dark: 0xD9A21E)
         static let ctaStroke = flowDynamic(ctaStrokeTone)
 
-        /// 金色：汇合光环、完成时的绳子、快迟到时的主角数字（压 navy 8.76 / 7.10）。
-        /// 与 `cta` 同值但语义不同 —— 一个是「现在按这个」，一个是「时间 / 汇合」的强调。
-        static let goldTone = Tone(light: 0xF6C343, dark: 0xF6C343)
+        /// 金色：汇合光环、完成时的绳子、快迟到 / 过点时的主角数字。
+        ///
+        /// v2 C04 从 `#F6C343`（与主按钮同值）调亮成 `#FFD978`：彩色底上更清楚，也和「现在按这个」的主按钮黄分开。
+        /// 压出发主蓝 4.32 —— 它在那里只当 80pt 主角数字与 20pt 粗体单位，按 WCAG 大字 3:1 卡
+        /// （`testGoldOnlyAppearsAsLargeTextOrGraphicsOnStateColours`）；压藏青 10.57。
+        static let goldTone = Tone(light: 0xFFD978, dark: 0xFFD978)
         static let gold = flowDynamic(goldTone)
 
         /// 跑者留言卡与快迟到提醒条。标题 7.36 / 8.90，正文 12.56 / 11.88。
@@ -351,6 +382,14 @@ extension AppColors {
             let isDark = traits.userInterfaceStyle == .dark
             let effective = traits.accessibilityContrast == .high ? (highContrast ?? tone) : tone
             return UIColor(rgb: isDark ? effective.dark : effective.light)
+        })
+    }
+
+    /// 彩色头卡上的半透明白。底色随状态变，所以前景只能是透明度而不是 `Tone`；
+    /// 「增强对比度」时提到纯白。
+    fileprivate static func translucentWhite(_ opacity: Double) -> Color {
+        Color(uiColor: UIColor { traits in
+            UIColor.white.withAlphaComponent(traits.accessibilityContrast == .high ? 1 : opacity)
         })
     }
 }

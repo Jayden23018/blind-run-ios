@@ -485,6 +485,8 @@ final class VolunteerHomeViewModel: ObservableObject {
                     // 而它是这一刻唯一一处告诉他「全名和电话已经放进订单」的地方。
                     markInvite(orderID: order.orderId, outcome: .accepted)
                     declineStreak.reset()
+                    // 交付包 03 触感总表：接下邀请成功 `.success`。下一行那句播报就是它的语义。
+                    HapticFeedback.play(.success)
                 case .decline:
                     removeInvite(orderID: order.orderId)
                 }

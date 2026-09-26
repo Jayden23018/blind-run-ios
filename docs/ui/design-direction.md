@@ -85,12 +85,10 @@
 > `LowVisionChannelTests.testXinghuoPaletteKeepsTextReadableOnGlass` 按「玻璃叠在白底上」的最坏情况钉住。
 > 这一条**不外推**：别的页面想要深色或新颜色，仍按下面「新增强调色的门槛」走。
 
-> **例外：陪跑员订单页 v2 的状态色（项目负责人 2026-09-26 拍板，`zhumangpao-handoff-v2/DECISIONS-v2.md` V13）。**
->
-> 允许新增交付包 C01 的状态色，**只限头卡与锁屏卡**。目前落地的只有 `AppColors.Flow.statePaused`
-> （`#4B5263`，跑步中暂停灰条，上面一律白字）。跑步中节奏卡的圆点**没有**用交付包的
-> `stateRunning` / `runningTint`：节奏卡不是头卡，用现有 `accent` / `blueTint`；信号卡的黄复用 `cta` / `ctaStroke`。
-> 这一条同样**不外推**。
+> **例外：陪跑员订单页 v2 的状态色（V13）** —— 规则与已落地的色见下方偏离表「§2 / §5 不新增强调色」那一行，这里不留第二份。
+> 跑步中只补了一个：`AppColors.Flow.statePaused`（旧跑步页暂停灰条，只放白字，对比度用例
+> `FlowDesignSystemTests.testPausedStripWhiteTextClearsTheBodyThreshold`）。节奏卡**不用**状态色
+> （它不是头卡）：圆点用 `accent` / `blueTint`，信号卡的黄复用 `cta` / `ctaStroke`。
 
 - 语义色 5 个：`primary` / `destructive` / `warning` / `success` / `textSecondary`，各带亮暗两套。
 - 亮色模式**不用 iOS 系统语义色**（上面那组实测数字就是理由），暗色模式用系统色。
@@ -187,7 +185,7 @@ SOS 二次确认文案是逐字锁定的（`AGENTS.md` §6），那种严肃度�
 
 ### 6.1 例外：陪跑员订单页 v2（项目负责人 2026-09-26 拍板）
 
-交付包 `zhumangpao-handoff/`（00–07）与本文件有冲突，下面五条**只对陪跑员订单页生效**（`VolunteerOrderFlowPage`
+交付包 `zhumangpao-handoff/`（00–07）与本文件有冲突，下面六条**只对陪跑员订单页生效**（`VolunteerOrderFlowPage`
 及其组件 `FlowV2Components.swift` / `RopeView`），盲人端与其余页面照旧。OpenSpec 变更 `restyle-volunteer-order-page-v2`。
 
 | 本文件的规则 | 陪跑员订单页 v2 的做法 | 为什么接受 |
@@ -197,8 +195,9 @@ SOS 二次确认文案是逐字锁定的（`AGENTS.md` §6），那种严肃度�
 | §4 次级操作绝不并排 | 快捷回复、汇合页「打电话 / 找不到对方」默认两列，AX 字号下改竖排 | 陪跑员单手骑车 / 小跑，两个并列的对等选项比竖排少一次视线移动 |
 | 色板只用 `AppColors` | 并进 `AppColors.Flow`（没有另起 `ZColor`），navy / page / 文字取值随交付包微调，盲人端首页一起变 | 同一个产品方向，不是第二套色板；每个新色都进了 `FlowDesignSystemTests` 的配对断言 |
 | 触达 64pt | 主按钮、次要按钮（含响铃、快捷回复）仍 64；两列按钮 48、文字按钮与求助胶囊 44 | 陪跑员是明眼人，44 是 Apple HIG 下限；最常按的那几枚仍守 64。断言在 `testVolunteerOrderV2AuxiliaryTargetsKeepTheFortyFourFloor` |
+| §2 / §5 不新增强调色 | **头卡按订单状态着色**：约好 / 跑者取消藏青、出发主蓝、汇合琥珀、完成绿（`AppColors.Flow.state*`，v2 C01；跑步中暂停灰 `statePaused` 已由 FE-3 加在旧跑步页的暂停灰条上；锁屏卡的跑步中青绿由 FE-2 加）。状态色**只出现在头卡**，例外只有汇合页方位盘、响铃按钮、④b「打电话」；黄色只给唯一主按钮，红色只给求助（C06） | 项目负责人 2026-09-26 拍板（`DECISIONS-v2.md` V13）：陪跑员骑车 / 小跑时扫一眼头卡颜色就知道这一单走到哪了，这是信息不是装饰。头卡上的字全是半透明白，逐色验 ≥4.5:1 在 `testHeroCardTextClearsTheBodyThresholdOnEveryStateColour`（交付包原值算不过，已调，见 `FlowPalette` 第 6 条） |
 
-⚠️ **这五条不许外溢**。盲人端照抄其中任何一条都是回退 —— 那边的约束来自视障用户本身，不是审美。
+⚠️ **这六条不许外溢**。盲人端照抄其中任何一条都是回退 —— 那边的约束来自视障用户本身，不是审美。
 
 ---
 
