@@ -467,7 +467,8 @@ final class blindRunUITests: XCTestCase {
         let releaseRow = app.descendants(matching: .any)["volunteerOrderFlowRow-release"].firstMatch
         XCTAssertTrue(releaseRow.waitForExistence(timeout: 5))
         XCTAssertTrue(releaseRow.isHittable, "Cancellation entry must remain locally interactive")
-        XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable, "Back navigation must remain usable")
+        // v2 页面藏了系统导航栏，返回键在页面自带的导航栏上。
+        XCTAssertTrue(app.buttons["返回"].firstMatch.isHittable, "Back navigation must remain usable")
 
         XCTAssertTrue(
             app.staticTexts["状态确认延迟，请稍后点击“重新确认状态”。请勿重复提交同一操作。"]
@@ -509,7 +510,7 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(releaseRow.waitForExistence(timeout: 5), "骨架里没有「我去不了」那一行")
         app.swipeUp()
         app.swipeDown()
-        XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable)
+        XCTAssertTrue(app.buttons["返回"].firstMatch.isHittable, "返回键在页面自带的导航栏上，滚动后也该点得到")
         XCTAssertTrue(waitForElementToBeHittable(primary, timeout: 3), "主按钮贴底常驻，任何滚动位置都该点得到")
     }
 
@@ -2123,7 +2124,7 @@ final class blindRunUITests: XCTestCase {
     /// 陪跑员订单页在不在屏上。
     ///
     /// 🚩 **不认导航栏标题。** 原来的判据是 `navigationBars["服务中"]`，而 2026-09-17 四步骨架之后
-    /// 订单页标题就改叫「陪跑订单」、之后陪跑员订单页 v2 还会把系统导航栏整条藏掉 ——
+    /// 订单页标题就改叫「陪跑订单」、v2（2026-09-26）又把系统导航栏整条藏了（页面自带导航栏）——
     /// 这个判据在两种页面上都等不到，4 条用例因此卡在开头（#193 的根因）。
     /// 改认 identifier：v2 头卡 `volunteerOrderFlowStatusCard`，或跑步中旧路径的 `volunteerServicePanel`。
     private func waitForVolunteerOrderPage(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
