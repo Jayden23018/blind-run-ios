@@ -78,7 +78,10 @@ extension MockAPIClient {
             hasGuideDog: request.hasGuideDog ?? blindProfile?.hasGuideDog,
             tetherPreference: request.tetherPreference ?? blindProfile?.tetherPreference,
             chatPreference: request.chatPreference ?? blindProfile?.chatPreference,
-            defaultPace: request.defaultPace ?? blindProfile?.defaultPace
+            defaultPace: request.defaultPace ?? blindProfile?.defaultPace,
+            // 与后端同义：不带键 = 保留；空白 = 清空。
+            guidePreferenceText: request.guidePreferenceText.map { $0.nilIfBlank }
+                ?? blindProfile?.guidePreferenceText
         )
         return blindProfile!
     }

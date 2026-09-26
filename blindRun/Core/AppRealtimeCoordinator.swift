@@ -423,6 +423,8 @@ final class AppRealtimeCoordinator: ObservableObject {
 
     @Published private(set) var dispatchDiagnostic: WSDispatchDiagnostic?
     @Published private(set) var currentNotification: RealtimeForegroundNotification?
+    /// 陪跑员按了「让 TA 的手机响起来」。盲人端 `BlindRunnerTabView` 据此响铃，响完调 `dismissRunnerRing`。
+    @Published private(set) var runnerRing: RunnerRingRequest?
     @Published private(set) var latestSeparationAlert: RealtimeSeparationAlert?
     @Published private(set) var latestSafetyEvent: RealtimeSafetyEvent?
 
@@ -641,6 +643,10 @@ final class AppRealtimeCoordinator: ObservableObject {
 
     func latestPeerLocation(orderID: Int64, ownerRole: RealtimePeerRole) -> RealtimePeerLocationSample? {
         latestPeerSamples[peerKey(orderID: orderID, ownerRole: ownerRole)]
+    }
+
+    func dismissRunnerRing() {
+        runnerRing = nil
     }
 
     func dismissCurrentNotification() {
@@ -870,6 +876,7 @@ final class AppRealtimeCoordinator: ObservableObject {
             routeEscortAlert(message, eventType: eventType)
             return
         }
+        if eventType == "RUNNER_RING", routeRunnerRing(message) { return }
         if let kind = Self.emergencyKind(forEventType: eventType) {
             routeEmergencyNotification(message, kind: kind)
             return
@@ -892,6 +899,17 @@ final class AppRealtimeCoordinator: ObservableObject {
             isSafetyEvent: Self.isSafetyEventType(eventType)
         )
         enqueue(notification, type: message.type)
+    }
+
+    /// `RUNNER_RING` 走响铃，不进横幅（响铃遮罩自己会念那一句，进横幅就念两遍）。
+    /// 返回 `false` = 这一条响不了（非盲人端、缺 `until`、已过点），调用方按普通通知念一次。
+    /// 同一条重复投递按 `messageId` 丢掉，复用横幅那套去重窗口。
+    private func routeRunnerRing(_ message: WSAppNotification) -> Bool {
+        guard attachedRole == nil || attachedRole == .blind,
+              let ring = RunnerRingRequest.make(from: message, receivedAt: now()) else { return false }
+        guard shouldPresent(deduplicationKey: "RUNNER_RING:\(ring.id)") else { return true }
+        runnerRing = ring
+        return true
     }
 
     /// 后端正文指向一个**客户端已经没有的控件**时的替代正文；`nil` = 照播后端原文。

@@ -50,6 +50,8 @@ enum OrderEndpoint {
     case quickMessage(orderId: Int64)
     case ringRunner(orderId: Int64)
     case endWaiting(orderId: Int64)
+    /// 跑者给陪跑员留一句话（**PUT**，覆盖写）。
+    case runnerMessage(orderId: Int64)
 
     // 评价与状态记录
     case review(orderId: Int64)
@@ -105,6 +107,8 @@ enum OrderEndpoint {
             return EndpointRequest(.post, "/api/orders/\(orderId)/ring-runner")
         case .endWaiting(let orderId):
             return EndpointRequest(.post, "/api/orders/\(orderId)/end-waiting")
+        case .runnerMessage(let orderId):
+            return EndpointRequest(.put, "/api/orders/\(orderId)/runner-message")
         case .review(let orderId):
             return EndpointRequest(.post, "/api/orders/\(orderId)/review")
         case .reviews(let orderId):

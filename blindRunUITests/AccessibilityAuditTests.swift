@@ -426,6 +426,31 @@ final class AccessibilityAuditTests: XCTestCase {
         )
     }
 
+    // MARK: - 陪跑员让跑者手机响铃（OpenSpec `runner-receives-volunteer-actions`）
+
+    /// 响铃遮罩盖住整屏：背后的标签栏对读屏消失，点一下就停，停了标签栏回来。
+    /// ⚠️ 这条用例跑的时候手机**真的会响** —— 声音大小与循环只能人耳判断，断言管不到。
+    @MainActor
+    func testRunnerRingOverlayHidesTheTabsAndStopsOnTap() throws {
+        let app = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_RUNNER_RING": "1"])
+        let overlay = app.descendants(matching: .any)["runnerRingOverlay"].firstMatch
+        XCTAssertTrue(overlay.waitForExistence(timeout: 20), "注入了 RUNNER_RING，遮罩没出来")
+        XCTAssertFalse(app.tabBars.firstMatch.exists, "遮罩期间标签栏还在读屏树里 —— 读屏用户会划到背后去")
+
+        overlay.tap()
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 5), "点了遮罩，响铃没停")
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5), "停铃后标签栏没回来")
+    }
+
+    /// 不碰它也会在 `until`（注入的是 10 秒后）自己停。
+    @MainActor
+    func testRunnerRingOverlayEndsOnItsOwnAtUntil() throws {
+        let app = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_RUNNER_RING": "1"])
+        let overlay = app.descendants(matching: .any)["runnerRingOverlay"].firstMatch
+        XCTAssertTrue(overlay.waitForExistence(timeout: 20), "注入了 RUNNER_RING，遮罩没出来")
+        XCTAssertTrue(overlay.waitForNonExistence(timeout: 20), "过了 until 还在响")
+    }
+
     // MARK: - 记录 tab（OpenSpec `add-run-record-history-tab`）
 
     /// 记录页要拍的数据：Mock 的已完成单 #2（本月）+ 一张已取消单（`AIDRUN_UI_TEST_SEED_HISTORY`）。

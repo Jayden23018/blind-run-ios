@@ -135,6 +135,8 @@ nonisolated struct WSAppNotification: Decodable, Sendable {
     /// 部分事件的信封另带 `orderId`（2026-09-26 起的陪跑员订单页 v2 事件都有）。
     /// 旧事件没有这个键 —— 下面 `overriddenBody` 那段「契约盲区」的注释仍然成立，别拿它当普遍可用。
     let orderId: Int64?
+    /// 只有 `RUNNER_RING` 带：响到这一刻为止（后端 `LocalDateTime`，无时区）。
+    let until: String?
 
     init(
         type: String,
@@ -146,9 +148,11 @@ nonisolated struct WSAppNotification: Decodable, Sendable {
         ttsText: String?,
         priority: String?,
         timestamp: String?,
-        orderId: Int64? = nil
+        orderId: Int64? = nil,
+        until: String? = nil
     ) {
         self.orderId = orderId
+        self.until = until
         self.type = type
         self.eventId = eventId
         self.messageId = messageId
@@ -161,7 +165,7 @@ nonisolated struct WSAppNotification: Decodable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, eventId, messageId, eventType, title, body, ttsText, priority, timestamp, orderId
+        case type, eventId, messageId, eventType, title, body, ttsText, priority, timestamp, orderId, until
     }
 
     init(from decoder: Decoder) throws {
@@ -177,6 +181,7 @@ nonisolated struct WSAppNotification: Decodable, Sendable {
         timestamp = try envelope.decodeIfPresent(String.self, forKey: .timestamp)
         // `try?`：信封里这个键是附带信息，类型对不上时不该让整条通知（可能是求助）解不出来。
         orderId = (try? envelope.decodeIfPresent(Int64.self, forKey: .orderId)) ?? nil
+        until = (try? envelope.decodeIfPresent(String.self, forKey: .until)) ?? nil
     }
 }
 
