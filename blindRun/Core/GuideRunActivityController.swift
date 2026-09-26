@@ -129,9 +129,12 @@ final class GuideRunActivityController {
         #if DEBUG
         if hadActivity { eventsForTesting.append("end") }
         #endif
-        guard !Activity<GuideRunAttributes>.activities.isEmpty else { return }
+        // 🔴 **名单在这里同步取，不在 Task 里取。** `sync` 换单时是 `end()` 紧跟 `start()`，
+        // 而这个 Task 要等 `sync` 返回后才跑 —— 在 Task 里读 `activities` 会把刚起的新卡一起结束。
+        let stale = Activity<GuideRunAttributes>.activities
+        guard !stale.isEmpty else { return }
         Task {
-            for running in Activity<GuideRunAttributes>.activities {
+            for running in stale {
                 await running.end(nil, dismissalPolicy: .immediate)
             }
         }
