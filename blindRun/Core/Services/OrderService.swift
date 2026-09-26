@@ -70,6 +70,11 @@ protocol OrderServing: Sendable {
     func ringRunner(orderId: Int64) async throws -> OrderNudgeResponse
     /// 等满时限后结束等待。订单转 `CANCELLED`，不算陪跑员取消。
     func endWaiting(orderId: Int64) async throws
+
+    // 跑步中（DECISIONS-v2 V14/V15）。节奏信号是跑者 token，暂停/继续是陪跑员 token。
+    func sendRhythm(_ signal: RunRhythmSignal, orderId: Int64) async throws
+    func pauseRun(orderId: Int64) async throws
+    func resumeRun(orderId: Int64) async throws
     /// 跑者给陪跑员留言。空串 = 清空。返回后端去掉首尾空白后的值，清空时为 `nil`。
     func updateRunnerMessage(_ text: String, orderId: Int64) async throws -> RunnerMessageResponse
 
@@ -186,6 +191,21 @@ struct OrderService: OrderServing {
 
     func ringRunner(orderId: Int64) async throws -> OrderNudgeResponse {
         try await transport.send(OrderEndpoint.ringRunner(orderId: orderId).request)
+    }
+
+    func sendRhythm(_ signal: RunRhythmSignal, orderId: Int64) async throws {
+        let _: EmptyResponse = try await transport.send(
+            OrderEndpoint.rhythm(orderId: orderId).request,
+            body: RunRhythmRequest(signal: signal)
+        )
+    }
+
+    func pauseRun(orderId: Int64) async throws {
+        let _: EmptyResponse = try await transport.send(OrderEndpoint.pauseRun(orderId: orderId).request)
+    }
+
+    func resumeRun(orderId: Int64) async throws {
+        let _: EmptyResponse = try await transport.send(OrderEndpoint.resumeRun(orderId: orderId).request)
     }
 
     func endWaiting(orderId: Int64) async throws {

@@ -85,6 +85,13 @@
 > `LowVisionChannelTests.testXinghuoPaletteKeepsTextReadableOnGlass` 按「玻璃叠在白底上」的最坏情况钉住。
 > 这一条**不外推**：别的页面想要深色或新颜色，仍按下面「新增强调色的门槛」走。
 
+> **例外：陪跑员订单页 v2 的状态色（项目负责人 2026-09-26 拍板，`zhumangpao-handoff-v2/DECISIONS-v2.md` V13）。**
+>
+> 允许新增交付包 C01 的状态色，**只限头卡与锁屏卡**。目前落地的只有 `AppColors.Flow.statePaused`
+> （`#4B5263`，跑步中暂停灰条，上面一律白字）。跑步中节奏卡的圆点**没有**用交付包的
+> `stateRunning` / `runningTint`：节奏卡不是头卡，用现有 `accent` / `blueTint`；信号卡的黄复用 `cta` / `ctaStroke`。
+> 这一条同样**不外推**。
+
 - 语义色 5 个：`primary` / `destructive` / `warning` / `success` / `textSecondary`，各带亮暗两套。
 - 亮色模式**不用 iOS 系统语义色**（上面那组实测数字就是理由），暗色模式用系统色。
 - 改任何取值先跑 **`LowVisionChannelTests`** —— `testEverySemanticColorClearsTheBodyTextContrastThreshold…`

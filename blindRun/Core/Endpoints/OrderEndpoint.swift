@@ -53,6 +53,11 @@ enum OrderEndpoint {
     /// 跑者给陪跑员留一句话（**PUT**，覆盖写）。
     case runnerMessage(orderId: Int64)
 
+    // 跑步中（DECISIONS-v2 V14/V15）。⚠️ 推定路径，后端 BE-1/BE-2 合并后核对。
+    case rhythm(orderId: Int64)
+    case pauseRun(orderId: Int64)
+    case resumeRun(orderId: Int64)
+
     // 评价与状态记录
     case review(orderId: Int64)
     case reviews(orderId: Int64)
@@ -109,6 +114,12 @@ enum OrderEndpoint {
             return EndpointRequest(.post, "/api/orders/\(orderId)/end-waiting")
         case .runnerMessage(let orderId):
             return EndpointRequest(.put, "/api/orders/\(orderId)/runner-message")
+        case .rhythm(let orderId):
+            return EndpointRequest(.post, "/api/orders/\(orderId)/rhythm")
+        case .pauseRun(let orderId):
+            return EndpointRequest(.post, "/api/orders/\(orderId)/pause")
+        case .resumeRun(let orderId):
+            return EndpointRequest(.post, "/api/orders/\(orderId)/resume")
         case .review(let orderId):
             return EndpointRequest(.post, "/api/orders/\(orderId)/review")
         case .reviews(let orderId):

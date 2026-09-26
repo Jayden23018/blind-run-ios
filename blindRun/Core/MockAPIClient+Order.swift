@@ -209,6 +209,50 @@ extension MockAPIClient {
         return EmptyResponse()
     }
 
+    /// 节奏信号：只在 `IN_PROGRESS`，同一信号 10 秒内 429（V14 推定）。写回 `run.lastSignal*`，
+    /// 陪跑员那一侧的 5 秒轮询就能看到 —— Mock 不模拟推送。
+    func handleRhythm(orderId: Int64, body: (any Encodable & Sendable)?) throws -> EmptyResponse {
+        guard let data = try? JSONEncoder().encode(MockAnyEncodable(body)),
+              let request = try? JSONDecoder().decode(RunRhythmRequest.self, from: data),
+              request.signal != .unknown else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "节奏信号无效"))
+        }
+        let index = try inProgressOrderIndex(orderId)
+        let now = Date()
+        let run = orders[index].run ?? RunView()
+        if run.lastSignal == request.signal,
+           let last = run.lastSignalAt?.backendTimestamp,
+           now.timeIntervalSince(last) < 10 {
+            throw APIError.rateLimited(RateLimitInfo(message: "刚发过，稍等再按", retryAfterSeconds: 10))
+        }
+        orders[index].run = RunView(
+            paused: run.paused,
+            lastSignal: request.signal,
+            lastSignalAt: DateFormatter.aidRunBackendLocalDateTime.string(from: now),
+            runnerBatteryLow: run.runnerBatteryLow
+        )
+        return EmptyResponse()
+    }
+
+    func handleSetRunPaused(orderId: Int64, paused: Bool) throws -> EmptyResponse {
+        let index = try inProgressOrderIndex(orderId)
+        var run = orders[index].run ?? RunView()
+        run.paused = paused
+        orders[index].run = run
+        return EmptyResponse()
+    }
+
+    private func inProgressOrderIndex(_ orderId: Int64) throws -> Int {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status == .inProgress else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许该操作"))
+        }
+        return index
+    }
+
     func handleRunnerMessage(orderId: Int64, body: (any Encodable & Sendable)?) throws -> RunnerMessageResponse {
         guard let data = try? JSONEncoder().encode(MockAnyEncodable(body)),
               let request = try? JSONDecoder().decode(RunnerMessageRequest.self, from: data),
