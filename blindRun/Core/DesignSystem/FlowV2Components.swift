@@ -51,15 +51,26 @@ struct FlowTextButton: View {
 /// 而这是紧急入口，可发现性比像素一致更重要。
 ///
 /// 按下去去哪由调用方决定（`VolunteerOrderSOSMode`）：这个组件只负责「在那里、看得见、按得到」。
+///
+/// `isCloud`（只在跑步中）换的只是**读屏那一层**：标签念完整的「一键求助」——
+/// 那四个字在本 App 里专指云端链路，本地拨号的几态不许用（`EmergencySOSTests` 钉着）；
+/// identifier 沿用 #219 的 `volunteerServiceSOSButton`，守着求助位置的两条 UI 用例不用换判据。
+/// 可见文字两种模式都是「求助」。`isBusy` = 求助正在发送，转圈并禁用，防止连按发出第二次。
 struct FlowHelpPill: View {
+    var isCloud = false
+    var isBusy = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: "shield")
-                    .font(.system(size: 16, weight: .semibold))
-                    .accessibilityHidden(true)
+                if isBusy {
+                    ProgressView().tint(AppColors.Flow.helpText)
+                } else {
+                    Image(systemName: "shield")
+                        .font(.system(size: 16, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
                 Text("求助")
                     .flowFont(FlowV2Fonts.callout(bold: true))
                     .lineLimit(1)
@@ -73,10 +84,12 @@ struct FlowHelpPill: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .disabled(isBusy)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("求助与安全")
-        .accessibilityIdentifier("volunteerOrderHelpPill")
+        .accessibilityLabel(isCloud ? EmergencySafetyCopy.accessibilityLabel : "求助与安全")
+        .accessibilityHintIfPresent(isCloud ? EmergencySafetyCopy.accessibilityHint : nil)
+        .accessibilityIdentifier(isCloud ? "volunteerServiceSOSButton" : "volunteerOrderHelpPill")
     }
 }
 
@@ -91,6 +104,9 @@ struct FlowOrderNavBar: View {
     /// `nil` = 不放返回按钮（完成页）。
     var onBack: (() -> Void)?
     let onHelp: () -> Void
+    /// 见 `FlowHelpPill`。
+    var helpIsCloud = false
+    var helpIsBusy = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -122,7 +138,7 @@ struct FlowOrderNavBar: View {
                 .frame(maxWidth: .infinity)
                 .accessibilityAddTraits(.isHeader)
 
-            FlowHelpPill(action: onHelp)
+            FlowHelpPill(isCloud: helpIsCloud, isBusy: helpIsBusy, action: onHelp)
                 .frame(minWidth: FlowMetrics.v2NavSlotWidth, alignment: .trailing)
         }
         .frame(minHeight: FlowMetrics.v2NavHeight)

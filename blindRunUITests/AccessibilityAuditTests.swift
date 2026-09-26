@@ -1410,9 +1410,10 @@ final class AccessibilityAuditTests: XCTestCase {
         // 有在途订单时**打开 App 就直接进服务页**（设计交付 v3 §4.1 三岔路的第二岔），
         // 不再经过首页那张当前订单卡 —— 那张卡仍然在，只是这条路径上碰不到它了。
         let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
+        // 跑步中页（#218）藏了系统导航栏，认头卡的 identifier 而不是导航栏标题。
         XCTAssertTrue(
-            app.navigationBars["服务中"].waitForExistence(timeout: 25),
-            "冷启动没有直接进服务页"
+            app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch.waitForExistence(timeout: 25),
+            "冷启动没有直接进跑步中页"
         )
 
         let sos = app.buttons["volunteerServiceSOSButton"].firstMatch
@@ -1451,7 +1452,10 @@ final class AccessibilityAuditTests: XCTestCase {
         // 有在途订单时**打开 App 就直接进服务页**（设计交付 v3 §4.1 三岔路的第二岔），
         // 不再经过首页那张当前订单卡 —— 那张卡仍然在，只是这条路径上碰不到它了。
         let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
-        XCTAssertTrue(app.navigationBars["服务中"].waitForExistence(timeout: 25), "冷启动没有直接进服务页")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch.waitForExistence(timeout: 25),
+            "冷启动没有直接进跑步中页"
+        )
 
         let finish = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
         XCTAssertTrue(finish.waitForExistence(timeout: 10), "服务进行中必须给陪跑员结束入口")
@@ -1470,6 +1474,38 @@ final class AccessibilityAuditTests: XCTestCase {
             finish.label.contains("2"),
             "标签里没有「按多久」这个数字：\(finish.label)。读屏用户没别的地方能知道要按 2 秒"
         )
+    }
+
+    /// 跑步中页（v2 画布 ⑤，#218）：竖屏 / 横屏 / AX3 各截一张对照画布，并各跑一次无障碍审计。
+    ///
+    /// 横屏是这一屏的老问题：旧页面高 402pt 时底部面板只剩 60pt。审计的 `.textClipped` 与
+    /// `.hitRegion` 管裁切和遮挡；截图给人看「和其他 v2 页像不像」。
+    @MainActor
+    func testVolunteerRunningPageScreenshotsAndAuditInPortraitLandscapeAndAX3() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let variants: [(name: String, arguments: [String], landscape: Bool)] = [
+            ("portrait", [], false),
+            ("landscape", [], true),
+            ("ax3", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"], false),
+        ]
+        for variant in variants {
+            XCUIDevice.shared.orientation = .portrait
+            let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS", extraArguments: variant.arguments)
+            let card = app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch
+            XCTAssertTrue(card.waitForExistence(timeout: 25), "\(variant.name)：冷启动没有直接进跑步中页")
+            if variant.landscape { rotateToLandscape(app) }
+            // 等 track 那一拍把数字填上；横屏再多等一拍，否则截到的是旋转动画途中的帧（画面侧着、半边黑）。
+            sleep(variant.landscape ? 4 : 2)
+            // 横屏用整屏截图：`app.screenshot()` 在这台机器的横屏下只截到一条侧着的窄条（2026-09-26）。
+            let shot = XCTAttachment(screenshot: variant.landscape ? XCUIScreen.main.screenshot() : app.screenshot())
+            shot.name = "volunteer-running-\(variant.name)"
+            shot.lifetime = .keepAlways
+            add(shot)
+            try audit(app)
+            app.terminate()
+        }
     }
 
     // MARK: - 横屏与宽窗口

@@ -566,8 +566,8 @@ struct VolunteerOrderFlowPresentation: Equatable {
 
     // MARK: 从订单详情算这一屏
 
-    /// `nil` = 这一态**不走这个页面**。当前只剩两类：跑步中（`IN_PROGRESS` 仍是旧的
-    /// 深蓝数据卡 + 长按结束那条路）与认不出的状态。
+    /// `nil` = 这一态**不走这个页面**。当前只剩两类：跑步中（`IN_PROGRESS` 有自己的
+    /// `VolunteerRunningPage`）与认不出的状态。
     ///
     /// - Parameter distanceText: 本机到**出发地点**的距离文案（出发态用）。
     /// - Parameter peerDistanceText: 本机到**跑者**的距离文案（汇合态用，来自
@@ -590,9 +590,8 @@ struct VolunteerOrderFlowPresentation: Equatable {
 
         guard let step = order.status.volunteerOrderFlowStep else { return nil }
         if step == .metUp {
-            // `IN_PROGRESS` 与 `DRIVER_ARRIVED` 同属「汇合」格，但跑起来之后这一页让位给
-            // 旧的跑中页（深蓝三数字 + 长按 2 秒结束 + 悬浮求助）。**显式挡在这里**，
-            // 调用方据此回退，见 `VolunteerInServiceView`。
+            // `IN_PROGRESS` 与 `DRIVER_ARRIVED` 同属「汇合」格，但跑起来之后换成跑步中页
+            // （`VolunteerRunningPage`，#218），不走这一套。**显式挡在这里**，见 `VolunteerInServiceView`。
             guard order.status == .driverArrived else { return nil }
             return metUp(order: order, peerDistanceText: peerDistanceText, now: now)
         }
