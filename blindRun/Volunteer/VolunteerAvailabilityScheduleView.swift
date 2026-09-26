@@ -82,8 +82,10 @@ struct VolunteerAvailabilityDraftSlot: Identifiable, Equatable {
         self.endMinutes = endMinutes
     }
 
-    /// 新增时的默认值：周六 07:00–09:00。取周末早晨是因为它是助盲跑最常见的时段
+    /// 新增时编辑页**预选**的值：周六 07:00–09:00。取周末早晨是因为它是助盲跑最常见的时段
     /// （设计交付文档 v3 的草图与国内跑团调研都是这个时间）。
+    /// 只是预选，点「完成」之前不落库 —— 原先一点「添加」就直接存成这一段，
+    /// 真机反馈「只能添加一个固定的周六七点到九点」。
     static func makeDefault() -> Self {
         Self(weekday: "SATURDAY", startMinutes: 7 * 60, endMinutes: 9 * 60)
     }
@@ -105,8 +107,8 @@ final class VolunteerAvailabilityScheduleViewModel: ObservableObject {
         slots = (appState.volunteerProfile?.availableTimeSlots ?? []).compactMap(VolunteerAvailabilityDraftSlot.init)
     }
 
-    func add() {
-        slots.append(.makeDefault())
+    func add(_ slot: VolunteerAvailabilityDraftSlot) {
+        slots.append(slot)
         Task { await save() }
     }
 
@@ -172,6 +174,8 @@ struct VolunteerAvailabilityScheduleView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var viewModel = VolunteerAvailabilityScheduleViewModel()
     @State private var editingSlot: VolunteerAvailabilityDraftSlot?
+    /// 新增走同一个编辑页，点「完成」才加进列表；关掉就是没加。
+    @State private var newSlot: VolunteerAvailabilityDraftSlot?
 
     var body: some View {
         List {
@@ -197,14 +201,14 @@ struct VolunteerAvailabilityScheduleView: View {
                 .onDelete(perform: viewModel.remove)
 
                 Button {
-                    viewModel.add()
+                    newSlot = .makeDefault()
                 } label: {
                     Label("添加空闲时间", systemImage: "plus")
                         .frame(minHeight: 64) // guard:allow small-touch-target
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                 }
-                .accessibilityHint("新增一段每周重复的空闲时间，默认周六早上 7 点到 9 点，加完可以再改")
+                .accessibilityHint("选择星期几和开始、结束时间，新增一段每周重复的空闲时间")
                 .accessibilityIdentifier("volunteerScheduleAddButton")
             } header: {
                 Text("这些时间里有合适的陪跑，会邀请你")
@@ -239,9 +243,17 @@ struct VolunteerAvailabilityScheduleView: View {
         .onAppear { viewModel.configure(with: appState) }
         .sheet(item: $editingSlot) { slot in
             NavigationStack {
-                VolunteerAvailabilitySlotEditor(slot: slot) { updated in
+                VolunteerAvailabilitySlotEditor(slot: slot, onCancel: { editingSlot = nil }) { updated in
                     viewModel.update(updated)
                     editingSlot = nil
+                }
+            }
+        }
+        .sheet(item: $newSlot) { slot in
+            NavigationStack {
+                VolunteerAvailabilitySlotEditor(slot: slot, title: "添加空闲时段", onCancel: { newSlot = nil }) { added in
+                    viewModel.add(added)
+                    newSlot = nil
                 }
             }
         }
@@ -263,10 +275,19 @@ struct VolunteerAvailabilityScheduleView: View {
 
 private struct VolunteerAvailabilitySlotEditor: View {
     @State private var draft: VolunteerAvailabilityDraftSlot
+    private let title: String
+    private let onCancel: () -> Void
     private let onDone: (VolunteerAvailabilityDraftSlot) -> Void
 
-    init(slot: VolunteerAvailabilityDraftSlot, onDone: @escaping (VolunteerAvailabilityDraftSlot) -> Void) {
+    init(
+        slot: VolunteerAvailabilityDraftSlot,
+        title: String = "空闲时段",
+        onCancel: @escaping () -> Void,
+        onDone: @escaping (VolunteerAvailabilityDraftSlot) -> Void
+    ) {
         _draft = State(initialValue: slot)
+        self.title = title
+        self.onCancel = onCancel
         self.onDone = onDone
     }
 
@@ -286,9 +307,14 @@ private struct VolunteerAvailabilitySlotEditor: View {
                     .accessibilityIdentifier("volunteerScheduleEditorRangeError")
             }
         }
-        .navigationTitle("空闲时段")
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // 显式的取消：下滑关 sheet 对读屏用户不可发现。
+            ToolbarItem(placement: .cancellationAction) {
+                Button("取消", action: onCancel)
+                    .accessibilityIdentifier("volunteerScheduleEditorCancel")
+            }
             ToolbarItem(placement: .confirmationAction) {
                 Button("完成") { onDone(draft) }
                     // 非法区间不许保存：`isValid` 为假时后端会收到一个永不命中的窗口，

@@ -94,6 +94,33 @@ final class AccessibilityAuditTests: XCTestCase {
         try audit(app)
     }
 
+    /// 「添加空闲时间」先弹选择页，不再直接存一段固定的周六 07:00–09:00。
+    /// 按「取消」不加任何一段 —— 旧实现点一下就落库，这里第一步就会红。
+    @MainActor
+    func testAddingAvailabilitySlotOpensThePickerFirst() throws {
+        let app = launchVolunteerHome()
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 20), "底部标签栏不在")
+        tabBar.buttons["我的"].tap()
+
+        let entry = app.descendants(matching: .any)["volunteerScheduleSettingsEntry"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), "设置页没有空闲时间入口")
+        entry.tap()
+
+        let add = app.buttons["volunteerScheduleAddButton"].firstMatch
+        XCTAssertTrue(add.waitForExistence(timeout: 10), "空闲时间页没有「添加」")
+        let rowsBefore = app.cells.count
+        add.tap()
+
+        XCTAssertTrue(
+            app.navigationBars["添加空闲时段"].waitForExistence(timeout: 5),
+            "点「添加」没有弹出选择星期和时间的页面"
+        )
+        app.buttons["volunteerScheduleEditorCancel"].tap()
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "取消后没回到空闲时间页")
+        XCTAssertEqual(app.cells.count, rowsBefore, "取消了却多出一段空闲时间")
+    }
+
     /// 陪跑员端的底部三标签（设计交付 v3 §4.1）。
     ///
     /// 改版前这三样只有一条路：「记录」在首屏「最近一次」旁的「全部 ›」里、「我的」是首屏
