@@ -548,6 +548,15 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             if path.hasSuffix("/confirm-departure") && method == .post {
                 return try handleConfirmDeparture(orderId: orderId)
             }
+            if path.hasSuffix("/quick-message") && method == .post {
+                return try handleQuickMessage(orderId: orderId)
+            }
+            if path.hasSuffix("/ring-runner") && method == .post {
+                return try handleRingRunner(orderId: orderId)
+            }
+            if path.hasSuffix("/end-waiting") && method == .post {
+                return try handleEndWaiting(orderId: orderId)
+            }
             if path.hasSuffix("/en-route") && method == .post {
                 return try handleEnRoute(orderId: orderId)
             }

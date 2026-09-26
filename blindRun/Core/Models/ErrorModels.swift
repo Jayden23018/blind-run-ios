@@ -149,6 +149,12 @@ enum ErrorCode: String, Codable, Sendable {
     // 让他去核对是在浪费他的时间，重试才有意义。此前这两种情况返的是同一个结果，
     // 而服务故障那次还会把他永久写成 `verifyStatus=FAILED`（只有管理员能改回来）。
     case idVerifyUnavailable = "ID_VERIFY_UNAVAILABLE"
+    // 陪跑员订单页 v2（后端 #418 / #362）。两条都是「时间还没到」，阈值由后端配置，
+    // 所以文案**不写具体分钟数** —— 页面上的按钮到点会自己亮 / 自己换，文案只要把人引回按钮。
+    // `DEPARTURE_TOO_EARLY`：早于开跑前 `app.order.en-route-earliest-minutes` 调 `en-route`。
+    case departureTooEarly = "DEPARTURE_TOO_EARLY"
+    // `END_WAIT_TOO_EARLY`：到达后还没等满 `app.order.arrival-wait-timeout-minutes`。
+    case endWaitTooEarly = "END_WAIT_TOO_EARLY"
 
     var localizedMessage: String {
         switch self {
@@ -304,6 +310,10 @@ enum ErrorCode: String, Codable, Sendable {
             return "这个时间段您已经答应了另一位跑者，换一个时间段的订单再试试。"
         case .idVerifyUnavailable:
             return "身份认证服务暂时不可用，请稍后重试。"
+        case .departureTooEarly:
+            return "现在出发还太早。到时间后「我出发了」会亮起来。"
+        case .endWaitTooEarly:
+            return "还没等满时限。到时间后按钮会换成「结束等待」。"
         }
     }
 

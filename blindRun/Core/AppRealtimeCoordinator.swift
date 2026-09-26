@@ -255,9 +255,37 @@ struct RealtimePeerLocationSample: Sendable {
     let latitude: Double
     let longitude: Double
     let timestampMilliseconds: Int64
+    /// 定位精度（米）。目前只有 `BLIND_LOCATION_UPDATE` 带（`accuracyM`，可缺省）。
+    var accuracyMeters: Double?
 
     var isValid: Bool {
         (-90...90).contains(latitude) && (-180...180).contains(longitude)
+    }
+}
+
+/// 陪跑员订单页 v2 的两条实时推送。都**不落通知日志**，重连后以订单详情为准，
+/// 所以消费方只把它们就地合进手上那份订单，不当权威。
+enum RealtimeOrderLiveUpdate: Sendable {
+    case eta(orderId: Int64, EtaView)
+    case meet(orderId: Int64, MeetView)
+
+    var orderId: Int64 {
+        switch self {
+        case .eta(let orderId, _), .meet(let orderId, _): return orderId
+        }
+    }
+}
+
+extension OrderDetailResponse {
+    /// 把一条实时推送合进这份订单。订单号对不上时原样返回。
+    func merging(_ update: RealtimeOrderLiveUpdate) -> OrderDetailResponse {
+        guard update.orderId == orderId else { return self }
+        var merged = self
+        switch update {
+        case .eta(_, let eta): merged.eta = eta
+        case .meet(_, let meet): merged.meet = meet
+        }
+        return merged
     }
 }
 
@@ -405,6 +433,10 @@ final class AppRealtimeCoordinator: ObservableObject {
     private let peerLocationSubject = PassthroughSubject<RealtimePeerLocationSample, Never>()
     private let recoverySubject = PassthroughSubject<RealtimeRecoverySignal, Never>()
     private let statusUpdateSubject = PassthroughSubject<RealtimeOrderStatusUpdate, Never>()
+    private let orderLiveUpdateSubject = PassthroughSubject<RealtimeOrderLiveUpdate, Never>()
+    var orderLiveUpdatePublisher: AnyPublisher<RealtimeOrderLiveUpdate, Never> {
+        orderLiveUpdateSubject.eraseToAnyPublisher()
+    }
     var peerLocationPublisher: AnyPublisher<RealtimePeerLocationSample, Never> { peerLocationSubject.eraseToAnyPublisher() }
     var recoveryPublisher: AnyPublisher<RealtimeRecoverySignal, Never> { recoverySubject.eraseToAnyPublisher() }
     var statusUpdatePublisher: AnyPublisher<RealtimeOrderStatusUpdate, Never> {
@@ -679,7 +711,8 @@ final class AppRealtimeCoordinator: ObservableObject {
                     ownerRole: .blind,
                     latitude: message.lat,
                     longitude: message.lng,
-                    timestampMilliseconds: message.timestamp
+                    timestampMilliseconds: message.timestamp,
+                    accuracyMeters: message.accuracyM
                 ),
                 expectedReceiver: .volunteer
             )
@@ -709,10 +742,25 @@ final class AppRealtimeCoordinator: ObservableObject {
                 },
                 serverDistanceMeters: message.fallbackDistanceMeters
             )
+        case .orderEtaUpdated(let message):
+            orderLiveUpdateSubject.send(.eta(orderId: message.orderId, message.eta))
+        case .meetDistanceBucket(let message):
+            orderLiveUpdateSubject.send(.meet(orderId: message.orderId, message.meet))
         case .pong, .unknown:
             break
         }
     }
+
+    /// 这些通知意味着订单详情里有字段变了、但没有配套的 `ORDER_STATUS_CHANGED`，要重拉一次
+    /// （陪跑员订单页 v2）。通知本身照常入队播报 —— 重拉只是让页面上的数据跟上。
+    ///
+    /// - `DEPART_REMINDER`：出发时刻可能被重算过
+    /// - `RUNNER_AT_MEETING_POINT`：`runnerAtMeetingPoint` 变 `true`
+    /// - `RUNNER_MESSAGE_UPDATED`：`messageToVolunteer` 变了（正文**不含**留言，只能从详情读）
+    /// - `ORDER_WAIT_ENDED`：另有 `ORDER_STATUS_CHANGED`，这里是兜底
+    static let orderRefreshingEventTypes: Set<String> = [
+        "DEPART_REMINDER", "RUNNER_AT_MEETING_POINT", "RUNNER_MESSAGE_UPDATED", "ORDER_WAIT_ENDED",
+    ]
 
     private func requestOrderRefresh(_ orderID: Int64, reason: RealtimeOrderRefreshRequest.Reason) {
         orderRefreshRetryTasks.removeValue(forKey: orderID)?.cancel()
@@ -815,6 +863,9 @@ final class AppRealtimeCoordinator: ObservableObject {
         // 否则重连后会把已经播报过的告警再补读一遍。
         recordObservedNotificationTimestamp(message.timestamp)
         let eventType = message.eventType.uppercased()
+        if Self.orderRefreshingEventTypes.contains(eventType), let orderId = message.orderId {
+            requestOrderRefresh(orderId, reason: .statusChanged)
+        }
         if eventType == "ESCORT_DISTANCE_ALERT" || eventType == "ESCORT_SIGNAL_LOST" {
             routeEscortAlert(message, eventType: eventType)
             return

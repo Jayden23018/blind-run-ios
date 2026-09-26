@@ -21,6 +21,10 @@ nonisolated enum WSMessageType: String, Codable, Sendable {
     // Server -> Client (Volunteer)
     case newOrder = "NEW_ORDER"
     case emergencyVolunteerAlert = "EMERGENCY_VOLUNTEER_ALERT"
+    /// 出发中的预计到达。剩余分钟变化 ≥1 才推，不落通知日志 —— 重连后读订单详情的 `eta`。
+    case orderEtaUpdated = "ORDER_ETA_UPDATED"
+    /// 汇合距离档位变了才推，只推陪跑员。⚠️ 一侧先到时会先推一条 `UNKNOWN`。
+    case meetDistanceBucket = "MEET_DISTANCE_BUCKET"
 }
 
 // MARK: - Outgoing Messages (Client -> Server)
@@ -93,6 +97,28 @@ nonisolated struct WSBlindLocationUpdate: Codable, Sendable {
     let lat: Double
     let lng: Double
     let timestamp: Int64
+    /// 跑者定位精度（米）。盲人端没带时**整个键不出现**（2026-09-26 追加），汇合页方位扇形宽度据此画。
+    var accuracyM: Double?
+}
+
+/// `ORDER_ETA_UPDATED`。`eta` 与订单详情的 `eta` 同形。
+nonisolated struct WSOrderEtaUpdated: Decodable, Sendable {
+    let orderId: Int64
+    let eta: EtaView
+}
+
+/// `MEET_DISTANCE_BUCKET`。`distanceBucket` 是开放枚举，未知值按 `UNKNOWN`。
+nonisolated struct WSMeetDistanceBucket: Decodable, Sendable {
+    let orderId: Int64
+    let meet: MeetView
+
+    private enum CodingKeys: String, CodingKey { case orderId }
+
+    init(from decoder: Decoder) throws {
+        orderId = try decoder.container(keyedBy: CodingKeys.self).decode(Int64.self, forKey: .orderId)
+        // `distanceBucket` / `farDistanceKm` 平铺在信封顶层，形状与 `MeetView` 一致。
+        meet = try MeetView(from: decoder)
+    }
 }
 
 /// Generic notification from backend templates
@@ -106,6 +132,9 @@ nonisolated struct WSAppNotification: Decodable, Sendable {
     let ttsText: String?
     let priority: String?
     let timestamp: String?
+    /// 部分事件的信封另带 `orderId`（2026-09-26 起的陪跑员订单页 v2 事件都有）。
+    /// 旧事件没有这个键 —— 下面 `overriddenBody` 那段「契约盲区」的注释仍然成立，别拿它当普遍可用。
+    let orderId: Int64?
 
     init(
         type: String,
@@ -116,8 +145,10 @@ nonisolated struct WSAppNotification: Decodable, Sendable {
         body: String,
         ttsText: String?,
         priority: String?,
-        timestamp: String?
+        timestamp: String?,
+        orderId: Int64? = nil
     ) {
+        self.orderId = orderId
         self.type = type
         self.eventId = eventId
         self.messageId = messageId
@@ -130,7 +161,7 @@ nonisolated struct WSAppNotification: Decodable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, eventId, messageId, eventType, title, body, ttsText, priority, timestamp
+        case type, eventId, messageId, eventType, title, body, ttsText, priority, timestamp, orderId
     }
 
     init(from decoder: Decoder) throws {
@@ -144,6 +175,8 @@ nonisolated struct WSAppNotification: Decodable, Sendable {
         ttsText = try envelope.decodeIfPresent(String.self, forKey: .ttsText)
         priority = try envelope.decodeIfPresent(String.self, forKey: .priority)
         timestamp = try envelope.decodeIfPresent(String.self, forKey: .timestamp)
+        // `try?`：信封里这个键是附带信息，类型对不上时不该让整条通知（可能是求助）解不出来。
+        orderId = (try? envelope.decodeIfPresent(Int64.self, forKey: .orderId)) ?? nil
     }
 }
 
@@ -357,5 +390,7 @@ nonisolated enum WSIncomingEvent: Sendable {
     case pong(WSPong)
     case newOrder(WSNewOrder)
     case emergencyAlert(WSEmergencyVolunteerAlert)
+    case orderEtaUpdated(WSOrderEtaUpdated)
+    case meetDistanceBucket(WSMeetDistanceBucket)
     case unknown(String)
 }

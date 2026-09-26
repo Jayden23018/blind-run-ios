@@ -163,4 +163,49 @@ extension MockAPIClient {
         introCallDecisions[orderId] = [:]
         return actionResponse(for: orders[index], message: "已表示有意向")
     }
+
+    // MARK: 陪跑员订单页 v2（后端 2026-09-26）
+    //
+    // 只做状态守卫，不做限流（429）—— 限流是后端 Redis 的事，Mock 模拟它只会让 Preview 与单测多一个
+    // 看不见的变量。客户端对 429 的处理由 `FakeOrderService` 在单测里直接注入。
+
+    func handleQuickMessage(orderId: Int64) throws -> OrderNudgeResponse {
+        guard let order = orders.first(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard order.status == .driverEnRoute || order.status == .driverArrived else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许该操作"))
+        }
+        return OrderNudgeResponse(success: true, orderId: orderId, ringingUntil: nil, delivered: true)
+    }
+
+    func handleRingRunner(orderId: Int64) throws -> OrderNudgeResponse {
+        guard let order = orders.first(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard order.status == .driverArrived else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许该操作"))
+        }
+        // 后端：受理时刻 + 10 秒，无时区本地时间串。
+        let until = DateFormatter.aidRunBackendLocalDateTime.string(from: Date().addingTimeInterval(10))
+        return OrderNudgeResponse(success: true, orderId: orderId, ringingUntil: until, delivered: true)
+    }
+
+    func handleEndWaiting(orderId: Int64) throws -> EmptyResponse {
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status == .driverArrived else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许该操作"))
+        }
+        if let earliest = orders[index].earliestEndWaitAt?.backendTimestamp, earliest > Date() {
+            throw APIError.serverError(ErrorResponse(
+                code: "END_WAIT_TOO_EARLY", message: "还没等满 15 分钟，暂时不能结束等待"))
+        }
+        orders[index] = updateOrderStatus(orders[index], to: .cancelled)
+        return EmptyResponse()
+    }
 }

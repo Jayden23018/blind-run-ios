@@ -110,6 +110,13 @@ extension OrderDetailResponse {
         )
     }
 
+    /// 距现在 `minutes` 分钟的后端本地时间串。陪跑员订单页 v2 的时刻字段
+    /// （`primaryActionUnlockAt`、`earliestEndWaitAt` …）都相对「现在」，Preview 与单测拿它造。
+    /// v2 新字段都是 `var`，Preview 里 `var order = .preview(...)` 之后直接赋值即可，不扩上面的签名。
+    static func previewLocalTime(minutesFromNow minutes: Double, now: Date = Date()) -> String {
+        DateFormatter.aidRunBackendLocalDateTime.string(from: now.addingTimeInterval(minutes * 60))
+    }
+
     /// 后端 `LocalDateTime` 的形状（`yyyy-MM-dd'T'HH:mm:ss`，无时区偏移）。
     ///
     /// 必须按这个形状拼：`blindRunnerShortStartText` 与 `plannedStartForAnnouncement` 都走
