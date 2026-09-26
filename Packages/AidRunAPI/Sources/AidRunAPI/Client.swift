@@ -16,8 +16,7 @@ import HTTPTypes
 ///
 /// 时间格式约定（2026-08-04 修正）：全部时间字段是**无时区偏移的本地时间** `yyyy-MM-ddTHH:mm:ss`，服务端时区固定 `Asia/Shanghai`（`DemoApplication.applyDefaultTimeZone()`）。此前这些字段误标 `format: date-time`（RFC 3339，要求带 `+08:00`/`Z` 偏移），与实际不符，现改为 `type: string` + `pattern`。两个必须注意的点：① **秒后面可能带小数**（任何直接取自 `LocalDateTime.now()` 的字段，如 `createdAt`/`acceptedAt`/`recordedAt`，实测形如 `2026-08-04T11:40:42.644571`），客户端解析器必须容忍可选的 `.\d+`，只按 `yyyy-MM-dd'T'HH:mm:ss` 解会失败；② **请求侧不接受带偏移的串**，发 `2026-08-04T09:05:03+08:00` 会被 Jackson 判 `InvalidFormatException` 返 400。
 ///
-/// 错误码总表（2026-07-31 建立）：全部 errorCode 的取值、HTTP 状态、触发场景、抛出点与后端 message 集中在 `components/schemas/ErrorCode` 的 description 里，新增或复用错误码时必须同步更新那张表。客户端按 errorCode 分支前请先查表确认该码是否一码多义。
-///
+/// 错误码总表（2026-07-31 建立）：全部 errorCode 的取值、HTTP 状态、触发场景与后端 message 集中在 `components/schemas/ErrorCode` 的 description 里（由 `ErrorCode` 枚举生成）。客户端按 errorCode 分支前请先查表确认该码是否一码多义。
 public struct Client: APIProtocol {
     /// The underlying HTTP client.
     private let client: UniversalClient
@@ -45,20 +44,22 @@ public struct Client: APIProtocol {
     private var converter: Converter {
         client.converter
     }
-    /// - Remark: HTTP `GET /api/volunteer/profile`.
-    /// - Remark: Generated from `#/paths//api/volunteer/profile/get(getProfile)`.
-    public func getProfile(_ input: Operations.getProfile.Input) async throws -> Operations.getProfile.Output {
+    /// 登出契约（S11，2026-07-13 确认）：只撤销本次请求携带的这一个 token， 不影响同账号其他仍在有效期内的 token（如 POST /api/user/role 选角色后签发的替换 token）。 如需下线同账号全部会话，请调用账号注销（DELETE /api/users/{id}）。
+    ///
+    /// - Remark: HTTP `POST /api/auth/logout`.
+    /// - Remark: Generated from `#/paths//api/auth/logout/post(logout_1)`.
+    public func logout_1(_ input: Operations.logout_1.Input) async throws -> Operations.logout_1.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.getProfile.id,
+            forOperation: Operations.logout_1.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/volunteer/profile",
+                    template: "/api/auth/logout",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
                     soar_path: path,
-                    method: .get
+                    method: .post
                 )
                 suppressMutabilityWarning(&request)
                 converter.setAcceptHeader(
@@ -71,74 +72,7 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getProfile.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.VolunteerProfileResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// - Remark: HTTP `PUT /api/volunteer/profile`.
-    /// - Remark: Generated from `#/paths//api/volunteer/profile/put(updateProfile)`.
-    public func updateProfile(_ input: Operations.updateProfile.Input) async throws -> Operations.updateProfile.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.updateProfile.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/volunteer/profile",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .put
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                let body: OpenAPIRuntime.HTTPBody?
-                switch input.body {
-                case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
-                        value,
-                        headerFields: &request.headerFields,
-                        contentType: "application/json; charset=utf-8"
-                    )
-                }
-                return (request, body)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.updateProfile.Output.Ok.Body
+                    let body: Operations.logout_1.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -170,29 +104,15 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 志愿者成就页（累计单数/服务时长/评分 + 派生勋章）
-    ///
-    /// ⚠️ **这不是「志愿服务时长证明」。** 可出具、可查验的证明受《志愿服务记录与证明出具办法（试行）》
-    /// （民政部令第 67 号）约束，须经志愿服务信息系统出具；第三方平台的时长要有法律效力，
-    /// 必须先与全国志愿服务信息系统完成数据对接。本端点只提供数据本身，
-    /// **客户端展示时不要用「证明」「证书」这类措辞**。
-    ///
-    /// **响应不套 `ApiResponse` 信封**（与同控制器的 `GET /api/volunteer/profile` 一致，
-    /// 但与 `GET /api/volunteer/dispatch-summary` **不同** —— 那条是套的，别照抄解析代码）。
-    ///
-    /// 与 `dispatch-summary` 字段重叠是刻意的（同一真相源 `volunteer_profile`）：
-    /// 分开是因为 `totalServiceMinutes` 要扫该志愿者的全部已完成订单，
-    /// 而 dispatch-summary 是首页、每次打开都调，不该让低频页面的代价压在最热的端点上。
-    ///
-    /// - Remark: HTTP `GET /api/volunteer/achievements`.
-    /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getVolunteerAchievements)`.
-    public func getVolunteerAchievements(_ input: Operations.getVolunteerAchievements.Input) async throws -> Operations.getVolunteerAchievements.Output {
+    /// - Remark: HTTP `GET /api/auth/me`.
+    /// - Remark: Generated from `#/paths//api/auth/me/get(getCurrentUser)`.
+    public func getCurrentUser(_ input: Operations.getCurrentUser.Input) async throws -> Operations.getCurrentUser.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.getVolunteerAchievements.id,
+            forOperation: Operations.getCurrentUser.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/volunteer/achievements",
+                    template: "/api/auth/me",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
@@ -210,7 +130,7 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getVolunteerAchievements.Output.Ok.Body
+                    let body: Operations.getCurrentUser.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -220,7 +140,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.VolunteerAchievementsResponse.self,
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -230,12 +150,6 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
-                case 401:
-                    return .unauthorized(.init())
-                case 403:
-                    return .forbidden(.init())
-                case 404:
-                    return .notFound(.init())
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -248,101 +162,20 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 志愿者首页聚合数据（接单资格/在线位置/覆盖范围/时段/评分/订单）
-    ///
-    /// - Remark: HTTP `GET /api/volunteer/dispatch-summary`.
-    /// - Remark: Generated from `#/paths//api/volunteer/dispatch-summary/get(getDispatchSummary)`.
-    public func getDispatchSummary(_ input: Operations.getDispatchSummary.Input) async throws -> Operations.getDispatchSummary.Output {
+    /// - Remark: HTTP `POST /api/auth/send-code`.
+    /// - Remark: Generated from `#/paths//api/auth/send-code/post(sendCode)`.
+    public func sendCode(_ input: Operations.sendCode.Input) async throws -> Operations.sendCode.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.getDispatchSummary.id,
+            forOperation: Operations.sendCode.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/volunteer/dispatch-summary",
+                    template: "/api/auth/send-code",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
                     soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getDispatchSummary.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Operations.getDispatchSummary.Output.Ok.Body.jsonPayload.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                case 401:
-                    return .unauthorized(.init())
-                case 403:
-                    return .forbidden(.init())
-                case 404:
-                    return .notFound(.init())
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 修改紧急联系人（PATCH 语义）
-    ///
-    /// **PATCH 语义**：请求体中为 `null` 的字段保留原值。客户端在用户未修改电话时应省略 `phone`，
-    /// 避免把展示层的脱敏串写回服务端。
-    /// 归属校验：JWT 用户 == 路径 `userId`（否则 403），联系人必须属于该用户（否则 403 `无权操作此联系人`），
-    /// 联系人不存在返回 404。
-    /// `isPrimary = true` 时原子清除原主联系人标记。
-    /// `isPrimary = false` 且目标联系人当前恰好是主联系人时，服务端自动把该用户剩余联系人中的第一个提为主联系人
-    /// （对齐 `deleteContact` 的补偿逻辑），保持「有且仅有 1 个 primary」不变量，不会出现 0 个 primary 的中间态
-    /// （2026-07-30 修复，此前会静默产生 0 个 primary）。
-    /// `phone` 非空时必须匹配 `^1[3-9]\d{9}$`，不合法返回 400 `VALIDATION_ERROR`。
-    ///
-    /// - Remark: HTTP `PUT /api/users/{userId}/emergency-contacts/{contactId}`.
-    /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/put(updateContact)`.
-    public func updateContact(_ input: Operations.updateContact.Input) async throws -> Operations.updateContact.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.updateContact.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/users/{}/emergency-contacts/{}",
-                    parameters: [
-                        input.path.userId,
-                        input.path.contactId
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .put
+                    method: .post
                 )
                 suppressMutabilityWarning(&request)
                 converter.setAcceptHeader(
@@ -364,7 +197,7 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.updateContact.Output.Ok.Body
+                    let body: Operations.sendCode.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -374,7 +207,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.EmergencyContactResponse.self,
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -384,72 +217,6 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
-                case 400:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.updateContact.Output.BadRequest.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .badRequest(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.updateContact.Output.Forbidden.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
-                case 404:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.updateContact.Output.NotFound.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .notFound(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -462,43 +229,42 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 删除紧急联系人
-    ///
-    /// 下限：仅剩 1 个联系人时拒绝删除，返回 400 `CONTACT_MINIMUM_REQUIRED`，message `至少保留 1 个紧急联系人`
-    /// （2026-07-30 前为通用 `BAD_REQUEST`，现为专用码，前端可程序化区分于「已达上限」等其他 400 场景）。
-    /// 删除的若是主联系人，服务端自动把剩余列表的第一个置为主联系人，保持「有且仅有 1 个 primary」不变量。
-    /// 归属校验同 PUT。响应体为 `{"success": true}`。
-    ///
-    /// - Remark: HTTP `DELETE /api/users/{userId}/emergency-contacts/{contactId}`.
-    /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/delete(deleteContact)`.
-    public func deleteContact(_ input: Operations.deleteContact.Input) async throws -> Operations.deleteContact.Output {
+    /// - Remark: HTTP `POST /api/auth/verify-code`.
+    /// - Remark: Generated from `#/paths//api/auth/verify-code/post(verifyCode)`.
+    public func verifyCode(_ input: Operations.verifyCode.Input) async throws -> Operations.verifyCode.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.deleteContact.id,
+            forOperation: Operations.verifyCode.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/users/{}/emergency-contacts/{}",
-                    parameters: [
-                        input.path.userId,
-                        input.path.contactId
-                    ]
+                    template: "/api/auth/verify-code",
+                    parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
                     soar_path: path,
-                    method: .delete
+                    method: .post
                 )
                 suppressMutabilityWarning(&request)
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
                 )
-                return (request, nil)
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
             },
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.deleteContact.Output.Ok.Body
+                    let body: Operations.verifyCode.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -508,7 +274,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Operations.deleteContact.Output.Ok.Body.jsonPayload.self,
+                            Components.Schemas.LoginResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -518,238 +284,6 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
-                case 400:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.deleteContact.Output.BadRequest.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .badRequest(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.deleteContact.Output.Forbidden.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
-                case 404:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.deleteContact.Output.NotFound.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .notFound(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 设为主联系人
-    ///
-    /// 原子操作：先清除该用户原主联系人的 `isPrimary`，再置目标联系人为主联系人，
-    /// 始终保持「有且仅有 1 个 primary」。归属校验同 PUT。响应体为 `{"success": true}`，
-    /// 不返回联系人列表 —— 客户端应在成功后重新 `GET` 完整列表。
-    ///
-    /// - Remark: HTTP `PUT /api/users/{userId}/emergency-contacts/{contactId}/set-primary`.
-    /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/set-primary/put(setPrimary)`.
-    public func setPrimary(_ input: Operations.setPrimary.Input) async throws -> Operations.setPrimary.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.setPrimary.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/users/{}/emergency-contacts/{}/set-primary",
-                    parameters: [
-                        input.path.userId,
-                        input.path.contactId
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .put
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.setPrimary.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Operations.setPrimary.Output.Ok.Body.jsonPayload.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.setPrimary.Output.Forbidden.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
-                case 404:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.setPrimary.Output.NotFound.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .notFound(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 志愿者确认紧急事件（只能确认需要帮助，不能撤销）
-    ///
-    /// 角色：`VOLUNTEER`，且必须是该订单的志愿者。
-    ///
-    /// ⚠️ **`action=FALSE_ALARM` 一律返回 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`**， 志愿者端不要提供「误触」按钮。一对一陪跑场景里志愿者本身可能就是威胁来源， 陪同者不得关闭被陪同者的警报；撤销权只在受助者本人（`PUT /api/emergency/{eventId}/cancel`） 和客服（`PUT /api/cs/emergency-events/{eventId}/false-alarm`）手里。 同类产品（Alarm.com Safety Button / Life360 / Android Emergency SOS）一致如此。
-    ///
-    /// `NEED_HELP` 只记录响应并回执，**不会**再次通知紧急联系人（触发时已通知）。 枚举值 `FALSE_ALARM` 保留在 schema 里仅因它仍是 `VolunteerAction` 的合法取值，**不可用**。
-    ///
-    /// - Remark: HTTP `PUT /api/emergency/{eventId}/volunteer-response`.
-    /// - Remark: Generated from `#/paths//api/emergency/{eventId}/volunteer-response/put(volunteerResponse)`.
-    public func volunteerResponse(_ input: Operations.volunteerResponse.Input) async throws -> Operations.volunteerResponse.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.volunteerResponse.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/emergency/{}/volunteer-response",
-                    parameters: [
-                        input.path.eventId
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .put
-                )
-                suppressMutabilityWarning(&request)
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "action",
-                    value: input.query.action
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    return .ok(.init())
-                case 403:
-                    return .forbidden(.init())
-                case 409:
-                    return .conflict(.init())
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -891,31 +425,28 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 上传资质证书（VOLUNTEER）
+    /// 身份认证
     ///
-    /// 提交资质（培训）证书等待管理员审核。提交后 `verificationStatus` 置为 `PENDING`。
+    /// 提交身份证姓名和号码进行二要素核验。**同步返回终态，没有「审核中 / PENDING」状态**：
+    /// 核验通过 → 200，用户 `verifyStatus` 置为 `VERIFIED`；核验不通过 → **400**，`verifyStatus` 为 `FAILED`。
+    /// 响应体 `data.verifyStatus` 直接带回权威状态（2026-07-30 新增，优化前需额外一次 `GET /api/blind/profile`
+    /// 往返；老客户端若不读这个字段，仍可退回 `GET /api/blind/profile` 读取）：
+    ///   - 200 成功：`data = {"message": "身份认证通过", "verifyStatus": "VERIFIED"}`
+    ///   - 400 失败：`data = {"verifyStatus": "FAILED"}`（`message` 仍在信封顶层，不在 `data` 里）
+    /// `verifyStatus` enum 仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED`（无 PENDING）。
+    /// **`verifyStatus` 现在是下单硬门槛**：`OrderCreationService.createOrder` 要求 `verifyStatus == VERIFIED`，
+    /// 否则 403 `IDENTITY_NOT_VERIFIED`（2026-07-30 由软引导升级为硬门槛，回应 `handoff.md`
+    /// 待后端确认 Q1，2026-07-29）。
     ///
-    /// **该审核是接单硬门槛**（2026-07-30 恢复）：`verified != true` 的志愿者既不会进入
-    /// `ScoringService` 派单候选池，`POST /api/orders/{id}/respond` 接单也会被拒（403
-    /// `VOLUNTEER_NOT_VERIFIED`）。存量志愿者已由 `migrations/0007_backfill_volunteer_verified.sql`
-    /// 一次性置为 `verified=1 / verification_status=APPROVED`，无感知；仅新注册志愿者需走本流程。
-    ///
-    /// 校验（均返回 400，响应体 `{success:false, code:400, message}`，无 `errorCode`）：
-    /// - 文件为空 → 「资质证件文件不能为空」
-    /// - `Content-Type` 非 `image/*` 且非 `application/pdf` → 「文件格式仅支持图片或PDF」
-    /// - 大于 5MB → 「文件大小不能超过5MB」
-    ///
-    /// 存储层另有扩展名白名单（`.jpg/.jpeg/.png/.gif/.webp/.bmp/.pdf`）。
-    ///
-    /// - Remark: HTTP `POST /api/volunteer/verification`.
-    /// - Remark: Generated from `#/paths//api/volunteer/verification/post(submitVerification)`.
-    public func submitVerification(_ input: Operations.submitVerification.Input) async throws -> Operations.submitVerification.Output {
+    /// - Remark: HTTP `POST /api/blind/verify-identity`.
+    /// - Remark: Generated from `#/paths//api/blind/verify-identity/post(verifyIdentity)`.
+    public func verifyIdentity(_ input: Operations.verifyIdentity.Input) async throws -> Operations.verifyIdentity.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.submitVerification.id,
+            forOperation: Operations.verifyIdentity.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/volunteer/verification",
+                    template: "/api/blind/verify-identity",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
@@ -929,38 +460,11 @@ public struct Client: APIProtocol {
                 )
                 let body: OpenAPIRuntime.HTTPBody?
                 switch input.body {
-                case let .multipartForm(value):
-                    body = try converter.setRequiredRequestBodyAsMultipart(
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
                         value,
                         headerFields: &request.headerFields,
-                        contentType: "multipart/form-data",
-                        allowsUnknownParts: true,
-                        requiredExactlyOncePartNames: [
-                            "file"
-                        ],
-                        requiredAtLeastOncePartNames: [],
-                        atMostOncePartNames: [],
-                        zeroOrMoreTimesPartNames: [],
-                        encoding: { part in
-                            switch part {
-                            case let .file(wrapped):
-                                var headerFields: HTTPTypes.HTTPFields = .init()
-                                let value = wrapped.payload
-                                let body = try converter.setRequiredRequestBodyAsBinary(
-                                    value.body,
-                                    headerFields: &headerFields,
-                                    contentType: "application/octet-stream"
-                                )
-                                return .init(
-                                    name: "file",
-                                    filename: wrapped.filename,
-                                    headerFields: headerFields,
-                                    body: body
-                                )
-                            case let .undocumented(value):
-                                return value
-                            }
-                        }
+                        contentType: "application/json; charset=utf-8"
                     )
                 }
                 return (request, body)
@@ -969,7 +473,7 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.submitVerification.Output.Ok.Body
+                    let body: Operations.verifyIdentity.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -979,7 +483,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Operations.submitVerification.Output.Ok.Body.jsonPayload.self,
+                            Components.Schemas.ApiResponseBlindVerifyResult.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -991,7 +495,7 @@ public struct Client: APIProtocol {
                     return .ok(.init(body: body))
                 case 400:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.submitVerification.Output.BadRequest.Body
+                    let body: Operations.verifyIdentity.Output.BadRequest.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -1001,7 +505,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Operations.submitVerification.Output.BadRequest.Body.jsonPayload.self,
+                            Components.Schemas.ApiResponseBlindVerifyResult.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -1023,46 +527,49 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 发起动作活体认证（Step 3 - init）
+    /// WebSocket 断线时的 REST 位置降级。**仅 BLIND**，取当前进行中订单里志愿者的最新坐标。
     ///
-    /// 提交 metaInfo（前端用阿里云 JS SDK 采集的设备指纹），调用阿里云 InitFaceVerify（SMART 方案）返回 certifyId。客户端使用阿里云原生 App SDK （AliyunFaceAuthFacade.verify(certifyId)）直接完成动作活体，无需打开 URL， 随后轮询 /step3/face-verify/result 获取结果。
+    /// `data` 的键：`lat` / `lng`（GCJ-02）、`orderId`、`status`、`updatedAt`。
     ///
-    /// - Remark: HTTP `POST /api/volunteer/registration/step3/face-verify/init`.
-    /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/init/post(initFaceVerify)`.
-    public func initFaceVerify(_ input: Operations.initFaceVerify.Input) async throws -> Operations.initFaceVerify.Output {
+    /// - `status` —— 订单当前状态，**与 `GET /api/orders/{id}` 同源**，同一时刻可能领先于
+    ///   客户端上一次轮询到的值。⚠️ 拿它做交叉校验时应「不一致以本条为准并刷新订单」，
+    ///   **不要用它否掉坐标** —— 坐标是这个端点存在的唯一理由。
+    ///   （2026-08-20 由 `orderStatus` 改名为 `status`：iOS 一直解 `status`，
+    ///   于是那条校验从未真正执行过。回归门 `OrderTrackTest#volunteerLocationFallback_worksDuringInProgress`。）
+    /// - `updatedAt` —— 位置采样时刻，**epoch 毫秒**，与 WebSocket `VOLUNTEER_LOCATION_UPDATE`
+    ///   的 `timestamp` 同格式同来源。没有它客户端只能完全依赖服务端 Redis TTL
+    ///   （`app.volunteer.location-ttl-seconds`，当前 30 秒）判新鲜度。
+    ///
+    ///
+    /// 位置 key 不存在（志愿者超过 TTL 没上报）返 404 —— **这是正常情况，不是错误**， 客户端应静默保持上一个已知位置，别念报错。
+    ///
+    /// - Remark: HTTP `GET /api/blind/volunteer-location`.
+    /// - Remark: Generated from `#/paths//api/blind/volunteer-location/get(getVolunteerLocation)`.
+    public func getVolunteerLocation(_ input: Operations.getVolunteerLocation.Input) async throws -> Operations.getVolunteerLocation.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.initFaceVerify.id,
+            forOperation: Operations.getVolunteerLocation.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/volunteer/registration/step3/face-verify/init",
+                    template: "/api/blind/volunteer-location",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
                     soar_path: path,
-                    method: .post
+                    method: .get
                 )
                 suppressMutabilityWarning(&request)
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
                 )
-                let body: OpenAPIRuntime.HTTPBody?
-                switch input.body {
-                case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
-                        value,
-                        headerFields: &request.headerFields,
-                        contentType: "application/json; charset=utf-8"
-                    )
-                }
-                return (request, body)
+                return (request, nil)
             },
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.initFaceVerify.Output.Ok.Body
+                    let body: Operations.getVolunteerLocation.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -1072,7 +579,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.FaceVerifyInitResponse.self,
+                            Components.Schemas.ApiResponseObject.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -1094,19 +601,19 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 查询动作活体认证结果（Step 3 - result）
+    /// 上报 APNs device token（iOS 离线推送兜底，B5）
     ///
-    /// 根据 certifyId（须与当前用户绑定的 certifyId 一致，防越权）调用阿里云 DescribeFaceVerify 查询认证结果。客户端在 init 返回后使用 App SDK （AliyunFaceAuthFacade.verify(certifyId)）完成动作活体， 然后轮询本接口直到 status 变为 APPROVED 或 REJECTED。 ⚠️ 轮询期间管理员若拒掉该志愿者的身份证，本接口改回 400 `ID_INFO_INVALID` （与 init 同码同语义）：此时活体结果一律不落库，客户端应停止轮询并回到 step1 重填身份信息。
+    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。
     ///
-    /// - Remark: HTTP `POST /api/volunteer/registration/step3/face-verify/result`.
-    /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/result/post(queryFaceVerifyResult)`.
-    public func queryFaceVerifyResult(_ input: Operations.queryFaceVerifyResult.Input) async throws -> Operations.queryFaceVerifyResult.Output {
+    /// - Remark: HTTP `POST /api/devices/apns`.
+    /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
+    public func registerApnsToken(_ input: Operations.registerApnsToken.Input) async throws -> Operations.registerApnsToken.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.queryFaceVerifyResult.id,
+            forOperation: Operations.registerApnsToken.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/volunteer/registration/step3/face-verify/result",
+                    template: "/api/devices/apns",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
@@ -1133,7 +640,7 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.queryFaceVerifyResult.Output.Ok.Body
+                    let body: Operations.registerApnsToken.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -1143,7 +650,177 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.FaceVerifyResultResponse.self,
+                            Components.Schemas.ApiResponseVoid.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 400:
+                    return .badRequest(.init())
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    return .forbidden(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 解绑本机 APNs device token（登出流程调用）
+    ///
+    /// 2026-08-07 新增。BLIND 或 VOLUNTEER 解绑**当前这一台**设备的 token。
+    ///
+    /// **为什么需要**：设备上登出、但没有别人再登录时，token 仍绑在旧 userId 上，
+    /// 旧账号的推送会继续送达这台设备。推送带 `ttsText`，对盲人用户意味着可能被朗读出
+    /// 一条不属于当前使用者的订单或紧急消息。此前无任何自动兜底
+    /// （APNs 只在 token 失效——卸载/轮换——时才回报删除，登出不会让 token 失效）。
+    ///
+    /// ⚠️ **调用顺序：必须先调本接口、再调 `POST /api/auth/logout`。**
+    /// logout 会把 JWT 拉黑，反过来调的话 JwtFilter 查到黑名单直接返 401，
+    /// token 删不掉，洞照样在。这一条读代码看不出来，请写进登出流程的注释。
+    ///
+    /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
+    /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
+    ///
+    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
+    /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
+    ///
+    /// - Remark: HTTP `DELETE /api/devices/apns`.
+    /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)`.
+    public func unregisterApnsToken(_ input: Operations.unregisterApnsToken.Input) async throws -> Operations.unregisterApnsToken.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.unregisterApnsToken.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/devices/apns",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .delete
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.unregisterApnsToken.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiResponseVoid.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 400:
+                    return .badRequest(.init())
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    return .forbidden(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 当前未终态的紧急事件（断线重连 / App 重启恢复用）
+    ///
+    /// 角色：`BLIND` 或 `VOLUNTEER`（2026-09-15 开放给志愿者）。 返回 `status` 不在终态（`RESOLVED` / `FALSE_ALARM` / `CANCELLED`）的最近一条事件， 没有则 `data` 为 `null`。
+    ///
+    /// 🚩 **两端语义不同，别照抄成一句话**：盲人拿的是**自己**的事件； 志愿者拿的是**他正在陪的那位盲人**的事件（事件永远挂在受助者身上， 按志愿者自己的 id 查恒为空）。志愿者侧只看 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 三态的订单 —— 一张下周的预约单上那位盲人此刻的求助与他无关。
+    ///
+    /// 开放给志愿者的理由：此前是 BLIND 专属，于是志愿者端 App 被杀掉再打开， 「对方正在求助」那条强提醒**再也回不来了**，而 WS 的 `EMERGENCY_*` 走 `APP_NOTIFICATION` 信封、不带 `eventId`，从通知流里也反推不出来。
+    ///
+    /// **这是拿事件 id 和当前状态的唯一权威来源** —— WS 的 `EMERGENCY_*` 通知走 `APP_NOTIFICATION` 信封，不带 `eventId`，不要试图从通知流反推事件状态。
+    ///
+    /// 原始 GPS 坐标不返回（只给 `hasGpsLocation` 布尔）。
+    ///
+    /// `csAcceptedAt`（#320）：客服接手时刻，两端都填；没人接手时为 null， 客户端据此决定是否显示「客服已接入」，**别用 status 推断**。
+    ///
+    /// - Remark: HTTP `GET /api/emergency/active`.
+    /// - Remark: Generated from `#/paths//api/emergency/active/get(activeEvent)`.
+    public func activeEvent(_ input: Operations.activeEvent.Input) async throws -> Operations.activeEvent.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.activeEvent.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/emergency/active",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.activeEvent.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiResponseEmergencyEventResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -1165,15 +842,31 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// - Remark: HTTP `POST /api/volunteer/registration/step1`.
-    /// - Remark: Generated from `#/paths//api/volunteer/registration/step1/post(submitBasicInfo)`.
-    public func submitBasicInfo(_ input: Operations.submitBasicInfo.Input) async throws -> Operations.submitBasicInfo.Output {
+    /// 触发紧急求助
+    ///
+    /// 角色：`BLIND` 或 `VOLUNTEER`（陪跑中的志愿者可代盲人触发）。
+    ///
+    /// **事件永远挂在受助者身上**：传了 `orderId` 时受助者 = 该订单的盲人， 志愿者代触发只体现在 `triggerType=VOLUNTEER_BUTTON`，升级查的是盲人的紧急联系人。
+    ///
+    /// **触发即升级**：紧急联系人在本请求内就被通知（异步发短信），不再等志愿者响应 30 秒； 若订单有志愿者且触发者不是他，会并行推 `EMERGENCY_VOLUNTEER_ALERT` 给他。
+    ///
+    /// **坐标可选**：`gpsLat`/`gpsLng` 无 `@NotNull`，缺省时短信位置走三级降级 （无坐标 → "位置获取失败，请尽快拨打其电话或报警110"）。
+    ///
+    /// **倒计时（2026-09-15 新增）**：传 `useCountdown: true` 时事件先落 `COUNTDOWN`， 窗口内**什么都不发**，到点由服务端推成正式求助并走完全同一条升级链路。 长按求助键走这条；菜单里点选仍是立即触发 + 客户端二次确认。 倒计时**由服务端计**，手机在这几秒里崩溃/没电/被杀掉时求助照样发出。 ⚠️ 客户端照响应里的 `countdownEndsAt` 倒数，不要自己数（志愿者代触发时它是 null）。
+    ///
+    /// **幂等（2026-09-15 新增）**：传 `idempotencyKey` 时重复请求返回同一条事件。 ⚠️ 幂等判定排在冷却检查**之前** —— 弱网重试的是同一次求助， 走到冷却那步会回 429「操作太频繁」，而按下 SOS 后听到这句的人会以为求助失败、要重按。
+    ///
+    /// **冷却**：Redis `emergency:cooldown:{triggerUserId}`，SETNX 原子占位， TTL = `app.emergency.cooldown-seconds`（默认 60s），**按触发者计不按事件计**。 命中返回 429，`retryAfterSeconds` 为读取 Redis 得到的**真实剩余秒数**（读不到才退回配置值）。
+    ///
+    /// - Remark: HTTP `POST /api/emergency/trigger`.
+    /// - Remark: Generated from `#/paths//api/emergency/trigger/post(triggerEmergency)`.
+    public func triggerEmergency(_ input: Operations.triggerEmergency.Input) async throws -> Operations.triggerEmergency.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.submitBasicInfo.id,
+            forOperation: Operations.triggerEmergency.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/volunteer/registration/step1",
+                    template: "/api/emergency/trigger",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
@@ -1200,7 +893,92 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.submitBasicInfo.Output.Ok.Body
+                    let body: Operations.triggerEmergency.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.EmergencyTriggerResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 400:
+                    return .badRequest(.init())
+                case 403:
+                    return .forbidden(.init())
+                case 429:
+                    return .tooManyRequests(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 受助者本人撤销自己的紧急求助（倒计时内撤回也走这条）
+    ///
+    /// 角色：`BLIND`，且只能撤销 `userId` 等于自己的事件。
+    ///
+    /// 🚩 **响应的 `status` 有两个值，客户端的播报文案必须分开**：
+    /// - `CANCELLED` —— 事件还在 `COUNTDOWN`，求助**从未发出**。
+    ///   不发解除短信、不推客服（一条求救短信都没发过，发「解除」等于凭空吓家属一次），
+    ///   并且**释放冷却位**：误触后 3 秒内取消、10 秒后真的出事再按，不该被 429 挡下。
+    ///   客户端播「已取消，没有发出求助」。
+    ///
+    /// - `FALSE_ALARM` —— 求助**已经发出去过**。事件置 `FALSE_ALARM` + `resolvedAt`，
+    ///   给主要紧急联系人补发一条解除短信、向客服推 `EMERGENCY_CANCELLED_BY_OWNER`。
+    ///   客户端播成「没有发出求助」是假话 —— 家属手机上那条求救短信是真的。
+    ///
+    ///
+    /// ⚠️ **倒计时到点与用户取消是竞争关系**，谁先拿到行锁谁赢。 用户在宽限窗口末尾按取消而调度器刚好先一步，结果就是 `FALSE_ALARM`（发出后立即撤销）—— 这不是 bug，是 `countdown-grace-ms` 存在的理由，它把这个窗口压到最小。 所以**不要按自己发过什么去猜结果，按返回的 `status` 播**。
+    ///
+    /// 这是误触的唯一用户侧出口 —— 志愿者**没有**撤销权（见 volunteer-response 的 403）。
+    ///
+    /// - Remark: HTTP `PUT /api/emergency/{eventId}/cancel`.
+    /// - Remark: Generated from `#/paths//api/emergency/{eventId}/cancel/put(cancel)`.
+    public func cancel(_ input: Operations.cancel.Input) async throws -> Operations.cancel.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.cancel.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/emergency/{}/cancel",
+                    parameters: [
+                        input.path.eventId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .put
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.cancel.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -1220,6 +998,10 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
+                case 403:
+                    return .forbidden(.init())
+                case 409:
+                    return .conflict(.init())
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -1232,25 +1014,106 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 获取紧急联系人列表
+    /// 志愿者确认紧急事件（只能确认需要帮助，不能撤销）
     ///
-    /// 归属校验：JWT 用户必须与路径 `userId` 一致（否则 403 `SECURITY_FORBIDDEN`），
-    /// 且该用户角色必须是 `BLIND`（否则 403 `SECURITY_FORBIDDEN`）。无他人读取路径。
-    /// 排序：`isPrimary` 降序，主联系人排在首位。
-    /// 不变量：每个盲人用户 1~5 个联系人，且有且仅有 1 个 `isPrimary = true`。
+    /// 角色：`VOLUNTEER`，且必须是该订单的志愿者。
     ///
-    /// - Remark: HTTP `GET /api/users/{userId}/emergency-contacts`.
-    /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/get(getContacts)`.
-    public func getContacts(_ input: Operations.getContacts.Input) async throws -> Operations.getContacts.Output {
+    /// ⚠️ **`action=FALSE_ALARM` 一律返回 403 `EMERGENCY_VOLUNTEER_CANNOT_DISMISS`**， 志愿者端不要提供「误触」按钮。一对一陪跑场景里志愿者本身可能就是威胁来源， 陪同者不得关闭被陪同者的警报；撤销权只在受助者本人（`PUT /api/emergency/{eventId}/cancel`） 和客服（`PUT /api/cs/emergency-events/{eventId}/false-alarm`）手里。 同类产品（Alarm.com Safety Button / Life360 / Android Emergency SOS）一致如此。
+    ///
+    /// `NEED_HELP` 只记录响应并回执，**不会**再次通知紧急联系人（触发时已通知）。 枚举值 `FALSE_ALARM` 保留在 schema 里仅因它仍是 `VolunteerAction` 的合法取值，**不可用**。
+    ///
+    /// - Remark: HTTP `PUT /api/emergency/{eventId}/volunteer-response`.
+    /// - Remark: Generated from `#/paths//api/emergency/{eventId}/volunteer-response/put(volunteerResponse)`.
+    public func volunteerResponse(_ input: Operations.volunteerResponse.Input) async throws -> Operations.volunteerResponse.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.getContacts.id,
+            forOperation: Operations.volunteerResponse.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/users/{}/emergency-contacts",
+                    template: "/api/emergency/{}/volunteer-response",
                     parameters: [
-                        input.path.userId
+                        input.path.eventId
                     ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .put
+                )
+                suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "action",
+                    value: input.query.action
+                )
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.volunteerResponse.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 403:
+                    return .forbidden(.init())
+                case 409:
+                    return .conflict(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 获取隐私政策/用户协议链接（App Store 审核 5.1.1/5.1.2）
+    ///
+    /// 2026-07-27 新增，`SecurityConfig` 已 `permitAll`（无需登录）。
+    /// （2026-07-30 补进契约唯一源，此前实现已上线但 spec 缺失该端点，见 handoff.md）
+    /// 两个字段均可能为 `null`：来自 `app.legal.privacy-policy-url` / `app.legal.user-agreement-url`
+    /// 配置注入（部署时 `-D` JVM 参数覆盖，空字符串会被转成 `null`）。
+    /// **截至目前生产环境尚未配置真实 URL**（`application-prod.properties` 未覆盖这两个 key，仓库内也
+    /// 查不到部署时注入的值）——上线前需运维在部署命令里补上
+    /// `-Dapp.legal.privacy-policy-url=... -Dapp.legal.user-agreement-url=...`，具体时间未定。
+    /// 前端在 `null` 或请求失败时应回退到内置文案页，不能出现空白/报错（已按此实现）。
+    ///
+    /// - Remark: HTTP `GET /api/misc/legal-links`.
+    /// - Remark: Generated from `#/paths//api/misc/legal-links/get(getLegalLinks)`.
+    public func getLegalLinks(_ input: Operations.getLegalLinks.Input) async throws -> Operations.getLegalLinks.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getLegalLinks.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/misc/legal-links",
+                    parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
                     soar_path: path,
@@ -1267,7 +1130,7 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getContacts.Output.Ok.Body
+                    let body: Operations.getLegalLinks.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -1277,7 +1140,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            [Components.Schemas.EmergencyContactResponse].self,
+                            Components.Schemas.ApiResponseLegalLinksResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -1287,50 +1150,6 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getContacts.Output.Forbidden.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
-                case 404:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getContacts.Output.NotFound.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .notFound(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -1343,190 +1162,46 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 新增紧急联系人
+    /// 重连后补读离线期间错过的通知
     ///
-    /// 新增时 `name` 与 `phone` 必填（`EmergencyContactRequest` 为兼容 PUT 的 PATCH 语义未标注 required，
-    /// 新增场景由服务端手动校验，缺失返回 400 `CONTACT_FIELD_REQUIRED`）。
-    /// `phone` 必须匹配 `^1[3-9]\d{9}$`，不合法返回 400 `VALIDATION_ERROR`（Bean Validation，先于上面的手动校验触发）。
-    /// 上限：已有 5 个时拒绝新增，返回 400 `CONTACT_LIMIT_EXCEEDED`，message `最多添加 5 个紧急联系人`
-    /// （2026-07-30 前三种 400 场景共用通用 `BAD_REQUEST`，现拆分为专用 errorCode，前端可程序化区分，
-    /// 不再依赖 message 字符串匹配）。
-    /// 首个联系人：`count == 0` 时服务端强制 `isPrimary = true`，忽略请求体传入的值。
-    /// 请求体 `isPrimary = true` 时原子清除原主联系人标记。
-    /// 成功返回 **201 Created**（不是 200）。
+    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。 前端按 ttsText 逐条朗读。
     ///
-    /// **副作用**：新增成功后服务端会向该联系人手机号发送一条通知短信（模板 `CONTACT_ADDED`，
-    /// 阿里云模板码 `SMS_505950033`，占位符仅 `user_name`）。前端应在提交表单前告知盲人用户「对方会收到一条短信」。
-    /// 短信发送失败**不会**阻断联系人创建（`try-catch` + `log.warn`，2026-07-30 修复；此前无 catch，
-    /// 由于 `addContact` 是 `@Transactional`，短信服务商故障会导致联系人创建整体回滚 —— 与彼时文档描述不符，特此更正）。
-    /// 编辑联系人（`PUT`）不会重新发送该短信，即使电话号码被修改——目前是有意如此，仅新增时通知。
+    /// **续读靠顶层 `hasMore`**（2026-08-29 新增）：为 `true` 时表示窗口里还有没返回完的， 客户端应当拿本次**最后一条**的 `sentAt` 当新的 `after` 再调一次，直到它为 `false`。 在此之前客户端只能靠「是不是正好 50 条」去猜，而那个上限是后端可以改的 —— 离线越久越容易超过 50 条，也就越容易漏掉最该补读的那一批。
     ///
-    /// - Remark: HTTP `POST /api/users/{userId}/emergency-contacts`.
-    /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/post(addContact)`.
-    public func addContact(_ input: Operations.addContact.Input) async throws -> Operations.addContact.Output {
+    /// - Remark: HTTP `GET /api/notifications/since`.
+    /// - Remark: Generated from `#/paths//api/notifications/since/get(getSince)`.
+    public func getSince(_ input: Operations.getSince.Input) async throws -> Operations.getSince.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.addContact.id,
+            forOperation: Operations.getSince.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/users/{}/emergency-contacts",
-                    parameters: [
-                        input.path.userId
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                let body: OpenAPIRuntime.HTTPBody?
-                switch input.body {
-                case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
-                        value,
-                        headerFields: &request.headerFields,
-                        contentType: "application/json; charset=utf-8"
-                    )
-                }
-                return (request, body)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 201:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.addContact.Output.Created.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.EmergencyContactResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .created(.init(body: body))
-                case 400:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.addContact.Output.BadRequest.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .badRequest(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.addContact.Output.Forbidden.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 设定用户身份（一次性）
-    ///
-    /// ⚠️ **角色一次性，没有修改入口。** `role` 一旦非 `UNSET` 再调本端点即 409 `ROLE_ALREADY_SET`，
-    /// 全仓不存在任何改角色的路径（没有 `PUT /api/user/role`）。设错只能删号重来。
-    /// 产品已决定下一轮改造成「双身份」，届时会新增 `PUT /api/user/role` + 专用错误码
-    /// `ROLE_SWITCH_BLOCKED_BY_ACTIVE_ORDER`，**不会**复用 `ROLE_ALREADY_SET`。
-    ///
-    /// ⚠️ **成功体是裸 `Map`，不走 `ApiResponse` 信封**（`token` 在顶层，不在 `data` 下）；
-    /// 而 409 走 `RoleAlreadySetException` → `ApiResponse` 信封。
-    /// **同一个端点的成功体与错误体是两种形状**，客户端要分开解。
-    ///
-    /// ⚠️ **返回的是新签发的 token，客户端必须替换旧 token** —— `role` claim 决定
-    /// `SecurityConfig` 的路由授权（`/api/blind/**`→BLIND、`/api/volunteer/**`→VOLUNTEER），
-    /// 继续用旧 token 会被 403。
-    ///
-    /// 设定角色会自动创建对应的空白 `BlindProfile` / `VolunteerProfile`。
-    ///
-    /// - Remark: HTTP `POST /api/user/role`.
-    /// - Remark: Generated from `#/paths//api/user/role/post(setRole)`.
-    public func setRole(_ input: Operations.setRole.Input) async throws -> Operations.setRole.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.setRole.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/user/role",
+                    template: "/api/notifications/since",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
                     soar_path: path,
-                    method: .post
+                    method: .get
                 )
                 suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "after",
+                    value: input.query.after
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
                 )
-                let body: OpenAPIRuntime.HTTPBody?
-                switch input.body {
-                case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
-                        value,
-                        headerFields: &request.headerFields,
-                        contentType: "application/json; charset=utf-8"
-                    )
-                }
-                return (request, body)
+                return (request, nil)
             },
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.setRole.Output.Ok.Body
+                    let body: Operations.getSince.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -1536,7 +1211,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Operations.setRole.Output.Ok.Body.jsonPayload.self,
+                            Components.Schemas.ApiResponseListMissedNotificationResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -1546,28 +1221,12 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
-                case 409:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.setRole.Output.Conflict.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .conflict(.init(body: body))
+                case 400:
+                    return .badRequest(.init())
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    return .forbidden(.init())
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -1740,50 +1399,36 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 语音解析起点地址
+    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
+    /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
     ///
-    /// 文字地址 → 坐标。可选传当前坐标 latitude/longitude：传了则「人民广场」这类全国重名地点
-    /// 按**综合排序**取最相关的一个（高德周边搜索 `sortrule=weight`），不传则纯正向地理编码（可能取到外地同名地点）。
-    /// ⚠️ 2026-08-09 由「按距离取最近」改为综合排序：实测说「五角场」时按距离排出来的第一个是
-    /// 「五角场市场监督管理所」，而用户说的是那个商圈地标。代价是连锁店类查询（「星巴克」）会变差。
-    ///
-    ///
-    /// - Remark: HTTP `POST /api/orders/voice/resolve-address`.
-    /// - Remark: Generated from `#/paths//api/orders/voice/resolve-address/post(resolveAddress)`.
-    public func resolveAddress(_ input: Operations.resolveAddress.Input) async throws -> Operations.resolveAddress.Output {
+    /// - Remark: HTTP `GET /api/orders/available`.
+    /// - Remark: Generated from `#/paths//api/orders/available/get(getAvailableOrders)`.
+    public func getAvailableOrders(_ input: Operations.getAvailableOrders.Input) async throws -> Operations.getAvailableOrders.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.resolveAddress.id,
+            forOperation: Operations.getAvailableOrders.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/orders/voice/resolve-address",
+                    template: "/api/orders/available",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
                     soar_path: path,
-                    method: .post
+                    method: .get
                 )
                 suppressMutabilityWarning(&request)
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
                 )
-                let body: OpenAPIRuntime.HTTPBody?
-                switch input.body {
-                case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
-                        value,
-                        headerFields: &request.headerFields,
-                        contentType: "application/json; charset=utf-8"
-                    )
-                }
-                return (request, body)
+                return (request, nil)
             },
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.resolveAddress.Output.Ok.Body
+                    let body: Operations.getAvailableOrders.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -1793,7 +1438,99 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ResolveAddressResponse.self,
+                            [Components.Schemas.AvailableOrderResponse].self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 查询我的订单列表（分页）。
+    ///
+    /// **排序：固定按 `createdAt` 倒序（最近的在最前），不可配** —— 实现见 `OrderController.getMyOrders` 的 `PageRequest.of(page, size, Sort.by(DESC, "createdAt"))`。 此前这条没写进契约，属未定义行为，客户端只能自己再排一遍兜底（iOS 2026-08-12 提出）。 **现在它是契约的一部分**：客户端可以去掉本地兜底排序。
+    ///
+    /// 刻意**不提供 `sort` 参数**：盲人在历史里找的是「哪一次」，顺序错了就得从头听到尾， 而多一个排序维度只会多一种听起来一样、顺序却不同的列表。真需要别的顺序再单开参数。
+    ///
+    /// - Remark: HTTP `GET /api/orders/mine`.
+    /// - Remark: Generated from `#/paths//api/orders/mine/get(getMyOrders)`.
+    public func getMyOrders(_ input: Operations.getMyOrders.Input) async throws -> Operations.getMyOrders.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getMyOrders.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/mine",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "role",
+                    value: input.query.role
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "status",
+                    value: input.query.status
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "page",
+                    value: input.query.page
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "size",
+                    value: input.query.size
+                )
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getMyOrders.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.PageOrderDetailResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -1861,7 +1598,6 @@ public struct Client: APIProtocol {
     ///
     /// ⚠️ 第二种此前也落在 `correctionUnclear` 上，于是消歧问句「您想改哪一项？」**无法作答** ——
     /// 用户答"时间"会再走一遍同一条路径又被问一次，唯一出路是整句重说（N41）。
-    ///
     ///
     /// - Remark: HTTP `POST /api/orders/voice/parse`.
     /// - Remark: Generated from `#/paths//api/orders/voice/parse/post(parseOrder)`.
@@ -1933,7 +1669,6 @@ public struct Client: APIProtocol {
     /// ⚠️ field 只接受 START_TIME / DURATION。ADDRESS 是整句端点 /parse 的 missing 专用值，
     /// 传进来返 400（本响应结构没有坐标字段装不下地址），地址请走 resolve-address。
     ///
-    ///
     /// - Remark: HTTP `POST /api/orders/voice/parse-slot`.
     /// - Remark: Generated from `#/paths//api/orders/voice/parse-slot/post(parseSlot)`.
     public func parseSlot(_ input: Operations.parseSlot.Input) async throws -> Operations.parseSlot.Output {
@@ -2001,31 +1736,23 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 盲人对已完成订单提交评价（每单一次）
+    /// 语音解析起点地址
     ///
-    /// 鉴权：仅该订单的**盲人**一方可评价（志愿者调用返回 403）。
-    /// 前置：订单必须是 `COMPLETED`；同一订单只能评价一次。
-    /// （2026-07-31 补全：此前本节只有一个 `'200': type: object`，无任何 4xx，且状态码写错。）
+    /// 文字地址 → 坐标。可选传当前坐标 latitude/longitude：传了则「人民广场」这类全国重名地点
+    /// 按**综合排序**取最相关的一个（高德周边搜索 `sortrule=weight`），不传则纯正向地理编码（可能取到外地同名地点）。
+    /// ⚠️ 2026-08-09 由「按距离取最近」改为综合排序：实测说「五角场」时按距离排出来的第一个是
+    /// 「五角场市场监督管理所」，而用户说的是那个商圈地标。代价是连锁店类查询（「星巴克」）会变差。
     ///
-    /// ⚠️ **成功是 201 不是 200**，响应体是**裸 `Map`**、不走 `ApiResponse` 信封：`{"success": true}`
-    /// （`ReviewController.createReview` 用了 `HttpStatus.CREATED`）。
-    ///
-    /// ⚠️ **重复评价的错误码是 `REVIEW_ALREADY_SUBMITTED`(409)，不是 `DUPLICATE_ORDER`。**
-    /// 2026-07-31 之前两者共用 `DUPLICATE_ORDER`，客户端按「已有进行中订单」的本地文案朗读，
-    /// 把盲人引向一个不存在的订单（见 `docs/ISSUES.md` B6）。**本端点从此不再返回 `DUPLICATE_ORDER`。**
-    ///
-    /// - Remark: HTTP `POST /api/orders/{id}/review`.
-    /// - Remark: Generated from `#/paths//api/orders/{id}/review/post(createReview)`.
-    public func createReview(_ input: Operations.createReview.Input) async throws -> Operations.createReview.Output {
+    /// - Remark: HTTP `POST /api/orders/voice/resolve-address`.
+    /// - Remark: Generated from `#/paths//api/orders/voice/resolve-address/post(resolveAddress)`.
+    public func resolveAddress(_ input: Operations.resolveAddress.Input) async throws -> Operations.resolveAddress.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.createReview.id,
+            forOperation: Operations.resolveAddress.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/orders/{}/review",
-                    parameters: [
-                        input.path.id
-                    ]
+                    template: "/api/orders/voice/resolve-address",
+                    parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
                     soar_path: path,
@@ -2049,9 +1776,9 @@ public struct Client: APIProtocol {
             },
             deserializer: { response, responseBody in
                 switch response.status.code {
-                case 201:
+                case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.createReview.Output.Created.Body
+                    let body: Operations.resolveAddress.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -2061,7 +1788,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Operations.createReview.Output.Created.Body.jsonPayload.self,
+                            Components.Schemas.ResolveAddressResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -2070,10 +1797,48 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .created(.init(body: body))
-                case 400:
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// - Remark: HTTP `GET /api/orders/{id}`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/get(getOrder)`.
+    public func getOrder(_ input: Operations.getOrder.Input) async throws -> Operations.getOrder.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getOrder.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.createReview.Output.BadRequest.Body
+                    let body: Operations.getOrder.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -2083,7 +1848,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
+                            Components.Schemas.OrderDetailResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -2092,12 +1857,48 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .badRequest(.init(body: body))
-                case 401:
-                    return .unauthorized(.init())
-                case 403:
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// - Remark: HTTP `POST /api/orders/{id}/arrived`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/arrived/post(driverArrived)`.
+    public func driverArrived(_ input: Operations.driverArrived.Input) async throws -> Operations.driverArrived.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.driverArrived.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/arrived",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.createReview.Output.Forbidden.Body
+                    let body: Operations.driverArrived.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -2107,7 +1908,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -2116,10 +1917,48 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .forbidden(.init(body: body))
-                case 404:
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
+    public func cancelOrder(_ input: Operations.cancelOrder.Input) async throws -> Operations.cancelOrder.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.cancelOrder.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/cancel",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.createReview.Output.NotFound.Body
+                    let body: Operations.cancelOrder.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -2129,7 +1968,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -2138,10 +1977,84 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .notFound(.init(body: body))
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 陪跑员已动身（真的出门了，开始双向推位置）
+    ///
+    /// ⚠️ **与 `/confirm-departure` 不是一回事，别弄混**：那一步只回答「你还去吗」，人可能还在家里；
+    /// 这一步是真的动身了、开始双向推位置了。两者各有自己的时间闸，阈值也不同（120 / 60）。
+    ///
+    /// ⚠️ **有时间闸**：最早只能在 `plannedStartTime` 前 `app.order.en-route-earliest-minutes`
+    /// （默认 60 分钟）操作，早于此一律 409 `DEPARTURE_TOO_EARLY`。
+    ///
+    /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
+    /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
+    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
+    /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
+    /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/en-route`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/en-route/post(driverEnRoute)`.
+    public func driverEnRoute(_ input: Operations.driverEnRoute.Input) async throws -> Operations.driverEnRoute.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.driverEnRoute.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/en-route",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.driverEnRoute.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
                 case 409:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.createReview.Output.Conflict.Body
+                    let body: Operations.driverEnRoute.Output.Conflict.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -2173,40 +2086,25 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 响应派单（接单 / 跳过，VOLUNTEER）
+    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人，#346）。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
     ///
-    /// 串行派单的唯一响应入口（旧 `/accept`、`/reject` 已 @Deprecated 并委托到此逻辑）。
-    /// `action=ACCEPT` 接单，`action=DECLINE` 跳过并立即派给下一位。
+    /// **盲人结束**只在陪跑员掉线时放行：陪跑员已超过 `app.order.blind-finish-volunteer-offline-minutes` （默认 5 分钟）没有上报位置。判据由后端算，客户端不用自己判，按下去看返回即可： 陪跑员还在线时返回 409 `VOLUNTEER_STILL_ONLINE`，message 里带最早可以结束的时刻（可直接朗读）。 盲人结束的单对陪跑员照常算完成、积分和服务时长，与陪跑员结束走同一条逻辑， 只在订单状态日志里记下是盲人结束的。
     ///
-    /// 接单失败分支（均带 `errorCode`，响应体 `{success,code,errorCode,message}`）：
-    /// - 403 `VOLUNTEER_NOT_VERIFIED` — 资质证书未通过审核（`VolunteerProfile.verified != true`）。
-    ///   **2026-07-30 恢复的硬门槛**：`verified` 不再只是首页展示标志，而是真实接单前置条件，
-    ///   同时 `ScoringService` 也不再把未认证志愿者放进派单候选池。
-    ///   message 固定为「请先上传资质证件并等待审核通过后再接单」（2026-08-04 修正措辞：
-    ///   原文案写的是「培训证书」，但培训模块已整体移除，要上传的一直是资质证件；
-    ///   仅 message 文案变化，`errorCode` 与 HTTP 状态不变，客户端若按 errorCode 分支则无需改动）。
-    ///   存量志愿者已由 `migrations/0007_backfill_volunteer_verified.sql` 一次性放行（无感知），
-    ///   仅新注册志愿者需先走 `POST /api/volunteer/verification` 上传证书并等待管理员审核。
-    /// - 403 `VOLUNTEER_NOT_AVAILABLE` — 志愿者关闭了接单开关（`wantsDispatch=false`）
-    /// - 409 `ORDER_DISPATCH_MISMATCH` — 该订单当前未派送给你
-    /// - 409 `ORDER_ALREADY_ACCEPTED` — 已被他人接单 / 状态不允许接单
-    /// - 409 `ORDER_CONCURRENT_CONFLICT` — 乐观锁并发冲突，可稍后重试
-    /// - 409 `INTRO_CALL_REQUIRED` — 没聊过的一对发了 `ACCEPT`，改发 `INTERESTED`
-    /// - 409 `INTRO_CALL_NOT_REQUIRED` — 已聊成过的一对发了 `INTERESTED`，改发 `ACCEPT`。
-    ///   正常流程走不到（`requiresIntroCall` 对熟人恒为 false），撞上通常是界面状态过期 /
-    ///   弱网重试 / 旧版客户端。⚠️ 后端**刻意不「顺手当 ACCEPT 处理」**：`INTERESTED` 不构成接单、
-    ///   聊崩了对志愿者没有统计损失，`ACCEPT` 当场把他绑在这一单上，静默转换等于替他做了承诺。
-    ///   客户端收到后按 `requiresIntroCall=false` 重发 `ACCEPT` 即可
+    /// ⚠️ **这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`**（2026-09-15 新增）。 `COMPLETED` 是终态，一旦落下去：位置互推停掉（`sharesLiveLocation()` 不含它）、 `GET /{id}/location/address` 返回空、志愿者端 `GET /api/emergency/active` 的恢复入口也查不到了 —— 而求助未结案恰恰意味着现场可能还有人需要帮助。
     ///
-    /// - Remark: HTTP `POST /api/orders/{id}/respond`.
-    /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
-    public func respondToDispatch(_ input: Operations.respondToDispatch.Input) async throws -> Operations.respondToDispatch.Output {
+    /// ⚠️ **`POST /api/orders/{id}/cancel`（志愿者取消转 `REMATCHING`）同样被这道闸拦住。** 只堵 finish 的话，被 409 拦下的志愿者改点「取消订单」就能达到完全一样的效果， 而那是一次点击就能到的地方。`autoCompleteOrder`（预定结束时间到了自动完成） 也会在求助未结案时跳过本轮。
+    ///
+    /// 出口有两个，都不需要志愿者有撤销权（他本来也不该有）： 受助者本人 `PUT /api/emergency/{id}/cancel`，或客服 `PUT /api/cs/emergency-events/{id}/resolve` / `/false-alarm`。 **客户端文案不要引导志愿者去「撤销求助」** —— 那个按钮对他恒 403。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/finish`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/finish/post(finishOrder)`.
+    public func finishOrder(_ input: Operations.finishOrder.Input) async throws -> Operations.finishOrder.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.respondToDispatch.id,
+            forOperation: Operations.finishOrder.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/orders/{}/respond",
+                    template: "/api/orders/{}/finish",
                     parameters: [
                         input.path.id
                     ]
@@ -2220,22 +2118,13 @@ public struct Client: APIProtocol {
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
                 )
-                let body: OpenAPIRuntime.HTTPBody?
-                switch input.body {
-                case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
-                        value,
-                        headerFields: &request.headerFields,
-                        contentType: "application/json; charset=utf-8"
-                    )
-                }
-                return (request, body)
+                return (request, nil)
             },
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.respondToDispatch.Output.Ok.Body
+                    let body: Operations.finishOrder.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -2255,31 +2144,9 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
-                case 403:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.respondToDispatch.Output.Forbidden.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .forbidden(.init(body: body))
                 case 409:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.respondToDispatch.Output.Conflict.Body
+                    let body: Operations.finishOrder.Output.Conflict.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -2580,6 +2447,122 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 盲人即将拨号，提前提醒志愿者（BLIND）
+    ///
+    /// 给志愿者推一条 **HIGH** 优先级通知（`INTRO_CALL_INCOMING`），
+    /// 避免陌生号码来电被当成骚扰电话挂掉。
+    ///
+    /// 🚨 **客户端不要等这个响应再拨号**——对盲人来说「点了没反应」是最糟的反馈。
+    /// 调完立即拨 `tel:`，不等响应。APNs 到达与对方手机响铃之间本就有几秒差，
+    /// 时序天然能对上；即使推送晚到，派单文案里那句「稍后可能有陌生号码打给你」也能兜底。
+    ///
+    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
+    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/notify-incoming`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)`.
+    public func notifyIntroCallIncoming(_ input: Operations.notifyIntroCallIncoming.Input) async throws -> Operations.notifyIntroCallIncoming.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.notifyIntroCallIncoming.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/intro-call/notify-incoming",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.notifyIntroCallIncoming.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.notifyIntroCallIncoming.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.notifyIntroCallIncoming.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// 志愿者报告「一直没接到电话」（VOLUNTEER）
     ///
     /// 与 `decision=DECLINE` 分开是因为**统计口径相反**：本端点计志愿者 timeout
@@ -2697,27 +2680,40 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 盲人即将拨号，提前提醒志愿者（BLIND）
+    /// 响应派单（接单 / 跳过，VOLUNTEER）
     ///
-    /// 给志愿者推一条 **HIGH** 优先级通知（`INTRO_CALL_INCOMING`），
-    /// 避免陌生号码来电被当成骚扰电话挂掉。
+    /// 串行派单的唯一响应入口（旧 `/accept`、`/reject` 已 @Deprecated 并委托到此逻辑）。
+    /// `action=ACCEPT` 接单，`action=DECLINE` 跳过并立即派给下一位。
     ///
-    /// 🚨 **客户端不要等这个响应再拨号**——对盲人来说「点了没反应」是最糟的反馈。
-    /// 调完立即拨 `tel:`，不等响应。APNs 到达与对方手机响铃之间本就有几秒差，
-    /// 时序天然能对上；即使推送晚到，派单文案里那句「稍后可能有陌生号码打给你」也能兜底。
+    /// 接单失败分支（均带 `errorCode`，响应体 `{success,code,errorCode,message}`）：
+    /// - 403 `VOLUNTEER_NOT_VERIFIED` — 资质证书未通过审核（`VolunteerProfile.verified != true`）。
+    ///   **2026-07-30 恢复的硬门槛**：`verified` 不再只是首页展示标志，而是真实接单前置条件，
+    ///   同时 `ScoringService` 也不再把未认证志愿者放进派单候选池。
+    ///   message 固定为「请先上传资质证件并等待审核通过后再接单」（2026-08-04 修正措辞：
+    ///   原文案写的是「培训证书」，但培训模块已整体移除，要上传的一直是资质证件；
+    ///   仅 message 文案变化，`errorCode` 与 HTTP 状态不变，客户端若按 errorCode 分支则无需改动）。
+    ///   存量志愿者已由 `migrations/0007_backfill_volunteer_verified.sql` 一次性放行（无感知），
+    ///   仅新注册志愿者需先走 `POST /api/volunteer/verification` 上传证书并等待管理员审核。
+    /// - 403 `VOLUNTEER_NOT_AVAILABLE` — 志愿者关闭了接单开关（`wantsDispatch=false`）
+    /// - 409 `ORDER_DISPATCH_MISMATCH` — 该订单当前未派送给你
+    /// - 409 `ORDER_ALREADY_ACCEPTED` — 已被他人接单 / 状态不允许接单
+    /// - 409 `ORDER_CONCURRENT_CONFLICT` — 乐观锁并发冲突，可稍后重试
+    /// - 409 `INTRO_CALL_REQUIRED` — 没聊过的一对发了 `ACCEPT`，改发 `INTERESTED`
+    /// - 409 `INTRO_CALL_NOT_REQUIRED` — 已聊成过的一对发了 `INTERESTED`，改发 `ACCEPT`。
+    ///   正常流程走不到（`requiresIntroCall` 对熟人恒为 false），撞上通常是界面状态过期 /
+    ///   弱网重试 / 旧版客户端。⚠️ 后端**刻意不「顺手当 ACCEPT 处理」**：`INTERESTED` 不构成接单、
+    ///   聊崩了对志愿者没有统计损失，`ACCEPT` 当场把他绑在这一单上，静默转换等于替他做了承诺。
+    ///   客户端收到后按 `requiresIntroCall=false` 重发 `ACCEPT` 即可
     ///
-    /// - 409 `INTRO_CALL_NOT_ACTIVE` — 这一轮通话已结束
-    /// - 403 `NOT_ORDER_PARTICIPANT` — 不是本次通话的参与者
-    ///
-    /// - Remark: HTTP `POST /api/orders/{id}/intro-call/notify-incoming`.
-    /// - Remark: Generated from `#/paths//api/orders/{id}/intro-call/notify-incoming/post(notifyIntroCallIncoming)`.
-    public func notifyIntroCallIncoming(_ input: Operations.notifyIntroCallIncoming.Input) async throws -> Operations.notifyIntroCallIncoming.Output {
+    /// - Remark: HTTP `POST /api/orders/{id}/respond`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/respond/post(respondToDispatch)`.
+    public func respondToDispatch(_ input: Operations.respondToDispatch.Input) async throws -> Operations.respondToDispatch.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.notifyIntroCallIncoming.id,
+            forOperation: Operations.respondToDispatch.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/orders/{}/intro-call/notify-incoming",
+                    template: "/api/orders/{}/respond",
                     parameters: [
                         input.path.id
                     ]
@@ -2731,13 +2727,22 @@ public struct Client: APIProtocol {
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
                 )
-                return (request, nil)
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
             },
             deserializer: { response, responseBody in
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.notifyIntroCallIncoming.Output.Ok.Body
+                    let body: Operations.respondToDispatch.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -2759,7 +2764,7 @@ public struct Client: APIProtocol {
                     return .ok(.init(body: body))
                 case 403:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.notifyIntroCallIncoming.Output.Forbidden.Body
+                    let body: Operations.respondToDispatch.Output.Forbidden.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -2781,7 +2786,7 @@ public struct Client: APIProtocol {
                     return .forbidden(.init(body: body))
                 case 409:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.notifyIntroCallIncoming.Output.Conflict.Body
+                    let body: Operations.respondToDispatch.Output.Conflict.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -2813,446 +2818,31 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）—— 陪跑员或盲人
+    /// 盲人对已完成订单提交评价（每单一次）
     ///
-    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人）。**任一端按下，先按的生效**（#346）。
+    /// 鉴权：仅该订单的**盲人**一方可评价（志愿者调用返回 403）。
+    /// 前置：订单必须是 `COMPLETED`；同一订单只能评价一次。
+    /// （2026-07-31 补全：此前本节只有一个 `'200': type: object`，无任何 4xx，且状态码写错。）
     ///
-    /// **盲人按下 = 同意 + 开始**：不过同意闸，同时写入 `blindStartConfirmedAt`；时间闸与陪跑员相同。
-    /// 调用时订单已是 `IN_PROGRESS`（另一端先按了）→ 两端都返回 200，不报错。
-    /// 陪跑员调用时下面的两道闸照旧：
+    /// ⚠️ **成功是 201 不是 200**，响应体是**裸 `Map`**、不走 `ApiResponse` 信封：`{"success": true}`
+    /// （`ReviewController.createReview` 用了 `HttpStatus.CREATED`）。
     ///
-    /// ⚠️ **有两道闸，返回的 409 要分开处理**：
+    /// ⚠️ **重复评价的错误码是 `REVIEW_ALREADY_SUBMITTED`(409)，不是 `DUPLICATE_ORDER`。**
+    /// 2026-07-31 之前两者共用 `DUPLICATE_ORDER`，客户端按「已有进行中订单」的本地文案朗读，
+    /// 把盲人引向一个不存在的订单（见 `docs/ISSUES.md` B6）。**本端点从此不再返回 `DUPLICATE_ORDER`。**
     ///
-    /// | errorCode | 含义 | 客户端该怎么做 |
-    /// |---|---|---|
-    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
-    /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
-    ///
-    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
-    /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
-    /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
-    ///
-    /// 盲人点头时陪跑员会收到 `BLIND_START_CONFIRMED` 通知 —— 客户端接上它，
-    /// 否则志愿者只能反复点按钮试探。
-    ///
-    ///
-    /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
-    /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
-    public func startService(_ input: Operations.startService.Input) async throws -> Operations.startService.Output {
+    /// - Remark: HTTP `POST /api/orders/{id}/review`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/review/post(createReview)`.
+    public func createReview(_ input: Operations.createReview.Input) async throws -> Operations.createReview.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.startService.id,
+            forOperation: Operations.createReview.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/orders/{}/start-service",
+                    template: "/api/orders/{}/review",
                     parameters: [
                         input.path.id
                     ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.startService.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                case 409:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.startService.Output.Conflict.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .conflict(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人，#346）。仅接受 `IN_PROGRESS` （比状态迁移表更严：表里 `DRIVER_EN_ROUTE`/`DRIVER_ARRIVED` → `COMPLETED` 也是合法边， 但那条只给超时自动完成用）。
-    ///
-    /// **盲人结束**只在陪跑员掉线时放行：陪跑员已超过 `app.order.blind-finish-volunteer-offline-minutes` （默认 5 分钟）没有上报位置。判据由后端算，客户端不用自己判，按下去看返回即可： 陪跑员还在线时返回 409 `VOLUNTEER_STILL_ONLINE`，message 里带最早可以结束的时刻（可直接朗读）。 盲人结束的单对陪跑员照常算完成、积分和服务时长，与陪跑员结束走同一条逻辑， 只在订单状态日志里记下是盲人结束的。
-    ///
-    /// ⚠️ **这一单还有未结束的紧急求助时返回 409 `ORDER_HAS_ACTIVE_EMERGENCY`**（2026-09-15 新增）。 `COMPLETED` 是终态，一旦落下去：位置互推停掉（`sharesLiveLocation()` 不含它）、 `GET /{id}/location/address` 返回空、志愿者端 `GET /api/emergency/active` 的恢复入口也查不到了 —— 而求助未结案恰恰意味着现场可能还有人需要帮助。
-    ///
-    /// ⚠️ **`POST /api/orders/{id}/cancel`（志愿者取消转 `REMATCHING`）同样被这道闸拦住。** 只堵 finish 的话，被 409 拦下的志愿者改点「取消订单」就能达到完全一样的效果， 而那是一次点击就能到的地方。`autoCompleteOrder`（预定结束时间到了自动完成） 也会在求助未结案时跳过本轮。
-    ///
-    /// 出口有两个，都不需要志愿者有撤销权（他本来也不该有）： 受助者本人 `PUT /api/emergency/{id}/cancel`，或客服 `PUT /api/cs/emergency-events/{id}/resolve` / `/false-alarm`。 **客户端文案不要引导志愿者去「撤销求助」** —— 那个按钮对他恒 403。
-    ///
-    /// - Remark: HTTP `POST /api/orders/{id}/finish`.
-    /// - Remark: Generated from `#/paths//api/orders/{id}/finish/post(finishOrder)`.
-    public func finishOrder(_ input: Operations.finishOrder.Input) async throws -> Operations.finishOrder.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.finishOrder.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/orders/{}/finish",
-                    parameters: [
-                        input.path.id
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.finishOrder.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                case 409:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.finishOrder.Output.Conflict.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .conflict(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 陪跑员已动身（真的出门了，开始双向推位置）
-    ///
-    /// ⚠️ **与 `/confirm-departure` 不是一回事，别弄混**：那一步只回答「你还去吗」，人可能还在家里；
-    /// 这一步是真的动身了、开始双向推位置了。两者各有自己的时间闸，阈值也不同（120 / 60）。
-    ///
-    /// ⚠️ **有时间闸**：最早只能在 `plannedStartTime` 前 `app.order.en-route-earliest-minutes`
-    /// （默认 60 分钟）操作，早于此一律 409 `DEPARTURE_TOO_EARLY`。
-    ///
-    /// 这道闸补的是一个真机复现过的缺陷：在它之前，一张约在明天 10:00 的单，
-    /// 陪跑员今天下午就能连点五下走到 `COMPLETED`，而盲人全程不需要做任何事。
-    /// 客户端应据 `plannedStartTime` 自行决定按钮何时可用，**不要靠 409 试探** ——
-    /// 对听不见屏幕的人，按了没反应与按钮不存在是无法区分的。
-    /// 409 的 `message` 里带了最早可操作时刻，可直接朗读。
-    ///
-    ///
-    /// - Remark: HTTP `POST /api/orders/{id}/en-route`.
-    /// - Remark: Generated from `#/paths//api/orders/{id}/en-route/post(driverEnRoute)`.
-    public func driverEnRoute(_ input: Operations.driverEnRoute.Input) async throws -> Operations.driverEnRoute.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.driverEnRoute.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/orders/{}/en-route",
-                    parameters: [
-                        input.path.id
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.driverEnRoute.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                case 409:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.driverEnRoute.Output.Conflict.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiErrorResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .conflict(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// - Remark: HTTP `POST /api/orders/{id}/cancel`.
-    /// - Remark: Generated from `#/paths//api/orders/{id}/cancel/post(cancelOrder)`.
-    public func cancelOrder(_ input: Operations.cancelOrder.Input) async throws -> Operations.cancelOrder.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.cancelOrder.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/orders/{}/cancel",
-                    parameters: [
-                        input.path.id
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.cancelOrder.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// - Remark: HTTP `POST /api/orders/{id}/arrived`.
-    /// - Remark: Generated from `#/paths//api/orders/{id}/arrived/post(driverArrived)`.
-    public func driverArrived(_ input: Operations.driverArrived.Input) async throws -> Operations.driverArrived.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.driverArrived.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/orders/{}/arrived",
-                    parameters: [
-                        input.path.id
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.driverArrived.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 触发紧急求助
-    ///
-    /// 角色：`BLIND` 或 `VOLUNTEER`（陪跑中的志愿者可代盲人触发）。
-    ///
-    /// **事件永远挂在受助者身上**：传了 `orderId` 时受助者 = 该订单的盲人， 志愿者代触发只体现在 `triggerType=VOLUNTEER_BUTTON`，升级查的是盲人的紧急联系人。
-    ///
-    /// **触发即升级**：紧急联系人在本请求内就被通知（异步发短信），不再等志愿者响应 30 秒； 若订单有志愿者且触发者不是他，会并行推 `EMERGENCY_VOLUNTEER_ALERT` 给他。
-    ///
-    /// **坐标可选**：`gpsLat`/`gpsLng` 无 `@NotNull`，缺省时短信位置走三级降级 （无坐标 → "位置获取失败，请尽快拨打其电话或报警110"）。
-    ///
-    /// **倒计时（2026-09-15 新增）**：传 `useCountdown: true` 时事件先落 `COUNTDOWN`， 窗口内**什么都不发**，到点由服务端推成正式求助并走完全同一条升级链路。 长按求助键走这条；菜单里点选仍是立即触发 + 客户端二次确认。 倒计时**由服务端计**，手机在这几秒里崩溃/没电/被杀掉时求助照样发出。 ⚠️ 客户端照响应里的 `countdownEndsAt` 倒数，不要自己数（志愿者代触发时它是 null）。
-    ///
-    /// **幂等（2026-09-15 新增）**：传 `idempotencyKey` 时重复请求返回同一条事件。 ⚠️ 幂等判定排在冷却检查**之前** —— 弱网重试的是同一次求助， 走到冷却那步会回 429「操作太频繁」，而按下 SOS 后听到这句的人会以为求助失败、要重按。
-    ///
-    /// **冷却**：Redis `emergency:cooldown:{triggerUserId}`，SETNX 原子占位， TTL = `app.emergency.cooldown-seconds`（默认 60s），**按触发者计不按事件计**。 命中返回 429，`retryAfterSeconds` 为读取 Redis 得到的**真实剩余秒数**（读不到才退回配置值）。
-    ///
-    /// - Remark: HTTP `POST /api/emergency/trigger`.
-    /// - Remark: Generated from `#/paths//api/emergency/trigger/post(triggerEmergency)`.
-    public func triggerEmergency(_ input: Operations.triggerEmergency.Input) async throws -> Operations.triggerEmergency.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.triggerEmergency.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/emergency/trigger",
-                    parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
                     soar_path: path,
@@ -3276,9 +2866,9 @@ public struct Client: APIProtocol {
             },
             deserializer: { response, responseBody in
                 switch response.status.code {
-                case 200:
+                case 201:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.triggerEmergency.Output.Ok.Body
+                    let body: Operations.createReview.Output.Created.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -3288,7 +2878,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.EmergencyTriggerResponse.self,
+                            Components.Schemas.SuccessResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -3297,227 +2887,10 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
-                case 400:
-                    return .badRequest(.init())
-                case 403:
-                    return .forbidden(.init())
-                case 429:
-                    return .tooManyRequests(.init())
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 受助者本人撤销自己的紧急求助（倒计时内撤回也走这条）
-    ///
-    /// 角色：`BLIND`，且只能撤销 `userId` 等于自己的事件。
-    ///
-    /// 🚩 **响应的 `status` 有两个值，客户端的播报文案必须分开**：
-    /// - `CANCELLED` —— 事件还在 `COUNTDOWN`，求助**从未发出**。
-    ///   不发解除短信、不推客服（一条求救短信都没发过，发「解除」等于凭空吓家属一次），
-    ///   并且**释放冷却位**：误触后 3 秒内取消、10 秒后真的出事再按，不该被 429 挡下。
-    ///   客户端播「已取消，没有发出求助」。
-    ///
-    /// - `FALSE_ALARM` —— 求助**已经发出去过**。事件置 `FALSE_ALARM` + `resolvedAt`，
-    ///   给主要紧急联系人补发一条解除短信、向客服推 `EMERGENCY_CANCELLED_BY_OWNER`。
-    ///   客户端播成「没有发出求助」是假话 —— 家属手机上那条求救短信是真的。
-    ///
-    ///
-    /// ⚠️ **倒计时到点与用户取消是竞争关系**，谁先拿到行锁谁赢。 用户在宽限窗口末尾按取消而调度器刚好先一步，结果就是 `FALSE_ALARM`（发出后立即撤销）—— 这不是 bug，是 `countdown-grace-ms` 存在的理由，它把这个窗口压到最小。 所以**不要按自己发过什么去猜结果，按返回的 `status` 播**。
-    ///
-    /// 这是误触的唯一用户侧出口 —— 志愿者**没有**撤销权（见 volunteer-response 的 403）。
-    ///
-    /// - Remark: HTTP `PUT /api/emergency/{eventId}/cancel`.
-    /// - Remark: Generated from `#/paths//api/emergency/{eventId}/cancel/put(cancelEmergency)`.
-    public func cancelEmergency(_ input: Operations.cancelEmergency.Input) async throws -> Operations.cancelEmergency.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.cancelEmergency.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/emergency/{}/cancel",
-                    parameters: [
-                        input.path.eventId
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .put
-                )
-                suppressMutabilityWarning(&request)
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    return .ok(.init())
-                case 403:
-                    return .forbidden(.init())
-                case 409:
-                    return .conflict(.init())
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 当前未终态的紧急事件（断线重连 / App 重启恢复用）
-    ///
-    /// 角色：`BLIND` 或 `VOLUNTEER`（2026-09-15 开放给志愿者）。 返回 `status` 不在终态（`RESOLVED` / `FALSE_ALARM` / `CANCELLED`）的最近一条事件， 没有则 `data` 为 `null`。
-    ///
-    /// 🚩 **两端语义不同，别照抄成一句话**：盲人拿的是**自己**的事件； 志愿者拿的是**他正在陪的那位盲人**的事件（事件永远挂在受助者身上， 按志愿者自己的 id 查恒为空）。志愿者侧只看 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` / `IN_PROGRESS` 三态的订单 —— 一张下周的预约单上那位盲人此刻的求助与他无关。
-    ///
-    /// 开放给志愿者的理由：此前是 BLIND 专属，于是志愿者端 App 被杀掉再打开， 「对方正在求助」那条强提醒**再也回不来了**，而 WS 的 `EMERGENCY_*` 走 `APP_NOTIFICATION` 信封、不带 `eventId`，从通知流里也反推不出来。
-    ///
-    /// **这是拿事件 id 和当前状态的唯一权威来源** —— WS 的 `EMERGENCY_*` 通知走 `APP_NOTIFICATION` 信封，不带 `eventId`，不要试图从通知流反推事件状态。
-    ///
-    /// 原始 GPS 坐标不返回（只给 `hasGpsLocation` 布尔）。
-    ///
-    /// `csAcceptedAt`（#320）：客服接手时刻，两端都填；没人接手时为 null， 客户端据此决定是否显示「客服已接入」，**别用 status 推断**。
-    ///
-    /// - Remark: HTTP `GET /api/emergency/active`.
-    /// - Remark: Generated from `#/paths//api/emergency/active/get(activeEmergencyEvent)`.
-    public func activeEmergencyEvent(_ input: Operations.activeEmergencyEvent.Input) async throws -> Operations.activeEmergencyEvent.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.activeEmergencyEvent.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/emergency/active",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.activeEmergencyEvent.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Operations.activeEmergencyEvent.Output.Ok.Body.jsonPayload.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 身份认证
-    ///
-    /// 提交身份证姓名和号码进行二要素核验。**同步返回终态，没有「审核中 / PENDING」状态**：
-    /// 核验通过 → 200，用户 `verifyStatus` 置为 `VERIFIED`；核验不通过 → **400**，`verifyStatus` 为 `FAILED`。
-    /// 响应体 `data.verifyStatus` 直接带回权威状态（2026-07-30 新增，优化前需额外一次 `GET /api/blind/profile`
-    /// 往返；老客户端若不读这个字段，仍可退回 `GET /api/blind/profile` 读取）：
-    ///   - 200 成功：`data = {"message": "身份认证通过", "verifyStatus": "VERIFIED"}`
-    ///   - 400 失败：`data = {"verifyStatus": "FAILED"}`（`message` 仍在信封顶层，不在 `data` 里）
-    /// `verifyStatus` enum 仅 `NOT_VERIFIED` / `VERIFIED` / `FAILED`（无 PENDING）。
-    /// **`verifyStatus` 现在是下单硬门槛**：`OrderCreationService.createOrder` 要求 `verifyStatus == VERIFIED`，
-    /// 否则 403 `IDENTITY_NOT_VERIFIED`（2026-07-30 由软引导升级为硬门槛，回应 `handoff.md`
-    /// 待后端确认 Q1，2026-07-29）。
-    ///
-    /// - Remark: HTTP `POST /api/blind/verify-identity`.
-    /// - Remark: Generated from `#/paths//api/blind/verify-identity/post(verifyIdentity)`.
-    public func verifyIdentity(_ input: Operations.verifyIdentity.Input) async throws -> Operations.verifyIdentity.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.verifyIdentity.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/blind/verify-identity",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                let body: OpenAPIRuntime.HTTPBody?
-                switch input.body {
-                case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
-                        value,
-                        headerFields: &request.headerFields,
-                        contentType: "application/json; charset=utf-8"
-                    )
-                }
-                return (request, body)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.verifyIdentity.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiResponseObject.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
+                    return .created(.init(body: body))
                 case 400:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.verifyIdentity.Output.BadRequest.Body
+                    let body: Operations.createReview.Output.BadRequest.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -3527,7 +2900,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiResponseObject.self,
+                            Components.Schemas.ApiErrorResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -3537,414 +2910,33 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .badRequest(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// - Remark: HTTP `POST /api/auth/verify-code`.
-    /// - Remark: Generated from `#/paths//api/auth/verify-code/post(verifyCode)`.
-    public func verifyCode(_ input: Operations.verifyCode.Input) async throws -> Operations.verifyCode.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.verifyCode.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/auth/verify-code",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                let body: OpenAPIRuntime.HTTPBody?
-                switch input.body {
-                case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
-                        value,
-                        headerFields: &request.headerFields,
-                        contentType: "application/json; charset=utf-8"
-                    )
-                }
-                return (request, body)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.verifyCode.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.LoginResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// - Remark: HTTP `POST /api/auth/send-code`.
-    /// - Remark: Generated from `#/paths//api/auth/send-code/post(sendCode)`.
-    public func sendCode(_ input: Operations.sendCode.Input) async throws -> Operations.sendCode.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.sendCode.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/auth/send-code",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                let body: OpenAPIRuntime.HTTPBody?
-                switch input.body {
-                case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
-                        value,
-                        headerFields: &request.headerFields,
-                        contentType: "application/json; charset=utf-8"
-                    )
-                }
-                return (request, body)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.sendCode.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 登出契约（S11，2026-07-13 确认）：只撤销本次请求携带的这一个 token， 不影响同账号其他仍在有效期内的 token（如 POST /api/user/role 选角色后签发的替换 token）。 如需下线同账号全部会话，请调用账号注销（DELETE /api/users/{id}）。
-    ///
-    /// - Remark: HTTP `POST /api/auth/logout`.
-    /// - Remark: Generated from `#/paths//api/auth/logout/post(logout_1)`.
-    public func logout_1(_ input: Operations.logout_1.Input) async throws -> Operations.logout_1.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.logout_1.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/auth/logout",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .post
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.logout_1.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 切换接单开关（VOLUNTEER）
-    ///
-    /// 落库到 volunteer_profile.wants_dispatch 后同步 Redis。关闭（false）后不再进入派单候选， 且接单会被拒绝（403 VOLUNTEER_NOT_AVAILABLE）。不影响在线位置上报。
-    ///
-    /// - Remark: HTTP `PUT /api/volunteer/dispatch-status`.
-    /// - Remark: Generated from `#/paths//api/volunteer/dispatch-status/put(updateDispatchStatus)`.
-    public func updateDispatchStatus(_ input: Operations.updateDispatchStatus.Input) async throws -> Operations.updateDispatchStatus.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.updateDispatchStatus.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/volunteer/dispatch-status",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .put
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                let body: OpenAPIRuntime.HTTPBody?
-                switch input.body {
-                case let .json(value):
-                    body = try converter.setRequiredRequestBodyAsJSON(
-                        value,
-                        headerFields: &request.headerFields,
-                        contentType: "application/json; charset=utf-8"
-                    )
-                }
-                return (request, body)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.updateDispatchStatus.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Operations.updateDispatchStatus.Output.Ok.Body.jsonPayload.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 查询资质证书审核状态（VOLUNTEER）
-    ///
-    /// `NONE` 未提交 / `PENDING` 审核中（不要重复上传）/ `APPROVED` 已通过（可接单）/
-    /// `REJECTED` 已驳回（可重新上传）。
-    /// 仅 `APPROVED` 对应 `verified=true`，其余三态都会被派单与接单拦截
-    /// （首页 `GET /api/volunteer/dispatch-summary` 的 `notAvailableReasons` 含 `NOT_VERIFIED`）。
-    ///
-    /// - Remark: HTTP `GET /api/volunteer/verification/status`.
-    /// - Remark: Generated from `#/paths//api/volunteer/verification/status/get(getVerificationStatus)`.
-    public func getVerificationStatus(_ input: Operations.getVerificationStatus.Input) async throws -> Operations.getVerificationStatus.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.getVerificationStatus.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/volunteer/verification/status",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getVerificationStatus.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Operations.getVerificationStatus.Output.Ok.Body.jsonPayload.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 查询志愿者注册进度与接单资格
-    ///
-    /// （2026-07-31 补全：此前只有一个 `'200': type: object`，字段形状全靠猜。）
-    ///
-    /// ⚠️ **`registrationCompleted` 与 `canAcceptOrders` 是两个正交的布尔，不要当同义词用。**
-    /// 新注册志愿者的典型状态是 `registrationCompleted=true` + `canAcceptOrders=false`
-    /// （活体过了、但管理员还没审核证书）—— 客户端此时应把用户放出注册流程、
-    /// 引导去**上传资质证书**页，而不是继续按在「请先完成注册」里。
-    ///
-    /// **同一版变更**（2026-07-31，回应 handoff）：`canAcceptOrders` 的语义从「注册流程走完了吗」
-    /// 改为「现在能不能接单」，取值由 `registrationStep.isRegistrationCompleted()` 改为
-    /// `VolunteerProfile.verified`，与 `ScoringService` 候选池过滤、`DispatchService` 接单守卫同源。
-    /// 同时新增 `registrationCompleted` 承接原语义，**向后兼容**：老客户端读 `canAcceptOrders`
-    /// 仍能工作，只是「走完注册但没过审核」时会得到 false（这正是真实情况）。
-    ///
-    /// - Remark: HTTP `GET /api/volunteer/registration/status`.
-    /// - Remark: Generated from `#/paths//api/volunteer/registration/status/get(getRegistrationStatus)`.
-    public func getRegistrationStatus(_ input: Operations.getRegistrationStatus.Input) async throws -> Operations.getRegistrationStatus.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.getRegistrationStatus.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/volunteer/registration/status",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getRegistrationStatus.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Operations.getRegistrationStatus.Output.Ok.Body.jsonPayload.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
                 case 401:
                     return .unauthorized(.init())
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.createReview.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
                 case 404:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getRegistrationStatus.Output.NotFound.Body
+                    let body: Operations.createReview.Output.NotFound.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -3964,173 +2956,9 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .notFound(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// - Remark: HTTP `GET /api/users/{id}`.
-    /// - Remark: Generated from `#/paths//api/users/{id}/get(getUserById)`.
-    public func getUserById(_ input: Operations.getUserById.Input) async throws -> Operations.getUserById.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.getUserById.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/users/{}",
-                    parameters: [
-                        input.path.id
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getUserById.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截 （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）。 成功后立即撤销该账户全部 token（与登出的单 token 撤销不同）， 原手机号释放可供重新注册。
-    ///
-    /// - Remark: HTTP `DELETE /api/users/{id}`.
-    /// - Remark: Generated from `#/paths//api/users/{id}/delete(deleteUser)`.
-    public func deleteUser(_ input: Operations.deleteUser.Input) async throws -> Operations.deleteUser.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.deleteUser.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/users/{}",
-                    parameters: [
-                        input.path.id
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .delete
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.deleteUser.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Operations.deleteUser.Output.Ok.Body.jsonPayload.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                case 403:
-                    return .forbidden(.init())
                 case 409:
-                    return .conflict(.init())
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// - Remark: HTTP `GET /api/orders/{id}`.
-    /// - Remark: Generated from `#/paths//api/orders/{id}/get(getOrder)`.
-    public func getOrder(_ input: Operations.getOrder.Input) async throws -> Operations.getOrder.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.getOrder.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/orders/{}",
-                    parameters: [
-                        input.path.id
-                    ]
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getOrder.Output.Ok.Body
+                    let body: Operations.createReview.Output.Conflict.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -4140,7 +2968,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.OrderDetailResponse.self,
+                            Components.Schemas.ApiErrorResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)
@@ -4149,7 +2977,7 @@ public struct Client: APIProtocol {
                     default:
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
-                    return .ok(.init(body: body))
+                    return .conflict(.init(body: body))
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -4401,6 +3229,110 @@ public struct Client: APIProtocol {
             }
         )
     }
+    /// 开始陪跑（DRIVER_ARRIVED → IN_PROGRESS）—— 陪跑员或盲人
+    ///
+    /// 角色：`VOLUNTEER`（本单接单人）或 `BLIND`（本单下单人）。**任一端按下，先按的生效**（#346）。
+    ///
+    /// **盲人按下 = 同意 + 开始**：不过同意闸，同时写入 `blindStartConfirmedAt`；时间闸与陪跑员相同。
+    /// 调用时订单已是 `IN_PROGRESS`（另一端先按了）→ 两端都返回 200，不报错。
+    /// 陪跑员调用时下面的两道闸照旧：
+    ///
+    /// ⚠️ **有两道闸，返回的 409 要分开处理**：
+    ///
+    /// | errorCode | 含义 | 客户端该怎么做 |
+    /// |---|---|---|
+    /// | `SERVICE_START_TOO_EARLY` | 距 `plannedStartTime` 还有超过 15 分钟 | 按钮置灰，到点再亮 |
+    /// | `BLIND_CONFIRMATION_PENDING` | 盲人还没点「可以开始」 | 提示「等待对方确认」，**不要**置灰 —— 对方随时可能点 |
+    ///
+    /// 第二道闸有宽限：超过 `plannedStartTime + 15 分钟` 之后即使盲人没确认也放行
+    /// （手机没电 / 没听见提示音都会让确认发不出去，而此刻两个人就站在一起）。
+    /// 强制推进那一次不会写 `blindStartConfirmedAt`，只在订单状态日志里记一笔。
+    ///
+    /// 盲人点头时陪跑员会收到 `BLIND_START_CONFIRMED` 通知 —— 客户端接上它，
+    /// 否则志愿者只能反复点按钮试探。
+    ///
+    /// - Remark: HTTP `POST /api/orders/{id}/start-service`.
+    /// - Remark: Generated from `#/paths//api/orders/{id}/start-service/post(startService)`.
+    public func startService(_ input: Operations.startService.Input) async throws -> Operations.startService.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.startService.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/orders/{}/start-service",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.startService.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            OpenAPIRuntime.OpenAPIObjectContainer.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.startService.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
     /// 查询订单双方历史路径轨迹与统计（订单结束后回放用）
     ///
     /// 鉴权与 `GET /api/orders/{id}` 一致：JWT 用户必须是该订单的盲人或志愿者一方。
@@ -4514,381 +3446,32 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 查询我的订单列表（分页）。
+    /// 设定用户身份（一次性）
     ///
-    /// **排序：固定按 `createdAt` 倒序（最近的在最前），不可配** —— 实现见 `OrderController.getMyOrders` 的 `PageRequest.of(page, size, Sort.by(DESC, "createdAt"))`。 此前这条没写进契约，属未定义行为，客户端只能自己再排一遍兜底（iOS 2026-08-12 提出）。 **现在它是契约的一部分**：客户端可以去掉本地兜底排序。
+    /// ⚠️ **角色一次性，没有修改入口。** `role` 一旦非 `UNSET` 再调本端点即 409 `ROLE_ALREADY_SET`，
+    /// 全仓不存在任何改角色的路径（没有 `PUT /api/user/role`）。设错只能删号重来。
+    /// 产品已决定下一轮改造成「双身份」，届时会新增 `PUT /api/user/role` + 专用错误码
+    /// `ROLE_SWITCH_BLOCKED_BY_ACTIVE_ORDER`，**不会**复用 `ROLE_ALREADY_SET`。
     ///
-    /// 刻意**不提供 `sort` 参数**：盲人在历史里找的是「哪一次」，顺序错了就得从头听到尾， 而多一个排序维度只会多一种听起来一样、顺序却不同的列表。真需要别的顺序再单开参数。
+    /// ⚠️ **成功体是裸 `Map`，不走 `ApiResponse` 信封**（`token` 在顶层，不在 `data` 下）；
+    /// 而 409 走 `RoleAlreadySetException` → `ApiResponse` 信封。
+    /// **同一个端点的成功体与错误体是两种形状**，客户端要分开解。
     ///
-    /// - Remark: HTTP `GET /api/orders/mine`.
-    /// - Remark: Generated from `#/paths//api/orders/mine/get(getMyOrders)`.
-    public func getMyOrders(_ input: Operations.getMyOrders.Input) async throws -> Operations.getMyOrders.Output {
+    /// ⚠️ **返回的是新签发的 token，客户端必须替换旧 token** —— `role` claim 决定
+    /// `SecurityConfig` 的路由授权（`/api/blind/**`→BLIND、`/api/volunteer/**`→VOLUNTEER），
+    /// 继续用旧 token 会被 403。
+    ///
+    /// 设定角色会自动创建对应的空白 `BlindProfile` / `VolunteerProfile`。
+    ///
+    /// - Remark: HTTP `POST /api/user/role`.
+    /// - Remark: Generated from `#/paths//api/user/role/post(setRole)`.
+    public func setRole(_ input: Operations.setRole.Input) async throws -> Operations.setRole.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.getMyOrders.id,
+            forOperation: Operations.setRole.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/orders/mine",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "role",
-                    value: input.query.role
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "status",
-                    value: input.query.status
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "page",
-                    value: input.query.page
-                )
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "size",
-                    value: input.query.size
-                )
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getMyOrders.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.PageOrderDetailResponse.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 附近可接订单列表（按距离升序，最多 20 条）。志愿者需先上报位置（WS `LOCATION_UPDATE`）， 无位置时返回空数组。
-    /// ⚠️ 2026-08-07 起加了两道收口：① 未通过资质审核（`verified=false`）的志愿者一律返回空数组 —— 与派单候选池、接单守卫口径一致，反正也接不了单； ② 响应中**不再包含 `specialNotes`** —— 盲人在「特殊说明」里会写身体状况， 那属于接单后才该看见的信息，接单后经 `GET /api/orders/{id}` 下发。
-    ///
-    /// - Remark: HTTP `GET /api/orders/available`.
-    /// - Remark: Generated from `#/paths//api/orders/available/get(getAvailableOrders)`.
-    public func getAvailableOrders(_ input: Operations.getAvailableOrders.Input) async throws -> Operations.getAvailableOrders.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.getAvailableOrders.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/orders/available",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getAvailableOrders.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            [Components.Schemas.AvailableOrderResponse].self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// WebSocket 断线时的 REST 位置降级。**仅 BLIND**，取当前进行中订单里志愿者的最新坐标。
-    ///
-    /// `data` 的键：`lat` / `lng`（GCJ-02）、`orderId`、`status`、`updatedAt`。
-    ///
-    /// - `status` —— 订单当前状态，**与 `GET /api/orders/{id}` 同源**，同一时刻可能领先于
-    ///   客户端上一次轮询到的值。⚠️ 拿它做交叉校验时应「不一致以本条为准并刷新订单」，
-    ///   **不要用它否掉坐标** —— 坐标是这个端点存在的唯一理由。
-    ///   （2026-08-20 由 `orderStatus` 改名为 `status`：iOS 一直解 `status`，
-    ///   于是那条校验从未真正执行过。回归门 `OrderTrackTest#volunteerLocationFallback_worksDuringInProgress`。）
-    /// - `updatedAt` —— 位置采样时刻，**epoch 毫秒**，与 WebSocket `VOLUNTEER_LOCATION_UPDATE`
-    ///   的 `timestamp` 同格式同来源。没有它客户端只能完全依赖服务端 Redis TTL
-    ///   （`app.volunteer.location-ttl-seconds`，当前 30 秒）判新鲜度。
-    ///
-    ///
-    /// 位置 key 不存在（志愿者超过 TTL 没上报）返 404 —— **这是正常情况，不是错误**， 客户端应静默保持上一个已知位置，别念报错。
-    ///
-    /// - Remark: HTTP `GET /api/blind/volunteer-location`.
-    /// - Remark: Generated from `#/paths//api/blind/volunteer-location/get(getVolunteerLocation)`.
-    public func getVolunteerLocation(_ input: Operations.getVolunteerLocation.Input) async throws -> Operations.getVolunteerLocation.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.getVolunteerLocation.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/blind/volunteer-location",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getVolunteerLocation.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.ApiResponseObject.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// - Remark: HTTP `GET /api/auth/me`.
-    /// - Remark: Generated from `#/paths//api/auth/me/get(getCurrentUser)`.
-    public func getCurrentUser(_ input: Operations.getCurrentUser.Input) async throws -> Operations.getCurrentUser.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.getCurrentUser.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/auth/me",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getCurrentUser.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            OpenAPIRuntime.OpenAPIObjectContainer.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 重连后补读离线期间错过的通知
-    ///
-    /// 盲人/志愿者 WS 重连后调用，返回 after 时间点之后、最近 24h 内、最多 50 条通知（按时间正序）。 前端按 ttsText 逐条朗读。
-    ///
-    /// **续读靠顶层 `hasMore`**（2026-08-29 新增）：为 `true` 时表示窗口里还有没返回完的， 客户端应当拿本次**最后一条**的 `sentAt` 当新的 `after` 再调一次，直到它为 `false`。 在此之前客户端只能靠「是不是正好 50 条」去猜，而那个上限是后端可以改的 —— 离线越久越容易超过 50 条，也就越容易漏掉最该补读的那一批。
-    ///
-    /// - Remark: HTTP `GET /api/notifications/since`.
-    /// - Remark: Generated from `#/paths//api/notifications/since/get`.
-    public func get_sol_api_sol_notifications_sol_since(_ input: Operations.get_sol_api_sol_notifications_sol_since.Input) async throws -> Operations.get_sol_api_sol_notifications_sol_since.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.get_sol_api_sol_notifications_sol_since.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/notifications/since",
-                    parameters: []
-                )
-                var request: HTTPTypes.HTTPRequest = .init(
-                    soar_path: path,
-                    method: .get
-                )
-                suppressMutabilityWarning(&request)
-                try converter.setQueryItemAsURI(
-                    in: &request,
-                    style: .form,
-                    explode: true,
-                    name: "after",
-                    value: input.query.after
-                )
-                converter.setAcceptHeader(
-                    in: &request.headerFields,
-                    contentTypes: input.headers.accept
-                )
-                return (request, nil)
-            },
-            deserializer: { response, responseBody in
-                switch response.status.code {
-                case 200:
-                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.get_sol_api_sol_notifications_sol_since.Output.Ok.Body
-                    let chosenContentType = try converter.bestContentType(
-                        received: contentType,
-                        options: [
-                            "application/json"
-                        ]
-                    )
-                    switch chosenContentType {
-                    case "application/json":
-                        body = try await converter.getResponseBodyAsJSON(
-                            Operations.get_sol_api_sol_notifications_sol_since.Output.Ok.Body.jsonPayload.self,
-                            from: responseBody,
-                            transforming: { value in
-                                .json(value)
-                            }
-                        )
-                    default:
-                        preconditionFailure("bestContentType chose an invalid content type.")
-                    }
-                    return .ok(.init(body: body))
-                case 400:
-                    return .badRequest(.init())
-                case 401:
-                    return .unauthorized(.init())
-                case 403:
-                    return .forbidden(.init())
-                default:
-                    return .undocumented(
-                        statusCode: response.status.code,
-                        .init(
-                            headerFields: response.headerFields,
-                            body: responseBody
-                        )
-                    )
-                }
-            }
-        )
-    }
-    /// 上报 APNs device token（iOS 离线推送兜底，B5）
-    ///
-    /// BLIND 或 VOLUNTEER 上报设备 token；幂等 upsert（重复上报只刷新）。iOS 端在远程通知注册成功回调 + 每次进前台时调用。
-    ///
-    /// - Remark: HTTP `POST /api/devices/apns`.
-    /// - Remark: Generated from `#/paths//api/devices/apns/post(registerApnsToken)`.
-    public func registerApnsToken(_ input: Operations.registerApnsToken.Input) async throws -> Operations.registerApnsToken.Output {
-        try await client.send(
-            input: input,
-            forOperation: Operations.registerApnsToken.id,
-            serializer: { input in
-                let path = try converter.renderedPath(
-                    template: "/api/devices/apns",
+                    template: "/api/user/role",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
@@ -4915,7 +3498,89 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.registerApnsToken.Output.Ok.Body
+                    let body: Operations.setRole.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.SetRoleResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 409:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.setRole.Output.Conflict.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .conflict(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// - Remark: HTTP `GET /api/users/{id}`.
+    /// - Remark: Generated from `#/paths//api/users/{id}/get(getUserById)`.
+    public func getUserById(_ input: Operations.getUserById.Input) async throws -> Operations.getUserById.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getUserById.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/users/{}",
+                    parameters: [
+                        input.path.id
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getUserById.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -4935,12 +3600,6 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
-                case 400:
-                    return .badRequest(.init())
-                case 401:
-                    return .unauthorized(.init())
-                case 403:
-                    return .forbidden(.init())
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -4953,39 +3612,343 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 解绑本机 APNs device token（登出流程调用）
+    /// 注销账号（软删除）。只能注销自己（否则 403）；有进行中订单会被拦截 （409 + errorCode=ACTIVE_ORDER_ACCOUNT_DELETION_BLOCKED）。 成功后立即撤销该账户全部 token（与登出的单 token 撤销不同）， 原手机号释放可供重新注册。
     ///
-    /// 2026-08-07 新增。BLIND 或 VOLUNTEER 解绑**当前这一台**设备的 token。
-    ///
-    /// **为什么需要**：设备上登出、但没有别人再登录时，token 仍绑在旧 userId 上，
-    /// 旧账号的推送会继续送达这台设备。推送带 `ttsText`，对盲人用户意味着可能被朗读出
-    /// 一条不属于当前使用者的订单或紧急消息。此前无任何自动兜底
-    /// （APNs 只在 token 失效——卸载/轮换——时才回报删除，登出不会让 token 失效）。
-    ///
-    /// ⚠️ **调用顺序：必须先调本接口、再调 `POST /api/auth/logout`。**
-    /// logout 会把 JWT 拉黑，反过来调的话 JwtFilter 查到黑名单直接返 401，
-    /// token 删不掉，洞照样在。这一条读代码看不出来，请写进登出流程的注释。
-    ///
-    /// **幂等**：token 不存在、或该 token 属于别人时，同样返 200 且不做任何事
-    /// （返 403 会把「这个 token 是不是别人的」变成可探测的答案）。失败可安全重试。
-    ///
-    /// 请求体复用 `ApnsTokenRequest`，其中 `platform` 字段被忽略。
-    /// 本接口只解绑一台设备；账号注销才会清空该用户的全部设备。
-    ///
-    /// - Remark: HTTP `DELETE /api/devices/apns`.
-    /// - Remark: Generated from `#/paths//api/devices/apns/delete(unregisterApnsToken)`.
-    public func unregisterApnsToken(_ input: Operations.unregisterApnsToken.Input) async throws -> Operations.unregisterApnsToken.Output {
+    /// - Remark: HTTP `DELETE /api/users/{id}`.
+    /// - Remark: Generated from `#/paths//api/users/{id}/delete(deleteUser)`.
+    public func deleteUser(_ input: Operations.deleteUser.Input) async throws -> Operations.deleteUser.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.unregisterApnsToken.id,
+            forOperation: Operations.deleteUser.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/devices/apns",
-                    parameters: []
+                    template: "/api/users/{}",
+                    parameters: [
+                        input.path.id
+                    ]
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
                     soar_path: path,
                     method: .delete
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.deleteUser.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.AccountDeletionResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 403:
+                    return .forbidden(.init())
+                case 409:
+                    return .conflict(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 获取紧急联系人列表
+    ///
+    /// 归属校验：JWT 用户必须与路径 `userId` 一致（否则 403 `SECURITY_FORBIDDEN`），
+    /// 且该用户角色必须是 `BLIND`（否则 403 `SECURITY_FORBIDDEN`）。无他人读取路径。
+    /// 排序：`isPrimary` 降序，主联系人排在首位。
+    /// 不变量：每个盲人用户 1~5 个联系人，且有且仅有 1 个 `isPrimary = true`。
+    ///
+    /// - Remark: HTTP `GET /api/users/{userId}/emergency-contacts`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/get(getContacts)`.
+    public func getContacts(_ input: Operations.getContacts.Input) async throws -> Operations.getContacts.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getContacts.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/users/{}/emergency-contacts",
+                    parameters: [
+                        input.path.userId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getContacts.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            [Components.Schemas.EmergencyContactResponse].self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getContacts.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getContacts.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 新增紧急联系人
+    ///
+    /// 新增时 `name` 与 `phone` 必填（`EmergencyContactRequest` 为兼容 PUT 的 PATCH 语义未标注 required，
+    /// 新增场景由服务端手动校验，缺失返回 400 `CONTACT_FIELD_REQUIRED`）。
+    /// `phone` 必须匹配 `^1[3-9]\d{9}$`，不合法返回 400 `VALIDATION_ERROR`（Bean Validation，先于上面的手动校验触发）。
+    /// 上限：已有 5 个时拒绝新增，返回 400 `CONTACT_LIMIT_EXCEEDED`，message `最多添加 5 个紧急联系人`
+    /// （2026-07-30 前三种 400 场景共用通用 `BAD_REQUEST`，现拆分为专用 errorCode，前端可程序化区分，
+    /// 不再依赖 message 字符串匹配）。
+    /// 首个联系人：`count == 0` 时服务端强制 `isPrimary = true`，忽略请求体传入的值。
+    /// 请求体 `isPrimary = true` 时原子清除原主联系人标记。
+    /// 成功返回 **201 Created**（不是 200）。
+    ///
+    /// **副作用**：新增成功后服务端会向该联系人手机号发送一条通知短信（模板 `CONTACT_ADDED`，
+    /// 阿里云模板码 `SMS_505950033`，占位符仅 `user_name`）。前端应在提交表单前告知盲人用户「对方会收到一条短信」。
+    /// 短信发送失败**不会**阻断联系人创建（`try-catch` + `log.warn`，2026-07-30 修复；此前无 catch，
+    /// 由于 `addContact` 是 `@Transactional`，短信服务商故障会导致联系人创建整体回滚 —— 与彼时文档描述不符，特此更正）。
+    /// 编辑联系人（`PUT`）不会重新发送该短信，即使电话号码被修改——目前是有意如此，仅新增时通知。
+    ///
+    /// - Remark: HTTP `POST /api/users/{userId}/emergency-contacts`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/post(addContact)`.
+    public func addContact(_ input: Operations.addContact.Input) async throws -> Operations.addContact.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.addContact.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/users/{}/emergency-contacts",
+                    parameters: [
+                        input.path.userId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 201:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.addContact.Output.Created.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.EmergencyContactResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .created(.init(body: body))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.addContact.Output.BadRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.addContact.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 修改紧急联系人（PATCH 语义）
+    ///
+    /// **PATCH 语义**：请求体中为 `null` 的字段保留原值。客户端在用户未修改电话时应省略 `phone`，
+    /// 避免把展示层的脱敏串写回服务端。
+    /// 归属校验：JWT 用户 == 路径 `userId`（否则 403），联系人必须属于该用户（否则 403 `无权操作此联系人`），
+    /// 联系人不存在返回 404。
+    /// `isPrimary = true` 时原子清除原主联系人标记。
+    /// `isPrimary = false` 且目标联系人当前恰好是主联系人时，服务端自动把该用户剩余联系人中的第一个提为主联系人
+    /// （对齐 `deleteContact` 的补偿逻辑），保持「有且仅有 1 个 primary」不变量，不会出现 0 个 primary 的中间态
+    /// （2026-07-30 修复，此前会静默产生 0 个 primary）。
+    /// `phone` 非空时必须匹配 `^1[3-9]\d{9}$`，不合法返回 400 `VALIDATION_ERROR`。
+    ///
+    /// - Remark: HTTP `PUT /api/users/{userId}/emergency-contacts/{contactId}`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/put(updateContact)`.
+    public func updateContact(_ input: Operations.updateContact.Input) async throws -> Operations.updateContact.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.updateContact.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/users/{}/emergency-contacts/{}",
+                    parameters: [
+                        input.path.userId,
+                        input.path.contactId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .put
                 )
                 suppressMutabilityWarning(&request)
                 converter.setAcceptHeader(
@@ -5007,7 +3970,658 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.unregisterApnsToken.Output.Ok.Body
+                    let body: Operations.updateContact.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.EmergencyContactResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.updateContact.Output.BadRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.updateContact.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.updateContact.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 删除紧急联系人
+    ///
+    /// 下限：仅剩 1 个联系人时拒绝删除，返回 400 `CONTACT_MINIMUM_REQUIRED`，message `至少保留 1 个紧急联系人`
+    /// （2026-07-30 前为通用 `BAD_REQUEST`，现为专用码，前端可程序化区分于「已达上限」等其他 400 场景）。
+    /// 删除的若是主联系人，服务端自动把剩余列表的第一个置为主联系人，保持「有且仅有 1 个 primary」不变量。
+    /// 归属校验同 PUT。响应体为 `{"success": true}`。
+    ///
+    /// - Remark: HTTP `DELETE /api/users/{userId}/emergency-contacts/{contactId}`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/delete(deleteContact)`.
+    public func deleteContact(_ input: Operations.deleteContact.Input) async throws -> Operations.deleteContact.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.deleteContact.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/users/{}/emergency-contacts/{}",
+                    parameters: [
+                        input.path.userId,
+                        input.path.contactId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .delete
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.deleteContact.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.SuccessResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.deleteContact.Output.BadRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.deleteContact.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.deleteContact.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 设为主联系人
+    ///
+    /// 原子操作：先清除该用户原主联系人的 `isPrimary`，再置目标联系人为主联系人，
+    /// 始终保持「有且仅有 1 个 primary」。归属校验同 PUT。响应体为 `{"success": true}`，
+    /// 不返回联系人列表 —— 客户端应在成功后重新 `GET` 完整列表。
+    ///
+    /// - Remark: HTTP `PUT /api/users/{userId}/emergency-contacts/{contactId}/set-primary`.
+    /// - Remark: Generated from `#/paths//api/users/{userId}/emergency-contacts/{contactId}/set-primary/put(setPrimary)`.
+    public func setPrimary(_ input: Operations.setPrimary.Input) async throws -> Operations.setPrimary.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.setPrimary.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/users/{}/emergency-contacts/{}/set-primary",
+                    parameters: [
+                        input.path.userId,
+                        input.path.contactId
+                    ]
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .put
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.setPrimary.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.SuccessResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 403:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.setPrimary.Output.Forbidden.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .forbidden(.init(body: body))
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.setPrimary.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 志愿者成就页（累计单数/服务时长/评分 + 派生勋章）
+    ///
+    /// ⚠️ **这不是「志愿服务时长证明」。** 可出具、可查验的证明受《志愿服务记录与证明出具办法（试行）》
+    /// （民政部令第 67 号）约束，须经志愿服务信息系统出具；第三方平台的时长要有法律效力，
+    /// 必须先与全国志愿服务信息系统完成数据对接。本端点只提供数据本身，
+    /// **客户端展示时不要用「证明」「证书」这类措辞**。
+    ///
+    /// **响应不套 `ApiResponse` 信封**（与同控制器的 `GET /api/volunteer/profile` 一致，
+    /// 但与 `GET /api/volunteer/dispatch-summary` **不同** —— 那条是套的，别照抄解析代码）。
+    ///
+    /// 与 `dispatch-summary` 字段重叠是刻意的（同一真相源 `volunteer_profile`）：
+    /// 分开是因为 `totalServiceMinutes` 要扫该志愿者的全部已完成订单，
+    /// 而 dispatch-summary 是首页、每次打开都调，不该让低频页面的代价压在最热的端点上。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/achievements`.
+    /// - Remark: Generated from `#/paths//api/volunteer/achievements/get(getAchievements)`.
+    public func getAchievements(_ input: Operations.getAchievements.Input) async throws -> Operations.getAchievements.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getAchievements.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/achievements",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getAchievements.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.VolunteerAchievementsResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    return .forbidden(.init())
+                case 404:
+                    return .notFound(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 切换接单开关（VOLUNTEER）
+    ///
+    /// 落库到 volunteer_profile.wants_dispatch 后同步 Redis。关闭（false）后不再进入派单候选， 且接单会被拒绝（403 VOLUNTEER_NOT_AVAILABLE）。不影响在线位置上报。
+    ///
+    /// - Remark: HTTP `PUT /api/volunteer/dispatch-status`.
+    /// - Remark: Generated from `#/paths//api/volunteer/dispatch-status/put(updateDispatchStatus)`.
+    public func updateDispatchStatus(_ input: Operations.updateDispatchStatus.Input) async throws -> Operations.updateDispatchStatus.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.updateDispatchStatus.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/dispatch-status",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .put
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.updateDispatchStatus.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.DispatchStatusResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 志愿者首页聚合数据（接单资格/在线位置/覆盖范围/时段/评分/订单）
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/dispatch-summary`.
+    /// - Remark: Generated from `#/paths//api/volunteer/dispatch-summary/get(getDispatchSummary)`.
+    public func getDispatchSummary(_ input: Operations.getDispatchSummary.Input) async throws -> Operations.getDispatchSummary.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getDispatchSummary.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/dispatch-summary",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getDispatchSummary.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiResponseVolunteerDispatchSummaryResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 401:
+                    return .unauthorized(.init())
+                case 403:
+                    return .forbidden(.init())
+                case 404:
+                    return .notFound(.init())
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// - Remark: HTTP `GET /api/volunteer/profile`.
+    /// - Remark: Generated from `#/paths//api/volunteer/profile/get(getProfile)`.
+    public func getProfile(_ input: Operations.getProfile.Input) async throws -> Operations.getProfile.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getProfile.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/profile",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getProfile.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.VolunteerProfileResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// - Remark: HTTP `PUT /api/volunteer/profile`.
+    /// - Remark: Generated from `#/paths//api/volunteer/profile/put(updateProfile)`.
+    public func updateProfile(_ input: Operations.updateProfile.Input) async throws -> Operations.updateProfile.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.updateProfile.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/profile",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .put
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.updateProfile.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -5027,12 +4641,6 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .ok(.init(body: body))
-                case 400:
-                    return .badRequest(.init())
-                case 401:
-                    return .unauthorized(.init())
-                case 403:
-                    return .forbidden(.init())
                 default:
                     return .undocumented(
                         statusCode: response.status.code,
@@ -5045,26 +4653,30 @@ public struct Client: APIProtocol {
             }
         )
     }
-    /// 获取隐私政策/用户协议链接（App Store 审核 5.1.1/5.1.2）
+    /// 查询志愿者注册进度与接单资格
     ///
-    /// 2026-07-27 新增，`SecurityConfig` 已 `permitAll`（无需登录）。
-    /// （2026-07-30 补进契约唯一源，此前实现已上线但 spec 缺失该端点，见 handoff.md）
-    /// 两个字段均可能为 `null`：来自 `app.legal.privacy-policy-url` / `app.legal.user-agreement-url`
-    /// 配置注入（部署时 `-D` JVM 参数覆盖，空字符串会被转成 `null`）。
-    /// **截至目前生产环境尚未配置真实 URL**（`application-prod.properties` 未覆盖这两个 key，仓库内也
-    /// 查不到部署时注入的值）——上线前需运维在部署命令里补上
-    /// `-Dapp.legal.privacy-policy-url=... -Dapp.legal.user-agreement-url=...`，具体时间未定。
-    /// 前端在 `null` 或请求失败时应回退到内置文案页，不能出现空白/报错（已按此实现）。
+    /// （2026-07-31 补全：此前只有一个 `'200': type: object`，字段形状全靠猜。）
     ///
-    /// - Remark: HTTP `GET /api/misc/legal-links`.
-    /// - Remark: Generated from `#/paths//api/misc/legal-links/get(getLegalLinks)`.
-    public func getLegalLinks(_ input: Operations.getLegalLinks.Input) async throws -> Operations.getLegalLinks.Output {
+    /// ⚠️ **`registrationCompleted` 与 `canAcceptOrders` 是两个正交的布尔，不要当同义词用。**
+    /// 新注册志愿者的典型状态是 `registrationCompleted=true` + `canAcceptOrders=false`
+    /// （活体过了、但管理员还没审核证书）—— 客户端此时应把用户放出注册流程、
+    /// 引导去**上传资质证书**页，而不是继续按在「请先完成注册」里。
+    ///
+    /// **同一版变更**（2026-07-31，回应 handoff）：`canAcceptOrders` 的语义从「注册流程走完了吗」
+    /// 改为「现在能不能接单」，取值由 `registrationStep.isRegistrationCompleted()` 改为
+    /// `VolunteerProfile.verified`，与 `ScoringService` 候选池过滤、`DispatchService` 接单守卫同源。
+    /// 同时新增 `registrationCompleted` 承接原语义，**向后兼容**：老客户端读 `canAcceptOrders`
+    /// 仍能工作，只是「走完注册但没过审核」时会得到 false（这正是真实情况）。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/registration/status`.
+    /// - Remark: Generated from `#/paths//api/volunteer/registration/status/get(getRegistrationStatus)`.
+    public func getRegistrationStatus(_ input: Operations.getRegistrationStatus.Input) async throws -> Operations.getRegistrationStatus.Output {
         try await client.send(
             input: input,
-            forOperation: Operations.getLegalLinks.id,
+            forOperation: Operations.getRegistrationStatus.id,
             serializer: { input in
                 let path = try converter.renderedPath(
-                    template: "/api/misc/legal-links",
+                    template: "/api/volunteer/registration/status",
                     parameters: []
                 )
                 var request: HTTPTypes.HTTPRequest = .init(
@@ -5082,7 +4694,7 @@ public struct Client: APIProtocol {
                 switch response.status.code {
                 case 200:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
-                    let body: Operations.getLegalLinks.Output.Ok.Body
+                    let body: Operations.getRegistrationStatus.Output.Ok.Body
                     let chosenContentType = try converter.bestContentType(
                         received: contentType,
                         options: [
@@ -5092,7 +4704,439 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Operations.getLegalLinks.Output.Ok.Body.jsonPayload.self,
+                            Components.Schemas.ApiResponseRegistrationStatusResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 401:
+                    return .unauthorized(.init())
+                case 404:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getRegistrationStatus.Output.NotFound.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .notFound(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 提交基本信息（Step 1，含身份证信息）
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/registration/step1`.
+    /// - Remark: Generated from `#/paths//api/volunteer/registration/step1/post(submitBasicInfo)`.
+    public func submitBasicInfo(_ input: Operations.submitBasicInfo.Input) async throws -> Operations.submitBasicInfo.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.submitBasicInfo.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/registration/step1",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitBasicInfo.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiResponseString.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 发起动作活体认证（Step 3 - init）
+    ///
+    /// 提交 metaInfo（前端用阿里云 JS SDK 采集的设备指纹），调用阿里云 InitFaceVerify（SMART 方案）返回 certifyId。客户端使用阿里云原生 App SDK （AliyunFaceAuthFacade.verify(certifyId)）直接完成动作活体，无需打开 URL， 随后轮询 /step3/face-verify/result 获取结果。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/registration/step3/face-verify/init`.
+    /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/init/post(initFaceVerify)`.
+    public func initFaceVerify(_ input: Operations.initFaceVerify.Input) async throws -> Operations.initFaceVerify.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.initFaceVerify.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/registration/step3/face-verify/init",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.initFaceVerify.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiResponseFaceVerifyInitResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 查询动作活体认证结果（Step 3 - result）
+    ///
+    /// 根据 certifyId（须与当前用户绑定的 certifyId 一致，防越权）调用阿里云 DescribeFaceVerify 查询认证结果。客户端在 init 返回后使用 App SDK （AliyunFaceAuthFacade.verify(certifyId)）完成动作活体， 然后轮询本接口直到 status 变为 APPROVED 或 REJECTED。 ⚠️ 轮询期间管理员若拒掉该志愿者的身份证，本接口改回 400 `ID_INFO_INVALID` （与 init 同码同语义）：此时活体结果一律不落库，客户端应停止轮询并回到 step1 重填身份信息。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/registration/step3/face-verify/result`.
+    /// - Remark: Generated from `#/paths//api/volunteer/registration/step3/face-verify/result/post(queryFaceVerifyResult)`.
+    public func queryFaceVerifyResult(_ input: Operations.queryFaceVerifyResult.Input) async throws -> Operations.queryFaceVerifyResult.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.queryFaceVerifyResult.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/registration/step3/face-verify/result",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .json(value):
+                    body = try converter.setRequiredRequestBodyAsJSON(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "application/json; charset=utf-8"
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.queryFaceVerifyResult.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiResponseFaceVerifyResultResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 上传资质证书（VOLUNTEER）
+    ///
+    /// 提交资质（培训）证书等待管理员审核。提交后 `verificationStatus` 置为 `PENDING`。
+    ///
+    /// **该审核是接单硬门槛**（2026-07-30 恢复）：`verified != true` 的志愿者既不会进入
+    /// `ScoringService` 派单候选池，`POST /api/orders/{id}/respond` 接单也会被拒（403
+    /// `VOLUNTEER_NOT_VERIFIED`）。存量志愿者已由 `migrations/0007_backfill_volunteer_verified.sql`
+    /// 一次性置为 `verified=1 / verification_status=APPROVED`，无感知；仅新注册志愿者需走本流程。
+    ///
+    /// 校验（均返回 400，响应体 `{success:false, code:400, message}`，无 `errorCode`）：
+    /// - 文件为空 → 「资质证件文件不能为空」
+    /// - `Content-Type` 非 `image/*` 且非 `application/pdf` → 「文件格式仅支持图片或PDF」
+    /// - 大于 5MB → 「文件大小不能超过5MB」
+    ///
+    /// 存储层另有扩展名白名单（`.jpg/.jpeg/.png/.gif/.webp/.bmp/.pdf`）。
+    ///
+    /// - Remark: HTTP `POST /api/volunteer/verification`.
+    /// - Remark: Generated from `#/paths//api/volunteer/verification/post(submitVerification)`.
+    public func submitVerification(_ input: Operations.submitVerification.Input) async throws -> Operations.submitVerification.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.submitVerification.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/verification",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .post
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                let body: OpenAPIRuntime.HTTPBody?
+                switch input.body {
+                case let .multipartForm(value):
+                    body = try converter.setRequiredRequestBodyAsMultipart(
+                        value,
+                        headerFields: &request.headerFields,
+                        contentType: "multipart/form-data",
+                        allowsUnknownParts: true,
+                        requiredExactlyOncePartNames: [
+                            "file"
+                        ],
+                        requiredAtLeastOncePartNames: [],
+                        atMostOncePartNames: [],
+                        zeroOrMoreTimesPartNames: [],
+                        encoding: { part in
+                            switch part {
+                            case let .file(wrapped):
+                                var headerFields: HTTPTypes.HTTPFields = .init()
+                                let value = wrapped.payload
+                                let body = try converter.setRequiredRequestBodyAsBinary(
+                                    value.body,
+                                    headerFields: &headerFields,
+                                    contentType: "application/octet-stream"
+                                )
+                                return .init(
+                                    name: "file",
+                                    filename: wrapped.filename,
+                                    headerFields: headerFields,
+                                    body: body
+                                )
+                            case let .undocumented(value):
+                                return value
+                            }
+                        }
+                    )
+                }
+                return (request, body)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitVerification.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.VerificationSubmitResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .ok(.init(body: body))
+                case 400:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.submitVerification.Output.BadRequest.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ApiErrorResponse.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .badRequest(.init(body: body))
+                default:
+                    return .undocumented(
+                        statusCode: response.status.code,
+                        .init(
+                            headerFields: response.headerFields,
+                            body: responseBody
+                        )
+                    )
+                }
+            }
+        )
+    }
+    /// 查询资质证书审核状态（VOLUNTEER）
+    ///
+    /// `NONE` 未提交 / `PENDING` 审核中（不要重复上传）/ `APPROVED` 已通过（可接单）/
+    /// `REJECTED` 已驳回（可重新上传）。
+    /// 仅 `APPROVED` 对应 `verified=true`，其余三态都会被派单与接单拦截
+    /// （首页 `GET /api/volunteer/dispatch-summary` 的 `notAvailableReasons` 含 `NOT_VERIFIED`）。
+    ///
+    /// - Remark: HTTP `GET /api/volunteer/verification/status`.
+    /// - Remark: Generated from `#/paths//api/volunteer/verification/status/get(getVerificationStatus)`.
+    public func getVerificationStatus(_ input: Operations.getVerificationStatus.Input) async throws -> Operations.getVerificationStatus.Output {
+        try await client.send(
+            input: input,
+            forOperation: Operations.getVerificationStatus.id,
+            serializer: { input in
+                let path = try converter.renderedPath(
+                    template: "/api/volunteer/verification/status",
+                    parameters: []
+                )
+                var request: HTTPTypes.HTTPRequest = .init(
+                    soar_path: path,
+                    method: .get
+                )
+                suppressMutabilityWarning(&request)
+                converter.setAcceptHeader(
+                    in: &request.headerFields,
+                    contentTypes: input.headers.accept
+                )
+                return (request, nil)
+            },
+            deserializer: { response, responseBody in
+                switch response.status.code {
+                case 200:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.getVerificationStatus.Output.Ok.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.VerificationStatusResponse.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)

@@ -71,18 +71,22 @@ final class GeneratedTypesFixtureTests: XCTestCase {
 
     // MARK: - 信封响应
 
-    /// 契约里只有 5 条端点是信封形态，legal-links 是其中之一，也是唯一有真实 fixture 的一条。
+    /// legal-links 是信封端点里唯一有真实 fixture 的一条。
+    ///
+    /// 2026-09-26 起契约由 springdoc 生成（后端 #439/#440），信封不再是内联 `allOf`
+    /// （原先生成 `value1` 信封 + `value2` 载荷的组合），而是具名的平铺组件
+    /// `ApiResponseLegalLinksResponse`。线上 JSON 没变，这条用例锁的就是这一点。
     func testLegalLinksEnvelopeFixtureDecodes() throws {
         let payload = try decode(
-            Operations.getLegalLinks.Output.Ok.Body.jsonPayload.self,
+            Components.Schemas.ApiResponseLegalLinksResponse.self,
             from: "LegalLinksResponse__public"
         )
-        XCTAssertEqual(payload.value1.success, true)
-        XCTAssertEqual(payload.value1.code, 200)
-        XCTAssertNil(payload.value1.errorCode)
+        XCTAssertEqual(payload.success, true)
+        XCTAssertEqual(payload.code, 200)
+        XCTAssertNil(payload.errorCode)
         // 载荷本身两个字段后端都回 null，信封解开后不能变成整个 data 缺失。
-        XCTAssertNotNil(payload.value2.data)
-        XCTAssertNil(payload.value2.data?.privacyPolicyUrl)
+        XCTAssertNotNil(payload.data)
+        XCTAssertNil(payload.data?.privacyPolicyUrl)
     }
 
     // MARK: - 未知枚举值（AGENTS.md / CLAUDE.md 红线）
