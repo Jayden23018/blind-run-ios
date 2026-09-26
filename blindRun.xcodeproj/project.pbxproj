@@ -13,6 +13,11 @@
 		C490E3112FC1000000807A54 /* RunLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E30D2FC1000000807A54 /* RunLiveActivityWidget.swift */; };
 		C490E3122FC1000000807A54 /* RunLiveActivityShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */; };
 		C490E3132FC1000000807A54 /* RunLiveActivityShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */; };
+		C490E3222FC1000000807A54 /* GuideRunActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E3202FC1000000807A54 /* GuideRunActivityWidget.swift */; };
+		C490E3232FC1000000807A54 /* GuideRunActivityShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E3212FC1000000807A54 /* GuideRunActivityShared.swift */; };
+		C490E3242FC1000000807A54 /* GuideRunActivityShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E3212FC1000000807A54 /* GuideRunActivityShared.swift */; };
+		C490E3252FC1000000807A54 /* GuideRunActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E3202FC1000000807A54 /* GuideRunActivityWidget.swift */; };
+		C490E3262FC1000000807A54 /* RunLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C490E30D2FC1000000807A54 /* RunLiveActivityWidget.swift */; };
 		C490E3142FC1000000807A54 /* blindRunWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C490E3022FC1000000807A54 /* blindRunWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D097D1DCC74C3A89C47863B7 /* Pods_blindRunTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */; };
 /* End PBXBuildFile section */
@@ -71,6 +76,8 @@
 		C490E30D2FC1000000807A54 /* RunLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLiveActivityWidget.swift; sourceTree = "<group>"; };
 		C490E30E2FC1000000807A54 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLiveActivityShared.swift; sourceTree = "<group>"; };
+		C490E3202FC1000000807A54 /* GuideRunActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideRunActivityWidget.swift; sourceTree = "<group>"; };
+		C490E3212FC1000000807A54 /* GuideRunActivityShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideRunActivityShared.swift; sourceTree = "<group>"; };
 		CBBBF2EFA8AB75A5F1DB612C /* Pods_blindRunTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_blindRunTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		F31690AA2891E27444E91434 /* Pods-blindRunTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRunTests.release.xcconfig"; path = "Target Support Files/Pods-blindRunTests/Pods-blindRunTests.release.xcconfig"; sourceTree = "<group>"; };
 		FCD854F16EA9710ADA4DCE3A /* Pods-blindRun.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-blindRun.debug.xcconfig"; path = "Target Support Files/Pods-blindRun/Pods-blindRun.debug.xcconfig"; sourceTree = "<group>"; };
@@ -200,6 +207,7 @@
 				C490E30B2FC1000000807A54 /* Shared */,
 				C490E30C2FC1000000807A54 /* AidRunWidgetBundle.swift */,
 				C490E30D2FC1000000807A54 /* RunLiveActivityWidget.swift */,
+				C490E3202FC1000000807A54 /* GuideRunActivityWidget.swift */,
 				C490E30E2FC1000000807A54 /* Info.plist */,
 			);
 			path = blindRunWidget;
@@ -209,6 +217,7 @@
 			isa = PBXGroup;
 			children = (
 				C490E30F2FC1000000807A54 /* RunLiveActivityShared.swift */,
+				C490E3212FC1000000807A54 /* GuideRunActivityShared.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -499,6 +508,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				C490E3132FC1000000807A54 /* RunLiveActivityShared.swift in Sources */,
+				C490E3242FC1000000807A54 /* GuideRunActivityShared.swift in Sources */,
+				C490E3252FC1000000807A54 /* GuideRunActivityWidget.swift in Sources */,
+				C490E3262FC1000000807A54 /* RunLiveActivityWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -523,6 +535,8 @@
 				C490E3102FC1000000807A54 /* AidRunWidgetBundle.swift in Sources */,
 				C490E3112FC1000000807A54 /* RunLiveActivityWidget.swift in Sources */,
 				C490E3122FC1000000807A54 /* RunLiveActivityShared.swift in Sources */,
+				C490E3222FC1000000807A54 /* GuideRunActivityWidget.swift in Sources */,
+				C490E3232FC1000000807A54 /* GuideRunActivityShared.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

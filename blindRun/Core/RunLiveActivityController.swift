@@ -19,19 +19,44 @@ import Foundation
 /// 「数字缺失时给的是占位串而不是 0.00」这类分支。
 @available(iOS 16.2, *)
 enum RunLiveActivityContentBuilder {
+    /// - Parameters:
+    ///   - targetDistanceMeters: 订单计划距离。陪跑员端 v2 的「/ 5.00 公里」与进度条用它。
+    ///   - rhythmSignal / rhythmSignalAt / isPaused: 后端 `run` 对象的字段（BE-1 / BE-2 在做）。
+    ///     **ponytail: 现在没有调用方传**，全是 `nil` ⇒ 卡上不出现节奏与暂停；
+    ///     FE-3 接上 `run` 对象时从 `LiveEscortSessionCoordinator.syncLiveActivity` 传进来即可。
     static func contentState(
         from stats: TrackStats?,
-        partnerName: String?
+        partnerName: String?,
+        targetDistanceMeters: Int? = nil,
+        rhythmSignal: String? = nil,
+        rhythmSignalAt: Date? = nil,
+        isPaused: Bool? = nil,
+        now: Date = Date()
     ) -> RunLiveActivityAttributes.ContentState {
-        RunLiveActivityAttributes.ContentState(
+        let targetKm = targetDistanceMeters.flatMap { $0 > 0 ? Double($0) / 1_000 : nil }
+        let progress = zip(stats?.distanceMeters, targetKm).map { min(max($0 / 1_000 / $1, 0), 1) }
+        // 5 分钟没更新的信号不算数（交付包 04）。没有时间戳的信号同样不算 —— 分不出新旧。
+        let freshRhythm = rhythmSignalAt.flatMap {
+            now.timeIntervalSince($0) <= RunLiveActivityCopy.rhythmFreshness ? rhythmSignal : nil
+        }
+        return RunLiveActivityAttributes.ContentState(
             partnerName: partnerName,
             distanceText: stats?.distanceKilometersText ?? RunLiveActivityCopy.pendingValue,
             durationText: stats?.durationClockText ?? RunLiveActivityCopy.pendingValue,
             paceText: stats?.paceClockText ?? RunLiveActivityCopy.pendingValue,
             spokenDistance: stats?.distanceText ?? RunLiveActivityCopy.pendingSpokenValue,
             spokenDuration: stats?.durationText ?? RunLiveActivityCopy.pendingSpokenValue,
-            spokenPace: stats?.averagePaceText ?? RunLiveActivityCopy.pendingSpokenValue
+            spokenPace: stats?.averagePaceText ?? RunLiveActivityCopy.pendingSpokenValue,
+            targetDistanceText: targetKm.map { String(format: "%.2f", $0) },
+            progress: progress,
+            rhythmSignal: freshRhythm,
+            isPaused: isPaused
         )
+    }
+
+    private static func zip(_ a: Double?, _ b: Double?) -> (Double, Double)? {
+        guard let a, let b else { return nil }
+        return (a, b)
     }
 }
 
@@ -81,10 +106,15 @@ final class RunLiveActivityController {
         orderID: Int64,
         side: RunLiveActivitySide,
         partnerName: String?,
-        stats: TrackStats?
+        stats: TrackStats?,
+        targetDistanceMeters: Int? = nil
     ) {
         adoptRunningActivityIfNeeded()
-        let content = RunLiveActivityContentBuilder.contentState(from: stats, partnerName: partnerName)
+        let content = RunLiveActivityContentBuilder.contentState(
+            from: stats,
+            partnerName: partnerName,
+            targetDistanceMeters: targetDistanceMeters
+        )
 
         // 认回来的那张只要是同一单、同一端，就接着用 —— 这是进程重启后**不出现两张卡**
         // 的唯一办法。`partnerName` 住在 `ContentState` 里，所以这条路径也能把顶行补上。

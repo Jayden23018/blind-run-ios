@@ -503,12 +503,7 @@ final class AppState: ObservableObject {
         self.ordersOverride = orders
         self.persistence = persistence
         self.tokenStore = tokenStore ?? TokenStoreFactory.makeDefault()
-        if let envRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
-           let env = AppState.storedEnvironment(from: envRaw) {
-            self.currentEnvironment = AppState.resolvedInitialEnvironment(env, channel: AppBuildChannel.current)
-        } else {
-            self.currentEnvironment = AppBuildChannel.current.defaultEnvironment
-        }
+        self.currentEnvironment = AppState.initialEnvironment(persistence: persistence)
         self.didDismissBlindIdentityPrompt =
             persistence.object(forKey: AppConstants.UserDefaultsKeys.blindIdentityPromptDismissed) as? Bool ?? false
         self.didSeeBlindFirstRunHelp =
@@ -530,6 +525,14 @@ final class AppState: ObservableObject {
         liveEscortCoordinator.trackStatsProvider = { [weak self] orderID in
             guard let self else { throw CancellationError() }
             return try await self.safety.orderTrack(orderId: orderID).blindStats
+        }
+
+        // 陪跑员出发 / 汇合锁屏卡的推送 token。provider 形态，理由同上。
+        if #available(iOS 16.2, *) {
+            GuideRunActivityController.shared.tokenUploader = { [weak self] orderID, hexToken in
+                guard let self else { throw CancellationError() }
+                try await self.orders.registerLiveActivityToken(hexToken, orderId: orderID)
+            }
         }
 
         // WS 重连成功后补读断线期间遗漏的通知，喂回 coordinator 复用去重/优先级排队。
@@ -928,6 +931,16 @@ final class AppState: ObservableObject {
         channel: AppBuildChannel = AppBuildChannel.current
     ) -> APIEnvironment {
         channel.allows(environment) ? environment : channel.defaultEnvironment
+    }
+
+    /// 启动时该用哪个环境。锁屏按钮的 intent 在 `AppState` 装好之前就可能跑
+    /// （`GuideRunActivityController.installIntentHandler`），与这里读同一份。
+    static func initialEnvironment(persistence: AppStatePersistence) -> APIEnvironment {
+        guard let envRaw = persistence.string(forKey: AppConstants.UserDefaultsKeys.apiEnvironment),
+              let env = storedEnvironment(from: envRaw) else {
+            return AppBuildChannel.current.defaultEnvironment
+        }
+        return resolvedInitialEnvironment(env, channel: AppBuildChannel.current)
     }
 
     static func storedEnvironment(from rawValue: String) -> APIEnvironment? {

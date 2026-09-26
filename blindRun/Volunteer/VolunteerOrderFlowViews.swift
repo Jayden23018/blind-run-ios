@@ -942,7 +942,20 @@ struct VolunteerOrderDetailView: View {
 
 @MainActor
 final class VolunteerInServiceViewModel: ObservableObject {
-    @Published var order: OrderDetailResponse?
+    /// 每一份新订单（轮询 / WS ETA / 汇合档位）都顺手喂给出发 / 汇合锁屏卡 ——
+    /// 按下「我出发了」成功后订单落到 `DRIVER_EN_ROUTE`，卡就是从这里起的。
+    @Published var order: OrderDetailResponse? {
+        didSet {
+            guard #available(iOS 16.2, *) else { return }
+            // 置 nil 的唯一来源是出发 / 汇合后被重派（`REMATCHING`）—— 那张卡必须跟着结束。
+            guard let order else {
+                GuideRunActivityController.shared.end()
+                return
+            }
+            appState?.liveEscortCoordinator.updateLiveActivityTargetDistance(meters: order.plannedDistanceMeters)
+            GuideRunActivityController.shared.sync(order: order)
+        }
+    }
     @Published var isLoading = false
     @Published var isPerformingAction = false
     @Published var errorMessage: String?
@@ -1243,6 +1256,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
             try await appState.orders.endWaiting(orderId: order.orderId)
             appState.realtimeCoordinator.unregisterActiveOrder(order.orderId)
             appState.liveEscortCoordinator.clearOwnedOrder()
+            // 手上的订单还停在 `DRIVER_ARRIVED`（宿主直接关页，不再刷新），锁屏卡不会自己走到结束分支。
+            if #available(iOS 16.2, *) { GuideRunActivityController.shared.end() }
             stopPolling()
             speechService?.speak("已结束等待。这一单取消了，不算你的取消。")
             didEndWaiting = true
