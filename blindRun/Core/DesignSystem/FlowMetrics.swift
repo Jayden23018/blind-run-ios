@@ -398,7 +398,7 @@ enum FlowV2Fonts {
     typealias Spec = (CGFloat, Font.Weight, Font.TextStyle)
 
     /// 主角数字：SF Rounded、heavy、等宽数字、负字距。用 `flowHeroNumber(_:)` 套，不要直接 `flowFont`。
-    struct Hero {
+    struct Hero: Equatable {
         let size: CGFloat
         let tracking: CGFloat
     }

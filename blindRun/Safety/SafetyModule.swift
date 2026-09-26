@@ -405,6 +405,14 @@ enum EmergencySafetyCopy {
     /// 两种情况对用户是同一件事：现在没有一个确定该拨给谁的号码。
     static let homeCallNoContactHint = "尚未设置唯一的主紧急联系人，只能拨打120或110。"
 
+    /// 陪跑员订单页的「求助」（非跑步中）。第一句同样先说「App 不会代你发送求助」。
+    ///
+    /// 不写「还没开始跑步」：完成页与跑者取消页也用这一句，那两态跑步要么结束了、要么不会发生。
+    static let volunteerBeforeRunCallDialogMessage =
+        "现在不在跑步中，App 不会代你发送求助。请选择要拨打的号码。"
+    static let volunteerBeforeRunCallAccessibilityHint =
+        "现在不在跑步中。点击后由你选择拨打120或110，App 不会代你发送求助。"
+
     // MARK: 云端求助失败后的本地拨号兜底
 
     /// 复用上面那套本地拨号弹窗，但**第一句不能照抄** —— `homeCall*` 那两句的开头是
@@ -748,11 +756,16 @@ enum EmergencyCallContext {
     case homeIdle
     /// 云端求助刚刚失败（首页与订单状态页共用）。
     case cloudFailed
+    /// 陪跑员订单页右上角「求助」，不在跑步中（邀请到完成 / 跑者取消，`VolunteerOrderSOSMode.localCall`，2026-09-26）。
+    ///
+    /// 不复用 `homeIdle`：那句「当前没有进行中的陪跑」对一个正骑车赶去集合点的陪跑员不成立。
+    case volunteerBeforeRun
 
     var dialogMessage: String {
         switch self {
         case .homeIdle: return EmergencySafetyCopy.homeCallDialogMessage
         case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallDialogMessage
+        case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallDialogMessage
         }
     }
 
@@ -760,8 +773,12 @@ enum EmergencyCallContext {
         switch self {
         case .homeIdle: return EmergencySafetyCopy.homeCallAccessibilityHint
         case .cloudFailed: return EmergencySafetyCopy.cloudFailedCallAccessibilityHint
+        case .volunteerBeforeRun: return EmergencySafetyCopy.volunteerBeforeRunCallAccessibilityHint
         }
     }
+
+    /// 「尚未设置唯一的主紧急联系人」那句只对跑者成立 —— 陪跑员这里本来就不列联系人。
+    var appendsNoContactHint: Bool { self != .volunteerBeforeRun }
 }
 
 /// 拨号 URL 的唯一构造点。
@@ -1037,7 +1054,7 @@ extension View {
         primaryContact: EmergencyContactResponse?
     ) -> some View {
         let contactURL = primaryContact.flatMap { EmergencyDialer.telURL(for: $0.phone) }
-        let message = contactURL == nil
+        let message = contactURL == nil && context.appendsNoContactHint
             ? "\(context.dialogMessage)\(EmergencySafetyCopy.homeCallNoContactHint)"
             : context.dialogMessage
 

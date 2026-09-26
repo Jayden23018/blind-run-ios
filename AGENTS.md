@@ -254,9 +254,11 @@ REMATCHING → CANCELLED（只能盲人 token）
   > 与 `allowsSubmissionWithoutLocation` 完全同构，而那一条从一开始就诚实地这么写了。
   > 要打开闸门需要先回答：无订单时坐标从哪来、误触冷却 60 秒按触发者计的代价、
   > 以及 `enable-independent-sos-safely` 里 4 条真机验证欠账（设备长期离线，从没跑过）。
-- **有两处求助入口在非 `IN_PROGRESS` 也开着，它们都不是例外**：`IN_PROGRESS` 时走上面这条云端链路，
+- **有三处求助入口在非 `IN_PROGRESS` 也开着，它们都不是例外**：`IN_PROGRESS` 时走上面这条云端链路，
   其余任何状态一律降级为**本地拨号**（主紧急联系人 / **120** / 110），**绝不调 `POST /api/emergency/trigger`**。
-  判定两处共用 `BlindHomeSOSMode.resolve`，**新增任何求助入口都必须读它，不许自己判状态**：
+  跑者端两处共用 `BlindHomeSOSMode.resolve`，陪跑员端那处用 `VolunteerOrderSOSMode.resolve`
+  （两者判据都只有 `canBlindRunnerTriggerEmergency` / `canVolunteerTriggerEmergency`）。
+  **新增任何求助入口都必须读对应那一端的判定，不许自己判状态**：
   1. 「我的」tab 底部那条常驻求助条（`BlindHomeSOSBar`）；
   2. **求助与安全中心底部那条**（`BlindSafetyHubView.emergencyButton`，2026-09-16 起）——
      订单页四步骨架的底部有一枚「求助与安全」，而它覆盖的四态（匹配 / 约好 / 出发 / 汇合）
@@ -269,6 +271,11 @@ REMATCHING → CANCELLED（只能盲人 token）
      > `EmergencySOSTests.testSafetyHubDowngradesToLocalCallOutsideOfTheActiveRun` 钉住。
      > 教训是可复用的：**给一个原本只在某一态可达的入口开放新的到达路径时，
      > 先问那一层里每个动作在新的状态下还成不成立** —— 加的是入口，坏的是别人。
+  3. **陪跑员订单页右上角的求助胶囊**（`VolunteerOrderFlowPage` → `FlowOrderNavBar`，2026-09-26 起）——
+     项目负责人拍板「所有订单页都显示」：邀请 / 约好 / 出发 / 汇合 / 完成 / 跑者取消全部是本地拨号
+     （`EmergencyCallContext.volunteerBeforeRun`：只列 120 / 110，不列联系人，第一句说清
+     「App 不会代你发送求助」）；只有 `IN_PROGRESS` 交给宿主走现有云端链路。
+     用例 `VolunteerOrderFlowPresentationTests.testHelpPillDialsLocallyInEveryStateBeforeTheRun` 逐状态钉住。
   > 🔄 **2026-09-16 改口径：它现在挂在「我的」tab 的底部，不在首页。**
   > 首页按设计稿 `design-reference/order-flow/screens/01-home.png` 收成「问候 + 订单卡 + 预约块」
   > 三块，那张稿上没有求助条；项目负责人当日拍板删除首页那条、由「我的」tab 兜底。

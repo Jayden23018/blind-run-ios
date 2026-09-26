@@ -954,6 +954,22 @@ final class VolunteerInServiceViewModel: ObservableObject {
     @Published private(set) var transitionState: VolunteerOrderTransitionState = .idle
     @Published private(set) var isAcknowledgingEmergency = false
 
+    // 陪跑员订单页 v2（交付包 02 ③④）。
+    /// 跑者最近一次位置的精度（米），汇合页方位盘的扇形宽度用它。与 `latestBlindSample` 同生同灭。
+    @Published private(set) var latestBlindAccuracyMeters: Double?
+    /// 响铃到这一刻为止（后端 `ringingUntil`）。之前按钮不可点。
+    @Published private(set) var ringingUntil: Date?
+    /// 响铃 / 快捷消息那一下的结果：「对方可能没收到」或 429 的等待。
+    @Published private(set) var nudgeNotice: String?
+    /// 快捷消息的「已发送」冷却起点（对接说明：客户端按 type 冷却 60 秒，后端只按单限 3 条）。
+    @Published private(set) var quickMessageSentAt: [QuickMessageCode: Date] = [:]
+    /// 结束等待成功 ⇒ 宿主关页。**不进**「跑者已取消」那一屏：这一单是陪跑员等满后结束的。
+    @Published private(set) var didEndWaiting = false
+    static let quickMessageCooldown: TimeInterval = 60
+    private var orderLiveUpdateCancellable: AnyCancellable?
+    /// 结束等待的请求在路上。那期间收到的 `CANCELLED` 是它自己造成的，不播「跑者取消了」。
+    private var isEndingWait = false
+
     /// 轨迹节流。订单每 5 秒轮一次，而三个数字没必要跟得那么紧 ——
     /// 与盲人端 `BlindOrderStatusViewModel.trackPollingInterval` 取同一个值，
     /// 两端刷新频率不同会让「他那边已经 3.2 公里，我这边还是 3.1」变成常态。
@@ -1031,6 +1047,15 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] sample in
                     self?.handleBlindLocationUpdate(sample)
+                }
+        }
+        // ETA / 汇合距离档位。不落通知日志，只就地合进手上这份订单，重连后以详情为准。
+        if orderLiveUpdateCancellable == nil {
+            orderLiveUpdateCancellable = appState.realtimeCoordinator.orderLiveUpdatePublisher
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] update in
+                    guard let self, let current = self.order else { return }
+                    self.order = current.merging(update)
                 }
         }
     }
@@ -1173,6 +1198,96 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
     }
 
+    // MARK: - 快捷消息 / 响铃 / 结束等待（交付包 02 ③④）
+
+    /// 「我快到了」「再等我 5 分钟」。按 type 冷却 60 秒，冷却内按钮显示「已发送」。
+    func sendQuickMessage(_ code: QuickMessageCode) async {
+        guard let order, let appState else { return }
+        if let sent = quickMessageSentAt[code], Date().timeIntervalSince(sent) < Self.quickMessageCooldown { return }
+        do {
+            let response = try await appState.orders.sendQuickMessage(code, orderId: order.orderId)
+            quickMessageSentAt[code] = Date()
+            reportNudge(delivered: response.delivered, success: "已告诉\(order.blindNameForSpeech)：\(code.title)")
+        } catch {
+            reportNudgeFailure(error, appState: appState)
+        }
+    }
+
+    /// 让跑者的手机响起来。`ringingUntil` 之前按钮不可点（宿主按它置灰）。
+    func ringRunner() async {
+        guard let order, let appState else { return }
+        if let ringingUntil, ringingUntil > Date() { return }
+        do {
+            let response = try await appState.orders.ringRunner(orderId: order.orderId)
+            ringingUntil = response.ringingUntil?.backendTimestamp
+            reportNudge(delivered: response.delivered, success: "\(order.blindNameForSpeech)的手机正在响")
+        } catch {
+            reportNudgeFailure(error, appState: appState)
+        }
+    }
+
+    /// 等满时限后结束等待：订单转 `CANCELLED`（`cancelledBy=SYSTEM`），宿主直接关页。
+    ///
+    /// 🚩 **不走 `submitTransition`**：那条路径以「订单落到目标状态」为确认，而这里的目标
+    /// `CANCELLED` 恰好也是「跑者取消」那一屏的入口 —— 走过去等于让陪跑员看到一句不属于他的话。
+    func endWaiting() async {
+        guard let order, let appState, !isPerformingAction else { return }
+        isPerformingAction = true
+        isEndingWait = true
+        errorMessage = nil
+        defer {
+            isPerformingAction = false
+            isEndingWait = false
+        }
+        do {
+            try await appState.orders.endWaiting(orderId: order.orderId)
+            appState.realtimeCoordinator.unregisterActiveOrder(order.orderId)
+            appState.liveEscortCoordinator.clearOwnedOrder()
+            stopPolling()
+            speechService?.speak("已结束等待。这一单取消了，不算你的取消。")
+            didEndWaiting = true
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) { return }
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+            // 409 `END_WAIT_TOO_EARLY`：手上的 `earliestEndWaitAt` 过期了，刷一次让主按钮换回去。
+            if case .serverError(let response) = error, response.errorCode == .endWaitTooEarly {
+                await load(orderId: order.orderId, speakChanges: false)
+            }
+        } catch {
+            errorMessage = "结束等待失败，请重试。"
+            speechService?.speakError("结束等待失败，请重试。")
+        }
+    }
+
+    private func reportNudge(delivered: Bool?, success: String) {
+        guard delivered != false else {
+            let message = "对方可能没收到，可以打电话。"
+            nudgeNotice = message
+            speechService?.speakError(message)
+            return
+        }
+        nudgeNotice = nil
+        HapticFeedback.play(.tick)
+        speechService?.speak(success)
+    }
+
+    private func reportNudgeFailure(_ error: Error, appState: AppState) {
+        let message: String
+        switch error as? APIError {
+        case .some(let apiError) where appState.handleAuthenticatedAPIError(apiError):
+            return
+        case .some(.rateLimited(let info)):
+            message = info.retryAfterSeconds.map { "按得太频繁了，\($0) 秒后再试。" } ?? "按得太频繁了，请稍后再试。"
+        case .some(let apiError):
+            message = apiError.localizedMessage
+        case .none:
+            message = "没有发出去，请重试。"
+        }
+        nudgeNotice = message
+        speechService?.speakError(message)
+    }
+
     func handleBlindLocationUpdate(_ sample: RealtimePeerLocationSample) {
         guard acceptsPeerLocations,
               sample.ownerRole == .blind,
@@ -1187,6 +1302,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
               ) else { return }
 
         latestBlindSample = located
+        latestBlindAccuracyMeters = sample.accuracyMeters
         schedulePeerExpiry(for: located, orderID: sample.orderId, remaining: peerFreshness - age)
     }
 
@@ -1473,7 +1589,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
             if updated.status == .completed, let appState {
                 refreshDispatchSummary(using: appState)
             }
-            if updated.status == .cancelled {
+            if updated.status == .cancelled, !isEndingWait, !didEndWaiting {
                 // 🔴 **`order` 留着，不再置 nil。** 此前这里一置 nil，两个渲染分支就都取不到
                 // 订单 ⇒ 屏幕退化成一片空白背景，只播一句 TTS，志愿者得自己按返回才能离开。
                 // 现在它落在骨架的「跑者已取消」那一屏（`cancelledByRunner`）。
@@ -1515,6 +1631,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
         peerExpiryTask?.cancel()
         peerExpiryTask = nil
         latestBlindSample = nil
+        latestBlindAccuracyMeters = nil
     }
 
     private func refreshDispatchSummary(using appState: AppState) {
@@ -1554,8 +1671,22 @@ struct VolunteerInServiceView: View {
     @State private var showEmergencyConfirm = false
     @State private var showsRunRecord = false
     @State private var activeSheet: VolunteerSheet?
+    @Environment(\.scenePhase) private var scenePhase
+    /// 汇合页的朝向源，只在 `DRIVER_ARRIVED` 开着。
+    @StateObject private var meetHeading = MeetHeadingProvider()
+    /// 方位描述的滞回基准（上一次说的是哪个方位）。
+    @State private var meetSector: DirectionSector?
+    /// 上一次汇合提示（档位 + 方位）。只在它**变了**时播报，首次进入不播（状态播报已经在说）。
+    @State private var lastMeetCue: MeetCue?
+    @State private var lastMeetAnnouncementAt: Date?
+    @State private var didBuzzWithin10 = false
     let orderId: Int64
     let initialOrder: OrderDetailResponse?
+
+    private struct MeetCue: Equatable {
+        let bucket: DistanceBucket
+        let sector: DirectionSector?
+    }
 
     init(orderId: Int64, initialOrder: OrderDetailResponse? = nil) {
         self.orderId = orderId
@@ -1596,19 +1727,23 @@ struct VolunteerInServiceView: View {
 
     var body: some View {
         Group {
-            if let order = viewModel.order, let presentation = flowPresentation {
-                flowPage(order: order, presentation: presentation)
+            if let order = viewModel.order, flowPresentation != nil {
+                // 每秒一拍：解锁时刻、结束等待时刻、「N 分钟后出发」都是 `(订单, 现在)` 的函数，不存。
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    flowPage(order: order, now: context.date)
+                }
             } else {
                 legacyMapContent
             }
         }
         .navigationTitle(flowPresentation == nil ? "服务中" : VolunteerOrderFlowCopy.pageTitle)
         .navigationBarTitleDisplayMode(.inline)
-        // 骨架那条路是普通的滚动页，导航栏要有自己的底 —— 藏起来是为了让地图透上去，
-        // 而骨架下面没有地图，藏着只会让标题浮在正文上。
-        .toolbarBackground(flowPresentation == nil ? .hidden : .visible, for: .navigationBar)
+        // 旧路径藏导航栏的底，是为了让地图透上去。
+        .toolbarBackground(.hidden, for: .navigationBar)
+        // v2 页面自带导航栏（左返回、右求助），系统那条要整条藏掉，否则两条叠着。
+        .toolbar(flowPresentation == nil ? .visible : .hidden, for: .navigationBar)
         // 跑步中（旧路径）的求助入口放在导航栏右侧：不占内容区，横竖屏都不会被底部那一叠盖住或挤掉（#217）。
-        // 骨架那条路不放 —— 那几态云端求助是关着的（`AGENTS.md` §6）。
+        // v2 页面的求助胶囊在它自己的导航栏上，这里只管旧路径。
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if flowPresentation == nil, let order = viewModel.order, order.status.canVolunteerTriggerEmergency {
@@ -1624,10 +1759,11 @@ struct VolunteerInServiceView: View {
         // （记录 / 我的）没有一个是陪跑中该去的。**两条路径都要藏**：地图那条是面板被顶，
         // 骨架那条是最后一行被盖掉半行（同一个形状已在 `VolunteerServiceRecognitionView` 上红过一次）。
         //
-        // 🔴 **前提是返回箭头一直在。** 盲人端的订单页刻意保留了标签栏，理由在
+        // 🔴 **前提是每一屏都有出口。** 盲人端的订单页刻意保留了标签栏，理由在
         // `BlindOrderStatusView.swift:1642-1646`：那一页跑步中会藏返回箭头，
-        // 标签栏是唯一出口。这一页从头到尾没有 `navigationBarBackButtonHidden`，
-        // 所以藏标签栏不会把人关在里面 —— **谁将来给这一页藏返回箭头，这一行必须同时撤销。**
+        // 标签栏是唯一出口。这一页：旧路径有系统返回箭头；v2 页面藏了系统导航栏，
+        // 出口是它自己导航栏上的返回，完成页没有返回、出口是主按钮「完成」（`.doneReviewing` → dismiss）。
+        // **谁将来去掉其中任何一个出口，这一行必须同时撤销。**
         //
         // ⚠️ 2026-09-17 合并时搬过一次位置：它原本挂在旧 body 的末尾，而那一段被
         // 四步骨架重构删掉了。取任一边都会让这一行静默消失，所以是手动搬进来的。
@@ -1639,6 +1775,19 @@ struct VolunteerInServiceView: View {
         }
         .onDisappear {
             viewModel.stopPolling()
+            meetHeading.stop()
+        }
+        // 从后台回来时手上的 ETA / 档位可能已经过时（实时推送不落通知日志），重拉一次详情。
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            Task { await viewModel.load(orderId: orderId, speakChanges: true) }
+        }
+        .task(id: viewModel.order?.status == .driverArrived) {
+            if viewModel.order?.status == .driverArrived { meetHeading.start() } else { meetHeading.stop() }
+        }
+        .onChange(of: meetCue) { handleMeetCueChange($0) }
+        .onChange(of: viewModel.didEndWaiting) { ended in
+            if ended { dismiss() }
         }
         .task(id: viewModel.order?.status) {
             guard viewModel.order?.status == .completed else { return }
@@ -1713,19 +1862,127 @@ struct VolunteerInServiceView: View {
 
     // MARK: - 四步骨架（邀请 / 约好 / 出发）
 
-    private func flowPage(
+    @ViewBuilder
+    private func flowPage(order: OrderDetailResponse, now: Date) -> some View {
+        let distance = distanceText(for: order)
+        if let presentation = VolunteerOrderFlowPresentation.make(
+            order: order,
+            distanceText: distance,
+            peerDistanceText: peerDistanceText,
+            now: now
+        ), let phase = VolunteerOrderPhase.resolve(order: order, now: now) {
+            let direction = meetDirection(order: order, phase: phase)
+            let meet = meetPanel(order: order, phase: phase, direction: direction, now: now)
+            VolunteerOrderFlowPage(
+                presentation: presentation,
+                hero: .make(order: order, phase: phase, now: now, direction: direction?.sector.text, distanceText: distance),
+                order: order,
+                phase: phase,
+                meet: meet,
+                quickReplies: quickReplies(order: order, phase: phase, now: now),
+                // 完成页没有返回：出口是主按钮「完成」。
+                onBack: phase == .completed ? nil : { dismiss() },
+                onRowAction: { handleFlowRowAction($0, order: order) },
+                onPrimaryAction: { performFlowPrimaryAction(presentation.primaryAction) },
+                // 只可能是 `IN_PROGRESS`（`VolunteerOrderSOSMode.resolve`），其余状态页面自己弹本地拨号。
+                onCloudHelp: { showEmergencyConfirm = true },
+                // POST 回来了但确认那条 GET 还挂着的那几秒里，同一次流转不许被提交第二次。
+                isPrimaryLoading: viewModel.isPerformingAction,
+                isPrimaryEnabled: !viewModel.isTransitionPending,
+                // 汇合页的响铃结果挂在响铃按钮下，其余页挂在页脚。
+                footer: { flowFooter(showsNudgeNotice: meet == nil) }
+            )
+        } else {
+            legacyMapContent
+        }
+    }
+
+    /// 汇合页的方位。只在 `DRIVER_ARRIVED`、有定位授权时算。
+    private func meetDirection(order: OrderDetailResponse, phase: VolunteerOrderPhase) -> MeetDirection? {
+        guard case .arrived = phase, locationService.isAuthorized else { return nil }
+        return .make(
+            device: locationService.currentLocation,
+            runner: viewModel.latestBlindSample,
+            runnerAccuracyMeters: viewModel.latestBlindAccuracyMeters,
+            heading: meetHeading.heading,
+            bucket: order.meet?.distanceBucket ?? .unknown,
+            previous: meetSector
+        )
+    }
+
+    private func meetPanel(
         order: OrderDetailResponse,
-        presentation: VolunteerOrderFlowPresentation
-    ) -> some View {
-        VolunteerOrderFlowPage(
-            presentation: presentation,
-            runnerName: order.blindName,
-            onRowAction: { handleFlowRowAction($0, order: order) },
-            onPrimaryAction: { performFlowPrimaryAction(presentation.primaryAction) },
-            // POST 回来了但确认那条 GET 还挂着的那几秒里，同一次流转不许被提交第二次。
-            isPrimaryLoading: viewModel.isPerformingAction,
-            isPrimaryEnabled: !viewModel.isTransitionPending,
-            footer: { flowFooter }
+        phase: VolunteerOrderPhase,
+        direction: MeetDirection?,
+        now: Date
+    ) -> VolunteerOrderMeetPanel? {
+        guard case .arrived(let canEndWait) = phase else { return nil }
+        return VolunteerOrderMeetPanel(
+            runnerName: order.blindName?.nilIfBlank ?? VolunteerOrderFlowCopy.unknownRunnerName,
+            runnerNameSpoken: order.blindNameForSpeech,
+            relativeDegrees: direction?.relativeDegrees,
+            sectorWidth: direction?.sectorWidth ?? DirectionDialGeometry.minimumSector,
+            canEndWait: canEndWait,
+            endWaitRemainingSeconds: order.earliestEndWaitAt?.backendTimestamp.map {
+                max(0, Int($0.timeIntervalSince(now).rounded(.up)))
+            },
+            isRinging: (viewModel.ringingUntil ?? .distantPast) > now,
+            ringNotice: viewModel.nudgeNotice,
+            onRing: { Task { await viewModel.ringRunner() } }
+        )
+    }
+
+    /// 快捷回复只在出发中显示（汇合页的动作是响铃和打电话）。
+    private func quickReplies(
+        order: OrderDetailResponse,
+        phase: VolunteerOrderPhase,
+        now: Date
+    ) -> VolunteerOrderQuickReplies? {
+        guard case .departed = phase else { return nil }
+        let codes: [QuickMessageCode] = [.almostThere, .waitFiveMinutes]
+        return VolunteerOrderQuickReplies(
+            runnerName: order.blindName?.nilIfBlank ?? VolunteerOrderFlowCopy.unknownRunnerName,
+            items: codes.map { code in
+                let sent = viewModel.quickMessageSentAt[code].map {
+                    now.timeIntervalSince($0) < VolunteerInServiceViewModel.quickMessageCooldown
+                } ?? false
+                return .init(id: code.rawValue, title: code.title, isSent: sent, isEnabled: !sent)
+            },
+            onTap: { id in
+                guard let code = QuickMessageCode(rawValue: id) else { return }
+                Task { await viewModel.sendQuickMessage(code) }
+            }
+        )
+    }
+
+    /// 汇合提示（档位 + 方位）。`nil` = 不在汇合页。
+    private var meetCue: MeetCue? {
+        guard let order = viewModel.order, order.status == .driverArrived else { return nil }
+        return MeetCue(
+            bucket: order.meet?.distanceBucket ?? .unknown,
+            sector: meetDirection(order: order, phase: .arrived(canEndWait: false))?.sector
+        )
+    }
+
+    /// 交付包 03 §三：只在方位描述或档位变化时播报，两次至少隔 3 秒；首次进 `WITHIN_10` 轻震一次。
+    private func handleMeetCueChange(_ cue: MeetCue?) {
+        let previous = lastMeetCue
+        lastMeetCue = cue
+        meetSector = cue?.sector
+        guard let cue, let order = viewModel.order else { return }
+        if cue.bucket == .within10, !didBuzzWithin10 {
+            didBuzzWithin10 = true
+            HapticFeedback.play(.tick)
+        }
+        // 刚进汇合页那一下由状态播报说，这里不抢。
+        guard previous != nil else { return }
+        let now = Date()
+        if let last = lastMeetAnnouncementAt, now.timeIntervalSince(last) < MeetDirection.announcementInterval { return }
+        lastMeetAnnouncementAt = now
+        let copy = MeetBucketCopy.make(bucket: cue.bucket, farKm: order.meet?.farDistanceKm, direction: cue.sector?.text)
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: "\(copy.title(order.blindNameForSpeech))，\(copy.subtitle)"
         )
     }
 
@@ -1780,10 +2037,15 @@ struct VolunteerInServiceView: View {
         switch action {
         case .confirmDeparture:
             Task { await viewModel.confirmDeparture() }
-        case .enRoute:
+        // 「我已经出发了」（解锁前的白色次要按钮）与「我出发了」发的是同一个动作。
+        case .enRoute, .alreadyDeparted:
+            HapticFeedback.play(.medium)
             Task { await viewModel.enRoute() }
         case .arrived:
+            HapticFeedback.play(.medium)
             Task { await viewModel.arrive() }
+        case .endWaiting:
+            Task { await viewModel.endWaiting() }
         case .startRun:
             // 「开始跑步」两端都能按，服务端以先到的为准 —— 客户端不判谁先。
             // 成功之后这一页自己就落回旧的跑中页（`flowPresentation` 对 `IN_PROGRESS` 判 nil）。
@@ -1803,8 +2065,15 @@ struct VolunteerInServiceView: View {
     /// 信息卡之后、底部操作条之前，位置对应。**少了它，「接单失败」「状态没确认上」
     /// 只剩一句 TTS**，不开读屏的低视力志愿者屏幕上零变化。
     @ViewBuilder
-    private var flowFooter: some View {
+    private func flowFooter(showsNudgeNotice: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
+            if showsNudgeNotice, let notice = viewModel.nudgeNotice {
+                Text(notice)
+                    .flowFont(FlowFonts.rowValue())
+                    .foregroundColor(AppColors.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage)
                     .flowFont(FlowFonts.rowValue())

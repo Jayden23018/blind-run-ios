@@ -739,12 +739,12 @@ final class blindRunUITests: XCTestCase {
         app.descendants(matching: .any)["volunteerDispatchDetailButton"].firstMatch.tap()
 
         XCTAssertTrue(
-            app.staticTexts["陪跑订单"].firstMatch.waitForExistence(timeout: 10),
+            app.staticTexts["陪跑邀请"].firstMatch.waitForExistence(timeout: 10),
             "从邀请卡（自定义 overlay）里应当能再弹出完整订单页（fullScreenCover）\n\(app.debugDescription)"
         )
-        // 四步骨架的第 1 步高亮 —— 这一跳去的是「邀请」态，不是别的订单页。
+        // 引导绳停在第 1 步（v2 用绳子代替了四步进度条）—— 这一跳去的是「邀请」态，不是别的订单页。
         XCTAssertTrue(
-            app.descendants(matching: .any)["进度，第 1 步，共 4 步，邀请"].firstMatch.exists,
+            app.descendants(matching: .any)["第 1 步，共 4 步，邀请，还没约好"].firstMatch.exists,
             "详情页应当停在四步骨架的第 1 步\n\(app.debugDescription)"
         )
 

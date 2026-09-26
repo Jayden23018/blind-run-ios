@@ -113,15 +113,15 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
 
     // MARK: - 已完成 / 跑者已取消
 
-    /// 这两屏**不画进度条**（`step == nil`），也不给求助与安全。
-    func testOutcomeScreensDropTheStepperAndTheSafetyHub() {
+    /// 这两屏**不画进度条**（`step == nil`）；求助胶囊照样在（交付包 v2：全页都有），走本地拨号。
+    func testOutcomeScreensDropTheStepperAndHelpDialsLocally() {
         for status in [RunOrderStatus.completed, .cancelled] {
             let presentation = VolunteerOrderFlowPresentation.make(
                 order: .preview(status: status),
                 distanceText: nil
             )
             XCTAssertNil(presentation?.step, "\(status.rawValue) 这一屏不该有四步进度条")
-            XCTAssertFalse(presentation?.showsSafetyHub ?? true, "\(status.rawValue) 不显示求助与安全")
+            XCTAssertEqual(presentation?.helpMode, .localCall, "\(status.rawValue) 的求助只能本地拨号")
         }
     }
 
@@ -227,7 +227,9 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
         XCTAssertEqual(scheduled?.step, .booked)
         XCTAssertEqual(pendingAccept?.step, .booked, "两态必须同格 —— 否则这条用例就不再是它要验的那件事")
         XCTAssertEqual(scheduled?.primaryAction, .confirmDeparture)
-        XCTAssertEqual(pendingAccept?.primaryAction, .enRoute)
+        // v2：没到 `primaryActionUnlockAt`（这里后端没给）是白色「我已经出发了」，
+        // 发的仍是 `en-route` —— 与 `.enRoute` 的差别只在样式，解锁边界见 `VolunteerOrderV2Tests`。
+        XCTAssertEqual(pendingAccept?.primaryAction, .alreadyDeparted)
         XCTAssertNotEqual(
             scheduled?.primaryAction,
             pendingAccept?.primaryAction,
@@ -431,29 +433,34 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
 
     // MARK: - 求助与安全
 
-    /// 前三态底部**不给**「求助与安全」。
+    /// 右上角求助胶囊**每一态都在**（项目负责人 2026-09-26 拍板），但只有 `IN_PROGRESS` 走云端。
     ///
-    /// 陪跑员端没有安全中心，而这三态的云端 SOS 本来就关着（`AGENTS.md` §6：
-    /// 两端入口都只在 `IN_PROGRESS` 开放）。摆一个按下去无事发生的紧急入口比没有更糟 ——
-    /// 与骨架刚落地时盲人端那次「长按 3 秒之后屏幕零变化」是同一类事故。
-    func testNoSafetyHubBeforeTheRunActuallyStarts() {
+    /// 其余状态一律本地拨号（120 / 110），**绝不调 `POST /api/emergency/trigger`**（`AGENTS.md` §6）。
+    /// 逐状态断言：谁把某一态误判成 `.cloud`，按下去就是一次云端 SOS 在不该发的时候发出去。
+    @MainActor
+    func testHelpPillDialsLocallyInEveryStateBeforeTheRun() {
         let invite = VolunteerOrderFlowPresentation.make(
             dispatch: OrderDetailResponse.previewDispatch(),
             remainingSeconds: 30
         )
-        XCTAssertFalse(invite.showsSafetyHub)
+        XCTAssertEqual(invite.helpMode, .localCall, "邀请态没有订单，只能本地拨号")
 
-        for status in [RunOrderStatus.scheduledConfirmed, .pendingAccept, .driverEnRoute] {
-            XCTAssertFalse(
-                VolunteerOrderFlowPresentation.make(order: .preview(status: status), distanceText: nil)?
-                    .showsSafetyHub ?? true,
-                "\(status.rawValue) 的云端求助是关着的，底部不该有入口"
+        let statuses: [RunOrderStatus] = [
+            .scheduledConfirmed, .pendingAccept, .driverEnRoute, .driverArrived, .completed, .cancelled,
+        ]
+        for status in statuses {
+            XCTAssertEqual(
+                VolunteerOrderFlowPresentation.make(order: .preview(status: status), distanceText: nil)?.helpMode,
+                .localCall,
+                "\(status.rawValue) 的云端求助是关着的，胶囊只能本地拨号"
             )
             XCTAssertFalse(
                 status.canVolunteerTriggerEmergency,
-                "这条用例的前提变了：该状态现在能触发云端求助，底部版位要重新讨论"
+                "这条用例的前提变了：该状态现在能触发云端求助，求助路由要重新讨论"
             )
         }
+        XCTAssertEqual(VolunteerOrderSOSMode.resolve(status: .inProgress), .cloud, "跑步中走现有云端链路")
+        XCTAssertEqual(VolunteerOrderSOSMode.resolve(status: nil), .localCall)
     }
 
     // MARK: - 回复倒计时
