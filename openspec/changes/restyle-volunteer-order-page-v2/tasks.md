@@ -21,7 +21,7 @@
 - [x] 3.3 端点 `end-waiting` / `quick-message` / `ring-runner` + Mock
 - [x] 3.4 错误码 `DEPARTURE_TOO_EARLY` / `END_WAIT_TOO_EARLY`（`docs/error-codes.json` 本仓库已不存在，对撞走 `validate-error-codes.mjs`）
 - [x] 3.5 WS `ORDER_ETA_UPDATED` / `MEET_DISTANCE_BUCKET` / `accuracyM`，新 eventType 触发重拉
-- [x] 3.6 `OrderDetailResponse.preview` 支持新字段；解码测试（真实形状 fixture）
+- [x] 3.6 `OrderDetailResponse.preview` 支持新字段；解码测试（照契约示例手写的 JSON，非真机采集 —— 采到真实响应后补进 `Fixtures/`）
 
 ## 4. 各状态接入（PR 4）
 
