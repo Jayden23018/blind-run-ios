@@ -942,7 +942,16 @@ struct VolunteerOrderDetailView: View {
 
 @MainActor
 final class VolunteerInServiceViewModel: ObservableObject {
-    @Published var order: OrderDetailResponse?
+    /// 每一份新订单（轮询 / WS ETA / 汇合档位）都顺手喂给出发 / 汇合锁屏卡 ——
+    /// 按下「我出发了」成功后订单落到 `DRIVER_EN_ROUTE`，卡就是从这里起的。
+    @Published var order: OrderDetailResponse? {
+        didSet {
+            guard let order else { return }
+            appState?.liveEscortCoordinator.updateLiveActivityTargetDistance(meters: order.plannedDistanceMeters)
+            guard #available(iOS 16.2, *) else { return }
+            GuideRunActivityController.shared.sync(order: order)
+        }
+    }
     @Published var isLoading = false
     @Published var isPerformingAction = false
     @Published var errorMessage: String?

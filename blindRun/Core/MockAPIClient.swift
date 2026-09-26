@@ -688,6 +688,12 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
             )
         }
 
+        // 陪跑员锁屏卡的推送 token。Mock 只收下不做事 —— 进程内没有 APNs 可推。
+        if path == "/api/devices/live-activity-token" && method == .post {
+            guard mockToken != nil else { throw APIError.unauthorized }
+            return EmptyResponse()
+        }
+
         // APNs device token 上报（幂等 upsert）。后端校验 32~128 位 hex。
         if path == "/api/devices/apns" && method == .post {
             return try handleRegisterApnsToken(body: body)

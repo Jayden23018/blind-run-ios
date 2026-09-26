@@ -70,6 +70,8 @@ protocol OrderServing: Sendable {
     func ringRunner(orderId: Int64) async throws -> OrderNudgeResponse
     /// 等满时限后结束等待。订单转 `CANCELLED`，不算陪跑员取消。
     func endWaiting(orderId: Int64) async throws
+    /// 上传出发 / 汇合锁屏卡的推送 token（十六进制）。同一单再传一次即覆盖。
+    func registerLiveActivityToken(_ hexToken: String, orderId: Int64) async throws
     /// 跑者给陪跑员留言。空串 = 清空。返回后端去掉首尾空白后的值，清空时为 `nil`。
     func updateRunnerMessage(_ text: String, orderId: Int64) async throws -> RunnerMessageResponse
 
@@ -186,6 +188,13 @@ struct OrderService: OrderServing {
 
     func ringRunner(orderId: Int64) async throws -> OrderNudgeResponse {
         try await transport.send(OrderEndpoint.ringRunner(orderId: orderId).request)
+    }
+
+    func registerLiveActivityToken(_ hexToken: String, orderId: Int64) async throws {
+        let _: EmptyResponse = try await transport.send(
+            OrderEndpoint.liveActivityToken.request,
+            body: LiveActivityTokenRequest(orderId: orderId, pushToken: hexToken)
+        )
     }
 
     func endWaiting(orderId: Int64) async throws {

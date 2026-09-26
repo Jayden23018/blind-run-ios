@@ -85,6 +85,16 @@
 > `LowVisionChannelTests.testXinghuoPaletteKeepsTextReadableOnGlass` 按「玻璃叠在白底上」的最坏情况钉住。
 > 这一条**不外推**：别的页面想要深色或新颜色，仍按下面「新增强调色的门槛」走。
 
+> **例外：陪跑员订单页的头卡与锁屏卡允许用状态色（项目负责人 2026-09-26 拍板，决定源 V13）。**
+>
+> 交付包 `01-design-tokens.md` C01 的出发主蓝 `#2A5BD7` / 汇合琥珀 `#A04B0C` / 跑步中青绿 `#0A6B72` /
+> 暂停灰 `#4B5263` 等，**只用在头卡与锁屏实时活动卡上**；页面底、其他卡片、按钮不随状态变色。
+> 锁屏卡那一份在 `blindRunWidget/Shared/GuideRunActivityShared.swift` 的 `LiveActivityStatePalette`
+> （widget target 编译不到 `AppColors`），与 app 侧同名色必须同值。
+> ⚠️ 交付包说 `onHero*` 在所有状态色上都 ≥4.5:1，**实测不成立**：`onHeroEyebrow`（白 80%）在
+> 出发蓝上 4.36:1、汇合琥珀上 4.45:1，`gold` 在出发蓝上 4.32:1。锁屏出发 / 汇合卡的 14–15pt 小字
+> 因此改用 86%，金色只留给 32pt 的大字（`GuideRunActivityContrastTests` 钉住）。头卡照这条再核一遍。
+
 - 语义色 5 个：`primary` / `destructive` / `warning` / `success` / `textSecondary`，各带亮暗两套。
 - 亮色模式**不用 iOS 系统语义色**（上面那组实测数字就是理由），暗色模式用系统色。
 - 改任何取值先跑 **`LowVisionChannelTests`** —— `testEverySemanticColorClearsTheBodyTextContrastThreshold…`

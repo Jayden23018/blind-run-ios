@@ -67,6 +67,7 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     var quickMessageResult: Result<OrderNudgeResponse, Error> = .failure(NotStubbed(method: "sendQuickMessage"))
     var ringRunnerResult: Result<OrderNudgeResponse, Error> = .failure(NotStubbed(method: "ringRunner"))
     var endWaitingResult: Result<Void, Error> = .failure(NotStubbed(method: "endWaiting"))
+    var liveActivityTokenResult: Result<Void, Error> = .failure(NotStubbed(method: "registerLiveActivityToken"))
     var runnerMessageResult: Result<RunnerMessageResponse, Error> = .failure(NotStubbed(method: "updateRunnerMessage"))
     private(set) var lastRunnerMessageText: String?
     private(set) var lastQuickMessageCode: QuickMessageCode?
@@ -206,6 +207,12 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         record()
         lastOrderId = orderId
         return try ringRunnerResult.get()
+    }
+
+    func registerLiveActivityToken(_ hexToken: String, orderId: Int64) async throws {
+        record()
+        lastOrderId = orderId
+        return try liveActivityTokenResult.get()
     }
 
     func endWaiting(orderId: Int64) async throws {

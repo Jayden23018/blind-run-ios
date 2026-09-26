@@ -648,6 +648,12 @@ struct OrderNudgeResponse: Decodable, Sendable {
     let delivered: Bool?
 }
 
+/// `POST /api/devices/live-activity-token`。
+struct LiveActivityTokenRequest: Encodable, Sendable {
+    let orderId: Int64
+    let pushToken: String
+}
+
 /// `PUT /api/orders/{id}/runner-message`。契约 `maxLength: 40`，按 UTF-16 计。
 struct RunnerMessageRequest: Codable, Sendable {
     let text: String
