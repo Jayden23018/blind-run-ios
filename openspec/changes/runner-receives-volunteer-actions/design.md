@@ -16,7 +16,7 @@
 1. **响铃时长按服务端时钟算**：`until − timestamp`（两者都是服务端时间），夹到 `(0, 30]` 秒，从收到那一刻起计。不用 `until − 本机 now`，因为本机时钟偏几秒就能把 10 秒吃光。`timestamp` 解析不出时退回 `until − now`。时长 ≤ 0 或缺 `until` → 不响，回落到普通通知朗读一次。
 2. **去重在两层**：协调器按 `messageId` 丢弃重复的 `RUNNER_RING`；控制器再按 id 与 `endsAt > now` 挡住 `@Published` 重新订阅时回放的旧值。新 id 直接替换（重新计时）。
 3. **先念后响**：朗读 `ttsText` 后等合成器说完（最多 4 秒，且不超过 `endsAt`）再起铃声。同时起的话 1.5 kHz 的铃声会盖住那句话。代价：10 秒窗口里铃声少 2–3 秒，但那句朗读本身也是外放的声音，照样能帮陪跑员找人。
-4. **专用提示音**：`ToneSynthesizer` 合成下行「叮咚」1568/1244.5 Hz + 0.6 秒静音，循环。频率避开全 App 已用的 587–1318.5 各组（求助警报 740/988 不得复用）。播放器创建后常驻，不释放（`finishedPlaying:` 崩溃的教训）。
+4. **专用提示音**：`ToneSynthesizer` 合成下行「叮咚」1568/1244.5 Hz 各 0.25 秒 + 0.5 秒静音，1 秒一循环。频率避开全 App 已用的 587–1318.5 各组（求助警报 740/988 不得复用）。播放器创建后常驻，不释放（`finishedPlaying:` 崩溃的教训）。
 5. **遮罩挂在 `BlindRunnerTabView`**，用 `HostedContainersAccessibilityHider` 把背后的 UIKit 容器对读屏藏起来；遮罩本身挂 `.magicTap` / `.escape` 动作，抢在 TabView 的求助手势之前。
 6. **留言入口**：信息卡「集合地点」与最后一行之间加一行，只在四个可写状态出现；点开是表单页（`TextField` + 保存 + 清空）。保存成功就地把 `order.messageToVolunteer` 换成响应值，不等下一轮轮询。
 7. **长度按 UTF-16 计**，与 `SupportTicketRequest.length(of:)` 同口径（后端 `@Size` 数的是 Java `String.length()`）。
