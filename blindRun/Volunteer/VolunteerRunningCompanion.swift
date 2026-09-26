@@ -373,11 +373,16 @@ struct VolunteerRunHelpPanel: View {
                 emergencyButton
                     .padding(.top, 4)
 
-                Button(VolunteerRunCopy.dismiss) { dismiss() }
-                    .flowFont(FlowV2Fonts.callout(bold: true))
-                    .foregroundColor(AppColors.Flow.accent)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .accessibilityIdentifier("volunteerRunHelpDismiss")
+                // frame 要挂在 label 里面：挂在 Button 外面只撑大布局，不撑大点击区（真机审计报过 18pt）。
+                Button { dismiss() } label: {
+                    Text(VolunteerRunCopy.dismiss)
+                        .flowFont(FlowV2Fonts.callout(bold: true))
+                        .foregroundColor(AppColors.Flow.accent)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("volunteerRunHelpDismiss")
             }
             .padding(EdgeInsets(top: 24, leading: 24, bottom: 34, trailing: 24))
         }
@@ -455,7 +460,9 @@ struct VolunteerRunHelpPanel: View {
                         .trim(from: 0, to: min(1, (elapsed ?? 0) / SafetyLongPress.duration))
                         .stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    Text("SOS").font(.system(size: 11, weight: .heavy))
+                    // 不写「SOS」文字：固定字号过不了 Dynamic Type 审计（真机报过），而这里只是装饰。
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 14, weight: .bold))
                 }
                 .frame(width: 36, height: 36)
                 .accessibilityHidden(true)

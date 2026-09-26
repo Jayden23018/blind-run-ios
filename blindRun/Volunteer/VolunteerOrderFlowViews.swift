@@ -1801,6 +1801,9 @@ struct VolunteerInServiceView: View {
     @State private var showsRunRecord = false
     @State private var activeSheet: VolunteerSheet?
     @Environment(\.scenePhase) private var scenePhase
+    /// 横屏（高度紧凑）时跑步中新增的几块改放进底部面板的滚动区：放在固定区会把面板压到 5pt
+    /// （真机 `testVolunteerRunningPageKeepsTheSOSButtonReachable` 横屏实测），「长按结束」够不着。
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     /// 汇合页的朝向源，只在 `DRIVER_ARRIVED` 开着。
     @StateObject private var meetHeading = MeetHeadingProvider()
     /// 方位描述的滞回基准（上一次说的是哪个方位）。
@@ -2318,7 +2321,7 @@ struct VolunteerInServiceView: View {
                             // 只在 `IN_PROGRESS` —— 其余状态那三个数字要么还没开始、要么已经结束，
                             // 而一张写着 `--` 的卡片只会占掉本来该给流转按钮的空间。
                             if order.status == .inProgress {
-                                if order.isRunPaused {
+                                if order.isRunPaused, verticalSizeClass != .compact {
                                     VolunteerRunPausedStrip(elapsedText: viewModel.blindStats?.durationClockText)
                                 }
                                 VolunteerEscortStatsCard(
@@ -2327,7 +2330,9 @@ struct VolunteerInServiceView: View {
                                     stats: viewModel.blindStats,
                                     isPeerLocationFresh: viewModel.latestBlindSample != nil
                                 )
-                                runningAdditions(order: order)
+                                if verticalSizeClass != .compact {
+                                    runningAdditions(order: order, includesPausedStrip: false)
+                                }
                             }
                             emergencySection(for: order)
                             VolunteerServiceBottomPanel(
@@ -2352,6 +2357,9 @@ struct VolunteerInServiceView: View {
                                 viewModel.retryTransitionConfirmation()
                             },
                             isRunPaused: order.isRunPaused,
+                            leadingContent: order.status == .inProgress && verticalSizeClass == .compact
+                                ? AnyView(runningAdditions(order: order, includesPausedStrip: true))
+                                : nil,
                             trailingContent: order.status == .inProgress
                                 ? AnyView(VolunteerRunVoiceToggle(name: order.runnerShortName))
                                 : nil
@@ -2366,9 +2374,12 @@ struct VolunteerInServiceView: View {
 
     /// 跑步中加进旧页的三样（V4）：提示条、节奏卡、暂停时的「继续陪跑」。
     /// 每秒一拍：信号卡 8 秒收起、5 分钟过期、走散提示 60 秒收起都是 `(状态, 现在)` 的函数，不存。
-    private func runningAdditions(order: OrderDetailResponse) -> some View {
+    private func runningAdditions(order: OrderDetailResponse, includesPausedStrip: Bool) -> some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(spacing: 10) {
+                if includesPausedStrip, order.isRunPaused {
+                    VolunteerRunPausedStrip(elapsedText: viewModel.blindStats?.durationClockText)
+                }
                 if let tip = VolunteerRunTip.resolve(
                     separationAlertAt: viewModel.separationAlertAt,
                     runnerBatteryLow: order.run?.runnerBatteryLow == true,
@@ -3301,12 +3312,15 @@ struct VolunteerServiceBottomPanel: View {
     let onRetryTransitionConfirmation: () -> Void
     /// 跑步中已暂停：结束按钮改白底描边，让「继续陪跑」成为本屏唯一的黄色按钮。
     var isRunPaused = false
+    /// 滚动区最上面的附加内容：横屏时跑步中新增的几块放这里（竖屏在面板外的固定区）。
+    var leadingContent: AnyView? = nil
     /// 动作区之后的附加内容（跑步中的「耳机语音播报」开关）。
     var trailingContent: AnyView? = nil
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
+                leadingContent
                 VolunteerServiceStageHeader(status: order.status)
                 // 排在跑者卡（姓名 + 电话）之前：先知道「这个人需要我怎么带」，
                 // 再知道「他叫什么、怎么联系」。
