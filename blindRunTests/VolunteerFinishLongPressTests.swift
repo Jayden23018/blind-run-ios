@@ -38,10 +38,6 @@ final class VolunteerFinishLongPressTests: XCTestCase {
     /// 按钮上印的词与读屏那条自定义动作必须同名 —— 视图里两处都读 `title`。
     func testCustomActionUsesExactlyTheVisibleTitle() {
         XCTAssertEqual(VolunteerFinishLongPress.title, "结束陪跑")
-        XCTAssertEqual(
-            VolunteerServiceActions.actionKinds(for: .inProgress).map(\.title).first,
-            VolunteerFinishLongPress.title
-        )
         XCTAssertTrue(VolunteerFinishLongPress.accessibilityLabel.hasPrefix(VolunteerFinishLongPress.title))
     }
 

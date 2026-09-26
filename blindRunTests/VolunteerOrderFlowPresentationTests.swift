@@ -47,15 +47,16 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
         }
     }
 
-    /// 跑步中**仍然**走旧的深蓝数据卡那条路，`make(order:)` 必须回 `nil` 让调用方退回去。
+    /// 跑步中走自己的 `VolunteerRunningPage`（#218），认不出的状态走兜底页，
+    /// `make(order:)` 对它们必须回 `nil`。
     ///
-    /// 不回 `nil` 的后果不是编译错，是渲染出半页没有结束按钮的骨架 ——
+    /// 跑步中不回 `nil` 的后果不是编译错，是渲染出半页没有结束按钮的骨架 ——
     /// 而志愿者是唯一能结束服务的人。
     ///
     /// 🚩 `IN_PROGRESS` 与 `DRIVER_ARRIVED` **落在同一格**（汇合），所以这条判据不能写成
     /// 「按格子分流」——它必须按状态分。2026-09-17 汇合搬进骨架时，这条用例是唯一
     /// 会在写错时红掉的东西。
-    func testOnlyTheRunningScreenStillFallsBackToTheLegacyPanel() {
+    func testRunningAndUnrecognisedStatusesStayOffTheFlowPage() {
         for status in [RunOrderStatus.inProgress, .noVolunteer, .unknown] {
             XCTAssertNil(
                 VolunteerOrderFlowPresentation.make(
@@ -73,6 +74,33 @@ final class VolunteerOrderFlowPresentationTests: XCTestCase {
                 ),
                 "\(status.rawValue) 现在有自己的一屏，回 nil 会让屏幕变空白"
             )
+        }
+    }
+
+    /// 兜底页（订单还没拉到 / 首次加载失败 / 认不出的状态）。
+    ///
+    /// 失败那一支在此之前是**一个字都没有**的地图底色：`errorMessage` 只在有订单时才渲染。
+    func testFallbackShowsLoadingThenFailureThenStatusCopy() {
+        XCTAssertEqual(VolunteerOrderFallback.resolve(status: nil, errorMessage: nil), .loading)
+        XCTAssertEqual(
+            VolunteerOrderFallback.resolve(status: nil, errorMessage: "获取订单状态失败"),
+            .message(title: "获取订单状态失败", message: "页面会自动重试，也可以先返回")
+        )
+        XCTAssertEqual(
+            VolunteerOrderFallback.resolve(status: .unknown, errorMessage: nil),
+            .message(title: "订单状态未知", message: "当前状态无法识别，请刷新后再操作")
+        )
+        // 有订单时那条 errorMessage 是某次操作的失败，不能顶掉状态文案。
+        XCTAssertEqual(
+            VolunteerOrderFallback.resolve(status: .rematching, errorMessage: "操作失败"),
+            .message(title: "订单异常", message: "本次服务已结束")
+        )
+    }
+
+    /// 兜底页右上的求助：走得到这里的状态**没有一个**能走云端（`AGENTS.md` §6）。
+    func testFallbackStatusesOnlyOfferLocalHelp() {
+        for status in [nil, RunOrderStatus.pendingMatch, .pendingIntroCall, .rematching, .noVolunteer, .unknown] {
+            XCTAssertEqual(VolunteerOrderSOSMode.resolve(status: status), .localCall, "\(String(describing: status))")
         }
     }
 
