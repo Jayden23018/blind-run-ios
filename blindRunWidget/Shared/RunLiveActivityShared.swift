@@ -21,9 +21,9 @@ import SwiftUI
 
 /// 这张卡是给谁看的。跑者端多一行顶行与一枚播报按钮，陪跑员端只有三个数字。
 ///
-/// 陪跑员端**不显示对方姓名**（项目负责人 2026-09-16 决定）。因此 `partnerName`
-/// 在陪跑员侧恒为 `nil`，卡片也就不需要从陪跑员的 view model 里取任何身份信息 ——
-/// 这正是本阶段能零接触 `blindRun/Volunteer/**` 的原因。
+/// 陪跑员端 `partnerName` 现在恒为 `nil`。2026-09-16 的决定是「不显示对方姓名」；
+/// 2026-09-26 决定源 V11 改为「锁屏只用姓氏」，但后端姓氏字段（BE-2）还没到，
+/// 所以卡上仍不出现名字 —— 有节奏信号时第 1 行写「跑者：刚刚好」而不是掩码名。
 enum RunLiveActivitySide: String, Codable, Hashable, Sendable {
     case runner
     case volunteer
@@ -57,6 +57,20 @@ struct RunLiveActivityAttributes: ActivityAttributes, Hashable {
         var spokenDistance: String
         var spokenDuration: String
         var spokenPace: String
+
+        // MARK: 陪跑员端 v2（交付包 04 最后一节，决定源 V3）
+        //
+        // **全部可选**：App 升级后认回旧版本起的卡时，系统拿旧 JSON 解新结构，缺这几个键也要能解。
+        // 节奏信号与暂停来自后端 `run` 对象（BE-1 / BE-2 还没合），没到时为 `nil`，卡上就不出现。
+
+        /// 目标公里（「5.00」）。没有计划距离时为 `nil`：不写「/ 目标」、不画进度条。
+        var targetDistanceText: String?
+        /// 已跑 / 目标，夹在 0...1。
+        var progress: Double?
+        /// 跑者最近一次节奏信号原值（`SLOWER` / `OK` / `FASTER`）。
+        /// **超过 5 分钟的由 app 侧丢掉再塞进来**（`RunLiveActivityCopy.rhythmFreshness`）。
+        var rhythmSignal: String?
+        var isPaused: Bool?
     }
 
     /// 这张卡属于哪一单。
@@ -101,6 +115,56 @@ enum RunLiveActivityCopy {
         let missing = [distance, duration, pace].allSatisfy { $0 == pendingSpokenValue }
         guard !missing else { return announcementWhenNothingYet }
         return "\(distance)，用时 \(duration)，配速 \(pace)"
+    }
+
+    // MARK: 陪跑员端 v2
+
+    static let volunteerRunning = "陪跑中"
+    static let volunteerPaused = "已暂停"
+    /// 决定源 V11：姓氏没到时整句用「跑者」，不拿掩码名顶替。
+    static let runnerFallbackName = "跑者"
+    static let kilometers = "公里"
+
+    /// 节奏信号超过这个时长没更新，第 1 行只写「陪跑中」（交付包 04）。
+    static let rhythmFreshness: TimeInterval = 5 * 60
+
+    /// 交付包 C33 的三句固定文案。不认识的原值返回 `nil` = 不显示（开放枚举，不崩）。
+    static func rhythmTitle(_ rawValue: String?) -> String? {
+        switch rawValue {
+        case "SLOWER": return "稍慢一点"
+        case "OK": return "刚刚好"
+        case "FASTER": return "可以快一点"
+        default: return nil
+        }
+    }
+
+    /// 第 1 行：「陪跑中 · 李：刚刚好」/「陪跑中」/「已暂停」。
+    static func volunteerHeadline(surname: String?, rhythmSignal: String?, isPaused: Bool) -> String {
+        if isPaused { return volunteerPaused }
+        guard let title = rhythmTitle(rhythmSignal) else { return volunteerRunning }
+        return "\(volunteerRunning) · \(surname ?? runnerFallbackName)：\(title)"
+    }
+
+    /// 「/ 5.00 公里」；没有目标时只写「公里」。
+    static func targetSuffix(_ targetDistanceText: String?) -> String {
+        targetDistanceText.map { "/ \($0) \(kilometers)" } ?? kilometers
+    }
+
+    /// 陪跑员端 v2 整张卡念一站：「陪跑中，里程 2.40 公里，目标 5.00 公里，时长 18 分 32 秒，配速 …」。
+    @available(iOS 16.2, *)
+    static func volunteerCardAccessibilityLabel(
+        headline: String,
+        state: RunLiveActivityAttributes.ContentState
+    ) -> String {
+        [
+            headline.replacingOccurrences(of: " · ", with: "，"),
+            distanceAccessibilityLabel(state.spokenDistance),
+            state.targetDistanceText.map { "目标 \($0) \(kilometers)" },
+            durationAccessibilityLabel(state.spokenDuration),
+            paceAccessibilityLabel(state.spokenPace),
+        ]
+        .compactMap { $0 }
+        .joined(separator: "，")
     }
 
     static func distanceAccessibilityLabel(_ spokenDistance: String) -> String {

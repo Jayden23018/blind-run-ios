@@ -5,8 +5,11 @@ import WidgetKit
 
 // MARK: - 锁屏实时活动（状态清单 §16 跑者端 / §17 陪跑员端）
 //
-// 两端是**同一张卡**，差别只有两处：陪跑员端没有顶行、没有按钮。
-// 状态清单 §17 的原话：「与跑者端同一张卡，去掉按钮」「一个可聚焦控件都没有」。
+// 跑者端：深色卡，顶行 + 三个数字 + 播报按钮（状态清单 §16）。
+// 陪跑员端：2026-09-26 起换成 v2 样式（交付包 04 最后一节，决定源 V3）—— 状态色底、
+// 节奏信号顶行、「距离 / 目标」、进度条，见文件末尾 `VolunteerRunCardView`。
+// 两端仍是**同一个 `ActivityAttributes` 类型、同一条本地更新链路**，只是长相按 `side` 分叉；
+// 陪跑员端依旧「一个可聚焦控件都没有」（状态清单 §17）。
 //
 // ⛔ **锁屏上不许有结束按钮，也不许有求助按钮**（状态清单「禁止项」）：
 // 结束是不可撤销的动作而口袋会误触；锁屏下 App 无法拨号，求助交给系统 SOS。
@@ -15,28 +18,40 @@ import WidgetKit
 struct RunLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: RunLiveActivityAttributes.self) { context in
-            RunLiveActivityLockScreenView(
-                side: context.attributes.side,
-                state: context.state
-            )
-            .activityBackgroundTint(RunLiveActivityPalette.color(RunLiveActivityPalette.cardSurface))
+            Group {
+                if context.attributes.side == .volunteer {
+                    VolunteerRunCardView(state: context.state)
+                } else {
+                    RunLiveActivityLockScreenView(side: context.attributes.side, state: context.state)
+                }
+            }
+            .activityBackgroundTint(RunLiveActivityPalette.color(Self.background(for: context)))
             .activitySystemActionForegroundColor(RunLiveActivityPalette.color(RunLiveActivityPalette.cta))
         } dynamicIsland: { context in
-            // 灵动岛不在本轮设计范围内（设计包只给了锁屏两屏）。做成最小可用的一套：
-            // 展开态复用锁屏那三个数字，收起态只给里程。**不放任何按钮** —— 与锁屏同一条红线。
-            DynamicIsland {
+            // 跑者端：设计包没给灵动岛，做成最小可用的一套 —— 展开态复用锁屏那三个数字，收起态只给里程。
+            // 陪跑员端 v2（交付包 04）：紧凑态左侧并肩两点 + 金色短绳，右侧「2.40 公里」；最小态只有并肩圆点。
+            // 两端都**不放任何按钮** —— 与锁屏同一条红线。
+            let isVolunteer = context.attributes.side == .volunteer
+            return DynamicIsland {
                 DynamicIslandExpandedRegion(.center) {
                     RunLiveActivityMetricsRow(state: context.state)
                 }
             } compactLeading: {
-                Image(systemName: "figure.run")
+                if isVolunteer { SideBySideDots() } else { Image(systemName: "figure.run") }
             } compactTrailing: {
-                Text(context.state.distanceText)
+                Text(isVolunteer ? "\(context.state.distanceText) \(RunLiveActivityCopy.kilometers)" : context.state.distanceText)
+                    .font(isVolunteer ? .system(size: 14, weight: .heavy) : nil)
                     .monospacedDigit()
             } minimal: {
-                Image(systemName: "figure.run")
+                if isVolunteer { SideBySideDots(showsRope: false) } else { Image(systemName: "figure.run") }
             }
         }
+    }
+
+    /// 跑者端沿用深色卡；陪跑员端跟随状态色（决定源 V3 / V13）：跑步中青绿、暂停灰。
+    private static func background(for context: ActivityViewContext<RunLiveActivityAttributes>) -> UInt32 {
+        guard context.attributes.side == .volunteer else { return RunLiveActivityPalette.cardSurface }
+        return context.state.isPaused == true ? LiveActivityStatePalette.statePaused : LiveActivityStatePalette.stateRunning
     }
 }
 
@@ -187,5 +202,105 @@ struct RunLiveActivityMetricsRow: View {
         // 值与标签合成一个元素，念「里程 3.20 公里」而不是「3.20」「里程（公里）」两站。
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+// MARK: - 陪跑员端 v2 跑步卡（交付包 04 最后一节）
+//
+// 三行：「陪跑中 · 李：刚刚好」/「2.40 / 5.00 公里 · 18:32 · 7'43"」/ 8pt 进度条。
+// **不画折返线**（决定源 V12：没有数据来源）、**不放任何按钮**（口袋误触会结束陪跑）。
+
+@available(iOS 16.2, *)
+struct VolunteerRunCardView: View {
+    let state: RunLiveActivityAttributes.ContentState
+
+    private var isPaused: Bool { state.isPaused == true }
+    private var tint: Color {
+        RunLiveActivityPalette.color(isPaused ? LiveActivityStatePalette.statePaused : LiveActivityStatePalette.stateRunning)
+    }
+
+    var body: some View {
+        let headline = RunLiveActivityCopy.volunteerHeadline(
+            surname: state.partnerName,
+            rhythmSignal: state.rhythmSignal,
+            isPaused: isPaused
+        )
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(.white)
+                    .frame(width: 22, height: 22)
+                    .overlay(
+                        Image(systemName: "figure.run")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(tint)
+                    )
+                Text(headline)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white.opacity(LiveActivityStatePalette.onHeroEyebrowOpacity))
+                    .lineLimit(1)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(state.distanceText)
+                    .font(.system(size: 40, weight: .heavy))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(RunLiveActivityCopy.targetSuffix(state.targetDistanceText))
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.white.opacity(LiveActivityStatePalette.onHeroBodyOpacity))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text("\(state.durationText) · \(state.paceText)")
+                    .font(.system(size: 17, weight: .heavy))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .padding(.top, 8)
+            if let progress = state.progress {
+                ProgressBar(progress: progress)
+                    .padding(.top, 12)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.vertical, 16)
+        .padding(.horizontal, 18)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(RunLiveActivityCopy.volunteerCardAccessibilityLabel(headline: headline, state: state))
+    }
+}
+
+private struct ProgressBar: View {
+    let progress: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(LiveActivityStatePalette.onHeroTrackOpacity))
+                Capsule().fill(.white).frame(width: proxy.size.width * min(max(progress, 0), 1))
+            }
+        }
+        .frame(height: 8)
+    }
+}
+
+/// 陪跑员端灵动岛：并肩的两个小圆点（+ 金色短绳）。
+private struct SideBySideDots: View {
+    var showsRope = true
+
+    var body: some View {
+        VStack(spacing: 1) {
+            HStack(spacing: -2) {
+                Circle().fill(.white).frame(width: 12, height: 12)
+                Circle().stroke(.white, lineWidth: 1.5).frame(width: 11, height: 11)
+            }
+            if showsRope {
+                Capsule()
+                    .fill(RunLiveActivityPalette.color(LiveActivityStatePalette.gold))
+                    .frame(width: 14, height: 2)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
