@@ -46,8 +46,15 @@ const tail = body.slice(end);
 // GIT_INDEX_FILE，指向**本仓库**；带着它们去 /tmp 里造 fixture，git init/commit 会
 // 报 `fatal: this operation must be run in a work tree`，于是这个测试单跑全绿、
 // 从 pre-push 里跑却红 —— 正好在它唯一要起作用的地方失效。2026-08-09 实测踩到。
+//
+// AIDRUN_* 同理：被测段落就是读这一族变量决定契约来源的。外层用官方开口
+// `AIDRUN_API_SPEC=… git push` 时它漏进每条用例，自测 3/8 红，只能 --no-verify 跳过全部门禁；
+// 继承来的 AIDRUN_BACKEND_DIR 则让「不设它走默认解析」那条用例假绿（#221）。
+// 用例要的值一律经 extra 显式传。
 const cleanEnv = (extra = {}) => {
-  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_') && !k.startsWith('AIDRUN_')),
+  );
   return {
     ...env,
     GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t',
@@ -238,6 +245,19 @@ const cases = [
       return label.includes('AIDRUN_API_SPEC')
         ? null
         : `来源标签没说清是显式指定的，实得：${JSON.stringify(label)}`;
+    },
+  },
+  {
+    // #221：平时 CI / pre-push 都不带这些变量跑本测试，过滤被改回去也没人发现 —— 所以在这里造一次。
+    name: '外层环境里的 AIDRUN_* 不得漏进用例（否则 `AIDRUN_API_SPEC=… git push` 必被本测试拦下）',
+    check: () => {
+      process.env.AIDRUN_ALLOW_BACKEND_DRIFT = '1';
+      try {
+        const out = runHook();
+        return out.includes('COLLEAGUE_WIP') ? `外层的 AIDRUN_ALLOW_BACKEND_DRIFT 漏进了用例：\n${out}` : null;
+      } finally {
+        delete process.env.AIDRUN_ALLOW_BACKEND_DRIFT;
+      }
     },
   },
   {
