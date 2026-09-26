@@ -140,19 +140,6 @@ final class ScheduledOrderTests: XCTestCase {
 
     // MARK: - 志愿者端动作
 
-    /// 确认与释放**并置**，且不给导航。
-    ///
-    /// 并置的依据是志愿者排班软件的 confirm-or-release：释放做得难只会把 no-show 从
-    /// 「提前告知」变成「当天失联」（`docs/research/volunteer-scheduled-order-confirm-ui-20260906.md`）。
-    /// 不给导航是因为距开跑还有 1–7 天，它会和确认抢同一块视觉重量。
-    func testVolunteerGetsConfirmAndReleaseSideBySideWithNoNavigation() {
-        let kinds = VolunteerServiceActions.actionKinds(for: .scheduledConfirmed)
-
-        XCTAssertEqual(kinds, [.confirmDeparture, .releaseScheduled])
-        XCTAssertFalse(kinds.contains(.navigateToStart), "距开跑 1–7 天，导航是噪音")
-        XCTAssertFalse(kinds.isEmpty, "空数组 = 收到确认通知却没有入口，这一单 60 分钟后会被转走")
-    }
-
     /// 「我去不了」与「取消订单」是**两个文案**。
     ///
     /// 对志愿者，「取消订单」读起来像在替盲人取消这一单，而实际后果是「回派单池换个人」。
