@@ -25,4 +25,4 @@
 - [x] 4.3 真机跑覆盖改动的 suite（含 `EmergencySOSTests` 与相关 `AccessibilityAuditTests`）—— 单测 83/0，陪跑员跑步页 UI 6/0（含横屏）
 - [x] 4.4 security-reviewer 复核求助面板（A1 暂停状态闸 + 面板随状态收起、A2 删「并告知客服」已修）
 - [x] 4.5 `AGENTS.md` §6、`docs/ui/design-direction.md`（V13）同步
-- [ ] 4.6 后端 BE-1 / BE-2 合并后按实际契约对齐推定（design.md 表），再推送
+- [x] 4.6 后端 BE-1 / BE-2 合并后按实际契约对齐推定（design.md 表），再推送 —— 全部一致，补接 `delivered`

@@ -15,7 +15,11 @@
 
 **D7 颜色。** 新增 `AppColors.Flow.statePaused`（`#4B5263`，V13 允许的状态色，只用于暂停灰条）。信号卡黄色复用 `cta` / `ctaStroke` / `onCTA`（与交付包 `yellow` / `yellowBorder` 同值或近值）；节奏卡圆点用现有 `accent`，过期灰用 `decorMutedInk`（此时信息由「上次反馈」四个字承担，颜色只是冗余）。**不新增** `stateRunning` / `runningTint`：V13 把新状态色限在头卡与锁屏卡。
 
-## 待后端确认的推定（BE-1 / BE-2 合并后逐条对）
+## 契约推定（2026-09-27 已对照后端 `origin/main` `221b0ca` 逐条核对，全部成立）
+
+BE-1（#449）、BE-2（#448、#451）已合并。下表每一行都与 `api_spec.yaml` / `websocket-protocol.md` 一致；
+唯一补的是 `/rhythm` 响应里的 `delivered`（`RhythmSignalResponse`）：`false` 时不念「已告诉陪跑员」。
+`RUN_PROGRESS`（V10 的距离/用时实时推送）本变更不接，三数字仍走 `track`。
 
 | 推定 | 依据 |
 |---|---|

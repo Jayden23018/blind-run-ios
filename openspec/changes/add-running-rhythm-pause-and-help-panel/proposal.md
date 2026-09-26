@@ -29,5 +29,5 @@
 ## Impact
 
 - 代码：`VolunteerOrderFlowViews.swift`（旧跑步页与 VM）、新增 `blindRun/Volunteer/VolunteerRunningCompanion.swift`、`blindRun/BlindRunner/RunnerRhythm.swift`；`OrderDetailResponse` 加 `run` / 姓氏；`OrderServing` 加 `sendRhythm` / `pauseRun` / `resumeRun`；`WSLocationUpdateMessage` 加 `batteryLevel`；`AppRealtimeCoordinator` 把四个新 `eventType` 当订单刷新信号；`VolunteerSOSNavButton` 允许换读屏文案。
-- 契约：**依赖后端 BE-1 / BE-2，当前后端 `origin/main`（`0de474f`）一条都没有。** 路径、字段名、`eventType` 按 DECISIONS V14–V18 推定，全部可选解码、可降级；后端合并后按实际契约对一遍（见 design.md「待后端确认的推定」）。在那之前 pre-push 的 spec-coverage 门禁会拦住推送，**不绕**。
+- 契约：依赖后端 BE-1 / BE-2（已于后端 `221b0ca` 合并，逐条核对一致）。**起草时后端 `origin/main`（`0de474f`）一条都没有。** 路径、字段名、`eventType` 按 DECISIONS V14–V18 推定，全部可选解码、可降级；后端合并后按实际契约对一遍（见 design.md「待后端确认的推定」）。在那之前 pre-push 的 spec-coverage 门禁会拦住推送，**不绕**。
 - 不在本变更：跑步页视觉改版（C13/C14/C20，V4 不做）、跑步中响铃（V12）、折返点（V12）、锁屏跑步卡（FE-2）、`run` 对象里的距离/用时（V10，三数字仍走 `track`）。

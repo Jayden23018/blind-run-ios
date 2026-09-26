@@ -67,7 +67,7 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     var quickMessageResult: Result<OrderNudgeResponse, Error> = .failure(NotStubbed(method: "sendQuickMessage"))
     var ringRunnerResult: Result<OrderNudgeResponse, Error> = .failure(NotStubbed(method: "ringRunner"))
     var endWaitingResult: Result<Void, Error> = .failure(NotStubbed(method: "endWaiting"))
-    var rhythmResult: Result<Void, Error> = .failure(NotStubbed(method: "sendRhythm"))
+    var rhythmResult: Result<RhythmSignalResponse, Error> = .failure(NotStubbed(method: "sendRhythm"))
     var pauseRunResult: Result<Void, Error> = .failure(NotStubbed(method: "pauseRun"))
     var resumeRunResult: Result<Void, Error> = .failure(NotStubbed(method: "resumeRun"))
     private(set) var lastRhythmSignal: RunRhythmSignal?
@@ -218,7 +218,7 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         return try endWaitingResult.get()
     }
 
-    func sendRhythm(_ signal: RunRhythmSignal, orderId: Int64) async throws {
+    func sendRhythm(_ signal: RunRhythmSignal, orderId: Int64) async throws -> RhythmSignalResponse {
         record()
         lastOrderId = orderId
         lastRhythmSignal = signal

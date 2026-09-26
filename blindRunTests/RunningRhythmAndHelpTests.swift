@@ -243,7 +243,7 @@ final class RunningRhythmAndHelpTests: XCTestCase {
 
     func testRunnerRhythmSuccessSpeaksWhatWasSent() async throws {
         let service = FakeOrderService()
-        service.rhythmResult = .success(())
+        service.rhythmResult = .success(RhythmSignalResponse(delivered: true))
         let appState = AppState(orders: service)
         let viewModel = RunnerRhythmViewModel()
         var spoken: [String] = []
@@ -253,6 +253,19 @@ final class RunningRhythmAndHelpTests: XCTestCase {
         XCTAssertEqual(service.lastRhythmSignal, .slower)
         XCTAssertEqual(spoken, ["已告诉陪跑员：稍慢一点"])
         XCTAssertEqual(viewModel.notice?.isProblem, false)
+    }
+
+    func testRunnerRhythmNotDeliveredIsNotSpokenAsSuccess() async throws {
+        let service = FakeOrderService()
+        service.rhythmResult = .success(RhythmSignalResponse(delivered: false))
+        let appState = AppState(orders: service)
+        let viewModel = RunnerRhythmViewModel()
+        var spoken: [String] = []
+
+        await viewModel.send(.slower, orderId: 7, appState: appState, speak: { spoken.append($0) }, speakError: { spoken.append($0) })
+
+        XCTAssertEqual(spoken, ["陪跑员可能没收到，可以直接跟对方说"])
+        XCTAssertEqual(viewModel.notice?.isProblem, true)
     }
 
     func testRunnerRhythmRateLimitIsVisibleAndAudible() async throws {

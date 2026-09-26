@@ -72,7 +72,7 @@ protocol OrderServing: Sendable {
     func endWaiting(orderId: Int64) async throws
 
     // 跑步中（DECISIONS-v2 V14/V15）。节奏信号是跑者 token，暂停/继续是陪跑员 token。
-    func sendRhythm(_ signal: RunRhythmSignal, orderId: Int64) async throws
+    func sendRhythm(_ signal: RunRhythmSignal, orderId: Int64) async throws -> RhythmSignalResponse
     func pauseRun(orderId: Int64) async throws
     func resumeRun(orderId: Int64) async throws
     /// 跑者给陪跑员留言。空串 = 清空。返回后端去掉首尾空白后的值，清空时为 `nil`。
@@ -193,8 +193,8 @@ struct OrderService: OrderServing {
         try await transport.send(OrderEndpoint.ringRunner(orderId: orderId).request)
     }
 
-    func sendRhythm(_ signal: RunRhythmSignal, orderId: Int64) async throws {
-        let _: EmptyResponse = try await transport.send(
+    func sendRhythm(_ signal: RunRhythmSignal, orderId: Int64) async throws -> RhythmSignalResponse {
+        try await transport.send(
             OrderEndpoint.rhythm(orderId: orderId).request,
             body: RunRhythmRequest(signal: signal)
         )

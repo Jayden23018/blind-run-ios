@@ -8,6 +8,7 @@ enum RunnerRhythmCopy {
     static func sent(_ signal: String) -> String { "已告诉陪跑员：\(signal)" }
     static let rateLimited = "刚发过，稍等再按"
     static let failed = "没有发出去，请重试"
+    static let notDelivered = "陪跑员可能没收到，可以直接跟对方说"
     static let accessibilityHint = "陪跑员的手机会震动提醒"
 }
 
@@ -28,7 +29,12 @@ final class RunnerRhythmViewModel: ObservableObject {
         sending = signal
         defer { sending = nil }
         do {
-            try await appState.orders.sendRhythm(signal, orderId: orderId)
+            let response = try await appState.orders.sendRhythm(signal, orderId: orderId)
+            guard response.delivered != false else {
+                notice = (RunnerRhythmCopy.notDelivered, true)
+                speakError(RunnerRhythmCopy.notDelivered)
+                return
+            }
             let text = RunnerRhythmCopy.sent(title)
             notice = (text, false)
             speak(text)

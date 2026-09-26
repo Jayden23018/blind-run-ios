@@ -211,7 +211,7 @@ extension MockAPIClient {
 
     /// 节奏信号：只在 `IN_PROGRESS`，同一信号 10 秒内 429（V14 推定）。写回 `run.lastSignal*`，
     /// 陪跑员那一侧的 5 秒轮询就能看到 —— Mock 不模拟推送。
-    func handleRhythm(orderId: Int64, body: (any Encodable & Sendable)?) throws -> EmptyResponse {
+    func handleRhythm(orderId: Int64, body: (any Encodable & Sendable)?) throws -> RhythmSignalResponse {
         guard let data = try? JSONEncoder().encode(MockAnyEncodable(body)),
               let request = try? JSONDecoder().decode(RunRhythmRequest.self, from: data),
               request.signal != .unknown else {
@@ -231,7 +231,7 @@ extension MockAPIClient {
             lastSignalAt: DateFormatter.aidRunBackendLocalDateTime.string(from: now),
             runnerBatteryLow: run.runnerBatteryLow
         )
-        return EmptyResponse()
+        return RhythmSignalResponse(delivered: true)
     }
 
     func handleSetRunPaused(orderId: Int64, paused: Bool) throws -> EmptyResponse {

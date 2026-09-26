@@ -635,6 +635,12 @@ struct RunRhythmRequest: Codable, Sendable {
     let signal: RunRhythmSignal
 }
 
+/// `POST /api/orders/{id}/rhythm` 的响应（契约 `RhythmSignalResponse`）。只读 `delivered`：
+/// `false` = 推送没发出去，不能当成功念「已告诉陪跑员」。
+struct RhythmSignalResponse: Codable, Sendable {
+    let delivered: Bool?
+}
+
 extension OrderDetailResponse {
     /// 陪跑员看跑者的称呼（V11）：有姓氏用姓氏，没有用「跑者」。**不念掩码全名。**
     var runnerShortName: String { blindSurname?.nilIfBlank ?? "跑者" }
