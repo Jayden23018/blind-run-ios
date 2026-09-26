@@ -2574,6 +2574,9 @@ final class blindRunUITests: XCTestCase {
             app.buttons["一键求助，遇到紧急情况时点击"].firstMatch.exists, why, file: file, line: line
         )
         XCTAssertFalse(app.buttons["一键求助"].firstMatch.exists, why, file: file, line: line)
+        // 跑步中那一枚（2026-09-26 起打开求助面板，读屏念「求助与安全」）按 identifier 判 ——
+        // 按文案判会和 v2 页面上同样念「求助与安全」的本地拨号胶囊混在一起。
+        XCTAssertFalse(app.buttons["volunteerServiceSOSButton"].firstMatch.exists, why, file: file, line: line)
     }
 
     /// 求助按钮必须**点得到**，不只是存在于无障碍树里。
@@ -2586,8 +2589,11 @@ final class blindRunUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let button = app.buttons["一键求助，遇到紧急情况时点击"].firstMatch
+        // 跑步中那一枚 2026-09-26 起打开求助面板（DECISIONS-v2 V5），读屏文案随之改成「求助与安全」。
+        // 按 identifier 找再断言文案：只按文案找会和 v2 页面上念同一句的本地拨号胶囊混在一起。
+        let button = app.buttons["volunteerServiceSOSButton"].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 8), "服务进行中必须提供求助入口", file: file, line: line)
+        XCTAssertEqual(button.label, "求助与安全", "读屏念的不是求助面板入口", file: file, line: line)
         // 失败时把几何和截图带出来：「被面板挤出屏幕」「被导航栏盖住」「被别的层压住」是三种修法，
         // 只看 exists / isHittable 分不出。
         if !button.isHittable { attachScreenshot(named: "sos-not-hittable", app: app) }
@@ -2597,14 +2603,6 @@ final class blindRunUITests: XCTestCase {
             file: file,
             line: line
         )
-    }
-
-    /// The SOS button, located by its accessibility label so the assertion also covers VoiceOver.
-    ///
-    /// 志愿者端仍然是这一个。**盲人端陪跑中已不是** —— 那一屏 2026-09-15 起是求助中心，
-    /// 见下面 `blindSafetyHub`。
-    private func emergencyAction(_ app: XCUIApplication) -> XCUIElement {
-        app.buttons["一键求助，遇到紧急情况时点击"].firstMatch
     }
 
     /// 盲人端陪跑中贴底的那块求助中心。

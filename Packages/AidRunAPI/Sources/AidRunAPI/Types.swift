@@ -4299,12 +4299,14 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/csUserId`.
             public var csUserId: Swift.Int64?
-            /// 原始坐标**仅 CS_ADMIN 可见**；`/api/emergency/active` 一律返回 null
+            /// 坐标**仅 CS_ADMIN 可见**；`/api/emergency/active` 一律返回 null。 （2026-09-26 起）**跑者位置优先**：陪跑员代按求助时，这里是触发那一刻跑者手机最新上报的位置（服务端快照）， 不再是陪跑员自己的位置；跑者自己按 / 走散自动触发时仍是请求里的坐标（本就来自跑者手机），请求没带坐标时退回快照
             ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/gpsLat`.
             public var gpsLat: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/gpsLng`.
             public var gpsLng: Swift.Double?
+            /// 是否有可用位置（跑者位置快照或请求坐标任一存在），口径同 `gpsLat`
+            ///
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/hasGpsLocation`.
             public var hasGpsLocation: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/EmergencyEventResponse/id`.
@@ -4454,9 +4456,9 @@ public enum Components {
             ///   - csAcceptedAt: 客服**首次**接手本事件的时刻（#320）。🔴 **没有客服接手过时必为 null** —— 客户端只能在它非 null 时显示「客服已接入」，**不要**用 `status == CS_HANDLING` 推断 （客服接手后再「通知家属」会把 status 改回 `CONTACT_NOTIFIED`，而接手这件事仍然发生过）。 只给时间不给客服身份。⚠️ 目前只有 `GET /api/emergency/active` 填它，其余端点恒为 null。 实时推送见 WS `EMERGENCY_CS_ACCEPTED`。
             ///   - csNotes: 客服的内部处置记录。⚠️ **志愿者调 `/api/emergency/active` 时恒为 null** —— 他读到的是**别人的**事件，而这是可能含健康状况、家属沟通内容、纠纷描述的自由文本。 判据与「自由文本一律接单后」同源：取值空间不封闭的字段不给第三方看。
             ///   - csUserId: ⚠️ **志愿者调 `/api/emergency/active` 时恒为 null**（见 csNotes）
-            ///   - gpsLat: 原始坐标**仅 CS_ADMIN 可见**；`/api/emergency/active` 一律返回 null
+            ///   - gpsLat: 坐标**仅 CS_ADMIN 可见**；`/api/emergency/active` 一律返回 null。 （2026-09-26 起）**跑者位置优先**：陪跑员代按求助时，这里是触发那一刻跑者手机最新上报的位置（服务端快照）， 不再是陪跑员自己的位置；跑者自己按 / 走散自动触发时仍是请求里的坐标（本就来自跑者手机），请求没带坐标时退回快照
             ///   - gpsLng:
-            ///   - hasGpsLocation:
+            ///   - hasGpsLocation: 是否有可用位置（跑者位置快照或请求坐标任一存在），口径同 `gpsLat`
             ///   - id:
             ///   - orderId:
             ///   - resolvedAt:
@@ -5376,6 +5378,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/blindPhone`.
             public var blindPhone: Swift.String?
+            /// （2026-09-26 新增，陪跑员端订单页 v2）跑者**姓氏**（如 `李`、复姓 `欧阳`），给陪跑员端标题 / 短标签 / 锁屏用。 **只在已接单时下发**（`volunteerId` 非 null 时），未接单、跑者没填姓名或已注销为 `null` —— 客户端改说「跑者」。 全名不下发；后端没有性别字段，**不要拼「先生 / 女士」**
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/blindSurname`.
+            public var blindSurname: Swift.String?
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/chatPreference`.
             public struct chatPreferencePayload: Codable, Hashable, Sendable {
                 /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/chatPreference/value1`.
@@ -5610,6 +5616,8 @@ public enum Components {
             }
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/routePreference`.
             public var routePreference: Components.Schemas.OrderDetailResponse.routePreferencePayload?
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/run`.
+            public var run: Components.Schemas.RunView?
             /// 盲人跑者是否已到出发点（#358，服务端判定，客户端不用拿坐标自己推）。**三态**： `true` / `false` 只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 两态、且盲人 30 秒内上报过位置时给出； 其他状态、没有盲人位置、或位置已过期一律 `null` —— 客户端按 null 隐藏这一行，不要当 `false` 念。 判据是盲人最新位置到 `startLatitude/startLongitude` 的直线距离 ≤ `app.meeting-point.arrival-radius-meters` （默认 100 米，与志愿者↔盲人的 `PROXIMITY_ALERT` 阈值是两个独立配置）。 从 false 变成 true 的那一刻，志愿者会另收到一条 WS `APP_NOTIFICATION`（eventType `RUNNER_AT_MEETING_POINT`），每单每位志愿者只推一次。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/runnerAtMeetingPoint`.
@@ -5840,6 +5848,10 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerPhone`.
             public var volunteerPhone: Swift.String?
+            /// （2026-09-26 新增，陪跑员端订单页 v2）陪跑员**姓氏**，给跑者端用。口径同 `blindSurname`：只在已接单时下发，缺失时客户端改说「陪跑员」
+            ///
+            /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerSurname`.
+            public var volunteerSurname: Swift.String?
             /// 已接单志愿者累计完成的陪跑单数。未接单时为 null。 ⚠️ **纯展示，不进派单权重** —— 文案上别写成「完成得多更容易接到单」。
             ///
             /// - Remark: Generated from `#/components/schemas/OrderDetailResponse/volunteerTotalCompleted`.
@@ -5861,6 +5873,7 @@ public enum Components {
             ///   - actualDurationSeconds: 完赛实际耗时（秒），取轨迹点首末时间之差。null 语义同 `actualDistanceMeters`。
             ///   - blindName: 盲人姓名，**始终脱敏**（`张*`，`NameMaskUtils.mask()`）。只有志愿者端渲染它。
             ///   - blindPhone: 盲人手机号，**明文、可直接拨打**（供志愿者拨号），与 `volunteerPhone` 完全对称 ——
+            ///   - blindSurname: （2026-09-26 新增，陪跑员端订单页 v2）跑者**姓氏**（如 `李`、复姓 `欧阳`），给陪跑员端标题 / 短标签 / 锁屏用。 **只在已接单时下发**（`volunteerId` 非 null 时），未接单、跑者没填姓名或已注销为 `null` —— 客户端改说「跑者」。 全名不下发；后端没有性别字段，**不要拼「先生 / 女士」**
             ///   - chatPreference:
             ///   - completedTogetherCount: 查看者（本单陪跑员）和这位盲人**一起跑完过**几单（2026-09-25 新增，#352），口径同 NEW_ORDER / `AvailableOrderResponse` 的同名字段：`status = COMPLETED` 的单数，接了又取消的不算；本单已完成则包含本单。 🚨 **只对本单陪跑员下发，其他查看者（含盲人）恒为 `null`**。陪跑员视角下 `0` 照常下发： `0` = 第一次一起跑，`null` = 没给，两者在卡片上要说不同的话。
             ///   - createdAt:
@@ -5885,6 +5898,7 @@ public enum Components {
             ///   - primaryActionUnlockAt: 主按钮「我出发了」亮起的时刻 = max(`suggestedDepartAt` − 30 分钟, `plannedStart` − `app.order.en-route-earliest-minutes`)。 取 max 是因为 `POST /api/orders/{id}/en-route` 在后者之前一律 409 `DEPARTURE_TOO_EARLY`。下发条件同 `travelMinutes`
             ///   - routeNotes:
             ///   - routePreference:
+            ///   - run:
             ///   - runnerAtMeetingPoint: 盲人跑者是否已到出发点（#358，服务端判定，客户端不用拿坐标自己推）。**三态**： `true` / `false` 只在 `DRIVER_EN_ROUTE` / `DRIVER_ARRIVED` 两态、且盲人 30 秒内上报过位置时给出； 其他状态、没有盲人位置、或位置已过期一律 `null` —— 客户端按 null 隐藏这一行，不要当 `false` 念。 判据是盲人最新位置到 `startLatitude/startLongitude` 的直线距离 ≤ `app.meeting-point.arrival-radius-meters` （默认 100 米，与志愿者↔盲人的 `PROXIMITY_ALERT` 阈值是两个独立配置）。 从 false 变成 true 的那一刻，志愿者会另收到一条 WS `APP_NOTIFICATION`（eventType `RUNNER_AT_MEETING_POINT`），每单每位志愿者只推一次。
             ///   - shareActive: 这一单当前是否有生效中的行程分享链接。 🚨 **只对下单的盲人本人下发；志愿者视角恒为 `null`**（不是 `false`）。 客户端据此渲染「停止分享」入口 —— 此前该状态只记在客户端本地， App 被杀 / 换设备 / 重装后，告知页承诺的「你可以随时停止分享」就静默失效。 为什么志愿者拿不到：本仓库的威胁模型是「陪跑中志愿者可能就是威胁来源」， 下发这个字段等于告诉一个潜在的坏人**这趟有没有人在看**，`false` 比 `true` 危险得多。
             ///   - shareExpiresAt: 生效中分享链接的到期时刻；`shareActive` 为 true 时才有值，同样只对盲人本人下发。 ⚠️ 该值在**建立令牌时一次算定**（`max(plannedEndTime, now) + app.share.ttl-after-end-hours`）， **不随订单被 keep-waiting 反复延长而重算** —— 跑得比计划久很多时链接会先到期， 盲人重新生成一个即可。客户端可据此做到期前提示，但不要假设它会自己往后延。
@@ -5901,6 +5915,7 @@ public enum Components {
             ///   - volunteerId: 已接单志愿者的用户 id。**未接单时为 null。** 🚨 **用途只有一个：拿去调 `PUT /api/blind/favorite-volunteers/{volunteerId}` 收藏这位志愿者。** 不要拿它拼任何展示文案，也不要拿它做拨号 —— 号码仍然只走 `volunteerPhone` 那条状态门。 ⚠️ 「只在接单后下发」是**结构上成立**的，不是额外判断：`PENDING_MATCH` / `PENDING_INTRO_CALL` / `REMATCHING` / `NO_VOLUNTEER` / `CANCELLED` 期 `order.volunteer` 本就是 null（通话磨合期的候选人存在 `dispatchCurrentVolunteerId` 里，**刻意不从这里漏出去** —— 接单前给出一个稳定 id 等于给每个候选人一个可长期持有的标识）。
             ///   - volunteerName: 志愿者姓名，**始终脱敏**（`李*`），与分享页 `SharedTripResponse.volunteerName` 同一口径。 未接单时为 null。 ⚠️ 与 `volunteerPhone` 是两套相反的规则：**电话要么明文可拨要么 null**（掩码号会被拼成 `tel:` 拨成空号），**姓名一律掩码** —— 姓名没有「拨得通」这回事，同 `blindName`。
             ///   - volunteerPhone: 志愿者手机号，**明文、可直接拨打**（客户端拿它拼 `tel:`）。
+            ///   - volunteerSurname: （2026-09-26 新增，陪跑员端订单页 v2）陪跑员**姓氏**，给跑者端用。口径同 `blindSurname`：只在已接单时下发，缺失时客户端改说「陪跑员」
             ///   - volunteerTotalCompleted: 已接单志愿者累计完成的陪跑单数。未接单时为 null。 ⚠️ **纯展示，不进派单权重** —— 文案上别写成「完成得多更容易接到单」。
             ///   - volunteerTotalRatings: 已接单志愿者收到过的评价条数。0 是真实的 0（新人），不是缺数据；未接单时为 null。
             ///   - volunteerVerified: 已接单志愿者的资质审核是否已通过（2026-09-25 新增，#337）。取 `VolunteerProfile.verified`。 **与志愿者自己看到的 `verificationStatus == APPROVED` 是同一件事**：两者在管理员审核时同时置位、 在志愿者重新上传证件时同时重置。⚠️ 例外：迁移 `0007` 把资质门槛恢复前已注册完成的存量志愿者 **未经人工审核**直接置成了 `true`，所以 `true` 不严格等于「被人审过」。它也是接单硬门槛，所以接单那一刻恒为 `true`； 之后被管理员驳回会变成 `false`。 🚨 **`null` = 不知道**（未接单，或档案查不到），**不是**「未认证」。 客户端在 `null` 时不显示认证标识，也不要给默认值 —— 默认印「已认证」就是伪造信任标识。
@@ -5911,6 +5926,7 @@ public enum Components {
                 actualDurationSeconds: Swift.Int32? = nil,
                 blindName: Swift.String? = nil,
                 blindPhone: Swift.String? = nil,
+                blindSurname: Swift.String? = nil,
                 chatPreference: Components.Schemas.OrderDetailResponse.chatPreferencePayload? = nil,
                 completedTogetherCount: Swift.Int64? = nil,
                 createdAt: Swift.String,
@@ -5935,6 +5951,7 @@ public enum Components {
                 primaryActionUnlockAt: Swift.String? = nil,
                 routeNotes: Swift.String? = nil,
                 routePreference: Components.Schemas.OrderDetailResponse.routePreferencePayload? = nil,
+                run: Components.Schemas.RunView? = nil,
                 runnerAtMeetingPoint: Swift.Bool? = nil,
                 shareActive: Swift.Bool? = nil,
                 shareExpiresAt: Swift.String? = nil,
@@ -5951,6 +5968,7 @@ public enum Components {
                 volunteerId: Swift.Int64? = nil,
                 volunteerName: Swift.String? = nil,
                 volunteerPhone: Swift.String? = nil,
+                volunteerSurname: Swift.String? = nil,
                 volunteerTotalCompleted: Swift.Int32? = nil,
                 volunteerTotalRatings: Swift.Int32? = nil,
                 volunteerVerified: Swift.Bool? = nil
@@ -5961,6 +5979,7 @@ public enum Components {
                 self.actualDurationSeconds = actualDurationSeconds
                 self.blindName = blindName
                 self.blindPhone = blindPhone
+                self.blindSurname = blindSurname
                 self.chatPreference = chatPreference
                 self.completedTogetherCount = completedTogetherCount
                 self.createdAt = createdAt
@@ -5985,6 +6004,7 @@ public enum Components {
                 self.primaryActionUnlockAt = primaryActionUnlockAt
                 self.routeNotes = routeNotes
                 self.routePreference = routePreference
+                self.run = run
                 self.runnerAtMeetingPoint = runnerAtMeetingPoint
                 self.shareActive = shareActive
                 self.shareExpiresAt = shareExpiresAt
@@ -6001,6 +6021,7 @@ public enum Components {
                 self.volunteerId = volunteerId
                 self.volunteerName = volunteerName
                 self.volunteerPhone = volunteerPhone
+                self.volunteerSurname = volunteerSurname
                 self.volunteerTotalCompleted = volunteerTotalCompleted
                 self.volunteerTotalRatings = volunteerTotalRatings
                 self.volunteerVerified = volunteerVerified
@@ -6012,6 +6033,7 @@ public enum Components {
                 case actualDurationSeconds
                 case blindName
                 case blindPhone
+                case blindSurname
                 case chatPreference
                 case completedTogetherCount
                 case createdAt
@@ -6036,6 +6058,7 @@ public enum Components {
                 case primaryActionUnlockAt
                 case routeNotes
                 case routePreference
+                case run
                 case runnerAtMeetingPoint
                 case shareActive
                 case shareExpiresAt
@@ -6052,6 +6075,7 @@ public enum Components {
                 case volunteerId
                 case volunteerName
                 case volunteerPhone
+                case volunteerSurname
                 case volunteerTotalCompleted
                 case volunteerTotalRatings
                 case volunteerVerified
@@ -7458,6 +7482,162 @@ public enum Components {
                 case ttsText
             }
         }
+        /// （2026-09-26 新增，陪跑员端订单页 v2）跑步中的实时数据。**只在 `IN_PROGRESS` 非 `null`，订单双方都有**。 距离 / 配速按**跑者手机**的轨迹算，清洗与自动暂停口径与 `GET /api/orders/{id}/run-record` 完全一致 （hAcc > 30m 丢、相邻速度 > 7m/s 丢、< 0.5m/s 连续 ≥ 10 秒的段不计距离与运动时间），跑完那一刻的距离即跑后记录的距离。 与 WS `RUN_PROGRESS` 的 `run` 同形；客户端在两次推送之间可按 `paused` 本地推进 `elapsedSeconds`，收到即校正。
+        ///
+        /// - Remark: Generated from `#/components/schemas/RunView`.
+        public struct RunView: Codable, Hashable, Sendable {
+            /// 已跑距离（公里，两位小数）。跑者手机清洗后不足 2 个轨迹点时为 `null`（不是 0 —— 没数据不等于没跑）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/distanceKm`.
+            public var distanceKm: Swift.Double?
+            /// 用时（秒）= 现在 − `startedAt` − `pausedSeconds`。**暂停中不走**，这就是页面上的「计时停在 18:32」
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/elapsedSeconds`.
+            public var elapsedSeconds: Swift.Int64
+            /// 节奏信号：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/lastSignal`.
+            public struct lastSignalPayload: Codable, Hashable, Sendable {
+                /// - Remark: Generated from `#/components/schemas/RunView/lastSignal/value1`.
+                @frozen public enum Value1Payload: String, Codable, Hashable, Sendable, CaseIterable {
+                    case SLOWER = "SLOWER"
+                    case OK = "OK"
+                    case FASTER = "FASTER"
+                }
+                /// - Remark: Generated from `#/components/schemas/RunView/lastSignal/value1`.
+                public var value1: Components.Schemas.RunView.lastSignalPayload.Value1Payload?
+                /// - Remark: Generated from `#/components/schemas/RunView/lastSignal/value2`.
+                public var value2: Swift.String?
+                /// Creates a new `lastSignalPayload`.
+                ///
+                /// - Parameters:
+                ///   - value1:
+                ///   - value2:
+                public init(
+                    value1: Components.Schemas.RunView.lastSignalPayload.Value1Payload? = nil,
+                    value2: Swift.String? = nil
+                ) {
+                    self.value1 = value1
+                    self.value2 = value2
+                }
+                public init(from decoder: any Swift.Decoder) throws {
+                    var errors: [any Swift.Error] = []
+                    do {
+                        self.value1 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    do {
+                        self.value2 = try decoder.decodeFromSingleValueContainer()
+                    } catch {
+                        errors.append(error)
+                    }
+                    try Swift.DecodingError.verifyAtLeastOneSchemaIsNotNil(
+                        [
+                            self.value1,
+                            self.value2
+                        ],
+                        type: Self.self,
+                        codingPath: decoder.codingPath,
+                        errors: errors
+                    )
+                }
+                public func encode(to encoder: any Swift.Encoder) throws {
+                    try encoder.encodeFirstNonNilValueToSingleValueContainer([
+                        self.value1,
+                        self.value2
+                    ])
+                }
+            }
+            /// 节奏信号：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/lastSignal`.
+            public var lastSignal: Components.Schemas.RunView.lastSignalPayload?
+            /// `lastSignal` 的受理时刻（服务器本地时间，无时区）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/lastSignalAt`.
+            public var lastSignalAt: Swift.String?
+            /// 平均配速（秒/公里）= 运动时间 / 距离，与跑后记录 `avgPaceSecPerKm` 同口径（自动暂停段不计）。距离 < 1 米时为 `null`
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/paceSecondsPerKm`.
+            public var paceSecondsPerKm: Swift.Int32?
+            /// 此刻是否处于陪跑员手动暂停中
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/paused`.
+            public var paused: Swift.Bool
+            /// 手动暂停累计（秒），含正在进行中的这一段。志愿服务时长扣除的就是它
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/pausedSeconds`.
+            public var pausedSeconds: Swift.Int64
+            /// 跑者手机电量这一单是否降到过 ≤20%（WS `LOCATION_UPDATE.batteryLevel`）。 一旦为 `true` 本单内不再变回 `false` —— 与只推一次的 `RUNNER_BATTERY_LOW` 同一个判据
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/runnerBatteryLow`.
+            public var runnerBatteryLow: Swift.Bool
+            /// 开始陪跑的时刻（第一次进入 `IN_PROGRESS`，与跑后记录的服务开始同源）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/startedAt`.
+            public var startedAt: Swift.String
+            /// 目标距离（公里）= `plannedDistanceMeters` / 1000，下单没填为 `null`
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/targetKm`.
+            public var targetKm: Swift.Double?
+            /// 折返点（公里）。**恒为 `null`**（V12：没有数据来源，不画折返线）
+            ///
+            /// - Remark: Generated from `#/components/schemas/RunView/turnaroundKm`.
+            public var turnaroundKm: Swift.Double?
+            /// Creates a new `RunView`.
+            ///
+            /// - Parameters:
+            ///   - distanceKm: 已跑距离（公里，两位小数）。跑者手机清洗后不足 2 个轨迹点时为 `null`（不是 0 —— 没数据不等于没跑）
+            ///   - elapsedSeconds: 用时（秒）= 现在 − `startedAt` − `pausedSeconds`。**暂停中不走**，这就是页面上的「计时停在 18:32」
+            ///   - lastSignal: 节奏信号：`SLOWER` 稍慢一点 / `OK` 刚刚好 / `FASTER` 可以快一点
+            ///   - lastSignalAt: `lastSignal` 的受理时刻（服务器本地时间，无时区）
+            ///   - paceSecondsPerKm: 平均配速（秒/公里）= 运动时间 / 距离，与跑后记录 `avgPaceSecPerKm` 同口径（自动暂停段不计）。距离 < 1 米时为 `null`
+            ///   - paused: 此刻是否处于陪跑员手动暂停中
+            ///   - pausedSeconds: 手动暂停累计（秒），含正在进行中的这一段。志愿服务时长扣除的就是它
+            ///   - runnerBatteryLow: 跑者手机电量这一单是否降到过 ≤20%（WS `LOCATION_UPDATE.batteryLevel`）。 一旦为 `true` 本单内不再变回 `false` —— 与只推一次的 `RUNNER_BATTERY_LOW` 同一个判据
+            ///   - startedAt: 开始陪跑的时刻（第一次进入 `IN_PROGRESS`，与跑后记录的服务开始同源）
+            ///   - targetKm: 目标距离（公里）= `plannedDistanceMeters` / 1000，下单没填为 `null`
+            ///   - turnaroundKm: 折返点（公里）。**恒为 `null`**（V12：没有数据来源，不画折返线）
+            public init(
+                distanceKm: Swift.Double? = nil,
+                elapsedSeconds: Swift.Int64,
+                lastSignal: Components.Schemas.RunView.lastSignalPayload? = nil,
+                lastSignalAt: Swift.String? = nil,
+                paceSecondsPerKm: Swift.Int32? = nil,
+                paused: Swift.Bool,
+                pausedSeconds: Swift.Int64,
+                runnerBatteryLow: Swift.Bool,
+                startedAt: Swift.String,
+                targetKm: Swift.Double? = nil,
+                turnaroundKm: Swift.Double? = nil
+            ) {
+                self.distanceKm = distanceKm
+                self.elapsedSeconds = elapsedSeconds
+                self.lastSignal = lastSignal
+                self.lastSignalAt = lastSignalAt
+                self.paceSecondsPerKm = paceSecondsPerKm
+                self.paused = paused
+                self.pausedSeconds = pausedSeconds
+                self.runnerBatteryLow = runnerBatteryLow
+                self.startedAt = startedAt
+                self.targetKm = targetKm
+                self.turnaroundKm = turnaroundKm
+            }
+            public enum CodingKeys: String, CodingKey {
+                case distanceKm
+                case elapsedSeconds
+                case lastSignal
+                case lastSignalAt
+                case paceSecondsPerKm
+                case paused
+                case pausedSeconds
+                case runnerBatteryLow
+                case startedAt
+                case targetKm
+                case turnaroundKm
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/SendCodeRequest`.
         public struct SendCodeRequest: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SendCodeRequest/phone`.
@@ -8044,7 +8224,8 @@ public enum Components {
             ///
             /// - Remark: Generated from `#/components/schemas/VolunteerAchievementsResponse/totalRatings`.
             public var totalRatings: Swift.Int32?
-            /// 累计服务时长（分钟）。口径：**每单从「志愿者点开始服务」到「订单完成」**，跨全部已完成订单求和。
+            /// 累计服务时长（分钟）。口径：**每单从「志愿者点开始服务」到「订单完成」，减去陪跑员手动暂停的总时长**
+            /// （`POST /api/orders/{id}/pause`，2026-09-26 起），每单向下取整到分钟，跨全部已完成订单求和。
             ///
             /// ⚠️ **不是从接单算起** —— 志愿者可能在跑步开始前几小时就接了单，
             /// 用接单时刻起算会把干等的时间算成志愿服务时长。
@@ -8064,7 +8245,7 @@ public enum Components {
             ///   - totalCompleted: 累计完成的陪跑次数（订单走到 COMPLETED 才算，接了没跑完不计）
             ///   - totalDistanceMeters: 累计里程（**米**，与 `actualDistanceMeters` 同单位，取整成公里由客户端做）。**恒非 null**，无数据为 0。
             ///   - totalRatings: 累计收到的评价条数
-            ///   - totalServiceMinutes: 累计服务时长（分钟）。口径：**每单从「志愿者点开始服务」到「订单完成」**，跨全部已完成订单求和。
+            ///   - totalServiceMinutes: 累计服务时长（分钟）。口径：**每单从「志愿者点开始服务」到「订单完成」，减去陪跑员手动暂停的总时长**
             public init(
                 avgRating: Swift.Double? = nil,
                 badges: [Components.Schemas.VolunteerBadgeDto]? = nil,

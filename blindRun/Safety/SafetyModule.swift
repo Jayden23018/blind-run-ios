@@ -1002,8 +1002,10 @@ struct VolunteerSOSNavButton: View {
         .buttonStyle(.plain)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .disabled(coordinator.state.isBusy)
-        .accessibilityLabel(EmergencySafetyCopy.accessibilityLabel)
-        .accessibilityHint(EmergencySafetyCopy.accessibilityHint)
+        // 2026-09-26 起它打开的是跑步中求助面板（DECISIONS-v2 V5），不再直接进求助确认框 ——
+        // 读屏再念「一键求助」就是在说一件按下去不会发生的事。「一键求助」四个字留给面板里那枚紧急按钮。
+        .accessibilityLabel(VolunteerRunCopy.navButtonLabel)
+        .accessibilityHint(VolunteerRunCopy.navButtonHint)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("volunteerServiceSOSButton")
     }

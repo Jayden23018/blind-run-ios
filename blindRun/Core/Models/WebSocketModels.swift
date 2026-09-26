@@ -45,6 +45,8 @@ nonisolated struct WSLocationUpdateMessage: Codable, Sendable, Equatable {
     let steps: Int?
     /// 步/分钟（`CMPedometer.currentCadence` 是步/秒，已 ×60）。
     let cadence: Int?
+    /// 跑者手机电量 0–1（V16，⚠️ 推定字段名，后端 BE-2 合并后核对）。只跑者带。
+    let batteryLevel: Double?
 
     init(
         lat: Double,
@@ -53,7 +55,8 @@ nonisolated struct WSLocationUpdateMessage: Codable, Sendable, Equatable {
         speed: Double? = nil,
         alt: Double? = nil,
         steps: Int? = nil,
-        cadence: Int? = nil
+        cadence: Int? = nil,
+        batteryLevel: Double? = nil
     ) {
         self.type = WSMessageType.locationUpdate.rawValue
         self.lat = lat
@@ -63,6 +66,7 @@ nonisolated struct WSLocationUpdateMessage: Codable, Sendable, Equatable {
         self.alt = alt
         self.steps = steps
         self.cadence = cadence
+        self.batteryLevel = batteryLevel
     }
 }
 

@@ -325,6 +325,14 @@ final class FlowDesignSystemTests: XCTestCase {
     }
 
     /// 头卡用到的四种状态色（v2 C01）。跑步中青绿 / 暂停灰不走这个页面（V4）。
+    /// 跑步中暂停灰条（FE-3）：上面只有纯白字，不走头卡那套半透明白 / 头像 / 引导绳，所以单列。
+    func testPausedStripWhiteTextClearsTheBodyThreshold() {
+        let tone = AppColors.Flow.statePausedTone
+        for (appearance, bg) in [("亮色", tone.light), ("暗色", tone.dark)] {
+            assertContrast(0xFFFFFF, bg, Self.textMinimum, appearance, "暂停灰条：白字")
+        }
+    }
+
     private static let heroStates: [(AppColors.Tone, String)] = [
         (AppColors.Flow.stateAgreedTone, "约好 / 跑者取消"),
         (AppColors.Flow.stateDepartedTone, "出发"),

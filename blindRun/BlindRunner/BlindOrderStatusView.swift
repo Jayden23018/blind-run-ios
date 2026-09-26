@@ -1594,6 +1594,7 @@ struct BlindOrderStatusView: View {
     @StateObject private var viewModel = BlindOrderStatusViewModel()
     @StateObject private var trackViewModel = CompletedTrackSummaryViewModel()
     @StateObject private var shareViewModel = RunPlanLiveShareViewModel()
+    @StateObject private var rhythmViewModel = RunnerRhythmViewModel()
     @State private var showEmergencyConfirmation = false
     @State private var showEmergencyCancelConfirmation = false
     /// 云端求助失败后的一跳拨号兜底（`EmergencyCallContext.cloudFailed`）。
@@ -1772,6 +1773,20 @@ struct BlindOrderStatusView: View {
     @ViewBuilder
     private func flowFooter(_ order: OrderDetailResponse) -> some View {
         VStack(spacing: 10) {
+            // 跑步中告诉陪跑员节奏（V14）。只在 `IN_PROGRESS`：后端也只在这一态收。
+            if order.status == .inProgress {
+                RunnerRhythmButtons(viewModel: rhythmViewModel) { signal in
+                    Task {
+                        await rhythmViewModel.send(
+                            signal,
+                            orderId: order.orderId,
+                            appState: appState,
+                            speak: { speechService.speak($0) },
+                            speakError: { speechService.speakError($0) }
+                        )
+                    }
+                }
+            }
             // 求助的结果面。**不额外判相位** —— 云端求助只在 `IN_PROGRESS` 可发
             // （`canBlindRunnerTriggerEmergency`），所以这三块在别的幕里本来就恒为空；
             // 多一道相位闸只会多一个能判错的地方，而判错的方向是「求助失败了却没有兜底按钮」。

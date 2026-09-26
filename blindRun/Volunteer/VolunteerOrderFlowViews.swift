@@ -31,6 +31,8 @@ private enum VolunteerSheet: Identifiable {
     case supportTicket
     /// 取消这次陪跑的确认层。
     case cancelOrder
+    /// 跑步中右上角「求助」打开的面板（DECISIONS-v2 V5）。
+    case runHelp
 
     var id: String {
         switch self {
@@ -42,6 +44,8 @@ private enum VolunteerSheet: Identifiable {
             return "supportTicket"
         case .cancelOrder:
             return "cancelOrder"
+        case .runHelp:
+            return "runHelp"
         }
     }
 }
@@ -966,6 +970,20 @@ final class VolunteerInServiceViewModel: ObservableObject {
     /// 结束等待成功 ⇒ 宿主关页。**不进**「跑者已取消」那一屏：这一单是陪跑员等满后结束的。
     @Published private(set) var didEndWaiting = false
     static let quickMessageCooldown: TimeInterval = 60
+
+    // 跑步中（DECISIONS-v2 V4–V8，`VolunteerRunningCompanion.swift`）。
+    /// 信号卡变黄到这一刻为止。只有非「刚刚好」的新信号才设。
+    @Published private(set) var signalHighlightUntil: Date?
+    /// 最近一次**本单**走散告警（`ESCORT_DISTANCE_ALERT`）的收到时刻。提示条按它显示 60 秒。
+    @Published private(set) var separationAlertAt: Date?
+    /// 本机定位精度差于 50 米的起始时刻。
+    @Published private(set) var weakLocationSince: Date?
+    @Published private(set) var isTogglingPause = false
+    @Published private(set) var supportRequestState: VolunteerSupportRequestState = .idle
+    private var separationCancellable: AnyCancellable?
+    /// 上一次已经播报（或进页时已经跑过）的整公里数。`nil` = 还没拿到过数字，第一次只记不播。
+    private var lastAnnouncedKilometer: Int?
+    private let voiceBroadcastEnabled: () -> Bool
     private var orderLiveUpdateCancellable: AnyCancellable?
     /// 结束等待的请求在路上。那期间收到的 `CANCELLED` 是它自己造成的，不播「跑者取消了」。
     private var isEndingWait = false
@@ -995,8 +1013,12 @@ final class VolunteerInServiceViewModel: ObservableObject {
         actionDeadlineNanoseconds: UInt64 = 12_000_000_000,
         confirmationTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout,
         orderLoadTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout,
-        peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness
+        peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness,
+        voiceBroadcastEnabled: @escaping () -> Bool = {
+            UserDefaults.standard.bool(forKey: VolunteerRunVoiceBroadcast.defaultsKey)
+        }
     ) {
+        self.voiceBroadcastEnabled = voiceBroadcastEnabled
         self.actionDeadlineNanoseconds = actionDeadlineNanoseconds
         self.confirmationTimeout = max(0.05, confirmationTimeout)
         self.orderLoadTimeout = max(0.05, orderLoadTimeout)
@@ -1056,6 +1078,20 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 .sink { [weak self] update in
                     guard let self, let current = self.order else { return }
                     self.order = current.merging(update)
+                }
+        }
+        // 走散提示条的驱动（V7：沿用现有告警，阈值不改）。`dropFirst`：订阅时吐出的是旧告警，
+        // 进页那一刻不该把一条早就过去的走散当成「刚刚」。
+        if separationCancellable == nil {
+            separationCancellable = appState.realtimeCoordinator.$latestSeparationAlert
+                .dropFirst()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] alert in
+                    guard let self, let alert, alert.eventType == "ESCORT_DISTANCE_ALERT",
+                          alert.orderID == self.order?.orderId else { return }
+                    self.separationAlertAt = Date()
+                    // 前台横幅已经在念这条告警，这一下是它的冗余通道（08 §五「额外 .warning 一次」）。
+                    HapticFeedback.play(.warning)
                 }
         }
     }
@@ -1152,6 +1188,95 @@ final class VolunteerInServiceViewModel: ObservableObject {
             blindStats = try await appState.safety.orderTrack(orderId: order.orderId).blindStats
         } catch {
             return
+        }
+        announceKilometerIfNeeded(blindStats)
+    }
+
+    /// 耳机语音播报开着时，每跨过一个整公里念一次（08 §二）。进页时已经跑过的公里不补念。
+    func announceKilometerIfNeeded(_ stats: TrackStats?) {
+        guard let meters = stats?.distanceMeters, meters >= 0 else { return }
+        let km = Int(meters / 1_000)
+        defer { lastAnnouncedKilometer = max(km, lastAnnouncedKilometer ?? km) }
+        guard let last = lastAnnouncedKilometer, km > last, voiceBroadcastEnabled(),
+              let duration = stats?.durationText else { return }
+        speechService?.speak(VolunteerRunCopy.kilometerAnnouncement(km: km, duration: duration))
+    }
+
+    // MARK: - 跑步中：暂停 / 继续 / 联系客服 / 定位精度（V5、V8、V15）
+
+    func pauseRun() async { await setRunPaused(true) }
+    func resumeRun() async { await setRunPaused(false) }
+
+    private func setRunPaused(_ paused: Bool) async {
+        // 面板是在 `IN_PROGRESS` 打开的，但按下去的那一刻订单可能已经结束（security review A1）。
+        guard let order, let appState, !isTogglingPause, order.status == .inProgress else { return }
+        isTogglingPause = true
+        errorMessage = nil
+        defer { isTogglingPause = false }
+        do {
+            if paused {
+                try await appState.orders.pauseRun(orderId: order.orderId)
+            } else {
+                try await appState.orders.resumeRun(orderId: order.orderId)
+            }
+            // 先就地改，再以详情为准：不改的话要等下一次 GET 回来按钮才换，那几百毫秒里会被按第二次。
+            var run = self.order?.run ?? RunView()
+            run.paused = paused
+            self.order?.run = run
+            HapticFeedback.play(.medium)
+            speechService?.speak(paused ? VolunteerRunCopy.pausedSpoken : VolunteerRunCopy.resumedSpoken)
+            await load(orderId: order.orderId, speakChanges: false)
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) { return }
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+        } catch {
+            let message = paused ? "暂停没有成功，请重试。" : "继续没有成功，请重试。"
+            errorMessage = message
+            speechService?.speakError(message)
+        }
+    }
+
+    /// 「联系客服」：一键提交带订单号的工单（V5）。成功后不可重复提交（同一单的同一件事）。
+    func requestSupportCallback() async {
+        guard let order, let appState, supportRequestState != .submitting, supportRequestState != .submitted,
+              let request = SupportTicketRequest(
+                category: .orderService,
+                content: VolunteerRunCopy.supportTicketContent,
+                orderId: order.orderId
+              ) else { return }
+        supportRequestState = .submitting
+        do {
+            try await appState.safety.submitSupportTicket(request)
+            supportRequestState = .submitted
+            speechService?.speak(VolunteerRunCopy.supportSubmitted)
+        } catch let error as APIError where appState.handleAuthenticatedAPIError(error) {
+            supportRequestState = .idle
+        } catch {
+            supportRequestState = .failed
+            speechService?.speakError(VolunteerRunCopy.supportFailed)
+        }
+    }
+
+    /// 本机定位精度的输入。页面在每次定位更新时调。
+    func observeOwnLocationAccuracy(_ accuracy: Double?, now: Date = Date()) {
+        let next = VolunteerRunTip.weakSince(previous: weakLocationSince, accuracy: accuracy, now: now)
+        if next != weakLocationSince { weakLocationSince = next }
+    }
+
+    /// 新节奏信号到达：非「刚刚好」两次 `.medium`（间隔 0.15 秒）+ 变黄 8 秒；「刚刚好」只震一次。
+    /// VoiceOver 播报一次；耳机语音播报开着时朗读（08 §三）。
+    private func handleSignalArrival(_ signal: RunRhythmSignal, order: OrderDetailResponse, now: Date) {
+        guard let text = signal.title else { return }
+        let name = order.runnerShortName
+        HapticFeedback.play(.medium)
+        if signal != .ok {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { HapticFeedback.play(.medium) }
+            signalHighlightUntil = now.addingTimeInterval(VolunteerRhythmCardPresentation.highlightDuration)
+        }
+        UIAccessibility.post(notification: .announcement, argument: VolunteerRunCopy.signalTitle(name, text))
+        if voiceBroadcastEnabled() {
+            speechService?.speak(VolunteerRunCopy.spokenSignal(name, text))
         }
     }
 
@@ -1561,6 +1686,10 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
         let previousStatus = order?.status
+        let now = Date()
+        if let signal = RunSignalArrival.detect(previous: order, updated: updated, now: now) {
+            handleSignalArrival(signal, order: updated, now: now)
+        }
         order = updated
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         if speakChanges, previousStatus != updated.status {
@@ -1672,6 +1801,9 @@ struct VolunteerInServiceView: View {
     @State private var showsRunRecord = false
     @State private var activeSheet: VolunteerSheet?
     @Environment(\.scenePhase) private var scenePhase
+    /// 横屏（高度紧凑）时跑步中新增的几块改放进底部面板的滚动区：放在固定区会把面板压到 5pt
+    /// （真机 `testVolunteerRunningPageKeepsTheSOSButtonReachable` 横屏实测），「长按结束」够不着。
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     /// 汇合页的朝向源，只在 `DRIVER_ARRIVED` 开着。
     @StateObject private var meetHeading = MeetHeadingProvider()
     /// 方位描述的滞回基准（上一次说的是哪个方位）。
@@ -1746,9 +1878,11 @@ struct VolunteerInServiceView: View {
         // v2 页面的求助胶囊在它自己的导航栏上，这里只管旧路径。
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
+                // 跑步中改为打开求助面板（V5）：暂停 / 联系客服 / 长按 3 秒紧急求助。
+                // 紧急求助的确认框与云端链路都没变，只是多了一层「不那么重的出口」。
                 if flowPresentation == nil, let order = viewModel.order, order.status.canVolunteerTriggerEmergency {
                     VolunteerSOSNavButton(coordinator: appState.emergencyCoordinator) {
-                        showEmergencyConfirm = true
+                        activeSheet = .runHelp
                     }
                 }
             }
@@ -1786,6 +1920,14 @@ struct VolunteerInServiceView: View {
             if viewModel.order?.status == .driverArrived { meetHeading.start() } else { meetHeading.stop() }
         }
         .onChange(of: meetCue) { handleMeetCueChange($0) }
+        // 跑步中求助面板只属于 `IN_PROGRESS`。订单一离开（完成 / 被取消 / 转重新匹配）就收起，
+        // 不留一个按下去已经不成立的面板（云端求助另有 `EmergencyCoordinator.trigger` 的状态闸兜底）。
+        .onChange(of: viewModel.order?.status) { status in
+            if case .runHelp = activeSheet, status != .inProgress { activeSheet = nil }
+        }
+        .onReceive(locationService.$currentLocation) { _ in
+            viewModel.observeOwnLocationAccuracy(locationService.latestDeviceSample?.horizontalAccuracy)
+        }
         .onChange(of: viewModel.didEndWaiting) { ended in
             if ended { dismiss() }
         }
@@ -1831,6 +1973,28 @@ struct VolunteerInServiceView: View {
                 )
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
+            case .runHelp:
+                if let order = viewModel.order {
+                    VolunteerRunHelpPanel(
+                        coordinator: appState.emergencyCoordinator,
+                        runnerName: order.runnerShortName,
+                        isPaused: order.isRunPaused,
+                        isTogglingPause: viewModel.isTogglingPause,
+                        supportState: viewModel.supportRequestState,
+                        onPause: { Task { await viewModel.pauseRun() } },
+                        onContactSupport: { Task { await viewModel.requestSupportCallback() } },
+                        onEmergency: {
+                            Task {
+                                await viewModel.enterEmergency(
+                                    locate: { locationService.latestBackendSample() },
+                                    locationFailureReason: { locationService.locationError }
+                                )
+                            }
+                        }
+                    )
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+                }
             }
         }
         // 「查看跑步记录」。已完成那一屏只留一行入口，轨迹本身推到下一页 ——
@@ -2157,12 +2321,18 @@ struct VolunteerInServiceView: View {
                             // 只在 `IN_PROGRESS` —— 其余状态那三个数字要么还没开始、要么已经结束，
                             // 而一张写着 `--` 的卡片只会占掉本来该给流转按钮的空间。
                             if order.status == .inProgress {
+                                if order.isRunPaused, verticalSizeClass != .compact {
+                                    VolunteerRunPausedStrip(elapsedText: order.run?.elapsedClockText)
+                                }
                                 VolunteerEscortStatsCard(
                                     coordinator: appState.emergencyCoordinator,
                                     peerName: order.blindName,
                                     stats: viewModel.blindStats,
                                     isPeerLocationFresh: viewModel.latestBlindSample != nil
                                 )
+                                if verticalSizeClass != .compact {
+                                    runningAdditions(order: order, includesPausedStrip: false)
+                                }
                             }
                             emergencySection(for: order)
                             VolunteerServiceBottomPanel(
@@ -2186,12 +2356,62 @@ struct VolunteerInServiceView: View {
                             onRetryTransitionConfirmation: {
                                 viewModel.retryTransitionConfirmation()
                             },
+                            isRunPaused: order.isRunPaused,
+                            leadingContent: order.status == .inProgress && verticalSizeClass == .compact
+                                ? AnyView(runningAdditions(order: order, includesPausedStrip: true))
+                                : nil,
+                            trailingContent: order.status == .inProgress
+                                ? AnyView(VolunteerRunVoiceToggle(name: order.runnerShortName))
+                                : nil
                             )
                     }
                     .padding(.horizontal, 10)
                     .padding(.bottom, 8)
                 }
             }
+        }
+    }
+
+    /// 跑步中加进旧页的三样（V4）：提示条、节奏卡、暂停时的「继续陪跑」。
+    /// 每秒一拍：信号卡 8 秒收起、5 分钟过期、走散提示 60 秒收起都是 `(状态, 现在)` 的函数，不存。
+    private func runningAdditions(order: OrderDetailResponse, includesPausedStrip: Bool) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            VStack(spacing: 10) {
+                if includesPausedStrip, order.isRunPaused {
+                    VolunteerRunPausedStrip(elapsedText: order.run?.elapsedClockText)
+                }
+                if let tip = VolunteerRunTip.resolve(
+                    separationAlertAt: viewModel.separationAlertAt,
+                    runnerBatteryLow: order.run?.runnerBatteryLow == true,
+                    weakLocationSince: viewModel.weakLocationSince,
+                    now: context.date
+                ) {
+                    VolunteerRunTipBar(tip: tip, name: order.runnerShortName)
+                        .transition(.opacity)
+                }
+                VolunteerRhythmCard(
+                    presentation: .make(
+                        run: order.run,
+                        name: order.runnerShortName,
+                        highlightUntil: viewModel.signalHighlightUntil,
+                        now: context.date
+                    )
+                )
+                // 本屏唯一的黄色主按钮（08 §五）；结束按钮暂停时改为白底描边，保持在它下面。
+                if order.isRunPaused {
+                    FlowActionButton(
+                        VolunteerRunCopy.resume,
+                        systemImage: "play.fill",
+                        style: .raisedPrimary,
+                        isLoading: viewModel.isTogglingPause,
+                        accessibilityHint: "恢复计时"
+                    ) {
+                        Task { await viewModel.resumeRun() }
+                    }
+                    .accessibilityIdentifier("volunteerRunResumeButton")
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: order.isRunPaused)
         }
     }
 
@@ -3090,10 +3310,17 @@ struct VolunteerServiceBottomPanel: View {
     let onComplete: () -> Void
     let onConfirmDeparture: () -> Void
     let onRetryTransitionConfirmation: () -> Void
+    /// 跑步中已暂停：结束按钮改白底描边，让「继续陪跑」成为本屏唯一的黄色按钮。
+    var isRunPaused = false
+    /// 滚动区最上面的附加内容：横屏时跑步中新增的几块放这里（竖屏在面板外的固定区）。
+    var leadingContent: AnyView? = nil
+    /// 动作区之后的附加内容（跑步中的「耳机语音播报」开关）。
+    var trailingContent: AnyView? = nil
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
+                leadingContent
                 VolunteerServiceStageHeader(status: order.status)
                 // 排在跑者卡（姓名 + 电话）之前：先知道「这个人需要我怎么带」，
                 // 再知道「他叫什么、怎么联系」。
@@ -3135,7 +3362,9 @@ struct VolunteerServiceBottomPanel: View {
                     onCancel: onCancel,
                     onComplete: onComplete,
                     onConfirmDeparture: onConfirmDeparture,
+                    isRunPaused: isRunPaused
                 )
+                trailingContent
             }
             .padding(.horizontal, 22)
             .padding(.top, 26)
@@ -3436,6 +3665,7 @@ struct VolunteerServiceActions: View {
     let onCancel: () -> Void
     let onComplete: () -> Void
     let onConfirmDeparture: () -> Void
+    var isRunPaused = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -3517,6 +3747,7 @@ struct VolunteerServiceActions: View {
             VolunteerFinishLongPressButton(
                 isPerformingAction: isPerformingAction,
                 isEnabled: !transitionsDisabled,
+                isSecondary: isRunPaused,
                 onFinish: onComplete
             )
         case .completedMessage:
@@ -3698,7 +3929,11 @@ enum VolunteerFinishLongPress {
 struct VolunteerFinishLongPressButton: View {
     let isPerformingAction: Bool
     let isEnabled: Bool
+    /// 暂停中改白底描边（08 §五：「继续陪跑」是本屏唯一的黄色按钮）。手势与时长不变。
+    var isSecondary = false
     let onFinish: () -> Void
+
+    private var ink: Color { isSecondary ? AppColors.Flow.primaryText : AppColors.Flow.onCTA }
 
     @ScaledMetric(relativeTo: .body) private var ringDiameter: CGFloat = VolunteerFinishLongPress.ringDiameter
     @ScaledMetric(relativeTo: .body) private var ringLineWidth: CGFloat = VolunteerFinishLongPress.ringLineWidth
@@ -3725,12 +3960,16 @@ struct VolunteerFinishLongPressButton: View {
         }
         // 环形 + 文字作为一整块居中（设计稿 `screens/C-陪跑员端.png`），
         // 不是环形贴左、文字占满剩余宽度。
-        .foregroundColor(AppColors.Flow.onCTA)
+        .foregroundColor(ink)
         .padding(.vertical, 10)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
         .frame(minHeight: FlowMetrics.actionButtonMinHeight)
-        .background(isEnabled ? AppColors.Flow.cta : AppColors.Flow.ctaDisabled)
+        .background(isSecondary ? AppColors.Flow.surface : isEnabled ? AppColors.Flow.cta : AppColors.Flow.ctaDisabled)
+        .overlay(
+            RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
+                .strokeBorder(isSecondary ? AppColors.Flow.ghostStroke : Color.clear, lineWidth: 1.5)
+        )
         .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
         // ⛔ 不用 `Button`：`Button` 把长按当成「取消这次点击」吃掉（同 `SafetyLongPressGesture`）。
         .contentShape(Rectangle())
@@ -3769,12 +4008,12 @@ struct VolunteerFinishLongPressButton: View {
     private var progressRing: some View {
         if isPerformingAction {
             ProgressView()
-                .tint(AppColors.Flow.onCTA)
+                .tint(ink)
                 .frame(width: ringDiameter, height: ringDiameter)
         } else {
             ZStack {
                 Circle()
-                    .stroke(AppColors.Flow.onCTA.opacity(0.3), lineWidth: ringLineWidth)
+                    .stroke(ink.opacity(0.3), lineWidth: ringLineWidth)
                 Circle()
                     .trim(
                         from: 0,
@@ -3785,7 +4024,7 @@ struct VolunteerFinishLongPressButton: View {
                         )
                     )
                     .stroke(
-                        AppColors.Flow.onCTA,
+                        ink,
                         style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .round)
                     )
                     // 从 12 点方向开始走。这是静态旋转，不是动效。

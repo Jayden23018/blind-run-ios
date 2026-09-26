@@ -336,6 +336,10 @@ extension AppColors {
         static let gold = flowDynamic(goldTone)
 
         /// 跑者留言卡与快迟到提醒条。标题 7.36 / 8.90，正文 12.56 / 11.88。
+        /// 跑步中 · 已暂停的灰（交付包 01 `statePaused`，DECISIONS-v2 V13 允许的状态色）。
+        /// **只给暂停灰条用**；上面的字一律白色，两种外观下对比度都 ≥ 7:1。
+        static let statePausedTone = Tone(light: 0x4B5263, dark: 0x4B5263)
+        static let statePaused = flowDynamic(statePausedTone)
         static let warmCardTone = Tone(light: 0xFFF4D6, dark: 0x3A2E0A)
         static let warmCard = flowDynamic(warmCardTone)
         static let warmCardTitleTone = Tone(light: 0x6B4A00, dark: 0xF5CF6B)
