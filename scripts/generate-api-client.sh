@@ -29,7 +29,8 @@ fi
 # 契约必须是 3.0.x。这条检查不是形式主义：spec 曾经声称 3.1.0 却用了 nullable，
 # 而 3.1 移除了该关键字 —— 3.1 感知的生成器会把那些可空字段生成成非可选，
 # 服务端返 null 时客户端直接解码崩。
-SPEC_VERSION="$(head -5 "$SPEC" | sed -n 's/^openapi: *//p' | head -1)"
+# 后端 #440 起版本号带引号（`openapi: "3.0.1"`），YAML 里两种写法等价，引号去掉再比。
+SPEC_VERSION="$(head -5 "$SPEC" | sed -n 's/^openapi: *//p' | head -1 | tr -d "\"'")"
 case "$SPEC_VERSION" in
   3.0.*) ;;
   *)

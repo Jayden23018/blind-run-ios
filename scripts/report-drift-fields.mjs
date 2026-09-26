@@ -31,7 +31,9 @@ const HANDWRITTEN = 'blindRun';
 
 const git = (...args) => {
   try {
-    return execFileSync('git', args, { encoding: 'utf8' });
+    // 默认 maxBuffer 只有 1MB：契约整体换成代码生成产物那次 diff 超了，ENOBUFS 被下面的
+    // catch 吞成 null，于是打印「无未提交改动，跳过」—— 漂移最大的时候报告最干净。
+    return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 30 });
   } catch {
     return null;
   }
