@@ -501,7 +501,7 @@ struct FlowNoticeBar: View {
 
 // MARK: 循环动效
 
-/// 透明度在 `from` 与 `to` 之间循环。交付包 03「持续性动效」。
+/// 透明度（可选再加缩放）在 `from` 与 `to` 之间循环。交付包 03「持续性动效」。
 ///
 /// 三种情况下静止在 `from`：「减弱动态效果」打开、App 不在前台（`scenePhase != .active`）、
 /// 视图不在屏幕上（`onDisappear`）—— 03 §六的性能要求。
@@ -509,6 +509,8 @@ struct FlowLoopingPulse: ViewModifier {
     let period: Double
     let from: Double
     let to: Double
+    var scaleFrom: CGFloat = 1
+    var scaleTo: CGFloat = 1
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -520,6 +522,7 @@ struct FlowLoopingPulse: ViewModifier {
     func body(content: Content) -> some View {
         content
             .opacity(isRunning && phase ? to : from)
+            .scaleEffect(isRunning && phase ? scaleTo : scaleFrom)
             .animation(
                 isRunning ? .easeOut(duration: period).repeatForever(autoreverses: false) : .default,
                 value: phase
@@ -537,8 +540,14 @@ struct FlowLoopingPulse: ViewModifier {
 }
 
 extension View {
-    func flowLoopingPulse(period: Double, from: Double, to: Double) -> some View {
-        modifier(FlowLoopingPulse(period: period, from: from, to: to))
+    func flowLoopingPulse(
+        period: Double,
+        from: Double,
+        to: Double,
+        scaleFrom: CGFloat = 1,
+        scaleTo: CGFloat = 1
+    ) -> some View {
+        modifier(FlowLoopingPulse(period: period, from: from, to: to, scaleFrom: scaleFrom, scaleTo: scaleTo))
     }
 }
 

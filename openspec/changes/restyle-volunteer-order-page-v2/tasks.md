@@ -9,10 +9,10 @@
 
 ## 2. 引导绳与方位盘（PR 2）
 
-- [ ] 2.1 `RopeGeometry` + `RopeShape` + `RopeView`（六个状态、亮 / 暗主题）
-- [ ] 2.2 状态切换动画、循环动效、减弱动态效果降级
-- [ ] 2.3 `DirectionSector` 纯函数（八方位 + 滞回）与 `DirectionDial`
-- [ ] 2.4 单测：几何、p 截断、滞回边界
+- [x] 2.1 `RopeGeometry` + `RopeShape` + `RopeView`（六个状态、亮 / 暗主题）
+- [x] 2.2 状态切换动画、循环动效、减弱动态效果降级
+- [x] 2.3 `DirectionSector` 纯函数（八方位 + 滞回）与 `DirectionDial`
+- [x] 2.4 单测：几何、p 截断、滞回边界
 
 ## 3. 数据层（PR 3）
 
