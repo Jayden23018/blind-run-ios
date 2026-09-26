@@ -131,12 +131,17 @@ struct FlowOrderNavBar: View {
 
 // MARK: 头卡
 
-/// 订单页最上面那张卡。`.navy` 是全流程的主角（交付包 D5）；`.light` 只给邀请态。
+/// 订单页最上面那张卡。`.tinted` 的底色随订单状态变（交付包 v2 C01）；`.light` 只给邀请态。
+///
+/// 底色变化做 0.35 秒 easeInOut（C05）。只挂在底色那一层：卡内的绳子、数字各有自己的动画。
+/// 颜色过渡不是位移 / 缩放，「减弱动态效果」下照常做（03 §四只管位移、缩放、画线）。
+enum FlowHeroCardStyle: Equatable {
+    case tinted(Color)
+    case light
+}
+
 struct FlowHeroCard<Content: View>: View {
-    enum Style {
-        case navy
-        case light
-    }
+    typealias Style = FlowHeroCardStyle
 
     let style: Style
     private let content: Content
@@ -146,6 +151,13 @@ struct FlowHeroCard<Content: View>: View {
         self.content = content()
     }
 
+    private var background: Color {
+        switch style {
+        case .tinted(let color): return color
+        case .light: return AppColors.Flow.surface
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             content
@@ -153,7 +165,11 @@ struct FlowHeroCard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, FlowMetrics.v2HeroVerticalPadding)
         .padding(.horizontal, FlowMetrics.v2HeroHorizontalPadding)
-        .background(style == .navy ? AppColors.Flow.navy : AppColors.Flow.surface)
+        .background(
+            Rectangle()
+                .fill(background)
+                .animation(.easeInOut(duration: 0.35), value: style)
+        )
         .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.orderCardRadius, style: .continuous))
         .flowCardShadow()
     }
@@ -585,10 +601,10 @@ private struct FlowV2ComponentGallery: View {
                 .padding(.horizontal, FlowMetrics.v2ScreenPadding - 8)
             ScrollView {
                 VStack(spacing: FlowMetrics.v2SectionGap) {
-                    FlowHeroCard(style: .navy) {
+                    FlowHeroCard(style: .tinted(AppColors.Flow.stateAgreed)) {
                         Text("已约好 · 明天早上")
                             .flowFont((14, .semibold, .subheadline))
-                            .foregroundColor(AppColors.Flow.onNavyEyebrow)
+                            .foregroundColor(AppColors.Flow.onHeroEyebrow)
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text("6:35").flowHeroNumber(FlowV2Fonts.heroM)
                             Text("出发").flowFont(FlowV2Fonts.heroUnit())
@@ -596,7 +612,7 @@ private struct FlowV2ComponentGallery: View {
                         .foregroundColor(.white)
                         Text("骑车约 20 分钟，7:00 在 3 号入口见李*")
                             .flowFont(FlowV2Fonts.callout())
-                            .foregroundColor(AppColors.Flow.onNavyBody)
+                            .foregroundColor(AppColors.Flow.onHeroBody)
                         FlowPresencePill(text: "李*已到 3 号入口附近")
                     }
                     FlowNoticeBar(text: "已自动告诉李*你会晚到约 6 分钟")

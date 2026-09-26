@@ -120,9 +120,11 @@ enum VolunteerOrderTimeCopy {
 
 /// 头卡里要画的全部东西。视图只按它渲染。
 struct VolunteerOrderHero: Equatable {
-    enum Style: Equatable { case navy, light }
+    /// 头卡底色（交付包 v2 C01）。视图按它取 `AppColors.Flow.state*`，这里只管「是哪一种」。
+    /// 跑者取消与其他终止状态用约好的藏青；跑步中 / 暂停不走这个页面（V4）。
+    enum Style: Equatable { case light, agreed, departed, arrived, done }
 
-    var style: Style = .navy
+    var style: Style = .agreed
     var rope: RopeState
     /// 小标题「已约好 · 明天早上」。
     var eyebrow: String
@@ -193,6 +195,7 @@ extension VolunteerOrderHero {
             guard let eta = order.eta, let minutes = eta.remainingMinutes else {
                 // 出发后还没上报过位置：后端不给 ETA，**不编数字**。
                 return Self(
+                    style: .departed,
                     rope: rope,
                     eyebrow: "正在赶去 · 骑车",
                     headline: VolunteerOrderFlowCopy.departedTitle,
@@ -211,6 +214,7 @@ extension VolunteerOrderHero {
                 line = "预计 \(arrive ?? "按时") 到，刚好赶上"
             }
             return Self(
+                style: .departed,
                 rope: rope,
                 eyebrow: "正在赶去 · 骑车",
                 number: "\(minutes)",
@@ -227,6 +231,7 @@ extension VolunteerOrderHero {
             let bucket = order.meet?.distanceBucket ?? .unknown
             let copy = MeetBucketCopy.make(bucket: bucket, farKm: order.meet?.farDistanceKm, direction: direction)
             return Self(
+                style: .arrived,
                 rope: .arrived,
                 eyebrow: canEndWait ? "等待时间已满" : "已到集合点",
                 headline: copy.title(name),
@@ -251,6 +256,7 @@ extension VolunteerOrderHero {
             // 交付包 D11：**不显示配速**（不暗示「表现」）。
             let summary = [distance, duration, order.startAddress?.nilIfBlank].compactMap { $0 }.joined(separator: " · ")
             return Self(
+                style: .done,
                 rope: .together,
                 eyebrow: VolunteerOrderFlowCopy.completedTitle,
                 headline: title(name),

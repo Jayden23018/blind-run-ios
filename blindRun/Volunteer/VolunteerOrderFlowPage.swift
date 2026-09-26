@@ -54,7 +54,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     heroCard
                     if let notice = hero.notice {
                         FlowNoticeBar(text: notice)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
                     }
                     if let meet { meetSection(meet) }
                     runnerCard
@@ -73,6 +73,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                 .padding(.horizontal, FlowMetrics.v2ScreenPadding)
                 .padding(.vertical, FlowMetrics.v2SectionGap)
                 .animation(.easeInOut(duration: 0.25), value: hero.notice)
+                // 状态原地切换（03 §二）：卡片的出现 / 消失跟着 spring 走；减弱动态效果下 0.2 秒淡入淡出。
+                .animation(phaseAnimation, value: phase)
             }
         }
         .background(AppColors.Flow.page.ignoresSafeArea())
@@ -95,10 +97,15 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         }
     }
 
+    /// 03 §二默认 spring；§四减弱动态效果下 0.2 秒淡入淡出。
+    private var phaseAnimation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.85)
+    }
+
     // MARK: 头卡
 
     private var heroCard: some View {
-        FlowHeroCard(style: hero.style == .navy ? .navy : .light) {
+        FlowHeroCard(style: hero.style.cardStyle) {
             if phase == .completed {
                 // `Done.dc.html`：整卡居中、没有小标题（导航栏已经写着「陪跑完成」），
                 // 绳子换成单独的一张并肩大插图。
@@ -118,13 +125,13 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         HStack(alignment: .firstTextBaseline) {
             Text(hero.eyebrow)
                 .flowFont(FlowV2Fonts.subhead(bold: true))
-                .foregroundColor(hero.style == .navy ? AppColors.Flow.onNavyEyebrow : AppColors.Flow.accent)
+                .foregroundColor(hero.style == .light ? AppColors.Flow.accent : AppColors.Flow.onHeroEyebrow)
             Spacer(minLength: 8)
             replyNotice
         }
         RopeView(
             state: hero.rope,
-            theme: hero.style == .navy ? .dark : .light,
+            theme: hero.style.ropeTheme,
             runnerName: order?.blindName,
             remainingMinutes: hero.remainingMinutes
         )
@@ -145,6 +152,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                 .foregroundColor(heroForeground)
                 .contentTransition(.numericText(countsDown: true))
                 .animation(.easeOut(duration: 0.6), value: number)
+                // 出发 → 快迟到：数字颜色 0.25 秒过渡到金色（03 §二）。
+                .animation(.easeInOut(duration: 0.25), value: hero.isGold)
             }
             if let headline = hero.headline {
                 Text(headline)
@@ -155,7 +164,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
             ForEach(hero.lines, id: \.self) { line in
                 Text(line)
                     .flowFont(FlowV2Fonts.callout())
-                    .foregroundColor(hero.style == .navy ? AppColors.Flow.onNavyBody : AppColors.Flow.secondaryText)
+                    .foregroundColor(hero.style == .light ? AppColors.Flow.secondaryText : AppColors.Flow.onHeroBody)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !inviteMetrics.isEmpty { metricsTriple }
@@ -173,7 +182,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
 
     private var heroForeground: Color {
         if hero.isGold { return AppColors.Flow.gold }
-        return hero.style == .navy ? .white : AppColors.Flow.primaryText
+        return hero.style == .light ? AppColors.Flow.primaryText : AppColors.Flow.onHeroStrong
     }
 
     /// 「还剩 25 秒回复」。只有邀请态有；每秒都变，所以是独立读屏元素。
@@ -231,6 +240,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                 WaitRing(waitedSeconds: WaitRing.defaultFullSeconds)
             } else {
                 DirectionDial(relativeDegrees: meet.relativeDegrees, sectorWidth: meet.sectorWidth)
+                    // 出发 → 汇合：方位盘从 0.9 倍缩放并淡入（03 §二）。
+                    .transition(reduceMotion ? .opacity : .scale(scale: 0.9).combined(with: .opacity))
                 if let remaining = meet.endWaitRemainingSeconds, remaining > 0 {
                     Text("再等 \(Int((Double(remaining) / 60).rounded(.up))) 分钟可以结束等待")
                         .flowFont(FlowV2Fonts.subhead())
@@ -257,11 +268,16 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     .flowFont((16, .bold, .callout))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundColor(.white)
+            // v2 C08：藏青现在代表「约好」，响铃改汇合的暖色（暖底 + 描边 + 深琥珀字）。
+            .foregroundColor(AppColors.Flow.arrivedInk)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .frame(minHeight: FlowMetrics.actionButtonMinHeight)
-            .background(AppColors.Flow.navy)
+            .background(AppColors.Flow.arrivedTint)
+            .overlay(
+                RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
+                    .strokeBorder(AppColors.Flow.arrivedTintBorder, lineWidth: 1.5)
+            )
             .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -308,7 +324,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                         .frame(minHeight: FlowMetrics.v2TertiaryMinHeight)
-                        .background(emphasized ? AppColors.Flow.navy : AppColors.Flow.surface)
+                        // v2 C09：等满时限后的「打电话」用汇合琥珀底白字。
+                        .background(emphasized ? AppColors.Flow.stateArrived : AppColors.Flow.surface)
                         .overlay(
                             RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
                                 .strokeBorder(emphasized ? Color.clear : AppColors.Flow.ghostStroke, lineWidth: 1.5)
@@ -476,6 +493,10 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     action: onPrimaryAction
                 )
                 .accessibilityIdentifier("volunteerOrderFlowPrimaryButton")
+                // ② → ②b「主按钮升级」：白色次要按钮原地换成黄色主按钮，0.98→1 缩放 + 交叉淡入，0.35 秒（03 §二）。
+                // 换动作就换身份，旧按钮淡出、新按钮淡入；减弱动态效果下只淡入淡出。
+                .id(action.title)
+                .transition(reduceMotion ? .opacity : .scale(scale: 0.98).combined(with: .opacity))
             }
             if let dismissRow {
                 FlowTextButton(
@@ -490,6 +511,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         .padding(.horizontal, FlowMetrics.v2ScreenPadding)
         .padding(.top, 8)
         .padding(.bottom, 8)
+        .animation(.easeInOut(duration: reduceMotion ? 0.2 : 0.35), value: presentation.primaryAction)
         .background(
             VStack(spacing: 0) {
                 LinearGradient(
@@ -523,6 +545,29 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
         case .doneReviewing, .backToHome:
             return nil
         }
+    }
+}
+
+// MARK: - 头卡状态色
+
+extension VolunteerOrderHero.Style {
+    /// 交付包 v2 C01。纯类型那边只说「是哪一种」，取色在视图层。
+    var color: Color? {
+        switch self {
+        case .light: return nil
+        case .agreed: return AppColors.Flow.stateAgreed
+        case .departed: return AppColors.Flow.stateDeparted
+        case .arrived: return AppColors.Flow.stateArrived
+        case .done: return AppColors.Flow.stateDone
+        }
+    }
+
+    var cardStyle: FlowHeroCardStyle {
+        color.map { .tinted($0) } ?? .light
+    }
+
+    var ropeTheme: RopeView.Theme {
+        color.map { .onHero($0) } ?? .light
     }
 }
 
