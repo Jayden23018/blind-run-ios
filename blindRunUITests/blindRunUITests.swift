@@ -345,6 +345,46 @@ final class blindRunUITests: XCTestCase {
         )
     }
 
+    /// 跑步中那枚求助盾牌必须**点得到**（#217）。
+    ///
+    /// 单独成一条，不再只挂在烟囱用例的中段：那条长链前面任何一步红了（#193 让它死在开头 9 天，
+    /// 之后又卡在首页身份栏的位置断言），这一句就不执行。盾牌被三数字卡盖住的缺陷就是这样藏住的 ——
+    /// 09-16 在 `main@fdc6579` 上其实复现过同一签名，下面那条用例的注释还记着，但只是被绕开了。
+    /// 直接预置 `IN_PROGRESS`，不走出发 → 到达 → 开始那条长路。
+    @MainActor
+    func testVolunteerRunningPageKeepsTheSOSButtonReachable() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true,
+            seedOrderStatus: "IN_PROGRESS"
+        )
+
+        // 横竖屏各验一次：放进内容区的任何修法都会在横屏（高 402pt）和三数字卡、底部面板抢空间 ——
+        // 试过的 VStack 修法就是竖屏绿、横屏把面板压到 0，「长按结束」被挤出屏幕。
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        openCurrentVolunteerService(app, requirePhone: false)
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 15), "没进到跑步中")
+
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            assertEmergencyActionIsUsable(app)
+            // 不断言 finishControl.exists：被挤出屏幕时它照样 exists。那次回归的表现是面板高度 0。
+            // 门槛 44 而不是 64：横屏本来就挤，iPhone 16 Pro 上 main 与本分支实测都是 60pt
+            // （三数字卡吃掉大半高度，跑步中页面整体重做见 #218）。这里只挡「压到 0」。
+            let panel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
+            XCTAssertGreaterThanOrEqual(
+                panel.frame.height, 44,
+                "\(orientation.rawValue) 方向下底部面板被压到 \(panel.frame.height)pt，「长按结束」够不着"
+            )
+        }
+    }
+
     /// 长按 2 秒结束陪跑的**行为**那一半：松手即取消 / 按满才结束。
     ///
     /// 走**指针路径**（`press(forDuration:)` 注入的是物理触摸），形状那一半在
@@ -354,8 +394,8 @@ final class blindRunUITests: XCTestCase {
     /// 而这枚控件没有轻点路径 —— 那样写必红，且红得毫无信息量。
     ///
     /// 直接把订单预置在 `IN_PROGRESS`，不走烟囱用例那条出发 → 到达 → 开始的长路：
-    /// 那条路上有一条与本功能无关的既有红灯（求助悬浮键 `isHittable == false`，
-    /// 2026-09-16 在 `main@fdc6579` 上复现过同一签名），挂在它后面等于这一条永远跑不到。
+    /// 那条路上曾有一条与本功能无关的红灯（求助悬浮键 `isHittable == false`，
+    /// 2026-09-16 在 `main@fdc6579` 上复现过同一签名；真缺陷，见 #217），挂在它后面等于这一条永远跑不到。
     @MainActor
     func testVolunteerFinishesEscortOnlyAfterHoldingLongEnough() throws {
         let app = launchApp(

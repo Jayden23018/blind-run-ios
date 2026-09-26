@@ -1564,7 +1564,7 @@ struct VolunteerInServiceView: View {
 
     /// 这一态走不走这个页面。`nil` = 还是旧的地图 + 底部面板那条路。
     ///
-    /// 🚩 **现在只剩跑步中走旧路径**（深蓝三数字 + 长按 2 秒结束 + 悬浮求助，已拍板不动）。
+    /// 🚩 **现在只剩跑步中走旧路径**（深蓝三数字 + 长按 2 秒结束 + 导航栏右侧的求助，已拍板不动）。
     /// 邀请 / 约好 / 出发 / 汇合 / 已完成 / 跑者已取消都在骨架上。
     /// `VolunteerServiceBottomPanel` 与 `VolunteerServiceActions` 因此只剩跑步中一个调用方，
     /// 跑中页改造那一轮可以连它们一起删 —— **现在就删会让回退没有退路。**
@@ -1607,6 +1607,17 @@ struct VolunteerInServiceView: View {
         // 骨架那条路是普通的滚动页，导航栏要有自己的底 —— 藏起来是为了让地图透上去，
         // 而骨架下面没有地图，藏着只会让标题浮在正文上。
         .toolbarBackground(flowPresentation == nil ? .hidden : .visible, for: .navigationBar)
+        // 跑步中（旧路径）的求助入口放在导航栏右侧：不占内容区，横竖屏都不会被底部那一叠盖住或挤掉（#217）。
+        // 骨架那条路不放 —— 那几态云端求助是关着的（`AGENTS.md` §6）。
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if flowPresentation == nil, let order = viewModel.order, order.status.canVolunteerTriggerEmergency {
+                    VolunteerSOSNavButton(coordinator: appState.emergencyCoordinator) {
+                        showEmergencyConfirm = true
+                    }
+                }
+            }
+        }
         // 订单页**不带标签栏**（设计交付 v3 §4.2 总表：S1/S2/S3/S4 的底部是「标签栏」，
         // 而 S6 是「求助与安全」；`03-订单页全流程.png` 五屏也都没有标签栏）。
         // 多一条 49pt 的标签栏会把底部操作区顶上去，而标签栏在这一刻能去的地方
@@ -1866,20 +1877,8 @@ struct VolunteerInServiceView: View {
                         .accessibilityLabel("正在获取订单状态")
                 }
 
-                // 求助盾牌**声明在主内容之前**，两件事各要一半：
-                // ① 绘制顺序 = VoiceOver 遍历顺序（`accessibilitySortPriority` 排不动叠放层，
-                //    2026-08-14 真机实测四种排法全废，见
-                //    `docs/research/swiftui-voiceover-traversal-order-20260814.md`），
-                //    声明在前 = 读屏先念到它，这正是求助该有的序位；
-                // ② 它与底部面板在几何上不重叠（右上 vs 贴底），所以画在下层不会被盖住。
-                if let order = viewModel.order, order.status.canVolunteerTriggerEmergency {
-                    VolunteerSOSFloatingButton(coordinator: appState.emergencyCoordinator) {
-                        showEmergencyConfirm = true
-                    }
-                    .padding(.trailing, 16)
-                    .padding(.top, 16)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                }
+                // 求助入口不在这一层：它在系统导航栏右侧（`body` 的 `.toolbar`，#217）。
+                // 以前它是这个 ZStack 里的一层悬浮圆盾，被后来加进底部那一叠的三数字卡整个盖住过。
 
                 // 已完成不再走这里 —— 它现在是骨架上的一屏，轨迹由「查看跑步记录」
                 // 推到下一页（`completedTrackContent` 仍然是那一页的内容）。
@@ -1946,8 +1945,8 @@ struct VolunteerInServiceView: View {
         )
     }
 
-    /// 面板上方那条紧急信息区。**「代盲人发起求助」的按钮不在这里** —— 它是地图右上角的
-    /// `VolunteerSOSFloatingButton`（见 `body` 的 `ZStack`）。
+    /// 面板上方那条紧急信息区。**「代盲人发起求助」的按钮不在这里** —— 它是导航栏右侧的
+    /// `VolunteerSOSNavButton`（见 `body` 的 `.toolbar`，2026-09-26 从地图右上角的悬浮圆盾挪过去，#217）。
     ///
     /// 2026-08-19 把触发按钮搬走：它此前是这个 `VStack` 的第一个子视图，而这个 `VStack` 底部对齐、
     /// 上方就是高度自适应的 `VolunteerServiceBottomPanel`，于是一个全宽红色 `PrimaryButton` 浮在屏幕
