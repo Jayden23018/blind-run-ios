@@ -588,14 +588,24 @@ struct RunView: Codable, Equatable, Sendable {
     var lastSignal: RunRhythmSignal?
     var lastSignalAt: String?
     var runnerBatteryLow: Bool?
+    /// 用时（秒）= 现在 − 开始 − 暂停累计。契约原话「**暂停中不走**，这就是页面上的『计时停在 18:32』」——
+    /// 所以暂停灰条读它，不读 `track` 的时长（后者按轨迹首末点算，暂停期间照样往上走）。
+    var elapsedSeconds: Int64?
 
-    private enum CodingKeys: String, CodingKey { case paused, lastSignal, lastSignalAt, runnerBatteryLow }
+    private enum CodingKeys: String, CodingKey { case paused, lastSignal, lastSignalAt, runnerBatteryLow, elapsedSeconds }
 
-    init(paused: Bool? = nil, lastSignal: RunRhythmSignal? = nil, lastSignalAt: String? = nil, runnerBatteryLow: Bool? = nil) {
+    init(
+        paused: Bool? = nil,
+        lastSignal: RunRhythmSignal? = nil,
+        lastSignalAt: String? = nil,
+        runnerBatteryLow: Bool? = nil,
+        elapsedSeconds: Int64? = nil
+    ) {
         self.paused = paused
         self.lastSignal = lastSignal
         self.lastSignalAt = lastSignalAt
         self.runnerBatteryLow = runnerBatteryLow
+        self.elapsedSeconds = elapsedSeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -604,6 +614,12 @@ struct RunView: Codable, Equatable, Sendable {
         lastSignal = (try? container.decodeIfPresent(RunRhythmSignal.self, forKey: .lastSignal)) ?? nil
         lastSignalAt = (try? container.decodeIfPresent(String.self, forKey: .lastSignalAt)) ?? nil
         runnerBatteryLow = (try? container.decodeIfPresent(Bool.self, forKey: .runnerBatteryLow)) ?? nil
+        elapsedSeconds = (try? container.decodeIfPresent(Int64.self, forKey: .elapsedSeconds)) ?? nil
+    }
+
+    /// 「18:32」/「1:02:05」，与三数字卡同一套体例（借 `TrackStats.durationClockText`，不另写一份格式化）。
+    var elapsedClockText: String? {
+        TrackStats(distanceMeters: nil, durationSeconds: elapsedSeconds, avgPaceSecPerKm: nil).durationClockText
     }
 }
 

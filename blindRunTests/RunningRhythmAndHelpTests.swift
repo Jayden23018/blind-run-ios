@@ -33,6 +33,9 @@ final class RunningRhythmAndHelpTests: XCTestCase {
         XCTAssertTrue(good.isRunPaused)
         XCTAssertEqual(good.runnerShortName, "李")
 
+        let paused = try order(#"{"orderId":7,"status":"IN_PROGRESS","run":{"paused":true,"elapsedSeconds":1112}}"#)
+        XCTAssertEqual(paused.run?.elapsedClockText, "18:32", "暂停灰条的「计时停在」读 run.elapsedSeconds")
+
         let odd = try order(#"{"orderId":7,"status":"IN_PROGRESS","run":{"paused":"yes","lastSignal":"WAVE","lastSignalAt":123}}"#)
         XCTAssertEqual(odd.run?.lastSignal, .unknown, "不认识的信号降级，不许整条崩")
         XCTAssertNil(odd.run?.paused)

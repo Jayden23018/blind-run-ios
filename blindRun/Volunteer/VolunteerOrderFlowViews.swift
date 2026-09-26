@@ -2322,7 +2322,7 @@ struct VolunteerInServiceView: View {
                             // 而一张写着 `--` 的卡片只会占掉本来该给流转按钮的空间。
                             if order.status == .inProgress {
                                 if order.isRunPaused, verticalSizeClass != .compact {
-                                    VolunteerRunPausedStrip(elapsedText: viewModel.blindStats?.durationClockText)
+                                    VolunteerRunPausedStrip(elapsedText: order.run?.elapsedClockText)
                                 }
                                 VolunteerEscortStatsCard(
                                     coordinator: appState.emergencyCoordinator,
@@ -2378,7 +2378,7 @@ struct VolunteerInServiceView: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(spacing: 10) {
                 if includesPausedStrip, order.isRunPaused {
-                    VolunteerRunPausedStrip(elapsedText: viewModel.blindStats?.durationClockText)
+                    VolunteerRunPausedStrip(elapsedText: order.run?.elapsedClockText)
                 }
                 if let tip = VolunteerRunTip.resolve(
                     separationAlertAt: viewModel.separationAlertAt,

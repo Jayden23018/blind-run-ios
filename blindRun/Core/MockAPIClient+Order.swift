@@ -229,7 +229,8 @@ extension MockAPIClient {
             paused: run.paused,
             lastSignal: request.signal,
             lastSignalAt: DateFormatter.aidRunBackendLocalDateTime.string(from: now),
-            runnerBatteryLow: run.runnerBatteryLow
+            runnerBatteryLow: run.runnerBatteryLow,
+            elapsedSeconds: run.elapsedSeconds
         )
         return RhythmSignalResponse(delivered: true)
     }
