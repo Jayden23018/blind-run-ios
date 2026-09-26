@@ -29,6 +29,8 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     /// 视力状况。`nil` = 没选或没同意。
     @Published var visionLevel: VisionLevel?
     @Published var hasGuideDog = false
+    /// 写给陪跑员的引导偏好。自由文本 ⇒ 陪跑员**接单后**才看得到（`AGENTS.md` §8），页面上要写明。
+    @Published var guidePreferenceText = ""
 
     /// 是否已就「视力状况 + 导盲犬」取得单独同意。
     ///
@@ -58,6 +60,7 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             tetherPreference = profile.tetherPreference.flatMap(TetherPreference.init(rawValue:))
             visionLevel = profile.visionLevel.flatMap(VisionLevel.init(rawValue:))
             hasGuideDog = profile.hasGuideDog ?? false
+            guidePreferenceText = profile.guidePreferenceText ?? ""
         }
 
         hasVisionConsent = consentStore?.hasConsented(to: .blindVisionProfile, scope: consentScope) == true
@@ -93,11 +96,25 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     }
     #endif
 
+    /// 超长时的提示；`nil` = 长度没问题。按 UTF-16 数，与后端 `@Size` 同口径。
+    var guidePreferenceLengthError: String? {
+        let length = guidePreferenceText.trimmed.utf16.count
+        let limit = BlindProfileUpdateRequest.guidePreferenceMaxLength
+        guard length > limit else { return nil }
+        return "引导偏好最多 \(limit) 个字，现在是 \(length) 个字。"
+    }
+
     func submit() {
         guard canSubmit, let appState else {
             let message = "请填写必填信息"
             errorMessage = message
             speechService?.speakError(message)
+            return
+        }
+        // 提交前就拦：等后端 400 回来，用户白写一遍还不知道差多少。
+        if let lengthError = guidePreferenceLengthError {
+            errorMessage = lengthError
+            speechService?.speakError(lengthError)
             return
         }
 
@@ -126,7 +143,9 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             // 唯一还能给志愿者的准备依据。挪到门后面会让「可拒绝」变成空话。
             tetherPreference: tetherPreference?.rawValue,
             chatPreference: nil,
-            defaultPace: defaultPace == .noPreference ? nil : defaultPace
+            defaultPace: defaultPace == .noPreference ? nil : defaultPace,
+            // 总是带上：空串 = 清空。带 nil 等于「保留原值」，用户删光了却删不掉。
+            guidePreferenceText: guidePreferenceText.trimmed
         )
     }
 
@@ -347,6 +366,21 @@ struct BlindRunnerProfileView: View {
             }
 
             escortGuidanceSection
+
+            ProfileTextField(
+                title: "给陪跑员的引导偏好",
+                placeholder: "例如：我习惯你在我左边，转弯前提前说一声",
+                text: $viewModel.guidePreferenceText,
+                isRequired: false,
+                errorMessage: viewModel.guidePreferenceLengthError,
+                accessibilityLabel: "给陪跑员的引导偏好，选填",
+                accessibilityHint: "用你自己的话写，最多 \(BlindProfileUpdateRequest.guidePreferenceMaxLength) 个字。陪跑员接单后才看得到"
+            )
+
+            Text("陪跑员接单后才看得到这一段，接单前不会给任何人看。")
+                .font(AppFonts.caption())
+                .foregroundColor(AppColors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             visionSection
 

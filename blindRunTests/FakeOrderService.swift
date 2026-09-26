@@ -67,6 +67,8 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     var quickMessageResult: Result<OrderNudgeResponse, Error> = .failure(NotStubbed(method: "sendQuickMessage"))
     var ringRunnerResult: Result<OrderNudgeResponse, Error> = .failure(NotStubbed(method: "ringRunner"))
     var endWaitingResult: Result<Void, Error> = .failure(NotStubbed(method: "endWaiting"))
+    var runnerMessageResult: Result<RunnerMessageResponse, Error> = .failure(NotStubbed(method: "updateRunnerMessage"))
+    private(set) var lastRunnerMessageText: String?
     private(set) var lastQuickMessageCode: QuickMessageCode?
     var keepWaitingResult: Result<Void, Error> = .failure(NotStubbed(method: "keepWaiting"))
     var submitReviewResult: Result<Void, Error> = .failure(NotStubbed(method: "submitReview"))
@@ -210,6 +212,13 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         record()
         lastOrderId = orderId
         return try endWaitingResult.get()
+    }
+
+    func updateRunnerMessage(_ text: String, orderId: Int64) async throws -> RunnerMessageResponse {
+        record()
+        lastOrderId = orderId
+        lastRunnerMessageText = text
+        return try runnerMessageResult.get()
     }
 
     func keepWaiting(_ endpoint: KeepWaitingEndpoint, orderId: Int64) async throws {

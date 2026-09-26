@@ -31,6 +31,8 @@ struct BlindRunnerTabView: View {
     /// `activeOrder`（`BlindHomeSOSMode.resolve` 要读订单状态）。两个 tab 各持一个
     /// view model 会让两处看到不同的订单 —— 而其中一处决定的是求助走云端还是走拨号。
     @StateObject private var homeViewModel = BlindRunnerHomeViewModel()
+    /// 陪跑员按了「让 TA 的手机响起来」。挂在根容器上：跑者此刻在哪个 tab、哪一层 push 都得响。
+    @StateObject private var ringController = RunnerRingController()
 
     @State private var selection: Tab = .home
     @State private var showEmergencyConfirmation = false
@@ -81,6 +83,19 @@ struct BlindRunnerTabView: View {
                 .tag(Tab.profile)
         }
         .tint(AppColors.Flow.tabSelected)
+        // 响铃遮罩盖住整屏时，背后的 TabView 对读屏藏起来 —— SwiftUI 的 hidden 跨不过
+        // UIKit 容器，要两层一起挂（记忆 `hide-uikit-hosted-tree-from-accessibility`）。
+        .accessibilityHidden(ringController.active != nil)
+        .background(HostedContainersAccessibilityHider(isHidden: ringController.active != nil))
+        .overlay {
+            if ringController.active != nil {
+                RunnerRingOverlay(onStop: { ringController.stop() })
+            }
+        }
+        .onAppear { configureRingController() }
+        // 协调器是 AppState 上的嵌套对象，改它不会让这一层重绘，只能订阅（记忆
+        // `nested-observableobject-does-not-republish`）。重新订阅会回放当前值，控制器自己去重。
+        .onReceive(appState.realtimeCoordinator.$runnerRing) { ringController.handle($0) }
         // 全屏手势：读屏用户不必先找到按钮。**挂在这一层而不是某一个 tab 上** ——
         // 三个 tab 上都能用，而首页现在已经没有可见的求助入口了，这是它在首页唯一的通道。
         .accessibilityAction(.magicTap) { activateSOS() }
@@ -96,6 +111,44 @@ struct BlindRunnerTabView: View {
             primaryContact: primaryEmergencyContact
         )
     }
+
+    private func configureRingController() {
+        // 两者都活满整个 App 生命周期，强引用无妨。
+        let speech = speechService
+        let coordinator = appState.realtimeCoordinator
+        ringController.speak = { speech.speak($0) }
+        ringController.isSpeaking = { speech.isSpeaking }
+        ringController.onFinish = { coordinator.dismissRunnerRing() }
+        #if DEBUG
+        simulateRunnerRingForUITestIfNeeded()
+        #endif
+    }
+
+    #if DEBUG
+    private static var didSimulateRunnerRing = false
+
+    /// UI 测试与真机人耳验证用：启动后注入一条 10 秒的 `RUNNER_RING`，不用另找一台陪跑员手机。
+    private func simulateRunnerRingForUITestIfNeeded() {
+        guard ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_RUNNER_RING"] == "1",
+              !Self.didSimulateRunnerRing else { return }
+        Self.didSimulateRunnerRing = true
+        let formatter = DateFormatter.aidRunBackendLocalDateTime
+        let sentAt = Date()
+        appState.realtimeCoordinator.simulateIncomingEventForTesting(.notification(WSAppNotification(
+            type: WSMessageType.appNotification.rawValue,
+            eventId: nil,
+            messageId: UUID().uuidString,
+            eventType: "RUNNER_RING",
+            title: nil,
+            body: RunnerRingCopy.fallbackSpeech,
+            ttsText: RunnerRingCopy.fallbackSpeech,
+            priority: "HIGH",
+            timestamp: formatter.string(from: sentAt),
+            orderId: 1,
+            until: formatter.string(from: sentAt.addingTimeInterval(10))
+        )))
+    }
+    #endif
 
     // MARK: - 「我的」：设置 + 兜底的紧急入口
 

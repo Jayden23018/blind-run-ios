@@ -648,6 +648,17 @@ struct OrderNudgeResponse: Decodable, Sendable {
     let delivered: Bool?
 }
 
+/// `PUT /api/orders/{id}/runner-message`。契约 `maxLength: 40`，按 UTF-16 计。
+struct RunnerMessageRequest: Codable, Sendable {
+    let text: String
+
+    static let maxLength = 40
+}
+
+struct RunnerMessageResponse: Decodable, Sendable {
+    let messageToVolunteer: String?
+}
+
 // MARK: - Paginated Order Response
 
 /// `GET /api/orders/mine` 的分页响应。契约里是 `PageOrderDetailResponse`（对象），

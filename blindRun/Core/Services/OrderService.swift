@@ -70,6 +70,8 @@ protocol OrderServing: Sendable {
     func ringRunner(orderId: Int64) async throws -> OrderNudgeResponse
     /// 等满时限后结束等待。订单转 `CANCELLED`，不算陪跑员取消。
     func endWaiting(orderId: Int64) async throws
+    /// 跑者给陪跑员留言。空串 = 清空。返回后端去掉首尾空白后的值，清空时为 `nil`。
+    func updateRunnerMessage(_ text: String, orderId: Int64) async throws -> RunnerMessageResponse
 
     /// 延长等待窗口。**端点由调用方按状态选**（`RunOrderStatus.keepWaitingEndpoint`）——
     /// 两条端点的前置状态互斥，选错得到的 409 含义是「你手上的状态已经过期了」，
@@ -188,6 +190,13 @@ struct OrderService: OrderServing {
 
     func endWaiting(orderId: Int64) async throws {
         let _: EmptyResponse = try await transport.send(OrderEndpoint.endWaiting(orderId: orderId).request)
+    }
+
+    func updateRunnerMessage(_ text: String, orderId: Int64) async throws -> RunnerMessageResponse {
+        try await transport.send(
+            OrderEndpoint.runnerMessage(orderId: orderId).request,
+            body: RunnerMessageRequest(text: text)
+        )
     }
 
     func keepWaiting(_ endpoint: KeepWaitingEndpoint, orderId: Int64) async throws {

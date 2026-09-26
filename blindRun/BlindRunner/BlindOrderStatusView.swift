@@ -567,6 +567,35 @@ final class BlindOrderStatusViewModel: ObservableObject {
         }
     }
 
+    /// 保存出发前留言。返回错误文案，`nil` = 已保存。成功与失败都念出来（表单页上看不到订单页）。
+    ///
+    /// 成功后就地换掉 `order.messageToVolunteer`，不等下一轮轮询 —— 表单页一关，
+    /// 留言行要立刻显示刚写的那句，否则跑者会以为没存上再写一遍。
+    func saveRunnerMessage(_ text: String) async -> String? {
+        guard let order, let appState else { return "订单信息还没加载好，请稍后再试。" }
+        let trimmed = text.trimmed
+        guard trimmed.utf16.count <= RunnerMessageRequest.maxLength else {
+            let message = "留言最多 \(RunnerMessageRequest.maxLength) 个字，现在是 \(trimmed.utf16.count) 个字。"
+            speechService?.speakError(message)
+            return message
+        }
+        do {
+            let response = try await appState.orders.updateRunnerMessage(trimmed, orderId: order.orderId)
+            let saved = response.messageToVolunteer?.nilIfBlank
+            self.order?.messageToVolunteer = saved
+            speechService?.speak(saved == nil ? "留言已清空" : "留言已发给陪跑员")
+            return nil
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) { return nil }
+            speechService?.speakError(error.localizedMessage)
+            return error.localizedMessage
+        } catch {
+            let message = "留言没有发出去，请再试一次。"
+            speechService?.speakError(message)
+            return message
+        }
+    }
+
     /// Sends one SOS for the current `IN_PROGRESS` order.
     ///
     /// Every outcome — including "not sent" — is both shown and spoken. A blind runner decides
@@ -1581,6 +1610,7 @@ struct BlindOrderStatusView: View {
     @State private var showCancelConfirmation = false
     @State private var showStatusLogs = false
     @State private var showRunPlanShare = false
+    @State private var showRunnerMessage = false
     @State private var showLiveShareConsent = false
     @State private var showLiveShareConfirmation = false
     /// 通话页什么时候弹出来。整个通话流程在 `BlindIntroCallView` 里，这一页只管呈现时机 ——
@@ -1702,6 +1732,7 @@ struct BlindOrderStatusView: View {
                 onLastRowTapped: { handleFlowLastRow(order) },
                 onPrimaryAction: { handleFlowPrimaryAction(presentation, order: order) },
                 onOpenSafetyHub: { showSafetyHub = true },
+                onEditRunnerMessage: order.status.acceptsRunnerMessage ? { showRunnerMessage = true } : nil,
                 footer: {
                     VStack(spacing: 16) {
                         flowFooter(order)
@@ -2004,6 +2035,11 @@ struct BlindOrderStatusView: View {
         // 不是 `NavigationLink`：`confirmationDialog` 的按钮只能跑闭包，塞不进导航。
         // 用 sheet 而不是 push 还有一个好处 —— 看完说明关掉就回到原地，
         // 而 push 会把用户留在一页深处，返回键在左上角（管状视力用户的盲区）。
+        .sheet(isPresented: $showRunnerMessage) {
+            RunnerMessageSheet(initialText: viewModel.order?.messageToVolunteer ?? "") { text in
+                await viewModel.saveRunnerMessage(text)
+            }
+        }
         .sheet(isPresented: $showDispatchAlgorithmNotice) {
             NavigationStack {
                 DispatchAlgorithmNoticeView()

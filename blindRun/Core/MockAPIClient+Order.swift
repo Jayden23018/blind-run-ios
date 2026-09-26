@@ -208,4 +208,21 @@ extension MockAPIClient {
         orders[index] = updateOrderStatus(orders[index], to: .cancelled)
         return EmptyResponse()
     }
+
+    func handleRunnerMessage(orderId: Int64, body: (any Encodable & Sendable)?) throws -> RunnerMessageResponse {
+        guard let data = try? JSONEncoder().encode(MockAnyEncodable(body)),
+              let request = try? JSONDecoder().decode(RunnerMessageRequest.self, from: data),
+              request.text.utf16.count <= RunnerMessageRequest.maxLength else {
+            throw APIError.serverError(ErrorResponse(code: "VALIDATION_ERROR", message: "留言最多 40 个字"))
+        }
+        guard let index = orders.firstIndex(where: { $0.orderId == orderId }) else {
+            throw APIError.serverError(ErrorResponse(code: "ORDER_NOT_FOUND", message: "订单不存在"))
+        }
+        guard orders[index].status.acceptsRunnerMessage else {
+            throw APIError.serverError(ErrorResponse(
+                code: "ORDER_STATUS_NOT_ALLOWED", message: "当前订单状态不允许该操作"))
+        }
+        orders[index].messageToVolunteer = request.text.nilIfBlank
+        return RunnerMessageResponse(messageToVolunteer: orders[index].messageToVolunteer)
+    }
 }

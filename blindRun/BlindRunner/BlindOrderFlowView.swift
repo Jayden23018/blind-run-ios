@@ -39,6 +39,9 @@ struct BlindOrderFlowView<Footer: View>: View {
     let onLastRowTapped: () -> Void
     let onPrimaryAction: () -> Void
     let onOpenSafetyHub: () -> Void
+    /// 「给陪跑员留言」那一行点下去做什么。`nil` = 这一态不能留言，整行不出现
+    /// （判据 `RunOrderStatus.acceptsRunnerMessage`）。
+    var onEditRunnerMessage: (() -> Void)? = nil
     /// 信息列表之后那块**「刚才那一下的结果」**。正常状态下是空的。
     ///
     /// 🔴 **它不是可选装饰。** 骨架把改版前那条滚动列表整段换掉了，而那条列表末尾挂着
@@ -416,6 +419,10 @@ struct BlindOrderFlowView<Footer: View>: View {
                 FlowSeparator()
                 placeRow
                 FlowSeparator()
+                if let onEditRunnerMessage {
+                    runnerMessageRow(onEditRunnerMessage)
+                    FlowSeparator()
+                }
                 lastRow
             }
         }
@@ -502,6 +509,24 @@ struct BlindOrderFlowView<Footer: View>: View {
 
     private var placeText: String {
         order.startAddress?.nilIfBlank ?? "出发地点待确认"
+    }
+
+    /// 出发前给陪跑员留的一句话。行内直接显示原文 —— 跑者要能听到自己留过什么。
+    private func runnerMessageRow(_ action: @escaping () -> Void) -> some View {
+        let message = order.messageToVolunteer?.nilIfBlank
+        return FlowInfoRow(
+            label: "留言",
+            kind: .navigable(action: action),
+            accessibilityLabel: message.map { "给陪跑员的留言，\($0)" } ?? "给陪跑员留言，还没有留",
+            accessibilityHint: "双击写一句话给陪跑员，比如你穿什么衣服"
+        ) {
+            Text(message ?? "出发前留一句话")
+                .flowFont(FlowFonts.rowValue())
+                .foregroundColor(message == nil ? AppColors.Flow.secondaryText : AppColors.Flow.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(.trailing)
+        }
+        .accessibilityIdentifier("blindOrderFlowRunnerMessageRow")
     }
 
     /// 最后一行：这一态的破坏性/求助入口。**固定位置、点击后二次确认。**

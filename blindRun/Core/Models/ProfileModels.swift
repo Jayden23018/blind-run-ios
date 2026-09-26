@@ -12,6 +12,8 @@ struct BlindProfileResponse: Codable, Sendable {
     let tetherPreference: String?
     let chatPreference: String?
     let defaultPace: PacePreference?
+    /// 写给陪跑员的引导偏好（≤80）。自由文本，陪跑员**接单后**才从订单详情看得到（`AGENTS.md` §8）。
+    let guidePreferenceText: String?
 
     private enum CodingKeys: String, CodingKey {
         case name = "name"
@@ -23,6 +25,7 @@ struct BlindProfileResponse: Codable, Sendable {
         case tetherPreference
         case chatPreference
         case defaultPace
+        case guidePreferenceText
     }
 
     init(
@@ -34,7 +37,8 @@ struct BlindProfileResponse: Codable, Sendable {
         hasGuideDog: Bool? = nil,
         tetherPreference: String? = nil,
         chatPreference: String? = nil,
-        defaultPace: PacePreference? = nil
+        defaultPace: PacePreference? = nil,
+        guidePreferenceText: String? = nil
     ) {
         self.name = name
         self.runningPace = runningPace
@@ -45,6 +49,7 @@ struct BlindProfileResponse: Codable, Sendable {
         self.tetherPreference = tetherPreference
         self.chatPreference = chatPreference
         self.defaultPace = defaultPace
+        self.guidePreferenceText = guidePreferenceText
     }
 }
 
@@ -57,11 +62,17 @@ struct BlindProfileUpdateRequest: Codable, Sendable {
     let tetherPreference: String?
     let chatPreference: String?
     let defaultPace: PacePreference?
+    /// 不带这个键 = 保留原值；空串 = 清空（契约 `BlindProfileUpdateRequest.guidePreferenceText`）。
+    var guidePreferenceText: String? = nil
+
+    /// 契约 `maxLength: 80`，按 UTF-16 计（口径同 `SupportTicketRequest.length(of:)`）。
+    static let guidePreferenceMaxLength = 80
 
     private enum CodingKeys: String, CodingKey {
         case name = "name"
         case runningPace
         case specialNeeds
+        case guidePreferenceText
         case visionLevel
         case hasGuideDog
         case tetherPreference
