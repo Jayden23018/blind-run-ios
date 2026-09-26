@@ -475,7 +475,24 @@ struct VolunteerProfileFirstScreen: View {
     /// 国标星级。门槛由 GB/T 40143—2021 定、不由我们定、也不随用户表现漂移 ——
     /// 这正是它能替代「本月 N/M 次」那种 Moving Target 的原因（调研 §4.2）。
     /// 文案整段复用成就页那一套，不新写第二份。
+    ///
+    /// 🚩 **整张卡可点，去服务成就页。** 改版前「我的贡献」卡下有一条「查看服务成就 ›」，
+    /// 改版后只剩徽章标题旁那枚小链接，而人会去点的是写着「尚未达到一星」的这张卡本身
+    /// （真机反馈「以前可以点进去看，现在点不了」）。写法同 `trainingEntry`：
+    /// `NavigationLink` 上不套 `.combine`，标签 / identifier 挂在链接本身。
     private func starCard(_ level: VolunteerStarLevelDto) -> some View {
+        NavigationLink {
+            VolunteerServiceRecognitionView()
+        } label: {
+            starCardBody(level)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(VolunteerAchievementsCopy.starAccessibilityLabel(level))
+        .accessibilityHint(VolunteerProfileCopy.badgesLinkHint)
+        .accessibilityIdentifier("volunteerProfileStarCard")
+    }
+
+    private func starCardBody(_ level: VolunteerStarLevelDto) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Label(
@@ -485,6 +502,10 @@ struct VolunteerProfileFirstScreen: View {
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(AppColors.textPrimary)
                 Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(AppColors.textSecondary.opacity(0.6))
+                    .accessibilityHidden(true)
             }
 
             // 进度条对 VoiceOver 是空的，所以下面那行文字不是装饰 —— 它是这一栏
@@ -502,9 +523,7 @@ struct VolunteerProfileFirstScreen: View {
         .padding(14)
         .background(AppColors.secondaryBackground)
         .clipShape(RoundedRectangle(cornerRadius: VolunteerHomeRadius.card, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(VolunteerAchievementsCopy.starAccessibilityLabel(level))
-        .accessibilityIdentifier("volunteerProfileStarCard")
+        .contentShape(Rectangle())
     }
 
     private func starProgress(_ level: VolunteerStarLevelDto) -> Double {
