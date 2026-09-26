@@ -305,6 +305,12 @@ struct FlowActionButton: View {
         case help
         /// 次级操作。白底 + 灰描边。
         case ghost
+        /// 陪跑员订单页 v2 的主按钮（交付包 D14）：黄底 + 1.5pt `ctaStroke` 描边 + 暖色阴影，
+        /// 按下缩放 0.98。与 `.primary` 分开是为了不动盲人端 —— 那边的主按钮保持无描边。
+        case raisedPrimary
+        /// 陪跑员订单页 v2 的次要按钮（「我已经出发了」、响铃）：白底 + 灰描边，字 16 bold。
+        /// 与 `.ghost` 同形，只是字号字重按 v2。
+        case outlined
     }
 
     let title: String
@@ -344,33 +350,14 @@ struct FlowActionButton: View {
     }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                if isLoading {
-                    ProgressView().tint(foreground)
-                } else if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 20, weight: .semibold))
-                        .accessibilityHidden(true)
-                }
-                Text(title)
-                    .flowFont(FlowFonts.actionButton())
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.center)
-            }
-            .foregroundColor(foreground)
-            .frame(maxWidth: .infinity)
-            // 文字放大后靠内容的固有高度顶开；64 只是下限，不是固定值。
-            .padding(.vertical, 10)
-            .frame(minHeight: FlowMetrics.actionButtonMinHeight)
-            .background(background)
-            .overlay(
-                RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
-                    .strokeBorder(strokeColor, lineWidth: strokeColor == .clear ? 0 : 1.5)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
-        }
-        .buttonStyle(.plain)
+        styledButton
+        .shadow(
+            color: style == .raisedPrimary && isEnabled
+                ? AppColors.Flow.ctaStroke.opacity(FlowMetrics.v2CTAShadowOpacity) : .clear,
+            radius: FlowMetrics.v2CTAShadowRadius,
+            x: 0,
+            y: FlowMetrics.v2CTAShadowY
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(accessibilityLabel ?? title)
@@ -390,11 +377,59 @@ struct FlowActionButton: View {
         .disabled(isLoading || !isEnabled)
     }
 
+    /// 只有 v2 主按钮换缩放样式；其余保持 `.plain`（它自带按下态变暗，盲人端的按下反馈就是它）。
+    @ViewBuilder
+    private var styledButton: some View {
+        if style == .raisedPrimary {
+            buttonContent.buttonStyle(FlowPressScaleStyle(scale: FlowMetrics.v2PressedScale))
+        } else {
+            buttonContent.buttonStyle(.plain)
+        }
+    }
+
+    private var buttonContent: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                if isLoading {
+                    ProgressView().tint(foreground)
+                } else if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 20, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+                    .flowFont(titleFont)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundColor(foreground)
+            .frame(maxWidth: .infinity)
+            // 文字放大后靠内容的固有高度顶开；64 只是下限，不是固定值。
+            .padding(.vertical, 10)
+            .frame(minHeight: FlowMetrics.actionButtonMinHeight)
+            .background(background)
+            .overlay(
+                RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
+                    .strokeBorder(strokeColor, lineWidth: strokeColor == .clear ? 0 : 1.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
+        }
+    }
+
     private var foreground: Color {
         switch style {
-        case .primary: return AppColors.Flow.onCTA
+        case .primary, .raisedPrimary: return AppColors.Flow.onCTA
         case .help: return AppColors.Flow.helpText
-        case .ghost: return AppColors.Flow.primaryText
+        case .ghost, .outlined: return AppColors.Flow.primaryText
+        }
+    }
+
+    private var titleFont: (CGFloat, Font.Weight, Font.TextStyle) {
+        switch style {
+        case .primary, .help, .ghost: return FlowFonts.actionButton()
+        // 交付包 01：主按钮 17 heavy、次要按钮 16 bold。
+        case .raisedPrimary: return (17, .heavy, .headline)
+        case .outlined: return (16, .bold, .callout)
         }
     }
 
@@ -402,9 +437,9 @@ struct FlowActionButton: View {
         switch style {
         // 不可用的黄按钮换**具名浅黄**而不是降透明度：那三秒里这枚按钮的颜色
         // 是「现在还不能按」唯一的视觉状态，见 `AppColors.Flow.ctaDisabled`。
-        case .primary: return isEnabled ? AppColors.Flow.cta : AppColors.Flow.ctaDisabled
+        case .primary, .raisedPrimary: return isEnabled ? AppColors.Flow.cta : AppColors.Flow.ctaDisabled
         case .help: return AppColors.Flow.helpBackground
-        case .ghost: return AppColors.Flow.surface
+        case .ghost, .outlined: return AppColors.Flow.surface
         }
     }
 
@@ -414,9 +449,24 @@ struct FlowActionButton: View {
     private var strokeColor: Color {
         switch style {
         case .primary: return .clear
+        case .raisedPrimary: return isEnabled ? AppColors.Flow.ctaStroke : .clear
         case .help: return AppColors.Flow.helpStroke
-        case .ghost: return AppColors.Flow.ghostStroke
+        case .ghost, .outlined: return AppColors.Flow.ghostStroke
         }
+    }
+}
+
+/// 按下缩放。`scale == 1` 时与 `.plain` 等价 —— 盲人端三种样式走这条路径，外观不变。
+///
+/// 「减弱动态效果」打开时不缩放：缩放是位移类动效，03 §四要求降级。
+struct FlowPressScaleStyle: ButtonStyle {
+    let scale: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? scale : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

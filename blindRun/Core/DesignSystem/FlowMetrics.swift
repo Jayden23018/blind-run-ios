@@ -171,6 +171,48 @@ enum FlowMetrics {
     /// 深蓝卡底部「打开订单」条的最小高度。它在**整张卡是一个按钮**的结构里属于装饰
     /// （真正的触达目标是整张卡），所以 48 不受 64pt 线约束。
     static let navyFooterMinHeight: CGFloat = 48
+
+    // MARK: 陪跑员订单页 v2（交付包 zhumangpao-handoff/01，2026-09-26）
+    //
+    // 触达高度的裁决（项目负责人 2026-09-26）：主按钮与次要按钮（含响铃、快捷回复）
+    // 一律 64 —— 骑车 / 小跑时最常按的就是它们；汇合页两列按钮 48、文字按钮与求助胶囊 44
+    // 照交付包，下限是 Apple HIG 的 44。守卫在
+    // `FlowDesignSystemTests.testVolunteerOrderV2AuxiliaryTargetsKeepTheFortyFourFloor`。
+
+    /// 页面左右边距。比订单流程 v3 的 16 宽。
+    static let v2ScreenPadding: CGFloat = 20
+    /// 卡片之间、导航栏到第一张卡。
+    static let v2SectionGap: CGFloat = 12
+    /// 普通卡片内边距；头卡是 20 上下 / 22 左右。
+    static let v2CardPadding: CGFloat = 16
+    static let v2HeroVerticalPadding: CGFloat = 20
+    static let v2HeroHorizontalPadding: CGFloat = 22
+    /// 可点的单行卡（集合点、导航）。
+    static let v2RowRadius: CGFloat = 20
+    /// 快捷回复、三宫格底、偏好气泡。
+    static let v2ChipRadius: CGFloat = 16
+    /// 可点单行卡的高度。本来就 ≥64，与 `infoRowTappableMinHeight` 同值。
+    static let v2PlaceRowMinHeight: CGFloat = 64
+    /// 汇合页「打电话 / 找不到对方」两列按钮。
+    static let v2TertiaryMinHeight: CGFloat = 48
+    /// 文字按钮、求助胶囊、返回按钮。
+    static let v2TextButtonMinHeight: CGFloat = 44
+    static let v2NavHeight: CGFloat = 44
+    /// 导航栏左右各一个固定宽度的槽，保证标题居中、求助胶囊位置不随状态移动。
+    static let v2NavSlotWidth: CGFloat = 84
+    static let v2HelpPillHorizontalPadding: CGFloat = 14
+    /// 列表头像（跑者卡）与图标圆底（地点行）。
+    static let v2ListAvatarDiameter: CGFloat = 44
+    static let v2IconBubbleDiameter: CGFloat = 36
+    /// 底部动作区上缘那条「页面底 → 透明」渐变的高度。
+    static let v2BottomFadeHeight: CGFloat = 16
+    /// 主按钮暖色阴影（CSS blur 16 → SwiftUI radius 8，见 `cardShadowNear` 的换算说明）。
+    static let v2CTAShadowRadius: CGFloat = 8
+    static let v2CTAShadowY: CGFloat = 6
+    static let v2CTAShadowOpacity: Double = 0.28
+    static let v2CTAStrokeWidth: CGFloat = 1.5
+    /// 按下时的缩放。
+    static let v2PressedScale: CGFloat = 0.98
 }
 
 // MARK: - Dynamic Type 驱动的字号
@@ -190,11 +232,19 @@ enum FlowMetrics {
 private struct FlowFont: ViewModifier {
     @ScaledMetric private var size: CGFloat
     private let weight: Font.Weight
+    private let design: Font.Design
     private let usesMonospacedDigit: Bool
 
-    init(size: CGFloat, weight: Font.Weight, relativeTo textStyle: Font.TextStyle, monospacedDigit: Bool) {
+    init(
+        size: CGFloat,
+        weight: Font.Weight,
+        design: Font.Design = .default,
+        relativeTo textStyle: Font.TextStyle,
+        monospacedDigit: Bool
+    ) {
         self._size = ScaledMetric(wrappedValue: size, relativeTo: textStyle)
         self.weight = weight
+        self.design = design
         self.usesMonospacedDigit = monospacedDigit
     }
 
@@ -203,7 +253,7 @@ private struct FlowFont: ViewModifier {
     }
 
     private var resolvedFont: Font {
-        let base = Font.system(size: size, weight: weight)
+        let base = Font.system(size: size, weight: weight, design: design)
         // 倒计时与「已等待 01:32」每秒变一次。等宽数字之外的字形宽度不同，
         // 不设等宽会让整行文字随秒数左右抖动 —— 对低视力用户是持续的干扰。
         return usesMonospacedDigit ? base.monospacedDigit() : base
@@ -337,5 +387,62 @@ extension View {
     /// `FlowFonts` 的元组直接喂给 `flowFont`，省掉每个调用点解元组。
     func flowFont(_ spec: (CGFloat, Font.Weight, Font.TextStyle), monospacedDigit: Bool = false) -> some View {
         flowFont(size: spec.0, weight: spec.1, relativeTo: spec.2, monospacedDigit: monospacedDigit)
+    }
+}
+
+// MARK: - 陪跑员订单页 v2 字号（交付包 zhumangpao-handoff/01「字体」）
+
+/// v2 的字号表。与上面 `FlowFonts` 分开放是因为两者的调用方不重叠 ——
+/// 这一组只给陪跑员订单页 v2，盲人端一律不用（它们的字号与层级是另一套设计判断）。
+enum FlowV2Fonts {
+    typealias Spec = (CGFloat, Font.Weight, Font.TextStyle)
+
+    /// 主角数字：SF Rounded、heavy、等宽数字、负字距。用 `flowHeroNumber(_:)` 套，不要直接 `flowFont`。
+    struct Hero {
+        let size: CGFloat
+        let tracking: CGFloat
+    }
+    /// 出发页「8」分钟。
+    static let heroXL = Hero(size: 80, tracking: -3)
+    /// 「15」分钟后出发。
+    static let heroL = Hero(size: 72, tracking: -2)
+    /// 「6:35」。
+    static let heroM = Hero(size: 56, tracking: -2)
+    /// 邀请页「周六 7:00」。
+    static let heroS = Hero(size: 44, tracking: -1)
+
+    /// 主角数字后的单位：「出发」「分钟后到」。
+    static func heroUnit() -> Spec { (21, .bold, .title3) }
+    /// 汇合页「李*就在附近」。
+    static func title() -> Spec { (28, .heavy, .title) }
+    /// 完成页关系标题。
+    static func title2() -> Spec { (26, .heavy, .title) }
+    /// 姓名、主按钮文字。
+    static func headline() -> Spec { (17, .bold, .headline) }
+    /// 跑者原话、留言。行高 1.6，配 `bodyLineSpacing`。
+    static func body() -> Spec { (16, .regular, .body) }
+    /// 头卡副文、列表主文字、次要按钮。
+    static func callout(bold: Bool = false) -> Spec { (15, bold ? .bold : .regular, .callout) }
+    /// 卡片小标题、次要说明。
+    static func subhead(bold: Bool = false) -> Spec { (14, bold ? .bold : .regular, .subheadline) }
+    /// **只用于标签**（「一起跑过 3 次」「待认证」），不承载正文（design-direction §3）。
+    static func tag() -> Spec { (13, .bold, .footnote) }
+    /// 主角区三宫格的数字。
+    static func metricValue() -> Spec { (22, .heavy, .title2) }
+
+    /// 16pt 正文要到 1.6 倍行高（25.6），SF 自带约 19，差的部分靠行距补。
+    static let bodyLineSpacing: CGFloat = 6
+}
+
+extension View {
+    /// 主角数字。**只有这一处封顶 Dynamic Type**（AX2，约 1.4 倍）——
+    /// 项目负责人 2026-09-26 拍板采用交付包 02「动态字体」一节，记入 design-direction「陪跑员订单页 v2 例外」。
+    /// 其余文字照常不封顶。
+    func flowHeroNumber(_ hero: FlowV2Fonts.Hero) -> some View {
+        modifier(
+            FlowFont(size: hero.size, weight: .heavy, design: .rounded, relativeTo: .largeTitle, monospacedDigit: true)
+        )
+        .tracking(hero.tracking)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
     }
 }

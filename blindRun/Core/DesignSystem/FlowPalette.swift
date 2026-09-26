@@ -19,10 +19,10 @@ extension AppColors {
     ///
     /// 1. `textTertiary #8C93A3`（原本给「出发 / 汇合」这类未到达步骤的文字）压在白卡上只有
     ///    **3.08:1**，WCAG 1.4.3 正文阈值是 4.5。未到达步骤的文字因此并到 `secondaryText`
-    ///    （5.75:1），**状态差异全部交给蓝色节点与字重承担** —— 那两条线索本来就更强。
+    ///    （6.11:1），**状态差异全部交给蓝色节点与字重承担** —— 那两条线索本来就更强。
     /// 2. `helpStroke #F4C3BE` 压在自身填充上只有 **1.37:1**，而填充 `#FDECEC` 压页面底
-    ///    `#F4F5F8` 是 **1.05:1** ⇒ 设计稿画了一圈描边，而它在低视力用户眼里不存在，
-    ///    于是「求助与安全」退化成一段悬空的红字、没有按钮形状。改 `#C25A4E`（3.78 / 3.96）。
+    ///    `#F2F3F6` 是 **1.03:1** ⇒ 设计稿画了一圈描边，而它在低视力用户眼里不存在，
+    ///    于是「求助与安全」退化成一段悬空的红字、没有按钮形状。改 `#C25A4E`（3.78 / 3.89）。
     ///    严格讲 WCAG 1.4.11 对**自带达标文字标签**的控件豁免边界比（W3C Understanding
     ///    原文），所以这一条的依据不是规范而是**设计意图 + 低视力可发现性**：作者画了边界，
     ///    那条边界就该看得见。同一条论证 `AppColors.activeRunDestructive` 已经写过一遍。
@@ -44,7 +44,9 @@ extension AppColors {
 
         /// 页面底。暗色不用纯黑之外的值：白卡 `surface` 与它的关系照搬 iOS 自己的
         /// `systemBackground` / `secondarySystemBackground` 分层。
-        static let pageTone = Tone(light: 0xF4F5F8, dark: 0x000000)
+        ///
+        /// 亮色 2026-09-26 随陪跑员订单页 v2 从 `#F4F5F8` 改 `#F2F3F6`（交付包 01 `ground`）。
+        static let pageTone = Tone(light: 0xF2F3F6, dark: 0x000000)
         static let page = flowDynamic(pageTone)
 
         /// 卡片底（订单页状态卡与信息列表卡、标签栏）。
@@ -65,15 +67,17 @@ extension AppColors {
 
         // MARK: 文字
 
-        static let primaryTextTone = Tone(light: 0x111A2E, dark: 0xFFFFFF)
+        /// 亮色 2026-09-26 从 `#111A2E` 改 `#151A26`（交付包 01 `ink`，压白 17.39 / 压页面底 15.67）。
+        static let primaryTextTone = Tone(light: 0x151A26, dark: 0xFFFFFF)
         static let primaryText = flowDynamic(primaryTextTone)
 
         /// 次要文字：列表左侧标签、状态副标题、**以及未到达步骤的文字**（见类型注释第 1 条）。
         ///
         /// 「增强对比度」打开时并到 `primaryText`，与 `HighContrastText` 同一个办法 ——
-        /// 亮色 5.27:1（压页面底）刚过 4.5，用户显式要求增强时给到 AAA 那一档。
+        /// 亮色 5.51:1（压页面底）过 4.5 但余量不大，用户显式要求增强时给到 AAA 那一档。
         /// 判断做在 `UIColor` 的 trait 闭包里，所以调用点零成本、也不会漏。
-        static let secondaryTextTone = Tone(light: 0x5E6679, dark: 0xAEAEB2)
+        /// 亮色 2026-09-26 从 `#5E6679` 改 `#5B6272`（交付包 01 `inkSecondary`，压白 6.11）。
+        static let secondaryTextTone = Tone(light: 0x5B6272, dark: 0xAEAEB2)
         static let secondaryText = flowDynamic(secondaryTextTone, highContrast: primaryTextTone)
 
         /// 强调蓝：进度条已完成/当前节点、雷达中心、加号圆底。
@@ -136,7 +140,10 @@ extension AppColors {
         /// 暗色**不能沿用亮色的 `#15224A`**：它压在纯黑页面上只有 1.36:1，整张卡会化进背景。
         /// `#203570` 白字仍有 11.64:1，而对黑底 1.80:1 —— 看得出是一块卡。
         /// （3:1 在这里构造上不可达，理由见类型注释末段。）
-        static let navyTone = Tone(light: 0x15224A, dark: 0x203570)
+        ///
+        /// 亮色 2026-09-26 随陪跑员订单页 v2 从 `#15224A` 改 `#1B2657`（交付包 01 `navy`，
+        /// 白字 14.37:1）。它同时是盲人端首页深蓝卡的底 —— 那边的变化是同一个产品方向，不是副作用。
+        static let navyTone = Tone(light: 0x1B2657, dark: 0x203570)
         static let navy = flowDynamic(navyTone)
 
         /// 深蓝卡上的次要文字（「下一次陪跑，已约好」、陪跑经验行）。亮暗同值 —— 底色是品牌
@@ -236,7 +243,77 @@ extension AppColors {
 
         // MARK: 描边按钮（次级）
 
-        static let ghostStroke = flowDynamic(Tone(light: 0xD5DAE3, dark: 0x48484A))
+        /// 亮色 2026-09-26 从 `#D5DAE3` 改 `#CDD2DC`（交付包 01 `borderNeutral`）。
+        /// 压白 1.52:1 —— 带达标文字标签的控件，按 W3C 1.4.11 豁免，理由同主按钮。
+        static let ghostStrokeTone = Tone(light: 0xCDD2DC, dark: 0x48484A)
+        static let ghostStroke = flowDynamic(ghostStrokeTone)
+
+        // MARK: 陪跑员订单页 v2（交付包 zhumangpao-handoff/01，2026-09-26）
+        //
+        // 交付包给的是只有亮色的 `ZColor`；按 design-direction §2「不另起第二套色板」并进这里，
+        // 暗色档自己补。配对断言在 `FlowDesignSystemTests.testVolunteerOrderV2PairingsClearTheirThresholds`。
+        //
+        // 设计稿取值没有原样采用的第 5 条：陪跑员头像底 `#4A76E8` 压白色姓氏只有 **4.16:1**，
+        // 改 `#3C6CE6`（4.69）。它压亮色藏青 3.07、压暗色藏青只有 2.48 —— 暗色档两个要求
+        // 方向相反、构造上不可达，轮廓比按「自带达标文字标签」豁免（见 `FlowDesignSystemTests`）。
+
+        /// 卡片里的浅块：三宫格底、留言气泡、「一起跑过 N 次」标签。
+        static let surfaceSubtleTone = Tone(light: 0xF4F6FA, dark: 0x2C2C2E)
+        static let surfaceSubtle = flowDynamic(surfaceSubtleTone)
+
+        /// 浅蓝底：图标圆底、快捷回复按钮底、「待认证」标签底。
+        static let blueTintTone = Tone(light: 0xE6EDFC, dark: 0x1B2A4F)
+        static let blueTint = flowDynamic(blueTintTone)
+        /// 压在 `blueTint` 上的蓝字（「待认证」）。6.98 / 7.89。
+        static let bluePressedTone = Tone(light: 0x1F47AD, dark: 0xA9C1FF)
+        static let bluePressed = flowDynamic(bluePressedTone)
+        /// 压在 `blueTint` 上的深字（快捷回复按钮）。亮色是藏青（12.24），暗色白字（14.09）。
+        static let onBlueTintTone = Tone(light: 0x1B2657, dark: 0xFFFFFF)
+        static let onBlueTint = flowDynamic(onBlueTintTone)
+
+        /// 藏青头卡上的三档字。亮暗同值 —— 底是品牌深色表面，理由同 `onNavySecondary`。
+        /// 压亮 / 暗两档 navy：小标题 7.30 / 5.91，副文 9.45 / 7.66，强调 11.31 / 9.16。
+        static let onNavyEyebrowTone = Tone(light: 0xAEB8DA, dark: 0xAEB8DA)
+        static let onNavyEyebrow = flowDynamic(onNavyEyebrowTone, highContrast: Tone(light: 0xFFFFFF, dark: 0xFFFFFF))
+        static let onNavyBodyTone = Tone(light: 0xC9D1EC, dark: 0xC9D1EC)
+        static let onNavyBody = flowDynamic(onNavyBodyTone, highContrast: Tone(light: 0xFFFFFF, dark: 0xFFFFFF))
+        static let onNavyStrongTone = Tone(light: 0xDCE4FB, dark: 0xDCE4FB)
+        static let onNavyStrong = flowDynamic(onNavyStrongTone)
+
+        /// 引导绳上的两枚头像（深色主题）。白色姓氏压在上面：4.69 / 8.29。
+        static let volunteerDotTone = Tone(light: 0x3C6CE6, dark: 0x3C6CE6)
+        static let volunteerDot = flowDynamic(volunteerDotTone)
+        static let runnerDotTone = Tone(light: 0x3B4A8A, dark: 0x3B4A8A)
+        static let runnerDot = flowDynamic(runnerDotTone)
+        /// 深色主题的绳子（压藏青 5.40）与虚线 / 出发地小圈（纯装饰，2.05）。
+        static let ropeOnNavyTone = Tone(light: 0x7C9CF2, dark: 0x7C9CF2)
+        static let ropeOnNavy = flowDynamic(ropeOnNavyTone)
+        static let mutedOnNavy = flowDynamic(Tone(light: 0x4B587F, dark: 0x4B587F))
+        /// 「跑者已到入口附近」胶囊里的圆点。胶囊有文字，圆点是冗余线索。
+        static let presenceGreen = flowDynamic(Tone(light: 0x6BE79C, dark: 0x6BE79C))
+
+        /// v2 主按钮的 1.5pt 描边与暖色阴影（交付包 D14）。压页面底 2.07 ——
+        /// 按钮自带 10.6:1 的文字标签，边界比按 W3C 1.4.11 豁免；描边的作用是强光下的形状线索。
+        static let ctaStrokeTone = Tone(light: 0xD9A21E, dark: 0xD9A21E)
+        static let ctaStroke = flowDynamic(ctaStrokeTone)
+
+        /// 金色：汇合光环、完成时的绳子、快迟到时的主角数字（压 navy 8.76 / 7.10）。
+        /// 与 `cta` 同值但语义不同 —— 一个是「现在按这个」，一个是「时间 / 汇合」的强调。
+        static let goldTone = Tone(light: 0xF6C343, dark: 0xF6C343)
+        static let gold = flowDynamic(goldTone)
+
+        /// 跑者留言卡与快迟到提醒条。标题 7.36 / 8.90，正文 12.56 / 11.88。
+        static let warmCardTone = Tone(light: 0xFFF4D6, dark: 0x3A2E0A)
+        static let warmCard = flowDynamic(warmCardTone)
+        static let warmCardTitleTone = Tone(light: 0x6B4A00, dark: 0xF5CF6B)
+        static let warmCardTitle = flowDynamic(warmCardTitleTone)
+        static let warmCardBodyTone = Tone(light: 0x3A2B00, dark: 0xFFF1CC)
+        static let warmCardBody = flowDynamic(warmCardBodyTone)
+
+        /// **仅装饰**：邀请态虚线、未约好的跑者头像描边与姓氏。不能承载信息
+        /// （`decorMutedInk` 压白只有 3.16）—— 邀请态的「还没约好」由读屏标签与虚线形状承担。
+        static let decorMuted = flowDynamic(Tone(light: 0xC3C9D5, dark: 0x48484A))
+        static let decorMutedInk = flowDynamic(Tone(light: 0x8A91A2, dark: 0x8E8E93))
 
         // MARK: 底部标签栏
 
