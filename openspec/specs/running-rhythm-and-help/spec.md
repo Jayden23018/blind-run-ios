@@ -33,18 +33,18 @@ TBD - created by archiving change add-running-rhythm-pause-and-help-panel. Updat
 - **THEN** 开关为关，跨过 1 公里不播报
 
 ### Requirement: 提示条只显示一条
-跑步页 SHALL 在三数字卡下方按优先级显示至多一条提示：走散（最近一次 `ESCORT_DISTANCE_ALERT` 后 60 秒内）> 跑者电量低（`run.runnerBatteryLow`）> 本机定位精度差于 50 米持续 20 秒。走散提示 MUST NOT 带响铃按钮。
+跑步页 SHALL 在头卡下方显示至多一条提示，与 `volunteer-running-page` 的提示条共用一个队列：跑者求助已确认 > 走散（最近一次 `ESCORT_DISTANCE_ALERT` 后 60 秒内）> 收不到跑者位置 > 跑者电量低（`run.runnerBatteryLow`）> 本机定位精度差于 50 米持续 20 秒。走散提示 MUST NOT 带响铃按钮。
 
 #### Scenario: 走散与电量低同时成立
 - **WHEN** 60 秒内收到过走散告警且跑者电量低
 - **THEN** 只显示走散提示
 
 ### Requirement: 暂停与继续
-陪跑员 SHALL 能从求助面板暂停计时（`POST /api/orders/{id}/pause`）；`run.paused=true` 时页面显示「已暂停 · 计时停在 mm:ss」灰条与「继续陪跑」黄色主按钮（`/resume`），且该按钮是本屏唯一的黄色按钮；暂停中结束按钮仍在它下方。
+陪跑员 SHALL 能从求助面板暂停计时（`POST /api/orders/{id}/pause`）；`run.paused=true` 时头卡底色 SHALL 换成 `statePaused`、小标题为「已暂停 · 计时停在 mm:ss」（取 `run.elapsedSeconds`），底部栏 SHALL 出现「继续陪跑」黄色主按钮（`/resume`），它是本屏唯一的黄色按钮，长按结束仍在它下方。
 
 #### Scenario: 暂停中
-- **WHEN** 订单详情 `run.paused=true`
-- **THEN** 出现「继续陪跑」，结束按钮改为白底描边
+- **WHEN** 订单详情 `run.paused=true`、`run.elapsedSeconds=1112`
+- **THEN** 头卡小标题为「已暂停 · 计时停在 18:32」，底部出现「继续陪跑」
 
 ### Requirement: 跑步中求助面板
 `IN_PROGRESS` 时陪跑员右上角「求助」SHALL 打开求助面板而非直接发求助。面板包含：暂停（已暂停时隐藏）、联系客服（一键提交带订单号的工单，成功后显示「客服会尽快联系你」）、长按 3 秒紧急求助（走现有云端链路）。轻点或 VoiceOver 双击紧急按钮 MUST 弹出 `AGENTS.md` §6 锁定文案的确认框；紧急按钮副标题 MUST NOT 声称任何人已收到。

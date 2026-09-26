@@ -2,8 +2,8 @@ import SwiftUI
 
 // MARK: - 跑步中加进旧页的新能力（DECISIONS-v2 V4–V8、V11；交付包 08 §二–§五）
 //
-// 旧跑步页布局不动（三数字卡、长按 2 秒结束）。这里只放**加进去**的东西：
-// 节奏卡 / 信号卡、提示条、耳机语音播报开关、暂停灰条、跑步中求助面板。
+// 挂在 #227 的 v2 跑步页 `VolunteerRunningPage` 上（V4 原定「旧页不动」，负责人 09-26 改为整页换 v2，
+// 本变更随之移植）。这里只放**加进去**的东西：节奏卡 / 信号卡、提示条、耳机语音播报开关、跑步中求助面板。
 // 判定都是纯函数，用例在 `RunningRhythmAndHelpTests`。
 
 enum VolunteerRunCopy {
@@ -258,6 +258,23 @@ struct VolunteerRunTipBar: View {
     }
 }
 
+/// 跑步页头卡下面那**一条**提示：#227 的两条（跑者求助已确认 / 收不到跑者位置）与本变更的三条合成一个队列。
+///
+/// 顺序：已确认的求助（他还在求助，只是有人接手了）> 走散 > 收不到跑者位置 > 跑者电量低 > 本机定位弱。
+/// 走散排在「收不到位置」前面：走散说的是「能定位但太远」，是更具体、更要立刻处理的那一个。
+enum VolunteerRunningNotice: Equatable {
+    /// 头卡自带的那一条（`VolunteerRunningHero.notice`）。
+    case hero
+    case tip(VolunteerRunTip)
+
+    static func resolve(isPeerAlertAcknowledged: Bool, heroHasNotice: Bool, tip: VolunteerRunTip?) -> Self? {
+        if isPeerAlertAcknowledged, heroHasNotice { return .hero }
+        if tip == .separated { return .tip(.separated) }
+        if heroHasNotice { return .hero }
+        return tip.map { .tip($0) }
+    }
+}
+
 // MARK: - 耳机语音播报开关
 
 enum VolunteerRunVoiceBroadcast {
@@ -295,28 +312,6 @@ struct VolunteerRunVoiceToggle: View {
                 .strokeBorder(AppColors.Flow.ghostStroke, lineWidth: 1)
         )
         .accessibilityIdentifier("volunteerRunVoiceToggle")
-    }
-}
-
-// MARK: - 暂停灰条
-
-struct VolunteerRunPausedStrip: View {
-    let elapsedText: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(VolunteerRunCopy.pausedTitle(elapsed: elapsedText))
-                .flowFont(FlowV2Fonts.callout(bold: true), monospacedDigit: true)
-            Text(VolunteerRunCopy.pausedBody)
-                .flowFont(FlowV2Fonts.subhead())
-        }
-        .foregroundColor(.white)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(AppColors.Flow.statePaused, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("volunteerRunPausedStrip")
     }
 }
 

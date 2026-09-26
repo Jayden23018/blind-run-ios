@@ -126,6 +126,18 @@ final class RunningRhythmAndHelpTests: XCTestCase {
         )
     }
 
+    /// #227 的两条提示与本变更的三条合成一个队列（`port-running-features-to-v2-page`）。
+    func testRunningPageNoticeQueueMergesBothSources() {
+        XCTAssertEqual(VolunteerRunningNotice.resolve(isPeerAlertAcknowledged: true, heroHasNotice: true, tip: .separated), .hero,
+                       "已确认的求助压过走散")
+        XCTAssertEqual(VolunteerRunningNotice.resolve(isPeerAlertAcknowledged: false, heroHasNotice: true, tip: .separated), .tip(.separated),
+                       "走散压过「收不到跑者位置」")
+        XCTAssertEqual(VolunteerRunningNotice.resolve(isPeerAlertAcknowledged: false, heroHasNotice: true, tip: .runnerBatteryLow), .hero,
+                       "「收不到跑者位置」压过电量低")
+        XCTAssertEqual(VolunteerRunningNotice.resolve(isPeerAlertAcknowledged: false, heroHasNotice: false, tip: .weakLocation), .tip(.weakLocation))
+        XCTAssertNil(VolunteerRunningNotice.resolve(isPeerAlertAcknowledged: false, heroHasNotice: false, tip: nil))
+    }
+
     func testWeakLocationNeedsTwentySustainedSecondsAboveFiftyMeters() {
         var since = VolunteerRunTip.weakSince(previous: nil, accuracy: 60, now: now)
         XCTAssertEqual(since, now)

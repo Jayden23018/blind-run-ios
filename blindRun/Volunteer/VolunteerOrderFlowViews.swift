@@ -1801,9 +1801,6 @@ struct VolunteerInServiceView: View {
     @State private var showsRunRecord = false
     @State private var activeSheet: VolunteerSheet?
     @Environment(\.scenePhase) private var scenePhase
-    /// 横屏（高度紧凑）时跑步中新增的几块改放进底部面板的滚动区：放在固定区会把面板压到 5pt
-    /// （真机 `testVolunteerRunningPageKeepsTheSOSButtonReachable` 横屏实测），「长按结束」够不着。
-    @Environment(\.verticalSizeClass) private var verticalSizeClass
     /// 汇合页的朝向源，只在 `DRIVER_ARRIVED` 开着。
     @StateObject private var meetHeading = MeetHeadingProvider()
     /// 方位描述的滞回基准（上一次说的是哪个方位）。
@@ -1827,10 +1824,8 @@ struct VolunteerInServiceView: View {
 
     /// 这一态走不走这个页面。`nil` = 还是旧的地图 + 底部面板那条路。
     ///
-    /// 🚩 **现在只剩跑步中走旧路径**（深蓝三数字 + 长按 2 秒结束 + 导航栏右侧的求助，已拍板不动）。
-    /// 邀请 / 约好 / 出发 / 汇合 / 已完成 / 跑者已取消都在骨架上。
-    /// `VolunteerServiceBottomPanel` 与 `VolunteerServiceActions` 因此只剩跑步中一个调用方，
-    /// 跑中页改造那一轮可以连它们一起删 —— **现在就删会让回退没有退路。**
+    /// 跑步中也不走这里，它有自己的 `runningPage`（#218）。旧路径现在只剩订单还没拉到的那一瞬
+    /// 与认不出的状态；`VolunteerServiceBottomPanel` 里跑步中那一支已经到不了，整条旧路径待清理。
     private var flowPresentation: VolunteerOrderFlowPresentation? {
         guard let order = viewModel.order else { return nil }
         return .make(
@@ -1857,9 +1852,14 @@ struct VolunteerInServiceView: View {
         return DistanceCalculator.formattedDistance(meters)
     }
 
+    /// 跑步中（v2 画布 ⑤，#218）。它不走 `flowPresentation` 那一套：没有信息行、引导绳和黄色主按钮。
+    private var isRunning: Bool { viewModel.order?.status == .inProgress }
+
     var body: some View {
         Group {
-            if let order = viewModel.order, flowPresentation != nil {
+            if let order = viewModel.order, isRunning {
+                runningPage(order: order)
+            } else if let order = viewModel.order, flowPresentation != nil {
                 // 每秒一拍：解锁时刻、结束等待时刻、「N 分钟后出发」都是 `(订单, 现在)` 的函数，不存。
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     flowPage(order: order, now: context.date)
@@ -1872,21 +1872,8 @@ struct VolunteerInServiceView: View {
         .navigationBarTitleDisplayMode(.inline)
         // 旧路径藏导航栏的底，是为了让地图透上去。
         .toolbarBackground(.hidden, for: .navigationBar)
-        // v2 页面自带导航栏（左返回、右求助），系统那条要整条藏掉，否则两条叠着。
-        .toolbar(flowPresentation == nil ? .visible : .hidden, for: .navigationBar)
-        // 跑步中（旧路径）的求助入口放在导航栏右侧：不占内容区，横竖屏都不会被底部那一叠盖住或挤掉（#217）。
-        // v2 页面的求助胶囊在它自己的导航栏上，这里只管旧路径。
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // 跑步中改为打开求助面板（V5）：暂停 / 联系客服 / 长按 3 秒紧急求助。
-                // 紧急求助的确认框与云端链路都没变，只是多了一层「不那么重的出口」。
-                if flowPresentation == nil, let order = viewModel.order, order.status.canVolunteerTriggerEmergency {
-                    VolunteerSOSNavButton(coordinator: appState.emergencyCoordinator) {
-                        activeSheet = .runHelp
-                    }
-                }
-            }
-        }
+        // v2 页面与跑步中页都自带导航栏（左返回、右求助），系统那条要整条藏掉，否则两条叠着。
+        .toolbar(flowPresentation == nil && !isRunning ? .visible : .hidden, for: .navigationBar)
         // 订单页**不带标签栏**（设计交付 v3 §4.2 总表：S1/S2/S3/S4 的底部是「标签栏」，
         // 而 S6 是「求助与安全」；`03-订单页全流程.png` 五屏也都没有标签栏）。
         // 多一条 49pt 的标签栏会把底部操作区顶上去，而标签栏在这一刻能去的地方
@@ -2022,6 +2009,48 @@ struct VolunteerInServiceView: View {
                 Task { await viewModel.acknowledgeEmergency(eventID: eventID) }
             }
         )
+    }
+
+    // MARK: - 跑步中
+
+    /// 求助只在这一态走云端（`VolunteerOrderSOSMode`）。右上角打开跑步中求助面板（V5），
+    /// 面板里的紧急按钮轻点弹锁定文案的二次确认、长按 3 秒直发。
+    ///
+    /// 每秒一拍：信号卡 8 秒收起、5 分钟过期、走散提示 60 秒收起都是 `(状态, 现在)` 的函数，不存。
+    private func runningPage(order: OrderDetailResponse) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            VolunteerRunningPage(
+                coordinator: appState.emergencyCoordinator,
+                order: order,
+                stats: viewModel.blindStats,
+                isPeerLocationFresh: viewModel.latestBlindSample != nil,
+                isFinishing: viewModel.isPerformingAction,
+                isFinishEnabled: !viewModel.isTransitionPending,
+                onBack: { dismiss() },
+                onHelp: { activeSheet = .runHelp },
+                // 按满 2 秒直接结束，中间没有确认框：长按本身就是那道确认
+                // （设计包 `状态清单.md` §11：「结束跑步即结束服务，不可撤销 —— 因此不做轻点」）。
+                onFinish: { Task { await viewModel.complete() } },
+                onCancel: { activeSheet = .cancelOrder },
+                rhythm: .make(
+                    run: order.run,
+                    name: order.runnerShortName,
+                    highlightUntil: viewModel.signalHighlightUntil,
+                    now: context.date
+                ),
+                tip: VolunteerRunTip.resolve(
+                    separationAlertAt: viewModel.separationAlertAt,
+                    runnerBatteryLow: order.run?.runnerBatteryLow == true,
+                    weakLocationSince: viewModel.weakLocationSince,
+                    now: context.date
+                ),
+                isTogglingPause: viewModel.isTogglingPause,
+                onResume: { Task { await viewModel.resumeRun() } }
+            ) {
+                emergencySection(for: order)
+                flowFooter(showsNudgeNotice: false)
+            }
+        }
     }
 
     // MARK: - 四步骨架（邀请 / 约好 / 出发）
@@ -2212,7 +2241,7 @@ struct VolunteerInServiceView: View {
             Task { await viewModel.endWaiting() }
         case .startRun:
             // 「开始跑步」两端都能按，服务端以先到的为准 —— 客户端不判谁先。
-            // 成功之后这一页自己就落回旧的跑中页（`flowPresentation` 对 `IN_PROGRESS` 判 nil）。
+            // 成功之后这一页自己就换成跑步中页（`isRunning`）。
             Task { await viewModel.startService() }
         // 这两枚按钮只是关掉当前页，不发任何请求。
         case .doneReviewing, .backToHome:
@@ -2277,7 +2306,7 @@ struct VolunteerInServiceView: View {
         }
     }
 
-    // MARK: - 旧路径（只剩跑步中，以及订单还没拉到的那一瞬）
+    // MARK: - 旧路径（只剩订单还没拉到的那一瞬，以及认不出的状态）
 
     private var legacyMapContent: some View {
         GeometryReader { proxy in
@@ -2310,30 +2339,10 @@ struct VolunteerInServiceView: View {
                         .accessibilityLabel("正在获取订单状态")
                 }
 
-                // 求助入口不在这一层：它在系统导航栏右侧（`body` 的 `.toolbar`，#217）。
-                // 以前它是这个 ZStack 里的一层悬浮圆盾，被后来加进底部那一叠的三数字卡整个盖住过。
-
                 // 已完成不再走这里 —— 它现在是骨架上的一屏，轨迹由「查看跑步记录」
                 // 推到下一页（`completedTrackContent` 仍然是那一页的内容）。
                 if let order = viewModel.order {
                     VStack(spacing: 10) {
-                            // 屏 4：与盲人同步的三个数字 + 他的状态 / 位置共享。
-                            // 只在 `IN_PROGRESS` —— 其余状态那三个数字要么还没开始、要么已经结束，
-                            // 而一张写着 `--` 的卡片只会占掉本来该给流转按钮的空间。
-                            if order.status == .inProgress {
-                                if order.isRunPaused, verticalSizeClass != .compact {
-                                    VolunteerRunPausedStrip(elapsedText: order.run?.elapsedClockText)
-                                }
-                                VolunteerEscortStatsCard(
-                                    coordinator: appState.emergencyCoordinator,
-                                    peerName: order.blindName,
-                                    stats: viewModel.blindStats,
-                                    isPeerLocationFresh: viewModel.latestBlindSample != nil
-                                )
-                                if verticalSizeClass != .compact {
-                                    runningAdditions(order: order, includesPausedStrip: false)
-                                }
-                            }
                             emergencySection(for: order)
                             VolunteerServiceBottomPanel(
                             order: order,
@@ -2356,62 +2365,12 @@ struct VolunteerInServiceView: View {
                             onRetryTransitionConfirmation: {
                                 viewModel.retryTransitionConfirmation()
                             },
-                            isRunPaused: order.isRunPaused,
-                            leadingContent: order.status == .inProgress && verticalSizeClass == .compact
-                                ? AnyView(runningAdditions(order: order, includesPausedStrip: true))
-                                : nil,
-                            trailingContent: order.status == .inProgress
-                                ? AnyView(VolunteerRunVoiceToggle(name: order.runnerShortName))
-                                : nil
                             )
                     }
                     .padding(.horizontal, 10)
                     .padding(.bottom, 8)
                 }
             }
-        }
-    }
-
-    /// 跑步中加进旧页的三样（V4）：提示条、节奏卡、暂停时的「继续陪跑」。
-    /// 每秒一拍：信号卡 8 秒收起、5 分钟过期、走散提示 60 秒收起都是 `(状态, 现在)` 的函数，不存。
-    private func runningAdditions(order: OrderDetailResponse, includesPausedStrip: Bool) -> some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(spacing: 10) {
-                if includesPausedStrip, order.isRunPaused {
-                    VolunteerRunPausedStrip(elapsedText: order.run?.elapsedClockText)
-                }
-                if let tip = VolunteerRunTip.resolve(
-                    separationAlertAt: viewModel.separationAlertAt,
-                    runnerBatteryLow: order.run?.runnerBatteryLow == true,
-                    weakLocationSince: viewModel.weakLocationSince,
-                    now: context.date
-                ) {
-                    VolunteerRunTipBar(tip: tip, name: order.runnerShortName)
-                        .transition(.opacity)
-                }
-                VolunteerRhythmCard(
-                    presentation: .make(
-                        run: order.run,
-                        name: order.runnerShortName,
-                        highlightUntil: viewModel.signalHighlightUntil,
-                        now: context.date
-                    )
-                )
-                // 本屏唯一的黄色主按钮（08 §五）；结束按钮暂停时改为白底描边，保持在它下面。
-                if order.isRunPaused {
-                    FlowActionButton(
-                        VolunteerRunCopy.resume,
-                        systemImage: "play.fill",
-                        style: .raisedPrimary,
-                        isLoading: viewModel.isTogglingPause,
-                        accessibilityHint: "恢复计时"
-                    ) {
-                        Task { await viewModel.resumeRun() }
-                    }
-                    .accessibilityIdentifier("volunteerRunResumeButton")
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: order.isRunPaused)
         }
     }
 
@@ -2434,8 +2393,8 @@ struct VolunteerInServiceView: View {
         )
     }
 
-    /// 面板上方那条紧急信息区。**「代盲人发起求助」的按钮不在这里** —— 它是导航栏右侧的
-    /// `VolunteerSOSNavButton`（见 `body` 的 `.toolbar`，2026-09-26 从地图右上角的悬浮圆盾挪过去，#217）。
+    /// 紧急信息区（跑步中页挂在头卡下方，旧路径挂在面板上方）。**「代盲人发起求助」的按钮不在这里** ——
+    /// 它是跑步中页导航栏右上的求助胶囊（`FlowHelpPill`，#217 / #218）。
     ///
     /// 2026-08-19 把触发按钮搬走：它此前是这个 `VStack` 的第一个子视图，而这个 `VStack` 底部对齐、
     /// 上方就是高度自适应的 `VolunteerServiceBottomPanel`，于是一个全宽红色 `PrimaryButton` 浮在屏幕
@@ -3310,17 +3269,10 @@ struct VolunteerServiceBottomPanel: View {
     let onComplete: () -> Void
     let onConfirmDeparture: () -> Void
     let onRetryTransitionConfirmation: () -> Void
-    /// 跑步中已暂停：结束按钮改白底描边，让「继续陪跑」成为本屏唯一的黄色按钮。
-    var isRunPaused = false
-    /// 滚动区最上面的附加内容：横屏时跑步中新增的几块放这里（竖屏在面板外的固定区）。
-    var leadingContent: AnyView? = nil
-    /// 动作区之后的附加内容（跑步中的「耳机语音播报」开关）。
-    var trailingContent: AnyView? = nil
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
-                leadingContent
                 VolunteerServiceStageHeader(status: order.status)
                 // 排在跑者卡（姓名 + 电话）之前：先知道「这个人需要我怎么带」，
                 // 再知道「他叫什么、怎么联系」。
@@ -3362,9 +3314,7 @@ struct VolunteerServiceBottomPanel: View {
                     onCancel: onCancel,
                     onComplete: onComplete,
                     onConfirmDeparture: onConfirmDeparture,
-                    isRunPaused: isRunPaused
                 )
-                trailingContent
             }
             .padding(.horizontal, 22)
             .padding(.top, 26)
@@ -3665,7 +3615,6 @@ struct VolunteerServiceActions: View {
     let onCancel: () -> Void
     let onComplete: () -> Void
     let onConfirmDeparture: () -> Void
-    var isRunPaused = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -3742,12 +3691,11 @@ struct VolunteerServiceActions: View {
         case .cancelOrder:
             secondaryDangerButton(action.title, hint: "取消当前订单", action: onCancel)
         case .completeService:
-            // 唯一一个不是 `PrimaryButton` 的流转动作：它要长按 2 秒 + 环形进度 + 松手即取消。
+            // 唯一一个不是 `PrimaryButton` 的流转动作：它要长按 2 秒 + 填充进度 + 松手即取消。
             // 为什么没有轻点、为什么不复用求助那条长按，见 `VolunteerFinishLongPress`。
             VolunteerFinishLongPressButton(
                 isPerformingAction: isPerformingAction,
                 isEnabled: !transitionsDisabled,
-                isSecondary: isRunPaused,
                 onFinish: onComplete
             )
         case .completedMessage:
@@ -3801,12 +3749,12 @@ struct VolunteerServiceActions: View {
 
 // MARK: - 长按 2 秒结束陪跑
 
-/// 「结束陪跑」那一枚按钮的全部具名落点：时长、环形尺寸、震动节奏、两句副标题。
+/// 「结束陪跑」那一枚按钮的全部具名落点：时长、震动节奏、按钮上的几句文字。
 ///
 /// **为什么不复用 `SafetyLongPressGesture`**（`Safety/SafetyHubView.swift:445`，求助那条长按 3 秒）：
 /// 四处对不上，且没有一处是加个参数能抹平的 ——
 /// ① 时长写死在 `SafetyLongPress.duration`（3 秒），这里是 2 秒；
-/// ② 它只回调「按下 / 松开」两个瞬间，**不给进度**，而环形进度与「还有 0.8 秒」
+/// ② 它只回调「按下 / 松开」两个瞬间，**不给进度**，而填充进度与「还剩 0.8 秒」
 ///    要的正是按住过程中的连续读数；
 /// ③ 它必须同时挂一条轻点路径（求助轻点＝走二次确认），而这里**刻意没有轻点**：
 ///    结束即不可撤销，长按本身就是那道确认（设计包 `状态清单.md` §11 逐字如此）；
@@ -3817,12 +3765,7 @@ enum VolunteerFinishLongPress {
     /// 而对不上的表现是「说好按 2 秒，按了 2 秒没反应」。
     static let duration: TimeInterval = 2
 
-    /// 环形进度 ⌀40 / 线宽 3（设计包 `状态清单.md` §10）。两者都按 Dynamic Type 缩放，
-    /// 见 `VolunteerFinishLongPressButton` 里的 `@ScaledMetric`。
-    static let ringDiameter: CGFloat = 40
-    static let ringLineWidth: CGFloat = 3
-
-    /// 读秒与环形的刷新间隔。20Hz —— 比副标题的精度（0.1 秒）快一档就够。
+    /// 读秒与填充的刷新间隔。20Hz —— 比读秒的精度（0.1 秒）快一档就够。
     static let tickInterval: TimeInterval = 0.05
 
     static let title = "结束陪跑"
@@ -3846,12 +3789,12 @@ enum VolunteerFinishLongPress {
     /// 走满那一刻的满强度一记：渐强的终点，也是「成了，可以松手」唯一的触觉信号。
     static let triggerIntensity: CGFloat = 1
 
-    /// 没按住时的副标题。
-    static var idleSubtitle: String { "长按 \(durationText) 秒 · 松手取消" }
+    /// 没按住时按钮上那一行（v2 画布 ⑤：「长按 2 秒，结束陪跑」）。
+    static var idleTitle: String { "长按 \(durationText) 秒，\(title)" }
 
-    /// 按满之后、后端还没回来那几百毫秒的副标题。
-    /// 不留着「还有 0.1 秒」：那句话在请求已经发出之后是**假的**。
-    static let submittingSubtitle = "正在结束本次陪跑"
+    /// 按满之后、后端还没回来那几百毫秒的文字。
+    /// 不留着「还剩 0.1 秒」：那句话在请求已经发出之后是**假的**。
+    static let submittingTitle = "正在结束本次陪跑"
 
     /// 读屏标签。听见的数字和屏幕上印的是同一个。
     static var accessibilityLabel: String { "\(title)，长按 \(durationText) 秒" }
@@ -3867,9 +3810,9 @@ enum VolunteerFinishLongPress {
         "结束陪跑需要上下轻扫选择「结束陪跑」动作，或者按住 \(durationText) 秒"
     }
 
-    /// 按住过程中的副标题。
-    static func holdingSubtitle(elapsed: TimeInterval) -> String {
-        "按住不要松手 · 还有 \(remainingText(elapsed: elapsed)) 秒"
+    /// 按住过程中按钮上那一行（v2 画布「长按结束陪跑」：「继续按住，还剩 1 秒」，精度仍是 0.1 秒）。
+    static func holdingTitle(elapsed: TimeInterval) -> String {
+        "继续按住，还剩 \(remainingText(elapsed: elapsed)) 秒"
     }
 
     /// 剩余秒数，向上取整到 0.1，且按住期间**永不显示 0.0** ——
@@ -3887,22 +3830,22 @@ enum VolunteerFinishLongPress {
         return String(format: "%.1f", rounded)
     }
 
-    /// 环形进度 0…1。超时钳在 1：触发与最后一次读秒之间有几毫秒空当，
-    /// 那几毫秒里环形不该越过满格。
+    /// 填充进度 0…1。超时钳在 1：触发与最后一次读秒之间有几毫秒空当，
+    /// 那几毫秒里填充不该越过满格。
     static func progress(elapsed: TimeInterval) -> Double {
         min(1, max(0, elapsed / duration))
     }
 
-    /// 环形**该显示**多少。🔴 **不是直接读 `elapsed`。**
+    /// 按钮底色**该填**多少。🔴 **不是直接读 `elapsed`。**
     ///
     /// 触发之后 `elapsed` 停在满格，而结束请求失败时按钮会回到可按状态
     /// （`VolunteerOrderTransitionState.failed.blocksDuplicateSubmission == false`，
     /// `isPerformingAction` 也经 `defer` 归回 false），于是屏幕上会留下
-    /// **「环形满格 + 副标题说『长按 2 秒』」** 这种自相矛盾的样子，且会一直留着。
+    /// **「整枚填满 + 文字说『长按 2 秒』」** 这种自相矛盾的样子，且会一直留着。
     ///
-    /// 对不开读屏的低视力志愿者，满格环形是「已经结束了」唯一的视觉读数 ——
+    /// 对不开读屏的低视力志愿者，填满是「已经结束了」唯一的视觉读数 ——
     /// 而那一刻订单其实还在跑。所以：没按住、也没在提交，就必须是 0。
-    static func ringProgress(elapsed: TimeInterval, isHolding: Bool, hasFired: Bool) -> Double {
+    static func fillProgress(elapsed: TimeInterval, isHolding: Bool, hasFired: Bool) -> Double {
         if isHolding { return progress(elapsed: elapsed) }
         // 触发到 `isPerformingAction` 变 true 之间有一两帧空当，`hasFired` 只为填住它，
         // 请求一落地（成功或失败）就会被清掉。
@@ -3919,24 +3862,19 @@ enum VolunteerFinishLongPress {
     private static var durationText: String { String(format: "%g", duration) }
 }
 
-/// 陪跑员端结束服务的**唯一**入口：按满 2 秒才结束，松手即取消（环形归零、不播报、无提示）。
+/// 陪跑员端结束服务的**唯一**入口：按满 2 秒才结束，松手即取消（填充归零、不播报、无提示）。
 ///
 /// 🔴 **没有轻点路径。** `POST /api/orders/{id}/finish` 之后不可撤销，所以这里不给
 /// 「按一下弹个确认框」那种入口 —— 长按本身就是确认，多一个弹框只会让人习惯性点掉。
 ///
-/// 「减弱动态效果」下**不需要分档**：这枚按钮全程没有位移与缩放，环形进度是**信息**
+/// 外观是 v2 画布 ⑤ 的白色次要按钮（2026-09-26 起）：按住时底色从左往右填成黄色。
+/// 「减弱动态效果」下**不需要分档**：这枚按钮全程没有位移与缩放，填充是**信息**
 /// （还差多久）不是装饰，两种设置下一模一样。
 struct VolunteerFinishLongPressButton: View {
     let isPerformingAction: Bool
     let isEnabled: Bool
-    /// 暂停中改白底描边（08 §五：「继续陪跑」是本屏唯一的黄色按钮）。手势与时长不变。
-    var isSecondary = false
     let onFinish: () -> Void
 
-    private var ink: Color { isSecondary ? AppColors.Flow.primaryText : AppColors.Flow.onCTA }
-
-    @ScaledMetric(relativeTo: .body) private var ringDiameter: CGFloat = VolunteerFinishLongPress.ringDiameter
-    @ScaledMetric(relativeTo: .body) private var ringLineWidth: CGFloat = VolunteerFinishLongPress.ringLineWidth
     @State private var elapsed: TimeInterval = 0
     @State private var holdTask: Task<Void, Never>?
     /// 渐强那一路用的生成器。**存下来是为了给 `fire()` 复用同一个已 `prepare()` 的实例** ——
@@ -3944,33 +3882,42 @@ struct VolunteerFinishLongPressButton: View {
     /// 而触发那一记正是「成了，可以松手」唯一的触觉信号，最不能丢的就是它。
     @State private var generator: UIImpactFeedbackGenerator?
     /// 走满 2 秒那一刻 SwiftUI 也会送来一次「松手了」。没有这个标志位，
-    /// 松手那条分支会把环形立刻归零 —— 用户按到底看到的是进度条弹回去。
+    /// 松手那条分支会把填充立刻归零 —— 用户按到底看到的是进度条弹回去。
     @State private var didFire = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            progressRing
-            VStack(alignment: .leading, spacing: 2) {
-                Text(VolunteerFinishLongPress.title)
-                    .flowFont(FlowFonts.actionButton())
-                Text(subtitle)
-                    .flowFont(FlowFonts.actionButtonHint(), monospacedDigit: true)
+        let shape = RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
+        HStack(spacing: 8) {
+            if isPerformingAction {
+                ProgressView().tint(AppColors.Flow.primaryText)
+            } else {
+                Image(systemName: "clock")
+                    .font(.system(size: 17, weight: .bold))
+                    .accessibilityHidden(true)
             }
-            .fixedSize(horizontal: false, vertical: true)
+            Text(label)
+                .flowFont((16, .bold, .callout), monospacedDigit: true)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        // 环形 + 文字作为一整块居中（设计稿 `screens/C-陪跑员端.png`），
-        // 不是环形贴左、文字占满剩余宽度。
-        .foregroundColor(ink)
+        .foregroundColor(AppColors.Flow.primaryText)
         .padding(.vertical, 10)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity)
         .frame(minHeight: FlowMetrics.actionButtonMinHeight)
-        .background(isSecondary ? AppColors.Flow.surface : isEnabled ? AppColors.Flow.cta : AppColors.Flow.ctaDisabled)
-        .overlay(
-            RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous)
-                .strokeBorder(isSecondary ? AppColors.Flow.ghostStroke : Color.clear, lineWidth: 1.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: FlowMetrics.buttonRadius, style: .continuous))
+        .background(alignment: .leading) {
+            // 白底 + 从左往右的黄色填充（画布「长按结束陪跑」）。填充走黄色主按钮那一色：
+            // 「按够了就会发生事情」与主按钮是同一个意思。
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    AppColors.Flow.surface
+                    AppColors.Flow.cta.frame(width: proxy.size.width * fill)
+                }
+            }
+        }
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(AppColors.Flow.ghostStroke, lineWidth: 1.5))
+        .opacity(isEnabled ? 1 : 0.5)
         // ⛔ 不用 `Button`：`Button` 把长按当成「取消这次点击」吃掉（同 `SafetyLongPressGesture`）。
         .contentShape(Rectangle())
         .onLongPressGesture(
@@ -3981,7 +3928,7 @@ struct VolunteerFinishLongPressButton: View {
         // `.disabled()` 同时阻断手势并给读屏打上「不可用」，不是在回调里静默 return。
         .disabled(!isEnabled || isPerformingAction)
         // 请求落地就把「已触发」清掉。成功时这一屏会被换掉，所以这行实际管的是**失败**：
-        // 失败后按钮回到可按状态，环形必须跟着回到 0，否则它在说一件没发生的事。
+        // 失败后按钮回到可按状态，填充必须跟着回到 0，否则它在说一件没发生的事。
         .onChange(of: isPerformingAction) { performing in
             guard !performing else { return }
             didFire = false
@@ -3998,48 +3945,20 @@ struct VolunteerFinishLongPressButton: View {
         .accessibilityIdentifier("volunteerFinishEscortButton")
     }
 
-    private var subtitle: String {
-        if isPerformingAction { return VolunteerFinishLongPress.submittingSubtitle }
-        guard holdTask != nil else { return VolunteerFinishLongPress.idleSubtitle }
-        return VolunteerFinishLongPress.holdingSubtitle(elapsed: elapsed)
+    private var label: String {
+        if isPerformingAction { return VolunteerFinishLongPress.submittingTitle }
+        guard holdTask != nil else { return VolunteerFinishLongPress.idleTitle }
+        return VolunteerFinishLongPress.holdingTitle(elapsed: elapsed)
     }
 
-    @ViewBuilder
-    private var progressRing: some View {
-        if isPerformingAction {
-            ProgressView()
-                .tint(ink)
-                .frame(width: ringDiameter, height: ringDiameter)
-        } else {
-            ZStack {
-                Circle()
-                    .stroke(ink.opacity(0.3), lineWidth: ringLineWidth)
-                Circle()
-                    .trim(
-                        from: 0,
-                        to: VolunteerFinishLongPress.ringProgress(
-                            elapsed: elapsed,
-                            isHolding: holdTask != nil,
-                            hasFired: didFire
-                        )
-                    )
-                    .stroke(
-                        ink,
-                        style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .round)
-                    )
-                    // 从 12 点方向开始走。这是静态旋转，不是动效。
-                    .rotationEffect(.degrees(-90))
-            }
-            .frame(width: ringDiameter, height: ringDiameter)
-            // 读秒已经在副标题里念出来了，环形再报一次是重复。
-            .accessibilityHidden(true)
-        }
+    private var fill: Double {
+        VolunteerFinishLongPress.fillProgress(elapsed: elapsed, isHolding: holdTask != nil, hasFired: didFire)
     }
 
     private func pressingChanged(_ pressing: Bool) {
         guard pressing else {
             cancelHold()
-            // 松手即取消：环形归零，**一个字都不多说**。没按满 2 秒什么都没发生过，
+            // 松手即取消：填充归零，**一个字都不多说**。没按满 2 秒什么都没发生过，
             // 补一句「已取消」只会让人以为自己刚才误触了什么。
             if !didFire { elapsed = 0 }
             return

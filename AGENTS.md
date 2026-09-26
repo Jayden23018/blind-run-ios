@@ -265,7 +265,7 @@ REMATCHING → CANCELLED（只能盲人 token）
      （`EmergencyCallContext.volunteerBeforeRun`：只列 120 / 110，不列联系人，第一句说清
      「App 不会代你发送求助」）；只有 `IN_PROGRESS` 交给宿主走现有云端链路。
      用例 `VolunteerOrderFlowPresentationTests.testHelpPillDialsLocallyInEveryStateBeforeTheRun` 逐状态钉住。
-     **`IN_PROGRESS` 那一枚（旧跑步页导航栏的 `VolunteerSOSNavButton`）2026-09-26 起打开跑步中求助面板**
+     **`IN_PROGRESS` 那一枚（v2 跑步页导航栏的 `FlowHelpPill` 云端模式，identifier `volunteerServiceSOSButton`）2026-09-27 起打开跑步中求助面板**
      （`VolunteerRunHelpPanel`，DECISIONS-v2 V5/V6）：暂停 / 一键提交客服工单 / 紧急求助。紧急按钮
      轻点与读屏双击弹本节锁定文案的确认框，长按 3 秒直发（与跑者端求助中心同一套 `safetyLongPress`），
      走的仍是同一条云端链路；副标题只说「求助会附带你的当前位置」。

@@ -217,15 +217,12 @@ final class VolunteerEscortAlertTests: XCTestCase {
     /// 「已经结束」同样是一件我们不知道的事。
     ///
     /// 也不能继续顶着红色的「求助中」—— 那会让一个**新的**求助在视觉上完全淹没掉。
-    /// 所以必须是三档。
+    /// 2026-09-26 起这句话是跑步中页头卡下方的提示条（`VolunteerRunningHero`），旧的三档状态行随卡片删了。
     func testAcknowledgedStatusSaysNeitherNormalNorStillAlarming() {
-        let normal = EmergencySafetyCopy.volunteerPeerStatusNormal
-        let alarming = EmergencySafetyCopy.volunteerPeerStatusEmergency
         let acknowledged = EmergencySafetyCopy.volunteerPeerStatusAcknowledged
 
-        XCTAssertEqual(Set([normal, alarming, acknowledged]).count, 3, "三档必须互不相同")
-        XCTAssertNotEqual(acknowledged, normal, "确认之后写「正常」= 宣称求助已经结束")
-        XCTAssertNotEqual(acknowledged, alarming)
+        XCTAssertFalse(acknowledged.contains("正常"), "确认之后写「正常」= 宣称求助已经结束")
+        XCTAssertFalse(acknowledged.contains("求助中"), "确认之后仍写「求助中」会淹没下一次新的求助")
 
         // 而且这一档也不许宣称客服已经在处理到什么程度 —— 志愿者端读不到那个状态。
         for claim in ["已接入", "已受理", "已解决", "已结束"] {

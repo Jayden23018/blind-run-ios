@@ -1410,9 +1410,10 @@ final class AccessibilityAuditTests: XCTestCase {
         // 有在途订单时**打开 App 就直接进服务页**（设计交付 v3 §4.1 三岔路的第二岔），
         // 不再经过首页那张当前订单卡 —— 那张卡仍然在，只是这条路径上碰不到它了。
         let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
+        // 跑步中页（#218）藏了系统导航栏，认头卡的 identifier 而不是导航栏标题。
         XCTAssertTrue(
-            app.navigationBars["服务中"].waitForExistence(timeout: 25),
-            "冷启动没有直接进服务页"
+            app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch.waitForExistence(timeout: 25),
+            "冷启动没有直接进跑步中页"
         )
 
         let sos = app.buttons["volunteerServiceSOSButton"].firstMatch
@@ -1442,7 +1443,11 @@ final class AccessibilityAuditTests: XCTestCase {
     @MainActor
     func testVolunteerRunHelpPanelOffersPauseSupportAndConfirmedEmergency() throws {
         let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
-        XCTAssertTrue(app.navigationBars["服务中"].waitForExistence(timeout: 25), "冷启动没有直接进服务页")
+        // 跑步中页（#218）藏了系统导航栏，认头卡的 identifier。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch.waitForExistence(timeout: 25),
+            "冷启动没有直接进跑步中页"
+        )
 
         app.buttons["volunteerServiceSOSButton"].firstMatch.tap()
         let panel = app.descendants(matching: .any)["volunteerRunHelpPanel"].firstMatch
@@ -1483,7 +1488,10 @@ final class AccessibilityAuditTests: XCTestCase {
         // 有在途订单时**打开 App 就直接进服务页**（设计交付 v3 §4.1 三岔路的第二岔），
         // 不再经过首页那张当前订单卡 —— 那张卡仍然在，只是这条路径上碰不到它了。
         let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
-        XCTAssertTrue(app.navigationBars["服务中"].waitForExistence(timeout: 25), "冷启动没有直接进服务页")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch.waitForExistence(timeout: 25),
+            "冷启动没有直接进跑步中页"
+        )
 
         let finish = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
         XCTAssertTrue(finish.waitForExistence(timeout: 10), "服务进行中必须给陪跑员结束入口")
@@ -1502,6 +1510,38 @@ final class AccessibilityAuditTests: XCTestCase {
             finish.label.contains("2"),
             "标签里没有「按多久」这个数字：\(finish.label)。读屏用户没别的地方能知道要按 2 秒"
         )
+    }
+
+    /// 跑步中页（v2 画布 ⑤，#218）：竖屏 / 横屏 / AX3 各截一张对照画布，并各跑一次无障碍审计。
+    ///
+    /// 横屏是这一屏的老问题：旧页面高 402pt 时底部面板只剩 60pt。审计的 `.textClipped` 与
+    /// `.hitRegion` 管裁切和遮挡；截图给人看「和其他 v2 页像不像」。
+    @MainActor
+    func testVolunteerRunningPageScreenshotsAndAuditInPortraitLandscapeAndAX3() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("performAccessibilityAudit 需要 iOS 17+ 运行时")
+        }
+        let variants: [(name: String, arguments: [String], landscape: Bool)] = [
+            ("portrait", [], false),
+            ("landscape", [], true),
+            ("ax3", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"], false),
+        ]
+        for variant in variants {
+            XCUIDevice.shared.orientation = .portrait
+            let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS", extraArguments: variant.arguments)
+            let card = app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch
+            XCTAssertTrue(card.waitForExistence(timeout: 25), "\(variant.name)：冷启动没有直接进跑步中页")
+            if variant.landscape { rotateToLandscape(app) }
+            // 等 track 那一拍把数字填上；横屏再多等一拍，否则截到的是旋转动画途中的帧（画面侧着、半边黑）。
+            sleep(variant.landscape ? 4 : 2)
+            // 横屏用整屏截图：`app.screenshot()` 在这台机器的横屏下只截到一条侧着的窄条（2026-09-26）。
+            let shot = XCTAttachment(screenshot: variant.landscape ? XCUIScreen.main.screenshot() : app.screenshot())
+            shot.name = "volunteer-running-\(variant.name)"
+            shot.lifetime = .keepAlways
+            add(shot)
+            try audit(app)
+            app.terminate()
+        }
     }
 
     // MARK: - 横屏与宽窗口
@@ -1664,12 +1704,25 @@ final class AccessibilityAuditTests: XCTestCase {
         // 并把三条横屏用例定为「本仓库唯一能验横屏裁切的通道」⇒ 那三条长期在验另外五项，
         // 横屏裁切一次都没被检查过。`.trait` 同样是盲人端硬伤：按钮缺 `.button` trait 时
         // VoiceOver 不念「按钮」，用户不知道那是个能点的东西。
+        // 陪跑员跑步页的底部栏是**叠在滚动内容上**的不透明栏（#227 的设计）。AX3 / 横屏下内容超过一屏时，
+        // 滚到栏后面的卡片被整个挡住，可审计仍按它的坐标取像素 —— 取到的全是栏的底色，于是判「对比度不足」
+        // （2026-09-27 真机：「跑者还没有发来节奏」那张卡，元素截图里只有栏的分隔线）。
+        // 判据是几何不是文案：**整个落在栏上沿以下**的元素才放过，露出一截的照样审。
+        let occludingBarTop: CGFloat? = {
+            let bar = app.descendants(matching: .any)["volunteerRunningBottomBar"].firstMatch
+            return bar.exists ? bar.frame.minY : nil
+        }()
         try app.performAccessibilityAudit(
             for: [
                 .contrast, .dynamicType, .elementDetection, .hitRegion,
                 .sufficientElementDescription, .textClipped, .trait
             ]
         ) { issue in
+            if issue.auditType == .contrast, let top = occludingBarTop,
+               let frame = issue.element?.frame, frame.minY >= top - 0.5 {
+                print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在底部栏（上沿 \(top)）后面，不可见")
+                return true
+            }
             // 高德地图图层无法承载有意义的 label，且它已被显式降权为辅助内容
             // （视觉可以铺满，读屏遍历顺序必须操作优先）。这是唯一的白名单项 ——
             // 每加一条都要写清为什么，否则白名单会慢慢把审计架空。
