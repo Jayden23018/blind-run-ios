@@ -210,7 +210,31 @@ final class GuideRunActivityTests: XCTestCase {
         controller.resetEventsForTesting()
         controller.sync(order: .preview(orderId: 902, status: .driverEnRoute))
 
-        XCTAssertEqual(controller.eventsForTesting, ["skipped:tests"])
+        XCTAssertEqual(controller.eventsForTesting.last, "skipped:tests")
+        XCTAssertFalse(controller.eventsForTesting.contains { $0.hasPrefix("update") })
+    }
+
+    /// 出发 / 汇合后被重派时订单页把 `order` 置 nil —— 卡必须跟着结束，不能停在「正在赶去」。
+    func testCardEndsWhenTheOrderIsClearedAfterRematching() {
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.order = .preview(orderId: 903, status: .driverEnRoute)
+        let controller = GuideRunActivityController.shared
+        controller.resetEventsForTesting()
+
+        viewModel.order = nil
+
+        XCTAssertEqual(controller.eventsForTesting, ["end"])
+    }
+
+    func testCardEndsWhenTheOrderLeavesTheTwoStates() {
+        let viewModel = VolunteerInServiceViewModel()
+        viewModel.order = .preview(orderId: 904, status: .driverArrived)
+        let controller = GuideRunActivityController.shared
+        controller.resetEventsForTesting()
+
+        viewModel.order = .preview(orderId: 904, status: .inProgress)
+
+        XCTAssertEqual(controller.eventsForTesting, ["end"])
     }
 
     // MARK: - 跑步卡 v2（陪跑员端）
@@ -348,6 +372,9 @@ final class GuideRunActivityContrastTests: XCTestCase {
 /// 实时活动在系统进程里渲染，XCUITest 读不到它的尺寸 —— 这里在真机上按锁屏卡的实际宽度
 /// 把同一个 SwiftUI 视图排一次版，量它想要的高度。**量的是内容高度，不是系统画出来的高度**：
 /// 超了系统会裁，裁掉的通常是最后一行（按钮）。
+///
+/// 为了能在这里排版，`GuideRunActivityWidget.swift` 与 `RunLiveActivityWidget.swift` 两个视图文件
+/// **同时编进了 app target**（`project.pbxproj`）—— 这是有意的，删掉那两条编译项这里会编不过。
 @available(iOS 17.0, *)
 @MainActor
 final class LiveActivityCardHeightTests: XCTestCase {
