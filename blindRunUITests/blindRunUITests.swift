@@ -235,10 +235,10 @@ final class blindRunUITests: XCTestCase {
         // 首屏的版式断言要先退回来才做得了 —— 而「退得回来」本身也是那条自动导航的前提：
         // 推进去出不来的话，志愿者在订单走完之前碰不到主页（钉在 `ScheduledOrderTests`）。
         XCTAssertTrue(
-            app.navigationBars["服务中"].waitForExistence(timeout: 25),
+            waitForVolunteerOrderPage(app, timeout: 25),
             "有在途订单时冷启动没有直接进服务页"
         )
-        app.navigationBars["服务中"].buttons.firstMatch.tap()
+        leaveVolunteerOrderPage(app)
 
         let identityRow = app.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch
         XCTAssertTrue(identityRow.waitForExistence(timeout: 12), "Volunteer identity row should be visible below the system status area")
@@ -345,6 +345,46 @@ final class blindRunUITests: XCTestCase {
         )
     }
 
+    /// 跑步中那枚求助盾牌必须**点得到**（#217）。
+    ///
+    /// 单独成一条，不再只挂在烟囱用例的中段：那条长链前面任何一步红了（#193 让它死在开头 9 天，
+    /// 之后又卡在首页身份栏的位置断言），这一句就不执行。盾牌被三数字卡盖住的缺陷就是这样藏住的 ——
+    /// 09-16 在 `main@fdc6579` 上其实复现过同一签名，下面那条用例的注释还记着，但只是被绕开了。
+    /// 直接预置 `IN_PROGRESS`，不走出发 → 到达 → 开始那条长路。
+    @MainActor
+    func testVolunteerRunningPageKeepsTheSOSButtonReachable() throws {
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true,
+            seedOrderStatus: "IN_PROGRESS"
+        )
+
+        // 横竖屏各验一次：放进内容区的任何修法都会在横屏（高 402pt）和三数字卡、底部面板抢空间 ——
+        // 试过的 VStack 修法就是竖屏绿、横屏把面板压到 0，「长按结束」被挤出屏幕。
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        openCurrentVolunteerService(app, requirePhone: false)
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 15), "没进到跑步中")
+
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            assertEmergencyActionIsUsable(app)
+            // 不断言 finishControl.exists：被挤出屏幕时它照样 exists。那次回归的表现是面板高度 0。
+            // 门槛 44 而不是 64：横屏本来就挤，iPhone 16 Pro 上 main 与本分支实测都是 60pt
+            // （三数字卡吃掉大半高度，跑步中页面整体重做见 #218）。这里只挡「压到 0」。
+            let panel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
+            XCTAssertGreaterThanOrEqual(
+                panel.frame.height, 44,
+                "\(orientation.rawValue) 方向下底部面板被压到 \(panel.frame.height)pt，「长按结束」够不着"
+            )
+        }
+    }
+
     /// 长按 2 秒结束陪跑的**行为**那一半：松手即取消 / 按满才结束。
     ///
     /// 走**指针路径**（`press(forDuration:)` 注入的是物理触摸），形状那一半在
@@ -354,8 +394,8 @@ final class blindRunUITests: XCTestCase {
     /// 而这枚控件没有轻点路径 —— 那样写必红，且红得毫无信息量。
     ///
     /// 直接把订单预置在 `IN_PROGRESS`，不走烟囱用例那条出发 → 到达 → 开始的长路：
-    /// 那条路上有一条与本功能无关的既有红灯（求助悬浮键 `isHittable == false`，
-    /// 2026-09-16 在 `main@fdc6579` 上复现过同一签名），挂在它后面等于这一条永远跑不到。
+    /// 那条路上曾有一条与本功能无关的红灯（求助悬浮键 `isHittable == false`，
+    /// 2026-09-16 在 `main@fdc6579` 上复现过同一签名；真缺陷，见 #217），挂在它后面等于这一条永远跑不到。
     @MainActor
     func testVolunteerFinishesEscortOnlyAfterHoldingLongEnough() throws {
         let app = launchApp(
@@ -1487,10 +1527,10 @@ final class blindRunUITests: XCTestCase {
         // 预置了在途订单 ⇒ 冷启动直接进服务页（§4.1），而那一页藏了标签栏（设计交付 v3 §4.2
         // 总表：订单页底部是「求助与安全」不是标签栏）。要走「我的」tab 得先退回来。
         XCTAssertTrue(
-            app.navigationBars["服务中"].waitForExistence(timeout: 25),
+            waitForVolunteerOrderPage(app, timeout: 25),
             "有在途订单时冷启动没有直接进服务页"
         )
-        app.navigationBars["服务中"].buttons.firstMatch.tap()
+        leaveVolunteerOrderPage(app)
 
         // ⚠️ 这一条自 2026-09-16（`d8b6307`，盲人端加标签栏）起一直是红的：`openSettings`
         // 那次改成走「我的」tab，而**志愿者端当时根本没有标签栏**，于是它卡在第一句断言上。
@@ -1579,10 +1619,10 @@ final class blindRunUITests: XCTestCase {
 
         // 预置了在途订单 ⇒ 冷启动直接进服务页（§4.1），要看首屏得先退回来。
         XCTAssertTrue(
-            volunteerApp.navigationBars["服务中"].waitForExistence(timeout: 25),
+            waitForVolunteerOrderPage(volunteerApp, timeout: 25),
             "有在途订单时冷启动没有直接进服务页"
         )
-        volunteerApp.navigationBars["服务中"].buttons.firstMatch.tap()
+        leaveVolunteerOrderPage(volunteerApp)
 
         // 🔴 志愿者首页**没有任何地图了**（2026-09-15 随「派单工作台」一起删）。
         // 真 key 构建下唯一该出现的志愿者地图在「服务中」页，即下面 `volunteerServiceMapBackdrop`
@@ -2080,6 +2120,32 @@ final class blindRunUITests: XCTestCase {
         return label
     }
 
+    /// 陪跑员订单页在不在屏上。
+    ///
+    /// 🚩 **不认导航栏标题。** 原来的判据是 `navigationBars["服务中"]`，而 2026-09-17 四步骨架之后
+    /// 订单页标题就改叫「陪跑订单」、之后陪跑员订单页 v2 还会把系统导航栏整条藏掉 ——
+    /// 这个判据在两种页面上都等不到，4 条用例因此卡在开头（#193 的根因）。
+    /// 改认 identifier：v2 头卡 `volunteerOrderFlowStatusCard`，或跑步中旧路径的 `volunteerServicePanel`。
+    private func waitForVolunteerOrderPage(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let v2Page = app.descendants(matching: .any)["volunteerOrderFlowStatusCard"].firstMatch
+        let legacyPanel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if v2Page.waitForExistence(timeout: 1) || legacyPanel.exists { return true }
+        } while Date() < deadline
+        return false
+    }
+
+    /// 从订单页退回首页：先找页面上标着「返回」的按钮（v2 页面自带导航栏），没有再点系统导航栏的第一个按钮。
+    private func leaveVolunteerOrderPage(_ app: XCUIApplication) {
+        let pageBack = app.buttons["返回"].firstMatch
+        if pageBack.exists {
+            pageBack.tap()
+        } else {
+            app.navigationBars.firstMatch.buttons.firstMatch.tap()
+        }
+    }
+
     /// 走到志愿者的服务中页。
     ///
     /// 🚩 **有在途订单时它本来就已经在那一页了**：设计交付 v3 §4.1 的三岔路让打开 App
@@ -2090,7 +2156,7 @@ final class blindRunUITests: XCTestCase {
         requirePhone: Bool = true,
         alreadyOpenTimeout: TimeInterval = 25
     ) {
-        if !app.navigationBars["服务中"].waitForExistence(timeout: alreadyOpenTimeout) {
+        if !waitForVolunteerOrderPage(app, timeout: alreadyOpenTimeout) {
             let currentOrderLabel = app.staticTexts["当前订单"].firstMatch
             XCTAssertTrue(currentOrderLabel.waitForExistence(timeout: 15), "Volunteer home should show the assigned current order")
 
@@ -2459,7 +2525,15 @@ final class blindRunUITests: XCTestCase {
     ) {
         let button = app.buttons["一键求助，遇到紧急情况时点击"].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 8), "服务进行中必须提供求助入口", file: file, line: line)
-        XCTAssertTrue(button.isHittable, "求助按钮存在但点不到 —— 多半是被底部面板挤出了可视区", file: file, line: line)
+        // 失败时把几何和截图带出来：「被面板挤出屏幕」「被导航栏盖住」「被别的层压住」是三种修法，
+        // 只看 exists / isHittable 分不出。
+        if !button.isHittable { attachScreenshot(named: "sos-not-hittable", app: app) }
+        XCTAssertTrue(
+            button.isHittable,
+            "求助按钮存在但点不到 —— 按钮 \(button.frame)，导航栏 \(app.navigationBars.firstMatch.exists ? "\(app.navigationBars.firstMatch.frame)" : "无")",
+            file: file,
+            line: line
+        )
     }
 
     /// The SOS button, located by its accessibility label so the assertion also covers VoiceOver.

@@ -1392,6 +1392,8 @@ final class AccessibilityAuditTests: XCTestCase {
 
         let sos = app.buttons["volunteerServiceSOSButton"].firstMatch
         XCTAssertTrue(sos.waitForExistence(timeout: 10), "服务进行中必须提供求助入口")
+        // 存在 ≠ 点得到：它曾被三数字卡整个盖住，而本条只量位置和尺寸，照样是绿的（#217）。
+        XCTAssertTrue(sos.isHittable, "求助按钮存在但点不到 —— 被别的层盖住了")
         XCTAssertLessThan(
             sos.frame.midY,
             app.frame.minY + app.frame.height * 0.4,
@@ -1401,7 +1403,7 @@ final class AccessibilityAuditTests: XCTestCase {
             """
         )
         // 志愿者端走 Apple 的 44pt 线（`guard.mjs` 的 `small-touch-target` 显式排除
-        // `/blindRun/Volunteer/`），这里量的是别把悬浮按钮做成一个图标大小的点。
+        // `/blindRun/Volunteer/`），这里量的是别把求助按钮做成一个图标大小的点。
         XCTAssertGreaterThanOrEqual(sos.frame.height, 44, "求助按钮触达高度不足 44pt")
         XCTAssertGreaterThanOrEqual(sos.frame.width, 44, "求助按钮触达宽度不足 44pt")
 
