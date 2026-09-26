@@ -22,7 +22,7 @@ extension VolunteerOrderFlowPresentation {
     /// 项目负责人 2026-09-17 拍板：先只给距离，方位另立项。
     /// 同一屏上「穿深蓝上衣，戴白色帽子」整句不做 —— 那个字段后端 0 命中，
     /// 而且要跑者端先做填写入口。
-    static func metUp(order: OrderDetailResponse, peerDistanceText: String?) -> Self {
+    static func metUp(order: OrderDetailResponse, peerDistanceText: String?, now: Date = Date()) -> Self {
         let name = order.blindNameForSpeech
         var rows: [Row] = []
         // 设计稿这一屏第一行就是打电话：到了集合点还没看见人的时候，这是唯一有用的动作。
@@ -58,14 +58,12 @@ extension VolunteerOrderFlowPresentation {
             replyNotice: nil,
             isReplyUrgent: false,
             rows: rows,
-            primaryAction: .startRun,
-            // 🔴 **不给求助与安全。** 设计稿这一屏底部画了它，但 `AGENTS.md` §6 的闸是
-            // 「两端入口都只在 `IN_PROGRESS` 开放」，`canVolunteerTriggerEmergency` 逐字判
-            // `self == .inProgress` ⇒ 汇合态**今天也没有**任何求助入口（旧路径那枚悬浮按钮
-            // 同样被这个判据挡着）。而陪跑员端没有可降级的安全中心
-            // （`BlindSafetyHubView` 是盲人专用的：紧急联系人、问一句、实时分享）。
-            // 摆一个按下去无事发生的紧急入口比没有更糟。项目负责人 2026-09-17 拍板另立项。
-            showsSafetyHub: false
+            // 等满时限后「开始跑步」原地换成「结束等待」（后端 #362）。
+            // 判据只有后端给的 `earliestEndWaitAt`，**不自己拿到达时间加 15**。
+            primaryAction: VolunteerOrderPhase.resolve(order: order, now: now) == .arrived(canEndWait: true)
+                ? .endWaiting : .startRun,
+            // 汇合态不是 `IN_PROGRESS` ⇒ 本地拨号（云端 SOS 关着，`AGENTS.md` §6）。
+            helpMode: VolunteerOrderSOSMode.resolve(status: order.status)
         )
     }
 
@@ -112,7 +110,7 @@ extension VolunteerOrderFlowPresentation {
             isReplyUrgent: false,
             rows: rows,
             primaryAction: .doneReviewing,
-            showsSafetyHub: false
+            helpMode: VolunteerOrderSOSMode.resolve(status: order.status)
         )
     }
 
@@ -165,8 +163,9 @@ extension VolunteerOrderFlowPresentation {
             isReplyUrgent: false,
             rows: rows,
             primaryAction: .backToHome,
-            // 设计稿这一屏的注解逐字：「这时不需要求助入口」。
-            showsSafetyHub: false
+            // v3 设计稿这一屏的注解是「这时不需要求助入口」；交付包 v2 改为全页都有 ——
+            // 跑者取消时陪跑员可能已经在户外（02「跑者取消」）。
+            helpMode: VolunteerOrderSOSMode.resolve(status: order.status)
         )
     }
 }

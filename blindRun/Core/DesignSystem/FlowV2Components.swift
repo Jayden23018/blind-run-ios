@@ -403,6 +403,8 @@ struct FlowQuickReplyGrid: View {
             Text(title)
                 .flowFont(FlowV2Fonts.subhead(bold: true))
                 .foregroundColor(AppColors.Flow.secondaryText)
+                // 标题带掩码姓名（「一键告诉李*」），读屏不念星号。
+                .accessibilityLabel(title.unmaskedForSpeech)
                 .accessibilityAddTraits(.isHeader)
             let layout = dynamicTypeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(spacing: 10))

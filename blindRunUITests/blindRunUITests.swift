@@ -467,7 +467,8 @@ final class blindRunUITests: XCTestCase {
         let releaseRow = app.descendants(matching: .any)["volunteerOrderFlowRow-release"].firstMatch
         XCTAssertTrue(releaseRow.waitForExistence(timeout: 5))
         XCTAssertTrue(releaseRow.isHittable, "Cancellation entry must remain locally interactive")
-        XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable, "Back navigation must remain usable")
+        // v2 页面藏了系统导航栏，返回键在页面自带的导航栏上。
+        XCTAssertTrue(app.buttons["返回"].firstMatch.isHittable, "Back navigation must remain usable")
 
         XCTAssertTrue(
             app.staticTexts["状态确认延迟，请稍后点击“重新确认状态”。请勿重复提交同一操作。"]
@@ -509,7 +510,7 @@ final class blindRunUITests: XCTestCase {
         XCTAssertTrue(releaseRow.waitForExistence(timeout: 5), "骨架里没有「我去不了」那一行")
         app.swipeUp()
         app.swipeDown()
-        XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable)
+        XCTAssertTrue(app.buttons["返回"].firstMatch.isHittable, "返回键在页面自带的导航栏上，滚动后也该点得到")
         XCTAssertTrue(waitForElementToBeHittable(primary, timeout: 3), "主按钮贴底常驻，任何滚动位置都该点得到")
     }
 
@@ -652,6 +653,68 @@ final class blindRunUITests: XCTestCase {
         attachScreenshot(named: "volunteer-service-in-progress", app: app)
     }
 
+    /// 订单页 v2 每一屏各留一张首屏、一张滚到底的截图，给「对照画板」（openspec 任务 4.10）用。
+    ///
+    /// 只断「页面到了」，不断长相 —— 长相是拿截图跟 `zhumangpao-handoff/reference/artboards/` 人工比的。
+    /// ⚠️ 种子订单不带 `eta` / `meet` 这些 v2 字段，截到的是**字段缺失时的降级样子**，不是满配。
+    @MainActor
+    func testVolunteerOrderV2StatesProduceScreenshotsForDesignReview() throws {
+        // 画板是竖屏的；而且横屏下 `app.swipeUp()` 会从底边划起、触发系统切 App（实测切走过一次）。
+        addTeardownBlock { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .portrait
+        for status in ["SCHEDULED_CONFIRMED", "PENDING_ACCEPT", "DRIVER_EN_ROUTE", "DRIVER_ARRIVED"] {
+            let app = launchApp(
+                apiEnvironment: "mock",
+                accessToken: "mock_jwt_token_for_testing",
+                activeRole: "volunteer",
+                preseedVolunteerProfile: true,
+                preseedVolunteerAvailable: true,
+                preseedVolunteerActiveOrder: true,
+                seedOrderStatus: status
+            )
+            openCurrentVolunteerService(app, requirePhone: false)
+            XCTAssertTrue(waitForVolunteerOrderPage(app, timeout: 10), "\(status) 没进到订单页")
+            attachScreenshot(named: "v2-\(status)-top", app: app)
+            app.scrollViews.firstMatch.swipeUp()
+            app.scrollViews.firstMatch.swipeUp()
+            attachScreenshot(named: "v2-\(status)-bottom", app: app)
+            app.terminate()
+        }
+
+        let inviteApp = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            seedInvites: 1
+        )
+        XCTAssertTrue(inviteApp.buttons["接下这次陪跑"].firstMatch.waitForExistence(timeout: 20), "邀请卡没弹出来")
+        attachScreenshot(named: "v2-INVITE", app: inviteApp)
+        inviteApp.terminate()
+
+        let app = launchApp(
+            apiEnvironment: "mock",
+            accessToken: "mock_jwt_token_for_testing",
+            activeRole: "volunteer",
+            preseedVolunteerProfile: true,
+            preseedVolunteerAvailable: true,
+            preseedVolunteerActiveOrder: true,
+            seedOrderStatus: "IN_PROGRESS"
+        )
+        openCurrentVolunteerService(app, requirePhone: false)
+        let finishControl = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
+        XCTAssertTrue(finishControl.waitForExistence(timeout: 15), "没进到跑步中")
+        finishControl.press(forDuration: 2.6)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerOrderFlowRow-runRecord"].firstMatch.waitForExistence(timeout: 10),
+            "长按结束后没到完成页"
+        )
+        attachScreenshot(named: "v2-COMPLETED-top", app: app)
+        app.scrollViews.firstMatch.swipeUp()
+        attachScreenshot(named: "v2-COMPLETED-bottom", app: app)
+    }
+
     /// 邀请卡（设计交付 v3 §4.4.2）打开时，三个动作都真的在无障碍树里。
     ///
     /// 🚩 **断的是形状，不是行为。** 三枚都是真 `Button`，`tap()` 走得通；但这条用例**不点**
@@ -739,12 +802,12 @@ final class blindRunUITests: XCTestCase {
         app.descendants(matching: .any)["volunteerDispatchDetailButton"].firstMatch.tap()
 
         XCTAssertTrue(
-            app.staticTexts["陪跑订单"].firstMatch.waitForExistence(timeout: 10),
+            app.staticTexts["陪跑邀请"].firstMatch.waitForExistence(timeout: 10),
             "从邀请卡（自定义 overlay）里应当能再弹出完整订单页（fullScreenCover）\n\(app.debugDescription)"
         )
-        // 四步骨架的第 1 步高亮 —— 这一跳去的是「邀请」态，不是别的订单页。
+        // 引导绳停在第 1 步（v2 用绳子代替了四步进度条）—— 这一跳去的是「邀请」态，不是别的订单页。
         XCTAssertTrue(
-            app.descendants(matching: .any)["进度，第 1 步，共 4 步，邀请"].firstMatch.exists,
+            app.descendants(matching: .any)["第 1 步，共 4 步，邀请，还没约好"].firstMatch.exists,
             "详情页应当停在四步骨架的第 1 步\n\(app.debugDescription)"
         )
 
@@ -2123,7 +2186,7 @@ final class blindRunUITests: XCTestCase {
     /// 陪跑员订单页在不在屏上。
     ///
     /// 🚩 **不认导航栏标题。** 原来的判据是 `navigationBars["服务中"]`，而 2026-09-17 四步骨架之后
-    /// 订单页标题就改叫「陪跑订单」、之后陪跑员订单页 v2 还会把系统导航栏整条藏掉 ——
+    /// 订单页标题就改叫「陪跑订单」、v2（2026-09-26）又把系统导航栏整条藏了（页面自带导航栏）——
     /// 这个判据在两种页面上都等不到，4 条用例因此卡在开头（#193 的根因）。
     /// 改认 identifier：v2 头卡 `volunteerOrderFlowStatusCard`，或跑步中旧路径的 `volunteerServicePanel`。
     private func waitForVolunteerOrderPage(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {

@@ -25,13 +25,13 @@
 
 ## 4. 各状态接入（PR 4）
 
-- [ ] 4.1 `VolunteerOrderPhase.resolve(order:now:)` 纯函数 + 单测
-- [ ] 4.2 订单页骨架换成导航栏 + 头卡 + 底部动作区
-- [ ] 4.3 约好（前一晚 / 出发前 30 分钟）
-- [ ] 4.4 出发 / 快迟到 + 快捷回复
-- [ ] 4.5 汇合（五档）+ 方位盘 + 响铃 + 打电话 / 找不到对方
-- [ ] 4.6 等待满 15 分钟 + 结束等待
-- [ ] 4.7 完成页 + 跑者取消 + 其余终止态换常量
-- [ ] 4.8 求助胶囊 `VolunteerOrderSOSMode` + 本地拨号 sheet + `AGENTS.md` §6 同步
-- [ ] 4.9 每个状态的 Preview（含 SE + AX3）
-- [ ] 4.10 真机跑覆盖的 suite，截图对照画板
+- [x] 4.1 `VolunteerOrderPhase.resolve(order:now:)` 纯函数 + 单测
+- [x] 4.2 订单页骨架换成导航栏 + 头卡 + 底部动作区
+- [x] 4.3 约好（前一晚 / 出发前 30 分钟）
+- [x] 4.4 出发 / 快迟到 + 快捷回复
+- [x] 4.5 汇合（五档）+ 方位盘 + 响铃 + 打电话 / 找不到对方
+- [x] 4.6 等待满 15 分钟 + 结束等待
+- [x] 4.7 完成页 + 跑者取消 + 其余终止态换常量（其余终止态不进 v2 页面：`VolunteerOrderPhase.resolve` 与 `VolunteerOrderFlowPresentation.make` 只对同样六态非 nil，`NO_VOLUNTEER` 仍走旧路径，无常量可换）
+- [x] 4.8 求助胶囊 `VolunteerOrderSOSMode` + 本地拨号 sheet + `AGENTS.md` §6 同步
+- [x] 4.9 每个状态的 Preview（含 SE + AX3）
+- [x] 4.10 真机跑覆盖的 suite，截图对照画板

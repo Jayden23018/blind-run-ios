@@ -75,6 +75,13 @@ enum VolunteerOrderFlowCopy {
     static let acceptInvite = "接下这次陪跑"
     static let confirmDeparture = "确认我还会去"
     static let enRoute = "我出发了"
+    /// 约好页、还没到 `primaryActionUnlockAt` 时的白色次要按钮（交付包 D4）。
+    /// 按下去是同一个 `en-route`；早于开跑前那道闸会 409 `DEPARTURE_TOO_EARLY`。
+    static let alreadyDeparted = "我已经出发了"
+    /// 等满时限后，「开始跑步」原地换成它（后端 #362，`earliestEndWaitAt`）。
+    static let endWaiting = "结束等待"
+    /// 「结束等待」上方那行小字。**「不算你的取消」是这一刻陪跑员最想知道的**（交付包 ④b）。
+    static let endWaitingCaption = "结束后不算你的取消，时长不计入"
     static let arrived = "我已到达集合点"
     static let startRun = "开始跑步"
     /// 主按钮上方那行小字。**逐字取自设计交付文档 v3 §5 的「陪跑员主按钮」列。**
@@ -322,14 +329,14 @@ struct VolunteerOrderFlowPresentation: Equatable {
     let rows: [Row]
     /// 底部那枚黄按钮。`nil` = 这一态没有主动作。
     let primaryAction: PrimaryAction?
-    /// 底部要不要给「求助与安全」。
+    /// 右上角「求助」按下去去哪。**每一屏都有这枚胶囊**（交付包 D1）。
     ///
-    /// 🔴 **前三态一律 `false`，这是产品决策不是遗漏。** 设计稿在「约好」「出发」两屏底部
-    /// 都画了它，但陪跑员端没有安全中心（`BlindSafetyHubView` 是盲人专用的：紧急联系人、
-    /// 问一句、实时分享），而这三态的云端 SOS 本来就关着（`AGENTS.md` §6：
-    /// 两端入口都只在 `IN_PROGRESS` 开放）。摆一个按下去无事发生的紧急入口比没有更糟。
-    /// 项目负责人 2026-09-17 拍板单独立项。
-    let showsSafetyHub: Bool
+    /// 🔄 2026-09-26 改口径：此前这里是 `showsSafetyHub: Bool`，前三态一律 `false`
+    /// （项目负责人 2026-09-17：云端 SOS 关着，摆一个按下去无事发生的入口比没有更糟）。
+    /// 陪跑员订单页 v2 把它换成**全页显示、非跑步中降级为本地拨号**（项目负责人 2026-09-26 拍板）——
+    /// 「按下去无事发生」这个顾虑由本地拨号解决：按下去一定有 120 / 110 可拨，
+    /// 而文案说清 App 不会代你发送求助。判据只在 `VolunteerOrderSOSMode.resolve`。
+    let helpMode: VolunteerOrderSOSMode
 
     enum Visual: Equatable {
         /// 头像。拿不到姓名时圆里是「跑」。
@@ -402,6 +409,10 @@ struct VolunteerOrderFlowPresentation: Equatable {
         /// 「开始跑步」。**两端都能按，先按的生效**（设计交付文档 v3 §5），
         /// 客户端不判谁先 —— 后端以先到的请求为准，后到的一方由轮询/推送切到跑步中。
         case startRun
+        /// 约好页、还没到解锁时刻：白色次要按钮「我已经出发了」，按下去同样是 `en-route`。
+        case alreadyDeparted
+        /// 等满时限后替换「开始跑步」：`POST /api/orders/{id}/end-waiting`。
+        case endWaiting
         /// 已完成那一屏的「完成」。**纯粹是关掉这一页**，不发任何请求。
         case doneReviewing
         /// 跑者已取消那一屏的「回到首页」。同样只是关掉这一页。
@@ -414,6 +425,8 @@ struct VolunteerOrderFlowPresentation: Equatable {
             case .enRoute: return VolunteerOrderFlowCopy.enRoute
             case .arrived: return VolunteerOrderFlowCopy.arrived
             case .startRun: return VolunteerOrderFlowCopy.startRun
+            case .alreadyDeparted: return VolunteerOrderFlowCopy.alreadyDeparted
+            case .endWaiting: return VolunteerOrderFlowCopy.endWaiting
             case .doneReviewing: return VolunteerOrderFlowCopy.doneReviewing
             case .backToHome: return VolunteerOrderFlowCopy.backToHome
             }
@@ -426,7 +439,8 @@ struct VolunteerOrderFlowPresentation: Equatable {
             // 「握好引导绳再按」是这一句话唯一能起作用的时刻 —— 按下去之后计时就开始了，
             // 而对盲人来说「跑步已开始」意味着他可以迈步。
             case .startRun: return VolunteerOrderFlowCopy.startRunCaption
-            case .acceptInvite, .confirmDeparture, .enRoute, .arrived, .doneReviewing, .backToHome:
+            case .endWaiting: return VolunteerOrderFlowCopy.endWaitingCaption
+            case .acceptInvite, .confirmDeparture, .enRoute, .alreadyDeparted, .arrived, .doneReviewing, .backToHome:
                 return nil
             }
         }
@@ -437,7 +451,8 @@ struct VolunteerOrderFlowPresentation: Equatable {
             // 接单与确认刻意**不给图标**：这两枚按钮按下去是一个承诺，
             // 加个勾会让它看起来像一次勾选。
             case .acceptInvite, .confirmDeparture: return nil
-            case .enRoute: return "arrow.up.right"
+            case .enRoute, .alreadyDeparted: return "arrow.up.right"
+            case .endWaiting: return nil
             case .arrived: return "mappin.and.ellipse"
             case .startRun: return "figure.run"
             // 「完成」与「回到首页」只是关掉页面，给图标会让它看起来像还要做点什么。
@@ -545,7 +560,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
             isReplyUrgent: remainingSeconds <= VolunteerOrderFlowCopy.urgentCountdownSeconds,
             rows: rows,
             primaryAction: .acceptInvite(respond: dispatch.dispatchRespondAction),
-            showsSafetyHub: false
+            helpMode: .localCall
         )
     }
 
@@ -579,7 +594,7 @@ struct VolunteerOrderFlowPresentation: Equatable {
             // 旧的跑中页（深蓝三数字 + 长按 2 秒结束 + 悬浮求助）。**显式挡在这里**，
             // 调用方据此回退，见 `VolunteerInServiceView`。
             guard order.status == .driverArrived else { return nil }
-            return metUp(order: order, peerDistanceText: peerDistanceText)
+            return metUp(order: order, peerDistanceText: peerDistanceText, now: now)
         }
         guard step == .booked || step == .departed else { return nil }
 
@@ -649,8 +664,8 @@ struct VolunteerOrderFlowPresentation: Equatable {
             replyNotice: nil,
             isReplyUrgent: false,
             rows: rows,
-            primaryAction: primaryAction(for: order.status),
-            showsSafetyHub: false
+            primaryAction: primaryAction(for: order, now: now),
+            helpMode: VolunteerOrderSOSMode.resolve(status: order.status)
         )
     }
 
@@ -684,10 +699,14 @@ struct VolunteerOrderFlowPresentation: Equatable {
     /// 🚩 **按状态发按钮，不按格子发。** `SCHEDULED_CONFIRMED` 与 `PENDING_ACCEPT` 同属
     /// 「约好」格，但前者要先回答「你还去吗」（`confirm-departure`），后者才是「我出发了」
     /// （`en-route`）。合并会让位置互推提前几小时打开（`AGENTS.md` §5）。
-    private static func primaryAction(for status: RunOrderStatus) -> PrimaryAction? {
-        switch status {
+    ///
+    /// `PENDING_ACCEPT` 再按 `primaryActionUnlockAt` 分两种外观（交付包 D4）：到点前是白色次要按钮
+    /// 「我已经出发了」，到点后是黄色主按钮「我出发了」—— 两者按下去是同一个 `en-route`。
+    private static func primaryAction(for order: OrderDetailResponse, now: Date) -> PrimaryAction? {
+        switch order.status {
         case .scheduledConfirmed: return .confirmDeparture
-        case .pendingAccept: return .enRoute
+        case .pendingAccept:
+            return VolunteerOrderPhase.resolve(order: order, now: now) == .agreedSoon ? .enRoute : .alreadyDeparted
         case .driverEnRoute: return .arrived
         default: return nil
         }

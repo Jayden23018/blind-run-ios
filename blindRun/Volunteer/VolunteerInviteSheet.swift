@@ -614,7 +614,7 @@ struct VolunteerInviteCard: View {
 
     // MARK: 查看详情
 
-    /// 完整的「邀请」订单页。与「约好」「出发」同一个骨架，进度条第 1 步高亮。
+    /// 完整的「邀请」订单页（v2：白色头卡 + 虚线引导绳），与其余各态同一个页面。
     ///
     /// 倒计时照常走：这一层是**同一次派单的另一种看法**，不是一个可以慢慢看的副本。
     ///
@@ -622,34 +622,27 @@ struct VolunteerInviteCard: View {
     /// 「从 sheet 里弹」，换成 overlay 之后那条结论不自动成立 ——
     /// `blindRunUITests` 里那条点「查看详情」的用例必须在 overlay 版下重新跑通。
     private var detailPage: some View {
-        NavigationStack {
-            VolunteerOrderFlowPage(
-                presentation: presentation,
-                // 派单载荷与 `AvailableOrderResponse` 都没有跑者姓名（`AGENTS.md` §8：
-                // 接单前只给取值空间封闭的字段），所以头像圆里是「跑」。**不编一个名字**。
-                runnerName: nil,
-                onRowAction: { action in
-                    guard case .declineInvite = action else { return }
-                    showsDetail = false
-                    onDecline()
-                },
-                onPrimaryAction: {
-                    showsDetail = false
-                    onAccept()
-                },
-                isPrimaryLoading: isResponding,
-                isPrimaryEnabled: !isResponding,
-                footer: { EmptyView() }
-            )
-            .navigationTitle(VolunteerOrderFlowCopy.pageTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("返回") { showsDetail = false }
-                        .accessibilityHint("回到邀请卡，倒计时没有停")
-                }
-            }
-        }
+        VolunteerOrderFlowPage(
+            presentation: presentation,
+            // 派单载荷与 `AvailableOrderResponse` 都没有跑者姓名（`AGENTS.md` §8：
+            // 接单前只给取值空间封闭的字段），头卡只放时间与三宫格。**不编一个名字**。
+            hero: .make(invite: presentation),
+            inviteMetrics: VolunteerOrderMetric.invite(invite.order),
+            // 回到邀请卡，倒计时没有停。页面自带导航栏，不再套 `NavigationStack` 的那条。
+            onBack: { showsDetail = false },
+            onRowAction: { action in
+                guard case .declineInvite = action else { return }
+                showsDetail = false
+                onDecline()
+            },
+            onPrimaryAction: {
+                showsDetail = false
+                onAccept()
+            },
+            isPrimaryLoading: isResponding,
+            isPrimaryEnabled: !isResponding,
+            footer: { EmptyView() }
+        )
     }
 }
 
