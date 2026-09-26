@@ -65,6 +65,12 @@ protocol OrderServing: Sendable {
     /// 跨天预约单的临期确认。与 `enRoute` **不是一回事**，理由见 `OrderEndpoint.confirmDeparture`。
     func confirmDeparture(orderId: Int64) async throws
 
+    // 陪跑员订单页 v2。两个催促动作返回 `delivered` —— `false` 要提示「对方可能没收到」。
+    func sendQuickMessage(_ code: QuickMessageCode, orderId: Int64) async throws -> OrderNudgeResponse
+    func ringRunner(orderId: Int64) async throws -> OrderNudgeResponse
+    /// 等满时限后结束等待。订单转 `CANCELLED`，不算陪跑员取消。
+    func endWaiting(orderId: Int64) async throws
+
     /// 延长等待窗口。**端点由调用方按状态选**（`RunOrderStatus.keepWaitingEndpoint`）——
     /// 两条端点的前置状态互斥，选错得到的 409 含义是「你手上的状态已经过期了」，
     /// 而不是「换一个 URL 再打一次」。这条判定留在调用方，这里只负责发出去。
@@ -167,6 +173,21 @@ struct OrderService: OrderServing {
         let _: EmptyResponse = try await transport.send(
             OrderEndpoint.confirmDeparture(orderId: orderId).request
         )
+    }
+
+    func sendQuickMessage(_ code: QuickMessageCode, orderId: Int64) async throws -> OrderNudgeResponse {
+        try await transport.send(
+            OrderEndpoint.quickMessage(orderId: orderId).request,
+            body: QuickMessageRequest(code: code)
+        )
+    }
+
+    func ringRunner(orderId: Int64) async throws -> OrderNudgeResponse {
+        try await transport.send(OrderEndpoint.ringRunner(orderId: orderId).request)
+    }
+
+    func endWaiting(orderId: Int64) async throws {
+        let _: EmptyResponse = try await transport.send(OrderEndpoint.endWaiting(orderId: orderId).request)
     }
 
     func keepWaiting(_ endpoint: KeepWaitingEndpoint, orderId: Int64) async throws {

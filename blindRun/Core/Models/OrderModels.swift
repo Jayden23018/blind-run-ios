@@ -472,6 +472,36 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
     var actualDurationSeconds: Int?
     var actualAvgPaceSecPerKm: Int?
 
+    // MARK: 陪跑员订单页 v2（后端 2026-09-25/26，对接说明 `demo/docs/volunteer-order-page-v2-ios-handoff.md`）
+    //
+    // 🚨 **全部只对本单陪跑员下发、按状态下发，其余时候为 `null`**。盲人看自己的订单时恒为 `null`。
+    // 时间字段都是无时区本地时间串，用 `backendTimestamp` 解析 —— 不要自己拿到达时间加 15。
+
+    /// 陪跑员到出发点的估算路上时间（分钟）。与下面三个时刻**同进同出**：只在
+    /// `SCHEDULED_CONFIRMED` / `PENDING_ACCEPT` 且陪跑员有过位置记录时下发。四个都是 `null` = 后端不编时刻，
+    /// 页面要有「没有出发时间」的样子。
+    var travelMinutes: Int?
+    var suggestedDepartAt: String?
+    /// 「该出发了」提醒推送的时刻（= 建议出发 − 5 分钟）。
+    var departReminderAt: String?
+    /// 主按钮「我出发了」亮起的时刻。早于它调 `en-route` 会 409 `DEPARTURE_TOO_EARLY`。
+    var primaryActionUnlockAt: String?
+    /// 出发中的预计到达。只在 `DRIVER_EN_ROUTE`、且出发后上报过位置时有值。
+    var eta: EtaView?
+    /// 汇合距离档位。只在 `DRIVER_ARRIVED` 时非 `null`。
+    var meet: MeetView?
+    /// 跑者是否已到出发点。**三态**：`nil` 时整个胶囊不出现、也不留空位，**不要当 `false` 念**。
+    var runnerAtMeetingPoint: Bool?
+    /// 最早可以「结束等待」的时刻。只在 `DRIVER_ARRIVED` 下发。
+    var earliestEndWaitAt: String?
+    /// 查看者和这位跑者一起跑完过几单。**本单已完成则已包含本单**（完成页直接用，不 +1）。
+    /// `0` = 第一次一起跑，`nil` = 没下发，两者说的话不同。
+    var completedTogetherCount: Int?
+    /// 跑者用自己的话写给陪跑员的引导偏好（≤80 字）。接单后才看得到。
+    var guidePreferenceText: String?
+    /// 约好后跑者留的一句话（≤40 字）。
+    var messageToVolunteer: String?
+
     var id: Int64 { orderId }
 
     func replacingStatus(with status: RunOrderStatus) -> OrderDetailResponse {
@@ -519,9 +549,103 @@ struct OrderDetailResponse: Codable, Identifiable, Sendable {
             // 「和李明跑了 5.12 公里，用时 39 分 20 秒」在下一次轮询后退化成只剩「陪跑完成」。
             actualDistanceMeters: actualDistanceMeters,
             actualDurationSeconds: actualDurationSeconds,
-            actualAvgPaceSecPerKm: actualAvgPaceSecPerKm
+            actualAvgPaceSecPerKm: actualAvgPaceSecPerKm,
+            // 陪跑员订单页 v2 的十一项，同一条理由。它们按状态下发，旧状态的值带进新状态后
+            // 由页面按状态忽略（例如 `DRIVER_ARRIVED` 不读 `eta`），不在这里清空 ——
+            // 清空会让状态推送与重拉详情之间那几秒里整张头卡闪回「没有数据」。
+            // 回归用例 `OrderDetailV2DecodingTests.testReplacingStatusKeepsTheV2Fields`。
+            travelMinutes: travelMinutes,
+            suggestedDepartAt: suggestedDepartAt,
+            departReminderAt: departReminderAt,
+            primaryActionUnlockAt: primaryActionUnlockAt,
+            eta: eta,
+            meet: meet,
+            runnerAtMeetingPoint: runnerAtMeetingPoint,
+            earliestEndWaitAt: earliestEndWaitAt,
+            completedTogetherCount: completedTogetherCount,
+            guidePreferenceText: guidePreferenceText,
+            messageToVolunteer: messageToVolunteer
         )
     }
+}
+
+// MARK: - 陪跑员订单页 v2 的嵌套对象
+
+/// 出发中的预计到达（契约 `EtaView`，与 WS `ORDER_ETA_UPDATED` 的 `eta` 同形）。
+///
+/// 契约里五项都是 required，这里仍然**全部可选**：缺一项就让整张订单详情解码失败，
+/// 表现是陪跑员订单页整页空白（`AGENTS.md` 硬约束：解码遇到意外不许整条崩）。
+/// 页面把「`remainingMinutes` 为空」当作「还没有 ETA」处理，不编数字。
+struct EtaView: Codable, Equatable, Sendable {
+    /// 还要多少分钟到出发点（四舍五入）。
+    var remainingMinutes: Int?
+    /// 预计到达时刻（无时区本地时间串）。
+    var arriveAt: String?
+    /// 相对开跑时间：负数 = 早到，正数 = 晚到。
+    var deltaVsStartMinutes: Int?
+    /// 晚于开跑 > 3 分钟。**快迟到样式只认这一个字段**，客户端不自己拿 delta 判。
+    var late: Bool?
+    /// 引导绳位置，后端已夹在 [0.1, 0.85]，客户端画之前再夹一次。
+    var progress: Double?
+}
+
+/// 汇合距离档位（契约 `MeetView`，与 WS `MEET_DISTANCE_BUCKET` 同形）。
+struct MeetView: Codable, Equatable, Sendable {
+    var distanceBucket: DistanceBucket
+    /// 只在 `FAR` 时有值，1 位小数。
+    var farDistanceKm: Double?
+}
+
+/// **响应向开放枚举**：不认识的值按 `UNKNOWN`（对接说明 §4）。缺省也按 `UNKNOWN`。
+enum DistanceBucket: String, Codable, Equatable, Sendable {
+    case within10 = "WITHIN_10"
+    case within50 = "WITHIN_50"
+    case within100 = "WITHIN_100"
+    case far = "FAR"
+    case unknown = "UNKNOWN"
+
+    init(from decoder: Decoder) throws {
+        let rawValue = try? decoder.singleValueContainer().decode(String.self)
+        self = rawValue.flatMap(DistanceBucket.init(rawValue:)) ?? .unknown
+    }
+}
+
+extension MeetView {
+    private enum CodingKeys: String, CodingKey { case distanceBucket, farDistanceKm }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        distanceBucket = (try? container.decodeIfPresent(DistanceBucket.self, forKey: .distanceBucket)) ?? .unknown
+        farDistanceKm = try? container.decodeIfPresent(Double.self, forKey: .farDistanceKm)
+    }
+}
+
+/// `POST /api/orders/{id}/quick-message` 的 `code`。**请求向闭合枚举**。
+/// `ARRIVED_AT_ENTRANCE` 后端保留兼容，v2 页面不再用（交付包 D6）。
+enum QuickMessageCode: String, Codable, Sendable {
+    case almostThere = "ALMOST_THERE"
+    case waitFiveMinutes = "WAIT_5_MIN"
+
+    var title: String {
+        switch self {
+        case .almostThere: return "我快到了"
+        case .waitFiveMinutes: return "再等我 5 分钟"
+        }
+    }
+}
+
+struct QuickMessageRequest: Encodable, Sendable {
+    let code: QuickMessageCode
+}
+
+/// `quick-message` 与 `ring-runner` 的响应。`delivered == false` = 推送没发出去，
+/// 要提示「对方可能没收到」，不能当成功播报。
+struct OrderNudgeResponse: Decodable, Sendable {
+    let success: Bool?
+    let orderId: Int64?
+    /// 只有 `ring-runner` 有：响到这一刻为止。之前按钮不可点。
+    let ringingUntil: String?
+    let delivered: Bool?
 }
 
 // MARK: - Paginated Order Response

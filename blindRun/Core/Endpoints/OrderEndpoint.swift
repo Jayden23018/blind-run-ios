@@ -46,6 +46,11 @@ enum OrderEndpoint {
     /// 合并会让位置互推提前几小时打开，而那期间双方并不需要找到对方。
     case confirmDeparture(orderId: Int64)
 
+    // 陪跑员订单页 v2（后端 2026-09-26）：出发中 / 已到达的两个催促动作，与等满时限后结束等待
+    case quickMessage(orderId: Int64)
+    case ringRunner(orderId: Int64)
+    case endWaiting(orderId: Int64)
+
     // 评价与状态记录
     case review(orderId: Int64)
     case reviews(orderId: Int64)
@@ -94,6 +99,12 @@ enum OrderEndpoint {
             return EndpointRequest(.post, "/api/orders/\(orderId)/finish")
         case .confirmDeparture(let orderId):
             return EndpointRequest(.post, "/api/orders/\(orderId)/confirm-departure")
+        case .quickMessage(let orderId):
+            return EndpointRequest(.post, "/api/orders/\(orderId)/quick-message")
+        case .ringRunner(let orderId):
+            return EndpointRequest(.post, "/api/orders/\(orderId)/ring-runner")
+        case .endWaiting(let orderId):
+            return EndpointRequest(.post, "/api/orders/\(orderId)/end-waiting")
         case .review(let orderId):
             return EndpointRequest(.post, "/api/orders/\(orderId)/review")
         case .reviews(let orderId):

@@ -64,6 +64,10 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
     var startServiceResult: Result<Void, Error> = .failure(NotStubbed(method: "startService"))
     var finishResult: Result<Void, Error> = .failure(NotStubbed(method: "finish"))
     var confirmDepartureResult: Result<Void, Error> = .failure(NotStubbed(method: "confirmDeparture"))
+    var quickMessageResult: Result<OrderNudgeResponse, Error> = .failure(NotStubbed(method: "sendQuickMessage"))
+    var ringRunnerResult: Result<OrderNudgeResponse, Error> = .failure(NotStubbed(method: "ringRunner"))
+    var endWaitingResult: Result<Void, Error> = .failure(NotStubbed(method: "endWaiting"))
+    private(set) var lastQuickMessageCode: QuickMessageCode?
     var keepWaitingResult: Result<Void, Error> = .failure(NotStubbed(method: "keepWaiting"))
     var submitReviewResult: Result<Void, Error> = .failure(NotStubbed(method: "submitReview"))
     var reviewsResult: Result<OrderReviewEnvelope, Error> = .failure(NotStubbed(method: "reviews"))
@@ -187,6 +191,25 @@ final class FakeOrderService: OrderServing, @unchecked Sendable {
         record()
         lastOrderId = orderId
         return try confirmDepartureResult.get()
+    }
+
+    func sendQuickMessage(_ code: QuickMessageCode, orderId: Int64) async throws -> OrderNudgeResponse {
+        record()
+        lastOrderId = orderId
+        lastQuickMessageCode = code
+        return try quickMessageResult.get()
+    }
+
+    func ringRunner(orderId: Int64) async throws -> OrderNudgeResponse {
+        record()
+        lastOrderId = orderId
+        return try ringRunnerResult.get()
+    }
+
+    func endWaiting(orderId: Int64) async throws {
+        record()
+        lastOrderId = orderId
+        return try endWaitingResult.get()
     }
 
     func keepWaiting(_ endpoint: KeepWaitingEndpoint, orderId: Int64) async throws {
