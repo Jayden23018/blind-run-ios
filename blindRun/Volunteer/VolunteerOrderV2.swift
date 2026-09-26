@@ -46,7 +46,7 @@ enum VolunteerOrderPhase: Equatable {
     /// `CANCELLED`。结束等待也会落到这一态，但那条路由宿主直接关页，不走这一屏。
     case runnerCancelled
 
-    /// `nil` = 这一态不走 v2 页面（跑步中、邀请、认不出的状态）。
+    /// `nil` = 这一态不走 `VolunteerOrderFlowPage`（跑步中有自己的 `VolunteerRunningPage`；邀请、认不出的状态）。
     static func resolve(order: OrderDetailResponse, now: Date) -> Self? {
         switch order.status {
         case .scheduledConfirmed:

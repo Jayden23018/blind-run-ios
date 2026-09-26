@@ -374,14 +374,17 @@ final class blindRunUITests: XCTestCase {
         for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
             XCUIDevice.shared.orientation = orientation
             assertEmergencyActionIsUsable(app)
-            // 不断言 finishControl.exists：被挤出屏幕时它照样 exists。那次回归的表现是面板高度 0。
-            // 门槛 44 而不是 64：横屏本来就挤，iPhone 16 Pro 上 main 与本分支实测都是 60pt
-            // （三数字卡吃掉大半高度，跑步中页面整体重做见 #218）。这里只挡「压到 0」。
-            let panel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
+            // 不断言 finishControl.exists：被挤出屏幕时它照样 exists。旧页面那次回归的表现是面板高度 0。
+            // #218 之后结束按钮常驻在底部安全区里，横屏也必须是完整的 64pt（63.5 留浮点噪声的余量），
+            // 而且点得到 —— 旧页面横屏只剩 60pt 的滚动区。
             XCTAssertGreaterThanOrEqual(
-                panel.frame.height, 44,
-                "\(orientation.rawValue) 方向下底部面板被压到 \(panel.frame.height)pt，「长按结束」够不着"
+                finishControl.frame.height, 63.5,
+                "\(orientation.rawValue) 方向下「长按结束」只有 \(finishControl.frame.height)pt"
             )
+            XCTAssertTrue(finishControl.isHittable, "\(orientation.rawValue) 方向下「长按结束」点不到")
+            // 取消（→ REMATCHING）是跑到一半陪不了时唯一不把单记成完成的出口，横屏也不能被挤掉。
+            let cancel = app.descendants(matching: .any)["volunteerRunningCancel"].firstMatch
+            XCTAssertTrue(cancel.isHittable, "\(orientation.rawValue) 方向下「取消订单」点不到")
         }
     }
 
@@ -515,7 +518,7 @@ final class blindRunUITests: XCTestCase {
     }
 
     @MainActor
-    func testRealtimeArrivedWithRealMapDoesNotEnterSwiftUIRefreshLoop() throws {
+    func testRealtimeTransitionIntoRunningDoesNotEnterSwiftUIRefreshLoop() throws {
         let app = launchApp(
             apiEnvironment: "mock",
             accessToken: "mock_jwt_token_for_testing",
@@ -532,22 +535,22 @@ final class blindRunUITests: XCTestCase {
 
         openCurrentVolunteerService(app, requirePhone: false)
         let enRouteLabel = tapVolunteerFlowPrimary(app)
-        // 🚩 2026-09-17：`DRIVER_ARRIVED` 也搬进骨架了，**地图只剩跑步中那一屏**。
-        // 这条用例要验的是「真地图 + 挂住的请求会不会把 SwiftUI 拖进重绘循环」，
-        // 所以多按一次主按钮（汇合那一屏的「开始跑步」）进到 `IN_PROGRESS` ——
-        // 被测对象没变，只是它现在住在下一态。
+        // 🚩 2026-09-26（#218）：跑步中也换成 v2 页面，**整条陪跑流程已经没有地图**。
+        // 原名 `testRealtimeArrivedWithRealMap…`，验的是「真地图 + 挂住的请求会不会把 SwiftUI
+        // 拖进重绘循环」。地图没了，剩下那一半照样要成立：实时推送把页面推进到跑步中、
+        // 挂住的确认与位置上报还在后台，页面仍然能滚、返回键与结束按钮仍然点得到。
         let arrivedLabel = tapVolunteerFlowPrimary(app, after: enRouteLabel)
         tapVolunteerFlowPrimary(app, after: arrivedLabel)
 
-        let panel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
-        XCTAssertTrue(panel.waitForExistence(timeout: 8), "跑步中仍是旧的地图 + 底部面板")
-        XCTAssertTrue(panel.exists)
+        let card = app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 8), "开始跑步之后没有换成跑步中页")
+        let finish = app.descendants(matching: .any)["volunteerFinishEscortButton"].firstMatch
         let deadline = Date().addingTimeInterval(30)
         while Date() < deadline {
-            panel.swipeUp()
-            panel.swipeDown()
-            XCTAssertTrue(app.navigationBars.buttons.firstMatch.isHittable)
-            XCTAssertTrue(app.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.exists)
+            card.swipeUp()
+            card.swipeDown()
+            XCTAssertTrue(app.buttons["返回"].firstMatch.isHittable)
+            XCTAssertTrue(finish.isHittable)
         }
     }
 
@@ -1687,9 +1690,8 @@ final class blindRunUITests: XCTestCase {
         )
         leaveVolunteerOrderPage(volunteerApp)
 
-        // 🔴 志愿者首页**没有任何地图了**（2026-09-15 随「派单工作台」一起删）。
-        // 真 key 构建下唯一该出现的志愿者地图在「服务中」页，即下面 `volunteerServiceMapBackdrop`
-        // 那条。这里只断言首页确实一张都没有 —— 配了真 key 也不该冒出来。
+        // 🔴 志愿者首页**没有任何地图了**（2026-09-15 随「派单工作台」一起删），
+        // 订单页也没有了（2026-09-26 跑步中换成 v2 页面，#218）。配了真 key 也不该冒出来。
         XCTAssertTrue(
             volunteerApp.descendants(matching: .any)["volunteerProfileIdentityRow"].firstMatch.waitForExistence(timeout: 20),
             "Real AMap run should render the volunteer first screen"
@@ -1702,12 +1704,11 @@ final class blindRunUITests: XCTestCase {
         attachScreenshot(named: "real-amap-volunteer-home", app: volunteerApp)
 
         openCurrentVolunteerService(volunteerApp, alreadyOpenTimeout: 0)
-        XCTAssertTrue(
-            volunteerApp.descendants(matching: .any)["volunteerServiceMapBackdrop"].firstMatch.waitForExistence(timeout: 20),
-            "Real AMap run should expose the volunteer service map container"
+        XCTAssertEqual(
+            volunteerApp.descendants(matching: .any).matching(identifier: "volunteerServiceMapBackdrop").count,
+            0,
+            "陪跑员订单页 v2 全流程不画地图（#218）"
         )
-        XCTAssertFalse(volunteerApp.staticTexts["地图服务暂不可用"].exists, "Real AMap smoke must not fall back to the missing-key placeholder")
-        XCTAssertFalse(volunteerApp.staticTexts["请配置高德地图 API Key"].exists, "Real AMap smoke requires a configured local AMap key")
 
         attachScreenshot(named: "real-amap-volunteer-service", app: volunteerApp)
     }
@@ -2188,13 +2189,13 @@ final class blindRunUITests: XCTestCase {
     /// 🚩 **不认导航栏标题。** 原来的判据是 `navigationBars["服务中"]`，而 2026-09-17 四步骨架之后
     /// 订单页标题就改叫「陪跑订单」、v2（2026-09-26）又把系统导航栏整条藏了（页面自带导航栏）——
     /// 这个判据在两种页面上都等不到，4 条用例因此卡在开头（#193 的根因）。
-    /// 改认 identifier：v2 头卡 `volunteerOrderFlowStatusCard`，或跑步中旧路径的 `volunteerServicePanel`。
+    /// 改认 identifier：v2 头卡 `volunteerOrderFlowStatusCard`，或跑步中页的 `volunteerRunningStatsCard`（#218）。
     private func waitForVolunteerOrderPage(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let v2Page = app.descendants(matching: .any)["volunteerOrderFlowStatusCard"].firstMatch
-        let legacyPanel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
+        let runningPage = app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            if v2Page.waitForExistence(timeout: 1) || legacyPanel.exists { return true }
+            if v2Page.waitForExistence(timeout: 1) || runningPage.exists { return true }
         } while Date() < deadline
         return false
     }
@@ -2247,17 +2248,16 @@ final class blindRunUITests: XCTestCase {
                 "掩码之后，拨号那一行是志愿者够到真号的唯一出口"
             )
         } else {
-            // 2026-09-17：**两条路都算「进到订单页了」**。邀请 / 约好 / 出发 / 汇合 /
-            // 已完成 / 跑者已取消都是骨架（导航栏「陪跑订单」），**只剩跑步中**是旧的
-            // 地图 + 底部面板（「服务中」）—— 调用方各自 seed 不同状态，这个 helper 两边都要认。
+            // **两条路都算「进到订单页了」**：邀请 / 约好 / 出发 / 汇合 / 已完成 / 跑者已取消是
+            // v2 骨架，跑步中是它自己的页面（#218）—— 调用方各自 seed 不同状态，这个 helper 两边都要认。
             //
             // 断 identifier 而不是断导航栏标题：标题是用户可见文案，抄进 UI 测试的
             // 误报率见记忆 `merged-prs-whose-tests-never-ran`。
             let skeleton = app.descendants(matching: .any)["volunteerOrderFlowStatusCard"].firstMatch
-            let legacyPanel = app.descendants(matching: .any)["volunteerServicePanel"].firstMatch
+            let runningPage = app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch
             XCTAssertTrue(
-                skeleton.waitForExistence(timeout: 8) || legacyPanel.waitForExistence(timeout: 8),
-                "没进到订单页：四步骨架与旧面板都没出现"
+                skeleton.waitForExistence(timeout: 8) || runningPage.waitForExistence(timeout: 8),
+                "没进到订单页：v2 骨架与跑步中页都没出现"
             )
         }
     }

@@ -47,7 +47,7 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            FlowOrderNavBar(title: navTitle, onBack: onBack, onHelp: openHelp)
+            FlowOrderNavBar(title: navTitle, onBack: onBack, onHelp: openHelp, helpIsCloud: presentation.helpMode == .cloud)
                 .padding(.horizontal, FlowMetrics.v2ScreenPadding - 8)
             ScrollView {
                 VStack(spacing: FlowMetrics.v2SectionGap) {
@@ -508,23 +508,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                 .accessibilityIdentifier("volunteerOrderFlowRow-\(dismissRow.id)")
             }
         }
-        .padding(.horizontal, FlowMetrics.v2ScreenPadding)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
         .animation(.easeInOut(duration: reduceMotion ? 0.2 : 0.35), value: presentation.primaryAction)
-        .background(
-            VStack(spacing: 0) {
-                LinearGradient(
-                    colors: [AppColors.Flow.page.opacity(0), AppColors.Flow.page],
-                    startPoint: .top, endPoint: .bottom
-                )
-                .frame(height: FlowMetrics.v2BottomFadeHeight)
-                .offset(y: -FlowMetrics.v2BottomFadeHeight)
-                AppColors.Flow.page
-            }
-            .ignoresSafeArea(edges: .bottom)
-            .accessibilityHidden(true)
-        )
+        .flowBottomBar()
     }
 
     private func primaryActionHint(_ action: VolunteerOrderFlowPresentation.PrimaryAction) -> String? {
@@ -568,6 +553,303 @@ extension VolunteerOrderHero.Style {
 
     var ropeTheme: RopeView.Theme {
         color.map { .onHero($0) } ?? .light
+    }
+}
+
+private extension View {
+    /// 底部常驻动作区的底：页面底色 + 上沿 16pt 渐隐，让滚上来的内容淡进按钮后面而不是被一刀切断。
+    func flowBottomBar() -> some View {
+        padding(.horizontal, FlowMetrics.v2ScreenPadding)
+            .padding(.vertical, 8)
+            .background(
+                VStack(spacing: 0) {
+                    LinearGradient(
+                        colors: [AppColors.Flow.page.opacity(0), AppColors.Flow.page],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    .frame(height: FlowMetrics.v2BottomFadeHeight)
+                    .offset(y: -FlowMetrics.v2BottomFadeHeight)
+                    AppColors.Flow.page
+                }
+                .ignoresSafeArea(edges: .bottom)
+                .accessibilityHidden(true)
+            )
+    }
+}
+
+// MARK: - 跑步中（v2 画布 ⑤）
+
+/// 跑步中头卡的全部内容。纯类型，用例 `VolunteerRunningHeroTests`。
+///
+/// 数据只有跑者那一份 `blindStats`（与跑者端同一个端点、同一份数字），目标来自订单的
+/// `plannedDistanceMeters`。**不画「折返」**：画布的「2.50 折返」默认原路往返，
+/// 而契约里没有路线形状，绕圈跑时那个标记是错的。
+struct VolunteerRunningHero: Equatable {
+    struct Goal: Equatable {
+        /// 0…1，跑过目标钳在 1。
+        let progress: Double
+        let text: String
+        let isReached: Bool
+    }
+
+    let eyebrow: String
+    /// 两位小数的公里数；还没有数据时 `--`（刚起跑的十几秒轨迹点不够，那是空态不是错误）。
+    let distance: String
+    let duration: String
+    let pace: String
+    /// `nil` = 订单没有计划里程 ⇒ 不画进度条。
+    let goal: Goal?
+    /// 头卡下方那一条提示（同一时间最多一条）。屏幕版带掩码姓名，读屏版不带。
+    let notice: String?
+    let noticeSpoken: String?
+    let accessibilityLabel: String
+
+    static let title = "陪跑中"
+    /// 跑过目标不足这么多就不说「多跑了」—— 「多跑了 0.00」读起来像出错了。
+    static let overrunThresholdMeters: Double = 10
+
+    static func make(
+        order: OrderDetailResponse,
+        stats: TrackStats?,
+        isPeerLocationFresh: Bool,
+        isPeerAlertAcknowledged: Bool
+    ) -> Self {
+        let place = order.startAddress?.nilIfBlank
+        let name = order.blindName?.nilIfBlank ?? VolunteerOrderFlowCopy.unknownRunnerName
+        let spokenName = order.blindNameForSpeech
+
+        let goal = order.plannedDistanceMeters.flatMap { planned -> Goal? in
+            guard planned > 0 else { return nil }
+            let target = String(format: "%.2f", Double(planned) / 1_000)
+            guard let run = stats?.distanceMeters else {
+                return Goal(progress: 0, text: "目标 \(target) 公里", isReached: false)
+            }
+            let over = run - Double(planned)
+            if over >= 0 {
+                let extra = over >= overrunThresholdMeters ? " · 多跑了 \(String(format: "%.2f", over / 1_000))" : ""
+                return Goal(progress: 1, text: "已完成 \(target) 公里目标\(extra)", isReached: true)
+            }
+            return Goal(
+                progress: run / Double(planned),
+                text: "还剩 \(String(format: "%.2f", -over / 1_000)) 公里 · 目标 \(target)",
+                isReached: false
+            )
+        }
+
+        // 已确认的求助排在前面：那是「他还在求助、只是有人接手了」，比位置断了更要紧。
+        // 未确认的不走这里 —— 全屏告警和求助结果区已经在说。
+        let notice: (String, String)?
+        if isPeerAlertAcknowledged {
+            let status = EmergencySafetyCopy.volunteerPeerStatusAcknowledged
+            notice = ("\(name)的求助\(status)", "\(spokenName)的求助\(status)")
+        } else if !isPeerLocationFresh {
+            let stale = EmergencySafetyCopy.volunteerPeerLocationStale
+            notice = ("\(stale)\(name)的位置", "\(stale)\(spokenName)的位置")
+        } else {
+            notice = nil
+        }
+
+        func spoken(_ label: String, _ value: String?) -> String {
+            value.map { "\(label) \($0)" } ?? "\(label)，正在获取"
+        }
+        let spokenParts = [
+            place.map { "\(title)，\($0)" } ?? title,
+            spoken("已跑", stats?.distanceText),
+            spoken("时长", stats?.durationText),
+            spoken("配速", stats?.averagePaceText),
+            goal?.text.replacingOccurrences(of: " · ", with: "，"),
+        ]
+
+        return Self(
+            eyebrow: place.map { "\(title) · \($0)" } ?? title,
+            distance: stats?.distanceKilometersText ?? "--",
+            duration: stats?.durationClockText ?? "--",
+            pace: stats?.paceClockText ?? "--",
+            goal: goal,
+            notice: notice?.0,
+            noticeSpoken: notice?.1,
+            accessibilityLabel: spokenParts.compactMap { $0 }.joined(separator: "。")
+        )
+    }
+}
+
+/// 陪跑员跑步中那一屏（v2 画布 ⑤）：导航栏 + 藏青头卡（`stateAgreed`） + 一条提示 + 求助结果区 + 底部长按结束。
+///
+/// 与画布的差异（都在 `openspec/changes/restyle-volunteer-running-page-v2/design.md`）：
+/// 头卡用藏青不用青绿（#229 的按状态着色没给跑步中定色，负责人 09-26 选藏青；不新增颜色）；保留返回箭头（这一页藏了标签栏，
+/// 没有返回就没有出口）；不画头像对、不画「折返」、没有节奏行与语音播报开关（后端没有数据）。
+///
+/// 自己 `@ObservedObject` 持有 coordinator：`AppState.emergencyCoordinator` 是 `let`，
+/// 在宿主 body 里读它**读得到值但不跟着更新**（记忆 `nested-observableobject-does-not-republish`）。
+struct VolunteerRunningPage<Footer: View>: View {
+    @ObservedObject var coordinator: EmergencyCoordinator
+    let order: OrderDetailResponse
+    let stats: TrackStats?
+    let isPeerLocationFresh: Bool
+    let isFinishing: Bool
+    let isFinishEnabled: Bool
+    let onBack: () -> Void
+    let onHelp: () -> Void
+    let onFinish: () -> Void
+    /// 跑到一半陪不了了（受伤、临时有事）：订单转 `REMATCHING` 换人，**不是**结束陪跑。
+    /// 画布 ⑤ 没画这个入口，但旧页面有、`AGENTS.md` §5 允许，删掉的话唯一的退出就只剩
+    /// 「结束陪跑」—— 那会把没跑完的一单记成完成、并计入志愿时长。
+    let onCancel: () -> Void
+    /// 求助结果、流转失败文案。**这一页唯一的可见失败面**。
+    @ViewBuilder let footer: () -> Footer
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var hero: VolunteerRunningHero {
+        .make(
+            order: order,
+            stats: stats,
+            isPeerLocationFresh: isPeerLocationFresh,
+            isPeerAlertAcknowledged: coordinator.volunteerAlert?.isAcknowledged == true
+        )
+    }
+
+    var body: some View {
+        let hero = hero
+        VStack(spacing: 0) {
+            FlowOrderNavBar(
+                title: VolunteerRunningHero.title,
+                onBack: onBack,
+                onHelp: onHelp,
+                helpIsCloud: true,
+                helpIsBusy: coordinator.state.isBusy
+            )
+            .padding(.horizontal, FlowMetrics.v2ScreenPadding - 8)
+            ScrollView {
+                VStack(spacing: FlowMetrics.v2SectionGap) {
+                    heroCard(hero)
+                    if let notice = hero.notice {
+                        FlowNoticeBar(text: notice)
+                            .accessibilityLabel(hero.noticeSpoken ?? notice)
+                            .accessibilityIdentifier("volunteerRunningNotice")
+                    }
+                    footer()
+                }
+                .padding(.horizontal, FlowMetrics.v2ScreenPadding)
+                .padding(.vertical, FlowMetrics.v2SectionGap)
+                .animation(.easeInOut(duration: 0.25), value: hero.notice)
+            }
+        }
+        .background(AppColors.Flow.page.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 8) {
+                VolunteerFinishLongPressButton(
+                    isPerformingAction: isFinishing,
+                    isEnabled: isFinishEnabled,
+                    onFinish: onFinish
+                )
+                // 取消类一律灰色文字（交付包 v3 禁止项），不和长按结束抢视觉重量。
+                FlowTextButton(
+                    title: VolunteerServiceActionKind.cancelOrder.title,
+                    tone: .neutral,
+                    accessibilityHint: "双击后会先确认一次。这一单会转给其他志愿者",
+                    action: onCancel
+                )
+                .disabled(isFinishing || !isFinishEnabled)
+                .accessibilityIdentifier("volunteerRunningCancel")
+            }
+            .flowBottomBar()
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("volunteerRunningBottomBar")
+        }
+    }
+
+    /// 横屏（高约 402pt）把用时 / 配速挪到里程右边：竖着排整张卡约 300pt，
+    /// 放不下就有一截滚进底部按钮区的渐隐层里，审计判那两行对比度不足（2026-09-26 真机）。
+    private var isWide: Bool { verticalSizeClass == .compact && !dynamicTypeSize.isAccessibilitySize }
+
+    private func heroCard(_ hero: VolunteerRunningHero) -> some View {
+        FlowHeroCard(style: .tinted(AppColors.Flow.stateAgreed)) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(hero.eyebrow)
+                    .flowFont(FlowV2Fonts.subhead(bold: true))
+                    .foregroundColor(AppColors.Flow.onHeroEyebrow)
+                    .fixedSize(horizontal: false, vertical: true)
+                if isWide {
+                    HStack(alignment: .top, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            distanceRow(hero)
+                            if let goal = hero.goal { goalView(goal) }
+                        }
+                        // 两格横排：竖着叠会比左边的里程还高，末行又滚进渐隐层（2026-09-26 真机截图）。
+                        metric(value: hero.duration, label: "用时")
+                        metric(value: hero.pace, label: "配速 / 公里")
+                    }
+                } else {
+                    distanceRow(hero)
+                    if let goal = hero.goal { goalView(goal) }
+                    Rectangle()
+                        .fill(AppColors.Flow.ropeMuted)
+                        .frame(height: 1)
+                    metrics(hero)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(hero.accessibilityLabel)
+            .accessibilityIdentifier("volunteerRunningStatsCard")
+        }
+    }
+
+    /// 主角数字**不封顶** Dynamic Type（见 `flowHeroNumber(_:capped:)`），宽度靠缩放兜住。
+    private func distanceRow(_ hero: VolunteerRunningHero) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(hero.distance)
+                .flowHeroNumber(FlowV2Fonts.heroXL, capped: false)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            Text("公里").flowFont(FlowV2Fonts.heroUnit())
+        }
+        .foregroundColor(.white)
+    }
+
+    private func goalView(_ goal: VolunteerRunningHero.Goal) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(AppColors.Flow.ropeMuted)
+                    Capsule()
+                        .fill(goal.isReached ? AppColors.Flow.gold : Color.white)
+                        .frame(width: proxy.size.width * goal.progress)
+                }
+            }
+            .frame(height: 6)
+            Text(goal.text)
+                .flowFont(FlowV2Fonts.subhead(bold: true), monospacedDigit: true)
+                .foregroundColor(goal.isReached ? AppColors.Flow.gold : AppColors.Flow.onHeroBody)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// 用时 / 配速两格。辅助字号下竖排：两个 44pt 起的数字并排会把彼此挤到缩小。
+    private func metrics(_ hero: VolunteerRunningHero) -> some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 16))
+        return layout {
+            metric(value: hero.duration, label: "用时")
+            metric(value: hero.pace, label: "配速 / 公里")
+        }
+    }
+
+    private func metric(value: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .flowHeroNumber(FlowV2Fonts.heroS, capped: false)
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            Text(label)
+                .flowFont(FlowV2Fonts.subhead())
+                .foregroundColor(AppColors.Flow.onHeroBody)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

@@ -3,7 +3,7 @@ import XCTest
 
 /// 陪跑员端「长按 2 秒结束陪跑」的纯逻辑。
 ///
-/// 手势、震动、环形本身在单测里够不着（`XCUIElement.tap()` 注入的是物理触摸，
+/// 手势、震动、填充本身在单测里够不着（`XCUIElement.tap()` 注入的是物理触摸，
 /// 也没有公开 API 能执行无障碍动作），所以这里钉的是**手势之外的全部判据**：
 /// 时长与屏幕上印的数字是不是同一个、读秒会不会往回跳、渐强震动会不会漏拍或重拍。
 /// 行为那一半走 `blindRunUITests` 里的 `press(forDuration:)`，两条路调的是同一个
@@ -18,8 +18,8 @@ final class VolunteerFinishLongPressTests: XCTestCase {
         let printed = String(format: "%g", VolunteerFinishLongPress.duration)
 
         XCTAssertTrue(
-            VolunteerFinishLongPress.idleSubtitle.contains("长按 \(printed) 秒"),
-            "副标题印的秒数必须由 duration 生成：\(VolunteerFinishLongPress.idleSubtitle)"
+            VolunteerFinishLongPress.idleTitle.contains("长按 \(printed) 秒"),
+            "按钮上印的秒数必须由 duration 生成：\(VolunteerFinishLongPress.idleTitle)"
         )
         XCTAssertTrue(
             VolunteerFinishLongPress.accessibilityLabel.contains("长按 \(printed) 秒"),
@@ -29,10 +29,10 @@ final class VolunteerFinishLongPressTests: XCTestCase {
             VolunteerFinishLongPress.activationGuidance.contains(printed),
             "双击时念的那句也要用同一个数字：\(VolunteerFinishLongPress.activationGuidance)"
         )
-        // 设计包 `状态清单.md` §11 的参数：2 秒、⌀40、线宽 3。
+        // 设计包 `状态清单.md` §11 的参数：2 秒。
         XCTAssertEqual(VolunteerFinishLongPress.duration, 2)
-        XCTAssertEqual(VolunteerFinishLongPress.ringDiameter, 40)
-        XCTAssertEqual(VolunteerFinishLongPress.ringLineWidth, 3)
+        // v2 画布 ⑤ 的按钮文字：「长按 2 秒，结束陪跑」—— 动作名就在这句话里，读屏动作与它同名。
+        XCTAssertEqual(VolunteerFinishLongPress.idleTitle, "长按 \(printed) 秒，\(VolunteerFinishLongPress.title)")
     }
 
     /// 按钮上印的词与读屏那条自定义动作必须同名 —— 视图里两处都读 `title`。
@@ -45,11 +45,11 @@ final class VolunteerFinishLongPressTests: XCTestCase {
         XCTAssertTrue(VolunteerFinishLongPress.accessibilityLabel.hasPrefix(VolunteerFinishLongPress.title))
     }
 
-    func testRingProgressRunsFromZeroToFullAndClampsBothEnds() {
+    func testFillProgressRunsFromZeroToFullAndClampsBothEnds() {
         XCTAssertEqual(VolunteerFinishLongPress.progress(elapsed: 0), 0)
         XCTAssertEqual(VolunteerFinishLongPress.progress(elapsed: 1), 0.5, accuracy: 0.0001)
         XCTAssertEqual(VolunteerFinishLongPress.progress(elapsed: 2), 1)
-        // 触发与最后一次读秒之间差几毫秒，那几毫秒里环形不该越过满格。
+        // 触发与最后一次读秒之间差几毫秒，那几毫秒里填充不该越过满格。
         XCTAssertEqual(VolunteerFinishLongPress.progress(elapsed: 2.4), 1)
         XCTAssertEqual(VolunteerFinishLongPress.progress(elapsed: -1), 0)
     }
@@ -82,8 +82,8 @@ final class VolunteerFinishLongPressTests: XCTestCase {
         XCTAssertEqual(VolunteerFinishLongPress.remainingText(elapsed: 1.99), "0.1")
         XCTAssertEqual(VolunteerFinishLongPress.remainingText(elapsed: 2), "0.1")
         XCTAssertEqual(
-            VolunteerFinishLongPress.holdingSubtitle(elapsed: 1.2),
-            "按住不要松手 · 还有 0.8 秒"
+            VolunteerFinishLongPress.holdingTitle(elapsed: 1.2),
+            "继续按住，还剩 0.8 秒"
         )
     }
 
@@ -127,29 +127,29 @@ final class VolunteerFinishLongPressTests: XCTestCase {
         XCTAssertEqual(fired, VolunteerFinishLongPress.hapticRamp.map(\.intensity))
     }
 
-    /// 🔴 结束失败之后，环形必须回到 0。
+    /// 🔴 结束失败之后，填充必须回到 0。
     ///
     /// `elapsed` 在触发那一刻被钉在满格，而 `/finish` 失败时按钮会回到可按状态
-    /// （`.failed` 不阻断重试，`isPerformingAction` 也归回 false）。若环形照读 `elapsed`，
-    /// 屏幕上会长期留着「环形满格 + 副标题说『长按 2 秒』」—— 对不开读屏的低视力志愿者，
-    /// 满格环形是「已经结束了」唯一的视觉读数，而那一刻订单还在跑。
+    /// （`.failed` 不阻断重试，`isPerformingAction` 也归回 false）。若填充照读 `elapsed`，
+    /// 屏幕上会长期留着「整枚填满 + 文字说『长按 2 秒』」—— 对不开读屏的低视力志愿者，
+    /// 填满是「已经结束了」唯一的视觉读数，而那一刻订单还在跑。
     ///
     /// 最后那条断言（`hasFired: false` + `elapsed: 2` → 0）就是失败之后的样子，
     /// 也是这条用例唯一分辨得出「直接读 elapsed」与正确实现的一行。
-    func testRingReturnsToZeroOnceTheHoldIsOverOrTheRequestFailed() {
+    func testFillReturnsToZeroOnceTheHoldIsOverOrTheRequestFailed() {
         let full = VolunteerFinishLongPress.duration
 
-        XCTAssertEqual(VolunteerFinishLongPress.ringProgress(elapsed: 0, isHolding: false, hasFired: false), 0)
+        XCTAssertEqual(VolunteerFinishLongPress.fillProgress(elapsed: 0, isHolding: false, hasFired: false), 0)
         XCTAssertEqual(
-            VolunteerFinishLongPress.ringProgress(elapsed: 1, isHolding: true, hasFired: false),
+            VolunteerFinishLongPress.fillProgress(elapsed: 1, isHolding: true, hasFired: false),
             0.5,
             accuracy: 0.0001
         )
-        XCTAssertEqual(VolunteerFinishLongPress.ringProgress(elapsed: full, isHolding: false, hasFired: true), 1)
+        XCTAssertEqual(VolunteerFinishLongPress.fillProgress(elapsed: full, isHolding: false, hasFired: true), 1)
         XCTAssertEqual(
-            VolunteerFinishLongPress.ringProgress(elapsed: full, isHolding: false, hasFired: false),
+            VolunteerFinishLongPress.fillProgress(elapsed: full, isHolding: false, hasFired: false),
             0,
-            "结束请求失败后环形还停在满格 —— 屏幕在说一件没发生的事"
+            "结束请求失败后填充还停在满格 —— 屏幕在说一件没发生的事"
         )
     }
 

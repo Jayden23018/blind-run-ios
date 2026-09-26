@@ -438,11 +438,20 @@ extension View {
     /// 主角数字。**只有这一处封顶 Dynamic Type**（AX2，约 1.4 倍）——
     /// 项目负责人 2026-09-26 拍板采用交付包 02「动态字体」一节，记入 design-direction「陪跑员订单页 v2 例外」。
     /// 其余文字照常不封顶。
-    func flowHeroNumber(_ hero: FlowV2Fonts.Hero) -> some View {
-        modifier(
+    ///
+    /// `capped: false` 只给跑步中页（#218）：《跑步中与跑后》要求那一屏不封顶，
+    /// 靠 `lineLimit(1)` + `minimumScaleFactor` 兜宽度。封顶的字会被真机无障碍审计判成
+    /// 「改不了字号」（2026-09-26 跑步中页三个数字全红），那一屏没有「负责人拍板的例外」可依。
+    @ViewBuilder
+    func flowHeroNumber(_ hero: FlowV2Fonts.Hero, capped: Bool = true) -> some View {
+        let number = modifier(
             FlowFont(size: hero.size, weight: .heavy, design: .rounded, relativeTo: .largeTitle, monospacedDigit: true)
         )
         .tracking(hero.tracking)
-        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        if capped {
+            number.dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        } else {
+            number
+        }
     }
 }
