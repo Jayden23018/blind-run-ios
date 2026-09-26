@@ -223,7 +223,7 @@ struct RopeView: View {
             withTransaction(reset) { drawn = 0 }
             // 下一轮再起动画：同一轮里先置 0 再置 1 会被合并成「没变」。
             DispatchQueue.main.async {
-                withAnimation(.easeInOut(duration: 0.6)) { drawn = 1 }
+                withAnimation(.easeInOut(duration: 0.6)) { drawn = 1 } // guard:allow motion-not-gated（上面 guard 已排除 reduceMotion）
             }
         }
     }
@@ -318,6 +318,49 @@ struct RopeView: View {
     }
 
     private var colors: RopeColors { theme == .dark ? .dark : .light }
+}
+
+/// 完成页头卡的并肩插图（`Done.dc.html`：200×84，头像半径 30、圆心相距 42 即重叠 18，
+/// 跑者头像外一圈 2pt 深蓝做分隔，下方一条金色弧线）。
+///
+/// 不复用 `RopeView(.together)`：那是 `Rope.dc.html` 里 44pt 的「并肩」态，挂在跑步中衔接处；
+/// 完成页是单独的一张大插图，照搬过去头像小一圈、也不重叠（4.10 对照时抓到的）。
+/// 读屏隐藏 —— 头卡正文「你和李明跑完了」已经说了同一件事。
+struct RopeTogetherIllustration: View {
+    var volunteerInitial: String = "我"
+    var runnerName: String?
+
+    private var runnerInitial: String {
+        runnerName?.unmaskedForSpeech.first.map(String.init) ?? "跑"
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Path { path in
+                path.move(to: CGPoint(x: 58, y: 60))
+                path.addQuadCurve(to: CGPoint(x: 142, y: 60), control: CGPoint(x: 100, y: 90))
+            }
+            .stroke(AppColors.Flow.gold, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+            avatar(volunteerInitial, fill: AppColors.Flow.volunteerDot)
+                .position(x: 79, y: 38)
+            Circle()
+                .fill(AppColors.Flow.navy)
+                .frame(width: 64, height: 64)
+                .position(x: 121, y: 38)
+            avatar(runnerInitial, fill: AppColors.Flow.runnerDot)
+                .position(x: 121, y: 38)
+        }
+        .frame(width: 200, height: 84)
+        .accessibilityHidden(true)
+    }
+
+    private func avatar(_ initial: String, fill: Color) -> some View {
+        Text(initial)
+            .font(.system(size: 22, weight: .bold))
+            .foregroundColor(.white)
+            .frame(width: 60, height: 60)
+            .background(Circle().fill(fill))
+    }
 }
 
 /// 两套主题的配色（交付包 03「配色」+ `Rope.dc.html`）。

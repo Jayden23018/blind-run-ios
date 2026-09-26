@@ -99,26 +99,42 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
 
     private var heroCard: some View {
         FlowHeroCard(style: hero.style == .navy ? .navy : .light) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(hero.eyebrow)
-                    .flowFont(FlowV2Fonts.subhead(bold: true))
-                    .foregroundColor(hero.style == .navy ? AppColors.Flow.onNavyEyebrow : AppColors.Flow.accent)
-                Spacer(minLength: 8)
-                replyNotice
+            if phase == .completed {
+                // `Done.dc.html`：整卡居中、没有小标题（导航栏已经写着「陪跑完成」），
+                // 绳子换成单独的一张并肩大插图。
+                VStack(spacing: 12) {
+                    RopeTogetherIllustration(runnerName: order?.blindName)
+                    heroBody
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                standardHeroContent
             }
-            RopeView(
-                state: hero.rope,
-                theme: hero.style == .navy ? .dark : .light,
-                runnerName: order?.blindName,
-                remainingMinutes: hero.remainingMinutes
-            )
-            heroBody
         }
+    }
+
+    @ViewBuilder
+    private var standardHeroContent: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(hero.eyebrow)
+                .flowFont(FlowV2Fonts.subhead(bold: true))
+                .foregroundColor(hero.style == .navy ? AppColors.Flow.onNavyEyebrow : AppColors.Flow.accent)
+            Spacer(minLength: 8)
+            replyNotice
+        }
+        RopeView(
+            state: hero.rope,
+            theme: hero.style == .navy ? .dark : .light,
+            runnerName: order?.blindName,
+            remainingMinutes: hero.remainingMinutes
+        )
+        heroBody
     }
 
     /// 头卡正文合成**一个**读屏元素（绳子与回复倒计时各是一个）。
     private var heroBody: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let centered = phase == .completed
+        return VStack(alignment: centered ? .center : .leading, spacing: 8) {
             if let number = hero.number {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(number).flowHeroNumber(hero.numberSize)
@@ -148,7 +164,8 @@ struct VolunteerOrderFlowPage<Footer: View>: View {
                     .transition(.opacity)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .multilineTextAlignment(centered ? .center : .leading)
+        .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(hero.accessibilityLabel + metricsSpoken)
         .accessibilityIdentifier("volunteerOrderFlowStatusCard")
