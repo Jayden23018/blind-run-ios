@@ -1705,7 +1705,7 @@ final class blindRunUITests: XCTestCase {
 
         openCurrentVolunteerService(volunteerApp, alreadyOpenTimeout: 0)
         XCTAssertEqual(
-            volunteerApp.descendants(matching: .any).matching(identifier: "volunteerServiceMapBackdrop").count,
+            volunteerApp.descendants(matching: .any).matching(identifier: "volunteerServiceMapBackdrop").count,  // guard:allow stale-ui-test-identifier
             0,
             "陪跑员订单页 v2 全流程不画地图（#218）"
         )

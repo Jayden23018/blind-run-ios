@@ -170,133 +170,27 @@ extension RunOrderStatus {
     }
 }
 
+/// 订单页兜底那一屏显示什么（`VolunteerInServiceView.fallbackContent`）。
+enum VolunteerOrderFallback: Equatable {
+    case loading
+    case message(title: String, message: String)
+
+    static let loadingTitle = "正在获取订单状态..."
+
+    /// `status == nil` = 手上还没有订单。有订单时不看 `errorMessage`：那是某次操作的失败，不是这一屏的内容。
+    static func resolve(status: RunOrderStatus?, errorMessage: String?) -> Self {
+        if let status {
+            return .message(title: status.serviceStageTitle, message: status.serviceStageSubtitle)
+        }
+        guard let errorMessage else { return .loading }
+        // 轮询没有停（`startPolling` 的循环不看成败），所以「会自动重试」是真的。
+        return .message(title: errorMessage, message: "页面会自动重试，也可以先返回")
+    }
+}
+
 private func orderCoordinate(_ order: OrderDetailResponse) -> CLLocationCoordinate2D? {
     guard let lat = order.startLatitude, let lng = order.startLongitude else { return nil }
     return CLLocationCoordinate2D(latitude: lat, longitude: lng)
-}
-
-struct VolunteerServiceMapPresentation {
-    let centerCoordinate: CLLocationCoordinate2D
-    let annotations: [MapAnnotationItem]
-    let isCurrentLocationAvailable: Bool
-    let hasCurrentLocationMarker: Bool
-
-    init(
-        order: OrderDetailResponse,
-        currentLocation: CLLocationCoordinate2D?,
-        locationAuthorized: Bool,
-        fallbackCoordinate: CLLocationCoordinate2D,
-        includesCurrentLocationMarker: Bool = false,
-        centersOnCurrentAndStart: Bool = false
-    ) {
-        self.init(
-            id: "order-start-\(order.orderId)",
-            startCoordinate: orderCoordinate(order),
-            startAddress: order.startAddress,
-            currentLocation: currentLocation,
-            locationAuthorized: locationAuthorized,
-            fallbackCoordinate: fallbackCoordinate,
-            includesCurrentLocationMarker: includesCurrentLocationMarker,
-            centersOnCurrentAndStart: centersOnCurrentAndStart
-        )
-    }
-
-    init(
-        dispatchOrder: WSNewOrder,
-        currentLocation: CLLocationCoordinate2D?,
-        locationAuthorized: Bool,
-        fallbackCoordinate: CLLocationCoordinate2D
-    ) {
-        let startCoordinate: CLLocationCoordinate2D?
-        if let lat = dispatchOrder.startLatitude, let lng = dispatchOrder.startLongitude {
-            startCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
-        } else {
-            startCoordinate = nil
-        }
-        self.init(
-            id: "dispatch-start-\(dispatchOrder.orderId)",
-            startCoordinate: startCoordinate,
-            startAddress: dispatchOrder.startAddress,
-            currentLocation: currentLocation,
-            locationAuthorized: locationAuthorized,
-            fallbackCoordinate: fallbackCoordinate,
-            includesCurrentLocationMarker: false,
-            centersOnCurrentAndStart: false
-        )
-    }
-
-    private init(
-        id: String,
-        startCoordinate: CLLocationCoordinate2D?,
-        startAddress: String?,
-        currentLocation: CLLocationCoordinate2D?,
-        locationAuthorized: Bool,
-        fallbackCoordinate: CLLocationCoordinate2D,
-        includesCurrentLocationMarker: Bool,
-        centersOnCurrentAndStart: Bool
-    ) {
-        let displayCurrentLocation = locationAuthorized ? currentLocation.flatMap {
-            BackendCoordinateNormalizer.normalize(
-                LocatedCoordinate(coordinate: $0, system: .wgs84Device)
-            )?.coordinate
-        } : nil
-
-        var items: [MapAnnotationItem] = []
-        if includesCurrentLocationMarker, let displayCurrentLocation {
-            items.append(
-                MapAnnotationItem(
-                    id: "current-location",
-                    coordinate: displayCurrentLocation,
-                    title: "我的位置",
-                    subtitle: nil,
-                    kind: .currentLocation
-                )
-            )
-        }
-
-        if let startCoordinate {
-            items.append(
-                MapAnnotationItem(
-                    id: id,
-                    coordinate: startCoordinate,
-                    title: "出发地点",
-                    subtitle: startAddress,
-                    kind: .orderStart
-                )
-            )
-        }
-
-        annotations = items
-        isCurrentLocationAvailable = displayCurrentLocation != nil
-        hasCurrentLocationMarker = includesCurrentLocationMarker && displayCurrentLocation != nil
-
-        if centersOnCurrentAndStart, let displayCurrentLocation, let startCoordinate {
-            centerCoordinate = CLLocationCoordinate2D(
-                latitude: (displayCurrentLocation.latitude + startCoordinate.latitude) / 2,
-                longitude: (displayCurrentLocation.longitude + startCoordinate.longitude) / 2
-            )
-        } else if let startCoordinate {
-            centerCoordinate = startCoordinate
-        } else if let displayCurrentLocation {
-            centerCoordinate = displayCurrentLocation
-        } else {
-            centerCoordinate = fallbackCoordinate
-        }
-    }
-}
-
-struct VolunteerServiceMapLayout {
-    static func screenAnchorY(
-        viewportHeight: CGFloat,
-        topSafeAreaInset: CGFloat,
-        bottomPanelMaxHeight: CGFloat
-    ) -> CGFloat {
-        guard viewportHeight > 1 else { return 0.5 }
-        let upper = max(topSafeAreaInset, 0)
-        let lower = max(viewportHeight - bottomPanelMaxHeight, upper + 1)
-        let visibleCenterY = (upper + lower) / 2
-        return min(max(visibleCenterY / viewportHeight, 0.18), 0.45)
-    }
 }
 
 private func externalNavigationRequest(
@@ -899,8 +793,8 @@ struct VolunteerOrderDetailView: View {
                         .foregroundColor(AppColors.warning)
                         .accessibilityLabel(blockMessage)
                 }
-            // `.scheduledConfirmed` 在列：跨天单的「确认我还会去」在服务页的动作条上
-            // （`VolunteerServiceActions.actionKinds`），这里给的是通往它的第二条路 ——
+            // `.scheduledConfirmed` 在列：跨天单的「确认我还会去」是服务页上的主按钮
+            // （`VolunteerOrderFlowPresentation.PrimaryAction.confirmDeparture`），这里给的是通往它的第二条路 ——
             // 主入口是首页的「我的预约」区块，这条兜住「从近期服务点进详情页」的人。
             } else if order.status == .scheduledConfirmed || order.status == .pendingAccept || order.status == .inProgress || order.status == .driverEnRoute || order.status == .driverArrived {
                 NavigationLink {
@@ -1809,6 +1703,8 @@ struct VolunteerInServiceView: View {
     @State private var lastMeetCue: MeetCue?
     @State private var lastMeetAnnouncementAt: Date?
     @State private var didBuzzWithin10 = false
+    /// 兜底页右上的求助（只会是本地拨号，见 `fallbackContent`）。
+    @State private var showsLocalHelp = false
     let orderId: Int64
     let initialOrder: OrderDetailResponse?
 
@@ -1822,10 +1718,9 @@ struct VolunteerInServiceView: View {
         self.initialOrder = initialOrder
     }
 
-    /// 这一态走不走这个页面。`nil` = 还是旧的地图 + 底部面板那条路。
+    /// 这一态走不走这个页面。`nil` = 走兜底页（`fallbackContent`）。
     ///
-    /// 跑步中也不走这里，它有自己的 `runningPage`（#218）。旧路径现在只剩订单还没拉到的那一瞬
-    /// 与认不出的状态；`VolunteerServiceBottomPanel` 里跑步中那一支已经到不了，整条旧路径待清理。
+    /// 跑步中也不走这里，它有自己的 `runningPage`（#218）。
     private var flowPresentation: VolunteerOrderFlowPresentation? {
         guard let order = viewModel.order else { return nil }
         return .make(
@@ -1865,25 +1760,23 @@ struct VolunteerInServiceView: View {
                     flowPage(order: order, now: context.date)
                 }
             } else {
-                legacyMapContent
+                fallbackContent
             }
         }
-        .navigationTitle(flowPresentation == nil ? "服务中" : VolunteerOrderFlowCopy.pageTitle)
+        .navigationTitle(VolunteerOrderFlowCopy.pageTitle)
         .navigationBarTitleDisplayMode(.inline)
-        // 旧路径藏导航栏的底，是为了让地图透上去。
-        .toolbarBackground(.hidden, for: .navigationBar)
-        // v2 页面与跑步中页都自带导航栏（左返回、右求助），系统那条要整条藏掉，否则两条叠着。
-        .toolbar(flowPresentation == nil && !isRunning ? .visible : .hidden, for: .navigationBar)
+        // 每一路都自带导航栏（左返回、右求助），系统那条要整条藏掉，否则两条叠着。
+        .toolbar(.hidden, for: .navigationBar)
         // 订单页**不带标签栏**（设计交付 v3 §4.2 总表：S1/S2/S3/S4 的底部是「标签栏」，
         // 而 S6 是「求助与安全」；`03-订单页全流程.png` 五屏也都没有标签栏）。
         // 多一条 49pt 的标签栏会把底部操作区顶上去，而标签栏在这一刻能去的地方
-        // （记录 / 我的）没有一个是陪跑中该去的。**两条路径都要藏**：地图那条是面板被顶，
-        // 骨架那条是最后一行被盖掉半行（同一个形状已在 `VolunteerServiceRecognitionView` 上红过一次）。
+        // （记录 / 我的）没有一个是陪跑中该去的：多出来的标签栏会把最后一行盖掉半行
+        // （同一个形状已在 `VolunteerServiceRecognitionView` 上红过一次）。
         //
         // 🔴 **前提是每一屏都有出口。** 盲人端的订单页刻意保留了标签栏，理由在
         // `BlindOrderStatusView.swift:1642-1646`：那一页跑步中会藏返回箭头，
-        // 标签栏是唯一出口。这一页：旧路径有系统返回箭头；v2 页面藏了系统导航栏，
-        // 出口是它自己导航栏上的返回，完成页没有返回、出口是主按钮「完成」（`.doneReviewing` → dismiss）。
+        // 标签栏是唯一出口。这一页藏了系统导航栏，出口是每一路自带导航栏上的返回；
+        // 完成页没有返回、出口是主按钮「完成」（`.doneReviewing` → dismiss）。
         // **谁将来去掉其中任何一个出口，这一行必须同时撤销。**
         //
         // ⚠️ 2026-09-17 合并时搬过一次位置：它原本挂在旧 body 的末尾，而那一段被
@@ -2086,7 +1979,7 @@ struct VolunteerInServiceView: View {
                 footer: { flowFooter(showsNudgeNotice: meet == nil) }
             )
         } else {
-            legacyMapContent
+            fallbackContent
         }
     }
 
@@ -2306,72 +2199,38 @@ struct VolunteerInServiceView: View {
         }
     }
 
-    // MARK: - 旧路径（只剩订单还没拉到的那一瞬，以及认不出的状态）
+    // MARK: - 兜底（订单还没拉到 / 首次加载失败 / 认不出的状态）
 
-    private var legacyMapContent: some View {
-        GeometryReader { proxy in
-            let bottomPanelMaxHeight = proxy.size.height * 0.62
-            let mapAnchor = CGPoint(
-                x: 0.5,
-                y: VolunteerServiceMapLayout.screenAnchorY(
-                    viewportHeight: proxy.size.height,
-                    topSafeAreaInset: proxy.safeAreaInsets.top,
-                    bottomPanelMaxHeight: bottomPanelMaxHeight
-                )
+    /// 没有流转动作、没有地图：这几种情况下陪跑员要么还不是、要么已经不是这一单的参与者。
+    /// 求助仍在右上角 —— 走得到这里的都不是 `IN_PROGRESS`，`resolve` 只会给本地拨号。
+    private var fallbackContent: some View {
+        let helpMode = VolunteerOrderSOSMode.resolve(status: viewModel.order?.status)
+        return VStack(spacing: 0) {
+            FlowOrderNavBar(
+                title: VolunteerOrderFlowCopy.pageTitle,
+                onBack: { dismiss() },
+                onHelp: {
+                    if helpMode == .cloud { showEmergencyConfirm = true } else { showsLocalHelp = true }
+                },
+                helpIsCloud: helpMode == .cloud
             )
-            ZStack(alignment: .bottom) {
-                if let order = viewModel.order {
-                    VolunteerServiceMapBackdrop(
-                        order: order,
-                        screenAnchor: mapAnchor,
-                        peerSample: viewModel.latestBlindSample
-                    )
-                } else {
-                    AppColors.secondaryBackground
-                        .ignoresSafeArea()
-                }
-
-                if viewModel.isLoading && viewModel.order == nil {
-                    ProgressView("正在获取订单状态...")
-                        .padding()
-                        .background(.regularMaterial)
-                        .cornerRadius(8)
-                        .accessibilityLabel("正在获取订单状态")
-                }
-
-                // 已完成不再走这里 —— 它现在是骨架上的一屏，轨迹由「查看跑步记录」
-                // 推到下一页（`completedTrackContent` 仍然是那一页的内容）。
-                if let order = viewModel.order {
-                    VStack(spacing: 10) {
-                            emergencySection(for: order)
-                            VolunteerServiceBottomPanel(
-                            order: order,
-                            distanceText: distanceText(for: order),
-                            errorMessage: viewModel.errorMessage,
-                            transitionMessage: viewModel.transitionMessage,
-                            isPerformingAction: viewModel.isPerformingAction,
-                            transitionsDisabled: viewModel.isTransitionPending,
-                            canRetryTransitionConfirmation: viewModel.canRetryTransitionConfirmation,
-                            maxHeight: bottomPanelMaxHeight,
-                            onNavigate: { openExternalNavigation(for: order) },
-                            onEnRoute: { Task { await viewModel.enRoute() } },
-                            onArrive: { Task { await viewModel.arrive() } },
-                            onStartService: { Task { await viewModel.startService() } },
-                            onCancel: { activeSheet = .cancelOrder },
-                            // 按满 2 秒直接结束，中间没有确认框：长按本身就是那道确认
-                            // （设计包 `状态清单.md` §11：「结束跑步即结束服务，不可撤销 —— 因此不做轻点」）。
-                            onComplete: { Task { await viewModel.complete() } },
-                            onConfirmDeparture: { Task { await viewModel.confirmDeparture() } },
-                            onRetryTransitionConfirmation: {
-                                viewModel.retryTransitionConfirmation()
-                            },
-                            )
+            .padding(.horizontal, FlowMetrics.v2ScreenPadding - 8)
+            ScrollView {
+                Group {
+                    switch VolunteerOrderFallback.resolve(status: viewModel.order?.status, errorMessage: viewModel.errorMessage) {
+                    case .loading:
+                        ProgressView(VolunteerOrderFallback.loadingTitle)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 32)
+                    case let .message(title, message):
+                        EmptyStateView(title: title, message: message)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 8)
                 }
+                .padding(.horizontal, FlowMetrics.v2ScreenPadding)
             }
         }
+        .background(AppColors.Flow.page.ignoresSafeArea())
+        .emergencyCallOptionsDialog(isPresented: $showsLocalHelp, context: .volunteerBeforeRun, primaryContact: nil)
     }
 
     /// 取消对话框的四句话。**按状态换，不是一句通用文案。**
@@ -2393,11 +2252,11 @@ struct VolunteerInServiceView: View {
         )
     }
 
-    /// 紧急信息区（跑步中页挂在头卡下方，旧路径挂在面板上方）。**「代盲人发起求助」的按钮不在这里** ——
+    /// 紧急信息区（挂在跑步中页头卡下方）。**「代盲人发起求助」的按钮不在这里** ——
     /// 它是跑步中页导航栏右上的求助胶囊（`FlowHelpPill`，#217 / #218）。
     ///
     /// 2026-08-19 把触发按钮搬走：它此前是这个 `VStack` 的第一个子视图，而这个 `VStack` 底部对齐、
-    /// 上方就是高度自适应的 `VolunteerServiceBottomPanel`，于是一个全宽红色 `PrimaryButton` 浮在屏幕
+    /// 上方就是高度自适应的底部面板（已随旧地图路径删除），于是一个全宽红色 `PrimaryButton` 浮在屏幕
     /// 30–36% 处、且垂直位置随面板内容漂移 —— 和「结束服务」「取消订单」同一个组件同一个宽度，
     /// 落在拇指自然区。理由与对标见 `docs/research/volunteer-sos-button-placement-20260819.md`。
     ///
@@ -2411,7 +2270,7 @@ struct VolunteerInServiceView: View {
     ///   「求助已记录 / 求助未发出」就会没有地方显示，直接违反 `AGENTS.md` §6
     ///   「每一种结果都必须可见且可听地如实告知」。
     ///
-    /// 两者都不成立时这个 section 渲染为空，面板直接贴底 —— 那正是绝大多数时刻的样子。
+    /// 两者都不成立时这个 section 渲染为空 —— 那正是绝大多数时刻的样子。
     @ViewBuilder
     private func emergencySection(for order: OrderDetailResponse) -> some View {
         let coordinator = appState.emergencyCoordinator
@@ -3108,110 +2967,6 @@ struct VolunteerOrderMap: View {
     }
 }
 
-struct VolunteerServiceMapBackdrop: View {
-    @EnvironmentObject private var locationService: LocationService
-    let order: OrderDetailResponse
-    let screenAnchor: CGPoint
-    let peerSample: LocatedCoordinate?
-
-    var body: some View {
-        let presentation = VolunteerServiceMapPresentation(
-            order: order,
-            currentLocation: locationService.currentLocation,
-            locationAuthorized: locationService.isAuthorized,
-            fallbackCoordinate: locationService.effectiveBackendLocation,
-            includesCurrentLocationMarker: false,
-            centersOnCurrentAndStart: false
-        )
-        let peerAnnotations = peerSample.map { sample in
-            [MapAnnotationItem(
-                id: "associated-blind-runner",
-                coordinate: sample.coordinate,
-                title: "同行盲人跑者",
-                subtitle: "位置刚刚更新",
-                kind: .peer
-            )]
-        } ?? []
-        MapViewWrapper(
-            centerCoordinate: presentation.centerCoordinate,
-            showsUserLocation: locationService.isAuthorized,
-            annotations: presentation.annotations + peerAnnotations,
-            zoomLevel: 15,
-            screenAnchor: screenAnchor,
-            tracksUserLocation: false,
-            animatesCenterChanges: false
-        )
-        .ignoresSafeArea()
-        .overlay(alignment: .topLeading) {
-            VolunteerMapLegend(
-                showsCurrentLocation: presentation.isCurrentLocationAvailable,
-                showsMissingLocationNotice: !presentation.isCurrentLocationAvailable
-            )
-            .padding(.top, 56)
-            .padding(.horizontal, 16)
-        }
-        .overlay(alignment: .bottom) {
-            LinearGradient(
-                colors: [.clear, Color.black.opacity(0.12)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 260)
-            .allowsHitTesting(false)
-        }
-        .allowsHitTesting(false)
-        .accessibilityLabel(
-            presentation.isCurrentLocationAvailable
-                ? "地图，显示我的位置和出发地点：\(order.startAddress ?? "地址待同步")"
-                : "地图，出发地点：\(order.startAddress ?? "地址待同步")"
-        )
-        .accessibilityIdentifier("volunteerServiceMapBackdrop")
-        .accessibilityHint("服务信息面板会读出出发地点和距离；同行位置过期后会自动隐藏")
-    }
-}
-
-struct VolunteerMapLegend: View {
-    let showsCurrentLocation: Bool
-    let showsMissingLocationNotice: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if showsCurrentLocation {
-                legendRow(color: .blue, title: "我的位置")
-            } else if showsMissingLocationNotice {
-                Text("定位不可用，仅显示出发地点")
-                    .font(AppFonts.caption().weight(.semibold))
-                    .foregroundColor(AppColors.warning)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.regularMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .accessibilityLabel("定位不可用，仅显示出发地点")
-            }
-
-            legendRow(color: .red, title: "出发地点")
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    private func legendRow(color: Color, title: String) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(color)
-                .frame(width: 10, height: 10)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(AppFonts.caption().weight(.semibold))
-                .foregroundColor(AppColors.textPrimary)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .accessibilityLabel(title)
-    }
-}
-
 struct ExternalMapNavigationSheet: View {
     @Environment(\.dismiss) private var dismiss
     let request: ExternalMapNavigationRequest
@@ -3252,187 +3007,6 @@ struct ExternalMapNavigationSheet: View {
     }
 }
 
-struct VolunteerServiceBottomPanel: View {
-    let order: OrderDetailResponse
-    let distanceText: String?
-    let errorMessage: String?
-    let transitionMessage: String?
-    let isPerformingAction: Bool
-    let transitionsDisabled: Bool
-    let canRetryTransitionConfirmation: Bool
-    let maxHeight: CGFloat
-    let onNavigate: () -> Void
-    let onEnRoute: () -> Void
-    let onArrive: () -> Void
-    let onStartService: () -> Void
-    let onCancel: () -> Void
-    let onComplete: () -> Void
-    let onConfirmDeparture: () -> Void
-    let onRetryTransitionConfirmation: () -> Void
-
-    var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                VolunteerServiceStageHeader(status: order.status)
-                // 排在跑者卡（姓名 + 电话）之前：先知道「这个人需要我怎么带」，
-                // 再知道「他叫什么、怎么联系」。
-                VolunteerRunnerNeedsBanner(order: order)
-                VolunteerServiceRunnerCard(order: order)
-                VolunteerServiceOrderEssentials(order: order, distanceText: distanceText)
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(AppFonts.body())
-                        .foregroundColor(AppColors.destructive)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityLabel(errorMessage)
-                }
-
-                if let transitionMessage {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label(transitionMessage, systemImage: "clock.arrow.circlepath")
-                            .font(AppFonts.body())
-                            .foregroundColor(AppColors.warning)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityLabel(transitionMessage)
-                        if canRetryTransitionConfirmation {
-                            Button("重新确认状态", action: onRetryTransitionConfirmation)
-                                .buttonStyle(.bordered)
-                                .accessibilityHint("只重新查询订单状态，不会重复提交当前操作")
-                        }
-                    }
-                }
-
-                VolunteerServiceActions(
-                    status: order.status,
-                    isPerformingAction: isPerformingAction,
-                    transitionsDisabled: transitionsDisabled,
-                    onNavigate: onNavigate,
-                    onEnRoute: onEnRoute,
-                    onArrive: onArrive,
-                    onStartService: onStartService,
-                    onCancel: onCancel,
-                    onComplete: onComplete,
-                    onConfirmDeparture: onConfirmDeparture,
-                )
-            }
-            .padding(.horizontal, 22)
-            .padding(.top, 26)
-            .padding(.bottom, 22)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(maxHeight: maxHeight)
-        .background(AppColors.background)
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: Color.black.opacity(0.16), radius: 22, x: 0, y: -8)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("volunteerServicePanel")
-    }
-}
-
-struct VolunteerServiceStageHeader: View {
-    @ScaledMetric(relativeTo: .largeTitle) private var stageTitleSize: CGFloat = 34
-    let status: RunOrderStatus
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: status.statusSymbolName)
-                    .foregroundColor(status.statusColor)
-                    .accessibilityHidden(true)
-                Text(status.volunteerServiceDisplayName)
-                    .font(AppFonts.caption().weight(.semibold))
-                    .foregroundColor(status.statusColor)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(status.statusColor.opacity(0.12))
-            .cornerRadius(999)
-
-            Text(status.serviceStageTitle)
-                // 写死 34pt 不跟 Dynamic Type 走。下面的 `minimumScaleFactor(0.72)` 只在
-                // 空间不够时**缩小**，永远不会放大 —— 两者方向相反，不能互相替代。
-                .font(.system(size: stageTitleSize, weight: .bold))
-                .foregroundColor(AppColors.textPrimary)
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.72)
-                .lineLimit(2)
-
-            Text(status.serviceStageSubtitle)
-                .font(AppFonts.body())
-                .foregroundColor(AppColors.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(status.volunteerServiceDisplayName)，\(status.serviceStageTitle)，\(status.serviceStageSubtitle)")
-    }
-}
-
-struct VolunteerServiceRunnerCard: View {
-    @Environment(\.openURL) private var openURL
-    let order: OrderDetailResponse
-
-    var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.pink.opacity(0.18))
-                Image(systemName: "person.fill")
-                    .font(.title2)
-                    .foregroundColor(.pink)
-            }
-            .frame(width: 56, height: 56)
-            .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("盲人跑者")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                Text(order.blindName ?? "盲人跑者")
-                    .font(.title3.weight(.bold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-
-            Spacer(minLength: 10)
-
-            if let phone = order.blindPhone?.nilIfBlank {
-                Button {
-                    if let url = EmergencyDialer.telURL(for: phone) {
-                        EmergencyDialer.dial(url, open: { openURL($0) })
-                    }
-                } label: {
-                    Label(
-                        EmergencyContactResponse.maskPhone(phone) ?? phone,
-                        systemImage: "phone.fill"
-                    )
-                        .labelStyle(.titleAndIcon)
-                        .font(AppFonts.body().weight(.semibold))
-                        .foregroundColor(AppColors.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-                }
-                .accessibilityLabel("拨打盲人电话")
-            } else {
-                Text("电话暂不可用")
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                    .accessibilityLabel("盲人电话暂不可用")
-            }
-        }
-        .padding(16)
-        .background(AppColors.secondaryBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .accessibilityElement(children: .contain)
-    }
-}
-
-/// 服务中面板的订单要点。**只被 `VolunteerServiceBottomPanel` 用**，那是接单之后的界面，
-/// 所以这里的自由文本（路线备注 / 特殊说明）不加闸。
-/// 要在接单前的界面复用它，先接 `RunOrderStatus.disclosesBlindRunnerNotesToVolunteer`。
 /// 「本单为视障跑者」提示位。
 ///
 /// 对标打车软件给司机弹的「此订单乘客为视障人士」：那条提示的价值不在于告知身份，
@@ -3494,68 +3068,8 @@ struct VolunteerRunnerNeedsBanner: View {
     }
 }
 
-struct VolunteerServiceOrderEssentials: View {
-    let order: OrderDetailResponse
-    let distanceText: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            serviceRow(systemImage: "mappin.and.ellipse", title: "出发地点", value: order.startAddress ?? "")
-            if let endAddress = order.endAddressForDisplay {
-                serviceRow(systemImage: "flag.checkered", title: "结束地点", value: endAddress)
-            }
-            serviceRow(systemImage: "clock", title: "预约时间", value: (order.plannedStart ?? "").displayDateTime)
-            // 志愿者也要看得到约定的结束时间：超过它 15 分钟后端就推 `ORDER_OVERDUE`，
-            // 而志愿者侧那条是 HIGH 优先级、会走 APNs。收到告警却不知道约定的是几点，
-            // 那条推送就只是一次惊吓。
-            if let plannedEnd = order.plannedEndForAnnouncement {
-                serviceRow(systemImage: "clock.badge.checkmark", title: "预计结束时间", value: plannedEnd)
-            }
-
-            if let distanceText {
-                serviceRow(systemImage: "location", title: "当前位置距离", value: distanceText)
-            }
-
-            if let routeNotes = order.routeNotes?.nilIfBlank {
-                serviceRow(systemImage: "point.topleft.down.curvedto.point.bottomright.up", title: "路线备注", value: routeNotes)
-            }
-
-            if let notes = order.specialNotes?.nilIfBlank {
-                serviceRow(systemImage: "text.bubble", title: "特殊说明", value: notes)
-            }
-        }
-        .padding(16)
-        .background(AppColors.secondaryBackground.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private func serviceRow(systemImage: String, title: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.body.weight(.semibold))
-                .foregroundColor(AppColors.textPrimary)
-                .frame(width: 22)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(AppFonts.caption())
-                    .foregroundColor(AppColors.textSecondary)
-                Text(value)
-                    .font(AppFonts.body())
-                    .foregroundColor(AppColors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title)：\(value)")
-    }
-}
-
+/// 陪跑员订单相关按钮的标题。只剩三处在读：首页预约区块（确认 / 释放）与跑步中页（取消）。
 enum VolunteerServiceActionKind: Hashable {
-    case navigateToStart
-    case markEnRoute
-    case markArrived
-    case startService
     case cancelOrder
     /// 跨天预约单的临期确认（`POST /api/orders/{id}/confirm-departure`）。
     case confirmDeparture
@@ -3568,182 +3082,16 @@ enum VolunteerServiceActionKind: Hashable {
     /// 释放做得难，只会把 no-show 从「提前告知」变成「当天失联」，
     /// 见 `docs/research/volunteer-scheduled-order-confirm-ui-20260906.md` §二.1）。
     case releaseScheduled
-    case completeService
-    case completedMessage
-    case terminalMessage
 
     var title: String {
         switch self {
-        case .navigateToStart:
-            return "导航到出发地点"
         case .confirmDeparture:
             return "确认我还会去"
         case .releaseScheduled:
             return "我去不了"
-        case .markEnRoute:
-            return "我已出发"
-        case .markArrived:
-            return "我已到达约定地点"
-        case .startService:
-            return "开始服务"
         case .cancelOrder:
             return "取消订单"
-        case .completeService:
-            // 设计包（`状态清单.md` §10 / §11）把这枚按钮定名「结束陪跑」，与读屏那条
-            // 自定义动作同名。**两处必须是同一个词**：按钮上印一个、读屏念另一个，
-            // 用户会以为自己找到的是别的东西。文案本身在 `VolunteerFinishLongPress.title`。
-            return VolunteerFinishLongPress.title
-        case .completedMessage:
-            // 不再说「获得 +100 积分」：后端没有积分字段，那个数字是编的。
-            // 但也不能只剩「服务完成」——这是志愿者跑完一趟唯一的正反馈，
-            // 把承诺删掉不该连同反馈一起删掉。一句感谢不涉及任何数字，零成本且是真的。
-            return "服务完成，感谢你的陪伴"
-        case .terminalMessage:
-            return "订单已结束"
         }
-    }
-}
-
-struct VolunteerServiceActions: View {
-    let status: RunOrderStatus
-    let isPerformingAction: Bool
-    let transitionsDisabled: Bool
-    let onNavigate: () -> Void
-    let onEnRoute: () -> Void
-    let onArrive: () -> Void
-    let onStartService: () -> Void
-    let onCancel: () -> Void
-    let onComplete: () -> Void
-    let onConfirmDeparture: () -> Void
-
-    var body: some View {
-        VStack(spacing: 12) {
-            ForEach(Self.actionKinds(for: status), id: \.self) { action in
-                actionView(action)
-            }
-        }
-    }
-
-    static func actionKinds(for status: RunOrderStatus) -> [VolunteerServiceActionKind] {
-        switch status {
-        // 跨天预约：确认与释放并置，**不给导航** —— 距开跑 1–7 天，导航到出发地点是纯噪音，
-        // 而且它会和「确认我还会去」抢同一块视觉重量。
-        //
-        // 🚩 确认按钮在**整个** `SCHEDULED_CONFIRMED` 都给，不按「距开跑 X 分钟」开闸。
-        // 那个 X 是后端配置（`departure-confirm-window-minutes`），客户端算它就是第二个源；
-        // 后端调大它的那一天，通知到了而按钮还没出现 —— 那正是这次要防的事故。
-        // 代价是志愿者可能提前几天就确认掉，闸门的临期复查失效；两相比较这个代价小得多。
-        case .scheduledConfirmed:
-            return [.confirmDeparture, .releaseScheduled]
-        case .pendingAccept:
-            return [.navigateToStart, .markEnRoute, .cancelOrder]
-        case .driverEnRoute:
-            return [.navigateToStart, .markArrived, .cancelOrder]
-        case .driverArrived:
-            return [.startService, .cancelOrder]
-        case .inProgress:
-            return [.completeService, .cancelOrder]
-        case .completed:
-            return [.completedMessage]
-        case .cancelled, .noVolunteer:
-            return [.terminalMessage]
-        case .pendingMatch, .rematching:
-            return []
-        // 通话磨合期的三个动作（合适 / 不合适 / 没接到电话）在 `VolunteerIntroCallView` 上，
-        // 走的是通话专用接口而不是订单状态流转端点，所以这条服务流程的动作条一个都不给。
-        case .pendingIntroCall:
-            return []
-        // 认不出状态就一个按钮都不给：宁可让志愿者刷新，也不能在未知状态上放出取消/结束这类不可逆操作。
-        case .unknown:
-            return []
-        }
-    }
-
-    @ViewBuilder
-    private func actionView(_ action: VolunteerServiceActionKind) -> some View {
-        switch action {
-        case .navigateToStart:
-            navigationButton(action: onNavigate)
-        case .markEnRoute:
-            PrimaryButton(action.title, isLoading: isPerformingAction, action: onEnRoute)
-                .disabled(transitionsDisabled)
-                .accessibilityLabel(action.title)
-                .accessibilityHint("点击后通知盲人您正在前往")
-        case .markArrived:
-            PrimaryButton(action.title, isLoading: isPerformingAction, action: onArrive)
-                .disabled(transitionsDisabled)
-                .accessibilityLabel(action.title)
-                .accessibilityHint("点击后通知盲人您已到达")
-        case .startService:
-            PrimaryButton(action.title, isLoading: isPerformingAction, action: onStartService)
-                .disabled(transitionsDisabled)
-                .accessibilityLabel(action.title)
-                .accessibilityHint("点击后通知盲人服务已开始")
-        case .confirmDeparture:
-            PrimaryButton(action.title, isLoading: isPerformingAction, action: onConfirmDeparture)
-                .disabled(transitionsDisabled)
-                .accessibilityLabel(action.title)
-                .accessibilityHint("告诉跑者你仍然会来。不确认这一单会转给其他志愿者")
-        case .releaseScheduled:
-            // 与确认同一组，走取消端点。**用 `secondaryDangerButton` 而不是再来一个主按钮**：
-            // 并置不等于同等强调 —— 释放要好按（一跳、不藏进菜单），但不该和确认抢第一焦点。
-            secondaryDangerButton(action.title, hint: "这一单会转给其他志愿者，需要确认后释放", action: onCancel)
-        case .cancelOrder:
-            secondaryDangerButton(action.title, hint: "取消当前订单", action: onCancel)
-        case .completeService:
-            // 唯一一个不是 `PrimaryButton` 的流转动作：它要长按 2 秒 + 填充进度 + 松手即取消。
-            // 为什么没有轻点、为什么不复用求助那条长按，见 `VolunteerFinishLongPress`。
-            VolunteerFinishLongPressButton(
-                isPerformingAction: isPerformingAction,
-                isEnabled: !transitionsDisabled,
-                onFinish: onComplete
-            )
-        case .completedMessage:
-            Text(action.title)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.success)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-                .background(AppColors.success.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .accessibilityLabel(action.title)
-        case .terminalMessage:
-            Text(status.volunteerDescription)
-                .font(AppFonts.body().weight(.semibold))
-                .foregroundColor(AppColors.textSecondary)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
-                .background(AppColors.secondaryBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .accessibilityLabel(status.volunteerDescription)
-        }
-    }
-
-    private func navigationButton(action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label("导航到出发地点", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                .font(AppFonts.body().weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 52)
-                .background(AppColors.primary.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .accessibilityLabel("导航到出发地点")
-        .accessibilityHint("选择高德、百度或苹果地图进行步行导航")
-    }
-
-    private func secondaryDangerButton(_ title: String, hint: String, action: @escaping () -> Void) -> some View {
-        Button(role: .destructive, action: action) {
-            Text(title)
-                .font(AppFonts.body().weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 52)
-                .background(AppColors.destructive.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .disabled(isPerformingAction)
-        .accessibilityLabel(title)
-        .accessibilityHint(hint)
     }
 }
 
