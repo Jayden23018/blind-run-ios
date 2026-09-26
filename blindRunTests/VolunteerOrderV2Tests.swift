@@ -106,6 +106,33 @@ final class VolunteerOrderV2Tests: XCTestCase {
         XCTAssertNil(hero.notice)
     }
 
+    // MARK: - 头卡状态色（v2 C01）
+
+    /// 每个阶段的头卡底色。默认值是 `.agreed`，所以漏写 `style:` 的分支会在这里红 ——
+    /// 出发中「还没有 ETA」那一支单独取，它是另一个 `return`。
+    func testHeroColourFollowsTheOrderState() {
+        func style(_ status: RunOrderStatus, configure: (inout OrderDetailResponse) -> Void = { _ in }) -> VolunteerOrderHero.Style? {
+            var order = OrderDetailResponse.preview(status: status, plannedStart: backendTime(minutesFromBase: 60).string)
+            configure(&order)
+            return VolunteerOrderPhase.resolve(order: order, now: base).map {
+                VolunteerOrderHero.make(order: order, phase: $0, now: base).style
+            }
+        }
+        XCTAssertEqual(style(.scheduledConfirmed), .agreed)
+        XCTAssertEqual(style(.pendingAccept), .agreed)
+        XCTAssertEqual(style(.driverEnRoute), .departed, "没有 ETA")
+        XCTAssertEqual(style(.driverEnRoute) {
+            $0.eta = EtaView(remainingMinutes: 8, arriveAt: nil, deltaVsStartMinutes: -3, late: false, progress: 0.5)
+        }, .departed, "有 ETA")
+        XCTAssertEqual(style(.driverArrived), .arrived)
+        XCTAssertEqual(style(.completed), .done)
+        XCTAssertEqual(style(.cancelled), .agreed, "跑者取消用约好的藏青")
+        XCTAssertEqual(
+            VolunteerOrderHero.make(invite: .make(dispatch: OrderDetailResponse.previewDispatch(), remainingSeconds: 25)).style,
+            .light
+        )
+    }
+
     // MARK: - 在场胶囊
 
     func testPresencePillOnlyWhenBackendSaysTrue() {

@@ -170,14 +170,14 @@ struct RopeShape: Shape {
 
 struct RopeView: View {
     enum Theme {
-        /// 藏青头卡、锁屏。
-        case dark
+        /// 彩色头卡（交付包 v2 C03）。关联值是当前头卡的状态色 —— 陪跑员头像里的姓氏用它。
+        case onHero(Color)
         /// 白色头卡（仅邀请）。
         case light
     }
 
     let state: RopeState
-    var theme: Theme = .dark
+    var theme: Theme = .onHero(AppColors.Flow.stateAgreed)
     /// 陪跑员自己的姓氏（本机知道）。
     var volunteerInitial: String = "我"
     /// 跑者姓名（掩码），取首字。
@@ -196,9 +196,12 @@ struct RopeView: View {
         runnerName?.unmaskedForSpeech.first.map(String.init) ?? "跑"
     }
 
-    /// 交付包 03 §二：默认 spring；「减弱动态效果」下只做 0.2 秒淡入淡出、直接跳到终态（§四）。
+    /// 交付包 03 §二：默认 spring；出发中 ETA 更新（出发 → 出发）是 easeOut 0.6 秒；
+    /// 「减弱动态效果」下只做 0.2 秒淡入淡出、直接跳到终态（§四）。
     private var animation: Animation {
-        reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.85)
+        if reduceMotion { return .easeInOut(duration: 0.2) }
+        if case .departed = state, case .departed? = lastState { return .easeOut(duration: 0.6) }
+        return .spring(response: 0.5, dampingFraction: 0.85)
     }
 
     var body: some View {
@@ -267,7 +270,7 @@ struct RopeView: View {
                     .flowLoopingPulse(period: 2.0, from: 0.22, to: 0, scaleFrom: 22 / 28, scaleTo: 1)
                     .position(x: g.volunteerX * s, y: 28 * s)
             }
-            avatar(initial: volunteerInitial, fill: colors.volunteer, text: .white, radius: r, scale: s)
+            avatar(initial: volunteerInitial, fill: colors.volunteer, text: colors.volunteerInitial, radius: r, scale: s)
                 .position(x: g.volunteerX * s, y: 28 * s)
         }
     }
@@ -285,20 +288,23 @@ struct RopeView: View {
                     Circle().strokeBorder(colors.hollowStroke, style: StrokeStyle(lineWidth: 2 * s, dash: [3 * s, 3 * s]))
                 )
         case .solid:
-            avatar(initial: runnerInitial, fill: colors.runner, text: .white, radius: r, scale: s)
+            avatar(initial: runnerInitial, fill: colors.runner, text: .white, stroke: colors.runnerStroke, radius: r, scale: s)
         case .greyed:
-            avatar(initial: runnerInitial, fill: colors.runner, text: .white, radius: r, scale: s)
+            avatar(initial: runnerInitial, fill: colors.runner, text: .white, stroke: colors.runnerStroke, radius: r, scale: s)
                 .saturation(0)
                 .opacity(0.6)
         }
     }
 
-    private func avatar(initial: String, fill: Color, text: Color, radius r: CGFloat, scale s: CGFloat) -> some View {
+    private func avatar(
+        initial: String, fill: Color, text: Color, stroke: Color? = nil, radius r: CGFloat, scale s: CGFloat
+    ) -> some View {
         Text(initial)
             .font(.system(size: 17 * s, weight: .bold))
             .foregroundColor(text)
             .frame(width: 2 * r, height: 2 * r)
             .background(Circle().fill(fill))
+            .overlay(Circle().strokeBorder(stroke ?? .clear, lineWidth: 2 * s))
     }
 
     private func ropeColor(_ style: RopeGeometry.RopeStyle) -> Color {
@@ -317,11 +323,21 @@ struct RopeView: View {
         }
     }
 
-    private var colors: RopeColors { theme == .dark ? .dark : .light }
+    private var colors: RopeColors {
+        switch theme {
+        case .onHero(let stateColor): return .onHero(stateColor)
+        case .light: return .light
+        }
+    }
 }
 
-/// 完成页头卡的并肩插图（`Done.dc.html`：200×84，头像半径 30、圆心相距 42 即重叠 18，
-/// 跑者头像外一圈 2pt 深蓝做分隔，下方一条金色弧线）。
+/// 完成页头卡的并肩插图（`Done.dc.html`：200×84，头像半径 30、圆心相距 42 即重叠 18，下方一条金色弧线）。
+///
+/// v2 配色（C10，按 C03 规则、底为 `stateDone`）：陪跑员白色实心、姓氏用完成绿；跑者 8% 白填充 + 2pt 白描边，
+/// 外面再套一圈 2pt 完成绿做分隔 —— 它压在陪跑员的白圆上，没有这圈底色，半透明填充会透出白色。
+///
+/// 进入动画（03 §二「进入完成页」①②）：插图从 0.9 倍放大并淡入，金色绳 0.8 秒画出。
+/// 「减弱动态效果」下只淡入，绳子直接画满。
 ///
 /// 不复用 `RopeView(.together)`：那是 `Rope.dc.html` 里 44pt 的「并肩」态，挂在跑步中衔接处；
 /// 完成页是单独的一张大插图，照搬过去头像小一圈、也不重叠（4.10 对照时抓到的）。
@@ -329,6 +345,9 @@ struct RopeView: View {
 struct RopeTogetherIllustration: View {
     var volunteerInitial: String = "我"
     var runnerName: String?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
 
     private var runnerInitial: String {
         runnerName?.unmaskedForSpeech.first.map(String.init) ?? "跑"
@@ -340,33 +359,43 @@ struct RopeTogetherIllustration: View {
                 path.move(to: CGPoint(x: 58, y: 60))
                 path.addQuadCurve(to: CGPoint(x: 142, y: 60), control: CGPoint(x: 100, y: 90))
             }
+            .trim(from: 0, to: appeared || reduceMotion ? 1 : 0)
             .stroke(AppColors.Flow.gold, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
-            avatar(volunteerInitial, fill: AppColors.Flow.volunteerDot)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.8), value: appeared)
+            Text(volunteerInitial)
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(AppColors.Flow.stateDone)
+                .frame(width: 60, height: 60)
+                .background(Circle().fill(Color.white))
                 .position(x: 79, y: 38)
             Circle()
-                .fill(AppColors.Flow.navy)
+                .fill(AppColors.Flow.stateDone)
                 .frame(width: 64, height: 64)
                 .position(x: 121, y: 38)
-            avatar(runnerInitial, fill: AppColors.Flow.runnerDot)
+            Text(runnerInitial)
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 60, height: 60)
+                .background(Circle().fill(AppColors.Flow.runnerFill))
+                .overlay(Circle().strokeBorder(Color.white, lineWidth: 2))
                 .position(x: 121, y: 38)
         }
         .frame(width: 200, height: 84)
+        .scaleEffect(appeared || reduceMotion ? 1 : 0.9)
+        .opacity(appeared ? 1 : 0)
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.5, dampingFraction: 0.85), value: appeared)
+        .onAppear { appeared = true }
         .accessibilityHidden(true)
-    }
-
-    private func avatar(_ initial: String, fill: Color) -> some View {
-        Text(initial)
-            .font(.system(size: 22, weight: .bold))
-            .foregroundColor(.white)
-            .frame(width: 60, height: 60)
-            .background(Circle().fill(fill))
     }
 }
 
 /// 两套主题的配色（交付包 03「配色」+ `Rope.dc.html`）。
 private struct RopeColors {
     let volunteer: Color
+    let volunteerInitial: Color
     let runner: Color
+    /// `nil` = 不描边。
+    let runnerStroke: Color?
     let rope: Color
     let dashedRope: Color
     let mutedStroke: Color
@@ -374,20 +403,28 @@ private struct RopeColors {
     let hollowStroke: Color
     let hollowInitial: Color
 
-    static let dark = RopeColors(
-        volunteer: AppColors.Flow.volunteerDot,
-        runner: AppColors.Flow.runnerDot,
-        rope: AppColors.Flow.ropeOnNavy,
-        dashedRope: AppColors.Flow.mutedOnNavy,
-        mutedStroke: AppColors.Flow.mutedStrokeOnNavy,
-        hollowFill: AppColors.Flow.navy,
-        hollowStroke: AppColors.Flow.mutedStrokeOnNavy,
-        hollowInitial: AppColors.Flow.onNavyEyebrow
-    )
+    /// 彩色头卡（v2 C03）：陪跑员白色实心 + 状态色姓氏；跑者半透明白 + 2pt 白描边；绳子 75% 白。
+    /// 空心跑者只在邀请态出现（白卡、`.light`），这里给的是兜底值。
+    static func onHero(_ stateColor: Color) -> RopeColors {
+        RopeColors(
+            volunteer: .white,
+            volunteerInitial: stateColor,
+            runner: AppColors.Flow.runnerFill,
+            runnerStroke: .white,
+            rope: AppColors.Flow.ropeLine,
+            dashedRope: AppColors.Flow.ropeMuted,
+            mutedStroke: AppColors.Flow.ropeMuted,
+            hollowFill: .clear,
+            hollowStroke: AppColors.Flow.ropeMuted,
+            hollowInitial: AppColors.Flow.onHeroEyebrow
+        )
+    }
 
     static let light = RopeColors(
         volunteer: AppColors.Flow.accent,
+        volunteerInitial: .white,
         runner: AppColors.Flow.navy,
+        runnerStroke: nil,
         rope: AppColors.Flow.accent,
         dashedRope: AppColors.Flow.decorMuted,
         mutedStroke: AppColors.Flow.decorMuted,
@@ -419,14 +456,13 @@ private extension RopeGeometry {
 }
 
 private struct RopeGallery: View {
-    private let states: [(String, RopeState)] = [
-        ("邀请", .invited),
-        ("约好", .agreed),
-        ("出发 p=0.68", .departed(progress: 0.68)),
-        ("出发 p=0.02（夹到 0.1）", .departed(progress: 0.02)),
-        ("汇合", .arrived),
-        ("并肩", .together),
-        ("跑者取消（出发中）", .cancelled(after: .departed(progress: 0.5))),
+    private let states: [(String, RopeState, Color)] = [
+        ("约好", .agreed, AppColors.Flow.stateAgreed),
+        ("出发 p=0.68", .departed(progress: 0.68), AppColors.Flow.stateDeparted),
+        ("出发 p=0.02（夹到 0.1）", .departed(progress: 0.02), AppColors.Flow.stateDeparted),
+        ("汇合", .arrived, AppColors.Flow.stateArrived),
+        ("并肩", .together, AppColors.Flow.stateDone),
+        ("跑者取消（出发中）", .cancelled(after: .departed(progress: 0.5)), AppColors.Flow.stateAgreed),
     ]
 
     var body: some View {
@@ -436,13 +472,17 @@ private struct RopeGallery: View {
                     Text("邀请 · 浅色主题").flowFont(FlowV2Fonts.subhead(bold: true))
                     RopeView(state: .invited, theme: .light, volunteerInitial: "张", runnerName: "李*")
                 }
-                ForEach(states, id: \.0) { title, state in
-                    FlowHeroCard(style: .navy) {
+                ForEach(states, id: \.0) { title, state, color in
+                    FlowHeroCard(style: .tinted(color)) {
                         Text(title)
                             .flowFont(FlowV2Fonts.subhead(bold: true))
-                            .foregroundColor(AppColors.Flow.onNavyEyebrow)
-                        RopeView(state: state, volunteerInitial: "张", runnerName: "李*", remainingMinutes: 8)
+                            .foregroundColor(AppColors.Flow.onHeroEyebrow)
+                        RopeView(state: state, theme: .onHero(color), volunteerInitial: "张", runnerName: "李*", remainingMinutes: 8)
                     }
+                }
+                FlowHeroCard(style: .tinted(AppColors.Flow.stateDone)) {
+                    RopeTogetherIllustration(volunteerInitial: "张", runnerName: "李*")
+                        .frame(maxWidth: .infinity)
                 }
             }
             .padding(FlowMetrics.v2ScreenPadding)
@@ -453,18 +493,23 @@ private struct RopeGallery: View {
 
 /// 按按钮循环切换状态，看 03 §二的状态切换动画。
 private struct RopeAnimationDemo: View {
-    private let sequence: [RopeState] = [
-        .invited, .agreed, .departed(progress: 0.2), .departed(progress: 0.6),
-        .arrived, .together, .cancelled(after: .departed(progress: 0.6)),
+    private let sequence: [(RopeState, Color)] = [
+        (.agreed, AppColors.Flow.stateAgreed),
+        (.departed(progress: 0.2), AppColors.Flow.stateDeparted),
+        (.departed(progress: 0.6), AppColors.Flow.stateDeparted),
+        (.arrived, AppColors.Flow.stateArrived),
+        (.together, AppColors.Flow.stateDone),
+        (.cancelled(after: .departed(progress: 0.6)), AppColors.Flow.stateAgreed),
     ]
     @State private var index = 0
 
     var body: some View {
+        let (state, color) = sequence[index]
         VStack(spacing: 16) {
-            FlowHeroCard(style: .navy) {
-                RopeView(state: sequence[index], volunteerInitial: "张", runnerName: "李*", remainingMinutes: 8)
+            FlowHeroCard(style: .tinted(color)) {
+                RopeView(state: state, theme: .onHero(color), volunteerInitial: "张", runnerName: "李*", remainingMinutes: 8)
             }
-            Text(sequence[index].accessibilityLabel(remainingMinutes: 8))
+            Text(state.accessibilityLabel(remainingMinutes: 8))
                 .flowFont(FlowV2Fonts.callout())
             FlowActionButton("下一个状态", style: .raisedPrimary) {
                 index = (index + 1) % sequence.count

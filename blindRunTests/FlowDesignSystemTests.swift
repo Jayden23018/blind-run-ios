@@ -298,10 +298,6 @@ final class FlowDesignSystemTests: XCTestCase {
     func testVolunteerOrderV2PairingsClearTheirThresholds() {
         let F = AppColors.Flow.self
         let text: [(AppColors.Tone, AppColors.Tone, String)] = [
-            (F.onNavyEyebrowTone, F.navyTone, "头卡小标题"),
-            (F.onNavyBodyTone, F.navyTone, "头卡副文"),
-            (F.onNavyStrongTone, F.navyTone, "锁屏 / 头卡强调行"),
-            (F.goldTone, F.navyTone, "快迟到时的主角数字"),
             (F.bluePressedTone, F.blueTintTone, "「待认证」标签"),
             (F.onBlueTintTone, F.blueTintTone, "快捷回复按钮"),
             (F.onBlueTintTone, F.surfaceSubtleTone, "「一起跑过 N 次」标签"),
@@ -310,27 +306,17 @@ final class FlowDesignSystemTests: XCTestCase {
             (F.warmCardTitleTone, F.warmCardTone, "留言卡标题 / 快迟到提醒条"),
             (F.warmCardBodyTone, F.warmCardTone, "留言卡正文"),
             (F.onCTATone, F.ctaTone, "v2 主按钮文字"),
+            (F.arrivedInkTone, F.arrivedTintTone, "汇合页响铃按钮"),
         ]
         for (foreground, background, usage) in text {
             assertContrast(foreground.light, background.light, Self.textMinimum, "亮色", usage)
             assertContrast(foreground.dark, background.dark, Self.textMinimum, "暗色", usage)
         }
 
-        let white: UInt32 = 0xFFFFFF
-        for (surface, usage) in [(F.volunteerDotTone, "陪跑员头像姓氏"), (F.runnerDotTone, "跑者头像姓氏")] {
-            assertContrast(white, surface.light, Self.textMinimum, "亮色", usage)
-            assertContrast(white, surface.dark, Self.textMinimum, "暗色", usage)
-        }
-
-        // 纯图形：引导绳、图标（WCAG 1.4.11，3:1）。
-        //
-        // **头像轮廓压藏青刻意不验**：暗色档构造上不可达 —— 白字压头像 ≥4.5 要求头像
-        // 相对亮度 ≤0.183，而压暗色 navy `#203570` ≥3 要求 ≥0.223，两个方向相反
-        // （2026-09-26 真机红出来：2.48:1）。头像自带 4.69:1 的姓氏标签，按 1.4.11 豁免，
-        // 与类型注释里「填充对页面底」不设断言同一个理由。
+        // 纯图形（WCAG 1.4.11，3:1）。方位盘在白 / 暗灰卡面上，箭头是它唯一的方向线索。
         let graphics: [(AppColors.Tone, AppColors.Tone, String)] = [
-            (F.ropeOnNavyTone, F.navyTone, "引导绳"),
             (F.accentTone, F.blueTintTone, "地点行图标"),
+            (F.stateArrivedTone, F.surfaceTone, "方位盘箭头"),
         ]
         for (foreground, background, usage) in graphics {
             assertContrast(foreground.light, background.light, Self.nonTextMinimum, "亮色", usage)
@@ -338,11 +324,60 @@ final class FlowDesignSystemTests: XCTestCase {
         }
     }
 
-    /// 验红：交付包原值 `#4A76E8` 压白色姓氏 4.16:1。这条断言保证上面那条真的会拒 ——
+    /// 头卡用到的四种状态色（v2 C01）。跑步中青绿 / 暂停灰不走这个页面（V4）。
+    private static let heroStates: [(AppColors.Tone, String)] = [
+        (AppColors.Flow.stateAgreedTone, "约好 / 跑者取消"),
+        (AppColors.Flow.stateDepartedTone, "出发"),
+        (AppColors.Flow.stateArrivedTone, "汇合"),
+        (AppColors.Flow.stateDoneTone, "完成"),
+    ]
+
+    /// 彩色头卡上的字是**半透明白**，实际颜色 = 白以 α 叠在状态色上，所以逐色合成后再算。
+    /// 交付包说「`onHero*` 在五种状态色上 ≥4.5:1」—— 那句话按原值不成立，见下一条验红。
+    func testHeroCardTextClearsTheBodyThresholdOnEveryStateColour() {
+        let F = AppColors.Flow.self
+        for (state, name) in Self.heroStates {
+            for (appearance, bg) in [("亮色", state.light), ("暗色", state.dark)] {
+                assertContrast(0xFFFFFF, bg, Self.textMinimum, appearance, "\(name)：主角数字 / 标题")
+                assertContrast(Self.white(F.onHeroEyebrowOpacity, over: bg), bg, Self.textMinimum, appearance, "\(name)：小标题")
+                assertContrast(Self.white(F.onHeroBodyOpacity, over: bg), bg, Self.textMinimum, appearance, "\(name)：副文")
+                // 陪跑员头像：白色实心，姓氏用当前状态色。
+                assertContrast(bg, 0xFFFFFF, Self.textMinimum, appearance, "\(name)：陪跑员头像姓氏")
+                // 跑者头像：白字压「白 8% 叠状态色」。
+                assertContrast(0xFFFFFF, Self.white(F.runnerFillOpacity, over: bg), Self.textMinimum, appearance, "\(name)：跑者头像姓氏")
+                assertContrast(Self.white(F.ropeLineOpacity, over: bg), bg, Self.nonTextMinimum, appearance, "\(name)：引导绳")
+            }
+        }
+    }
+
+    /// 金色只当**大字**（80pt 主角数字、20pt 粗体单位、28pt 过点标题）和**图形**（光环、并肩绳），
+    /// 所以按 WCAG 大字 / 图形的 3:1 卡。压出发主蓝 4.32 —— 如果哪天它被拿去写正文，这条不够用。
+    func testGoldOnlyAppearsAsLargeTextOrGraphicsOnStateColours() {
+        let F = AppColors.Flow.self
+        for (state, name) in Self.heroStates {
+            assertContrast(F.goldTone.light, state.light, Self.nonTextMinimum, "亮色", "金色压\(name)")
+            assertContrast(F.goldTone.dark, state.dark, Self.nonTextMinimum, "暗色", "金色压\(name)")
+        }
+        XCTAssertEqual(F.goldTone.light, 0xFFD978, "C04：与主按钮黄分开")
+        XCTAssertNotEqual(F.goldTone.light, F.ctaTone.light)
+    }
+
+    /// 验红：交付包原值（小标题白 80%、副文白 86%、跑者填充白 18%）压完成绿都过不了 4.5。
     /// 有人以「恢复设计一致性」为理由改回去时，上面那条会红，而这条说明为什么。
-    func testDesignVolunteerDotIsRejectedForAvatarInitials() {
-        XCTAssertLessThan(Self.contrastRatio(0xFFFFFF, 0x4A76E8), Self.textMinimum)
-        XCTAssertNotEqual(AppColors.Flow.volunteerDotTone.light, 0x4A76E8)
+    func testDesignOnHeroOpacitiesAreRejectedOnTheDoneGreen() {
+        let done = AppColors.Flow.stateDoneTone.light
+        XCTAssertLessThan(Self.contrastRatio(Self.white(0.80, over: done), done), Self.textMinimum, "交付包 onHeroEyebrow")
+        XCTAssertLessThan(Self.contrastRatio(Self.white(0.86, over: done), done), Self.textMinimum, "交付包 onHeroBody")
+        XCTAssertLessThan(Self.contrastRatio(0xFFFFFF, Self.white(0.18, over: done)), Self.textMinimum, "交付包 runnerFill")
+    }
+
+    /// 白色以 `alpha` 叠在 `background` 上（sRGB 空间逐通道混合，与 UIKit 的默认合成一致）。
+    private static func white(_ alpha: Double, over background: UInt32) -> UInt32 {
+        [16, 8, 0].reduce(UInt32(0)) { result, shift in
+            let channel = Double((background >> UInt32(shift)) & 0xFF)
+            let mixed = UInt32((255 * alpha + channel * (1 - alpha)).rounded())
+            return result | (mixed << UInt32(shift))
+        }
     }
 
     /// 触达：主 / 次按钮 64（沿用 `actionButtonMinHeight`），辅助动作 ≥44（项目负责人 2026-09-26）。

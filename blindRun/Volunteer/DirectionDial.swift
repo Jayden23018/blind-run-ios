@@ -112,6 +112,7 @@ enum DirectionDialGeometry {
 // MARK: 方位盘
 
 /// 直径 180 的白色圆盘：顶部刻度 = 你面朝的方向；扇形 = 跑者大致方向；圆心写「你」。
+/// 扇形、箭头、圆心、投影都用汇合琥珀 `stateArrived`（v2 C07，状态色只出头卡的例外之一）。
 ///
 /// **整个对读屏隐藏**：方位只由标题和副文朗读（交付包 02）。
 struct DirectionDial: View {
@@ -127,19 +128,19 @@ struct DirectionDial: View {
         ZStack {
             Circle()
                 .fill(AppColors.Flow.surface)
-                .shadow(color: AppColors.Flow.navy.opacity(0.10), radius: 15, x: 0, y: 12)
+                .shadow(color: AppColors.Flow.stateArrived.opacity(0.14), radius: 15, x: 0, y: 12)
 
             Capsule()
-                .fill(AppColors.Flow.navy)
+                .fill(AppColors.Flow.primaryText)
                 .frame(width: 3, height: 8)
                 .offset(y: -Self.diameter / 2 + 10)
 
             if let relativeDegrees {
                 ZStack {
                     SectorShape(width: sectorWidth)
-                        .fill(AppColors.Flow.accent.opacity(0.16))
+                        .fill(AppColors.Flow.stateArrived.opacity(0.16))
                     Triangle()
-                        .fill(AppColors.Flow.accent)
+                        .fill(AppColors.Flow.stateArrived)
                         .frame(width: 14, height: 12)
                         .offset(y: -Self.diameter / 2 + 20)
                 }
@@ -152,8 +153,8 @@ struct DirectionDial: View {
             Text("你")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundColor(.white)
-                .frame(width: 34, height: 34)
-                .background(AppColors.Flow.navy, in: Circle())
+                .frame(width: 40, height: 40)
+                .background(AppColors.Flow.stateArrived, in: Circle())
         }
         .frame(width: Self.diameter, height: Self.diameter)
         .opacity(relativeDegrees == nil ? 0.5 : 1)
