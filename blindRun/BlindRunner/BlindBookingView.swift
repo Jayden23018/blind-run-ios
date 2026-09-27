@@ -1013,6 +1013,7 @@ struct BlindBookingView: View {
     @AccessibilityFocusState private var focusedStepHeader: BlindBookingGuidedStep?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var isPulsing = false
     /// 零输入下单走到第二步（复核整单）了没有。见 `zeroInputBookingSection`。
     @State private var isZeroInputConfirming = false
@@ -1064,7 +1065,14 @@ struct BlindBookingView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            submitArea
+            if !placesVoiceControlsBeside {
+                submitArea
+            }
+        }
+        .safeAreaInset(edge: .trailing, spacing: 0) {
+            if placesVoiceControlsBeside {
+                submitArea
+            }
         }
         .navigationTitle("创建预约")
         .navigationBarTitleDisplayMode(.inline)
@@ -1256,7 +1264,8 @@ struct BlindBookingView: View {
     /// `finishSpeakingOrSkipPrompt` 是空操作，宣告一个按不动的动作比没有更糟）现在由「不挂手势、
     /// 不加 `.isButton`」承担；而元素本身留下，否则解析那几秒屏幕上没有任何东西说「正在识别」。
     ///
-    /// **逃生口不在它之下**：「改用表单」在 `safeAreaInset` 的底栏里，那一块永远不被内容区盖住。
+    /// **逃生口不在它之下**：「改用表单」在 `safeAreaInset` 的底栏里（iPhone 横屏是右侧栏，
+    /// 见 `placesVoiceControlsBeside`），那一块永远不被内容区盖住。
     ///
     /// VoiceOver 只给**一个**焦点：`label` 是现在能做什么，`value` 是系统刚念的那句话。
     /// 分成两个元素的话，用户要滑两下才能同时知道「什么状态」和「它说了什么」，
@@ -2172,8 +2181,22 @@ struct BlindBookingView: View {
         .readableContentColumn()
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
+        // 侧栏：整条竖向铺满，按钮贴底 —— 与竖屏同一个拇指位。
+        .frame(width: placesVoiceControlsBeside ? Self.besideVoiceControlsWidth : nil)
+        .frame(maxHeight: placesVoiceControlsBeside ? .infinity : nil, alignment: .bottom)
         .background(.regularMaterial)
     }
+
+    /// iPhone 横屏的语音态把底栏挪到右侧。可用高度约 400pt，底栏两枚 64pt 按钮占掉之后
+    /// 语音卡片只剩约 140pt，而它的内容要约 250pt —— 放在底下，要么卡片顶进导航栏、
+    /// 「改用表单」被挤出屏幕（修之前），要么说明文字静止在半透明底栏下面（只加滚动时）。
+    /// 横屏缺的是高度不是宽度，所以挪到侧边：两枚按钮仍竖排、仍固定不随内容滚动。
+    /// 表单态不挪 —— 那一态本来就是滚动表单，底栏压不住任何非滚动内容。
+    private var placesVoiceControlsBeside: Bool {
+        voiceWizard.isRunning && verticalSizeClass == .compact
+    }
+
+    private static let besideVoiceControlsWidth: CGFloat = 240
 
     /// 竖排，不并排。两个理由：视觉上并排等于把每个按钮的宽度砍半
     /// （`docs/research/blind-ui-visual-benchmark-20260808.md` §1 规则 3，对标产品的次级操作一律整行铺满）；
