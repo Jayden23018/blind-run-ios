@@ -67,6 +67,8 @@ struct VolunteerRunRecordContent {
     /// 发送成功后那句。原型是「X打开这条记录时会听到」—— 跑者页不会自动念，改成这句（负责人 2026-09-25）。
     let sentConfirmation: String
     let spokenSentConfirmation: String
+    /// 发送按钮的读屏提示（原型 data-vo「老陈会在他的记录里听到这句话」，按阶段 6 的确认句改）。
+    let spokenSendHint: String
 
     /// 原型的三个快捷短语，点一下把输入框换成「短语。」。
     static let quickPhrases = ["节奏很稳", "下次试试再快一点", "折返配合得很好"]
@@ -124,9 +126,14 @@ struct VolunteerRunRecordContent {
             description += geometry.startEndCoincide ? "，起点和终点在同一处" : "，起点和终点不在同一处"
         }
         description += restCount > 0 ? "，途中休息\(restCount)次" : "，途中没有休息"
-        mapDescription = description + "。数字见下方。"
-
+        description += "。"
+        // 原型的 data-vo 还说了颜色的意思和最快的一公里（HANDOFF 第 7 节第 1 条：信息不能少）。
+        // 没有配速采样时整条是单色，不提颜色。
         let scale = RunPaceScale(samples: record.paceSamples)
+        if scale != nil { description += "颜色表示配速，蓝色快，黄色慢。" }
+        if let fastest = record.fastestSplitIndex { description += "第\(fastest)公里最快。" }
+        mapDescription = description + "数字见下方。"
+
         let fastestPace = record.splits.map(\.paceSecPerKm).filter { $0 > 0 }.min()
         showsCadenceColumn = record.splits.contains { $0.avgCadence != nil }
         splits = record.splits.map { split in
@@ -156,6 +163,7 @@ struct VolunteerRunRecordContent {
         spokenComposerTitle = partner.map { "给\($0.unmaskedForSpeech)留句话" }
         sentConfirmation = "已发送。\(partner ?? "对方")在这条跑步记录里可以听到这句话。"
         spokenSentConfirmation = "已发送。\(partner?.unmaskedForSpeech ?? "对方")在这条跑步记录里可以听到这句话。"
+        spokenSendHint = "\(partner?.unmaskedForSpeech ?? "对方")在这条跑步记录里可以听到这句话"
 
         messages = (allMessages ?? record.messages).compactMap { message in
             guard let text = message.text, !text.isEmpty else { return nil }
@@ -238,8 +246,19 @@ struct VolunteerRunRecordView: View {
     var body: some View {
         content
             .background(AppColors.background)
-            .navigationTitle(navigationTitle)
+            .navigationTitle(navigationTitle.shown)
             .navigationBarTitleDisplayMode(.inline)
+            // 屏幕上是「和陈*一起跑」，读屏要念「和陈一起跑」：`navigationTitle` 给不了单独的朗读串，
+            // 念出来是「陈星号」（`unmaskedForSpeech` 注释）。
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(navigationTitle.shown)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .accessibilityLabel(navigationTitle.spoken)
+                        .accessibilityAddTraits(.isHeader)
+                }
+            }
             // 二级页藏标签栏：悬浮胶囊会盖住最后一行（记忆 tab-bar-clips-the-last-line-of-secondary-pages）。
             // 这一页是 push 进来的，返回箭头一直在。
             .toolbar(.hidden, for: .tabBar)
@@ -253,11 +272,12 @@ struct VolunteerRunRecordView: View {
             .onDisappear { retryTask?.cancel() }
     }
 
-    private var navigationTitle: String {
+    private var navigationTitle: (shown: String, spoken: String) {
         if case .loaded(let record) = viewModel.phase {
-            return VolunteerRunRecordContent(record: record).title
+            let content = VolunteerRunRecordContent(record: record)
+            return (content.title, content.spokenTitle)
         }
-        return "跑后记录"
+        return ("跑后记录", "跑后记录")
     }
 
     @ViewBuilder
@@ -501,6 +521,7 @@ struct VolunteerRunRecordView: View {
         .buttonStyle(.plain)
         .disabled(sending)
         .accessibilityLabel(sending ? "正在发送留言" : "发送留言")
+        .accessibilityHint(content.spokenSendHint)
         .accessibilityIdentifier("runRecordMessageSend")
     }
 
@@ -971,7 +992,7 @@ private struct RunPaceChart: View {
     }
 
     private var descriptor: RunPaceChartDescriptor {
-        RunPaceChartDescriptor(samples: samples, average: average)
+        RunPaceChartDescriptor(samples: samples, average: average, stops: stops)
     }
 
     private var paceGradient: LinearGradient {
@@ -990,6 +1011,7 @@ private struct RunPaceChart: View {
 struct RunPaceChartDescriptor: AXChartDescriptorRepresentable {
     let samples: [RunPaceSample]
     let average: Int?
+    var stops: [RunStop] = []
 
     var summary: String {
         let paces = samples.map(\.paceSecPerKm)
@@ -997,6 +1019,8 @@ struct RunPaceChartDescriptor: AXChartDescriptorRepresentable {
         if let average { parts.append("平均\(RunRecordText.spokenPace(average))") }
         if let fastest = paces.min() { parts.append("最快\(RunRecordText.spokenPace(fastest))") }
         if let slowest = paces.max() { parts.append("最慢\(RunRecordText.spokenPace(slowest))") }
+        // 图上画了休息竖线，读屏也要有（原型 data-vo「2.6公里处休息」）。数字与单位间留空格（阶段 3 审计）。
+        parts += stops.map { "\(RunRecordText.kilometres($0.atDistanceM, spoken: true)) 公里处休息" }
         return parts.joined(separator: "，")
     }
 
@@ -1024,6 +1048,31 @@ struct RunPaceChartDescriptor: AXChartDescriptorRepresentable {
 
 // MARK: - Route Map
 
+/// 「快 ▬ 慢」，渐变与路线同一套配色（原型 `.legend`）。
+private struct RunPaceLegend: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let isDark = colorScheme == .dark
+        HStack(spacing: 6) {
+            Text("快")
+            Capsule()
+                .fill(LinearGradient(
+                    colors: [0, 0.5, 1].map { Color(uiColor: RunPacePalette.color(fraction: $0, isDark: isDark)) },
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ))
+                .frame(width: 56, height: 6)
+            Text("慢")
+        }
+        .font(AppFonts.caption())
+        .foregroundColor(AppColors.textPrimary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(AppColors.background.opacity(0.88)))
+    }
+}
+
 /// 描边 + 配速线 + 公里标记 + 起终点 + 休息点 + 高亮那一公里。整张图对读屏是装饰（描述挂在页面上）。
 /// 跑者详情（阶段 5）也用它，`highlight` 传 nil。
 struct RunRecordRouteMap: View {
@@ -1043,6 +1092,15 @@ struct RunRecordRouteMap: View {
             fitEdgePadding: UIEdgeInsets(top: 40, left: 32, bottom: bottomInset, right: 32),
             isDecorative: true
         )
+        // 颜色表达的信息要有文字冗余（HANDOFF 第 7 节）：路线按配速着色，图例写明两端是快和慢。
+        // 单色路线（没有配速采样）不画图例。读屏从地图描述里听到同一件事，图例不进无障碍树。
+        .overlay(alignment: .topLeading) {
+            if RunPaceScale(samples: record.paceSamples) != nil {
+                RunPaceLegend()
+                    .padding(12)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 
     private var center: CLLocationCoordinate2D {

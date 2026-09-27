@@ -152,6 +152,35 @@ final class VolunteerRunRecordTests: XCTestCase {
         XCTAssertEqual(content.spokenTitle, "和陈一起跑")
     }
 
+    /// 原型 data-vo：地图描述还要说颜色的意思和最快的一公里；单色路线（没有配速采样）不提颜色。
+    func testMapDescriptionSaysWhatTheColoursMeanAndWhichKilometreWasFastest() {
+        let samples = [RunPaceSample(distanceM: 100, paceSecPerKm: 380), RunPaceSample(distanceM: 1500, paceSecPerKm: 340)]
+        let coloured = VolunteerRunRecordContent(record: record(fastest: 2, paceSamples: samples))
+        XCTAssertTrue(coloured.mapDescription.contains("颜色表示配速，蓝色快，黄色慢。"), coloured.mapDescription)
+        XCTAssertTrue(coloured.mapDescription.contains("第2公里最快。"), coloured.mapDescription)
+        XCTAssertTrue(coloured.mapDescription.hasSuffix("数字见下方。"), coloured.mapDescription)
+
+        let plain = VolunteerRunRecordContent(record: record())
+        XCTAssertFalse(plain.mapDescription.contains("颜色"), plain.mapDescription)
+        XCTAssertFalse(plain.mapDescription.contains("最快"), plain.mapDescription)
+    }
+
+    /// 图上画了休息竖线，读屏摘要也要有「X 公里处休息」（原型 data-vo）。
+    func testPaceChartSummaryMentionsEveryRest() {
+        let samples = [RunPaceSample(distanceM: 100, paceSecPerKm: 380), RunPaceSample(distanceM: 3000, paceSecPerKm: 340)]
+        let stops = [
+            RunStop(startedAt: "2026-09-20T08:16:00", durationSec: 100, atDistanceM: 2600, lat: nil, lng: nil, placeName: nil),
+            RunStop(startedAt: "2026-09-20T08:30:00", durationSec: 40, atDistanceM: 3000, lat: nil, lng: nil, placeName: nil)
+        ]
+        let summary = RunPaceChartDescriptor(samples: samples, average: 360, stops: stops).summary
+        XCTAssertEqual(summary, "平均每公里6分，最快每公里5分40秒，最慢每公里6分20秒，2.6 公里处休息，3 公里处休息")
+        XCTAssertFalse(RunPaceChartDescriptor(samples: samples, average: nil).summary.contains("休息"))
+    }
+
+    func testSendButtonHintSaysWhoWillHearItWithoutTheMask() {
+        XCTAssertEqual(VolunteerRunRecordContent(record: record()).spokenSendHint, "陈在这条跑步记录里可以听到这句话")
+    }
+
     /// 真实生产响应（订单 #131，陪跑员视角）：步数/步频/爬升都是 null、触发过求助。
     func testProductionFixtureRendersHonestly() throws {
         let data = try fixture("RunRecordResponse__volunteer-ready")
@@ -305,6 +334,8 @@ final class VolunteerRunRecordTests: XCTestCase {
         summary: RunSummary? = RunSummary(distanceM: 3200, movingSec: 1197, elapsedSec: 1297, restSec: 100, avgPaceSecPerKm: 374, steps: 3180, avgCadence: 162, elevationGainM: 12),
         splits: [RunSplit] = [],
         fastest: Int? = nil,
+        paceSamples: [RunPaceSample] = [],
+        stops: [RunStop] = [],
         events: [RunEvent] = [],
         sosTriggered: Bool = false,
         blindName: String? = "陈*",
@@ -314,7 +345,7 @@ final class VolunteerRunRecordTests: XCTestCase {
             orderId: 7, status: status, viewerRole: .volunteer, place: "深圳湾公园",
             blindName: blindName, volunteerName: "林*",
             runStartedAt: "2026-09-20T08:00:00", runEndedAt: "2026-09-20T08:40:00",
-            summary: summary, splits: splits, fastestSplitIndex: fastest, paceSamples: [], stops: [],
+            summary: summary, splits: splits, fastestSplitIndex: fastest, paceSamples: paceSamples, stops: stops,
             events: events, sosTriggered: sosTriggered,
             service: RunService(startedAt: "2026-09-20T08:00:00", completedAt: "2026-09-20T08:45:00", durationMin: 45, volunteerTotalServiceMinutes: 300),
             comparison: nil, messages: messages, track: nil
