@@ -1,6 +1,7 @@
 import Combine
 import CoreLocation
 import Foundation
+import UIKit
 
 enum LiveEscortHealthState: Equatable, Sendable {
     case idle
@@ -41,6 +42,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
     private let realtimeCoordinator: AppRealtimeCoordinator
     private let reportInterval: TimeInterval
     private let sendLocation: @MainActor @Sendable (WebSocketService, LocatedCoordinate, RunMotionSnapshot?) async -> Void
+    private let batteryLevel: @MainActor () -> Double?
     /// 本机步数 / 步频 / 相对海拔（跑后运动记录，D3）。只在 `IN_PROGRESS` 且连着云端 WS 时采。
     private let motionRecorder: any RunMotionRecording
     private weak var webSocketService: WebSocketService?
@@ -81,6 +83,10 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         realtimeCoordinator: AppRealtimeCoordinator,
         reportInterval: TimeInterval = LiveEscortSessionCoordinator.reportInterval,
         motionRecorder: any RunMotionRecording = CoreMotionRunRecorder(),
+        batteryLevel: @escaping @MainActor () -> Double? = {
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            return RunMotionSnapshot.normalizedBatteryLevel(UIDevice.current.batteryLevel)
+        },
         sendLocation: @escaping @MainActor @Sendable (WebSocketService, LocatedCoordinate, RunMotionSnapshot?) async -> Void = { service, sample, motion in
             #if DEBUG
             if ProcessInfo.processInfo.environment["AIDRUN_UI_TEST_HANG_ESCORT_SEND"] == "1" {
@@ -95,6 +101,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         self.reportInterval = reportInterval
         self.motionRecorder = motionRecorder
         self.sendLocation = sendLocation
+        self.batteryLevel = batteryLevel
     }
 
     /// 同行会话的上行报文。`sample` 必须已是 GCJ-02（`latestEscortBackendSample` 保证）。
@@ -107,7 +114,8 @@ final class LiveEscortSessionCoordinator: ObservableObject {
             speed: sample.speed,
             alt: motion?.altitude,
             steps: motion?.steps,
-            cadence: motion?.cadence
+            cadence: motion?.cadence,
+            batteryLevel: motion?.batteryLevel
         )
     }
 
@@ -294,7 +302,12 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         guard let webSocketService else { return }
         ClientFlowDiagnostics.record(event: "started", operation: "escort-location-send")
         // 步数 / 海拔只有 `IN_PROGRESS` 才有意义（后端只在这一态落库）；去会合的路上一律不带。
-        let motion = activeStatus == .inProgress ? motionRecorder.latestSnapshot : nil
+        var motion = activeStatus == .inProgress ? motionRecorder.latestSnapshot : nil
+        // 电量只有跑者在跑步中才带（V16：后端 ≤20% 时提醒陪跑员）。上报周期 5 秒，满足「每 60 秒至少一次」。
+        if activeStatus == .inProgress, role == .blind, let level = batteryLevel() {
+            motion = motion ?? RunMotionSnapshot()
+            motion?.batteryLevel = level
+        }
         await sendLocation(webSocketService, sample, motion)
         guard !Task.isCancelled, isSessionEligible else { return }
         lastSentAt = now

@@ -19,6 +19,15 @@ nonisolated struct RunMotionSnapshot: Equatable, Sendable {
     var cadence: Int?
     /// 相对海拔（米），已加上续接基线。
     var altitude: Double?
+    /// 跑者手机电量 0–1（DECISIONS-v2 V16）。不是运动数据，但同样「随位置一起上报、拿不到就不传」，
+    /// 放这里是为了不改 `sendLocation` 的签名。只有跑者角色、`IN_PROGRESS` 才带。
+    var batteryLevel: Double?
+
+    /// `UIDevice.batteryLevel`：未开监测 / 模拟器上是 -1 ⇒ nil（契约要求不传，不传 0）。
+    static func normalizedBatteryLevel(_ raw: Float) -> Double? {
+        guard raw >= 0 else { return nil }
+        return min(1, Double(raw))
+    }
 
     /// `CMPedometerData.currentCadence`（步/秒）→ 契约的步/分钟。
     static func cadencePerMinute(fromStepsPerSecond value: Double?) -> Int? {

@@ -1433,8 +1433,44 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(sos.frame.height, 44, "求助按钮触达高度不足 44pt")
         XCTAssertGreaterThanOrEqual(sos.frame.width, 44, "求助按钮触达宽度不足 44pt")
 
-        // 换了形态不等于换了语义：读屏念出来的必须还是那句完整的。
-        XCTAssertEqual(sos.label, Self.emergencyActionLabel)
+        // 2026-09-26 起它打开的是跑步中求助面板（DECISIONS-v2 V5），读屏念面板入口那一句，
+        // 「一键求助」留给面板里那枚真正发求助的按钮（见下一条用例）。
+        XCTAssertEqual(sos.label, Self.volunteerRunHelpEntryLabel)
+    }
+
+    /// 跑步中求助面板：三个出口都在、紧急按钮够大、**轻点弹的是 §6 锁定文案的确认框**，
+    /// 而不是直接发出。长按 3 秒那条路径（直接发）不在这里按 —— 按下去会真的走云端链路。
+    @MainActor
+    func testVolunteerRunHelpPanelOffersPauseSupportAndConfirmedEmergency() throws {
+        let app = launchVolunteerHome(seedOrderStatus: "IN_PROGRESS")
+        // 跑步中页（#218）藏了系统导航栏，认头卡的 identifier。
+        XCTAssertTrue(
+            app.descendants(matching: .any)["volunteerRunningStatsCard"].firstMatch.waitForExistence(timeout: 25),
+            "冷启动没有直接进跑步中页"
+        )
+
+        app.buttons["volunteerServiceSOSButton"].firstMatch.tap()
+        let panel = app.descendants(matching: .any)["volunteerRunHelpPanel"].firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 5), "跑步中「求助」没有打开求助面板")
+        XCTAssertTrue(app.descendants(matching: .any)["volunteerRunHelpPause"].firstMatch.exists, "缺「需要停下来」")
+        XCTAssertTrue(app.descendants(matching: .any)["volunteerRunHelpSupport"].firstMatch.exists, "缺「联系客服」")
+
+        let emergency = app.descendants(matching: .any)["volunteerRunHelpEmergency"].firstMatch
+        XCTAssertTrue(emergency.waitForExistence(timeout: 5))
+        XCTAssertTrue(emergency.isHittable, "紧急求助按钮存在但点不到")
+        XCTAssertGreaterThanOrEqual(emergency.frame.height, 63.5, "紧急求助按钮触达高度不足 64")
+
+        if #available(iOS 17.0, *) { try audit(app) }
+
+        emergency.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "轻点紧急求助必须先弹确认框")
+        XCTAssertTrue(
+            alert.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", Self.lockedConfirmationPrefix)).firstMatch.exists,
+            "确认框不是 AGENTS.md §6 的锁定文案"
+        )
+        alert.buttons["取消"].tap()
+        XCTAssertTrue(panel.exists, "取消之后面板还在，什么都没发出")
     }
 
     /// 长按 2 秒结束陪跑 —— 这一条只量**形状**：读屏取得到、触达够大、标签带着「要按多久」。
@@ -1632,6 +1668,10 @@ final class AccessibilityAuditTests: XCTestCase {
     /// 必须是同一句。字面量与 `EmergencySafetyCopy.accessibilityLabel` 对齐；
     /// UI 测试 target 拿不到 App 的类型，只能抄一份，改文案时两处一起改。
     private static let emergencyActionLabel = "一键求助，遇到紧急情况时点击"
+    /// 与 `VolunteerRunCopy.navButtonLabel` 逐字一致（理由同上：UI 测试拿不到 App 的类型）。
+    private static let volunteerRunHelpEntryLabel = "求助与安全"
+    /// `EmergencySafetyCopy.confirmationMessage` 的开头。只比开头：志愿者侧末尾追加了撤销说明。
+    private static let lockedConfirmationPrefix = "是否确认进入求助状态？确认后，本次服务将标记为异常"
 
     /// 盲人端陪跑中那块贴底的求助中心。**与上面那条是两个东西**：
     /// `emergencyActionLabel` 是云端一键求助按钮（志愿者端仍在用），这条是打开求助菜单的入口
@@ -1664,12 +1704,25 @@ final class AccessibilityAuditTests: XCTestCase {
         // 并把三条横屏用例定为「本仓库唯一能验横屏裁切的通道」⇒ 那三条长期在验另外五项，
         // 横屏裁切一次都没被检查过。`.trait` 同样是盲人端硬伤：按钮缺 `.button` trait 时
         // VoiceOver 不念「按钮」，用户不知道那是个能点的东西。
+        // 陪跑员跑步页的底部栏是**叠在滚动内容上**的不透明栏（#227 的设计）。AX3 / 横屏下内容超过一屏时，
+        // 滚到栏后面的卡片被整个挡住，可审计仍按它的坐标取像素 —— 取到的全是栏的底色，于是判「对比度不足」
+        // （2026-09-27 真机：「跑者还没有发来节奏」那张卡，元素截图里只有栏的分隔线）。
+        // 判据是几何不是文案：**整个落在栏上沿以下**的元素才放过，露出一截的照样审。
+        let occludingBarTop: CGFloat? = {
+            let bar = app.descendants(matching: .any)["volunteerRunningBottomBar"].firstMatch
+            return bar.exists ? bar.frame.minY : nil
+        }()
         try app.performAccessibilityAudit(
             for: [
                 .contrast, .dynamicType, .elementDetection, .hitRegion,
                 .sufficientElementDescription, .textClipped, .trait
             ]
         ) { issue in
+            if issue.auditType == .contrast, let top = occludingBarTop,
+               let frame = issue.element?.frame, frame.minY >= top - 0.5 {
+                print("[AUDIT-occluded] \(issue.element?.label ?? "") frame=\(frame) 在底部栏（上沿 \(top)）后面，不可见")
+                return true
+            }
             // 高德地图图层无法承载有意义的 label，且它已被显式降权为辅助内容
             // （视觉可以铺满，读屏遍历顺序必须操作优先）。这是唯一的白名单项 ——
             // 每加一条都要写清为什么，否则白名单会慢慢把审计架空。

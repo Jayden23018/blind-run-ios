@@ -52,8 +52,8 @@ struct FlowTextButton: View {
 ///
 /// 按下去去哪由调用方决定（`VolunteerOrderSOSMode`）：这个组件只负责「在那里、看得见、按得到」。
 ///
-/// `isCloud`（只在跑步中）换的只是**读屏那一层**：标签念完整的「一键求助」——
-/// 那四个字在本 App 里专指云端链路，本地拨号的几态不许用（`EmergencySOSTests` 钉着）；
+/// `isCloud`（只在跑步中）换的是**读屏提示与 identifier**：跑步中这一枚打开求助面板
+/// （暂停 / 联系客服 / 紧急求助，`VolunteerRunHelpPanel`），标签同样是「求助与安全」，提示说清面板里有什么；
 /// identifier 沿用 #219 的 `volunteerServiceSOSButton`，守着求助位置的两条 UI 用例不用换判据。
 /// 可见文字两种模式都是「求助」。`isBusy` = 求助正在发送，转圈并禁用，防止连按发出第二次。
 struct FlowHelpPill: View {
@@ -87,8 +87,10 @@ struct FlowHelpPill: View {
         .disabled(isBusy)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(isCloud ? EmergencySafetyCopy.accessibilityLabel : "求助与安全")
-        .accessibilityHintIfPresent(isCloud ? EmergencySafetyCopy.accessibilityHint : nil)
+        // 跑步中那一枚 2026-09-27 起打开求助面板（FE-3，DECISIONS-v2 V5），不再直进确认框 ——
+        // 读屏再念「一键求助」就是在说一件按下去不会发生的事。「一键求助」留给面板里那枚紧急按钮。
+        .accessibilityLabel(isCloud ? VolunteerRunCopy.navButtonLabel : "求助与安全")
+        .accessibilityHintIfPresent(isCloud ? VolunteerRunCopy.navButtonHint : nil)
         .accessibilityIdentifier(isCloud ? "volunteerServiceSOSButton" : "volunteerOrderHelpPill")
     }
 }

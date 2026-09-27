@@ -239,6 +239,41 @@ final class RunRecordTests: XCTestCase {
         XCTAssertFalse(recorder.isRunning)
     }
 
+    /// 电量只有跑者在跑步中才带（DECISIONS-v2 V16）。运动数据拿不到时电量照样要带 ——
+    /// 用 `latestSnapshot = nil` 钉住「不能挂在运动快照有没有上」。
+    func testBatteryRidesOnlyOnTheRunnersInProgressUpdates() async {
+        for (role, expected) in [(UserRole.blind, 0.42 as Double?), (UserRole.volunteer, nil)] {
+            let recorder = FakeMotionRecorder()
+            recorder.latestSnapshot = nil
+            var sent: [RunMotionSnapshot?] = []
+            let coordinator = LiveEscortSessionCoordinator(
+                realtimeCoordinator: AppRealtimeCoordinator(),
+                reportInterval: 60,
+                motionRecorder: recorder,
+                batteryLevel: { 0.42 },
+                sendLocation: { _, _, motion in sent.append(motion) }
+            )
+            let service = WebSocketService()
+            service.simulateConnectionStateForTesting(.connected)
+            let location = LocationService()
+            location.simulateDeviceLocationForTesting(CLLocationCoordinate2D(latitude: 22.5, longitude: 113.9), capturedAt: Date())
+            coordinator.configure(identityKey: "account:\(role):token", role: role, webSocketService: service, locationService: location)
+
+            coordinator.updateOwnedOrder(orderID: 31, status: .driverEnRoute)
+            let didSendEnRoute = await waitUntil { sent.count >= 1 }
+            XCTAssertTrue(didSendEnRoute)
+            XCTAssertNil(sent.last??.batteryLevel, "去会合的路上不带电量（\(role)）")
+
+            // 不按条数等：去会合那一段可能已经发了不止一条，`count >= 2` 会在状态切换之前就成立。
+            let before = sent.count
+            coordinator.updateOwnedOrder(orderID: 31, status: .inProgress)
+            let didSendRunning = await waitUntil { sent.count > before && sent.last??.batteryLevel == expected }
+            XCTAssertTrue(didSendRunning, "\(role) 跑步中的电量应为 \(String(describing: expected))，实际 \(sent.map { $0?.batteryLevel })")
+            XCTAssertTrue(sent[..<before].allSatisfy { $0?.batteryLevel == nil }, "去会合的路上一条都不带电量（\(role)）")
+            coordinator.updateOwnedOrder(orderID: 31, status: .completed)
+        }
+    }
+
     /// Mock 环境没有 WS：不申请权限、不开采集 —— UI 测试里因此不会冒出系统权限框。
     func testMotionNeverStartsWithoutACloudWebSocket() async {
         let recorder = FakeMotionRecorder()

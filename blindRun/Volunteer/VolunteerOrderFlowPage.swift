@@ -677,7 +677,10 @@ struct VolunteerRunningHero: Equatable {
 ///
 /// 与画布的差异（都在 `openspec/changes/restyle-volunteer-running-page-v2/design.md`）：
 /// 头卡用藏青不用青绿（#229 的按状态着色没给跑步中定色，负责人 09-26 选藏青；不新增颜色）；保留返回箭头（这一页藏了标签栏，
-/// 没有返回就没有出口）；不画头像对、不画「折返」、没有节奏行与语音播报开关（后端没有数据）。
+/// 没有返回就没有出口）；不画头像对、不画「折返」。
+///
+/// 节奏卡、语音播报开关、暂停（头卡换 `statePaused` + 「继续陪跑」）、合并后的提示条与求助面板
+/// 由 FE-3 接上（`VolunteerRunningCompanion.swift`，后端 BE-1/BE-2 已给数据）。
 ///
 /// 自己 `@ObservedObject` 持有 coordinator：`AppState.emergencyCoordinator` 是 `let`，
 /// 在宿主 body 里读它**读得到值但不跟着更新**（记忆 `nested-observableobject-does-not-republish`）。
@@ -695,6 +698,11 @@ struct VolunteerRunningPage<Footer: View>: View {
     /// 画布 ⑤ 没画这个入口，但旧页面有、`AGENTS.md` §5 允许，删掉的话唯一的退出就只剩
     /// 「结束陪跑」—— 那会把没跑完的一单记成完成、并计入志愿时长。
     let onCancel: () -> Void
+    /// FE-3：节奏卡、本变更的提示（走散 / 电量低 / 定位弱）、暂停与继续。
+    let rhythm: VolunteerRhythmCardPresentation
+    let tip: VolunteerRunTip?
+    let isTogglingPause: Bool
+    let onResume: () -> Void
     /// 求助结果、流转失败文案。**这一页唯一的可见失败面**。
     @ViewBuilder let footer: () -> Footer
 
@@ -707,6 +715,16 @@ struct VolunteerRunningPage<Footer: View>: View {
             stats: stats,
             isPeerLocationFresh: isPeerLocationFresh,
             isPeerAlertAcknowledged: coordinator.volunteerAlert?.isAcknowledged == true
+        )
+    }
+
+    private var isPaused: Bool { order.isRunPaused }
+
+    private var notice: VolunteerRunningNotice? {
+        .resolve(
+            isPeerAlertAcknowledged: coordinator.volunteerAlert?.isAcknowledged == true,
+            heroHasNotice: hero.notice != nil,
+            tip: tip
         )
     }
 
@@ -724,21 +742,46 @@ struct VolunteerRunningPage<Footer: View>: View {
             ScrollView {
                 VStack(spacing: FlowMetrics.v2SectionGap) {
                     heroCard(hero)
-                    if let notice = hero.notice {
-                        FlowNoticeBar(text: notice)
-                            .accessibilityLabel(hero.noticeSpoken ?? notice)
-                            .accessibilityIdentifier("volunteerRunningNotice")
+                    // 同一时刻只有一条（`VolunteerRunningNotice`）。
+                    switch notice {
+                    case .hero:
+                        if let text = hero.notice {
+                            FlowNoticeBar(text: text)
+                                .accessibilityLabel(hero.noticeSpoken ?? text)
+                                .accessibilityIdentifier("volunteerRunningNotice")
+                        }
+                    case .tip(let tip):
+                        VolunteerRunTipBar(tip: tip, name: order.runnerShortName)
+                    case .none:
+                        EmptyView()
                     }
+                    VolunteerRhythmCard(presentation: rhythm)
+                    VolunteerRunVoiceToggle(name: order.runnerShortName)
                     footer()
                 }
                 .padding(.horizontal, FlowMetrics.v2ScreenPadding)
                 .padding(.vertical, FlowMetrics.v2SectionGap)
-                .animation(.easeInOut(duration: 0.25), value: hero.notice)
+                .animation(.easeInOut(duration: 0.25), value: notice)
+                .animation(.easeInOut(duration: 0.35), value: isPaused)
             }
         }
         .background(AppColors.Flow.page.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 8) {
+                // 暂停中本屏唯一的黄色按钮（08 §五）；长按结束保持在它下面。
+                if isPaused {
+                    FlowActionButton(
+                        VolunteerRunCopy.resume,
+                        systemImage: "play.fill",
+                        style: .raisedPrimary,
+                        isLoading: isTogglingPause,
+                        accessibilityHint: "恢复计时"
+                    ) {
+                        onResume()
+                    }
+                    .accessibilityIdentifier("volunteerRunResumeButton")
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 VolunteerFinishLongPressButton(
                     isPerformingAction: isFinishing,
                     isEnabled: isFinishEnabled,
@@ -765,12 +808,19 @@ struct VolunteerRunningPage<Footer: View>: View {
     private var isWide: Bool { verticalSizeClass == .compact && !dynamicTypeSize.isAccessibilitySize }
 
     private func heroCard(_ hero: VolunteerRunningHero) -> some View {
-        FlowHeroCard(style: .tinted(AppColors.Flow.stateAgreed)) {
+        // 暂停：头卡换 `statePaused`（V13），小标题改「已暂停 · 计时停在 mm:ss」（读 `run.elapsedSeconds`，暂停中不走）。
+        FlowHeroCard(style: .tinted(isPaused ? AppColors.Flow.statePaused : AppColors.Flow.stateAgreed)) {
             VStack(alignment: .leading, spacing: 12) {
-                Text(hero.eyebrow)
-                    .flowFont(FlowV2Fonts.subhead(bold: true))
+                Text(isPaused ? VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText) : hero.eyebrow)
+                    .flowFont(FlowV2Fonts.subhead(bold: true), monospacedDigit: true)
                     .foregroundColor(AppColors.Flow.onHeroEyebrow)
                     .fixedSize(horizontal: false, vertical: true)
+                if isPaused {
+                    Text(VolunteerRunCopy.pausedBody)
+                        .flowFont(FlowV2Fonts.subhead())
+                        .foregroundColor(AppColors.Flow.onHeroBody)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if isWide {
                     HStack(alignment: .top, spacing: 24) {
                         VStack(alignment: .leading, spacing: 12) {
@@ -792,7 +842,11 @@ struct VolunteerRunningPage<Footer: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(hero.accessibilityLabel)
+            .accessibilityLabel(
+                isPaused
+                    ? "\(VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText))，\(VolunteerRunCopy.pausedBody)。\(hero.accessibilityLabel)"
+                    : hero.accessibilityLabel
+            )
             .accessibilityIdentifier("volunteerRunningStatsCard")
         }
     }

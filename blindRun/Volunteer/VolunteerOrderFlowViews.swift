@@ -31,6 +31,8 @@ private enum VolunteerSheet: Identifiable {
     case supportTicket
     /// 取消这次陪跑的确认层。
     case cancelOrder
+    /// 跑步中右上角「求助」打开的面板（DECISIONS-v2 V5）。
+    case runHelp
 
     var id: String {
         switch self {
@@ -42,6 +44,8 @@ private enum VolunteerSheet: Identifiable {
             return "supportTicket"
         case .cancelOrder:
             return "cancelOrder"
+        case .runHelp:
+            return "runHelp"
         }
     }
 }
@@ -860,6 +864,20 @@ final class VolunteerInServiceViewModel: ObservableObject {
     /// 结束等待成功 ⇒ 宿主关页。**不进**「跑者已取消」那一屏：这一单是陪跑员等满后结束的。
     @Published private(set) var didEndWaiting = false
     static let quickMessageCooldown: TimeInterval = 60
+
+    // 跑步中（DECISIONS-v2 V4–V8，`VolunteerRunningCompanion.swift`）。
+    /// 信号卡变黄到这一刻为止。只有非「刚刚好」的新信号才设。
+    @Published private(set) var signalHighlightUntil: Date?
+    /// 最近一次**本单**走散告警（`ESCORT_DISTANCE_ALERT`）的收到时刻。提示条按它显示 60 秒。
+    @Published private(set) var separationAlertAt: Date?
+    /// 本机定位精度差于 50 米的起始时刻。
+    @Published private(set) var weakLocationSince: Date?
+    @Published private(set) var isTogglingPause = false
+    @Published private(set) var supportRequestState: VolunteerSupportRequestState = .idle
+    private var separationCancellable: AnyCancellable?
+    /// 上一次已经播报（或进页时已经跑过）的整公里数。`nil` = 还没拿到过数字，第一次只记不播。
+    private var lastAnnouncedKilometer: Int?
+    private let voiceBroadcastEnabled: () -> Bool
     private var orderLiveUpdateCancellable: AnyCancellable?
     /// 结束等待的请求在路上。那期间收到的 `CANCELLED` 是它自己造成的，不播「跑者取消了」。
     private var isEndingWait = false
@@ -889,8 +907,12 @@ final class VolunteerInServiceViewModel: ObservableObject {
         actionDeadlineNanoseconds: UInt64 = 12_000_000_000,
         confirmationTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout,
         orderLoadTimeout: TimeInterval = HomeLoadPolicy.defaultTimeout,
-        peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness
+        peerFreshness: TimeInterval = LiveEscortSessionCoordinator.peerFreshness,
+        voiceBroadcastEnabled: @escaping () -> Bool = {
+            UserDefaults.standard.bool(forKey: VolunteerRunVoiceBroadcast.defaultsKey)
+        }
     ) {
+        self.voiceBroadcastEnabled = voiceBroadcastEnabled
         self.actionDeadlineNanoseconds = actionDeadlineNanoseconds
         self.confirmationTimeout = max(0.05, confirmationTimeout)
         self.orderLoadTimeout = max(0.05, orderLoadTimeout)
@@ -950,6 +972,20 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 .sink { [weak self] update in
                     guard let self, let current = self.order else { return }
                     self.order = current.merging(update)
+                }
+        }
+        // 走散提示条的驱动（V7：沿用现有告警，阈值不改）。`dropFirst`：订阅时吐出的是旧告警，
+        // 进页那一刻不该把一条早就过去的走散当成「刚刚」。
+        if separationCancellable == nil {
+            separationCancellable = appState.realtimeCoordinator.$latestSeparationAlert
+                .dropFirst()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] alert in
+                    guard let self, let alert, alert.eventType == "ESCORT_DISTANCE_ALERT",
+                          alert.orderID == self.order?.orderId else { return }
+                    self.separationAlertAt = Date()
+                    // 前台横幅已经在念这条告警，这一下是它的冗余通道（08 §五「额外 .warning 一次」）。
+                    HapticFeedback.play(.warning)
                 }
         }
     }
@@ -1046,6 +1082,95 @@ final class VolunteerInServiceViewModel: ObservableObject {
             blindStats = try await appState.safety.orderTrack(orderId: order.orderId).blindStats
         } catch {
             return
+        }
+        announceKilometerIfNeeded(blindStats)
+    }
+
+    /// 耳机语音播报开着时，每跨过一个整公里念一次（08 §二）。进页时已经跑过的公里不补念。
+    func announceKilometerIfNeeded(_ stats: TrackStats?) {
+        guard let meters = stats?.distanceMeters, meters >= 0 else { return }
+        let km = Int(meters / 1_000)
+        defer { lastAnnouncedKilometer = max(km, lastAnnouncedKilometer ?? km) }
+        guard let last = lastAnnouncedKilometer, km > last, voiceBroadcastEnabled(),
+              let duration = stats?.durationText else { return }
+        speechService?.speak(VolunteerRunCopy.kilometerAnnouncement(km: km, duration: duration))
+    }
+
+    // MARK: - 跑步中：暂停 / 继续 / 联系客服 / 定位精度（V5、V8、V15）
+
+    func pauseRun() async { await setRunPaused(true) }
+    func resumeRun() async { await setRunPaused(false) }
+
+    private func setRunPaused(_ paused: Bool) async {
+        // 面板是在 `IN_PROGRESS` 打开的，但按下去的那一刻订单可能已经结束（security review A1）。
+        guard let order, let appState, !isTogglingPause, order.status == .inProgress else { return }
+        isTogglingPause = true
+        errorMessage = nil
+        defer { isTogglingPause = false }
+        do {
+            if paused {
+                try await appState.orders.pauseRun(orderId: order.orderId)
+            } else {
+                try await appState.orders.resumeRun(orderId: order.orderId)
+            }
+            // 先就地改，再以详情为准：不改的话要等下一次 GET 回来按钮才换，那几百毫秒里会被按第二次。
+            var run = self.order?.run ?? RunView()
+            run.paused = paused
+            self.order?.run = run
+            HapticFeedback.play(.medium)
+            speechService?.speak(paused ? VolunteerRunCopy.pausedSpoken : VolunteerRunCopy.resumedSpoken)
+            await load(orderId: order.orderId, speakChanges: false)
+        } catch let error as APIError {
+            if appState.handleAuthenticatedAPIError(error) { return }
+            errorMessage = error.localizedMessage
+            speechService?.speakError(error.localizedMessage)
+        } catch {
+            let message = paused ? "暂停没有成功，请重试。" : "继续没有成功，请重试。"
+            errorMessage = message
+            speechService?.speakError(message)
+        }
+    }
+
+    /// 「联系客服」：一键提交带订单号的工单（V5）。成功后不可重复提交（同一单的同一件事）。
+    func requestSupportCallback() async {
+        guard let order, let appState, supportRequestState != .submitting, supportRequestState != .submitted,
+              let request = SupportTicketRequest(
+                category: .orderService,
+                content: VolunteerRunCopy.supportTicketContent,
+                orderId: order.orderId
+              ) else { return }
+        supportRequestState = .submitting
+        do {
+            try await appState.safety.submitSupportTicket(request)
+            supportRequestState = .submitted
+            speechService?.speak(VolunteerRunCopy.supportSubmitted)
+        } catch let error as APIError where appState.handleAuthenticatedAPIError(error) {
+            supportRequestState = .idle
+        } catch {
+            supportRequestState = .failed
+            speechService?.speakError(VolunteerRunCopy.supportFailed)
+        }
+    }
+
+    /// 本机定位精度的输入。页面在每次定位更新时调。
+    func observeOwnLocationAccuracy(_ accuracy: Double?, now: Date = Date()) {
+        let next = VolunteerRunTip.weakSince(previous: weakLocationSince, accuracy: accuracy, now: now)
+        if next != weakLocationSince { weakLocationSince = next }
+    }
+
+    /// 新节奏信号到达：非「刚刚好」两次 `.medium`（间隔 0.15 秒）+ 变黄 8 秒；「刚刚好」只震一次。
+    /// VoiceOver 播报一次；耳机语音播报开着时朗读（08 §三）。
+    private func handleSignalArrival(_ signal: RunRhythmSignal, order: OrderDetailResponse, now: Date) {
+        guard let text = signal.title else { return }
+        let name = order.runnerShortName
+        HapticFeedback.play(.medium)
+        if signal != .ok {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { HapticFeedback.play(.medium) }
+            signalHighlightUntil = now.addingTimeInterval(VolunteerRhythmCardPresentation.highlightDuration)
+        }
+        UIAccessibility.post(notification: .announcement, argument: VolunteerRunCopy.signalTitle(name, text))
+        if voiceBroadcastEnabled() {
+            speechService?.speak(VolunteerRunCopy.spokenSignal(name, text))
         }
     }
 
@@ -1455,6 +1580,10 @@ final class VolunteerInServiceViewModel: ObservableObject {
 
     private func apply(_ updated: OrderDetailResponse, speakChanges: Bool) {
         let previousStatus = order?.status
+        let now = Date()
+        if let signal = RunSignalArrival.detect(previous: order, updated: updated, now: now) {
+            handleSignalArrival(signal, order: updated, now: now)
+        }
         order = updated
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
         if speakChanges, previousStatus != updated.status {
@@ -1671,6 +1800,14 @@ struct VolunteerInServiceView: View {
             if viewModel.order?.status == .driverArrived { meetHeading.start() } else { meetHeading.stop() }
         }
         .onChange(of: meetCue) { handleMeetCueChange($0) }
+        // 跑步中求助面板只属于 `IN_PROGRESS`。订单一离开（完成 / 被取消 / 转重新匹配）就收起，
+        // 不留一个按下去已经不成立的面板（云端求助另有 `EmergencyCoordinator.trigger` 的状态闸兜底）。
+        .onChange(of: viewModel.order?.status) { status in
+            if case .runHelp = activeSheet, status != .inProgress { activeSheet = nil }
+        }
+        .onReceive(locationService.$currentLocation) { _ in
+            viewModel.observeOwnLocationAccuracy(locationService.latestDeviceSample?.horizontalAccuracy)
+        }
         .onChange(of: viewModel.didEndWaiting) { ended in
             if ended { dismiss() }
         }
@@ -1716,6 +1853,28 @@ struct VolunteerInServiceView: View {
                 )
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
+            case .runHelp:
+                if let order = viewModel.order {
+                    VolunteerRunHelpPanel(
+                        coordinator: appState.emergencyCoordinator,
+                        runnerName: order.runnerShortName,
+                        isPaused: order.isRunPaused,
+                        isTogglingPause: viewModel.isTogglingPause,
+                        supportState: viewModel.supportRequestState,
+                        onPause: { Task { await viewModel.pauseRun() } },
+                        onContactSupport: { Task { await viewModel.requestSupportCallback() } },
+                        onEmergency: {
+                            Task {
+                                await viewModel.enterEmergency(
+                                    locate: { locationService.latestBackendSample() },
+                                    locationFailureReason: { locationService.locationError }
+                                )
+                            }
+                        }
+                    )
+                    .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
+                }
             }
         }
         // 「查看跑步记录」。已完成那一屏只留一行入口，轨迹本身推到下一页 ——
@@ -1747,24 +1906,43 @@ struct VolunteerInServiceView: View {
 
     // MARK: - 跑步中
 
-    /// 求助只在这一态走云端（`VolunteerOrderSOSMode`），按下去弹锁定文案的二次确认。
+    /// 求助只在这一态走云端（`VolunteerOrderSOSMode`）。右上角打开跑步中求助面板（V5），
+    /// 面板里的紧急按钮轻点弹锁定文案的二次确认、长按 3 秒直发。
+    ///
+    /// 每秒一拍：信号卡 8 秒收起、5 分钟过期、走散提示 60 秒收起都是 `(状态, 现在)` 的函数，不存。
     private func runningPage(order: OrderDetailResponse) -> some View {
-        VolunteerRunningPage(
-            coordinator: appState.emergencyCoordinator,
-            order: order,
-            stats: viewModel.blindStats,
-            isPeerLocationFresh: viewModel.latestBlindSample != nil,
-            isFinishing: viewModel.isPerformingAction,
-            isFinishEnabled: !viewModel.isTransitionPending,
-            onBack: { dismiss() },
-            onHelp: { showEmergencyConfirm = true },
-            // 按满 2 秒直接结束，中间没有确认框：长按本身就是那道确认
-            // （设计包 `状态清单.md` §11：「结束跑步即结束服务，不可撤销 —— 因此不做轻点」）。
-            onFinish: { Task { await viewModel.complete() } },
-            onCancel: { activeSheet = .cancelOrder }
-        ) {
-            emergencySection(for: order)
-            flowFooter(showsNudgeNotice: false)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            VolunteerRunningPage(
+                coordinator: appState.emergencyCoordinator,
+                order: order,
+                stats: viewModel.blindStats,
+                isPeerLocationFresh: viewModel.latestBlindSample != nil,
+                isFinishing: viewModel.isPerformingAction,
+                isFinishEnabled: !viewModel.isTransitionPending,
+                onBack: { dismiss() },
+                onHelp: { activeSheet = .runHelp },
+                // 按满 2 秒直接结束，中间没有确认框：长按本身就是那道确认
+                // （设计包 `状态清单.md` §11：「结束跑步即结束服务，不可撤销 —— 因此不做轻点」）。
+                onFinish: { Task { await viewModel.complete() } },
+                onCancel: { activeSheet = .cancelOrder },
+                rhythm: .make(
+                    run: order.run,
+                    name: order.runnerShortName,
+                    highlightUntil: viewModel.signalHighlightUntil,
+                    now: context.date
+                ),
+                tip: VolunteerRunTip.resolve(
+                    separationAlertAt: viewModel.separationAlertAt,
+                    runnerBatteryLow: order.run?.runnerBatteryLow == true,
+                    weakLocationSince: viewModel.weakLocationSince,
+                    now: context.date
+                ),
+                isTogglingPause: viewModel.isTogglingPause,
+                onResume: { Task { await viewModel.resumeRun() } }
+            ) {
+                emergencySection(for: order)
+                flowFooter(showsNudgeNotice: false)
+            }
         }
     }
 

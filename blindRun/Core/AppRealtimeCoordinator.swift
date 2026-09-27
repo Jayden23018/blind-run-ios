@@ -764,9 +764,17 @@ final class AppRealtimeCoordinator: ObservableObject {
     /// - `RUNNER_AT_MEETING_POINT`：`runnerAtMeetingPoint` 变 `true`
     /// - `RUNNER_MESSAGE_UPDATED`：`messageToVolunteer` 变了（正文**不含**留言，只能从详情读）
     /// - `ORDER_WAIT_ENDED`：另有 `ORDER_STATUS_CHANGED`，这里是兜底
+    /// - 跑步中四个（DECISIONS-v2 V14–V16，⚠️ V18 的建议名，后端 BE-1/BE-2 合并后核对）：
+    ///   `run.lastSignal*` / `run.paused` / `run.runnerBatteryLow` 变了。陪跑员页的「信号到达」
+    ///   就是从重拉后 `lastSignalAt` 的变化推出来的，不解析推送载荷。
     static let orderRefreshingEventTypes: Set<String> = [
         "DEPART_REMINDER", "RUNNER_AT_MEETING_POINT", "RUNNER_MESSAGE_UPDATED", "ORDER_WAIT_ENDED",
+        "RUN_RHYTHM", "RUN_PAUSED", "RUN_RESUMED", "RUNNER_BATTERY_LOW",
     ]
+
+    /// 只刷新、不进横幅的事件。`RUN_RHYTHM`：跑步页的节奏卡原地变黄就是它的唯一呈现
+    /// （交付包 08 §三「不另外弹横幅，同一时刻这个信号只在一处出现」）。
+    static let refreshOnlyEventTypes: Set<String> = ["RUN_RHYTHM"]
 
     private func requestOrderRefresh(_ orderID: Int64, reason: RealtimeOrderRefreshRequest.Reason) {
         orderRefreshRetryTasks.removeValue(forKey: orderID)?.cancel()
@@ -872,6 +880,7 @@ final class AppRealtimeCoordinator: ObservableObject {
         if Self.orderRefreshingEventTypes.contains(eventType), let orderId = message.orderId {
             requestOrderRefresh(orderId, reason: .statusChanged)
         }
+        if Self.refreshOnlyEventTypes.contains(eventType) { return }
         if eventType == "ESCORT_DISTANCE_ALERT" || eventType == "ESCORT_SIGNAL_LOST" {
             routeEscortAlert(message, eventType: eventType)
             return

@@ -330,6 +330,8 @@ final class FlowDesignSystemTests: XCTestCase {
         (AppColors.Flow.stateDepartedTone, "出发"),
         (AppColors.Flow.stateArrivedTone, "汇合"),
         (AppColors.Flow.stateDoneTone, "完成"),
+        // FE-3：跑步中暂停时整张头卡换这个色，上面是同一套半透明白字。
+        (AppColors.Flow.statePausedTone, "跑步中 · 已暂停"),
     ]
 
     /// 彩色头卡上的字是**半透明白**，实际颜色 = 白以 α 叠在状态色上，所以逐色合成后再算。
