@@ -1013,6 +1013,7 @@ struct BlindBookingView: View {
     @AccessibilityFocusState private var focusedStepHeader: BlindBookingGuidedStep?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var isPulsing = false
     /// 零输入下单走到第二步（复核整单）了没有。见 `zeroInputBookingSection`。
     @State private var isZeroInputConfirming = false
@@ -1064,10 +1065,20 @@ struct BlindBookingView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            submitArea
+            if !placesVoiceControlsBeside {
+                submitArea
+            }
+        }
+        .safeAreaInset(edge: .trailing, spacing: 0) {
+            if placesVoiceControlsBeside {
+                submitArea
+            }
         }
         .navigationTitle("创建预约")
         .navigationBarTitleDisplayMode(.inline)
+        // 二级页藏标签栏：横屏下悬浮胶囊压在「重复一遍 / 改用表单」上（记忆 tab-bar-clips-the-last-line-of-secondary-pages）。
+        // 这一页的返回箭头始终在，藏栏不会丢出口。
+        .toolbar(.hidden, for: .tabBar)
         .onAppear {
             if locationService.isNotDetermined {
                 locationService.requestPermission()
@@ -1214,21 +1225,30 @@ struct BlindBookingView: View {
 
     /// 语音在跑时屏幕上的全部内容：一块状态区，读回轮再加一张整单。**没有表单。**
     ///
-    /// 不套 `ScrollView`：状态区要真的吃满内容区（`maxHeight: .infinity`），
-    /// 而滚动视图里的子视图拿不到「剩余空间」这个概念，只能给一个拍脑袋的固定高度。
-    /// 语音态的内容是定长的，本来也不需要滚动。
+    /// 状态区要真的吃满内容区（`maxHeight: .infinity`），所以滚动容器外面量一次可用高度，
+    /// 内容至少撑到那么高：装得下时与不滚动完全一样，装不下时才滚。
+    ///
+    /// 此前不套 `ScrollView`，理由是「语音态定长、不需要滚动」—— **iPhone 横屏下不成立**：
+    /// 可用高度只剩约 400pt，底栏两枚 64pt 按钮之后塞不下状态区，溢出被上下对半分，
+    /// 蓝卡顶进透明导航栏，黑字标题「创建预约」直接压在卡上（真机审计 Contrast，
+    /// `testBlindBookingInLandscapePassesAccessibilityAudit`）。
+    /// 不用 `ViewThatFits` 二选一：真机审计会把整页文字判成改不了字号（记忆 `viewthatfits-fails-dynamic-type-audit`）。
     private var voiceStage: some View {
-        VStack(spacing: 16) {
-            voiceStatusBlock
-            voiceOrderRecap
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 16) {
+                    voiceStatusBlock
+                    voiceOrderRecap
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 24)
+                // **这一态刻意不收 `readableContentColumn()`**：`voiceStatusBlock` 整块可点是它的核心交互
+                // （「说完了」/「别念了」不需要先找按钮）。收到 700pt 会在 iPad 左右各留出 160pt
+                // 点不到的边，而盲人是靠空间记忆盲点的 —— 那正是这一态要消除的成本。
+                // 可读列宽治的是「长文本横扫串行」，这一屏只有一句话，不适用。
+                .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 24)
-        // **这一态刻意不收 `readableContentColumn()`**：`voiceStatusBlock` 整块可点是它的核心交互
-        // （「说完了」/「别念了」不需要先找按钮）。收到 700pt 会在 iPad 左右各留出 160pt
-        // 点不到的边，而盲人是靠空间记忆盲点的 —— 那正是这一态要消除的成本。
-        // 可读列宽治的是「长文本横扫串行」，这一屏只有一句话，不适用。
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// 整块内容区就是那一下：**在录音是「我说完了」，在播报是「别念了，我要说」。**
@@ -1244,7 +1264,8 @@ struct BlindBookingView: View {
     /// `finishSpeakingOrSkipPrompt` 是空操作，宣告一个按不动的动作比没有更糟）现在由「不挂手势、
     /// 不加 `.isButton`」承担；而元素本身留下，否则解析那几秒屏幕上没有任何东西说「正在识别」。
     ///
-    /// **逃生口不在它之下**：「改用表单」在 `safeAreaInset` 的底栏里，那一块永远不被内容区盖住。
+    /// **逃生口不在它之下**：「改用表单」在 `safeAreaInset` 的底栏里（iPhone 横屏是右侧栏，
+    /// 见 `placesVoiceControlsBeside`），那一块永远不被内容区盖住。
     ///
     /// VoiceOver 只给**一个**焦点：`label` 是现在能做什么，`value` 是系统刚念的那句话。
     /// 分成两个元素的话，用户要滑两下才能同时知道「什么状态」和「它说了什么」，
@@ -2160,8 +2181,22 @@ struct BlindBookingView: View {
         .readableContentColumn()
         .padding(.horizontal, 24)
         .padding(.vertical, 12)
+        // 侧栏：整条竖向铺满，按钮贴底 —— 与竖屏同一个拇指位。
+        .frame(width: placesVoiceControlsBeside ? Self.besideVoiceControlsWidth : nil)
+        .frame(maxHeight: placesVoiceControlsBeside ? .infinity : nil, alignment: .bottom)
         .background(.regularMaterial)
     }
+
+    /// iPhone 横屏的语音态把底栏挪到右侧。可用高度约 400pt，底栏两枚 64pt 按钮占掉之后
+    /// 语音卡片只剩约 140pt，而它的内容要约 250pt —— 放在底下，要么卡片顶进导航栏、
+    /// 「改用表单」被挤出屏幕（修之前），要么说明文字静止在半透明底栏下面（只加滚动时）。
+    /// 横屏缺的是高度不是宽度，所以挪到侧边：两枚按钮仍竖排、仍固定不随内容滚动。
+    /// 表单态不挪 —— 那一态本来就是滚动表单，底栏压不住任何非滚动内容。
+    private var placesVoiceControlsBeside: Bool {
+        voiceWizard.isRunning && verticalSizeClass == .compact
+    }
+
+    private static let besideVoiceControlsWidth: CGFloat = 240
 
     /// 竖排，不并排。两个理由：视觉上并排等于把每个按钮的宽度砍半
     /// （`docs/research/blind-ui-visual-benchmark-20260808.md` §1 规则 3，对标产品的次级操作一律整行铺满）；
