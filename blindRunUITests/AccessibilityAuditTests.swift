@@ -442,13 +442,12 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5), "停铃后标签栏没回来")
     }
 
-    /// 响铃遮罩。**按 label 查，不按 `runnerRingOverlay`** —— 那个 identifier 被外层
-    /// `ContentView` 的 `rootRoute.blindHome` 覆盖了：09-27 真机遮罩在场时的层级里，
-    /// 这个元素是 `Button, identifier: 'rootRoute.blindHome', label: '你的陪跑员到了…'`
-    /// （记忆 `accessibility-identifier-overwrites-children`）。App 侧修好后可以换回 identifier。
+    /// 响铃遮罩，按 identifier 查。09-27 曾临时改按 label：`ContentView` 的 `rootRoute.blindHome`
+    /// 当时没配 `.contain`，把遮罩的 id 覆盖成了 `rootRoute.blindHome`（#239，记忆
+    /// `accessibility-identifier-overwrites-children`）。这条 helper 现在也是那处修法的回归探针 ——
+    /// 路由根的 `.contain` 被删掉，两条响铃用例会在第一条断言上红。
     private func runnerRingOverlay(_ app: XCUIApplication) -> XCUIElement {
-        // 逐字对应 `RunnerRingCopy.accessibilityLabel`。
-        app.buttons["你的陪跑员到了，手机正在响。停止响铃"].firstMatch
+        app.buttons["runnerRingOverlay"].firstMatch
     }
 
     /// 不碰它也会在 `until`（注入的是 10 秒后）自己停。
