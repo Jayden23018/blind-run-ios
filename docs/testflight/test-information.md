@@ -13,7 +13,7 @@
 | 审核专用账号（盲人 + 陪跑员各一） | ⏳ 等后端 [blind-run-backend#454](https://github.com/Jayden23018/blind-run-backend/issues/454)。答复后填 §2.3 |
 | 录屏链接 | ⏳ 按 §3 录完上传后替换 §2.2 里的 `<VIDEO_URL>` |
 | 联系人姓名 / 电话 / 邮箱、Feedback Email | ⏳ 负责人定 |
-| 时区问题 | 🔴 客户端把下单时间按**设备时区**写成无时区字符串，后端按 `Asia/Shanghai` 解释（见 §4 第 1 条）。修好之前，§2.2 里「把设备时区切到北京」那一段**必须保留** |
+| 时区问题 | 🔴 客户端把下单时间按**设备时区**写成无时区字符串，后端按 `Asia/Shanghai` 解释（见 §4 第 1 条，跟踪 [#236](https://github.com/Jayden23018/blind-run-ios/issues/236)）。修好之前，§2.2 里「把设备时区切到北京」那一段**必须保留** |
 | 开跑同意闸 | 🔴 跑者端没有确认开始的按钮，陪跑员只能在开跑 + 15 分钟后开始（§4 第 5 条）。补上之前，§2.2 第 6 步与 §3 的等待段**必须保留** |
 | iPad | ⚠️ `TARGETED_DEVICE_FAMILY = "1,2"`，要不要支持未定（review §3 ⑦）。定为只支持 iPhone 后删掉备注里无关的话即可，目前备注没提 iPad |
 
@@ -200,6 +200,8 @@ The help (SOS) button only sends an alert while a run is in progress. The alert 
    后端已经允许跑者自己调 `/start-service`（等同确认 + 开始），但 iOS 跑者端没有「开始跑步」按钮，
    全仓也没有调 `/confirm-start` 的地方；`BlindOrderStatusView.swift:956` 的注释仍写着「盲人 token 调不动」，
    已过期 ⇒ 当前构建里陪跑员最早在**开跑 + 15 分钟**才能开始，下单到开跑至少等 45 分钟。
+   跟踪在 [blind-run-backend#307](https://github.com/Jayden23018/blind-run-backend/issues/307)
+   （iOS 09-24 答复：等后端下发 `earliestServiceStartAt` 等字段后一起接 `confirm-start`）。
 6. **结束**：`/finish` 没有时间闸；陪跑员在界面上长按 2 秒（`VolunteerOrderFlowViews.swift` 约 3119–3141 行）。
 7. **境外坐标**：`BackendCoordinateNormalizer.wgs84ToGCJ02` 在中国境外原样返回（`blindRun/Map/CoordinateSystem.swift`），
    契约对起点经纬度只有 ±90 / ±180 的范围校验 ⇒ 境外能下单、能按距离派单。
