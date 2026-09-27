@@ -1121,23 +1121,31 @@ final class blindRunUITests: XCTestCase {
         // 2026-09-15：求助中心是**一层菜单**，不是那个二次确认。
         // 🔴 打开它必须什么都还没发生 —— 菜单里第一项是「联系志愿者」这种无害动作，
         // 所以这一层的正文绝不能是那句逐字锁定的确认文案。
+        // 09-15 `fd4f0cc` 起求助中心是自绘层 `blindSafetyHub`，不再是 `confirmationDialog`
+        // （XCUITest 认成的那个 `sheets["求助"]`），理由见 `SafetyHubView.swift` 的
+        // 「为什么不是 `confirmationDialog`」。标题区是合成元素，所以两条文案断言都用 CONTAINS。
         hub.tap()
-        let hubSheet = app.sheets["求助"].firstMatch
-        XCTAssertTrue(hubSheet.waitForExistence(timeout: 5), "求助块没有打开求助中心")
+        let hubLayer = app.descendants(matching: .any)["blindSafetyHub"].firstMatch
+        XCTAssertTrue(hubLayer.waitForExistence(timeout: 5), "求助块没有打开求助中心")
         XCTAssertTrue(
-            hubSheet.staticTexts.containing(
+            hubLayer.staticTexts.containing(
                 NSPredicate(format: "label CONTAINS %@", "还没有发送求助")
             ).firstMatch.exists,
             "求助中心的第一句必须先说清什么都还没发出去"
         )
-        XCTAssertFalse(
-            hubSheet.staticTexts["是否确认进入求助状态？确认后，本次服务将标记为异常，系统会记录当前订单状态。"]
-                .firstMatch.exists,
+        XCTAssertEqual(
+            hubLayer.staticTexts.containing(
+                NSPredicate(format: "label CONTAINS %@", "是否确认进入求助状态")
+            ).count,
+            0,
             "逐字锁定的二次确认文案不许被挪用成菜单正文"
         )
 
         // 云端那条走的仍是「一键求助」，且二次确认一步不减。
-        hubSheet.buttons["一键求助"].firstMatch.tap()
+        // 轻点（读屏双击同理）= 关掉求助中心再弹二次确认；长按 3 秒才跳过确认直发，这里不走。
+        let trigger = app.descendants(matching: .any)["blindSafetyHubTriggerEmergency"].firstMatch
+        XCTAssertTrue(trigger.waitForExistence(timeout: 5), "IN_PROGRESS 的求助中心没有「一键求助」")
+        trigger.tap()
         let confirmation = app.alerts["一键求助"].firstMatch
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5), "SOS must require a second confirmation")
         XCTAssertTrue(
@@ -1556,6 +1564,11 @@ final class blindRunUITests: XCTestCase {
         let deleteButton = app.buttons["删除账户"].firstMatch
         XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
         XCTAssertTrue(deleteButton.isEnabled)
+        // 不滑到底，「删除账户」在常驻求助条（`blindRunnerHomeSOSBar`）后面，触点落在求助条上、
+        // 弹出的是「紧急呼叫」拨号单（记忆 `ui-test-tap-lands-on-persistent-sos-bar`）。
+        // 滑完两者的无障碍 frame 仍重叠，别拿 frame 断言 —— 09-27 真机实测点中心能点中删除按钮。
+        app.swipeUp()
+        app.swipeUp()
         deleteButton.tap()
 
         let initialAlert = app.alerts["确认删除账户"].firstMatch
@@ -2381,7 +2394,9 @@ final class blindRunUITests: XCTestCase {
         submitButton.tap()
         dismissSystemAlertsIfPresent(app: app)
 
-        let matchingStatus = app.staticTexts["系统派单中"].firstMatch
+        // 按 identifier 断，别抄中文文案：09-16 订单页改版后「系统派单中」已不上屏，
+        // 这条因此红到 09-27（`ui-test-red-triage-20260927.md` #2）。
+        let matchingStatus = app.descendants(matching: .any)["blindOrderFlowStatusCard"].firstMatch
         XCTAssertTrue(matchingStatus.waitForExistence(timeout: 15), "Created booking should enter system dispatch status")
     }
 
