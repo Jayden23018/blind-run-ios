@@ -1068,6 +1068,9 @@ struct BlindBookingView: View {
         }
         .navigationTitle("创建预约")
         .navigationBarTitleDisplayMode(.inline)
+        // 二级页藏标签栏：横屏下悬浮胶囊压在「重复一遍 / 改用表单」上（记忆 tab-bar-clips-the-last-line-of-secondary-pages）。
+        // 这一页的返回箭头始终在，藏栏不会丢出口。
+        .toolbar(.hidden, for: .tabBar)
         .onAppear {
             if locationService.isNotDetermined {
                 locationService.requestPermission()
@@ -1214,21 +1217,30 @@ struct BlindBookingView: View {
 
     /// 语音在跑时屏幕上的全部内容：一块状态区，读回轮再加一张整单。**没有表单。**
     ///
-    /// 不套 `ScrollView`：状态区要真的吃满内容区（`maxHeight: .infinity`），
-    /// 而滚动视图里的子视图拿不到「剩余空间」这个概念，只能给一个拍脑袋的固定高度。
-    /// 语音态的内容是定长的，本来也不需要滚动。
+    /// 状态区要真的吃满内容区（`maxHeight: .infinity`），所以滚动容器外面量一次可用高度，
+    /// 内容至少撑到那么高：装得下时与不滚动完全一样，装不下时才滚。
+    ///
+    /// 此前不套 `ScrollView`，理由是「语音态定长、不需要滚动」—— **iPhone 横屏下不成立**：
+    /// 可用高度只剩约 400pt，底栏两枚 64pt 按钮之后塞不下状态区，溢出被上下对半分，
+    /// 蓝卡顶进透明导航栏，黑字标题「创建预约」直接压在卡上（真机审计 Contrast，
+    /// `testBlindBookingInLandscapePassesAccessibilityAudit`）。
+    /// 不用 `ViewThatFits` 二选一：真机审计会把整页文字判成改不了字号（记忆 `viewthatfits-fails-dynamic-type-audit`）。
     private var voiceStage: some View {
-        VStack(spacing: 16) {
-            voiceStatusBlock
-            voiceOrderRecap
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 16) {
+                    voiceStatusBlock
+                    voiceOrderRecap
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 24)
+                // **这一态刻意不收 `readableContentColumn()`**：`voiceStatusBlock` 整块可点是它的核心交互
+                // （「说完了」/「别念了」不需要先找按钮）。收到 700pt 会在 iPad 左右各留出 160pt
+                // 点不到的边，而盲人是靠空间记忆盲点的 —— 那正是这一态要消除的成本。
+                // 可读列宽治的是「长文本横扫串行」，这一屏只有一句话，不适用。
+                .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 24)
-        // **这一态刻意不收 `readableContentColumn()`**：`voiceStatusBlock` 整块可点是它的核心交互
-        // （「说完了」/「别念了」不需要先找按钮）。收到 700pt 会在 iPad 左右各留出 160pt
-        // 点不到的边，而盲人是靠空间记忆盲点的 —— 那正是这一态要消除的成本。
-        // 可读列宽治的是「长文本横扫串行」，这一屏只有一句话，不适用。
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// 整块内容区就是那一下：**在录音是「我说完了」，在播报是「别念了，我要说」。**
