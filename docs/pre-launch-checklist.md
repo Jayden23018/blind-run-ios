@@ -105,6 +105,41 @@
 
 > 关键认知：**外部 TestFlight 的首个构建就要过 App Review**，
 > 所以 5.1.1 那一整组不是「上架前再补」，是**内测第一天就生效**。
+>
+> 2026-09-27 按送审就绪度重核过一遍，判断与证据见
+> [`review/testflight-readiness-20260927.md`](./review/testflight-readiness-20260927.md)，
+> 新增外部规则见 [`research/testflight-readiness-delta-20260927.md`](./research/testflight-readiness-delta-20260927.md)。
+
+### C0 账号到手之前必须办完（不办 = 发出坏包或必被拒）
+
+- [ ] 🔴 **申请高德 iOS key，填进 `LocalConfig.xcconfig` 的 `AMAP_API_KEY`**。本机这份一直是占位值
+  `CHANGE_ME_AMAP_KEY`，Release 包里原样带着 ⇒ TestFlight 包地图 / 定位 / 检索全失效
+  （Debug 真机走降级占位图，所以一直没人发现）。key 绑 Bundle ID，**先定 C1 的 Bundle ID 再申请**。
+  `scripts/testflight-upload.sh` 会拦占位值。
+- [ ] 🔴 **隐私政策改版：把步数 / 步频 / 爬升从「不收集」挪到「收集」**。v1.1 §2.6 写着「❌ 健康与运动数据」，
+  而 PR #189（09-24）在服务中上报这三项。改 `blindrun-legal` 仓库，写清用途、只在服务中采集、拒绝权限照常陪跑。
+- [ ] 🟡 请后端开**审核专用的一对账号**（盲人 + 志愿者，都已认证 / 审核通过）。现有预置号同时在跑云端 E2E，
+  审核员下单可能撞 `DUPLICATE_ORDER` / `TOO_MANY_SCHEDULED_ORDERS`。
+- [ ] 🟡 录一段两端配合走完「下单 → 接单 → 服务中 → 完成」的录屏，挂一个审核员能打开的链接，写进审核备注
+  （审核员一个人、在美国，走不完需要陪跑员配合的核心流程，这是 2.1 被拒的高发场景）。
+- [ ] 🟡 写好 Beta App Description 与审核备注草稿（备注 ≤ 4000 字符，**别把账号写进备注**，账号有专用字段）。
+
+### C0.5 账号到手当天（按顺序）
+
+1. 在 developer.apple.com 注册 Bundle ID（C1 定下的那个）。**注册失败 = 被别的团队占着，当场改名**，别硬等。
+2. Xcode → Settings → Accounts 登录付费账号；blindRun target → Signing & Capabilities → **+ Push Notifications**
+   （工程目前没有 entitlements 文件，免费团队签不了这个 capability，所以不能提前加）。
+3. Certificates, IDs & Profiles → Keys → 新建 APNs key（`.p8`，环境选 **Production 或 Sandbox & Production**，
+   只选 Sandbox 时生产网关回 403 `BadEnvironmentKeyInToken`）→ 连同 Key ID、Team ID、Bundle ID 交给后端，
+   填到 `APNS_P8_PATH / APNS_KEY_ID / APNS_TEAM_ID / APNS_TOPIC`。`.p8` **只能下载一次**。
+4. App Store Connect 新建 App 记录，填隐私政策 URL、年龄分级问卷（2025 版新增「医疗或健康话题」等必答题）、
+   App Privacy（手机号、身份证号、精确位置、语音、联系人（紧急联系人）、**健身（步数）**、照片或视频（活体））。
+5. `TEAM_ID=<新团队号> scripts/testflight-upload.sh` —— archive、检查产物（高德 key / 推送 entitlement / 包号）、上传一条龙。
+6. 处理完成后**先加内部测试组**（不过审），账号持有人用**国区 Apple ID** 装一次：
+   这是「备案卡不卡 TestFlight」唯一的一手验法（Apple 官方页至今 404）。装得上再送外部审核。
+7. 填 Test Information（C0 的草稿）→ 建外部测试组 → 加构建 → 等 Beta App Review。
+8. 之后真机调试收不到推送是**预期行为**（Xcode 直装拿沙盒 token，后端连的是生产网关）；
+   本仓库命令行里的 `DEVELOPMENT_TEAM=ZW39BS8NXT` 换成新团队号（`CLAUDE.md`、`scripts/device-test.sh` 等处）。
 
 ### C1 账号与通道
 
@@ -114,15 +149,25 @@
   - ⇒ 选哪种要先定（见 §H），因为组织账号的等待期决定整个内测时间表
 - [ ] 🟡 工程文件里写死的 `DEVELOPMENT_TEAM = R6PH2TFB3Q` 是原开发者的团队号，本机签名用 `ZW39BS8NXT`。新账号开好后确认 App Store Connect 记录归属，命令行传 `DEVELOPMENT_TEAM=<新团队号>` 覆盖（**不要改 pbxproj，那是行级冻结项**）。
 - [ ] 🔴 Bundle ID `com.jerry.aidrun` 在目标团队下已注册，且 App Store Connect 里有对应 App 记录。
-- [ ] 🔴 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` 从 `1.0` / `1` 起版本策略定好（每次上传 build 号必须递增）。
-- [ ] 🟡 Info.plist 补 `ITSAppUsesNonExemptEncryption`，否则每个构建上传后都要手工回答出口合规问题。
+  ⚠️ **建记录之前先定名**：记录建了就不能改，而 `jerry` 是原开发者；这个 ID 09-06 曾报「not available」，
+  09-08 起又能用免费团队签了 ⇒ 付费团队下能不能注册只有当场才知道。改名要动 5 个 target 的
+  `PRODUCT_BUNDLE_IDENTIFIER`、高德 key、后端 `APNS_TOPIC`。
+- [x] ~~🔴 版本策略~~ → build 号 = `git rev-list --count HEAD`（`scripts/set-build-number.sh`，PR #192），
+  App 与 Widget 同值；上传脚本要求 HEAD 在 `origin/main` 线上，防止包号回退。`MARKETING_VERSION` 仍是 `1.0`。（2026-09-27 核）
+- [x] ~~🟡 Info.plist 补 `ITSAppUsesNonExemptEncryption`~~ → 已是 `false`（只走系统 HTTPS，属豁免）。（2026-09-27 核）
+- [ ] ⚠️ **待拍板：要不要支持 iPad**。`TARGETED_DEVICE_FAMILY = "1,2"` ⇒ 审核员可能在 iPad 上测，而 §B2 把 iPad 列在「不要拍」。
+- [x] 打 **`blindRun-Prod`**（Release），不打 `blindRun-Demo`：DemoRelease 带 `#if DEBUG || DEMO` 的 UI 测试钩子。
+  Release 已锁云端、无环境切换器。Xcode 26.2 满足 2026-04-28 起的 Xcode 26 / iOS 26 SDK 上传下限。（2026-09-27 核，archive 实跑通过）
 - [ ] 🔴 填好 Beta App Description 与 **Beta App Review Information**，附**演示账号**（预置手机号 + 验证码 `000000`），否则审核员登不进去必被拒。
 - [x] ~~决定内部还是外部~~ → **走外部测试**（2026-08-14 定）。内部测试要求每位测试者持有 App Store Connect 用户身份，对异地的盲人测试者不现实 ⇒ 接受 Beta App Review 这道等待。
 - [ ] 🟡 记住构建 **90 天过期**，内测周期超过 90 天要重新上传。
 
 ### C2 法律与合规
 
-- [ ] 🔴 **隐私政策与用户协议正文写出来并挂到可访问 URL**。已实测 `GET /api/misc/legal-links` 线上返回 `{"privacyPolicyUrl": null, "userAgreementUrl": null}` —— iOS 侧入口（`LegalDocumentsView.swift`）**已经做好了，就等 URL**。这是 App Review 5.1.1 的硬阻塞，也是收集真实用户身份证号/轨迹的法律前提。**归后端/运营。**
+- [x] ~~🔴 **隐私政策与用户协议正文写出来并挂到可访问 URL**~~ → 已上线（`jayden23018.github.io/blindrun-legal/`，
+  v1.1 2026-09-10），`GET /api/misc/legal-links` 两个 URL 均非空、两页 200。（2026-09-27 核）
+  - ⚠️ 但**正文与 App 已不一致**：见 §C0 第二条（运动数据）。
+  - 🟡 github.io 在国内时常打不开，而测试者都在国内 —— 审核员能打开不代表用户能打开。
 - [x] ~~🔴 **iOS 端做账号注销入口**~~ → **本来就有，这条断言是错的**（2026-08-15 核实并订正）。
   盲人端 [`BlindRunnerSettingsView.swift:67`](../blindRun/BlindRunner/BlindRunnerSettingsView.swift)「删除账户」、
   志愿者端 [`VolunteerOrderFlowViews.swift:2071`](../blindRun/Volunteer/VolunteerOrderFlowViews.swift)，
@@ -155,8 +200,9 @@
   - 产出落在**后端仓库**的 `docs/review/`（那边还没有这个目录，等于顺手把 §13 那套约定也建起来）
 
 
-- [ ] 🔴 **后端上 HTTPS**。当前 `http://47.114.113.171` 是明文，Info.plist 挂着 ATS 例外（`NSExceptionAllowsInsecureHTTPLoads`）。走明文的是 JWT、身份证号、实时坐标、双方手机号 —— **给真实盲人用户使用前必须换掉**。这不是审核问题，是事故风险。**归后端。**
-- [ ] 🟡 HTTPS 就位后删掉 Info.plist 里的 `NSAppTransportSecurity` 例外块。
+- [x] ~~🔴 **后端上 HTTPS**~~ → 2026-09-08 起走 Let's Encrypt IP 证书（`AGENTS.md` §3）。
+  09-27 核：证书 notBefore 09-26 / notAfter 10-03，短期证书在自动续期。
+- [x] ~~🟡 HTTPS 就位后删掉 ATS 例外块~~ → 已删，Info.plist 无 `NSAppTransportSecurity`。（2026-09-27 核）
 - [ ] 🟡 确认阿里云短信账户余额与日发送配额够内测规模（当前限流：单号 60 秒 1 条、每日 5 条）。
 
 ---
@@ -225,6 +271,8 @@ scripts/install-git-hooks.sh
 - [ ] **视频的最终投放位置**是哪几个？官网首页 / 微信 / App Store 三选几？决定要导出几个版本。
 - [x] ~~内测是 TestFlight 还是线下陪同？~~ → **TestFlight 外部测试**（2026-08-14 定，异地，线下陪同不可行）。
 - [ ] **付费开发者账号选个人还是组织？** 组织账号要先办 D-U-N-S，周期以周计，会直接决定内测时间表。另注：本产品收集身份证号与实时轨迹并承诺人身安全，用**个人**账号上架、产品页显示个人姓名是否合适，值得和导师确认一次。
-- [ ] **隐私政策和用户协议谁来写？** 这是 §C2 的第一阻塞项，且不是代码工作。
-- [ ] **后端上 HTTPS 有没有排期？** 决定内测能不能用真实用户数据。
+- [x] ~~**隐私政策和用户协议谁来写？**~~ → 已写、已上线（v1.1，2026-09-10）；剩运动数据那处要改（§C0）。
+- [x] ~~**后端上 HTTPS 有没有排期？**~~ → 2026-09-08 已上线。
+- [ ] **最终 Bundle ID 用什么？** 建 App 记录后不可改，高德 key 与后端 `APNS_TOPIC` 都跟着它（§C1）。
+- [ ] **支持 iPad 吗？** 支持就意味着审核员可能在 iPad 上测（§C1）。
 - [ ] **有没有伦理审查要求？** 学校/导师侧若需要走 IRB 类流程，是另一条路径。

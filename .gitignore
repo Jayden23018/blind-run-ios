@@ -82,3 +82,6 @@ docs/ui/reference-screenshots/
 
 # macOS / 系统文件：Finder 每打开一次目录就写一个，与代码无关。
 .DS_Store
+
+# scripts/testflight-upload.sh 的 archive / 导出产物
+build/testflight/
