@@ -69,7 +69,7 @@
 |---|---|---|---|
 | 1 | **Issue 作为唯一的任务单位和认领锁**：规划会话先 `gh issue list` + `gh pr list --state open` 去重 → 每个任务建 issue → 再弹 chip，chip prompt 第一行写 `处理 #N`；干活的会话第一步 `gh issue view N` + `gh pr list --search N`，已有 PR 或看板 Status 已是 In Progress 就停下报告。PR 写 `Fixes #N`，合并时自动关 issue | 2、5 | 只改规则（全局 `CLAUDE.md` 一段） |
 | 2 | **SessionStart 注入在途清单**：`gh pr list --state open --json number,title,files`，加 3 秒超时，失败就跳过（原来不查是怕开场卡住，加超时就解决了）。后端也补一个 | 1、3 | 前后端各约 20 行 |
-| 3 | **`spawn_task` 挂 PreToolUse 钩子**：prompt 里没有 `#数字` 就拒绝，提示先去重并建 issue。把第 1 条规则变成机器检查（§1.1） | 2 | 约 15 行；⚠️ 桌面进程内 MCP 工具会不会走钩子**未验证**，要先试一次 |
+| 3 | **`spawn_task` 挂 PreToolUse 钩子**：prompt 里没有 `#数字` 就拒绝，提示先去重并建 issue。把第 1 条规则变成机器检查（§1.1） | 2 | 约 15 行；✅ 2026-09-28 实测桌面进程内的 `mcp__ccd_session__spawn_task` **会**走 PreToolUse，改 `settings.json` 后当场生效 |
 | 4 | **Stop 钩子补 PR 检查**：分支已推送、领先 main，但 `gh pr list --head <分支>` 为空 → 拦住，要求开 PR | 3 | 约 15 行 |
 | 5 | **开 PR 时直接打开 GitHub auto-merge（squash）**，CI 绿了自动合，「开了没合」这个状态就没了 | 1、5 | 仓库设置开 auto-merge + 分支保护必需检查；**要负责人拍板**，和「不要自己合并」那条规则冲突 |
 | 6 | **WIP 上限**：同一个仓库同时最多 3 个会话；规划时给每张卡标预计会改的目录，目录有重叠的合成一张或串行（卡里写「等 #N 合并后再开始」） | 4 | 只改习惯 |
@@ -83,6 +83,17 @@
 - **`worktree.baseRef: "head"`**：会把主 checkout 当前所在分支（它常停在别人的特性分支上）带进新 worktree，
   比现在更乱；而且未合并的 PR 分散在各个分支上，没有一个 HEAD 能把它们都装下。
 - **用 `WorktreeCreate` 钩子把在途 PR 合进基点**：等于把没审过的代码塞进每个新会话，冲突只会提前，不会消失。
+
+## 五、落地（2026-09-28，负责人批准当天）
+
+| # | 状态 | 落点 |
+|---|---|---|
+| 1、6、8 | ✅ 规则 | `~/.claude/CLAUDE.md`「任务追踪」节：认领前查在途 PR、弹卡前去重建 issue、卡片带 `#N`、目录重叠串行、WIP≤3、开工与开 PR 前 rebase |
+| 2、3、4 | ✅ 钩子 | 全局 `~/.claude/hooks/inflight.py`（session / spawn / stop 三个模式，一份脚本管前后端），注册在 `~/.claude/settings.json`；自测 `test-inflight.py` 通过，两处变异（Stop 永不拦、卡片永远放行）各自能让自测变红 |
+| 5 | ⛔ 未落地 | 自动模式的安全分类器把「开 auto-merge + 加分支保护」判为 CI Bypass 拦下，需负责人本人执行。另：后端是免费账号下的私有仓库，分支保护与 rulesets 均 403，**GitHub 原生 auto-merge 在后端不可用** |
+| 7 | 🟡 清单已出 | 前端 26 个 / 后端 15 个可安全删除（PR 已合或零提交，且工作区干净），等负责人确认。清单里发现一处重复实锤：未推送分支 `feat/guide-run-live-activity`（12 个独有提交）与开着的 #231 是同一功能 |
+
+放全局而不是分别放进两个仓库：前后端同病，一份脚本 + 一份自测就够；只认 origin，所以 `gh` 默认打到 upstream 的坑不影响它。
 
 ## 复核触发条件
 
