@@ -293,9 +293,11 @@ struct ContentView: View {
                 .accessibilityIdentifier("rootRoute.recoveryFailed")
             case .unauthenticated:
                 LoginView()
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("rootRoute.unauthenticated")
             case .roleSelection:
                 RoleSelectionView()
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("rootRoute.roleSelection")
             case .blindProfile:
                 // 兜底取 .identityPrompt：这条路由只在 step != nil 时进入，
@@ -304,22 +306,32 @@ struct ContentView: View {
                     step: appState.blindOnboardingStep ?? .identityPrompt,
                     onSkipIdentityPrompt: { appState.dismissBlindIdentityPrompt() }
                 )
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("rootRoute.blindProfile")
             case .blindHome:
                 // 2026-09-16 起这里是标签栏容器（首页 / 记录 / 我的），不再是裸的首页。
                 // identifier 逐字不变：`testRootHydrationMountsOnlyBlindHomeWithoutLoginOrProfileGhosts`
                 // 按它断言「只挂载了盲人首页」，而那条断言的语义没有变。
+                //
+                // 每条路由的 identifier 前面都要有 `.contain`：没有它，identifier 不是挂在一个
+                // 容器元素上，而是**向下覆盖**路由根里同一棵宿主树的元素 —— 标签栏上的
+                // `.overlay`（响铃遮罩 `runnerRingOverlay`）与邀请卡在真机层级里的 id
+                // 都曾变成 `rootRoute.*`（#239，记忆 `accessibility-identifier-overwrites-children`）。
+                // 新加路由照抄这两行。
                 BlindRunnerTabView()
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("rootRoute.blindHome")
             case .volunteerProfile:
                 NavigationStack {
                     VolunteerProfileView()
                 }
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("rootRoute.volunteerProfile")
             case .volunteerHome:
                 // 2026-09-17 起这里是标签栏容器（首页 / 记录 / 我的），不再是裸的首页。
                 // identifier 逐字不变：按它断言的用例语义没有变（盲人端 09-16 同样处理）。
                 VolunteerTabView()
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("rootRoute.volunteerHome")
             }
         }
@@ -332,6 +344,7 @@ struct ContentView: View {
             // 只有用户按下「同意并开始使用」才会翻面 —— 「看过这一页」不算同意。
             if !appState.didAcceptPrivacyConsent {
                 PrivacyConsentGateView()
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("rootRoute.privacyConsent")
             } else {
                 routedContent
