@@ -433,15 +433,20 @@ REMATCHING → CANCELLED（只能盲人 token）
 **这个仓库是共享 checkout**：前后端两个工作区都可能有同事在同时编辑，而 `.git` 整个是共用的
 （**index 和 HEAD 都是**，记忆 `shared-checkout-concurrent-colleague-edits`）。
 2026-08-16 因此把一笔编译不过的 WIP 推进了 PR，还改写掉了同事的一条提交，全程零报错。
-`scripts/hooks/shared-checkout-guard.mjs`（PreToolUse / Bash）拦三类，
-**当且仅当**它们会波及别人的东西 —— 自己分支上 amend、暂存区里全是自己写的文件，都放行。
+`scripts/hooks/shared-checkout-guard.mjs`（PreToolUse / Bash）拦四类，
+**当且仅当**它们会波及别人的东西或丢掉未提交的改动 —— 自己分支上 amend、暂存区里全是自己写的文件、
+还原一个干净的文件，都放行。
 
-落到日常写法上只有两条，记住这两条就不会撞它：
+落到日常写法上只有三条，记住这三条就不会撞它：
 
 1. **暂存永远带显式路径** —— 不写 `git add -A` / `git commit -a` / `git commit --amend` / `git stash`。
 2. **串联 git 命令永远用 `&&`，不用 `;`** —— 本仓库常年挂着十几二十个 worktree，
    `git checkout <被占着的分支>` **必然失败**，用 `;` 接的下一条会照常落在你当前分支上、零报错。
    腾开的办法：`git -C <占着它的 worktree> checkout --detach`。
+3. **用某个版本覆盖工作区之前，目标路径必须没有未提交改动** —— `git checkout [<rev>] -- <path>` /
+   `git checkout .` / `git restore` 不看工作区，覆盖掉就是真没了（工作区改动不进 reflog）。
+   先 commit，或 `cp` 备份后在命令前加 `AIDRUN_ALLOW_DISCARD=1 `。09-16、09-27 各丢过一次
+   （记忆 `red-check-on-an-uncommitted-baseline-destroys-the-work`）。
 
 > 三条判据各自为什么长这样、两次误报怎么修的，写在两个钩子文件自己的头注释里
 > （改它们的人才需要）。自测 `scripts/validate-stop-checklist.mjs` 与

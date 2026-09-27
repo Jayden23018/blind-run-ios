@@ -24,11 +24,25 @@
 //   ③ unguarded-checkout-chain —— `git checkout <被别的 worktree 占着的分支>` 后面用
 //      `;` / 换行接了会改状态的 git 命令。**同一个仓库不能在两个 worktree 里检出同一条分支**，
 //      所以那条 checkout 是**必然失败**的，而后面那条会照常执行、落在你**当前**这条分支上。
+//   ④ discard-uncommitted —— `git checkout [<rev>] -- <paths>` / `git checkout .` /
+//      `git restore [--source=<rev>] <paths>` 用某个版本覆盖工作区，而目标路径**此刻有未提交改动**。
+//      工作区改动从不进 reflog，覆盖掉就是真没了，且零报错。
 //
 // 两条都只在「确实会波及别人的东西」时才响：在自己开的分支上 amend、暂存区里全是自己写的
 // 文件，都放行。**做成会误报的守卫等于把守卫废掉**，而且不会有任何东西提示它已经废了。
 //
-// 拿不到 transcript 时一律放行 —— 与 stop-checklist 同口径：与其每轮误报，不如少拦一次。
+// 拿不到 transcript 时 ① ② 放行 —— 与 stop-checklist 同口径：与其每轮误报，不如少拦一次。
+// ③ ④ 只看仓库状态，不需要 transcript。
+//
+// ── ④ discard-uncommitted 的判据（2026-09-27 立）──
+//   同一类事故两次（记忆 `red-check-on-an-uncommitted-baseline-destroys-the-work`）：
+//   09-16 验红后 `git checkout -- <file>` 还原，118 行未提交实现一起回到 HEAD；
+//   09-27（PR #241）`git checkout HEAD~1 -- BlindBookingView.swift` 跑基线，覆盖掉 25 行未提交修复。
+//   判据是「目标路径 `git status --porcelain` 有非 `??` 行」—— 不是「本轮写没写过」：
+//   共享 checkout 里同事的未提交改动被覆盖一样是真丢。路径干净时放行（日常合法用法）。
+//   `git checkout <branch>`（无 `--`、唯一参数是个 rev）是切分支，不归这条管。
+//   已经 `cp` 备份过、或确实要丢：命令前加 `AIDRUN_ALLOW_DISCARD=1 `（带前缀的子命令不以 `git` 开头，
+//   本守卫整条放行 —— 用例钉住，别在 subCommands 里剥环境变量前缀）。
 //
 // ── ① rewrite-foreign-history 的两条判据为什么长这样（2026-08-24 各修过一次误报）──
 // 2026-09-17 从 AGENTS.md §10 搬来：改这个文件的人需要它，每个会话常驻不需要。
@@ -217,11 +231,59 @@ function mutatingGit(cmd) {
 // `git -C <path>` 只影响它自己那一条，不改后续子命令的工作目录。
 function targetRepo(cmd, cwd) {
   if (!/^git(\s|$)/.test(cmd)) return null;
+  return repoRoot(commandDir(cmd, cwd));
+}
+
+// 这条 git 子命令的工作目录（`-C` 优先）。命令里的相对路径按它解析。
+function commandDir(cmd, cwd) {
   let { at } = parseGit(cmd);
-  if (!at) return repoRoot(cwd);
+  if (!at) return cwd;
   at = at.replace(/^(['"])(.*)\1$/, '$2');
   if (/[$`*?]/.test(at)) return null;
-  return repoRoot(path.resolve(cwd || '/', at.replace(/^~(?=\/|$)/, os.homedir())));
+  return path.resolve(cwd || '/', at.replace(/^~(?=\/|$)/, os.homedir()));
+}
+
+// ── 判据 ④：这条命令会用某个版本覆盖工作区里的哪些路径 ──
+//
+// 返回路径列表（相对 commandDir），不是这类命令返回 null。
+//   - `checkout … -- <paths>`：`--` 之后都是路径。
+//   - `checkout <x> [<paths>]`（无 `--`）：只有一个参数且它是个 rev ⇒ 切分支，放行；
+//     第一个参数是 rev ⇒ 其余是路径；否则全是路径（`git checkout .`）。
+//   - `restore`：只带 `--staged` 不带 `--worktree` 的只动 index，放行。
+// 刻意不管：`-b/-B/--orphan`（新建分支）、`--ours/--theirs`（解冲突的常规步骤）、
+// `-p`（交互式，每块都会问）、`--pathspec-from-file`（读不到内容）。
+// ponytail: 按空白切参数，带空格的路径会切碎 ⇒ status 查不到 ⇒ 放行。本仓库没有带空格的源文件。
+function discardTargets(cmd, dir) {
+  if (!/^git\s/.test(cmd)) return null;
+  const { args } = parseGit(cmd);
+  const sub = args[0];
+  if (sub !== 'checkout' && sub !== 'restore') return null;
+  const rest = args.slice(1);
+  const skip = ['-b', '-B', '--orphan', '--ours', '--theirs', '-p', '--patch'];
+  if (rest.some((a) => skip.includes(a) || a.startsWith('--pathspec-from-file'))) return null;
+
+  const dash = rest.indexOf('--');
+  const before = dash === -1 ? rest : rest.slice(0, dash);
+  const after = dash === -1 ? [] : rest.slice(dash + 1);
+  const unquote = (a) => a.replace(/^(['"])(.*)\1$/, '$2');
+
+  if (sub === 'restore') {
+    const staged = before.some((a) => a === '-S' || a === '--staged');
+    const worktree = before.some((a) => a === '-W' || a === '--worktree');
+    if (staged && !worktree) return null;
+    // `-s <tree>` / `--source <tree>` 的值不是路径。
+    const positional = before.filter(
+      (a, i) => !a.startsWith('-') && !['-s', '--source'].includes(before[i - 1])
+    );
+    return [...positional, ...after].map(unquote);
+  }
+
+  const positional = before.filter((a) => !a.startsWith('-'));
+  if (dash !== -1) return after.map(unquote);
+  if (positional.length === 0) return null;
+  const isRev = (r) => git(dir, 'rev-parse', '--verify', '--quiet', `${r}^{commit}`).length > 0;
+  if (isRev(positional[0])) return positional.length === 1 ? null : positional.slice(1).map(unquote);
+  return positional.map(unquote);
 }
 
 // 这条子命令会隐式暂存吗？返回 null = 不会；否则返回它会波及的文件集合的取法。
@@ -392,11 +454,10 @@ function main() {
   const command = payload.tool_input?.command;
   if (typeof command !== 'string' || !command.trim()) process.exit(0);
 
-  // 本轮跑过的命令。null = 读不到 transcript ⇒ 放行（宁可漏拦，不要每轮误报）。
+  // 本轮跑过的命令。null = 读不到 transcript ⇒ 判据 ① 放行（宁可漏拦，不要每轮误报）。
   const commands = sessionBashCommands(payload.transcript_path);
-  if (commands === null) process.exit(0);
   const startedAt = sessionStartedAt(payload.transcript_path);
-  const known = sessionBranches(commands);
+  const known = sessionBranches(commands || []);
 
   // 起点是钩子拿到的工作目录（Bash 工具的 cwd 跨调用保留，可能早就不是仓库根了）。
   let cwd = typeof payload.cwd === 'string' && payload.cwd.trim() ? payload.cwd : REPO;
@@ -455,8 +516,33 @@ function main() {
     if (!repo) continue;
     const elsewhere = repo === REPO ? '' : `（目标仓库：${repo}）`;
 
+    // ── 判据 ④：用某个版本覆盖工作区，而目标路径有未提交改动 ──
+    const dir = commandDir(cmd, cwd);
+    const targets = discardTargets(cmd, dir);
+    if (targets?.length && !targets.some((p) => /[$`]/.test(p))) {
+      const dirty = git(dir, 'status', '--porcelain', '--', ...targets).filter(
+        (l) => !l.startsWith('??')
+      );
+      if (dirty.length) {
+        process.stderr.write(
+          `[guard: discard-uncommitted] ${cmd}${elsewhere}\n\n` +
+            `这条命令会用某个版本**覆盖工作区**，而下面这些路径此刻有未提交改动：\n` +
+            dirty.map((l) => `  ${l}`).join('\n') +
+            `\n\n工作区改动从不进 reflog —— 覆盖掉就是真没了，而且零报错。\n` +
+            `09-16 验红后 \`git checkout -- <file>\` 清掉 118 行未提交实现；\n` +
+            `09-27 \`git checkout HEAD~1 -- <file>\` 跑基线，覆盖掉 25 行未提交修复。\n` +
+            `这是共享 checkout，改动也可能是同事的。\n\n` +
+            `先保住它们，挑一条：\n` +
+            `  · \`git add <显式路径> && git commit -m "wip: …"\`（之后 checkout 回的正是这个点）\n` +
+            `  · \`cp <file> /tmp/<file>.bak\`，事后用 cp 还原而不是 git\n` +
+            `已经备份过、或确实要丢掉这些改动：命令前加 \`AIDRUN_ALLOW_DISCARD=1 \` 放行。`
+        );
+        process.exit(2);
+      }
+    }
+
     // ── 判据 ①：改写历史前，先确认这条分支/提交是不是自己的 ──
-    if (rewritesHistory(cmd)) {
+    if (commands && rewritesHistory(cmd)) {
       const branch = git(repo, 'rev-parse', '--abbrev-ref', 'HEAD')[0] || '';
       if (
         !known.has(branch) &&

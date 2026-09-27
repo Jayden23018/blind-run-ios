@@ -111,6 +111,34 @@ function heldBranchRepo() {
   return { dir, g };
 }
 
+// 判据 ④ 的靶子：两条提交（有 HEAD~1 可回），`seed.txt` 有未提交改动，`clean.txt` 干净。
+function dirtyRepo() {
+  const { dir, g } = scratchRepo();
+  fs.writeFileSync(path.join(dir, 'clean.txt'), 'v1\n');
+  g('add', 'clean.txt');
+  g('commit', '-qm', 'second');
+  fs.writeFileSync(path.join(dir, 'seed.txt'), 'seed\n118 行未提交的实现\n');
+  return { dir, g };
+}
+
+function discardCase(name, command, expect, { transcript = true, prep, cwd } = {}) {
+  return {
+    name,
+    build: () => {
+      const { dir, g } = dirtyRepo();
+      prep?.(dir, g);
+      return {
+        command: command.replaceAll('<dir>', dir),
+        repo: dir,
+        transcriptPath: transcript ? writeTranscript(dir) : '',
+        ...(cwd ? { cwd } : {}),
+        ...(expect === BLOCKED ? { stderrIncludes: 'discard-uncommitted' } : {}),
+      };
+    },
+    expect,
+  };
+}
+
 const OWN_SESSION = { edited: ['mine.txt'], ran: ['git checkout -b fix/my-own-work'] };
 
 const FOREIGN_BRANCH = 'fix/api-client-missing-token-guard';
@@ -626,6 +654,62 @@ const cases = [
     },
     expect: ALLOWED,
   },
+
+  // ── 判据 ④：用某个版本覆盖工作区，而目标路径有未提交改动 ──
+  //
+  // 09-16：验红后 `git checkout -- <file>` 还原，118 行未提交实现回到 HEAD。
+  // 09-27（PR #241）：`git checkout HEAD~1 -- <file>` 跑基线，25 行未提交修复被覆盖。两次零报错。
+  discardCase('⭐ 事故 09-16：`git checkout -- <有改动的文件>` → 拦', 'git checkout -- seed.txt', BLOCKED),
+  discardCase('⭐ 事故 09-27：`git checkout HEAD~1 -- <有改动的文件>` → 拦', 'git checkout HEAD~1 -- seed.txt', BLOCKED),
+  discardCase('`git checkout HEAD~1 seed.txt`（无 `--`，rev + 路径）→ 拦', 'git checkout HEAD~1 seed.txt', BLOCKED),
+  discardCase('`git checkout .` 且工作区有改动 → 拦', 'git checkout .', BLOCKED),
+  discardCase('`git restore <有改动的文件>` → 拦', 'git restore seed.txt', BLOCKED),
+  discardCase('`git restore --source=HEAD~1 <有改动的文件>` → 拦', 'git restore --source=HEAD~1 seed.txt', BLOCKED),
+  discardCase('`git restore -s HEAD~1 <有改动的文件>`（值与选项分开写）→ 拦', 'git restore -s HEAD~1 seed.txt', BLOCKED),
+  discardCase(
+    '⭐ `&&` 串联：`cp … && git checkout HEAD~1 -- <有改动的文件> && …` → 拦',
+    'cp seed.txt /tmp/x.bak && git checkout HEAD~1 -- seed.txt && git diff --stat',
+    BLOCKED
+  ),
+  discardCase(
+    '`cd <仓库> && git checkout -- <有改动的文件>`（相对路径按 cd 之后的目录解析）→ 拦',
+    'cd <dir> && git checkout -- seed.txt',
+    BLOCKED,
+    { cwd: os.tmpdir() } // 钩子起点不在仓库里：不跟 cd 就判不到目标仓库
+  ),
+  discardCase('拿不到 transcript 也照拦（④ 只看仓库状态）', 'git checkout -- seed.txt', BLOCKED, { transcript: false }),
+  discardCase(
+    '⭐ 反向哨兵：目标路径干净（改动在别的文件上）→ 放行',
+    // 判据必须按目标路径查 status，不是看整个工作区脏不脏 —— 否则日常还原一个干净文件也被拦。
+    'git checkout HEAD~1 -- clean.txt',
+    ALLOWED
+  ),
+  discardCase(
+    '⭐ 切分支 `git checkout <branch>`（无 `--`）→ 放行，哪怕分支名撞上一个有改动的目录',
+    // 分支名要撞上脏路径才分得出「认了切分支」与「当路径查 status」：
+    // 用 `feat/other` 这种不存在的路径，两种实现都查不到改动、都放行，验红时这条恒绿。
+    'git checkout docs',
+    ALLOWED,
+    {
+      prep: (dir, g) => {
+        fs.mkdirSync(path.join(dir, 'docs'));
+        fs.writeFileSync(path.join(dir, 'docs/a.md'), 'v1\n');
+        g('add', 'docs/a.md');
+        g('commit', '-qm', 'docs');
+        g('branch', 'docs');
+        fs.writeFileSync(path.join(dir, 'docs/a.md'), 'v2 未提交\n');
+      },
+    }
+  ),
+  discardCase('`git restore --staged <文件>`（只动 index）→ 放行', 'git restore --staged seed.txt', ALLOWED),
+  discardCase(
+    '只有未跟踪文件时 `git checkout .` → 放行（checkout 不碰未跟踪文件）',
+    'git checkout .',
+    ALLOWED,
+    { prep: (dir, g) => { g('checkout', '--', 'seed.txt'); fs.writeFileSync(path.join(dir, 'new.txt'), 'x\n'); } }
+  ),
+  discardCase('`AIDRUN_ALLOW_DISCARD=1` 前缀 → 放行（已备份 / 确实要丢）', 'AIDRUN_ALLOW_DISCARD=1 git checkout -- seed.txt', ALLOWED),
+  discardCase('`git checkout --ours -- <文件>`（解冲突的常规步骤）→ 放行', 'git checkout --ours -- seed.txt', ALLOWED),
 ];
 
 let failed = 0;
