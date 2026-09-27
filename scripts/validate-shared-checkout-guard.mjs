@@ -111,14 +111,12 @@ function heldBranchRepo() {
   return { dir, g };
 }
 
-// 判据 ④ 的靶子：两条提交（有 HEAD~1 可回），`seed.txt` 有未提交改动，`clean.txt` 干净，
-// 另有一条可切的分支 `feat/other`。
+// 判据 ④ 的靶子：两条提交（有 HEAD~1 可回），`seed.txt` 有未提交改动，`clean.txt` 干净。
 function dirtyRepo() {
   const { dir, g } = scratchRepo();
   fs.writeFileSync(path.join(dir, 'clean.txt'), 'v1\n');
   g('add', 'clean.txt');
   g('commit', '-qm', 'second');
-  g('branch', 'feat/other');
   fs.writeFileSync(path.join(dir, 'seed.txt'), 'seed\n118 行未提交的实现\n');
   return { dir, g };
 }
@@ -686,7 +684,23 @@ const cases = [
     'git checkout HEAD~1 -- clean.txt',
     ALLOWED
   ),
-  discardCase('⭐ 切分支 `git checkout <branch>`（无 `--`）→ 放行，哪怕工作区有改动', 'git checkout feat/other', ALLOWED),
+  discardCase(
+    '⭐ 切分支 `git checkout <branch>`（无 `--`）→ 放行，哪怕分支名撞上一个有改动的目录',
+    // 分支名要撞上脏路径才分得出「认了切分支」与「当路径查 status」：
+    // 用 `feat/other` 这种不存在的路径，两种实现都查不到改动、都放行，验红时这条恒绿。
+    'git checkout docs',
+    ALLOWED,
+    {
+      prep: (dir, g) => {
+        fs.mkdirSync(path.join(dir, 'docs'));
+        fs.writeFileSync(path.join(dir, 'docs/a.md'), 'v1\n');
+        g('add', 'docs/a.md');
+        g('commit', '-qm', 'docs');
+        g('branch', 'docs');
+        fs.writeFileSync(path.join(dir, 'docs/a.md'), 'v2 未提交\n');
+      },
+    }
+  ),
   discardCase('`git restore --staged <文件>`（只动 index）→ 放行', 'git restore --staged seed.txt', ALLOWED),
   discardCase(
     '只有未跟踪文件时 `git checkout .` → 放行（checkout 不碰未跟踪文件）',
