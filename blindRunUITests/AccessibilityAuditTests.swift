@@ -432,8 +432,8 @@ final class AccessibilityAuditTests: XCTestCase {
     /// ⚠️ 这条用例跑的时候手机**真的会响** —— 声音大小与循环只能人耳判断，断言管不到。
     @MainActor
     func testRunnerRingOverlayHidesTheTabsAndStopsOnTap() throws {
-        let app = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_RUNNER_RING": "1"])
-        let overlay = app.descendants(matching: .any)["runnerRingOverlay"].firstMatch
+        let app = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_RUNNER_RING": "1"], tapsAfterLaunch: false)
+        let overlay = runnerRingOverlay(app)
         XCTAssertTrue(overlay.waitForExistence(timeout: 20), "注入了 RUNNER_RING，遮罩没出来")
         XCTAssertFalse(app.tabBars.firstMatch.exists, "遮罩期间标签栏还在读屏树里 —— 读屏用户会划到背后去")
 
@@ -442,11 +442,20 @@ final class AccessibilityAuditTests: XCTestCase {
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5), "停铃后标签栏没回来")
     }
 
+    /// 响铃遮罩。**按 label 查，不按 `runnerRingOverlay`** —— 那个 identifier 被外层
+    /// `ContentView` 的 `rootRoute.blindHome` 覆盖了：09-27 真机遮罩在场时的层级里，
+    /// 这个元素是 `Button, identifier: 'rootRoute.blindHome', label: '你的陪跑员到了…'`
+    /// （记忆 `accessibility-identifier-overwrites-children`）。App 侧修好后可以换回 identifier。
+    private func runnerRingOverlay(_ app: XCUIApplication) -> XCUIElement {
+        // 逐字对应 `RunnerRingCopy.accessibilityLabel`。
+        app.buttons["你的陪跑员到了，手机正在响。停止响铃"].firstMatch
+    }
+
     /// 不碰它也会在 `until`（注入的是 10 秒后）自己停。
     @MainActor
     func testRunnerRingOverlayEndsOnItsOwnAtUntil() throws {
-        let app = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_RUNNER_RING": "1"])
-        let overlay = app.descendants(matching: .any)["runnerRingOverlay"].firstMatch
+        let app = launchBlindHome(extraEnvironment: ["AIDRUN_UI_TEST_RUNNER_RING": "1"], tapsAfterLaunch: false)
+        let overlay = runnerRingOverlay(app)
         XCTAssertTrue(overlay.waitForExistence(timeout: 20), "注入了 RUNNER_RING，遮罩没出来")
         XCTAssertTrue(overlay.waitForNonExistence(timeout: 20), "过了 until 还在响")
     }
@@ -1797,7 +1806,8 @@ final class AccessibilityAuditTests: XCTestCase {
         forcingFirstRunHelp: Bool = false,
         seedOrderStatus: String? = nil,
         extraEnvironment: [String: String] = [:],
-        extraArguments: [String] = []
+        extraArguments: [String] = [],
+        tapsAfterLaunch: Bool = true
     ) -> XCUIApplication {
         let app = XCUIApplication()
         addTeardownBlock {
@@ -1846,6 +1856,9 @@ final class AccessibilityAuditTests: XCTestCase {
         }
 
         app.launch()
+        // 「点任意处即停」的全屏遮罩（响铃 `RunnerRingOverlay`）会被下面这一下按停 ——
+        // 表现是「遮罩没出来」，其实它出现过约 1 秒（`ui-test-red-triage-20260927.md` #10 #11）。
+        guard tapsAfterLaunch else { return app }
         // 触发一次 interruption monitor，否则弹窗要等下一次交互才被处理。
         //
         // **不能用 `app.tap()`** —— 它敲的是屏幕正中，而首页正中现在是「开始约跑」，
