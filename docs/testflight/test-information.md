@@ -15,7 +15,7 @@
 | 联系人姓名 / 电话 / 邮箱、Feedback Email | ⏳ 负责人定 |
 | 时区问题 | 🔴 客户端把下单时间按**设备时区**写成无时区字符串，后端按 `Asia/Shanghai` 解释（见 §4 第 1 条，跟踪 [#236](https://github.com/Jayden23018/blind-run-ios/issues/236)）。修好之前，§2.2 里「把设备时区切到北京」那一段**必须保留** |
 | 开跑同意闸 | 🔴 跑者端没有确认开始的按钮，陪跑员只能在开跑 + 15 分钟后开始（§4 第 5 条）。补上之前，§2.2 第 6 步与 §3 的等待段**必须保留** |
-| iPad | ⚠️ `TARGETED_DEVICE_FAMILY = "1,2"`，要不要支持未定（review §3 ⑦）。定为只支持 iPhone 后删掉备注里无关的话即可，目前备注没提 iPad |
+| iPad | 已定只支持 iPhone（2026-09-30，`TARGETED_DEVICE_FAMILY = 1`）。备注没提 iPad，不用改 |
 
 ## 1. Beta App Description
 
