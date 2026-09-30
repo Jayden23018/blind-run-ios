@@ -7,7 +7,7 @@
 ## 2. 测试
 
 - [x] 2.1 `VolunteerProfileFirstScreenTests`：向下取整 / 回落次数 / 新人无视里程 / 读屏文案 / 解码有值与缺字段
-- [ ] 2.2 真机跑 `VolunteerProfileFirstScreenTests` 与 `IncentiveServiceTests`，并验红
+- [x] 2.2 真机跑 `VolunteerProfileFirstScreenTests` + `IncentiveServiceTests` + `VolunteerAchievementsTests`：60 passed 0 failed；验红：改成四舍五入 + 去掉回落，首屏 suite 24 条里 4 条变红；生产文件字面回退 main 则测试编译失败
 
 ## 3. 文档
 
