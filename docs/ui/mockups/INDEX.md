@@ -23,7 +23,7 @@ Claude Design 官方自认「没有版本历史」（[support.claude.com 原文]
 |---|---|---|---|---|---|---|
 | 陪跑员端 首页·准入·邀请卡 | `volunteer-home-accept-v3/` | Current | 其中「订单页」一节被下一行取代 | 包内 `陪跑员端首页与接单-设计交付文档-v3.md`；视觉基准 `storyboard-v3.html` | `VolunteerHomeView.swift` `VolunteerTabView.swift` `VolunteerInviteSheet.swift` `VolunteerInviteQueue.swift` | 已落地：#154 #157 #159 #161。未逐屏对照 |
 | 陪跑员订单页 **v1**（邀请→约好→出发→汇合→完成） | `volunteer-order-page-v1/` | Superseded | 被 v2 取代 | — | 同下一行 | v1 已实现：#212 #216。⚠️ 这两条提交标题里的「订单页 v2」是**后端说明文件名**（`volunteer-order-page-v2-ios-handoff.md`），不是交付包 v2 —— 两套编号别混 |
-| 陪跑员订单页 **v2** | `volunteer-order-page-v2/` | Current | 取代 v1；包内 `CHANGELOG-v1-to-v2.md` 逐项列差异 | **`DECISIONS-v2.md`**（V1–V18，负责人 09-26 逐条确认）＞ 包内其余 ＞ v3 规格 PDF ＞ 画板 px 值（见其 `README.md` 优先级）。设计画布在外部：`https://claude.ai/artifact/C9MMGSpVz9NtThjckXkUDV`，**不在仓库、不可版本化** | `VolunteerOrderFlowStep.swift` `VolunteerOrderFlowViews.swift` `VolunteerOrderFlowPage.swift` | 已落地：#229（FE-1）#232（FE-3）。**偏差**：① V13 要求「实现者同 PR 改 `design-direction.md`」，而 `docs/ui/design-direction.md:142` 仍写「不新增强调色」→ **文档要改**；② 后端依赖 BE-1/BE-2 的进度未核；未逐屏对照 |
+| 陪跑员订单页 **v2** | `volunteer-order-page-v2/` | Current | 取代 v1；包内 `CHANGELOG-v1-to-v2.md` 逐项列差异 | **`DECISIONS-v2.md`**（V1–V18，负责人 09-26 逐条确认）＞ 包内其余 ＞ v3 规格 PDF ＞ 画板 px 值（见其 `README.md` 优先级）。设计画布在外部：`https://claude.ai/artifact/C9MMGSpVz9NtThjckXkUDV`，**不在仓库、不可版本化** | `VolunteerOrderFlowStep.swift` `VolunteerOrderFlowViews.swift` `VolunteerOrderFlowPage.swift` | 已落地：#229（FE-1）#232（FE-3）。**偏差**：① V13 状态色已同步进 `docs/ui/design-direction.md`（§2 例外段、§6.1 表末行）；② 后端依赖 BE-1/BE-2 的进度未核；未逐屏对照 |
 | 陪跑员 **跑步中** | `volunteer-order-page-v2/08-running.md` + `reference/artboards/Run*.dc.html`；另见 `running-state/状态清单.md` 第 10–15 屏 | **待确认** | — | 见下方「冲突 1」 | `VolunteerOrderFlowPage.swift`（`VolunteerRunningPage`，:687）、`VolunteerOrderFlowViews.swift`（`VolunteerInServiceView`） | 三份材料互相矛盾，代码按其中一份做了。落地：#227（独立页，归档 OpenSpec `restyle-volunteer-running-page-v2`）+ #232（节奏/暂停/提示条）。**有意偏离画布**：头卡用藏青不用青绿（负责人 09-26 选定）、保留返回箭头、不标折返、无地图 |
 | 盲人端 首页 + 单页订单流程 | `blind-order-flow/`（含 `PROMPT.md`） | Current | — | 包内 `PROMPT.md`；`design-reference/order-flow/home.html` 的数值为准 | `BlindRunnerHomeView.swift` `BlindOrderFlowView.swift` `BlindOrderFlowStep.swift` | 已落地：#141。**代码与文档里写的 `design-reference/order-flow/` 即 `docs/ui/mockups/blind-order-flow/design-reference/order-flow/`**（AGENTS.md:274、`docs/05-page-specs.md:177`、3 处 Swift 注释、2 处 UI 测试都用旧写法，此前仓库里没有这个目录）。未逐屏对照 |
 | 盲人端 跑步中·异常与求助中心·深色·AX5（23 屏） | `running-state/`；另有 `blind-active-run-20260915/`（仅实现 prompt，设计规格在 `docs/research/blind-runner-ui-reference-study-20260915.md` §27–29） | Current（参考） | 两目录的先后关系**未核实** | 包内 `README.md`（其中「与现有实现的差异」一节）；README 自述**替换** `BlindActiveRunView` 内容区 | `BlindActiveRunView.swift` `SafetyHubView.swift` | 实现程度**未核**（README 说「跑步中不是新页面，而是订单页原地变形」，代码是否照此做未看）。未逐屏对照 |
@@ -43,8 +43,6 @@ Claude Design 官方自认「没有版本历史」（[support.claude.com 原文]
 | 主线现状 | #227（09-27）已把跑步中换成独立新页（藏青头卡、右上求助胶囊、白色次要按钮长按结束），#232 再加节奏/暂停/提示条 |
 
 **核实过的时间线**：V4 的审计基线是 `a8e77d4`（2026-09-26），它是 #227 的祖先提交 —— **V4 写于 #227 之前**，「布局不动」描述的是被 #227 换掉的旧页。所以 V4 与主线现状不一致，但**是不是该修订 V4、还是 #227 越过了决定，这是项目负责人的判断**，本索引不裁决。
-
-**冲突 2 · 设计方向与状态色**：`DECISIONS-v2.md` V13 允许头卡与锁屏卡新增状态色，并要求同 PR 改 `../design-direction.md`；后者第 142 行仍写「不新增强调色」，第 88 行门槛也未提状态色。→ 文档要改（另开 PR，本 PR 不动方向文档）。
 
 ## 未入库（原件仍在 `~/Downloads`，本索引不删任何原件）
 
