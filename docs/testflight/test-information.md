@@ -13,7 +13,7 @@
 | 审核专用账号（盲人 + 陪跑员各一） | ⏳ 等后端 [blind-run-backend#454](https://github.com/Jayden23018/blind-run-backend/issues/454)。答复后填 §2.3 |
 | 录屏链接 | ⏳ 按 §3 录完上传后替换 §2.2 里的 `<VIDEO_URL>` |
 | 联系人姓名 / 电话 / 邮箱、Feedback Email | ⏳ 负责人定 |
-| 时区问题 | 🔴 客户端把下单时间按**设备时区**写成无时区字符串，后端按 `Asia/Shanghai` 解释（见 §4 第 1 条，跟踪 [#236](https://github.com/Jayden23018/blind-run-ios/issues/236)）。修好之前，§2.2 里「把设备时区切到北京」那一段**必须保留** |
+| 时区问题 | 🟡 代码已修（formatter 固定按 `Asia/Shanghai` 生成与解析，见 §4 第 1 条，跟踪 [#236](https://github.com/Jayden23018/blind-run-ios/issues/236)），**但要等含该修复的构建上传后才对审核员生效**。在那之前，§2.2 里「把设备时区切到北京」那一段**仍要保留**；新构建上传并验过后可删 |
 | 开跑同意闸 | 🔴 跑者端没有确认开始的按钮，陪跑员只能在开跑 + 15 分钟后开始（§4 第 5 条）。补上之前，§2.2 第 6 步与 §3 的等待段**必须保留** |
 | iPad | 已定只支持 iPhone（2026-09-30，`TARGETED_DEVICE_FAMILY = 1`）。备注没提 iPad，不用改 |
 
@@ -181,9 +181,11 @@ The help (SOS) button only sends an alert while a run is in progress. The alert 
 
 1. **时区**：`BlindBookingView.makeCreateOrderRequest`（`blindRun/BlindRunner/BlindBookingView.swift:930`）用
    `DateFormatter.aidRunBackendLocalDateTime`（`blindRun/Core/Models/OrderDisplayHelpers.swift:1084`）格式化，
-   该 formatter **没设 `timeZone`** ⇒ 用设备时区；后端把无偏移的本地时间按 `Asia/Shanghai` 解释
+   该 formatter 原先**没设 `timeZone`** ⇒ 用设备时区；后端把无偏移的本地时间按 `Asia/Shanghai` 解释
    （后端 `DemoApplication.java:51`，契约 `OpenApiConfig` 时间约定）。美西设备比北京慢 15 小时，
-   选「40 分钟后」在后端看来是十几小时前 ⇒ 400。切设备时区到北京后两边一致。
+   选「40 分钟后」在后端看来是十几小时前 ⇒ 400。**已修（#236）**：formatter 现在固定 `Asia/Shanghai`，
+   夜间窗口也按北京钟点判，用例见 `blindRunTests/BackendTimeZoneTests.swift`。含此修复的构建上传前，
+   仍靠「切设备时区到北京」规避。
 2. **下单限制**（契约 `POST /api/orders` 描述，`docs/api_spec.yaml` 约 1420–1440 行）：≥ 30 分钟后、≤ 7 天、
    时长 ≤ 300 分钟、整段不碰 `[22:00, 05:00)`、最多 3 张未完成、与已有单时段冲突拒绝；
    跑者须已实名且至少 1 个紧急联系人。
