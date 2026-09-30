@@ -23,26 +23,17 @@ Claude Design 官方自认「没有版本历史」（[support.claude.com 原文]
 |---|---|---|---|---|---|---|
 | 陪跑员端 首页·准入·邀请卡 | `volunteer-home-accept-v3/` | Current | 其中「订单页」一节被下一行取代 | 包内 `陪跑员端首页与接单-设计交付文档-v3.md`；视觉基准 `storyboard-v3.html` | `VolunteerHomeView.swift` `VolunteerTabView.swift` `VolunteerInviteSheet.swift` `VolunteerInviteQueue.swift` | 已落地：#154 #157 #159 #161。未逐屏对照 |
 | 陪跑员订单页 **v1**（邀请→约好→出发→汇合→完成） | `volunteer-order-page-v1/` | Superseded | 被 v2 取代 | — | 同下一行 | v1 已实现：#212 #216。⚠️ 这两条提交标题里的「订单页 v2」是**后端说明文件名**（`volunteer-order-page-v2-ios-handoff.md`），不是交付包 v2 —— 两套编号别混 |
-| 陪跑员订单页 **v2** | `volunteer-order-page-v2/` | Current | 取代 v1；包内 `CHANGELOG-v1-to-v2.md` 逐项列差异 | **`DECISIONS-v2.md`**（V1–V18，负责人 09-26 逐条确认）＞ 包内其余 ＞ v3 规格 PDF ＞ 画板 px 值（见其 `README.md` 优先级）。设计画布在外部：`https://claude.ai/artifact/C9MMGSpVz9NtThjckXkUDV`，**不在仓库、不可版本化** | `VolunteerOrderFlowStep.swift` `VolunteerOrderFlowViews.swift` `VolunteerOrderFlowPage.swift` | 已落地：#229（FE-1）#232（FE-3）。**偏差**：① V13 状态色已同步进 `docs/ui/design-direction.md`（§2 例外段、§6.1 表末行）；② 后端依赖 BE-1/BE-2 的进度未核；未逐屏对照 |
-| 陪跑员 **跑步中** | `volunteer-order-page-v2/08-running.md` + `reference/artboards/Run*.dc.html`；另见 `running-state/状态清单.md` 第 10–15 屏 | **待确认** | — | 见下方「冲突 1」 | `VolunteerOrderFlowPage.swift`（`VolunteerRunningPage`，:687）、`VolunteerOrderFlowViews.swift`（`VolunteerInServiceView`） | 三份材料互相矛盾，代码按其中一份做了。落地：#227（独立页，归档 OpenSpec `restyle-volunteer-running-page-v2`）+ #232（节奏/暂停/提示条）。**有意偏离画布**：头卡用藏青不用青绿（负责人 09-26 选定）、保留返回箭头、不标折返、无地图 |
+| 陪跑员订单页 **v2** | `volunteer-order-page-v2/` | Current | 取代 v1；包内 `CHANGELOG-v1-to-v2.md` 逐项列差异 | **`DECISIONS-v2.md`**（V1–V19，负责人 09-26 逐条确认，V19 为 09-30）＞ 包内其余 ＞ v3 规格 PDF ＞ 画板 px 值（见其 `README.md` 优先级）。设计画布在外部：`https://claude.ai/artifact/C9MMGSpVz9NtThjckXkUDV`，**不在仓库、不可版本化** | `VolunteerOrderFlowStep.swift` `VolunteerOrderFlowViews.swift` `VolunteerOrderFlowPage.swift` | 已落地：#229（FE-1）#232（FE-3）。**偏差**：① V13 状态色已同步进 `docs/ui/design-direction.md`（§2 例外段、§6.1 表末行）；② 后端依赖 BE-1/BE-2 的进度未核；未逐屏对照 |
+| 陪跑员 **跑步中** | `volunteer-order-page-v2/08-running.md` + `reference/artboards/Run*.dc.html`；另见 `running-state/状态清单.md` 第 10–15 屏 | Current | — | 负责人 2026-09-30：**保持主线现状**（#227 + #232），`DECISIONS-v2.md` V4 作废、头卡启用青绿（V19）；`running-state/` 里陪跑员端 6 屏**不采用** | `VolunteerOrderFlowPage.swift`（`VolunteerRunningPage`，:687）、`VolunteerOrderFlowViews.swift`（`VolunteerInServiceView`） | 落地：#227（独立页，归档 OpenSpec `restyle-volunteer-running-page-v2`）+ #232（节奏/暂停/提示条）+ OpenSpec `running-hero-green`（头卡青绿）。**有意偏离画布**：保留返回箭头、不标折返、无地图。未逐屏对照 |
 | 盲人端 首页 + 单页订单流程 | `blind-order-flow/`（含 `PROMPT.md`） | Current | — | 包内 `PROMPT.md`；`design-reference/order-flow/home.html` 的数值为准 | `BlindRunnerHomeView.swift` `BlindOrderFlowView.swift` `BlindOrderFlowStep.swift` | 已落地：#141。**代码与文档里写的 `design-reference/order-flow/` 即 `docs/ui/mockups/blind-order-flow/design-reference/order-flow/`**（AGENTS.md:274、`docs/05-page-specs.md:177`、3 处 Swift 注释、2 处 UI 测试都用旧写法，此前仓库里没有这个目录）。未逐屏对照 |
 | 盲人端 跑步中·异常与求助中心·深色·AX5（23 屏） | `running-state/`；另有 `blind-active-run-20260915/`（仅实现 prompt，设计规格在 `docs/research/blind-runner-ui-reference-study-20260915.md` §27–29） | Current（参考） | 两目录的先后关系**未核实** | 包内 `README.md`（其中「与现有实现的差异」一节）；README 自述**替换** `BlindActiveRunView` 内容区 | `BlindActiveRunView.swift` `SafetyHubView.swift` | 实现程度**未核**（README 说「跑步中不是新页面，而是订单页原地变形」，代码是否照此做未看）。未逐屏对照 |
 | 锁屏实时活动 | `running-state/screens/D-锁屏实时活动.png`；`volunteer-order-page-v2/04-live-activity.md` | Current | v2 的出发/汇合卡在 v1 之外新增 | `DECISIONS-v2.md` V3 | `RunLiveActivityController.swift` `blindRunWidget/RunLiveActivityWidget.swift` `blindRunWidget/Shared/RunLiveActivityShared.swift` | 已落地：#146（跑者播报按钮 + 陪跑员只读卡）。**未落地**：出发/汇合卡（FE-2，PR #231 未合）；照包排版 268/242pt 超锁屏卡 160pt 上限（#231 单测 `sizeThatFits` 量得）；推送 token 拿不到（免费团队，issue #201），只能本地更新 |
 | 跑后运动记录（两端） | `run-record/` | Current | — | **`DECISIONS.md` ＞ `HANDOFF.md`**。有意偏离 HANDOFF 的几处：坐标沿用 GCJ-02、高德不是 MapKit、服务时长从开始服务算、不显示「待确认」、两台手机各自计步 | `RunRecordHistoryView.swift` `RunRecordPresentation.swift` `RunRecordAudio.swift` `RunRecordService.swift` `VolunteerRunRecordView.swift` `RunnerRunRecordView.swift` | 分 8 阶段：阶段 2–6 已合（#189 #191 #194 #197 #203）；阶段 7 草稿 #249。各阶段真机截图（27MB）**未入库**，见文末 |
 | 志愿者「我」首屏 | `volunteer-profile-first-screen-20260914/`（原有） | Current | — | 该目录 `README.md`（含每个字段的真实来源表） | `VolunteerProfileFirstScreen.swift` `VolunteerProfileFirstScreenView.swift` | 已落地：#136。未逐屏对照 |
 
-## 冲突裁决
+## 冲突裁决记录
 
-**冲突 1 · 陪跑员跑步中页**（状态「待确认」的原因）
-
-| 来源 | 说法 |
-|---|---|
-| v2 画布 / `08-running.md` | 有暂停；结束陪跑是白色次要按钮；求助在右上胶囊；头卡青绿 |
-| `running-state/`（《跑步中与跑后》） | **禁止暂停**；结束陪跑是黄色主按钮；求助是底部通栏 |
-| `DECISIONS-v2.md` **V4** | 「App 内跑步中页面布局不动（深蓝三数字、长按 2 秒结束）」，新功能加进旧页 |
-| 主线现状 | #227（09-27）已把跑步中换成独立新页（藏青头卡、右上求助胶囊、白色次要按钮长按结束），#232 再加节奏/暂停/提示条 |
-
-**核实过的时间线**：V4 的审计基线是 `a8e77d4`（2026-09-26），它是 #227 的祖先提交 —— **V4 写于 #227 之前**，「布局不动」描述的是被 #227 换掉的旧页。所以 V4 与主线现状不一致，但**是不是该修订 V4、还是 #227 越过了决定，这是项目负责人的判断**，本索引不裁决。
+**冲突 1 · 陪跑员跑步中页 —— 已裁决（项目负责人 2026-09-30）**：三份材料互相矛盾（v2 画布有暂停、白色次要结束按钮、右上求助胶囊；`running-state/` 禁暂停、黄色结束按钮、底部通栏求助；`DECISIONS-v2.md` V4 写「布局不动」）。裁决：**保持主线现状**（#227 独立新页 + #232 节奏/暂停/提示条），V4 作废（它的审计基线 `a8e77d4`（09-26）是 #227（09-27）的祖先，写于 #227 之前）；头卡启用青绿（`DECISIONS-v2.md` V19）。`running-state/` 里陪跑员端 6 屏不采用。
 
 ## 未入库（原件仍在 `~/Downloads`，本索引不删任何原件）
 

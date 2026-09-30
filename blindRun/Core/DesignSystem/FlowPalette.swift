@@ -274,7 +274,8 @@ extension AppColors {
         //
         // **只用于头卡**（和汇合页方位盘 / 响铃 / ④b 打电话，见 C06）。页面底、其他卡片、按钮不随状态变色。
         // 亮暗同值（约好沿用 `navyTone` 的暗色档）：底是品牌深色表面，理由同 `onNavySecondary`。
-        // 跑步中青绿 / 暂停灰本 PR 不加 —— 只有锁屏卡（FE-2）用得到，谁用谁加。
+        // 跑步中青绿（`stateRunning`，V19）在本节；暂停灰 `statePaused`（FE-3）在下面 `warmCard` 前。
+        // 锁屏卡在 widget 目标里另有一份同值色板（PR #231），两处靠人对，不为它抽象。
 
         static let stateAgreedTone = navyTone
         static let stateAgreed = navy
@@ -286,6 +287,10 @@ extension AppColors {
         static let stateArrived = flowDynamic(stateArrivedTone)
         static let stateDoneTone = Tone(light: 0x1C7C45, dark: 0x1C7C45)
         static let stateDone = flowDynamic(stateDoneTone)
+        /// 跑步中头卡（交付包 v2 C01 `#0A6B72`，项目负责人 2026-09-30 启用，`DECISIONS-v2.md` V19）。
+        /// 白字 6.25、小标题 5.39、副文 5.73（`FlowDesignSystemTests` 逐色验）。
+        static let stateRunningTone = Tone(light: 0x0A6B72, dark: 0x0A6B72)
+        static let stateRunning = flowDynamic(stateRunningTone)
 
         // MARK: 彩色头卡上的字与引导绳（C02 / C03，替代 v1 的 onNavy* / volunteerDot / runnerDot / ropeOnNavy）
         //

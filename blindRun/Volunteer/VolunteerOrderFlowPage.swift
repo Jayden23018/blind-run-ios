@@ -808,8 +808,8 @@ struct VolunteerRunningPage<Footer: View>: View {
     private var isWide: Bool { verticalSizeClass == .compact && !dynamicTypeSize.isAccessibilitySize }
 
     private func heroCard(_ hero: VolunteerRunningHero) -> some View {
-        // 暂停：头卡换 `statePaused`（V13），小标题改「已暂停 · 计时停在 mm:ss」（读 `run.elapsedSeconds`，暂停中不走）。
-        FlowHeroCard(style: .tinted(isPaused ? AppColors.Flow.statePaused : AppColors.Flow.stateAgreed)) {
+        // 跑步中青绿（V19）；暂停：头卡换 `statePaused`（V13），小标题改「已暂停 · 计时停在 mm:ss」（读 `run.elapsedSeconds`，暂停中不走）。
+        FlowHeroCard(style: .tinted(isPaused ? AppColors.Flow.statePaused : AppColors.Flow.stateRunning)) {
             VStack(alignment: .leading, spacing: 12) {
                 Text(isPaused ? VolunteerRunCopy.pausedTitle(elapsed: order.run?.elapsedClockText) : hero.eyebrow)
                     .flowFont(FlowV2Fonts.subhead(bold: true), monospacedDigit: true)
