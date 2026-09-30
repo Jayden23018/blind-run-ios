@@ -415,12 +415,22 @@ extension EmergencyContactResponse {
 enum VisionLevel: String, Codable, CaseIterable, Sendable {
     case totalBlind = "TOTAL_BLIND"
     case lowVision = "LOW_VISION"
+    /// 用户没提供（后端迁移 0056，`api_spec.yaml` `visionLevel`）。请求侧只在用户明确拒绝时显式传；
+    /// 生产存量档案已全部回填成它。
+    case notSpecified = "NOT_SPECIFIED"
 
     var displayName: String {
         switch self {
         case .totalBlind: return "全盲"
         case .lowVision: return "低视力"
+        case .notSpecified: return "未提供"
         }
+    }
+
+    /// 志愿者侧的展示名。`nil` = 跑者没提供 ⇒ 调用方降级为「请当面与跑者确认」，
+    /// 而不是显示「未提供」—— 后者对志愿者没有任何可操作信息。
+    var escortDisplayName: String? {
+        self == .notSpecified ? nil : displayName
     }
 }
 

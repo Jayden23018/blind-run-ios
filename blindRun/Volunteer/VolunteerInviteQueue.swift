@@ -143,7 +143,7 @@ struct VolunteerInviteSupplement: Equatable, Sendable {
                 kind: .vision,
                 symbolName: "eye.slash",
                 title: "视力情况",
-                value: VisionLevel(rawValue: raw)?.displayName ?? EscortNeed.confirmInPerson
+                value: VisionLevel(rawValue: raw)?.escortDisplayName ?? EscortNeed.confirmInPerson
             ))
         }
         if let raw = tetherPreference?.nilIfBlank {
@@ -159,7 +159,7 @@ struct VolunteerInviteSupplement: Equatable, Sendable {
 
     /// 邀请卡跑者行那句小字（「全盲，牵引绳」）。`nil` = 整行不渲染。
     ///
-    /// ⚠️ 措辞取 `VisionLevel` / `TetherPreference` 的 `displayName`（盲人端也在用的单一源），
+    /// ⚠️ 措辞取 `VisionLevel.escortDisplayName` / `TetherPreference.displayName`（盲人端也在用的单一源），
     /// **不照设计稿写「用引导绳」** —— 为一处措辞抄第二份必然漂移，而「引导方式说法不一致」
     /// 不会有任何东西报警。
     var runnerSummary: String? {

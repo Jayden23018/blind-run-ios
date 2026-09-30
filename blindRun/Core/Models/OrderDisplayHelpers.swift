@@ -849,7 +849,7 @@ extension OrderDetailResponse {
                 kind: .vision,
                 symbolName: "eye.slash",
                 title: "视力情况",
-                value: VisionLevel(rawValue: raw)?.displayName ?? EscortNeed.confirmInPerson
+                value: VisionLevel(rawValue: raw)?.escortDisplayName ?? EscortNeed.confirmInPerson
             ))
         }
 

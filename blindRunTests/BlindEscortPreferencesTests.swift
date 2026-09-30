@@ -34,8 +34,8 @@ final class BlindEscortPreferencesTests: XCTestCase {
     /// 🔴 没取得单独同意时，`visionLevel` 与 `hasGuideDog` **必须缺席**。
     ///
     /// 不是「传默认值」也不是「传 false」—— 那会把「用户没说」伪造成「用户说了」。
-    /// 后端此刻没有 `NOT_SPECIFIED` 取值（已投 handoff），所以在它上线之前，
-    /// 「拒绝」在协议上唯一诚实的表达就是不带这两个键。
+    /// 「没被问过」在协议上的诚实表达是不带这两个键（后端保留原值）；
+    /// 「明确拒绝」才显式传 `NOT_SPECIFIED`，见 `testDecliningVisionConsentSendsNotSpecified`。
     ///
     /// **验红方式**：把 `makeProfileUpdateRequest` 里的 `hasVisionConsent ? … : nil`
     /// 改成无条件传值，这条必须失败。
@@ -81,6 +81,72 @@ final class BlindEscortPreferencesTests: XCTestCase {
         viewModel.acceptVisionConsent()
 
         XCTAssertNil(viewModel.makeProfileUpdateRequest().visionLevel)
+    }
+
+    // MARK: - 拒绝 = 显式 NOT_SPECIFIED（后端迁移 0056，backend#326）
+
+    /// 用户在同意页明确拒绝 ⇒ 视力状况显式传 `NOT_SPECIFIED`；导盲犬契约里没有「未提供」，仍缺席。
+    ///
+    /// **验红方式**：把 `makeProfileUpdateRequest` 里拒绝分支改回 `nil`，这条必须失败。
+    func testDecliningVisionConsentSendsNotSpecified() {
+        let appState = makeAppState()
+        let viewModel = makeViewModel(appState: appState)
+
+        viewModel.declineVisionConsent()
+        // 就算内部状态被填过，拒绝也不许把它带出去。
+        viewModel.visionLevel = .lowVision
+        viewModel.hasGuideDog = true
+
+        let request = viewModel.makeProfileUpdateRequest()
+
+        XCTAssertEqual(request.visionLevel, "NOT_SPECIFIED")
+        XCTAssertNil(request.hasGuideDog, "导盲犬没有「未提供」取值，没同意就缺席")
+    }
+
+    /// 「从没被问过」≠「拒绝」：新设备同意记录不在，一律传 `NOT_SPECIFIED` 会把后端已存的
+    /// `LOW_VISION` 覆盖掉。没拒绝就不带键。
+    ///
+    /// **验红方式**：把拒绝判据改成 `!hasVisionConsent`，这条必须失败。
+    func testNeverAskedIsNotADeclineAndOmitsTheKey() {
+        let appState = makeAppState()
+        let viewModel = makeViewModel(appState: appState)
+
+        XCTAssertFalse(viewModel.hasVisionConsent)
+        XCTAssertFalse(viewModel.hasDeclinedVisionConsent)
+        XCTAssertNil(viewModel.makeProfileUpdateRequest().visionLevel)
+    }
+
+    /// 先拒绝、后来又同意：以最后一次为准，传用户选的值而不是 `NOT_SPECIFIED`。
+    func testAcceptingAfterDecliningSendsTheChosenValue() {
+        let appState = makeAppState()
+        let viewModel = makeViewModel(appState: appState)
+
+        viewModel.declineVisionConsent()
+        viewModel.acceptVisionConsent()
+        viewModel.visionLevel = .totalBlind
+
+        XCTAssertEqual(viewModel.makeProfileUpdateRequest().visionLevel, VisionLevel.totalBlind.rawValue)
+    }
+
+    /// 生产存量档案全是 `NOT_SPECIFIED`：回读成「没选」（Picker 没有它的 tag），
+    /// 保存时不带键 ⇒ 后端保留原值。
+    func testStoredNotSpecifiedPrefillsAsUnsetAndIsNotResent() {
+        let appState = makeAppState()
+        appState.updateBlindProfile(BlindProfileResponse(name: "存量", visionLevel: "NOT_SPECIFIED"))
+
+        let viewModel = makeViewModel(appState: appState)
+        viewModel.acceptVisionConsent()
+
+        XCTAssertNil(viewModel.visionLevel)
+        XCTAssertNil(viewModel.makeProfileUpdateRequest().visionLevel)
+    }
+
+    func testVisionLevelDisplayNames() {
+        XCTAssertEqual(VisionLevel.totalBlind.displayName, "全盲")
+        XCTAssertEqual(VisionLevel.lowVision.displayName, "低视力")
+        XCTAssertEqual(VisionLevel.notSpecified.displayName, "未提供")
+        XCTAssertNil(VisionLevel.notSpecified.escortDisplayName)
+        XCTAssertEqual(VisionLevel.lowVision.escortDisplayName, "低视力")
     }
 
     // MARK: - 红线二：引导方式在同意门之外
