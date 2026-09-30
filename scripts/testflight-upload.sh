@@ -7,11 +7,12 @@
 # 认证：默认用 Xcode → Settings → Accounts 里登录的账号。无头机器改传 App Store Connect API key：
 #   ASC_KEY_PATH=/path/AuthKey_XXXX.p8 ASC_KEY_ID=XXXX ASC_ISSUER_ID=xxxxxxxx-...
 #
-# 为什么要有：三件事在 Debug 真机调试里都看不出来，只在送审包上暴露（2026-09-27 核实，
+# 为什么要有：四件事在 Debug 真机调试里都看不出来，只在送审包上暴露（2026-09-27 核实，
 # 见 docs/review/testflight-readiness-20260927.md）——
 #   1. 高德 key 是占位值 → 地图/定位/检索 SDK 全部失效（本机 LocalConfig 一直是 CHANGE_ME）
 #   2. 没有 aps-environment → 离线推送（含求助相关的 time-sensitive 通知）静默失效
 #   3. build 号取提交数，从不在 main 线上的提交打包 → 之后 main 上的包号可能更小，上传被拒
+#   4. 产物里混进 x86_64 切片（胖 dylib）→ 上传被拒；由 scripts/check-app-archs.sh 逐个 Mach-O 查
 # scheme 固定 blindRun-Prod：DemoRelease 带 UI 测试钩子（`#if DEBUG || DEMO`），不该进送审包。
 set -euo pipefail
 
@@ -27,7 +28,8 @@ fail() { echo "❌ $*" >&2; exit 1; }
 
 # ── 1. 前置 ─────────────────────────────────────────────
 if [[ $DRY_RUN -eq 0 ]]; then
-  [[ -n "${TEAM_ID:-}" ]] || fail "缺 TEAM_ID（付费账号的 Team ID，developer.apple.com → Membership）"
+  # pbxproj 里的 DEVELOPMENT_TEAM 不是本人团队，免费个人团队又不能上 TestFlight，所以不给默认值。
+  [[ -n "${TEAM_ID:-}" ]] || fail "缺 TEAM_ID：须传**付费** Apple Developer Program 的 Team ID（developer.apple.com → Membership）。免费个人团队不能上传 TestFlight；pbxproj 里的 DEVELOPMENT_TEAM 也不是本人团队，脚本刻意不用它"
   [[ -z "$(git status --porcelain)" ]] || fail "工作区不干净：送审包必须对应一个确定的提交"
   git fetch -q origin main
   git merge-base --is-ancestor HEAD origin/main \
@@ -70,6 +72,8 @@ fi
 
 build="$(pl "$APP" CFBundleVersion)"
 [[ "$build" == "$(pl "$WIDGET" CFBundleVersion)" ]] || fail "App 与 Widget 的 CFBundleVersion 不一致，上传校验会拒"
+scripts/check-app-archs.sh "$APP" || fail "产物架构检查未过（详见上方）"
+
 echo "✅ $(pl "$APP" CFBundleIdentifier) $(pl "$APP" CFBundleShortVersionString) ($build)，高德 key 已配置"
 
 if [[ $DRY_RUN -eq 1 ]]; then

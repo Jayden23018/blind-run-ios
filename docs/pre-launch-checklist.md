@@ -118,6 +118,11 @@
   `scripts/testflight-upload.sh` 会拦占位值。
 - [ ] 🔴 **隐私政策改版：把步数 / 步频 / 爬升从「不收集」挪到「收集」**。v1.1 §2.6 写着「❌ 健康与运动数据」，
   而 PR #189（09-24）在服务中上报这三项。改 `blindrun-legal` 仓库，写清用途、只在服务中采集、拒绝权限照常陪跑。
+- [x] 🔴 **产物不含 x86_64 切片**（防 ITMS-90087 一类上传拒收）。2026-09-30 实测 `blindRun-Prod` Release 无签名 archive：
+  `blindRun: arm64`、`blindRunWidget: arm64`、`Frameworks/libswiftCompatibilitySpan.dylib: arm64 arm64e`。
+  Vendor/AliyunCloudAuth 的 10 个 `x86_64 arm64` 胖包是**静态库**（`ar archive`，`s.static_framework = true`），
+  只把 arm64 切片链进主二进制、不进 `Frameworks/`，所以**不需要**额外 strip build phase。
+  `scripts/check-app-archs.sh` 已接进 `testflight-upload.sh`（`--dry-run` 也跑），以后有人改成动态库或加胖 dylib 会当场失败。
 - [ ] 🟡 请后端开**审核专用的一对账号**（盲人 + 志愿者，都已认证 / 审核通过）。现有预置号同时在跑云端 E2E，
   审核员下单可能撞 `DUPLICATE_ORDER` / `TOO_MANY_SCHEDULED_ORDERS`。
 - [ ] 🟡 录一段两端配合走完「下单 → 接单 → 服务中 → 完成」的录屏，挂一个审核员能打开的链接，写进审核备注
@@ -134,7 +139,8 @@
    填到 `APNS_P8_PATH / APNS_KEY_ID / APNS_TEAM_ID / APNS_TOPIC`。`.p8` **只能下载一次**。
 4. App Store Connect 新建 App 记录，填隐私政策 URL、年龄分级问卷（2025 版新增「医疗或健康话题」等必答题）、
    App Privacy（手机号、身份证号、精确位置、语音、联系人（紧急联系人）、**健身（步数）**、照片或视频（活体））。
-5. `TEAM_ID=<新团队号> scripts/testflight-upload.sh` —— archive、检查产物（高德 key / 推送 entitlement / 包号）、上传一条龙。
+5. `TEAM_ID=<新团队号> scripts/testflight-upload.sh` —— archive、检查产物（高德 key / 架构 / 推送 entitlement / 包号）、上传一条龙。
+   `TEAM_ID` 必须是**付费**团队号：不传直接报错，脚本刻意不读 pbxproj 里的 `DEVELOPMENT_TEAM`（`R6PH2TFB3Q`，非本人团队）。
 6. 处理完成后**先加内部测试组**（不过审），账号持有人用**国区 Apple ID** 装一次：
    这是「备案卡不卡 TestFlight」唯一的一手验法（Apple 官方页至今 404）。装得上再送外部审核。
 7. 填 Test Information（C0 的草稿）→ 建外部测试组 → 加构建 → 等 Beta App Review。
