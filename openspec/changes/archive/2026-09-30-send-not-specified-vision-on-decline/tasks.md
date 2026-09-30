@@ -6,5 +6,5 @@
 
 ## 2. 验证
 
-- [ ] 2.1 新增用例通过，且生产代码回退到 main 时变红
-- [ ] 2.2 `openspec validate --all --strict` 与 `validate-spec-coverage` 通过
+- [x] 2.1 新增用例通过，且生产代码回退到 main 时变红
+- [x] 2.2 `openspec validate --all --strict` 与 `validate-spec-coverage` 通过
