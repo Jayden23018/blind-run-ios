@@ -28,6 +28,10 @@ AidRun / 助盲跑 的最高优先级工作契约。**不是产品头脑风暴�
 两端差异只走密度/层级/文案语气三个轴**不分叉组件**、安全相关界面（进行中 / SOS / 位置上报）
 在两端都退回最克制的一档。
 
+**`docs/ui/mockups/INDEX.md` —— 实现某个界面、或用户说「按设计稿来」之前读一次。** 它回答「哪一版设计是
+现行的、多份材料冲突时听谁的、实现落在哪、已知哪里没做到位」。**设计包不放 `~/Downloads`，放
+`docs/ui/mockups/<主题>[-vN]/` 并在 INDEX 加一行**；状态为「待确认」的行不许自己挑一份就做，先问。
+
 ⚠️ 外面讲「AI 界面设计」的资料**绝大多数是 Web 语境，对本仓库有害**。最典型的一条：
 Anthropic 官方 cookbook 的 `<frontend_aesthetics>` 块逐字要求避开
 `Overused font families (Inter, Roboto, Arial, system fonts)` —— 在 iOS 上系统字体就是

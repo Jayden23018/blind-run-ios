@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>订单页 · 汇合</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Noto+Sans+SC:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F2F3F6}
+a{color:#2A5BD7}a:hover{color:#1F47AD}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; padding: 54px 20px 34px; display: flex; flex-direction: column; background: #F2F3F6; color: #151A26; font-family: 'Manrope', 'Noto Sans SC', 'PingFang SC', sans-serif; overflow: hidden">
+
+<div style="height: 44px; display: flex; align-items: center; justify-content: space-between">
+<div style="width: 84px; display: flex"><button aria-label="返回" style="width: 44px; height: 44px; border: none; background: transparent; padding: 0; display: flex; align-items: center; color: #151A26; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg></button></div>
+<div style="font-size: 16px; font-weight: 700">陪跑订单</div>
+<div style="width: 84px; display: flex; justify-content: flex-end"><button style="height: 44px; padding: 0 14px; border: none; border-radius: 22px; background: #FDECEC; color: #B42318; font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 6px; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z"></path></svg>求助</button></div>
+</div>
+
+<div style="margin-top: 12px; background: #A04B0C; border-radius: 24px; padding: 20px 22px; display: flex; flex-direction: column; color: #FFFFFF">
+<div style="font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.8)">已到集合点</div>
+<svg width="306" height="50" viewBox="0 0 342 56" role="img" aria-label="第 4 步，共 4 步，汇合" style="margin-top: 14px; font-family: 'Noto Sans SC', sans-serif"><circle cx="8" cy="28" r="4" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="2"></circle><circle cx="318" cy="28" r="27" fill="none" stroke="#FFD978" stroke-width="2.5"></circle><path d="M290 28 L296 28" fill="none" stroke="#FFFFFF" stroke-opacity="0.75" stroke-width="3" stroke-linecap="round"></path><circle cx="268" cy="28" r="22" fill="#FFFFFF"></circle><text x="268" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#A04B0C">张</text><circle cx="318" cy="28" r="21" fill="#FFFFFF" fill-opacity="0.18" stroke="#FFFFFF" stroke-width="2"></circle><text x="318" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#FFFFFF">李</text></svg>
+<div style="margin-top: 10px; font-size: 28px; font-weight: 800; letter-spacing: -0.5px">李明就在附近</div>
+<div style="margin-top: 4px; font-size: 15px; color: rgba(255,255,255,0.86)">在你右前方，大约 50 米以内</div>
+</div>
+
+<div style="margin-top: 14px; align-self: center; position: relative; width: 180px; height: 180px; border-radius: 50%; box-shadow: 0 12px 30px rgba(160,75,12,0.14)">
+<svg width="180" height="180" viewBox="0 0 180 180" aria-hidden="true">
+<circle cx="90" cy="90" r="88" fill="#FFFFFF"></circle>
+<path d="M90 3 v8" stroke="#151A26" stroke-width="2.5" stroke-linecap="round"></path>
+<g transform="rotate(40 90 90)">
+<path d="M90 90 L51 22.5 A78 78 0 0 1 129 22.5 Z" fill="#A04B0C" opacity="0.16"></path>
+<path d="M90 14 L100 30 L80 30 Z" fill="#A04B0C"></path>
+</g>
+<circle cx="90" cy="90" r="20" fill="#A04B0C"></circle>
+<text x="90" y="96" text-anchor="middle" font-size="16" font-weight="700" fill="#FFFFFF" style="font-family: 'Noto Sans SC', sans-serif">你</text>
+</svg>
+</div>
+
+<div style="margin-top: 14px; background: #FFFFFF; border-radius: 20px; padding: 12px 16px; display: flex; align-items: center; gap: 14px">
+<div style="font-size: 14px; font-weight: 700; color: #5B6272">认准他</div>
+<div style="flex-grow: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<div style="display: flex; align-items: center; gap: 10px">
+<div style="width: 34px; height: 34px; border-radius: 10px; background: #1E2A55"></div>
+<div style="font-size: 15px; font-weight: 700">深蓝上衣</div>
+</div>
+<div style="display: flex; align-items: center; gap: 10px">
+<div style="width: 34px; height: 34px; box-sizing: border-box; border-radius: 10px; background: #FFFFFF; border: 1.5px solid #CDD2DC"></div>
+<div style="font-size: 15px; font-weight: 700">白色帽子</div>
+</div>
+</div>
+</div>
+
+<button style="margin-top: 10px; height: 56px; border: 1.5px solid #EBC9AD; border-radius: 17px; background: #FBEEE3; color: #7A3808; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4V5z"></path><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13"></path></svg>让李明的手机响起来</button>
+
+<div style="margin-top: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<button style="height: 48px; border: none; border-radius: 16px; background: #FFFFFF; color: #151A26; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A04B0C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2"></path></svg>打电话</button>
+<button style="height: 48px; border: none; border-radius: 16px; background: #FFFFFF; color: #151A26; font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A04B0C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>找不到对方</button>
+</div>
+
+<div style="flex-grow: 1"></div>
+
+<div style="text-align: center; font-size: 14px; color: #5B6272">见面并握好引导绳后再按</div>
+<button style="margin-top: 8px; height: 64px; border: 1.5px solid #D9A21E; border-radius: 17px; background: #F6C343; color: #1E1A0B; font-size: 17px; font-weight: 800; box-shadow: 0 6px 16px rgba(217,162,30,0.28); cursor: pointer">开始跑步</button>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>锁屏实时活动 · 出发中</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Noto+Sans+SC:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1326}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; padding: 11px 16px 40px; display: flex; flex-direction: column; background: #0E1326; color: #FFFFFF; font-family: 'Manrope', 'Noto Sans SC', 'PingFang SC', sans-serif; overflow: hidden">
+
+<div style="align-self: center; width: 236px; height: 37px; box-sizing: border-box; border-radius: 20px; background: #000000; padding: 0 14px; display: flex; align-items: center; justify-content: space-between">
+<svg width="46" height="18" viewBox="0 0 46 18" role="img" aria-label="陪跑员正在靠近跑者">
+<circle cx="18" cy="9" r="7" fill="#4A76E8"></circle>
+<path d="M26 9 Q31 11 32 9" fill="none" stroke="#7C9CF2" stroke-width="2" stroke-linecap="round"></path>
+<circle cx="38" cy="9" r="7" fill="#3B4A8A"></circle>
+</svg>
+<div style="font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums">8 分钟</div>
+</div>
+
+<div style="margin-top: 38px; text-align: center; font-size: 17px; font-weight: 600; color: #C9D1EC">9月19日 星期六</div>
+<div style="text-align: center; font-size: 88px; font-weight: 700; letter-spacing: -3px; line-height: 1.05; font-variant-numeric: tabular-nums">6:49</div>
+
+<div style="flex-grow: 1"></div>
+
+<div style="background: #1B2657; border-radius: 26px; padding: 18px; display: flex; flex-direction: column">
+<div style="display: flex; align-items: center; gap: 8px">
+<div style="width: 22px; height: 22px; border-radius: 6px; background: #F6C343; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1E1A0B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="14" cy="4.5" r="2"></circle><path d="M8 21l3-6 3 2v5M6 11l3-3 4 1 3 4h3"></path></svg></div>
+<div style="font-size: 14px; font-weight: 600; color: #AEB8DA">助盲跑 · 正在赶去</div>
+</div>
+<div style="margin-top: 10px; display: flex; align-items: baseline; gap: 8px">
+<div style="font-size: 32px; font-weight: 800; letter-spacing: -0.5px; font-variant-numeric: tabular-nums">8 分钟后到</div>
+<div style="font-size: 15px; color: #AEB8DA; font-variant-numeric: tabular-nums">6:57</div>
+</div>
+<svg width="322" height="53" viewBox="0 0 342 56" role="img" aria-label="出发，还有 8 分钟到" style="margin-top: 8px; font-family: 'Noto Sans SC', sans-serif">
+<circle cx="8" cy="28" r="4" fill="none" stroke="#4B587F" stroke-width="2"></circle>
+<path d="M214 28 Q253 38 292 28" fill="none" stroke="#7C9CF2" stroke-width="3" stroke-linecap="round"></path>
+<circle cx="190" cy="28" r="22" fill="#4A76E8"></circle>
+<text x="190" y="34" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">张</text>
+<circle cx="318" cy="28" r="22" fill="#3B4A8A"></circle>
+<text x="318" y="34" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">李</text>
+</svg>
+<div style="margin-top: 10px; display: flex; align-items: center; gap: 8px">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #6BE79C"></span>
+<span style="font-size: 15px; font-weight: 600; color: #DCE4FB">李明已到 3 号入口附近</span>
+</div>
+<div style="margin-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<button style="height: 44px; border: none; border-radius: 14px; background: rgba(255,255,255,0.12); color: #FFFFFF; font-size: 15px; font-weight: 700; cursor: pointer">我快到了</button>
+<button style="height: 44px; border: none; border-radius: 14px; background: rgba(255,255,255,0.12); color: #FFFFFF; font-size: 15px; font-weight: 700; cursor: pointer">再等我 5 分钟</button>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

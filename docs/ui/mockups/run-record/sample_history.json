@@ -1,0 +1,49 @@
+{
+ "_note": "合成示例数据",
+ "role": "GUIDE",
+ "month": "2026-09",
+ "monthSummary": {
+  "runs": 4,
+  "distanceM": 18210,
+  "serviceMin": 220,
+  "topPartner": {
+   "displayName": "老陈",
+   "runs": 3
+  }
+ },
+ "items": [
+  {
+   "orderId": "ORD-20260920-0012",
+   "date": "2026-09-20",
+   "weekday": "周六",
+   "place": "深圳湾公园",
+   "partnerName": "老陈",
+   "distanceM": 5210,
+   "thumbnailPolyline": "<服务端下发简化后的轨迹，或客户端用 MKMapSnapshotter 生成>"
+  },
+  {
+   "orderId": "ORD-20260917-0031",
+   "date": "2026-09-17",
+   "weekday": "周三",
+   "place": "莲花山公园",
+   "partnerName": "李阿姨",
+   "distanceM": 3200
+  },
+  {
+   "orderId": "ORD-20260913-0008",
+   "date": "2026-09-13",
+   "weekday": "周六",
+   "place": "深圳湾公园",
+   "partnerName": "老陈",
+   "distanceM": 4800
+  },
+  {
+   "orderId": "ORD-20260906-0015",
+   "date": "2026-09-06",
+   "weekday": "周六",
+   "place": "深圳湾公园",
+   "partnerName": "老陈",
+   "distanceM": 5000
+  }
+ ]
+}

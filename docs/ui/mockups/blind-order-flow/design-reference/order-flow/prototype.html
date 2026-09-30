@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>助盲跑订单页动效原型</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#E6E8EE;font-family:"PingFang SC","Noto Sans CJK SC","Noto Sans SC",sans-serif;color:#111A2E;-webkit-font-smoothing:antialiased}
+.wrap{display:flex;gap:48px;justify-content:center;align-items:flex-start;padding:40px}
+.pw{padding:20px;background:#E6E8EE}
+.phone{width:393px;height:852px;border-radius:58px;background:#F4F5F8;position:relative;overflow:hidden;box-shadow:0 0 0 11px #1B1E25,0 0 0 13px #3A3F4B}
+.sb{height:54px;display:flex;align-items:center;justify-content:space-between;padding:6px 34px 0 42px;font-size:16px;font-weight:600}
+.nav{height:44px;display:flex;align-items:center;justify-content:center;position:relative;font-size:17px;font-weight:600}
+.nav .bk{position:absolute;left:12px;width:36px;height:36px;display:flex;align-items:center;justify-content:center}
+.ico{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.card{background:#FFF;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);margin:8px 16px 0}
+.stepper{display:flex;align-items:flex-start;padding:16px 20px 14px}
+.st{display:flex;flex-direction:column;align-items:center;gap:6px;width:48px;font-size:13px;color:#8C93A3;transition:color .3s}
+.st .d{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 2px #D5DAE3;background:#FFF;color:#FFF;transition:background .3s,box-shadow .3s}
+.st .d svg{opacity:0;transform:scale(.4);transition:opacity .25s,transform .3s}
+.st.done .d{background:#2A5BD7;box-shadow:none}
+.st.done .d svg{opacity:1;transform:scale(1)}
+.st.cur .d{box-shadow:inset 0 0 0 2px #2A5BD7}
+.st .d i{width:9px;height:9px;border-radius:50%;background:#2A5BD7;transform:scale(0);transition:transform .3s}
+.st.cur .d i{transform:scale(1)}
+.st.cur,.st.done{color:#111A2E}
+.st.cur{font-weight:600}
+.ln{flex:1;height:2px;background:#E2E6EE;margin-top:10px;position:relative;overflow:hidden}
+.ln b{position:absolute;inset:0;background:#2A5BD7;transform:scaleX(0);transform-origin:left;transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+.ln.on b{transform:scaleX(1)}
+.sep{height:1px;background:#EEF0F4}
+.hero{padding:12px 20px 16px;text-align:center}
+.vis{width:124px;height:124px;margin:0 auto;position:relative}
+.vis>*{position:absolute;inset:0;transition:opacity .4s,transform .5s cubic-bezier(.2,.8,.2,1)}
+.radar .arc{transform-origin:62px 62px;animation:spin 2.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.avatar{display:flex;align-items:center;justify-content:center}
+.avatar .face{width:92px;height:92px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:38px;font-weight:600;display:flex;align-items:center;justify-content:center}
+.ring{position:absolute;inset:0;transition:opacity .4s}
+.ring circle.p{transition:stroke-dashoffset .8s cubic-bezier(.2,.8,.2,1)}
+.badge{position:absolute;right:14px;bottom:12px;width:32px;height:32px;border-radius:50%;background:#1F8A4C;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px #fff;transform:scale(0);transition:transform .45s cubic-bezier(.3,1.6,.5,1)}
+.badge.on{transform:scale(1)}
+.hidden{opacity:0;transform:scale(.55);pointer-events:none}
+.head{font-size:34px;font-weight:600;margin-top:10px;line-height:1.2;font-feature-settings:"tnum"}
+.subl{font-size:16px;color:#5E6679;margin-top:6px;line-height:1.5}
+.sw{display:inline-block;transition:opacity .18s,transform .28s cubic-bezier(.2,.8,.2,1)}
+.sw.out{opacity:0;transform:translateY(-10px)}
+.sw.pre{opacity:0;transform:translateY(10px);transition:none}
+.list{margin-top:10px;padding:0 18px}
+.rw{height:52px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.rw .k{font-size:15px;color:#5E6679;flex-shrink:0}
+.rw .v{font-size:16px;font-weight:500;display:flex;align-items:center;gap:4px;text-align:right}
+.bottom{position:absolute;left:16px;right:16px;bottom:34px}
+.btn{height:58px;border-radius:17px;display:flex;align-items:center;justify-content:center;gap:10px;font-size:18px;font-weight:600}
+.yellow{background:#F6C343;color:#111A2E}
+.ghost{background:#FFF;color:#111A2E;box-shadow:inset 0 0 0 1.5px #D5DAE3}
+.help{background:#FDECEC;color:#B42318;box-shadow:inset 0 0 0 1.5px #F4C3BE}
+.pslot{max-height:0;opacity:0;transform:translateY(16px);overflow:hidden;transition:max-height .45s cubic-bezier(.2,.8,.2,1),opacity .35s,transform .45s cubic-bezier(.2,.8,.2,1)}
+.pslot.on{max-height:70px;opacity:1;transform:none;margin-bottom:10px}
+.hi{position:absolute;bottom:9px;left:50%;transform:translateX(-50%);width:138px;height:5px;border-radius:3px;background:#111A2E}
+.side{width:360px;padding-top:40px}
+.side h1{font-size:22px;font-weight:600;margin-bottom:6px}
+.side p{font-size:14px;color:#5E6679;line-height:1.6}
+.ctl{display:flex;gap:10px;margin:20px 0 14px;flex-wrap:wrap}
+.ctl button{font:inherit;font-size:15px;font-weight:600;height:44px;padding:0 18px;border-radius:12px;border:0;background:#15224A;color:#fff;cursor:pointer}
+.ctl button.sec{background:#fff;color:#111A2E;box-shadow:inset 0 0 0 1.5px #D5DAE3}
+.vo{background:#fff;border-radius:16px;padding:16px;margin-top:6px}
+.vo .t{font-size:13px;color:#8C93A3}
+.vo .m{font-size:17px;font-weight:500;margin-top:6px;line-height:1.5;min-height:52px}
+.vo .f{font-size:13px;color:#5E6679;margin-top:10px;padding-top:10px;border-top:1px solid #EEF0F4;line-height:1.6}
+label{font-size:14px;color:#3B4356;display:flex;align-items:center;gap:8px;cursor:pointer}
+body.rm .vis>*,body.rm .sw,body.rm .pslot,body.rm .badge,body.rm .ln b{transition:opacity .2s!important;transform:none!important}
+body.rm .radar .arc{animation:none}
+body.rm .hidden{transform:none}
+body.noanim *{transition:none!important;animation:none!important}
+body.static .side{display:none}
+body.static .wrap{padding:0;display:block}
+body.static .pw{display:inline-block}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+<symbol id="back" viewBox="0 0 24 24"><path d="M15 6l-6 6l6 6"/></symbol>
+<symbol id="right" viewBox="0 0 24 24"><path d="M9 6l6 6l-6 6"/></symbol>
+<symbol id="phone" viewBox="0 0 24 24"><path d="M5 4h4l2 5l-2.5 1.5a11 11 0 0 0 5 5l1.5 -2.5l5 2v4a2 2 0 0 1 -2 2a16 16 0 0 1 -15 -15a2 2 0 0 1 2 -2"/></symbol>
+<symbol id="shield" viewBox="0 0 24 24"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10"/></symbol>
+<symbol id="run" viewBox="0 0 24 24"><path d="M12 4a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M4 17l5 1l.75 -1.5"/><path d="M15 21l0 -4l-4 -3l1 -6"/><path d="M7 12l0 -3l5 -1l3 3l3 1"/></symbol>
+</svg>
+
+<div class="wrap">
+<div class="pw" id="shot"><div class="phone">
+<div class="sb"><span>9:41</span><span style="display:flex;gap:6px;align-items:center"><svg width="18" height="12"><rect x="0" y="8" width="3" height="4" rx="1" fill="#111A2E"/><rect x="5" y="5" width="3" height="7" rx="1" fill="#111A2E"/><rect x="10" y="2.5" width="3" height="9.5" rx="1" fill="#111A2E"/><rect x="15" y="0" width="3" height="12" rx="1" fill="#111A2E"/></svg><svg width="26" height="13"><rect x=".5" y=".5" width="22" height="12" rx="3.5" fill="none" stroke="#111A2E" opacity=".4"/><rect x="2.5" y="2.5" width="16" height="8" rx="2" fill="#111A2E"/></svg></span></div>
+<div class="nav"><div class="bk"><svg class="ico" style="width:26px;height:26px"><use href="#back"/></svg></div>陪跑订单</div>
+
+<div class="card">
+<div class="stepper" id="stepper">
+<div class="st"><div class="d"><svg class="ico" style="width:14px;height:14px;stroke-width:3;position:absolute"><use href="#check"/></svg><i></i></div>匹配</div><div class="ln"><b></b></div>
+<div class="st"><div class="d"><svg class="ico" style="width:14px;height:14px;stroke-width:3;position:absolute"><use href="#check"/></svg><i></i></div>约好</div><div class="ln"><b></b></div>
+<div class="st"><div class="d"><svg class="ico" style="width:14px;height:14px;stroke-width:3;position:absolute"><use href="#check"/></svg><i></i></div>出发</div><div class="ln"><b></b></div>
+<div class="st"><div class="d"><svg class="ico" style="width:14px;height:14px;stroke-width:3;position:absolute"><use href="#check"/></svg><i></i></div>汇合</div>
+</div>
+<div class="sep"></div>
+<div class="hero">
+<div class="vis">
+<div class="radar" id="radar">
+<svg width="124" height="124" viewBox="0 0 124 124"><circle cx="62" cy="62" r="60" fill="#F6F8FE" stroke="#E3EAFA" stroke-width="1.5"/><circle cx="62" cy="62" r="42" fill="#EEF3FD" stroke="#DCE5FA" stroke-width="1.5"/><circle cx="62" cy="62" r="26" fill="#2A5BD7"/><g transform="translate(50 50)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M4 17l5 1l.75 -1.5"/><path d="M15 21l0 -4l-4 -3l1 -6"/><path d="M7 12l0 -3l5 -1l3 3l3 1"/></g></svg>
+<svg class="arc" width="124" height="124" viewBox="0 0 124 124" style="position:absolute;inset:0"><path d="M62 2 A60 60 0 0 1 118 40" fill="none" stroke="#2A5BD7" stroke-width="3" stroke-linecap="round"/></svg>
+</div>
+<div class="avatar hidden" id="avatar">
+<div class="face">张</div>
+<svg class="ring" id="ring" width="124" height="124" viewBox="0 0 124 124" style="opacity:0"><circle cx="62" cy="62" r="58" fill="none" stroke="#E3EAFA" stroke-width="4"/><circle class="p" id="ringp" cx="62" cy="62" r="58" fill="none" stroke="#2A5BD7" stroke-width="4" stroke-linecap="round" stroke-dasharray="364.4" stroke-dashoffset="364.4" transform="rotate(-90 62 62)"/></svg>
+<div class="badge" id="badge"><svg class="ico" style="width:18px;height:18px;stroke-width:3"><use href="#check"/></svg></div>
+</div>
+</div>
+<div class="head"><span class="sw" id="head">正在匹配陪跑员</span></div>
+<div class="subl"><span class="sw" id="sub">附近 6 位陪跑员在线，已等待 01:32</span></div>
+</div>
+</div>
+
+<div class="card list">
+<div class="rw" style="height:74px"><span class="k">陪跑员</span><span style="text-align:right"><span style="display:block;font-size:16px;font-weight:600"><span class="sw" id="vol">正在匹配</span></span><span style="display:block;font-size:13px;color:#5E6679;margin-top:3px"><span class="sw" id="vold">匹配成功后显示陪跑经验</span></span></span></div>
+<div class="sep"></div>
+<div class="rw"><span class="k">时间</span><span class="v"><span class="sw" id="time">明天 7:00</span></span></div>
+<div class="sep"></div>
+<div class="rw"><span class="k">集合地点</span><span class="v">深圳湾公园 3 号入口<svg class="ico" style="width:18px;height:18px;color:#B3B9C5"><use href="#right"/></svg></span></div>
+<div class="sep"></div>
+<div class="rw"><span style="font-size:16px;color:#4A5368"><span class="sw" id="cancel">取消匹配</span></span><svg class="ico" style="width:18px;height:18px;color:#B3B9C5"><use href="#right"/></svg></div>
+</div>
+
+<div class="bottom">
+<div class="pslot" id="pslot"><div class="btn yellow"><svg class="ico" id="picon"><use href="#phone"/></svg><span class="sw" id="ptext">打电话给张伟</span></div></div>
+<div class="btn help"><svg class="ico" style="stroke-width:2.2"><use href="#shield"/></svg>求助与安全</div>
+</div>
+<div class="hi"></div>
+</div></div>
+
+<div class="side">
+<h1>一个订单页，贯穿全流程</h1>
+<p>点击"下一个状态"，观察页面如何在原地变化，而不是跳转到新页面。右侧同步显示 VoiceOver 用户会听到什么。</p>
+<div class="ctl"><button id="prev" class="sec">上一个状态</button><button id="next">下一个状态</button></div>
+<label><input type="checkbox" id="rmbox"> 模拟"减弱动态效果"</label>
+<div class="vo"><div class="t">VoiceOver 自动播报</div><div class="m" id="vo">正在为你匹配陪跑员，附近有 6 位在线。找到后会通知你。</div><div class="f" id="vof">焦点保持在状态卡片上，不跳回页面顶部。<br>伴随触感：无</div></div>
+</div>
+</div>
+
+<script>
+(function(){
+var S=[
+{step:0,vis:'radar',head:'正在匹配陪跑员',sub:'附近 6 位陪跑员在线，已等待 01:32',vol:'正在匹配',vold:'匹配成功后显示陪跑经验',time:'明天 7:00',cancel:'取消匹配',primary:null,vo:'正在为你匹配陪跑员，附近有 6 位在线。找到后会通知你。',hap:'无'},
+{step:1,vis:'avatar',head:'明天 7:00',sub:'已约好，请提前 10 分钟到达',vol:'张伟，已认证',vold:'陪跑 32 次，引导绳经验 2 年',time:'明天 7:00',cancel:'修改或取消预约',primary:'打电话给张伟',vo:'已为你约好陪跑员张伟，他陪跑过 32 次，有 2 年引导绳经验。时间是明天早上 7 点，地点在深圳湾公园 3 号入口。',hap:'成功（两下轻震）'},
+{step:2,vis:'ring',head:'8 分钟后到',sub:'张伟正在赶来，约 600 米',vol:'张伟，已认证',vold:'陪跑 32 次，引导绳经验 2 年',time:'今天 7:00',cancel:'修改或取消预约',primary:'打电话给张伟',vo:'张伟已出发，预计 8 分钟到达。',hap:'一下轻震'},
+{step:3,vis:'check',head:'张伟已到达',sub:'见面后，轻点下方开始跑步',vol:'张伟，已认证',vold:'陪跑 32 次，引导绳经验 2 年',time:'今天 7:00',cancel:'遇到问题',primary:'开始跑步',vo:'张伟已到达你附近。见面后，轻点开始跑步。',hap:'成功（两下轻震）'}
+];
+var cur=-1,timer=null;
+var q=new URLSearchParams(location.search);
+var isStatic=q.get('static')==='1';
+if(isStatic){document.body.classList.add('static','noanim');}
+function $(id){return document.getElementById(id);}
+function swap(id,text){
+ var el=$(id); if(el.textContent===text)return;
+ if(isStatic){el.textContent=text;return;}
+ el.classList.add('out');
+ setTimeout(function(){el.textContent=text;el.classList.remove('out');el.classList.add('pre');void el.offsetWidth;el.classList.remove('pre');},180);
+}
+function render(n){
+ var d=S[n]; if(timer){clearInterval(timer);timer=null;}
+ var sts=document.querySelectorAll('#stepper .st'),lns=document.querySelectorAll('#stepper .ln');
+ for(var i=0;i<sts.length;i++){sts[i].classList.toggle('done',i<d.step);sts[i].classList.toggle('cur',i===d.step);}
+ for(var j=0;j<lns.length;j++){lns[j].classList.toggle('on',j<d.step);}
+ $('radar').classList.toggle('hidden',d.vis!=='radar');
+ $('avatar').classList.toggle('hidden',d.vis==='radar');
+ $('ring').style.opacity=d.vis==='ring'?1:0;
+ $('ringp').style.strokeDashoffset=d.vis==='ring'?364.4*0.35:364.4;
+ $('badge').classList.toggle('on',d.vis==='check');
+ swap('head',d.head);swap('sub',d.sub);swap('vol',d.vol);swap('vold',d.vold);swap('time',d.time);swap('cancel',d.cancel);
+ $('pslot').classList.toggle('on',!!d.primary);
+ if(d.primary){swap('ptext',d.primary);$('picon').innerHTML=d.primary==='开始跑步'?'<use href="#run"/>':'<use href="#phone"/>';}
+ $('vo').textContent=d.vo;
+ $('vof').innerHTML='焦点保持在状态卡片上，不跳回页面顶部。<br>伴随触感：'+d.hap;
+ if(n===2&&!isStatic){var m=8;timer=setInterval(function(){m--; if(m<6){clearInterval(timer);timer=null;return;} swap('head',m+' 分钟后到'); if(m===6){$('vo').textContent='张伟已出发，预计 8 分钟到达。（中途只在剩 5 分钟、2 分钟时再播报，不每分钟打扰）';} $('ringp').style.strokeDashoffset=364.4*(0.35-(8-m)*0.08);},1600);}
+ cur=n;
+}
+$('next').addEventListener('click',function(){render((cur+1)%S.length);});
+$('prev').addEventListener('click',function(){render((cur+S.length-1)%S.length);});
+$('rmbox').addEventListener('change',function(e){document.body.classList.toggle('rm',e.target.checked);});
+render(parseInt(q.get('s')||'0',10));
+})();
+</script>
+</body>
+</html>
