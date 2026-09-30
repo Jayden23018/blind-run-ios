@@ -120,3 +120,30 @@
 ## 10. 复核触发条件
 
 Anthropic 发布「设计稿与实现并排 / 走查」的官方用法；firecrawl 恢复后重抓线 1 的官方原文；`quicktime_video_hack` #159 关闭或 UxPlay 出现 iOS 26 实测；本仓库 `AppBuildChannel.allows(_:)` 改动或出现「演示通道 + Mock」；PR #231（出发/汇合锁屏卡）合并；陪跑员端 / 跑后记录补齐设计 PNG。
+
+## 11. 两个验证的结果（2026-09-30 当天补做）
+
+### 验证 ②：HTML 画板渲染成 PNG，能不能当并排素材
+
+**方法**：本机 Chrome headless（`--window-size` 取画板尺寸，`--force-device-scale-factor=2/3`，`--virtual-time-budget=10000`）渲染；盲人端首页有「HTML + 设计 PNG」成对存在，拿它当标尺；志愿者端 13 张画板只有 HTML，检查能否渲染。
+
+**结果（盲人端首页 `home.html` ↔ `screens/01-home.png`，按像素对齐后）**：
+- 手机外框、状态栏、底部 tab 栏的位置**逐像素一致**（黑色外框包围盒两图都是 `(18,18)–(846,1764)`）。
+- SSIM 0.867。⚠️ 第一次我用「裁切后拉伸」对齐得到 0.70，是**对齐方式错了**，不是渲染差；改成「补边」后才是 0.867。两次都保留在这里，因为**对比方法本身就会造出假差异**。
+- 内容区有系统性的纵向漂移：沿 x=780 那一列量色块边界（@2x 像素）：深蓝卡片上沿 设计 380 / 渲染 377，下沿 965 / 955，预约块 1034–1247 / 1024–1234。即卡片高度差 7px（3.5pt），到预约块累计约 10px（**5pt**）。文字字形也有细微差别（如「，」的宽度）。
+- 原因**推断**（未验证）：HTML 字体栈是 `"PingFang SC","Noto Sans CJK SC"`，设计 PNG 很可能是在没有 PingFang 的环境导出的；本机渲染用的是 PingFang，而 iOS 真机的中文字体也是 PingFang SC，所以**本机渲染反而比设计 PNG 更接近真机字形**。
+
+**志愿者端**：13 张画板全部渲染出非空内容（每张 51–63 种主色）。抽看 `Invite` / `Main` / `Run` 三张，版式完整、中文字体正常。⚠️ **前提**：这些画板依赖 `./support.js`（`<x-dc>` 运行时），而**志愿者 v2 包里没有它，仓库里也没有**；我借用了 `~/Downloads/design_handoff_running_state/support.js`（两个副本逐字节相同）。它们能渲染说明运行时兼容，但**这个文件不入库就无法复现**——入库规则是只放 ≤1MB 的文件，`support.js` 需要单独决定。
+- Google Fonts（Manrope / Noto Sans SC）来自 CDN，离线渲染会回退字体。
+
+**没做成的**：与 claude.ai 上的原版画布对照。内置浏览器已登录、能打开该 artifact 页面（标题 `助盲跑 · 陪跑员端订单页重设计`），但画布内容在跨域 iframe（`*.frame.claudeusercontent.com`）里，截图空白、读不到内容，没有控制台报错。**所以「渲染结果与设计画布一致」这一点仍未验证**——上面只证明了「渲染忠实于 HTML 源」以及「HTML 渲染与盲人端导出 PNG 在版式上一致、字形略有差」。
+
+**对 §8 的影响**：「陪跑员端用无头浏览器渲染成 PNG 当并排素材」**可行**（结论从「待验证」变「可行，需先决定 `support.js` 入库与字体」）；但并排展示时应**声明 PNG 是本机渲染**，不与导出 PNG 混排在同一页里当作同一来源。
+
+### 验证 ①：真机录屏是否带声音
+
+**没有做完，卡在只有真人才能做的一步。** 已确认的前置条件：
+- 真机 `mac's iPhone`（iPhone 16 Pro）`available (paired)`，`blindRun`（`com.jerry.aidrun`）build 545 已装（`devicectl device info apps`）。
+- 语音下单入口在 `BlindBookingView.swift:1008`（`VoiceOrderWizard`）。
+- 我写了一个能自己跑的检查脚本 `check-recording-audio.sh`（放在 `/tmp/audio-check/`，未入库），用三个合成样本验证过它能区分三种情形：无音轨 → 退出码 1 并报「没有音轨」；有音轨但静音（max −91 dB）→ 退出码 1；三段有声（1.0–2.5s / 4.0–6.0s / 8.0–9.0s）→ 退出码 0 且**准确报出这三段**。
+- **待人工**：iPhone 控制中心开「屏幕录制」（麦克风保持关，这样录到的只有 App 的输出音频），进语音下单，让 App 播报一句提示、说一句话、听 App 复述确认，约 15 秒后停止，拷到 Mac（AirDrop 或 `xcrun devicectl device copy from`）。判据：TTS 播报时刻有没有对应的有声片段。
