@@ -127,7 +127,7 @@ Anthropic 官方 cookbook 的 `<frontend_aesthetics>` 块逐字要求避开
 - REST + WebSocket 提供通知、派单、状态更新与位置上报；JWT Bearer Auth。
 - 用高德地图与真机定位；TTS 用 `AVSpeechSynthesizer`，STT 用 iOS `Speech`。
 - Mock 是**进程内**的前端测试设施，不发网络请求，且**永远不足以作为发布签核依据**。
-- 发布验证必须在真机 `111` 与 `iPad Pro (2)` 上跑。
+- 上架包**只支持 iPhone**（2026-09-30 负责人拍板，`TARGETED_DEVICE_FAMILY = 1`，仅主 App 与 LiveActivity 两个 target；测试 target 仍是 `1,2`，iPad 继续能当第二台开发机跑双机 E2E）。发布验证必须在真机 `111`（iPhone）上跑；`iPad Pro (2)` 不再是发布验证对象。
 
 生产短信、实名认证、管理员工具、路线导航、支付等能力不再被全局禁止，但仍必须先有需求、API 契约、实现计划与验收测试才能写代码。
 

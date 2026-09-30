@@ -57,7 +57,7 @@ scripts/dual-device-validation.sh
 - [ ] 有 accessibilityLabel / accessibilityHint？关键盲人按钮 ≥64pt？有「重复当前状态」？（目测项，**不能替代下面第五节的审计**）
 - [ ] 危险操作有二次确认？
 - [ ] 客户端模型与 ViewModel 对 API 响应和订单状态行为有测试覆盖？
-- [ ] 改动触及的真实集成路径，在真机 `111` / `iPad Pro (2)` 上验证过？
+- [ ] 改动触及的真实集成路径，在真机 `111`（iPhone）上验证过？（上架包只支持 iPhone，见 AGENTS.md §3）
 - [ ] 新增/改写的用例**逐条**核过确实执行并通过，不是「套件绿就算跑了」？
 
 ## 四、汇报格式

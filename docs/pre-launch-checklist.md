@@ -87,7 +87,7 @@
 | 项 | 原因 |
 |---|---|
 | 隐私号中转拨号 | 后端 `aliyun.private-number.enabled=false`，端点返回 `NOT_AVAILABLE` 且响应体无号码。**现在拨号是直拨真实手机号** |
-| iPad / 横屏体验 | `horizontalSizeClass` 全仓 **0** 命中（仅 `verticalSizeClass` 5 处）。iPad 上会难看 |
+| iPad / 横屏体验 | `horizontalSizeClass` 全仓 **0** 命中（仅 `verticalSizeClass` 5 处）。iPad 上会难看 —— 2026-09-30 起上架包只支持 iPhone，此项不再是上架缺口 |
 | 平台内文字消息 | 不存在，跑前沟通只能打电话 |
 | 固定搭档 / 收藏志愿者 | 不存在，每单重新派 |
 | 用户侧客服/申诉入口 | 后端 `/api/cs/*` 全是坐席侧，C 端提交端点不存在 |
@@ -155,7 +155,7 @@
 - [x] ~~🔴 版本策略~~ → build 号 = `git rev-list --count HEAD`（`scripts/set-build-number.sh`，PR #192），
   App 与 Widget 同值；上传脚本要求 HEAD 在 `origin/main` 线上，防止包号回退。`MARKETING_VERSION` 仍是 `1.0`。（2026-09-27 核）
 - [x] ~~🟡 Info.plist 补 `ITSAppUsesNonExemptEncryption`~~ → 已是 `false`（只走系统 HTTPS，属豁免）。（2026-09-27 核）
-- [ ] ⚠️ **待拍板：要不要支持 iPad**。`TARGETED_DEVICE_FAMILY = "1,2"` ⇒ 审核员可能在 iPad 上测，而 §B2 把 iPad 列在「不要拍」。
+- [x] **已拍板（2026-09-30）：先只支持 iPhone**。主 App 与 LiveActivity 的 `TARGETED_DEVICE_FAMILY` 已改为 `1`。⚠️ iPhone-only 的包在 iPad 上能否以兼容模式装、审核员会不会因此在 iPad 上测：**未核实**，首次上传后看 App Store Connect 的设备列表。
 - [x] 打 **`blindRun-Prod`**（Release），不打 `blindRun-Demo`：DemoRelease 带 `#if DEBUG || DEMO` 的 UI 测试钩子。
   Release 已锁云端、无环境切换器。Xcode 26.2 满足 2026-04-28 起的 Xcode 26 / iOS 26 SDK 上传下限。（2026-09-27 核，archive 实跑通过）
 - [ ] 🔴 填好 Beta App Description 与 **Beta App Review Information**，附**演示账号**（预置手机号 + 验证码 `000000`），否则审核员登不进去必被拒。
@@ -274,5 +274,5 @@ scripts/install-git-hooks.sh
 - [x] ~~**隐私政策和用户协议谁来写？**~~ → 已写、已上线（v1.1，2026-09-10）；剩运动数据那处要改（§C0）。
 - [x] ~~**后端上 HTTPS 有没有排期？**~~ → 2026-09-08 已上线。
 - [ ] **最终 Bundle ID 用什么？** 建 App 记录后不可改，高德 key 与后端 `APNS_TOPIC` 都跟着它（§C1）。
-- [ ] **支持 iPad 吗？** 支持就意味着审核员可能在 iPad 上测（§C1）。
+- [x] **支持 iPad 吗？** 不支持，先只做 iPhone（2026-09-30，见 §C1）。
 - [ ] **有没有伦理审查要求？** 学校/导师侧若需要走 IRB 类流程，是另一条路径。
