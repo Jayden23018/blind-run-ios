@@ -96,7 +96,7 @@ final class IncentiveServiceTests: XCTestCase {
     func testRemainingEndpointsMapToTheirContractPaths() async throws {
         let achievements = RecordingTransport()
         achievements.nextResponse = VolunteerAchievementsResponse(
-            totalCompleted: 0, totalServiceMinutes: 0, avgRating: nil,
+            totalCompleted: 0, totalServiceMinutes: 0, totalDistanceMeters: 0, avgRating: nil,
             totalRatings: 0, badges: [], nextBadge: nil, starLevel: nil
         )
         _ = try await IncentiveService(transport: achievements).volunteerAchievements()

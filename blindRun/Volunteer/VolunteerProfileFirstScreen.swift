@@ -24,13 +24,20 @@ import Foundation
 /// ⛔ 邀请语**不带压力句式**：不写「还差 1 单就解锁首枚勋章」「今天就开始吧」——
 /// Motivation Crowding（`docs/research/volunteer-home-incentive-layer-20260914.md` §3.2），
 /// 我们的志愿者是无偿的，落在挤出风险最高的一侧。
+///
+/// 已完成时主指标**优先是累计公里**（后端 `totalDistanceMeters`，米，客户端向下取整）。
+/// 🔴 不足 1 公里时**不显示「0 公里」而是回落到次数**：2026-08-14 之前的订单没有里程快照、
+/// 按 0 算，「有完成订单但里程 0」是真实状态，最大最粗的 0 与新人态同理是负激励。
 enum VolunteerProfileHeadline: Equatable {
     case newcomer
-    case completed(count: Int)
+    /// `distanceKm` 为 `nil` = 没有可显示的里程，主指标用次数。
+    case completed(count: Int, distanceKm: Int64?)
 
-    static func resolve(totalCompleted: Int?) -> VolunteerProfileHeadline {
+    static func resolve(totalCompleted: Int?, totalDistanceMeters: Int64?) -> VolunteerProfileHeadline {
         guard let totalCompleted, totalCompleted > 0 else { return .newcomer }
-        return .completed(count: totalCompleted)
+        // 向下取整：12_999 米是 12 公里。少算而不是多算，与 `VolunteerProfileStats.hours` 同向。
+        let km = max(0, totalDistanceMeters ?? 0) / 1000
+        return .completed(count: totalCompleted, distanceKm: km > 0 ? km : nil)
     }
 
     /// 新人态下**整个影响力区（3 列统计 + 星级进度）都不画**。
@@ -295,6 +302,10 @@ enum VolunteerProfileCopy {
     // 主指标
     static let impactSectionTitle = "我的陪伴"
     static let heroUnit = "次陪跑"
+    static let heroDistanceUnit = "公里"
+
+    /// 主指标是公里时，完成次数退到它下面这一行（三列统计里没有次数，不写就丢了）。
+    static func heroRunsDetail(_ count: Int) -> String { "共 \(count) \(heroUnit)" }
 
     /// 新人那句话。陈述现状 + 说清下一步在哪，**不催**。
     static let newcomerHeadline = "还没有完成的陪跑"
@@ -304,7 +315,9 @@ enum VolunteerProfileCopy {
         switch headline {
         case .newcomer:
             return "\(impactSectionTitle)。\(newcomerHeadline)。\(newcomerDetail)"
-        case .completed(let count):
+        case .completed(let count, let distanceKm?):
+            return "\(impactSectionTitle)。累计陪跑 \(distanceKm) \(heroDistanceUnit)，\(heroRunsDetail(count))。"
+        case .completed(let count, nil):
             return "\(impactSectionTitle)。已完成 \(count) \(heroUnit)。"
         }
     }

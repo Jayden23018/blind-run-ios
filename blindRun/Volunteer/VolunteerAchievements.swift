@@ -13,6 +13,10 @@ import Foundation
 struct VolunteerAchievementsResponse: Decodable, Sendable, Equatable {
     let totalCompleted: Int?
     let totalServiceMinutes: Int64?
+    /// 累计里程，**米**（后端 `actualDistanceMeters` 之和）。契约里恒非 null、无数据为 0，
+    /// 这里仍收成 optional（缺字段少显示，不让整页解码失败）。**取整成公里由客户端做**。
+    /// 2026-08-14 之前完成的订单没有里程快照，会少算 —— 所以「有完成订单但这里是 0」是真实状态。
+    let totalDistanceMeters: Int64?
     let avgRating: Double?
     let totalRatings: Int?
 

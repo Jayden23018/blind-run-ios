@@ -307,6 +307,8 @@ extension MockAPIClient {
         return VolunteerAchievementsResponse(
             totalCompleted: totalCompleted,
             totalServiceMinutes: totalServiceMinutes,
+            // 每单按 5 公里计，同上：Mock 没有真实轨迹，编个精确值没有意义，只为走通「公里」那条路径。
+            totalDistanceMeters: Int64(totalCompleted) * 5_000,
             avgRating: avgRating,
             totalRatings: totalRatings,
             badges: table.filter(\.unlocked).map { VolunteerBadgeDto(code: $0.code, name: $0.name) },
