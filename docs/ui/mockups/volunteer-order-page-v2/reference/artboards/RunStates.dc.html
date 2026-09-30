@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>跑步中 · 其他状态</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Noto+Sans+SC:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FFFFFF}
+a{color:#2A5BD7}a:hover{color:#1F47AD}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 1330px; height: 1060px; box-sizing: border-box; padding: 48px; display: flex; flex-direction: column; background: #FFFFFF; color: #151A26; font-family: 'Manrope', 'Noto Sans SC', 'PingFang SC', sans-serif; overflow: hidden">
+<div style="font-size: 28px; font-weight: 800; letter-spacing: -0.5px">跑步中 · 其他状态与提示</div>
+<div style="margin-top: 8px; font-size: 15px; color: #5B6272">都沿用 ⑥ 的结构，只替换对应的一块。</div>
+<div style="margin-top: 24px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; align-items: start">
+<div style="background: #F2F3F6; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px"><div style="font-size: 17px; font-weight: 800">暂停中</div><div style="font-size: 14px; line-height: 1.5; color: #5B6272">从求助面板“李明需要停下来”进入。头卡转灰，计时冻结；主操作变成继续。</div></div>
+<div style="width: 350px; display: flex; flex-direction: column; gap: 8px"><div style="background: #4B5263; border-radius: 24px; padding: 20px 24px; display: flex; flex-direction: column; color: #FFFFFF">
+<div style="font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.8)">已暂停 · 计时停在 18:32</div>
+<div style="margin-top: 4px; display: flex; align-items: baseline; gap: 8px"><div style="font-size: 64px; font-weight: 800; letter-spacing: -3px; line-height: 1; font-variant-numeric: tabular-nums">2.40</div><div style="font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.86)">公里</div></div>
+<div style="margin-top: 8px; font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.86)">组织值班人员已收到通知</div>
+</div><button style="height: 64px; border: 1.5px solid #D9A21E; border-radius: 17px; background: #F6C343; color: #1E1A0B; font-size: 17px; font-weight: 800; cursor: pointer">继续陪跑</button></div>
+</div><div style="background: #F2F3F6; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px"><div style="font-size: 17px; font-weight: 800">提示条（插在头卡下方，同时只出现一条）</div><div style="font-size: 14px; line-height: 1.5; color: #5B6272">按紧急程度：走散 &gt; 电量 &gt; 定位。不用弹窗，不打断。</div></div>
+<div style="width: 350px; display: flex; flex-direction: column; gap: 8px"><div role="status" style="background: #FDECEC; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; color: #B42318">
+<div style="display: flex; align-items: center; gap: 8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 16H3z"></path><path d="M12 10v4M12 17v.5"></path></svg><span style="font-size: 15px; font-weight: 800">你和李明好像走散了</span></div>
+<div style="font-size: 14px; line-height: 1.5">手机显示你们相距约 30 米。先确认他在身边。</div><button style="height: 44px; margin-top: 4px; border: none; border-radius: 14px; background: #FFFFFF; color: #B42318; font-size: 15px; font-weight: 700; cursor: pointer">让李明的手机响起来</button>
+</div><div role="status" style="background: #FFF4D6; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; color: #6B4A00">
+<div style="display: flex; align-items: center; gap: 8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="16" height="10" rx="2"></rect><path d="M21 11v2M6 10v4"></path></svg><span style="font-size: 15px; font-weight: 800">李明的手机电量 18%</span></div>
+<div style="font-size: 14px; line-height: 1.5">跑完记得提醒他充电。</div>
+</div><div role="status" style="background: #EEF0F4; border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; color: #3F4553">
+<div style="display: flex; align-items: center; gap: 8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12a10 10 0 0114 0M8.5 15.5a5 5 0 017 0M12 19v.5"></path></svg><span style="font-size: 15px; font-weight: 800">定位信号弱</span></div>
+<div style="font-size: 14px; line-height: 1.5">距离暂时按步数估算，信号恢复后会校正。</div>
+</div></div>
+</div><div style="background: #F2F3F6; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px"><div style="font-size: 17px; font-weight: 800">超过目标距离</div><div style="font-size: 14px; line-height: 1.5; color: #5B6272">进度条停在满格，末端出现金色对勾；标签改成“已完成目标”，不再倒数。</div></div>
+<div style="width: 350px; display: flex; flex-direction: column; gap: 8px"><div style="background: #0A6B72; border-radius: 24px; padding: 20px 24px; display: flex; flex-direction: column; color: #FFFFFF">
+<div style="font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.8)">陪跑中 · 深圳湾公园</div>
+<div style="margin-top: 4px; display: flex; align-items: baseline; gap: 8px"><div style="font-size: 64px; font-weight: 800; letter-spacing: -3px; line-height: 1; font-variant-numeric: tabular-nums">5.32</div><div style="font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.86)">公里</div></div>
+<div style="margin-top: 16px; position: relative; height: 10px; border-radius: 5px; background: #FFFFFF"><div style="position: absolute; right: -4px; top: -7px; width: 24px; height: 24px; border-radius: 50%; background: #FFD978; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1E1A0B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></div></div><div style="margin-top: 8px; font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.86)">已完成 5.00 公里目标 · 多跑了 0.32</div>
+</div></div>
+</div><div style="background: #F2F3F6; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px"><div style="font-size: 17px; font-weight: 800">节奏信号过期</div><div style="font-size: 14px; line-height: 1.5; color: #5B6272">超过 5 分钟没有新信号：卡片转灰，文案改成“上次反馈”，避免陪跑员依赖旧信息。</div></div>
+<div style="width: 350px; display: flex; flex-direction: column; gap: 8px"><div style="background: #FFFFFF; border-radius: 20px; padding: 16px; display: flex; align-items: center; gap: 12px; opacity: 0.9">
+<div style="width: 40px; height: 40px; flex-shrink: 0; border-radius: 50%; background: #EEF0F4; display: flex; align-items: center; justify-content: center"><span style="width: 10px; height: 10px; border-radius: 50%; background: #9AA1B0"></span></div>
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 2px"><div style="font-size: 14px; color: #5B6272">上次反馈</div><div style="font-size: 18px; font-weight: 800; color: #5B6272">刚刚好</div></div>
+<div style="font-size: 14px; color: #5B6272">18 分钟前</div></div>
+<div style="font-size: 14px; line-height: 1.5; color: #5B6272; padding: 0 4px">信号只有三种：稍慢一点 / 刚刚好 / 可以快一点。App 内写“李明”，锁屏和灵动岛只写“李先生”（隐私）。</div></div>
+</div><div style="background: #F2F3F6; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px"><div style="font-size: 17px; font-weight: 800">长按结束陪跑</div><div style="font-size: 14px; line-height: 1.5; color: #5B6272">按住时从左向右填成黄色，同时轻震；松手即取消。满 2 秒后成功震动，头卡转成完成绿进入 ⑤。</div></div>
+<div style="width: 350px; display: flex; flex-direction: column; gap: 8px"><button aria-label="结束陪跑，长按 2 秒" style="position: relative; height: 64px; border: 1.5px solid #D9A21E; border-radius: 17px; background: #FFFFFF; color: #151A26; font-size: 17px; font-weight: 800; overflow: hidden; cursor: pointer">
+<span style="position: absolute; left: 0; top: 0; bottom: 0; width: 62%; background: #F6C343"></span>
+<span style="position: relative; display: inline-flex; align-items: center; gap: 8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5"></path></svg>继续按住，还剩 1 秒</span>
+</button>
+</div>
+</div><div style="background: #F2F3F6; border-radius: 24px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px"><div style="font-size: 17px; font-weight: 800">紧急求助按住中</div><div style="font-size: 14px; line-height: 1.5; color: #5B6272">环形倒计时一圈 3 秒。读屏用户：双击后弹出二次确认，不要求长按。</div></div>
+<div style="width: 350px; display: flex; flex-direction: column; gap: 8px"><button style="height: 72px; border: none; border-radius: 20px; background: #8E1B12; color: #FFFFFF; display: flex; align-items: center; justify-content: center; gap: 12px; cursor: pointer">
+<svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="3"></circle><circle cx="18" cy="18" r="15" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-dasharray="62.8 94.2" transform="rotate(-90 18 18)"></circle><text x="18" y="22.5" text-anchor="middle" font-size="12" font-weight="800" fill="#FFFFFF" style="font-family: Manrope, sans-serif">SOS</text></svg>
+<span style="display: flex; flex-direction: column; gap: 2px; text-align: left"><span style="font-size: 18px; font-weight: 800">继续按住，还剩 1 秒</span><span style="font-size: 13px; font-weight: 600; color: #FFE1DC">松手即取消</span></span></button></div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1330,"height":1060}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

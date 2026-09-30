@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>助盲跑 跑后记录原型</title>
+<style>
+:root{
+  --page:#E3E5E8; --screen:#F2F2F7; --surface:#FFFFFF;
+  --ink:#000000; --ink2:rgba(60,60,67,.64); --ink3:rgba(60,60,67,.3);
+  --sep:rgba(60,60,67,.16); --fill:rgba(118,118,128,.12); --link:#007AFF;
+  --yellow:#F7BE00; --tether:#FF6A13; --bezel:#1C1C1E;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --page:#0D0E10; --screen:#000000; --surface:#1C1C1E;
+    --ink:#FFFFFF; --ink2:rgba(235,235,245,.62); --ink3:rgba(235,235,245,.28);
+    --sep:rgba(84,84,88,.55); --fill:rgba(118,118,128,.24); --link:#0A84FF; --bezel:#2B2B2E;
+  }
+}
+:root[data-theme="dark"]{
+  --page:#0D0E10; --screen:#000000; --surface:#1C1C1E;
+  --ink:#FFFFFF; --ink2:rgba(235,235,245,.62); --ink3:rgba(235,235,245,.28);
+  --sep:rgba(84,84,88,.55); --fill:rgba(118,118,128,.24); --link:#0A84FF; --bezel:#2B2B2E;
+}
+*,*::before,*::after{box-sizing:border-box}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{height:100%;margin:0;background:var(--page);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+p,h1,h2,h3{margin:0}
+:focus-visible{outline:3px solid var(--link);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- stage & panel ---------- */
+.stage{min-height:100%;display:flex;gap:56px;justify-content:center;align-items:flex-start;padding:40px 24px}
+.panel{width:300px;flex:none;position:sticky;top:40px}
+.panel h1{font-size:22px;font-weight:700;letter-spacing:-.01em}
+.panel .sub{color:var(--ink2);font-size:14px;margin-top:4px}
+.seg{display:flex;background:var(--fill);border-radius:10px;padding:2px;margin:22px 0 14px}
+.seg button{flex:1;padding:8px 6px;border-radius:8px;font-size:14px;font-weight:500;color:var(--ink2)}
+.seg button[aria-checked="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.toggles{display:flex;flex-direction:column;gap:10px}
+.sw{display:flex;align-items:center;gap:10px;font-size:15px}
+.sw .track{width:44px;height:26px;border-radius:13px;background:var(--fill);position:relative;flex:none;transition:background .2s}
+.sw .knob{position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .2s}
+.sw[aria-checked="true"] .track{background:#34C759}
+.sw[aria-checked="true"] .knob{transform:translateX(18px)}
+.notes{margin-top:24px;font-size:14px;line-height:1.65;color:var(--ink2)}
+.notes summary{font-size:15px;font-weight:600;color:var(--ink);cursor:pointer;margin-bottom:8px}
+.notes p{margin-bottom:10px}
+.notes strong{color:var(--ink);font-weight:600}
+
+/* ---------- phone ---------- */
+.phone{width:390px;height:844px;flex:none;border-radius:58px;background:var(--bezel);padding:12px;box-shadow:0 40px 80px -30px rgba(0,0,0,.45)}
+.screen{--s:1;--sb:47px;position:relative;width:100%;height:100%;border-radius:46px;overflow:hidden;background:var(--screen);font-size:calc(16px * var(--s))}
+.statusbar{position:absolute;top:0;left:0;right:0;z-index:20;height:47px;display:flex;align-items:center;justify-content:space-between;padding:6px 30px 0 34px;font-size:16px;font-weight:600;pointer-events:none;color:var(--ink);transition:color .2s}
+.screen.sb-light .statusbar{color:#fff}
+.screen.sb-dark .statusbar{color:#000}
+.statusbar svg{display:block}
+.view{position:absolute;inset:0;display:flex;flex-direction:column}
+.view.padded{padding-top:var(--sb)}
+.nav{height:44px;flex:none;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 8px}
+.nav-btn{display:flex;align-items:center;gap:2px;color:var(--link);font-size:1.0625em;padding:8px;min-height:44px}
+.content{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:28px}
+.screen.vo .content{padding-bottom:120px}
+
+.sec{margin:0 16px 26px}
+.sec-h{font-size:1.25em;font-weight:700;margin:0 4px 10px;letter-spacing:-.01em}
+.group{background:var(--surface);border-radius:14px;overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:12px 16px;min-height:48px;position:relative;width:100%;text-align:left}
+.row + .row::before{content:"";position:absolute;top:0;left:16px;right:0;border-top:.5px solid var(--sep)}
+.row .grow{flex:1;min-width:0}
+.row .muted{color:var(--ink2)}
+.card{background:var(--surface);border-radius:18px;padding:18px}
+.tag{font-size:.8125em;padding:3px 8px;border-radius:6px;background:var(--fill);color:var(--ink2);white-space:nowrap}
+.btn-ink{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:50px;border-radius:14px;background:var(--ink);color:var(--surface);font-weight:600;font-size:1.0625em}
+.btn-line{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:50px;border-radius:14px;border:1.5px solid var(--ink);font-weight:600;font-size:1.0625em}
+.toast{position:absolute;left:16px;right:16px;bottom:34px;background:rgba(30,30,32,.92);color:#fff;border-radius:14px;padding:12px 16px;font-size:15px;line-height:1.45;z-index:30}
+
+/* ---------- map styles ---------- */
+.map{display:block}
+.map.std{--m-land:#EFF0EC;--m-block:#E1E3E0;--m-block2:#E6E8E4;--m-road:#FFFFFF;--m-roadc:#D3D6D9;--m-street:#FAFAF8;--m-park:#CFE5C6;--m-tree:#BBD9B1;--m-w1:#BFDAEB;--m-w2:#A7CBE2;--m-shore:#9FC3DA;--m-walk:#FFFFFF;--m-lbl:#69747E;--m-wlbl:#4F7D9E;--m-plbl:#4E7F48;--m-case:#FFFFFF;--m-km:#FFFFFF;--m-kmt:#111;}
+.map.night{--m-land:#1C1F26;--m-block:#252A33;--m-block2:#282E38;--m-road:#2E3542;--m-roadc:#14171C;--m-street:#262B35;--m-park:#17261F;--m-tree:#1D3228;--m-w1:#0A1F33;--m-w2:#061322;--m-shore:#15314A;--m-walk:#2A3340;--m-lbl:#8792A0;--m-wlbl:#4D6B88;--m-plbl:#557B63;--m-case:#0B0D11;--m-km:#FFFFFF;--m-kmt:#111;}
+.map .seg{transition:opacity .15s}
+.map.replaying .seg,.map.replaying .arr{opacity:.14}
+.map.replaying .seg.on{opacity:1}
+.map .glow{display:none}
+.map.night .glow{display:inline}
+
+/* ---------- guide: immersive map + sheet ---------- */
+.g-map{position:absolute;top:0;left:0;right:0;z-index:1;will-change:transform;background:#EFF0EC}
+.g-map.night{background:#1A1D24}
+.g-nav{position:absolute;left:0;right:0;top:0;padding-top:var(--sb) !important;z-index:6;height:calc(var(--sb) + 52px);display:grid;grid-template-columns:52px 1fr 52px;align-items:center;padding:0 10px;transition:background .2s}
+.g-nav .ttl{text-align:center;font-weight:600;font-size:1.0625em;opacity:0;transition:opacity .2s}
+.g-nav.solid{background:var(--surface);box-shadow:0 .5px 0 var(--sep)}
+.g-nav.solid .ttl{opacity:1}
+.glass{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.88);color:#000;
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:0 2px 10px rgba(0,0,0,.14)}
+.g-wrap.night .glass{background:rgba(36,39,46,.82);color:#fff;box-shadow:none}
+.g-nav.solid .glass{background:transparent;box-shadow:none;color:var(--link)}
+.g-scroll{position:absolute;inset:0;z-index:2;overflow-y:auto;overscroll-behavior:contain}
+.g-spacer{position:relative}
+.tools-top{position:absolute;left:14px;top:calc(var(--sb) + 60px);display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.mstyle{display:flex;border-radius:10px;padding:2px;background:rgba(255,255,255,.88);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.mstyle button{font-size:12.5px;font-weight:600;padding:5px 10px;border-radius:8px;color:rgba(0,0,0,.55)}
+.mstyle button[aria-pressed="true"]{background:#111;color:#fff}
+.g-wrap.night .mstyle{background:rgba(36,39,46,.82);box-shadow:none}
+.g-wrap.night .mstyle button{color:rgba(255,255,255,.6)}
+.g-wrap.night .mstyle button[aria-pressed="true"]{background:#fff;color:#000}
+.legend{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.88);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-radius:8px;padding:5px 9px;font-size:12px;color:rgba(0,0,0,.6)}
+.g-wrap.night .legend{background:rgba(36,39,46,.82);color:rgba(255,255,255,.7)}
+.legend i{display:block;width:56px;height:5px;border-radius:3px;background:linear-gradient(90deg,#3558F0,#19B3A6,#F5B100)}
+.tools-bottom{position:absolute;left:14px;right:14px;bottom:18px;display:flex;justify-content:space-between;align-items:center;pointer-events:none}
+.tools-bottom > *{pointer-events:auto}
+.replay{display:flex;align-items:center;gap:7px;height:40px;padding:0 16px 0 14px;border-radius:20px;background:#111;color:#fff;font-weight:600;font-size:14.5px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.g-wrap.night .replay{background:#fff;color:#000}
+.hud{display:none;height:40px;align-items:center;gap:10px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,.9);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);font-size:13px;color:rgba(0,0,0,.6);box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.hud b{color:#000;font-size:15px;font-weight:700}
+.g-wrap.night .hud{background:rgba(36,39,46,.85);color:rgba(255,255,255,.65)}
+.g-wrap.night .hud b{color:#fff}
+.hud.on{display:flex}
+
+.sheet{position:relative;background:var(--screen);border-radius:22px 22px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.14);min-height:100%}
+.sheet-head{background:var(--surface);border-radius:22px 22px 0 0;padding:8px 20px 20px}
+.grabber{width:36px;height:5px;border-radius:3px;background:var(--ink3);margin:0 auto 14px}
+.pair{display:flex;align-items:center;gap:12px}
+.avs{display:flex;flex:none}
+.av{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:15px;border:2.5px solid var(--surface)}
+.av.a{background:var(--yellow);color:#000}
+.av.b{background:var(--ink);color:var(--surface);margin-left:-10px}
+.pair h1{font-size:1.1875em;font-weight:700;letter-spacing:-.01em}
+.pair p{font-size:.875em;color:var(--ink2);margin-top:1px}
+.g-dist{display:flex;align-items:baseline;gap:6px;margin:18px 0 14px}
+.g-dist b{font-size:3.75em;font-weight:800;letter-spacing:-.04em;line-height:.9;font-family:"SF Pro Display",-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
+.g-dist span{font-size:1.125em;font-weight:600;color:var(--ink2)}
+.stats{display:grid;grid-template-columns:1.1fr 1fr .8fr}
+.stats > div{padding:2px 0 0}
+.stats b{display:block;font-size:1.375em;font-weight:700;letter-spacing:-.01em}
+.stats small{display:block;font-size:.8125em;color:var(--ink2);margin-top:2px}
+.stats.minor{margin-top:14px}
+.stats.minor b{font-size:1.0625em;font-weight:600}
+.svc{display:flex;align-items:center;gap:12px;width:100%;text-align:left;margin-top:18px;padding:12px 14px;border-radius:14px;background:var(--fill)}
+.svc .ic{width:30px;height:30px;border-radius:8px;background:var(--tether);display:grid;place-items:center;flex:none}
+.svc b{display:block;font-weight:600;font-size:.9375em}
+.svc small{display:block;font-size:.8125em;color:var(--ink2);margin-top:1px}
+.svc .grow{flex:1}
+.sheet-body{padding-top:24px;padding-bottom:30px}
+.screen.vo .sheet-body{padding-bottom:120px}
+
+.chart-card{padding:14px 14px 10px}
+.readout{display:flex;gap:14px;align-items:baseline;min-height:1.6em;margin:0 2px 6px;font-size:.875em;color:var(--ink2)}
+.readout b{color:var(--ink);font-size:1.0625em;font-weight:700}
+.chart{display:block;width:100%;height:auto;touch-action:pan-y;cursor:crosshair}
+.chart text{font-size:10px;fill:var(--ink2)}
+
+.split-g{font-size:.9375em}
+.split-g .c1{width:40px;font-weight:600}
+.split-g .c2{width:58px;font-weight:600}
+.split-g .c3{width:34px;color:var(--ink2);text-align:right}
+.split-g .bar{flex:1;height:8px;border-radius:4px;background:var(--fill);overflow:hidden}
+.split-g .bar i{display:block;height:100%;border-radius:4px}
+.split-g.hd{min-height:34px;padding-top:9px;padding-bottom:5px;font-size:.8125em;color:var(--ink2);font-weight:400}
+.split-g.hd .c1,.split-g.hd .c2{font-weight:400}
+.split-g.sel{background:var(--fill)}
+.foot{font-size:.8125em;color:var(--ink2);margin:8px 4px 0;line-height:1.5}
+.tl{padding:6px 0}
+.tl-row{display:grid;grid-template-columns:52px 18px 1fr;align-items:start;padding:8px 16px;position:relative}
+.tl-row .t{color:var(--ink2);font-size:.9375em}
+.tl-row .x{line-height:1.45;font-size:.9375em}
+.tl-row .dot{width:9px;height:9px;border-radius:50%;background:var(--ink3);margin:6px 0 0 1px;position:relative;z-index:1}
+.tl-row.key .dot{background:var(--ink)}
+.tl-row.warn .dot{background:var(--yellow)}
+.tl-row:not(:last-child)::after{content:"";position:absolute;left:73px;top:22px;bottom:-8px;width:1.5px;background:var(--sep)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.chip{border:1px solid var(--sep);border-radius:16px;padding:6px 12px;font-size:.875em;min-height:34px}
+textarea{width:100%;min-height:78px;resize:none;border:0;border-radius:12px;background:var(--fill);color:var(--ink);font:inherit;padding:12px;line-height:1.5}
+.sent{font-size:.875em;color:var(--ink2);margin-top:10px;line-height:1.5}
+.note{display:flex;gap:12px;align-items:flex-start}
+.avatar{width:40px;height:40px;border-radius:50%;background:var(--fill);display:grid;place-items:center;font-weight:600;flex:none}
+.note .who{font-size:.875em;color:var(--ink2)}
+.note .txt{font-size:1.0625em;line-height:1.55;margin-top:2px}
+.note-actions{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.rec-dot{width:10px;height:10px;border-radius:50%;background:#FF3B30}
+
+/* ---------- runner view ---------- */
+.r-head{padding:6px 20px 22px}
+.r-date{font-size:1.0625em;color:var(--ink2)}
+.r-with{font-size:1.625em;font-weight:700;line-height:1.25;margin-top:2px;letter-spacing:-.01em}
+.r-big{display:flex;align-items:baseline;gap:8px;margin:18px 0 8px}
+.r-big b{font-size:4.5em;font-weight:800;letter-spacing:-.04em;line-height:.95;font-family:"SF Pro Display",-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}
+.r-big span{font-size:1.375em;font-weight:600}
+.r-facts{font-size:1.1875em;line-height:1.6}
+.r-facts .up{color:var(--ink2)}
+.tactile{display:flex;align-items:center;gap:16px;width:100%;text-align:left;color:#000;border-radius:22px;padding:20px;min-height:96px;
+  background:linear-gradient(90deg,var(--yellow) 48%,rgba(247,190,0,0) 88%),radial-gradient(circle,rgba(0,0,0,.16) 2.1px,transparent 2.6px) 0 0/13px 13px,var(--yellow)}
+.tactile .t-ic{width:52px;height:52px;border-radius:50%;background:#000;display:grid;place-items:center;flex:none}
+.tactile b{display:block;font-size:1.375em;font-weight:700;letter-spacing:-.01em}
+.tactile small{display:block;font-size:.9375em;margin-top:2px;opacity:.78}
+.transcript{margin:12px 4px 0;font-size:.9375em;line-height:1.7;color:var(--ink2)}
+.sound h2{font-size:1.1875em;font-weight:700}
+.sound .desc{font-size:.9375em;line-height:1.65;color:var(--ink2);margin:6px 0 14px}
+.wave svg{display:block;width:100%;height:calc(62px * var(--s))}
+.wave.playing .wb{opacity:.28}
+.wave.playing .wb.on{opacity:1}
+.wave-km{position:relative;height:1.3em;font-size:.75em;color:var(--ink2);margin:6px 0 8px}
+.wave-km span{position:absolute;transform:translateX(-50%)}
+.wave-km span:first-child{transform:none}
+.wave-now{min-height:1.4em;font-size:.9375em;font-weight:600;margin-bottom:8px}
+.split-r .k{font-size:1.125em;font-weight:600;white-space:nowrap}
+.split-r .sub{font-size:.875em;color:var(--ink2);margin-top:2px}
+.split-r .v{font-size:1.125em;font-weight:600;white-space:nowrap}
+.split-r .fast{display:inline-block;background:var(--yellow);color:#000;font-size:.75em;font-weight:600;padding:2px 6px;border-radius:5px;margin-left:6px;vertical-align:2px}
+.map-card{background:var(--surface);border-radius:18px;overflow:hidden}
+.map-desc{padding:12px 16px 16px;font-size:.9375em;line-height:1.65;color:var(--ink2)}
+
+/* ---------- history ---------- */
+.large-title{font-size:2.125em;font-weight:700;letter-spacing:-.02em;padding:4px 20px 4px}
+.hist-sum{padding:0 20px 18px;color:var(--ink2);line-height:1.5}
+.hist-row .d{font-weight:600;font-size:1.0625em}
+.hist-row .m{font-size:.875em;color:var(--ink2);margin-top:2px}
+.hist-row .km{font-weight:600;font-size:1.125em;white-space:nowrap}
+.thumb{width:48px;height:48px;border-radius:10px;flex:none;overflow:hidden}
+.chev{color:var(--ink3);flex:none}
+.hist-row.big .d{font-size:1.1875em}
+.hist-row.big .km{font-size:1.25em}
+
+/* ---------- VoiceOver preview ---------- */
+.vo-focus{outline:3px solid var(--ink) !important;outline-offset:2px;border-radius:10px}
+.vo-cap{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.84);color:#fff;font-size:15px;line-height:1.5;padding:12px 18px 30px;z-index:25}
+.vo-cap small{display:block;opacity:.6;font-size:12px;margin-bottom:2px}
+
+@media (max-width:560px){
+  .stage{flex-direction:column;padding:0;gap:0;height:100%;min-height:0}
+  .panel{position:static;width:100%;padding:10px 14px 8px;flex:none}
+  .panel h1{font-size:17px}
+  .panel .sub{display:none}
+  .seg{margin:8px 0}
+  .toggles{flex-direction:row;gap:18px}
+  .notes{margin-top:8px}
+  .phone{width:100%;height:auto;flex:1;min-height:0;border-radius:0;padding:0;box-shadow:none;background:none}
+  .screen{border-radius:0;--sb:0px}
+  .statusbar{display:none}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none !important} }
+</style>
+</head>
+<body>
+<div class="stage">
+  <aside class="panel">
+    <h1>跑后记录原型</h1>
+    <p class="sub">助盲跑 iOS，示例数据</p>
+    <div class="seg" role="radiogroup" aria-label="查看角色">
+      <button role="radio" aria-checked="false" data-role="runner">视障跑者 老陈</button>
+      <button role="radio" aria-checked="true" data-role="guide">陪跑员 小林</button>
+    </div>
+    <div class="toggles">
+      <button class="sw" role="switch" aria-checked="false" id="swVo"><span class="track"><span class="knob"></span></span>读屏预览</button>
+      <button class="sw" role="switch" aria-checked="false" id="swLg"><span class="track"><span class="knob"></span></span>大字号</button>
+    </div>
+    <details class="notes" id="notes"><summary>设计说明</summary><div id="notesBody"></div></details>
+  </aside>
+
+  <div class="phone">
+    <div class="screen" id="screen">
+      <div class="statusbar" aria-hidden="true">
+        <span class="num">9:41</span>
+        <span style="display:flex;gap:6px;align-items:center">
+          <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="currentColor"/><rect x="10" y="3" width="3" height="9" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg>
+          <svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="16" height="8" rx="2" fill="currentColor"/><rect x="24" y="4" width="1.5" height="4" rx=".7" fill="currentColor" opacity=".4"/></svg>
+        </span>
+      </div>
+      <div class="view" id="view"></div>
+      <div class="vo-cap" id="voCap" hidden></div>
+      <div class="toast" id="toast" role="status" hidden></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   示例数据：2026-09-20 老陈 & 小林 深圳湾公园
+   ========================================================= */
+const RUN={dist:5.21,moving:1954,avg:375,cad:168};
+const SPLITS=[
+  {k:1,pace:398,cad:164,note:'热身'},
+  {k:2,pace:372,cad:167,note:''},
+  {k:3,pace:358,cad:171,note:'本次最快'},
+  {k:4,pace:381,cad:169,note:'包含折返'},
+  {k:5,pace:369,cad:168,note:''},
+  {k:6,pace:362,cad:170,note:'',last:true,t:76}
+];
+const NARR='9月20日，星期六早上6点42分，你和小林在深圳湾公园跑了5.21公里，运动时间32分34秒，平均每公里6分15秒，比上一次多跑了0.41公里。第1公里是热身，用了6分38秒。第3公里你跑得最快，5分58秒。跑到日出剧场附近，你们停下来休息了1分40秒，然后沿内侧步道跑回起点。全程步频很稳，平均每分钟168步。小林给你留了一句话：今天节奏很稳，第三公里你跑得特别好，下周六还一起跑。';
+const GUIDE_NOTE='今天节奏很稳，第三公里你跑得特别好，下周六还一起跑。';
+const RUNNER_REPLY='谢谢小林，今天折返那段你提醒得很及时，下周六见。';
+const MAP_DESC='从深圳湾公园北侧入口出发，下到海边栈道往西南跑，绕过日出剧场前的小半岛后折返，再沿靠内侧的步道跑回入口。整条路线贴着海岸，几乎没有坡。';
+
+const fmtPace=s=>`${Math.floor(s/60)}'${String(Math.round(s%60)).padStart(2,'0')}"`;
+const fmtPaceCN=s=>`${Math.floor(s/60)}分${Math.round(s%60)}秒`;
+const fmtDur=s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+
+/* ---------- geometry ---------- */
+function catmull(p,n){
+  const out=[];
+  for(let i=0;i<p.length-1;i++){
+    const p0=p[i-1]||p[i],p1=p[i],p2=p[i+1],p3=p[i+2]||p2;
+    for(let t=0;t<n;t++){
+      const s=t/n,s2=s*s,s3=s2*s;
+      const f=j=>0.5*((2*p1[j])+(-p0[j]+p2[j])*s+(2*p0[j]-5*p1[j]+4*p2[j]-p3[j])*s2+(-p0[j]+3*p1[j]-3*p2[j]+p3[j])*s3);
+      out.push([f(0),f(1)]);
+    }
+  }
+  out.push(p[p.length-1]); return out;
+}
+const pathD=arr=>'M'+arr.map(p=>`${(+p[0]).toFixed(1)} ${(+p[1]).toFixed(1)}`).join(' L');
+const shift=(arr,dx,dy)=>arr.map(p=>[p[0]+dx,p[1]+dy]);
+
+const COAST_C=[[440,30],[392,78],[352,110],[322,138],[302,170],[276,196],[244,218],[218,246],[204,278],[182,302],[160,316],[152,340],[142,366],[120,380],[96,390],[70,408],[44,434],[8,466],[-40,506]];
+const COAST=catmull(COAST_C,6);
+const ROAD=shift(COAST,-80,-80);
+const ROUTE_C=[
+  [246,121],[262,136],[284,152],[292,164],[270,188],[240,208],[213,234],[198,266],[178,291],[154,305],[143,330],[134,356],[114,370],[96,372],[90,360],[102,346],[112,334],
+  [120,310],[130,288],[152,272],[172,248],[186,218],[212,190],[244,168],[268,146],[256,128],[240,125]];
+function paceBase(d){ const k=Math.min(Math.floor(d),5); return SPLITS[k].pace; }
+function paceAt(d){
+  const k=Math.floor(d), f=d-k; let p=paceBase(d);
+  if(k>0&&f<.18){ const t=f/.18; p=lerp((paceBase(d-.5)+p)/2,p,t*t*(3-2*t)); }
+  return p+4*Math.sin(d*7.3)+2.5*Math.sin(d*19.7+1);
+}
+function cadAt(d){ return SPLITS[Math.min(Math.floor(d),5)].cad+Math.round(Math.sin(d*5.1)*1.5); }
+const PTS=(()=>{
+  const raw=catmull(ROUTE_C,12); let c=0;
+  const pts=[{x:raw[0][0],y:raw[0][1],c:0}];
+  for(let i=1;i<raw.length;i++){ c+=Math.hypot(raw[i][0]-raw[i-1][0],raw[i][1]-raw[i-1][1]); pts.push({x:raw[i][0],y:raw[i][1],c}); }
+  pts.forEach(p=>{ p.d=p.c/c*RUN.dist; p.pace=paceAt(p.d); });
+  return pts;
+})();
+const N=PTS.length-1;
+const TURN=PTS.reduce((m,p,i)=>p.y>PTS[m].y?i:m,0);
+const STOP_D=PTS[TURN].d;
+const BB=(()=>{ const xs=PTS.map(p=>p.x),ys=PTS.map(p=>p.y); return {x0:Math.min(...xs),x1:Math.max(...xs),y0:Math.min(...ys),y1:Math.max(...ys)}; })();
+function ptAt(d){ let i=PTS.findIndex(p=>p.d>=d); if(i<=0) return {...PTS[0],i:0}; const a=PTS[i-1],b=PTS[i],t=(d-a.d)/(b.d-a.d); return {x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t),i}; }
+
+function hex(h){return [1,3,5].map(i=>parseInt(h.slice(i,i+2),16));}
+function mix(a,b,t){const A=hex(a),B=hex(b);return '#'+A.map((v,i)=>Math.round(v+(B[i]-v)*t).toString(16).padStart(2,'0')).join('');}
+function paceColor(p){ const t=clamp((p-354)/(396-354),0,1); return t<.5?mix('#3558F0','#19B3A6',t*2):mix('#19B3A6','#F5B100',(t-.5)*2); }
+
+/* roadY at x on the road polyline (x decreasing) */
+function lineYAt(line,x){ for(let i=0;i<line.length-1;i++){ const a=line[i],b=line[i+1]; if((a[0]-x)*(b[0]-x)<=0){ const t=(x-a[0])/((b[0]-a[0])||1e-6); return lerp(a[1],b[1],t);} } return x>line[0][0]?line[0][1]:line[line.length-1][1]; }
+function rng(seed){ return ()=>{ seed=(seed*16807)%2147483647; return (seed-1)/2147483646; }; }
+const BLOCKS=(()=>{
+  const r=rng(42), out=[];
+  for(let gx=-60;gx<460;gx+=40){
+    for(let gy=-60;gy<600;gy+=33){
+      const w=26+Math.round(r()*8), h=20+Math.round(r()*6);
+      const cx=gx+w/2, cy=gy+h/2;
+      if(lineYAt(ROAD,cx)-cy<24 || lineYAt(ROAD,gx+w)-(gy+h)<14) continue;
+      if(r()<.1) continue;
+      out.push(`<rect x="${gx}" y="${gy}" width="${w}" height="${h}" rx="2.5" fill="var(--m-${r()<.5?'block':'block2'})"/>`);
+    }
+  }
+  return out.join('');
+})();
+
+/* ---------- map ---------- */
+function fitVB(W,H,box,zoomRoute=1){
+  const pad=4, bw=BB.x1-BB.x0+pad*2, bh=BB.y1-BB.y0+pad*2;
+  const s=Math.min((box.x1-box.x0)/bw,(box.y1-box.y0)/bh)*zoomRoute;
+  const cx=(BB.x0+BB.x1)/2, cy=(BB.y0+BB.y1)/2, px=(box.x0+box.x1)/2, py=(box.y0+box.y1)/2;
+  return {x:cx-px/s,y:cy-py/s,w:W/s,h:H/s,s};
+}
+function mapSVG(id,{W,H,vb,style,label,labels=true}){
+  const park=COAST.concat(shift(COAST,-44,-44).reverse());
+  const water=COAST.concat([[-40,640],[480,640]]);
+  const walk1=shift(COAST,-9,-9), walk2=shift(COAST,-31,-31);
+  const k=1/vb.s*1.35; // keep marker sizes steady-ish in px
+  let segs='';
+  for(let i=0;i<N;i++){ const a=PTS[i],b=PTS[i+1]; segs+=`<line class="seg" vector-effect="non-scaling-stroke" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${paceColor((a.pace+b.pace)/2)}"/>`; }
+  let arrows='';
+  for(let d=.35;d<RUN.dist-.2;d+=.55){
+    const a=ptAt(d-.02),b=ptAt(d+.02),ang=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
+    const mx=((a.x+b.x)/2).toFixed(1),my=((a.y+b.y)/2).toFixed(1); arrows+=`<path class="arr mk" data-x="${mx}" data-y="${my}" data-r="${ang.toFixed(0)}" transform="translate(${mx} ${my}) rotate(${ang.toFixed(0)}) scale(${k.toFixed(2)})" d="M-1.8 -2.4 L1.4 0 L-1.8 2.4" fill="none" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  let kms='';
+  for(let km=1;km<=5;km++){ const p=ptAt(km); kms+=`<g class="mk" data-x="${p.x.toFixed(1)}" data-y="${p.y.toFixed(1)}" transform="translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) scale(${k.toFixed(2)})" filter="url(#${id}-sh)"><circle r="5.6" fill="var(--m-km)"/><text y="2.3" text-anchor="middle" style="font-size:6.4px;font-weight:800" fill="var(--m-kmt)">${km}</text></g>`; }
+  const s=PTS[0], t=PTS[TURN];
+  const hstops=[]; for(let i=0;i<=20;i++){ const d=RUN.dist*i/20; hstops.push(`<stop offset="${i*5}%" stop-color="${paceColor(paceAt(d))}"/>`); }
+  return `<svg id="${id}" class="map ${style}" width="${W}" height="${H}" viewBox="${vb.x.toFixed(2)} ${vb.y.toFixed(2)} ${vb.w.toFixed(2)} ${vb.h.toFixed(2)}" role="img" aria-label="${label}">
+  <defs>
+    <linearGradient id="${id}-wg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--m-w1)"/><stop offset="1" stop-color="var(--m-w2)"/></linearGradient>
+    <pattern id="${id}-tr" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(20)"><circle cx="2" cy="2" r="1.5" fill="var(--m-tree)"/><circle cx="5.5" cy="5.2" r="1.1" fill="var(--m-tree)"/></pattern>
+    <filter id="${id}-gl" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3"/></filter>
+    <filter id="${id}-sh" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy=".6" stdDeviation=".9" flood-color="#000" flood-opacity=".35"/></filter>
+  </defs>
+  <rect x="-80" y="-80" width="620" height="760" fill="var(--m-land)"/>
+  <g>${BLOCKS}</g>
+  <path d="M140 -60 L70 150 M60 -60 L-10 170 M-60 60 L200 -40 M-60 150 L120 70" stroke="var(--m-street)" stroke-width="6" fill="none"/>
+  <path d="${pathD(park)}Z" fill="var(--m-park)"/>
+  <path d="${pathD(park)}Z" fill="url(#${id}-tr)" opacity=".8"/>
+  <path d="M246 121 L226 101 M150 262 L120 232 M330 92 L312 74" stroke="var(--m-walk)" stroke-width="2.2" fill="none"/>
+  <path id="${id}-road" d="${pathD(ROAD.slice().reverse())}" fill="none" stroke="var(--m-roadc)" stroke-width="12.5"/>
+  <path d="${pathD(ROAD)}" fill="none" stroke="var(--m-road)" stroke-width="10"/>
+  <path d="${pathD(water)}Z" fill="url(#${id}-wg)"/>
+  <path d="${pathD(COAST)}" fill="none" stroke="var(--m-shore)" stroke-width="1.4"/>
+  <path d="${pathD(walk1)}" fill="none" stroke="var(--m-walk)" stroke-width="2" stroke-dasharray="3 2" opacity=".9"/>
+  <path d="${pathD(walk2)}" fill="none" stroke="var(--m-walk)" stroke-width="1.6" opacity=".8"/>
+  ${labels?`
+  <text style="font-size:7.5px;font-weight:600;letter-spacing:.06em" fill="var(--m-lbl)"><textPath href="#${id}-road" startOffset="52%">滨海大道</textPath></text>
+  <text transform="translate(328 90) rotate(-42)" style="font-size:8px;font-weight:600" fill="var(--m-plbl)">深圳湾公园</text>
+  <text transform="translate(262 330) rotate(-42)" style="font-size:13px;font-weight:500;letter-spacing:.5em" fill="var(--m-wlbl)">深圳湾</text>
+  <text x="64" y="352" text-anchor="middle" style="font-size:7px;font-weight:600" fill="var(--m-lbl)">日出剧场</text>`:''}
+  <path id="${id}-hl" d="" vector-effect="non-scaling-stroke" fill="none" stroke="#000" stroke-opacity=".28" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="${pathD(PTS.map(p=>[p.x,p.y]))}" vector-effect="non-scaling-stroke" fill="none" stroke="var(--m-case)" stroke-width="11" stroke-linejoin="round" stroke-linecap="round"/>
+  <g class="glow" filter="url(#${id}-gl)" opacity=".75" stroke-width="10" stroke-linecap="round">${segs.replace(/class="seg"/g,'')}</g>
+  <g stroke-width="6.5" stroke-linecap="round">${segs}</g>
+  <g>${arrows}</g>
+  ${kms}
+  <g class="mk" data-x="${t.x.toFixed(1)}" data-y="${t.y.toFixed(1)}" transform="translate(${t.x.toFixed(1)} ${t.y.toFixed(1)}) scale(${k.toFixed(2)})" filter="url(#${id}-sh)">
+    <rect x="-8" y="6" width="44" height="15" rx="7.5" fill="#fff"/>
+    <rect x="-3.5" y="10" width="1.8" height="7" rx=".6" fill="#111"/><rect x="-.3" y="10" width="1.8" height="7" rx=".6" fill="#111"/>
+    <text x="5" y="16.8" style="font-size:7.5px;font-weight:700" fill="#111">休息 1:40</text>
+  </g>
+  <g class="mk" data-x="${s.x.toFixed(1)}" data-y="${s.y.toFixed(1)}" transform="translate(${s.x.toFixed(1)} ${s.y.toFixed(1)}) scale(${k.toFixed(2)})" filter="url(#${id}-sh)">
+    <circle r="7.5" fill="#fff"/><circle r="4.2" fill="#111"/>
+    <rect x="-44" y="-8" width="34" height="15" rx="7.5" fill="#111"/>
+    <text x="-27" y="2.6" text-anchor="middle" style="font-size:7.5px;font-weight:700" fill="#fff">起终点</text>
+  </g>
+  <g id="${id}-call" visibility="hidden"><g class="in" filter="url(#${id}-sh)"><rect x="-30" y="-24" width="60" height="16" rx="8" fill="#111"/><text y="-13.2" text-anchor="middle" style="font-size:7.5px;font-weight:700" fill="#fff"></text></g></g>
+  <g id="${id}-dots" visibility="hidden">
+    <g class="in">
+      <line stroke="var(--tether)" stroke-width="1.8"/>
+      <circle class="d1" r="4.6" fill="#111" stroke="#fff" stroke-width="1.6"/>
+      <circle class="d2" r="4.6" fill="var(--tether)" stroke="#fff" stroke-width="1.6"/>
+    </g>
+  </g>
+</svg>`;
+}
+
+/* ---------- 100 m bars (runner waveform) ---------- */
+const BARS=(()=>{ const n=Math.ceil(RUN.dist/.1-1e-9),o=[]; for(let b=0;b<n;b++){ const d0=b*.1,d1=Math.min(d0+.1,RUN.dist),ps=PTS.filter(p=>p.d>=d0&&p.d<d1); o.push({b,pace:ps.reduce((s,p)=>s+p.pace,0)/ps.length,x:ps.reduce((s,p)=>s+p.x,0)/ps.length}); } return o; })();
+const STOP_BAR=Math.floor(STOP_D/.1);
+function waveSVG(id){
+  const sp=BARS.map(b=>1/b.pace),mn=Math.min(...sp),mx=Math.max(...sp),W=BARS.length*10;
+  const rects=BARS.map((b,i)=>{ const h=12+((sp[i]-mn)/(mx-mn))*44; return `<rect class="wb" x="${i*10}" y="${(58-h).toFixed(1)}" width="8" height="${h.toFixed(1)}" rx="2" fill="${paceColor(b.pace)}"/>`; }).join('');
+  const labels=[0,1,2,3,4,5].map(k=>`<span style="left:${(k*1000/W).toFixed(2)}%">${k===0?'起点':k}</span>`).join('')+`<span style="left:${(STOP_BAR*1000/W).toFixed(2)}%">折返</span>`;
+  return `<div class="wave" id="${id}"><svg viewBox="0 0 ${W} 60" preserveAspectRatio="none" aria-hidden="true">${rects}</svg></div><div class="wave-km" aria-hidden="true">${labels}</div>`;
+}
+
+/* ---------- pace chart (guide) ---------- */
+const CH={W:330,H:150,top:14,bot:122,left:6,right:324};
+const SAMPLES=(()=>{ const o=[]; for(let d=0;d<=RUN.dist+1e-9;d+=.05){ const ps=PTS.filter(p=>Math.abs(p.d-d)<.08); o.push({d:Math.min(d,RUN.dist),pace:ps.reduce((s,p)=>s+p.pace,0)/ps.length}); } return o; })();
+const PMIN=Math.min(...SAMPLES.map(s=>s.pace))-6, PMAX=Math.max(...SAMPLES.map(s=>s.pace))+6;
+const chX=d=>CH.left+d/RUN.dist*(CH.right-CH.left);
+const chY=p=>CH.top+(p-PMIN)/(PMAX-PMIN)*(CH.bot-CH.top);
+function chartSVG(){
+  const pts=SAMPLES.map(s=>[chX(s.d),chY(s.pace)]);
+  const line=pathD(pts), area=line+` L${CH.right} ${CH.bot} L${CH.left} ${CH.bot} Z`;
+  const stops=SAMPLES.filter((_,i)=>i%4===0).map(s=>`<stop offset="${(s.d/RUN.dist*100).toFixed(1)}%" stop-color="${paceColor(s.pace)}"/>`).join('');
+  const ay=chY(RUN.avg);
+  const kms=[0,1,2,3,4,5].map(k=>`<text x="${chX(k)}" y="${CH.bot+16}" text-anchor="${k===0?'start':'middle'}">${k===0?'0':k}</text>`).join('');
+  const grid=[1,2,3,4,5].map(k=>`<line x1="${chX(k)}" x2="${chX(k)}" y1="${CH.top}" y2="${CH.bot}" stroke="var(--sep)" stroke-width=".6"/>`).join('');
+  const sx=chX(STOP_D);
+  return `<svg class="chart" id="gChart" viewBox="0 0 ${CH.W} ${CH.H}" aria-hidden="true">
+    <defs>
+      <linearGradient id="chH" x1="0" x2="1" y1="0" y2="0">${stops}</linearGradient>
+      <linearGradient id="chV" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+      <mask id="chM"><rect x="0" y="0" width="${CH.W}" height="${CH.H}" fill="url(#chV)"/></mask>
+    </defs>
+    ${grid}
+    <line x1="${CH.left}" x2="${CH.right}" y1="${CH.bot}" y2="${CH.bot}" stroke="var(--sep)"/>
+    <path d="${area}" fill="url(#chH)" mask="url(#chM)"/>
+    <path d="${line}" fill="none" stroke="url(#chH)" stroke-width="2.4" stroke-linejoin="round"/>
+    <line x1="${CH.left}" x2="${CH.right}" y1="${ay}" y2="${ay}" stroke="var(--ink2)" stroke-width="1" stroke-dasharray="3 3"/>
+    <text x="${CH.right}" y="${ay-5}" text-anchor="end">平均 ${fmtPace(RUN.avg)}</text>
+    <g transform="translate(${sx} ${CH.bot})"><rect x="-13" y="-15" width="26" height="12" rx="6" fill="var(--fill)"/><text y="-6" text-anchor="middle" style="font-size:8px">休息</text></g>
+    <text x="${CH.left+2}" y="${CH.top+8}">快</text><text x="${CH.left+2}" y="${CH.bot-5}">慢</text>
+    ${kms}
+    <g id="chScrub" visibility="hidden"><line y1="${CH.top-6}" y2="${CH.bot}" stroke="var(--ink)" stroke-width="1"/><circle r="4" fill="var(--surface)" stroke="var(--ink)" stroke-width="2"/></g>
+    <rect id="chHit" x="0" y="0" width="${CH.W}" height="${CH.H}" fill="transparent"/>
+  </svg>`;
+}
+
+/* =========================================================
+   Audio: speech + sonification
+   ========================================================= */
+let zhVoice=null;
+function pickVoice(){ if(!('speechSynthesis' in window)) return; const v=speechSynthesis.getVoices(); zhVoice=v.find(x=>/zh[-_]CN/i.test(x.lang))||v.find(x=>/^zh/i.test(x.lang))||null; }
+if('speechSynthesis' in window){ pickVoice(); speechSynthesis.onvoiceschanged=pickVoice; }
+function speak(text,{rate=1,pitch=1,onend}={}){
+  if(!('speechSynthesis' in window)){ onend&&onend(); return false; }
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text); u.lang='zh-CN'; if(zhVoice) u.voice=zhVoice; u.rate=rate; u.pitch=pitch;
+  u.onend=()=>onend&&onend(); u.onerror=()=>onend&&onend(); speechSynthesis.speak(u); return true;
+}
+let actx=null,sonState=null,replay=null,speakingKey=null;
+function stopSpeech(){ if('speechSynthesis' in window) speechSynthesis.cancel(); speakingKey=null; }
+function stopSonify(){ if(!sonState) return; sonState.nodes.forEach(n=>{try{n.stop()}catch(e){}}); cancelAnimationFrame(sonState.raf); const cb=sonState.onEnd; sonState=null; cb&&cb(); }
+function stopAll(){ stopSpeech(); stopSonify(); if(replay){ cancelAnimationFrame(replay.raf); replay=null; } }
+function sonify(onProgress,onEnd){
+  const AC=window.AudioContext||window.webkitAudioContext; if(!AC){ toast('这个浏览器不支持 Web Audio，真机上会用 AVAudioEngine 实现。'); return; }
+  actx=actx||new AC(); actx.resume();
+  const barDur=.45,GAP=1.1,t0=actx.currentTime+.15;
+  const osc=actx.createOscillator(); osc.type='triangle';
+  const lp=actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=1600;
+  const g=actx.createGain(); g.gain.value=0;
+  const pan=actx.createStereoPanner?actx.createStereoPanner():null;
+  osc.connect(lp); lp.connect(g); if(pan){ g.connect(pan); pan.connect(actx.destination);} else g.connect(actx.destination);
+  const f=p=>clamp(420+(405-p)/(405-350)*300,380,760), px=x=>clamp((x-190)/100,-1,1)*.9;
+  const nodes=[osc],times=[]; let t=t0; const V=.075;
+  osc.frequency.setValueAtTime(f(BARS[0].pace),t0); if(pan) pan.pan.setValueAtTime(px(BARS[0].x),t0);
+  g.gain.setValueAtTime(0,t0); g.gain.linearRampToValueAtTime(V,t0+.25);
+  const ping=(at,hz,vol=.14,len=.12)=>{ const o=actx.createOscillator(),e=actx.createGain(); o.type='sine'; o.frequency.value=hz; e.gain.setValueAtTime(0,at); e.gain.linearRampToValueAtTime(vol,at+.006); e.gain.exponentialRampToValueAtTime(.0008,at+len); o.connect(e); e.connect(actx.destination); o.start(at); o.stop(at+len+.05); nodes.push(o); };
+  BARS.forEach((b,i)=>{
+    times.push(t);
+    if(i>0&&i%10===0){ for(let j=0;j<i/10;j++) ping(t+j*.14,1250); }
+    osc.frequency.linearRampToValueAtTime(f(b.pace),t+barDur*.6);
+    if(pan) pan.pan.linearRampToValueAtTime(px(b.x),t+barDur*.6);
+    t+=barDur;
+    if(i===STOP_BAR){ g.gain.setValueAtTime(V,t); g.gain.linearRampToValueAtTime(0,t+.25); ping(t+.35,190,.2,.18); g.gain.setValueAtTime(0,t+GAP-.2); g.gain.linearRampToValueAtTime(V,t+GAP); t+=GAP; }
+  });
+  g.gain.setValueAtTime(V,t); g.gain.linearRampToValueAtTime(0,t+.3);
+  ping(t+.35,880,.16,.3); ping(t+.55,1320,.16,.45);
+  osc.start(t0); osc.stop(t+1.2);
+  const endAt=t+1.1, rel=times.map(x=>x-t0); let last=-2;
+  const loop=()=>{
+    if(actx.currentTime>=endAt){ const cb=onEnd; sonState=null; cb&&cb(); return; }
+    const e=actx.currentTime-t0; let idx=-1; if(e>=0){ idx=0; while(idx<rel.length-1&&rel[idx+1]<=e) idx++; }
+    if(idx!==last){ last=idx; onProgress&&onProgress(idx); }
+    sonState.raf=requestAnimationFrame(loop);
+  };
+  sonState={nodes,onEnd,raf:0}; sonState.raf=requestAnimationFrame(loop);
+}
+
+/* =========================================================
+   State & views
+   ========================================================= */
+const state={role:'guide',view:'summary',vo:false,lg:false,rec:'idle',noteSent:false,noteText:GUIDE_NOTE,selSplit:null,
+  mapStyle: matchMedia('(prefers-color-scheme: dark)').matches?'night':'std'};
+const $=s=>document.querySelector(s);
+const screen=$('#screen'), view=$('#view');
+let gGeo=null;
+
+const I={
+  chevL:'<svg width="12" height="20" viewBox="0 0 12 20" aria-hidden="true"><path d="M10 2 2 10l8 8" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  chevLs:'<svg width="10" height="17" viewBox="0 0 12 20" aria-hidden="true"><path d="M10 2 2 10l8 8" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  chevR:'<svg class="chev" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="m1 1 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  play:c=>`<svg width="14" height="16" viewBox="0 0 16 18" aria-hidden="true"><path d="M2 1.5v15L15 9z" fill="${c}"/></svg>`,
+  stop:c=>`<svg width="13" height="13" viewBox="0 0 14 14" aria-hidden="true"><rect width="14" height="14" rx="2.5" fill="${c}"/></svg>`,
+  share:'<svg width="18" height="22" viewBox="0 0 20 24" aria-hidden="true"><path d="M10 15V2m0 0L5.5 6.5M10 2l4.5 4.5M5 10H3.5A1.5 1.5 0 0 0 2 11.5v9A1.5 1.5 0 0 0 3.5 22h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 16.5 10H15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  mic:'<svg width="14" height="20" viewBox="0 0 14 20" aria-hidden="true"><rect x="3.5" y="1" width="7" height="11" rx="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M1 9a6 6 0 0 0 12 0M7 15v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  hands:'<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="#fff" stroke-width="2.2"/><path d="M12 7.5V12l3 2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+};
+
+/* ---------- guide ---------- */
+function guideSummary(){
+  const W=view.clientWidth, Hs=view.clientHeight, sb=parseFloat(getComputedStyle(screen).getPropertyValue('--sb'))||0;
+  const spacer=Math.round(clamp(Hs*.6,330,500));
+  const mapH=spacer+160;
+  const vb=fitVB(W,mapH,{x0:44,x1:W-44,y0:sb+104,y1:spacer-84});
+  gGeo={W,mapH,spacer,vb,sb};
+  const night=state.mapStyle==='night';
+  const sp=SPLITS.map(s=>1/s.pace),mn=Math.min(...sp),mx=Math.max(...sp);
+  const rows=SPLITS.map((s,i)=>{
+    const w=40+60*(sp[i]-mn)/(mx-mn);
+    const vo=s.last?`最后0.21公里，配速${fmtPaceCN(s.pace)}，步频${s.cad}。点一下在地图上查看。`:`第${s.k}公里，配速${fmtPaceCN(s.pace)}，步频${s.cad}${s.note?'，'+s.note:''}。点一下在地图上查看。`;
+    return `<button class="row split-g ${state.selSplit===i?'sel':''}" data-act="split" data-i="${i}" aria-pressed="${state.selSplit===i}" data-vo="${vo}">
+      <span class="c1 num">${s.last?'0.21':s.k}</span><span class="c2 num">${fmtPace(s.pace)}</span>
+      <span class="bar"><i style="width:${w.toFixed(0)}%;background:${paceColor(s.pace)}"></i></span><span class="c3 num">${s.cad}</span></button>`;
+  }).join('');
+  return `
+  <div class="g-wrap ${night?'night':''}" id="gWrap">
+    <div class="g-map ${night?'night':''}" id="gMapLayer" style="height:${mapH}px">
+      ${mapSVG('gMap',{W,H:mapH,vb,style:night?'night':'std',label:'路线图。'+MAP_DESC+'颜色表示配速，蓝色快，黄色慢，第3公里最快。'})}
+    </div>
+    <div class="g-nav" id="gNav">
+      <button class="glass" data-act="back" aria-label="返回" data-vo="返回，陪跑记录，按钮">${I.chevLs}</button>
+      <span class="ttl">和老陈一起跑</span>
+      <button class="glass" data-act="share" aria-label="分享" data-vo="分享，按钮" style="justify-self:end">${I.share}</button>
+    </div>
+    <div class="g-scroll" id="content">
+      <div class="g-spacer" style="height:${spacer}px">
+        <div class="tools-top">
+          <div class="mstyle" role="group" aria-label="地图样式">
+            <button data-act="mstyle" data-v="std" aria-pressed="${!night}" data-vo="地图样式：标准">标准</button>
+            <button data-act="mstyle" data-v="night" aria-pressed="${night}" data-vo="地图样式：夜跑">夜跑</button>
+          </div>
+          <div class="legend" aria-hidden="true">快 <i></i> 慢</div>
+        </div>
+        <div class="tools-bottom">
+          <div class="hud" id="hud"><span><b class="num" id="hudD">0.00</b> 公里</span><span><b class="num" id="hudP">--</b> 配速</span></div>
+          <span></span>
+          <button class="replay" data-act="replay" data-vo="轨迹回放，按钮">${I.play('currentColor')} <span id="replayLbl">轨迹回放</span></button>
+        </div>
+      </div>
+      <div class="sheet">
+        <div class="sheet-head">
+          <div class="grabber" aria-hidden="true"></div>
+          <div class="pair" data-vo="和老陈一起跑。9月20日周六早上6点42分，深圳湾公园。">
+            <div class="avs" aria-hidden="true"><span class="av a">陈</span><span class="av b">林</span></div>
+            <div><h1>和老陈一起跑</h1><p>9月20日 周六 06:42，深圳湾公园</p></div>
+          </div>
+          <div class="g-dist" data-vo="5.21公里"><b class="num">5.21</b><span>公里</span></div>
+          <div class="stats" data-vo="运动时间32分34秒，平均配速每公里6分15秒，平均步频每分钟168步。">
+            <div><b class="num">${fmtDur(RUN.moving)}</b><small>运动时间</small></div>
+            <div><b class="num">${fmtPace(RUN.avg)}</b><small>平均配速</small></div>
+            <div><b class="num">168</b><small>步频</small></div>
+          </div>
+          <div class="stats minor" data-vo="步数5474步，累计爬升6米，中途休息1分40秒。">
+            <div><b class="num">5,474</b><small>步数</small></div>
+            <div><b class="num">6 米</b><small>累计爬升</small></div>
+            <div><b class="num">1:40</b><small>中途休息</small></div>
+          </div>
+          <button class="svc" data-act="svc" data-vo="本次志愿服务45分钟，6点35分会合到7点20分送回集合点，组织确认后计入志愿时长，当前待确认。">
+            <span class="ic">${I.hands}</span>
+            <span class="grow"><b>志愿服务 45 分钟</b><small>06:35 会合到 07:20 送回，组织确认后计入</small></span>
+            <span class="tag">待确认</span>
+          </button>
+        </div>
+        <div class="sheet-body">
+          <section class="sec"><h2 class="sec-h">配速</h2><div class="card chart-card" data-vo="配速变化图。第1公里热身较慢，第3公里最快，2.6公里处休息，最后一段略有回升。">
+            <div class="readout" id="readout"><span>在图上左右拖动，地图上会跟着显示位置</span></div>
+            ${chartSVG()}
+          </div></section>
+
+          <section class="sec"><h2 class="sec-h">分段</h2><div class="group">
+            <div class="row split-g hd" aria-hidden="true"><span class="c1">公里</span><span class="c2">配速</span><span class="grow"></span><span class="c3">步频</span></div>
+            ${rows}
+          </div><p class="foot">点一段，地图上会标出这一公里。</p></section>
+
+          <section class="sec"><h2 class="sec-h">途中记录</h2><div class="group tl">
+            <div class="tl-row" data-vo="6点35分，在集合点会合，完成身份确认"><span class="t num">06:35</span><span class="dot"></span><span class="x">在集合点会合，完成身份确认</span></div>
+            <div class="tl-row key" data-vo="6点42分，开始跑步"><span class="t num">06:42</span><span class="dot"></span><span class="x">开始跑步</span></div>
+            <div class="tl-row warn" data-vo="6点58分，日出剧场附近停下休息，1分40秒"><span class="t num">06:58</span><span class="dot"></span><span class="x">日出剧场附近停下休息，1分40秒</span></div>
+            <div class="tl-row key" data-vo="7点16分，回到起点，结束跑步"><span class="t num">07:16</span><span class="dot"></span><span class="x">回到起点，结束跑步</span></div>
+            <div class="tl-row" data-vo="7点20分，送老陈回到集合点，订单完成"><span class="t num">07:20</span><span class="dot"></span><span class="x">送老陈回到集合点，订单完成</span></div>
+          </div><p class="foot" data-vo="全程没有触发紧急求助。">全程没有触发紧急求助。</p></section>
+
+          <section class="sec"><h2 class="sec-h">老陈的回复</h2><div class="card">
+            <div class="note" data-vo="老陈的语音，6秒：${RUNNER_REPLY}">
+              <div class="avatar" aria-hidden="true" style="background:var(--yellow);color:#000">陈</div>
+              <div><p class="who">老陈，语音 0:06</p><p class="txt">${RUNNER_REPLY}</p></div>
+            </div>
+            <div class="note-actions"><button class="btn-ink" data-act="playReply" data-vo="播放老陈的语音，按钮">${I.play('currentColor')} 播放语音</button></div>
+          </div></section>
+
+          <section class="sec"><h2 class="sec-h">给老陈留句话</h2><div class="card">
+            ${state.noteSent?`<p class="txt" style="line-height:1.55">${state.noteText}</p><p class="sent" data-vo="已发送。老陈打开这条记录时会听到这句话。">已发送。老陈打开这条记录时会听到这句话。</p>`:`
+            <textarea id="noteTxt" aria-label="留言内容" data-vo="留言输入框">${state.noteText}</textarea>
+            <div class="chips">
+              <button class="chip" data-act="chip" data-vo="快捷短语：节奏很稳">节奏很稳</button>
+              <button class="chip" data-act="chip" data-vo="快捷短语：下次试试再快一点">下次试试再快一点</button>
+              <button class="chip" data-act="chip" data-vo="快捷短语：折返配合得很好">折返配合得很好</button>
+            </div>
+            <button class="btn-ink" data-act="sendNote" data-vo="发送留言，按钮。老陈会在他的记录里听到这句话。">发送</button>
+            <p class="foot">文字会在老陈的记录里被读出来。</p>`}
+          </div></section>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- runner ---------- */
+function runnerSummary(){
+  const W=view.clientWidth-32, H=Math.round(W*.78);
+  const vb=fitVB(W,H,{x0:30,x1:W-30,y0:34,y1:H-40});
+  const style=matchMedia('(prefers-color-scheme: dark)').matches?'night':'std';
+  const rows=SPLITS.map(s=>{
+    const name=s.last?'最后 0.21 公里':`第 ${s.k} 公里`;
+    const val=s.last?fmtPaceCN(s.t):fmtPaceCN(s.pace);
+    const sub=s.last?`折合每公里 ${fmtPaceCN(s.pace)}，步频 ${s.cad}`:`${s.note&&s.note!=='本次最快'?s.note+'，':''}步频 ${s.cad}`;
+    const vo=s.last?`最后0.21公里，用时1分16秒，折合每公里${fmtPaceCN(s.pace)}，步频每分钟${s.cad}步。`:`第${s.k}公里，${fmtPaceCN(s.pace)}，${s.note?s.note+'，':''}步频每分钟${s.cad}步。`;
+    return `<div class="row split-r" data-vo="${vo}"><div class="grow"><div class="k">${name}${s.note==='本次最快'?'<span class="fast">最快</span>':''}</div><div class="sub">${sub}</div></div><div class="v num">${val}</div></div>`;
+  }).join('');
+  const recBtn=state.rec==='idle'?`<button class="btn-line" data-act="rec" data-vo="回复小林，按钮。点一下开始录音，再点一下发送。">${I.mic} 回复小林</button>`
+    :state.rec==='rec'?`<button class="btn-line" data-act="rec" data-vo="正在录音，按钮。再点一下发送给小林。"><span class="rec-dot"></span> 正在录音，再点一下发送</button>`
+    :`<p class="sent" data-vo="语音已发给小林。">语音已发给小林。</p>`;
+  return `
+  <div class="nav"><button class="nav-btn" data-act="back" data-vo="返回，跑步记录，按钮">${I.chevL} 记录</button><span></span><span></span></div>
+  <div class="content" id="content">
+    <header class="r-head" data-vo="9月20日星期六早上，和小林在深圳湾公园跑步。5.21公里，运动时间32分34秒，平均每公里6分15秒，比上次多跑0.41公里。">
+      <p class="r-date">9月20日 周六早上</p>
+      <h1 class="r-with">和小林在深圳湾公园</h1>
+      <p class="r-big"><b class="num">5.21</b><span>公里</span></p>
+      <p class="r-facts">用时 32分34秒<br>每公里 6分15秒<br><span class="up">比上次多跑 0.41 公里</span></p>
+    </header>
+    <div class="sec">
+      <button class="tactile" data-act="narrate" data-vo="听这次跑步，按钮。语音讲述这次跑步，大约35秒。">
+        <span class="t-ic" id="narrIc">${I.play('#F7BE00')}</span>
+        <span><b id="narrLbl">听这次跑步</b><small>语音讲述，约 35 秒</small></span>
+      </button>
+      <p class="transcript" id="transcript" hidden>${NARR}</p>
+    </div>
+    <div class="sec"><div class="card sound">
+      <div data-vo="用声音走一遍路线。音调越高，跑得越快。声音从右耳移到左耳再回来，就是一去一回的路线。每过一公里会响几声，响几声就是第几公里。建议戴耳机。">
+        <h2>用声音走一遍路线</h2>
+        <p class="desc">音调越高，跑得越快。声音从右耳移到左耳再回来，就是你们一去一回的路线。每过一公里会响几声，响几声就是第几公里。建议戴耳机。</p>
+      </div>
+      ${waveSVG('rWave')}
+      <p class="wave-now" id="waveNow" aria-live="polite"></p>
+      <button class="btn-ink" data-act="sonify" data-vo="播放声音路线，按钮，大约26秒。">${I.play('currentColor')} <span id="sonLbl">播放，约 26 秒</span></button>
+    </div></div>
+    <section class="sec"><h2 class="sec-h" data-vo="每一公里，标题">每一公里</h2><div class="group">${rows}</div></section>
+    <section class="sec"><h2 class="sec-h" data-vo="小林的留言，标题">小林的留言</h2>
+      <div class="card">
+        <div class="note" data-vo="小林的文字留言：${state.noteText}">
+          <div class="avatar" aria-hidden="true">林</div>
+          <div><p class="who">小林，陪跑员</p><p class="txt">${state.noteText}</p></div>
+        </div>
+        <div class="note-actions">
+          <button class="btn-ink" data-act="readNote" data-vo="朗读留言，按钮">${I.play('currentColor')} 朗读留言</button>
+          ${recBtn}
+        </div>
+      </div>
+    </section>
+    <section class="sec"><h2 class="sec-h" data-vo="路线，标题">路线</h2>
+      <div class="map-card">
+        ${mapSVG('rMap',{W,H,vb,style,label:'路线图。'+MAP_DESC,labels:true})}
+        <p class="map-desc" data-vo="路线描述：${MAP_DESC}">${MAP_DESC}</p>
+      </div>
+      <div style="margin-top:12px"><button class="btn-line" data-act="shareFamily" data-vo="分享给家人，按钮。会生成带路线图和文字说明的图片。">${I.share} 分享给家人</button></div>
+    </section>
+    <section class="sec"><h2 class="sec-h" data-vo="更多数据，标题">更多数据</h2><div class="group">
+      <div class="row" data-vo="步数，5474步"><span class="grow">步数</span><span class="num muted">5,474 步</span></div>
+      <div class="row" data-vo="平均步频，每分钟168步"><span class="grow">平均步频</span><span class="num muted">168 步/分</span></div>
+      <div class="row" data-vo="累计爬升，6米"><span class="grow">累计爬升</span><span class="num muted">6 米</span></div>
+      <div class="row" data-vo="中途休息，1分40秒"><span class="grow">中途休息</span><span class="num muted">1分40秒</span></div>
+      <div class="row" data-vo="总时长，含休息，34分14秒"><span class="grow">总时长（含休息）</span><span class="num muted">34分14秒</span></div>
+    </div></section>
+  </div>`;
+}
+
+/* ---------- history ---------- */
+function thumbSVG(kind){
+  const bg='<rect width="48" height="48" fill="#EFF0EC"/>';
+  if(kind==='bay'){
+    const vb=fitVB(48,48,{x0:7,x1:41,y0:7,y1:41});
+    return `<svg class="thumb" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}" aria-hidden="true"><rect x="-80" y="-80" width="620" height="760" fill="#EFF0EC"/><path d="${pathD(COAST.concat([[-40,640],[480,640]]))}Z" fill="#C4DCEB"/><path d="${pathD(PTS.map(p=>[p.x,p.y]))}" fill="none" stroke="#3558F0" stroke-width="${(3/vb.s*1.2).toFixed(2)}" stroke-linejoin="round"/></svg>`;
+  }
+  const d=kind==='hill'?'M24 9 C33 8 40 15 38 23 C37 29 32 31 33 37 C29 41 18 40 13 35 C8 30 10 24 9 19 C9 13 16 10 24 9 Z':'M12 13 L35 11 L37 35 L13 37 Z';
+  return `<svg class="thumb" viewBox="0 0 48 48" aria-hidden="true">${bg}<circle cx="${kind==='hill'?24:25}" cy="24" r="${kind==='hill'?9:0}" fill="#CFE5C6"/><path d="${d}" fill="none" stroke="#3558F0" stroke-width="2.6" stroke-linejoin="round"/></svg>`;
+}
+function historyView(){
+  const runner=state.role==='runner';
+  const items=runner?[
+    {d:'9月20日 周六',p:'深圳湾公园，和小林',km:'5.21',t:'bay',main:true,vo:'9月20日周六，深圳湾公园，和小林，5.21公里'},
+    {d:'9月13日 周六',p:'深圳湾公园，和小林',km:'4.80',t:'bay',vo:'9月13日周六，深圳湾公园，和小林，4.80公里'},
+    {d:'9月10日 周三',p:'莲花山公园，和阿杰',km:'4.02',t:'hill',vo:'9月10日周三，莲花山公园，和阿杰，4.02公里'},
+    {d:'9月6日 周六',p:'深圳湾公园，和小林',km:'5.00',t:'bay',vo:'9月6日周六，深圳湾公园，和小林，5公里'},
+    {d:'9月3日 周三',p:'中心公园，和周敏',km:'3.51',t:'park',vo:'9月3日周三，中心公园，和周敏，3.51公里'}
+  ]:[
+    {d:'9月20日 周六',p:'陪老陈，深圳湾公园',km:'5.21',t:'bay',main:true,vo:'9月20日周六，陪老陈，深圳湾公园，5.21公里'},
+    {d:'9月17日 周三',p:'陪李阿姨，莲花山公园',km:'3.20',t:'hill',vo:'9月17日周三，陪李阿姨，莲花山公园，3.20公里'},
+    {d:'9月13日 周六',p:'陪老陈，深圳湾公园',km:'4.80',t:'bay',vo:'9月13日周六，陪老陈，深圳湾公园，4.80公里'},
+    {d:'9月6日 周六',p:'陪老陈，深圳湾公园',km:'5.00',t:'bay',vo:'9月6日周六，陪老陈，深圳湾公园，5公里'}
+  ];
+  const sum=runner?'9月跑了 5 次，一共 22.54 公里。':'9月陪跑 4 次，服务 3 小时 40 分钟。其中和老陈跑了 3 次。';
+  const rows=items.map(it=>`
+    <button class="row hist-row ${runner?'big':''}" data-act="${it.main?'open':'other'}" data-vo="${it.vo}${it.main?'，点一下查看':''}">
+      ${runner?'':thumbSVG(it.t)}
+      <span class="grow"><span class="d" style="display:block">${it.d}</span><span class="m" style="display:block">${it.p}</span></span>
+      <span class="km num">${it.km} 公里</span>${I.chevR}
+    </button>`).join('');
+  return `
+  <div class="nav"><span></span><span></span><span></span></div>
+  <div class="content" id="content">
+    <h1 class="large-title" data-vo="${runner?'跑步记录':'陪跑记录'}，标题">${runner?'跑步记录':'陪跑记录'}</h1>
+    <p class="hist-sum" data-vo="${sum}">${sum}</p>
+    <section class="sec"><div class="group">${rows}</div></section>
+  </div>`;
+}
+
+const NOTES={
+  runner:`
+    <p><strong>先听，再看。</strong>页面上第一个可以操作的是黄色的“听这次跑步”，读屏用户往右划一次就能摸到。按钮右侧的圆点纹理借用了盲道提示砖。</p>
+    <p><strong>数字按读屏的方式写。</strong>6'15" 这种写法读屏很难读对，视障视图里一律写成“6分15秒”，每块内容都配了一句完整的读屏文案。</p>
+    <p><strong>声音路线：</strong>音调代表速度，左右声道代表路线的东西方向，每过一公里响几声就是第几公里，休息处有一声低音。</p>
+    <p><strong>地图往后放。</strong>它主要是给家人看的，所以旁边有文字描述和“分享给家人”。</p>`,
+  guide:`
+    <p><strong>地图是主角。</strong>和 Keep、Strava 一样，地图铺满上半屏并延伸到状态栏下面，数据放在一张可以往上拉的卡片里。往上滑，卡片盖住地图，导航栏变成实色。</p>
+    <p><strong>路线的画法：</strong>白色描边加配速着色（蓝快黄慢，避开红绿），每隔一段有方向箭头，公里标记、起终点和休息点单独做了标签。可以切到“夜跑”样式看发光效果。</p>
+    <p><strong>轨迹回放</strong>时镜头会跟着两个用橙色陪跑绳连着的点走，左下角实时显示里程和配速。</p>
+    <p><strong>配速图可以拖动</strong>，地图上的点会跟着走（Apple 健身的做法）；点分段会高亮那一公里（Strava 的做法）。</p>
+    <p>真机上地图用 MapKit 的真实底图，这里的底图是手绘示意。</p>`
+};
+
+function render(){
+  stopAll();
+  screen.classList.toggle('vo',state.vo);
+  screen.style.setProperty('--s',state.lg?1.2:1);
+  const isGuideSum=state.view==='summary'&&state.role==='guide';
+  view.className='view'+(isGuideSum?'':' padded');
+  screen.classList.remove('sb-light','sb-dark');
+  view.innerHTML=state.view==='history'?historyView():(state.role==='runner'?runnerSummary():guideSummary());
+  $('#notesBody').innerHTML=NOTES[state.role]+`<p><strong>读屏预览</strong>打开后，点一下是聚焦并朗读，再点一下才是真正按下，和 iPhone 上的 VoiceOver 一样。</p>`;
+  document.querySelectorAll('.seg button').forEach(b=>b.setAttribute('aria-checked',b.dataset.role===state.role));
+  voFocused=null;
+  if(isGuideSum) bindGuide();
+}
+
+/* ---------- guide behaviours ---------- */
+function bindGuide(){
+  const sc=$('#content'), layer=$('#gMapLayer'), nav=$('#gNav');
+  curK=1.35/gGeo.vb.s;
+  const tools=[...document.querySelectorAll('.tools-top,.tools-bottom')];
+  const upd=()=>{
+    const st=sc.scrollTop;
+    tools.forEach(t=>{ t.style.opacity=clamp(1-st/140,0,1); t.style.visibility=st>150?'hidden':'visible'; });
+    layer.style.transform=`translateY(${(-st*.35).toFixed(1)}px)`;
+    const solid=st>gGeo.spacer-gGeo.sb-60;
+    nav.classList.toggle('solid',solid);
+    screen.classList.toggle('sb-light',!solid&&state.mapStyle==='night');
+    screen.classList.toggle('sb-dark',!solid&&state.mapStyle==='std');
+  };
+  sc.addEventListener('scroll',upd,{passive:true}); upd();
+  if(state.selSplit!=null) highlightSplit(state.selSplit,false);
+  const hit=$('#chHit'), svg=$('#gChart');
+  const scrub=e=>{
+    const r=svg.getBoundingClientRect(), x=(e.clientX-r.left)/r.width*CH.W;
+    const d=clamp((x-CH.left)/(CH.right-CH.left)*RUN.dist,0,RUN.dist);
+    const sm=SAMPLES[Math.round(d/.05)]||SAMPLES[SAMPLES.length-1];
+    const g=$('#chScrub'); g.setAttribute('visibility','visible');
+    g.querySelector('line').setAttribute('x1',chX(d)); g.querySelector('line').setAttribute('x2',chX(d));
+    g.querySelector('circle').setAttribute('cx',chX(d)); g.querySelector('circle').setAttribute('cy',chY(sm.pace));
+    $('#readout').innerHTML=`<span><b class="num">${d.toFixed(2)}</b> 公里</span><span><b class="num">${fmtPace(sm.pace)}</b> 配速</span><span><b class="num">${cadAt(d)}</b> 步频</span>`;
+    const p=ptAt(d); setDots(p,PTS[Math.max(p.i-1,0)],PTS[Math.min(p.i+1,N)]);
+    $('#gMap-dots').setAttribute('visibility','visible');
+  };
+  hit.addEventListener('pointermove',scrub);
+  hit.addEventListener('pointerdown',scrub);
+}
+function setDots(p,a,b){
+  const g=$('#gMap-dots'); if(!g) return;
+  const k=curK;
+  let dx=b.x-a.x,dy=b.y-a.y,L=Math.hypot(dx,dy)||1; const nx=-dy/L*7,ny=dx/L*7;
+  g.querySelector('.in').setAttribute('transform',`translate(${p.x.toFixed(2)} ${p.y.toFixed(2)}) scale(${k.toFixed(2)})`);
+  const d1=g.querySelector('.d1'),d2=g.querySelector('.d2'),ln=g.querySelector('line');
+  d1.setAttribute('cx',0);d1.setAttribute('cy',0);d2.setAttribute('cx',nx);d2.setAttribute('cy',ny);
+  ln.setAttribute('x1',0);ln.setAttribute('y1',0);ln.setAttribute('x2',nx);ln.setAttribute('y2',ny);
+}
+function highlightSplit(i,scroll=true){
+  const s=SPLITS[i],lo=s.last?5:s.k-1,hi=s.last?RUN.dist+1:s.k;
+  const seg=PTS.filter(p=>p.d>=lo&&p.d<=hi);
+  $('#gMap-hl').setAttribute('d',pathD(seg.map(p=>[p.x,p.y])));
+  const mid=seg[Math.floor(seg.length/2)],call=$('#gMap-call'),k=curK;
+  call.querySelector('.in').setAttribute('transform',`translate(${mid.x.toFixed(1)} ${mid.y.toFixed(1)}) scale(${k.toFixed(2)})`);
+  call.querySelector('text').textContent=`${s.last?'最后0.21':'第'+s.k}公里 ${fmtPace(s.pace)}`;
+  call.setAttribute('visibility','visible');
+  if(scroll) $('#content').scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+}
+function setVB(v){
+  const svg=$('#gMap'); svg.setAttribute('viewBox',`${v.x.toFixed(2)} ${v.y.toFixed(2)} ${v.w.toFixed(2)} ${v.h.toFixed(2)}`);
+  curK=1.35*v.w/gGeo.W;
+  svg.querySelectorAll('.mk').forEach(m=>{ const r=m.dataset.r; m.setAttribute('transform',`translate(${m.dataset.x} ${m.dataset.y})${r?` rotate(${r})`:''} scale(${curK.toFixed(3)})`); });
+}
+let curK=1;
+function mapReplay(){
+  const svg=$('#gMap'); if(!svg) return;
+  if(replay){ cancelAnimationFrame(replay.raf); replay=null; endReplay(true); return; }
+  $('#content').scrollTo({top:0});
+  const segs=[...svg.querySelectorAll('.seg')];
+  segs.forEach(s=>s.classList.remove('on')); svg.classList.add('replaying');
+  $('#gMap-dots').setAttribute('visibility','visible'); $('#gMap-call').setAttribute('visibility','hidden');
+  $('#replayLbl').textContent='停止'; $('#replayLbl').previousElementSibling.outerHTML=I.stop('currentColor'); $('#hud').classList.add('on');
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const base=gGeo.vb, Z=reduce?1:2.2, cur={...base};
+  const focusY=(gGeo.sb+60+gGeo.spacer-70)/2/gGeo.mapH;
+  const RUNT=9500,PAUSE=900,turnF=TURN/N,tA=turnF*RUNT; let start=null,shown=0;
+  replay={raf:0};
+  const step=ts=>{
+    if(start==null) start=ts; const el=ts-start;
+    let f=el<tA?el/RUNT:el<tA+PAUSE?turnF:(el-PAUSE)/RUNT; const done=f>=1; f=Math.min(f,1);
+    const idx=Math.round(f*N);
+    for(;shown<idx;shown++) segs[shown]&&segs[shown].classList.add('on');
+    const p=PTS[idx]; setDots(p,PTS[Math.max(idx-1,0)],PTS[Math.min(idx+1,N)]);
+    $('#hudD').textContent=p.d.toFixed(2); $('#hudP').textContent=fmtPace(p.pace);
+    const tw=base.w/Z,th=base.h/Z,tgt=done?base:{x:p.x-tw/2,y:p.y-th*focusY,w:tw,h:th};
+    const a=el<500?.06:.08; ['x','y','w','h'].forEach(k=>cur[k]=lerp(cur[k],tgt[k],a)); setVB(cur);
+    if(!done||Math.abs(cur.w-base.w)>.5){ replay.raf=requestAnimationFrame(step); }
+    else { setVB(base); replay=null; setTimeout(()=>endReplay(false),1200); }
+  };
+  replay.raf=requestAnimationFrame(step);
+}
+function endReplay(reset){
+  const svg=$('#gMap'); if(!svg) return;
+  svg.classList.remove('replaying'); $('#gMap-dots').setAttribute('visibility','hidden');
+  const l=$('#replayLbl'); if(l){ l.textContent='轨迹回放'; l.previousElementSibling.outerHTML=I.play('currentColor'); } const h=$('#hud'); h&&h.classList.remove('on');
+  if(reset) setVB(gGeo.vb);
+}
+
+/* ---------- runner audio ---------- */
+function toggleNarrate(){
+  if(speakingKey==='narr'){ stopSpeech(); setNarrUI(false); return; }
+  stopSonify(); setNarrUI(true);
+  const ok=speak(NARR,{rate:1.05,onend:()=>{ if(speakingKey==='narr'){ speakingKey=null; setNarrUI(false);} }});
+  speakingKey='narr';
+  if(!ok) toast('这个浏览器不能朗读，下面是讲述的文字。真机上用 AVSpeechSynthesizer。');
+}
+function setNarrUI(on){
+  const lbl=$('#narrLbl'),ic=$('#narrIc'),tr=$('#transcript'); if(!lbl) return;
+  lbl.textContent=on?'停止讲述':'听这次跑步'; ic.innerHTML=on?I.stop('#F7BE00'):I.play('#F7BE00');
+  lbl.closest('button').dataset.vo=on?'停止讲述，按钮':'听这次跑步，按钮。语音讲述这次跑步，大约35秒。';
+  if(on) tr.hidden=false;
+}
+function toggleSonify(){
+  const wave=$('#rWave'),lbl=$('#sonLbl'),now=$('#waveNow');
+  if(sonState){ stopSonify(); return; }
+  stopSpeech(); setNarrUI(false);
+  const bars=[...wave.querySelectorAll('.wb')];
+  wave.classList.add('playing'); lbl.textContent='停止'; now.textContent='起点，出发';
+  let lastKm=0;
+  sonify(idx=>{
+    bars.forEach((b,i)=>b.classList.toggle('on',i<=idx)); if(idx<0) return;
+    const km=Math.floor(idx/10);
+    if(idx===STOP_BAR+1) now.textContent='日出剧场，休息 1分40秒';
+    else if(km!==lastKm&&idx%10===0){ lastKm=km; now.textContent=`第 ${km} 公里`; }
+  },()=>{
+    wave.classList.remove('playing'); bars.forEach(b=>b.classList.remove('on'));
+    const l=$('#sonLbl'),n=$('#waveNow'); l&&(l.textContent='再听一遍'); n&&(n.textContent='回到起点，结束');
+  });
+}
+
+let toastT=null;
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,2600); }
+
+/* ---------- actions ---------- */
+view.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]'); if(!el) return;
+  const a=el.dataset.act;
+  const keepScroll=fn=>{ const y=$('#content').scrollTop; fn(); render(); $('#content').scrollTop=y; };
+  if(a==='back'){ state.view='history'; render(); }
+  else if(a==='open'){ state.view='summary'; render(); }
+  else if(a==='other'){ toast('原型只做了 9月20日 这一条的详情。'); }
+  else if(a==='narrate'){ toggleNarrate(); }
+  else if(a==='sonify'){ toggleSonify(); }
+  else if(a==='readNote'){ stopSonify(); speak('小林的留言：'+state.noteText); }
+  else if(a==='rec'){ keepScroll(()=>{ state.rec=state.rec==='idle'?'rec':'sent'; }); if(state.rec==='sent') toast('语音已发给小林。'); }
+  else if(a==='shareFamily'){ toast('会生成一张图：路线图加上文字说明，家人在微信里也能看懂。'); }
+  else if(a==='share'){ toast('分享卡片放在下一轮设计。'); }
+  else if(a==='svc'){ toast('这里会打开志愿时长明细，按月汇总。'); }
+  else if(a==='mstyle'){ if(state.mapStyle!==el.dataset.v) keepScroll(()=>{ state.mapStyle=el.dataset.v; }); }
+  else if(a==='split'){ state.selSplit=+el.dataset.i; document.querySelectorAll('.split-g[data-i]').forEach(r=>{ const on=+r.dataset.i===state.selSplit; r.classList.toggle('sel',on); r.setAttribute('aria-pressed',on); }); highlightSplit(state.selSplit); }
+  else if(a==='replay'){ mapReplay(); }
+  else if(a==='playReply'){ speak(RUNNER_REPLY,{pitch:.85,rate:.95}); }
+  else if(a==='chip'){ $('#noteTxt').value=el.textContent+'。'; }
+  else if(a==='sendNote'){ const v=$('#noteTxt').value.trim(); if(!v){ toast('先写一句话再发送。'); return; } keepScroll(()=>{ state.noteText=v; state.noteSent=true; }); }
+});
+
+/* ---------- VoiceOver preview ---------- */
+let voFocused=null;
+screen.addEventListener('click',e=>{
+  if(!state.vo) return;
+  const el=e.target.closest('[data-vo]'); if(!el) return;
+  if(el===voFocused) return;
+  e.preventDefault(); e.stopPropagation();
+  if(voFocused) voFocused.classList.remove('vo-focus');
+  voFocused=el; el.classList.add('vo-focus');
+  const cap=$('#voCap'); cap.innerHTML=`<small>读屏会说</small>${el.dataset.vo}`; cap.hidden=false;
+  stopSonify(); speak(el.dataset.vo,{rate:1.1});
+},true);
+
+/* ---------- panel ---------- */
+document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',()=>{ state.role=b.dataset.role; state.view='summary'; state.selSplit=null; render(); $('#content').scrollTop=0; }));
+$('#swVo').addEventListener('click',e=>{
+  state.vo=!state.vo; e.currentTarget.setAttribute('aria-checked',state.vo); screen.classList.toggle('vo',state.vo);
+  const cap=$('#voCap');
+  if(state.vo){ cap.innerHTML='<small>读屏预览已打开</small>点一下任意内容听读屏会怎么读，再点一下才会真正按下。'; cap.hidden=false; }
+  else{ cap.hidden=true; stopSpeech(); if(voFocused){ voFocused.classList.remove('vo-focus'); voFocused=null; } }
+});
+$('#swLg').addEventListener('click',e=>{ state.lg=!state.lg; e.currentTarget.setAttribute('aria-checked',state.lg); screen.style.setProperty('--s',state.lg?1.2:1); });
+let rsT=null; window.addEventListener('resize',()=>{ clearTimeout(rsT); rsT=setTimeout(()=>{ if(state.view==='summary'){ const y=$('#content').scrollTop; render(); $('#content').scrollTop=y; } },200); });
+
+if(matchMedia('(min-width: 561px)').matches) $('#notes').open=true;
+render();
+</script>
+</body>
+</html>

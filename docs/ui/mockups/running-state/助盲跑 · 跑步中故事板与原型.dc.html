@@ -1,0 +1,2549 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<style>
+html,body{margin:0;background:#F1F3F6;font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Helvetica Neue",Helvetica,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:#111A2E}
+a{color:#2A5BD7;text-decoration:none}a:hover{color:#1E48B0}
+button{font-family:inherit}
+</style>
+</helmet>
+
+<div style="padding:40px 44px 56px;min-width:3080px">
+
+  <div style="display:flex;align-items:flex-end;gap:24px;margin-bottom:8px">
+    <div>
+      <div style="font-size:30px;font-weight:700;letter-spacing:-.4px">跑步中，仍然是同一个订单页（视障跑者端）</div>
+      <div style="margin-top:8px;font-size:15px;color:#5E6679">汇合之后不跳页：进度条收起、信息卡下沉、主体换成里程 —— 主按钮位置始终不动，只换文字</div>
+    </div>
+    <div style="display:flex;gap:8px;padding-bottom:4px">
+      <button onClick="{{ showStory }}" style="border:0;cursor:pointer;padding:10px 18px;border-radius:12px;font-size:14px;font-weight:600;background:{{ storyBtnBg }};color:{{ storyBtnFg }}">故事板视图</button>
+      <button onClick="{{ showProto }}" style="border:0;cursor:pointer;padding:10px 18px;border-radius:12px;font-size:14px;font-weight:600;background:{{ protoBtnBg }};color:{{ protoBtnFg }}">原型视图</button>
+    </div>
+  </div>
+
+  <sc-if value="{{ isStory }}" hint-placeholder-val="{{ true }}">
+  <div style="margin-top:40px">
+    <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">A · 跑者端主故事板</div>
+    <div style="margin-top:6px;font-size:22px;font-weight:700">汇合 → 倒计时 → 跑步中 → 已完成 → 首页评价卡片</div>
+  </div>
+  <div id="row-a" style="display:flex;align-items:flex-start;gap:0;margin-top:20px">
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center;position:relative">
+            <div style="position:absolute;left:20px;width:11px;height:11px;border-left:2px solid #111A2E;border-bottom:2px solid #111A2E;transform:rotate(45deg)"></div>
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:flex-start;padding:16px 20px 14px">
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#2A5BD7;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                <div style="font-size:13px;color:#111A2E">匹配</div>
+              </div>
+              <div style="flex:1;height:2px;background:#2A5BD7;margin-top:10px"></div>
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#2A5BD7;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                <div style="font-size:13px;color:#111A2E">约好</div>
+              </div>
+              <div style="flex:1;height:2px;background:#2A5BD7;margin-top:10px"></div>
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#2A5BD7;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                <div style="font-size:13px;color:#111A2E">出发</div>
+              </div>
+              <div style="flex:1;height:2px;background:#2A5BD7;margin-top:10px"></div>
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid #2A5BD7;box-sizing:border-box;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:9px;border-radius:50%;background:#2A5BD7"></div></div>
+                <div style="font-size:13px;font-weight:600;color:#111A2E">汇合</div>
+              </div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:8px 20px 10px;display:flex;flex-direction:column;align-items:center">
+              <div style="width:124px;height:124px;position:relative;display:flex;align-items:center;justify-content:center">
+                <div style="width:92px;height:92px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:38px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+                <div style="position:absolute;right:8px;bottom:8px;width:32px;height:32px;border-radius:50%;background:#1F8A4C;border:3px solid #fff;box-sizing:border-box;display:flex;align-items:center;justify-content:center"><div style="width:11px;height:6px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+              </div>
+              <div style="margin-top:10px;font-size:34px;font-weight:600;text-align:center">张伟已到达</div>
+              <div style="margin-top:6px;font-size:16px;color:#5E6679;text-align:center">见面后，轻点下方开始跑步</div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:12px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;padding:0 18px;min-height:74px">
+              <div style="font-size:15px;color:#5E6679">陪跑员</div><div style="flex:1"></div>
+              <div style="text-align:right"><div style="font-size:16px;font-weight:600">张伟</div><div style="margin-top:3px;font-size:13px;color:#5E6679;font-variant-numeric:tabular-nums">陪跑 32 次，引导绳经验 2 年</div></div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+              <div style="font-size:15px;color:#5E6679">时间</div><div style="flex:1"></div>
+              <div style="font-size:16px;font-weight:500;font-variant-numeric:tabular-nums">今天 7:00</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:0 18px;min-height:64px">
+              <div style="font-size:15px;color:#5E6679">集合地点</div><div style="flex:1"></div>
+              <div style="font-size:16px;font-weight:500">深圳湾公园 3 号入口</div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:0 18px;min-height:64px">
+              <div style="flex:1;font-size:16px;font-weight:500">遇到问题</div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" stroke="#111A2E" stroke-width="2" stroke-linecap="round" fill="none"><circle cx="15" cy="4.6" r="2.3" fill="#111A2E" stroke="none"></circle><path d="M13.2 9.2L9.6 11.6l1.9 3.1.4 4.9"></path><path d="M11.6 14.7L7 19.4"></path><path d="M15.2 11.6l3 1.5"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#111A2E">开始跑步</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">① 汇合</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">张伟已到达</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>张伟已到达你附近，轻点下方开始跑步。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>进度，第 4 步，共 4 步，汇合 → 张伟已到达。见面后，轻点下方开始跑步 → 陪跑员张伟，陪跑 32 次 → 时间 → 集合地点 → 遇到问题 → 开始跑步 → 求助与安全</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>状态卡（状态推进时自动移入，仅此一次）</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:210px;padding-top:330px;text-align:center">
+      <div style="font-size:13px;font-weight:600;line-height:1.6;color:#2A5BD7">点「开始跑步」<br>倒计时 3 拍，每拍 1 秒<br>数字 1.25→1 回弹</div>
+      <div style="margin:14px auto 0;display:flex;align-items:center;justify-content:center">
+        <div style="width:120px;height:3px;background:#2A5BD7"></div>
+        <div style="width:0;height:0;border-left:12px solid #2A5BD7;border-top:7px solid transparent;border-bottom:7px solid transparent"></div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;line-height:1.6;color:#8C93A3">减弱动态：数字改 300ms 淡入淡出，倒计时保留</div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center;position:relative">
+            <div style="position:absolute;left:20px;width:11px;height:11px;border-left:2px solid #111A2E;border-bottom:2px solid #111A2E;transform:rotate(45deg)"></div>
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:flex-start;padding:16px 20px 14px">
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#2A5BD7;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                <div style="font-size:13px">匹配</div>
+              </div>
+              <div style="flex:1;height:2px;background:#2A5BD7;margin-top:10px"></div>
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#2A5BD7;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                <div style="font-size:13px">约好</div>
+              </div>
+              <div style="flex:1;height:2px;background:#2A5BD7;margin-top:10px"></div>
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#2A5BD7;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                <div style="font-size:13px">出发</div>
+              </div>
+              <div style="flex:1;height:2px;background:#2A5BD7;margin-top:10px"></div>
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid #2A5BD7;box-sizing:border-box;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:9px;border-radius:50%;background:#2A5BD7"></div></div>
+                <div style="font-size:13px;font-weight:600">汇合</div>
+              </div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:8px 20px 10px;display:flex;flex-direction:column;align-items:center">
+              <div style="width:124px;height:124px;display:flex;align-items:center;justify-content:center">
+                <div style="width:92px;height:92px;border-radius:50%;background:#2A5BD7;color:#fff;font-size:52px;font-weight:600;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums">3</div>
+              </div>
+              <div style="margin-top:10px;font-size:34px;font-weight:600;text-align:center">准备开始</div>
+              <div style="margin-top:6px;font-size:16px;color:#5E6679;text-align:center">握好引导绳</div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:12px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;padding:0 18px;min-height:74px">
+              <div style="font-size:15px;color:#5E6679">陪跑员</div><div style="flex:1"></div>
+              <div style="text-align:right"><div style="font-size:16px;font-weight:600">张伟</div><div style="margin-top:3px;font-size:13px;color:#5E6679;font-variant-numeric:tabular-nums">陪跑 32 次，引导绳经验 2 年</div></div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+              <div style="font-size:15px;color:#5E6679">时间</div><div style="flex:1"></div>
+              <div style="font-size:16px;font-weight:500;font-variant-numeric:tabular-nums">今天 7:00</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:0 18px;min-height:64px">
+              <div style="font-size:15px;color:#5E6679">集合地点</div><div style="flex:1"></div>
+              <div style="font-size:16px;font-weight:500">深圳湾公园 3 号入口</div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:0 18px;min-height:64px">
+              <div style="flex:1;font-size:16px;font-weight:500">遇到问题</div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#FBE6AE;display:flex;align-items:center;justify-content:center">
+              <div style="font-size:18px;font-weight:600;color:#111A2E">准备中</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">② 倒计时</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">准备开始</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>「3」「2」「1」，每拍一次，每拍轻震；优先级＝对方操作。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>与屏 ① 完全一致（结构未变）。数字走 announcement 通道，不插入遍历顺序。</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>仍在主按钮上 —— 按钮原位只把文字换成「准备中」，焦点不丢。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:210px;padding-top:318px;text-align:center">
+      <div style="font-size:13px;font-weight:600;line-height:1.6;color:#2A5BD7">说「开始」时，400ms 缓出<br>进度条上折 · 头像缩小移左上<br>信息卡下沉淡出 · 主体拉高<br>里程 0.00 由 80%→100%</div>
+      <div style="margin:14px auto 0;display:flex;align-items:center;justify-content:center">
+        <div style="width:120px;height:3px;background:#2A5BD7"></div>
+        <div style="width:0;height:0;border-left:12px solid #2A5BD7;border-top:7px solid transparent;border-bottom:7px solid transparent"></div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;line-height:1.6;color:#8C93A3">减弱动态：全部改 300ms 淡入淡出，不做位移与缩放</div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+              <div style="font-size:15px;font-weight:600">陪跑中 · 张伟</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:40px 24px 34px;text-align:center">
+              <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">3.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:38px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">21:04</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#111A2E" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="#111A2E"></path><path d="M16 9.6a4 4 0 010 4.8"></path><path d="M18.6 7.1a7.5 7.5 0 010 9.8"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#111A2E">播报当前数据</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">③ 跑步中</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">陪跑中 · 张伟</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>开始时「开始跑步」＋强震一次；此后每公里「2 公里，这一公里 6 分 25」（前置音 0.3 秒，排队超 10 秒丢弃）。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>陪跑中 · 张伟 → 里程 3.20 公里 → 时长 21 分 4 秒 → 配速 6 分 30 秒每公里 → 播报当前数据 → 求助与安全</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>主按钮（与屏 ①② 同一坐标，只换文字与图标）</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:210px;padding-top:318px;text-align:center">
+      <div style="font-size:13px;font-weight:600;line-height:1.6;color:#2A5BD7">陪跑员长按 2 秒结束<br>顶行换成「已完成 · 张伟」<br>配速换成平均配速<br>原地变形，不跳页</div>
+      <div style="margin:14px auto 0;display:flex;align-items:center;justify-content:center">
+        <div style="width:120px;height:3px;background:#2A5BD7"></div>
+        <div style="width:0;height:0;border-left:12px solid #2A5BD7;border-top:7px solid transparent;border-bottom:7px solid transparent"></div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;line-height:1.6;color:#8C93A3">变形时不再重复播报 —— 结束那句已经说过</div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+              <div style="font-size:15px;font-weight:600">已完成 · 张伟</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:34px 24px 28px;text-align:center">
+              <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">5.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:34px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">33:41</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">6’28”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">平均配速</div>
+                </div>
+              </div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+              <div style="font-size:15px;color:#5E6679">陪跑员</div><div style="flex:1"></div>
+              <div style="font-size:16px;font-weight:500">张伟</div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center">
+              <div style="font-size:18px;font-weight:600;color:#111A2E">完成</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">④ 已完成</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">已完成 · 张伟</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>张伟结束了本次陪跑，共跑 5.2 公里（强震一次）。变形为总结时不再播报第二遍。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>已完成 · 张伟 → 里程 5.20 公里 → 时长 33 分 41 秒 → 平均配速 6 分 28 秒每公里 → 陪跑员 张伟 → 完成 → 求助与安全</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>主按钮（原位换成「完成」）。「求助与安全」在跑后仍然保留。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:210px;padding-top:330px;text-align:center">
+      <div style="font-size:13px;font-weight:600;line-height:1.6;color:#2A5BD7">点「完成」回首页<br>评价卡片 300ms 淡入<br>不推送、不打断</div>
+      <div style="margin:14px auto 0;display:flex;align-items:center;justify-content:center">
+        <div style="width:120px;height:3px;background:#2A5BD7"></div>
+        <div style="width:0;height:0;border-left:12px solid #2A5BD7;border-top:7px solid transparent;border-bottom:7px solid transparent"></div>
+      </div>
+      <div style="margin-top:12px;font-size:12px;line-height:1.6;color:#8C93A3">结束时陪跑员就在旁边，评价因此延后到首页</div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="padding:14px 22px 0;font-size:34px;font-weight:600">你好，李明</div>
+
+          <div style="margin:22px 16px 0;background:#fff;border-radius:26px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);padding:22px">
+            <div style="font-size:22px;font-weight:600;line-height:1.35">这次和张伟跑得怎么样？</div>
+            <div style="margin-top:18px;display:flex;flex-direction:column;gap:12px">
+              <div style="min-height:64px;border-radius:17px;background:#fff;border:1.5px solid #D5DAE3;box-sizing:border-box;display:flex;align-items:center;padding:0 20px;font-size:18px;font-weight:600">很好</div>
+              <div style="min-height:64px;border-radius:17px;background:#fff;border:1.5px solid #D5DAE3;box-sizing:border-box;display:flex;align-items:center;padding:0 20px;font-size:18px;font-weight:600">一般</div>
+              <div style="min-height:64px;border-radius:17px;background:#fff;border:1.5px solid #D5DAE3;box-sizing:border-box;display:flex;align-items:center;padding:0 20px;font-size:18px;font-weight:600">有问题</div>
+            </div>
+            <div style="margin-top:16px;font-size:13px;color:#5E6679;line-height:1.6">24 小时内有效，之后自动收起；不会推送通知。</div>
+          </div>
+
+          <div style="margin:16px 16px 0;background:#DDE8FC;border-radius:26px;padding:22px 20px;display:flex;align-items:center;gap:16px">
+            <div style="width:56px;height:56px;flex:none;border-radius:50%;background:#2A5BD7;position:relative">
+              <div style="position:absolute;left:50%;top:50%;width:22px;height:2.5px;background:#fff;transform:translate(-50%,-50%)"></div>
+              <div style="position:absolute;left:50%;top:50%;width:2.5px;height:22px;background:#fff;transform:translate(-50%,-50%)"></div>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:24px;font-weight:600;color:#15224A">预约新的陪跑</div>
+              <div style="margin-top:4px;font-size:15px;color:#3D4F80;line-height:1.5">选好时间和地点，<br>系统帮你找陪跑员</div>
+            </div>
+            <div style="width:9px;height:9px;border-right:2px solid #3D4F80;border-top:2px solid #3D4F80;transform:rotate(45deg)"></div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 0 0;display:flex">
+            <div style="flex:1;text-align:center">
+              <div style="width:24px;height:20px;margin:0 auto;border:2px solid #15224A;border-radius:3px"></div>
+              <div style="margin-top:5px;font-size:12px;font-weight:600;color:#15224A">首页</div>
+            </div>
+            <div style="flex:1;text-align:center">
+              <div style="width:24px;height:20px;margin:0 auto;display:flex;flex-direction:column;justify-content:space-between;padding:2px 0;box-sizing:border-box"><div style="height:2px;background:#6B7385"></div><div style="height:2px;background:#6B7385"></div><div style="height:2px;background:#6B7385"></div></div>
+              <div style="margin-top:5px;font-size:12px;color:#6B7385">记录</div>
+            </div>
+            <div style="flex:1;text-align:center">
+              <div style="width:24px;height:20px;margin:0 auto;display:flex;align-items:flex-end;justify-content:center"><div style="width:18px;height:9px;border:2px solid #6B7385;border-bottom:0;border-radius:9px 9px 0 0"></div></div>
+              <div style="margin-top:5px;font-size:12px;color:#6B7385">我的</div>
+            </div>
+          </div>
+          <div style="flex:none;height:18px;background:#fff;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">⑤ 首页评价卡片</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">这次和张伟跑得怎么样？</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>不主动播报、不推送通知。选「很好」后追问「下次还想约张伟吗？」；选「有问题」可语音说明并直接转人工客服。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>你好，李明 → 这次和张伟跑得怎么样？ → 很好 → 一般 → 有问题 → 24 小时内有效 → 预约新的陪跑 → 标签栏</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>回到首页后落在评价卡片标题上，三个选项竖排、各自独立可点。</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top:60px">
+    <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">B · 跑者端异常与求助中心</div>
+    <div style="margin-top:6px;font-size:22px;font-weight:700">异常只在跑者听到后能做点什么时才提醒</div>
+    <div style="margin-top:6px;font-size:14px;color:#5E6679">警示条压在主体卡上方、主按钮原位换文字；求助中心按跑中的真实需要重排，紧急求助单独放在最底下</div>
+  </div>
+  <div id="row-b" style="display:flex;align-items:flex-start;gap:40px;margin-top:20px">
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;border-radius:17px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+            <div style="width:26px;height:26px;flex:none;border-radius:50%;background:#B42318;color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center">!</div>
+            <div style="flex:1">
+              <div style="font-size:17px;font-weight:600;color:#B42318">是否和张伟在一起？</div>
+              <div style="margin-top:3px;font-size:13px;color:#B42318;line-height:1.5">距离超过 50 米已持续 30 秒</div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:12px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+              <div style="font-size:15px;font-weight:600">陪跑中 · 张伟</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:34px 24px 30px;text-align:center">
+              <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">3.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:34px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">21:04</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center">
+              <div style="font-size:18px;font-weight:600;color:#111A2E">我们在一起</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">③a 走散确认</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">是否和张伟在一起？</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>警示音三连 + 强震，随后「张伟是否在你身边？」。先提醒陪跑员，30 秒无人确认才轮到跑者。按下后播「已确认和张伟在一起」。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>是否和张伟在一起？距离超过 50 米已持续 30 秒 → 陪跑中 · 张伟 → 里程 → 时长 → 配速 → 我们在一起 → 求助与安全</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>警示条（唯一会主动抢焦点的一处 —— 它要求跑者做一件事）</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;border-radius:17px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+            <div style="width:26px;height:26px;flex:none;border-radius:50%;background:#B42318;color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center">!</div>
+            <div style="flex:1">
+              <div style="font-size:17px;font-weight:600;color:#B42318">张伟的手机已离线</div>
+              <div style="margin-top:3px;font-size:13px;color:#B42318;line-height:1.5">已离线超过 5 分钟，你可以结束跑步或求助</div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:12px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+              <div style="font-size:15px;font-weight:600">陪跑中 · 张伟</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:34px 24px 30px;text-align:center">
+              <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">4.05</div>
+              <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:34px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">26:18</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center">
+              <div style="font-size:18px;font-weight:600;color:#111A2E">结束跑步</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">③b 陪跑员离线</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">张伟的手机已离线</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>警示音三连 + 强震，随后「张伟的手机已离线，你可以结束跑步或求助」。离线满 5 分钟才播，不做中间提示。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>张伟的手机已离线，已离线超过 5 分钟 → 陪跑中 · 张伟 → 里程 → 时长 → 配速 → 结束跑步 → 求助与安全</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>警示条。主按钮补上「只有陪跑员能结束」的漏洞，位置仍然不动。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:8px 20px 0;min-height:64px;display:flex;align-items:center;justify-content:center;gap:8px">
+            <div style="width:11px;height:11px;border-right:2px solid #111A2E;border-bottom:2px solid #111A2E;transform:rotate(45deg);margin-bottom:4px"></div>
+            <div style="font-size:17px;font-weight:600">收起，回到陪跑</div>
+          </div>
+
+          <div style="flex:none;padding:4px 20px 14px">
+            <div style="font-size:24px;font-weight:700">求助与安全</div>
+            <div style="margin-top:6px;font-size:16px;color:#5E6679;line-height:1.5">陪跑进行中。选一项，或直接紧急求助。</div>
+            <div style="margin-top:6px;font-size:13px;color:#5E6679">还没有发送求助。</div>
+          </div>
+
+          <div style="flex:1;min-height:0;overflow:hidden;padding:0 20px;display:flex;flex-direction:column;gap:10px">
+            <div style="min-height:68px;border:1.5px solid rgba(17,26,46,.85);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600">人工客服</div><div style="margin-top:2px;font-size:13px;color:#5E6679">转接客服，说明现在的情况</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(17,26,46,.85);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600">分享位置给家人</div><div style="margin-top:2px;font-size:13px;color:#5E6679">向紧急联系人持续分享位置</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(17,26,46,.85);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600">播报我的位置</div><div style="margin-top:2px;font-size:13px;color:#5E6679">念出当前位置，方便转述给他人</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(17,26,46,.85);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600">问一句</div><div style="margin-top:2px;font-size:13px;color:#5E6679">说一句，只答被问的那一项</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(17,26,46,.85);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600">联系陪跑员</div><div style="margin-top:2px;font-size:13px;color:#5E6679">打电话给张伟</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;padding:12px 20px 0">
+            <div style="min-height:100px;border-radius:17px;background:#B42318;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+                <div style="font-size:28px;font-weight:700;color:#fff">紧急求助</div>
+              </div>
+              <div style="font-size:13px;font-weight:600;color:#fff">长按 3 秒直接发出 · 轻点会先确认一次</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center;margin-top:6px"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">跑中求助中心 · 常规</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">五项按跑中的真实需要排</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>打开时不播报。断网时打开才播「网络已断开，仍可直接拨打 120 或 110」。除「联系陪跑员」外，所有求助操作不在陪跑员端产生任何提示。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>紧急求助（声明在最前，视觉贴底）→ 收起，回到陪跑 → 求助与安全，陪跑进行中，还没有发送求助 → 人工客服 → 分享位置给家人 → 播报我的位置 → 问一句 → 联系陪跑员</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>打开即落在「紧急求助」，焦点锁在弹层内。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:8px 20px 0;min-height:64px;display:flex;align-items:center;justify-content:center;gap:8px">
+            <div style="width:11px;height:11px;border-right:2px solid #111A2E;border-bottom:2px solid #111A2E;transform:rotate(45deg);margin-bottom:4px"></div>
+            <div style="font-size:17px;font-weight:600">收起，回到陪跑</div>
+          </div>
+
+          <div style="flex:none;padding:4px 20px 14px">
+            <div style="font-size:24px;font-weight:700">求助与安全</div>
+            <div style="margin-top:6px;font-size:16px;color:#5E6679;line-height:1.5">可能和张伟走散了。先试着联系他。</div>
+            <div style="margin-top:6px;font-size:13px;color:#5E6679">还没有发送求助。</div>
+          </div>
+
+          <div style="flex:1;min-height:0;overflow:hidden;padding:0 20px;display:flex;flex-direction:column;gap:10px">
+            <div style="min-height:68px;border:1.5px solid #C25A4E;background:#FDECEC;border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600;color:#B42318">联系陪跑员</div><div style="margin-top:2px;font-size:13px;color:#B42318">打电话给张伟</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #B42318;border-top:2px solid #B42318;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(17,26,46,.85);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600">人工客服</div><div style="margin-top:2px;font-size:13px;color:#5E6679">转接客服，说明现在的情况</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(17,26,46,.85);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600">分享位置给家人</div><div style="margin-top:2px;font-size:13px;color:#5E6679">向紧急联系人持续分享位置</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(17,26,46,.85);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600">播报我的位置</div><div style="margin-top:2px;font-size:13px;color:#5E6679">念出当前位置，方便转述给他人</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(17,26,46,.85);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600">问一句</div><div style="margin-top:2px;font-size:13px;color:#5E6679">说一句，只答被问的那一项</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;padding:12px 20px 0">
+            <div style="min-height:100px;border-radius:17px;background:#B42318;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+                <div style="font-size:28px;font-weight:700;color:#fff">紧急求助</div>
+              </div>
+              <div style="font-size:13px;font-weight:600;color:#fff">长按 3 秒直接发出 · 轻点会先确认一次</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center;margin-top:6px"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">跑中求助中心 · 走散</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">联系陪跑员排到第一</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>打开时不播报（走散那句警示已经播过）。「联系陪跑员」是这一层唯一会让对方收到提示的操作。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>紧急求助 → 收起，回到陪跑 → 求助与安全，可能和张伟走散了 → 联系陪跑员 → 人工客服 → 分享位置给家人 → 播报我的位置 → 问一句</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>仍落在「紧急求助」—— 走散不改这一条，位置记忆比省一次划动重要。</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top:60px">
+    <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">C · 陪跑员端</div>
+    <div style="margin-top:6px;font-size:22px;font-weight:700">一只手握引导绳，眼睛看路 —— 只震动和看，不播报</div>
+    <div style="margin-top:6px;font-size:14px;color:#5E6679">数据与跑者端逐字一致；结束是这一端独有的权力，因此要长按 2 秒并且松手即取消</div>
+  </div>
+  <div id="row-c" style="display:flex;align-items:flex-start;gap:40px;margin-top:20px">
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">李</div>
+              <div style="font-size:15px;font-weight:600">陪跑中 · 李明</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:40px 24px 34px;text-align:center">
+              <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">3.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:38px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">21:04</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:12px">
+              <svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" fill="none" stroke="rgba(17,26,46,.22)" stroke-width="3"></circle></svg>
+              <div>
+                <div style="font-size:18px;font-weight:600;color:#111A2E">结束陪跑</div>
+                <div style="margin-top:1px;font-size:12.5px;color:#111A2E;opacity:.75">长按 2 秒 · 松手取消</div>
+              </div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">陪跑员 · 跑步中</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">陪跑中 · 李明</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>语音默认关闭，全程不播报。倒计时每拍震动一次。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>陪跑中 · 李明 → 里程 → 时长 → 配速 → 结束陪跑，长按 2 秒 → 求助与安全</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>不主动移动焦点。读屏用户可用上下轻扫的「结束陪跑」自定义动作代替长按。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">李</div>
+              <div style="font-size:15px;font-weight:600">陪跑中 · 李明</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:40px 24px 34px;text-align:center">
+              <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">5.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:38px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">33:41</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">6’28”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:12px">
+              <svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" fill="none" stroke="rgba(17,26,46,.22)" stroke-width="3"></circle><circle cx="20" cy="20" r="17" fill="none" stroke="#111A2E" stroke-width="3" stroke-linecap="round" stroke-dasharray="106.8" stroke-dashoffset="42.7" transform="rotate(-90 20 20)"></circle></svg>
+              <div>
+                <div style="font-size:18px;font-weight:600;color:#111A2E">结束陪跑</div>
+                <div style="margin-top:1px;font-size:12.5px;color:#111A2E;opacity:.75">按住不要松手 · 还有 0.8 秒</div>
+              </div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">陪跑员 · 长按结束中</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">环形进度走满才结束</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>按住过程中渐强震动，不播报。走满 2 秒后跑者端才会听到「张伟结束了本次陪跑，共跑 5.2 公里」。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>不变。按住时副标题改为「按住不要松手 · 还有 0.8 秒」，读屏按状态变更播报，不移动焦点。</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>停在「结束陪跑」。松手即取消、环形归零，不产生任何播报。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#DDE8FC;border-radius:17px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+            <div style="width:26px;height:26px;flex:none;border-radius:50%;background:#2A5BD7;color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center">!</div>
+            <div style="flex:1">
+              <div style="font-size:17px;font-weight:600;color:#15224A">定位信号弱</div>
+              <div style="margin-top:3px;font-size:13px;color:#3D4F80;line-height:1.5">里程和配速可能不准，已持续 2 分钟</div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:12px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">李</div>
+              <div style="font-size:15px;font-weight:600">陪跑中 · 李明</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:34px 24px 30px;text-align:center">
+              <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">3.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:34px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">21:04</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:12px">
+              <svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" fill="none" stroke="rgba(17,26,46,.22)" stroke-width="3"></circle></svg>
+              <div>
+                <div style="font-size:18px;font-weight:600;color:#111A2E">结束陪跑</div>
+                <div style="margin-top:1px;font-size:12.5px;color:#111A2E;opacity:.75">长按 2 秒 · 松手取消</div>
+              </div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">陪跑员 · GPS 弱</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">定位信号弱</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>两端都不主动播报。跑者只有在按「播报当前数据」时，末尾才追加「定位信号弱，距离可能不准」。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>定位信号弱，里程和配速可能不准 → 陪跑中 · 李明 → 里程 → 时长 → 配速 → 结束陪跑 → 求助与安全</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>不移动焦点 —— 这一条陪跑员做不了什么，只是解释数字为什么不准。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;border-radius:17px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+            <div style="width:26px;height:26px;flex:none;border-radius:50%;background:#B42318;color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center">!</div>
+            <div style="flex:1">
+              <div style="font-size:17px;font-weight:600;color:#B42318">疑似和李明走散</div>
+              <div style="margin-top:3px;font-size:13px;color:#B42318;line-height:1.5">距离超过 50 米已持续 30 秒 · 震动提醒</div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:12px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">李</div>
+              <div style="font-size:15px;font-weight:600">陪跑中 · 李明</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:34px 24px 30px;text-align:center">
+              <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">3.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:34px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">21:04</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center">
+              <div style="font-size:18px;font-weight:600;color:#111A2E">我们在一起</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">陪跑员 · 疑似走散</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">主按钮临时变「我们在一起」</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>震动 + 画面提示，不播报。这一端先收到；30 秒内按下「我们在一起」，跑者端那条警示就不会发生。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>疑似和李明走散，距离超过 50 米已持续 30 秒 → 陪跑中 · 李明 → 里程 → 时长 → 配速 → 我们在一起 → 求助与安全</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>警示条。「结束陪跑」在这一态被临时挤掉 —— 走散时该做的不是结束。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">李</div>
+              <div style="font-size:15px;font-weight:600">陪跑中 · 李明</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:34px 24px 30px;text-align:center">
+              <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">3.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:34px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">21:04</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">配速</div>
+                </div>
+              </div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+              <div style="font-size:15px;color:#5E6679">李明的手机电量</div><div style="flex:1"></div>
+              <div style="font-size:16px;font-weight:500;font-variant-numeric:tabular-nums">20%</div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:12px">
+              <svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" fill="none" stroke="rgba(17,26,46,.22)" stroke-width="3"></circle></svg>
+              <div>
+                <div style="font-size:18px;font-weight:600;color:#111A2E">结束陪跑</div>
+                <div style="margin-top:1px;font-size:12.5px;color:#111A2E;opacity:.75">长按 2 秒 · 松手取消</div>
+              </div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">陪跑员 · 跑者电量 ≤20%</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">只是一行，不是横幅</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>这一端不播报。跑者端同时收到注意音两声 + 「手机电量 20%」；10% 时改播「手机电量 10%，可以请张伟结束本次陪跑」。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>陪跑中 · 李明 → 里程 → 时长 → 配速 → 李明的手机电量 20% → 结束陪跑 → 求助与安全</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>不移动焦点。电量归在信息行而不是警示条 —— 它不要求陪跑员立刻做什么。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">李</div>
+              <div style="font-size:15px;font-weight:600">已完成 · 李明</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:30px 24px 26px;text-align:center">
+              <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">5.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:30px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">33:41</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">6’28”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#5E6679">平均配速</div>
+                </div>
+              </div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+              <div style="font-size:15px;color:#5E6679">本次志愿服务时长</div><div style="flex:1"></div>
+              <div style="font-size:16px;font-weight:500;font-variant-numeric:tabular-nums">34 分钟</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:0 18px;min-height:64px">
+              <div style="flex:1;font-size:16px;font-weight:500">上报问题</div>
+              <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center">
+              <div style="font-size:18px;font-weight:600;color:#111A2E">完成</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#B42318">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">陪跑员 · 已完成</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">数据 + 本次志愿服务时长</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>不播报。陪跑员看不到单条评价，也看不到跑者做过哪些求助操作；这一端只保留「上报问题」。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>已完成 · 李明 → 里程 → 时长 → 平均配速 → 本次志愿服务时长 34 分钟 → 上报问题 → 完成 → 求助与安全</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>主按钮「完成」。志愿服务时长与积分是两个数，这一屏只出现时长。</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top:60px">
+    <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">D · 锁屏实时活动</div>
+    <div style="margin-top:6px;font-size:22px;font-weight:700">锁屏是跑中的常态 —— 这一层只放数据和一个按钮</div>
+    <div style="margin-top:6px;font-size:14px;color:#5E6679">实时活动高度上限约 160pt，所以里程用 56pt 而不是全屏的 82pt；锁屏不放求助按钮，紧急情况交给系统 SOS</div>
+  </div>
+  <div id="row-d" style="display:flex;align-items:flex-start;gap:40px;margin-top:20px">
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#0E1013;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:6px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:8px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:10px;background:#F2F3F5;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #F2F3F5;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#F2F3F5;border-radius:1px"></div></div>
+            </div>
+          </div>
+
+          <div style="flex:none;padding:34px 0 0;text-align:center">
+            <div style="font-size:19px;font-weight:600;color:#F2F3F5">9月16日 星期三</div>
+            <div style="margin-top:2px;font-size:88px;font-weight:600;color:#F2F3F5;line-height:1.05;font-variant-numeric:tabular-nums;letter-spacing:-2px">9:41</div>
+          </div>
+
+          <div style="flex:none;margin:40px 12px 0;background:#1E2126;border-radius:26px;padding:18px 20px 16px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:26px;height:26px;flex:none;border-radius:7px;background:#7EA2FF"></div>
+              <div style="font-size:14px;font-weight:600;color:#A8ADB5">助盲跑</div>
+              <div style="flex:1"></div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#2A3C78;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+                <div style="font-size:14px;font-weight:600;color:#F2F3F5">陪跑中 · 张伟</div>
+              </div>
+            </div>
+            <div style="margin-top:14px;display:flex;align-items:flex-end;justify-content:space-between">
+              <div>
+                <div style="font-size:56px;font-weight:600;color:#F2F3F5;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-1.5px">3.20</div>
+                <div style="margin-top:6px;font-size:13px;color:#A8ADB5">里程（公里）</div>
+              </div>
+              <div style="display:flex;gap:26px;padding-bottom:4px">
+                <div>
+                  <div style="font-size:24px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">21:04</div>
+                  <div style="margin-top:4px;font-size:13px;color:#A8ADB5">时长</div>
+                </div>
+                <div>
+                  <div style="font-size:24px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:4px;font-size:13px;color:#A8ADB5">配速</div>
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:16px;min-height:52px;border-radius:14px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:8px">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#111A2E" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="#111A2E"></path><path d="M16 9.6a4 4 0 010 4.8"></path><path d="M18.6 7.1a7.5 7.5 0 010 9.8"></path></svg>
+              <div style="font-size:17px;font-weight:600;color:#111A2E">播报当前数据</div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;height:26px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#F2F3F5;opacity:.7"></div></div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">锁屏 · 跑者端</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">数据 + 播报当前数据</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>按钮按下即播「X.X 公里，用时 X 分钟，配速 X 分 X」，不必解锁、不必打开 App。每公里播报照旧从这一层发出。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>助盲跑 → 陪跑中 · 张伟 → 里程 3.20 公里 → 时长 21 分 4 秒 → 配速 6 分 30 秒每公里 → 播报当前数据</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>锁屏由系统管焦点。<span style="color:#B42318">不放求助按钮</span> —— 锁屏易误触，且锁屏下 App 也无法拨号，紧急情况交给系统 SOS（跑前用语音引导开启）。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#0E1013;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:6px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:8px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:10px;background:#F2F3F5;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #F2F3F5;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#F2F3F5;border-radius:1px"></div></div>
+            </div>
+          </div>
+
+          <div style="flex:none;padding:34px 0 0;text-align:center">
+            <div style="font-size:19px;font-weight:600;color:#F2F3F5">9月16日 星期三</div>
+            <div style="margin-top:2px;font-size:88px;font-weight:600;color:#F2F3F5;line-height:1.05;font-variant-numeric:tabular-nums;letter-spacing:-2px">9:41</div>
+          </div>
+
+          <div style="flex:none;margin:40px 12px 0;background:#1E2126;border-radius:26px;padding:18px 20px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:26px;height:26px;flex:none;border-radius:7px;background:#7EA2FF"></div>
+              <div style="font-size:14px;font-weight:600;color:#A8ADB5">助盲跑</div>
+              <div style="flex:1"></div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#2A3C78;color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center">李</div>
+                <div style="font-size:14px;font-weight:600;color:#F2F3F5">陪跑中 · 李明</div>
+              </div>
+            </div>
+            <div style="margin-top:14px;display:flex;align-items:flex-end;justify-content:space-between">
+              <div>
+                <div style="font-size:56px;font-weight:600;color:#F2F3F5;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-1.5px">3.20</div>
+                <div style="margin-top:6px;font-size:13px;color:#A8ADB5">里程（公里）</div>
+              </div>
+              <div style="display:flex;gap:26px;padding-bottom:4px">
+                <div>
+                  <div style="font-size:24px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">21:04</div>
+                  <div style="margin-top:4px;font-size:13px;color:#A8ADB5">时长</div>
+                </div>
+                <div>
+                  <div style="font-size:24px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:4px;font-size:13px;color:#A8ADB5">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;height:26px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#F2F3F5;opacity:.7"></div></div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">锁屏 · 陪跑员端</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">只显示数据，一个按钮都没有</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>不播报。这一端语音默认关闭。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>助盲跑 → 陪跑中 · 李明 → 里程 → 时长 → 配速</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>无可聚焦控件。<span style="color:#B42318">锁屏不放结束按钮</span> —— 结束是不可撤销的动作，而锁屏上的按钮口袋里就会被按到；也不放播报，这一端不需要听。</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top:60px">
+    <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">E · 深色版（跑者端 4 屏）</div>
+    <div style="margin-top:6px;font-size:22px;font-weight:700">跟随系统，不做夜跑自动切换</div>
+    <div style="margin-top:6px;font-size:14px;color:#5E6679">背景 #121417 · 卡片 #1E2126 · 正文 #F2F3F5 · 次要 #A8ADB5 · 品牌蓝 #7EA2FF（原 #2A5BD7 在深色卡上只有 2.75:1）· 主按钮黄不变、文字仍为深色 · 求助入口 #3B1D1D 配 #FFB4AB</div>
+  </div>
+  <div id="row-e" style="display:flex;align-items:flex-start;gap:40px;margin-top:20px">
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#121417;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:6px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:8px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:10px;background:#F2F3F5;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #F2F3F5;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#F2F3F5;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center;position:relative">
+            <div style="position:absolute;left:20px;width:11px;height:11px;border-left:2px solid #F2F3F5;border-bottom:2px solid #F2F3F5;transform:rotate(45deg)"></div>
+            <div style="font-size:17px;font-weight:600;color:#F2F3F5">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#1E2126;border-radius:24px;overflow:hidden">
+            <div style="display:flex;align-items:flex-start;padding:16px 20px 14px">
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#7EA2FF;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #121417;border-bottom:2.5px solid #121417;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                <div style="font-size:13px;color:#F2F3F5">匹配</div>
+              </div>
+              <div style="flex:1;height:2px;background:#7EA2FF;margin-top:10px"></div>
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#7EA2FF;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #121417;border-bottom:2.5px solid #121417;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                <div style="font-size:13px;color:#F2F3F5">约好</div>
+              </div>
+              <div style="flex:1;height:2px;background:#7EA2FF;margin-top:10px"></div>
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#7EA2FF;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #121417;border-bottom:2.5px solid #121417;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                <div style="font-size:13px;color:#F2F3F5">出发</div>
+              </div>
+              <div style="flex:1;height:2px;background:#3A3A3C;margin-top:10px"></div>
+              <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                <div style="width:22px;height:22px;border-radius:50%;background:#1E2126;border:2px solid #7EA2FF;box-sizing:border-box;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:9px;border-radius:50%;background:#7EA2FF"></div></div>
+                <div style="font-size:13px;font-weight:600;color:#F2F3F5">汇合</div>
+              </div>
+            </div>
+            <div style="height:1px;background:#2C3036"></div>
+            <div style="padding:8px 20px 10px;display:flex;flex-direction:column;align-items:center">
+              <div style="width:124px;height:124px;position:relative;display:flex;align-items:center;justify-content:center">
+                <div style="width:92px;height:92px;border-radius:50%;background:#2A3C78;color:#fff;font-size:38px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+                <div style="position:absolute;right:8px;bottom:8px;width:32px;height:32px;border-radius:50%;background:#1F8A4C;border:3px solid #1E2126;box-sizing:border-box;display:flex;align-items:center;justify-content:center"><div style="width:11px;height:6px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+              </div>
+              <div style="margin-top:10px;font-size:34px;font-weight:600;color:#F2F3F5;text-align:center">张伟已到达</div>
+              <div style="margin-top:6px;font-size:16px;color:#A8ADB5;text-align:center">见面后，轻点下方开始跑步</div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:12px 16px 0;background:#1E2126;border-radius:24px;overflow:hidden">
+            <div style="display:flex;align-items:center;padding:0 18px;min-height:74px">
+              <div style="font-size:15px;color:#A8ADB5">陪跑员</div><div style="flex:1"></div>
+              <div style="text-align:right"><div style="font-size:16px;font-weight:600;color:#F2F3F5">张伟</div><div style="margin-top:3px;font-size:13px;color:#A8ADB5;font-variant-numeric:tabular-nums">陪跑 32 次，引导绳经验 2 年</div></div>
+            </div>
+            <div style="height:1px;background:#2C3036"></div>
+            <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+              <div style="font-size:15px;color:#A8ADB5">时间</div><div style="flex:1"></div>
+              <div style="font-size:16px;font-weight:500;color:#F2F3F5;font-variant-numeric:tabular-nums">今天 7:00</div>
+            </div>
+            <div style="height:1px;background:#2C3036"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:0 18px;min-height:64px">
+              <div style="font-size:15px;color:#A8ADB5">集合地点</div><div style="flex:1"></div>
+              <div style="font-size:16px;font-weight:500;color:#F2F3F5">深圳湾公园 3 号入口</div>
+              <div style="width:8px;height:8px;border-right:2px solid #A8ADB5;border-top:2px solid #A8ADB5;transform:rotate(45deg)"></div>
+            </div>
+            <div style="height:1px;background:#2C3036"></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:0 18px;min-height:64px">
+              <div style="flex:1;font-size:16px;font-weight:500;color:#F2F3F5">遇到问题</div>
+              <div style="width:8px;height:8px;border-right:2px solid #A8ADB5;border-top:2px solid #A8ADB5;transform:rotate(45deg)"></div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#1E2126;border-top:1px solid #2C3036;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" stroke="#111A2E" stroke-width="2" stroke-linecap="round" fill="none"><circle cx="15" cy="4.6" r="2.3" fill="#111A2E" stroke="none"></circle><path d="M13.2 9.2L9.6 11.6l1.9 3.1.4 4.9"></path><path d="M11.6 14.7L7 19.4"></path><path d="M15.2 11.6l3 1.5"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#111A2E">开始跑步</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#3B1D1D;border:1.5px solid #FFB4AB;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFB4AB" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#FFB4AB">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#F2F3F5;opacity:.7"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">深色 · 汇合</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">张伟已到达</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>与浅色版逐字相同 —— 深浅只影响看得见的那一半。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>同浅色版。</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>同浅色版。头像不参与智能反转；进度条已完成节点的对勾改为深色（白色对勾压 #7EA2FF 只有 1.9:1）。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#121417;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:6px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:8px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:10px;background:#F2F3F5;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #F2F3F5;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#F2F3F5;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600;color:#F2F3F5">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#1E2126;border-radius:24px;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#2A3C78;color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+              <div style="font-size:15px;font-weight:600;color:#F2F3F5">陪跑中 · 张伟</div>
+            </div>
+            <div style="height:1px;background:#2C3036"></div>
+            <div style="padding:40px 24px 34px;text-align:center">
+              <div style="font-size:82px;font-weight:600;color:#F2F3F5;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">3.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#A8ADB5">里程（公里）</div>
+              <div style="display:flex;margin-top:38px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">21:04</div>
+                  <div style="margin-top:6px;font-size:15px;color:#A8ADB5">时长</div>
+                </div>
+                <div style="width:1px;background:#2C3036"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#A8ADB5">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#1E2126;border-top:1px solid #2C3036;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#111A2E" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="#111A2E"></path><path d="M16 9.6a4 4 0 010 4.8"></path><path d="M18.6 7.1a7.5 7.5 0 010 9.8"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#111A2E">播报当前数据</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#3B1D1D;border:1.5px solid #FFB4AB;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFB4AB" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#FFB4AB">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#F2F3F5;opacity:.7"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">深色 · 跑步中</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">陪跑中 · 张伟</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>同浅色版。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>同浅色版。</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>同浅色版。82pt 的里程在 #121417 上用 #F2F3F5，14.5:1；分隔线 #2C3036 只是装饰，不承载状态。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#121417;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:6px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:8px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:10px;background:#F2F3F5;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #F2F3F5;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#F2F3F5;border-radius:1px"></div></div>
+            </div>
+          </div>
+
+          <div style="flex:none;margin:8px 20px 0;min-height:64px;display:flex;align-items:center;justify-content:center;gap:8px">
+            <div style="width:11px;height:11px;border-right:2px solid #F2F3F5;border-bottom:2px solid #F2F3F5;transform:rotate(45deg);margin-bottom:4px"></div>
+            <div style="font-size:17px;font-weight:600;color:#F2F3F5">收起，回到陪跑</div>
+          </div>
+
+          <div style="flex:none;padding:4px 20px 14px">
+            <div style="font-size:24px;font-weight:700;color:#F2F3F5">求助与安全</div>
+            <div style="margin-top:6px;font-size:16px;color:#A8ADB5;line-height:1.5">陪跑进行中。选一项，或直接紧急求助。</div>
+            <div style="margin-top:6px;font-size:13px;color:#A8ADB5">还没有发送求助。</div>
+          </div>
+
+          <div style="flex:1;min-height:0;overflow:hidden;padding:0 20px;display:flex;flex-direction:column;gap:10px">
+            <div style="min-height:68px;border:1.5px solid rgba(242,243,245,.8);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600;color:#F2F3F5">人工客服</div><div style="margin-top:2px;font-size:13px;color:#A8ADB5">转接客服，说明现在的情况</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #A8ADB5;border-top:2px solid #A8ADB5;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(242,243,245,.8);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600;color:#F2F3F5">分享位置给家人</div><div style="margin-top:2px;font-size:13px;color:#A8ADB5">向紧急联系人持续分享位置</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #A8ADB5;border-top:2px solid #A8ADB5;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(242,243,245,.8);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600;color:#F2F3F5">播报我的位置</div><div style="margin-top:2px;font-size:13px;color:#A8ADB5">念出当前位置，方便转述给他人</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #A8ADB5;border-top:2px solid #A8ADB5;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(242,243,245,.8);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600;color:#F2F3F5">问一句</div><div style="margin-top:2px;font-size:13px;color:#A8ADB5">说一句，只答被问的那一项</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #A8ADB5;border-top:2px solid #A8ADB5;transform:rotate(45deg)"></div>
+            </div>
+            <div style="min-height:68px;border:1.5px solid rgba(242,243,245,.8);border-radius:14px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+              <div style="flex:1"><div style="font-size:17px;font-weight:600;color:#F2F3F5">联系陪跑员</div><div style="margin-top:2px;font-size:13px;color:#A8ADB5">打电话给张伟</div></div>
+              <div style="width:8px;height:8px;border-right:2px solid #A8ADB5;border-top:2px solid #A8ADB5;transform:rotate(45deg)"></div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;padding:12px 20px 0">
+            <div style="min-height:100px;border-radius:17px;background:#B42318;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="#fff"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+                <div style="font-size:28px;font-weight:700;color:#fff">紧急求助</div>
+              </div>
+              <div style="font-size:13px;font-weight:600;color:#fff">长按 3 秒直接发出 · 轻点会先确认一次</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center;margin-top:6px"><div style="width:140px;height:5px;border-radius:3px;background:#F2F3F5;opacity:.7"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">深色 · 求助中心</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">实心红仍然只有这一处</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>同浅色版。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>同浅色版 —— 紧急求助声明在最前，视觉贴底。</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>同浅色版。五项的描边在深色下用 80% 白，比 #A8ADB5 更像「一个可按的框」。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#121417;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:6px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:8px;background:#F2F3F5;border-radius:1px"></div><div style="width:3px;height:10px;background:#F2F3F5;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #F2F3F5;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#F2F3F5;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:17px;font-weight:600;color:#F2F3F5">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#1E2126;border-radius:24px;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+              <div style="width:28px;height:28px;border-radius:50%;background:#2A3C78;color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+              <div style="font-size:15px;font-weight:600;color:#F2F3F5">已完成 · 张伟</div>
+            </div>
+            <div style="height:1px;background:#2C3036"></div>
+            <div style="padding:34px 24px 28px;text-align:center">
+              <div style="font-size:82px;font-weight:600;color:#F2F3F5;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">5.20</div>
+              <div style="margin-top:10px;font-size:16px;color:#A8ADB5">里程（公里）</div>
+              <div style="display:flex;margin-top:34px">
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">33:41</div>
+                  <div style="margin-top:6px;font-size:15px;color:#A8ADB5">时长</div>
+                </div>
+                <div style="width:1px;background:#2C3036"></div>
+                <div style="flex:1">
+                  <div style="font-size:36px;font-weight:600;color:#F2F3F5;font-variant-numeric:tabular-nums">6’28”</div>
+                  <div style="margin-top:6px;font-size:15px;color:#A8ADB5">平均配速</div>
+                </div>
+              </div>
+            </div>
+            <div style="height:1px;background:#2C3036"></div>
+            <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+              <div style="font-size:15px;color:#A8ADB5">陪跑员</div><div style="flex:1"></div>
+              <div style="font-size:16px;font-weight:500;color:#F2F3F5">张伟</div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#1E2126;border-top:1px solid #2C3036;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center">
+              <div style="font-size:18px;font-weight:600;color:#111A2E">完成</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#3B1D1D;border:1.5px solid #FFB4AB;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFB4AB" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:18px;font-weight:600;color:#FFB4AB">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#F2F3F5;opacity:.7"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">深色 · 已完成</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">已完成 · 张伟</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">播报文案：</span>同浅色版。</div>
+          <div><span style="color:#111A2E;font-weight:600">读屏顺序：</span>同浅色版。</div>
+          <div><span style="color:#111A2E;font-weight:600">焦点位置：</span>同浅色版。主按钮黄在两套外观里同值 —— 它是「现在该按这个」唯一的标记，跟随外观变化会让这条线索强弱不一。</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top:60px">
+    <div style="font-size:12px;font-weight:600;color:#2A5BD7;letter-spacing:1px">F · 最大辅助功能字号（AX5）</div>
+    <div style="margin-top:6px;font-size:22px;font-weight:700">跑步中 · 不封顶 Dynamic Type，风险全部转移到布局上</div>
+    <div style="margin-top:6px;font-size:14px;color:#5E6679">AX5 下 body 17→53、title 22→56、largeTitle 34→60。左边是照搬默认布局的结果，右边是调整后的版本</div>
+  </div>
+  <div id="row-f" style="display:flex;align-items:flex-start;gap:40px;margin-top:20px">
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:22px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;white-space:nowrap;overflow:hidden;outline:1.5px dashed #B42318;outline-offset:-1.5px">
+              <div style="width:28px;height:28px;flex:none;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+              <div style="font-size:47px;font-weight:600">陪跑中 · 张伟</div>
+            </div>
+            <div style="height:1px;background:#EEF0F4"></div>
+            <div style="padding:30px 24px 26px;text-align:center">
+              <div style="font-size:144px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px;white-space:nowrap;overflow:hidden;outline:1.5px dashed #B42318">3.20</div>
+              <div style="margin-top:10px;font-size:49px;line-height:1.2;color:#5E6679">里程（公里）</div>
+              <div style="display:flex;margin-top:24px">
+                <div style="flex:1;overflow:hidden;outline:1.5px dashed #B42318">
+                  <div style="font-size:91px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">21:04</div>
+                  <div style="margin-top:6px;font-size:49px;color:#5E6679">时长</div>
+                </div>
+                <div style="width:1px;background:#EEF0F4"></div>
+                <div style="flex:1;overflow:hidden;outline:1.5px dashed #B42318">
+                  <div style="font-size:91px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">6’30”</div>
+                  <div style="margin-top:6px;font-size:49px;color:#5E6679">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:10px;overflow:hidden;outline:1.5px dashed #B42318;outline-offset:-1.5px">
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#111A2E" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="flex:none"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="#111A2E"></path><path d="M16 9.6a4 4 0 010 4.8"></path><path d="M18.6 7.1a7.5 7.5 0 010 9.8"></path></svg>
+              <div style="font-size:53px;font-weight:600;color:#111A2E;white-space:nowrap">播报当前数据</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px;overflow:hidden">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round" style="flex:none"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:53px;font-weight:600;color:#B42318;white-space:nowrap">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#B42318;letter-spacing:1px">AX5 · 照搬默认布局（不可交付）</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">四处截断，红色虚线是裁切边界</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#B42318;font-weight:600">① 里程</span>：70pt 基准 ×1.76 = 123pt，加上设计稿的 82 起点后「3.20」需要约 340pt 宽，卡内只有 358−48=310pt ⇒ 末位数字被裁。</div>
+          <div><span style="color:#B42318;font-weight:600">② 时长 / 配速</span>：36→91pt，两格并排每格只剩 154pt，「21:04」要 230pt ⇒ 两格同时被裁。</div>
+          <div><span style="color:#B42318;font-weight:600">③ 主按钮</span>：18→53pt，「播报当前数据」需要约 318pt + 图标 31pt，而按钮被写成固定 64pt 高、单行 ⇒ 横向裁字。</div>
+          <div><span style="color:#B42318;font-weight:600">④ 顶行</span>：15→47pt，「陪跑中 · 张伟」超出一行 ⇒ 裁掉姓名。对看不见屏幕的人不影响听，但低视力用户就此丢掉搭档是谁。</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+      <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+        <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+          <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+            <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+              <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+            </div>
+          </div>
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+            <div style="font-size:22px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <div style="flex:1;min-height:0;overflow:hidden;margin:4px 16px 0">
+            <div style="background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+              <div style="display:flex;align-items:flex-start;gap:12px;padding:16px 18px">
+                <div style="width:28px;height:28px;flex:none;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;margin-top:4px">张</div>
+                <div style="flex:1;font-size:47px;font-weight:600;line-height:1.2">陪跑中<br>张伟</div>
+              </div>
+              <div style="height:1px;background:#EEF0F4"></div>
+              <div style="padding:24px 24px 26px">
+                <div style="font-size:101px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-3px;text-align:left">3.20</div>
+                <div style="margin-top:8px;font-size:44px;line-height:1.2;color:#5E6679">里程 · 公里</div>
+                <div style="margin-top:28px;height:1px;background:#EEF0F4"></div>
+                <div style="margin-top:24px">
+                  <div style="font-size:72px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums">21:04</div>
+                  <div style="margin-top:8px;font-size:44px;color:#5E6679">时长</div>
+                </div>
+                <div style="margin-top:24px;height:1px;background:#EEF0F4"></div>
+                <div style="margin-top:24px">
+                  <div style="font-size:72px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums">6’30”</div>
+                  <div style="margin-top:8px;font-size:44px;color:#5E6679">配速</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <div style="min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:12px;padding:14px 18px;box-sizing:border-box">
+              <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#111A2E" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="flex:none"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="#111A2E"></path><path d="M16 9.6a4 4 0 010 4.8"></path><path d="M18.6 7.1a7.5 7.5 0 010 9.8"></path></svg>
+              <div style="font-size:47px;font-weight:600;color:#111A2E;line-height:1.15;text-align:center">播报<br>当前数据</div>
+            </div>
+            <div style="margin-top:12px;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:12px;padding:14px 18px">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round" style="flex:none"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <div style="font-size:47px;font-weight:600;color:#B42318;line-height:1.15">求助与安全</div>
+            </div>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:22px;text-align:center">
+        <div style="font-size:12px;font-weight:600;color:#1F8A4C;letter-spacing:1px">AX5 · 调整后</div>
+        <div style="margin-top:6px;font-size:19px;font-weight:600">一个字都不裁，主按钮仍在同一位置</div>
+        <div style="margin:12px auto 0;max-width:340px;text-align:left;font-size:12.5px;line-height:1.85;color:#5E6679">
+          <div><span style="color:#111A2E;font-weight:600">① 两格改上下排列</span>：`ViewThatFits` 判到装不下就落到竖排 + 可滚动，左对齐；分隔线从竖线改为横线。</div>
+          <div><span style="color:#111A2E;font-weight:600">② 里程 123→101pt</span>：`minimumScaleFactor(0.7)` + `lineLimit(1)`。数字不许换行 —— 「3.」「20」两行读屏和肉眼都会读错。</div>
+          <div><span style="color:#111A2E;font-weight:600">③ 标签去括号</span>：「里程（公里）」→「里程 · 公里」，44pt 下省掉一次换行。</div>
+          <div><span style="color:#111A2E;font-weight:600">④ 按钮文字换行</span>：高度由内容顶开（64pt 只是下限，不是固定值），图标随字号放大到 30pt，一个字不裁。</div>
+          <div><span style="color:#111A2E;font-weight:600">⑤ 内容区滚动、底部操作区固定</span>：主按钮距屏底仍是 90pt —— AX5 下位置记忆比看到全部数据更要紧。</div>
+          <div><span style="color:#111A2E;font-weight:600">⑥ 小头像固定 28pt</span>：它是装饰、对读屏隐藏，跟着字号放大只会挤掉姓名。</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top:44px;padding:22px 26px;background:#fff;border-radius:20px;border:1px solid #EEF0F4;max-width:1100px">
+    <div style="font-size:15px;font-weight:600">交付自检</div>
+    <div style="margin-top:10px;font-size:13px;line-height:2;color:#5E6679">
+      每屏只有一个黄色按钮 · 主按钮在 ①②③ 同一坐标（距屏底 90pt）· 跑步中只剩里程 / 时长 / 配速 · 按钮无障碍标签与界面文字逐字一致 · 无地图、无暂停、无并排按钮、无五星评分 · 实心红只出现在求助中心的「紧急求助」一处 · 异常按「跑者听到后能不能做点什么」分级：GPS 弱与电量只给信息，走散与离线才给警示音 + 强震 · 陪跑员端全程不播报 · 锁屏两端都不放求助与结束按钮 · 深色版只换颜色不换文案与读屏顺序，品牌蓝改 #7EA2FF、对勾随之改深色 · AX5 下不封顶字号，靠竖排 + 滚动 + 按钮换行吸收，主按钮距屏底恒为 90pt
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isProto }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;align-items:flex-start;gap:48px;margin-top:28px">
+
+    <div style="flex:none;width:414px">
+    <div style="margin-bottom:14px;font-size:13px;font-weight:600;color:#5E6679">跑者端 · 李明的手机</div>
+    <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+      <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column;position:relative">
+        <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+          <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+            <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+          </div>
+        </div>
+
+        <sc-if value="{{ onOrderPage }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center;position:relative">
+            <div style="position:absolute;left:20px;width:11px;height:11px;border-left:2px solid #111A2E;border-bottom:2px solid #111A2E;transform:rotate(45deg);transition:opacity 300ms ease;opacity:{{ backOpacity }}"></div>
+            <div style="font-size:17px;font-weight:600">陪跑订单</div>
+          </div>
+
+          <sc-if value="{{ runnerBanner }}" hint-placeholder-val="{{ false }}">
+          <div style="flex:none;margin:4px 16px 0;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;border-radius:17px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+            <div style="width:26px;height:26px;flex:none;border-radius:50%;background:#B42318;color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center">!</div>
+            <div style="flex:1">
+              <div style="font-size:17px;font-weight:600;color:#B42318">{{ runnerBannerTitle }}</div>
+              <div style="margin-top:3px;font-size:13px;color:#B42318;line-height:1.5">{{ runnerBannerBody }}</div>
+            </div>
+          </div>
+          </sc-if>
+
+          <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden;position:relative">
+
+            <div style="overflow:hidden;transition:max-height {{ dur }}ms {{ ease }},opacity {{ dur }}ms {{ ease }};max-height:{{ runHeaderMax }};opacity:{{ runHeaderOp }}">
+              <div style="display:flex;align-items:center;padding:14px 18px 14px 56px;height:28px;box-sizing:content-box">
+                <div style="font-size:15px;font-weight:600">{{ runHeaderText }}</div>
+              </div>
+              <div style="height:1px;background:#EEF0F4"></div>
+            </div>
+
+            <div style="overflow:hidden;transition:max-height {{ dur }}ms {{ ease }},opacity {{ dur }}ms {{ ease }};max-height:{{ stepperMax }};opacity:{{ stepperOp }}">
+              <div style="display:flex;align-items:flex-start;padding:16px 20px 14px">
+                <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                  <div style="width:22px;height:22px;border-radius:50%;background:#2A5BD7;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                  <div style="font-size:13px">匹配</div>
+                </div>
+                <div style="flex:1;height:2px;background:#2A5BD7;margin-top:10px"></div>
+                <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                  <div style="width:22px;height:22px;border-radius:50%;background:#2A5BD7;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                  <div style="font-size:13px">约好</div>
+                </div>
+                <div style="flex:1;height:2px;background:#2A5BD7;margin-top:10px"></div>
+                <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                  <div style="width:22px;height:22px;border-radius:50%;background:#2A5BD7;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:5px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div></div>
+                  <div style="font-size:13px">出发</div>
+                </div>
+                <div style="flex:1;height:2px;background:#2A5BD7;margin-top:10px"></div>
+                <div style="min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px">
+                  <div style="width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid #2A5BD7;box-sizing:border-box;display:flex;align-items:center;justify-content:center"><div style="width:9px;height:9px;border-radius:50%;background:#2A5BD7"></div></div>
+                  <div style="font-size:13px;font-weight:600">汇合</div>
+                </div>
+              </div>
+              <div style="height:1px;background:#EEF0F4"></div>
+            </div>
+
+            <div style="overflow:hidden;transition:max-height {{ dur }}ms {{ ease }},opacity {{ dur }}ms {{ ease }};max-height:{{ heroMax }};opacity:{{ heroOp }}">
+              <div style="padding:8px 20px 10px;display:flex;flex-direction:column;align-items:center">
+                <div style="width:124px;height:124px"></div>
+                <div style="margin-top:10px;font-size:34px;font-weight:600;text-align:center">{{ heroTitle }}</div>
+                <div style="margin-top:6px;font-size:16px;color:#5E6679;text-align:center">{{ heroSubtitle }}</div>
+              </div>
+            </div>
+
+            <div style="overflow:hidden;transition:max-height {{ dur }}ms {{ ease }},opacity {{ dur }}ms {{ ease }};max-height:{{ metricsMax }};opacity:{{ metricsOp }}">
+              <div style="padding:36px 24px 30px;text-align:center">
+                <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px;transform-origin:center;transition:transform {{ dur }}ms {{ ease }};transform:scale({{ mileScale }})">{{ mileText }}</div>
+                <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+                <div style="display:flex;margin-top:36px">
+                  <div style="flex:1">
+                    <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">{{ durText }}</div>
+                    <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+                  </div>
+                  <div style="width:1px;background:#EEF0F4"></div>
+                  <div style="flex:1">
+                    <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">{{ paceText }}</div>
+                    <div style="margin-top:6px;font-size:15px;color:#5E6679">{{ paceLabel }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="overflow:hidden;transition:max-height {{ dur }}ms {{ ease }},opacity {{ dur }}ms {{ ease }};max-height:{{ partnerRowMax }};opacity:{{ partnerRowOp }}">
+              <div style="height:1px;background:#EEF0F4"></div>
+              <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+                <div style="font-size:15px;color:#5E6679">陪跑员</div><div style="flex:1"></div>
+                <div style="font-size:16px;font-weight:500">张伟</div>
+              </div>
+            </div>
+
+            <div style="position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-variant-numeric:tabular-nums;transition:top {{ dur }}ms {{ ease }},left {{ dur }}ms {{ ease }},width {{ dur }}ms {{ ease }},height {{ dur }}ms {{ ease }},font-size {{ dur }}ms {{ ease }},background-color 200ms ease,transform 260ms cubic-bezier(.34,1.56,.64,1);top:{{ avTop }};left:{{ avLeft }};width:{{ avSize }};height:{{ avSize }};font-size:{{ avFont }};background:{{ avBg }};color:{{ avFg }};transform:scale({{ avScale }})">
+              {{ avText }}
+              <div style="position:absolute;right:0;bottom:0;width:32px;height:32px;border-radius:50%;background:#1F8A4C;border:3px solid #fff;box-sizing:border-box;display:flex;align-items:center;justify-content:center;transition:opacity 200ms ease;opacity:{{ badgeOp }}">
+                <div style="width:11px;height:6px;border-left:2.5px solid #fff;border-bottom:2.5px solid #fff;transform:rotate(-45deg) translate(1px,-1px)"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="flex:none;overflow:hidden;transition:max-height {{ dur }}ms {{ ease }},opacity {{ dur }}ms {{ ease }},transform {{ dur }}ms {{ ease }};max-height:{{ infoMax }};opacity:{{ infoOp }};transform:translateY({{ infoY }})">
+            <div style="flex:none;margin:12px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+              <div style="display:flex;align-items:center;padding:0 18px;min-height:74px">
+                <div style="font-size:15px;color:#5E6679">陪跑员</div><div style="flex:1"></div>
+                <div style="text-align:right"><div style="font-size:16px;font-weight:600">张伟</div><div style="margin-top:3px;font-size:13px;color:#5E6679;font-variant-numeric:tabular-nums">陪跑 32 次，引导绳经验 2 年</div></div>
+              </div>
+              <div style="height:1px;background:#EEF0F4"></div>
+              <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+                <div style="font-size:15px;color:#5E6679">时间</div><div style="flex:1"></div>
+                <div style="font-size:16px;font-weight:500;font-variant-numeric:tabular-nums">今天 7:00</div>
+              </div>
+              <div style="height:1px;background:#EEF0F4"></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:0 18px;min-height:64px">
+                <div style="font-size:15px;color:#5E6679">集合地点</div><div style="flex:1"></div>
+                <div style="font-size:16px;font-weight:500">深圳湾公园 3 号入口</div>
+                <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+              </div>
+              <div style="height:1px;background:#EEF0F4"></div>
+              <div style="display:flex;align-items:center;gap:10px;padding:0 18px;min-height:64px">
+                <div style="flex:1;font-size:16px;font-weight:500">遇到问题</div>
+                <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+            <button onClick="{{ onPrimary }}" aria-label="{{ primaryLabel }}" style="width:100%;border:0;cursor:pointer;min-height:64px;border-radius:17px;display:flex;align-items:center;justify-content:center;gap:10px;transition:background-color 260ms ease;background:{{ primaryBg }}">
+              <sc-if value="{{ iconRun }}" hint-placeholder-val="{{ false }}">
+                <svg width="20" height="20" viewBox="0 0 24 24" stroke="#111A2E" stroke-width="2" stroke-linecap="round" fill="none"><circle cx="15" cy="4.6" r="2.3" fill="#111A2E" stroke="none"></circle><path d="M13.2 9.2L9.6 11.6l1.9 3.1.4 4.9"></path><path d="M11.6 14.7L7 19.4"></path><path d="M15.2 11.6l3 1.5"></path></svg>
+              </sc-if>
+              <sc-if value="{{ iconSpeak }}" hint-placeholder-val="{{ false }}">
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#111A2E" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z" fill="#111A2E"></path><path d="M16 9.6a4 4 0 010 4.8"></path><path d="M18.6 7.1a7.5 7.5 0 010 9.8"></path></svg>
+              </sc-if>
+              <span style="font-size:18px;font-weight:600;color:#111A2E">{{ primaryText }}</span>
+            </button>
+            <button aria-label="求助与安全，打开求助选项" style="width:100%;margin-top:12px;cursor:pointer;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+              <span style="font-size:18px;font-weight:600;color:#B42318">求助与安全</span>
+            </button>
+            <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ onHome }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;display:flex;flex-direction:column;min-height:0">
+          <div style="padding:14px 22px 0;font-size:34px;font-weight:600">你好，李明</div>
+          <div style="margin:22px 16px 0;background:#fff;border-radius:26px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);padding:22px">
+            <div style="font-size:22px;font-weight:600;line-height:1.35">这次和张伟跑得怎么样？</div>
+            <div style="margin-top:18px;display:flex;flex-direction:column;gap:12px">
+              <button onClick="{{ pickGood }}" style="width:100%;text-align:left;cursor:pointer;min-height:64px;border-radius:17px;background:{{ goodBg }};border:1.5px solid {{ goodBorder }};box-sizing:border-box;padding:0 20px;font-size:18px;font-weight:600;color:#111A2E">很好</button>
+              <button onClick="{{ pickOkay }}" style="width:100%;text-align:left;cursor:pointer;min-height:64px;border-radius:17px;background:{{ okayBg }};border:1.5px solid {{ okayBorder }};box-sizing:border-box;padding:0 20px;font-size:18px;font-weight:600;color:#111A2E">一般</button>
+              <button onClick="{{ pickBad }}" style="width:100%;text-align:left;cursor:pointer;min-height:64px;border-radius:17px;background:{{ badBg }};border:1.5px solid {{ badBorder }};box-sizing:border-box;padding:0 20px;font-size:18px;font-weight:600;color:#111A2E">有问题</button>
+            </div>
+            <div style="margin-top:16px;font-size:13px;color:#5E6679;line-height:1.6">{{ ratingNote }}</div>
+          </div>
+          <div style="margin:16px 16px 0;background:#DDE8FC;border-radius:26px;padding:22px 20px;display:flex;align-items:center;gap:16px">
+            <div style="width:56px;height:56px;flex:none;border-radius:50%;background:#2A5BD7;position:relative">
+              <div style="position:absolute;left:50%;top:50%;width:22px;height:2.5px;background:#fff;transform:translate(-50%,-50%)"></div>
+              <div style="position:absolute;left:50%;top:50%;width:2.5px;height:22px;background:#fff;transform:translate(-50%,-50%)"></div>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:24px;font-weight:600;color:#15224A">预约新的陪跑</div>
+              <div style="margin-top:4px;font-size:15px;color:#3D4F80;line-height:1.5">选好时间和地点，系统帮你找陪跑员</div>
+            </div>
+          </div>
+          <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 0 0;display:flex">
+            <div style="flex:1;text-align:center">
+              <div style="width:24px;height:20px;margin:0 auto;border:2px solid #15224A;border-radius:3px"></div>
+              <div style="margin-top:5px;font-size:12px;font-weight:600;color:#15224A">首页</div>
+            </div>
+            <div style="flex:1;text-align:center">
+              <div style="width:24px;height:20px;margin:0 auto;display:flex;flex-direction:column;justify-content:space-between;padding:2px 0;box-sizing:border-box"><div style="height:2px;background:#6B7385"></div><div style="height:2px;background:#6B7385"></div><div style="height:2px;background:#6B7385"></div></div>
+              <div style="margin-top:5px;font-size:12px;color:#6B7385">记录</div>
+            </div>
+            <div style="flex:1;text-align:center">
+              <div style="width:24px;height:20px;margin:0 auto;display:flex;align-items:flex-end;justify-content:center"><div style="width:18px;height:9px;border:2px solid #6B7385;border-bottom:0;border-radius:9px 9px 0 0"></div></div>
+              <div style="margin-top:5px;font-size:12px;color:#6B7385">我的</div>
+            </div>
+          </div>
+          <div style="flex:none;height:18px;background:#fff;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+        </div>
+        </sc-if>
+      </div>
+    </div>
+    </div>
+
+    <div style="flex:none;width:414px">
+    <div style="margin-bottom:14px;font-size:13px;font-weight:600;color:#5E6679">陪跑员端 · 张伟的手机</div>
+    <div style="width:414px;padding:12px;box-sizing:border-box;background:#0B0D10;border-radius:56px;box-shadow:0 18px 40px rgba(17,26,46,.16)">
+      <div style="width:390px;height:844px;background:#F4F5F8;border-radius:44px;overflow:hidden;display:flex;flex-direction:column">
+        <div style="flex:none;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px">
+          <div style="font-size:15px;font-weight:600;font-variant-numeric:tabular-nums">9:41</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="display:flex;align-items:flex-end;gap:2px"><div style="width:3px;height:4px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:6px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:8px;background:#111A2E;border-radius:1px"></div><div style="width:3px;height:10px;background:#111A2E;border-radius:1px"></div></div>
+            <div style="width:24px;height:12px;border:1.5px solid #111A2E;border-radius:3px;padding:1.5px;box-sizing:border-box;display:flex"><div style="flex:1;background:#111A2E;border-radius:1px"></div></div>
+          </div>
+        </div>
+        <div style="flex:none;height:44px;display:flex;align-items:center;justify-content:center">
+          <div style="font-size:17px;font-weight:600">陪跑订单</div>
+        </div>
+
+        <sc-if value="{{ vGpsBanner }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:none;margin:4px 16px 0;background:#DDE8FC;border-radius:17px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <div style="width:26px;height:26px;flex:none;border-radius:50%;background:#2A5BD7;color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center">!</div>
+          <div style="flex:1">
+            <div style="font-size:17px;font-weight:600;color:#15224A">定位信号弱</div>
+            <div style="margin-top:3px;font-size:13px;color:#3D4F80;line-height:1.5">里程和配速可能不准</div>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ vScatterBanner }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:none;margin:4px 16px 0;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;border-radius:17px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+          <div style="width:26px;height:26px;flex:none;border-radius:50%;background:#B42318;color:#fff;font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center">!</div>
+          <div style="flex:1">
+            <div style="font-size:17px;font-weight:600;color:#B42318">疑似和李明走散</div>
+            <div style="margin-top:3px;font-size:13px;color:#B42318;line-height:1.5">{{ vScatterBody }}</div>
+          </div>
+        </div>
+        </sc-if>
+
+        <div style="flex:none;margin:4px 16px 0;background:#fff;border-radius:24px;box-shadow:0 1px 2px rgba(17,26,46,.04),0 4px 16px rgba(17,26,46,.04);overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:14px 18px">
+            <div style="width:28px;height:28px;border-radius:50%;background:#DCE6FB;color:#2A5BD7;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">李</div>
+            <div style="font-size:15px;font-weight:600">{{ vHeaderText }}</div>
+          </div>
+          <div style="height:1px;background:#EEF0F4"></div>
+          <sc-if value="{{ vPreRun }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:8px 20px 16px;display:flex;flex-direction:column;align-items:center">
+            <div style="width:124px;height:124px;display:flex;align-items:center;justify-content:center">
+              <div style="width:92px;height:92px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600;font-variant-numeric:tabular-nums;transition:background-color 200ms ease;background:{{ vPreAvatarBg }};color:{{ vPreAvatarFg }};font-size:{{ vPreAvatarFont }}">{{ vPreAvatarText }}</div>
+            </div>
+            <div style="margin-top:10px;font-size:34px;font-weight:600;text-align:center">{{ vPreTitle }}</div>
+            <div style="margin-top:6px;font-size:16px;color:#5E6679;text-align:center">{{ vPreSubtitle }}</div>
+          </div>
+          </sc-if>
+          <sc-if value="{{ vMetrics }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:34px 24px 30px;text-align:center">
+            <div style="font-size:82px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-2px">{{ mileText }}</div>
+            <div style="margin-top:10px;font-size:16px;color:#5E6679">里程（公里）</div>
+            <div style="display:flex;margin-top:32px">
+              <div style="flex:1">
+                <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">{{ durText }}</div>
+                <div style="margin-top:6px;font-size:15px;color:#5E6679">时长</div>
+              </div>
+              <div style="width:1px;background:#EEF0F4"></div>
+              <div style="flex:1">
+                <div style="font-size:36px;font-weight:600;font-variant-numeric:tabular-nums">{{ paceText }}</div>
+                <div style="margin-top:6px;font-size:15px;color:#5E6679">{{ paceLabel }}</div>
+              </div>
+            </div>
+          </div>
+          </sc-if>
+          <sc-if value="{{ vBattery }}" hint-placeholder-val="{{ false }}">
+          <div style="height:1px;background:#EEF0F4"></div>
+          <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+            <div style="font-size:15px;color:#5E6679">李明的手机电量</div><div style="flex:1"></div>
+            <div style="font-size:16px;font-weight:500;font-variant-numeric:tabular-nums">{{ vBatteryText }}</div>
+          </div>
+          </sc-if>
+          <sc-if value="{{ vDone }}" hint-placeholder-val="{{ false }}">
+          <div style="height:1px;background:#EEF0F4"></div>
+          <div style="display:flex;align-items:center;padding:0 18px;min-height:52px">
+            <div style="font-size:15px;color:#5E6679">本次志愿服务时长</div><div style="flex:1"></div>
+            <div style="font-size:16px;font-weight:500;font-variant-numeric:tabular-nums">{{ vServiceText }}</div>
+          </div>
+          <div style="height:1px;background:#EEF0F4"></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:0 18px;min-height:64px">
+            <div style="flex:1;font-size:16px;font-weight:500">上报问题</div>
+            <div style="width:8px;height:8px;border-right:2px solid #5E6679;border-top:2px solid #5E6679;transform:rotate(45deg)"></div>
+          </div>
+          </sc-if>
+        </div>
+
+        <div style="margin-top:auto;flex:none;background:#fff;border-top:1px solid #EEF0F4;padding:10px 16px 0">
+          <sc-if value="{{ vLongPress }}" hint-placeholder-val="{{ true }}">
+          <button onMouseDown="{{ vPressStart }}" onMouseUp="{{ vPressEnd }}" onMouseLeave="{{ vPressEnd }}" onTouchStart="{{ vPressStart }}" onTouchEnd="{{ vPressEnd }}" aria-label="结束陪跑，长按 2 秒" style="width:100%;border:0;cursor:pointer;min-height:64px;border-radius:17px;background:#F6C343;display:flex;align-items:center;justify-content:center;gap:12px">
+            <svg width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" fill="none" stroke="rgba(17,26,46,.22)" stroke-width="3"></circle><circle cx="20" cy="20" r="17" fill="none" stroke="#111A2E" stroke-width="3" stroke-linecap="round" stroke-dasharray="106.8" stroke-dashoffset="{{ ringOffset }}" transform="rotate(-90 20 20)"></circle></svg>
+            <div style="text-align:left">
+              <div style="font-size:18px;font-weight:600;color:#111A2E">结束陪跑</div>
+              <div style="margin-top:1px;font-size:12.5px;color:#111A2E;opacity:.75">{{ vPressCaption }}</div>
+            </div>
+          </button>
+          </sc-if>
+          <sc-if value="{{ vShowTap }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ vTapAction }}" aria-label="{{ vTapLabel }}" style="width:100%;border:0;cursor:pointer;min-height:64px;border-radius:17px;display:flex;align-items:center;justify-content:center;transition:background-color 260ms ease;background:{{ vTapBg }}">
+            <span style="font-size:18px;font-weight:600;color:#111A2E">{{ vTapLabel }}</span>
+          </button>
+          </sc-if>
+          <button aria-label="求助与安全，打开求助选项" style="width:100%;margin-top:12px;cursor:pointer;min-height:64px;border-radius:17px;background:#FDECEC;border:1.5px solid #C25A4E;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"></path></svg>
+            <span style="font-size:18px;font-weight:600;color:#B42318">求助与安全</span>
+          </button>
+          <div style="height:18px;display:flex;align-items:center;justify-content:center"><div style="width:140px;height:5px;border-radius:3px;background:#111A2E"></div></div>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <div style="flex:none;width:420px">
+      <div style="background:#fff;border-radius:20px;border:1px solid #EEF0F4;padding:24px">
+        <div style="font-size:16px;font-weight:600">调试面板</div>
+        <div style="margin-top:6px;font-size:12.5px;line-height:1.7;color:#5E6679">手机框外，不属于产品界面。语音用浏览器合成（zh-CN），请先点一次页面允许发声。</div>
+
+        <div style="margin-top:20px;display:flex;flex-direction:column;gap:10px">
+          <button onClick="{{ simKm }}" style="cursor:pointer;text-align:left;padding:14px 16px;border-radius:12px;border:1.5px solid #D5DAE3;background:#fff;font-size:14px;font-weight:600;color:#111A2E">模拟到 1 公里</button>
+          <button onClick="{{ simGps }}" style="cursor:pointer;text-align:left;padding:14px 16px;border-radius:12px;border:1.5px solid {{ gpsBorder }};background:{{ gpsBg }};font-size:14px;font-weight:600;color:#111A2E">{{ gpsLabel }}</button>
+          <button onClick="{{ simEnd }}" style="cursor:pointer;text-align:left;padding:14px 16px;border-radius:12px;border:1.5px solid #D5DAE3;background:#fff;font-size:14px;font-weight:600;color:#111A2E">模拟陪跑员结束</button>
+          <button onClick="{{ simScatter }}" style="cursor:pointer;text-align:left;padding:14px 16px;border-radius:12px;border:1.5px solid {{ scatterBorder }};background:{{ scatterBg }};font-size:14px;font-weight:600;color:#111A2E">{{ scatterLabel }}</button>
+          <button onClick="{{ simOffline }}" style="cursor:pointer;text-align:left;padding:14px 16px;border-radius:12px;border:1.5px solid {{ offlineBorder }};background:{{ offlineBg }};font-size:14px;font-weight:600;color:#111A2E">{{ offlineLabel }}</button>
+          <div style="display:flex;gap:10px">
+            <button onClick="{{ simBattery20 }}" style="flex:1;cursor:pointer;text-align:left;padding:14px 16px;border-radius:12px;border:1.5px solid #D5DAE3;background:#fff;font-size:14px;font-weight:600;color:#111A2E">模拟电量 20%</button>
+            <button onClick="{{ simBattery10 }}" style="flex:1;cursor:pointer;text-align:left;padding:14px 16px;border-radius:12px;border:1.5px solid #D5DAE3;background:#fff;font-size:14px;font-weight:600;color:#111A2E">模拟电量 10%</button>
+          </div>
+          <button onClick="{{ toggleReduce }}" style="cursor:pointer;text-align:left;padding:14px 16px;border-radius:12px;border:1.5px solid {{ reduceBorder }};background:{{ reduceBg }};font-size:14px;font-weight:600;color:#111A2E">{{ reduceLabel }}</button>
+        </div>
+
+        <div style="margin-top:22px;padding-top:18px;border-top:1px solid #EEF0F4">
+          <div style="display:flex;align-items:baseline;justify-content:space-between">
+            <div style="font-size:13px;font-weight:600">播报队列</div>
+            <div style="font-size:11.5px;color:#8C93A3">紧急 › 警示 › 对方操作 › 按需 › 每公里</div>
+          </div>
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px;min-height:120px">
+            <sc-for list="{{ logs }}" as="row" hint-placeholder-count="2">
+              <div style="display:flex;gap:10px;align-items:flex-start">
+                <div style="flex:none;font-size:11px;font-weight:600;color:#fff;padding:3px 7px;border-radius:5px;background:{{ row.color }}">{{ row.tag }}</div>
+                <div style="flex:1;font-size:12.5px;line-height:1.6;color:#111A2E">{{ row.text }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="margin-top:18px;padding-top:16px;border-top:1px solid #EEF0F4;font-size:12px;line-height:1.85;color:#5E6679">
+常规播报前 0.3 秒前置音，电量走注意音两声，走散与离线走警示音三连音 + 强震 · 一次只播一条，警示插到所有常规播报之前 · 按需播报打断排队中的每公里播报 · 每公里播报排队超过 10 秒丢弃 · GPS 弱只在按需播报末尾追加，不主动播报 · 走散先只提醒陪跑员，30 秒无人确认才提醒跑者（原型按倍速折算）
+        </div>
+        <div style="margin-top:14px">
+          <button onClick="{{ reset }}" style="cursor:pointer;background:none;border:0;padding:0;font-size:12.5px;font-weight:600;color:#2A5BD7">重新开始（调试用）</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;story&quot;,&quot;proto&quot;],&quot;default&quot;:&quot;story&quot;,&quot;tsType&quot;:&quot;'story' | 'proto'&quot;,&quot;section&quot;:&quot;原型&quot;},&quot;reduceMotion&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;原型&quot;},&quot;timeScale&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:8,&quot;min&quot;:1,&quot;max&quot;:16,&quot;step&quot;:1,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;原型&quot;}}">
+class Component extends DCLogic {
+  state = {
+    view: 'story',
+    phase: 'meet',
+    count: 0,
+    avScale: 1,
+    dist: 0,
+    el: 0,
+    gpsWeak: false,
+    banner: null,
+    vBanner: null,
+    battery: null,
+    press: 0,
+    reduce: false,
+    logs: [{ tag: '就绪', text: '点手机上的黄色「开始跑步」，倒计时与播报会真实发声。', color: '#8C93A3' }],
+    rating: null
+  };
+
+  componentDidMount() {
+    this.queue = [];
+    this.lastKm = 0;
+    this.busy = false;
+    this.current = null;
+    this.timers = [];
+    if (this.props.defaultView === 'proto') this.setState({ view: 'proto' });
+    if (this.props.reduceMotion) this.setState({ reduce: true });
+    this.timer = setInterval(() => this.tick(), 100);
+  }
+
+  componentWillUnmount() {
+    clearInterval(this.timer);
+    (this.timers || []).forEach(clearTimeout);
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+  }
+
+  get scale() { return Number(this.props.timeScale) || 8; }
+
+  later(fn, ms) {
+    this.timers = this.timers || [];
+    this.timers.push(setTimeout(fn, ms));
+  }
+
+  tick() {
+    if (this.state.phase !== 'running') return;
+    const dt = 0.1 * this.scale;
+    const el = this.state.el + dt;
+    const dist = this.state.dist + (dt / 390) * 1000;
+    this.setState({ el, dist });
+    const km = Math.floor(dist / 1000);
+    if (km > this.lastKm) {
+      this.lastKm = km;
+      this.enqueue({ text: km + ' 公里，这一公里 6 分 25', pri: 1, kind: 'km', tone: true, tag: '每公里' });
+    }
+  }
+
+  /** 前置音 单声 0.3 秒 / 注意音 两声短音 / 警示音 三连音 + 强震 */
+  tone(kind) {
+    const spec = kind === 'notice' ? { freq: 660, beeps: [0, 0.18], len: 0.12, total: 380 }
+      : kind === 'alert' ? { freq: 990, beeps: [0, 0.16, 0.32], len: 0.11, total: 560 }
+      : { freq: 880, beeps: [0], len: 0.3, total: 330 };
+    if (kind === 'alert' && navigator.vibrate) { try { navigator.vibrate([180, 70, 180, 70, 220]); } catch (e) {} }
+    return new Promise((res) => {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        this.ac = this.ac || new AC();
+        if (this.ac.state === 'suspended') this.ac.resume();
+        const base = this.ac.currentTime;
+        spec.beeps.forEach((offset) => {
+          const o = this.ac.createOscillator(), g = this.ac.createGain();
+          o.type = 'sine';
+          o.frequency.value = spec.freq;
+          o.connect(g); g.connect(this.ac.destination);
+          const t = base + offset;
+          g.gain.setValueAtTime(0, t);
+          g.gain.linearRampToValueAtTime(0.16, t + 0.03);
+          g.gain.linearRampToValueAtTime(0, t + spec.len);
+          o.start(t); o.stop(t + spec.len + 0.02);
+        });
+      } catch (e) {}
+      setTimeout(res, spec.total);
+    });
+  }
+
+  say(text) {
+    return new Promise((res) => {
+      let done = false;
+      const fin = () => { if (!done) { done = true; res(); } };
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'zh-CN';
+        u.rate = 1;
+        u.onend = fin;
+        u.onerror = fin;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(u);
+      } catch (e) {}
+      setTimeout(fin, 900 + text.length * 190);
+    });
+  }
+
+  log(tag, text, color) {
+    const row = { tag, text, color: color || '#5E6679' };
+    this.setState((s) => ({ logs: [row].concat(s.logs).slice(0, 7) }));
+  }
+
+  enqueue(item) {
+    item.at = Date.now();
+    if (item.kind === 'demand') {
+      const dropped = this.queue.filter((q) => q.kind === 'km').length;
+      this.queue = this.queue.filter((q) => q.kind !== 'km');
+      if (dropped) this.log('打断', '按需播报打断了排队中的每公里播报（' + dropped + ' 条）', '#B42318');
+      if (this.current && this.current.kind === 'km') {
+        try { window.speechSynthesis.cancel(); } catch (e) {}
+      }
+    }
+    this.queue.push(item);
+    this.queue.sort((a, b) => (b.pri - a.pri) || (a.at - b.at));
+    this.pump();
+  }
+
+  async pump() {
+    if (this.busy) return;
+    const it = this.queue.shift();
+    if (!it) return;
+    if (it.kind === 'km' && Date.now() - it.at > 10000) {
+      this.log('丢弃', '每公里播报排队超过 10 秒，已丢弃：' + it.text, '#8C93A3');
+      return this.pump();
+    }
+    this.busy = true;
+    this.current = it;
+    const toneKind = it.tone === true ? 'pre' : it.tone;
+    const tonePrefix = toneKind === 'pre' ? '前置音 0.3 秒 → '
+      : toneKind === 'notice' ? '注意音 两声 → '
+      : toneKind === 'alert' ? '警示音 三连音 + 强震 → ' : '';
+    this.log(it.tag, tonePrefix + it.text + (it.haptic ? '（强震）' : ''), it.color || '#2A5BD7');
+    if (it.haptic && navigator.vibrate) { try { navigator.vibrate(220); } catch (e) {} }
+    if (toneKind) await this.tone(toneKind);
+    await this.say(it.text);
+    this.busy = false;
+    this.current = null;
+    this.pump();
+  }
+
+  /** 走散：先只在陪跑员端出横幅，不打扰跑者。30 秒无人确认才升级为跑者端警示。 */
+  simScatter() {
+    if (this.state.phase !== 'running') { this.log('忽略', '只有跑步中才有走散判定', '#8C93A3'); return; }
+    if (this.state.vBanner === 'scattered') return;
+    this.setState({ vBanner: 'scattered' });
+    if (navigator.vibrate) { try { navigator.vibrate([120, 80, 120]); } catch (e) {} }
+    const wait = Math.round(30000 / this.scale);
+    this.log('陪跑员端', '疑似走散横幅 + 震动，不播报。' + Math.round(wait / 1000) + ' 秒后（原型按倍速折算 30 秒）无人确认才提醒跑者', '#8C93A3');
+    this.later(() => {
+      if (this.state.vBanner !== 'scattered') return;
+      this.setState({ banner: 'scattered' });
+      this.enqueue({ text: '张伟是否在你身边？', pri: 4, kind: 'alert', tone: 'alert', tag: '警示', color: '#B42318' });
+    }, wait);
+  }
+
+  /** 两端任意一侧按下「我们在一起」都解除。 */
+  confirmTogether() {
+    const hadRunnerAlert = this.state.banner === 'scattered';
+    this.setState({ banner: null, vBanner: null });
+    if (hadRunnerAlert) {
+      this.enqueue({ text: '已确认和张伟在一起', pri: 3, kind: 'peer', tag: '对方操作' });
+    } else {
+      this.log('陪跑员端', '30 秒内确认，跑者那条警示没有发生', '#8C93A3');
+    }
+  }
+
+  simOffline() {
+    if (this.state.phase !== 'running') { this.log('忽略', '只有跑步中才判陪跑员离线', '#8C93A3'); return; }
+    if (this.state.banner === 'offline') return;
+    this.setState({ banner: 'offline', vBanner: null });
+    this.enqueue({
+      text: '张伟的手机已离线，你可以结束跑步或求助',
+      pri: 4, kind: 'alert', tone: 'alert', tag: '警示', color: '#B42318'
+    });
+  }
+
+  simBattery(level) {
+    if (this.state.phase !== 'running') { this.log('忽略', '电量提醒只在跑步中发生', '#8C93A3'); return; }
+    this.setState({ battery: level });
+    this.enqueue({
+      text: level === 20 ? '手机电量 20%' : '手机电量 10%，可以请张伟结束本次陪跑',
+      pri: 4, kind: 'alert', tone: 'notice', tag: '警示', color: '#B42318'
+    });
+  }
+
+  /** 结束陪跑：长按 2 秒，松手即取消。 */
+  vPressStart() {
+    if (this.state.phase !== 'running' || this.pressTimer) return;
+    const started = Date.now();
+    this.pressTimer = setInterval(() => {
+      const ratio = Math.min(1, (Date.now() - started) / 2000);
+      this.setState({ press: ratio });
+      if (ratio >= 1) {
+        clearInterval(this.pressTimer);
+        this.pressTimer = null;
+        this.setState({ press: 0 });
+        this.simEnd();
+      } else if (navigator.vibrate && Math.round(ratio * 10) % 3 === 0) {
+        try { navigator.vibrate(12); } catch (e) {}
+      }
+    }, 50);
+  }
+
+  vPressEnd() {
+    if (!this.pressTimer) return;
+    clearInterval(this.pressTimer);
+    this.pressTimer = null;
+    if (this.state.press > 0.02) this.log('取消', '松手即取消，环形归零，不产生任何播报', '#8C93A3');
+    this.setState({ press: 0 });
+  }
+
+  bounce() {
+    this.setState({ avScale: 1.25 });
+    this.later(() => this.setState({ avScale: 1 }), 40);
+  }
+
+  startRun() {
+    if (this.state.phase !== 'meet') return;
+    this.setState({ phase: 'count', count: 3 });
+    this.enqueue({ text: '3', pri: 3, kind: 'peer', tag: '对方操作', haptic: true });
+    this.bounce();
+    [2, 1].forEach((n, i) => {
+      this.later(() => {
+        this.setState({ count: n });
+        this.enqueue({ text: String(n), pri: 3, kind: 'peer', tag: '对方操作', haptic: true });
+        this.bounce();
+      }, 1000 * (i + 1));
+    });
+    this.later(() => {
+      this.lastKm = 0;
+      this.setState({ phase: 'running', dist: 0, el: 0, avScale: 1 });
+      this.enqueue({ text: '开始跑步', pri: 3, kind: 'peer', tag: '对方操作', haptic: true });
+    }, 3000);
+  }
+
+  announceNow() {
+    const km = this.state.dist / 1000;
+    const mins = Math.max(1, Math.round(this.state.el / 60));
+    const sec = km > 0.02 ? Math.round(this.state.el / km) : 390;
+    let text = km.toFixed(1) + ' 公里，用时 ' + mins + ' 分钟，配速 '
+      + Math.floor(sec / 60) + ' 分 ' + String(sec % 60).padStart(2, '0');
+    if (this.state.gpsWeak) text += '。定位信号弱，距离可能不准';
+    this.enqueue({ text, pri: 2, kind: 'demand', tone: true, tag: '按需' });
+  }
+
+  simKm() {
+    if (this.state.phase !== 'running') { this.log('忽略', '先点「开始跑步」，进入跑步中后才有里程', '#8C93A3'); return; }
+    const next = Math.floor(this.state.dist / 1000) + 1;
+    this.lastKm = next;
+    this.setState({ dist: next * 1000, el: next * 385 });
+    this.enqueue({ text: next + ' 公里，这一公里 6 分 25', pri: 1, kind: 'km', tone: true, tag: '每公里' });
+  }
+
+  simGps() {
+    const on = !this.state.gpsWeak;
+    this.setState({ gpsWeak: on });
+    this.log('GPS', on ? '定位信号弱：此后按需播报末尾追加「定位信号弱，距离可能不准」，不主动播报'
+                       : '定位恢复：按规则不播报恢复', '#8C93A3');
+  }
+
+  simEnd() {
+    if (this.state.phase !== 'running') { this.log('忽略', '只有跑步中才能被陪跑员结束', '#8C93A3'); return; }
+    const km = (this.state.dist / 1000).toFixed(1);
+    this.enqueue({ text: '张伟结束了本次陪跑，共跑 ' + km + ' 公里', pri: 3, kind: 'peer', tag: '对方操作', haptic: true });
+    this.setState({ phase: 'done', banner: null, vBanner: null });
+    this.log('变形', '原地变形为已完成 —— 结束那句已说过，变形时不再播报', '#8C93A3');
+  }
+
+  finish() {
+    this.setState({ phase: 'rating' });
+    this.log('页面', '返回首页，评价卡片淡入；不播报、不推送', '#8C93A3');
+  }
+
+  pick(v) {
+    this.setState({ rating: v });
+    const follow = v === '很好' ? '下次还想约张伟吗？'
+      : v === '有问题' ? '可以语音说明，直接转人工客服。' : '已记录，感谢反馈。';
+    this.enqueue({ text: '已选择' + v + '。' + follow, pri: 2, kind: 'demand', tag: '按需' });
+  }
+
+  reset() {
+    this.queue = [];
+    this.lastKm = 0;
+    this.busy = false;
+    this.current = null;
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    if (this.pressTimer) { clearInterval(this.pressTimer); this.pressTimer = null; }
+    this.setState({
+      phase: 'meet', count: 0, dist: 0, el: 0, rating: null, avScale: 1,
+      banner: null, vBanner: null, battery: null, press: 0, gpsWeak: false,
+      logs: [{ tag: '就绪', text: '已重置到「汇合」。', color: '#8C93A3' }]
+    });
+  }
+
+  renderVals() {
+    const s = this.state;
+    const p = s.phase;
+    const meetish = p === 'meet' || p === 'count';
+    const runish = p === 'running' || p === 'done';
+    const reduce = s.reduce;
+    const dur = reduce ? 300 : 400;
+    const ease = reduce ? 'ease' : 'cubic-bezier(.22,.61,.36,1)';
+
+    const km = s.dist / 1000;
+    const sec = km > 0.02 ? Math.round(s.el / km) : 0;
+    const mm = String(Math.floor(s.el / 60)).padStart(2, '0');
+    const ss = String(Math.floor(s.el % 60)).padStart(2, '0');
+
+    const banner = s.banner;
+    const primary = p === 'meet' ? '开始跑步'
+      : p === 'count' ? '准备中'
+      : p === 'running'
+        ? (banner === 'scattered' ? '我们在一起' : banner === 'offline' ? '结束跑步' : '播报当前数据')
+        : '完成';
+
+    return {
+      isStory: s.view === 'story',
+      isProto: s.view === 'proto',
+      showStory: () => this.setState({ view: 'story' }),
+      showProto: () => this.setState({ view: 'proto' }),
+      storyBtnBg: s.view === 'story' ? '#111A2E' : '#E4E8EF',
+      storyBtnFg: s.view === 'story' ? '#fff' : '#5E6679',
+      protoBtnBg: s.view === 'proto' ? '#111A2E' : '#E4E8EF',
+      protoBtnFg: s.view === 'proto' ? '#fff' : '#5E6679',
+
+      onOrderPage: p !== 'rating',
+      onHome: p === 'rating',
+
+      dur: dur,
+      ease: ease,
+      backOpacity: meetish ? '1' : '0',
+
+      runHeaderMax: runish ? '58px' : '0px',
+      runHeaderOp: runish ? '1' : '0',
+      runHeaderText: p === 'done' ? '已完成 · 张伟' : '陪跑中 · 张伟',
+
+      stepperMax: meetish ? '90px' : '0px',
+      stepperOp: meetish ? '1' : '0',
+
+      heroMax: meetish ? '260px' : '0px',
+      heroOp: meetish ? '1' : '0',
+      heroTitle: p === 'count' ? '准备开始' : '张伟已到达',
+      heroSubtitle: p === 'count' ? '握好引导绳' : '见面后，轻点下方开始跑步',
+
+      metricsMax: runish ? '440px' : '0px',
+      metricsOp: runish ? '1' : '0',
+      mileScale: runish ? '1' : '0.8',
+      mileText: km.toFixed(2),
+      durText: mm + ':' + ss,
+      paceText: sec ? Math.floor(sec / 60) + '\u2019' + String(sec % 60).padStart(2, '0') + '\u201D' : '--',
+      paceLabel: p === 'done' ? '平均配速' : '配速',
+
+      partnerRowMax: p === 'done' ? '60px' : '0px',
+      partnerRowOp: p === 'done' ? '1' : '0',
+
+      infoMax: meetish ? '320px' : '0px',
+      infoOp: meetish ? '1' : '0',
+      infoY: reduce ? '0px' : (meetish ? '0px' : '20px'),
+
+      avTop: meetish ? '105px' : '14px',
+      avLeft: meetish ? '133px' : '18px',
+      avSize: meetish ? '92px' : '28px',
+      avFont: meetish ? (p === 'count' ? '52px' : '38px') : '13px',
+      avBg: p === 'count' ? '#2A5BD7' : '#DCE6FB',
+      avFg: p === 'count' ? '#FFFFFF' : '#2A5BD7',
+      avText: p === 'count' ? String(s.count) : '张',
+      avScale: reduce ? '1' : String(s.avScale),
+      badgeOp: p === 'meet' ? '1' : '0',
+
+      primaryText: primary,
+      primaryLabel: primary,
+      primaryBg: p === 'count' ? '#FBE6AE' : '#F6C343',
+      iconRun: p === 'meet',
+      iconSpeak: p === 'running' && !banner,
+      onPrimary: () => {
+        if (p === 'meet') this.startRun();
+        else if (p === 'running' && banner === 'scattered') this.confirmTogether();
+        else if (p === 'running' && banner === 'offline') this.simEnd();
+        else if (p === 'running') this.announceNow();
+        else if (p === 'done') this.finish();
+      },
+
+      runnerBanner: !!banner,
+      runnerBannerTitle: banner === 'offline' ? '张伟的手机已离线' : '是否和张伟在一起？',
+      runnerBannerBody: banner === 'offline'
+        ? '已离线超过 5 分钟，你可以结束跑步或求助'
+        : '距离超过 50 米已持续 30 秒',
+
+      vHeaderText: p === 'done' ? '已完成 · 李明'
+        : p === 'meet' ? '已汇合 · 李明'
+        : p === 'count' ? '准备开始 · 李明' : '陪跑中 · 李明',
+      vPreRun: meetish,
+      vMetrics: runish,
+      vPreAvatarBg: p === 'count' ? '#2A5BD7' : '#DCE6FB',
+      vPreAvatarFg: p === 'count' ? '#FFFFFF' : '#2A5BD7',
+      vPreAvatarFont: p === 'count' ? '52px' : '38px',
+      vPreAvatarText: p === 'count' ? String(s.count) : '李',
+      vPreTitle: p === 'count' ? '准备开始' : '已和李明汇合',
+      vPreSubtitle: p === 'count' ? '每拍震动一次，不播报' : '握好引导绳，你或李明都可以开始',
+      vGpsBanner: s.gpsWeak && p === 'running',
+      vScatterBanner: s.vBanner === 'scattered',
+      vScatterBody: banner === 'scattered'
+        ? '跑者已收到警示提醒 · 距离超过 50 米'
+        : '距离超过 50 米已持续 30 秒 · 30 秒内确认可避免打扰跑者',
+      vBattery: !!s.battery && p === 'running',
+      vBatteryText: s.battery === 10 ? '10%' : '20%',
+      vDone: p === 'done',
+      vServiceText: Math.max(1, Math.round(s.el / 60)) + ' 分钟',
+      vLongPress: p === 'running' && s.vBanner !== 'scattered',
+      vShowTap: !(p === 'running' && s.vBanner !== 'scattered'),
+      vTapLabel: s.vBanner === 'scattered' ? '我们在一起'
+        : p === 'meet' ? '开始跑步'
+        : p === 'count' ? '准备中' : '完成',
+      vTapBg: p === 'count' ? '#FBE6AE' : '#F6C343',
+      vTapAction: () => {
+        const st = this.state;
+        if (st.vBanner === 'scattered') this.confirmTogether();
+        else if (st.phase === 'meet') this.startRun();
+      },
+      ringOffset: String((106.8 * (1 - s.press)).toFixed(1)),
+      vPressCaption: s.press > 0.02
+        ? '按住不要松手 · 还有 ' + Math.max(0.1, 2 - s.press * 2).toFixed(1) + ' 秒'
+        : '长按 2 秒 · 松手取消',
+      vPressStart: () => this.vPressStart(),
+      vPressEnd: () => this.vPressEnd(),
+
+      simScatter: () => this.simScatter(),
+      simOffline: () => this.simOffline(),
+      simBattery20: () => this.simBattery(20),
+      simBattery10: () => this.simBattery(10),
+      scatterLabel: s.vBanner === 'scattered' ? '模拟走散 · 陪跑员端已出横幅' : '模拟走散',
+      scatterBg: s.vBanner === 'scattered' ? '#FDECEC' : '#FFFFFF',
+      scatterBorder: s.vBanner === 'scattered' ? '#C25A4E' : '#D5DAE3',
+      offlineLabel: banner === 'offline' ? '模拟陪跑员离线 · 已离线' : '模拟陪跑员离线',
+      offlineBg: banner === 'offline' ? '#FDECEC' : '#FFFFFF',
+      offlineBorder: banner === 'offline' ? '#C25A4E' : '#D5DAE3',
+
+      ratingNote: s.rating
+        ? (s.rating === '很好' ? '已选择「很好」。下次还想约张伟吗？'
+          : s.rating === '有问题' ? '已选择「有问题」。可以语音说明，直接转人工客服。'
+          : '已选择「一般」。感谢反馈。')
+        : '24 小时内有效，之后自动收起；不会推送通知。',
+      goodBg: s.rating === '很好' ? '#DDE8FC' : '#FFFFFF',
+      goodBorder: s.rating === '很好' ? '#2A5BD7' : '#D5DAE3',
+      okayBg: s.rating === '一般' ? '#DDE8FC' : '#FFFFFF',
+      okayBorder: s.rating === '一般' ? '#2A5BD7' : '#D5DAE3',
+      badBg: s.rating === '有问题' ? '#DDE8FC' : '#FFFFFF',
+      badBorder: s.rating === '有问题' ? '#2A5BD7' : '#D5DAE3',
+      pickGood: () => this.pick('很好'),
+      pickOkay: () => this.pick('一般'),
+      pickBad: () => this.pick('有问题'),
+
+      simKm: () => this.simKm(),
+      simGps: () => this.simGps(),
+      simEnd: () => this.simEnd(),
+      toggleReduce: () => this.setState({ reduce: !s.reduce }),
+      reset: () => this.reset(),
+      gpsLabel: s.gpsWeak ? '模拟 GPS 弱 · 已开启' : '模拟 GPS 弱',
+      gpsBg: s.gpsWeak ? '#FDECEC' : '#FFFFFF',
+      gpsBorder: s.gpsWeak ? '#C25A4E' : '#D5DAE3',
+      reduceLabel: reduce ? '减弱动态效果 · 已开启' : '减弱动态效果',
+      reduceBg: reduce ? '#DDE8FC' : '#FFFFFF',
+      reduceBorder: reduce ? '#2A5BD7' : '#D5DAE3',
+
+      logs: s.logs
+    };
+  }
+}
+</script>
+</body>
+</html>

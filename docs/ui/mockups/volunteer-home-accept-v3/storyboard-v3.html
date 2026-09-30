@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>助盲跑 · 陪跑员端首页与接单草图 v3</title>
+<style>
+:root{
+  --page:#E8EBF1; --ink:#161A23; --muted:#5B6272; --rule:#D3D8E2; --label:#2A5BD7;
+  --panel:#FFFFFF;
+  /* phone UI tokens (depict light mode) */
+  --ui-bg:#F2F3F7; --ui-card:#FFFFFF; --ui-ink:#171B24; --ui-sub:#6B7180; --ui-line:#ECEEF2;
+  --brand:#2A5BD7; --brand-tint:#E6EDFC; --yellow:#F6C343; --help-bg:#FDECEC; --help-ink:#B42318;
+  --navy:#1B2657; --warn-bg:#FFF4D6; --warn-ink:#6B4A00;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --page:#12151C; --ink:#EEF1F6; --muted:#A3AAB8; --rule:#2A2F3A; --label:#8EAEFF; --panel:#1B1F28; }
+}
+:root[data-theme="dark"]{ --page:#12151C; --ink:#EEF1F6; --muted:#A3AAB8; --rule:#2A2F3A; --label:#8EAEFF; --panel:#1B1F28; }
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);
+  font-family:-apple-system,"PingFang SC","Noto Sans CJK SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1880px;margin:0 auto;padding:48px 40px 80px}
+h1{font-size:40px;line-height:1.2;margin:0 0 8px;font-weight:800;letter-spacing:.01em}
+.lede{color:var(--muted);font-size:17px;margin:0 0 28px;max-width:62ch;line-height:1.6}
+
+.decisions{background:var(--panel);border-radius:18px;padding:22px 26px;max-width:1100px;margin-bottom:56px}
+.decisions h2{font-size:17px;margin:0 0 12px}
+.decisions ol{margin:0;padding-left:22px;display:grid;grid-template-columns:1fr 1fr;gap:8px 36px}
+.decisions li{font-size:14.5px;line-height:1.6;color:var(--ink)}
+.decisions li b{font-weight:700}
+@media (max-width:900px){.decisions ol{grid-template-columns:1fr}}
+
+section{margin-bottom:64px}
+section > h2{font-size:28px;margin:0 0 6px;font-weight:800}
+section > p.sub{color:var(--muted);font-size:15px;margin:0 0 26px}
+.row{display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:6px 4px 12px}
+.cell{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;width:320px}
+.cap{margin-top:18px;text-align:center;width:300px}
+.cap h3{font-size:19px;margin:0 0 6px;font-weight:800}
+.cap p{font-size:13.5px;line-height:1.65;color:var(--muted);margin:0}
+.arrow{flex:0 0 118px;align-self:center;margin-top:-120px;text-align:center;color:var(--label);font-size:12.5px;font-weight:700;line-height:1.45}
+.arrow svg{display:block;margin:6px auto 0}
+.gap{flex:0 0 36px}
+
+/* ---------- phone ---------- */
+.phone{width:300px;height:630px;border-radius:46px;background:#1C1F26;padding:10px;position:relative;box-shadow:0 18px 40px -22px rgba(20,30,60,.45)}
+.screen{width:100%;height:100%;border-radius:37px;background:var(--ui-bg);overflow:hidden;position:relative;display:flex;flex-direction:column;color:var(--ui-ink)}
+.status{height:40px;display:flex;justify-content:space-between;align-items:center;padding:6px 26px 0;font-size:13px;font-weight:700;flex:none}
+.status i{display:inline-block;width:22px;height:10px;border-radius:3px;border:1.5px solid currentColor;position:relative;margin-left:6px;vertical-align:-1px}
+.status i::after{content:"";position:absolute;inset:1.5px 5px 1.5px 1.5px;background:currentColor;border-radius:1px}
+.bars{display:inline-flex;gap:1.5px;align-items:flex-end;height:10px;vertical-align:-1px}
+.bars b{width:3px;background:currentColor;border-radius:1px}
+.home-ind{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:110px;height:4px;border-radius:3px;background:#17191F}
+.body{flex:1;overflow:hidden;padding:0 12px;display:flex;flex-direction:column;gap:9px}
+.nav{height:38px;display:flex;align-items:center;justify-content:center;position:relative;font-size:14.5px;font-weight:700;flex:none}
+.nav svg{position:absolute;left:18px}
+
+.steps{background:var(--ui-card);border-radius:14px;padding:11px 14px 8px;display:flex;justify-content:space-between;position:relative}
+.step{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;color:var(--ui-sub);width:40px;z-index:1}
+.step .dot{width:15px;height:15px;border-radius:50%;border:1.5px solid #C9CEDA;background:#fff;display:grid;place-items:center}
+.step.done .dot{background:var(--brand);border-color:var(--brand)}
+.step.now .dot{border-color:var(--brand)}
+.step.now .dot::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--brand)}
+.step.now,.step.done{color:var(--ui-ink);font-weight:700}
+.steps .line{position:absolute;top:18px;left:34px;right:34px;height:1.5px;background:#DDE1E9}
+.steps .line span{display:block;height:100%;background:var(--brand)}
+
+.card{background:var(--ui-card);border-radius:14px}
+.hero{padding:14px 14px 13px;text-align:center}
+.avatar{width:58px;height:58px;border-radius:50%;background:var(--brand-tint);color:var(--brand);font-weight:800;font-size:25px;display:grid;place-items:center;margin:0 auto 8px;position:relative}
+.avatar.ring{box-shadow:0 0 0 4px #fff,0 0 0 6px var(--brand)}
+.hero .t{font-size:24px;font-weight:800;line-height:1.25;margin:0}
+.hero .s{font-size:12px;color:var(--ui-sub);margin:5px 0 0;line-height:1.5}
+
+.list{padding:0 13px}
+.li{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--ui-line);font-size:12px;align-items:center}
+.li:last-child{border-bottom:0}
+.li .k{color:var(--ui-sub);flex:none}
+.nw{white-space:nowrap}
+.li .v{text-align:right;font-weight:700;line-height:1.4}
+.li .v small{display:block;font-weight:400;color:var(--ui-sub);font-size:10.5px}
+.li.link{color:var(--ui-ink)}
+.chev{color:#A5ABB8;margin-left:4px;flex:none}
+
+.btm{padding:0 12px 20px;display:flex;flex-direction:column;gap:8px;flex:none}
+.hint{font-size:11px;color:var(--ui-sub);text-align:center;margin:0}
+.btn{height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:800;border:0}
+.btn.y{background:var(--yellow);color:#1E1A0B}
+.btn.h{background:var(--help-bg);color:var(--help-ink);box-shadow:inset 0 0 0 1px #F6CFCB}
+.btn.plain{background:transparent;color:var(--ui-sub);font-weight:600;height:30px}
+
+.tabbar{height:62px;background:#fff;border-top:1px solid var(--ui-line);display:flex;justify-content:space-around;align-items:flex-start;padding-top:8px;flex:none}
+.tab{font-size:10px;color:var(--ui-sub);display:flex;flex-direction:column;align-items:center;gap:2px}
+.tab.on{color:var(--brand);font-weight:700}
+
+.greet{font-size:24px;font-weight:800;margin:10px 4px 2px}
+.navy{background:var(--navy);color:#fff;border-radius:18px;padding:15px 15px 12px}
+.navy .eyebrow{font-size:11.5px;opacity:.75}
+.navy .big{font-size:34px;font-weight:800;margin:2px 0 4px;letter-spacing:.01em}
+.navy .place{font-size:12.5px;display:flex;align-items:center;gap:5px;opacity:.95}
+.navy hr{border:0;border-top:1px solid rgba(255,255,255,.14);margin:11px 0}
+.who{display:flex;gap:10px;align-items:center}
+.who .av{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.14);display:grid;place-items:center;font-weight:800}
+.who b{font-size:13px;display:block}
+.who span{font-size:10.5px;opacity:.72}
+.navy .open{margin-top:11px;background:rgba(255,255,255,.1);border-radius:10px;height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12.5px;font-weight:700}
+.tint{background:var(--brand-tint);border-radius:16px;padding:13px 14px;display:flex;align-items:center;gap:11px}
+.tint .ic{width:36px;height:36px;border-radius:50%;background:var(--brand);display:grid;place-items:center;flex:none}
+.tint b{font-size:14px;display:block}
+.tint span{font-size:11px;color:var(--ui-sub)}
+.sect{font-size:12px;color:var(--ui-sub);margin:6px 4px -2px;font-weight:600}
+
+.prog{padding:14px}
+.prog h4{margin:0 0 3px;font-size:16px}
+.prog .s{font-size:11.5px;color:var(--ui-sub);margin:0 0 10px}
+.pi{display:flex;gap:10px;padding:8px 0;align-items:flex-start;font-size:12.5px}
+.pi .m{width:18px;height:18px;border-radius:50%;border:1.5px solid #C9CEDA;flex:none;display:grid;place-items:center;margin-top:1px}
+.pi.done .m{background:var(--brand);border-color:var(--brand)}
+.pi.now .m{border-color:var(--brand)}
+.pi.now .m::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--brand)}
+.pi b{display:block}
+.pi span{color:var(--ui-sub);font-size:11px;line-height:1.45}
+.pi.done b{color:var(--ui-sub);font-weight:600}
+
+.warn{background:var(--warn-bg);color:var(--warn-ink);border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.5;display:flex;gap:8px;align-items:flex-start}
+
+.lock{background:linear-gradient(170deg,#25365F 0%,#3B4E7E 45%,#8B97B6 100%);color:#fff}
+.lock .time{text-align:center;font-size:64px;font-weight:300;margin-top:26px;letter-spacing:-1px}
+.lock .date{text-align:center;font-size:14px;opacity:.9;margin-top:-4px}
+.noti{margin:auto 10px 70px;background:rgba(245,246,250,.82);backdrop-filter:blur(10px);color:#141820;border-radius:18px;padding:11px 12px}
+.noti .hd{display:flex;align-items:center;gap:7px;font-size:11px;color:#50586A}
+.noti .appic{width:20px;height:20px;border-radius:5px;background:var(--brand);display:grid;place-items:center}
+.noti .hd .when{margin-left:auto}
+.noti b{display:block;font-size:13.5px;margin:6px 0 2px}
+.noti p{margin:0;font-size:12.5px;line-height:1.45}
+
+.dir{width:70px;height:70px;border-radius:50%;background:var(--brand-tint);margin:0 auto 8px;display:grid;place-items:center;position:relative}
+.dir svg{transform:rotate(38deg)}
+
+.navycard{background:var(--navy);color:#fff;border-radius:16px;padding:16px 16px 14px;text-align:center}
+.navycard .d{font-size:44px;font-weight:800;line-height:1}
+.navycard .u{font-size:13px;opacity:.75;margin-top:4px}
+.navycard .grid{display:grid;grid-template-columns:1fr 1fr;margin-top:14px;border-top:1px solid rgba(255,255,255,.14);padding-top:12px}
+.navycard .grid b{font-size:20px;display:block}
+.navycard .grid span{font-size:10.5px;opacity:.7}
+.hold{position:relative;overflow:hidden}
+.hold::before{content:"";position:absolute;left:0;top:0;bottom:0;width:38%;background:rgba(0,0,0,.08)}
+
+.hours{padding:14px;text-align:left}
+.hours .k{font-size:11.5px;color:var(--ui-sub)}
+.hours .n{font-size:28px;font-weight:800;margin:2px 0 4px}
+.hours .n em{font-style:normal;font-size:11px;font-weight:700;color:var(--brand);background:var(--brand-tint);padding:3px 7px;border-radius:6px;vertical-align:6px;margin-left:6px}
+.hours p{margin:0;font-size:11px;color:var(--ui-sub);line-height:1.5}
+
+.dim{position:absolute;inset:0;background:rgba(15,20,35,.45)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:18px 16px 26px;display:flex;flex-direction:column;gap:8px}
+.sheet .grab{width:36px;height:4px;border-radius:3px;background:#D8DCE4;margin:-8px auto 6px}
+.sheet h4{margin:0;font-size:18px}
+.sheet p{margin:0 0 4px;font-size:12.5px;line-height:1.6;color:#3F4656}
+.sheet .fine{font-size:11px;color:var(--ui-sub)}
+.faded{opacity:.55}
+
+.gsub{font-size:12.5px;color:var(--ui-sub);margin:-2px 4px 2px}
+.stats{padding:14px 15px 12px}
+.bignum{font-size:44px;font-weight:800;line-height:1.05}
+.bignum span{font-size:14px;font-weight:700;margin-left:6px;color:var(--ui-sub)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--ui-line)}
+.g2 b{font-size:22px;display:block}
+.g2 b small{font-size:12px;font-weight:700}
+.g2 span{font-size:10.5px;color:var(--ui-sub)}
+.badges{padding:12px 13px}
+.bh{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.bh span{font-size:11px;color:var(--ui-sub);display:flex;align-items:center}
+.br{display:grid;grid-template-columns:repeat(4,1fr);margin-top:10px;text-align:center;font-size:10px;color:var(--ui-sub)}
+.br i{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;margin:0 auto 5px;font-style:normal;font-size:19px}
+.slider{height:52px;border-radius:26px;background:var(--yellow);display:flex;align-items:center;justify-content:center;position:relative;font-size:14px;font-weight:800;color:#1E1A0B}
+.slider .knob{position:absolute;left:5px;top:5px;width:42px;height:42px;border-radius:50%;background:#fff;display:grid;place-items:center;box-shadow:0 2px 6px rgba(80,60,0,.25)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#1C7C45;background:#E3F4EA;padding:3px 9px;border-radius:12px}
+.pill i{width:6px;height:6px;border-radius:50%;background:#1C9C55}
+.pill.r{position:absolute;right:14px}
+.rowt{font-size:16px;margin:18px 0 10px;color:var(--ink)}
+.screen.blur{background:linear-gradient(170deg,#1c2848 0%,#2b3a62 50%,#55607e 100%)}
+.nexp{margin:70px 10px 0;background:rgba(245,246,250,.92);color:#141820;border-radius:18px;padding:12px}
+.nexp .hd{display:flex;align-items:center;gap:7px;font-size:11px;color:#50586A}
+.nexp .hd .when{margin-left:auto}
+.nexp b{display:block;font-size:14px;margin:8px 0 4px}
+.nexp p{margin:0;font-size:12.5px;line-height:1.6}
+.nact{margin:8px 10px 0;background:rgba(245,246,250,.92);border-radius:14px;overflow:hidden}
+.nact div{padding:13px 14px;font-size:14px;color:#141820;border-bottom:1px solid rgba(0,0,0,.08)}
+.nact div:last-child{border-bottom:0;color:#B42318}
+.dim{position:absolute;inset:0;background:rgba(15,20,35,.42)}
+.offer{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:22px 22px 0 0;padding:14px 16px 24px;display:flex;flex-direction:column;gap:8px;box-shadow:0 -8px 24px rgba(0,0,0,.12)}
+.offer .grab{width:36px;height:4px;border-radius:3px;background:#D8DCE4;margin:-4px auto 2px}
+.oh{display:flex;justify-content:space-between;align-items:center;font-size:12.5px}
+.oh span{color:var(--ui-sub);font-size:11.5px;display:flex;align-items:center}
+.obar{height:3px;border-radius:2px;background:#ECEEF2;overflow:hidden;margin-top:-2px}
+.obar span{display:block;height:100%;background:var(--brand)}
+.offer.urgent .obar span{background:#D99A00}
+.offer.urgent .oh span{color:#8A5A00;font-weight:700}
+.ot{font-size:28px;font-weight:800;line-height:1.15;margin-top:2px}
+.op{font-size:12.5px;color:var(--ui-sub);margin-top:-4px;line-height:1.5}
+.m3{display:grid;grid-template-columns:repeat(3,1fr);background:var(--ui-bg);border-radius:12px;padding:9px 4px;text-align:center}
+.m3 b{font-size:17px;display:block}
+.m3 b small{font-size:10.5px}
+.m3 span{font-size:10px;color:var(--ui-sub)}
+.orun{display:flex;align-items:center;gap:9px;padding:2px 0}
+.orun .av{width:32px;height:32px;border-radius:50%;background:var(--brand-tint);color:var(--brand);display:grid;place-items:center;font-weight:800;font-size:14px;flex:none}
+.orun b{font-size:13px;display:block}
+.orun span{font-size:10.5px;color:var(--ui-sub)}
+.orun em{font-style:normal;font-size:10px;font-weight:700;color:var(--brand);background:var(--brand-tint);padding:3px 7px;border-radius:6px;white-space:nowrap}
+.two{display:flex;justify-content:space-between;padding:0 18px;font-size:13px;color:var(--ui-sub);font-weight:600}
+.dots{display:inline-flex;gap:4px;align-items:center}
+.dots b,.dots i{width:6px;height:6px;border-radius:50%;background:#D3D8E2;display:block}
+.dots b{background:var(--brand);width:14px;border-radius:3px}
+.okic{width:58px;height:58px;border-radius:50%;background:#E3F4EA;display:grid;place-items:center;margin:6px auto 0}
+.fade{opacity:.4}
+.gone{margin:0;font-size:12px;color:var(--ui-sub);text-align:center}
+.banner{position:absolute;top:44px;left:8px;right:8px;z-index:3;background:rgba(250,250,252,.96);border-radius:16px;padding:10px 12px;display:flex;align-items:center;gap:9px;box-shadow:0 8px 22px rgba(20,30,60,.22)}
+.banner .appic{width:26px;height:26px;border-radius:7px;background:var(--brand);display:grid;place-items:center;flex:none}
+.banner b{font-size:12.5px;display:block}
+.banner span{font-size:11px;color:var(--ui-sub)}
+.banner .bt{color:var(--brand);font-weight:700;font-size:12.5px}
+.tbadge{position:absolute;top:-4px;right:-9px;background:#B42318;color:#fff;font-style:normal;font-size:9px;font-weight:700;min-width:15px;height:15px;border-radius:8px;display:grid;place-items:center}
+.toast{position:absolute;left:14px;right:14px;bottom:76px;background:#262A33;color:#fff;border-radius:12px;padding:11px 14px;display:flex;justify-content:space-between;font-size:12.5px}
+.toast b{color:#F6C343}
+.note{max-width:1100px;background:var(--panel);border-radius:18px;padding:20px 26px;font-size:14px;line-height:1.7}
+.note h2{font-size:17px;margin:0 0 8px}
+.note ul{margin:0;padding-left:20px}
+:focus-visible{outline:3px solid var(--label);outline-offset:3px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>陪跑员端：首页与接单</h1>
+<p class="lede">草图第 3 版，沿用跑者端的视觉语言：订单一个页面贯穿全流程，底部只有一个黄色主按钮和求助与安全。人名、地点与跑者端故事板保持一致（跑者李明，陪跑员张伟）。</p>
+
+<div class="decisions">
+  <h2>v3 的产品决策</h2>
+  <ol>
+    <li><b>主页与接单分开：</b>打开 App 先到主页，看到陪跑次数、已认证时长、一起跑过的跑者和奖章，滑动后进入接单主页。</li>
+    <li><b>准入：</b>强制两步，实名认证（含志愿者须知、风险告知）和线上课程；仅限 18 岁以上。</li>
+    <li><b>设置归位：</b>空闲时间、出发地、交通方式、愿意去多远，放在“我的”。</li>
+    <li><b>匹配：</b>系统在空闲时间内定向邀请，一起跑过的优先；3 小时没人接，进入“附近还没人接的”。</li>
+    <li><b>订单页：</b>邀请 → 约好 → 出发 → 汇合，与跑者端四步一一对应，原地变化。</li>
+    <li><b>汇合：</b>陪跑员去找跑者，显示方位、距离、衣着；到达由陪跑员手动确认。</li>
+    <li><b>取消：</b>开始前 12 小时内取消记临时取消；跑者取消或陪跑员等满 15 分钟，不算陪跑员的。</li>
+    <li><b>新邀请：</b>后台用推送；在接单主页从底部弹出邀请卡；在其他页面用顶部横幅；陪跑进行中先暂存，结束后再出现。</li>
+    <li><b>时长：</b>从开始跑步到结束陪跑，标“待认证”，组织 10 个工作日内确认；不出现升学、评优字样。</li>
+  </ol>
+</div>
+
+<!-- ================= A 首页 ================= -->
+<section>
+<h2>首页：准入、主页与接单</h2>
+<p class="sub">主页展示你做过的陪跑，滑动开始接单后进入接单主页；设置类内容放进“我的”</p>
+<div class="row">
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="body">
+        <div class="greet">你好，张伟</div>
+        <div class="card prog">
+          <h4>完成 2 步，就能开始陪跑</h4>
+          <p class="s">两步都完成后才能开始接单</p>
+          <div class="pi done"><div class="m"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></div><div><b>实名认证</b><span>已阅读志愿者须知和风险告知</span></div></div>
+          <div class="pi now"><div class="m"></div><div><b>线上课程</b><span>已学 3 节，共 6 节，每节约 8 分钟</span></div></div>
+          <div class="btn y" style="margin-top:10px">继续第 4 节课程</div>
+        </div>
+        <div class="card list">
+          <div class="li link"><span>联系你所在的志愿服务组织</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="tabbar"><div class="tab on"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg>首页</div><div class="tab"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg>记录</div><div class="tab"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>我的</div></div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>准入（强制）</h3><p>只有实名认证、线上课程两步，没完成不能进入主页和接单。<br>实名认证这一步内勾选志愿者须知和风险告知。<br>读屏：问候 → 第几步共几步 → 主按钮</p></div>
+  </div>
+  <div class="arrow">两步完成<br>进入主页<svg width="80" height="12" viewBox="0 0 80 12"><path d="M0 6h74M68 1l6 5-6 5" stroke="currentColor" stroke-width="2.2" fill="none"/></svg></div>
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="body">
+        <div class="greet">你好，张伟</div>
+        <p class="gsub">谢谢你这两年的陪伴</p>
+        <div class="card stats">
+          <div class="bignum">32<span>次陪跑</span></div>
+          <div class="g2"><div><b>26.4<small> 小时</small></b><span>志愿服务时长，已认证</span></div><div><b>9<small> 位</small></b><span>跑者和你一起跑过</span></div></div>
+        </div>
+        <div class="card badges">
+          <div class="bh"><b>我的奖章</b><span>全部 <svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="br">
+            <div><i style="background:#E6EDFC">📘</i>完成培训</div>
+            <div><i style="background:#FFF1CC">👟</i>首次陪跑</div>
+            <div><i style="background:#E3F4EA">🎖️</i>陪跑 30 次</div>
+            <div><i style="background:#F2E8FC">🤝</i>固定搭档</div>
+          </div>
+        </div>
+        <div class="card list">
+          <div class="li link"><span><span style="color:var(--ui-sub)">最近一次</span>&nbsp; 9月13日，和李明跑了 5 公里</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="btm" style="padding-bottom:10px">
+        <div class="slider"><span class="knob"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 8h9M8.5 4l4 4-4 4" stroke="#1E1A0B" stroke-width="2" fill="none"/></svg></span>向右滑动，开始接单</div>
+      </div>
+      <div class="tabbar"><div class="tab on"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg>首页</div><div class="tab"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg>记录</div><div class="tab"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>我的</div></div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>主页</h3><p>每次打开 App 先到这里；有进行中的订单或 2 小时内开始的陪跑，直接打开订单页。<br>滑块是这一屏唯一的黄色控件，VoiceOver 下双击即可开始接单。<br>读屏：问候 → 陪跑次数 → 时长 → 奖章 → 开始接单</p></div>
+  </div>
+  <div class="arrow">滑动开始接单<br>进入接单主页<svg width="80" height="12" viewBox="0 0 80 12"><path d="M0 6h74M68 1l6 5-6 5" stroke="currentColor" stroke-width="2.2" fill="none"/></svg></div>
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>接单<span class="pill r"><i></i>接单中</span></div>
+      <div class="body">
+        <div class="navy">
+          <div class="eyebrow">下一次陪跑，已约好</div>
+          <div class="big">明天 7:00</div>
+          <div class="place"><svg width="12" height="14" viewBox="0 0 12 14"><path d="M6 13s4.5-4.3 4.5-7.5a4.5 4.5 0 1 0-9 0C1.5 8.7 6 13 6 13z" stroke="#fff" stroke-width="1.4" fill="none"/><circle cx="6" cy="5.5" r="1.5" fill="#fff"/></svg>深圳湾公园 3 号入口</div>
+          <hr>
+          <div class="who"><div class="av">李</div><div><b>跑者 李明</b><span>你们一起跑过 3 次</span></div></div>
+          <div class="open">打开订单<svg width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="#fff" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+        <div class="tint">
+          <div class="ic"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 2a4 4 0 0 0-4 4v3l-1.5 2h11L12 9V6a4 4 0 0 0-4-4zM6.5 13a1.5 1.5 0 0 0 3 0" stroke="#fff" stroke-width="1.5" fill="none"/></svg></div>
+          <div style="flex:1"><b>1 个新邀请</b><span>周六 7:00，深圳湾公园，今晚 22:00 前回复</span></div>
+          <svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+        </div>
+        <div class="card list">
+          <div class="li link"><span>之后还有 2 次陪跑</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+          <div class="li link"><span>附近有 2 个陪跑还没人接</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+          <div class="li link"><span>暂停接单</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="tabbar"><div class="tab on"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg>首页</div><div class="tab"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg>记录</div><div class="tab"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>我的</div></div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>接单主页，有约好的陪跑</h3><p>深蓝卡片复用跑者端组件，陪跑员一行换成跑者，显示“你们一起跑过几次”。<br>新邀请、附近没人接的陪跑都没有时，对应模块不显示。<br>“接单中”状态一直保持，直到手动暂停</p></div>
+  </div>
+  <div class="gap"></div>
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>接单<span class="pill r"><i></i>接单中</span></div>
+      <div class="body">
+        <div class="card hero" style="padding:22px 16px">
+          <div class="avatar"><svg width="24" height="24" viewBox="0 0 16 16"><path d="M8 2a4 4 0 0 0-4 4v3l-1.5 2h11L12 9V6a4 4 0 0 0-4-4zM6.5 13a1.5 1.5 0 0 0 3 0" stroke="#2A5BD7" stroke-width="1.4" fill="none"/></svg></div>
+          <p class="t" style="font-size:20px">暂时没有约好的陪跑</p>
+          <p class="s">你的空闲时间里有合适的陪跑，会邀请你</p>
+        </div>
+        <div class="card list">
+          <div class="li link"><span class="k">空闲时间</span><span style="display:flex;align-items:center;font-weight:700">周三晚、周六早<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="li link"><span>附近有 2 个陪跑还没人接</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+          <div class="li link"><span>暂停接单</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="tabbar"><div class="tab on"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg>首页</div><div class="tab"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg>记录</div><div class="tab"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>我的</div></div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>接单主页，暂时没有约好的</h3><p>没有订单是常态，不催促，也没有黄色按钮。<br>“空闲时间”一行只是入口，设置本身在“我的”里。<br>读屏：接单中 → 暂时没有约好的陪跑 → 空闲时间</p></div>
+  </div>
+  <div class="gap"></div>
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>空闲时间与出发地</div>
+      <div class="body">
+        <div class="sect">这些时间里有合适的陪跑，会邀请你</div>
+        <div class="card list">
+          <div class="li link"><span class="k">每周三</span><span style="display:flex;align-items:center;font-weight:700">19:30 – 21:00<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="li link"><span class="k">每周六</span><span style="display:flex;align-items:center;font-weight:700">6:30 – 9:00<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="li link" style="color:var(--brand);font-weight:600"><span>添加空闲时间</span></div>
+        </div>
+        <div class="sect">用来计算距离和出发时间</div>
+        <div class="card list">
+          <div class="li link"><span class="k">出发地</span><span style="display:flex;align-items:center;font-weight:700">南山区科技园<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="li link"><span class="k">常用交通</span><span style="display:flex;align-items:center;font-weight:700">骑车<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="li link"><span class="k">愿意去多远</span><span style="display:flex;align-items:center;font-weight:700">5 公里以内<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+        </div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>我的 › 空闲时间与出发地</h3><p>从 v1 首页移出，放进“我的”。<br>改完自动保存，没有保存按钮。<br>空闲时间以外不发邀请，22:00 到 6:00 不推送</p></div>
+  </div>
+</div>
+</section>
+
+<!-- ================= B 邀请 ================= -->
+<section>
+<h2>新邀请进来</h2>
+<p class="sub">参考 Uber、DoorDash、美团众包的派单呈现与苹果通知规范；按陪跑员当下在做什么，决定邀请用多大的声音出现</p>
+<h4 class="rowt">一、按 App 所处状态</h4>
+<div class="row">
+  <div class="cell">
+    <div class="phone"><div class="screen lock">
+      <div class="status" style="color:#fff">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="time">21:08</div>
+      <div class="date">9月16日 星期三</div>
+      <div class="noti">
+        <div class="hd"><div class="appic"><svg width="11" height="11" viewBox="0 0 12 12"><circle cx="7.5" cy="2" r="1.3" fill="#fff"/><path d="M6 4 4 7l2 1-1 3M6 4l2.5 2.5L10 6M4 7 2 7" stroke="#fff" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg></div>助盲跑<span class="when">现在</span></div>
+        <b>新的陪跑邀请</b>
+        <p>周六 7:00，深圳湾公园 3 号入口，离你约 3.2 公里。跑 5 公里，配速 7 分左右。</p>
+      </div>
+      <div class="home-ind" style="background:#fff"></div>
+    </div></div>
+    <div class="cap"><h3>App 不在前台：推送</h3><p>普通推送（Active 级别），响一声、震一下，不重复响。<br>24 小时内开始的邀请用“时间敏感”级别，可穿透专注模式。<br>文案不写跑者姓名</p></div>
+  </div>
+  <div class="arrow">长按通知<svg width="80" height="12" viewBox="0 0 80 12"><path d="M0 6h74M68 1l6 5-6 5" stroke="currentColor" stroke-width="2.2" fill="none"/></svg></div>
+  <div class="cell">
+    <div class="phone"><div class="screen lock blur">
+      <div class="status" style="color:#fff">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nexp">
+        <div class="hd"><div class="appic"><svg width="11" height="11" viewBox="0 0 12 12"><circle cx="7.5" cy="2" r="1.3" fill="#fff"/><path d="M6 4 4 7l2 1-1 3M6 4l2.5 2.5L10 6M4 7 2 7" stroke="#fff" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg></div>助盲跑<span class="when">现在</span></div>
+        <b>新的陪跑邀请</b>
+        <p>周六 7:00，深圳湾公园 3 号入口，离你约 3.2 公里。<br>李先生，全盲，用引导绳。跑 5 公里，配速 7 分左右。<br>请在今晚 22:00 前回复。</p>
+      </div>
+      <div class="nact"><div>接下这次陪跑</div><div>这次去不了</div></div>
+      <div class="home-ind" style="background:#fff"></div>
+    </div></div>
+    <div class="cap"><h3>长按推送：直接回复</h3><p>系统通知最多 4 个操作，这里只放 2 个。<br>“接下”需要解锁手机，防止在口袋里误触；“去不了”不用解锁。<br>点通知本身，打开 App 并弹出邀请卡</p></div>
+  </div>
+  <div class="gap"></div>
+  <div class="cell">
+    <div class="phone"><div class="screen ">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>接单<span class="pill r"><i></i>接单中</span></div>
+      <div class="body">
+        <div class="navy">
+          <div class="eyebrow">下一次陪跑，已约好</div>
+          <div class="big">明天 7:00</div>
+          <div class="place"><svg width="12" height="14" viewBox="0 0 12 14"><path d="M6 13s4.5-4.3 4.5-7.5a4.5 4.5 0 1 0-9 0C1.5 8.7 6 13 6 13z" stroke="#fff" stroke-width="1.4" fill="none"/><circle cx="6" cy="5.5" r="1.5" fill="#fff"/></svg>深圳湾公园 3 号入口</div>
+          <hr>
+          <div class="who"><div class="av">李</div><div><b>跑者 李明</b><span>你们一起跑过 3 次</span></div></div>
+        </div>
+        
+      </div>
+      <div class="tabbar"><div class="tab on"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg></span>首页</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg></span>记录</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span>我的</div></div>
+      <div class="dim"></div>
+      <div class="offer ">
+        <div class="grab"></div>
+        <div class="oh"><b>新的陪跑邀请</b><span>还剩 52 分钟回复</span></div>
+        <div class="obar"><span style="width:87%"></span></div>
+        <div class="ot">周六 7:00</div>
+        <div class="op">深圳湾公园 3 号入口</div>
+        <div class="m3"><div><b>3.2<small> 公里</small></b><span>离你</span></div><div><b>5<small> 公里</small></b><span>跑多远</span></div><div><b>7'00"</b><span>配速</span></div></div>
+        <div class="orun"><div class="av">李</div><div style="flex:1"><b>李先生</b><span>全盲，用引导绳，陪跑员在左侧</span></div></div>
+        <div class="btn y">接下这次陪跑</div>
+        <div class="two"><span>这次去不了</span><span>查看详情</span></div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>App 在接单主页：底部弹出邀请卡</h3><p>轻震一次、提示音一次，从底部升起，背景压暗但仍可见。<br>下滑或点空白处收起，邀请变成页面里的“新邀请”卡，不算拒绝。<br>接单前只显示姓氏</p></div>
+  </div>
+  <div class="gap"></div>
+  <div class="cell">
+    <div class="phone"><div class="screen ">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="banner"><div class="appic"><svg width="11" height="11" viewBox="0 0 12 12"><circle cx="7.5" cy="2" r="1.3" fill="#fff"/><path d="M6 4 4 7l2 1-1 3M6 4l2.5 2.5L10 6M4 7 2 7" stroke="#fff" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg></div><div style="flex:1"><b>新的陪跑邀请</b><span>周六 7:00，深圳湾公园，离你 3.2 公里</span></div><span class="bt">查看</span></div>
+      <div class="body">
+        <div class="greet">你好，张伟</div>
+        <p class="gsub">谢谢你这两年的陪伴</p>
+        <div class="card stats">
+          <div class="bignum">32<span>次陪跑</span></div>
+          <div class="g2"><div><b>26.4<small> 小时</small></b><span>志愿服务时长，已认证</span></div><div><b>9<small> 位</small></b><span>跑者和你一起跑过</span></div></div>
+        </div>
+        <div class="card list"><div class="li link"><span><span style="color:var(--ui-sub)">最近一次</span>&nbsp; 9月13日，和李明跑了 5 公里</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div></div>
+      </div>
+      <div class="btm" style="padding-bottom:10px">
+        <div class="slider"><span class="knob"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 8h9M8.5 4l4 4-4 4" stroke="#1E1A0B" stroke-width="2" fill="none"/></svg></span>向右滑动，进入接单</div>
+      </div>
+      <div class="tabbar"><div class="tab on"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg><em class="tbadge">1</em></span>首页</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg></span>记录</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span>我的</div></div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>App 在其他页面：顶部横幅</h3><p>在主页、我的、记录，或订单页的“约好”状态时，不打断当前操作。<br>横幅停留 4 秒后收起，点“查看”弹出邀请卡。<br>首页标签加数字角标，直到回复</p></div>
+  </div>
+  <div class="gap"></div>
+  <div class="cell">
+    <div class="phone"><div class="screen ">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>接单<span class="pill r"><i></i>接单中</span></div>
+      <div class="body">
+        <div class="navy">
+          <div class="eyebrow">下一次陪跑，已约好</div>
+          <div class="big">明天 7:00</div>
+          <div class="place"><svg width="12" height="14" viewBox="0 0 12 14"><path d="M6 13s4.5-4.3 4.5-7.5a4.5 4.5 0 1 0-9 0C1.5 8.7 6 13 6 13z" stroke="#fff" stroke-width="1.4" fill="none"/><circle cx="6" cy="5.5" r="1.5" fill="#fff"/></svg>深圳湾公园 3 号入口</div>
+          <hr>
+          <div class="who"><div class="av">李</div><div><b>跑者 李明</b><span>你们一起跑过 3 次</span></div></div>
+        </div>
+        <div class="tint">
+          <div class="ic"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 2a4 4 0 0 0-4 4v3l-1.5 2h11L12 9V6a4 4 0 0 0-4-4zM6.5 13a1.5 1.5 0 0 0 3 0" stroke="#fff" stroke-width="1.5" fill="none"/></svg></div>
+          <div style="flex:1"><b>陪跑时收到 1 个新邀请</b><span>周六 7:00，深圳湾公园，还剩 35 分钟回复</span></div>
+          <svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+        </div>
+      </div>
+      <div class="tabbar"><div class="tab on"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg></span>首页</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg></span>记录</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span>我的</div></div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>陪跑进行中：先不打扰</h3><p>从“我出发了”到“结束陪跑”，邀请不响、不震、不弹横幅。<br>结束后回到接单主页，再以卡片形式出现。<br>会在陪跑结束前过期的邀请，后端不发给这位陪跑员</p></div>
+  </div>
+</div>
+<h4 class="rowt">二、邀请卡的几种状态</h4>
+<div class="row">
+  <div class="cell">
+    <div class="phone"><div class="screen ">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>接单<span class="pill r"><i></i>接单中</span></div>
+      <div class="body">
+        <div class="navy">
+          <div class="eyebrow">下一次陪跑，已约好</div>
+          <div class="big">明天 7:00</div>
+          <div class="place"><svg width="12" height="14" viewBox="0 0 12 14"><path d="M6 13s4.5-4.3 4.5-7.5a4.5 4.5 0 1 0-9 0C1.5 8.7 6 13 6 13z" stroke="#fff" stroke-width="1.4" fill="none"/><circle cx="6" cy="5.5" r="1.5" fill="#fff"/></svg>深圳湾公园 3 号入口</div>
+          <hr>
+          <div class="who"><div class="av">李</div><div><b>跑者 李明</b><span>你们一起跑过 3 次</span></div></div>
+        </div>
+        
+      </div>
+      <div class="tabbar"><div class="tab on"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg></span>首页</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg></span>记录</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span>我的</div></div>
+      <div class="dim"></div>
+      <div class="offer ">
+        <div class="grab"></div>
+        <div class="oh"><b>3 个新邀请</b><span><i class="dots"><b></b><i></i><i></i></i></span></div>
+        <div class="obar"><span style="width:60%"></span></div>
+        <div class="ot">周六 7:00</div>
+        <div class="op">深圳湾公园 3 号入口</div>
+        <div class="m3"><div><b>3.2<small> 公里</small></b><span>离你</span></div><div><b>5<small> 公里</small></b><span>跑多远</span></div><div><b>7'00"</b><span>配速</span></div></div>
+        <div class="orun"><div class="av">李</div><div style="flex:1"><b>李明</b><span>全盲，用引导绳</span></div><em>一起跑过 3 次</em></div>
+        <div class="btn y">接下这次陪跑</div>
+        <div class="two"><span>这次去不了</span><span>查看详情</span></div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>多个邀请</h3><p>按回复期限排序，左右滑动切换，顶部显示第几个。<br>一起跑过的跑者显示全名和“一起跑过几次”，排在同等期限的前面。<br>回复一个后自动滑到下一个</p></div>
+  </div>
+  <div class="gap"></div>
+  <div class="cell">
+    <div class="phone"><div class="screen ">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>接单<span class="pill r"><i></i>接单中</span></div>
+      <div class="body">
+        <div class="navy">
+          <div class="eyebrow">下一次陪跑，已约好</div>
+          <div class="big">明天 7:00</div>
+          <div class="place"><svg width="12" height="14" viewBox="0 0 12 14"><path d="M6 13s4.5-4.3 4.5-7.5a4.5 4.5 0 1 0-9 0C1.5 8.7 6 13 6 13z" stroke="#fff" stroke-width="1.4" fill="none"/><circle cx="6" cy="5.5" r="1.5" fill="#fff"/></svg>深圳湾公园 3 号入口</div>
+          <hr>
+          <div class="who"><div class="av">李</div><div><b>跑者 李明</b><span>你们一起跑过 3 次</span></div></div>
+        </div>
+        
+      </div>
+      <div class="tabbar"><div class="tab on"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg></span>首页</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg></span>记录</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span>我的</div></div>
+      <div class="dim"></div>
+      <div class="offer urgent">
+        <div class="grab"></div>
+        <div class="oh"><b>新的陪跑邀请</b><span>还剩 12 分钟回复</span></div>
+        <div class="obar"><span style="width:20%"></span></div>
+        <div class="ot">周六 7:30</div>
+        <div class="op">莲花山公园南门</div>
+        <div class="m3"><div><b>4.1<small> 公里</small></b><span>离你</span></div><div><b>3<small> 公里</small></b><span>跑多远</span></div><div><b>7'00"</b><span>配速</span></div></div>
+        <div class="orun"><div class="av">李</div><div style="flex:1"><b>李先生</b><span>全盲，用引导绳，陪跑员在左侧</span></div></div>
+        <div class="warn"><svg width="14" height="14" viewBox="0 0 14 14" style="flex:none;margin-top:2px"><circle cx="7" cy="7" r="6" stroke="#6B4A00" stroke-width="1.4" fill="none"/><path d="M7 3.8v3.8M7 9.6v.2" stroke="#6B4A00" stroke-width="1.6" stroke-linecap="round"/></svg>你周六 6:00 在深圳湾的陪跑预计 6:50 结束，赶过来约 25 分钟</div>
+        <div class="btn y">接下这次陪跑</div>
+        <div class="two"><span>这次去不了</span><span>查看详情</span></div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>时间挨得近 / 快到期</h3><p>和已约好的陪跑之间，留给赶路的时间不足 30 分钟时，插一条浅黄提示，仍然可以接。<br>时间完全重叠的邀请，后端直接不发。<br>剩余不到 15 分钟，进度条和剩余时间变深黄</p></div>
+  </div>
+  <div class="gap"></div>
+  <div class="cell">
+    <div class="phone"><div class="screen ">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>接单<span class="pill r"><i></i>接单中</span></div>
+      <div class="body">
+        <div class="navy">
+          <div class="eyebrow">下一次陪跑，已约好</div>
+          <div class="big">明天 7:00</div>
+          <div class="place"><svg width="12" height="14" viewBox="0 0 12 14"><path d="M6 13s4.5-4.3 4.5-7.5a4.5 4.5 0 1 0-9 0C1.5 8.7 6 13 6 13z" stroke="#fff" stroke-width="1.4" fill="none"/><circle cx="6" cy="5.5" r="1.5" fill="#fff"/></svg>深圳湾公园 3 号入口</div>
+          <hr>
+          <div class="who"><div class="av">李</div><div><b>跑者 李明</b><span>你们一起跑过 3 次</span></div></div>
+        </div>
+        
+      </div>
+      <div class="tabbar"><div class="tab on"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg></span>首页</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg></span>记录</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span>我的</div></div>
+      <div class="dim"></div>
+      <div class="offer ">
+        <div class="grab"></div>
+        <div class="oh"><b></b><span></span></div>
+        
+        <div class="okic"><svg width="30" height="30" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#1C7C45" stroke-width="1.2" fill="none" stroke-linecap="round"/></svg></div>
+        <div class="ot" style="text-align:center">已约好</div>
+        <div class="op" style="text-align:center">周六 7:00，深圳湾公园 3 号入口<br>李明的全名和电话已放进订单</div>
+        <div class="btn y" style="margin-top:14px">查看订单</div>
+        <div class="two" style="justify-content:center"><span>回到接单</span></div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>接下之后</h3><p>邀请卡原地变为“已约好”，震动一次。<br>点“回到接单”或下滑收起；这次陪跑并入接单主页的“下一次陪跑”或“之后的陪跑”。<br>同时通知跑者：已为你约好张伟</p></div>
+  </div>
+  <div class="gap"></div>
+  <div class="cell">
+    <div class="phone"><div class="screen ">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>接单<span class="pill r"><i></i>接单中</span></div>
+      <div class="body">
+        <div class="navy">
+          <div class="eyebrow">下一次陪跑，已约好</div>
+          <div class="big">明天 7:00</div>
+          <div class="place"><svg width="12" height="14" viewBox="0 0 12 14"><path d="M6 13s4.5-4.3 4.5-7.5a4.5 4.5 0 1 0-9 0C1.5 8.7 6 13 6 13z" stroke="#fff" stroke-width="1.4" fill="none"/><circle cx="6" cy="5.5" r="1.5" fill="#fff"/></svg>深圳湾公园 3 号入口</div>
+          <hr>
+          <div class="who"><div class="av">李</div><div><b>跑者 李明</b><span>你们一起跑过 3 次</span></div></div>
+        </div>
+        
+      </div>
+      <div class="tabbar"><div class="tab on"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg></span>首页</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg></span>记录</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span>我的</div></div>
+      <div class="dim"></div>
+      <div class="offer ">
+        <div class="grab"></div>
+        <div class="oh"><b>这个邀请已失效</b><span></span></div>
+        
+        <div class="ot fade">周六 7:00</div>
+        <div class="op">深圳湾公园 3 号入口</div>
+        <div class="m3 fade"><div><b>3.2<small> 公里</small></b><span>离你</span></div><div><b>5<small> 公里</small></b><span>跑多远</span></div><div><b>7'00"</b><span>配速</span></div></div>
+        <div class="orun fade"><div class="av">李</div><div style="flex:1"><b>李先生</b><span>全盲，用引导绳，陪跑员在左侧</span></div></div>
+        <p class="gone">已经有其他陪跑员接下了，没有影响你的任何记录</p>
+        <div class="btn y">知道了</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>已过期 / 被别人接</h3><p>卡片原地变灰，说明原因。<br>过期：“回复时间已过”；从“附近还没人接的”进来被抢先：“已经有其他陪跑员接下了”。<br>过期和被抢先都不推送</p></div>
+  </div>
+  <div class="gap"></div>
+  <div class="cell">
+    <div class="phone"><div class="screen ">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>接单<span class="pill r"><i></i>接单中</span></div>
+      <div class="body">
+        <div class="card hero" style="padding:22px 16px">
+          <div class="avatar"><svg width="24" height="24" viewBox="0 0 16 16"><path d="M8 2a4 4 0 0 0-4 4v3l-1.5 2h11L12 9V6a4 4 0 0 0-4-4zM6.5 13a1.5 1.5 0 0 0 3 0" stroke="#2A5BD7" stroke-width="1.4" fill="none"/></svg></div>
+          <p class="t" style="font-size:20px">暂时没有约好的陪跑</p>
+          <p class="s">你的空闲时间里有合适的陪跑，会邀请你</p>
+        </div>
+        <div class="card list">
+          <div class="li link"><span class="k">空闲时间</span><span style="display:flex;align-items:center;font-weight:700">周三晚、周六早<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="li link"><span>暂停接单</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="toast"><span>已回复这次去不了</span><b>撤销</b></div>
+      <div class="tabbar"><div class="tab on"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z" fill="currentColor"/></svg></span>首页</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 5h12M4 10h12M4 15h12" stroke="currentColor" stroke-width="1.8"/></svg></span>记录</div><div class="tab"><span style="position:relative;display:inline-block"><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M3.5 17c1-3.5 3.5-5 6.5-5s5.5 1.5 6.5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span>我的</div></div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>去不了</h3><p>点“这次去不了”立即收起，不问原因、不计记录。<br>底部出现 5 秒“撤销”，防止误点。<br>连续 3 次去不了时，询问是否调整空闲时间，不做惩罚</p></div>
+  </div>
+</div>
+<h4 class="rowt">三、详情与附近列表</h4>
+<div class="row">
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>陪跑订单</div>
+      <div class="body">
+        <div class="steps"><div class="line"><span style="width:0"></span></div>
+          <div class="step now"><div class="dot"></div>邀请</div><div class="step"><div class="dot"></div>约好</div><div class="step"><div class="dot"></div>出发</div><div class="step"><div class="dot"></div>汇合</div></div>
+        <div class="card hero">
+          <div class="avatar">李</div>
+          <p class="t">周六 7:00</p>
+          <p class="s">深圳湾公园 3 号入口，离你约 3.2 公里<br>请在今晚 22:00 前回复</p>
+        </div>
+        <div class="card list">
+          <div class="li"><span class="k">跑者</span><span class="v">李先生<small>全盲，用引导绳</small></span></div>
+          <div class="li"><span class="k">跑多远</span><span class="v">5 公里<small>配速 7 分左右</small></span></div>
+          <div class="li"><span class="k">引导习惯</span><span class="v">陪跑员在左侧<small>过台阶提前说一声</small></span></div>
+          <div class="li link"><span>这次去不了</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="btm">
+        <p class="hint">接下后显示李先生的全名和电话</p>
+        <div class="btn y">接下这次陪跑</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>查看详情：完整订单页</h3><p>接单前只给陪跑必需的信息：视力情况、距离配速、引导习惯。<br>回复期限按开始时间倒推：距开始超过 24 小时给 1 小时，否则给 15 分钟。<br>“去不了”不扣任何分，也不问原因</p></div>
+  </div>
+
+  <div class="gap"></div>
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>附近还没人接的</div>
+      <div class="body">
+        <div class="sect">只显示你空闲时间内、等了 3 小时以上的</div>
+        <div class="card list">
+          <div class="li link"><span style="line-height:1.45"><b style="font-size:13px">周日 7:30</b><br><span style="color:var(--ui-sub)">莲花山公园南门，离你 4.1 公里</span></span><span class="nw" style="display:flex;align-items:center;color:var(--ui-sub)">3 公里<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="li link"><span style="line-height:1.45"><b style="font-size:13px">下周二 19:00</b><br><span style="color:var(--ui-sub)">深圳湾公园 3 号入口，离你 3.2 公里</span></span><span class="nw" style="display:flex;align-items:center;color:var(--ui-sub)">5 公里<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+        </div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>附近还没人接的</h3><p>从接单主页进入，点开任一条是和邀请相同的订单页，只是没有回复期限。<br>列表为空时，接单主页上的入口不显示</p></div>
+  </div>
+</div>
+</section>
+
+<!-- ================= C 订单页 ================= -->
+<section>
+<h2>一个订单页，贯穿全流程（陪跑员端）</h2>
+<p class="sub">接单后状态在原页面原地变化；四个步骤与跑者端的匹配、约好、出发、汇合一一对应</p>
+<div class="row">
+
+  <!-- C1 -->
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>陪跑订单</div>
+      <div class="body">
+        <div class="steps"><div class="line"><span style="width:33%"></span></div>
+          <div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>邀请</div><div class="step now"><div class="dot"></div>约好</div><div class="step"><div class="dot"></div>出发</div><div class="step"><div class="dot"></div>汇合</div></div>
+        <div class="card hero">
+          <div class="avatar">李</div>
+          <p class="t">明天 7:00</p>
+          <p class="s">已约好。建议 6:35 出发，骑车约 20 分钟</p>
+        </div>
+        <div class="card list">
+          <div class="li"><span class="k">跑者</span><span class="v">李明<small>全盲，引导绳，5 公里</small></span></div>
+          <div class="li"><span class="k">引导习惯</span><span class="v">陪跑员在左侧<small>过台阶提前说一声</small></span></div>
+          <div class="li link"><span class="k">集合点</span><span style="display:flex;align-items:center;font-weight:700">深圳湾公园 3 号入口<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="li link"><span>修改或取消</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="btm">
+        <div class="btn y"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 13 13 3M6 3h7v7" stroke="#1E1A0B" stroke-width="1.8" fill="none"/></svg>我出发了</div>
+        <div class="btn h"><svg width="14" height="16" viewBox="0 0 14 16"><path d="M7 1 1.5 3v4.5C1.5 11 4 13.8 7 15c3-1.2 5.5-4 5.5-7.5V3z" stroke="#B42318" stroke-width="1.6" fill="none"/></svg>求助与安全</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>已约好</h3><p>出发时间按陪跑员的出发地和交通方式算，到点推送提醒。<br>“我出发了”随时可按，按下后跑者端变为“张伟正在赶来”。<br>读屏：已约好李明，明天早上 7 点，建议 6 点 35 出发</p></div>
+  </div>
+
+  <div class="arrow">按“我出发了”<br>主按钮换字<svg width="80" height="12" viewBox="0 0 80 12"><path d="M0 6h74M68 1l6 5-6 5" stroke="currentColor" stroke-width="2.2" fill="none"/></svg></div>
+
+  <!-- C2 -->
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>陪跑订单</div>
+      <div class="body">
+        <div class="steps"><div class="line"><span style="width:66%"></span></div>
+          <div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>邀请</div><div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>约好</div><div class="step now"><div class="dot"></div>出发</div><div class="step"><div class="dot"></div>汇合</div></div>
+        <div class="card hero">
+          <div class="avatar ring">李</div>
+          <p class="t">8 分钟后到</p>
+          <p class="s">李明已到 3 号入口附近</p>
+        </div>
+        <div class="card list">
+          <div class="li link"><span class="k">导航去集合点</span><span style="display:flex;align-items:center;font-weight:700">深圳湾公园 3 号入口<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="li link"><span>给李明发语音消息</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+          <div class="li link"><span>修改或取消</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="btm">
+        <div class="btn y"><svg width="14" height="16" viewBox="0 0 12 14"><path d="M6 13s4.5-4.3 4.5-7.5a4.5 4.5 0 1 0-9 0C1.5 8.7 6 13 6 13z" stroke="#1E1A0B" stroke-width="1.6" fill="none"/><circle cx="6" cy="5.5" r="1.5" fill="#1E1A0B"/></svg>我已到达集合点</div>
+        <div class="btn h"><svg width="14" height="16" viewBox="0 0 14 16"><path d="M7 1 1.5 3v4.5C1.5 11 4 13.8 7 15c3-1.2 5.5-4 5.5-7.5V3z" stroke="#B42318" stroke-width="1.6" fill="none"/></svg>求助与安全</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>赶去集合点</h3><p>导航跳转系统地图，App 内不做地图。<br>进入集合点 100 米内，推送询问“到了吗”，不自动判定到达。<br>快捷语音消息：“我到入口了”“再等我 5 分钟”</p></div>
+  </div>
+
+  <div class="arrow">按“我已到达”<br>头像变方位<svg width="80" height="12" viewBox="0 0 80 12"><path d="M0 6h74M68 1l6 5-6 5" stroke="currentColor" stroke-width="2.2" fill="none"/></svg></div>
+
+  <!-- C3 -->
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>陪跑订单</div>
+      <div class="body">
+        <div class="steps"><div class="line"><span style="width:100%"></span></div>
+          <div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>邀请</div><div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>约好</div><div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>出发</div><div class="step now"><div class="dot"></div>汇合</div></div>
+        <div class="card hero">
+          <div class="dir"><svg width="30" height="30" viewBox="0 0 30 30"><path d="M15 3 24 26 15 21 6 26z" fill="#2A5BD7"/></svg></div>
+          <p class="t">李明在你右前方</p>
+          <p class="s">约 40 米，穿深蓝上衣，戴白色帽子</p>
+        </div>
+        <div class="card list">
+          <div class="li link"><span style="display:flex;gap:6px;align-items:center"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M5 1.5 2.5 2c-.8 5.8 4.7 11.8 11 11.5l.5-2.5-3-1.5-1.5 1.5C7.3 10 6 8.7 5 6.5L6.5 5z" stroke="#171B24" stroke-width="1.4" fill="none"/></svg>打电话给李明</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+          <div class="li link"><span>找不到对方</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="btm">
+        <p class="hint">见面并握好引导绳后再按</p>
+        <div class="btn y"><svg width="14" height="16" viewBox="0 0 12 12"><circle cx="7.5" cy="2" r="1.3" fill="#1E1A0B"/><path d="M6 4 4 7l2 1-1 3M6 4l2.5 2.5L10 6M4 7 2 7" stroke="#1E1A0B" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>开始跑步</div>
+        <div class="btn h"><svg width="14" height="16" viewBox="0 0 14 16"><path d="M7 1 1.5 3v4.5C1.5 11 4 13.8 7 15c3-1.2 5.5-4 5.5-7.5V3z" stroke="#B42318" stroke-width="1.6" fill="none"/></svg>求助与安全</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>已到达，找到跑者</h3><p>陪跑员去找跑者：方位随手机朝向实时转动，距离小于 10 米时轻震一次。<br>衣着由跑者出门前在跑者端填写（跨端需求）。<br>“开始跑步”双方都能按，先按的生效</p></div>
+  </div>
+
+  <div class="arrow">开始跑步<br>进入跑中页<svg width="80" height="12" viewBox="0 0 80 12"><path d="M0 6h74M68 1l6 5-6 5" stroke="currentColor" stroke-width="2.2" fill="none"/></svg></div>
+
+  <!-- C4 -->
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav">陪跑中</div>
+      <div class="body">
+        <div class="navycard">
+          <div class="d">2.40</div>
+          <div class="u">公里</div>
+          <div class="grid"><div><b>18:32</b><span>用时</span></div><div><b>7'43"</b><span>当前配速</span></div></div>
+        </div>
+        <div class="card list">
+          <div class="li"><span class="k">跑者</span><span class="v">李明</span></div>
+          <div class="li"><span class="k">目标</span><span class="v">5 公里，配速 7 分左右</span></div>
+          <div class="li link"><span>遇到问题</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="btm">
+        <div class="btn y hold"><span style="position:relative">长按 2 秒，结束陪跑</span></div>
+        <div class="btn h"><svg width="14" height="16" viewBox="0 0 14 16"><path d="M7 1 1.5 3v4.5C1.5 11 4 13.8 7 15c3-1.2 5.5-4 5.5-7.5V3z" stroke="#B42318" stroke-width="1.6" fill="none"/></svg>求助与安全</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>跑步中（已拍板，仅作衔接）</h3><p>深蓝主卡、不做地图、语音默认关闭。<br>长按时按钮从左向右填充。<br>跑者电量 ≤20%、走散等异常时才在主卡下方出现提示</p></div>
+  </div>
+
+  <div class="arrow">长按结束<br>原地变为完成<svg width="80" height="12" viewBox="0 0 80 12"><path d="M0 6h74M68 1l6 5-6 5" stroke="currentColor" stroke-width="2.2" fill="none"/></svg></div>
+
+  <!-- C5 -->
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>陪跑订单</div>
+      <div class="body">
+        <div class="card hero">
+          <div class="avatar" style="background:#E3F4EA;color:#1C7C45"><svg width="26" height="26" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#1C7C45" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg></div>
+          <p class="t">陪跑完成</p>
+          <p class="s">和李明跑了 5.12 公里，用时 39 分 20 秒</p>
+        </div>
+        <div class="card hours">
+          <div class="k">本次志愿服务时长</div>
+          <div class="n">0.7 小时<em>待认证</em></div>
+          <p>组织会在 10 个工作日内确认，确认后同步到你的志愿服务记录</p>
+        </div>
+        <div class="card list">
+          <div class="li link"><span>查看跑步记录</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+          <div class="li link"><span>上报问题</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="btm">
+        <div class="btn y">完成</div>
+        <div class="btn h"><svg width="14" height="16" viewBox="0 0 14 16"><path d="M7 1 1.5 3v4.5C1.5 11 4 13.8 7 15c3-1.2 5.5-4 5.5-7.5V3z" stroke="#B42318" stroke-width="1.6" fill="none"/></svg>求助与安全</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>已完成</h3><p>时长从开始跑步算到结束陪跑，按 0.1 小时取整。<br>没有给跑者打分；跑者主动留言时才多出一行“李明给你留了话”。<br>读屏：陪跑完成，志愿服务时长 0.7 小时，待认证</p></div>
+  </div>
+
+</div>
+</section>
+
+<!-- ================= D 异常 ================= -->
+<section>
+<h2>取消、迟到、爽约</h2>
+<p class="sub">正常状态不提示，出现异常才在原页面插入一条说明</p>
+<div class="row">
+
+  <!-- D1 -->
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>陪跑订单</div>
+      <div class="body faded">
+        <div class="card hero"><div class="avatar">李</div><p class="t">明天 7:00</p><p class="s">已约好</p></div>
+      </div>
+      <div class="dim"></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <h4>取消这次陪跑？</h4>
+        <p>离开始不到 12 小时。现在取消会记一次临时取消，系统会马上为李明重新找人。</p>
+        <p class="fine">30 天内临时取消满 3 次，接下来 14 天不会收到邀请。</p>
+        <div class="btn y" style="margin-top:6px">保留这次陪跑</div>
+        <div class="btn plain">仍然取消</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>陪跑员临时取消</h3><p>12 小时以前取消：不弹这句提醒，直接确认。<br>黄色给“保留”，取消是灰色文字，不用红色。<br>记录只影响邀请，不展示给跑者</p></div>
+  </div>
+
+  <div class="gap"></div>
+
+  <!-- D2 -->
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>陪跑订单</div>
+      <div class="body">
+        <div class="steps"><div class="line"><span style="width:66%"></span></div>
+          <div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>邀请</div><div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>约好</div><div class="step now"><div class="dot"></div>出发</div><div class="step"><div class="dot"></div>汇合</div></div>
+        <div class="card hero">
+          <div class="avatar ring">李</div>
+          <p class="t">晚到约 6 分钟</p>
+          <p class="s">7:06 左右到，李明已到 3 号入口附近</p>
+        </div>
+        <div class="warn"><svg width="14" height="14" viewBox="0 0 14 14" style="flex:none;margin-top:2px"><circle cx="7" cy="7" r="6" stroke="#6B4A00" stroke-width="1.4" fill="none"/><path d="M7 3.8v3.8M7 9.6v.2" stroke="#6B4A00" stroke-width="1.6" stroke-linecap="round"/></svg>已自动告诉李明你会晚到约 6 分钟</div>
+        <div class="card list">
+          <div class="li link"><span class="k">导航去集合点</span><span style="display:flex;align-items:center;font-weight:700">深圳湾公园 3 号入口<svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></span></div>
+          <div class="li link"><span>给李明发语音消息</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="btm">
+        <div class="btn y">我已到达集合点</div>
+        <div class="btn h"><svg width="14" height="16" viewBox="0 0 14 16"><path d="M7 1 1.5 3v4.5C1.5 11 4 13.8 7 15c3-1.2 5.5-4 5.5-7.5V3z" stroke="#B42318" stroke-width="1.6" fill="none"/></svg>求助与安全</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>陪跑员快迟到</h3><p>预计晚到超过 3 分钟时，自动通知跑者，陪跑员不用腾手打字。<br>晚到 15 分钟仍未到，跑者可以无责取消。<br>提示条用浅黄底，不用红色</p></div>
+  </div>
+
+  <div class="gap"></div>
+
+  <!-- D3 -->
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>陪跑订单</div>
+      <div class="body">
+        <div class="steps"><div class="line"><span style="width:100%"></span></div>
+          <div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>邀请</div><div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>约好</div><div class="step done"><div class="dot"><svg width="8" height="8" viewBox="0 0 10 10"><path d="M2 5.2 4.2 7.3 8 3" stroke="#fff" stroke-width="2" fill="none"/></svg></div>出发</div><div class="step now"><div class="dot"></div>汇合</div></div>
+        <div class="card hero">
+          <div class="avatar">李</div>
+          <p class="t">你已等了 15 分钟</p>
+          <p class="s">李明还没到，手机位置在 1.8 公里外</p>
+        </div>
+        <div class="card list">
+          <div class="li link"><span style="display:flex;gap:6px;align-items:center"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M5 1.5 2.5 2c-.8 5.8 4.7 11.8 11 11.5l.5-2.5-3-1.5-1.5 1.5C7.3 10 6 8.7 5 6.5L6.5 5z" stroke="#171B24" stroke-width="1.4" fill="none"/></svg>打电话给李明</span><svg class="chev" width="7" height="12" viewBox="0 0 7 12"><path d="M1 1l5 5-5 5" stroke="currentColor" stroke-width="1.6" fill="none"/></svg></div>
+        </div>
+      </div>
+      <div class="btm">
+        <p class="hint">结束后不算你的取消，时长不计入</p>
+        <div class="btn y">结束等待</div>
+        <div class="btn h"><svg width="14" height="16" viewBox="0 0 14 16"><path d="M7 1 1.5 3v4.5C1.5 11 4 13.8 7 15c3-1.2 5.5-4 5.5-7.5V3z" stroke="#B42318" stroke-width="1.6" fill="none"/></svg>求助与安全</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>跑者没来</h3><p>到达后满 15 分钟，主按钮才变成“结束等待”；之前仍是“开始跑步”。<br>结束前提示陪跑员先打电话确认李明是否安全。<br>陪跑员看不到跑者的爽约记录</p></div>
+  </div>
+
+  <div class="gap"></div>
+
+  <!-- D4 -->
+  <div class="cell">
+    <div class="phone"><div class="screen">
+      <div class="status">9:41<span><span class="bars"><b style="height:4px"></b><b style="height:6px"></b><b style="height:8px"></b><b style="height:10px"></b></span><i></i></span></div>
+      <div class="nav"><svg width="9" height="15" viewBox="0 0 9 15"><path d="M8 1 1.5 7.5 8 14" stroke="#171B24" stroke-width="1.8" fill="none"/></svg>陪跑订单</div>
+      <div class="body">
+        <div class="card hero">
+          <div class="avatar" style="background:#EDEFF3;color:#8A90A0">李</div>
+          <p class="t">李明取消了这次陪跑</p>
+          <p class="s">不算你的取消，不需要做什么</p>
+        </div>
+        <div class="card list faded">
+          <div class="li"><span class="k">时间</span><span class="v">明天 7:00</span></div>
+          <div class="li"><span class="k">集合点</span><span class="v">深圳湾公园 3 号入口</span></div>
+        </div>
+      </div>
+      <div class="btm">
+        <div class="btn y">回到首页</div>
+      </div>
+      <div class="home-ind"></div>
+    </div></div>
+    <div class="cap"><h3>跑者取消</h3><p>不显示取消原因，只告诉陪跑员与他有关的结果。<br>陪跑员已出发后被取消，要震动加推送立刻告知，是否计入时长由组织判断。<br>这时不需要求助入口</p></div>
+  </div>
+
+</div>
+</section>
+
+<div class="note">
+  <h2>需要跑者端或后端配合</h2>
+  <ul>
+    <li>跑者端“已约好”阶段增加：出门前选择当天衣着颜色，适配 VoiceOver。</li>
+    <li>跑者端汇合文案：由“请提前 10 分钟到达”改为“到入口附近停下即可，张伟会来找你”。</li>
+    <li>后端按陪跑员出发地和交通方式计算建议出发时间、预计到达时间和晚到判断。</li>
+    <li>汇合阶段跑者手机持续上报位置，用于陪跑员端的方位指示。</li>
+    <li>陪跑员“接单中”状态、空闲时间、临时取消计数由后端保存；时长以服务端的开始、结束时间为准。</li>
+    <li>实名认证提交后，组织在后台确认志愿者意外险生效，才对该陪跑员发邀请。</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>

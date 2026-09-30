@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#E6E8EE;font-family:"PingFang SC","Noto Sans CJK SC",sans-serif;color:#111A2E;-webkit-font-smoothing:antialiased}
+.pw{padding:20px;background:#E6E8EE;display:inline-block}
+.phone{width:393px;height:852px;border-radius:58px;background:#F4F5F8;position:relative;overflow:hidden;box-shadow:0 0 0 11px #1B1E25,0 0 0 13px #3A3F4B}
+.sb{height:54px;display:flex;align-items:center;justify-content:space-between;padding:6px 34px 0 42px;font-size:16px;font-weight:600}
+.ico{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.btn{height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;gap:10px;font-size:19px;font-weight:600;background:#FFF;box-shadow:inset 0 0 0 1.5px #D5DAE3;position:relative}
+.n{position:absolute;width:26px;height:26px;border-radius:50%;background:#F6C343;color:#111A2E;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px #F4F5F8;z-index:5}
+.tab{position:absolute;left:0;right:0;bottom:0;height:90px;background:#fff;box-shadow:0 -1px 0 #E7EAF0;display:flex;justify-content:space-around;padding-top:10px}
+.tab div{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:13px;color:#6B7385;width:90px}
+.tab .on{color:#15224A;font-weight:600}
+.hi{position:absolute;bottom:9px;left:50%;transform:translateX(-50%);width:138px;height:5px;border-radius:3px;background:#111A2E}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+<symbol id="right" viewBox="0 0 24 24"><path d="M9 6l6 6l-6 6"/></symbol>
+<symbol id="phone" viewBox="0 0 24 24"><path d="M5 4h4l2 5l-2.5 1.5a11 11 0 0 0 5 5l1.5 -2.5l5 2v4a2 2 0 0 1 -2 2a16 16 0 0 1 -15 -15a2 2 0 0 1 2 -2"/></symbol>
+<symbol id="pin" viewBox="0 0 24 24"><path d="M9 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0"/><path d="M17.657 16.657l-4.243 4.243a2 2 0 0 1 -2.827 0l-4.244 -4.243a8 8 0 1 1 11.314 0z"/></symbol>
+<symbol id="home" viewBox="0 0 24 24"><path d="M5 12l-2 0l9 -9l9 9l-2 0"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/></symbol>
+<symbol id="list" viewBox="0 0 24 24"><path d="M9 6h11"/><path d="M9 12h11"/><path d="M9 18h11"/><path d="M5 6v.01"/><path d="M5 12v.01"/><path d="M5 18v.01"/></symbol>
+<symbol id="user" viewBox="0 0 24 24"><path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/></symbol>
+<symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+</svg>
+<div class="pw" id="shot"><div class="phone">
+<div class="sb"><span>9:41</span><span style="display:flex;gap:6px;align-items:center"><svg width="18" height="12"><rect x="0" y="8" width="3" height="4" rx="1" fill="#111A2E"/><rect x="5" y="5" width="3" height="7" rx="1" fill="#111A2E"/><rect x="10" y="2.5" width="3" height="9.5" rx="1" fill="#111A2E"/><rect x="15" y="0" width="3" height="12" rx="1" fill="#111A2E"/></svg><svg width="26" height="13"><rect x=".5" y=".5" width="22" height="12" rx="3.5" fill="none" stroke="#111A2E" opacity=".4"/><rect x="2.5" y="2.5" width="16" height="8" rx="2" fill="#111A2E"/></svg></span></div>
+<div style="padding:18px 20px 0;position:relative">
+<div class="n" style="left:4px;top:0px">1</div>
+<div style="font-size:34px;font-weight:600;padding-top:18px">你好，李明</div>
+</div>
+
+<div style="margin:22px 16px 0;position:relative">
+<div class="n" style="left:-10px;top:-10px">2</div>
+<div style="background:#15224A;color:#fff;border-radius:26px;padding:22px 22px 18px">
+<div style="font-size:16px;color:#B8C3E6">下一次陪跑，已约好</div>
+<div style="font-size:52px;font-weight:600;line-height:1.1;margin-top:8px;font-feature-settings:'tnum'">明天 7:00</div>
+<div style="display:flex;align-items:center;gap:6px;font-size:18px;color:#DCE3F5;margin-top:10px"><svg class="ico" style="width:20px;height:20px"><use href="#pin"/></svg>深圳湾公园 3 号入口</div>
+<div style="display:flex;align-items:center;gap:12px;margin-top:18px;padding-top:16px;border-top:1px solid rgba(255,255,255,.14)">
+<div style="width:44px;height:44px;border-radius:50%;background:#2A3C78;color:#fff;font-size:18px;font-weight:600;display:flex;align-items:center;justify-content:center">张</div>
+<div style="flex:1"><div style="font-size:17px;font-weight:600">陪跑员 张伟</div><div style="font-size:14px;color:#B8C3E6;margin-top:2px">陪跑 32 次，引导绳经验 2 年</div></div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;height:48px;border-radius:14px;background:rgba(255,255,255,.1);padding:0 14px;font-size:17px;font-weight:600">打开订单<svg class="ico"><use href="#right"/></svg></div>
+</div>
+</div>
+
+<div style="margin:16px 16px 0;position:relative">
+<div class="n" style="left:-10px;top:-10px">3</div>
+<div style="background:#DDE8FC;border-radius:26px;padding:22px 20px;display:flex;align-items:center;gap:16px">
+<div style="width:56px;height:56px;border-radius:50%;background:#2A5BD7;color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg class="ico" style="width:28px;height:28px;stroke-width:2.2"><use href="#plus"/></svg></div>
+<div style="flex:1"><div style="font-size:24px;font-weight:600;color:#15224A">预约新的陪跑</div><div style="font-size:15px;color:#3D4F80;margin-top:4px;line-height:1.4">选好时间和地点，<br>系统帮你找陪跑员</div></div>
+<svg class="ico" style="color:#15224A;width:24px;height:24px"><use href="#right"/></svg>
+</div></div>
+
+<div class="tab"><div class="on"><svg class="ico" style="width:26px;height:26px"><use href="#home"/></svg>首页</div><div><svg class="ico" style="width:26px;height:26px"><use href="#list"/></svg>记录</div><div><svg class="ico" style="width:26px;height:26px"><use href="#user"/></svg>我的</div></div>
+<div class="hi"></div>
+</div></div>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>状态色与引导绳</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&amp;family=Noto+Sans+SC:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FFFFFF}
+a{color:#2A5BD7}a:hover{color:#1F47AD}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 1330px; height: 560px; box-sizing: border-box; padding: 48px; display: flex; flex-direction: column; background: #FFFFFF; color: #151A26; font-family: 'Manrope', 'Noto Sans SC', 'PingFang SC', sans-serif; overflow: hidden">
+<div style="font-size: 28px; font-weight: 800; letter-spacing: -0.5px">状态色与引导绳</div>
+<div style="margin-top: 8px; font-size: 15px; line-height: 1.6; color: #5B6272; max-width: 1100px">每个状态一个头卡颜色，读顺序是一段早晨：藏青的夜 → 出门的蓝 → 见面的暖 → 一起跑的青绿 → 完成的绿。页面底和卡片保持浅色；颜色只出现在头卡上，所以不会乱。引导绳在所有彩色头卡上用同一套画法：陪跑员是实心白圆，跑者是白色描边圆，绳子是白色，并肩后变金色。</div>
+<div style="margin-top: 32px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px">
+<div style="background: #FFFFFF; border: 1.5px solid #E3E6EC; border-radius: 20px; padding: 18px; height: 200px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; color: #151A26">
+<svg width="170" height="28" viewBox="0 0 342 56" aria-hidden="true" style="font-family: 'Noto Sans SC', sans-serif"><path d="M50 28 Q171 44 292 28" fill="none" stroke="#C3C9D5" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="2 7"></path><circle cx="24" cy="28" r="22" fill="#2A5BD7"></circle><text x="24" y="34" text-anchor="middle" font-size="17" font-weight="700" fill="#FFFFFF">张</text><circle cx="318" cy="28" r="21" fill="#FFFFFF" stroke="#C3C9D5" stroke-width="2" stroke-dasharray="3 3"></circle><text x="318" y="34" text-anchor="middle" font-size="17" font-weight="700" fill="#8A91A2">李</text></svg><div><div style="font-size: 20px; font-weight: 800">邀请</div><div style="margin-top: 4px; font-size: 14px; color: #5B6272">还不属于你</div><div style="margin-top: 8px; font-size: 13px; font-weight: 700; color: #5B6272">#FFFFFF</div></div></div><div style="background: #1B2657; border-radius: 20px; padding: 18px; height: 200px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; color: #FFFFFF">
+<svg width="170" height="28" viewBox="0 0 342 56" role="img" aria-label="约好" style="font-family: 'Noto Sans SC', sans-serif"><path d="M50 28 Q171 46 292 28" fill="none" stroke="#FFFFFF" stroke-opacity="0.75" stroke-width="3" stroke-linecap="round"></path><circle cx="24" cy="28" r="22" fill="#FFFFFF"></circle><text x="24" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#1B2657">张</text><circle cx="318" cy="28" r="21" fill="#FFFFFF" fill-opacity="0.18" stroke="#FFFFFF" stroke-width="2"></circle><text x="318" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#FFFFFF">李</text></svg><div><div style="font-size: 20px; font-weight: 800">约好</div><div style="margin-top: 4px; font-size: 14px; color: rgba(255,255,255,0.86)">藏青：安静，已经安排好</div><div style="margin-top: 8px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.8)">#1B2657</div></div></div><div style="background: #2A5BD7; border-radius: 20px; padding: 18px; height: 200px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; color: #FFFFFF">
+<svg width="170" height="28" viewBox="0 0 342 56" role="img" aria-label="出发" style="font-family: 'Noto Sans SC', sans-serif"><circle cx="8" cy="28" r="4" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="2"></circle><path d="M214 28 Q253 38 292 28" fill="none" stroke="#FFFFFF" stroke-opacity="0.75" stroke-width="3" stroke-linecap="round"></path><circle cx="190" cy="28" r="28" fill="#FFFFFF" fill-opacity="0.18"></circle><circle cx="190" cy="28" r="22" fill="#FFFFFF"></circle><text x="190" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#2A5BD7">张</text><circle cx="318" cy="28" r="21" fill="#FFFFFF" fill-opacity="0.18" stroke="#FFFFFF" stroke-width="2"></circle><text x="318" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#FFFFFF">李</text></svg><div><div style="font-size: 20px; font-weight: 800">出发</div><div style="margin-top: 4px; font-size: 14px; color: rgba(255,255,255,0.86)">主蓝：在路上</div><div style="margin-top: 8px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.8)">#2A5BD7</div></div></div><div style="background: #A04B0C; border-radius: 20px; padding: 18px; height: 200px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; color: #FFFFFF">
+<svg width="170" height="28" viewBox="0 0 342 56" role="img" aria-label="汇合" style="font-family: 'Noto Sans SC', sans-serif"><circle cx="8" cy="28" r="4" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="2"></circle><circle cx="318" cy="28" r="27" fill="none" stroke="#FFD978" stroke-width="2.5"></circle><path d="M290 28 L296 28" fill="none" stroke="#FFFFFF" stroke-opacity="0.75" stroke-width="3" stroke-linecap="round"></path><circle cx="268" cy="28" r="22" fill="#FFFFFF"></circle><text x="268" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#A04B0C">张</text><circle cx="318" cy="28" r="21" fill="#FFFFFF" fill-opacity="0.18" stroke="#FFFFFF" stroke-width="2"></circle><text x="318" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#FFFFFF">李</text></svg><div><div style="font-size: 20px; font-weight: 800">汇合</div><div style="margin-top: 4px; font-size: 14px; color: rgba(255,255,255,0.86)">琥珀：见面了，变暖</div><div style="margin-top: 8px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.8)">#A04B0C</div></div></div><div style="background: #0A6B72; border-radius: 20px; padding: 18px; height: 200px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; color: #FFFFFF">
+<svg width="170" height="28" viewBox="0 0 342 56" role="img" aria-label="跑步中" style="font-family: 'Noto Sans SC', sans-serif"><path d="M146 50 Q171 58 196 50" fill="none" stroke="#FFD978" stroke-width="3" stroke-linecap="round"></path><circle cx="150" cy="28" r="22" fill="#FFFFFF"></circle><text x="150" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#0A6B72">张</text><circle cx="194" cy="28" r="21" fill="#FFFFFF" fill-opacity="0.18" stroke="#FFFFFF" stroke-width="2"></circle><text x="194" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#FFFFFF">李</text></svg><div><div style="font-size: 20px; font-weight: 800">跑步中</div><div style="margin-top: 4px; font-size: 14px; color: rgba(255,255,255,0.86)">青绿：一起在动</div><div style="margin-top: 8px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.8)">#0A6B72</div></div></div><div style="background: #1C7C45; border-radius: 20px; padding: 18px; height: 200px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; color: #FFFFFF">
+<svg width="170" height="28" viewBox="0 0 342 56" role="img" aria-label="完成" style="font-family: 'Noto Sans SC', sans-serif"><path d="M146 50 Q171 58 196 50" fill="none" stroke="#FFD978" stroke-width="3" stroke-linecap="round"></path><circle cx="150" cy="28" r="22" fill="#FFFFFF"></circle><text x="150" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#1C7C45">张</text><circle cx="194" cy="28" r="21" fill="#FFFFFF" fill-opacity="0.18" stroke="#FFFFFF" stroke-width="2"></circle><text x="194" y="34" text-anchor="middle" font-size="17" font-weight="800" fill="#FFFFFF">李</text></svg><div><div style="font-size: 20px; font-weight: 800">完成</div><div style="margin-top: 4px; font-size: 14px; color: rgba(255,255,255,0.86)">绿：完成</div><div style="margin-top: 8px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.8)">#1C7C45</div></div></div>
+</div>
+<div style="margin-top: 24px; display: flex; gap: 32px; font-size: 14px; line-height: 1.6; color: #5B6272">
+<div><b style="color: #151A26">黄色只做两件事：</b>页面唯一的主按钮，以及跑步中李明发来的节奏信号。跑步中没有黄色主按钮。</div>
+<div><b style="color: #151A26">红色只做一件事：</b>求助与紧急求助。</div>
+<div><b style="color: #151A26">对比度：</b>五种头卡上的白字都在 5:1 以上。</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1330,"height":560}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
