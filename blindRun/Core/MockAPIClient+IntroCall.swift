@@ -279,6 +279,7 @@ extension MockAPIClient {
         orderReviews[orderId] = OrderReview(
             orderId: orderId,
             rating: request.rating,
+            level: nil,
             comment: request.comment,
             createdAt: Self.backendLocalTimestamp()
         )

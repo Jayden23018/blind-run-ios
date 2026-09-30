@@ -57,6 +57,60 @@ final class OrderReviewAndStatusLogDecodingTests: XCTestCase {
         XCTAssertNil(envelope.data?.createdAt)
     }
 
+    /// 三档评价（后端迁移 0055，契约 `ReviewResponse`）：`PROBLEM` 那一单 `rating` 是 null。
+    /// 非可选 `Int` 会让整条解码失败 → 盲人评价页读不出来。
+    func testReviewWithNullRatingAndProblemLevelStillDecodes() throws {
+        let envelope = try decode(OrderReviewEnvelope.self, """
+        {"data": {"orderId": 4202, "rating": null, "level": "PROBLEM",
+                  "comment": "路线讲得不对", "createdAt": "2026-09-30T20:14:07"}}
+        """)
+
+        XCTAssertNotNil(envelope.data, "PROBLEM 那一单被吞成了「无评价」")
+        XCTAssertNil(envelope.data?.rating)
+        XCTAssertEqual(envelope.data?.level, .problem)
+        XCTAssertEqual(envelope.data?.comment, "路线讲得不对")
+        XCTAssertEqual(envelope.data?.summaryLine, "你反馈了本次服务有问题")
+    }
+
+    /// 被评的志愿者读到 `PROBLEM` 那一单时 `level` 与 `rating` 都是 null（契约 :8328）。
+    func testReviewWithNullRatingAndNullLevelStillDecodes() throws {
+        let envelope = try decode(OrderReviewEnvelope.self, """
+        {"data": {"orderId": 4203, "rating": null, "level": null, "comment": null, "createdAt": null}}
+        """)
+
+        XCTAssertNotNil(envelope.data)
+        XCTAssertNil(envelope.data?.rating)
+        XCTAssertNil(envelope.data?.level)
+        XCTAssertEqual(envelope.data?.summaryLine, "你已评价过本次服务")
+    }
+
+    /// `level` 是开放枚举（契约 `anyOf enum | string`）：未知取值不许让整条响应解不出来。
+    func testReviewWithUnknownLevelStillDecodes() throws {
+        let envelope = try decode(OrderReviewEnvelope.self, """
+        {"data": {"orderId": 4204, "rating": null, "level": "EXCELLENT", "comment": null, "createdAt": null}}
+        """)
+
+        XCTAssertNotNil(envelope.data, "未知 level 让整条评价解码失败")
+        XCTAssertEqual(envelope.data?.level, .unknown)
+        XCTAssertEqual(envelope.data?.summaryLine, "你已评价过本次服务")
+    }
+
+    /// 有分数时文案与改动前逐字相同：三档的 `GOOD` / `OK` 后端折成 5 / 4 分，
+    /// 旧五星评价没有 `level` 键 —— 两种都走原来的星数。
+    func testReviewWithRatingKeepsTheStarWording() throws {
+        let good = try decode(OrderReviewEnvelope.self, """
+        {"data": {"orderId": 1, "rating": 5, "level": "GOOD", "comment": null, "createdAt": null}}
+        """)
+        let legacy = try decode(OrderReviewEnvelope.self, """
+        {"data": {"orderId": 2, "rating": 3, "comment": null, "createdAt": null}}
+        """)
+
+        XCTAssertEqual(good.data?.level, .good)
+        XCTAssertEqual(good.data?.summaryLine, "你给本次服务打了 5 星")
+        XCTAssertNil(legacy.data?.level)
+        XCTAssertEqual(legacy.data?.summaryLine, "你给本次服务打了 3 星")
+    }
+
     /// 宽容的边界：`data` 键**必须在**。缺了就抛，而不是当成「无评价」。
     ///
     /// 这条是上面那个静默吞数据的反向锁 —— 正是因为「缺 data 键要抛」，

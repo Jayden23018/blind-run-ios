@@ -925,14 +925,44 @@ struct CreateReviewRequest: Codable, Sendable {
     let comment: String?
 }
 
+/// 三档评价（后端迁移 0055，契约 `ReviewResponse.level`）。**开放枚举**：契约明写
+/// `anyOf enum | string`、“遇到未知值请按未知档位处理，别让整条响应解不出来”，
+/// 所以未知取值落 `.unknown`，不抛。
+enum ReviewLevel: String, Decodable, Sendable, Equatable {
+    case good = "GOOD"
+    case ok = "OK"
+    case problem = "PROBLEM"
+    case unknown = "UNKNOWN"
+
+    init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = ReviewLevel(rawValue: rawValue) ?? .unknown
+    }
+}
+
 /// `GET /api/orders/{id}/reviews` 的 `data`（后端 `dto/ReviewResponse.java`）。
-/// `comment` / `createdAt` 契约里显式可空；`rating` 上有 `@NotNull @Min(1) @Max(5)`，写入侧保证非空。
+/// `comment` / `createdAt` / `level` 契约里显式可空。
+/// `rating` 也可空：三档评价里 `PROBLEM` 不折算分数，被评的志愿者读到 `PROBLEM` 那一单时
+/// `level` 与 `rating` 都是 null（契约 :8326-8344）。
 struct OrderReview: Decodable, Sendable, Equatable {
     let orderId: Int64?
-    let rating: Int
+    let rating: Int?
+    let level: ReviewLevel?
     let comment: String?
     /// 后端 `LocalDateTime.toString()`，可能带小数秒。展示走 `String.displayDateTime`。
     let createdAt: String?
+
+    /// 评价回读那一行的文案。有分数走原来的星数；没分数（`PROBLEM` / 读不到档位）按档位念，
+    /// 都读不出来就只说「已评价过」—— 空白比一句笼统的话更糟。
+    var summaryLine: String {
+        if let rating { return "你给本次服务打了 \(rating) 星" }
+        switch level {
+        case .problem: return "你反馈了本次服务有问题"
+        case .good: return "你评价本次服务很好"
+        case .ok: return "你评价本次服务一般"
+        case .unknown, nil: return "你已评价过本次服务"
+        }
+    }
 }
 
 /// `GET /api/orders/{id}/reviews` 的整个响应体：裸 `Map`，只有一个 `data` 键，
