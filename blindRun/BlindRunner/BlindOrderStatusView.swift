@@ -2547,7 +2547,7 @@ struct BlindOrderStatusView: View {
         // 视觉与读屏两条通道给同一份内容，不给读屏偷偷多塞一句 —— 低视力用户走的是视觉那条
         // （AGENTS.md §1.4）。
         return VStack(alignment: .leading, spacing: 4) {
-            Text("你给本次服务打了 \(review.rating) 星")
+            Text(review.summaryLine)
                 .font(AppFonts.body().weight(.semibold))
                 .foregroundColor(AppColors.textPrimary)
             if let comment {
@@ -2564,7 +2564,7 @@ struct BlindOrderStatusView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "你给本次服务打了 \(review.rating) 星"
+            review.summaryLine
                 + (comment.map { "，评语：\($0)" } ?? "")
                 + (reviewedAt.map { "，评价于\($0)" } ?? "")
         )
