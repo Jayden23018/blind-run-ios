@@ -21,6 +21,6 @@ src="$(dirname "$common_dir")/LocalConfig.xcconfig"
 if [ -f "$src" ]; then
   cp "$src" "$dest" && echo "[post-checkout] 已从主 worktree 复制 LocalConfig.xcconfig（高德 key，不入库）"
 else
-  echo "[post-checkout] ⚠ 主 worktree 也没有 LocalConfig.xcconfig（$src），编译前先照 LocalConfig.xcconfig.example 建一份"
+  echo "[post-checkout] ⚠ 主 worktree 也没有 LocalConfig.xcconfig（${src}），编译前先照 LocalConfig.xcconfig.example 建一份"
 fi
 exit 0

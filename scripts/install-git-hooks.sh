@@ -46,7 +46,7 @@ if [ -f "$POST_CHECKOUT" ] && ! cmp -s "$POST_CHECKOUT" "$POST_CHECKOUT_SRC"; th
 else
   cp "$POST_CHECKOUT_SRC" "$POST_CHECKOUT"
   chmod +x "$POST_CHECKOUT"
-  echo "已安装 $POST_CHECKOUT（新 worktree 自动复制 LocalConfig.xcconfig）"
+  echo "已安装 ${POST_CHECKOUT}（新 worktree 自动复制 LocalConfig.xcconfig）"
 fi
 
 # ── 推送目标：只推 origin ───────────────────────────────────────────────────

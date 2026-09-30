@@ -44,7 +44,7 @@ run_node() {
   label="$1"
   script="$2"
   if [ ! -f "$script" ]; then
-    echo "[pre-push] ⚠ 跳过 $label：本分支没有 $script。这不算通过。"
+    echo "[pre-push] ⚠ 跳过 ${label}：本分支没有 ${script}。这不算通过。"
     SKIPPED_GATES=$((SKIPPED_GATES + 1))
     return
   fi
@@ -53,6 +53,7 @@ run_node() {
 
 run "openspec validate --all --strict" openspec validate --all --strict --no-interactive
 run_node "validate-docs" scripts/validate-docs.mjs
+run_node "validate-shell-varnames（变量名后紧跟全角字符的守卫）" scripts/validate-shell-varnames.mjs
 run_node "validate-guard（冻结文件守卫自测）" scripts/validate-guard.mjs
 run_node "validate-stop-checklist（收尾钩子自测）" scripts/validate-stop-checklist.mjs
 run_node "validate-session-context（开场钩子自测）" scripts/validate-session-context.mjs
@@ -119,7 +120,7 @@ trap 'rm -rf "$PREPUSH_TMP"' EXIT
 
 if [ "$BACKEND_WORKTREE" = "1" ]; then
   BACKEND_SOURCE="$BACKEND_DIR 的工作区"
-  echo "[pre-push] ⚠ 按 AIDRUN_ALLOW_BACKEND_DRIFT=1 读 $BACKEND_SOURCE，不是 origin/main。结论不代表上游。"
+  echo "[pre-push] ⚠ 按 AIDRUN_ALLOW_BACKEND_DRIFT=1 读 ${BACKEND_SOURCE}，不是 origin/main。结论不代表上游。"
 else
   BACKEND_SOURCE="$BACKEND_DIR 的 origin/main"
   git -C "$BACKEND_DIR" fetch --quiet origin main 2>/dev/null || true
@@ -150,7 +151,7 @@ if [ -f "$SPEC" ]; then
   # 契约改了却忘了重新生成，生成代码就成了过期快照 —— 那比没有更糟，因为它看起来还是绿的。
   # 用 status --porcelain 而不是 diff：diff 看不见未跟踪文件，契约新增路径时会漏。
   GEN_DIR="Packages/AidRunAPI/Sources/AidRunAPI"
-  echo "[pre-push] 重新生成 API 客户端并比对（契约取自 $SPEC_SOURCE）"
+  echo "[pre-push] 重新生成 API 客户端并比对（契约取自 ${SPEC_SOURCE}）"
   if scripts/generate-api-client.sh "$SPEC" >"$LOG" 2>&1; then
     DIRTY="$(git status --porcelain -- "$GEN_DIR")"
     if [ -n "$DIRTY" ]; then

@@ -58,7 +58,7 @@ xcodebuild -workspace blindRun.xcworkspace -scheme blindRun-Prod -configuration 
 rc=$?
 set -e
 tail -n 3 "$OUT/archive.log"
-[[ $rc -eq 0 ]] || fail "archive 失败（rc=$rc），看 $OUT/archive.log"
+[[ $rc -eq 0 ]] || fail "archive 失败（rc=${rc}），看 $OUT/archive.log"
 
 # ── 3. 产物检查 ─────────────────────────────────────────
 APP="$ARCHIVE/Products/Applications/blindRun.app"
@@ -109,5 +109,5 @@ xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportOptionsPlist "$OUT/Expo
 rc=$?
 set -e
 tail -n 5 "$OUT/export.log"
-[[ $rc -eq 0 ]] || fail "上传失败（rc=$rc），看 $OUT/export.log"
+[[ $rc -eq 0 ]] || fail "上传失败（rc=${rc}），看 $OUT/export.log"
 echo "✅ build $build 已上传。约 10–30 分钟后出现在 App Store Connect → TestFlight，处理完才能加进测试组"
