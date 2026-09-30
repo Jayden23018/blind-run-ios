@@ -38,7 +38,8 @@ Anthropic 官方 cookbook 的 `<frontend_aesthetics>` 块逐字要求避开
 **San Francisco**，Dynamic Type 的整张字号表是为它设计的，`AppFonts` 全部基于它，
 照做等于在盲人 App 上主动破坏 Dynamic Type。判据见记忆
 `web-design-advice-is-mostly-not-for-swiftui` 与 `docs/research/ai-ui-design-workflow-for-swiftui-20260907.md`。
-提醒已落成钩子 `scripts/hooks/design-direction-reminder.mjs`（PreToolUse，动 SwiftUI 视图时每会话响一次；
+提醒已落成钩子 `scripts/hooks/design-direction-reminder.mjs`（PreToolUse，动 SwiftUI 视图时每会话响一次，
+并按正在改的文件名从 `docs/ui/mockups/INDEX.md` 贴出对应行；
 自测 `scripts/validate-design-reminder.mjs`，CI 与 pre-push 都跑），走的是 §1.3。
 
 **`CONTEXT.md`（仓库根）—— 领域词 ↔ 模块名对照表。在写下「这个功能仓库里没有」之前必读一次，

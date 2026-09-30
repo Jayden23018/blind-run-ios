@@ -15,6 +15,11 @@
  *
  * 它是**非阻断**的：走 `hookSpecificOutput.additionalContext` + `exit(0)`，
  * 与 `research-log.mjs` 同一个机制。设计流程走没走没有机器判据 —— 拦不了，只能提醒。
+ *
+ * 设计稿索引（`docs/ui/mockups/INDEX.md`）：提醒里总带一句「先读它里面这个界面的那一行」；
+ * 另外按**正在改的文件名**去它的「实现落点」列查，命中就把那一行的界面 / 状态 / 决定源直接贴进来
+ * （少一步「去读」）。解析不出来、文件不存在、没命中 —— 都只给静态那一句，不崩。
+ * 局限：仍是每会话只响一次，所以只覆盖**第一个**被改的视图文件；后面换文件不会再查。
  */
 
 import fs from 'node:fs';
@@ -47,12 +52,54 @@ export const REMINDER = `【设计方向提醒 —— 本会话只提示这一�
 
 最常被违反的四条（完整清单见文档 §7）：
 - 两端**跟随系统明暗**，盲人端不强制深色；配色只用 \`AppColors\`，**不新增强调色**
+  （唯一例外：陪跑员订单页 v2 的头卡状态色，见文档 §6.1）
 - 不用 emoji 当图标（VoiceOver 会把 🎉 念成「派对拉炮」，且不随 Dynamic Type 缩放）
 - 不只做 happy path —— 加载中 / 空 / 错误 / 禁用 / 离线都要交代；盲人端「点了没反应」就是事故
 - 盲人端主按钮 ≥64pt，次级操作整行铺满竖直堆叠、绝不并排
 
+改的是哪个界面？先读 \`docs/ui/mockups/INDEX.md\` 里它的那一行：哪版设计现行、多份材料冲突时听谁、已知偏差。
+状态若是「待确认」，不许自己挑一份就做，去问用户。
+
 志愿者端对标 Keep / 悦跑圈 / 咕咚，但**只抄**成长曲线、徽章分级、总结页排布；
 **不抄**排行榜、社交流、成就抢播。安全相关界面（进行中 / SOS / 位置上报）在两端都退回最克制的一档。`;
+
+const INDEX_REL = 'docs/ui/mockups/INDEX.md';
+// 列顺序 = INDEX.md 的表头：界面 | 目录 | 状态 | 取代关系 | 决定源 | 实现落点 | 已知偏差。
+// 改表头顺序要同步这里，`validate-design-reminder.mjs` 里有同样列序的样本。
+const INDEX_COLS = 7;
+const COL = { surface: 0, status: 2, source: 4, landing: 5 };
+
+/** 索引里「实现落点」含这个文件的行。表格解析不出来就返回空数组。 */
+export function indexRowsFor(indexText, filePath) {
+  const name = path.basename(filePath);
+  const rows = [];
+  for (const line of String(indexText || '').split('\n')) {
+    if (!line.startsWith('|')) continue;
+    const cells = line.split('|').slice(1, -1).map((c) => c.trim());
+    if (cells.length !== INDEX_COLS) continue;
+    const landing = [...cells[COL.landing].matchAll(/`([^`]+\.swift)`/g)].map((m) => path.basename(m[1]));
+    if (!landing.includes(name)) continue;
+    rows.push({
+      surface: cells[COL.surface],
+      status: cells[COL.status].replace(/\*/g, ''),
+      source: cells[COL.source],
+    });
+  }
+  return rows;
+}
+
+function indexSection(rows) {
+  if (!rows.length) return '';
+  const lines = rows.map((r) => `- ${r.surface} · 状态：${r.status} · 决定源：${r.source}`);
+  const pending = rows.some((r) => r.status.includes('待确认'));
+  return [
+    '',
+    '',
+    '【这个文件在设计稿索引里】',
+    ...lines,
+    ...(pending ? ['⚠️ 上面有「待确认」：材料互相矛盾，先问用户，不要自己挑一份。'] : []),
+  ].join('\n');
+}
 
 function readStdin() {
   try {
@@ -105,9 +152,16 @@ function main() {
     /* .git 不可写就每次都提醒，好过静默失效 */
   }
 
+  let extra = '';
+  try {
+    extra = indexSection(indexRowsFor(fs.readFileSync(path.join(root, INDEX_REL), 'utf8'), filePath));
+  } catch {
+    /* 没有索引文件 = 只给上面静态的那一句 */
+  }
+
   process.stdout.write(
     JSON.stringify({
-      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: REMINDER },
+      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: REMINDER + extra },
     })
   );
   process.exit(0);
