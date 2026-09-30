@@ -154,7 +154,7 @@
 
 ## 5. Principles
 
-1. **视觉语言全 App 统一且克制**，色板即 `AppColors`，不新增强调色。
+1. **视觉语言全 App 统一且克制**，色板即 `AppColors`，不新增强调色（唯一例外：陪跑员订单页 v2 的头卡状态色，见 §6.1）。
 2. **两端差异只走三个轴：信息密度、层级丰富度、文案语气。** 不走两套色、不分叉共享组件。
 3. **盲人端的「温度」由播报措辞与触觉反馈承载，不由颜色承载。**
    这条已有测试钉住而不只是主张：`LowVisionChannelTests.testEveryOrderStatusMakesAnExplicitHapticDecision`
@@ -195,7 +195,7 @@ SOS 二次确认文案是逐字锁定的（`AGENTS.md` §6），那种严肃度�
 | §4 次级操作绝不并排 | 快捷回复、汇合页「打电话 / 找不到对方」默认两列，AX 字号下改竖排 | 陪跑员单手骑车 / 小跑，两个并列的对等选项比竖排少一次视线移动 |
 | 色板只用 `AppColors` | 并进 `AppColors.Flow`（没有另起 `ZColor`），navy / page / 文字取值随交付包微调，盲人端首页一起变 | 同一个产品方向，不是第二套色板；每个新色都进了 `FlowDesignSystemTests` 的配对断言 |
 | 触达 64pt | 主按钮、次要按钮（含响铃、快捷回复）仍 64；两列按钮 48、文字按钮与求助胶囊 44 | 陪跑员是明眼人，44 是 Apple HIG 下限；最常按的那几枚仍守 64。断言在 `testVolunteerOrderV2AuxiliaryTargetsKeepTheFortyFourFloor` |
-| §2 / §5 不新增强调色 | **头卡按订单状态着色**：约好 / 跑者取消藏青、出发主蓝、汇合琥珀、完成绿（`AppColors.Flow.state*`，v2 C01；跑步中暂停灰 `statePaused` 已由 FE-3 加（跑步页暂停时的头卡）；锁屏卡的跑步中青绿由 FE-2 加）。状态色**只出现在头卡**，例外只有汇合页方位盘、响铃按钮、④b「打电话」；黄色只给唯一主按钮，红色只给求助（C06） | 项目负责人 2026-09-26 拍板（`DECISIONS-v2.md` V13）：陪跑员骑车 / 小跑时扫一眼头卡颜色就知道这一单走到哪了，这是信息不是装饰。头卡上的字全是半透明白，逐色验 ≥4.5:1 在 `testHeroCardTextClearsTheBodyThresholdOnEveryStateColour`（交付包原值算不过，已调，见 `FlowPalette` 第 6 条） |
+| §2 / §5 不新增强调色 | **头卡按订单状态着色**：约好 / 跑者取消藏青、出发主蓝、汇合琥珀、完成绿（`AppColors.Flow.state*`，v2 C01）。**跑步中页头卡是藏青 `stateAgreed`，暂停时换暂停灰 `statePaused`**（`VolunteerRunningPage`，暂停灰由 FE-3 加）；交付包 C01 的跑步中青绿 `AppColors.Flow` 里**没有定义、App 内未启用**（负责人 2026-09-26 选定藏青，要换青绿需另行拍板，见归档 OpenSpec `restyle-volunteer-running-page-v2` 决策 3）；锁屏卡的跑步中青绿由 FE-2 加。状态色**只出现在头卡**，例外只有汇合页方位盘、响铃按钮、④b「打电话」；黄色只给唯一主按钮，红色只给求助（C06） | 项目负责人 2026-09-26 拍板（`DECISIONS-v2.md` V13）：陪跑员骑车 / 小跑时扫一眼头卡颜色就知道这一单走到哪了，这是信息不是装饰。头卡上的字全是半透明白，逐色验 ≥4.5:1 在 `testHeroCardTextClearsTheBodyThresholdOnEveryStateColour`（交付包原值算不过，已调，见 `FlowPalette` 第 6 条） |
 
 ⚠️ **这六条不许外溢**。盲人端照抄其中任何一条都是回退 —— 那边的约束来自视障用户本身，不是审美。
 
