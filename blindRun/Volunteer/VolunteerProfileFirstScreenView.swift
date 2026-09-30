@@ -367,7 +367,10 @@ struct VolunteerProfileFirstScreen: View {
         _ summary: VolunteerHomeIncentiveSummary,
         achievements: VolunteerAchievementsResponse
     ) -> some View {
-        let headline = VolunteerProfileHeadline.resolve(totalCompleted: achievements.totalCompleted)
+        let headline = VolunteerProfileHeadline.resolve(
+            totalCompleted: achievements.totalCompleted,
+            totalDistanceMeters: achievements.totalDistanceMeters
+        )
 
         VStack(alignment: .leading, spacing: 14) {
             hero(headline)
@@ -410,18 +413,27 @@ struct VolunteerProfileFirstScreen: View {
                     .foregroundColor(AppColors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-            case .completed(let count):
+            case .completed(let count, let distanceKm):
                 // 数字与量词同一行、量词小一号：主次靠**字号差**拉开，不靠卡片边框
                 // （调研 §2.1，Nike Run Club 的 `20.6` + `5'14"` 是同一形态）。
+                // 有里程时主数字是公里，次数退到下一行；没有里程时主数字仍是次数。
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("\(count)")
+                    Text("\(distanceKm ?? Int64(count))")
                         .font(AppFonts.largeTitle())
                         .foregroundColor(AppColors.textPrimary)
-                    Text(VolunteerProfileCopy.heroUnit)
+                    Text(distanceKm == nil
+                         ? VolunteerProfileCopy.heroUnit
+                         : VolunteerProfileCopy.heroDistanceUnit)
                         .font(AppFonts.body().weight(.semibold))
                         .foregroundColor(AppColors.textPrimary)
                 }
                 .fixedSize(horizontal: false, vertical: true)
+                if distanceKm != nil {
+                    Text(VolunteerProfileCopy.heroRunsDetail(count))
+                        .font(AppFonts.body())
+                        .foregroundColor(AppColors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

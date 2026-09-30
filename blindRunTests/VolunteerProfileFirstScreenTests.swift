@@ -89,10 +89,10 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
 
     /// 🔴 新人不显示「0 次陪跑」——一屏上最大最粗的那个数字是 0，那是负激励。
     func testNewcomerNeverShowsAZeroHeroNumber() {
-        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: 0), .newcomer)
-        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: nil), .newcomer)
-        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: -3), .newcomer, "负数是脏数据，同样不该上屏")
-        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: 1), .completed(count: 1))
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: 0, totalDistanceMeters: nil), .newcomer)
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: nil, totalDistanceMeters: nil), .newcomer)
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: -3, totalDistanceMeters: nil), .newcomer, "负数是脏数据，同样不该上屏")
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: 1, totalDistanceMeters: nil), .completed(count: 1, distanceKm: nil))
 
         let spoken = VolunteerProfileCopy.heroSpoken(.newcomer)
         XCTAssertFalse(spoken.contains("0"), "新人播报里出现了 0：\(spoken)")
@@ -103,7 +103,7 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
     /// 摆出来的信息是「你离得很远」。
     func testNewcomerHidesTheImpactGridAndStarProgress() {
         XCTAssertFalse(VolunteerProfileHeadline.newcomer.showsImpactSections)
-        XCTAssertTrue(VolunteerProfileHeadline.completed(count: 1).showsImpactSections)
+        XCTAssertTrue(VolunteerProfileHeadline.completed(count: 1, distanceKm: nil).showsImpactSections)
     }
 
     /// 🔴 **成就那条请求失败时，不许把老志愿者渲染成新人。**
@@ -134,25 +134,85 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         let realNewcomer = Self.achievements(
             totalCompleted: 0, minutes: 0, avgRating: nil, totalRatings: 0
         )
-        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: realNewcomer.totalCompleted), .newcomer)
+        XCTAssertEqual(VolunteerProfileHeadline.resolve(totalCompleted: realNewcomer.totalCompleted, totalDistanceMeters: realNewcomer.totalDistanceMeters), .newcomer)
 
         // 老志愿者：同样读到了，数字非 0。
         let veteran = Self.achievements(
             totalCompleted: 200, minutes: 60_000, avgRating: 4.9, totalRatings: 180
         )
         XCTAssertEqual(
-            VolunteerProfileHeadline.resolve(totalCompleted: veteran.totalCompleted),
-            .completed(count: 200)
+            VolunteerProfileHeadline.resolve(totalCompleted: veteran.totalCompleted, totalDistanceMeters: veteran.totalDistanceMeters),
+            .completed(count: 200, distanceKm: nil)
         )
 
         // 🚩 这一条是本用例的重点：**光看 `summary` 非空分不出上面两种人**。
         // 视图如果按 `summary != nil` 判，`achievementsFailed` 这一档就会走进
-        // `impactContent`，然后 `resolve(totalCompleted: nil)` 把它变成新人。
+        // `impactContent`，然后 `resolve(totalCompleted: nil, totalDistanceMeters: nil)` 把它变成新人。
         XCTAssertEqual(
-            VolunteerProfileHeadline.resolve(totalCompleted: nil),
+            VolunteerProfileHeadline.resolve(totalCompleted: nil, totalDistanceMeters: nil),
             .newcomer,
             "nil 落进 .newcomer 是 resolve 的既有行为 —— 正因如此，调用方必须先保证 achievements 非空"
         )
+    }
+
+    // MARK: - 主指标：公里（#269）
+
+    /// 🔴 向下取整：12_999 米是 12 公里。用例故意取落在「向下取整 / 四舍五入」之间的值 ——
+    /// 取 12_000 或 12_400 的话，四舍五入的实现照样通过，分辨不出口径被改过。
+    func testHeroDistanceFloorsToWholeKilometres() {
+        XCTAssertEqual(
+            VolunteerProfileHeadline.resolve(totalCompleted: 24, totalDistanceMeters: 12_999),
+            .completed(count: 24, distanceKm: 12)
+        )
+        XCTAssertEqual(
+            VolunteerProfileHeadline.resolve(totalCompleted: 24, totalDistanceMeters: 1_000),
+            .completed(count: 24, distanceKm: 1)
+        )
+    }
+
+    /// 🔴 不足 1 公里 / 缺字段 / 脏数据都回落到次数，**不显示「0 公里」**。
+    /// 2026-08-14 之前的订单没有里程快照，「有完成订单但里程 0」是真实状态。
+    func testHeroFallsBackToRunCountWhenThereIsNoWholeKilometre() {
+        for meters: Int64? in [nil, 0, 999, -5_000] {
+            XCTAssertEqual(
+                VolunteerProfileHeadline.resolve(totalCompleted: 24, totalDistanceMeters: meters),
+                .completed(count: 24, distanceKm: nil),
+                "meters=\(String(describing: meters)) 时不该有公里"
+            )
+        }
+    }
+
+    /// 新人态只看完成次数：里程再大也不能把新人变成老志愿者。
+    func testNewcomerIgnoresDistance() {
+        XCTAssertEqual(
+            VolunteerProfileHeadline.resolve(totalCompleted: 0, totalDistanceMeters: 50_000),
+            .newcomer
+        )
+    }
+
+    func testHeroSpokenNamesKilometresAndKeepsTheRunCount() {
+        let withDistance = VolunteerProfileCopy.heroSpoken(.completed(count: 24, distanceKm: 12))
+        XCTAssertTrue(withDistance.contains("12 公里"), withDistance)
+        XCTAssertTrue(withDistance.contains("24 次陪跑"), withDistance)
+        // 无里程时与改动前逐字相同。
+        XCTAssertEqual(
+            VolunteerProfileCopy.heroSpoken(.completed(count: 24, distanceKm: nil)),
+            "我的陪伴。已完成 24 次陪跑。"
+        )
+    }
+
+    /// 解码回归：有值 / 字段缺失。缺字段时整条响应仍要解出来，其余字段不受影响。
+    func testAchievementsDecodeDistanceWhenPresentAndTolerateItWhenMissing() {
+        let present = Self.achievements(
+            totalCompleted: 24, minutes: 1_440, avgRating: 4.9, totalRatings: 10, distanceMeters: 128_400
+        )
+        XCTAssertEqual(present.totalDistanceMeters, 128_400)
+
+        let missing = Self.achievements(
+            totalCompleted: 24, minutes: 1_440, avgRating: 4.9, totalRatings: 10
+        )
+        XCTAssertNil(missing.totalDistanceMeters)
+        XCTAssertEqual(missing.totalCompleted, 24, "少一个字段不该拖垮其余字段")
     }
 
     // MARK: - 三列统计
@@ -364,7 +424,8 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
             VolunteerProfileCopy.newcomerHeadline,
             VolunteerProfileCopy.newcomerDetail,
             VolunteerProfileCopy.heroSpoken(.newcomer),
-            VolunteerProfileCopy.heroSpoken(.completed(count: 24)),
+            VolunteerProfileCopy.heroSpoken(.completed(count: 24, distanceKm: nil)),
+            VolunteerProfileCopy.heroSpoken(.completed(count: 24, distanceKm: 12)),
             VolunteerProfileCopy.hoursCaption,
             VolunteerProfileCopy.partnersCaption,
             VolunteerProfileCopy.ratingCaption,
@@ -447,12 +508,16 @@ final class VolunteerProfileFirstScreenTests: XCTestCase {
         totalCompleted: Int?,
         minutes: Int64?,
         avgRating: Double?,
-        totalRatings: Int?
+        totalRatings: Int?,
+        distanceMeters: Int64? = nil
     ) -> VolunteerAchievementsResponse {
+        // 不传 = 整个键都不出现（模拟后端没发这个字段），不是 `null`。
+        let distance = distanceMeters.map { "\"totalDistanceMeters\": \($0)," } ?? ""
         let json = """
         {
           "totalCompleted": \(totalCompleted.map { "\($0)" } ?? "null"),
           "totalServiceMinutes": \(minutes.map { "\($0)" } ?? "null"),
+          \(distance)
           "avgRating": \(avgRating.map { "\($0)" } ?? "null"),
           "totalRatings": \(totalRatings.map { "\($0)" } ?? "null"),
           "badges": [],
