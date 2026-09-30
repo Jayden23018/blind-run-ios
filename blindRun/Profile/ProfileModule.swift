@@ -38,6 +38,11 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     /// 用户在同意页按下「同意并填写」之后界面不会展开，表现就是「点了没反应」。
     @Published private(set) var hasVisionConsent = false
 
+    /// 用户**本次**在同意页明确点了拒绝。只有它为真才会显式传 `NOT_SPECIFIED`：
+    /// 「从没被问过」（新设备 / 重装后同意记录不在）不是拒绝，那时不带键让后端保留原值，
+    /// 否则会把已存的 `LOW_VISION` 悄悄覆盖成「未提供」。
+    @Published private(set) var hasDeclinedVisionConsent = false
+
     private weak var appState: AppState?
     private var speechService: SpeechService?
 
@@ -58,7 +63,10 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             defaultPace = profile.defaultPace?.selectable ?? .noPreference
             specialNeeds = profile.specialNeeds ?? ""
             tetherPreference = profile.tetherPreference.flatMap(TetherPreference.init(rawValue:))
+            // `NOT_SPECIFIED` 回读成 nil（= Picker 的「不填」）：Picker 没有它的 tag，
+            // 直接放进去选中值无效。此时保存不带键，后端保留原值。
             visionLevel = profile.visionLevel.flatMap(VisionLevel.init(rawValue:))
+                .flatMap { $0 == .notSpecified ? nil : $0 }
             hasGuideDog = profile.hasGuideDog ?? false
             guidePreferenceText = profile.guidePreferenceText ?? ""
         }
@@ -82,6 +90,11 @@ final class BlindRunnerProfileViewModel: ObservableObject {
     func acceptVisionConsent() {
         consentStore?.recordConsent(to: .blindVisionProfile, scope: consentScope)
         hasVisionConsent = true
+        hasDeclinedVisionConsent = false
+    }
+
+    func declineVisionConsent() {
+        hasDeclinedVisionConsent = true
     }
 
     #if DEBUG
@@ -132,12 +145,16 @@ final class BlindRunnerProfileViewModel: ObservableObject {
             name: name.trimmed,
             runningPace: nil,
             specialNeeds: specialNeeds.nilIfBlank,
-            // 🔴 **没取得单独同意就一律传 nil，绝不传「默认值」。**
-            // 传 `TOTAL_BLIND` 或 `false` 会把「用户没说」伪造成「用户说了」——
-            // 后端此刻还没有 `NOT_SPECIFIED` 这个取值（已投 handoff），
-            // 所以在它上线之前，「拒绝」在协议上唯一诚实的表达就是**不带这两个键**。
-            // 用例 `BlindEscortPreferencesTests.testProfileUpdateOmitsVisionFieldsWithoutConsent` 钉住。
-            visionLevel: hasVisionConsent ? visionLevel?.rawValue : nil,
+            // 🔴 **没取得单独同意就绝不传「默认值」。**
+            // 传 `TOTAL_BLIND` 或 `false` 会把「用户没说」伪造成「用户说了」。
+            // 三种情形：同意 → 用户选的值（没选 = 不带键）；本次明确拒绝 → 显式传 `NOT_SPECIFIED`
+            // （后端迁移 0056，backend#326）；从没被问过 → 不带键，后端保留原值。
+            // `hasGuideDog` 契约里没有「未提供」取值，所以没同意仍是不带键。
+            // 用例 `BlindEscortPreferencesTests.testProfileUpdateOmitsVisionFieldsWithoutConsent` /
+            // `testDecliningVisionConsentSendsNotSpecified` 钉住。
+            visionLevel: hasVisionConsent
+                ? visionLevel?.rawValue
+                : (hasDeclinedVisionConsent ? VisionLevel.notSpecified.rawValue : nil),
             hasGuideDog: hasVisionConsent ? hasGuideDog : nil,
             // 引导方式不在同意门后面 —— 它不敏感，而且它是拒绝了敏感项的用户
             // 唯一还能给志愿者的准备依据。挪到门后面会让「可拒绝」变成空话。
@@ -249,6 +266,7 @@ struct BlindRunnerProfileView: View {
                     // 不劝返、不重试 —— 拒绝是一个完整的答案
                     // （`docs/research/face-verify-decline-alternative-path-ux-20260908.md`）。
                     // 反馈同时给屏幕和耳朵：只给一边就有一半用户拿不到。
+                    viewModel.declineVisionConsent()
                     visionConsentDeclineNotice = PrivacyConsentPurpose.blindVisionProfile.declinedFeedback
                     showVisionConsent = false
                     speechService.speak(PrivacyConsentPurpose.blindVisionProfile.declinedFeedback)
