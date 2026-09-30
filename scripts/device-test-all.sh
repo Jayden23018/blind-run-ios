@@ -48,7 +48,7 @@ run_batch() {
   for s in "$@"; do args+=("-only-testing:${target}/${s}"); done
 
   echo
-  echo "════ $label（$# 个 suite）════"
+  echo "════ ${label}（$# 个 suite）════"
   local out line
   out="$(scripts/device-test.sh "${args[@]}" 2>&1)"
 

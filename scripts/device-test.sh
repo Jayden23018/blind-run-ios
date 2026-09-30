@@ -84,7 +84,7 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
     rm -rf "$LOCK_DIR"
     mkdir "$LOCK_DIR" 2>/dev/null || die "设备锁 $LOCK_DIR 回收失败，手动删掉它再重试。"
   else
-    die "设备 $DEVICE_ID 正被另一次 device-test 占用（pid $LOCK_OWNER）。
+    die "设备 $DEVICE_ID 正被另一次 device-test 占用（pid ${LOCK_OWNER}）。
      并发跑同一台真机会互相把 runner 装掉，两边都会报 signal kill 且看着像代码回归。
      等它跑完，或先确认那次是不是跑飞了：
        ps -p $LOCK_OWNER -o pid,etime,args"
@@ -162,7 +162,7 @@ say "⚠️  现在请解锁设备并保持屏幕常亮（设置 → 显示与�
 say "    锁屏会让 xcodebuild 静默挂起，本脚本会在 ${PREFLIGHT_TIMEOUT}s 后判定为锁屏失败。"
 
 # ---------- 2. 跑测试，同时盯着锁屏挂起 ----------
-say "开始 xcodebuild test（日志：$LOG）"
+say "开始 xcodebuild test（日志：${LOG}）"
 xcodebuild test \
   -workspace "$WORKSPACE" \
   -scheme "$SCHEME" \

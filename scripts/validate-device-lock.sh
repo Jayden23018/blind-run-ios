@@ -74,7 +74,7 @@ printf '%s\n' "$DEAD_PID" >"$LOCK/pid"
 THIRD="$(AIDRUN_DEVICE_ID="$FAKE_ID" AIDRUN_LOCK_SELFTEST=0 bash "$SCRIPT" 2>&1)"
 THIRD_STATUS=$?
 if [ "$THIRD_STATUS" -ne 0 ]; then
-  bad "死锁没被回收，退出码 $THIRD_STATUS，输出：$THIRD"
+  bad "死锁没被回收，退出码 ${THIRD_STATUS}，输出：$THIRD"
 else
   case "$THIRD" in
     *"回收上次异常退出留下的设备锁"*) ok "死锁被回收且说明了原因" ;;
