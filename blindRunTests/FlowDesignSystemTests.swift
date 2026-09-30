@@ -324,15 +324,28 @@ final class FlowDesignSystemTests: XCTestCase {
         }
     }
 
-    /// 头卡用到的四种状态色（v2 C01）。跑步中青绿 / 暂停灰不走这个页面（V4）。
+    /// 头卡用到的全部状态色（v2 C01）。
     private static let heroStates: [(AppColors.Tone, String)] = [
         (AppColors.Flow.stateAgreedTone, "约好 / 跑者取消"),
         (AppColors.Flow.stateDepartedTone, "出发"),
         (AppColors.Flow.stateArrivedTone, "汇合"),
         (AppColors.Flow.stateDoneTone, "完成"),
+        // V19（2026-09-30）：跑步中头卡青绿。
+        (AppColors.Flow.stateRunningTone, "跑步中"),
         // FE-3：跑步中暂停时整张头卡换这个色，上面是同一套半透明白字。
         (AppColors.Flow.statePausedTone, "跑步中 · 已暂停"),
     ]
+
+    /// 钉住跑步中青绿**这个色值**：`heroStates` 只验对比度，取值被改成别的深色也照样绿。
+    /// ⚠️ 它管不到 `VolunteerRunningPage.heroCard` 有没有真的用它 —— 那是视图层的一行取色，
+    /// 单测够不着（本仓库 XCTest 只能真机跑），靠 review 与截图。
+    func testRunningHeroColourIsTheDesignPackGreenAndNotTheAgreedNavy() {
+        let running = AppColors.Flow.stateRunningTone
+        XCTAssertEqual(running.light, 0x0A6B72, "交付包 v2 C01 跑步中青绿（亮色）")
+        XCTAssertEqual(running.dark, 0x0A6B72, "状态色亮暗同值（暗色）")
+        XCTAssertNotEqual(running.light, AppColors.Flow.stateAgreedTone.light, "跑步中不再是约好的藏青")
+        XCTAssertNotEqual(running.light, AppColors.Flow.statePausedTone.light, "暂停灰与跑步中青绿必须可区分")
+    }
 
     /// 彩色头卡上的字是**半透明白**，实际颜色 = 白以 α 叠在状态色上，所以逐色合成后再算。
     /// 交付包说「`onHero*` 在五种状态色上 ≥4.5:1」—— 那句话按原值不成立，见下一条验红。
