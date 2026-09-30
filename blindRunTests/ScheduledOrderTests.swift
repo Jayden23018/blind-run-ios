@@ -168,7 +168,7 @@ final class ScheduledOrderTests: XCTestCase {
             components.day = day
             components.hour = hour
             components.minute = minute
-            return Calendar.current.date(from: components)!
+            return Calendar.aidRunBackend.date(from: components)!
         }
 
         // 21:00–22:30 拒：尾巴进了夜间。

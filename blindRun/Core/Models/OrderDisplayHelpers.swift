@@ -1080,10 +1080,29 @@ extension ISO8601DateFormatter {
     }()
 }
 
+extension TimeZone {
+    /// 后端把无偏移的 `LocalDateTime` 一律按北京时间解释（后端 `DemoApplication.java:51`，
+    /// 契约「服务端时区固定 Asia/Shanghai」）。
+    static let aidRunBackend = TimeZone(identifier: "Asia/Shanghai")!
+}
+
+extension Calendar {
+    /// 判「后端说了算的钟点」（夜间窗口 `[22:00, 05:00)` 等）用它，不用 `.current`：
+    /// 后端按北京时间的钟点判，设备在别的时区时拿本地钟点去判会差出整数小时。
+    static let aidRunBackend: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .aidRunBackend
+        return calendar
+    }()
+}
+
 extension DateFormatter {
+    /// 生成与解析**都**按北京时间。此前没设 `timeZone`，于是走设备时区：美西手机选「40 分钟后」，
+    /// 发出去的串在后端看来是十几小时之前，下单回 400（#236）。
     static let aidRunBackendLocalDateTime: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .aidRunBackend
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         return formatter
     }()

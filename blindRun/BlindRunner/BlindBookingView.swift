@@ -299,7 +299,10 @@ final class BlindBookingViewModel: ObservableObject {
     ///
     /// `nonisolated static` + 显式 `calendar` 是为了能被单测直接驱动：它是纯函数，
     /// 不碰任何 view model 状态，挂在 `@MainActor` 上只会逼调用方跑主线程。
-    nonisolated static func overlapsNightWindow(start: Date, end: Date, calendar: Calendar = .current) -> Bool {
+    ///
+    /// 默认日历取北京时间（`Calendar.aidRunBackend`）而不是设备日历：后端按北京时间的钟点判，
+    /// 设备在别的时区时用本地钟点判会差整数小时（#236 同根因）。
+    nonisolated static func overlapsNightWindow(start: Date, end: Date, calendar: Calendar = .aidRunBackend) -> Bool {
         guard end > start else { return false }
         let startHour = AppConstants.Timing.nightWindowStartHour
         let endHour = AppConstants.Timing.nightWindowEndHour
