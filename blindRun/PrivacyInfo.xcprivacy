@@ -22,6 +22,12 @@
      E174.1 要求把磁盘信息显著展示在用户主动提交的 bug 报告里、3B52.1 与 1C8F.1 明写
      "may only be declared by third-party SDKs" —— 抄进主 App 清单会触发 ITMS-91055。
 
+  ✅ CoreMotion（`RunMotionRecorder.swift` 的 CMPedometer / CMAltimeter，跑后运动记录）**不需要在这里加条目**：
+     它不属于 required-reason API 的五个类别（文件时间戳 / 磁盘空间 / 活动键盘 / 系统启动时间 / UserDefaults）。
+     该文件里唯一落在这五类里的是 UserDefaults（锚点持久化），已由下面 CA92.1 覆盖。
+     ⚠️ 上面的类别清单来自本文件既有记载，2026-09-30 想回 Apple 文档页核对时页面靠 JS 渲染抓不到，**未逐字核对**。
+     步数 / 步频 / 爬升属「健身」类数据，归 App Store Connect 隐私标签（Health & Fitness → Fitness），不在这里另写一份。
+
   ⚠️ 新增任何用到下列 API 的代码，必须回来加一条，否则下次上传直接被拒：
      文件时间戳 / 磁盘空间 / 活动键盘 / 系统启动时间 / UserDefaults
      全量类别见 https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
