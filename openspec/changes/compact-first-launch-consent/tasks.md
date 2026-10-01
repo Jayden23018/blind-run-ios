@@ -13,3 +13,6 @@
 > 新增 `testFirstLaunchDecisionButtonsAreReachableWithoutScrolling`（同意/不同意 `isHittable`，另留默认与 AX5 两张截图）passed=1。
 > 截图为 Mock 调试构建（顶部黄色横幅是调试叠层，非生产形态）。
 > 2.4 VoiceOver 遍历需人在真机上走一遍，未做。
+
+> 2026-10-01 第二版（弹窗形态）：真机 `PrivacyConsentTests` + 两条首启 UI 用例 passed=17 failed=0；
+> UI 用例新增断言：弹窗高度 < 屏高 80%、宽度 < 屏宽、不同意在左同意在右。截图（Mock 调试构建）：默认字号为居中卡片，AX5 下卡片封顶在屏内、卡内滚动。

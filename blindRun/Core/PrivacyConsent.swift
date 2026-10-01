@@ -186,9 +186,18 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
         }
     }
 
-    /// 首启页的自动播报：标题 + 摘要，不念 6 条全文（那在二级页里，每条可单独听）。
+    /// 首启弹窗的标题。**与 `title` 分开**：`title` 是完整清单页的标题，进了指纹，改它要过一遍版本判断；
+    /// 弹窗标题按常规 App 的叫法写短（「个人信息保护提示」），不属于告知内容。
+    var launchTitle: String? {
+        switch self {
+        case .appLaunch: return "个人信息保护提示"
+        case .blindIdentity, .volunteerIdentity, .blindVisionProfile: return nil
+        }
+    }
+
+    /// 首启弹窗的自动播报：弹窗标题 + 摘要，不念 7 条全文（那在二级页里，每条可单独听）。
     var launchSpokenScript: String {
-        [title, launchSummary].compactMap { $0 }.joined(separator: " ")
+        [launchTitle ?? title, launchSummary].compactMap { $0 }.joined(separator: " ")
     }
 }
 

@@ -159,7 +159,13 @@ final class PrivacyConsentTests: XCTestCase {
         )
         for purpose in PrivacyConsentPurpose.allCases where purpose != .appLaunch {
             XCTAssertNil(purpose.launchSummary, "\(purpose) 是收集点的单独同意，必须逐条摊开，不许有摘要")
+            XCTAssertNil(purpose.launchTitle, "\(purpose) 没有首启弹窗")
         }
+        XCTAssertEqual(PrivacyConsentPurpose.appLaunch.launchTitle, "个人信息保护提示")
+        XCTAssertTrue(
+            PrivacyConsentPurpose.appLaunch.launchSpokenScript.hasPrefix("个人信息保护提示"),
+            "自动播报以弹窗标题开头"
+        )
     }
 
     /// 二级页「完整收集清单」必须原样带出 `disclosures`，一条不少、一个字不改 ——
