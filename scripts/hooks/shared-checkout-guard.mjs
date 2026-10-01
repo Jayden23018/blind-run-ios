@@ -48,6 +48,8 @@
 //   **刻意不做**「`git stash` 之后忘了 pop」：stash 栈是所有 worktree 共用的，条目归不到本会话；
 //   PreToolUse 在放行（exit 0）时也没有对模型可见的提醒通道；该管它的是 Stop 钩子，
 //   且得先约定 `stash push -m <tag>` 才分得清。判据 ② 已拦住「stash 卷走别人的文件」。
+//   ⚠️ `AIDRUN_ALLOW_DISCARD=1 ` 前缀让整条命令不以 `git` 开头，**同时绕过 ① ② ④**：
+//   用它放行 `git reset --hard` 时，本来由判据 ① 管的「改写别人的历史」也一并放行了。
 //   已经 `cp` 备份过、或确实要丢：命令前加 `AIDRUN_ALLOW_DISCARD=1 `（带前缀的子命令不以 `git` 开头，
 //   本守卫整条放行 —— 用例钉住，别在 subCommands 里剥环境变量前缀）。
 //
@@ -262,10 +264,11 @@ function commandDir(cmd, cwd) {
 //     目标是整个工作区，用 `:/`（仓库根，从子目录里跑也是全量口径）（#244）。
 // 刻意不管：`-b/-B/--orphan`（新建分支）、`--ours/--theirs`（解冲突的常规步骤）、
 // `-p`（交互式，每块都会问）、`--pathspec-from-file`（读不到内容）、
-// `checkout -f -b <new>`（`-b` 沿用跳过）、`git cat-file -p … > f` / `git diff > f` 等其它重定向产出、
+// `git cat-file -p … > f` / `git diff > f` / `show --output=f` / `| tee f` / `&>` / `>|` 等其它产出方式、
+// 短选项合并（`-fq`）与长选项缩写（`--har`）、`git clean -fd`（只删未跟踪文件，与 `??` 不算的口径一致）、
 // `reset --soft|--mixed|--keep|--merge`（不碰工作区，或自带保护）。
 // ponytail: 按空白切参数，带空格的路径会切碎 ⇒ status 查不到 ⇒ 放行。本仓库没有带空格的源文件。
-function discardTargets(cmd, dir) {
+function discardTargets(cmd, dir, cwd) {
   if (!/^git\s/.test(cmd)) return null;
   const { args } = parseGit(cmd);
   const sub = args[0];
@@ -276,7 +279,10 @@ function discardTargets(cmd, dir) {
   if (sub === 'show') {
     // 只认覆盖式 `> <f>`：不含 `>>`（追加不丢东西）、`2>` / `&>`。目标在仓库外或未跟踪时
     // 下面的 status 查不到非 `??` 行，自然放行 —— `git show <rev>:<p> > /tmp/x` 是日常合法用法。
-    const targets = [...cmd.matchAll(/(?<![\d&>])>(?!>)\s*(\S+)/g)].map((m) => unquote(m[1]));
+    // 重定向相对 **shell 的 cwd**，不相对 `git -C`，所以这里解析成绝对路径，由调用方到目标所在仓库去查。
+    const targets = [...cmd.matchAll(/(?<![\d&>])>(?!>)\s*(\S+)/g)].map((m) =>
+      path.resolve(cwd || dir || '/', unquote(m[1]))
+    );
     return targets.length ? targets : null;
   }
   if (sub === 'reset') return rest.includes('--hard') ? WHOLE_TREE : null;
@@ -285,6 +291,9 @@ function discardTargets(cmd, dir) {
     return rest.some((a) => ['-f', '--force', '--discard-changes'].includes(a)) ? WHOLE_TREE : null;
   }
   if (sub !== 'checkout' && sub !== 'restore') return null;
+  // `checkout -f -b|-B <new> [<start>]` 同样会清空工作区（实测；`switch -f -c` 不会，上面那条跳过是对的）。
+  if (sub === 'checkout' && !rest.includes('--') && rest.some((a) => a === '-f' || a === '--force') &&
+      rest.some((a) => a === '-b' || a === '-B')) return WHOLE_TREE;
   const skip = ['-b', '-B', '--orphan', '--ours', '--theirs', '-p', '--patch'];
   if (rest.some((a) => skip.includes(a) || a.startsWith('--pathspec-from-file'))) return null;
 
@@ -309,6 +318,11 @@ function discardTargets(cmd, dir) {
   // `checkout -f [<branch>]`：切分支 / 回到 HEAD 时丢掉本地改动。带路径的形态走下面原有逻辑。
   const force = before.some((a) => a === '-f' || a === '--force');
   if (force && (positional.length === 0 || (positional.length === 1 && isRev(positional[0])))) return WHOLE_TREE;
+  // 只存在于远端的分支名（`checkout -f feature` 会 DWIM 建跟踪分支）：`feature^{commit}` 解析不了，
+  // 但它既不是已跟踪文件也不在磁盘上，当路径查 status 永远是空 ⇒ 漏拦。
+  if (force && positional.length === 1 && !isRev(positional[0]) &&
+      git(dir, 'ls-files', '--', positional[0]).length === 0 &&
+      !fs.existsSync(path.resolve(dir || '/', unquote(positional[0])))) return WHOLE_TREE;
   if (positional.length === 0) return null;
   if (isRev(positional[0])) return positional.length === 1 ? null : positional.slice(1).map(unquote);
   return positional.map(unquote);
@@ -546,11 +560,18 @@ function main() {
 
     // ── 判据 ④：用某个版本覆盖工作区，而目标路径有未提交改动 ──
     const dir = commandDir(cmd, cwd);
-    const targets = discardTargets(cmd, dir);
+    const targets = discardTargets(cmd, dir, cwd);
     if (targets?.length && !targets.some((p) => /[$`]/.test(p))) {
-      const dirty = git(dir, 'status', '--porcelain', '--', ...targets).filter(
-        (l) => !l.startsWith('??')
-      );
+      // 逐个目标查：相对路径在命令的工作目录里查；绝对路径（重定向目标）到它自己所在的仓库里查 ——
+      // 一个仓库外的目标会让整条 `git status` 报错，批量查会把同一条命令里仓库内的脏目标一起放走。
+      const dirty = targets.flatMap((p) => {
+        if (!path.isAbsolute(p)) return git(dir, 'status', '--porcelain', '--', p);
+        const parent = path.dirname(p);
+        const at = repoRoot(parent);
+        if (!at) return [];
+        const rel = path.relative(at, path.join(fs.realpathSync(parent), path.basename(p)));
+        return git(at, 'status', '--porcelain', '--', rel);
+      }).filter((l) => !l.startsWith('??'));
       if (dirty.length) {
         process.stderr.write(
           `[guard: discard-uncommitted] ${cmd}${elsewhere}\n\n` +
