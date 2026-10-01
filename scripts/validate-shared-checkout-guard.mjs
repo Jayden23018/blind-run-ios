@@ -121,16 +121,18 @@ function dirtyRepo() {
   return { dir, g };
 }
 
-function discardCase(name, command, expect, { transcript = true, prep, cwd } = {}) {
+// `session` 透传给 writeTranscript。`reset` / `switch` 类用例要传 `{ startedAt: FUTURE }`：
+// 靶子仓库的 HEAD 不是本会话的，不传的话判据 ① 会先拦 `reset`，分不清是谁拦的。
+function discardCase(name, command, expect, { transcript = true, prep, cwd, session } = {}) {
   return {
     name,
     build: () => {
       const { dir, g } = dirtyRepo();
-      prep?.(dir, g);
+      const other = prep?.(dir, g); // prep 可返回另一个仓库的路径，供命令里的 <other> 引用
       return {
-        command: command.replaceAll('<dir>', dir),
+        command: command.replaceAll('<dir>', dir).replaceAll('<other>', other ?? ''),
         repo: dir,
-        transcriptPath: transcript ? writeTranscript(dir) : '',
+        transcriptPath: transcript ? writeTranscript(dir, session) : '',
         ...(cwd ? { cwd } : {}),
         ...(expect === BLOCKED ? { stderrIncludes: 'discard-uncommitted' } : {}),
       };
@@ -710,6 +712,186 @@ const cases = [
   ),
   discardCase('`AIDRUN_ALLOW_DISCARD=1` 前缀 → 放行（已备份 / 确实要丢）', 'AIDRUN_ALLOW_DISCARD=1 git checkout -- seed.txt', ALLOWED),
   discardCase('`git checkout --ours -- <文件>`（解冲突的常规步骤）→ 放行', 'git checkout --ours -- seed.txt', ALLOWED),
+
+  // ── 判据 ④ 的其余覆盖形态（#244）：重定向 / reset --hard / checkout -f / switch -f ──
+  // 都是「用某个版本覆盖工作区」，只是写法不同。放行用例同样重要：每种形态都有一条日常合法用法，
+  // 判据写宽一点（例如「命令里有 reset 就拦」）就会误报，守卫随后被习惯性无视。
+  //
+  // reset / switch 类用例传 FUTURE：隔离判据 ①（见 discardCase 的注释）。
+  // 干净工作区 = 把 seed.txt 还原回 HEAD；`other` 是一条存在的本地分支，用来当切换目标。
+  discardCase(
+    '⭐ `git show <rev>:<p> > <p>` 重定向覆盖有改动的文件 → 拦（与 `checkout <rev> -- <p>` 等价）',
+    'git show HEAD~1:seed.txt > seed.txt',
+    BLOCKED
+  ),
+  discardCase('`git show` 重定向的目标干净 → 放行', 'git show HEAD~1:clean.txt > clean.txt', ALLOWED),
+  discardCase(
+    '`git show` 重定向到新文件（未跟踪）→ 放行',
+    // 源文件有改动、目标是新文件：判的是「被覆盖的路径」，不是「读的路径」。
+    'git show HEAD~1:seed.txt > seed.txt.bak',
+    ALLOWED
+  ),
+  discardCase('`git show` 重定向到仓库外 → 放行（把某个版本导出来看，日常合法用法）', 'git show HEAD~1:seed.txt > /tmp/aidrun-seed.bak', ALLOWED),
+  discardCase('不带重定向的 `git show <rev>:<p>` → 放行', 'git show HEAD:seed.txt', ALLOWED),
+  discardCase('⭐ `git reset --hard` 且工作区有改动 → 拦（自己分支上也会一次清空整个工作区）', 'git reset --hard', BLOCKED, { session: { startedAt: FUTURE } }),
+  discardCase('`git reset --hard HEAD~1` 且工作区有改动 → 拦', 'git reset --hard HEAD~1', BLOCKED, { session: { startedAt: FUTURE } }),
+  discardCase(
+    '`git reset --hard` 工作区干净 → 放行',
+    'git reset --hard',
+    ALLOWED,
+    { session: { startedAt: FUTURE }, prep: (dir, g) => g('checkout', '--', 'seed.txt') }
+  ),
+  discardCase(
+    '`git reset --hard` 只有未跟踪文件 → 放行（reset 不碰未跟踪文件）',
+    'git reset --hard',
+    ALLOWED,
+    { session: { startedAt: FUTURE }, prep: (dir, g) => { g('checkout', '--', 'seed.txt'); fs.writeFileSync(path.join(dir, 'new.txt'), 'x\n'); } }
+  ),
+  discardCase(
+    '⭐ `git reset --soft HEAD~1`（脏工作区）→ 放行：只动指针，不碰工作区',
+    // 这条分得出「看 --hard」与「看到 reset 就拦」两种实现。
+    'git reset --soft HEAD~1',
+    ALLOWED,
+    { session: { startedAt: FUTURE } }
+  ),
+  discardCase(
+    '`AIDRUN_ALLOW_DISCARD=1 git reset --hard` → 放行',
+    'AIDRUN_ALLOW_DISCARD=1 git reset --hard',
+    ALLOWED,
+    { session: { startedAt: FUTURE } }
+  ),
+  discardCase(
+    '`AIDRUN_ALLOW_DISCARD=1 git show … > <p>` → 放行',
+    'AIDRUN_ALLOW_DISCARD=1 git show HEAD~1:seed.txt > seed.txt',
+    ALLOWED
+  ),
+  discardCase(
+    '⭐ `git checkout -f <branch>` 且工作区有改动 → 拦（切分支时丢掉本地改动）',
+    'git checkout -f other',
+    BLOCKED,
+    { prep: (dir, g) => g('branch', 'other') }
+  ),
+  discardCase(
+    '`git checkout --force <branch>` 且工作区有改动 → 拦',
+    'git checkout --force other',
+    BLOCKED,
+    { prep: (dir, g) => g('branch', 'other') }
+  ),
+  discardCase('`git checkout -f`（无参数，等于 reset 到 HEAD）且工作区有改动 → 拦', 'git checkout -f', BLOCKED),
+  discardCase(
+    '`git checkout -f <branch>` 工作区干净 → 放行',
+    'git checkout -f other',
+    ALLOWED,
+    { prep: (dir, g) => { g('branch', 'other'); g('checkout', '--', 'seed.txt'); } }
+  ),
+  discardCase(
+    '⭐ `git checkout <branch>`（无 -f，脏工作区）→ 放行：普通切分支带着改动走',
+    'git checkout other',
+    ALLOWED,
+    { prep: (dir, g) => g('branch', 'other') }
+  ),
+  discardCase(
+    '⭐ `git switch --discard-changes <branch>` 且工作区有改动 → 拦',
+    'git switch --discard-changes other',
+    BLOCKED,
+    { session: { startedAt: FUTURE }, prep: (dir, g) => g('branch', 'other') }
+  ),
+  discardCase(
+    '`git switch -f <branch>` 且工作区有改动 → 拦',
+    'git switch -f other',
+    BLOCKED,
+    { session: { startedAt: FUTURE }, prep: (dir, g) => g('branch', 'other') }
+  ),
+  discardCase(
+    '`git switch <branch>`（无 -f，脏工作区）→ 放行',
+    'git switch other',
+    ALLOWED,
+    { session: { startedAt: FUTURE }, prep: (dir, g) => g('branch', 'other') }
+  ),
+
+  // ── #244 独立审查追加（A 档 4 条 + 分辨力缺口）──
+  // A1：`checkout -f -b <new>` 实测会清空工作区（`switch -f -c` 不会，那个跳过是对的）。
+  discardCase('⭐ `git checkout -f -b <new>` 且工作区有改动 → 拦（实测会丢改动）', 'git checkout -f -b brand-new', BLOCKED),
+  discardCase('`git checkout -b <new>`（无 -f，脏工作区）→ 放行：新建分支带着改动走', 'git checkout -b brand-new', ALLOWED),
+  discardCase(
+    '`git switch -f -c <new>`（脏工作区）→ 放行：实测不丢改动',
+    'git switch -f -c brand-new',
+    ALLOWED,
+    { session: { startedAt: FUTURE } }
+  ),
+  discardCase('`git switch -c <new>`（脏工作区）→ 放行', 'git switch -c brand-new', ALLOWED, { session: { startedAt: FUTURE } }),
+  discardCase(
+    '`git switch --force <branch>` 且工作区有改动 → 拦',
+    'git switch --force other',
+    BLOCKED,
+    { session: { startedAt: FUTURE }, prep: (dir, g) => g('branch', 'other') }
+  ),
+  // A2：只存在于远端的分支名，`checkout -f <名>` 会 DWIM 建跟踪分支并丢改动，而 `<名>^{commit}` 解析不了。
+  discardCase(
+    '⭐ `git checkout -f <只在远端存在的分支>`（DWIM）且工作区有改动 → 拦',
+    'git checkout -f feature',
+    BLOCKED,
+    { prep: (dir, g) => { g('remote', 'add', 'origin', dir); g('update-ref', 'refs/remotes/origin/feature', 'HEAD'); } }
+  ),
+  discardCase('`git checkout -f <干净的路径>`（其它文件有改动）→ 放行：当路径还原，不是切分支', 'git checkout -f clean.txt', ALLOWED),
+  discardCase('`git checkout -f <有改动的路径>` → 拦（走原有路径判据）', 'git checkout -f seed.txt', BLOCKED),
+  // A3：shell 的重定向相对 shell 的 cwd，不相对 `git -C`。
+  discardCase(
+    '⭐ `git -C <别的仓库> show … > <相对路径>`：被覆盖的是 cwd 里那个有改动的文件 → 拦',
+    'git -C <other> show HEAD:seed.txt > seed.txt',
+    BLOCKED,
+    { prep: () => scratchRepo().dir }
+  ),
+  discardCase(
+    '`git -C <别的仓库> show … > <相对路径>`：别的仓库脏、cwd 里被覆盖的文件干净 → 放行',
+    'git -C <other> show HEAD:seed.txt > seed.txt',
+    ALLOWED,
+    {
+      prep: (dir, g) => {
+        g('checkout', '--', 'seed.txt');
+        const o = scratchRepo();
+        fs.writeFileSync(path.join(o.dir, 'seed.txt'), '别的仓库里未提交的改动\n');
+        return o.dir;
+      },
+    }
+  ),
+  discardCase(
+    '重定向到另一个仓库里有改动的文件（绝对路径）→ 拦',
+    'git show HEAD:seed.txt > <other>/seed.txt',
+    BLOCKED,
+    {
+      prep: (dir, g) => {
+        g('checkout', '--', 'seed.txt');
+        const o = scratchRepo();
+        fs.writeFileSync(path.join(o.dir, 'seed.txt'), '别的仓库里未提交的改动\n');
+        return o.dir;
+      },
+    }
+  ),
+  // A4：目标里混了一个仓库外的路径，不能让整个 status 失败而把仓库内的脏目标一起放走。
+  discardCase(
+    '⭐ 两处重定向，一处在仓库外、一处是有改动的文件 → 拦',
+    'git show HEAD~1:seed.txt > seed.txt > /tmp/aidrun-x.bak',
+    BLOCKED
+  ),
+  // 分辨力缺口：重定向形态与整工作区口径。
+  discardCase('`git show … >> <有改动的文件>`（追加）→ 放行：追加不丢东西', 'git show HEAD~1:seed.txt >> seed.txt', ALLOWED),
+  discardCase('`git show … 2> <有改动的文件>`（stderr 重定向）→ 放行：不是覆盖 stdout 目标', 'git show HEAD~1:clean.txt 2> seed.txt', ALLOWED),
+  discardCase('`git show … > "<有改动的文件>"`（带引号）→ 拦', 'git show HEAD~1:seed.txt > "seed.txt"', BLOCKED),
+  discardCase(
+    '⭐ 从子目录里跑 `git reset --hard`：整工作区口径，不是只看当前目录 → 拦',
+    'cd <dir>/sub && git reset --hard',
+    BLOCKED,
+    {
+      session: { startedAt: FUTURE },
+      prep: (dir, g) => {
+        fs.mkdirSync(path.join(dir, 'sub'));
+        fs.writeFileSync(path.join(dir, 'sub/x.txt'), 'x\n');
+        g('add', 'sub/x.txt');
+        g('commit', '-qm', 'sub');
+      },
+    }
+  ),
 ];
 
 let failed = 0;
