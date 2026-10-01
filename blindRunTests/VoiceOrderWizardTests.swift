@@ -347,6 +347,69 @@ final class VoiceOrderWizardTests: XCTestCase {
         XCTAssertNotNil(wizard.fallbackMessage, "看不见屏幕的人需要听到语音已经停了，以及接下来去哪")
     }
 
+    /// 本地取消词：整串匹配，尾部语气词被 `normalizedCommand` 剥掉。
+    /// 「把导盲犬取消」是改一项，不是取消整单 —— 包含匹配会让整单凭空消失。
+    func testCancelWordsMatchWholeUtteranceOnly() {
+        for word in ["算了", "算了吧", "算了。", "不下单", "不下了", "不订了", "不跑了", "不要了", "取消", "取消吧", "放弃"] {
+            XCTAssertTrue(VoiceOrderWizard.isCancel(word), "「\(word)」是取消")
+        }
+        for phrase in ["把导盲犬取消", "取消导盲犬", "我要放弃导盲犬", "算了，今天不跑了", "确认", "不确认", "明天早上八点从人民广场出发", ""] {
+            XCTAssertFalse(VoiceOrderWizard.isCancel(phrase), "「\(phrase)」不是取消整单")
+        }
+    }
+
+    /// 三轮里说「算了」都本地退出：不发 `/parse`、不当地名、不提交订单，并且说出接下来去哪。
+    func testLocalCancelExitsFromEveryRoundWithoutTouchingTheBackend() async {
+        let candidates = [Self.candidate("阳光棕榈园"), Self.candidate("阳光棕榈园北门")]
+        for startingStep in ["freeform", "disambiguate", "confirm"] {
+            let stub = VoiceOrderAPIClientStub()
+            let wizard: VoiceOrderWizard
+            switch startingStep {
+            case "freeform":
+                wizard = makeWizard(stub: stub)
+            case "disambiguate":
+                stub.parseOrderResponses = [Self.parseResponse(
+                    plannedStartTime: Self.backendTime(hoursFromNow: 20),
+                    durationMinutes: 60,
+                    address: "阳光棕榈园",
+                    latitude: 22.5333,
+                    longitude: 113.9300,
+                    candidates: candidates
+                )]
+                wizard = makeWizard(stub: stub)
+                await wizard.submitTranscript("明天早上八点从阳光棕榈园出发跑一个小时")
+            default:
+                wizard = makeWizard(stub: stub, startingAt: .confirm, didCaptureStartTime: true)
+            }
+            let pathsBefore = stub.paths.count
+
+            await wizard.submitTranscript("算了吧")
+
+            XCTAssertFalse(wizard.isRunning, "\(startingStep)：取消就该停下来")
+            XCTAssertNil(wizard.createdOrder, "\(startingStep)：取消绝不能提交")
+            XCTAssertEqual(stub.paths.count, pathsBefore, "\(startingStep)：取消是本地判定，不走后端：\(stub.paths)")
+            XCTAssertTrue(
+                (wizard.fallbackMessage ?? "").contains(VoiceOrderWizard.cancelledReason),
+                "\(startingStep)：要让看不见屏幕的人听到已取消：\(wizard.fallbackMessage ?? "nil")"
+            )
+        }
+    }
+
+    /// 整句轮里「把导盲犬取消」是下单内容，不是取消 —— 要照常交给 `/parse`。
+    func testCancelPhraseInsideAFullSentenceStillGoesToParsing() async {
+        let stub = VoiceOrderAPIClientStub()
+        stub.parseOrderResponses = [Self.parseResponse(
+            plannedStartTime: Self.backendTime(hoursFromNow: 20),
+            durationMinutes: 60
+        )]
+        let wizard = makeWizard(stub: stub)
+
+        await wizard.submitTranscript("把导盲犬取消")
+
+        XCTAssertEqual(stub.paths.count, 1, "非整句取消应走 /parse：\(stub.paths)")
+        XCTAssertNil(wizard.fallbackMessage)
+    }
+
     /// 后端判 `RESTART` 时**快照也要清干净**。
     /// 留着 `current`，用户「重说」的那一整句会被后端和上一轮的旧槽位合并，
     /// 于是他这次没提的东西又原样回来了，而屏幕上一个字都不会变。

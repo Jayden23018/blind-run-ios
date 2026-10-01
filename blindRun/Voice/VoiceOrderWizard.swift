@@ -432,6 +432,12 @@ final class VoiceOrderWizard: ObservableObject {
     /// 与录音解耦是有意的：麦克风那一段由 `SpeechInputService` 自己的用例覆盖，向导这边真正要锁的是
     /// 「整句抽取落到哪些字段」「非确认绝不提交」「三次降级」，这些不需要真的说话就能验。
     func submitTranscript(_ transcript: String) async {
+        // 三轮共用的出口：整句轮说「算了」不该被当成下单内容发去 `/parse`，消歧轮不该被当成地名。
+        // 本地整串判定，零延迟、不依赖网络 —— 想退出的人不该等一次往返。
+        if Self.isCancel(transcript) {
+            fallBack(reason: Self.cancelledReason)
+            return
+        }
         switch step {
         case .freeform:
             await parseFreeform(transcript)
@@ -904,7 +910,7 @@ final class VoiceOrderWizard: ObservableObject {
             return
         case .cancel:
             // 用户要退出，不是要改。**不重问**（后端此时 `needReask` 也是 false）。
-            fallBack(reason: "已取消这次语音下单")
+            fallBack(reason: Self.cancelledReason)
             return
         case .restart:
             restartFromFreeform()
@@ -1305,6 +1311,29 @@ final class VoiceOrderWizard: ObservableObject {
         "重复", "重复一遍", "再念一遍", "没听清", "再念一次", "你再说一遍",
         "再说一遍", "再说一次"
     ]
+
+    /// 「放弃这一单」。**整串匹配，不做包含** —— 与 `affirmatives` 同口径。
+    ///
+    /// 「把导盲犬取消」是改一项，不是取消整单；包含匹配会让用户的整单凭空消失
+    /// （后端 `VoiceSlotParser.INTENT_CANCEL` 的注释专门讲过，光秃秃的「取消」只在整句就是它时才算）。
+    /// 带订单级宾语的长句（「算了，今天不跑了」）本地不接，交后端 `userIntent == CANCEL`。
+    ///
+    /// ⚠️ **这里写口语原样，查表时两边都过 `normalizedCommand`**：句尾的「了」「吧」会被剥掉，
+    /// 「算了」归一化后是「算」。直接拿归一化后的串去对原样词表，「算了」「不下了」「不要了」
+    /// 一个都命中不了。原样写在这里是因为 `scripts/validate-voice-intent-words.mjs` 要拿它逐词
+    /// 对撞后端的 `INTENT_CANCEL`，本地不得认后端不判成 CANCEL 的词。
+    private static let cancelWords: Set<String> = [
+        "算了", "不下单", "不下了", "不订了", "不跑了", "不要了", "取消", "取消吧", "放弃"
+    ]
+    private static let normalizedCancelWords = Set(cancelWords.map(normalizedCommand))
+
+    static let cancelledReason = "已取消这次语音下单"
+
+    static func isCancel(_ transcript: String) -> Bool {
+        let normalized = normalizedCommand(transcript)
+        guard !normalized.isEmpty else { return false }
+        return normalizedCancelWords.contains(normalized)
+    }
 
     /// 句尾语气词不改变语义，剥掉可以显著提高召回而不牺牲安全性（「确认吧」「好的呀」）。
     /// 句首不剥：那会让「不确认」这类否定的判定变得脆弱，而多问一轮是可接受的失败方向。

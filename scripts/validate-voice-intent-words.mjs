@@ -111,11 +111,12 @@ function swiftWords(declaration) {
   return [...body[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 }
 
-// 前端本地表 → 它声称的意图。三张表都在 `VoiceOrderWizard` 的「Command recognition」一节。
+// 前端本地表 → 它声称的意图。四张表都在 `VoiceOrderWizard` 的「Command recognition」一节。
 const FRONTEND_TABLES = [
   ['affirmatives', 'CONFIRM'],
   ['restartWords', 'RESTART'],
   ['repeatWords', 'REPEAT'],
+  ['cancelWords', 'CANCEL'],
 ];
 
 const tables = FRONTEND_TABLES.map(([name, intent]) => {
