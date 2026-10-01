@@ -1780,6 +1780,33 @@ final class blindRunUITests: XCTestCase {
         )
     }
 
+    /// 首启页的形态（issue #277）：同意 / 不同意**不滚动就点得到**，常规字号下它们常驻在屏幕底部。
+    /// 此前整页摊开 7 条告知、按钮排在最底下 —— 与常规 App「摘要 + 链接 + 按钮」不同，
+    /// 用户要滚过整份清单才找得到出口。`isHittable` 是判据：它为 true 才说明按钮此刻在可点击的屏幕范围内。
+    /// 同时留默认字号与最大辅助功能字号两张截图，供人对照「差在哪」。
+    @MainActor
+    func testFirstLaunchDecisionButtonsAreReachableWithoutScrolling() throws {
+        let app = launchApp(apiEnvironment: "mock", activeRole: nil, forcePrivacyConsent: true)
+        XCTAssertTrue(app.descendants(matching: .any)["appLaunchConsentView"].firstMatch.waitForExistence(timeout: 20))
+
+        let agree = app.buttons["appLaunchConsentAgreeButton"].firstMatch
+        let decline = app.buttons["appLaunchConsentDeclineButton"].firstMatch
+        XCTAssertTrue(agree.waitForExistence(timeout: 10))
+        XCTAssertTrue(agree.isHittable, "同意按钮必须不滚动就能点到")
+        XCTAssertTrue(decline.isHittable, "不同意按钮必须不滚动就能点到")
+        XCTAssertTrue(app.buttons["appLaunchConsentFullListLink"].firstMatch.exists, "完整收集清单入口必须在首屏的链接卡里")
+        attachScreenshot(named: "first-launch-consent-default", app: app)
+
+        // 最大辅助功能字号：底部栏退回内联（否则按钮占掉大半屏）。只要求都还在，并留图。
+        let large = launchApp(
+            apiEnvironment: "mock", activeRole: nil, forcePrivacyConsent: true,
+            contentSizeCategory: "UICTContentSizeCategoryAccessibilityXXXL"
+        )
+        XCTAssertTrue(large.buttons["appLaunchConsentAgreeButton"].firstMatch.waitForExistence(timeout: 20))
+        XCTAssertTrue(large.buttons["appLaunchConsentDeclineButton"].firstMatch.exists)
+        attachScreenshot(named: "first-launch-consent-ax5", app: large)
+    }
+
     private var isPhysicalDevice: Bool {
         #if targetEnvironment(simulator)
         false

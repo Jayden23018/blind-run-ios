@@ -5,8 +5,11 @@
 - [x] 1.3 完整清单走 `LegalFallbackDocumentView`，6 条 `disclosures` 原文不动。
 - [x] 2.1 `PrivacyConsentTests` 全绿（含指纹用例：`disclosures` 未变所以指纹不变）。
 - [x] 2.2 `xcodebuild build-for-testing` 编译通过。
-- [ ] 2.3 真机跑 `testFirstLaunchBlocksTheLoginScreenUntilTheDisclosureIsAccepted`，并在默认字号与 AX5 各截一张图自评。
+- [x] 2.3 真机跑 `testFirstLaunchBlocksTheLoginScreenUntilTheDisclosureIsAccepted`，并在默认字号与 AX5 各截一张图自评。
 - [ ] 2.4 真机开 VoiceOver 走一遍：摘要 → 入口 → 底部按钮的遍历顺序、拒绝说明是否被念出。
 
 > 2026-10-01：2.1 真机单测 `PrivacyConsentTests` + `LegalLinksTests` → passed=28 failed=0（iPhone 16 Pro，含新增两条）。
-> 2.3 / 2.4 未做：两台真机均 `transportType: localNetwork`，UI runner 报 code 74（记忆 `ui-test-runner-needs-usb-not-wifi`，非代码问题）。插 USB 后补。
+> 2.3 真机（USB，重启 iPhone 清掉陈旧 DTServiceHub 后）：`testFirstLaunchBlocksTheLoginScreenUntilTheDisclosureIsAccepted` passed=1；
+> 新增 `testFirstLaunchDecisionButtonsAreReachableWithoutScrolling`（同意/不同意 `isHittable`，另留默认与 AX5 两张截图）passed=1。
+> 截图为 Mock 调试构建（顶部黄色横幅是调试叠层，非生产形态）。
+> 2.4 VoiceOver 遍历需人在真机上走一遍，未做。
