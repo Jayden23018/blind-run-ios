@@ -136,6 +136,16 @@ final class GuideRunActivityTests: XCTestCase {
         XCTAssertEqual(attributes.meetingPointName, "深圳湾公园 3 号入口")
     }
 
+    /// #281：有 `blindSurname` 就带进 attributes（引导绳圆点写姓氏）；空白串当没有。
+    func testAttributesCarryTheRunnerSurnameWhenTheBackendSendsIt() {
+        var order = OrderDetailResponse.preview(status: .driverEnRoute, blindName: "欧阳*")
+        order.blindSurname = "欧阳"
+        XCTAssertEqual(GuideRunActivityContentBuilder.attributes(from: order).runnerSurname, "欧阳")
+
+        order.blindSurname = "  "
+        XCTAssertNil(GuideRunActivityContentBuilder.attributes(from: order).runnerSurname)
+    }
+
     func testPushTokenIsUploadedAsLowercaseHex() {
         let hex = GuideRunActivityContentBuilder.hexString(Data([0x00, 0x0F, 0xA0, 0xFF]))
         XCTAssertEqual(hex, "000fa0ff")

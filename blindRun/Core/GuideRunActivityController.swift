@@ -25,9 +25,10 @@ enum GuideRunActivityContentBuilder {
     static func attributes(from order: OrderDetailResponse) -> GuideRunAttributes {
         GuideRunAttributes(
             orderID: order.orderId,
-            // ponytail: 后端 BE-2 的姓氏字段还没到。到了就在这里接上 —— **不要拿 `blindName`
-            // 的首字顶替**：那是掩码串，决定源 V11「不念掩码」。
-            runnerSurname: nil,
+            // 只取 `blindSurname`（后端 BE-2，已接单才有）。**不要拿 `blindName` 的首字顶替**：
+            // 那是掩码串，决定源 V11「不念掩码」；也不用 `runnerShortName`，它兜底「跑者」，
+            // 引导绳上的圆点会写成「跑」。
+            runnerSurname: order.blindSurname?.nilIfBlank,
             meetingPointName: order.startAddress?.nilIfBlank ?? "",
             plannedStart: order.plannedStart?.backendTimestamp
         )

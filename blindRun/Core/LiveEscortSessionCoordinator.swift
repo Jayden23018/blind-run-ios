@@ -357,8 +357,8 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         syncLiveActivity()
     }
 
-    /// 锁屏卡顶行要显示的对方姓名。**只有跑者端会传** —— 陪跑员端那张卡按项目负责人
-    /// 2026-09-16 的决定不显示对方姓名，所以恒为 `nil`。
+    /// 锁屏卡上的对方**姓氏**（决定源 V11）：跑者端传 `volunteerSurname`，陪跑员端传 `blindSurname`。
+    /// 缺失时传 `nil`，卡上不出现名字 —— 不拿掩码名顶替。
     func updateLiveActivityPartnerName(_ name: String?) {
         guard liveActivityPartnerName != name else { return }
         liveActivityPartnerName = name
@@ -375,8 +375,8 @@ final class LiveEscortSessionCoordinator: ObservableObject {
     /// 该不该有这张卡、长什么样。`nil` = 不该有，结束掉。
     ///
     /// **抽成纯函数只为可测**：唯一调用点埋在 `@MainActor` + ActivityKit 后面，而这里要守的
-    /// 两条都是红线 ——「锁屏卡只在 `IN_PROGRESS` 出现」（状态清单 §16/§17「IN_PROGRESS 期间常驻」）
-    /// 与「陪跑员端不显示对方姓名」（项目负责人 2026-09-16 决定）。
+    /// 是红线 ——「锁屏卡只在 `IN_PROGRESS` 出现」（状态清单 §16/§17「IN_PROGRESS 期间常驻」）。
+    /// 两端都带对方姓氏（决定源 V11 取代了 2026-09-16「陪跑员端不显示对方姓名」）。
     static func liveActivityPlan(
         orderID: Int64?,
         status: RunOrderStatus?,
@@ -388,7 +388,7 @@ final class LiveEscortSessionCoordinator: ObservableObject {
         case .blind:
             return (orderID, .runner, partnerName)
         case .volunteer:
-            return (orderID, .volunteer, nil)
+            return (orderID, .volunteer, partnerName)
         case .unset:
             return nil
         }

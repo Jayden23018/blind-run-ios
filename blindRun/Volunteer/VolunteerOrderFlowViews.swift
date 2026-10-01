@@ -851,6 +851,7 @@ final class VolunteerInServiceViewModel: ObservableObject {
                 return
             }
             appState?.liveEscortCoordinator.updateLiveActivityTargetDistance(meters: order.plannedDistanceMeters)
+            appState?.liveEscortCoordinator.updateLiveActivityPartnerName(order.blindSurname?.nilIfBlank)
             GuideRunActivityController.shared.sync(order: order)
         }
     }
