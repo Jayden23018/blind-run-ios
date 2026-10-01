@@ -168,6 +168,37 @@ enum PrivacyConsentPurpose: String, CaseIterable, Sendable {
     var spokenScript: String {
         ([title] + disclosures).joined(separator: " ")
     }
+
+    /// 首启页正文：**摘要**，不是告知本身。完整的逐条告知仍是 `disclosures`，放在二级页「完整收集清单」里。
+    ///
+    /// 为什么要有这一段：首启页原先把整张清单摊在首屏、按钮排在最底下，与常规 App
+    /// 「一段摘要 + 隐私政策链接 + 同意 / 不同意」的形态不同（issue #277）。
+    /// 摘要只能**点名**类别与承诺，不能引入 `disclosures` 里没有的处理行为 ——
+    /// `PrivacyConsentTests` 钉住它必须点名的关键词。其余目的没有摘要，仍整页逐条告知。
+    var launchSummary: String? {
+        switch self {
+        case .appLaunch:
+            return "助盲跑会收集你的手机号、位置、语音和运动数据；实名认证时还会收集身份证号，志愿者另需人脸核验。"
+                + "这些信息只用于陪跑服务，不做广告、不卖给第三方。"
+                + "身份证号、人脸、位置轨迹和视力状况属于敏感个人信息，收集前会再单独问你。"
+        case .blindIdentity, .volunteerIdentity, .blindVisionProfile:
+            return nil
+        }
+    }
+
+    /// 首启弹窗的标题。**与 `title` 分开**：`title` 是完整清单页的标题，进了指纹，改它要过一遍版本判断；
+    /// 弹窗标题按常规 App 的叫法写短（「个人信息保护提示」），不属于告知内容。
+    var launchTitle: String? {
+        switch self {
+        case .appLaunch: return "个人信息保护提示"
+        case .blindIdentity, .volunteerIdentity, .blindVisionProfile: return nil
+        }
+    }
+
+    /// 首启弹窗的自动播报：弹窗标题 + 摘要，不念 7 条全文（那在二级页里，每条可单独听）。
+    var launchSpokenScript: String {
+        [launchTitle ?? title, launchSummary].compactMap { $0 }.joined(separator: " ")
+    }
 }
 
 // MARK: - Scope

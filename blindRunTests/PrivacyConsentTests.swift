@@ -140,6 +140,41 @@ final class PrivacyConsentTests: XCTestCase {
         }
     }
 
+    /// 首启页正文是摘要（issue #277）。摘要不是告知本身，但它是用户首屏**唯一读到的文字**，
+    /// 所以必须点名与完整清单同一批关键词，且比完整清单短 —— 否则「摘要」要么漏告知、要么没起到摘要作用。
+    /// 另外三个目的没有摘要，仍整页逐条告知。
+    func testLaunchSummaryNamesTheSameCategoriesAndIsShorterThanTheFullList() throws {
+        let summary = try XCTUnwrap(PrivacyConsentPurpose.appLaunch.launchSummary)
+        for keyword in ["身份证号", "人脸", "位置", "手机号", "视力状况", "敏感个人信息", "不做广告"] {
+            XCTAssertTrue(summary.contains(keyword), "首启摘要漏了「\(keyword)」")
+        }
+        XCTAssertLessThan(
+            summary.count,
+            PrivacyConsentPurpose.appLaunch.disclosures.joined().count / 2,
+            "摘要不比完整清单短一半以上，就失去了摘要的意义"
+        )
+        XCTAssertFalse(
+            PrivacyConsentPurpose.appLaunch.launchSpokenScript.contains(PrivacyConsentPurpose.appLaunch.disclosures[1]),
+            "首启自动播报只念标题 + 摘要，不念 6 条全文"
+        )
+        for purpose in PrivacyConsentPurpose.allCases where purpose != .appLaunch {
+            XCTAssertNil(purpose.launchSummary, "\(purpose) 是收集点的单独同意，必须逐条摊开，不许有摘要")
+            XCTAssertNil(purpose.launchTitle, "\(purpose) 没有首启弹窗")
+        }
+        XCTAssertEqual(PrivacyConsentPurpose.appLaunch.launchTitle, "个人信息保护提示")
+        XCTAssertTrue(
+            PrivacyConsentPurpose.appLaunch.launchSpokenScript.hasPrefix("个人信息保护提示"),
+            "自动播报以弹窗标题开头"
+        )
+    }
+
+    /// 二级页「完整收集清单」必须原样带出 `disclosures`，一条不少、一个字不改 ——
+    /// 摘要只是把它们挪到了下一步，不是替代。
+    func testFullDisclosureDocumentCarriesEveryDisclosureVerbatim() {
+        let document = PrivacyConsentGateView.fullDisclosureDocument(for: .appLaunch)
+        XCTAssertEqual(document.sections.flatMap(\.bullets), PrivacyConsentPurpose.appLaunch.disclosures)
+    }
+
     /// 两个实名收集点必须逐字说出「身份证号」，首启那条必须说出三类敏感信息 ——
     /// 告知里不点名，用户无从判断自己在同意什么。
     func testSensitiveItemsAreNamedInTheDisclosures() {
