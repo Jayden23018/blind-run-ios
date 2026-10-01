@@ -5,8 +5,8 @@
 # 也不能用生成器的默认值 package —— Xcode 工程不传 -package-name，会报
 # "Decl has a package access level but no -package-name was passed"。
 #
-# filter.paths 只列 App 真正调用的路径（2026-10-01 实测 82 条，产物 41,017 行 / 2.1MB）。
-# 不 filter 的话还会带上 App 从不调用的 admin/ 与 cs/ 客服端。
+# filter.paths 只列 App 真正调用的路径。不 filter 的话还会带上 App 从不调用的 admin/ 与 cs/ 客服端。
+# （这里不写条数与产物行数：写死的数字下次补 filter 就过期，要数用 `wc -l Packages/AidRunAPI/Sources/AidRunAPI/*.swift`。）
 #
 # ⚠️ 新接一个后端端点时必须往下面加一行，否则生成的 Client 里没有对应方法，
 #    漂移探测器也就看不见这条路径的契约变化。
