@@ -338,7 +338,8 @@ final class blindRunUITests: XCTestCase {
         // D13：陪跑员这条链接进跑后详情，不再进 `OrderRouteReplayView`。
         let detail = app.descendants(matching: .any)["volunteerRunRecordDetail"].firstMatch
         XCTAssertTrue(detail.waitForExistence(timeout: 10), "陪跑员点「查看跑后详情」应进新的跑后详情页")
-        XCTAssertFalse(app.descendants(matching: .any)["orderRouteReplay"].firstMatch.exists)
+        // 回归哨兵：防止旧的 `OrderRouteReplayView` 被接回来（identifier 已不存在，故意留着）。
+        XCTAssertFalse(app.descendants(matching: .any)["orderRouteReplay"].firstMatch.exists)  // guard:allow stale-ui-test-identifier
         XCTAssertTrue(
             app.descendants(matching: .any)["runRecordDistance"].firstMatch.waitForExistence(timeout: 10),
             "跑后详情要有距离，不能只有地图"
