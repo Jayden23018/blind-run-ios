@@ -230,7 +230,23 @@ const IDENTIFIER_SHAPED = /^[A-Za-z][A-Za-z0-9._]*$/;
 // 白名单只有这两个，且必须写明理由 —— 白名单一长，这条规则就被架空了。
 const SYSTEM_KEYBOARD_IDENTIFIERS = new Set(['Done', 'Return']);
 
-const ACCESSIBILITY_IDENTIFIER = /accessibilityIdentifier\(\s*"((?:[^"\\]|\\.)*)"\s*\)/g;
+// 取 `accessibilityIdentifier(` 的**整个实参**，再从里面取全部字符串字面量 ——
+// 实参不一定是单个字面量：`isCloud ? "a" : "b"` 的两支都是真实产出的 id（#274）。
+// 实参 = 非括号非引号字符 | 完整字符串字面量（里面的 `\(x)` 插值括号被它吞掉）| 一层嵌套括号。
+// 已知上限：嵌套两层以上的实参匹配不上，等于没收集到（A 方向会把它产出的 id 当成不存在，B 方向会漏），
+// 与改动前的误报面相同；本仓库目前没有这种写法。
+const SWIFT_STRING = String.raw`"(?:[^"\\]|\\.)*"`;
+const ACCESSIBILITY_IDENTIFIER_ARG = new RegExp(
+  String.raw`accessibilityIdentifier\(((?:[^()"]|${SWIFT_STRING}|\((?:[^()"]|${SWIFT_STRING})*\))*)\)`,
+  'g'
+);
+
+// 方向 A（建匹配器）与方向 B（判删除 / 判还在）都走这一个函数，口径必须一致。
+function identifierLiterals(text) {
+  return [...text.matchAll(ACCESSIBILITY_IDENTIFIER_ARG)].flatMap((m) =>
+    [...m[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((lit) => lit[1])
+  );
+}
 
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -756,8 +772,8 @@ function main() {
     if (canCrossCheck && isUITest) {
       const matchers = [];
       for (const file of collectSwiftFiles(appDir)) {
-        for (const m of codeOnly(readFileOrEmpty(file)).matchAll(ACCESSIBILITY_IDENTIFIER)) {
-          matchers.push(identifierLiteralToRegExp(m[1]));
+        for (const lit of identifierLiterals(codeOnly(readFileOrEmpty(file)))) {
+          matchers.push(identifierLiteralToRegExp(lit));
         }
       }
       // 一个都没读到说明扫描本身出了问题，别把它当成「App 侧什么 id 都没有」。
@@ -787,16 +803,16 @@ function main() {
     // 只对 Edit 生效（要有 old_string 才知道删了什么）。Write 整文件重写查不到，
     // 那种改法本来就会被方向 A 在改测试时拦下。
     const removedIdentifiers = canCrossCheck && /\.swift$/.test(filePath) && appDir && filePath.startsWith(`${appDir}/`)
-      ? [...codeOnly(input.old_string || '').matchAll(ACCESSIBILITY_IDENTIFIER)]
-          .map((m) => m[1])
-          .filter((lit) => !lit.includes('\\(') && !codeOnly(body).includes(`accessibilityIdentifier("${lit}")`))
+      ? identifierLiterals(codeOnly(input.old_string || '')).filter(
+          (lit) => !lit.includes('\\(') && !identifierLiterals(codeOnly(body)).includes(lit)
+        )
       : [];
     for (const removed of removedIdentifiers) {
       // 同一个 id 可能在别处还挂着（挪了位置而不是删了），那不算删除。
       const stillInApp = collectSwiftFiles(appDir).some(
         (file) =>
           file !== filePath &&
-          codeOnly(readFileOrEmpty(file)).includes(`accessibilityIdentifier("${removed}")`)
+          identifierLiterals(codeOnly(readFileOrEmpty(file))).includes(removed)
       );
       if (stillInApp) continue;
       const referencing = collectSwiftFiles(uiTestDir).filter((file) =>
