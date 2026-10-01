@@ -139,14 +139,20 @@ final class RunLiveActivityController {
     /// `.immediate` 而不是留一会儿：跑完那一刻 App 自己会播「本次陪跑结束」，
     /// 锁屏上再留一张停住的卡只会让人以为还在跑（设计稿「不播报的情况」里
     /// 「变形为总结状态时」同一条理由）。
+    ///
+    /// 🔴 **名单必须在这里同步取，不能在 `Task` 里取**（#230）。`sync` 是 `end(); start(...)`，
+    /// 而这个 `Task` 继承 `@MainActor`、要等 `sync` 返回后才跑 —— 到那时 `start` 已经 `request` 了
+    /// 新卡，在 `Task` 里读 `activities` 可能把刚起的新卡一起结束。同 `GuideRunActivityController.end()`。
     func end() {
         activity = nil
         activeOrderID = nil
         #if DEBUG
         eventsForTesting.append("end")
         #endif
+        let stale = Activity<RunLiveActivityAttributes>.activities
+        guard !stale.isEmpty else { return }
         Task {
-            for running in Activity<RunLiveActivityAttributes>.activities {
+            for running in stale {
                 await running.end(nil, dismissalPolicy: .immediate)
             }
         }
