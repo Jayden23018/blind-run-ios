@@ -25,7 +25,8 @@
 //      `;` / 换行接了会改状态的 git 命令。**同一个仓库不能在两个 worktree 里检出同一条分支**，
 //      所以那条 checkout 是**必然失败**的，而后面那条会照常执行、落在你**当前**这条分支上。
 //   ④ discard-uncommitted —— `git checkout [<rev>] -- <paths>` / `git checkout .` /
-//      `git restore [--source=<rev>] <paths>` 用某个版本覆盖工作区，而目标路径**此刻有未提交改动**。
+//      `git restore [--source=<rev>] <paths>`（及 #244 补的 show 重定向 / reset --hard / checkout -f /
+//      switch -f）用某个版本覆盖工作区，而目标路径**此刻有未提交改动**。
 //      工作区改动从不进 reflog，覆盖掉就是真没了，且零报错。
 //
 // 两条都只在「确实会波及别人的东西」时才响：在自己开的分支上 amend、暂存区里全是自己写的
@@ -41,6 +42,12 @@
 //   判据是「目标路径 `git status --porcelain` 有非 `??` 行」—— 不是「本轮写没写过」：
 //   共享 checkout 里同事的未提交改动被覆盖一样是真丢。路径干净时放行（日常合法用法）。
 //   `git checkout <branch>`（无 `--`、唯一参数是个 rev）是切分支，不归这条管。
+//   #244 补了同类的几种写法：`git show <rev>:<p> > <p>`（重定向覆盖，目标路径同上）、
+//   `git reset --hard`、`git checkout -f [<branch>]`、`git switch -f|--discard-changes`
+//   （这三种的目标是整个工作区，判据同一条：有非 `??` 的已跟踪改动才拦）。
+//   **刻意不做**「`git stash` 之后忘了 pop」：stash 栈是所有 worktree 共用的，条目归不到本会话；
+//   PreToolUse 在放行（exit 0）时也没有对模型可见的提醒通道；该管它的是 Stop 钩子，
+//   且得先约定 `stash push -m <tag>` 才分得清。判据 ② 已拦住「stash 卷走别人的文件」。
 //   已经 `cp` 备份过、或确实要丢：命令前加 `AIDRUN_ALLOW_DISCARD=1 `（带前缀的子命令不以 `git` 开头，
 //   本守卫整条放行 —— 用例钉住，别在 subCommands 里剥环境变量前缀）。
 //
@@ -250,22 +257,40 @@ function commandDir(cmd, cwd) {
 //   - `checkout <x> [<paths>]`（无 `--`）：只有一个参数且它是个 rev ⇒ 切分支，放行；
 //     第一个参数是 rev ⇒ 其余是路径；否则全是路径（`git checkout .`）。
 //   - `restore`：只带 `--staged` 不带 `--worktree` 的只动 index，放行。
+//   - `show … > <f>`：覆盖式重定向，目标就是 `<f>`（#244）。
+//   - `reset --hard`、`checkout -f` / `--force`（无路径）、`switch -f` / `--force` / `--discard-changes`：
+//     目标是整个工作区，用 `:/`（仓库根，从子目录里跑也是全量口径）（#244）。
 // 刻意不管：`-b/-B/--orphan`（新建分支）、`--ours/--theirs`（解冲突的常规步骤）、
-// `-p`（交互式，每块都会问）、`--pathspec-from-file`（读不到内容）。
+// `-p`（交互式，每块都会问）、`--pathspec-from-file`（读不到内容）、
+// `checkout -f -b <new>`（`-b` 沿用跳过）、`git cat-file -p … > f` / `git diff > f` 等其它重定向产出、
+// `reset --soft|--mixed|--keep|--merge`（不碰工作区，或自带保护）。
 // ponytail: 按空白切参数，带空格的路径会切碎 ⇒ status 查不到 ⇒ 放行。本仓库没有带空格的源文件。
 function discardTargets(cmd, dir) {
   if (!/^git\s/.test(cmd)) return null;
   const { args } = parseGit(cmd);
   const sub = args[0];
-  if (sub !== 'checkout' && sub !== 'restore') return null;
   const rest = args.slice(1);
+  const unquote = (a) => a.replace(/^(['"])(.*)\1$/, '$2');
+  const WHOLE_TREE = [':/'];
+
+  if (sub === 'show') {
+    // 只认覆盖式 `> <f>`：不含 `>>`（追加不丢东西）、`2>` / `&>`。目标在仓库外或未跟踪时
+    // 下面的 status 查不到非 `??` 行，自然放行 —— `git show <rev>:<p> > /tmp/x` 是日常合法用法。
+    const targets = [...cmd.matchAll(/(?<![\d&>])>(?!>)\s*(\S+)/g)].map((m) => unquote(m[1]));
+    return targets.length ? targets : null;
+  }
+  if (sub === 'reset') return rest.includes('--hard') ? WHOLE_TREE : null;
+  if (sub === 'switch') {
+    if (rest.some((a) => ['-c', '-C', '--create', '--force-create', '--orphan'].includes(a))) return null;
+    return rest.some((a) => ['-f', '--force', '--discard-changes'].includes(a)) ? WHOLE_TREE : null;
+  }
+  if (sub !== 'checkout' && sub !== 'restore') return null;
   const skip = ['-b', '-B', '--orphan', '--ours', '--theirs', '-p', '--patch'];
   if (rest.some((a) => skip.includes(a) || a.startsWith('--pathspec-from-file'))) return null;
 
   const dash = rest.indexOf('--');
   const before = dash === -1 ? rest : rest.slice(0, dash);
   const after = dash === -1 ? [] : rest.slice(dash + 1);
-  const unquote = (a) => a.replace(/^(['"])(.*)\1$/, '$2');
 
   if (sub === 'restore') {
     const staged = before.some((a) => a === '-S' || a === '--staged');
@@ -280,8 +305,11 @@ function discardTargets(cmd, dir) {
 
   const positional = before.filter((a) => !a.startsWith('-'));
   if (dash !== -1) return after.map(unquote);
-  if (positional.length === 0) return null;
   const isRev = (r) => git(dir, 'rev-parse', '--verify', '--quiet', `${r}^{commit}`).length > 0;
+  // `checkout -f [<branch>]`：切分支 / 回到 HEAD 时丢掉本地改动。带路径的形态走下面原有逻辑。
+  const force = before.some((a) => a === '-f' || a === '--force');
+  if (force && (positional.length === 0 || (positional.length === 1 && isRev(positional[0])))) return WHOLE_TREE;
+  if (positional.length === 0) return null;
   if (isRev(positional[0])) return positional.length === 1 ? null : positional.slice(1).map(unquote);
   return positional.map(unquote);
 }
@@ -594,6 +622,6 @@ function main() {
 try {
   main();
 } catch (err) {
-  process.stderr.write(`[guard: implicit-staging] 守卫内部异常，已放行：${err?.message || err}\n`);
+  process.stderr.write(`[guard: internal-error] 守卫内部异常，已放行：${err?.message || err}\n`);
   process.exit(0);
 }
