@@ -60,14 +60,15 @@ struct GuideRunAttributes: ActivityAttributes, Hashable {
 
 /// 锁屏卡的状态色（交付包 `01-design-tokens.md`，决定源 V13：状态色只用于头卡与锁屏卡）。
 ///
-/// ⚠️ **FE-1 会在 app 的设计系统里加同名色**。widget target 编译不到 `AppColors`，
-/// 所以这里是第二份取值 —— FE-1 落地时在 `GuideRunActivityTests` 里补一条对撞，
-/// 做法同 `RunLiveActivityTests.testPaletteMatchesTheFlowPaletteDarkTones`。
+/// widget target 编译不到 `AppColors`，所以这里是第二份取值，**必须与 `AppColors.Flow` 同名色同值**。
+/// 取**暗色档**（实时活动在锁屏上永远是深色呈现，不跟随系统亮暗，同 `RunLiveActivityPalette`）。
+/// 两份之间的连接是 `GuideRunActivityTests.testStatePaletteMatchesTheFlowPaletteDarkTones` ——
+/// 没有它，改 `FlowPalette` 不会有任何东西提示锁屏上还留着旧值。
 enum LiveActivityStatePalette {
     /// 出发、快迟到：主蓝。
     static let stateDeparted: UInt32 = 0x2A5BD7
-    /// 汇合：琥珀。
-    static let stateArrived: UInt32 = 0xA04B0C
+    /// 汇合：琥珀（暗色档 `#AD5210`，亮色档 `#A04B0C` 压暗色卡面对比度不够）。
+    static let stateArrived: UInt32 = 0xAD5210
     /// 跑步中：青绿。
     static let stateRunning: UInt32 = 0x0A6B72
     /// 跑步中 · 已暂停：灰。
@@ -81,12 +82,12 @@ enum LiveActivityStatePalette {
     static let nearDot: UInt32 = 0x6BE79C
 
     /// 彩色底上的白字四档（`onHeroStrong / Body / Eyebrow / Track`）。
-    static let onHeroBodyOpacity = 0.86
-    static let onHeroEyebrowOpacity = 0.80
+    /// Body / Eyebrow 与 `AppColors.Flow.onHeroBodyOpacity / onHeroEyebrowOpacity` 同值（用例钉住）：
+    /// 交付包的 80% / 86% 在出发蓝上 4.36、汇合琥珀上 4.45 都够不到正文 4.5:1，app 侧已改成 90% / 94%。
+    static let onHeroBodyOpacity = 0.94
+    static let onHeroEyebrowOpacity = 0.90
     static let onHeroTrackOpacity = 0.22
-    /// 出发 / 汇合卡上的 14–15pt 小字用 86% 而不是交付包的 80%：
-    /// 80% 白在出发蓝上只有 4.36:1、在汇合琥珀上 4.45:1，够不到正文 4.5:1
-    /// （交付包 01 声称 `onHero*` 全部 ≥4.5:1，这两处不成立）。用例 `GuideRunActivityTests` 钉住。
+    /// 出发 / 汇合卡上 14–15pt 的小字取 Body 档。用例 `GuideRunActivityContrastTests` 钉住 ≥4.5:1。
     static let smallTextOpacityOnGuideCard = onHeroBodyOpacity
     /// 锁屏按钮的底：白色 12%。
     static let buttonFillOpacity = 0.12

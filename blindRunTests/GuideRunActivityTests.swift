@@ -13,6 +13,23 @@ import XCTest
 @MainActor
 final class GuideRunActivityTests: XCTestCase {
 
+    // MARK: - 取值对撞
+
+    /// widget target 编译不到 `AppColors`，锁屏卡的状态色是**第二份**取值；这条是两份之间唯一的连接。
+    /// 没有它，`FlowPalette` 改了值锁屏上不会有任何提示 —— 实际发生过：FE-1 把头卡小字透明度从
+    /// 80% / 86% 改成 90% / 94%、汇合琥珀补了暗色档 `#AD5210`，widget 这边一直留着旧值。
+    ///
+    /// 取暗色档：实时活动在锁屏上永远是深色呈现（同 `RunLiveActivityTests.testPaletteMatchesTheFlowPaletteDarkTones`）。
+    func testStatePaletteMatchesTheFlowPaletteDarkTones() {
+        XCTAssertEqual(LiveActivityStatePalette.stateDeparted, AppColors.Flow.stateDepartedTone.dark)
+        XCTAssertEqual(LiveActivityStatePalette.stateArrived, AppColors.Flow.stateArrivedTone.dark)
+        XCTAssertEqual(LiveActivityStatePalette.stateRunning, AppColors.Flow.stateRunningTone.dark)
+        XCTAssertEqual(LiveActivityStatePalette.statePaused, AppColors.Flow.statePausedTone.dark)
+        XCTAssertEqual(LiveActivityStatePalette.gold, AppColors.Flow.goldTone.dark)
+        XCTAssertEqual(LiveActivityStatePalette.onHeroBodyOpacity, AppColors.Flow.onHeroBodyOpacity)
+        XCTAssertEqual(LiveActivityStatePalette.onHeroEyebrowOpacity, AppColors.Flow.onHeroEyebrowOpacity)
+    }
+
     // MARK: - 推送载荷解码（后端 `docs/live-activity.md` 的两段样例）
 
     /// 系统解推送用的就是这个：默认策略，不许自定义（Apple 原文见后端文档）。
