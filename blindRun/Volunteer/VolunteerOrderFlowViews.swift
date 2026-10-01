@@ -949,6 +949,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
         if let order {
             appState.liveEscortCoordinator.updateOwnedOrder(orderID: order.orderId, status: order.status)
+            // 换单时 `updateOwnedOrder` 会清掉姓氏，所以这里再补一次（`didSet` 那次排在它前面）。
+            appState.liveEscortCoordinator.updateLiveActivityPartnerName(order.blindSurname?.nilIfBlank)
         }
         if realtimeRefreshCancellable == nil {
             realtimeRefreshCancellable = appState.realtimeCoordinator.$pendingOrderRefreshIDs
@@ -1602,6 +1604,8 @@ final class VolunteerInServiceViewModel: ObservableObject {
         }
         order = updated
         appState?.liveEscortCoordinator.updateOwnedOrder(orderID: updated.orderId, status: updated.status)
+        // 同 `configure`：换单时上面那行会清掉 `didSet` 先写的姓氏。
+        appState?.liveEscortCoordinator.updateLiveActivityPartnerName(updated.blindSurname?.nilIfBlank)
         if speakChanges, previousStatus != updated.status {
             speechService?.speakStatusChange(updated.status)
         }

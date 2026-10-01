@@ -11,7 +11,7 @@ import XCTest
 /// 1. 取值与 `AppColors.Flow` 分家（widget target 编译不到 `AppColors`，见
 ///    `RunLiveActivityShared.swift` 文件头）；
 /// 2. 锁屏播报的 utterance 与 `VoiceService` 的语速策略分家；
-/// 3. 「只在 `IN_PROGRESS` 出现」「陪跑员端不显示对方姓名」这两条红线被改掉。
+/// 3. 「只在 `IN_PROGRESS` 出现」这条红线被改掉。
 /// 整类 `@available(iOS 16.2, *)`：`ActivityKit` 的类型从 16.2 起才有。
 /// 真机在 16.2 以上，所以这些用例真的会跑 —— **看到 `passed=0` 一律当失败查**，
 /// 那说明整类被系统跳过了，而不是「没有回归」。

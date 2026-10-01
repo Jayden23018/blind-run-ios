@@ -1,9 +1,9 @@
 ## 1. 锁屏卡姓氏（PR-A）
 
-- [ ] 1.1 `GuideRunActivityContentBuilder.attributes` 的 `runnerSurname` 取 `blindSurname?.nilIfBlank`
-- [ ] 1.2 `liveActivityPlan` 对 `.volunteer` 也带 `partnerName`；`VolunteerInServiceViewModel.order` 的 `didSet` 传 `blindSurname`
-- [ ] 1.3 跑者端 `BlindOrderStatusView.apply` 改传 `volunteerSurname`
-- [ ] 1.4 用例：`GuideRunActivityTests` / `RunLiveActivityTests` 改写并验红
+- [x] 1.1 `GuideRunActivityContentBuilder.attributes` 的 `runnerSurname` 取 `blindSurname?.nilIfBlank`
+- [x] 1.2 `liveActivityPlan` 对 `.volunteer` 也带 `partnerName`；`VolunteerInServiceViewModel.order` 的 `didSet` 传 `blindSurname`
+- [x] 1.3 跑者端 `BlindOrderStatusView.apply` 改传 `volunteerSurname`
+- [x] 1.4 用例：`GuideRunActivityTests` / `RunLiveActivityTests` 改写并验红
 
 ## 2. 朗读用姓氏（PR-B）
 

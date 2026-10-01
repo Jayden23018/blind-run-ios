@@ -101,7 +101,7 @@ final class RunLiveActivityController {
     /// 开始 / 更新 / 结束一张卡。**幂等**：同一单重复调用只做更新。
     ///
     /// `side` 决定卡片长相：跑者端多一行顶行与一枚播报按钮，陪跑员端只有三个数字
-    /// （状态清单 §17，且项目负责人 2026-09-16 决定陪跑员端不显示对方姓名）。
+    /// （状态清单 §17）。`partnerName` 两端都是对方姓氏（决定源 V11）。
     func sync(
         orderID: Int64,
         side: RunLiveActivitySide,
